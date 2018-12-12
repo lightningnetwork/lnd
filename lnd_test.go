@@ -124,8 +124,24 @@ func assertTxInBlock(t *harnessTest, block *wire.MsgBlock, txid *chainhash.Hash)
 }
 
 // mineBlocks mine 'num' of blocks and check that blocks are present in
-// node blockchain.
-func mineBlocks(t *harnessTest, net *lntest.NetworkHarness, num uint32) []*wire.MsgBlock {
+// node blockchain. numTxs should be set to the number of transactions
+// (excluding the coinbase) we expect to be included in the first mined block.
+func mineBlocks(t *harnessTest, net *lntest.NetworkHarness,
+	num uint32, numTxs int) []*wire.MsgBlock {
+
+	// If we expect transactions to be included in the blocks we'll mine,
+	// we wait here until they are seen in the miner's mempool.
+	var txids []*chainhash.Hash
+	var err error
+	if numTxs > 0 {
+		txids, err = waitForNTxsInMempool(
+			net.Miner.Node, numTxs, minerMempoolTimeout,
+		)
+		if err != nil {
+			t.Fatalf("unable to find txns in mempool: %v", err)
+		}
+	}
+
 	blocks := make([]*wire.MsgBlock, num)
 
 	blockHashes, err := net.Miner.Node.Generate(num)
@@ -140,6 +156,12 @@ func mineBlocks(t *harnessTest, net *lntest.NetworkHarness, num uint32) []*wire.
 		}
 
 		blocks[i] = block
+	}
+
+	// Finally, assert that all the transactions were included in the first
+	// block.
+	for _, txid := range txids {
+		assertTxInBlock(t, blocks[0], txid)
 	}
 
 	return blocks
@@ -165,7 +187,7 @@ func openChannelAndAssert(ctx context.Context, t *harnessTest,
 	// channel has been opened. The funding transaction should be found
 	// within the first newly mined block. We mine 6 blocks so that in the
 	// case that the channel is public, it is announced to the network.
-	block := mineBlocks(t, net, 6)[0]
+	block := mineBlocks(t, net, 6, 1)[0]
 
 	fundingChanPoint, err := net.WaitForChannelOpen(ctx, chanOpenUpdate)
 	if err != nil {
@@ -243,7 +265,7 @@ func closeChannelAndAssert(ctx context.Context, t *harnessTest,
 	// We'll now, generate a single block, wait for the final close status
 	// update, then ensure that the closing transaction was included in the
 	// block.
-	block := mineBlocks(t, net, 1)[0]
+	block := mineBlocks(t, net, 1, 1)[0]
 
 	closingTxid, err := net.WaitForChannelClose(ctx, closeUpdates)
 	if err != nil {
@@ -352,14 +374,9 @@ func cleanupForceClose(t *harnessTest, net *lntest.NetworkHarness,
 		t.Fatalf("unable to generate blocks: %v", err)
 	}
 
-	// THe node should now sweep the funds, clean up by mining the sweeping
+	// The node should now sweep the funds, clean up by mining the sweeping
 	// tx.
-	txid, err := waitForTxInMempool(net.Miner.Node, minerMempoolTimeout)
-	if err != nil {
-		t.Fatalf("unable to find sweeping tx in mempool: %v", err)
-	}
-	block := mineBlocks(t, net, 1)[0]
-	assertTxInBlock(t, block, txid)
+	mineBlocks(t, net, 1, 1)
 }
 
 // numOpenChannelsPending sends an RPC request to a node to get a count of the
@@ -851,6 +868,12 @@ func testUnconfirmedChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to send coins to carol: %v", err)
 	}
 
+	// Make sure the unconfirmed tx is seen in the mempool.
+	_, err = waitForTxInMempool(net.Miner.Node, minerMempoolTimeout)
+	if err != nil {
+		t.Fatalf("failed to find tx in miner mempool: %v", err)
+	}
+
 	// Now, we'll connect her to Alice so that they can open a channel
 	// together. The funding flow should select Carol's unconfirmed output
 	// as she doesn't have any other funds since it's a new node.
@@ -872,8 +895,10 @@ func testUnconfirmedChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 			err)
 	}
 
-	// Confirm the channel and wait for it to be recognized by both parties.
-	mineBlocks(t, net, 6)
+	// Confirm the channel and wait for it to be recognized by both
+	// parties. Two transactions should be mined, the unconfirmed spend and
+	// the funding tx.
+	mineBlocks(t, net, 6, 2)
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	chanPoint, err := net.WaitForChannelOpen(ctxt, chanOpenUpdate)
 	if err != nil {
@@ -1574,6 +1599,12 @@ func testOpenChannelAfterReorg(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to open channel: %v", err)
 	}
 
+	// Wait for miner to have seen the funding tx.
+	_, err = waitForTxInMempool(net.Miner.Node, minerMempoolTimeout)
+	if err != nil {
+		t.Fatalf("failed to find funding tx in mempool: %v", err)
+	}
+
 	// At this point, the channel's funding transaction will have been
 	// broadcast, but not confirmed, and the channel should be pending.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
@@ -1588,7 +1619,7 @@ func testOpenChannelAfterReorg(net *lntest.NetworkHarness, t *harnessTest) {
 	// We now cause a fork, by letting our original miner mine 10 blocks,
 	// and our new miner mine 15. This will also confirm our pending
 	// channel, which should be considered open.
-	block := mineBlocks(t, net, 10)[0]
+	block := mineBlocks(t, net, 10, 1)[0]
 	assertTxInBlock(t, block, fundingTxID)
 	miner.Node.Generate(15)
 
@@ -1693,12 +1724,7 @@ func testOpenChannelAfterReorg(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// Cleanup by mining the funding tx again, then closing the channel.
-	_, err = waitForTxInMempool(net.Miner.Node, minerMempoolTimeout)
-	if err != nil {
-		t.Fatalf("failed to find funding tx in mempool: %v", err)
-	}
-
-	block = mineBlocks(t, net, 1)[0]
+	block = mineBlocks(t, net, 1, 1)[0]
 	assertTxInBlock(t, block, fundingTxID)
 
 	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
@@ -1754,7 +1780,7 @@ func testDisconnectingTargetPeer(net *lntest.NetworkHarness, t *harnessTest) {
 	// Mine a block, then wait for Alice's node to notify us that the
 	// channel has been opened. The funding transaction should be found
 	// within the newly mined block.
-	block := mineBlocks(t, net, numConfs)[0]
+	block := mineBlocks(t, net, numConfs, 1)[0]
 	assertTxInBlock(t, block, fundingTxID)
 
 	// At this point, the channel should be fully opened and there should
@@ -1898,7 +1924,7 @@ func testChannelFundingPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 	// Mine a block, then wait for Alice's node to notify us that the
 	// channel has been opened. The funding transaction should be found
 	// within the newly mined block.
-	block := mineBlocks(t, net, 1)[0]
+	block := mineBlocks(t, net, 1, 1)[0]
 	assertTxInBlock(t, block, fundingTxID)
 
 	// Restart both nodes to test that the appropriate state has been
@@ -2346,6 +2372,11 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Mine a block which should confirm the commitment transaction
 	// broadcast as a result of the force closure.
+	_, err = waitForTxInMempool(net.Miner.Node, minerMempoolTimeout)
+	if err != nil {
+		t.Fatalf("failed to find commitment in miner mempool: %v", err)
+	}
+
 	if _, err := net.Miner.Node.Generate(1); err != nil {
 		t.Fatalf("unable to generate block: %v", err)
 	}
@@ -2409,6 +2440,14 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 	// (the "kindergarten" bucket.)
 	if err := net.RestartNode(net.Alice, nil); err != nil {
 		t.Fatalf("Node restart failed: %v", err)
+	}
+
+	// Carol's sweep tx should be in the mempool already, as her output is
+	// not timelocked.
+	_, err = waitForTxInMempool(net.Miner.Node, minerMempoolTimeout)
+	if err != nil {
+		t.Fatalf("failed to find Carol's sweep in miner mempool: %v",
+			err)
 	}
 
 	// Currently within the codebase, the default CSV is 4 relative blocks.
@@ -4250,7 +4289,7 @@ func testUnannouncedChannels(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Mine 2 blocks, and check that the channel is opened but not yet
 	// announced to the network.
-	mineBlocks(t, net, 2)
+	mineBlocks(t, net, 2, 1)
 
 	// One block is enough to make the channel ready for use, since the
 	// nodes have defaultNumConfs=1 set.
@@ -4291,7 +4330,7 @@ func testUnannouncedChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// Mine 4 more blocks, and check that the channel is now announced.
-	mineBlocks(t, net, 4)
+	mineBlocks(t, net, 4, 0)
 
 	// Give the network a chance to learn that auth proof is confirmed.
 	var predErr error
@@ -4498,7 +4537,8 @@ func testPrivateChannels(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// One block is enough to make the channel ready for use, since the
 	// nodes have defaultNumConfs=1 set.
-	block := mineBlocks(t, net, 1)[0]
+	block := mineBlocks(t, net, 1, 1)[0]
+
 	chanPointPrivate, err := net.WaitForChannelOpen(ctxb, chanOpenUpdate)
 	if err != nil {
 		t.Fatalf("error while waiting for channel open: %v", err)
@@ -4615,7 +4655,7 @@ func testPrivateChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	// private channel between Carol and Alice. We first mine
 	// plenty of blocks, such that the channel would have been
 	// announced in case it was public.
-	mineBlocks(t, net, 10)
+	mineBlocks(t, net, 10, 0)
 
 	// We create a helper method to check how many edges each of the
 	// nodes know about. Carol and Alice should know about 4, while
@@ -5454,7 +5494,7 @@ func testMaxPendingChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	// been opened. The funding transactions should be found within the
 	// first newly mined block. 6 blocks make sure the funding transaction
 	// has enough confirmations to be announced publicly.
-	block := mineBlocks(t, net, 6)[0]
+	block := mineBlocks(t, net, 6, maxPendingChannels)[0]
 
 	chanPoints := make([]*lnrpc.ChannelPoint, maxPendingChannels)
 	for i, stream := range openStreams {
@@ -5655,7 +5695,7 @@ func testFailingChannel(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// Mine a block to confirm the broadcasted commitment.
-	block := mineBlocks(t, net, 1)[0]
+	block := mineBlocks(t, net, 1, 1)[0]
 	if len(block.Transactions) != 2 {
 		t.Fatalf("transaction wasn't mined")
 	}
@@ -6211,7 +6251,7 @@ func testRevokedCloseRetribution(net *lntest.NetworkHarness, t *harnessTest) {
 	// Finally, generate a single block, wait for the final close status
 	// update, then ensure that the closing transaction was included in the
 	// block.
-	block := mineBlocks(t, net, 1)[0]
+	block := mineBlocks(t, net, 1, 1)[0]
 
 	breachTXID, err := net.WaitForChannelClose(ctxb, closeUpdates)
 	if err != nil {
@@ -6253,7 +6293,7 @@ func testRevokedCloseRetribution(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Now mine a block, this transaction should include Carol's justice
 	// transaction which was just accepted into the mempool.
-	block = mineBlocks(t, net, 1)[0]
+	block = mineBlocks(t, net, 1, 1)[0]
 
 	// The block should have exactly *two* transactions, one of which is
 	// the justice transaction.
@@ -6445,7 +6485,7 @@ func testRevokedCloseRetributionZeroValueRemoteOutput(net *lntest.NetworkHarness
 	// Finally, generate a single block, wait for the final close status
 	// update, then ensure that the closing transaction was included in the
 	// block.
-	block := mineBlocks(t, net, 1)[0]
+	block := mineBlocks(t, net, 1, 1)[0]
 
 	// Here, Dave receives a confirmation of Carol's breach transaction.
 	// We restart Dave to ensure that she is persisting her retribution
@@ -6495,7 +6535,7 @@ func testRevokedCloseRetributionZeroValueRemoteOutput(net *lntest.NetworkHarness
 
 	// Now mine a block, this transaction should include Dave's justice
 	// transaction which was just accepted into the mempool.
-	block = mineBlocks(t, net, 1)[0]
+	block = mineBlocks(t, net, 1, 1)[0]
 
 	// The block should have exactly *two* transactions, one of which is
 	// the justice transaction.
@@ -6760,7 +6800,7 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 	time.Sleep(200 * time.Millisecond)
 
 	// Generate a single block to mine the breach transaction.
-	block := mineBlocks(t, net, 1)[0]
+	block := mineBlocks(t, net, 1, 1)[0]
 
 	// Wait so Dave receives a confirmation of Carol's breach transaction.
 	time.Sleep(200 * time.Millisecond)
@@ -6832,7 +6872,7 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 		// wait until the next block epoch before trying again. Because
 		// of this, we'll mine a block if we cannot find the justice tx
 		// immediately.
-		mineBlocks(t, net, 1)
+		mineBlocks(t, net, 1, 1)
 		err = lntest.WaitPredicate(func() bool {
 			txid, err := findJusticeTx()
 			if err != nil {
@@ -6910,7 +6950,7 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 
 	// Now mine a block, this transaction should include Dave's justice
 	// transaction which was just accepted into the mempool.
-	block = mineBlocks(t, net, 1)[0]
+	block = mineBlocks(t, net, 1, 1)[0]
 	assertTxInBlock(t, block, justiceTxid)
 
 	// Dave should have no open channels.
@@ -7184,7 +7224,7 @@ func testDataLossProtection(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// Generate a single block, which should confirm the closing tx.
-	block := mineBlocks(t, net, 1)[0]
+	block := mineBlocks(t, net, 1, 1)[0]
 	assertTxInBlock(t, block, forceClose)
 
 	// Dave should sweep his funds immediately, as they are not timelocked.
@@ -7201,7 +7241,8 @@ func testDataLossProtection(net *lntest.NetworkHarness, t *harnessTest) {
 	// before she can sweep her outputs.
 	assertNumPendingChannels(t, carol, 0, 1)
 
-	block = mineBlocks(t, net, 1)[0]
+	// Mine the sweep tx.
+	block = mineBlocks(t, net, 1, 1)[0]
 	assertTxInBlock(t, block, daveSweep)
 
 	// Now Dave should consider the channel fully closed.
@@ -7222,12 +7263,12 @@ func testDataLossProtection(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// After the Carol's output matures, she should also reclaim her funds.
-	mineBlocks(t, net, defaultCSV-1)
+	mineBlocks(t, net, defaultCSV-1, 0)
 	carolSweep, err := waitForTxInMempool(net.Miner.Node, minerMempoolTimeout)
 	if err != nil {
 		t.Fatalf("unable to find Carol's sweep tx in mempool: %v", err)
 	}
-	block = mineBlocks(t, net, 1)[0]
+	block = mineBlocks(t, net, 1, 1)[0]
 	assertTxInBlock(t, block, carolSweep)
 
 	// Now the channel should be fully closed also from Carol's POV.
@@ -7278,13 +7319,13 @@ func testDataLossProtection(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// Mine enough blocks for Carol to sweep her funds.
-	mineBlocks(t, net, defaultCSV)
+	mineBlocks(t, net, defaultCSV, 0)
 
 	carolSweep, err = waitForTxInMempool(net.Miner.Node, minerMempoolTimeout)
 	if err != nil {
 		t.Fatalf("unable to find Carol's sweep tx in mempool: %v", err)
 	}
-	block = mineBlocks(t, net, 1)[0]
+	block = mineBlocks(t, net, 1, 1)[0]
 	assertTxInBlock(t, block, carolSweep)
 
 	// Now the channel should be fully closed also from Carol's POV.
@@ -7319,7 +7360,7 @@ func testDataLossProtection(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Mine a block to confirm the sweep, and make sure Dave got his
 	// balance back.
-	mineBlocks(t, net, 1)
+	mineBlocks(t, net, 1, 1)
 	assertNodeNumChannels(t, ctxb, dave, 0)
 
 	daveBalResp, err = dave.WalletBalance(ctxb, balReq)
@@ -8764,7 +8805,7 @@ func testMultiHopHtlcLocalTimeout(net *lntest.NetworkHarness, t *harnessTest) {
 	)
 
 	// Mine a block to confirm the closing transaction.
-	mineBlocks(t, net, 1)
+	mineBlocks(t, net, 1, 1)
 
 	// At this point, Bob should have cancelled backwards the dust HTLC
 	// that we sent earlier. This means Alice should now only have a single
@@ -8827,8 +8868,9 @@ func testMultiHopHtlcLocalTimeout(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("bob should have pending htlc but doesn't")
 	}
 
-	// Now we'll mine an additional block.
-	block := mineBlocks(t, net, 1)[0]
+	// Now we'll mine an additional block, which should include the second
+	// layer sweep tx.
+	block := mineBlocks(t, net, 1, 1)[0]
 
 	// The block should have confirmed Bob's second layer sweeping
 	// transaction. Therefore, at this point, there should be no active
@@ -9000,7 +9042,7 @@ func testMultiHopReceiverChainClaim(net *lntest.NetworkHarness, t *harnessTest) 
 	}
 
 	// Confirm the commitment.
-	mineBlocks(t, net, 1)
+	mineBlocks(t, net, 1, 1)
 
 	// After the force close transaction is mined, Carol should broadcast
 	// her second level HTLC transaction. Bob will broadcast a sweep tx to
@@ -9282,7 +9324,7 @@ func testMultiHopLocalForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 
 	// Next, we'll mine an additional block. This should serve to confirm
 	// the second layer timeout transaction.
-	block := mineBlocks(t, net, 1)[0]
+	block := mineBlocks(t, net, 1, 1)[0]
 	assertTxInBlock(t, block, timeoutTx)
 
 	// With the second layer timeout transaction confirmed, Bob should have
@@ -9349,7 +9391,7 @@ func testMultiHopLocalForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 
 	// We'll then mine a final block which should confirm this second layer
 	// sweep transaction.
-	block = mineBlocks(t, net, 1)[0]
+	block = mineBlocks(t, net, 1, 1)[0]
 	assertTxInBlock(t, block, sweepTx)
 
 	// At this point, Bob should no longer show any channels as pending
@@ -9543,7 +9585,7 @@ func testMultiHopRemoteForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 
 	// If we mine an additional block, then this should confirm Bob's
 	// transaction which sweeps the direct HTLC output.
-	block := mineBlocks(t, net, 1)[0]
+	block := mineBlocks(t, net, 1, 1)[0]
 	assertTxInBlock(t, block, sweepTx)
 
 	// Now that the sweeping transaction has been confirmed, Bob should
@@ -9652,6 +9694,13 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest)
 	bobForceClose := closeChannelAndAssert(ctxt, t, net, net.Bob,
 		aliceChanPoint, true)
 
+	// Alice will sweep her output immediately.
+	_, err = waitForTxInMempool(net.Miner.Node, minerMempoolTimeout)
+	if err != nil {
+		t.Fatalf("unable to find alice's sweep tx in miner mempool: %v",
+			err)
+	}
+
 	// We'll now mine enough blocks so Carol decides that she needs to go
 	// on-chain to claim the HTLC as Bob has been inactive.
 	numBlocks := uint32(defaultBitcoinTimeLockDelta - (2 * defaultBroadcastDelta))
@@ -9689,7 +9738,7 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest)
 	}
 
 	// Mine a block that should confirm the commit tx.
-	block := mineBlocks(t, net, 1)[0]
+	block := mineBlocks(t, net, 1, 1)[0]
 	if len(block.Transactions) != 2 {
 		t.Fatalf("expected 2 transactions in block, got %v",
 			len(block.Transactions))
@@ -9721,7 +9770,7 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest)
 	}
 
 	// Mine a block to confirm the two transactions (+ the coinbase).
-	block = mineBlocks(t, net, 1)[0]
+	block = mineBlocks(t, net, 1, 2)[0]
 	if len(block.Transactions) != 3 {
 		t.Fatalf("expected 3 transactions in block, got %v",
 			len(block.Transactions))
@@ -9797,7 +9846,7 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest)
 
 	// We'll now mine a block which should confirm Bob's second layer
 	// transaction.
-	block = mineBlocks(t, net, 1)[0]
+	block = mineBlocks(t, net, 1, 1)[0]
 	if len(block.Transactions) != 2 {
 		t.Fatalf("expected 2 transactions in block, got %v",
 			len(block.Transactions))
@@ -9823,7 +9872,7 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest)
 
 	// Mining one additional block, Bob's second level tx is mature, and he
 	// can sweep the output.
-	block = mineBlocks(t, net, bobSecondLevelCSV)[0]
+	block = mineBlocks(t, net, bobSecondLevelCSV, 1)[0]
 	assertTxInBlock(t, block, carolSweep)
 
 	bobSweep, err := waitForTxInMempool(net.Miner.Node, minerMempoolTimeout)
@@ -9843,7 +9892,7 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest)
 	// When we mine one additional block, that will confirm Bob's sweep.
 	// Now Bob should have no pending channels anymore, as this just
 	// resolved it by the confirmation of the sweep transaction.
-	block = mineBlocks(t, net, 1)[0]
+	block = mineBlocks(t, net, 1, 1)[0]
 	assertTxInBlock(t, block, bobSweep)
 
 	err = lntest.WaitPredicate(func() bool {
@@ -10034,7 +10083,7 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 	}
 
 	// Mine a block, which should contain the commitment.
-	block := mineBlocks(t, net, 1)[0]
+	block := mineBlocks(t, net, 1, 1)[0]
 	if len(block.Transactions) != 2 {
 		t.Fatalf("expected 2 transactions in block, got %v",
 			len(block.Transactions))
@@ -10066,7 +10115,7 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 	}
 
 	// Mine a block to confirm the two transactions (+ coinbase).
-	block = mineBlocks(t, net, 1)[0]
+	block = mineBlocks(t, net, 1, 2)[0]
 	if len(block.Transactions) != 3 {
 		t.Fatalf("expected 3 transactions in block, got %v",
 			len(block.Transactions))
@@ -10098,7 +10147,7 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 
 	// We'll now mine a block which should confirm Bob's HTLC sweep
 	// transaction.
-	block = mineBlocks(t, net, 1)[0]
+	block = mineBlocks(t, net, 1, 1)[0]
 	if len(block.Transactions) != 2 {
 		t.Fatalf("expected 2 transactions in block, got %v",
 			len(block.Transactions))
@@ -10144,7 +10193,7 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 
 	// When Carol's sweep gets confirmed, she should have no more pending
 	// channels.
-	block = mineBlocks(t, net, 1)[0]
+	block = mineBlocks(t, net, 1, 1)[0]
 	assertTxInBlock(t, block, carolSweep)
 
 	pendingChansRequest = &lnrpc.PendingChannelsRequest{}
@@ -12121,11 +12170,7 @@ func testSendUpdateDisableChannel(net *lntest.NetworkHarness, t *harnessTest) {
 	)
 
 	// Finally, close the channels by mining the closing transactions.
-	_, err = waitForNTxsInMempool(net.Miner.Node, 2, minerMempoolTimeout)
-	if err != nil {
-		t.Fatalf("expected transactions not found in mempool: %v", err)
-	}
-	mineBlocks(t, net, 1)
+	mineBlocks(t, net, 1, 2)
 
 	// Also do this check for Eve's channel with Carol.
 	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
@@ -12140,12 +12185,7 @@ func testSendUpdateDisableChannel(net *lntest.NetworkHarness, t *harnessTest) {
 			{eve.PubKeyStr, expectedPolicy, chanPointEveCarol},
 		},
 	)
-
-	_, err = waitForNTxsInMempool(net.Miner.Node, 1, minerMempoolTimeout)
-	if err != nil {
-		t.Fatalf("expected transactions not found in mempool: %v", err)
-	}
-	mineBlocks(t, net, 1)
+	mineBlocks(t, net, 1, 1)
 }
 
 // testAbandonChannel abandones a channel and asserts that it is no

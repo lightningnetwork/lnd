@@ -42,6 +42,10 @@ var (
 	// created.
 	ErrNoPaymentsCreated = fmt.Errorf("there are no existing payments")
 
+	// ErrPaymentNotFound is returned when a targeted payments can't be
+	// found.
+	ErrPaymentNotFound = fmt.Errorf("unable to locate payment")
+
 	// ErrNodeNotFound is returned when node bucket exists, but node with
 	// specific identity can't be found.
 	ErrNodeNotFound = fmt.Errorf("link node with target identity not found")

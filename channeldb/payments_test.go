@@ -2,6 +2,7 @@ package channeldb
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"fmt"
 	"math/rand"
 	"reflect"
@@ -152,6 +153,13 @@ func TestOutgoingPaymentWorkflow(t *testing.T) {
 		t.Fatalf("unable to fetch payments from DB: %v", err)
 	}
 
+	paymentHash := getPaymentHashByPreImage(payments[0].PaymentPreimage)
+
+	_, err = db.LookupPayment(paymentHash)
+	if err != nil {
+		t.Fatalf("unable to lookup payment from DB: %v", err)
+	}
+
 	expectedPayments := []*OutgoingPayment{fakePayment}
 	if !reflect.DeepEqual(payments, expectedPayments) {
 		t.Fatalf("Wrong payments after reading from DB."+
@@ -250,4 +258,8 @@ func TestPaymentStatusWorkflow(t *testing.T) {
 			)
 		}
 	}
+}
+
+func getPaymentHashByPreImage(preImage [32]byte) [32]byte {
+	return sha256.Sum256(preImage[:])
 }

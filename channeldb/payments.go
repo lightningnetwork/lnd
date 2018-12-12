@@ -2,10 +2,12 @@ package channeldb
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/binary"
 	"errors"
 	"io"
 
+	"fmt"
 	"github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
@@ -18,6 +20,32 @@ var (
 	// which is a monotonically increasing uint64.  BoltDB's sequence
 	// feature is used for generating monotonically increasing id.
 	paymentBucket = []byte("payments")
+
+	// paymentIndexBucket is the name of the sub-bucket within the
+	// paymentBucket which indexes all payments by their payment hash. The
+	// payment hash is the sha256 of the payment's preimage. This
+	// index is used to provide a fast path for looking up incoming HTLCs
+	// to determine if we're able to settle them fully.
+	//
+	// maps: payHash => payment
+	paymentIndexBucket = []byte("paymenthashes")
+
+	// numPaymentKey is the name of key which houses the auto-incrementing
+	// payment ID which is essentially used as a primary key. With each
+	// payment inserted, the primary key is incremented by one. This key is
+	// stored within the paymentIndexBucket. Within the paymentBucket
+	// payments are uniquely identified by the payment ID.
+	numPaymentsKey = []byte("nik")
+
+	// addPaymentIndexBucket is an index bucket that we'll use to create a
+	// monotonically increasing set of add indexes. Each time we add a new
+	// payment, this sequence number will be incremented and then populated
+	// within the new payment.
+	//
+	// In addition to this sequence number, we map:
+	//
+	//   addIndexNo => paymentKey
+	addPaymentIndexBucket = []byte("payment-add-index")
 
 	// paymentStatusBucket is the name of the bucket within the database that
 	// stores the status of a payment indexed by the payment's preimage.
@@ -102,11 +130,11 @@ type OutgoingPayment struct {
 
 // AddPayment saves a successful payment to the database. It is assumed that
 // all payment are sent using unique payment hashes.
-func (db *DB) AddPayment(payment *OutgoingPayment) error {
+func (db *DB) AddPayment(payment *OutgoingPayment) (uint64, error) {
 	// Validate the field of the inner voice within the outgoing payment,
 	// these must also adhere to the same constraints as regular invoices.
 	if err := validateInvoice(&payment.Invoice); err != nil {
-		return err
+		return 0, err
 	}
 
 	// We first serialize the payment before starting the database
@@ -114,30 +142,60 @@ func (db *DB) AddPayment(payment *OutgoingPayment) error {
 	// serialization error.
 	var b bytes.Buffer
 	if err := serializeOutgoingPayment(&b, payment); err != nil {
-		return err
+		return 0, err
 	}
 	paymentBytes := b.Bytes()
 
-	return db.Batch(func(tx *bbolt.Tx) error {
+	var paymentAddIndex uint64
+	err := db.Batch(func(tx *bbolt.Tx) error {
 		payments, err := tx.CreateBucketIfNotExists(paymentBucket)
 		if err != nil {
 			return err
 		}
-
-		// Obtain the new unique sequence number for this payment.
-		paymentID, err := payments.NextSequence()
+		paymentIndex, err := payments.CreateBucketIfNotExists(
+			paymentIndexBucket,
+		)
+		if err != nil {
+			return err
+		}
+		addIndex, err := payments.CreateBucketIfNotExists(
+			addPaymentIndexBucket,
+		)
 		if err != nil {
 			return err
 		}
 
-		// We use BigEndian for keys as it orders keys in
-		// ascending order. This allows bucket scans to order payments
-		// in the order in which they were created.
-		paymentIDBytes := make([]byte, 8)
-		binary.BigEndian.PutUint64(paymentIDBytes, paymentID)
+		// If the current running payment ID counter hasn't yet been
+		// created, then create it now.
+		var paymentNum uint32
+		paymentCounter := paymentIndex.Get(numPaymentsKey)
+		if paymentCounter == nil {
+			var scratch [4]byte
+			byteOrder.PutUint32(scratch[:], paymentNum)
+			err := paymentIndex.Put(numPaymentsKey, scratch[:])
+			if err != nil {
+				return nil
+			}
+		} else {
+			paymentNum = byteOrder.Uint32(paymentCounter)
+		}
 
-		return payments.Put(paymentIDBytes, paymentBytes)
+		newIndex, err := putPayment(
+			payments, paymentIndex, addIndex, payment, paymentBytes, paymentNum,
+		)
+		if err != nil {
+			return err
+		}
+
+		paymentAddIndex = newIndex
+
+		return nil
 	})
+	if err != nil {
+		return 0, err
+	}
+
+	return paymentAddIndex, nil
 }
 
 // FetchAllPayments returns all outgoing payments in DB.
@@ -172,6 +230,88 @@ func (db *DB) FetchAllPayments() ([]*OutgoingPayment, error) {
 	}
 
 	return payments, nil
+}
+
+// LookupPayment attempts to look up an payment according to its 32 byte
+// payment hash.
+func (db *DB) LookupPayment(paymentHash [32]byte) (*OutgoingPayment, error) {
+	var payment *OutgoingPayment
+	var err error
+
+	err = db.View(func(tx *bbolt.Tx) error {
+		payments := tx.Bucket(paymentBucket)
+		if payments == nil {
+			return ErrNoPaymentsCreated
+		}
+
+		paymentIndex := payments.Bucket(paymentIndexBucket)
+		if paymentIndex == nil {
+			return ErrNoPaymentsCreated
+		}
+
+		// Check the payment index to see if a payment to this
+		// hash exists within the DB.
+		paymentNum := paymentIndex.Get(paymentHash[:])
+		if paymentNum == nil {
+			return ErrPaymentNotFound
+		}
+
+		payment, err = fetchPayment(paymentNum, payments)
+		if err != nil {
+			return err
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	fmt.Printf("\n\n%+v\n\n", payment)
+	return payment, nil
+}
+
+// getPaymentByHash gets a paymentBucket and a paymentHash and returns the
+// payment if matches paymentHash
+func getPaymentByHash(payments *bbolt.Bucket, paymentHash [32]byte) (*OutgoingPayment, error) {
+	var paymentResponse *OutgoingPayment
+	var err error
+
+	err = payments.ForEach(func(_, payment []byte) error {
+		// If the value is nil, then we ignore it as it may be
+		// a sub-bucket.
+		if payment == nil {
+			return nil
+		}
+
+		reader := bytes.NewReader(payment)
+		paymentTemp, err := deserializeOutgoingPayment(reader)
+		if err != nil {
+			return err
+		}
+
+		isPayment := checkPaymentHash(paymentHash, paymentTemp.PaymentPreimage)
+		if isPayment {
+			paymentResponse = paymentTemp
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+	return paymentResponse, nil
+
+}
+
+func checkPaymentHash(paymentHash, paymentPreimage [32]byte) bool {
+	hashToCheck := sha256.Sum256(paymentPreimage[:])
+	if bytes.Equal(paymentHash[:], hashToCheck[:]) {
+		return true
+	}
+
+	return false
 }
 
 // DeleteAllPayments deletes all payments from DB.
@@ -327,4 +467,56 @@ func deserializeOutgoingPayment(r io.Reader) (*OutgoingPayment, error) {
 	}
 
 	return p, nil
+}
+
+func putPayment(payments, paymentIndex, addIndex *bbolt.Bucket, payment *OutgoingPayment,
+	paymentBytes []byte, paymentNum uint32) (uint64, error) {
+
+	// We use BigEndian for keys as it orders keys in
+	// ascending order. This allows bucket scans to order payments
+	// in the order in which they were created.
+	paymentIDBytes := make([]byte, 4)
+	binary.BigEndian.PutUint32(paymentIDBytes, paymentNum)
+
+	// Add the payment hash to the payment index. This will let us quickly
+	// identify a settled payment.
+	paymentHash := sha256.Sum256(payment.PaymentPreimage[:])
+	err := paymentIndex.Put(paymentHash[:], paymentIDBytes[:])
+	if err != nil {
+		return 0, err
+	}
+
+	// Next, we'll obtain the next add payment index (sequence
+	// number), so we can properly place this payment within this
+	// event stream.
+	nextAddSeqNo, err := addIndex.NextSequence()
+	if err != nil {
+		return 0, err
+	}
+
+	// With the next sequence obtained, we'll updating the event series in
+	// the add index bucket to map this current add counter to the index of
+	// this new invoice.
+	var seqNoBytes [8]byte
+	byteOrder.PutUint64(seqNoBytes[:], nextAddSeqNo)
+	if err := addIndex.Put(seqNoBytes[:], paymentIDBytes[:]); err != nil {
+		return 0, err
+	}
+
+	if err := payments.Put(paymentIDBytes[:], paymentBytes); err != nil {
+		return 0, err
+	}
+
+	return nextAddSeqNo, nil
+}
+
+func fetchPayment(paymentNum []byte, payments *bbolt.Bucket) (*OutgoingPayment, error) {
+	paymentBytes := payments.Get(paymentNum)
+	if paymentBytes == nil {
+		return nil, ErrPaymentNotFound
+	}
+
+	paymentReader := bytes.NewReader(paymentBytes)
+
+	return deserializeOutgoingPayment(paymentReader)
 }

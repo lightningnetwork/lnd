@@ -373,7 +373,7 @@ func (d *DB) InvoicesAddedSince(sinceAddIndex uint64) ([]Invoice, error) {
 // full invoice is returned. Before setting the incoming HTLC, the values
 // SHOULD be checked to ensure the payer meets the agreed upon contractual
 // terms of the payment.
-func (d *DB) LookupInvoice(paymentHash [32]byte) (Invoice, error) {
+func (d *DB) LookupInvoice(rHash [32]byte) (Invoice, error) {
 	var invoice Invoice
 	err := d.View(func(tx *bbolt.Tx) error {
 		invoices := tx.Bucket(invoiceBucket)
@@ -387,7 +387,7 @@ func (d *DB) LookupInvoice(paymentHash [32]byte) (Invoice, error) {
 
 		// Check the invoice index to see if an invoice paying to this
 		// hash exists within the DB.
-		invoiceNum := invoiceIndex.Get(paymentHash[:])
+		invoiceNum := invoiceIndex.Get(rHash[:])
 		if invoiceNum == nil {
 			return ErrInvoiceNotFound
 		}

@@ -29,6 +29,8 @@ description):
        `lnd`.
   * SendCoins
      * Sends an amount of satoshis to a specific address.
+  * ListUnspent
+     * Lists available utxos within a range of confirmations.
   * SubscribeTransactions
      * Returns a stream which sends async notifications each time a transaction
        is created or one is received that pays to us.

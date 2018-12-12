@@ -163,6 +163,10 @@ var (
 			Entity: "onchain",
 			Action: "write",
 		}},
+		"/lnrpc.Lightning/ListUnspent": {{
+			Entity: "onchain",
+			Action: "read",
+		}},
 		"/lnrpc.Lightning/SendMany": {{
 			Entity: "onchain",
 			Action: "write",
@@ -680,6 +684,87 @@ func determineFeePerKw(feeEstimator lnwallet.FeeEstimator, targetConf int32,
 	}
 }
 
+// ListUnspent returns useful information about each unspent output
+// owned by the wallet, as reported by the underlying `ListUnspentWitness`;
+// the information returned is: outpoint, amount in satoshis, address,
+// address type, scriptPubKey in hex and number of confirmations.
+// The result is filtered to contain outputs whose number of confirmations
+// is between a minimum and maximum number of confirmations specified by the
+// user, with 0 meaning unconfirmed.
+func (r *rpcServer) ListUnspent(ctx context.Context,
+	in *lnrpc.ListUnspentRequest) (*lnrpc.ListUnspentResponse, error) {
+	minConfs := in.MinConfs
+	maxConfs := in.MaxConfs
+
+	if minConfs < 0 {
+		return nil, fmt.Errorf("min confirmations must be >= 0")
+	}
+	if minConfs > maxConfs {
+		return nil, fmt.Errorf("max confirmations must be >= min " +
+			"confirmations")
+	}
+
+	utxos, err := r.server.cc.wallet.ListUnspentWitness(minConfs, maxConfs)
+	if err != nil {
+		return nil, err
+	}
+
+	resp := &lnrpc.ListUnspentResponse{Utxos: []*lnrpc.Utxo{}}
+	for _, utxo := range utxos {
+		// Translate lnwallet address type to gRPC proto address type:
+		var addrType lnrpc.AddressType
+		switch utxo.AddressType {
+		case lnwallet.WitnessPubKey:
+			addrType = lnrpc.AddressType_WITNESS_PUBKEY_HASH
+		case lnwallet.NestedWitnessPubKey:
+			addrType = lnrpc.AddressType_NESTED_PUBKEY_HASH
+		case lnwallet.UnknownAddressType:
+			rpcsLog.Warnf("[listunspent] utxo with address of unknown "+
+				"type ignored: %v", utxo.OutPoint.String())
+			continue
+		default:
+			return nil, fmt.Errorf("invalid utxo address type")
+		}
+
+		outpoint := &lnrpc.ChannelPoint{
+			FundingTxid: &lnrpc.ChannelPoint_FundingTxidStr{
+				FundingTxidStr: utxo.OutPoint.Hash.String(),
+			},
+			OutputIndex: utxo.OutPoint.Index,
+		}
+
+		utxoResp := lnrpc.Utxo{
+			Type:          addrType,
+			AmountSat:     int64(utxo.Value),
+			ScriptPubkey:  hex.EncodeToString(utxo.PkScript),
+			Outpoint:      outpoint,
+			Confirmations: utxo.Confirmations,
+		}
+
+		_, outAddresses, _, err := txscript.ExtractPkScriptAddrs(
+			utxo.PkScript, activeNetParams.Params)
+		if err != nil {
+			return nil, err
+		}
+
+		if len(outAddresses) != 1 {
+			return nil, fmt.Errorf("an output was unexpectedly multisig")
+		}
+
+		utxoResp.Address = outAddresses[0].String()
+		resp.Utxos = append(resp.Utxos, &utxoResp)
+	}
+
+	maxStr := ""
+	if maxConfs != math.MaxInt32 {
+		maxStr = " max=" + fmt.Sprintf("%d", maxConfs)
+	}
+	rpcsLog.Debugf("[listunspent] min=%v%v, generated utxos: %v",
+		minConfs, maxStr, utxos)
+
+	return resp, nil
+}
+
 // SendCoins executes a request to send coins to a particular address. Unlike
 // SendMany, this RPC call only allows creating a single output at a time.
 func (r *rpcServer) SendCoins(ctx context.Context,
@@ -743,9 +828,9 @@ func (r *rpcServer) NewAddress(ctx context.Context,
 	// available address types.
 	var addrType lnwallet.AddressType
 	switch in.Type {
-	case lnrpc.NewAddressRequest_WITNESS_PUBKEY_HASH:
+	case lnrpc.AddressType_WITNESS_PUBKEY_HASH:
 		addrType = lnwallet.WitnessPubKey
-	case lnrpc.NewAddressRequest_NESTED_PUBKEY_HASH:
+	case lnrpc.AddressType_NESTED_PUBKEY_HASH:
 		addrType = lnwallet.NestedWitnessPubKey
 	}
 

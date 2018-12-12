@@ -231,6 +231,16 @@ service Lightning {
         };
     }
 
+    /** lncli: `listunspent`
+    ListUnspent returns a list of all utxos spendable by the wallet with a
+	number of confirmations between the specified minimum and maximum.
+    */
+    rpc ListUnspent (ListUnspentRequest) returns (ListUnspentResponse) {
+        option (google.api.http) = {
+            get: "/v1/utxos"
+        };
+    }
+
     /**
     SubscribeTransactions creates a uni-directional stream from the server to
     the client in which any newly discovered transactions relevant to the
@@ -657,6 +667,28 @@ service Lightning {
     };
 }
 
+message Utxo {
+	/// The type of address
+	AddressType type = 1 [json_name = "address_type"];
+
+	/// The address
+	string address = 2 [json_name = "address"];
+
+	/// The value of the unspent coin in satoshis
+	int64 amount_sat = 3 [json_name = "amount_sat"];
+
+	/// The scriptpubkey in hex
+	string script_pubkey = 4 [json_name = "script_pubkey"];
+
+	/// The outpoint in format txid:n
+	/// Note that this reuses the `ChannelPoint` message but
+	/// is not actually a channel related outpoint, of course
+	ChannelPoint outpoint = 5 [json_name = "outpoint"];
+
+	/// The number of confirmations for the Utxo
+	int64 confirmations = 6 [json_name = "confirmations"];
+}
+
 message Transaction {
     /// The transaction hash
     string tx_hash = 1 [ json_name = "tx_hash" ];
@@ -808,18 +840,31 @@ message SendCoinsResponse {
     string txid = 1 [json_name = "txid"];
 }
 
+message ListUnspentRequest {
+	/// The minimum number of confirmations to be included.
+	int32 min_confs = 1;
+
+	/// The maximum number of confirmations to be included.
+	int32 max_confs = 2;
+}
+message ListUnspentResponse {
+	/// A list of utxos
+	repeated Utxo utxos = 1 [json_name = "utxos"];
+
+}
+
 /** 
 `AddressType` has to be one of:
 
 - `p2wkh`: Pay to witness key hash (`WITNESS_PUBKEY_HASH` = 0)
 - `np2wkh`: Pay to nested witness key hash (`NESTED_PUBKEY_HASH` = 1)
 */
-message NewAddressRequest {
-    enum AddressType {
+enum AddressType {
         WITNESS_PUBKEY_HASH = 0;
         NESTED_PUBKEY_HASH = 1;
-    }
+}
 
+message NewAddressRequest {
     /// The address type
     AddressType type = 1;
 }

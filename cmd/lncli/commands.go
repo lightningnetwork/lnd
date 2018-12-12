@@ -2512,10 +2512,12 @@ func sendToRouteRequest(ctx *cli.Context, req *lnrpc.SendToRouteRequest) error {
 		E string       `json:"payment_error"`
 		P string       `json:"payment_preimage"`
 		R *lnrpc.Route `json:"payment_route"`
+		I uint64       `json:"payment_index"`
 	}{
 		E: resp.PaymentError,
 		P: hex.EncodeToString(resp.PaymentPreimage),
 		R: resp.PaymentRoute,
+		I: resp.PaymentIndex,
 	})
 
 	return nil
@@ -2694,7 +2696,7 @@ func lookupInvoice(ctx *cli.Context) error {
 		return fmt.Errorf("unable to decode rhash argument: %v", err)
 	}
 
-	req := &lnrpc.PaymentHash{
+	req := &lnrpc.RHash{
 		RHash: rHash,
 	}
 
@@ -2704,6 +2706,57 @@ func lookupInvoice(ctx *cli.Context) error {
 	}
 
 	printRespJSON(invoice)
+
+	return nil
+}
+
+var lookupPaymentCommand = cli.Command{
+	Name:      "lookuppayment",
+	Usage:     "Lookup an existing payment by its hash.",
+	Category:  "Payments",
+	ArgsUsage: "payment_hash",
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name: "payment_hash",
+			Usage: "the 32 byte payment hash of the invoice to query for, the hash " +
+				"should be a hex-encoded string",
+		},
+	},
+	Action: actionDecorator(lookupPayment),
+}
+
+func lookupPayment(ctx *cli.Context) error {
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
+	var (
+		paymentHash []byte
+		err         error
+	)
+
+	switch {
+	case ctx.IsSet("payment_hash"):
+		paymentHash, err = hex.DecodeString(ctx.String("payment_hash"))
+	case ctx.Args().Present():
+		paymentHash, err = hex.DecodeString(ctx.Args().First())
+	default:
+		return fmt.Errorf("payment_hash argument missing")
+	}
+
+	if err != nil {
+		return fmt.Errorf("unable to decode payment_hash argument: %v", err)
+	}
+
+	req := &lnrpc.PaymentHash{
+		PaymentHash: paymentHash,
+	}
+
+	payment, err := client.LookupPayment(context.Background(), req)
+	if err != nil {
+		return err
+	}
+
+	printRespJSON(payment)
 
 	return nil
 }

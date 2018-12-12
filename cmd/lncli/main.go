@@ -277,6 +277,7 @@ func main() {
 		sendToRouteCommand,
 		addInvoiceCommand,
 		lookupInvoiceCommand,
+		lookupPaymentCommand,
 		listInvoicesCommand,
 		listChannelsCommand,
 		closedChannelsCommand,

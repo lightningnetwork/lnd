@@ -335,6 +335,10 @@ var (
 			Entity: "offchain",
 			Action: "read",
 		}},
+		"/lnrpc.Lightning/LookupPayment": {{
+			Entity: "offchain",
+			Action: "read",
+		}},
 		"/lnrpc.Lightning/DeleteAllPayments": {{
 			Entity: "offchain",
 			Action: "write",
@@ -2712,7 +2716,7 @@ func (r *rpcServer) SubscribeChannelEvents(req *lnrpc.ChannelEventSubscription,
 // savePayment saves a successfully completed payment to the database for
 // historical record keeping.
 func (r *rpcServer) savePayment(route *routing.Route,
-	amount lnwire.MilliSatoshi, preImage []byte) error {
+	amount lnwire.MilliSatoshi, preImage []byte) (uint64, error) {
 
 	paymentPath := make([][33]byte, len(route.Hops))
 	for i, hop := range route.Hops {
@@ -2733,7 +2737,12 @@ func (r *rpcServer) savePayment(route *routing.Route,
 	}
 	copy(payment.PaymentPreimage[:], preImage)
 
-	return r.server.chanDB.AddPayment(payment)
+	paymentIndex, err := r.server.chanDB.AddPayment(payment)
+	if err != nil {
+		return 0, err
+	}
+
+	return paymentIndex, nil
 }
 
 // validatePayReqExpiry checks if the passed payment request has expired. In
@@ -3055,9 +3064,10 @@ func extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPaymentIntent, error
 }
 
 type paymentIntentResponse struct {
-	Route    *routing.Route
-	Preimage [32]byte
-	Err      error
+	Route        *routing.Route
+	Preimage     [32]byte
+	PaymentIndex uint64
+	Err          error
 }
 
 // dispatchPaymentIntent attempts to fully dispatch an RPC payment intent.
@@ -3128,7 +3138,7 @@ func (r *rpcServer) dispatchPaymentIntent(
 
 	// Save the completed payment to the database for record keeping
 	// purposes.
-	err := r.savePayment(route, amt, preImage[:])
+	paymentIndex, err := r.savePayment(route, amt, preImage[:])
 	if err != nil {
 		// We weren't able to save the payment, so we return the save
 		// err, but a nil routing err.
@@ -3136,8 +3146,9 @@ func (r *rpcServer) dispatchPaymentIntent(
 	}
 
 	return &paymentIntentResponse{
-		Route:    route,
-		Preimage: preImage,
+		Route:        route,
+		Preimage:     preImage,
+		PaymentIndex: paymentIndex,
 	}, nil
 }
 
@@ -3289,6 +3300,7 @@ func (r *rpcServer) sendPayment(stream *paymentStream) error {
 					PaymentHash:     payIntent.rHash[:],
 					PaymentPreimage: resp.Preimage[:],
 					PaymentRoute:    marshalledRouted,
+					PaymentIndex:    resp.PaymentIndex,
 				})
 				if err != nil {
 					errChan <- err
@@ -3370,6 +3382,7 @@ func (r *rpcServer) sendPaymentSync(ctx context.Context,
 		PaymentHash:     payIntent.rHash[:],
 		PaymentPreimage: resp.Preimage[:],
 		PaymentRoute:    r.routerBackend.MarshallRoute(resp.Route),
+		PaymentIndex:    resp.PaymentIndex,
 	}, nil
 }
 
@@ -3431,7 +3444,7 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 // The passed payment hash *must* be exactly 32 bytes, if not an error is
 // returned.
 func (r *rpcServer) LookupInvoice(ctx context.Context,
-	req *lnrpc.PaymentHash) (*lnrpc.Invoice, error) {
+	req *lnrpc.RHash) (*lnrpc.Invoice, error) {
 
 	var (
 		payHash [32]byte
@@ -3477,6 +3490,83 @@ func (r *rpcServer) LookupInvoice(ctx context.Context,
 	}
 
 	return rpcInvoice, nil
+}
+
+// createRPCInvoice creates an *lnrpc.Payment from the *channeldb.Payment.
+func createRPCPayment(payment *channeldb.OutgoingPayment) (*lnrpc.Payment, error) {
+
+	paymentHash := sha256.Sum256(payment.PaymentPreimage[:])
+	paymentHashString := hex.EncodeToString(paymentHash[:])
+
+	fee := payment.Fee
+
+	paymentPreImage := hex.EncodeToString(payment.PaymentPreimage[:])
+
+	path := make([]string, len(payment.Path))
+	for i, hop := range payment.Path {
+		path[i] = hex.EncodeToString(hop[:])
+	}
+
+	satAmt := payment.Terms.Value.ToSatoshis()
+
+	return &lnrpc.Payment{
+		PaymentHash:     paymentHashString,
+		Value:           int64(satAmt),
+		CreationDate:    payment.CreationDate.Unix(),
+		Path:            path,
+		Fee:             int64(fee),
+		PaymentPreimage: paymentPreImage,
+	}, nil
+}
+
+// LookupPayment attempts to look up an payment according to its payment hash.
+// The passed payment hash *must* be exactly 32 bytes, if not an error is
+// returned.
+func (r *rpcServer) LookupPayment(ctx context.Context,
+	req *lnrpc.PaymentHash) (*lnrpc.Payment, error) {
+
+	var (
+		payHash [32]byte
+		rHash   []byte
+		err     error
+	)
+
+	// If the RHash as a raw string was provided, then decode that and use
+	// that directly. Otherwise, we use the raw bytes provided.
+	if req.PaymentHashStr != "" {
+		rHash, err = hex.DecodeString(req.PaymentHashStr)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		rHash = req.PaymentHash
+	}
+
+	// Ensure that the payment hash is *exactly* 32-bytes.
+	if len(rHash) != 32 {
+		return nil, fmt.Errorf("payment hash must be exactly "+
+			"32 bytes, is instead %v", len(rHash))
+	}
+	copy(payHash[:], rHash)
+
+	rpcsLog.Tracef("[lookuppayment] searching for payment %x", payHash[:])
+
+	payment, err := r.server.chanDB.LookupPayment(payHash)
+	if err != nil {
+		return nil, err
+	}
+
+	rpcsLog.Tracef("[lookuppayment] located payment %v",
+		newLogClosure(func() string {
+			return spew.Sdump(payment)
+		}))
+
+	rpcPayment, err := createRPCPayment(payment)
+	if err != nil {
+		return nil, err
+	}
+
+	return rpcPayment, nil
 }
 
 // ListInvoices returns a list of all the invoices currently stored within the

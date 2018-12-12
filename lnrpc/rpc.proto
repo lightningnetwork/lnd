@@ -530,9 +530,20 @@ service Lightning {
     The passed payment hash *must* be exactly 32 bytes, if not, an error is
     returned.
     */
-    rpc LookupInvoice (PaymentHash) returns (Invoice) {
+    rpc LookupInvoice (RHash) returns (Invoice) {
         option (google.api.http) = {
             get: "/v1/invoice/{r_hash_str}"
+        };
+    }
+
+    /** lncli: `lookuppayment`
+    LookupPayment attempts to look up an payment according to its payment hash.
+    The passed payment hash *must* be exactly 32 bytes, if not, an error is
+    returned.
+    */
+    rpc LookupPayment (PaymentHash) returns (Payment) {
+        option (google.api.http) = {
+            get: "/v1/payment/{payment_hash_str}"
         };
     }
 
@@ -887,6 +898,7 @@ message SendResponse {
     bytes payment_preimage = 2 [json_name = "payment_preimage"];
     Route payment_route = 3 [json_name = "payment_route"];
     bytes payment_hash = 4 [json_name = "payment_hash"];
+    uint64 payment_index = 5 [json_name = "payment_index"];
 }
 
 message SendToRouteRequest {
@@ -2059,17 +2071,26 @@ message AddInvoiceResponse {
     */
     uint64 add_index = 16 [json_name = "add_index"];
 }
-message PaymentHash {
+message RHash {
     /**
     The hex-encoded payment hash of the invoice to be looked up. The passed
-    payment hash must be exactly 32 bytes, otherwise an error is returned.
+    r_hash must be exactly 32 bytes, otherwise an error is returned.
     */
     string r_hash_str = 1 [json_name = "r_hash_str"];
 
     /// The payment hash of the invoice to be looked up.
     bytes r_hash = 2 [json_name = "r_hash"];
 }
+message PaymentHash {
+    /**
+    The hex-encoded payment hash of the invoice to be looked up. The passed
+    payment hash must be exactly 32 bytes, otherwise an error is returned.
+    */
+    string payment_hash_str = 1 [json_name = "payment_hash_str"];
 
+    /// The payment hash of the invoice to be looked up.
+    bytes payment_hash = 2 [json_name = "payment_hash"];
+}
 message ListInvoiceRequest {
     /// If set, only unsettled invoices will be returned in the response.
     bool pending_only = 1 [json_name = "pending_only"];
@@ -2152,6 +2173,9 @@ message Payment {
 
     /// The value of the payment in milli-satoshis
     int64 value_msat = 8 [json_name = "value_msat"];
+
+    // the payment counter, increments each payment
+    uint64 payment_index = 9 [json_name = "payment_index"];
 }
 
 message ListPaymentsRequest {

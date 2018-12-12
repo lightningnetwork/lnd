@@ -934,6 +934,39 @@
         ]
       }
     },
+    "/v1/payment/{payment_hash_str}": {
+      "get": {
+        "summary": "* lncli: `lookuppayment`\nLookupPayment attempts to look up an payment according to its payment hash.\nThe passed payment hash *must* be exactly 32 bytes, if not, an error is\nreturned.",
+        "operationId": "LookupPayment",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/lnrpcPayment"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "payment_hash_str",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "payment_hash",
+            "description": "/ The payment hash of the invoice to be looked up.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          }
+        ],
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
     "/v1/payments": {
       "get": {
         "summary": "* lncli: `listpayments`\nListPayments returns a list of all outgoing payments.",
@@ -2823,6 +2856,11 @@
           "type": "string",
           "format": "int64",
           "title": "/ The value of the payment in milli-satoshis"
+        },
+        "payment_index": {
+          "type": "string",
+          "format": "uint64",
+          "title": "the payment counter, increments each payment"
         }
       }
     },
@@ -3209,6 +3247,10 @@
         "payment_hash": {
           "type": "string",
           "format": "byte"
+        },
+        "payment_index": {
+          "type": "string",
+          "format": "uint64"
         }
       }
     },

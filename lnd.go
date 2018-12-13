@@ -332,7 +332,7 @@ func lndMain() error {
 	// exported by the rpcServer.
 	rpcServer, err := newRPCServer(
 		server, macaroonService, cfg.SubRPCServers, serverOpts,
-		proxyOpts, tlsConf,
+		proxyOpts, atplManager, tlsConf,
 	)
 	if err != nil {
 		srvrLog.Errorf("unable to start RPC server: %v", err)

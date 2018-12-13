@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"reflect"
 
+	"github.com/lightningnetwork/lnd/lnrpc/autopilotrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
@@ -25,6 +26,10 @@ type subRPCServerConfigs struct {
 	// also requests keys and addresses under control of the backing
 	// wallet.
 	WalletKitRPC *walletrpc.Config `group:"walletrpc" namespace:"walletrpc"`
+
+	// AutopilotRPC is a sub-RPC server that exposes methods on the running
+	// autopilot as a gRPC service.
+	AutopilotRPC *autopilotrpc.Config `group:"autopilotrpc" namespace:"autopilotrpc"`
 }
 
 // PopulateDependencies attempts to iterate through all the sub-server configs

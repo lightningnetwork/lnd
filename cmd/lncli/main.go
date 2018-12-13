@@ -293,6 +293,9 @@ func main() {
 		forwardingHistoryCommand,
 	}
 
+	// Add any extra autopilot commands determined by build flags.
+	app.Commands = append(app.Commands, autopilotCommands()...)
+
 	if err := app.Run(os.Args); err != nil {
 		fatal(err)
 	}

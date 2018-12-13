@@ -165,6 +165,10 @@ A quick summary of test practices follows:
   contained within `lnd`. For example integration tests, see
   [`lnd_test.go`](https://github.com/lightningnetwork/lnd/blob/master/lnd_test.go#L181). 
 
+Throughout the process of contributing to `lnd`, you'll likely also be
+extensively using the commands within our `Makefile`. As a result, we recommned
+[perusing the make file documentation](https://github.com/lightningnetwork/lnd/blob/master/docs/MAKEFILE.md).
+
 <a name="CodeDocumentation" />
 
 #### 4.3. Code Documentation and Commenting

@@ -10,6 +10,7 @@
 4.5. [Ideal Git Commit Structure](#IdealGitCommitStructure)<br />
 4.6. [Code Spacing](#CodeSpacing)<br />
 4.7. [Protobuf Compilation](#Protobuf)<br />
+4.8. [Additional Style Constraints On Top of gofmt](ExtraGoFmtStyle)<br />
 5. [Code Approval Process](#CodeApproval)<br />
 5.1. [Code Review](#CodeReview)<br />
 5.2. [Rework Code (if needed)](#CodeRework)<br />
@@ -380,6 +381,64 @@ Functions should _not_ just be laid out as a bare contiguous block of code.
 	return witness
 ```
 
+Additionally, we favor spacing between stanzas within syntax like: switch case
+statements and select statements.
+
+**WRONG**   
+```go
+    switch {
+        case a:
+            <code block>
+        case b:
+            <code block>
+        case c:
+            <code block>
+        case d:
+            <code block>
+        default:
+            <code block>
+    }
+```
+**RIGHT** 
+```go
+    switch {
+        // Brief comment detailing instances of this case (repeat below).
+        case a:
+            <code block>
+
+        case b:
+            <code block>
+
+        case c:
+            <code block>
+
+        case d:
+            <code block>
+
+        default:
+            <code block>
+    }
+```
+
+If one is forced to wrap lines of function arguments that exceed the 80
+character limit, then a new line should be inserted before the first stanza in
+the comment body.
+**WRONG**
+```go
+   func foo(a, b, c, 
+       d, e) error {
+       var a int 
+   }
+```
+**RIGHT**
+```go
+   func foo(a, b, c, 
+       d, e) error {
+
+       var a int 
+   }
+```
+
 <a name="Protobuf" />
 
 #### 4.7. Protobuf Compilation
@@ -414,6 +473,38 @@ message DebugLevelResponse {
 Notice how the `json_name` field option corresponds with the name of the field
 itself, and uses a `snake_case` style of name formatting. All added or modified
 `proto` fields should adhere to the format above.
+
+<a name="ExtraGoFmtStyle" />
+
+#### 4.8. Additional Style Constraints On Top of `gofmt`
+
+Before a PR is submitted, the proposer should ensure that the file passes the
+set of linting scripts run by `make lint`. These include `gofmt`. In addition
+to `gofmt` we've opted to enforce the following style guidelines.
+
+   * ALL columns (on a best effort basis) should be wrapped to 80 line columns.
+     Editors should be set to treat a tab as 4 spaces.
+   * When wrapping a line that contains a function call as the unwrapped line
+     exceeds the column limit, the close paren should be placed on its own
+     line. Additionally, all arguments should begin in a new line after the
+     open paren.
+
+     **WRONG**
+     ```go
+     value, err := bar(a,
+        a, b, c)
+     ```
+
+     **RIGHT**
+     ```go
+     value, err := bar(
+        a, a, b, c,
+     )
+     ```
+
+Note that the above guidelines don't apply to log messages. For log messages,
+committers should attempt to minimize the of number lines utilized, while still
+adhering to the 80-character column limit.
 
 <a name="CodeApproval" />
 

@@ -24,10 +24,10 @@ _testmain.go
 *.test
 *.prof
 
-lnd
-lnd-debug
-lncli
-lncli-debug
+/lnd
+/lnd-debug
+/lncli
+/lncli-debug
 
 # Integration test log files
 output*.log
@@ -53,7 +53,5 @@ profile.cov
 profile.tmp
 
 .DS_Store
-
-main*
 
 .vscode

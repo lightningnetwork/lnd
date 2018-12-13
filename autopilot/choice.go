@@ -52,7 +52,7 @@ func weightedChoice(s map[NodeID]*AttachmentDirective) (NodeID, error) {
 
 // chooseN picks at random min[n, len(s)] nodes if from the
 // AttachmentDirectives map, with a probability weighted by their score.
-func chooseN(n int, s map[NodeID]*AttachmentDirective) (
+func chooseN(n uint32, s map[NodeID]*AttachmentDirective) (
 	map[NodeID]*AttachmentDirective, error) {
 
 	// Keep a map of nodes not yet choosen.
@@ -64,7 +64,7 @@ func chooseN(n int, s map[NodeID]*AttachmentDirective) (
 	// Pick a weighted choice from the remaining nodes as long as there are
 	// nodes left, and we haven't already picked n.
 	chosen := make(map[NodeID]*AttachmentDirective)
-	for len(chosen) < n && len(rem) > 0 {
+	for len(chosen) < int(n) && len(rem) > 0 {
 		choice, err := weightedChoice(rem)
 		if err == ErrNoPositive {
 			return chosen, nil

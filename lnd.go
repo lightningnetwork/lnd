@@ -38,6 +38,7 @@ import (
 	proxy "github.com/grpc-ecosystem/grpc-gateway/runtime"
 	flags "github.com/jessevdk/go-flags"
 
+	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -312,6 +313,21 @@ func lndMain() error {
 		return err
 	}
 
+	// Set up an auotpilot manager from the current config. This will be
+	// used to manage the underlying autopilot agent, starting and stopping
+	// it at will.
+	atplCfg := initAutoPilot(server, cfg.Autopilot)
+	atplManager, err := autopilot.NewManager(atplCfg)
+	if err != nil {
+		ltndLog.Errorf("unable to create autopilot manager: %v", err)
+		return err
+	}
+	if err := atplManager.Start(); err != nil {
+		ltndLog.Errorf("unable to start autopilot manager: %v", err)
+		return err
+	}
+	defer atplManager.Stop()
+
 	// Initialize, and register our implementation of the gRPC interface
 	// exported by the rpcServer.
 	rpcServer, err := newRPCServer(
@@ -375,20 +391,14 @@ func lndMain() error {
 	defer server.Stop()
 
 	// Now that the server has started, if the autopilot mode is currently
-	// active, then we'll initialize a fresh instance of it and start it.
+	// active, then we'll start the autopilot agent immediately. It will be
+	// stopped together with the autopilot service.
 	if cfg.Autopilot.Active {
-		pilot, err := initAutoPilot(server, cfg.Autopilot)
-		if err != nil {
-			ltndLog.Errorf("unable to create autopilot agent: %v",
-				err)
-			return err
-		}
-		if err := pilot.Start(); err != nil {
+		if err := atplManager.StartAgent(); err != nil {
 			ltndLog.Errorf("unable to start autopilot agent: %v",
 				err)
 			return err
 		}
-		defer pilot.Stop()
 	}
 
 	// Wait for shutdown signal from either a graceful server stop or from

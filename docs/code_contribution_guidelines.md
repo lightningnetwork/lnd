@@ -604,8 +604,8 @@ Rejoice as you will now be listed as a [contributor](https://github.com/lightnin
   per default)
 - [&nbsp;&nbsp;] Running `make check` does not fail any tests
 - [&nbsp;&nbsp;] Running `go vet` does not report any issues
-- [&nbsp;&nbsp;] Running [golint](https://github.com/golang/lint) does not
-  report any **new** issues that did not already exist
+- [&nbsp;&nbsp;] Running `make lint` does not report any **new** issues that
+  did not already exist
 
 <a name="Licensing" />
 

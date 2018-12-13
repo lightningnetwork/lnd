@@ -27,6 +27,7 @@ import (
 	"github.com/coreos/bbolt"
 	"github.com/davecgh/go-spew/spew"
 	proxy "github.com/grpc-ecosystem/grpc-gateway/runtime"
+	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
@@ -392,7 +393,7 @@ var _ lnrpc.LightningServer = (*rpcServer)(nil)
 // like requiring TLS, etc.
 func newRPCServer(s *server, macService *macaroons.Service,
 	subServerCgs *subRPCServerConfigs, serverOpts []grpc.ServerOption,
-	restServerOpts []grpc.DialOption,
+	restServerOpts []grpc.DialOption, atpl *autopilot.Manager,
 	tlsCfg *tls.Config) (*rpcServer, error) {
 
 	var (
@@ -404,7 +405,7 @@ func newRPCServer(s *server, macService *macaroons.Service,
 	// the dependencies they need are properly populated within each sub
 	// server configuration struct.
 	err := subServerCgs.PopulateDependencies(
-		s.cc, networkDir, macService,
+		s.cc, networkDir, macService, atpl,
 	)
 	if err != nil {
 		return nil, err

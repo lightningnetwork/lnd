@@ -573,11 +573,14 @@ This process will continue until the code is finally accepted.
 
 #### 5.3. Acceptance
 
-Once your code is accepted, it will be integrated with the master branch.
-Typically it will be rebased and fast-forward merged to master as we prefer to
-keep a clean commit history over a tangled weave of merge commits.  However,
-regardless of the specific merge method used, the code will be integrated with
-the master branch and the pull request will be closed.
+Once your code is accepted, it will be integrated with the master branch. After
+2+ (sometimes 1) LGTM's (approvals) are given on a PR, it's eligible to land in
+master. At this final phase, it may be necessary to rebase the PR in order to
+resolve any conflicts and also squash fix up commits. Ideally, the set of
+[commits by new contributors are PGP signed](https://git-scm.com/book/en/v2/Git-Tools-Signing-Your-Work), 
+although this isn't a strong requirement (but we prefer it!). In order to keep
+these signatures intact, we prefer using merge commits. PR proposers can use
+`git rebase --signoff` to sign and rebase at the same time as a final step.
 
 Rejoice as you will now be listed as a [contributor](https://github.com/lightningnetwork/lnd/graphs/contributors)!
 

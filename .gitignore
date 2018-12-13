@@ -29,7 +29,9 @@ lnd-debug
 lncli
 lncli-debug
 
+# Integration test log files
 output*.log
+/.backendlogs
 
 cmd/cmd
 *.key

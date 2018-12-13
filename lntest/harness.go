@@ -3,7 +3,9 @@ package lntest
 import (
 	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -1288,4 +1290,25 @@ func (n *NetworkHarness) sendCoins(ctx context.Context, amt btcutil.Amount,
 
 	expectedBalance := initialBalance.ConfirmedBalance + int64(amt)
 	return target.WaitForBalance(expectedBalance, true)
+}
+
+// CopyFile copies the file src to dest.
+func CopyFile(dest, src string) error {
+	s, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer s.Close()
+
+	d, err := os.Create(dest)
+	if err != nil {
+		return err
+	}
+
+	if _, err := io.Copy(d, s); err != nil {
+		d.Close()
+		return err
+	}
+
+	return d.Close()
 }

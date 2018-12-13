@@ -7,8 +7,9 @@
 4.2. [Testing](#Testing)<br />
 4.3. [Code Documentation and Commenting](#CodeDocumentation)<br />
 4.4. [Model Git Commit Messages](#ModelGitCommitMessages)<br />
-4.5. [Code Spacing](#CodeSpacing)<br />
-4.6. [Protobuf Compilation](#Protobuf)<br />
+4.5. [Ideal Git Commit Structure](#IdealGitCommitStructure)<br />
+4.6. [Code Spacing](#CodeSpacing)<br />
+4.7. [Protobuf Compilation](#Protobuf)<br />
 5. [Code Approval Process](#CodeApproval)<br />
 5.1. [Code Review](#CodeReview)<br />
 5.2. [Rework Code (if needed)](#CodeRework)<br />
@@ -290,9 +291,44 @@ either a '+' or a ','. This prefix seems minor but can be extremely helpful in
 determining the scope of a commit at a glance, or when bug hunting to find a
 commit which introduced a bug or regression. 
 
+<a name="IdealGitCommitStructure" />
+
+#### 4.5. Ideal Git Commit Structure
+
+Within the project we prefer small, contained commits for a pull request over a
+single giant commit that touches several files/packages. Ideal commits build on
+their own, in order to facilitate easy usage of tools like `git bisect` to `git
+cherry-pick`. It's preferred that commits contain an isolated change in a
+single package. In this case, the commit header message should begin with the
+prefix of the modified package. For example, if a commit was made to modify the
+`lnwallet` package, it should start with `lnwallet: `. 
+
+In the case of changes that only build in tandem with changes made in other
+packages, it is permitted for a single commit to be made which contains several
+prefixes such as: `lnwallet+htlcswitch`. This prefix structure along with the
+requirement for atomic contained commits (when possible) make things like
+scanning the set of commits and debugging easier. In the case of changes that
+touch several packages, and can only compile with the change across several
+packages, a `multi: ` prefix should be used.
+
+Examples of common patterns w.r.t commit structures within the project:
+
+  * It is common that during the work on a PR, existing bugs are found and
+    fixed. If they can be fixed in isolation, they should have their own
+    commit. 
+  * File restructuring like moving a function to another file or changing order
+    of functions: with a separate commit because it is much easier to review
+    the real changes that go on top of the restructuring.
+  * Preparatory refactorings that are functionally equivalent: own commit.
+  * Project or package wide file renamings should be in their own commit.
+  * Ideally if a new package/struct/sub-system is added in a PR, there should
+    be a single commit which adds the new functionality, with follow up
+    induvidual commits that begin to intergrate the functionality within the
+    codebase.
+
 <a name="CodeSpacing" />
 
-#### 4.5. Code Spacing 
+#### 4.6. Code Spacing 
 
 Blocks of code within `lnd` should be segmented into logical stanzas of
 operation. Such spacing makes the code easier to follow at a skim, and reduces
@@ -342,7 +378,7 @@ Functions should _not_ just be laid out as a bare contiguous block of code.
 
 <a name="Protobuf" />
 
-#### 4.5.6. Protobuf Compilation
+#### 4.7. Protobuf Compilation
 
 The `lnd` project uses `protobuf`, and its extension [`gRPC`](www.grpc.io) in
 several areas and as the primary RPC interface. In order to ensure uniformity

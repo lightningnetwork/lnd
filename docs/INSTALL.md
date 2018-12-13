@@ -1,3 +1,22 @@
+# Table of Contents
+* [Installation](#installation)
+    * [Preliminaries](#preliminaries)
+    * [Installing lnd](#installing-lnd)
+* [Available Backend Operating Modes](#available-backend-operating-modes)
+  * [btcd Options](#btcd-options)
+  * [Neutrino Options](#neutrino-options)
+  * [Bitcoind Options](#bitcoind-options)
+  * [Using btcd](#using-btcd)
+    * [Installing btcd](#installing-btcd)
+    * [Starting btcd](#starting-btcd)
+    * [Running lnd using the btcd backend](#running-lnd-using-the-btcd-backend)
+  * [Using Neutrino](#using-neutrino)
+  * [Using bitcoind or litecoind](#using-bitcoind-or-litecoind)
+* [Macaroons](#macaroons)
+* [Network Reachability](#network-reachability)
+* [Simnet vs. Testnet Development](#simnet-vs-testnet-development)
+* [Creating an lnd.conf (Optional)](#creating-an-lndconf-(optional))
+
 # Installation
 
 ### Preliminaries
@@ -115,9 +134,60 @@ To check that `lnd` was installed properly run the following command:
 make check
 ```
 
-On FreeBSD, use gmake instead of make.
+# Available Backend Operating Modes
+
+In order to run, `lnd` requires, that the user specify a chain backend. At the
+time of writing of this document, there are three available chain backends:
+`btcd`, `neutrino`, `bitcoind`. All but neutrino (atm) can run on mainnet with
+an out of the box `lnd` instance. We don't require `--txindex` when running
+with `bitcoind` or `btcd` but activating the `txindex` will generally make
+`lnd` run faster.
+
+**NOTE: WE DO NOT FULLY SUPPORT PRUNED OPERATING MODES FOR FULL NODES.** It's
+possible to run a node in a pruned mode and have it serve lnd, however one must
+take care to ensure that `lnd` has all blocks on disk since the birth of the
+wallet, and the age of the earliest channels (which were created around March
+2018).
+
+The set of arguments for each of the backend modes is as follows:
+
+## btcd Options
+```
+btcd:
+      --btcd.dir=                                             The base directory that contains the node's data, logs, configuration file, etc. (default: /Users/roasbeef/Library/Application Support/Btcd)
+      --btcd.rpchost=                                         The daemon's rpc listening address. If a port is omitted, then the default port for the selected chain parameters will be used. (default: localhost)
+      --btcd.rpcuser=                                         Username for RPC connections
+      --btcd.rpcpass=                                         Password for RPC connections
+      --btcd.rpccert=                                         File containing the daemon's certificate file (default: /Users/roasbeef/Library/Application Support/Btcd/rpc.cert)
+      --btcd.rawrpccert=                                      The raw bytes of the daemon's PEM-encoded certificate chain which will be used to authenticate the RPC connection.
+```
+
+## Neutrino Options
+```
+neutrino:
+  -a, --neutrino.addpeer=                                     Add a peer to connect with at startup
+      --neutrino.connect=                                     Connect only to the specified peers at startup
+      --neutrino.maxpeers=                                    Max number of inbound and outbound peers
+      --neutrino.banduration=                                 How long to ban misbehaving peers.  Valid time units are {s, m, h}.  Minimum 1 second
+      --neutrino.banthreshold=                                Maximum allowed ban score before disconnecting and banning misbehaving peers.
+```
+
+## Bitcoind Options
+```
+bitcoind:
+      --bitcoind.dir=                                         The base directory that contains the node's data, logs, configuration file, etc. (default: /Users/roasbeef/Library/Application Support/Bitcoin)
+      --bitcoind.rpchost=                                     The daemon's rpc listening address. If a port is omitted, then the default port for the selected chain parameters will be used. (default: localhost)
+      --bitcoind.rpcuser=                                     Username for RPC connections
+      --bitcoind.rpcpass=                                     Password for RPC connections
+      --bitcoind.zmqpubrawblock=                              The address listening for ZMQ connections to deliver raw block notifications
+      --bitcoind.zmqpubrawtx=                                 The address listening for ZMQ connections to deliver raw transaction notifications
+```
+
+## Using btcd
 
 ### Installing btcd
+
+On FreeBSD, use gmake instead of make.
 
 To install btcd, run the following commands:
 
@@ -170,30 +240,17 @@ You can test your `btcd` node's connectivity using the `getpeerinfo` command:
 btcctl --testnet --rpcuser=REPLACEME --rpcpass=REPLACEME getpeerinfo | more
 ```
 
-### lnd
+### Running lnd using the btcd backend
 
-#### Simnet vs. Testnet Development
+If you are on testnet, run this command after `btcd` has finished syncing.
+Otherwise, replace `--bitcoin.testnet` with `--bitcoin.simnet`. If you are
+installing `lnd` in preparation for the
+[tutorial](http://dev.lightning.community/tutorial), you may skip this step.
+```
+lnd --bitcoin.active --bitcoin.testnet --debuglevel=debug --btcd.rpcuser=kek --btcd.rpcpass=kek --externalip=X.X.X.X
+```
 
-If you are doing local development, such as for the tutorial, you'll want to
-start both `btcd` and `lnd` in the `simnet` mode. Simnet is similar to regtest
-in that you'll be able to instantly mine blocks as needed to test `lnd`
-locally. In order to start either daemon in the `simnet` mode use `simnet`
-instead of `testnet`, adding the `--bitcoin.simnet` flag instead of the
-`--bitcoin.testnet` flag.
-
-Another relevant command line flag for local testing of new `lnd` developments
-is the `--debughtlc` flag. When starting `lnd` with this flag, it'll be able to
-automatically settle a special type of HTLC sent to it. This means that you
-won't need to manually insert invoices in order to test payment connectivity.
-To send this "special" HTLC type, include the `--debugsend` command at the end
-of your `sendpayment` commands.
-
-
-There are currently two primary ways to run `lnd`: one requires a local `btcd`
-instance with the RPC service exposed, and the other uses a fully integrated
-light client powered by [neutrino](https://github.com/lightninglabs/neutrino).
-
-#### Running lnd in Light Client Mode
+## Using Neutrino
 
 In order to run `lnd` in its light client mode, you'll need to locate a
 full-node which is capable of serving this new light client mode. `lnd` uses
@@ -208,26 +265,17 @@ in `--bitcoin.simnet` if needed), and also your own `btcd` node if available:
 lnd --bitcoin.active --bitcoin.testnet --debuglevel=debug --bitcoin.node=neutrino --neutrino.connect=faucet.lightning.community
 ```
 
-#### Running lnd using the btcd backend
 
-If you are on testnet, run this command after `btcd` has finished syncing.
-Otherwise, replace `--bitcoin.testnet` with `--bitcoin.simnet`. If you are
-installing `lnd` in preparation for the
-[tutorial](http://dev.lightning.community/tutorial), you may skip this step.
-```
-lnd --bitcoin.active --bitcoin.testnet --debuglevel=debug --btcd.rpcuser=kek --btcd.rpcpass=kek --externalip=X.X.X.X
-```
+## Using bitcoind or litecoind
 
-#### Running lnd using the bitcoind or litecoind backend
-
-The configuration for bitcoind and litecoind are nearly identical, the following
-steps can be mirrored with loss of generality to enable a litecoind backend.
-Setup will be described in regards to `bitcoind`, but note that `lnd` uses a
-distinct `litecoin.node=litecoind` argument and analogous subconfigurations
-prefixed by `litecoind`. Note that adding `--txindex` is optional, as it will
-take longer to sync the node, but then `lnd` will generally operate faster as
-it can hit the index directly, rather than scanning blocks or BIP 158 filters
-for relevant items.
+The configuration for bitcoind and litecoind are nearly identical, the
+following steps can be mirrored with loss of generality to enable a litecoind
+backend.  Setup will be described in regards to `bitcoind`, but note that `lnd`
+uses a distinct `litecoin.node=litecoind` argument and analogous
+subconfigurations prefixed by `litecoind`. Note that adding `--txindex` is
+optional, as it will take longer to sync the node, but then `lnd` will
+generally operate faster as it can hit the index directly, rather than scanning
+blocks or BIP 158 filters for relevant items.
 
 To configure your bitcoind backend for use with lnd, first complete and verify
 the following:
@@ -258,9 +306,10 @@ zmqpubrawtx=tcp://127.0.0.1:28333
 ```
 
 Once all of the above is complete, and you've confirmed `bitcoind` is fully
-updated with the latest blocks on testnet, run the command below to launch `lnd`
-with `bitcoind` as your backend (as with `bitcoind`, you can create an
-`lnd.conf` to save these options, more info on that is described further below):
+updated with the latest blocks on testnet, run the command below to launch
+`lnd` with `bitcoind` as your backend (as with `bitcoind`, you can create an
+`lnd.conf` to save these options, more info on that is described further
+below):
 
 ```
 lnd --bitcoin.active --bitcoin.testnet --debuglevel=debug --bitcoin.node=bitcoind --bitcoind.rpcuser=REPLACEME --bitcoind.rpcpass=REPLACEME --bitcoind.zmqpubrawblock=tcp://127.0.0.1:28332 --bitcoind.zmqpubrawtx=tcp://127.0.0.1:28333 --externalip=X.X.X.X
@@ -292,7 +341,7 @@ lnd --bitcoin.active --bitcoin.testnet --debuglevel=debug --bitcoin.node=bitcoin
   `lnd` plus any application that consumes the RPC could cause `lnd` to miss
   crucial updates from the backend.
 
-#### Macaroons
+# Macaroons
 
 `lnd`'s authentication system is called **macaroons**, which are decentralized
 bearer credentials allowing for delegation, attenuation, and other cool
@@ -311,12 +360,33 @@ using the `--macaroonpath` argument.
 To disable macaroons for testing, pass the `--no-macaroons` flag into *both*
 `lnd` and `lncli`.
 
-#### Network Reachability
+# Network Reachability
 
 If you'd like to signal to other nodes on the network that you'll accept
 incoming channels (as peers need to connect inbound to initiate a channel
 funding workflow), then the `--externalip` flag should be set to your publicly
 reachable IP address.
+
+# Simnet vs. Testnet Development
+
+If you are doing local development, such as for the tutorial, you'll want to
+start both `btcd` and `lnd` in the `simnet` mode. Simnet is similar to regtest
+in that you'll be able to instantly mine blocks as needed to test `lnd`
+locally. In order to start either daemon in the `simnet` mode use `simnet`
+instead of `testnet`, adding the `--bitcoin.simnet` flag instead of the
+`--bitcoin.testnet` flag.
+
+Another relevant command line flag for local testing of new `lnd` developments
+is the `--debughtlc` flag. When starting `lnd` with this flag, it'll be able to
+automatically settle a special type of HTLC sent to it. This means that you
+won't need to manually insert invoices in order to test payment connectivity.
+To send this "special" HTLC type, include the `--debugsend` command at the end
+of your `sendpayment` commands.
+
+
+There are currently two primary ways to run `lnd`: one requires a local `btcd`
+instance with the RPC service exposed, and the other uses a fully integrated
+light client powered by [neutrino](https://github.com/lightninglabs/neutrino).
 
 # Creating an lnd.conf (Optional)
 

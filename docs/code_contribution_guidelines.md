@@ -560,6 +560,13 @@ master.  In certain cases the code reviewer(s) or interested committers may help
 you rework the code, but generally you will simply be given feedback for you to
 make the necessary changes.
 
+During the process of responding to review comments, we prefer that changes be
+made with [fixup commits](https://robots.thoughtbot.com/autosquashing-git-commits). 
+The reason for this is two fold: it makes it easier for the reviewer to see
+what changes have been made between versions (since Github doesn't easily show
+prior versions like Critique) and it makes it easier on the PR author as they
+can set it to auto squash the fix up commits on rebase.
+
 This process will continue until the code is finally accepted.
 
 <a name="CodeAcceptance" />

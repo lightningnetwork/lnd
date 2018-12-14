@@ -16,7 +16,6 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/integration/rpctest"
-	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
@@ -50,12 +49,15 @@ const (
 // The harness by default is created with two active nodes on the network:
 // Alice and Bob.
 type NetworkHarness struct {
-	rpcConfig rpcclient.ConnConfig
 	netParams *chaincfg.Params
 
 	// Miner is a reference to a running full node that can be used to create
 	// new blocks on the network.
 	Miner *rpctest.Harness
+
+	// BackendCfg houses the information necessary to use a node as LND
+	// chain backend, such as rpc configuration, P2P information etc.
+	BackendCfg BackendConfig
 
 	activeNodes map[int]*HarnessNode
 
@@ -82,7 +84,7 @@ type NetworkHarness struct {
 // TODO(roasbeef): add option to use golang's build library to a binary of the
 // current repo. This will save developers from having to manually `go install`
 // within the repo each time before changes
-func NewNetworkHarness(r *rpctest.Harness) (*NetworkHarness, error) {
+func NewNetworkHarness(r *rpctest.Harness, b BackendConfig) (*NetworkHarness, error) {
 	n := NetworkHarness{
 		activeNodes:          make(map[int]*HarnessNode),
 		nodesByPub:           make(map[string]*HarnessNode),
@@ -91,7 +93,7 @@ func NewNetworkHarness(r *rpctest.Harness) (*NetworkHarness, error) {
 		lndErrorChan:         make(chan error),
 		netParams:            r.ActiveNet,
 		Miner:                r,
-		rpcConfig:            r.RPCConfig(),
+		BackendCfg:           b,
 		quit:                 make(chan struct{}),
 	}
 	go n.networkWatcher()
@@ -355,11 +357,11 @@ func (n *NetworkHarness) RestoreNodeWithSeed(name string, extraArgs []string,
 func (n *NetworkHarness) newNode(name string, extraArgs []string,
 	hasSeed bool) (*HarnessNode, error) {
 	node, err := newNode(nodeConfig{
-		Name:      name,
-		HasSeed:   hasSeed,
-		RPCConfig: &n.rpcConfig,
-		NetParams: n.netParams,
-		ExtraArgs: extraArgs,
+		Name:       name,
+		HasSeed:    hasSeed,
+		BackendCfg: n.BackendCfg,
+		NetParams:  n.netParams,
+		ExtraArgs:  extraArgs,
 	})
 	if err != nil {
 		return nil, err

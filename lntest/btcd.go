@@ -16,22 +16,22 @@ const logDir = "./.backendlogs"
 // BtcdBackendConfig is an implementation of the BackendConfig interface
 // backed by a btcd node.
 type BtcdBackendConfig struct {
-	// RPCConfig houses the connection config to the backing btcd instance.
-	RPCConfig rpcclient.ConnConfig
+	// rpcConfig houses the connection config to the backing btcd instance.
+	rpcConfig rpcclient.ConnConfig
 
-	// P2PAddress is the p2p address of the btcd instance.
-	P2PAddress string
+	// p2pAddress is the p2p address of the btcd instance.
+	p2pAddress string
 }
 
 // GenArgs returns the arguments needed to be passed to LND at startup for
 // using this node as a chain backend.
 func (b BtcdBackendConfig) GenArgs() []string {
 	var args []string
-	encodedCert := hex.EncodeToString(b.RPCConfig.Certificates)
+	encodedCert := hex.EncodeToString(b.rpcConfig.Certificates)
 	args = append(args, "--bitcoin.node=btcd")
-	args = append(args, fmt.Sprintf("--btcd.rpchost=%v", b.RPCConfig.Host))
-	args = append(args, fmt.Sprintf("--btcd.rpcuser=%v", b.RPCConfig.User))
-	args = append(args, fmt.Sprintf("--btcd.rpcpass=%v", b.RPCConfig.Pass))
+	args = append(args, fmt.Sprintf("--btcd.rpchost=%v", b.rpcConfig.Host))
+	args = append(args, fmt.Sprintf("--btcd.rpcuser=%v", b.rpcConfig.User))
+	args = append(args, fmt.Sprintf("--btcd.rpcpass=%v", b.rpcConfig.Pass))
 	args = append(args, fmt.Sprintf("--btcd.rawrpccert=%v", encodedCert))
 
 	return args
@@ -40,7 +40,7 @@ func (b BtcdBackendConfig) GenArgs() []string {
 // P2PAddr returns the address of this node to be used when connection over the
 // Bitcoin P2P network.
 func (b BtcdBackendConfig) P2PAddr() string {
-	return b.P2PAddress
+	return b.p2pAddress
 }
 
 // NewBtcdBackend starts a new rpctest.Harness and returns a BtcdBackendConfig
@@ -64,8 +64,8 @@ func NewBtcdBackend() (*BtcdBackendConfig, func(), error) {
 	}
 
 	bd := &BtcdBackendConfig{
-		RPCConfig:  chainBackend.RPCConfig(),
-		P2PAddress: chainBackend.P2PAddress(),
+		rpcConfig:  chainBackend.RPCConfig(),
+		p2pAddress: chainBackend.P2PAddress(),
 	}
 
 	cleanUp := func() {

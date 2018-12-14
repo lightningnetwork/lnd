@@ -19,6 +19,7 @@ import (
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/htlcswitch"
+	"github.com/lightningnetwork/lnd/lnrpc/autopilotrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -69,6 +70,7 @@ var (
 	swprLog = build.NewSubLogger("SWPR", backendLog.Logger)
 	sgnrLog = build.NewSubLogger("SGNR", backendLog.Logger)
 	wlktLog = build.NewSubLogger("WLKT", backendLog.Logger)
+	arpcLog = build.NewSubLogger("ARPC", backendLog.Logger)
 )
 
 // Initialize package-global logger variables.
@@ -88,6 +90,7 @@ func init() {
 	sweep.UseLogger(swprLog)
 	signrpc.UseLogger(sgnrLog)
 	walletrpc.UseLogger(wlktLog)
+	autopilotrpc.UseLogger(arpcLog)
 }
 
 // subsystemLoggers maps each subsystem identifier to its associated logger.
@@ -113,6 +116,7 @@ var subsystemLoggers = map[string]btclog.Logger{
 	"SWPR": swprLog,
 	"SGNR": sgnrLog,
 	"WLKT": wlktLog,
+	"ARPC": arpcLog,
 }
 
 // initLogRotator initializes the logging rotator to write logs to logFile and

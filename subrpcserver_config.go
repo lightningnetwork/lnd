@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"reflect"
 
+	"github.com/lightningnetwork/lnd/autopilot"
+	"github.com/lightningnetwork/lnd/lnrpc/autopilotrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
@@ -25,6 +27,10 @@ type subRPCServerConfigs struct {
 	// also requests keys and addresses under control of the backing
 	// wallet.
 	WalletKitRPC *walletrpc.Config `group:"walletrpc" namespace:"walletrpc"`
+
+	// AutopilotRPC is a sub-RPC server that exposes methods on the running
+	// autopilot as a gRPC service.
+	AutopilotRPC *autopilotrpc.Config `group:"autopilotrpc" namespace:"autopilotrpc"`
 }
 
 // PopulateDependencies attempts to iterate through all the sub-server configs
@@ -34,7 +40,8 @@ type subRPCServerConfigs struct {
 // NOTE: This MUST be called before any callers are permitted to execute the
 // FetchConfig method.
 func (s *subRPCServerConfigs) PopulateDependencies(cc *chainControl,
-	networkDir string, macService *macaroons.Service) error {
+	networkDir string, macService *macaroons.Service,
+	atpl *autopilot.Manager) error {
 
 	// First, we'll use reflect to obtain a version of the config struct
 	// that allows us to programmatically inspect its fields.
@@ -90,6 +97,13 @@ func (s *subRPCServerConfigs) PopulateDependencies(cc *chainControl,
 			)
 			subCfgValue.FieldByName("KeyRing").Set(
 				reflect.ValueOf(cc.keyRing),
+			)
+
+		case *autopilotrpc.Config:
+			subCfgValue := extractReflectValue(cfg)
+
+			subCfgValue.FieldByName("Manager").Set(
+				reflect.ValueOf(atpl),
 			)
 
 		default:

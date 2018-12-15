@@ -3,9 +3,10 @@ package contractcourt
 import (
 	"errors"
 	"fmt"
-	"github.com/lightningnetwork/lnd/sweep"
 	"sync"
 	"sync/atomic"
+
+	"github.com/lightningnetwork/lnd/sweep"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
@@ -238,11 +239,11 @@ func newActiveChannelArbitrator(channel *channeldb.OpenChannel,
 			}
 
 			chanMachine, err := lnwallet.NewLightningChannel(
-				c.cfg.Signer, c.cfg.PreimageDB, channel)
+				c.cfg.Signer, c.cfg.PreimageDB, channel, nil,
+			)
 			if err != nil {
 				return nil, err
 			}
-			chanMachine.Stop()
 
 			if err := c.cfg.MarkLinkInactive(chanPoint); err != nil {
 				log.Errorf("unable to mark link inactive: %v", err)

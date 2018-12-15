@@ -1444,14 +1444,18 @@ func TestStateUpdatePersistence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to fetch channel: %v", err)
 	}
+
 	aliceChannelNew, err := NewLightningChannel(
 		aliceChannel.Signer, nil, aliceChannels[0],
+		aliceChannel.sigPool,
 	)
 	if err != nil {
 		t.Fatalf("unable to create new channel: %v", err)
 	}
+
 	bobChannelNew, err := NewLightningChannel(
 		bobChannel.Signer, nil, bobChannels[0],
+		bobChannel.sigPool,
 	)
 	if err != nil {
 		t.Fatalf("unable to create new channel: %v", err)
@@ -2544,20 +2548,19 @@ func TestChanSyncFullySynced(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to fetch channel: %v", err)
 	}
+
 	aliceChannelNew, err := NewLightningChannel(
-		aliceChannel.Signer, nil, aliceChannels[0],
+		aliceChannel.Signer, nil, aliceChannels[0], aliceChannel.sigPool,
 	)
 	if err != nil {
 		t.Fatalf("unable to create new channel: %v", err)
 	}
-	defer aliceChannelNew.Stop()
 	bobChannelNew, err := NewLightningChannel(
-		bobChannel.Signer, nil, bobChannels[0],
+		bobChannel.Signer, nil, bobChannels[0], bobChannel.sigPool,
 	)
 	if err != nil {
 		t.Fatalf("unable to create new channel: %v", err)
 	}
-	defer bobChannelNew.Stop()
 
 	assertNoChanSyncNeeded(t, aliceChannelNew, bobChannelNew)
 }
@@ -2576,6 +2579,7 @@ func restartChannel(channelOld *LightningChannel) (*LightningChannel, error) {
 
 	channelNew, err := NewLightningChannel(
 		channelOld.Signer, channelOld.pCache, nodeChannels[0],
+		channelOld.sigPool,
 	)
 	if err != nil {
 		return nil, err
@@ -2786,7 +2790,6 @@ func TestChanSyncOweCommitment(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to restart alice: %v", err)
 	}
-	defer aliceChannel.Stop()
 	assertAliceCommitRetransmit()
 
 	// TODO(roasbeef): restart bob as well???
@@ -3053,7 +3056,6 @@ func TestChanSyncOweRevocation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to restart alice: %v", err)
 	}
-	defer aliceChannel.Stop()
 	assertAliceOwesRevoke()
 
 	// TODO(roasbeef): restart bob too???
@@ -3233,7 +3235,6 @@ func TestChanSyncOweRevocationAndCommit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to restart channel: %v", err)
 	}
-	defer bobChannel.Stop()
 	assertBobSendsRevokeAndCommit()
 
 	// We'll now finish the state transition by having Alice process both
@@ -3428,7 +3429,6 @@ func TestChanSyncOweRevocationAndCommitForceTransition(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to restart channel: %v", err)
 	}
-	defer bobChannel.Stop()
 	if len(bobMsgsToSend) != 2 {
 		t.Fatalf("expected bob to send %v messages, instead "+
 			"sends: %v", 2, spew.Sdump(bobMsgsToSend))
@@ -3775,12 +3775,10 @@ func TestChannelRetransmissionFeeUpdate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to restart alice: %v", err)
 	}
-	defer aliceChannel.Stop()
 	bobChannel, err = restartChannel(bobChannel)
 	if err != nil {
 		t.Fatalf("unable to restart channel: %v", err)
 	}
-	defer bobChannel.Stop()
 
 	// Bob doesn't get this message so upon reconnection, they need to
 	// synchronize. Alice should conclude that she owes Bob a commitment,
@@ -4293,12 +4291,10 @@ func TestLockedInHtlcForwardingSkipAfterRestart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to restart alice: %v", err)
 	}
-	defer aliceChannel.Stop()
 	bobChannel, err = restartChannel(bobChannel)
 	if err != nil {
 		t.Fatalf("unable to restart bob: %v", err)
 	}
-	defer bobChannel.Stop()
 
 	// With both nodes restarted, Bob will now attempt to cancel one of
 	// Alice's HTLC's.
@@ -4399,12 +4395,10 @@ func TestLockedInHtlcForwardingSkipAfterRestart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to restart alice: %v", err)
 	}
-	defer aliceChannel.Stop()
 	bobChannel, err = restartChannel(bobChannel)
 	if err != nil {
 		t.Fatalf("unable to restart bob: %v", err)
 	}
-	defer bobChannel.Stop()
 
 	// Readd the Fail to both Alice and Bob's channels, as the non-committed
 	// update will not have survived the restart.
@@ -5590,19 +5584,19 @@ func TestChannelRestoreUpdateLogs(t *testing.T) {
 	// the update logs up to the correct state set up above.
 	newAliceChannel, err := NewLightningChannel(
 		aliceChannel.Signer, nil, aliceChannel.channelState,
+		aliceChannel.sigPool,
 	)
 	if err != nil {
 		t.Fatalf("unable to create new channel: %v", err)
 	}
-	defer newAliceChannel.Stop()
 
 	newBobChannel, err := NewLightningChannel(
 		bobChannel.Signer, nil, bobChannel.channelState,
+		bobChannel.sigPool,
 	)
 	if err != nil {
 		t.Fatalf("unable to create new channel: %v", err)
 	}
-	defer newBobChannel.Stop()
 
 	// compare all the logs between the old and new channels, to make sure
 	// they all got restored properly.
@@ -5669,13 +5663,14 @@ func assertInLogs(t *testing.T, channel *LightningChannel, numAddsLocal,
 // expected state.
 func restoreAndAssert(t *testing.T, channel *LightningChannel, numAddsLocal,
 	numFailsLocal, numAddsRemote, numFailsRemote int) {
+
 	newChannel, err := NewLightningChannel(
 		channel.Signer, nil, channel.channelState,
+		channel.sigPool,
 	)
 	if err != nil {
 		t.Fatalf("unable to create new channel: %v", err)
 	}
-	defer newChannel.Stop()
 
 	assertInLog(t, newChannel.localUpdateLog, numAddsLocal, numFailsLocal)
 	assertInLog(t, newChannel.remoteUpdateLog, numAddsRemote, numFailsRemote)
@@ -5863,12 +5858,10 @@ func TestDuplicateFailRejection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to restart channel: %v", err)
 	}
-	defer bobChannel.Stop()
 	aliceChannel, err = restartChannel(aliceChannel)
 	if err != nil {
 		t.Fatalf("unable to restart channel: %v", err)
 	}
-	defer aliceChannel.Stop()
 
 	// If we try to fail the same HTLC again, then we should get an error.
 	err = bobChannel.FailHTLC(0, []byte("failreason"), nil, nil, nil)
@@ -5945,12 +5938,10 @@ func TestDuplicateSettleRejection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to restart channel: %v", err)
 	}
-	defer bobChannel.Stop()
 	aliceChannel, err = restartChannel(aliceChannel)
 	if err != nil {
 		t.Fatalf("unable to restart channel: %v", err)
 	}
-	defer aliceChannel.Stop()
 
 	// If we try to fail the same HTLC again, then we should get an error.
 	err = bobChannel.SettleHTLC(alicePreimage, uint64(0), nil, nil, nil)
@@ -5983,9 +5974,9 @@ func TestChannelRestoreCommitHeight(t *testing.T) {
 		channel *LightningChannel, remoteLog bool, htlcIndex uint64,
 		expLocal, expRemote uint64) *LightningChannel {
 
-		channel.Stop()
 		newChannel, err := NewLightningChannel(
 			channel.Signer, nil, channel.channelState,
+			channel.sigPool,
 		)
 		if err != nil {
 			t.Fatalf("unable to create new channel: %v", err)
@@ -6152,7 +6143,4 @@ func TestChannelRestoreCommitHeight(t *testing.T) {
 	// HTLC an add height.
 	bobChannel = restoreAndAssertCommitHeights(t, bobChannel, true, 0, 2, 1)
 	bobChannel = restoreAndAssertCommitHeights(t, bobChannel, true, 1, 2, 2)
-
-	aliceChannel.Stop()
-	bobChannel.Stop()
 }

@@ -11,6 +11,7 @@ import (
 	"net"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -165,6 +166,8 @@ type server struct {
 
 	connMgr *connmgr.ConnManager
 
+	sigPool *lnwallet.SigPool
+
 	// globalFeatures feature vector which affects HTLCs and thus are also
 	// advertised to other nodes.
 	globalFeatures *lnwire.FeatureVector
@@ -262,8 +265,9 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 	sphinxRouter := sphinx.NewRouter(privKey, activeNetParams.Params, replayLog)
 
 	s := &server{
-		chanDB: chanDB,
-		cc:     cc,
+		chanDB:  chanDB,
+		cc:      cc,
+		sigPool: lnwallet.NewSigPool(runtime.NumCPU()*2, cc.signer),
 
 		invoices: newInvoiceRegistry(chanDB),
 
@@ -951,6 +955,9 @@ func (s *server) Start() error {
 	// sufficient number of confirmations, or when the input for the
 	// funding transaction is spent in an attempt at an uncooperative close
 	// by the counterparty.
+	if err := s.sigPool.Start(); err != nil {
+		return err
+	}
 	if err := s.cc.chainNotifier.Start(); err != nil {
 		return err
 	}
@@ -1038,6 +1045,7 @@ func (s *server) Stop() error {
 	}
 
 	// Shutdown the wallet, funding manager, and the rpc server.
+	s.sigPool.Stop()
 	s.cc.chainNotifier.Stop()
 	s.chanRouter.Stop()
 	s.htlcSwitch.Stop()

@@ -443,7 +443,6 @@ func (l *channelLink) Stop() {
 	}
 
 	l.updateFeeTimer.Stop()
-	l.channel.Stop()
 	l.overflowQueue.Stop()
 
 	close(l.quit)

@@ -1,18 +1,15 @@
-FROM golang:1.10-alpine as builder
-
-MAINTAINER Olaoluwa Osuntokun <lightning.engineering>
-
-# Copy in the local repository to build from.
-COPY . /go/src/github.com/lightningnetwork/lnd
+FROM golang:alpine as builder
 
 # Force Go to use the cgo based DNS resolver. This is required to ensure DNS
 # queries required to connect to linked containers succeed.
 ENV GODEBUG netdns=cgo
 
-# Install dependencies and install/build lnd.
-RUN apk add --no-cache \
+# Install dependencies and build the binaries.
+RUN apk add --no-cache --update alpine-sdk \
     git \
     make \
+    gcc \
+&&  git clone https://github.com/lightningnetwork/lnd /go/src/github.com/lightningnetwork/lnd \
 &&  cd /go/src/github.com/lightningnetwork/lnd \
 &&  make \
 &&  make install

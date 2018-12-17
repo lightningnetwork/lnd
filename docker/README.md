@@ -64,21 +64,21 @@ bitcoin into.
 $ export NETWORK="simnet" 
 
 # Run the "Alice" container and log into it:
-$ docker-compose run -d --name alice lnd_btc
-$ docker exec -i -t alice bash
+$ sudo -E docker-compose run -d --name alice lnd_btc
+$ sudo -E docker exec -i -t alice bash
 
 # Generate a new backward compatible nested p2sh address for Alice:
 alice$ lncli --network=simnet newaddress np2wkh 
 
 # Recreate "btcd" node and set Alice's address as mining address:
-$ MINING_ADDRESS=<alice_address> docker-compose up -d btcd
+$ sudo -E MINING_ADDRESS=<alice_address> docker-compose up -d btcd
 
 # Generate 400 blocks (we need at least "100 >=" blocks because of coinbase 
 # block maturity and "300 ~=" in order to activate segwit):
-$ docker-compose run btcctl generate 400
+$ sudo -E docker-compose run btcctl generate 400
 
 # Check that segwit is active:
-$ docker-compose run btcctl getblockchaininfo | grep -A 1 segwit
+$ sudo -E docker-compose run btcctl getblockchaininfo | grep -A 1 segwit
 ```
 
 Check `Alice` balance:
@@ -90,8 +90,8 @@ Connect `Bob` node to `Alice` node.
 
 ```bash
 # Run "Bob" node and log into it:
-$ docker-compose run -d --name bob lnd_btc
-$ docker exec -i -t bob bash
+$ sudo -E docker-compose run -d --name bob lnd_btc
+$ sudo -E docker exec -i -t bob bash
 
 # Get the identity pubkey of "Bob" node:
 bob$ lncli --network=simnet getinfo
@@ -113,7 +113,7 @@ bob$ lncli --network=simnet getinfo
 }
 
 # Get the IP address of "Bob" node:
-$ docker inspect bob | grep IPAddress
+$ sudo -E docker inspect bob | grep IPAddress
 
 # Connect "Alice" to the "Bob" node:
 alice$ lncli --network=simnet connect <bob_pubkey>@<bob_host>
@@ -159,7 +159,7 @@ Create the `Alice<->Bob` channel.
 alice$ lncli --network=simnet openchannel --node_key=<bob_identity_pubkey> --local_amt=1000000
 
 # Include funding transaction in block thereby opening the channel:
-$ docker-compose run btcctl generate 3
+$ sudo -E docker-compose run btcctl generate 3
 
 # Check that channel with "Bob" was opened:
 alice$ lncli --network=simnet listchannels
@@ -243,7 +243,7 @@ alice$ lncli --network=simnet listchannels
 alice$ lncli --network=simnet closechannel --funding_txid=<funding_txid> --output_index=<output_index>
 
 # Include close transaction in a block thereby closing the channel:
-$ docker-compose run btcctl generate 3
+$ sudo -E docker-compose run btcctl generate 3
 
 # Check "Alice" on-chain balance was credited by her settled amount in the channel:
 alice$ lncli --network=simnet walletbalance
@@ -294,11 +294,9 @@ bitcoins. The schema will be following:
 First of all you need to run `btcd` node in `testnet` and wait for it to be 
 synced with test network (`May the Force and Patience be with you`).
 ```bash 
-# Init bitcoin network env variable:
-$ export NETWORK="testnet"
-
 # Run "btcd" node:
-$ docker-compose up -d "btcd"
+$ NETWORK="testnet"
+$ sudo -E docker-compose up -d "btcd"
 ```
 
 After `btcd` synced, connect `Alice` to the `Faucet` node.
@@ -307,7 +305,7 @@ The `Faucet` node address can be found at the [Faucet Lightning Community webpag
 
 ```bash 
 # Run "Alice" container and log into it:
-$ docker-compose up -d "alice"; docker exec -i -t "alice" bash
+$ sudo -E docker-compose up -d "alice"; sudo -E docker exec -i -t "alice" bash
 
 # Connect "Alice" to the "Faucet" node:
 alice$ lncli --network=simnet connect <faucet_identity_address>@<faucet_host>
@@ -326,5 +324,5 @@ and send some amount of bitcoins to `Alice`.
 
 * How to see `alice` | `bob` | `btcd` logs?
 ```bash
-docker-compose logs <alice|bob|btcd>
+sudo -E docker-compose logs <alice|bob|btcd>
 ```

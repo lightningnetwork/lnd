@@ -71,6 +71,44 @@ const (
 	HtlcSecondLevelRevoke WitnessType = 9
 )
 
+// Stirng returns a human readable version of the target WitnessType.
+func (wt WitnessType) String() string {
+	switch wt {
+	case CommitmentTimeLock:
+		return "CommitmentTimeLock"
+
+	case CommitmentNoDelay:
+		return "CommitmentNoDelay"
+
+	case CommitmentRevoke:
+		return "CommitmentRevoke"
+
+	case HtlcOfferedRevoke:
+		return "HtlcOfferedRevoke"
+
+	case HtlcAcceptedRevoke:
+		return "HtlcAcceptedRevoke"
+
+	case HtlcOfferedTimeoutSecondLevel:
+		return "HtlcOfferedTimeoutSecondLevel"
+
+	case HtlcAcceptedSuccessSecondLevel:
+		return "HtlcAcceptedSuccessSecondLevel"
+
+	case HtlcOfferedRemoteTimeout:
+		return "HtlcOfferedRemoteTimeout"
+
+	case HtlcAcceptedRemoteSuccess:
+		return "HtlcAcceptedRemoteSuccess"
+
+	case HtlcSecondLevelRevoke:
+		return "HtlcSecondLevelRevoke"
+
+	default:
+		return fmt.Sprintf("Unknown WitnessType: %v", uint32(wt))
+	}
+}
+
 // WitnessGenerator represents a function which is able to generate the final
 // witness for a particular public key script. This function acts as an
 // abstraction layer, hiding the details of the underlying script.

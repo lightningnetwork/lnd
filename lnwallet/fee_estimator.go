@@ -68,22 +68,33 @@ type FeeEstimator interface {
 
 // StaticFeeEstimator will return a static value for all fee calculation
 // requests. It is designed to be replaced by a proper fee calculation
-// implementation.
+// implementation. The fees are not accessible directly, because changing them
+// would not be thread safe.
 type StaticFeeEstimator struct {
-	// FeePerKW is the static fee rate in satoshis-per-vbyte that will be
+	// feePerKW is the static fee rate in satoshis-per-vbyte that will be
 	// returned by this fee estimator.
-	FeePerKW SatPerKWeight
+	feePerKW SatPerKWeight
 
-	// RelayFee is the minimum fee rate required for transactions to be
+	// relayFee is the minimum fee rate required for transactions to be
 	// relayed.
-	RelayFee SatPerKWeight
+	relayFee SatPerKWeight
+}
+
+// NewStaticFeeEstimator returns a new static fee estimator instance.
+func NewStaticFeeEstimator(feePerKW,
+	relayFee SatPerKWeight) *StaticFeeEstimator {
+
+	return &StaticFeeEstimator{
+		feePerKW: feePerKW,
+		relayFee: relayFee,
+	}
 }
 
 // EstimateFeePerKW will return a static value for fee calculations.
 //
 // NOTE: This method is part of the FeeEstimator interface.
 func (e StaticFeeEstimator) EstimateFeePerKW(numBlocks uint32) (SatPerKWeight, error) {
-	return e.FeePerKW, nil
+	return e.feePerKW, nil
 }
 
 // RelayFeePerKW returns the minimum fee rate required for transactions to be
@@ -91,7 +102,7 @@ func (e StaticFeeEstimator) EstimateFeePerKW(numBlocks uint32) (SatPerKWeight, e
 //
 // NOTE: This method is part of the FeeEstimator interface.
 func (e StaticFeeEstimator) RelayFeePerKW() SatPerKWeight {
-	return e.RelayFee
+	return e.relayFee
 }
 
 // Start signals the FeeEstimator to start any processes or goroutines

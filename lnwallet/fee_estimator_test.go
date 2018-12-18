@@ -74,9 +74,7 @@ func TestStaticFeeEstimator(t *testing.T) {
 
 	const feePerKw = lnwallet.FeePerKwFloor
 
-	feeEstimator := &lnwallet.StaticFeeEstimator{
-		FeePerKW: feePerKw,
-	}
+	feeEstimator := lnwallet.NewStaticFeeEstimator(feePerKw, 0)
 	if err := feeEstimator.Start(); err != nil {
 		t.Fatalf("unable to start fee estimator: %v", err)
 	}

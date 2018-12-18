@@ -21,7 +21,9 @@ MAINDIR=$PACKAGE-$TAG
 mkdir -p $MAINDIR
 cd $MAINDIR
 
-SYS="windows-386 windows-amd64 openbsd-386 openbsd-amd64 linux-386 linux-amd64 linux-armv6 linux-armv7 linux-arm64 darwin-386 darwin-amd64 dragonfly-amd64 freebsd-386 freebsd-amd64 freebsd-arm netbsd-386 netbsd-amd64 linux-mips64 linux-mips64le linux-ppc64"
+# If LNDBUILDSYS is set the default list is ignored. Useful to release
+# for a subset of systems/architectures.
+SYS=${LNDBUILDSYS:-"windows-386 windows-amd64 openbsd-386 openbsd-amd64 linux-386 linux-amd64 linux-armv6 linux-armv7 linux-arm64 darwin-386 darwin-amd64 dragonfly-amd64 freebsd-386 freebsd-amd64 freebsd-arm netbsd-386 netbsd-amd64 linux-mips64 linux-mips64le linux-ppc64"}
 
 # Use the first element of $GOPATH in the case where GOPATH is a list
 # (something that is totally allowed).

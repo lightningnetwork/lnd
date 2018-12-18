@@ -175,7 +175,7 @@ func TestInvoiceWorkflow(t *testing.T) {
 	}
 }
 
-// TestInvoiceTimeSeries tests that newly added invoices invoices, as well as
+// TestInvoiceAddTimeSeries tests that newly added invoices invoices, as well as
 // settled invoices are added to the database are properly placed in the add
 // add or settle index which serves as an event time series.
 func TestInvoiceAddTimeSeries(t *testing.T) {

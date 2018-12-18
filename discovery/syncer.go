@@ -940,7 +940,7 @@ func (g *gossipSyncer) ProcessQueryMsg(msg lnwire.Message, peerQuit <-chan struc
 	}
 }
 
-// SyncerState returns the current syncerState of the target gossipSyncer.
+// SyncState returns the current syncerState of the target gossipSyncer.
 func (g *gossipSyncer) SyncState() syncerState {
 	return syncerState(atomic.LoadUint32(&g.state))
 }

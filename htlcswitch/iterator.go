@@ -126,7 +126,7 @@ func makeSphinxHopIterator(ogPacket *sphinx.OnionPacket,
 // interface.
 var _ HopIterator = (*sphinxHopIterator)(nil)
 
-// Encode encodes iterator and writes it to the writer.
+// EncodeNextHop encodes iterator and writes it to the writer.
 //
 // NOTE: Part of the HopIterator interface.
 func (r *sphinxHopIterator) EncodeNextHop(w io.Writer) error {

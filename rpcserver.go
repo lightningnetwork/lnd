@@ -4623,7 +4623,7 @@ func (r *rpcServer) UpdateChannelPolicy(ctx context.Context,
 // that time range. If no time-range is specified, then the first chunk of the
 // past 24 hrs of forwarding history are returned.
 
-// A list of forwarding events are returned. The size of each forwarding event
+// ForwardingHistory A list of forwarding events are returned. The size of each forwarding event
 // is 40 bytes, and the max message size able to be returned in gRPC is 4 MiB.
 // In order to safely stay under this max limit, we'll return 50k events per
 // response.  Each response has the index offset of the last entry. The index

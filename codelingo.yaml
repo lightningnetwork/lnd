@@ -1,0 +1,2 @@
+tenets:
+  - import: codelingo/effective-go/comment-first-word-as-subject

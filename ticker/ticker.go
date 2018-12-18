@@ -92,7 +92,7 @@ func (t *ticker) Ticks() <-chan time.Time {
 	return t.ticker.C
 }
 
-// Resumes starts underlying time.Ticker and causes the ticker to begin
+// Resume starts underlying time.Ticker and causes the ticker to begin
 // delivering scheduled events.
 //
 // NOTE: Part of the Ticker interface.

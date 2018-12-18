@@ -1344,7 +1344,7 @@ func (c *contractMaturityReport) AddLimboDirectHtlc(kid *kidOutput) {
 	c.htlcs = append(c.htlcs, htlcReport)
 }
 
-// AddLimboStage1SuccessHtlcHtlc adds an htlc crib output to the maturity
+// AddLimboStage1SuccessHtlc adds an htlc crib output to the maturity
 // report's set of HTLC's. We'll use this to report any incoming HTLC sweeps
 // where the second level transaction hasn't yet confirmed.
 func (c *contractMaturityReport) AddLimboStage1SuccessHtlc(kid *kidOutput) {

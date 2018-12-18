@@ -178,7 +178,7 @@ func unixStamp(a int64) uint32 {
 	return uint32(t.Unix())
 }
 
-// TestGossipSyncerFilterGossipMsgsAll tests that we're able to properly filter
+// TestGossipSyncerFilterGossipMsgsAllInMemory tests that we're able to properly filter
 // out a set of incoming messages based on the set remote update horizon for a
 // peer. We tests all messages type, and all time straddling. We'll also send a
 // channel ann that already has a channel update on disk.

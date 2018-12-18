@@ -410,7 +410,7 @@ func initBreachedOutputs() error {
 	return nil
 }
 
-// Test that breachedOutput Encode/Decode works.
+// TestBreachedOutputSerialization that breachedOutput Encode/Decode works.
 func TestBreachedOutputSerialization(t *testing.T) {
 	for i := range breachedOutputs {
 		bo := &breachedOutputs[i]
@@ -438,7 +438,7 @@ func TestBreachedOutputSerialization(t *testing.T) {
 	}
 }
 
-// Test that retribution Encode/Decode works.
+// TestRetributionSerialization that retribution Encode/Decode works.
 func TestRetributionSerialization(t *testing.T) {
 	for i := range retributions {
 		ret := &retributions[i]

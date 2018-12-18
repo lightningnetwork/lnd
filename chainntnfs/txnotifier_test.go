@@ -594,7 +594,7 @@ func TestTxNotifierHistoricalSpendDispatch(t *testing.T) {
 	}
 }
 
-// TestTxNotifierMultipleHistoricalRescans ensures that we don't attempt to
+// TestTxNotifierMultipleHistoricalConfRescans ensures that we don't attempt to
 // request multiple historical confirmation rescans per transactions.
 func TestTxNotifierMultipleHistoricalConfRescans(t *testing.T) {
 	t.Parallel()
@@ -660,7 +660,7 @@ func TestTxNotifierMultipleHistoricalConfRescans(t *testing.T) {
 	}
 }
 
-// TestTxNotifierMultipleHistoricalRescans ensures that we don't attempt to
+// TestTxNotifierMultipleHistoricalSpendRescans ensures that we don't attempt to
 // request multiple historical spend rescans per outpoints.
 func TestTxNotifierMultipleHistoricalSpendRescans(t *testing.T) {
 	t.Parallel()

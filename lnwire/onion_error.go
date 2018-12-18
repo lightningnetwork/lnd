@@ -159,7 +159,7 @@ func (c FailCode) String() string {
 // NOTE: May be returned by any node in the payment route.
 type FailInvalidRealm struct{}
 
-// Returns a human readable string describing the target FailureMessage.
+// Error Returns a human readable string describing the target FailureMessage.
 //
 // NOTE: Implements the error interface.
 func (f FailInvalidRealm) Error() string {
@@ -185,7 +185,7 @@ func (f FailTemporaryNodeFailure) Code() FailCode {
 	return CodeTemporaryNodeFailure
 }
 
-// Returns a human readable string describing the target FailureMessage.
+// Error Returns a human readable string describing the target FailureMessage.
 //
 // NOTE: Implements the error interface.
 func (f FailTemporaryNodeFailure) Error() string {
@@ -205,7 +205,7 @@ func (f FailPermanentNodeFailure) Code() FailCode {
 	return CodePermanentNodeFailure
 }
 
-// Returns a human readable string describing the target FailureMessage.
+// Error Returns a human readable string describing the target FailureMessage.
 //
 // NOTE: Implements the error interface.
 func (f FailPermanentNodeFailure) Error() string {
@@ -226,7 +226,7 @@ func (f FailRequiredNodeFeatureMissing) Code() FailCode {
 	return CodeRequiredNodeFeatureMissing
 }
 
-// Returns a human readable string describing the target FailureMessage.
+// Error Returns a human readable string describing the target FailureMessage.
 //
 // NOTE: Implements the error interface.
 func (f FailRequiredNodeFeatureMissing) Error() string {
@@ -246,7 +246,7 @@ func (f FailPermanentChannelFailure) Code() FailCode {
 	return CodePermanentChannelFailure
 }
 
-// Returns a human readable string describing the target FailureMessage.
+// Error Returns a human readable string describing the target FailureMessage.
 //
 // NOTE: Implements the error interface.
 func (f FailPermanentChannelFailure) Error() string {
@@ -267,7 +267,7 @@ func (f FailRequiredChannelFeatureMissing) Code() FailCode {
 	return CodeRequiredChannelFeatureMissing
 }
 
-// Returns a human readable string describing the target FailureMessage.
+// Error Returns a human readable string describing the target FailureMessage.
 //
 // NOTE: Implements the error interface.
 func (f FailRequiredChannelFeatureMissing) Error() string {
@@ -287,7 +287,7 @@ func (f FailUnknownNextPeer) Code() FailCode {
 	return CodeUnknownNextPeer
 }
 
-// Returns a human readable string describing the target FailureMessage.
+// Error Returns a human readable string describing the target FailureMessage.
 //
 // NOTE: Implements the error interface.
 func (f FailUnknownNextPeer) Error() string {
@@ -309,7 +309,7 @@ func (f FailUnknownPaymentHash) Code() FailCode {
 	return CodeUnknownPaymentHash
 }
 
-// Returns a human readable string describing the target FailureMessage.
+// Error Returns a human readable string describing the target FailureMessage.
 //
 // NOTE: Implements the error interface.
 func (f FailUnknownPaymentHash) Error() string {
@@ -332,7 +332,7 @@ func (f FailIncorrectPaymentAmount) Code() FailCode {
 	return CodeIncorrectPaymentAmount
 }
 
-// Returns a human readable string describing the target FailureMessage.
+// Error Returns a human readable string describing the target FailureMessage.
 //
 // NOTE: Implements the error interface.
 func (f FailIncorrectPaymentAmount) Error() string {
@@ -352,7 +352,7 @@ func (f FailFinalExpiryTooSoon) Code() FailCode {
 	return CodeFinalExpiryTooSoon
 }
 
-// Returns a human readable string describing the target FailureMessage.
+// Error Returns a human readable string describing the target FailureMessage.
 //
 // NOTE: Implements the error interface.
 func (f FailFinalExpiryTooSoon) Error() string {
@@ -367,7 +367,7 @@ type FailInvalidOnionVersion struct {
 	OnionSHA256 [sha256.Size]byte
 }
 
-// Returns a human readable string describing the target FailureMessage.
+// Error Returns a human readable string describing the target FailureMessage.
 //
 // NOTE: Implements the error interface.
 func (f FailInvalidOnionVersion) Error() string {
@@ -434,7 +434,7 @@ func (f *FailInvalidOnionHmac) Encode(w io.Writer, pver uint32) error {
 	return writeElement(w, f.OnionSHA256[:])
 }
 
-// Returns a human readable string describing the target FailureMessage.
+// Error Returns a human readable string describing the target FailureMessage.
 //
 // NOTE: Implements the error interface.
 func (f FailInvalidOnionHmac) Error() string {
@@ -476,7 +476,7 @@ func (f *FailInvalidOnionKey) Encode(w io.Writer, pver uint32) error {
 	return writeElement(w, f.OnionSHA256[:])
 }
 
-// Returns a human readable string describing the target FailureMessage.
+// Error Returns a human readable string describing the target FailureMessage.
 //
 // NOTE: Implements the error interface.
 func (f FailInvalidOnionKey) Error() string {
@@ -546,7 +546,7 @@ func (f *FailTemporaryChannelFailure) Code() FailCode {
 	return CodeTemporaryChannelFailure
 }
 
-// Returns a human readable string describing the target FailureMessage.
+// Error Returns a human readable string describing the target FailureMessage.
 //
 // NOTE: Implements the error interface.
 func (f FailTemporaryChannelFailure) Error() string {
@@ -630,7 +630,7 @@ func (f *FailAmountBelowMinimum) Code() FailCode {
 	return CodeAmountBelowMinimum
 }
 
-// Returns a human readable string describing the target FailureMessage.
+// Error Returns a human readable string describing the target FailureMessage.
 //
 // NOTE: Implements the error interface.
 func (f FailAmountBelowMinimum) Error() string {
@@ -703,7 +703,7 @@ func (f *FailFeeInsufficient) Code() FailCode {
 	return CodeFeeInsufficient
 }
 
-// Returns a human readable string describing the target FailureMessage.
+// Error Returns a human readable string describing the target FailureMessage.
 //
 // NOTE: Implements the error interface.
 func (f FailFeeInsufficient) Error() string {
@@ -843,7 +843,7 @@ func (f *FailExpiryTooSoon) Code() FailCode {
 	return CodeExpiryTooSoon
 }
 
-// Returns a human readable string describing the target FailureMessage.
+// Error Returns a human readable string describing the target FailureMessage.
 //
 // NOTE: Implements the error interface.
 func (f *FailExpiryTooSoon) Error() string {
@@ -907,7 +907,7 @@ func (f *FailChannelDisabled) Code() FailCode {
 	return CodeChannelDisabled
 }
 
-// Returns a human readable string describing the target FailureMessage.
+// Error Returns a human readable string describing the target FailureMessage.
 //
 // NOTE: Implements the error interface.
 func (f FailChannelDisabled) Error() string {
@@ -960,7 +960,7 @@ type FailFinalIncorrectCltvExpiry struct {
 	CltvExpiry uint32
 }
 
-// Returns a human readable string describing the target FailureMessage.
+// Error Returns a human readable string describing the target FailureMessage.
 //
 // NOTE: Implements the error interface.
 func (f FailFinalIncorrectCltvExpiry) Error() string {
@@ -1005,7 +1005,7 @@ type FailFinalIncorrectHtlcAmount struct {
 	IncomingHTLCAmount MilliSatoshi
 }
 
-// Returns a human readable string describing the target FailureMessage.
+// Error Returns a human readable string describing the target FailureMessage.
 //
 // NOTE: Implements the error interface.
 func (f FailFinalIncorrectHtlcAmount) Error() string {
@@ -1055,7 +1055,7 @@ func (f FailExpiryTooFar) Code() FailCode {
 	return CodeExpiryTooFar
 }
 
-// Returns a human readable string describing the target FailureMessage.
+// Error Returns a human readable string describing the target FailureMessage.
 //
 // NOTE: Implements the error interface.
 func (f FailExpiryTooFar) Error() string {

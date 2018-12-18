@@ -24,7 +24,7 @@ var tickers = []struct {
 	},
 }
 
-// TestTickers verifies that both our production and mock tickers exhibit the
+// TestInterfaceTickers verifies that both our production and mock tickers exhibit the
 // same principle behaviors when accessed via the ticker.Ticker interface
 // methods.
 func TestInterfaceTickers(t *testing.T) {

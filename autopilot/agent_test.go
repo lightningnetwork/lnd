@@ -493,7 +493,7 @@ func TestAgentChannelCloseSignal(t *testing.T) {
 	}
 }
 
-// TestAgentBalanceUpdateIncrease ensures that once the agent receives an
+// TestAgentBalanceUpdate ensures that once the agent receives an
 // outside signal concerning a balance update, then it will re-query the
 // heuristic to determine its next action.
 func TestAgentBalanceUpdate(t *testing.T) {

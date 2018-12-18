@@ -189,7 +189,7 @@ func TestDecayedLogPersistentGarbageCollector(t *testing.T) {
 	}
 }
 
-// TestDecayedLogInsertionAndRetrieval inserts a cltv value into the
+// TestDecayedLogInsertionAndDeletion inserts a cltv value into the
 // sharedHashBucket and then deletes it and finally asserts that we can no
 // longer retrieve it.
 func TestDecayedLogInsertionAndDeletion(t *testing.T) {

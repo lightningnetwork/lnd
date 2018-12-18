@@ -2312,7 +2312,7 @@ func waitForWalletSync(r *rpctest.Harness, w *lnwallet.LightningWallet) error {
 	return nil
 }
 
-// TestInterfaces tests all registered interfaces with a unified set of tests
+// TestLightningWallet tests all registered interfaces with a unified set of tests
 // which exercise each of the required methods found within the WalletController
 // interface.
 //

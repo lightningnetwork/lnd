@@ -244,7 +244,7 @@ func (w *WalletKit) NextAddr(ctx context.Context,
 	}, nil
 }
 
-// Attempts to publish the passed transaction to the network. Once this returns
+// PublishTransaction Attempts to publish the passed transaction to the network. Once this returns
 // without an error, the wallet will continually attempt to re-broadcast the
 // transaction on start up, until it enters the chain.
 func (w *WalletKit) PublishTransaction(ctx context.Context,

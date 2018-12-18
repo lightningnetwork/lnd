@@ -619,7 +619,7 @@ func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
 	}
 }
 
-// TestChannelArbitratorLocalForceCloseRemoteConfiremd tests that the
+// TestChannelArbitratorLocalForceCloseRemoteConfirmed tests that the
 // ChannelArbitrator behaves as expected in the case where we request a local
 // force close, but a remote commitment ends up being confirmed in chain.
 func TestChannelArbitratorLocalForceCloseRemoteConfirmed(t *testing.T) {
@@ -725,7 +725,7 @@ func TestChannelArbitratorLocalForceCloseRemoteConfirmed(t *testing.T) {
 	}
 }
 
-// TestChannelArbitratorLocalForceCloseDoubleSpend tests that the
+// TestChannelArbitratorLocalForceDoubleSpend tests that the
 // ChannelArbitrator behaves as expected in the case where we request a local
 // force close, but we fail broadcasting our commitment because a remote
 // commitment has already been published.

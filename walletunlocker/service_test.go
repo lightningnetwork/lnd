@@ -53,7 +53,7 @@ func createTestWallet(t *testing.T, dir string, netParams *chaincfg.Params) {
 	}
 }
 
-// TestGenSeedUserEntropy tests that the gen seed method generates a valid
+// TestGenSeed tests that the gen seed method generates a valid
 // cipher seed mnemonic phrase and user provided source of entropy.
 func TestGenSeed(t *testing.T) {
 	t.Parallel()
@@ -92,7 +92,7 @@ func TestGenSeed(t *testing.T) {
 	}
 }
 
-// TestGenSeedInvalidEntropy tests that the gen seed method generates a valid
+// TestGenSeedGenerateEntropy tests that the gen seed method generates a valid
 // cipher seed mnemonic pass phrase even when the user doesn't provide its own
 // source of entropy.
 func TestGenSeedGenerateEntropy(t *testing.T) {
@@ -271,7 +271,7 @@ func TestInitWallet(t *testing.T) {
 	}
 }
 
-// TestInitWalletInvalidCipherSeed tests that if we attempt to create a wallet
+// TestCreateWalletInvalidEntropy tests that if we attempt to create a wallet
 // with an invalid cipher seed, then we'll receive an error.
 func TestCreateWalletInvalidEntropy(t *testing.T) {
 	t.Parallel()

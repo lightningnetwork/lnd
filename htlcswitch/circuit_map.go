@@ -479,7 +479,7 @@ func (cm *circuitMap) TrimOpenCircuits(chanID lnwire.ShortChannelID,
 	})
 }
 
-// LookupByHTLC looks up the payment circuit by the outgoing channel and HTLC
+// LookupCircuit looks up the payment circuit by the outgoing channel and HTLC
 // IDs. Returns nil if there is no such circuit.
 func (cm *circuitMap) LookupCircuit(inKey CircuitKey) *PaymentCircuit {
 	cm.mtx.RLock()

@@ -318,7 +318,7 @@ func (p *paymentSession) ReportVertexFailure(v Vertex) {
 	p.mc.Unlock()
 }
 
-// ReportChannelFailure adds a channel to the graph prune view. The time the
+// ReportEdgeFailure adds a channel to the graph prune view. The time the
 // channel was added is noted, as it'll be pruned from the global view after a
 // period of edgeDecay. However, the edge will remain pruned for the duration
 // of the *local* session. This ensures that we don't flap by continually
@@ -339,7 +339,7 @@ func (p *paymentSession) ReportEdgeFailure(e *edgeLocator) {
 	p.mc.Unlock()
 }
 
-// ReportChannelPolicyFailure handles a failure message that relates to a
+// ReportEdgePolicyFailure handles a failure message that relates to a
 // channel policy. For these types of failures, the policy is updated and we
 // want to keep it included during path finding. This function does mark the
 // edge as 'policy failed once'. The next time it fails, the whole node will be

@@ -11,7 +11,7 @@ var (
 	seed *CipherSeed
 )
 
-// BenchmarkFrommnemonic benchmarks the process of converting a cipher seed
+// BenchmarkTomnemonic benchmarks the process of converting a cipher seed
 // (given the salt), to an enciphered mnemonic.
 func BenchmarkTomnemonic(b *testing.B) {
 	scryptN = 32768

@@ -2279,7 +2279,7 @@ func TestUpdateFeeReceiverSendsUpdate(t *testing.T) {
 	}
 }
 
-// Test that if multiple update fee messages are sent consecutively, then the
+// TestUpdateFeeMultipleUpdates that if multiple update fee messages are sent consecutively, then the
 // last one is the one that is being committed to.
 func TestUpdateFeeMultipleUpdates(t *testing.T) {
 	t.Parallel()
@@ -5676,7 +5676,7 @@ func restoreAndAssert(t *testing.T, channel *LightningChannel, numAddsLocal,
 	assertInLog(t, newChannel.remoteUpdateLog, numAddsRemote, numFailsRemote)
 }
 
-// TesstChannelRestoreUpdateLogsFailedHTLC runs through a scenario where an
+// TestChannelRestoreUpdateLogsFailedHTLC runs through a scenario where an
 // HTLC is added and failed, and asserts along the way that we would restore
 // the update logs of the channel to the expected state at any point.
 func TestChannelRestoreUpdateLogsFailedHTLC(t *testing.T) {

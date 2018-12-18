@@ -607,7 +607,7 @@ func TestParseMinFinalCLTVExpiry(t *testing.T) {
 	}
 }
 
-// TestParseMinFinalCLTVExpiry tests that were able to properly encode/decode
+// TestParseMaxUint64Expiry tests that were able to properly encode/decode
 // the math.MaxUint64 integer without panicking.
 func TestParseMaxUint64Expiry(t *testing.T) {
 	t.Parallel()

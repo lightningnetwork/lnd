@@ -711,7 +711,7 @@ func TestLinkForwardFeePolicyMismatch(t *testing.T) {
 	}
 }
 
-// TestLinkForwardFeePolicyMismatch tests that if a node is an intermediate
+// TestLinkForwardMinHTLCPolicyMismatch tests that if a node is an intermediate
 // node and receives an HTLC which is _below_ its min HTLC policy, then the
 // HTLC will be rejected.
 func TestLinkForwardMinHTLCPolicyMismatch(t *testing.T) {
@@ -1311,7 +1311,7 @@ func TestChannelLinkExpiryTooSoonExitNode(t *testing.T) {
 	}
 }
 
-// TestChannelLinkExpiryTooSoonExitNode tests that if we send a multi-hop HTLC,
+// TestChannelLinkExpiryTooSoonMidNode tests that if we send a multi-hop HTLC,
 // and the time lock is too early for an intermediate node, then they cancel
 // the HTLC back to the sender.
 func TestChannelLinkExpiryTooSoonMidNode(t *testing.T) {

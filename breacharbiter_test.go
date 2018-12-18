@@ -1123,18 +1123,6 @@ func TestBreachHandoffFail(t *testing.T) {
 	}
 	defer cleanUpArb()
 
-	// Instantiate a second lightning channel for alice, using the state of
-	// her last channel.
-	aliceKeyPriv, _ := btcec.PrivKeyFromBytes(btcec.S256(),
-		alicesPrivKey)
-	aliceSigner := &mockSigner{aliceKeyPriv}
-
-	alice2, err := lnwallet.NewLightningChannel(aliceSigner, nil, alice.State())
-	if err != nil {
-		t.Fatalf("unable to create test channels: %v", err)
-	}
-	defer alice2.Stop()
-
 	// Signal a spend of the funding transaction and wait for the close
 	// observer to exit. This time we are allowing the handoff to succeed.
 	breach = &ContractBreachEvent{
@@ -1567,18 +1555,23 @@ func createInitChannels(revocationWindow int) (*lnwallet.LightningChannel, *lnwa
 	aliceSigner := &mockSigner{aliceKeyPriv}
 	bobSigner := &mockSigner{bobKeyPriv}
 
+	alicePool := lnwallet.NewSigPool(1, aliceSigner)
 	channelAlice, err := lnwallet.NewLightningChannel(
-		aliceSigner, pCache, aliceChannelState,
+		aliceSigner, pCache, aliceChannelState, alicePool,
 	)
 	if err != nil {
 		return nil, nil, nil, err
 	}
+	alicePool.Start()
+
+	bobPool := lnwallet.NewSigPool(1, bobSigner)
 	channelBob, err := lnwallet.NewLightningChannel(
-		bobSigner, pCache, bobChannelState,
+		bobSigner, pCache, bobChannelState, bobPool,
 	)
 	if err != nil {
 		return nil, nil, nil, err
 	}
+	bobPool.Start()
 
 	addr := &net.TCPAddr{
 		IP:   net.ParseIP("127.0.0.1"),

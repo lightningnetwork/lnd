@@ -229,7 +229,7 @@ func CreateTestChannels() (*LightningChannel, *LightningChannel, func(), error) 
 		return nil, nil, nil, err
 	}
 
-	estimator := &StaticFeeEstimator{FeePerKW: 6000}
+	estimator := NewStaticFeeEstimator(6000, 0)
 	feePerKw, err := estimator.EstimateFeePerKW(1)
 	if err != nil {
 		return nil, nil, nil, err

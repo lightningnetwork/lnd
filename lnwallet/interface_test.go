@@ -368,7 +368,7 @@ func createTestWallet(tempTestDir string, miningNode *rpctest.Harness,
 		WalletController: wc,
 		Signer:           signer,
 		ChainIO:          bio,
-		FeeEstimator:     lnwallet.StaticFeeEstimator{FeePerKW: 2500},
+		FeeEstimator:     lnwallet.NewStaticFeeEstimator(2500, 0),
 		DefaultConstraints: channeldb.ChannelConstraints{
 			DustLimit:        500,
 			MaxPendingAmount: lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin) * 100,
@@ -2440,7 +2440,7 @@ func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 			}
 
 		case "neutrino":
-			feeEstimator = lnwallet.StaticFeeEstimator{FeePerKW: 62500}
+			feeEstimator = lnwallet.NewStaticFeeEstimator(62500, 0)
 
 			// Set some package-level variable to speed up
 			// operation for tests.

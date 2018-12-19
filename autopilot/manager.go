@@ -1,6 +1,7 @@
 package autopilot
 
 import (
+	"fmt"
 	"sync"
 	"sync/atomic"
 
@@ -266,4 +267,23 @@ func (m *Manager) StopAgent() error {
 	log.Debugf("Manager stopped autopilot agent")
 
 	return nil
+}
+
+// QueryHeuristics queries the active autopilot agent for node scores.
+func (m *Manager) QueryHeuristics(nodes []NodeID) (HeuristicScores, error) {
+	m.Lock()
+	defer m.Unlock()
+
+	// Not active, so we can return early.
+	if m.pilot == nil {
+		return nil, fmt.Errorf("autopilot not active")
+	}
+
+	n := make(map[NodeID]struct{})
+	for _, node := range nodes {
+		n[node] = struct{}{}
+	}
+
+	log.Debugf("Querying heuristics for %d nodes", len(n))
+	return m.pilot.queryHeuristics(n)
 }

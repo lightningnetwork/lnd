@@ -478,12 +478,13 @@ func (a *Agent) controller() {
 		a.pendingMtx.Unlock()
 
 		// Now that we've updated our internal state, we'll consult our
-		// channel attachment heuristic to determine if we should open
-		// up any additional channels or modify existing channels.
-		availableFunds, numChans, needMore := a.cfg.Heuristic.NeedMoreChans(
+		// channel attachment heuristic to determine if we can open
+		// up any additional channels while staying within our
+		// constraints.
+		availableFunds, numChans := a.cfg.Constraints.ChannelBudget(
 			totalChans, a.totalBalance,
 		)
-		if !needMore {
+		if numChans == 0 {
 			continue
 		}
 

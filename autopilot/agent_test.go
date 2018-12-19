@@ -15,9 +15,8 @@ import (
 )
 
 type moreChansResp struct {
-	needMore bool
-	numMore  uint32
-	amt      btcutil.Amount
+	numMore uint32
+	amt     btcutil.Amount
 }
 
 type moreChanArg struct {
@@ -26,11 +25,33 @@ type moreChanArg struct {
 }
 
 type mockConstraints struct {
+	moreChansResps chan moreChansResp
+	moreChanArgs   chan moreChanArg
+	quit           chan struct{}
 }
 
 func (m *mockConstraints) ChannelBudget(chans []Channel,
 	balance btcutil.Amount) (btcutil.Amount, uint32) {
-	return 1e8, 10
+
+	if m.moreChanArgs != nil {
+		moreChan := moreChanArg{
+			chans:   chans,
+			balance: balance,
+		}
+
+		select {
+		case m.moreChanArgs <- moreChan:
+		case <-m.quit:
+			return 0, 0
+		}
+	}
+
+	select {
+	case resp := <-m.moreChansResps:
+		return resp.amt, resp.numMore
+	case <-m.quit:
+		return 0, 0
+	}
 }
 
 func (m *mockConstraints) MaxPendingOpens() uint16 {
@@ -47,9 +68,6 @@ func (m *mockConstraints) MaxChanSize() btcutil.Amount {
 var _ AgentConstraints = (*mockConstraints)(nil)
 
 type mockHeuristic struct {
-	moreChansResps chan moreChansResp
-	moreChanArgs   chan moreChanArg
-
 	nodeScoresResps chan map[NodeID]*AttachmentDirective
 	nodeScoresArgs  chan directiveArg
 
@@ -58,26 +76,7 @@ type mockHeuristic struct {
 
 func (m *mockHeuristic) NeedMoreChans(chans []Channel,
 	balance btcutil.Amount) (btcutil.Amount, uint32, bool) {
-
-	if m.moreChanArgs != nil {
-		moreChan := moreChanArg{
-			chans:   chans,
-			balance: balance,
-		}
-
-		select {
-		case m.moreChanArgs <- moreChan:
-		case <-m.quit:
-			return 0, 0, false
-		}
-	}
-
-	select {
-	case resp := <-m.moreChansResps:
-		return resp.amt, resp.numMore, resp.needMore
-	case <-m.quit:
-		return 0, 0, false
-	}
+	return 0, 0, false
 }
 
 type directiveArg struct {
@@ -167,11 +166,13 @@ func TestAgentChannelOpenSignal(t *testing.T) {
 
 	quit := make(chan struct{})
 	heuristic := &mockHeuristic{
-		moreChansResps:  make(chan moreChansResp),
 		nodeScoresResps: make(chan map[NodeID]*AttachmentDirective),
 		quit:            quit,
 	}
-	constraints := &mockConstraints{}
+	constraints := &mockConstraints{
+		moreChansResps: make(chan moreChansResp),
+		quit:           quit,
+	}
 
 	chanController := &mockChanController{
 		openChanSignals: make(chan openChanIntent, 10),
@@ -221,7 +222,7 @@ func TestAgentChannelOpenSignal(t *testing.T) {
 	// We'll send an initial "no" response to advance the agent past its
 	// initial check.
 	select {
-	case heuristic.moreChansResps <- moreChansResp{false, 0, 0}:
+	case constraints.moreChansResps <- moreChansResp{0, 0}:
 	case <-time.After(time.Second * 10):
 		t.Fatalf("heuristic wasn't queried in time")
 	}
@@ -237,7 +238,7 @@ func TestAgentChannelOpenSignal(t *testing.T) {
 	// The agent should now query the heuristic in order to determine its
 	// next action as it local state has now been modified.
 	select {
-	case heuristic.moreChansResps <- moreChansResp{false, 0, 0}:
+	case constraints.moreChansResps <- moreChansResp{0, 0}:
 		// At this point, the local state of the agent should
 		// have also been updated to reflect that the LN node
 		// now has an additional channel with one BTC.
@@ -300,11 +301,13 @@ func TestAgentChannelFailureSignal(t *testing.T) {
 
 	quit := make(chan struct{})
 	heuristic := &mockHeuristic{
-		moreChansResps:  make(chan moreChansResp),
 		nodeScoresResps: make(chan map[NodeID]*AttachmentDirective),
 		quit:            quit,
 	}
-	constraints := &mockConstraints{}
+	constraints := &mockConstraints{
+		moreChansResps: make(chan moreChansResp),
+		quit:           quit,
+	}
 
 	chanController := &mockFailingChanController{}
 	memGraph, _, _ := newMemChanGraph()
@@ -353,7 +356,7 @@ func TestAgentChannelFailureSignal(t *testing.T) {
 	// First ensure the agent will attempt to open a new channel. Return
 	// that we need more channels, and have 5BTC to use.
 	select {
-	case heuristic.moreChansResps <- moreChansResp{true, 1, 5 * btcutil.SatoshiPerBitcoin}:
+	case constraints.moreChansResps <- moreChansResp{1, 5 * btcutil.SatoshiPerBitcoin}:
 	case <-time.After(time.Second * 10):
 		t.Fatal("heuristic wasn't queried in time")
 	}
@@ -384,7 +387,7 @@ func TestAgentChannelFailureSignal(t *testing.T) {
 
 	// Now ensure that the controller loop is re-executed.
 	select {
-	case heuristic.moreChansResps <- moreChansResp{true, 1, 5 * btcutil.SatoshiPerBitcoin}:
+	case constraints.moreChansResps <- moreChansResp{1, 5 * btcutil.SatoshiPerBitcoin}:
 	case <-time.After(time.Second * 10):
 		t.Fatal("heuristic wasn't queried in time")
 	}
@@ -411,11 +414,13 @@ func TestAgentChannelCloseSignal(t *testing.T) {
 
 	quit := make(chan struct{})
 	heuristic := &mockHeuristic{
-		moreChansResps:  make(chan moreChansResp),
 		nodeScoresResps: make(chan map[NodeID]*AttachmentDirective),
 		quit:            quit,
 	}
-	constraints := &mockConstraints{}
+	constraints := &mockConstraints{
+		moreChansResps: make(chan moreChansResp),
+		quit:           quit,
+	}
 
 	chanController := &mockChanController{
 		openChanSignals: make(chan openChanIntent),
@@ -476,7 +481,7 @@ func TestAgentChannelCloseSignal(t *testing.T) {
 	// We'll send an initial "no" response to advance the agent past its
 	// initial check.
 	select {
-	case heuristic.moreChansResps <- moreChansResp{false, 0, 0}:
+	case constraints.moreChansResps <- moreChansResp{0, 0}:
 	case <-time.After(time.Second * 10):
 		t.Fatalf("heuristic wasn't queried in time")
 	}
@@ -488,7 +493,7 @@ func TestAgentChannelCloseSignal(t *testing.T) {
 	// The agent should now query the heuristic in order to determine its
 	// next action as it local state has now been modified.
 	select {
-	case heuristic.moreChansResps <- moreChansResp{false, 0, 0}:
+	case constraints.moreChansResps <- moreChansResp{0, 0}:
 		// At this point, the local state of the agent should
 		// have also been updated to reflect that the LN node
 		// has no existing open channels.
@@ -529,11 +534,13 @@ func TestAgentBalanceUpdate(t *testing.T) {
 
 	quit := make(chan struct{})
 	heuristic := &mockHeuristic{
-		moreChansResps:  make(chan moreChansResp),
 		nodeScoresResps: make(chan map[NodeID]*AttachmentDirective),
 		quit:            quit,
 	}
-	constraints := &mockConstraints{}
+	constraints := &mockConstraints{
+		moreChansResps: make(chan moreChansResp),
+		quit:           quit,
+	}
 
 	chanController := &mockChanController{
 		openChanSignals: make(chan openChanIntent),
@@ -589,7 +596,7 @@ func TestAgentBalanceUpdate(t *testing.T) {
 	// We'll send an initial "no" response to advance the agent past its
 	// initial check.
 	select {
-	case heuristic.moreChansResps <- moreChansResp{false, 0, 0}:
+	case constraints.moreChansResps <- moreChansResp{0, 0}:
 	case <-time.After(time.Second * 10):
 		t.Fatalf("heuristic wasn't queried in time")
 	}
@@ -605,7 +612,7 @@ func TestAgentBalanceUpdate(t *testing.T) {
 	// The agent should now query the heuristic in order to determine its
 	// next action as it local state has now been modified.
 	select {
-	case heuristic.moreChansResps <- moreChansResp{false, 0, 0}:
+	case constraints.moreChansResps <- moreChansResp{0, 0}:
 		// At this point, the local state of the agent should
 		// have also been updated to reflect that the LN node
 		// now has an additional 5BTC available.
@@ -647,11 +654,13 @@ func TestAgentImmediateAttach(t *testing.T) {
 
 	quit := make(chan struct{})
 	heuristic := &mockHeuristic{
-		moreChansResps:  make(chan moreChansResp),
 		nodeScoresResps: make(chan map[NodeID]*AttachmentDirective),
 		quit:            quit,
 	}
-	constraints := &mockConstraints{}
+	constraints := &mockConstraints{
+		moreChansResps: make(chan moreChansResp),
+		quit:           quit,
+	}
 
 	chanController := &mockChanController{
 		openChanSignals: make(chan openChanIntent),
@@ -711,10 +720,9 @@ func TestAgentImmediateAttach(t *testing.T) {
 	// We'll send over a response indicating that it should
 	// establish more channels, and give it a budget of 5 BTC to do
 	// so.
-	case heuristic.moreChansResps <- moreChansResp{
-		needMore: true,
-		numMore:  numChans,
-		amt:      5 * btcutil.SatoshiPerBitcoin,
+	case constraints.moreChansResps <- moreChansResp{
+		numMore: numChans,
+		amt:     5 * btcutil.SatoshiPerBitcoin,
 	}:
 	case <-time.After(time.Second * 10):
 		t.Fatalf("heuristic wasn't queried in time")
@@ -790,11 +798,13 @@ func TestAgentPrivateChannels(t *testing.T) {
 
 	quit := make(chan struct{})
 	heuristic := &mockHeuristic{
-		moreChansResps:  make(chan moreChansResp),
 		nodeScoresResps: make(chan map[NodeID]*AttachmentDirective),
 		quit:            quit,
 	}
-	constraints := &mockConstraints{}
+	constraints := &mockConstraints{
+		moreChansResps: make(chan moreChansResp),
+		quit:           quit,
+	}
 
 	// The chanController should be initialized such that all of its open
 	// channel requests are for private channels.
@@ -854,12 +864,11 @@ func TestAgentPrivateChannels(t *testing.T) {
 	// indicating that it should establish more channels, and give it a
 	// budget of 5 BTC to do so.
 	resp := moreChansResp{
-		needMore: true,
-		numMore:  numChans,
-		amt:      5 * btcutil.SatoshiPerBitcoin,
+		numMore: numChans,
+		amt:     5 * btcutil.SatoshiPerBitcoin,
 	}
 	select {
-	case heuristic.moreChansResps <- resp:
+	case constraints.moreChansResps <- resp:
 	case <-time.After(time.Second * 10):
 		t.Fatalf("heuristic wasn't queried in time")
 	}
@@ -922,11 +931,13 @@ func TestAgentPendingChannelState(t *testing.T) {
 
 	quit := make(chan struct{})
 	heuristic := &mockHeuristic{
-		moreChansResps:  make(chan moreChansResp),
 		nodeScoresResps: make(chan map[NodeID]*AttachmentDirective),
 		quit:            quit,
 	}
-	constraints := &mockConstraints{}
+	constraints := &mockConstraints{
+		moreChansResps: make(chan moreChansResp),
+		quit:           quit,
+	}
 
 	chanController := &mockChanController{
 		openChanSignals: make(chan openChanIntent),
@@ -985,16 +996,15 @@ func TestAgentPendingChannelState(t *testing.T) {
 	// attachment.  We'll send over a response indicating that it should
 	// establish more channels, and give it a budget of 1 BTC to do so.
 	select {
-	case heuristic.moreChansResps <- moreChansResp{
-		needMore: true,
-		numMore:  1,
-		amt:      btcutil.SatoshiPerBitcoin,
+	case constraints.moreChansResps <- moreChansResp{
+		numMore: 1,
+		amt:     btcutil.SatoshiPerBitcoin,
 	}:
 	case <-time.After(time.Second * 10):
 		t.Fatalf("heuristic wasn't queried in time")
 	}
 
-	heuristic.moreChanArgs = make(chan moreChanArg)
+	constraints.moreChanArgs = make(chan moreChanArg)
 
 	// Next, the agent should deliver a query to the Select method of the
 	// heuristic. We'll only return a single directive for a pre-chosen
@@ -1057,7 +1067,7 @@ func TestAgentPendingChannelState(t *testing.T) {
 	// The request that we get should include a pending channel for the
 	// one that we just created, otherwise the agent isn't properly
 	// updating its internal state.
-	case req := <-heuristic.moreChanArgs:
+	case req := <-constraints.moreChanArgs:
 		if len(req.chans) != 1 {
 			t.Fatalf("should include pending chan in current "+
 				"state, instead have %v chans", len(req.chans))
@@ -1077,7 +1087,7 @@ func TestAgentPendingChannelState(t *testing.T) {
 	// We'll send across a response indicating that it *does* need more
 	// channels.
 	select {
-	case heuristic.moreChansResps <- moreChansResp{true, 1, btcutil.SatoshiPerBitcoin}:
+	case constraints.moreChansResps <- moreChansResp{1, btcutil.SatoshiPerBitcoin}:
 	case <-time.After(time.Second * 10):
 		t.Fatalf("need more chans wasn't queried in time")
 	}
@@ -1114,11 +1124,13 @@ func TestAgentPendingOpenChannel(t *testing.T) {
 
 	quit := make(chan struct{})
 	heuristic := &mockHeuristic{
-		moreChansResps:  make(chan moreChansResp),
 		nodeScoresResps: make(chan map[NodeID]*AttachmentDirective),
 		quit:            quit,
 	}
-	constraints := &mockConstraints{}
+	constraints := &mockConstraints{
+		moreChansResps: make(chan moreChansResp),
+		quit:           quit,
+	}
 
 	chanController := &mockChanController{
 		openChanSignals: make(chan openChanIntent),
@@ -1164,7 +1176,7 @@ func TestAgentPendingOpenChannel(t *testing.T) {
 	// We'll send an initial "no" response to advance the agent past its
 	// initial check.
 	select {
-	case heuristic.moreChansResps <- moreChansResp{false, 0, 0}:
+	case constraints.moreChansResps <- moreChansResp{0, 0}:
 	case <-time.After(time.Second * 10):
 		t.Fatalf("heuristic wasn't queried in time")
 	}
@@ -1176,7 +1188,7 @@ func TestAgentPendingOpenChannel(t *testing.T) {
 	// The agent should now query the heuristic in order to determine its
 	// next action as its local state has now been modified.
 	select {
-	case heuristic.moreChansResps <- moreChansResp{false, 0, 0}:
+	case constraints.moreChansResps <- moreChansResp{0, 0}:
 	case <-time.After(time.Second * 10):
 		t.Fatalf("heuristic wasn't queried in time")
 	}
@@ -1207,11 +1219,13 @@ func TestAgentOnNodeUpdates(t *testing.T) {
 
 	quit := make(chan struct{})
 	heuristic := &mockHeuristic{
-		moreChansResps:  make(chan moreChansResp),
 		nodeScoresResps: make(chan map[NodeID]*AttachmentDirective),
 		quit:            quit,
 	}
-	constraints := &mockConstraints{}
+	constraints := &mockConstraints{
+		moreChansResps: make(chan moreChansResp),
+		quit:           quit,
+	}
 
 	chanController := &mockChanController{
 		openChanSignals: make(chan openChanIntent),
@@ -1258,10 +1272,9 @@ func TestAgentOnNodeUpdates(t *testing.T) {
 	// initial check. This will cause it to try to get directives from an
 	// empty graph.
 	select {
-	case heuristic.moreChansResps <- moreChansResp{
-		needMore: true,
-		numMore:  2,
-		amt:      walletBalance,
+	case constraints.moreChansResps <- moreChansResp{
+		numMore: 2,
+		amt:     walletBalance,
 	}:
 	case <-time.After(time.Second * 10):
 		t.Fatalf("heuristic wasn't queried in time")
@@ -1283,10 +1296,9 @@ func TestAgentOnNodeUpdates(t *testing.T) {
 	// channels. Since we haven't done anything, we will send the same
 	// response as before since we are still trying to open channels.
 	select {
-	case heuristic.moreChansResps <- moreChansResp{
-		needMore: true,
-		numMore:  2,
-		amt:      walletBalance,
+	case constraints.moreChansResps <- moreChansResp{
+		numMore: 2,
+		amt:     walletBalance,
 	}:
 	case <-time.After(time.Second * 10):
 		t.Fatalf("heuristic wasn't queried in time")
@@ -1320,11 +1332,13 @@ func TestAgentSkipPendingConns(t *testing.T) {
 
 	quit := make(chan struct{})
 	heuristic := &mockHeuristic{
-		moreChansResps:  make(chan moreChansResp),
 		nodeScoresResps: make(chan map[NodeID]*AttachmentDirective),
 		quit:            quit,
 	}
-	constraints := &mockConstraints{}
+	constraints := &mockConstraints{
+		moreChansResps: make(chan moreChansResp),
+		quit:           quit,
+	}
 
 	chanController := &mockChanController{
 		openChanSignals: make(chan openChanIntent),
@@ -1393,10 +1407,9 @@ func TestAgentSkipPendingConns(t *testing.T) {
 	// initial check. This will cause it to try to get directives from the
 	// graph.
 	select {
-	case heuristic.moreChansResps <- moreChansResp{
-		needMore: true,
-		numMore:  1,
-		amt:      walletBalance,
+	case constraints.moreChansResps <- moreChansResp{
+		numMore: 1,
+		amt:     walletBalance,
 	}:
 	case <-time.After(time.Second * 10):
 		t.Fatalf("heuristic wasn't queried in time")
@@ -1440,10 +1453,9 @@ func TestAgentSkipPendingConns(t *testing.T) {
 
 	// The heuristic again informs the agent that we need more channels.
 	select {
-	case heuristic.moreChansResps <- moreChansResp{
-		needMore: true,
-		numMore:  1,
-		amt:      walletBalance,
+	case constraints.moreChansResps <- moreChansResp{
+		numMore: 1,
+		amt:     walletBalance,
 	}:
 	case <-time.After(time.Second * 10):
 		t.Fatalf("heuristic wasn't queried in time")
@@ -1477,10 +1489,9 @@ func TestAgentSkipPendingConns(t *testing.T) {
 	// The agent will now retry since the last connection attempt failed.
 	// The heuristic again informs the agent that we need more channels.
 	select {
-	case heuristic.moreChansResps <- moreChansResp{
-		needMore: true,
-		numMore:  1,
-		amt:      walletBalance,
+	case constraints.moreChansResps <- moreChansResp{
+		numMore: 1,
+		amt:     walletBalance,
 	}:
 	case <-time.After(time.Second * 10):
 		t.Fatalf("heuristic wasn't queried in time")

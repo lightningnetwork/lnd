@@ -525,6 +525,7 @@ func (a *Agent) openChans(availableFunds btcutil.Amount, numChans uint32,
 	// want to skip.
 	selfPubBytes := a.cfg.Self.SerializeCompressed()
 	nodes := make(map[NodeID]struct{})
+	addresses := make(map[NodeID][]net.Addr)
 	if err := a.cfg.Graph.ForEachNode(func(node Node) error {
 		nID := NodeID(node.PubKey())
 
@@ -534,6 +535,14 @@ func (a *Agent) openChans(availableFunds btcutil.Amount, numChans uint32,
 		if bytes.Equal(nID[:], selfPubBytes) {
 			return nil
 		}
+
+		// If the node has no known addresses, we cannot connect to it,
+		// so we'll skip it.
+		addrs := node.Addrs()
+		if len(addrs) == 0 {
+			return nil
+		}
+		addresses[nID] = addrs
 
 		// Additionally, if this node is in the blacklist, then
 		// we'll skip it.
@@ -560,6 +569,12 @@ func (a *Agent) openChans(availableFunds btcutil.Amount, numChans uint32,
 	)
 	if err != nil {
 		return fmt.Errorf("unable to calculate node scores : %v", err)
+	}
+
+	// Add addresses to the candidates.
+	for nID, c := range scores {
+		addrs := addresses[nID]
+		c.Addrs = addrs
 	}
 
 	log.Debugf("Got scores for %d nodes", len(scores))

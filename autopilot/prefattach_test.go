@@ -287,11 +287,6 @@ func TestConstrainedPrefAttachmentSelectTwoVertexes(t *testing.T) {
 						"to be %v, instead was %v",
 						expScore, candidate.Score)
 				}
-
-				if len(candidate.Addrs) == 0 {
-					t1.Fatalf("expected node to have " +
-						"available addresses, didn't")
-				}
 			}
 		})
 		if !success {
@@ -492,11 +487,6 @@ func TestConstrainedPrefAttachmentSelectGreedyAllocation(t *testing.T) {
 						"of %v, instead got %v",
 						maxChanSize, candidate.ChanAmt)
 				}
-
-				if len(candidate.Addrs) == 0 {
-					t1.Fatalf("expected node to have " +
-						"available addresses, didn't")
-				}
 			}
 
 			// Imagine a few channels are being opened, and there's
@@ -526,11 +516,6 @@ func TestConstrainedPrefAttachmentSelectGreedyAllocation(t *testing.T) {
 					t1.Fatalf("expected recommendation "+
 						"of %v, instead got %v",
 						remBalance, candidate.ChanAmt)
-				}
-
-				if len(candidate.Addrs) == 0 {
-					t1.Fatalf("expected node to have " +
-						"available addresses, didn't")
 				}
 			}
 		})
@@ -621,11 +606,6 @@ func TestConstrainedPrefAttachmentSelectSkipNodes(t *testing.T) {
 					t1.Fatalf("expected recommendation "+
 						"of %v, instead got %v",
 						maxChanSize, candidate.ChanAmt)
-				}
-
-				if len(candidate.Addrs) == 0 {
-					t1.Fatalf("expected node to have " +
-						"available addresses, didn't")
 				}
 			}
 

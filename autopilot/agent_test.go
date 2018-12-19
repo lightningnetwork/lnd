@@ -1,7 +1,6 @@
 package autopilot
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"net"
@@ -306,6 +305,10 @@ func TestAgentChannelFailureSignal(t *testing.T) {
 
 	chanController := &mockFailingChanController{}
 	memGraph, _, _ := newMemChanGraph()
+	node, err := memGraph.addRandNode()
+	if err != nil {
+		t.Fatalf("unable to add node: %v", err)
+	}
 
 	// With the dependencies we created, we can now create the initial
 	// agent itself.
@@ -316,6 +319,7 @@ func TestAgentChannelFailureSignal(t *testing.T) {
 		WalletBalance: func() (btcutil.Amount, error) {
 			return 0, nil
 		},
+		// TODO: move address check to agent.
 		ConnectToPeer: func(*btcec.PublicKey, []net.Addr) (bool, error) {
 			return false, nil
 		},
@@ -360,19 +364,14 @@ func TestAgentChannelFailureSignal(t *testing.T) {
 	// request attachment directives, return a fake so the agent will
 	// attempt to open a channel.
 	var fakeDirective = &AttachmentDirective{
-		NodeID:  NewNodeID(self),
+		NodeID:  NewNodeID(node),
 		ChanAmt: btcutil.SatoshiPerBitcoin,
-		Addrs: []net.Addr{
-			&net.TCPAddr{
-				IP: bytes.Repeat([]byte("a"), 16),
-			},
-		},
-		Score: 0.5,
+		Score:   0.5,
 	}
 
 	select {
 	case heuristic.nodeScoresResps <- map[NodeID]*AttachmentDirective{
-		NewNodeID(self): fakeDirective,
+		NewNodeID(node): fakeDirective,
 	}:
 	case <-time.After(time.Second * 10):
 		t.Fatal("heuristic wasn't queried in time")
@@ -707,6 +706,22 @@ func TestAgentImmediateAttach(t *testing.T) {
 
 	const numChans = 5
 
+	// We'll generate 5 mock directives so it can progress within its loop.
+	directives := make(map[NodeID]*AttachmentDirective)
+	nodeKeys := make(map[NodeID]struct{})
+	for i := 0; i < numChans; i++ {
+		pub, err := memGraph.addRandNode()
+		if err != nil {
+			t.Fatalf("unable to generate key: %v", err)
+		}
+		nodeID := NewNodeID(pub)
+		directives[nodeID] = &AttachmentDirective{
+			NodeID:  nodeID,
+			ChanAmt: btcutil.SatoshiPerBitcoin,
+			Score:   0.5,
+		}
+		nodeKeys[nodeID] = struct{}{}
+	}
 	// The very first thing the agent should do is query the NeedMoreChans
 	// method on the passed heuristic. So we'll provide it with a response
 	// that will kick off the main loop.
@@ -724,31 +739,9 @@ func TestAgentImmediateAttach(t *testing.T) {
 	}
 
 	// At this point, the agent should now be querying the heuristic to
-	// requests attachment directives. We'll generate 5 mock directives so
-	// it can progress within its loop.
-	directives := make(map[NodeID]*AttachmentDirective)
-	nodeKeys := make(map[NodeID]struct{})
-	for i := 0; i < numChans; i++ {
-		pub, err := randKey()
-		if err != nil {
-			t.Fatalf("unable to generate key: %v", err)
-		}
-		nodeID := NewNodeID(pub)
-		directives[nodeID] = &AttachmentDirective{
-			NodeID:  nodeID,
-			ChanAmt: btcutil.SatoshiPerBitcoin,
-			Addrs: []net.Addr{
-				&net.TCPAddr{
-					IP: bytes.Repeat([]byte("a"), 16),
-				},
-			},
-			Score: 0.5,
-		}
-		nodeKeys[nodeID] = struct{}{}
-	}
-
-	// With our fake directives created, we'll now send then to the agent
-	// as a return value for the Select function.
+	// requests attachment directives.  With our fake directives created,
+	// we'll now send then to the agent as a return value for the Select
+	// function.
 	select {
 	case heuristic.nodeScoresResps <- directives:
 	case <-time.After(time.Second * 10):
@@ -853,6 +846,21 @@ func TestAgentPrivateChannels(t *testing.T) {
 
 	const numChans = 5
 
+	// We'll generate 5 mock directives so the pubkeys will be found in the
+	// agent's graph, and it can progress within its loop.
+	directives := make(map[NodeID]*AttachmentDirective)
+	for i := 0; i < numChans; i++ {
+		pub, err := memGraph.addRandNode()
+		if err != nil {
+			t.Fatalf("unable to generate key: %v", err)
+		}
+		directives[NewNodeID(pub)] = &AttachmentDirective{
+			NodeID:  NewNodeID(pub),
+			ChanAmt: btcutil.SatoshiPerBitcoin,
+			Score:   0.5,
+		}
+	}
+
 	// The very first thing the agent should do is query the NeedMoreChans
 	// method on the passed heuristic. So we'll provide it with a response
 	// that will kick off the main loop.  We'll send over a response
@@ -867,30 +875,10 @@ func TestAgentPrivateChannels(t *testing.T) {
 	case <-time.After(time.Second * 10):
 		t.Fatalf("heuristic wasn't queried in time")
 	}
-
 	// At this point, the agent should now be querying the heuristic to
-	// requests attachment directives. We'll generate 5 mock directives so
-	// it can progress within its loop.
-	directives := make(map[NodeID]*AttachmentDirective)
-	for i := 0; i < numChans; i++ {
-		pub, err := randKey()
-		if err != nil {
-			t.Fatalf("unable to generate key: %v", err)
-		}
-		directives[NewNodeID(pub)] = &AttachmentDirective{
-			NodeID:  NewNodeID(pub),
-			ChanAmt: btcutil.SatoshiPerBitcoin,
-			Addrs: []net.Addr{
-				&net.TCPAddr{
-					IP: bytes.Repeat([]byte("a"), 16),
-				},
-			},
-			Score: 0.5,
-		}
-	}
-
-	// With our fake directives created, we'll now send then to the agent
-	// as a return value for the Select function.
+	// requests attachment directives.  With our fake directives created,
+	// we'll now send then to the agent as a return value for the Select
+	// function.
 	select {
 	case heuristic.nodeScoresResps <- directives:
 	case <-time.After(time.Second * 10):
@@ -986,6 +974,18 @@ func TestAgentPendingChannelState(t *testing.T) {
 	// exiting.
 	defer close(quit)
 
+	// We'll only return a single directive for a pre-chosen node.
+	nodeKey, err := memGraph.addRandNode()
+	if err != nil {
+		t.Fatalf("unable to generate key: %v", err)
+	}
+	nodeID := NewNodeID(nodeKey)
+	nodeDirective := &AttachmentDirective{
+		NodeID:  nodeID,
+		ChanAmt: 0.5 * btcutil.SatoshiPerBitcoin,
+		Score:   0.5,
+	}
+
 	// Once again, we'll start by telling the agent as part of its first
 	// query, that it needs more channels and has 3 BTC available for
 	// attachment.  We'll send over a response indicating that it should
@@ -1000,25 +1000,6 @@ func TestAgentPendingChannelState(t *testing.T) {
 	}
 
 	constraints.moreChanArgs = make(chan moreChanArg)
-
-	// Next, the agent should deliver a query to the Select method of the
-	// heuristic. We'll only return a single directive for a pre-chosen
-	// node.
-	nodeKey, err := randKey()
-	if err != nil {
-		t.Fatalf("unable to generate key: %v", err)
-	}
-	nodeID := NewNodeID(nodeKey)
-	nodeDirective := &AttachmentDirective{
-		NodeID:  nodeID,
-		ChanAmt: 0.5 * btcutil.SatoshiPerBitcoin,
-		Addrs: []net.Addr{
-			&net.TCPAddr{
-				IP: bytes.Repeat([]byte("a"), 16),
-			},
-		},
-		Score: 0.5,
-	}
 
 	select {
 	case heuristic.nodeScoresResps <- map[NodeID]*AttachmentDirective{
@@ -1398,6 +1379,17 @@ func TestAgentSkipPendingConns(t *testing.T) {
 	// exiting.
 	defer close(quit)
 
+	// We'll only return a single directive for a pre-chosen node.
+	nodeKey, err := memGraph.addRandNode()
+	if err != nil {
+		t.Fatalf("unable to generate key: %v", err)
+	}
+	nodeDirective := &AttachmentDirective{
+		NodeID:  NewNodeID(nodeKey),
+		ChanAmt: 0.5 * btcutil.SatoshiPerBitcoin,
+		Score:   0.5,
+	}
+
 	// We'll send an initial "yes" response to advance the agent past its
 	// initial check. This will cause it to try to get directives from the
 	// graph.
@@ -1408,24 +1400,6 @@ func TestAgentSkipPendingConns(t *testing.T) {
 	}:
 	case <-time.After(time.Second * 10):
 		t.Fatalf("heuristic wasn't queried in time")
-	}
-
-	// Next, the agent should deliver a query to the Select method of the
-	// heuristic. We'll only return a single directive for a pre-chosen
-	// node.
-	nodeKey, err := randKey()
-	if err != nil {
-		t.Fatalf("unable to generate key: %v", err)
-	}
-	nodeDirective := &AttachmentDirective{
-		NodeID:  NewNodeID(nodeKey),
-		ChanAmt: 0.5 * btcutil.SatoshiPerBitcoin,
-		Addrs: []net.Addr{
-			&net.TCPAddr{
-				IP: bytes.Repeat([]byte("a"), 16),
-			},
-		},
-		Score: 0.5,
 	}
 
 	select {

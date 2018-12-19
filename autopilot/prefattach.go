@@ -2,7 +2,6 @@ package autopilot
 
 import (
 	prand "math/rand"
-	"net"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec"
@@ -75,11 +74,9 @@ func (p *ConstrainedPrefAttachment) NodeScores(g ChannelGraph, chans []Channel,
 	map[NodeID]*AttachmentDirective, error) {
 
 	// Count the number of channels in the graph. We'll also count the
-	// number of channels as we go for the nodes we are interested in, and
-	// record their addresses found in the db.
+	// number of channels as we go for the nodes we are interested in.
 	var graphChans int
 	nodeChanNum := make(map[NodeID]int)
-	addresses := make(map[NodeID][]net.Addr)
 	if err := g.ForEachNode(func(n Node) error {
 		var nodeChans int
 		err := n.ForEachChannel(func(_ ChannelEdge) error {
@@ -98,10 +95,8 @@ func (p *ConstrainedPrefAttachment) NodeScores(g ChannelGraph, chans []Channel,
 			return nil
 		}
 
-		// Otherwise we'll record the number of channels, and also
-		// populate the address in our channel candidates map.
+		// Otherwise we'll record the number of channels.
 		nodeChanNum[nID] = nodeChans
-		addresses[nID] = n.Addrs()
 
 		return nil
 	}); err != nil {
@@ -126,18 +121,12 @@ func (p *ConstrainedPrefAttachment) NodeScores(g ChannelGraph, chans []Channel,
 	for nID, nodeChans := range nodeChanNum {
 
 		_, ok := existingPeers[nID]
-		addrs := addresses[nID]
 
 		switch {
 
 		// If the node is among or existing channel peers, we don't
 		// need another channel.
 		case ok:
-			continue
-
-		// If the node has no addresses, we cannot connect to it, so we
-		// skip it for now, which implicitly gives it a score of 0.
-		case len(addrs) == 0:
 			continue
 
 		// If the node had no channels, we skip it, since it would have
@@ -152,7 +141,6 @@ func (p *ConstrainedPrefAttachment) NodeScores(g ChannelGraph, chans []Channel,
 		candidates[nID] = &AttachmentDirective{
 			NodeID:  nID,
 			ChanAmt: chanSize,
-			Addrs:   addrs,
 			Score:   score,
 		}
 	}

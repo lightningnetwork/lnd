@@ -195,9 +195,8 @@ type NurseryConfig struct {
 	// maintained about the utxo nursery's incubating outputs.
 	Store NurseryStore
 
-	// Sweeper provides functionality to generate sweep transactions.
-	// Nursery uses this to sweep final outputs back into the wallet.
-	Sweeper *sweep.UtxoSweeper
+	// Sweep sweeps an input back to the wallet.
+	SweepInput func(input sweep.Input) (chan sweep.Result, error)
 }
 
 // utxoNursery is a system dedicated to incubating time-locked outputs created
@@ -803,7 +802,7 @@ func (u *utxoNursery) sweepMatureOutputs(classHeight uint32,
 		// passed in with disastruous consequences.
 		local := output
 
-		resultChan, err := u.cfg.Sweeper.SweepInput(&local)
+		resultChan, err := u.cfg.SweepInput(&local)
 		if err != nil {
 			return err
 		}

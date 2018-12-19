@@ -488,9 +488,9 @@ func createNurseryTestContext(t *testing.T,
 				CloseHeight: 0,
 			}, nil
 		},
-		Store:   storeIntercepter,
-		ChainIO: chainIO,
-		Sweeper: sweeper,
+		Store:      storeIntercepter,
+		ChainIO:    chainIO,
+		SweepInput: sweeper.SweepInput,
 		PublishTransaction: func(tx *wire.MsgTx) error {
 			return publishFunc(tx, "nursery")
 		},
@@ -556,7 +556,7 @@ func createNurseryTestContext(t *testing.T,
 			}
 
 			/// Restart nursery.
-			nurseryCfg.Sweeper = ctx.sweeper
+			nurseryCfg.SweepInput = ctx.sweeper.SweepInput
 			ctx.nursery = newUtxoNursery(&nurseryCfg)
 			ctx.nursery.Start()
 

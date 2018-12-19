@@ -8,38 +8,29 @@ import (
 	"github.com/btcsuite/btcutil"
 )
 
-// ConstrainedPrefAttachment is an implementation of the AttachmentHeuristic
-// interface that implement a constrained non-linear preferential attachment
-// heuristic. This means that given a threshold to allocate to automatic
-// channel establishment, the heuristic will attempt to favor connecting to
-// nodes which already have a set amount of links, selected by sampling from a
-// power law distribution. The attachment is non-linear in that it favors
-// nodes with a higher in-degree but less so that regular linear preferential
-// attachment. As a result, this creates smaller and less clusters than regular
-// linear preferential attachment.
+// PrefAttachment is an implementation of the AttachmentHeuristic interface
+// that implement a non-linear preferential attachment heuristic. This means
+// that given a threshold to allocate to automatic channel establishment, the
+// heuristic will attempt to favor connecting to nodes which already have a set
+// amount of links, selected by sampling from a power law distribution. The
+// attachment is non-linear in that it favors nodes with a higher in-degree but
+// less so than regular linear preferential attachment. As a result, this
+// creates smaller and less clusters than regular linear preferential
+// attachment.
 //
 // TODO(roasbeef): BA, with k=-3
-type ConstrainedPrefAttachment struct {
-	constraints AgentConstraints
+type PrefAttachment struct {
 }
 
-// NewConstrainedPrefAttachment creates a new instance of a
-// ConstrainedPrefAttachment heuristics given bounds on allowed channel sizes,
-// and an allocation amount which is interpreted as a percentage of funds that
-// is to be committed to channels at all times.
-func NewConstrainedPrefAttachment(
-	cfg AgentConstraints) *ConstrainedPrefAttachment {
-
+// NewPrefAttachment creates a new instance of a PrefAttachment heuristic.
+func NewPrefAttachment() *PrefAttachment {
 	prand.Seed(time.Now().Unix())
-
-	return &ConstrainedPrefAttachment{
-		constraints: cfg,
-	}
+	return &PrefAttachment{}
 }
 
-// A compile time assertion to ensure ConstrainedPrefAttachment meets the
+// A compile time assertion to ensure PrefAttachment meets the
 // AttachmentHeuristic interface.
-var _ AttachmentHeuristic = (*ConstrainedPrefAttachment)(nil)
+var _ AttachmentHeuristic = (*PrefAttachment)(nil)
 
 // NodeID is a simple type that holds an EC public key serialized in compressed
 // format.
@@ -69,7 +60,7 @@ func NewNodeID(pub *btcec.PublicKey) NodeID {
 // given to nodes already having high connectivity in the graph.
 //
 // NOTE: This is a part of the AttachmentHeuristic interface.
-func (p *ConstrainedPrefAttachment) NodeScores(g ChannelGraph, chans []Channel,
+func (p *PrefAttachment) NodeScores(g ChannelGraph, chans []Channel,
 	chanSize btcutil.Amount, nodes map[NodeID]struct{}) (
 	map[NodeID]*AttachmentDirective, error) {
 

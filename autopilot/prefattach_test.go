@@ -71,25 +71,14 @@ var chanGraphs = []struct {
 	},
 }
 
-// TestConstrainedPrefAttachmentSelectEmptyGraph ensures that when passed an
+// TestPrefAttachmentSelectEmptyGraph ensures that when passed an
 // empty graph, the NodeSores function always returns a score of 0.
-func TestConstrainedPrefAttachmentSelectEmptyGraph(t *testing.T) {
+func TestPrefAttachmentSelectEmptyGraph(t *testing.T) {
 	const (
-		minChanSize = 0
 		maxChanSize = btcutil.Amount(btcutil.SatoshiPerBitcoin)
-		chanLimit   = 3
-		threshold   = 0.5
 	)
 
-	constraints := NewConstraints(
-		minChanSize,
-		maxChanSize,
-		chanLimit,
-		0,
-		threshold,
-	)
-
-	prefAttach := NewConstrainedPrefAttachment(constraints)
+	prefAttach := NewPrefAttachment()
 
 	// Create a random public key, which we will query to get a score for.
 	pub, err := randKey()
@@ -175,27 +164,16 @@ func completeGraph(t *testing.T, g testGraph, numNodes int) {
 	}
 }
 
-// TestConstrainedPrefAttachmentSelectTwoVertexes ensures that when passed a
+// TestPrefAttachmentSelectTwoVertexes ensures that when passed a
 // graph with only two eligible vertexes, then both are given the same score,
 // and the funds are appropriately allocated across each peer.
-func TestConstrainedPrefAttachmentSelectTwoVertexes(t *testing.T) {
+func TestPrefAttachmentSelectTwoVertexes(t *testing.T) {
 	t.Parallel()
 
 	prand.Seed(time.Now().Unix())
 
 	const (
-		minChanSize = 0
 		maxChanSize = btcutil.Amount(btcutil.SatoshiPerBitcoin)
-		chanLimit   = 3
-		threshold   = 0.5
-	)
-
-	constraints := NewConstraints(
-		minChanSize,
-		maxChanSize,
-		chanLimit,
-		0,
-		threshold,
 	)
 
 	for _, graph := range chanGraphs {
@@ -208,7 +186,7 @@ func TestConstrainedPrefAttachmentSelectTwoVertexes(t *testing.T) {
 				defer cleanup()
 			}
 
-			prefAttach := NewConstrainedPrefAttachment(constraints)
+			prefAttach := NewPrefAttachment()
 
 			// For this set, we'll load the memory graph with two
 			// nodes, and a random channel connecting them.
@@ -295,27 +273,16 @@ func TestConstrainedPrefAttachmentSelectTwoVertexes(t *testing.T) {
 	}
 }
 
-// TestConstrainedPrefAttachmentSelectInsufficientFunds ensures that if the
+// TestPrefAttachmentSelectInsufficientFunds ensures that if the
 // balance of the backing wallet is below the set min channel size, then it
 // never recommends candidates to attach to.
-func TestConstrainedPrefAttachmentSelectInsufficientFunds(t *testing.T) {
+func TestPrefAttachmentSelectInsufficientFunds(t *testing.T) {
 	t.Parallel()
 
 	prand.Seed(time.Now().Unix())
 
 	const (
-		minChanSize = 0
 		maxChanSize = btcutil.Amount(btcutil.SatoshiPerBitcoin)
-		chanLimit   = 3
-		threshold   = 0.5
-	)
-
-	constraints := NewConstraints(
-		minChanSize,
-		maxChanSize,
-		chanLimit,
-		0,
-		threshold,
 	)
 
 	for _, graph := range chanGraphs {
@@ -332,7 +299,7 @@ func TestConstrainedPrefAttachmentSelectInsufficientFunds(t *testing.T) {
 			// them.
 			completeGraph(t, graph, 10)
 
-			prefAttach := NewConstrainedPrefAttachment(constraints)
+			prefAttach := NewPrefAttachment()
 
 			nodes := make(map[NodeID]struct{})
 			if err := graph.ForEachNode(func(n Node) error {
@@ -368,27 +335,16 @@ func TestConstrainedPrefAttachmentSelectInsufficientFunds(t *testing.T) {
 	}
 }
 
-// TestConstrainedPrefAttachmentSelectGreedyAllocation tests that if upon
+// TestPrefAttachmentSelectGreedyAllocation tests that if upon
 // returning node scores, the NodeScores method will attempt to greedily
 // allocate all funds to each vertex (up to the max channel size).
-func TestConstrainedPrefAttachmentSelectGreedyAllocation(t *testing.T) {
+func TestPrefAttachmentSelectGreedyAllocation(t *testing.T) {
 	t.Parallel()
 
 	prand.Seed(time.Now().Unix())
 
 	const (
-		minChanSize = 0
 		maxChanSize = btcutil.Amount(btcutil.SatoshiPerBitcoin)
-		chanLimit   = 3
-		threshold   = 0.5
-	)
-
-	constraints := NewConstraints(
-		minChanSize,
-		maxChanSize,
-		chanLimit,
-		0,
-		threshold,
 	)
 
 	for _, graph := range chanGraphs {
@@ -401,7 +357,7 @@ func TestConstrainedPrefAttachmentSelectGreedyAllocation(t *testing.T) {
 				defer cleanup()
 			}
 
-			prefAttach := NewConstrainedPrefAttachment(constraints)
+			prefAttach := NewPrefAttachment()
 
 			const chanCapacity = btcutil.SatoshiPerBitcoin
 
@@ -525,27 +481,16 @@ func TestConstrainedPrefAttachmentSelectGreedyAllocation(t *testing.T) {
 	}
 }
 
-// TestConstrainedPrefAttachmentSelectSkipNodes ensures that if a node was
+// TestPrefAttachmentSelectSkipNodes ensures that if a node was
 // already selected as a channel counterparty, then that node will get a score
 // of zero during scoring.
-func TestConstrainedPrefAttachmentSelectSkipNodes(t *testing.T) {
+func TestPrefAttachmentSelectSkipNodes(t *testing.T) {
 	t.Parallel()
 
 	prand.Seed(time.Now().Unix())
 
 	const (
-		minChanSize = 0
 		maxChanSize = btcutil.Amount(btcutil.SatoshiPerBitcoin)
-		chanLimit   = 3
-		threshold   = 0.5
-	)
-
-	constraints := NewConstraints(
-		minChanSize,
-		maxChanSize,
-		chanLimit,
-		0,
-		threshold,
 	)
 
 	for _, graph := range chanGraphs {
@@ -558,7 +503,7 @@ func TestConstrainedPrefAttachmentSelectSkipNodes(t *testing.T) {
 				defer cleanup()
 			}
 
-			prefAttach := NewConstrainedPrefAttachment(constraints)
+			prefAttach := NewPrefAttachment()
 
 			// Next, we'll create a simple topology of two nodes,
 			// with a single channel connecting them.

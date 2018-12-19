@@ -95,11 +95,8 @@ func initAutoPilot(svr *server, cfg *autoPilotConfig) *autopilot.ManagerCfg {
 		cfg.Allocation,
 	)
 
-	// First, we'll create the preferential attachment heuristic,
-	// initialized with the passed auto pilot configuration parameters.
-	prefAttachment := autopilot.NewConstrainedPrefAttachment(
-		atplConstraints,
-	)
+	// First, we'll create the preferential attachment heuristic.
+	prefAttachment := autopilot.NewPrefAttachment()
 
 	// With the heuristic itself created, we can now populate the remainder
 	// of the items that the autopilot agent needs to perform its duties.

@@ -571,20 +571,41 @@ func (a *Agent) openChans(availableFunds btcutil.Amount, numChans uint32,
 		return fmt.Errorf("unable to calculate node scores : %v", err)
 	}
 
-	// Add addresses to the candidates.
-	for nID, c := range scores {
-		addrs := addresses[nID]
-		c.Addrs = addrs
-	}
-
 	log.Debugf("Got scores for %d nodes", len(scores))
 
-	// Now use the score to make a weighted choice which
-	// nodes to attempt to open channels to.
-	chanCandidates, err := chooseN(numChans, scores)
+	// Temporary convert to NodeScore.
+	nodeScores := make(map[NodeID]*NodeScore)
+	for k, v := range scores {
+		nodeScores[k] = &NodeScore{
+			NodeID: v.NodeID,
+			Score:  v.Score,
+		}
+	}
+
+	// Now use the score to make a weighted choice which nodes to attempt
+	// to open channels to.
+	nodeScores, err = chooseN(numChans, nodeScores)
 	if err != nil {
 		return fmt.Errorf("Unable to make weighted choice: %v",
 			err)
+	}
+
+	chanCandidates := make(map[NodeID]*AttachmentDirective)
+	for nID := range nodeScores {
+		// Add addresses to the candidates.
+		addrs := addresses[nID]
+
+		// If the node has no known addresses, we cannot connect to it,
+		// so we'll skip it.
+		if len(addrs) == 0 {
+			continue
+		}
+
+		chanCandidates[nID] = &AttachmentDirective{
+			NodeID:  nID,
+			ChanAmt: chanSize,
+			Addrs:   addrs,
+		}
 	}
 
 	if len(chanCandidates) == 0 {

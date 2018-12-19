@@ -81,6 +81,18 @@ type ChannelGraph interface {
 	ForEachNode(func(Node) error) error
 }
 
+// NodeScore is a tuple mapping a NodeID to a score indicating the preference
+// of opening a channel with it.
+type NodeScore struct {
+	// NodeID is the serialized compressed pubkey of the node that is being
+	// scored.
+	NodeID NodeID
+
+	// Score is the score given by the heuristic for opening a channel of
+	// the given size to this node.
+	Score float64
+}
+
 // AttachmentDirective describes a channel attachment proscribed by an
 // AttachmentHeuristic. It details to which node a channel should be created
 // to, and also the parameters which should be used in the channel creation.

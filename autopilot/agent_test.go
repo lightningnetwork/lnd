@@ -80,6 +80,10 @@ type directiveArg struct {
 	nodes map[NodeID]struct{}
 }
 
+func (m *mockHeuristic) Name() string {
+	return "mock"
+}
+
 func (m *mockHeuristic) NodeScores(g ChannelGraph, chans []Channel,
 	fundsAvailable btcutil.Amount, nodes map[NodeID]struct{}) (
 	map[NodeID]*NodeScore, error) {

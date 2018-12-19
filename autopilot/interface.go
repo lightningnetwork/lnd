@@ -119,6 +119,9 @@ type AttachmentDirective struct {
 // the interface is to allow an auto-pilot agent to decide if it needs more
 // channels, and if so, which exact channels should be opened.
 type AttachmentHeuristic interface {
+	// Name returns the name of this heuristic.
+	Name() string
+
 	// NodeScores is a method that given the current channel graph and
 	// current set of local channels, scores the given nodes according to
 	// the preference of opening a channel of the given size with them. The

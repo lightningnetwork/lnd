@@ -1699,7 +1699,7 @@ message Invoice {
     int64 value = 5 [json_name = "value"];
 
     /// Whether this invoice has been fulfilled
-    bool settled = 6 [json_name = "settled"];
+    bool settled = 6 [json_name = "settled", deprecated = true];
 
     /// When this invoice was created
     int64 creation_date = 7 [json_name = "creation_date"];
@@ -1777,7 +1777,18 @@ message Invoice {
     here as well.
     */
     int64 amt_paid_msat = 20 [json_name = "amt_paid_msat"];
+
+    enum InvoiceState {
+        OPEN = 0;
+        SETTLED = 1;
+    }
+
+    /**
+    The state the invoice is in.
+    */
+    InvoiceState state = 21 [json_name = "state"];
 }
+
 message AddInvoiceResponse {
     bytes r_hash = 1 [json_name = "r_hash"];
 

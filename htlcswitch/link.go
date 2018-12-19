@@ -2334,7 +2334,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 			// TODO(conner): track ownership of settlements to
 			// properly recover from failures? or add batch invoice
 			// settlement
-			if invoice.Terms.Settled {
+			if invoice.Terms.State != channeldb.ContractOpen {
 				log.Warnf("Accepting duplicate payment for "+
 					"hash=%x", pd.RHash[:])
 			}

@@ -885,7 +885,7 @@ message SendRequest {
     The channel id of the channel that must be taken to the first hop. If zero,
     any channel may be used.
     */
-    uint64 outgoing_chan_id = 9;
+    uint64 outgoing_chan_id = 9 [jstype = JS_STRING];
 
     /** 
     An optional maximum total time lock for the route. This should not exceed
@@ -1164,7 +1164,7 @@ message Channel {
     height, the next 3 the index within the block, and the last 2 bytes are the
     output index for the channel.
     */
-    uint64 chan_id = 4 [json_name = "chan_id"];
+    uint64 chan_id = 4 [json_name = "chan_id", jstype = JS_STRING];
 
     /// The total amount of funds held in this channel
     int64 capacity = 5 [json_name = "capacity"];
@@ -1265,7 +1265,7 @@ message ChannelCloseSummary {
     string channel_point = 1 [json_name = "channel_point"];
 
     ///  The unique channel ID for the channel. 
-    uint64 chan_id = 2 [json_name = "chan_id"];
+    uint64 chan_id = 2 [json_name = "chan_id", jstype = JS_STRING];
 
     /// The hash of the genesis block that this channel resides within.
     string chain_hash = 3 [json_name = "chain_hash"];
@@ -1761,7 +1761,7 @@ message NodePair {
 
 message EdgeLocator {
     /// The short channel id of this edge.
-    uint64 channel_id = 1;
+    uint64 channel_id = 1 [jstype = JS_STRING];
 
     /**
     The direction of this edge. If direction_reverse is false, the direction
@@ -1792,7 +1792,7 @@ message Hop {
     height, the next 3 the index within the block, and the last 2 bytes are the
     output index for the channel.
     */
-    uint64 chan_id = 1 [json_name = "chan_id"];
+    uint64 chan_id = 1 [json_name = "chan_id", jstype = JS_STRING];
     int64 chan_capacity = 2 [json_name = "chan_capacity"];
     int64 amt_to_forward = 3 [json_name = "amt_to_forward", deprecated = true];
     int64 fee = 4 [json_name = "fee", deprecated = true];
@@ -1933,7 +1933,7 @@ message ChannelEdge {
     height, the next 3 the index within the block, and the last 2 bytes are the
     output index for the channel.
     */
-    uint64 channel_id = 1 [json_name = "channel_id"];
+    uint64 channel_id = 1 [json_name = "channel_id", jstype = JS_STRING];
     string chan_point = 2 [json_name = "chan_point"];
 
     uint32 last_update = 3 [json_name = "last_update", deprecated = true];
@@ -1971,7 +1971,7 @@ message ChanInfoRequest {
     height, the next 3 the index within the block, and the last 2 bytes are the
     output index for the channel.
     */
-    uint64 chan_id = 1;
+    uint64 chan_id = 1 [jstype = JS_STRING];
 }
 
 message NetworkInfoRequest {
@@ -2020,7 +2020,7 @@ message ChannelEdgeUpdate {
     height, the next 3 the index within the block, and the last 2 bytes are the
     output index for the channel.
     */
-    uint64 chan_id = 1;
+    uint64 chan_id = 1 [jstype = JS_STRING];
 
     ChannelPoint chan_point = 2;
 
@@ -2037,7 +2037,7 @@ message ClosedChannelUpdate {
     height, the next 3 the index within the block, and the last 2 bytes are the
     output index for the channel.
     */
-    uint64 chan_id = 1;
+    uint64 chan_id = 1 [jstype = JS_STRING];
     int64 capacity = 2;
     uint32 closed_height = 3;
     ChannelPoint chan_point = 4;
@@ -2048,7 +2048,7 @@ message HopHint {
     string node_id = 1 [json_name = "node_id"];
 
     /// The unique identifier of the channel.
-    uint64 chan_id = 2 [json_name = "chan_id"];
+    uint64 chan_id = 2 [json_name = "chan_id", jstype = JS_STRING];
 
     /// The base fee of the channel denominated in millisatoshis.
     uint32 fee_base_msat = 3 [json_name = "fee_base_msat"];
@@ -2202,7 +2202,7 @@ enum InvoiceHTLCState {
 /// Details of an HTLC that paid to an invoice
 message InvoiceHTLC {
     /// Short channel id over which the htlc was received.
-    uint64 chan_id = 1 [json_name = "chan_id"];
+    uint64 chan_id = 1 [json_name = "chan_id", jstype = JS_STRING];
 
     /// Index identifying the htlc on the channel.
     uint64 htlc_index = 2 [json_name = "htlc_index"];
@@ -2481,10 +2481,10 @@ message ForwardingEvent {
     uint64 timestamp = 1 [json_name = "timestamp"];
 
     /// The incoming channel ID that carried the HTLC that created the circuit.
-    uint64 chan_id_in = 2 [json_name = "chan_id_in"];
+    uint64 chan_id_in = 2 [json_name = "chan_id_in", jstype = JS_STRING];
 
     /// The outgoing channel ID that carried the preimage that completed the circuit.
-    uint64 chan_id_out = 4 [json_name = "chan_id_out"];
+    uint64 chan_id_out = 4 [json_name = "chan_id_out", jstype = JS_STRING];
 
     /// The total amount (in satoshis) of the incoming HTLC that created half the circuit.
     uint64 amt_in = 5 [json_name = "amt_in"];

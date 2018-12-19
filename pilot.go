@@ -148,15 +148,13 @@ func initAutoPilot(svr *server, cfg *autoPilotConfig) (*autopilot.ManagerCfg, er
 		10,
 		cfg.Allocation,
 	)
-
-	// First, we'll create the preferential attachment heuristic.
-	prefAttachment := autopilot.NewPrefAttachment()
+	heuristics, err := validateAtplCfg(cfg)
+	if err != nil {
+		return nil, err
+	}
 
 	weightedAttachment, err := autopilot.NewWeightedCombAttachment(
-		&autopilot.WeightedHeuristic{
-			Weight:              1.0,
-			AttachmentHeuristic: prefAttachment,
-		},
+		heuristics...,
 	)
 	if err != nil {
 		return nil, err

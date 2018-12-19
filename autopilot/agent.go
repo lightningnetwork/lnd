@@ -113,7 +113,8 @@ type Agent struct {
 	cfg Config
 
 	// chanState tracks the current set of open channels.
-	chanState channelState
+	chanState    channelState
+	chanStateMtx sync.Mutex
 
 	// stateUpdates is a channel that any external state updates that may
 	// affect the heuristics of the agent will be sent over.
@@ -410,7 +411,9 @@ func (a *Agent) controller() {
 					spew.Sdump(update.newChan))
 
 				newChan := update.newChan
+				a.chanStateMtx.Lock()
 				a.chanState[newChan.ChanID] = newChan
+				a.chanStateMtx.Unlock()
 
 				a.pendingMtx.Lock()
 				delete(a.pendingOpens, newChan.Node)
@@ -424,9 +427,11 @@ func (a *Agent) controller() {
 					"updates: %v",
 					spew.Sdump(update.closedChans))
 
+				a.chanStateMtx.Lock()
 				for _, closedChan := range update.closedChans {
 					delete(a.chanState, closedChan)
 				}
+				a.chanStateMtx.Unlock()
 
 				updateBalance()
 			}
@@ -472,10 +477,11 @@ func (a *Agent) controller() {
 		// With all the updates applied, we'll obtain a set of the
 		// current active channels (confirmed channels), and also
 		// factor in our set of unconfirmed channels.
-		confirmedChans := a.chanState
+		a.chanStateMtx.Lock()
 		a.pendingMtx.Lock()
-		totalChans := mergeChanState(a.pendingOpens, confirmedChans)
+		totalChans := mergeChanState(a.pendingOpens, a.chanState)
 		a.pendingMtx.Unlock()
+		a.chanStateMtx.Unlock()
 
 		// Now that we've updated our internal state, we'll consult our
 		// channel attachment heuristic to determine if we can open
@@ -514,7 +520,10 @@ func (a *Agent) openChans(availableFunds btcutil.Amount, numChans uint32,
 	// We're to attempt an attachment so we'll obtain the set of
 	// nodes that we currently have channels with so we avoid
 	// duplicate edges.
+	a.chanStateMtx.Lock()
 	connectedNodes := a.chanState.ConnectedNodes()
+	a.chanStateMtx.Unlock()
+
 	a.pendingMtx.Lock()
 	nodesToSkip := mergeNodeMaps(a.pendingOpens,
 		a.pendingConns, connectedNodes, a.failedNodes,

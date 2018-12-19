@@ -142,13 +142,14 @@ type bitcoindConfig struct {
 }
 
 type autoPilotConfig struct {
-	Active         bool    `long:"active" description:"If the autopilot agent should be active or not."`
-	MaxChannels    int     `long:"maxchannels" description:"The maximum number of channels that should be created"`
-	Allocation     float64 `long:"allocation" description:"The percentage of total funds that should be committed to automatic channel establishment"`
-	MinChannelSize int64   `long:"minchansize" description:"The smallest channel that the autopilot agent should create"`
-	MaxChannelSize int64   `long:"maxchansize" description:"The largest channel that the autopilot agent should create"`
-	Private        bool    `long:"private" description:"Whether the channels created by the autopilot agent should be private or not. Private channels won't be announced to the network."`
-	MinConfs       int32   `long:"minconfs" description:"The minimum number of confirmations each of your inputs in funding transactions created by the autopilot agent must have."`
+	Active         bool               `long:"active" description:"If the autopilot agent should be active or not."`
+	Heuristic      map[string]float64 `long:"heuristic" description:"Heuristic to activate, and the weight to give it during scoring."`
+	MaxChannels    int                `long:"maxchannels" description:"The maximum number of channels that should be created"`
+	Allocation     float64            `long:"allocation" description:"The percentage of total funds that should be committed to automatic channel establishment"`
+	MinChannelSize int64              `long:"minchansize" description:"The smallest channel that the autopilot agent should create"`
+	MaxChannelSize int64              `long:"maxchansize" description:"The largest channel that the autopilot agent should create"`
+	Private        bool               `long:"private" description:"Whether the channels created by the autopilot agent should be private or not. Private channels won't be announced to the network."`
+	MinConfs       int32              `long:"minconfs" description:"The minimum number of confirmations each of your inputs in funding transactions created by the autopilot agent must have."`
 }
 
 type torConfig struct {
@@ -312,6 +313,9 @@ func loadConfig() (*config, error) {
 			Allocation:     0.6,
 			MinChannelSize: int64(minChanFundingSize),
 			MaxChannelSize: int64(maxFundingAmount),
+			Heuristic: map[string]float64{
+				"preferential": 1.0,
+			},
 		},
 		TrickleDelay:        defaultTrickleDelay,
 		InactiveChanTimeout: defaultInactiveChanTimeout,
@@ -461,6 +465,10 @@ func loadConfig() (*config, error) {
 	}
 	if cfg.Autopilot.MaxChannelSize > int64(maxFundingAmount) {
 		cfg.Autopilot.MaxChannelSize = int64(maxFundingAmount)
+	}
+
+	if _, err := validateAtplCfg(cfg.Autopilot); err != nil {
+		return nil, err
 	}
 
 	// Validate the Tor config parameters.

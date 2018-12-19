@@ -142,6 +142,27 @@ type AttachmentHeuristic interface {
 		map[NodeID]*NodeScore, error)
 }
 
+var (
+	// availableHeuristics holds all heuristics possible to combine for use
+	// with the autopilot agent.
+	availableHeuristics = []AttachmentHeuristic{
+		NewPrefAttachment(),
+	}
+
+	// AvailableHeuristics is a map that holds the name of available
+	// heuristics to the actual heuristic for easy lookup. It will be
+	// filled during init().
+	AvailableHeuristics = make(map[string]AttachmentHeuristic)
+)
+
+func init() {
+	// Fill the map from heuristic names to available heuristics for easy
+	// lookup.
+	for _, h := range availableHeuristics {
+		AvailableHeuristics[h.Name()] = h
+	}
+}
+
 // ChannelController is a simple interface that allows an auto-pilot agent to
 // open a channel within the graph to a target peer, close targeted channels,
 // or add/remove funds from existing channels via a splice in/out mechanisms.

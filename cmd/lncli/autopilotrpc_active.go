@@ -94,6 +94,47 @@ func disable(ctx *cli.Context) error {
 	return nil
 }
 
+var queryScoresCommand = cli.Command{
+	Name:        "query",
+	Usage:       "Query the autopilot heuristcs for nodes' scores.",
+	ArgsUsage:   "<pubkey> <pubkey> <pubkey> ...",
+	Description: "",
+	Action:      actionDecorator(queryScores),
+}
+
+func queryScores(ctx *cli.Context) error {
+	ctxb := context.Background()
+	client, cleanUp := getAutopilotClient(ctx)
+	defer cleanUp()
+
+	args := ctx.Args()
+	var pubs []string
+
+	// Keep reading pubkeys as long as there are arguments.
+loop:
+	for {
+		switch {
+		case args.Present():
+			pubs = append(pubs, args.First())
+			args = args.Tail()
+		default:
+			break loop
+		}
+	}
+
+	req := &autopilotrpc.QueryScoresRequest{
+		Pubkeys: pubs,
+	}
+
+	resp, err := client.QueryScores(ctxb, req)
+	if err != nil {
+		return err
+	}
+
+	printRespJSON(resp)
+	return nil
+}
+
 // autopilotCommands will return the set of commands to enable for autopilotrpc
 // builds.
 func autopilotCommands() []cli.Command {
@@ -107,6 +148,7 @@ func autopilotCommands() []cli.Command {
 				getStatusCommand,
 				enableCommand,
 				disableCommand,
+				queryScoresCommand,
 			},
 		},
 	}

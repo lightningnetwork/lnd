@@ -62,7 +62,7 @@ func NewNodeID(pub *btcec.PublicKey) NodeID {
 // NOTE: This is a part of the AttachmentHeuristic interface.
 func (p *PrefAttachment) NodeScores(g ChannelGraph, chans []Channel,
 	chanSize btcutil.Amount, nodes map[NodeID]struct{}) (
-	map[NodeID]*AttachmentDirective, error) {
+	map[NodeID]*NodeScore, error) {
 
 	// Count the number of channels in the graph. We'll also count the
 	// number of channels as we go for the nodes we are interested in.
@@ -108,7 +108,7 @@ func (p *PrefAttachment) NodeScores(g ChannelGraph, chans []Channel,
 
 	// For each node in the set of nodes, count their fraction of channels
 	// in the graph, and use that as the score.
-	candidates := make(map[NodeID]*AttachmentDirective)
+	candidates := make(map[NodeID]*NodeScore)
 	for nID, nodeChans := range nodeChanNum {
 
 		_, ok := existingPeers[nID]
@@ -129,10 +129,9 @@ func (p *PrefAttachment) NodeScores(g ChannelGraph, chans []Channel,
 		// Otherwise we score the node according to its fraction of
 		// channels in the graph.
 		score := float64(nodeChans) / float64(graphChans)
-		candidates[nID] = &AttachmentDirective{
-			NodeID:  nID,
-			ChanAmt: chanSize,
-			Score:   score,
+		candidates[nID] = &NodeScore{
+			NodeID: nID,
+			Score:  score,
 		}
 	}
 

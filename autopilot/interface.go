@@ -110,10 +110,6 @@ type AttachmentDirective struct {
 	// Addrs is a list of addresses that the target peer may be reachable
 	// at.
 	Addrs []net.Addr
-
-	// Score is the score given by the heuristic for opening a channel of
-	// the given size to this node.
-	Score float64
 }
 
 // AttachmentHeuristic is one of the primary interfaces within this package.
@@ -126,8 +122,8 @@ type AttachmentHeuristic interface {
 	// NodeScores is a method that given the current channel graph and
 	// current set of local channels, scores the given nodes according to
 	// the preference of opening a channel of the given size with them. The
-	// returned channel candidates maps the NodeID to an attachment
-	// directive containing a score.
+	// returned channel candidates maps the NodeID to a NodeScore for the
+	// node.
 	//
 	// The scores will be in the range [0, M], where 0 indicates no
 	// improvement in connectivity if a channel is opened to this node,
@@ -139,7 +135,7 @@ type AttachmentHeuristic interface {
 	// score of 0.
 	NodeScores(g ChannelGraph, chans []Channel,
 		chanSize btcutil.Amount, nodes map[NodeID]struct{}) (
-		map[NodeID]*AttachmentDirective, error)
+		map[NodeID]*NodeScore, error)
 }
 
 // ChannelController is a simple interface that allows an auto-pilot agent to

@@ -247,15 +247,6 @@ func TestPrefAttachmentSelectTwoVertexes(t *testing.T) {
 						nodeID[:])
 				}
 
-				// As the number of funds available exceed the
-				// max channel size, both edges should consume
-				// the maximum channel size.
-				if candidate.ChanAmt != maxChanSize {
-					t1.Fatalf("max channel size should be "+
-						"allocated, instead %v was: ",
-						maxChanSize)
-				}
-
 				// Since each of the nodes has 1 channel, out
 				// of only one channel in the graph, we expect
 				// their score to be 0.5.
@@ -264,68 +255,6 @@ func TestPrefAttachmentSelectTwoVertexes(t *testing.T) {
 					t1.Fatalf("expected candidate score "+
 						"to be %v, instead was %v",
 						expScore, candidate.Score)
-				}
-			}
-		})
-		if !success {
-			break
-		}
-	}
-}
-
-// TestPrefAttachmentSelectInsufficientFunds ensures that if the
-// balance of the backing wallet is below the set min channel size, then it
-// never recommends candidates to attach to.
-func TestPrefAttachmentSelectInsufficientFunds(t *testing.T) {
-	t.Parallel()
-
-	prand.Seed(time.Now().Unix())
-
-	const (
-		maxChanSize = btcutil.Amount(btcutil.SatoshiPerBitcoin)
-	)
-
-	for _, graph := range chanGraphs {
-		success := t.Run(graph.name, func(t1 *testing.T) {
-			graph, cleanup, err := graph.genFunc()
-			if err != nil {
-				t1.Fatalf("unable to create graph: %v", err)
-			}
-			if cleanup != nil {
-				defer cleanup()
-			}
-
-			// Add 10 nodes to the graph, with channels between
-			// them.
-			completeGraph(t, graph, 10)
-
-			prefAttach := NewPrefAttachment()
-
-			nodes := make(map[NodeID]struct{})
-			if err := graph.ForEachNode(func(n Node) error {
-				nodes[n.PubKey()] = struct{}{}
-				return nil
-			}); err != nil {
-				t1.Fatalf("unable to traverse graph: %v", err)
-			}
-
-			// With the necessary state initialized, we'll now
-			// attempt to get the score for our list of nodes,
-			// passing zero for the amount of wallet funds. This
-			// should return candidates with zero-value channels.
-			scores, err := prefAttach.NodeScores(graph, nil,
-				0, nodes)
-			if err != nil {
-				t1.Fatalf("unable to select attachment "+
-					"directives: %v", err)
-			}
-
-			// Since all should be given a score of 0, the map
-			// should be empty.
-			for _, s := range scores {
-				if s.ChanAmt != 0 {
-					t1.Fatalf("expected zero channel, "+
-						"instead got %v ", s.ChanAmt)
 				}
 			}
 		})
@@ -437,12 +366,6 @@ func TestPrefAttachmentSelectGreedyAllocation(t *testing.T) {
 				if candidate.Score == 0 {
 					t1.Fatalf("Expected non-zero score")
 				}
-
-				if candidate.ChanAmt != maxChanSize {
-					t1.Fatalf("expected recommendation "+
-						"of %v, instead got %v",
-						maxChanSize, candidate.ChanAmt)
-				}
 			}
 
 			// Imagine a few channels are being opened, and there's
@@ -466,12 +389,6 @@ func TestPrefAttachmentSelectGreedyAllocation(t *testing.T) {
 			for _, candidate := range scores {
 				if candidate.Score == 0 {
 					t1.Fatalf("Expected non-zero score")
-				}
-
-				if candidate.ChanAmt != remBalance {
-					t1.Fatalf("expected recommendation "+
-						"of %v, instead got %v",
-						remBalance, candidate.ChanAmt)
 				}
 			}
 		})
@@ -545,12 +462,6 @@ func TestPrefAttachmentSelectSkipNodes(t *testing.T) {
 			for _, candidate := range scores {
 				if candidate.Score == 0 {
 					t1.Fatalf("Expected non-zero score")
-				}
-
-				if candidate.ChanAmt != maxChanSize {
-					t1.Fatalf("expected recommendation "+
-						"of %v, instead got %v",
-						maxChanSize, candidate.ChanAmt)
 				}
 			}
 

@@ -2,8 +2,6 @@ package sweep
 
 import (
 	"fmt"
-	"os"
-	"runtime/pprof"
 	"sync"
 	"testing"
 	"time"
@@ -58,6 +56,8 @@ func NewMockNotifier(t *testing.T) *MockNotifier {
 
 // NotifyEpoch simulates a new epoch arriving.
 func (m *MockNotifier) NotifyEpoch(height int32) {
+	m.t.Helper()
+
 	for epochChan, chanHeight := range m.epochChan {
 		// Only send notifications if the height is greater than the
 		// height the caller passed into the register call.
@@ -72,8 +72,6 @@ func (m *MockNotifier) NotifyEpoch(height int32) {
 			Height: height,
 		}:
 		case <-time.After(defaultTestTimeout):
-			pprof.Lookup("goroutine").WriteTo(os.Stdout, 1)
-
 			m.t.Fatal("epoch event not consumed")
 		}
 	}

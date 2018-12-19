@@ -115,12 +115,12 @@ func (m *Manager) StartAgent() error {
 
 	// Now that we have all the initial dependencies, we can create the
 	// auto-pilot instance itself.
-	m.pilot, err = New(*m.cfg.PilotCfg, initialChanState)
+	pilot, err := New(*m.cfg.PilotCfg, initialChanState)
 	if err != nil {
 		return err
 	}
 
-	if err := m.pilot.Start(); err != nil {
+	if err := pilot.Start(); err != nil {
 		return err
 	}
 
@@ -129,15 +129,17 @@ func (m *Manager) StartAgent() error {
 	// topology updates.
 	txnSubscription, err := m.cfg.SubscribeTransactions()
 	if err != nil {
-		defer m.pilot.Stop()
+		pilot.Stop()
 		return err
 	}
 	graphSubscription, err := m.cfg.SubscribeTopology()
 	if err != nil {
-		defer m.pilot.Stop()
-		defer txnSubscription.Cancel()
+		txnSubscription.Cancel()
+		pilot.Stop()
 		return err
 	}
+
+	m.pilot = pilot
 
 	// We'll launch a goroutine to provide the agent with notifications
 	// whenever the balance of the wallet changes.
@@ -150,7 +152,7 @@ func (m *Manager) StartAgent() error {
 		for {
 			select {
 			case <-txnSubscription.ConfirmedTransactions():
-				m.pilot.OnBalanceChange()
+				pilot.OnBalanceChange()
 
 			// We won't act upon new unconfirmed transaction, as
 			// we'll only use confirmed outputs when funding.
@@ -158,7 +160,7 @@ func (m *Manager) StartAgent() error {
 			// to avoid goroutine leaks, and ensure we promptly
 			// read from the channel if available.
 			case <-txnSubscription.UnconfirmedTransactions():
-			case <-m.pilot.quit:
+			case <-pilot.quit:
 				return
 			case <-m.quit:
 				return
@@ -209,7 +211,7 @@ func (m *Manager) StartAgent() error {
 						Capacity: edgeUpdate.Capacity,
 						Node:     chanNode,
 					}
-					m.pilot.OnChannelOpen(edge)
+					pilot.OnChannelOpen(edge)
 				}
 
 				// For each closed channel, we'll obtain
@@ -220,17 +222,17 @@ func (m *Manager) StartAgent() error {
 						chanClose.ChanID,
 					)
 
-					m.pilot.OnChannelClose(chanID)
+					pilot.OnChannelClose(chanID)
 				}
 
 				// If new nodes were added to the graph, or nod
 				// information has changed, we'll poke autopilot
 				// to see if it can make use of them.
 				if len(topChange.NodeUpdates) > 0 {
-					m.pilot.OnNodeUpdates()
+					pilot.OnNodeUpdates()
 				}
 
-			case <-m.pilot.quit:
+			case <-pilot.quit:
 				return
 			case <-m.quit:
 				return

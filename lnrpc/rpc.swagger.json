@@ -1142,7 +1142,8 @@
       "enum": [
         "OPEN",
         "SETTLED",
-        "CANCELED"
+        "CANCELED",
+        "ACCEPTED"
       ],
       "default": "OPEN"
     },

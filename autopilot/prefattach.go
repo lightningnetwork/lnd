@@ -21,7 +21,7 @@ import (
 //
 // TODO(roasbeef): BA, with k=-3
 type ConstrainedPrefAttachment struct {
-	constraints *HeuristicConstraints
+	constraints AgentConstraints
 }
 
 // NewConstrainedPrefAttachment creates a new instance of a
@@ -29,7 +29,7 @@ type ConstrainedPrefAttachment struct {
 // and an allocation amount which is interpreted as a percentage of funds that
 // is to be committed to channels at all times.
 func NewConstrainedPrefAttachment(
-	cfg *HeuristicConstraints) *ConstrainedPrefAttachment {
+	cfg AgentConstraints) *ConstrainedPrefAttachment {
 
 	prand.Seed(time.Now().Unix())
 
@@ -53,7 +53,7 @@ func (p *ConstrainedPrefAttachment) NeedMoreChans(channels []Channel,
 	funds btcutil.Amount) (btcutil.Amount, uint32, bool) {
 
 	// We'll try to open more channels as long as the constraints allow it.
-	availableFunds, availableChans := p.constraints.availableChans(
+	availableFunds, availableChans := p.constraints.ChannelBudget(
 		channels, funds,
 	)
 	return availableFunds, availableChans, availableChans > 0
@@ -142,7 +142,7 @@ func (p *ConstrainedPrefAttachment) NodeScores(g ChannelGraph, chans []Channel,
 	candidates := make(map[NodeID]*AttachmentDirective)
 	for nID, nodeChans := range nodeChanNum {
 		// As channel size we'll use the maximum channel size available.
-		chanSize := p.constraints.MaxChanSize
+		chanSize := p.constraints.MaxChanSize()
 		if fundsAvailable-chanSize < 0 {
 			chanSize = fundsAvailable
 		}
@@ -159,7 +159,7 @@ func (p *ConstrainedPrefAttachment) NodeScores(g ChannelGraph, chans []Channel,
 
 		// If the amount is too small, we don't want to attempt opening
 		// another channel.
-		case chanSize == 0 || chanSize < p.constraints.MinChanSize:
+		case chanSize == 0 || chanSize < p.constraints.MinChanSize():
 			continue
 
 		// If the node has no addresses, we cannot connect to it, so we

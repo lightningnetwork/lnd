@@ -29,12 +29,13 @@ func TestConstrainedPrefAttachmentNeedMoreChan(t *testing.T) {
 		threshold = 0.5
 	)
 
-	constraints := &HeuristicConstraints{
-		MinChanSize: minChanSize,
-		MaxChanSize: maxChanSize,
-		ChanLimit:   chanLimit,
-		Allocation:  threshold,
-	}
+	constraints := NewConstraints(
+		minChanSize,
+		maxChanSize,
+		chanLimit,
+		0,
+		threshold,
+	)
 
 	randChanID := func() lnwire.ShortChannelID {
 		return lnwire.NewShortChanIDFromInt(uint64(prand.Int63()))
@@ -242,12 +243,13 @@ func TestConstrainedPrefAttachmentSelectEmptyGraph(t *testing.T) {
 		threshold   = 0.5
 	)
 
-	constraints := &HeuristicConstraints{
-		MinChanSize: minChanSize,
-		MaxChanSize: maxChanSize,
-		ChanLimit:   chanLimit,
-		Allocation:  threshold,
-	}
+	constraints := NewConstraints(
+		minChanSize,
+		maxChanSize,
+		chanLimit,
+		0,
+		threshold,
+	)
 
 	prefAttach := NewConstrainedPrefAttachment(constraints)
 
@@ -350,12 +352,14 @@ func TestConstrainedPrefAttachmentSelectTwoVertexes(t *testing.T) {
 		threshold   = 0.5
 	)
 
-	constraints := &HeuristicConstraints{
-		MinChanSize: minChanSize,
-		MaxChanSize: maxChanSize,
-		ChanLimit:   chanLimit,
-		Allocation:  threshold,
-	}
+	constraints := NewConstraints(
+		minChanSize,
+		maxChanSize,
+		chanLimit,
+		0,
+		threshold,
+	)
+
 	for _, graph := range chanGraphs {
 		success := t.Run(graph.name, func(t1 *testing.T) {
 			graph, cleanup, err := graph.genFunc()
@@ -474,12 +478,13 @@ func TestConstrainedPrefAttachmentSelectInsufficientFunds(t *testing.T) {
 		threshold   = 0.5
 	)
 
-	constraints := &HeuristicConstraints{
-		MinChanSize: minChanSize,
-		MaxChanSize: maxChanSize,
-		ChanLimit:   chanLimit,
-		Allocation:  threshold,
-	}
+	constraints := NewConstraints(
+		minChanSize,
+		maxChanSize,
+		chanLimit,
+		0,
+		threshold,
+	)
 
 	for _, graph := range chanGraphs {
 		success := t.Run(graph.name, func(t1 *testing.T) {
@@ -544,12 +549,13 @@ func TestConstrainedPrefAttachmentSelectGreedyAllocation(t *testing.T) {
 		threshold   = 0.5
 	)
 
-	constraints := &HeuristicConstraints{
-		MinChanSize: minChanSize,
-		MaxChanSize: maxChanSize,
-		ChanLimit:   chanLimit,
-		Allocation:  threshold,
-	}
+	constraints := NewConstraints(
+		minChanSize,
+		maxChanSize,
+		chanLimit,
+		0,
+		threshold,
+	)
 
 	for _, graph := range chanGraphs {
 		success := t.Run(graph.name, func(t1 *testing.T) {
@@ -711,12 +717,13 @@ func TestConstrainedPrefAttachmentSelectSkipNodes(t *testing.T) {
 		threshold   = 0.5
 	)
 
-	constraints := &HeuristicConstraints{
-		MinChanSize: minChanSize,
-		MaxChanSize: maxChanSize,
-		ChanLimit:   chanLimit,
-		Allocation:  threshold,
-	}
+	constraints := NewConstraints(
+		minChanSize,
+		maxChanSize,
+		chanLimit,
+		0,
+		threshold,
+	)
 
 	for _, graph := range chanGraphs {
 		success := t.Run(graph.name, func(t1 *testing.T) {

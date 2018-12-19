@@ -87,13 +87,13 @@ func initAutoPilot(svr *server, cfg *autoPilotConfig) *autopilot.ManagerCfg {
 	atplLog.Infof("Instantiating autopilot with cfg: %v", spew.Sdump(cfg))
 
 	// Set up the constraints the autopilot heuristics must adhere to.
-	atplConstraints := &autopilot.HeuristicConstraints{
-		MinChanSize:     btcutil.Amount(cfg.MinChannelSize),
-		MaxChanSize:     btcutil.Amount(cfg.MaxChannelSize),
-		ChanLimit:       uint16(cfg.MaxChannels),
-		Allocation:      cfg.Allocation,
-		MaxPendingOpens: 10,
-	}
+	atplConstraints := autopilot.NewConstraints(
+		btcutil.Amount(cfg.MinChannelSize),
+		btcutil.Amount(cfg.MaxChannelSize),
+		uint16(cfg.MaxChannels),
+		10,
+		cfg.Allocation,
+	)
 
 	// First, we'll create the preferential attachment heuristic,
 	// initialized with the passed auto pilot configuration parameters.

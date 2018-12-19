@@ -25,6 +25,27 @@ type moreChanArg struct {
 	balance btcutil.Amount
 }
 
+type mockConstraints struct {
+}
+
+func (m *mockConstraints) ChannelBudget(chans []Channel,
+	balance btcutil.Amount) (btcutil.Amount, uint32) {
+	return 1e8, 10
+}
+
+func (m *mockConstraints) MaxPendingOpens() uint16 {
+	return 10
+}
+
+func (m *mockConstraints) MinChanSize() btcutil.Amount {
+	return 0
+}
+func (m *mockConstraints) MaxChanSize() btcutil.Amount {
+	return 1e8
+}
+
+var _ AgentConstraints = (*mockConstraints)(nil)
+
 type mockHeuristic struct {
 	moreChansResps chan moreChansResp
 	moreChanArgs   chan moreChanArg
@@ -150,6 +171,8 @@ func TestAgentChannelOpenSignal(t *testing.T) {
 		nodeScoresResps: make(chan map[NodeID]*AttachmentDirective),
 		quit:            quit,
 	}
+	constraints := &mockConstraints{}
+
 	chanController := &mockChanController{
 		openChanSignals: make(chan openChanIntent, 10),
 	}
@@ -170,10 +193,8 @@ func TestAgentChannelOpenSignal(t *testing.T) {
 		DisconnectPeer: func(*btcec.PublicKey) error {
 			return nil
 		},
-		Graph: memGraph,
-		Constraints: &HeuristicConstraints{
-			MaxPendingOpens: 10,
-		},
+		Graph:       memGraph,
+		Constraints: constraints,
 	}
 	initialChans := []Channel{}
 	agent, err := New(testCfg, initialChans)
@@ -283,6 +304,8 @@ func TestAgentChannelFailureSignal(t *testing.T) {
 		nodeScoresResps: make(chan map[NodeID]*AttachmentDirective),
 		quit:            quit,
 	}
+	constraints := &mockConstraints{}
+
 	chanController := &mockFailingChanController{}
 	memGraph, _, _ := newMemChanGraph()
 
@@ -301,10 +324,8 @@ func TestAgentChannelFailureSignal(t *testing.T) {
 		DisconnectPeer: func(*btcec.PublicKey) error {
 			return nil
 		},
-		Graph: memGraph,
-		Constraints: &HeuristicConstraints{
-			MaxPendingOpens: 10,
-		},
+		Graph:       memGraph,
+		Constraints: constraints,
 	}
 
 	initialChans := []Channel{}
@@ -394,6 +415,8 @@ func TestAgentChannelCloseSignal(t *testing.T) {
 		nodeScoresResps: make(chan map[NodeID]*AttachmentDirective),
 		quit:            quit,
 	}
+	constraints := &mockConstraints{}
+
 	chanController := &mockChanController{
 		openChanSignals: make(chan openChanIntent),
 	}
@@ -414,10 +437,8 @@ func TestAgentChannelCloseSignal(t *testing.T) {
 		DisconnectPeer: func(*btcec.PublicKey) error {
 			return nil
 		},
-		Graph: memGraph,
-		Constraints: &HeuristicConstraints{
-			MaxPendingOpens: 10,
-		},
+		Graph:       memGraph,
+		Constraints: constraints,
 	}
 
 	// We'll start the agent with two channels already being active.
@@ -512,6 +533,8 @@ func TestAgentBalanceUpdate(t *testing.T) {
 		nodeScoresResps: make(chan map[NodeID]*AttachmentDirective),
 		quit:            quit,
 	}
+	constraints := &mockConstraints{}
+
 	chanController := &mockChanController{
 		openChanSignals: make(chan openChanIntent),
 	}
@@ -538,10 +561,8 @@ func TestAgentBalanceUpdate(t *testing.T) {
 		DisconnectPeer: func(*btcec.PublicKey) error {
 			return nil
 		},
-		Graph: memGraph,
-		Constraints: &HeuristicConstraints{
-			MaxPendingOpens: 10,
-		},
+		Graph:       memGraph,
+		Constraints: constraints,
 	}
 	initialChans := []Channel{}
 	agent, err := New(testCfg, initialChans)
@@ -630,6 +651,8 @@ func TestAgentImmediateAttach(t *testing.T) {
 		nodeScoresResps: make(chan map[NodeID]*AttachmentDirective),
 		quit:            quit,
 	}
+	constraints := &mockConstraints{}
+
 	chanController := &mockChanController{
 		openChanSignals: make(chan openChanIntent),
 	}
@@ -653,10 +676,8 @@ func TestAgentImmediateAttach(t *testing.T) {
 		DisconnectPeer: func(*btcec.PublicKey) error {
 			return nil
 		},
-		Graph: memGraph,
-		Constraints: &HeuristicConstraints{
-			MaxPendingOpens: 10,
-		},
+		Graph:       memGraph,
+		Constraints: constraints,
 	}
 	initialChans := []Channel{}
 	agent, err := New(testCfg, initialChans)
@@ -773,6 +794,8 @@ func TestAgentPrivateChannels(t *testing.T) {
 		nodeScoresResps: make(chan map[NodeID]*AttachmentDirective),
 		quit:            quit,
 	}
+	constraints := &mockConstraints{}
+
 	// The chanController should be initialized such that all of its open
 	// channel requests are for private channels.
 	chanController := &mockChanController{
@@ -799,10 +822,8 @@ func TestAgentPrivateChannels(t *testing.T) {
 		DisconnectPeer: func(*btcec.PublicKey) error {
 			return nil
 		},
-		Graph: memGraph,
-		Constraints: &HeuristicConstraints{
-			MaxPendingOpens: 10,
-		},
+		Graph:       memGraph,
+		Constraints: constraints,
 	}
 	agent, err := New(cfg, nil)
 	if err != nil {
@@ -905,6 +926,8 @@ func TestAgentPendingChannelState(t *testing.T) {
 		nodeScoresResps: make(chan map[NodeID]*AttachmentDirective),
 		quit:            quit,
 	}
+	constraints := &mockConstraints{}
+
 	chanController := &mockChanController{
 		openChanSignals: make(chan openChanIntent),
 	}
@@ -932,10 +955,8 @@ func TestAgentPendingChannelState(t *testing.T) {
 		DisconnectPeer: func(*btcec.PublicKey) error {
 			return nil
 		},
-		Graph: memGraph,
-		Constraints: &HeuristicConstraints{
-			MaxPendingOpens: 10,
-		},
+		Graph:       memGraph,
+		Constraints: constraints,
 	}
 	initialChans := []Channel{}
 	agent, err := New(testCfg, initialChans)
@@ -1097,6 +1118,8 @@ func TestAgentPendingOpenChannel(t *testing.T) {
 		nodeScoresResps: make(chan map[NodeID]*AttachmentDirective),
 		quit:            quit,
 	}
+	constraints := &mockConstraints{}
+
 	chanController := &mockChanController{
 		openChanSignals: make(chan openChanIntent),
 	}
@@ -1114,10 +1137,8 @@ func TestAgentPendingOpenChannel(t *testing.T) {
 		WalletBalance: func() (btcutil.Amount, error) {
 			return walletBalance, nil
 		},
-		Graph: memGraph,
-		Constraints: &HeuristicConstraints{
-			MaxPendingOpens: 10,
-		},
+		Graph:       memGraph,
+		Constraints: constraints,
 	}
 	agent, err := New(cfg, nil)
 	if err != nil {
@@ -1190,6 +1211,8 @@ func TestAgentOnNodeUpdates(t *testing.T) {
 		nodeScoresResps: make(chan map[NodeID]*AttachmentDirective),
 		quit:            quit,
 	}
+	constraints := &mockConstraints{}
+
 	chanController := &mockChanController{
 		openChanSignals: make(chan openChanIntent),
 	}
@@ -1207,10 +1230,8 @@ func TestAgentOnNodeUpdates(t *testing.T) {
 		WalletBalance: func() (btcutil.Amount, error) {
 			return walletBalance, nil
 		},
-		Graph: memGraph,
-		Constraints: &HeuristicConstraints{
-			MaxPendingOpens: 10,
-		},
+		Graph:       memGraph,
+		Constraints: constraints,
 	}
 	agent, err := New(cfg, nil)
 	if err != nil {
@@ -1303,6 +1324,8 @@ func TestAgentSkipPendingConns(t *testing.T) {
 		nodeScoresResps: make(chan map[NodeID]*AttachmentDirective),
 		quit:            quit,
 	}
+	constraints := &mockConstraints{}
+
 	chanController := &mockChanController{
 		openChanSignals: make(chan openChanIntent),
 	}
@@ -1341,10 +1364,8 @@ func TestAgentSkipPendingConns(t *testing.T) {
 		DisconnectPeer: func(*btcec.PublicKey) error {
 			return nil
 		},
-		Graph: memGraph,
-		Constraints: &HeuristicConstraints{
-			MaxPendingOpens: 10,
-		},
+		Graph:       memGraph,
+		Constraints: constraints,
 	}
 	initialChans := []Channel{}
 	agent, err := New(testCfg, initialChans)

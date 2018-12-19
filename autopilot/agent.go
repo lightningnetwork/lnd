@@ -57,7 +57,7 @@ type Config struct {
 
 	// Constraints is the set of constraints the autopilot must adhere to
 	// when opening channels.
-	Constraints *HeuristicConstraints
+	Constraints AgentConstraints
 
 	// TODO(roasbeef): add additional signals from fee rates and revenue of
 	// currently opened channels
@@ -573,11 +573,11 @@ func (a *Agent) openChans(availableFunds btcutil.Amount, numChans uint32,
 	// available to future heuristic selections.
 	a.pendingMtx.Lock()
 	defer a.pendingMtx.Unlock()
-	if uint16(len(a.pendingOpens)) >= a.cfg.Constraints.MaxPendingOpens {
+	if uint16(len(a.pendingOpens)) >= a.cfg.Constraints.MaxPendingOpens() {
 		log.Debugf("Reached cap of %v pending "+
 			"channel opens, will retry "+
 			"after success/failure",
-			a.cfg.Constraints.MaxPendingOpens)
+			a.cfg.Constraints.MaxPendingOpens())
 		return nil
 	}
 
@@ -642,7 +642,7 @@ func (a *Agent) executeDirective(directive AttachmentDirective) {
 	// first.
 	a.pendingMtx.Lock()
 	if uint16(len(a.pendingOpens)) >=
-		a.cfg.Constraints.MaxPendingOpens {
+		a.cfg.Constraints.MaxPendingOpens() {
 		// Since we've reached our max number of pending opens, we'll
 		// disconnect this peer and exit. However, if we were
 		// previously connected to them, then we'll make sure to

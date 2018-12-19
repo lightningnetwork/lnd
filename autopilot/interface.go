@@ -111,16 +111,6 @@ type AttachmentDirective struct {
 // the interface is to allow an auto-pilot agent to decide if it needs more
 // channels, and if so, which exact channels should be opened.
 type AttachmentHeuristic interface {
-	// NeedMoreChans is a predicate that should return true if, given the
-	// passed parameters, and its internal state, more channels should be
-	// opened within the channel graph. If the heuristic decides that we do
-	// indeed need more channels, then the second argument returned will
-	// represent the amount of additional funds to be used towards creating
-	// channels. This method should also return the exact *number* of
-	// additional channels that are needed in order to converge towards our
-	// ideal state.
-	NeedMoreChans(chans []Channel, balance btcutil.Amount) (btcutil.Amount, uint32, bool)
-
 	// NodeScores is a method that given the current channel graph, current
 	// set of local channels and funds available, scores the given nodes
 	// according to the preference of opening a channel with them. The

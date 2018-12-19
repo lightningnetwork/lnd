@@ -74,11 +74,6 @@ type mockHeuristic struct {
 	quit chan struct{}
 }
 
-func (m *mockHeuristic) NeedMoreChans(chans []Channel,
-	balance btcutil.Amount) (btcutil.Amount, uint32, bool) {
-	return 0, 0, false
-}
-
 type directiveArg struct {
 	graph ChannelGraph
 	amt   btcutil.Amount

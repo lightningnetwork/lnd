@@ -42,23 +42,6 @@ func NewConstrainedPrefAttachment(
 // AttachmentHeuristic interface.
 var _ AttachmentHeuristic = (*ConstrainedPrefAttachment)(nil)
 
-// NeedMoreChans is a predicate that should return true if, given the passed
-// parameters, and its internal state, more channels should be opened within
-// the channel graph. If the heuristic decides that we do indeed need more
-// channels, then the second argument returned will represent the amount of
-// additional funds to be used towards creating channels.
-//
-// NOTE: This is a part of the AttachmentHeuristic interface.
-func (p *ConstrainedPrefAttachment) NeedMoreChans(channels []Channel,
-	funds btcutil.Amount) (btcutil.Amount, uint32, bool) {
-
-	// We'll try to open more channels as long as the constraints allow it.
-	availableFunds, availableChans := p.constraints.ChannelBudget(
-		channels, funds,
-	)
-	return availableFunds, availableChans, availableChans > 0
-}
-
 // NodeID is a simple type that holds an EC public key serialized in compressed
 // format.
 type NodeID [33]byte

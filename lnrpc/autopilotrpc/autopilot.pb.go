@@ -33,7 +33,7 @@ func (m *StatusRequest) Reset()         { *m = StatusRequest{} }
 func (m *StatusRequest) String() string { return proto.CompactTextString(m) }
 func (*StatusRequest) ProtoMessage()    {}
 func (*StatusRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_autopilot_45e6f1df6dc1d1df, []int{0}
+	return fileDescriptor_autopilot_52f30cf4d0055211, []int{0}
 }
 func (m *StatusRequest) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_StatusRequest.Unmarshal(m, b)
@@ -65,7 +65,7 @@ func (m *StatusResponse) Reset()         { *m = StatusResponse{} }
 func (m *StatusResponse) String() string { return proto.CompactTextString(m) }
 func (*StatusResponse) ProtoMessage()    {}
 func (*StatusResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_autopilot_45e6f1df6dc1d1df, []int{1}
+	return fileDescriptor_autopilot_52f30cf4d0055211, []int{1}
 }
 func (m *StatusResponse) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_StatusResponse.Unmarshal(m, b)
@@ -104,7 +104,7 @@ func (m *ModifyStatusRequest) Reset()         { *m = ModifyStatusRequest{} }
 func (m *ModifyStatusRequest) String() string { return proto.CompactTextString(m) }
 func (*ModifyStatusRequest) ProtoMessage()    {}
 func (*ModifyStatusRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_autopilot_45e6f1df6dc1d1df, []int{2}
+	return fileDescriptor_autopilot_52f30cf4d0055211, []int{2}
 }
 func (m *ModifyStatusRequest) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_ModifyStatusRequest.Unmarshal(m, b)
@@ -141,7 +141,7 @@ func (m *ModifyStatusResponse) Reset()         { *m = ModifyStatusResponse{} }
 func (m *ModifyStatusResponse) String() string { return proto.CompactTextString(m) }
 func (*ModifyStatusResponse) ProtoMessage()    {}
 func (*ModifyStatusResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_autopilot_45e6f1df6dc1d1df, []int{3}
+	return fileDescriptor_autopilot_52f30cf4d0055211, []int{3}
 }
 func (m *ModifyStatusResponse) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_ModifyStatusResponse.Unmarshal(m, b)
@@ -161,11 +161,137 @@ func (m *ModifyStatusResponse) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_ModifyStatusResponse proto.InternalMessageInfo
 
+type QueryScoresRequest struct {
+	Pubkeys              []string `protobuf:"bytes,1,rep,name=pubkeys,proto3" json:"pubkeys,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *QueryScoresRequest) Reset()         { *m = QueryScoresRequest{} }
+func (m *QueryScoresRequest) String() string { return proto.CompactTextString(m) }
+func (*QueryScoresRequest) ProtoMessage()    {}
+func (*QueryScoresRequest) Descriptor() ([]byte, []int) {
+	return fileDescriptor_autopilot_52f30cf4d0055211, []int{4}
+}
+func (m *QueryScoresRequest) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_QueryScoresRequest.Unmarshal(m, b)
+}
+func (m *QueryScoresRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_QueryScoresRequest.Marshal(b, m, deterministic)
+}
+func (dst *QueryScoresRequest) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_QueryScoresRequest.Merge(dst, src)
+}
+func (m *QueryScoresRequest) XXX_Size() int {
+	return xxx_messageInfo_QueryScoresRequest.Size(m)
+}
+func (m *QueryScoresRequest) XXX_DiscardUnknown() {
+	xxx_messageInfo_QueryScoresRequest.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_QueryScoresRequest proto.InternalMessageInfo
+
+func (m *QueryScoresRequest) GetPubkeys() []string {
+	if m != nil {
+		return m.Pubkeys
+	}
+	return nil
+}
+
+type QueryScoresResponse struct {
+	Results              []*QueryScoresResponse_HeuristicResult `protobuf:"bytes,1,rep,name=results,proto3" json:"results,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}                               `json:"-"`
+	XXX_unrecognized     []byte                                 `json:"-"`
+	XXX_sizecache        int32                                  `json:"-"`
+}
+
+func (m *QueryScoresResponse) Reset()         { *m = QueryScoresResponse{} }
+func (m *QueryScoresResponse) String() string { return proto.CompactTextString(m) }
+func (*QueryScoresResponse) ProtoMessage()    {}
+func (*QueryScoresResponse) Descriptor() ([]byte, []int) {
+	return fileDescriptor_autopilot_52f30cf4d0055211, []int{5}
+}
+func (m *QueryScoresResponse) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_QueryScoresResponse.Unmarshal(m, b)
+}
+func (m *QueryScoresResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_QueryScoresResponse.Marshal(b, m, deterministic)
+}
+func (dst *QueryScoresResponse) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_QueryScoresResponse.Merge(dst, src)
+}
+func (m *QueryScoresResponse) XXX_Size() int {
+	return xxx_messageInfo_QueryScoresResponse.Size(m)
+}
+func (m *QueryScoresResponse) XXX_DiscardUnknown() {
+	xxx_messageInfo_QueryScoresResponse.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_QueryScoresResponse proto.InternalMessageInfo
+
+func (m *QueryScoresResponse) GetResults() []*QueryScoresResponse_HeuristicResult {
+	if m != nil {
+		return m.Results
+	}
+	return nil
+}
+
+type QueryScoresResponse_HeuristicResult struct {
+	Heuristic            string             `protobuf:"bytes,1,opt,name=heuristic,proto3" json:"heuristic,omitempty"`
+	Scores               map[string]float64 `protobuf:"bytes,2,rep,name=scores,proto3" json:"scores,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"fixed64,2,opt,name=value,proto3"`
+	XXX_NoUnkeyedLiteral struct{}           `json:"-"`
+	XXX_unrecognized     []byte             `json:"-"`
+	XXX_sizecache        int32              `json:"-"`
+}
+
+func (m *QueryScoresResponse_HeuristicResult) Reset()         { *m = QueryScoresResponse_HeuristicResult{} }
+func (m *QueryScoresResponse_HeuristicResult) String() string { return proto.CompactTextString(m) }
+func (*QueryScoresResponse_HeuristicResult) ProtoMessage()    {}
+func (*QueryScoresResponse_HeuristicResult) Descriptor() ([]byte, []int) {
+	return fileDescriptor_autopilot_52f30cf4d0055211, []int{5, 0}
+}
+func (m *QueryScoresResponse_HeuristicResult) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_QueryScoresResponse_HeuristicResult.Unmarshal(m, b)
+}
+func (m *QueryScoresResponse_HeuristicResult) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_QueryScoresResponse_HeuristicResult.Marshal(b, m, deterministic)
+}
+func (dst *QueryScoresResponse_HeuristicResult) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_QueryScoresResponse_HeuristicResult.Merge(dst, src)
+}
+func (m *QueryScoresResponse_HeuristicResult) XXX_Size() int {
+	return xxx_messageInfo_QueryScoresResponse_HeuristicResult.Size(m)
+}
+func (m *QueryScoresResponse_HeuristicResult) XXX_DiscardUnknown() {
+	xxx_messageInfo_QueryScoresResponse_HeuristicResult.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_QueryScoresResponse_HeuristicResult proto.InternalMessageInfo
+
+func (m *QueryScoresResponse_HeuristicResult) GetHeuristic() string {
+	if m != nil {
+		return m.Heuristic
+	}
+	return ""
+}
+
+func (m *QueryScoresResponse_HeuristicResult) GetScores() map[string]float64 {
+	if m != nil {
+		return m.Scores
+	}
+	return nil
+}
+
 func init() {
 	proto.RegisterType((*StatusRequest)(nil), "autopilotrpc.StatusRequest")
 	proto.RegisterType((*StatusResponse)(nil), "autopilotrpc.StatusResponse")
 	proto.RegisterType((*ModifyStatusRequest)(nil), "autopilotrpc.ModifyStatusRequest")
 	proto.RegisterType((*ModifyStatusResponse)(nil), "autopilotrpc.ModifyStatusResponse")
+	proto.RegisterType((*QueryScoresRequest)(nil), "autopilotrpc.QueryScoresRequest")
+	proto.RegisterType((*QueryScoresResponse)(nil), "autopilotrpc.QueryScoresResponse")
+	proto.RegisterType((*QueryScoresResponse_HeuristicResult)(nil), "autopilotrpc.QueryScoresResponse.HeuristicResult")
+	proto.RegisterMapType((map[string]float64)(nil), "autopilotrpc.QueryScoresResponse.HeuristicResult.ScoresEntry")
 }
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -187,6 +313,11 @@ type AutopilotClient interface {
 	// ModifyStatus is used to modify the status of the autopilot agent, like
 	// enabling or disabling it.
 	ModifyStatus(ctx context.Context, in *ModifyStatusRequest, opts ...grpc.CallOption) (*ModifyStatusResponse, error)
+	// *
+	// QueryScores queries all available autopilot heuristics, in addition to any
+	// active combination of these heruristics, for the scores they would give to
+	// the given nodes.
+	QueryScores(ctx context.Context, in *QueryScoresRequest, opts ...grpc.CallOption) (*QueryScoresResponse, error)
 }
 
 type autopilotClient struct {
@@ -215,6 +346,15 @@ func (c *autopilotClient) ModifyStatus(ctx context.Context, in *ModifyStatusRequ
 	return out, nil
 }
 
+func (c *autopilotClient) QueryScores(ctx context.Context, in *QueryScoresRequest, opts ...grpc.CallOption) (*QueryScoresResponse, error) {
+	out := new(QueryScoresResponse)
+	err := c.cc.Invoke(ctx, "/autopilotrpc.Autopilot/QueryScores", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AutopilotServer is the server API for Autopilot service.
 type AutopilotServer interface {
 	// *
@@ -224,6 +364,11 @@ type AutopilotServer interface {
 	// ModifyStatus is used to modify the status of the autopilot agent, like
 	// enabling or disabling it.
 	ModifyStatus(context.Context, *ModifyStatusRequest) (*ModifyStatusResponse, error)
+	// *
+	// QueryScores queries all available autopilot heuristics, in addition to any
+	// active combination of these heruristics, for the scores they would give to
+	// the given nodes.
+	QueryScores(context.Context, *QueryScoresRequest) (*QueryScoresResponse, error)
 }
 
 func RegisterAutopilotServer(s *grpc.Server, srv AutopilotServer) {
@@ -266,6 +411,24 @@ func _Autopilot_ModifyStatus_Handler(srv interface{}, ctx context.Context, dec f
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Autopilot_QueryScores_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(QueryScoresRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AutopilotServer).QueryScores(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/autopilotrpc.Autopilot/QueryScores",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AutopilotServer).QueryScores(ctx, req.(*QueryScoresRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 var _Autopilot_serviceDesc = grpc.ServiceDesc{
 	ServiceName: "autopilotrpc.Autopilot",
 	HandlerType: (*AutopilotServer)(nil),
@@ -278,30 +441,44 @@ var _Autopilot_serviceDesc = grpc.ServiceDesc{
 			MethodName: "ModifyStatus",
 			Handler:    _Autopilot_ModifyStatus_Handler,
 		},
+		{
+			MethodName: "QueryScores",
+			Handler:    _Autopilot_QueryScores_Handler,
+		},
 	},
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "autopilotrpc/autopilot.proto",
 }
 
 func init() {
-	proto.RegisterFile("autopilotrpc/autopilot.proto", fileDescriptor_autopilot_45e6f1df6dc1d1df)
+	proto.RegisterFile("autopilotrpc/autopilot.proto", fileDescriptor_autopilot_52f30cf4d0055211)
 }
 
-var fileDescriptor_autopilot_45e6f1df6dc1d1df = []byte{
-	// 226 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xe2, 0x92, 0x49, 0x2c, 0x2d, 0xc9,
-	0x2f, 0xc8, 0xcc, 0xc9, 0x2f, 0x29, 0x2a, 0x48, 0xd6, 0x87, 0x73, 0xf4, 0x0a, 0x8a, 0xf2, 0x4b,
-	0xf2, 0x85, 0x78, 0x90, 0x65, 0x95, 0xf8, 0xb9, 0x78, 0x83, 0x4b, 0x12, 0x4b, 0x4a, 0x8b, 0x83,
-	0x52, 0x0b, 0x4b, 0x53, 0x8b, 0x4b, 0x94, 0x34, 0xb8, 0xf8, 0x60, 0x02, 0xc5, 0x05, 0xf9, 0x79,
-	0xc5, 0xa9, 0x42, 0x62, 0x5c, 0x6c, 0x89, 0xc9, 0x25, 0x99, 0x65, 0xa9, 0x12, 0x8c, 0x0a, 0x8c,
-	0x1a, 0x1c, 0x41, 0x50, 0x9e, 0x92, 0x2e, 0x97, 0xb0, 0x6f, 0x7e, 0x4a, 0x66, 0x5a, 0x25, 0x8a,
-	0x01, 0x20, 0xe5, 0xa9, 0x79, 0x89, 0x49, 0x39, 0x70, 0xe5, 0x10, 0x9e, 0x92, 0x18, 0x97, 0x08,
-	0xaa, 0x72, 0x88, 0xf1, 0x46, 0xcb, 0x19, 0xb9, 0x38, 0x1d, 0x61, 0x4e, 0x12, 0x72, 0xe6, 0x62,
-	0x83, 0xc8, 0x0b, 0x49, 0xeb, 0x21, 0x3b, 0x54, 0x0f, 0xc5, 0x12, 0x29, 0x19, 0xec, 0x92, 0x50,
-	0x17, 0x87, 0x72, 0xf1, 0x20, 0x5b, 0x25, 0xa4, 0x88, 0xaa, 0x1a, 0x8b, 0xab, 0xa5, 0x94, 0xf0,
-	0x29, 0x81, 0x18, 0xeb, 0x64, 0x12, 0x65, 0x94, 0x9e, 0x59, 0x92, 0x51, 0x9a, 0xa4, 0x97, 0x9c,
-	0x9f, 0xab, 0x9f, 0x93, 0x99, 0x9e, 0x51, 0x92, 0x97, 0x99, 0x97, 0x9e, 0x97, 0x5a, 0x52, 0x9e,
-	0x5f, 0x94, 0xad, 0x9f, 0x93, 0x97, 0xa2, 0x9f, 0x93, 0x87, 0x12, 0xe4, 0x45, 0x05, 0xc9, 0x49,
-	0x6c, 0xe0, 0x60, 0x37, 0x06, 0x04, 0x00, 0x00, 0xff, 0xff, 0xd1, 0x71, 0xb3, 0xba, 0x96, 0x01,
-	0x00, 0x00,
+var fileDescriptor_autopilot_52f30cf4d0055211 = []byte{
+	// 391 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x94, 0x53, 0x4d, 0xaf, 0xd2, 0x40,
+	0x14, 0xcd, 0x94, 0x58, 0xec, 0x05, 0xc5, 0x0c, 0x84, 0x34, 0x95, 0x45, 0xe9, 0xaa, 0x1b, 0xdb,
+	0x88, 0x2e, 0xd4, 0xc4, 0x85, 0x1a, 0x13, 0x13, 0xe3, 0xc2, 0x21, 0x6c, 0xdc, 0xb5, 0x65, 0x84,
+	0x09, 0x75, 0xa6, 0xce, 0x07, 0xa6, 0x7f, 0xc8, 0xff, 0xe1, 0xef, 0x72, 0xf3, 0x42, 0x3f, 0x78,
+	0xed, 0x0b, 0xe1, 0xe5, 0xed, 0x7a, 0xee, 0x3d, 0xe7, 0xdc, 0x3b, 0x67, 0x3a, 0xb0, 0x48, 0x8c,
+	0x16, 0x05, 0xcb, 0x85, 0x96, 0x45, 0x16, 0x9f, 0x41, 0x54, 0x48, 0xa1, 0x05, 0x1e, 0x77, 0xbb,
+	0xc1, 0x04, 0x9e, 0xac, 0x75, 0xa2, 0x8d, 0x22, 0xf4, 0xb7, 0xa1, 0x4a, 0x07, 0x21, 0x3c, 0x6d,
+	0x0b, 0xaa, 0x10, 0x5c, 0x51, 0x3c, 0x07, 0x3b, 0xc9, 0x34, 0x3b, 0x52, 0x17, 0xf9, 0x28, 0x7c,
+	0x4c, 0x1a, 0x14, 0xbc, 0x80, 0xe9, 0x37, 0xb1, 0x65, 0x3f, 0xcb, 0x9e, 0xc1, 0x89, 0x4e, 0x79,
+	0x92, 0xe6, 0x67, 0x7a, 0x8d, 0x82, 0x39, 0xcc, 0xfa, 0xf4, 0xda, 0x3e, 0x88, 0x00, 0x7f, 0x37,
+	0x54, 0x96, 0xeb, 0x4c, 0x48, 0x7a, 0x76, 0x71, 0x61, 0x58, 0x98, 0xf4, 0x40, 0x4b, 0xe5, 0x22,
+	0x7f, 0x10, 0x3a, 0xa4, 0x85, 0xc1, 0x5f, 0x0b, 0xa6, 0x3d, 0x41, 0xb3, 0xe6, 0x57, 0x18, 0x4a,
+	0xaa, 0x4c, 0xae, 0x6b, 0xc5, 0x68, 0xf5, 0x32, 0xea, 0x9e, 0x34, 0xba, 0xa0, 0x89, 0xbe, 0x50,
+	0x23, 0x99, 0xd2, 0x2c, 0x23, 0x95, 0x92, 0xb4, 0x0e, 0xde, 0x3f, 0x04, 0x93, 0x3b, 0x4d, 0xbc,
+	0x00, 0x67, 0xdf, 0x96, 0xaa, 0xb3, 0x39, 0xe4, 0xb6, 0x80, 0x37, 0x60, 0xab, 0xca, 0xdc, 0xb5,
+	0xaa, 0xe9, 0xef, 0x1f, 0x3c, 0x3d, 0xaa, 0xdb, 0x9f, 0xb9, 0x96, 0x25, 0x69, 0xcc, 0xbc, 0xb7,
+	0x30, 0xea, 0x94, 0xf1, 0x33, 0x18, 0x1c, 0x68, 0xd9, 0x4c, 0x3f, 0x7d, 0xe2, 0x19, 0x3c, 0x3a,
+	0x26, 0xb9, 0xa1, 0xae, 0xe5, 0xa3, 0x10, 0x91, 0x1a, 0xbc, 0xb3, 0xde, 0xa0, 0xd5, 0x7f, 0x04,
+	0xce, 0x87, 0x76, 0x07, 0xfc, 0x09, 0xec, 0x3a, 0x78, 0xfc, 0xbc, 0xbf, 0x59, 0xef, 0xf6, 0xbc,
+	0xc5, 0xe5, 0x66, 0x93, 0xf1, 0x06, 0xc6, 0xdd, 0x3b, 0xc4, 0xcb, 0x3e, 0xfb, 0xc2, 0xef, 0xe0,
+	0x05, 0xd7, 0x28, 0x8d, 0x2d, 0x81, 0x51, 0x27, 0x1f, 0xec, 0x5f, 0x89, 0xae, 0x36, 0x5d, 0xde,
+	0x1b, 0xee, 0xc7, 0xd7, 0x3f, 0x56, 0x3b, 0xa6, 0xf7, 0x26, 0x8d, 0x32, 0xf1, 0x2b, 0xce, 0xd9,
+	0x6e, 0xaf, 0x39, 0xe3, 0x3b, 0x4e, 0xf5, 0x1f, 0x21, 0x0f, 0x71, 0xce, 0xb7, 0x71, 0xce, 0x7b,
+	0xef, 0x43, 0x16, 0x59, 0x6a, 0x57, 0x6f, 0xe4, 0xd5, 0x4d, 0x00, 0x00, 0x00, 0xff, 0xff, 0xa1,
+	0xe9, 0x30, 0xf3, 0x43, 0x03, 0x00, 0x00,
 }

@@ -18,6 +18,13 @@ service Autopilot {
     enabling or disabling it.
     */
     rpc ModifyStatus(ModifyStatusRequest) returns (ModifyStatusResponse);
+
+    /**
+    QueryScores queries all available autopilot heuristics, in addition to any
+    active combination of these heruristics, for the scores they would give to
+    the given nodes.
+    */
+    rpc QueryScores(QueryScoresRequest) returns (QueryScoresResponse);
 }
 
 message StatusRequest{
@@ -34,3 +41,16 @@ message ModifyStatusRequest{
 }
 
 message ModifyStatusResponse {}
+
+message QueryScoresRequest{
+    repeated string pubkeys = 1 [json_name = "pubkeys"];
+}
+
+message QueryScoresResponse {
+    message HeuristicResult {
+        string heuristic = 1 [json_name = "heuristic"];
+        map<string, double> scores= 2 [json_name = "scores"];
+    }
+
+    repeated HeuristicResult results = 1 [json_name = "results"];
+}

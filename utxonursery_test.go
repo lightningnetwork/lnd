@@ -12,6 +12,7 @@ import (
 	"os"
 	"reflect"
 	"runtime/pprof"
+	"sync"
 	"testing"
 	"time"
 
@@ -1099,4 +1100,68 @@ func (m *nurseryMockSigner) ComputeInputScript(tx *wire.MsgTx,
 	signDesc *lnwallet.SignDescriptor) (*lnwallet.InputScript, error) {
 
 	return &lnwallet.InputScript{}, nil
+}
+
+type mockSweeper struct {
+	lock sync.Mutex
+
+	resultChans map[wire.OutPoint]chan sweep.Result
+	t           *testing.T
+
+	sweepChan chan sweep.Input
+}
+
+func newMockSweeper(t *testing.T) *mockSweeper {
+	return &mockSweeper{
+		resultChans: make(map[wire.OutPoint]chan sweep.Result),
+		sweepChan:   make(chan sweep.Input, 1),
+		t:           t,
+	}
+}
+
+func (s *mockSweeper) sweepInput(input sweep.Input) (chan sweep.Result, error) {
+	utxnLog.Debugf("mockSweeper sweepInput called for %v", *input.OutPoint())
+
+	select {
+	case s.sweepChan <- input:
+	case <-time.After(defaultTestTimeout):
+		s.t.Fatal("signal result timeout")
+	}
+
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	c := make(chan sweep.Result, 1)
+	s.resultChans[*input.OutPoint()] = c
+
+	return c, nil
+}
+
+func (s *mockSweeper) expectSweep() {
+	s.t.Helper()
+
+	select {
+	case <-s.sweepChan:
+	case <-time.After(defaultTestTimeout):
+		s.t.Fatal("signal result timeout")
+	}
+}
+
+func (s *mockSweeper) sweepAll() {
+	s.t.Helper()
+
+	s.lock.Lock()
+	currentChans := s.resultChans
+	s.resultChans = make(map[wire.OutPoint]chan sweep.Result)
+	s.lock.Unlock()
+
+	for o, c := range currentChans {
+		utxnLog.Debugf("mockSweeper signal swept for %v", o)
+
+		select {
+		case c <- sweep.Result{}:
+		case <-time.After(defaultTestTimeout):
+			s.t.Fatal("signal result timeout")
+		}
+	}
 }

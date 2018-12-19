@@ -70,6 +70,13 @@ var (
 	// ErrInvoiceAlreadyCanceled is returned when the invoice is already
 	// canceled.
 	ErrInvoiceAlreadyCanceled = errors.New("invoice already canceled")
+
+	// ErrInvoiceAlreadyAccepted is returned when the invoice is already
+	// accepted.
+	ErrInvoiceAlreadyAccepted = errors.New("invoice already accepted")
+
+	// ErrInvoiceStillOpen is returned when the invoice is still open.
+	ErrInvoiceStillOpen = errors.New("invoice still open")
 )
 
 const (
@@ -101,6 +108,10 @@ const (
 
 	// ContractCanceled means the invoice has been canceled.
 	ContractCanceled ContractState = 2
+
+	// ContractAccepted means the HTLC has been accepted but not settled
+	// yet.
+	ContractAccepted ContractState = 3
 )
 
 // String returns a human readable identifier for the ContractState type.
@@ -112,6 +123,8 @@ func (c ContractState) String() string {
 		return "Settled"
 	case ContractCanceled:
 		return "Canceled"
+	case ContractAccepted:
+		return "Accepted"
 	}
 
 	return "Unknown"
@@ -690,6 +703,50 @@ func (d *DB) CancelInvoice(paymentHash lntypes.Hash) (*Invoice, error) {
 	return canceledInvoice, err
 }
 
+// AcceptInvoice attempts to mark an invoice corresponding to the passed payment
+// hash as accepted. If an invoice matching the passed payment hash doesn't
+// existing within the database, then the action will fail with a "not found"
+// error.
+func (d *DB) AcceptInvoice(paymentHash lntypes.Hash,
+	amtPaid lnwire.MilliSatoshi) (*Invoice, error) {
+
+	var acceptedInvoice *Invoice
+	err := d.Update(func(tx *bbolt.Tx) error {
+		invoices, err := tx.CreateBucketIfNotExists(invoiceBucket)
+		if err != nil {
+			return err
+		}
+		invoiceIndex, err := invoices.CreateBucketIfNotExists(
+			invoiceIndexBucket,
+		)
+		if err != nil {
+			return err
+		}
+
+		// Check the invoice index to see if an invoice paying to this
+		// hash exists within the DB.
+		invoiceNum := invoiceIndex.Get(paymentHash[:])
+		if invoiceNum == nil {
+			return ErrInvoiceNotFound
+		}
+
+		invoice, err := acceptInvoice(
+			invoices, invoiceNum, amtPaid,
+		)
+		if err != nil {
+			return err
+		}
+
+		acceptedInvoice = invoice
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return acceptedInvoice, nil
+}
+
 // InvoicesSettledSince can be used by callers to catch up any settled invoices
 // they missed within the settled invoice time series. We'll return all known
 // settled invoice that have a settle index higher than the passed
@@ -945,14 +1002,19 @@ func settleInvoice(invoices, settleIndex *bbolt.Bucket, invoiceNum []byte,
 		return nil, err
 	}
 
-	switch invoice.Terms.State {
-	case ContractSettled:
+	holdInvoice := invoice.Terms.PaymentPreimage == UnknownPreimage
+	state := invoice.Terms.State
+
+	switch {
+	case state == ContractOpen && holdInvoice:
+		return &invoice, ErrInvoiceStillOpen
+	case state == ContractSettled:
 		return &invoice, ErrInvoiceAlreadySettled
-	case ContractCanceled:
+	case state == ContractCanceled:
 		return &invoice, ErrInvoiceAlreadyCanceled
 	}
 
-	if invoice.Terms.PaymentPreimage == UnknownPreimage {
+	if holdInvoice {
 		if preimage == nil {
 			return nil, errors.New("missing preimage")
 		}
@@ -973,7 +1035,11 @@ func settleInvoice(invoices, settleIndex *bbolt.Bucket, invoiceNum []byte,
 		return nil, err
 	}
 
-	invoice.AmtPaid = amtPaid
+	// If invoice is accepted, AmtPaid has been set already.
+	if state != ContractAccepted {
+		invoice.AmtPaid = amtPaid
+	}
+
 	invoice.Terms.State = ContractSettled
 	invoice.SettleDate = time.Now()
 	invoice.SettleIndex = nextSettleSeqNo
@@ -1006,6 +1072,41 @@ func cancelInvoice(invoices *bbolt.Bucket, invoiceNum []byte) (
 	}
 
 	invoice.Terms.State = ContractCanceled
+
+	// Set AmtPaid back to 0, in case the invoice was already accepted.
+	invoice.AmtPaid = 0
+
+	var buf bytes.Buffer
+	if err := serializeInvoice(&buf, &invoice); err != nil {
+		return nil, err
+	}
+
+	if err := invoices.Put(invoiceNum[:], buf.Bytes()); err != nil {
+		return nil, err
+	}
+
+	return &invoice, nil
+}
+
+func acceptInvoice(invoices *bbolt.Bucket, invoiceNum []byte,
+	amtPaid lnwire.MilliSatoshi) (*Invoice, error) {
+
+	invoice, err := fetchInvoice(invoiceNum, invoices)
+	if err != nil {
+		return nil, err
+	}
+
+	switch invoice.Terms.State {
+	case ContractAccepted:
+		return &invoice, ErrInvoiceAlreadyAccepted
+	case ContractSettled:
+		return &invoice, ErrInvoiceAlreadySettled
+	case ContractCanceled:
+		return &invoice, ErrInvoiceAlreadyCanceled
+	}
+
+	invoice.AmtPaid = amtPaid
+	invoice.Terms.State = ContractAccepted
 
 	var buf bytes.Buffer
 	if err := serializeInvoice(&buf, &invoice); err != nil {

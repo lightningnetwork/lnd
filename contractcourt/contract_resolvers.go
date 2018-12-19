@@ -462,6 +462,7 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 				&h.htlcResolution.ClaimOutpoint,
 				&h.htlcResolution.SweepSignDesc,
 				h.htlcResolution.Preimage[:],
+				h.broadcastHeight,
 			)
 
 			// With the input created, we can now generate the full
@@ -471,6 +472,8 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 			// TODO: Set tx lock time to current block height
 			// instead of zero. Will be taken care of once sweeper
 			// implementation is complete.
+			//
+			// TODO: Use time-based sweeper and result chan.
 			var err error
 			h.sweepTx, err = h.Sweeper.CreateSweepTx(
 				[]sweep.Input{&input}, sweepConfTarget, 0,
@@ -1254,6 +1257,7 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 			&c.commitResolution.SelfOutPoint,
 			lnwallet.CommitmentNoDelay,
 			&c.commitResolution.SelfOutputSignDesc,
+			c.broadcastHeight,
 		)
 
 		// With out input constructed, we'll now request that the
@@ -1263,6 +1267,8 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 		// TODO: Set tx lock time to current block height instead of
 		// zero. Will be taken care of once sweeper implementation is
 		// complete.
+		//
+		// TODO: Use time-based sweeper and result chan.
 		c.sweepTx, err = c.Sweeper.CreateSweepTx(
 			[]sweep.Input{&input}, sweepConfTarget, 0,
 		)

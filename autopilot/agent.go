@@ -547,10 +547,16 @@ func (a *Agent) openChans(availableFunds btcutil.Amount, numChans uint32,
 		return fmt.Errorf("unable to get graph nodes: %v", err)
 	}
 
+	// As channel size we'll use the maximum channel size available.
+	chanSize := a.cfg.Constraints.MaxChanSize()
+	if availableFunds-chanSize < 0 {
+		chanSize = availableFunds
+	}
+
 	// Use the heuristic to calculate a score for each node in the
 	// graph.
 	scores, err := a.cfg.Heuristic.NodeScores(
-		a.cfg.Graph, totalChans, availableFunds, nodes,
+		a.cfg.Graph, totalChans, chanSize, nodes,
 	)
 	if err != nil {
 		return fmt.Errorf("unable to calculate node scores : %v", err)

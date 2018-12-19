@@ -53,9 +53,9 @@ func NewNodeID(pub *btcec.PublicKey) NodeID {
 	return n
 }
 
-// NodeScores is a method that given the current channel graph, current set of
-// local channels and funds available, scores the given nodes according the the
-// preference of opening a channel with them.
+// NodeScores is a method that given the current channel graph and
+// current set of local channels, scores the given nodes according to
+// the preference of opening a channel of the given size with them.
 //
 // The heuristic employed by this method is one that attempts to promote a
 // scale-free network globally, via local attachment preferences for new nodes
@@ -71,7 +71,7 @@ func NewNodeID(pub *btcec.PublicKey) NodeID {
 //
 // NOTE: This is a part of the AttachmentHeuristic interface.
 func (p *ConstrainedPrefAttachment) NodeScores(g ChannelGraph, chans []Channel,
-	fundsAvailable btcutil.Amount, nodes map[NodeID]struct{}) (
+	chanSize btcutil.Amount, nodes map[NodeID]struct{}) (
 	map[NodeID]*AttachmentDirective, error) {
 
 	// Count the number of channels in the graph. We'll also count the
@@ -124,11 +124,6 @@ func (p *ConstrainedPrefAttachment) NodeScores(g ChannelGraph, chans []Channel,
 	// in the graph, and use that as the score.
 	candidates := make(map[NodeID]*AttachmentDirective)
 	for nID, nodeChans := range nodeChanNum {
-		// As channel size we'll use the maximum channel size available.
-		chanSize := p.constraints.MaxChanSize()
-		if fundsAvailable-chanSize < 0 {
-			chanSize = fundsAvailable
-		}
 
 		_, ok := existingPeers[nID]
 		addrs := addresses[nID]
@@ -138,11 +133,6 @@ func (p *ConstrainedPrefAttachment) NodeScores(g ChannelGraph, chans []Channel,
 		// If the node is among or existing channel peers, we don't
 		// need another channel.
 		case ok:
-			continue
-
-		// If the amount is too small, we don't want to attempt opening
-		// another channel.
-		case chanSize == 0 || chanSize < p.constraints.MinChanSize():
 			continue
 
 		// If the node has no addresses, we cannot connect to it, so we

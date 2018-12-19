@@ -241,9 +241,8 @@ func TestConstrainedPrefAttachmentSelectTwoVertexes(t *testing.T) {
 			// With the necessary state initialized, we'll now
 			// attempt to get our candidates channel score given
 			// the current state of the graph.
-			const walletFunds = btcutil.SatoshiPerBitcoin * 10
 			candidates, err := prefAttach.NodeScores(graph, nil,
-				walletFunds, nodes)
+				maxChanSize, nodes)
 			if err != nil {
 				t1.Fatalf("unable to select attachment "+
 					"directives: %v", err)
@@ -351,7 +350,7 @@ func TestConstrainedPrefAttachmentSelectInsufficientFunds(t *testing.T) {
 			// With the necessary state initialized, we'll now
 			// attempt to get the score for our list of nodes,
 			// passing zero for the amount of wallet funds. This
-			// should return an all-zero score set.
+			// should return candidates with zero-value channels.
 			scores, err := prefAttach.NodeScores(graph, nil,
 				0, nodes)
 			if err != nil {
@@ -361,9 +360,11 @@ func TestConstrainedPrefAttachmentSelectInsufficientFunds(t *testing.T) {
 
 			// Since all should be given a score of 0, the map
 			// should be empty.
-			if len(scores) != 0 {
-				t1.Fatalf("expected empty score map, "+
-					"instead got %v ", len(scores))
+			for _, s := range scores {
+				if s.ChanAmt != 0 {
+					t1.Fatalf("expected zero channel, "+
+						"instead got %v ", s.ChanAmt)
+				}
 			}
 		})
 		if !success {
@@ -466,9 +467,8 @@ func TestConstrainedPrefAttachmentSelectGreedyAllocation(t *testing.T) {
 			// 50/50 allocation, and have 3 BTC in channels. As a
 			// result, the heuristic should try to greedily
 			// allocate funds to channels.
-			const availableBalance = btcutil.SatoshiPerBitcoin * 2.5
 			scores, err := prefAttach.NodeScores(graph, nil,
-				availableBalance, nodes)
+				maxChanSize, nodes)
 			if err != nil {
 				t1.Fatalf("unable to select attachment "+
 					"directives: %v", err)
@@ -598,9 +598,8 @@ func TestConstrainedPrefAttachmentSelectSkipNodes(t *testing.T) {
 
 			// With our graph created, we'll now get the scores for
 			// all nodes in the graph.
-			const availableBalance = btcutil.SatoshiPerBitcoin * 2.5
 			scores, err := prefAttach.NodeScores(graph, nil,
-				availableBalance, nodes)
+				maxChanSize, nodes)
 			if err != nil {
 				t1.Fatalf("unable to select attachment "+
 					"directives: %v", err)
@@ -646,7 +645,7 @@ func TestConstrainedPrefAttachmentSelectSkipNodes(t *testing.T) {
 			// then all nodes should have a score of zero, since we
 			// already got channels to them.
 			scores, err = prefAttach.NodeScores(graph, chans,
-				availableBalance, nodes)
+				maxChanSize, nodes)
 			if err != nil {
 				t1.Fatalf("unable to select attachment "+
 					"directives: %v", err)

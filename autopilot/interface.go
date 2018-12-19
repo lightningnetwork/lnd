@@ -111,11 +111,11 @@ type AttachmentDirective struct {
 // the interface is to allow an auto-pilot agent to decide if it needs more
 // channels, and if so, which exact channels should be opened.
 type AttachmentHeuristic interface {
-	// NodeScores is a method that given the current channel graph, current
-	// set of local channels and funds available, scores the given nodes
-	// according to the preference of opening a channel with them. The
-	// returned channel candidates maps the NodeID to an attachemnt
-	// directive containing a score and a channel size.
+	// NodeScores is a method that given the current channel graph and
+	// current set of local channels, scores the given nodes according to
+	// the preference of opening a channel of the given size with them. The
+	// returned channel candidates maps the NodeID to an attachment
+	// directive containing a score.
 	//
 	// The scores will be in the range [0, M], where 0 indicates no
 	// improvement in connectivity if a channel is opened to this node,
@@ -126,7 +126,7 @@ type AttachmentHeuristic interface {
 	// NOTE: A NodeID not found in the returned map is implicitly given a
 	// score of 0.
 	NodeScores(g ChannelGraph, chans []Channel,
-		fundsAvailable btcutil.Amount, nodes map[NodeID]struct{}) (
+		chanSize btcutil.Amount, nodes map[NodeID]struct{}) (
 		map[NodeID]*AttachmentDirective, error)
 }
 

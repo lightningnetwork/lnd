@@ -33,7 +33,7 @@ func (m *StatusRequest) Reset()         { *m = StatusRequest{} }
 func (m *StatusRequest) String() string { return proto.CompactTextString(m) }
 func (*StatusRequest) ProtoMessage()    {}
 func (*StatusRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_autopilot_45e6f1df6dc1d1df, []int{0}
+	return fileDescriptor_autopilot_929b3b12cb55bc19, []int{0}
 }
 func (m *StatusRequest) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_StatusRequest.Unmarshal(m, b)
@@ -65,7 +65,7 @@ func (m *StatusResponse) Reset()         { *m = StatusResponse{} }
 func (m *StatusResponse) String() string { return proto.CompactTextString(m) }
 func (*StatusResponse) ProtoMessage()    {}
 func (*StatusResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_autopilot_45e6f1df6dc1d1df, []int{1}
+	return fileDescriptor_autopilot_929b3b12cb55bc19, []int{1}
 }
 func (m *StatusResponse) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_StatusResponse.Unmarshal(m, b)
@@ -104,7 +104,7 @@ func (m *ModifyStatusRequest) Reset()         { *m = ModifyStatusRequest{} }
 func (m *ModifyStatusRequest) String() string { return proto.CompactTextString(m) }
 func (*ModifyStatusRequest) ProtoMessage()    {}
 func (*ModifyStatusRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_autopilot_45e6f1df6dc1d1df, []int{2}
+	return fileDescriptor_autopilot_929b3b12cb55bc19, []int{2}
 }
 func (m *ModifyStatusRequest) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_ModifyStatusRequest.Unmarshal(m, b)
@@ -141,7 +141,7 @@ func (m *ModifyStatusResponse) Reset()         { *m = ModifyStatusResponse{} }
 func (m *ModifyStatusResponse) String() string { return proto.CompactTextString(m) }
 func (*ModifyStatusResponse) ProtoMessage()    {}
 func (*ModifyStatusResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_autopilot_45e6f1df6dc1d1df, []int{3}
+	return fileDescriptor_autopilot_929b3b12cb55bc19, []int{3}
 }
 func (m *ModifyStatusResponse) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_ModifyStatusResponse.Unmarshal(m, b)
@@ -284,10 +284,10 @@ var _Autopilot_serviceDesc = grpc.ServiceDesc{
 }
 
 func init() {
-	proto.RegisterFile("autopilotrpc/autopilot.proto", fileDescriptor_autopilot_45e6f1df6dc1d1df)
+	proto.RegisterFile("autopilotrpc/autopilot.proto", fileDescriptor_autopilot_929b3b12cb55bc19)
 }
 
-var fileDescriptor_autopilot_45e6f1df6dc1d1df = []byte{
+var fileDescriptor_autopilot_929b3b12cb55bc19 = []byte{
 	// 226 bytes of a gzipped FileDescriptorProto
 	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xe2, 0x92, 0x49, 0x2c, 0x2d, 0xc9,
 	0x2f, 0xc8, 0xcc, 0xc9, 0x2f, 0x29, 0x2a, 0x48, 0xd6, 0x87, 0x73, 0xf4, 0x0a, 0x8a, 0xf2, 0x4b,

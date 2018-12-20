@@ -1,0 +1,222 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "walletunlocker.proto",
+    "version": "version not set"
+  },
+  "schemes": [
+    "http",
+    "https"
+  ],
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "paths": {
+    "/v1/changepassword": {
+      "post": {
+        "summary": "* lncli: `changepassword`\nChangePassword changes the password of the encrypted wallet. This will\nautomatically unlock the wallet database if successful.",
+        "operationId": "ChangePassword",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/lnrpcChangePasswordResponse"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/lnrpcChangePasswordRequest"
+            }
+          }
+        ],
+        "tags": [
+          "WalletUnlocker"
+        ]
+      }
+    },
+    "/v1/genseed": {
+      "get": {
+        "summary": "*\nGenSeed is the first method that should be used to instantiate a new lnd\ninstance. This method allows a caller to generate a new aezeed cipher seed\ngiven an optional passphrase. If provided, the passphrase will be necessary\nto decrypt the cipherseed to expose the internal wallet seed.",
+        "description": "Once the cipherseed is obtained and verified by the user, the InitWallet\nmethod should be used to commit the newly generated seed, and create the\nwallet.",
+        "operationId": "GenSeed",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/lnrpcGenSeedResponse"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "aezeed_passphrase",
+            "description": "*\naezeed_passphrase is an optional user provided passphrase that will be used\nto encrypt the generated aezeed cipher seed.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          },
+          {
+            "name": "seed_entropy",
+            "description": "*\nseed_entropy is an optional 16-bytes generated via CSPRNG. If not\nspecified, then a fresh set of randomness will be used to create the seed.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          }
+        ],
+        "tags": [
+          "WalletUnlocker"
+        ]
+      }
+    },
+    "/v1/initwallet": {
+      "post": {
+        "summary": "* \nInitWallet is used when lnd is starting up for the first time to fully\ninitialize the daemon and its internal wallet. At the very least a wallet\npassword must be provided. This will be used to encrypt sensitive material\non disk.",
+        "description": "In the case of a recovery scenario, the user can also specify their aezeed\nmnemonic and passphrase. If set, then the daemon will use this prior state\nto initialize its internal wallet.\n\nAlternatively, this can be used along with the GenSeed RPC to obtain a\nseed, then present it to the user. Once it has been verified by the user,\nthe seed can be fed into this RPC in order to commit the new wallet.",
+        "operationId": "InitWallet",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/lnrpcInitWalletResponse"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/lnrpcInitWalletRequest"
+            }
+          }
+        ],
+        "tags": [
+          "WalletUnlocker"
+        ]
+      }
+    },
+    "/v1/unlockwallet": {
+      "post": {
+        "summary": "* lncli: `unlock`\nUnlockWallet is used at startup of lnd to provide a password to unlock\nthe wallet database.",
+        "operationId": "UnlockWallet",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/lnrpcUnlockWalletResponse"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/lnrpcUnlockWalletRequest"
+            }
+          }
+        ],
+        "tags": [
+          "WalletUnlocker"
+        ]
+      }
+    }
+  },
+  "definitions": {
+    "lnrpcChangePasswordRequest": {
+      "type": "object",
+      "properties": {
+        "current_password": {
+          "type": "string",
+          "format": "byte",
+          "description": "*\ncurrent_password should be the current valid passphrase used to unlock the\ndaemon."
+        },
+        "new_password": {
+          "type": "string",
+          "format": "byte",
+          "description": "*\nnew_password should be the new passphrase that will be needed to unlock the\ndaemon."
+        }
+      }
+    },
+    "lnrpcChangePasswordResponse": {
+      "type": "object"
+    },
+    "lnrpcGenSeedResponse": {
+      "type": "object",
+      "properties": {
+        "cipher_seed_mnemonic": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "*\ncipher_seed_mnemonic is a 24-word mnemonic that encodes a prior aezeed\ncipher seed obtained by the user. This field is optional, as if not\nprovided, then the daemon will generate a new cipher seed for the user.\nOtherwise, then the daemon will attempt to recover the wallet state linked\nto this cipher seed."
+        },
+        "enciphered_seed": {
+          "type": "string",
+          "format": "byte",
+          "description": "*\nenciphered_seed are the raw aezeed cipher seed bytes. This is the raw\ncipher text before run through our mnemonic encoding scheme."
+        }
+      }
+    },
+    "lnrpcInitWalletRequest": {
+      "type": "object",
+      "properties": {
+        "wallet_password": {
+          "type": "string",
+          "format": "byte",
+          "description": "*\nwallet_password is the passphrase that should be used to encrypt the\nwallet. This MUST be at least 8 chars in length. After creation, this\npassword is required to unlock the daemon."
+        },
+        "cipher_seed_mnemonic": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "*\ncipher_seed_mnemonic is a 24-word mnemonic that encodes a prior aezeed\ncipher seed obtained by the user. This may have been generated by the\nGenSeed method, or be an existing seed."
+        },
+        "aezeed_passphrase": {
+          "type": "string",
+          "format": "byte",
+          "description": "*\naezeed_passphrase is an optional user provided passphrase that will be used\nto encrypt the generated aezeed cipher seed."
+        },
+        "recovery_window": {
+          "type": "integer",
+          "format": "int32",
+          "description": "*\nrecovery_window is an optional argument specifying the address lookahead\nwhen restoring a wallet seed. The recovery window applies to each\ninvdividual branch of the BIP44 derivation paths. Supplying a recovery\nwindow of zero indicates that no addresses should be recovered, such after\nthe first initialization of the wallet."
+        }
+      }
+    },
+    "lnrpcInitWalletResponse": {
+      "type": "object"
+    },
+    "lnrpcUnlockWalletRequest": {
+      "type": "object",
+      "properties": {
+        "wallet_password": {
+          "type": "string",
+          "format": "byte",
+          "description": "*\nwallet_password should be the current valid passphrase for the daemon. This\nwill be required to decrypt on-disk material that the daemon requires to\nfunction properly."
+        },
+        "recovery_window": {
+          "type": "integer",
+          "format": "int32",
+          "description": "*\nrecovery_window is an optional argument specifying the address lookahead\nwhen restoring a wallet seed. The recovery window applies to each\ninvdividual branch of the BIP44 derivation paths. Supplying a recovery\nwindow of zero indicates that no addresses should be recovered, such after\nthe first initialization of the wallet."
+        }
+      }
+    },
+    "lnrpcUnlockWalletResponse": {
+      "type": "object"
+    }
+  }
+}

@@ -37,7 +37,7 @@ func (m *KeyLocator) Reset()         { *m = KeyLocator{} }
 func (m *KeyLocator) String() string { return proto.CompactTextString(m) }
 func (*KeyLocator) ProtoMessage()    {}
 func (*KeyLocator) Descriptor() ([]byte, []int) {
-	return fileDescriptor_signer_8dc402df3ea9a6a7, []int{0}
+	return fileDescriptor_signer_7960caaec3ed5877, []int{0}
 }
 func (m *KeyLocator) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_KeyLocator.Unmarshal(m, b)
@@ -89,7 +89,7 @@ func (m *KeyDescriptor) Reset()         { *m = KeyDescriptor{} }
 func (m *KeyDescriptor) String() string { return proto.CompactTextString(m) }
 func (*KeyDescriptor) ProtoMessage()    {}
 func (*KeyDescriptor) Descriptor() ([]byte, []int) {
-	return fileDescriptor_signer_8dc402df3ea9a6a7, []int{1}
+	return fileDescriptor_signer_7960caaec3ed5877, []int{1}
 }
 func (m *KeyDescriptor) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_KeyDescriptor.Unmarshal(m, b)
@@ -137,7 +137,7 @@ func (m *TxOut) Reset()         { *m = TxOut{} }
 func (m *TxOut) String() string { return proto.CompactTextString(m) }
 func (*TxOut) ProtoMessage()    {}
 func (*TxOut) Descriptor() ([]byte, []int) {
-	return fileDescriptor_signer_8dc402df3ea9a6a7, []int{2}
+	return fileDescriptor_signer_7960caaec3ed5877, []int{2}
 }
 func (m *TxOut) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_TxOut.Unmarshal(m, b)
@@ -218,7 +218,7 @@ func (m *SignDescriptor) Reset()         { *m = SignDescriptor{} }
 func (m *SignDescriptor) String() string { return proto.CompactTextString(m) }
 func (*SignDescriptor) ProtoMessage()    {}
 func (*SignDescriptor) Descriptor() ([]byte, []int) {
-	return fileDescriptor_signer_8dc402df3ea9a6a7, []int{3}
+	return fileDescriptor_signer_7960caaec3ed5877, []int{3}
 }
 func (m *SignDescriptor) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_SignDescriptor.Unmarshal(m, b)
@@ -301,7 +301,7 @@ func (m *SignReq) Reset()         { *m = SignReq{} }
 func (m *SignReq) String() string { return proto.CompactTextString(m) }
 func (*SignReq) ProtoMessage()    {}
 func (*SignReq) Descriptor() ([]byte, []int) {
-	return fileDescriptor_signer_8dc402df3ea9a6a7, []int{4}
+	return fileDescriptor_signer_7960caaec3ed5877, []int{4}
 }
 func (m *SignReq) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_SignReq.Unmarshal(m, b)
@@ -349,7 +349,7 @@ func (m *SignResp) Reset()         { *m = SignResp{} }
 func (m *SignResp) String() string { return proto.CompactTextString(m) }
 func (*SignResp) ProtoMessage()    {}
 func (*SignResp) Descriptor() ([]byte, []int) {
-	return fileDescriptor_signer_8dc402df3ea9a6a7, []int{5}
+	return fileDescriptor_signer_7960caaec3ed5877, []int{5}
 }
 func (m *SignResp) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_SignResp.Unmarshal(m, b)
@@ -392,7 +392,7 @@ func (m *InputScript) Reset()         { *m = InputScript{} }
 func (m *InputScript) String() string { return proto.CompactTextString(m) }
 func (*InputScript) ProtoMessage()    {}
 func (*InputScript) Descriptor() ([]byte, []int) {
-	return fileDescriptor_signer_8dc402df3ea9a6a7, []int{6}
+	return fileDescriptor_signer_7960caaec3ed5877, []int{6}
 }
 func (m *InputScript) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_InputScript.Unmarshal(m, b)
@@ -438,7 +438,7 @@ func (m *InputScriptResp) Reset()         { *m = InputScriptResp{} }
 func (m *InputScriptResp) String() string { return proto.CompactTextString(m) }
 func (*InputScriptResp) ProtoMessage()    {}
 func (*InputScriptResp) Descriptor() ([]byte, []int) {
-	return fileDescriptor_signer_8dc402df3ea9a6a7, []int{7}
+	return fileDescriptor_signer_7960caaec3ed5877, []int{7}
 }
 func (m *InputScriptResp) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_InputScriptResp.Unmarshal(m, b)
@@ -621,9 +621,9 @@ var _Signer_serviceDesc = grpc.ServiceDesc{
 	Metadata: "signrpc/signer.proto",
 }
 
-func init() { proto.RegisterFile("signrpc/signer.proto", fileDescriptor_signer_8dc402df3ea9a6a7) }
+func init() { proto.RegisterFile("signrpc/signer.proto", fileDescriptor_signer_7960caaec3ed5877) }
 
-var fileDescriptor_signer_8dc402df3ea9a6a7 = []byte{
+var fileDescriptor_signer_7960caaec3ed5877 = []byte{
 	// 562 bytes of a gzipped FileDescriptorProto
 	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x6c, 0x53, 0x4f, 0x8f, 0xd3, 0x3e,
 	0x10, 0x55, 0xb7, 0xbf, 0x36, 0xdd, 0x49, 0xd2, 0x1f, 0x98, 0x0a, 0x02, 0x08, 0x51, 0x22, 0x2d,

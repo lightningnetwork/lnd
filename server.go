@@ -636,7 +636,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		Notifier:            cc.chainNotifier,
 		PublishTransaction:  cc.wallet.PublishTransaction,
 		Store:               utxnStore,
-		Sweeper:             s.sweeper,
+		SweepInput:          s.sweeper.SweepInput,
 	})
 
 	// Construct a closure that wraps the htlcswitch's CloseLink method.

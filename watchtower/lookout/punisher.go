@@ -35,18 +35,18 @@ func (p *BreachPunisher) Punish(desc *JusticeDescriptor, quit <-chan struct{}) e
 	justiceTxn, err := desc.CreateJusticeTxn()
 	if err != nil {
 		log.Errorf("Unable to create justice txn for "+
-			"client=%s with breach-txid=%x: %v",
+			"client=%s with breach-txid=%s: %v",
 			desc.SessionInfo.ID, desc.BreachedCommitTx.TxHash(), err)
 		return err
 	}
 
-	log.Infof("Publishing justice transaction txid=%x for client=%s",
-		justiceTxn.TxHash(), desc.SessionInfo.ID)
+	log.Infof("Publishing justice transaction for client=%s with txid=%s",
+		desc.SessionInfo.ID, justiceTxn.TxHash())
 
 	err = p.cfg.PublishTx(justiceTxn)
 	if err != nil && err != lnwallet.ErrDoubleSpend {
 		log.Errorf("Unable to publish justice txn for client=%s"+
-			"with breach-txid=%x: %v",
+			"with breach-txid=%s: %v",
 			desc.SessionInfo.ID, desc.BreachedCommitTx.TxHash(), err)
 		return err
 	}

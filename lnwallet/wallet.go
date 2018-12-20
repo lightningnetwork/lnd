@@ -683,34 +683,14 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	pendingReservation.Lock()
 	defer pendingReservation.Unlock()
 
-	// Create a blank, fresh transaction. Soon to be a complete funding
-	// transaction which will allow opening a lightning channel.
-	pendingReservation.fundingTx = wire.NewMsgTx(1)
-	fundingTx := pendingReservation.fundingTx
-
 	// Some temporary variables to cut down on the resolution verbosity.
 	pendingReservation.theirContribution = req.contribution
 	theirContribution := req.contribution
 	ourContribution := pendingReservation.ourContribution
-
-	// Add all multi-party inputs and outputs to the transaction.
-	for _, ourInput := range ourContribution.Inputs {
-		fundingTx.AddTxIn(ourInput)
-	}
-	for _, theirInput := range theirContribution.Inputs {
-		fundingTx.AddTxIn(theirInput)
-	}
-	for _, ourChangeOutput := range ourContribution.ChangeOutputs {
-		fundingTx.AddTxOut(ourChangeOutput)
-	}
-	for _, theirChangeOutput := range theirContribution.ChangeOutputs {
-		fundingTx.AddTxOut(theirChangeOutput)
-	}
-
-	ourKey := pendingReservation.ourContribution.MultiSigKey
 	theirKey := theirContribution.MultiSigKey
+	ourKey := ourContribution.MultiSigKey
 
-	// Finally, add the 2-of-2 multi-sig output which will set up the lightning
+	// Create the 2-of-2 multi-sig output which will set up the lightning
 	// channel.
 	channelCapacity := int64(pendingReservation.partialState.Capacity)
 	witnessScript, multiSigOut, err := input.GenFundingPkScript(
@@ -722,47 +702,19 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 		return
 	}
 
-	// Sort the transaction. Since both side agree to a canonical ordering,
-	// by sorting we no longer need to send the entire transaction. Only
-	// signatures will be exchanged.
-	fundingTx.AddTxOut(multiSigOut)
-	txsort.InPlaceSort(pendingReservation.fundingTx)
-
-	// Next, sign all inputs that are ours, collecting the signatures in
-	// order of the inputs.
-	pendingReservation.ourFundingInputScripts = make([]*input.Script, 0,
-		len(ourContribution.Inputs))
-	signDesc := input.SignDescriptor{
-		HashType:  txscript.SigHashAll,
-		SigHashes: txscript.NewTxSigHashes(fundingTx),
+	// Create a funding transaction that will allow opening a lightning channel.
+	fundingTx, ourFundingInputScripts, err := l.createAndSignFundingTx(
+		pendingReservation.ourContribution,
+		pendingReservation.theirContribution,
+		multiSigOut,
+	)
+	if err != nil {
+		req.err <- err
+		return
 	}
-	for i, txIn := range fundingTx.TxIn {
-		info, err := l.FetchInputInfo(&txIn.PreviousOutPoint)
-		if err == ErrNotMine {
-			continue
-		} else if err != nil {
-			req.err <- err
-			return
-		}
 
-		signDesc.Output = info
-		signDesc.InputIndex = i
-
-		inputScript, err := l.Cfg.Signer.ComputeInputScript(
-			fundingTx, &signDesc,
-		)
-		if err != nil {
-			req.err <- err
-			return
-		}
-
-		txIn.SignatureScript = inputScript.SigScript
-		txIn.Witness = inputScript.Witness
-		pendingReservation.ourFundingInputScripts = append(
-			pendingReservation.ourFundingInputScripts,
-			inputScript,
-		)
-	}
+	pendingReservation.fundingTx = fundingTx
+	pendingReservation.ourFundingInputScripts = ourFundingInputScripts
 
 	// Locate the index of the multi-sig outpoint in order to record it
 	// since the outputs are canonically sorted. If this is a single funder
@@ -859,7 +811,7 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 
 	// Generate a signature for their version of the initial commitment
 	// transaction.
-	signDesc = input.SignDescriptor{
+	signDesc := input.SignDescriptor{
 		WitnessScript: witnessScript,
 		KeyDesc:       ourKey,
 		Output:        multiSigOut,
@@ -916,6 +868,72 @@ func (l *LightningWallet) handleSingleContribution(req *addSingleContributionMsg
 
 	req.err <- nil
 	return
+}
+
+// createAndSignFundingTx is called to create a funding transaction for a
+// pending reservation using the given multi-sig output. Returns the
+// transaction and the scripts for our funding inputs.
+func (l *LightningWallet) createAndSignFundingTx(
+	ourContribution, theirContribution *ChannelContribution,
+	multiSigOut *wire.TxOut,
+) (*wire.MsgTx, []*input.Script, error) {
+
+	fundingTx := wire.NewMsgTx(1)
+
+	// Add all multi-party inputs and outputs to the transaction.
+	for _, ourInput := range ourContribution.Inputs {
+		fundingTx.AddTxIn(ourInput)
+	}
+	for _, theirInput := range theirContribution.Inputs {
+		fundingTx.AddTxIn(theirInput)
+	}
+	for _, ourChangeOutput := range ourContribution.ChangeOutputs {
+		fundingTx.AddTxOut(ourChangeOutput)
+	}
+	for _, theirChangeOutput := range theirContribution.ChangeOutputs {
+		fundingTx.AddTxOut(theirChangeOutput)
+	}
+
+	// Sort the transaction. Since both side agree to a canonical ordering,
+	// by sorting we no longer need to send the entire transaction. Only
+	// signatures will be exchanged.
+	fundingTx.AddTxOut(multiSigOut)
+	txsort.InPlaceSort(fundingTx)
+
+	// Next, sign all inputs that are ours, collecting the signatures in
+	// order of the inputs.
+	ourFundingInputScripts := make([]*input.Script, 0,
+		len(ourContribution.Inputs))
+	signDesc := input.SignDescriptor{
+		HashType:  txscript.SigHashAll,
+		SigHashes: txscript.NewTxSigHashes(fundingTx),
+	}
+	for i, txIn := range fundingTx.TxIn {
+		info, err := l.FetchInputInfo(&txIn.PreviousOutPoint)
+		if err == ErrNotMine {
+			continue
+		} else if err != nil {
+			return nil, nil, err
+		}
+
+		signDesc.Output = info
+		signDesc.InputIndex = i
+
+		inputScript, err := l.Cfg.Signer.ComputeInputScript(fundingTx,
+			&signDesc)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		txIn.SignatureScript = inputScript.SigScript
+		txIn.Witness = inputScript.Witness
+		ourFundingInputScripts = append(
+			ourFundingInputScripts,
+			inputScript,
+		)
+	}
+
+	return fundingTx, ourFundingInputScripts, nil
 }
 
 // openChanDetails contains a "finalized" channel which can be considered

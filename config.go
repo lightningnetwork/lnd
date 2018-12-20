@@ -1154,13 +1154,6 @@ func parseRPCParams(cConfig *chainConfig, nodeConfig interface{}, net chainCode,
 			}
 		}
 
-		// If all of RPCUser, RPCPass, ZMQBlockHost, and ZMQTxHost are
-		// set, we assume those parameters are good to use.
-		if conf.RPCUser != "" && conf.RPCPass != "" &&
-			conf.ZMQPubRawBlock != "" && conf.ZMQPubRawTx != "" {
-			return nil
-		}
-
 		// Get the daemon name for displaying proper errors.
 		switch net {
 		case bitcoinChain:
@@ -1171,6 +1164,24 @@ func parseRPCParams(cConfig *chainConfig, nodeConfig interface{}, net chainCode,
 			daemonName = "litecoind"
 			confDir = conf.Dir
 			confFile = "litecoin"
+		}
+
+		// If all of RPCUser, RPCPass, ZMQBlockHost, and ZMQTxHost are
+		// set, we assume those parameters are good to use.
+		if conf.ZMQPubRawBlock != "" && conf.ZMQPubRawTx != "" {
+			if conf.RPCUser != "" && conf.RPCPass != "" {
+				return nil
+			}
+			// Try to get RPCUser and RPCPass from an auth cookie.
+			rpcUser, rpcPass, err :=
+				getBitcoindRPCCredentialsFromCookie(confDir)
+			if err != nil {
+				return fmt.Errorf("unable to retrieve RPC "+
+					"credentials from cookie: %v", err,
+				)
+			}
+			conf.RPCUser, conf.RPCPass = rpcUser, rpcPass
+			return nil
 		}
 
 		// If not all of the parameters are set, we'll assume the user
@@ -1264,7 +1275,7 @@ func extractBtcdRPCParams(btcdConfigPath string) (string, string, error) {
 	}
 	passSubmatches := rpcPassRegexp.FindSubmatch(configContents)
 	if passSubmatches == nil {
-		return "", "", fmt.Errorf("unable to find rpcuser in config")
+		return "", "", fmt.Errorf("unable to find rpcpass in config")
 	}
 
 	return string(userSubmatches[1]), string(passSubmatches[1]), nil
@@ -1275,7 +1286,8 @@ func extractBtcdRPCParams(btcdConfigPath string) (string, string, error) {
 // location of bitcoind's bitcoin.conf on the target system. The routine looks
 // for a cookie first, optionally following the datadir configuration option in
 // the bitcoin.conf. If it doesn't find one, it looks for rpcuser/rpcpassword.
-func extractBitcoindRPCParams(bitcoindConfigPath string) (string, string, string, string, error) {
+func extractBitcoindRPCParams(bitcoindConfigPath string) (string, string,
+	string, string, error) {
 	// First, we'll open up the bitcoind configuration file found at the
 	// target destination.
 	bitcoindConfigFile, err := os.Open(bitcoindConfigPath)
@@ -1319,8 +1331,7 @@ func extractBitcoindRPCParams(bitcoindConfigPath string) (string, string, string
 		return "", "", "", "", err
 	}
 
-	// Next, we'll try to find an auth cookie. We need to detect the chain
-	// by seeing if one is specified in the configuration file.
+	// Next, we'll try to find an auth cookie.
 	dataDir := path.Dir(bitcoindConfigPath)
 	dataDirRE, err := regexp.Compile(`(?m)^\s*datadir\s*=\s*([^\s]+)`)
 	if err != nil {
@@ -1331,24 +1342,13 @@ func extractBitcoindRPCParams(bitcoindConfigPath string) (string, string, string
 		dataDir = string(dataDirSubmatches[1])
 	}
 
-	chainDir := "/"
-	switch activeNetParams.Params.Name {
-	case "testnet3":
-		chainDir = "/testnet3/"
-	case "testnet4":
-		chainDir = "/testnet4/"
-	case "regtest":
-		chainDir = "/regtest/"
-	}
-
-	cookie, err := ioutil.ReadFile(dataDir + chainDir + ".cookie")
+	rpcUser, rpcPass, err := getBitcoindRPCCredentialsFromCookie(dataDir)
 	if err == nil {
-		splitCookie := strings.Split(string(cookie), ":")
-		if len(splitCookie) == 2 {
-			return splitCookie[0], splitCookie[1], zmqBlockHost,
-				zmqTxHost, nil
-		}
+		return rpcUser, rpcPass, zmqBlockHost, zmqTxHost, nil
 	}
+	fmt.Printf("unable to retrieve RPC credentials from cookie: %v, "+
+		"falling back to rpcuser/rpcpassword\n", err.Error(),
+	)
 
 	// We didn't find a cookie, so we attempt to locate the RPC user using
 	// a regular expression. If we  don't have a match for our regular
@@ -1462,4 +1462,34 @@ func normalizeNetwork(network string) string {
 	}
 
 	return network
+}
+
+// getBitcoindRPCCredentialsFromCookie attempts to extract RPC credentials from
+// the bitcoind authentication cookie.
+func getBitcoindRPCCredentialsFromCookie(bitcoindDataDir string) (string,
+	string, error) {
+	fmt.Println("Attempting to extract RPC credentials from auth cookie")
+	// We need to detect the chain by seeing if one is specified
+	// in the configuration file.
+	chainDir := "/"
+	switch activeNetParams.Params.Name {
+	case "testnet3":
+		chainDir = "/testnet3/"
+	case "testnet4":
+		chainDir = "/testnet4/"
+	case "regtest":
+		chainDir = "/regtest/"
+	}
+
+	cookie, err := ioutil.ReadFile(bitcoindDataDir + chainDir + ".cookie")
+	if err != nil {
+		return "", "", err
+	}
+	splitCookie := strings.Split(string(cookie), ":")
+	if len(splitCookie) != 2 {
+		return "", "", fmt.Errorf("invalid data in %s%s.cookie found",
+			bitcoindDataDir, chainDir)
+	}
+
+	return splitCookie[0], splitCookie[1], nil
 }

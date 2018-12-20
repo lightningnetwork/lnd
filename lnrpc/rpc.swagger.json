@@ -1599,9 +1599,6 @@
         "close_pending": {
           "$ref": "#/definitions/lnrpcPendingUpdate"
         },
-        "confirmation": {
-          "$ref": "#/definitions/lnrpcConfirmationUpdate"
-        },
         "chan_close": {
           "$ref": "#/definitions/lnrpcChannelCloseUpdate"
         }
@@ -1636,23 +1633,6 @@
           "items": {
             "$ref": "#/definitions/lnrpcChannelCloseSummary"
           }
-        }
-      }
-    },
-    "lnrpcConfirmationUpdate": {
-      "type": "object",
-      "properties": {
-        "block_sha": {
-          "type": "string",
-          "format": "byte"
-        },
-        "block_height": {
-          "type": "integer",
-          "format": "int32"
-        },
-        "num_confs_left": {
-          "type": "integer",
-          "format": "int64"
         }
       }
     },
@@ -2419,9 +2399,6 @@
       "properties": {
         "chan_pending": {
           "$ref": "#/definitions/lnrpcPendingUpdate"
-        },
-        "confirmation": {
-          "$ref": "#/definitions/lnrpcConfirmationUpdate"
         },
         "chan_open": {
           "$ref": "#/definitions/lnrpcChannelOpenUpdate"

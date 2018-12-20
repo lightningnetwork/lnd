@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net"
+	"net/url"
 	"os"
 	"os/user"
 	"path"
@@ -1142,8 +1143,8 @@ func parseRPCParams(cConfig *chainConfig, nodeConfig interface{}, net chainCode,
 		}
 
 	case *bitcoindConfig:
-		// Ensure that if the ZMQ options are set, that they are not
-		// equal.
+		// Ensure that if the ZMQ options are set, that they are valid
+		// and not equal.
 		if conf.ZMQPubRawBlock != "" && conf.ZMQPubRawTx != "" {
 			err := checkZMQOptions(
 				conf.ZMQPubRawBlock, conf.ZMQPubRawTx,
@@ -1380,11 +1381,74 @@ func extractBitcoindRPCParams(bitcoindConfigPath string) (string, string, string
 }
 
 // checkZMQOptions ensures that the provided addresses to use as the hosts for
-// ZMQ rawblock and rawtx notifications are different.
+// ZMQ rawblock and rawtx notifications are valid and different.
 func checkZMQOptions(zmqBlockHost, zmqTxHost string) error {
-	if zmqBlockHost == zmqTxHost {
-		return errors.New("zmqpubrawblock and zmqpubrawtx must be set" +
+	// ZMQ can be used with different transports
+	// (http://api.zeromq.org/4-0:zmq-bind). At first, check the presence of
+	// scheme in URL, and prepend values with "tcp://" if it isn't there,
+	// for backward compatibility.
+	zmqSchemeRE, err := regexp.Compile(`^[a-zA-Z]+://`)
+	if err != nil {
+		return err
+	}
+
+	if !zmqSchemeRE.MatchString(zmqBlockHost) {
+		zmqBlockHost = "tcp://" + zmqBlockHost
+	}
+
+	if !zmqSchemeRE.MatchString(zmqTxHost) {
+		zmqTxHost = "tcp://" + zmqTxHost
+	}
+
+	// Parse the socket URL and perform generalized comparison.
+	zmqBlockURL, err := url.Parse(zmqBlockHost)
+	if err != nil {
+		return err
+	}
+
+	zmqTxURL, err := url.Parse(zmqTxHost)
+	if err != nil {
+		return err
+	}
+
+	if zmqBlockURL == zmqTxURL {
+		return errors.New("zmqpubrawblock and zmqpubrawtx must be set " +
 			"to different addresses")
+	}
+
+	// TCP transport specific checks.
+	if zmqBlockURL.Scheme == "tcp" && zmqTxURL.Scheme == "tcp" {
+		// Ensure the host:port is correct and resolve it to ip:port if needed,
+		// then split the result to IP and port
+		zmqBlockResolved, err := net.ResolveTCPAddr("tcp", zmqBlockURL.Host)
+		if err != nil {
+			return err
+		}
+
+		zmqTxResolved, err := net.ResolveTCPAddr("tcp", zmqTxURL.Host)
+		if err != nil {
+			return err
+		}
+
+		if zmqBlockResolved.Port == zmqTxResolved.Port {
+			switch {
+			// Ensure both aren't loopbacks (e.g. one address is 127.0.0.1
+			// and the other one is [::1] case)
+			case zmqBlockResolved.IP.IsLoopback() && zmqTxResolved.IP.IsLoopback():
+				fallthrough
+			// Ensure addresses aren't equal even if one is IPv4 and the other
+			// one is it's IPv6 mapped version.
+			case zmqBlockResolved.IP.Equal(zmqTxResolved.IP):
+				return errors.New("zmqpubrawblock and zmqpubrawtx must be set " +
+					"to different addresses")
+			}
+		}
+
+		// Do not allow 0.0.0.0 or [::]
+		if zmqBlockResolved.IP.IsUnspecified() || zmqTxResolved.IP.IsUnspecified() {
+			return errors.New("can't use wildcard addresses, please define " +
+				"zmqpubrawblock and zmqpubrawtx in lnd config")
+		}
 	}
 
 	return nil

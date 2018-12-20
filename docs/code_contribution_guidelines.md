@@ -609,6 +609,10 @@ Rejoice as you will now be listed as a [contributor](https://github.com/lightnin
 - [&nbsp;&nbsp;] Running `go vet` does not report any issues
 - [&nbsp;&nbsp;] Running `make lint` does not report any **new** issues that
   did not already exist
+- [&nbsp;&nbsp;] All commits build properly and pass tests. Only in exceptional
+  cases it can be justifiable to violate this condition. In that case, the
+  reason should be stated in the commit message.
+- [&nbsp;&nbsp;] Commits have a logical structure (see section 4.5).
 
 <a name="Licensing" />
 

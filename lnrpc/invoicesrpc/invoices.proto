@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package invoicesrpc;
+
+option go_package = "github.com/lightningnetwork/lnd/lnrpc/invoicesrpc";
+
+// Invoices is a service that can be used to create, accept, settle and cancel
+// invoices.
+service Invoices {
+}
+

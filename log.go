@@ -21,6 +21,7 @@ import (
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lnrpc/autopilotrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/chainrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -78,6 +79,7 @@ var (
 	nannLog = build.NewSubLogger("NANN", backendLog.Logger)
 	wtwrLog = build.NewSubLogger("WTWR", backendLog.Logger)
 	ntfrLog = build.NewSubLogger("NTFR", backendLog.Logger)
+	irpcLog = build.NewSubLogger("IRPC", backendLog.Logger)
 )
 
 // Initialize package-global logger variables.
@@ -102,6 +104,7 @@ func init() {
 	netann.UseLogger(nannLog)
 	watchtower.UseLogger(wtwrLog)
 	chainrpc.UseLogger(ntfrLog)
+	invoicesrpc.UseLogger(irpcLog)
 }
 
 // subsystemLoggers maps each subsystem identifier to its associated logger.
@@ -132,6 +135,7 @@ var subsystemLoggers = map[string]btclog.Logger{
 	"NANN": nannLog,
 	"WTWR": wtwrLog,
 	"NTFR": ntfnLog,
+	"IRPC": irpcLog,
 }
 
 // initLogRotator initializes the logging rotator to write logs to logFile and

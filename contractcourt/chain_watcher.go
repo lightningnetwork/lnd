@@ -725,18 +725,14 @@ func (c *chainWatcher) dispatchContractBreach(spendEvent *chainntnfs.SpendDetail
 		return fmt.Errorf("unable to mark channel as borked: %v", err)
 	}
 
-	var (
-		commitTxBroadcast = spendEvent.SpendingTx
-		spendHeight       = uint32(spendEvent.SpendingHeight)
-	)
+	spendHeight := uint32(spendEvent.SpendingHeight)
 
 	// Create a new reach retribution struct which contains all the data
 	// needed to swiftly bring the cheating peer to justice.
 	//
 	// TODO(roasbeef): move to same package
 	retribution, err := lnwallet.NewBreachRetribution(
-		c.cfg.chanState, broadcastStateNum, commitTxBroadcast,
-		spendHeight,
+		c.cfg.chanState, broadcastStateNum, spendHeight,
 	)
 	if err != nil {
 		return fmt.Errorf("unable to create breach retribution: %v", err)

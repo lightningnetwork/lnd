@@ -1181,7 +1181,7 @@ func TestBreachSecondLevelTransfer(t *testing.T) {
 
 	// Notify the breach arbiter about the breach.
 	retribution, err := lnwallet.NewBreachRetribution(
-		alice.State(), height, forceCloseTx, 1)
+		alice.State(), height, 1)
 	if err != nil {
 		t.Fatalf("unable to create breach retribution: %v", err)
 	}

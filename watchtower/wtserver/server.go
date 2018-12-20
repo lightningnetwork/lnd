@@ -11,6 +11,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/connmgr"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/watchtower/blob"
@@ -340,7 +341,7 @@ func (s *Server) handleCreateSession(peer Peer, id *wtdb.SessionID,
 		log.Debugf("Already have session for %s", id)
 		return s.replyCreateSession(
 			peer, id, wtwire.CreateSessionCodeAlreadyExists,
-			[]byte(existingInfo.RewardAddress),
+			existingInfo.RewardAddress,
 		)
 
 	// Some other database error occurred, return a temporary failure.
@@ -364,7 +365,15 @@ func (s *Server) handleCreateSession(peer Peer, id *wtdb.SessionID,
 		)
 	}
 
-	rewardAddrBytes := rewardAddress.ScriptAddress()
+	// Construct the pkscript the client should pay to when signing justice
+	// transactions for this session.
+	rewardScript, err := txscript.PayToAddrScript(rewardAddress)
+	if err != nil {
+		log.Errorf("unable to generate reward script for %s", id)
+		return s.replyCreateSession(
+			peer, id, wtwire.CodeTemporaryFailure, nil,
+		)
+	}
 
 	// Ensure that the requested blob type is supported by our tower.
 	if !blob.IsSupportedType(req.BlobType) {
@@ -380,14 +389,14 @@ func (s *Server) handleCreateSession(peer Peer, id *wtdb.SessionID,
 	// Assemble the session info using the agreed upon parameters, reward
 	// address, and session id.
 	info := wtdb.SessionInfo{
-		ID:            *id,
-		RewardAddress: rewardAddrBytes,
+		ID: *id,
 		Policy: wtpolicy.Policy{
 			BlobType:     req.BlobType,
 			MaxUpdates:   req.MaxUpdates,
 			RewardRate:   req.RewardRate,
 			SweepFeeRate: req.SweepFeeRate,
 		},
+		RewardAddress: rewardScript,
 	}
 
 	// Insert the session info into the watchtower's database. If
@@ -403,7 +412,7 @@ func (s *Server) handleCreateSession(peer Peer, id *wtdb.SessionID,
 	log.Infof("Accepted session for %s", id)
 
 	return s.replyCreateSession(
-		peer, id, wtwire.CodeOK, rewardAddrBytes,
+		peer, id, wtwire.CodeOK, rewardScript,
 	)
 }
 

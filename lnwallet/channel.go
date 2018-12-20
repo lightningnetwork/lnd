@@ -1891,6 +1891,15 @@ type BreachRetribution struct {
 	// HtlcRetributions is a slice of HTLC retributions for each output
 	// active HTLC output within the breached commitment transaction.
 	HtlcRetributions []HtlcRetribution
+
+	// KeyRing contains the derived public keys used to construct the
+	// breaching commitment transaction. This allows downstream clients to
+	// have access to the public keys used in the scripts.
+	KeyRing *CommitmentKeyRing
+
+	// RemoteDelay specifies the CSV delay applied to to-local scripts on
+	// the breaching commitment transaction.
+	RemoteDelay uint32
 }
 
 // NewBreachRetribution creates a new fully populated BreachRetribution for the
@@ -2099,6 +2108,8 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 		RemoteOutpoint:       remoteOutpoint,
 		RemoteOutputSignDesc: remoteSignDesc,
 		HtlcRetributions:     htlcRetributions,
+		KeyRing:              keyRing,
+		RemoteDelay:          remoteDelay,
 	}, nil
 }
 

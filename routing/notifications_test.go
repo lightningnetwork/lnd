@@ -628,6 +628,10 @@ func TestNodeUpdateNotification(t *testing.T) {
 			t.Fatalf("node alias doesn't match: expected %v, got %v",
 				ann.Alias, nodeUpdate.Alias)
 		}
+		if nodeUpdate.Color != EncodeHexColor(ann.Color) {
+			t.Fatalf("node color doesn't match: expected %v, got %v",
+				EncodeHexColor(ann.Color), nodeUpdate.Color)
+		}
 	}
 
 	// Create lookup map for notifications we are intending to receive. Entries
@@ -924,5 +928,32 @@ func TestChannelCloseNotification(t *testing.T) {
 
 	case <-time.After(time.Second * 5):
 		t.Fatal("notification not sent")
+	}
+}
+
+// TestEncodeHexColor tests that the string used to represent a node color is
+// correctly encoded.
+func TestEncodeHexColor(t *testing.T) {
+	var colorTestCases = []struct {
+		R       uint8
+		G       uint8
+		B       uint8
+		encoded string
+		isValid bool
+	}{
+		{0, 0, 0, "#000000", true},
+		{255, 255, 255, "#ffffff", true},
+		{255, 117, 215, "#ff75d7", true},
+		{0, 0, 0, "000000", false},
+		{1, 2, 3, "", false},
+		{1, 2, 3, "#", false},
+	}
+
+	for _, tc := range colorTestCases {
+		encoded := EncodeHexColor(color.RGBA{tc.R, tc.G, tc.B, 0})
+		if (encoded == tc.encoded) != tc.isValid {
+			t.Fatalf("incorrect color encoding, "+
+				"want: %v, got: %v", tc.encoded, encoded)
+		}
 	}
 }

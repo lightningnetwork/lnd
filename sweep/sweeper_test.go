@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -376,7 +377,8 @@ func TestNegativeInput(t *testing.T) {
 	if !testTxIns(&sweepTx1, []*wire.OutPoint{
 		largeInput.OutPoint(), positiveInput.OutPoint(),
 	}) {
-		t.Fatal("Tx does not contain expected inputs")
+		t.Fatalf("Tx does not contain expected inputs: %v",
+			spew.Sdump(sweepTx1))
 	}
 
 	ctx.backend.mine()

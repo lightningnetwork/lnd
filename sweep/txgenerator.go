@@ -55,7 +55,7 @@ func generateInputPartitionings(sweepableInputs []Input,
 	// on the signature length, which is not known yet at this point.
 	yields := make(map[wire.OutPoint]int64)
 	for _, input := range sweepableInputs {
-		size, err := getInputWitnessSizeUpperBound(input)
+		size, _, err := getInputWitnessSizeUpperBound(input)
 		if err != nil {
 			return nil, fmt.Errorf(
 				"failed adding input weight: %v", err)
@@ -125,10 +125,14 @@ func getPositiveYieldInputs(sweepableInputs []Input, maxInputs int,
 	for idx, input := range sweepableInputs {
 		// Can ignore error, because it has already been checked when
 		// calculating the yields.
-		size, _ := getInputWitnessSizeUpperBound(input)
+		size, isNestedP2SH, _ := getInputWitnessSizeUpperBound(input)
 
 		// Keep a running weight estimate of the input set.
-		weightEstimate.AddWitnessInput(size)
+		if isNestedP2SH {
+			weightEstimate.AddNestedP2WSHInput(size)
+		} else {
+			weightEstimate.AddWitnessInput(size)
+		}
 
 		newTotal := total + btcutil.Amount(input.SignDesc().Output.Value)
 
@@ -247,45 +251,54 @@ func createSweepTx(inputs []Input, outputPkScript []byte,
 }
 
 // getInputWitnessSizeUpperBound returns the maximum length of the witness for
-// the given input if it would be included in a tx.
-func getInputWitnessSizeUpperBound(input Input) (int, error) {
+// the given input if it would be included in a tx. We also return if the
+// output itself is a nested p2sh output, if so then we need to take into
+// account the extra sigScript data size.
+func getInputWitnessSizeUpperBound(input Input) (int, bool, error) {
 	switch input.WitnessType() {
 
-	// Outputs on a remote commitment transaction that pay directly
-	// to us.
+	// Outputs on a remote commitment transaction that pay directly to us.
+	case lnwallet.WitnessKeyHash:
+		fallthrough
 	case lnwallet.CommitmentNoDelay:
-		return lnwallet.P2WKHWitnessSize, nil
+		return lnwallet.P2WKHWitnessSize, false, nil
 
 	// Outputs on a past commitment transaction that pay directly
 	// to us.
 	case lnwallet.CommitmentTimeLock:
-		return lnwallet.ToLocalTimeoutWitnessSize, nil
+		return lnwallet.ToLocalTimeoutWitnessSize, false, nil
 
 	// Outgoing second layer HTLC's that have confirmed within the
 	// chain, and the output they produced is now mature enough to
 	// sweep.
 	case lnwallet.HtlcOfferedTimeoutSecondLevel:
-		return lnwallet.ToLocalTimeoutWitnessSize, nil
+		return lnwallet.ToLocalTimeoutWitnessSize, false, nil
 
 	// Incoming second layer HTLC's that have confirmed within the
 	// chain, and the output they produced is now mature enough to
 	// sweep.
 	case lnwallet.HtlcAcceptedSuccessSecondLevel:
-		return lnwallet.ToLocalTimeoutWitnessSize, nil
+		return lnwallet.ToLocalTimeoutWitnessSize, false, nil
 
 	// An HTLC on the commitment transaction of the remote party,
 	// that has had its absolute timelock expire.
 	case lnwallet.HtlcOfferedRemoteTimeout:
-		return lnwallet.AcceptedHtlcTimeoutWitnessSize, nil
+		return lnwallet.AcceptedHtlcTimeoutWitnessSize, false, nil
 
 	// An HTLC on the commitment transaction of the remote party,
 	// that can be swept with the preimage.
 	case lnwallet.HtlcAcceptedRemoteSuccess:
-		return lnwallet.OfferedHtlcSuccessWitnessSize, nil
+		return lnwallet.OfferedHtlcSuccessWitnessSize, false, nil
 
+	// A nested P2SH input that has a p2wkh witness script. We'll mark this
+	// as nested P2SH so the caller can estimate the weight properly
+	// including the sigScript.
+	case lnwallet.NestedWitnessKeyHash:
+		return lnwallet.P2WKHWitnessSize, true, nil
 	}
 
-	return 0, fmt.Errorf("unexpected witness type: %v", input.WitnessType())
+	return 0, false, fmt.Errorf("unexpected witness type: %v",
+		input.WitnessType())
 }
 
 // getWeightEstimate returns a weight estimate for the given inputs.
@@ -312,7 +325,10 @@ func getWeightEstimate(inputs []Input) ([]Input, int64, int, int) {
 	for i := range inputs {
 		input := inputs[i]
 
-		size, err := getInputWitnessSizeUpperBound(input)
+		// For fee estimation purposes, we'll now attempt to obtain an
+		// upper bound on the weight this input will add when fully
+		// populated.
+		size, isNestedP2SH, err := getInputWitnessSizeUpperBound(input)
 		if err != nil {
 			log.Warn(err)
 
@@ -320,7 +336,14 @@ func getWeightEstimate(inputs []Input) ([]Input, int64, int, int) {
 			// given.
 			continue
 		}
-		weightEstimate.AddWitnessInput(size)
+
+		// If this is a nested P2SH input, then we'll need to factor in
+		// the additional data push within the sigScript.
+		if isNestedP2SH {
+			weightEstimate.AddNestedP2WSHInput(size)
+		} else {
+			weightEstimate.AddWitnessInput(size)
+		}
 
 		switch input.WitnessType() {
 		case lnwallet.CommitmentTimeLock,

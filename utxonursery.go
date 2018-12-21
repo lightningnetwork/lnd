@@ -807,7 +807,7 @@ func (u *utxoNursery) sweepMatureOutputs(classHeight uint32,
 			return err
 		}
 		u.wg.Add(1)
-		go u.waitForSweepConf(classHeight, &output, resultChan)
+		go u.waitForSweepConf(classHeight, &local, resultChan)
 	}
 
 	return nil

@@ -1329,6 +1329,9 @@ message GetInfoResponse {
 
     /// A list of active chains the node is connected to
     repeated Chain chains = 16 [json_name = "chains"];
+
+    /// The color of the current node in hex code format
+    string color = 17 [json_name = "color"];
 }
 
 message Chain {
@@ -1854,6 +1857,7 @@ message NodeUpdate {
     string identity_key = 2;
     bytes global_features = 3;
     string alias = 4;
+    string color = 5;
 }
 message ChannelEdgeUpdate {
     /**

@@ -2158,6 +2158,10 @@
             "$ref": "#/definitions/lnrpcChain"
           },
           "title": "/ A list of active chains the node is connected to"
+        },
+        "color": {
+          "type": "string",
+          "title": "/ The color of the current node in hex code format"
         }
       }
     },
@@ -2638,6 +2642,9 @@
           "format": "byte"
         },
         "alias": {
+          "type": "string"
+        },
+        "color": {
           "type": "string"
         }
       }

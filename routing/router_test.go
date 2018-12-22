@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"image/color"
 	"math/rand"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -669,6 +670,373 @@ func TestSendPaymentErrorRepeatedFeeInsufficient(t *testing.T) {
 			"instead passes through: %v",
 			getAliasFromPubKey(route.Hops[0].PubKeyBytes,
 				ctx.aliases))
+	}
+}
+
+// TestSendPaymentPrivateEdgeDirection tests that edge direction is
+// taken into account properly when processing errors and pruning edges
+// as a result. The setup below is used for the test:
+//
+//                  ┌──────────┐
+//        ..........│     F    │..........
+//        .         └──────────┘         .
+//        .                              .
+//        .                              .
+//        . 80                           . 30
+//        .                              .
+//        .                              .
+//   ┌──────────┐        20         ┌──────────┐
+//   │    D     │...................│    E     │
+//   └──────────┘                   └──────────┘
+//        |                              |
+//        |                              |
+//        | 10                           | 50
+//        |                              |
+//        |                              |
+//   ┌──────────┐                   ┌──────────┐
+//   │    B     │                   │    C     │
+//   └──────────┘                   └──────────┘
+//        |                              |
+//        |                              |
+//        | 30                           | 30
+//        |                              |
+//        |         ┌──────────┐         |
+//        └─────────│     A    │─────────┘
+//                  └──────────┘
+//
+// A-B, B-D, A-C, C-E are public, while D-E, D-F and E-F are private edges,
+// learned through the following hints:
+// h1: D->E->F
+// h2: E->D->F
+//
+// The base fee is written on each edge. The porportional fee is set to 0.
+// All edges are symmetric.
+//
+// The router is expected to come up with the following routes in order:
+// r1: A->B->D->E->F  total fees: 60
+// r2: A->C->E->F     total fees: 80
+// r3: A->B->D->F     total fees: 90
+// r4: A->C->E->D->F  total fees: 150
+//
+// r1 and r4 both pass through edge D-E, r1 transversing D->E and r4 E->D.
+//
+// The test errors on the D->E direction and prunes it as a result, and
+// checks that the E->D direction is still a viable edge for r4, i.e.
+// that direction is correctly taken into account when pruning an edge.
+//
+// The following edges are pruned for each route:
+// r1: D->E is pruned
+// r2: E->F is pruned
+// r3: B->D is pruned
+// leaving r4 as viable 4th route
+//
+// Since edge direction is determined by comparison of the public keys of
+// the connected nodes, an identical test is performed where the E-D is
+// transversed in the opposite direction, i.e. the fees in the maps are
+// reversed, to lead to the following routes:
+// r1: A->C->E->D->F  total fees: 60
+// r2: A->B->D->F     total fees: 80
+// r3: A->C->E->F     total fees: 90
+// r4: A->B->D->E->F  total fees: 150
+//
+// with the following errors:
+// r1: E->D is pruned
+// r2: D->F is pruned
+// r3: C->E is pruned
+// leaving r4 as viable 4th route
+//
+// This test was added to test direction initialization in NewPaymentSession;
+// without the fix payment would fail in the switched direction test.
+func TestSendPaymentPrivateEdgeDirection(t *testing.T) {
+	t.Parallel()
+
+	// Setup the public part of the node network.
+	// roasbeef is used instead of a, as createTestGraphFromChannels
+	// set roasbeef as source.
+	b2dChanID := uint64(200)
+	c2eChanID := uint64(201)
+	testChannels := []*testChannel{
+		symmetricTestChannel("roasbeef", "b", 1000, &testChannelPolicy{
+			Expiry:      144,
+			FeeBaseMsat: 30,
+			FeeRate:     0,
+			MinHTLC:     1,
+		}, 1),
+		symmetricTestChannel("roasbeef", "c", 1000, &testChannelPolicy{
+			Expiry:      144,
+			FeeBaseMsat: 30,
+			FeeRate:     0,
+			MinHTLC:     1,
+		}, 2),
+		symmetricTestChannel("b", "d", 1000, &testChannelPolicy{
+			Expiry:      144,
+			FeeBaseMsat: 10,
+			FeeRate:     0,
+			MinHTLC:     1,
+		}, b2dChanID),
+		symmetricTestChannel("c", "e", 1000, &testChannelPolicy{
+			Expiry:      144,
+			FeeBaseMsat: 50,
+			FeeRate:     0,
+			MinHTLC:     1,
+		}, c2eChanID)}
+
+	testGraph, err := createTestGraphFromChannels(testChannels)
+	defer testGraph.cleanUp()
+	if err != nil {
+		t.Fatalf("unable to create graph: %v", err)
+	}
+
+	const startingBlockHeight = 101
+
+	ctx, cleanUp, err := createTestCtxFromGraphInstance(startingBlockHeight,
+		testGraph)
+
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to create router: %v", err)
+	}
+
+	// Create private part of the network.
+	// f is a private node connected to both d and e.
+	keyBytes := []byte{
+		0, 0, 0, 0, 0, 0, 0, 0,
+		0, 0, 0, 0, 0, 0, 0, 0,
+		0, 0, 0, 0, 0, 0, 0, 0,
+		0, 0, 0, 0, 0, 0, 0, 80,
+	}
+	_, pubKey := btcec.PrivKeyFromBytes(btcec.S256(), keyBytes)
+	ctx.aliases["f"] = pubKey
+
+	// Prepare hints.
+	expiryDelta := uint16(32)
+	d2eChanID := uint64(100)
+	d2fChanID := uint64(101)
+	e2fChanID := uint64(102)
+	routeHints := [][]HopHint{
+		{
+			{
+				NodeID:                    ctx.aliases["d"],
+				ChannelID:                 d2eChanID,
+				FeeBaseMSat:               20,
+				FeeProportionalMillionths: 0,
+				CLTVExpiryDelta:           expiryDelta,
+			},
+			{
+				NodeID:                    ctx.aliases["e"],
+				ChannelID:                 e2fChanID,
+				FeeBaseMSat:               30,
+				FeeProportionalMillionths: 0,
+				CLTVExpiryDelta:           expiryDelta,
+			},
+		},
+		{
+			{
+				NodeID:                    ctx.aliases["e"],
+				ChannelID:                 d2eChanID,
+				FeeBaseMSat:               20,
+				FeeProportionalMillionths: 0,
+				CLTVExpiryDelta:           expiryDelta,
+			},
+			{
+				NodeID:                    ctx.aliases["d"],
+				ChannelID:                 d2fChanID,
+				FeeBaseMSat:               80,
+				FeeProportionalMillionths: 0,
+				CLTVExpiryDelta:           expiryDelta,
+			},
+		},
+	}
+
+	// Prepare sequence of errors returned.
+	type errorEdge struct {
+		channelID uint64
+		source    string
+	}
+	var errorSeq = []errorEdge{
+		{
+			source:    "d",
+			channelID: d2eChanID,
+		},
+		{
+			source:    "e",
+			channelID: e2fChanID,
+		},
+		{
+			source:    "b",
+			channelID: b2dChanID,
+		},
+	}
+
+	amt := lnwire.NewMSatFromSatoshis(400)
+	var payHash [32]byte
+	payment := LightningPayment{
+		Target:      ctx.aliases["f"],
+		Amount:      amt,
+		FeeLimit:    noFeeLimit,
+		PaymentHash: payHash,
+		RouteHints:  routeHints,
+	}
+
+	// Temporary channel failure onion errors will be returned to prune channels.
+	update := lnwire.ChannelUpdate{}
+	chanFailure := lnwire.FailTemporaryChannelFailure{}
+	chanFailure.Update = &update
+	htlcError := htlcswitch.ForwardingError{}
+	htlcError.FailureMessage = &chanFailure
+
+	// Mock SendToSwitch to return the sequence of errors.
+	ctx.router.cfg.SendToSwitch = func(chanID lnwire.ShortChannelID,
+		_ *lnwire.UpdateAddHTLC, _ *sphinx.Circuit) ([32]byte, error) {
+
+		if len(errorSeq) == 0 {
+			return [32]byte{}, nil
+		}
+
+		// Prepare the error
+		source := errorSeq[0].source
+		channelID := errorSeq[0].channelID
+		htlcError.ErrorSource = ctx.aliases[source]
+		update.ShortChannelID = lnwire.NewShortChanIDFromInt(channelID)
+		update.Timestamp = uint32(testTime.Add(time.Minute).Unix())
+
+		err = signErrChanUpdate(ctx.privKeys[source], &update)
+		if err != nil {
+			t.Fatalf("Failed to sign channel on behalf of %v error: %v ", source, err)
+		}
+
+		// Pop the already returned error.
+		errorSeq = errorSeq[1:]
+
+		return [32]byte{}, &htlcError
+	}
+
+	// processUpdate ensures that the funding transaction is not spent,
+	// before further processing an edge update. Toggel AssumeChannelValid
+	// to avoid dropping the channel update, as the utxo set query is
+	// not mocked in this test.
+	ctx.router.cfg.AssumeChannelValid = true
+
+	// Send payment
+	_, route, err := ctx.router.SendPayment(&payment)
+	if err != nil {
+		t.Fatalf("failed to send payment: %v %v", err, payment)
+	}
+
+	// Verify all errors in planned sequence were returned.
+	if len(errorSeq) > 0 {
+		t.Fatalf("not all errors returned: %v errors left in sequence",
+			len(errorSeq))
+	}
+
+	// Check route is: A->C->E->D->F.
+	var expectedSeq = []string{"c", "e", "d", "f"}
+	var actualSeq []string
+	for i := 0; i < len(route.Hops); i++ {
+		actualSeq = append(actualSeq,
+			getAliasFromPubKey(route.Hops[i].PubKeyBytes[:],
+				ctx.aliases),
+		)
+	}
+	if !reflect.DeepEqual(expectedSeq, actualSeq) {
+		t.Fatalf("incorrect route: expected %s got %s",
+			strings.Join(expectedSeq, "->"),
+			strings.Join(actualSeq, "->"))
+	}
+
+	// The route should have the updated fee.
+	if route.TotalFees != lnwire.MilliSatoshi(150) {
+		t.Fatalf("expected %v MSat total fee, "+
+			"instead got %v MSat", 150, route.TotalFees)
+	}
+
+	// Now switch directions and test again.
+	ctx.router.missionControl.ResetHistory()
+
+	// Switch fees on public channels.
+	edgePolicy := &channeldb.ChannelEdgePolicy{
+		SigBytes:                  testSig.Serialize(),
+		Flags:                     lnwire.ChanUpdateFlag(0),
+		ChannelID:                 b2dChanID,
+		LastUpdate:                testTime,
+		TimeLockDelta:             144,
+		MinHTLC:                   1,
+		FeeBaseMSat:               50,
+		FeeProportionalMillionths: 0,
+	}
+	if err := ctx.graph.UpdateEdgePolicy(edgePolicy); err != nil {
+		t.Fatalf("fail to update fee base b-d channel direction 0")
+	}
+
+	edgePolicy.Flags = lnwire.ChanUpdateFlag(lnwire.ChanUpdateDirection)
+	if err := ctx.graph.UpdateEdgePolicy(edgePolicy); err != nil {
+		t.Fatalf("fail to update fee base b-d channel direction 1")
+	}
+
+	edgePolicy.Flags = lnwire.ChanUpdateFlag(0)
+	edgePolicy.ChannelID = c2eChanID
+	edgePolicy.FeeBaseMSat = 30
+	if err := ctx.graph.UpdateEdgePolicy(edgePolicy); err != nil {
+		t.Fatalf("fail to update fee base c-e channel direction 1")
+	}
+
+	edgePolicy.Flags = lnwire.ChanUpdateFlag(lnwire.ChanUpdateDirection)
+	if err := ctx.graph.UpdateEdgePolicy(edgePolicy); err != nil {
+		t.Fatalf("fail to update fee base c-e channel direction 1")
+	}
+
+	// Switch route hints.
+	routeHints[0][1].FeeBaseMSat, routeHints[1][1].FeeBaseMSat =
+		routeHints[1][1].FeeBaseMSat, routeHints[0][1].FeeBaseMSat
+
+	// Switch sequence of errors.
+	errorSeq = []errorEdge{
+		{
+			source:    "e",
+			channelID: d2eChanID,
+		},
+		{
+			source:    "d",
+			channelID: d2fChanID,
+		},
+		{
+			source:    "c",
+			channelID: c2eChanID,
+		},
+	}
+
+	// Send payment
+	_, route, err = ctx.router.SendPayment(&payment)
+	if err != nil {
+		t.Fatalf("failed to send payment (direction switched): "+
+			"%v %v", err, payment)
+	}
+
+	// Verify all errors in planned sequence were returned.
+	if len(errorSeq) > 0 {
+		t.Fatalf("not all errors returned: %v errors left in sequence"+
+			" (direction switched)", len(errorSeq))
+	}
+
+	// Check route is: A->B->E->E->F.
+	expectedSeq = []string{"b", "d", "e", "f"}
+	actualSeq = []string{}
+	for i := 0; i < len(route.Hops); i++ {
+		actualSeq = append(actualSeq,
+			getAliasFromPubKey(route.Hops[i].PubKeyBytes[:],
+				ctx.aliases),
+		)
+	}
+	if !reflect.DeepEqual(expectedSeq, actualSeq) {
+		t.Fatalf("incorrect route (direction switched): expected %s "+
+			"got %s", strings.Join(expectedSeq, "->"),
+			strings.Join(actualSeq, "->"))
+	}
+
+	// The route should have the updated fee.
+	if route.TotalFees != lnwire.MilliSatoshi(150) {
+		t.Fatalf("expected %v MSat total fee (direction switched), "+
+			"instead got %v MSat", 150, route.TotalFees)
 	}
 }
 

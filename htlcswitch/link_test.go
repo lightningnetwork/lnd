@@ -587,11 +587,11 @@ func TestExitNodeAmountPayloadMismatch(t *testing.T) {
 	).Wait(30 * time.Second)
 	if err == nil {
 		t.Fatalf("payment should have failed but didn't")
-	} else if err.Error() != lnwire.CodeIncorrectPaymentAmount.String() {
+	} else if !strings.Contains(err.Error(), lnwire.CodeUnknownPaymentHash.String()) {
 		// TODO(roasbeef): use proper error after error propagation is
 		// in
-		t.Fatalf("incorrect error, expected insufficient value, "+
-			"instead have: %v", err)
+		t.Fatalf("expected %v got %v", err,
+			lnwire.CodeUnknownPaymentHash)
 	}
 }
 
@@ -1017,8 +1017,9 @@ func TestChannelLinkMultiHopUnknownPaymentHash(t *testing.T) {
 		n.firstBobChannelLink.ShortChanID(), htlc,
 		newMockDeobfuscator(),
 	)
-	if err.Error() != lnwire.CodeUnknownPaymentHash.String() {
-		t.Fatal("error haven't been received")
+	if !strings.Contains(err.Error(), lnwire.CodeUnknownPaymentHash.String()) {
+		t.Fatalf("expected %v got %v", err,
+			lnwire.CodeUnknownPaymentHash)
 	}
 
 	// Wait for Alice to receive the revocation.

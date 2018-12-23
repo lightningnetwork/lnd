@@ -125,6 +125,9 @@ func (c FailCode) String() string {
 	case CodeIncorrectCltvExpiry:
 		return "IncorrectCltvExpiry"
 
+	case CodeIncorrectPaymentAmount:
+		return "IncorrectPaymentAmount"
+
 	case CodeExpiryTooSoon:
 		return "ExpiryTooSoon"
 
@@ -133,9 +136,6 @@ func (c FailCode) String() string {
 
 	case CodeUnknownPaymentHash:
 		return "UnknownPaymentHash"
-
-	case CodeIncorrectPaymentAmount:
-		return "IncorrectPaymentAmount"
 
 	case CodeFinalExpiryTooSoon:
 		return "FinalExpiryTooSoon"
@@ -294,28 +294,6 @@ func (f FailUnknownNextPeer) Error() string {
 	return f.Code().String()
 }
 
-// FailUnknownPaymentHash is returned If the payment hash has already been
-// paid, the final node MAY treat the payment hash as unknown, or may succeed
-// in accepting the HTLC. If the payment hash is unknown, the final node MUST
-// fail the HTLC.
-//
-// NOTE: May only be returned by the final node in the path.
-type FailUnknownPaymentHash struct{}
-
-// Code returns the failure unique code.
-//
-// NOTE: Part of the FailureMessage interface.
-func (f FailUnknownPaymentHash) Code() FailCode {
-	return CodeUnknownPaymentHash
-}
-
-// Returns a human readable string describing the target FailureMessage.
-//
-// NOTE: Implements the error interface.
-func (f FailUnknownPaymentHash) Error() string {
-	return f.Code().String()
-}
-
 // FailIncorrectPaymentAmount is returned if the amount paid is less than the
 // amount expected, the final node MUST fail the HTLC. If the amount paid is
 // more than twice the amount expected, the final node SHOULD fail the HTLC.
@@ -337,6 +315,65 @@ func (f FailIncorrectPaymentAmount) Code() FailCode {
 // NOTE: Implements the error interface.
 func (f FailIncorrectPaymentAmount) Error() string {
 	return f.Code().String()
+}
+
+// FailUnknownPaymentHash is returned for two reasons:
+//
+// 1) if the payment hash has already been paid, the final node MAY treat the
+// payment hash as unknown, or may succeed in accepting the HTLC. If the
+// payment hash is unknown, the final node MUST fail the HTLC.
+//
+// 2) if the amount paid is less than the amount expected, the final node MUST
+// fail the HTLC. If the amount paid is more than twice the amount expected,
+// the final node SHOULD fail the HTLC. This allows the sender to reduce
+// information leakage by altering the amount, without allowing accidental
+// gross overpayment.
+//
+// NOTE: May only be returned by the final node in the path.
+type FailUnknownPaymentHash struct {
+	// amount is the value of the extended HTLC.
+	amount MilliSatoshi
+}
+
+// NewFailUnknownPaymentHash makes a new instance of the FailUnknownPaymentHash
+// error bound to the specified HTLC amount.
+func NewFailUnknownPaymentHash(amt MilliSatoshi) *FailUnknownPaymentHash {
+	return &FailUnknownPaymentHash{
+		amount: amt,
+	}
+}
+
+// Amount is the value of the extended HTLC.
+func (f FailUnknownPaymentHash) Amount() MilliSatoshi {
+	return f.amount
+}
+
+// Code returns the failure unique code.
+//
+// NOTE: Part of the FailureMessage interface.
+func (f FailUnknownPaymentHash) Code() FailCode {
+	return CodeUnknownPaymentHash
+}
+
+// Returns a human readable string describing the target FailureMessage.
+//
+// NOTE: Implements the error interface.
+func (f FailUnknownPaymentHash) Error() string {
+	return f.Code().String()
+}
+
+// Decode decodes the failure from bytes stream.
+//
+// NOTE: Part of the Serializable interface.
+func (f *FailUnknownPaymentHash) Decode(r io.Reader, pver uint32) error {
+	return ReadElement(r, &f.amount)
+}
+
+// Encode writes the failure in bytes stream.
+//
+// NOTE: Part of the Serializable interface.
+func (f *FailUnknownPaymentHash) Encode(w io.Writer, pver uint32) error {
+	return WriteElement(w, f.amount)
 }
 
 // FailFinalExpiryTooSoon is returned if the cltv_expiry is too low, the final

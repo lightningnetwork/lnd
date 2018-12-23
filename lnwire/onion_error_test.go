@@ -33,7 +33,6 @@ var onionFailures = []FailureMessage{
 	&FailRequiredChannelFeatureMissing{},
 	&FailUnknownNextPeer{},
 	&FailUnknownPaymentHash{},
-	&FailIncorrectPaymentAmount{},
 	&FailFinalExpiryTooSoon{},
 
 	NewInvalidOnionVersion(testOnionHash),

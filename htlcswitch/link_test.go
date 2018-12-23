@@ -587,7 +587,7 @@ func TestExitNodeAmountPayloadMismatch(t *testing.T) {
 	).Wait(30 * time.Second)
 	if err == nil {
 		t.Fatalf("payment should have failed but didn't")
-	} else if err.Error() != lnwire.CodeIncorrectPaymentAmount.String() {
+	} else if err.Error() != lnwire.CodeUnknownPaymentHash.String() {
 		// TODO(roasbeef): use proper error after error propagation is
 		// in
 		t.Fatalf("incorrect error, expected insufficient value, "+

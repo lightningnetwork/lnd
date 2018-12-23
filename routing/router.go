@@ -1841,14 +1841,10 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 			}
 
 			switch onionErr := fErr.FailureMessage.(type) {
-			// If the end destination didn't know they payment
-			// hash, then we'll terminate immediately.
+			// If the end destination didn't know the payment
+			// hash or we sent the wrong payment amount to the
+                        // destination, then we'll terminate immediately.
 			case *lnwire.FailUnknownPaymentHash:
-				return preImage, nil, sendError
-
-			// If we sent the wrong amount to the destination, then
-			// we'll exit early.
-			case *lnwire.FailIncorrectPaymentAmount:
 				return preImage, nil, sendError
 
 			// If the time-lock that was extended to the final node

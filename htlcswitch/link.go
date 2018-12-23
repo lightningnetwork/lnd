@@ -2308,7 +2308,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 			if err != nil {
 				log.Errorf("unable to query invoice registry: "+
 					" %v", err)
-				failure := lnwire.FailUnknownPaymentHash{pd.Amount}
+				failure := lnwire.FailUnknownPaymentHash{Amount: pd.Amount}
 				l.sendHTLCError(
 					pd.HtlcIndex, failure, obfuscator, pd.SourceRef,
 				)
@@ -2357,7 +2357,8 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 					"amount: expected %v, received %v",
 					invoice.Terms.Value, pd.Amount)
 
-				failure := lnwire.FailUnknownPaymentHash{pd.Amount}
+				failure := lnwire.FailUnknownPaymentHash{Amount: pd.Amount}
+
 				l.sendHTLCError(
 					pd.HtlcIndex, failure, obfuscator, pd.SourceRef,
 				)
@@ -2384,7 +2385,8 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 					"got %v", pd.RHash, invoice.Terms.Value,
 					fwdInfo.AmountToForward)
 
-				failure := lnwire.FailUnknownPaymentHash{pd.Amount}
+				failure := lnwire.FailUnknownPaymentHash{Amount: pd.Amount}
+
 				l.sendHTLCError(
 					pd.HtlcIndex, failure, obfuscator, pd.SourceRef,
 				)

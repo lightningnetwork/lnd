@@ -290,15 +290,15 @@ func (f FailUnknownNextPeer) Error() string {
 	return f.Code().String()
 }
 
-// FailUnknownPaymentHash is returned for two reasons: 1) if the payment hash 
-// has already been paid, the final node MAY treat the payment hash as 
-// unknown, or may succeed in accepting the HTLC. If the payment hash is 
+// FailUnknownPaymentHash is returned for two reasons: 1) if the payment hash
+// has already been paid, the final node MAY treat the payment hash as
+// unknown, or may succeed in accepting the HTLC. If the payment hash is
 // unknown, the final node MUST fail the HTLC.
-// 
+//
 // 2) if the amount paid is less than the amount expected, the final node
-// MUST fail the HTLC. If the amount paid is more than twice the amount 
-// expected, the final node SHOULD fail the HTLC. This allows the sender to 
-// reduce information leakage by altering the amount, without allowing 
+// MUST fail the HTLC. If the amount paid is more than twice the amount
+// expected, the final node SHOULD fail the HTLC. This allows the sender to
+// reduce information leakage by altering the amount, without allowing
 // accidental gross overpayment.
 //
 // NOTE: May only be returned by the final node in the path.

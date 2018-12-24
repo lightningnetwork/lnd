@@ -476,6 +476,29 @@ func newFundingManager(cfg fundingConfig) (*fundingManager, error) {
 	}, nil
 }
 
+func deleteChannelFromDatabase(channel *channeldb.OpenChannel) {
+
+	localBalance := channel.LocalCommitment.LocalBalance.ToSatoshis()
+	closeInfo := &channeldb.ChannelCloseSummary{
+		ChainHash:               channel.ChainHash,
+		ChanPoint:               channel.FundingOutpoint,
+		RemotePub:               channel.IdentityPub,
+		Capacity:                channel.Capacity,
+		SettledBalance:          localBalance,
+		CloseType:               channeldb.FundingCanceled,
+		RemoteCurrentRevocation: channel.RemoteCurrentRevocation,
+		RemoteNextRevocation:    channel.RemoteNextRevocation,
+		LocalChanConfig:         channel.LocalChanCfg,
+	}
+
+	if err := channel.CloseChannel(closeInfo); err != nil {
+		fndgLog.Errorf("Failed closing channel "+
+			"%v: %v", channel.FundingOutpoint, err)
+
+	}
+
+}
+
 // Start launches all helper goroutines required for handling requests sent
 // to the funding manager.
 func (f *fundingManager) Start() error {
@@ -1574,29 +1597,6 @@ func (f *fundingManager) handleFundingCreated(fmsg *fundingCreatedMsg) {
 	// from the set of active reservations.
 	f.deleteReservationCtx(peerKey, fmsg.msg.PendingChannelID)
 
-	// If something goes wrong before the funding transaction is confirmed,
-	// we use this convenience method to delete the pending OpenChannel
-	// from the database.
-	deleteFromDatabase := func() {
-		localBalance := completeChan.LocalCommitment.LocalBalance.ToSatoshis()
-		closeInfo := &channeldb.ChannelCloseSummary{
-			ChanPoint:               completeChan.FundingOutpoint,
-			ChainHash:               completeChan.ChainHash,
-			RemotePub:               completeChan.IdentityPub,
-			CloseType:               channeldb.FundingCanceled,
-			Capacity:                completeChan.Capacity,
-			SettledBalance:          localBalance,
-			RemoteCurrentRevocation: completeChan.RemoteCurrentRevocation,
-			RemoteNextRevocation:    completeChan.RemoteNextRevocation,
-			LocalChanConfig:         completeChan.LocalChanCfg,
-		}
-
-		if err := completeChan.CloseChannel(closeInfo); err != nil {
-			fndgLog.Errorf("Failed closing channel %v: %v",
-				completeChan.FundingOutpoint, err)
-		}
-	}
-
 	// A new channel has almost finished the funding process. In order to
 	// properly synchronize with the writeHandler goroutine, we add a new
 	// channel to the barriers map which will be closed once the channel is
@@ -1617,7 +1617,7 @@ func (f *fundingManager) handleFundingCreated(fmsg *fundingCreatedMsg) {
 	if err != nil {
 		fndgLog.Errorf("unable to parse signature: %v", err)
 		f.failFundingFlow(fmsg.peer, pendingChanID, err)
-		deleteFromDatabase()
+		deleteChannelFromDatabase(completeChan)
 		return
 	}
 
@@ -1628,7 +1628,7 @@ func (f *fundingManager) handleFundingCreated(fmsg *fundingCreatedMsg) {
 	if err := fmsg.peer.SendMessage(false, fundingSigned); err != nil {
 		fndgLog.Errorf("unable to send FundingSigned message: %v", err)
 		f.failFundingFlow(fmsg.peer, pendingChanID, err)
-		deleteFromDatabase()
+		deleteChannelFromDatabase(completeChan)
 		return
 	}
 

@@ -10,6 +10,13 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 )
 
+const (
+	// defaultNumBlocksEstimate is the number of blocks that we fall back
+	// to issuing an estimate for if a fee pre fence doesn't specify an
+	// explicit conf target or fee rate.
+	defaultNumBlocksEstimate = 6
+)
+
 // FeePreference allows callers to express their time value for inclusion of a
 // transaction into a block via either a confirmation target, or a fee rate.
 type FeePreference struct {
@@ -30,6 +37,12 @@ func DetermineFeePerKw(feeEstimator lnwallet.FeeEstimator,
 	feePref FeePreference) (lnwallet.SatPerKWeight, error) {
 
 	switch {
+	// If both values are set, then we'll return an error as we require a
+	// strict directive.
+	case feePref.FeeRate != 0 && feePref.ConfTarget != 0:
+		return 0, fmt.Errorf("only FeeRate or ConfTarget should " +
+			"be set for FeePreferences")
+
 	// If the target number of confirmations is set, then we'll use that to
 	// consult our fee estimator for an adequate fee.
 	case feePref.ConfTarget != 0:
@@ -61,7 +74,9 @@ func DetermineFeePerKw(feeEstimator lnwallet.FeeEstimator,
 	// Otherwise, we'll attempt a relaxed confirmation target for the
 	// transaction
 	default:
-		feePerKw, err := feeEstimator.EstimateFeePerKW(6)
+		feePerKw, err := feeEstimator.EstimateFeePerKW(
+			defaultNumBlocksEstimate,
+		)
 		if err != nil {
 			return 0, fmt.Errorf("unable to query fee estimator: "+
 				"%v", err)

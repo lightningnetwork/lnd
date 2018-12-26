@@ -532,6 +532,12 @@ type OpenChannel struct {
 	// for which we are the initiator.
 	FundingTxn *wire.MsgTx
 
+	// Set if we're trying to recover funds from our initial funding transaction
+	IsRecovering bool
+
+	// Recovery Transaction
+	RecoveryTxn *wire.MsgTx
+
 	// TODO(roasbeef): eww
 	Db *DB
 
@@ -708,6 +714,39 @@ func (c *OpenChannel) fullSync(tx *bbolt.Tx) error {
 	}
 
 	return putOpenChannel(chanBucket, c)
+}
+
+// SetRecoveryTx saves the recovery fields of the channel to the bucket
+func (c *OpenChannel) SetRecoveryTx(recoveryTxn *wire.MsgTx) error {
+
+	c.Lock()
+	defer c.Unlock()
+
+	if err := c.Db.Update(func(tx *bbolt.Tx) error {
+		chanBucket, err := fetchChanBucket(
+			tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
+		)
+		if err != nil {
+			return err
+		}
+
+		channel, err := fetchOpenChannel(chanBucket, &c.FundingOutpoint)
+		if err != nil {
+			return err
+		}
+
+		channel.RecoveryTxn = recoveryTxn
+		channel.IsRecovering = true
+
+		return putOpenChannel(chanBucket, channel)
+	}); err != nil {
+		return err
+	}
+
+	c.RecoveryTxn = recoveryTxn
+	c.IsRecovering = true
+
+	return nil
 }
 
 // MarkAsOpen marks a channel as fully open given a locator that uniquely
@@ -2525,7 +2564,7 @@ func putChanInfo(chanBucket *bbolt.Bucket, channel *OpenChannel) error {
 		channel.chanStatus, channel.FundingBroadcastHeight,
 		channel.NumConfsRequired, channel.ChannelFlags,
 		channel.IdentityPub, channel.Capacity, channel.TotalMSatSent,
-		channel.TotalMSatReceived,
+		channel.TotalMSatReceived, channel.IsRecovering,
 	); err != nil {
 		return err
 	}
@@ -2535,6 +2574,12 @@ func putChanInfo(chanBucket *bbolt.Bucket, channel *OpenChannel) error {
 		!channel.hasChanStatus(ChanStatusRestored) {
 
 		if err := WriteElement(&w, channel.FundingTxn); err != nil {
+			return err
+		}
+	}
+
+	if channel.IsRecovering {
+		if err := WriteElements(&w, channel.RecoveryTxn); err != nil {
 			return err
 		}
 	}
@@ -2647,7 +2692,7 @@ func fetchChanInfo(chanBucket *bbolt.Bucket, channel *OpenChannel) error {
 		&channel.chanStatus, &channel.FundingBroadcastHeight,
 		&channel.NumConfsRequired, &channel.ChannelFlags,
 		&channel.IdentityPub, &channel.Capacity, &channel.TotalMSatSent,
-		&channel.TotalMSatReceived,
+		&channel.TotalMSatReceived, &channel.IsRecovering,
 	); err != nil {
 		return err
 	}
@@ -2657,6 +2702,12 @@ func fetchChanInfo(chanBucket *bbolt.Bucket, channel *OpenChannel) error {
 		!channel.hasChanStatus(ChanStatusRestored) {
 
 		if err := ReadElement(r, &channel.FundingTxn); err != nil {
+			return err
+		}
+	}
+
+	if channel.IsRecovering {
+		if err := ReadElements(r, &channel.RecoveryTxn); err != nil {
 			return err
 		}
 	}

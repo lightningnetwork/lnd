@@ -480,7 +480,7 @@ service Lightning {
     last_index_offset fields included in the response as the index_offset of the
     next request. The reversed flag is set by default in order to paginate
     backwards. If you wish to paginate forwards, you must explicitly set the
-    flag to false. If none of the parameters are specified, then the last 100
+    flag to false. If none of the parameters are specified, then the first 100
     invoices will be returned.
     */
     rpc ListInvoices (ListInvoiceRequest) returns (ListInvoiceResponse) {

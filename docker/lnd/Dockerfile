@@ -12,7 +12,7 @@ ENV GODEBUG netdns=cgo
 # Install dependencies and install/build lnd.
 RUN apk add --no-cache \
     git \
-    make \
+    make gcc musl-dev \
 &&  cd /go/src/github.com/lightningnetwork/lnd \
 &&  make \
 &&  make install

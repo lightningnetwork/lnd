@@ -299,6 +299,10 @@ func main() {
 		verifyChanBackupCommand,
 		restoreChanBackupCommand,
 		bakeMacaroonCommand,
+		accountMacaroonCommand,
+		createAccountCommand,
+		listAccountsCommand,
+		removeAccountCommand,
 	}
 
 	// Add any extra commands determined by build flags.

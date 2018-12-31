@@ -114,3 +114,58 @@ removing all three default macaroons (`admin.macaroon`, `invoice.macaroon` and
 `readonly.macaroon`, **NOT** the `macaroons.db`!) from their
 `data/chain/<chain>/<network>/` directory inside the lnd data directory and
 restarting lnd.
+
+## Accounts
+
+As introduced in this first
+[PR](https://github.com/lightningnetwork/lnd/pull/2390),
+an account is a simple construct that has a balance and an optional expiration
+date. The balance represents satoshis that can be spent by the "owner" of the
+account.  
+Every invoice that is paid from/with an account reduces the balance of that
+account by the payment amount plus fees.
+Once the balance of an account is 0, further payments will be refused from/with
+that account.
+
+Applying an account to a macaroon is a *restriction*. The bearer of a macaroon
+that is locked to an account will only be able to spend **at most** as many
+satoshis as the account's balance.  
+If a macaroon is not locked to an account, there is no restriction.
+
+Accounts only assert a maximum amount spendable. Having a certain account
+balance does not guarantee that the node has the channel liquidity to actually
+spend that amount.
+
+There are three commands in `lncli` that can be used to manage accounts:
+* `createaccount balance [expiration_date]` Creates a new account with the given
+  balance and the optional expiration date.
+* `listaccounts` Lists all accounts that are currently stored in the account
+  database.
+* `removeaccount id` Removes the account with the given ID.
+
+Example output of `listaccounts`:
+```json
+{
+    "accounts": [
+        {
+            "id": "945ab38d3890c267",
+            "initial_balance": "100",
+            "current_balance": "100",
+            "last_update": "1546254113",
+            "expiration_date": "0"
+        }
+    ]
+}
+```
+
+A new macaroon that is locked to an account can then be created using the
+`delegatemacaroon` command:  
+`lncli --macaroonpath /some/dir/admin.macaroon delegatemacaroon --save_to
+/some/dir/account.macaroon --account_id abcdef01abcdef01`
+
+With this first version there are several limitations that will be addressed with further PRs:
+* Accounts cannot be replenished.
+* Only payment methods (`SendPayment`, `SendPaymentSync`, `SendToRoute` and `SendToRouteSync`) are currently checked for the account constraint. It can be discussed if the `ListAccounts` method should only show the current account when the macaroon is locked to an account.
+* There is no link between accounts and the payments that have been paid from/with them.
+* There are no accounts with on-chain balance.
+* There are no accounts with a periodic balance (e.g. for subscription payments).

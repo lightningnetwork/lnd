@@ -5,10 +5,8 @@ import (
 	"encoding/hex"
 	"io/ioutil"
 	"os"
-	"path"
 	"testing"
 
-	"github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"google.golang.org/grpc/metadata"
 	"gopkg.in/macaroon-bakery.v2/bakery"
@@ -23,56 +21,43 @@ var (
 	defaultPw = []byte("hello")
 )
 
-// setupTestRootKeyStorage creates a dummy root key storage by
+// setupService creates a dummy root key storage by
 // creating a temporary macaroons.db and initializing it with the
-// default password of 'hello'. Only the path to the temporary
-// DB file is returned, because the service will open the file
-// and read the store on its own.
-func setupTestRootKeyStorage(t *testing.T) string {
+// default password of 'hello'. Then the store is unlocked and a new macaroons
+// service is created and returned.
+func setupService(t *testing.T) (*macaroons.Service, func()) {
 	tempDir, err := ioutil.TempDir("", "macaroonstore-")
 	if err != nil {
 		t.Fatalf("Error creating temp dir: %v", err)
 	}
-	db, err := bbolt.Open(path.Join(tempDir, "macaroons.db"), 0600,
-		bbolt.DefaultOptions)
+	service, err := macaroons.NewService(tempDir, macaroons.IPLockChecker)
 	if err != nil {
-		t.Fatalf("Error opening store DB: %v", err)
+		os.RemoveAll(tempDir)
+		t.Fatalf("Error creating new service: %v", err)
 	}
-	store, err := macaroons.NewRootKeyStorage(db)
-	if err != nil {
-		db.Close()
-		t.Fatalf("Error creating root key store: %v", err)
+
+	cleanup := func() {
+		service.Close()
+		os.RemoveAll(tempDir)
 	}
-	defer store.Close()
-	err = store.CreateUnlock(&defaultPw)
-	if err != nil {
-		t.Fatalf("error creating unlock: %v", err)
+
+	if err := service.CreateUnlock(&defaultPw); err != nil {
+		cleanup()
+		t.Fatalf("Error unlocking root key store: %v", err)
 	}
-	return tempDir
+
+	return service, cleanup
 }
 
 // TestNewService tests the creation of the macaroon service.
 func TestNewService(t *testing.T) {
-	// First, initialize a dummy DB file with a store that the service
-	// can read from. Make sure the file is removed in the end.
-	tempDir := setupTestRootKeyStorage(t)
-	defer os.RemoveAll(tempDir)
-
-	// Second, create the new service instance, unlock it and pass in a
-	// checker that we expect it to add to the bakery.
-	service, err := macaroons.NewService(tempDir, macaroons.IPLockChecker)
-	if err != nil {
-		t.Fatalf("Error creating new service: %v", err)
-	}
-	defer service.Close()
-	err = service.CreateUnlock(&defaultPw)
-	if err != nil {
-		t.Fatalf("Error unlocking root key storage: %v", err)
-	}
+	// First, initialize and unlock the service.
+	service, cleanup := setupService(t)
+	defer cleanup()
 
 	// Third, check if the created service can bake macaroons.
 	macaroon, err := service.Oven.NewMacaroon(
-		context.TODO(), bakery.LatestVersion, nil, testOperation,
+		context.Background(), bakery.LatestVersion, nil, testOperation,
 	)
 	if err != nil {
 		t.Fatalf("Error creating macaroon from service: %v", err)
@@ -101,23 +86,13 @@ func TestNewService(t *testing.T) {
 // TestValidateMacaroon tests the validation of a macaroon that is in an
 // incoming context.
 func TestValidateMacaroon(t *testing.T) {
-	// First, initialize the service and unlock it.
-	tempDir := setupTestRootKeyStorage(t)
-	defer os.RemoveAll(tempDir)
-	service, err := macaroons.NewService(tempDir, macaroons.IPLockChecker)
-	if err != nil {
-		t.Fatalf("Error creating new service: %v", err)
-	}
-	defer service.Close()
-
-	err = service.CreateUnlock(&defaultPw)
-	if err != nil {
-		t.Fatalf("Error unlocking root key storage: %v", err)
-	}
+	// First, initialize and unlock the service.
+	service, cleanup := setupService(t)
+	defer cleanup()
 
 	// Then, create a new macaroon that we can serialize.
 	macaroon, err := service.Oven.NewMacaroon(
-		context.TODO(), bakery.LatestVersion, nil, testOperation,
+		context.Background(), bakery.LatestVersion, nil, testOperation,
 	)
 	if err != nil {
 		t.Fatalf("Error creating macaroon from service: %v", err)
@@ -138,5 +113,125 @@ func TestValidateMacaroon(t *testing.T) {
 	err = service.ValidateMacaroon(mockContext, []bakery.Op{testOperation})
 	if err != nil {
 		t.Fatalf("Error validating the macaroon: %v", err)
+	}
+}
+
+// TestValidateMacaroonAccountBalance tests the validation of an account bound
+// macaroon that is in an incoming context.
+func TestValidateMacaroonAccountBalance(t *testing.T) {
+	// First, initialize and unlock the service.
+	service, cleanup := setupService(t)
+	defer cleanup()
+
+	// Next, create a dummy account with a balance.
+	account, err := service.NewAccount(9735, testExpDateFuture)
+	if err != nil {
+		t.Fatalf("Error creating account: %v", err)
+	}
+
+	// Then, create a macaroon that is not locked to an account.
+	macaroon, err := service.Oven.NewMacaroon(
+		nil, bakery.LatestVersion, nil, testOperation,
+	)
+	if err != nil {
+		t.Fatalf("Error creating macaroon from service: %v", err)
+	}
+	macaroonBinary, err := macaroon.M().MarshalBinary()
+	if err != nil {
+		t.Fatalf("Error serializing macaroon: %v", err)
+	}
+	md := metadata.New(map[string]string{
+		"macaroon": hex.EncodeToString(macaroonBinary),
+	})
+	mockContext := metadata.NewIncomingContext(context.Background(), md)
+	err = service.ValidateMacaroonAccountBalance(mockContext, 123)
+	if err != nil {
+		t.Fatalf("Error validating account balance: %v", err)
+	}
+
+	// Now create a macaroon that is locked to the account we created.
+	lockedMac, err := macaroons.AddConstraints(
+		macaroon.M(), macaroons.AccountLockConstraint(account.ID),
+	)
+	if err != nil {
+		t.Fatalf("Error locking macaroon to account: %v", err)
+	}
+	macaroonBinary, err = lockedMac.MarshalBinary()
+	if err != nil {
+		t.Fatalf("Error serializing macaroon: %v", err)
+	}
+	md = metadata.New(map[string]string{
+		"macaroon": hex.EncodeToString(macaroonBinary),
+	})
+	mockContext = metadata.NewIncomingContext(context.Background(), md)
+	err = service.ValidateMacaroonAccountBalance(mockContext, 123)
+	if err != nil {
+		t.Fatalf("Error validating account balance: %v", err)
+	}
+}
+
+// TestChargeMacaroonAccountBalance tests the validation of an account bound
+// macaroon that is in an incoming context.
+func TestChargeMacaroonAccountBalance(t *testing.T) {
+	// First, initialize and unlock the service.
+	service, cleanup := setupService(t)
+	defer cleanup()
+
+	// Next, create a dummy account with a balance.
+	account, err := service.NewAccount(9735, testExpDateFuture)
+	if err != nil {
+		t.Fatalf("Error creating account: %v", err)
+	}
+
+	// Then, create a macaroon that is not locked to an account.
+	macaroon, err := service.Oven.NewMacaroon(
+		nil, bakery.LatestVersion, nil, testOperation,
+	)
+	if err != nil {
+		t.Fatalf("Error creating macaroon from service: %v", err)
+	}
+	macaroonBinary, err := macaroon.M().MarshalBinary()
+	if err != nil {
+		t.Fatalf("Error serializing macaroon: %v", err)
+	}
+	md := metadata.New(map[string]string{
+		"macaroon": hex.EncodeToString(macaroonBinary),
+	})
+	mockContext := metadata.NewIncomingContext(context.Background(), md)
+	err = service.ChargeMacaroonAccountBalance(mockContext, 123)
+	if err != nil {
+		t.Fatalf("Error validating account balance: %v", err)
+	}
+
+	// Now create a macaroon that is locked to the account we created.
+	lockedMac, err := macaroons.AddConstraints(
+		macaroon.M(), macaroons.AccountLockConstraint(account.ID),
+	)
+	if err != nil {
+		t.Fatalf("Error locking macaroon to account: %v", err)
+	}
+	macaroonBinary, err = lockedMac.MarshalBinary()
+	if err != nil {
+		t.Fatalf("Error serializing macaroon: %v", err)
+	}
+	md = metadata.New(map[string]string{
+		"macaroon": hex.EncodeToString(macaroonBinary),
+	})
+	mockContext = metadata.NewIncomingContext(context.Background(), md)
+	err = service.ChargeMacaroonAccountBalance(mockContext, 123)
+	if err != nil {
+		t.Fatalf("Error validating account balance: %v", err)
+	}
+
+	// Finally check that the account now has a lower balance.
+	updatedAccount, err := service.GetAccount(account.ID)
+	if err != nil {
+		t.Fatalf("Error getting account: %v", err)
+	}
+	if updatedAccount.CurrentBalance != (9735 - 123) {
+		t.Fatalf(
+			"Wrong account balance. Expected %d, got %d.",
+			(9735 - 123), updatedAccount.CurrentBalance,
+		)
 	}
 }

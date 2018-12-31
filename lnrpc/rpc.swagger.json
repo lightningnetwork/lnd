@@ -15,6 +15,75 @@
     "application/json"
   ],
   "paths": {
+    "/v1/accounts": {
+      "get": {
+        "summary": "* lncli: `listaccounts`\nListAccounts returns all accounts that are currently stored in the account\ndatabase.",
+        "operationId": "ListAccounts",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/lnrpcListAccountsResponse"
+            }
+          }
+        },
+        "tags": [
+          "Lightning"
+        ]
+      },
+      "post": {
+        "summary": "* lncli: `createaccount`\nCreateAccount adds an entry to the account database. This entry represents\nan amount of satoshis (account balance) that can be spent using off-chain\ntransactions (e.g. paying invoices).",
+        "description": "Macaroons can be created to be locked to an account. This makes sure that\nthe bearer of the macaroon can only spend at most that amount of satoshis\nthrough the daemon that has issued the macaroon.\n\nAccounts only assert a maximum amount spendable. Having a certain account\nbalance does not guarantee that the node has the channel liquidity to\nactually spend that amount.",
+        "operationId": "CreateAccount",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/lnrpcCreateAccountResponse"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/lnrpcCreateAccountRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
+    "/v1/accounts/{id}": {
+      "delete": {
+        "summary": "* lncli: `removeaccount`\nRemoveAccount removes the given account from the account database.",
+        "operationId": "RemoveAccount",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/lnrpcRemoveAccountResponse"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "description": "/ The hexadecimal ID of the account to remove.",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
     "/v1/balance/blockchain": {
       "get": {
         "summary": "* lncli: `walletbalance`\nWalletBalance returns total unspent outputs(confirmed and unconfirmed), all\nconfirmed unspent outputs and all unconfirmed unspent outputs under control\nof the wallet.",
@@ -1650,6 +1719,35 @@
     "lnrpcAbandonChannelResponse": {
       "type": "object"
     },
+    "lnrpcAccount": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "/ The ID of the account."
+        },
+        "initial_balance": {
+          "type": "string",
+          "format": "uint64",
+          "description": "/ The initial balance in satoshis that was set when the account was created."
+        },
+        "current_balance": {
+          "type": "string",
+          "format": "uint64",
+          "description": "/ The current balance in satoshis."
+        },
+        "last_update": {
+          "type": "string",
+          "format": "int64",
+          "description": "/ Timestamp of the last time the account was updated."
+        },
+        "expiration_date": {
+          "type": "string",
+          "format": "int64",
+          "description": "/ Timestamp of the account's expiration date. Zero means it does not expire."
+        }
+      }
+    },
     "lnrpcAddInvoiceResponse": {
       "type": "object",
       "properties": {
@@ -2288,6 +2386,30 @@
     },
     "lnrpcConnectPeerResponse": {
       "type": "object"
+    },
+    "lnrpcCreateAccountRequest": {
+      "type": "object",
+      "properties": {
+        "account_balance": {
+          "type": "string",
+          "format": "uint64",
+          "description": "/ The initial account balance in satoshis representing the maximum amount that can be spent."
+        },
+        "expiration_date": {
+          "type": "string",
+          "format": "int64",
+          "description": "/ The expiration date of the account as a timestamp. Set to zero to never expire."
+        }
+      }
+    },
+    "lnrpcCreateAccountResponse": {
+      "type": "object",
+      "properties": {
+        "account": {
+          "$ref": "#/definitions/lnrpcAccount",
+          "description": "/ The created account."
+        }
+      }
     },
     "lnrpcDebugLevelResponse": {
       "type": "object",
@@ -3094,6 +3216,18 @@
       },
       "description": "*\nAn individual vertex/node within the channel graph. A node is\nconnected to other nodes by one or more channel edges emanating from it. As the\ngraph is directed, a node will also have an incoming edge attached to it for\neach outgoing edge."
     },
+    "lnrpcListAccountsResponse": {
+      "type": "object",
+      "properties": {
+        "accounts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcAccount"
+          },
+          "description": "/ All accounts in the account database."
+        }
+      }
+    },
     "lnrpcListChannelsResponse": {
       "type": "object",
       "properties": {
@@ -3791,6 +3925,9 @@
           "title": "*\nThe success probability of the returned route based on the current mission\ncontrol state. [EXPERIMENTAL]"
         }
       }
+    },
+    "lnrpcRemoveAccountResponse": {
+      "type": "object"
     },
     "lnrpcRestoreBackupResponse": {
       "type": "object"

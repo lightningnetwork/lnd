@@ -123,6 +123,10 @@ var (
 			Entity: "signer",
 			Action: "read",
 		},
+		{
+			Entity: "account",
+			Action: "read",
+		},
 	}
 
 	// writePermissions is a slice of all entities that allow write
@@ -164,6 +168,10 @@ var (
 			Entity: "macaroon",
 			Action: "generate",
 		},
+		{
+			Entity: "account",
+			Action: "write",
+		},
 	}
 
 	// invoicePermissions is a slice of all the entities that allows a user
@@ -200,7 +208,7 @@ var (
 	validEntities = []string{
 		"onchain", "offchain", "address", "message",
 		"peers", "info", "invoices", "signer", "macaroon",
-		"address",
+		"account",
 	}
 )
 
@@ -447,6 +455,18 @@ func mainRPCServerPermissions() map[string][]bakery.Op {
 			Action: "write",
 		}, {
 			Entity: "offchain",
+			Action: "write",
+		}},
+		"/lnrpc.Lightning/CreateAccount": {{
+			Entity: "account",
+			Action: "write",
+		}},
+		"/lnrpc.Lightning/ListAccounts": {{
+			Entity: "account",
+			Action: "read",
+		}},
+		"/lnrpc.Lightning/RemoveAccount": {{
+			Entity: "account",
 			Action: "write",
 		}},
 	}
@@ -3266,6 +3286,7 @@ func (r *rpcServer) SubscribeChannelEvents(req *lnrpc.ChannelEventSubscription,
 type paymentStream struct {
 	recv func() (*rpcPaymentRequest, error)
 	send func(*lnrpc.SendResponse) error
+	ctx  context.Context
 }
 
 // rpcPaymentRequest wraps lnrpc.SendRequest so that routes from
@@ -3299,6 +3320,7 @@ func (r *rpcServer) SendPayment(stream lnrpc.Lightning_SendPaymentServer) error 
 			defer lock.Unlock()
 			return stream.Send(r)
 		},
+		ctx: stream.Context(),
 	})
 }
 
@@ -3309,7 +3331,6 @@ func (r *rpcServer) SendPayment(stream lnrpc.Lightning_SendPaymentServer) error 
 // connection.
 func (r *rpcServer) SendToRoute(stream lnrpc.Lightning_SendToRouteServer) error {
 	var lock sync.Mutex
-
 	return r.sendPayment(&paymentStream{
 		recv: func() (*rpcPaymentRequest, error) {
 			req, err := stream.Recv()
@@ -3325,6 +3346,7 @@ func (r *rpcServer) SendToRoute(stream lnrpc.Lightning_SendToRouteServer) error 
 			defer lock.Unlock()
 			return stream.Send(r)
 		},
+		ctx: stream.Context(),
 	})
 }
 
@@ -3604,7 +3626,7 @@ type paymentIntentResponse struct {
 // pre-built route. The first error this method returns denotes if we were
 // unable to save the payment. The second error returned denotes if the payment
 // didn't succeed.
-func (r *rpcServer) dispatchPaymentIntent(
+func (r *rpcServer) dispatchPaymentIntent(ctx context.Context,
 	payIntent *rpcPaymentIntent) (*paymentIntentResponse, error) {
 
 	// Construct a payment request to send to the channel router. If the
@@ -3615,6 +3637,26 @@ func (r *rpcServer) dispatchPaymentIntent(
 		route     *route.Route
 		routerErr error
 	)
+
+	// We need to check if the caller's macaroon was locked to an account.
+	// If that is the case, the balance of the account needs to be checked.
+	// Since an account can never be over charged, we need to be sure there
+	// is sufficient balance even for the highest possible fee.
+	// That's why we check the balance with amount + feeLimit. But because
+	// the fee limit might be quite high (the default is the same as the
+	// amount), this might result in an error. Therefore the user should
+	// be informed that the fee limit should be set to an explicit, lower,
+	// value.
+	err := r.server.macService.ValidateMacaroonAccountBalance(
+		ctx, payIntent.msat+payIntent.feeLimit,
+	)
+	if err != nil {
+		// Insufficient balance does not qualify as a save error, so
+		// return it as a route error.
+		return &paymentIntentResponse{
+			Err: err,
+		}, nil
+	}
 
 	// If a route was specified, then we'll pass the route directly to the
 	// router, otherwise we'll create a payment session to execute it.
@@ -3655,6 +3697,18 @@ func (r *rpcServer) dispatchPaymentIntent(
 		return &paymentIntentResponse{
 			Err: routerErr,
 		}, nil
+	}
+
+	// Finally, make sure the macaroon's account is credited. Obviously this
+	// does nothing if there is no account restriction in the caller's
+	// macaroon.
+	err = r.server.macService.ChargeMacaroonAccountBalance(
+		ctx, route.TotalAmount,
+	)
+	if err != nil {
+		// Not being able to charge the account qualifies as a save
+		// error that should terminate the stream.
+		return nil, err
 	}
 
 	return &paymentIntentResponse{
@@ -3810,7 +3864,7 @@ sendLoop:
 				}()
 
 				resp, saveErr := r.dispatchPaymentIntent(
-					payIntent,
+					stream.ctx, payIntent,
 				)
 
 				switch {
@@ -3933,7 +3987,7 @@ func (r *rpcServer) sendPaymentSync(ctx context.Context,
 
 	// With the payment validated, we'll now attempt to dispatch the
 	// payment.
-	resp, saveErr := r.dispatchPaymentIntent(&payIntent)
+	resp, saveErr := r.dispatchPaymentIntent(ctx, &payIntent)
 	switch {
 	case saveErr != nil:
 		return nil, saveErr
@@ -5948,4 +6002,121 @@ func (r *rpcServer) FundingStateStep(ctx context.Context,
 	// TODO(roasbeef): return resulting state? also add a method to query
 	// current state?
 	return &lnrpc.FundingStateStepResp{}, nil
+}
+
+// CreateAccount adds an entry to the account database. This entry represents
+// an amount of satoshis (account balance) that can be spent using off-chain
+// transactions (e.g. paying invoices).
+//
+// Macaroons can be created to be locked to an account. This makes sure that
+// the bearer of the macaroon can only spend at most that amount of satoshis
+// through the daemon that has issued the macaroon.
+//
+// Accounts only assert a maximum amount spendable. Having a certain account
+// balance does not guarantee that the node has the channel liquidity to
+// actually spend that amount.
+func (r *rpcServer) CreateAccount(ctx context.Context,
+	req *lnrpc.CreateAccountRequest) (*lnrpc.CreateAccountResponse, error) {
+
+	rpcsLog.Debugf("[createaccount]")
+
+	var (
+		balanceMsat    lnwire.MilliSatoshi
+		expirationDate time.Time
+	)
+
+	// If the expiration date was set, parse it as an unix time stamp.
+	// Otherwise we leave it nil to indicate the account has no expiration
+	// date.
+	if req.ExpirationDate != 0 {
+		expirationDate = time.Unix(int64(req.ExpirationDate), 0)
+	}
+
+	// Convert from satoshis to millisatoshis for storage.
+	balance := btcutil.Amount(req.AccountBalance)
+	balanceMsat = lnwire.NewMSatFromSatoshis(balance)
+
+	// Create the actual account in the macaroon account store.
+	account, err := r.server.macService.NewAccount(
+		balanceMsat, expirationDate,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create account: %v", err)
+	}
+
+	// Map the response into the proper response type and return it.
+	rpcAccount := &lnrpc.Account{
+		Id:             hex.EncodeToString(account.ID[:]),
+		InitialBalance: uint64(account.InitialBalance.ToSatoshis()),
+		CurrentBalance: uint64(account.CurrentBalance.ToSatoshis()),
+		LastUpdate:     account.LastUpdate.Unix(),
+		ExpirationDate: int64(0),
+	}
+	if !account.ExpirationDate.IsZero() {
+		rpcAccount.ExpirationDate = account.ExpirationDate.Unix()
+	}
+	resp := &lnrpc.CreateAccountResponse{
+		Account: rpcAccount,
+	}
+	return resp, nil
+}
+
+// ListAccounts returns all accounts that are currently stored in the account
+// database.
+func (r *rpcServer) ListAccounts(ctx context.Context,
+	req *lnrpc.ListAccountsRequest) (*lnrpc.ListAccountsResponse, error) {
+
+	rpcsLog.Debugf("[listaccounts]")
+
+	// Retrieve all accounts from the macaroon account store.
+	accounts, err := r.server.macService.GetAccounts()
+	if err != nil {
+		return nil, fmt.Errorf("unable to list accounts: %v", err)
+	}
+
+	// Map the response into the proper response type and return it.
+	rpcAccounts := make([]*lnrpc.Account, len(accounts))
+	for i, account := range accounts {
+		rpcAccounts[i] = &lnrpc.Account{
+			Id: hex.EncodeToString(account.ID[:]),
+			InitialBalance: uint64(
+				account.InitialBalance.ToSatoshis(),
+			),
+			CurrentBalance: uint64(
+				account.CurrentBalance.ToSatoshis(),
+			),
+			LastUpdate:     account.LastUpdate.Unix(),
+			ExpirationDate: int64(0),
+		}
+		if !account.ExpirationDate.IsZero() {
+			rpcAccounts[i].ExpirationDate =
+				account.ExpirationDate.Unix()
+		}
+	}
+	resp := &lnrpc.ListAccountsResponse{
+		Accounts: rpcAccounts,
+	}
+	return resp, nil
+}
+
+// RemoveAccount removes the given account from the account database.
+func (r *rpcServer) RemoveAccount(ctx context.Context,
+	req *lnrpc.RemoveAccountRequest) (*lnrpc.RemoveAccountResponse, error) {
+
+	rpcsLog.Debugf("[removeaccount")
+
+	// Account ID is always a hex string, convert it to byte array.
+	var accountID = macaroons.AccountID{}
+	decoded, err := hex.DecodeString(req.Id)
+	if err != nil {
+		return nil, err
+	}
+	copy(accountID[:], decoded)
+
+	// Now remove the account.
+	err = r.server.macService.RemoveAccount(accountID)
+	if err != nil {
+		return nil, err
+	}
+	return &lnrpc.RemoveAccountResponse{}, nil
 }

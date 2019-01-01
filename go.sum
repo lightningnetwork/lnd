@@ -102,6 +102,10 @@ github.com/lightningnetwork/lightning-onion v0.0.0-20180605012408-ac4d9da8f1d6 h
 github.com/lightningnetwork/lightning-onion v0.0.0-20180605012408-ac4d9da8f1d6/go.mod h1:8EgEt4a/NUOVQd+3kk6n9aZCJ1Ssj96Pb6lCrci+6oc=
 github.com/ltcsuite/ltcd v0.0.0-20180701083835-cdab10132e8c h1:rdKAF0qixVZQy+Hkrojg2vHTZOxJEHns2ymbevTDPms=
 github.com/ltcsuite/ltcd v0.0.0-20180701083835-cdab10132e8c/go.mod h1:EHxR9R4IfKfcjAQ/nQiimQSLaRxdyNz926as4KTtNTg=
+github.com/ltcsuite/ltcd v0.0.0-20190101042124-f37f8bf35796 h1:sjOGyegMIhvgfq5oaue6Td+hxZuf3tDC8lAPrFldqFw=
+github.com/ltcsuite/ltcd v0.0.0-20190101042124-f37f8bf35796/go.mod h1:3p7ZTf9V1sNPI5H8P3NkTFF4LuwMdPl2DodF60qAKqY=
+github.com/ltcsuite/ltcutil v0.0.0-20181217130922-17f3b04680b6 h1:b/Op1jKdoE6tzGyjzFx8gc7ZyW3hVFs1jUCQfM/Z2Jo=
+github.com/ltcsuite/ltcutil v0.0.0-20181217130922-17f3b04680b6/go.mod h1:8Vg/LTOO0KYa/vlHWJ6XZAevPQThGH5sufO0Hrou/lA=
 github.com/miekg/dns v0.0.0-20171125082028-79bfde677fa8 h1:PRMAcldsl4mXKJeRNB/KVNz6TlbS6hk2Rs42PqgU3Ws=
 github.com/miekg/dns v0.0.0-20171125082028-79bfde677fa8/go.mod h1:W1PPwlIAgtquWBMBEV9nkV9Cazfe8ScdGz/Lj7v3Nrg=
 github.com/onsi/ginkgo v1.6.0 h1:Ix8l273rp3QzYgXSR+c8d1fTG7UPgYkOSELPhiY/YGw=

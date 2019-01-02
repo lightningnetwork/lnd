@@ -1134,11 +1134,13 @@ message GetInfoResponse {
     /// Whether the wallet's view is synced to the main chain
     bool synced_to_chain = 9 [json_name = "synced_to_chain"];
 
-    /// Whether the current node is connected to testnet
-    bool testnet = 10 [json_name = "testnet"];
+    /** 
+    Whether the current node is connected to testnet. This field is 
+    deprecated and the network field should be used instead 
+    **/
+    bool testnet = 10 [json_name = "testnet", deprecated = true];
 
-    /// A list of active chains the node is connected to
-    repeated string chains = 11 [json_name = "chains"];
+    reserved 11;
 
     /// The URIs of the current node.
     repeated string uris = 12 [json_name = "uris"];
@@ -1151,6 +1153,17 @@ message GetInfoResponse {
 
     /// Number of inactive channels
     uint32 num_inactive_channels = 15 [json_name = "num_inactive_channels"];
+
+    /// A list of active chains the node is connected to
+    repeated Chain chains = 16 [json_name = "chains"];
+}
+
+message Chain {
+    /// The blockchain the node is on (eg bitcoin, litecoin)
+    string chain = 1 [json_name = "chain"];
+
+    /// The network the node is on (eg regtest, testnet, mainnet)
+    string network = 2 [json_name = "network"];
 }
 
 message ConfirmationUpdate {

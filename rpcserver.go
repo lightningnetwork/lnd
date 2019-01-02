@@ -1748,9 +1748,14 @@ func (r *rpcServer) GetInfo(ctx context.Context,
 			"with current best block in the main chain: %v", err)
 	}
 
-	activeChains := make([]string, registeredChains.NumActiveChains())
+	network := normalizeNetwork(activeNetParams.Name)
+	activeChains := make([]*lnrpc.Chain, registeredChains.NumActiveChains())
 	for i, chain := range registeredChains.ActiveChains() {
-		activeChains[i] = chain.String()
+		activeChains[i] = &lnrpc.Chain{
+			Chain:   chain.String(),
+			Network: network,
+		}
+
 	}
 
 	// Check if external IP addresses were provided to lnd and use them

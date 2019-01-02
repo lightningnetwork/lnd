@@ -1284,6 +1284,17 @@
       "description": "- `p2wkh`: Pay to witness key hash (`WITNESS_PUBKEY_HASH` = 0)\n- `np2wkh`: Pay to nested witness key hash (`NESTED_PUBKEY_HASH` = 1)",
       "title": "* \n`AddressType` has to be one of:"
     },
+    "lnrpcChain": {
+      "type": "object",
+      "properties": {
+        "chain": {
+          "type": "string"
+        },
+        "network": {
+          "type": "string"
+        }
+      }
+    },
     "lnrpcChangePasswordRequest": {
       "type": "object",
       "properties": {
@@ -1859,14 +1870,7 @@
         "testnet": {
           "type": "boolean",
           "format": "boolean",
-          "title": "/ Whether the current node is connected to testnet"
-        },
-        "chains": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "title": "/ A list of active chains the node is connected to"
+          "title": "* \nWhether the current node is connected to testnet. This field is \ndeprecated and the network field should be used instead"
         },
         "uris": {
           "type": "array",
@@ -1888,6 +1892,13 @@
           "type": "integer",
           "format": "int64",
           "title": "/ Number of inactive channels"
+        },
+        "chains": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcChain"
+          },
+          "title": "/ A list of active chains the node is connected to"
         }
       }
     },

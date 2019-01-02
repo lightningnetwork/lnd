@@ -275,6 +275,8 @@ func TestMigrateEdgePolicies(t *testing.T) {
 	// Run through all test cases.
 	for _, test := range tests {
 		var chanID uint64
+		var node1Bytes []byte
+		var node2Bytes []byte
 
 		// beforeMigrationFunc will take the db into the state set by
 		// this particular test case.
@@ -345,6 +347,8 @@ func TestMigrateEdgePolicies(t *testing.T) {
 			}
 
 			chanID = info.ChannelID
+			node1Bytes = info.NodeKey1Bytes[:]
+			node2Bytes = info.NodeKey2Bytes[:]
 		}
 
 		// afterMigrationFunc asserts that the db is migrated to the
@@ -427,6 +431,49 @@ func TestMigrateEdgePolicies(t *testing.T) {
 					t.Fatalf("expected 2 nodes, found %v",
 						numNodes)
 				}
+
+				return
+			}
+
+			// If the edge shouldn't exist, make sure there are no
+			// traces of this edge in the DB. Fetching the edge
+			// should fail with ErrEdgeNotFound.
+			_, _, _, err = graph.FetchChannelEdgesByID(
+				chanID,
+			)
+			if err != ErrEdgeNotFound {
+				t.Fatalf("expected ErrEdgeNotFound, got %v",
+					err)
+			}
+
+			// Inspect the DB to make sure no data for this
+			// channel ID exists.
+			err = db.View(func(tx *bbolt.Tx) error {
+				edges := tx.Bucket(edgeBucket)
+				if edges == nil {
+					return fmt.Errorf("edge bucket did " +
+						"not exist")
+				}
+
+				for _, node := range [][]byte{node1Bytes, node2Bytes} {
+					var edgeKey [33 + 8]byte
+					copy(edgeKey[:], node)
+					byteOrder.PutUint64(
+						edgeKey[33:], chanID,
+					)
+
+					edgeBytes := edges.Get(edgeKey[:])
+					if edgeBytes != nil {
+						t.Fatalf("expected to not "+
+							"find edge policy for "+
+							"chanID %v", chanID)
+					}
+				}
+
+				return nil
+			})
+			if err != nil {
+				t.Fatal(err)
 			}
 		}
 

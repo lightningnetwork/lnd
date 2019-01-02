@@ -393,6 +393,43 @@ func migrateEdgePolicies(tx *bbolt.Tx) error {
 		return fmt.Errorf("unable to update edge policies: %v", err)
 	}
 
+	// Finally we iterate over all edge policies and delete those not
+	// having any correspnding edge info.
+	var keysToRemove [][]byte
+	err = edges.ForEach(func(edgeKey, v []byte) error {
+		// Skip buckets.
+		if v == nil {
+			return nil
+		}
+
+		if len(edgeKey) != 33+8 {
+			return fmt.Errorf("malformed edge key: %x", edgeKey)
+		}
+
+		var chanID [8]byte
+		copy(chanID[:], edgeKey[33:])
+
+		edgeInfoBytes := edgeIndex.Get(chanID[:])
+
+		// If no edge info is found, we schedule if for deletion.
+		if edgeInfoBytes == nil {
+			keysToRemove = append(keysToRemove, edgeKey)
+		}
+
+		return nil
+
+	})
+	if err != nil {
+		return fmt.Errorf("unable to iterate edge policies: %v", err)
+	}
+
+	log.Infof("Removing %d policies from edge bucket.", len(keysToRemove))
+	for _, key := range keysToRemove {
+		if err := edges.Delete(key); err != nil {
+			return err
+		}
+	}
+
 	log.Infof("Migration of edge policies complete!")
 
 	return nil

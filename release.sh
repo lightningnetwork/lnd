@@ -27,8 +27,9 @@ SYS=${LNDBUILDSYS:-"windows-386 windows-amd64 openbsd-386 openbsd-amd64 linux-38
 
 # Use the first element of $GOPATH in the case where GOPATH is a list
 # (something that is totally allowed).
-GPATH=$(echo $GOPATH | cut -f1 -d:)
-COMMITFLAGS="-X main.Commit=$(git rev-parse HEAD)"
+PKG="github.com/lightningnetwork/lnd"
+COMMIT=$(git describe --abbrev=40 --dirty)
+COMMITFLAGS="-X $PKG/build.Commit=$COMMIT"
 
 for i in $SYS; do
     OS=$(echo $i | cut -f1 -d-)

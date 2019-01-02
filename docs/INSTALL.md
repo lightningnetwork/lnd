@@ -32,12 +32,35 @@
 
 
     On Linux:
+
+    (x86-64)
     ```
-    sudo apt-get install golang-1.11-go
+    wget https://dl.google.com/go/go1.11.4.linux-amd64.tar.gz
+    sha256sum go1.11.4.linux-amd64.tar.gz | awk -F " " '{ print $1 }'
     ```
-    > Note that golang-1.11-go puts binaries in /usr/lib/go-1.11/bin. If you want them on your PATH, you need to make that change yourself. Alternatively, you can run:
+
+    The final output of the command above should be
+    `fb26c30e6a04ad937bbc657a1b5bba92f80096af1e8ee6da6430c045a8db3a5b`. If it
+    isn't, then the target REPO HAS BEEN MODIFIED, and you shouldn't install
+    this version of Go. If it matches, then proceed to install Go:
     ```
-    sudo ln -s /usr/lib/go-1.11/bin/go /usr/local/bin/go
+    tar -C /usr/local -xzf go1.11.4.linux-amd64.tar.gz
+    export PATH=$PATH:/usr/local/go/bin
+    ```
+
+    (ARMv6)
+    ```
+    wget https://dl.google.com/go/go1.11.4.linux-armv6l.tar.gz
+    sha256sum go1.11.4.linux-armv6l.tar.gz | awk -F " " '{ print $1 }'
+    ```
+
+    The final output of the command above should be
+    `9f7a71d27fef69f654a93e265560c8d9db1a2ca3f1dcdbe5288c46facfde5821`. If it
+    isn't, then the target REPO HAS BEEN MODIFIED, and you shouldn't install
+    this version of Go. If it matches, then proceed to install Go:
+    ```
+    tar -C /usr/local -xzf go1.11.4.linux-armv6l.tar.gz
+    export PATH=$PATH:/usr/local/go/bin
     ```
 
     On Mac OS X:

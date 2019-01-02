@@ -65,7 +65,7 @@
 
     On Mac OS X:
     ```
-    brew install go
+    brew install go@1.11
     ```
 
     On FreeBSD:

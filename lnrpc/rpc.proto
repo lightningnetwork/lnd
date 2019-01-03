@@ -1683,8 +1683,10 @@ message Invoice {
     */
     string memo = 1 [json_name = "memo"];
 
-    /// An optional cryptographic receipt of payment
-    bytes receipt = 2 [json_name = "receipt"];
+    /** Deprecated. An optional cryptographic receipt of payment which is not
+    implemented.
+    */
+    bytes receipt = 2 [json_name = "receipt", deprecated = true];
 
     /**
     The hex-encoded preimage (32 byte) which will allow settling an incoming

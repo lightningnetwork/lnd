@@ -3,9 +3,15 @@
 package invoicesrpc
 
 import (
-	"github.com/lightningnetwork/lnd/lnrpc"
+	"context"
 	"google.golang.org/grpc"
 	"gopkg.in/macaroon-bakery.v2/bakery"
+	"io/ioutil"
+	"os"
+	"path/filepath"
+
+	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lntypes"
 )
 
 const (
@@ -17,8 +23,27 @@ const (
 )
 
 var (
+	// macaroonOps are the set of capabilities that our minted macaroon (if
+	// it doesn't already exist) will have.
+	macaroonOps = []bakery.Op{
+		{
+			Entity: "invoices",
+			Action: "read",
+		},
+	}
+
 	// macPermissions maps RPC calls to the permissions they require.
-	macPermissions = map[string][]bakery.Op{}
+	macPermissions = map[string][]bakery.Op{
+		"/invoicesrpc.Invoices/SubscribeSingleInvoice": {{
+			Entity: "invoices",
+			Action: "read",
+		}},
+	}
+
+	// DefaultInvoicesMacFilename is the default name of the invoices
+	// macaroon that we expect to find via a file handle within the main
+	// configuration file in this package.
+	DefaultInvoicesMacFilename = "invoices.macaroon"
 )
 
 // Server is a sub-server of the main RPC server: the invoices RPC. This sub
@@ -27,6 +52,8 @@ var (
 type Server struct {
 	started  int32 // To be used atomically.
 	shutdown int32 // To be used atomically.
+
+	quit chan struct{}
 
 	cfg *Config
 }
@@ -41,10 +68,42 @@ var _ InvoicesServer = (*Server)(nil)
 // we'll create them on start up. If we're unable to locate, or create the
 // macaroons we need, then we'll return with an error.
 func New(cfg *Config) (*Server, lnrpc.MacaroonPerms, error) {
-	// We don't create any new macaroons for this subserver, instead reuse
-	// existing onchain/offchain permissions.
+	// If the path of the invoices macaroon wasn't specified, then we'll
+	// assume that it's found at the default network directory.
+	macFilePath := filepath.Join(
+		cfg.NetworkDir, DefaultInvoicesMacFilename,
+	)
+
+	// Now that we know the full path of the invoices macaroon, we can
+	// check to see if we need to create it or not.
+	if !lnrpc.FileExists(macFilePath) && cfg.MacService != nil {
+		log.Infof("Baking macaroons for invoices RPC Server at: %v",
+			macFilePath)
+
+		// At this point, we know that the invoices macaroon doesn't
+		// yet, exist, so we need to create it with the help of the
+		// main macaroon service.
+		invoicesMac, err := cfg.MacService.Oven.NewMacaroon(
+			context.Background(), bakery.LatestVersion, nil,
+			macaroonOps...,
+		)
+		if err != nil {
+			return nil, nil, err
+		}
+		invoicesMacBytes, err := invoicesMac.M().MarshalBinary()
+		if err != nil {
+			return nil, nil, err
+		}
+		err = ioutil.WriteFile(macFilePath, invoicesMacBytes, 0644)
+		if err != nil {
+			os.Remove(macFilePath)
+			return nil, nil, err
+		}
+	}
+
 	server := &Server{
-		cfg: cfg,
+		cfg:  cfg,
+		quit: make(chan struct{}, 1),
 	}
 
 	return server, macPermissions, nil
@@ -61,6 +120,8 @@ func (s *Server) Start() error {
 //
 // NOTE: This is part of the lnrpc.SubServer interface.
 func (s *Server) Stop() error {
+	close(s.quit)
+
 	return nil
 }
 
@@ -82,8 +143,41 @@ func (s *Server) RegisterWithRootServer(grpcServer *grpc.Server) error {
 	// all our methods are routed properly.
 	RegisterInvoicesServer(grpcServer, s)
 
-	log.Debugf("Invoices RPC server successfully register with root " +
+	log.Debugf("Invoices RPC server successfully registered with root " +
 		"gRPC server")
 
 	return nil
+}
+
+// SubscribeInvoices returns a uni-directional stream (server -> client) for
+// notifying the client of invoice state changes.
+func (s *Server) SubscribeSingleInvoice(req *lnrpc.PaymentHash,
+	updateStream Invoices_SubscribeSingleInvoiceServer) error {
+
+	hash, err := lntypes.NewHash(req.RHash)
+	if err != nil {
+		return err
+	}
+
+	invoiceClient := s.cfg.InvoiceRegistry.SubscribeSingleInvoice(*hash)
+	defer invoiceClient.Cancel()
+
+	for {
+		select {
+		case newInvoice := <-invoiceClient.Updates:
+			rpcInvoice, err := CreateRPCInvoice(
+				newInvoice, s.cfg.ChainParams,
+			)
+			if err != nil {
+				return err
+			}
+
+			if err := updateStream.Send(rpcInvoice); err != nil {
+				return err
+			}
+
+		case <-s.quit:
+			return nil
+		}
+	}
 }

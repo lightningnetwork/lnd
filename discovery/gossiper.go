@@ -2514,15 +2514,22 @@ func (d *AuthenticatedGossiper) updateChannel(info *channeldb.ChannelEdgeInfo,
 	if timestamp <= edge.LastUpdate.Unix() {
 		timestamp = edge.LastUpdate.Unix() + 1
 	}
+
+	// Check whether optional fields are present.
+	msgFlags := 1
+	if edge.MaxHTLC == 0 {
+		msgFlags = 0
+	}
 	edge.LastUpdate = time.Unix(timestamp, 0)
 	chanUpdate := &lnwire.ChannelUpdate{
 		ChainHash:       info.ChainHash,
 		ShortChannelID:  lnwire.NewShortChanIDFromInt(edge.ChannelID),
 		Timestamp:       uint32(timestamp),
 		ChannelFlags:    edge.Flags,
-		MessageFlags:    0, // Zero indicates no optional fields in the update.
+		MessageFlags:    lnwire.ChanUpdateFlag(msgFlags),
 		TimeLockDelta:   edge.TimeLockDelta,
 		HtlcMinimumMsat: edge.MinHTLC,
+		HtlcMaximumMsat: edge.MaxHTLC,
 		BaseFee:         uint32(edge.FeeBaseMSat),
 		FeeRate:         uint32(edge.FeeProportionalMillionths),
 		ExtraOpaqueData: edge.ExtraOpaqueData,

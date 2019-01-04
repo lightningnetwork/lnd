@@ -450,9 +450,20 @@ func (d *DB) FetchPendingChannels() ([]*OpenChannel, error) {
 }
 
 // FetchWaitingCloseChannels will return all channels that have been opened,
-// but now is waiting for a closing transaction to be confirmed.
+// but are now waiting for a closing transaction to be confirmed.
+//
+// NOTE: This includes channels that are also pending to be opened.
 func (d *DB) FetchWaitingCloseChannels() ([]*OpenChannel, error) {
-	return fetchChannels(d, false, true)
+	waitingClose, err := fetchChannels(d, false, true)
+	if err != nil {
+		return nil, err
+	}
+	pendingWaitingClose, err := fetchChannels(d, true, true)
+	if err != nil {
+		return nil, err
+	}
+
+	return append(waitingClose, pendingWaitingClose...), nil
 }
 
 // fetchChannels attempts to retrieve channels currently stored in the

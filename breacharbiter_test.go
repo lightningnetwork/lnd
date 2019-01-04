@@ -1580,18 +1580,12 @@ func createInitChannels(revocationWindow int) (*lnwallet.LightningChannel, *lnwa
 	if err := channelAlice.State().SyncPending(addr, 101); err != nil {
 		return nil, nil, nil, err
 	}
-	if err := channelAlice.State().FullSync(); err != nil {
-		return nil, nil, nil, err
-	}
 
 	addr = &net.TCPAddr{
 		IP:   net.ParseIP("127.0.0.1"),
 		Port: 18555,
 	}
 	if err := channelBob.State().SyncPending(addr, 101); err != nil {
-		return nil, nil, nil, err
-	}
-	if err := channelBob.State().FullSync(); err != nil {
 		return nil, nil, nil, err
 	}
 

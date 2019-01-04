@@ -390,14 +390,14 @@ func (f *FailInvalidOnionVersion) Code() FailCode {
 //
 // NOTE: Part of the Serializable interface.
 func (f *FailInvalidOnionVersion) Decode(r io.Reader, pver uint32) error {
-	return readElement(r, f.OnionSHA256[:])
+	return ReadElement(r, f.OnionSHA256[:])
 }
 
 // Encode writes the failure in bytes stream.
 //
 // NOTE: Part of the Serializable interface.
 func (f *FailInvalidOnionVersion) Encode(w io.Writer, pver uint32) error {
-	return writeElement(w, f.OnionSHA256[:])
+	return WriteElement(w, f.OnionSHA256[:])
 }
 
 // FailInvalidOnionHmac is return if the onion HMAC is incorrect.
@@ -424,14 +424,14 @@ func (f *FailInvalidOnionHmac) Code() FailCode {
 //
 // NOTE: Part of the Serializable interface.
 func (f *FailInvalidOnionHmac) Decode(r io.Reader, pver uint32) error {
-	return readElement(r, f.OnionSHA256[:])
+	return ReadElement(r, f.OnionSHA256[:])
 }
 
 // Encode writes the failure in bytes stream.
 //
 // NOTE: Part of the Serializable interface.
 func (f *FailInvalidOnionHmac) Encode(w io.Writer, pver uint32) error {
-	return writeElement(w, f.OnionSHA256[:])
+	return WriteElement(w, f.OnionSHA256[:])
 }
 
 // Returns a human readable string describing the target FailureMessage.
@@ -466,14 +466,14 @@ func (f *FailInvalidOnionKey) Code() FailCode {
 //
 // NOTE: Part of the Serializable interface.
 func (f *FailInvalidOnionKey) Decode(r io.Reader, pver uint32) error {
-	return readElement(r, f.OnionSHA256[:])
+	return ReadElement(r, f.OnionSHA256[:])
 }
 
 // Encode writes the failure in bytes stream.
 //
 // NOTE: Part of the Serializable interface.
 func (f *FailInvalidOnionKey) Encode(w io.Writer, pver uint32) error {
-	return writeElement(w, f.OnionSHA256[:])
+	return WriteElement(w, f.OnionSHA256[:])
 }
 
 // Returns a human readable string describing the target FailureMessage.
@@ -563,7 +563,7 @@ func (f FailTemporaryChannelFailure) Error() string {
 // NOTE: Part of the Serializable interface.
 func (f *FailTemporaryChannelFailure) Decode(r io.Reader, pver uint32) error {
 	var length uint16
-	err := readElement(r, &length)
+	err := ReadElement(r, &length)
 	if err != nil {
 		return err
 	}
@@ -591,7 +591,7 @@ func (f *FailTemporaryChannelFailure) Encode(w io.Writer, pver uint32) error {
 		payload = bw.Bytes()
 	}
 
-	if err := writeElement(w, uint16(len(payload))); err != nil {
+	if err := WriteElement(w, uint16(len(payload))); err != nil {
 		return err
 	}
 
@@ -642,12 +642,12 @@ func (f FailAmountBelowMinimum) Error() string {
 //
 // NOTE: Part of the Serializable interface.
 func (f *FailAmountBelowMinimum) Decode(r io.Reader, pver uint32) error {
-	if err := readElement(r, &f.HtlcMsat); err != nil {
+	if err := ReadElement(r, &f.HtlcMsat); err != nil {
 		return err
 	}
 
 	var length uint16
-	if err := readElement(r, &length); err != nil {
+	if err := ReadElement(r, &length); err != nil {
 		return err
 	}
 
@@ -661,11 +661,11 @@ func (f *FailAmountBelowMinimum) Decode(r io.Reader, pver uint32) error {
 //
 // NOTE: Part of the Serializable interface.
 func (f *FailAmountBelowMinimum) Encode(w io.Writer, pver uint32) error {
-	if err := writeElement(w, f.HtlcMsat); err != nil {
+	if err := WriteElement(w, f.HtlcMsat); err != nil {
 		return err
 	}
 
-	err := writeElement(w, uint16(f.Update.MaxPayloadLength(pver)))
+	err := WriteElement(w, uint16(f.Update.MaxPayloadLength(pver)))
 	if err != nil {
 		return err
 	}
@@ -715,12 +715,12 @@ func (f FailFeeInsufficient) Error() string {
 //
 // NOTE: Part of the Serializable interface.
 func (f *FailFeeInsufficient) Decode(r io.Reader, pver uint32) error {
-	if err := readElement(r, &f.HtlcMsat); err != nil {
+	if err := ReadElement(r, &f.HtlcMsat); err != nil {
 		return err
 	}
 
 	var length uint16
-	if err := readElement(r, &length); err != nil {
+	if err := ReadElement(r, &length); err != nil {
 		return err
 	}
 
@@ -734,11 +734,11 @@ func (f *FailFeeInsufficient) Decode(r io.Reader, pver uint32) error {
 //
 // NOTE: Part of the Serializable interface.
 func (f *FailFeeInsufficient) Encode(w io.Writer, pver uint32) error {
-	if err := writeElement(w, f.HtlcMsat); err != nil {
+	if err := WriteElement(w, f.HtlcMsat); err != nil {
 		return err
 	}
 
-	err := writeElement(w, uint16(f.Update.MaxPayloadLength(pver)))
+	err := WriteElement(w, uint16(f.Update.MaxPayloadLength(pver)))
 	if err != nil {
 		return err
 	}
@@ -788,12 +788,12 @@ func (f *FailIncorrectCltvExpiry) Error() string {
 //
 // NOTE: Part of the Serializable interface.
 func (f *FailIncorrectCltvExpiry) Decode(r io.Reader, pver uint32) error {
-	if err := readElement(r, &f.CltvExpiry); err != nil {
+	if err := ReadElement(r, &f.CltvExpiry); err != nil {
 		return err
 	}
 
 	var length uint16
-	if err := readElement(r, &length); err != nil {
+	if err := ReadElement(r, &length); err != nil {
 		return err
 	}
 
@@ -807,11 +807,11 @@ func (f *FailIncorrectCltvExpiry) Decode(r io.Reader, pver uint32) error {
 //
 // NOTE: Part of the Serializable interface.
 func (f *FailIncorrectCltvExpiry) Encode(w io.Writer, pver uint32) error {
-	if err := writeElement(w, f.CltvExpiry); err != nil {
+	if err := WriteElement(w, f.CltvExpiry); err != nil {
 		return err
 	}
 
-	err := writeElement(w, uint16(f.Update.MaxPayloadLength(pver)))
+	err := WriteElement(w, uint16(f.Update.MaxPayloadLength(pver)))
 	if err != nil {
 		return err
 	}
@@ -855,7 +855,7 @@ func (f *FailExpiryTooSoon) Error() string {
 // NOTE: Part of the Serializable interface.
 func (f *FailExpiryTooSoon) Decode(r io.Reader, pver uint32) error {
 	var length uint16
-	if err := readElement(r, &length); err != nil {
+	if err := ReadElement(r, &length); err != nil {
 		return err
 	}
 
@@ -869,7 +869,7 @@ func (f *FailExpiryTooSoon) Decode(r io.Reader, pver uint32) error {
 //
 // NOTE: Part of the Serializable interface.
 func (f *FailExpiryTooSoon) Encode(w io.Writer, pver uint32) error {
-	err := writeElement(w, uint16(f.Update.MaxPayloadLength(pver)))
+	err := WriteElement(w, uint16(f.Update.MaxPayloadLength(pver)))
 	if err != nil {
 		return err
 	}
@@ -919,12 +919,12 @@ func (f FailChannelDisabled) Error() string {
 //
 // NOTE: Part of the Serializable interface.
 func (f *FailChannelDisabled) Decode(r io.Reader, pver uint32) error {
-	if err := readElement(r, &f.Flags); err != nil {
+	if err := ReadElement(r, &f.Flags); err != nil {
 		return err
 	}
 
 	var length uint16
-	if err := readElement(r, &length); err != nil {
+	if err := ReadElement(r, &length); err != nil {
 		return err
 	}
 
@@ -938,11 +938,11 @@ func (f *FailChannelDisabled) Decode(r io.Reader, pver uint32) error {
 //
 // NOTE: Part of the Serializable interface.
 func (f *FailChannelDisabled) Encode(w io.Writer, pver uint32) error {
-	if err := writeElement(w, f.Flags); err != nil {
+	if err := WriteElement(w, f.Flags); err != nil {
 		return err
 	}
 
-	err := writeElement(w, uint16(f.Update.MaxPayloadLength(pver)))
+	err := WriteElement(w, uint16(f.Update.MaxPayloadLength(pver)))
 	if err != nil {
 		return err
 	}
@@ -986,14 +986,14 @@ func (f *FailFinalIncorrectCltvExpiry) Code() FailCode {
 //
 // NOTE: Part of the Serializable interface.
 func (f *FailFinalIncorrectCltvExpiry) Decode(r io.Reader, pver uint32) error {
-	return readElement(r, &f.CltvExpiry)
+	return ReadElement(r, &f.CltvExpiry)
 }
 
 // Encode writes the failure in bytes stream.
 //
 // NOTE: Part of the Serializable interface.
 func (f *FailFinalIncorrectCltvExpiry) Encode(w io.Writer, pver uint32) error {
-	return writeElement(w, f.CltvExpiry)
+	return WriteElement(w, f.CltvExpiry)
 }
 
 // FailFinalIncorrectHtlcAmount is returned if the amt_to_forward is higher
@@ -1032,14 +1032,14 @@ func (f *FailFinalIncorrectHtlcAmount) Code() FailCode {
 //
 // NOTE: Part of the Serializable interface.
 func (f *FailFinalIncorrectHtlcAmount) Decode(r io.Reader, pver uint32) error {
-	return readElement(r, &f.IncomingHTLCAmount)
+	return ReadElement(r, &f.IncomingHTLCAmount)
 }
 
 // Encode writes the failure in bytes stream.
 //
 // NOTE: Part of the Serializable interface.
 func (f *FailFinalIncorrectHtlcAmount) Encode(w io.Writer, pver uint32) error {
-	return writeElement(w, f.IncomingHTLCAmount)
+	return WriteElement(w, f.IncomingHTLCAmount)
 }
 
 // FailExpiryTooFar is returned if the CLTV expiry in the HTLC is too far in the
@@ -1068,7 +1068,7 @@ func DecodeFailure(r io.Reader, pver uint32) (FailureMessage, error) {
 	// First, we'll parse out the encapsulated failure message itself. This
 	// is a 2 byte length followed by the payload itself.
 	var failureLength uint16
-	if err := readElement(r, &failureLength); err != nil {
+	if err := ReadElement(r, &failureLength); err != nil {
 		return nil, fmt.Errorf("unable to read error len: %v", err)
 	}
 	if failureLength > failureMessageLength {
@@ -1149,7 +1149,7 @@ func EncodeFailure(w io.Writer, failure FailureMessage, pver uint32) error {
 	// messages are fixed size.
 	pad := make([]byte, failureMessageLength-len(failureMessage))
 
-	return writeElements(w,
+	return WriteElements(w,
 		uint16(len(failureMessage)),
 		failureMessage,
 		uint16(len(pad)),

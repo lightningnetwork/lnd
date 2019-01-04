@@ -35,7 +35,7 @@ var _ Message = (*UpdateFailHTLC)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (c *UpdateFailHTLC) Decode(r io.Reader, pver uint32) error {
-	return readElements(r,
+	return ReadElements(r,
 		&c.ChanID,
 		&c.ID,
 		&c.Reason,
@@ -47,7 +47,7 @@ func (c *UpdateFailHTLC) Decode(r io.Reader, pver uint32) error {
 //
 // This is part of the lnwire.Message interface.
 func (c *UpdateFailHTLC) Encode(w io.Writer, pver uint32) error {
-	return writeElements(w,
+	return WriteElements(w,
 		c.ChanID,
 		c.ID,
 		c.Reason,

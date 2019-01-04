@@ -989,8 +989,11 @@ func (r *rpcServer) ConnectPeer(ctx context.Context,
 		ChainNet:    activeNetParams.Net,
 	}
 
+	rpcsLog.Debugf("[connectpeer] requested connection to %x@%s",
+		peerAddr.IdentityKey.SerializeCompressed(), peerAddr.Address)
+
 	if err := r.server.ConnectToPeer(peerAddr, in.Perm); err != nil {
-		rpcsLog.Errorf("(connectpeer): error connecting to peer: %v", err)
+		rpcsLog.Errorf("[connectpeer]: error connecting to peer: %v", err)
 		return nil, err
 	}
 

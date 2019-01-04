@@ -224,22 +224,9 @@ func newActiveChannelArbitrator(channel *channeldb.OpenChannel,
 			// With the channels fetched, attempt to locate
 			// the target channel according to its channel
 			// point.
-			dbChannels, err := c.chanSource.FetchAllChannels()
+			channel, err := c.chanSource.FetchChannel(chanPoint)
 			if err != nil {
 				return nil, err
-			}
-			var channel *channeldb.OpenChannel
-			for _, dbChannel := range dbChannels {
-				if dbChannel.FundingOutpoint == chanPoint {
-					channel = dbChannel
-					break
-				}
-			}
-
-			// If the channel cannot be located, then we
-			// exit with an error to the channel.
-			if channel == nil {
-				return nil, fmt.Errorf("unable to find channel")
 			}
 
 			chanMachine, err := lnwallet.NewLightningChannel(

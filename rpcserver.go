@@ -1709,7 +1709,7 @@ func (r *rpcServer) AbandonChannel(ctx context.Context,
 	// With the chanPoint constructed, we'll attempt to find the target
 	// channel in the database. If we can't find the channel, then we'll
 	// return the error back to the caller.
-	dbChan, err := r.fetchOpenDbChannel(*chanPoint)
+	dbChan, err := r.server.chanDB.FetchChannel(*chanPoint)
 	if err != nil {
 		return nil, err
 	}
@@ -1746,42 +1746,13 @@ func (r *rpcServer) AbandonChannel(ctx context.Context,
 	return &lnrpc.AbandonChannelResponse{}, nil
 }
 
-// fetchOpenDbChannel attempts to locate a channel identified by its channel
-// point from the database's set of all currently opened channels.
-func (r *rpcServer) fetchOpenDbChannel(chanPoint wire.OutPoint) (
-	*channeldb.OpenChannel, error) {
-
-	dbChannels, err := r.server.chanDB.FetchAllChannels()
-	if err != nil {
-		return nil, err
-	}
-
-	// With the channels fetched, attempt to locate the target channel
-	// according to its channel point.
-	var dbChan *channeldb.OpenChannel
-	for _, dbChannel := range dbChannels {
-		if dbChannel.FundingOutpoint == chanPoint {
-			dbChan = dbChannel
-			break
-		}
-	}
-
-	// If the channel cannot be located, then we exit with an error to the
-	// caller.
-	if dbChan == nil {
-		return nil, fmt.Errorf("unable to find channel")
-	}
-
-	return dbChan, nil
-}
-
 // fetchActiveChannel attempts to locate a channel identified by its channel
 // point from the database's set of all currently opened channels and
 // return it as a fully populated state machine
 func (r *rpcServer) fetchActiveChannel(chanPoint wire.OutPoint) (
 	*lnwallet.LightningChannel, error) {
 
-	dbChan, err := r.fetchOpenDbChannel(chanPoint)
+	dbChan, err := r.server.chanDB.FetchChannel(chanPoint)
 	if err != nil {
 		return nil, err
 	}

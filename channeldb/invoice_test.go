@@ -106,7 +106,7 @@ func TestInvoiceWorkflow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to fetch invoice: %v", err)
 	}
-	if !dbInvoice2.Terms.Settled {
+	if dbInvoice2.Terms.State != ContractSettled {
 		t.Fatalf("invoice should now be settled but isn't")
 	}
 	if dbInvoice2.SettleDate.IsZero() {
@@ -348,7 +348,7 @@ func TestDuplicateSettleInvoice(t *testing.T) {
 	// We'll update what we expect the settle invoice to be so that our
 	// comparison below has the correct assumption.
 	invoice.SettleIndex = 1
-	invoice.Terms.Settled = true
+	invoice.Terms.State = ContractSettled
 	invoice.AmtPaid = amt
 	invoice.SettleDate = dbInvoice.SettleDate
 

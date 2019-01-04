@@ -189,7 +189,7 @@ func migrateInvoiceTimeSeries(tx *bbolt.Tx) error {
 		// Next, we'll check if the invoice has been settled or not. If
 		// so, then we'll also add it to the settle index.
 		var nextSettleSeqNo uint64
-		if invoice.Terms.Settled {
+		if invoice.Terms.State == ContractSettled {
 			nextSettleSeqNo, err = settleIndex.NextSequence()
 			if err != nil {
 				return err

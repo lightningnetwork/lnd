@@ -1127,6 +1127,14 @@
       ],
       "default": "COOPERATIVE_CLOSE"
     },
+    "InvoiceInvoiceState": {
+      "type": "string",
+      "enum": [
+        "OPEN",
+        "SETTLED"
+      ],
+      "default": "OPEN"
+    },
     "PendingChannelsResponseClosedChannel": {
       "type": "object",
       "properties": {
@@ -2125,6 +2133,10 @@
           "type": "string",
           "format": "int64",
           "description": "*\nThe amount that was accepted for this invoice, in millisatoshis. This will\nONLY be set if this invoice has been settled. We provide this field as if\nthe invoice was created with a zero value, then we need to record what\namount was ultimately accepted. Additionally, it's possible that the sender\npaid MORE that was specified in the original invoice. So we'll record that\nhere as well."
+        },
+        "state": {
+          "$ref": "#/definitions/InvoiceInvoiceState",
+          "description": "*\nThe state the invoice is in."
         }
       }
     },

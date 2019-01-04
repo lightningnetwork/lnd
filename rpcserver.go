@@ -3303,6 +3303,18 @@ func createRPCInvoice(invoice *channeldb.Invoice) (*lnrpc.Invoice, error) {
 	satAmt := invoice.Terms.Value.ToSatoshis()
 	satAmtPaid := invoice.AmtPaid.ToSatoshis()
 
+	isSettled := invoice.Terms.State == channeldb.ContractSettled
+
+	var state lnrpc.Invoice_InvoiceState
+	switch invoice.Terms.State {
+	case channeldb.ContractOpen:
+		state = lnrpc.Invoice_OPEN
+	case channeldb.ContractSettled:
+		state = lnrpc.Invoice_SETTLED
+	default:
+		return nil, fmt.Errorf("unknown invoice state")
+	}
+
 	return &lnrpc.Invoice{
 		Memo:            string(invoice.Memo[:]),
 		Receipt:         invoice.Receipt[:],
@@ -3311,7 +3323,7 @@ func createRPCInvoice(invoice *channeldb.Invoice) (*lnrpc.Invoice, error) {
 		Value:           int64(satAmt),
 		CreationDate:    invoice.CreationDate.Unix(),
 		SettleDate:      settleDate,
-		Settled:         invoice.Terms.Settled,
+		Settled:         isSettled,
 		PaymentRequest:  paymentRequest,
 		DescriptionHash: descHash,
 		Expiry:          expiry,
@@ -3324,6 +3336,7 @@ func createRPCInvoice(invoice *channeldb.Invoice) (*lnrpc.Invoice, error) {
 		AmtPaidSat:      int64(satAmtPaid),
 		AmtPaidMsat:     int64(invoice.AmtPaid),
 		AmtPaid:         int64(invoice.AmtPaid),
+		State:           state,
 	}, nil
 }
 

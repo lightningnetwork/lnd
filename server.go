@@ -48,10 +48,6 @@ const (
 	// connected to.
 	defaultMinPeers = 3
 
-	// defaultBackoff is the starting point for exponential backoff for
-	// reconnecting to persistent peers.
-	defaultBackoff = time.Second
-
 	// defaultStableConnDuration is a floor under which all reconnection
 	// attempts will apply exponential randomized backoff. Connections
 	// durations exceeding this value will be eligible to have their
@@ -1751,7 +1747,7 @@ func (s *server) establishPersistentConnections() error {
 		// persistent connection with.
 		s.persistentPeers[pubStr] = struct{}{}
 		if _, ok := s.persistentPeersBackoff[pubStr]; !ok {
-			s.persistentPeersBackoff[pubStr] = defaultBackoff
+			s.persistentPeersBackoff[pubStr] = cfg.MinBackoff
 		}
 
 		for _, address := range nodeAddr.addresses {
@@ -2022,7 +2018,7 @@ func (s *server) nextPeerBackoff(pubStr string,
 	backoff, ok := s.persistentPeersBackoff[pubStr]
 	if !ok {
 		// If an existing backoff was unknown, use the default.
-		return defaultBackoff
+		return cfg.MinBackoff
 	}
 
 	// If the peer failed to start properly, we'll just use the previous
@@ -2044,17 +2040,17 @@ func (s *server) nextPeerBackoff(pubStr string,
 	// reduce the timeout duration by the length of the connection after
 	// applying randomized exponential backoff. We'll only apply this in the
 	// case that:
-	//   reb(curBackoff) - connDuration > defaultBackoff
+	//   reb(curBackoff) - connDuration > cfg.MinBackoff
 	relaxedBackoff := computeNextBackoff(backoff) - connDuration
-	if relaxedBackoff > defaultBackoff {
+	if relaxedBackoff > cfg.MinBackoff {
 		return relaxedBackoff
 	}
 
-	// Lastly, if reb(currBackoff) - connDuration <= defaultBackoff, meaning
+	// Lastly, if reb(currBackoff) - connDuration <= cfg.MinBackoff, meaning
 	// the stable connection lasted much longer than our previous backoff.
 	// To reward such good behavior, we'll reconnect after the default
 	// timeout.
-	return defaultBackoff
+	return cfg.MinBackoff
 }
 
 // shouldDropConnection determines if our local connection to a remote peer
@@ -2710,7 +2706,7 @@ func (s *server) ConnectToPeer(addr *lnwire.NetAddress, perm bool) error {
 
 		s.persistentPeers[targetPub] = struct{}{}
 		if _, ok := s.persistentPeersBackoff[targetPub]; !ok {
-			s.persistentPeersBackoff[targetPub] = defaultBackoff
+			s.persistentPeersBackoff[targetPub] = cfg.MinBackoff
 		}
 		s.persistentConnReqs[targetPub] = append(
 			s.persistentConnReqs[targetPub], connReq)

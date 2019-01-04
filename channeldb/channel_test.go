@@ -205,7 +205,7 @@ func createTestChannelState(cdb *DB) (*OpenChannel, error) {
 	return &OpenChannel{
 		ChanType:          SingleFunder,
 		ChainHash:         key,
-		FundingOutpoint:   *testOutpoint,
+		FundingOutpoint:   wire.OutPoint{Hash: key, Index: rand.Uint32()},
 		ShortChannelID:    chanID,
 		IsInitiator:       true,
 		IsPending:         true,

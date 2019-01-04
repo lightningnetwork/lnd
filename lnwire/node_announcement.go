@@ -28,6 +28,17 @@ func (e ErrUnknownAddrType) Error() string {
 	return fmt.Sprintf("unknown address type: %v", e.addrType)
 }
 
+// ErrInvalidNodeAlias is an error returned if a node alias we parse on the
+// wire is invalid, as in it has non UTF-8 characters.
+type ErrInvalidNodeAlias struct{}
+
+// Error returns a human readable string describing the error.
+//
+// NOTE: implements the error interface.
+func (e ErrInvalidNodeAlias) Error() string {
+	return "node alias has non-utf8 characters"
+}
+
 // NodeAlias a hex encoded UTF-8 string that may be displayed as an alternative
 // to the node's ID. Notice that aliases are not unique and may be freely
 // chosen by the node operators.
@@ -39,11 +50,12 @@ func NewNodeAlias(s string) (NodeAlias, error) {
 	var n NodeAlias
 
 	if len(s) > 32 {
-		return n, fmt.Errorf("alias too large: max is %v, got %v", 32, len(s))
+		return n, fmt.Errorf("alias too large: max is %v, got %v", 32,
+			len(s))
 	}
 
 	if !utf8.ValidString(s) {
-		return n, fmt.Errorf("invalid utf8 string")
+		return n, &ErrInvalidNodeAlias{}
 	}
 
 	copy(n[:], []byte(s))
@@ -117,7 +129,7 @@ func (a *NodeAnnouncement) Decode(r io.Reader, pver uint32) error {
 		&a.Timestamp,
 		&a.NodeID,
 		&a.RGBColor,
-		a.Alias[:],
+		&a.Alias,
 		&a.Addresses,
 	)
 	if err != nil {
@@ -149,7 +161,7 @@ func (a *NodeAnnouncement) Encode(w io.Writer, pver uint32) error {
 		a.Timestamp,
 		a.NodeID,
 		a.RGBColor,
-		a.Alias[:],
+		a.Alias,
 		a.Addresses,
 		a.ExtraOpaqueData,
 	)

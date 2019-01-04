@@ -41,6 +41,17 @@ var (
 	_, _ = testSig.S.SetString("18801056069249825825291287104931333862866033135609736119018462340006816851118", 10)
 )
 
+const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+func randAlias(r *rand.Rand) NodeAlias {
+	var a NodeAlias
+	for i := range a {
+		a[i] = letterBytes[r.Intn(len(letterBytes))]
+	}
+
+	return a
+}
+
 func randPubKey() (*btcec.PublicKey, error) {
 	priv, err := btcec.NewPrivateKey(btcec.S256())
 	if err != nil {
@@ -551,17 +562,11 @@ func TestLightningWireProtocol(t *testing.T) {
 			v[0] = reflect.ValueOf(req)
 		},
 		MsgNodeAnnouncement: func(v []reflect.Value, r *rand.Rand) {
-			var a [32]byte
-			if _, err := r.Read(a[:]); err != nil {
-				t.Fatalf("unable to generate alias: %v", err)
-				return
-			}
-
 			var err error
 			req := NodeAnnouncement{
 				Features:  randRawFeatureVector(r),
 				Timestamp: uint32(r.Int31()),
-				Alias:     a,
+				Alias:     randAlias(r),
 				RGBColor: color.RGBA{
 					R: uint8(r.Int31()),
 					G: uint8(r.Int31()),

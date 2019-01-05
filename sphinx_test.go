@@ -86,62 +86,90 @@ var (
 		"baaa7d63ad64199f4664813b955cff954949076dcf"
 )
 
-func newTestRoute(numHops int) ([]*Router, *[]HopData, *OnionPacket, error) {
+func newTestRoute(numHops int) ([]*Router, *PaymentPath, *[]HopData, *OnionPacket, error) {
 	nodes := make([]*Router, numHops)
 
 	// Create numHops random sphinx nodes.
 	for i := 0; i < len(nodes); i++ {
 		privKey, err := btcec.NewPrivateKey(btcec.S256())
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("Unable to generate"+
-				" random key for sphinx node: %v", err)
+			return nil, nil, nil, nil, fmt.Errorf("Unable to "+
+				"generate random key for sphinx node: %v", err)
 		}
 
-		nodes[i] = NewRouter(privKey, &chaincfg.MainNetParams,
-			NewMemoryReplayLog())
+		nodes[i] = NewRouter(
+			privKey, &chaincfg.MainNetParams, NewMemoryReplayLog(),
+		)
 	}
 
 	// Gather all the pub keys in the path.
-	route := make([]*btcec.PublicKey, len(nodes))
+	var (
+		route PaymentPath
+	)
 	for i := 0; i < len(nodes); i++ {
-		route[i] = nodes[i].onionKey.PubKey()
-	}
-
-	var hopsData []HopData
-	for i := 0; i < numHops; i++ {
-		hopsData = append(hopsData, HopData{
-			Realm:         0x00,
+		hopData := HopData{
+			Realm:         [1]byte{0x00},
 			ForwardAmount: uint64(i),
 			OutgoingCltv:  uint32(i),
-		})
-		copy(hopsData[i].NextAddress[:], bytes.Repeat([]byte{byte(i)}, 8))
-		copy(hopsData[i].ExtraBytes[:], bytes.Repeat([]byte{byte(i)}, padSize))
+		}
+
+		copy(hopData.NextAddress[:], bytes.Repeat([]byte{byte(i)}, 8))
+
+		route[i] = OnionHop{
+			NodePub: *nodes[i].onionKey.PubKey(),
+			HopData: hopData,
+		}
 	}
 
 	// Generate a forwarding message to route to the final node via the
 	// generated intermdiates nodes above.  Destination should be Hash160,
 	// adding padding so parsing still works.
-	sessionKey, _ := btcec.PrivKeyFromBytes(btcec.S256(), bytes.Repeat([]byte{'A'}, 32))
-	fwdMsg, err := NewOnionPacket(route, sessionKey, hopsData, nil)
+	sessionKey, _ := btcec.PrivKeyFromBytes(
+		btcec.S256(), bytes.Repeat([]byte{'A'}, 32),
+	)
+	fwdMsg, err := NewOnionPacket(&route, sessionKey, nil)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("Unable to create forwarding "+
-			"message: %#v", err)
+		return nil, nil, nil, nil, fmt.Errorf("unable to create "+
+			"forwarding message: %#v", err)
 	}
 
-	return nodes, &hopsData, fwdMsg, nil
+	var hopsData []HopData
+	for i := 0; i < len(nodes); i++ {
+		hopsData = append(hopsData, route[i].HopData)
+	}
+
+	return nodes, &route, &hopsData, fwdMsg, nil
 }
 
 func TestBolt4Packet(t *testing.T) {
-	var route = make([]*btcec.PublicKey, len(bolt4PubKeys))
+	var (
+		route    PaymentPath
+		hopsData []HopData
+	)
 	for i, pubKeyHex := range bolt4PubKeys {
 		pubKeyBytes, err := hex.DecodeString(pubKeyHex)
 		if err != nil {
 			t.Fatalf("unable to decode BOLT 4 hex pubkey #%d: %v", i, err)
 		}
 
-		route[i], err = btcec.ParsePubKey(pubKeyBytes, btcec.S256())
+		pubKey, err := btcec.ParsePubKey(pubKeyBytes, btcec.S256())
 		if err != nil {
 			t.Fatalf("unable to parse BOLT 4 pubkey #%d: %v", i, err)
+		}
+
+		hopData := HopData{
+			Realm:         [1]byte{0x00},
+			ForwardAmount: uint64(i),
+			OutgoingCltv:  uint32(i),
+		}
+		copy(hopData.NextAddress[:], bytes.Repeat([]byte{byte(i)}, 8))
+		hopsData = append(hopsData, hopData)
+
+		pubKey.Curve = nil
+
+		route[i] = OnionHop{
+			NodePub: *pubKey,
+			HopData: hopData,
 		}
 	}
 
@@ -151,18 +179,8 @@ func TestBolt4Packet(t *testing.T) {
 			"%v", err)
 	}
 
-	var hopsData []HopData
-	for i := range route {
-		hopsData = append(hopsData, HopData{
-			Realm:         0x00,
-			ForwardAmount: uint64(i),
-			OutgoingCltv:  uint32(i),
-		})
-		copy(hopsData[i].NextAddress[:], bytes.Repeat([]byte{byte(i)}, 8))
-	}
-
 	sessionKey, _ := btcec.PrivKeyFromBytes(btcec.S256(), bolt4SessionKey)
-	pkt, err := NewOnionPacket(route, sessionKey, hopsData, bolt4AssocData)
+	pkt, err := NewOnionPacket(&route, sessionKey, bolt4AssocData)
 	if err != nil {
 		t.Fatalf("unable to construct onion packet: %v", err)
 	}
@@ -180,7 +198,7 @@ func TestBolt4Packet(t *testing.T) {
 }
 
 func TestSphinxCorrectness(t *testing.T) {
-	nodes, hopDatas, fwdMsg, err := newTestRoute(NumMaxHops)
+	nodes, _, hopDatas, fwdMsg, err := newTestRoute(NumMaxHops)
 	if err != nil {
 		t.Fatalf("unable to create random onion packet: %v", err)
 	}
@@ -229,7 +247,7 @@ func TestSphinxCorrectness(t *testing.T) {
 
 			// The next hop should have been parsed as node[i+1].
 			parsedNextHop := onionPacket.ForwardingInstructions.NextAddress[:]
-			expected := bytes.Repeat([]byte{byte(i)}, addressSize)
+			expected := bytes.Repeat([]byte{byte(i)}, AddressSize)
 			if !bytes.Equal(parsedNextHop, expected) {
 				t.Fatalf("Processing error, next hop parsed incorrectly."+
 					" next hop should be %v, was instead parsed as %v",
@@ -246,8 +264,7 @@ func TestSphinxSingleHop(t *testing.T) {
 	// We'd like to test the proper behavior of the correctness of onion
 	// packet processing for "single-hop" payments which bare a full onion
 	// packet.
-
-	nodes, _, fwdMsg, err := newTestRoute(1)
+	nodes, _, _, fwdMsg, err := newTestRoute(1)
 	if err != nil {
 		t.Fatalf("unable to create test route: %v", err)
 	}
@@ -274,7 +291,7 @@ func TestSphinxSingleHop(t *testing.T) {
 func TestSphinxNodeRelpay(t *testing.T) {
 	// We'd like to ensure that the sphinx node itself rejects all replayed
 	// packets which share the same shared secret.
-	nodes, _, fwdMsg, err := newTestRoute(NumMaxHops)
+	nodes, _, _, fwdMsg, err := newTestRoute(NumMaxHops)
 	if err != nil {
 		t.Fatalf("unable to create test route: %v", err)
 	}
@@ -299,7 +316,7 @@ func TestSphinxNodeRelpay(t *testing.T) {
 func TestSphinxNodeRelpaySameBatch(t *testing.T) {
 	// We'd like to ensure that the sphinx node itself rejects all replayed
 	// packets which share the same shared secret.
-	nodes, _, fwdMsg, err := newTestRoute(NumMaxHops)
+	nodes, _, _, fwdMsg, err := newTestRoute(NumMaxHops)
 	if err != nil {
 		t.Fatalf("unable to create test route: %v", err)
 	}
@@ -345,7 +362,7 @@ func TestSphinxNodeRelpaySameBatch(t *testing.T) {
 func TestSphinxNodeRelpayLaterBatch(t *testing.T) {
 	// We'd like to ensure that the sphinx node itself rejects all replayed
 	// packets which share the same shared secret.
-	nodes, _, fwdMsg, err := newTestRoute(NumMaxHops)
+	nodes, _, _, fwdMsg, err := newTestRoute(NumMaxHops)
 	if err != nil {
 		t.Fatalf("unable to create test route: %v", err)
 	}
@@ -390,7 +407,7 @@ func TestSphinxNodeRelpayLaterBatch(t *testing.T) {
 func TestSphinxNodeReplayBatchIdempotency(t *testing.T) {
 	// We'd like to ensure that the sphinx node itself rejects all replayed
 	// packets which share the same shared secret.
-	nodes, _, fwdMsg, err := newTestRoute(NumMaxHops)
+	nodes, _, _, fwdMsg, err := newTestRoute(NumMaxHops)
 	if err != nil {
 		t.Fatalf("unable to create test route: %v", err)
 	}
@@ -441,7 +458,7 @@ func TestSphinxNodeReplayBatchIdempotency(t *testing.T) {
 func TestSphinxAssocData(t *testing.T) {
 	// We want to make sure that the associated data is considered in the
 	// HMAC creation
-	nodes, _, fwdMsg, err := newTestRoute(5)
+	nodes, _, _, fwdMsg, err := newTestRoute(5)
 	if err != nil {
 		t.Fatalf("unable to create random onion packet: %v", err)
 	}
@@ -460,7 +477,7 @@ func TestSphinxAssocData(t *testing.T) {
 func TestSphinxEncodeDecode(t *testing.T) {
 	// Create some test data with a randomly populated, yet valid onion
 	// forwarding message.
-	_, _, fwdMsg, err := newTestRoute(5)
+	_, _, _, fwdMsg, err := newTestRoute(5)
 	if err != nil {
 		t.Fatalf("unable to create random onion packet: %v", err)
 	}

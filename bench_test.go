@@ -32,7 +32,7 @@ func BenchmarkPathPacketConstruction(b *testing.B) {
 	var hopsData []HopData
 	for i := 0; i < len(route); i++ {
 		hopsData = append(hopsData, HopData{
-			Realm:         0x00,
+			Realm:         [RealmByteSize]byte{0x00},
 			ForwardAmount: uint64(i),
 			OutgoingCltv:  uint32(i),
 		})

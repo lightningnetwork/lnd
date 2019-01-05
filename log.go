@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"github.com/lightningnetwork/lnd/invoices"
 	"io"
 	"os"
 	"path/filepath"
@@ -20,10 +19,12 @@ import (
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/htlcswitch"
+	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lnrpc/autopilotrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/netann"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/signal"
 	"github.com/lightningnetwork/lnd/sweep"
@@ -73,6 +74,7 @@ var (
 	wlktLog = build.NewSubLogger("WLKT", backendLog.Logger)
 	arpcLog = build.NewSubLogger("ARPC", backendLog.Logger)
 	invcLog = build.NewSubLogger("INVC", backendLog.Logger)
+	nannLog = build.NewSubLogger("NANN", backendLog.Logger)
 )
 
 // Initialize package-global logger variables.
@@ -94,6 +96,7 @@ func init() {
 	walletrpc.UseLogger(wlktLog)
 	autopilotrpc.UseLogger(arpcLog)
 	invoices.UseLogger(invcLog)
+	netann.UseLogger(nannLog)
 }
 
 // subsystemLoggers maps each subsystem identifier to its associated logger.
@@ -121,6 +124,7 @@ var subsystemLoggers = map[string]btclog.Logger{
 	"WLKT": wlktLog,
 	"ARPC": arpcLog,
 	"INVC": invcLog,
+	"NANN": nannLog,
 }
 
 // initLogRotator initializes the logging rotator to write logs to logFile and

@@ -707,7 +707,7 @@ func (r *Router) ProcessOnionPacket(onionPkt *OnionPacket,
 	// Continue to optimistically process this packet, deferring replay
 	// protection until the end to reduce the penalty of multiple IO
 	// operations.
-	packet, err := processOnionPacket(onionPkt, &sharedSecret, assocData)
+	packet, err := processOnionPacket(onionPkt, &sharedSecret, assocData, r)
 	if err != nil {
 		return nil, err
 	}
@@ -734,14 +734,16 @@ func (r *Router) ReconstructOnionPacket(onionPkt *OnionPacket,
 		return nil, err
 	}
 
-	return processOnionPacket(onionPkt, &sharedSecret, assocData)
+	return processOnionPacket(onionPkt, &sharedSecret, assocData, r)
 }
 
-// processOnionPacket performs the primary key derivation and handling of onion
-// packets. The processed packets returned from this method should only be used
-// if the packet was not flagged as a replayed packet.
-func processOnionPacket(onionPkt *OnionPacket,
-	sharedSecret *Hash256, assocData []byte) (*ProcessedPacket, error) {
+// unwrapPacket wraps a layer of the passed onion packet using the specified
+// shared secret and associated data. The associated data will be used to check
+// the HMAC at each hop to ensure the same data is passed along with the onion
+// packet. This function returns the next inner onion packet layer, along with
+// the hop data extracted from the outer onion packet.
+func unwrapPacket(onionPkt *OnionPacket, sharedSecret *Hash256,
+	assocData []byte) (*OnionPacket, *HopData, error) {
 
 	dhKey := onionPkt.EphemeralKey
 	routeInfo := onionPkt.RoutingInfo
@@ -753,7 +755,7 @@ func processOnionPacket(onionPkt *OnionPacket,
 	message := append(routeInfo[:], assocData...)
 	calculatedMac := calcMac(generateKey("mu", sharedSecret), message)
 	if !hmac.Equal(headerMac[:], calculatedMac[:]) {
-		return nil, ErrInvalidOnionHMAC
+		return nil, nil, ErrInvalidOnionHMAC
 	}
 
 	// Attach the padding zeroes in order to properly strip an encryption
@@ -779,32 +781,69 @@ func processOnionPacket(onionPkt *OnionPacket,
 	// instructions.
 	var hopData HopData
 	if err := hopData.Decode(bytes.NewReader(hopInfo[:])); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// With the necessary items extracted, we'll copy of the onion packet
 	// for the next node, snipping off our per-hop data.
 	var nextMixHeader [routingInfoSize]byte
-	nextFwdMsg := &OnionPacket{
 	copy(nextMixHeader[:], hopInfo[HopDataSize:])
+	innerPkt := &OnionPacket{
 		Version:      onionPkt.Version,
 		EphemeralKey: nextDHKey,
 		RoutingInfo:  nextMixHeader,
 		HeaderMAC:    hopData.HMAC,
 	}
 
+	return innerPkt, &hopData, nil
+}
+
+// sharedSecretGenerator is an interface that abstracts away exactly *how* the
+// shared secret for each hop is generated.
+//
+// TODO(roasbef): rename?
+type sharedSecretGenerator interface {
+	// generateSharedSecret given a public key, generates a shared secret
+	// using private data of the underlying sharedSecretGenerator.
+	generateSharedSecret(dhKey *btcec.PublicKey) (Hash256, error)
+}
+
+// processOnionPacket performs the primary key derivation and handling of onion
+// packets. The processed packets returned from this method should only be used
+// if the packet was not flagged as a replayed packet.
+func processOnionPacket(onionPkt *OnionPacket, sharedSecret *Hash256,
+	assocData []byte,
+	sharedSecretGen sharedSecretGenerator) (*ProcessedPacket, error) {
+
+	// First, we'll unwrap an initial layer of the onion packet. Typically,
+	// we'll only have a single layer to unwrap, However, if the sender has
+	// additional data for us within the Extra Onion Blobs (EOBs), then we
+	// may have to unwrap additional layers.  By default, the inner most
+	// mix header is the one that we'll want to pass onto the next hop so
+	// they can properly check the HMAC and unwrap a layer for their
+	// handoff hop.
+	innerPkt, outerHopData, err := unwrapPacket(
+		onionPkt, sharedSecret, assocData,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	// By default we'll assume that there are additional hops in the route.
 	// However if the uncovered 'nextMac' is all zeroes, then this
 	// indicates that we're the final hop in the route.
 	var action ProcessCode = MoreHops
-	if bytes.Compare(zeroHMAC[:], hopData.HMAC[:]) == 0 {
+	if bytes.Compare(zeroHMAC[:], outerHopData.HMAC[:]) == 0 {
 		action = ExitNode
 	}
 
+	// Finally, we'll return a fully processed packet with the outer most
+	// hop data (where the primary forwarding instructions lie) and the
+	// inner most onion packet that we unwrapped.
 	return &ProcessedPacket{
 		Action:                 action,
-		ForwardingInstructions: hopData,
-		NextPacket:             nextFwdMsg,
+		ForwardingInstructions: *outerHopData,
+		NextPacket:             innerPkt,
 	}, nil
 }
 

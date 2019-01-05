@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcwallet/waddrmgr"
@@ -316,7 +317,7 @@ func TestSecretKeyRingDerivation(t *testing.T) {
 		defer cleanUp()
 
 		success := t.Run(fmt.Sprintf("%v", keyRingName), func(t *testing.T) {
-			// First, each key family, we'll ensure that we're able
+			// For, each key family, we'll ensure that we're able
 			// to obtain the private key of a randomly select child
 			// index within the key family.
 			for _, keyFam := range versionZeroKeyFamilies {
@@ -356,6 +357,57 @@ func TestSecretKeyRingDerivation(t *testing.T) {
 						privKey.PubKey().SerializeCompressed())
 				}
 
+				// Next, we'll test that we're able to derive a
+				// key given only the public key and key
+				// family.
+				//
+				// Derive a new key from the key ring.
+				keyDesc, err := secretKeyRing.DeriveNextKey(keyFam)
+				if err != nil {
+					t.Fatalf("unable to derive key: %v", err)
+				}
+
+				// We'll now construct a key descriptor that
+				// requires us to scan the key range, and query
+				// for the key, we should be able to find it as
+				// it's valid.
+				keyDesc = KeyDescriptor{
+					PubKey: keyDesc.PubKey,
+					KeyLocator: KeyLocator{
+						Family: keyFam,
+					},
+				}
+				privKey, err = secretKeyRing.DerivePrivKey(keyDesc)
+				if err != nil {
+					t.Fatalf("unable to derive priv key "+
+						"via scanning: %v", err)
+				}
+
+				// Having to resort to scanning, we should be
+				// able to find the target public key.
+				if !keyDesc.PubKey.IsEqual(privKey.PubKey()) {
+					t.Fatalf("pubkeys mismatched: expected %x, got %x",
+						pubKeyDesc.PubKey.SerializeCompressed(),
+						privKey.PubKey().SerializeCompressed())
+				}
+
+				// We'll try again, but this time with an
+				// unknown public key.
+				_, pub := btcec.PrivKeyFromBytes(
+					btcec.S256(), testHDSeed[:],
+				)
+				keyDesc.PubKey = pub
+
+				// If we attempt to query for this key, then we
+				// should get ErrCannotDerivePrivKey.
+				privKey, err = secretKeyRing.DerivePrivKey(
+					keyDesc,
+				)
+				if err != ErrCannotDerivePrivKey {
+					t.Fatalf("expected %T, instead got %v",
+						ErrCannotDerivePrivKey, err)
+				}
+
 				// TODO(roasbeef): scalar mult once integrated
 			}
 		})
@@ -363,4 +415,10 @@ func TestSecretKeyRingDerivation(t *testing.T) {
 			break
 		}
 	}
+}
+
+func init() {
+	// We'll clamp the max range scan to constrain the run time of the
+	// private key scan test.
+	MaxKeyRangeScan = 3
 }

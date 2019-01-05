@@ -5,7 +5,8 @@ This section enumerates what you need to do to write a client that communicates 
 
 ### Prerequisites
 
-* A unix terminal for Windows - this tutorial uses [Cygwin](https://www.cygwin.com/)
+* .Net Core [SDK](https://dotnet.microsoft.com/download)
+* If using Windows, a unix terminal such as [Cygwin](https://www.cygwin.com/)
 
 
 ### Setup and Installation
@@ -16,13 +17,13 @@ This section enumerates what you need to do to write a client that communicates 
 
 This assumes you are using a Windows machine, but it applies equally to Mac and Linux.
 
-* Open Visual Studio, and create a new `.net core` console application called `lnrpc` at the root directory (Windows : `C:/`)
+Create a new `.net core` console application called `lndclient` at your root directory (On Windows : `C:/`), and install `Grpc.Tools` (1.17.0 at time of writing)
 
-* Within Visual Studio, open nuget package manager and install `Grpc.Tools` (1.17.0 at time of writing)
-
-* Open a `Cygwin` terminal and cd to your project folder:
 ```bash
-cd C:/lnrpc/lnrpc
+mkdir lndclient
+cd lndclient
+dotnet new console
+dotnet add package Grpc.Tools --version 1.17.0
 ```
 
 * Create the necessary folder structure, and then fetch the lnd [rpc.proto](https://github.com/lightningnetwork/lnd/blob/master/lnrpc/rpc.proto) file:
@@ -49,7 +50,7 @@ mkdir Grpc/google/protobuf
 curl -o Grpc/google/protobuf/descriptor.proto -s https://raw.githubusercontent.com/protocolbuffers/protobuf/master/src/google/protobuf/descriptor.proto
 ```
 
-* Compile the proto file using `protoc.exe` from nuget package `Grpc.Tools` (remember to replace "YOUR_USER", and possibly version "1.17.0" in both paths):
+* Compile the proto file using `protoc.exe` from nuget package `Grpc.Tools` (possibly replace "YOUR_USER", version "1.17.0", or your OS in both paths):
 ```bash
 # linux + mac nuget package location: ~/.nuget/packages
 cd Grpc
@@ -64,6 +65,14 @@ After following these steps, two files `Rpc.cs` and `RpcGrpc.cs` will be generat
 #### Imports and Client
 
 Every time you use C# `gRPC`, you will have to import the generated rpc classes, and use `nuget` package manger to install `Grpc.Core` (1.17.0 at time of writing), `Google.Protobuf` (3.6.1), and `Google.Api.CommonProtos` (1.4.0).
+
+```bash
+# from project root, install packages using nuget 
+cd ../
+dotnet add package Grpc.Core --version 1.17.0
+dotnet add package Google.Protobuf --version 3.6.1
+dotnet add package Google.Api.CommonProtos --version 1.4.0
+```
 
 After installing these, use the code below to set up a channel and client to connect to your `lnd` node:
 
@@ -118,7 +127,7 @@ using (var call = client.SubscribeInvoices(request))
 }
 ```
 
-Now, create an invoice for your node at `localhost:10009`and send a payment to it from another node.
+Now, create an invoice for your node at `localhost:10009` and send a payment to it from another node.
 ```bash
 $ lncli addinvoice --amt=100
 {

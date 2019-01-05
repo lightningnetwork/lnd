@@ -1,11 +1,17 @@
 language: go
+cache:
+  directories:
+    - $GOCACHE
+    - $GOPATH/pkg/mod
+    - $GOPATH/src/github.com/btcsuite
+    - $GOPATH/src/github.com/golang
+
 go:
-  - 1.9.4
-  - "1.10"
-sudo: false
-install:
-  - go get -v github.com/lightningnetwork/lightning-onion
-  - go get -v github.com/davecgh/go-spew/spew
+  - "1.12.x"
+
+sudo: required
+
 script:
   - export PATH=$PATH:$HOME/gopath/bin
+  - export GO111MODULE=on
   - go test -v

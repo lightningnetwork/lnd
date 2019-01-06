@@ -301,7 +301,7 @@ type PaymentDescriptor struct {
 
 	// ShaOnionBlob is a sha of the onion blob.
 	//
-	// NOTE: Populated only in payment descriptor with MalfromedFail type.
+	// NOTE: Populated only in payment descriptor with MalformedFail type.
 	ShaOnionBlob [sha256.Size]byte
 
 	// FailReason stores the reason why a particular payment was cancelled.
@@ -311,7 +311,7 @@ type PaymentDescriptor struct {
 
 	// FailCode stores the code why a particular payment was cancelled.
 	//
-	// NOTE: Populated only in payment descriptor with MalfromedFail type.
+	// NOTE: Populated only in payment descriptor with MalformedFail type.
 	FailCode lnwire.FailCode
 
 	// [our|their|]PkScript are the raw public key scripts that encodes the

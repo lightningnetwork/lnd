@@ -494,9 +494,7 @@ func (u *utxoNursery) NurseryReport(
 	utxnLog.Infof("NurseryReport: building nursery report for channel %v",
 		chanPoint)
 
-	report := &contractMaturityReport{
-		chanPoint: *chanPoint,
-	}
+	report := &contractMaturityReport{}
 
 	if err := u.cfg.Store.ForChanOutputs(chanPoint, func(k, v []byte) error {
 		switch {
@@ -1051,10 +1049,6 @@ func (u *utxoNursery) waitForPreschoolConf(kid *kidOutput,
 // contractMaturityReport is a report that details the maturity progress of a
 // particular force closed contract.
 type contractMaturityReport struct {
-	// chanPoint is the channel point of the original contract that is now
-	// awaiting maturity within the utxoNursery.
-	chanPoint wire.OutPoint
-
 	// limboBalance is the total number of frozen coins within this
 	// contract.
 	limboBalance btcutil.Amount
@@ -1062,16 +1056,6 @@ type contractMaturityReport struct {
 	// recoveredBalance is the total value that has been successfully swept
 	// back to the user's wallet.
 	recoveredBalance btcutil.Amount
-
-	// localAmount is the local value of the commitment output.
-	localAmount btcutil.Amount
-
-	// confHeight is the block height that this output originally confirmed.
-	confHeight uint32
-
-	// maturityRequirement is the input age required for this output to
-	// reach maturity.
-	maturityRequirement uint32
 
 	// maturityHeight is the absolute block height that this output will
 	// mature at.
@@ -1090,13 +1074,6 @@ type htlcMaturityReport struct {
 	// amount is the final value that will be swept in back to the wallet.
 	amount btcutil.Amount
 
-	// confHeight is the block height that this output originally confirmed.
-	confHeight uint32
-
-	// maturityRequirement is the input age required for this output to
-	// reach maturity.
-	maturityRequirement uint32
-
 	// maturityHeight is the absolute block height that this output will
 	// mature at.
 	maturityHeight uint32
@@ -1113,10 +1090,6 @@ type htlcMaturityReport struct {
 func (c *contractMaturityReport) AddLimboCommitment(kid *kidOutput) {
 	c.limboBalance += kid.Amount()
 
-	c.localAmount += kid.Amount()
-	c.confHeight = kid.ConfHeight()
-	c.maturityRequirement = kid.BlocksToMaturity()
-
 	// If the confirmation height is set, then this means the contract has
 	// been confirmed, and we know the final maturity height.
 	if kid.ConfHeight() != 0 {
@@ -1129,9 +1102,6 @@ func (c *contractMaturityReport) AddLimboCommitment(kid *kidOutput) {
 func (c *contractMaturityReport) AddRecoveredCommitment(kid *kidOutput) {
 	c.recoveredBalance += kid.Amount()
 
-	c.localAmount += kid.Amount()
-	c.confHeight = kid.ConfHeight()
-	c.maturityRequirement = kid.BlocksToMaturity()
 	c.maturityHeight = kid.BlocksToMaturity() + kid.ConfHeight()
 }
 
@@ -1144,7 +1114,6 @@ func (c *contractMaturityReport) AddLimboStage1TimeoutHtlc(baby *babyOutput) {
 	c.htlcs = append(c.htlcs, htlcMaturityReport{
 		outpoint:       *baby.OutPoint(),
 		amount:         baby.Amount(),
-		confHeight:     baby.ConfHeight(),
 		maturityHeight: baby.expiry,
 		stage:          1,
 	})
@@ -1159,7 +1128,6 @@ func (c *contractMaturityReport) AddLimboDirectHtlc(kid *kidOutput) {
 	htlcReport := htlcMaturityReport{
 		outpoint:       *kid.OutPoint(),
 		amount:         kid.Amount(),
-		confHeight:     kid.ConfHeight(),
 		maturityHeight: kid.absoluteMaturity,
 		stage:          2,
 	}
@@ -1174,11 +1142,9 @@ func (c *contractMaturityReport) AddLimboStage1SuccessHtlc(kid *kidOutput) {
 	c.limboBalance += kid.Amount()
 
 	c.htlcs = append(c.htlcs, htlcMaturityReport{
-		outpoint:            *kid.OutPoint(),
-		amount:              kid.Amount(),
-		confHeight:          kid.ConfHeight(),
-		maturityRequirement: kid.BlocksToMaturity(),
-		stage:               1,
+		outpoint: *kid.OutPoint(),
+		amount:   kid.Amount(),
+		stage:    1,
 	})
 }
 
@@ -1188,11 +1154,9 @@ func (c *contractMaturityReport) AddLimboStage2Htlc(kid *kidOutput) {
 	c.limboBalance += kid.Amount()
 
 	htlcReport := htlcMaturityReport{
-		outpoint:            *kid.OutPoint(),
-		amount:              kid.Amount(),
-		confHeight:          kid.ConfHeight(),
-		maturityRequirement: kid.BlocksToMaturity(),
-		stage:               2,
+		outpoint: *kid.OutPoint(),
+		amount:   kid.Amount(),
+		stage:    2,
 	}
 
 	// If the confirmation height is set, then this means the first stage
@@ -1211,11 +1175,9 @@ func (c *contractMaturityReport) AddRecoveredHtlc(kid *kidOutput) {
 	c.recoveredBalance += kid.Amount()
 
 	c.htlcs = append(c.htlcs, htlcMaturityReport{
-		outpoint:            *kid.OutPoint(),
-		amount:              kid.Amount(),
-		confHeight:          kid.ConfHeight(),
-		maturityRequirement: kid.BlocksToMaturity(),
-		maturityHeight:      kid.ConfHeight() + kid.BlocksToMaturity(),
+		outpoint:       *kid.OutPoint(),
+		amount:         kid.Amount(),
+		maturityHeight: kid.ConfHeight() + kid.BlocksToMaturity(),
 	})
 }
 

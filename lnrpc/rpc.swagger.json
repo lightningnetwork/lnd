@@ -2042,7 +2042,7 @@
         "receipt": {
           "type": "string",
           "format": "byte",
-          "title": "/ An optional cryptographic receipt of payment"
+          "description": "* Deprecated. An optional cryptographic receipt of payment which is not\nimplemented."
         },
         "r_preimage": {
           "type": "string",

@@ -996,6 +996,13 @@ out:
 				idleTimer.Reset(idleTimeout)
 				continue
 
+			// If the NodeAnnouncement has an invalid alias, then
+			// we'll log that error above and continue so we can
+			// continue to read messges from the peer.
+			case *lnwire.ErrInvalidNodeAlias:
+				idleTimer.Reset(idleTimeout)
+				continue
+
 			// If the error we encountered wasn't just a message we
 			// didn't recognize, then we'll stop all processing s
 			// this is a fatal error.

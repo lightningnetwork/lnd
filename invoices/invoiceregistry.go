@@ -1,9 +1,10 @@
-package main
+package invoices
 
 import (
 	"bytes"
 	"crypto/sha256"
 	"fmt"
+	"github.com/btcsuite/btcd/chaincfg"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -18,29 +19,30 @@ import (
 )
 
 var (
-	// debugPre is the default debug preimage which is inserted into the
+	// DebugPre is the default debug preimage which is inserted into the
 	// invoice registry if the --debughtlc flag is activated on start up.
 	// All nodes initialized with the flag active will immediately settle
 	// any incoming HTLC whose rHash corresponds with the debug
 	// preimage.
-	debugPre, _ = chainhash.NewHash(bytes.Repeat([]byte{1}, 32))
+	DebugPre, _ = chainhash.NewHash(bytes.Repeat([]byte{1}, 32))
 
-	debugHash = chainhash.Hash(sha256.Sum256(debugPre[:]))
+	// DebugHash is the hash of the default preimage.
+	DebugHash = chainhash.Hash(sha256.Sum256(DebugPre[:]))
 )
 
-// invoiceRegistry is a central registry of all the outstanding invoices
+// InvoiceRegistry is a central registry of all the outstanding invoices
 // created by the daemon. The registry is a thin wrapper around a map in order
 // to ensure that all updates/reads are thread safe.
-type invoiceRegistry struct {
+type InvoiceRegistry struct {
 	sync.RWMutex
 
 	cdb *channeldb.DB
 
 	clientMtx           sync.Mutex
 	nextClientID        uint32
-	notificationClients map[uint32]*invoiceSubscription
+	notificationClients map[uint32]*InvoiceSubscription
 
-	newSubscriptions    chan *invoiceSubscription
+	newSubscriptions    chan *InvoiceSubscription
 	subscriptionCancels chan uint32
 	invoiceEvents       chan *invoiceEvent
 
@@ -49,28 +51,33 @@ type invoiceRegistry struct {
 	// that *all* nodes are able to fully settle.
 	debugInvoices map[chainhash.Hash]*channeldb.Invoice
 
+	activeNetParams *chaincfg.Params
+
 	wg   sync.WaitGroup
 	quit chan struct{}
 }
 
-// newInvoiceRegistry creates a new invoice registry. The invoice registry
+// NewRegistry creates a new invoice registry. The invoice registry
 // wraps the persistent on-disk invoice storage with an additional in-memory
 // layer. The in-memory layer is in place such that debug invoices can be added
 // which are volatile yet available system wide within the daemon.
-func newInvoiceRegistry(cdb *channeldb.DB) *invoiceRegistry {
-	return &invoiceRegistry{
+func NewRegistry(cdb *channeldb.DB,
+	activeNetParams *chaincfg.Params) *InvoiceRegistry {
+
+	return &InvoiceRegistry{
 		cdb:                 cdb,
 		debugInvoices:       make(map[chainhash.Hash]*channeldb.Invoice),
-		notificationClients: make(map[uint32]*invoiceSubscription),
-		newSubscriptions:    make(chan *invoiceSubscription),
+		notificationClients: make(map[uint32]*InvoiceSubscription),
+		newSubscriptions:    make(chan *InvoiceSubscription),
 		subscriptionCancels: make(chan uint32),
 		invoiceEvents:       make(chan *invoiceEvent, 100),
+		activeNetParams:     activeNetParams,
 		quit:                make(chan struct{}),
 	}
 }
 
 // Start starts the registry and all goroutines it needs to carry out its task.
-func (i *invoiceRegistry) Start() error {
+func (i *InvoiceRegistry) Start() error {
 	i.wg.Add(1)
 
 	go i.invoiceEventNotifier()
@@ -79,7 +86,7 @@ func (i *invoiceRegistry) Start() error {
 }
 
 // Stop signals the registry for a graceful shutdown.
-func (i *invoiceRegistry) Stop() {
+func (i *InvoiceRegistry) Stop() {
 	close(i.quit)
 
 	i.wg.Wait()
@@ -96,7 +103,7 @@ type invoiceEvent struct {
 // invoiceEventNotifier is the dedicated goroutine responsible for accepting
 // new notification subscriptions, cancelling old subscriptions, and
 // dispatching new invoice events.
-func (i *invoiceRegistry) invoiceEventNotifier() {
+func (i *InvoiceRegistry) invoiceEventNotifier() {
 	defer i.wg.Done()
 
 	for {
@@ -110,11 +117,11 @@ func (i *invoiceRegistry) invoiceEventNotifier() {
 			// invoice events.
 			err := i.deliverBacklogEvents(newClient)
 			if err != nil {
-				ltndLog.Errorf("unable to deliver backlog invoice "+
+				log.Errorf("unable to deliver backlog invoice "+
 					"notifications: %v", err)
 			}
 
-			ltndLog.Infof("New invoice subscription "+
+			log.Infof("New invoice subscription "+
 				"client: id=%v", newClient.id)
 
 			// With the backlog notifications delivered (if any),
@@ -125,7 +132,7 @@ func (i *invoiceRegistry) invoiceEventNotifier() {
 		// A client no longer wishes to receive invoice notifications.
 		// So we'll remove them from the set of active clients.
 		case clientID := <-i.subscriptionCancels:
-			ltndLog.Infof("Cancelling invoice subscription for "+
+			log.Infof("Cancelling invoice subscription for "+
 				"client=%v", clientID)
 
 			delete(i.notificationClients, clientID)
@@ -157,14 +164,14 @@ func (i *invoiceRegistry) invoiceEventNotifier() {
 				// instance.
 				case event.state == channeldb.ContractOpen &&
 					client.addIndex+1 != invoice.AddIndex:
-					ltndLog.Warnf("client=%v for invoice "+
+					log.Warnf("client=%v for invoice "+
 						"notifications missed an update, "+
 						"add_index=%v, new add event index=%v",
 						clientID, client.addIndex,
 						invoice.AddIndex)
 				case event.state == channeldb.ContractSettled &&
 					client.settleIndex+1 != invoice.SettleIndex:
-					ltndLog.Warnf("client=%v for invoice "+
+					log.Warnf("client=%v for invoice "+
 						"notifications missed an update, "+
 						"settle_index=%v, new settle event index=%v",
 						clientID, client.settleIndex,
@@ -192,7 +199,7 @@ func (i *invoiceRegistry) invoiceEventNotifier() {
 				case channeldb.ContractOpen:
 					client.addIndex = invoice.AddIndex
 				default:
-					ltndLog.Errorf("unknown invoice "+
+					log.Errorf("unknown invoice "+
 						"state: %v", event.state)
 				}
 			}
@@ -205,7 +212,7 @@ func (i *invoiceRegistry) invoiceEventNotifier() {
 
 // deliverBacklogEvents will attempts to query the invoice database for any
 // notifications that the client has missed since it reconnected last.
-func (i *invoiceRegistry) deliverBacklogEvents(client *invoiceSubscription) error {
+func (i *InvoiceRegistry) deliverBacklogEvents(client *InvoiceSubscription) error {
 	// First, we'll query the database to see if based on the provided
 	// addIndex and settledIndex we need to deliver any backlog
 	// notifications.
@@ -257,7 +264,7 @@ func (i *invoiceRegistry) deliverBacklogEvents(client *invoiceSubscription) erro
 // by the passed preimage. Once this invoice is added, subsystems within the
 // daemon add/forward HTLCs that are able to obtain the proper preimage
 // required for redemption in the case that we're the final destination.
-func (i *invoiceRegistry) AddDebugInvoice(amt btcutil.Amount, preimage chainhash.Hash) {
+func (i *InvoiceRegistry) AddDebugInvoice(amt btcutil.Amount, preimage chainhash.Hash) {
 	paymentHash := chainhash.Hash(sha256.Sum256(preimage[:]))
 
 	invoice := &channeldb.Invoice{
@@ -272,7 +279,7 @@ func (i *invoiceRegistry) AddDebugInvoice(amt btcutil.Amount, preimage chainhash
 	i.debugInvoices[paymentHash] = invoice
 	i.Unlock()
 
-	ltndLog.Debugf("Adding debug invoice %v", newLogClosure(func() string {
+	log.Debugf("Adding debug invoice %v", newLogClosure(func() string {
 		return spew.Sdump(invoice)
 	}))
 }
@@ -284,11 +291,11 @@ func (i *invoiceRegistry) AddDebugInvoice(amt btcutil.Amount, preimage chainhash
 // redemption in the case that we're the final destination. We also return the
 // addIndex of the newly created invoice which monotonically increases for each
 // new invoice added.
-func (i *invoiceRegistry) AddInvoice(invoice *channeldb.Invoice) (uint64, error) {
+func (i *InvoiceRegistry) AddInvoice(invoice *channeldb.Invoice) (uint64, error) {
 	i.Lock()
 	defer i.Unlock()
 
-	ltndLog.Debugf("Adding invoice %v", newLogClosure(func() string {
+	log.Debugf("Adding invoice %v", newLogClosure(func() string {
 		return spew.Sdump(invoice)
 	}))
 
@@ -311,7 +318,7 @@ func (i *invoiceRegistry) AddInvoice(invoice *channeldb.Invoice) (uint64, error)
 // according to the cltv delta.
 //
 // TODO(roasbeef): ignore if settled?
-func (i *invoiceRegistry) LookupInvoice(rHash chainhash.Hash) (channeldb.Invoice, uint32, error) {
+func (i *InvoiceRegistry) LookupInvoice(rHash chainhash.Hash) (channeldb.Invoice, uint32, error) {
 	// First check the in-memory debug invoice index to see if this is an
 	// existing invoice added for debugging.
 	i.RLock()
@@ -331,7 +338,7 @@ func (i *invoiceRegistry) LookupInvoice(rHash chainhash.Hash) (channeldb.Invoice
 	}
 
 	payReq, err := zpay32.Decode(
-		string(invoice.PaymentRequest), activeNetParams.Params,
+		string(invoice.PaymentRequest), i.activeNetParams,
 	)
 	if err != nil {
 		return channeldb.Invoice{}, 0, err
@@ -343,13 +350,13 @@ func (i *invoiceRegistry) LookupInvoice(rHash chainhash.Hash) (channeldb.Invoice
 // SettleInvoice attempts to mark an invoice as settled. If the invoice is a
 // debug invoice, then this method is a noop as debug invoices are never fully
 // settled.
-func (i *invoiceRegistry) SettleInvoice(rHash chainhash.Hash,
+func (i *InvoiceRegistry) SettleInvoice(rHash chainhash.Hash,
 	amtPaid lnwire.MilliSatoshi) error {
 
 	i.Lock()
 	defer i.Unlock()
 
-	ltndLog.Debugf("Settling invoice %x", rHash[:])
+	log.Debugf("Settling invoice %x", rHash[:])
 
 	// First check the in-memory debug invoice index to see if this is an
 	// existing invoice added for debugging.
@@ -366,7 +373,7 @@ func (i *invoiceRegistry) SettleInvoice(rHash chainhash.Hash,
 		return err
 	}
 
-	ltndLog.Infof("Payment received: %v", spew.Sdump(invoice))
+	log.Infof("Payment received: %v", spew.Sdump(invoice))
 
 	i.notifyClients(invoice, channeldb.ContractSettled)
 
@@ -375,7 +382,7 @@ func (i *invoiceRegistry) SettleInvoice(rHash chainhash.Hash,
 
 // notifyClients notifies all currently registered invoice notification clients
 // of a newly added/settled invoice.
-func (i *invoiceRegistry) notifyClients(invoice *channeldb.Invoice,
+func (i *InvoiceRegistry) notifyClients(invoice *channeldb.Invoice,
 	state channeldb.ContractState) {
 
 	event := &invoiceEvent{
@@ -389,12 +396,12 @@ func (i *invoiceRegistry) notifyClients(invoice *channeldb.Invoice,
 	}
 }
 
-// invoiceSubscription represents an intent to receive updates for newly added
+// InvoiceSubscription represents an intent to receive updates for newly added
 // or settled invoices. For each newly added invoice, a copy of the invoice
 // will be sent over the NewInvoices channel. Similarly, for each newly settled
 // invoice, a copy of the invoice will be sent over the SettledInvoices
 // channel.
-type invoiceSubscription struct {
+type InvoiceSubscription struct {
 	cancelled uint32 // To be used atomically.
 
 	// NewInvoices is a channel that we'll use to send all newly created
@@ -424,16 +431,16 @@ type invoiceSubscription struct {
 
 	id uint32
 
-	inv *invoiceRegistry
+	inv *InvoiceRegistry
 
 	cancelChan chan struct{}
 
 	wg sync.WaitGroup
 }
 
-// Cancel unregisters the invoiceSubscription, freeing any previously allocated
+// Cancel unregisters the InvoiceSubscription, freeing any previously allocated
 // resources.
-func (i *invoiceSubscription) Cancel() {
+func (i *InvoiceSubscription) Cancel() {
 	if !atomic.CompareAndSwapUint32(&i.cancelled, 0, 1) {
 		return
 	}
@@ -449,13 +456,13 @@ func (i *invoiceSubscription) Cancel() {
 	i.wg.Wait()
 }
 
-// SubscribeNotifications returns an invoiceSubscription which allows the
+// SubscribeNotifications returns an InvoiceSubscription which allows the
 // caller to receive async notifications when any invoices are settled or
 // added. The invoiceIndex parameter is a streaming "checkpoint". We'll start
 // by first sending out all new events with an invoice index _greater_ than
 // this value. Afterwards, we'll send out real-time notifications.
-func (i *invoiceRegistry) SubscribeNotifications(addIndex, settleIndex uint64) *invoiceSubscription {
-	client := &invoiceSubscription{
+func (i *InvoiceRegistry) SubscribeNotifications(addIndex, settleIndex uint64) *InvoiceSubscription {
+	client := &InvoiceSubscription{
 		NewInvoices:     make(chan *channeldb.Invoice),
 		SettledInvoices: make(chan *channeldb.Invoice),
 		addIndex:        addIndex,
@@ -495,7 +502,7 @@ func (i *invoiceRegistry) SubscribeNotifications(addIndex, settleIndex uint64) *
 				case channeldb.ContractSettled:
 					targetChan = client.SettledInvoices
 				default:
-					ltndLog.Errorf("unknown invoice "+
+					log.Errorf("unknown invoice "+
 						"state: %v", invoiceEvent.state)
 
 					continue

@@ -31,6 +31,7 @@ import (
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/htlcswitch"
+	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -143,7 +144,7 @@ type server struct {
 
 	htlcSwitch *htlcswitch.Switch
 
-	invoices *invoiceRegistry
+	invoices *invoices.InvoiceRegistry
 
 	witnessBeacon contractcourt.WitnessBeacon
 
@@ -266,7 +267,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		cc:      cc,
 		sigPool: lnwallet.NewSigPool(runtime.NumCPU()*2, cc.signer),
 
-		invoices: newInvoiceRegistry(chanDB),
+		invoices: invoices.NewRegistry(chanDB, activeNetParams.Params),
 
 		identityPriv: privKey,
 		nodeSigner:   newNodeSigner(privKey),
@@ -306,9 +307,9 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 	// HTLCs with the debug R-Hash immediately settled.
 	if cfg.DebugHTLC {
 		kiloCoin := btcutil.Amount(btcutil.SatoshiPerBitcoin * 1000)
-		s.invoices.AddDebugInvoice(kiloCoin, *debugPre)
+		s.invoices.AddDebugInvoice(kiloCoin, *invoices.DebugPre)
 		srvrLog.Debugf("Debug HTLC invoice inserted, preimage=%x, hash=%x",
-			debugPre[:], debugHash[:])
+			invoices.DebugPre[:], invoices.DebugHash[:])
 	}
 
 	_, currentHeight, err := s.cc.chainIO.GetBestBlock()

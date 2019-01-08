@@ -31,6 +31,7 @@ import (
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
+	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -2613,7 +2614,7 @@ func extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPaymentIntent, error
 	// same debug rHash. Otherwise, we pay to the rHash specified within
 	// the RPC request.
 	case cfg.DebugHTLC && bytes.Equal(payIntent.rHash[:], zeroHash[:]):
-		copy(payIntent.rHash[:], debugHash[:])
+		copy(payIntent.rHash[:], invoices.DebugHash[:])
 
 	default:
 		copy(payIntent.rHash[:], rpcPayReq.PaymentHash)

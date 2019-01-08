@@ -1910,11 +1910,14 @@ message Payment {
     /// The payment preimage
     string payment_preimage = 6 [json_name = "payment_preimage"];
 
+    /// The memo from the invoice the payment is based on
+    string memo = 7 [json_name = "memo"]
+
     /// The value of the payment in satoshis
-    int64 value_sat = 7 [json_name = "value_sat"];
+    int64 value_sat = 8 [json_name = "value_sat"];
 
     /// The value of the payment in milli-satoshis
-    int64 value_msat = 8 [json_name = "value_msat"];
+    int64 value_msat = 9 [json_name = "value_msat"];
 }
 
 message ListPaymentsRequest {

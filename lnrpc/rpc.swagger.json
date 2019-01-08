@@ -2503,6 +2503,10 @@
           "type": "string",
           "title": "/ The payment preimage"
         },
+        "memo": {
+          "type": "string",
+          "description": "/ The optional memo from the invoice the payment was based on."
+        },
         "value_sat": {
           "type": "string",
           "format": "int64",

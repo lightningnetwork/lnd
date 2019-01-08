@@ -2322,7 +2322,7 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 // savePayment saves a successfully completed payment to the database for
 // historical record keeping.
 func (r *rpcServer) savePayment(route *routing.Route,
-	amount lnwire.MilliSatoshi, preImage []byte) error {
+	amount lnwire.MilliSatoshi, preImage []byte, memo []byte) error {
 
 	paymentPath := make([][33]byte, len(route.Hops))
 	for i, hop := range route.Hops {
@@ -2335,6 +2335,7 @@ func (r *rpcServer) savePayment(route *routing.Route,
 			Terms: channeldb.ContractTerm{
 				Value: amount,
 			},
+			Memo:         memo,
 			CreationDate: time.Now(),
 		},
 		Path:           paymentPath,
@@ -2480,6 +2481,7 @@ type rpcPaymentIntent struct {
 	rHash      [32]byte
 	cltvDelta  uint16
 	routeHints [][]routing.HopHint
+	memo       *string
 
 	routes []*routing.Route
 }
@@ -2557,6 +2559,7 @@ func extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPaymentIntent, error
 		payIntent.dest = payReq.Destination
 		payIntent.cltvDelta = uint16(payReq.MinFinalCLTVExpiry())
 		payIntent.routeHints = payReq.RouteHints
+		payIntent.memo = payReq.Description
 
 		return payIntent, nil
 	}
@@ -2705,9 +2708,15 @@ func (r *rpcServer) dispatchPaymentIntent(
 		amt = payIntent.msat
 	}
 
+	// Retrieve invoice memo from paymentIntent
+	var memo []byte
+	if payIntent.memo != nil {
+		memo = []byte(*payIntent.memo)
+	}
+
 	// Save the completed payment to the database for record keeping
 	// purposes.
-	err := r.savePayment(route, amt, preImage[:])
+	err := r.savePayment(route, amt, preImage[:], memo)
 	if err != nil {
 		// We weren't able to save the payment, so we return the save
 		// err, but a nil routing err.
@@ -4310,6 +4319,7 @@ func (r *rpcServer) ListPayments(ctx context.Context,
 			ValueSat:        satValue,
 			CreationDate:    payment.CreationDate.Unix(),
 			Path:            path,
+			Memo:            string(payment.Invoice.Memo),
 			Fee:             int64(payment.Fee.ToSatoshis()),
 			PaymentPreimage: hex.EncodeToString(payment.PaymentPreimage[:]),
 		}

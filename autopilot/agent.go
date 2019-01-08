@@ -551,7 +551,7 @@ func (a *Agent) openChans(availableFunds btcutil.Amount, numChans uint32,
 
 	// Now use the score to make a weighted choice which
 	// nodes to attempt to open channels to.
-	chanCandidates, err := chooseN(int(numChans), scores)
+	chanCandidates, err := chooseN(numChans, scores)
 	if err != nil {
 		return fmt.Errorf("Unable to make weighted choice: %v",
 			err)

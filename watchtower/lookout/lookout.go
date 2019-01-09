@@ -116,7 +116,7 @@ func (l *Lookout) watchBlocks(epochs *chainntnfs.BlockEpochEvent) {
 	for {
 		select {
 		case epoch := <-epochs.Epochs:
-			log.Debugf("Fetching block for (height=%d, hash=%x)",
+			log.Debugf("Fetching block for (height=%d, hash=%s)",
 				epoch.Height, epoch.Hash)
 
 			// Fetch the full block from the backend corresponding
@@ -125,7 +125,7 @@ func (l *Lookout) watchBlocks(epochs *chainntnfs.BlockEpochEvent) {
 			if err != nil {
 				// TODO(conner): add retry logic?
 				log.Errorf("Unable to fetch block for "+
-					"(height=%x, hash=%x): %v",
+					"(height=%x, hash=%s): %v",
 					epoch.Height, epoch.Hash, err)
 				continue
 			}
@@ -153,7 +153,7 @@ func (l *Lookout) processEpoch(epoch *chainntnfs.BlockEpoch,
 
 	numTxnsInBlock := len(block.Transactions)
 
-	log.Debugf("Scanning %d transaction in block (height=%d, hash=%x) "+
+	log.Debugf("Scanning %d transaction in block (height=%d, hash=%s) "+
 		"for breaches", numTxnsInBlock, epoch.Height, epoch.Hash)
 
 	// Iterate over the transactions contained in the block, deriving a
@@ -178,7 +178,7 @@ func (l *Lookout) processEpoch(epoch *chainntnfs.BlockEpoch,
 
 	// No matches were found, we are done.
 	if len(matches) == 0 {
-		log.Debugf("No breaches found in (height=%d, hash=%x)",
+		log.Debugf("No breaches found in (height=%d, hash=%s)",
 			epoch.Height, epoch.Hash)
 		return nil
 	}
@@ -188,7 +188,7 @@ func (l *Lookout) processEpoch(epoch *chainntnfs.BlockEpoch,
 		breachCountStr = "breaches"
 	}
 
-	log.Infof("Found %d %s in (height=%d, hash=%x)",
+	log.Infof("Found %d %s in (height=%d, hash=%s)",
 		len(matches), breachCountStr, epoch.Height, epoch.Hash)
 
 	// For each match, use our index to retrieve the original transaction,
@@ -199,7 +199,7 @@ func (l *Lookout) processEpoch(epoch *chainntnfs.BlockEpoch,
 	for _, match := range matches {
 		commitTx := hintToTx[match.Hint]
 		log.Infof("Dispatching punisher for client %s, breach-txid=%s",
-			match.ID, commitTx.TxHash().String())
+			match.ID, commitTx.TxHash())
 
 		// The decryption key for the state update should be the full
 		// txid of the breaching commitment transaction.
@@ -219,7 +219,7 @@ func (l *Lookout) processEpoch(epoch *chainntnfs.BlockEpoch,
 			// the right transaction.
 			log.Debugf("Unable to decrypt blob for client %s, "+
 				"breach-txid %s: %v", match.ID,
-				commitTx.TxHash().String(), err)
+				commitTx.TxHash(), err)
 			continue
 		}
 
@@ -261,12 +261,12 @@ func (l *Lookout) dispatchPunisher(desc *JusticeDescriptor) {
 	// canceled during shutdown since this method is waitgrouped.
 	err := l.cfg.Punisher.Punish(desc, l.quit)
 	if err != nil {
-		log.Errorf("Unable to punish breach-txid %s for %x: %v",
-			desc.SessionInfo.ID,
-			desc.BreachedCommitTx.TxHash().String(), err)
+		log.Errorf("Unable to punish breach-txid %s for %s: %v",
+			desc.BreachedCommitTx.TxHash(), desc.SessionInfo.ID,
+			err)
 		return
 	}
 
 	log.Infof("Punishment for client %s with breach-txid=%s dispatched",
-		desc.SessionInfo.ID, desc.BreachedCommitTx.TxHash().String())
+		desc.SessionInfo.ID, desc.BreachedCommitTx.TxHash())
 }

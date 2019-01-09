@@ -13,6 +13,21 @@ import (
 // how the ChannelUpdate message is to be interpreted.
 type ChanUpdateFlag uint8
 
+func (c ChanUpdateFlag) String() string {
+	currBit := 1
+	bitString := ""
+	for i := 0; i < 8; i++ {
+		if currBit&int(c) != 0 {
+			bitString = "1" + bitString
+		} else {
+			bitString = "0" + bitString
+		}
+		currBit = currBit << 1
+	}
+
+	return bitString
+}
+
 const (
 	// ChanUpdateDirection indicates the direction of a channel update. If
 	// this bit is set to 0 if Node1 (the node with the "smaller" Node ID)

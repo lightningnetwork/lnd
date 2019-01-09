@@ -43,9 +43,10 @@ func NewNodeID(pub *btcec.PublicKey) NodeID {
 	return n
 }
 
-// NodeScores is a method that given the current channel graph and
-// current set of local channels, scores the given nodes according to
-// the preference of opening a channel of the given size with them.
+// NodeScores is a method that given the current channel graph and current set
+// of local channels, scores the given nodes according to the preference of
+// opening a channel of the given size with them. The returned channel
+// candidates maps the NodeID to a NodeScore for the node.
 //
 // The heuristic employed by this method is one that attempts to promote a
 // scale-free network globally, via local attachment preferences for new nodes
@@ -64,19 +65,23 @@ func (p *PrefAttachment) NodeScores(g ChannelGraph, chans []Channel,
 	chanSize btcutil.Amount, nodes map[NodeID]struct{}) (
 	map[NodeID]*NodeScore, error) {
 
-	// Count the number of channels in the graph. We'll also count the
-	// number of channels as we go for the nodes we are interested in.
-	var graphChans int
+	// Count the number of channels for each particular node in the graph.
+	var maxChans int
 	nodeChanNum := make(map[NodeID]int)
 	if err := g.ForEachNode(func(n Node) error {
 		var nodeChans int
 		err := n.ForEachChannel(func(_ ChannelEdge) error {
 			nodeChans++
-			graphChans++
 			return nil
 		})
 		if err != nil {
 			return err
+		}
+
+		// We keep track of the highest-degree node we've seen, as this
+		// will be given the max score.
+		if nodeChans > maxChans {
+			maxChans = nodeChans
 		}
 
 		// If this node is not among our nodes to score, we can return
@@ -97,7 +102,7 @@ func (p *PrefAttachment) NodeScores(g ChannelGraph, chans []Channel,
 	// If there are no channels in the graph we cannot determine any
 	// preferences, so we return, indicating all candidates get a score of
 	// zero.
-	if graphChans == 0 {
+	if maxChans == 0 {
 		return nil, nil
 	}
 
@@ -127,8 +132,9 @@ func (p *PrefAttachment) NodeScores(g ChannelGraph, chans []Channel,
 		}
 
 		// Otherwise we score the node according to its fraction of
-		// channels in the graph.
-		score := float64(nodeChans) / float64(graphChans)
+		// channels in the graph, scaled such that the highest-degree
+		// node will be given a score of 1.0.
+		score := float64(nodeChans) / float64(maxChans)
 		candidates[nID] = &NodeScore{
 			NodeID: nID,
 			Score:  score,

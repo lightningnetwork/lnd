@@ -125,11 +125,12 @@ type AttachmentHeuristic interface {
 	// returned channel candidates maps the NodeID to a NodeScore for the
 	// node.
 	//
-	// The scores will be in the range [0, M], where 0 indicates no
-	// improvement in connectivity if a channel is opened to this node,
-	// while M is the maximum possible improvement in connectivity. The
-	// size of M is up to the implementation of this interface, so scores
-	// must be normalized if compared against other implementations.
+	// The returned scores will be in the range [0, 1.0], where 0 indicates
+	// no improvement in connectivity if a channel is opened to this node,
+	// while 1.0 is the maximum possible improvement in connectivity. The
+	// implementation of this interface must return scores in this range to
+	// properly allow the autopilot agent to make a reasonable choice based
+	// on the score from multiple heuristics.
 	//
 	// NOTE: A NodeID not found in the returned map is implicitly given a
 	// score of 0.

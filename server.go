@@ -37,6 +37,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/nat"
+	"github.com/lightningnetwork/lnd/netann"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/sweep"
 	"github.com/lightningnetwork/lnd/ticker"
@@ -87,7 +88,7 @@ type server struct {
 
 	// nodeSigner is an implementation of the MessageSigner implementation
 	// that's backed by the identity private key of the running lnd node.
-	nodeSigner *nodeSigner
+	nodeSigner *netann.NodeSigner
 
 	// listenAddrs is the list of addresses the server is currently
 	// listening on.
@@ -269,7 +270,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		invoices: newInvoiceRegistry(chanDB),
 
 		identityPriv: privKey,
-		nodeSigner:   newNodeSigner(privKey),
+		nodeSigner:   netann.NewNodeSigner(privKey),
 
 		listenAddrs: listenAddrs,
 
@@ -757,7 +758,6 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		maxRemoteDelay = maxLtcRemoteDelay
 	}
 
-	nodeSigner := newNodeSigner(privKey)
 	var chanIDSeed [32]byte
 	if _, err := rand.Read(chanIDSeed[:]); err != nil {
 		return nil, err
@@ -772,7 +772,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 			msg []byte) (*btcec.Signature, error) {
 
 			if pubKey.IsEqual(privKey.PubKey()) {
-				return nodeSigner.SignMessage(pubKey, msg)
+				return s.nodeSigner.SignMessage(pubKey, msg)
 			}
 
 			return cc.msgSigner.SignMessage(pubKey, msg)

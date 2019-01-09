@@ -243,7 +243,7 @@ func newEdgeLocatorByPubkeys(channelID uint64, fromNode, toNode *Vertex) *edgeLo
 func newEdgeLocator(edge *channeldb.ChannelEdgePolicy) *edgeLocator {
 	return &edgeLocator{
 		channelID: edge.ChannelID,
-		direction: uint8(edge.Flags & lnwire.ChanUpdateDirection),
+		direction: uint8(edge.ChannelFlags & lnwire.ChanUpdateDirection),
 	}
 }
 
@@ -1149,25 +1149,25 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 
 		// A flag set of 0 indicates this is an announcement for the
 		// "first" node in the channel.
-		case msg.Flags&lnwire.ChanUpdateDirection == 0:
+		case msg.ChannelFlags&lnwire.ChanUpdateDirection == 0:
 
 			// Ignore outdated message.
 			if !edge1Timestamp.Before(msg.LastUpdate) {
 				return newErrf(ErrOutdated, "Ignoring "+
 					"outdated update (flags=%v) for known "+
-					"chan_id=%v", msg.Flags, msg.ChannelID)
+					"chan_id=%v", msg.ChannelFlags, msg.ChannelID)
 
 			}
 
 		// Similarly, a flag set of 1 indicates this is an announcement
 		// for the "second" node in the channel.
-		case msg.Flags&lnwire.ChanUpdateDirection == 1:
+		case msg.ChannelFlags&lnwire.ChanUpdateDirection == 1:
 
 			// Ignore outdated message.
 			if !edge2Timestamp.Before(msg.LastUpdate) {
 				return newErrf(ErrOutdated, "Ignoring "+
 					"outdated update (flags=%v) for known "+
-					"chan_id=%v", msg.Flags, msg.ChannelID)
+					"chan_id=%v", msg.ChannelFlags, msg.ChannelID)
 			}
 		}
 
@@ -2067,7 +2067,8 @@ func (r *ChannelRouter) applyChannelUpdate(msg *lnwire.ChannelUpdate,
 		SigBytes:                  msg.Signature.ToSignatureBytes(),
 		ChannelID:                 msg.ShortChannelID.ToUint64(),
 		LastUpdate:                time.Unix(int64(msg.Timestamp), 0),
-		Flags:                     msg.ChannelFlags,
+		ChannelFlags:              msg.ChannelFlags,
+		MessageFlags:              msg.MessageFlags,
 		TimeLockDelta:             msg.TimeLockDelta,
 		MinHTLC:                   msg.HtlcMinimumMsat,
 		FeeBaseMSat:               lnwire.MilliSatoshi(msg.BaseFee),

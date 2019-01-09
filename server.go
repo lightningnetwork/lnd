@@ -3027,9 +3027,9 @@ func extractChannelUpdate(ownerPubKey []byte,
 	owner := func(edge *channeldb.ChannelEdgePolicy) []byte {
 		var pubKey *btcec.PublicKey
 		switch {
-		case edge.Flags&lnwire.ChanUpdateDirection == 0:
+		case edge.ChannelFlags&lnwire.ChanUpdateDirection == 0:
 			pubKey, _ = info.NodeKey1()
-		case edge.Flags&lnwire.ChanUpdateDirection == 1:
+		case edge.ChannelFlags&lnwire.ChanUpdateDirection == 1:
 			pubKey, _ = info.NodeKey2()
 		}
 
@@ -3061,8 +3061,8 @@ func createChannelUpdate(info *channeldb.ChannelEdgeInfo,
 		ChainHash:       info.ChainHash,
 		ShortChannelID:  lnwire.NewShortChanIDFromInt(policy.ChannelID),
 		Timestamp:       uint32(policy.LastUpdate.Unix()),
-		ChannelFlags:    policy.Flags,
-		MessageFlags:    msgFlags,
+		ChannelFlags:    policy.ChannelFlags,
+		MessageFlags:    policy.MessageFlags,
 		TimeLockDelta:   policy.TimeLockDelta,
 		HtlcMinimumMsat: policy.MinHTLC,
 		BaseFee:         uint32(policy.FeeBaseMSat),

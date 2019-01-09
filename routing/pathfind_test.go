@@ -271,7 +271,7 @@ func parseTestGraph(path string) (*testGraphInstance, error) {
 
 		edgePolicy := &channeldb.ChannelEdgePolicy{
 			SigBytes:                  testSig.Serialize(),
-			Flags:                     lnwire.ChanUpdateFlag(edge.Flags),
+			ChannelFlags:              lnwire.ChanUpdateFlag(edge.Flags),
 			ChannelID:                 edge.ChannelID,
 			LastUpdate:                testTime,
 			TimeLockDelta:             edge.Expiry,
@@ -487,7 +487,7 @@ func createTestGraphFromChannels(testChannels []*testChannel) (*testGraphInstanc
 
 		edgePolicy := &channeldb.ChannelEdgePolicy{
 			SigBytes:                  testSig.Serialize(),
-			Flags:                     lnwire.ChanUpdateFlag(0),
+			ChannelFlags:              lnwire.ChanUpdateFlag(0),
 			ChannelID:                 channelID,
 			LastUpdate:                testTime,
 			TimeLockDelta:             testChannel.Node1.Expiry,
@@ -501,7 +501,7 @@ func createTestGraphFromChannels(testChannels []*testChannel) (*testGraphInstanc
 
 		edgePolicy = &channeldb.ChannelEdgePolicy{
 			SigBytes:                  testSig.Serialize(),
-			Flags:                     lnwire.ChanUpdateFlag(lnwire.ChanUpdateDirection),
+			ChannelFlags:              lnwire.ChanUpdateFlag(lnwire.ChanUpdateDirection),
 			ChannelID:                 channelID,
 			LastUpdate:                testTime,
 			TimeLockDelta:             testChannel.Node2.Expiry,
@@ -1476,11 +1476,11 @@ func TestRouteFailDisabledEdge(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to fetch edge: %v", err)
 	}
-	e1.Flags |= lnwire.ChanUpdateDisabled
+	e1.ChannelFlags |= lnwire.ChanUpdateDisabled
 	if err := graph.graph.UpdateEdgePolicy(e1); err != nil {
 		t.Fatalf("unable to update edge: %v", err)
 	}
-	e2.Flags |= lnwire.ChanUpdateDisabled
+	e2.ChannelFlags |= lnwire.ChanUpdateDisabled
 	if err := graph.graph.UpdateEdgePolicy(e2); err != nil {
 		t.Fatalf("unable to update edge: %v", err)
 	}
@@ -1507,7 +1507,7 @@ func TestRouteFailDisabledEdge(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to fetch edge: %v", err)
 	}
-	e.Flags |= lnwire.ChanUpdateDisabled
+	e.ChannelFlags |= lnwire.ChanUpdateDisabled
 	if err := graph.graph.UpdateEdgePolicy(e); err != nil {
 		t.Fatalf("unable to update edge: %v", err)
 	}
@@ -1627,11 +1627,11 @@ func TestPathSourceEdgesBandwidth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to fetch edge: %v", err)
 	}
-	e1.Flags |= lnwire.ChanUpdateDisabled
+	e1.ChannelFlags |= lnwire.ChanUpdateDisabled
 	if err := graph.graph.UpdateEdgePolicy(e1); err != nil {
 		t.Fatalf("unable to update edge: %v", err)
 	}
-	e2.Flags |= lnwire.ChanUpdateDisabled
+	e2.ChannelFlags |= lnwire.ChanUpdateDisabled
 	if err := graph.graph.UpdateEdgePolicy(e2); err != nil {
 		t.Fatalf("unable to update edge: %v", err)
 	}

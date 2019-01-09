@@ -229,7 +229,8 @@ func (d *databaseChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 		MinHTLC:                   1,
 		FeeBaseMSat:               10,
 		FeeProportionalMillionths: 10000,
-		Flags:                     0,
+		ChannelFlags:              0,
+		MessageFlags:              1,
 	}
 
 	if err := d.db.UpdateEdgePolicy(edgePolicy); err != nil {
@@ -243,7 +244,8 @@ func (d *databaseChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 		MinHTLC:                   1,
 		FeeBaseMSat:               10,
 		FeeProportionalMillionths: 10000,
-		Flags:                     1,
+		ChannelFlags:              1,
+		MessageFlags:              1,
 	}
 	if err := d.db.UpdateEdgePolicy(edgePolicy); err != nil {
 		return nil, nil, err

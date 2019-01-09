@@ -267,10 +267,10 @@ func (r *mockGraphSource) IsStaleEdgePolicy(chanID lnwire.ShortChannelID,
 
 	switch {
 
-	case len(edges) >= 1 && edges[0].Flags == flags:
+	case len(edges) >= 1 && edges[0].ChannelFlags == flags:
 		return !edges[0].LastUpdate.Before(timestamp)
 
-	case len(edges) >= 2 && edges[1].Flags == flags:
+	case len(edges) >= 2 && edges[1].ChannelFlags == flags:
 		return !edges[1].LastUpdate.Before(timestamp)
 
 	default:

@@ -81,6 +81,18 @@ type ChannelGraph interface {
 	ForEachNode(func(Node) error) error
 }
 
+// NodeScore is a tuple mapping a NodeID to a score indicating the preference
+// of opening a channel with it.
+type NodeScore struct {
+	// NodeID is the serialized compressed pubkey of the node that is being
+	// scored.
+	NodeID NodeID
+
+	// Score is the score given by the heuristic for opening a channel of
+	// the given size to this node.
+	Score float64
+}
+
 // AttachmentDirective describes a channel attachment proscribed by an
 // AttachmentHeuristic. It details to which node a channel should be created
 // to, and also the parameters which should be used in the channel creation.
@@ -98,10 +110,6 @@ type AttachmentDirective struct {
 	// Addrs is a list of addresses that the target peer may be reachable
 	// at.
 	Addrs []net.Addr
-
-	// Score is the score given by the heuristic for opening a channel of
-	// the given size to this node.
-	Score float64
 }
 
 // AttachmentHeuristic is one of the primary interfaces within this package.
@@ -111,21 +119,11 @@ type AttachmentDirective struct {
 // the interface is to allow an auto-pilot agent to decide if it needs more
 // channels, and if so, which exact channels should be opened.
 type AttachmentHeuristic interface {
-	// NeedMoreChans is a predicate that should return true if, given the
-	// passed parameters, and its internal state, more channels should be
-	// opened within the channel graph. If the heuristic decides that we do
-	// indeed need more channels, then the second argument returned will
-	// represent the amount of additional funds to be used towards creating
-	// channels. This method should also return the exact *number* of
-	// additional channels that are needed in order to converge towards our
-	// ideal state.
-	NeedMoreChans(chans []Channel, balance btcutil.Amount) (btcutil.Amount, uint32, bool)
-
-	// NodeScores is a method that given the current channel graph, current
-	// set of local channels and funds available, scores the given nodes
-	// according to the preference of opening a channel with them. The
-	// returned channel candidates maps the NodeID to an attachemnt
-	// directive containing a score and a channel size.
+	// NodeScores is a method that given the current channel graph and
+	// current set of local channels, scores the given nodes according to
+	// the preference of opening a channel of the given size with them. The
+	// returned channel candidates maps the NodeID to a NodeScore for the
+	// node.
 	//
 	// The scores will be in the range [0, M], where 0 indicates no
 	// improvement in connectivity if a channel is opened to this node,
@@ -136,8 +134,8 @@ type AttachmentHeuristic interface {
 	// NOTE: A NodeID not found in the returned map is implicitly given a
 	// score of 0.
 	NodeScores(g ChannelGraph, chans []Channel,
-		fundsAvailable btcutil.Amount, nodes map[NodeID]struct{}) (
-		map[NodeID]*AttachmentDirective, error)
+		chanSize btcutil.Amount, nodes map[NodeID]struct{}) (
+		map[NodeID]*NodeScore, error)
 }
 
 // ChannelController is a simple interface that allows an auto-pilot agent to

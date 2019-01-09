@@ -46,10 +46,10 @@ func weightedChoice(w []float64) (int, error) {
 	return 0, fmt.Errorf("unable to make choice")
 }
 
-// chooseN picks at random min[n, len(s)] nodes if from the
-// AttachmentDirectives map, with a probability weighted by their score.
-func chooseN(n uint32, s map[NodeID]*AttachmentDirective) (
-	map[NodeID]*AttachmentDirective, error) {
+// chooseN picks at random min[n, len(s)] nodes if from the NodeScore map, with
+// a probability weighted by their score.
+func chooseN(n uint32, s map[NodeID]*NodeScore) (
+	map[NodeID]*NodeScore, error) {
 
 	// Keep track of the number of nodes not yet chosen, in addition to
 	// their scores and NodeIDs.
@@ -65,7 +65,7 @@ func chooseN(n uint32, s map[NodeID]*AttachmentDirective) (
 
 	// Pick a weighted choice from the remaining nodes as long as there are
 	// nodes left, and we haven't already picked n.
-	chosen := make(map[NodeID]*AttachmentDirective)
+	chosen := make(map[NodeID]*NodeScore)
 	for len(chosen) < int(n) && rem > 0 {
 		choice, err := weightedChoice(scores)
 		if err == ErrNoPositive {

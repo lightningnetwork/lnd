@@ -173,7 +173,7 @@ func TestWeightedChoiceDistribution(t *testing.T) {
 func TestChooseNEmptyMap(t *testing.T) {
 	t.Parallel()
 
-	nodes := map[NodeID]*AttachmentDirective{}
+	nodes := map[NodeID]*NodeScore{}
 	property := func(n uint32) bool {
 		res, err := chooseN(n, nodes)
 		if err != nil {
@@ -191,12 +191,12 @@ func TestChooseNEmptyMap(t *testing.T) {
 
 // candidateMapVarLen is a type we'll use to generate maps of various lengths
 // up to 255 to be used during QuickTests.
-type candidateMapVarLen map[NodeID]*AttachmentDirective
+type candidateMapVarLen map[NodeID]*NodeScore
 
 // Generate generates a value of type candidateMapVarLen to be used during
 // QuickTests.
 func (candidateMapVarLen) Generate(rand *rand.Rand, size int) reflect.Value {
-	nodes := make(map[NodeID]*AttachmentDirective)
+	nodes := make(map[NodeID]*NodeScore)
 
 	// To avoid creating huge maps, we restrict them to max uint8 len.
 	n := uint8(rand.Uint32())
@@ -212,7 +212,7 @@ func (candidateMapVarLen) Generate(rand *rand.Rand, size int) reflect.Value {
 
 		var nID [33]byte
 		binary.BigEndian.PutUint32(nID[:], uint32(i))
-		nodes[nID] = &AttachmentDirective{
+		nodes[nID] = &NodeScore{
 			Score: s,
 		}
 	}
@@ -226,7 +226,7 @@ func TestChooseNMinimum(t *testing.T) {
 	t.Parallel()
 
 	// Helper to count the number of positive scores in the given map.
-	numPositive := func(nodes map[NodeID]*AttachmentDirective) int {
+	numPositive := func(nodes map[NodeID]*NodeScore) int {
 		cnt := 0
 		for _, v := range nodes {
 			if v.Score > 0 {
@@ -274,7 +274,7 @@ func TestChooseNSample(t *testing.T) {
 	const maxIterations = 100000
 	fifth := uint32(numNodes / 5)
 
-	nodes := make(map[NodeID]*AttachmentDirective)
+	nodes := make(map[NodeID]*NodeScore)
 
 	// we make 5 buckets of nodes: 0, 0.1, 0.2, 0.4 and 0.8 score. We want
 	// to check that zero scores never gets chosen, while a doubling the
@@ -299,7 +299,7 @@ func TestChooseNSample(t *testing.T) {
 
 		var nID [33]byte
 		binary.BigEndian.PutUint32(nID[:], i)
-		nodes[nID] = &AttachmentDirective{
+		nodes[nID] = &NodeScore{
 			Score: s,
 		}
 	}

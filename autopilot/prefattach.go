@@ -2,62 +2,35 @@ package autopilot
 
 import (
 	prand "math/rand"
-	"net"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcutil"
 )
 
-// ConstrainedPrefAttachment is an implementation of the AttachmentHeuristic
-// interface that implement a constrained non-linear preferential attachment
-// heuristic. This means that given a threshold to allocate to automatic
-// channel establishment, the heuristic will attempt to favor connecting to
-// nodes which already have a set amount of links, selected by sampling from a
-// power law distribution. The attachment is non-linear in that it favors
-// nodes with a higher in-degree but less so that regular linear preferential
-// attachment. As a result, this creates smaller and less clusters than regular
-// linear preferential attachment.
+// PrefAttachment is an implementation of the AttachmentHeuristic interface
+// that implement a non-linear preferential attachment heuristic. This means
+// that given a threshold to allocate to automatic channel establishment, the
+// heuristic will attempt to favor connecting to nodes which already have a set
+// amount of links, selected by sampling from a power law distribution. The
+// attachment is non-linear in that it favors nodes with a higher in-degree but
+// less so than regular linear preferential attachment. As a result, this
+// creates smaller and less clusters than regular linear preferential
+// attachment.
 //
 // TODO(roasbeef): BA, with k=-3
-type ConstrainedPrefAttachment struct {
-	constraints *HeuristicConstraints
+type PrefAttachment struct {
 }
 
-// NewConstrainedPrefAttachment creates a new instance of a
-// ConstrainedPrefAttachment heuristics given bounds on allowed channel sizes,
-// and an allocation amount which is interpreted as a percentage of funds that
-// is to be committed to channels at all times.
-func NewConstrainedPrefAttachment(
-	cfg *HeuristicConstraints) *ConstrainedPrefAttachment {
-
+// NewPrefAttachment creates a new instance of a PrefAttachment heuristic.
+func NewPrefAttachment() *PrefAttachment {
 	prand.Seed(time.Now().Unix())
-
-	return &ConstrainedPrefAttachment{
-		constraints: cfg,
-	}
+	return &PrefAttachment{}
 }
 
-// A compile time assertion to ensure ConstrainedPrefAttachment meets the
+// A compile time assertion to ensure PrefAttachment meets the
 // AttachmentHeuristic interface.
-var _ AttachmentHeuristic = (*ConstrainedPrefAttachment)(nil)
-
-// NeedMoreChans is a predicate that should return true if, given the passed
-// parameters, and its internal state, more channels should be opened within
-// the channel graph. If the heuristic decides that we do indeed need more
-// channels, then the second argument returned will represent the amount of
-// additional funds to be used towards creating channels.
-//
-// NOTE: This is a part of the AttachmentHeuristic interface.
-func (p *ConstrainedPrefAttachment) NeedMoreChans(channels []Channel,
-	funds btcutil.Amount) (btcutil.Amount, uint32, bool) {
-
-	// We'll try to open more channels as long as the constraints allow it.
-	availableFunds, availableChans := p.constraints.availableChans(
-		channels, funds,
-	)
-	return availableFunds, availableChans, availableChans > 0
-}
+var _ AttachmentHeuristic = (*PrefAttachment)(nil)
 
 // NodeID is a simple type that holds an EC public key serialized in compressed
 // format.
@@ -70,9 +43,9 @@ func NewNodeID(pub *btcec.PublicKey) NodeID {
 	return n
 }
 
-// NodeScores is a method that given the current channel graph, current set of
-// local channels and funds available, scores the given nodes according the the
-// preference of opening a channel with them.
+// NodeScores is a method that given the current channel graph and
+// current set of local channels, scores the given nodes according to
+// the preference of opening a channel of the given size with them.
 //
 // The heuristic employed by this method is one that attempts to promote a
 // scale-free network globally, via local attachment preferences for new nodes
@@ -87,16 +60,14 @@ func NewNodeID(pub *btcec.PublicKey) NodeID {
 // given to nodes already having high connectivity in the graph.
 //
 // NOTE: This is a part of the AttachmentHeuristic interface.
-func (p *ConstrainedPrefAttachment) NodeScores(g ChannelGraph, chans []Channel,
-	fundsAvailable btcutil.Amount, nodes map[NodeID]struct{}) (
-	map[NodeID]*AttachmentDirective, error) {
+func (p *PrefAttachment) NodeScores(g ChannelGraph, chans []Channel,
+	chanSize btcutil.Amount, nodes map[NodeID]struct{}) (
+	map[NodeID]*NodeScore, error) {
 
 	// Count the number of channels in the graph. We'll also count the
-	// number of channels as we go for the nodes we are interested in, and
-	// record their addresses found in the db.
+	// number of channels as we go for the nodes we are interested in.
 	var graphChans int
 	nodeChanNum := make(map[NodeID]int)
-	addresses := make(map[NodeID][]net.Addr)
 	if err := g.ForEachNode(func(n Node) error {
 		var nodeChans int
 		err := n.ForEachChannel(func(_ ChannelEdge) error {
@@ -115,10 +86,8 @@ func (p *ConstrainedPrefAttachment) NodeScores(g ChannelGraph, chans []Channel,
 			return nil
 		}
 
-		// Otherwise we'll record the number of channels, and also
-		// populate the address in our channel candidates map.
+		// Otherwise we'll record the number of channels.
 		nodeChanNum[nID] = nodeChans
-		addresses[nID] = n.Addrs()
 
 		return nil
 	}); err != nil {
@@ -139,32 +108,16 @@ func (p *ConstrainedPrefAttachment) NodeScores(g ChannelGraph, chans []Channel,
 
 	// For each node in the set of nodes, count their fraction of channels
 	// in the graph, and use that as the score.
-	candidates := make(map[NodeID]*AttachmentDirective)
+	candidates := make(map[NodeID]*NodeScore)
 	for nID, nodeChans := range nodeChanNum {
-		// As channel size we'll use the maximum channel size available.
-		chanSize := p.constraints.MaxChanSize
-		if fundsAvailable-chanSize < 0 {
-			chanSize = fundsAvailable
-		}
 
 		_, ok := existingPeers[nID]
-		addrs := addresses[nID]
 
 		switch {
 
 		// If the node is among or existing channel peers, we don't
 		// need another channel.
 		case ok:
-			continue
-
-		// If the amount is too small, we don't want to attempt opening
-		// another channel.
-		case chanSize == 0 || chanSize < p.constraints.MinChanSize:
-			continue
-
-		// If the node has no addresses, we cannot connect to it, so we
-		// skip it for now, which implicitly gives it a score of 0.
-		case len(addrs) == 0:
 			continue
 
 		// If the node had no channels, we skip it, since it would have
@@ -176,11 +129,9 @@ func (p *ConstrainedPrefAttachment) NodeScores(g ChannelGraph, chans []Channel,
 		// Otherwise we score the node according to its fraction of
 		// channels in the graph.
 		score := float64(nodeChans) / float64(graphChans)
-		candidates[nID] = &AttachmentDirective{
-			NodeID:  nID,
-			ChanAmt: chanSize,
-			Addrs:   addrs,
-			Score:   score,
+		candidates[nID] = &NodeScore{
+			NodeID: nID,
+			Score:  score,
 		}
 	}
 

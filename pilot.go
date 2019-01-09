@@ -83,7 +83,7 @@ var _ autopilot.ChannelController = (*chanController)(nil)
 // autopilot.Agent instance based on the passed configuration struct. The agent
 // and all interfaces needed to drive it won't be launched before the Manager's
 // StartAgent method is called.
-func initAutoPilot(svr *server, cfg *autoPilotConfig) *autopilot.ManagerCfg {
+func initAutoPilot(svr *server, cfg *autoPilotConfig) (*autopilot.ManagerCfg, error) {
 	atplLog.Infof("Instantiating autopilot with cfg: %v", spew.Sdump(cfg))
 
 	// Set up the constraints the autopilot heuristics must adhere to.
@@ -98,12 +98,22 @@ func initAutoPilot(svr *server, cfg *autoPilotConfig) *autopilot.ManagerCfg {
 	// First, we'll create the preferential attachment heuristic.
 	prefAttachment := autopilot.NewPrefAttachment()
 
+	weightedAttachment, err := autopilot.NewWeightedCombAttachment(
+		&autopilot.WeightedHeuristic{
+			Weight:              1.0,
+			AttachmentHeuristic: prefAttachment,
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	// With the heuristic itself created, we can now populate the remainder
 	// of the items that the autopilot agent needs to perform its duties.
 	self := svr.identityPriv.PubKey()
 	pilotCfg := autopilot.Config{
 		Self:      self,
-		Heuristic: prefAttachment,
+		Heuristic: weightedAttachment,
 		ChanController: &chanController{
 			server:   svr,
 			private:  cfg.Private,
@@ -202,5 +212,5 @@ func initAutoPilot(svr *server, cfg *autoPilotConfig) *autopilot.ManagerCfg {
 		},
 		SubscribeTransactions: svr.cc.wallet.SubscribeTransactions,
 		SubscribeTopology:     svr.chanRouter.SubscribeTopology,
-	}
+	}, nil
 }

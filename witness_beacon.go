@@ -6,6 +6,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
+	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lnwallet"
 )
 
@@ -23,7 +24,7 @@ type preimageSubscriber struct {
 type preimageBeacon struct {
 	sync.RWMutex
 
-	invoices *invoiceRegistry
+	invoices *invoices.InvoiceRegistry
 
 	wCache *channeldb.WitnessCache
 

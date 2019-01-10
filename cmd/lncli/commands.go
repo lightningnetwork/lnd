@@ -1669,6 +1669,11 @@ var getInfoCommand = cli.Command{
 	Action: actionDecorator(getInfo),
 }
 
+type chain struct {
+	Chain   string `json:"chain"`
+	Network string `json:"network"`
+}
+
 func getInfo(ctx *cli.Context) error {
 	ctxb := context.Background()
 	client, cleanUp := getClient(ctx)
@@ -1678,6 +1683,14 @@ func getInfo(ctx *cli.Context) error {
 	resp, err := client.GetInfo(ctxb, req)
 	if err != nil {
 		return err
+	}
+
+	chains := make([]chain, len(resp.Chains))
+	for i, c := range resp.Chains {
+		chains[i] = chain{
+			Chain:   c.Chain,
+			Network: c.Network,
+		}
 	}
 
 	// We print a struct that mimics the proto definition of GetInfoResponse
@@ -1695,7 +1708,7 @@ func getInfo(ctx *cli.Context) error {
 		BestHeaderTimestamp int64    `json:"best_header_timestamp"`
 		SyncedToChain       bool     `json:"synced_to_chain"`
 		Testnet             bool     `json:"testnet"`
-		Chains              []string `json:"chains"`
+		Chains              []chain  `json:"chains"`
 		Uris                []string `json:"uris"`
 	}{
 		Version:             resp.Version,
@@ -1710,7 +1723,7 @@ func getInfo(ctx *cli.Context) error {
 		BestHeaderTimestamp: resp.BestHeaderTimestamp,
 		SyncedToChain:       resp.SyncedToChain,
 		Testnet:             resp.Testnet,
-		Chains:              resp.Chains,
+		Chains:              chains,
 		Uris:                resp.Uris,
 	})
 	return nil

@@ -3,6 +3,9 @@ syntax = "proto3";
 import "google/api/annotations.proto";
 
 package lnrpc;
+
+option go_package = "github.com/lightningnetwork/lnd/lnrpc";
+
 /**
  * Comments in this file will be directly parsed into the API
  * Documentation as descriptions of the associated method, message, or field.
@@ -1131,11 +1134,13 @@ message GetInfoResponse {
     /// Whether the wallet's view is synced to the main chain
     bool synced_to_chain = 9 [json_name = "synced_to_chain"];
 
-    /// Whether the current node is connected to testnet
-    bool testnet = 10 [json_name = "testnet"];
+    /** 
+    Whether the current node is connected to testnet. This field is 
+    deprecated and the network field should be used instead 
+    **/
+    bool testnet = 10 [json_name = "testnet", deprecated = true];
 
-    /// A list of active chains the node is connected to
-    repeated string chains = 11 [json_name = "chains"];
+    reserved 11;
 
     /// The URIs of the current node.
     repeated string uris = 12 [json_name = "uris"];
@@ -1148,6 +1153,17 @@ message GetInfoResponse {
 
     /// Number of inactive channels
     uint32 num_inactive_channels = 15 [json_name = "num_inactive_channels"];
+
+    /// A list of active chains the node is connected to
+    repeated Chain chains = 16 [json_name = "chains"];
+}
+
+message Chain {
+    /// The blockchain the node is on (eg bitcoin, litecoin)
+    string chain = 1 [json_name = "chain"];
+
+    /// The network the node is on (eg regtest, testnet, mainnet)
+    string network = 2 [json_name = "network"];
 }
 
 message ConfirmationUpdate {
@@ -1188,7 +1204,6 @@ message CloseChannelRequest {
 message CloseStatusUpdate {
     oneof update {
         PendingUpdate close_pending = 1 [json_name = "close_pending"];
-        ConfirmationUpdate confirmation = 2 [json_name = "confirmation"];
         ChannelCloseUpdate chan_close = 3 [json_name = "chan_close"];
     }
 }
@@ -1235,7 +1250,6 @@ message OpenChannelRequest {
 message OpenStatusUpdate {
     oneof update {
         PendingUpdate chan_pending = 1 [json_name = "chan_pending"];
-        ConfirmationUpdate confirmation = 2 [json_name = "confirmation"];
         ChannelOpenUpdate chan_open = 3 [json_name = "chan_open"];
     }
 }
@@ -1682,8 +1696,10 @@ message Invoice {
     */
     string memo = 1 [json_name = "memo"];
 
-    /// An optional cryptographic receipt of payment
-    bytes receipt = 2 [json_name = "receipt"];
+    /** Deprecated. An optional cryptographic receipt of payment which is not
+    implemented.
+    */
+    bytes receipt = 2 [json_name = "receipt", deprecated = true];
 
     /**
     The hex-encoded preimage (32 byte) which will allow settling an incoming
@@ -1698,7 +1714,7 @@ message Invoice {
     int64 value = 5 [json_name = "value"];
 
     /// Whether this invoice has been fulfilled
-    bool settled = 6 [json_name = "settled"];
+    bool settled = 6 [json_name = "settled", deprecated = true];
 
     /// When this invoice was created
     int64 creation_date = 7 [json_name = "creation_date"];
@@ -1776,7 +1792,18 @@ message Invoice {
     here as well.
     */
     int64 amt_paid_msat = 20 [json_name = "amt_paid_msat"];
+
+    enum InvoiceState {
+        OPEN = 0;
+        SETTLED = 1;
+    }
+
+    /**
+    The state the invoice is in.
+    */
+    InvoiceState state = 21 [json_name = "state"];
 }
+
 message AddInvoiceResponse {
     bytes r_hash = 1 [json_name = "r_hash"];
 

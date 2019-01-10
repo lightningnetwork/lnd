@@ -25,6 +25,7 @@ GOBUILD := GO111MODULE=on go build -v
 GOINSTALL := GO111MODULE=on go install -v
 GOTEST := GO111MODULE=on go test -v
 
+GOFILES_NOVENDOR = $(shell find . -type f -name '*.go' -not -path "./vendor/*")
 GOLIST := go list $(PKG)/... | grep -v '/vendor/'
 GOLISTCOVER := $(shell go list -f '{{.ImportPath}}' ./... | sed -e 's/^$(ESCPKG)/./')
 GOLISTLINT := $(shell go list -f '{{.Dir}}' ./... | grep -v 'lnrpc')
@@ -100,6 +101,11 @@ build:
 	$(GOBUILD) -tags="$(DEV_TAGS)" -o lnd-debug $(LDFLAGS) $(PKG)
 	$(GOBUILD) -tags="$(DEV_TAGS)" -o lncli-debug $(LDFLAGS) $(PKG)/cmd/lncli
 
+build-itest:
+	@$(call print, "Building itest lnd and lncli.")
+	$(GOBUILD) -tags="$(ITEST_TAGS)" -o lnd-itest $(LDFLAGS) $(PKG)
+	$(GOBUILD) -tags="$(ITEST_TAGS)" -o lncli-itest $(LDFLAGS) $(PKG)/cmd/lncli
+
 install:
 	@$(call print, "Installing lnd and lncli.")
 	$(GOINSTALL) -tags="${tags}" $(LDFLAGS) $(PKG)
@@ -118,7 +124,7 @@ itest-only:
 	@$(call print, "Running integration tests.")
 	$(ITEST)
 
-itest: btcd build itest-only
+itest: btcd build-itest itest-only
 
 unit: btcd
 	@$(call print, "Running unit tests.")
@@ -160,7 +166,7 @@ flake-unit:
 
 fmt:
 	@$(call print, "Formatting source.")
-	$(GOLIST) | $(XARGS) go fmt -x
+	gofmt -l -w -s $(GOFILES_NOVENDOR)
 
 lint: $(LINT_BIN)
 	@$(call print, "Linting source.")
@@ -181,6 +187,7 @@ rpc:
 clean:
 	@$(call print, "Cleaning source.$(NC)")
 	$(RM) ./lnd-debug ./lncli-debug
+	$(RM) ./lnd-itest ./lncli-itest
 	$(RM) -r ./vendor .vendor-new
 
 

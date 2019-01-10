@@ -202,7 +202,7 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 		return nil, nil, nil, nil, err
 	}
 
-	estimator := &lnwallet.StaticFeeEstimator{FeePerKW: 12500}
+	estimator := lnwallet.NewStaticFeeEstimator(12500, 0)
 	feePerKw, err := estimator.EstimateFeePerKW(1)
 	if err != nil {
 		return nil, nil, nil, nil, err
@@ -316,7 +316,9 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 	}
 	bobPool.Start()
 
-	chainIO := &mockChainIO{}
+	chainIO := &mockChainIO{
+		bestHeight: fundingBroadcastHeight,
+	}
 	wallet := &lnwallet.LightningWallet{
 		WalletController: &mockWalletController{
 			rootKey:               aliceKeyPriv,

@@ -57,7 +57,7 @@ type Config struct {
 
 	// Constraints is the set of constraints the autopilot must adhere to
 	// when opening channels.
-	Constraints *HeuristicConstraints
+	Constraints AgentConstraints
 
 	// TODO(roasbeef): add additional signals from fee rates and revenue of
 	// currently opened channels
@@ -478,12 +478,21 @@ func (a *Agent) controller() {
 		a.pendingMtx.Unlock()
 
 		// Now that we've updated our internal state, we'll consult our
-		// channel attachment heuristic to determine if we should open
-		// up any additional channels or modify existing channels.
-		availableFunds, numChans, needMore := a.cfg.Heuristic.NeedMoreChans(
+		// channel attachment heuristic to determine if we can open
+		// up any additional channels while staying within our
+		// constraints.
+		availableFunds, numChans := a.cfg.Constraints.ChannelBudget(
 			totalChans, a.totalBalance,
 		)
-		if !needMore {
+		switch {
+		case numChans == 0:
+			continue
+
+		// If the amount is too small, we don't want to attempt opening
+		// another channel.
+		case availableFunds == 0:
+			continue
+		case availableFunds < a.cfg.Constraints.MinChanSize():
 			continue
 		}
 
@@ -516,6 +525,7 @@ func (a *Agent) openChans(availableFunds btcutil.Amount, numChans uint32,
 	// want to skip.
 	selfPubBytes := a.cfg.Self.SerializeCompressed()
 	nodes := make(map[NodeID]struct{})
+	addresses := make(map[NodeID][]net.Addr)
 	if err := a.cfg.Graph.ForEachNode(func(node Node) error {
 		nID := NodeID(node.PubKey())
 
@@ -525,6 +535,14 @@ func (a *Agent) openChans(availableFunds btcutil.Amount, numChans uint32,
 		if bytes.Equal(nID[:], selfPubBytes) {
 			return nil
 		}
+
+		// If the node has no known addresses, we cannot connect to it,
+		// so we'll skip it.
+		addrs := node.Addrs()
+		if len(addrs) == 0 {
+			return nil
+		}
+		addresses[nID] = addrs
 
 		// Additionally, if this node is in the blacklist, then
 		// we'll skip it.
@@ -538,10 +556,16 @@ func (a *Agent) openChans(availableFunds btcutil.Amount, numChans uint32,
 		return fmt.Errorf("unable to get graph nodes: %v", err)
 	}
 
+	// As channel size we'll use the maximum channel size available.
+	chanSize := a.cfg.Constraints.MaxChanSize()
+	if availableFunds-chanSize < 0 {
+		chanSize = availableFunds
+	}
+
 	// Use the heuristic to calculate a score for each node in the
 	// graph.
 	scores, err := a.cfg.Heuristic.NodeScores(
-		a.cfg.Graph, totalChans, availableFunds, nodes,
+		a.cfg.Graph, totalChans, chanSize, nodes,
 	)
 	if err != nil {
 		return fmt.Errorf("unable to calculate node scores : %v", err)
@@ -549,12 +573,30 @@ func (a *Agent) openChans(availableFunds btcutil.Amount, numChans uint32,
 
 	log.Debugf("Got scores for %d nodes", len(scores))
 
-	// Now use the score to make a weighted choice which
-	// nodes to attempt to open channels to.
-	chanCandidates, err := chooseN(int(numChans), scores)
+	// Now use the score to make a weighted choice which nodes to attempt
+	// to open channels to.
+	scores, err = chooseN(numChans, scores)
 	if err != nil {
 		return fmt.Errorf("Unable to make weighted choice: %v",
 			err)
+	}
+
+	chanCandidates := make(map[NodeID]*AttachmentDirective)
+	for nID := range scores {
+		// Add addresses to the candidates.
+		addrs := addresses[nID]
+
+		// If the node has no known addresses, we cannot connect to it,
+		// so we'll skip it.
+		if len(addrs) == 0 {
+			continue
+		}
+
+		chanCandidates[nID] = &AttachmentDirective{
+			NodeID:  nID,
+			ChanAmt: chanSize,
+			Addrs:   addrs,
+		}
 	}
 
 	if len(chanCandidates) == 0 {
@@ -573,11 +615,11 @@ func (a *Agent) openChans(availableFunds btcutil.Amount, numChans uint32,
 	// available to future heuristic selections.
 	a.pendingMtx.Lock()
 	defer a.pendingMtx.Unlock()
-	if uint16(len(a.pendingOpens)) >= a.cfg.Constraints.MaxPendingOpens {
+	if uint16(len(a.pendingOpens)) >= a.cfg.Constraints.MaxPendingOpens() {
 		log.Debugf("Reached cap of %v pending "+
 			"channel opens, will retry "+
 			"after success/failure",
-			a.cfg.Constraints.MaxPendingOpens)
+			a.cfg.Constraints.MaxPendingOpens())
 		return nil
 	}
 
@@ -642,7 +684,7 @@ func (a *Agent) executeDirective(directive AttachmentDirective) {
 	// first.
 	a.pendingMtx.Lock()
 	if uint16(len(a.pendingOpens)) >=
-		a.cfg.Constraints.MaxPendingOpens {
+		a.cfg.Constraints.MaxPendingOpens() {
 		// Since we've reached our max number of pending opens, we'll
 		// disconnect this peer and exit. However, if we were
 		// previously connected to them, then we'll make sure to

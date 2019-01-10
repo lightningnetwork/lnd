@@ -231,7 +231,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 	addr *lnwire.NetAddress, tempTestDir string) (*testNode, error) {
 
 	netParams := activeNetParams.Params
-	estimator := lnwallet.StaticFeeEstimator{FeePerKW: 62500}
+	estimator := lnwallet.NewStaticFeeEstimator(62500, 0)
 
 	chainNotifier := &mockNotifier{
 		oneConfChannel: make(chan *chainntnfs.TxConfirmation, 1),
@@ -250,7 +250,9 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 	signer := &mockSigner{
 		key: alicePrivKey,
 	}
-	bio := &mockChainIO{}
+	bio := &mockChainIO{
+		bestHeight: fundingBroadcastHeight,
+	}
 
 	dbDir := filepath.Join(tempTestDir, "cdb")
 	cdb, err := channeldb.Open(dbDir)

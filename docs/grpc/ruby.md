@@ -171,3 +171,15 @@ stub = Lnrpc::Lightning::Stub.new(
 # Now we don't need to pass the metadata on a request level
 p stub.get_info(Lnrpc::GetInfoRequest.new)
 ```
+
+#### Receive Large Responses
+
+A GRPC::ResourceExhausted exception is raised when a server response is too large. In particular, this will happen with mainnet DescribeGraph calls. The solution is to raise the default limits by including a channel_args hash when creating our stub.
+
+```ruby
+stub = Lnrpc::Lightning::Stub.new(
+  'localhost:10009',
+  credentials,
+  channel_args: {"grpc.max_receive_message_length" => 1024 * 1024 * 50}
+)
+```

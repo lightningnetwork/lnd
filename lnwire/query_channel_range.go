@@ -40,7 +40,7 @@ var _ Message = (*QueryChannelRange)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (q *QueryChannelRange) Decode(r io.Reader, pver uint32) error {
-	return readElements(r,
+	return ReadElements(r,
 		q.ChainHash[:],
 		&q.FirstBlockHeight,
 		&q.NumBlocks,
@@ -52,7 +52,7 @@ func (q *QueryChannelRange) Decode(r io.Reader, pver uint32) error {
 //
 // This is part of the lnwire.Message interface.
 func (q *QueryChannelRange) Encode(w io.Writer, pver uint32) error {
-	return writeElements(w,
+	return WriteElements(w,
 		q.ChainHash[:],
 		q.FirstBlockHeight,
 		q.NumBlocks,

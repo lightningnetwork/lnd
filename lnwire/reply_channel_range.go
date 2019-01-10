@@ -42,7 +42,7 @@ func (c *ReplyChannelRange) Decode(r io.Reader, pver uint32) error {
 		return err
 	}
 
-	if err := readElements(r, &c.Complete); err != nil {
+	if err := ReadElements(r, &c.Complete); err != nil {
 		return err
 	}
 
@@ -60,7 +60,7 @@ func (c *ReplyChannelRange) Encode(w io.Writer, pver uint32) error {
 		return err
 	}
 
-	if err := writeElements(w, c.Complete); err != nil {
+	if err := WriteElements(w, c.Complete); err != nil {
 		return err
 	}
 

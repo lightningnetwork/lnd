@@ -89,7 +89,7 @@ var _ Message = (*QueryShortChanIDs)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (q *QueryShortChanIDs) Decode(r io.Reader, pver uint32) error {
-	err := readElements(r, q.ChainHash[:])
+	err := ReadElements(r, q.ChainHash[:])
 	if err != nil {
 		return err
 	}
@@ -107,7 +107,7 @@ func decodeShortChanIDs(r io.Reader) (ShortChanIDEncoding, []ShortChannelID, err
 	// First, we'll attempt to read the number of bytes in the body of the
 	// set of encoded short channel ID's.
 	var numBytesResp uint16
-	err := readElements(r, &numBytesResp)
+	err := ReadElements(r, &numBytesResp)
 	if err != nil {
 		return 0, nil, err
 	}
@@ -159,7 +159,7 @@ func decodeShortChanIDs(r io.Reader) (ShortChanIDEncoding, []ShortChannelID, err
 		shortChanIDs := make([]ShortChannelID, numShortChanIDs)
 		bodyReader := bytes.NewReader(queryBody)
 		for i := 0; i < numShortChanIDs; i++ {
-			if err := readElements(bodyReader, &shortChanIDs[i]); err != nil {
+			if err := ReadElements(bodyReader, &shortChanIDs[i]); err != nil {
 				return 0, nil, fmt.Errorf("unable to parse "+
 					"short chan ID: %v", err)
 			}
@@ -196,7 +196,7 @@ func decodeShortChanIDs(r io.Reader) (ShortChanIDEncoding, []ShortChannelID, err
 			// We'll now attempt to read the next short channel ID
 			// encoded in the payload.
 			var cid ShortChannelID
-			err := readElements(limitedDecompressor, &cid)
+			err := ReadElements(limitedDecompressor, &cid)
 
 			switch {
 			// If we get an EOF error, then that either means we've
@@ -246,7 +246,7 @@ func decodeShortChanIDs(r io.Reader) (ShortChanIDEncoding, []ShortChannelID, err
 // This is part of the lnwire.Message interface.
 func (q *QueryShortChanIDs) Encode(w io.Writer, pver uint32) error {
 	// First, we'll write out the chain hash.
-	err := writeElements(w, q.ChainHash[:])
+	err := WriteElements(w, q.ChainHash[:])
 	if err != nil {
 		return err
 	}
@@ -277,20 +277,20 @@ func encodeShortChanIDs(w io.Writer, encodingType ShortChanIDEncoding,
 		// body. We add 1 as the response will have the encoding type
 		// prepended to it.
 		numBytesBody := uint16(len(shortChanIDs)*8) + 1
-		if err := writeElements(w, numBytesBody); err != nil {
+		if err := WriteElements(w, numBytesBody); err != nil {
 			return err
 		}
 
 		// We'll then write out the encoding that that follows the
 		// actual encoded short channel ID's.
-		if err := writeElements(w, encodingType); err != nil {
+		if err := WriteElements(w, encodingType); err != nil {
 			return err
 		}
 
 		// Now that we know they're sorted, we can write out each short
 		// channel ID to the buffer.
 		for _, chanID := range shortChanIDs {
-			if err := writeElements(w, chanID); err != nil {
+			if err := WriteElements(w, chanID); err != nil {
 				return fmt.Errorf("unable to write short chan "+
 					"ID: %v", err)
 			}
@@ -314,7 +314,7 @@ func encodeShortChanIDs(w io.Writer, encodingType ShortChanIDEncoding,
 		// Next, we'll write out all the channel ID's directly into the
 		// zlib writer, which will do compressing on the fly.
 		for _, chanID := range shortChanIDs {
-			err := writeElements(zlibWriter, chanID)
+			err := WriteElements(zlibWriter, chanID)
 			if err != nil {
 				return fmt.Errorf("unable to write short chan "+
 					"ID: %v", err)
@@ -336,10 +336,10 @@ func encodeShortChanIDs(w io.Writer, encodingType ShortChanIDEncoding,
 
 		// Finally, we can write out the number of bytes, the
 		// compression type, and finally the buffer itself.
-		if err := writeElements(w, uint16(numBytesBody)); err != nil {
+		if err := WriteElements(w, uint16(numBytesBody)); err != nil {
 			return err
 		}
-		if err := writeElements(w, encodingType); err != nil {
+		if err := WriteElements(w, encodingType); err != nil {
 			return err
 		}
 

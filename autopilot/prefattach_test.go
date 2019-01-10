@@ -12,168 +12,7 @@ import (
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/lnwire"
 )
-
-func TestConstrainedPrefAttachmentNeedMoreChan(t *testing.T) {
-	t.Parallel()
-
-	prand.Seed(time.Now().Unix())
-
-	const (
-		minChanSize = 0
-		maxChanSize = btcutil.Amount(btcutil.SatoshiPerBitcoin)
-
-		chanLimit = 3
-
-		threshold = 0.5
-	)
-
-	constraints := &HeuristicConstraints{
-		MinChanSize: minChanSize,
-		MaxChanSize: maxChanSize,
-		ChanLimit:   chanLimit,
-		Allocation:  threshold,
-	}
-
-	randChanID := func() lnwire.ShortChannelID {
-		return lnwire.NewShortChanIDFromInt(uint64(prand.Int63()))
-	}
-
-	testCases := []struct {
-		channels  []Channel
-		walletAmt btcutil.Amount
-
-		needMore     bool
-		amtAvailable btcutil.Amount
-		numMore      uint32
-	}{
-		// Many available funds, but already have too many active open
-		// channels.
-		{
-			[]Channel{
-				{
-					ChanID:   randChanID(),
-					Capacity: btcutil.Amount(prand.Int31()),
-				},
-				{
-					ChanID:   randChanID(),
-					Capacity: btcutil.Amount(prand.Int31()),
-				},
-				{
-					ChanID:   randChanID(),
-					Capacity: btcutil.Amount(prand.Int31()),
-				},
-			},
-			btcutil.Amount(btcutil.SatoshiPerBitcoin * 10),
-			false,
-			0,
-			0,
-		},
-
-		// Ratio of funds in channels and total funds meets the
-		// threshold.
-		{
-			[]Channel{
-				{
-					ChanID:   randChanID(),
-					Capacity: btcutil.Amount(btcutil.SatoshiPerBitcoin),
-				},
-				{
-					ChanID:   randChanID(),
-					Capacity: btcutil.Amount(btcutil.SatoshiPerBitcoin),
-				},
-			},
-			btcutil.Amount(btcutil.SatoshiPerBitcoin * 2),
-			false,
-			0,
-			0,
-		},
-
-		// Ratio of funds in channels and total funds is below the
-		// threshold. We have 10 BTC allocated amongst channels and
-		// funds, atm. We're targeting 50%, so 5 BTC should be
-		// allocated. Only 1 BTC is atm, so 4 BTC should be
-		// recommended. We should also request 2 more channels as the
-		// limit is 3.
-		{
-			[]Channel{
-				{
-					ChanID:   randChanID(),
-					Capacity: btcutil.Amount(btcutil.SatoshiPerBitcoin),
-				},
-			},
-			btcutil.Amount(btcutil.SatoshiPerBitcoin * 9),
-			true,
-			btcutil.Amount(btcutil.SatoshiPerBitcoin * 4),
-			2,
-		},
-
-		// Ratio of funds in channels and total funds is below the
-		// threshold. We have 14 BTC total amongst the wallet's
-		// balance, and our currently opened channels. Since we're
-		// targeting a 50% allocation, we should commit 7 BTC. The
-		// current channels commit 4 BTC, so we should expected 3 BTC
-		// to be committed. We should only request a single additional
-		// channel as the limit is 3.
-		{
-			[]Channel{
-				{
-					ChanID:   randChanID(),
-					Capacity: btcutil.Amount(btcutil.SatoshiPerBitcoin),
-				},
-				{
-					ChanID:   randChanID(),
-					Capacity: btcutil.Amount(btcutil.SatoshiPerBitcoin * 3),
-				},
-			},
-			btcutil.Amount(btcutil.SatoshiPerBitcoin * 10),
-			true,
-			btcutil.Amount(btcutil.SatoshiPerBitcoin * 3),
-			1,
-		},
-
-		// Ratio of funds in channels and total funds is above the
-		// threshold.
-		{
-			[]Channel{
-				{
-					ChanID:   randChanID(),
-					Capacity: btcutil.Amount(btcutil.SatoshiPerBitcoin),
-				},
-				{
-					ChanID:   randChanID(),
-					Capacity: btcutil.Amount(btcutil.SatoshiPerBitcoin),
-				},
-			},
-			btcutil.Amount(btcutil.SatoshiPerBitcoin),
-			false,
-			0,
-			0,
-		},
-	}
-
-	prefAttach := NewConstrainedPrefAttachment(constraints)
-
-	for i, testCase := range testCases {
-		amtToAllocate, numMore, needMore := prefAttach.NeedMoreChans(
-			testCase.channels, testCase.walletAmt,
-		)
-
-		if amtToAllocate != testCase.amtAvailable {
-			t.Fatalf("test #%v: expected %v, got %v",
-				i, testCase.amtAvailable, amtToAllocate)
-		}
-		if needMore != testCase.needMore {
-			t.Fatalf("test #%v: expected %v, got %v",
-				i, testCase.needMore, needMore)
-		}
-		if numMore != testCase.numMore {
-			t.Fatalf("test #%v: expected %v, got %v",
-				i, testCase.numMore, numMore)
-		}
-	}
-}
 
 type genGraphFunc func() (testGraph, func(), error)
 
@@ -232,24 +71,14 @@ var chanGraphs = []struct {
 	},
 }
 
-// TestConstrainedPrefAttachmentSelectEmptyGraph ensures that when passed an
+// TestPrefAttachmentSelectEmptyGraph ensures that when passed an
 // empty graph, the NodeSores function always returns a score of 0.
-func TestConstrainedPrefAttachmentSelectEmptyGraph(t *testing.T) {
+func TestPrefAttachmentSelectEmptyGraph(t *testing.T) {
 	const (
-		minChanSize = 0
 		maxChanSize = btcutil.Amount(btcutil.SatoshiPerBitcoin)
-		chanLimit   = 3
-		threshold   = 0.5
 	)
 
-	constraints := &HeuristicConstraints{
-		MinChanSize: minChanSize,
-		MaxChanSize: maxChanSize,
-		ChanLimit:   chanLimit,
-		Allocation:  threshold,
-	}
-
-	prefAttach := NewConstrainedPrefAttachment(constraints)
+	prefAttach := NewPrefAttachment()
 
 	// Create a random public key, which we will query to get a score for.
 	pub, err := randKey()
@@ -335,27 +164,18 @@ func completeGraph(t *testing.T, g testGraph, numNodes int) {
 	}
 }
 
-// TestConstrainedPrefAttachmentSelectTwoVertexes ensures that when passed a
+// TestPrefAttachmentSelectTwoVertexes ensures that when passed a
 // graph with only two eligible vertexes, then both are given the same score,
 // and the funds are appropriately allocated across each peer.
-func TestConstrainedPrefAttachmentSelectTwoVertexes(t *testing.T) {
+func TestPrefAttachmentSelectTwoVertexes(t *testing.T) {
 	t.Parallel()
 
 	prand.Seed(time.Now().Unix())
 
 	const (
-		minChanSize = 0
 		maxChanSize = btcutil.Amount(btcutil.SatoshiPerBitcoin)
-		chanLimit   = 3
-		threshold   = 0.5
 	)
 
-	constraints := &HeuristicConstraints{
-		MinChanSize: minChanSize,
-		MaxChanSize: maxChanSize,
-		ChanLimit:   chanLimit,
-		Allocation:  threshold,
-	}
 	for _, graph := range chanGraphs {
 		success := t.Run(graph.name, func(t1 *testing.T) {
 			graph, cleanup, err := graph.genFunc()
@@ -366,7 +186,7 @@ func TestConstrainedPrefAttachmentSelectTwoVertexes(t *testing.T) {
 				defer cleanup()
 			}
 
-			prefAttach := NewConstrainedPrefAttachment(constraints)
+			prefAttach := NewPrefAttachment()
 
 			// For this set, we'll load the memory graph with two
 			// nodes, and a random channel connecting them.
@@ -399,9 +219,8 @@ func TestConstrainedPrefAttachmentSelectTwoVertexes(t *testing.T) {
 			// With the necessary state initialized, we'll now
 			// attempt to get our candidates channel score given
 			// the current state of the graph.
-			const walletFunds = btcutil.SatoshiPerBitcoin * 10
 			candidates, err := prefAttach.NodeScores(graph, nil,
-				walletFunds, nodes)
+				maxChanSize, nodes)
 			if err != nil {
 				t1.Fatalf("unable to select attachment "+
 					"directives: %v", err)
@@ -428,15 +247,6 @@ func TestConstrainedPrefAttachmentSelectTwoVertexes(t *testing.T) {
 						nodeID[:])
 				}
 
-				// As the number of funds available exceed the
-				// max channel size, both edges should consume
-				// the maximum channel size.
-				if candidate.ChanAmt != maxChanSize {
-					t1.Fatalf("max channel size should be "+
-						"allocated, instead %v was: ",
-						maxChanSize)
-				}
-
 				// Since each of the nodes has 1 channel, out
 				// of only one channel in the graph, we expect
 				// their score to be 0.5.
@@ -446,11 +256,6 @@ func TestConstrainedPrefAttachmentSelectTwoVertexes(t *testing.T) {
 						"to be %v, instead was %v",
 						expScore, candidate.Score)
 				}
-
-				if len(candidate.Addrs) == 0 {
-					t1.Fatalf("expected node to have " +
-						"available addresses, didn't")
-				}
 			}
 		})
 		if !success {
@@ -459,97 +264,17 @@ func TestConstrainedPrefAttachmentSelectTwoVertexes(t *testing.T) {
 	}
 }
 
-// TestConstrainedPrefAttachmentSelectInsufficientFunds ensures that if the
-// balance of the backing wallet is below the set min channel size, then it
-// never recommends candidates to attach to.
-func TestConstrainedPrefAttachmentSelectInsufficientFunds(t *testing.T) {
-	t.Parallel()
-
-	prand.Seed(time.Now().Unix())
-
-	const (
-		minChanSize = 0
-		maxChanSize = btcutil.Amount(btcutil.SatoshiPerBitcoin)
-		chanLimit   = 3
-		threshold   = 0.5
-	)
-
-	constraints := &HeuristicConstraints{
-		MinChanSize: minChanSize,
-		MaxChanSize: maxChanSize,
-		ChanLimit:   chanLimit,
-		Allocation:  threshold,
-	}
-
-	for _, graph := range chanGraphs {
-		success := t.Run(graph.name, func(t1 *testing.T) {
-			graph, cleanup, err := graph.genFunc()
-			if err != nil {
-				t1.Fatalf("unable to create graph: %v", err)
-			}
-			if cleanup != nil {
-				defer cleanup()
-			}
-
-			// Add 10 nodes to the graph, with channels between
-			// them.
-			completeGraph(t, graph, 10)
-
-			prefAttach := NewConstrainedPrefAttachment(constraints)
-
-			nodes := make(map[NodeID]struct{})
-			if err := graph.ForEachNode(func(n Node) error {
-				nodes[n.PubKey()] = struct{}{}
-				return nil
-			}); err != nil {
-				t1.Fatalf("unable to traverse graph: %v", err)
-			}
-
-			// With the necessary state initialized, we'll now
-			// attempt to get the score for our list of nodes,
-			// passing zero for the amount of wallet funds. This
-			// should return an all-zero score set.
-			scores, err := prefAttach.NodeScores(graph, nil,
-				0, nodes)
-			if err != nil {
-				t1.Fatalf("unable to select attachment "+
-					"directives: %v", err)
-			}
-
-			// Since all should be given a score of 0, the map
-			// should be empty.
-			if len(scores) != 0 {
-				t1.Fatalf("expected empty score map, "+
-					"instead got %v ", len(scores))
-			}
-		})
-		if !success {
-			break
-		}
-	}
-}
-
-// TestConstrainedPrefAttachmentSelectGreedyAllocation tests that if upon
+// TestPrefAttachmentSelectGreedyAllocation tests that if upon
 // returning node scores, the NodeScores method will attempt to greedily
 // allocate all funds to each vertex (up to the max channel size).
-func TestConstrainedPrefAttachmentSelectGreedyAllocation(t *testing.T) {
+func TestPrefAttachmentSelectGreedyAllocation(t *testing.T) {
 	t.Parallel()
 
 	prand.Seed(time.Now().Unix())
 
 	const (
-		minChanSize = 0
 		maxChanSize = btcutil.Amount(btcutil.SatoshiPerBitcoin)
-		chanLimit   = 3
-		threshold   = 0.5
 	)
-
-	constraints := &HeuristicConstraints{
-		MinChanSize: minChanSize,
-		MaxChanSize: maxChanSize,
-		ChanLimit:   chanLimit,
-		Allocation:  threshold,
-	}
 
 	for _, graph := range chanGraphs {
 		success := t.Run(graph.name, func(t1 *testing.T) {
@@ -561,7 +286,7 @@ func TestConstrainedPrefAttachmentSelectGreedyAllocation(t *testing.T) {
 				defer cleanup()
 			}
 
-			prefAttach := NewConstrainedPrefAttachment(constraints)
+			prefAttach := NewPrefAttachment()
 
 			const chanCapacity = btcutil.SatoshiPerBitcoin
 
@@ -622,9 +347,8 @@ func TestConstrainedPrefAttachmentSelectGreedyAllocation(t *testing.T) {
 			// 50/50 allocation, and have 3 BTC in channels. As a
 			// result, the heuristic should try to greedily
 			// allocate funds to channels.
-			const availableBalance = btcutil.SatoshiPerBitcoin * 2.5
 			scores, err := prefAttach.NodeScores(graph, nil,
-				availableBalance, nodes)
+				maxChanSize, nodes)
 			if err != nil {
 				t1.Fatalf("unable to select attachment "+
 					"directives: %v", err)
@@ -641,17 +365,6 @@ func TestConstrainedPrefAttachmentSelectGreedyAllocation(t *testing.T) {
 			for _, candidate := range scores {
 				if candidate.Score == 0 {
 					t1.Fatalf("Expected non-zero score")
-				}
-
-				if candidate.ChanAmt != maxChanSize {
-					t1.Fatalf("expected recommendation "+
-						"of %v, instead got %v",
-						maxChanSize, candidate.ChanAmt)
-				}
-
-				if len(candidate.Addrs) == 0 {
-					t1.Fatalf("expected node to have " +
-						"available addresses, didn't")
 				}
 			}
 
@@ -677,17 +390,6 @@ func TestConstrainedPrefAttachmentSelectGreedyAllocation(t *testing.T) {
 				if candidate.Score == 0 {
 					t1.Fatalf("Expected non-zero score")
 				}
-
-				if candidate.ChanAmt != remBalance {
-					t1.Fatalf("expected recommendation "+
-						"of %v, instead got %v",
-						remBalance, candidate.ChanAmt)
-				}
-
-				if len(candidate.Addrs) == 0 {
-					t1.Fatalf("expected node to have " +
-						"available addresses, didn't")
-				}
 			}
 		})
 		if !success {
@@ -696,27 +398,17 @@ func TestConstrainedPrefAttachmentSelectGreedyAllocation(t *testing.T) {
 	}
 }
 
-// TestConstrainedPrefAttachmentSelectSkipNodes ensures that if a node was
+// TestPrefAttachmentSelectSkipNodes ensures that if a node was
 // already selected as a channel counterparty, then that node will get a score
 // of zero during scoring.
-func TestConstrainedPrefAttachmentSelectSkipNodes(t *testing.T) {
+func TestPrefAttachmentSelectSkipNodes(t *testing.T) {
 	t.Parallel()
 
 	prand.Seed(time.Now().Unix())
 
 	const (
-		minChanSize = 0
 		maxChanSize = btcutil.Amount(btcutil.SatoshiPerBitcoin)
-		chanLimit   = 3
-		threshold   = 0.5
 	)
-
-	constraints := &HeuristicConstraints{
-		MinChanSize: minChanSize,
-		MaxChanSize: maxChanSize,
-		ChanLimit:   chanLimit,
-		Allocation:  threshold,
-	}
 
 	for _, graph := range chanGraphs {
 		success := t.Run(graph.name, func(t1 *testing.T) {
@@ -728,7 +420,7 @@ func TestConstrainedPrefAttachmentSelectSkipNodes(t *testing.T) {
 				defer cleanup()
 			}
 
-			prefAttach := NewConstrainedPrefAttachment(constraints)
+			prefAttach := NewPrefAttachment()
 
 			// Next, we'll create a simple topology of two nodes,
 			// with a single channel connecting them.
@@ -753,9 +445,8 @@ func TestConstrainedPrefAttachmentSelectSkipNodes(t *testing.T) {
 
 			// With our graph created, we'll now get the scores for
 			// all nodes in the graph.
-			const availableBalance = btcutil.SatoshiPerBitcoin * 2.5
 			scores, err := prefAttach.NodeScores(graph, nil,
-				availableBalance, nodes)
+				maxChanSize, nodes)
 			if err != nil {
 				t1.Fatalf("unable to select attachment "+
 					"directives: %v", err)
@@ -771,17 +462,6 @@ func TestConstrainedPrefAttachmentSelectSkipNodes(t *testing.T) {
 			for _, candidate := range scores {
 				if candidate.Score == 0 {
 					t1.Fatalf("Expected non-zero score")
-				}
-
-				if candidate.ChanAmt != maxChanSize {
-					t1.Fatalf("expected recommendation "+
-						"of %v, instead got %v",
-						maxChanSize, candidate.ChanAmt)
-				}
-
-				if len(candidate.Addrs) == 0 {
-					t1.Fatalf("expected node to have " +
-						"available addresses, didn't")
 				}
 			}
 
@@ -801,7 +481,7 @@ func TestConstrainedPrefAttachmentSelectSkipNodes(t *testing.T) {
 			// then all nodes should have a score of zero, since we
 			// already got channels to them.
 			scores, err = prefAttach.NodeScores(graph, chans,
-				availableBalance, nodes)
+				maxChanSize, nodes)
 			if err != nil {
 				t1.Fatalf("unable to select attachment "+
 					"directives: %v", err)

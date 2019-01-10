@@ -75,6 +75,10 @@ func (m *mockFeeEstimator) EstimateFeePerKW(
 	}
 }
 
+func (m *mockFeeEstimator) RelayFeePerKW() lnwallet.SatPerKWeight {
+	return 1e3
+}
+
 func (m *mockFeeEstimator) Start() error {
 	return nil
 }
@@ -716,11 +720,11 @@ func (i *mockInvoiceRegistry) SettleInvoice(rhash chainhash.Hash,
 		return fmt.Errorf("can't find mock invoice: %x", rhash[:])
 	}
 
-	if invoice.Terms.Settled {
+	if invoice.Terms.State == channeldb.ContractSettled {
 		return nil
 	}
 
-	invoice.Terms.Settled = true
+	invoice.Terms.State = channeldb.ContractSettled
 	invoice.AmtPaid = amt
 	i.invoices[rhash] = invoice
 

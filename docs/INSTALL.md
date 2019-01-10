@@ -15,7 +15,7 @@
 * [Macaroons](#macaroons)
 * [Network Reachability](#network-reachability)
 * [Simnet vs. Testnet Development](#simnet-vs-testnet-development)
-* [Creating an lnd.conf (Optional)](#creating-an-lndconf-(optional))
+* [Creating an lnd.conf (Optional)](#creating-an-lndconf-optional)
 
 # Installation
 

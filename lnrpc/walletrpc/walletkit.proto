@@ -1,8 +1,10 @@
 syntax = "proto3";
 
-import "github.com/lightningnetwork/lnd/lnrpc/signrpc/signer.proto";
+import "signrpc/signer.proto";
 
 package walletrpc;
+
+option go_package = "github.com/lightningnetwork/lnd/lnrpc/walletrpc";
 
 message KeyReq {
     /**

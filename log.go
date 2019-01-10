@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/lightningnetwork/lnd/invoices"
 	"io"
 	"os"
 	"path/filepath"
@@ -71,6 +72,7 @@ var (
 	sgnrLog = build.NewSubLogger("SGNR", backendLog.Logger)
 	wlktLog = build.NewSubLogger("WLKT", backendLog.Logger)
 	arpcLog = build.NewSubLogger("ARPC", backendLog.Logger)
+	invcLog = build.NewSubLogger("INVC", backendLog.Logger)
 )
 
 // Initialize package-global logger variables.
@@ -91,6 +93,7 @@ func init() {
 	signrpc.UseLogger(sgnrLog)
 	walletrpc.UseLogger(wlktLog)
 	autopilotrpc.UseLogger(arpcLog)
+	invoices.UseLogger(invcLog)
 }
 
 // subsystemLoggers maps each subsystem identifier to its associated logger.
@@ -117,6 +120,7 @@ var subsystemLoggers = map[string]btclog.Logger{
 	"SGNR": sgnrLog,
 	"WLKT": wlktLog,
 	"ARPC": arpcLog,
+	"INVC": invcLog,
 }
 
 // initLogRotator initializes the logging rotator to write logs to logFile and

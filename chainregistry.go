@@ -150,9 +150,9 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 			FeeRate:       cfg.Bitcoin.FeeRate,
 			TimeLockDelta: cfg.Bitcoin.TimeLockDelta,
 		}
-		cc.feeEstimator = lnwallet.StaticFeeEstimator{
-			FeePerKW: defaultBitcoinStaticFeePerKW,
-		}
+		cc.feeEstimator = lnwallet.NewStaticFeeEstimator(
+			defaultBitcoinStaticFeePerKW, 0,
+		)
 	case litecoinChain:
 		cc.routingPolicy = htlcswitch.ForwardingPolicy{
 			MinHTLC:       cfg.Litecoin.MinHTLC,
@@ -160,9 +160,9 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 			FeeRate:       cfg.Litecoin.FeeRate,
 			TimeLockDelta: cfg.Litecoin.TimeLockDelta,
 		}
-		cc.feeEstimator = lnwallet.StaticFeeEstimator{
-			FeePerKW: defaultLitecoinStaticFeePerKW,
-		}
+		cc.feeEstimator = lnwallet.NewStaticFeeEstimator(
+			defaultLitecoinStaticFeePerKW, 0,
+		)
 	default:
 		return nil, nil, fmt.Errorf("Default routing policy for "+
 			"chain %v is unknown", registeredChains.PrimaryChain())

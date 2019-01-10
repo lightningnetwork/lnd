@@ -281,7 +281,7 @@ func (hn *HarnessNode) start(lndError chan<- error) error {
 
 	args := hn.cfg.genArgs()
 	args = append(args, fmt.Sprintf("--profile=%d", 9000+hn.NodeID))
-	hn.cmd = exec.Command("./lnd-debug", args...)
+	hn.cmd = exec.Command("./lnd-itest", args...)
 
 	// Redirect stderr output to buffer
 	var errb bytes.Buffer

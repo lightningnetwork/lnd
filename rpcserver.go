@@ -31,6 +31,7 @@ import (
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
+	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -1419,7 +1420,7 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 		chanPoint, force)
 
 	var (
-		updateChan chan *lnrpc.CloseStatusUpdate
+		updateChan chan interface{}
 		errChan    chan error
 	)
 
@@ -1472,13 +1473,9 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 
 		// With the transaction broadcast, we send our first update to
 		// the client.
-		updateChan = make(chan *lnrpc.CloseStatusUpdate, 2)
-		updateChan <- &lnrpc.CloseStatusUpdate{
-			Update: &lnrpc.CloseStatusUpdate_ClosePending{
-				ClosePending: &lnrpc.PendingUpdate{
-					Txid: closingTxid[:],
-				},
-			},
+		updateChan = make(chan interface{}, 2)
+		updateChan <- &pendingUpdate{
+			Txid: closingTxid[:],
 		}
 
 		errChan = make(chan error, 1)
@@ -1487,13 +1484,9 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 			&closingTxid, closingTx.TxOut[0].PkScript, func() {
 				// Respond to the local subsystem which
 				// requested the channel closure.
-				updateChan <- &lnrpc.CloseStatusUpdate{
-					Update: &lnrpc.CloseStatusUpdate_ChanClose{
-						ChanClose: &lnrpc.ChannelCloseUpdate{
-							ClosingTxid: closingTxid[:],
-							Success:     true,
-						},
-					},
+				updateChan <- &channelCloseUpdate{
+					ClosingTxid: closingTxid[:],
+					Success:     true,
 				}
 			})
 	} else {
@@ -1544,18 +1537,26 @@ out:
 				"ChannelPoint(%v): %v", chanPoint, err)
 			return err
 		case closingUpdate := <-updateChan:
+			rpcClosingUpdate, err := createRPCCloseUpdate(
+				closingUpdate,
+			)
+			if err != nil {
+				return err
+			}
+
 			rpcsLog.Tracef("[closechannel] sending update: %v",
-				closingUpdate)
-			if err := updateStream.Send(closingUpdate); err != nil {
+				rpcClosingUpdate)
+
+			if err := updateStream.Send(rpcClosingUpdate); err != nil {
 				return err
 			}
 
 			// If a final channel closing updates is being sent,
 			// then we can break out of our dispatch loop as we no
 			// longer need to process any further updates.
-			switch closeUpdate := closingUpdate.Update.(type) {
-			case *lnrpc.CloseStatusUpdate_ChanClose:
-				h, _ := chainhash.NewHash(closeUpdate.ChanClose.ClosingTxid)
+			switch closeUpdate := closingUpdate.(type) {
+			case *channelCloseUpdate:
+				h, _ := chainhash.NewHash(closeUpdate.ClosingTxid)
 				rpcsLog.Infof("[closechannel] close completed: "+
 					"txid(%v)", h)
 				break out
@@ -1566,6 +1567,32 @@ out:
 	}
 
 	return nil
+}
+
+func createRPCCloseUpdate(update interface{}) (
+	*lnrpc.CloseStatusUpdate, error) {
+
+	switch u := update.(type) {
+	case *channelCloseUpdate:
+		return &lnrpc.CloseStatusUpdate{
+			Update: &lnrpc.CloseStatusUpdate_ChanClose{
+				ChanClose: &lnrpc.ChannelCloseUpdate{
+					ClosingTxid: u.ClosingTxid,
+				},
+			},
+		}, nil
+	case *pendingUpdate:
+		return &lnrpc.CloseStatusUpdate{
+			Update: &lnrpc.CloseStatusUpdate_ClosePending{
+				ClosePending: &lnrpc.PendingUpdate{
+					Txid:        u.Txid,
+					OutputIndex: u.OutputIndex,
+				},
+			},
+		}, nil
+	}
+
+	return nil, errors.New("unknown close status update")
 }
 
 // AbandonChannel removes all channel state from the database except for a
@@ -1722,9 +1749,14 @@ func (r *rpcServer) GetInfo(ctx context.Context,
 			"with current best block in the main chain: %v", err)
 	}
 
-	activeChains := make([]string, registeredChains.NumActiveChains())
+	network := normalizeNetwork(activeNetParams.Name)
+	activeChains := make([]*lnrpc.Chain, registeredChains.NumActiveChains())
 	for i, chain := range registeredChains.ActiveChains() {
-		activeChains[i] = chain.String()
+		activeChains[i] = &lnrpc.Chain{
+			Chain:   chain.String(),
+			Network: network,
+		}
+
 	}
 
 	// Check if external IP addresses were provided to lnd and use them
@@ -2582,7 +2614,7 @@ func extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPaymentIntent, error
 	// same debug rHash. Otherwise, we pay to the rHash specified within
 	// the RPC request.
 	case cfg.DebugHTLC && bytes.Equal(payIntent.rHash[:], zeroHash[:]):
-		copy(payIntent.rHash[:], debugHash[:])
+		copy(payIntent.rHash[:], invoices.DebugHash[:])
 
 	default:
 		copy(payIntent.rHash[:], rpcPayReq.PaymentHash)
@@ -3277,6 +3309,18 @@ func createRPCInvoice(invoice *channeldb.Invoice) (*lnrpc.Invoice, error) {
 	satAmt := invoice.Terms.Value.ToSatoshis()
 	satAmtPaid := invoice.AmtPaid.ToSatoshis()
 
+	isSettled := invoice.Terms.State == channeldb.ContractSettled
+
+	var state lnrpc.Invoice_InvoiceState
+	switch invoice.Terms.State {
+	case channeldb.ContractOpen:
+		state = lnrpc.Invoice_OPEN
+	case channeldb.ContractSettled:
+		state = lnrpc.Invoice_SETTLED
+	default:
+		return nil, fmt.Errorf("unknown invoice state")
+	}
+
 	return &lnrpc.Invoice{
 		Memo:            string(invoice.Memo[:]),
 		Receipt:         invoice.Receipt[:],
@@ -3285,7 +3329,7 @@ func createRPCInvoice(invoice *channeldb.Invoice) (*lnrpc.Invoice, error) {
 		Value:           int64(satAmt),
 		CreationDate:    invoice.CreationDate.Unix(),
 		SettleDate:      settleDate,
-		Settled:         invoice.Terms.Settled,
+		Settled:         isSettled,
 		PaymentRequest:  paymentRequest,
 		DescriptionHash: descHash,
 		Expiry:          expiry,
@@ -3298,6 +3342,7 @@ func createRPCInvoice(invoice *channeldb.Invoice) (*lnrpc.Invoice, error) {
 		AmtPaidSat:      int64(satAmtPaid),
 		AmtPaidMsat:     int64(invoice.AmtPaid),
 		AmtPaid:         int64(invoice.AmtPaid),
+		State:           state,
 	}, nil
 }
 

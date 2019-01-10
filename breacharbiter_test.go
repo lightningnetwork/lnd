@@ -1336,7 +1336,7 @@ func createTestArbiter(t *testing.T, contractBreaches chan *ContractBreachEvent,
 	ba := newBreachArbiter(&BreachConfig{
 		CloseLink:          func(_ *wire.OutPoint, _ htlcswitch.ChannelCloseType) {},
 		DB:                 db,
-		Estimator:          &lnwallet.StaticFeeEstimator{FeePerKW: 12500},
+		Estimator:          lnwallet.NewStaticFeeEstimator(12500, 0),
 		GenSweepScript:     func() ([]byte, error) { return nil, nil },
 		ContractBreaches:   contractBreaches,
 		Signer:             signer,
@@ -1476,7 +1476,7 @@ func createInitChannels(revocationWindow int) (*lnwallet.LightningChannel, *lnwa
 		return nil, nil, nil, err
 	}
 
-	estimator := &lnwallet.StaticFeeEstimator{FeePerKW: 12500}
+	estimator := lnwallet.NewStaticFeeEstimator(12500, 0)
 	feePerKw, err := estimator.EstimateFeePerKW(1)
 	if err != nil {
 		return nil, nil, nil, err

@@ -92,7 +92,7 @@ var _ Message = (*Error)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (c *Error) Decode(r io.Reader, pver uint32) error {
-	return readElements(r,
+	return ReadElements(r,
 		&c.ChanID,
 		&c.Data,
 	)
@@ -103,7 +103,7 @@ func (c *Error) Decode(r io.Reader, pver uint32) error {
 //
 // This is part of the lnwire.Message interface.
 func (c *Error) Encode(w io.Writer, pver uint32) error {
-	return writeElements(w,
+	return WriteElements(w,
 		c.ChanID,
 		c.Data,
 	)

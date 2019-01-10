@@ -1127,6 +1127,14 @@
       ],
       "default": "COOPERATIVE_CLOSE"
     },
+    "InvoiceInvoiceState": {
+      "type": "string",
+      "enum": [
+        "OPEN",
+        "SETTLED"
+      ],
+      "default": "OPEN"
+    },
     "PendingChannelsResponseClosedChannel": {
       "type": "object",
       "properties": {
@@ -1275,6 +1283,17 @@
       "default": "WITNESS_PUBKEY_HASH",
       "description": "- `p2wkh`: Pay to witness key hash (`WITNESS_PUBKEY_HASH` = 0)\n- `np2wkh`: Pay to nested witness key hash (`NESTED_PUBKEY_HASH` = 1)",
       "title": "* \n`AddressType` has to be one of:"
+    },
+    "lnrpcChain": {
+      "type": "object",
+      "properties": {
+        "chain": {
+          "type": "string"
+        },
+        "network": {
+          "type": "string"
+        }
+      }
     },
     "lnrpcChangePasswordRequest": {
       "type": "object",
@@ -1599,9 +1618,6 @@
         "close_pending": {
           "$ref": "#/definitions/lnrpcPendingUpdate"
         },
-        "confirmation": {
-          "$ref": "#/definitions/lnrpcConfirmationUpdate"
-        },
         "chan_close": {
           "$ref": "#/definitions/lnrpcChannelCloseUpdate"
         }
@@ -1636,23 +1652,6 @@
           "items": {
             "$ref": "#/definitions/lnrpcChannelCloseSummary"
           }
-        }
-      }
-    },
-    "lnrpcConfirmationUpdate": {
-      "type": "object",
-      "properties": {
-        "block_sha": {
-          "type": "string",
-          "format": "byte"
-        },
-        "block_height": {
-          "type": "integer",
-          "format": "int32"
-        },
-        "num_confs_left": {
-          "type": "integer",
-          "format": "int64"
         }
       }
     },
@@ -1871,14 +1870,7 @@
         "testnet": {
           "type": "boolean",
           "format": "boolean",
-          "title": "/ Whether the current node is connected to testnet"
-        },
-        "chains": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "title": "/ A list of active chains the node is connected to"
+          "title": "* \nWhether the current node is connected to testnet. This field is \ndeprecated and the network field should be used instead"
         },
         "uris": {
           "type": "array",
@@ -1900,6 +1892,13 @@
           "type": "integer",
           "format": "int64",
           "title": "/ Number of inactive channels"
+        },
+        "chains": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcChain"
+          },
+          "title": "/ A list of active chains the node is connected to"
         }
       }
     },
@@ -2054,7 +2053,7 @@
         "receipt": {
           "type": "string",
           "format": "byte",
-          "title": "/ An optional cryptographic receipt of payment"
+          "description": "* Deprecated. An optional cryptographic receipt of payment which is not\nimplemented."
         },
         "r_preimage": {
           "type": "string",
@@ -2145,6 +2144,10 @@
           "type": "string",
           "format": "int64",
           "description": "*\nThe amount that was accepted for this invoice, in millisatoshis. This will\nONLY be set if this invoice has been settled. We provide this field as if\nthe invoice was created with a zero value, then we need to record what\namount was ultimately accepted. Additionally, it's possible that the sender\npaid MORE that was specified in the original invoice. So we'll record that\nhere as well."
+        },
+        "state": {
+          "$ref": "#/definitions/InvoiceInvoiceState",
+          "description": "*\nThe state the invoice is in."
         }
       }
     },
@@ -2419,9 +2422,6 @@
       "properties": {
         "chan_pending": {
           "$ref": "#/definitions/lnrpcPendingUpdate"
-        },
-        "confirmation": {
-          "$ref": "#/definitions/lnrpcConfirmationUpdate"
         },
         "chan_open": {
           "$ref": "#/definitions/lnrpcChannelOpenUpdate"

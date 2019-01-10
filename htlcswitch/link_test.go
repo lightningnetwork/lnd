@@ -236,7 +236,7 @@ func TestChannelLinkSingleHopPayment(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to get invoice: %v", err)
 	}
-	if !invoice.Terms.Settled {
+	if invoice.Terms.State != channeldb.ContractSettled {
 		t.Fatal("alice invoice wasn't settled")
 	}
 
@@ -467,7 +467,7 @@ func TestChannelLinkMultiHopPayment(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to get invoice: %v", err)
 	}
-	if !invoice.Terms.Settled {
+	if invoice.Terms.State != channeldb.ContractSettled {
 		t.Fatal("carol invoice haven't been settled")
 	}
 
@@ -818,7 +818,7 @@ func TestUpdateForwardingPolicy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to get invoice: %v", err)
 	}
-	if !invoice.Terms.Settled {
+	if invoice.Terms.State != channeldb.ContractSettled {
 		t.Fatal("carol invoice haven't been settled")
 	}
 
@@ -937,7 +937,7 @@ func TestChannelLinkMultiHopInsufficientPayment(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to get invoice: %v", err)
 	}
-	if invoice.Terms.Settled {
+	if invoice.Terms.State == channeldb.ContractSettled {
 		t.Fatal("carol invoice have been settled")
 	}
 
@@ -1026,7 +1026,7 @@ func TestChannelLinkMultiHopUnknownPaymentHash(t *testing.T) {
 
 	// Check that alice invoice wasn't settled and bandwidth of htlc
 	// links hasn't been changed.
-	if invoice.Terms.Settled {
+	if invoice.Terms.State == channeldb.ContractSettled {
 		t.Fatal("alice invoice was settled")
 	}
 
@@ -1112,7 +1112,7 @@ func TestChannelLinkMultiHopUnknownNextHop(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to get invoice: %v", err)
 	}
-	if invoice.Terms.Settled {
+	if invoice.Terms.State == channeldb.ContractSettled {
 		t.Fatal("carol invoice have been settled")
 	}
 
@@ -1227,7 +1227,7 @@ func TestChannelLinkMultiHopDecodeError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to get invoice: %v", err)
 	}
-	if invoice.Terms.Settled {
+	if invoice.Terms.State == channeldb.ContractSettled {
 		t.Fatal("carol invoice have been settled")
 	}
 
@@ -1795,7 +1795,7 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 	coreLink.cfg.HodlMask = hodl.MaskFromFlags(hodl.ExitSettle)
 	coreLink.cfg.DebugHTLC = true
 
-	estimator := &lnwallet.StaticFeeEstimator{FeePerKW: 6000}
+	estimator := lnwallet.NewStaticFeeEstimator(6000, 0)
 	feePerKw, err := estimator.EstimateFeePerKW(1)
 	if err != nil {
 		t.Fatalf("unable to query fee estimator: %v", err)
@@ -2206,7 +2206,7 @@ func TestChannelLinkBandwidthConsistencyOverflow(t *testing.T) {
 		aliceMsgs              = coreLink.cfg.Peer.(*mockPeer).sentMsgs
 	)
 
-	estimator := &lnwallet.StaticFeeEstimator{FeePerKW: 6000}
+	estimator := lnwallet.NewStaticFeeEstimator(6000, 0)
 	feePerKw, err := estimator.EstimateFeePerKW(1)
 	if err != nil {
 		t.Fatalf("unable to query fee estimator: %v", err)
@@ -2453,7 +2453,7 @@ func TestChannelLinkTrimCircuitsPending(t *testing.T) {
 
 	// Compute the static fees that will be used to determine the
 	// correctness of Alice's bandwidth when forwarding HTLCs.
-	estimator := &lnwallet.StaticFeeEstimator{FeePerKW: 6000}
+	estimator := lnwallet.NewStaticFeeEstimator(6000, 0)
 	feePerKw, err := estimator.EstimateFeePerKW(1)
 	if err != nil {
 		t.Fatalf("unable to query fee estimator: %v", err)
@@ -2731,7 +2731,7 @@ func TestChannelLinkTrimCircuitsNoCommit(t *testing.T) {
 
 	// Compute the static fees that will be used to determine the
 	// correctness of Alice's bandwidth when forwarding HTLCs.
-	estimator := &lnwallet.StaticFeeEstimator{FeePerKW: 6000}
+	estimator := lnwallet.NewStaticFeeEstimator(6000, 0)
 	feePerKw, err := estimator.EstimateFeePerKW(1)
 	if err != nil {
 		t.Fatalf("unable to query fee estimator: %v", err)
@@ -2989,7 +2989,7 @@ func TestChannelLinkBandwidthChanReserve(t *testing.T) {
 		aliceMsgs              = coreLink.cfg.Peer.(*mockPeer).sentMsgs
 	)
 
-	estimator := &lnwallet.StaticFeeEstimator{FeePerKW: 6000}
+	estimator := lnwallet.NewStaticFeeEstimator(6000, 0)
 	feePerKw, err := estimator.EstimateFeePerKW(1)
 	if err != nil {
 		t.Fatalf("unable to query fee estimator: %v", err)
@@ -3332,7 +3332,7 @@ func TestChannelRetransmission(t *testing.T) {
 				err = errors.Errorf("unable to get invoice: %v", err)
 				continue
 			}
-			if !invoice.Terms.Settled {
+			if invoice.Terms.State != channeldb.ContractSettled {
 				err = errors.Errorf("alice invoice haven't been settled")
 				continue
 			}
@@ -3828,7 +3828,7 @@ func TestChannelLinkAcceptOverpay(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to get invoice: %v", err)
 	}
-	if !invoice.Terms.Settled {
+	if invoice.Terms.State != channeldb.ContractSettled {
 		t.Fatal("carol invoice haven't been settled")
 	}
 

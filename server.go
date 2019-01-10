@@ -17,8 +17,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/lightningnetwork/lnd/sweep"
-
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/connmgr"
@@ -33,13 +31,16 @@ import (
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/htlcswitch"
+	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/nat"
+	"github.com/lightningnetwork/lnd/netann"
 	"github.com/lightningnetwork/lnd/routing"
+	"github.com/lightningnetwork/lnd/sweep"
 	"github.com/lightningnetwork/lnd/ticker"
 	"github.com/lightningnetwork/lnd/tor"
 )
@@ -48,10 +49,6 @@ const (
 	// defaultMinPeers is the minimum number of peers nodes should always be
 	// connected to.
 	defaultMinPeers = 3
-
-	// defaultBackoff is the starting point for exponential backoff for
-	// reconnecting to persistent peers.
-	defaultBackoff = time.Second
 
 	// defaultStableConnDuration is a floor under which all reconnection
 	// attempts will apply exponential randomized backoff. Connections
@@ -88,7 +85,7 @@ type server struct {
 
 	// nodeSigner is an implementation of the MessageSigner implementation
 	// that's backed by the identity private key of the running lnd node.
-	nodeSigner *nodeSigner
+	nodeSigner *netann.NodeSigner
 
 	// listenAddrs is the list of addresses the server is currently
 	// listening on.
@@ -144,7 +141,7 @@ type server struct {
 
 	htlcSwitch *htlcswitch.Switch
 
-	invoices *invoiceRegistry
+	invoices *invoices.InvoiceRegistry
 
 	witnessBeacon contractcourt.WitnessBeacon
 
@@ -155,6 +152,8 @@ type server struct {
 	authGossiper *discovery.AuthenticatedGossiper
 
 	utxoNursery *utxoNursery
+
+	sweeper *sweep.UtxoSweeper
 
 	chainArb *contractcourt.ChainArbitrator
 
@@ -265,10 +264,10 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		cc:      cc,
 		sigPool: lnwallet.NewSigPool(runtime.NumCPU()*2, cc.signer),
 
-		invoices: newInvoiceRegistry(chanDB),
+		invoices: invoices.NewRegistry(chanDB, activeNetParams.Params),
 
 		identityPriv: privKey,
-		nodeSigner:   newNodeSigner(privKey),
+		nodeSigner:   netann.NewNodeSigner(privKey),
 
 		listenAddrs: listenAddrs,
 
@@ -305,9 +304,9 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 	// HTLCs with the debug R-Hash immediately settled.
 	if cfg.DebugHTLC {
 		kiloCoin := btcutil.Amount(btcutil.SatoshiPerBitcoin * 1000)
-		s.invoices.AddDebugInvoice(kiloCoin, *debugPre)
+		s.invoices.AddDebugInvoice(kiloCoin, *invoices.DebugPre)
 		srvrLog.Debugf("Debug HTLC invoice inserted, preimage=%x, hash=%x",
-			debugPre[:], debugHash[:])
+			invoices.DebugPre[:], invoices.DebugHash[:])
 	}
 
 	_, currentHeight, err := s.cc.chainIO.GetBestBlock()
@@ -597,24 +596,45 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		return nil, err
 	}
 
-	sweeper := sweep.New(&sweep.UtxoSweeperConfig{
+	srvrLog.Tracef("Sweeper batch window duration: %v",
+		sweep.DefaultBatchWindowDuration)
+
+	sweeperStore, err := sweep.NewSweeperStore(
+		chanDB, activeNetParams.GenesisHash,
+	)
+	if err != nil {
+		srvrLog.Errorf("unable to create sweeper store: %v", err)
+		return nil, err
+	}
+
+	s.sweeper = sweep.New(&sweep.UtxoSweeperConfig{
 		Estimator: cc.feeEstimator,
 		GenSweepScript: func() ([]byte, error) {
 			return newSweepPkScript(cc.wallet)
 		},
-		Signer: cc.wallet.Cfg.Signer,
+		Signer:             cc.wallet.Cfg.Signer,
+		PublishTransaction: cc.wallet.PublishTransaction,
+		NewBatchTimer: func() <-chan time.Time {
+			return time.NewTimer(sweep.DefaultBatchWindowDuration).C
+		},
+		SweepTxConfTarget:    6,
+		Notifier:             cc.chainNotifier,
+		ChainIO:              cc.chainIO,
+		Store:                sweeperStore,
+		MaxInputsPerTx:       sweep.DefaultMaxInputsPerTx,
+		MaxSweepAttempts:     sweep.DefaultMaxSweepAttempts,
+		NextAttemptDeltaFunc: sweep.DefaultNextAttemptDeltaFunc,
 	})
 
 	s.utxoNursery = newUtxoNursery(&NurseryConfig{
 		ChainIO:             cc.chainIO,
 		ConfDepth:           1,
-		SweepTxConfTarget:   6,
 		FetchClosedChannels: chanDB.FetchClosedChannels,
 		FetchClosedChannel:  chanDB.FetchClosedChannel,
 		Notifier:            cc.chainNotifier,
 		PublishTransaction:  cc.wallet.PublishTransaction,
 		Store:               utxnStore,
-		Sweeper:             sweeper,
+		SweepInput:          s.sweeper.SweepInput,
 	})
 
 	// Construct a closure that wraps the htlcswitch's CloseLink method.
@@ -706,7 +726,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		DisableChannel: func(op wire.OutPoint) error {
 			return s.announceChanStatus(op, true)
 		},
-		Sweeper: sweeper,
+		Sweeper: s.sweeper,
 	}, chanDB)
 
 	s.breachArbiter = newBreachArbiter(&BreachConfig{
@@ -735,7 +755,6 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		maxRemoteDelay = maxLtcRemoteDelay
 	}
 
-	nodeSigner := newNodeSigner(privKey)
 	var chanIDSeed [32]byte
 	if _, err := rand.Read(chanIDSeed[:]); err != nil {
 		return nil, err
@@ -750,7 +769,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 			msg []byte) (*btcec.Signature, error) {
 
 			if pubKey.IsEqual(privKey.PubKey()) {
-				return nodeSigner.SignMessage(pubKey, msg)
+				return s.nodeSigner.SignMessage(pubKey, msg)
 			}
 
 			return cc.msgSigner.SignMessage(pubKey, msg)
@@ -963,6 +982,9 @@ func (s *server) Start() error {
 	if err := s.htlcSwitch.Start(); err != nil {
 		return err
 	}
+	if err := s.sweeper.Start(); err != nil {
+		return err
+	}
 	if err := s.utxoNursery.Start(); err != nil {
 		return err
 	}
@@ -1050,6 +1072,7 @@ func (s *server) Stop() error {
 	s.breachArbiter.Stop()
 	s.authGossiper.Stop()
 	s.chainArb.Stop()
+	s.sweeper.Stop()
 	s.cc.wallet.Shutdown()
 	s.cc.chainView.Stop()
 	s.connMgr.Stop()
@@ -1725,7 +1748,7 @@ func (s *server) establishPersistentConnections() error {
 		// persistent connection with.
 		s.persistentPeers[pubStr] = struct{}{}
 		if _, ok := s.persistentPeersBackoff[pubStr]; !ok {
-			s.persistentPeersBackoff[pubStr] = defaultBackoff
+			s.persistentPeersBackoff[pubStr] = cfg.MinBackoff
 		}
 
 		for _, address := range nodeAddr.addresses {
@@ -1996,7 +2019,7 @@ func (s *server) nextPeerBackoff(pubStr string,
 	backoff, ok := s.persistentPeersBackoff[pubStr]
 	if !ok {
 		// If an existing backoff was unknown, use the default.
-		return defaultBackoff
+		return cfg.MinBackoff
 	}
 
 	// If the peer failed to start properly, we'll just use the previous
@@ -2018,17 +2041,17 @@ func (s *server) nextPeerBackoff(pubStr string,
 	// reduce the timeout duration by the length of the connection after
 	// applying randomized exponential backoff. We'll only apply this in the
 	// case that:
-	//   reb(curBackoff) - connDuration > defaultBackoff
+	//   reb(curBackoff) - connDuration > cfg.MinBackoff
 	relaxedBackoff := computeNextBackoff(backoff) - connDuration
-	if relaxedBackoff > defaultBackoff {
+	if relaxedBackoff > cfg.MinBackoff {
 		return relaxedBackoff
 	}
 
-	// Lastly, if reb(currBackoff) - connDuration <= defaultBackoff, meaning
+	// Lastly, if reb(currBackoff) - connDuration <= cfg.MinBackoff, meaning
 	// the stable connection lasted much longer than our previous backoff.
 	// To reward such good behavior, we'll reconnect after the default
 	// timeout.
-	return defaultBackoff
+	return cfg.MinBackoff
 }
 
 // shouldDropConnection determines if our local connection to a remote peer
@@ -2684,7 +2707,7 @@ func (s *server) ConnectToPeer(addr *lnwire.NetAddress, perm bool) error {
 
 		s.persistentPeers[targetPub] = struct{}{}
 		if _, ok := s.persistentPeersBackoff[targetPub]; !ok {
-			s.persistentPeersBackoff[targetPub] = defaultBackoff
+			s.persistentPeersBackoff[targetPub] = cfg.MinBackoff
 		}
 		s.persistentConnReqs[targetPub] = append(
 			s.persistentConnReqs[targetPub], connReq)

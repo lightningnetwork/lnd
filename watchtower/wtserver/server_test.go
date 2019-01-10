@@ -170,6 +170,23 @@ var createSessionTests = []createSessionTestCase{
 			Data: []byte(addr.ScriptAddress()),
 		},
 	},
+	{
+		name: "reject unsupported blob type",
+		initMsg: wtwire.NewInitMessage(
+			lnwire.NewRawFeatureVector(),
+			lnwire.NewRawFeatureVector(),
+		),
+		createMsg: &wtwire.CreateSession{
+			BlobType:     0,
+			MaxUpdates:   1000,
+			RewardRate:   0,
+			SweepFeeRate: 1,
+		},
+		expReply: &wtwire.CreateSessionReply{
+			Code: wtwire.CreateSessionCodeRejectBlobType,
+			Data: []byte{},
+		},
+	},
 	// TODO(conner): add policy rejection tests
 }
 

@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/connmgr"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/watchtower/blob"
 	"github.com/lightningnetwork/lnd/watchtower/wtdb"
 	"github.com/lightningnetwork/lnd/watchtower/wtpolicy"
 	"github.com/lightningnetwork/lnd/watchtower/wtwire"
@@ -369,6 +370,15 @@ func (s *Server) handleCreateSession(peer Peer, id *wtdb.SessionID,
 	}
 
 	rewardAddrBytes := rewardAddress.ScriptAddress()
+
+	// Ensure that the requested blob type is supported by our tower.
+	if !blob.IsSupportedType(req.BlobType) {
+		log.Debugf("Rejecting CreateSession from %s, unsupported blob "+
+			"type %s", id, req.BlobType)
+		return s.replyCreateSession(
+			peer, id, wtwire.CreateSessionCodeRejectBlobType, nil,
+		)
+	}
 
 	// TODO(conner): create invoice for upfront payment
 

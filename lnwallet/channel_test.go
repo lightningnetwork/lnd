@@ -1395,6 +1395,45 @@ func TestStateUpdatePersistence(t *testing.T) {
 		t.Fatalf("unable to recv bob's htlc: %v", err)
 	}
 
+	// Also add a fee update to the update logs.
+	fee := SatPerKWeight(111)
+	if err := aliceChannel.UpdateFee(fee); err != nil {
+		t.Fatalf("unable to send fee update")
+	}
+	if err := bobChannel.ReceiveUpdateFee(fee); err != nil {
+		t.Fatalf("unable to receive fee update")
+	}
+
+	// Helper method that asserts the expected number of updates are found
+	// in the update logs.
+	assertNumLogUpdates := func(numAliceUpdates, numBobUpdates int) {
+		if aliceChannel.localUpdateLog.Len() != numAliceUpdates {
+			t.Fatalf("expected %d local updates, found %d",
+				numAliceUpdates,
+				aliceChannel.localUpdateLog.Len())
+		}
+		if aliceChannel.remoteUpdateLog.Len() != numBobUpdates {
+			t.Fatalf("expected %d remote updates, found %d",
+				numBobUpdates,
+				aliceChannel.remoteUpdateLog.Len())
+		}
+
+		if bobChannel.localUpdateLog.Len() != numBobUpdates {
+			t.Fatalf("expected %d local updates, found %d",
+				numBobUpdates,
+				bobChannel.localUpdateLog.Len())
+		}
+		if bobChannel.remoteUpdateLog.Len() != numAliceUpdates {
+			t.Fatalf("expected %d remote updates, found %d",
+				numAliceUpdates,
+				bobChannel.remoteUpdateLog.Len())
+		}
+	}
+
+	// Both nodes should now have Alice's 3 Adds and 1 FeeUpdate in the
+	// log, and Bob's 1 Add.
+	assertNumLogUpdates(4, 1)
+
 	// Next, Alice initiates a state transition to include the HTLC's she
 	// added above in a new commitment state.
 	if err := forceStateTransition(aliceChannel, bobChannel); err != nil {
@@ -1408,6 +1447,16 @@ func TestStateUpdatePersistence(t *testing.T) {
 	if err := forceStateTransition(bobChannel, aliceChannel); err != nil {
 		t.Fatalf("unable to complete bob's state transition: %v", err)
 	}
+
+	// After the state transition the fee update is fully locked in, and
+	// should've been removed from both channels' update logs.
+	if aliceChannel.localCommitChain.tail().feePerKw != fee {
+		t.Fatalf("fee not locked in")
+	}
+	if bobChannel.localCommitChain.tail().feePerKw != fee {
+		t.Fatalf("fee not locked in")
+	}
+	assertNumLogUpdates(3, 1)
 
 	// The latest commitment from both sides should have all the HTLCs.
 	numAliceOutgoing := aliceChannel.localCommitChain.tail().outgoingHTLCs

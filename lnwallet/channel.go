@@ -1211,6 +1211,9 @@ func compactLogs(ourLog, theirLog *updateLog,
 			nextA = e.Next()
 
 			htlc := e.Value.(*PaymentDescriptor)
+
+			// We skip Adds, as they will be removed along with the
+			// fail/settles below.
 			if htlc.EntryType == Add {
 				continue
 			}
@@ -1229,6 +1232,16 @@ func compactLogs(ourLog, theirLog *updateLog,
 			if remoteChainTail >= htlc.removeCommitHeightRemote &&
 				localChainTail >= htlc.removeCommitHeightLocal {
 
+				// Fee updates have no parent htlcs, so we only
+				// remove the update itself.
+				if htlc.EntryType == FeeUpdate {
+					logA.removeUpdate(htlc.LogIndex)
+					continue
+				}
+
+				// The other types (fail/settle) do have a
+				// parent HTLC, so we'll remove that HTLC from
+				// the other log.
 				logA.removeUpdate(htlc.LogIndex)
 				logB.removeHtlc(htlc.ParentIndex)
 			}

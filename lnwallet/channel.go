@@ -165,6 +165,10 @@ const (
 	// original add entry from the remote party's log after the next state
 	// transition.
 	Settle
+
+	// FeeUpdate is an update type sent by the channel initiator that
+	// updates the fee rate used when signing the commitment transaction.
+	FeeUpdate
 )
 
 // String returns a human readable string that uniquely identifies the target
@@ -179,6 +183,8 @@ func (u updateType) String() string {
 		return "MalformedFail"
 	case Settle:
 		return "Settle"
+	case FeeUpdate:
+		return "FeeUpdate"
 	default:
 		return "<unknown type>"
 	}
@@ -190,7 +196,7 @@ func (u updateType) String() string {
 // the original added HTLC.
 //
 // TODO(roasbeef): LogEntry interface??
-//  * need to separate attrs for cancel/add/settle
+//  * need to separate attrs for cancel/add/settle/feeupdate
 type PaymentDescriptor struct {
 	// RHash is the payment hash for this HTLC. The HTLC can be settled iff
 	// the preimage to this hash is presented.

@@ -3,8 +3,12 @@
 package lncfg
 
 import (
+	"bytes"
+	"encoding/hex"
 	"net"
 	"testing"
+
+	"github.com/btcsuite/btcd/btcec"
 )
 
 // addressTest defines a test vector for an address that contains the non-
@@ -78,55 +82,186 @@ var (
 // normalized correctly.
 func TestAddresses(t *testing.T) {
 	// First, test all correct addresses.
-	for i, testVector := range addressTestVectors {
-		addr := []string{testVector.address}
-		normalized, err := NormalizeAddresses(
-			addr, defaultTestPort, net.ResolveTCPAddr,
-		)
-		if err != nil {
-			t.Fatalf("#%v: unable to normalize address %s: %v",
-				i, testVector.address, err)
-		}
-		netAddr := normalized[0]
-		if err != nil {
-			t.Fatalf("#%v: unable to split normalized address: %v", i, err)
-		}
-		if netAddr.Network() != testVector.expectedNetwork ||
-			netAddr.String() != testVector.expectedAddress {
-			t.Fatalf("#%v: mismatched address: expected %s://%s, "+
-				"got %s://%s",
-				i, testVector.expectedNetwork,
-				testVector.expectedAddress,
-				netAddr.Network(), netAddr.String(),
-			)
-		}
-		isAddrLoopback := IsLoopback(normalized[0].String())
-		if testVector.isLoopback != isAddrLoopback {
-			t.Fatalf("#%v: mismatched loopback detection: expected "+
-				"%v, got %v for addr %s",
-				i, testVector.isLoopback, isAddrLoopback,
-				testVector.address,
-			)
-		}
-		isAddrUnix := IsUnix(normalized[0])
-		if testVector.isUnix != isAddrUnix {
-			t.Fatalf("#%v: mismatched unix detection: expected "+
-				"%v, got %v for addr %s",
-				i, testVector.isUnix, isAddrUnix,
-				testVector.address,
-			)
-		}
+	for _, test := range addressTestVectors {
+		t.Run(test.address, func(t *testing.T) {
+			testAddress(t, test)
+		})
 	}
 
 	// Finally, test invalid inputs to see if they are handled correctly.
-	for _, testVector := range invalidTestVectors {
-		addr := []string{testVector}
-		_, err := NormalizeAddresses(
-			addr, defaultTestPort, net.ResolveTCPAddr,
-		)
-		if err == nil {
+	for _, invalidAddr := range invalidTestVectors {
+		t.Run(invalidAddr, func(t *testing.T) {
+			testInvalidAddress(t, invalidAddr)
+		})
+	}
+}
 
-			t.Fatalf("expected error when parsing %v", testVector)
-		}
+// testAddress parses an address from its string representation, and
+// asserts that the parsed net.Addr is correct against the given test case.
+func testAddress(t *testing.T, test addressTest) {
+	addr := []string{test.address}
+	normalized, err := NormalizeAddresses(
+		addr, defaultTestPort, net.ResolveTCPAddr,
+	)
+	if err != nil {
+		t.Fatalf("unable to normalize address %s: %v",
+			test.address, err)
+	}
+
+	if len(addr) == 0 {
+		t.Fatalf("no normalized addresses returned")
+	}
+
+	netAddr := normalized[0]
+	validateAddr(t, netAddr, test)
+}
+
+// testInvalidAddress asserts that parsing the invalidAddr string using
+// NormalizeAddresses results in an error.
+func testInvalidAddress(t *testing.T, invalidAddr string) {
+	addr := []string{invalidAddr}
+	_, err := NormalizeAddresses(
+		addr, defaultTestPort, net.ResolveTCPAddr,
+	)
+	if err == nil {
+		t.Fatalf("expected error when parsing %v", invalidAddr)
+	}
+}
+
+var (
+	pubKeyBytes = []byte{0x03,
+		0xc7, 0x82, 0x86, 0xd0, 0xbf, 0xe0, 0xb2, 0x33,
+		0x77, 0xe3, 0x47, 0xd7, 0xd9, 0x63, 0x94, 0x3c,
+		0x4f, 0x57, 0x5d, 0xdd, 0xd5, 0x7e, 0x2f, 0x1d,
+		0x52, 0xa5, 0xbe, 0x1e, 0xb7, 0xf6, 0x25, 0xa4,
+	}
+
+	pubKeyHex = hex.EncodeToString(pubKeyBytes)
+
+	pubKey, _ = btcec.ParsePubKey(pubKeyBytes, btcec.S256())
+)
+
+type lnAddressCase struct {
+	lnAddress      string
+	expectedPubKey *btcec.PublicKey
+
+	addressTest
+}
+
+// lnAddressTests constructs valid LNAddress test vectors from the existing set
+// of valid address test vectors. All addresses will use the same public key for
+// the positive tests.
+var lnAddressTests = func() []lnAddressCase {
+	var cases []lnAddressCase
+	for _, addrTest := range addressTestVectors {
+		cases = append(cases, lnAddressCase{
+			lnAddress:      pubKeyHex + "@" + addrTest.address,
+			expectedPubKey: pubKey,
+			addressTest:    addrTest,
+		})
+	}
+
+	return cases
+}()
+
+var invalidLNAddressTests = []string{
+	"",                                  // empty string
+	"@",                                 // empty pubkey
+	"nonhexpubkey@",                     // non-hex public key
+	pubKeyHex[:len(pubKeyHex)-2] + "@",  // pubkey too short
+	pubKeyHex + "aa@",                   // pubkey too long
+	pubKeyHex[:len(pubKeyHex)-1] + "7@", // pubkey not on curve
+	pubKeyHex + "@some string",          // invalid address
+	pubKeyHex + "@://",                  // invalid address
+	pubKeyHex + "@21.21.21.21.21",       // invalid address
+}
+
+// TestLNAddresses performs both positive and negative tests against
+// ParseLNAddressString.
+func TestLNAddresses(t *testing.T) {
+	for _, test := range lnAddressTests {
+		t.Run(test.lnAddress, func(t *testing.T) {
+			testLNAddress(t, test)
+		})
+	}
+
+	for _, invalidAddr := range invalidLNAddressTests {
+		t.Run(invalidAddr, func(t *testing.T) {
+			testInvalidLNAddress(t, invalidAddr)
+		})
+	}
+}
+
+// testLNAddress parses an LNAddress from its string representation, and asserts
+// that the parsed IdentityKey and Address are correct according to its test
+// case.
+func testLNAddress(t *testing.T, test lnAddressCase) {
+	// Parse the LNAddress using the default port and TCP resolver.
+	lnAddr, err := ParseLNAddressString(
+		test.lnAddress, defaultTestPort, net.ResolveTCPAddr,
+	)
+	if err != nil {
+		t.Fatalf("unable to parse ln address: %v", err)
+	}
+
+	// Assert that the public key matches the expected public key.
+	pkBytes := lnAddr.IdentityKey.SerializeCompressed()
+	if !bytes.Equal(pkBytes, pubKeyBytes) {
+		t.Fatalf("mismatched pubkey, want: %x, got: %v",
+			pubKeyBytes, pkBytes)
+	}
+
+	// Assert that the address after the @ is parsed properly, as if it were
+	// just a standalone address parsed by ParseAddressString.
+	validateAddr(t, lnAddr.Address, test.addressTest)
+}
+
+// testLNAddressCase asserts that parsing the given invalidAddr string results
+// in an error when parsed with ParseLNAddressString.
+func testInvalidLNAddress(t *testing.T, invalidAddr string) {
+	_, err := ParseLNAddressString(
+		invalidAddr, defaultTestPort, net.ResolveTCPAddr,
+	)
+	if err == nil {
+		t.Fatalf("expected error when parsing invalid lnaddress: %v",
+			invalidAddr)
+	}
+}
+
+// validateAddr asserts that an addr parsed by ParseAddressString matches the
+// properties expected by its addressTest. In particular, it validates that the
+// Network() and String() methods match the expectedNetwork and expectedAddress,
+// respectively. Further, we test the IsLoopback and IsUnix detection methods
+// against addr and assert that they match the expected values in the test case.
+func validateAddr(t *testing.T, addr net.Addr, test addressTest) {
+
+	t.Helper()
+
+	// Assert that the parsed network and address match what we expect.
+	if addr.Network() != test.expectedNetwork ||
+		addr.String() != test.expectedAddress {
+		t.Fatalf("mismatched address: expected %s://%s, "+
+			"got %s://%s",
+			test.expectedNetwork, test.expectedAddress,
+			addr.Network(), addr.String(),
+		)
+	}
+
+	// Assert whether we expect this address to be a loopback address.
+	isAddrLoopback := IsLoopback(addr.String())
+	if test.isLoopback != isAddrLoopback {
+		t.Fatalf("mismatched loopback detection: expected "+
+			"%v, got %v for addr %s",
+			test.isLoopback, isAddrLoopback, test.address,
+		)
+	}
+
+	// Assert whether we expect this address to be a unix address.
+	isAddrUnix := IsUnix(addr)
+	if test.isUnix != isAddrUnix {
+		t.Fatalf("mismatched unix detection: expected "+
+			"%v, got %v for addr %s",
+			test.isUnix, isAddrUnix, test.address,
+		)
 	}
 }

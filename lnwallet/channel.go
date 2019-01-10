@@ -351,7 +351,7 @@ type PaymentDescriptor struct {
 // NOTE: The provided `logUpdates` MUST corresponding exactly to either the Adds
 // or SettleFails in this channel's forwarding package at `height`.
 func PayDescsFromRemoteLogUpdates(chanID lnwire.ShortChannelID, height uint64,
-	logUpdates []channeldb.LogUpdate) []*PaymentDescriptor {
+	logUpdates []channeldb.LogUpdate) ([]*PaymentDescriptor, error) {
 
 	// Allocate enough space to hold all of the payment descriptors we will
 	// reconstruct, and also the list of pointers that will be returned to
@@ -423,13 +423,18 @@ func PayDescsFromRemoteLogUpdates(chanID lnwire.ShortChannelID, height uint64,
 					Index:  uint16(i),
 				},
 			}
+
+		// NOTE: UpdateFee is not expected since they are not forwarded.
+		case *lnwire.UpdateFee:
+			return nil, fmt.Errorf("unexpected update fee")
+
 		}
 
 		payDescs = append(payDescs, pd)
 		payDescPtrs = append(payDescPtrs, &payDescs[i])
 	}
 
-	return payDescPtrs
+	return payDescPtrs, nil
 }
 
 // commitment represents a commitment to a new state within an active channel.
@@ -1566,6 +1571,23 @@ func (lc *LightningChannel) logUpdateToPayDesc(logUpdate *channeldb.LogUpdate,
 			EntryType:                MalformedFail,
 			FailCode:                 wireMsg.FailureCode,
 			ShaOnionBlob:             wireMsg.ShaOnionBlob,
+			removeCommitHeightRemote: commitHeight,
+		}
+
+	// For fee updates we'll create a FeeUpdate type to add to the log. We
+	// reuse the amount field to hold the fee rate. Since the amount field
+	// is denominated in msat we won't lose precision when storing the
+	// sat/kw denominated feerate. Note that we set both the add and remove
+	// height to the same value, as we consider the fee update locked in by
+	// adding and removing it at the same height.
+	case *lnwire.UpdateFee:
+		pd = &PaymentDescriptor{
+			LogIndex: logUpdate.LogIndex,
+			Amount: lnwire.NewMSatFromSatoshis(
+				btcutil.Amount(wireMsg.FeePerKw),
+			),
+			EntryType:                FeeUpdate,
+			addCommitHeightRemote:    commitHeight,
 			removeCommitHeightRemote: commitHeight,
 		}
 	}
@@ -2882,6 +2904,15 @@ func (lc *LightningChannel) createCommitDiff(
 				ID:           pd.ParentIndex,
 				ShaOnionBlob: pd.ShaOnionBlob,
 				FailureCode:  pd.FailCode,
+			}
+
+		case FeeUpdate:
+			// The Amount field holds the feerate denominated in
+			// msat. Since feerates are only denominated in sat/kw,
+			// we can convert it without loss of precision.
+			logUpdate.UpdateMsg = &lnwire.UpdateFee{
+				ChanID:   chanID,
+				FeePerKw: uint32(pd.Amount.ToSatoshis()),
 			}
 		}
 
@@ -4253,6 +4284,12 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 	var addIndex, settleFailIndex uint16
 	for e := lc.remoteUpdateLog.Front(); e != nil; e = e.Next() {
 		pd := e.Value.(*PaymentDescriptor)
+
+		// Fee updates are local to this particular channel, and should
+		// never be forwarded.
+		if pd.EntryType == FeeUpdate {
+			continue
+		}
 
 		if pd.isForwarded {
 			continue

@@ -1781,9 +1781,14 @@ func (s *Switch) loadChannelFwdPkgs(source lnwire.ShortChannelID) ([]*channeldb.
 // NOTE: This should mimic the behavior processRemoteSettleFails.
 func (s *Switch) reforwardSettleFails(fwdPkgs []*channeldb.FwdPkg) {
 	for _, fwdPkg := range fwdPkgs {
-		settleFails := lnwallet.PayDescsFromRemoteLogUpdates(
+		settleFails, err := lnwallet.PayDescsFromRemoteLogUpdates(
 			fwdPkg.Source, fwdPkg.Height, fwdPkg.SettleFails,
 		)
+		if err != nil {
+			log.Errorf("Unable to process remote log updates: %v",
+				err)
+			continue
+		}
 
 		switchPackets := make([]*htlcPacket, 0, len(settleFails))
 		for i, pd := range settleFails {

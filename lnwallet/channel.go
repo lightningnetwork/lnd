@@ -2245,8 +2245,10 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 	// in order to update their commitment addition height, and to adjust
 	// the balances on the commitment transaction accordingly.
 	htlcView := lc.fetchHTLCView(theirLogIndex, ourLogIndex)
-	ourBalance, theirBalance, _, filteredHTLCView, feePerKw :=
-		lc.computeView(htlcView, remoteChain, true)
+	ourBalance, theirBalance, _, filteredHTLCView := lc.computeView(
+		htlcView, remoteChain, true,
+	)
+	feePerKw := filteredHTLCView.feePerKw
 
 	// Determine how many current HTLCs are over the dust limit, and should
 	// be counted for the purpose of fee calculation.
@@ -3543,7 +3545,7 @@ func ChanSyncMsg(c *channeldb.OpenChannel) (*lnwire.ChannelReestablish, error) {
 // HTLCs will be set to the next commitment height.
 func (lc *LightningChannel) computeView(view *htlcView, remoteChain bool,
 	updateState bool) (lnwire.MilliSatoshi, lnwire.MilliSatoshi, int64,
-	*htlcView, SatPerKWeight) {
+	*htlcView) {
 
 	commitChain := lc.localCommitChain
 	dustLimit := lc.localChanCfg.DustLimit
@@ -3607,7 +3609,7 @@ func (lc *LightningChannel) computeView(view *htlcView, remoteChain bool,
 	}
 
 	totalCommitWeight := CommitWeight + totalHtlcWeight
-	return ourBalance, theirBalance, totalCommitWeight, filteredHTLCView, feePerKw
+	return ourBalance, theirBalance, totalCommitWeight, filteredHTLCView
 }
 
 // validateCommitmentSanity is used to validate the current state of the
@@ -3638,9 +3640,10 @@ func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
 	ourInitialBalance := commitChain.tip().ourBalance
 	theirInitialBalance := commitChain.tip().theirBalance
 
-	ourBalance, theirBalance, commitWeight, filteredView, feePerKw := lc.computeView(
+	ourBalance, theirBalance, commitWeight, filteredView := lc.computeView(
 		view, remoteChain, false,
 	)
+	feePerKw := filteredView.feePerKw
 
 	// Calculate the commitment fee, and subtract it from the initiator's
 	// balance.
@@ -5898,12 +5901,12 @@ func (lc *LightningChannel) availableBalance() (lnwire.MilliSatoshi, int64) {
 		lc.localUpdateLog.logIndex)
 
 	// Then compute our current balance for that view.
-	ourBalance, _, commitWeight, _, feePerKw :=
+	ourBalance, _, commitWeight, filteredView :=
 		lc.computeView(htlcView, false, false)
 
 	// If we are the channel initiator, we must remember to subtract the
 	// commitment fee from our available balance.
-	commitFee := feePerKw.FeeForWeight(commitWeight)
+	commitFee := filteredView.feePerKw.FeeForWeight(commitWeight)
 	if lc.channelState.IsInitiator {
 		ourBalance -= lnwire.NewMSatFromSatoshis(commitFee)
 	}

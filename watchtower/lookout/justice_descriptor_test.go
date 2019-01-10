@@ -19,6 +19,7 @@ import (
 	"github.com/lightningnetwork/lnd/watchtower/blob"
 	"github.com/lightningnetwork/lnd/watchtower/lookout"
 	"github.com/lightningnetwork/lnd/watchtower/wtdb"
+	"github.com/lightningnetwork/lnd/watchtower/wtpolicy"
 )
 
 const csvDelay uint32 = 144
@@ -170,8 +171,10 @@ func TestJusticeDescriptor(t *testing.T) {
 	// parameters that should be used in constructing the justice
 	// transaction.
 	sessionInfo := &wtdb.SessionInfo{
-		SweepFeeRate:  2000,
-		RewardRate:    900000,
+		Policy: wtpolicy.Policy{
+			SweepFeeRate: 2000,
+			RewardRate:   900000,
+		},
 		RewardAddress: makeAddrSlice(22),
 	}
 

@@ -38,8 +38,8 @@ func makeAddr(size int) []byte {
 
 type descriptorTest struct {
 	name                 string
-	encVersion           uint16
-	decVersion           uint16
+	encVersion           blob.Type
+	decVersion           blob.Type
 	sweepAddr            []byte
 	revPubKey            blob.PubKey
 	delayPubKey          blob.PubKey
@@ -52,11 +52,15 @@ type descriptorTest struct {
 	decErr               error
 }
 
+var rewardAndCommitType = blob.TypeFromFlags(
+	blob.FlagReward, blob.FlagCommitOutputs,
+)
+
 var descriptorTests = []descriptorTest{
 	{
 		name:             "to-local only",
-		encVersion:       0,
-		decVersion:       0,
+		encVersion:       blob.TypeDefault,
+		decVersion:       blob.TypeDefault,
 		sweepAddr:        makeAddr(22),
 		revPubKey:        makePubKey(0),
 		delayPubKey:      makePubKey(1),
@@ -65,8 +69,8 @@ var descriptorTests = []descriptorTest{
 	},
 	{
 		name:                 "to-local and p2wkh",
-		encVersion:           0,
-		decVersion:           0,
+		encVersion:           rewardAndCommitType,
+		decVersion:           rewardAndCommitType,
 		sweepAddr:            makeAddr(22),
 		revPubKey:            makePubKey(0),
 		delayPubKey:          makePubKey(1),
@@ -78,30 +82,30 @@ var descriptorTests = []descriptorTest{
 	},
 	{
 		name:             "unknown encrypt version",
-		encVersion:       1,
-		decVersion:       0,
+		encVersion:       0,
+		decVersion:       blob.TypeDefault,
 		sweepAddr:        makeAddr(34),
 		revPubKey:        makePubKey(0),
 		delayPubKey:      makePubKey(1),
 		csvDelay:         144,
 		commitToLocalSig: makeSig(1),
-		encErr:           blob.ErrUnknownBlobVersion,
+		encErr:           blob.ErrUnknownBlobType,
 	},
 	{
 		name:             "unknown decrypt version",
-		encVersion:       0,
-		decVersion:       1,
+		encVersion:       blob.TypeDefault,
+		decVersion:       0,
 		sweepAddr:        makeAddr(34),
 		revPubKey:        makePubKey(0),
 		delayPubKey:      makePubKey(1),
 		csvDelay:         144,
 		commitToLocalSig: makeSig(1),
-		decErr:           blob.ErrUnknownBlobVersion,
+		decErr:           blob.ErrUnknownBlobType,
 	},
 	{
 		name:             "sweep addr length zero",
-		encVersion:       0,
-		decVersion:       0,
+		encVersion:       blob.TypeDefault,
+		decVersion:       blob.TypeDefault,
 		sweepAddr:        makeAddr(0),
 		revPubKey:        makePubKey(0),
 		delayPubKey:      makePubKey(1),
@@ -110,8 +114,8 @@ var descriptorTests = []descriptorTest{
 	},
 	{
 		name:             "sweep addr max size",
-		encVersion:       0,
-		decVersion:       0,
+		encVersion:       blob.TypeDefault,
+		decVersion:       blob.TypeDefault,
 		sweepAddr:        makeAddr(blob.MaxSweepAddrSize),
 		revPubKey:        makePubKey(0),
 		delayPubKey:      makePubKey(1),
@@ -120,8 +124,8 @@ var descriptorTests = []descriptorTest{
 	},
 	{
 		name:             "sweep addr too long",
-		encVersion:       0,
-		decVersion:       0,
+		encVersion:       blob.TypeDefault,
+		decVersion:       blob.TypeDefault,
 		sweepAddr:        makeAddr(blob.MaxSweepAddrSize + 1),
 		revPubKey:        makePubKey(0),
 		delayPubKey:      makePubKey(1),

@@ -4,7 +4,7 @@ import (
 	"errors"
 
 	"github.com/btcsuite/btcutil"
-	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/watchtower/wtpolicy"
 )
 
 var (
@@ -49,26 +49,14 @@ type SessionInfo struct {
 	// ID is the remote public key of the watchtower client.
 	ID SessionID
 
-	// Version specifies the plaintext blob encoding of all state updates.
-	Version uint16
-
-	// MaxUpdates is the total number of updates the client can send for
-	// this session.
-	MaxUpdates uint16
+	// Policy holds the negotiated session parameters.
+	Policy wtpolicy.Policy
 
 	// LastApplied the sequence number of the last successful state update.
 	LastApplied uint16
 
 	// ClientLastApplied the last last-applied the client has echoed back.
 	ClientLastApplied uint16
-
-	// RewardRate the fraction of the swept amount that goes to the tower,
-	// expressed in millionths of the swept balance.
-	RewardRate uint32
-
-	// SweepFeeRate is the agreed upon fee rate used to sign any sweep
-	// transactions.
-	SweepFeeRate lnwallet.SatPerKWeight
 
 	// RewardAddress the address that the tower's reward will be deposited
 	// to if a sweep transaction confirms.
@@ -96,7 +84,7 @@ func (s *SessionInfo) AcceptUpdateSequence(seqNum, lastApplied uint16) error {
 		return ErrLastAppliedReversion
 
 	// Client update exceeds capacity of session.
-	case seqNum > s.MaxUpdates:
+	case seqNum > s.Policy.MaxUpdates:
 		return ErrSessionConsumed
 
 	// Client update does not match our expected next seqnum.
@@ -117,7 +105,7 @@ func (s *SessionInfo) AcceptUpdateSequence(seqNum, lastApplied uint16) error {
 func (s *SessionInfo) ComputeSweepOutputs(totalAmt btcutil.Amount,
 	txVSize int64) (btcutil.Amount, btcutil.Amount, error) {
 
-	txFee := s.SweepFeeRate.FeeForWeight(txVSize)
+	txFee := s.Policy.SweepFeeRate.FeeForWeight(txVSize)
 	if txFee > totalAmt {
 		return 0, 0, ErrFeeExceedsInputs
 	}
@@ -126,7 +114,8 @@ func (s *SessionInfo) ComputeSweepOutputs(totalAmt btcutil.Amount,
 
 	// Apply the reward rate to the remaining total, specified in millionths
 	// of the available balance.
-	rewardAmt := (totalAmt*btcutil.Amount(s.RewardRate) + 999999) / 1000000
+	rewardRate := btcutil.Amount(s.Policy.RewardRate)
+	rewardAmt := (totalAmt*rewardRate + 999999) / 1000000
 	sweepAmt := totalAmt - rewardAmt
 
 	// TODO(conner): check dustiness

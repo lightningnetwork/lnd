@@ -210,7 +210,7 @@ func (l *Lookout) processEpoch(epoch *chainntnfs.BlockEpoch,
 		// sweep the breached commitment outputs.
 		justiceKit, err := blob.Decrypt(
 			commitTxID[:], match.EncryptedBlob,
-			match.SessionInfo.Version,
+			match.SessionInfo.Policy.BlobType,
 		)
 		if err != nil {
 			// If the decryption fails, this implies either that the

@@ -2202,6 +2202,7 @@ func htlcIsDust(incoming, ourCommit bool, feePerKw SatPerKWeight,
 type htlcView struct {
 	ourUpdates   []*PaymentDescriptor
 	theirUpdates []*PaymentDescriptor
+	feePerKw     SatPerKWeight
 }
 
 // fetchHTLCView returns all the candidate HTLC updates which should be
@@ -2462,9 +2463,9 @@ func (lc *LightningChannel) createCommitmentTx(c *commitment,
 
 // evaluateHTLCView processes all update entries in both HTLC update logs,
 // producing a final view which is the result of properly applying all adds,
-// settles, and timeouts found in both logs. The resulting view returned
-// reflects the current state of HTLCs within the remote or local commitment
-// chain.
+// settles, timeouts and fee updates found in both logs. The resulting view
+// returned reflects the current state of HTLCs within the remote or local
+// commitment chain, and the current commitment fee rate.
 //
 // If mutateState is set to true, then the add height of all added HTLCs
 // will be set to nextHeight, and the remove height of all removed HTLCs
@@ -2476,7 +2477,12 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 	theirBalance *lnwire.MilliSatoshi, nextHeight uint64,
 	remoteChain, mutateState bool) *htlcView {
 
-	newView := &htlcView{}
+	// We initialize the view's fee rate to the fee rate of the unfiltered
+	// view. If any fee updates are found when evaluating the view, it will
+	// be updated.
+	newView := &htlcView{
+		feePerKw: view.feePerKw,
+	}
 
 	// We use two maps, one for the local log and one for the remote log to
 	// keep track of which entries we need to skip when creating the final
@@ -2489,7 +2495,17 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 	// skip sets and mutating the current chain state (crediting balances,
 	// etc) to reflect the settle/timeout entry encountered.
 	for _, entry := range view.ourUpdates {
-		if entry.EntryType == Add {
+		switch entry.EntryType {
+		// Skip adds for now. They will be processed below.
+		case Add:
+			continue
+
+		// Process fee updates, updating the current feePerKw.
+		case FeeUpdate:
+			processFeeUpdate(
+				entry, nextHeight, remoteChain, mutateState,
+				newView,
+			)
 			continue
 		}
 
@@ -2523,7 +2539,17 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 			nextHeight, remoteChain, true, mutateState)
 	}
 	for _, entry := range view.theirUpdates {
-		if entry.EntryType == Add {
+		switch entry.EntryType {
+		// Skip adds for now. They will be processed below.
+		case Add:
+			continue
+
+		// Process fee updates, updating the current feePerKw.
+		case FeeUpdate:
+			processFeeUpdate(
+				entry, nextHeight, remoteChain, mutateState,
+				newView,
+			)
 			continue
 		}
 
@@ -2669,6 +2695,38 @@ func processRemoveEntry(htlc *PaymentDescriptor, ourBalance,
 	}
 
 	if mutateState {
+		*removeHeight = nextHeight
+	}
+}
+
+// processFeeUpdate processes a log update that updates the current commitment
+// fee.
+func processFeeUpdate(feeUpdate *PaymentDescriptor, nextHeight uint64,
+	remoteChain bool, mutateState bool, view *htlcView) {
+
+	// Fee updates are applied for all commitments after they are
+	// sent/received, so we consider them being added and removed at the
+	// same height.
+	var addHeight *uint64
+	var removeHeight *uint64
+	if remoteChain {
+		addHeight = &feeUpdate.addCommitHeightRemote
+		removeHeight = &feeUpdate.removeCommitHeightRemote
+	} else {
+		addHeight = &feeUpdate.addCommitHeightLocal
+		removeHeight = &feeUpdate.removeCommitHeightLocal
+	}
+
+	if *addHeight != 0 {
+		return
+	}
+
+	// If the update wasn't already locked in, update the current fee rate
+	// to reflect this update.
+	view.feePerKw = SatPerKWeight(feeUpdate.Amount.ToSatoshis())
+
+	if mutateState {
+		*addHeight = nextHeight
 		*removeHeight = nextHeight
 	}
 }
@@ -3551,17 +3609,20 @@ func (lc *LightningChannel) computeView(view *htlcView, remoteChain bool,
 	}
 	nextHeight := commitChain.tip().height + 1
 
-	// We evaluate the view at this stage, meaning settled and failed HTLCs
-	// will remove their corresponding added HTLCs.  The resulting filtered
-	// view will only have Add entries left, making it easy to compare the
-	// channel constraints to the final commitment state.
-	filteredHTLCView := lc.evaluateHTLCView(view, &ourBalance,
-		&theirBalance, nextHeight, remoteChain, updateState)
-
 	// Initiate feePerKw to the last committed fee for this chain as we'll
 	// need this to determine which HTLCs are dust, and also the final fee
 	// rate.
-	feePerKw := commitChain.tip().feePerKw
+	view.feePerKw = commitChain.tip().feePerKw
+
+	// We evaluate the view at this stage, meaning settled and failed HTLCs
+	// will remove their corresponding added HTLCs.  The resulting filtered
+	// view will only have Add entries left, making it easy to compare the
+	// channel constraints to the final commitment state. If any fee
+	// updates are found in the logs, the comitment fee rate should be
+	// changed, so we'll also set the feePerKw to this new value.
+	filteredHTLCView := lc.evaluateHTLCView(view, &ourBalance,
+		&theirBalance, nextHeight, remoteChain, updateState)
+	feePerKw := filteredHTLCView.feePerKw
 
 	// Check if any fee updates have taken place since that last
 	// commitment.

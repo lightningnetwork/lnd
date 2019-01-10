@@ -1346,17 +1346,6 @@ type LightningChannel struct {
 	localUpdateLog  *updateLog
 	remoteUpdateLog *updateLog
 
-	// pendingFeeUpdate is set to the fee-per-kw we last sent (if we are
-	// channel initiator) or received (if non-initiator) in an update fee
-	// message, which haven't yet been included in a commitment.  It will
-	// be nil if no fee update is un-committed.
-	pendingFeeUpdate *SatPerKWeight
-
-	// pendingAckFeeUpdate is set to the last committed fee update which is
-	// not yet ACKed. This value will be nil if a fee update hasn't been
-	// initiated.
-	pendingAckFeeUpdate *SatPerKWeight
-
 	// LocalFundingKey is the public key under control by the wallet that
 	// was used for the 2-of-2 funding output which created this channel.
 	LocalFundingKey *btcec.PublicKey
@@ -1806,15 +1795,6 @@ func (lc *LightningChannel) restoreStateLogs(
 	// If we did have a dangling commit, then we'll examine which updates
 	// we included in that state and re-insert them into our update log.
 	for _, logUpdate := range pendingRemoteCommitDiff.LogUpdates {
-		// If the log update is a fee update, then it doesn't need an
-		// entry within the updateLog, so we'll just apply it and move
-		// on.
-		if feeUpdate, ok := logUpdate.UpdateMsg.(*lnwire.UpdateFee); ok {
-			newFeeRate := SatPerKWeight(feeUpdate.FeePerKw)
-			lc.pendingAckFeeUpdate = &newFeeRate
-			continue
-		}
-
 		payDesc, err := lc.logUpdateToPayDesc(
 			&logUpdate, lc.remoteUpdateLog, pendingHeight,
 			SatPerKWeight(pendingCommit.FeePerKw), pendingRemoteKeys,
@@ -1824,7 +1804,8 @@ func (lc *LightningChannel) restoreStateLogs(
 			return err
 		}
 
-		if payDesc.EntryType == Add {
+		switch payDesc.EntryType {
+		case Add:
 			// The HtlcIndex of the added HTLC _must_ be equal to
 			// the log's htlcCounter at this point. If it is not we
 			// panic to catch this.
@@ -1837,7 +1818,11 @@ func (lc *LightningChannel) restoreStateLogs(
 			}
 
 			lc.localUpdateLog.appendHtlc(payDesc)
-		} else {
+
+		case FeeUpdate:
+			lc.localUpdateLog.appendUpdate(payDesc)
+
+		default:
 			lc.localUpdateLog.appendUpdate(payDesc)
 
 			lc.remoteUpdateLog.markHtlcModified(payDesc.ParentIndex)
@@ -2881,21 +2866,8 @@ func (lc *LightningChannel) createCommitDiff(
 	// out.
 	chanID := lnwire.NewChanIDFromOutPoint(&lc.channelState.FundingOutpoint)
 
-	// If we have a fee update that we're waiting on an ACK of, then we'll
-	// create an entry so this is properly retransmitted. Note that we can
-	// only send an UpdateFee message if we're the initiator of the
-	// channel.
-	var logUpdates []channeldb.LogUpdate
-	if lc.channelState.IsInitiator && lc.pendingFeeUpdate != nil {
-		logUpdates = append(logUpdates, channeldb.LogUpdate{
-			UpdateMsg: &lnwire.UpdateFee{
-				ChanID:   chanID,
-				FeePerKw: uint32(*lc.pendingFeeUpdate),
-			},
-		})
-	}
-
 	var (
+		logUpdates        []channeldb.LogUpdate
 		ackAddRefs        []channeldb.AddRef
 		settleFailRefs    []channeldb.SettleFailRef
 		openCircuitKeys   []channeldb.CircuitKey
@@ -3171,16 +3143,6 @@ func (lc *LightningChannel) SignNextCommitment() (lnwire.Sig, []lnwire.Sig, erro
 	// Extend the remote commitment chain by one with the addition of our
 	// latest commitment update.
 	lc.remoteCommitChain.addCommitment(newCommitView)
-
-	// If we are the channel initiator then we would have signed any sent
-	// fee update at this point, so mark this update as pending ACK, and
-	// set pendingFeeUpdate to nil. We can do this since we know we won't
-	// sign any new commitment before receiving a RevokeAndAck, because of
-	// the revocation window of 1.
-	if lc.channelState.IsInitiator {
-		lc.pendingAckFeeUpdate = lc.pendingFeeUpdate
-		lc.pendingFeeUpdate = nil
-	}
 
 	return sig, htlcSigs, nil
 }
@@ -3623,36 +3585,6 @@ func (lc *LightningChannel) computeView(view *htlcView, remoteChain bool,
 	filteredHTLCView := lc.evaluateHTLCView(view, &ourBalance,
 		&theirBalance, nextHeight, remoteChain, updateState)
 	feePerKw := filteredHTLCView.feePerKw
-
-	// Check if any fee updates have taken place since that last
-	// commitment.
-	if lc.channelState.IsInitiator {
-		switch {
-		// We've sent an update_fee message since our last commitment,
-		// and now are now creating a commitment that reflects the new
-		// fee update.
-		case remoteChain && lc.pendingFeeUpdate != nil:
-			feePerKw = *lc.pendingFeeUpdate
-
-		// We've created a new commitment for the remote chain that
-		// includes a fee update, and have not received a commitment
-		// after the fee update has been ACKed.
-		case !remoteChain && lc.pendingAckFeeUpdate != nil:
-			feePerKw = *lc.pendingAckFeeUpdate
-		}
-	} else {
-		switch {
-		// We've received a fee update since the last local commitment,
-		// so we'll include the fee update in the current view.
-		case !remoteChain && lc.pendingFeeUpdate != nil:
-			feePerKw = *lc.pendingFeeUpdate
-
-		// Earlier we received a commitment that signed an earlier fee
-		// update, and now we must ACK that update.
-		case remoteChain && lc.pendingAckFeeUpdate != nil:
-			feePerKw = *lc.pendingAckFeeUpdate
-		}
-	}
 
 	// Now go through all HTLCs at this stage, to calculate the total
 	// weight, needed to calculate the transaction fee.
@@ -4190,16 +4122,6 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSig lnwire.Sig,
 	localCommitmentView.sig = commitSig.ToSignatureBytes()
 	lc.localCommitChain.addCommitment(localCommitmentView)
 
-	// If we are not channel initiator, then the commitment just received
-	// would've signed any received fee update since last commitment. Mark
-	// any such fee update as pending ACK (so we remember to ACK it on our
-	// next commitment), and set pendingFeeUpdate to nil. We can do this
-	// since we won't receive any new commitment before ACKing.
-	if !lc.channelState.IsInitiator {
-		lc.pendingAckFeeUpdate = lc.pendingFeeUpdate
-		lc.pendingFeeUpdate = nil
-	}
-
 	return nil
 }
 
@@ -4220,21 +4142,7 @@ func (lc *LightningChannel) FullySynced() bool {
 	remoteUpdatesSynced := (lastLocalCommit.theirMessageIndex ==
 		lastRemoteCommit.theirMessageIndex)
 
-	pendingFeeAck := false
-
-	// If we have received a fee update which we haven't yet ACKed, then
-	// we owe a commitment.
-	if !lc.channelState.IsInitiator {
-		pendingFeeAck = lc.pendingAckFeeUpdate != nil
-	}
-
-	// If we have sent a fee update which we haven't yet signed, then
-	// we owe a commitment.
-	if lc.channelState.IsInitiator {
-		pendingFeeAck = lc.pendingFeeUpdate != nil
-	}
-
-	return localUpdatesSynced && remoteUpdatesSynced && !pendingFeeAck
+	return localUpdatesSynced && remoteUpdatesSynced
 }
 
 // RevokeCurrentCommitment revokes the next lowest unrevoked commitment
@@ -6078,7 +5986,13 @@ func (lc *LightningChannel) UpdateFee(feePerKw SatPerKWeight) error {
 		return err
 	}
 
-	lc.pendingFeeUpdate = &feePerKw
+	pd := &PaymentDescriptor{
+		LogIndex:  lc.localUpdateLog.logIndex,
+		Amount:    lnwire.NewMSatFromSatoshis(btcutil.Amount(feePerKw)),
+		EntryType: FeeUpdate,
+	}
+
+	lc.localUpdateLog.appendUpdate(pd)
 
 	return nil
 }
@@ -6096,8 +6010,13 @@ func (lc *LightningChannel) ReceiveUpdateFee(feePerKw SatPerKWeight) error {
 	}
 
 	// TODO(roasbeef): or just modify to use the other balance?
+	pd := &PaymentDescriptor{
+		LogIndex:  lc.remoteUpdateLog.logIndex,
+		Amount:    lnwire.NewMSatFromSatoshis(btcutil.Amount(feePerKw)),
+		EntryType: FeeUpdate,
+	}
 
-	lc.pendingFeeUpdate = &feePerKw
+	lc.remoteUpdateLog.appendUpdate(pd)
 
 	return nil
 }

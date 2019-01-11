@@ -62,6 +62,10 @@ var (
 	// ErrInvoiceAlreadySettled is returned when the invoice is already
 	// settled.
 	ErrInvoiceAlreadySettled = errors.New("invoice already settled")
+
+	// ErrInvoiceAlreadyCanceled is returned when the invoice is already
+	// canceled.
+	ErrInvoiceAlreadyCanceled = errors.New("invoice already canceled")
 )
 
 const (
@@ -90,6 +94,9 @@ const (
 	// ContractSettled means the htlc is settled and the invoice has been
 	// paid.
 	ContractSettled ContractState = 1
+
+	// ContractCanceled means the invoice has been canceled.
+	ContractCanceled ContractState = 2
 )
 
 // String returns a human readable identifier for the ContractState type.
@@ -99,6 +106,8 @@ func (c ContractState) String() string {
 		return "Open"
 	case ContractSettled:
 		return "Settled"
+	case ContractCanceled:
+		return "Canceled"
 	}
 
 	return "Unknown"
@@ -641,6 +650,37 @@ func (d *DB) SettleInvoice(paymentHash [32]byte,
 	return settledInvoice, err
 }
 
+// CancelInvoice attempts to cancel the invoice corresponding to the passed
+// payment hash.
+func (d *DB) CancelInvoice(paymentHash lntypes.Hash) (*Invoice, error) {
+	var canceledInvoice *Invoice
+	err := d.Update(func(tx *bbolt.Tx) error {
+		invoices, err := tx.CreateBucketIfNotExists(invoiceBucket)
+		if err != nil {
+			return err
+		}
+		invoiceIndex, err := invoices.CreateBucketIfNotExists(
+			invoiceIndexBucket,
+		)
+		if err != nil {
+			return err
+		}
+
+		// Check the invoice index to see if an invoice paying to this
+		// hash exists within the DB.
+		invoiceNum := invoiceIndex.Get(paymentHash[:])
+		if invoiceNum == nil {
+			return ErrInvoiceNotFound
+		}
+
+		canceledInvoice, err = cancelInvoice(invoices, invoiceNum)
+
+		return err
+	})
+
+	return canceledInvoice, err
+}
+
 // InvoicesSettledSince can be used by callers to catch up any settled invoices
 // they missed within the settled invoice time series. We'll return all known
 // settled invoice that have a settle index higher than the passed
@@ -896,8 +936,11 @@ func settleInvoice(invoices, settleIndex *bbolt.Bucket, invoiceNum []byte,
 		return nil, err
 	}
 
-	if invoice.Terms.State == ContractSettled {
+	switch invoice.Terms.State {
+	case ContractSettled:
 		return &invoice, ErrInvoiceAlreadySettled
+	case ContractCanceled:
+		return &invoice, ErrInvoiceAlreadyCanceled
 	}
 
 	// Now that we know the invoice hasn't already been settled, we'll
@@ -918,6 +961,35 @@ func settleInvoice(invoices, settleIndex *bbolt.Bucket, invoiceNum []byte,
 	invoice.Terms.State = ContractSettled
 	invoice.SettleDate = time.Now()
 	invoice.SettleIndex = nextSettleSeqNo
+
+	var buf bytes.Buffer
+	if err := serializeInvoice(&buf, &invoice); err != nil {
+		return nil, err
+	}
+
+	if err := invoices.Put(invoiceNum[:], buf.Bytes()); err != nil {
+		return nil, err
+	}
+
+	return &invoice, nil
+}
+
+func cancelInvoice(invoices *bbolt.Bucket, invoiceNum []byte) (
+	*Invoice, error) {
+
+	invoice, err := fetchInvoice(invoiceNum, invoices)
+	if err != nil {
+		return nil, err
+	}
+
+	switch invoice.Terms.State {
+	case ContractSettled:
+		return &invoice, ErrInvoiceAlreadySettled
+	case ContractCanceled:
+		return &invoice, ErrInvoiceAlreadyCanceled
+	}
+
+	invoice.Terms.State = ContractCanceled
 
 	var buf bytes.Buffer
 	if err := serializeInvoice(&buf, &invoice); err != nil {

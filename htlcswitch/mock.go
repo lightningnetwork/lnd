@@ -18,7 +18,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/go-errors/errors"
-	"github.com/lightningnetwork/lightning-onion"
+	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
@@ -731,6 +731,25 @@ func (i *mockInvoiceRegistry) SettleInvoice(rhash lntypes.Hash,
 	invoice.Terms.State = channeldb.ContractSettled
 	invoice.AmtPaid = amt
 	i.invoices[rhash] = invoice
+
+	return nil
+}
+
+func (i *mockInvoiceRegistry) CancelInvoice(payHash lntypes.Hash) error {
+	i.Lock()
+	defer i.Unlock()
+
+	invoice, ok := i.invoices[payHash]
+	if !ok {
+		return channeldb.ErrInvoiceNotFound
+	}
+
+	if invoice.Terms.State == channeldb.ContractCanceled {
+		return nil
+	}
+
+	invoice.Terms.State = channeldb.ContractCanceled
+	i.invoices[payHash] = invoice
 
 	return nil
 }

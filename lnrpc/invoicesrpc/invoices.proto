@@ -16,5 +16,17 @@ service Invoices {
     Initially the current invoice state is always sent out.
     */
     rpc SubscribeSingleInvoice (lnrpc.PaymentHash) returns (stream lnrpc.Invoice);
+
+    /**
+    CancelInvoice cancels a currently open invoice. If the invoice is already 
+    canceled, this call will succeed. If the invoice is already settled, it will
+    fail.
+    */
+    rpc CancelInvoice(CancelInvoiceMsg) returns (CancelInvoiceResp);
 }
 
+message CancelInvoiceMsg {
+    /// Hash corresponding to the invoice to cancel.
+    bytes payment_hash = 1;
+} 
+message CancelInvoiceResp {}

@@ -25,6 +25,80 @@ var _ = math.Inf
 // proto package needs to be updated.
 const _ = proto.ProtoPackageIsVersion2 // please upgrade the proto package
 
+type CancelInvoiceMsg struct {
+	// / Hash corresponding to the invoice to cancel.
+	PaymentHash          []byte   `protobuf:"bytes,1,opt,name=payment_hash,json=paymentHash,proto3" json:"payment_hash,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *CancelInvoiceMsg) Reset()         { *m = CancelInvoiceMsg{} }
+func (m *CancelInvoiceMsg) String() string { return proto.CompactTextString(m) }
+func (*CancelInvoiceMsg) ProtoMessage()    {}
+func (*CancelInvoiceMsg) Descriptor() ([]byte, []int) {
+	return fileDescriptor_invoices_1b708c9c030aea0e, []int{0}
+}
+func (m *CancelInvoiceMsg) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_CancelInvoiceMsg.Unmarshal(m, b)
+}
+func (m *CancelInvoiceMsg) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_CancelInvoiceMsg.Marshal(b, m, deterministic)
+}
+func (dst *CancelInvoiceMsg) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_CancelInvoiceMsg.Merge(dst, src)
+}
+func (m *CancelInvoiceMsg) XXX_Size() int {
+	return xxx_messageInfo_CancelInvoiceMsg.Size(m)
+}
+func (m *CancelInvoiceMsg) XXX_DiscardUnknown() {
+	xxx_messageInfo_CancelInvoiceMsg.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_CancelInvoiceMsg proto.InternalMessageInfo
+
+func (m *CancelInvoiceMsg) GetPaymentHash() []byte {
+	if m != nil {
+		return m.PaymentHash
+	}
+	return nil
+}
+
+type CancelInvoiceResp struct {
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *CancelInvoiceResp) Reset()         { *m = CancelInvoiceResp{} }
+func (m *CancelInvoiceResp) String() string { return proto.CompactTextString(m) }
+func (*CancelInvoiceResp) ProtoMessage()    {}
+func (*CancelInvoiceResp) Descriptor() ([]byte, []int) {
+	return fileDescriptor_invoices_1b708c9c030aea0e, []int{1}
+}
+func (m *CancelInvoiceResp) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_CancelInvoiceResp.Unmarshal(m, b)
+}
+func (m *CancelInvoiceResp) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_CancelInvoiceResp.Marshal(b, m, deterministic)
+}
+func (dst *CancelInvoiceResp) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_CancelInvoiceResp.Merge(dst, src)
+}
+func (m *CancelInvoiceResp) XXX_Size() int {
+	return xxx_messageInfo_CancelInvoiceResp.Size(m)
+}
+func (m *CancelInvoiceResp) XXX_DiscardUnknown() {
+	xxx_messageInfo_CancelInvoiceResp.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_CancelInvoiceResp proto.InternalMessageInfo
+
+func init() {
+	proto.RegisterType((*CancelInvoiceMsg)(nil), "invoicesrpc.CancelInvoiceMsg")
+	proto.RegisterType((*CancelInvoiceResp)(nil), "invoicesrpc.CancelInvoiceResp")
+}
+
 // Reference imports to suppress errors if they are not otherwise used.
 var _ context.Context
 var _ grpc.ClientConn
@@ -42,6 +116,11 @@ type InvoicesClient interface {
 	// to notify the client of state transitions of the specified invoice.
 	// Initially the current invoice state is always sent out.
 	SubscribeSingleInvoice(ctx context.Context, in *lnrpc.PaymentHash, opts ...grpc.CallOption) (Invoices_SubscribeSingleInvoiceClient, error)
+	// *
+	// CancelInvoice cancels a currently open invoice. If the invoice is already
+	// canceled, this call will succeed. If the invoice is already settled, it will
+	// fail.
+	CancelInvoice(ctx context.Context, in *CancelInvoiceMsg, opts ...grpc.CallOption) (*CancelInvoiceResp, error)
 }
 
 type invoicesClient struct {
@@ -84,6 +163,15 @@ func (x *invoicesSubscribeSingleInvoiceClient) Recv() (*lnrpc.Invoice, error) {
 	return m, nil
 }
 
+func (c *invoicesClient) CancelInvoice(ctx context.Context, in *CancelInvoiceMsg, opts ...grpc.CallOption) (*CancelInvoiceResp, error) {
+	out := new(CancelInvoiceResp)
+	err := c.cc.Invoke(ctx, "/invoicesrpc.Invoices/CancelInvoice", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // InvoicesServer is the server API for Invoices service.
 type InvoicesServer interface {
 	// *
@@ -91,6 +179,11 @@ type InvoicesServer interface {
 	// to notify the client of state transitions of the specified invoice.
 	// Initially the current invoice state is always sent out.
 	SubscribeSingleInvoice(*lnrpc.PaymentHash, Invoices_SubscribeSingleInvoiceServer) error
+	// *
+	// CancelInvoice cancels a currently open invoice. If the invoice is already
+	// canceled, this call will succeed. If the invoice is already settled, it will
+	// fail.
+	CancelInvoice(context.Context, *CancelInvoiceMsg) (*CancelInvoiceResp, error)
 }
 
 func RegisterInvoicesServer(s *grpc.Server, srv InvoicesServer) {
@@ -118,10 +211,33 @@ func (x *invoicesSubscribeSingleInvoiceServer) Send(m *lnrpc.Invoice) error {
 	return x.ServerStream.SendMsg(m)
 }
 
+func _Invoices_CancelInvoice_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CancelInvoiceMsg)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(InvoicesServer).CancelInvoice(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/invoicesrpc.Invoices/CancelInvoice",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(InvoicesServer).CancelInvoice(ctx, req.(*CancelInvoiceMsg))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 var _Invoices_serviceDesc = grpc.ServiceDesc{
 	ServiceName: "invoicesrpc.Invoices",
 	HandlerType: (*InvoicesServer)(nil),
-	Methods:     []grpc.MethodDesc{},
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "CancelInvoice",
+			Handler:    _Invoices_CancelInvoice_Handler,
+		},
+	},
 	Streams: []grpc.StreamDesc{
 		{
 			StreamName:    "SubscribeSingleInvoice",
@@ -133,21 +249,25 @@ var _Invoices_serviceDesc = grpc.ServiceDesc{
 }
 
 func init() {
-	proto.RegisterFile("invoicesrpc/invoices.proto", fileDescriptor_invoices_c6414974947f2940)
+	proto.RegisterFile("invoicesrpc/invoices.proto", fileDescriptor_invoices_1b708c9c030aea0e)
 }
 
-var fileDescriptor_invoices_c6414974947f2940 = []byte{
-	// 177 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x4c, 0x8e, 0xb1, 0x8e, 0xc2, 0x30,
-	0x10, 0x44, 0x75, 0xcd, 0xe9, 0x2e, 0x27, 0x5d, 0xe1, 0x82, 0xc2, 0xe2, 0x1b, 0xb2, 0x40, 0x7a,
-	0x0a, 0x2a, 0xa0, 0x42, 0x4a, 0x47, 0x67, 0x1b, 0xcb, 0x59, 0xe1, 0xec, 0x5a, 0xce, 0x06, 0xc4,
-	0xdf, 0x23, 0x82, 0x91, 0xd2, 0x8d, 0x66, 0xe6, 0x49, 0xaf, 0xd2, 0x48, 0x37, 0x46, 0xe7, 0x87,
-	0x9c, 0x1c, 0x7c, 0x72, 0x9d, 0x32, 0x0b, 0xab, 0xbf, 0xd9, 0xa6, 0x97, 0x81, 0x39, 0x44, 0x0f,
-	0x26, 0x21, 0x18, 0x22, 0x16, 0x23, 0xc8, 0x54, 0xae, 0xfa, 0x37, 0x27, 0xf7, 0x8e, 0x9b, 0x63,
-	0xf5, 0x73, 0x28, 0x9c, 0xda, 0x56, 0x8b, 0x76, 0xb4, 0x83, 0xcb, 0x68, 0x7d, 0x8b, 0x14, 0xa2,
-	0x2f, 0x93, 0x52, 0x75, 0xa4, 0x17, 0x73, 0x32, 0x8f, 0xde, 0x93, 0xec, 0xcd, 0xd0, 0xe9, 0xff,
-	0xd2, 0x95, 0xcf, 0xea, 0x6b, 0xd7, 0x9c, 0xd7, 0x01, 0xa5, 0x1b, 0x6d, 0xed, 0xb8, 0x87, 0x88,
-	0xa1, 0x13, 0x42, 0x0a, 0xe4, 0xe5, 0xce, 0xf9, 0x0a, 0x91, 0x2e, 0x30, 0x21, 0x30, 0x33, 0xb5,
-	0xdf, 0x93, 0x47, 0xf3, 0x0c, 0x00, 0x00, 0xff, 0xff, 0xcf, 0x4e, 0x97, 0xf2, 0xdb, 0x00, 0x00,
-	0x00,
+var fileDescriptor_invoices_1b708c9c030aea0e = []byte{
+	// 246 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x74, 0x90, 0xbf, 0x4b, 0x43, 0x31,
+	0x10, 0xc7, 0x79, 0x8b, 0x68, 0x5a, 0x45, 0x23, 0x88, 0x04, 0x15, 0xed, 0xe4, 0x94, 0xa8, 0xc5,
+	0xd5, 0x41, 0x17, 0x1d, 0x14, 0x69, 0x37, 0x17, 0xc9, 0x8b, 0x21, 0x39, 0x4c, 0xef, 0x42, 0x92,
+	0x2a, 0xfe, 0x2b, 0xfe, 0xb5, 0xd2, 0x36, 0xe2, 0x7b, 0x42, 0xb7, 0xcb, 0x7d, 0x7f, 0xe4, 0x93,
+	0x30, 0x01, 0xf8, 0x41, 0x60, 0x6c, 0x4e, 0xd1, 0xa8, 0xdf, 0x59, 0xc6, 0x44, 0x85, 0xf8, 0xa0,
+	0xa3, 0x89, 0x23, 0x47, 0xe4, 0x82, 0x55, 0x3a, 0x82, 0xd2, 0x88, 0x54, 0x74, 0x01, 0xc2, 0x6a,
+	0x15, 0x5b, 0x29, 0x9a, 0xd5, 0x38, 0xba, 0x66, 0xbb, 0x77, 0x1a, 0x8d, 0x0d, 0x0f, 0xab, 0xf4,
+	0x63, 0x76, 0xfc, 0x8c, 0x0d, 0xa3, 0xfe, 0x9a, 0x59, 0x2c, 0xaf, 0x5e, 0x67, 0x7f, 0xd8, 0x9c,
+	0x36, 0xe7, 0xc3, 0xc9, 0xa0, 0xee, 0xee, 0x75, 0xf6, 0xa3, 0x7d, 0xb6, 0xd7, 0x8b, 0x4d, 0x6c,
+	0x8e, 0x57, 0xdf, 0x0d, 0xdb, 0xac, 0xe7, 0xcc, 0x6f, 0xd8, 0xc1, 0x74, 0xde, 0x66, 0x93, 0xa0,
+	0xb5, 0x53, 0x40, 0x17, 0x6c, 0x95, 0x38, 0x97, 0x01, 0x17, 0x00, 0xcf, 0x7f, 0x7d, 0x62, 0xa7,
+	0xee, 0xaa, 0xe7, 0xa2, 0xe1, 0x4f, 0x6c, 0xbb, 0x77, 0x03, 0x3f, 0x96, 0x9d, 0x07, 0xca, 0xff,
+	0xd0, 0xe2, 0x64, 0xbd, 0xbc, 0x80, 0xbb, 0x1d, 0xbf, 0x5c, 0x3a, 0x28, 0x7e, 0xde, 0x4a, 0x43,
+	0x33, 0x15, 0xc0, 0xf9, 0x82, 0x80, 0x0e, 0x6d, 0xf9, 0xa4, 0xf4, 0xae, 0x02, 0xbe, 0xa9, 0x25,
+	0x82, 0xea, 0xd4, 0xb4, 0x1b, 0xcb, 0x4f, 0x1a, 0xff, 0x04, 0x00, 0x00, 0xff, 0xff, 0xd2, 0xc3,
+	0x7e, 0x3a, 0x78, 0x01, 0x00, 0x00,
 }

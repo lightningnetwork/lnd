@@ -280,6 +280,10 @@ func (r *mockHopIterator) ForwardingInstructions() ForwardingInfo {
 	return h
 }
 
+func (r *mockHopIterator) ExtraOnionBlob() sphinx.ExtraHopData {
+	return sphinx.ExtraHopData{}
+}
+
 func (r *mockHopIterator) ExtractErrorEncrypter(
 	extracter ErrorEncrypterExtracter) (ErrorEncrypter, lnwire.FailCode) {
 

@@ -2565,6 +2565,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 		case exitHop:
 			updated, err := l.processExitHop(
 				pd, obfuscator, fwdInfo, heightNow,
+				chanIterator.ExtraOnionBlob(),
 			)
 			if err != nil {
 				l.fail(LinkFailureError{code: ErrInternalError},
@@ -2786,7 +2787,7 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 
 	event, err := l.cfg.Registry.NotifyExitHopHtlc(
 		invoiceHash, pd.Amount, pd.Timeout, int32(heightNow),
-		l.hodlQueue.ChanIn(),
+		l.hodlQueue.ChanIn(), packetEOB,
 	)
 
 	switch err {

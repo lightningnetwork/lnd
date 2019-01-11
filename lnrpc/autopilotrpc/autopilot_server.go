@@ -60,16 +60,6 @@ type Server struct {
 // AutopilotServer gRPC service.
 var _ AutopilotServer = (*Server)(nil)
 
-// fileExists reports whether the named file or directory exists.
-func fileExists(name string) bool {
-	if _, err := os.Stat(name); err != nil {
-		if os.IsNotExist(err) {
-			return false
-		}
-	}
-	return true
-}
-
 // New returns a new instance of the autopilotrpc Autopilot sub-server. We also
 // return the set of permissions for the macaroons that we may create within
 // this method. If the macaroons we need aren't found in the filepath, then

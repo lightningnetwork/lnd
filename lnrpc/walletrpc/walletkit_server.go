@@ -93,16 +93,6 @@ type WalletKit struct {
 // WalletKitServer gRPC service.
 var _ WalletKitServer = (*WalletKit)(nil)
 
-// fileExists reports whether the named file or directory exists.
-func fileExists(name string) bool {
-	if _, err := os.Stat(name); err != nil {
-		if os.IsNotExist(err) {
-			return false
-		}
-	}
-	return true
-}
-
 // New creates a new instance of the WalletKit sub-RPC server.
 func New(cfg *Config) (*WalletKit, lnrpc.MacaroonPerms, error) {
 	// If the path of the wallet kit macaroon wasn't specified, then we'll
@@ -116,7 +106,7 @@ func New(cfg *Config) (*WalletKit, lnrpc.MacaroonPerms, error) {
 	// Now that we know the full path of the wallet kit macaroon, we can
 	// check to see if we need to create it or not.
 	macFilePath := cfg.WalletKitMacPath
-	if !fileExists(macFilePath) && cfg.MacService != nil {
+	if !lnrpc.FileExists(macFilePath) && cfg.MacService != nil {
 		log.Infof("Baking macaroons for WalletKit RPC Server at: %v",
 			macFilePath)
 

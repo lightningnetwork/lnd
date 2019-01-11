@@ -880,6 +880,14 @@ message SendRequest {
     maximum enforced.
     */
     uint32 cltv_limit = 10;
+
+    /*
+    If set, then no payment hash is required. Instead, we will generate a
+    payment hash ourselves, and encode the pre-image in an EOB encrypted to the
+    final hop. Not that the payment request MUST NOT be specified in order for
+    this flag to be parsed. If set, then the dest MUST be set.
+    */
+    bool key_send = 11;
 }
 
 message SendResponse {

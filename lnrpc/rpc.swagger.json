@@ -3182,6 +3182,11 @@
           "type": "integer",
           "format": "int64",
           "description": "* \nAn optional maximum total time lock for the route. If zero, there is no\nmaximum enforced."
+        },
+        "key_send": {
+          "type": "boolean",
+          "format": "boolean",
+          "description": "If set, then no payment hash is required. Instead, we will generate a\npayment hash ourselves, and encode the pre-image in an EOB encrypted to the\nfinal hop. Not that the payment request MUST NOT be specified in order for\nthis flag to be parsed. If set, then the dest MUST be set."
         }
       }
     },

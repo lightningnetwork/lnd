@@ -1990,13 +1990,16 @@ func (s *Switch) getLinkByShortID(chanID lnwire.ShortChannelID) (ChannelLink, er
 }
 
 // HasActiveLink returns true if the given channel ID has a link in the link
-// index.
+// index AND the link is eligible to forward.
 func (s *Switch) HasActiveLink(chanID lnwire.ChannelID) bool {
 	s.indexMtx.RLock()
 	defer s.indexMtx.RUnlock()
 
-	_, ok := s.linkIndex[chanID]
-	return ok
+	if link, ok := s.linkIndex[chanID]; ok {
+		return link.EligibleToForward()
+	}
+
+	return false
 }
 
 // RemoveLink purges the switch of any link associated with chanID. If a pending

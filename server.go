@@ -2687,19 +2687,18 @@ func (s *server) ConnectToPeer(addr *lnwire.NetAddress, perm bool) error {
 
 	// Peer was not found, continue to pursue connection with peer.
 
-	// If there's already a pending connection request for this pubkey,
-	// then we ignore this request to ensure we don't create a redundant
-	// connection.
-	if reqs, ok := s.persistentConnReqs[targetPub]; ok {
-		srvrLog.Warnf("Already have %d persistent connection "+
-			"requests for %v, connecting anyway.", len(reqs), addr)
-	}
-
-	// If there's not already a pending or active connection to this node,
-	// then instruct the connection manager to attempt to establish a
-	// persistent connection to the peer.
 	srvrLog.Debugf("Connecting to %v", addr)
 	if perm {
+
+		// If there's already a pending connection request for this pubkey,
+		// then we cancel pending request to ensure we don't create a redundant
+		// connection.
+		if reqs, ok := s.persistentConnReqs[targetPub]; ok {
+			srvrLog.Warnf("Already have %d persistent connection "+
+				"requests for %v, connecting anyway.", len(reqs), addr)
+			s.cancelConnReqs(pubStr, nil)
+		}
+
 		connReq := &connmgr.ConnReq{
 			Addr:      addr,
 			Permanent: true,

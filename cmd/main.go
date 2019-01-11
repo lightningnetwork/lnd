@@ -9,9 +9,9 @@ import (
 	"os"
 	"strings"
 
-	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg"
+	sphinx "github.com/lightningnetwork/lightning-onion"
 )
 
 // main implements a simple command line utility that can be used in order to
@@ -25,7 +25,7 @@ func main() {
 	if len(args) == 1 {
 		fmt.Printf("Usage: %s (generate|decode) <private-keys>\n", args[0])
 	} else if args[1] == "generate" {
-		var route []*btcec.PublicKey
+		var path sphinx.PaymentPath
 		for i, hexKey := range args[2:] {
 			binKey, err := hex.DecodeString(hexKey)
 			if err != nil || len(binKey) != 33 {
@@ -37,23 +37,22 @@ func main() {
 				panic(err)
 			}
 
-			route = append(route, pubkey)
+			path[i] = sphinx.OnionHop{
+				NodePub: *pubkey,
+				HopData: sphinx.HopData{
+					Realm:         [1]byte{0x00},
+					ForwardAmount: uint64(i),
+					OutgoingCltv:  uint32(i),
+				},
+			}
+			copy(path[i].HopData.NextAddress[:], bytes.Repeat([]byte{byte(i)}, 8))
+
 			fmt.Fprintf(os.Stderr, "Node %d pubkey %x\n", i, pubkey.SerializeCompressed())
 		}
 
 		sessionKey, _ := btcec.PrivKeyFromBytes(btcec.S256(), bytes.Repeat([]byte{'A'}, 32))
 
-		var hopsData []sphinx.HopData
-		for i := 0; i < len(route); i++ {
-			hopsData = append(hopsData, sphinx.HopData{
-				Realm:         0x00,
-				ForwardAmount: uint64(i),
-				OutgoingCltv:  uint32(i),
-			})
-			copy(hopsData[i].NextAddress[:], bytes.Repeat([]byte{byte(i)}, 8))
-		}
-
-		msg, err := sphinx.NewOnionPacket(route, sessionKey, hopsData, assocData)
+		msg, err := sphinx.NewOnionPacket(&path, sessionKey, assocData)
 		if err != nil {
 			log.Fatalf("Error creating message: %v", err)
 		}

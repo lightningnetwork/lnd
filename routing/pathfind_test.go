@@ -807,7 +807,7 @@ func testBasicGraphPathFindingCase(t *testing.T, graphInstance *testGraphInstanc
 	// Next, we'll assert that the "next hop" field in each route payload
 	// properly points to the channel ID that the HTLC should be forwarded
 	// along.
-	sphinxPath, err := route.ToSphinxPath()
+	sphinxPath, err := route.ToSphinxPath(nil)
 	if err != nil {
 		t.Fatalf("unable to make sphinx path: %v", err)
 	}

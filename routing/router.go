@@ -1385,7 +1385,7 @@ func (r *ChannelRouter) FindRoute(source, target route.Vertex,
 // the onion route specified by the passed layer 3 route. The blob returned
 // from this function can immediately be included within an HTLC add packet to
 // be sent to the first hop within the route.
-func generateSphinxPacket(rt *route.Route, paymentHash []byte) ([]byte,
+func generateSphinxPacket(rt *route.Route, paymentHash, destEOB []byte) ([]byte,
 	*sphinx.Circuit, error) {
 
 	// As a sanity check, we'll ensure that the set of hops has been
@@ -1396,16 +1396,16 @@ func generateSphinxPacket(rt *route.Route, paymentHash []byte) ([]byte,
 	}
 
 	// Now that we know we have an actual route, we'll map the route into a
-	// sphinx payument path which includes per-hop paylods for each hop
+	// sphinx payment path which includes per-hop payloads for each hop
 	// that give each node within the route the necessary information
 	// (fees, CLTV value, etc) to properly forward the payment.
-	sphinxPath, err := rt.ToSphinxPath()
+	sphinxPath, err := rt.ToSphinxPath(destEOB)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	log.Tracef("Constructed per-hop payloads for payment_hash=%x: %v",
-		paymentHash[:], newLogClosure(func() string {
+		paymentHash, newLogClosure(func() string {
 			return spew.Sdump(sphinxPath[:sphinxPath.TrueRouteLength()])
 		}),
 	)
@@ -1499,6 +1499,12 @@ type LightningPayment struct {
 	// OutgoingChannelID is the channel that needs to be taken to the first
 	// hop. If nil, any channel may be used.
 	OutgoingChannelID *uint64
+
+	// DestinationEOB is an optional field that allows the sender to encode
+	// a set of opaque bytes to the final hop. This payload will be
+	// delivered as an EOB as will be onion encrypted just like the rest of
+	// the route.
+	DestinationEOB []byte
 
 	// TODO(roasbeef): add e2e message?
 }
@@ -1632,6 +1638,7 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 		// indicating if more attempts are needed.
 		preimage, final, err := r.sendPaymentAttempt(
 			paySession, route, payment.PaymentHash,
+			payment.DestinationEOB,
 		)
 		if final {
 			return preimage, route, err
@@ -1646,7 +1653,8 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 // bool parameter indicates whether this is a final outcome or more attempts
 // should be made.
 func (r *ChannelRouter) sendPaymentAttempt(paySession *paymentSession,
-	route *route.Route, paymentHash [32]byte) ([32]byte, bool, error) {
+	route *route.Route, paymentHash [32]byte,
+	destEOB []byte) ([32]byte, bool, error) {
 
 	log.Tracef("Attempting to send payment %x, using route: %v",
 		paymentHash, newLogClosure(func() string {
@@ -1654,7 +1662,7 @@ func (r *ChannelRouter) sendPaymentAttempt(paySession *paymentSession,
 		}),
 	)
 
-	preimage, err := r.sendToSwitch(route, paymentHash)
+	preimage, err := r.sendToSwitch(route, paymentHash, destEOB)
 	if err == nil {
 		return preimage, true, nil
 	}
@@ -1669,14 +1677,14 @@ func (r *ChannelRouter) sendPaymentAttempt(paySession *paymentSession,
 
 // sendToSwitch sends a payment along the specified route and returns the
 // obtained preimage.
-func (r *ChannelRouter) sendToSwitch(route *route.Route, paymentHash [32]byte) (
-	[32]byte, error) {
+func (r *ChannelRouter) sendToSwitch(route *route.Route, paymentHash [32]byte,
+	destEOB []byte) ([32]byte, error) {
 
 	// Generate the raw encoded sphinx packet to be included along
 	// with the htlcAdd message that we send directly to the
 	// switch.
 	onionBlob, circuit, err := generateSphinxPacket(
-		route, paymentHash[:],
+		route, paymentHash[:], destEOB,
 	)
 	if err != nil {
 		return [32]byte{}, err

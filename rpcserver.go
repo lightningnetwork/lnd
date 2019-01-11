@@ -2314,6 +2314,9 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 				HashLock:         rHash[:],
 				ExpirationHeight: htlc.RefundTimeout,
 			}
+
+			// Add the Pending Htlc Amount to UnsettledBalance field.
+			channel.UnsettledBalance += channel.PendingHtlcs[i].Amount
 		}
 
 		resp.Channels = append(resp.Channels, channel)

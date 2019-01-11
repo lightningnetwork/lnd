@@ -1897,10 +1897,7 @@ type BreachRetribution struct {
 // passed channel, at a particular revoked state number, and one which targets
 // the passed commitment transaction.
 func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
-	broadcastCommitment *wire.MsgTx,
 	breachHeight uint32) (*BreachRetribution, error) {
-
-	commitHash := broadcastCommitment.TxHash()
 
 	// Query the on-disk revocation log for the snapshot which was recorded
 	// at this particular state num.
@@ -1908,6 +1905,8 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 	if err != nil {
 		return nil, err
 	}
+
+	commitHash := revokedSnapshot.CommitTx.TxHash()
 
 	// With the state number broadcast known, we can now derive/restore the
 	// proper revocation preimage necessary to sweep the remote party's
@@ -1952,7 +1951,7 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 	remoteOutpoint := wire.OutPoint{
 		Hash: commitHash,
 	}
-	for i, txOut := range broadcastCommitment.TxOut {
+	for i, txOut := range revokedSnapshot.CommitTx.TxOut {
 		switch {
 		case bytes.Equal(txOut.PkScript, localPkScript):
 			localOutpoint.Index = uint32(i)
@@ -2090,7 +2089,7 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 	// swiftly bring justice to the cheating remote party.
 	return &BreachRetribution{
 		ChainHash:            chanState.ChainHash,
-		BreachTransaction:    broadcastCommitment,
+		BreachTransaction:    revokedSnapshot.CommitTx,
 		BreachHeight:         breachHeight,
 		RevokedStateNum:      stateNum,
 		PendingHTLCs:         revokedSnapshot.Htlcs,

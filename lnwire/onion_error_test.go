@@ -131,3 +131,38 @@ func TestChannelUpdateCompatabilityParsing(t *testing.T) {
 		t.Fatalf("mismatched channel updates: %v", err)
 	}
 }
+
+// TestWriteOnionErrorChanUpdate tests that we write an exact size for the
+// channel update in order to be more compliant with the parsers of other
+// implementations.
+func TestWriteOnionErrorChanUpdate(t *testing.T) {
+	t.Parallel()
+
+	// First, we'll write out the raw channel update so we can obtain the
+	// raw serialized length.
+	var b bytes.Buffer
+	update := testChannelUpdate
+	if err := update.Encode(&b, 0); err != nil {
+		t.Fatalf("unable to write update: %v", err)
+	}
+	trueUpdateLength := b.Len()
+
+	// Next, we'll use the function to encode the update as we would in a
+	// onion error message.
+	var errorBuf bytes.Buffer
+	err := writeOnionErrorChanUpdate(&errorBuf, &update, 0)
+	if err != nil {
+		t.Fatalf("unable to encode onion error: %v", err)
+	}
+
+	// Finally, read the length encoded and ensure that it matches the raw
+	// length.
+	var encodedLen uint16
+	if err := ReadElement(&errorBuf, &encodedLen); err != nil {
+		t.Fatalf("unable to read len: %v", err)
+	}
+	if uint16(trueUpdateLength) != encodedLen {
+		t.Fatalf("wrong length written: expected %v, got %v",
+			trueUpdateLength, encodedLen)
+	}
+}

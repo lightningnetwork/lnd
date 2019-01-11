@@ -83,6 +83,76 @@ func TestSwitchAddDuplicateLink(t *testing.T) {
 	}
 }
 
+// TestSwitchHasActiveLink tests the behavior of HasActiveLink, and asserts that
+// it only returns true if a link's short channel id has confirmed (meaning the
+// channel is no longer pending) and it's EligibleToForward method returns true,
+// i.e. it has received FundingLocked from the remote peer.
+func TestSwitchHasActiveLink(t *testing.T) {
+	t.Parallel()
+
+	alicePeer, err := newMockServer(t, "alice", testStartingHeight, nil, 6)
+	if err != nil {
+		t.Fatalf("unable to create alice server: %v", err)
+	}
+
+	s, err := initSwitchWithDB(testStartingHeight, nil)
+	if err != nil {
+		t.Fatalf("unable to init switch: %v", err)
+	}
+	if err := s.Start(); err != nil {
+		t.Fatalf("unable to start switch: %v", err)
+	}
+	defer s.Stop()
+
+	chanID1, _, aliceChanID, _ := genIDs()
+
+	pendingChanID := lnwire.ShortChannelID{}
+
+	aliceChannelLink := newMockChannelLink(
+		s, chanID1, pendingChanID, alicePeer, false,
+	)
+	if err := s.AddLink(aliceChannelLink); err != nil {
+		t.Fatalf("unable to add alice link: %v", err)
+	}
+
+	// The link has been added, but it's still pending. HasActiveLink should
+	// return false since the link has not been added to the linkIndex
+	// containing live links.
+	if s.HasActiveLink(chanID1) {
+		t.Fatalf("link should not be active yet, still pending")
+	}
+
+	// Update the short chan id of the channel, so that the link goes live.
+	aliceChannelLink.setLiveShortChanID(aliceChanID)
+	err = s.UpdateShortChanID(chanID1)
+	if err != nil {
+		t.Fatalf("unable to update alice short_chan_id: %v", err)
+	}
+
+	// UpdateShortChanID will cause the mock link to become eligible to
+	// forward. However, we can simulate the event where the short chan id
+	// is confirmed, but funding locked has yet to be received by resetting
+	// the mock link's eligibility to false.
+	aliceChannelLink.eligible = false
+
+	// Now, even though the link has been added to the linkIndex because the
+	// short channel id has confirmed, we should still see HasActiveLink
+	// fail because EligibleToForward should return false.
+	if s.HasActiveLink(chanID1) {
+		t.Fatalf("link should not be active yet, still ineligible")
+	}
+
+	// Finally, simulate the link receiving funding locked by setting its
+	// eligibility to true.
+	aliceChannelLink.eligible = true
+
+	// The link should now be reported as active, since EligibleToForward
+	// returns true and the link is in the linkIndex.
+	if !s.HasActiveLink(chanID1) {
+		t.Fatalf("link should not be active now")
+	}
+}
+
 // TestSwitchSendPending checks the inability of htlc switch to forward adds
 // over pending links, and the UpdateShortChanID makes a pending link live.
 func TestSwitchSendPending(t *testing.T) {

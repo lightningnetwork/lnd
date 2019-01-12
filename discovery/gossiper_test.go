@@ -17,6 +17,7 @@ import (
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -54,9 +55,10 @@ var (
 	nodeKeyPriv2, _ = btcec.NewPrivateKey(btcec.S256())
 	nodeKeyPub2     = nodeKeyPriv2.PubKey()
 
-	trickleDelay     = time.Millisecond * 100
-	retransmitDelay  = time.Hour * 1
-	proofMatureDelta uint32
+	trickleDelay        = time.Millisecond * 100
+	retransmitDelay     = time.Hour * 1
+	proofMatureDelta    uint32
+	maxBtcFundingAmount = btcutil.Amount(1<<62) - 1
 )
 
 // makeTestDB creates a new instance of the ChannelDB for testing purposes. A
@@ -130,6 +132,10 @@ func (r *mockGraphSource) AddEdge(info *channeldb.ChannelEdgeInfo) error {
 	if _, ok := r.infos[info.ChannelID]; ok {
 		return errors.New("info already exist")
 	}
+
+	// Usually, the capacity is fetched in the router from the funding txout.
+	// Since the mockGraphSource can't access the txout, assign a default value.
+	info.Capacity = maxBtcFundingAmount
 	r.infos[info.ChannelID] = info
 	return nil
 }

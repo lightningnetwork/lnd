@@ -258,7 +258,7 @@ func (r *mockGraphSource) IsKnownEdge(chanID lnwire.ShortChannelID) bool {
 // IsStaleEdgePolicy returns true if the graph source has a channel edge for
 // the passed channel ID (and flags) that have a more recent timestamp.
 func (r *mockGraphSource) IsStaleEdgePolicy(chanID lnwire.ShortChannelID,
-	timestamp time.Time, flags lnwire.ChanUpdateFlag) bool {
+	timestamp time.Time, flags lnwire.ChanUpdateChanFlags) bool {
 
 	edges, ok := r.edges[chanID.ToUint64()]
 	if !ok {
@@ -267,10 +267,10 @@ func (r *mockGraphSource) IsStaleEdgePolicy(chanID lnwire.ShortChannelID,
 
 	switch {
 
-	case len(edges) >= 1 && edges[0].Flags == flags:
+	case len(edges) >= 1 && edges[0].ChannelFlags == flags:
 		return !edges[0].LastUpdate.Before(timestamp)
 
-	case len(edges) >= 2 && edges[1].Flags == flags:
+	case len(edges) >= 2 && edges[1].ChannelFlags == flags:
 		return !edges[1].LastUpdate.Before(timestamp)
 
 	default:
@@ -440,7 +440,8 @@ func createNodeAnnouncement(priv *btcec.PrivateKey,
 	return a, nil
 }
 
-func createUpdateAnnouncement(blockHeight uint32, flags lnwire.ChanUpdateFlag,
+func createUpdateAnnouncement(blockHeight uint32,
+	flags lnwire.ChanUpdateChanFlags,
 	nodeKey *btcec.PrivateKey, timestamp uint32,
 	extraBytes ...[]byte) (*lnwire.ChannelUpdate, error) {
 
@@ -451,8 +452,9 @@ func createUpdateAnnouncement(blockHeight uint32, flags lnwire.ChanUpdateFlag,
 			BlockHeight: blockHeight,
 		},
 		Timestamp:       timestamp,
+		MessageFlags:    0,
+		ChannelFlags:    flags,
 		TimeLockDelta:   uint16(prand.Int63()),
-		Flags:           flags,
 		HtlcMinimumMsat: lnwire.MilliSatoshi(prand.Int63()),
 		FeeRate:         uint32(prand.Int31()),
 		BaseFee:         uint32(prand.Int31()),
@@ -2028,7 +2030,7 @@ func TestDeDuplicatedAnnouncements(t *testing.T) {
 	assertChannelUpdate := func(channelUpdate *lnwire.ChannelUpdate) {
 		channelKey := channelUpdateID{
 			ua3.ShortChannelID,
-			ua3.Flags,
+			ua3.ChannelFlags,
 		}
 
 		mws, ok := announcements.channelUpdates[channelKey]

@@ -699,7 +699,8 @@ func TestEdgeInfoUpdates(t *testing.T) {
 		SigBytes:                  testSig.Serialize(),
 		ChannelID:                 chanID,
 		LastUpdate:                time.Unix(433453, 0),
-		Flags:                     0,
+		MessageFlags:              0,
+		ChannelFlags:              0,
 		TimeLockDelta:             99,
 		MinHTLC:                   2342135,
 		FeeBaseMSat:               4352345,
@@ -712,7 +713,8 @@ func TestEdgeInfoUpdates(t *testing.T) {
 		SigBytes:                  testSig.Serialize(),
 		ChannelID:                 chanID,
 		LastUpdate:                time.Unix(124234, 0),
-		Flags:                     1,
+		MessageFlags:              0,
+		ChannelFlags:              1,
 		TimeLockDelta:             99,
 		MinHTLC:                   2342135,
 		FeeBaseMSat:               4352345,
@@ -792,6 +794,8 @@ func newEdgePolicy(chanID uint64, op wire.OutPoint, db *DB,
 	return &ChannelEdgePolicy{
 		ChannelID:                 chanID,
 		LastUpdate:                time.Unix(updateTime, 0),
+		MessageFlags:              0,
+		ChannelFlags:              0,
 		TimeLockDelta:             uint16(prand.Int63()),
 		MinHTLC:                   lnwire.MilliSatoshi(prand.Int63()),
 		FeeBaseMSat:               lnwire.MilliSatoshi(prand.Int63()),
@@ -894,7 +898,7 @@ func TestGraphTraversal(t *testing.T) {
 		// Create and add an edge with random data that points from
 		// node1 -> node2.
 		edge := randEdgePolicy(chanID, op, db)
-		edge.Flags = 0
+		edge.ChannelFlags = 0
 		edge.Node = secondNode
 		edge.SigBytes = testSig.Serialize()
 		if err := graph.UpdateEdgePolicy(edge); err != nil {
@@ -904,7 +908,7 @@ func TestGraphTraversal(t *testing.T) {
 		// Create another random edge that points from node2 -> node1
 		// this time.
 		edge = randEdgePolicy(chanID, op, db)
-		edge.Flags = 1
+		edge.ChannelFlags = 1
 		edge.Node = firstNode
 		edge.SigBytes = testSig.Serialize()
 		if err := graph.UpdateEdgePolicy(edge); err != nil {
@@ -1145,7 +1149,7 @@ func TestGraphPruning(t *testing.T) {
 		// Create and add an edge with random data that points from
 		// node_i -> node_i+1
 		edge := randEdgePolicy(chanID, op, db)
-		edge.Flags = 0
+		edge.ChannelFlags = 0
 		edge.Node = graphNodes[i]
 		edge.SigBytes = testSig.Serialize()
 		if err := graph.UpdateEdgePolicy(edge); err != nil {
@@ -1155,7 +1159,7 @@ func TestGraphPruning(t *testing.T) {
 		// Create another random edge that points from node_i+1 ->
 		// node_i this time.
 		edge = randEdgePolicy(chanID, op, db)
-		edge.Flags = 1
+		edge.ChannelFlags = 1
 		edge.Node = graphNodes[i]
 		edge.SigBytes = testSig.Serialize()
 		if err := graph.UpdateEdgePolicy(edge); err != nil {
@@ -1414,7 +1418,7 @@ func TestChanUpdatesInHorizon(t *testing.T) {
 		edge1 := newEdgePolicy(
 			chanID.ToUint64(), op, db, edge1UpdateTime.Unix(),
 		)
-		edge1.Flags = 0
+		edge1.ChannelFlags = 0
 		edge1.Node = node2
 		edge1.SigBytes = testSig.Serialize()
 		if err := graph.UpdateEdgePolicy(edge1); err != nil {
@@ -1424,7 +1428,7 @@ func TestChanUpdatesInHorizon(t *testing.T) {
 		edge2 := newEdgePolicy(
 			chanID.ToUint64(), op, db, edge2UpdateTime.Unix(),
 		)
-		edge2.Flags = 1
+		edge2.ChannelFlags = 1
 		edge2.Node = node1
 		edge2.SigBytes = testSig.Serialize()
 		if err := graph.UpdateEdgePolicy(edge2); err != nil {
@@ -1915,7 +1919,7 @@ func TestFetchChanInfos(t *testing.T) {
 		edge1 := newEdgePolicy(
 			chanID.ToUint64(), op, db, updateTime.Unix(),
 		)
-		edge1.Flags = 0
+		edge1.ChannelFlags = 0
 		edge1.Node = node2
 		edge1.SigBytes = testSig.Serialize()
 		if err := graph.UpdateEdgePolicy(edge1); err != nil {
@@ -1925,7 +1929,7 @@ func TestFetchChanInfos(t *testing.T) {
 		edge2 := newEdgePolicy(
 			chanID.ToUint64(), op, db, updateTime.Unix(),
 		)
-		edge2.Flags = 1
+		edge2.ChannelFlags = 1
 		edge2.Node = node1
 		edge2.SigBytes = testSig.Serialize()
 		if err := graph.UpdateEdgePolicy(edge2); err != nil {
@@ -2053,7 +2057,7 @@ func TestIncompleteChannelPolicies(t *testing.T) {
 	edgePolicy := newEdgePolicy(
 		chanID.ToUint64(), op, db, updateTime.Unix(),
 	)
-	edgePolicy.Flags = 0
+	edgePolicy.ChannelFlags = 0
 	edgePolicy.Node = node2
 	edgePolicy.SigBytes = testSig.Serialize()
 	if err := graph.UpdateEdgePolicy(edgePolicy); err != nil {
@@ -2068,7 +2072,7 @@ func TestIncompleteChannelPolicies(t *testing.T) {
 	edgePolicy = newEdgePolicy(
 		chanID.ToUint64(), op, db, updateTime.Unix(),
 	)
-	edgePolicy.Flags = 1
+	edgePolicy.ChannelFlags = 1
 	edgePolicy.Node = node1
 	edgePolicy.SigBytes = testSig.Serialize()
 	if err := graph.UpdateEdgePolicy(edgePolicy); err != nil {
@@ -2125,7 +2129,7 @@ func TestChannelEdgePruningUpdateIndexDeletion(t *testing.T) {
 	}
 
 	edge1 := randEdgePolicy(chanID.ToUint64(), edgeInfo.ChannelPoint, db)
-	edge1.Flags = 0
+	edge1.ChannelFlags = 0
 	edge1.Node = node1
 	edge1.SigBytes = testSig.Serialize()
 	if err := graph.UpdateEdgePolicy(edge1); err != nil {
@@ -2133,7 +2137,7 @@ func TestChannelEdgePruningUpdateIndexDeletion(t *testing.T) {
 	}
 
 	edge2 := randEdgePolicy(chanID.ToUint64(), edgeInfo.ChannelPoint, db)
-	edge2.Flags = 1
+	edge2.ChannelFlags = 1
 	edge2.Node = node2
 	edge2.SigBytes = testSig.Serialize()
 	if err := graph.UpdateEdgePolicy(edge2); err != nil {
@@ -2190,12 +2194,12 @@ func TestChannelEdgePruningUpdateIndexDeletion(t *testing.T) {
 
 	// Now, we'll update the edge policies to ensure the old timestamps are
 	// removed from the update index.
-	edge1.Flags = 2
+	edge1.ChannelFlags = 2
 	edge1.LastUpdate = time.Now()
 	if err := graph.UpdateEdgePolicy(edge1); err != nil {
 		t.Fatalf("unable to update edge: %v", err)
 	}
-	edge2.Flags = 3
+	edge2.ChannelFlags = 3
 	edge2.LastUpdate = edge1.LastUpdate.Add(time.Hour)
 	if err := graph.UpdateEdgePolicy(edge2); err != nil {
 		t.Fatalf("unable to update edge: %v", err)
@@ -2282,7 +2286,7 @@ func TestPruneGraphNodes(t *testing.T) {
 	// We'll now insert an advertised edge, but it'll only be the edge that
 	// points from the first to the second node.
 	edge1 := randEdgePolicy(chanID.ToUint64(), edgeInfo.ChannelPoint, db)
-	edge1.Flags = 0
+	edge1.ChannelFlags = 0
 	edge1.Node = node1
 	edge1.SigBytes = testSig.Serialize()
 	if err := graph.UpdateEdgePolicy(edge1); err != nil {
@@ -2645,9 +2649,13 @@ func compareEdgePolicies(a, b *ChannelEdgePolicy) error {
 		return fmt.Errorf("edge LastUpdate doesn't match: expected %#v, \n "+
 			"got %#v", a.LastUpdate, b.LastUpdate)
 	}
-	if a.Flags != b.Flags {
-		return fmt.Errorf("Flags doesn't match: expected %v, "+
-			"got %v", a.Flags, b.Flags)
+	if a.MessageFlags != b.MessageFlags {
+		return fmt.Errorf("MessageFlags doesn't match: expected %v, "+
+			"got %v", a.MessageFlags, b.MessageFlags)
+	}
+	if a.ChannelFlags != b.ChannelFlags {
+		return fmt.Errorf("ChannelFlags doesn't match: expected %v, "+
+			"got %v", a.ChannelFlags, b.ChannelFlags)
 	}
 	if a.TimeLockDelta != b.TimeLockDelta {
 		return fmt.Errorf("TimeLockDelta doesn't match: expected %v, "+

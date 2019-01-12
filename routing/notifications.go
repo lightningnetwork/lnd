@@ -339,7 +339,7 @@ func addToTopologyChange(graph *channeldb.ChannelGraph, update *TopologyChange,
 		// the second node.
 		sourceNode := edgeInfo.NodeKey1
 		connectingNode := edgeInfo.NodeKey2
-		if m.Flags&lnwire.ChanUpdateDirection == 1 {
+		if m.ChannelFlags&lnwire.ChanUpdateDirection == 1 {
 			sourceNode = edgeInfo.NodeKey2
 			connectingNode = edgeInfo.NodeKey1
 		}
@@ -363,7 +363,7 @@ func addToTopologyChange(graph *channeldb.ChannelGraph, update *TopologyChange,
 			FeeRate:         m.FeeProportionalMillionths,
 			AdvertisingNode: aNode,
 			ConnectingNode:  cNode,
-			Disabled:        m.Flags&lnwire.ChanUpdateDisabled != 0,
+			Disabled:        m.ChannelFlags&lnwire.ChanUpdateDisabled != 0,
 		}
 		edgeUpdate.AdvertisingNode.Curve = nil
 		edgeUpdate.ConnectingNode.Curve = nil

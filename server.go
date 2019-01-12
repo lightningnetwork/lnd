@@ -2978,10 +2978,10 @@ func (s *server) announceChanStatus(op wire.OutPoint, disabled bool) error {
 
 	if disabled {
 		// Set the bit responsible for marking a channel as disabled.
-		chanUpdate.Flags |= lnwire.ChanUpdateDisabled
+		chanUpdate.ChannelFlags |= lnwire.ChanUpdateDisabled
 	} else {
 		// Clear the bit responsible for marking a channel as disabled.
-		chanUpdate.Flags &= ^lnwire.ChanUpdateDisabled
+		chanUpdate.ChannelFlags &= ^lnwire.ChanUpdateDisabled
 	}
 
 	// We must now update the message's timestamp and generate a new
@@ -3066,9 +3066,9 @@ func extractChannelUpdate(ownerPubKey []byte,
 	owner := func(edge *channeldb.ChannelEdgePolicy) []byte {
 		var pubKey *btcec.PublicKey
 		switch {
-		case edge.Flags&lnwire.ChanUpdateDirection == 0:
+		case edge.ChannelFlags&lnwire.ChanUpdateDirection == 0:
 			pubKey, _ = info.NodeKey1()
-		case edge.Flags&lnwire.ChanUpdateDirection == 1:
+		case edge.ChannelFlags&lnwire.ChanUpdateDirection == 1:
 			pubKey, _ = info.NodeKey2()
 		}
 
@@ -3100,7 +3100,8 @@ func createChannelUpdate(info *channeldb.ChannelEdgeInfo,
 		ChainHash:       info.ChainHash,
 		ShortChannelID:  lnwire.NewShortChanIDFromInt(policy.ChannelID),
 		Timestamp:       uint32(policy.LastUpdate.Unix()),
-		Flags:           policy.Flags,
+		MessageFlags:    policy.MessageFlags,
+		ChannelFlags:    policy.ChannelFlags,
 		TimeLockDelta:   policy.TimeLockDelta,
 		HtlcMinimumMsat: policy.MinHTLC,
 		BaseFee:         uint32(policy.FeeBaseMSat),

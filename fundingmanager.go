@@ -2468,7 +2468,7 @@ func (f *fundingManager) newChanAnnouncement(localPubKey, remotePubKey,
 	// being updated within the ChannelUpdateAnnouncement announcement
 	// below. A value of zero means it's the edge of the "first" node and 1
 	// being the other node.
-	var chanFlags lnwire.ChanUpdateFlag
+	var chanFlags lnwire.ChanUpdateChanFlags
 
 	// The lexicographical ordering of the two identity public keys of the
 	// nodes indicates which of the nodes is "first". If our serialized
@@ -2502,7 +2502,8 @@ func (f *fundingManager) newChanAnnouncement(localPubKey, remotePubKey,
 		ShortChannelID: shortChanID,
 		ChainHash:      chainHash,
 		Timestamp:      uint32(time.Now().Unix()),
-		Flags:          chanFlags,
+		MessageFlags:   0,
+		ChannelFlags:   chanFlags,
 		TimeLockDelta:  uint16(f.cfg.DefaultRoutingPolicy.TimeLockDelta),
 
 		// We use the HtlcMinimumMsat that the remote party required us

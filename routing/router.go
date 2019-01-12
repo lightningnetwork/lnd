@@ -84,7 +84,7 @@ type ChannelGraphSource interface {
 	// edge for the passed channel ID (and flags) that have a more recent
 	// timestamp.
 	IsStaleEdgePolicy(chanID lnwire.ShortChannelID, timestamp time.Time,
-		flags lnwire.ChanUpdateFlag) bool
+		flags lnwire.ChanUpdateChanFlags) bool
 
 	// ForAllOutgoingChannels is used to iterate over all channels
 	// emanating from the "source" node which is the center of the
@@ -243,7 +243,7 @@ func newEdgeLocatorByPubkeys(channelID uint64, fromNode, toNode *Vertex) *edgeLo
 func newEdgeLocator(edge *channeldb.ChannelEdgePolicy) *edgeLocator {
 	return &edgeLocator{
 		channelID: edge.ChannelID,
-		direction: uint8(edge.Flags & lnwire.ChanUpdateDirection),
+		direction: uint8(edge.ChannelFlags & lnwire.ChanUpdateDirection),
 	}
 }
 
@@ -1149,25 +1149,26 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 
 		// A flag set of 0 indicates this is an announcement for the
 		// "first" node in the channel.
-		case msg.Flags&lnwire.ChanUpdateDirection == 0:
+		case msg.ChannelFlags&lnwire.ChanUpdateDirection == 0:
 
 			// Ignore outdated message.
 			if !edge1Timestamp.Before(msg.LastUpdate) {
 				return newErrf(ErrOutdated, "Ignoring "+
-					"outdated update (flags=%v) for known "+
-					"chan_id=%v", msg.Flags, msg.ChannelID)
-
+					"outdated update (flags=%v|%v) for "+
+					"known chan_id=%v", msg.MessageFlags,
+					msg.ChannelFlags, msg.ChannelID)
 			}
 
 		// Similarly, a flag set of 1 indicates this is an announcement
 		// for the "second" node in the channel.
-		case msg.Flags&lnwire.ChanUpdateDirection == 1:
+		case msg.ChannelFlags&lnwire.ChanUpdateDirection == 1:
 
 			// Ignore outdated message.
 			if !edge2Timestamp.Before(msg.LastUpdate) {
 				return newErrf(ErrOutdated, "Ignoring "+
-					"outdated update (flags=%v) for known "+
-					"chan_id=%v", msg.Flags, msg.ChannelID)
+					"outdated update (flags=%v|%v) for "+
+					"known chan_id=%v", msg.MessageFlags,
+					msg.ChannelFlags, msg.ChannelID)
 			}
 		}
 
@@ -2068,7 +2069,8 @@ func (r *ChannelRouter) applyChannelUpdate(msg *lnwire.ChannelUpdate,
 		SigBytes:                  msg.Signature.ToSignatureBytes(),
 		ChannelID:                 msg.ShortChannelID.ToUint64(),
 		LastUpdate:                time.Unix(int64(msg.Timestamp), 0),
-		Flags:                     msg.Flags,
+		MessageFlags:              msg.MessageFlags,
+		ChannelFlags:              msg.ChannelFlags,
 		TimeLockDelta:             msg.TimeLockDelta,
 		MinHTLC:                   msg.HtlcMinimumMsat,
 		FeeBaseMSat:               lnwire.MilliSatoshi(msg.BaseFee),
@@ -2270,7 +2272,7 @@ func (r *ChannelRouter) IsKnownEdge(chanID lnwire.ShortChannelID) bool {
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
 func (r *ChannelRouter) IsStaleEdgePolicy(chanID lnwire.ShortChannelID,
-	timestamp time.Time, flags lnwire.ChanUpdateFlag) bool {
+	timestamp time.Time, flags lnwire.ChanUpdateChanFlags) bool {
 
 	edge1Timestamp, edge2Timestamp, exists, err := r.cfg.Graph.HasChannelEdge(
 		chanID.ToUint64(),

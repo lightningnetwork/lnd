@@ -402,9 +402,9 @@ func TestEdgeUpdateNotification(t *testing.T) {
 	// Create random policy edges that are stemmed to the channel id
 	// created above.
 	edge1 := randEdgePolicy(chanID, node1)
-	edge1.Flags = 0
+	edge1.ChannelFlags = 0
 	edge2 := randEdgePolicy(chanID, node2)
-	edge2.Flags = 1
+	edge2.ChannelFlags = 1
 
 	if err := ctx.router.UpdateEdge(edge1); err != nil {
 		t.Fatalf("unable to add edge update: %v", err)

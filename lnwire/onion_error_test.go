@@ -20,7 +20,8 @@ var (
 		Signature:      sig,
 		ShortChannelID: NewShortChanIDFromInt(1),
 		Timestamp:      1,
-		Flags:          1,
+		MessageFlags:   0,
+		ChannelFlags:   1,
 	}
 )
 

@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -2536,6 +2537,75 @@ func TestFundingManagerRejectPush(t *testing.T) {
 	err := assertFundingMsgSent(t, bob.msgChan, "Error").(*lnwire.Error)
 	if "Non-zero push amounts are disabled" != string(err.Data) {
 		t.Fatalf("expected ErrNonZeroPushAmount error, got \"%v\"",
+			string(err.Data))
+	}
+}
+
+// TestFundingManagerMaxConfs ensures that we don't accept a funding proposal
+// that proposes a MinAcceptDepth greater than the maximum number of
+// confirmations we're willing to accept.
+func TestFundingManagerMaxConfs(t *testing.T) {
+	t.Parallel()
+
+	alice, bob := setupFundingManagers(t, defaultMaxPendingChannels)
+	defer tearDownFundingManagers(t, alice, bob)
+
+	// Create a funding request and start the workflow.
+	updateChan := make(chan *lnrpc.OpenStatusUpdate)
+	errChan := make(chan error, 1)
+	initReq := &openChanReq{
+		targetPubkey:    bob.privKey.PubKey(),
+		chainHash:       *activeNetParams.GenesisHash,
+		localFundingAmt: 500000,
+		pushAmt:         lnwire.NewMSatFromSatoshis(10),
+		private:         false,
+		updates:         updateChan,
+		err:             errChan,
+	}
+
+	alice.fundingMgr.initFundingWorkflow(bob, initReq)
+
+	// Alice should have sent the OpenChannel message to Bob.
+	var aliceMsg lnwire.Message
+	select {
+	case aliceMsg = <-alice.msgChan:
+	case err := <-initReq.err:
+		t.Fatalf("error init funding workflow: %v", err)
+	case <-time.After(time.Second * 5):
+		t.Fatalf("alice did not send OpenChannel message")
+	}
+
+	openChannelReq, ok := aliceMsg.(*lnwire.OpenChannel)
+	if !ok {
+		errorMsg, gotError := aliceMsg.(*lnwire.Error)
+		if gotError {
+			t.Fatalf("expected OpenChannel to be sent "+
+				"from bob, instead got error: %v",
+				lnwire.ErrorCode(errorMsg.Data[0]))
+		}
+		t.Fatalf("expected OpenChannel to be sent from "+
+			"alice, instead got %T", aliceMsg)
+	}
+
+	// Let Bob handle the init message.
+	bob.fundingMgr.processFundingOpen(openChannelReq, alice)
+
+	// Bob should answer with an AcceptChannel message.
+	acceptChannelResponse := assertFundingMsgSent(
+		t, bob.msgChan, "AcceptChannel",
+	).(*lnwire.AcceptChannel)
+
+	// Modify the AcceptChannel message Bob is proposing to including a
+	// MinAcceptDepth Alice won't be willing to accept.
+	acceptChannelResponse.MinAcceptDepth = chainntnfs.MaxNumConfs + 1
+
+	alice.fundingMgr.processFundingAccept(acceptChannelResponse, bob)
+
+	// Alice should respond back with an error indicating MinAcceptDepth is
+	// too large.
+	err := assertFundingMsgSent(t, alice.msgChan, "Error").(*lnwire.Error)
+	if !strings.Contains(string(err.Data), "minimum depth") {
+		t.Fatalf("expected ErrNumConfsTooLarge, got \"%v\"",
 			string(err.Data))
 	}
 }

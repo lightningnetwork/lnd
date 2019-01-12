@@ -1230,6 +1230,18 @@ func (f *fundingManager) handleFundingAccept(fmsg *fundingAcceptMsg) {
 
 	fndgLog.Infof("Recv'd fundingResponse for pendingID(%x)", pendingChanID[:])
 
+	// The required number of confirmations should not be greater than the
+	// maximum number of confirmations required by the ChainNotifier to
+	// properly dispatch confirmations.
+	if msg.MinAcceptDepth > chainntnfs.MaxNumConfs {
+		err := lnwallet.ErrNumConfsTooLarge(
+			msg.MinAcceptDepth, chainntnfs.MaxNumConfs,
+		)
+		fndgLog.Warnf("Unacceptable channel constraints: %v", err)
+		f.failFundingFlow(fmsg.peer, fmsg.msg.PendingChannelID, err)
+		return
+	}
+
 	// We'll also specify the responder's preference for the number of
 	// required confirmations, and also the set of channel constraints
 	// they've specified for commitment states we can create.

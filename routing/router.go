@@ -2060,12 +2060,18 @@ func (r *ChannelRouter) applyChannelUpdate(msg *lnwire.ChannelUpdate,
 		return true
 	}
 
-	if err := ValidateChannelUpdateAnn(pubKey, msg); err != nil {
+	ch, _, _, err := r.GetChannelByID(msg.ShortChannelID)
+	if err != nil {
+		log.Errorf("Unable to retrieve channel by id: %v", err)
+		return false
+	}
+
+	if err := ValidateChannelUpdateAnn(pubKey, ch.Capacity, msg); err != nil {
 		log.Errorf("Unable to validate channel update: %v", err)
 		return false
 	}
 
-	err := r.UpdateEdge(&channeldb.ChannelEdgePolicy{
+	err = r.UpdateEdge(&channeldb.ChannelEdgePolicy{
 		SigBytes:                  msg.Signature.ToSignatureBytes(),
 		ChannelID:                 msg.ShortChannelID.ToUint64(),
 		LastUpdate:                time.Unix(int64(msg.Timestamp), 0),

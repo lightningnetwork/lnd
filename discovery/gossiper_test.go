@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -474,19 +475,28 @@ func createUpdateAnnouncement(blockHeight uint32,
 		a.ExtraOpaqueData = extraBytes[0]
 	}
 
-	pub := nodeKey.PubKey()
-	signer := mockSigner{nodeKey}
-	sig, err := SignAnnouncement(&signer, pub, a)
-	if err != nil {
-		return nil, err
-	}
-
-	a.Signature, err = lnwire.NewSigFromSignature(sig)
+	err = signUpdate(nodeKey, a)
 	if err != nil {
 		return nil, err
 	}
 
 	return a, nil
+}
+
+func signUpdate(nodeKey *btcec.PrivateKey, a *lnwire.ChannelUpdate) error {
+	pub := nodeKey.PubKey()
+	signer := mockSigner{nodeKey}
+	sig, err := SignAnnouncement(&signer, pub, a)
+	if err != nil {
+		return err
+	}
+
+	a.Signature, err = lnwire.NewSigFromSignature(sig)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func createAnnouncementWithoutProof(blockHeight uint32,
@@ -2762,6 +2772,93 @@ func TestNodeAnnouncementNoChannels(t *testing.T) {
 	case <-ctx.broadcastedMessage:
 		t.Fatal("node announcement was broadcast")
 	case <-time.After(2 * trickleDelay):
+	}
+}
+
+// TestOptionalFieldsChannelUpdateValidation tests that we're able to properly
+// validate the msg flags and optional max HTLC field of a ChannelUpdate.
+func TestOptionalFieldsChannelUpdateValidation(t *testing.T) {
+	t.Parallel()
+
+	ctx, cleanup, err := createTestCtx(0)
+	if err != nil {
+		t.Fatalf("can't create context: %v", err)
+	}
+	defer cleanup()
+
+	chanUpdateHeight := uint32(0)
+	timestamp := uint32(123456)
+	nodePeer := &mockPeer{nodeKeyPriv1.PubKey(), nil, nil}
+
+	// In this scenario, we'll test whether the message flags field in a channel
+	// update is properly handled.
+	chanAnn, err := createRemoteChannelAnnouncement(chanUpdateHeight)
+	if err != nil {
+		t.Fatalf("can't create channel announcement: %v", err)
+	}
+
+	select {
+	case err = <-ctx.gossiper.ProcessRemoteAnnouncement(chanAnn, nodePeer):
+	case <-time.After(2 * time.Second):
+		t.Fatal("did not process remote announcement")
+	}
+	if err != nil {
+		t.Fatalf("unable to process announcement: %v", err)
+	}
+
+	// The first update should fail from an invalid max HTLC field, which is
+	// less than the min HTLC.
+	chanUpdAnn, err := createUpdateAnnouncement(0, 0, nodeKeyPriv1, timestamp)
+	if err != nil {
+		t.Fatalf("unable to create channel update: %v", err)
+	}
+
+	chanUpdAnn.HtlcMinimumMsat = 5000
+	chanUpdAnn.HtlcMaximumMsat = 4000
+	if err := signUpdate(nodeKeyPriv1, chanUpdAnn); err != nil {
+		t.Fatalf("unable to sign channel update: %v", err)
+	}
+
+	select {
+	case err = <-ctx.gossiper.ProcessRemoteAnnouncement(chanUpdAnn, nodePeer):
+	case <-time.After(2 * time.Second):
+		t.Fatal("did not process remote announcement")
+	}
+	if err == nil || !strings.Contains(err.Error(), "invalid max htlc") {
+		t.Fatalf("expected chan update to error, instead got %v", err)
+	}
+
+	// The second update should fail because the message flag is set but
+	// the max HTLC field is 0.
+	chanUpdAnn.HtlcMinimumMsat = 0
+	chanUpdAnn.HtlcMaximumMsat = 0
+	if err := signUpdate(nodeKeyPriv1, chanUpdAnn); err != nil {
+		t.Fatalf("unable to sign channel update: %v", err)
+	}
+
+	select {
+	case err = <-ctx.gossiper.ProcessRemoteAnnouncement(chanUpdAnn, nodePeer):
+	case <-time.After(2 * time.Second):
+		t.Fatal("did not process remote announcement")
+	}
+	if err == nil || !strings.Contains(err.Error(), "invalid max htlc") {
+		t.Fatalf("expected chan update to error, instead got %v", err)
+	}
+
+	// The final update should succeed, since setting the flag 0 means the
+	// nonsense max_htlc field will just be ignored.
+	chanUpdAnn.MessageFlags = 0
+	if err := signUpdate(nodeKeyPriv1, chanUpdAnn); err != nil {
+		t.Fatalf("unable to sign channel update: %v", err)
+	}
+
+	select {
+	case err = <-ctx.gossiper.ProcessRemoteAnnouncement(chanUpdAnn, nodePeer):
+	case <-time.After(2 * time.Second):
+		t.Fatal("did not process remote announcement")
+	}
+	if err != nil {
+		t.Fatalf("unable to process announcement: %v", err)
 	}
 }
 

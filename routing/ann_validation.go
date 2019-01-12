@@ -5,6 +5,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -121,10 +122,15 @@ func ValidateNodeAnn(a *lnwire.NodeAnnouncement) error {
 }
 
 // ValidateChannelUpdateAnn validates the channel update announcement by
-// checking that the included signature covers he announcement and has been
-// signed by the node's private key.
-func ValidateChannelUpdateAnn(pubKey *btcec.PublicKey,
+// checking (1) that the included signature covers the announcement and has been
+// signed by the node's private key, and (2) that the announcement's message
+// flags and optional fields are sane.
+func ValidateChannelUpdateAnn(pubKey *btcec.PublicKey, capacity btcutil.Amount,
 	a *lnwire.ChannelUpdate) error {
+
+	if err := validateOptionalFields(capacity, a); err != nil {
+		return err
+	}
 
 	data, err := a.DataToSign()
 	if err != nil {
@@ -140,6 +146,28 @@ func ValidateChannelUpdateAnn(pubKey *btcec.PublicKey,
 	if !nodeSig.Verify(dataHash, pubKey) {
 		return errors.Errorf("invalid signature for channel "+
 			"update %v", spew.Sdump(a))
+	}
+
+	return nil
+}
+
+// validateOptionalFields validates a channel update's message flags and
+// corresponding update fields.
+func validateOptionalFields(capacity btcutil.Amount,
+	msg *lnwire.ChannelUpdate) error {
+
+	if msg.MessageFlags&lnwire.ChanUpdateOptionMaxHtlc != 0 {
+		maxHtlc := msg.HtlcMaximumMsat
+		if maxHtlc == 0 || maxHtlc < msg.HtlcMinimumMsat {
+			return errors.Errorf("invalid max htlc for channel "+
+				"update %v", spew.Sdump(msg))
+		}
+		cap := lnwire.NewMSatFromSatoshis(capacity)
+		if maxHtlc > cap {
+			return errors.Errorf("max_htlc(%v) for channel "+
+				"update greater than capacity(%v)", maxHtlc,
+				cap)
+		}
 	}
 
 	return nil

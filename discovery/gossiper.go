@@ -1992,10 +1992,11 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 			pubKey, _ = chanInfo.NodeKey2()
 		}
 
-		// Validate the channel announcement with the expected public
-		// key, In the case of an invalid channel , we'll return an
-		// error to the caller and exit early.
-		if err := routing.ValidateChannelUpdateAnn(pubKey, msg); err != nil {
+		// Validate the channel announcement with the expected public key and
+		// channel capacity. In the case of an invalid channel update, we'll
+		// return an error to the caller and exit early.
+		err = routing.ValidateChannelUpdateAnn(pubKey, chanInfo.Capacity, msg)
+		if err != nil {
 			rErr := fmt.Errorf("unable to validate channel "+
 				"update announcement for short_chan_id=%v: %v",
 				spew.Sdump(msg.ShortChannelID), err)
@@ -2548,7 +2549,7 @@ func (d *AuthenticatedGossiper) updateChannel(info *channeldb.ChannelEdgeInfo,
 
 	// To ensure that our signature is valid, we'll verify it ourself
 	// before committing it to the slice returned.
-	err = routing.ValidateChannelUpdateAnn(d.selfKey, chanUpdate)
+	err = routing.ValidateChannelUpdateAnn(d.selfKey, info.Capacity, chanUpdate)
 	if err != nil {
 		return nil, nil, fmt.Errorf("generated invalid channel "+
 			"update sig: %v", err)

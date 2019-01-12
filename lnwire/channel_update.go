@@ -2,6 +2,7 @@ package lnwire
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"io/ioutil"
 
@@ -11,6 +12,11 @@ import (
 // ChanUpdateMsgFlags is a bitfield that signals whether optional fields are
 // present in the ChannelUpdate.
 type ChanUpdateMsgFlags uint8
+
+// String returns the bitfield flags as a string.
+func (c ChanUpdateMsgFlags) String() string {
+	return fmt.Sprintf("%08b", c)
+}
 
 // ChanUpdateChanFlags is a bitfield that signals various options concerning a
 // particular channel edge. Each bit is to be examined in order to determine
@@ -28,6 +34,11 @@ const (
 	// disabled.
 	ChanUpdateDisabled
 )
+
+// String returns the bitfield flags as a string.
+func (c ChanUpdateChanFlags) String() string {
+	return fmt.Sprintf("%08b", c)
+}
 
 // ChannelUpdate message is used after channel has been initially announced.
 // Each side independently announces its fees and minimum expiry for HTLCs and

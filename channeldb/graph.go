@@ -3173,57 +3173,15 @@ func putChanEdgePolicy(edges, nodes *bbolt.Bucket, edge *ChannelEdgePolicy,
 	byteOrder.PutUint64(edgeKey[33:], edge.ChannelID)
 
 	var b bytes.Buffer
-
-	err := wire.WriteVarBytes(&b, 0, edge.SigBytes)
-	if err != nil {
-		return err
-	}
-
-	if err := binary.Write(&b, byteOrder, edge.ChannelID); err != nil {
-		return err
-	}
-
-	var scratch [8]byte
-	updateUnix := uint64(edge.LastUpdate.Unix())
-	byteOrder.PutUint64(scratch[:], updateUnix)
-	if _, err := b.Write(scratch[:]); err != nil {
-		return err
-	}
-
-	if err := binary.Write(&b, byteOrder, edge.MessageFlags); err != nil {
-		return err
-	}
-	if err := binary.Write(&b, byteOrder, edge.ChannelFlags); err != nil {
-		return err
-	}
-	if err := binary.Write(&b, byteOrder, edge.TimeLockDelta); err != nil {
-		return err
-	}
-	if err := binary.Write(&b, byteOrder, uint64(edge.MinHTLC)); err != nil {
-		return err
-	}
-	if err := binary.Write(&b, byteOrder, uint64(edge.FeeBaseMSat)); err != nil {
-		return err
-	}
-	if err := binary.Write(&b, byteOrder, uint64(edge.FeeProportionalMillionths)); err != nil {
-		return err
-	}
-
-	if _, err := b.Write(to); err != nil {
-		return err
-	}
-
-	if len(edge.ExtraOpaqueData) > MaxAllowedExtraOpaqueBytes {
-		return ErrTooManyExtraOpaqueBytes(len(edge.ExtraOpaqueData))
-	}
-	if err := wire.WriteVarBytes(&b, 0, edge.ExtraOpaqueData); err != nil {
+	if err := serializeChanEdgePolicy(&b, edge, to); err != nil {
 		return err
 	}
 
 	// Before we write out the new edge, we'll create a new entry in the
 	// update index in order to keep it fresh.
+	updateUnix := uint64(edge.LastUpdate.Unix())
 	var indexKey [8 + 8]byte
-	copy(indexKey[:], scratch[:])
+	byteOrder.PutUint64(indexKey[:8], updateUnix)
 	byteOrder.PutUint64(indexKey[8:], edge.ChannelID)
 
 	updateIndex, err := edges.CreateBucketIfNotExists(edgeUpdateIndexBucket)
@@ -3346,6 +3304,58 @@ func fetchChanEdgePolicies(edgeIndex *bbolt.Bucket, edges *bbolt.Bucket,
 	}
 
 	return edge1, edge2, nil
+}
+
+func serializeChanEdgePolicy(w io.Writer, edge *ChannelEdgePolicy,
+	to []byte) error {
+
+	err := wire.WriteVarBytes(w, 0, edge.SigBytes)
+	if err != nil {
+		return err
+	}
+
+	if err := binary.Write(w, byteOrder, edge.ChannelID); err != nil {
+		return err
+	}
+
+	var scratch [8]byte
+	updateUnix := uint64(edge.LastUpdate.Unix())
+	byteOrder.PutUint64(scratch[:], updateUnix)
+	if _, err := w.Write(scratch[:]); err != nil {
+		return err
+	}
+
+	if err := binary.Write(w, byteOrder, edge.MessageFlags); err != nil {
+		return err
+	}
+	if err := binary.Write(w, byteOrder, edge.ChannelFlags); err != nil {
+		return err
+	}
+	if err := binary.Write(w, byteOrder, edge.TimeLockDelta); err != nil {
+		return err
+	}
+	if err := binary.Write(w, byteOrder, uint64(edge.MinHTLC)); err != nil {
+		return err
+	}
+	if err := binary.Write(w, byteOrder, uint64(edge.FeeBaseMSat)); err != nil {
+		return err
+	}
+	if err := binary.Write(w, byteOrder, uint64(edge.FeeProportionalMillionths)); err != nil {
+		return err
+	}
+
+	if _, err := w.Write(to); err != nil {
+		return err
+	}
+
+	if len(edge.ExtraOpaqueData) > MaxAllowedExtraOpaqueBytes {
+		return ErrTooManyExtraOpaqueBytes(len(edge.ExtraOpaqueData))
+	}
+
+	if err := wire.WriteVarBytes(w, 0, edge.ExtraOpaqueData); err != nil {
+		return err
+	}
+	return nil
 }
 
 func deserializeChanEdgePolicy(r io.Reader,

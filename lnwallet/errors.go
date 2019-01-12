@@ -123,6 +123,15 @@ func ErrMaxValueInFlightTooSmall(maxValInFlight,
 	}
 }
 
+// ErrNumConfsTooLarge returns an error indicating that the number of
+// confirmations required for a channel is too large.
+func ErrNumConfsTooLarge(numConfs, maxNumConfs uint32) error {
+	return ReservationError{
+		fmt.Errorf("minimum depth of %d is too large, max is %d",
+			numConfs, maxNumConfs),
+	}
+}
+
 // ErrChanTooSmall returns an error indicating that an incoming channel request
 // was too small. We'll reject any incoming channels if they're below our
 // configured value for the min channel size we'll accept.

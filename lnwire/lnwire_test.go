@@ -178,6 +178,50 @@ func randAddrs(r *rand.Rand) ([]net.Addr, error) {
 	return []net.Addr{tcp4Addr, tcp6Addr, v2OnionAddr, v3OnionAddr}, nil
 }
 
+// TestChanUpdateChanFlags ensures that converting the ChanUpdateChanFlags and
+// ChanUpdateMsgFlags bitfields to a string behaves as expected.
+func TestChanUpdateChanFlags(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		flags    uint8
+		expected string
+	}{
+		{
+			flags:    0,
+			expected: "00000000",
+		},
+		{
+			flags:    1,
+			expected: "00000001",
+		},
+		{
+			flags:    3,
+			expected: "00000011",
+		},
+		{
+			flags:    255,
+			expected: "11111111",
+		},
+	}
+
+	for _, test := range testCases {
+		chanFlag := ChanUpdateChanFlags(test.flags)
+		toStr := chanFlag.String()
+		if toStr != test.expected {
+			t.Fatalf("expected %v, got %v",
+				test.expected, toStr)
+		}
+
+		msgFlag := ChanUpdateMsgFlags(test.flags)
+		toStr = msgFlag.String()
+		if toStr != test.expected {
+			t.Fatalf("expected %v, got %v",
+				test.expected, toStr)
+		}
+	}
+}
+
 func TestMaxOutPointIndex(t *testing.T) {
 	t.Parallel()
 

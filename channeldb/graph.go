@@ -3204,11 +3204,15 @@ func putChanEdgePolicy(edges, nodes *bbolt.Bucket, edge *ChannelEdgePolicy,
 		// *prior* update time in order to delete it. To do this, we'll
 		// need to deserialize the existing policy within the database
 		// (now outdated by the new one), and delete its corresponding
-		// entry within the update index.
+		// entry within the update index. We'll ignore any
+		// ErrEdgePolicyOptionalFieldNotFound error, as we only need
+		// the channel ID and update time to delete the entry.
+		// TODO(halseth): get rid of these invalid policies in a
+		// migration.
 		oldEdgePolicy, err := deserializeChanEdgePolicy(
 			bytes.NewReader(edgeBytes), nodes,
 		)
-		if err != nil {
+		if err != nil && err != ErrEdgePolicyOptionalFieldNotFound {
 			return err
 		}
 
@@ -3266,7 +3270,18 @@ func fetchChanEdgePolicy(edges *bbolt.Bucket, chanID []byte,
 
 	edgeReader := bytes.NewReader(edgeBytes)
 
-	return deserializeChanEdgePolicy(edgeReader, nodes)
+	ep, err := deserializeChanEdgePolicy(edgeReader, nodes)
+	switch {
+	// If the db policy was missing an expected optional field, we return
+	// nil as if the policy was unknown.
+	case err == ErrEdgePolicyOptionalFieldNotFound:
+		return nil, nil
+
+	case err != nil:
+		return nil, err
+	}
+
+	return ep, nil
 }
 
 func fetchChanEdgePolicies(edgeIndex *bbolt.Bucket, edges *bbolt.Bucket,

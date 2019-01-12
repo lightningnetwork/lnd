@@ -28,6 +28,7 @@ import (
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/signal"
 	"github.com/lightningnetwork/lnd/sweep"
+	"github.com/lightningnetwork/lnd/watchtower"
 )
 
 // Loggers per subsystem.  A single backend logger is created and all subsystem
@@ -75,6 +76,7 @@ var (
 	arpcLog = build.NewSubLogger("ARPC", backendLog.Logger)
 	invcLog = build.NewSubLogger("INVC", backendLog.Logger)
 	nannLog = build.NewSubLogger("NANN", backendLog.Logger)
+	wtwrLog = build.NewSubLogger("WTWR", backendLog.Logger)
 )
 
 // Initialize package-global logger variables.
@@ -97,6 +99,7 @@ func init() {
 	autopilotrpc.UseLogger(arpcLog)
 	invoices.UseLogger(invcLog)
 	netann.UseLogger(nannLog)
+	watchtower.UseLogger(wtwrLog)
 }
 
 // subsystemLoggers maps each subsystem identifier to its associated logger.
@@ -125,6 +128,7 @@ var subsystemLoggers = map[string]btclog.Logger{
 	"ARPC": arpcLog,
 	"INVC": invcLog,
 	"NANN": nannLog,
+	"WTWR": wtwrLog,
 }
 
 // initLogRotator initializes the logging rotator to write logs to logFile and

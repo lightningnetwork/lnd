@@ -622,33 +622,8 @@ func assertEdgeInfoEqual(t *testing.T, e1 *ChannelEdgeInfo,
 	}
 }
 
-func TestEdgeInfoUpdates(t *testing.T) {
-	t.Parallel()
-
-	db, cleanUp, err := makeTestDB()
-	defer cleanUp()
-	if err != nil {
-		t.Fatalf("unable to make test database: %v", err)
-	}
-
-	graph := db.ChannelGraph()
-
-	// We'd like to test the update of edges inserted into the database, so
-	// we create two vertexes to connect.
-	node1, err := createTestVertex(db)
-	if err != nil {
-		t.Fatalf("unable to create test node: %v", err)
-	}
-	if err := graph.AddLightningNode(node1); err != nil {
-		t.Fatalf("unable to add node: %v", err)
-	}
-	node2, err := createTestVertex(db)
-	if err != nil {
-		t.Fatalf("unable to create test node: %v", err)
-	}
-	if err := graph.AddLightningNode(node2); err != nil {
-		t.Fatalf("unable to add node: %v", err)
-	}
+func createChannelEdge(db *DB, node1, node2 *LightningNode) (*ChannelEdgeInfo,
+	*ChannelEdgePolicy, *ChannelEdgePolicy) {
 
 	var (
 		firstNode  *LightningNode
@@ -689,12 +664,7 @@ func TestEdgeInfoUpdates(t *testing.T) {
 	copy(edgeInfo.NodeKey2Bytes[:], secondNode.PubKeyBytes[:])
 	copy(edgeInfo.BitcoinKey1Bytes[:], firstNode.PubKeyBytes[:])
 	copy(edgeInfo.BitcoinKey2Bytes[:], secondNode.PubKeyBytes[:])
-	if err := graph.AddChannelEdge(edgeInfo); err != nil {
-		t.Fatalf("unable to create channel edge: %v", err)
-	}
 
-	// With the edge added, we can now create some fake edge information to
-	// update for both edges.
 	edge1 := &ChannelEdgePolicy{
 		SigBytes:                  testSig.Serialize(),
 		ChannelID:                 chanID,
@@ -726,8 +696,48 @@ func TestEdgeInfoUpdates(t *testing.T) {
 		db:                        db,
 	}
 
-	// Next, insert both nodes into the database, they should both be
-	// inserted without any issues.
+	return edgeInfo, edge1, edge2
+}
+
+func TestEdgeInfoUpdates(t *testing.T) {
+	t.Parallel()
+
+	db, cleanUp, err := makeTestDB()
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to make test database: %v", err)
+	}
+
+	graph := db.ChannelGraph()
+
+	// We'd like to test the update of edges inserted into the database, so
+	// we create two vertexes to connect.
+	node1, err := createTestVertex(db)
+	if err != nil {
+		t.Fatalf("unable to create test node: %v", err)
+	}
+	if err := graph.AddLightningNode(node1); err != nil {
+		t.Fatalf("unable to add node: %v", err)
+	}
+	node2, err := createTestVertex(db)
+	if err != nil {
+		t.Fatalf("unable to create test node: %v", err)
+	}
+	if err := graph.AddLightningNode(node2); err != nil {
+		t.Fatalf("unable to add node: %v", err)
+	}
+
+	// Create an edge and add it to the db.
+	edgeInfo, edge1, edge2 := createChannelEdge(db, node1, node2)
+	if err := graph.AddChannelEdge(edgeInfo); err != nil {
+		t.Fatalf("unable to create channel edge: %v", err)
+	}
+
+	chanID := edgeInfo.ChannelID
+	outpoint := edgeInfo.ChannelPoint
+
+	// Next, insert both edge policies into the database, they should both
+	// be inserted without any issues.
 	if err := graph.UpdateEdgePolicy(edge1); err != nil {
 		t.Fatalf("unable to update edge: %v", err)
 	}
@@ -2599,6 +2609,173 @@ func TestNodeIsPublic(t *testing.T) {
 		[]*ChannelGraph{aliceGraph, carolGraph},
 		false,
 	)
+}
+
+// TestEdgePolicyMissingMaxHtcl tests that if we find a ChannelEdgePolicy in
+// the DB that indicates that it should support the htlc_maximum_value_msat
+// field, but it is not part of the opaque data, then we'll handle it as it is
+// unknown. It also checks that we are correctly able to overwrite it when we
+// receive the proper update.
+func TestEdgePolicyMissingMaxHtcl(t *testing.T) {
+	t.Parallel()
+
+	db, cleanUp, err := makeTestDB()
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to make test database: %v", err)
+	}
+
+	graph := db.ChannelGraph()
+
+	// We'd like to test the update of edges inserted into the database, so
+	// we create two vertexes to connect.
+	node1, err := createTestVertex(db)
+	if err != nil {
+		t.Fatalf("unable to create test node: %v", err)
+	}
+	if err := graph.AddLightningNode(node1); err != nil {
+		t.Fatalf("unable to add node: %v", err)
+	}
+	node2, err := createTestVertex(db)
+	if err != nil {
+		t.Fatalf("unable to create test node: %v", err)
+	}
+
+	edgeInfo, edge1, edge2 := createChannelEdge(db, node1, node2)
+	if err := graph.AddLightningNode(node2); err != nil {
+		t.Fatalf("unable to add node: %v", err)
+	}
+	if err := graph.AddChannelEdge(edgeInfo); err != nil {
+		t.Fatalf("unable to create channel edge: %v", err)
+	}
+
+	chanID := edgeInfo.ChannelID
+	from := edge2.Node.PubKeyBytes[:]
+	to := edge1.Node.PubKeyBytes[:]
+
+	// We'll remove the no max_htlc field from the first edge policy, and
+	// all other opaque data, and serialize it.
+	edge1.MessageFlags = 0
+	edge1.ExtraOpaqueData = nil
+
+	var b bytes.Buffer
+	err = serializeChanEdgePolicy(&b, edge1, to)
+	if err != nil {
+		t.Fatalf("unable to serialize policy")
+	}
+
+	// Set the max_htlc field. The extra bytes added to the serialization
+	// will be the opaque data containing the serialized field.
+	edge1.MessageFlags = lnwire.ChanUpdateOptionMaxHtlc
+	edge1.MaxHTLC = 13928598
+	var b2 bytes.Buffer
+	err = serializeChanEdgePolicy(&b2, edge1, to)
+	if err != nil {
+		t.Fatalf("unable to serialize policy")
+	}
+
+	withMaxHtlc := b2.Bytes()
+
+	// Remove the opaque data from the serialization.
+	stripped := withMaxHtlc[:len(b.Bytes())]
+
+	// Attempting to deserialize these bytes should return an error.
+	r := bytes.NewReader(stripped)
+	err = db.View(func(tx *bbolt.Tx) error {
+		nodes := tx.Bucket(nodeBucket)
+		if nodes == nil {
+			return ErrGraphNotFound
+		}
+
+		_, err = deserializeChanEdgePolicy(r, nodes)
+		if err != ErrEdgePolicyOptionalFieldNotFound {
+			t.Fatalf("expected "+
+				"ErrEdgePolicyOptionalFieldNotFound, got %v",
+				err)
+		}
+
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("error reading db: %v", err)
+	}
+
+	// Put the stripped bytes in the DB.
+	err = db.Update(func(tx *bbolt.Tx) error {
+		edges := tx.Bucket(edgeBucket)
+		if edges == nil {
+			return ErrEdgeNotFound
+		}
+
+		edgeIndex := edges.Bucket(edgeIndexBucket)
+		if edgeIndex == nil {
+			return ErrEdgeNotFound
+		}
+
+		var edgeKey [33 + 8]byte
+		copy(edgeKey[:], from)
+		byteOrder.PutUint64(edgeKey[33:], edge1.ChannelID)
+
+		var scratch [8]byte
+		var indexKey [8 + 8]byte
+		copy(indexKey[:], scratch[:])
+		byteOrder.PutUint64(indexKey[8:], edge1.ChannelID)
+
+		updateIndex, err := edges.CreateBucketIfNotExists(edgeUpdateIndexBucket)
+		if err != nil {
+			return err
+		}
+
+		if err := updateIndex.Put(indexKey[:], nil); err != nil {
+			return err
+		}
+
+		return edges.Put(edgeKey[:], stripped)
+	})
+	if err != nil {
+		t.Fatalf("error writing db: %v", err)
+	}
+
+	// And add the second, unmodified edge.
+	if err := graph.UpdateEdgePolicy(edge2); err != nil {
+		t.Fatalf("unable to update edge: %v", err)
+	}
+
+	// Attempt to fetch the edge and policies from the DB. Since the policy
+	// we added is invalid according to the new format, it should be as we
+	// are not aware of the policy (indicated by the policy returned being
+	// nil)
+	dbEdgeInfo, dbEdge1, dbEdge2, err := graph.FetchChannelEdgesByID(chanID)
+	if err != nil {
+		t.Fatalf("unable to fetch channel by ID: %v", err)
+	}
+
+	// The first edge should have a nil-policy returned
+	if dbEdge1 != nil {
+		t.Fatalf("expected db edge to be nil")
+	}
+	if err := compareEdgePolicies(dbEdge2, edge2); err != nil {
+		t.Fatalf("edge doesn't match: %v", err)
+	}
+	assertEdgeInfoEqual(t, dbEdgeInfo, edgeInfo)
+
+	// Now add the original, unmodified edge policy, and make sure the edge
+	// policies then become fully populated.
+	if err := graph.UpdateEdgePolicy(edge1); err != nil {
+		t.Fatalf("unable to update edge: %v", err)
+	}
+
+	dbEdgeInfo, dbEdge1, dbEdge2, err = graph.FetchChannelEdgesByID(chanID)
+	if err != nil {
+		t.Fatalf("unable to fetch channel by ID: %v", err)
+	}
+	if err := compareEdgePolicies(dbEdge1, edge1); err != nil {
+		t.Fatalf("edge doesn't match: %v", err)
+	}
+	if err := compareEdgePolicies(dbEdge2, edge2); err != nil {
+		t.Fatalf("edge doesn't match: %v", err)
+	}
+	assertEdgeInfoEqual(t, dbEdgeInfo, edgeInfo)
 }
 
 // compareNodes is used to compare two LightningNodes while excluding the

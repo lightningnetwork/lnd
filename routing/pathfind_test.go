@@ -13,6 +13,7 @@ import (
 	"math/big"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -1239,8 +1240,10 @@ func TestNewRoute(t *testing.T) {
 	}
 }
 
+// TestNewRoutePathTooLong tests that too-long paths are handled correctly; that
+// path with 20 hops are valid while paths with 21 hops are rejected.
 func TestNewRoutePathTooLong(t *testing.T) {
-	t.Skip()
+	t.Parallel()
 
 	// Ensure that potential paths which are over the maximum hop-limit are
 	// rejected.
@@ -1293,9 +1296,233 @@ func TestNewRoutePathTooLong(t *testing.T) {
 		sourceNode, target, paymentAmt,
 	)
 	if err == nil {
-		t.Fatalf("should not have been able to find path, supposed to be "+
-			"greater than 20 hops, found route with %v hops",
+		t.Fatalf("should not have been able to find path, supposed to "+
+			"be greater than 20 hops, found route with %v hops",
 			len(path))
+	}
+
+	if !IsError(err, ErrMaxHopsExceeded) {
+		t.Fatalf("expected route too long error, got %v instead", err)
+	}
+
+	// Add another vertex "gollum" connecting "inez" and "rick", providing an
+	// alternate path with smaller number of hops to "vincent" (14), but with
+	// higher total fees. Check that the new path is found.
+	gollumPubKeyHex := "03dd46ff29a6941b4a2607525b043ec9b020b3f318a1bf281536fd7011ec59c882"
+	gollumPubKeyBytes, err := hex.DecodeString(gollumPubKeyHex)
+	if err != nil {
+		t.Fatalf("unable to decode public key: %v", err)
+	}
+	gollumPubKey, err := btcec.ParsePubKey(gollumPubKeyBytes, btcec.S256())
+	if err != nil {
+		t.Fatalf("unable to parse public key from bytes: %v", err)
+	}
+
+	gollum := &channeldb.LightningNode{}
+	gollum.AddPubKey(gollumPubKey)
+	gollum.Alias = "gollum"
+	graph.aliasMap["gollum"] = gollumPubKey
+
+	// Select high fees on the gollum edges.
+	_, edge, _, err := graph.graph.FetchChannelEdgesByID(12345)
+	if err != nil {
+		t.Fatalf("unable to fetch edge: %v", err)
+	}
+	if edge == nil {
+		t.Fatalf("unable to fetch edge: %v", err)
+	}
+	hugeBaseFee := edge.FeeBaseMSat * 100
+	hugeFeeRate := edge.FeeProportionalMillionths * 100
+
+	// Create the channel edge going from inez to gollum, and from
+	// gollum to rick and include them in our map of additional edges.
+	inezToGollum := &channeldb.ChannelEdgePolicy{
+		Node:                      gollum,
+		ChannelID:                 222,
+		FeeBaseMSat:               hugeBaseFee,
+		FeeProportionalMillionths: hugeFeeRate,
+		TimeLockDelta:             144,
+	}
+
+	rick, err := graph.graph.FetchLightningNode(graph.aliasMap["rick"])
+	if err != nil {
+		t.Fatalf("unable to retrieve %s node: %v", "rick", err)
+	}
+
+	gollumToRick := &channeldb.ChannelEdgePolicy{
+		Node:                      rick,
+		ChannelID:                 223,
+		FeeBaseMSat:               hugeBaseFee,
+		FeeProportionalMillionths: hugeFeeRate,
+		TimeLockDelta:             144,
+	}
+
+	additionalEdges := map[Vertex][]*channeldb.ChannelEdgePolicy{
+		NewVertex(graph.aliasMap["inez"]):   {inezToGollum},
+		NewVertex(graph.aliasMap["gollum"]): {gollumToRick},
+	}
+
+	target = graph.aliasMap["vincent"]
+	path, err = findPath(
+		&graphParams{
+			graph:           graph.graph,
+			additionalEdges: additionalEdges,
+		},
+		&restrictParams{
+			ignoredNodes: ignoredVertexes,
+			ignoredEdges: ignoredEdges,
+			feeLimit:     noFeeLimit,
+		},
+		sourceNode, target, paymentAmt,
+	)
+
+	if err != nil {
+		t.Fatalf("path should have been found")
+	}
+
+	if len(path) != 14 {
+		t.Fatalf("expected %v hops, got %v hops", 14, len(path))
+	}
+}
+
+// TestPathTooLongDoSAttack test a denial of service attack by which an attacker
+// adds two low fee chains of > hop limit number of nodes which are connected to
+// each other, and attempt to 'hide' the available route by offering more than
+// 2^20 possible shortest fee possible routes to destination, all of which are
+// with too much hops.
+func TestPathTooLongDoSAttack(t *testing.T) {
+
+	// Set up a test graph with a regular network part and an attacker part. The
+	// regular part is composed of a linear 3 hops network.
+	testChannels := []*testChannel{
+		symmetricTestChannel("roasbeef", "kedma", 100000, &testChannelPolicy{
+			Expiry:      144,
+			FeeRate:     0,
+			FeeBaseMsat: 1000,
+			MinHTLC:     1,
+		}),
+		symmetricTestChannel("kedma", "yama", 100000, &testChannelPolicy{
+			Expiry:      144,
+			FeeRate:     0,
+			FeeBaseMsat: 1000,
+			MinHTLC:     1,
+		}),
+		symmetricTestChannel("yama", "target", 100000, &testChannelPolicy{
+			Expiry:      144,
+			FeeRate:     0,
+			FeeBaseMsat: 1000,
+			MinHTLC:     1,
+		}),
+	}
+
+	// Add the attacker channels: 2 chains of nodes, chain a and chain b, each
+	// chain 20 hops long. Each node is connected both to its next node on the
+	// chain as well as next node on the other chain.
+	prevA := "roasbeef"
+	prevB := "roasbeef"
+	chainLength := 20
+	for i := 0; i < chainLength; i++ {
+		a := "a" + strconv.Itoa(i+1)
+		b := "b" + strconv.Itoa(i+1)
+		// Add in-chain edges.
+		testChannels = append(testChannels,
+			symmetricTestChannel(prevA, a, 100000, &testChannelPolicy{
+				Expiry:      144,
+				FeeRate:     0,
+				FeeBaseMsat: 1,
+				MinHTLC:     1,
+			}),
+			symmetricTestChannel(prevB, b, 100000, &testChannelPolicy{
+				Expiry:      144,
+				FeeRate:     0,
+				FeeBaseMsat: 1,
+				MinHTLC:     1,
+			}),
+		)
+		// Add cross chain edges.
+		if i > 0 {
+			testChannels = append(testChannels,
+				symmetricTestChannel(prevA, b, 100000, &testChannelPolicy{
+					Expiry:      144,
+					FeeRate:     0,
+					FeeBaseMsat: 1,
+					MinHTLC:     1,
+				}),
+				symmetricTestChannel(prevB, a, 100000, &testChannelPolicy{
+					Expiry:      144,
+					FeeRate:     0,
+					FeeBaseMsat: 1,
+					MinHTLC:     1,
+				}),
+			)
+		}
+		// Add final edges to target.
+		if i+1 >= chainLength {
+			testChannels = append(testChannels,
+				symmetricTestChannel(a, "target", 100000, &testChannelPolicy{
+					Expiry:      144,
+					FeeRate:     0,
+					FeeBaseMsat: 1,
+					MinHTLC:     1,
+				}),
+				symmetricTestChannel(b, "target", 100000, &testChannelPolicy{
+					Expiry:      144,
+					FeeRate:     0,
+					FeeBaseMsat: 1,
+					MinHTLC:     1,
+				}),
+			)
+		}
+		prevA, prevB = a, b
+	}
+
+	graph, err := createTestGraphFromChannels(testChannels)
+	if err != nil {
+		t.Fatalf("unable to create graph: %v", err)
+	}
+	defer graph.cleanUp()
+
+	sourceNode, err := graph.graph.SourceNode()
+	if err != nil {
+		t.Fatalf("unable to fetch source node: %v", err)
+	}
+
+	ignoredEdges := make(map[edgeLocator]struct{})
+	ignoredVertexes := make(map[Vertex]struct{})
+
+	paymentAmt := lnwire.NewMSatFromSatoshis(100)
+	target := graph.aliasMap["target"]
+	path, err := findPath(
+		&graphParams{
+			graph: graph.graph,
+		},
+		&restrictParams{
+			ignoredNodes: ignoredVertexes,
+			ignoredEdges: ignoredEdges,
+			feeLimit:     noFeeLimit,
+		},
+		sourceNode, target, paymentAmt,
+	)
+
+	if err != nil {
+		t.Fatalf("path should have been found")
+	}
+
+	if len(path) != 3 {
+		t.Fatalf("expected %v hops, got %v hops", 3, len(path))
+	}
+
+	paths, err := findPaths(
+		nil, graph.graph, sourceNode, target, paymentAmt, noFeeLimit, 10,
+		nil,
+	)
+
+	if err != nil {
+		t.Fatalf("path should have been found")
+	}
+
+	if len(paths) != 1 {
+		t.Fatalf("expected %v path, got %v paths", 1, len(paths))
 	}
 
 }

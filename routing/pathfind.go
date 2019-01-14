@@ -452,6 +452,11 @@ type restrictParams struct {
 	// feeLimit is a maximum fee amount allowed to be used on the path from
 	// the source to the target.
 	feeLimit lnwire.MilliSatoshi
+
+	// stopAtMaxHopsExceeded instructs the find path algorithm to
+	// stop further search attempts if the number of hops of the shortest
+	// path found is above the maximum.
+	stopAtMaxHopsExceeded bool
 }
 
 // findPath attempts to find a path from the source node within the
@@ -781,14 +786,79 @@ func findPath(g *graphParams, r *restrictParams,
 	// hops, then it's invalid.
 	numEdges := len(pathEdges)
 	if numEdges > HopLimit {
-		return nil, newErr(ErrMaxHopsExceeded, "potential path has "+
-			"too many hops")
+		if r.stopAtMaxHopsExceeded {
+			return pathEdges, newErr(ErrMaxHopsExceeded,
+				"potential path has too many hops")
+		}
+		// Make another attempt to find a route which is not the
+		// shortest path in terms of fees, but with number of
+		// hops below the max.
+		pathKEdges, err := findKPaths(
+			g,
+			r,
+			sourceNode, target,
+			amt,
+			pathEdges,
+			1,
+		)
+		if err != nil || len(pathKEdges) == 0 {
+			return nil, newErr(ErrMaxHopsExceeded, "shortest"+
+				" path has too many hops. No alternate "+
+				" path found.")
+		}
+		// Remove the first artificial node added at path beginning.
+		pathEdges = pathKEdges[0][1:]
 	}
 
 	return pathEdges, nil
 }
 
 // findPaths implements a k-shortest paths algorithm to find all the reachable
+// paths between the passed source and target. First the shortest path is found
+// and the k-shortest paths are then calculated based on it.
+func findPaths(tx *bbolt.Tx, graph *channeldb.ChannelGraph,
+	source *channeldb.LightningNode, target *btcec.PublicKey,
+	amt lnwire.MilliSatoshi, feeLimit lnwire.MilliSatoshi, numPaths uint32,
+	bandwidthHints map[uint64]lnwire.MilliSatoshi) ([][]*channeldb.ChannelEdgePolicy, error) {
+
+	ignoredEdges := make(map[edgeLocator]struct{})
+	ignoredVertexes := make(map[Vertex]struct{})
+
+	// First we'll find a single shortest path from the source (our
+	// selfNode) to the target destination that's capable of carrying amt
+	// satoshis along the path before fees are calculated.
+	g := &graphParams{
+		tx:             tx,
+		graph:          graph,
+		bandwidthHints: bandwidthHints,
+	}
+	r := &restrictParams{
+		ignoredNodes: ignoredVertexes,
+		ignoredEdges: ignoredEdges,
+		feeLimit:     feeLimit,
+	}
+	startingPath, err := findPath(
+		g,
+		r,
+		source, target, amt,
+	)
+	if err != nil {
+		log.Errorf("Unable to find path: %v", err)
+		return nil, err
+	}
+
+	// Calculate the k-shortest paths based on the first path found.
+	return findKPaths(
+		g,
+		r,
+		source, target,
+		amt,
+		startingPath,
+		numPaths,
+	)
+}
+
+// findKPaths implements a k-shortest paths algorithm to find all the reachable
 // paths between the passed source and target. The algorithm will continue to
 // traverse the graph until all possible candidate paths have been depleted.
 // This function implements a modified version of Yen's. To find each path
@@ -799,41 +869,20 @@ func findPath(g *graphParams, r *restrictParams,
 // make our inner path finding algorithm aware of our k-shortest paths
 // algorithm, rather than attempting to use an unmodified path finding
 // algorithm in a block box manner.
-func findPaths(tx *bbolt.Tx, graph *channeldb.ChannelGraph,
+func findKPaths(g *graphParams, r *restrictParams,
 	source *channeldb.LightningNode, target *btcec.PublicKey,
-	amt lnwire.MilliSatoshi, feeLimit lnwire.MilliSatoshi, numPaths uint32,
-	bandwidthHints map[uint64]lnwire.MilliSatoshi) ([][]*channeldb.ChannelEdgePolicy, error) {
-
-	ignoredEdges := make(map[edgeLocator]struct{})
-	ignoredVertexes := make(map[Vertex]struct{})
+	amt lnwire.MilliSatoshi,
+	startingPath []*channeldb.ChannelEdgePolicy,
+	numPaths uint32) ([][]*channeldb.ChannelEdgePolicy, error) {
 
 	// TODO(roasbeef): modifying ordering within heap to eliminate final
 	// sorting step?
 	var (
 		shortestPaths  [][]*channeldb.ChannelEdgePolicy
 		candidatePaths pathHeap
+		validPathsNum  uint32
 	)
-
-	// First we'll find a single shortest path from the source (our
-	// selfNode) to the target destination that's capable of carrying amt
-	// satoshis along the path before fees are calculated.
-	startingPath, err := findPath(
-		&graphParams{
-			tx:             tx,
-			graph:          graph,
-			bandwidthHints: bandwidthHints,
-		},
-		&restrictParams{
-			ignoredNodes: ignoredVertexes,
-			ignoredEdges: ignoredEdges,
-			feeLimit:     feeLimit,
-		},
-		source, target, amt,
-	)
-	if err != nil {
-		log.Errorf("Unable to find path: %v", err)
-		return nil, err
-	}
+	heap.Init(&candidatePaths)
 
 	// Manually insert a "self" edge emanating from ourselves. This
 	// self-edge is required in order for the path finding algorithm to
@@ -843,12 +892,14 @@ func findPaths(tx *bbolt.Tx, graph *channeldb.ChannelGraph,
 		Node: source,
 	})
 	firstPath = append(firstPath, startingPath...)
-
+	if len(firstPath) <= HopLimit+1 {
+		validPathsNum++
+	}
 	shortestPaths = append(shortestPaths, firstPath)
 
 	// While we still have candidate paths to explore we'll keep exploring
 	// the sub-graphs created to find the next k-th shortest path.
-	for k := uint32(1); k < numPaths; k++ {
+	for k := uint32(1); validPathsNum < numPaths; k++ {
 		prevShortest := shortestPaths[k-1]
 
 		// We'll examine each edge in the previous iteration's shortest
@@ -859,8 +910,12 @@ func findPaths(tx *bbolt.Tx, graph *channeldb.ChannelGraph,
 			// we'll exclude from the next path finding attempt.
 			// These are required to ensure the paths are unique
 			// and loopless.
-			ignoredEdges = make(map[edgeLocator]struct{})
-			ignoredVertexes = make(map[Vertex]struct{})
+			ignoredEdges := make(map[edgeLocator]struct{})
+			// Make sure to respect globally ignored edges.
+			for k, v := range r.ignoredEdges {
+				ignoredEdges[k] = v
+			}
+			ignoredVertexes := make(map[Vertex]struct{})
 
 			// Our spur node is the i-th node in the prior shortest
 			// path, and our root path will be all nodes in the
@@ -902,15 +957,12 @@ func findPaths(tx *bbolt.Tx, graph *channeldb.ChannelGraph,
 			// root path removed, we'll attempt to find another
 			// shortest path from the spur node to the destination.
 			spurPath, err := findPath(
-				&graphParams{
-					tx:             tx,
-					graph:          graph,
-					bandwidthHints: bandwidthHints,
-				},
+				g,
 				&restrictParams{
-					ignoredNodes: ignoredVertexes,
-					ignoredEdges: ignoredEdges,
-					feeLimit:     feeLimit,
+					ignoredNodes:          ignoredVertexes,
+					ignoredEdges:          ignoredEdges,
+					feeLimit:              r.feeLimit,
+					stopAtMaxHopsExceeded: true,
 				}, spurNode, target, amt,
 			)
 
@@ -918,13 +970,21 @@ func findPaths(tx *bbolt.Tx, graph *channeldb.ChannelGraph,
 			// the next round.
 			if IsError(err, ErrNoPathFound) {
 				continue
-			} else if err != nil {
+			} else if err != nil && !IsError(err, ErrMaxHopsExceeded) {
 				return nil, err
 			}
 
 			// Create the new combined path by concatenating the
 			// rootPath to the spurPath.
 			newPathLen := len(rootPath) + len(spurPath)
+			if newPathLen > HopLimit+1 && validPathsNum > 0 {
+				// Cannot provide alternate paths in presence of
+				// shortest paths which are above hop limit. This
+				// is a potential for DoS attack on computing
+				// resources.
+				break
+			}
+
 			newPath := path{
 				hops: make([]*channeldb.ChannelEdgePolicy, 0, newPathLen),
 				dist: newPathLen,
@@ -949,8 +1009,19 @@ func findPaths(tx *bbolt.Tx, graph *channeldb.ChannelGraph,
 		// path in our set of candidate paths and add it to our
 		// shortestPaths list as the *next* shortest path.
 		nextShortestPath := heap.Pop(&candidatePaths).(path).hops
+		if len(nextShortestPath) <= HopLimit+1 {
+			validPathsNum++
+		}
 		shortestPaths = append(shortestPaths, nextShortestPath)
 	}
 
-	return shortestPaths, nil
+	// Filter out too-long paths.
+	fShortestPaths := shortestPaths[:0]
+	for _, path := range shortestPaths {
+		if len(path) <= HopLimit+1 {
+			fShortestPaths = append(fShortestPaths, path)
+		}
+	}
+
+	return fShortestPaths, nil
 }

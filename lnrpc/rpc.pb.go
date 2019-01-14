@@ -6423,10 +6423,12 @@ type Payment struct {
 	Fee int64 `protobuf:"varint,5,opt,name=fee,proto3" json:"fee,omitempty"`
 	// / The payment preimage
 	PaymentPreimage string `protobuf:"bytes,6,opt,name=payment_preimage,proto3" json:"payment_preimage,omitempty"`
+	// / The memo from the invoice the payment was based on
+	Memo string `protobuf:"bytes,7,opt,name=memo,proto3" json:"memo,omitempty"`
 	// / The value of the payment in satoshis
-	ValueSat int64 `protobuf:"varint,7,opt,name=value_sat,proto3" json:"value_sat,omitempty"`
+	ValueSat int64 `protobuf:"varint,8,opt,name=value_sat,proto3" json:"value_sat,omitempty"`
 	// / The value of the payment in milli-satoshis
-	ValueMsat            int64    `protobuf:"varint,8,opt,name=value_msat,proto3" json:"value_msat,omitempty"`
+	ValueMsat            int64    `protobuf:"varint,9,opt,name=value_msat,proto3" json:"value_msat,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
 	XXX_sizecache        int32    `json:"-"`
@@ -6495,6 +6497,13 @@ func (m *Payment) GetFee() int64 {
 func (m *Payment) GetPaymentPreimage() string {
 	if m != nil {
 		return m.PaymentPreimage
+	}
+	return ""
+}
+
+func (m *Payment) GetMemo() string {
+	if m != nil {
+		return m.Memo
 	}
 	return ""
 }

@@ -1910,7 +1910,7 @@ message Payment {
     /// The payment preimage
     string payment_preimage = 6 [json_name = "payment_preimage"];
 
-    /// The memo from the invoice the payment is based on
+    /// The memo from the invoice the payment was based on
     string memo = 7 [json_name = "memo"];
 
     /// The value of the payment in satoshis

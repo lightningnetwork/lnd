@@ -1,11 +1,11 @@
 # aezeed
 
-[In this PR](https://github.com/lightningnetwork/lnd/pull/773) we add a new package implementing the aezeed cipher
-seed scheme (based on [aez](http://web.cs.ucdavis.edu/~rogaway/aez/) ).
+[In this PR](https://github.com/lightningnetwork/lnd/pull/773) we added a new package implementing the aezeed cipher
+seed scheme (based on [aez](http://web.cs.ucdavis.edu/~rogaway/aez/)).
 
-This is a new scheme developed that aims to overcome the
-two major short comings of BIP39: a lack of a version, and a lack of a
-wallet birthday. A lack a version means that wallets may not
+This new scheme aims to address
+two major features lacking in BIP39: versioning, and a
+wallet birthday. The lack a version means that wallets may not
 necessarily know how to re-derive addresses during the recovery
 process. A lack of a birthday means that wallets don’t know how far
 back to look in the chain to ensure that they derive all the proper
@@ -25,8 +25,8 @@ PASS
 ok      github.com/lightningnetwork/lnd/aezeed  4.168s
 ```
 
-Aside from addressing the shortcomings of BIP 39 a cipher  seed
-can: be upgraded, and have it&#39;s password changed,
+Aside from addressing the shortcomings of BIP 39, an aezeed cipher seed
+can both be upgraded, and have its password changed.
 
 Sample seed:
 
@@ -49,23 +49,23 @@ the keys of the wallet.
 The 2 byte timestamp is expressed in Bitcoin Days Genesis, meaning that
 the number of days since the timestamp in Bitcoin’s genesis block. This
 allow us to save space, and also avoid using a wasteful level of
-granularity. With the currently, this can express time up until 2188.
+granularity. This can currently express time up until 2188.
 
-Finally, the entropy is raw entropy that should be used to derive
+Finally, the entropy is raw entropy that should be used to derive the
 wallet’s HD root.
 
 ## aezeed enciphering/deciperhing
 
 Next, we’ll take the plaintext seed described above and encipher it to
 procure a final cipher text. We’ll then take this cipher text (the
-CipherSeed) and encode that using a 24-word mnemonic. The enciphering
-process takes a user defined passphrase. If no passphrase is provided,
+_CipherSeed_) and encode that using a 24-word mnemonic. The enciphering
+process takes a user-defined passphrase. If no passphrase is provided,
 then the string “aezeed” will be used.
 
 To encipher a plaintext seed (19 bytes) to arrive at an enciphered
 cipher seed (33 bytes), we apply the following operations:
 
-* First we take the external version an append it to our buffer. The
+* First we take the external version and append it to our buffer. The
 external version describes how we encipher. For the first version
 (version 0), we’ll use scrypt(n=32768, r=8, p=1) and aezeed.
 * Next, we’ll use scrypt (with the version 9 params) to generate a
@@ -79,15 +79,15 @@ has what’s essentially a configurable MAC size. In our scheme we’ll use
 a value of 8, which acts as a 64-bit checksum. We’ll encrypt with our
 generated seed, and use an AD of (version || salt).
 * Finally, we’ll encode this 33-byte cipher text using the default
-world list of BIP 39 to produce 24 english words.
+word list of BIP 39 to produce 24 English words.
 
 ## Properties of the aezeed cipher seed
 
 The aezeed cipher seed scheme has a few cool properties, notably:
 
 * The mnemonic itself is a cipher text, meaning leaving it in
-plaintext is advisable if the user also set a passphrase. This is in
-contrast to BIP 39 where the mnemonic alone (without a passrphase) may
+plaintext is advisable if the user also sets a passphrase. This is in
+contrast to BIP 39 where the mnemonic alone (without a passphrase) may
 be sufficient to steal funds.
 * A cipherseed can be modified to change the passphrase. This
 means that if the users wants a stronger passphrase, they can decipher

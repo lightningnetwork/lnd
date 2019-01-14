@@ -378,6 +378,14 @@ func (i *InvoiceRegistry) SettleInvoice(rHash lntypes.Hash,
 	// If this isn't a debug invoice, then we'll attempt to settle an
 	// invoice matching this rHash on disk (if one exists).
 	invoice, err := i.cdb.SettleInvoice(rHash, amtPaid)
+
+	// Implement idempotency by returning success if the invoice was already
+	// settled.
+	if err == channeldb.ErrInvoiceAlreadySettled {
+		log.Debugf("Invoice %v already settled", rHash)
+		return nil
+	}
+
 	if err != nil {
 		return err
 	}

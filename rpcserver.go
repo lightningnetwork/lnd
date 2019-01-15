@@ -34,6 +34,7 @@ import (
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lncfg"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -3228,7 +3229,39 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		ChanDB:            r.server.chanDB,
 	}
 
-	return invoicesrpc.AddInvoice(ctx, addInvoiceCfg, invoice)
+	var preimage *lntypes.Hash
+	if invoice.RPreimage != nil {
+		var err error
+		preimage, err = lntypes.NewHash(invoice.RPreimage)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	addInvoiceData := &invoicesrpc.AddInvoiceData{
+		Memo:            invoice.Memo,
+		Receipt:         invoice.Receipt,
+		Preimage:        preimage,
+		Value:           btcutil.Amount(invoice.Value),
+		DescriptionHash: invoice.DescriptionHash,
+		Expiry:          invoice.Expiry,
+		FallbackAddr:    invoice.FallbackAddr,
+		CltvExpiry:      invoice.CltvExpiry,
+		Private:         invoice.Private,
+	}
+
+	hash, dbInvoice, err := invoicesrpc.AddInvoice(
+		ctx, addInvoiceCfg, addInvoiceData,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &lnrpc.AddInvoiceResponse{
+		AddIndex:       dbInvoice.AddIndex,
+		PaymentRequest: string(dbInvoice.PaymentRequest),
+		RHash:          hash[:],
+	}, nil
 }
 
 // LookupInvoice attempts to look up an invoice according to its payment hash.

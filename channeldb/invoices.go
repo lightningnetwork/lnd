@@ -213,10 +213,11 @@ func validateInvoice(i *Invoice) error {
 	return nil
 }
 
-// AddInvoice inserts the targeted invoice into the database. If the invoice
-// has *any* payment hashes which already exists within the database, then the
+// AddInvoice inserts the targeted invoice into the database. If the invoice has
+// *any* payment hashes which already exists within the database, then the
 // insertion will be aborted and rejected due to the strict policy banning any
-// duplicate payment hashes.
+// duplicate payment hashes. A side effect of this function is that it sets
+// AddIndex on newInvoice.
 func (d *DB) AddInvoice(newInvoice *Invoice) (uint64, error) {
 	if err := validateInvoice(newInvoice); err != nil {
 		return 0, err

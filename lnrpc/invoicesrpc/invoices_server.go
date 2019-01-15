@@ -11,6 +11,7 @@ import (
 	"google.golang.org/grpc"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 
+	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
 )
@@ -44,6 +45,10 @@ var (
 			Action: "read",
 		}},
 		"/invoicesrpc.Invoices/CancelInvoice": {{
+			Entity: "invoices",
+			Action: "write",
+		}},
+		"/invoicesrpc.Invoices/AddHoldInvoice": {{
 			Entity: "invoices",
 			Action: "write",
 		}},
@@ -210,4 +215,46 @@ func (s *Server) CancelInvoice(ctx context.Context,
 	log.Infof("Canceled invoice %v", paymentHash)
 
 	return &CancelInvoiceResp{}, nil
+}
+
+// AddHoldInvoice attempts to add a new hold invoice to the invoice database.
+// Any duplicated invoices are rejected, therefore all invoices *must* have a
+// unique payment hash.
+func (s *Server) AddHoldInvoice(ctx context.Context,
+	invoice *AddHoldInvoiceRequest) (*AddHoldInvoiceResp, error) {
+
+	addInvoiceCfg := &AddInvoiceConfig{
+		InvoiceRegistry:   s.cfg.InvoiceRegistry,
+		Switch:            s.cfg.Switch,
+		ChainParams:       s.cfg.ChainParams,
+		NodeSigner:        s.cfg.NodeSigner,
+		MaxPaymentMSat:    s.cfg.MaxPaymentMSat,
+		DefaultCLTVExpiry: s.cfg.DefaultCLTVExpiry,
+		ChanDB:            s.cfg.ChanDB,
+	}
+
+	hash, err := lntypes.MakeHash(invoice.Hash)
+	if err != nil {
+		return nil, err
+	}
+
+	addInvoiceData := &AddInvoiceData{
+		Memo:            invoice.Memo,
+		Hash:            &hash,
+		Value:           btcutil.Amount(invoice.Value),
+		DescriptionHash: invoice.DescriptionHash,
+		Expiry:          invoice.Expiry,
+		FallbackAddr:    invoice.FallbackAddr,
+		CltvExpiry:      invoice.CltvExpiry,
+		Private:         invoice.Private,
+	}
+
+	_, dbInvoice, err := AddInvoice(ctx, addInvoiceCfg, addInvoiceData)
+	if err != nil {
+		return nil, err
+	}
+
+	return &AddHoldInvoiceResp{
+		PaymentRequest: string(dbInvoice.PaymentRequest),
+	}, nil
 }

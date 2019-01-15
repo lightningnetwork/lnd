@@ -376,7 +376,8 @@ func (i *InvoiceRegistry) AddDebugInvoice(amt btcutil.Amount,
 // daemon add/forward HTLCs are able to obtain the proper preimage required for
 // redemption in the case that we're the final destination. We also return the
 // addIndex of the newly created invoice which monotonically increases for each
-// new invoice added.
+// new invoice added. A side effect of this function is that it also sets
+// AddIndex on the invoice argument.
 func (i *InvoiceRegistry) AddInvoice(invoice *channeldb.Invoice) (uint64, error) {
 
 	i.Lock()

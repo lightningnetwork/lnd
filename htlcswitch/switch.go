@@ -216,9 +216,6 @@ type Switch struct {
 	pendingMutex    sync.RWMutex
 	paymentIDMtx    *multimutex.Mutex
 
-	// control provides verification of sending htlc mesages
-	control ControlTower
-
 	// circuits is storage for payment circuits which are used to
 	// forward the settle/fail htlc updates back to the add htlc initiator.
 	circuits CircuitMap
@@ -298,7 +295,6 @@ func New(cfg Config, currentHeight uint32) (*Switch, error) {
 		bestHeight:        currentHeight,
 		cfg:               &cfg,
 		circuits:          circuitMap,
-		control:           NewPaymentControl(false, cfg.DB),
 		linkIndex:         make(map[lnwire.ChannelID]ChannelLink),
 		mailOrchestrator:  newMailOrchestrator(),
 		forwardingIndex:   make(map[lnwire.ShortChannelID]ChannelLink),
@@ -361,15 +357,6 @@ func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID, paymentID uint64,
 	preimageChan := make(chan [sha256.Size]byte, 1)
 	errChan := make(chan error, 1)
 
-	// Before sending, double check that we don't already have 1) an
-	// in-flight payment to this payment hash, or 2) a complete payment for
-	// the same hash.
-	if err := s.control.ClearForTakeoff(htlc.PaymentHash); err != nil {
-		errChan <- err
-		return preimageChan, errChan
-
-	}
-
 	// To ensure atomicity between checking the PreimageCache and
 	// forwarding the HTLC (committing the circuit), we aquire a multimutex
 	// for this paymentID.
@@ -415,11 +402,6 @@ func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID, paymentID uint64,
 	if err := s.forward(packet); err != nil && err != ErrDuplicateAdd {
 		s.paymentIDMtx.Unlock(paymentID)
 		s.removePendingPayment(paymentID)
-		if err := s.control.Fail(htlc.PaymentHash); err != nil {
-			errChan <- err
-			return preimageChan, errChan
-
-		}
 		errChan <- err
 		return preimageChan, errChan
 	}
@@ -895,31 +877,11 @@ func (s *Switch) handleLocalResponse(pkt *htlcPacket) {
 	// We've received a settle update which means we can finalize the user
 	// payment and return successful response.
 	case *lnwire.UpdateFulfillHTLC:
-		// Persistently mark that a payment to this payment hash
-		// succeeded. This will prevent us from ever making another
-		// payment to this hash.
-		err := s.control.Success(pkt.circuit.PaymentHash)
-		if err != nil && err != ErrPaymentAlreadyCompleted {
-			log.Warnf("Unable to mark completed payment %x: %v",
-				pkt.circuit.PaymentHash, err)
-			return
-		}
-
 		preimage = htlc.PaymentPreimage
 
 	// We've received a fail update which means we can finalize the user
 	// payment and return fail response.
 	case *lnwire.UpdateFailHTLC:
-		// Persistently mark that a payment to this payment hash failed.
-		// This will permit us to make another attempt at a successful
-		// payment.
-		err := s.control.Fail(pkt.circuit.PaymentHash)
-		if err != nil && err != ErrPaymentAlreadyCompleted {
-			log.Warnf("Unable to ground payment %x: %v",
-				pkt.circuit.PaymentHash, err)
-			return
-		}
-
 		paymentErr = s.parseFailedPayment(payment, pkt, htlc)
 
 	default:

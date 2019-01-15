@@ -520,6 +520,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 
 	s.chanRouter, err = routing.New(routing.Config{
 		Graph:     chanGraph,
+		DB:        chanDB,
 		Chain:     cc.chainIO,
 		ChainView: cc.chainView,
 		SendToSwitch: func(firstHop lnwire.ShortChannelID, pid uint64,

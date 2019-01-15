@@ -16,7 +16,7 @@ import (
 	"github.com/coreos/bbolt"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
-	"github.com/lightningnetwork/lightning-onion"
+	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -288,6 +288,10 @@ type ChannelRouter struct {
 	// when doing any path finding.
 	selfNode *channeldb.LightningNode
 
+	// control provides verification of sending htlc mesages
+	//TODO: move to routing
+	control htlcswitch.ControlTower
+
 	// routeCache is a map that caches the k-shortest paths from ourselves
 	// to a given target destination for a particular payment amount. This
 	// map is used as an optimization to speed up subsequent payments to a
@@ -367,6 +371,7 @@ func New(cfg Config) (*ChannelRouter, error) {
 
 	r := &ChannelRouter{
 		cfg:               &cfg,
+		control:           htlcswitch.NewPaymentControl(false, cfg.DB),
 		networkUpdates:    make(chan *routingMsg),
 		topologyClients:   make(map[uint64]*topologyClient),
 		ntfnClientUpdates: make(chan *topologyClientUpdate),
@@ -1723,6 +1728,15 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 		sendError error
 	)
 
+	// Before sending, double check that we don't already have 1)
+	// an in-flight payment to this payment hash, or 2) a complete
+	// payment for the same hash.
+	// TODO: do atomically with storing payment, as if we crash before
+	// storing now, we won't be allowed to retry this payment hash.
+	if err := r.control.ClearForTakeoff(payment.PaymentHash); err != nil {
+		return preImage, nil, err
+	}
+
 	// We'll also fetch the current block height so we can properly
 	// calculate the required HTLC time locks within the route.
 	_, currentHeight, err := r.cfg.Chain.GetBestBlock()
@@ -2103,7 +2117,28 @@ func (r *ChannelRouter) sendPayAttemptToSwitch(p *payAttempt, route *Route,
 		return preImage, ErrRouterShuttingDown
 	}
 
-	if sendError == nil {
+	if sendError != nil {
+		// Persistently mark that a payment to this payment
+		// hash failed.  This will permit us to make another
+		// attempt at a successful payment.
+		err := r.control.Fail(p.htlcAdd.PaymentHash)
+		if err != nil && err != htlcswitch.ErrPaymentAlreadyCompleted {
+			log.Warnf("Unable to ground payment %x: %v",
+				p.htlcAdd.PaymentHash, err)
+			return preImage, err
+		}
+
+	} else {
+		// Persistently mark that a payment to this payment hash
+		// succeeded. This will prevent us from ever making another
+		// payment to this hash.
+		err := r.control.Success(p.htlcAdd.PaymentHash)
+		if err != nil && err != htlcswitch.ErrPaymentAlreadyCompleted {
+			log.Warnf("Unable to mark completed payment %x: %v",
+				p.htlcAdd.PaymentHash, err)
+			return preImage, err
+		}
+
 		amt := p.htlcAdd.Amount - totalFees
 
 		// TODO: make db delete/save atomic?

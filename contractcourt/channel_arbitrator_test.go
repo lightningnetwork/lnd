@@ -11,6 +11,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
@@ -176,7 +177,7 @@ func createTestChannelArbitrator(log ArbitratorLog) (*ChannelArbitrator,
 			*lnwallet.IncomingHtlcResolution, uint32) error {
 			return nil
 		},
-		SettleInvoice: func(chainhash.Hash, lnwire.MilliSatoshi) error {
+		SettleInvoice: func(lntypes.Hash, lnwire.MilliSatoshi) error {
 			return nil
 		},
 	}

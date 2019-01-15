@@ -12,6 +12,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/sweep"
@@ -139,7 +140,7 @@ type ChainArbitratorConfig struct {
 	// SettleInvoice attempts to settle an existing invoice on-chain with
 	// the given payment hash. ErrInvoiceNotFound is returned if an invoice
 	// is not found.
-	SettleInvoice func(chainhash.Hash, lnwire.MilliSatoshi) error
+	SettleInvoice func(lntypes.Hash, lnwire.MilliSatoshi) error
 }
 
 // ChainArbitrator is a sub-system that oversees the on-chain resolution of all

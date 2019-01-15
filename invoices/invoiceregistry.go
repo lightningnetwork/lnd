@@ -2,17 +2,16 @@ package invoices
 
 import (
 	"bytes"
-	"crypto/sha256"
 	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/queue"
 	"github.com/lightningnetwork/lnd/zpay32"
@@ -24,10 +23,10 @@ var (
 	// All nodes initialized with the flag active will immediately settle
 	// any incoming HTLC whose rHash corresponds with the debug
 	// preimage.
-	DebugPre, _ = chainhash.NewHash(bytes.Repeat([]byte{1}, 32))
+	DebugPre, _ = lntypes.NewPreimage(bytes.Repeat([]byte{1}, 32))
 
 	// DebugHash is the hash of the default preimage.
-	DebugHash = chainhash.Hash(sha256.Sum256(DebugPre[:]))
+	DebugHash = DebugPre.Hash()
 )
 
 // InvoiceRegistry is a central registry of all the outstanding invoices
@@ -49,7 +48,7 @@ type InvoiceRegistry struct {
 	// debugInvoices is a map which stores special "debug" invoices which
 	// should be only created/used when manual tests require an invoice
 	// that *all* nodes are able to fully settle.
-	debugInvoices map[chainhash.Hash]*channeldb.Invoice
+	debugInvoices map[lntypes.Hash]*channeldb.Invoice
 
 	activeNetParams *chaincfg.Params
 
@@ -66,7 +65,7 @@ func NewRegistry(cdb *channeldb.DB,
 
 	return &InvoiceRegistry{
 		cdb:                 cdb,
-		debugInvoices:       make(map[chainhash.Hash]*channeldb.Invoice),
+		debugInvoices:       make(map[lntypes.Hash]*channeldb.Invoice),
 		notificationClients: make(map[uint32]*InvoiceSubscription),
 		newSubscriptions:    make(chan *InvoiceSubscription),
 		subscriptionCancels: make(chan uint32),
@@ -264,8 +263,10 @@ func (i *InvoiceRegistry) deliverBacklogEvents(client *InvoiceSubscription) erro
 // by the passed preimage. Once this invoice is added, subsystems within the
 // daemon add/forward HTLCs that are able to obtain the proper preimage
 // required for redemption in the case that we're the final destination.
-func (i *InvoiceRegistry) AddDebugInvoice(amt btcutil.Amount, preimage chainhash.Hash) {
-	paymentHash := chainhash.Hash(sha256.Sum256(preimage[:]))
+func (i *InvoiceRegistry) AddDebugInvoice(amt btcutil.Amount,
+	preimage lntypes.Preimage) {
+
+	paymentHash := preimage.Hash()
 
 	invoice := &channeldb.Invoice{
 		CreationDate: time.Now(),
@@ -318,7 +319,7 @@ func (i *InvoiceRegistry) AddInvoice(invoice *channeldb.Invoice) (uint64, error)
 // according to the cltv delta.
 //
 // TODO(roasbeef): ignore if settled?
-func (i *InvoiceRegistry) LookupInvoice(rHash chainhash.Hash) (channeldb.Invoice, uint32, error) {
+func (i *InvoiceRegistry) LookupInvoice(rHash lntypes.Hash) (channeldb.Invoice, uint32, error) {
 	// First check the in-memory debug invoice index to see if this is an
 	// existing invoice added for debugging.
 	i.RLock()
@@ -350,7 +351,7 @@ func (i *InvoiceRegistry) LookupInvoice(rHash chainhash.Hash) (channeldb.Invoice
 // SettleInvoice attempts to mark an invoice as settled. If the invoice is a
 // debug invoice, then this method is a noop as debug invoices are never fully
 // settled.
-func (i *InvoiceRegistry) SettleInvoice(rHash chainhash.Hash,
+func (i *InvoiceRegistry) SettleInvoice(rHash lntypes.Hash,
 	amtPaid lnwire.MilliSatoshi) error {
 
 	i.Lock()

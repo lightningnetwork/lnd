@@ -19,6 +19,7 @@ import (
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/multimutex"
 	"github.com/lightningnetwork/lnd/ticker"
 )
 
@@ -213,6 +214,7 @@ type Switch struct {
 	// integer ID when it is created.
 	pendingPayments map[uint64]*pendingPayment
 	pendingMutex    sync.RWMutex
+	paymentIDMtx    *multimutex.Mutex
 
 	paymentSequencer Sequencer
 
@@ -311,6 +313,7 @@ func New(cfg Config, currentHeight uint32) (*Switch, error) {
 		interfaceIndex:    make(map[[33]byte]map[lnwire.ChannelID]ChannelLink),
 		pendingLinkIndex:  make(map[lnwire.ChannelID]ChannelLink),
 		pendingPayments:   make(map[uint64]*pendingPayment),
+		paymentIDMtx:      multimutex.NewMutex(),
 		htlcPlex:          make(chan *plexPacket),
 		chanCloseRequests: make(chan *ChanClose),
 		resolutionMsgs:    make(chan *resolutionMsg),
@@ -367,9 +370,20 @@ func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID,
 		return zeroPreimage, err
 	}
 
+	paymentID, err := s.paymentSequencer.NextID()
+	if err != nil {
+		return zeroPreimage, err
+	}
+
+	// To ensure atomicity between checking the PreimageCache and
+	// forwarding the HTLC (committing the circuit), we aquire a multimutex
+	// for this paymentID.
+	s.paymentIDMtx.Lock(paymentID)
+
 	// If we already know the preimage, we can return it immediately.
 	p, ok := s.cfg.PreimageCache.LookupPreimage(htlc.PaymentHash[:])
 	if ok {
+		s.paymentIDMtx.Unlock(paymentID)
 		var preImg [32]byte
 		copy(preImg[:], p[:])
 		return preImg, nil
@@ -383,11 +397,6 @@ func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID,
 		paymentHash:  htlc.PaymentHash,
 		amount:       htlc.Amount,
 		deobfuscator: deobfuscator,
-	}
-
-	paymentID, err := s.paymentSequencer.NextID()
-	if err != nil {
-		return zeroPreimage, err
 	}
 
 	s.pendingMutex.Lock()
@@ -407,6 +416,7 @@ func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID,
 	// If the returned error is a duplicate add, then we can ignore it, as
 	// our HTLC was already forwarded by the switch.
 	if err := s.forward(packet); err != nil && err != ErrDuplicateAdd {
+		s.paymentIDMtx.Unlock(paymentID)
 		s.removePendingPayment(paymentID)
 		if err := s.control.Fail(htlc.PaymentHash); err != nil {
 			return zeroPreimage, err
@@ -414,6 +424,7 @@ func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID,
 
 		return zeroPreimage, err
 	}
+	s.paymentIDMtx.Unlock(paymentID)
 
 	// Returns channels so that other subsystem might wait/skip the
 	// waiting of handling of payment.
@@ -850,6 +861,13 @@ func (s *Switch) handleLocalDispatch(pkt *htlcPacket) error {
 func (s *Switch) handleLocalResponse(pkt *htlcPacket) {
 	defer s.wg.Done()
 
+	// Before tearing down the circuit and responding to any pending
+	// payment, we must acquire a lock for this paymentID. This ensures
+	// that the same payment is not being attempted resent concurrently
+	// while we tearing down the circuit.
+	paymentID := pkt.incomingHTLCID
+	s.paymentIDMtx.Lock(paymentID)
+
 	// First, we'll clean up any fwdpkg references, circuit entries, and
 	// mark in our db that the payment for this payment hash has either
 	// succeeded or failed.
@@ -859,6 +877,7 @@ func (s *Switch) handleLocalResponse(pkt *htlcPacket) {
 	// HTLC internally.
 	if pkt.destRef != nil {
 		if err := s.ackSettleFail(*pkt.destRef); err != nil {
+			s.paymentIDMtx.Unlock(paymentID)
 			log.Warnf("Unable to ack settle/fail reference: %s: %v",
 				*pkt.destRef, err)
 			return
@@ -873,15 +892,17 @@ func (s *Switch) handleLocalResponse(pkt *htlcPacket) {
 	// This can only happen if the circuit is still open, which is why this
 	// ordering is chosen.
 	if err := s.teardownCircuit(pkt); err != nil {
+		s.paymentIDMtx.Unlock(paymentID)
 		log.Warnf("Unable to teardown circuit %s: %v",
 			pkt.inKey(), err)
 		return
 	}
+	s.paymentIDMtx.Unlock(paymentID)
 
 	// Locate the pending payment to notify the application that this
 	// payment has failed. If one is not found, it likely means the daemon
 	// has been restarted since sending the payment.
-	payment := s.findPayment(pkt.incomingHTLCID)
+	payment := s.findPayment(paymentID)
 
 	var (
 		preimage   [32]byte
@@ -930,7 +951,7 @@ func (s *Switch) handleLocalResponse(pkt *htlcPacket) {
 	if payment != nil {
 		payment.err <- paymentErr
 		payment.preimage <- preimage
-		s.removePendingPayment(pkt.incomingHTLCID)
+		s.removePendingPayment(paymentID)
 	}
 }
 

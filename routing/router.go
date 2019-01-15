@@ -2103,12 +2103,60 @@ func (r *ChannelRouter) sendPayAttemptToSwitch(p *payAttempt, route *Route,
 		return preImage, ErrRouterShuttingDown
 	}
 
+	if sendError == nil {
+		amt := p.htlcAdd.Amount - totalFees
+
+		// TODO: make db delete/save atomic?
+		saveErr := r.savePayment(route, amt, preImage[:])
+		if saveErr != nil {
+			log.Errorf("unable to save successful payment")
+			return preImage, saveErr
+		}
+	}
+
 	delErr := r.payAttempts.deletePayAttempt(p.paymentID)
 	if delErr != nil {
 		log.Errorf("Unable to delete payment attempt: %v", delErr)
 	}
 
 	return preImage, sendError
+}
+
+// savePayment saves a successfully completed payment to the database for
+// historical record keeping.
+func (r *ChannelRouter) savePayment(route *Route,
+	amount lnwire.MilliSatoshi, preImage []byte) error {
+
+	var (
+		paymentPath   [][33]byte
+		totalFees     lnwire.MilliSatoshi
+		totalTimeLock uint32
+	)
+
+	if route != nil {
+		paymentPath = make([][33]byte, len(route.Hops))
+		for i, hop := range route.Hops {
+			hopPub := hop.PubKeyBytes
+			copy(paymentPath[i][:], hopPub[:])
+		}
+		totalFees = route.TotalFees
+		totalTimeLock = route.TotalTimeLock
+	}
+
+	payment := &channeldb.OutgoingPayment{
+		Invoice: channeldb.Invoice{
+			Terms: channeldb.ContractTerm{
+				Value: amount,
+			},
+			CreationDate: time.Now(),
+		},
+		Path:           paymentPath,
+		Fee:            totalFees,
+		TimeLockLength: totalTimeLock,
+	}
+	copy(payment.PaymentPreimage[:], preImage)
+
+	return r.cfg.DB.AddPayment(payment)
 }
 
 // getFailedEdge tries to locate the failing channel given a route and the

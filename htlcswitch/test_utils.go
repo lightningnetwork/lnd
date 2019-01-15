@@ -524,12 +524,13 @@ func getChanID(msg lnwire.Message) (lnwire.ChannelID, error) {
 // generatePayment generates the htlc add request by given path blob and
 // invoice which should be added by destination peer.
 func generatePayment(invoiceAmt, htlcAmt lnwire.MilliSatoshi, timelock uint32,
-	blob [lnwire.OnionPacketSize]byte) (*channeldb.Invoice, *lnwire.UpdateAddHTLC, error) {
+	blob [lnwire.OnionPacketSize]byte) (*channeldb.Invoice,
+	*lnwire.UpdateAddHTLC, uint64, error) {
 
 	var preimage [sha256.Size]byte
 	r, err := generateRandomBytes(sha256.Size)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, 0, err
 	}
 	copy(preimage[:], r)
 
@@ -550,7 +551,13 @@ func generatePayment(invoiceAmt, htlcAmt lnwire.MilliSatoshi, timelock uint32,
 		OnionBlob:   blob,
 	}
 
-	return invoice, htlc, nil
+	pid, err := generateRandomBytes(8)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	paymentID := binary.BigEndian.Uint64(pid)
+
+	return invoice, htlc, paymentID, nil
 }
 
 // generateRoute generates the path blob by given array of peers.
@@ -696,7 +703,9 @@ func (n *threeHopNetwork) makePayment(sendingPeer, receivingPeer lnpeer.Peer,
 	}
 
 	// Generate payment: invoice and htlc.
-	invoice, htlc, err := generatePayment(invoiceAmt, htlcAmt, timelock, blob)
+	invoice, htlc, pid, err := generatePayment(
+		invoiceAmt, htlcAmt, timelock, blob,
+	)
 	if err != nil {
 		paymentErr <- err
 		return &paymentResponse{
@@ -718,7 +727,7 @@ func (n *threeHopNetwork) makePayment(sendingPeer, receivingPeer lnpeer.Peer,
 	// Send payment and expose err channel.
 	go func() {
 		_, err := sender.htlcSwitch.SendHTLC(
-			firstHop, htlc, newMockDeobfuscator(),
+			firstHop, pid, htlc, newMockDeobfuscator(),
 		)
 		paymentErr <- err
 	}()

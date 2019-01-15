@@ -1401,7 +1401,12 @@
         "private": {
           "type": "boolean",
           "format": "boolean",
-          "title": "/ Whether this channel is advertised to the network or not"
+          "description": "/ Whether this channel is advertised to the network or not."
+        },
+        "initiator": {
+          "type": "boolean",
+          "format": "boolean",
+          "description": "/ True if we were the ones that creted the channel."
         }
       }
     },

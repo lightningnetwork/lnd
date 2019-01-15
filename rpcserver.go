@@ -2373,6 +2373,7 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 			NumUpdates:            localCommit.CommitHeight,
 			PendingHtlcs:          make([]*lnrpc.HTLC, len(localCommit.Htlcs)),
 			CsvDelay:              uint32(dbChannel.LocalChanCfg.CsvDelay),
+			Initiator:             dbChannel.IsInitiator,
 		}
 
 		for i, htlc := range localCommit.Htlcs {

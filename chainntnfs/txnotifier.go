@@ -10,6 +10,19 @@ import (
 	"github.com/btcsuite/btcutil"
 )
 
+const (
+	// ReorgSafetyLimit is the chain depth beyond which it is assumed a
+	// block will not be reorganized out of the chain. This is used to
+	// determine when to prune old confirmation requests so that reorgs are
+	// handled correctly. The average number of blocks in a day is a
+	// reasonable value to use.
+	ReorgSafetyLimit = 144
+
+	// MaxNumConfs is the maximum number of confirmations that can be
+	// requested on a transaction.
+	MaxNumConfs = ReorgSafetyLimit
+)
+
 var (
 	// ErrTxNotifierExiting is an error returned when attempting to interact
 	// with the TxNotifier but it been shut down.
@@ -17,7 +30,8 @@ var (
 
 	// ErrTxMaxConfs signals that the user requested a number of
 	// confirmations beyond the reorg safety limit.
-	ErrTxMaxConfs = errors.New("too many confirmations requested")
+	ErrTxMaxConfs = fmt.Errorf("too many confirmations requested, max is %d",
+		MaxNumConfs)
 )
 
 // rescanState indicates the progression of a registration before the notifier

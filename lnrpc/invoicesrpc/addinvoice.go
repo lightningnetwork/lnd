@@ -122,7 +122,7 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 		if _, err := rand.Read(paymentPreimage[:]); err != nil {
 			return nil, nil, err
 		}
-		paymentHash = sha256.Sum256(paymentPreimage[:])
+		paymentHash = paymentPreimage.Hash()
 
 	case invoice.Preimage == nil && invoice.Hash != nil:
 		paymentPreimage = channeldb.UnknownPreimage

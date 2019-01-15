@@ -107,21 +107,21 @@ type AddInvoiceData struct {
 // duplicated invoices are rejected, therefore all invoices *must* have a
 // unique payment preimage.
 func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
-	invoice *AddInvoiceData) (*lntypes.Hash, *channeldb.Invoice, error) {
+	invoice *AddInvoiceData) (*channeldb.Invoice, error) {
 
 	var paymentPreimage *lntypes.Preimage
 	var paymentHash lntypes.Hash
 
 	switch {
 	case invoice.Preimage != nil && invoice.Hash != nil:
-		return nil, nil,
+		return nil,
 			errors.New("preimage and hash both set")
 
 	case invoice.Preimage == nil && invoice.Hash == nil:
 		if _, err := rand.Read(paymentPreimage[:]); err != nil {
-			return nil, nil, err
+			return nil, err
 		}
-		paymentHash = sha256.Sum256(paymentPreimage[:])
+		paymentHash = paymentPreimage.Hash()
 
 	case invoice.Preimage == nil && invoice.Hash != nil:
 		paymentHash = *invoice.Hash
@@ -134,21 +134,21 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 	// The size of the memo, receipt and description hash attached must not
 	// exceed the maximum values for either of the fields.
 	if len(invoice.Memo) > channeldb.MaxMemoSize {
-		return nil, nil, fmt.Errorf("memo too large: %v bytes "+
+		return nil, fmt.Errorf("memo too large: %v bytes "+
 			"(maxsize=%v)", len(invoice.Memo), channeldb.MaxMemoSize)
 	}
 	if len(invoice.Receipt) > channeldb.MaxReceiptSize {
-		return nil, nil, fmt.Errorf("receipt too large: %v bytes "+
+		return nil, fmt.Errorf("receipt too large: %v bytes "+
 			"(maxsize=%v)", len(invoice.Receipt), channeldb.MaxReceiptSize)
 	}
 	if len(invoice.DescriptionHash) > 0 && len(invoice.DescriptionHash) != 32 {
-		return nil, nil, fmt.Errorf("description hash is %v bytes, must be %v",
+		return nil, fmt.Errorf("description hash is %v bytes, must be %v",
 			len(invoice.DescriptionHash), channeldb.MaxPaymentRequestSize)
 	}
 
 	// The value of the invoice must not be negative.
 	if invoice.Value < 0 {
-		return nil, nil, fmt.Errorf("payments of negative value "+
+		return nil, fmt.Errorf("payments of negative value "+
 			"are not allowed, value is %v", invoice.Value)
 	}
 
@@ -157,7 +157,7 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 	// The value of the invoice must also not exceed the current soft-limit
 	// on the largest payment within the network.
 	if amtMSat > cfg.MaxPaymentMSat {
-		return nil, nil, fmt.Errorf("payment of %v is too large, max "+
+		return nil, fmt.Errorf("payment of %v is too large, max "+
 			"payment allowed is %v", invoice.Value,
 			cfg.MaxPaymentMSat.ToSatoshis(),
 		)
@@ -182,7 +182,7 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 		addr, err := btcutil.DecodeAddress(invoice.FallbackAddr,
 			cfg.ChainParams)
 		if err != nil {
-			return nil, nil, fmt.Errorf("invalid fallback address: %v",
+			return nil, fmt.Errorf("invalid fallback address: %v",
 				err)
 		}
 		options = append(options, zpay32.FallbackAddr(addr))
@@ -200,7 +200,7 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 		expSeconds := invoice.Expiry
 
 		if float64(expSeconds) > maxExpiry.Seconds() {
-			return nil, nil, fmt.Errorf("expiry of %v seconds "+
+			return nil, fmt.Errorf("expiry of %v seconds "+
 				"greater than max expiry of %v seconds",
 				float64(expSeconds), maxExpiry.Seconds())
 		}
@@ -225,7 +225,7 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 	// an option on the command line when creating an invoice.
 	switch {
 	case invoice.CltvExpiry > math.MaxUint16:
-		return nil, nil, fmt.Errorf("CLTV delta of %v is too large, max "+
+		return nil, fmt.Errorf("CLTV delta of %v is too large, max "+
 			"accepted is: %v", invoice.CltvExpiry, math.MaxUint16)
 	case invoice.CltvExpiry != 0:
 		options = append(options,
@@ -242,7 +242,7 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 	if invoice.Private {
 		openChannels, err := cfg.ChanDB.FetchAllChannels()
 		if err != nil {
-			return nil, nil, fmt.Errorf("could not fetch all channels")
+			return nil, fmt.Errorf("could not fetch all channels")
 		}
 
 		graph := cfg.ChanDB.ChannelGraph()
@@ -367,7 +367,7 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 		cfg.ChainParams, paymentHash, creationDate, options...,
 	)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	payReqString, err := payReq.Encode(
@@ -376,7 +376,7 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 		},
 	)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	newInvoice := &channeldb.Invoice{
@@ -399,14 +399,14 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 	// Store preimage in preimage cache.
 	err = cfg.WitnessBeacon.AddPreimage(paymentPreimage[:])
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	// With all sanity checks passed, write the invoice to the database.
 	_, err = cfg.InvoiceRegistry.AddInvoice(newInvoice)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
-	return &paymentHash, newInvoice, nil
+	return newInvoice, nil
 }

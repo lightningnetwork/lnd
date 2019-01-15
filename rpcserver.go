@@ -417,7 +417,7 @@ func newRPCServer(s *server, macService *macaroons.Service,
 	// server configuration struct.
 	err := subServerCgs.PopulateDependencies(
 		s.cc, networkDir, macService, atpl, invoiceRegistry,
-		activeNetParams.Params,
+		s.htlcSwitch, activeNetParams.Params, s.nodeSigner, s.chanDB,
 	)
 	if err != nil {
 		return nil, err
@@ -3267,7 +3267,7 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		addInvoiceData.Preimage = &preimage
 	}
 
-	hash, dbInvoice, err := invoicesrpc.AddInvoice(
+	dbInvoice, err := invoicesrpc.AddInvoice(
 		ctx, addInvoiceCfg, addInvoiceData,
 	)
 	if err != nil {
@@ -3277,7 +3277,7 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 	return &lnrpc.AddInvoiceResponse{
 		AddIndex:       dbInvoice.AddIndex,
 		PaymentRequest: string(dbInvoice.PaymentRequest),
-		RHash:          hash[:],
+		RHash:          dbInvoice.PaymentHash[:],
 	}, nil
 }
 

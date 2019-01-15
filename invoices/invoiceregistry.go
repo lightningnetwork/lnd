@@ -444,7 +444,7 @@ func (i *InvoiceRegistry) LookupInvoice(rHash lntypes.Hash) (channeldb.Invoice, 
 // debug invoice, then this method is a noop as debug invoices are never fully
 // settled.
 func (i *InvoiceRegistry) SettleInvoice(rHash lntypes.Hash,
-	amtPaid lnwire.MilliSatoshi) error {
+	amtPaid lnwire.MilliSatoshi, preimage *lntypes.Preimage) error {
 
 	i.Lock()
 	defer i.Unlock()
@@ -461,7 +461,7 @@ func (i *InvoiceRegistry) SettleInvoice(rHash lntypes.Hash,
 
 	// If this isn't a debug invoice, then we'll attempt to settle an
 	// invoice matching this rHash on disk (if one exists).
-	invoice, err := i.cdb.SettleInvoice(rHash, amtPaid)
+	invoice, err := i.cdb.SettleInvoice(rHash, amtPaid, preimage)
 
 	// Implement idempotency by returning success if the invoice was already
 	// settled.

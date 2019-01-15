@@ -2624,7 +2624,7 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 
 	// Notify the invoiceRegistry of the invoices we just settled (with the
 	// amount accepted at settle time) with this latest commitment update.
-	err = l.cfg.Registry.SettleInvoice(invoiceHash, pd.Amount)
+	err = l.cfg.Registry.SettleInvoice(invoiceHash, pd.Amount, nil)
 	if err != nil {
 		return false, fmt.Errorf("unable to settle invoice: %v", err)
 	}

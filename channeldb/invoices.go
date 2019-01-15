@@ -2,6 +2,7 @@ package channeldb
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -616,7 +617,11 @@ func (d *DB) QueryInvoices(q InvoiceQuery) (InvoiceSlice, error) {
 // hash doesn't existing within the database, then the action will fail with a
 // "not found" error.
 func (d *DB) SettleInvoice(paymentHash [32]byte,
-	amtPaid lnwire.MilliSatoshi) (*Invoice, error) {
+	amtPaid lnwire.MilliSatoshi, preimage *lntypes.Preimage) (*Invoice, error) {
+
+	if preimage != nil && sha256.Sum256(preimage[:]) != paymentHash {
+		return nil, errors.New("invalid preimage")
+	}
 
 	var settledInvoice *Invoice
 	err := d.Update(func(tx *bbolt.Tx) error {
@@ -645,7 +650,7 @@ func (d *DB) SettleInvoice(paymentHash [32]byte,
 		}
 
 		settledInvoice, err = settleInvoice(
-			invoices, settleIndex, invoiceNum, amtPaid,
+			invoices, settleIndex, invoiceNum, amtPaid, preimage,
 		)
 
 		return err
@@ -933,7 +938,7 @@ func deserializeInvoice(r io.Reader) (Invoice, error) {
 }
 
 func settleInvoice(invoices, settleIndex *bbolt.Bucket, invoiceNum []byte,
-	amtPaid lnwire.MilliSatoshi) (*Invoice, error) {
+	amtPaid lnwire.MilliSatoshi, preimage *lntypes.Preimage) (*Invoice, error) {
 
 	invoice, err := fetchInvoice(invoiceNum, invoices)
 	if err != nil {
@@ -945,6 +950,13 @@ func settleInvoice(invoices, settleIndex *bbolt.Bucket, invoiceNum []byte,
 		return &invoice, ErrInvoiceAlreadySettled
 	case ContractCanceled:
 		return &invoice, ErrInvoiceAlreadyCanceled
+	}
+
+	if invoice.Terms.PaymentPreimage == UnknownPreimage {
+		if preimage == nil {
+			return nil, errors.New("missing preimage")
+		}
+		invoice.Terms.PaymentPreimage = *preimage
 	}
 
 	// Now that we know the invoice hasn't already been settled, we'll

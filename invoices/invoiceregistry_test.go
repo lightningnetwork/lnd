@@ -99,7 +99,7 @@ func TestSettleInvoice(t *testing.T) {
 
 	// Settle invoice with a slightly higher amount.
 	amtPaid := lnwire.MilliSatoshi(100500)
-	err = registry.SettleInvoice(hash, amtPaid)
+	err = registry.SettleInvoice(hash, amtPaid, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,13 +131,13 @@ func TestSettleInvoice(t *testing.T) {
 	}
 
 	// Try to settle again.
-	err = registry.SettleInvoice(hash, amtPaid)
+	err = registry.SettleInvoice(hash, amtPaid, nil)
 	if err != nil {
 		t.Fatal("expected duplicate settle to succeed")
 	}
 
 	// Try to settle again with a different amount.
-	err = registry.SettleInvoice(hash, amtPaid+600)
+	err = registry.SettleInvoice(hash, amtPaid+600, nil)
 	if err != nil {
 		t.Fatal("expected duplicate settle to succeed")
 	}

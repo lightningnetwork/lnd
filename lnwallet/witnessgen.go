@@ -69,6 +69,16 @@ const (
 	// broadcast a revoked commitment, but then also immediately attempt to
 	// go to the second level to claim the HTLC.
 	HtlcSecondLevelRevoke WitnessType = 9
+
+	// WitnessKeyHash is a witness type that allows us to spend a regular
+	// p2wkh output that's sent to an output which is under complete
+	// control of the backing wallet.
+	WitnessKeyHash WitnessType = 10
+
+	// NestedWitnessKeyHash is a witness type that allows us to sweep an
+	// output that sends to a nested P2SH script that pays to a key solely
+	// under our control. The witness generated needs to include the
+	NestedWitnessKeyHash WitnessType = 11
 )
 
 // Stirng returns a human readable version of the target WitnessType.
@@ -110,18 +120,22 @@ func (wt WitnessType) String() string {
 }
 
 // WitnessGenerator represents a function which is able to generate the final
-// witness for a particular public key script. This function acts as an
-// abstraction layer, hiding the details of the underlying script.
+// witness for a particular public key script. Additionally, if required, this
+// function will also return the sigScript for spending nested P2SH witness
+// outputs. This function acts as an abstraction layer, hiding the details of
+// the underlying script.
 type WitnessGenerator func(tx *wire.MsgTx, hc *txscript.TxSigHashes,
-	inputIndex int) ([][]byte, error)
+	inputIndex int) (*InputScript, error)
 
-// GenWitnessFunc will return a WitnessGenerator function that an output
-// uses to generate the witness for a sweep transaction.
+// GenWitnessFunc will return a WitnessGenerator function that an output uses
+// to generate the witness and optionally the sigScript for a sweep
+// transaction. The sigScript will be generated if the witness type warrants
+// one for spending, such as the NestedWitnessKeyHash witness type.
 func (wt WitnessType) GenWitnessFunc(signer Signer,
 	descriptor *SignDescriptor) WitnessGenerator {
 
 	return func(tx *wire.MsgTx, hc *txscript.TxSigHashes,
-		inputIndex int) ([][]byte, error) {
+		inputIndex int) (*InputScript, error) {
 
 		desc := descriptor
 		desc.SigHashes = hc
@@ -129,34 +143,102 @@ func (wt WitnessType) GenWitnessFunc(signer Signer,
 
 		switch wt {
 		case CommitmentTimeLock:
-			return CommitSpendTimeout(signer, desc, tx)
+			witness, err := CommitSpendTimeout(signer, desc, tx)
+			if err != nil {
+				return nil, err
+			}
+
+			return &InputScript{
+				Witness: witness,
+			}, nil
 
 		case CommitmentNoDelay:
-			return CommitSpendNoDelay(signer, desc, tx)
+			witness, err := CommitSpendNoDelay(signer, desc, tx)
+			if err != nil {
+				return nil, err
+			}
+
+			return &InputScript{
+				Witness: witness,
+			}, nil
 
 		case CommitmentRevoke:
-			return CommitSpendRevoke(signer, desc, tx)
+			witness, err := CommitSpendRevoke(signer, desc, tx)
+			if err != nil {
+				return nil, err
+			}
+
+			return &InputScript{
+				Witness: witness,
+			}, nil
 
 		case HtlcOfferedRevoke:
-			return ReceiverHtlcSpendRevoke(signer, desc, tx)
+			witness, err := ReceiverHtlcSpendRevoke(signer, desc, tx)
+			if err != nil {
+				return nil, err
+			}
+
+			return &InputScript{
+				Witness: witness,
+			}, nil
 
 		case HtlcAcceptedRevoke:
-			return SenderHtlcSpendRevoke(signer, desc, tx)
+			witness, err := SenderHtlcSpendRevoke(signer, desc, tx)
+			if err != nil {
+				return nil, err
+			}
+
+			return &InputScript{
+				Witness: witness,
+			}, nil
 
 		case HtlcOfferedTimeoutSecondLevel:
-			return HtlcSecondLevelSpend(signer, desc, tx)
+			witness, err := HtlcSecondLevelSpend(signer, desc, tx)
+			if err != nil {
+				return nil, err
+			}
+
+			return &InputScript{
+				Witness: witness,
+			}, nil
 
 		case HtlcAcceptedSuccessSecondLevel:
-			return HtlcSecondLevelSpend(signer, desc, tx)
+			witness, err := HtlcSecondLevelSpend(signer, desc, tx)
+			if err != nil {
+				return nil, err
+			}
+
+			return &InputScript{
+				Witness: witness,
+			}, nil
 
 		case HtlcOfferedRemoteTimeout:
 			// We pass in a value of -1 for the timeout, as we
 			// expect the caller to have already set the lock time
 			// value.
-			return receiverHtlcSpendTimeout(signer, desc, tx, -1)
+			witness, err := receiverHtlcSpendTimeout(signer, desc, tx, -1)
+			if err != nil {
+				return nil, err
+			}
+
+			return &InputScript{
+				Witness: witness,
+			}, nil
 
 		case HtlcSecondLevelRevoke:
-			return htlcSpendRevoke(signer, desc, tx)
+			witness, err := htlcSpendRevoke(signer, desc, tx)
+			if err != nil {
+				return nil, err
+			}
+
+			return &InputScript{
+				Witness: witness,
+			}, nil
+
+		case WitnessKeyHash:
+			fallthrough
+		case NestedWitnessKeyHash:
+			return signer.ComputeInputScript(tx, desc)
 
 		default:
 			return nil, fmt.Errorf("unknown witness type: %v", wt)

@@ -1,8 +1,9 @@
 package sweep
 
 import (
-	"github.com/lightningnetwork/lnd/lnwallet"
 	"sync"
+
+	"github.com/lightningnetwork/lnd/lnwallet"
 )
 
 // mockFeeEstimator implements a mock fee estimator. It closely resembles
@@ -13,6 +14,8 @@ type mockFeeEstimator struct {
 
 	relayFee lnwallet.SatPerKWeight
 
+	blocksToFee map[uint32]lnwallet.SatPerKWeight
+
 	lock sync.Mutex
 }
 
@@ -20,8 +23,9 @@ func newMockFeeEstimator(feePerKW,
 	relayFee lnwallet.SatPerKWeight) *mockFeeEstimator {
 
 	return &mockFeeEstimator{
-		feePerKW: feePerKW,
-		relayFee: relayFee,
+		feePerKW:    feePerKW,
+		relayFee:    relayFee,
+		blocksToFee: make(map[uint32]lnwallet.SatPerKWeight),
 	}
 }
 
@@ -40,6 +44,10 @@ func (e *mockFeeEstimator) EstimateFeePerKW(numBlocks uint32) (
 
 	e.lock.Lock()
 	defer e.lock.Unlock()
+
+	if fee, ok := e.blocksToFee[numBlocks]; ok {
+		return fee, nil
+	}
 
 	return e.feePerKW, nil
 }

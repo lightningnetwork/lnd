@@ -608,7 +608,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 	}
 
 	s.sweeper = sweep.New(&sweep.UtxoSweeperConfig{
-		Estimator: cc.feeEstimator,
+		FeeEstimator: cc.feeEstimator,
 		GenSweepScript: func() ([]byte, error) {
 			return newSweepPkScript(cc.wallet)
 		},

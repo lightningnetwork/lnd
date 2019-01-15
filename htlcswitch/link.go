@@ -681,9 +681,14 @@ func (l *channelLink) resolveFwdPkg(fwdPkg *channeldb.FwdPkg) (bool, error) {
 	// If the package is fully acked but not completed, it must still have
 	// settles and fails to propagate.
 	if !fwdPkg.SettleFailFilter.IsFull() {
-		settleFails := lnwallet.PayDescsFromRemoteLogUpdates(
+		settleFails, err := lnwallet.PayDescsFromRemoteLogUpdates(
 			fwdPkg.Source, fwdPkg.Height, fwdPkg.SettleFails,
 		)
+		if err != nil {
+			l.errorf("Unable to process remote log updates: %v",
+				err)
+			return false, err
+		}
 		l.processRemoteSettleFails(fwdPkg, settleFails)
 	}
 
@@ -693,9 +698,14 @@ func (l *channelLink) resolveFwdPkg(fwdPkg *channeldb.FwdPkg) (bool, error) {
 	// batch of adds presented to the sphinx router does not ever change.
 	var needUpdate bool
 	if !fwdPkg.AckFilter.IsFull() {
-		adds := lnwallet.PayDescsFromRemoteLogUpdates(
+		adds, err := lnwallet.PayDescsFromRemoteLogUpdates(
 			fwdPkg.Source, fwdPkg.Height, fwdPkg.Adds,
 		)
+		if err != nil {
+			l.errorf("Unable to process remote log updates: %v",
+				err)
+			return false, err
+		}
 		needUpdate = l.processRemoteAdds(fwdPkg, adds)
 
 		// If the link failed during processing the adds, we must

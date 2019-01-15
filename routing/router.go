@@ -1760,42 +1760,10 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 			}),
 		)
 
-		// Generate the raw encoded sphinx packet to be included along
-		// with the htlcAdd message that we send directly to the
-		// switch.
-		onionBlob, circuit, err := generateSphinxPacket(
-			route, payment.PaymentHash[:],
-		)
-		if err != nil {
-			return preImage, nil, err
-		}
-
-		// Craft an HTLC packet to send to the layer 2 switch. The
-		// metadata within this packet will be used to route the
-		// payment through the network, starting with the first-hop.
-		htlcAdd := &lnwire.UpdateAddHTLC{
-			Amount:      route.TotalAmount,
-			Expiry:      route.TotalTimeLock,
-			PaymentHash: payment.PaymentHash,
-		}
-		copy(htlcAdd.OnionBlob[:], onionBlob)
-
-		// We generate a new, unique payment ID that we will use for
-		// this HTLC.
-		paymentID, err := r.cfg.NextPaymentID()
-		if err != nil {
-			return preImage, nil, err
-		}
-
 		// Attempt to send this payment through the network to complete
 		// the payment. If this attempt fails, then we'll continue on
 		// to the next available route.
-		firstHop := lnwire.NewShortChanIDFromInt(
-			route.Hops[0].ChannelID,
-		)
-		preImage, sendError = r.cfg.SendToSwitch(
-			firstHop, paymentID, htlcAdd, circuit,
-		)
+		preImage, sendError = r.sendPayAttempt(payment, route)
 		if sendError != nil {
 			// An error occurred when attempting to send the
 			// payment, depending on the error type, we'll either
@@ -2025,6 +1993,69 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 
 		return preImage, route, nil
 	}
+}
+
+// sendPayAttempt sends the given payAttempt to the switch, updating the
+// paymentSession with any new information learned if the attempt fails. If the
+// payment succeeds, a non-zero preimage will be retuned. If the payment fails
+// with a fatal error, this error will be returned. Otherwise, a zero preimage
+// and a nil error will be returned, indicating that we should make another
+// payment attempt.
+func (r *ChannelRouter) sendPayAttempt(payment *LightningPayment,
+	route *Route) ([32]byte, error) {
+
+	var preImage [32]byte
+
+	// Generate the raw encoded sphinx packet to be included along
+	// with the htlcAdd message that we send directly to the
+	// switch.
+	onionBlob, circuit, err := generateSphinxPacket(
+		route, payment.PaymentHash[:],
+	)
+	if err != nil {
+		return preImage, err
+	}
+
+	// Craft an HTLC packet to send to the layer 2 switch. The
+	// metadata within this packet will be used to route the
+	// payment through the network, starting with the first-hop.
+	htlcAdd := &lnwire.UpdateAddHTLC{
+		Amount:      route.TotalAmount,
+		Expiry:      route.TotalTimeLock,
+		PaymentHash: payment.PaymentHash,
+	}
+	copy(htlcAdd.OnionBlob[:], onionBlob)
+
+	// We generate a new, unique payment ID that we will use for
+	// this HTLC.
+	paymentID, err := r.cfg.NextPaymentID()
+	if err != nil {
+		return preImage, err
+	}
+
+	firstHop := lnwire.NewShortChanIDFromInt(
+		route.Hops[0].ChannelID,
+	)
+
+	p := &payAttempt{
+		paymentID: paymentID,
+		firstHop:  firstHop,
+		htlcAdd:   htlcAdd,
+		circuit:   circuit,
+	}
+
+	return r.sendPayAttemptToSwitch(p, route, route.TotalFees)
+}
+
+// NOTE: route can be nil
+func (r *ChannelRouter) sendPayAttemptToSwitch(p *payAttempt, route *Route,
+	totalFees lnwire.MilliSatoshi) ([32]byte, error) {
+
+	preImage, sendError := r.cfg.SendToSwitch(
+		p.firstHop, p.paymentID, p.htlcAdd, p.circuit,
+	)
+
+	return preImage, sendError
 }
 
 // getFailedEdge tries to locate the failing channel given a route and the

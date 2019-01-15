@@ -4,8 +4,11 @@ package invoicesrpc
 
 import (
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/invoices"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/macaroons"
+	"github.com/lightningnetwork/lnd/netann"
 )
 
 // Config is the primary configuration struct for the invoices RPC server. It
@@ -26,7 +29,25 @@ type Config struct {
 	// created by the daemon.
 	InvoiceRegistry *invoices.InvoiceRegistry
 
+	// IsChannelActive is used to generate valid hop hints.
+	IsChannelActive func(chanID lnwire.ChannelID) bool
+
 	// ChainParams are required to properly decode invoice payment requests
 	// that are marshalled over rpc.
 	ChainParams *chaincfg.Params
+
+	// NodeSigner is an implementation of the MessageSigner implementation
+	// that's backed by the identity private key of the running lnd node.
+	NodeSigner *netann.NodeSigner
+
+	// MaxPaymentMSat is the maximum allowed payment.
+	MaxPaymentMSat lnwire.MilliSatoshi
+
+	// DefaultCLTVExpiry is the default invoice expiry if no values is
+	// specified.
+	DefaultCLTVExpiry uint32
+
+	// ChanDB is a global boltdb instance which is needed to access the
+	// channel graph.
+	ChanDB *channeldb.DB
 }

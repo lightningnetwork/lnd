@@ -202,6 +202,8 @@ type Config struct {
 	// from blocking initial usage of the wallet. This should only be
 	// enabled on testnet.
 	AssumeChannelValid bool
+
+	DB *channeldb.DB
 }
 
 // routeTuple is an entry within the ChannelRouter's route cache. We cache
@@ -331,6 +333,8 @@ type ChannelRouter struct {
 	// gained to the next execution.
 	missionControl *missionControl
 
+	payAttempts *payAttemptStore
+
 	// channelEdgeMtx is a mutex we use to make sure we process only one
 	// ChannelEdgePolicy at a time for a given channelID, to ensure
 	// consistency between the various database accesses.
@@ -366,6 +370,7 @@ func New(cfg Config) (*ChannelRouter, error) {
 		networkUpdates:    make(chan *routingMsg),
 		topologyClients:   make(map[uint64]*topologyClient),
 		ntfnClientUpdates: make(chan *topologyClientUpdate),
+		payAttempts:       &payAttemptStore{cfg.DB},
 		channelEdgeMtx:    multimutex.NewMutex(),
 		selfNode:          selfNode,
 		routeCache:        make(map[routeTuple][]*Route),
@@ -458,6 +463,32 @@ func (r *ChannelRouter) Start() error {
 	err = r.cfg.Graph.PruneGraphNodes()
 	if err != nil && err != channeldb.ErrGraphNodesNotFound {
 		return err
+	}
+
+	// If any payment attempts are lingering in the store, we resend them
+	// to the switch, to make sure they are forwarded to the network.
+	payments, err := r.payAttempts.getPayAttempts()
+	if err != nil {
+		return err
+	}
+
+	for _, p := range payments {
+
+		r.wg.Add(1)
+		go func(p *payAttempt) {
+			defer r.wg.Done()
+
+			// TODO(halseth): persist route information
+			// s.t. we can save it with the payment.
+			preImage, err := r.sendPayAttemptToSwitch(p, nil, 0)
+			if err != nil {
+				log.Errorf("Resent payment attempt failed: %v",
+					err)
+				return
+			}
+			log.Infof("resent payment suceeded with "+
+				"preimage %x", preImage)
+		}(p)
 	}
 
 	r.wg.Add(1)
@@ -2044,6 +2075,13 @@ func (r *ChannelRouter) sendPayAttempt(payment *LightningPayment,
 		circuit:   circuit,
 	}
 
+	// Before sending this HTLC to the switch, we checkpoint it to
+	// the DB. This lets us resend it on startup in case we go
+	// down, to get the result of the attempt.
+	if err := r.payAttempts.storePayAttempt(p); err != nil {
+		return preImage, err
+	}
+
 	return r.sendPayAttemptToSwitch(p, route, route.TotalFees)
 }
 
@@ -2063,6 +2101,11 @@ func (r *ChannelRouter) sendPayAttemptToSwitch(p *payAttempt, route *Route,
 	case sendError = <-errChan:
 	case <-r.quit:
 		return preImage, ErrRouterShuttingDown
+	}
+
+	delErr := r.payAttempts.deletePayAttempt(p.paymentID)
+	if delErr != nil {
+		log.Errorf("Unable to delete payment attempt: %v", delErr)
 	}
 
 	return preImage, sendError

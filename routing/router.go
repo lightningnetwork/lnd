@@ -171,7 +171,7 @@ type Config struct {
 	// payment was unsuccessful.
 	SendToSwitch func(firstHop lnwire.ShortChannelID, paymentID uint64,
 		htlcAdd *lnwire.UpdateAddHTLC,
-		circuit *sphinx.Circuit) ([sha256.Size]byte, error)
+		circuit *sphinx.Circuit) (chan [sha256.Size]byte, chan error)
 
 	// ChannelPruneExpiry is the duration used to determine if a channel
 	// should be pruned or not. If the delta between now and when the
@@ -2051,9 +2051,19 @@ func (r *ChannelRouter) sendPayAttempt(payment *LightningPayment,
 func (r *ChannelRouter) sendPayAttemptToSwitch(p *payAttempt, route *Route,
 	totalFees lnwire.MilliSatoshi) ([32]byte, error) {
 
-	preImage, sendError := r.cfg.SendToSwitch(
+	preImageChan, errChan := r.cfg.SendToSwitch(
 		p.firstHop, p.paymentID, p.htlcAdd, p.circuit,
 	)
+
+	var preImage [32]byte
+	var sendError error
+
+	select {
+	case preImage = <-preImageChan:
+	case sendError = <-errChan:
+	case <-r.quit:
+		return preImage, ErrRouterShuttingDown
+	}
 
 	return preImage, sendError
 }

@@ -16,9 +16,11 @@ import (
 	"github.com/coreos/bbolt"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
+
 	"github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/multimutex"
@@ -1034,13 +1036,13 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 		// Recreate witness output to be sure that declared in channel
 		// edge bitcoin keys and channel value corresponds to the
 		// reality.
-		witnessScript, err := lnwallet.GenMultiSigScript(
+		witnessScript, err := input.GenMultiSigScript(
 			msg.BitcoinKey1Bytes[:], msg.BitcoinKey2Bytes[:],
 		)
 		if err != nil {
 			return err
 		}
-		fundingPkScript, err := lnwallet.WitnessScriptHash(witnessScript)
+		fundingPkScript, err := input.WitnessScriptHash(witnessScript)
 		if err != nil {
 			return err
 		}

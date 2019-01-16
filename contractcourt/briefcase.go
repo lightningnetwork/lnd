@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
 )
 
@@ -908,7 +909,7 @@ func encodeIncomingResolution(w io.Writer, i *lnwallet.IncomingHtlcResolution) e
 	if err := binary.Write(w, endian, i.ClaimOutpoint.Index); err != nil {
 		return err
 	}
-	err := lnwallet.WriteSignDescriptor(w, &i.SweepSignDesc)
+	err := input.WriteSignDescriptor(w, &i.SweepSignDesc)
 	if err != nil {
 		return err
 	}
@@ -945,7 +946,7 @@ func decodeIncomingResolution(r io.Reader, h *lnwallet.IncomingHtlcResolution) e
 		return err
 	}
 
-	return lnwallet.ReadSignDescriptor(r, &h.SweepSignDesc)
+	return input.ReadSignDescriptor(r, &h.SweepSignDesc)
 }
 
 func encodeOutgoingResolution(w io.Writer, o *lnwallet.OutgoingHtlcResolution) error {
@@ -977,7 +978,7 @@ func encodeOutgoingResolution(w io.Writer, o *lnwallet.OutgoingHtlcResolution) e
 		return err
 	}
 
-	return lnwallet.WriteSignDescriptor(w, &o.SweepSignDesc)
+	return input.WriteSignDescriptor(w, &o.SweepSignDesc)
 }
 
 func decodeOutgoingResolution(r io.Reader, o *lnwallet.OutgoingHtlcResolution) error {
@@ -1010,7 +1011,7 @@ func decodeOutgoingResolution(r io.Reader, o *lnwallet.OutgoingHtlcResolution) e
 		return err
 	}
 
-	return lnwallet.ReadSignDescriptor(r, &o.SweepSignDesc)
+	return input.ReadSignDescriptor(r, &o.SweepSignDesc)
 }
 
 func encodeCommitResolution(w io.Writer,
@@ -1024,7 +1025,7 @@ func encodeCommitResolution(w io.Writer,
 		return err
 	}
 
-	err = lnwallet.WriteSignDescriptor(w, &c.SelfOutputSignDesc)
+	err = input.WriteSignDescriptor(w, &c.SelfOutputSignDesc)
 	if err != nil {
 		return err
 	}
@@ -1044,7 +1045,7 @@ func decodeCommitResolution(r io.Reader,
 		return err
 	}
 
-	err = lnwallet.ReadSignDescriptor(r, &c.SelfOutputSignDesc)
+	err = input.ReadSignDescriptor(r, &c.SelfOutputSignDesc)
 	if err != nil {
 		return err
 	}

@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
@@ -378,7 +379,7 @@ func TestCommitmentAndHTLCTransactions(t *testing.T) {
 			ChannelConstraints: channeldb.ChannelConstraints{
 				DustLimit:        tc.dustLimit,
 				MaxPendingAmount: lnwire.NewMSatFromSatoshis(tc.fundingAmount),
-				MaxAcceptedHtlcs: MaxHTLCNumber,
+				MaxAcceptedHtlcs: input.MaxHTLCNumber,
 				CsvDelay:         tc.localCsvDelay,
 			},
 			MultiSigKey: keychain.KeyDescriptor{
@@ -431,7 +432,7 @@ func TestCommitmentAndHTLCTransactions(t *testing.T) {
 
 	// The commitmentPoint is technically hidden in the spec, but we need it to
 	// generate the correct tweak.
-	tweak := SingleTweakBytes(tc.commitmentPoint, tc.localPaymentBasePoint)
+	tweak := input.SingleTweakBytes(tc.commitmentPoint, tc.localPaymentBasePoint)
 	keys := &CommitmentKeyRing{
 		CommitPoint:         tc.commitmentPoint,
 		LocalCommitKeyTweak: tweak,

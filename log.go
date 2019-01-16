@@ -11,7 +11,7 @@ import (
 	"github.com/jrick/logrotate/rotator"
 	"github.com/lightninglabs/neutrino"
 
-	"github.com/lightningnetwork/lightning-onion"
+	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/chainntnfs"

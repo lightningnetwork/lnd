@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
@@ -55,13 +56,13 @@ func TestCommitmentSpendValidation(t *testing.T) {
 	revocationPreimage := testHdSeed.CloneBytes()
 	commitSecret, commitPoint := btcec.PrivKeyFromBytes(btcec.S256(),
 		revocationPreimage)
-	revokePubKey := DeriveRevocationPubkey(bobKeyPub, commitPoint)
+	revokePubKey := input.DeriveRevocationPubkey(bobKeyPub, commitPoint)
 
-	aliceDelayKey := TweakPubKey(aliceKeyPub, commitPoint)
-	bobPayKey := TweakPubKey(bobKeyPub, commitPoint)
+	aliceDelayKey := input.TweakPubKey(aliceKeyPub, commitPoint)
+	bobPayKey := input.TweakPubKey(bobKeyPub, commitPoint)
 
-	aliceCommitTweak := SingleTweakBytes(commitPoint, aliceKeyPub)
-	bobCommitTweak := SingleTweakBytes(commitPoint, bobKeyPub)
+	aliceCommitTweak := input.SingleTweakBytes(commitPoint, aliceKeyPub)
+	bobCommitTweak := input.SingleTweakBytes(commitPoint, bobKeyPub)
 
 	aliceSelfOutputSigner := &mockSigner{
 		privkeys: []*btcec.PrivateKey{aliceKeyPriv},
@@ -90,7 +91,7 @@ func TestCommitmentSpendValidation(t *testing.T) {
 
 	// We're testing an uncooperative close, output sweep, so construct a
 	// transaction which sweeps the funds to a random address.
-	targetOutput, err := CommitScriptUnencumbered(aliceKeyPub)
+	targetOutput, err := input.CommitScriptUnencumbered(aliceKeyPub)
 	if err != nil {
 		t.Fatalf("unable to create target output: %v", err)
 	}
@@ -105,13 +106,13 @@ func TestCommitmentSpendValidation(t *testing.T) {
 	})
 
 	// First, we'll test spending with Alice's key after the timeout.
-	delayScript, err := CommitScriptToSelf(csvTimeout, aliceDelayKey,
+	delayScript, err := input.CommitScriptToSelf(csvTimeout, aliceDelayKey,
 		revokePubKey)
 	if err != nil {
 		t.Fatalf("unable to generate alice delay script: %v", err)
 	}
-	sweepTx.TxIn[0].Sequence = lockTimeToSequence(false, csvTimeout)
-	signDesc := &SignDescriptor{
+	sweepTx.TxIn[0].Sequence = input.LockTimeToSequence(false, csvTimeout)
+	signDesc := &input.SignDescriptor{
 		WitnessScript: delayScript,
 		KeyDesc: keychain.KeyDescriptor{
 			PubKey: aliceKeyPub,
@@ -124,7 +125,7 @@ func TestCommitmentSpendValidation(t *testing.T) {
 		HashType:   txscript.SigHashAll,
 		InputIndex: 0,
 	}
-	aliceWitnessSpend, err := CommitSpendTimeout(aliceSelfOutputSigner,
+	aliceWitnessSpend, err := input.CommitSpendTimeout(aliceSelfOutputSigner,
 		signDesc, sweepTx)
 	if err != nil {
 		t.Fatalf("unable to generate delay commit spend witness: %v", err)
@@ -145,7 +146,7 @@ func TestCommitmentSpendValidation(t *testing.T) {
 	// Next, we'll test bob spending with the derived revocation key to
 	// simulate the scenario when Alice broadcasts this commitment
 	// transaction after it's been revoked.
-	signDesc = &SignDescriptor{
+	signDesc = &input.SignDescriptor{
 		KeyDesc: keychain.KeyDescriptor{
 			PubKey: bobKeyPub,
 		},
@@ -158,7 +159,7 @@ func TestCommitmentSpendValidation(t *testing.T) {
 		HashType:   txscript.SigHashAll,
 		InputIndex: 0,
 	}
-	bobWitnessSpend, err := CommitSpendRevoke(bobSigner, signDesc,
+	bobWitnessSpend, err := input.CommitSpendRevoke(bobSigner, signDesc,
 		sweepTx)
 	if err != nil {
 		t.Fatalf("unable to generate revocation witness: %v", err)
@@ -186,11 +187,11 @@ func TestCommitmentSpendValidation(t *testing.T) {
 
 	// Finally, we test bob sweeping his output as normal in the case that
 	// Alice broadcasts this commitment transaction.
-	bobScriptP2WKH, err := CommitScriptUnencumbered(bobPayKey)
+	bobScriptP2WKH, err := input.CommitScriptUnencumbered(bobPayKey)
 	if err != nil {
 		t.Fatalf("unable to create bob p2wkh script: %v", err)
 	}
-	signDesc = &SignDescriptor{
+	signDesc = &input.SignDescriptor{
 		KeyDesc: keychain.KeyDescriptor{
 			PubKey: bobKeyPub,
 		},
@@ -204,7 +205,7 @@ func TestCommitmentSpendValidation(t *testing.T) {
 		HashType:   txscript.SigHashAll,
 		InputIndex: 0,
 	}
-	bobRegularSpend, err := CommitSpendNoDelay(bobSigner, signDesc,
+	bobRegularSpend, err := input.CommitSpendNoDelay(bobSigner, signDesc,
 		sweepTx)
 	if err != nil {
 		t.Fatalf("unable to create bob regular spend: %v", err)
@@ -240,11 +241,11 @@ func TestRevocationKeyDerivation(t *testing.T) {
 
 	// With the point and key obtained, we can now derive the revocation
 	// key itself.
-	revocationPub := DeriveRevocationPubkey(basePub, commitPoint)
+	revocationPub := input.DeriveRevocationPubkey(basePub, commitPoint)
 
 	// The revocation public key derived from the original public key, and
 	// the one derived from the private key should be identical.
-	revocationPriv := DeriveRevocationPrivKey(basePriv, commitSecret)
+	revocationPriv := input.DeriveRevocationPrivKey(basePriv, commitSecret)
 	if !revocationPub.IsEqual(revocationPriv.PubKey()) {
 		t.Fatalf("derived public keys don't match!")
 	}
@@ -263,16 +264,16 @@ func TestTweakKeyDerivation(t *testing.T) {
 
 	// With the base key create, we'll now create a commitment point, and
 	// from that derive the bytes we'll used to tweak the base public key.
-	commitPoint := ComputeCommitmentPoint(bobsPrivKey)
-	commitTweak := SingleTweakBytes(commitPoint, basePub)
+	commitPoint := input.ComputeCommitmentPoint(bobsPrivKey)
+	commitTweak := input.SingleTweakBytes(commitPoint, basePub)
 
 	// Next, we'll modify the public key. When we apply the same operation
 	// to the private key we should get a key that matches.
-	tweakedPub := TweakPubKey(basePub, commitPoint)
+	tweakedPub := input.TweakPubKey(basePub, commitPoint)
 
 	// Finally, attempt to re-generate the private key that matches the
 	// tweaked public key. The derived key should match exactly.
-	derivedPriv := TweakPrivKey(basePriv, commitTweak)
+	derivedPriv := input.TweakPrivKey(basePriv, commitTweak)
 	if !derivedPriv.PubKey().IsEqual(tweakedPub) {
 		t.Fatalf("pub keys don't match")
 	}
@@ -344,20 +345,20 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 		bobsPrivKey)
 	paymentAmt := btcutil.Amount(1 * 10e8)
 
-	aliceLocalKey := TweakPubKey(aliceKeyPub, commitPoint)
-	bobLocalKey := TweakPubKey(bobKeyPub, commitPoint)
+	aliceLocalKey := input.TweakPubKey(aliceKeyPub, commitPoint)
+	bobLocalKey := input.TweakPubKey(bobKeyPub, commitPoint)
 
 	// As we'll be modeling spends from Alice's commitment transaction,
 	// we'll be using Bob's base point for the revocation key.
-	revocationKey := DeriveRevocationPubkey(bobKeyPub, commitPoint)
+	revocationKey := input.DeriveRevocationPubkey(bobKeyPub, commitPoint)
 
 	// Generate the raw HTLC redemption scripts, and its p2wsh counterpart.
-	htlcWitnessScript, err := senderHTLCScript(aliceLocalKey, bobLocalKey,
+	htlcWitnessScript, err := input.SenderHTLCScript(aliceLocalKey, bobLocalKey,
 		revocationKey, paymentHash[:])
 	if err != nil {
 		t.Fatalf("unable to create htlc sender script: %v", err)
 	}
-	htlcPkScript, err := WitnessScriptHash(htlcWitnessScript)
+	htlcPkScript, err := input.WitnessScriptHash(htlcWitnessScript)
 	if err != nil {
 		t.Fatalf("unable to create p2wsh htlc script: %v", err)
 	}
@@ -388,8 +389,8 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 	)
 	sweepTxSigHashes := txscript.NewTxSigHashes(sweepTx)
 
-	bobCommitTweak := SingleTweakBytes(commitPoint, bobKeyPub)
-	aliceCommitTweak := SingleTweakBytes(commitPoint, aliceKeyPub)
+	bobCommitTweak := input.SingleTweakBytes(commitPoint, bobKeyPub)
+	aliceCommitTweak := input.SingleTweakBytes(commitPoint, aliceKeyPub)
 
 	// Finally, we'll create mock signers for both of them based on their
 	// private keys. This test simplifies a bit and uses the same key as
@@ -400,7 +401,7 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 	// We'll also generate a signature on the sweep transaction above
 	// that will act as Bob's signature to Alice for the second level HTLC
 	// transaction.
-	bobSignDesc := SignDescriptor{
+	bobSignDesc := input.SignDescriptor{
 		KeyDesc: keychain.KeyDescriptor{
 			PubKey: bobKeyPub,
 		},
@@ -424,7 +425,7 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 			// revoke w/ sig
 			// TODO(roasbeef): test invalid revoke
 			makeWitnessTestCase(t, func() (wire.TxWitness, error) {
-				signDesc := &SignDescriptor{
+				signDesc := &input.SignDescriptor{
 					KeyDesc: keychain.KeyDescriptor{
 						PubKey: bobKeyPub,
 					},
@@ -436,7 +437,7 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 					InputIndex:    0,
 				}
 
-				return senderHtlcSpendRevoke(bobSigner, signDesc,
+				return input.SenderHtlcSpendRevokeWithKey(bobSigner, signDesc,
 					revocationKey, sweepTx)
 			}),
 			true,
@@ -444,7 +445,7 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 		{
 			// HTLC with invalid preimage size
 			makeWitnessTestCase(t, func() (wire.TxWitness, error) {
-				signDesc := &SignDescriptor{
+				signDesc := &input.SignDescriptor{
 					KeyDesc: keychain.KeyDescriptor{
 						PubKey: bobKeyPub,
 					},
@@ -456,7 +457,7 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 					InputIndex:    0,
 				}
 
-				return SenderHtlcSpendRedeem(bobSigner, signDesc,
+				return input.SenderHtlcSpendRedeem(bobSigner, signDesc,
 					sweepTx,
 					// Invalid preimage length
 					bytes.Repeat([]byte{1}, 45))
@@ -467,7 +468,7 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 			// HTLC with valid preimage size + sig
 			// TODO(roasbeef): invalid preimage
 			makeWitnessTestCase(t, func() (wire.TxWitness, error) {
-				signDesc := &SignDescriptor{
+				signDesc := &input.SignDescriptor{
 					KeyDesc: keychain.KeyDescriptor{
 						PubKey: bobKeyPub,
 					},
@@ -479,7 +480,7 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 					InputIndex:    0,
 				}
 
-				return SenderHtlcSpendRedeem(bobSigner, signDesc,
+				return input.SenderHtlcSpendRedeem(bobSigner, signDesc,
 					sweepTx, paymentPreimage)
 			}),
 			true,
@@ -489,7 +490,7 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 			// output with the second level HTLC timeout
 			// transaction.
 			makeWitnessTestCase(t, func() (wire.TxWitness, error) {
-				signDesc := &SignDescriptor{
+				signDesc := &input.SignDescriptor{
 					KeyDesc: keychain.KeyDescriptor{
 						PubKey: aliceKeyPub,
 					},
@@ -501,7 +502,7 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 					InputIndex:    0,
 				}
 
-				return senderHtlcSpendTimeout(bobRecvrSig, aliceSigner,
+				return input.SenderHtlcSpendTimeout(bobRecvrSig, aliceSigner,
 					signDesc, sweepTx)
 			}),
 			true,
@@ -599,20 +600,20 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 	paymentAmt := btcutil.Amount(1 * 10e8)
 	cltvTimeout := uint32(8)
 
-	aliceLocalKey := TweakPubKey(aliceKeyPub, commitPoint)
-	bobLocalKey := TweakPubKey(bobKeyPub, commitPoint)
+	aliceLocalKey := input.TweakPubKey(aliceKeyPub, commitPoint)
+	bobLocalKey := input.TweakPubKey(bobKeyPub, commitPoint)
 
 	// As we'll be modeling spends from Bob's commitment transaction, we'll
 	// be using Alice's base point for the revocation key.
-	revocationKey := DeriveRevocationPubkey(aliceKeyPub, commitPoint)
+	revocationKey := input.DeriveRevocationPubkey(aliceKeyPub, commitPoint)
 
 	// Generate the raw HTLC redemption scripts, and its p2wsh counterpart.
-	htlcWitnessScript, err := receiverHTLCScript(cltvTimeout, aliceLocalKey,
+	htlcWitnessScript, err := input.ReceiverHTLCScript(cltvTimeout, aliceLocalKey,
 		bobLocalKey, revocationKey, paymentHash[:])
 	if err != nil {
 		t.Fatalf("unable to create htlc sender script: %v", err)
 	}
-	htlcPkScript, err := WitnessScriptHash(htlcWitnessScript)
+	htlcPkScript, err := input.WitnessScriptHash(htlcWitnessScript)
 	if err != nil {
 		t.Fatalf("unable to create p2wsh htlc script: %v", err)
 	}
@@ -646,8 +647,8 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 	)
 	sweepTxSigHashes := txscript.NewTxSigHashes(sweepTx)
 
-	bobCommitTweak := SingleTweakBytes(commitPoint, bobKeyPub)
-	aliceCommitTweak := SingleTweakBytes(commitPoint, aliceKeyPub)
+	bobCommitTweak := input.SingleTweakBytes(commitPoint, bobKeyPub)
+	aliceCommitTweak := input.SingleTweakBytes(commitPoint, aliceKeyPub)
 
 	// Finally, we'll create mock signers for both of them based on their
 	// private keys. This test simplifies a bit and uses the same key as
@@ -658,7 +659,7 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 	// We'll also generate a signature on the sweep transaction above
 	// that will act as Alice's signature to Bob for the second level HTLC
 	// transaction.
-	aliceSignDesc := SignDescriptor{
+	aliceSignDesc := input.SignDescriptor{
 		KeyDesc: keychain.KeyDescriptor{
 			PubKey: aliceKeyPub,
 		},
@@ -682,7 +683,7 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 		{
 			// HTLC redemption w/ invalid preimage size
 			makeWitnessTestCase(t, func() (wire.TxWitness, error) {
-				signDesc := &SignDescriptor{
+				signDesc := &input.SignDescriptor{
 					KeyDesc: keychain.KeyDescriptor{
 						PubKey: bobKeyPub,
 					},
@@ -694,7 +695,7 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 					InputIndex:    0,
 				}
 
-				return receiverHtlcSpendRedeem(aliceSenderSig,
+				return input.ReceiverHtlcSpendRedeem(aliceSenderSig,
 					bytes.Repeat([]byte{1}, 45), bobSigner,
 					signDesc, sweepTx)
 
@@ -704,7 +705,7 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 		{
 			// HTLC redemption w/ valid preimage size
 			makeWitnessTestCase(t, func() (wire.TxWitness, error) {
-				signDesc := &SignDescriptor{
+				signDesc := &input.SignDescriptor{
 					KeyDesc: keychain.KeyDescriptor{
 						PubKey: bobKeyPub,
 					},
@@ -716,7 +717,7 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 					InputIndex:    0,
 				}
 
-				return receiverHtlcSpendRedeem(aliceSenderSig,
+				return input.ReceiverHtlcSpendRedeem(aliceSenderSig,
 					paymentPreimage[:], bobSigner,
 					signDesc, sweepTx)
 			}),
@@ -725,7 +726,7 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 		{
 			// revoke w/ sig
 			makeWitnessTestCase(t, func() (wire.TxWitness, error) {
-				signDesc := &SignDescriptor{
+				signDesc := &input.SignDescriptor{
 					KeyDesc: keychain.KeyDescriptor{
 						PubKey: aliceKeyPub,
 					},
@@ -737,7 +738,7 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 					InputIndex:    0,
 				}
 
-				return receiverHtlcSpendRevoke(aliceSigner,
+				return input.ReceiverHtlcSpendRevokeWithKey(aliceSigner,
 					signDesc, revocationKey, sweepTx)
 			}),
 			true,
@@ -745,7 +746,7 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 		{
 			// refund w/ invalid lock time
 			makeWitnessTestCase(t, func() (wire.TxWitness, error) {
-				signDesc := &SignDescriptor{
+				signDesc := &input.SignDescriptor{
 					KeyDesc: keychain.KeyDescriptor{
 						PubKey: aliceKeyPub,
 					},
@@ -757,7 +758,7 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 					InputIndex:    0,
 				}
 
-				return receiverHtlcSpendTimeout(aliceSigner, signDesc,
+				return input.ReceiverHtlcSpendTimeout(aliceSigner, signDesc,
 					sweepTx, int32(cltvTimeout-2))
 			}),
 			false,
@@ -765,7 +766,7 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 		{
 			// refund w/ valid lock time
 			makeWitnessTestCase(t, func() (wire.TxWitness, error) {
-				signDesc := &SignDescriptor{
+				signDesc := &input.SignDescriptor{
 					KeyDesc: keychain.KeyDescriptor{
 						PubKey: aliceKeyPub,
 					},
@@ -777,7 +778,7 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 					InputIndex:    0,
 				}
 
-				return receiverHtlcSpendTimeout(aliceSigner, signDesc,
+				return input.ReceiverHtlcSpendTimeout(aliceSigner, signDesc,
 					sweepTx, int32(cltvTimeout))
 			}),
 			true,
@@ -847,7 +848,7 @@ func TestSecondLevelHtlcSpends(t *testing.T) {
 	// As we're modeling this as Bob sweeping the HTLC on-chain from his
 	// commitment transaction after a period of time, we'll be using a
 	// revocation key derived from Alice's base point and his secret.
-	revocationKey := DeriveRevocationPubkey(aliceKeyPub, commitPoint)
+	revocationKey := input.DeriveRevocationPubkey(aliceKeyPub, commitPoint)
 
 	// Next, craft a fake HTLC outpoint that we'll use to generate the
 	// sweeping transaction using.
@@ -871,21 +872,21 @@ func TestSecondLevelHtlcSpends(t *testing.T) {
 
 	// The delay key will be crafted using Bob's public key as the output
 	// we created will be spending from Alice's commitment transaction.
-	delayKey := TweakPubKey(bobKeyPub, commitPoint)
+	delayKey := input.TweakPubKey(bobKeyPub, commitPoint)
 
 	// The commit tweak will be required in order for Bob to derive the
 	// proper key need to spend the output.
-	commitTweak := SingleTweakBytes(commitPoint, bobKeyPub)
+	commitTweak := input.SingleTweakBytes(commitPoint, bobKeyPub)
 
 	// Finally we'll generate the HTLC script itself that we'll be spending
 	// from. The revocation clause can be claimed by Alice, while Bob can
 	// sweep the output after a particular delay.
-	htlcWitnessScript, err := secondLevelHtlcScript(revocationKey,
+	htlcWitnessScript, err := input.SecondLevelHtlcScript(revocationKey,
 		delayKey, claimDelay)
 	if err != nil {
 		t.Fatalf("unable to create htlc script: %v", err)
 	}
-	htlcPkScript, err := WitnessScriptHash(htlcWitnessScript)
+	htlcPkScript, err := input.WitnessScriptHash(htlcWitnessScript)
 	if err != nil {
 		t.Fatalf("unable to create htlc output: %v", err)
 	}
@@ -912,7 +913,7 @@ func TestSecondLevelHtlcSpends(t *testing.T) {
 			// revocation clause, but uses the wrong key (fails to
 			// use the double tweak in this case).
 			makeWitnessTestCase(t, func() (wire.TxWitness, error) {
-				signDesc := &SignDescriptor{
+				signDesc := &input.SignDescriptor{
 					KeyDesc: keychain.KeyDescriptor{
 						PubKey: aliceKeyPub,
 					},
@@ -923,7 +924,7 @@ func TestSecondLevelHtlcSpends(t *testing.T) {
 					InputIndex:    0,
 				}
 
-				return htlcSpendRevoke(aliceSigner, signDesc,
+				return input.HtlcSpendRevoke(aliceSigner, signDesc,
 					sweepTx)
 			}),
 			false,
@@ -931,7 +932,7 @@ func TestSecondLevelHtlcSpends(t *testing.T) {
 		{
 			// Sender of HTLC activates the revocation clause.
 			makeWitnessTestCase(t, func() (wire.TxWitness, error) {
-				signDesc := &SignDescriptor{
+				signDesc := &input.SignDescriptor{
 					KeyDesc: keychain.KeyDescriptor{
 						PubKey: aliceKeyPub,
 					},
@@ -943,7 +944,7 @@ func TestSecondLevelHtlcSpends(t *testing.T) {
 					InputIndex:    0,
 				}
 
-				return htlcSpendRevoke(aliceSigner, signDesc,
+				return input.HtlcSpendRevoke(aliceSigner, signDesc,
 					sweepTx)
 			}),
 			true,
@@ -953,7 +954,7 @@ func TestSecondLevelHtlcSpends(t *testing.T) {
 			// do so pre-maturely with a smaller CSV delay (2
 			// blocks instead of 5 blocks).
 			makeWitnessTestCase(t, func() (wire.TxWitness, error) {
-				signDesc := &SignDescriptor{
+				signDesc := &input.SignDescriptor{
 					KeyDesc: keychain.KeyDescriptor{
 						PubKey: bobKeyPub,
 					},
@@ -965,7 +966,7 @@ func TestSecondLevelHtlcSpends(t *testing.T) {
 					InputIndex:    0,
 				}
 
-				return htlcSpendSuccess(bobSigner, signDesc,
+				return input.HtlcSpendSuccess(bobSigner, signDesc,
 					sweepTx, claimDelay-3)
 			}),
 			false,
@@ -975,7 +976,7 @@ func TestSecondLevelHtlcSpends(t *testing.T) {
 			// delay, but uses the wrong key (leaves off the single
 			// tweak).
 			makeWitnessTestCase(t, func() (wire.TxWitness, error) {
-				signDesc := &SignDescriptor{
+				signDesc := &input.SignDescriptor{
 					KeyDesc: keychain.KeyDescriptor{
 						PubKey: bobKeyPub,
 					},
@@ -986,7 +987,7 @@ func TestSecondLevelHtlcSpends(t *testing.T) {
 					InputIndex:    0,
 				}
 
-				return htlcSpendSuccess(bobSigner, signDesc,
+				return input.HtlcSpendSuccess(bobSigner, signDesc,
 					sweepTx, claimDelay)
 			}),
 			false,
@@ -995,7 +996,7 @@ func TestSecondLevelHtlcSpends(t *testing.T) {
 			// Receiver of the HTLC sweeps with the proper CSV
 			// delay, and the correct key.
 			makeWitnessTestCase(t, func() (wire.TxWitness, error) {
-				signDesc := &SignDescriptor{
+				signDesc := &input.SignDescriptor{
 					KeyDesc: keychain.KeyDescriptor{
 						PubKey: bobKeyPub,
 					},
@@ -1007,7 +1008,7 @@ func TestSecondLevelHtlcSpends(t *testing.T) {
 					InputIndex:    0,
 				}
 
-				return htlcSpendSuccess(bobSigner, signDesc,
+				return input.HtlcSpendSuccess(bobSigner, signDesc,
 					sweepTx, claimDelay)
 			}),
 			true,
@@ -1072,15 +1073,15 @@ func TestCommitTxStateHint(t *testing.T) {
 		},
 		{
 			name:       "states 'maxStateHint-1000' to 'maxStateHint'",
-			from:       maxStateHint - 1000,
-			to:         maxStateHint,
+			from:       input.MaxStateHint - 1000,
+			to:         input.MaxStateHint,
 			inputs:     1,
 			shouldFail: false,
 		},
 		{
-			name:       "state 'maxStateHint+1'",
-			from:       maxStateHint + 1,
-			to:         maxStateHint + 10,
+			name:       "state 'MaxStateHint+1'",
+			from:       input.MaxStateHint + 1,
+			to:         input.MaxStateHint + 10,
 			inputs:     1,
 			shouldFail: true,
 		},
@@ -1091,8 +1092,8 @@ func TestCommitTxStateHint(t *testing.T) {
 		},
 	}
 
-	var obfuscator [StateHintSize]byte
-	copy(obfuscator[:], testHdSeed[:StateHintSize])
+	var obfuscator [input.StateHintSize]byte
+	copy(obfuscator[:], testHdSeed[:input.StateHintSize])
 	timeYesterday := uint32(time.Now().Unix() - 24*60*60)
 
 	for _, test := range stateHintTests {
@@ -1106,7 +1107,7 @@ func TestCommitTxStateHint(t *testing.T) {
 		for i := test.from; i <= test.to; i++ {
 			stateNum := uint64(i)
 
-			err := SetStateNumHint(commitTx, stateNum, obfuscator)
+			err := input.SetStateNumHint(commitTx, stateNum, obfuscator)
 			if err != nil && !test.shouldFail {
 				t.Fatalf("unable to set state num %v: %v", i, err)
 			} else if err == nil && test.shouldFail {
@@ -1132,7 +1133,7 @@ func TestCommitTxStateHint(t *testing.T) {
 				}
 			}
 
-			extractedStateNum := GetStateNumHint(commitTx, obfuscator)
+			extractedStateNum := input.GetStateNumHint(commitTx, obfuscator)
 			if extractedStateNum != stateNum && !test.shouldFail {
 				t.Fatalf("state number mismatched, expected %v, got %v",
 					stateNum, extractedStateNum)
@@ -1173,7 +1174,7 @@ func TestSpecificationKeyDerivation(t *testing.T) {
 
 	// name: derivation of key from basepoint and per_commitment_point
 	const expectedLocalKeyHex = "0235f2dbfaa89b57ec7b055afe29849ef7ddfeb1cefdb9ebdc43f5494984db29e5"
-	actualLocalKey := TweakPubKey(basePoint, perCommitmentPoint)
+	actualLocalKey := input.TweakPubKey(basePoint, perCommitmentPoint)
 	actualLocalKeyHex := pubkeyToHex(actualLocalKey)
 	if actualLocalKeyHex != expectedLocalKeyHex {
 		t.Errorf("Incorrect derivation of local public key: "+
@@ -1182,8 +1183,8 @@ func TestSpecificationKeyDerivation(t *testing.T) {
 
 	// name: derivation of secret key from basepoint secret and per_commitment_secret
 	const expectedLocalPrivKeyHex = "cbced912d3b21bf196a766651e436aff192362621ce317704ea2f75d87e7be0f"
-	tweak := SingleTweakBytes(perCommitmentPoint, basePoint)
-	actualLocalPrivKey := TweakPrivKey(baseSecret, tweak)
+	tweak := input.SingleTweakBytes(perCommitmentPoint, basePoint)
+	actualLocalPrivKey := input.TweakPrivKey(baseSecret, tweak)
 	actualLocalPrivKeyHex := privkeyToHex(actualLocalPrivKey)
 	if actualLocalPrivKeyHex != expectedLocalPrivKeyHex {
 		t.Errorf("Incorrect derivation of local private key: "+
@@ -1193,7 +1194,7 @@ func TestSpecificationKeyDerivation(t *testing.T) {
 
 	// name: derivation of revocation key from basepoint and per_commitment_point
 	const expectedRevocationKeyHex = "02916e326636d19c33f13e8c0c3a03dd157f332f3e99c317c141dd865eb01f8ff0"
-	actualRevocationKey := DeriveRevocationPubkey(basePoint, perCommitmentPoint)
+	actualRevocationKey := input.DeriveRevocationPubkey(basePoint, perCommitmentPoint)
 	actualRevocationKeyHex := pubkeyToHex(actualRevocationKey)
 	if actualRevocationKeyHex != expectedRevocationKeyHex {
 		t.Errorf("Incorrect derivation of revocation public key: "+
@@ -1203,7 +1204,7 @@ func TestSpecificationKeyDerivation(t *testing.T) {
 
 	// name: derivation of revocation secret from basepoint_secret and per_commitment_secret
 	const expectedRevocationPrivKeyHex = "d09ffff62ddb2297ab000cc85bcb4283fdeb6aa052affbc9dddcf33b61078110"
-	actualRevocationPrivKey := DeriveRevocationPrivKey(baseSecret,
+	actualRevocationPrivKey := input.DeriveRevocationPrivKey(baseSecret,
 		perCommitmentSecret)
 	actualRevocationPrivKeyHex := privkeyToHex(actualRevocationPrivKey)
 	if actualRevocationPrivKeyHex != expectedRevocationPrivKeyHex {

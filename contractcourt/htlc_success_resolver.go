@@ -3,6 +3,7 @@ package contractcourt
 import (
 	"encoding/binary"
 	"fmt"
+	"github.com/lightningnetwork/lnd/input"
 	"io"
 
 	"github.com/btcsuite/btcd/wire"
@@ -97,7 +98,7 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 			// need to create an input which contains all the items
 			// required to add this input to a sweeping transaction,
 			// and generate a witness.
-			input := sweep.MakeHtlcSucceedInput(
+			inp := input.MakeHtlcSucceedInput(
 				&h.htlcResolution.ClaimOutpoint,
 				&h.htlcResolution.SweepSignDesc,
 				h.htlcResolution.Preimage[:],
@@ -115,7 +116,7 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 			// TODO: Use time-based sweeper and result chan.
 			var err error
 			h.sweepTx, err = h.Sweeper.CreateSweepTx(
-				[]sweep.Input{&input},
+				[]input.Input{&inp},
 				sweep.FeePreference{
 					ConfTarget: sweepConfTarget,
 				}, 0,

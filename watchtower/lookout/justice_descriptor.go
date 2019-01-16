@@ -8,7 +8,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
-	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/watchtower/blob"
 	"github.com/lightningnetwork/lnd/watchtower/wtdb"
 )
@@ -60,7 +60,7 @@ func (p *JusticeDescriptor) commitToLocalInput() (*breachedInput, error) {
 
 	// Compute the witness script hash, which will be used to locate the
 	// input on the breaching commitment transaction.
-	toLocalWitnessHash, err := lnwallet.WitnessScriptHash(toLocalScript)
+	toLocalWitnessHash, err := input.WitnessScriptHash(toLocalScript)
 	if err != nil {
 		return nil, err
 	}
@@ -112,7 +112,7 @@ func (p *JusticeDescriptor) commitToRemoteInput() (*breachedInput, error) {
 
 	// Compute the witness script hash from the to-remote pubkey, which will
 	// be used to locate the input on the breach commitment transaction.
-	toRemoteScriptHash, err := lnwallet.CommitScriptUnencumbered(
+	toRemoteScriptHash, err := input.CommitScriptUnencumbered(
 		toRemotePubKey,
 	)
 	if err != nil {
@@ -226,7 +226,7 @@ func (p *JusticeDescriptor) assembleJusticeTxn(txWeight int64,
 func (p *JusticeDescriptor) CreateJusticeTxn() (*wire.MsgTx, error) {
 	var (
 		sweepInputs    = make([]*breachedInput, 0, 2)
-		weightEstimate lnwallet.TxWeightEstimator
+		weightEstimate input.TxWeightEstimator
 	)
 
 	// Add our reward address to the weight estimate.
@@ -235,10 +235,10 @@ func (p *JusticeDescriptor) CreateJusticeTxn() (*wire.MsgTx, error) {
 	// Add the sweep address's contribution, depending on whether it is a
 	// p2wkh or p2wsh output.
 	switch len(p.JusticeKit.SweepAddress) {
-	case lnwallet.P2WPKHSize:
+	case input.P2WPKHSize:
 		weightEstimate.AddP2WKHOutput()
 
-	case lnwallet.P2WSHSize:
+	case input.P2WSHSize:
 		weightEstimate.AddP2WSHOutput()
 
 	default:
@@ -251,7 +251,7 @@ func (p *JusticeDescriptor) CreateJusticeTxn() (*wire.MsgTx, error) {
 	if err != nil {
 		return nil, err
 	}
-	weightEstimate.AddWitnessInput(lnwallet.ToLocalPenaltyWitnessSize)
+	weightEstimate.AddWitnessInput(input.ToLocalPenaltyWitnessSize)
 	sweepInputs = append(sweepInputs, toLocalInput)
 
 	// If the justice kit specifies that we have to sweep the to-remote
@@ -262,7 +262,7 @@ func (p *JusticeDescriptor) CreateJusticeTxn() (*wire.MsgTx, error) {
 		if err != nil {
 			return nil, err
 		}
-		weightEstimate.AddWitnessInput(lnwallet.P2WKHWitnessSize)
+		weightEstimate.AddWitnessInput(input.P2WKHWitnessSize)
 		sweepInputs = append(sweepInputs, toRemoteInput)
 	}
 
@@ -281,7 +281,7 @@ func (p *JusticeDescriptor) CreateJusticeTxn() (*wire.MsgTx, error) {
 func findTxOutByPkScript(txn *wire.MsgTx,
 	pkScript []byte) (uint32, *wire.TxOut, error) {
 
-	found, index := lnwallet.FindScriptOutputIndex(txn, pkScript)
+	found, index := input.FindScriptOutputIndex(txn, pkScript)
 	if !found {
 		return 0, nil, ErrOutputNotFound
 	}

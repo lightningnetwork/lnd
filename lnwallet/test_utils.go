@@ -19,6 +19,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
@@ -143,7 +144,7 @@ func CreateTestChannels() (*LightningChannel, *LightningChannel, func(), error) 
 			MaxPendingAmount: lnwire.NewMSatFromSatoshis(channelCapacity),
 			ChanReserve:      channelCapacity / 100,
 			MinHTLC:          0,
-			MaxAcceptedHtlcs: MaxHTLCNumber / 2,
+			MaxAcceptedHtlcs: input.MaxHTLCNumber / 2,
 			CsvDelay:         uint16(csvTimeoutAlice),
 		},
 		MultiSigKey: keychain.KeyDescriptor{
@@ -168,7 +169,7 @@ func CreateTestChannels() (*LightningChannel, *LightningChannel, func(), error) 
 			MaxPendingAmount: lnwire.NewMSatFromSatoshis(channelCapacity),
 			ChanReserve:      channelCapacity / 100,
 			MinHTLC:          0,
-			MaxAcceptedHtlcs: MaxHTLCNumber / 2,
+			MaxAcceptedHtlcs: input.MaxHTLCNumber / 2,
 			CsvDelay:         uint16(csvTimeoutBob),
 		},
 		MultiSigKey: keychain.KeyDescriptor{
@@ -197,7 +198,7 @@ func CreateTestChannels() (*LightningChannel, *LightningChannel, func(), error) 
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	bobCommitPoint := ComputeCommitmentPoint(bobFirstRevoke[:])
+	bobCommitPoint := input.ComputeCommitmentPoint(bobFirstRevoke[:])
 
 	aliceRoot, err := chainhash.NewHash(aliceKeys[0].Serialize())
 	if err != nil {
@@ -208,7 +209,7 @@ func CreateTestChannels() (*LightningChannel, *LightningChannel, func(), error) 
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	aliceCommitPoint := ComputeCommitmentPoint(aliceFirstRevoke[:])
+	aliceCommitPoint := input.ComputeCommitmentPoint(aliceFirstRevoke[:])
 
 	aliceCommitTx, bobCommitTx, err := CreateCommitmentTxns(channelBal,
 		channelBal, &aliceCfg, &bobCfg, aliceCommitPoint, bobCommitPoint,
@@ -328,13 +329,13 @@ func CreateTestChannels() (*LightningChannel, *LightningChannel, func(), error) 
 	}
 	bobPool.Start()
 
-	err = SetStateNumHint(
+	err = input.SetStateNumHint(
 		aliceCommitTx, 0, channelAlice.stateHintObfuscator,
 	)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	err = SetStateNumHint(
+	err = input.SetStateNumHint(
 		bobCommitTx, 0, channelAlice.stateHintObfuscator,
 	)
 	if err != nil {
@@ -397,13 +398,13 @@ type mockSigner struct {
 	netParams *chaincfg.Params
 }
 
-func (m *mockSigner) SignOutputRaw(tx *wire.MsgTx, signDesc *SignDescriptor) ([]byte, error) {
+func (m *mockSigner) SignOutputRaw(tx *wire.MsgTx, signDesc *input.SignDescriptor) ([]byte, error) {
 	pubkey := signDesc.KeyDesc.PubKey
 	switch {
 	case signDesc.SingleTweak != nil:
-		pubkey = TweakPubKeyWithTweak(pubkey, signDesc.SingleTweak)
+		pubkey = input.TweakPubKeyWithTweak(pubkey, signDesc.SingleTweak)
 	case signDesc.DoubleTweak != nil:
-		pubkey = DeriveRevocationPubkey(pubkey, signDesc.DoubleTweak.PubKey())
+		pubkey = input.DeriveRevocationPubkey(pubkey, signDesc.DoubleTweak.PubKey())
 	}
 
 	hash160 := btcutil.Hash160(pubkey.SerializeCompressed())
@@ -422,7 +423,7 @@ func (m *mockSigner) SignOutputRaw(tx *wire.MsgTx, signDesc *SignDescriptor) ([]
 	return sig[:len(sig)-1], nil
 }
 
-func (m *mockSigner) ComputeInputScript(tx *wire.MsgTx, signDesc *SignDescriptor) (*InputScript, error) {
+func (m *mockSigner) ComputeInputScript(tx *wire.MsgTx, signDesc *input.SignDescriptor) (*input.Script, error) {
 	scriptType, addresses, _, err := txscript.ExtractPkScriptAddrs(
 		signDesc.Output.PkScript, m.netParams)
 	if err != nil {
@@ -446,7 +447,7 @@ func (m *mockSigner) ComputeInputScript(tx *wire.MsgTx, signDesc *SignDescriptor
 			return nil, err
 		}
 
-		return &InputScript{SigScript: sigScript}, nil
+		return &input.Script{SigScript: sigScript}, nil
 
 	case txscript.WitnessV0PubKeyHashTy:
 		privKey := m.findKey(addresses[0].ScriptAddress(), signDesc.SingleTweak,
@@ -463,7 +464,7 @@ func (m *mockSigner) ComputeInputScript(tx *wire.MsgTx, signDesc *SignDescriptor
 			return nil, err
 		}
 
-		return &InputScript{Witness: witnessScript}, nil
+		return &input.Script{Witness: witnessScript}, nil
 
 	default:
 		return nil, fmt.Errorf("Unexpected script type: %v", scriptType)
@@ -487,9 +488,9 @@ func (m *mockSigner) findKey(needleHash160 []byte, singleTweak []byte,
 		// Otherwise check if public key is derived from tweaked private key.
 		switch {
 		case singleTweak != nil:
-			privkey = TweakPrivKey(privkey, singleTweak)
+			privkey = input.TweakPrivKey(privkey, singleTweak)
 		case doubleTweak != nil:
-			privkey = DeriveRevocationPrivKey(privkey, doubleTweak)
+			privkey = input.DeriveRevocationPrivKey(privkey, doubleTweak)
 		default:
 			continue
 		}

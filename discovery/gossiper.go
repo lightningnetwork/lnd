@@ -1324,7 +1324,7 @@ func (d *AuthenticatedGossiper) retransmitStaleChannels() error {
 		// If this edge has a ChannelUpdate that was created before the
 		// introduction of the MaxHTLC field, then we'll update this
 		// edge to propagate this information in the network.
-		if edge.MessageFlags&lnwire.ChanUpdateOptionMaxHtlc == 0 {
+		if !edge.MessageFlags.HasMaxHtlc() {
 			edgesToUpdate = append(edgesToUpdate, updateTuple{
 				info: info,
 				edge: edge,
@@ -2520,7 +2520,7 @@ func (d *AuthenticatedGossiper) updateChannel(info *channeldb.ChannelEdgeInfo,
 
 	// We'll make sure we support the new max_htlc field if not already
 	// present.
-	if edge.MessageFlags&lnwire.ChanUpdateOptionMaxHtlc == 0 {
+	if !edge.MessageFlags.HasMaxHtlc() {
 		edge.MessageFlags |= lnwire.ChanUpdateOptionMaxHtlc
 		edge.MaxHTLC = lnwire.NewMSatFromSatoshis(info.Capacity)
 	}

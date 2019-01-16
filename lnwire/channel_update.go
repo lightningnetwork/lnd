@@ -24,6 +24,12 @@ func (c ChanUpdateMsgFlags) String() string {
 	return fmt.Sprintf("%08b", c)
 }
 
+// HasMaxHtlc returns true if the htlc_maximum_msat option bit is set in the
+// message flags.
+func (c ChanUpdateMsgFlags) HasMaxHtlc() bool {
+	return c&ChanUpdateOptionMaxHtlc != 0
+}
+
 // ChanUpdateChanFlags is a bitfield that signals various options concerning a
 // particular channel edge. Each bit is to be examined in order to determine
 // how the ChannelUpdate message is to be interpreted.
@@ -139,7 +145,7 @@ func (a *ChannelUpdate) Decode(r io.Reader, pver uint32) error {
 	}
 
 	// Now check whether the max HTLC field is present and read it if so.
-	if a.MessageFlags&ChanUpdateOptionMaxHtlc != 0 {
+	if a.MessageFlags.HasMaxHtlc() {
 		if err := ReadElements(r, &a.HtlcMaximumMsat); err != nil {
 			return err
 		}
@@ -183,7 +189,7 @@ func (a *ChannelUpdate) Encode(w io.Writer, pver uint32) error {
 
 	// Now append optional fields if they are set. Currently, the only
 	// optional field is max HTLC.
-	if a.MessageFlags&ChanUpdateOptionMaxHtlc != 0 {
+	if a.MessageFlags.HasMaxHtlc() {
 		if err := WriteElements(w, a.HtlcMaximumMsat); err != nil {
 			return err
 		}
@@ -232,7 +238,7 @@ func (a *ChannelUpdate) DataToSign() ([]byte, error) {
 
 	// Now append optional fields if they are set. Currently, the only
 	// optional field is max HTLC.
-	if a.MessageFlags&ChanUpdateOptionMaxHtlc != 0 {
+	if a.MessageFlags.HasMaxHtlc() {
 		if err := WriteElements(&w, a.HtlcMaximumMsat); err != nil {
 			return nil, err
 		}

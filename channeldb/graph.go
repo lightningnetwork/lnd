@@ -3372,7 +3372,7 @@ func serializeChanEdgePolicy(w io.Writer, edge *ChannelEdgePolicy,
 	// of the opaque data.
 	// TODO(halseth): clean up when moving to TLV.
 	var opaqueBuf bytes.Buffer
-	if edge.MessageFlags&lnwire.ChanUpdateOptionMaxHtlc != 0 {
+	if edge.MessageFlags.HasMaxHtlc() {
 		err := binary.Write(&opaqueBuf, byteOrder, uint64(edge.MaxHTLC))
 		if err != nil {
 			return err
@@ -3465,7 +3465,7 @@ func deserializeChanEdgePolicy(r io.Reader,
 	}
 
 	// See if optional fields are present.
-	if edge.MessageFlags&lnwire.ChanUpdateOptionMaxHtlc != 0 {
+	if edge.MessageFlags.HasMaxHtlc() {
 		// The max_htlc field should be at the beginning of the opaque
 		// bytes.
 		opq := edge.ExtraOpaqueData

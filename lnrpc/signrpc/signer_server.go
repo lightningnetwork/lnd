@@ -386,7 +386,7 @@ func (s *Server) ComputeInputScript(ctx context.Context,
 
 		resp.InputScripts[i] = &InputScript{
 			Witness:   inputScript.Witness,
-			SigScript: inputScript.ScriptSig,
+			SigScript: inputScript.SigScript,
 		}
 	}
 

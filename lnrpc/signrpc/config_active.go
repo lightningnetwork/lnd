@@ -3,7 +3,7 @@
 package signrpc
 
 import (
-	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/macaroons"
 )
 
@@ -29,5 +29,5 @@ type Config struct {
 	// Signer is the signer instance that backs the signer RPC server. The
 	// job of the signer RPC server is simply to proxy valid requests to
 	// the active signer instance.
-	Signer lnwallet.Signer
+	Signer input.Signer
 }

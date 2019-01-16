@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
@@ -542,7 +543,7 @@ func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
 	// our commitment transaction got confirmed.
 	outgoingRes := lnwallet.OutgoingHtlcResolution{
 		Expiry: 10,
-		SweepSignDesc: lnwallet.SignDescriptor{
+		SweepSignDesc: input.SignDescriptor{
 			Output: &wire.TxOut{},
 		},
 		SignedTimeoutTx: &wire.MsgTx{

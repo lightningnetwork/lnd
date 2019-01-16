@@ -12,7 +12,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/txscript"
-	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -163,7 +163,7 @@ func (b *JusticeKit) CommitToLocalWitnessScript() ([]byte, error) {
 		return nil, err
 	}
 
-	return lnwallet.CommitScriptToSelf(
+	return input.CommitScriptToSelf(
 		b.CSVDelay, localDelayedPubKey, revocationPubKey,
 	)
 }

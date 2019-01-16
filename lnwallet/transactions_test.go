@@ -15,6 +15,7 @@ import (
 	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
@@ -380,7 +381,7 @@ func TestCommitmentAndHTLCTransactions(t *testing.T) {
 			ChannelConstraints: channeldb.ChannelConstraints{
 				DustLimit:        tc.dustLimit,
 				MaxPendingAmount: lnwire.NewMSatFromSatoshis(tc.fundingAmount),
-				MaxAcceptedHtlcs: MaxHTLCNumber,
+				MaxAcceptedHtlcs: input.MaxHTLCNumber,
 				CsvDelay:         tc.localCsvDelay,
 			},
 			MultiSigKey: keychain.KeyDescriptor{
@@ -410,11 +411,11 @@ func TestCommitmentAndHTLCTransactions(t *testing.T) {
 		Capacity:           tc.fundingAmount,
 		RevocationProducer: shachain.NewRevocationProducer(zeroHash),
 	}
-	signer := &mockSigner{
-		privkeys: []*btcec.PrivateKey{
+	signer := &input.MockSigner{
+		Privkeys: []*btcec.PrivateKey{
 			tc.localFundingPrivKey, tc.localPaymentPrivKey,
 		},
-		netParams: tc.netParams,
+		NetParams: tc.netParams,
 	}
 
 	// Construct a LightningChannel manually because we don't have nor need all
@@ -433,7 +434,7 @@ func TestCommitmentAndHTLCTransactions(t *testing.T) {
 
 	// The commitmentPoint is technically hidden in the spec, but we need it to
 	// generate the correct tweak.
-	tweak := SingleTweakBytes(tc.commitmentPoint, tc.localPaymentBasePoint)
+	tweak := input.SingleTweakBytes(tc.commitmentPoint, tc.localPaymentBasePoint)
 	keys := &CommitmentKeyRing{
 		CommitPoint:         tc.commitmentPoint,
 		LocalCommitKeyTweak: tweak,
@@ -1043,16 +1044,16 @@ func TestCommitmentSpendValidation(t *testing.T) {
 	revocationPreimage := testHdSeed.CloneBytes()
 	commitSecret, commitPoint := btcec.PrivKeyFromBytes(btcec.S256(),
 		revocationPreimage)
-	revokePubKey := DeriveRevocationPubkey(bobKeyPub, commitPoint)
+	revokePubKey := input.DeriveRevocationPubkey(bobKeyPub, commitPoint)
 
-	aliceDelayKey := TweakPubKey(aliceKeyPub, commitPoint)
-	bobPayKey := TweakPubKey(bobKeyPub, commitPoint)
+	aliceDelayKey := input.TweakPubKey(aliceKeyPub, commitPoint)
+	bobPayKey := input.TweakPubKey(bobKeyPub, commitPoint)
 
-	aliceCommitTweak := SingleTweakBytes(commitPoint, aliceKeyPub)
-	bobCommitTweak := SingleTweakBytes(commitPoint, bobKeyPub)
+	aliceCommitTweak := input.SingleTweakBytes(commitPoint, aliceKeyPub)
+	bobCommitTweak := input.SingleTweakBytes(commitPoint, bobKeyPub)
 
-	aliceSelfOutputSigner := &mockSigner{
-		privkeys: []*btcec.PrivateKey{aliceKeyPriv},
+	aliceSelfOutputSigner := &input.MockSigner{
+		Privkeys: []*btcec.PrivateKey{aliceKeyPriv},
 	}
 
 	// With all the test data set up, we create the commitment transaction.
@@ -1078,7 +1079,7 @@ func TestCommitmentSpendValidation(t *testing.T) {
 
 	// We're testing an uncooperative close, output sweep, so construct a
 	// transaction which sweeps the funds to a random address.
-	targetOutput, err := CommitScriptUnencumbered(aliceKeyPub)
+	targetOutput, err := input.CommitScriptUnencumbered(aliceKeyPub)
 	if err != nil {
 		t.Fatalf("unable to create target output: %v", err)
 	}
@@ -1093,13 +1094,13 @@ func TestCommitmentSpendValidation(t *testing.T) {
 	})
 
 	// First, we'll test spending with Alice's key after the timeout.
-	delayScript, err := CommitScriptToSelf(csvTimeout, aliceDelayKey,
+	delayScript, err := input.CommitScriptToSelf(csvTimeout, aliceDelayKey,
 		revokePubKey)
 	if err != nil {
 		t.Fatalf("unable to generate alice delay script: %v", err)
 	}
-	sweepTx.TxIn[0].Sequence = lockTimeToSequence(false, csvTimeout)
-	signDesc := &SignDescriptor{
+	sweepTx.TxIn[0].Sequence = input.LockTimeToSequence(false, csvTimeout)
+	signDesc := &input.SignDescriptor{
 		WitnessScript: delayScript,
 		KeyDesc: keychain.KeyDescriptor{
 			PubKey: aliceKeyPub,
@@ -1112,7 +1113,7 @@ func TestCommitmentSpendValidation(t *testing.T) {
 		HashType:   txscript.SigHashAll,
 		InputIndex: 0,
 	}
-	aliceWitnessSpend, err := CommitSpendTimeout(aliceSelfOutputSigner,
+	aliceWitnessSpend, err := input.CommitSpendTimeout(aliceSelfOutputSigner,
 		signDesc, sweepTx)
 	if err != nil {
 		t.Fatalf("unable to generate delay commit spend witness: %v", err)
@@ -1128,12 +1129,12 @@ func TestCommitmentSpendValidation(t *testing.T) {
 		t.Fatalf("spend from delay output is invalid: %v", err)
 	}
 
-	bobSigner := &mockSigner{privkeys: []*btcec.PrivateKey{bobKeyPriv}}
+	bobSigner := &input.MockSigner{Privkeys: []*btcec.PrivateKey{bobKeyPriv}}
 
 	// Next, we'll test bob spending with the derived revocation key to
 	// simulate the scenario when Alice broadcasts this commitment
 	// transaction after it's been revoked.
-	signDesc = &SignDescriptor{
+	signDesc = &input.SignDescriptor{
 		KeyDesc: keychain.KeyDescriptor{
 			PubKey: bobKeyPub,
 		},
@@ -1146,7 +1147,7 @@ func TestCommitmentSpendValidation(t *testing.T) {
 		HashType:   txscript.SigHashAll,
 		InputIndex: 0,
 	}
-	bobWitnessSpend, err := CommitSpendRevoke(bobSigner, signDesc,
+	bobWitnessSpend, err := input.CommitSpendRevoke(bobSigner, signDesc,
 		sweepTx)
 	if err != nil {
 		t.Fatalf("unable to generate revocation witness: %v", err)
@@ -1174,11 +1175,11 @@ func TestCommitmentSpendValidation(t *testing.T) {
 
 	// Finally, we test bob sweeping his output as normal in the case that
 	// Alice broadcasts this commitment transaction.
-	bobScriptP2WKH, err := CommitScriptUnencumbered(bobPayKey)
+	bobScriptP2WKH, err := input.CommitScriptUnencumbered(bobPayKey)
 	if err != nil {
 		t.Fatalf("unable to create bob p2wkh script: %v", err)
 	}
-	signDesc = &SignDescriptor{
+	signDesc = &input.SignDescriptor{
 		KeyDesc: keychain.KeyDescriptor{
 			PubKey: bobKeyPub,
 		},
@@ -1192,7 +1193,7 @@ func TestCommitmentSpendValidation(t *testing.T) {
 		HashType:   txscript.SigHashAll,
 		InputIndex: 0,
 	}
-	bobRegularSpend, err := CommitSpendNoDelay(bobSigner, signDesc,
+	bobRegularSpend, err := input.CommitSpendNoDelay(bobSigner, signDesc,
 		sweepTx)
 	if err != nil {
 		t.Fatalf("unable to create bob regular spend: %v", err)

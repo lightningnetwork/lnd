@@ -5,8 +5,6 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/sweep"
 	"io/ioutil"
 	"math"
 	"os"
@@ -21,7 +19,10 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
+	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/sweep"
 )
 
 var (
@@ -108,7 +109,7 @@ var (
 		},
 	}
 
-	signDescriptors = []lnwallet.SignDescriptor{
+	signDescriptors = []input.SignDescriptor{
 		{
 			SingleTweak: []byte{
 				0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02,
@@ -206,7 +207,7 @@ var (
 			breachedOutput: breachedOutput{
 				amt:         btcutil.Amount(13e7),
 				outpoint:    outPoints[1],
-				witnessType: lnwallet.CommitmentTimeLock,
+				witnessType: input.CommitmentTimeLock,
 				confHeight:  uint32(1000),
 			},
 			originChanPoint:  outPoints[0],
@@ -217,7 +218,7 @@ var (
 			breachedOutput: breachedOutput{
 				amt:         btcutil.Amount(24e7),
 				outpoint:    outPoints[2],
-				witnessType: lnwallet.CommitmentTimeLock,
+				witnessType: input.CommitmentTimeLock,
 				confHeight:  uint32(1000),
 			},
 			originChanPoint:  outPoints[0],
@@ -228,7 +229,7 @@ var (
 			breachedOutput: breachedOutput{
 				amt:         btcutil.Amount(2e5),
 				outpoint:    outPoints[3],
-				witnessType: lnwallet.CommitmentTimeLock,
+				witnessType: input.CommitmentTimeLock,
 				confHeight:  uint32(500),
 			},
 			originChanPoint:  outPoints[0],
@@ -239,7 +240,7 @@ var (
 			breachedOutput: breachedOutput{
 				amt:         btcutil.Amount(10e6),
 				outpoint:    outPoints[4],
-				witnessType: lnwallet.CommitmentTimeLock,
+				witnessType: input.CommitmentTimeLock,
 				confHeight:  uint32(500),
 			},
 			originChanPoint:  outPoints[0],
@@ -597,7 +598,7 @@ func createOutgoingRes(onLocalCommitment bool) *lnwallet.OutgoingHtlcResolution 
 
 	outgoingRes := lnwallet.OutgoingHtlcResolution{
 		Expiry: 125,
-		SweepSignDesc: lnwallet.SignDescriptor{
+		SweepSignDesc: input.SignDescriptor{
 			Output: &wire.TxOut{
 				Value: 10000,
 			},
@@ -630,7 +631,7 @@ func createCommitmentRes() *lnwallet.CommitOutputResolution {
 	// Set up a commitment output resolution to hand off to nursery.
 	commitRes := lnwallet.CommitOutputResolution{
 		SelfOutPoint: wire.OutPoint{},
-		SelfOutputSignDesc: lnwallet.SignDescriptor{
+		SelfOutputSignDesc: input.SignDescriptor{
 			Output: &wire.TxOut{
 				Value: 10000,
 			},
@@ -1027,15 +1028,15 @@ type nurseryMockSigner struct {
 }
 
 func (m *nurseryMockSigner) SignOutputRaw(tx *wire.MsgTx,
-	signDesc *lnwallet.SignDescriptor) ([]byte, error) {
+	signDesc *input.SignDescriptor) ([]byte, error) {
 
 	return []byte{}, nil
 }
 
 func (m *nurseryMockSigner) ComputeInputScript(tx *wire.MsgTx,
-	signDesc *lnwallet.SignDescriptor) (*lnwallet.InputScript, error) {
+	signDesc *input.SignDescriptor) (*input.Script, error) {
 
-	return &lnwallet.InputScript{}, nil
+	return &input.Script{}, nil
 }
 
 type mockSweeper struct {
@@ -1044,18 +1045,18 @@ type mockSweeper struct {
 	resultChans map[wire.OutPoint]chan sweep.Result
 	t           *testing.T
 
-	sweepChan chan sweep.Input
+	sweepChan chan input.Input
 }
 
 func newMockSweeper(t *testing.T) *mockSweeper {
 	return &mockSweeper{
 		resultChans: make(map[wire.OutPoint]chan sweep.Result),
-		sweepChan:   make(chan sweep.Input, 1),
+		sweepChan:   make(chan input.Input, 1),
 		t:           t,
 	}
 }
 
-func (s *mockSweeper) sweepInput(input sweep.Input) (chan sweep.Result, error) {
+func (s *mockSweeper) sweepInput(input input.Input) (chan sweep.Result, error) {
 	utxnLog.Debugf("mockSweeper sweepInput called for %v", *input.OutPoint())
 
 	select {

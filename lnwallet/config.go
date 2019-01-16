@@ -4,6 +4,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
@@ -37,7 +38,7 @@ type Config struct {
 	// used to generate signature for all inputs to potential funding
 	// transactions, as well as for spends from the funding transaction to
 	// update the commitment state.
-	Signer Signer
+	Signer input.Signer
 
 	// FeeEstimator is the implementation that the wallet will use for the
 	// calculation of on-chain transaction fees.

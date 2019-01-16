@@ -13,8 +13,8 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
-	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/watchtower/blob"
 	"github.com/lightningnetwork/lnd/watchtower/lookout"
@@ -59,7 +59,7 @@ func newMockSigner() *mockSigner {
 }
 
 func (s *mockSigner) SignOutputRaw(tx *wire.MsgTx,
-	signDesc *lnwallet.SignDescriptor) ([]byte, error) {
+	signDesc *input.SignDescriptor) ([]byte, error) {
 
 	witnessScript := signDesc.WitnessScript
 	amt := signDesc.Output.Value
@@ -81,7 +81,7 @@ func (s *mockSigner) SignOutputRaw(tx *wire.MsgTx,
 }
 
 func (s *mockSigner) ComputeInputScript(tx *wire.MsgTx,
-	signDesc *lnwallet.SignDescriptor) (*lnwallet.InputScript, error) {
+	signDesc *input.SignDescriptor) (*input.Script, error) {
 	return nil, nil
 }
 
@@ -122,7 +122,7 @@ func TestJusticeDescriptor(t *testing.T) {
 	)
 
 	// Construct the to-local witness script.
-	toLocalScript, err := lnwallet.CommitScriptToSelf(
+	toLocalScript, err := input.CommitScriptToSelf(
 		csvDelay, toLocalPK, revPK,
 	)
 	if err != nil {
@@ -130,13 +130,13 @@ func TestJusticeDescriptor(t *testing.T) {
 	}
 
 	// Compute the to-local witness script hash.
-	toLocalScriptHash, err := lnwallet.WitnessScriptHash(toLocalScript)
+	toLocalScriptHash, err := input.WitnessScriptHash(toLocalScript)
 	if err != nil {
 		t.Fatalf("unable to create to-local witness script hash: %v", err)
 	}
 
 	// Compute the to-remote witness script hash.
-	toRemoteScriptHash, err := lnwallet.CommitScriptUnencumbered(toRemotePK)
+	toRemoteScriptHash, err := input.CommitScriptUnencumbered(toRemotePK)
 	if err != nil {
 		t.Fatalf("unable to create to-remote script: %v", err)
 	}
@@ -160,11 +160,11 @@ func TestJusticeDescriptor(t *testing.T) {
 	breachTxID := breachTxn.TxHash()
 
 	// Compute the weight estimate for our justice transaction.
-	var weightEstimate lnwallet.TxWeightEstimator
+	var weightEstimate input.TxWeightEstimator
 	weightEstimate.AddP2WKHOutput()
 	weightEstimate.AddP2WKHOutput()
-	weightEstimate.AddWitnessInput(lnwallet.ToLocalPenaltyWitnessSize)
-	weightEstimate.AddWitnessInput(lnwallet.P2WKHWitnessSize)
+	weightEstimate.AddWitnessInput(input.ToLocalPenaltyWitnessSize)
+	weightEstimate.AddWitnessInput(input.P2WKHWitnessSize)
 	txWeight := weightEstimate.Weight()
 
 	// Create a session info so that simulate agreement of the sweep
@@ -235,7 +235,7 @@ func TestJusticeDescriptor(t *testing.T) {
 	hashCache := txscript.NewTxSigHashes(justiceTxn)
 
 	// Create the sign descriptor used to sign for the to-local input.
-	toLocalSignDesc := &lnwallet.SignDescriptor{
+	toLocalSignDesc := &input.SignDescriptor{
 		KeyDesc: keychain.KeyDescriptor{
 			KeyLocator: revKeyLoc,
 		},
@@ -247,7 +247,7 @@ func TestJusticeDescriptor(t *testing.T) {
 	}
 
 	// Create the sign descriptor used to sign for the to-remote input.
-	toRemoteSignDesc := &lnwallet.SignDescriptor{
+	toRemoteSignDesc := &input.SignDescriptor{
 		KeyDesc: keychain.KeyDescriptor{
 			KeyLocator: toRemoteKeyLoc,
 			PubKey:     toRemotePK,
@@ -274,7 +274,7 @@ func TestJusticeDescriptor(t *testing.T) {
 	// Compute the witness for the to-remote input. The first element is a
 	// DER-encoded signature under the to-remote pubkey. The sighash flag is
 	// also present, so we trim it.
-	toRemoteWitness, err := lnwallet.CommitSpendNoDelay(
+	toRemoteWitness, err := input.CommitSpendNoDelay(
 		signer, toRemoteSignDesc, justiceTxn,
 	)
 	if err != nil {

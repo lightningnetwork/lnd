@@ -7,6 +7,7 @@ import (
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
+	"github.com/lightningnetwork/lnd/input"
 )
 
 const (
@@ -60,12 +61,12 @@ func createHtlcSuccessTx(htlcOutput wire.OutPoint, htlcAmt btcutil.Amount,
 	// Next, we'll generate the script used as the output for all second
 	// level HTLC which forces a covenant w.r.t what can be done with all
 	// HTLC outputs.
-	witnessScript, err := secondLevelHtlcScript(revocationKey, delayKey,
+	witnessScript, err := input.SecondLevelHtlcScript(revocationKey, delayKey,
 		csvDelay)
 	if err != nil {
 		return nil, err
 	}
-	pkScript, err := WitnessScriptHash(witnessScript)
+	pkScript, err := input.WitnessScriptHash(witnessScript)
 	if err != nil {
 		return nil, err
 	}
@@ -115,12 +116,12 @@ func createHtlcTimeoutTx(htlcOutput wire.OutPoint, htlcAmt btcutil.Amount,
 	// Next, we'll generate the script used as the output for all second
 	// level HTLC which forces a covenant w.r.t what can be done with all
 	// HTLC outputs.
-	witnessScript, err := secondLevelHtlcScript(revocationKey, delayKey,
+	witnessScript, err := input.SecondLevelHtlcScript(revocationKey, delayKey,
 		csvDelay)
 	if err != nil {
 		return nil, err
 	}
-	pkScript, err := WitnessScriptHash(witnessScript)
+	pkScript, err := input.WitnessScriptHash(witnessScript)
 	if err != nil {
 		return nil, err
 	}

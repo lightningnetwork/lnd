@@ -1,4 +1,4 @@
-package lnwallet
+package input
 
 import (
 	"fmt"
@@ -125,7 +125,7 @@ func (wt WitnessType) String() string {
 // outputs. This function acts as an abstraction layer, hiding the details of
 // the underlying script.
 type WitnessGenerator func(tx *wire.MsgTx, hc *txscript.TxSigHashes,
-	inputIndex int) (*InputScript, error)
+	inputIndex int) (*Script, error)
 
 // GenWitnessFunc will return a WitnessGenerator function that an output uses
 // to generate the witness and optionally the sigScript for a sweep
@@ -135,7 +135,7 @@ func (wt WitnessType) GenWitnessFunc(signer Signer,
 	descriptor *SignDescriptor) WitnessGenerator {
 
 	return func(tx *wire.MsgTx, hc *txscript.TxSigHashes,
-		inputIndex int) (*InputScript, error) {
+		inputIndex int) (*Script, error) {
 
 		desc := descriptor
 		desc.SigHashes = hc
@@ -148,7 +148,7 @@ func (wt WitnessType) GenWitnessFunc(signer Signer,
 				return nil, err
 			}
 
-			return &InputScript{
+			return &Script{
 				Witness: witness,
 			}, nil
 
@@ -158,7 +158,7 @@ func (wt WitnessType) GenWitnessFunc(signer Signer,
 				return nil, err
 			}
 
-			return &InputScript{
+			return &Script{
 				Witness: witness,
 			}, nil
 
@@ -168,7 +168,7 @@ func (wt WitnessType) GenWitnessFunc(signer Signer,
 				return nil, err
 			}
 
-			return &InputScript{
+			return &Script{
 				Witness: witness,
 			}, nil
 
@@ -178,7 +178,7 @@ func (wt WitnessType) GenWitnessFunc(signer Signer,
 				return nil, err
 			}
 
-			return &InputScript{
+			return &Script{
 				Witness: witness,
 			}, nil
 
@@ -188,7 +188,7 @@ func (wt WitnessType) GenWitnessFunc(signer Signer,
 				return nil, err
 			}
 
-			return &InputScript{
+			return &Script{
 				Witness: witness,
 			}, nil
 
@@ -198,7 +198,7 @@ func (wt WitnessType) GenWitnessFunc(signer Signer,
 				return nil, err
 			}
 
-			return &InputScript{
+			return &Script{
 				Witness: witness,
 			}, nil
 
@@ -208,7 +208,7 @@ func (wt WitnessType) GenWitnessFunc(signer Signer,
 				return nil, err
 			}
 
-			return &InputScript{
+			return &Script{
 				Witness: witness,
 			}, nil
 
@@ -216,22 +216,22 @@ func (wt WitnessType) GenWitnessFunc(signer Signer,
 			// We pass in a value of -1 for the timeout, as we
 			// expect the caller to have already set the lock time
 			// value.
-			witness, err := receiverHtlcSpendTimeout(signer, desc, tx, -1)
+			witness, err := ReceiverHtlcSpendTimeout(signer, desc, tx, -1)
 			if err != nil {
 				return nil, err
 			}
 
-			return &InputScript{
+			return &Script{
 				Witness: witness,
 			}, nil
 
 		case HtlcSecondLevelRevoke:
-			witness, err := htlcSpendRevoke(signer, desc, tx)
+			witness, err := HtlcSpendRevoke(signer, desc, tx)
 			if err != nil {
 				return nil, err
 			}
 
-			return &InputScript{
+			return &Script{
 				Witness: witness,
 			}, nil
 

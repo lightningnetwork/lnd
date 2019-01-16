@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
 )
 
@@ -39,7 +40,7 @@ type pendingInput struct {
 
 	// input is the original struct that contains the input and sign
 	// descriptor.
-	input Input
+	input input.Input
 
 	// ntfnRegCancel is populated with a function that cancels the chain
 	// notifier spend registration.
@@ -111,7 +112,7 @@ type UtxoSweeperConfig struct {
 
 	// Signer is used by the sweeper to generate valid witnesses at the
 	// time the incubated outputs need to be spent.
-	Signer lnwallet.Signer
+	Signer input.Signer
 
 	// SweepTxConfTarget assigns a confirmation target for sweep txes on
 	// which the fee calculation will be based.
@@ -148,7 +149,7 @@ type Result struct {
 // sweepInputMessage structs are used in the internal channel between the
 // SweepInput call and the sweeper main loop.
 type sweepInputMessage struct {
-	input      Input
+	input      input.Input
 	resultChan chan Result
 }
 
@@ -256,7 +257,7 @@ func (s *UtxoSweeper) Stop() error {
 // NOTE: Extreme care needs to be taken that input isn't changed externally.
 // Because it is an interface and we don't know what is exactly behind it, we
 // cannot make a local copy in sweeper.
-func (s *UtxoSweeper) SweepInput(input Input) (chan Result, error) {
+func (s *UtxoSweeper) SweepInput(input input.Input) (chan Result, error) {
 	if input == nil || input.OutPoint() == nil || input.SignDesc() == nil {
 		return nil, errors.New("nil input received")
 	}
@@ -550,7 +551,7 @@ func (s *UtxoSweeper) getInputLists(currentHeight int32,
 	// contain inputs that failed before. Therefore we also add sets
 	// consisting of only new inputs to the list, to make sure that new
 	// inputs are given a good, isolated chance of being published.
-	var newInputs, retryInputs []Input
+	var newInputs, retryInputs []input.Input
 	for _, input := range s.pendingInputs {
 		// Skip inputs that have a minimum publish height that is not
 		// yet reached.
@@ -750,7 +751,7 @@ func (s *UtxoSweeper) waitForSpend(outpoint wire.OutPoint,
 // - Make handling re-orgs easier.
 // - Thwart future possible fee sniping attempts.
 // - Make us blend in with the bitcoind wallet.
-func (s *UtxoSweeper) CreateSweepTx(inputs []Input, feePref FeePreference,
+func (s *UtxoSweeper) CreateSweepTx(inputs []input.Input, feePref FeePreference,
 	currentBlockHeight uint32) (*wire.MsgTx, error) {
 
 	feePerKw, err := DetermineFeePerKw(s.cfg.FeeEstimator, feePref)

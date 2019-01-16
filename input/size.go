@@ -1,4 +1,4 @@
-package lnwallet
+package input
 
 import (
 	"github.com/btcsuite/btcd/blockchain"
@@ -359,10 +359,10 @@ const (
 	OfferedHtlcPenaltyWitnessSize = 1 + 1 + 73 + 1 + 33 + 1 + OfferedHtlcScriptSize
 )
 
-// estimateCommitTxWeight estimate commitment transaction weight depending on
+// EstimateCommitTxWeight estimate commitment transaction weight depending on
 // the precalculated weight of base transaction, witness data, which is needed
 // for paying for funding tx, and htlc weight multiplied by their count.
-func estimateCommitTxWeight(count int, prediction bool) int64 {
+func EstimateCommitTxWeight(count int, prediction bool) int64 {
 	// Make prediction about the size of commitment transaction with
 	// additional HTLC.
 	if prediction {

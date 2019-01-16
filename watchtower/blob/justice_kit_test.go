@@ -10,7 +10,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/txscript"
-	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/watchtower/blob"
 )
@@ -356,7 +356,7 @@ func TestJusticeKitToLocalWitnessConstruction(t *testing.T) {
 
 	// Compute the expected to-local script, which is a function of the CSV
 	// delay, revocation pubkey and delay pubkey.
-	expToLocalScript, err := lnwallet.CommitScriptToSelf(
+	expToLocalScript, err := input.CommitScriptToSelf(
 		csvDelay, delayPrivKey.PubKey(), revPrivKey.PubKey(),
 	)
 	if err != nil {

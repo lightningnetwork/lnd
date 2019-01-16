@@ -1,4 +1,4 @@
-package lnwallet
+package input
 
 import (
 	"bytes"
@@ -146,7 +146,7 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 	revocationKey := DeriveRevocationPubkey(bobKeyPub, commitPoint)
 
 	// Generate the raw HTLC redemption scripts, and its p2wsh counterpart.
-	htlcWitnessScript, err := senderHTLCScript(aliceLocalKey, bobLocalKey,
+	htlcWitnessScript, err := SenderHTLCScript(aliceLocalKey, bobLocalKey,
 		revocationKey, paymentHash[:])
 	if err != nil {
 		t.Fatalf("unable to create htlc sender script: %v", err)
@@ -188,8 +188,8 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 	// Finally, we'll create mock signers for both of them based on their
 	// private keys. This test simplifies a bit and uses the same key as
 	// the base point for all scripts and derivations.
-	bobSigner := &mockSigner{privkeys: []*btcec.PrivateKey{bobKeyPriv}}
-	aliceSigner := &mockSigner{privkeys: []*btcec.PrivateKey{aliceKeyPriv}}
+	bobSigner := &MockSigner{Privkeys: []*btcec.PrivateKey{bobKeyPriv}}
+	aliceSigner := &MockSigner{Privkeys: []*btcec.PrivateKey{aliceKeyPriv}}
 
 	// We'll also generate a signature on the sweep transaction above
 	// that will act as Bob's signature to Alice for the second level HTLC
@@ -230,7 +230,7 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 					InputIndex:    0,
 				}
 
-				return senderHtlcSpendRevoke(bobSigner, signDesc,
+				return SenderHtlcSpendRevokeWithKey(bobSigner, signDesc,
 					revocationKey, sweepTx)
 			}),
 			true,
@@ -295,7 +295,7 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 					InputIndex:    0,
 				}
 
-				return senderHtlcSpendTimeout(bobRecvrSig, aliceSigner,
+				return SenderHtlcSpendTimeout(bobRecvrSig, aliceSigner,
 					signDesc, sweepTx)
 			}),
 			true,
@@ -401,7 +401,7 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 	revocationKey := DeriveRevocationPubkey(aliceKeyPub, commitPoint)
 
 	// Generate the raw HTLC redemption scripts, and its p2wsh counterpart.
-	htlcWitnessScript, err := receiverHTLCScript(cltvTimeout, aliceLocalKey,
+	htlcWitnessScript, err := ReceiverHTLCScript(cltvTimeout, aliceLocalKey,
 		bobLocalKey, revocationKey, paymentHash[:])
 	if err != nil {
 		t.Fatalf("unable to create htlc sender script: %v", err)
@@ -446,8 +446,8 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 	// Finally, we'll create mock signers for both of them based on their
 	// private keys. This test simplifies a bit and uses the same key as
 	// the base point for all scripts and derivations.
-	bobSigner := &mockSigner{privkeys: []*btcec.PrivateKey{bobKeyPriv}}
-	aliceSigner := &mockSigner{privkeys: []*btcec.PrivateKey{aliceKeyPriv}}
+	bobSigner := &MockSigner{Privkeys: []*btcec.PrivateKey{bobKeyPriv}}
+	aliceSigner := &MockSigner{Privkeys: []*btcec.PrivateKey{aliceKeyPriv}}
 
 	// We'll also generate a signature on the sweep transaction above
 	// that will act as Alice's signature to Bob for the second level HTLC
@@ -488,7 +488,7 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 					InputIndex:    0,
 				}
 
-				return receiverHtlcSpendRedeem(aliceSenderSig,
+				return ReceiverHtlcSpendRedeem(aliceSenderSig,
 					bytes.Repeat([]byte{1}, 45), bobSigner,
 					signDesc, sweepTx)
 
@@ -510,7 +510,7 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 					InputIndex:    0,
 				}
 
-				return receiverHtlcSpendRedeem(aliceSenderSig,
+				return ReceiverHtlcSpendRedeem(aliceSenderSig,
 					paymentPreimage[:], bobSigner,
 					signDesc, sweepTx)
 			}),
@@ -531,7 +531,7 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 					InputIndex:    0,
 				}
 
-				return receiverHtlcSpendRevoke(aliceSigner,
+				return ReceiverHtlcSpendRevokeWithKey(aliceSigner,
 					signDesc, revocationKey, sweepTx)
 			}),
 			true,
@@ -551,7 +551,7 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 					InputIndex:    0,
 				}
 
-				return receiverHtlcSpendTimeout(aliceSigner, signDesc,
+				return ReceiverHtlcSpendTimeout(aliceSigner, signDesc,
 					sweepTx, int32(cltvTimeout-2))
 			}),
 			false,
@@ -571,7 +571,7 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 					InputIndex:    0,
 				}
 
-				return receiverHtlcSpendTimeout(aliceSigner, signDesc,
+				return ReceiverHtlcSpendTimeout(aliceSigner, signDesc,
 					sweepTx, int32(cltvTimeout))
 			}),
 			true,
@@ -674,7 +674,7 @@ func TestSecondLevelHtlcSpends(t *testing.T) {
 	// Finally we'll generate the HTLC script itself that we'll be spending
 	// from. The revocation clause can be claimed by Alice, while Bob can
 	// sweep the output after a particular delay.
-	htlcWitnessScript, err := secondLevelHtlcScript(revocationKey,
+	htlcWitnessScript, err := SecondLevelHtlcScript(revocationKey,
 		delayKey, claimDelay)
 	if err != nil {
 		t.Fatalf("unable to create htlc script: %v", err)
@@ -694,8 +694,8 @@ func TestSecondLevelHtlcSpends(t *testing.T) {
 	// Finally, we'll create mock signers for both of them based on their
 	// private keys. This test simplifies a bit and uses the same key as
 	// the base point for all scripts and derivations.
-	bobSigner := &mockSigner{privkeys: []*btcec.PrivateKey{bobKeyPriv}}
-	aliceSigner := &mockSigner{privkeys: []*btcec.PrivateKey{aliceKeyPriv}}
+	bobSigner := &MockSigner{Privkeys: []*btcec.PrivateKey{bobKeyPriv}}
+	aliceSigner := &MockSigner{Privkeys: []*btcec.PrivateKey{aliceKeyPriv}}
 
 	testCases := []struct {
 		witness func() wire.TxWitness
@@ -717,7 +717,7 @@ func TestSecondLevelHtlcSpends(t *testing.T) {
 					InputIndex:    0,
 				}
 
-				return htlcSpendRevoke(aliceSigner, signDesc,
+				return HtlcSpendRevoke(aliceSigner, signDesc,
 					sweepTx)
 			}),
 			false,
@@ -737,7 +737,7 @@ func TestSecondLevelHtlcSpends(t *testing.T) {
 					InputIndex:    0,
 				}
 
-				return htlcSpendRevoke(aliceSigner, signDesc,
+				return HtlcSpendRevoke(aliceSigner, signDesc,
 					sweepTx)
 			}),
 			true,
@@ -759,7 +759,7 @@ func TestSecondLevelHtlcSpends(t *testing.T) {
 					InputIndex:    0,
 				}
 
-				return htlcSpendSuccess(bobSigner, signDesc,
+				return HtlcSpendSuccess(bobSigner, signDesc,
 					sweepTx, claimDelay-3)
 			}),
 			false,
@@ -780,7 +780,7 @@ func TestSecondLevelHtlcSpends(t *testing.T) {
 					InputIndex:    0,
 				}
 
-				return htlcSpendSuccess(bobSigner, signDesc,
+				return HtlcSpendSuccess(bobSigner, signDesc,
 					sweepTx, claimDelay)
 			}),
 			false,
@@ -801,7 +801,7 @@ func TestSecondLevelHtlcSpends(t *testing.T) {
 					InputIndex:    0,
 				}
 
-				return htlcSpendSuccess(bobSigner, signDesc,
+				return HtlcSpendSuccess(bobSigner, signDesc,
 					sweepTx, claimDelay)
 			}),
 			true,

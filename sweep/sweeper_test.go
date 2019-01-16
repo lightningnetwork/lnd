@@ -12,8 +12,8 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/build"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
-	"github.com/lightningnetwork/lnd/lnwallet"
 )
 
 var (
@@ -38,7 +38,7 @@ type sweeperTestContext struct {
 }
 
 var (
-	spendableInputs []*BaseInput
+	spendableInputs []*input.BaseInput
 	testInputCount  int
 
 	testPubKey, _ = btcec.ParsePubKey([]byte{
@@ -53,17 +53,17 @@ var (
 	}, btcec.S256())
 )
 
-func createTestInput(value int64, witnessType lnwallet.WitnessType) BaseInput {
+func createTestInput(value int64, witnessType input.WitnessType) input.BaseInput {
 	hash := chainhash.Hash{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 		byte(testInputCount)}
 
-	input := MakeBaseInput(
+	input := input.MakeBaseInput(
 		&wire.OutPoint{
 			Hash: hash,
 		},
 		witnessType,
-		&lnwallet.SignDescriptor{
+		&input.SignDescriptor{
 			Output: &wire.TxOut{
 				Value: value,
 			},
@@ -83,7 +83,7 @@ func init() {
 	// Create a set of test spendable inputs.
 	for i := 0; i < 5; i++ {
 		input := createTestInput(int64(10000+i*500),
-			lnwallet.CommitmentTimeLock)
+			input.CommitmentTimeLock)
 
 		spendableInputs = append(spendableInputs, &input)
 	}
@@ -303,7 +303,7 @@ func TestDust(t *testing.T) {
 	// Create an input so that the output after paying fees is still
 	// positive (400 sat), but less than the dust limit (537 sat) for the
 	// sweep tx output script (P2WPKH).
-	dustInput := createTestInput(5260, lnwallet.CommitmentTimeLock)
+	dustInput := createTestInput(5260, input.CommitmentTimeLock)
 
 	_, err := ctx.sweeper.SweepInput(&dustInput)
 	if err != nil {
@@ -314,7 +314,7 @@ func TestDust(t *testing.T) {
 	// that the sweep output will not be relayed and not generate the tx.
 
 	// Sweep another input that brings the tx output above the dust limit.
-	largeInput := createTestInput(100000, lnwallet.CommitmentTimeLock)
+	largeInput := createTestInput(100000, input.CommitmentTimeLock)
 
 	_, err = ctx.sweeper.SweepInput(&largeInput)
 	if err != nil {
@@ -344,7 +344,7 @@ func TestNegativeInput(t *testing.T) {
 
 	// Sweep an input large enough to cover fees, so in any case the tx
 	// output will be above the dust limit.
-	largeInput := createTestInput(100000, lnwallet.CommitmentNoDelay)
+	largeInput := createTestInput(100000, input.CommitmentNoDelay)
 	largeInputResult, err := ctx.sweeper.SweepInput(&largeInput)
 	if err != nil {
 		t.Fatal(err)
@@ -353,7 +353,7 @@ func TestNegativeInput(t *testing.T) {
 	// Sweep an additional input with a negative net yield. The weight of
 	// the HtlcAcceptedRemoteSuccess input type adds more in fees than its
 	// value at the current fee level.
-	negInput := createTestInput(2900, lnwallet.HtlcOfferedRemoteTimeout)
+	negInput := createTestInput(2900, input.HtlcOfferedRemoteTimeout)
 	negInputResult, err := ctx.sweeper.SweepInput(&negInput)
 	if err != nil {
 		t.Fatal(err)
@@ -361,7 +361,7 @@ func TestNegativeInput(t *testing.T) {
 
 	// Sweep a third input that has a smaller output than the previous one,
 	// but yields positively because of its lower weight.
-	positiveInput := createTestInput(2800, lnwallet.CommitmentNoDelay)
+	positiveInput := createTestInput(2800, input.CommitmentNoDelay)
 	positiveInputResult, err := ctx.sweeper.SweepInput(&positiveInput)
 	if err != nil {
 		t.Fatal(err)
@@ -390,7 +390,7 @@ func TestNegativeInput(t *testing.T) {
 	ctx.estimator.updateFees(1000, 1000)
 
 	// Create another large input
-	secondLargeInput := createTestInput(100000, lnwallet.CommitmentNoDelay)
+	secondLargeInput := createTestInput(100000, input.CommitmentNoDelay)
 	secondLargeInputResult, err := ctx.sweeper.SweepInput(&secondLargeInput)
 	if err != nil {
 		t.Fatal(err)

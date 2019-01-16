@@ -25,6 +25,10 @@ const (
 	// CreateSessionCodeRejectSweepFeeRate the tower rejected the sweep fee
 	// rate proposed by the client.
 	CreateSessionCodeRejectSweepFeeRate CreateSessionCode = 63
+
+	// CreateSessionCodeRejectBlobType is returned when the tower does not
+	// support the proposed blob type.
+	CreateSessionCodeRejectBlobType CreateSessionCode = 64
 )
 
 // MaxCreateSessionReplyDataLength is the maximum size of the Data payload

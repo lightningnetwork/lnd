@@ -4,6 +4,7 @@ import (
 	"io"
 
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/watchtower/blob"
 )
 
 // CreateSession is sent from a client to tower when to negotiate a session, which
@@ -11,9 +12,9 @@ import (
 // An update is consumed by uploading an encrypted blob that contains
 // information required to sweep a revoked commitment transaction.
 type CreateSession struct {
-	// BlobVersion specifies the blob format that must be used by all
-	// updates sent under the session key used to negotiate this session.
-	BlobVersion uint16
+	// BlobType specifies the blob format that must be used by all updates sent
+	// under the session key used to negotiate this session.
+	BlobType blob.Type
 
 	// MaxUpdates is the maximum number of updates the watchtower will honor
 	// for this session.
@@ -41,7 +42,7 @@ var _ Message = (*CreateSession)(nil)
 // This is part of the wtwire.Message interface.
 func (m *CreateSession) Decode(r io.Reader, pver uint32) error {
 	return ReadElements(r,
-		&m.BlobVersion,
+		&m.BlobType,
 		&m.MaxUpdates,
 		&m.RewardRate,
 		&m.SweepFeeRate,
@@ -54,7 +55,7 @@ func (m *CreateSession) Decode(r io.Reader, pver uint32) error {
 // This is part of the wtwire.Message interface.
 func (m *CreateSession) Encode(w io.Writer, pver uint32) error {
 	return WriteElements(w,
-		m.BlobVersion,
+		m.BlobType,
 		m.MaxUpdates,
 		m.RewardRate,
 		m.SweepFeeRate,

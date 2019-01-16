@@ -15,6 +15,7 @@ import (
 	"github.com/lightningnetwork/lnd/watchtower/blob"
 	"github.com/lightningnetwork/lnd/watchtower/lookout"
 	"github.com/lightningnetwork/lnd/watchtower/wtdb"
+	"github.com/lightningnetwork/lnd/watchtower/wtpolicy"
 )
 
 type mockPunisher struct {
@@ -86,15 +87,25 @@ func TestLookoutBreachMatching(t *testing.T) {
 		t.Fatalf("unable to start watcher: %v", err)
 	}
 
+	rewardAndCommitType := blob.TypeFromFlags(
+		blob.FlagReward, blob.FlagCommitOutputs,
+	)
+
 	// Create two sessions, representing two distinct clients.
 	sessionInfo1 := &wtdb.SessionInfo{
-		ID:            makeArray33(1),
-		MaxUpdates:    10,
+		ID: makeArray33(1),
+		Policy: wtpolicy.Policy{
+			BlobType:   rewardAndCommitType,
+			MaxUpdates: 10,
+		},
 		RewardAddress: makeAddrSlice(22),
 	}
 	sessionInfo2 := &wtdb.SessionInfo{
-		ID:            makeArray33(2),
-		MaxUpdates:    10,
+		ID: makeArray33(2),
+		Policy: wtpolicy.Policy{
+			BlobType:   rewardAndCommitType,
+			MaxUpdates: 10,
+		},
 		RewardAddress: makeAddrSlice(22),
 	}
 
@@ -137,13 +148,13 @@ func TestLookoutBreachMatching(t *testing.T) {
 	}
 
 	// Encrypt the first justice kit under the txid of the first txn.
-	encBlob1, err := blob1.Encrypt(hash1[:], 0)
+	encBlob1, err := blob1.Encrypt(hash1[:], blob.FlagCommitOutputs.Type())
 	if err != nil {
 		t.Fatalf("unable to encrypt sweep detail 1: %v", err)
 	}
 
 	// Encrypt the second justice kit under the txid of the second txn.
-	encBlob2, err := blob2.Encrypt(hash2[:], 0)
+	encBlob2, err := blob2.Encrypt(hash2[:], blob.FlagCommitOutputs.Type())
 	if err != nil {
 		t.Fatalf("unable to encrypt sweep detail 2: %v", err)
 	}

@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/watchtower/blob"
 	"github.com/lightningnetwork/lnd/watchtower/wtdb"
 	"github.com/lightningnetwork/lnd/watchtower/wtserver"
 	"github.com/lightningnetwork/lnd/watchtower/wtwire"
@@ -155,7 +156,7 @@ var createSessionTests = []createSessionTestCase{
 			lnwire.NewRawFeatureVector(),
 		),
 		createMsg: &wtwire.CreateSession{
-			BlobVersion:  0,
+			BlobType:     blob.TypeDefault,
 			MaxUpdates:   1000,
 			RewardRate:   0,
 			SweepFeeRate: 1,
@@ -167,6 +168,23 @@ var createSessionTests = []createSessionTestCase{
 		expDupReply: &wtwire.CreateSessionReply{
 			Code: wtwire.CreateSessionCodeAlreadyExists,
 			Data: []byte(addr.ScriptAddress()),
+		},
+	},
+	{
+		name: "reject unsupported blob type",
+		initMsg: wtwire.NewInitMessage(
+			lnwire.NewRawFeatureVector(),
+			lnwire.NewRawFeatureVector(),
+		),
+		createMsg: &wtwire.CreateSession{
+			BlobType:     0,
+			MaxUpdates:   1000,
+			RewardRate:   0,
+			SweepFeeRate: 1,
+		},
+		expReply: &wtwire.CreateSessionReply{
+			Code: wtwire.CreateSessionCodeRejectBlobType,
+			Data: []byte{},
 		},
 	},
 	// TODO(conner): add policy rejection tests
@@ -258,7 +276,7 @@ var stateUpdateTests = []stateUpdateTestCase{
 			GlobalFeatures: lnwire.NewRawFeatureVector(),
 		}},
 		createMsg: &wtwire.CreateSession{
-			BlobVersion:  0,
+			BlobType:     blob.TypeDefault,
 			MaxUpdates:   3,
 			RewardRate:   0,
 			SweepFeeRate: 1,
@@ -287,7 +305,7 @@ var stateUpdateTests = []stateUpdateTestCase{
 			GlobalFeatures: lnwire.NewRawFeatureVector(),
 		}},
 		createMsg: &wtwire.CreateSession{
-			BlobVersion:  0,
+			BlobType:     blob.TypeDefault,
 			MaxUpdates:   4,
 			RewardRate:   0,
 			SweepFeeRate: 1,
@@ -310,7 +328,7 @@ var stateUpdateTests = []stateUpdateTestCase{
 			GlobalFeatures: lnwire.NewRawFeatureVector(),
 		}},
 		createMsg: &wtwire.CreateSession{
-			BlobVersion:  0,
+			BlobType:     blob.TypeDefault,
 			MaxUpdates:   4,
 			RewardRate:   0,
 			SweepFeeRate: 1,
@@ -337,7 +355,7 @@ var stateUpdateTests = []stateUpdateTestCase{
 			GlobalFeatures: lnwire.NewRawFeatureVector(),
 		}},
 		createMsg: &wtwire.CreateSession{
-			BlobVersion:  0,
+			BlobType:     blob.TypeDefault,
 			MaxUpdates:   4,
 			RewardRate:   0,
 			SweepFeeRate: 1,
@@ -364,7 +382,7 @@ var stateUpdateTests = []stateUpdateTestCase{
 			GlobalFeatures: lnwire.NewRawFeatureVector(),
 		}},
 		createMsg: &wtwire.CreateSession{
-			BlobVersion:  0,
+			BlobType:     blob.TypeDefault,
 			MaxUpdates:   4,
 			RewardRate:   0,
 			SweepFeeRate: 1,
@@ -393,7 +411,7 @@ var stateUpdateTests = []stateUpdateTestCase{
 			GlobalFeatures: lnwire.NewRawFeatureVector(),
 		}},
 		createMsg: &wtwire.CreateSession{
-			BlobVersion:  0,
+			BlobType:     blob.TypeDefault,
 			MaxUpdates:   4,
 			RewardRate:   0,
 			SweepFeeRate: 1,
@@ -421,7 +439,7 @@ var stateUpdateTests = []stateUpdateTestCase{
 			GlobalFeatures: lnwire.NewRawFeatureVector(),
 		}},
 		createMsg: &wtwire.CreateSession{
-			BlobVersion:  0,
+			BlobType:     blob.TypeDefault,
 			MaxUpdates:   3,
 			RewardRate:   0,
 			SweepFeeRate: 1,
@@ -450,7 +468,7 @@ var stateUpdateTests = []stateUpdateTestCase{
 			GlobalFeatures: lnwire.NewRawFeatureVector(),
 		}},
 		createMsg: &wtwire.CreateSession{
-			BlobVersion:  0,
+			BlobType:     blob.TypeDefault,
 			MaxUpdates:   3,
 			RewardRate:   0,
 			SweepFeeRate: 1,

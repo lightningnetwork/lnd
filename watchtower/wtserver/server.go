@@ -13,7 +13,9 @@ import (
 	"github.com/btcsuite/btcd/connmgr"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/watchtower/blob"
 	"github.com/lightningnetwork/lnd/watchtower/wtdb"
+	"github.com/lightningnetwork/lnd/watchtower/wtpolicy"
 	"github.com/lightningnetwork/lnd/watchtower/wtwire"
 )
 
@@ -246,14 +248,14 @@ func (s *Server) handleClient(peer Peer) {
 
 			log.Infof("Received CreateSession from %s, "+
 				"version=%d nupdates=%d rewardrate=%d "+
-				"sweepfeerate=%d", id, msg.BlobVersion,
+				"sweepfeerate=%d", id, msg.BlobType,
 				msg.MaxUpdates, msg.RewardRate,
 				msg.SweepFeeRate)
 
 			// Attempt to open a new session for this client.
 			err := s.handleCreateSession(peer, &id, msg)
 			if err != nil {
-				log.Errorf("unable to handle CreateSession "+
+				log.Errorf("Unable to handle CreateSession "+
 					"from %s: %v", id, err)
 			}
 
@@ -327,7 +329,7 @@ func (s *Server) handleInit(localInit, remoteInit *wtwire.Init) error {
 // session info is known about the session id. If an existing session is found,
 // the reward address is returned in case the client lost our reply.
 func (s *Server) handleCreateSession(peer Peer, id *wtdb.SessionID,
-	init *wtwire.CreateSession) error {
+	req *wtwire.CreateSession) error {
 
 	// TODO(conner): validate accept against policy
 
@@ -369,17 +371,28 @@ func (s *Server) handleCreateSession(peer Peer, id *wtdb.SessionID,
 
 	rewardAddrBytes := rewardAddress.ScriptAddress()
 
+	// Ensure that the requested blob type is supported by our tower.
+	if !blob.IsSupportedType(req.BlobType) {
+		log.Debugf("Rejecting CreateSession from %s, unsupported blob "+
+			"type %s", id, req.BlobType)
+		return s.replyCreateSession(
+			peer, id, wtwire.CreateSessionCodeRejectBlobType, nil,
+		)
+	}
+
 	// TODO(conner): create invoice for upfront payment
 
 	// Assemble the session info using the agreed upon parameters, reward
 	// address, and session id.
 	info := wtdb.SessionInfo{
 		ID:            *id,
-		Version:       init.BlobVersion,
-		MaxUpdates:    init.MaxUpdates,
-		RewardRate:    init.RewardRate,
-		SweepFeeRate:  init.SweepFeeRate,
 		RewardAddress: rewardAddrBytes,
+		Policy: wtpolicy.Policy{
+			BlobType:     req.BlobType,
+			MaxUpdates:   req.MaxUpdates,
+			RewardRate:   req.RewardRate,
+			SweepFeeRate: req.SweepFeeRate,
+		},
 	}
 
 	// Insert the session info into the watchtower's database. If

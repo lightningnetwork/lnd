@@ -8,6 +8,7 @@ import (
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/watchtower/blob"
 )
 
 // WriteElement is a one-stop shop to write the big endian representation of
@@ -26,6 +27,13 @@ func WriteElement(w io.Writer, element interface{}) error {
 	case uint16:
 		var b [2]byte
 		binary.BigEndian.PutUint16(b[:], e)
+		if _, err := w.Write(b[:]); err != nil {
+			return err
+		}
+
+	case blob.Type:
+		var b [2]byte
+		binary.BigEndian.PutUint16(b[:], uint16(e))
 		if _, err := w.Write(b[:]); err != nil {
 			return err
 		}
@@ -126,6 +134,13 @@ func ReadElement(r io.Reader, element interface{}) error {
 			return err
 		}
 		*e = binary.BigEndian.Uint16(b[:])
+
+	case *blob.Type:
+		var b [2]byte
+		if _, err := io.ReadFull(r, b[:]); err != nil {
+			return err
+		}
+		*e = blob.Type(binary.BigEndian.Uint16(b[:]))
 
 	case *uint32:
 		var b [4]byte

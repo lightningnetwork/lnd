@@ -17,12 +17,6 @@ import (
 )
 
 const (
-	// MinVersion is the minimum blob version supported by this package.
-	MinVersion = 0
-
-	// MaxVersion is the maximumm blob version supported by this package.
-	MaxVersion = 0
-
 	// NonceSize is the length of a chacha20poly1305 nonce, 24 bytes.
 	NonceSize = chacha20poly1305.NonceSizeX
 
@@ -53,14 +47,14 @@ const (
 //   nonce:                24 bytes
 //   enciphered plaintext:  n bytes
 //   MAC:                  16 bytes
-func Size(ver uint16) int {
-	return NonceSize + PlaintextSize(ver) + CiphertextExpansion
+func Size(blobType Type) int {
+	return NonceSize + PlaintextSize(blobType) + CiphertextExpansion
 }
 
 // PlaintextSize returns the size of the encoded-but-unencrypted blob in bytes.
-func PlaintextSize(ver uint16) int {
-	switch ver {
-	case 0:
+func PlaintextSize(blobType Type) int {
+	switch {
+	case blobType.Has(FlagCommitOutputs):
 		return V0PlaintextSize
 	default:
 		return 0
@@ -71,9 +65,9 @@ var (
 	// byteOrder specifies a big-endian encoding of all integer values.
 	byteOrder = binary.BigEndian
 
-	// ErrUnknownBlobVersion signals that we don't understand the requested
+	// ErrUnknownBlobType signals that we don't understand the requested
 	// blob encoding scheme.
-	ErrUnknownBlobVersion = errors.New("unknown blob version")
+	ErrUnknownBlobType = errors.New("unknown blob type")
 
 	// ErrCiphertextTooSmall is a decryption error signaling that the
 	// ciphertext is smaller than the ciphertext expansion factor.
@@ -229,7 +223,7 @@ func (b *JusticeKit) CommitToRemoteWitnessStack() ([][]byte, error) {
 //
 // NOTE: It is the caller's responsibility to ensure that this method is only
 // called once for a given (nonce, key) pair.
-func (b *JusticeKit) Encrypt(key []byte, version uint16) ([]byte, error) {
+func (b *JusticeKit) Encrypt(key []byte, blobType Type) ([]byte, error) {
 	// Fail if the nonce is not 32-bytes.
 	if len(key) != KeySize {
 		return nil, ErrKeySize
@@ -238,7 +232,7 @@ func (b *JusticeKit) Encrypt(key []byte, version uint16) ([]byte, error) {
 	// Encode the plaintext using the provided version, to obtain the
 	// plaintext bytes.
 	var ptxtBuf bytes.Buffer
-	err := b.encode(&ptxtBuf, version)
+	err := b.encode(&ptxtBuf, blobType)
 	if err != nil {
 		return nil, err
 	}
@@ -252,7 +246,7 @@ func (b *JusticeKit) Encrypt(key []byte, version uint16) ([]byte, error) {
 	// Allocate the ciphertext, which will contain the nonce, encrypted
 	// plaintext and MAC.
 	plaintext := ptxtBuf.Bytes()
-	ciphertext := make([]byte, Size(version))
+	ciphertext := make([]byte, Size(blobType))
 
 	// Generate a random  24-byte nonce in the ciphertext's prefix.
 	nonce := ciphertext[:NonceSize]
@@ -270,7 +264,7 @@ func (b *JusticeKit) Encrypt(key []byte, version uint16) ([]byte, error) {
 // Decrypt unenciphers a blob of justice by decrypting the ciphertext using
 // chacha20poly1305 with the chosen (nonce, key) pair. The internal plaintext is
 // then deserialized using the given encoding version.
-func Decrypt(key, ciphertext []byte, version uint16) (*JusticeKit, error) {
+func Decrypt(key, ciphertext []byte, blobType Type) (*JusticeKit, error) {
 	switch {
 
 	// Fail if the blob's overall length is less than required for the nonce
@@ -305,7 +299,7 @@ func Decrypt(key, ciphertext []byte, version uint16) (*JusticeKit, error) {
 	// If decryption succeeded, we will then decode the plaintext bytes
 	// using the specified blob version.
 	boj := &JusticeKit{}
-	err = boj.decode(bytes.NewReader(plaintext), version)
+	err = boj.decode(bytes.NewReader(plaintext), blobType)
 	if err != nil {
 		return nil, err
 	}
@@ -315,23 +309,23 @@ func Decrypt(key, ciphertext []byte, version uint16) (*JusticeKit, error) {
 
 // encode serializes the JusticeKit according to the version, returning an
 // error if the version is unknown.
-func (b *JusticeKit) encode(w io.Writer, ver uint16) error {
-	switch ver {
-	case 0:
+func (b *JusticeKit) encode(w io.Writer, blobType Type) error {
+	switch {
+	case blobType.Has(FlagCommitOutputs):
 		return b.encodeV0(w)
 	default:
-		return ErrUnknownBlobVersion
+		return ErrUnknownBlobType
 	}
 }
 
 // decode deserializes the JusticeKit according to the version, returning an
 // error if the version is unknown.
-func (b *JusticeKit) decode(r io.Reader, ver uint16) error {
-	switch ver {
-	case 0:
+func (b *JusticeKit) decode(r io.Reader, blobType Type) error {
+	switch {
+	case blobType.Has(FlagCommitOutputs):
 		return b.decodeV0(r)
 	default:
-		return ErrUnknownBlobVersion
+		return ErrUnknownBlobType
 	}
 }
 

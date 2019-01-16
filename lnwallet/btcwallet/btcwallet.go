@@ -554,10 +554,8 @@ func minedTransactionsToDetails(
 
 // unminedTransactionsToDetail is a helper function which converts a summary
 // for an unconfirmed transaction to a transaction detail.
-func unminedTransactionsToDetail(
-	summary base.TransactionSummary,
-) (*lnwallet.TransactionDetail, error) {
-
+func unminedTransactionsToDetail(summary base.TransactionSummary,
+	chainParams *chaincfg.Params) (*lnwallet.TransactionDetail, error) {
 	wireTx := &wire.MsgTx{}
 	txReader := bytes.NewReader(summary.Transaction)
 
@@ -565,11 +563,25 @@ func unminedTransactionsToDetail(
 		return nil, err
 	}
 
+	// Iterate over all the transaction outputs and extract the Public Key
+	// of the destination address.
+	var destAddresses []btcutil.Address
+	for _, txOut := range wireTx.TxOut {
+		_, outAddresses, _, err := txscript.ExtractPkScriptAddrs(
+			txOut.PkScript, chainParams,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		destAddresses = append(destAddresses, outAddresses...)
+	}
+
 	txDetail := &lnwallet.TransactionDetail{
-		Hash:      *summary.Hash,
-		TotalFees: int64(summary.Fee),
-		Timestamp: summary.Timestamp,
-		RawTx:     summary.Transaction,
+		Hash:          *summary.Hash,
+		TotalFees:     int64(summary.Fee),
+		Timestamp:     summary.Timestamp,
+		DestAddresses: destAddresses,
 	}
 
 	balanceDelta, err := extractBalanceDelta(summary, wireTx)
@@ -618,7 +630,7 @@ func (b *BtcWallet) ListTransactionDetails() ([]*lnwallet.TransactionDetail, err
 		txDetails = append(txDetails, details...)
 	}
 	for _, tx := range txns.UnminedTransactions {
-		detail, err := unminedTransactionsToDetail(tx)
+		detail, err := unminedTransactionsToDetail(tx, b.netParams)
 		if err != nil {
 			return nil, err
 		}
@@ -705,7 +717,9 @@ out:
 			// notifications for any newly unconfirmed transactions.
 			go func() {
 				for _, tx := range txNtfn.UnminedTransactions {
-					detail, err := unminedTransactionsToDetail(tx)
+					detail, err := unminedTransactionsToDetail(
+						tx, t.w.ChainParams(),
+					)
 					if err != nil {
 						continue
 					}

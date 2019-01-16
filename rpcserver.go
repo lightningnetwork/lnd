@@ -2063,57 +2063,14 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 				ClosingTxid: closeTXID,
 			}
 
-			// Query for the maturity state for this force closed
-			// channel. If we didn't have any time-locked outputs,
-			// then the nursery may not know of the contract.
-			nurseryInfo, err := r.server.utxoNursery.NurseryReport(&chanPoint)
-			if err != nil && err != ErrContractNotFound {
-				return nil, fmt.Errorf("unable to obtain "+
-					"nursery report for ChannelPoint(%v): %v",
-					chanPoint, err)
+			err := r.nurseryPopulateForceCloseResp(
+				&chanPoint, currentHeight, forceClose,
+			)
+			if err != nil {
+				return nil, err
 			}
 
-			// If the nursery knows of this channel, then we can
-			// populate information detailing exactly how much
-			// funds are time locked and also the height in which
-			// we can ultimately sweep the funds into the wallet.
-			if nurseryInfo != nil {
-				forceClose.LimboBalance = int64(nurseryInfo.limboBalance)
-				forceClose.RecoveredBalance = int64(nurseryInfo.recoveredBalance)
-				forceClose.MaturityHeight = nurseryInfo.maturityHeight
-
-				// If the transaction has been confirmed, then
-				// we can compute how many blocks it has left.
-				if forceClose.MaturityHeight != 0 {
-					forceClose.BlocksTilMaturity =
-						int32(forceClose.MaturityHeight) -
-							currentHeight
-				}
-
-				for _, htlcReport := range nurseryInfo.htlcs {
-					// TODO(conner) set incoming flag
-					// appropriately after handling incoming
-					// incubation
-					htlc := &lnrpc.PendingHTLC{
-						Incoming:       false,
-						Amount:         int64(htlcReport.amount),
-						Outpoint:       htlcReport.outpoint.String(),
-						MaturityHeight: htlcReport.maturityHeight,
-						Stage:          htlcReport.stage,
-					}
-
-					if htlc.MaturityHeight != 0 {
-						htlc.BlocksTilMaturity =
-							int32(htlc.MaturityHeight) -
-								currentHeight
-					}
-
-					forceClose.PendingHtlcs = append(forceClose.PendingHtlcs,
-						htlc)
-				}
-
-				resp.TotalLimboBalance += int64(nurseryInfo.limboBalance)
-			}
+			resp.TotalLimboBalance += int64(forceClose.LimboBalance)
 
 			resp.PendingForceClosingChannels = append(
 				resp.PendingForceClosingChannels,
@@ -2156,6 +2113,65 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 	}
 
 	return resp, nil
+}
+
+// nurseryPopulateForceCloseResp populates the pending channels response
+// message with contract resolution information from utxonursery.
+func (r *rpcServer) nurseryPopulateForceCloseResp(chanPoint *wire.OutPoint,
+	currentHeight int32,
+	forceClose *lnrpc.PendingChannelsResponse_ForceClosedChannel) error {
+
+	// Query for the maturity state for this force closed channel. If we
+	// didn't have any time-locked outputs, then the nursery may not know of
+	// the contract.
+	nurseryInfo, err := r.server.utxoNursery.NurseryReport(chanPoint)
+	if err == ErrContractNotFound {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("unable to obtain "+
+			"nursery report for ChannelPoint(%v): %v",
+			chanPoint, err)
+	}
+
+	// If the nursery knows of this channel, then we can populate
+	// information detailing exactly how much funds are time locked and also
+	// the height in which we can ultimately sweep the funds into the
+	// wallet.
+	forceClose.LimboBalance = int64(nurseryInfo.limboBalance)
+	forceClose.RecoveredBalance = int64(nurseryInfo.recoveredBalance)
+	forceClose.MaturityHeight = nurseryInfo.maturityHeight
+
+	// If the transaction has been confirmed, then we can compute how many
+	// blocks it has left.
+	if forceClose.MaturityHeight != 0 {
+		forceClose.BlocksTilMaturity =
+			int32(forceClose.MaturityHeight) -
+				currentHeight
+	}
+
+	for _, htlcReport := range nurseryInfo.htlcs {
+		// TODO(conner) set incoming flag appropriately after handling
+		// incoming incubation
+		htlc := &lnrpc.PendingHTLC{
+			Incoming:       false,
+			Amount:         int64(htlcReport.amount),
+			Outpoint:       htlcReport.outpoint.String(),
+			MaturityHeight: htlcReport.maturityHeight,
+			Stage:          htlcReport.stage,
+		}
+
+		if htlc.MaturityHeight != 0 {
+			htlc.BlocksTilMaturity =
+				int32(htlc.MaturityHeight) -
+					currentHeight
+		}
+
+		forceClose.PendingHtlcs = append(forceClose.PendingHtlcs,
+			htlc)
+	}
+
+	return nil
 }
 
 // ClosedChannels returns a list of all the channels have been closed.

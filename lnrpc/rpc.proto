@@ -1010,8 +1010,11 @@ message Channel {
     */
     uint32 csv_delay = 16 [json_name = "csv_delay"];
 
-    /// Whether this channel is advertised to the network or not
+    /// Whether this channel is advertised to the network or not.
     bool private = 17 [json_name = "private"];
+
+    /// True if we were the ones that creted the channel.
+    bool initiator = 18 [json_name = "initiator"];
 }
 
 

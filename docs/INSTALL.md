@@ -31,10 +31,12 @@
     [`1.11`](https://blog.golang.org/go1.11).
 
 
-    On Linux:
+    On Linux (Debian-based):
     ```
     sudo apt-get install golang-1.11-go
     ```
+    > Depending on your system specifications you might need to add different repositories to your `apt-get`. Please see [this wiki page](https://github.com/golang/go/wiki/Ubuntu) for more details.
+
     > Note that golang-1.11-go puts binaries in /usr/lib/go-1.11/bin. If you want them on your PATH, you need to make that change yourself. Alternatively, you can run:
     ```
     sudo ln -s /usr/lib/go-1.11/bin/go /usr/local/bin/go

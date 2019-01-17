@@ -3,6 +3,7 @@ package channeldb
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 
@@ -41,6 +42,10 @@ func encodeTCPAddr(w io.Writer, addr *net.TCPAddr) error {
 	} else {
 		addrType = byte(tcp6Addr)
 		ip = addr.IP.To16()
+	}
+
+	if ip == nil {
+		return fmt.Errorf("unable to encode IP %v", addr.IP)
 	}
 
 	if _, err := w.Write([]byte{addrType}); err != nil {

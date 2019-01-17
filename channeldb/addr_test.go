@@ -84,6 +84,30 @@ var addrTests = []struct {
 		},
 		serErr: "unable to encode",
 	},
+	{
+		expAddr: &tor.OnionAddr{
+			// Invalid suffix.
+			OnionService: "vww6ybal4bd7szmgncyruucpgfkqahzddi37ktceo3ah7ngmcopnpyyd.inion",
+			Port:         80,
+		},
+		serErr: "invalid suffix",
+	},
+	{
+		expAddr: &tor.OnionAddr{
+			// Invalid length.
+			OnionService: "vww6ybal4bd7szmgncyruucpgfkqahzddi37ktceo3ah7ngmcopnpyy.onion",
+			Port:         80,
+		},
+		serErr: "unknown onion service length",
+	},
+	{
+		expAddr: &tor.OnionAddr{
+			// Invalid encoding.
+			OnionService: "vww6ybal4bd7szmgncyruucpgfkqahzddi37ktceo3ah7ngmcopnpyyA.onion",
+			Port:         80,
+		},
+		serErr: "illegal base32",
+	},
 }
 
 // TestAddrSerialization tests that the serialization method used by channeldb

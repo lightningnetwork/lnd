@@ -294,7 +294,6 @@ func TestContractInsertionRetrieval(t *testing.T) {
 			resolved:        false,
 			broadcastHeight: 109,
 			chanPoint:       testChanPoint1,
-			sweepTx:         nil,
 		},
 	}
 

@@ -502,12 +502,6 @@ func loadConfig() (*config, error) {
 	case cfg.DisableListen && (cfg.Tor.V2 || cfg.Tor.V3):
 		return nil, errors.New("listening must be enabled when " +
 			"enabling inbound connections over Tor")
-	case cfg.Tor.Active && (!cfg.Tor.V2 && !cfg.Tor.V3):
-		// If an onion service version wasn't selected, we'll assume the
-		// user is only interested in outbound connections over Tor.
-		// Therefore, we'll disable listening in order to avoid
-		// inadvertent leaks.
-		cfg.DisableListen = true
 	}
 
 	if cfg.Tor.PrivateKeyPath == "" {
@@ -866,9 +860,14 @@ func loadConfig() (*config, error) {
 
 	// Listen on the default interface/port if no listeners were specified.
 	// An empty address string means default interface/address, which on
-	// most unix systems is the same as 0.0.0.0.
+	// most unix systems is the same as 0.0.0.0. If Tor is active, we
+	// default to only listening on localhost for hidden service
+	// connections.
 	if len(cfg.RawListeners) == 0 {
 		addr := fmt.Sprintf(":%d", defaultPeerPort)
+		if cfg.Tor.Active {
+			addr = fmt.Sprintf("localhost:%d", defaultPeerPort)
+		}
 		cfg.RawListeners = append(cfg.RawListeners, addr)
 	}
 
@@ -945,20 +944,6 @@ func loadConfig() (*config, error) {
 					p2pListener)
 				return nil, err
 			}
-		}
-	}
-
-	// Ensure that we are only listening on localhost if Tor inbound support
-	// is enabled.
-	if cfg.Tor.V2 || cfg.Tor.V3 {
-		for _, addr := range cfg.Listeners {
-			if lncfg.IsLoopback(addr.String()) {
-				continue
-			}
-
-			return nil, errors.New("lnd must *only* be listening " +
-				"on localhost when running with Tor inbound " +
-				"support enabled")
 		}
 	}
 

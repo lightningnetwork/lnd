@@ -152,6 +152,12 @@ type Config struct {
 	// forwarding packages, and ack settles and fails contained within them.
 	SwitchPackager channeldb.FwdOperator
 
+	// PreimageCache is a global witness beacon that houses any new
+	// preimages discovered by the channel links. We'll use this to lookup
+	// whether local payments being sent already has succeeded, which can
+	// happen during resends.
+	PreimageCache contractcourt.WitnessBeacon
+
 	// ExtractErrorEncrypter is an interface allowing switch to reextract
 	// error encrypters stored in the circuit map on restarts, since they
 	// are not stored directly within the database.

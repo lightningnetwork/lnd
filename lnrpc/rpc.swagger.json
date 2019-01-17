@@ -564,7 +564,7 @@
           },
           {
             "name": "num_routes",
-            "description": "/ The max number of routes to return.",
+            "description": "*\nDeprecated. The max number of routes to return. In the future, QueryRoutes\nwill only return a single route.",
             "in": "query",
             "required": false,
             "type": "integer",

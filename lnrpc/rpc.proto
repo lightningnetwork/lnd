@@ -1467,8 +1467,11 @@ message QueryRoutesRequest {
     /// The amount to send expressed in satoshis
     int64 amt = 2;
 
-    /// The max number of routes to return.
-    int32 num_routes = 3;
+    /**
+    Deprecated. The max number of routes to return. In the future, QueryRoutes
+    will only return a single route.
+    */
+    int32 num_routes = 3 [deprecated = true]; 
 
     /// An optional CLTV delta from the current height that should be used for the timelock of the final hop
     int32 final_cltv_delta = 4;

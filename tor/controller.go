@@ -163,7 +163,7 @@ func parseTorReply(reply string) map[string]string {
 }
 
 // authenticate authenticates the connection between the controller and the
-// Tor server using the SAFECOOKIE authentication method.
+// Tor server using the SAFECOOKIE or NULL authentication method.
 func (c *Controller) authenticate() error {
 	// Before proceeding to authenticate the connection, we'll retrieve
 	// the authentication cookie of the Tor server. This will be used
@@ -174,6 +174,13 @@ func (c *Controller) authenticate() error {
 	if err != nil {
 		return fmt.Errorf("unable to retrieve authentication cookie: "+
 			"%v", err)
+	}
+
+	// If cookie is empty and there's no error, we have a NULL
+	// authentication method that we should use instead.
+	if len(cookie) == 0 {
+		_, _, err := c.sendCommand("AUTHENTICATE")
+		return err
 	}
 
 	// Authenticating using the SAFECOOKIE authentication method is a two
@@ -274,17 +281,21 @@ func (c *Controller) getAuthCookie() ([]byte, error) {
 	c.version = version
 
 	// Ensure that the Tor server supports the SAFECOOKIE authentication
-	// method.
+	// method or the NULL method. If NULL, we don't need the cookie info
+	// below this loop, so we just return.
 	safeCookieSupport := false
 	for _, authMethod := range authMethods {
 		if authMethod == "SAFECOOKIE" {
 			safeCookieSupport = true
 		}
+		if authMethod == "NULL" {
+			return nil, nil
+		}
 	}
 
 	if !safeCookieSupport {
 		return nil, errors.New("the Tor server is currently not " +
-			"configured for cookie authentication")
+			"configured for cookie or null authentication")
 	}
 
 	// Read the cookie from the file and ensure it has the correct length.
@@ -374,7 +385,7 @@ func (c *Controller) ProtocolInfo() ([]string, string, string, error) {
 	}
 
 	cookieFile, ok := info["COOKIEFILE"]
-	if !ok {
+	if !ok && !strings.Contains(methods, "NULL") {
 		return nil, "", "", errors.New("cookie file path not found " +
 			"in reply")
 	}

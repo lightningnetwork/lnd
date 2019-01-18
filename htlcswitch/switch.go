@@ -404,7 +404,9 @@ func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID,
 		htlc:           htlc,
 	}
 
-	if err := s.forward(packet); err != nil {
+	// If the returned error is a duplicate add, then we can ignore it, as
+	// our HTLC was already forwarded by the switch.
+	if err := s.forward(packet); err != nil && err != ErrDuplicateAdd {
 		s.removePendingPayment(paymentID)
 		if err := s.control.Fail(htlc.PaymentHash); err != nil {
 			return zeroPreimage, err

@@ -409,11 +409,11 @@ func TestCommitmentAndHTLCTransactions(t *testing.T) {
 		Capacity:           tc.fundingAmount,
 		RevocationProducer: shachain.NewRevocationProducer(zeroHash),
 	}
-	signer := &mockSigner{
-		privkeys: []*btcec.PrivateKey{
+	signer := &input.MockSigner{
+		Privkeys: []*btcec.PrivateKey{
 			tc.localFundingPrivKey, tc.localPaymentPrivKey,
 		},
-		netParams: tc.netParams,
+		NetParams: tc.netParams,
 	}
 
 	// Construct a LightningChannel manually because we don't have nor need all

@@ -6,20 +6,16 @@ require (
 	github.com/NebulousLabs/go-upnp v0.0.0-20180202185039-29b680b06c82
 	github.com/Yawning/aez v0.0.0-20180114000226-4dad034d9db2
 	github.com/aead/chacha20 v0.0.0-20180709150244-8b13a72661da // indirect
-	github.com/boltdb/bolt v1.3.1 // indirect
-	github.com/btcsuite/btcd v0.0.0-20180824064422-7d2daa5bfef28c5e282571bc06416516936115ee
+	github.com/btcsuite/btcd v0.0.0-20190115013929-ed77733ec07d
 	github.com/btcsuite/btclog v0.0.0-20170628155309-84c8d2346e9f
-	github.com/btcsuite/btcutil v0.0.0-20180706230648-ab6388e0c60ae4834a1f57511e20c17b5f78be4b
-	github.com/btcsuite/btcwallet v0.0.0-20181130221647-e59e51f8e13c
+	github.com/btcsuite/btcutil v0.0.0-20190112041146-bf1e1be93589
+	github.com/btcsuite/btcwallet v0.0.0-20181130030754-284e2e0e696e
 	github.com/btcsuite/fastsha256 v0.0.0-20160815193821-637e65642941
-	github.com/btcsuite/goleveldb v1.0.0 // indirect
 	github.com/coreos/bbolt v0.0.0-20180223184059-7ee3ded59d4835e10f3e7d0f7603c42aa5e83820
 	github.com/davecgh/go-spew v1.1.1
-	github.com/fsnotify/fsnotify v1.4.7 // indirect
 	github.com/go-errors/errors v1.0.1
 	github.com/golang/protobuf v1.2.0
 	github.com/grpc-ecosystem/grpc-gateway v0.0.0-20170724004829-f2862b476edc
-	github.com/hpcloud/tail v1.0.0 // indirect
 	github.com/jackpal/gateway v1.0.4
 	github.com/jackpal/go-nat-pmp v0.0.0-20170405195558-28a68d0c24ad
 	github.com/jessevdk/go-flags v0.0.0-20170926144705-f88afde2fa19
@@ -39,17 +35,13 @@ require (
 	github.com/rogpeppe/fastuuid v0.0.0-20150106093220-6724a57986af // indirect
 	github.com/tv42/zbase32 v0.0.0-20160707012821-501572607d02
 	github.com/urfave/cli v1.18.0
-	go.etcd.io/bbolt v1.3.0 // indirect
 	golang.org/x/crypto v0.0.0-20181127143415-eb0de9b17e85
 	golang.org/x/net v0.0.0-20181106065722-10aee1819953
-	golang.org/x/sync v0.0.0-20181108010431-42b317875d0f // indirect
 	golang.org/x/time v0.0.0-20180412165947-fbb02b2291d2
 	google.golang.org/genproto v0.0.0-20181127195345-31ac5d88444a
 	google.golang.org/grpc v1.16.0
 	gopkg.in/errgo.v1 v1.0.0 // indirect
-	gopkg.in/fsnotify.v1 v1.4.7 // indirect
 	gopkg.in/macaroon-bakery.v2 v2.0.1
 	gopkg.in/macaroon.v2 v2.0.0
 	gopkg.in/mgo.v2 v2.0.0-20180705113604-9856a29383ce // indirect
-	gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7 // indirect
 )

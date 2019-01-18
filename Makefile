@@ -151,7 +151,7 @@ travis-cover: btcd lint unit-cover goveralls
 # FLAKE HUNTING
 # =============
 
-flakehunter: build
+flakehunter: build-itest
 	@$(call print, "Flake hunting integration tests.")
 	while [ $$? -eq 0 ]; do $(ITEST); done
 

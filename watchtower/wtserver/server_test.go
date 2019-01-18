@@ -10,6 +10,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/watchtower/blob"
@@ -18,9 +19,13 @@ import (
 	"github.com/lightningnetwork/lnd/watchtower/wtwire"
 )
 
-// addr is the server's reward address given to watchtower clients.
-var addr, _ = btcutil.DecodeAddress(
-	"mrX9vMRYLfVy1BnZbc5gZjuyaqH3ZW2ZHz", &chaincfg.TestNet3Params,
+var (
+	// addr is the server's reward address given to watchtower clients.
+	addr, _ = btcutil.DecodeAddress(
+		"mrX9vMRYLfVy1BnZbc5gZjuyaqH3ZW2ZHz", &chaincfg.TestNet3Params,
+	)
+
+	addrScript, _ = txscript.PayToAddrScript(addr)
 )
 
 // randPubKey generates a new secp keypair, and returns the public key.
@@ -163,11 +168,11 @@ var createSessionTests = []createSessionTestCase{
 		},
 		expReply: &wtwire.CreateSessionReply{
 			Code: wtwire.CodeOK,
-			Data: []byte(addr.ScriptAddress()),
+			Data: addrScript,
 		},
 		expDupReply: &wtwire.CreateSessionReply{
 			Code: wtwire.CreateSessionCodeAlreadyExists,
-			Data: []byte(addr.ScriptAddress()),
+			Data: addrScript,
 		},
 	},
 	{

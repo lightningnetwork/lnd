@@ -2368,7 +2368,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 
 	// We'll signal that we understand the data loss protection feature,
 	// and also that we support the new gossip query features.
-	localFeatures.Set(lnwire.DataLossProtectOptional)
+	localFeatures.Set(lnwire.DataLossProtectRequired)
 	localFeatures.Set(lnwire.GossipQueriesOptional)
 
 	// Now that we've established a connection, create a peer, and it to

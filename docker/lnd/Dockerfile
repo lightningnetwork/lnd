@@ -2,6 +2,9 @@ FROM golang:1.11-alpine as builder
 
 MAINTAINER Olaoluwa Osuntokun <lightning.engineering>
 
+# Persistant volume store for lnd data
+VOLUME /root/.lnd/data
+
 # Copy in the local repository to build from.
 COPY . /go/src/github.com/lightningnetwork/lnd
 

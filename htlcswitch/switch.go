@@ -367,6 +367,14 @@ func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID,
 		return zeroPreimage, err
 	}
 
+	// If we already know the preimage, we can return it immediately.
+	p, ok := s.cfg.PreimageCache.LookupPreimage(htlc.PaymentHash[:])
+	if ok {
+		var preImg [32]byte
+		copy(preImg[:], p[:])
+		return preImg, nil
+	}
+
 	// Create payment and add to the map of payment in order later to be
 	// able to retrieve it and return response to the user.
 	payment := &pendingPayment{

@@ -958,9 +958,9 @@ func (p *peer) readHandler() {
 		p.Disconnect(err)
 	})
 
-	// Initialize our negotiated gossip sync method before reading
-	// messages off the wire. When using gossip queries, this ensures
-	// a gossip syncer is active by the time query messages arrive.
+	// Initialize our negotiated gossip sync method before reading messages
+	// off the wire. When using gossip queries, this ensures a gossip
+	// syncer is active by the time query messages arrive.
 	//
 	// TODO(conner): have peer store gossip syncer directly and bypass
 	// gossiper?
@@ -2146,23 +2146,33 @@ func (p *peer) WipeChannel(chanPoint *wire.OutPoint) error {
 // handleInitMsg handles the incoming init message which contains global and
 // local features vectors. If feature vectors are incompatible then disconnect.
 func (p *peer) handleInitMsg(msg *lnwire.Init) error {
-	p.remoteLocalFeatures = lnwire.NewFeatureVector(msg.LocalFeatures,
-		lnwire.LocalFeatures)
-	p.remoteGlobalFeatures = lnwire.NewFeatureVector(msg.GlobalFeatures,
-		lnwire.GlobalFeatures)
+	p.remoteLocalFeatures = lnwire.NewFeatureVector(
+		msg.LocalFeatures, lnwire.LocalFeatures,
+	)
+	p.remoteGlobalFeatures = lnwire.NewFeatureVector(
+		msg.GlobalFeatures, lnwire.GlobalFeatures,
+	)
 
+	// Now that we have their features loaded, we'll ensure that they
+	// didn't set any required bits that we don't know of.
 	unknownLocalFeatures := p.remoteLocalFeatures.UnknownRequiredFeatures()
 	if len(unknownLocalFeatures) > 0 {
 		err := fmt.Errorf("Peer set unknown local feature bits: %v",
 			unknownLocalFeatures)
 		return err
 	}
-
 	unknownGlobalFeatures := p.remoteGlobalFeatures.UnknownRequiredFeatures()
 	if len(unknownGlobalFeatures) > 0 {
 		err := fmt.Errorf("Peer set unknown global feature bits: %v",
 			unknownGlobalFeatures)
 		return err
+	}
+
+	// Now that we know we understand their requirements, we'll check to
+	// see if they don't support anything that we deem to be mandatory.
+	switch {
+	case !p.remoteLocalFeatures.HasFeature(lnwire.DataLossProtectRequired):
+		return fmt.Errorf("data loss protection required")
 	}
 
 	return nil

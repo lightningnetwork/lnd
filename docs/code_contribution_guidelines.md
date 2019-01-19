@@ -11,6 +11,7 @@
 4.6. [Code Spacing](#CodeSpacing)<br />
 4.7. [Protobuf Compilation](#Protobuf)<br />
 4.8. [Additional Style Constraints On Top of gofmt](ExtraGoFmtStyle)<br />
+4.9. [Pointing to Remote Dependant Branches in Go Modules](ModulesReplace)<br />
 5. [Code Approval Process](#CodeApproval)<br />
 5.1. [Code Review](#CodeReview)<br />
 5.2. [Rework Code (if needed)](#CodeRework)<br />
@@ -505,6 +506,25 @@ to `gofmt` we've opted to enforce the following style guidelines.
 Note that the above guidelines don't apply to log messages. For log messages,
 committers should attempt to minimize the of number lines utilized, while still
 adhering to the 80-character column limit.
+
+<a name="ModulesReplace" />
+
+#### 4.9 Pointing to Remote Dependant Branches in Go Modules
+
+It's common that a developer may need to make a change in a dependent project
+of `lnd` such as `btcd`, `neutrino`, `btcwallet`, etc. In order to test changes
+with out testing infrastructure, or simply make a PR into `lnd` that will build
+without any further work, the `go.mod` and `go.sum` files will need to be
+updated. Luckily, the `go mod` command has a handy tool to do this
+automatically so developers don't need to manually edit the `go.mod` file:
+```
+ go mod edit -replace=IMPORT-PATH-IN-LND@LND-VERSION=DEV-FORK-IMPORT-PATH@DEV-FORK-VERSION
+```
+
+Here's an example replacing the `lightning-onion` version checked into `lnd` with a version in roasbeef's fork:
+```
+ go mod edit -replace=github.com/lightningnetwork/lightning-onion@v0.0.0-20180605012408-ac4d9da8f1d6=github.com/roasbeef/lightning-onion@2e5ae87696046298365ab43bcd1cf3a7a1d69695
+```
 
 <a name="CodeApproval" />
 

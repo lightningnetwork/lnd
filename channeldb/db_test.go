@@ -395,6 +395,22 @@ func TestRestoreChannelShells(t *testing.T) {
 			"pubkey: %v", err)
 	}
 
+	// Ensure that it isn't possible to modify the commitment state machine
+	// of this restored channel.
+	channel := nodeChans[0]
+	err = channel.UpdateCommitment(nil)
+	if err != ErrNoRestoredChannelMutation {
+		t.Fatalf("able to mutate restored channel")
+	}
+	err = channel.AppendRemoteCommitChain(nil)
+	if err != ErrNoRestoredChannelMutation {
+		t.Fatalf("able to mutate restored channel")
+	}
+	err = channel.AdvanceCommitChainTail(nil)
+	if err != ErrNoRestoredChannelMutation {
+		t.Fatalf("able to mutate restored channel")
+	}
+
 	// That single channel should have the proper channel point, and also
 	// the expected set of flags to indicate that it was a restored
 	// channel.

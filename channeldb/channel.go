@@ -102,6 +102,11 @@ var (
 	// ErrNoCommitPoint is returned when no data loss commit point is found
 	// in the database.
 	ErrNoCommitPoint = fmt.Errorf("no commit point found")
+
+	// ErrNoRestoredChannelMutation is returned when a caller attempts to
+	// mutate a channel that's been recovered.
+	ErrNoRestoredChannelMutation = fmt.Errorf("cannot mutate restored " +
+		"channel state")
 )
 
 // ChannelType is an enum-like type that describes one of several possible
@@ -958,6 +963,13 @@ func (c *OpenChannel) UpdateCommitment(newCommitment *ChannelCommitment) error {
 	c.Lock()
 	defer c.Unlock()
 
+	// If this is a restored channel, then we want to avoid mutating the
+	// state as all, as it's impossible to do so in a protocol compliant
+	// manner.
+	if c.hasChanStatus(ChanStatusRestored) {
+		return ErrNoRestoredChannelMutation
+	}
+
 	err := c.Db.Update(func(tx *bbolt.Tx) error {
 		chanBucket, err := fetchChanBucket(
 			tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
@@ -1379,6 +1391,13 @@ func (c *OpenChannel) AppendRemoteCommitChain(diff *CommitDiff) error {
 	c.Lock()
 	defer c.Unlock()
 
+	// If this is a restored channel, then we want to avoid mutating the
+	// state as all, as it's impossible to do so in a protocol compliant
+	// manner.
+	if c.hasChanStatus(ChanStatusRestored) {
+		return ErrNoRestoredChannelMutation
+	}
+
 	return c.Db.Update(func(tx *bbolt.Tx) error {
 		// First, we'll grab the writable bucket where this channel's
 		// data resides.
@@ -1502,6 +1521,13 @@ func (c *OpenChannel) InsertNextRevocation(revKey *btcec.PublicKey) error {
 func (c *OpenChannel) AdvanceCommitChainTail(fwdPkg *FwdPkg) error {
 	c.Lock()
 	defer c.Unlock()
+
+	// If this is a restored channel, then we want to avoid mutating the
+	// state as all, as it's impossible to do so in a protocol compliant
+	// manner.
+	if c.hasChanStatus(ChanStatusRestored) {
+		return ErrNoRestoredChannelMutation
+	}
 
 	var newRemoteCommit *ChannelCommitment
 

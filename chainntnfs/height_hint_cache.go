@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"errors"
 
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/wire"
 	bolt "github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lnd/channeldb"
 )
@@ -51,16 +49,16 @@ var (
 // which an outpoint could have been spent within.
 type SpendHintCache interface {
 	// CommitSpendHint commits a spend hint for the outpoints to the cache.
-	CommitSpendHint(height uint32, ops ...wire.OutPoint) error
+	CommitSpendHint(height uint32, spendRequests ...SpendRequest) error
 
 	// QuerySpendHint returns the latest spend hint for an outpoint.
 	// ErrSpendHintNotFound is returned if a spend hint does not exist
 	// within the cache for the outpoint.
-	QuerySpendHint(op wire.OutPoint) (uint32, error)
+	QuerySpendHint(spendRequest SpendRequest) (uint32, error)
 
 	// PurgeSpendHint removes the spend hint for the outpoints from the
 	// cache.
-	PurgeSpendHint(ops ...wire.OutPoint) error
+	PurgeSpendHint(spendRequests ...SpendRequest) error
 }
 
 // ConfirmHintCache is an interface whose duty is to cache confirm hints for
@@ -69,16 +67,16 @@ type SpendHintCache interface {
 type ConfirmHintCache interface {
 	// CommitConfirmHint commits a confirm hint for the transactions to the
 	// cache.
-	CommitConfirmHint(height uint32, txids ...chainhash.Hash) error
+	CommitConfirmHint(height uint32, confRequests ...ConfRequest) error
 
 	// QueryConfirmHint returns the latest confirm hint for a transaction
 	// hash. ErrConfirmHintNotFound is returned if a confirm hint does not
 	// exist within the cache for the transaction hash.
-	QueryConfirmHint(txid chainhash.Hash) (uint32, error)
+	QueryConfirmHint(confRequest ConfRequest) (uint32, error)
 
 	// PurgeConfirmHint removes the confirm hint for the transactions from
 	// the cache.
-	PurgeConfirmHint(txids ...chainhash.Hash) error
+	PurgeConfirmHint(confRequests ...ConfRequest) error
 }
 
 // HeightHintCache is an implementation of the SpendHintCache and
@@ -118,12 +116,15 @@ func (c *HeightHintCache) initBuckets() error {
 }
 
 // CommitSpendHint commits a spend hint for the outpoints to the cache.
-func (c *HeightHintCache) CommitSpendHint(height uint32, ops ...wire.OutPoint) error {
-	if len(ops) == 0 {
+func (c *HeightHintCache) CommitSpendHint(height uint32,
+	spendRequests ...SpendRequest) error {
+
+	if len(spendRequests) == 0 {
 		return nil
 	}
 
-	Log.Tracef("Updating spend hint to height %d for %v", height, ops)
+	Log.Tracef("Updating spend hint to height %d for %v", height,
+		spendRequests)
 
 	return c.db.Batch(func(tx *bolt.Tx) error {
 		spendHints := tx.Bucket(spendHintBucket)
@@ -136,14 +137,12 @@ func (c *HeightHintCache) CommitSpendHint(height uint32, ops ...wire.OutPoint) e
 			return err
 		}
 
-		for _, op := range ops {
-			var outpoint bytes.Buffer
-			err := channeldb.WriteElement(&outpoint, op)
+		for _, spendRequest := range spendRequests {
+			spendHintKey, err := spendRequest.SpendHintKey()
 			if err != nil {
 				return err
 			}
-
-			err = spendHints.Put(outpoint.Bytes(), hint.Bytes())
+			err = spendHints.Put(spendHintKey, hint.Bytes())
 			if err != nil {
 				return err
 			}
@@ -156,7 +155,7 @@ func (c *HeightHintCache) CommitSpendHint(height uint32, ops ...wire.OutPoint) e
 // QuerySpendHint returns the latest spend hint for an outpoint.
 // ErrSpendHintNotFound is returned if a spend hint does not exist within the
 // cache for the outpoint.
-func (c *HeightHintCache) QuerySpendHint(op wire.OutPoint) (uint32, error) {
+func (c *HeightHintCache) QuerySpendHint(spendRequest SpendRequest) (uint32, error) {
 	var hint uint32
 	err := c.db.View(func(tx *bolt.Tx) error {
 		spendHints := tx.Bucket(spendHintBucket)
@@ -164,12 +163,11 @@ func (c *HeightHintCache) QuerySpendHint(op wire.OutPoint) (uint32, error) {
 			return ErrCorruptedHeightHintCache
 		}
 
-		var outpoint bytes.Buffer
-		if err := channeldb.WriteElement(&outpoint, op); err != nil {
+		spendHintKey, err := spendRequest.SpendHintKey()
+		if err != nil {
 			return err
 		}
-
-		spendHint := spendHints.Get(outpoint.Bytes())
+		spendHint := spendHints.Get(spendHintKey)
 		if spendHint == nil {
 			return ErrSpendHintNotFound
 		}
@@ -184,12 +182,12 @@ func (c *HeightHintCache) QuerySpendHint(op wire.OutPoint) (uint32, error) {
 }
 
 // PurgeSpendHint removes the spend hint for the outpoints from the cache.
-func (c *HeightHintCache) PurgeSpendHint(ops ...wire.OutPoint) error {
-	if len(ops) == 0 {
+func (c *HeightHintCache) PurgeSpendHint(spendRequests ...SpendRequest) error {
+	if len(spendRequests) == 0 {
 		return nil
 	}
 
-	Log.Tracef("Removing spend hints for %v", ops)
+	Log.Tracef("Removing spend hints for %v", spendRequests)
 
 	return c.db.Batch(func(tx *bolt.Tx) error {
 		spendHints := tx.Bucket(spendHintBucket)
@@ -197,15 +195,12 @@ func (c *HeightHintCache) PurgeSpendHint(ops ...wire.OutPoint) error {
 			return ErrCorruptedHeightHintCache
 		}
 
-		for _, op := range ops {
-			var outpoint bytes.Buffer
-			err := channeldb.WriteElement(&outpoint, op)
+		for _, spendRequest := range spendRequests {
+			spendHintKey, err := spendRequest.SpendHintKey()
 			if err != nil {
 				return err
 			}
-
-			err = spendHints.Delete(outpoint.Bytes())
-			if err != nil {
+			if err := spendHints.Delete(spendHintKey); err != nil {
 				return err
 			}
 		}
@@ -215,12 +210,15 @@ func (c *HeightHintCache) PurgeSpendHint(ops ...wire.OutPoint) error {
 }
 
 // CommitConfirmHint commits a confirm hint for the transactions to the cache.
-func (c *HeightHintCache) CommitConfirmHint(height uint32, txids ...chainhash.Hash) error {
-	if len(txids) == 0 {
+func (c *HeightHintCache) CommitConfirmHint(height uint32,
+	confRequests ...ConfRequest) error {
+
+	if len(confRequests) == 0 {
 		return nil
 	}
 
-	Log.Tracef("Updating confirm hints to height %d for %v", height, txids)
+	Log.Tracef("Updating confirm hints to height %d for %v", height,
+		confRequests)
 
 	return c.db.Batch(func(tx *bolt.Tx) error {
 		confirmHints := tx.Bucket(confirmHintBucket)
@@ -233,14 +231,12 @@ func (c *HeightHintCache) CommitConfirmHint(height uint32, txids ...chainhash.Ha
 			return err
 		}
 
-		for _, txid := range txids {
-			var txHash bytes.Buffer
-			err := channeldb.WriteElement(&txHash, txid)
+		for _, confRequest := range confRequests {
+			confHintKey, err := confRequest.ConfHintKey()
 			if err != nil {
 				return err
 			}
-
-			err = confirmHints.Put(txHash.Bytes(), hint.Bytes())
+			err = confirmHints.Put(confHintKey, hint.Bytes())
 			if err != nil {
 				return err
 			}
@@ -253,7 +249,7 @@ func (c *HeightHintCache) CommitConfirmHint(height uint32, txids ...chainhash.Ha
 // QueryConfirmHint returns the latest confirm hint for a transaction hash.
 // ErrConfirmHintNotFound is returned if a confirm hint does not exist within
 // the cache for the transaction hash.
-func (c *HeightHintCache) QueryConfirmHint(txid chainhash.Hash) (uint32, error) {
+func (c *HeightHintCache) QueryConfirmHint(confRequest ConfRequest) (uint32, error) {
 	var hint uint32
 	err := c.db.View(func(tx *bolt.Tx) error {
 		confirmHints := tx.Bucket(confirmHintBucket)
@@ -261,12 +257,11 @@ func (c *HeightHintCache) QueryConfirmHint(txid chainhash.Hash) (uint32, error) 
 			return ErrCorruptedHeightHintCache
 		}
 
-		var txHash bytes.Buffer
-		if err := channeldb.WriteElement(&txHash, txid); err != nil {
+		confHintKey, err := confRequest.ConfHintKey()
+		if err != nil {
 			return err
 		}
-
-		confirmHint := confirmHints.Get(txHash.Bytes())
+		confirmHint := confirmHints.Get(confHintKey)
 		if confirmHint == nil {
 			return ErrConfirmHintNotFound
 		}
@@ -282,12 +277,12 @@ func (c *HeightHintCache) QueryConfirmHint(txid chainhash.Hash) (uint32, error) 
 
 // PurgeConfirmHint removes the confirm hint for the transactions from the
 // cache.
-func (c *HeightHintCache) PurgeConfirmHint(txids ...chainhash.Hash) error {
-	if len(txids) == 0 {
+func (c *HeightHintCache) PurgeConfirmHint(confRequests ...ConfRequest) error {
+	if len(confRequests) == 0 {
 		return nil
 	}
 
-	Log.Tracef("Removing confirm hints for %v", txids)
+	Log.Tracef("Removing confirm hints for %v", confRequests)
 
 	return c.db.Batch(func(tx *bolt.Tx) error {
 		confirmHints := tx.Bucket(confirmHintBucket)
@@ -295,15 +290,12 @@ func (c *HeightHintCache) PurgeConfirmHint(txids ...chainhash.Hash) error {
 			return ErrCorruptedHeightHintCache
 		}
 
-		for _, txid := range txids {
-			var txHash bytes.Buffer
-			err := channeldb.WriteElement(&txHash, txid)
+		for _, confRequest := range confRequests {
+			confHintKey, err := confRequest.ConfHintKey()
 			if err != nil {
 				return err
 			}
-
-			err = confirmHints.Delete(txHash.Bytes())
-			if err != nil {
+			if err := confirmHints.Delete(confHintKey); err != nil {
 				return err
 			}
 		}

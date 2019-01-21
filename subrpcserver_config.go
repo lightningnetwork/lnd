@@ -6,6 +6,7 @@ import (
 
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/lnrpc/autopilotrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/chainrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
@@ -31,6 +32,11 @@ type subRPCServerConfigs struct {
 	// AutopilotRPC is a sub-RPC server that exposes methods on the running
 	// autopilot as a gRPC service.
 	AutopilotRPC *autopilotrpc.Config `group:"autopilotrpc" namespace:"autopilotrpc"`
+
+	// ChainRPC is a sub-RPC server that exposes functionality allowing a
+	// client to be notified of certain on-chain events (new blocks,
+	// confirmations, spends).
+	ChainRPC *chainrpc.Config `group:"chainrpc" namespace:"chainrpc"`
 }
 
 // PopulateDependencies attempts to iterate through all the sub-server configs
@@ -104,6 +110,19 @@ func (s *subRPCServerConfigs) PopulateDependencies(cc *chainControl,
 
 			subCfgValue.FieldByName("Manager").Set(
 				reflect.ValueOf(atpl),
+			)
+
+		case *chainrpc.Config:
+			subCfgValue := extractReflectValue(cfg)
+
+			subCfgValue.FieldByName("NetworkDir").Set(
+				reflect.ValueOf(networkDir),
+			)
+			subCfgValue.FieldByName("MacService").Set(
+				reflect.ValueOf(macService),
+			)
+			subCfgValue.FieldByName("ChainNotifier").Set(
+				reflect.ValueOf(cc.chainNotifier),
 			)
 
 		default:

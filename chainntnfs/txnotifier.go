@@ -1,13 +1,16 @@
 package chainntnfs
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"sync"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
+	"github.com/lightningnetwork/lnd/channeldb"
 )
 
 const (
@@ -21,6 +24,20 @@ const (
 	// MaxNumConfs is the maximum number of confirmations that can be
 	// requested on a transaction.
 	MaxNumConfs = ReorgSafetyLimit
+)
+
+var (
+	// ZeroHash is the value that should be used as the txid when
+	// registering for the confirmation of a script on-chain. This allows
+	// the notifier to match _and_ dispatch upon the inclusion of the script
+	// on-chain, rather than the txid.
+	ZeroHash chainhash.Hash
+
+	// ZeroOutPoint is the value that should be used as the outpoint when
+	// registering for the spend of a script on-chain. This allows the
+	// notifier to match _and_ dispatch upon detecting the spend of the
+	// script on-chain, rather than the outpoint.
+	ZeroOutPoint wire.OutPoint
 )
 
 var (
@@ -56,21 +73,23 @@ const (
 )
 
 // confNtfnSet holds all known, registered confirmation notifications for a
-// single txid. If duplicates notifications are requested, only one historical
-// dispatch will be spawned to ensure redundant scans are not permitted. A
-// single conf detail will be constructed and dispatched to all interested
+// txid/output script. If duplicates notifications are requested, only one
+// historical dispatch will be spawned to ensure redundant scans are not
+// permitted. A single conf detail will be constructed and dispatched to all
+// interested
 // clients.
 type confNtfnSet struct {
 	// ntfns keeps tracks of all the active client notification requests for
-	// a transaction.
+	// a transaction/output script
 	ntfns map[uint64]*ConfNtfn
 
-	// rescanStatus represents the current rescan state for the transaction.
+	// rescanStatus represents the current rescan state for the
+	// transaction/output script.
 	rescanStatus rescanState
 
 	// details serves as a cache of the confirmation details of a
-	// transaction that we'll use to determine if a transaction has already
-	// confirmed at the time of registration.
+	// transaction that we'll use to determine if a transaction/output
+	// script has already confirmed at the time of registration.
 	details *TxConfirmation
 }
 
@@ -83,20 +102,22 @@ func newConfNtfnSet() *confNtfnSet {
 	}
 }
 
-// spendNtfnSet holds all known, registered spend notifications for an outpoint.
-// If duplicate notifications are requested, only one historical dispatch will
-// be spawned to ensure redundant scans are not permitted.
+// spendNtfnSet holds all known, registered spend notifications for a spend
+// request (outpoint/output script). If duplicate notifications are requested,
+// only one historical dispatch will be spawned to ensure redundant scans are
+// not permitted.
 type spendNtfnSet struct {
 	// ntfns keeps tracks of all the active client notification requests for
-	// an outpoint.
+	// an outpoint/output script.
 	ntfns map[uint64]*SpendNtfn
 
-	// rescanStatus represents the current rescan state for the outpoint.
+	// rescanStatus represents the current rescan state for the spend
+	// request (outpoint/output script).
 	rescanStatus rescanState
 
-	// details serves as a cache of the spend details for an outpoint that
-	// we'll use to determine if an outpoint has already been spent at the
-	// time of registration.
+	// details serves as a cache of the spend details for an outpoint/output
+	// script that we'll use to determine if it has already been spent at
+	// the time of registration.
 	details *SpendDetail
 }
 
@@ -108,24 +129,94 @@ func newSpendNtfnSet() *spendNtfnSet {
 	}
 }
 
-// ConfNtfn represents a notifier client's request to receive a notification
-// once the target transaction gets sufficient confirmations. The client is
-// asynchronously notified via the ConfirmationEvent channels.
-type ConfNtfn struct {
-	// ConfID uniquely identifies the confirmation notification request for
-	// the specified transaction.
-	ConfID uint64
-
-	// TxID is the hash of the transaction for which confirmation notifications
-	// are requested.
-	TxID *chainhash.Hash
+// ConfRequest encapsulates a request for a confirmation notification of either
+// a txid or output script.
+type ConfRequest struct {
+	// TxID is the hash of the transaction for which confirmation
+	// notifications are requested. If set to a zero hash, then a
+	// confirmation notification will be dispatched upon inclusion of the
+	// _script_, rather than the txid.
+	TxID chainhash.Hash
 
 	// PkScript is the public key script of an outpoint created in this
 	// transaction.
-	//
-	// NOTE: This value MUST be set when the dispatch is to be performed
-	// using compact filters.
-	PkScript []byte
+	PkScript txscript.PkScript
+}
+
+// NewConfRequest creates a request for a confirmation notification of either a
+// txid or output script. A nil txid or an allocated ZeroHash can be used to
+// dispatch the confirmation notification on the script.
+func NewConfRequest(txid *chainhash.Hash, pkScript []byte) (ConfRequest, error) {
+	var r ConfRequest
+	outputScript, err := txscript.ParsePkScript(pkScript)
+	if err != nil {
+		return r, err
+	}
+
+	// We'll only set a txid for which we'll dispatch a confirmation
+	// notification on this request if one was provided. Otherwise, we'll
+	// default to dispatching on the confirmation of the script instead.
+	if txid != nil {
+		r.TxID = *txid
+	}
+	r.PkScript = outputScript
+
+	return r, nil
+}
+
+// String returns the string representation of the ConfRequest.
+func (r ConfRequest) String() string {
+	if r.TxID != ZeroHash {
+		return fmt.Sprintf("txid=%v", r.TxID)
+	}
+	return fmt.Sprintf("script=%v", r.PkScript)
+}
+
+// ConfHintKey returns the key that will be used to index the confirmation
+// request's hint within the height hint cache.
+func (r ConfRequest) ConfHintKey() ([]byte, error) {
+	if r.TxID == ZeroHash {
+		return r.PkScript.Script(), nil
+	}
+
+	var txid bytes.Buffer
+	if err := channeldb.WriteElement(&txid, r.TxID); err != nil {
+		return nil, err
+	}
+
+	return txid.Bytes(), nil
+}
+
+// MatchesTx determines whether the given transaction satisfies the confirmation
+// request. If the confirmation request is for a script, then we'll check all of
+// the outputs of the transaction to determine if it matches. Otherwise, we'll
+// match on the txid.
+func (r ConfRequest) MatchesTx(tx *wire.MsgTx) bool {
+	if r.TxID != ZeroHash {
+		return r.TxID == tx.TxHash()
+	}
+
+	pkScript := r.PkScript.Script()
+	for _, txOut := range tx.TxOut {
+		if bytes.Equal(txOut.PkScript, pkScript) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// ConfNtfn represents a notifier client's request to receive a notification
+// once the target transaction/ouput script gets sufficient confirmations. The
+// client is asynchronously notified via the ConfirmationEvent channels.
+type ConfNtfn struct {
+	// ConfID uniquely identifies the confirmation notification request for
+	// the specified transaction/output script.
+	ConfID uint64
+
+	// ConfRequest represents either the txid or script we should detect
+	// inclusion of within the chain.
+	ConfRequest
 
 	// NumConfirmations is the number of confirmations after which the
 	// notification is to be sent.
@@ -144,18 +235,12 @@ type ConfNtfn struct {
 }
 
 // HistoricalConfDispatch parameterizes a manual rescan for a particular
-// transaction identifier. The parameters include the start and end block
+// transaction/output script. The parameters include the start and end block
 // heights specifying the range of blocks to scan.
 type HistoricalConfDispatch struct {
-	// TxID is the transaction ID to search for in the historical dispatch.
-	TxID *chainhash.Hash
-
-	// PkScript is a public key script from an output created by this
-	// transaction.
-	//
-	// NOTE: This value MUST be set when the dispatch is to be performed
-	// using compact filters.
-	PkScript []byte
+	// ConfRequest represents either the txid or script we should detect
+	// inclusion of within the chain.
+	ConfRequest
 
 	// StartHeight specifies the block height at which to being the
 	// historical rescan.
@@ -166,30 +251,121 @@ type HistoricalConfDispatch struct {
 	EndHeight uint32
 }
 
-// SpendNtfn represents a client's request to receive a notification once an
-// outpoint has been spent on-chain. The client is asynchronously notified via
-// the SpendEvent channels.
-type SpendNtfn struct {
-	// SpendID uniquely identies the spend notification request for the
-	// specified outpoint.
-	SpendID uint64
-
+// SpendRequest encapsulates a request for a spend notification of either an
+// outpoint or output script.
+type SpendRequest struct {
 	// OutPoint is the outpoint for which a client has requested a spend
-	// notification for.
+	// notification for. If set to a zero outpoint, then a spend
+	// notification will be dispatched upon detecting the spend of the
+	// _script_, rather than the outpoint.
 	OutPoint wire.OutPoint
 
-	// PkScript is the script of the outpoint. This is needed in order to
-	// match compact filters when attempting a historical rescan to
-	// determine if the outpoint has already been spent.
-	PkScript []byte
+	// PkScript is the script of the outpoint. If a zero outpoint is set,
+	// then this can be an arbitrary script.
+	PkScript txscript.PkScript
+}
+
+// NewSpendRequest creates a request for a spend notification of either an
+// outpoint or output script. A nil outpoint or an allocated ZeroOutPoint can be
+// used to dispatch the confirmation notification on the script.
+func NewSpendRequest(op *wire.OutPoint, pkScript []byte) (SpendRequest, error) {
+	var r SpendRequest
+	outputScript, err := txscript.ParsePkScript(pkScript)
+	if err != nil {
+		return r, err
+	}
+
+	// We'll only set an outpoint for which we'll dispatch a spend
+	// notification on this request if one was provided. Otherwise, we'll
+	// default to dispatching on the spend of the script instead.
+	if op != nil {
+		r.OutPoint = *op
+	}
+	r.PkScript = outputScript
+
+	return r, nil
+}
+
+// String returns the string representation of the SpendRequest.
+func (r SpendRequest) String() string {
+	if r.OutPoint != ZeroOutPoint {
+		return fmt.Sprintf("outpoint=%v", r.OutPoint)
+	}
+	return fmt.Sprintf("script=%v", r.PkScript)
+}
+
+// SpendHintKey returns the key that will be used to index the spend request's
+// hint within the height hint cache.
+func (r SpendRequest) SpendHintKey() ([]byte, error) {
+	if r.OutPoint == ZeroOutPoint {
+		return r.PkScript.Script(), nil
+	}
+
+	var outpoint bytes.Buffer
+	err := channeldb.WriteElement(&outpoint, r.OutPoint)
+	if err != nil {
+		return nil, err
+	}
+
+	return outpoint.Bytes(), nil
+}
+
+// MatchesTx determines whether the given transaction satisfies the spend
+// request. If the spend request is for an outpoint, then we'll check all of
+// the outputs being spent by the inputs of the transaction to determine if it
+// matches. Otherwise, we'll need to match on the output script being spent, so
+// we'll recompute it for each input of the transaction to determine if it
+// matches.
+func (r SpendRequest) MatchesTx(tx *wire.MsgTx) (bool, uint32, error) {
+	if r.OutPoint != ZeroOutPoint {
+		for i, txIn := range tx.TxIn {
+			if txIn.PreviousOutPoint == r.OutPoint {
+				return true, uint32(i), nil
+			}
+		}
+
+		return false, 0, nil
+	}
+
+	for i, txIn := range tx.TxIn {
+		pkScript, err := txscript.ComputePkScript(
+			txIn.SignatureScript, txIn.Witness,
+		)
+		if err == txscript.ErrUnsupportedScriptType {
+			continue
+		}
+		if err != nil {
+			return false, 0, err
+		}
+
+		if bytes.Equal(pkScript.Script(), r.PkScript.Script()) {
+			return true, uint32(i), nil
+		}
+	}
+
+	return false, 0, nil
+}
+
+// SpendNtfn represents a client's request to receive a notification once an
+// outpoint/output script has been spent on-chain. The client is asynchronously
+// notified via the SpendEvent channels.
+type SpendNtfn struct {
+	// SpendID uniquely identies the spend notification request for the
+	// specified outpoint/output script.
+	SpendID uint64
+
+	// SpendRequest represents either the outpoint or script we should
+	// detect the spend of.
+	SpendRequest
 
 	// Event contains references to the channels that the notifications are
 	// to be sent over.
 	Event *SpendEvent
 
 	// HeightHint is the earliest height in the chain that we expect to find
-	// the spending transaction of the specified outpoint. This value will
-	// be overridden by the spend hint cache if it contains an entry for it.
+	// the spending transaction of the specified outpoint/output script.
+	// This value will be overridden by the spend hint cache if it contains
+	// an entry for it.
 	HeightHint uint32
 
 	// dispatched signals whether a spend notification has been disptached
@@ -198,15 +374,13 @@ type SpendNtfn struct {
 }
 
 // HistoricalSpendDispatch parameterizes a manual rescan to determine the
-// spending details (if any) of an outpoint. The parameters include the start
-// and end block heights specifying the range of blocks to scan.
+// spending details (if any) of an outpoint/output script. The parameters
+// include the start and end block heights specifying the range of blocks to
+// scan.
 type HistoricalSpendDispatch struct {
-	// OutPoint is the outpoint which we should attempt to find the spending
-	OutPoint wire.OutPoint
-
-	// PkScript is the script of the outpoint. This is needed in order to
-	// match compact filters when attempting a historical rescan.
-	PkScript []byte
+	// SpendRequest represents either the outpoint or script we should
+	// detect the spend of.
+	SpendRequest
 
 	// StartHeight specified the block height at which to begin the
 	// historical rescan.
@@ -219,9 +393,9 @@ type HistoricalSpendDispatch struct {
 
 // TxNotifier is a struct responsible for delivering transaction notifications
 // to subscribers. These notifications can be of two different types:
-// transaction confirmations and/or outpoint spends. The TxNotifier will watch
-// the blockchain as new blocks come in, in order to satisfy its client
-// requests.
+// transaction/output script confirmations and/or outpoint/output script spends.
+// The TxNotifier will watch the blockchain as new blocks come in, in order to
+// satisfy its client requests.
 type TxNotifier struct {
 	// currentHeight is the height of the tracked blockchain. It is used to
 	// determine the number of confirmations a tx has and ensure blocks are
@@ -240,38 +414,41 @@ type TxNotifier struct {
 	// blocks are disconnected without being interrupted by a new block.
 	reorgDepth uint32
 
-	// confNotifications is an index of notification requests by transaction
-	// hash.
-	confNotifications map[chainhash.Hash]*confNtfnSet
+	// confNotifications is an index of confirmation notification requests
+	// by transaction hash/output script.
+	confNotifications map[ConfRequest]*confNtfnSet
 
-	// txsByInitialHeight is an index of watched transactions by the height
-	// that they are included at in the blockchain. This is tracked so that
-	// incorrect notifications are not sent if a transaction is reorged out
-	// of the chain and so that negative confirmations can be recognized.
-	txsByInitialHeight map[uint32]map[chainhash.Hash]struct{}
+	// confsByInitialHeight is an index of watched transactions/output
+	// scripts by the height that they are included at in the chain. This
+	// is tracked so that incorrect notifications are not sent if a
+	// transaction/output script is reorged out of the chain and so that
+	// negative confirmations can be recognized.
+	confsByInitialHeight map[uint32]map[ConfRequest]struct{}
 
 	// ntfnsByConfirmHeight is an index of notification requests by the
-	// height at which the transaction will have sufficient confirmations.
+	// height at which the transaction/output script will have sufficient
+	// confirmations.
 	ntfnsByConfirmHeight map[uint32]map[*ConfNtfn]struct{}
 
 	// spendNotifications is an index of all active notification requests
-	// per outpoint.
-	spendNotifications map[wire.OutPoint]*spendNtfnSet
+	// per outpoint/output script.
+	spendNotifications map[SpendRequest]*spendNtfnSet
 
-	// opsBySpendHeight is an index that keeps tracks of the spending height
-	// of an outpoint we are currently tracking notifications for. This is
-	// used in order to recover from the spending transaction of an outpoint
+	// spendsByHeight is an index that keeps tracks of the spending height
+	// of outpoints/output scripts we are currently tracking notifications
+	// for. This is used in order to recover from spending transactions
 	// being reorged out of the chain.
-	opsBySpendHeight map[uint32]map[wire.OutPoint]struct{}
+	spendsByHeight map[uint32]map[SpendRequest]struct{}
 
 	// confirmHintCache is a cache used to maintain the latest height hints
-	// for transactions. Each height hint represents the earliest height at
-	// which the transactions could have been confirmed within the chain.
+	// for transactions/output scripts. Each height hint represents the
+	// earliest height at which they scripts could have been confirmed
+	// within the chain.
 	confirmHintCache ConfirmHintCache
 
 	// spendHintCache is a cache used to maintain the latest height hints
-	// for outpoints. Each height hint represents the earliest height at
-	// which the outpoints could have been spent within the chain.
+	// for outpoints/output scripts. Each height hint represents the
+	// earliest height at which they could have been spent within the chain.
 	spendHintCache SpendHintCache
 
 	// quit is closed in order to signal that the notifier is gracefully
@@ -292,39 +469,43 @@ func NewTxNotifier(startHeight uint32, reorgSafetyLimit uint32,
 	return &TxNotifier{
 		currentHeight:        startHeight,
 		reorgSafetyLimit:     reorgSafetyLimit,
-		confNotifications:    make(map[chainhash.Hash]*confNtfnSet),
-		txsByInitialHeight:   make(map[uint32]map[chainhash.Hash]struct{}),
+		confNotifications:    make(map[ConfRequest]*confNtfnSet),
+		confsByInitialHeight: make(map[uint32]map[ConfRequest]struct{}),
 		ntfnsByConfirmHeight: make(map[uint32]map[*ConfNtfn]struct{}),
-		spendNotifications:   make(map[wire.OutPoint]*spendNtfnSet),
-		opsBySpendHeight:     make(map[uint32]map[wire.OutPoint]struct{}),
+		spendNotifications:   make(map[SpendRequest]*spendNtfnSet),
+		spendsByHeight:       make(map[uint32]map[SpendRequest]struct{}),
 		confirmHintCache:     confirmHintCache,
 		spendHintCache:       spendHintCache,
 		quit:                 make(chan struct{}),
 	}
 }
 
-// RegisterConf handles a new notification request. The client will be notified
-// when the transaction gets a sufficient number of confirmations on the
-// blockchain. The registration succeeds if no error is returned. If the
-// returned HistoricalConfDispatch is non-nil, the caller is responsible for
-// attempting to manually rescan blocks for the txid between the start and end
-// heights.
+// RegisterConf handles a new confirmation notification request. The client will
+// be notified when the transaction/output script gets a sufficient number of
+// confirmations in the blockchain. The registration succeeds if no error is
+// returned. If the returned HistoricalConfDispatch is non-nil, the caller is
+// responsible for attempting to manually rescan blocks for the txid/output
+// script between the start and end heights. The notifier's current height is
+// also returned so that backends can request to be notified of confirmations
+// from this point forwards.
 //
-// NOTE: If the transaction has already been included in a block on the chain,
-// the confirmation details must be provided with the UpdateConfDetails method,
-// otherwise we will wait for the transaction to confirm even though it already
-// has.
-func (n *TxNotifier) RegisterConf(ntfn *ConfNtfn) (*HistoricalConfDispatch, error) {
+// NOTE: If the transaction/output script has already been included in a block
+// on the chain, the confirmation details must be provided with the
+// UpdateConfDetails method, otherwise we will wait for the transaction/output
+// script to confirm even though it already has.
+func (n *TxNotifier) RegisterConf(ntfn *ConfNtfn) (*HistoricalConfDispatch,
+	uint32, error) {
+
 	select {
 	case <-n.quit:
-		return nil, ErrTxNotifierExiting
+		return nil, 0, ErrTxNotifierExiting
 	default:
 	}
 
 	// Enforce that we will not dispatch confirmations beyond the reorg
 	// safety limit.
 	if ntfn.NumConfirmations > n.reorgSafetyLimit {
-		return nil, ErrTxMaxConfs
+		return nil, 0, ErrTxMaxConfs
 	}
 
 	// Before proceeding to register the notification, we'll query our
@@ -332,77 +513,84 @@ func (n *TxNotifier) RegisterConf(ntfn *ConfNtfn) (*HistoricalConfDispatch, erro
 	//
 	// TODO(conner): verify that all submitted height hints are identical.
 	startHeight := ntfn.HeightHint
-	hint, err := n.confirmHintCache.QueryConfirmHint(*ntfn.TxID)
+	hint, err := n.confirmHintCache.QueryConfirmHint(ntfn.ConfRequest)
 	if err == nil {
 		if hint > startHeight {
-			Log.Debugf("Using height hint %d retrieved "+
-				"from cache for %v", hint, *ntfn.TxID)
+			Log.Debugf("Using height hint %d retrieved from cache "+
+				"for %v", hint, ntfn.ConfRequest)
 			startHeight = hint
 		}
 	} else if err != ErrConfirmHintNotFound {
 		Log.Errorf("Unable to query confirm hint for %v: %v",
-			*ntfn.TxID, err)
+			ntfn.ConfRequest, err)
 	}
 
 	n.Lock()
 	defer n.Unlock()
 
-	confSet, ok := n.confNotifications[*ntfn.TxID]
+	confSet, ok := n.confNotifications[ntfn.ConfRequest]
 	if !ok {
-		// If this is the first registration for this txid, construct a
-		// confSet to coalesce all notifications for the same txid.
+		// If this is the first registration for this request, construct
+		// a confSet to coalesce all notifications for the same request.
 		confSet = newConfNtfnSet()
-		n.confNotifications[*ntfn.TxID] = confSet
+		n.confNotifications[ntfn.ConfRequest] = confSet
 	}
-
 	confSet.ntfns[ntfn.ConfID] = ntfn
 
 	switch confSet.rescanStatus {
 
 	// A prior rescan has already completed and we are actively watching at
-	// tip for this txid.
+	// tip for this request.
 	case rescanComplete:
-		// If conf details for this set of notifications has already
-		// been found, we'll attempt to deliver them immediately to this
-		// client.
-		Log.Debugf("Attempting to dispatch conf for txid=%v "+
-			"on registration since rescan has finished", ntfn.TxID)
-		return nil, n.dispatchConfDetails(ntfn, confSet.details)
+		// If the confirmation details for this set of notifications has
+		// already been found, we'll attempt to deliver them immediately
+		// to this client.
+		Log.Debugf("Attempting to dispatch confirmation for %v on "+
+			"registration since rescan has finished",
+			ntfn.ConfRequest)
+
+		return nil, n.currentHeight, n.dispatchConfDetails(
+			ntfn, confSet.details,
+		)
 
 	// A rescan is already in progress, return here to prevent dispatching
-	// another. When the scan returns, this notifications details will be
+	// another. When the rescan returns, this notification's details will be
 	// updated as well.
 	case rescanPending:
 		Log.Debugf("Waiting for pending rescan to finish before "+
-			"notifying txid=%v at tip", ntfn.TxID)
-		return nil, nil
+			"notifying %v at tip", ntfn.ConfRequest)
+
+		return nil, n.currentHeight, nil
 
 	// If no rescan has been dispatched, attempt to do so now.
 	case rescanNotStarted:
 	}
 
-	// If the provided or cached height hint indicates that the transaction
-	// is to be confirmed at a height greater than the conf notifier's
-	// current height, we'll refrain from spawning a historical dispatch.
+	// If the provided or cached height hint indicates that the
+	// transaction with the given txid/output script is to be confirmed at a
+	// height greater than the notifier's current height, we'll refrain from
+	// spawning a historical dispatch.
 	if startHeight > n.currentHeight {
-		Log.Debugf("Height hint is above current height, not dispatching "+
-			"historical rescan for txid=%v ", ntfn.TxID)
-		// Set the rescan status to complete, which will allow the conf
+		Log.Debugf("Height hint is above current height, not "+
+			"dispatching historical confirmation rescan for %v",
+			ntfn.ConfRequest)
+
+		// Set the rescan status to complete, which will allow the
 		// notifier to start delivering messages for this set
 		// immediately.
 		confSet.rescanStatus = rescanComplete
-		return nil, nil
+		return nil, n.currentHeight, nil
 	}
 
-	Log.Debugf("Dispatching historical rescan for txid=%v ", ntfn.TxID)
+	Log.Debugf("Dispatching historical confirmation rescan for %v",
+		ntfn.ConfRequest)
 
 	// Construct the parameters for historical dispatch, scanning the range
 	// of blocks between our best known height hint and the notifier's
 	// current height. The notifier will begin also watching for
 	// confirmations at tip starting with the next block.
 	dispatch := &HistoricalConfDispatch{
-		TxID:        ntfn.TxID,
-		PkScript:    ntfn.PkScript,
+		ConfRequest: ntfn.ConfRequest,
 		StartHeight: startHeight,
 		EndHeight:   n.currentHeight,
 	}
@@ -411,16 +599,49 @@ func (n *TxNotifier) RegisterConf(ntfn *ConfNtfn) (*HistoricalConfDispatch, erro
 	// registrations don't also attempt a dispatch.
 	confSet.rescanStatus = rescanPending
 
-	return dispatch, nil
+	return dispatch, n.currentHeight, nil
+}
+
+// CancelConf cancels an existing request for a spend notification of an
+// outpoint/output script. The request is identified by its spend ID.
+func (n *TxNotifier) CancelConf(confRequest ConfRequest, confID uint64) {
+	select {
+	case <-n.quit:
+		return
+	default:
+	}
+
+	n.Lock()
+	defer n.Unlock()
+
+	confSet, ok := n.confNotifications[confRequest]
+	if !ok {
+		return
+	}
+	ntfn, ok := confSet.ntfns[confID]
+	if !ok {
+		return
+	}
+
+	Log.Infof("Canceling confirmation notification: conf_id=%d, %v", confID,
+		confRequest)
+
+	// We'll close all the notification channels to let the client know
+	// their cancel request has been fulfilled.
+	close(ntfn.Event.Confirmed)
+	close(ntfn.Event.Updates)
+	close(ntfn.Event.NegativeConf)
+	delete(confSet.ntfns, confID)
 }
 
 // UpdateConfDetails attempts to update the confirmation details for an active
 // notification within the notifier. This should only be used in the case of a
-// transaction that has confirmed before the notifier's current height.
+// transaction/output script that has confirmed before the notifier's current
+// height.
 //
 // NOTE: The notification should be registered first to ensure notifications are
 // dispatched correctly.
-func (n *TxNotifier) UpdateConfDetails(txid chainhash.Hash,
+func (n *TxNotifier) UpdateConfDetails(confRequest ConfRequest,
 	details *TxConfirmation) error {
 
 	select {
@@ -434,14 +655,15 @@ func (n *TxNotifier) UpdateConfDetails(txid chainhash.Hash,
 	n.Lock()
 	defer n.Unlock()
 
-	// First, we'll determine whether we have an active notification for
-	// this transaction with the given ID.
-	confSet, ok := n.confNotifications[txid]
+	// First, we'll determine whether we have an active confirmation
+	// notification for the given txid/script.
+	confSet, ok := n.confNotifications[confRequest]
 	if !ok {
-		return fmt.Errorf("no notification found with TxID %v", txid)
+		return fmt.Errorf("confirmation notification for %v not found",
+			confRequest)
 	}
 
-	// If the conf details were already found at tip, all existing
+	// If the confirmation details were already found at tip, all existing
 	// notifications will have been dispatched or queued for dispatch. We
 	// can exit early to avoid sending too many notifications on the
 	// buffered channels.
@@ -455,43 +677,47 @@ func (n *TxNotifier) UpdateConfDetails(txid chainhash.Hash,
 	// continue to watch for them at tip.
 	confSet.rescanStatus = rescanComplete
 
-	// The notifier has yet to reach the height at which the transaction was
-	// included in a block, so we should defer until handling it then within
-	// ConnectTip.
+	// The notifier has yet to reach the height at which the
+	// transaction/output script was included in a block, so we should defer
+	// until handling it then within ConnectTip.
 	if details == nil {
-		Log.Debugf("Conf details for txid=%v not found during "+
-			"historical dispatch, waiting to dispatch at tip", txid)
+		Log.Debugf("Confirmation details for %v not found during "+
+			"historical dispatch, waiting to dispatch at tip",
+			confRequest)
 
 		// We'll commit the current height as the confirm hint to
 		// prevent another potentially long rescan if we restart before
 		// a new block comes in.
 		err := n.confirmHintCache.CommitConfirmHint(
-			n.currentHeight, txid,
+			n.currentHeight, confRequest,
 		)
 		if err != nil {
 			// The error is not fatal as this is an optimistic
 			// optimization, so we'll avoid returning an error.
 			Log.Debugf("Unable to update confirm hint to %d for "+
-				"%v: %v", n.currentHeight, txid, err)
+				"%v: %v", n.currentHeight, confRequest, err)
 		}
 
 		return nil
 	}
 
 	if details.BlockHeight > n.currentHeight {
-		Log.Debugf("Conf details for txid=%v found above current "+
-			"height, waiting to dispatch at tip", txid)
+		Log.Debugf("Confirmation details for %v found above current "+
+			"height, waiting to dispatch at tip", confRequest)
+
 		return nil
 	}
 
-	Log.Debugf("Updating conf details for txid=%v details", txid)
+	Log.Debugf("Updating confirmation details for %v", confRequest)
 
-	err := n.confirmHintCache.CommitConfirmHint(details.BlockHeight, txid)
+	err := n.confirmHintCache.CommitConfirmHint(
+		details.BlockHeight, confRequest,
+	)
 	if err != nil {
 		// The error is not fatal, so we should not return an error to
 		// the caller.
 		Log.Errorf("Unable to update confirm hint to %d for %v: %v",
-			details.BlockHeight, txid, err)
+			details.BlockHeight, confRequest, err)
 	}
 
 	// Cache the details found in the rescan and attempt to dispatch any
@@ -508,30 +734,30 @@ func (n *TxNotifier) UpdateConfDetails(txid chainhash.Hash,
 }
 
 // dispatchConfDetails attempts to cache and dispatch details to a particular
-// client if the transaction has sufficiently confirmed. If the provided details
-// are nil, this method will be a no-op.
+// client if the transaction/output script has sufficiently confirmed. If the
+// provided details are nil, this method will be a no-op.
 func (n *TxNotifier) dispatchConfDetails(
 	ntfn *ConfNtfn, details *TxConfirmation) error {
 
 	// If no details are provided, return early as we can't dispatch.
 	if details == nil {
 		Log.Debugf("Unable to dispatch %v, no details provided",
-			ntfn.TxID)
+			ntfn.ConfRequest)
+
 		return nil
 	}
 
-	// Now, we'll examine whether the transaction of this
-	// notification request has reached its required number of
-	// confirmations. If it has, we'll dispatch a confirmation
-	// notification to the caller.
+	// Now, we'll examine whether the transaction/output script of this
+	// request has reached its required number of confirmations. If it has,
+	// we'll dispatch a confirmation notification to the caller.
 	confHeight := details.BlockHeight + ntfn.NumConfirmations - 1
 	if confHeight <= n.currentHeight {
-		Log.Infof("Dispatching %v conf notification for %v",
-			ntfn.NumConfirmations, ntfn.TxID)
+		Log.Infof("Dispatching %v confirmation notification for %v",
+			ntfn.NumConfirmations, ntfn.ConfRequest)
 
 		// We'll send a 0 value to the Updates channel,
-		// indicating that the transaction has already been
-		// confirmed.
+		// indicating that the transaction/output script has already
+		// been confirmed.
 		select {
 		case ntfn.Event.Updates <- 0:
 		case <-n.quit:
@@ -545,8 +771,8 @@ func (n *TxNotifier) dispatchConfDetails(
 			return ErrTxNotifierExiting
 		}
 	} else {
-		Log.Debugf("Queueing %v conf notification for %v at tip ",
-			ntfn.NumConfirmations, ntfn.TxID)
+		Log.Debugf("Queueing %v confirmation notification for %v at tip ",
+			ntfn.NumConfirmations, ntfn.ConfRequest)
 
 		// Otherwise, we'll keep track of the notification
 		// request by the height at which we should dispatch the
@@ -559,8 +785,8 @@ func (n *TxNotifier) dispatchConfDetails(
 		ntfnSet[ntfn] = struct{}{}
 
 		// We'll also send an update to the client of how many
-		// confirmations are left for the transaction to be
-		// confirmed.
+		// confirmations are left for the transaction/output script to
+		// be confirmed.
 		numConfsLeft := confHeight - n.currentHeight
 		select {
 		case ntfn.Event.Updates <- numConfsLeft:
@@ -569,70 +795,73 @@ func (n *TxNotifier) dispatchConfDetails(
 		}
 	}
 
-	// As a final check, we'll also watch the transaction if it's
-	// still possible for it to get reorged out of the chain.
-	blockHeight := details.BlockHeight
-	reorgSafeHeight := blockHeight + n.reorgSafetyLimit
+	// As a final check, we'll also watch the transaction/output script if
+	// it's still possible for it to get reorged out of the chain.
+	reorgSafeHeight := details.BlockHeight + n.reorgSafetyLimit
 	if reorgSafeHeight > n.currentHeight {
-		txSet, exists := n.txsByInitialHeight[blockHeight]
+		txSet, exists := n.confsByInitialHeight[details.BlockHeight]
 		if !exists {
-			txSet = make(map[chainhash.Hash]struct{})
-			n.txsByInitialHeight[blockHeight] = txSet
+			txSet = make(map[ConfRequest]struct{})
+			n.confsByInitialHeight[details.BlockHeight] = txSet
 		}
-		txSet[*ntfn.TxID] = struct{}{}
+		txSet[ntfn.ConfRequest] = struct{}{}
 	}
 
 	return nil
 }
 
 // RegisterSpend handles a new spend notification request. The client will be
-// notified once the outpoint is detected as spent within the chain.
+// notified once the outpoint/output script is detected as spent within the
+// chain.
 //
 // The registration succeeds if no error is returned. If the returned
 // HistoricalSpendDisaptch is non-nil, the caller is responsible for attempting
-// to determine whether the outpoint has been spent between the start and end
-// heights.
+// to determine whether the outpoint/output script has been spent between the
+// start and end heights. The notifier's current height is also returned so that
+// backends can request to be notified of spends from this point forwards.
 //
-// NOTE: If the outpoint has already been spent within the chain before the
-// notifier's current tip, the spend details must be provided with the
-// UpdateSpendDetails method, otherwise we will wait for the outpoint to
-// be spent at tip, even though it already has.
-func (n *TxNotifier) RegisterSpend(ntfn *SpendNtfn) (*HistoricalSpendDispatch, error) {
+// NOTE: If the outpoint/output script has already been spent within the chain
+// before the notifier's current tip, the spend details must be provided with
+// the UpdateSpendDetails method, otherwise we will wait for the outpoint/output
+// script to be spent at tip, even though it already has.
+func (n *TxNotifier) RegisterSpend(ntfn *SpendNtfn) (*HistoricalSpendDispatch,
+	uint32, error) {
+
 	select {
 	case <-n.quit:
-		return nil, ErrTxNotifierExiting
+		return nil, 0, ErrTxNotifierExiting
 	default:
 	}
 
 	// Before proceeding to register the notification, we'll query our spend
 	// hint cache to determine whether a better one exists.
 	startHeight := ntfn.HeightHint
-	hint, err := n.spendHintCache.QuerySpendHint(ntfn.OutPoint)
+	hint, err := n.spendHintCache.QuerySpendHint(ntfn.SpendRequest)
 	if err == nil {
 		if hint > startHeight {
 			Log.Debugf("Using height hint %d retrieved from cache "+
-				"for %v", startHeight, ntfn.OutPoint)
+				"for %v", startHeight, ntfn.SpendRequest)
 			startHeight = hint
 		}
 	} else if err != ErrSpendHintNotFound {
 		Log.Errorf("Unable to query spend hint for %v: %v",
-			ntfn.OutPoint, err)
+			ntfn.SpendRequest, err)
 	}
 
 	n.Lock()
 	defer n.Unlock()
 
-	Log.Infof("New spend subscription: spend_id=%d, outpoint=%v, "+
-		"height_hint=%d", ntfn.SpendID, ntfn.OutPoint, ntfn.HeightHint)
+	Log.Infof("New spend subscription: spend_id=%d, %v, height_hint=%d",
+		ntfn.SpendID, ntfn.SpendRequest, ntfn.HeightHint)
 
 	// Keep track of the notification request so that we can properly
 	// dispatch a spend notification later on.
-	spendSet, ok := n.spendNotifications[ntfn.OutPoint]
+	spendSet, ok := n.spendNotifications[ntfn.SpendRequest]
 	if !ok {
-		// If this is the first registration for the outpoint, we'll
+		// If this is the first registration for the request, we'll
 		// construct a spendNtfnSet to coalesce all notifications.
 		spendSet = newSpendNtfnSet()
-		n.spendNotifications[ntfn.OutPoint] = spendSet
+		n.spendNotifications[ntfn.SpendRequest] = spendSet
 	}
 	spendSet.ntfns[ntfn.SpendID] = ntfn
 
@@ -640,19 +869,28 @@ func (n *TxNotifier) RegisterSpend(ntfn *SpendNtfn) (*HistoricalSpendDispatch, e
 	// depending on the current rescan status.
 	switch spendSet.rescanStatus {
 
-	// If the spending details for this outpoint have already been
-	// determined and cached, then we can use them to immediately dispatch
-	// the spend notification to the client.
+	// If the spending details for this request have already been determined
+	// and cached, then we can use them to immediately dispatch the spend
+	// notification to the client.
 	case rescanComplete:
-		return nil, n.dispatchSpendDetails(ntfn, spendSet.details)
+		Log.Debugf("Attempting to dispatch spend for %v on "+
+			"registration since rescan has finished",
+			ntfn.SpendRequest)
 
-	// If there is an active rescan to determine whether the outpoint has
+		return nil, n.currentHeight, n.dispatchSpendDetails(
+			ntfn, spendSet.details,
+		)
+
+	// If there is an active rescan to determine whether the request has
 	// been spent, then we won't trigger another one.
 	case rescanPending:
-		return nil, nil
+		Log.Debugf("Waiting for pending rescan to finish before "+
+			"notifying %v at tip", ntfn.SpendRequest)
+
+		return nil, n.currentHeight, nil
 
 	// Otherwise, we'll fall through and let the caller know that a rescan
-	// should be dispatched to determine whether the outpoint has already
+	// should be dispatched to determine whether the request has already
 	// been spent.
 	case rescanNotStarted:
 	}
@@ -663,30 +901,32 @@ func (n *TxNotifier) RegisterSpend(ntfn *SpendNtfn) (*HistoricalSpendDispatch, e
 	// historical rescan and wait for the spend to come in at tip.
 	if startHeight > n.currentHeight {
 		Log.Debugf("Spend hint of %d for %v is above current height %d",
-			startHeight, ntfn.OutPoint, n.currentHeight)
+			startHeight, ntfn.SpendRequest, n.currentHeight)
 
 		// We'll also set the rescan status as complete to ensure that
-		// spend hints for this outpoint get updated upon
+		// spend hints for this request get updated upon
 		// connected/disconnected blocks.
 		spendSet.rescanStatus = rescanComplete
-		return nil, nil
+		return nil, n.currentHeight, nil
 	}
 
 	// We'll set the rescan status to pending to ensure subsequent
 	// notifications don't also attempt a historical dispatch.
 	spendSet.rescanStatus = rescanPending
 
+	Log.Debugf("Dispatching historical spend rescan for %v",
+		ntfn.SpendRequest)
+
 	return &HistoricalSpendDispatch{
-		OutPoint:    ntfn.OutPoint,
-		PkScript:    ntfn.PkScript,
-		StartHeight: startHeight,
-		EndHeight:   n.currentHeight,
-	}, nil
+		SpendRequest: ntfn.SpendRequest,
+		StartHeight:  startHeight,
+		EndHeight:    n.currentHeight,
+	}, n.currentHeight, nil
 }
 
 // CancelSpend cancels an existing request for a spend notification of an
-// outpoint. The request is identified by its spend ID.
-func (n *TxNotifier) CancelSpend(op wire.OutPoint, spendID uint64) {
+// outpoint/output script. The request is identified by its spend ID.
+func (n *TxNotifier) CancelSpend(spendRequest SpendRequest, spendID uint64) {
 	select {
 	case <-n.quit:
 		return
@@ -696,10 +936,7 @@ func (n *TxNotifier) CancelSpend(op wire.OutPoint, spendID uint64) {
 	n.Lock()
 	defer n.Unlock()
 
-	Log.Infof("Canceling spend notification: spend_id=%d, outpoint=%v",
-		spendID, op)
-
-	spendSet, ok := n.spendNotifications[op]
+	spendSet, ok := n.spendNotifications[spendRequest]
 	if !ok {
 		return
 	}
@@ -708,18 +945,24 @@ func (n *TxNotifier) CancelSpend(op wire.OutPoint, spendID uint64) {
 		return
 	}
 
+	Log.Infof("Canceling spend notification: spend_id=%d, %v", spendID,
+		spendRequest)
+
 	// We'll close all the notification channels to let the client know
 	// their cancel request has been fulfilled.
 	close(ntfn.Event.Spend)
 	close(ntfn.Event.Reorg)
+	close(ntfn.Event.Done)
 	delete(spendSet.ntfns, spendID)
 }
 
 // ProcessRelevantSpendTx processes a transaction provided externally. This will
 // check whether the transaction is relevant to the notifier if it spends any
-// outputs for which we currently have registered notifications for. If it is
-// relevant, spend notifications will be dispatched to the caller.
-func (n *TxNotifier) ProcessRelevantSpendTx(tx *wire.MsgTx, txHeight int32) error {
+// outpoints/output scripts for which we currently have registered notifications
+// for. If it is relevant, spend notifications will be dispatched to the caller.
+func (n *TxNotifier) ProcessRelevantSpendTx(tx *btcutil.Tx,
+	blockHeight uint32) error {
+
 	select {
 	case <-n.quit:
 		return ErrTxNotifierExiting
@@ -731,31 +974,26 @@ func (n *TxNotifier) ProcessRelevantSpendTx(tx *wire.MsgTx, txHeight int32) erro
 	n.Lock()
 	defer n.Unlock()
 
-	// Grab the set of active registered outpoints to determine if the
-	// transaction spends any of them.
-	spendNtfns := n.spendNotifications
+	// We'll use a channel to coalesce all the spend requests that this
+	// transaction fulfills.
+	type spend struct {
+		request *SpendRequest
+		details *SpendDetail
+	}
 
-	// We'll check if this transaction spends an output that has an existing
-	// spend notification for it.
-	for i, txIn := range tx.TxIn {
-		// If this input doesn't spend an existing registered outpoint,
-		// we'll go on to the next.
-		prevOut := txIn.PreviousOutPoint
-		if _, ok := spendNtfns[prevOut]; !ok {
-			continue
-		}
+	// We'll set up the onSpend filter callback to gather all the fulfilled
+	// spends requests within this transaction.
+	var spends []spend
+	onSpend := func(request SpendRequest, details *SpendDetail) {
+		spends = append(spends, spend{&request, details})
+	}
+	n.filterTx(tx, nil, blockHeight, nil, onSpend)
 
-		// Otherwise, we'll create a spend summary and send off the
-		// details to the notification subscribers.
-		txHash := tx.TxHash()
-		details := &SpendDetail{
-			SpentOutPoint:     &prevOut,
-			SpenderTxHash:     &txHash,
-			SpendingTx:        tx,
-			SpenderInputIndex: uint32(i),
-			SpendingHeight:    txHeight,
-		}
-		if err := n.updateSpendDetails(prevOut, details); err != nil {
+	// After the transaction has been filtered, we can finally dispatch
+	// notifications for each request.
+	for _, spend := range spends {
+		err := n.updateSpendDetails(*spend.request, spend.details)
+		if err != nil {
 			return err
 		}
 	}
@@ -764,13 +1002,13 @@ func (n *TxNotifier) ProcessRelevantSpendTx(tx *wire.MsgTx, txHeight int32) erro
 }
 
 // UpdateSpendDetails attempts to update the spend details for all active spend
-// notification requests for an outpoint. This method should be used once a
-// historical scan of the chain has finished. If the historical scan did not
-// find a spending transaction for the outpoint, the spend details may be nil.
+// notification requests for an outpoint/output script. This method should be
+// used once a historical scan of the chain has finished. If the historical scan
+// did not find a spending transaction for it, the spend details may be nil.
 //
-// NOTE: A notification request for the outpoint must be registered first to
-// ensure notifications are delivered.
-func (n *TxNotifier) UpdateSpendDetails(op wire.OutPoint,
+// NOTE: A notification request for the outpoint/output script must be
+// registered first to ensure notifications are delivered.
+func (n *TxNotifier) UpdateSpendDetails(spendRequest SpendRequest,
 	details *SpendDetail) error {
 
 	select {
@@ -784,24 +1022,24 @@ func (n *TxNotifier) UpdateSpendDetails(op wire.OutPoint,
 	n.Lock()
 	defer n.Unlock()
 
-	return n.updateSpendDetails(op, details)
+	return n.updateSpendDetails(spendRequest, details)
 }
 
 // updateSpendDetails attempts to update the spend details for all active spend
-// notification requests for an outpoint. This method should be used once a
-// historical scan of the chain has finished. If the historical scan did not
-// find a spending transaction for the outpoint, the spend details may be nil.
+// notification requests for an outpoint/output script. This method should be
+// used once a historical scan of the chain has finished. If the historical scan
+// did not find a spending transaction for it, the spend details may be nil.
 //
 // NOTE: This method must be called with the TxNotifier's lock held.
-func (n *TxNotifier) updateSpendDetails(op wire.OutPoint,
+func (n *TxNotifier) updateSpendDetails(spendRequest SpendRequest,
 	details *SpendDetail) error {
 
-	// Mark the ongoing historical rescan for this outpoint as finished.
-	// This will allow us to update the spend hints for this outpoint at
-	// tip.
-	spendSet, ok := n.spendNotifications[op]
+	// Mark the ongoing historical rescan for this request as finished. This
+	// will allow us to update the spend hints for it at tip.
+	spendSet, ok := n.spendNotifications[spendRequest]
 	if !ok {
-		return fmt.Errorf("no notifications found for outpoint %v", op)
+		return fmt.Errorf("spend notification for %v not found",
+			spendRequest)
 	}
 
 	// If the spend details have already been found either at tip, then the
@@ -811,31 +1049,33 @@ func (n *TxNotifier) updateSpendDetails(op wire.OutPoint,
 		return nil
 	}
 
-	// Since the historical rescan has completed for this outpoint, we'll
+	// Since the historical rescan has completed for this request, we'll
 	// mark its rescan status as complete in order to ensure that the
 	// TxNotifier can properly update its spend hints upon
 	// connected/disconnected blocks.
 	spendSet.rescanStatus = rescanComplete
 
 	// If the historical rescan was not able to find a spending transaction
-	// for this outpoint, then we can track the spend at tip.
+	// for this request, then we can track the spend at tip.
 	if details == nil {
 		// We'll commit the current height as the spend hint to prevent
 		// another potentially long rescan if we restart before a new
 		// block comes in.
-		err := n.spendHintCache.CommitSpendHint(n.currentHeight, op)
+		err := n.spendHintCache.CommitSpendHint(
+			n.currentHeight, spendRequest,
+		)
 		if err != nil {
 			// The error is not fatal as this is an optimistic
 			// optimization, so we'll avoid returning an error.
 			Log.Debugf("Unable to update spend hint to %d for %v: %v",
-				n.currentHeight, op, err)
+				n.currentHeight, spendRequest, err)
 		}
 
 		return nil
 	}
 
 	// If the historical rescan found the spending transaction for this
-	// outpoint, but it's at a later height than the notifier (this can
+	// request, but it's at a later height than the notifier (this can
 	// happen due to latency with the backend during a reorg), then we'll
 	// defer handling the notification until the notifier has caught up to
 	// such height.
@@ -843,17 +1083,17 @@ func (n *TxNotifier) updateSpendDetails(op wire.OutPoint,
 		return nil
 	}
 
-	// Now that we've determined the outpoint has been spent, we'll commit
+	// Now that we've determined the request has been spent, we'll commit
 	// its spending height as its hint in the cache and dispatch
 	// notifications to all of its respective clients.
 	err := n.spendHintCache.CommitSpendHint(
-		uint32(details.SpendingHeight), op,
+		uint32(details.SpendingHeight), spendRequest,
 	)
 	if err != nil {
 		// The error is not fatal as this is an optimistic optimization,
 		// so we'll avoid returning an error.
 		Log.Debugf("Unable to update spend hint to %d for %v: %v",
-			details.SpendingHeight, op, err)
+			details.SpendingHeight, spendRequest, err)
 	}
 
 	spendSet.details = details
@@ -877,8 +1117,8 @@ func (n *TxNotifier) dispatchSpendDetails(ntfn *SpendNtfn, details *SpendDetail)
 		return nil
 	}
 
-	Log.Infof("Dispatching spend notification for outpoint=%v at height=%d",
-		ntfn.OutPoint, n.currentHeight)
+	Log.Infof("Dispatching confirmed spend notification for %v at height=%d",
+		ntfn.SpendRequest, n.currentHeight)
 
 	select {
 	case ntfn.Event.Spend <- details:
@@ -894,16 +1134,17 @@ func (n *TxNotifier) dispatchSpendDetails(ntfn *SpendNtfn, details *SpendDetail)
 // through every transaction and determine if it is relevant to any of its
 // clients. A transaction can be relevant in either of the following two ways:
 //
-//   1. One of the inputs in the transaction spends an outpoint for which we
-//   currently have an active spend registration for.
+//   1. One of the inputs in the transaction spends an outpoint/output script
+//   for which we currently have an active spend registration for.
 //
-//   2. The transaction is a transaction for which we currently have an active
-//   confirmation registration for.
+//   2. The transaction has a txid or output script for which we currently have
+//   an active confirmation registration for.
 //
 // In the event that the transaction is relevant, a confirmation/spend
 // notification will be queued for dispatch to the relevant clients.
-// Confirmation notifications will only be dispatched for transactions that have
-// met the required number of confirmations required by the client.
+// Confirmation notifications will only be dispatched for transactions/output
+// scripts that have met the required number of confirmations required by the
+// client.
 //
 // NOTE: In order to actually dispatch the relevant transaction notifications to
 // clients, NotifyHeight must be called with the same block height in order to
@@ -921,7 +1162,7 @@ func (n *TxNotifier) ConnectTip(blockHash *chainhash.Hash, blockHeight uint32,
 	defer n.Unlock()
 
 	if blockHeight != n.currentHeight+1 {
-		return fmt.Errorf("Received blocks out of order: "+
+		return fmt.Errorf("received blocks out of order: "+
 			"current height=%d, new height=%d",
 			n.currentHeight, blockHeight)
 	}
@@ -931,117 +1172,238 @@ func (n *TxNotifier) ConnectTip(blockHash *chainhash.Hash, blockHeight uint32,
 	// First, we'll iterate over all the transactions found in this block to
 	// determine if it includes any relevant transactions to the TxNotifier.
 	for _, tx := range txns {
-		txHash := tx.Hash()
+		n.filterTx(
+			tx, blockHash, blockHeight, n.handleConfDetailsAtTip,
+			n.handleSpendDetailsAtTip,
+		)
+	}
 
-		// In order to determine if this transaction is relevant to the
-		// notifier, we'll check its inputs for any outstanding spend
-		// notifications.
-		for i, txIn := range tx.MsgTx().TxIn {
-			prevOut := txIn.PreviousOutPoint
-			spendSet, ok := n.spendNotifications[prevOut]
-			if !ok {
-				continue
-			}
+	// Now that we've determined which requests were confirmed and spent
+	// within the new block, we can update their entries in their respective
+	// caches, along with all of our unconfirmed and unspent requests.
+	n.updateHints(blockHeight)
 
-			// If we have any, we'll record its spend height so that
-			// notifications get dispatched to the respective
-			// clients.
-			spendDetails := &SpendDetail{
-				SpentOutPoint:     &prevOut,
-				SpenderTxHash:     txHash,
-				SpendingTx:        tx.MsgTx(),
-				SpenderInputIndex: uint32(i),
-				SpendingHeight:    int32(blockHeight),
-			}
-
-			// TODO(wilmer): cancel pending historical rescans if any?
-			spendSet.rescanStatus = rescanComplete
-			spendSet.details = spendDetails
-			for _, ntfn := range spendSet.ntfns {
-				// In the event that this notification was aware
-				// that the spending transaction of its outpoint
-				// was reorged out of the chain, we'll consume
-				// the reorg notification if it hasn't been
-				// done yet already.
+	// Finally, we'll clear the entries from our set of notifications for
+	// requests that are no longer under the risk of being reorged out of
+	// the chain.
+	if blockHeight >= n.reorgSafetyLimit {
+		matureBlockHeight := blockHeight - n.reorgSafetyLimit
+		for confRequest := range n.confsByInitialHeight[matureBlockHeight] {
+			confSet := n.confNotifications[confRequest]
+			for _, ntfn := range confSet.ntfns {
 				select {
-				case <-ntfn.Event.Reorg:
-				default:
+				case ntfn.Event.Done <- struct{}{}:
+				case <-n.quit:
+					return ErrTxNotifierExiting
 				}
 			}
 
-			// We'll note the outpoints spending height in order to
-			// correctly handle dispatching notifications when the
-			// spending transactions gets reorged out of the chain.
-			opSet, exists := n.opsBySpendHeight[blockHeight]
-			if !exists {
-				opSet = make(map[wire.OutPoint]struct{})
-				n.opsBySpendHeight[blockHeight] = opSet
+			delete(n.confNotifications, confRequest)
+		}
+		delete(n.confsByInitialHeight, matureBlockHeight)
+
+		for spendRequest := range n.spendsByHeight[matureBlockHeight] {
+			spendSet := n.spendNotifications[spendRequest]
+			for _, ntfn := range spendSet.ntfns {
+				select {
+				case ntfn.Event.Done <- struct{}{}:
+				case <-n.quit:
+					return ErrTxNotifierExiting
+				}
 			}
-			opSet[prevOut] = struct{}{}
+
+			delete(n.spendNotifications, spendRequest)
+		}
+		delete(n.spendsByHeight, matureBlockHeight)
+	}
+
+	return nil
+}
+
+// filterTx determines whether the transaction spends or confirms any
+// outstanding pending requests. The onConf and onSpend callbacks can be used to
+// retrieve all the requests fulfilled by this transaction as they occur.
+func (n *TxNotifier) filterTx(tx *btcutil.Tx, blockHash *chainhash.Hash,
+	blockHeight uint32, onConf func(ConfRequest, *TxConfirmation),
+	onSpend func(SpendRequest, *SpendDetail)) {
+
+	// In order to determine if this transaction is relevant to the
+	// notifier, we'll check its inputs for any outstanding spend
+	// requests.
+	txHash := tx.Hash()
+	if onSpend != nil {
+		// notifyDetails is a helper closure that will construct the
+		// spend details of a request and hand them off to the onSpend
+		// callback.
+		notifyDetails := func(spendRequest SpendRequest,
+			prevOut wire.OutPoint, inputIdx uint32) {
+
+			Log.Debugf("Found spend of %v: spend_tx=%v, "+
+				"block_height=%d", spendRequest, txHash,
+				blockHeight)
+
+			onSpend(spendRequest, &SpendDetail{
+				SpentOutPoint:     &prevOut,
+				SpenderTxHash:     txHash,
+				SpendingTx:        tx.MsgTx(),
+				SpenderInputIndex: inputIdx,
+				SpendingHeight:    int32(blockHeight),
+			})
 		}
 
-		// Check if we have any pending notifications for this txid. If
-		// none are found, we can proceed to the next transaction.
-		confSet, ok := n.confNotifications[*txHash]
-		if !ok {
-			continue
-		}
-
-		Log.Debugf("Block contains txid=%v, constructing details",
-			txHash)
-
-		// If we have any, we'll record its confirmed height so that
-		// notifications get dispatched when the transaction reaches the
-		// clients' desired number of confirmations.
-		details := &TxConfirmation{
-			BlockHash:   blockHash,
-			BlockHeight: blockHeight,
-			TxIndex:     uint32(tx.Index()),
-		}
-
-		// TODO(wilmer): cancel pending historical rescans if any?
-		confSet.rescanStatus = rescanComplete
-		confSet.details = details
-		for _, ntfn := range confSet.ntfns {
-			// In the event that this notification was aware that
-			// the transaction was reorged out of the chain, we'll
-			// consume the reorg notification if it hasn't been done
-			// yet already.
-			select {
-			case <-ntfn.Event.NegativeConf:
-			default:
+		for i, txIn := range tx.MsgTx().TxIn {
+			// We'll re-derive the script of the output being spent
+			// to determine if the inputs spends any registered
+			// requests.
+			prevOut := txIn.PreviousOutPoint
+			pkScript, err := txscript.ComputePkScript(
+				txIn.SignatureScript, txIn.Witness,
+			)
+			if err != nil {
+				continue
+			}
+			spendRequest := SpendRequest{
+				OutPoint: prevOut,
+				PkScript: pkScript,
 			}
 
-			// We'll note this client's required number of
-			// confirmations so that we can notify them when
-			// expected.
-			confHeight := blockHeight + ntfn.NumConfirmations - 1
-			ntfnSet, exists := n.ntfnsByConfirmHeight[confHeight]
-			if !exists {
-				ntfnSet = make(map[*ConfNtfn]struct{})
-				n.ntfnsByConfirmHeight[confHeight] = ntfnSet
+			// If we have any, we'll record their spend height so
+			// that notifications get dispatched to the respective
+			// clients.
+			if _, ok := n.spendNotifications[spendRequest]; ok {
+				notifyDetails(spendRequest, prevOut, uint32(i))
 			}
-			ntfnSet[ntfn] = struct{}{}
-
-			// We'll also note the initial confirmation height in
-			// order to correctly handle dispatching notifications
-			// when the transaction gets reorged out of the chain.
-			txSet, exists := n.txsByInitialHeight[blockHeight]
-			if !exists {
-				txSet = make(map[chainhash.Hash]struct{})
-				n.txsByInitialHeight[blockHeight] = txSet
+			spendRequest.OutPoint = ZeroOutPoint
+			if _, ok := n.spendNotifications[spendRequest]; ok {
+				notifyDetails(spendRequest, prevOut, uint32(i))
 			}
-			txSet[*txHash] = struct{}{}
 		}
 	}
 
-	// Finally, now that we've determined which transactions were confirmed
-	// and which outpoints were spent within the new block, we can update
-	// their entries in their respective caches, along with all of our
-	// unconfirmed transactions and unspent outpoints.
-	n.updateHints(blockHeight)
+	// We'll also check its outputs to determine if there are any
+	// outstanding confirmation requests.
+	if onConf != nil {
+		// notifyDetails is a helper closure that will construct the
+		// confirmation details of a request and hand them off to the
+		// onConf callback.
+		notifyDetails := func(confRequest ConfRequest) {
+			Log.Debugf("Found initial confirmation of %v: "+
+				"height=%d, hash=%v", confRequest,
+				blockHeight, blockHash)
 
-	return nil
+			details := &TxConfirmation{
+				Tx:          tx.MsgTx(),
+				BlockHash:   blockHash,
+				BlockHeight: blockHeight,
+				TxIndex:     uint32(tx.Index()),
+			}
+
+			onConf(confRequest, details)
+		}
+
+		for _, txOut := range tx.MsgTx().TxOut {
+			// We'll parse the script of the output to determine if
+			// we have any registered requests for it or the
+			// transaction itself.
+			pkScript, err := txscript.ParsePkScript(txOut.PkScript)
+			if err != nil {
+				continue
+			}
+			confRequest := ConfRequest{
+				TxID:     *txHash,
+				PkScript: pkScript,
+			}
+
+			// If we have any, we'll record their confirmed height
+			// so that notifications get dispatched when they
+			// reaches the clients' desired number of confirmations.
+			if _, ok := n.confNotifications[confRequest]; ok {
+				notifyDetails(confRequest)
+			}
+			confRequest.TxID = ZeroHash
+			if _, ok := n.confNotifications[confRequest]; ok {
+				notifyDetails(confRequest)
+			}
+		}
+	}
+}
+
+// handleConfDetailsAtTip tracks the confirmation height of the txid/output
+// script in order to properly dispatch a confirmation notification after
+// meeting each request's desired number of confirmations for all current and
+// future registered clients.
+func (n *TxNotifier) handleConfDetailsAtTip(confRequest ConfRequest,
+	details *TxConfirmation) {
+
+	// TODO(wilmer): cancel pending historical rescans if any?
+	confSet := n.confNotifications[confRequest]
+	confSet.rescanStatus = rescanComplete
+	confSet.details = details
+
+	for _, ntfn := range confSet.ntfns {
+		// In the event that this notification was aware that the
+		// transaction/output script was reorged out of the chain, we'll
+		// consume the reorg notification if it hasn't been done yet
+		// already.
+		select {
+		case <-ntfn.Event.NegativeConf:
+		default:
+		}
+
+		// We'll note this client's required number of confirmations so
+		// that we can notify them when expected.
+		confHeight := details.BlockHeight + ntfn.NumConfirmations - 1
+		ntfnSet, exists := n.ntfnsByConfirmHeight[confHeight]
+		if !exists {
+			ntfnSet = make(map[*ConfNtfn]struct{})
+			n.ntfnsByConfirmHeight[confHeight] = ntfnSet
+		}
+		ntfnSet[ntfn] = struct{}{}
+	}
+
+	// We'll also note the initial confirmation height in order to correctly
+	// handle dispatching notifications when the transaction/output script
+	// gets reorged out of the chain.
+	txSet, exists := n.confsByInitialHeight[details.BlockHeight]
+	if !exists {
+		txSet = make(map[ConfRequest]struct{})
+		n.confsByInitialHeight[details.BlockHeight] = txSet
+	}
+	txSet[confRequest] = struct{}{}
+}
+
+// handleSpendDetailsAtTip tracks the spend height of the outpoint/output script
+// in order to properly dispatch a spend notification for all current and future
+// registered clients.
+func (n *TxNotifier) handleSpendDetailsAtTip(spendRequest SpendRequest,
+	details *SpendDetail) {
+
+	// TODO(wilmer): cancel pending historical rescans if any?
+	spendSet := n.spendNotifications[spendRequest]
+	spendSet.rescanStatus = rescanComplete
+	spendSet.details = details
+
+	for _, ntfn := range spendSet.ntfns {
+		// In the event that this notification was aware that the
+		// spending transaction of its outpoint/output script was
+		// reorged out of the chain, we'll consume the reorg
+		// notification if it hasn't been done yet already.
+		select {
+		case <-ntfn.Event.Reorg:
+		default:
+		}
+	}
+
+	// We'll note the spending height of the request in order to correctly
+	// handle dispatching notifications when the spending transactions gets
+	// reorged out of the chain.
+	spendHeight := uint32(details.SpendingHeight)
+	opSet, exists := n.spendsByHeight[spendHeight]
+	if !exists {
+		opSet = make(map[SpendRequest]struct{})
+		n.spendsByHeight[spendHeight] = opSet
+	}
+	opSet[spendRequest] = struct{}{}
 }
 
 // NotifyHeight dispatches confirmation and spend notifications to the clients
@@ -1052,21 +1414,21 @@ func (n *TxNotifier) NotifyHeight(height uint32) error {
 	defer n.Unlock()
 
 	// First, we'll dispatch an update to all of the notification clients
-	// for our watched transactions with the number of confirmations left at
+	// for our watched requests with the number of confirmations left at
 	// this new height.
-	for _, txHashes := range n.txsByInitialHeight {
-		for txHash := range txHashes {
-			confSet := n.confNotifications[txHash]
+	for _, confRequests := range n.confsByInitialHeight {
+		for confRequest := range confRequests {
+			confSet := n.confNotifications[confRequest]
 			for _, ntfn := range confSet.ntfns {
 				txConfHeight := confSet.details.BlockHeight +
 					ntfn.NumConfirmations - 1
 				numConfsLeft := txConfHeight - height
 
 				// Since we don't clear notifications until
-				// transactions are no longer under the risk of
-				// being reorganized out of the chain, we'll
-				// skip sending updates for transactions that
-				// have already been confirmed.
+				// transactions/output scripts are no longer
+				// under the risk of being reorganized out of
+				// the chain, we'll skip sending updates for
+				// those that have already been confirmed.
 				if int32(numConfsLeft) < 0 {
 					continue
 				}
@@ -1080,13 +1442,13 @@ func (n *TxNotifier) NotifyHeight(height uint32) error {
 		}
 	}
 
-	// Then, we'll dispatch notifications for all the transactions that have
+	// Then, we'll dispatch notifications for all the requests that have
 	// become confirmed at this new block height.
 	for ntfn := range n.ntfnsByConfirmHeight[height] {
-		confSet := n.confNotifications[*ntfn.TxID]
+		confSet := n.confNotifications[ntfn.ConfRequest]
 
-		Log.Infof("Dispatching %v conf notification for %v",
-			ntfn.NumConfirmations, ntfn.TxID)
+		Log.Infof("Dispatching %v confirmation notification for %v",
+			ntfn.NumConfirmations, ntfn.ConfRequest)
 
 		select {
 		case ntfn.Event.Confirmed <- confSet.details:
@@ -1097,10 +1459,10 @@ func (n *TxNotifier) NotifyHeight(height uint32) error {
 	}
 	delete(n.ntfnsByConfirmHeight, height)
 
-	// We'll also dispatch spend notifications for all the outpoints that
+	// Finally, we'll dispatch spend notifications for all the requests that
 	// were spent at this new block height.
-	for op := range n.opsBySpendHeight[height] {
-		spendSet := n.spendNotifications[op]
+	for spendRequest := range n.spendsByHeight[height] {
+		spendSet := n.spendNotifications[spendRequest]
 		for _, ntfn := range spendSet.ntfns {
 			err := n.dispatchSpendDetails(ntfn, spendSet.details)
 			if err != nil {
@@ -1109,30 +1471,15 @@ func (n *TxNotifier) NotifyHeight(height uint32) error {
 		}
 	}
 
-	// Finally, we'll clear the entries from our set of notifications for
-	// transactions and outpoints that are no longer under the risk of being
-	// reorged out of the chain.
-	if height >= n.reorgSafetyLimit {
-		matureBlockHeight := height - n.reorgSafetyLimit
-		for tx := range n.txsByInitialHeight[matureBlockHeight] {
-			delete(n.confNotifications, tx)
-		}
-		delete(n.txsByInitialHeight, matureBlockHeight)
-		for op := range n.opsBySpendHeight[matureBlockHeight] {
-			delete(n.spendNotifications, op)
-		}
-		delete(n.opsBySpendHeight, matureBlockHeight)
-	}
-
 	return nil
 }
 
 // DisconnectTip handles the tip of the current chain being disconnected during
-// a chain reorganization. If any watched transactions or spending transactions
-// for registered outpoints were included in this block, internal structures are
-// updated to ensure confirmation/spend notifications are consumed (if not
-// already), and reorg notifications are dispatched instead. Confirmation/spend
-// notifications will be dispatched again upon block inclusion.
+// a chain reorganization. If any watched requests were included in this block,
+// internal structures are updated to ensure confirmation/spend notifications
+// are consumed (if not already), and reorg notifications are dispatched
+// instead. Confirmation/spend notifications will be dispatched again upon block
+// inclusion.
 func (n *TxNotifier) DisconnectTip(blockHeight uint32) error {
 	select {
 	case <-n.quit:
@@ -1152,19 +1499,19 @@ func (n *TxNotifier) DisconnectTip(blockHeight uint32) error {
 	n.reorgDepth++
 
 	// With the block disconnected, we'll update the confirm and spend hints
-	// for our transactions and outpoints to reflect the new height, except
-	// for those that have confirmed/spent at previous heights.
+	// for our notification requests to reflect the new height, except for
+	// those that have confirmed/spent at previous heights.
 	n.updateHints(blockHeight)
 
-	// We'll go through all of our watched transactions and attempt to drain
-	// their notification channels to ensure sending notifications to the
-	// clients is always non-blocking.
-	for initialHeight, txHashes := range n.txsByInitialHeight {
+	// We'll go through all of our watched confirmation requests and attempt
+	// to drain their notification channels to ensure sending notifications
+	// to the clients is always non-blocking.
+	for initialHeight, txHashes := range n.confsByInitialHeight {
 		for txHash := range txHashes {
-			// If the transaction has been reorged out of the chain,
-			// we'll make sure to remove the cached confirmation
-			// details to prevent notifying clients with old
-			// information.
+			// If the transaction/output script has been reorged out
+			// of the chain, we'll make sure to remove the cached
+			// confirmation details to prevent notifying clients
+			// with old information.
 			confSet := n.confNotifications[txHash]
 			if initialHeight == blockHeight {
 				confSet.details = nil
@@ -1181,10 +1528,11 @@ func (n *TxNotifier) DisconnectTip(blockHeight uint32) error {
 				default:
 				}
 
-				// Then, we'll check if the current transaction
-				// was included in the block currently being
-				// disconnected. If it was, we'll need to
-				// dispatch a reorg notification to the client.
+				// Then, we'll check if the current
+				// transaction/output script was included in the
+				// block currently being disconnected. If it
+				// was, we'll need to dispatch a reorg
+				// notification to the client.
 				if initialHeight == blockHeight {
 					err := n.dispatchConfReorg(
 						ntfn, blockHeight,
@@ -1197,15 +1545,15 @@ func (n *TxNotifier) DisconnectTip(blockHeight uint32) error {
 		}
 	}
 
-	// We'll also go through our watched outpoints and attempt to drain
+	// We'll also go through our watched spend requests and attempt to drain
 	// their dispatched notifications to ensure dispatching notifications to
-	// clients later on is always non-blocking.  We're only interested in
-	// outpoints whose spending transaction was included at the height being
+	// clients later on is always non-blocking. We're only interested in
+	// requests whose spending transaction was included at the height being
 	// disconnected.
-	for op := range n.opsBySpendHeight[blockHeight] {
+	for op := range n.spendsByHeight[blockHeight] {
 		// Since the spending transaction is being reorged out of the
 		// chain, we'll need to clear out the spending details of the
-		// outpoint.
+		// request.
 		spendSet := n.spendNotifications[op]
 		spendSet.details = nil
 
@@ -1219,70 +1567,68 @@ func (n *TxNotifier) DisconnectTip(blockHeight uint32) error {
 		}
 	}
 
-	// Finally, we can remove the transactions that were confirmed and the
-	// outpoints that were spent at the height being disconnected. We'll
-	// still continue to track them until they have been confirmed/spent and
-	// are no longer under the risk of being reorged out of the chain again.
-	delete(n.txsByInitialHeight, blockHeight)
-	delete(n.opsBySpendHeight, blockHeight)
+	// Finally, we can remove the requests that were confirmed and/or spent
+	// at the height being disconnected. We'll still continue to track them
+	// until they have been confirmed/spent and are no longer under the risk
+	// of being reorged out of the chain again.
+	delete(n.confsByInitialHeight, blockHeight)
+	delete(n.spendsByHeight, blockHeight)
 
 	return nil
 }
 
 // updateHints attempts to update the confirm and spend hints for all relevant
-// transactions and outpoints respectively. The height parameter is used to
-// determine which transactions and outpoints we should update based on whether
-// a new block is being connected/disconnected.
+// requests respectively. The height parameter is used to determine which
+// requests we should update based on whether a new block is being
+// connected/disconnected.
 //
 // NOTE: This must be called with the TxNotifier's lock held and after its
 // height has already been reflected by a block being connected/disconnected.
 func (n *TxNotifier) updateHints(height uint32) {
 	// TODO(wilmer): update under one database transaction.
 	//
-	// To update the height hint for all the required transactions under one
-	// database transaction, we'll gather the set of unconfirmed
-	// transactions along with the ones that confirmed at the height being
+	// To update the height hint for all the required confirmation requests
+	// under one database transaction, we'll gather the set of unconfirmed
+	// requests along with the ones that confirmed at the height being
 	// connected/disconnected.
-	txsToUpdateHints := n.unconfirmedTxs()
-	for confirmedTx := range n.txsByInitialHeight[height] {
-		txsToUpdateHints = append(txsToUpdateHints, confirmedTx)
+	confRequests := n.unconfirmedRequests()
+	for confRequest := range n.confsByInitialHeight[height] {
+		confRequests = append(confRequests, confRequest)
 	}
 	err := n.confirmHintCache.CommitConfirmHint(
-		n.currentHeight, txsToUpdateHints...,
+		n.currentHeight, confRequests...,
 	)
 	if err != nil {
 		// The error is not fatal as this is an optimistic optimization,
 		// so we'll avoid returning an error.
 		Log.Debugf("Unable to update confirm hints to %d for "+
-			"%v: %v", n.currentHeight, txsToUpdateHints, err)
+			"%v: %v", n.currentHeight, confRequests, err)
 	}
 
-	// Similarly, to update the height hint for all the required outpoints
-	// under one database transaction, we'll gather the set of unspent
-	// outpoints along with the ones that were spent at the height being
-	// connected/disconnected.
-	opsToUpdateHints := n.unspentOutPoints()
-	for spentOp := range n.opsBySpendHeight[height] {
-		opsToUpdateHints = append(opsToUpdateHints, spentOp)
+	// Similarly, to update the height hint for all the required spend
+	// requests under one database transaction, we'll gather the set of
+	// unspent requests along with the ones that were spent at the height
+	// being connected/disconnected.
+	spendRequests := n.unspentRequests()
+	for spendRequest := range n.spendsByHeight[height] {
+		spendRequests = append(spendRequests, spendRequest)
 	}
-	err = n.spendHintCache.CommitSpendHint(
-		n.currentHeight, opsToUpdateHints...,
-	)
+	err = n.spendHintCache.CommitSpendHint(n.currentHeight, spendRequests...)
 	if err != nil {
 		// The error is not fatal as this is an optimistic optimization,
 		// so we'll avoid returning an error.
 		Log.Debugf("Unable to update spend hints to %d for "+
-			"%v: %v", n.currentHeight, opsToUpdateHints, err)
+			"%v: %v", n.currentHeight, spendRequests, err)
 	}
 }
 
-// unconfirmedTxs returns the set of transactions that are still seen as
-// unconfirmed by the TxNotifier.
+// unconfirmedRequests returns the set of confirmation requests that are
+// still seen as unconfirmed by the TxNotifier.
 //
 // NOTE: This method must be called with the TxNotifier's lock held.
-func (n *TxNotifier) unconfirmedTxs() []chainhash.Hash {
-	var unconfirmedTxs []chainhash.Hash
-	for tx, confNtfnSet := range n.confNotifications {
+func (n *TxNotifier) unconfirmedRequests() []ConfRequest {
+	var unconfirmed []ConfRequest
+	for confRequest, confNtfnSet := range n.confNotifications {
 		// If the notification is already aware of its confirmation
 		// details, or it's in the process of learning them, we'll skip
 		// it as we can't yet determine if it's confirmed or not.
@@ -1291,19 +1637,19 @@ func (n *TxNotifier) unconfirmedTxs() []chainhash.Hash {
 			continue
 		}
 
-		unconfirmedTxs = append(unconfirmedTxs, tx)
+		unconfirmed = append(unconfirmed, confRequest)
 	}
 
-	return unconfirmedTxs
+	return unconfirmed
 }
 
-// unspentOutPoints returns the set of outpoints that are still seen as unspent
-// by the TxNotifier.
+// unspentRequests returns the set of spend requests that are still seen as
+// unspent by the TxNotifier.
 //
 // NOTE: This method must be called with the TxNotifier's lock held.
-func (n *TxNotifier) unspentOutPoints() []wire.OutPoint {
-	var unspentOps []wire.OutPoint
-	for op, spendNtfnSet := range n.spendNotifications {
+func (n *TxNotifier) unspentRequests() []SpendRequest {
+	var unspent []SpendRequest
+	for spendRequest, spendNtfnSet := range n.spendNotifications {
 		// If the notification is already aware of its spend details, or
 		// it's in the process of learning them, we'll skip it as we
 		// can't yet determine if it's unspent or not.
@@ -1312,10 +1658,10 @@ func (n *TxNotifier) unspentOutPoints() []wire.OutPoint {
 			continue
 		}
 
-		unspentOps = append(unspentOps, op)
+		unspent = append(unspent, spendRequest)
 	}
 
-	return unspentOps
+	return unspent
 }
 
 // dispatchConfReorg dispatches a reorg notification to the client if the
@@ -1325,10 +1671,10 @@ func (n *TxNotifier) unspentOutPoints() []wire.OutPoint {
 func (n *TxNotifier) dispatchConfReorg(ntfn *ConfNtfn,
 	heightDisconnected uint32) error {
 
-	// If the transaction's confirmation notification has yet to be
-	// dispatched, we'll need to clear its entry within the
-	// ntfnsByConfirmHeight index to prevent from notifying the client once
-	// the notifier reaches the confirmation height.
+	// If the request's confirmation notification has yet to be dispatched,
+	// we'll need to clear its entry within the ntfnsByConfirmHeight index
+	// to prevent from notifying the client once the notifier reaches the
+	// confirmation height.
 	if !ntfn.dispatched {
 		confHeight := heightDisconnected + ntfn.NumConfirmations - 1
 		ntfnSet, exists := n.ntfnsByConfirmHeight[confHeight]
@@ -1404,6 +1750,7 @@ func (n *TxNotifier) TearDown() {
 			close(ntfn.Event.Confirmed)
 			close(ntfn.Event.Updates)
 			close(ntfn.Event.NegativeConf)
+			close(ntfn.Event.Done)
 		}
 	}
 
@@ -1411,6 +1758,7 @@ func (n *TxNotifier) TearDown() {
 		for _, ntfn := range spendSet.ntfns {
 			close(ntfn.Event.Spend)
 			close(ntfn.Event.Reorg)
+			close(ntfn.Event.Done)
 		}
 	}
 }

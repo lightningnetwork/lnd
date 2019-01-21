@@ -215,7 +215,9 @@ func newTestContext(t *testing.T) *testContext {
 		clock:    clock,
 		t:        t,
 		cleanup: func() {
-			registry.Stop()
+			if err = registry.Stop(); err != nil {
+				t.Fatalf("failed to stop invoice registry: %v", err)
+			}
 			cleanup()
 		},
 	}

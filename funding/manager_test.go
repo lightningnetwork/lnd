@@ -484,7 +484,9 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 func recreateAliceFundingManager(t *testing.T, alice *testNode) {
 	// Stop the old fundingManager before creating a new one.
 	close(alice.shutdownChannel)
-	alice.fundingMgr.Stop()
+	if err := alice.fundingMgr.Stop(); err != nil {
+		t.Fatalf("failed stop funding manager: %v", err)
+	}
 
 	aliceMsgChan := make(chan lnwire.Message)
 	aliceAnnounceChan := make(chan lnwire.Message)
@@ -622,8 +624,12 @@ func tearDownFundingManagers(t *testing.T, a, b *testNode) {
 	close(a.shutdownChannel)
 	close(b.shutdownChannel)
 
-	a.fundingMgr.Stop()
-	b.fundingMgr.Stop()
+	if err := a.fundingMgr.Stop(); err != nil {
+		t.Fatalf("failed stop funding manager: %v", err)
+	}
+	if err := b.fundingMgr.Stop(); err != nil {
+		t.Fatalf("failed stop funding manager: %v", err)
+	}
 	os.RemoveAll(a.testDir)
 	os.RemoveAll(b.testDir)
 }
@@ -1502,7 +1508,9 @@ func TestFundingManagerRestartBehavior(t *testing.T) {
 	// implementation, and expect it to retry sending the fundingLocked
 	// message. We'll explicitly shut down Alice's funding manager to
 	// prevent a race when overriding the sendMessage implementation.
-	alice.fundingMgr.Stop()
+	if err := alice.fundingMgr.Stop(); err != nil {
+		t.Fatalf("failed stop funding manager: %v", err)
+	}
 	bob.sendMessage = workingSendMessage
 	recreateAliceFundingManager(t, alice)
 

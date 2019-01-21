@@ -527,7 +527,11 @@ func TestCancelHoldInvoice(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer registry.Stop()
+	defer func() {
+		if err := registry.Stop(); err != nil {
+			t.Fatalf("failed to stop invoice registry: %v", err)
+		}
+	}()
 
 	// Add the invoice.
 	_, err = registry.AddInvoice(testHodlInvoice, testInvoicePaymentHash)
@@ -1005,7 +1009,9 @@ func TestInvoiceExpiryWithRegistry(t *testing.T) {
 
 	// Give some time to the watcher to cancel everything.
 	time.Sleep(500 * time.Millisecond)
-	registry.Stop()
+	if err = registry.Stop(); err != nil {
+		t.Fatalf("failed to stop invoice registry: %v", err)
+	}
 
 	// Create the expected cancellation set before the final check.
 	expectedCancellations = append(

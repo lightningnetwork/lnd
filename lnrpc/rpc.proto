@@ -781,8 +781,16 @@ message SendToRouteRequest {
     /// An optional hex-encoded payment hash to be used for the HTLC.
     string payment_hash_string = 2;
 
-    /// The set of routes that should be used to attempt to complete the payment.
-    repeated Route routes = 3;
+    /**
+    Deprecated. The set of routes that should be used to attempt to complete the
+    payment. The possibility to pass in multiple routes is deprecated and 
+    instead the single route field below should be used in combination with the 
+    streaming variant of SendToRoute.
+    */
+    repeated Route routes = 3 [deprecated = true];
+
+    /// Route that should be used to attempt to complete the payment.
+    Route route = 4;
 }
 
 message ChannelPoint {

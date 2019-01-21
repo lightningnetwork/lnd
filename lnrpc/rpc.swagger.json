@@ -2911,7 +2911,11 @@
           "items": {
             "$ref": "#/definitions/lnrpcRoute"
           },
-          "description": "/ The set of routes that should be used to attempt to complete the payment."
+          "description": "*\nDeprecated. The set of routes that should be used to attempt to complete the\npayment. The possibility to pass in multiple routes is deprecated and \ninstead the single route field below should be used in combination with the \nstreaming variant of SendToRoute."
+        },
+        "route": {
+          "$ref": "#/definitions/lnrpcRoute",
+          "description": "/ Route that should be used to attempt to complete the payment."
         }
       }
     },

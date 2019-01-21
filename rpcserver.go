@@ -2580,17 +2580,29 @@ func (r *rpcServer) SendToRoute(stream lnrpc.Lightning_SendToRouteServer) error 
 func unmarshallSendToRouteRequest(req *lnrpc.SendToRouteRequest,
 	graph *channeldb.ChannelGraph) (*rpcPaymentRequest, error) {
 
-	if len(req.Routes) == 0 {
+	switch {
+	case len(req.Routes) == 0 && req.Route == nil:
 		return nil, fmt.Errorf("unable to send, no routes provided")
+	case len(req.Routes) > 0 && req.Route != nil:
+		return nil, fmt.Errorf("cannot use both route and routes field")
 	}
 
-	routes := make([]*routing.Route, len(req.Routes))
-	for i, rpcroute := range req.Routes {
-		route, err := unmarshallRoute(rpcroute, graph)
+	var routes []*routing.Route
+	if len(req.Routes) > 0 {
+		routes = make([]*routing.Route, len(req.Routes))
+		for i, rpcroute := range req.Routes {
+			route, err := unmarshallRoute(rpcroute, graph)
+			if err != nil {
+				return nil, err
+			}
+			routes[i] = route
+		}
+	} else {
+		route, err := unmarshallRoute(req.Route, graph)
 		if err != nil {
 			return nil, err
 		}
-		routes[i] = route
+		routes = []*routing.Route{route}
 	}
 
 	return &rpcPaymentRequest{

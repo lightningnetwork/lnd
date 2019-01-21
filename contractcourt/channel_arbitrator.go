@@ -549,7 +549,9 @@ func (c *ChannelArbitrator) stateStep(triggerHeight uint32,
 				"force close: %v", c.cfg.ChanPoint, err)
 			return StateError, closeTx, err
 		}
-		closeTx = closeSummary.CloseTx
+ 		if err == nil {
+    		closeTx = closeSummary.CloseTx
+		}
 
 		// With the close transaction in hand, broadcast the
 		// transaction to the network, thereby entering the post

@@ -32,7 +32,14 @@ import (
 
 type mockPreimageCache struct {
 	sync.Mutex
-	preimageMap map[[32]byte][]byte
+	preimageMap       map[[32]byte][]byte
+	mockSubscriptions []chan []byte
+}
+
+func newMockPreimageCache() *mockPreimageCache {
+	return &mockPreimageCache{
+		preimageMap: make(map[[32]byte][]byte),
+	}
 }
 
 func (m *mockPreimageCache) LookupPreimage(hash []byte) ([]byte, bool) {
@@ -52,11 +59,26 @@ func (m *mockPreimageCache) AddPreimage(preimage []byte) error {
 
 	m.preimageMap[sha256.Sum256(preimage[:])] = preimage
 
+	for _, c := range m.mockSubscriptions {
+		c <- preimage
+	}
+
 	return nil
 }
 
 func (m *mockPreimageCache) SubscribeUpdates() *contractcourt.WitnessSubscription {
-	return nil
+	m.Lock()
+	defer m.Unlock()
+
+	c := make(chan []byte, 1)
+	m.mockSubscriptions = append(m.mockSubscriptions, c)
+
+	sub := &contractcourt.WitnessSubscription{
+		CancelSubscription: func() {},
+		WitnessUpdates:     c,
+	}
+
+	return sub
 }
 
 type mockFeeEstimator struct {
@@ -125,6 +147,7 @@ type mockServer struct {
 
 	registry         *mockInvoiceRegistry
 	pCache           *mockPreimageCache
+	hodlManager      *HodlManager
 	interceptorFuncs []messageInterceptor
 }
 
@@ -192,6 +215,11 @@ func newMockServer(t testing.TB, name string, startingHeight uint32,
 
 	registry := newMockRegistry(defaultDelta)
 
+	hodlManager := NewHodlManager(registry, pCache)
+	if err := hodlManager.Start(); err != nil {
+		return nil, err
+	}
+
 	return &mockServer{
 		t:                t,
 		id:               id,
@@ -201,6 +229,7 @@ func newMockServer(t testing.TB, name string, startingHeight uint32,
 		registry:         registry,
 		htlcSwitch:       htlcSwitch,
 		pCache:           pCache,
+		hodlManager:      hodlManager,
 		interceptorFuncs: make([]messageInterceptor, 0),
 	}, nil
 }
@@ -700,6 +729,9 @@ type mockInvoiceRegistry struct {
 
 	invoices   map[lntypes.Hash]channeldb.Invoice
 	finalDelta uint32
+
+	acceptChan chan lntypes.Hash
+	settleChan chan lntypes.Hash
 }
 
 func newMockRegistry(minDelta uint32) *mockInvoiceRegistry {
@@ -741,6 +773,10 @@ func (i *mockInvoiceRegistry) SettleInvoice(rhash lntypes.Hash,
 	invoice.AmtPaid = amt
 	i.invoices[rhash] = invoice
 
+	if i.settleChan != nil {
+		i.settleChan <- rhash
+	}
+
 	return nil
 }
 
@@ -781,6 +817,10 @@ func (i *mockInvoiceRegistry) AcceptInvoice(rhash lntypes.Hash,
 	invoice.Terms.State = channeldb.ContractAccepted
 	invoice.AmtPaid = amt
 	i.invoices[rhash] = invoice
+
+	if i.acceptChan != nil {
+		i.acceptChan <- rhash
+	}
 
 	return nil
 }

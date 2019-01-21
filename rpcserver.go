@@ -2565,25 +2565,7 @@ func (r *rpcServer) SendToRoute(stream lnrpc.Lightning_SendToRouteServer) error 
 
 			graph := r.server.chanDB.ChannelGraph()
 
-			if len(req.Routes) == 0 {
-				return nil, fmt.Errorf("unable to send, no routes provided")
-			}
-
-			routes := make([]*routing.Route, len(req.Routes))
-			for i, rpcroute := range req.Routes {
-				route, err := r.unmarshallRoute(rpcroute, graph)
-				if err != nil {
-					return nil, err
-				}
-				routes[i] = route
-			}
-
-			return &rpcPaymentRequest{
-				SendRequest: &lnrpc.SendRequest{
-					PaymentHash: req.PaymentHash,
-				},
-				routes: routes,
-			}, nil
+			return unmarshallSendToRouteRequest(req, graph)
 		},
 		send: func(r *lnrpc.SendResponse) error {
 			// Calling stream.Send concurrently is not safe.
@@ -2592,6 +2574,31 @@ func (r *rpcServer) SendToRoute(stream lnrpc.Lightning_SendToRouteServer) error 
 			return stream.Send(r)
 		},
 	})
+}
+
+// unmarshallSendToRouteRequest unmarshalls an rpc sendtoroute request
+func unmarshallSendToRouteRequest(req *lnrpc.SendToRouteRequest,
+	graph *channeldb.ChannelGraph) (*rpcPaymentRequest, error) {
+
+	if len(req.Routes) == 0 {
+		return nil, fmt.Errorf("unable to send, no routes provided")
+	}
+
+	routes := make([]*routing.Route, len(req.Routes))
+	for i, rpcroute := range req.Routes {
+		route, err := unmarshallRoute(rpcroute, graph)
+		if err != nil {
+			return nil, err
+		}
+		routes[i] = route
+	}
+
+	return &rpcPaymentRequest{
+		SendRequest: &lnrpc.SendRequest{
+			PaymentHash: req.PaymentHash,
+		},
+		routes: routes,
+	}, nil
 }
 
 // rpcPaymentIntent is a small wrapper struct around the of values we can
@@ -3027,21 +3034,12 @@ func (r *rpcServer) SendToRouteSync(ctx context.Context,
 
 	graph := r.server.chanDB.ChannelGraph()
 
-	routes := make([]*routing.Route, len(req.Routes))
-	for i, route := range req.Routes {
-		route, err := r.unmarshallRoute(route, graph)
-		if err != nil {
-			return nil, err
-		}
-		routes[i] = route
+	paymentRequest, err := unmarshallSendToRouteRequest(req, graph)
+	if err != nil {
+		return nil, err
 	}
 
-	return r.sendPaymentSync(ctx, &rpcPaymentRequest{
-		SendRequest: &lnrpc.SendRequest{
-			PaymentHashString: req.PaymentHashString,
-		},
-		routes: routes,
-	})
+	return r.sendPaymentSync(ctx, paymentRequest)
 }
 
 // sendPaymentSync is the synchronous variant of sendPayment. It will block and
@@ -4024,7 +4022,7 @@ func unmarshallHop(graph *channeldb.ChannelGraph, hop *lnrpc.Hop,
 
 // unmarshallRoute unmarshalls an rpc route. For hops that don't specify a
 // pubkey, the channel graph is queried.
-func (r *rpcServer) unmarshallRoute(rpcroute *lnrpc.Route,
+func unmarshallRoute(rpcroute *lnrpc.Route,
 	graph *channeldb.ChannelGraph) (*routing.Route, error) {
 
 	sourceNode, err := graph.SourceNode()

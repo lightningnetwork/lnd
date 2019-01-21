@@ -4,6 +4,11 @@ FROM golang:1.13-alpine as builder
 # queries required to connect to linked containers succeed.
 ENV GODEBUG netdns=cgo
 
+# Pass a tag, branch or a commit using build-arg.  This allows a docker
+# image to be built from a specified Git state.  The default image
+# will use the Git tip of master by default.
+ARG checkout="master"
+
 # Install dependencies and build the binaries.
 RUN apk add --no-cache --update alpine-sdk \
     git \
@@ -11,6 +16,7 @@ RUN apk add --no-cache --update alpine-sdk \
     gcc \
 &&  git clone https://github.com/lightningnetwork/lnd /go/src/github.com/lightningnetwork/lnd \
 &&  cd /go/src/github.com/lightningnetwork/lnd \
+&&  git checkout $checkout \
 &&  make \
 &&  make install tags="signrpc walletrpc chainrpc invoicesrpc routerrpc"
 

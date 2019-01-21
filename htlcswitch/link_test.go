@@ -3,6 +3,7 @@ package htlcswitch
 import (
 	"bytes"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -14,6 +15,9 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/btcsuite/fastsha256"
+	"github.com/lightningnetwork/lnd/lntypes"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -1009,7 +1013,8 @@ func TestChannelLinkMultiHopUnknownPaymentHash(t *testing.T) {
 	invoice.Terms.PaymentPreimage[0] ^= byte(255)
 
 	// Check who is last in the route and add invoice to server registry.
-	if err := n.carolServer.registry.AddInvoice(*invoice); err != nil {
+	if err := n.carolServer.registry.AddInvoice(*invoice,
+		invoice.Terms.PaymentPreimage.Hash()); err != nil {
 		t.Fatalf("unable to add invoice in carol registry: %v", err)
 	}
 
@@ -1870,7 +1875,7 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 	// If we now send in a valid HTLC settle for the prior HTLC we added,
 	// then the bandwidth should remain unchanged as the remote party will
 	// gain additional channel balance.
-	err = bobChannel.SettleHTLC(invoice.Terms.PaymentPreimage, bobIndex, nil, nil, nil)
+	_, err = bobChannel.SettleHTLC(invoice.Terms.PaymentPreimage, bobIndex, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("unable to settle htlc: %v", err)
 	}
@@ -1989,7 +1994,9 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 
 	// We must add the invoice to the registry, such that Alice expects
 	// this payment.
-	err = coreLink.cfg.Registry.(*mockInvoiceRegistry).AddInvoice(*invoice)
+	err = coreLink.cfg.Registry.(*mockInvoiceRegistry).AddInvoice(*invoice,
+		invoice.Terms.PaymentPreimage.Hash(),
+	)
 	if err != nil {
 		t.Fatalf("unable to add invoice to registry: %v", err)
 	}
@@ -2091,7 +2098,9 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to create payment: %v", err)
 	}
-	err = coreLink.cfg.Registry.(*mockInvoiceRegistry).AddInvoice(*invoice)
+	err = coreLink.cfg.Registry.(*mockInvoiceRegistry).AddInvoice(*invoice,
+		invoice.Terms.PaymentPreimage.Hash(),
+	)
 	if err != nil {
 		t.Fatalf("unable to add invoice to registry: %v", err)
 	}
@@ -2340,7 +2349,7 @@ func TestChannelLinkBandwidthConsistencyOverflow(t *testing.T) {
 	// will simply transfer over funds to the remote party. However, the
 	// size of the overflow queue should be decreasing
 	for i := 0; i < numOverFlowHTLCs; i++ {
-		err = bobChannel.SettleHTLC(preImages[i], uint64(i), nil, nil, nil)
+		_, err = bobChannel.SettleHTLC(preImages[i], uint64(i), nil, nil, nil)
 		if err != nil {
 			t.Fatalf("unable to settle htlc: %v", err)
 		}
@@ -3058,7 +3067,7 @@ func TestChannelLinkBandwidthChanReserve(t *testing.T) {
 	// If we now send in a valid HTLC settle for the prior HTLC we added,
 	// then the bandwidth should remain unchanged as the remote party will
 	// gain additional channel balance.
-	err = bobChannel.SettleHTLC(invoice.Terms.PaymentPreimage, bobIndex, nil, nil, nil)
+	_, err = bobChannel.SettleHTLC(invoice.Terms.PaymentPreimage, bobIndex, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("unable to settle htlc: %v", err)
 	}
@@ -3747,7 +3756,8 @@ func TestChannelLinkAcceptDuplicatePayment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := n.carolServer.registry.AddInvoice(*invoice); err != nil {
+	if err := n.carolServer.registry.AddInvoice(*invoice,
+		invoice.Terms.PaymentPreimage.Hash()); err != nil {
 		t.Fatalf("unable to add invoice in carol registry: %v", err)
 	}
 
@@ -4139,7 +4149,8 @@ func generateHtlc(t *testing.T, coreLink *channelLink,
 	// We must add the invoice to the registry, such that Alice
 	// expects this payment.
 	err = coreLink.cfg.Registry.(*mockInvoiceRegistry).AddInvoice(
-		*invoice)
+		*invoice, invoice.Terms.PaymentPreimage.Hash(),
+	)
 	if err != nil {
 		t.Fatalf("unable to add invoice to registry: %v", err)
 	}
@@ -5256,5 +5267,118 @@ func TestChannelLinkCanceledInvoice(t *testing.T) {
 	_, ok = fErr.FailureMessage.(*lnwire.FailUnknownPaymentHash)
 	if !ok {
 		t.Fatalf("expected unknown payment hash, but got %v", err)
+	}
+}
+
+func TestChannelLinkHoldInvoice(t *testing.T) {
+	t.Parallel()
+
+	channels, cleanUp, _, err := createClusterChannels(
+		btcutil.SatoshiPerBitcoin*3,
+		btcutil.SatoshiPerBitcoin*5)
+	if err != nil {
+		t.Fatalf("unable to create channel: %v", err)
+	}
+	defer cleanUp()
+
+	n := newThreeHopNetwork(t, channels.aliceToBob, channels.bobToAlice,
+		channels.bobToCarol, channels.carolToBob, testStartingHeight)
+	if err := n.start(); err != nil {
+		t.Fatal(err)
+	}
+	defer n.stop()
+
+	aliceBandwidthBefore := n.aliceChannelLink.Bandwidth()
+	bobBandwidthBefore := n.firstBobChannelLink.Bandwidth()
+
+	debug := false
+	if debug {
+		// Log message that alice receives.
+		n.aliceServer.intersect(createLogFunc("alice",
+			n.aliceChannelLink.ChanID()))
+
+		// Log message that bob receives.
+		n.bobServer.intersect(createLogFunc("bob",
+			n.firstBobChannelLink.ChanID()))
+	}
+
+	amount := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
+	htlcAmt, totalTimelock, hops := generateHops(amount, testStartingHeight,
+		n.firstBobChannelLink)
+
+	// Generate hold invoice preimage.
+	var preimage [sha256.Size]byte
+	r, err := generateRandomBytes(sha256.Size)
+	if err != nil {
+		t.Fatal(err)
+	}
+	copy(preimage[:], r)
+	hash := fastsha256.Sum256(preimage[:])
+
+	// Wait for:
+	// * HTLC add request to be sent to bob.
+	// * alice<->bob commitment state to be updated.
+	// * settle request to be sent back from bob to alice.
+	// * alice<->bob commitment state to be updated.
+	// * user notification to be sent.
+	receiver := n.bobServer
+	receiver.registry.acceptChan = make(chan lntypes.Hash)
+	receiver.registry.settleChan = make(chan lntypes.Hash)
+	firstHop := n.firstBobChannelLink.ShortChanID()
+	errChan := n.makeHoldPayment(
+		n.aliceServer, receiver, firstHop, hops, amount, htlcAmt,
+		totalTimelock, preimage,
+	)
+
+	select {
+	case err := <-errChan:
+		t.Fatalf("no payment result expected: %v", err)
+	case <-time.After(time.Second):
+		t.Fatal("timeout")
+	case h := <-receiver.registry.acceptChan:
+		if hash != h {
+			t.Fatal("unexpect invoice accepted")
+		}
+	}
+
+	// Unfortunately a slight delay is needed here, because otherwise the
+	// switch hasn't added the htlc to the circuit map.
+	//
+	// TODO: This may be a problem for rpc users too! Do we accept the
+	// invoice too early. Should it be accepted behind the switch after all?
+	time.Sleep(100 * time.Millisecond)
+
+	n.bobServer.pCache.AddPreimage(preimage[:])
+
+	// Wait for invoice to be marked as settled.
+	select {
+	case h := <-receiver.registry.settleChan:
+		if hash != h {
+			t.Fatal("unexpect invoice settled")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timeout")
+	}
+
+	// Wait for payment to succeed.
+	select {
+	case err := <-errChan:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout")
+	}
+
+	// Wait for Bob to receive the revocation.
+	if aliceBandwidthBefore-amount != n.aliceChannelLink.Bandwidth() {
+		t.Fatal("alice bandwidth should have decrease on payment " +
+			"amount")
+	}
+
+	if bobBandwidthBefore+amount != n.firstBobChannelLink.Bandwidth() {
+		t.Fatalf("bob bandwidth isn't match: expected %v, got %v",
+			bobBandwidthBefore+amount,
+			n.firstBobChannelLink.Bandwidth())
 	}
 }

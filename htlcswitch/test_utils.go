@@ -523,19 +523,12 @@ func getChanID(msg lnwire.Message) (lnwire.ChannelID, error) {
 	return chanID, nil
 }
 
-// generatePayment generates the htlc add request by given path blob and
+// generateHoldPayment generates the htlc add request by given path blob and
 // invoice which should be added by destination peer.
-func generatePayment(invoiceAmt, htlcAmt lnwire.MilliSatoshi, timelock uint32,
-	blob [lnwire.OnionPacketSize]byte) (*channeldb.Invoice, *lnwire.UpdateAddHTLC, error) {
-
-	var preimage [sha256.Size]byte
-	r, err := generateRandomBytes(sha256.Size)
-	if err != nil {
-		return nil, nil, err
-	}
-	copy(preimage[:], r)
-
-	rhash := fastsha256.Sum256(preimage[:])
+func generatePaymentWithPreimage(invoiceAmt, htlcAmt lnwire.MilliSatoshi,
+	timelock uint32, blob [lnwire.OnionPacketSize]byte,
+	preimage, rhash [32]byte) (*channeldb.Invoice, *lnwire.UpdateAddHTLC,
+	error) {
 
 	invoice := &channeldb.Invoice{
 		CreationDate: time.Now(),
@@ -553,6 +546,24 @@ func generatePayment(invoiceAmt, htlcAmt lnwire.MilliSatoshi, timelock uint32,
 	}
 
 	return invoice, htlc, nil
+}
+
+// generatePayment generates the htlc add request by given path blob and
+// invoice which should be added by destination peer.
+func generatePayment(invoiceAmt, htlcAmt lnwire.MilliSatoshi, timelock uint32,
+	blob [lnwire.OnionPacketSize]byte) (*channeldb.Invoice, *lnwire.UpdateAddHTLC, error) {
+
+	var preimage [sha256.Size]byte
+	r, err := generateRandomBytes(sha256.Size)
+	if err != nil {
+		return nil, nil, err
+	}
+	copy(preimage[:], r)
+
+	rhash := fastsha256.Sum256(preimage[:])
+	return generatePaymentWithPreimage(
+		invoiceAmt, htlcAmt, timelock, blob, preimage, rhash,
+	)
 }
 
 // generateRoute generates the path blob by given array of peers.
@@ -745,7 +756,8 @@ func preparePayment(sendingPeer, receivingPeer lnpeer.Peer,
 	}
 
 	// Check who is last in the route and add invoice to server registry.
-	if err := receiver.registry.AddInvoice(*invoice); err != nil {
+	hash := invoice.Terms.PaymentPreimage.Hash()
+	if err := receiver.registry.AddInvoice(*invoice, hash); err != nil {
 		return nil, nil, err
 	}
 
@@ -756,6 +768,53 @@ func preparePayment(sendingPeer, receivingPeer lnpeer.Peer,
 		)
 		return err
 	}, nil
+}
+
+func (n *threeHopNetwork) makeHoldPayment(sendingPeer, receivingPeer lnpeer.Peer,
+	firstHop lnwire.ShortChannelID, hops []ForwardingInfo,
+	invoiceAmt, htlcAmt lnwire.MilliSatoshi,
+	timelock uint32, preimage lntypes.Hash) chan error {
+
+	paymentErr := make(chan error, 1)
+
+	var rhash lntypes.Hash
+
+	sender := sendingPeer.(*mockServer)
+	receiver := receivingPeer.(*mockServer)
+
+	// Generate route convert it to blob, and return next destination for
+	// htlc add request.
+	blob, err := generateRoute(hops...)
+	if err != nil {
+		paymentErr <- err
+		return paymentErr
+	}
+
+	rhash = fastsha256.Sum256(preimage[:])
+
+	// Generate payment: invoice and htlc.
+	invoice, htlc, err := generatePaymentWithPreimage(invoiceAmt, htlcAmt, timelock, blob,
+		channeldb.UnknownPreimage, rhash)
+	if err != nil {
+		paymentErr <- err
+		return paymentErr
+	}
+
+	// Check who is last in the route and add invoice to server registry.
+	if err := receiver.registry.AddInvoice(*invoice, rhash); err != nil {
+		paymentErr <- err
+		return paymentErr
+	}
+
+	// Send payment and expose err channel.
+	go func() {
+		_, err := sender.htlcSwitch.SendHTLC(
+			firstHop, htlc, newMockDeobfuscator(),
+		)
+		paymentErr <- err
+	}()
+
+	return paymentErr
 }
 
 // start starts the three hop network alice,bob,carol servers.
@@ -974,18 +1033,12 @@ type hopNetwork struct {
 	feeEstimator *mockFeeEstimator
 	globalPolicy ForwardingPolicy
 	obfuscator   ErrorEncrypter
-	pCache       *mockPreimageCache
 
 	defaultDelta uint32
 }
 
 func newHopNetwork() *hopNetwork {
 	defaultDelta := uint32(6)
-
-	pCache := &mockPreimageCache{
-		// hash -> preimage
-		preimageMap: make(map[[32]byte][]byte),
-	}
 
 	globalPolicy := ForwardingPolicy{
 		MinHTLC:       lnwire.NewMSatFromSatoshis(5),
@@ -1003,7 +1056,6 @@ func newHopNetwork() *hopNetwork {
 		feeEstimator: feeEstimator,
 		globalPolicy: globalPolicy,
 		obfuscator:   obfuscator,
-		pCache:       pCache,
 		defaultDelta: defaultDelta,
 	}
 }
@@ -1034,7 +1086,8 @@ func (h *hopNetwork) createChannelLink(server, peer *mockServer,
 			FetchLastChannelUpdate: mockGetChanUpdateMessage,
 			Registry:               server.registry,
 			FeeEstimator:           h.feeEstimator,
-			PreimageCache:          h.pCache,
+			PreimageCache:          server.pCache,
+			HodlManager:            server.hodlManager,
 			UpdateContractSignals: func(*contractcourt.ContractSignals) error {
 				return nil
 			},

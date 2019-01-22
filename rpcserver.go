@@ -985,6 +985,7 @@ func (r *rpcServer) VerifyMessage(ctx context.Context,
 
 	// Check that the signature is valid, if there is no error then the sig is
 	// valid.
+	// RecoverCompact both recovers the pubkey and validates the signature.
 	pubKey, _, err := btcec.RecoverCompact(btcec.S256(), sig, digest)
 	if err == nil {
 		verifiedMsgResponse.SigValid = true

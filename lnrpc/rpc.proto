@@ -901,10 +901,18 @@ message VerifyMessageRequest {
 }
 message VerifyMessageResponse {
     /// Whether the signature was valid over the given message
-    bool valid = 1 [ json_name = "valid" ];
+    /// NOTE: (ccdle12) deprecated in favour of confirming whether a pubkey is
+    /// in the graph and whether the signature itself is valid
+    bool valid = 1 [ json_name = "valid", deprecated = true ];
 
     /// The pubkey recovered from the signature
     string pubkey = 2 [ json_name = "pubkey" ];
+
+    /// Whether the pubkey is present in the graph
+    bool graph_valid = 3 [ json_name = "graph_valid" ];
+
+    /// Whether the signature itself is valid
+    bool sig_valid = 4 [ json_name = "sig_valid" ];
 }
 
 message ConnectPeerRequest {

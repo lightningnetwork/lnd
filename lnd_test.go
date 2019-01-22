@@ -8460,8 +8460,11 @@ func testNodeSignVerify(net *lntest.NetworkHarness, t *harnessTest) {
 	if err != nil {
 		t.Fatalf("VerifyMessage failed: %v", err)
 	}
-	if !verifyResp.Valid {
+	if !verifyResp.SigValid {
 		t.Fatalf("alice's signature didn't validate")
+	}
+	if !verifyResp.GraphValid {
+		t.Fatalf("alice should have been in bob's graph")
 	}
 	if verifyResp.Pubkey != net.Alice.PubKeyStr {
 		t.Fatalf("alice's signature doesn't contain alice's pubkey.")
@@ -8492,8 +8495,11 @@ func testNodeSignVerify(net *lntest.NetworkHarness, t *harnessTest) {
 	if err != nil {
 		t.Fatalf("VerifyMessage failed: %v", err)
 	}
-	if verifyResp.Valid {
-		t.Fatalf("carol's signature should not be valid")
+	if !verifyResp.SigValid {
+		t.Fatalf("carol's signature should be valid")
+	}
+	if verifyResp.GraphValid {
+		t.Fatalf("should be false since carol is not in Bob's graph")
 	}
 	if verifyResp.Pubkey != carol.PubKeyStr {
 		t.Fatalf("carol's signature doesn't contain her pubkey")

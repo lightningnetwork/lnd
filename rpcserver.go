@@ -980,15 +980,25 @@ func (r *rpcServer) VerifyMessage(ctx context.Context,
 	in.Msg = append(signedMsgPrefix, in.Msg...)
 	digest := chainhash.DoubleHashB(in.Msg)
 
-	// RecoverCompact both recovers the pubkey and validates the signature.
-	pubKey, _, err := btcec.RecoverCompact(btcec.S256(), sig, digest)
-	if err != nil {
-		return &lnrpc.VerifyMessageResponse{Valid: false}, nil
-	}
-	pubKeyHex := hex.EncodeToString(pubKey.SerializeCompressed())
+	// Initialize a response.
+	verifiedMsgResponse := &lnrpc.VerifyMessageResponse{}
 
+	// Check that the signature is valid, if there is no error then the sig is
+	// valid.
+	pubKey, _, err := btcec.RecoverCompact(btcec.S256(), sig, digest)
+	if err == nil {
+		verifiedMsgResponse.SigValid = true
+	}
+
+	// Only serialize the pubkey if it exists.
+	var pubKeyHex string
 	var pub [33]byte
-	copy(pub[:], pubKey.SerializeCompressed())
+
+	if pubKey != nil {
+		pubKeyHex = hex.EncodeToString(pubKey.SerializeCompressed())
+		copy(pub[:], pubKey.SerializeCompressed())
+	}
+	verifiedMsgResponse.Pubkey = pubKeyHex
 
 	// Query the channel graph to ensure a node in the network with active
 	// channels signed the message.
@@ -999,11 +1009,9 @@ func (r *rpcServer) VerifyMessage(ctx context.Context,
 	if err != nil {
 		return nil, fmt.Errorf("failed to query graph: %v", err)
 	}
+	verifiedMsgResponse.GraphValid = active
 
-	return &lnrpc.VerifyMessageResponse{
-		Valid:  active,
-		Pubkey: pubKeyHex,
-	}, nil
+	return verifiedMsgResponse, nil
 }
 
 // ConnectPeer attempts to establish a connection to a remote peer.

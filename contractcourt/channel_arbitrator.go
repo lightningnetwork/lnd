@@ -1084,33 +1084,11 @@ func (c *ChannelArbitrator) prepContractResolutions(htlcActions ChainActionMap,
 	inResolutionMap := make(map[wire.OutPoint]lnwallet.IncomingHtlcResolution)
 	for i := 0; i < len(incomingResolutions); i++ {
 		inRes := incomingResolutions[i]
-
-		// If we have a success transaction, then the htlc's outpoint
-		// is the transaction's only input. Otherwise, it's the claim
-		// point.
-		var htlcPoint wire.OutPoint
-		if inRes.SignedSuccessTx != nil {
-			htlcPoint = inRes.SignedSuccessTx.TxIn[0].PreviousOutPoint
-		} else {
-			htlcPoint = inRes.ClaimOutpoint
-		}
-
-		inResolutionMap[htlcPoint] = inRes
+		inResolutionMap[inRes.HtlcPoint()] = inRes
 	}
 	for i := 0; i < len(outgoingResolutions); i++ {
 		outRes := outgoingResolutions[i]
-
-		// If we have a timeout transaction, then the htlc's outpoint
-		// is the transaction's only input. Otherwise, it's the claim
-		// point.
-		var htlcPoint wire.OutPoint
-		if outRes.SignedTimeoutTx != nil {
-			htlcPoint = outRes.SignedTimeoutTx.TxIn[0].PreviousOutPoint
-		} else {
-			htlcPoint = outRes.ClaimOutpoint
-		}
-
-		outResolutionMap[htlcPoint] = outRes
+		outResolutionMap[outRes.HtlcPoint()] = outRes
 	}
 
 	// We'll create the resolver kit that we'll be cloning for each

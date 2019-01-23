@@ -5499,6 +5499,30 @@ func newIncomingHtlcResolution(signer Signer, localChanCfg *channeldb.ChannelCon
 	}, nil
 }
 
+// HtlcPoint returns the htlc's outpoint on the commitment tx.
+func (r *IncomingHtlcResolution) HtlcPoint() wire.OutPoint {
+	// If we have a success transaction, then the htlc's outpoint
+	// is the transaction's only input. Otherwise, it's the claim
+	// point.
+	if r.SignedSuccessTx != nil {
+		return r.SignedSuccessTx.TxIn[0].PreviousOutPoint
+	}
+
+	return r.ClaimOutpoint
+}
+
+// HtlcPoint returns the htlc's outpoint on the commitment tx.
+func (r *OutgoingHtlcResolution) HtlcPoint() wire.OutPoint {
+	// If we have a timeout transaction, then the htlc's outpoint
+	// is the transaction's only input. Otherwise, it's the claim
+	// point.
+	if r.SignedTimeoutTx != nil {
+		return r.SignedTimeoutTx.TxIn[0].PreviousOutPoint
+	}
+
+	return r.ClaimOutpoint
+}
+
 // extractHtlcResolutions creates a series of outgoing HTLC resolutions, and
 // the local key used when generating the HTLC scrips. This function is to be
 // used in two cases: force close, or a unilateral close.

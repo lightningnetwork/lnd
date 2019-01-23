@@ -1640,7 +1640,7 @@ func delChannelByEdge(edges *bbolt.Bucket, edgeIndex *bbolt.Bucket,
 func (c *ChannelGraph) UpdateEdgePolicy(edge *ChannelEdgePolicy) error {
 	return c.db.Update(func(tx *bbolt.Tx) error {
 		edges := tx.Bucket(edgeBucket)
-		if edge == nil {
+		if edges == nil {
 			return ErrEdgeNotFound
 		}
 
@@ -1677,7 +1677,7 @@ func updateEdgePolicy(edges, edgeIndex, nodes *bbolt.Bucket,
 	// Depending on the flags value passed above, either the first
 	// or second edge policy is being updated.
 	var fromNode, toNode []byte
-	if edge.Flags&lnwire.ChanUpdateDirection == 0 {
+	if edge.ChannelFlags&lnwire.ChanUpdateDirection == 0 {
 		fromNode = nodeInfo[:33]
 		toNode = nodeInfo[33:66]
 	} else {
@@ -2422,9 +2422,13 @@ type ChannelEdgePolicy struct {
 	// was received.
 	LastUpdate time.Time
 
-	// Flags is a bitfield which signals the capabilities of the channel as
-	// well as the directed edge this update applies to.
-	Flags lnwire.ChanUpdateFlag
+	// MessageFlags is a bitfield which indicates the presence of optional
+	// fields (like max_htlc) in the policy.
+	MessageFlags lnwire.ChanUpdateMsgFlags
+
+	// ChannelFlags is a bitfield which signals the capabilities of the
+	// channel as well as the directed edge this update applies to.
+	ChannelFlags lnwire.ChanUpdateChanFlags
 
 	// TimeLockDelta is the number of blocks this node will subtract from
 	// the expiry of an incoming HTLC. This value expresses the time buffer
@@ -2434,6 +2438,10 @@ type ChannelEdgePolicy struct {
 	// MinHTLC is the smallest value HTLC this node will accept, expressed
 	// in millisatoshi.
 	MinHTLC lnwire.MilliSatoshi
+
+	// MaxHTLC is the largest value HTLC this node will accept, expressed
+	// in millisatoshi.
+	MaxHTLC lnwire.MilliSatoshi
 
 	// FeeBaseMSat is the base HTLC fee that will be charged for forwarding
 	// ANY HTLC, expressed in mSAT's.
@@ -3169,54 +3177,15 @@ func putChanEdgePolicy(edges, nodes *bbolt.Bucket, edge *ChannelEdgePolicy,
 	byteOrder.PutUint64(edgeKey[33:], edge.ChannelID)
 
 	var b bytes.Buffer
-
-	err := wire.WriteVarBytes(&b, 0, edge.SigBytes)
-	if err != nil {
-		return err
-	}
-
-	if err := binary.Write(&b, byteOrder, edge.ChannelID); err != nil {
-		return err
-	}
-
-	var scratch [8]byte
-	updateUnix := uint64(edge.LastUpdate.Unix())
-	byteOrder.PutUint64(scratch[:], updateUnix)
-	if _, err := b.Write(scratch[:]); err != nil {
-		return err
-	}
-
-	if err := binary.Write(&b, byteOrder, edge.Flags); err != nil {
-		return err
-	}
-	if err := binary.Write(&b, byteOrder, edge.TimeLockDelta); err != nil {
-		return err
-	}
-	if err := binary.Write(&b, byteOrder, uint64(edge.MinHTLC)); err != nil {
-		return err
-	}
-	if err := binary.Write(&b, byteOrder, uint64(edge.FeeBaseMSat)); err != nil {
-		return err
-	}
-	if err := binary.Write(&b, byteOrder, uint64(edge.FeeProportionalMillionths)); err != nil {
-		return err
-	}
-
-	if _, err := b.Write(to); err != nil {
-		return err
-	}
-
-	if len(edge.ExtraOpaqueData) > MaxAllowedExtraOpaqueBytes {
-		return ErrTooManyExtraOpaqueBytes(len(edge.ExtraOpaqueData))
-	}
-	if err := wire.WriteVarBytes(&b, 0, edge.ExtraOpaqueData); err != nil {
+	if err := serializeChanEdgePolicy(&b, edge, to); err != nil {
 		return err
 	}
 
 	// Before we write out the new edge, we'll create a new entry in the
 	// update index in order to keep it fresh.
+	updateUnix := uint64(edge.LastUpdate.Unix())
 	var indexKey [8 + 8]byte
-	copy(indexKey[:], scratch[:])
+	byteOrder.PutUint64(indexKey[:8], updateUnix)
 	byteOrder.PutUint64(indexKey[8:], edge.ChannelID)
 
 	updateIndex, err := edges.CreateBucketIfNotExists(edgeUpdateIndexBucket)
@@ -3235,11 +3204,15 @@ func putChanEdgePolicy(edges, nodes *bbolt.Bucket, edge *ChannelEdgePolicy,
 		// *prior* update time in order to delete it. To do this, we'll
 		// need to deserialize the existing policy within the database
 		// (now outdated by the new one), and delete its corresponding
-		// entry within the update index.
+		// entry within the update index. We'll ignore any
+		// ErrEdgePolicyOptionalFieldNotFound error, as we only need
+		// the channel ID and update time to delete the entry.
+		// TODO(halseth): get rid of these invalid policies in a
+		// migration.
 		oldEdgePolicy, err := deserializeChanEdgePolicy(
 			bytes.NewReader(edgeBytes), nodes,
 		)
-		if err != nil {
+		if err != nil && err != ErrEdgePolicyOptionalFieldNotFound {
 			return err
 		}
 
@@ -3297,7 +3270,18 @@ func fetchChanEdgePolicy(edges *bbolt.Bucket, chanID []byte,
 
 	edgeReader := bytes.NewReader(edgeBytes)
 
-	return deserializeChanEdgePolicy(edgeReader, nodes)
+	ep, err := deserializeChanEdgePolicy(edgeReader, nodes)
+	switch {
+	// If the db policy was missing an expected optional field, we return
+	// nil as if the policy was unknown.
+	case err == ErrEdgePolicyOptionalFieldNotFound:
+		return nil, nil
+
+	case err != nil:
+		return nil, err
+	}
+
+	return ep, nil
 }
 
 func fetchChanEdgePolicies(edgeIndex *bbolt.Bucket, edges *bbolt.Bucket,
@@ -3341,6 +3325,73 @@ func fetchChanEdgePolicies(edgeIndex *bbolt.Bucket, edges *bbolt.Bucket,
 	return edge1, edge2, nil
 }
 
+func serializeChanEdgePolicy(w io.Writer, edge *ChannelEdgePolicy,
+	to []byte) error {
+
+	err := wire.WriteVarBytes(w, 0, edge.SigBytes)
+	if err != nil {
+		return err
+	}
+
+	if err := binary.Write(w, byteOrder, edge.ChannelID); err != nil {
+		return err
+	}
+
+	var scratch [8]byte
+	updateUnix := uint64(edge.LastUpdate.Unix())
+	byteOrder.PutUint64(scratch[:], updateUnix)
+	if _, err := w.Write(scratch[:]); err != nil {
+		return err
+	}
+
+	if err := binary.Write(w, byteOrder, edge.MessageFlags); err != nil {
+		return err
+	}
+	if err := binary.Write(w, byteOrder, edge.ChannelFlags); err != nil {
+		return err
+	}
+	if err := binary.Write(w, byteOrder, edge.TimeLockDelta); err != nil {
+		return err
+	}
+	if err := binary.Write(w, byteOrder, uint64(edge.MinHTLC)); err != nil {
+		return err
+	}
+	if err := binary.Write(w, byteOrder, uint64(edge.FeeBaseMSat)); err != nil {
+		return err
+	}
+	if err := binary.Write(w, byteOrder, uint64(edge.FeeProportionalMillionths)); err != nil {
+		return err
+	}
+
+	if _, err := w.Write(to); err != nil {
+		return err
+	}
+
+	// If the max_htlc field is present, we write it. To be compatible with
+	// older versions that wasn't aware of this field, we write it as part
+	// of the opaque data.
+	// TODO(halseth): clean up when moving to TLV.
+	var opaqueBuf bytes.Buffer
+	if edge.MessageFlags.HasMaxHtlc() {
+		err := binary.Write(&opaqueBuf, byteOrder, uint64(edge.MaxHTLC))
+		if err != nil {
+			return err
+		}
+	}
+
+	if len(edge.ExtraOpaqueData) > MaxAllowedExtraOpaqueBytes {
+		return ErrTooManyExtraOpaqueBytes(len(edge.ExtraOpaqueData))
+	}
+	if _, err := opaqueBuf.Write(edge.ExtraOpaqueData); err != nil {
+		return err
+	}
+
+	if err := wire.WriteVarBytes(w, 0, opaqueBuf.Bytes()); err != nil {
+		return err
+	}
+	return nil
+}
+
 func deserializeChanEdgePolicy(r io.Reader,
 	nodes *bbolt.Bucket) (*ChannelEdgePolicy, error) {
 
@@ -3363,7 +3414,10 @@ func deserializeChanEdgePolicy(r io.Reader,
 	unix := int64(byteOrder.Uint64(scratch[:]))
 	edge.LastUpdate = time.Unix(unix, 0)
 
-	if err := binary.Read(r, byteOrder, &edge.Flags); err != nil {
+	if err := binary.Read(r, byteOrder, &edge.MessageFlags); err != nil {
+		return nil, err
+	}
+	if err := binary.Read(r, byteOrder, &edge.ChannelFlags); err != nil {
 		return nil, err
 	}
 	if err := binary.Read(r, byteOrder, &edge.TimeLockDelta); err != nil {
@@ -3396,6 +3450,7 @@ func deserializeChanEdgePolicy(r io.Reader,
 		return nil, fmt.Errorf("unable to fetch node: %x, %v",
 			pub[:], err)
 	}
+	edge.Node = &node
 
 	// We'll try and see if there are any opaque bytes left, if not, then
 	// we'll ignore the EOF error and return the edge as is.
@@ -3409,6 +3464,25 @@ func deserializeChanEdgePolicy(r io.Reader,
 		return nil, err
 	}
 
-	edge.Node = &node
+	// See if optional fields are present.
+	if edge.MessageFlags.HasMaxHtlc() {
+		// The max_htlc field should be at the beginning of the opaque
+		// bytes.
+		opq := edge.ExtraOpaqueData
+
+		// If the max_htlc field is not present, it might be old data
+		// stored before this field was validated. We'll return the
+		// edge along with an error.
+		if len(opq) < 8 {
+			return edge, ErrEdgePolicyOptionalFieldNotFound
+		}
+
+		maxHtlc := byteOrder.Uint64(opq[:8])
+		edge.MaxHTLC = lnwire.MilliSatoshi(maxHtlc)
+
+		// Exclude the parsed field from the rest of the opaque data.
+		edge.ExtraOpaqueData = opq[8:]
+	}
+
 	return edge, nil
 }

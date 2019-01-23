@@ -286,7 +286,9 @@ func (r *ChannelReservation) SetNumConfsRequired(numConfs uint16) {
 // of satoshis that can be transferred in a single commitment. This function
 // will also attempt to verify the constraints for sanity, returning an error
 // if the parameters are seemed unsound.
-func (r *ChannelReservation) CommitConstraints(c *channeldb.ChannelConstraints) error {
+func (r *ChannelReservation) CommitConstraints(c *channeldb.ChannelConstraints,
+	capacity btcutil.Amount) error {
+
 	r.Lock()
 	defer r.Unlock()
 
@@ -341,7 +343,15 @@ func (r *ChannelReservation) CommitConstraints(c *channeldb.ChannelConstraints) 
 		)
 	}
 
-	// Our dust limit should always be less than or equal to our proposed
+	// Fail if the maxValueInFlight is greater than the channel capacity.
+	capacityMsat := lnwire.NewMSatFromSatoshis(capacity)
+	if c.MaxPendingAmount > capacityMsat {
+		return ErrMaxValueInFlightTooLarge(
+			c.MaxPendingAmount, capacityMsat,
+		)
+	}
+
+	// Our dust limit should always be less than or equal our proposed
 	// channel reserve.
 	if r.ourContribution.DustLimit > c.ChanReserve {
 		r.ourContribution.DustLimit = c.ChanReserve

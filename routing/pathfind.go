@@ -562,7 +562,7 @@ func findPath(g *graphParams, r *restrictParams,
 		// TODO(halseth): also ignore disable flags for non-local
 		// channels if bandwidth hint is set?
 		isSourceChan := fromVertex == sourceVertex
-		edgeFlags := lnwire.ChanUpdateFlag(edge.Flags)
+		edgeFlags := edge.ChannelFlags
 		isDisabled := edgeFlags&lnwire.ChanUpdateDisabled != 0
 
 		if !isSourceChan && isDisabled {

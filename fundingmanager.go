@@ -1090,7 +1090,7 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 		MaxAcceptedHtlcs: msg.MaxAcceptedHTLCs,
 		CsvDelay:         msg.CsvDelay,
 	}
-	err = reservation.CommitConstraints(channelConstraints)
+	err = reservation.CommitConstraints(channelConstraints, amt)
 	if err != nil {
 		fndgLog.Errorf("Unacceptable channel constraints: %v", err)
 		f.failFundingFlow(fmsg.peer, fmsg.msg.PendingChannelID, err)
@@ -1254,7 +1254,9 @@ func (f *fundingManager) handleFundingAccept(fmsg *fundingAcceptMsg) {
 		MaxAcceptedHtlcs: msg.MaxAcceptedHTLCs,
 		CsvDelay:         msg.CsvDelay,
 	}
-	err = resCtx.reservation.CommitConstraints(channelConstraints)
+	err = resCtx.reservation.CommitConstraints(
+		channelConstraints, resCtx.chanAmt,
+	)
 	if err != nil {
 		fndgLog.Warnf("Unacceptable channel constraints: %v", err)
 		f.failFundingFlow(fmsg.peer, fmsg.msg.PendingChannelID, err)
@@ -2109,11 +2111,18 @@ func (f *fundingManager) addToRouterGraph(completeChan *channeldb.OpenChannel,
 	// need to determine the smallest HTLC it deems economically relevant.
 	fwdMinHTLC := completeChan.LocalChanCfg.MinHTLC
 
+	// We'll obtain the max HTLC value we can forward in our direction, as
+	// we'll use this value within our ChannelUpdate. This value must be <=
+	// channel capacity and <= the maximum in-flight msats set by the peer, so
+	// we default to max in-flight msats as this value will always be <=
+	// channel capacity.
+	fwdMaxHTLC := completeChan.LocalChanCfg.MaxPendingAmount
+
 	ann, err := f.newChanAnnouncement(
 		f.cfg.IDKey, completeChan.IdentityPub,
 		completeChan.LocalChanCfg.MultiSigKey.PubKey,
 		completeChan.RemoteChanCfg.MultiSigKey.PubKey, *shortChanID,
-		chanID, fwdMinHTLC,
+		chanID, fwdMinHTLC, fwdMaxHTLC,
 	)
 	if err != nil {
 		return fmt.Errorf("error generating channel "+
@@ -2278,13 +2287,20 @@ func (f *fundingManager) annAfterSixConfs(completeChan *channeldb.OpenChannel,
 		// HTLC it deems economically relevant.
 		fwdMinHTLC := completeChan.LocalChanCfg.MinHTLC
 
+		// We'll obtain the max HTLC value we can forward in our direction, as
+		// we'll use this value within our ChannelUpdate. This value must be <=
+		// channel capacity and <= the maximum in-flight msats set by the peer,
+		// so we default to max in-flight msats as this value will always be <=
+		// channel capacity.
+		fwdMaxHTLC := completeChan.LocalChanCfg.MaxPendingAmount
+
 		// Create and broadcast the proofs required to make this channel
 		// public and usable for other nodes for routing.
 		err = f.announceChannel(
 			f.cfg.IDKey, completeChan.IdentityPub,
 			completeChan.LocalChanCfg.MultiSigKey.PubKey,
 			completeChan.RemoteChanCfg.MultiSigKey.PubKey,
-			*shortChanID, chanID, fwdMinHTLC,
+			*shortChanID, chanID, fwdMinHTLC, fwdMaxHTLC,
 		)
 		if err != nil {
 			return fmt.Errorf("channel announcement failed: %v", err)
@@ -2451,7 +2467,7 @@ type chanAnnouncement struct {
 func (f *fundingManager) newChanAnnouncement(localPubKey, remotePubKey,
 	localFundingKey, remoteFundingKey *btcec.PublicKey,
 	shortChanID lnwire.ShortChannelID, chanID lnwire.ChannelID,
-	fwdMinHTLC lnwire.MilliSatoshi) (*chanAnnouncement, error) {
+	fwdMinHTLC, fwdMaxHTLC lnwire.MilliSatoshi) (*chanAnnouncement, error) {
 
 	chainHash := *f.cfg.Wallet.Cfg.NetParams.GenesisHash
 
@@ -2468,7 +2484,7 @@ func (f *fundingManager) newChanAnnouncement(localPubKey, remotePubKey,
 	// being updated within the ChannelUpdateAnnouncement announcement
 	// below. A value of zero means it's the edge of the "first" node and 1
 	// being the other node.
-	var chanFlags lnwire.ChanUpdateFlag
+	var chanFlags lnwire.ChanUpdateChanFlags
 
 	// The lexicographical ordering of the two identity public keys of the
 	// nodes indicates which of the nodes is "first". If our serialized
@@ -2496,19 +2512,25 @@ func (f *fundingManager) newChanAnnouncement(localPubKey, remotePubKey,
 		chanFlags = 1
 	}
 
+	// Our channel update message flags will signal that we support the
+	// max_htlc field.
+	msgFlags := lnwire.ChanUpdateOptionMaxHtlc
+
 	// We announce the channel with the default values. Some of
 	// these values can later be changed by crafting a new ChannelUpdate.
 	chanUpdateAnn := &lnwire.ChannelUpdate{
 		ShortChannelID: shortChanID,
 		ChainHash:      chainHash,
 		Timestamp:      uint32(time.Now().Unix()),
-		Flags:          chanFlags,
+		MessageFlags:   msgFlags,
+		ChannelFlags:   chanFlags,
 		TimeLockDelta:  uint16(f.cfg.DefaultRoutingPolicy.TimeLockDelta),
 
 		// We use the HtlcMinimumMsat that the remote party required us
 		// to use, as our ChannelUpdate will be used to carry HTLCs
 		// towards them.
 		HtlcMinimumMsat: fwdMinHTLC,
+		HtlcMaximumMsat: fwdMaxHTLC,
 
 		BaseFee: uint32(f.cfg.DefaultRoutingPolicy.BaseFee),
 		FeeRate: uint32(f.cfg.DefaultRoutingPolicy.FeeRate),
@@ -2587,7 +2609,7 @@ func (f *fundingManager) newChanAnnouncement(localPubKey, remotePubKey,
 // finish, either successfully or with an error.
 func (f *fundingManager) announceChannel(localIDKey, remoteIDKey, localFundingKey,
 	remoteFundingKey *btcec.PublicKey, shortChanID lnwire.ShortChannelID,
-	chanID lnwire.ChannelID, fwdMinHTLC lnwire.MilliSatoshi) error {
+	chanID lnwire.ChannelID, fwdMinHTLC, fwdMaxHTLC lnwire.MilliSatoshi) error {
 
 	// First, we'll create the batch of announcements to be sent upon
 	// initial channel creation. This includes the channel announcement
@@ -2595,7 +2617,7 @@ func (f *fundingManager) announceChannel(localIDKey, remoteIDKey, localFundingKe
 	// proof needed to fully authenticate the channel.
 	ann, err := f.newChanAnnouncement(localIDKey, remoteIDKey,
 		localFundingKey, remoteFundingKey, shortChanID, chanID,
-		fwdMinHTLC,
+		fwdMinHTLC, fwdMaxHTLC,
 	)
 	if err != nil {
 		fndgLog.Errorf("can't generate channel announcement: %v", err)

@@ -227,9 +227,11 @@ func (d *databaseChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 		LastUpdate:                time.Now(),
 		TimeLockDelta:             10,
 		MinHTLC:                   1,
+		MaxHTLC:                   lnwire.NewMSatFromSatoshis(capacity),
 		FeeBaseMSat:               10,
 		FeeProportionalMillionths: 10000,
-		Flags:                     0,
+		MessageFlags:              1,
+		ChannelFlags:              0,
 	}
 
 	if err := d.db.UpdateEdgePolicy(edgePolicy); err != nil {
@@ -241,9 +243,11 @@ func (d *databaseChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 		LastUpdate:                time.Now(),
 		TimeLockDelta:             10,
 		MinHTLC:                   1,
+		MaxHTLC:                   lnwire.NewMSatFromSatoshis(capacity),
 		FeeBaseMSat:               10,
 		FeeProportionalMillionths: 10000,
-		Flags:                     1,
+		MessageFlags:              1,
+		ChannelFlags:              1,
 	}
 	if err := d.db.UpdateEdgePolicy(edgePolicy); err != nil {
 		return nil, nil, err

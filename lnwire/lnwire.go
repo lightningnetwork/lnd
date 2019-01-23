@@ -105,9 +105,15 @@ func WriteElement(w io.Writer, element interface{}) error {
 		if _, err := w.Write(b[:]); err != nil {
 			return err
 		}
-	case ChanUpdateFlag:
-		var b [2]byte
-		binary.BigEndian.PutUint16(b[:], uint16(e))
+	case ChanUpdateMsgFlags:
+		var b [1]byte
+		b[0] = uint8(e)
+		if _, err := w.Write(b[:]); err != nil {
+			return err
+		}
+	case ChanUpdateChanFlags:
+		var b [1]byte
+		b[0] = uint8(e)
 		if _, err := w.Write(b[:]); err != nil {
 			return err
 		}
@@ -470,12 +476,18 @@ func ReadElement(r io.Reader, element interface{}) error {
 			return err
 		}
 		*e = binary.BigEndian.Uint16(b[:])
-	case *ChanUpdateFlag:
-		var b [2]byte
-		if _, err := io.ReadFull(r, b[:]); err != nil {
+	case *ChanUpdateMsgFlags:
+		var b [1]uint8
+		if _, err := r.Read(b[:]); err != nil {
 			return err
 		}
-		*e = ChanUpdateFlag(binary.BigEndian.Uint16(b[:]))
+		*e = ChanUpdateMsgFlags(b[0])
+	case *ChanUpdateChanFlags:
+		var b [1]uint8
+		if _, err := r.Read(b[:]); err != nil {
+			return err
+		}
+		*e = ChanUpdateChanFlags(b[0])
 	case *ErrorCode:
 		var b [2]byte
 		if _, err := io.ReadFull(r, b[:]); err != nil {

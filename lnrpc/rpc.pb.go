@@ -2127,7 +2127,7 @@ type Channel struct {
 	CsvDelay uint32 `protobuf:"varint,16,opt,name=csv_delay,proto3" json:"csv_delay,omitempty"`
 	// / Whether this channel is advertised to the network or not.
 	Private bool `protobuf:"varint,17,opt,name=private,proto3" json:"private,omitempty"`
-	// / True if we were the ones that creted the channel.
+	// / True if we were the ones that created the channel.
 	Initiator            bool     `protobuf:"varint,18,opt,name=initiator,proto3" json:"initiator,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`

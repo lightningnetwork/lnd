@@ -1127,6 +1127,16 @@
       ],
       "default": "COOPERATIVE_CLOSE"
     },
+    "ChannelEventUpdateUpdateType": {
+      "type": "string",
+      "enum": [
+        "OPEN_CHANNEL",
+        "CLOSED_CHANNEL",
+        "ACTIVE_CHANNEL",
+        "INACTIVE_CHANNEL"
+      ],
+      "default": "OPEN_CHANNEL"
+    },
     "InvoiceInvoiceState": {
       "type": "string",
       "enum": [
@@ -1545,6 +1555,26 @@
         },
         "connecting_node": {
           "type": "string"
+        }
+      }
+    },
+    "lnrpcChannelEventUpdate": {
+      "type": "object",
+      "properties": {
+        "open_channel": {
+          "$ref": "#/definitions/lnrpcChannel"
+        },
+        "closed_channel": {
+          "$ref": "#/definitions/lnrpcChannelCloseSummary"
+        },
+        "active_channel": {
+          "$ref": "#/definitions/lnrpcChannelPoint"
+        },
+        "inactive_channel": {
+          "$ref": "#/definitions/lnrpcChannelPoint"
+        },
+        "type": {
+          "$ref": "#/definitions/ChannelEventUpdateUpdateType"
         }
       }
     },

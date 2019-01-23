@@ -33,7 +33,7 @@ func (m *StatusRequest) Reset()         { *m = StatusRequest{} }
 func (m *StatusRequest) String() string { return proto.CompactTextString(m) }
 func (*StatusRequest) ProtoMessage()    {}
 func (*StatusRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_autopilot_52f30cf4d0055211, []int{0}
+	return fileDescriptor_autopilot_7db7978f022d4696, []int{0}
 }
 func (m *StatusRequest) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_StatusRequest.Unmarshal(m, b)
@@ -65,7 +65,7 @@ func (m *StatusResponse) Reset()         { *m = StatusResponse{} }
 func (m *StatusResponse) String() string { return proto.CompactTextString(m) }
 func (*StatusResponse) ProtoMessage()    {}
 func (*StatusResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_autopilot_52f30cf4d0055211, []int{1}
+	return fileDescriptor_autopilot_7db7978f022d4696, []int{1}
 }
 func (m *StatusResponse) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_StatusResponse.Unmarshal(m, b)
@@ -104,7 +104,7 @@ func (m *ModifyStatusRequest) Reset()         { *m = ModifyStatusRequest{} }
 func (m *ModifyStatusRequest) String() string { return proto.CompactTextString(m) }
 func (*ModifyStatusRequest) ProtoMessage()    {}
 func (*ModifyStatusRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_autopilot_52f30cf4d0055211, []int{2}
+	return fileDescriptor_autopilot_7db7978f022d4696, []int{2}
 }
 func (m *ModifyStatusRequest) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_ModifyStatusRequest.Unmarshal(m, b)
@@ -141,7 +141,7 @@ func (m *ModifyStatusResponse) Reset()         { *m = ModifyStatusResponse{} }
 func (m *ModifyStatusResponse) String() string { return proto.CompactTextString(m) }
 func (*ModifyStatusResponse) ProtoMessage()    {}
 func (*ModifyStatusResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_autopilot_52f30cf4d0055211, []int{3}
+	return fileDescriptor_autopilot_7db7978f022d4696, []int{3}
 }
 func (m *ModifyStatusResponse) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_ModifyStatusResponse.Unmarshal(m, b)
@@ -172,7 +172,7 @@ func (m *QueryScoresRequest) Reset()         { *m = QueryScoresRequest{} }
 func (m *QueryScoresRequest) String() string { return proto.CompactTextString(m) }
 func (*QueryScoresRequest) ProtoMessage()    {}
 func (*QueryScoresRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_autopilot_52f30cf4d0055211, []int{4}
+	return fileDescriptor_autopilot_7db7978f022d4696, []int{4}
 }
 func (m *QueryScoresRequest) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_QueryScoresRequest.Unmarshal(m, b)
@@ -210,7 +210,7 @@ func (m *QueryScoresResponse) Reset()         { *m = QueryScoresResponse{} }
 func (m *QueryScoresResponse) String() string { return proto.CompactTextString(m) }
 func (*QueryScoresResponse) ProtoMessage()    {}
 func (*QueryScoresResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_autopilot_52f30cf4d0055211, []int{5}
+	return fileDescriptor_autopilot_7db7978f022d4696, []int{5}
 }
 func (m *QueryScoresResponse) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_QueryScoresResponse.Unmarshal(m, b)
@@ -249,7 +249,7 @@ func (m *QueryScoresResponse_HeuristicResult) Reset()         { *m = QueryScores
 func (m *QueryScoresResponse_HeuristicResult) String() string { return proto.CompactTextString(m) }
 func (*QueryScoresResponse_HeuristicResult) ProtoMessage()    {}
 func (*QueryScoresResponse_HeuristicResult) Descriptor() ([]byte, []int) {
-	return fileDescriptor_autopilot_52f30cf4d0055211, []int{5, 0}
+	return fileDescriptor_autopilot_7db7978f022d4696, []int{5, 0}
 }
 func (m *QueryScoresResponse_HeuristicResult) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_QueryScoresResponse_HeuristicResult.Unmarshal(m, b)
@@ -451,10 +451,10 @@ var _Autopilot_serviceDesc = grpc.ServiceDesc{
 }
 
 func init() {
-	proto.RegisterFile("autopilotrpc/autopilot.proto", fileDescriptor_autopilot_52f30cf4d0055211)
+	proto.RegisterFile("autopilotrpc/autopilot.proto", fileDescriptor_autopilot_7db7978f022d4696)
 }
 
-var fileDescriptor_autopilot_52f30cf4d0055211 = []byte{
+var fileDescriptor_autopilot_7db7978f022d4696 = []byte{
 	// 391 bytes of a gzipped FileDescriptorProto
 	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x94, 0x53, 0x4d, 0xaf, 0xd2, 0x40,
 	0x14, 0xcd, 0x94, 0x58, 0xec, 0x05, 0xc5, 0x0c, 0x84, 0x34, 0x95, 0x45, 0xe9, 0xaa, 0x1b, 0xdb,

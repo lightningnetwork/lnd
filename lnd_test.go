@@ -4,22 +4,19 @@ package main
 
 import (
 	"bytes"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
-
-	"sync/atomic"
-
-	"encoding/hex"
-	"reflect"
-
-	"crypto/rand"
-	"crypto/sha256"
 
 	"github.com/btcsuite/btcd/btcjson"
 	"github.com/btcsuite/btcd/chaincfg"
@@ -9320,8 +9317,9 @@ func testMultiHopReceiverChainClaim(net *lntest.NetworkHarness, t *harnessTest) 
 	defer shutdownAndAssert(net, t, carol)
 
 	// With the network active, we'll now add a new invoice at Carol's end.
+	const invoiceAmt = 100000
 	invoiceReq := &lnrpc.Invoice{
-		Value: 100000,
+		Value: invoiceAmt,
 	}
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	carolInvoice, err := carol.AddInvoice(ctxt, invoiceReq)
@@ -9525,6 +9523,25 @@ func testMultiHopReceiverChainClaim(net *lntest.NetworkHarness, t *harnessTest) 
 	}, time.Second*15)
 	if err != nil {
 		t.Fatalf(predErr.Error())
+	}
+
+	// The invoice should show as settled for Carol, indicating that it was
+	// swept on-chain.
+	invoicesReq := &lnrpc.ListInvoiceRequest{}
+	invoicesResp, err := carol.ListInvoices(ctxb, invoicesReq)
+	if err != nil {
+		t.Fatalf("unable to retrieve invoices: %v", err)
+	}
+	if len(invoicesResp.Invoices) != 1 {
+		t.Fatalf("expected 1 invoice, got %d", len(invoicesResp.Invoices))
+	}
+	invoice := invoicesResp.Invoices[0]
+	if invoice.State != lnrpc.Invoice_SETTLED {
+		t.Fatalf("expected invoice to be settled on chain")
+	}
+	if invoice.AmtPaidSat != invoiceAmt {
+		t.Fatalf("expected invoice to be settled with %d sat, got "+
+			"%d sat", invoiceAmt, invoice.AmtPaidSat)
 	}
 
 	// We'll close out the channel between Alice and Bob, then shutdown
@@ -10368,8 +10385,9 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 	defer shutdownAndAssert(net, t, carol)
 
 	// With the network active, we'll now add a new invoice at Carol's end.
+	const invoiceAmt = 100000
 	invoiceReq := &lnrpc.Invoice{
-		Value: 100000,
+		Value: invoiceAmt,
 	}
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	carolInvoice, err := carol.AddInvoice(ctxt, invoiceReq)
@@ -10610,6 +10628,25 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 	}, time.Second*15)
 	if err != nil {
 		t.Fatalf(predErr.Error())
+	}
+
+	// The invoice should show as settled for Carol, indicating that it was
+	// swept on-chain.
+	invoicesReq := &lnrpc.ListInvoiceRequest{}
+	invoicesResp, err := carol.ListInvoices(ctxb, invoicesReq)
+	if err != nil {
+		t.Fatalf("unable to retrieve invoices: %v", err)
+	}
+	if len(invoicesResp.Invoices) != 1 {
+		t.Fatalf("expected 1 invoice, got %d", len(invoicesResp.Invoices))
+	}
+	invoice := invoicesResp.Invoices[0]
+	if invoice.State != lnrpc.Invoice_SETTLED {
+		t.Fatalf("expected invoice to be settled on chain")
+	}
+	if invoice.AmtPaidSat != invoiceAmt {
+		t.Fatalf("expected invoice to be settled with %d sat, got "+
+			"%d sat", invoiceAmt, invoice.AmtPaidSat)
 	}
 }
 

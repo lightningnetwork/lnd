@@ -313,10 +313,15 @@ func lndMain() error {
 		return err
 	}
 
-	// Set up an auotpilot manager from the current config. This will be
+	// Set up an autopilot manager from the current config. This will be
 	// used to manage the underlying autopilot agent, starting and stopping
 	// it at will.
-	atplCfg := initAutoPilot(server, cfg.Autopilot)
+	atplCfg, err := initAutoPilot(server, cfg.Autopilot)
+	if err != nil {
+		ltndLog.Errorf("unable to init autopilot: %v", err)
+		return err
+	}
+
 	atplManager, err := autopilot.NewManager(atplCfg)
 	if err != nil {
 		ltndLog.Errorf("unable to create autopilot manager: %v", err)

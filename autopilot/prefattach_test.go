@@ -249,8 +249,8 @@ func TestPrefAttachmentSelectTwoVertexes(t *testing.T) {
 
 				// Since each of the nodes has 1 channel, out
 				// of only one channel in the graph, we expect
-				// their score to be 0.5.
-				expScore := float64(0.5)
+				// their score to be 1.0.
+				expScore := float64(1.0)
 				if candidate.Score != expScore {
 					t1.Fatalf("expected candidate score "+
 						"to be %v, instead was %v",

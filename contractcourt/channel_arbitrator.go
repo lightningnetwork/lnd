@@ -243,8 +243,7 @@ func (c *ChannelArbitrator) Start() error {
 	}
 
 	var (
-		err                 error
-		unresolvedContracts []ContractResolver
+		err error
 	)
 
 	log.Debugf("Starting ChannelArbitrator(%v), htlc_set=%v",
@@ -332,22 +331,9 @@ func (c *ChannelArbitrator) Start() error {
 	if startingState == StateWaitingFullResolution &&
 		nextState == StateWaitingFullResolution {
 
-		// We'll now query our log to see if there are any active
-		// unresolved contracts. If this is the case, then we'll
-		// relaunch all contract resolvers.
-		unresolvedContracts, err = c.log.FetchUnresolvedContracts()
-		if err != nil {
+		if err := c.relaunchResolvers(); err != nil {
 			c.cfg.BlockEpochs.Cancel()
 			return err
-		}
-
-		log.Infof("ChannelArbitrator(%v): relaunching %v contract "+
-			"resolvers", c.cfg.ChanPoint, len(unresolvedContracts))
-
-		c.activeResolvers = unresolvedContracts
-		for _, contract := range unresolvedContracts {
-			c.wg.Add(1)
-			go c.resolveContract(contract)
 		}
 	}
 
@@ -355,6 +341,28 @@ func (c *ChannelArbitrator) Start() error {
 
 	c.wg.Add(1)
 	go c.channelAttendant(bestHeight)
+	return nil
+}
+
+// relauchResolvers relaunches the set of resolvers for unresolved contracts in
+// order to provide them with information that's not immediately available upon
+// starting the ChannelArbitrator. This information should ideally be stored in
+// the database, so this only serves as a intermediate work-around to prevent a
+// migration.
+func (c *ChannelArbitrator) relaunchResolvers() error {
+	// We'll now query our log to see if there are any active
+	// unresolved contracts. If this is the case, then we'll
+	// relaunch all contract resolvers.
+	unresolvedContracts, err := c.log.FetchUnresolvedContracts()
+	if err != nil {
+		return err
+	}
+
+	log.Infof("ChannelArbitrator(%v): relaunching %v contract "+
+		"resolvers", c.cfg.ChanPoint, len(unresolvedContracts))
+
+	c.launchResolvers(unresolvedContracts)
+
 	return nil
 }
 
@@ -703,11 +711,7 @@ func (c *ChannelArbitrator) stateStep(triggerHeight uint32,
 
 		// Finally, we'll launch all the required contract resolvers.
 		// Once they're all resolved, we're no longer needed.
-		c.activeResolvers = htlcResolvers
-		for _, contract := range htlcResolvers {
-			c.wg.Add(1)
-			go c.resolveContract(contract)
-		}
+		c.launchResolvers(htlcResolvers)
 
 		nextState = StateWaitingFullResolution
 
@@ -739,6 +743,15 @@ func (c *ChannelArbitrator) stateStep(triggerHeight uint32,
 		nextState)
 
 	return nextState, closeTx, nil
+}
+
+// launchResolvers updates the activeResolvers list and starts the resolvers.
+func (c *ChannelArbitrator) launchResolvers(resolvers []ContractResolver) {
+	c.activeResolvers = resolvers
+	for _, contract := range resolvers {
+		c.wg.Add(1)
+		go c.resolveContract(contract)
+	}
 }
 
 // advanceState is the main driver of our state machine. This method is an

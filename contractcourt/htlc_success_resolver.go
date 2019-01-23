@@ -3,6 +3,7 @@ package contractcourt
 import (
 	"encoding/binary"
 	"fmt"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"io"
 
 	"github.com/btcsuite/btcd/wire"
@@ -45,6 +46,10 @@ type htlcSuccessResolver struct {
 	//
 	// TODO(roasbeef): send off to utxobundler
 	sweepTx *wire.MsgTx
+
+	// htlcAmt is the original amount of the htlc, not taking into
+	// account any fees that may have to be paid if it goes on chain.
+	htlcAmt lnwire.MilliSatoshi
 
 	ResolverKit
 }

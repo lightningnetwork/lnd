@@ -358,11 +358,106 @@ func (c *ChannelArbitrator) relaunchResolvers() error {
 		return err
 	}
 
+	// Retrieve the commitment tx hash from the log.
+	contractResolutions, err := c.log.FetchContractResolutions()
+	if err != nil {
+		log.Errorf("unable to fetch contract resolutions: %v",
+			err)
+		return err
+	}
+	commitHash := contractResolutions.CommitHash
+
+	// Reconstruct the htlc outpoints and data from the chain action log.
+	// The purpose of the constructed htlc map is to supplement to resolvers
+	// restored from database with extra data. Ideally this data is stored
+	// as part of the resolver in the log. This is a workaround to prevent a
+	// db migration.
+	htlcMap := make(map[wire.OutPoint]*channeldb.HTLC)
+	chainActions, err := c.log.FetchChainActions()
+	if err != nil {
+		log.Errorf("unable to fetch chain actions: %v", err)
+		return err
+	}
+	for _, htlcs := range chainActions {
+		for _, htlc := range htlcs {
+			outpoint := wire.OutPoint{
+				Hash:  commitHash,
+				Index: uint32(htlc.OutputIndex),
+			}
+			htlcMap[outpoint] = &htlc
+		}
+	}
+
 	log.Infof("ChannelArbitrator(%v): relaunching %v contract "+
 		"resolvers", c.cfg.ChanPoint, len(unresolvedContracts))
 
+	for _, resolver := range unresolvedContracts {
+		supplementResolver(resolver, htlcMap)
+	}
+
 	c.launchResolvers(unresolvedContracts)
 
+	return nil
+}
+
+// supplementResolver takes a resolver as it is restored from the log and fills
+// in missing data from the htlcMap.
+func supplementResolver(resolver ContractResolver,
+	htlcMap map[wire.OutPoint]*channeldb.HTLC) error {
+
+	switch r := resolver.(type) {
+
+	case *htlcSuccessResolver:
+		return supplementSuccessResolver(r, htlcMap)
+
+	case *htlcIncomingContestResolver:
+		return supplementSuccessResolver(
+			&r.htlcSuccessResolver, htlcMap,
+		)
+
+	case *htlcTimeoutResolver:
+		return supplementTimeoutResolver(r, htlcMap)
+
+	case *htlcOutgoingContestResolver:
+		return supplementTimeoutResolver(
+			&r.htlcTimeoutResolver, htlcMap,
+		)
+	}
+
+	return nil
+}
+
+// supplementSuccessResolver takes a htlcSuccessResolver as it is restored from
+// the log and fills in missing data from the htlcMap.
+func supplementSuccessResolver(r *htlcSuccessResolver,
+	htlcMap map[wire.OutPoint]*channeldb.HTLC) error {
+
+	res := r.htlcResolution
+	htlcPoint := res.HtlcPoint()
+	htlc, ok := htlcMap[htlcPoint]
+	if !ok {
+		return errors.New(
+			"htlc for success resolver unavailable",
+		)
+	}
+	r.htlcAmt = htlc.Amt
+	return nil
+}
+
+// supplementTimeoutResolver takes a htlcSuccessResolver as it is restored from
+// the log and fills in missing data from the htlcMap.
+func supplementTimeoutResolver(r *htlcTimeoutResolver,
+	htlcMap map[wire.OutPoint]*channeldb.HTLC) error {
+
+	res := r.htlcResolution
+	htlcPoint := res.HtlcPoint()
+	htlc, ok := htlcMap[htlcPoint]
+	if !ok {
+		return errors.New(
+			"htlc for timeout resolver unavailable",
+		)
+	}
+	r.htlcAmt = htlc.Amt
 	return nil
 }
 
@@ -1146,6 +1241,7 @@ func (c *ChannelArbitrator) prepContractResolutions(htlcActions ChainActionMap,
 					htlcResolution:  resolution,
 					broadcastHeight: height,
 					payHash:         htlc.RHash,
+					htlcAmt:         htlc.Amt,
 					ResolverKit:     resKit,
 				}
 				htlcResolvers = append(htlcResolvers, resolver)
@@ -1173,6 +1269,7 @@ func (c *ChannelArbitrator) prepContractResolutions(htlcActions ChainActionMap,
 					htlcResolution:  resolution,
 					broadcastHeight: height,
 					htlcIndex:       htlc.HtlcIndex,
+					htlcAmt:         htlc.Amt,
 					ResolverKit:     resKit,
 				}
 				htlcResolvers = append(htlcResolvers, resolver)
@@ -1206,6 +1303,7 @@ func (c *ChannelArbitrator) prepContractResolutions(htlcActions ChainActionMap,
 						htlcResolution:  resolution,
 						broadcastHeight: height,
 						payHash:         htlc.RHash,
+						htlcAmt:         htlc.Amt,
 						ResolverKit:     resKit,
 					},
 				}
@@ -1232,10 +1330,11 @@ func (c *ChannelArbitrator) prepContractResolutions(htlcActions ChainActionMap,
 
 				resKit.Quit = make(chan struct{})
 				resolver := &htlcOutgoingContestResolver{
-					htlcTimeoutResolver{
+					htlcTimeoutResolver: htlcTimeoutResolver{
 						htlcResolution:  resolution,
 						broadcastHeight: height,
 						htlcIndex:       htlc.HtlcIndex,
+						htlcAmt:         htlc.Amt,
 						ResolverKit:     resKit,
 					},
 				}

@@ -175,6 +175,11 @@ type Config struct {
 	// LogEventTicker is a signal instructing the htlcswitch to log
 	// aggregate stats about it's forwarding during the last interval.
 	LogEventTicker ticker.Ticker
+
+	// NotifyActiveChannel and NotifyInactiveChannel allow the link to tell
+	// the ChannelNotifier when channels become active and inactive.
+	NotifyActiveChannel   func(wire.OutPoint)
+	NotifyInactiveChannel func(wire.OutPoint)
 }
 
 // Switch is the central messaging bus for all incoming/outgoing HTLCs.
@@ -1956,6 +1961,11 @@ func (s *Switch) addLiveLink(link ChannelLink) {
 		s.interfaceIndex[peerPub] = make(map[lnwire.ChannelID]ChannelLink)
 	}
 	s.interfaceIndex[peerPub][link.ChanID()] = link
+
+	// Inform the channel notifier if the link has become active.
+	if link.EligibleToForward() {
+		s.cfg.NotifyActiveChannel(*link.ChannelPoint())
+	}
 }
 
 // GetLink is used to initiate the handling of the get link command. The
@@ -2030,6 +2040,9 @@ func (s *Switch) removeLink(chanID lnwire.ChannelID) ChannelLink {
 	if err != nil {
 		return nil
 	}
+
+	// Inform the Channel Notifier about the link becoming inactive.
+	s.cfg.NotifyInactiveChannel(*link.ChannelPoint())
 
 	// Remove the channel from live link indexes.
 	delete(s.pendingLinkIndex, link.ChanID())

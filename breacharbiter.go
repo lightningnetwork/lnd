@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"sync"
-	"sync/atomic"
 
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -118,8 +117,8 @@ type BreachConfig struct {
 // counterparties.
 // TODO(roasbeef): closures in config for subsystem pointers to decouple?
 type breachArbiter struct {
-	started uint32 // To be used atomically.
-	stopped uint32 // To be used atomically.
+	started sync.Once
+	stopped sync.Once
 
 	cfg *BreachConfig
 
@@ -140,10 +139,14 @@ func newBreachArbiter(cfg *BreachConfig) *breachArbiter {
 // Start is an idempotent method that officially starts the breachArbiter along
 // with all other goroutines it needs to perform its functions.
 func (b *breachArbiter) Start() error {
-	if !atomic.CompareAndSwapUint32(&b.started, 0, 1) {
-		return nil
-	}
+	var err error
+	b.started.Do(func() {
+		err = b.start()
+	})
+	return err
+}
 
+func (b *breachArbiter) start() error {
 	brarLog.Tracef("Starting breach arbiter")
 
 	// Load all retributions currently persisted in the retribution store.
@@ -226,15 +229,12 @@ func (b *breachArbiter) Start() error {
 // graceful shutdown. This function will block until all goroutines spawned by
 // the breachArbiter have gracefully exited.
 func (b *breachArbiter) Stop() error {
-	if !atomic.CompareAndSwapUint32(&b.stopped, 0, 1) {
-		return nil
-	}
+	b.stopped.Do(func() {
+		brarLog.Infof("Breach arbiter shutting down")
 
-	brarLog.Infof("Breach arbiter shutting down")
-
-	close(b.quit)
-	b.wg.Wait()
-
+		close(b.quit)
+		b.wg.Wait()
+	})
 	return nil
 }
 

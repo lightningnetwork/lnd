@@ -3,7 +3,6 @@ package autopilot
 import (
 	"fmt"
 	"sync"
-	"sync/atomic"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -40,8 +39,8 @@ type ManagerCfg struct {
 // It implements the autopilot grpc service, which is used to get data about
 // the running autopilot, and give it relevant information.
 type Manager struct {
-	started uint32 // To be used atomically.
-	stopped uint32 // To be used atomically.
+	started sync.Once
+	stopped sync.Once
 
 	cfg *ManagerCfg
 
@@ -64,27 +63,21 @@ func NewManager(cfg *ManagerCfg) (*Manager, error) {
 
 // Start starts the Manager.
 func (m *Manager) Start() error {
-	if !atomic.CompareAndSwapUint32(&m.started, 0, 1) {
-		return nil
-	}
-
+	m.started.Do(func() {})
 	return nil
 }
 
 // Stop stops the Manager. If an autopilot agent is active, it will also be
 // stopped.
 func (m *Manager) Stop() error {
-	if !atomic.CompareAndSwapUint32(&m.stopped, 0, 1) {
-		return nil
-	}
+	m.stopped.Do(func() {
+		if err := m.StopAgent(); err != nil {
+			log.Errorf("Unable to stop pilot: %v", err)
+		}
 
-	if err := m.StopAgent(); err != nil {
-		log.Errorf("Unable to stop pilot: %v", err)
-	}
-
-	close(m.quit)
-	m.wg.Wait()
-
+		close(m.quit)
+		m.wg.Wait()
+	})
 	return nil
 }
 

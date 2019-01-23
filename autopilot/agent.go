@@ -6,7 +6,6 @@ import (
 	"math/rand"
 	"net"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec"
@@ -105,9 +104,8 @@ func (c channelState) ConnectedNodes() map[NodeID]struct{} {
 //
 // TODO(roasbeef): prob re-word
 type Agent struct {
-	// Only to be used atomically.
-	started uint32
-	stopped uint32
+	started sync.Once
+	stopped sync.Once
 
 	// cfg houses the configuration state of the Ant.
 	cfg Config
@@ -197,10 +195,14 @@ func New(cfg Config, initialState []Channel) (*Agent, error) {
 // Start starts the agent along with any goroutines it needs to perform its
 // normal duties.
 func (a *Agent) Start() error {
-	if !atomic.CompareAndSwapUint32(&a.started, 0, 1) {
-		return nil
-	}
+	var err error
+	a.started.Do(func() {
+		err = a.start()
+	})
+	return err
+}
 
+func (a *Agent) start() error {
 	rand.Seed(time.Now().Unix())
 	log.Infof("Autopilot Agent starting")
 
@@ -213,10 +215,14 @@ func (a *Agent) Start() error {
 // Stop signals the Agent to gracefully shutdown. This function will block
 // until all goroutines have exited.
 func (a *Agent) Stop() error {
-	if !atomic.CompareAndSwapUint32(&a.stopped, 0, 1) {
-		return nil
-	}
+	var err error
+	a.stopped.Do(func() {
+		err = a.stop()
+	})
+	return err
+}
 
+func (a *Agent) stop() error {
 	log.Infof("Autopilot Agent stopping")
 
 	close(a.quit)

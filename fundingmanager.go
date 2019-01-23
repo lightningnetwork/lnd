@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec"
@@ -353,9 +352,8 @@ type fundingConfig struct {
 // controls between the wallet and remote peers are enforced via the funding
 // manager.
 type fundingManager struct {
-	// MUST be used atomically.
-	started int32
-	stopped int32
+	started sync.Once
+	stopped sync.Once
 
 	// cfg is a copy of the configuration struct that the FundingManager
 	// was initialized with.
@@ -471,10 +469,14 @@ func newFundingManager(cfg fundingConfig) (*fundingManager, error) {
 // Start launches all helper goroutines required for handling requests sent
 // to the funding manager.
 func (f *fundingManager) Start() error {
-	if atomic.AddInt32(&f.started, 1) != 1 { // TODO(roasbeef): CAS instead
-		return nil
-	}
+	var err error
+	f.started.Do(func() {
+		err = f.start()
+	})
+	return err
+}
 
+func (f *fundingManager) start() error {
 	fndgLog.Tracef("Funding manager running")
 
 	// Upon restart, the Funding Manager will check the database to load any
@@ -710,10 +712,14 @@ func (f *fundingManager) Start() error {
 // Stop signals all helper goroutines to execute a graceful shutdown. This
 // method will block until all goroutines have exited.
 func (f *fundingManager) Stop() error {
-	if atomic.AddInt32(&f.stopped, 1) != 1 {
-		return nil
-	}
+	var err error
+	f.stopped.Do(func() {
+		err = f.stop()
+	})
+	return err
+}
 
+func (f *fundingManager) stop() error {
 	fndgLog.Infof("Funding manager shutting down")
 
 	close(f.quit)

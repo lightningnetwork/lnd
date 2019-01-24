@@ -2,7 +2,9 @@ package routing
 
 import (
 	"bytes"
+	"crypto/rand"
 	"fmt"
+	"io"
 	"runtime"
 	"sort"
 	"sync"
@@ -182,6 +184,10 @@ type Config struct {
 	// GraphPruneInterval is used as an interval to determine how often we
 	// should examine the channel graph to garbage collect zombie channels.
 	GraphPruneInterval time.Duration
+
+	// ProbeTimeout specifies how long to wait before considering a probe
+	// failed.
+	ProbeTimeout time.Duration
 
 	// QueryBandwidth is a method that allows the router to query the lower
 	// link layer to determine the up to date available bandwidth at a
@@ -1578,6 +1584,8 @@ type LightningPayment struct {
 	// hop. If nil, any channel may be used.
 	OutgoingChannelID *uint64
 
+	Probe bool
+
 	// TODO(roasbeef): add e2e message?
 }
 
@@ -1696,6 +1704,26 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 			return [32]byte{}, nil, err
 		}
 
+		if payment.Probe {
+			success, err := r.probe(
+				paySession, route, uint32(currentHeight),
+			)
+			if err != nil {
+				// If an unexpected error occurs, ignore and
+				// continue the payment attempt.
+				log.Errorf("Probe error: %v", err)
+			} else {
+				// If probe failed, retry path finding with
+				// updated mission control.
+				if !success {
+					log.Debugf("Probe failed, retry path " +
+						"finding")
+					continue
+				}
+				log.Debugf("Probe succeeded")
+			}
+		}
+
 		// Send payment attempt. It will return a final boolean
 		// indicating if more attempts are needed.
 		preimage, final, err := r.sendPaymentAttempt(
@@ -1735,6 +1763,197 @@ func (r *ChannelRouter) sendPaymentAttempt(paySession *paymentSession,
 	return [32]byte{}, finalOutcome, err
 }
 
+func (r *ChannelRouter) createProbeRoute(route *Route, depth int,
+	currentHeight uint32) (*Route, error) {
+
+	path, err := r.getPath(route.Hops[:depth])
+	if err != nil {
+		// Something changed and we cannot find the policies
+		// anymore.
+		return nil, err
+	}
+	// Use 1 msat as minimum amount, to prevent 0 sat probe.
+	minAmt := lnwire.MilliSatoshi(1)
+	var fees lnwire.MilliSatoshi
+
+	for j := len(path) - 1; j >= 0; j-- {
+		probeEdge := path[j]
+		if minAmt < probeEdge.MinHTLC {
+			minAmt = probeEdge.MinHTLC
+		}
+
+		fee := probeEdge.ComputeFee(minAmt)
+		minAmt += fee
+		fees += fee
+	}
+
+	return newRoute(
+		minAmt-fees, route.SourcePubKey,
+		path, currentHeight,
+		zpay32.DefaultFinalCLTVDelta,
+	)
+}
+
+func (r *ChannelRouter) probe(paySession *paymentSession, route *Route,
+	currentHeight uint32) (bool, error) {
+
+	hops := len(route.Hops)
+
+	// Get locators for route.
+	locators := make([]*EdgeLocator, hops)
+	from := route.SourcePubKey
+	for i, hop := range route.Hops {
+		locators[i] = newEdgeLocatorByPubkeys(
+			hop.ChannelID, &from, &hop.PubKeyBytes,
+		)
+
+		from = hop.PubKeyBytes
+	}
+
+	// If complete route has already been probed, return early. This should
+	// not happen normally.
+	previousProbedDepth := paySession.getProbedDepth(locators)
+	if previousProbedDepth == hops {
+		return true, nil
+	}
+
+	// Probe route.
+	probeRoute, err := r.createProbeRoute(route, hops, currentHeight)
+	if err != nil {
+		return false, err
+	}
+
+	probeDepth, err := r.sendProbeAttempt(paySession, probeRoute)
+	if err != nil {
+		return false, err
+	}
+
+	// If probe succeed up to some point, marks those edges as probed. If
+	// not the full route has been probed, start path finding again. Mission
+	// control should have been updated and path finding should find an
+	// alternative route.
+	if probeDepth > 0 {
+		paySession.markProbed(locators[:probeDepth])
+
+		probeSuccess := probeDepth == hops
+
+		return probeSuccess, nil
+	}
+
+	// Probe timed out. Try shorter paths, starting from the previously
+	// probed depth.
+	for depth := previousProbedDepth + 1; depth < hops; depth++ {
+		probeRoute, err := r.createProbeRoute(route, depth,
+			currentHeight)
+		if err != nil {
+			return false, err
+		}
+
+		probeDepth, err := r.sendProbeAttempt(paySession, probeRoute)
+		if err != nil {
+			return false, err
+		}
+
+		if probeDepth == 0 {
+			paySession.ReportEdgeFailure(locators[depth-1])
+			return false, nil
+		}
+
+		// Mark probed edges.
+		paySession.markProbed(locators[:probeDepth])
+
+		// If probe didn't reach the final node for this probe, we
+		// cannot get more probe information for this route. Retry path
+		// finding with updated mission control.
+		if probeDepth < depth {
+			return false, nil
+		}
+	}
+
+	// If all shorter paths can be probed successfully, the last hop must
+	// be the problem.
+	paySession.ReportEdgeFailure(locators[hops-1])
+
+	return false, nil
+}
+
+func (r *ChannelRouter) sendProbeAttempt(paySession *paymentSession,
+	route *Route) (int, error) {
+
+	var paymentHash [32]byte
+	if _, err := io.ReadFull(rand.Reader, paymentHash[:]); err != nil {
+		return 0, err
+	}
+
+	log.Debugf("Attempting to send probe %x, using route: %v",
+		paymentHash, route,
+	)
+
+	var err error
+	done := make(chan struct{})
+	go func() {
+		_, err = r.cfg.SendToSwitch(route, paymentHash)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(r.cfg.ProbeTimeout):
+		log.Debugf("Probe timed out")
+		return 0, nil
+	}
+
+	if err == nil {
+		return 0, errors.New("probe accepted (impossible)")
+	}
+
+	log.Errorf("Probe attempt result: %v", err)
+
+	// Process send error to apply channel updates and prune the graph.
+	r.processSendError(paySession, route, err)
+
+	fErr, ok := err.(*htlcswitch.ForwardingError)
+	if !ok {
+		return 0, err
+	}
+
+	errSource := NewVertex(fErr.ErrorSource)
+	for i, hop := range route.Hops {
+		if hop.PubKeyBytes == errSource {
+			return i + 1, nil
+		}
+	}
+
+	return 0, errors.New("unknown error source")
+}
+
+func (r *ChannelRouter) getPath(hops []*Hop) ([]*channeldb.ChannelEdgePolicy,
+	error) {
+
+	path := make([]*channeldb.ChannelEdgePolicy, len(hops))
+	for i, hop := range hops {
+		_, p1, p2, err :=
+			r.cfg.Graph.FetchChannelEdgesByID(hop.ChannelID)
+
+		if err != nil {
+			return nil, err
+		}
+		if p1 != nil && p1.Node.PubKeyBytes == hop.PubKeyBytes {
+			path[i] = p1
+			continue
+		}
+		if p2 != nil && p2.Node.PubKeyBytes == hop.PubKeyBytes {
+			path[i] = p2
+			continue
+		}
+
+		return nil, fmt.Errorf("no policy for channel %v",
+			hop.ChannelID)
+	}
+
+	return path, nil
+}
+
 // processSendError analyzes the error for the payment attempt received from the
 // switch and updates mission control and/or channel policies. Depending on the
 // error type, this error is either the final outcome of the payment or we need
@@ -1750,6 +1969,9 @@ func (r *ChannelRouter) processSendError(paySession *paymentSession,
 
 	errSource := fErr.ErrorSource
 	errVertex := NewVertex(errSource)
+
+	log.Infof("Failed payment attempt: route=(%v), errVertex=%v, reason=%T",
+		route, errVertex, fErr.FailureMessage)
 
 	log.Tracef("node=%x reported failure when sending htlc", errVertex)
 

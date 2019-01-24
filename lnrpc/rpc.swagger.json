@@ -2826,6 +2826,15 @@
         }
       }
     },
+    "lnrpcPaymentMode": {
+      "type": "string",
+      "enum": [
+        "PAY_DIRECT",
+        "PAY_PROBE",
+        "PROBE_ONLY"
+      ],
+      "default": "PAY_DIRECT"
+    },
     "lnrpcPeer": {
       "type": "object",
       "properties": {
@@ -3190,6 +3199,9 @@
           "type": "integer",
           "format": "int64",
           "description": "* \nAn optional maximum total time lock for the route. If zero, there is no\nmaximum enforced."
+        },
+        "mode": {
+          "$ref": "#/definitions/lnrpcPaymentMode"
         }
       }
     },

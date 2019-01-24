@@ -30,6 +30,10 @@ const (
 	// TODO(roasbeef): instead use random delay on each?
 	defaultEdgeDecay = time.Hour
 
+	// probeDecay defines how long a probe result is kept before a new probe
+	// is executed.
+	probeDecay = time.Duration(time.Hour)
+
 	// hardPruneDuration defines the time window during which pruned nodes
 	// and edges will receive zero probability.
 	defaultHardPruneDuration = time.Minute
@@ -60,6 +64,8 @@ type missionControl struct {
 	// to that particular vertex.
 	failedVertexes map[Vertex]time.Time
 
+	probedChans map[EdgeLocator]probeResult
+
 	graph *channeldb.ChannelGraph
 
 	selfNode *channeldb.LightningNode
@@ -89,6 +95,11 @@ type missionControl struct {
 	// TODO(roasbeef): also add favorable metrics for nodes
 }
 
+type probeResult struct {
+	success bool
+	time    time.Time
+}
+
 // newMissionControl returns a new instance of missionControl.
 //
 // TODO(roasbeef): persist memory
@@ -98,6 +109,7 @@ func newMissionControl(g *channeldb.ChannelGraph, selfNode *channeldb.LightningN
 	return &missionControl{
 		failedEdges:       make(map[EdgeLocator]time.Time),
 		failedVertexes:    make(map[Vertex]time.Time),
+		probedChans:       make(map[EdgeLocator]probeResult),
 		selfNode:          selfNode,
 		queryBandwidth:    qb,
 		graph:             g,
@@ -255,6 +267,12 @@ func (m *missionControl) getEdgeProbability(fromNode Vertex,
 	m.Lock()
 	defer m.Unlock()
 
+	// Black holes get a zero success probability.
+	probeResult := m.getProbeResult(edge)
+	if probeResult != nil && *probeResult == false {
+		return 0
+	}
+
 	// A priori node probability is assumed to be 1.
 	nodeProbability := 1.0
 
@@ -337,4 +355,51 @@ func (m *missionControl) reportEdgeFailure(e *EdgeLocator) {
 	m.Lock()
 	m.failedEdges[*e] = m.now()
 	m.Unlock()
+}
+
+// getProbedDepth gets the number of edges of the given route that have been
+// probed successfully.
+func (m *missionControl) getProbedDepth(edges []EdgeLocator) int {
+	m.Lock()
+	defer m.Unlock()
+
+	for i, e := range edges {
+		r := m.getProbeResult(e)
+		if r == nil {
+			return i
+		}
+	}
+	return len(edges)
+}
+
+func (m *missionControl) markSuccessfullyProbed(edges []EdgeLocator) {
+	for _, e := range edges {
+		m.probedChans[e] = probeResult{
+			time:    m.now(),
+			success: true,
+		}
+	}
+}
+
+func (m *missionControl) markFailedProbe(edge EdgeLocator) {
+	m.probedChans[edge] = probeResult{
+		time:    m.now(),
+		success: false,
+	}
+}
+
+// getProbeResult returns the current probe status of an edge. If the status has
+// decayed, it removes it from the map.
+//
+// NOTE: this function is not safe for concurrent use.
+func (m *missionControl) getProbeResult(edge EdgeLocator) *bool {
+	result, ok := m.probedChans[edge]
+	if !ok {
+		return nil
+	}
+	if m.now().Sub(result.time) < probeDecay {
+		return &result.success
+	}
+	delete(m.probedChans, edge)
+	return nil
 }

@@ -2335,6 +2335,14 @@ var payInvoiceCommand = cli.Command{
 			Name:  "force, f",
 			Usage: "will skip payment request confirmation",
 		},
+		cli.BoolFlag{
+			Name:  "probe",
+			Usage: "use pre-payment probing",
+		},
+		cli.BoolFlag{
+			Name:  "estimatefee",
+			Usage: "return a realistic fee estimate, but do not make the payment",
+		},
 	},
 	Action: actionDecorator(payInvoice),
 }
@@ -2359,11 +2367,19 @@ func payInvoice(ctx *cli.Context) error {
 		return err
 	}
 
-	if !ctx.Bool("force") {
-		err = confirmPayReq(ctx, client, payReq)
-		if err != nil {
-			return err
-		}
+	probe := ctx.Bool("probe")
+	estimateFee := ctx.Bool("estimatefee")
+
+	var mode lnrpc.PaymentMode
+	switch {
+	case !probe && !estimateFee:
+		mode = lnrpc.PaymentMode_PAY_DIRECT
+	case probe && !estimateFee:
+		mode = lnrpc.PaymentMode_PAY_PROBE
+	case !probe && estimateFee:
+		mode = lnrpc.PaymentMode_PROBE_ONLY
+	default:
+		return errors.New("cannot use probe and estimatefee flags at the same time")
 	}
 
 	req := &lnrpc.SendRequest{
@@ -2372,6 +2388,14 @@ func payInvoice(ctx *cli.Context) error {
 		FeeLimit:       feeLimit,
 		OutgoingChanId: ctx.Uint64("outgoing_chan_id"),
 		CltvLimit:      uint32(ctx.Int(cltvLimitFlag.Name)),
+		Mode:           mode,
+	}
+
+	if !ctx.Bool("force") && mode != lnrpc.PaymentMode_PROBE_ONLY {
+		err = confirmPayReq(ctx, client, payReq)
+		if err != nil {
+			return err
+		}
 	}
 
 	return sendPaymentRequest(client, req)

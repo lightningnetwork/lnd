@@ -832,6 +832,12 @@ message FeeLimit {
     }
 }
 
+enum PaymentMode {
+    PAY_DIRECT = 0;
+    PAY_PROBE = 1;
+    PROBE_ONLY = 2;
+}
+
 message SendRequest {
     /// The identity pubkey of the payment recipient
     bytes dest = 1;
@@ -880,6 +886,8 @@ message SendRequest {
     maximum enforced.
     */
     uint32 cltv_limit = 10;
+    
+    PaymentMode mode = 11;
 }
 
 message SendResponse {

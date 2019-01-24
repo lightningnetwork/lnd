@@ -277,6 +277,17 @@ func (r *RouterBackend) ExtractIntentFromSendRequest(rpcPayReq *lnrpc.SendReques
 
 	payIntent := &routing.LightningPayment{}
 
+	switch rpcPayReq.Mode {
+	case lnrpc.PaymentMode_PAY_DIRECT:
+		payIntent.Mode = routing.PayDirect
+	case lnrpc.PaymentMode_PAY_PROBE:
+		payIntent.Mode = routing.PayProbe
+	case lnrpc.PaymentMode_PROBE_ONLY:
+		payIntent.Mode = routing.ProbeOnly
+	default:
+		return nil, errors.New("invalid payment mode")
+	}
+
 	// If there are no routes specified, pass along a outgoing channel
 	// restriction if specified.
 	if rpcPayReq.OutgoingChanId != 0 {

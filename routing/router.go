@@ -2,7 +2,9 @@ package routing
 
 import (
 	"bytes"
+	"crypto/rand"
 	"fmt"
+	"io"
 	"runtime"
 	"sort"
 	"sync"
@@ -20,9 +22,11 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/multimutex"
+
 	"github.com/lightningnetwork/lnd/routing/chainview"
 	"github.com/lightningnetwork/lnd/zpay32"
 )
@@ -182,6 +186,10 @@ type Config struct {
 	// GraphPruneInterval is used as an interval to determine how often we
 	// should examine the channel graph to garbage collect zombie channels.
 	GraphPruneInterval time.Duration
+
+	// ProbeTimeout specifies how long to wait before considering a probe
+	// failed.
+	ProbeTimeout time.Duration
 
 	// QueryBandwidth is a method that allows the router to query the lower
 	// link layer to determine the up to date available bandwidth at a
@@ -1578,8 +1586,25 @@ type LightningPayment struct {
 	// hop. If nil, any channel may be used.
 	OutgoingChannelID *uint64
 
+	Mode PaymentMode
+
 	// TODO(roasbeef): add e2e message?
 }
+
+// PaymentMode defines the operating mode of SendPayment.
+type PaymentMode int8
+
+const (
+	// PayDirect tries to make the payment without probing beforehand.
+	PayDirect PaymentMode = iota
+
+	// PayProbe probes the route before making the actual payment.
+	PayProbe
+
+	// ProbeOnly just probes the route and doesn't make the payment. This is
+	// useful for fee estimation.
+	ProbeOnly
+)
 
 // SendPayment attempts to send a payment as described within the passed
 // LightningPayment. This function is blocking and will return either: when the
@@ -1588,7 +1613,9 @@ type LightningPayment struct {
 // will be returned which describes the path the successful payment traversed
 // within the network to reach the destination. Additionally, the payment
 // preimage will also be returned.
-func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route, error) {
+func (r *ChannelRouter) SendPayment(payment *LightningPayment) (
+	[32]byte, *Route, error) {
+
 	// Before starting the HTLC routing attempt, we'll create a fresh
 	// payment session which will report our errors back to mission
 	// control.
@@ -1627,7 +1654,8 @@ func (r *ChannelRouter) SendToRoute(routes []*Route,
 // within the network to reach the destination. Additionally, the payment
 // preimage will also be returned.
 func (r *ChannelRouter) sendPayment(payment *LightningPayment,
-	paySession *paymentSession) ([32]byte, *Route, error) {
+	paySession *paymentSession) (
+	[32]byte, *Route, error) {
 
 	log.Tracef("Dispatching route for lightning payment: %v",
 		newLogClosure(func() string {
@@ -1696,6 +1724,23 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 			return [32]byte{}, nil, err
 		}
 
+		if payment.Mode == PayProbe || payment.Mode == ProbeOnly {
+			success, err := r.probe(
+				paySession, route, uint32(currentHeight),
+			)
+			if err != nil {
+				log.Errorf("Probe error: %v", err)
+
+				return lntypes.Preimage{}, nil, err
+			}
+			if !success {
+				continue
+			}
+			if payment.Mode == ProbeOnly {
+				return lntypes.Preimage{}, route, nil
+			}
+		}
+
 		// Send payment attempt. It will return a final boolean
 		// indicating if more attempts are needed.
 		preimage, final, err := r.sendPaymentAttempt(
@@ -1735,6 +1780,231 @@ func (r *ChannelRouter) sendPaymentAttempt(paySession *paymentSession,
 	return [32]byte{}, finalOutcome, err
 }
 
+func (r *ChannelRouter) createProbeRoute(route *Route, depth int,
+	currentHeight uint32) (*Route, error) {
+
+	path, err := r.getPath(route.Hops[:depth])
+	if err != nil {
+		// Something changed and we cannot find the policies
+		// anymore.
+		return nil, err
+	}
+	// Use 1 msat as minimum amount, to prevent 0 sat probe.
+	minAmt := lnwire.MilliSatoshi(1)
+	var fees lnwire.MilliSatoshi
+
+	for j := len(path) - 1; j >= 0; j-- {
+		probeEdge := path[j]
+		if minAmt < probeEdge.MinHTLC {
+			minAmt = probeEdge.MinHTLC
+		}
+
+		fee := probeEdge.ComputeFee(minAmt)
+		minAmt += fee
+		fees += fee
+	}
+
+	return newRoute(
+		minAmt-fees, route.SourcePubKey,
+		path, currentHeight,
+		zpay32.DefaultFinalCLTVDelta,
+	)
+}
+
+func (r *ChannelRouter) probe(paySession *paymentSession, route *Route,
+	currentHeight uint32) (bool, error) {
+
+	// First pre-probe with small amounts.
+	success, err := r.preProbe(
+		paySession, route, uint32(currentHeight),
+	)
+	if err != nil || !success {
+		return false, err
+	}
+
+	// Then probe with the full payment amount.
+	success, _, err = r.sendProbeAttempt(paySession, route)
+
+	return success, err
+}
+
+func (r *ChannelRouter) preProbe(paySession *paymentSession, route *Route,
+	currentHeight uint32) (bool, error) {
+
+	hops := len(route.Hops)
+
+	// Get locators for route.
+	locators := make([]EdgeLocator, hops)
+	from := route.SourcePubKey
+	for i, hop := range route.Hops {
+		l := newEdgeLocatorByPubkeys(
+			hop.ChannelID, &from, &hop.PubKeyBytes,
+		)
+		locators[i] = *l
+
+		from = hop.PubKeyBytes
+	}
+
+	// If complete route has already been probed, return early. This should
+	// not happen normally.
+	previousProbedDepth := paySession.mc.getProbedDepth(locators)
+	if previousProbedDepth == hops {
+		return true, nil
+	}
+
+	// Probe route.
+	probeRoute, err := r.createProbeRoute(route, hops, currentHeight)
+	if err != nil {
+		return false, err
+	}
+
+	_, probeDepth, err := r.sendProbeAttempt(paySession, probeRoute)
+	if err != nil {
+		return false, err
+	}
+
+	// If probe succeed up to some point, marks those edges as probed. If
+	// not the full route has been probed, start path finding again. Mission
+	// control should have been updated and path finding should find an
+	// alternative route.
+	if probeDepth > 0 {
+		paySession.mc.markSuccessfullyProbed(locators[:probeDepth])
+
+		// If we reached the destination, we consider the probe as
+		// successful.
+		probeSuccess := probeDepth == hops
+
+		return probeSuccess, nil
+	}
+
+	// Probe timed out. Try shorter paths, starting from the previously
+	// probed depth.
+	for depth := previousProbedDepth + 1; depth < hops; depth++ {
+		probeRoute, err := r.createProbeRoute(route, depth,
+			currentHeight)
+		if err != nil {
+			return false, err
+		}
+
+		_, probeDepth, err := r.sendProbeAttempt(paySession, probeRoute)
+		if err != nil {
+			return false, err
+		}
+
+		// If the probe fails, the last edge of this probe route must be
+		// the black hole.
+		if probeDepth == 0 {
+			paySession.mc.markFailedProbe(locators[depth-1])
+			return false, nil
+		}
+
+		// Mark probed edges.
+		paySession.mc.markSuccessfullyProbed(locators[:probeDepth])
+
+		// If probe didn't reach the final node for this probe route, we
+		// cannot get more probe information for this route. Retry path
+		// finding with updated mission control.
+		if probeDepth < depth {
+			return false, nil
+		}
+	}
+
+	// If all shorter paths can be probed successfully, the last hop must
+	// be the problem.
+	paySession.mc.markFailedProbe(locators[hops-1])
+
+	return false, nil
+}
+
+// sendProbeAttempt sends out a probe attempt. It returns whether the probe was
+// successful and the number of hops that are alive.
+func (r *ChannelRouter) sendProbeAttempt(paySession *paymentSession,
+	route *Route) (bool, int, error) {
+
+	var paymentHash [32]byte
+	if _, err := io.ReadFull(rand.Reader, paymentHash[:]); err != nil {
+		return false, 0, err
+	}
+
+	var err error
+	done := make(chan struct{})
+	go func() {
+		_, err = r.cfg.SendToSwitch(route, paymentHash)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(r.cfg.ProbeTimeout):
+		log.Debugf("Probe route %v: time out", route)
+		return false, 0, nil
+	}
+
+	if err == nil {
+		return false, 0, errors.New("probe accepted (impossible)")
+	}
+
+	// Process send error to apply channel updates and prune the graph.
+	r.processSendError(paySession, route, err)
+
+	fErr, ok := err.(*htlcswitch.ForwardingError)
+	if !ok {
+		return false, 0, err
+	}
+
+	errSource := NewVertex(fErr.ErrorSource)
+	index, err := getHopIndex(route, errSource)
+	if err != nil {
+		return false, 0, err
+	}
+
+	_, isUnknownHashError :=
+		fErr.FailureMessage.(*lnwire.FailUnknownPaymentHash)
+
+	success := index == len(route.Hops)-1 && isUnknownHashError
+
+	log.Debugf("Probe route %v: success=%v, hops=%v",
+		route, success, index+1)
+
+	return success, index + 1, nil
+}
+
+func getHopIndex(route *Route, node Vertex) (int, error) {
+	for i, hop := range route.Hops {
+		if hop.PubKeyBytes == node {
+			return i, nil
+		}
+	}
+	return 0, errors.New("unknown node")
+}
+
+func (r *ChannelRouter) getPath(hops []*Hop) ([]*channeldb.ChannelEdgePolicy,
+	error) {
+
+	path := make([]*channeldb.ChannelEdgePolicy, len(hops))
+	for i, hop := range hops {
+		_, p1, p2, err :=
+			r.cfg.Graph.FetchChannelEdgesByID(hop.ChannelID)
+
+		if err != nil {
+			return nil, err
+		}
+		if p1 != nil && p1.Node.PubKeyBytes == hop.PubKeyBytes {
+			path[i] = p1
+			continue
+		}
+		if p2 != nil && p2.Node.PubKeyBytes == hop.PubKeyBytes {
+			path[i] = p2
+			continue
+		}
+
+		return nil, fmt.Errorf("no policy for channel %v",
+			hop.ChannelID)
+	}
+
+	return path, nil
+}
+
 // processSendError analyzes the error for the payment attempt received from the
 // switch and updates mission control and/or channel policies. Depending on the
 // error type, this error is either the final outcome of the payment or we need
@@ -1750,6 +2020,9 @@ func (r *ChannelRouter) processSendError(paySession *paymentSession,
 
 	errSource := fErr.ErrorSource
 	errVertex := NewVertex(errSource)
+
+	log.Infof("Failed payment attempt: route=(%v), errVertex=%v, reason=%T",
+		route, errVertex, fErr.FailureMessage)
 
 	log.Tracef("node=%x reported failure when sending htlc", errVertex)
 

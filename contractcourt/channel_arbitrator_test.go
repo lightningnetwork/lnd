@@ -175,6 +175,9 @@ func createTestChannelArbitrator(log ArbitratorLog) (*ChannelArbitrator,
 			*lnwallet.IncomingHtlcResolution, uint32) error {
 			return nil
 		},
+		SettleInvoice: func(chainhash.Hash, lnwire.MilliSatoshi) error {
+			return nil
+		},
 	}
 
 	// We'll use the resolvedChan to synchronize on call to

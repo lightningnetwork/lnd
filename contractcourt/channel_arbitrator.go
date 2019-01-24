@@ -243,8 +243,7 @@ func (c *ChannelArbitrator) Start() error {
 	}
 
 	var (
-		err                 error
-		unresolvedContracts []ContractResolver
+		err error
 	)
 
 	log.Debugf("Starting ChannelArbitrator(%v), htlc_set=%v",
@@ -332,22 +331,9 @@ func (c *ChannelArbitrator) Start() error {
 	if startingState == StateWaitingFullResolution &&
 		nextState == StateWaitingFullResolution {
 
-		// We'll now query our log to see if there are any active
-		// unresolved contracts. If this is the case, then we'll
-		// relaunch all contract resolvers.
-		unresolvedContracts, err = c.log.FetchUnresolvedContracts()
-		if err != nil {
+		if err := c.relaunchResolvers(); err != nil {
 			c.cfg.BlockEpochs.Cancel()
 			return err
-		}
-
-		log.Infof("ChannelArbitrator(%v): relaunching %v contract "+
-			"resolvers", c.cfg.ChanPoint, len(unresolvedContracts))
-
-		c.activeResolvers = unresolvedContracts
-		for _, contract := range unresolvedContracts {
-			c.wg.Add(1)
-			go c.resolveContract(contract)
 		}
 	}
 
@@ -355,6 +341,123 @@ func (c *ChannelArbitrator) Start() error {
 
 	c.wg.Add(1)
 	go c.channelAttendant(bestHeight)
+	return nil
+}
+
+// relauchResolvers relaunches the set of resolvers for unresolved contracts in
+// order to provide them with information that's not immediately available upon
+// starting the ChannelArbitrator. This information should ideally be stored in
+// the database, so this only serves as a intermediate work-around to prevent a
+// migration.
+func (c *ChannelArbitrator) relaunchResolvers() error {
+	// We'll now query our log to see if there are any active
+	// unresolved contracts. If this is the case, then we'll
+	// relaunch all contract resolvers.
+	unresolvedContracts, err := c.log.FetchUnresolvedContracts()
+	if err != nil {
+		return err
+	}
+
+	// Retrieve the commitment tx hash from the log.
+	contractResolutions, err := c.log.FetchContractResolutions()
+	if err != nil {
+		log.Errorf("unable to fetch contract resolutions: %v",
+			err)
+		return err
+	}
+	commitHash := contractResolutions.CommitHash
+
+	// Reconstruct the htlc outpoints and data from the chain action log.
+	// The purpose of the constructed htlc map is to supplement to resolvers
+	// restored from database with extra data. Ideally this data is stored
+	// as part of the resolver in the log. This is a workaround to prevent a
+	// db migration.
+	htlcMap := make(map[wire.OutPoint]*channeldb.HTLC)
+	chainActions, err := c.log.FetchChainActions()
+	if err != nil {
+		log.Errorf("unable to fetch chain actions: %v", err)
+		return err
+	}
+	for _, htlcs := range chainActions {
+		for _, htlc := range htlcs {
+			outpoint := wire.OutPoint{
+				Hash:  commitHash,
+				Index: uint32(htlc.OutputIndex),
+			}
+			htlcMap[outpoint] = &htlc
+		}
+	}
+
+	log.Infof("ChannelArbitrator(%v): relaunching %v contract "+
+		"resolvers", c.cfg.ChanPoint, len(unresolvedContracts))
+
+	for _, resolver := range unresolvedContracts {
+		supplementResolver(resolver, htlcMap)
+	}
+
+	c.launchResolvers(unresolvedContracts)
+
+	return nil
+}
+
+// supplementResolver takes a resolver as it is restored from the log and fills
+// in missing data from the htlcMap.
+func supplementResolver(resolver ContractResolver,
+	htlcMap map[wire.OutPoint]*channeldb.HTLC) error {
+
+	switch r := resolver.(type) {
+
+	case *htlcSuccessResolver:
+		return supplementSuccessResolver(r, htlcMap)
+
+	case *htlcIncomingContestResolver:
+		return supplementSuccessResolver(
+			&r.htlcSuccessResolver, htlcMap,
+		)
+
+	case *htlcTimeoutResolver:
+		return supplementTimeoutResolver(r, htlcMap)
+
+	case *htlcOutgoingContestResolver:
+		return supplementTimeoutResolver(
+			&r.htlcTimeoutResolver, htlcMap,
+		)
+	}
+
+	return nil
+}
+
+// supplementSuccessResolver takes a htlcSuccessResolver as it is restored from
+// the log and fills in missing data from the htlcMap.
+func supplementSuccessResolver(r *htlcSuccessResolver,
+	htlcMap map[wire.OutPoint]*channeldb.HTLC) error {
+
+	res := r.htlcResolution
+	htlcPoint := res.HtlcPoint()
+	htlc, ok := htlcMap[htlcPoint]
+	if !ok {
+		return errors.New(
+			"htlc for success resolver unavailable",
+		)
+	}
+	r.htlcAmt = htlc.Amt
+	return nil
+}
+
+// supplementTimeoutResolver takes a htlcSuccessResolver as it is restored from
+// the log and fills in missing data from the htlcMap.
+func supplementTimeoutResolver(r *htlcTimeoutResolver,
+	htlcMap map[wire.OutPoint]*channeldb.HTLC) error {
+
+	res := r.htlcResolution
+	htlcPoint := res.HtlcPoint()
+	htlc, ok := htlcMap[htlcPoint]
+	if !ok {
+		return errors.New(
+			"htlc for timeout resolver unavailable",
+		)
+	}
+	r.htlcAmt = htlc.Amt
 	return nil
 }
 
@@ -703,11 +806,7 @@ func (c *ChannelArbitrator) stateStep(triggerHeight uint32,
 
 		// Finally, we'll launch all the required contract resolvers.
 		// Once they're all resolved, we're no longer needed.
-		c.activeResolvers = htlcResolvers
-		for _, contract := range htlcResolvers {
-			c.wg.Add(1)
-			go c.resolveContract(contract)
-		}
+		c.launchResolvers(htlcResolvers)
 
 		nextState = StateWaitingFullResolution
 
@@ -739,6 +838,15 @@ func (c *ChannelArbitrator) stateStep(triggerHeight uint32,
 		nextState)
 
 	return nextState, closeTx, nil
+}
+
+// launchResolvers updates the activeResolvers list and starts the resolvers.
+func (c *ChannelArbitrator) launchResolvers(resolvers []ContractResolver) {
+	c.activeResolvers = resolvers
+	for _, contract := range resolvers {
+		c.wg.Add(1)
+		go c.resolveContract(contract)
+	}
 }
 
 // advanceState is the main driver of our state machine. This method is an
@@ -1071,33 +1179,11 @@ func (c *ChannelArbitrator) prepContractResolutions(htlcActions ChainActionMap,
 	inResolutionMap := make(map[wire.OutPoint]lnwallet.IncomingHtlcResolution)
 	for i := 0; i < len(incomingResolutions); i++ {
 		inRes := incomingResolutions[i]
-
-		// If we have a success transaction, then the htlc's outpoint
-		// is the transaction's only input. Otherwise, it's the claim
-		// point.
-		var htlcPoint wire.OutPoint
-		if inRes.SignedSuccessTx != nil {
-			htlcPoint = inRes.SignedSuccessTx.TxIn[0].PreviousOutPoint
-		} else {
-			htlcPoint = inRes.ClaimOutpoint
-		}
-
-		inResolutionMap[htlcPoint] = inRes
+		inResolutionMap[inRes.HtlcPoint()] = inRes
 	}
 	for i := 0; i < len(outgoingResolutions); i++ {
 		outRes := outgoingResolutions[i]
-
-		// If we have a timeout transaction, then the htlc's outpoint
-		// is the transaction's only input. Otherwise, it's the claim
-		// point.
-		var htlcPoint wire.OutPoint
-		if outRes.SignedTimeoutTx != nil {
-			htlcPoint = outRes.SignedTimeoutTx.TxIn[0].PreviousOutPoint
-		} else {
-			htlcPoint = outRes.ClaimOutpoint
-		}
-
-		outResolutionMap[htlcPoint] = outRes
+		outResolutionMap[outRes.HtlcPoint()] = outRes
 	}
 
 	// We'll create the resolver kit that we'll be cloning for each
@@ -1155,6 +1241,7 @@ func (c *ChannelArbitrator) prepContractResolutions(htlcActions ChainActionMap,
 					htlcResolution:  resolution,
 					broadcastHeight: height,
 					payHash:         htlc.RHash,
+					htlcAmt:         htlc.Amt,
 					ResolverKit:     resKit,
 				}
 				htlcResolvers = append(htlcResolvers, resolver)
@@ -1182,6 +1269,7 @@ func (c *ChannelArbitrator) prepContractResolutions(htlcActions ChainActionMap,
 					htlcResolution:  resolution,
 					broadcastHeight: height,
 					htlcIndex:       htlc.HtlcIndex,
+					htlcAmt:         htlc.Amt,
 					ResolverKit:     resKit,
 				}
 				htlcResolvers = append(htlcResolvers, resolver)
@@ -1215,6 +1303,7 @@ func (c *ChannelArbitrator) prepContractResolutions(htlcActions ChainActionMap,
 						htlcResolution:  resolution,
 						broadcastHeight: height,
 						payHash:         htlc.RHash,
+						htlcAmt:         htlc.Amt,
 						ResolverKit:     resKit,
 					},
 				}
@@ -1241,10 +1330,11 @@ func (c *ChannelArbitrator) prepContractResolutions(htlcActions ChainActionMap,
 
 				resKit.Quit = make(chan struct{})
 				resolver := &htlcOutgoingContestResolver{
-					htlcTimeoutResolver{
+					htlcTimeoutResolver: htlcTimeoutResolver{
 						htlcResolution:  resolution,
 						broadcastHeight: height,
 						htlcIndex:       htlc.HtlcIndex,
+						htlcAmt:         htlc.Amt,
 						ResolverKit:     resKit,
 					},
 				}

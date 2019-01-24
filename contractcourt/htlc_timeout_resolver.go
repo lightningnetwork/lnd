@@ -40,6 +40,10 @@ type htlcTimeoutResolver struct {
 	// additional commitment state machine.
 	htlcIndex uint64
 
+	// htlcAmt is the original amount of the htlc, not taking into
+	// account any fees that may have to be paid if it goes on chain.
+	htlcAmt lnwire.MilliSatoshi
+
 	ResolverKit
 }
 

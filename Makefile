@@ -1,5 +1,6 @@
 PKG := github.com/lightningnetwork/lnd
 ESCPKG := github.com\/lightningnetwork\/lnd
+MOBILE_PKG := $(PKG)/mobile
 
 BTCD_PKG := github.com/btcsuite/btcd
 GOVERALLS_PKG := github.com/mattn/goveralls
@@ -8,11 +9,15 @@ GOACC_PKG := github.com/ory/go-acc
 
 GO_BIN := ${GOPATH}/bin
 BTCD_BIN := $(GO_BIN)/btcd
+GOMOBILE_BIN := GO111MODULE=off $(GO_BIN)/gomobile
 GOVERALLS_BIN := $(GO_BIN)/goveralls
 LINT_BIN := $(GO_BIN)/golangci-lint
 GOACC_BIN := $(GO_BIN)/go-acc
 
 BTCD_DIR :=${GOPATH}/src/$(BTCD_PKG)
+MOBILE_BUILD_DIR :=${GOPATH}/src/$(MOBILE_PKG)/build
+IOS_BUILD_DIR := $(MOBILE_BUILD_DIR)/ios
+IOS_BUILD := $(IOS_BUILD_DIR)/Lndmobile.framework
 
 COMMIT := $(shell git describe --abbrev=40 --dirty)
 LDFLAGS := -ldflags "-X $(PKG)/build.Commit=$(COMMIT)"
@@ -174,6 +179,15 @@ mobile-rpc:
 	@$(call print, "Creating mobile RPC from protos.")
 	cd ./mobile; ./gen_bindings.sh
 
+vendor:
+	@$(call print, "Re-creating vendor directory.")
+	rm -r vendor/; GO111MODULE=on go mod vendor
+
+ios: vendor mobile-rpc
+	@$(call print, "Building iOS framework ($(IOS_BUILD)).")
+	mkdir -p $(IOS_BUILD_DIR)
+	$(GOMOBILE_BIN) bind -target=ios -tags="ios $(DEV_TAGS) autopilotrpc experimental" $(LDFLAGS) -v -o $(IOS_BUILD) $(MOBILE_PKG)
+
 clean:
 	@$(call print, "Cleaning source.$(NC)")
 	$(RM) ./lnd-debug ./lncli-debug
@@ -204,4 +218,6 @@ clean:
 	list \
 	rpc \
 	mobile-rpc \
+	vendor \
+	ios \
 	clean

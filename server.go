@@ -2469,7 +2469,7 @@ func (s *server) peerInitializer(p *peer) {
 	defer s.mu.Unlock()
 
 	// Check if there are listeners waiting for this peer to come online.
-	srvrLog.Debugf("Notifying that peer %x is offline", p.PubKey())
+	srvrLog.Debugf("Notifying that peer %x is online", p.PubKey())
 	for _, peerChan := range s.peerConnectedListeners[pubStr] {
 		select {
 		case peerChan <- p:

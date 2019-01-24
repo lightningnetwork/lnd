@@ -23,8 +23,8 @@ github.com/btcsuite/btcutil v0.0.0-20180706230648-ab6388e0c60a/go.mod h1:+5NJ2+q
 github.com/btcsuite/btcutil v0.0.0-20190112041146-bf1e1be93589 h1:9A5pe5iQS+ll6R1EVLFv/y92IjrymihwITCU81aCIBQ=
 github.com/btcsuite/btcutil v0.0.0-20190112041146-bf1e1be93589/go.mod h1:+5NJ2+qvTyV9exUAL/rxXi3DcLg2Ts+ymUAY5y4NvMg=
 github.com/btcsuite/btcwallet v0.0.0-20180904010540-284e2e0e696e33d5be388f7f3d9a26db703e0c06/go.mod h1:/d7QHZsfUAruXuBhyPITqoYOmJ+nq35qPsJjz/aSpCg=
-github.com/btcsuite/btcwallet v0.0.0-20190115024521-9ad115360b37 h1:f8RY/x01F18bYrOvekIUDLqm9oGZFrim+wx5Z0ts/Kg=
-github.com/btcsuite/btcwallet v0.0.0-20190115024521-9ad115360b37/go.mod h1:+u1ftn+QOb9qHKwsLf7rBOr0PHCo9CGA7U1WFq7VLA4=
+github.com/btcsuite/btcwallet v0.0.0-20190123033236-ba03278a64bc h1:E7lDde/zAxAfvF750wMP0pUIAzF+wtwO2jQRy++q60U=
+github.com/btcsuite/btcwallet v0.0.0-20190123033236-ba03278a64bc/go.mod h1:+u1ftn+QOb9qHKwsLf7rBOr0PHCo9CGA7U1WFq7VLA4=
 github.com/btcsuite/fastsha256 v0.0.0-20160815193821-637e65642941 h1:kij1x2aL7VE6gtx8KMIt8PGPgI5GV9LgtHFG5KaEMPY=
 github.com/btcsuite/fastsha256 v0.0.0-20160815193821-637e65642941/go.mod h1:QcFA8DZHtuIAdYKCq/BzELOaznRsCvwf4zTPmaYwaig=
 github.com/btcsuite/go-socks v0.0.0-20170105172521-4720035b7bfd h1:R/opQEbFEy9JGkIguV40SvRY1uliPX8ifOvi6ICsFCw=

@@ -2542,6 +2542,14 @@ func (c *ChannelEdgePolicy) Signature() (*btcec.Signature, error) {
 	return sig, nil
 }
 
+// ComputeFee computes the fee to forward an HTLC of `amt` milli-satoshis over
+// the passed active payment channel. This value is currently computed as
+// specified in BOLT07, but will likely change in the near future.
+func (c *ChannelEdgePolicy) ComputeFee(amt lnwire.MilliSatoshi) lnwire.MilliSatoshi {
+
+	return c.FeeBaseMSat + (amt*c.FeeProportionalMillionths)/1000000
+}
+
 // FetchChannelEdgesByOutpoint attempts to lookup the two directed edges for
 // the channel identified by the funding outpoint. If the channel can't be
 // found, then ErrEdgeNotFound is returned. A struct which houses the general

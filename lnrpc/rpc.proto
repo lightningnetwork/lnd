@@ -212,7 +212,7 @@ service Lightning {
     /** lncli: `walletbalance`
     WalletBalance returns total unspent outputs(confirmed and unconfirmed), all
     confirmed unspent outputs and all unconfirmed unspent outputs under control
-    of the wallet. 
+    of the wallet.
     */
     rpc WalletBalance (WalletBalanceRequest) returns (WalletBalanceResponse) {
         option (google.api.http) = {
@@ -398,7 +398,7 @@ service Lightning {
     rpc SubscribeChannelEvents (ChannelEventSubscription) returns (stream ChannelEventUpdate);
 
     /** lncli: `closedchannels`
-    ClosedChannels returns a description of all the closed channels that 
+    ClosedChannels returns a description of all the closed channels that
     this node was a participant in.
     */
     rpc ClosedChannels (ClosedChannelsRequest) returns (ClosedChannelsResponse) {

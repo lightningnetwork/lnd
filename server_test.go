@@ -1,6 +1,6 @@
 // +build !rpctest
 
-package main
+package lnd
 
 import "testing"
 

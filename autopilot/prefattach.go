@@ -43,6 +43,13 @@ func NewNodeID(pub *btcec.PublicKey) NodeID {
 	return n
 }
 
+// Name returns the name of this heuristic.
+//
+// NOTE: This is a part of the AttachmentHeuristic interface.
+func (p *PrefAttachment) Name() string {
+	return "preferential"
+}
+
 // NodeScores is a method that given the current channel graph and current set
 // of local channels, scores the given nodes according to the preference of
 // opening a channel of the given size with them. The returned channel

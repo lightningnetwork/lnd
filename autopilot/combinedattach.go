@@ -47,6 +47,13 @@ func NewWeightedCombAttachment(h ...*WeightedHeuristic) (
 // AttachmentHeuristic interface.
 var _ AttachmentHeuristic = (*WeightedCombAttachment)(nil)
 
+// Name returns the name of this heuristic.
+//
+// NOTE: This is a part of the AttachmentHeuristic interface.
+func (c *WeightedCombAttachment) Name() string {
+	return "weightedcomb"
+}
+
 // NodeScores is a method that given the current channel graph, current set of
 // local channels and funds available, scores the given nodes according to the
 // preference of opening a channel with them. The returned channel candidates

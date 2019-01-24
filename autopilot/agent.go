@@ -113,7 +113,8 @@ type Agent struct {
 	cfg Config
 
 	// chanState tracks the current set of open channels.
-	chanState channelState
+	chanState    channelState
+	chanStateMtx sync.Mutex
 
 	// stateUpdates is a channel that any external state updates that may
 	// affect the heuristics of the agent will be sent over.
@@ -410,7 +411,9 @@ func (a *Agent) controller() {
 					spew.Sdump(update.newChan))
 
 				newChan := update.newChan
+				a.chanStateMtx.Lock()
 				a.chanState[newChan.ChanID] = newChan
+				a.chanStateMtx.Unlock()
 
 				a.pendingMtx.Lock()
 				delete(a.pendingOpens, newChan.Node)
@@ -424,9 +427,11 @@ func (a *Agent) controller() {
 					"updates: %v",
 					spew.Sdump(update.closedChans))
 
+				a.chanStateMtx.Lock()
 				for _, closedChan := range update.closedChans {
 					delete(a.chanState, closedChan)
 				}
+				a.chanStateMtx.Unlock()
 
 				updateBalance()
 			}
@@ -472,10 +477,11 @@ func (a *Agent) controller() {
 		// With all the updates applied, we'll obtain a set of the
 		// current active channels (confirmed channels), and also
 		// factor in our set of unconfirmed channels.
-		confirmedChans := a.chanState
+		a.chanStateMtx.Lock()
 		a.pendingMtx.Lock()
-		totalChans := mergeChanState(a.pendingOpens, confirmedChans)
+		totalChans := mergeChanState(a.pendingOpens, a.chanState)
 		a.pendingMtx.Unlock()
+		a.chanStateMtx.Unlock()
 
 		// Now that we've updated our internal state, we'll consult our
 		// channel attachment heuristic to determine if we can open
@@ -514,7 +520,10 @@ func (a *Agent) openChans(availableFunds btcutil.Amount, numChans uint32,
 	// We're to attempt an attachment so we'll obtain the set of
 	// nodes that we currently have channels with so we avoid
 	// duplicate edges.
+	a.chanStateMtx.Lock()
 	connectedNodes := a.chanState.ConnectedNodes()
+	a.chanStateMtx.Unlock()
+
 	a.pendingMtx.Lock()
 	nodesToSkip := mergeNodeMaps(a.pendingOpens,
 		a.pendingConns, connectedNodes, a.failedNodes,
@@ -758,4 +767,56 @@ func (a *Agent) executeDirective(directive AttachmentDirective) {
 	// Since the channel open was successful and is currently pending,
 	// we'll trigger the autopilot agent to query for more peers.
 	a.OnChannelPendingOpen()
+}
+
+// HeuristicScores is an alias for a map that maps heuristic names to a map of
+// scores for pubkeys.
+type HeuristicScores map[string]map[NodeID]float64
+
+// queryHeuristics gets node scores from all available simple heuristics, and
+// the agent's current active heuristic.
+func (a *Agent) queryHeuristics(nodes map[NodeID]struct{}) (
+	HeuristicScores, error) {
+
+	// Get the agent's current channel state.
+	a.chanStateMtx.Lock()
+	a.pendingMtx.Lock()
+	totalChans := mergeChanState(a.pendingOpens, a.chanState)
+	a.pendingMtx.Unlock()
+	a.chanStateMtx.Unlock()
+
+	// As channel size we'll use the maximum size.
+	chanSize := a.cfg.Constraints.MaxChanSize()
+
+	// We'll start by getting the scores from each available sub-heuristic,
+	// in addition the active agent heuristic.
+	report := make(HeuristicScores)
+	for _, h := range append(availableHeuristics, a.cfg.Heuristic) {
+		name := h.Name()
+
+		// If the active agent heuristic is among the simple heuristics
+		// it might get queried more than once. As an optimization
+		// we'll just skip it the second time.
+		if _, ok := report[name]; ok {
+			continue
+		}
+
+		s, err := h.NodeScores(
+			a.cfg.Graph, totalChans, chanSize, nodes,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to get sub score: %v", err)
+		}
+
+		log.Debugf("Heuristic \"%v\" scored %d nodes", name, len(s))
+
+		scores := make(map[NodeID]float64)
+		for nID, score := range s {
+			scores[nID] = score.Score
+		}
+
+		report[name] = scores
+	}
+
+	return report, nil
 }

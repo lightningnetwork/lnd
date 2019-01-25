@@ -3,6 +3,8 @@ package route
 import (
 	"encoding/binary"
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/btcsuite/btcd/btcec"
 	sphinx "github.com/lightningnetwork/lightning-onion"
@@ -174,4 +176,20 @@ func (r *Route) ToSphinxPath() (*sphinx.PaymentPath, error) {
 	}
 
 	return &path, nil
+}
+
+// String returns a human readable representation of the route.
+func (r *Route) String() string {
+	var b strings.Builder
+
+	b.WriteString(strconv.FormatUint(r.Hops[0].ChannelID, 10))
+	for _, h := range r.Hops[1:] {
+		b.WriteString(",")
+		b.WriteString(strconv.FormatUint(h.ChannelID, 10))
+	}
+
+	return fmt.Sprintf("amt=%v, fees=%v, tl=%v, chans=%v",
+		r.TotalAmount-r.TotalFees, r.TotalFees, r.TotalTimeLock,
+		b.String(),
+	)
 }

@@ -83,6 +83,13 @@ const (
 	// in order to establish a transport session with us on the Lightning
 	// p2p level (BOLT-0008).
 	KeyFamilyNodeKey KeyFamily = 6
+
+	// KeyFamilyStaticBackup is the family of keys that will be used to
+	// derive keys that we use to encrypt and decrypt our set of static
+	// backups. These backups may either be stored within watch towers for
+	// a payment, or self stored on disk in a single file containing all
+	// the static channel backups.
+	KeyFamilyStaticBackup KeyFamily = 7
 )
 
 // KeyLocator is a two-tuple that can be used to derive *any* key that has ever

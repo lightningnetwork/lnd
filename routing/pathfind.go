@@ -4,6 +4,8 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"strconv"
+	"strings"
 
 	"container/heap"
 
@@ -136,6 +138,21 @@ type Route struct {
 	// Hops contains details concerning the specific forwarding details at
 	// each hop.
 	Hops []*Hop
+}
+
+func (r Route) String() string {
+	var b strings.Builder
+
+	b.WriteString(strconv.FormatUint(r.Hops[0].ChannelID, 10))
+	for _, h := range r.Hops[1:] {
+		b.WriteString(",")
+		b.WriteString(strconv.FormatUint(h.ChannelID, 10))
+	}
+
+	return fmt.Sprintf("amt=%v, fees=%v, tl=%v, chans=%v",
+		r.TotalAmount-r.TotalFees, r.TotalFees, r.TotalTimeLock,
+		b.String(),
+	)
 }
 
 // HopFee returns the fee charged by the route hop indicated by hopIndex.

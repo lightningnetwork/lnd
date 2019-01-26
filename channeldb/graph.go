@@ -277,7 +277,14 @@ func (c *ChannelGraph) ForEachNode(tx *bbolt.Tx, cb func(*bbolt.Tx, *LightningNo
 func (c *ChannelGraph) SourceNode() (*LightningNode, error) {
 	var source *LightningNode
 	err := c.db.View(func(tx *bbolt.Tx) error {
-		node, err := c.sourceNode(tx)
+		// First grab the nodes bucket which stores the mapping from
+		// pubKey to node information.
+		nodes := tx.Bucket(nodeBucket)
+		if nodes == nil {
+			return ErrGraphNotFound
+		}
+
+		node, err := c.sourceNode(nodes)
 		if err != nil {
 			return err
 		}
@@ -296,14 +303,7 @@ func (c *ChannelGraph) SourceNode() (*LightningNode, error) {
 // of the graph. The source node is treated as the center node within a
 // star-graph. This method may be used to kick off a path finding algorithm in
 // order to explore the reachability of another node based off the source node.
-func (c *ChannelGraph) sourceNode(tx *bbolt.Tx) (*LightningNode, error) {
-	// First grab the nodes bucket which stores the mapping from
-	// pubKey to node information.
-	nodes := tx.Bucket(nodeBucket)
-	if nodes == nil {
-		return nil, ErrGraphNotFound
-	}
-
+func (c *ChannelGraph) sourceNode(nodes *bbolt.Bucket) (*LightningNode, error) {
 	selfPub := nodes.Get(sourceKey)
 	if selfPub == nil {
 		return nil, ErrSourceNodeNotSet
@@ -420,19 +420,21 @@ func (c *ChannelGraph) LookupAlias(pub *btcec.PublicKey) (string, error) {
 func (c *ChannelGraph) DeleteLightningNode(nodePub *btcec.PublicKey) error {
 	// TODO(roasbeef): ensure dangling edges are removed...
 	return c.db.Update(func(tx *bbolt.Tx) error {
-		return c.deleteLightningNode(tx, nodePub.SerializeCompressed())
+		nodes := tx.Bucket(nodeBucket)
+		if nodes == nil {
+			return ErrGraphNodeNotFound
+		}
+
+		return c.deleteLightningNode(
+			nodes, nodePub.SerializeCompressed(),
+		)
 	})
 }
 
 // deleteLightningNode uses an existing database transaction to remove a
 // vertex/node from the database according to the node's public key.
-func (c *ChannelGraph) deleteLightningNode(tx *bbolt.Tx,
+func (c *ChannelGraph) deleteLightningNode(nodes *bbolt.Bucket,
 	compressedPubKey []byte) error {
-
-	nodes := tx.Bucket(nodeBucket)
-	if nodes == nil {
-		return ErrGraphNodesNotFound
-	}
 
 	aliases := nodes.Bucket(aliasIndexBucket)
 	if aliases == nil {
@@ -652,13 +654,14 @@ func (c *ChannelGraph) UpdateChannelEdge(edge *ChannelEdgeInfo) error {
 	binary.BigEndian.PutUint64(chanKey[:], edge.ChannelID)
 
 	return c.db.Update(func(tx *bbolt.Tx) error {
-		edges, err := tx.CreateBucketIfNotExists(edgeBucket)
-		if err != nil {
-			return err
+		edges := tx.Bucket(edgeBucket)
+		if edge == nil {
+			return ErrEdgeNotFound
 		}
-		edgeIndex, err := edges.CreateBucketIfNotExists(edgeIndexBucket)
-		if err != nil {
-			return err
+
+		edgeIndex := edges.Bucket(edgeIndexBucket)
+		if edgeIndex == nil {
+			return ErrEdgeNotFound
 		}
 
 		if edgeInfo := edgeIndex.Get(chanKey[:]); edgeInfo == nil {
@@ -707,9 +710,9 @@ func (c *ChannelGraph) PruneGraph(spentOutputs []*wire.OutPoint,
 		if err != nil {
 			return err
 		}
-		nodes, err := tx.CreateBucketIfNotExists(nodeBucket)
-		if err != nil {
-			return err
+		nodes := tx.Bucket(nodeBucket)
+		if nodes == nil {
+			return ErrSourceNodeNotSet
 		}
 
 		// For each of the outpoints that have been spent within the
@@ -780,7 +783,7 @@ func (c *ChannelGraph) PruneGraph(spentOutputs []*wire.OutPoint,
 		// Now that the graph has been pruned, we'll also attempt to
 		// prune any nodes that have had a channel closed within the
 		// latest block.
-		return c.pruneGraphNodes(tx, nodes, edgeIndex)
+		return c.pruneGraphNodes(nodes, edgeIndex)
 	})
 	if err != nil {
 		return nil, err
@@ -795,9 +798,9 @@ func (c *ChannelGraph) PruneGraph(spentOutputs []*wire.OutPoint,
 // node gains more channels, it will be re-added back to the graph.
 func (c *ChannelGraph) PruneGraphNodes() error {
 	return c.db.Update(func(tx *bbolt.Tx) error {
-		nodes, err := tx.CreateBucketIfNotExists(nodeBucket)
-		if err != nil {
-			return err
+		nodes := tx.Bucket(nodeBucket)
+		if nodes == nil {
+			return ErrGraphNodesNotFound
 		}
 		edges := tx.Bucket(edgeBucket)
 		if edges == nil {
@@ -808,21 +811,21 @@ func (c *ChannelGraph) PruneGraphNodes() error {
 			return ErrGraphNoEdgesFound
 		}
 
-		return c.pruneGraphNodes(tx, nodes, edgeIndex)
+		return c.pruneGraphNodes(nodes, edgeIndex)
 	})
 }
 
 // pruneGraphNodes attempts to remove any nodes from the graph who have had a
 // channel closed within the current block. If the node still has existing
 // channels in the graph, this will act as a no-op.
-func (c *ChannelGraph) pruneGraphNodes(tx *bbolt.Tx, nodes *bbolt.Bucket,
+func (c *ChannelGraph) pruneGraphNodes(nodes *bbolt.Bucket,
 	edgeIndex *bbolt.Bucket) error {
 
 	log.Trace("Pruning nodes from graph with no open channels")
 
 	// We'll retrieve the graph's source node to ensure we don't remove it
 	// even if it no longer has any open channels.
-	sourceNode, err := c.sourceNode(tx)
+	sourceNode, err := c.sourceNode(nodes)
 	if err != nil {
 		return err
 	}
@@ -888,7 +891,7 @@ func (c *ChannelGraph) pruneGraphNodes(tx *bbolt.Tx, nodes *bbolt.Bucket,
 
 		// If we reach this point, then there are no longer any edges
 		// that connect this node, so we can delete it.
-		if err := c.deleteLightningNode(tx, nodePubKey[:]); err != nil {
+		if err := c.deleteLightningNode(nodes, nodePubKey[:]); err != nil {
 			log.Warnf("Unable to prune node %x from the "+
 				"graph: %v", nodePubKey, err)
 			continue
@@ -1066,25 +1069,31 @@ func (c *ChannelGraph) DeleteChannelEdge(chanPoint *wire.OutPoint) error {
 	return c.db.Update(func(tx *bbolt.Tx) error {
 		// First grab the edges bucket which houses the information
 		// we'd like to delete
-		edges, err := tx.CreateBucketIfNotExists(edgeBucket)
-		if err != nil {
-			return err
-		}
-		// Next grab the two edge indexes which will also need to be updated.
-		edgeIndex, err := edges.CreateBucketIfNotExists(edgeIndexBucket)
-		if err != nil {
-			return err
-		}
-		chanIndex, err := edges.CreateBucketIfNotExists(channelPointBucket)
-		if err != nil {
-			return err
-		}
-		nodes, err := tx.CreateBucketIfNotExists(nodeBucket)
-		if err != nil {
-			return err
+		edges := tx.Bucket(edgeBucket)
+		if edges == nil {
+			return ErrEdgeNotFound
 		}
 
-		return delChannelByEdge(edges, edgeIndex, chanIndex, nodes, chanPoint)
+		// Next grab the two edge indexes which will also need to be
+		// updated.
+		edgeIndex := edges.Bucket(edgeIndexBucket)
+		if edgeIndex == nil {
+			return ErrEdgeNotFound
+		}
+
+		chanIndex := edges.Bucket(channelPointBucket)
+		if chanIndex == nil {
+			return ErrEdgeNotFound
+		}
+
+		nodes := tx.Bucket(nodeBucket)
+		if nodes == nil {
+			return ErrGraphNodeNotFound
+		}
+
+		return delChannelByEdge(
+			edges, edgeIndex, chanIndex, nodes, chanPoint,
+		)
 	})
 }
 
@@ -1521,11 +1530,10 @@ func delEdgeUpdateIndexEntry(edgesBucket *bbolt.Bucket, chanID uint64,
 
 	// First, we'll fetch the edge update index bucket which currently
 	// stores an entry for the channel we're about to delete.
-	updateIndex, err := edgesBucket.CreateBucketIfNotExists(
-		edgeUpdateIndexBucket,
-	)
-	if err != nil {
-		return err
+	updateIndex := edgesBucket.Bucket(edgeUpdateIndexBucket)
+	if updateIndex == nil {
+		// No edges in bucket, return early.
+		return nil
 	}
 
 	// Now that we have the bucket, we'll attempt to construct a template
@@ -1631,13 +1639,14 @@ func delChannelByEdge(edges *bbolt.Bucket, edgeIndex *bbolt.Bucket,
 // the nodes on either side of the channel.
 func (c *ChannelGraph) UpdateEdgePolicy(edge *ChannelEdgePolicy) error {
 	return c.db.Update(func(tx *bbolt.Tx) error {
-		edges, err := tx.CreateBucketIfNotExists(edgeBucket)
-		if err != nil {
-			return err
+		edges := tx.Bucket(edgeBucket)
+		if edge == nil {
+			return ErrEdgeNotFound
 		}
-		edgeIndex, err := edges.CreateBucketIfNotExists(edgeIndexBucket)
-		if err != nil {
-			return err
+
+		edgeIndex := edges.Bucket(edgeIndexBucket)
+		if edgeIndex == nil {
+			return ErrEdgeNotFound
 		}
 		nodes, err := tx.CreateBucketIfNotExists(nodeBucket)
 		if err != nil {

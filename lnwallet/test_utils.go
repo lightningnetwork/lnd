@@ -144,8 +144,8 @@ func CreateTestChannels() (*LightningChannel, *LightningChannel, func(), error) 
 			ChanReserve:      channelCapacity / 100,
 			MinHTLC:          0,
 			MaxAcceptedHtlcs: MaxHTLCNumber / 2,
+			CsvDelay:         uint16(csvTimeoutAlice),
 		},
-		CsvDelay: uint16(csvTimeoutAlice),
 		MultiSigKey: keychain.KeyDescriptor{
 			PubKey: aliceKeys[0].PubKey(),
 		},
@@ -169,8 +169,8 @@ func CreateTestChannels() (*LightningChannel, *LightningChannel, func(), error) 
 			ChanReserve:      channelCapacity / 100,
 			MinHTLC:          0,
 			MaxAcceptedHtlcs: MaxHTLCNumber / 2,
+			CsvDelay:         uint16(csvTimeoutBob),
 		},
-		CsvDelay: uint16(csvTimeoutBob),
 		MultiSigKey: keychain.KeyDescriptor{
 			PubKey: bobKeys[0].PubKey(),
 		},

@@ -25,12 +25,6 @@ const (
 	// notifierType uniquely identifies this concrete implementation of the
 	// ChainNotifier interface.
 	notifierType = "neutrino"
-
-	// reorgSafetyLimit is the chain depth beyond which it is assumed a block
-	// will not be reorganized out of the chain. This is used to determine when
-	// to prune old confirmation requests so that reorgs are handled correctly.
-	// The coinbase maturity period is a reasonable value to use.
-	reorgSafetyLimit = 100
 )
 
 var (
@@ -159,7 +153,7 @@ func (n *NeutrinoNotifier) Start() error {
 	}
 
 	n.txNotifier = chainntnfs.NewTxNotifier(
-		n.bestHeight, reorgSafetyLimit, n.confirmHintCache,
+		n.bestHeight, chainntnfs.ReorgSafetyLimit, n.confirmHintCache,
 		n.spendHintCache,
 	)
 

@@ -1591,8 +1591,6 @@ func newSingleLinkTestHarness(chanAmt, chanReserve btcutil.Amount) (
 	cleanUp := func() {
 		close(alicePeer.quit)
 		defer fCleanUp()
-		defer aliceLink.Stop()
-		defer bobChannel.Stop()
 	}
 
 	return aliceLink, bobChannel, bticker.Force, start, cleanUp, restore, nil

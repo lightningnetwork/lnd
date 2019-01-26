@@ -298,18 +298,23 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 	aliceSigner := &mockSigner{aliceKeyPriv}
 	bobSigner := &mockSigner{bobKeyPriv}
 
+	alicePool := lnwallet.NewSigPool(1, aliceSigner)
 	channelAlice, err := lnwallet.NewLightningChannel(
-		aliceSigner, nil, aliceChannelState,
+		aliceSigner, nil, aliceChannelState, alicePool,
 	)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
+	alicePool.Start()
+
+	bobPool := lnwallet.NewSigPool(1, bobSigner)
 	channelBob, err := lnwallet.NewLightningChannel(
-		bobSigner, nil, bobChannelState,
+		bobSigner, nil, bobChannelState, bobPool,
 	)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
+	bobPool.Start()
 
 	chainIO := &mockChainIO{}
 	wallet := &lnwallet.LightningWallet{

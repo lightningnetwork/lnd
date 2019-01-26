@@ -97,6 +97,12 @@ var (
 	// ErrNoForwardingEvents is returned in the case that a query fails due
 	// to the log not having any recorded events.
 	ErrNoForwardingEvents = fmt.Errorf("no recorded forwarding events")
+
+	// ErrEdgePolicyOptionalFieldNotFound is an error returned if a channel
+	// policy field is not found in the db even though its message flags
+	// indicate it should be.
+	ErrEdgePolicyOptionalFieldNotFound = fmt.Errorf("optional field not " +
+		"present")
 )
 
 // ErrTooManyExtraOpaqueBytes creates an error which should be returned if the

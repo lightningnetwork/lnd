@@ -165,6 +165,10 @@ const (
 	// original add entry from the remote party's log after the next state
 	// transition.
 	Settle
+
+	// FeeUpdate is an update type sent by the channel initiator that
+	// updates the fee rate used when signing the commitment transaction.
+	FeeUpdate
 )
 
 // String returns a human readable string that uniquely identifies the target
@@ -179,6 +183,8 @@ func (u updateType) String() string {
 		return "MalformedFail"
 	case Settle:
 		return "Settle"
+	case FeeUpdate:
+		return "FeeUpdate"
 	default:
 		return "<unknown type>"
 	}
@@ -190,7 +196,7 @@ func (u updateType) String() string {
 // the original added HTLC.
 //
 // TODO(roasbeef): LogEntry interface??
-//  * need to separate attrs for cancel/add/settle
+//  * need to separate attrs for cancel/add/settle/feeupdate
 type PaymentDescriptor struct {
 	// RHash is the payment hash for this HTLC. The HTLC can be settled iff
 	// the preimage to this hash is presented.
@@ -345,7 +351,7 @@ type PaymentDescriptor struct {
 // NOTE: The provided `logUpdates` MUST corresponding exactly to either the Adds
 // or SettleFails in this channel's forwarding package at `height`.
 func PayDescsFromRemoteLogUpdates(chanID lnwire.ShortChannelID, height uint64,
-	logUpdates []channeldb.LogUpdate) []*PaymentDescriptor {
+	logUpdates []channeldb.LogUpdate) ([]*PaymentDescriptor, error) {
 
 	// Allocate enough space to hold all of the payment descriptors we will
 	// reconstruct, and also the list of pointers that will be returned to
@@ -417,13 +423,18 @@ func PayDescsFromRemoteLogUpdates(chanID lnwire.ShortChannelID, height uint64,
 					Index:  uint16(i),
 				},
 			}
+
+		// NOTE: UpdateFee is not expected since they are not forwarded.
+		case *lnwire.UpdateFee:
+			return nil, fmt.Errorf("unexpected update fee")
+
 		}
 
 		payDescs = append(payDescs, pd)
 		payDescPtrs = append(payDescPtrs, &payDescs[i])
 	}
 
-	return payDescPtrs
+	return payDescPtrs, nil
 }
 
 // commitment represents a commitment to a new state within an active channel.
@@ -1200,6 +1211,9 @@ func compactLogs(ourLog, theirLog *updateLog,
 			nextA = e.Next()
 
 			htlc := e.Value.(*PaymentDescriptor)
+
+			// We skip Adds, as they will be removed along with the
+			// fail/settles below.
 			if htlc.EntryType == Add {
 				continue
 			}
@@ -1218,6 +1232,16 @@ func compactLogs(ourLog, theirLog *updateLog,
 			if remoteChainTail >= htlc.removeCommitHeightRemote &&
 				localChainTail >= htlc.removeCommitHeightLocal {
 
+				// Fee updates have no parent htlcs, so we only
+				// remove the update itself.
+				if htlc.EntryType == FeeUpdate {
+					logA.removeUpdate(htlc.LogIndex)
+					continue
+				}
+
+				// The other types (fail/settle) do have a
+				// parent HTLC, so we'll remove that HTLC from
+				// the other log.
 				logA.removeUpdate(htlc.LogIndex)
 				logB.removeHtlc(htlc.ParentIndex)
 			}
@@ -1321,17 +1345,6 @@ type LightningChannel struct {
 	// commitment. The log is compacted once a revocation is received.
 	localUpdateLog  *updateLog
 	remoteUpdateLog *updateLog
-
-	// pendingFeeUpdate is set to the fee-per-kw we last sent (if we are
-	// channel initiator) or received (if non-initiator) in an update fee
-	// message, which haven't yet been included in a commitment.  It will
-	// be nil if no fee update is un-committed.
-	pendingFeeUpdate *SatPerKWeight
-
-	// pendingAckFeeUpdate is set to the last committed fee update which is
-	// not yet ACKed. This value will be nil if a fee update hasn't been
-	// initiated.
-	pendingAckFeeUpdate *SatPerKWeight
 
 	// LocalFundingKey is the public key under control by the wallet that
 	// was used for the 2-of-2 funding output which created this channel.
@@ -1562,6 +1575,23 @@ func (lc *LightningChannel) logUpdateToPayDesc(logUpdate *channeldb.LogUpdate,
 			ShaOnionBlob:             wireMsg.ShaOnionBlob,
 			removeCommitHeightRemote: commitHeight,
 		}
+
+	// For fee updates we'll create a FeeUpdate type to add to the log. We
+	// reuse the amount field to hold the fee rate. Since the amount field
+	// is denominated in msat we won't lose precision when storing the
+	// sat/kw denominated feerate. Note that we set both the add and remove
+	// height to the same value, as we consider the fee update locked in by
+	// adding and removing it at the same height.
+	case *lnwire.UpdateFee:
+		pd = &PaymentDescriptor{
+			LogIndex: logUpdate.LogIndex,
+			Amount: lnwire.NewMSatFromSatoshis(
+				btcutil.Amount(wireMsg.FeePerKw),
+			),
+			EntryType:                FeeUpdate,
+			addCommitHeightRemote:    commitHeight,
+			removeCommitHeightRemote: commitHeight,
+		}
 	}
 
 	return pd, nil
@@ -1765,15 +1795,6 @@ func (lc *LightningChannel) restoreStateLogs(
 	// If we did have a dangling commit, then we'll examine which updates
 	// we included in that state and re-insert them into our update log.
 	for _, logUpdate := range pendingRemoteCommitDiff.LogUpdates {
-		// If the log update is a fee update, then it doesn't need an
-		// entry within the updateLog, so we'll just apply it and move
-		// on.
-		if feeUpdate, ok := logUpdate.UpdateMsg.(*lnwire.UpdateFee); ok {
-			newFeeRate := SatPerKWeight(feeUpdate.FeePerKw)
-			lc.pendingAckFeeUpdate = &newFeeRate
-			continue
-		}
-
 		payDesc, err := lc.logUpdateToPayDesc(
 			&logUpdate, lc.remoteUpdateLog, pendingHeight,
 			SatPerKWeight(pendingCommit.FeePerKw), pendingRemoteKeys,
@@ -1783,7 +1804,8 @@ func (lc *LightningChannel) restoreStateLogs(
 			return err
 		}
 
-		if payDesc.EntryType == Add {
+		switch payDesc.EntryType {
+		case Add:
 			// The HtlcIndex of the added HTLC _must_ be equal to
 			// the log's htlcCounter at this point. If it is not we
 			// panic to catch this.
@@ -1796,7 +1818,11 @@ func (lc *LightningChannel) restoreStateLogs(
 			}
 
 			lc.localUpdateLog.appendHtlc(payDesc)
-		} else {
+
+		case FeeUpdate:
+			lc.localUpdateLog.appendUpdate(payDesc)
+
+		default:
 			lc.localUpdateLog.appendUpdate(payDesc)
 
 			lc.remoteUpdateLog.markHtlcModified(payDesc.ParentIndex)
@@ -2161,6 +2187,7 @@ func htlcIsDust(incoming, ourCommit bool, feePerKw SatPerKWeight,
 type htlcView struct {
 	ourUpdates   []*PaymentDescriptor
 	theirUpdates []*PaymentDescriptor
+	feePerKw     SatPerKWeight
 }
 
 // fetchHTLCView returns all the candidate HTLC updates which should be
@@ -2218,8 +2245,10 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 	// in order to update their commitment addition height, and to adjust
 	// the balances on the commitment transaction accordingly.
 	htlcView := lc.fetchHTLCView(theirLogIndex, ourLogIndex)
-	ourBalance, theirBalance, _, filteredHTLCView, feePerKw :=
-		lc.computeView(htlcView, remoteChain, true)
+	ourBalance, theirBalance, _, filteredHTLCView := lc.computeView(
+		htlcView, remoteChain, true,
+	)
+	feePerKw := filteredHTLCView.feePerKw
 
 	// Determine how many current HTLCs are over the dust limit, and should
 	// be counted for the purpose of fee calculation.
@@ -2421,9 +2450,9 @@ func (lc *LightningChannel) createCommitmentTx(c *commitment,
 
 // evaluateHTLCView processes all update entries in both HTLC update logs,
 // producing a final view which is the result of properly applying all adds,
-// settles, and timeouts found in both logs. The resulting view returned
-// reflects the current state of HTLCs within the remote or local commitment
-// chain.
+// settles, timeouts and fee updates found in both logs. The resulting view
+// returned reflects the current state of HTLCs within the remote or local
+// commitment chain, and the current commitment fee rate.
 //
 // If mutateState is set to true, then the add height of all added HTLCs
 // will be set to nextHeight, and the remove height of all removed HTLCs
@@ -2435,7 +2464,12 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 	theirBalance *lnwire.MilliSatoshi, nextHeight uint64,
 	remoteChain, mutateState bool) *htlcView {
 
-	newView := &htlcView{}
+	// We initialize the view's fee rate to the fee rate of the unfiltered
+	// view. If any fee updates are found when evaluating the view, it will
+	// be updated.
+	newView := &htlcView{
+		feePerKw: view.feePerKw,
+	}
 
 	// We use two maps, one for the local log and one for the remote log to
 	// keep track of which entries we need to skip when creating the final
@@ -2448,7 +2482,17 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 	// skip sets and mutating the current chain state (crediting balances,
 	// etc) to reflect the settle/timeout entry encountered.
 	for _, entry := range view.ourUpdates {
-		if entry.EntryType == Add {
+		switch entry.EntryType {
+		// Skip adds for now. They will be processed below.
+		case Add:
+			continue
+
+		// Process fee updates, updating the current feePerKw.
+		case FeeUpdate:
+			processFeeUpdate(
+				entry, nextHeight, remoteChain, mutateState,
+				newView,
+			)
 			continue
 		}
 
@@ -2482,7 +2526,17 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 			nextHeight, remoteChain, true, mutateState)
 	}
 	for _, entry := range view.theirUpdates {
-		if entry.EntryType == Add {
+		switch entry.EntryType {
+		// Skip adds for now. They will be processed below.
+		case Add:
+			continue
+
+		// Process fee updates, updating the current feePerKw.
+		case FeeUpdate:
+			processFeeUpdate(
+				entry, nextHeight, remoteChain, mutateState,
+				newView,
+			)
 			continue
 		}
 
@@ -2628,6 +2682,38 @@ func processRemoveEntry(htlc *PaymentDescriptor, ourBalance,
 	}
 
 	if mutateState {
+		*removeHeight = nextHeight
+	}
+}
+
+// processFeeUpdate processes a log update that updates the current commitment
+// fee.
+func processFeeUpdate(feeUpdate *PaymentDescriptor, nextHeight uint64,
+	remoteChain bool, mutateState bool, view *htlcView) {
+
+	// Fee updates are applied for all commitments after they are
+	// sent/received, so we consider them being added and removed at the
+	// same height.
+	var addHeight *uint64
+	var removeHeight *uint64
+	if remoteChain {
+		addHeight = &feeUpdate.addCommitHeightRemote
+		removeHeight = &feeUpdate.removeCommitHeightRemote
+	} else {
+		addHeight = &feeUpdate.addCommitHeightLocal
+		removeHeight = &feeUpdate.removeCommitHeightLocal
+	}
+
+	if *addHeight != 0 {
+		return
+	}
+
+	// If the update wasn't already locked in, update the current fee rate
+	// to reflect this update.
+	view.feePerKw = SatPerKWeight(feeUpdate.Amount.ToSatoshis())
+
+	if mutateState {
+		*addHeight = nextHeight
 		*removeHeight = nextHeight
 	}
 }
@@ -2782,21 +2868,8 @@ func (lc *LightningChannel) createCommitDiff(
 	// out.
 	chanID := lnwire.NewChanIDFromOutPoint(&lc.channelState.FundingOutpoint)
 
-	// If we have a fee update that we're waiting on an ACK of, then we'll
-	// create an entry so this is properly retransmitted. Note that we can
-	// only send an UpdateFee message if we're the initiator of the
-	// channel.
-	var logUpdates []channeldb.LogUpdate
-	if lc.channelState.IsInitiator && lc.pendingFeeUpdate != nil {
-		logUpdates = append(logUpdates, channeldb.LogUpdate{
-			UpdateMsg: &lnwire.UpdateFee{
-				ChanID:   chanID,
-				FeePerKw: uint32(*lc.pendingFeeUpdate),
-			},
-		})
-	}
-
 	var (
+		logUpdates        []channeldb.LogUpdate
 		ackAddRefs        []channeldb.AddRef
 		settleFailRefs    []channeldb.SettleFailRef
 		openCircuitKeys   []channeldb.CircuitKey
@@ -2876,6 +2949,15 @@ func (lc *LightningChannel) createCommitDiff(
 				ID:           pd.ParentIndex,
 				ShaOnionBlob: pd.ShaOnionBlob,
 				FailureCode:  pd.FailCode,
+			}
+
+		case FeeUpdate:
+			// The Amount field holds the feerate denominated in
+			// msat. Since feerates are only denominated in sat/kw,
+			// we can convert it without loss of precision.
+			logUpdate.UpdateMsg = &lnwire.UpdateFee{
+				ChanID:   chanID,
+				FeePerKw: uint32(pd.Amount.ToSatoshis()),
 			}
 		}
 
@@ -3063,16 +3145,6 @@ func (lc *LightningChannel) SignNextCommitment() (lnwire.Sig, []lnwire.Sig, erro
 	// Extend the remote commitment chain by one with the addition of our
 	// latest commitment update.
 	lc.remoteCommitChain.addCommitment(newCommitView)
-
-	// If we are the channel initiator then we would have signed any sent
-	// fee update at this point, so mark this update as pending ACK, and
-	// set pendingFeeUpdate to nil. We can do this since we know we won't
-	// sign any new commitment before receiving a RevokeAndAck, because of
-	// the revocation window of 1.
-	if lc.channelState.IsInitiator {
-		lc.pendingAckFeeUpdate = lc.pendingFeeUpdate
-		lc.pendingFeeUpdate = nil
-	}
 
 	return sig, htlcSigs, nil
 }
@@ -3473,7 +3545,7 @@ func ChanSyncMsg(c *channeldb.OpenChannel) (*lnwire.ChannelReestablish, error) {
 // HTLCs will be set to the next commitment height.
 func (lc *LightningChannel) computeView(view *htlcView, remoteChain bool,
 	updateState bool) (lnwire.MilliSatoshi, lnwire.MilliSatoshi, int64,
-	*htlcView, SatPerKWeight) {
+	*htlcView) {
 
 	commitChain := lc.localCommitChain
 	dustLimit := lc.localChanCfg.DustLimit
@@ -3501,47 +3573,20 @@ func (lc *LightningChannel) computeView(view *htlcView, remoteChain bool,
 	}
 	nextHeight := commitChain.tip().height + 1
 
-	// We evaluate the view at this stage, meaning settled and failed HTLCs
-	// will remove their corresponding added HTLCs.  The resulting filtered
-	// view will only have Add entries left, making it easy to compare the
-	// channel constraints to the final commitment state.
-	filteredHTLCView := lc.evaluateHTLCView(view, &ourBalance,
-		&theirBalance, nextHeight, remoteChain, updateState)
-
 	// Initiate feePerKw to the last committed fee for this chain as we'll
 	// need this to determine which HTLCs are dust, and also the final fee
 	// rate.
-	feePerKw := commitChain.tip().feePerKw
+	view.feePerKw = commitChain.tip().feePerKw
 
-	// Check if any fee updates have taken place since that last
-	// commitment.
-	if lc.channelState.IsInitiator {
-		switch {
-		// We've sent an update_fee message since our last commitment,
-		// and now are now creating a commitment that reflects the new
-		// fee update.
-		case remoteChain && lc.pendingFeeUpdate != nil:
-			feePerKw = *lc.pendingFeeUpdate
-
-		// We've created a new commitment for the remote chain that
-		// includes a fee update, and have not received a commitment
-		// after the fee update has been ACKed.
-		case !remoteChain && lc.pendingAckFeeUpdate != nil:
-			feePerKw = *lc.pendingAckFeeUpdate
-		}
-	} else {
-		switch {
-		// We've received a fee update since the last local commitment,
-		// so we'll include the fee update in the current view.
-		case !remoteChain && lc.pendingFeeUpdate != nil:
-			feePerKw = *lc.pendingFeeUpdate
-
-		// Earlier we received a commitment that signed an earlier fee
-		// update, and now we must ACK that update.
-		case remoteChain && lc.pendingAckFeeUpdate != nil:
-			feePerKw = *lc.pendingAckFeeUpdate
-		}
-	}
+	// We evaluate the view at this stage, meaning settled and failed HTLCs
+	// will remove their corresponding added HTLCs.  The resulting filtered
+	// view will only have Add entries left, making it easy to compare the
+	// channel constraints to the final commitment state. If any fee
+	// updates are found in the logs, the comitment fee rate should be
+	// changed, so we'll also set the feePerKw to this new value.
+	filteredHTLCView := lc.evaluateHTLCView(view, &ourBalance,
+		&theirBalance, nextHeight, remoteChain, updateState)
+	feePerKw := filteredHTLCView.feePerKw
 
 	// Now go through all HTLCs at this stage, to calculate the total
 	// weight, needed to calculate the transaction fee.
@@ -3564,7 +3609,7 @@ func (lc *LightningChannel) computeView(view *htlcView, remoteChain bool,
 	}
 
 	totalCommitWeight := CommitWeight + totalHtlcWeight
-	return ourBalance, theirBalance, totalCommitWeight, filteredHTLCView, feePerKw
+	return ourBalance, theirBalance, totalCommitWeight, filteredHTLCView
 }
 
 // validateCommitmentSanity is used to validate the current state of the
@@ -3595,9 +3640,10 @@ func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
 	ourInitialBalance := commitChain.tip().ourBalance
 	theirInitialBalance := commitChain.tip().theirBalance
 
-	ourBalance, theirBalance, commitWeight, filteredView, feePerKw := lc.computeView(
+	ourBalance, theirBalance, commitWeight, filteredView := lc.computeView(
 		view, remoteChain, false,
 	)
+	feePerKw := filteredView.feePerKw
 
 	// Calculate the commitment fee, and subtract it from the initiator's
 	// balance.
@@ -4079,16 +4125,6 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSig lnwire.Sig,
 	localCommitmentView.sig = commitSig.ToSignatureBytes()
 	lc.localCommitChain.addCommitment(localCommitmentView)
 
-	// If we are not channel initiator, then the commitment just received
-	// would've signed any received fee update since last commitment. Mark
-	// any such fee update as pending ACK (so we remember to ACK it on our
-	// next commitment), and set pendingFeeUpdate to nil. We can do this
-	// since we won't receive any new commitment before ACKing.
-	if !lc.channelState.IsInitiator {
-		lc.pendingAckFeeUpdate = lc.pendingFeeUpdate
-		lc.pendingFeeUpdate = nil
-	}
-
 	return nil
 }
 
@@ -4109,21 +4145,7 @@ func (lc *LightningChannel) FullySynced() bool {
 	remoteUpdatesSynced := (lastLocalCommit.theirMessageIndex ==
 		lastRemoteCommit.theirMessageIndex)
 
-	pendingFeeAck := false
-
-	// If we have received a fee update which we haven't yet ACKed, then
-	// we owe a commitment.
-	if !lc.channelState.IsInitiator {
-		pendingFeeAck = lc.pendingAckFeeUpdate != nil
-	}
-
-	// If we have sent a fee update which we haven't yet signed, then
-	// we owe a commitment.
-	if lc.channelState.IsInitiator {
-		pendingFeeAck = lc.pendingFeeUpdate != nil
-	}
-
-	return localUpdatesSynced && remoteUpdatesSynced && !pendingFeeAck
+	return localUpdatesSynced && remoteUpdatesSynced
 }
 
 // RevokeCurrentCommitment revokes the next lowest unrevoked commitment
@@ -4247,6 +4269,12 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 	var addIndex, settleFailIndex uint16
 	for e := lc.remoteUpdateLog.Front(); e != nil; e = e.Next() {
 		pd := e.Value.(*PaymentDescriptor)
+
+		// Fee updates are local to this particular channel, and should
+		// never be forwarded.
+		if pd.EntryType == FeeUpdate {
+			continue
+		}
 
 		if pd.isForwarded {
 			continue
@@ -5873,12 +5901,12 @@ func (lc *LightningChannel) availableBalance() (lnwire.MilliSatoshi, int64) {
 		lc.localUpdateLog.logIndex)
 
 	// Then compute our current balance for that view.
-	ourBalance, _, commitWeight, _, feePerKw :=
+	ourBalance, _, commitWeight, filteredView :=
 		lc.computeView(htlcView, false, false)
 
 	// If we are the channel initiator, we must remember to subtract the
 	// commitment fee from our available balance.
-	commitFee := feePerKw.FeeForWeight(commitWeight)
+	commitFee := filteredView.feePerKw.FeeForWeight(commitWeight)
 	if lc.channelState.IsInitiator {
 		ourBalance -= lnwire.NewMSatFromSatoshis(commitFee)
 	}
@@ -5961,7 +5989,13 @@ func (lc *LightningChannel) UpdateFee(feePerKw SatPerKWeight) error {
 		return err
 	}
 
-	lc.pendingFeeUpdate = &feePerKw
+	pd := &PaymentDescriptor{
+		LogIndex:  lc.localUpdateLog.logIndex,
+		Amount:    lnwire.NewMSatFromSatoshis(btcutil.Amount(feePerKw)),
+		EntryType: FeeUpdate,
+	}
+
+	lc.localUpdateLog.appendUpdate(pd)
 
 	return nil
 }
@@ -5979,8 +6013,13 @@ func (lc *LightningChannel) ReceiveUpdateFee(feePerKw SatPerKWeight) error {
 	}
 
 	// TODO(roasbeef): or just modify to use the other balance?
+	pd := &PaymentDescriptor{
+		LogIndex:  lc.remoteUpdateLog.logIndex,
+		Amount:    lnwire.NewMSatFromSatoshis(btcutil.Amount(feePerKw)),
+		EntryType: FeeUpdate,
+	}
 
-	lc.pendingFeeUpdate = &feePerKw
+	lc.remoteUpdateLog.appendUpdate(pd)
 
 	return nil
 }

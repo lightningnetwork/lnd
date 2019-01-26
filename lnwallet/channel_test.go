@@ -1395,6 +1395,45 @@ func TestStateUpdatePersistence(t *testing.T) {
 		t.Fatalf("unable to recv bob's htlc: %v", err)
 	}
 
+	// Also add a fee update to the update logs.
+	fee := SatPerKWeight(111)
+	if err := aliceChannel.UpdateFee(fee); err != nil {
+		t.Fatalf("unable to send fee update")
+	}
+	if err := bobChannel.ReceiveUpdateFee(fee); err != nil {
+		t.Fatalf("unable to receive fee update")
+	}
+
+	// Helper method that asserts the expected number of updates are found
+	// in the update logs.
+	assertNumLogUpdates := func(numAliceUpdates, numBobUpdates int) {
+		if aliceChannel.localUpdateLog.Len() != numAliceUpdates {
+			t.Fatalf("expected %d local updates, found %d",
+				numAliceUpdates,
+				aliceChannel.localUpdateLog.Len())
+		}
+		if aliceChannel.remoteUpdateLog.Len() != numBobUpdates {
+			t.Fatalf("expected %d remote updates, found %d",
+				numBobUpdates,
+				aliceChannel.remoteUpdateLog.Len())
+		}
+
+		if bobChannel.localUpdateLog.Len() != numBobUpdates {
+			t.Fatalf("expected %d local updates, found %d",
+				numBobUpdates,
+				bobChannel.localUpdateLog.Len())
+		}
+		if bobChannel.remoteUpdateLog.Len() != numAliceUpdates {
+			t.Fatalf("expected %d remote updates, found %d",
+				numAliceUpdates,
+				bobChannel.remoteUpdateLog.Len())
+		}
+	}
+
+	// Both nodes should now have Alice's 3 Adds and 1 FeeUpdate in the
+	// log, and Bob's 1 Add.
+	assertNumLogUpdates(4, 1)
+
 	// Next, Alice initiates a state transition to include the HTLC's she
 	// added above in a new commitment state.
 	if err := forceStateTransition(aliceChannel, bobChannel); err != nil {
@@ -1408,6 +1447,16 @@ func TestStateUpdatePersistence(t *testing.T) {
 	if err := forceStateTransition(bobChannel, aliceChannel); err != nil {
 		t.Fatalf("unable to complete bob's state transition: %v", err)
 	}
+
+	// After the state transition the fee update is fully locked in, and
+	// should've been removed from both channels' update logs.
+	if aliceChannel.localCommitChain.tail().feePerKw != fee {
+		t.Fatalf("fee not locked in")
+	}
+	if bobChannel.localCommitChain.tail().feePerKw != fee {
+		t.Fatalf("fee not locked in")
+	}
+	assertNumLogUpdates(3, 1)
 
 	// The latest commitment from both sides should have all the HTLCs.
 	numAliceOutgoing := aliceChannel.localCommitChain.tail().outgoingHTLCs
@@ -1997,6 +2046,88 @@ func TestUpdateFeeFail(t *testing.T) {
 		t.Fatalf("expected bob to fail receiving alice's signature")
 	}
 
+}
+
+// TestUpdateFeeConcurrentSig tests that the channel can properly handle a fee
+// update that it receives concurrently with signing its next commitment.
+func TestUpdateFeeConcurrentSig(t *testing.T) {
+	t.Parallel()
+
+	aliceChannel, bobChannel, cleanUp, err := CreateTestChannels()
+	if err != nil {
+		t.Fatalf("unable to create test channels: %v", err)
+	}
+	defer cleanUp()
+
+	paymentPreimage := bytes.Repeat([]byte{1}, 32)
+	paymentHash := sha256.Sum256(paymentPreimage)
+	htlc := &lnwire.UpdateAddHTLC{
+		PaymentHash: paymentHash,
+		Amount:      btcutil.SatoshiPerBitcoin,
+		Expiry:      uint32(5),
+	}
+
+	// First Alice adds the outgoing HTLC to her local channel's state
+	// update log. Then Alice sends this wire message over to Bob who
+	// adds this htlc to his remote state update log.
+	if _, err := aliceChannel.AddHTLC(htlc, nil); err != nil {
+		t.Fatalf("unable to add htlc: %v", err)
+	}
+	if _, err := bobChannel.ReceiveHTLC(htlc); err != nil {
+		t.Fatalf("unable to recv htlc: %v", err)
+	}
+
+	// Simulate Alice sending update fee message to bob.
+	fee := SatPerKWeight(111)
+	if err := aliceChannel.UpdateFee(fee); err != nil {
+		t.Fatalf("unable to send fee update")
+	}
+
+	// Alice signs a commitment, and sends this to bob.
+	aliceSig, aliceHtlcSigs, err := aliceChannel.SignNextCommitment()
+	if err != nil {
+		t.Fatalf("alice unable to sign commitment: %v", err)
+	}
+
+	// At the same time, Bob signs a commitment.
+	bobSig, bobHtlcSigs, err := bobChannel.SignNextCommitment()
+	if err != nil {
+		t.Fatalf("bob unable to sign alice's commitment: %v", err)
+	}
+
+	// ...that Alice receives.
+	err = aliceChannel.ReceiveNewCommitment(bobSig, bobHtlcSigs)
+	if err != nil {
+		t.Fatalf("alice unable to process bob's new commitment: %v", err)
+	}
+
+	// Now let Bob receive the fee update + commitment that Alice sent.
+	if err := bobChannel.ReceiveUpdateFee(fee); err != nil {
+		t.Fatalf("unable to receive fee update")
+	}
+
+	// Bob receives this signature message, and verifies that it is
+	// consistent with the state he had for Alice, including the received
+	// HTLC and fee update.
+	err = bobChannel.ReceiveNewCommitment(aliceSig, aliceHtlcSigs)
+	if err != nil {
+		t.Fatalf("bob unable to process alice's new commitment: %v", err)
+	}
+
+	if SatPerKWeight(bobChannel.channelState.LocalCommitment.FeePerKw) == fee {
+		t.Fatalf("bob's feePerKw was unexpectedly locked in")
+	}
+
+	// Bob can revoke the prior commitment he had. This should lock in the
+	// fee update for him.
+	_, _, err = bobChannel.RevokeCurrentCommitment()
+	if err != nil {
+		t.Fatalf("unable to generate bob revocation: %v", err)
+	}
+
+	if SatPerKWeight(bobChannel.channelState.LocalCommitment.FeePerKw) != fee {
+		t.Fatalf("bob's feePerKw was not locked in")
+	}
 }
 
 // TestUpdateFeeSenderCommits verifies that the state machine progresses as

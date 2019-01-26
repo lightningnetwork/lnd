@@ -46,16 +46,16 @@ var (
 
 // RootKeyStorage implements the bakery.RootKeyStorage interface.
 type RootKeyStorage struct {
-	*bolt.DB
+	*bbolt.DB
 
 	encKey *snacl.SecretKey
 }
 
 // NewRootKeyStorage creates a RootKeyStorage instance.
 // TODO(aakselrod): Add support for encryption of data with passphrase.
-func NewRootKeyStorage(db *bolt.DB) (*RootKeyStorage, error) {
+func NewRootKeyStorage(db *bbolt.DB) (*RootKeyStorage, error) {
 	// If the store's bucket doesn't exist, create it.
-	err := db.Update(func(tx *bolt.Tx) error {
+	err := db.Update(func(tx *bbolt.Tx) error {
 		_, err := tx.CreateBucketIfNotExists(rootKeyBucketName)
 		return err
 	})
@@ -80,7 +80,7 @@ func (r *RootKeyStorage) CreateUnlock(password *[]byte) error {
 		return ErrPasswordRequired
 	}
 
-	return r.Update(func(tx *bolt.Tx) error {
+	return r.Update(func(tx *bbolt.Tx) error {
 		bucket := tx.Bucket(rootKeyBucketName)
 		dbKey := bucket.Get(encryptedKeyID)
 		if len(dbKey) > 0 {
@@ -124,7 +124,7 @@ func (r *RootKeyStorage) Get(_ context.Context, id []byte) ([]byte, error) {
 		return nil, ErrStoreLocked
 	}
 	var rootKey []byte
-	err := r.View(func(tx *bolt.Tx) error {
+	err := r.View(func(tx *bbolt.Tx) error {
 		dbKey := tx.Bucket(rootKeyBucketName).Get(id)
 		if len(dbKey) == 0 {
 			return fmt.Errorf("root key with id %s doesn't exist",
@@ -156,7 +156,7 @@ func (r *RootKeyStorage) RootKey(_ context.Context) ([]byte, []byte, error) {
 	}
 	var rootKey []byte
 	id := defaultRootKeyID
-	err := r.Update(func(tx *bolt.Tx) error {
+	err := r.Update(func(tx *bbolt.Tx) error {
 		ns := tx.Bucket(rootKeyBucketName)
 		dbKey := ns.Get(id)
 

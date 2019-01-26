@@ -16,7 +16,6 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
-	"github.com/btcsuite/btcutil/hdkeychain"
 	"github.com/btcsuite/btcutil/txsort"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -253,10 +252,6 @@ type LightningWallet struct {
 	// avoid inadvertently creating multiple funding transaction which
 	// double spend inputs across each other.
 	coinSelectMtx sync.RWMutex
-
-	// rootKey is the root HD key derived from a WalletController private
-	// key. This rootKey is used to derive all LN specific secrets.
-	rootKey *hdkeychain.ExtendedKey
 
 	// All messages to the wallet are to be sent across this channel.
 	msgChan chan interface{}

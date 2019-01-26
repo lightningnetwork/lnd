@@ -9,8 +9,8 @@ require (
 	github.com/boltdb/bolt v1.3.1 // indirect
 	github.com/btcsuite/btcd v0.0.0-20180824064422-7d2daa5bfef28c5e282571bc06416516936115ee
 	github.com/btcsuite/btclog v0.0.0-20170628155309-84c8d2346e9f
-	github.com/btcsuite/btcutil v0.0.0-20180706230648-ab6388e0c60ae4834a1f57511e20c17b5f78be4b
-	github.com/btcsuite/btcwallet v0.0.0-20181130221647-e59e51f8e13c
+	github.com/btcsuite/btcutil v0.0.0-20190112041146-bf1e1be93589
+	github.com/btcsuite/btcwallet v0.0.0-20190123033236-ba03278a64bc
 	github.com/btcsuite/fastsha256 v0.0.0-20160815193821-637e65642941
 	github.com/btcsuite/goleveldb v1.0.0 // indirect
 	github.com/coreos/bbolt v0.0.0-20180223184059-7ee3ded59d4835e10f3e7d0f7603c42aa5e83820

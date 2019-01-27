@@ -434,6 +434,8 @@ func (hn *HarnessNode) Init(ctx context.Context,
 
 // initLightningClient constructs the grpc LightningClient from the given client
 // connection and subscribes the harness node to graph topology updates.
+// This method also spawns a lightning network watcher for this node,
+// which watches for topology changes.
 func (hn *HarnessNode) initLightningClient(conn *grpc.ClientConn) error {
 	// Construct the LightningClient that will allow us to use the
 	// HarnessNode directly for normal rpc operations.
@@ -453,9 +455,7 @@ func (hn *HarnessNode) initLightningClient(conn *grpc.ClientConn) error {
 	return nil
 }
 
-// FetchNodeInfo queries an unlocked node to retrieve its public key. This
-// method also spawns a lightning network watcher for this node, which watches
-// for topology changes.
+// FetchNodeInfo queries an unlocked node to retrieve its public key.
 func (hn *HarnessNode) FetchNodeInfo() error {
 	// Obtain the lnid of this node for quick identification purposes.
 	ctxb := context.Background()

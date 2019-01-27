@@ -159,7 +159,7 @@ func TestWriteOnionErrorChanUpdate(t *testing.T) {
 	// Finally, read the length encoded and ensure that it matches the raw
 	// length.
 	var encodedLen uint16
-	if err := ReadElement(&errorBuf, &encodedLen); err != nil {
+	if err := readElement(&errorBuf, &encodedLen); err != nil {
 		t.Fatalf("unable to read len: %v", err)
 	}
 	if uint16(trueUpdateLength) != encodedLen {

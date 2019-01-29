@@ -359,7 +359,7 @@ func (f FailUnknownPaymentHash) Code() FailCode {
 //
 // NOTE: Implements the error interface.
 func (f FailUnknownPaymentHash) Error() string {
-	return f.Code().String()
+	return fmt.Sprintf("UnknownPaymentHash(amt=%v)", f.amount)
 }
 
 // Decode decodes the failure from bytes stream.

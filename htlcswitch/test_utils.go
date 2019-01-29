@@ -670,6 +670,17 @@ func waitForPaymentResult(c chan error, d time.Duration) error {
 	}
 }
 
+// waitForPayFuncResult executes the given function and waits for a result with
+// a timeout.
+func waitForPayFuncResult(payFunc func() error, d time.Duration) error {
+	errChan := make(chan error)
+	go func() {
+		errChan <- payFunc()
+	}()
+
+	return waitForPaymentResult(errChan, d)
+}
+
 // makePayment takes the destination node and amount as input, sends the
 // payment and returns the error channel to wait for error to be received and
 // invoice in order to check its status after the payment finished.

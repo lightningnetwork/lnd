@@ -5201,3 +5201,60 @@ func TestHtlcSatisfyPolicy(t *testing.T) {
 		}
 	})
 }
+
+// TestChannelLinkCanceledInvoice in this test checks the interaction
+// between Alice and Bob for a canceled invoice.
+func TestChannelLinkCanceledInvoice(t *testing.T) {
+	t.Parallel()
+
+	// Setup a alice-bob network.
+	aliceChannel, bobChannel, cleanUp, err := createTwoClusterChannels(
+		btcutil.SatoshiPerBitcoin*3,
+		btcutil.SatoshiPerBitcoin*5)
+	if err != nil {
+		t.Fatalf("unable to create channel: %v", err)
+	}
+	defer cleanUp()
+
+	n := newTwoHopNetwork(t, aliceChannel, bobChannel, testStartingHeight)
+	if err := n.start(); err != nil {
+		t.Fatal(err)
+	}
+	defer n.stop()
+
+	// Prepare an alice -> bob payment.
+	amount := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
+	htlcAmt, totalTimelock, hops := generateHops(amount, testStartingHeight,
+		n.bobChannelLink)
+
+	firstHop := n.bobChannelLink.ShortChanID()
+
+	invoice, payFunc, err := preparePayment(
+		n.aliceServer, n.bobServer, firstHop, hops, amount, htlcAmt,
+		totalTimelock,
+	)
+	if err != nil {
+		t.Fatalf("unable to prepare the payment: %v", err)
+	}
+
+	// Cancel the invoice at bob's end.
+	hash := invoice.Terms.PaymentPreimage.Hash()
+	err = n.bobServer.registry.CancelInvoice(hash)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Have Alice fire the payment.
+	err = waitForPayFuncResult(payFunc, 30*time.Second)
+
+	// Because the invoice is canceled, we expect an unknown payment hash
+	// result.
+	fErr, ok := err.(*ForwardingError)
+	if !ok {
+		t.Fatalf("expected ForwardingError, but got %v", err)
+	}
+	_, ok = fErr.FailureMessage.(*lnwire.FailUnknownPaymentHash)
+	if !ok {
+		t.Fatalf("expected unknown payment hash, but got %v", err)
+	}
+}

@@ -49,7 +49,7 @@ const (
 	defaultRPCHost             = "localhost"
 	defaultMaxPendingChannels  = 1
 	defaultNoSeedBackup        = false
-	defaultTrickleDelay        = 30 * 1000
+	defaultTrickleDelay        = 90 * 1000
 	defaultInactiveChanTimeout = 20 * time.Minute
 	defaultMaxLogFiles         = 3
 	defaultMaxLogFileSize      = 10

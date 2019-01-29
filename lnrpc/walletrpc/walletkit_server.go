@@ -117,7 +117,7 @@ func New(cfg *Config) (*WalletKit, lnrpc.MacaroonPerms, error) {
 	// check to see if we need to create it or not.
 	macFilePath := cfg.WalletKitMacPath
 	if !fileExists(macFilePath) && cfg.MacService != nil {
-		log.Infof("Baking macaroons for WaleltKit RPC Server at: %v",
+		log.Infof("Baking macaroons for WalletKit RPC Server at: %v",
 			macFilePath)
 
 		// At this point, we know that the wallet kit macaroon doesn't

@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package chainrpc;
 
+option go_package = "github.com/lightningnetwork/lnd/lnrpc/chainrpc";
+
 message ConfRequest {
     /*
     The transaction hash for which we should request a confirmation notification

@@ -662,7 +662,7 @@ func (r *paymentResponse) Wait(d time.Duration) (lntypes.Hash, error) {
 		close(r.err)
 		return r.rhash, err
 	case <-time.After(d):
-		return r.rhash, errors.New("htlc was no settled in time")
+		return r.rhash, errors.New("htlc was not settled in time")
 	}
 }
 
@@ -674,7 +674,7 @@ func (r *paymentResponse) Wait(d time.Duration) (lntypes.Hash, error) {
 // * from Alice to Bob
 // * from Alice to Carol through the Bob
 // * from Alice to some another peer through the Bob
-func (n *threeHopNetwork) makePayment(sendingPeer, receivingPeer lnpeer.Peer,
+func makePayment(sendingPeer, receivingPeer lnpeer.Peer,
 	firstHop lnwire.ShortChannelID, hops []ForwardingInfo,
 	invoiceAmt, htlcAmt lnwire.MilliSatoshi,
 	timelock uint32) *paymentResponse {

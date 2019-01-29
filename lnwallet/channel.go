@@ -1816,6 +1816,14 @@ func (lc *LightningChannel) restoreStateLogs(
 				"using %v", payDesc.LogIndex)
 		}
 
+		// At this point the restored update's logIndex must be equal
+		// to the update log, otherwise somthing is horribly wrong.
+		if payDesc.LogIndex != lc.localUpdateLog.logIndex {
+			panic(fmt.Sprintf("log index mismatch: "+
+				"%v vs %v", payDesc.LogIndex,
+				lc.localUpdateLog.logIndex))
+		}
+
 		switch payDesc.EntryType {
 		case Add:
 			// The HtlcIndex of the added HTLC _must_ be equal to

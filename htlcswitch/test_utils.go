@@ -686,8 +686,38 @@ func makePayment(sendingPeer, receivingPeer lnpeer.Peer,
 	timelock uint32) *paymentResponse {
 
 	paymentErr := make(chan error, 1)
-
 	var rhash lntypes.Hash
+
+	invoice, payFunc, err := preparePayment(sendingPeer, receivingPeer,
+		firstHop, hops, invoiceAmt, htlcAmt, timelock,
+	)
+	if err != nil {
+		paymentErr <- err
+		return &paymentResponse{
+			rhash: rhash,
+			err:   paymentErr,
+		}
+	}
+
+	rhash = invoice.Terms.PaymentPreimage.Hash()
+
+	// Send payment and expose err channel.
+	go func() {
+		paymentErr <- payFunc()
+	}()
+
+	return &paymentResponse{
+		rhash: rhash,
+		err:   paymentErr,
+	}
+}
+
+// preparePayment creates an invoice at the receivingPeer and returns a function
+// that, when called, launches the payment from the sendingPeer.
+func preparePayment(sendingPeer, receivingPeer lnpeer.Peer,
+	firstHop lnwire.ShortChannelID, hops []ForwardingInfo,
+	invoiceAmt, htlcAmt lnwire.MilliSatoshi,
+	timelock uint32) (*channeldb.Invoice, func() error, error) {
 
 	sender := sendingPeer.(*mockServer)
 	receiver := receivingPeer.(*mockServer)
@@ -696,45 +726,27 @@ func makePayment(sendingPeer, receivingPeer lnpeer.Peer,
 	// htlc add request.
 	blob, err := generateRoute(hops...)
 	if err != nil {
-		paymentErr <- err
-		return &paymentResponse{
-			rhash: rhash,
-			err:   paymentErr,
-		}
+		return nil, nil, err
 	}
 
 	// Generate payment: invoice and htlc.
 	invoice, htlc, err := generatePayment(invoiceAmt, htlcAmt, timelock, blob)
 	if err != nil {
-		paymentErr <- err
-		return &paymentResponse{
-			rhash: rhash,
-			err:   paymentErr,
-		}
+		return nil, nil, err
 	}
-	rhash = fastsha256.Sum256(invoice.Terms.PaymentPreimage[:])
 
 	// Check who is last in the route and add invoice to server registry.
 	if err := receiver.registry.AddInvoice(*invoice); err != nil {
-		paymentErr <- err
-		return &paymentResponse{
-			rhash: rhash,
-			err:   paymentErr,
-		}
+		return nil, nil, err
 	}
 
 	// Send payment and expose err channel.
-	go func() {
+	return invoice, func() error {
 		_, err := sender.htlcSwitch.SendHTLC(
 			firstHop, htlc, newMockDeobfuscator(),
 		)
-		paymentErr <- err
-	}()
-
-	return &paymentResponse{
-		rhash: rhash,
-		err:   paymentErr,
-	}
+		return err
+	}, nil
 }
 
 // start starts the three hop network alice,bob,carol servers.

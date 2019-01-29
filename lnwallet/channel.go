@@ -1804,6 +1804,18 @@ func (lc *LightningChannel) restoreStateLogs(
 			return err
 		}
 
+		// Earlier versions did not write the log index to disk for fee
+		// updates, so they will be unset. To account for this we set
+		// them to to current update log index.
+		if payDesc.EntryType == FeeUpdate && payDesc.LogIndex == 0 &&
+			lc.localUpdateLog.logIndex > 0 {
+
+			payDesc.LogIndex = lc.localUpdateLog.logIndex
+			walletLog.Debugf("Found FeeUpdate on "+
+				"pendingRemoteCommitDiff without logIndex, "+
+				"using %v", payDesc.LogIndex)
+		}
+
 		switch payDesc.EntryType {
 		case Add:
 			// The HtlcIndex of the added HTLC _must_ be equal to

@@ -1053,3 +1053,111 @@ func (h *hopNetwork) createChannelLink(server, peer *mockServer,
 
 	return link, nil
 }
+
+// twoHopNetwork is used for managing the created cluster of 2 hops.
+type twoHopNetwork struct {
+	hopNetwork
+
+	aliceServer      *mockServer
+	aliceChannelLink *channelLink
+
+	bobServer      *mockServer
+	bobChannelLink *channelLink
+}
+
+// newTwoHopNetwork function creates the following topology and returns the
+// control object to manage this cluster:
+//
+//	alice			   bob
+//	server - <-connection-> - server
+//	 |		   	    |
+//   alice htlc		  	 bob htlc
+//     switch			 switch
+//	|			    |
+//	|			    |
+// alice                           bob
+// channel link	    	       channel link
+//
+func newTwoHopNetwork(t testing.TB,
+	aliceChannel, bobChannel *lnwallet.LightningChannel,
+	startingHeight uint32) *twoHopNetwork {
+
+	aliceDb := aliceChannel.State().Db
+	bobDb := bobChannel.State().Db
+
+	hopNetwork := newHopNetwork()
+
+	// Create two peers/servers.
+	aliceServer, err := newMockServer(
+		t, "alice", startingHeight, aliceDb, hopNetwork.defaultDelta,
+	)
+	if err != nil {
+		t.Fatalf("unable to create alice server: %v", err)
+	}
+	bobServer, err := newMockServer(
+		t, "bob", startingHeight, bobDb, hopNetwork.defaultDelta,
+	)
+	if err != nil {
+		t.Fatalf("unable to create bob server: %v", err)
+	}
+
+	// Create mock decoder instead of sphinx one in order to mock the route
+	// which htlc should follow.
+	aliceDecoder := newMockIteratorDecoder()
+	bobDecoder := newMockIteratorDecoder()
+
+	aliceChannelLink, err := hopNetwork.createChannelLink(
+		aliceServer, bobServer, aliceChannel, aliceDecoder,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	bobChannelLink, err := hopNetwork.createChannelLink(
+		bobServer, aliceServer, bobChannel, bobDecoder,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return &twoHopNetwork{
+		aliceServer:      aliceServer,
+		aliceChannelLink: aliceChannelLink.(*channelLink),
+
+		bobServer:      bobServer,
+		bobChannelLink: bobChannelLink.(*channelLink),
+
+		hopNetwork: *hopNetwork,
+	}
+}
+
+// start starts the three hop network alice,bob,carol servers.
+func (n *twoHopNetwork) start() error {
+	if err := n.aliceServer.Start(); err != nil {
+		return err
+	}
+	if err := n.bobServer.Start(); err != nil {
+		n.aliceServer.Stop()
+		return err
+	}
+
+	return nil
+}
+
+// stop stops nodes and cleanup its databases.
+func (n *twoHopNetwork) stop() {
+	done := make(chan struct{})
+	go func() {
+		n.aliceServer.Stop()
+		done <- struct{}{}
+	}()
+
+	go func() {
+		n.bobServer.Stop()
+		done <- struct{}{}
+	}()
+
+	for i := 0; i < 2; i++ {
+		<-done
+	}
+}

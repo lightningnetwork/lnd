@@ -657,12 +657,18 @@ type paymentResponse struct {
 }
 
 func (r *paymentResponse) Wait(d time.Duration) (lntypes.Hash, error) {
+	return r.rhash, waitForPaymentResult(r.err, d)
+}
+
+// waitForPaymentResult waits for either an error to be received on c or a
+// timeout.
+func waitForPaymentResult(c chan error, d time.Duration) error {
 	select {
-	case err := <-r.err:
-		close(r.err)
-		return r.rhash, err
+	case err := <-c:
+		close(c)
+		return err
 	case <-time.After(d):
-		return r.rhash, errors.New("htlc was not settled in time")
+		return errors.New("htlc was not settled in time")
 	}
 }
 

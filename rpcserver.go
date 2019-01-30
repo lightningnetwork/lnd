@@ -409,9 +409,12 @@ type rpcServer struct {
 	// server.
 	listenerCleanUp []func()
 
-	// restServerOpts are a set of gRPC dial options that the REST server
+	// restDialOpts are a set of gRPC dial options that the REST server
 	// proxy will use to connect to the main gRPC server.
-	restServerOpts []grpc.DialOption
+	restDialOpts []grpc.DialOption
+
+	// restProxyDest is the address to forward REST requests to.
+	restProxyDest string
 
 	// tlsCfg is the TLS config that allows the REST server proxy to
 	// connect to the main gRPC server to proxy all incoming requests.
@@ -435,8 +438,8 @@ var _ lnrpc.LightningServer = (*rpcServer)(nil)
 // like requiring TLS, etc.
 func newRPCServer(s *server, macService *macaroons.Service,
 	subServerCgs *subRPCServerConfigs, serverOpts []grpc.ServerOption,
-	restServerOpts []grpc.DialOption, atpl *autopilot.Manager,
-	invoiceRegistry *invoices.InvoiceRegistry,
+	restDialOpts []grpc.DialOption, restProxyDest string,
+	atpl *autopilot.Manager, invoiceRegistry *invoices.InvoiceRegistry,
 	tlsCfg *tls.Config) (*rpcServer, error) {
 
 	// Set up router rpc backend.
@@ -531,13 +534,14 @@ func newRPCServer(s *server, macService *macaroons.Service,
 	// gRPC server, and register the main lnrpc server along side.
 	grpcServer := grpc.NewServer(serverOpts...)
 	rootRPCServer := &rpcServer{
-		restServerOpts: restServerOpts,
-		subServers:     subServers,
-		tlsCfg:         tlsCfg,
-		grpcServer:     grpcServer,
-		server:         s,
-		routerBackend:  routerBackend,
-		quit:           make(chan struct{}, 1),
+		restDialOpts:  restDialOpts,
+		restProxyDest: restProxyDest,
+		subServers:    subServers,
+		tlsCfg:        tlsCfg,
+		grpcServer:    grpcServer,
+		server:        s,
+		routerBackend: routerBackend,
+		quit:          make(chan struct{}, 1),
 	}
 	lnrpc.RegisterLightningServer(grpcServer, rootRPCServer)
 
@@ -604,17 +608,10 @@ func (r *rpcServer) Start() error {
 	// TODO(roasbeef): eventually also allow the sub-servers to themselves
 	// have a REST proxy.
 	mux := proxy.NewServeMux()
-	grpcEndpoint := cfg.RPCListeners[0].String()
-	switch {
-	case strings.Contains(grpcEndpoint, "0.0.0.0"):
-		grpcEndpoint = strings.Replace(
-			grpcEndpoint, "0.0.0.0", "127.0.0.1", 1,
-		)
-	case strings.Contains(grpcEndpoint, "[::]"):
-		grpcEndpoint = strings.Replace(grpcEndpoint, "[::]", "[::1]", 1)
-	}
+
 	err := lnrpc.RegisterLightningHandlerFromEndpoint(
-		context.Background(), mux, grpcEndpoint, r.restServerOpts,
+		context.Background(), mux, r.restProxyDest,
+		r.restDialOpts,
 	)
 	if err != nil {
 		return err

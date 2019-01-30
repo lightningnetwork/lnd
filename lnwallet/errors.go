@@ -132,16 +132,6 @@ func ErrNumConfsTooLarge(numConfs, maxNumConfs uint32) error {
 	}
 }
 
-// ErrMaxValueInFlightTooLarge returns an error indicating that the 'max HTLC
-// value in flight' the remote required is too large to be accepted.
-func ErrMaxValueInFlightTooLarge(maxValInFlight,
-	maxMaxValInFlight lnwire.MilliSatoshi) ReservationError {
-	return ReservationError{
-		fmt.Errorf("maxValueInFlight too large: %v, max is %v",
-			maxValInFlight, maxMaxValInFlight),
-	}
-}
-
 // ErrChanTooSmall returns an error indicating that an incoming channel request
 // was too small. We'll reject any incoming channels if they're below our
 // configured value for the min channel size we'll accept.

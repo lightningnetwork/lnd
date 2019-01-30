@@ -6,13 +6,13 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/fastsha256"
 	"github.com/davecgh/go-spew/spew"
-	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/ticker"
@@ -1780,7 +1780,7 @@ func TestSwitchSendPayment(t *testing.T) {
 	// the add htlc request with error and sent the htlc fail request
 	// back. This request should be forwarded back to alice channel link.
 	obfuscator := NewMockObfuscator()
-	failure := lnwire.FailIncorrectPaymentAmount{}
+	failure := lnwire.NewFailUnknownPaymentHash(update.Amount)
 	reason, err := obfuscator.EncryptFirstHop(failure)
 	if err != nil {
 		t.Fatalf("unable obfuscate failure: %v", err)
@@ -1801,8 +1801,9 @@ func TestSwitchSendPayment(t *testing.T) {
 
 	select {
 	case err := <-errChan:
-		if err.Error() != errors.New(lnwire.CodeIncorrectPaymentAmount).Error() {
-			t.Fatal("err wasn't received")
+		if !strings.Contains(err.Error(), lnwire.CodeUnknownPaymentHash.String()) {
+			t.Fatalf("expected %v got %v", err,
+				lnwire.CodeUnknownPaymentHash)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("err wasn't received")

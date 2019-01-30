@@ -7878,10 +7878,11 @@ out:
 
 	// Next, we'll test the case of a recognized payHash but, an incorrect
 	// value on the extended HTLC.
+	htlcAmt := lnwire.NewMSatFromSatoshis(1000)
 	sendReq = &lnrpc.SendRequest{
 		PaymentHashString: hex.EncodeToString(carolInvoice.RHash),
 		DestString:        hex.EncodeToString(carol.PubKey[:]),
-		Amt:               1000, // 10k satoshis are expected.
+		Amt:               int64(htlcAmt.ToSatoshis()), // 10k satoshis are expected.
 	}
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	resp, err = net.Alice.SendPaymentSync(ctxt, sendReq)
@@ -7895,10 +7896,17 @@ out:
 		t.Fatalf("payment should have been rejected due to wrong " +
 			"HTLC amount")
 	}
-	expectedErrorCode = lnwire.CodeIncorrectPaymentAmount.String()
+	expectedErrorCode = lnwire.CodeUnknownPaymentHash.String()
 	if !strings.Contains(resp.PaymentError, expectedErrorCode) {
 		t.Fatalf("payment should have failed due to wrong amount, "+
 			"instead failed due to: %v", resp.PaymentError)
+	}
+
+	// We'll also ensure that the encoded error includes the invlaid HTLC
+	// amount.
+	if !strings.Contains(resp.PaymentError, htlcAmt.String()) {
+		t.Fatalf("error didn't include expected payment amt of %v: "+
+			"%v", htlcAmt, resp.PaymentError)
 	}
 
 	// The balances of all parties should be the same as initially since

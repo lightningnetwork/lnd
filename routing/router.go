@@ -1684,11 +1684,6 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 		}),
 	)
 
-	var (
-		preImage  [32]byte
-		sendError error
-	)
-
 	// We'll also fetch the current block height so we can properly
 	// calculate the required HTLC time locks within the route.
 	_, currentHeight, err := r.cfg.Chain.GetBestBlock()
@@ -1714,6 +1709,7 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 
 	// We'll continue until either our payment succeeds, or we encounter a
 	// critical error during path finding.
+	var lastError error
 	for {
 		// Before we attempt this next payment, we'll check to see if
 		// either we've gone past the payment attempt timeout, or the
@@ -1724,12 +1720,12 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 			errStr := fmt.Sprintf("payment attempt not completed "+
 				"before timeout of %v", payAttemptTimeout)
 
-			return preImage, nil, newErr(
+			return [32]byte{}, nil, newErr(
 				ErrPaymentAttemptTimeout, errStr,
 			)
 
 		case <-r.quit:
-			return preImage, nil, fmt.Errorf("router shutting down")
+			return [32]byte{}, nil, fmt.Errorf("router shutting down")
 
 		default:
 			// Fall through if we haven't hit our time limit, or
@@ -1742,279 +1738,315 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 		if err != nil {
 			// If we're unable to successfully make a payment using
 			// any of the routes we've found, then return an error.
-			if sendError != nil {
+			if lastError != nil {
 				return [32]byte{}, nil, fmt.Errorf("unable to "+
 					"route payment to destination: %v",
-					sendError)
+					lastError)
 			}
 
-			return preImage, nil, err
+			return [32]byte{}, nil, err
 		}
 
-		log.Tracef("Attempting to send payment %x, using route: %v",
-			payment.PaymentHash, newLogClosure(func() string {
-				return spew.Sdump(route)
-			}),
+		// Send payment attempt. It will return a final boolean
+		// indicating if more attempts are needed.
+		preimage, final, err := r.sendPaymentAttempt(
+			paySession, route, payment.PaymentHash,
 		)
-
-		// Generate the raw encoded sphinx packet to be included along
-		// with the htlcAdd message that we send directly to the
-		// switch.
-		onionBlob, circuit, err := generateSphinxPacket(
-			route, payment.PaymentHash[:],
-		)
-		if err != nil {
-			return preImage, nil, err
+		if final {
+			return preimage, route, err
 		}
 
-		// Craft an HTLC packet to send to the layer 2 switch. The
-		// metadata within this packet will be used to route the
-		// payment through the network, starting with the first-hop.
-		htlcAdd := &lnwire.UpdateAddHTLC{
-			Amount:      route.TotalAmount,
-			Expiry:      route.TotalTimeLock,
-			PaymentHash: payment.PaymentHash,
-		}
-		copy(htlcAdd.OnionBlob[:], onionBlob)
+		lastError = err
+	}
+}
 
-		// Attempt to send this payment through the network to complete
-		// the payment. If this attempt fails, then we'll continue on
-		// to the next available route.
-		firstHop := lnwire.NewShortChanIDFromInt(
-			route.Hops[0].ChannelID,
-		)
-		preImage, sendError = r.cfg.SendToSwitch(
-			firstHop, htlcAdd, circuit,
-		)
-		if sendError != nil {
-			// An error occurred when attempting to send the
-			// payment, depending on the error type, we'll either
-			// continue to send using alternative routes, or simply
-			// terminate this attempt.
-			log.Errorf("Attempt to send payment %x failed: %v",
-				payment.PaymentHash, sendError)
+// sendPaymentAttempt tries to send the payment via the specified route. If
+// successful, it returns the obtained preimage. If an error occurs, the last
+// bool parameter indicates whether this is a final outcome or more attempts
+// should be made.
+func (r *ChannelRouter) sendPaymentAttempt(paySession *paymentSession,
+	route *Route, paymentHash [32]byte) ([32]byte, bool, error) {
 
-			fErr, ok := sendError.(*htlcswitch.ForwardingError)
-			if !ok {
-				return preImage, nil, sendError
-			}
+	log.Tracef("Attempting to send payment %x, using route: %v",
+		paymentHash, newLogClosure(func() string {
+			return spew.Sdump(route)
+		}),
+	)
 
-			errSource := fErr.ErrorSource
-			errVertex := NewVertex(errSource)
+	preimage, err := r.sendToSwitch(route, paymentHash)
+	if err == nil {
+		return preimage, true, nil
+	}
 
-			log.Tracef("node=%x reported failure when sending "+
-				"htlc=%x", errVertex, payment.PaymentHash[:])
+	log.Errorf("Attempt to send payment %x failed: %v",
+		paymentHash, err)
 
-			// Always determine chan id ourselves, because a channel
-			// update with id may not be available.
-			failedEdge, err := getFailedEdge(route, errVertex)
-			if err != nil {
-				return preImage, nil, err
-			}
+	finalOutcome := r.processSendError(paySession, route, err)
 
-			// processChannelUpdateAndRetry is a closure that
-			// handles a failure message containing a channel
-			// update. This function always tries to apply the
-			// channel update and passes on the result to the
-			// payment session to adjust its view on the reliability
-			// of the network.
-			//
-			// As channel id, the locally determined channel id is
-			// used. It does not rely on the channel id that is part
-			// of the channel update message, because the remote
-			// node may lie to us or the update may be corrupt.
-			processChannelUpdateAndRetry := func(
-				update *lnwire.ChannelUpdate,
-				pubKey *btcec.PublicKey) {
+	return [32]byte{}, finalOutcome, err
+}
 
-				// Try to apply the channel update.
-				updateOk := r.applyChannelUpdate(update, pubKey)
+// sendToSwitch sends a payment along the specified route and returns the
+// obtained preimage.
+func (r *ChannelRouter) sendToSwitch(route *Route, paymentHash [32]byte) (
+	[32]byte, error) {
 
-				// If the update could not be applied, prune the
-				// edge. There is no reason to continue trying
-				// this channel.
-				//
-				// TODO: Could even prune the node completely?
-				// Or is there a valid reason for the channel
-				// update to fail?
-				if !updateOk {
-					paySession.ReportEdgeFailure(
-						failedEdge,
-					)
-				}
+	// Generate the raw encoded sphinx packet to be included along
+	// with the htlcAdd message that we send directly to the
+	// switch.
+	onionBlob, circuit, err := generateSphinxPacket(
+		route, paymentHash[:],
+	)
+	if err != nil {
+		return [32]byte{}, err
+	}
 
-				paySession.ReportEdgePolicyFailure(
-					NewVertex(errSource), failedEdge,
-				)
-			}
+	// Craft an HTLC packet to send to the layer 2 switch. The
+	// metadata within this packet will be used to route the
+	// payment through the network, starting with the first-hop.
+	htlcAdd := &lnwire.UpdateAddHTLC{
+		Amount:      route.TotalAmount,
+		Expiry:      route.TotalTimeLock,
+		PaymentHash: paymentHash,
+	}
+	copy(htlcAdd.OnionBlob[:], onionBlob)
 
-			switch onionErr := fErr.FailureMessage.(type) {
-			// If the end destination didn't know the payment
-			// hash or we sent the wrong payment amount to the
-			// destination, then we'll terminate immediately.
-			case *lnwire.FailUnknownPaymentHash:
-				return preImage, nil, sendError
+	// Attempt to send this payment through the network to complete
+	// the payment. If this attempt fails, then we'll continue on
+	// to the next available route.
+	firstHop := lnwire.NewShortChanIDFromInt(
+		route.Hops[0].ChannelID,
+	)
+	return r.cfg.SendToSwitch(
+		firstHop, htlcAdd, circuit,
+	)
+}
 
-			// If we sent the wrong amount to the destination, then
-			// we'll exit early.
-			case *lnwire.FailIncorrectPaymentAmount:
-				return preImage, nil, sendError
+// processSendError analyzes the error for the payment attempt received from the
+// switch and updates mission control and/or channel policies. Depending on the
+// error type, this error is either the final outcome of the payment or we need
+// to continue with an alternative route. This is indicated by the boolean
+// return value.
+func (r *ChannelRouter) processSendError(paySession *paymentSession,
+	route *Route, err error) bool {
 
-			// If the time-lock that was extended to the final node
-			// was incorrect, then we can't proceed.
-			case *lnwire.FailFinalIncorrectCltvExpiry:
-				return preImage, nil, sendError
+	fErr, ok := err.(*htlcswitch.ForwardingError)
+	if !ok {
+		return true
+	}
 
-			// If we crafted an invalid onion payload for the final
-			// node, then we'll exit early.
-			case *lnwire.FailFinalIncorrectHtlcAmount:
-				return preImage, nil, sendError
+	errSource := fErr.ErrorSource
+	errVertex := NewVertex(errSource)
 
-			// Similarly, if the HTLC expiry that we extended to
-			// the final hop expires too soon, then will fail the
-			// payment.
-			//
-			// TODO(roasbeef): can happen to to race condition, try
-			// again with recent block height
-			case *lnwire.FailFinalExpiryTooSoon:
-				return preImage, nil, sendError
+	log.Tracef("node=%x reported failure when sending htlc", errVertex)
 
-			// If we erroneously attempted to cross a chain border,
-			// then we'll cancel the payment.
-			case *lnwire.FailInvalidRealm:
-				return preImage, nil, sendError
+	// Always determine chan id ourselves, because a channel
+	// update with id may not be available.
+	failedEdge, err := getFailedEdge(route, errVertex)
+	if err != nil {
+		return true
+	}
 
-			// If we get a notice that the expiry was too soon for
-			// an intermediate node, then we'll prune out the node
-			// that sent us this error, as it doesn't now what the
-			// correct block height is.
-			case *lnwire.FailExpiryTooSoon:
-				r.applyChannelUpdate(&onionErr.Update, errSource)
-				paySession.ReportVertexFailure(errVertex)
-				continue
+	// processChannelUpdateAndRetry is a closure that
+	// handles a failure message containing a channel
+	// update. This function always tries to apply the
+	// channel update and passes on the result to the
+	// payment session to adjust its view on the reliability
+	// of the network.
+	//
+	// As channel id, the locally determined channel id is
+	// used. It does not rely on the channel id that is part
+	// of the channel update message, because the remote
+	// node may lie to us or the update may be corrupt.
+	processChannelUpdateAndRetry := func(
+		update *lnwire.ChannelUpdate,
+		pubKey *btcec.PublicKey) {
 
-			// If we hit an instance of onion payload corruption or
-			// an invalid version, then we'll exit early as this
-			// shouldn't happen in the typical case.
-			case *lnwire.FailInvalidOnionVersion:
-				return preImage, nil, sendError
-			case *lnwire.FailInvalidOnionHmac:
-				return preImage, nil, sendError
-			case *lnwire.FailInvalidOnionKey:
-				return preImage, nil, sendError
+		// Try to apply the channel update.
+		updateOk := r.applyChannelUpdate(update, pubKey)
 
-			// If we get a failure due to violating the minimum
-			// amount, we'll apply the new minimum amount and retry
-			// routing.
-			case *lnwire.FailAmountBelowMinimum:
-				processChannelUpdateAndRetry(
-					&onionErr.Update, errSource,
-				)
-				continue
-
-			// If we get a failure due to a fee, we'll apply the
-			// new fee update, and retry our attempt using the
-			// newly updated fees.
-			case *lnwire.FailFeeInsufficient:
-				processChannelUpdateAndRetry(
-					&onionErr.Update, errSource,
-				)
-				continue
-
-			// If we get the failure for an intermediate node that
-			// disagrees with our time lock values, then we'll
-			// apply the new delta value and try it once more.
-			case *lnwire.FailIncorrectCltvExpiry:
-				processChannelUpdateAndRetry(
-					&onionErr.Update, errSource,
-				)
-				continue
-
-			// The outgoing channel that this node was meant to
-			// forward one is currently disabled, so we'll apply
-			// the update and continue.
-			case *lnwire.FailChannelDisabled:
-				r.applyChannelUpdate(&onionErr.Update, errSource)
-				paySession.ReportEdgeFailure(failedEdge)
-				continue
-
-			// It's likely that the outgoing channel didn't have
-			// sufficient capacity, so we'll prune this edge for
-			// now, and continue onwards with our path finding.
-			case *lnwire.FailTemporaryChannelFailure:
-				r.applyChannelUpdate(onionErr.Update, errSource)
-				paySession.ReportEdgeFailure(failedEdge)
-				continue
-
-			// If the send fail due to a node not having the
-			// required features, then we'll note this error and
-			// continue.
-			case *lnwire.FailRequiredNodeFeatureMissing:
-				paySession.ReportVertexFailure(errVertex)
-				continue
-
-			// If the send fail due to a node not having the
-			// required features, then we'll note this error and
-			// continue.
-			case *lnwire.FailRequiredChannelFeatureMissing:
-				paySession.ReportVertexFailure(errVertex)
-				continue
-
-			// If the next hop in the route wasn't known or
-			// offline, we'll only the channel which we attempted
-			// to route over. This is conservative, and it can
-			// handle faulty channels between nodes properly.
-			// Additionally, this guards against routing nodes
-			// returning errors in order to attempt to black list
-			// another node.
-			case *lnwire.FailUnknownNextPeer:
-				paySession.ReportEdgeFailure(failedEdge)
-				continue
-
-			// If the node wasn't able to forward for which ever
-			// reason, then we'll note this and continue with the
-			// routes.
-			case *lnwire.FailTemporaryNodeFailure:
-				paySession.ReportVertexFailure(errVertex)
-				continue
-
-			case *lnwire.FailPermanentNodeFailure:
-				paySession.ReportVertexFailure(errVertex)
-				continue
-
-			// If we crafted a route that contains a too long time
-			// lock for an intermediate node, we'll prune the node.
-			// As there currently is no way of knowing that node's
-			// maximum acceptable cltv, we cannot take this
-			// constraint into account during routing.
-			//
-			// TODO(joostjager): Record the rejected cltv and use
-			// that as a hint during future path finding through
-			// that node.
-			case *lnwire.FailExpiryTooFar:
-				paySession.ReportVertexFailure(errVertex)
-				continue
-
-			// If we get a permanent channel or node failure, then
-			// we'll prune the channel in both directions and
-			// continue with the rest of the routes.
-			case *lnwire.FailPermanentChannelFailure:
-				paySession.ReportEdgeFailure(&edgeLocator{
-					channelID: failedEdge.channelID,
-					direction: 0,
-				})
-				paySession.ReportEdgeFailure(&edgeLocator{
-					channelID: failedEdge.channelID,
-					direction: 1,
-				})
-				continue
-
-			default:
-				return preImage, nil, sendError
-			}
+		// If the update could not be applied, prune the
+		// edge. There is no reason to continue trying
+		// this channel.
+		//
+		// TODO: Could even prune the node completely?
+		// Or is there a valid reason for the channel
+		// update to fail?
+		if !updateOk {
+			paySession.ReportEdgeFailure(
+				failedEdge,
+			)
 		}
 
-		return preImage, route, nil
+		paySession.ReportEdgePolicyFailure(
+			NewVertex(errSource), failedEdge,
+		)
+	}
+
+	switch onionErr := fErr.FailureMessage.(type) {
+
+	// If the end destination didn't know the payment
+	// hash or we sent the wrong payment amount to the
+	// destination, then we'll terminate immediately.
+	case *lnwire.FailUnknownPaymentHash:
+		return true
+
+	// If we sent the wrong amount to the destination, then
+	// we'll exit early.
+	case *lnwire.FailIncorrectPaymentAmount:
+		return true
+
+	// If the time-lock that was extended to the final node
+	// was incorrect, then we can't proceed.
+	case *lnwire.FailFinalIncorrectCltvExpiry:
+		return true
+
+	// If we crafted an invalid onion payload for the final
+	// node, then we'll exit early.
+	case *lnwire.FailFinalIncorrectHtlcAmount:
+		return true
+
+	// Similarly, if the HTLC expiry that we extended to
+	// the final hop expires too soon, then will fail the
+	// payment.
+	//
+	// TODO(roasbeef): can happen to to race condition, try
+	// again with recent block height
+	case *lnwire.FailFinalExpiryTooSoon:
+		return true
+
+	// If we erroneously attempted to cross a chain border,
+	// then we'll cancel the payment.
+	case *lnwire.FailInvalidRealm:
+		return true
+
+	// If we get a notice that the expiry was too soon for
+	// an intermediate node, then we'll prune out the node
+	// that sent us this error, as it doesn't now what the
+	// correct block height is.
+	case *lnwire.FailExpiryTooSoon:
+		r.applyChannelUpdate(&onionErr.Update, errSource)
+		paySession.ReportVertexFailure(errVertex)
+		return false
+
+	// If we hit an instance of onion payload corruption or
+	// an invalid version, then we'll exit early as this
+	// shouldn't happen in the typical case.
+	case *lnwire.FailInvalidOnionVersion:
+		return true
+	case *lnwire.FailInvalidOnionHmac:
+		return true
+	case *lnwire.FailInvalidOnionKey:
+		return true
+
+	// If we get a failure due to violating the minimum
+	// amount, we'll apply the new minimum amount and retry
+	// routing.
+	case *lnwire.FailAmountBelowMinimum:
+		processChannelUpdateAndRetry(
+			&onionErr.Update, errSource,
+		)
+		return false
+
+	// If we get a failure due to a fee, we'll apply the
+	// new fee update, and retry our attempt using the
+	// newly updated fees.
+	case *lnwire.FailFeeInsufficient:
+		processChannelUpdateAndRetry(
+			&onionErr.Update, errSource,
+		)
+		return false
+
+	// If we get the failure for an intermediate node that
+	// disagrees with our time lock values, then we'll
+	// apply the new delta value and try it once more.
+	case *lnwire.FailIncorrectCltvExpiry:
+		processChannelUpdateAndRetry(
+			&onionErr.Update, errSource,
+		)
+		return false
+
+	// The outgoing channel that this node was meant to
+	// forward one is currently disabled, so we'll apply
+	// the update and continue.
+	case *lnwire.FailChannelDisabled:
+		r.applyChannelUpdate(&onionErr.Update, errSource)
+		paySession.ReportEdgeFailure(failedEdge)
+		return false
+
+	// It's likely that the outgoing channel didn't have
+	// sufficient capacity, so we'll prune this edge for
+	// now, and continue onwards with our path finding.
+	case *lnwire.FailTemporaryChannelFailure:
+		r.applyChannelUpdate(onionErr.Update, errSource)
+		paySession.ReportEdgeFailure(failedEdge)
+		return false
+
+	// If the send fail due to a node not having the
+	// required features, then we'll note this error and
+	// continue.
+	case *lnwire.FailRequiredNodeFeatureMissing:
+		paySession.ReportVertexFailure(errVertex)
+		return false
+
+	// If the send fail due to a node not having the
+	// required features, then we'll note this error and
+	// continue.
+	case *lnwire.FailRequiredChannelFeatureMissing:
+		paySession.ReportVertexFailure(errVertex)
+		return false
+
+	// If the next hop in the route wasn't known or
+	// offline, we'll only the channel which we attempted
+	// to route over. This is conservative, and it can
+	// handle faulty channels between nodes properly.
+	// Additionally, this guards against routing nodes
+	// returning errors in order to attempt to black list
+	// another node.
+	case *lnwire.FailUnknownNextPeer:
+		paySession.ReportEdgeFailure(failedEdge)
+		return false
+
+	// If the node wasn't able to forward for which ever
+	// reason, then we'll note this and continue with the
+	// routes.
+	case *lnwire.FailTemporaryNodeFailure:
+		paySession.ReportVertexFailure(errVertex)
+		return false
+
+	case *lnwire.FailPermanentNodeFailure:
+		paySession.ReportVertexFailure(errVertex)
+		return false
+
+	// If we crafted a route that contains a too long time
+	// lock for an intermediate node, we'll prune the node.
+	// As there currently is no way of knowing that node's
+	// maximum acceptable cltv, we cannot take this
+	// constraint into account during routing.
+	//
+	// TODO(joostjager): Record the rejected cltv and use
+	// that as a hint during future path finding through
+	// that node.
+	case *lnwire.FailExpiryTooFar:
+		paySession.ReportVertexFailure(errVertex)
+		return false
+
+	// If we get a permanent channel or node failure, then
+	// we'll prune the channel in both directions and
+	// continue with the rest of the routes.
+	case *lnwire.FailPermanentChannelFailure:
+		paySession.ReportEdgeFailure(&edgeLocator{
+			channelID: failedEdge.channelID,
+			direction: 0,
+		})
+		paySession.ReportEdgeFailure(&edgeLocator{
+			channelID: failedEdge.channelID,
+			direction: 1,
+		})
+		return false
+
+	default:
+		return true
 	}
 }
 

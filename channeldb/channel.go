@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/btcsuite/btcd/btcec"
@@ -100,6 +102,11 @@ var (
 	// ErrNoCommitPoint is returned when no data loss commit point is found
 	// in the database.
 	ErrNoCommitPoint = fmt.Errorf("no commit point found")
+
+	// ErrNoRestoredChannelMutation is returned when a caller attempts to
+	// mutate a channel that's been recovered.
+	ErrNoRestoredChannelMutation = fmt.Errorf("cannot mutate restored " +
+		"channel state")
 )
 
 // ChannelType is an enum-like type that describes one of several possible
@@ -293,40 +300,81 @@ type ChannelCommitment struct {
 type ChannelStatus uint8
 
 var (
-	// Default is the normal state of an open channel.
-	Default ChannelStatus
+	// ChanStatusDefault is the normal state of an open channel.
+	ChanStatusDefault ChannelStatus
 
-	// Borked indicates that the channel has entered an irreconcilable
-	// state, triggered by a state desynchronization or channel breach.
-	// Channels in this state should never be added to the htlc switch.
-	Borked ChannelStatus = 1
+	// ChanStatusBorked indicates that the channel has entered an
+	// irreconcilable state, triggered by a state desynchronization or
+	// channel breach.  Channels in this state should never be added to the
+	// htlc switch.
+	ChanStatusBorked ChannelStatus = 1
 
-	// CommitmentBroadcasted indicates that a commitment for this channel
-	// has been broadcasted.
-	CommitmentBroadcasted ChannelStatus = 1 << 1
+	// ChanStatusCommitBroadcasted indicates that a commitment for this
+	// channel has been broadcasted.
+	ChanStatusCommitBroadcasted ChannelStatus = 1 << 1
 
-	// LocalDataLoss indicates that we have lost channel state for this
-	// channel, and broadcasting our latest commitment might be considered
-	// a breach.
+	// ChanStatusLocalDataLoss indicates that we have lost channel state
+	// for this channel, and broadcasting our latest commitment might be
+	// considered a breach.
+	//
 	// TODO(halseh): actually enforce that we are not force closing such a
 	// channel.
-	LocalDataLoss ChannelStatus = 1 << 2
+	ChanStatusLocalDataLoss ChannelStatus = 1 << 2
+
+	// ChanStatusRestored is a status flag that signals that the channel
+	// has been restored, and doesn't have all the fields a typical channel
+	// will have.
+	ChanStatusRestored ChannelStatus = 1 << 3
 )
+
+// chanStatusStrings maps a ChannelStatus to a human friendly string that
+// describes that status.
+var chanStatusStrings = map[ChannelStatus]string{
+	ChanStatusDefault:           "ChanStatusDefault",
+	ChanStatusBorked:            "ChanStatusBorked",
+	ChanStatusCommitBroadcasted: "ChanStatusCommitBroadcasted",
+	ChanStatusLocalDataLoss:     "ChanStatusLocalDataLoss",
+	ChanStatusRestored:          "ChanStatusRestored",
+}
+
+// orderedChanStatusFlags is an in-order list of all that channel status flags.
+var orderedChanStatusFlags = []ChannelStatus{
+	ChanStatusDefault,
+	ChanStatusBorked,
+	ChanStatusCommitBroadcasted,
+	ChanStatusLocalDataLoss,
+	ChanStatusRestored,
+}
 
 // String returns a human-readable representation of the ChannelStatus.
 func (c ChannelStatus) String() string {
-	switch c {
-	case Default:
-		return "Default"
-	case Borked:
-		return "Borked"
-	case CommitmentBroadcasted:
-		return "CommitmentBroadcasted"
-	case LocalDataLoss:
-		return "LocalDataLoss"
-	default:
-		return fmt.Sprintf("Unknown(%08b)", c)
+	// If no flags are set, then this is the default case.
+	if c == 0 {
+		return chanStatusStrings[ChanStatusDefault]
 	}
+
+	// Add individual bit flags.
+	statusStr := ""
+	for _, flag := range orderedChanStatusFlags {
+		if c&flag == flag {
+			statusStr += chanStatusStrings[flag] + "|"
+			c -= flag
+		}
+	}
+
+	// Remove anything to the right of the final bar, including it as well.
+	statusStr = strings.TrimRight(statusStr, "|")
+
+	// Add any remaining flags which aren't accounted for as hex.
+	if c != 0 {
+		statusStr += "|0x" + strconv.FormatUint(uint64(c), 16)
+	}
+
+	// If this was purely an unknown flag, then remove the extra bar at the
+	// start of the string.
+	statusStr = strings.TrimLeft(statusStr, "|")
+
+	return statusStr
 }
 
 // OpenChannel encapsulates the persistent and dynamic state of an open channel
@@ -488,6 +536,28 @@ func (c *OpenChannel) ChanStatus() ChannelStatus {
 	return c.chanStatus
 }
 
+// ApplyChanStatus allows the caller to modify the internal channel state in a
+// thead-safe manner.
+func (c *OpenChannel) ApplyChanStatus(status ChannelStatus) error {
+	c.Lock()
+	defer c.Unlock()
+
+	return c.putChanStatus(status)
+}
+
+// HasChanStatus returns true if the internal bitfield channel status of the
+// target channel has the specified status bit set.
+func (c *OpenChannel) HasChanStatus(status ChannelStatus) bool {
+	c.RLock()
+	defer c.RUnlock()
+
+	return c.hasChanStatus(status)
+}
+
+func (c *OpenChannel) hasChanStatus(status ChannelStatus) bool {
+	return c.chanStatus&status == status
+}
+
 // RefreshShortChanID updates the in-memory short channel ID using the latest
 // value observed on disk.
 func (c *OpenChannel) RefreshShortChanID() error {
@@ -591,16 +661,20 @@ func (c *OpenChannel) fullSync(tx *bbolt.Tx) error {
 	}
 
 	// With the bucket for the node fetched, we can now go down another
-	// level, creating the bucket (if it doesn't exist), for this channel
-	// itself.
+	// level, creating the bucket for this channel itself.
 	var chanPointBuf bytes.Buffer
 	if err := writeOutpoint(&chanPointBuf, &c.FundingOutpoint); err != nil {
 		return err
 	}
-	chanBucket, err := chainBucket.CreateBucketIfNotExists(
+	chanBucket, err := chainBucket.CreateBucket(
 		chanPointBuf.Bytes(),
 	)
-	if err != nil {
+	switch {
+	case err == bbolt.ErrBucketExists:
+		// If this channel already exists, then in order to avoid
+		// overriding it, we'll return an error back up to the caller.
+		return ErrChanAlreadyExists
+	case err != nil:
 		return err
 	}
 
@@ -664,7 +738,7 @@ func (c *OpenChannel) MarkDataLoss(commitPoint *btcec.PublicKey) error {
 
 		// Add status LocalDataLoss to the existing bitvector found in
 		// the DB.
-		status = channel.chanStatus | LocalDataLoss
+		status = channel.chanStatus | ChanStatusLocalDataLoss
 		channel.chanStatus = status
 
 		var b bytes.Buffer
@@ -730,7 +804,7 @@ func (c *OpenChannel) MarkBorked() error {
 	c.Lock()
 	defer c.Unlock()
 
-	return c.putChanStatus(Borked)
+	return c.putChanStatus(ChanStatusBorked)
 }
 
 // MarkCommitmentBroadcasted marks the channel as a commitment transaction has
@@ -740,7 +814,7 @@ func (c *OpenChannel) MarkCommitmentBroadcasted() error {
 	c.Lock()
 	defer c.Unlock()
 
-	return c.putChanStatus(CommitmentBroadcasted)
+	return c.putChanStatus(ChanStatusCommitBroadcasted)
 }
 
 func (c *OpenChannel) putChanStatus(status ChannelStatus) error {
@@ -846,33 +920,38 @@ func (c *OpenChannel) SyncPending(addr net.Addr, pendingHeight uint32) error {
 	c.FundingBroadcastHeight = pendingHeight
 
 	return c.Db.Update(func(tx *bbolt.Tx) error {
-		// First, sync all the persistent channel state to disk.
-		if err := c.fullSync(tx); err != nil {
-			return err
-		}
-
-		nodeInfoBucket, err := tx.CreateBucketIfNotExists(nodeInfoBucket)
-		if err != nil {
-			return err
-		}
-
-		// If a LinkNode for this identity public key already exists,
-		// then we can exit early.
-		nodePub := c.IdentityPub.SerializeCompressed()
-		if nodeInfoBucket.Get(nodePub) != nil {
-			return nil
-		}
-
-		// Next, we need to establish a (possibly) new LinkNode
-		// relationship for this channel. The LinkNode metadata
-		// contains reachability, up-time, and service bits related
-		// information.
-		linkNode := c.Db.NewLinkNode(wire.MainNet, c.IdentityPub, addr)
-
-		// TODO(roasbeef): do away with link node all together?
-
-		return putLinkNode(nodeInfoBucket, linkNode)
+		return syncNewChannel(tx, c, []net.Addr{addr})
 	})
+}
+
+// syncNewChannel will write the passed channel to disk, and also create a
+// LinkNode (if needed) for the channel peer.
+func syncNewChannel(tx *bbolt.Tx, c *OpenChannel, addrs []net.Addr) error {
+	// First, sync all the persistent channel state to disk.
+	if err := c.fullSync(tx); err != nil {
+		return err
+	}
+
+	nodeInfoBucket, err := tx.CreateBucketIfNotExists(nodeInfoBucket)
+	if err != nil {
+		return err
+	}
+
+	// If a LinkNode for this identity public key already exists,
+	// then we can exit early.
+	nodePub := c.IdentityPub.SerializeCompressed()
+	if nodeInfoBucket.Get(nodePub) != nil {
+		return nil
+	}
+
+	// Next, we need to establish a (possibly) new LinkNode relationship
+	// for this channel. The LinkNode metadata contains reachability,
+	// up-time, and service bits related information.
+	linkNode := c.Db.NewLinkNode(wire.MainNet, c.IdentityPub, addrs...)
+
+	// TODO(roasbeef): do away with link node all together?
+
+	return putLinkNode(nodeInfoBucket, linkNode)
 }
 
 // UpdateCommitment updates the commitment state for the specified party
@@ -883,6 +962,13 @@ func (c *OpenChannel) SyncPending(addr net.Addr, pendingHeight uint32) error {
 func (c *OpenChannel) UpdateCommitment(newCommitment *ChannelCommitment) error {
 	c.Lock()
 	defer c.Unlock()
+
+	// If this is a restored channel, then we want to avoid mutating the
+	// state as all, as it's impossible to do so in a protocol compliant
+	// manner.
+	if c.hasChanStatus(ChanStatusRestored) {
+		return ErrNoRestoredChannelMutation
+	}
 
 	err := c.Db.Update(func(tx *bbolt.Tx) error {
 		chanBucket, err := fetchChanBucket(
@@ -898,7 +984,9 @@ func (c *OpenChannel) UpdateCommitment(newCommitment *ChannelCommitment) error {
 
 		// With the proper bucket fetched, we'll now write toe latest
 		// commitment state to dis for the target party.
-		err = putChanCommitment(chanBucket, newCommitment, true)
+		err = putChanCommitment(
+			chanBucket, newCommitment, true,
+		)
 		if err != nil {
 			return fmt.Errorf("unable to store chan "+
 				"revocations: %v", err)
@@ -1303,6 +1391,13 @@ func (c *OpenChannel) AppendRemoteCommitChain(diff *CommitDiff) error {
 	c.Lock()
 	defer c.Unlock()
 
+	// If this is a restored channel, then we want to avoid mutating the
+	// state as all, as it's impossible to do so in a protocol compliant
+	// manner.
+	if c.hasChanStatus(ChanStatusRestored) {
+		return ErrNoRestoredChannelMutation
+	}
+
 	return c.Db.Update(func(tx *bbolt.Tx) error {
 		// First, we'll grab the writable bucket where this channel's
 		// data resides.
@@ -1427,6 +1522,13 @@ func (c *OpenChannel) AdvanceCommitChainTail(fwdPkg *FwdPkg) error {
 	c.Lock()
 	defer c.Unlock()
 
+	// If this is a restored channel, then we want to avoid mutating the
+	// state as all, as it's impossible to do so in a protocol compliant
+	// manner.
+	if c.hasChanStatus(ChanStatusRestored) {
+		return ErrNoRestoredChannelMutation
+	}
+
 	var newRemoteCommit *ChannelCommitment
 
 	err := c.Db.Update(func(tx *bbolt.Tx) error {
@@ -1466,7 +1568,9 @@ func (c *OpenChannel) AdvanceCommitChainTail(fwdPkg *FwdPkg) error {
 		if err != nil {
 			return err
 		}
-		err = putChanCommitment(chanBucket, &newCommit.Commitment, false)
+		err = putChanCommitment(
+			chanBucket, &newCommit.Commitment, false,
+		)
 		if err != nil {
 			return err
 		}
@@ -2279,12 +2383,22 @@ func putChanCommitment(chanBucket *bbolt.Bucket, c *ChannelCommitment,
 }
 
 func putChanCommitments(chanBucket *bbolt.Bucket, channel *OpenChannel) error {
-	err := putChanCommitment(chanBucket, &channel.LocalCommitment, true)
+	// If this is a restored channel, then we don't have any commitments to
+	// write.
+	if channel.hasChanStatus(ChanStatusRestored) {
+		return nil
+	}
+
+	err := putChanCommitment(
+		chanBucket, &channel.LocalCommitment, true,
+	)
 	if err != nil {
 		return err
 	}
 
-	return putChanCommitment(chanBucket, &channel.RemoteCommitment, false)
+	return putChanCommitment(
+		chanBucket, &channel.RemoteCommitment, false,
+	)
 }
 
 func putChanRevocationState(chanBucket *bbolt.Bucket, channel *OpenChannel) error {
@@ -2398,6 +2512,12 @@ func fetchChanCommitment(chanBucket *bbolt.Bucket, local bool) (ChannelCommitmen
 
 func fetchChanCommitments(chanBucket *bbolt.Bucket, channel *OpenChannel) error {
 	var err error
+
+	// If this is a restored channel, then we don't have any commitments to
+	// read.
+	if channel.hasChanStatus(ChanStatusRestored) {
+		return nil
+	}
 
 	channel.LocalCommitment, err = fetchChanCommitment(chanBucket, true)
 	if err != nil {

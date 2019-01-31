@@ -382,7 +382,7 @@ func TestChannelUpdateValidation(t *testing.T) {
 		}, 2),
 	}
 
-	testGraph, err := createTestGraphFromChannels(testChannels)
+	testGraph, err := createTestGraphFromChannels(testChannels, "a")
 	defer testGraph.cleanUp()
 	if err != nil {
 		t.Fatalf("unable to create graph: %v", err)
@@ -1075,7 +1075,9 @@ func TestIgnoreChannelEdgePolicyForUnknownChannel(t *testing.T) {
 
 	// Setup an initially empty network.
 	testChannels := []*testChannel{}
-	testGraph, err := createTestGraphFromChannels(testChannels)
+	testGraph, err := createTestGraphFromChannels(
+		testChannels, "roasbeef",
+	)
 	if err != nil {
 		t.Fatalf("unable to create graph: %v", err)
 	}
@@ -2071,7 +2073,7 @@ func TestPruneChannelGraphStaleEdges(t *testing.T) {
 
 	// We'll create our test graph and router backed with these test
 	// channels we've created.
-	testGraph, err := createTestGraphFromChannels(testChannels)
+	testGraph, err := createTestGraphFromChannels(testChannels, "a")
 	if err != nil {
 		t.Fatalf("unable to create test graph: %v", err)
 	}
@@ -2108,6 +2110,14 @@ func TestPruneChannelGraphDoubleDisabled(t *testing.T) {
 	// according to that heuristic.
 	timestamp := time.Now()
 	testChannels := []*testChannel{
+		// Channel from self shouldn't be pruned.
+		symmetricTestChannel(
+			"self", "a", 100000, &testChannelPolicy{
+				LastUpdate: timestamp,
+				Disabled:   true,
+			}, 99,
+		),
+
 		// No edges.
 		{
 			Node1:     &testChannelEnd{Alias: "a"},
@@ -2179,7 +2189,7 @@ func TestPruneChannelGraphDoubleDisabled(t *testing.T) {
 
 	// We'll create our test graph and router backed with these test
 	// channels we've created.
-	testGraph, err := createTestGraphFromChannels(testChannels)
+	testGraph, err := createTestGraphFromChannels(testChannels, "self")
 	if err != nil {
 		t.Fatalf("unable to create test graph: %v", err)
 	}

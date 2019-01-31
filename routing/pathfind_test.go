@@ -373,7 +373,9 @@ type testGraphInstance struct {
 // a deterministical way and added to the channel graph. A list of nodes is
 // not required and derived from the channel data. The goal is to keep
 // instantiating a test channel graph as light weight as possible.
-func createTestGraphFromChannels(testChannels []*testChannel) (*testGraphInstance, error) {
+func createTestGraphFromChannels(testChannels []*testChannel, source string) (
+	*testGraphInstance, error) {
+
 	// We'll use this fake address for the IP address of all the nodes in
 	// our tests. This value isn't needed for path finding so it doesn't
 	// need to be unique.
@@ -432,16 +434,6 @@ func createTestGraphFromChannels(testChannels []*testChannel) (*testGraphInstanc
 		return dbNode, nil
 	}
 
-	var source *channeldb.LightningNode
-	if source, err = addNodeWithAlias("roasbeef"); err != nil {
-		return nil, err
-	}
-
-	// Set the source node
-	if err := graph.SetSourceNode(source); err != nil {
-		return nil, err
-	}
-
 	// Initialize variable that keeps track of the next channel id to assign
 	// if none is specified.
 	nextUnassignedChannelID := uint64(100000)
@@ -452,7 +444,17 @@ func createTestGraphFromChannels(testChannels []*testChannel) (*testGraphInstanc
 
 			_, exists := aliasMap[alias]
 			if !exists {
-				addNodeWithAlias(alias)
+				dbNode, err := addNodeWithAlias(alias)
+				if err != nil {
+					return nil, err
+				}
+				if alias == source {
+					// Set the source node
+					err := graph.SetSourceNode(dbNode)
+					if err != nil {
+						return nil, err
+					}
+				}
 			}
 		}
 
@@ -599,7 +601,9 @@ func TestFindLowestFeePath(t *testing.T) {
 		}),
 	}
 
-	testGraphInstance, err := createTestGraphFromChannels(testChannels)
+	testGraphInstance, err := createTestGraphFromChannels(
+		testChannels, "roasbeef",
+	)
 	if err != nil {
 		t.Fatalf("unable to create graph: %v", err)
 	}
@@ -1414,7 +1418,7 @@ func TestRouteFailMaxHTLC(t *testing.T) {
 		}),
 	}
 
-	graph, err := createTestGraphFromChannels(testChannels)
+	graph, err := createTestGraphFromChannels(testChannels, "roasbeef")
 	if err != nil {
 		t.Fatalf("unable to create graph: %v", err)
 	}
@@ -1984,7 +1988,9 @@ func TestRestrictOutgoingChannel(t *testing.T) {
 		}),
 	}
 
-	testGraphInstance, err := createTestGraphFromChannels(testChannels)
+	testGraphInstance, err := createTestGraphFromChannels(
+		testChannels, "roasbeef",
+	)
 	if err != nil {
 		t.Fatalf("unable to create graph: %v", err)
 	}
@@ -2078,7 +2084,9 @@ func testCltvLimit(t *testing.T, limit uint32, expectedChannel uint64) {
 		}),
 	}
 
-	testGraphInstance, err := createTestGraphFromChannels(testChannels)
+	testGraphInstance, err := createTestGraphFromChannels(
+		testChannels, "roasbeef",
+	)
 	if err != nil {
 		t.Fatalf("unable to create graph: %v", err)
 	}

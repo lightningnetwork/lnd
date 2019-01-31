@@ -366,14 +366,14 @@ func (f FailUnknownPaymentHash) Error() string {
 //
 // NOTE: Part of the Serializable interface.
 func (f *FailUnknownPaymentHash) Decode(r io.Reader, pver uint32) error {
-	return ReadElement(r, &f.amount)
+	return readElement(r, &f.amount)
 }
 
 // Encode writes the failure in bytes stream.
 //
 // NOTE: Part of the Serializable interface.
 func (f *FailUnknownPaymentHash) Encode(w io.Writer, pver uint32) error {
-	return WriteElement(w, f.amount)
+	return writeElement(w, f.amount)
 }
 
 // FailFinalExpiryTooSoon is returned if the cltv_expiry is too low, the final

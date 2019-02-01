@@ -1,9 +1,8 @@
-package lnwallet
+package input
 
 import (
 	"bytes"
 	"crypto/sha256"
-	"encoding/binary"
 	"fmt"
 	"math/big"
 
@@ -22,28 +21,6 @@ var (
 	// SequenceLockTimeSeconds is the 22nd bit which indicates the lock
 	// time is in seconds.
 	SequenceLockTimeSeconds = uint32(1 << 22)
-
-	// TimelockShift is used to make sure the commitment transaction is
-	// spendable by setting the locktime with it so that it is larger than
-	// 500,000,000, thus interpreting it as Unix epoch timestamp and not
-	// a block height. It is also smaller than the current timestamp which
-	// has bit (1 << 30) set, so there is no risk of having the commitment
-	// transaction be rejected. This way we can safely use the lower 24 bits
-	// of the locktime field for part of the obscured commitment transaction
-	// number.
-	TimelockShift = uint32(1 << 29)
-)
-
-const (
-	// StateHintSize is the total number of bytes used between the sequence
-	// number and locktime of the commitment transaction use to encode a hint
-	// to the state number of a particular commitment transaction.
-	StateHintSize = 6
-
-	// maxStateHint is the maximum state number we're able to encode using
-	// StateHintSize bytes amongst the sequence number and locktime fields
-	// of the commitment transaction.
-	maxStateHint uint64 = (1 << 48) - 1
 )
 
 // WitnessScriptHash generates a pay-to-witness-script-hash public key script
@@ -162,7 +139,7 @@ func Ripemd160H(d []byte) []byte {
 	return h.Sum(nil)
 }
 
-// senderHTLCScript constructs the public key script for an outgoing HTLC
+// SenderHTLCScript constructs the public key script for an outgoing HTLC
 // output payment for the sender's version of the commitment transaction. The
 // possible script paths from this output include:
 //
@@ -192,7 +169,7 @@ func Ripemd160H(d []byte) []byte {
 //         OP_CHECKSIG
 //     OP_ENDIF
 // OP_ENDIF
-func senderHTLCScript(senderHtlcKey, receiverHtlcKey,
+func SenderHTLCScript(senderHtlcKey, receiverHtlcKey,
 	revocationKey *btcec.PublicKey, paymentHash []byte) ([]byte, error) {
 
 	builder := txscript.NewScriptBuilder()
@@ -272,14 +249,14 @@ func senderHTLCScript(senderHtlcKey, receiverHtlcKey,
 	return builder.Script()
 }
 
-// senderHtlcSpendRevoke constructs a valid witness allowing the receiver of an
+// SenderHtlcSpendRevokeWithKey constructs a valid witness allowing the receiver of an
 // HTLC to claim the output with knowledge of the revocation private key in the
 // scenario that the sender of the HTLC broadcasts a previously revoked
 // commitment transaction. A valid spend requires knowledge of the private key
 // that corresponds to their revocation base point and also the private key fro
 // the per commitment point, and a valid signature under the combined public
 // key.
-func senderHtlcSpendRevoke(signer Signer, signDesc *SignDescriptor,
+func SenderHtlcSpendRevokeWithKey(signer Signer, signDesc *SignDescriptor,
 	revokeKey *btcec.PublicKey, sweepTx *wire.MsgTx) (wire.TxWitness, error) {
 
 	sweepSig, err := signer.SignOutputRaw(sweepTx, signDesc)
@@ -322,7 +299,7 @@ func SenderHtlcSpendRevoke(signer Signer, signDesc *SignDescriptor,
 		signDesc.DoubleTweak.PubKey(),
 	)
 
-	return senderHtlcSpendRevoke(signer, signDesc, revokeKey, sweepTx)
+	return SenderHtlcSpendRevokeWithKey(signer, signDesc, revokeKey, sweepTx)
 }
 
 // SenderHtlcSpendRedeem constructs a valid witness allowing the receiver of an
@@ -349,11 +326,11 @@ func SenderHtlcSpendRedeem(signer Signer, signDesc *SignDescriptor,
 	return witnessStack, nil
 }
 
-// senderHtlcSpendTimeout constructs a valid witness allowing the sender of an
+// SenderHtlcSpendTimeout constructs a valid witness allowing the sender of an
 // HTLC to activate the time locked covenant clause of a soon to be expired
 // HTLC.  This script simply spends the multi-sig output using the
 // pre-generated HTLC timeout transaction.
-func senderHtlcSpendTimeout(receiverSig []byte, signer Signer,
+func SenderHtlcSpendTimeout(receiverSig []byte, signer Signer,
 	signDesc *SignDescriptor, htlcTimeoutTx *wire.MsgTx) (wire.TxWitness, error) {
 
 	sweepSig, err := signer.SignOutputRaw(htlcTimeoutTx, signDesc)
@@ -375,7 +352,7 @@ func senderHtlcSpendTimeout(receiverSig []byte, signer Signer,
 	return witnessStack, nil
 }
 
-// receiverHTLCScript constructs the public key script for an incoming HTLC
+// ReceiverHTLCScript constructs the public key script for an incoming HTLC
 // output payment for the receiver's version of the commitment transaction. The
 // possible execution paths from this script include:
 //   * The receiver of the HTLC uses its second level HTLC transaction to
@@ -405,7 +382,7 @@ func senderHtlcSpendTimeout(receiverSig []byte, signer Signer,
 //         OP_CHECKSIG
 //     OP_ENDIF
 // OP_ENDIF
-func receiverHTLCScript(cltvExpiry uint32, senderHtlcKey,
+func ReceiverHTLCScript(cltvExpiry uint32, senderHtlcKey,
 	receiverHtlcKey, revocationKey *btcec.PublicKey,
 	paymentHash []byte) ([]byte, error) {
 
@@ -496,7 +473,7 @@ func receiverHTLCScript(cltvExpiry uint32, senderHtlcKey,
 	return builder.Script()
 }
 
-// receiverHtlcSpendRedeem constructs a valid witness allowing the receiver of
+// ReceiverHtlcSpendRedeem constructs a valid witness allowing the receiver of
 // an HTLC to redeem the conditional payment in the event that their commitment
 // transaction is broadcast. This clause transitions the state of the HLTC
 // output into the delay+claim state by activating the off-chain covenant bound
@@ -504,7 +481,7 @@ func receiverHTLCScript(cltvExpiry uint32, senderHtlcKey,
 // signed has a relative timelock delay enforced by its sequence number. This
 // delay give the sender of the HTLC enough time to revoke the output if this
 // is a breach commitment transaction.
-func receiverHtlcSpendRedeem(senderSig, paymentPreimage []byte,
+func ReceiverHtlcSpendRedeem(senderSig, paymentPreimage []byte,
 	signer Signer, signDesc *SignDescriptor,
 	htlcSuccessTx *wire.MsgTx) (wire.TxWitness, error) {
 
@@ -530,11 +507,11 @@ func receiverHtlcSpendRedeem(senderSig, paymentPreimage []byte,
 	return witnessStack, nil
 }
 
-// receiverHtlcSpendRevoke constructs a valid witness allowing the sender of an
+// ReceiverHtlcSpendRevokeWithKey constructs a valid witness allowing the sender of an
 // HTLC within a previously revoked commitment transaction to re-claim the
 // pending funds in the case that the receiver broadcasts this revoked
 // commitment transaction.
-func receiverHtlcSpendRevoke(signer Signer, signDesc *SignDescriptor,
+func ReceiverHtlcSpendRevokeWithKey(signer Signer, signDesc *SignDescriptor,
 	revokeKey *btcec.PublicKey, sweepTx *wire.MsgTx) (wire.TxWitness, error) {
 
 	// First, we'll generate a signature for the sweep transaction.  The
@@ -579,10 +556,10 @@ func ReceiverHtlcSpendRevoke(signer Signer, signDesc *SignDescriptor,
 		signDesc.DoubleTweak.PubKey(),
 	)
 
-	return receiverHtlcSpendRevoke(signer, signDesc, revokeKey, sweepTx)
+	return ReceiverHtlcSpendRevokeWithKey(signer, signDesc, revokeKey, sweepTx)
 }
 
-// receiverHtlcSpendTimeout constructs a valid witness allowing the sender of
+// ReceiverHtlcSpendTimeout constructs a valid witness allowing the sender of
 // an HTLC to recover the pending funds after an absolute timeout in the
 // scenario that the receiver of the HTLC broadcasts their version of the
 // commitment transaction. If the caller has already set the lock time on the
@@ -591,7 +568,7 @@ func ReceiverHtlcSpendRevoke(signer Signer, signDesc *SignDescriptor,
 //
 // NOTE: The target input of the passed transaction MUST NOT have a final
 // sequence number. Otherwise, the OP_CHECKLOCKTIMEVERIFY check will fail.
-func receiverHtlcSpendTimeout(signer Signer, signDesc *SignDescriptor,
+func ReceiverHtlcSpendTimeout(signer Signer, signDesc *SignDescriptor,
 	sweepTx *wire.MsgTx, cltvExpiry int32) (wire.TxWitness, error) {
 
 	// If the caller set a proper timeout value, then we'll apply it
@@ -622,109 +599,7 @@ func receiverHtlcSpendTimeout(signer Signer, signDesc *SignDescriptor,
 	return witnessStack, nil
 }
 
-// createHtlcTimeoutTx creates a transaction that spends the HTLC output on the
-// commitment transaction of the peer that created an HTLC (the sender). This
-// transaction essentially acts as an off-chain covenant as it spends a 2-of-2
-// multi-sig output. This output requires a signature from both the sender and
-// receiver of the HTLC. By using a distinct transaction, we're able to
-// uncouple the timeout and delay clauses of the HTLC contract. This
-// transaction is locked with an absolute lock-time so the sender can only
-// attempt to claim the output using it after the lock time has passed.
-//
-// In order to spend the HTLC output, the witness for the passed transaction
-// should be:
-// * <0> <sender sig> <receiver sig> <0>
-//
-// NOTE: The passed amount for the HTLC should take into account the required
-// fee rate at the time the HTLC was created. The fee should be able to
-// entirely pay for this (tiny: 1-in 1-out) transaction.
-func createHtlcTimeoutTx(htlcOutput wire.OutPoint, htlcAmt btcutil.Amount,
-	cltvExpiry, csvDelay uint32,
-	revocationKey, delayKey *btcec.PublicKey) (*wire.MsgTx, error) {
-
-	// Create a version two transaction (as the success version of this
-	// spends an output with a CSV timeout), and set the lock-time to the
-	// specified absolute lock-time in blocks.
-	timeoutTx := wire.NewMsgTx(2)
-	timeoutTx.LockTime = cltvExpiry
-
-	// The input to the transaction is the outpoint that creates the
-	// original HTLC on the sender's commitment transaction.
-	timeoutTx.AddTxIn(&wire.TxIn{
-		PreviousOutPoint: htlcOutput,
-	})
-
-	// Next, we'll generate the script used as the output for all second
-	// level HTLC which forces a covenant w.r.t what can be done with all
-	// HTLC outputs.
-	witnessScript, err := secondLevelHtlcScript(revocationKey, delayKey,
-		csvDelay)
-	if err != nil {
-		return nil, err
-	}
-	pkScript, err := WitnessScriptHash(witnessScript)
-	if err != nil {
-		return nil, err
-	}
-
-	// Finally, the output is simply the amount of the HTLC (minus the
-	// required fees), paying to the regular second level HTLC script.
-	timeoutTx.AddTxOut(&wire.TxOut{
-		Value:    int64(htlcAmt),
-		PkScript: pkScript,
-	})
-
-	return timeoutTx, nil
-}
-
-// createHtlcSuccessTx creates a transaction that spends the output on the
-// commitment transaction of the peer that receives an HTLC. This transaction
-// essentially acts as an off-chain covenant as it's only permitted to spend
-// the designated HTLC output, and also that spend can _only_ be used as a
-// state transition to create another output which actually allows redemption
-// or revocation of an HTLC.
-//
-// In order to spend the HTLC output, the witness for the passed transaction
-// should be:
-//   * <0> <sender sig> <recvr sig> <preimage>
-func createHtlcSuccessTx(htlcOutput wire.OutPoint, htlcAmt btcutil.Amount,
-	csvDelay uint32,
-	revocationKey, delayKey *btcec.PublicKey) (*wire.MsgTx, error) {
-
-	// Create a version two transaction (as the success version of this
-	// spends an output with a CSV timeout).
-	successTx := wire.NewMsgTx(2)
-
-	// The input to the transaction is the outpoint that creates the
-	// original HTLC on the sender's commitment transaction.
-	successTx.AddTxIn(&wire.TxIn{
-		PreviousOutPoint: htlcOutput,
-	})
-
-	// Next, we'll generate the script used as the output for all second
-	// level HTLC which forces a covenant w.r.t what can be done with all
-	// HTLC outputs.
-	witnessScript, err := secondLevelHtlcScript(revocationKey, delayKey,
-		csvDelay)
-	if err != nil {
-		return nil, err
-	}
-	pkScript, err := WitnessScriptHash(witnessScript)
-	if err != nil {
-		return nil, err
-	}
-
-	// Finally, the output is simply the amount of the HTLC (minus the
-	// required fees), paying to the timeout script.
-	successTx.AddTxOut(&wire.TxOut{
-		Value:    int64(htlcAmt),
-		PkScript: pkScript,
-	})
-
-	return successTx, nil
-}
-
-// secondLevelHtlcScript is the uniform script that's used as the output for
+// SecondLevelHtlcScript is the uniform script that's used as the output for
 // the second-level HTLC transactions. The second level transaction act as a
 // sort of covenant, ensuring that a 2-of-2 multi-sig output can only be
 // spent in a particular way, and to a particular output.
@@ -750,7 +625,7 @@ func createHtlcSuccessTx(htlcOutput wire.OutPoint, htlcAmt btcutil.Amount,
 // TODO(roasbeef): possible renames for second-level
 //  * transition?
 //  * covenant output
-func secondLevelHtlcScript(revocationKey, delayKey *btcec.PublicKey,
+func SecondLevelHtlcScript(revocationKey, delayKey *btcec.PublicKey,
 	csvDelay uint32) ([]byte, error) {
 
 	builder := txscript.NewScriptBuilder()
@@ -790,16 +665,16 @@ func secondLevelHtlcScript(revocationKey, delayKey *btcec.PublicKey,
 	return builder.Script()
 }
 
-// htlcSpendSuccess spends a second-level HTLC output. This function is to be
+// HtlcSpendSuccess spends a second-level HTLC output. This function is to be
 // used by the sender of an HTLC to claim the output after a relative timeout
 // or the receiver of the HTLC to claim on-chain with the pre-image.
-func htlcSpendSuccess(signer Signer, signDesc *SignDescriptor,
+func HtlcSpendSuccess(signer Signer, signDesc *SignDescriptor,
 	sweepTx *wire.MsgTx, csvDelay uint32) (wire.TxWitness, error) {
 
 	// We're required to wait a relative period of time before we can sweep
 	// the output in order to allow the other party to contest our claim of
 	// validity to this version of the commitment transaction.
-	sweepTx.TxIn[0].Sequence = lockTimeToSequence(false, csvDelay)
+	sweepTx.TxIn[0].Sequence = LockTimeToSequence(false, csvDelay)
 
 	// Finally, OP_CSV requires that the version of the transaction
 	// spending a pkscript with OP_CSV within it *must* be >= 2.
@@ -829,10 +704,10 @@ func htlcSpendSuccess(signer Signer, signDesc *SignDescriptor,
 	return witnessStack, nil
 }
 
-// htlcSpendRevoke spends a second-level HTLC output. This function is to be
+// HtlcSpendRevoke spends a second-level HTLC output. This function is to be
 // used by the sender or receiver of an HTLC to claim the HTLC after a revoked
 // commitment transaction was broadcast.
-func htlcSpendRevoke(signer Signer, signDesc *SignDescriptor,
+func HtlcSpendRevoke(signer Signer, signDesc *SignDescriptor,
 	revokeTx *wire.MsgTx) (wire.TxWitness, error) {
 
 	// We don't need any spacial modifications to the transaction as this
@@ -885,11 +760,11 @@ func HtlcSecondLevelSpend(signer Signer, signDesc *SignDescriptor,
 	return witnessStack, nil
 }
 
-// lockTimeToSequence converts the passed relative locktime to a sequence
+// LockTimeToSequence converts the passed relative locktime to a sequence
 // number in accordance to BIP-68.
 // See: https://github.com/bitcoin/bips/blob/master/bip-0068.mediawiki
 //  * (Compatibility)
-func lockTimeToSequence(isSeconds bool, locktime uint32) uint32 {
+func LockTimeToSequence(isSeconds bool, locktime uint32) uint32 {
 	if !isSeconds {
 		// The locktime is to be expressed in confirmations.
 		return locktime
@@ -1233,71 +1108,6 @@ func DeriveRevocationPrivKey(revokeBasePriv *btcec.PrivateKey,
 
 	priv, _ := btcec.PrivKeyFromBytes(btcec.S256(), revocationPriv.Bytes())
 	return priv
-}
-
-// SetStateNumHint encodes the current state number within the passed
-// commitment transaction by re-purposing the locktime and sequence fields in
-// the commitment transaction to encode the obfuscated state number.  The state
-// number is encoded using 48 bits. The lower 24 bits of the lock time are the
-// lower 24 bits of the obfuscated state number and the lower 24 bits of the
-// sequence field are the higher 24 bits. Finally before encoding, the
-// obfuscator is XOR'd against the state number in order to hide the exact
-// state number from the PoV of outside parties.
-func SetStateNumHint(commitTx *wire.MsgTx, stateNum uint64,
-	obfuscator [StateHintSize]byte) error {
-
-	// With the current schema we are only able to encode state num
-	// hints up to 2^48. Therefore if the passed height is greater than our
-	// state hint ceiling, then exit early.
-	if stateNum > maxStateHint {
-		return fmt.Errorf("unable to encode state, %v is greater "+
-			"state num that max of %v", stateNum, maxStateHint)
-	}
-
-	if len(commitTx.TxIn) != 1 {
-		return fmt.Errorf("commitment tx must have exactly 1 input, "+
-			"instead has %v", len(commitTx.TxIn))
-	}
-
-	// Convert the obfuscator into a uint64, then XOR that against the
-	// targeted height in order to obfuscate the state number of the
-	// commitment transaction in the case that either commitment
-	// transaction is broadcast directly on chain.
-	var obfs [8]byte
-	copy(obfs[2:], obfuscator[:])
-	xorInt := binary.BigEndian.Uint64(obfs[:])
-
-	stateNum = stateNum ^ xorInt
-
-	// Set the height bit of the sequence number in order to disable any
-	// sequence locks semantics.
-	commitTx.TxIn[0].Sequence = uint32(stateNum>>24) | wire.SequenceLockTimeDisabled
-	commitTx.LockTime = uint32(stateNum&0xFFFFFF) | TimelockShift
-
-	return nil
-}
-
-// GetStateNumHint recovers the current state number given a commitment
-// transaction which has previously had the state number encoded within it via
-// setStateNumHint and a shared obfuscator.
-//
-// See setStateNumHint for further details w.r.t exactly how the state-hints
-// are encoded.
-func GetStateNumHint(commitTx *wire.MsgTx, obfuscator [StateHintSize]byte) uint64 {
-	// Convert the obfuscator into a uint64, this will be used to
-	// de-obfuscate the final recovered state number.
-	var obfs [8]byte
-	copy(obfs[2:], obfuscator[:])
-	xorInt := binary.BigEndian.Uint64(obfs[:])
-
-	// Retrieve the state hint from the sequence number and locktime
-	// of the transaction.
-	stateNumXor := uint64(commitTx.TxIn[0].Sequence&0xFFFFFF) << 24
-	stateNumXor |= uint64(commitTx.LockTime & 0xFFFFFF)
-
-	// Finally, to obtain the final state number, we XOR by the obfuscator
-	// value to de-obfuscate the state number.
-	return stateNumXor ^ xorInt
 }
 
 // ComputeCommitmentPoint generates a commitment point given a commitment

@@ -18,6 +18,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -403,7 +404,7 @@ func TestCheckCommitTxSize(t *testing.T) {
 		}
 
 		actualCost := blockchain.GetTransactionWeight(btcutil.NewTx(commitTx))
-		estimatedCost := estimateCommitTxWeight(count, false)
+		estimatedCost := input.EstimateCommitTxWeight(count, false)
 
 		diff := int(estimatedCost - actualCost)
 		if 0 > diff || BaseCommitmentTxSizeEstimationError < diff {
@@ -624,7 +625,7 @@ func TestForceClose(t *testing.T) {
 
 	// Factoring in the fee rate, Alice's amount should properly reflect
 	// that we've added two additional HTLC to the commitment transaction.
-	totalCommitWeight := CommitWeight + (HtlcWeight * 2)
+	totalCommitWeight := input.CommitWeight + (input.HtlcWeight * 2)
 	feePerKw := SatPerKWeight(aliceChannel.channelState.LocalCommitment.FeePerKw)
 	commitFee := feePerKw.FeeForWeight(totalCommitWeight)
 	expectedAmount := (aliceChannel.Capacity / 2) - htlcAmount.ToSatoshis() - commitFee
@@ -680,7 +681,7 @@ func TestForceClose(t *testing.T) {
 		Value:    htlcResolution.SweepSignDesc.Output.Value,
 	})
 	htlcResolution.SweepSignDesc.InputIndex = 0
-	sweepTx.TxIn[0].Witness, err = htlcSpendSuccess(aliceChannel.Signer,
+	sweepTx.TxIn[0].Witness, err = input.HtlcSpendSuccess(aliceChannel.Signer,
 		&htlcResolution.SweepSignDesc, sweepTx,
 		uint32(aliceChannel.channelState.LocalChanCfg.CsvDelay))
 	if err != nil {
@@ -741,7 +742,7 @@ func TestForceClose(t *testing.T) {
 		Value:    inHtlcResolution.SweepSignDesc.Output.Value,
 	})
 	inHtlcResolution.SweepSignDesc.InputIndex = 0
-	sweepTx.TxIn[0].Witness, err = htlcSpendSuccess(aliceChannel.Signer,
+	sweepTx.TxIn[0].Witness, err = input.HtlcSpendSuccess(aliceChannel.Signer,
 		&inHtlcResolution.SweepSignDesc, sweepTx,
 		uint32(aliceChannel.channelState.LocalChanCfg.CsvDelay))
 	if err != nil {
@@ -5007,7 +5008,7 @@ func TestChannelUnilateralCloseHtlcResolution(t *testing.T) {
 
 	// With the transaction constructed, we'll generate a witness that
 	// should be valid for it, and verify using an instance of Script.
-	sweepTx.TxIn[0].Witness, err = receiverHtlcSpendTimeout(
+	sweepTx.TxIn[0].Witness, err = input.ReceiverHtlcSpendTimeout(
 		aliceChannel.Signer, &outHtlcResolution.SweepSignDesc,
 		sweepTx, int32(outHtlcResolution.Expiry),
 	)
@@ -5041,7 +5042,7 @@ func TestChannelUnilateralCloseHtlcResolution(t *testing.T) {
 	inHtlcResolution.SweepSignDesc.SigHashes = txscript.NewTxSigHashes(
 		sweepTx,
 	)
-	sweepTx.TxIn[0].Witness, err = SenderHtlcSpendRedeem(
+	sweepTx.TxIn[0].Witness, err = input.SenderHtlcSpendRedeem(
 		aliceChannel.Signer, &inHtlcResolution.SweepSignDesc,
 		sweepTx, preimageBob[:],
 	)
@@ -5172,7 +5173,7 @@ func TestChannelUnilateralClosePendingCommit(t *testing.T) {
 		Value:    aliceSignDesc.Output.Value,
 	})
 	aliceSignDesc.SigHashes = txscript.NewTxSigHashes(sweepTx)
-	sweepTx.TxIn[0].Witness, err = CommitSpendNoDelay(
+	sweepTx.TxIn[0].Witness, err = input.CommitSpendNoDelay(
 		aliceChannel.Signer, &aliceSignDesc, sweepTx,
 	)
 	if err != nil {

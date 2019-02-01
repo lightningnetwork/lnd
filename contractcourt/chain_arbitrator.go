@@ -11,6 +11,7 @@ import (
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/sweep"
@@ -120,7 +121,7 @@ type ChainArbitratorConfig struct {
 	// Signer is a signer backed by the active lnd node. This should be
 	// capable of producing a signature as specified by a valid
 	// SignDescriptor.
-	Signer lnwallet.Signer
+	Signer input.Signer
 
 	// FeeEstimator will be used to return fee estimates.
 	FeeEstimator lnwallet.FeeEstimator

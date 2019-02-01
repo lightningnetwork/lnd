@@ -7,6 +7,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
 )
 
@@ -152,7 +153,7 @@ func CraftSweepAllTx(feeRate lnwallet.SatPerKWeight, blockHeight uint32,
 	deliveryAddr btcutil.Address, coinSelectLocker CoinSelectionLocker,
 	utxoSource UtxoSource, outpointLocker OutpointLocker,
 	feeEstimator lnwallet.FeeEstimator,
-	signer lnwallet.Signer) (*WalletSweepPackage, error) {
+	signer input.Signer) (*WalletSweepPackage, error) {
 
 	// TODO(roasbeef): turn off ATPL as well when available?
 
@@ -206,7 +207,7 @@ func CraftSweepAllTx(feeRate lnwallet.SatPerKWeight, blockHeight uint32,
 	// Now that we've locked all the potential outputs to sweep, we'll
 	// assemble an input for each of them, so we can hand it off to the
 	// sweeper to generate and sign a transaction for us.
-	var inputsToSweep []Input
+	var inputsToSweep []input.Input
 	for _, output := range allOutputs {
 		// We'll consult the utxoSource for information concerning this
 		// outpoint, we'll need to properly populate a signDescriptor
@@ -222,7 +223,7 @@ func CraftSweepAllTx(feeRate lnwallet.SatPerKWeight, blockHeight uint32,
 		// we only need to populate the output value and output script.
 		// The rest of the items will be populated internally within
 		// the sweeper via the witness generation function.
-		signDesc := &lnwallet.SignDescriptor{
+		signDesc := &input.SignDescriptor{
 			Output:   outputInfo,
 			HashType: txscript.SigHashAll,
 		}
@@ -232,18 +233,18 @@ func CraftSweepAllTx(feeRate lnwallet.SatPerKWeight, blockHeight uint32,
 		// Based on the output type, we'll map it to the proper witness
 		// type so we can generate the set of input scripts needed to
 		// sweep the output.
-		var witnessType lnwallet.WitnessType
+		var witnessType input.WitnessType
 		switch {
 
 		// If this is a p2wkh output, then we'll assume it's a witness
 		// key hash witness type.
 		case txscript.IsPayToWitnessPubKeyHash(pkScript):
-			witnessType = lnwallet.WitnessKeyHash
+			witnessType = input.WitnessKeyHash
 
 		// If this is a p2sh output, then as since it's under control
 		// of the wallet, we'll assume it's a nested p2sh output.
 		case txscript.IsPayToScriptHash(pkScript):
-			witnessType = lnwallet.NestedWitnessKeyHash
+			witnessType = input.NestedWitnessKeyHash
 
 		// All other output types we count as unknown and will fail to
 		// sweep.
@@ -257,7 +258,7 @@ func CraftSweepAllTx(feeRate lnwallet.SatPerKWeight, blockHeight uint32,
 		// Now that we've constructed the items required, we'll make an
 		// input which can be passed to the sweeper for ultimate
 		// sweeping.
-		input := MakeBaseInput(&output.OutPoint, witnessType, signDesc, 0)
+		input := input.MakeBaseInput(&output.OutPoint, witnessType, signDesc, 0)
 		inputsToSweep = append(inputsToSweep, &input)
 	}
 

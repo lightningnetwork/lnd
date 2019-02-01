@@ -10,6 +10,7 @@ import (
 	base "github.com/btcsuite/btcwallet/wallet"
 	"github.com/btcsuite/btcwallet/walletdb"
 	"github.com/go-errors/errors"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
 )
@@ -132,18 +133,18 @@ func (b *BtcWallet) fetchPrivKey(keyDesc *keychain.KeyDescriptor) (*btcec.Privat
 // maybeTweakPrivKey examines the single and double tweak parameters on the
 // passed sign descriptor and may perform a mapping on the passed private key
 // in order to utilize the tweaks, if populated.
-func maybeTweakPrivKey(signDesc *lnwallet.SignDescriptor,
+func maybeTweakPrivKey(signDesc *input.SignDescriptor,
 	privKey *btcec.PrivateKey) (*btcec.PrivateKey, error) {
 
 	var retPriv *btcec.PrivateKey
 	switch {
 
 	case signDesc.SingleTweak != nil:
-		retPriv = lnwallet.TweakPrivKey(privKey,
+		retPriv = input.TweakPrivKey(privKey,
 			signDesc.SingleTweak)
 
 	case signDesc.DoubleTweak != nil:
-		retPriv = lnwallet.DeriveRevocationPrivKey(privKey,
+		retPriv = input.DeriveRevocationPrivKey(privKey,
 			signDesc.DoubleTweak)
 
 	default:
@@ -158,7 +159,7 @@ func maybeTweakPrivKey(signDesc *lnwallet.SignDescriptor,
 //
 // This is a part of the WalletController interface.
 func (b *BtcWallet) SignOutputRaw(tx *wire.MsgTx,
-	signDesc *lnwallet.SignDescriptor) ([]byte, error) {
+	signDesc *input.SignDescriptor) ([]byte, error) {
 
 	witnessScript := signDesc.WitnessScript
 
@@ -199,7 +200,7 @@ func (b *BtcWallet) SignOutputRaw(tx *wire.MsgTx,
 //
 // This is a part of the WalletController interface.
 func (b *BtcWallet) ComputeInputScript(tx *wire.MsgTx,
-	signDesc *lnwallet.SignDescriptor) (*lnwallet.InputScript, error) {
+	signDesc *input.SignDescriptor) (*input.Script, error) {
 
 	outputScript := signDesc.Output.PkScript
 	walletAddr, err := b.fetchOutputAddr(outputScript)
@@ -214,7 +215,7 @@ func (b *BtcWallet) ComputeInputScript(tx *wire.MsgTx,
 	}
 
 	var witnessProgram []byte
-	inputScript := &lnwallet.InputScript{}
+	inputScript := &input.Script{}
 
 	switch {
 
@@ -282,7 +283,7 @@ func (b *BtcWallet) ComputeInputScript(tx *wire.MsgTx,
 
 // A compile time check to ensure that BtcWallet implements the Signer
 // interface.
-var _ lnwallet.Signer = (*BtcWallet)(nil)
+var _ input.Signer = (*BtcWallet)(nil)
 
 // SignMessage attempts to sign a target message with the private key that
 // corresponds to the passed public key. If the target private key is unable to

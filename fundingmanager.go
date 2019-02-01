@@ -18,6 +18,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -1847,12 +1848,12 @@ func makeFundingScript(channel *channeldb.OpenChannel) ([]byte, error) {
 	localKey := channel.LocalChanCfg.MultiSigKey.PubKey.SerializeCompressed()
 	remoteKey := channel.RemoteChanCfg.MultiSigKey.PubKey.SerializeCompressed()
 
-	multiSigScript, err := lnwallet.GenMultiSigScript(localKey, remoteKey)
+	multiSigScript, err := input.GenMultiSigScript(localKey, remoteKey)
 	if err != nil {
 		return nil, err
 	}
 
-	return lnwallet.WitnessScriptHash(multiSigScript)
+	return input.WitnessScriptHash(multiSigScript)
 }
 
 // waitForFundingConfirmation handles the final stages of the channel funding

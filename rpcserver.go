@@ -31,6 +31,7 @@ import (
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -1991,7 +1992,7 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 		localCommitment := pendingChan.LocalCommitment
 		utx := btcutil.NewTx(localCommitment.CommitTx)
 		commitBaseWeight := blockchain.GetTransactionWeight(utx)
-		commitWeight := commitBaseWeight + lnwallet.WitnessCommitmentTxWeight
+		commitWeight := commitBaseWeight + input.WitnessCommitmentTxWeight
 
 		resp.PendingOpenChannels[i] = &lnrpc.PendingChannelsResponse_PendingOpenChannel{
 			Channel: &lnrpc.PendingChannelsResponse_PendingChannel{
@@ -2320,7 +2321,7 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 		localCommit := dbChannel.LocalCommitment
 		utx := btcutil.NewTx(localCommit.CommitTx)
 		commitBaseWeight := blockchain.GetTransactionWeight(utx)
-		commitWeight := commitBaseWeight + lnwallet.WitnessCommitmentTxWeight
+		commitWeight := commitBaseWeight + input.WitnessCommitmentTxWeight
 
 		localBalance := localCommit.LocalBalance
 		remoteBalance := localCommit.RemoteBalance

@@ -24,6 +24,7 @@ import (
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -168,7 +169,7 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 			channelCapacity),
 		ChanReserve:      aliceReserve,
 		MinHTLC:          0,
-		MaxAcceptedHtlcs: lnwallet.MaxHTLCNumber / 2,
+		MaxAcceptedHtlcs: input.MaxHTLCNumber / 2,
 		CsvDelay:         uint16(csvTimeoutAlice),
 	}
 
@@ -178,7 +179,7 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 			channelCapacity),
 		ChanReserve:      bobReserve,
 		MinHTLC:          0,
-		MaxAcceptedHtlcs: lnwallet.MaxHTLCNumber / 2,
+		MaxAcceptedHtlcs: input.MaxHTLCNumber / 2,
 		CsvDelay:         uint16(csvTimeoutBob),
 	}
 
@@ -241,7 +242,7 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
-	bobCommitPoint := lnwallet.ComputeCommitmentPoint(bobFirstRevoke[:])
+	bobCommitPoint := input.ComputeCommitmentPoint(bobFirstRevoke[:])
 
 	aliceRoot, err := chainhash.NewHash(aliceKeyPriv.Serialize())
 	if err != nil {
@@ -252,7 +253,7 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
-	aliceCommitPoint := lnwallet.ComputeCommitmentPoint(aliceFirstRevoke[:])
+	aliceCommitPoint := input.ComputeCommitmentPoint(aliceFirstRevoke[:])
 
 	aliceCommitTx, bobCommitTx, err := lnwallet.CreateCommitmentTxns(aliceAmount,
 		bobAmount, &aliceCfg, &bobCfg, aliceCommitPoint, bobCommitPoint,

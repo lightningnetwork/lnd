@@ -1,4 +1,4 @@
-package lnwallet
+package input
 
 import (
 	"bytes"
@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -15,211 +14,6 @@ import (
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/keychain"
 )
-
-// TestCommitmentSpendValidation test the spendability of both outputs within
-// the commitment transaction.
-//
-// The following spending cases are covered by this test:
-//   * Alice's spend from the delayed output on her commitment transaction.
-//   * Bob's spend from Alice's delayed output when she broadcasts a revoked
-//     commitment transaction.
-//   * Bob's spend from his unencumbered output within Alice's commitment
-//     transaction.
-func TestCommitmentSpendValidation(t *testing.T) {
-	t.Parallel()
-
-	// We generate a fake output, and the corresponding txin. This output
-	// doesn't need to exist, as we'll only be validating spending from the
-	// transaction that references this.
-	txid, err := chainhash.NewHash(testHdSeed.CloneBytes())
-	if err != nil {
-		t.Fatalf("unable to create txid: %v", err)
-	}
-	fundingOut := &wire.OutPoint{
-		Hash:  *txid,
-		Index: 50,
-	}
-	fakeFundingTxIn := wire.NewTxIn(fundingOut, nil, nil)
-
-	const channelBalance = btcutil.Amount(1 * 10e8)
-	const csvTimeout = uint32(5)
-
-	// We also set up set some resources for the commitment transaction.
-	// Each side currently has 1 BTC within the channel, with a total
-	// channel capacity of 2BTC.
-	aliceKeyPriv, aliceKeyPub := btcec.PrivKeyFromBytes(btcec.S256(),
-		testWalletPrivKey)
-	bobKeyPriv, bobKeyPub := btcec.PrivKeyFromBytes(btcec.S256(),
-		bobsPrivKey)
-
-	revocationPreimage := testHdSeed.CloneBytes()
-	commitSecret, commitPoint := btcec.PrivKeyFromBytes(btcec.S256(),
-		revocationPreimage)
-	revokePubKey := DeriveRevocationPubkey(bobKeyPub, commitPoint)
-
-	aliceDelayKey := TweakPubKey(aliceKeyPub, commitPoint)
-	bobPayKey := TweakPubKey(bobKeyPub, commitPoint)
-
-	aliceCommitTweak := SingleTweakBytes(commitPoint, aliceKeyPub)
-	bobCommitTweak := SingleTweakBytes(commitPoint, bobKeyPub)
-
-	aliceSelfOutputSigner := &mockSigner{
-		privkeys: []*btcec.PrivateKey{aliceKeyPriv},
-	}
-
-	// With all the test data set up, we create the commitment transaction.
-	// We only focus on a single party's transactions, as the scripts are
-	// identical with the roles reversed.
-	//
-	// This is Alice's commitment transaction, so she must wait a CSV delay
-	// of 5 blocks before sweeping the output, while bob can spend
-	// immediately with either the revocation key, or his regular key.
-	keyRing := &CommitmentKeyRing{
-		DelayKey:      aliceDelayKey,
-		RevocationKey: revokePubKey,
-		NoDelayKey:    bobPayKey,
-	}
-	commitmentTx, err := CreateCommitTx(*fakeFundingTxIn, keyRing, csvTimeout,
-		channelBalance, channelBalance, DefaultDustLimit())
-	if err != nil {
-		t.Fatalf("unable to create commitment transaction: %v", nil)
-	}
-
-	delayOutput := commitmentTx.TxOut[0]
-	regularOutput := commitmentTx.TxOut[1]
-
-	// We're testing an uncooperative close, output sweep, so construct a
-	// transaction which sweeps the funds to a random address.
-	targetOutput, err := CommitScriptUnencumbered(aliceKeyPub)
-	if err != nil {
-		t.Fatalf("unable to create target output: %v", err)
-	}
-	sweepTx := wire.NewMsgTx(2)
-	sweepTx.AddTxIn(wire.NewTxIn(&wire.OutPoint{
-		Hash:  commitmentTx.TxHash(),
-		Index: 0,
-	}, nil, nil))
-	sweepTx.AddTxOut(&wire.TxOut{
-		PkScript: targetOutput,
-		Value:    0.5 * 10e8,
-	})
-
-	// First, we'll test spending with Alice's key after the timeout.
-	delayScript, err := CommitScriptToSelf(csvTimeout, aliceDelayKey,
-		revokePubKey)
-	if err != nil {
-		t.Fatalf("unable to generate alice delay script: %v", err)
-	}
-	sweepTx.TxIn[0].Sequence = lockTimeToSequence(false, csvTimeout)
-	signDesc := &SignDescriptor{
-		WitnessScript: delayScript,
-		KeyDesc: keychain.KeyDescriptor{
-			PubKey: aliceKeyPub,
-		},
-		SingleTweak: aliceCommitTweak,
-		SigHashes:   txscript.NewTxSigHashes(sweepTx),
-		Output: &wire.TxOut{
-			Value: int64(channelBalance),
-		},
-		HashType:   txscript.SigHashAll,
-		InputIndex: 0,
-	}
-	aliceWitnessSpend, err := CommitSpendTimeout(aliceSelfOutputSigner,
-		signDesc, sweepTx)
-	if err != nil {
-		t.Fatalf("unable to generate delay commit spend witness: %v", err)
-	}
-	sweepTx.TxIn[0].Witness = aliceWitnessSpend
-	vm, err := txscript.NewEngine(delayOutput.PkScript,
-		sweepTx, 0, txscript.StandardVerifyFlags, nil,
-		nil, int64(channelBalance))
-	if err != nil {
-		t.Fatalf("unable to create engine: %v", err)
-	}
-	if err := vm.Execute(); err != nil {
-		t.Fatalf("spend from delay output is invalid: %v", err)
-	}
-
-	bobSigner := &mockSigner{privkeys: []*btcec.PrivateKey{bobKeyPriv}}
-
-	// Next, we'll test bob spending with the derived revocation key to
-	// simulate the scenario when Alice broadcasts this commitment
-	// transaction after it's been revoked.
-	signDesc = &SignDescriptor{
-		KeyDesc: keychain.KeyDescriptor{
-			PubKey: bobKeyPub,
-		},
-		DoubleTweak:   commitSecret,
-		WitnessScript: delayScript,
-		SigHashes:     txscript.NewTxSigHashes(sweepTx),
-		Output: &wire.TxOut{
-			Value: int64(channelBalance),
-		},
-		HashType:   txscript.SigHashAll,
-		InputIndex: 0,
-	}
-	bobWitnessSpend, err := CommitSpendRevoke(bobSigner, signDesc,
-		sweepTx)
-	if err != nil {
-		t.Fatalf("unable to generate revocation witness: %v", err)
-	}
-	sweepTx.TxIn[0].Witness = bobWitnessSpend
-	vm, err = txscript.NewEngine(delayOutput.PkScript,
-		sweepTx, 0, txscript.StandardVerifyFlags, nil,
-		nil, int64(channelBalance))
-	if err != nil {
-		t.Fatalf("unable to create engine: %v", err)
-	}
-	if err := vm.Execute(); err != nil {
-		t.Fatalf("revocation spend is invalid: %v", err)
-	}
-
-	// In order to test the final scenario, we modify the TxIn of the sweep
-	// transaction to instead point to the regular output (non delay)
-	// within the commitment transaction.
-	sweepTx.TxIn[0] = &wire.TxIn{
-		PreviousOutPoint: wire.OutPoint{
-			Hash:  commitmentTx.TxHash(),
-			Index: 1,
-		},
-	}
-
-	// Finally, we test bob sweeping his output as normal in the case that
-	// Alice broadcasts this commitment transaction.
-	bobScriptP2WKH, err := CommitScriptUnencumbered(bobPayKey)
-	if err != nil {
-		t.Fatalf("unable to create bob p2wkh script: %v", err)
-	}
-	signDesc = &SignDescriptor{
-		KeyDesc: keychain.KeyDescriptor{
-			PubKey: bobKeyPub,
-		},
-		SingleTweak:   bobCommitTweak,
-		WitnessScript: bobScriptP2WKH,
-		SigHashes:     txscript.NewTxSigHashes(sweepTx),
-		Output: &wire.TxOut{
-			Value:    int64(channelBalance),
-			PkScript: bobScriptP2WKH,
-		},
-		HashType:   txscript.SigHashAll,
-		InputIndex: 0,
-	}
-	bobRegularSpend, err := CommitSpendNoDelay(bobSigner, signDesc,
-		sweepTx)
-	if err != nil {
-		t.Fatalf("unable to create bob regular spend: %v", err)
-	}
-	sweepTx.TxIn[0].Witness = bobRegularSpend
-	vm, err = txscript.NewEngine(regularOutput.PkScript,
-		sweepTx, 0, txscript.StandardVerifyFlags, nil,
-		nil, int64(channelBalance))
-	if err != nil {
-		t.Fatalf("unable to create engine: %v", err)
-	}
-	if err := vm.Execute(); err != nil {
-		t.Fatalf("bob p2wkh spend is invalid: %v", err)
-	}
-}
 
 // TestRevocationKeyDerivation tests that given a public key, and a revocation
 // hash, the homomorphic revocation public and private key derivation work
@@ -352,7 +146,7 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 	revocationKey := DeriveRevocationPubkey(bobKeyPub, commitPoint)
 
 	// Generate the raw HTLC redemption scripts, and its p2wsh counterpart.
-	htlcWitnessScript, err := senderHTLCScript(aliceLocalKey, bobLocalKey,
+	htlcWitnessScript, err := SenderHTLCScript(aliceLocalKey, bobLocalKey,
 		revocationKey, paymentHash[:])
 	if err != nil {
 		t.Fatalf("unable to create htlc sender script: %v", err)
@@ -394,8 +188,8 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 	// Finally, we'll create mock signers for both of them based on their
 	// private keys. This test simplifies a bit and uses the same key as
 	// the base point for all scripts and derivations.
-	bobSigner := &mockSigner{privkeys: []*btcec.PrivateKey{bobKeyPriv}}
-	aliceSigner := &mockSigner{privkeys: []*btcec.PrivateKey{aliceKeyPriv}}
+	bobSigner := &MockSigner{Privkeys: []*btcec.PrivateKey{bobKeyPriv}}
+	aliceSigner := &MockSigner{Privkeys: []*btcec.PrivateKey{aliceKeyPriv}}
 
 	// We'll also generate a signature on the sweep transaction above
 	// that will act as Bob's signature to Alice for the second level HTLC
@@ -436,7 +230,7 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 					InputIndex:    0,
 				}
 
-				return senderHtlcSpendRevoke(bobSigner, signDesc,
+				return SenderHtlcSpendRevokeWithKey(bobSigner, signDesc,
 					revocationKey, sweepTx)
 			}),
 			true,
@@ -501,7 +295,7 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 					InputIndex:    0,
 				}
 
-				return senderHtlcSpendTimeout(bobRecvrSig, aliceSigner,
+				return SenderHtlcSpendTimeout(bobRecvrSig, aliceSigner,
 					signDesc, sweepTx)
 			}),
 			true,
@@ -607,7 +401,7 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 	revocationKey := DeriveRevocationPubkey(aliceKeyPub, commitPoint)
 
 	// Generate the raw HTLC redemption scripts, and its p2wsh counterpart.
-	htlcWitnessScript, err := receiverHTLCScript(cltvTimeout, aliceLocalKey,
+	htlcWitnessScript, err := ReceiverHTLCScript(cltvTimeout, aliceLocalKey,
 		bobLocalKey, revocationKey, paymentHash[:])
 	if err != nil {
 		t.Fatalf("unable to create htlc sender script: %v", err)
@@ -652,8 +446,8 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 	// Finally, we'll create mock signers for both of them based on their
 	// private keys. This test simplifies a bit and uses the same key as
 	// the base point for all scripts and derivations.
-	bobSigner := &mockSigner{privkeys: []*btcec.PrivateKey{bobKeyPriv}}
-	aliceSigner := &mockSigner{privkeys: []*btcec.PrivateKey{aliceKeyPriv}}
+	bobSigner := &MockSigner{Privkeys: []*btcec.PrivateKey{bobKeyPriv}}
+	aliceSigner := &MockSigner{Privkeys: []*btcec.PrivateKey{aliceKeyPriv}}
 
 	// We'll also generate a signature on the sweep transaction above
 	// that will act as Alice's signature to Bob for the second level HTLC
@@ -694,7 +488,7 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 					InputIndex:    0,
 				}
 
-				return receiverHtlcSpendRedeem(aliceSenderSig,
+				return ReceiverHtlcSpendRedeem(aliceSenderSig,
 					bytes.Repeat([]byte{1}, 45), bobSigner,
 					signDesc, sweepTx)
 
@@ -716,7 +510,7 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 					InputIndex:    0,
 				}
 
-				return receiverHtlcSpendRedeem(aliceSenderSig,
+				return ReceiverHtlcSpendRedeem(aliceSenderSig,
 					paymentPreimage[:], bobSigner,
 					signDesc, sweepTx)
 			}),
@@ -737,7 +531,7 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 					InputIndex:    0,
 				}
 
-				return receiverHtlcSpendRevoke(aliceSigner,
+				return ReceiverHtlcSpendRevokeWithKey(aliceSigner,
 					signDesc, revocationKey, sweepTx)
 			}),
 			true,
@@ -757,7 +551,7 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 					InputIndex:    0,
 				}
 
-				return receiverHtlcSpendTimeout(aliceSigner, signDesc,
+				return ReceiverHtlcSpendTimeout(aliceSigner, signDesc,
 					sweepTx, int32(cltvTimeout-2))
 			}),
 			false,
@@ -777,7 +571,7 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 					InputIndex:    0,
 				}
 
-				return receiverHtlcSpendTimeout(aliceSigner, signDesc,
+				return ReceiverHtlcSpendTimeout(aliceSigner, signDesc,
 					sweepTx, int32(cltvTimeout))
 			}),
 			true,
@@ -880,7 +674,7 @@ func TestSecondLevelHtlcSpends(t *testing.T) {
 	// Finally we'll generate the HTLC script itself that we'll be spending
 	// from. The revocation clause can be claimed by Alice, while Bob can
 	// sweep the output after a particular delay.
-	htlcWitnessScript, err := secondLevelHtlcScript(revocationKey,
+	htlcWitnessScript, err := SecondLevelHtlcScript(revocationKey,
 		delayKey, claimDelay)
 	if err != nil {
 		t.Fatalf("unable to create htlc script: %v", err)
@@ -900,8 +694,8 @@ func TestSecondLevelHtlcSpends(t *testing.T) {
 	// Finally, we'll create mock signers for both of them based on their
 	// private keys. This test simplifies a bit and uses the same key as
 	// the base point for all scripts and derivations.
-	bobSigner := &mockSigner{privkeys: []*btcec.PrivateKey{bobKeyPriv}}
-	aliceSigner := &mockSigner{privkeys: []*btcec.PrivateKey{aliceKeyPriv}}
+	bobSigner := &MockSigner{Privkeys: []*btcec.PrivateKey{bobKeyPriv}}
+	aliceSigner := &MockSigner{Privkeys: []*btcec.PrivateKey{aliceKeyPriv}}
 
 	testCases := []struct {
 		witness func() wire.TxWitness
@@ -923,7 +717,7 @@ func TestSecondLevelHtlcSpends(t *testing.T) {
 					InputIndex:    0,
 				}
 
-				return htlcSpendRevoke(aliceSigner, signDesc,
+				return HtlcSpendRevoke(aliceSigner, signDesc,
 					sweepTx)
 			}),
 			false,
@@ -943,7 +737,7 @@ func TestSecondLevelHtlcSpends(t *testing.T) {
 					InputIndex:    0,
 				}
 
-				return htlcSpendRevoke(aliceSigner, signDesc,
+				return HtlcSpendRevoke(aliceSigner, signDesc,
 					sweepTx)
 			}),
 			true,
@@ -965,7 +759,7 @@ func TestSecondLevelHtlcSpends(t *testing.T) {
 					InputIndex:    0,
 				}
 
-				return htlcSpendSuccess(bobSigner, signDesc,
+				return HtlcSpendSuccess(bobSigner, signDesc,
 					sweepTx, claimDelay-3)
 			}),
 			false,
@@ -986,7 +780,7 @@ func TestSecondLevelHtlcSpends(t *testing.T) {
 					InputIndex:    0,
 				}
 
-				return htlcSpendSuccess(bobSigner, signDesc,
+				return HtlcSpendSuccess(bobSigner, signDesc,
 					sweepTx, claimDelay)
 			}),
 			false,
@@ -1007,7 +801,7 @@ func TestSecondLevelHtlcSpends(t *testing.T) {
 					InputIndex:    0,
 				}
 
-				return htlcSpendSuccess(bobSigner, signDesc,
+				return HtlcSpendSuccess(bobSigner, signDesc,
 					sweepTx, claimDelay)
 			}),
 			true,
@@ -1050,97 +844,6 @@ func TestSecondLevelHtlcSpends(t *testing.T) {
 			debugBuf.WriteString(fmt.Sprintf("Stack: %v", vm.GetStack()))
 			debugBuf.WriteString(fmt.Sprintf("AltStack: %v", vm.GetAltStack()))
 		}
-	}
-}
-
-func TestCommitTxStateHint(t *testing.T) {
-	t.Parallel()
-
-	stateHintTests := []struct {
-		name       string
-		from       uint64
-		to         uint64
-		inputs     int
-		shouldFail bool
-	}{
-		{
-			name:       "states 0 to 1000",
-			from:       0,
-			to:         1000,
-			inputs:     1,
-			shouldFail: false,
-		},
-		{
-			name:       "states 'maxStateHint-1000' to 'maxStateHint'",
-			from:       maxStateHint - 1000,
-			to:         maxStateHint,
-			inputs:     1,
-			shouldFail: false,
-		},
-		{
-			name:       "state 'maxStateHint+1'",
-			from:       maxStateHint + 1,
-			to:         maxStateHint + 10,
-			inputs:     1,
-			shouldFail: true,
-		},
-		{
-			name:       "commit transaction with two inputs",
-			inputs:     2,
-			shouldFail: true,
-		},
-	}
-
-	var obfuscator [StateHintSize]byte
-	copy(obfuscator[:], testHdSeed[:StateHintSize])
-	timeYesterday := uint32(time.Now().Unix() - 24*60*60)
-
-	for _, test := range stateHintTests {
-		commitTx := wire.NewMsgTx(2)
-
-		// Add supplied number of inputs to the commitment transaction.
-		for i := 0; i < test.inputs; i++ {
-			commitTx.AddTxIn(&wire.TxIn{})
-		}
-
-		for i := test.from; i <= test.to; i++ {
-			stateNum := uint64(i)
-
-			err := SetStateNumHint(commitTx, stateNum, obfuscator)
-			if err != nil && !test.shouldFail {
-				t.Fatalf("unable to set state num %v: %v", i, err)
-			} else if err == nil && test.shouldFail {
-				t.Fatalf("Failed(%v): test should fail but did not", test.name)
-			}
-
-			locktime := commitTx.LockTime
-			sequence := commitTx.TxIn[0].Sequence
-
-			// Locktime should not be less than 500,000,000 and not larger
-			// than the time 24 hours ago. One day should provide a good
-			// enough buffer for the tests.
-			if locktime < 5e8 || locktime > timeYesterday {
-				if !test.shouldFail {
-					t.Fatalf("The value of locktime (%v) may cause the commitment "+
-						"transaction to be unspendable", locktime)
-				}
-			}
-
-			if sequence&wire.SequenceLockTimeDisabled == 0 {
-				if !test.shouldFail {
-					t.Fatalf("Sequence locktime is NOT disabled when it should be")
-				}
-			}
-
-			extractedStateNum := GetStateNumHint(commitTx, obfuscator)
-			if extractedStateNum != stateNum && !test.shouldFail {
-				t.Fatalf("state number mismatched, expected %v, got %v",
-					stateNum, extractedStateNum)
-			} else if extractedStateNum == stateNum && test.shouldFail {
-				t.Fatalf("Failed(%v): test should fail but did not", test.name)
-			}
-		}
-		t.Logf("Passed: %v", test.name)
 	}
 }
 

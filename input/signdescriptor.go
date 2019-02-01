@@ -1,4 +1,4 @@
-package lnwallet
+package input
 
 import (
 	"encoding/binary"

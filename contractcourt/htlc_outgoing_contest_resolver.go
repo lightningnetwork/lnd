@@ -2,12 +2,12 @@ package contractcourt
 
 import (
 	"fmt"
+	"github.com/lightningnetwork/lnd/input"
 	"io"
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
-	"github.com/lightningnetwork/lnd/lnwallet"
 )
 
 // htlcOutgoingContestResolver is a ContractResolver that's able to resolve an
@@ -119,7 +119,7 @@ func (h *htlcOutgoingContestResolver) Resolve() (ContractResolver, error) {
 		// re-construct the pkScipt we need to watch.
 		outPointToWatch = h.htlcResolution.SignedTimeoutTx.TxIn[0].PreviousOutPoint
 		witness := h.htlcResolution.SignedTimeoutTx.TxIn[0].Witness
-		scriptToWatch, err = lnwallet.WitnessScriptHash(
+		scriptToWatch, err = input.WitnessScriptHash(
 			witness[len(witness)-1],
 		)
 		if err != nil {

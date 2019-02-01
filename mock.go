@@ -12,7 +12,9 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
+
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
 )
@@ -25,7 +27,7 @@ type mockSigner struct {
 }
 
 func (m *mockSigner) SignOutputRaw(tx *wire.MsgTx,
-	signDesc *lnwallet.SignDescriptor) ([]byte, error) {
+	signDesc *input.SignDescriptor) ([]byte, error) {
 	amt := signDesc.Output.Value
 	witnessScript := signDesc.WitnessScript
 	privKey := m.key
@@ -36,10 +38,10 @@ func (m *mockSigner) SignOutputRaw(tx *wire.MsgTx,
 
 	switch {
 	case signDesc.SingleTweak != nil:
-		privKey = lnwallet.TweakPrivKey(privKey,
+		privKey = input.TweakPrivKey(privKey,
 			signDesc.SingleTweak)
 	case signDesc.DoubleTweak != nil:
-		privKey = lnwallet.DeriveRevocationPrivKey(privKey,
+		privKey = input.DeriveRevocationPrivKey(privKey,
 			signDesc.DoubleTweak)
 	}
 
@@ -54,7 +56,7 @@ func (m *mockSigner) SignOutputRaw(tx *wire.MsgTx,
 }
 
 func (m *mockSigner) ComputeInputScript(tx *wire.MsgTx,
-	signDesc *lnwallet.SignDescriptor) (*lnwallet.InputScript, error) {
+	signDesc *input.SignDescriptor) (*input.Script, error) {
 
 	// TODO(roasbeef): expose tweaked signer from lnwallet so don't need to
 	// duplicate this code?
@@ -63,10 +65,10 @@ func (m *mockSigner) ComputeInputScript(tx *wire.MsgTx,
 
 	switch {
 	case signDesc.SingleTweak != nil:
-		privKey = lnwallet.TweakPrivKey(privKey,
+		privKey = input.TweakPrivKey(privKey,
 			signDesc.SingleTweak)
 	case signDesc.DoubleTweak != nil:
-		privKey = lnwallet.DeriveRevocationPrivKey(privKey,
+		privKey = input.DeriveRevocationPrivKey(privKey,
 			signDesc.DoubleTweak)
 	}
 
@@ -77,7 +79,7 @@ func (m *mockSigner) ComputeInputScript(tx *wire.MsgTx,
 		return nil, err
 	}
 
-	return &lnwallet.InputScript{
+	return &input.Script{
 		Witness: witnessScript,
 	}, nil
 }

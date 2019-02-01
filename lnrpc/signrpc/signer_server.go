@@ -13,9 +13,10 @@ import (
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc"
-	"github.com/lightningnetwork/lnd/lnwallet"
+
 	"google.golang.org/grpc"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 )
@@ -206,7 +207,7 @@ func (s *Server) SignOutputRaw(ctx context.Context, in *SignReq) (*SignResp, err
 
 	// With the transaction deserialized, we'll now convert sign descs so
 	// we can feed it into the actual signer.
-	signDescs := make([]*lnwallet.SignDescriptor, 0, len(in.SignDescs))
+	signDescs := make([]*input.SignDescriptor, 0, len(in.SignDescs))
 	for _, signDesc := range in.SignDescs {
 		keyDesc := signDesc.KeyDesc
 
@@ -278,7 +279,7 @@ func (s *Server) SignOutputRaw(ctx context.Context, in *SignReq) (*SignResp, err
 		// Finally, with verification and parsing complete, we can
 		// construct the final sign descriptor to generate the proper
 		// signature for this input.
-		signDescs = append(signDescs, &lnwallet.SignDescriptor{
+		signDescs = append(signDescs, &input.SignDescriptor{
 			KeyDesc: keychain.KeyDescriptor{
 				KeyLocator: keyLoc,
 				PubKey:     targetPubKey,
@@ -353,13 +354,13 @@ func (s *Server) ComputeInputScript(ctx context.Context,
 
 	sigHashCache := txscript.NewTxSigHashes(&txToSign)
 
-	signDescs := make([]*lnwallet.SignDescriptor, 0, len(in.SignDescs))
+	signDescs := make([]*input.SignDescriptor, 0, len(in.SignDescs))
 	for _, signDesc := range in.SignDescs {
 		// For this method, the only fields that we care about are the
 		// hash type, and the information concerning the output as we
 		// only know how to provide full witnesses for outputs that we
 		// solely control.
-		signDescs = append(signDescs, &lnwallet.SignDescriptor{
+		signDescs = append(signDescs, &input.SignDescriptor{
 			Output: &wire.TxOut{
 				Value:    signDesc.Output.Value,
 				PkScript: signDesc.Output.PkScript,

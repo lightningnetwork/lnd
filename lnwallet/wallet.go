@@ -19,6 +19,7 @@ import (
 	"github.com/btcsuite/btcutil/txsort"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
@@ -167,7 +168,7 @@ type addCounterPartySigsMsg struct {
 	// Should be order of sorted inputs that are theirs. Sorting is done
 	// in accordance to BIP-69:
 	// https://github.com/bitcoin/bips/blob/master/bip-0069.mediawiki.
-	theirFundingInputScripts []*InputScript
+	theirFundingInputScripts []*input.Script
 
 	// This should be 1/2 of the signatures needed to successfully spend our
 	// version of the commitment transaction.
@@ -562,7 +563,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 		req.resp <- nil
 		return
 	}
-	reservation.ourContribution.FirstCommitmentPoint = ComputeCommitmentPoint(
+	reservation.ourContribution.FirstCommitmentPoint = input.ComputeCommitmentPoint(
 		firstPreimage[:],
 	)
 
@@ -712,7 +713,7 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	// Finally, add the 2-of-2 multi-sig output which will set up the lightning
 	// channel.
 	channelCapacity := int64(pendingReservation.partialState.Capacity)
-	witnessScript, multiSigOut, err := GenFundingPkScript(
+	witnessScript, multiSigOut, err := input.GenFundingPkScript(
 		ourKey.PubKey.SerializeCompressed(),
 		theirKey.PubKey.SerializeCompressed(), channelCapacity,
 	)
@@ -729,9 +730,9 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 
 	// Next, sign all inputs that are ours, collecting the signatures in
 	// order of the inputs.
-	pendingReservation.ourFundingInputScripts = make([]*InputScript, 0,
+	pendingReservation.ourFundingInputScripts = make([]*input.Script, 0,
 		len(ourContribution.Inputs))
-	signDesc := SignDescriptor{
+	signDesc := input.SignDescriptor{
 		HashType:  txscript.SigHashAll,
 		SigHashes: txscript.NewTxSigHashes(fundingTx),
 	}
@@ -767,7 +768,7 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	// since the outputs are canonically sorted. If this is a single funder
 	// workflow, then we'll also need to send this to the remote node.
 	fundingTxID := fundingTx.TxHash()
-	_, multiSigIndex := FindScriptOutputIndex(fundingTx, multiSigOut.PkScript)
+	_, multiSigIndex := input.FindScriptOutputIndex(fundingTx, multiSigOut.PkScript)
 	fundingOutpoint := wire.NewOutPoint(&fundingTxID, multiSigIndex)
 	pendingReservation.partialState.FundingOutpoint = *fundingOutpoint
 
@@ -858,7 +859,7 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 
 	// Generate a signature for their version of the initial commitment
 	// transaction.
-	signDesc = SignDescriptor{
+	signDesc = input.SignDescriptor{
 		WitnessScript: witnessScript,
 		KeyDesc:       ourKey,
 		Output:        multiSigOut,
@@ -966,7 +967,7 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 			//
 			// TODO(roasbeef): when dual funder pass actual
 			// height-hint
-			pkScript, err := WitnessScriptHash(
+			pkScript, err := input.WitnessScriptHash(
 				txin.Witness[len(txin.Witness)-1],
 			)
 			if err != nil {
@@ -1013,7 +1014,7 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 	// Re-generate both the witnessScript and p2sh output. We sign the
 	// witnessScript script, but include the p2sh output as the subscript
 	// for verification.
-	witnessScript, _, err := GenFundingPkScript(
+	witnessScript, _, err := input.GenFundingPkScript(
 		ourKey.PubKey.SerializeCompressed(),
 		theirKey.PubKey.SerializeCompressed(),
 		int64(res.partialState.Capacity),
@@ -1165,7 +1166,7 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 	hashCache := txscript.NewTxSigHashes(ourCommitTx)
 	theirKey := pendingReservation.theirContribution.MultiSigKey
 	ourKey := pendingReservation.ourContribution.MultiSigKey
-	witnessScript, _, err := GenFundingPkScript(
+	witnessScript, _, err := input.GenFundingPkScript(
 		ourKey.PubKey.SerializeCompressed(),
 		theirKey.PubKey.SerializeCompressed(), channelValue,
 	)
@@ -1201,13 +1202,13 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 	// With their signature for our version of the commitment transactions
 	// verified, we can now generate a signature for their version,
 	// allowing the funding transaction to be safely broadcast.
-	p2wsh, err := WitnessScriptHash(witnessScript)
+	p2wsh, err := input.WitnessScriptHash(witnessScript)
 	if err != nil {
 		req.err <- err
 		req.completeChan <- nil
 		return
 	}
-	signDesc := SignDescriptor{
+	signDesc := input.SignDescriptor{
 		WitnessScript: witnessScript,
 		KeyDesc:       ourKey,
 		Output: &wire.TxOut{
@@ -1401,7 +1402,7 @@ func coinSelect(feeRate SatPerKWeight, amt btcutil.Amount,
 			return nil, 0, err
 		}
 
-		var weightEstimate TxWeightEstimator
+		var weightEstimate input.TxWeightEstimator
 
 		for _, utxo := range selectedUtxos {
 			switch utxo.AddressType {

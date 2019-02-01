@@ -11,8 +11,9 @@ func MessageSummary(msg Message) string {
 
 	case *CreateSession:
 		return fmt.Sprintf("blob_type=%s, max_updates=%d "+
-			"reward_rate=%d sweep_fee_rate=%d", msg.BlobType,
-			msg.MaxUpdates, msg.RewardRate, msg.SweepFeeRate)
+			"reward_base=%d reward_rate=%d sweep_fee_rate=%d",
+			msg.BlobType, msg.MaxUpdates, msg.RewardBase,
+			msg.RewardRate, msg.SweepFeeRate)
 
 	case *CreateSessionReply:
 		return fmt.Sprintf("code=%d", msg.Code)

@@ -20,6 +20,11 @@ type CreateSession struct {
 	// for this session.
 	MaxUpdates uint16
 
+	// RewardBase is the fixed amount allocated to the tower when the
+	// policy's blob type specifies a reward for the tower. This is taken
+	// before adding the proportional reward.
+	RewardBase uint32
+
 	// RewardRate is the fraction of the total balance of the revoked
 	// commitment that the watchtower is entitled to. This value is
 	// expressed in millionths of the total balance.
@@ -44,6 +49,7 @@ func (m *CreateSession) Decode(r io.Reader, pver uint32) error {
 	return ReadElements(r,
 		&m.BlobType,
 		&m.MaxUpdates,
+		&m.RewardBase,
 		&m.RewardRate,
 		&m.SweepFeeRate,
 	)
@@ -57,6 +63,7 @@ func (m *CreateSession) Encode(w io.Writer, pver uint32) error {
 	return WriteElements(w,
 		m.BlobType,
 		m.MaxUpdates,
+		m.RewardBase,
 		m.RewardRate,
 		m.SweepFeeRate,
 	)
@@ -75,5 +82,5 @@ func (m *CreateSession) MsgType() MessageType {
 //
 // This is part of the wtwire.Message interface.
 func (m *CreateSession) MaxPayloadLength(uint32) uint32 {
-	return 16
+	return 2 + 2 + 4 + 4 + 8 // 20
 }

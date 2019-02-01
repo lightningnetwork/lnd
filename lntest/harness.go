@@ -1155,6 +1155,28 @@ func WaitPredicate(pred func() bool, timeout time.Duration) error {
 	}
 }
 
+// WaitNoError is a wrapper around WaitPredicate that waits for the passed
+// method f to execute without error, and returns the last error encountered if
+// this doesn't happen within the timeout.
+func WaitNoError(f func() error, timeout time.Duration) error {
+	var predErr error
+	pred := func() bool {
+		if err := f(); err != nil {
+			predErr = err
+			return false
+		}
+		return true
+	}
+
+	// If f() doesn't succeed within the timeout, return the last
+	// encountered error.
+	if err := WaitPredicate(pred, timeout); err != nil {
+		return predErr
+	}
+
+	return nil
+}
+
 // WaitInvariant is a helper test function that will wait for a timeout period
 // of time, verifying that a statement remains true for the entire duration.
 // This function is helpful as timing doesn't always line up well when running

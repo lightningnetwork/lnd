@@ -1,6 +1,4 @@
-// +build dev
-
-package wtserver
+package wtmock
 
 import (
 	"fmt"
@@ -8,8 +6,10 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec"
+	"github.com/lightningnetwork/lnd/watchtower/wtserver"
 )
 
+// MockPeer emulates a single endpoint of brontide transport.
 type MockPeer struct {
 	remotePub  *btcec.PublicKey
 	remoteAddr net.Addr
@@ -23,6 +23,7 @@ type MockPeer struct {
 	Quit chan struct{}
 }
 
+// NewMockPeer returns a fresh MockPeer.
 func NewMockPeer(pk *btcec.PublicKey, addr net.Addr, bufferSize int) *MockPeer {
 	return &MockPeer{
 		remotePub:    pk,
@@ -33,6 +34,10 @@ func NewMockPeer(pk *btcec.PublicKey, addr net.Addr, bufferSize int) *MockPeer {
 	}
 }
 
+// Write sends the raw bytes as the next full message read to the remote peer.
+// The write will fail if either party closes the connection or the write
+// deadline expires. The passed bytes slice is copied before sending, thus the
+// bytes may be reused once the method returns.
 func (p *MockPeer) Write(b []byte) (n int, err error) {
 	select {
 	case p.OutgoingMsgs <- b:
@@ -44,6 +49,7 @@ func (p *MockPeer) Write(b []byte) (n int, err error) {
 	}
 }
 
+// Close tearsdown the connection, and fails any pending reads or writes.
 func (p *MockPeer) Close() error {
 	select {
 	case <-p.Quit:
@@ -54,6 +60,9 @@ func (p *MockPeer) Close() error {
 	}
 }
 
+// ReadNextMessage returns the raw bytes of the next full message read from the
+// remote peer. The read will fail if either party closes the connection or the
+// read deadline expires.
 func (p *MockPeer) ReadNextMessage() ([]byte, error) {
 	select {
 	case b := <-p.IncomingMsgs:
@@ -65,6 +74,8 @@ func (p *MockPeer) ReadNextMessage() ([]byte, error) {
 	}
 }
 
+// SetWriteDeadline initializes a timer that will cause any pending writes to
+// fail at time t. If t is zero, the deadline is infinite.
 func (p *MockPeer) SetWriteDeadline(t time.Time) error {
 	if t.IsZero() {
 		p.writeDeadline = nil
@@ -77,6 +88,8 @@ func (p *MockPeer) SetWriteDeadline(t time.Time) error {
 	return nil
 }
 
+// SetReadDeadline initializes a timer that will cause any pending reads to fail
+// at time t. If t is zero, the deadline is infinite.
 func (p *MockPeer) SetReadDeadline(t time.Time) error {
 	if t.IsZero() {
 		p.readDeadline = nil
@@ -89,10 +102,16 @@ func (p *MockPeer) SetReadDeadline(t time.Time) error {
 	return nil
 }
 
+// RemotePub returns the public key of the remote peer.
 func (p *MockPeer) RemotePub() *btcec.PublicKey {
 	return p.remotePub
 }
 
+// RemoteAddr returns the net address of the remote peer.
 func (p *MockPeer) RemoteAddr() net.Addr {
 	return p.remoteAddr
 }
+
+// Compile-time constraint ensuring the MockPeer implements the wserver.Peer
+// interface.
+var _ wtserver.Peer = (*MockPeer)(nil)

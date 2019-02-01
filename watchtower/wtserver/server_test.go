@@ -15,6 +15,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/watchtower/blob"
 	"github.com/lightningnetwork/lnd/watchtower/wtdb"
+	"github.com/lightningnetwork/lnd/watchtower/wtmock"
 	"github.com/lightningnetwork/lnd/watchtower/wtserver"
 	"github.com/lightningnetwork/lnd/watchtower/wtwire"
 )
@@ -85,8 +86,8 @@ func TestServerOnlyAcceptOnePeer(t *testing.T) {
 
 	// Create two peers using the same session id.
 	peerPub := randPubKey(t)
-	peer1 := wtserver.NewMockPeer(peerPub, nil, 0)
-	peer2 := wtserver.NewMockPeer(peerPub, nil, 0)
+	peer1 := wtmock.NewMockPeer(peerPub, nil, 0)
+	peer2 := wtmock.NewMockPeer(peerPub, nil, 0)
 
 	// Serialize a Init message to be sent by both peers.
 	init := wtwire.NewInitMessage(
@@ -112,8 +113,8 @@ func TestServerOnlyAcceptOnePeer(t *testing.T) {
 	// Try to send a message on either peer, and record the opposite peer as
 	// the one we assume to be rejected.
 	var (
-		rejectedPeer *wtserver.MockPeer
-		acceptedPeer *wtserver.MockPeer
+		rejectedPeer *wtmock.MockPeer
+		acceptedPeer *wtmock.MockPeer
 	)
 	select {
 	case peer1.IncomingMsgs <- msg:
@@ -215,7 +216,7 @@ func testServerCreateSession(t *testing.T, i int, test createSessionTestCase) {
 
 	// Create a new client and connect to server.
 	peerPub := randPubKey(t)
-	peer := wtserver.NewMockPeer(peerPub, nil, 0)
+	peer := wtmock.NewMockPeer(peerPub, nil, 0)
 	connect(t, i, s, peer, test.initMsg, timeoutDuration)
 
 	// Send the CreateSession message, and wait for a reply.
@@ -243,7 +244,7 @@ func testServerCreateSession(t *testing.T, i int, test createSessionTestCase) {
 
 	// Simulate a peer with the same session id connection to the server
 	// again.
-	peer = wtserver.NewMockPeer(peerPub, nil, 0)
+	peer = wtmock.NewMockPeer(peerPub, nil, 0)
 	connect(t, i, s, peer, test.initMsg, timeoutDuration)
 
 	// Send the _same_ CreateSession message as the first attempt.
@@ -515,7 +516,7 @@ func testServerStateUpdates(t *testing.T, i int, test stateUpdateTestCase) {
 
 	// Create a new client and connect to the server.
 	peerPub := randPubKey(t)
-	peer := wtserver.NewMockPeer(peerPub, nil, 0)
+	peer := wtmock.NewMockPeer(peerPub, nil, 0)
 	connect(t, i, s, peer, test.initMsg, timeoutDuration)
 
 	// Register a session for this client to use in the subsequent tests.
@@ -535,7 +536,7 @@ func testServerStateUpdates(t *testing.T, i int, test stateUpdateTestCase) {
 
 	// Now that the original connection has been closed, connect a new
 	// client with the same session id.
-	peer = wtserver.NewMockPeer(peerPub, nil, 0)
+	peer = wtmock.NewMockPeer(peerPub, nil, 0)
 	connect(t, i, s, peer, test.initMsg, timeoutDuration)
 
 	// Send the intended StateUpdate messages in series.
@@ -546,7 +547,7 @@ func testServerStateUpdates(t *testing.T, i int, test stateUpdateTestCase) {
 		if update == nil {
 			assertConnClosed(t, peer, 2*timeoutDuration)
 
-			peer = wtserver.NewMockPeer(peerPub, nil, 0)
+			peer = wtmock.NewMockPeer(peerPub, nil, 0)
 			connect(t, i, s, peer, test.initMsg, timeoutDuration)
 
 			continue
@@ -570,7 +571,7 @@ func testServerStateUpdates(t *testing.T, i int, test stateUpdateTestCase) {
 	assertConnClosed(t, peer, 2*timeoutDuration)
 }
 
-func connect(t *testing.T, i int, s wtserver.Interface, peer *wtserver.MockPeer,
+func connect(t *testing.T, i int, s wtserver.Interface, peer *wtmock.MockPeer,
 	initMsg *wtwire.Init, timeout time.Duration) {
 
 	s.InboundPeerConnected(peer)
@@ -578,9 +579,9 @@ func connect(t *testing.T, i int, s wtserver.Interface, peer *wtserver.MockPeer,
 	recvReply(t, i, "Init", peer, timeout)
 }
 
-// sendMsg sends a wtwire.Message message via a wtserver.MockPeer.
+// sendMsg sends a wtwire.Message message via a wtmock.MockPeer.
 func sendMsg(t *testing.T, i int, msg wtwire.Message,
-	peer *wtserver.MockPeer, timeout time.Duration) {
+	peer *wtmock.MockPeer, timeout time.Duration) {
 
 	t.Helper()
 
@@ -602,7 +603,7 @@ func sendMsg(t *testing.T, i int, msg wtwire.Message,
 // expected reply type. The supported replies are CreateSessionReply and
 // StateUpdateReply.
 func recvReply(t *testing.T, i int, name string,
-	peer *wtserver.MockPeer, timeout time.Duration) wtwire.Message {
+	peer *wtmock.MockPeer, timeout time.Duration) wtwire.Message {
 
 	t.Helper()
 
@@ -646,7 +647,7 @@ func recvReply(t *testing.T, i int, name string,
 
 // assertConnClosed checks that the peer's connection is closed before the
 // timeout expires.
-func assertConnClosed(t *testing.T, peer *wtserver.MockPeer, duration time.Duration) {
+func assertConnClosed(t *testing.T, peer *wtmock.MockPeer, duration time.Duration) {
 	t.Helper()
 
 	select {

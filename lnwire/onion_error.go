@@ -366,7 +366,20 @@ func (f FailUnknownPaymentHash) Error() string {
 //
 // NOTE: Part of the Serializable interface.
 func (f *FailUnknownPaymentHash) Decode(r io.Reader, pver uint32) error {
-	return ReadElement(r, &f.amount)
+	err := ReadElement(r, &f.amount)
+	switch {
+	// This is an optional tack on that was added later in the protocol. As
+	// a result, older nodes may not include this value. We'll account for
+	// this by checking for io.EOF here which means that no bytes were read
+	// at all.
+	case err == io.EOF:
+		return nil
+
+	case err != nil:
+		return err
+	}
+
+	return nil
 }
 
 // Encode writes the failure in bytes stream.

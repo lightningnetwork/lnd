@@ -1918,3 +1918,95 @@ func TestNewRouteFromEmptyHops(t *testing.T) {
 		t.Fatalf("expected empty hops error: instead got: %v", err)
 	}
 }
+
+// TestRestrictOutgoingChannel asserts that a outgoing channel restriction is
+// obeyed by the path finding algorithm.
+func TestRestrictOutgoingChannel(t *testing.T) {
+	t.Parallel()
+
+	// Set up a test graph with three possible paths from roasbeef to
+	// target. The path through channel 2 is the highest cost path.
+	testChannels := []*testChannel{
+		symmetricTestChannel("roasbeef", "a", 100000, &testChannelPolicy{
+			Expiry:  144,
+			FeeRate: 400,
+			MinHTLC: 1,
+		}, 1),
+		symmetricTestChannel("a", "target", 100000, &testChannelPolicy{
+			Expiry:  144,
+			FeeRate: 400,
+			MinHTLC: 1,
+		}),
+		symmetricTestChannel("roasbeef", "b", 100000, &testChannelPolicy{
+			Expiry:  144,
+			FeeRate: 800,
+			MinHTLC: 1,
+		}, 2),
+		symmetricTestChannel("roasbeef", "b", 100000, &testChannelPolicy{
+			Expiry:  144,
+			FeeRate: 600,
+			MinHTLC: 1,
+		}, 3),
+		symmetricTestChannel("b", "target", 100000, &testChannelPolicy{
+			Expiry:  144,
+			FeeRate: 400,
+			MinHTLC: 1,
+		}),
+	}
+
+	testGraphInstance, err := createTestGraphFromChannels(testChannels)
+	if err != nil {
+		t.Fatalf("unable to create graph: %v", err)
+	}
+	defer testGraphInstance.cleanUp()
+
+	sourceNode, err := testGraphInstance.graph.SourceNode()
+	if err != nil {
+		t.Fatalf("unable to fetch source node: %v", err)
+	}
+	sourceVertex := Vertex(sourceNode.PubKeyBytes)
+
+	ignoredEdges := make(map[edgeLocator]struct{})
+	ignoredVertexes := make(map[Vertex]struct{})
+
+	const (
+		startingHeight = 100
+		finalHopCLTV   = 1
+	)
+
+	paymentAmt := lnwire.NewMSatFromSatoshis(100)
+	target := testGraphInstance.aliasMap["target"]
+	outgoingChannelID := uint64(2)
+
+	// Find the best path given the restriction to only use channel 2 as the
+	// outgoing channel.
+	path, err := findPath(
+		&graphParams{
+			graph: testGraphInstance.graph,
+		},
+		&restrictParams{
+			ignoredNodes:      ignoredVertexes,
+			ignoredEdges:      ignoredEdges,
+			feeLimit:          noFeeLimit,
+			outgoingChannelID: &outgoingChannelID,
+		},
+		sourceNode, target, paymentAmt,
+	)
+	if err != nil {
+		t.Fatalf("unable to find path: %v", err)
+	}
+	route, err := newRoute(
+		paymentAmt, infinity, sourceVertex, path, startingHeight,
+		finalHopCLTV,
+	)
+	if err != nil {
+		t.Fatalf("unable to create path: %v", err)
+	}
+
+	// Assert that the route starts with channel 2, in line with the
+	// specified restriction.
+	if route.Hops[0].ChannelID != 2 {
+		t.Fatalf("expected route to pass through channel 2, "+
+			"but channel %v was selected instead", route.Hops[0].ChannelID)
+	}
+}

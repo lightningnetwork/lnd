@@ -393,6 +393,7 @@ func (s *Server) handleCreateSession(peer Peer, id *wtdb.SessionID,
 		Policy: wtpolicy.Policy{
 			BlobType:     req.BlobType,
 			MaxUpdates:   req.MaxUpdates,
+			RewardBase:   req.RewardBase,
 			RewardRate:   req.RewardRate,
 			SweepFeeRate: req.SweepFeeRate,
 		},

@@ -198,7 +198,7 @@ type peer struct {
 	// messages to write out directly on the socket. By re-using this
 	// buffer, we avoid needing to allocate more memory each time a new
 	// message is to be sent to a peer.
-	writeBuf [lnwire.MaxMessagePayload]byte
+	writeBuf *lnpeer.WriteBuffer
 
 	queueQuit chan struct{}
 	quit      chan struct{}
@@ -238,6 +238,8 @@ func newPeer(conn net.Conn, connReq *connmgr.ConnReq, server *server,
 		linkFailures:       make(chan linkFailureReport),
 		chanCloseMsgs:      make(chan *closeMsg),
 		failedChannels:     make(map[lnwire.ChannelID]struct{}),
+
+		writeBuf: server.writeBufferPool.Take(),
 
 		queueQuit: make(chan struct{}),
 		quit:      make(chan struct{}),
@@ -613,6 +615,11 @@ func (p *peer) WaitForDisconnect(ready chan struct{}) {
 	}
 
 	p.wg.Wait()
+
+	// Now that we are certain all active goroutines which could have been
+	// modifying the write buffer have exited, return the buffer to the pool
+	// to be reused.
+	p.server.writeBufferPool.Return(p.writeBuf)
 }
 
 // Disconnect terminates the connection with the remote peer. Additionally, a

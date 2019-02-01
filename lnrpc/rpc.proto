@@ -478,10 +478,8 @@ service Lightning {
     paginated responses, allowing users to query for specific invoices through
     their add_index. This can be done by using either the first_index_offset or
     last_index_offset fields included in the response as the index_offset of the
-    next request. The reversed flag is set by default in order to paginate
-    backwards. If you wish to paginate forwards, you must explicitly set the
-    flag to false. If none of the parameters are specified, then the last 100
-    invoices will be returned.
+    next request. By default, the first 100 invoices created will be returned.
+    Backwards pagination is also supported through the Reversed flag.
     */
     rpc ListInvoices (ListInvoiceRequest) returns (ListInvoiceResponse) {
         option (google.api.http) = {

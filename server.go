@@ -165,6 +165,8 @@ type server struct {
 
 	sigPool *lnwallet.SigPool
 
+	writeBufferPool *lnpeer.WriteBufferPool
+
 	// globalFeatures feature vector which affects HTLCs and thus are also
 	// advertised to other nodes.
 	globalFeatures *lnwire.FeatureVector
@@ -260,11 +262,15 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 	sharedSecretPath := filepath.Join(graphDir, "sphinxreplay.db")
 	replayLog := htlcswitch.NewDecayedLog(sharedSecretPath, cc.chainNotifier)
 	sphinxRouter := sphinx.NewRouter(privKey, activeNetParams.Params, replayLog)
+	writeBufferPool := lnpeer.NewWriteBufferPool(
+		lnpeer.DefaultGCInterval, lnpeer.DefaultExpiryInterval,
+	)
 
 	s := &server{
-		chanDB:  chanDB,
-		cc:      cc,
-		sigPool: lnwallet.NewSigPool(runtime.NumCPU()*2, cc.signer),
+		chanDB:          chanDB,
+		cc:              cc,
+		sigPool:         lnwallet.NewSigPool(runtime.NumCPU()*2, cc.signer),
+		writeBufferPool: writeBufferPool,
 
 		invoices: invoices.NewRegistry(chanDB, activeNetParams.Params),
 

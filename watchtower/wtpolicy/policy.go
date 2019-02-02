@@ -1,8 +1,10 @@
 package wtpolicy
 
 import (
+	"errors"
 	"fmt"
 
+	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/watchtower/blob"
 )
@@ -20,6 +22,17 @@ const (
 	// DefaultSweepFeeRate specifies the fee rate used to construct justice
 	// transactions. The value is expressed in satoshis per kilo-weight.
 	DefaultSweepFeeRate = 3000
+)
+
+var (
+	// ErrFeeExceedsInputs signals that the total input value of breaching
+	// commitment txn is insufficient to cover the fees required to sweep
+	// it.
+	ErrFeeExceedsInputs = errors.New("sweep fee exceeds input value")
+
+	// ErrCreatesDust signals that the session's policy would create a dust
+	// output for the victim.
+	ErrCreatesDust = errors.New("justice transaction creates dust at fee rate")
 )
 
 // DefaultPolicy returns a Policy containing the default parameters that can be
@@ -70,4 +83,29 @@ func (p Policy) String() string {
 	return fmt.Sprintf("(blob-type=%b max-updates=%d reward-rate=%d "+
 		"sweep-fee-rate=%d)", p.BlobType, p.MaxUpdates, p.RewardRate,
 		p.SweepFeeRate)
+}
+
+// ComputeAltruistOutput computes the lone output value of a justice transaction
+// that pays no reward to the tower. The value is computed using the weight of
+// of the justice transaction and subtracting an amount that satisfies the
+// policy's fee rate.
+func (p *Policy) ComputeAltruistOutput(totalAmt btcutil.Amount,
+	txWeight int64) (btcutil.Amount, error) {
+
+	txFee := p.SweepFeeRate.FeeForWeight(txWeight)
+	if txFee > totalAmt {
+		return 0, ErrFeeExceedsInputs
+	}
+
+	sweepAmt := totalAmt - txFee
+
+	// TODO(conner): replace w/ configurable dust limit
+	dustLimit := lnwallet.DefaultDustLimit()
+
+	// Check that the created outputs won't be dusty.
+	if sweepAmt <= dustLimit {
+		return 0, ErrCreatesDust
+	}
+
+	return sweepAmt, nil
 }

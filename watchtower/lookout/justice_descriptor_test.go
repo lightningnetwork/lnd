@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcutil/txsort"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -46,9 +47,39 @@ var (
 		0x70, 0x4c, 0xff, 0x1e, 0x9c, 0x00, 0x93, 0xbe,
 		0xe2, 0x2e, 0x68, 0x08, 0x4c, 0xb4, 0x0f, 0x4f,
 	}
+
+	rewardCommitType = blob.TypeFromFlags(
+		blob.FlagReward, blob.FlagCommitOutputs,
+	)
+
+	altruistCommitType = blob.FlagCommitOutputs.Type()
 )
 
+// TestJusticeDescriptor asserts that a JusticeDescriptor is able to produce the
+// correct justice transaction for different blob types.
 func TestJusticeDescriptor(t *testing.T) {
+	tests := []struct {
+		name     string
+		blobType blob.Type
+	}{
+		{
+			name:     "reward and commit type",
+			blobType: rewardCommitType,
+		},
+		{
+			name:     "altruist and commit type",
+			blobType: altruistCommitType,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			testJusticeDescriptor(t, test.blobType)
+		})
+	}
+}
+
+func testJusticeDescriptor(t *testing.T, blobType blob.Type) {
 	const (
 		localAmount  = btcutil.Amount(100000)
 		remoteAmount = btcutil.Amount(200000)
@@ -113,31 +144,25 @@ func TestJusticeDescriptor(t *testing.T) {
 
 	// Compute the weight estimate for our justice transaction.
 	var weightEstimate input.TxWeightEstimator
-	weightEstimate.AddP2WKHOutput()
-	weightEstimate.AddP2WKHOutput()
 	weightEstimate.AddWitnessInput(input.ToLocalPenaltyWitnessSize)
 	weightEstimate.AddWitnessInput(input.P2WKHWitnessSize)
+	weightEstimate.AddP2WKHOutput()
+	if blobType.Has(blob.FlagReward) {
+		weightEstimate.AddP2WKHOutput()
+	}
 	txWeight := weightEstimate.Weight()
 
 	// Create a session info so that simulate agreement of the sweep
 	// parameters that should be used in constructing the justice
 	// transaction.
-	sessionInfo := &wtdb.SessionInfo{
-		Policy: wtpolicy.Policy{
-			SweepFeeRate: 2000,
-			RewardRate:   900000,
-		},
-		RewardAddress: makeAddrSlice(22),
+	policy := wtpolicy.Policy{
+		BlobType:     blobType,
+		SweepFeeRate: 2000,
+		RewardRate:   900000,
 	}
-
-	// Given the total input amount and the weight estimate, compute the
-	// amount that should be swept for the victim and the amount taken as a
-	// reward by the watchtower.
-	sweepAmt, rewardAmt, err := sessionInfo.ComputeSweepOutputs(
-		totalAmount, int64(txWeight),
-	)
-	if err != nil {
-		t.Fatalf("unable to compute sweep outputs: %v", err)
+	sessionInfo := &wtdb.SessionInfo{
+		Policy:        policy,
+		RewardAddress: makeAddrSlice(22),
 	}
 
 	// Begin to assemble the justice kit, starting with the sweep address,
@@ -170,19 +195,19 @@ func TestJusticeDescriptor(t *testing.T) {
 				},
 			},
 		},
-		TxOut: []*wire.TxOut{
-			{
-
-				Value:    int64(sweepAmt),
-				PkScript: justiceKit.SweepAddress,
-			},
-			{
-
-				Value:    int64(rewardAmt),
-				PkScript: sessionInfo.RewardAddress,
-			},
-		},
 	}
+
+	outputs, err := policy.ComputeJusticeTxOuts(
+		totalAmount, int64(txWeight), justiceKit.SweepAddress,
+		sessionInfo.RewardAddress,
+	)
+	if err != nil {
+		t.Fatalf("unable to compute justice txouts: %v", err)
+	}
+
+	// Attach the txouts and BIP69 sort the resulting transaction.
+	justiceTxn.TxOut = outputs
+	txsort.InPlaceSort(justiceTxn)
 
 	hashCache := txscript.NewTxSigHashes(justiceTxn)
 

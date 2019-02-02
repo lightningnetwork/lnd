@@ -4,12 +4,12 @@
 seed scheme (based on [aez](http://web.cs.ucdavis.edu/~rogaway/aez/)).
 
 This new scheme aims to address
-two major features lacking in BIP39: versioning, and a
+two major features lacking in [BIP39](https://github.com/bitcoin/bips/blob/master/bip-0039.mediawiki): versioning, and a
 wallet birthday. The lack a version means that wallets may not
 necessarily know how to re-derive addresses during the recovery
 process. A lack of a birthday means that wallets don’t know how far
 back to look in the chain to ensure that they derive all the proper
-user addresses. Additionally, BIP39 use a very weak KDF. We use
+user addresses. Additionally, BIP39 use a very weak [KDF](https://en.wikipedia.org/wiki/Key_derivation_function). We use
 scrypt with modern parameters (n=32768, r=8, p=1). A set of benchmarks has
 been added, on my laptop I get about 100ms per attempt):
 

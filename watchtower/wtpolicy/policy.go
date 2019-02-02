@@ -10,6 +10,11 @@ import (
 )
 
 const (
+	// RewardScale is the denominator applied when computing the
+	// proportional component for a tower's reward output. The current scale
+	// is in millionths.
+	RewardScale = 1000000
+
 	// DefaultMaxUpdates specifies the number of encrypted blobs a client
 	// can send to the tower in a single session.
 	DefaultMaxUpdates = 1024
@@ -29,6 +34,10 @@ var (
 	// commitment txn is insufficient to cover the fees required to sweep
 	// it.
 	ErrFeeExceedsInputs = errors.New("sweep fee exceeds input value")
+
+	// ErrRewardExceedsInputs signals that the reward given to the tower (in
+	// addition to the transaction fees) is more than the input amount.
+	ErrRewardExceedsInputs = errors.New("reward amount exceeds input value")
 
 	// ErrCreatesDust signals that the session's policy would create a dust
 	// output for the victim.
@@ -108,4 +117,61 @@ func (p *Policy) ComputeAltruistOutput(totalAmt btcutil.Amount,
 	}
 
 	return sweepAmt, nil
+}
+
+// ComputeRewardOutputs splits the total funds in a breaching commitment
+// transaction between the victim and the tower, according to the sweep fee rate
+// and reward rate. The reward to he tower is substracted first, before
+// splitting the remaining balance amongst the victim and fees.
+func (p *Policy) ComputeRewardOutputs(totalAmt btcutil.Amount,
+	txWeight int64) (btcutil.Amount, btcutil.Amount, error) {
+
+	txFee := p.SweepFeeRate.FeeForWeight(txWeight)
+	if txFee > totalAmt {
+		return 0, 0, ErrFeeExceedsInputs
+	}
+
+	// Apply the reward rate to the remaining total, specified in millionths
+	// of the available balance.
+	rewardAmt := ComputeRewardAmount(totalAmt, p.RewardBase, p.RewardRate)
+	if rewardAmt+txFee > totalAmt {
+		return 0, 0, ErrRewardExceedsInputs
+	}
+
+	// The sweep amount for the victim constitutes the remainder of the
+	// input value.
+	sweepAmt := totalAmt - rewardAmt - txFee
+
+	// TODO(conner): replace w/ configurable dust limit
+	dustLimit := lnwallet.DefaultDustLimit()
+
+	// Check that the created outputs won't be dusty.
+	if sweepAmt <= dustLimit {
+		return 0, 0, ErrCreatesDust
+	}
+
+	return sweepAmt, rewardAmt, nil
+}
+
+// ComputeRewardAmount computes the amount rewarded to the tower using the
+// proportional rate expressed in millionths, e.g. one million is equivalent to
+// one hundred percent of the total amount. The amount is rounded up to the
+// nearest whole satoshi.
+func ComputeRewardAmount(total btcutil.Amount, base, rate uint32) btcutil.Amount {
+	rewardBase := btcutil.Amount(base)
+	rewardRate := btcutil.Amount(rate)
+
+	// If the base reward exceeds the total, there is no more funds left
+	// from which to derive the proportional fee. We simply return the base,
+	// the caller should detect that this exceeds the total amount input.
+	if rewardBase > total {
+		return rewardBase
+	}
+
+	// Otherwise, subtract the base from the total and compute the
+	// proportional reward from the remaining total.
+	afterBase := total - rewardBase
+	proportional := (afterBase*rewardRate + RewardScale - 1) / RewardScale
+
+	return rewardBase + proportional
 }

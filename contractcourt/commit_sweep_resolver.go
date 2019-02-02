@@ -1,17 +1,14 @@
 package contractcourt
 
 import (
-	"bytes"
 	"encoding/binary"
 	"fmt"
-	"github.com/lightningnetwork/lnd/input"
 	"io"
-	"io/ioutil"
+
+	"github.com/lightningnetwork/lnd/input"
 
 	"github.com/btcsuite/btcd/wire"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/lnwallet"
-	"github.com/lightningnetwork/lnd/sweep"
 )
 
 // commitSweepResolver is a resolver that will attempt to sweep the commitment
@@ -33,11 +30,6 @@ type commitSweepResolver struct {
 
 	// chanPoint is the channel point of the original contract.
 	chanPoint wire.OutPoint
-
-	// sweepTx is the fully signed transaction which when broadcast, will
-	// sweep the commitment output into an output under control by the
-	// source wallet.
-	sweepTx *wire.MsgTx
 
 	ResolverKit
 }
@@ -87,20 +79,14 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 		return nil, fmt.Errorf("quitting")
 	}
 
-	// TODO(roasbeef): checkpoint tx confirmed?
-
 	// We're dealing with our commitment transaction if the delay on the
 	// resolution isn't zero.
 	isLocalCommitTx := c.commitResolution.MaturityDelay != 0
 
-	switch {
-	// If the sweep transaction isn't already generated, and the remote
-	// party broadcast the commitment transaction then we'll create it now.
-	case c.sweepTx == nil && !isLocalCommitTx:
-		// As we haven't already generated the sweeping transaction,
-		// we'll now craft an input with all the information required
-		// to create a fully valid sweeping transaction to recover
-		// these coins.
+	if !isLocalCommitTx {
+		// We'll craft an input with all the information required for
+		// the sweeper to create a fully valid sweeping transaction to
+		// recover these coins.
 		inp := input.MakeBaseInput(
 			&c.commitResolution.SelfOutPoint,
 			input.CommitmentNoDelay,
@@ -108,106 +94,86 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 			c.broadcastHeight,
 		)
 
-		// With out input constructed, we'll now request that the
-		// sweeper construct a valid sweeping transaction for this
-		// input.
-		//
-		// TODO: Set tx lock time to current block height instead of
-		// zero. Will be taken care of once sweeper implementation is
-		// complete.
-		//
-		// TODO: Use time-based sweeper and result chan.
-		c.sweepTx, err = c.Sweeper.CreateSweepTx(
-			[]input.Input{&inp},
-			sweep.FeePreference{
-				ConfTarget: sweepConfTarget,
-			}, 0,
-		)
+		// With our input constructed, we'll now offer it to the
+		// sweeper.
+		log.Infof("%T(%v): sweeping commit output", c, c.chanPoint)
+
+		resultChan, err := c.Sweeper.SweepInput(&inp)
 		if err != nil {
+			log.Errorf("%T(%v): unable to sweep input: %v",
+				c, c.chanPoint, err)
+
 			return nil, err
 		}
 
-		log.Infof("%T(%v): sweeping commit output with tx=%v", c,
-			c.chanPoint, spew.Sdump(c.sweepTx))
+		// Sweeper is going to join this input with other inputs if
+		// possible and publish the sweep tx. When the sweep tx
+		// confirms, it signals us through the result channel with the
+		// outcome. Wait for this to happen.
+		select {
+		case sweepResult := <-resultChan:
+			if sweepResult.Err != nil {
+				log.Errorf("%T(%v): unable to sweep input: %v",
+					c, c.chanPoint, sweepResult.Err)
 
-		// With the sweep transaction constructed, we'll now Checkpoint
-		// our state.
+				return nil, err
+			}
+
+			log.Infof("ChannelPoint(%v) commit tx is fully resolved by "+
+				"sweep tx: %v", c.chanPoint, sweepResult.Tx.TxHash())
+		case <-c.Quit:
+			return nil, fmt.Errorf("quitting")
+		}
+
+		c.resolved = true
+		return nil, c.Checkpoint(c)
+	}
+
+	// Otherwise we are dealing with a local commitment transaction and the
+	// output we need to sweep has been sent to the nursery for incubation.
+	// In this case, we'll wait until the commitment output has been spent.
+	spendNtfn, err := c.Notifier.RegisterSpendNtfn(
+		&c.commitResolution.SelfOutPoint,
+		c.commitResolution.SelfOutputSignDesc.Output.PkScript,
+		c.broadcastHeight,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	log.Infof("%T(%v): waiting for commit output to be swept", c,
+		c.chanPoint)
+
+	var sweepTx *wire.MsgTx
+	select {
+	case commitSpend, ok := <-spendNtfn.Spend:
+		if !ok {
+			return nil, fmt.Errorf("quitting")
+		}
+
+		// Once we detect the commitment output has been spent,
+		// we'll extract the spending transaction itself, as we
+		// now consider this to be our sweep transaction.
+		sweepTx = commitSpend.SpendingTx
+
+		log.Infof("%T(%v): commit output swept by txid=%v",
+			c, c.chanPoint, sweepTx.TxHash())
+
 		if err := c.Checkpoint(c); err != nil {
 			log.Errorf("unable to Checkpoint: %v", err)
 			return nil, err
 		}
-
-		// With the sweep transaction checkpointed, we'll now publish
-		// the transaction. Upon restart, the resolver will immediately
-		// take the case below since the sweep tx is checkpointed.
-		err := c.PublishTx(c.sweepTx)
-		if err != nil && err != lnwallet.ErrDoubleSpend {
-			log.Errorf("%T(%v): unable to publish sweep tx: %v",
-				c, c.chanPoint, err)
-			return nil, err
-		}
-
-	// If the sweep transaction has been generated, and the remote party
-	// broadcast the commit transaction, we'll republish it for reliability
-	// to ensure it confirms. The resolver will enter this case after
-	// checkpointing in the case above, ensuring we reliably on restarts.
-	case c.sweepTx != nil && !isLocalCommitTx:
-		err := c.PublishTx(c.sweepTx)
-		if err != nil && err != lnwallet.ErrDoubleSpend {
-			log.Errorf("%T(%v): unable to publish sweep tx: %v",
-				c, c.chanPoint, err)
-			return nil, err
-		}
-
-	// Otherwise, this is our commitment transaction, So we'll obtain the
-	// sweep transaction once the commitment output has been spent.
-	case c.sweepTx == nil && isLocalCommitTx:
-		// Otherwise, if we're dealing with our local commitment
-		// transaction, then the output we need to sweep has been sent
-		// to the nursery for incubation. In this case, we'll wait
-		// until the commitment output has been spent.
-		spendNtfn, err := c.Notifier.RegisterSpendNtfn(
-			&c.commitResolution.SelfOutPoint,
-			c.commitResolution.SelfOutputSignDesc.Output.PkScript,
-			c.broadcastHeight,
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		log.Infof("%T(%v): waiting for commit output to be swept", c,
-			c.chanPoint)
-
-		select {
-		case commitSpend, ok := <-spendNtfn.Spend:
-			if !ok {
-				return nil, fmt.Errorf("quitting")
-			}
-
-			// Once we detect the commitment output has been spent,
-			// we'll extract the spending transaction itself, as we
-			// now consider this to be our sweep transaction.
-			c.sweepTx = commitSpend.SpendingTx
-
-			log.Infof("%T(%v): commit output swept by txid=%v",
-				c, c.chanPoint, c.sweepTx.TxHash())
-
-			if err := c.Checkpoint(c); err != nil {
-				log.Errorf("unable to Checkpoint: %v", err)
-				return nil, err
-			}
-		case <-c.Quit:
-			return nil, fmt.Errorf("quitting")
-		}
+	case <-c.Quit:
+		return nil, fmt.Errorf("quitting")
 	}
 
 	log.Infof("%T(%v): waiting for commit sweep txid=%v conf", c, c.chanPoint,
-		c.sweepTx.TxHash())
+		sweepTx.TxHash())
 
 	// Now we'll wait until the sweeping transaction has been fully
 	// confirmed.  Once it's confirmed, we can mark this contract resolved.
-	sweepTXID := c.sweepTx.TxHash()
-	sweepingScript := c.sweepTx.TxOut[0].PkScript
+	sweepTXID := sweepTx.TxHash()
+	sweepingScript := sweepTx.TxOut[0].PkScript
 	confNtfn, err = c.Notifier.RegisterConfirmationsNtfn(
 		&sweepTXID, sweepingScript, 1, c.broadcastHeight,
 	)
@@ -272,9 +238,9 @@ func (c *commitSweepResolver) Encode(w io.Writer) error {
 		return err
 	}
 
-	if c.sweepTx != nil {
-		return c.sweepTx.Serialize(w)
-	}
+	// Previously a sweep tx was serialized at this point. Refactoring
+	// removed this, but keep in mind that this data may still be present in
+	// the database.
 
 	return nil
 }
@@ -303,22 +269,10 @@ func (c *commitSweepResolver) Decode(r io.Reader) error {
 		return err
 	}
 
-	txBytes, err := ioutil.ReadAll(r)
-	if err != nil {
-		return err
-	}
+	// Previously a sweep tx was deserialized at this point. Refactoring
+	// removed this, but keep in mind that this data may still be present in
+	// the database.
 
-	if len(txBytes) == 0 {
-		return nil
-	}
-
-	txReader := bytes.NewReader(txBytes)
-	tx := &wire.MsgTx{}
-	if err := tx.Deserialize(txReader); err != nil {
-		return nil
-	}
-
-	c.sweepTx = tx
 	return nil
 }
 

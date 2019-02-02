@@ -669,25 +669,23 @@ service Lightning {
 }
 
 message Utxo {
-	/// The type of address
-	AddressType type = 1 [json_name = "address_type"];
+    /// The type of address
+    AddressType type = 1 [json_name = "address_type"];
 
-	/// The address
-	string address = 2 [json_name = "address"];
+    /// The address
+    string address = 2 [json_name = "address"];
 
-	/// The value of the unspent coin in satoshis
-	int64 amount_sat = 3 [json_name = "amount_sat"];
+    /// The value of the unspent coin in satoshis
+    int64 amount_sat = 3 [json_name = "amount_sat"];
 
-	/// The scriptpubkey in hex
-	string script_pubkey = 4 [json_name = "script_pubkey"];
+    /// The scriptpubkey in hex
+    string script_pubkey = 4 [json_name = "script_pubkey"];
 
-	/// The outpoint in format txid:n
-	/// Note that this reuses the `ChannelPoint` message but
-	/// is not actually a channel related outpoint, of course
-	ChannelPoint outpoint = 5 [json_name = "outpoint"];
+    /// The outpoint in format txid:n
+    OutPoint outpoint = 5 [json_name = "outpoint"];
 
-	/// The number of confirmations for the Utxo
-	int64 confirmations = 6 [json_name = "confirmations"];
+    /// The number of confirmations for the Utxo
+    int64 confirmations = 6 [json_name = "confirmations"];
 }
 
 message Transaction {
@@ -797,6 +795,17 @@ message ChannelPoint {
     }
 
     /// The index of the output of the funding transaction
+    uint32 output_index = 3 [json_name = "output_index"];
+}
+
+message OutPoint {
+    /// Raw bytes representing the transaction id.
+    bytes txid_bytes = 1 [json_name = "txid_bytes"];
+
+    /// Reversed, hex-encoded string representing the transaction id.
+    string txid_str = 2 [json_name = "txid_str"];
+
+    /// The index of the output on the transaction.
     uint32 output_index = 3 [json_name = "output_index"];
 }
 

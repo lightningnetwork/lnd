@@ -717,10 +717,9 @@ func (r *rpcServer) ListUnspent(ctx context.Context,
 
 		// Now that we know we have a proper mapping to an address,
 		// we'll convert the regular outpoint to an lnrpc variant.
-		outpoint := &lnrpc.ChannelPoint{
-			FundingTxid: &lnrpc.ChannelPoint_FundingTxidStr{
-				FundingTxidStr: utxo.OutPoint.Hash.String(),
-			},
+		outpoint := &lnrpc.OutPoint{
+			TxidBytes:   utxo.OutPoint.Hash[:],
+			TxidStr:     utxo.OutPoint.Hash.String(),
 			OutputIndex: utxo.OutPoint.Index,
 		}
 

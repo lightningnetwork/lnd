@@ -60,6 +60,14 @@ type ContractResolver interface {
 	Stop()
 }
 
+// reportingContractResolver is a ContractResolver that also exposes a report on
+// the resolution state of the contract.
+type reportingContractResolver interface {
+	ContractResolver
+
+	report() *ContractReport
+}
+
 // ResolverKit is meant to be used as a mix-in struct to be embedded within a
 // given ContractResolver implementation. It contains all the items that a
 // resolver requires to carry out its duties.

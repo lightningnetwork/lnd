@@ -6,6 +6,7 @@ import (
 	"io"
 
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 )
@@ -108,6 +109,9 @@ func (h *htlcOutgoingContestResolver) Resolve() (ContractResolver, error) {
 		scriptToWatch   []byte
 		err             error
 	)
+
+	// TODO(joostjager): output already set properly in
+	// lnwallet.newOutgoingHtlcResolution? And script too?
 	if h.htlcResolution.SignedTimeoutTx == nil {
 		outPointToWatch = h.htlcResolution.ClaimOutpoint
 		scriptToWatch = h.htlcResolution.SweepSignDesc.Output.PkScript
@@ -232,6 +236,27 @@ func (h *htlcOutgoingContestResolver) Resolve() (ContractResolver, error) {
 		case <-h.Quit:
 			return nil, fmt.Errorf("resolver cancelled")
 		}
+	}
+}
+
+// report returns a report on the resolution state of the contract.
+func (h *htlcOutgoingContestResolver) report() *ContractReport {
+	// No locking needed as these values are read-only.
+
+	finalAmt := h.htlcAmt.ToSatoshis()
+	if h.htlcResolution.SignedTimeoutTx != nil {
+		finalAmt = btcutil.Amount(
+			h.htlcResolution.SignedTimeoutTx.TxOut[0].Value,
+		)
+	}
+
+	return &ContractReport{
+		Outpoint:       h.htlcResolution.ClaimOutpoint,
+		Incoming:       false,
+		Amount:         finalAmt,
+		MaturityHeight: h.htlcResolution.Expiry,
+		LimboBalance:   finalAmt,
+		Stage:          1,
 	}
 }
 

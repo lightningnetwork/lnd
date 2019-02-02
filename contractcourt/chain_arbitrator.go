@@ -566,6 +566,21 @@ func (c *ChainArbitrator) UpdateContractSignals(chanPoint wire.OutPoint,
 	return nil
 }
 
+// GetChannelArbitrator safely returns the channel arbitrator for a given
+// channel outpoint.
+func (c *ChainArbitrator) GetChannelArbitrator(chanPoint wire.OutPoint) (
+	*ChannelArbitrator, error) {
+
+	c.Lock()
+	arbitrator, ok := c.activeChannels[chanPoint]
+	c.Unlock()
+	if !ok {
+		return nil, fmt.Errorf("unable to find arbitrator")
+	}
+
+	return arbitrator, nil
+}
+
 // forceCloseReq is a request sent from an outside sub-system to the arbitrator
 // that watches a particular channel to broadcast the commitment transaction,
 // and enter the resolution phase of the channel.

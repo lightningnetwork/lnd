@@ -664,12 +664,7 @@ func incubateTestOutput(t *testing.T, nursery *utxoNursery,
 	if onLocalCommitment {
 		expectedStage = 1
 	}
-
-	// TODO(joostjager): Nursery is currently not reporting this limbo
-	// balance.
-	if onLocalCommitment {
-		assertNurseryReport(t, nursery, 1, expectedStage, 10000)
-	}
+	assertNurseryReport(t, nursery, 1, expectedStage, 10000)
 
 	return outgoingRes
 }

@@ -359,10 +359,10 @@ func TestDuplicateSettleInvoice(t *testing.T) {
 	}
 
 	// If we try to settle the invoice again, then we should get the very
-	// same invoice back.
+	// same invoice back, but with an error this time.
 	dbInvoice, err = db.SettleInvoice(payHash, amt)
-	if err != nil {
-		t.Fatalf("unable to settle invoice: %v", err)
+	if err != ErrInvoiceAlreadySettled {
+		t.Fatalf("expected ErrInvoiceAlreadySettled")
 	}
 
 	if dbInvoice == nil {

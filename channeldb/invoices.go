@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"time"
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/coreos/bbolt"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -56,6 +58,10 @@ var (
 	//
 	//   settleIndexNo => invoiceKey
 	settleIndexBucket = []byte("invoice-settle-index")
+
+	// ErrInvoiceAlreadySettled is returned when the invoice is already
+	// settled.
+	ErrInvoiceAlreadySettled = errors.New("invoice already settled")
 )
 
 const (
@@ -105,7 +111,7 @@ type ContractTerm struct {
 	// PaymentPreimage is the preimage which is to be revealed in the
 	// occasion that an HTLC paying to the hash of this preimage is
 	// extended.
-	PaymentPreimage [32]byte
+	PaymentPreimage lntypes.Preimage
 
 	// Value is the expected amount of milli-satoshis to be paid to an HTLC
 	// which can be satisfied by the above preimage.
@@ -625,21 +631,14 @@ func (d *DB) SettleInvoice(paymentHash [32]byte,
 			return ErrInvoiceNotFound
 		}
 
-		invoice, err := settleInvoice(
+		settledInvoice, err = settleInvoice(
 			invoices, settleIndex, invoiceNum, amtPaid,
 		)
-		if err != nil {
-			return err
-		}
 
-		settledInvoice = invoice
-		return nil
+		return err
 	})
-	if err != nil {
-		return nil, err
-	}
 
-	return settledInvoice, nil
+	return settledInvoice, err
 }
 
 // InvoicesSettledSince can be used by callers to catch up any settled invoices
@@ -897,10 +896,8 @@ func settleInvoice(invoices, settleIndex *bbolt.Bucket, invoiceNum []byte,
 		return nil, err
 	}
 
-	// Add idempotency to duplicate settles, return here to avoid
-	// overwriting the previous info.
 	if invoice.Terms.State == ContractSettled {
-		return &invoice, nil
+		return &invoice, ErrInvoiceAlreadySettled
 	}
 
 	// Now that we know the invoice hasn't already been settled, we'll

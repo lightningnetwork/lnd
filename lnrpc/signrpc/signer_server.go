@@ -69,16 +69,6 @@ type Server struct {
 // gRPC service.
 var _ SignerServer = (*Server)(nil)
 
-// fileExists reports whether the named file or directory exists.
-func fileExists(name string) bool {
-	if _, err := os.Stat(name); err != nil {
-		if os.IsNotExist(err) {
-			return false
-		}
-	}
-	return true
-}
-
 // New returns a new instance of the signrpc Signer sub-server. We also return
 // the set of permissions for the macaroons that we may create within this
 // method. If the macaroons we need aren't found in the filepath, then we'll
@@ -96,7 +86,7 @@ func New(cfg *Config) (*Server, lnrpc.MacaroonPerms, error) {
 	// Now that we know the full path of the signer macaroon, we can check
 	// to see if we need to create it or not.
 	macFilePath := cfg.SignerMacPath
-	if cfg.MacService != nil && !fileExists(macFilePath) {
+	if cfg.MacService != nil && !lnrpc.FileExists(macFilePath) {
 		log.Infof("Making macaroons for Signer RPC Server at: %v",
 			macFilePath)
 

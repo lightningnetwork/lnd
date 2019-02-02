@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/watchtower/blob"
@@ -174,4 +175,69 @@ func ComputeRewardAmount(total btcutil.Amount, base, rate uint32) btcutil.Amount
 	proportional := (afterBase*rewardRate + RewardScale - 1) / RewardScale
 
 	return rewardBase + proportional
+}
+
+// ComputeJusticeTxOuts constructs the justice transaction outputs for the given
+// policy. If the policy specifies a reward for the tower, there will be two
+// outputs paying to the victim and the tower. Otherwise there will be a single
+// output sweeping funds back to the victim. The totalAmt should be the sum of
+// any inputs used in the transaction. The passed txWeight should include the
+// weight of the outputs for the justice transaction, which is dependent on
+// whether the justice transaction has a reward. The sweepPkScript should be the
+// pkScript of the victim to which funds will be recovered. The rewardPkScript
+// is the pkScript of the tower where its reward will be deposited, and will be
+// ignored if the blob type does not specify a reward.
+func (p *Policy) ComputeJusticeTxOuts(totalAmt btcutil.Amount, txWeight int64,
+	sweepPkScript, rewardPkScript []byte) ([]*wire.TxOut, error) {
+
+	var outputs []*wire.TxOut
+
+	// If the policy specifies a reward for the tower, compute a split of
+	// the funds based on the policy's parameters. Otherwise, we will use an
+	// the altruist output computation and sweep as much of the funds back
+	// to the victim as possible.
+	if p.BlobType.Has(blob.FlagReward) {
+		// Using the total input amount and the transaction's weight,
+		// compute the sweep and reward amounts. This corresponds to the
+		// amount returned to the victim and the amount paid to the
+		// tower, respectively. To do so, the required transaction fee
+		// is subtracted from the total, and the remaining amount is
+		// divided according to the prenegotiated reward rate from the
+		// client's session info.
+		sweepAmt, rewardAmt, err := p.ComputeRewardOutputs(
+			totalAmt, txWeight,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		// Add the sweep and reward outputs to the list of txouts.
+		outputs = append(outputs, &wire.TxOut{
+			PkScript: sweepPkScript,
+			Value:    int64(sweepAmt),
+		})
+		outputs = append(outputs, &wire.TxOut{
+			PkScript: rewardPkScript,
+			Value:    int64(rewardAmt),
+		})
+	} else {
+		// Using the total input amount and the transaction's weight,
+		// compute the sweep amount, which corresponds to the amount
+		// returned to the victim. To do so, the required transaction
+		// fee is subtracted from the total input amount.
+		sweepAmt, err := p.ComputeAltruistOutput(
+			totalAmt, txWeight,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		// Add the sweep output to the list of txouts.
+		outputs = append(outputs, &wire.TxOut{
+			PkScript: sweepPkScript,
+			Value:    int64(sweepAmt),
+		})
+	}
+
+	return outputs, nil
 }

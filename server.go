@@ -1680,19 +1680,39 @@ func (s *server) establishPersistentConnections() error {
 	if err != nil {
 		return err
 	}
+
 	// TODO(roasbeef): instead iterate over link nodes and query graph for
 	// each of the nodes.
+	selfPub := s.identityPriv.PubKey().SerializeCompressed()
 	err = sourceNode.ForEachChannel(nil, func(
-		_ *bbolt.Tx,
-		_ *channeldb.ChannelEdgeInfo,
+		tx *bbolt.Tx,
+		chanInfo *channeldb.ChannelEdgeInfo,
 		policy, _ *channeldb.ChannelEdgePolicy) error {
 
-		pubStr := string(policy.Node.PubKeyBytes[:])
+		// If the remote party has announced the channel to us, but we
+		// haven't yet, then we won't have a policy. However, we don't
+		// need this to connect to the peer, so we'll log it and move on.
+		if policy == nil {
+			srvrLog.Warnf("No channel policy found for "+
+				"ChannelPoint(%v): ", chanInfo.ChannelPoint)
+		}
 
-		// Add all unique addresses from channel graph/NodeAnnouncements
-		// to the list of addresses we'll connect to for this peer.
+		// We'll now fetch the peer opposite from us within this
+		// channel so we can queue up a direct connection to them.
+		channelPeer, err := chanInfo.FetchOtherNode(tx, selfPub)
+		if err != nil {
+			return fmt.Errorf("unable to fetch channel peer for "+
+				"ChannelPoint(%v): %v", chanInfo.ChannelPoint,
+				err)
+		}
+
+		pubStr := string(channelPeer.PubKeyBytes[:])
+
+		// Add all unique addresses from channel
+		// graph/NodeAnnouncements to the list of addresses we'll
+		// connect to for this peer.
 		addrSet := make(map[string]net.Addr)
-		for _, addr := range policy.Node.Addresses {
+		for _, addr := range channelPeer.Addresses {
 			switch addr.(type) {
 			case *net.TCPAddr:
 				addrSet[addr.String()] = addr
@@ -1734,7 +1754,7 @@ func (s *server) establishPersistentConnections() error {
 		n := &nodeAddresses{
 			addresses: addrs,
 		}
-		n.pubKey, err = policy.Node.PubKey()
+		n.pubKey, err = channelPeer.PubKey()
 		if err != nil {
 			return err
 		}

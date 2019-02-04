@@ -5,7 +5,6 @@ package autopilotrpc
 import (
 	"context"
 	"encoding/hex"
-	"os"
 	"sync/atomic"
 
 	"github.com/btcsuite/btcd/btcec"

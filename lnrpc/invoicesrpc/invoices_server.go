@@ -4,14 +4,14 @@ package invoicesrpc
 
 import (
 	"context"
-	"google.golang.org/grpc"
-	"gopkg.in/macaroon-bakery.v2/bakery"
 	"io/ioutil"
 	"os"
 	"path/filepath"
 
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"google.golang.org/grpc"
+	"gopkg.in/macaroon-bakery.v2/bakery"
 )
 
 const (

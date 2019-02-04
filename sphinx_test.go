@@ -222,7 +222,7 @@ func TestSphinxCorrectness(t *testing.T) {
 		// The hop data for this hop should *exactly* match what was
 		// initially used to construct the packet.
 		expectedHopData := (*hopDatas)[i]
-		if !reflect.DeepEqual(onionPacket.ForwardingInstructions, expectedHopData) {
+		if !reflect.DeepEqual(*onionPacket.ForwardingInstructions, expectedHopData) {
 			t.Fatalf("hop data doesn't match: expected %v, got %v",
 				spew.Sdump(expectedHopData),
 				spew.Sdump(onionPacket.ForwardingInstructions))

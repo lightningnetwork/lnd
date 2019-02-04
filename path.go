@@ -1,24 +1,25 @@
 package sphinx
 
 import (
+	"bytes"
+	"encoding/binary"
+	"fmt"
+	"io"
 	"math"
 
 	"github.com/btcsuite/btcd/btcec"
 )
 
-// NumMaxHops is the maximum path length. This should be set to an estimate of
-// the upper limit of the diameter of the node graph.
-const NumMaxHops = 20
+const (
+	// RealmMaskBytes is the mask to apply the realm in order to pack or
+	// decode the 4 LSB of the realm field.
+	RealmMaskBytes = 0x0f
 
-// PaymentPath represents a series of hops within the Lightning Network
-// starting at a sender and terminating at a receiver. Each hop contains a set
-// of mandatory data which contains forwarding instructions for that hop.
-// Additionally, we can also transmit additional data to each hop by utilizing
-// the un-used hops (see TrueRouteLength()) to pack in additional data. In
-// order to do this, we encrypt the several hops with the same node public key,
-// and unroll the extra data into the space used for route forwarding
-// information.
-type PaymentPath [NumMaxHops]OnionHop
+	// NumFramesShift is the number of bytes to shift the encoding of the
+	// number of frames by in order to pack/unpack them into the 4 MSB bits
+	// of the realm field.
+	NumFramesShift = 4
+)
 
 // HopPayload is a slice of bytes and associated payload-type that are destined
 // for a specific hop in the PaymentPath. The payload itself is treated as an
@@ -50,6 +51,127 @@ func (hp *HopPayload) NumFrames() int {
 	remainder := len(hp.Payload) - 64 - 33
 	return 2 + int(math.Ceil(float64(remainder)/65))
 }
+
+// CalculateRealm computes the proper realm encoding in place. The final
+// encoding uses the first 4 bits of the realm to encode the number of frames
+// used, and the latter 4 bits to encode the real realm type.
+func (hp *HopPayload) CalculateRealm() {
+	maskedRealm := hp.Realm[0] & 0x0F
+	numFrames := hp.NumFrames()
+
+	hp.Realm[0] = maskedRealm | (byte(numFrames-1) << NumFramesShift)
+}
+
+// Encode encodes the hop payload into the passed writer.
+func (hp *HopPayload) Encode(w io.Writer) error {
+	// We'll need to add enough padding bytes to position the HMAC at the
+	// end of the payload
+	padding := hp.NumFrames()*65 - len(hp.Payload) - 1 - 32
+	if padding < 0 {
+		return fmt.Errorf("cannot have negative padding: %v", padding)
+	}
+
+	// Before we write the realm out, we need to calculate the current
+	// realm based on the "true" realm as well as the number of frames it
+	// takes to compute the hop payload.
+	hp.CalculateRealm()
+
+	if _, err := w.Write(hp.Realm[:]); err != nil {
+		return err
+	}
+
+	if _, err := w.Write(hp.Payload); err != nil {
+		return err
+	}
+
+	// If we need to pad out the frame at all, then we'll do so now before
+	// we write out the HMAC.
+	if padding > 0 {
+		_, err := w.Write(bytes.Repeat([]byte{0x00}, padding))
+		if err != nil {
+			return err
+		}
+	}
+
+	if _, err := w.Write(hp.HMAC[:]); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// Decode unpacks an encoded HopPayload from the passed reader into the target
+// HopPayload.
+func (hp *HopPayload) Decode(r io.Reader) error {
+	if _, err := io.ReadFull(r, hp.Realm[:]); err != nil {
+		return err
+	}
+
+	numFrames := int(hp.Realm[0]>>NumFramesShift) + 1
+	numBytes := (numFrames * FrameSize) - 32 - 1
+
+	hp.Payload = make([]byte, numBytes)
+	if _, err := io.ReadFull(r, hp.Payload[:]); err != nil {
+		return err
+	}
+
+	if _, err := io.ReadFull(r, hp.HMAC[:]); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// HopData attempts to extract a set of forwarding instructions from the target
+// HopPayload. If the realm isn't what we expect, then an error is returned.
+func (hp *HopPayload) HopData() (*HopData, error) {
+	// If this isn't the "base" realm, then we can't extract the expected
+	// hop payload structure from the payload.
+	if hp.Realm[0]&RealmMaskBytes != 0x00 {
+		return nil, fmt.Errorf("payload is not a HopData payload, "+
+			"realm=%d", hp.Realm[0])
+	}
+
+	// Now that we know the payload has the structure we expect, we'll
+	// decode the payload into the HopData.
+	hd := HopData{
+		Realm: [1]byte{hp.Realm[0] & RealmMaskBytes},
+		HMAC:  hp.HMAC,
+	}
+
+	r := bytes.NewBuffer(hp.Payload)
+	if _, err := io.ReadFull(r, hd.NextAddress[:]); err != nil {
+		return nil, err
+	}
+
+	if err := binary.Read(r, binary.BigEndian, &hd.ForwardAmount); err != nil {
+		return nil, err
+	}
+
+	if err := binary.Read(r, binary.BigEndian, &hd.OutgoingCltv); err != nil {
+		return nil, err
+	}
+
+	if _, err := io.ReadFull(r, hd.ExtraBytes[:]); err != nil {
+		return nil, err
+	}
+
+	return &hd, nil
+}
+
+// NumMaxHops is the maximum path length. This should be set to an estimate of
+// the upper limit of the diameter of the node graph.
+const NumMaxHops = 20
+
+// PaymentPath represents a series of hops within the Lightning Network
+// starting at a sender and terminating at a receiver. Each hop contains a set
+// of mandatory data which contains forwarding instructions for that hop.
+// Additionally, we can also transmit additional data to each hop by utilizing
+// the un-used hops (see TrueRouteLength()) to pack in additional data. In
+// order to do this, we encrypt the several hops with the same node public key,
+// and unroll the extra data into the space used for route forwarding
+// information.
+type PaymentPath [NumMaxHops]OnionHop
 
 // OnionHop represents an abstract hop (a link between two nodes) within the
 // Lightning Network. A hop is composed of the incoming node (able to decrypt
@@ -123,25 +245,4 @@ func (p *PaymentPath) TotalFrames() int {
 	}
 
 	return frameCount
-}
-
-const (
-	// RealmMaskBytes is the mask to apply the realm in order to pack or
-	// decode the 4 LSB of the realm field.
-	RealmMaskBytes = 0x0f
-
-	// NumFramesShift is the number of bytes to shift the encoding of the
-	// number of frames by in order to pack/unpack them into the 4 MSB bits
-	// of the realm field.
-	NumFramesShift = 4
-)
-
-// CalculateRealm computes the proper realm encoding in place. The final
-// encoding uses the first 4 bits of the realm to encode the number of frames
-// used, and the latter 4 bits to encode the real realm type.
-func (hp *HopPayload) CalculateRealm() {
-	maskedRealm := hp.Realm[0] & 0x0F
-	numFrames := hp.NumFrames()
-
-	hp.Realm[0] = maskedRealm | (byte(numFrames-1) << NumFramesShift)
 }

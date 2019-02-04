@@ -165,10 +165,6 @@ type HopData struct {
 // Encode writes the serialized version of the target HopData into the passed
 // io.Writer.
 func (hd *HopData) Encode(w io.Writer) error {
-	if _, err := w.Write(hd.Realm[:]); err != nil {
-		return err
-	}
-
 	if _, err := w.Write(hd.NextAddress[:]); err != nil {
 		return err
 	}
@@ -182,40 +178,6 @@ func (hd *HopData) Encode(w io.Writer) error {
 	}
 
 	if _, err := w.Write(hd.ExtraBytes[:]); err != nil {
-		return err
-	}
-
-	if _, err := w.Write(hd.HMAC[:]); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// Decode deserializes the encoded HopData contained int he passed io.Reader
-// instance to the target empty HopData instance.
-func (hd *HopData) Decode(r io.Reader) error {
-	if _, err := io.ReadFull(r, hd.Realm[:]); err != nil {
-		return err
-	}
-
-	if _, err := io.ReadFull(r, hd.NextAddress[:]); err != nil {
-		return err
-	}
-
-	if err := binary.Read(r, binary.BigEndian, &hd.ForwardAmount); err != nil {
-		return err
-	}
-
-	if err := binary.Read(r, binary.BigEndian, &hd.OutgoingCltv); err != nil {
-		return err
-	}
-
-	if _, err := io.ReadFull(r, hd.ExtraBytes[:]); err != nil {
-		return err
-	}
-
-	if _, err := io.ReadFull(r, hd.HMAC[:]); err != nil {
 		return err
 	}
 
@@ -314,9 +276,10 @@ func NewOnionPacket(paymentPath *PaymentPath, sessionKey *btcec.PrivateKey,
 	// Allocate zero'd out byte slices to store the final mix header packet
 	// and the hmac for each hop.
 	var (
-		mixHeader  [routingInfoSize]byte
-		nextHmac   [HMACSize]byte
-		hopDataBuf bytes.Buffer
+		mixHeader     [routingInfoSize]byte
+		nextHmac      [HMACSize]byte
+		hopDataBuf    bytes.Buffer
+		hopPayloadBuf bytes.Buffer
 	)
 
 	// Now we compute the routing information for each hop, along with a
@@ -331,6 +294,7 @@ func NewOnionPacket(paymentPath *PaymentPath, sessionKey *btcec.PrivateKey,
 		// The HMAC for the final hop is simply zeroes. This allows the
 		// last hop to recognize that it is the destination for a
 		// particular payment.
+		paymentPath[i].HopPayload.HMAC = nextHmac
 		paymentPath[i].HopData.HMAC = nextHmac
 
 		// Next, using the key dedicated for our stream cipher, we'll
@@ -350,7 +314,15 @@ func NewOnionPacket(paymentPath *PaymentPath, sessionKey *btcec.PrivateKey,
 		if err != nil {
 			return nil, err
 		}
-		copy(mixHeader[:], hopDataBuf.Bytes())
+
+		paymentPath[i].HopPayload.Payload = hopDataBuf.Bytes()
+
+		err = paymentPath[i].HopPayload.Encode(&hopPayloadBuf)
+		if err != nil {
+			return nil, err
+		}
+
+		copy(mixHeader[:], hopPayloadBuf.Bytes())
 
 		// Once the packet for this hop has been assembled, we'll
 		// re-encrypt the packet by XOR'ing with a stream of bytes
@@ -371,6 +343,7 @@ func NewOnionPacket(paymentPath *PaymentPath, sessionKey *btcec.PrivateKey,
 		nextHmac = calcMac(muKey, packet)
 
 		hopDataBuf.Reset()
+		hopPayloadBuf.Reset()
 	}
 
 	return &OnionPacket{
@@ -529,7 +502,12 @@ type ProcessedPacket struct {
 	//
 	// NOTE: This field will only be populated iff the above Action is
 	// MoreHops.
-	ForwardingInstructions HopData
+	ForwardingInstructions *HopData
+
+	// RawPayload is the raw (plaintext) payload that was passed to the
+	// processing node in the onion packet. It provides accessors to get
+	// the parsed and interpreted data.
+	RawPayload HopPayload
 
 	// NextPacket is the onion packet that should be forwarded to the next
 	// hop as denoted by the ForwardingInstructions field.
@@ -648,7 +626,7 @@ func (r *Router) ReconstructOnionPacket(onionPkt *OnionPacket,
 // packet. This function returns the next inner onion packet layer, along with
 // the hop data extracted from the outer onion packet.
 func unwrapPacket(onionPkt *OnionPacket, sharedSecret *Hash256,
-	assocData []byte) (*OnionPacket, *HopData, error) {
+	assocData []byte) (*OnionPacket, *HopPayload, error) {
 
 	dhKey := onionPkt.EphemeralKey
 	routeInfo := onionPkt.RoutingInfo
@@ -682,10 +660,10 @@ func unwrapPacket(onionPkt *OnionPacket, sharedSecret *Hash256,
 	nextDHKey := blindGroupElement(dhKey, blindingFactor[:])
 
 	// With the MAC checked, and the payload decrypted, we can now parse
-	// out the per-hop data so we can derive the specified forwarding
+	// out the payload so we can derive the specified forwarding
 	// instructions.
-	var hopData HopData
-	if err := hopData.Decode(bytes.NewReader(hopInfo[:])); err != nil {
+	var hopPayload HopPayload
+	if err := hopPayload.Decode(bytes.NewReader(hopInfo[:])); err != nil {
 		return nil, nil, err
 	}
 
@@ -697,10 +675,10 @@ func unwrapPacket(onionPkt *OnionPacket, sharedSecret *Hash256,
 		Version:      onionPkt.Version,
 		EphemeralKey: nextDHKey,
 		RoutingInfo:  nextMixHeader,
-		HeaderMAC:    hopData.HMAC,
+		HeaderMAC:    hopPayload.HMAC,
 	}
 
-	return innerPkt, &hopData, nil
+	return innerPkt, &hopPayload, nil
 }
 
 // processOnionPacket performs the primary key derivation and handling of onion
@@ -717,7 +695,7 @@ func processOnionPacket(onionPkt *OnionPacket, sharedSecret *Hash256,
 	// mix header is the one that we'll want to pass onto the next hop so
 	// they can properly check the HMAC and unwrap a layer for their
 	// handoff hop.
-	innerPkt, outerHopData, err := unwrapPacket(
+	innerPkt, outerHopPayload, err := unwrapPacket(
 		onionPkt, sharedSecret, assocData,
 	)
 	if err != nil {
@@ -728,8 +706,13 @@ func processOnionPacket(onionPkt *OnionPacket, sharedSecret *Hash256,
 	// However if the uncovered 'nextMac' is all zeroes, then this
 	// indicates that we're the final hop in the route.
 	var action ProcessCode = MoreHops
-	if bytes.Compare(zeroHMAC[:], outerHopData.HMAC[:]) == 0 {
+	if bytes.Compare(zeroHMAC[:], outerHopPayload.HMAC[:]) == 0 {
 		action = ExitNode
+	}
+
+	hopData, err := outerHopPayload.HopData()
+	if err != nil {
+		return nil, err
 	}
 
 	// Finally, we'll return a fully processed packet with the outer most
@@ -737,7 +720,8 @@ func processOnionPacket(onionPkt *OnionPacket, sharedSecret *Hash256,
 	// inner most onion packet that we unwrapped.
 	return &ProcessedPacket{
 		Action:                 action,
-		ForwardingInstructions: *outerHopData,
+		ForwardingInstructions: hopData,
+		RawPayload:             *outerHopPayload,
 		NextPacket:             innerPkt,
 	}, nil
 }

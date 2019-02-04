@@ -2435,6 +2435,25 @@
         }
       }
     },
+    "lnrpcOutPoint": {
+      "type": "object",
+      "properties": {
+        "txid_bytes": {
+          "type": "string",
+          "format": "byte",
+          "description": "/ Raw bytes representing the transaction id."
+        },
+        "txid_str": {
+          "type": "string",
+          "description": "/ Reversed, hex-encoded string representing the transaction id."
+        },
+        "output_index": {
+          "type": "integer",
+          "format": "int64",
+          "description": "/ The index of the output on the transaction."
+        }
+      }
+    },
     "lnrpcPayReq": {
       "type": "object",
       "properties": {
@@ -3014,8 +3033,8 @@
           "title": "/ The scriptpubkey in hex"
         },
         "outpoint": {
-          "$ref": "#/definitions/lnrpcChannelPoint",
-          "title": "/ The outpoint in format txid:n\n/ Note that this reuses the `ChannelPoint` message but\n/ is not actually a channel related outpoint, of course"
+          "$ref": "#/definitions/lnrpcOutPoint",
+          "title": "/ The outpoint in format txid:n"
         },
         "confirmations": {
           "type": "string",

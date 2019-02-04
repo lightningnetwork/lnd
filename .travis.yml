@@ -32,7 +32,7 @@ script:
   - 'if [ "$RACE" = true ]; then make travis-race ; fi'
 
   # Run integration tests.
-  - 'if [ "$ITEST" = true ]; then make itest; fi'
+  - 'if [ "$ITEST" = true ]; then make travis-itest; fi'
 
   # Run unit tests and generate coverage report.
   - 'if [ "$COVER" = true ]; then make travis-cover; fi'

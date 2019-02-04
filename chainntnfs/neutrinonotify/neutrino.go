@@ -315,6 +315,7 @@ out:
 					)
 					if err != nil {
 						chainntnfs.Log.Error(err)
+						return
 					}
 
 					// If the historical dispatch finished

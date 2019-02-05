@@ -269,9 +269,7 @@ func NewOnionPacket(paymentPath *PaymentPath, sessionKey *btcec.PrivateKey,
 	)
 
 	// Generate the padding, called "filler strings" in the paper.
-	filler := generateHeaderPadding(
-		"rho", numHops, FrameSize, hopSharedSecrets,
-	)
+	filler := generateHeaderPadding("rho", paymentPath, hopSharedSecrets)
 
 	// Allocate zero'd out byte slices to store the final mix header packet
 	// and the hmac for each hop.
@@ -300,12 +298,13 @@ func NewOnionPacket(paymentPath *PaymentPath, sessionKey *btcec.PrivateKey,
 		// Next, using the key dedicated for our stream cipher, we'll
 		// generate enough bytes to obfuscate this layer of the onion
 		// packet.
-		streamBytes := generateCipherStream(rhoKey, numStreamBytes)
+		streamBytes := generateCipherStream(rhoKey, routingInfoSize)
 
 		// Before we assemble the packet, we'll shift the current
-		// mix-header to the write in order to make room for this next
+		// mix-header to the right in order to make room for this next
 		// per-hop data.
-		rightShift(mixHeader[:], FrameSize)
+		numFrames := paymentPath[i].HopPayload.NumFrames()
+		rightShift(mixHeader[:], numFrames*FrameSize)
 
 		// With the mix header right-shifted, we'll encode the current
 		// hop data into a buffer we'll re-use during the packet
@@ -327,7 +326,7 @@ func NewOnionPacket(paymentPath *PaymentPath, sessionKey *btcec.PrivateKey,
 		// Once the packet for this hop has been assembled, we'll
 		// re-encrypt the packet by XOR'ing with a stream of bytes
 		// generated using our shared secret.
-		xor(mixHeader[:], mixHeader[:], streamBytes[:routingInfoSize])
+		xor(mixHeader[:], mixHeader[:], streamBytes[:])
 
 		// If this is the "last" hop, then we'll override the tail of
 		// the hop data.
@@ -368,25 +367,39 @@ func rightShift(slice []byte, num int) {
 
 // generateHeaderPadding derives the bytes for padding the mix header to ensure
 // it remains fixed sized throughout route transit. At each step, we add
-// 'hopSize' padding of zeroes, concatenate it to the previous filler, then
-// decrypt it (XOR) with the secret key of the current hop. When encrypting the
-// mix header we essentially do the reverse of this operation: we "encrypt" the
-// padding, and drop 'hopSize' number of zeroes. As nodes process the mix
-// header they add the padding ('hopSize') in order to check the MAC and
-// decrypt the next routing information eventually leaving only the original
-// "filler" bytes produced by this function at the last hop. Using this
-// methodology, the size of the field stays constant at each hop.
-func generateHeaderPadding(key string, numHops int, hopSize int,
-	sharedSecrets []Hash256) []byte {
+// 'frameSize*frames' padding of zeroes, concatenate it to the previous filler,
+// then decrypt it (XOR) with the secret key of the current hop. When
+// encrypting the mix header we essentially do the reverse of this operation:
+// we "encrypt" the padding, and drop 'frameSize*frames' number of zeroes. As
+// nodes process the mix header they add the padding ('frameSize*frames') in
+// order to check the MAC and decrypt the next routing information eventually
+// leaving only the original "filler" bytes produced by this function at the
+// last hop.  Using this methodology, the size of the field stays constant at
+// each hop.
+func generateHeaderPadding(key string, path *PaymentPath, sharedSecrets []Hash256) []byte {
+	numHops := path.TrueRouteLength()
 
-	filler := make([]byte, (numHops-1)*hopSize)
-	for i := 1; i < numHops; i++ {
-		totalFillerSize := ((NumMaxHops - i) + 1) * hopSize
+	// We have to generate a filler that matches all but the last hop (the
+	// last hop won't generate an HMAC)
+	fillerFrames := path.TotalFrames() - path[numHops-1].HopPayload.NumFrames()
+	filler := make([]byte, fillerFrames*FrameSize)
 
-		streamKey := generateKey(key, &sharedSecrets[i-1])
+	for i := 0; i < numHops-1; i++ {
+		// Sum up how many frames were used by prior hops
+		fillerStart := routingInfoSize
+		for _, p := range path[:i] {
+			fillerStart = fillerStart - (p.HopPayload.NumFrames() * FrameSize)
+		}
+
+		// The filler is the part dangling off of the end of the
+		// routingInfo, so offset it from there, and use the current
+		// hop's frame count as its size.
+		fillerEnd := routingInfoSize + (path[i].HopPayload.NumFrames() * FrameSize)
+
+		streamKey := generateKey(key, &sharedSecrets[i])
 		streamBytes := generateCipherStream(streamKey, numStreamBytes)
 
-		xor(filler, filler, streamBytes[totalFillerSize:totalFillerSize+i*hopSize])
+		xor(filler, filler, streamBytes[fillerStart:fillerEnd])
 	}
 	return filler
 }
@@ -648,7 +661,7 @@ func unwrapPacket(onionPkt *OnionPacket, sharedSecret *Hash256,
 		generateKey("rho", sharedSecret),
 		numStreamBytes,
 	)
-	zeroBytes := bytes.Repeat([]byte{0}, FrameSize)
+	zeroBytes := bytes.Repeat([]byte{0}, MaxPayloadSize)
 	headerWithPadding := append(routeInfo[:], zeroBytes...)
 
 	var hopInfo [numStreamBytes]byte
@@ -670,7 +683,7 @@ func unwrapPacket(onionPkt *OnionPacket, sharedSecret *Hash256,
 	// With the necessary items extracted, we'll copy of the onion packet
 	// for the next node, snipping off our per-hop data.
 	var nextMixHeader [routingInfoSize]byte
-	copy(nextMixHeader[:], hopInfo[FrameSize:])
+	copy(nextMixHeader[:], hopInfo[hopPayload.NumFrames()*FrameSize:])
 	innerPkt := &OnionPacket{
 		Version:      onionPkt.Version,
 		EphemeralKey: nextDHKey,

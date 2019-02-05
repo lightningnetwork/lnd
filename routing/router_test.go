@@ -14,10 +14,11 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 
-	"github.com/lightningnetwork/lightning-onion"
+	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routetypes"
 )
 
 // defaultNumRoutes is the default value for the maximum number of routes to
@@ -184,7 +185,7 @@ func TestFindRoutesFeeSorting(t *testing.T) {
 	target := ctx.aliases["luoji"]
 	routes, err := ctx.router.FindRoutes(
 		target, paymentAmt, noFeeLimit, defaultNumRoutes,
-		DefaultFinalCLTVDelta,
+		routetypes.DefaultFinalCLTVDelta,
 	)
 	if err != nil {
 		t.Fatalf("unable to find any routes: %v", err)
@@ -243,7 +244,7 @@ func TestFindRoutesWithFeeLimit(t *testing.T) {
 
 	routes, err := ctx.router.FindRoutes(
 		target, paymentAmt, feeLimit, defaultNumRoutes,
-		DefaultFinalCLTVDelta,
+		routetypes.DefaultFinalCLTVDelta,
 	)
 	if err != nil {
 		t.Fatalf("unable to find any routes: %v", err)
@@ -1222,7 +1223,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	targetNode := priv2.PubKey()
 	routes, err := ctx.router.FindRoutes(
 		targetNode, paymentAmt, noFeeLimit, defaultNumRoutes,
-		DefaultFinalCLTVDelta,
+		routetypes.DefaultFinalCLTVDelta,
 	)
 	if err != nil {
 		t.Fatalf("unable to find any routes: %v", err)
@@ -1267,7 +1268,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	// updated.
 	routes, err = ctx.router.FindRoutes(
 		targetNode, paymentAmt, noFeeLimit, defaultNumRoutes,
-		DefaultFinalCLTVDelta,
+		routetypes.DefaultFinalCLTVDelta,
 	)
 	if err != nil {
 		t.Fatalf("unable to find any routes: %v", err)

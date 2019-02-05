@@ -68,6 +68,7 @@ github.com/jackpal/go-nat-pmp v0.0.0-20170405195558-28a68d0c24ad/go.mod h1:QPH04
 github.com/jessevdk/go-flags v0.0.0-20141203071132-1679536dcc89/go.mod h1:4FA24M0QyGHXBuZZK/XkWh8h0e1EYbRYJSGM75WSRxI=
 github.com/jessevdk/go-flags v0.0.0-20170926144705-f88afde2fa19 h1:k9/LaykApavRKKlaWkunBd48Um+vMxnUNNsIjS7OJn8=
 github.com/jessevdk/go-flags v0.0.0-20170926144705-f88afde2fa19/go.mod h1:4FA24M0QyGHXBuZZK/XkWh8h0e1EYbRYJSGM75WSRxI=
+github.com/joostjager/lnd v0.0.2 h1:p3Gdrt7ziaFIkJqhVi4iGS03sIPmC1+3y4p+72RqX44=
 github.com/jrick/logrotate v1.0.0 h1:lQ1bL/n9mBNeIXoTUoYRlK4dHuNJVofX9oWqBtPnSzI=
 github.com/jrick/logrotate v1.0.0/go.mod h1:LNinyqDIJnpAur+b8yyulnQw/wDuN1+BYKlTRt3OuAQ=
 github.com/juju/clock v0.0.0-20180808021310-bab88fc67299 h1:K9nBHQ3UNqg/HhZkQnGG2AE4YxDyNmGS9FFT2gGegLQ=

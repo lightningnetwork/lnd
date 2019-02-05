@@ -24,14 +24,11 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/multimutex"
+	"github.com/lightningnetwork/lnd/routetypes"
 	"github.com/lightningnetwork/lnd/routing/chainview"
 )
 
 const (
-	// DefaultFinalCLTVDelta is the default value to be used as the final
-	// CLTV delta for a route if one is unspecified.
-	DefaultFinalCLTVDelta = 9
-
 	// defaultPayAttemptTimeout is a duration that we'll use to determine
 	// if we should give up on a payment attempt. This will be used if a
 	// value isn't specified in the LightningNode struct.
@@ -1392,7 +1389,7 @@ func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
 
 	var finalCLTVDelta uint16
 	if len(finalExpiry) == 0 {
-		finalCLTVDelta = DefaultFinalCLTVDelta
+		finalCLTVDelta = routetypes.DefaultFinalCLTVDelta
 	} else {
 		finalCLTVDelta = finalExpiry[0]
 	}
@@ -1610,7 +1607,7 @@ type LightningPayment struct {
 	// multiple routes, ensure the hop hints within each route are chained
 	// together and sorted in forward order in order to reach the
 	// destination successfully.
-	RouteHints [][]HopHint
+	RouteHints [][]routetypes.HopHint
 
 	// OutgoingChannelID is the channel that needs to be taken to the first
 	// hop. If nil, any channel may be used.
@@ -1698,7 +1695,7 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 
 	var finalCLTVDelta uint16
 	if payment.FinalCLTVDelta == nil {
-		finalCLTVDelta = DefaultFinalCLTVDelta
+		finalCLTVDelta = routetypes.DefaultFinalCLTVDelta
 	} else {
 		finalCLTVDelta = *payment.FinalCLTVDelta
 	}

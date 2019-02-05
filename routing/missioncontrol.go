@@ -8,6 +8,7 @@ import (
 	"github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routetypes"
 )
 
 const (
@@ -152,7 +153,7 @@ func (m *missionControl) GraphPruneView() graphPruneView {
 // view from Mission Control. An optional set of routing hints can be provided
 // in order to populate additional edges to explore when finding a path to the
 // payment's destination.
-func (m *missionControl) NewPaymentSession(routeHints [][]HopHint,
+func (m *missionControl) NewPaymentSession(routeHints [][]routetypes.HopHint,
 	target *btcec.PublicKey) (*paymentSession, error) {
 
 	viewSnapshot := m.GraphPruneView()

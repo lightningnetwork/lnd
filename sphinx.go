@@ -314,7 +314,9 @@ func NewOnionPacket(paymentPath *PaymentPath, sessionKey *btcec.PrivateKey,
 			return nil, err
 		}
 
-		paymentPath[i].HopPayload.Payload = hopDataBuf.Bytes()
+		paymentPath[i].HopPayload.Payload = append(
+			hopDataBuf.Bytes(), paymentPath[i].HopPayload.Payload...,
+		)
 
 		err = paymentPath[i].HopPayload.Encode(&hopPayloadBuf)
 		if err != nil {

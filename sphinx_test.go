@@ -87,6 +87,11 @@ var (
 )
 
 func newTestRoute(numHops int) ([]*Router, *PaymentPath, *[]HopData, *OnionPacket, error) {
+	extraPayloadSize := make([]int, numHops)
+	return newTestVarSizeRoute(numHops, extraPayloadSize)
+}
+
+func newTestVarSizeRoute(numHops int, extraPayloadSize []int) ([]*Router, *PaymentPath, *[]HopData, *OnionPacket, error) {
 	nodes := make([]*Router, numHops)
 
 	// Create numHops random sphinx nodes.
@@ -118,6 +123,15 @@ func newTestRoute(numHops int) ([]*Router, *PaymentPath, *[]HopData, *OnionPacke
 		route[i] = OnionHop{
 			NodePub: *nodes[i].onionKey.PubKey(),
 			HopData: hopData,
+		}
+	}
+
+	// If we were told to increase the payload with some extra data do it
+	// now:
+	for i := 0; i < route.TrueRouteLength(); i++ {
+		if extraPayloadSize[i] > 0 {
+			extra := bytes.Repeat([]byte{'A'}, extraPayloadSize[i])
+			route[i].HopPayload.Payload = append(route[i].HopPayload.Payload, extra...)
 		}
 	}
 
@@ -500,5 +514,64 @@ func TestSphinxEncodeDecode(t *testing.T) {
 	if !reflect.DeepEqual(fwdMsg, newFwdMsg) {
 		t.Fatalf("forwarding messages don't match, %v vs %v",
 			spew.Sdump(fwdMsg), spew.Sdump(newFwdMsg))
+	}
+}
+
+// Create an onion with 5 hops, and the 3rd hop
+func TestMultiFrameEncodeDecode(t *testing.T) {
+
+	var payloadtests = []struct {
+		extraPayload   []int
+		expectedFrames []int
+	}{
+		{[]int{0, 0, 0, 0, 0}, []int{1, 1, 1, 1, 1}},
+		{[]int{60, 0, 0, 0, 0}, []int{2, 1, 1, 1, 1}},
+		{[]int{0, 0, 0, 0, 60}, []int{1, 1, 1, 1, 2}},
+		{[]int{0, 0, 0, 0, 130}, []int{1, 1, 1, 1, 3}},
+		{[]int{0, 0, 60, 0, 0}, []int{1, 1, 2, 1, 1}},
+	}
+
+	for _, tt := range payloadtests {
+		t.Run(fmt.Sprintf("%v", tt), func(t *testing.T) {
+			nodes, path, _, fwdMsg, err := newTestVarSizeRoute(5, tt.extraPayload)
+			if err != nil {
+				t.Fatalf("unable to create random onion packet: %v", err)
+			}
+
+			for i := 0; i < len(nodes); i++ {
+				// Start each node's ReplayLog and defer shutdown
+				nodes[i].log.Start()
+				defer nodes[i].log.Stop()
+
+				hop := nodes[i]
+
+				t.Logf("Processing at hop: %v \n", i)
+				onionPacket, err := hop.ProcessOnionPacket(fwdMsg, nil, uint32(i)+1)
+				if err != nil {
+					t.Fatalf("Node %v was unable to process the "+
+						"forwarding message: %v", i, err)
+				}
+
+				// Check that the framecount matches what we expect
+				frameCount := onionPacket.RawPayload.NumFrames()
+				if tt.expectedFrames[i] != frameCount {
+					t.Fatalf("Incorrect number of payload frames: expected %d, got %d",
+						tt.expectedFrames[i],
+						frameCount,
+					)
+				}
+
+				// Check that the payload contents are identical
+				expected := path[i].HopPayload
+				if !bytes.Equal(path[i].HopPayload.Payload, expected.Payload) {
+					t.Fatalf("Processing error, hop-payload parsed incorrectly."+
+						" expected %x, got %x",
+						expected.Payload,
+						onionPacket.RawPayload.Payload)
+				}
+
+				fwdMsg = onionPacket.NextPacket
+			}
+		})
 	}
 }

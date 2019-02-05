@@ -44,6 +44,25 @@ const (
 	HopDataSize = (RealmByteSize + AddressSize + AmtForwardSize +
 		OutgoingCLTVSize + NumPaddingBytes + HMACSize)
 
+	// FramSize is the size of a frame in the packet. A frame is a region
+	// of contiguous memory in the onion that can be used to store a
+	// payload in. Each hop may use a discrete number of frames for its
+	// payload. There are two parts of the payload that are fixed: a) the
+	// first byte in the first frame is the realm-byte, which tells us how
+	// many frames the current payload uses and how the payload should be
+	// parsed, and b) the last 32 bytes of the last frame are the HMAC that
+	// should be passed to the next hop, or 0 in case of the last hop.
+	// Bytes between these two points can be freely used to store the
+	// actual payload.
+	FrameSize = 65
+
+	// MaxPayloadSize is the maximum size a payload for a single hop can
+	// be. This is the worst case scenario of a single hop, consuming all
+	// 20 frames. We need to know this in order to generate a sufficiently
+	// long stream of pseudo-random bytes when encrypting/decrypting the
+	// payload.
+	MaxPayloadSize = NumMaxHops * FrameSize
+
 	// sharedSecretSize is the size in bytes of the shared secrets.
 	sharedSecretSize = 32
 
@@ -52,13 +71,14 @@ const (
 	// each hop of the route, the first pair in cleartext and the following
 	// pairs increasingly obfuscated. In case fewer than numMaxHops are
 	// used, then the remainder is padded with null-bytes, also obfuscated.
-	routingInfoSize = NumMaxHops * HopDataSize
+	routingInfoSize = NumMaxHops * FrameSize
 
 	// numStreamBytes is the number of bytes produced by our CSPRG for the
 	// key stream implementing our stream cipher to encrypt/decrypt the mix
-	// header. The last hopDataSize bytes are only used in order to
-	// generate/check the MAC over the header.
-	numStreamBytes = routingInfoSize + HopDataSize
+	// header. The maxPayloadSize bytes at the end are used to
+	// encrypt/decrypt the fillers when processing the packet of generating
+	// the HMACs when creating the packet.
+	numStreamBytes = routingInfoSize + MaxPayloadSize
 
 	// keyLen is the length of the keys used to generate cipher streams and
 	// encrypt payloads. Since we use SHA256 to generate the keys, the
@@ -288,7 +308,7 @@ func NewOnionPacket(paymentPath *PaymentPath, sessionKey *btcec.PrivateKey,
 
 	// Generate the padding, called "filler strings" in the paper.
 	filler := generateHeaderPadding(
-		"rho", numHops, HopDataSize, hopSharedSecrets,
+		"rho", numHops, FrameSize, hopSharedSecrets,
 	)
 
 	// Allocate zero'd out byte slices to store the final mix header packet
@@ -321,7 +341,7 @@ func NewOnionPacket(paymentPath *PaymentPath, sessionKey *btcec.PrivateKey,
 		// Before we assemble the packet, we'll shift the current
 		// mix-header to the write in order to make room for this next
 		// per-hop data.
-		rightShift(mixHeader[:], HopDataSize)
+		rightShift(mixHeader[:], FrameSize)
 
 		// With the mix header right-shifted, we'll encode the current
 		// hop data into a buffer we'll re-use during the packet
@@ -650,7 +670,7 @@ func unwrapPacket(onionPkt *OnionPacket, sharedSecret *Hash256,
 		generateKey("rho", sharedSecret),
 		numStreamBytes,
 	)
-	zeroBytes := bytes.Repeat([]byte{0}, HopDataSize)
+	zeroBytes := bytes.Repeat([]byte{0}, FrameSize)
 	headerWithPadding := append(routeInfo[:], zeroBytes...)
 
 	var hopInfo [numStreamBytes]byte
@@ -672,7 +692,7 @@ func unwrapPacket(onionPkt *OnionPacket, sharedSecret *Hash256,
 	// With the necessary items extracted, we'll copy of the onion packet
 	// for the next node, snipping off our per-hop data.
 	var nextMixHeader [routingInfoSize]byte
-	copy(nextMixHeader[:], hopInfo[HopDataSize:])
+	copy(nextMixHeader[:], hopInfo[FrameSize:])
 	innerPkt := &OnionPacket{
 		Version:      onionPkt.Version,
 		EphemeralKey: nextDHKey,

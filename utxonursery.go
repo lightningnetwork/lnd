@@ -457,7 +457,7 @@ func (u *utxoNursery) IncubateOutputs(chanPoint wire.OutPoint,
 	// it. This may happen if the caller raced a block to call this method.
 	for _, babyOutput := range babyOutputs {
 		if uint32(bestHeight) >= babyOutput.expiry {
-			err = u.sweepCribOutput(uint32(bestHeight), &babyOutput)
+			err = u.sweepCribOutput(babyOutput.expiry, &babyOutput)
 			if err != nil {
 				return err
 			}

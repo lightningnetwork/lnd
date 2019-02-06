@@ -593,14 +593,11 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 	}
 
 	s.authGossiper = discovery.New(discovery.Config{
-		Router:     s.chanRouter,
-		Notifier:   s.cc.chainNotifier,
-		ChainHash:  *activeNetParams.GenesisHash,
-		Broadcast:  s.BroadcastMessage,
-		ChanSeries: chanSeries,
-		FindPeer: func(pub *btcec.PublicKey) (lnpeer.Peer, error) {
-			return s.FindPeer(pub)
-		},
+		Router:            s.chanRouter,
+		Notifier:          s.cc.chainNotifier,
+		ChainHash:         *activeNetParams.GenesisHash,
+		Broadcast:         s.BroadcastMessage,
+		ChanSeries:        chanSeries,
 		NotifyWhenOnline:  s.NotifyWhenOnline,
 		NotifyWhenOffline: s.NotifyWhenOffline,
 		ProofMatureDelta:  0,

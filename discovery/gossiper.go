@@ -95,11 +95,6 @@ type Config struct {
 	Broadcast func(skips map[routing.Vertex]struct{},
 		msg ...lnwire.Message) error
 
-	// FindPeer returns the actively registered peer for a given remote
-	// public key. An error is returned if the peer was not found or a
-	// shutdown has been requested.
-	FindPeer func(identityKey *btcec.PublicKey) (lnpeer.Peer, error)
-
 	// NotifyWhenOnline is a function that allows the gossiper to be
 	// notified when a certain peer comes online, allowing it to
 	// retry sending a peer message.
@@ -1927,30 +1922,26 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 		// so we'll try sending the update directly to the remote peer.
 		if !nMsg.isRemote && chanInfo.AuthProof == nil {
 			// Get our peer's public key.
-			var remotePub *btcec.PublicKey
+			var remotePubKey [33]byte
 			switch {
 			case msg.ChannelFlags&lnwire.ChanUpdateDirection == 0:
-				remotePub, _ = chanInfo.NodeKey2()
+				remotePubKey = chanInfo.NodeKey2Bytes
 			case msg.ChannelFlags&lnwire.ChanUpdateDirection == 1:
-				remotePub, _ = chanInfo.NodeKey1()
+				remotePubKey = chanInfo.NodeKey1Bytes
 			}
 
-			sPeer, err := d.cfg.FindPeer(remotePub)
+			// Now, we'll attempt to send the channel update message
+			// reliably to the remote peer in the background, so
+			// that we don't block if the peer happens to be offline
+			// at the moment.
+			err := d.reliableSender.sendMessage(msg, remotePubKey)
 			if err != nil {
-				log.Errorf("unable to send channel update -- "+
-					"could not find peer %x: %v",
-					remotePub.SerializeCompressed(),
-					err)
-			} else {
-				// Send ChannelUpdate directly to remotePeer.
-				// TODO(halseth): make reliable send?
-				err = sPeer.SendMessage(false, msg)
-				if err != nil {
-					log.Errorf("unable to send channel "+
-						"update message to peer %x: %v",
-						remotePub.SerializeCompressed(),
-						err)
-				}
+				err := fmt.Errorf("unable to reliably send %v "+
+					"for channel=%v to peer=%x: %v",
+					msg.MsgType(), msg.ShortChannelID,
+					remotePubKey, err)
+				nMsg.err <- err
+				return nil
 			}
 		}
 

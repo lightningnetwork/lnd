@@ -23,8 +23,8 @@ import (
 //     and the total amount contained in the inputs.
 //  2. Bind: Asserts that the revoked state is eligible under a given session's
 //     parameters. Certain states may be ineligible due to fee rates, too little
-//     input amount, etc.. Backup of these states can be deferred to a later
-//     time or session with more favorable parameters. If the session is bound
+//     input amount, etc. Backup of these states can be deferred to a later time
+//     or session with more favorable parameters. If the session is bound
 //     successfully, the final session-dependent values to the justice
 //     transaction are solidified.
 //  3. Send: Once the task is bound, it will be queued to send to a specific
@@ -48,9 +48,6 @@ type backupTask struct {
 
 	blobType blob.Type
 	outputs  []*wire.TxOut
-	//sweepAmt      int64
-	//rewardAmt     int64
-	//rewardAddress []byte
 }
 
 // newBackupTask initializes a new backupTask and populates all state-dependent

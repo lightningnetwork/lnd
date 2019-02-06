@@ -90,6 +90,13 @@ var (
 			number:    7,
 			migration: migrateOptionalChannelCloseSummaryFields,
 		},
+		{
+			// The DB version that changes the gossiper's message
+			// store keys to account for the message's type and
+			// ShortChannelID.
+			number:    8,
+			migration: migrateGossipMessageStoreKeys,
+		},
 	}
 
 	// Big endian is the preferred byte order, due to cursor scans over

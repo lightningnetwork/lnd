@@ -7375,8 +7375,11 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 		// attempt because of the second layer transactions, he will
 		// wait until the next block epoch before trying again. Because
 		// of this, we'll mine a block if we cannot find the justice tx
-		// immediately.
-		mineBlocks(t, net, 1, 1)
+		// immediately. Since we cannot tell for sure how many
+		// transactions will be in the mempool at this point, we pass 0
+		// as the last argument, indicating we don't care what's in the
+		// mempool.
+		mineBlocks(t, net, 1, 0)
 		err = lntest.WaitPredicate(func() bool {
 			txid, err := findJusticeTx()
 			if err != nil {

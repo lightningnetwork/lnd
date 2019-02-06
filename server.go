@@ -587,8 +587,12 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 	if err != nil {
 		return nil, err
 	}
+	waitingProofStore, err := channeldb.NewWaitingProofStore(s.chanDB)
+	if err != nil {
+		return nil, err
+	}
 
-	s.authGossiper, err = discovery.New(discovery.Config{
+	s.authGossiper = discovery.New(discovery.Config{
 		Router:     s.chanRouter,
 		Notifier:   s.cc.chainNotifier,
 		ChainHash:  *activeNetParams.GenesisHash,
@@ -598,19 +602,16 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		FindPeer: func(pub *btcec.PublicKey) (lnpeer.Peer, error) {
 			return s.FindPeer(pub)
 		},
-		NotifyWhenOnline: s.NotifyWhenOnline,
-		ProofMatureDelta: 0,
-		TrickleDelay:     time.Millisecond * time.Duration(cfg.TrickleDelay),
-		RetransmitDelay:  time.Minute * 30,
-		DB:               chanDB,
-		MessageStore:     gossipMessageStore,
-		AnnSigner:        s.nodeSigner,
+		NotifyWhenOnline:  s.NotifyWhenOnline,
+		ProofMatureDelta:  0,
+		TrickleDelay:      time.Millisecond * time.Duration(cfg.TrickleDelay),
+		RetransmitDelay:   time.Minute * 30,
+		WaitingProofStore: waitingProofStore,
+		MessageStore:      gossipMessageStore,
+		AnnSigner:         s.nodeSigner,
 	},
 		s.identityPriv.PubKey(),
 	)
-	if err != nil {
-		return nil, err
-	}
 
 	utxnStore, err := newNurseryStore(activeNetParams.GenesisHash, chanDB)
 	if err != nil {

@@ -124,9 +124,14 @@ type Config struct {
 	// should check if we need re-broadcast any of our personal channels.
 	RetransmitDelay time.Duration
 
-	// DB is a global boltdb instance which is needed to pass it in waiting
-	// proof storage to make waiting proofs persistent.
-	DB *channeldb.DB
+	// WaitingProofStore is a persistent storage of partial channel proof
+	// announcement messages. We use it to buffer half of the material
+	// needed to reconstruct a full authenticated channel announcement.
+	// Once we receive the other half the channel proof, we'll be able to
+	// properly validate it and re-broadcast it out to the network.
+	//
+	// TODO(wilmer): make interface to prevent channeldb dependency.
+	WaitingProofStore *channeldb.WaitingProofStore
 
 	// MessageStore is a persistent storage of gossip messages which we will
 	// use to determine which messages need to be resent for a given peer.
@@ -188,13 +193,6 @@ type AuthenticatedGossiper struct {
 	prematureChannelUpdates map[uint64][]*networkMsg
 	pChanUpdMtx             sync.Mutex
 
-	// waitingProofs is a persistent storage of partial channel proof
-	// announcement messages. We use it to buffer half of the material
-	// needed to reconstruct a full authenticated channel announcement.
-	// Once we receive the other half the channel proof, we'll be able to
-	// properly validate it and re-broadcast it out to the network.
-	waitingProofs *channeldb.WaitingProofStore
-
 	// networkMsgs is a channel that carries new network broadcasted
 	// message from outside the gossiper service to be processed by the
 	// networkHandler.
@@ -229,12 +227,7 @@ type AuthenticatedGossiper struct {
 
 // New creates a new AuthenticatedGossiper instance, initialized with the
 // passed configuration parameters.
-func New(cfg Config, selfKey *btcec.PublicKey) (*AuthenticatedGossiper, error) {
-	storage, err := channeldb.NewWaitingProofStore(cfg.DB)
-	if err != nil {
-		return nil, err
-	}
-
+func New(cfg Config, selfKey *btcec.PublicKey) *AuthenticatedGossiper {
 	return &AuthenticatedGossiper{
 		selfKey:                 selfKey,
 		cfg:                     &cfg,
@@ -243,11 +236,10 @@ func New(cfg Config, selfKey *btcec.PublicKey) (*AuthenticatedGossiper, error) {
 		chanPolicyUpdates:       make(chan *chanPolicyUpdateRequest),
 		prematureAnnouncements:  make(map[uint32][]*networkMsg),
 		prematureChannelUpdates: make(map[uint64][]*networkMsg),
-		waitingProofs:           storage,
 		channelMtx:              multimutex.NewMutex(),
 		recentRejects:           make(map[uint64]struct{}),
 		peerSyncers:             make(map[routing.Vertex]*gossipSyncer),
-	}, nil
+	}
 }
 
 // SynchronizeNode sends a message to the service indicating it should
@@ -2084,7 +2076,8 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 			// TODO(andrew.shvv) this is dangerous because remote
 			// node might rewrite the waiting proof.
 			proof := channeldb.NewWaitingProof(nMsg.isRemote, msg)
-			if err := d.waitingProofs.Add(proof); err != nil {
+			err := d.cfg.WaitingProofStore.Add(proof)
+			if err != nil {
 				err := fmt.Errorf("unable to store "+
 					"the proof for short_chan_id=%v: %v",
 					shortChanID, err)
@@ -2198,7 +2191,9 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 		// proof than we should store it this one, and wait for
 		// opposite to be received.
 		proof := channeldb.NewWaitingProof(nMsg.isRemote, msg)
-		oppositeProof, err := d.waitingProofs.Get(proof.OppositeKey())
+		oppositeProof, err := d.cfg.WaitingProofStore.Get(
+			proof.OppositeKey(),
+		)
 		if err != nil && err != channeldb.ErrWaitingProofNotFound {
 			err := fmt.Errorf("unable to get "+
 				"the opposite proof for short_chan_id=%v: %v",
@@ -2209,7 +2204,8 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 		}
 
 		if err == channeldb.ErrWaitingProofNotFound {
-			if err := d.waitingProofs.Add(proof); err != nil {
+			err := d.cfg.WaitingProofStore.Add(proof)
+			if err != nil {
 				err := fmt.Errorf("unable to store "+
 					"the proof for short_chan_id=%v: %v",
 					shortChanID, err)
@@ -2278,7 +2274,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 			return nil
 		}
 
-		err = d.waitingProofs.Remove(proof.OppositeKey())
+		err = d.cfg.WaitingProofStore.Remove(proof.OppositeKey())
 		if err != nil {
 			err := fmt.Errorf("unable remove opposite proof "+
 				"for the channel with chanID=%v: %v",

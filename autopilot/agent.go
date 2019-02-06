@@ -667,7 +667,40 @@ func (a *Agent) executeDirective(directive AttachmentDirective) {
 		return
 	}
 
-	alreadyConnected, err := a.cfg.ConnectToPeer(pub, directive.Addrs)
+	connected := make(chan bool)
+	errChan := make(chan error)
+
+	// To ensure a call to ConnectToPeer doesn't block the agent from
+	// shutting down, we'll launch it in a non-waitgrouped goroutine, that
+	// will signal when a result is returned.
+	// TODO(halseth): use DialContext to cancel on transport level.
+	go func() {
+		alreadyConnected, err := a.cfg.ConnectToPeer(
+			pub, directive.Addrs,
+		)
+		if err != nil {
+			select {
+			case errChan <- err:
+			case <-a.quit:
+			}
+			return
+		}
+
+		select {
+		case connected <- alreadyConnected:
+		case <-a.quit:
+			return
+		}
+	}()
+
+	var alreadyConnected bool
+	select {
+	case alreadyConnected = <-connected:
+	case err = <-errChan:
+	case <-a.quit:
+		return
+	}
+
 	if err != nil {
 		log.Warnf("Unable to connect to %x: %v",
 			pub.SerializeCompressed(), err)

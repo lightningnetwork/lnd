@@ -28,6 +28,7 @@ import (
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/brontide"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channelnotifier"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/htlcswitch"
@@ -144,6 +145,8 @@ type server struct {
 	htlcSwitch *htlcswitch.Switch
 
 	invoices *invoices.InvoiceRegistry
+
+	channelNotifier *channelnotifier.ChannelNotifier
 
 	witnessBeacon contractcourt.WitnessBeacon
 
@@ -274,6 +277,8 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 
 		invoices: invoices.NewRegistry(chanDB, activeNetParams.Params),
 
+		channelNotifier: channelnotifier.New(chanDB),
+
 		identityPriv: privKey,
 		nodeSigner:   netann.NewNodeSigner(privKey),
 
@@ -357,6 +362,8 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 			htlcswitch.DefaultFwdEventInterval),
 		LogEventTicker: ticker.New(
 			htlcswitch.DefaultLogInterval),
+		NotifyActiveChannel:   s.channelNotifier.NotifyActiveChannelEvent,
+		NotifyInactiveChannel: s.channelNotifier.NotifyInactiveChannelEvent,
 	}, uint32(currentHeight))
 	if err != nil {
 		return nil, err
@@ -735,8 +742,9 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		DisableChannel: func(op wire.OutPoint) error {
 			return s.announceChanStatus(op, true)
 		},
-		Sweeper:       s.sweeper,
-		SettleInvoice: s.invoices.SettleInvoice,
+		Sweeper:             s.sweeper,
+		SettleInvoice:       s.invoices.SettleInvoice,
+		NotifyClosedChannel: s.channelNotifier.NotifyClosedChannelEvent,
 	}, chanDB)
 
 	s.breachArbiter = newBreachArbiter(&BreachConfig{
@@ -922,9 +930,10 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 			// channel bandwidth.
 			return uint16(input.MaxHTLCNumber / 2)
 		},
-		ZombieSweeperInterval: 1 * time.Minute,
-		ReservationTimeout:    10 * time.Minute,
-		MinChanSize:           btcutil.Amount(cfg.MinChanSize),
+		ZombieSweeperInterval:  1 * time.Minute,
+		ReservationTimeout:     10 * time.Minute,
+		MinChanSize:            btcutil.Amount(cfg.MinChanSize),
+		NotifyOpenChannelEvent: s.channelNotifier.NotifyOpenChannelEvent,
 	})
 	if err != nil {
 		return nil, err
@@ -984,6 +993,9 @@ func (s *server) Start() error {
 		return err
 	}
 	if err := s.cc.chainNotifier.Start(); err != nil {
+		return err
+	}
+	if err := s.channelNotifier.Start(); err != nil {
 		return err
 	}
 	if err := s.sphinx.Start(); err != nil {
@@ -1083,6 +1095,7 @@ func (s *server) Stop() error {
 	s.authGossiper.Stop()
 	s.chainArb.Stop()
 	s.sweeper.Stop()
+	s.channelNotifier.Stop()
 	s.cc.wallet.Shutdown()
 	s.cc.chainView.Stop()
 	s.connMgr.Stop()

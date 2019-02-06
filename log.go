@@ -15,6 +15,7 @@ import (
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channelnotifier"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/htlcswitch"
@@ -80,6 +81,7 @@ var (
 	wtwrLog = build.NewSubLogger("WTWR", backendLog.Logger)
 	ntfrLog = build.NewSubLogger("NTFR", backendLog.Logger)
 	irpcLog = build.NewSubLogger("IRPC", backendLog.Logger)
+	chnfLog = build.NewSubLogger("CHNF", backendLog.Logger)
 )
 
 // Initialize package-global logger variables.
@@ -105,6 +107,7 @@ func init() {
 	watchtower.UseLogger(wtwrLog)
 	chainrpc.UseLogger(ntfrLog)
 	invoicesrpc.UseLogger(irpcLog)
+	channelnotifier.UseLogger(chnfLog)
 }
 
 // subsystemLoggers maps each subsystem identifier to its associated logger.
@@ -136,6 +139,7 @@ var subsystemLoggers = map[string]btclog.Logger{
 	"WTWR": wtwrLog,
 	"NTFR": ntfnLog,
 	"IRPC": irpcLog,
+	"CHNF": chnfLog,
 }
 
 // initLogRotator initializes the logging rotator to write logs to logFile and

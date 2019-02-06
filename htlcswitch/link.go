@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -1741,6 +1742,12 @@ func (l *channelLink) updateCommitTx() error {
 // NOTE: Part of the ChannelLink interface.
 func (l *channelLink) Peer() lnpeer.Peer {
 	return l.cfg.Peer
+}
+
+// ChannelPoint returns the channel outpoint for the channel link.
+// NOTE: Part of the ChannelLink interface.
+func (l *channelLink) ChannelPoint() *wire.OutPoint {
+	return l.channel.ChannelPoint()
 }
 
 // ShortChanID returns the short channel ID for the channel link. The short

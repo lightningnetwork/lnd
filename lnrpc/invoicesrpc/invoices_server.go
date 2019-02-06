@@ -8,10 +8,11 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/lightningnetwork/lnd/lnrpc"
-	"github.com/lightningnetwork/lnd/lntypes"
 	"google.golang.org/grpc"
 	"gopkg.in/macaroon-bakery.v2/bakery"
+
+	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lntypes"
 )
 
 const (
@@ -28,6 +29,10 @@ var (
 	macaroonOps = []bakery.Op{
 		{
 			Entity: "invoices",
+			Action: "write",
+		},
+		{
+			Entity: "invoices",
 			Action: "read",
 		},
 	}
@@ -37,6 +42,10 @@ var (
 		"/invoicesrpc.Invoices/SubscribeSingleInvoice": {{
 			Entity: "invoices",
 			Action: "read",
+		}},
+		"/invoicesrpc.Invoices/CancelInvoice": {{
+			Entity: "invoices",
+			Action: "write",
 		}},
 	}
 
@@ -180,4 +189,25 @@ func (s *Server) SubscribeSingleInvoice(req *lnrpc.PaymentHash,
 			return nil
 		}
 	}
+}
+
+// CancelInvoice cancels a currently open invoice. If the invoice is already
+// canceled, this call will succeed. If the invoice is already settled, it will
+// fail.
+func (s *Server) CancelInvoice(ctx context.Context,
+	in *CancelInvoiceMsg) (*CancelInvoiceResp, error) {
+
+	paymentHash, err := lntypes.NewHash(in.PaymentHash)
+	if err != nil {
+		return nil, err
+	}
+
+	err = s.cfg.InvoiceRegistry.CancelInvoice(*paymentHash)
+	if err != nil {
+		return nil, err
+	}
+
+	log.Infof("Canceled invoice %v", paymentHash)
+
+	return &CancelInvoiceResp{}, nil
 }

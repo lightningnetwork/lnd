@@ -583,6 +583,11 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		s.chanDB.ChannelGraph(),
 	)
 
+	gossipMessageStore, err := discovery.NewMessageStore(s.chanDB)
+	if err != nil {
+		return nil, err
+	}
+
 	s.authGossiper, err = discovery.New(discovery.Config{
 		Router:     s.chanRouter,
 		Notifier:   s.cc.chainNotifier,
@@ -598,6 +603,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		TrickleDelay:     time.Millisecond * time.Duration(cfg.TrickleDelay),
 		RetransmitDelay:  time.Minute * 30,
 		DB:               chanDB,
+		MessageStore:     gossipMessageStore,
 		AnnSigner:        s.nodeSigner,
 	},
 		s.identityPriv.PubKey(),

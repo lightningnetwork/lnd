@@ -2,7 +2,6 @@ package discovery
 
 import (
 	"bytes"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"runtime"
@@ -13,7 +12,6 @@ import (
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/coreos/bbolt"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -25,13 +23,6 @@ import (
 )
 
 var (
-	// messageStoreKey is a key used to create a top level bucket in
-	// the gossiper database, used for storing messages that are to
-	// be sent to peers. Currently this is used for reliably sending
-	// AnnounceSignatures messages, by persisting them until a send
-	// operation has succeeded.
-	messageStoreKey = []byte("message-store")
-
 	// ErrGossiperShuttingDown is an error that is returned if the gossiper
 	// is in the process of being shut down.
 	ErrGossiperShuttingDown = errors.New("gossiper is shutting down")
@@ -136,6 +127,10 @@ type Config struct {
 	// DB is a global boltdb instance which is needed to pass it in waiting
 	// proof storage to make waiting proofs persistent.
 	DB *channeldb.DB
+
+	// MessageStore is a persistent storage of gossip messages which we will
+	// use to determine which messages need to be resent for a given peer.
+	MessageStore GossipMessageStore
 
 	// AnnSigner is an instance of the MessageSigner interface which will
 	// be used to manually sign any outgoing channel updates. The signer
@@ -814,126 +809,69 @@ func (d *deDupedAnnouncements) Emit() []msgWithSenders {
 // will try to resend them. If we have the full proof, we can safely delete the
 // message from the messageStore.
 func (d *AuthenticatedGossiper) resendAnnounceSignatures() error {
-	type msgTuple struct {
-		peer  *btcec.PublicKey
-		msg   *lnwire.AnnounceSignatures
-		dbKey []byte
-	}
-
-	// Fetch all the AnnounceSignatures messages that was added to the
-	// database.
-	//
-	// TODO(halseth): database access should be abstracted
-	// behind interface.
-	var msgsResend []msgTuple
-	if err := d.cfg.DB.View(func(tx *bbolt.Tx) error {
-		bucket := tx.Bucket(messageStoreKey)
-		if bucket == nil {
-			return nil
-		}
-
-		if err := bucket.ForEach(func(k, v []byte) error {
-			// The database value represents the encoded
-			// AnnounceSignatures message.
-			r := bytes.NewReader(v)
-			msg := &lnwire.AnnounceSignatures{}
-			if err := msg.Decode(r, 0); err != nil {
-				return err
-			}
-
-			// The first 33 bytes of the database key is the peer's
-			// public key.
-			peer, err := btcec.ParsePubKey(k[:33], btcec.S256())
-			if err != nil {
-				return err
-			}
-
-			// Make a copy of the database key corresponding to
-			// these AnnounceSignatures.
-			dbKey := make([]byte, len(k))
-			copy(dbKey, k)
-
-			t := msgTuple{peer, msg, dbKey}
-
-			// Add the message to the slice, such that we can
-			// resend it after the database transaction is over.
-			msgsResend = append(msgsResend, t)
-			return nil
-		}); err != nil {
-			return err
-		}
-		return nil
-	}); err != nil {
+	peerMsgsToResend, err := d.cfg.MessageStore.Messages()
+	if err != nil {
 		return err
-	}
-
-	// deleteMsg removes the message associated with the passed msgTuple
-	// from the messageStore.
-	deleteMsg := func(t msgTuple) error {
-		log.Debugf("Deleting message for chanID=%v from "+
-			"messageStore", t.msg.ChannelID)
-		if err := d.cfg.DB.Update(func(tx *bbolt.Tx) error {
-			bucket := tx.Bucket(messageStoreKey)
-			if bucket == nil {
-				return fmt.Errorf("bucket " +
-					"unexpectedly did not exist")
-			}
-
-			return bucket.Delete(t.dbKey[:])
-		}); err != nil {
-			return fmt.Errorf("Failed deleting message "+
-				"from database: %v", err)
-		}
-		return nil
 	}
 
 	// We now iterate over these messages, resending those that we don't
 	// have the full proof for, deleting the rest.
-	for _, t := range msgsResend {
-		// Check if the full channel proof exists in our graph.
-		chanInfo, _, _, err := d.cfg.Router.GetChannelByID(
-			t.msg.ShortChannelID)
+	for peer, msgsToResend := range peerMsgsToResend {
+		pubKey, err := btcec.ParsePubKey(peer[:], btcec.S256())
 		if err != nil {
-			// If the channel cannot be found, it is most likely a
-			// leftover message for a channel that was closed.  In
-			// this case we delete it from the message store.
-			log.Warnf("unable to fetch channel info for "+
-				"chanID=%v from graph: %v. Will delete local"+
-				"proof from database",
-				t.msg.ChannelID, err)
-			if err := deleteMsg(t); err != nil {
-				return err
-			}
-			continue
+			return err
 		}
 
-		// 1. If the full proof does not exist in the graph, it means
-		// that we haven't received the remote proof yet (or that we
-		// crashed before able to assemble the full proof). Since the
-		// remote node might think they have delivered their proof to
-		// us, we will resend _our_ proof to trigger a resend on their
-		// part: they will then be able to assemble and send us the
-		// full proof.
-		if chanInfo.AuthProof == nil {
-			err := d.sendAnnSigReliably(t.msg, t.peer)
+		for _, msg := range msgsToResend {
+			msg := msg.(*lnwire.AnnounceSignatures)
+
+			// Check if the full channel proof exists in our graph.
+			chanInfo, _, _, err := d.cfg.Router.GetChannelByID(
+				msg.ShortChannelID)
 			if err != nil {
-				return err
+				// If the channel cannot be found, it is most likely a
+				// leftover message for a channel that was closed.  In
+				// this case we delete it from the message store.
+				log.Warnf("unable to fetch channel info for "+
+					"chanID=%v from graph: %v. Will delete local"+
+					"proof from database",
+					msg.ChannelID, err)
+				err = d.cfg.MessageStore.DeleteMessage(msg, peer)
+				if err != nil {
+					return err
+				}
+				continue
 			}
-			continue
-		}
 
-		// 2. If the proof does exist in the graph, we have
-		// successfully received the remote proof and assembled the
-		// full proof. In this case we can safely delete the local
-		// proof from the database. In case the remote hasn't been able
-		// to assemble the full proof yet (maybe because of a crash),
-		// we will send them the full proof if we notice that they
-		// retry sending their half proof.
-		if chanInfo.AuthProof != nil {
-			log.Debugf("Deleting message for chanID=%v from "+
-				"messageStore", t.msg.ChannelID)
-			if err := deleteMsg(t); err != nil {
-				return err
+			// 1. If the full proof does not exist in the graph, it means
+			// that we haven't received the remote proof yet (or that we
+			// crashed before able to assemble the full proof). Since the
+			// remote node might think they have delivered their proof to
+			// us, we will resend _our_ proof to trigger a resend on their
+			// part: they will then be able to assemble and send us the
+			// full proof.
+			if chanInfo.AuthProof == nil {
+				err := d.sendAnnSigReliably(msg, pubKey)
+				if err != nil {
+					return err
+				}
+				continue
+			}
+
+			// 2. If the proof does exist in the graph, we have
+			// successfully received the remote proof and assembled the
+			// full proof. In this case we can safely delete the local
+			// proof from the database. In case the remote hasn't been able
+			// to assemble the full proof yet (maybe because of a crash),
+			// we will send them the full proof if we notice that they
+			// retry sending their half proof.
+			if chanInfo.AuthProof != nil {
+				log.Debugf("Deleting message for chanID=%v from "+
+					"messageStore", msg.ChannelID)
+				err := d.cfg.MessageStore.DeleteMessage(msg, peer)
+				if err != nil {
+					return err
+				}
 			}
 		}
 	}
@@ -2434,31 +2372,10 @@ func (d *AuthenticatedGossiper) sendAnnSigReliably(
 
 	// We first add this message to the database, such that in case
 	// we do not succeed in sending it to the peer, we'll fetch it
-	// from the DB next time we start, and retry. We use the peer ID
-	// + shortChannelID as key, as there possibly is more than one
-	// channel opening in progress to the same peer.
-	var key [41]byte
-	copy(key[:33], remotePeer.SerializeCompressed())
-	binary.BigEndian.PutUint64(key[33:], msg.ShortChannelID.ToUint64())
-
-	err := d.cfg.DB.Update(func(tx *bbolt.Tx) error {
-		bucket, err := tx.CreateBucketIfNotExists(messageStoreKey)
-		if err != nil {
-			return err
-		}
-
-		// Encode the AnnounceSignatures message.
-		var b bytes.Buffer
-		if err := msg.Encode(&b, 0); err != nil {
-			return err
-		}
-
-		// Add the encoded message to the database using the peer
-		// + shortChanID as key.
-		return bucket.Put(key[:], b.Bytes())
-
-	})
-	if err != nil {
+	// from the DB next time we start, and retry.
+	var remotePubKey [33]byte
+	copy(remotePubKey[:], remotePeer.SerializeCompressed())
+	if err := d.cfg.MessageStore.AddMessage(msg, remotePubKey); err != nil {
 		return err
 	}
 

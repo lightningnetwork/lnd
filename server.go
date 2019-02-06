@@ -598,11 +598,11 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		ChainHash:  *activeNetParams.GenesisHash,
 		Broadcast:  s.BroadcastMessage,
 		ChanSeries: chanSeries,
-		SendToPeer: s.SendToPeer,
 		FindPeer: func(pub *btcec.PublicKey) (lnpeer.Peer, error) {
 			return s.FindPeer(pub)
 		},
 		NotifyWhenOnline:  s.NotifyWhenOnline,
+		NotifyWhenOffline: s.NotifyWhenOffline,
 		ProofMatureDelta:  0,
 		TrickleDelay:      time.Millisecond * time.Duration(cfg.TrickleDelay),
 		RetransmitDelay:   time.Minute * 30,

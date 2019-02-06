@@ -3056,7 +3056,9 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// Wait for the single sweep txn to appear in the mempool.
-	htlcSweepTxID, err := waitForTxInMempool(net.Miner.Node, minerMempoolTimeout)
+	htlcSweepTxID, err := waitForTxInMempool(
+		net.Miner.Node, minerMempoolTimeout,
+	)
 	if err != nil {
 		t.Fatalf("failed to get sweep tx from mempool: %v", err)
 	}
@@ -3152,11 +3154,9 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// Generate the final block that sweeps all htlc funds into the user's
-	// wallet.
-	blockHash, err = net.Miner.Node.Generate(1)
-	if err != nil {
-		t.Fatalf("unable to generate block: %v", err)
-	}
+	// wallet, and make sure the sweep is in this block.
+	block = mineBlocks(t, net, 1, 1)[0]
+	assertTxInBlock(t, block, htlcSweepTxID)
 
 	// Now that the channel has been fully swept, it should no longer show
 	// up within the pending channels RPC.

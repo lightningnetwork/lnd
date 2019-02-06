@@ -394,43 +394,36 @@ func numOpenChannelsPending(ctxt context.Context, node *lntest.HarnessNode) (int
 func assertNumOpenChannelsPending(ctxt context.Context, t *harnessTest,
 	alice, bob *lntest.HarnessNode, expected int) {
 
-	const nPolls = 10
-
-	ticker := time.NewTicker(200 * time.Millisecond)
-	defer ticker.Stop()
-
-	for i := 0; i < nPolls; i++ {
+	err := lntest.WaitNoError(func() error {
 		aliceNumChans, err := numOpenChannelsPending(ctxt, alice)
 		if err != nil {
-			t.Fatalf("error fetching alice's node (%v) pending channels %v",
-				alice.NodeID, err)
+			return fmt.Errorf("error fetching alice's node (%v) "+
+				"pending channels %v", alice.NodeID, err)
 		}
 		bobNumChans, err := numOpenChannelsPending(ctxt, bob)
 		if err != nil {
-			t.Fatalf("error fetching bob's node (%v) pending channels %v",
-				bob.NodeID, err)
+			return fmt.Errorf("error fetching bob's node (%v) "+
+				"pending channels %v", bob.NodeID, err)
 		}
 
-		isLastIteration := i == nPolls-1
-
 		aliceStateCorrect := aliceNumChans == expected
-		if !aliceStateCorrect && isLastIteration {
-			t.Fatalf("number of pending channels for alice incorrect. "+
-				"expected %v, got %v", expected, aliceNumChans)
+		if !aliceStateCorrect {
+			return fmt.Errorf("number of pending channels for "+
+				"alice incorrect. expected %v, got %v",
+				expected, aliceNumChans)
 		}
 
 		bobStateCorrect := bobNumChans == expected
-		if !bobStateCorrect && isLastIteration {
-			t.Fatalf("number of pending channels for bob incorrect. "+
-				"expected %v, got %v",
-				expected, bobNumChans)
+		if !bobStateCorrect {
+			return fmt.Errorf("number of pending channels for bob "+
+				"incorrect. expected %v, got %v", expected,
+				bobNumChans)
 		}
 
-		if aliceStateCorrect && bobStateCorrect {
-			return
-		}
-
-		<-ticker.C
+		return nil
+	}, 15*time.Second)
+	if err != nil {
+		t.Fatalf(err.Error())
 	}
 }
 

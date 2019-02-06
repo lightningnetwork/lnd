@@ -7665,6 +7665,10 @@ func testDataLossProtection(net *lntest.NetworkHarness, t *harnessTest) {
 			t.Fatalf("unable to restart node: %v", err)
 		}
 
+		// Make sure the channel is still there from the PoV of the
+		// node.
+		assertNodeNumChannels(t, node, 1)
+
 		// Now query for the channel state, it should show that it's at
 		// a state number in the past, not the *latest* state.
 		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
@@ -7675,7 +7679,6 @@ func testDataLossProtection(net *lntest.NetworkHarness, t *harnessTest) {
 		if nodeChan.NumUpdates != stateNumPreCopy {
 			t.Fatalf("db copy failed: %v", nodeChan.NumUpdates)
 		}
-		assertNodeNumChannels(t, node, 1)
 
 		balReq := &lnrpc.WalletBalanceRequest{}
 		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)

@@ -321,6 +321,12 @@ and send some amount of bitcoins to `Alice`.
 - Connect `Bob` node to the `Faucet` and make multihop payment (`Alice->Faucet->Bob`)
 - Close channel with `Faucet` and check the onchain balance.
 
+### Standalone docker builds
+
+The Dockerfiles are designed to be built from one level up from this directory, so `docker build .` from inside `lnd` will not work. Instead, do this:
+
+   docker build -f lnd/Dockerfile .. -t lnd 
+
 ### Questions
 [![Irc](https://img.shields.io/badge/chat-on%20freenode-brightgreen.svg)](https://webchat.freenode.net/?channels=lnd)
 

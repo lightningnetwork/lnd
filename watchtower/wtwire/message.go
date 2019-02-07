@@ -88,7 +88,7 @@ func makeEmptyMessage(msgType MessageType) (Message, error) {
 
 	switch msgType {
 	case MsgInit:
-		msg = &Init{&lnwire.Init{}}
+		msg = &Init{}
 	case MsgCreateSession:
 		msg = &CreateSession{}
 	case MsgCreateSessionReply:

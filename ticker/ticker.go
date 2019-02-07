@@ -60,10 +60,10 @@ type Ticker interface {
 	Stop()
 }
 
-// ticker is the production implementation of the resumable Ticker interface.
-// This allows various components to toggle their need for tick events, which
-// may vary depending on system load.
-type ticker struct {
+// T is the production implementation of the resumable Ticker interface. This
+// allows various components to toggle their need for tick events, which may
+// vary depending on system load.
+type T struct {
 	// interval is the desired duration between ticks when active.
 	interval time.Duration
 
@@ -73,10 +73,13 @@ type ticker struct {
 	ticker *time.Ticker
 }
 
+// A compile-time constraint to ensure T satisfies the Ticker interface.
+var _ Ticker = (*T)(nil)
+
 // New returns a new ticker that signals with the given interval when not
 // paused. The ticker starts off inactive.
-func New(interval time.Duration) Ticker {
-	return &ticker{
+func New(interval time.Duration) *T {
+	return &T{
 		interval: interval,
 	}
 }
@@ -85,18 +88,18 @@ func New(interval time.Duration) Ticker {
 // prescribed interval. This method returns nil when the ticker is paused.
 //
 // NOTE: Part of the Ticker interface.
-func (t *ticker) Ticks() <-chan time.Time {
+func (t *T) Ticks() <-chan time.Time {
 	if t.ticker == nil {
 		return nil
 	}
 	return t.ticker.C
 }
 
-// Resumes starts underlying time.Ticker and causes the ticker to begin
+// Resume starts underlying time.Ticker and causes the ticker to begin
 // delivering scheduled events.
 //
 // NOTE: Part of the Ticker interface.
-func (t *ticker) Resume() {
+func (t *T) Resume() {
 	if t.ticker == nil {
 		t.ticker = time.NewTicker(t.interval)
 	}
@@ -106,7 +109,7 @@ func (t *ticker) Resume() {
 // regular intervals.
 //
 // NOTE: Part of the Ticker interface.
-func (t *ticker) Pause() {
+func (t *T) Pause() {
 	if t.ticker != nil {
 		t.ticker.Stop()
 		t.ticker = nil
@@ -118,6 +121,6 @@ func (t *ticker) Pause() {
 // implementation, this is equivalent to Pause.
 //
 // NOTE: Part of the Ticker interface.
-func (t *ticker) Stop() {
+func (t *T) Stop() {
 	t.Pause()
 }

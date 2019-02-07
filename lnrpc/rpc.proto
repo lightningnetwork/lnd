@@ -1479,6 +1479,11 @@ message QueryRoutesRequest {
     send the payment.
     */
     FeeLimit fee_limit = 5;
+
+    /**
+    An optional list of nodes and channels the route must pass through in that order.
+    */
+    RoutePeg route_peg = 6;
 }
 message QueryRoutesResponse {
     repeated Route routes = 1 [json_name = "routes"];
@@ -1717,6 +1722,21 @@ message ClosedChannelUpdate {
     int64 capacity = 2;
     uint32 closed_height = 3;
     ChannelPoint chan_point = 4;
+}
+
+message HopPeg {
+    /// The public key of the pegged node.
+    string node_id = 1 [json_name = "node_id"];
+
+    /// Optional. If not 0, the unique identifier of the pegged channel leading to the node.
+    uint64 chan_id = 2 [json_name = "chan_id"];
+}
+
+message RoutePeg {
+    /**
+    A list of hop pegs that that the selected route needs to pass through in that order.
+    */
+    repeated HopPeg hop_pegs = 1 [json_name = "hop_pegs"];
 }
 
 message HopHint {

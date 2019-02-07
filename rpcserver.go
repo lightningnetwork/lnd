@@ -3992,6 +3992,29 @@ func (r *rpcServer) QueryRoutes(ctx context.Context,
 
 	feeLimit := calculateFeeLimit(in.FeeLimit, amtMSat)
 
+	var pegs []routing.HopPeg
+	for _, p := range in.GetRoutePeg().GetHopPegs() {
+		if len(p.NodeId) == 0 {
+			return nil, fmt.Errorf("Peg node Id is " +
+				"missing")
+		}
+		nodeIDBytes, err := hex.DecodeString(p.NodeId)
+		if err != nil {
+			return nil, fmt.Errorf("Failed to decode " +
+				"peg node Id")
+		}
+		nodeID, err := btcec.ParsePubKey(nodeIDBytes,
+			btcec.S256())
+		if err != nil {
+			return nil, fmt.Errorf("Failed to parse " +
+				"peg public key from node Id")
+		}
+		pegs = append(pegs, routing.HopPeg{
+			NodeID:    nodeID,
+			ChannelID: p.ChanId,
+		})
+	}
+
 	// numRoutes will default to 10 if not specified explicitly.
 	numRoutesIn := uint32(in.NumRoutes)
 	if numRoutesIn == 0 {
@@ -4007,11 +4030,11 @@ func (r *rpcServer) QueryRoutes(ctx context.Context,
 	)
 	if in.FinalCltvDelta == 0 {
 		routes, findErr = r.server.chanRouter.FindRoutes(
-			pubKey, amtMSat, feeLimit, nil, numRoutesIn,
+			pubKey, amtMSat, feeLimit, pegs, numRoutesIn,
 		)
 	} else {
 		routes, findErr = r.server.chanRouter.FindRoutes(
-			pubKey, amtMSat, feeLimit, nil, numRoutesIn,
+			pubKey, amtMSat, feeLimit, pegs, numRoutesIn,
 			uint16(in.FinalCltvDelta),
 		)
 	}

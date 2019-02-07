@@ -2719,7 +2719,8 @@ func unmarshallSendToRouteRequest(req *lnrpc.SendToRouteRequest,
 
 	return &rpcPaymentRequest{
 		SendRequest: &lnrpc.SendRequest{
-			PaymentHash: req.PaymentHash,
+			PaymentHash:       req.PaymentHash,
+			PaymentHashString: req.PaymentHashString,
 		},
 		routes: routes,
 	}, nil

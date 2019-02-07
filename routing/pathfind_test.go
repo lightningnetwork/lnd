@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
-	"math"
 	"math/big"
 	"net"
 	"os"
@@ -40,11 +39,6 @@ const (
 	// implementations will use in order to ensure that they're calculating
 	// the payload for each hop in path properly.
 	specExampleFilePath = "testdata/spec_example.json"
-
-	// noFeeLimit is the maximum value of a payment through Lightning. We
-	// can use this value to signal there is no fee limit since payments
-	// should never be larger than this.
-	noFeeLimit = lnwire.MilliSatoshi(math.MaxUint32)
 )
 
 var (
@@ -944,8 +938,8 @@ func TestKShortestPathFinding(t *testing.T) {
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
 	target := graph.aliasMap["luoji"]
 	paths, err := findPaths(
-		nil, graph.graph, sourceNode, target, paymentAmt, noFeeLimit, 100,
-		nil,
+		nil, graph.graph, sourceNode, target, paymentAmt, noFeeLimit,
+		100, nil, nil,
 	)
 	if err != nil {
 		t.Fatalf("unable to find paths between roasbeef and "+
@@ -1242,8 +1236,10 @@ func TestNewRoute(t *testing.T) {
 	}
 }
 
+// TestNewRoutePathTooLong tests that too-long paths are handled correctly; that
+// path with 20 hops are valid while paths with 21 hops are rejected.
 func TestNewRoutePathTooLong(t *testing.T) {
-	t.Skip()
+	t.Parallel()
 
 	// Ensure that potential paths which are over the maximum hop-limit are
 	// rejected.
@@ -1296,11 +1292,93 @@ func TestNewRoutePathTooLong(t *testing.T) {
 		sourceNode, target, paymentAmt,
 	)
 	if err == nil {
-		t.Fatalf("should not have been able to find path, supposed to be "+
-			"greater than 20 hops, found route with %v hops",
+		t.Fatalf("should not have been able to find path, supposed to "+
+			"be greater than 20 hops, found route with %v hops",
 			len(path))
 	}
 
+	if !IsError(err, ErrMaxHopsExceeded) {
+		t.Fatalf("expected route too long error, got %v instead", err)
+	}
+
+	// Add another vertex "gollum" connecting "inez" and "rick", providing an
+	// alternate path with smaller number of hops to "vincent" (14), but with
+	// higher total fees. Check that the new path is found.
+	gollumPubKeyHex := "03dd46ff29a6941b4a2607525b043ec9b020b3f318a1bf281536fd7011ec59c882"
+	gollumPubKeyBytes, err := hex.DecodeString(gollumPubKeyHex)
+	if err != nil {
+		t.Fatalf("unable to decode public key: %v", err)
+	}
+	gollumPubKey, err := btcec.ParsePubKey(gollumPubKeyBytes, btcec.S256())
+	if err != nil {
+		t.Fatalf("unable to parse public key from bytes: %v", err)
+	}
+
+	gollum := &channeldb.LightningNode{}
+	gollum.AddPubKey(gollumPubKey)
+	gollum.Alias = "gollum"
+	graph.aliasMap["gollum"] = gollumPubKey
+
+	// Select high fees on the gollum edges.
+	_, edge, _, err := graph.graph.FetchChannelEdgesByID(12345)
+	if err != nil {
+		t.Fatalf("unable to fetch edge: %v", err)
+	}
+	if edge == nil {
+		t.Fatalf("unable to fetch edge: %v", err)
+	}
+	hugeBaseFee := edge.FeeBaseMSat * 100
+	hugeFeeRate := edge.FeeProportionalMillionths * 100
+
+	// Create the channel edge going from inez to gollum, and from
+	// gollum to rick and include them in our map of additional edges.
+	inezToGollum := &channeldb.ChannelEdgePolicy{
+		Node:                      gollum,
+		ChannelID:                 222,
+		FeeBaseMSat:               hugeBaseFee,
+		FeeProportionalMillionths: hugeFeeRate,
+		TimeLockDelta:             144,
+	}
+
+	rick, err := graph.graph.FetchLightningNode(graph.aliasMap["rick"])
+	if err != nil {
+		t.Fatalf("unable to retrieve %s node: %v", "rick", err)
+	}
+
+	gollumToRick := &channeldb.ChannelEdgePolicy{
+		Node:                      rick,
+		ChannelID:                 223,
+		FeeBaseMSat:               hugeBaseFee,
+		FeeProportionalMillionths: hugeFeeRate,
+		TimeLockDelta:             144,
+	}
+
+	additionalEdges := map[Vertex][]*channeldb.ChannelEdgePolicy{
+		NewVertex(graph.aliasMap["inez"]):   {inezToGollum},
+		NewVertex(graph.aliasMap["gollum"]): {gollumToRick},
+	}
+
+	target = graph.aliasMap["vincent"]
+	path, err = findPath(
+		&graphParams{
+			graph:           graph.graph,
+			additionalEdges: additionalEdges,
+		},
+		&restrictParams{
+			ignoredNodes: ignoredVertexes,
+			ignoredEdges: ignoredEdges,
+			feeLimit:     noFeeLimit,
+		},
+		sourceNode, target, paymentAmt,
+	)
+
+	if err != nil {
+		t.Fatalf("path should have been found")
+	}
+
+	if len(path) != 14 {
+		t.Fatalf("expected %v hops, got %v hops", 14, len(path))
+	}
 }
 
 func TestPathNotAvailable(t *testing.T) {
@@ -1704,7 +1782,7 @@ func TestPathFindSpecExample(t *testing.T) {
 	// Query for a route of 4,999,999 mSAT to carol.
 	carol := ctx.aliases["C"]
 	const amt lnwire.MilliSatoshi = 4999999
-	routes, err := ctx.router.FindRoutes(carol, amt, noFeeLimit, 100)
+	routes, err := ctx.router.FindRoutes(carol, amt, noFeeLimit, nil, 100)
 	if err != nil {
 		t.Fatalf("unable to find route: %v", err)
 	}
@@ -1765,7 +1843,7 @@ func TestPathFindSpecExample(t *testing.T) {
 
 	// We'll now request a route from A -> B -> C.
 	ctx.router.routeCache = make(map[routeTuple][]*Route)
-	routes, err = ctx.router.FindRoutes(carol, amt, noFeeLimit, 100)
+	routes, err = ctx.router.FindRoutes(carol, amt, noFeeLimit, nil, 100)
 	if err != nil {
 		t.Fatalf("unable to find routes: %v", err)
 	}

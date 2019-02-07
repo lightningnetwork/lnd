@@ -38,6 +38,11 @@ const (
 	// some effect with smaller time lock values. The value may need
 	// tweaking and/or be made configurable in the future.
 	RiskFactorBillionths = 15
+
+	// noFeeLimit is the maximum value of a payment through Lightning. We
+	// can use this value to signal there is no fee limit since payments
+	// should never be larger than this.
+	noFeeLimit = lnwire.MilliSatoshi(math.MaxUint32)
 )
 
 // HopHint is a routing hint that contains the minimum information of a channel
@@ -60,6 +65,17 @@ type HopHint struct {
 
 	// CLTVExpiryDelta is the time-lock delta of the channel.
 	CLTVExpiryDelta uint16
+}
+
+// HopPeg is a routing peg that the route must pass through. It includes a
+// Node ID and an optional Channel ID that leads to it.
+type HopPeg struct {
+	// NodeID is the public key of the node at the start of the channel.
+	NodeID *btcec.PublicKey
+
+	// ChannelID is the unique identifier of the channel, or 0 if no
+	// specific is pegged.
+	ChannelID uint64
 }
 
 // Hop represents an intermediate or final node of the route. This naming
@@ -102,6 +118,45 @@ func computeFee(amt lnwire.MilliSatoshi,
 	edge *channeldb.ChannelEdgePolicy) lnwire.MilliSatoshi {
 
 	return edge.FeeBaseMSat + (amt*edge.FeeProportionalMillionths)/1000000
+}
+
+func computePathFee(amt lnwire.MilliSatoshi,
+	pathEdges []*channeldb.ChannelEdgePolicy) lnwire.MilliSatoshi {
+
+	var nextIncomingAmount lnwire.MilliSatoshi
+	pathLength := len(pathEdges)
+	for i := pathLength - 1; i >= 0; i-- {
+
+		// If this is the last hop, then the hop payload will contain
+		// the exact amount. In BOLT #4: Onion Routing
+		// Protocol / "Payload for the Last Node", this is detailed.
+		amtToForward := amt
+
+		// Fee is not part of the hop payload, but only used for
+		// reporting through RPC. Set to zero for the final hop.
+		fee := lnwire.MilliSatoshi(0)
+
+		// If the current hop isn't the last hop, then add enough funds
+		// to pay for transit over the next link.
+		if i != len(pathEdges)-1 {
+			// The amount that the current hop needs to forward is
+			// equal to the incoming amount of the next hop.
+			amtToForward = nextIncomingAmount
+
+			// The fee that needs to be paid to the current hop is
+			// based on the amount that this hop needs to forward
+			// and its policy for the outgoing channel. This policy
+			// is stored as part of the incoming channel of
+			// the next hop.
+			fee = computeFee(amtToForward, pathEdges[i+1])
+		}
+
+		// Finally, we update the amount that needs to flow into the
+		// *next* hop, which is the amount this hop needs to forward,
+		// accounting for the fee that it takes.
+		nextIncomingAmount = amtToForward + fee
+	}
+	return nextIncomingAmount - amt
 }
 
 // isSamePath returns true if path1 and path2 travel through the exact same
@@ -437,6 +492,14 @@ type graphParams struct {
 	// set to the current available sending bandwidth for active local
 	// channels, and 0 for inactive channels.
 	bandwidthHints map[uint64]lnwire.MilliSatoshi
+
+	// originVertex, if not null, points to the origin of the path. The
+	// distinction between the source and the origin is required when
+	// calculating spur paths and when stitching together paths to
+	// pass through peg nodes. It is used to infer whether disabled
+	// channels should be included in the path, for fee calcuation of
+	// stitched paths, etc.
+	originVertex *Vertex
 }
 
 // restrictParams wraps the set of restrictions passed to findPath that the
@@ -457,6 +520,12 @@ type restrictParams struct {
 	// outgoingChannelID is the channel that needs to be taken to the first
 	// hop. If nil, any channel may be used.
 	outgoingChannelID *uint64
+
+	// stopAtMaxHopsExceeded instructs the find path algorithm to
+	// stop further search attempts if the number of hops of the shortest
+	// path found is above the maximum. It's main purpose is to prevent
+	// the search algorithm from entering an infinite recurrsion loop.
+	stopAtMaxHopsExceeded bool
 }
 
 // findPath attempts to find a path from the source node within the
@@ -533,6 +602,10 @@ func findPath(g *graphParams, r *restrictParams,
 	}
 
 	sourceVertex := Vertex(sourceNode.PubKeyBytes)
+	originVertex := sourceVertex
+	if g.originVertex != nil {
+		originVertex = *g.originVertex
+	}
 
 	// We can't always assume that the end destination is publicly
 	// advertised to the network and included in the graph.ForEachNode call
@@ -543,7 +616,6 @@ func findPath(g *graphParams, r *restrictParams,
 	targetVertex := NewVertex(target)
 	targetNode := &channeldb.LightningNode{PubKeyBytes: targetVertex}
 	distance[targetVertex] = nodeWithDist{
-		dist:            0,
 		node:            targetNode,
 		amountToReceive: amt,
 		fee:             0,
@@ -566,8 +638,7 @@ func findPath(g *graphParams, r *restrictParams,
 		// skip it.
 		// TODO(halseth): also ignore disable flags for non-local
 		// channels if bandwidth hint is set?
-		isSourceChan := fromVertex == sourceVertex
-
+		isSourceChan := fromVertex == originVertex
 		edgeFlags := edge.ChannelFlags
 		isDisabled := edgeFlags&lnwire.ChanUpdateDisabled != 0
 
@@ -622,7 +693,7 @@ func findPath(g *graphParams, r *restrictParams,
 		// node, no additional timelock is required.
 		var fee lnwire.MilliSatoshi
 		var timeLockDelta uint16
-		if fromVertex != sourceVertex {
+		if fromVertex != originVertex {
 			fee = computeFee(amountToSend, edge)
 			timeLockDelta = edge.TimeLockDelta
 		}
@@ -795,14 +866,346 @@ func findPath(g *graphParams, r *restrictParams,
 	// hops, then it's invalid.
 	numEdges := len(pathEdges)
 	if numEdges > HopLimit {
-		return nil, newErr(ErrMaxHopsExceeded, "potential path has "+
-			"too many hops")
+		if r.stopAtMaxHopsExceeded {
+			return pathEdges, newErr(ErrMaxHopsExceeded,
+				"potential path has too many hops")
+
+		}
+		// Make another attempt to find a route which is not the
+		// shortest path in terms of fees, but with number of
+		// hops below the max.
+		pathKEdges, err := findKPaths(
+			g,
+			r,
+			sourceNode, target,
+			amt,
+			pathEdges,
+			1,
+		)
+		if err != nil || len(pathKEdges) == 0 {
+			return nil, newErr(ErrMaxHopsExceeded, "shortest"+
+				" path has too many hops. No alternate "+
+				" path found.")
+		}
+		// Remove the first artificial node added at path
+		// beginning.
+		pathEdges = pathKEdges[0][1:]
 	}
 
 	return pathEdges, nil
 }
 
+// prepareHopPegs adds pegged hops for pegged channel ids.
+func prepareHopPegs(graph *channeldb.ChannelGraph,
+	in []HopPeg) ([]HopPeg, error) {
+
+	var (
+		expanded []HopPeg
+		out      []HopPeg
+	)
+
+	// If channel id is pegged too, find the node connected to it and
+	// add it as pegged node.
+	for i, peg := range in {
+		if peg.ChannelID != 0 {
+			if i == 0 {
+				return nil, newErrf(ErrPegNotInNetwork,
+					fmt.Sprintf("Error processing "+
+						" pegged hops"))
+			}
+			edgeInfo, _, _, err :=
+				graph.FetchChannelEdgesByID(peg.ChannelID)
+			if err != nil {
+				return nil, err
+			}
+			pegVertex := NewVertex(peg.NodeID)
+			prevHopBytes, err :=
+				edgeInfo.OtherNodeKeyBytes(pegVertex[:])
+			if err != nil {
+				return nil, err
+			}
+			pub, err :=
+				btcec.ParsePubKey(prevHopBytes, btcec.S256())
+			if err != nil {
+				return nil, err
+			}
+			pPeg := HopPeg{
+				NodeID: pub,
+			}
+			expanded = append(expanded, pPeg)
+		}
+		expanded = append(expanded, peg)
+	}
+
+	// This should never happen, as both source and target should be
+	// included in pegged hops.
+	if len(expanded) < 2 {
+		return expanded, nil
+	}
+
+	// Remove duplicate pegs. If a previous hop was added as peg due to
+	// pegged channel ID, an already existing pegged hop may exist and
+	// should be removed.
+	for i, peg := range expanded {
+		if peg.ChannelID == 0 && i > 0 &&
+			NewVertex(peg.NodeID) ==
+				NewVertex(expanded[i-1].NodeID) {
+			continue
+		}
+		out = append(out, peg)
+	}
+	return out, nil
+}
+
 // findPaths implements a k-shortest paths algorithm to find all the reachable
+// paths between the passed source and target. First the shortest path is found
+// and the k-shortest paths are then calculated based on it.
+func findPaths(tx *bbolt.Tx, graph *channeldb.ChannelGraph,
+	source *channeldb.LightningNode, target *btcec.PublicKey,
+	amt lnwire.MilliSatoshi, feeLimit lnwire.MilliSatoshi, numPaths uint32,
+	bandwidthHints map[uint64]lnwire.MilliSatoshi,
+	additionalPegs []HopPeg) ([][]*channeldb.ChannelEdgePolicy, error) {
+
+	ignoredVertexes := make(map[Vertex]struct{})
+	ignoredEdges := make(map[edgeLocator]struct{})
+
+	// TODO(roasbeef): modifying ordering within heap to eliminate final
+	// sorting step?
+	var (
+		shortestPaths  [][]*channeldb.ChannelEdgePolicy
+		candidatePaths pathHeap
+		startingPath   []*channeldb.ChannelEdgePolicy
+		pegs           []HopPeg
+		segPaths       [][]*channeldb.ChannelEdgePolicy
+	)
+	heap.Init(&candidatePaths)
+
+	// The path is computed in segments, from source to first peg, to
+	// second peg, etc. until target. The different segments are then
+	// stitched together to form an end to end shortest path.
+	src, _ := source.PubKey()
+	originVertex := NewVertex(src)
+
+	// Include the source and destination as additional pegs.
+	pegs = append(pegs, HopPeg{NodeID: src})
+	pegs = append(pegs, additionalPegs...)
+	pegs = append(pegs, HopPeg{NodeID: target})
+
+	// If channel id is pegged too, find the node connected to it and
+	// add it as pegged node.
+	pegs, err := prepareHopPegs(graph, pegs)
+	if err != nil {
+		return nil, err
+	}
+
+	// Segment parameters used later to save re-calculations.
+	type segmentParams struct {
+		src    *channeldb.LightningNode
+		dest   *btcec.PublicKey
+		pegged bool
+	}
+	segParams := make([]*segmentParams, len(pegs)-1)
+	// Break path to segments between pegs.
+	for j := 1; j < len(pegs); j++ {
+		var segPath []*channeldb.ChannelEdgePolicy
+		peg := pegs[j]
+		prevPeg := pegs[j-1]
+		prevNode, err := graph.FetchLightningNode(prevPeg.NodeID)
+		if err != nil {
+			return nil, err
+		}
+
+		// First we'll find a single shortest path from the source
+		// (prev step) to the target (next step) that's capable of
+		// carrying amt satoshis along the path before fees are
+		// calculated.
+		if peg.ChannelID == 0 {
+			segPath, err = findPath(
+				&graphParams{
+					tx:             tx,
+					graph:          graph,
+					bandwidthHints: bandwidthHints,
+					originVertex:   &originVertex,
+				},
+				&restrictParams{
+					ignoredNodes: ignoredVertexes,
+					ignoredEdges: ignoredEdges,
+					feeLimit:     feeLimit,
+				},
+				prevNode, peg.NodeID, amt,
+			)
+			if err != nil {
+				log.Errorf("Unable to find path: %v", err)
+				return nil, err
+			}
+		} else {
+			// create a one-hop pegged path from previous
+			// hop through pegged channel.
+			info, p1, p2, err :=
+				graph.FetchChannelEdgesByID(peg.ChannelID)
+			if err != nil {
+				return nil, err
+			}
+
+			// Select the relevant edge policy.
+			policy := p2
+			nodeID := NewVertex(peg.NodeID)
+			if bytes.Equal(nodeID[:], info.NodeKey2Bytes[:]) {
+				policy = p1
+			}
+			segPath = append(segPath, policy)
+		}
+
+		// Make sure the segment edges are not transversed
+		// again in next segments of the path
+		for _, edge := range segPath {
+			locator := newEdgeLocator(edge)
+			ignoredEdges[*locator] = struct{}{}
+		}
+
+		// Stitch the path to the previous steps
+		startingPath = append(startingPath, segPath...)
+
+		// Keep the shortest segment paths for later stitching
+		// with alternate paths of other segments.
+		segPaths = append(segPaths, segPath)
+
+		// Keep segement parameters and save some cycles when
+		// expanding to K-paths.
+		segParams[j-1] = &segmentParams{
+			src:    prevNode,
+			dest:   peg.NodeID,
+			pegged: peg.ChannelID != 0,
+		}
+	}
+
+	// Check thta total fee of stitched path is below the limit.
+	startingPathFee := computePathFee(amt, startingPath)
+	if startingPathFee > feeLimit {
+		log.Errorf("Shortest path exceeds path limit")
+		return nil, newErr(ErrNoRouteFound, "shortest path exceeds "+
+			"fee limit")
+	}
+
+	// Closure helper for stiching segment path to all other shortest
+	// segments to form and end to end path.
+	stitchPath := func(i int, path []*channeldb.ChannelEdgePolicy,
+	) (stitched []*channeldb.ChannelEdgePolicy) {
+
+		for j := 0; j < len(segPaths); j++ {
+			seg := segPaths[j]
+			if i == j {
+				seg = path
+			}
+			stitched = append(stitched, seg...)
+		}
+		return stitched
+	}
+
+	// For each segment in the path, get up to additional numPath-1 paths.
+	// Stitch each candidate of segment-i with the shortest path composed
+	// of all other segments to form a candidate end-to-end path. Then
+	// select up to numPath end to end shortest paths. This does not
+	// necessarily end up with the shortest set of paths, rather is a
+	// complexity compromise.
+	for i := 0; i < len(segPaths); i++ {
+		// no point in calculating alternate paths if
+		// channel is fixed between source and destination.
+		if segParams[i].pegged {
+			continue
+		}
+		sSrc := segParams[i].src
+		sDest := segParams[i].dest
+		sFeeLimit := noFeeLimit
+		if feeLimit != noFeeLimit {
+			segFee := computePathFee(amt, segPaths[i])
+			sFeeLimit = feeLimit - startingPathFee + segFee
+		}
+		// Copy ignored edges apart from edges included in this
+		// segment.
+		sIgnoredEdges := make(map[edgeLocator]struct{})
+		for k, v := range ignoredEdges {
+			sIgnoredEdges[k] = v
+		}
+		for _, e := range segPaths[i] {
+			delete(sIgnoredEdges, *newEdgeLocator(e))
+		}
+
+		// Get additional paths for the segment.
+		segKPaths, err := findKPaths(
+			&graphParams{
+				tx:             tx,
+				graph:          graph,
+				bandwidthHints: bandwidthHints,
+				originVertex:   &originVertex,
+			},
+			&restrictParams{
+				ignoredNodes: ignoredVertexes,
+				ignoredEdges: sIgnoredEdges,
+				feeLimit:     sFeeLimit,
+			},
+			sSrc, sDest,
+			amt,
+			segPaths[i],
+			numPaths,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		// Stitch the segment paths found for this segment with the
+		// shortest paths of all other segments.
+		for j, segKPath := range segKPaths {
+
+			// Avoid duplicates. The shortest path is selected
+			// already in the first iteration.
+			if i != 0 && j == 0 {
+				continue
+			}
+
+			// replace the first segment shortest path
+			// with a replica of itself starting with an
+			// artificial path from the source node.
+			if i == 0 && j == 0 {
+				segPaths[0] = segKPath
+			}
+
+			// Stitch the segments to an end to end path
+			stitchedPath := stitchPath(i, segKPath)
+			stitchedPathLen := len(stitchedPath)
+
+			// Filter out those which are too long. Fee limit
+			// was already taken into account when calculating
+			// K paths for the segment.
+			if stitchedPathLen > HopLimit {
+				continue
+			}
+
+			// Push stitched path to list of candidates.
+			newPath := path{
+				hops: stitchedPath,
+				dist: stitchedPathLen,
+			}
+			heap.Push(&candidatePaths, newPath)
+		}
+	}
+
+	// Select best candidates.
+	for k := uint32(0); k < numPaths; k++ {
+
+		// If our min-heap of candidate paths is empty, then we can
+		// exit early.
+		if candidatePaths.Len() == 0 {
+			break
+		}
+		nextShortestPath := heap.Pop(&candidatePaths).(path).hops
+		shortestPaths = append(shortestPaths, nextShortestPath)
+	}
+
+	return shortestPaths, nil
+}
+
+// findKPaths implements a k-shortest paths algorithm to find all the reachable
 // paths between the passed source and target. The algorithm will continue to
 // traverse the graph until all possible candidate paths have been depleted.
 // This function implements a modified version of Yen's. To find each path
@@ -813,56 +1216,41 @@ func findPath(g *graphParams, r *restrictParams,
 // make our inner path finding algorithm aware of our k-shortest paths
 // algorithm, rather than attempting to use an unmodified path finding
 // algorithm in a block box manner.
-func findPaths(tx *bbolt.Tx, graph *channeldb.ChannelGraph,
+func findKPaths(g *graphParams, r *restrictParams,
 	source *channeldb.LightningNode, target *btcec.PublicKey,
-	amt lnwire.MilliSatoshi, feeLimit lnwire.MilliSatoshi, numPaths uint32,
-	bandwidthHints map[uint64]lnwire.MilliSatoshi) ([][]*channeldb.ChannelEdgePolicy, error) {
+	amt lnwire.MilliSatoshi,
+	startingPath []*channeldb.ChannelEdgePolicy,
+	numPaths uint32) ([][]*channeldb.ChannelEdgePolicy, error) {
 
-	ignoredEdges := make(map[edgeLocator]struct{})
-	ignoredVertexes := make(map[Vertex]struct{})
+	sourceVertex := Vertex(source.PubKeyBytes)
 
 	// TODO(roasbeef): modifying ordering within heap to eliminate final
 	// sorting step?
 	var (
 		shortestPaths  [][]*channeldb.ChannelEdgePolicy
 		candidatePaths pathHeap
+		validPathsNum  uint32
 	)
-
-	// First we'll find a single shortest path from the source (our
-	// selfNode) to the target destination that's capable of carrying amt
-	// satoshis along the path before fees are calculated.
-	startingPath, err := findPath(
-		&graphParams{
-			tx:             tx,
-			graph:          graph,
-			bandwidthHints: bandwidthHints,
-		},
-		&restrictParams{
-			ignoredNodes: ignoredVertexes,
-			ignoredEdges: ignoredEdges,
-			feeLimit:     feeLimit,
-		},
-		source, target, amt,
-	)
-	if err != nil {
-		log.Errorf("Unable to find path: %v", err)
-		return nil, err
-	}
+	heap.Init(&candidatePaths)
 
 	// Manually insert a "self" edge emanating from ourselves. This
 	// self-edge is required in order for the path finding algorithm to
 	// function properly.
-	firstPath := make([]*channeldb.ChannelEdgePolicy, 0, len(startingPath)+1)
+	firstPath := make([]*channeldb.ChannelEdgePolicy, 0,
+		len(startingPath)+1)
 	firstPath = append(firstPath, &channeldb.ChannelEdgePolicy{
 		Node: source,
 	})
 	firstPath = append(firstPath, startingPath...)
+	if len(firstPath) <= HopLimit+1 {
+		validPathsNum++
+	}
 
 	shortestPaths = append(shortestPaths, firstPath)
 
 	// While we still have candidate paths to explore we'll keep exploring
 	// the sub-graphs created to find the next k-th shortest path.
-	for k := uint32(1); k < numPaths; k++ {
+	for k := uint32(1); validPathsNum < numPaths; k++ {
 		prevShortest := shortestPaths[k-1]
 
 		// We'll examine each edge in the previous iteration's shortest
@@ -873,8 +1261,12 @@ func findPaths(tx *bbolt.Tx, graph *channeldb.ChannelGraph,
 			// we'll exclude from the next path finding attempt.
 			// These are required to ensure the paths are unique
 			// and loopless.
-			ignoredEdges = make(map[edgeLocator]struct{})
-			ignoredVertexes = make(map[Vertex]struct{})
+			ignoredEdges := make(map[edgeLocator]struct{})
+			// Make sure to respect globally ignored edges.
+			for k, v := range r.ignoredEdges {
+				ignoredEdges[k] = v
+			}
+			ignoredVertexes := make(map[Vertex]struct{})
 
 			// Our spur node is the i-th node in the prior shortest
 			// path, and our root path will be all nodes in the
@@ -916,15 +1308,12 @@ func findPaths(tx *bbolt.Tx, graph *channeldb.ChannelGraph,
 			// root path removed, we'll attempt to find another
 			// shortest path from the spur node to the destination.
 			spurPath, err := findPath(
-				&graphParams{
-					tx:             tx,
-					graph:          graph,
-					bandwidthHints: bandwidthHints,
-				},
+				g,
 				&restrictParams{
-					ignoredNodes: ignoredVertexes,
-					ignoredEdges: ignoredEdges,
-					feeLimit:     feeLimit,
+					ignoredNodes:          ignoredVertexes,
+					ignoredEdges:          ignoredEdges,
+					feeLimit:              r.feeLimit,
+					stopAtMaxHopsExceeded: true,
 				}, spurNode, target, amt,
 			)
 
@@ -932,13 +1321,21 @@ func findPaths(tx *bbolt.Tx, graph *channeldb.ChannelGraph,
 			// the next round.
 			if IsError(err, ErrNoPathFound) {
 				continue
-			} else if err != nil {
+			} else if err != nil && !IsError(err, ErrMaxHopsExceeded) {
 				return nil, err
 			}
 
 			// Create the new combined path by concatenating the
 			// rootPath to the spurPath.
 			newPathLen := len(rootPath) + len(spurPath)
+			if newPathLen > HopLimit+1 && validPathsNum > 0 {
+				// Cannot provide alternate paths in presence of
+				// shortest paths which are above hop limit. This
+				// is a potential for DoS attack on computing
+				// resources.
+				break
+			}
+
 			newPath := path{
 				hops: make([]*channeldb.ChannelEdgePolicy, 0, newPathLen),
 				dist: newPathLen,
@@ -963,8 +1360,29 @@ func findPaths(tx *bbolt.Tx, graph *channeldb.ChannelGraph,
 		// path in our set of candidate paths and add it to our
 		// shortestPaths list as the *next* shortest path.
 		nextShortestPath := heap.Pop(&candidatePaths).(path).hops
+		if len(nextShortestPath) <= HopLimit+1 {
+			validPathsNum++
+		}
 		shortestPaths = append(shortestPaths, nextShortestPath)
 	}
 
-	return shortestPaths, nil
+	// Filter out too-long paths.
+	fShortestPaths := shortestPaths[:0]
+	for _, path := range shortestPaths {
+		if len(path) <= HopLimit+1 {
+			fShortestPaths = append(fShortestPaths, path)
+		}
+	}
+
+	// Pop the first artificially added edge if its not the first path
+	// segment.
+	if g.originVertex != nil && sourceVertex != *g.originVertex {
+		for i, path := range fShortestPaths {
+			path[0] = nil
+			path = path[1:]
+			fShortestPaths[i] = path
+		}
+	}
+
+	return fShortestPaths, nil
 }

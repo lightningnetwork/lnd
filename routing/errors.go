@@ -30,6 +30,11 @@ const (
 	// the channel graph.
 	ErrTargetNotInNetwork
 
+	// ErrPegNotInNetwork is returned when one or more of the pegged nodes
+	// or channels requested from path-finding isn't known to be within
+	// the current version of the channel graph.
+	ErrPegNotInNetwork
+
 	// ErrOutdated is returned when the routing update already have
 	// been applied, or a newer update is already known.
 	ErrOutdated

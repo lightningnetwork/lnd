@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"image/color"
 	"math/rand"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -183,7 +184,7 @@ func TestFindRoutesFeeSorting(t *testing.T) {
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
 	target := ctx.aliases["luoji"]
 	routes, err := ctx.router.FindRoutes(
-		target, paymentAmt, noFeeLimit, defaultNumRoutes,
+		target, paymentAmt, noFeeLimit, nil, defaultNumRoutes,
 		DefaultFinalCLTVDelta,
 	)
 	if err != nil {
@@ -242,7 +243,7 @@ func TestFindRoutesWithFeeLimit(t *testing.T) {
 	feeLimit := lnwire.NewMSatFromSatoshis(10)
 
 	routes, err := ctx.router.FindRoutes(
-		target, paymentAmt, feeLimit, defaultNumRoutes,
+		target, paymentAmt, feeLimit, nil, defaultNumRoutes,
 		DefaultFinalCLTVDelta,
 	)
 	if err != nil {
@@ -1221,7 +1222,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
 	targetNode := priv2.PubKey()
 	routes, err := ctx.router.FindRoutes(
-		targetNode, paymentAmt, noFeeLimit, defaultNumRoutes,
+		targetNode, paymentAmt, noFeeLimit, nil, defaultNumRoutes,
 		DefaultFinalCLTVDelta,
 	)
 	if err != nil {
@@ -1266,7 +1267,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	// Should still be able to find the routes, and the info should be
 	// updated.
 	routes, err = ctx.router.FindRoutes(
-		targetNode, paymentAmt, noFeeLimit, defaultNumRoutes,
+		targetNode, paymentAmt, noFeeLimit, nil, defaultNumRoutes,
 		DefaultFinalCLTVDelta,
 	)
 	if err != nil {
@@ -2151,4 +2152,448 @@ func TestEmptyRoutesGenerateSphinxPacket(t *testing.T) {
 	if err != ErrNoRouteHopsProvided {
 		t.Fatalf("expected empty hops error: instead got: %v", err)
 	}
+}
+
+// routre2String prepares a string for printing an expected set of paths.
+func route2String(route [][]string) (p string) {
+	for _, r := range route {
+		p += "\n"
+		p += strings.Join(r, "->")
+	}
+	return p + "\n"
+}
+
+// routes2Strings returns a string representation of the routes' paths.
+func routes2Strings(routes []*Route, ctx *testCtx) (s [][]string) {
+	for i := 0; i < len(routes); i++ {
+		ss := make([]string, len(routes[i].Hops))
+		for j, hop := range routes[i].Hops {
+			ss[j] = fmt.Sprintf("(%d)%s",
+				hop.ChannelID,
+				getAliasFromPubKey(
+					hop.PubKeyBytes[:],
+					ctx.aliases,
+				),
+			)
+		}
+		s = append(s, ss)
+	}
+	return s
+}
+
+// checkRouteFees checks the actual routes' total fees is as expected.
+func checkRouteFees(routes []*Route,
+	expectedFees []lnwire.MilliSatoshi,
+	t *testing.T) {
+
+	for i := 0; i < len(expectedFees); i++ {
+		if routes[i].TotalFees != expectedFees[i] {
+			t.Fatalf("route %d: expected %v MSat total fee, "+
+				"instead got %v MSat", i+1,
+				expectedFees[i],
+				routes[i].TotalFees)
+
+		}
+	}
+}
+
+// TestPeggedRouting tests route selection with pegged
+// nodes and channels. Pegging restrict routing to pass through the pegged
+// node (and optionally through a channel) while searching for a route
+// between source and destination.
+// The resulting route is composed of segments connecting between the pegged
+// nodes. Each segment does not have loops, but the entire path may. The
+// route selection assures that no edge will be transversed twice at the
+// same direction.
+// The alternate routes are stitched from N-1 shortest segment paths and
+// one alternate segment path.
+//
+//   ┌──────────┐        20         ┌──────────┐
+//   │    E     │───────────────────│    D     │
+//   └──────────┘        6          └──────────┘
+//        |                           |      |
+//        |                           |      | d/e
+//        | 10                        | 50   | 20
+//        | 3                         | 4    | 5
+//        |                           |      |
+//   ┌──────────┐        60         ┌──────────┐
+//   │    B     │───────────────────│    C     │
+//   └──────────┘        2          └──────────┘
+//        |
+//        |
+//        | 30
+//        | 1
+//        |         ┌──────────┐
+//        └─────────│     A    │
+//                  └──────────┘
+//
+// The setup is build from symmetric channels whose base fee is
+// marked and the fee rate is set to 0. The channel id between
+// each node is marked below the rate.
+//
+// Test 1:
+// Find routes from origin (A) to final destination (E) through D.
+// Channel 5 disabled.
+// A -> *D -> *E
+//
+// The expected routes are:
+// r1: A -> B -> E -> D -> E                    total fees: 50
+// r2: A -> B -> C -> D -> E  			total fees: 130
+//
+// Note that in r1, E is visited twice, before and after D. The
+// pegging does not enforce order, i.e. it does not imply that D
+// will be reached before E, rather that after D is reached, E
+// will be reached.
+//
+// The following routes should not be returned:
+// r1: A -> B -> E -> D -> E -> D -> E          total fees: 90
+// r2: A -> B -> E -> D -> C -> B -> E
+// reason: Edges cannot be transversed twice in the same direction.
+// The following route is not returned:
+// r1: A -> B -> C -> D -> C -> B -> E		total fees: 230
+// Eventhough no edge is transversed twice at the same direction
+// due to the route stitching selection. This route is similar to
+// a route stiched from the 2nd best A -> D with the 2nd best
+// D -> E.
+//
+// Test 2:
+// Find routes from origin (A) back to itself through (C) and (E).
+// Channel 5 disabled.
+// A -> *C -> *E -> *A
+//
+// The expected routes are:
+// r1: A -> B -> C -> B -> E -> B -> A          total fees: 170
+// r2: A -> B -> C -> D -> E -> B -> A		total fees: 170
+//
+// Note that both routes have the same total fees.
+//
+// Test 3:
+// Find routes back to origin (A) passign through node C through channel 4
+// Channel 5 disabled.
+// A -> (4)C -> *A
+//
+// The expected routes are:
+// r1: A -> B -> E -> D -> C -> B -> A             total fees: 170
+// r1: A -> B -> E -> D -> C -> D -> E -> B -> A   total fees: 190
+// r3: A -> B -> C -> D -> C -> B -> A             total fees: 250
+//
+// Test 4:
+// Find routes back to origin (A) passing through node D through
+// channel 6 and then node C through channel 4
+// Channel 5 disabled.
+// A -> (6)D -> (4)C -> *A
+//
+// The expected routes are:
+// A -> B -> E -> (6)D -> (4)C -> B -> A
+// A -> B -> E -> (6)D -> (4)C -> D -> E -> B -> A
+// A -> B -> C -> D -> E -> (6)D -> (4)C -> B -> A
+//
+// Test 5:
+// Find routes back to origin (A) passing through node D through
+// channel 6 and then node C through channel 4
+// Channel 5 enabled.
+// A -> (6)D -> (4)C -> (2)B -> A
+//
+// The expected routes are:
+// A -> B -> E -> (6)D -> (4)C -> (2)B -> A
+// A -> B -> C -> (5)D -> E -> (6)D -> (4)C -> (2)B -> A
+// A -> B -> C -> (4)D -> E -> (6)D -> (4)C -> (2)B -> A
+//
+func TestPeggedRouting(t *testing.T) {
+	t.Parallel()
+
+	// Setup the node network.
+	// roasbeef is used instead of a, as createTestGraphFromChannels
+	// set roasbeef as source.
+	testChannels := []*testChannel{
+		symmetricTestChannel("roasbeef", "b", 1000, &testChannelPolicy{
+			Expiry:      144,
+			FeeBaseMsat: 30,
+			FeeRate:     0,
+			MinHTLC:     1,
+		}, 1),
+		symmetricTestChannel("b", "c", 1000, &testChannelPolicy{
+			Expiry:      144,
+			FeeBaseMsat: 60,
+			FeeRate:     0,
+			MinHTLC:     1,
+		}, 2),
+		symmetricTestChannel("b", "e", 1000, &testChannelPolicy{
+			Expiry:      144,
+			FeeBaseMsat: 10,
+			FeeRate:     0,
+			MinHTLC:     1,
+		}, 3),
+		symmetricTestChannel("c", "d", 1000, &testChannelPolicy{
+			Expiry:      144,
+			FeeBaseMsat: 50,
+			FeeRate:     0,
+			MinHTLC:     1,
+		}, 4),
+		symmetricTestChannel("c", "d", 1000, &testChannelPolicy{
+			Expiry:      144,
+			FeeBaseMsat: 20,
+			FeeRate:     0,
+			MinHTLC:     1,
+		}, 5),
+		symmetricTestChannel("d", "e", 1000, &testChannelPolicy{
+			Expiry:      144,
+			FeeBaseMsat: 20,
+			FeeRate:     0,
+			MinHTLC:     1,
+		}, 6),
+	}
+
+	testGraph, err := createTestGraphFromChannels(testChannels)
+	defer testGraph.cleanUp()
+	if err != nil {
+		t.Fatalf("unable to create graph: %v", err)
+	}
+
+	const startingBlockHeight = 101
+
+	ctx, cleanUp, err := createTestCtxFromGraphInstance(startingBlockHeight,
+		testGraph)
+
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to create router: %v", err)
+	}
+
+	// closure to enable/disable channel 5, connecting C to D with
+	// lower fee.
+	enableChan5 := func(en bool) {
+		channelID := uint64(5)
+		_, e1, e2, err := ctx.graph.FetchChannelEdgesByID(channelID)
+		if err != nil {
+			t.Fatalf("unable to fetch edge: %v", err)
+		}
+		if en {
+			e1.ChannelFlags &^= lnwire.ChanUpdateDisabled
+			e2.ChannelFlags &^= lnwire.ChanUpdateDisabled
+		} else {
+			e1.ChannelFlags |= lnwire.ChanUpdateDisabled
+			e2.ChannelFlags |= lnwire.ChanUpdateDisabled
+		}
+		if err := ctx.graph.UpdateEdgePolicy(e1); err != nil {
+			t.Fatalf("unable to update edge: %v", err)
+		}
+		if err := ctx.graph.UpdateEdgePolicy(e2); err != nil {
+			t.Fatalf("unable to update edge: %v", err)
+		}
+	}
+
+	// disable channel 5
+	enableChan5(false)
+
+	// Test 1: A *-> D *-> E
+	target := ctx.aliases["e"]
+	peggedHops := []HopPeg{
+		{
+			NodeID: ctx.aliases["d"],
+		},
+	}
+
+	amt := lnwire.NewMSatFromSatoshis(400)
+	// Find routes.
+	routes, err := ctx.router.FindRoutes(target,
+		amt, noFeeLimit, peggedHops, 10, DefaultFinalCLTVDelta,
+	)
+	if err != nil {
+		t.Fatalf("failed to find routes: %v", err)
+	}
+
+	// Check route paths.
+	var expectedSeq = [][]string{
+		{"(1)b", "(3)e", "(6)d", "(6)e"},
+		{"(1)b", "(2)c", "(4)d", "(6)e"},
+	}
+	actualSeq := routes2Strings(routes, ctx)
+	if !reflect.DeepEqual(expectedSeq, actualSeq) {
+		t.Fatalf("incorrect route: expected: %sinstead got: %s",
+			route2String(expectedSeq),
+			route2String(actualSeq),
+		)
+	}
+
+	// Check route fees
+	var expectedFees = []lnwire.MilliSatoshi{
+		50,
+		130,
+	}
+	checkRouteFees(routes, expectedFees, t)
+
+	// Test 2: A -> *C -> *E -> *A
+	target = ctx.aliases["roasbeef"]
+	peggedHops = []HopPeg{
+		{
+			NodeID: ctx.aliases["c"],
+		},
+		{
+			NodeID: ctx.aliases["e"],
+		},
+	}
+
+	amt = lnwire.NewMSatFromSatoshis(400)
+	// Find routes.
+	routes, err = ctx.router.FindRoutes(target,
+		amt, noFeeLimit, peggedHops, 10, DefaultFinalCLTVDelta,
+	)
+	if err != nil {
+		t.Fatalf("failed to find routes: %v", err)
+	}
+
+	// Check route paths.
+	expectedSeq = [][]string{
+		{"(1)b", "(2)c", "(2)b", "(3)e", "(3)b", "(1)roasbeef"},
+		{"(1)b", "(2)c", "(4)d", "(6)e", "(3)b", "(1)roasbeef"},
+	}
+	actualSeq = routes2Strings(routes, ctx)
+	if !reflect.DeepEqual(expectedSeq, actualSeq) {
+		t.Fatalf("incorrect route: expected: %sinstead got: %s",
+			route2String(expectedSeq),
+			route2String(actualSeq),
+		)
+	}
+
+	// Check route fees
+	expectedFees = []lnwire.MilliSatoshi{
+		170,
+		170,
+	}
+	checkRouteFees(routes, expectedFees, t)
+
+	// Test 3: A -> (4)C -> A
+	target = ctx.aliases["roasbeef"]
+	peggedHops = []HopPeg{
+		{
+			NodeID:    ctx.aliases["c"],
+			ChannelID: 4,
+		},
+	}
+
+	amt = lnwire.NewMSatFromSatoshis(400)
+	// Find routes.
+	routes, err = ctx.router.FindRoutes(target,
+		amt, noFeeLimit, peggedHops, 10, DefaultFinalCLTVDelta,
+	)
+	if err != nil {
+		t.Fatalf("failed to find routes: %v", err)
+	}
+
+	// Check route paths.
+	expectedSeq = [][]string{
+		{"(1)b", "(3)e", "(6)d", "(4)c", "(2)b", "(1)roasbeef"},
+		{"(1)b", "(3)e", "(6)d", "(4)c", "(4)d", "(6)e", "(3)b", "(1)roasbeef"},
+		{"(1)b", "(2)c", "(4)d", "(4)c", "(2)b", "(1)roasbeef"},
+	}
+	actualSeq = routes2Strings(routes, ctx)
+	if !reflect.DeepEqual(expectedSeq, actualSeq) {
+		t.Fatalf("incorrect route: expected: %sinstead got: %s",
+			route2String(expectedSeq),
+			route2String(actualSeq),
+		)
+	}
+
+	// Check route fees
+	expectedFees = []lnwire.MilliSatoshi{
+		170,
+		190,
+		250,
+	}
+	checkRouteFees(routes, expectedFees, t)
+
+	// Test 4: A -> (6)D -> (4)C -> A
+	target = ctx.aliases["roasbeef"]
+	peggedHops = []HopPeg{
+		{
+			NodeID:    ctx.aliases["d"],
+			ChannelID: 6,
+		},
+		{
+			NodeID:    ctx.aliases["c"],
+			ChannelID: 4,
+		},
+	}
+
+	amt = lnwire.NewMSatFromSatoshis(400)
+	// Find routes.
+	routes, err = ctx.router.FindRoutes(target,
+		amt, noFeeLimit, peggedHops, 10, DefaultFinalCLTVDelta,
+	)
+	if err != nil {
+		t.Fatalf("failed to find routes: %v", err)
+	}
+
+	// Check route paths.
+	expectedSeq = [][]string{
+		{"(1)b", "(3)e", "(6)d", "(4)c", "(2)b", "(1)roasbeef"},
+		{"(1)b", "(3)e", "(6)d", "(4)c", "(4)d", "(6)e", "(3)b", "(1)roasbeef"},
+		{"(1)b", "(2)c", "(4)d", "(6)e", "(6)d", "(4)c", "(2)b", "(1)roasbeef"},
+	}
+	actualSeq = routes2Strings(routes, ctx)
+	if !reflect.DeepEqual(expectedSeq, actualSeq) {
+		t.Fatalf("incorrect route: expected: %sinstead got: %s",
+			route2String(expectedSeq),
+			route2String(actualSeq),
+		)
+	}
+
+	// Check route fees
+	expectedFees = []lnwire.MilliSatoshi{
+		170,
+		190,
+		290,
+	}
+	checkRouteFees(routes, expectedFees, t)
+
+	// Test 5: A -> (6)D -> (4)C -> (2)B -> A
+	target = ctx.aliases["roasbeef"]
+	peggedHops = []HopPeg{
+		{
+			NodeID:    ctx.aliases["d"],
+			ChannelID: 6,
+		},
+		{
+			NodeID:    ctx.aliases["c"],
+			ChannelID: 4,
+		},
+		{
+			NodeID:    ctx.aliases["b"],
+			ChannelID: 2,
+		},
+	}
+	// enable channel 5
+	enableChan5(true)
+
+	amt = lnwire.NewMSatFromSatoshis(400)
+	// Find routes.
+	routes, err = ctx.router.FindRoutes(target,
+		amt, noFeeLimit, peggedHops, 10, DefaultFinalCLTVDelta,
+	)
+	if err != nil {
+		t.Fatalf("failed to find routes: %v", err)
+	}
+
+	// Check route paths.
+	expectedSeq = [][]string{
+		{"(1)b", "(3)e", "(6)d", "(4)c", "(2)b", "(1)roasbeef"},
+		{"(1)b", "(2)c", "(5)d", "(6)e", "(6)d", "(4)c", "(2)b", "(1)roasbeef"},
+		{"(1)b", "(2)c", "(4)d", "(6)e", "(6)d", "(4)c", "(2)b", "(1)roasbeef"},
+	}
+	actualSeq = routes2Strings(routes, ctx)
+	if !reflect.DeepEqual(expectedSeq, actualSeq) {
+		t.Fatalf("incorrect route: expected: %sinstead got: %s",
+			route2String(expectedSeq),
+			route2String(actualSeq),
+		)
+	}
+
+	// Check route fees
+	expectedFees = []lnwire.MilliSatoshi{
+		170,
+		260,
+		290,
+	}
+	checkRouteFees(routes, expectedFees, t)
 }

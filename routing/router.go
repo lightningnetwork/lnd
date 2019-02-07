@@ -1387,8 +1387,8 @@ func pathsToFeeSortedRoutes(source Vertex, paths [][]*channeldb.ChannelEdgePolic
 // route that will be ranked the highest is the one with the lowest cumulative
 // fee along the route.
 func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
-	amt, feeLimit lnwire.MilliSatoshi, numPaths uint32,
-	finalExpiry ...uint16) ([]*Route, error) {
+	amt, feeLimit lnwire.MilliSatoshi, pegs []HopPeg,
+	numPaths uint32, finalExpiry ...uint16) ([]*Route, error) {
 
 	var finalCLTVDelta uint16
 	if len(finalExpiry) == 0 {
@@ -1403,18 +1403,21 @@ func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
 	// Before attempting to perform a series of graph traversals to find
 	// the k-shortest paths to the destination, we'll first consult our
 	// path cache
-	rt := newRouteTuple(amt, dest)
-	r.routeCacheMtx.RLock()
-	routes, ok := r.routeCache[rt]
-	r.routeCacheMtx.RUnlock()
+	var rt routeTuple
+	if len(pegs) == 0 {
+		// Pegged routes are not cached.
+		rt = newRouteTuple(amt, dest)
+		r.routeCacheMtx.RLock()
+		routes, ok := r.routeCache[rt]
+		r.routeCacheMtx.RUnlock()
 
-	// If we already have a cached route, and it contains at least the
-	// number of paths requested, then we'll return it directly as there's
-	// no need to repeat the computation.
-	if ok && uint32(len(routes)) >= numPaths {
-		return routes, nil
+		// If we already have a cached route, and it contains at least the
+		// number of paths requested, then we'll return it directly as there's
+		// no need to repeat the computation.
+		if ok && uint32(len(routes)) >= numPaths {
+			return routes, nil
+		}
 	}
-
 	// If we don't have a set of routes cached, we'll query the graph for a
 	// set of potential routes to the destination node that can support our
 	// payment amount. If no such routes can be found then an error will be
@@ -1428,6 +1431,25 @@ func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
 	} else if !exists {
 		log.Debugf("Target %x is not in known graph", dest)
 		return nil, newErrf(ErrTargetNotInNetwork, "target not found")
+	}
+
+	// Check that pegs are known and that there aren't too many of them.
+	if len(pegs) > HopLimit-2 {
+		return nil, newErr(ErrMaxHopsExceeded, "potential path has "+
+			"too many hops")
+	}
+	for _, peg := range pegs {
+		pegVertex := NewVertex(peg.NodeID)
+		_, exists, err := r.cfg.Graph.HasLightningNode(pegVertex)
+		if err != nil {
+			return nil, err
+		} else if !exists {
+			log.Debugf("Peg %x is not in known graph",
+				peg.NodeID.SerializeCompressed())
+			return nil, newErrf(ErrPegNotInNetwork,
+				"pegged node not found")
+		}
+		// TODO (bluetegu) add check for channels
 	}
 
 	// We'll also fetch the current block height so we can properly
@@ -1458,7 +1480,7 @@ func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
 	// our source to the destination.
 	shortestPaths, err := findPaths(
 		tx, r.cfg.Graph, r.selfNode, target, amt, feeLimit, numPaths,
-		bandwidthHints,
+		bandwidthHints, pegs,
 	)
 	if err != nil {
 		tx.Rollback()
@@ -1489,10 +1511,11 @@ func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
 
 	// Populate the cache with this set of fresh routes so we can reuse
 	// them in the future.
-	r.routeCacheMtx.Lock()
-	r.routeCache[rt] = validRoutes
-	r.routeCacheMtx.Unlock()
-
+	if len(pegs) == 0 {
+		r.routeCacheMtx.Lock()
+		r.routeCache[rt] = validRoutes
+		r.routeCacheMtx.Unlock()
+	}
 	return validRoutes, nil
 }
 

@@ -102,12 +102,12 @@
 		},
 		{
 			"source": false,
-			"pubkey": "0369bca64993fce966745d32c09b882f668958d9bd7aabb60ba35ef1884013be1d",
+			"pubkey": "0367cec75158a4129177bfb8b269cb586efe93d751b43800d456485e81c2620ca6",
 			"alias": "ursula"
 		},
 		{
 			"source": false,
-			"pubkey": "0367cec75158a4129177bfb8b269cb586efe93d751b43800d456485e81c2620ca6",
+			"pubkey": "0369bca64993fce966745d32c09b882f668958d9bd7aabb60ba35ef1884013be1d",
 			"alias": "vincent"
 		}
 	],
@@ -119,9 +119,9 @@
 		        "channel_point": "99dc56859c6a082d15ba1a7f6cb6be3fea62e1746e2cb8497b1189155c21a233:0", 
 		        "flags": 0, 
 		        "expiry": 1,
-		        "min_htlc": 1, 
+		        "min_htlc": 1,
 		        "fee_base_msat": 10, 
-		        "fee_rate": 0.001, 
+		        "fee_rate": 1,
 		        "capacity": 100000
 		},
 		{
@@ -131,9 +131,9 @@
 		        "channel_point": "79dc56859c6a082d15ba1a7f6cb6be3fea62e1746e2cb8497b1189155c21a233:0", 
 		        "flags": 0, 
 		        "expiry": 1,
-		        "min_htlc": 1, 
+		        "min_htlc": 1,
 		        "fee_base_msat": 10, 
-		        "fee_rate": 0.001, 
+		        "fee_rate": 1,
 		        "capacity": 100000
 		},
 		{
@@ -143,9 +143,9 @@
 		        "channel_point": "69dc56859c6a082d15ba1a7f6cb6be3fea62e1746e2cb8497b1189155c21a233:0", 
 		        "flags": 0, 
 		        "expiry": 1,
-		        "min_htlc": 1, 
+		        "min_htlc": 1,
 		        "fee_base_msat": 10, 
-		        "fee_rate": 0.001, 
+		        "fee_rate": 1,
 		        "capacity": 100000
 		},
 		{
@@ -155,9 +155,9 @@
 		        "channel_point": "59dc56859c6a082d15ba1a7f6cb6be3fea62e1746e2cb8497b1189155c21a233:0", 
 		        "flags": 0, 
 		        "expiry": 1,
-		        "min_htlc": 1, 
+		        "min_htlc": 1,
 		        "fee_base_msat": 10, 
-		        "fee_rate": 0.001, 
+		        "fee_rate": 1,
 		        "capacity": 100000
 		},
 		{
@@ -167,9 +167,9 @@
 		        "channel_point": "49dc56859c6a082d15ba1a7f6cb6be3fea62e1746e2cb8497b1189155c21a233:0", 
 		        "flags": 0, 
 		        "expiry": 1,
-		        "min_htlc": 1, 
+		        "min_htlc": 1,
 		        "fee_base_msat": 10, 
-		        "fee_rate": 0.001, 
+		        "fee_rate": 1,
 		        "capacity": 100000
 		},
 		{
@@ -179,9 +179,9 @@
 		        "channel_point": "39dc56859c6a082d15ba1a7f6cb6be3fea62e1746e2cb8497b1189155c21a233:0", 
 		        "flags": 0, 
 		        "expiry": 1,
-		        "min_htlc": 1, 
+		        "min_htlc": 1,
 		        "fee_base_msat": 10, 
-		        "fee_rate": 0.001, 
+		        "fee_rate": 1,
 		        "capacity": 100000
 		},
 		{
@@ -191,9 +191,9 @@
 		        "channel_point": "29dc56859c6a082d15ba1a7f6cb6be3fea62e1746e2cb8497b1189155c21a233:0", 
 		        "flags": 0, 
 		        "expiry": 1,
-		        "min_htlc": 1, 
+		        "min_htlc": 1,
 		        "fee_base_msat": 10, 
-		        "fee_rate": 0.001, 
+		        "fee_rate": 1,
 		        "capacity": 100000
 		},
 		{
@@ -203,9 +203,9 @@
 		        "channel_point": "19dc56859c6a082d15ba1a7f6cb6be3fea62e1746e2cb8497b1189155c21a233:0", 
 		        "flags": 0, 
 		        "expiry": 1,
-		        "min_htlc": 1, 
+		        "min_htlc": 1,
 		        "fee_base_msat": 10, 
-		        "fee_rate": 0.001, 
+		        "fee_rate": 1,
 		        "capacity": 100000
 		},
 		{
@@ -215,21 +215,21 @@
 		        "channel_point": "88dc56859c6a082d15ba1a7f6cb6be3fea62e1746e2cb8497b1189155c21a233:0", 
 		        "flags": 0, 
 		        "expiry": 1,
-		        "min_htlc": 1, 
+		        "min_htlc": 1,
 		        "fee_base_msat": 10, 
-		        "fee_rate": 0.001, 
+		        "fee_rate": 1,
 		        "capacity": 100000
 		},
 		{
 		        "node_1": "02727bfd298aa055a6419404931dfc1ccb4f0eb7c9660a7df346b93d0025df3ba1",
 		        "node_2": "0280c83b3eded413dcec12f7952410e2738f079bd9cbc9a7c462e32ed4d74bd5b7",
-		        "channel_id": 12341, 
+		        "channel_id": 12341,
 		        "channel_point": "87dc56859c6a082d15ba1a7f6cb6be3fea62e1746e2cb8497b1189155c21a233:0", 
 		        "flags": 0, 
 		        "expiry": 1,
-		        "min_htlc": 1, 
+		        "min_htlc": 1,
 		        "fee_base_msat": 10, 
-		        "fee_rate": 0.001, 
+		        "fee_rate": 1,
 		        "capacity": 100000
 		},
 		{
@@ -239,9 +239,9 @@
 		        "channel_point": "86dc56859c6a082d15ba1a7f6cb6be3fea62e1746e2cb8497b1189155c21a233:0", 
 		        "flags": 0, 
 		        "expiry": 1,
-		        "min_htlc": 1, 
+		        "min_htlc": 1,
 		        "fee_base_msat": 10, 
-		        "fee_rate": 0.001, 
+		        "fee_rate": 1,
 		        "capacity": 100000
 		},
 		{
@@ -251,9 +251,9 @@
 		        "channel_point": "85dc56859c6a082d15ba1a7f6cb6be3fea62e1746e2cb8497b1189155c21a233:0", 
 		        "flags": 0, 
 		        "expiry": 1,
-		        "min_htlc": 1, 
+		        "min_htlc": 1,
 		        "fee_base_msat": 10, 
-		        "fee_rate": 0.001, 
+		        "fee_rate": 1,
 		        "capacity": 100000
 		},
 		{
@@ -263,9 +263,9 @@
 		        "channel_point": "84dc56859c6a082d15ba1a7f6cb6be3fea62e1746e2cb8497b1189155c21a233:0", 
 		        "flags": 0, 
 		        "expiry": 1,
-		        "min_htlc": 1, 
+		        "min_htlc": 1,
 		        "fee_base_msat": 10, 
-		        "fee_rate": 0.001, 
+		        "fee_rate": 1,
 		        "capacity": 100000
 		},
 		{
@@ -275,9 +275,9 @@
 		        "channel_point": "83dc56859c6a082d15ba1a7f6cb6be3fea62e1746e2cb8497b1189155c21a233:0", 
 		        "flags": 0, 
 		        "expiry": 1,
-		        "min_htlc": 1, 
+		        "min_htlc": 1,
 		        "fee_base_msat": 10, 
-		        "fee_rate": 0.001, 
+		        "fee_rate": 1,
 		        "capacity": 100000
 		},
 		{
@@ -287,9 +287,9 @@
 		        "channel_point": "82dc56859c6a082d15ba1a7f6cb6be3fea62e1746e2cb8497b1189155c21a233:0", 
 		        "flags": 0, 
 		        "expiry": 1,
-		        "min_htlc": 1, 
+		        "min_htlc": 1,
 		        "fee_base_msat": 10, 
-		        "fee_rate": 0.001, 
+		        "fee_rate": 1,
 		        "capacity": 100000
 		},
 		{
@@ -299,9 +299,9 @@
 		        "channel_point": "81dc56859c6a082d15ba1a7f6cb6be3fea62e1746e2cb8497b1189155c21a233:0", 
 		        "flags": 0, 
 		        "expiry": 1,
-		        "min_htlc": 1, 
+		        "min_htlc": 1,
 		        "fee_base_msat": 10, 
-		        "fee_rate": 0.001, 
+		        "fee_rate": 1,
 		        "capacity": 100000
 		},
 		{
@@ -311,9 +311,9 @@
 		        "channel_point": "80dc56859c6a082d15ba1a7f6cb6be3fea62e1746e2cb8497b1189155c21a233:0", 
 		        "flags": 0, 
 		        "expiry": 1,
-		        "min_htlc": 1, 
+		        "min_htlc": 1,
 		        "fee_base_msat": 10, 
-		        "fee_rate": 0.001, 
+		        "fee_rate": 1,
 		        "capacity": 100000
 		},
 		{
@@ -323,9 +323,9 @@
 		        "channel_point": "89ec56859c6a082d15ba1a7f6cb6be3fea62e1746e2cb8497b1189155c21a233:0", 
 		        "flags": 0, 
 		        "expiry": 1,
-		        "min_htlc": 1, 
+		        "min_htlc": 1,
 		        "fee_base_msat": 10, 
-		        "fee_rate": 0.001, 
+		        "fee_rate": 1,
 		        "capacity": 100000
 		},
 		{
@@ -335,33 +335,33 @@
 		        "channel_point": "89fc56859c6a082d15ba1a7f6cb6be3fea62e1746e2cb8497b1189155c21a233:0", 
 		        "flags": 0, 
 		        "expiry": 1,
-		        "min_htlc": 1, 
+		        "min_htlc": 1,
 		        "fee_base_msat": 10, 
-		        "fee_rate": 0.001, 
+		        "fee_rate": 1,
 		        "capacity": 100000
 		},
 		{
 		        "node_1": "0362002b8fbc1a799c839c8bcea43fce38a147467a00bc450414bbeab5c7a19efe",
-		        "node_2": "0369bca64993fce966745d32c09b882f668958d9bd7aabb60ba35ef1884013be1d",
+		        "node_2": "0367cec75158a4129177bfb8b269cb586efe93d751b43800d456485e81c2620ca6",
 		        "channel_id": 12445, 
 		        "channel_point": "89cc56859c6a082d15ba1a7f6cb6be3fea62e1746e2cb8497b1189155c21a233:0", 
 		        "flags": 0, 
 		        "expiry": 1,
-		        "min_htlc": 1, 
+		        "min_htlc": 1,
 		        "fee_base_msat": 10, 
-		        "fee_rate": 0.001, 
+		        "fee_rate": 1,
 		        "capacity": 100000
 		},
 		{
-		        "node_1": "0369bca64993fce966745d32c09b882f668958d9bd7aabb60ba35ef1884013be1d",
-		        "node_2": "0367cec75158a4129177bfb8b269cb586efe93d751b43800d456485e81c2620ca6",
+		        "node_1": "0367cec75158a4129177bfb8b269cb586efe93d751b43800d456485e81c2620ca6",
+		        "node_2": "0369bca64993fce966745d32c09b882f668958d9bd7aabb60ba35ef1884013be1d",
 		        "channel_id": 12545, 
 		        "channel_point": "89bc56859c6a082d15ba1a7f6cb6be3fea62e1746e2cb8497b1189155c21a233:0", 
 		        "flags": 0, 
 		        "expiry": 1,
-		        "min_htlc": 1, 
+		        "min_htlc": 1,
 		        "fee_base_msat": 10, 
-		        "fee_rate": 0.001, 
+		        "fee_rate": 1,
 		        "capacity": 100000
 		}
 	]

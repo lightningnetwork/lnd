@@ -312,7 +312,7 @@ var backupTaskTests = []backupTaskTest{
 		blobTypeCommitReward, // blobType
 		1000,                 // sweepFeeRate
 		addrScript,           // rewardScript
-		296241,               // expSweepAmt
+		296117,               // expSweepAmt
 		3000,                 // expRewardAmt
 		nil,                  // bindErr
 	),
@@ -324,7 +324,7 @@ var backupTaskTests = []backupTaskTest{
 		blobTypeCommitReward, // blobType
 		1000,                 // sweepFeeRate
 		addrScript,           // rewardScript
-		197514,               // expSweepAmt
+		197390,               // expSweepAmt
 		2000,                 // expRewardAmt
 		nil,                  // bindErr
 	),
@@ -336,7 +336,7 @@ var backupTaskTests = []backupTaskTest{
 		blobTypeCommitReward, // blobType
 		1000,                 // sweepFeeRate
 		addrScript,           // rewardScript
-		98561,                // expSweepAmt
+		98437,                // expSweepAmt
 		1000,                 // expRewardAmt
 		nil,                  // bindErr
 	),
@@ -346,7 +346,7 @@ var backupTaskTests = []backupTaskTest{
 		0,                       // toLocalAmt
 		100000,                  // toRemoteAmt
 		blobTypeCommitReward,    // blobType
-		225000,                  // sweepFeeRate
+		175000,                  // sweepFeeRate
 		addrScript,              // rewardScript
 		0,                       // expSweepAmt
 		0,                       // expRewardAmt

@@ -46,7 +46,7 @@ type Ticker interface {
 	// Pause suspends the underlying ticker, such that Ticks() stops
 	// signaling at regular intervals. After calling Pause, the ticker
 	// should not send any ticks scheduled with the chosen interval. Forced
-	// ticks are still permissible, as in the case of the Mock Ticker.
+	// ticks are still permissible, as in the case of the Force Ticker.
 	//
 	// NOTE: It MUST be safe to call Pause at any time, and more than once
 	// successively.

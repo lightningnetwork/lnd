@@ -1924,7 +1924,7 @@ func TestMultiHopPaymentForwardingEvents(t *testing.T) {
 
 	// After sending 5 of the payments, trigger the forwarding ticker, to
 	// make sure the events are properly flushed.
-	bobTicker, ok := n.bobServer.htlcSwitch.cfg.FwdEventTicker.(*ticker.Mock)
+	bobTicker, ok := n.bobServer.htlcSwitch.cfg.FwdEventTicker.(*ticker.Force)
 	if !ok {
 		t.Fatalf("mockTicker assertion failed")
 	}

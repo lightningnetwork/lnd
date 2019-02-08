@@ -570,6 +570,7 @@ func (p *peer) addLink(chanPoint *wire.OutPoint,
 		FwrdingPolicy:          *forwardingPolicy,
 		FeeEstimator:           p.server.cc.feeEstimator,
 		PreimageCache:          p.server.witnessBeacon,
+		HodlManager:            p.server.hodlManager,
 		ChainEvents:            chainEvents,
 		UpdateContractSignals: func(signals *contractcourt.ContractSignals) error {
 			return p.server.chainArb.UpdateContractSignals(

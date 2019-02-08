@@ -168,6 +168,8 @@ type ChannelLinkConfig struct {
 	// subscribed to new events.
 	PreimageCache contractcourt.WitnessBeacon
 
+	HodlManager *HodlManager
+
 	// OnChannelFailure is a function closure that we'll call if the
 	// channel failed for some reason. Depending on the severity of the
 	// error, the closure potentially must force close this channel and
@@ -337,6 +339,16 @@ type channelLink struct {
 
 	wg   sync.WaitGroup
 	quit chan struct{}
+
+	hodlSubscription *hodlEventSubscription
+
+	// Allow multiple htlcs with the same hash on this link.
+	hodlMap map[lntypes.Hash][]hodlHtlc
+}
+
+type hodlHtlc struct {
+	htlcIndex uint64
+	sourceRef *channeldb.AddRef
 }
 
 // NewChannelLink creates a new instance of a ChannelLink given a configuration
@@ -352,6 +364,7 @@ func NewChannelLink(cfg ChannelLinkConfig,
 		logCommitTimer: time.NewTimer(300 * time.Millisecond),
 		overflowQueue:  newPacketQueue(input.MaxHTLCNumber / 2),
 		htlcUpdates:    make(chan []channeldb.HTLC),
+		hodlMap:        make(map[lntypes.Hash][]hodlHtlc),
 		quit:           make(chan struct{}),
 	}
 }
@@ -422,6 +435,8 @@ func (l *channelLink) Start() error {
 
 	l.updateFeeTimer = time.NewTimer(l.randomFeeUpdateTimeout())
 
+	l.hodlSubscription = l.cfg.HodlManager.subscribe()
+
 	l.wg.Add(1)
 	go l.htlcManager()
 
@@ -439,6 +454,8 @@ func (l *channelLink) Stop() {
 	}
 
 	log.Infof("ChannelLink(%v) is stopping", l)
+
+	l.hodlSubscription.cancel()
 
 	if l.cfg.ChainEvents.Cancel != nil {
 		l.cfg.ChainEvents.Cancel()
@@ -1037,6 +1054,39 @@ out:
 		case msg := <-l.upstream:
 			l.handleUpstreamMsg(msg)
 
+		case preimage := <-l.hodlSubscription.settleChan:
+			// Lookup all hodl htlcs that can be settled with this
+			// preimage.
+			hash := preimage.Hash()
+			hodlHtlcs, ok := l.hodlMap[hash]
+			if !ok {
+				l.fail(LinkFailureError{code: ErrInternalError},
+					"hodl htlc not found: %v", hash)
+				return
+			}
+
+			// Settle.
+			for _, htlc := range hodlHtlcs {
+				err := l.settleInvoice(
+					preimage, htlc.htlcIndex, htlc.sourceRef,
+				)
+				if err != nil {
+					l.fail(LinkFailureError{code: ErrInternalError},
+						err.Error(),
+					)
+					break out
+				}
+			}
+
+			// Update the commitment tx.
+			if err := l.updateCommitTx(); err != nil {
+				l.fail(LinkFailureError{code: ErrInternalError},
+					"unable to update commitment: %v", err)
+				return
+			}
+
+			delete(l.hodlMap, hash)
+
 		case <-l.quit:
 			break out
 		}
@@ -1197,7 +1247,7 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 		// upstream. Therefore we settle the HTLC within the our local
 		// state machine.
 		inKey := pkt.inKey()
-		err := l.channel.SettleHTLC(
+		_, err := l.channel.SettleHTLC(
 			htlc.PaymentPreimage,
 			pkt.incomingHTLCID,
 			pkt.sourceRef,
@@ -2602,18 +2652,43 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 
 	preimage := invoice.Terms.PaymentPreimage
 
-	// Reject invoices with unknown preimages.
+	// If we don't have the pre-image yet, we will hold onto the HTLC and
+	// forward it to the switch as if there're additional hops. We use a
+	// special delayed resolution channelID, and then use the HTLC ID of the
+	// add index for the original invoice.
 	if preimage == channeldb.UnknownPreimage {
-		log.Errorf("rejecting htlc because preimage is unknown")
+		l.infof("accepting %x as exit hop", pd.RHash)
 
-		failure := lnwire.FailUnknownPaymentHash{}
-		l.sendHTLCError(
-			pd.HtlcIndex, failure, obfuscator,
-			pd.SourceRef,
+		err = l.cfg.Registry.AcceptInvoice(
+			invoiceHash, pd.Amount,
 		)
+		if err != nil {
+			failure := lnwire.FailUnknownPaymentHash{}
+			l.sendHTLCError(
+				pd.HtlcIndex, failure, obfuscator, pd.SourceRef,
+			)
+			return true, nil
+		}
+
+		// Subscribe to the hodl manager to get a notification when a
+		// resolution for this htlc is available.
+		hash := lntypes.Hash(pd.RHash)
+		l.hodlSubscription.subscribe(hash)
+
+		// Save payment descriptor to be able to settle/cancel later.
+		hodlHtlcs := l.hodlMap[hash]
+		l.hodlMap[hash] = append(
+			hodlHtlcs,
+			hodlHtlc{
+				htlcIndex: pd.HtlcIndex,
+				sourceRef: pd.SourceRef,
+			},
+		)
+
+		return false, nil
 	}
 
-	err = l.settleInvoice(pd, preimage)
+	err = l.settleInvoice(preimage, pd.HtlcIndex, pd.SourceRef)
 	if err != nil {
 		return false, err
 	}
@@ -2621,11 +2696,15 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 	return true, nil
 }
 
-func (l *channelLink) settleInvoice(pd *lnwallet.PaymentDescriptor,
-	preimage lntypes.Preimage) error {
+func (l *channelLink) settleInvoice(preimage lntypes.Preimage,
+	htlcIndex uint64, sourceRef *channeldb.AddRef) error {
 
-	err := l.channel.SettleHTLC(
-		preimage, pd.HtlcIndex, pd.SourceRef, nil, nil,
+	hash := preimage.Hash()
+
+	l.infof("settling %v as exit hop", hash)
+
+	amount, err := l.channel.SettleHTLC(
+		preimage, htlcIndex, sourceRef, nil, nil,
 	)
 	if err != nil {
 		return fmt.Errorf("unable to settle htlc: %v", err)
@@ -2633,13 +2712,10 @@ func (l *channelLink) settleInvoice(pd *lnwallet.PaymentDescriptor,
 
 	// Notify the invoiceRegistry of the invoices we just settled (with the
 	// amount accepted at settle time) with this latest commitment update.
-	hash := lntypes.Hash(pd.RHash)
-	err = l.cfg.Registry.SettleInvoice(hash, pd.Amount, nil)
+	err = l.cfg.Registry.SettleInvoice(hash, amount, &preimage)
 	if err != nil {
 		return fmt.Errorf("unable to settle invoice: %v", err)
 	}
-
-	l.infof("settling %x as exit hop", pd.RHash)
 
 	// If the link is in hodl.BogusSettle mode, replace the preimage with a
 	// fake one before sending it to the peer.
@@ -2654,7 +2730,7 @@ func (l *channelLink) settleInvoice(pd *lnwallet.PaymentDescriptor,
 	// remote peer.
 	l.cfg.Peer.SendMessage(false, &lnwire.UpdateFulfillHTLC{
 		ChanID:          l.ChanID(),
-		ID:              pd.HtlcIndex,
+		ID:              htlcIndex,
 		PaymentPreimage: preimage,
 	})
 

@@ -4602,25 +4602,26 @@ func (lc *LightningChannel) ReceiveHTLC(htlc *lnwire.UpdateAddHTLC) (uint64, err
 // testing the wallet.
 func (lc *LightningChannel) SettleHTLC(preimage [32]byte,
 	htlcIndex uint64, sourceRef *channeldb.AddRef,
-	destRef *channeldb.SettleFailRef, closeKey *channeldb.CircuitKey) error {
+	destRef *channeldb.SettleFailRef, closeKey *channeldb.CircuitKey) (
+	lnwire.MilliSatoshi, error) {
 
 	lc.Lock()
 	defer lc.Unlock()
 
 	htlc := lc.remoteUpdateLog.lookupHtlc(htlcIndex)
 	if htlc == nil {
-		return ErrUnknownHtlcIndex{lc.ShortChanID(), htlcIndex}
+		return 0, ErrUnknownHtlcIndex{lc.ShortChanID(), htlcIndex}
 	}
 
 	// Now that we know the HTLC exists, before checking to see if the
 	// preimage matches, we'll ensure that we haven't already attempted to
 	// modify the HTLC.
 	if lc.remoteUpdateLog.htlcHasModification(htlcIndex) {
-		return ErrHtlcIndexAlreadySettled(htlcIndex)
+		return 0, ErrHtlcIndexAlreadySettled(htlcIndex)
 	}
 
 	if htlc.RHash != sha256.Sum256(preimage[:]) {
-		return ErrInvalidSettlePreimage{preimage[:], htlc.RHash[:]}
+		return 0, ErrInvalidSettlePreimage{preimage[:], htlc.RHash[:]}
 	}
 
 	pd := &PaymentDescriptor{
@@ -4641,7 +4642,7 @@ func (lc *LightningChannel) SettleHTLC(preimage [32]byte,
 	// duplicate settle.
 	lc.remoteUpdateLog.markHtlcModified(htlcIndex)
 
-	return nil
+	return htlc.Amount, nil
 }
 
 // ReceiveHTLCSettle attempts to settle an existing outgoing HTLC indexed by an

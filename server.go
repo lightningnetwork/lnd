@@ -171,6 +171,8 @@ type server struct {
 
 	writeBufferPool *lnpeer.WriteBufferPool
 
+	hodlManager *htlcswitch.HodlManager
+
 	// globalFeatures feature vector which affects HTLCs and thus are also
 	// advertised to other nodes.
 	globalFeatures *lnwire.FeatureVector
@@ -313,6 +315,8 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		wCache:      chanDB.NewWitnessCache(),
 		subscribers: make(map[uint64]*preimageSubscriber),
 	}
+
+	s.hodlManager = htlcswitch.NewHodlManager(s.invoices, s.witnessBeacon)
 
 	// If the debug HTLC flag is on, then we invoice a "master debug"
 	// invoice which all outgoing payments will be sent and all incoming
@@ -1006,6 +1010,9 @@ func (s *server) Start() error {
 	if err := s.sphinx.Start(); err != nil {
 		return err
 	}
+	if err := s.hodlManager.Start(); err != nil {
+		return err
+	}
 	if err := s.htlcSwitch.Start(); err != nil {
 		return err
 	}
@@ -1094,6 +1101,7 @@ func (s *server) Stop() error {
 	s.cc.chainNotifier.Stop()
 	s.chanRouter.Stop()
 	s.htlcSwitch.Stop()
+	s.hodlManager.Stop()
 	s.sphinx.Stop()
 	s.utxoNursery.Stop()
 	s.breachArbiter.Stop()

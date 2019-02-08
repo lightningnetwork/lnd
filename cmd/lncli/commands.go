@@ -2824,11 +2824,37 @@ func getNodeInfo(ctx *cli.Context) error {
 }
 
 var queryRoutesCommand = cli.Command{
-	Name:        "queryroutes",
-	Category:    "Payments",
-	Usage:       "Query a route to a destination.",
-	Description: "Queries the channel router for a potential path to the destination that has sufficient flow for the amount including fees",
-	ArgsUsage:   "dest amt",
+	Name:     "queryroutes",
+	Category: "Payments",
+	Usage:    "Query a route to a destination.",
+	Description: `
+	Queries the channel router for a potential path to the destination that
+	has sufficient flow for the amount including fees.
+
+	A series of nodes and channels the route must pass through can optionally
+	be provided. The node id is mandatory. The channel leading to this node
+	can optionally be pegged too, otherwise the channel id should be set to 0.
+	The resulting route is composed of segments connecting between the pegged
+	nodes. Each segment does not have loops, but the entire path may. The
+	route selection assures that no edge will be transversed twice at the
+	same direction.
+	The alternate routes are stitched from N-1 shortest segment paths and
+	one alternate segment path.
+
+	Below is an example of a query using routing pegs:
+
+	lncli queryroutes --pegs='{"hop_pegs": [
+                {
+                    "node_id": "026a52eadd42eabb70e9b0481af7001d299f7d7b41030977bb37a2faac7bbe0012",
+                    "chan_id": "2043992116101120"
+                }
+            ]
+        }' "034a15c028970d4070c60f532018cfdb943b584ba267c83fe333ef1ad70b10feaf" 333
+
+	Note the single quote used to encapsulate the pegs.
+	`,
+
+	ArgsUsage: "dest amt",
 	Flags: []cli.Flag{
 		cli.StringFlag{
 			Name: "dest",
@@ -2858,6 +2884,14 @@ var queryRoutesCommand = cli.Command{
 			Name: "final_cltv_delta",
 			Usage: "(optional) number of blocks the last hop has to reveal " +
 				"the preimage",
+		},
+		cli.StringFlag{
+			Name: "pegs",
+			Usage: "(optional) a json array string of nodes and channels the " +
+				"route must path through. Each pegged hop must contain the " +
+				"public key of the node that the route must path through, " +
+				"and optionally a channel id leading to that node that the " +
+				"route should path through, or otherwise set as 0.",
 		},
 	},
 	Action: actionDecorator(queryRoutes),
@@ -2903,12 +2937,27 @@ func queryRoutes(ctx *cli.Context) error {
 		return err
 	}
 
+	var routePeg *lnrpc.RoutePeg
+	if ctx.IsSet("pegs") {
+		jsonPegs := ctx.String("pegs")
+		pegs := &lnrpc.RoutePeg{}
+		err = jsonpb.UnmarshalString(jsonPegs, pegs)
+		if err != nil {
+			return fmt.Errorf("unable to unmarshal json string "+
+				"from incoming array of pegs: %v", err)
+		}
+		routePeg = &lnrpc.RoutePeg{
+			HopPegs: pegs.HopPegs,
+		}
+	}
+
 	req := &lnrpc.QueryRoutesRequest{
 		PubKey:         dest,
 		Amt:            amt,
 		FeeLimit:       feeLimit,
 		NumRoutes:      int32(ctx.Int("num_max_routes")),
 		FinalCltvDelta: int32(ctx.Int("final_cltv_delta")),
+		RoutePeg:       routePeg,
 	}
 
 	route, err := client.QueryRoutes(ctxb, req)

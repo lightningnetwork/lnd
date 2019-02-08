@@ -2676,6 +2676,9 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 
 	// Notify the invoiceRegistry of the invoices we just settled (with the
 	// amount accepted at settle time) with this latest commitment update.
+	//
+	// If we crash right after this, this code will be re-executed after
+	// restart and the HTLC fulfill message will be sent out then.
 	err = l.cfg.Registry.SettleInvoice(invoiceHash, pd.Amount)
 
 	// Reject htlcs for canceled invoices.
@@ -2693,14 +2696,28 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 		return false, fmt.Errorf("unable to settle invoice: %v", err)
 	}
 
-	l.infof("settling %x as exit hop", pd.RHash)
-
 	preimage := invoice.Terms.PaymentPreimage
-	err = l.channel.SettleHTLC(
-		preimage, pd.HtlcIndex, pd.SourceRef, nil, nil,
+	err = l.settleHTLC(preimage, pd.HtlcIndex, pd.SourceRef)
+	if err != nil {
+		return false, err
+	}
+
+	return true, nil
+}
+
+// settleHTLC settles the HTLC on the channel.
+func (l *channelLink) settleHTLC(preimage lntypes.Preimage, htlcIndex uint64,
+	sourceRef *channeldb.AddRef) error {
+
+	hash := preimage.Hash()
+
+	l.infof("settling htlc %v as exit hop", hash)
+
+	err := l.channel.SettleHTLC(
+		preimage, htlcIndex, sourceRef, nil, nil,
 	)
 	if err != nil {
-		return false, fmt.Errorf("unable to settle htlc: %v", err)
+		return fmt.Errorf("unable to settle htlc: %v", err)
 	}
 
 	// If the link is in hodl.BogusSettle mode, replace the preimage with a
@@ -2715,11 +2732,11 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 	// remote peer.
 	l.cfg.Peer.SendMessage(false, &lnwire.UpdateFulfillHTLC{
 		ChanID:          l.ChanID(),
-		ID:              pd.HtlcIndex,
+		ID:              htlcIndex,
 		PaymentPreimage: preimage,
 	})
 
-	return true, nil
+	return nil
 }
 
 // forwardBatch forwards the given htlcPackets to the switch, and waits on the

@@ -2611,22 +2611,32 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 			pd.HtlcIndex, failure, obfuscator,
 			pd.SourceRef,
 		)
-
-		return true, nil
 	}
 
-	err = l.channel.SettleHTLC(
+	err = l.settleInvoice(pd, preimage)
+	if err != nil {
+		return false, err
+	}
+
+	return true, nil
+}
+
+func (l *channelLink) settleInvoice(pd *lnwallet.PaymentDescriptor,
+	preimage lntypes.Preimage) error {
+
+	err := l.channel.SettleHTLC(
 		preimage, pd.HtlcIndex, pd.SourceRef, nil, nil,
 	)
 	if err != nil {
-		return false, fmt.Errorf("unable to settle htlc: %v", err)
+		return fmt.Errorf("unable to settle htlc: %v", err)
 	}
 
 	// Notify the invoiceRegistry of the invoices we just settled (with the
 	// amount accepted at settle time) with this latest commitment update.
-	err = l.cfg.Registry.SettleInvoice(invoiceHash, pd.Amount, nil)
+	hash := lntypes.Hash(pd.RHash)
+	err = l.cfg.Registry.SettleInvoice(hash, pd.Amount, nil)
 	if err != nil {
-		return false, fmt.Errorf("unable to settle invoice: %v", err)
+		return fmt.Errorf("unable to settle invoice: %v", err)
 	}
 
 	l.infof("settling %x as exit hop", pd.RHash)
@@ -2648,7 +2658,7 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 		PaymentPreimage: preimage,
 	})
 
-	return true, nil
+	return nil
 }
 
 // forwardBatch forwards the given htlcPackets to the switch, and waits on the

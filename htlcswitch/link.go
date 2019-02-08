@@ -2630,7 +2630,28 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 		return false, fmt.Errorf("unable to settle invoice: %v", err)
 	}
 
-	l.infof("settling %x as exit hop", pd.RHash)
+	// Settle HTLC on the channel.
+	err = l.settleHTLC(preimage, pd.HtlcIndex, pd.SourceRef)
+	if err != nil {
+		return false, err
+	}
+
+	return true, nil
+}
+
+func (l *channelLink) settleHTLC(preimage lntypes.Preimage, htlcIndex uint64,
+	sourceRef *channeldb.AddRef) error {
+
+	hash := preimage.Hash()
+
+	l.infof("settling %v as exit hop", hash)
+
+	err := l.channel.SettleHTLC(
+		preimage, htlcIndex, sourceRef, nil, nil,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to settle htlc: %v", err)
+	}
 
 	// If the link is in hodl.BogusSettle mode, replace the preimage with a
 	// fake one before sending it to the peer.
@@ -2645,11 +2666,11 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 	// remote peer.
 	l.cfg.Peer.SendMessage(false, &lnwire.UpdateFulfillHTLC{
 		ChanID:          l.ChanID(),
-		ID:              pd.HtlcIndex,
+		ID:              htlcIndex,
 		PaymentPreimage: preimage,
 	})
 
-	return true, nil
+	return nil
 }
 
 // forwardBatch forwards the given htlcPackets to the switch, and waits on the

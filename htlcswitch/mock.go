@@ -131,6 +131,7 @@ type mockServer struct {
 	htlcSwitch *Switch
 
 	registry         *mockInvoiceRegistry
+	pCache           *mockPreimageCache
 	interceptorFuncs []messageInterceptor
 }
 
@@ -186,10 +187,14 @@ func newMockServer(t testing.TB, name string, startingHeight uint32,
 	h := sha256.Sum256([]byte(name))
 	copy(id[:], h[:])
 
+	pCache := newMockPreimageCache()
+
 	htlcSwitch, err := initSwitchWithDB(startingHeight, db)
 	if err != nil {
 		return nil, err
 	}
+
+	registry := newMockRegistry(defaultDelta)
 
 	return &mockServer{
 		t:                t,
@@ -197,8 +202,9 @@ func newMockServer(t testing.TB, name string, startingHeight uint32,
 		name:             name,
 		messages:         make(chan lnwire.Message, 3000),
 		quit:             make(chan struct{}),
-		registry:         newMockRegistry(defaultDelta),
+		registry:         registry,
 		htlcSwitch:       htlcSwitch,
+		pCache:           pCache,
 		interceptorFuncs: make([]messageInterceptor, 0),
 	}, nil
 }

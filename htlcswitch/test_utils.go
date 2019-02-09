@@ -974,18 +974,12 @@ type hopNetwork struct {
 	feeEstimator *mockFeeEstimator
 	globalPolicy ForwardingPolicy
 	obfuscator   ErrorEncrypter
-	pCache       *mockPreimageCache
 
 	defaultDelta uint32
 }
 
 func newHopNetwork() *hopNetwork {
 	defaultDelta := uint32(6)
-
-	pCache := &mockPreimageCache{
-		// hash -> preimage
-		preimageMap: make(map[[32]byte][]byte),
-	}
 
 	globalPolicy := ForwardingPolicy{
 		MinHTLC:       lnwire.NewMSatFromSatoshis(5),
@@ -1003,7 +997,6 @@ func newHopNetwork() *hopNetwork {
 		feeEstimator: feeEstimator,
 		globalPolicy: globalPolicy,
 		obfuscator:   obfuscator,
-		pCache:       pCache,
 		defaultDelta: defaultDelta,
 	}
 }
@@ -1034,7 +1027,7 @@ func (h *hopNetwork) createChannelLink(server, peer *mockServer,
 			FetchLastChannelUpdate: mockGetChanUpdateMessage,
 			Registry:               server.registry,
 			FeeEstimator:           h.feeEstimator,
-			PreimageCache:          h.pCache,
+			PreimageCache:          server.pCache,
 			UpdateContractSignals: func(*contractcourt.ContractSignals) error {
 				return nil
 			},

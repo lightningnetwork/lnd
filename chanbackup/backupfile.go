@@ -76,6 +76,8 @@ func (b *MultiFile) UpdateAndSwap(newBackup PackedMulti) error {
 		return ErrNoBackupFileExists
 	}
 
+	log.Infof("Updating backup file at %v", b.fileName)
+
 	// If the old back up file still exists, then we'll delete it before
 	// proceeding.
 	if _, err := os.Stat(b.tempFileName); err == nil {

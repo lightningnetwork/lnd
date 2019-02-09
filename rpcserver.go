@@ -2732,12 +2732,13 @@ func unmarshallSendToRouteRequest(req *lnrpc.SendToRouteRequest,
 // hints), or we'll get a fully populated route from the user that we'll pass
 // directly to the channel router for dispatching.
 type rpcPaymentIntent struct {
-	msat       lnwire.MilliSatoshi
-	feeLimit   lnwire.MilliSatoshi
-	dest       *btcec.PublicKey
-	rHash      [32]byte
-	cltvDelta  uint16
-	routeHints [][]routing.HopHint
+	msat              lnwire.MilliSatoshi
+	feeLimit          lnwire.MilliSatoshi
+	dest              *btcec.PublicKey
+	rHash             [32]byte
+	cltvDelta         uint16
+	routeHints        [][]routing.HopHint
+	outgoingChannelID *uint64
 
 	routes []*routing.Route
 }
@@ -2769,6 +2770,12 @@ func extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPaymentIntent, error
 
 		payIntent.routes = rpcPayReq.routes
 		return payIntent, nil
+	}
+
+	// If there are no routes specified, pass along a outgoing channel
+	// restriction if specified.
+	if rpcPayReq.OutgoingChanId != 0 {
+		payIntent.outgoingChannelID = &rpcPayReq.OutgoingChanId
 	}
 
 	// If the payment request field isn't blank, then the details of the
@@ -2920,11 +2927,12 @@ func (r *rpcServer) dispatchPaymentIntent(
 	// router, otherwise we'll create a payment session to execute it.
 	if len(payIntent.routes) == 0 {
 		payment := &routing.LightningPayment{
-			Target:      payIntent.dest,
-			Amount:      payIntent.msat,
-			FeeLimit:    payIntent.feeLimit,
-			PaymentHash: payIntent.rHash,
-			RouteHints:  payIntent.routeHints,
+			Target:            payIntent.dest,
+			Amount:            payIntent.msat,
+			FeeLimit:          payIntent.feeLimit,
+			PaymentHash:       payIntent.rHash,
+			RouteHints:        payIntent.routeHints,
+			OutgoingChannelID: payIntent.outgoingChannelID,
 		}
 
 		// If the final CLTV value was specified, then we'll use that

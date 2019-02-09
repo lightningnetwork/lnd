@@ -1951,6 +1951,12 @@ var sendPaymentCommand = cli.Command{
 			Name:  "final_cltv_delta",
 			Usage: "the number of blocks the last hop has to reveal the preimage",
 		},
+		cli.Uint64Flag{
+			Name: "outgoing_chan_id",
+			Usage: "short channel id of the outgoing channel to " +
+				"use for the first hop of the payment",
+			Value: 0,
+		},
 		cli.BoolFlag{
 			Name:  "force, f",
 			Usage: "will skip payment request confirmation",
@@ -2047,6 +2053,7 @@ func sendPayment(ctx *cli.Context) error {
 			PaymentRequest: ctx.String("pay_req"),
 			Amt:            ctx.Int64("amt"),
 			FeeLimit:       feeLimit,
+			OutgoingChanId: ctx.Uint64("outgoing_chan_id"),
 		}
 
 		return sendPaymentRequest(client, req)
@@ -2186,6 +2193,12 @@ var payInvoiceCommand = cli.Command{
 			Usage: "percentage of the payment's amount used as the" +
 				"maximum fee allowed when sending the payment",
 		},
+		cli.Uint64Flag{
+			Name: "outgoing_chan_id",
+			Usage: "short channel id of the outgoing channel to " +
+				"use for the first hop of the payment",
+			Value: 0,
+		},
 		cli.BoolFlag{
 			Name:  "force, f",
 			Usage: "will skip payment request confirmation",
@@ -2225,6 +2238,7 @@ func payInvoice(ctx *cli.Context) error {
 		PaymentRequest: payReq,
 		Amt:            ctx.Int64("amt"),
 		FeeLimit:       feeLimit,
+		OutgoingChanId: ctx.Uint64("outgoing_chan_id"),
 	}
 	return sendPaymentRequest(client, req)
 }

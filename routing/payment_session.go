@@ -148,9 +148,10 @@ func (p *paymentSession) RequestRoute(payment *LightningPayment,
 			bandwidthHints:  p.bandwidthHints,
 		},
 		&restrictParams{
-			ignoredNodes: pruneView.vertexes,
-			ignoredEdges: pruneView.edges,
-			feeLimit:     payment.FeeLimit,
+			ignoredNodes:      pruneView.vertexes,
+			ignoredEdges:      pruneView.edges,
+			feeLimit:          payment.FeeLimit,
+			outgoingChannelID: payment.OutgoingChannelID,
 		},
 		p.mc.selfNode, payment.Target, payment.Amount,
 	)

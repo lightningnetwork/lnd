@@ -17,7 +17,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
 
-	"github.com/lightningnetwork/lightning-onion"
+	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/input"
@@ -1611,6 +1611,10 @@ type LightningPayment struct {
 	// together and sorted in forward order in order to reach the
 	// destination successfully.
 	RouteHints [][]HopHint
+
+	// OutgoingChannelID is the channel that needs to be taken to the first
+	// hop. If nil, any channel may be used.
+	OutgoingChannelID *uint64
 
 	// TODO(roasbeef): add e2e message?
 }

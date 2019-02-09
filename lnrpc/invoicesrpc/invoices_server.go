@@ -168,7 +168,7 @@ func (s *Server) SubscribeSingleInvoice(req *lnrpc.PaymentHash,
 		return err
 	}
 
-	invoiceClient := s.cfg.InvoiceRegistry.SubscribeSingleInvoice(*hash)
+	invoiceClient := s.cfg.InvoiceRegistry.SubscribeSingleInvoice(hash)
 	defer invoiceClient.Cancel()
 
 	for {
@@ -202,7 +202,7 @@ func (s *Server) CancelInvoice(ctx context.Context,
 		return nil, err
 	}
 
-	err = s.cfg.InvoiceRegistry.CancelInvoice(*paymentHash)
+	err = s.cfg.InvoiceRegistry.CancelInvoice(paymentHash)
 	if err != nil {
 		return nil, err
 	}

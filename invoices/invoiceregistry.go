@@ -23,7 +23,7 @@ var (
 	// All nodes initialized with the flag active will immediately settle
 	// any incoming HTLC whose rHash corresponds with the debug
 	// preimage.
-	DebugPre, _ = lntypes.NewPreimage(bytes.Repeat([]byte{1}, 32))
+	DebugPre, _ = lntypes.MakePreimage(bytes.Repeat([]byte{1}, 32))
 
 	// DebugHash is the hash of the default preimage.
 	DebugHash = DebugPre.Hash()

@@ -163,12 +163,12 @@ func (s *Server) RegisterWithRootServer(grpcServer *grpc.Server) error {
 func (s *Server) SubscribeSingleInvoice(req *lnrpc.PaymentHash,
 	updateStream Invoices_SubscribeSingleInvoiceServer) error {
 
-	hash, err := lntypes.NewHash(req.RHash)
+	hash, err := lntypes.MakeHash(req.RHash)
 	if err != nil {
 		return err
 	}
 
-	invoiceClient := s.cfg.InvoiceRegistry.SubscribeSingleInvoice(*hash)
+	invoiceClient := s.cfg.InvoiceRegistry.SubscribeSingleInvoice(hash)
 	defer invoiceClient.Cancel()
 
 	for {
@@ -197,12 +197,12 @@ func (s *Server) SubscribeSingleInvoice(req *lnrpc.PaymentHash,
 func (s *Server) CancelInvoice(ctx context.Context,
 	in *CancelInvoiceMsg) (*CancelInvoiceResp, error) {
 
-	paymentHash, err := lntypes.NewHash(in.PaymentHash)
+	paymentHash, err := lntypes.MakeHash(in.PaymentHash)
 	if err != nil {
 		return nil, err
 	}
 
-	err = s.cfg.InvoiceRegistry.CancelInvoice(*paymentHash)
+	err = s.cfg.InvoiceRegistry.CancelInvoice(paymentHash)
 	if err != nil {
 		return nil, err
 	}

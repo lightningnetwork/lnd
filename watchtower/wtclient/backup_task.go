@@ -43,6 +43,7 @@ type backupTask struct {
 	toLocalInput  input.Input
 	toRemoteInput input.Input
 	totalAmt      btcutil.Amount
+	sweepPkScript []byte
 
 	// session-dependent variables
 
@@ -53,7 +54,8 @@ type backupTask struct {
 // newBackupTask initializes a new backupTask and populates all state-dependent
 // variables.
 func newBackupTask(chanID *lnwire.ChannelID,
-	breachInfo *lnwallet.BreachRetribution) *backupTask {
+	breachInfo *lnwallet.BreachRetribution,
+	sweepPkScript []byte) *backupTask {
 
 	// Parse the non-dust outputs from the breach transaction,
 	// simultaneously computing the total amount contained in the inputs
@@ -100,6 +102,7 @@ func newBackupTask(chanID *lnwire.ChannelID,
 		toLocalInput:  toLocalInput,
 		toRemoteInput: toRemoteInput,
 		totalAmt:      btcutil.Amount(totalAmt),
+		sweepPkScript: sweepPkScript,
 	}
 }
 
@@ -122,16 +125,12 @@ func (t *backupTask) inputs() map[wire.OutPoint]input.Input {
 // SessionInfo's policy. If no error is returned, the task has been bound to the
 // session and can be queued to upload to the tower. Otherwise, the bind failed
 // and should be rescheduled with a different session.
-func (t *backupTask) bindSession(session *wtdb.SessionInfo,
-	sweepPkScript []byte) error {
+func (t *backupTask) bindSession(session *wtdb.SessionInfo) error {
 
 	// First we'll begin by deriving a weight estimate for the justice
 	// transaction. The final weight can be different depending on whether
 	// the watchtower is taking a reward.
 	var weightEstimate input.TxWeightEstimator
-
-	// All justice transactions have a p2wkh output paying to the victim.
-	weightEstimate.AddP2WKHOutput()
 
 	// Next, add the contribution from the inputs that are present on this
 	// breach transaction.
@@ -142,18 +141,27 @@ func (t *backupTask) bindSession(session *wtdb.SessionInfo,
 		weightEstimate.AddWitnessInput(input.P2WKHWitnessSize)
 	}
 
+	// All justice transactions have a p2wkh output paying to the victim.
+	weightEstimate.AddP2WKHOutput()
+
+	// If the justice transaction has a reward output, add the output's
+	// contribution to the weight estimate.
+	if session.Policy.BlobType.Has(blob.FlagReward) {
+		weightEstimate.AddP2WKHOutput()
+	}
+
 	// Now, compute the output values depending on whether FlagReward is set
 	// in the current session's policy.
 	outputs, err := session.Policy.ComputeJusticeTxOuts(
 		t.totalAmt, int64(weightEstimate.Weight()),
-		sweepPkScript, session.RewardAddress,
+		t.sweepPkScript, session.RewardAddress,
 	)
 	if err != nil {
 		return err
 	}
 
-	t.outputs = outputs
 	t.blobType = session.Policy.BlobType
+	t.outputs = outputs
 
 	return nil
 }
@@ -164,7 +172,7 @@ func (t *backupTask) bindSession(session *wtdb.SessionInfo,
 // session-dependent variables, and signs the resulting transaction. The
 // required pieces from signatures, witness scripts, etc are then packaged into
 // a JusticeKit and encrypted using the breach transaction's key.
-func (t *backupTask) craftSessionPayload(sweepPkScript []byte,
+func (t *backupTask) craftSessionPayload(
 	signer input.Signer) (wtdb.BreachHint, []byte, error) {
 
 	var hint wtdb.BreachHint
@@ -173,7 +181,7 @@ func (t *backupTask) craftSessionPayload(sweepPkScript []byte,
 	// to-local script, and the remote CSV delay.
 	keyRing := t.breachInfo.KeyRing
 	justiceKit := &blob.JusticeKit{
-		SweepAddress:     sweepPkScript,
+		SweepAddress:     t.sweepPkScript,
 		RevocationPubKey: toBlobPubKey(keyRing.RevocationKey),
 		LocalDelayPubKey: toBlobPubKey(keyRing.DelayKey),
 		CSVDelay:         t.breachInfo.RemoteDelay,

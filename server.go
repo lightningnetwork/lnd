@@ -743,7 +743,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 			return s.announceChanStatus(op, true)
 		},
 		Sweeper:             s.sweeper,
-		SettleInvoice:       s.invoices.SettleInvoice,
+		Registry:            s.invoices,
 		NotifyClosedChannel: s.channelNotifier.NotifyClosedChannelEvent,
 	}, chanDB)
 

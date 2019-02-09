@@ -179,7 +179,7 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 
 		// With the HTLC claimed, we can attempt to settle its
 		// corresponding invoice if we were the original destination.
-		err = h.SettleInvoice(h.payHash, h.htlcAmt)
+		err = h.Registry.SettleInvoice(h.payHash, h.htlcAmt)
 		if err != nil && err != channeldb.ErrInvoiceNotFound {
 			log.Errorf("Unable to settle invoice with payment "+
 				"hash %x: %v", h.payHash, err)
@@ -252,7 +252,7 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 
 	// With the HTLC claimed, we can attempt to settle its corresponding
 	// invoice if we were the original destination.
-	err = h.SettleInvoice(h.payHash, h.htlcAmt)
+	err = h.Registry.SettleInvoice(h.payHash, h.htlcAmt)
 	if err != nil && err != channeldb.ErrInvoiceNotFound {
 		log.Errorf("Unable to settle invoice with payment "+
 			"hash %x: %v", h.payHash, err)

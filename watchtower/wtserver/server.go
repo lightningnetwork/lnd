@@ -71,8 +71,7 @@ type Server struct {
 	clientMtx sync.RWMutex
 	clients   map[wtdb.SessionID]Peer
 
-	globalFeatures *lnwire.RawFeatureVector
-	connFeatures   *lnwire.RawFeatureVector
+	localInit *wtwire.Init
 
 	wg   sync.WaitGroup
 	quit chan struct{}
@@ -82,16 +81,16 @@ type Server struct {
 // clients connecting to the listener addresses, and allows them to open
 // sessions and send state updates.
 func New(cfg *Config) (*Server, error) {
-	connFeatures := lnwire.NewRawFeatureVector(
-		wtwire.WtSessionsOptional,
+	localInit := wtwire.NewInitMessage(
+		lnwire.NewRawFeatureVector(wtwire.WtSessionsOptional),
+		cfg.ChainHash,
 	)
 
 	s := &Server{
-		cfg:            cfg,
-		clients:        make(map[wtdb.SessionID]Peer),
-		globalFeatures: lnwire.NewRawFeatureVector(),
-		connFeatures:   connFeatures,
-		quit:           make(chan struct{}),
+		cfg:       cfg,
+		clients:   make(map[wtdb.SessionID]Peer),
+		localInit: localInit,
+		quit:      make(chan struct{}),
 	}
 
 	connMgr, err := connmgr.New(&connmgr.Config{
@@ -209,17 +208,14 @@ func (s *Server) handleClient(peer Peer) {
 		return
 	}
 
-	localInit := wtwire.NewInitMessage(
-		s.connFeatures, s.cfg.ChainHash,
-	)
-
-	err = s.sendMessage(peer, localInit)
+	err = s.sendMessage(peer, s.localInit)
 	if err != nil {
 		log.Errorf("Unable to send Init msg to %s: %v", id, err)
 		return
 	}
 
-	if err = s.handleInit(localInit, remoteInit); err != nil {
+	err = s.localInit.CheckRemoteInit(remoteInit, wtwire.FeatureNames)
+	if err != nil {
 		log.Errorf("Cannot support client %s: %v", id, err)
 		return
 	}
@@ -295,27 +291,6 @@ func (s *Server) handleClient(peer Peer) {
 			return
 		}
 	}
-}
-
-// handleInit accepts the local and remote Init messages, and verifies that the
-// client is not requesting any required features that are unknown to the tower.
-func (s *Server) handleInit(localInit, remoteInit *wtwire.Init) error {
-	if localInit.ChainHash != remoteInit.ChainHash {
-		return fmt.Errorf("Peer chain hash unknown: %x",
-			remoteInit.ChainHash)
-	}
-
-	remoteConnFeatures := lnwire.NewFeatureVector(
-		remoteInit.ConnFeatures, wtwire.FeatureNames,
-	)
-
-	unknownLocalFeatures := remoteConnFeatures.UnknownRequiredFeatures()
-	if len(unknownLocalFeatures) > 0 {
-		return fmt.Errorf("Peer set unknown local feature bits: %v",
-			unknownLocalFeatures)
-	}
-
-	return nil
 }
 
 // handleCreateSession processes a CreateSession message from the peer, and returns

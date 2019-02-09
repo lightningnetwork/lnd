@@ -9,8 +9,8 @@ var GlobalFeatures map[lnwire.FeatureBit]string
 // LocalFeatures holds the locally advertised feature bits understood by
 // watchtower implementations.
 var LocalFeatures = map[lnwire.FeatureBit]string{
-	WtSessionsRequired: "wt-sessions-required",
-	WtSessionsOptional: "wt-sessions-optional",
+	WtSessionsRequired: "wt-sessions",
+	WtSessionsOptional: "wt-sessions",
 }
 
 const (

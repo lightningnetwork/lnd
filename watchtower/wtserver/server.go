@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/connmgr"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcutil"
@@ -51,6 +52,9 @@ type Config struct {
 	// NewAddress is used to generate reward addresses, where a cut of
 	// successfully sent funds can be received.
 	NewAddress func() (btcutil.Address, error)
+
+	// ChainHash identifies the network that the server is watching.
+	ChainHash chainhash.Hash
 }
 
 // Server houses the state required to handle watchtower peers. It's primary job
@@ -68,7 +72,7 @@ type Server struct {
 	clients   map[wtdb.SessionID]Peer
 
 	globalFeatures *lnwire.RawFeatureVector
-	localFeatures  *lnwire.RawFeatureVector
+	connFeatures   *lnwire.RawFeatureVector
 
 	wg   sync.WaitGroup
 	quit chan struct{}
@@ -78,7 +82,7 @@ type Server struct {
 // clients connecting to the listener addresses, and allows them to open
 // sessions and send state updates.
 func New(cfg *Config) (*Server, error) {
-	localFeatures := lnwire.NewRawFeatureVector(
+	connFeatures := lnwire.NewRawFeatureVector(
 		wtwire.WtSessionsOptional,
 	)
 
@@ -86,7 +90,7 @@ func New(cfg *Config) (*Server, error) {
 		cfg:            cfg,
 		clients:        make(map[wtdb.SessionID]Peer),
 		globalFeatures: lnwire.NewRawFeatureVector(),
-		localFeatures:  localFeatures,
+		connFeatures:   connFeatures,
 		quit:           make(chan struct{}),
 	}
 
@@ -206,7 +210,7 @@ func (s *Server) handleClient(peer Peer) {
 	}
 
 	localInit := wtwire.NewInitMessage(
-		s.localFeatures, s.globalFeatures,
+		s.connFeatures, s.cfg.ChainHash,
 	)
 
 	err = s.sendMessage(peer, localInit)
@@ -296,25 +300,19 @@ func (s *Server) handleClient(peer Peer) {
 // handleInit accepts the local and remote Init messages, and verifies that the
 // client is not requesting any required features that are unknown to the tower.
 func (s *Server) handleInit(localInit, remoteInit *wtwire.Init) error {
-	remoteLocalFeatures := lnwire.NewFeatureVector(
-		remoteInit.LocalFeatures, wtwire.LocalFeatures,
-	)
-	remoteGlobalFeatures := lnwire.NewFeatureVector(
-		remoteInit.GlobalFeatures, wtwire.GlobalFeatures,
-	)
-
-	unknownLocalFeatures := remoteLocalFeatures.UnknownRequiredFeatures()
-	if len(unknownLocalFeatures) > 0 {
-		err := fmt.Errorf("Peer set unknown local feature bits: %v",
-			unknownLocalFeatures)
-		return err
+	if localInit.ChainHash != remoteInit.ChainHash {
+		return fmt.Errorf("Peer chain hash unknown: %x",
+			remoteInit.ChainHash)
 	}
 
-	unknownGlobalFeatures := remoteGlobalFeatures.UnknownRequiredFeatures()
-	if len(unknownGlobalFeatures) > 0 {
-		err := fmt.Errorf("Peer set unknown global feature bits: %v",
-			unknownGlobalFeatures)
-		return err
+	remoteConnFeatures := lnwire.NewFeatureVector(
+		remoteInit.ConnFeatures, wtwire.LocalFeatures,
+	)
+
+	unknownLocalFeatures := remoteConnFeatures.UnknownRequiredFeatures()
+	if len(unknownLocalFeatures) > 0 {
+		return fmt.Errorf("Peer set unknown local feature bits: %v",
+			unknownLocalFeatures)
 	}
 
 	return nil

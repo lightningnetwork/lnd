@@ -8,6 +8,7 @@ import (
 	"testing/quick"
 	"time"
 
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/watchtower/wtwire"
@@ -21,6 +22,12 @@ func randRawFeatureVector(r *rand.Rand) *lnwire.RawFeatureVector {
 		}
 	}
 	return featureVec
+}
+
+func randChainHash(r *rand.Rand) chainhash.Hash {
+	var hash chainhash.Hash
+	r.Read(hash[:])
+	return hash
 }
 
 // TestWatchtowerWireProtocol uses the testing/quick package to create a series
@@ -73,7 +80,7 @@ func TestWatchtowerWireProtocol(t *testing.T) {
 		wtwire.MsgInit: func(v []reflect.Value, r *rand.Rand) {
 			req := wtwire.NewInitMessage(
 				randRawFeatureVector(r),
-				randRawFeatureVector(r),
+				randChainHash(r),
 			)
 
 			v[0] = reflect.ValueOf(*req)

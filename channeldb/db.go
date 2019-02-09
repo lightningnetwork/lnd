@@ -90,6 +90,13 @@ var (
 			number:    7,
 			migration: migrateOptionalChannelCloseSummaryFields,
 		},
+		{
+			// The DB version that migrates the ChannelCloseSummary
+			// to a format where optional fields are indicated with
+			// boolean flags.
+			number:    8,
+			migration: migrateInvoicePreimages,
+		},
 	}
 
 	// Big endian is the preferred byte order, due to cursor scans over

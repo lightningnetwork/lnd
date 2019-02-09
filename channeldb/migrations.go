@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
+	"errors"
 	"fmt"
 
 	"github.com/coreos/bbolt"
@@ -607,4 +608,8 @@ func migrateOptionalChannelCloseSummaryFields(tx *bbolt.Tx) error {
 	log.Info("Migration to new closed channel format complete!")
 
 	return nil
+}
+
+func migrateInvoicePreimages(tx *bbolt.Tx) error {
+	return errors.New("Migration not implemented")
 }

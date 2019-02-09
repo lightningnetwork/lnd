@@ -306,7 +306,7 @@ func (s *Server) handleInit(localInit, remoteInit *wtwire.Init) error {
 	}
 
 	remoteConnFeatures := lnwire.NewFeatureVector(
-		remoteInit.ConnFeatures, wtwire.LocalFeatures,
+		remoteInit.ConnFeatures, wtwire.FeatureNames,
 	)
 
 	unknownLocalFeatures := remoteConnFeatures.UnknownRequiredFeatures()

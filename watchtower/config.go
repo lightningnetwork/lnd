@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/tor"
@@ -35,6 +36,11 @@ var (
 // All nil-able elements with the Config must be set in order for the Watchtower
 // to function properly.
 type Config struct {
+	// ChainHash identifies the chain that the watchtower will be monitoring
+	// for breaches and that will be advertised in the server's Init message
+	// to inbound clients.
+	ChainHash chainhash.Hash
+
 	// BlockFetcher supports the ability to fetch blocks from the network by
 	// hash.
 	BlockFetcher lookout.BlockFetcher

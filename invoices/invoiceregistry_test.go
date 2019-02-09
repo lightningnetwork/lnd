@@ -58,14 +58,14 @@ func TestSettleInvoice(t *testing.T) {
 
 	// Add the invoice.
 	invoice := &channeldb.Invoice{
+		PaymentHash: hash,
 		Terms: channeldb.ContractTerm{
-			PaymentPreimage: preimage,
-			Value:           lnwire.MilliSatoshi(100000),
+			Value: lnwire.MilliSatoshi(100000),
 		},
 		PaymentRequest: []byte(testPayReq),
 	}
 
-	addIdx, err := registry.AddInvoice(invoice, hash)
+	addIdx, err := registry.AddInvoice(invoice)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,13 +195,13 @@ func TestCancelInvoice(t *testing.T) {
 	// Add the invoice.
 	amt := lnwire.MilliSatoshi(100000)
 	invoice := &channeldb.Invoice{
+		PaymentHash: hash,
 		Terms: channeldb.ContractTerm{
-			PaymentPreimage: preimage,
-			Value:           amt,
+			Value: amt,
 		},
 	}
 
-	_, err = registry.AddInvoice(invoice, hash)
+	_, err = registry.AddInvoice(invoice)
 	if err != nil {
 		t.Fatal(err)
 	}

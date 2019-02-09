@@ -6,6 +6,7 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/routetypes"
 	"github.com/lightningnetwork/lnd/zpay32"
@@ -13,6 +14,7 @@ import (
 
 // CreateRPCInvoice creates an *lnrpc.Invoice from the *channeldb.Invoice.
 func CreateRPCInvoice(invoice *channeldb.Invoice,
+	witnessBeacon contractcourt.WitnessBeacon,
 	activeNetParams *chaincfg.Params) (*lnrpc.Invoice, error) {
 
 	paymentRequest := string(invoice.PaymentRequest)
@@ -47,7 +49,11 @@ func CreateRPCInvoice(invoice *channeldb.Invoice,
 	// Convert between the `lnrpc` and `routing` types.
 	routeHints := CreateRPCRouteHints(decoded.RouteHints)
 
-	preimage := invoice.Terms.PaymentPreimage
+	preimage, ok := witnessBeacon.LookupPreimage(invoice.PaymentHash[:])
+	if !ok {
+		return nil, fmt.Errorf("invoice preimage unknown")
+	}
+
 	satAmt := invoice.Terms.Value.ToSatoshis()
 	satAmtPaid := invoice.AmtPaid.ToSatoshis()
 

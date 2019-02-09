@@ -4,6 +4,7 @@ package invoicesrpc
 
 import (
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/macaroons"
 )
@@ -29,4 +30,6 @@ type Config struct {
 	// ChainParams are required to properly decode invoice payment requests
 	// that are marshalled over rpc.
 	ChainParams *chaincfg.Params
+
+	WitnessBeacon contractcourt.WitnessBeacon
 }

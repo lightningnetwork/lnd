@@ -182,9 +182,8 @@ func migrateInvoiceTimeSeries(tx *bbolt.Tx) error {
 			return err
 		}
 
-		log.Tracef("Adding invoice (preimage=%x, add_index=%v) to add "+
-			"time series", invoice.Terms.PaymentPreimage[:],
-			nextAddSeqNo)
+		log.Tracef("Adding invoice (add_index=%v) to add "+
+			"time series", nextAddSeqNo)
 
 		// Next, we'll check if the invoice has been settled or not. If
 		// so, then we'll also add it to the settle index.
@@ -204,9 +203,8 @@ func migrateInvoiceTimeSeries(tx *bbolt.Tx) error {
 
 			invoice.AmtPaid = invoice.Terms.Value
 
-			log.Tracef("Adding invoice (preimage=%x, "+
+			log.Tracef("Adding invoice ("+
 				"settle_index=%v) to add time series",
-				invoice.Terms.PaymentPreimage[:],
 				nextSettleSeqNo)
 		}
 

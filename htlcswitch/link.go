@@ -2600,7 +2600,15 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 		return true, nil
 	}
 
-	preimage := invoice.Terms.PaymentPreimage
+	preimageSlice, ok := l.cfg.PreimageCache.LookupPreimage(
+		pd.RHash[:],
+	)
+	if !ok {
+		return false, fmt.Errorf("preimage for invoice %x not present",
+			pd.RHash)
+	}
+	preimage, _ := lntypes.NewPreimage(preimageSlice)
+
 	err = l.channel.SettleHTLC(
 		preimage, pd.HtlcIndex, pd.SourceRef, nil, nil,
 	)

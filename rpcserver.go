@@ -3500,6 +3500,7 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 	}
 
 	newInvoice := &channeldb.Invoice{
+		PaymentHash:    rHash,
 		CreationDate:   creationDate,
 		Memo:           []byte(invoice.Memo),
 		Receipt:        invoice.Receipt,
@@ -3508,7 +3509,6 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 			Value: amtMSat,
 		},
 	}
-	copy(newInvoice.Terms.PaymentPreimage[:], paymentPreimage[:])
 
 	rpcsLog.Tracef("[addinvoice] adding new invoice %v",
 		newLogClosure(func() string {
@@ -3516,8 +3516,14 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		}),
 	)
 
+	// Store preimage in preimage cache.
+	err = r.server.witnessBeacon.AddPreimage(paymentPreimage[:])
+	if err != nil {
+		return nil, err
+	}
+
 	// With all sanity checks passed, write the invoice to the database.
-	addIndex, err := r.server.invoices.AddInvoice(newInvoice, rHash)
+	addIndex, err := r.server.invoices.AddInvoice(newInvoice)
 	if err != nil {
 		return nil, err
 	}
@@ -3572,7 +3578,7 @@ func (r *rpcServer) LookupInvoice(ctx context.Context,
 		}))
 
 	rpcInvoice, err := invoicesrpc.CreateRPCInvoice(
-		&invoice, activeNetParams.Params,
+		&invoice, r.server.witnessBeacon, activeNetParams.Params,
 	)
 	if err != nil {
 		return nil, err
@@ -3614,7 +3620,8 @@ func (r *rpcServer) ListInvoices(ctx context.Context,
 	}
 	for i, invoice := range invoiceSlice.Invoices {
 		resp.Invoices[i], err = invoicesrpc.CreateRPCInvoice(
-			&invoice, activeNetParams.Params,
+			&invoice, r.server.witnessBeacon,
+			activeNetParams.Params,
 		)
 		if err != nil {
 			return nil, err
@@ -3638,7 +3645,8 @@ func (r *rpcServer) SubscribeInvoices(req *lnrpc.InvoiceSubscription,
 		select {
 		case newInvoice := <-invoiceClient.NewInvoices:
 			rpcInvoice, err := invoicesrpc.CreateRPCInvoice(
-				newInvoice, activeNetParams.Params,
+				newInvoice, r.server.witnessBeacon,
+				activeNetParams.Params,
 			)
 			if err != nil {
 				return err
@@ -3650,7 +3658,8 @@ func (r *rpcServer) SubscribeInvoices(req *lnrpc.InvoiceSubscription,
 
 		case settledInvoice := <-invoiceClient.SettledInvoices:
 			rpcInvoice, err := invoicesrpc.CreateRPCInvoice(
-				settledInvoice, activeNetParams.Params,
+				settledInvoice, r.server.witnessBeacon,
+				activeNetParams.Params,
 			)
 			if err != nil {
 				return err

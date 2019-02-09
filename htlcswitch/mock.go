@@ -764,11 +764,11 @@ func (i *mockInvoiceRegistry) CancelInvoice(payHash lntypes.Hash) error {
 }
 
 func (i *mockInvoiceRegistry) AddInvoice(invoice channeldb.Invoice) error {
+
 	i.Lock()
 	defer i.Unlock()
 
-	rhash := invoice.Terms.PaymentPreimage.Hash()
-	i.invoices[rhash] = invoice
+	i.invoices[invoice.PaymentHash] = invoice
 
 	return nil
 }

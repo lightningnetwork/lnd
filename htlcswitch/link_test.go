@@ -998,20 +998,26 @@ func TestChannelLinkMultiHopUnknownPaymentHash(t *testing.T) {
 	}
 
 	// Generate payment: invoice and htlc.
-	invoice, htlc, err := generatePayment(amount, htlcAmt, totalTimelock,
+	invoice, htlc, preimage, err := generatePayment(amount, htlcAmt, totalTimelock,
 		blob)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	// We need to have wrong rhash for that reason we should change the
-	// preimage. Inverse first byte by xoring with 0xff.
-	invoice.Terms.PaymentPreimage[0] ^= byte(255)
+	err = n.carolServer.pCache.AddPreimage(preimage[:])
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	// Check who is last in the route and add invoice to server registry.
-	if err := n.carolServer.registry.AddInvoice(*invoice); err != nil {
+	err = n.carolServer.registry.AddInvoice(*invoice)
+	if err != nil {
 		t.Fatalf("unable to add invoice in carol registry: %v", err)
 	}
+
+	// We need to have wrong rhash for that reason we should change the
+	// hash. Inverse first byte by xoring with 0xff.
+	htlc.PaymentHash[0] ^= byte(255)
 
 	// Send payment and expose err channel.
 	_, err = n.aliceServer.htlcSwitch.SendHTLC(
@@ -1815,7 +1821,7 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 	// a switch initiated payment.  The resulting bandwidth should
 	// now be decremented to reflect the new HTLC.
 	htlcAmt := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
-	invoice, htlc, err := generatePayment(htlcAmt, htlcAmt, 5, mockBlob)
+	invoice, htlc, preimage, err := generatePayment(htlcAmt, htlcAmt, 5, mockBlob)
 	if err != nil {
 		t.Fatalf("unable to create payment: %v", err)
 	}
@@ -1870,13 +1876,13 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 	// If we now send in a valid HTLC settle for the prior HTLC we added,
 	// then the bandwidth should remain unchanged as the remote party will
 	// gain additional channel balance.
-	err = bobChannel.SettleHTLC(invoice.Terms.PaymentPreimage, bobIndex, nil, nil, nil)
+	err = bobChannel.SettleHTLC(preimage, bobIndex, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("unable to settle htlc: %v", err)
 	}
 	htlcSettle := &lnwire.UpdateFulfillHTLC{
 		ID:              0,
-		PaymentPreimage: invoice.Terms.PaymentPreimage,
+		PaymentPreimage: preimage,
 	}
 	aliceLink.HandleChannelUpdate(htlcSettle)
 	time.Sleep(time.Millisecond * 500)
@@ -1895,7 +1901,7 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 
 	// Next, we'll add another HTLC initiated by the switch (of the same
 	// amount as the prior one).
-	invoice, htlc, err = generatePayment(htlcAmt, htlcAmt, 5, mockBlob)
+	invoice, htlc, preimage, err = generatePayment(htlcAmt, htlcAmt, 5, mockBlob)
 	if err != nil {
 		t.Fatalf("unable to create payment: %v", err)
 	}
@@ -1981,10 +1987,15 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to gen route: %v", err)
 	}
-	invoice, htlc, err = generatePayment(htlcAmt, htlcAmt,
+	invoice, htlc, preimage, err = generatePayment(htlcAmt, htlcAmt,
 		totalTimelock, blob)
 	if err != nil {
 		t.Fatalf("unable to create payment: %v", err)
+	}
+
+	err = coreLink.cfg.PreimageCache.AddPreimage(preimage[:])
+	if err != nil {
+		t.Fatalf("unable to add preimage: %v", err)
 	}
 
 	// We must add the invoice to the registry, such that Alice expects
@@ -2045,7 +2056,7 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 		outgoingHTLCID: addPkt.outgoingHTLCID,
 		htlc: &lnwire.UpdateFulfillHTLC{
 			ID:              0,
-			PaymentPreimage: invoice.Terms.PaymentPreimage,
+			PaymentPreimage: preimage,
 		},
 		obfuscator: NewMockObfuscator(),
 	}
@@ -2087,10 +2098,18 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to gen route: %v", err)
 	}
-	invoice, htlc, err = generatePayment(htlcAmt, htlcAmt, totalTimelock, blob)
+	invoice, htlc, preimage, err = generatePayment(
+		htlcAmt, htlcAmt, totalTimelock, blob,
+	)
 	if err != nil {
 		t.Fatalf("unable to create payment: %v", err)
 	}
+
+	err = coreLink.cfg.PreimageCache.AddPreimage(preimage[:])
+	if err != nil {
+		t.Fatalf("unable to add preimage: %v", err)
+	}
+
 	err = coreLink.cfg.Registry.(*mockInvoiceRegistry).AddInvoice(*invoice)
 	if err != nil {
 		t.Fatalf("unable to add invoice to registry: %v", err)
@@ -2216,7 +2235,7 @@ func TestChannelLinkBandwidthConsistencyOverflow(t *testing.T) {
 
 	var htlcID uint64
 	addLinkHTLC := func(id uint64, amt lnwire.MilliSatoshi) [32]byte {
-		invoice, htlc, err := generatePayment(amt, amt, 5, mockBlob)
+		_, htlc, preimage, err := generatePayment(amt, amt, 5, mockBlob)
 		if err != nil {
 			t.Fatalf("unable to create payment: %v", err)
 		}
@@ -2235,7 +2254,7 @@ func TestChannelLinkBandwidthConsistencyOverflow(t *testing.T) {
 
 		addPkt.circuit = &circuit
 		aliceLink.HandleSwitchPacket(addPkt)
-		return invoice.Terms.PaymentPreimage
+		return preimage
 	}
 
 	// We'll first start by adding enough HTLC's to overflow the commitment
@@ -2480,7 +2499,7 @@ func TestChannelLinkTrimCircuitsPending(t *testing.T) {
 	// message for the test.
 	var mockBlob [lnwire.OnionPacketSize]byte
 	htlcAmt := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
-	_, htlc, err := generatePayment(htlcAmt, htlcAmt, 5, mockBlob)
+	_, htlc, _, err := generatePayment(htlcAmt, htlcAmt, 5, mockBlob)
 	if err != nil {
 		t.Fatalf("unable to create payment: %v", err)
 	}
@@ -2758,7 +2777,7 @@ func TestChannelLinkTrimCircuitsNoCommit(t *testing.T) {
 	// message for the test.
 	var mockBlob [lnwire.OnionPacketSize]byte
 	htlcAmt := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
-	_, htlc, err := generatePayment(htlcAmt, htlcAmt, 5, mockBlob)
+	_, htlc, _, err := generatePayment(htlcAmt, htlcAmt, 5, mockBlob)
 	if err != nil {
 		t.Fatalf("unable to create payment: %v", err)
 	}
@@ -3011,7 +3030,9 @@ func TestChannelLinkBandwidthChanReserve(t *testing.T) {
 	// a switch initiated payment.  The resulting bandwidth should
 	// now be decremented to reflect the new HTLC.
 	htlcAmt := lnwire.NewMSatFromSatoshis(3 * btcutil.SatoshiPerBitcoin)
-	invoice, htlc, err := generatePayment(htlcAmt, htlcAmt, 5, mockBlob)
+	_, htlc, preimage, err := generatePayment(
+		htlcAmt, htlcAmt, 5, mockBlob,
+	)
 	if err != nil {
 		t.Fatalf("unable to create payment: %v", err)
 	}
@@ -3058,13 +3079,13 @@ func TestChannelLinkBandwidthChanReserve(t *testing.T) {
 	// If we now send in a valid HTLC settle for the prior HTLC we added,
 	// then the bandwidth should remain unchanged as the remote party will
 	// gain additional channel balance.
-	err = bobChannel.SettleHTLC(invoice.Terms.PaymentPreimage, bobIndex, nil, nil, nil)
+	err = bobChannel.SettleHTLC(preimage, bobIndex, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("unable to settle htlc: %v", err)
 	}
 	htlcSettle := &lnwire.UpdateFulfillHTLC{
 		ID:              bobIndex,
-		PaymentPreimage: invoice.Terms.PaymentPreimage,
+		PaymentPreimage: preimage,
 	}
 	aliceLink.HandleChannelUpdate(htlcSettle)
 	time.Sleep(time.Millisecond * 500)
@@ -3297,6 +3318,7 @@ func TestChannelRetransmission(t *testing.T) {
 		// will be failed because of the unknown payment hash. Hack
 		// will be removed with sphinx payment.
 		bobRegistry := n.bobServer.registry
+		bobPreimageCache := n.bobServer.pCache
 		n.stop()
 
 		channels, err = restoreChannelsFromDb()
@@ -3307,6 +3329,7 @@ func TestChannelRetransmission(t *testing.T) {
 		n = newThreeHopNetwork(ct, channels.aliceToBob, channels.bobToAlice,
 			channels.bobToCarol, channels.carolToBob, testStartingHeight)
 		n.firstBobChannelLink.cfg.Registry = bobRegistry
+		n.firstBobChannelLink.cfg.PreimageCache = bobPreimageCache
 		n.aliceServer.intersect(aliceInterceptor)
 		n.bobServer.intersect(bobInterceptor)
 
@@ -3742,9 +3765,12 @@ func TestChannelLinkAcceptDuplicatePayment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	invoice, htlc, err := generatePayment(amount, htlcAmt, totalTimelock,
+	invoice, htlc, preimage, err := generatePayment(amount, htlcAmt, totalTimelock,
 		blob)
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := n.carolServer.pCache.AddPreimage(preimage[:]); err != nil {
 		t.Fatal(err)
 	}
 	if err := n.carolServer.registry.AddInvoice(*invoice); err != nil {
@@ -4130,10 +4156,16 @@ func generateHtlc(t *testing.T, coreLink *channelLink,
 		},
 	}
 	blob, err := generateRoute(hops...)
-	invoice, htlc, err := generatePayment(htlcAmt, htlcAmt, 144,
-		blob)
+	invoice, htlc, preimage, err := generatePayment(htlcAmt, htlcAmt, 144,
+		blob,
+	)
 	if err != nil {
 		t.Fatalf("unable to create payment: %v", err)
+	}
+
+	err = coreLink.cfg.PreimageCache.AddPreimage(preimage[:])
+	if err != nil {
+		t.Fatalf("unable to add preimage: %v", err)
 	}
 
 	// We must add the invoice to the registry, such that Alice
@@ -5238,8 +5270,7 @@ func TestChannelLinkCanceledInvoice(t *testing.T) {
 	}
 
 	// Cancel the invoice at bob's end.
-	hash := invoice.Terms.PaymentPreimage.Hash()
-	err = n.bobServer.registry.CancelInvoice(hash)
+	err = n.bobServer.registry.CancelInvoice(invoice.PaymentHash)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -526,22 +526,23 @@ func getChanID(msg lnwire.Message) (lnwire.ChannelID, error) {
 // generatePayment generates the htlc add request by given path blob and
 // invoice which should be added by destination peer.
 func generatePayment(invoiceAmt, htlcAmt lnwire.MilliSatoshi, timelock uint32,
-	blob [lnwire.OnionPacketSize]byte) (*channeldb.Invoice, *lnwire.UpdateAddHTLC, error) {
+	blob [lnwire.OnionPacketSize]byte) (*channeldb.Invoice,
+	*lnwire.UpdateAddHTLC, lntypes.Preimage, error) {
 
 	var preimage [sha256.Size]byte
 	r, err := generateRandomBytes(sha256.Size)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, lntypes.Preimage{}, err
 	}
 	copy(preimage[:], r)
 
 	rhash := fastsha256.Sum256(preimage[:])
 
 	invoice := &channeldb.Invoice{
+		PaymentHash:  rhash,
 		CreationDate: time.Now(),
 		Terms: channeldb.ContractTerm{
-			Value:           invoiceAmt,
-			PaymentPreimage: preimage,
+			Value: invoiceAmt,
 		},
 	}
 
@@ -552,7 +553,7 @@ func generatePayment(invoiceAmt, htlcAmt lnwire.MilliSatoshi, timelock uint32,
 		OnionBlob:   blob,
 	}
 
-	return invoice, htlc, nil
+	return invoice, htlc, preimage, nil
 }
 
 // generateRoute generates the path blob by given array of peers.
@@ -708,7 +709,7 @@ func makePayment(sendingPeer, receivingPeer lnpeer.Peer,
 		}
 	}
 
-	rhash = invoice.Terms.PaymentPreimage.Hash()
+	rhash = invoice.PaymentHash
 
 	// Send payment and expose err channel.
 	go func() {
@@ -739,13 +740,22 @@ func preparePayment(sendingPeer, receivingPeer lnpeer.Peer,
 	}
 
 	// Generate payment: invoice and htlc.
-	invoice, htlc, err := generatePayment(invoiceAmt, htlcAmt, timelock, blob)
+	invoice, htlc, preimage, err := generatePayment(
+		invoiceAmt, htlcAmt, timelock, blob,
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Add preimage to cache.
+	err = receiver.pCache.AddPreimage(preimage[:])
 	if err != nil {
 		return nil, nil, err
 	}
 
 	// Check who is last in the route and add invoice to server registry.
-	if err := receiver.registry.AddInvoice(*invoice); err != nil {
+	err = receiver.registry.AddInvoice(*invoice)
+	if err != nil {
 		return nil, nil, err
 	}
 

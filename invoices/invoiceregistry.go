@@ -100,7 +100,6 @@ func (i *InvoiceRegistry) Stop() {
 // instance where invoices are settled.
 type invoiceEvent struct {
 	state   channeldb.ContractState
-	hash    lntypes.Hash
 	invoice *channeldb.Invoice
 }
 
@@ -180,7 +179,7 @@ func (i *InvoiceRegistry) invoiceEventNotifier() {
 func (i *InvoiceRegistry) dispatchToSingleClients(event *invoiceEvent) {
 	// Dispatch to single invoice subscribers.
 	for _, client := range i.singleNotificationClients {
-		if client.hash != event.hash {
+		if client.hash != event.invoice.PaymentHash {
 			continue
 		}
 
@@ -337,7 +336,6 @@ func (i *InvoiceRegistry) deliverSingleBacklogEvents(
 	}
 
 	err = client.notify(&invoiceEvent{
-		hash:    client.hash,
 		invoice: &invoice,
 		state:   invoice.Terms.State,
 	})
@@ -353,20 +351,18 @@ func (i *InvoiceRegistry) deliverSingleBacklogEvents(
 // daemon add/forward HTLCs that are able to obtain the proper preimage
 // required for redemption in the case that we're the final destination.
 func (i *InvoiceRegistry) AddDebugInvoice(amt btcutil.Amount,
-	preimage lntypes.Preimage) {
-
-	paymentHash := preimage.Hash()
+	hash lntypes.Hash) {
 
 	invoice := &channeldb.Invoice{
+		PaymentHash:  hash,
 		CreationDate: time.Now(),
 		Terms: channeldb.ContractTerm{
-			Value:           lnwire.NewMSatFromSatoshis(amt),
-			PaymentPreimage: preimage,
+			Value: lnwire.NewMSatFromSatoshis(amt),
 		},
 	}
 
 	i.Lock()
-	i.debugInvoices[paymentHash] = invoice
+	i.debugInvoices[hash] = invoice
 	i.Unlock()
 
 	log.Debugf("Adding debug invoice %v", newLogClosure(func() string {
@@ -381,8 +377,7 @@ func (i *InvoiceRegistry) AddDebugInvoice(amt btcutil.Amount,
 // redemption in the case that we're the final destination. We also return the
 // addIndex of the newly created invoice which monotonically increases for each
 // new invoice added.
-func (i *InvoiceRegistry) AddInvoice(invoice *channeldb.Invoice,
-	paymentHash lntypes.Hash) (uint64, error) {
+func (i *InvoiceRegistry) AddInvoice(invoice *channeldb.Invoice) (uint64, error) {
 
 	i.Lock()
 	defer i.Unlock()
@@ -398,7 +393,7 @@ func (i *InvoiceRegistry) AddInvoice(invoice *channeldb.Invoice,
 
 	// Now that we've added the invoice, we'll send dispatch a message to
 	// notify the clients of this new invoice.
-	i.notifyClients(paymentHash, invoice, channeldb.ContractOpen)
+	i.notifyClients(invoice, channeldb.ContractOpen)
 
 	return addIndex, nil
 }
@@ -475,7 +470,7 @@ func (i *InvoiceRegistry) SettleInvoice(rHash lntypes.Hash,
 
 	log.Infof("Payment received: %v", spew.Sdump(invoice))
 
-	i.notifyClients(rHash, invoice, channeldb.ContractSettled)
+	i.notifyClients(invoice, channeldb.ContractSettled)
 
 	return nil
 }
@@ -503,21 +498,19 @@ func (i *InvoiceRegistry) CancelInvoice(payHash lntypes.Hash) error {
 
 	log.Infof("Invoice %v canceled", payHash)
 
-	i.notifyClients(payHash, invoice, channeldb.ContractCanceled)
+	i.notifyClients(invoice, channeldb.ContractCanceled)
 
 	return nil
 }
 
 // notifyClients notifies all currently registered invoice notification clients
 // of a newly added/settled invoice.
-func (i *InvoiceRegistry) notifyClients(hash lntypes.Hash,
-	invoice *channeldb.Invoice,
+func (i *InvoiceRegistry) notifyClients(invoice *channeldb.Invoice,
 	state channeldb.ContractState) {
 
 	event := &invoiceEvent{
 		state:   state,
 		invoice: invoice,
-		hash:    hash,
 	}
 
 	select {

@@ -2,6 +2,7 @@ package channeldb
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"fmt"
 	"math/rand"
 	"reflect"
@@ -13,6 +14,7 @@ import (
 )
 
 func makeFakePayment() *OutgoingPayment {
+	hash := sha256.Sum256(rev[:])
 	fakeInvoice := &Invoice{
 		// Use single second precision to avoid false positive test
 		// failures due to the monotonic time component.
@@ -20,9 +22,9 @@ func makeFakePayment() *OutgoingPayment {
 		Memo:           []byte("fake memo"),
 		Receipt:        []byte("fake receipt"),
 		PaymentRequest: []byte(""),
+		PaymentHash:    hash,
 	}
 
-	copy(fakeInvoice.Terms.PaymentPreimage[:], rev[:])
 	fakeInvoice.Terms.Value = lnwire.NewMSatFromSatoshis(10000)
 
 	fakePath := make([][33]byte, 3)
@@ -84,7 +86,7 @@ func makeRandomFakePayment() (*OutgoingPayment, error) {
 	if err != nil {
 		return nil, err
 	}
-	copy(fakeInvoice.Terms.PaymentPreimage[:], preImg)
+	fakeInvoice.PaymentHash = sha256.Sum256(preImg)
 
 	fakeInvoice.Terms.Value = lnwire.MilliSatoshi(rand.Intn(10000))
 
@@ -104,7 +106,6 @@ func makeRandomFakePayment() (*OutgoingPayment, error) {
 		Path:           fakePath,
 		TimeLockLength: uint32(rand.Intn(10000)),
 	}
-	copy(fakePayment.PaymentPreimage[:], fakeInvoice.Terms.PaymentPreimage[:])
 
 	return fakePayment, nil
 }

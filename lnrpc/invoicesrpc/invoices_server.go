@@ -175,7 +175,8 @@ func (s *Server) SubscribeSingleInvoice(req *lnrpc.PaymentHash,
 		select {
 		case newInvoice := <-invoiceClient.Updates:
 			rpcInvoice, err := CreateRPCInvoice(
-				newInvoice, s.cfg.ChainParams,
+				newInvoice, s.cfg.WitnessBeacon,
+				s.cfg.ChainParams,
 			)
 			if err != nil {
 				return err

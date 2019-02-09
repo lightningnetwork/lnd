@@ -190,6 +190,11 @@ type server struct {
 	// should attempt to restore/recover.
 	chansToRestore walletunlocker.ChannelsToRecover
 
+	// chanSubSwapper is a sub-system that will ensure our on-disk channel
+	// backups are consistent at all times. It interacts with the
+	// channelNotifier to be notified of newly opened and closed channels.
+	chanSubSwapper *chanbackup.SubSwapper
+
 	quit chan struct{}
 
 	wg sync.WaitGroup
@@ -990,6 +995,24 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		return nil, err
 	}
 
+	// Next, we'll assemble the sub-system that will maintain an on-disk
+	// static backup of the latest channel state.
+	chanNotifier := &channelNotifier{
+		chanNotifier: s.channelNotifier,
+		addrs:        s.chanDB,
+	}
+	backupFile := chanbackup.NewMultiFile(cfg.BackupFilePath)
+	startingChans, err := chanbackup.FetchStaticChanBackups(s.chanDB)
+	if err != nil {
+		return nil, err
+	}
+	s.chanSubSwapper, err = chanbackup.NewSubSwapper(
+		startingChans, chanNotifier, s.cc.keyRing, backupFile,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	// Create the connection manager which will be responsible for
 	// maintaining persistent outbound connections and also accepting new
 	// incoming connections
@@ -1118,6 +1141,10 @@ func (s *server) Start() error {
 		}
 	}
 
+	if err := s.chanSubSwapper.Start(); err != nil {
+		return err
+	}
+
 	s.connMgr.Start()
 
 	// With all the relevant sub-systems started, we'll now attempt to
@@ -1186,6 +1213,7 @@ func (s *server) Stop() error {
 	s.cc.feeEstimator.Stop()
 	s.invoices.Stop()
 	s.fundingMgr.Stop()
+	s.chanSubSwapper.Start()
 
 	// Disconnect from each active peers to ensure that
 	// peerTerminationWatchers signal completion to each peer.

@@ -5589,3 +5589,169 @@ func TestChannelLinkCanceledInvoice(t *testing.T) {
 		t.Fatalf("expected unknown payment hash, but got %v", err)
 	}
 }
+
+type hodlInvoiceTestCtx struct {
+	n                   *twoHopNetwork
+	startBandwidthAlice lnwire.MilliSatoshi
+	startBandwidthBob   lnwire.MilliSatoshi
+	hash                lntypes.Hash
+	preimage            lntypes.Preimage
+	amount              lnwire.MilliSatoshi
+	errChan             chan error
+
+	cleanUp func()
+}
+
+func newHodlInvoiceTestCtx(t *testing.T) (*hodlInvoiceTestCtx, error) {
+	// Setup a alice-bob network.
+	aliceChannel, bobChannel, cleanUp, err := createTwoClusterChannels(
+		btcutil.SatoshiPerBitcoin*3,
+		btcutil.SatoshiPerBitcoin*5,
+	)
+	if err != nil {
+		t.Fatalf("unable to create channel: %v", err)
+	}
+
+	n := newTwoHopNetwork(t, aliceChannel, bobChannel, testStartingHeight)
+	if err := n.start(); err != nil {
+		t.Fatal(err)
+	}
+
+	aliceBandwidthBefore := n.aliceChannelLink.Bandwidth()
+	bobBandwidthBefore := n.bobChannelLink.Bandwidth()
+
+	debug := false
+	if debug {
+		// Log message that alice receives.
+		n.aliceServer.intersect(
+			createLogFunc("alice", n.aliceChannelLink.ChanID()),
+		)
+
+		// Log message that bob receives.
+		n.bobServer.intersect(
+			createLogFunc("bob", n.bobChannelLink.ChanID()),
+		)
+	}
+
+	amount := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
+	htlcAmt, totalTimelock, hops := generateHops(
+		amount, testStartingHeight, n.bobChannelLink,
+	)
+
+	// Generate hold invoice preimage.
+	r, err := generateRandomBytes(sha256.Size)
+	if err != nil {
+		t.Fatal(err)
+	}
+	preimage, err := lntypes.MakePreimage(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash := preimage.Hash()
+
+	// Have alice pay the hodl invoice, wait for bob's commitment state to
+	// be updated and the invoice state to be updated.
+	receiver := n.bobServer
+	receiver.registry.settleChan = make(chan lntypes.Hash)
+	firstHop := n.bobChannelLink.ShortChanID()
+	errChan := n.makeHoldPayment(
+		n.aliceServer, receiver, firstHop, hops, amount, htlcAmt,
+		totalTimelock, preimage,
+	)
+
+	select {
+	case err := <-errChan:
+		t.Fatalf("no payment result expected: %v", err)
+	case <-time.After(time.Second):
+		t.Fatal("timeout")
+	case h := <-receiver.registry.settleChan:
+		if hash != h {
+			t.Fatal("unexpect invoice settled")
+		}
+	}
+
+	return &hodlInvoiceTestCtx{
+		n:                   n,
+		startBandwidthAlice: aliceBandwidthBefore,
+		startBandwidthBob:   bobBandwidthBefore,
+		preimage:            preimage,
+		hash:                hash,
+		amount:              amount,
+		errChan:             errChan,
+
+		cleanUp: func() {
+			cleanUp()
+			n.stop()
+		},
+	}, nil
+}
+
+// TestChannelLinkHoldInvoiceSettle asserts that a hodl invoice can be settled.
+func TestChannelLinkHoldInvoiceSettle(t *testing.T) {
+	t.Parallel()
+
+	ctx, err := newHodlInvoiceTestCtx(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ctx.cleanUp()
+
+	err = ctx.n.bobServer.registry.SettleHodlInvoice(ctx.preimage)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Wait for payment to succeed.
+	select {
+	case err := <-ctx.errChan:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout")
+	}
+
+	// Wait for Bob to receive the revocation.
+	if ctx.startBandwidthAlice-ctx.amount !=
+		ctx.n.aliceChannelLink.Bandwidth() {
+
+		t.Fatal("alice bandwidth should have decrease on payment " +
+			"amount")
+	}
+
+	if ctx.startBandwidthBob+ctx.amount !=
+		ctx.n.bobChannelLink.Bandwidth() {
+
+		t.Fatalf("bob bandwidth isn't match: expected %v, got %v",
+			ctx.startBandwidthBob+ctx.amount,
+			ctx.n.bobChannelLink.Bandwidth())
+	}
+}
+
+// TestChannelLinkHoldInvoiceSettle asserts that a hodl invoice can be canceled.
+func TestChannelLinkHoldInvoiceCancel(t *testing.T) {
+	t.Parallel()
+
+	ctx, err := newHodlInvoiceTestCtx(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ctx.cleanUp()
+
+	err = ctx.n.bobServer.registry.CancelInvoice(ctx.hash)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Wait for payment to succeed.
+	select {
+	case err := <-ctx.errChan:
+		if !strings.Contains(err.Error(),
+			lnwire.CodeUnknownPaymentHash.String()) {
+
+			t.Fatal("expected unknown payment hash")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout")
+	}
+}

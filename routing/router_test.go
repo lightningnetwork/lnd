@@ -673,6 +673,155 @@ func TestSendPaymentErrorRepeatedFeeInsufficient(t *testing.T) {
 	}
 }
 
+// TestSendPaymentErrorFeeInsufficientPrivateEdge tests that if we receive
+// a fee related error from a private channel that we're attempting to route
+// through, then we'll update the fees in the route hints and successfuly
+// route through the private channel in the second attempt.
+func TestSendPaymentErrorFeeInsufficientPrivateEdge(t *testing.T) {
+	t.Parallel()
+
+	const startingBlockHeight = 101
+	ctx, cleanUp, err := createTestCtxFromFile(startingBlockHeight, basicGraphFilePath)
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to create router: %v", err)
+	}
+
+	// Craft a LightningPayment struct that'll send a payment from roasbeef
+	// to elst, through a private channel between son goku and elst
+	// for 1000 satoshis.
+	// This route has lower fees compared with the route through pham nuwen,
+	// as well as compared with the route through son goku -> sophon. This
+	// also holds when the private channel fee is updated to a higher value.
+	var payHash [32]byte
+	amt := lnwire.NewMSatFromSatoshis(1000)
+	privateChannelID := uint64(55555)
+	feeBaseMSat := uint32(15)
+	feeProportionalMillionths := uint32(10)
+	expiryDelta := uint16(32)
+	hopHint := HopHint{
+		NodeID:                    ctx.aliases["songoku"],
+		ChannelID:                 privateChannelID,
+		FeeBaseMSat:               feeBaseMSat,
+		FeeProportionalMillionths: feeProportionalMillionths,
+		CLTVExpiryDelta:           expiryDelta,
+	}
+	routeHints := [][]HopHint{{hopHint}}
+	payment := LightningPayment{
+		Target:      ctx.aliases["elst"],
+		Amount:      amt,
+		FeeLimit:    noFeeLimit,
+		PaymentHash: payHash,
+		RouteHints:  routeHints,
+	}
+
+	var preImage [32]byte
+	copy(preImage[:], bytes.Repeat([]byte{9}, 32))
+
+	// Prepare an error update for the private channel, with twice
+	// the original fee.
+	updatedFeeBaseMSat := feeBaseMSat * 2
+	updatedFeeProportionalMillionths := feeProportionalMillionths
+	errChanUpdate := lnwire.ChannelUpdate{
+		ShortChannelID: lnwire.NewShortChanIDFromInt(privateChannelID),
+		Timestamp:      uint32(testTime.Add(time.Minute).Unix()),
+		BaseFee:        updatedFeeBaseMSat,
+		FeeRate:        updatedFeeProportionalMillionths,
+		TimeLockDelta:  expiryDelta,
+	}
+
+	err = signErrChanUpdate(ctx.privKeys["songoku"], &errChanUpdate)
+	if err != nil {
+		t.Fatalf("Failed to sign channel update error: %v ", err)
+	}
+
+	// The error will be returned by son goku, before forwarding to the
+	// private channel, to simulate an increase in fee on the private
+	// channel that wasn't propagated back to the network.
+	sourceNode := ctx.aliases["songoku"]
+
+	// We'll now modify the SendToSwitch method to return an error on
+	// the first attempt, and check that the correct route and fees
+	// where used the second attempt.
+	errorReturned := false
+	ctx.router.cfg.SendToSwitch = func(firstHop lnwire.ShortChannelID,
+		_ *lnwire.UpdateAddHTLC, _ *sphinx.Circuit) ([32]byte, error) {
+
+		if !errorReturned {
+			errorReturned = true
+			return [32]byte{}, &htlcswitch.ForwardingError{
+				ErrorSource: sourceNode,
+
+				// Within our error, we'll add a channel update
+				// which is meant to reflect the new fee
+				// schedule for the node/channel.
+				FailureMessage: &lnwire.FailFeeInsufficient{
+					Update: errChanUpdate,
+				},
+			}
+		}
+
+		return preImage, nil
+	}
+
+	// processUpdate ensures that the funding transaction is not spent,
+	// before further processing an edge update. Toggel AssumeChannelValid
+	// to avoid dropping the channel update, as the utxo set query is
+	// not mocked in this test.
+	ctx.router.cfg.AssumeChannelValid = true
+
+	// Send off the payment request to the router, route through son
+	// goku and then across the private channel to elst.
+	paymentPreImage, route, err := ctx.router.SendPayment(&payment)
+	if err != nil {
+		t.Fatalf("unable to send payment: %v", err)
+	}
+
+	if errorReturned == false {
+		t.Fatalf("failed to simulate error in the first payment " +
+			"attempt")
+	}
+
+	// The route selected should have two hops. Make sure that
+	// the son goku -> sophon -> elst or the pham nuwen -> sophon
+	// -> elst are not selected instead.
+	if len(route.Hops) != 2 {
+		t.Fatalf("incorrect route length: expected %v got %v", 2,
+			len(route.Hops))
+	}
+
+	// The preimage should match up with the one created above.
+	if !bytes.Equal(paymentPreImage[:], preImage[:]) {
+		t.Fatalf("incorrect preimage used: expected %x got %x",
+			preImage[:], paymentPreImage[:])
+	}
+
+	// The route should have son goku as the first hop.
+	if !bytes.Equal(route.Hops[0].PubKeyBytes[:],
+		ctx.aliases["songoku"].SerializeCompressed()) {
+
+		t.Fatalf("route should go through son goku as first hop, "+
+			"instead passes through: %v",
+			getAliasFromPubKey(route.Hops[0].PubKeyBytes[:],
+				ctx.aliases))
+	}
+
+	// The route should pass via the private channel.
+	if !route.containsChannel(privateChannelID) {
+		t.Fatalf("route did not pass through private channel " +
+			"between pham nuwen and elst")
+	}
+
+	// The route should have the updated fee.
+	expectedFee := updatedFeeBaseMSat +
+		(updatedFeeProportionalMillionths*uint32(amt))/1000000
+	if route.HopFee(0) != lnwire.MilliSatoshi(expectedFee) {
+		t.Fatalf("expected %v MSat fee to forward to the private "+
+			"channel, instead got %v MSat", expectedFee,
+			route.HopFee(0))
+	}
+}
+
 // TestSendPaymentPrivateEdgeDirection tests that edge direction is
 // taken into account properly when processing errors and pruning edges
 // as a result. The setup below is used for the test:
@@ -956,7 +1105,7 @@ func TestSendPaymentPrivateEdgeDirection(t *testing.T) {
 	// Switch fees on public channels.
 	edgePolicy := &channeldb.ChannelEdgePolicy{
 		SigBytes:                  testSig.Serialize(),
-		Flags:                     lnwire.ChanUpdateFlag(0),
+		ChannelFlags:              lnwire.ChanUpdateChanFlags(0),
 		ChannelID:                 b2dChanID,
 		LastUpdate:                testTime,
 		TimeLockDelta:             144,
@@ -968,19 +1117,19 @@ func TestSendPaymentPrivateEdgeDirection(t *testing.T) {
 		t.Fatalf("fail to update fee base b-d channel direction 0")
 	}
 
-	edgePolicy.Flags = lnwire.ChanUpdateFlag(lnwire.ChanUpdateDirection)
+	edgePolicy.ChannelFlags = lnwire.ChanUpdateChanFlags(lnwire.ChanUpdateDirection)
 	if err := ctx.graph.UpdateEdgePolicy(edgePolicy); err != nil {
 		t.Fatalf("fail to update fee base b-d channel direction 1")
 	}
 
-	edgePolicy.Flags = lnwire.ChanUpdateFlag(0)
+	edgePolicy.ChannelFlags = lnwire.ChanUpdateChanFlags(0)
 	edgePolicy.ChannelID = c2eChanID
 	edgePolicy.FeeBaseMSat = 30
 	if err := ctx.graph.UpdateEdgePolicy(edgePolicy); err != nil {
 		t.Fatalf("fail to update fee base c-e channel direction 1")
 	}
 
-	edgePolicy.Flags = lnwire.ChanUpdateFlag(lnwire.ChanUpdateDirection)
+	edgePolicy.ChannelFlags = lnwire.ChanUpdateChanFlags(lnwire.ChanUpdateDirection)
 	if err := ctx.graph.UpdateEdgePolicy(edgePolicy); err != nil {
 		t.Fatalf("fail to update fee base c-e channel direction 1")
 	}

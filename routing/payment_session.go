@@ -37,6 +37,51 @@ type paymentSession struct {
 	pathFinder pathFinder
 }
 
+// edgeLocatorOfEdgePolicy returns the edge locator corresponding to
+// the channel edge policy
+func edgeLocatorOfEdgePolicy(ep *channeldb.ChannelEdgePolicy) *edgeLocator {
+	return &edgeLocator{
+		channelID: ep.ChannelID,
+		direction: edgePolicyDirection(ep),
+	}
+}
+
+// edgePolicyDirection returns the direction of the edge policy in the format
+// used  by edge locators (i.e. 1 if lnwire.ChanUpdateDirection is set)
+func edgePolicyDirection(ep *channeldb.ChannelEdgePolicy) uint8 {
+	if ep.ChannelFlags&lnwire.ChanUpdateDirection == 0 {
+		return 0
+	}
+	return 1
+}
+
+// updateEdgePolicy updates the channel edge policy parameters
+func updateEdgePolicy(up *lnwire.ChannelUpdate,
+	ep *channeldb.ChannelEdgePolicy) {
+
+	ep.FeeBaseMSat = lnwire.MilliSatoshi(up.BaseFee)
+	ep.FeeProportionalMillionths = lnwire.MilliSatoshi(up.FeeRate)
+	ep.TimeLockDelta = up.TimeLockDelta
+	ep.MinHTLC = lnwire.MilliSatoshi(up.HtlcMinimumMsat)
+}
+
+// UpdateEdgePolicy updates edge policy of the routing hints kept in the
+// payment session.
+func (p *paymentSession) UpdateEdgePolicy(el *edgeLocator,
+	update *lnwire.ChannelUpdate) {
+
+	log.Debugf("Updating edge %v policy in Mission Control", el)
+
+	// Run over hints and update policy if edge id and direction match.
+	for _, edges := range p.additionalEdges {
+		for _, edge := range edges {
+			if *el == *edgeLocatorOfEdgePolicy(edge) {
+				updateEdgePolicy(update, edge)
+			}
+		}
+	}
+}
+
 // ReportVertexFailure adds a vertex to the graph prune view after a client
 // reports a routing failure localized to the vertex. The time the vertex was
 // added is noted, as it'll be pruned from the shared view after a period of

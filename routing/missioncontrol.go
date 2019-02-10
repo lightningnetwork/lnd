@@ -2,7 +2,6 @@ package routing
 
 import (
 	"bytes"
-	"fmt"
 	"sync"
 	"time"
 
@@ -191,7 +190,7 @@ func (m *missionControl) NewPaymentSession(routeHints [][]zpay32.HopHint,
 			// and add it to list of edges corresponding to the node
 			// at the start of the channel.
 			v := NewVertex(hopHint.NodeID)
-			var flags lnwire.ChanUpdateFlag
+			var flags lnwire.ChanUpdateChanFlags
 			if bytes.Compare(v[:], endNode.PubKeyBytes[:]) == 1 {
 				flags |= lnwire.ChanUpdateDirection
 			}
@@ -205,7 +204,7 @@ func (m *missionControl) NewPaymentSession(routeHints [][]zpay32.HopHint,
 					hopHint.FeeProportionalMillionths,
 				),
 				TimeLockDelta: hopHint.CLTVExpiryDelta,
-				Flags:         flags,
+				ChannelFlags:  flags,
 			}
 
 			edges[v] = append(edges[v], edge)

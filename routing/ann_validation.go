@@ -129,7 +129,7 @@ func ValidateNodeAnn(a *lnwire.NodeAnnouncement) error {
 func ValidateChannelUpdateAnn(pubKey *btcec.PublicKey, capacity btcutil.Amount,
 	a *lnwire.ChannelUpdate) error {
 
-	if err := validateOptionalFields(capacity, a); err != nil {
+	if err := ValidateOptionalFields(capacity, a); err != nil {
 		return err
 	}
 
@@ -160,9 +160,9 @@ func VerifyChannelUpdateSignature(msg *lnwire.ChannelUpdate,
 	return nil
 }
 
-// validateOptionalFields validates a channel update's message flags and
+// ValidateOptionalFields validates a channel update's message flags and
 // corresponding update fields.
-func validateOptionalFields(capacity btcutil.Amount,
+func ValidateOptionalFields(capacity btcutil.Amount,
 	msg *lnwire.ChannelUpdate) error {
 
 	if msg.MessageFlags.HasMaxHtlc() {

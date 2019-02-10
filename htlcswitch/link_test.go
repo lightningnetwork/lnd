@@ -3,6 +3,7 @@ package htlcswitch
 import (
 	"bytes"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -14,6 +15,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/lightningnetwork/lnd/lntypes"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -5264,5 +5267,192 @@ func TestChannelLinkCanceledInvoice(t *testing.T) {
 	_, ok = fErr.FailureMessage.(*lnwire.FailUnknownPaymentHash)
 	if !ok {
 		t.Fatalf("expected unknown payment hash, but got %v", err)
+	}
+}
+
+func TestChannelLinkHoldInvoiceSettle(t *testing.T) {
+	t.Parallel()
+
+	channels, cleanUp, _, err := createClusterChannels(
+		btcutil.SatoshiPerBitcoin*3,
+		btcutil.SatoshiPerBitcoin*5)
+	if err != nil {
+		t.Fatalf("unable to create channel: %v", err)
+	}
+	defer cleanUp()
+
+	n := newThreeHopNetwork(t, channels.aliceToBob, channels.bobToAlice,
+		channels.bobToCarol, channels.carolToBob, testStartingHeight)
+	if err := n.start(); err != nil {
+		t.Fatal(err)
+	}
+	defer n.stop()
+
+	aliceBandwidthBefore := n.aliceChannelLink.Bandwidth()
+	bobBandwidthBefore := n.firstBobChannelLink.Bandwidth()
+
+	debug := false
+	if debug {
+		// Log message that alice receives.
+		n.aliceServer.intersect(createLogFunc("alice",
+			n.aliceChannelLink.ChanID()))
+
+		// Log message that bob receives.
+		n.bobServer.intersect(createLogFunc("bob",
+			n.firstBobChannelLink.ChanID()))
+	}
+
+	amount := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
+	htlcAmt, totalTimelock, hops := generateHops(amount, testStartingHeight,
+		n.firstBobChannelLink)
+
+	// Generate hold invoice preimage.
+	r, err := generateRandomBytes(sha256.Size)
+	if err != nil {
+		t.Fatal(err)
+	}
+	preimage, err := lntypes.MakePreimage(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash := preimage.Hash()
+
+	// Wait for:
+	// * HTLC add request to be sent to bob.
+	// * alice<->bob commitment state to be updated.
+	// * settle request to be sent back from bob to alice.
+	// * alice<->bob commitment state to be updated.
+	// * user notification to be sent.
+	receiver := n.bobServer
+	receiver.registry.settleChan = make(chan lntypes.Hash)
+	firstHop := n.firstBobChannelLink.ShortChanID()
+	errChan := n.makeHoldPayment(
+		n.aliceServer, receiver, firstHop, hops, amount, htlcAmt,
+		totalTimelock, preimage,
+	)
+
+	select {
+	case err := <-errChan:
+		t.Fatalf("no payment result expected: %v", err)
+	case <-time.After(time.Second):
+		t.Fatal("timeout")
+	case h := <-receiver.registry.settleChan:
+		if hash != h {
+			t.Fatal("unexpect invoice settled")
+		}
+	}
+
+	err = n.bobServer.registry.SettleHodlInvoice(preimage)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Wait for payment to succeed.
+	select {
+	case err := <-errChan:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout")
+	}
+
+	// Wait for Bob to receive the revocation.
+	if aliceBandwidthBefore-amount != n.aliceChannelLink.Bandwidth() {
+		t.Fatal("alice bandwidth should have decrease on payment " +
+			"amount")
+	}
+
+	if bobBandwidthBefore+amount != n.firstBobChannelLink.Bandwidth() {
+		t.Fatalf("bob bandwidth isn't match: expected %v, got %v",
+			bobBandwidthBefore+amount,
+			n.firstBobChannelLink.Bandwidth())
+	}
+}
+
+func TestChannelLinkHoldInvoiceCancel(t *testing.T) {
+	t.Parallel()
+
+	channels, cleanUp, _, err := createClusterChannels(
+		btcutil.SatoshiPerBitcoin*3,
+		btcutil.SatoshiPerBitcoin*5)
+	if err != nil {
+		t.Fatalf("unable to create channel: %v", err)
+	}
+	defer cleanUp()
+
+	n := newThreeHopNetwork(t, channels.aliceToBob, channels.bobToAlice,
+		channels.bobToCarol, channels.carolToBob, testStartingHeight)
+	if err := n.start(); err != nil {
+		t.Fatal(err)
+	}
+	defer n.stop()
+
+	debug := false
+	if debug {
+		// Log message that alice receives.
+		n.aliceServer.intersect(createLogFunc("alice",
+			n.aliceChannelLink.ChanID()))
+
+		// Log message that bob receives.
+		n.bobServer.intersect(createLogFunc("bob",
+			n.firstBobChannelLink.ChanID()))
+	}
+
+	amount := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
+	htlcAmt, totalTimelock, hops := generateHops(amount, testStartingHeight,
+		n.firstBobChannelLink)
+
+	// Generate hold invoice preimage.
+	r, err := generateRandomBytes(sha256.Size)
+	if err != nil {
+		t.Fatal(err)
+	}
+	preimage, err := lntypes.MakePreimage(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash := preimage.Hash()
+
+	// Wait for:
+	// * HTLC add request to be sent to bob.
+	// * alice<->bob commitment state to be updated.
+	// * settle request to be sent back from bob to alice.
+	// * alice<->bob commitment state to be updated.
+	// * user notification to be sent.
+	receiver := n.bobServer
+	receiver.registry.settleChan = make(chan lntypes.Hash)
+	firstHop := n.firstBobChannelLink.ShortChanID()
+	errChan := n.makeHoldPayment(
+		n.aliceServer, receiver, firstHop, hops, amount, htlcAmt,
+		totalTimelock, preimage,
+	)
+
+	select {
+	case err := <-errChan:
+		t.Fatalf("no payment result expected: %v", err)
+	case <-time.After(time.Second):
+		t.Fatal("timeout")
+	case h := <-receiver.registry.settleChan:
+		if hash != h {
+			t.Fatal("unexpect invoice settled")
+		}
+	}
+
+	err = n.bobServer.registry.CancelInvoice(hash)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Wait for payment to succeed.
+	select {
+	case err := <-errChan:
+		if !strings.Contains(err.Error(),
+			lnwire.CodeUnknownPaymentHash.String()) {
+
+			t.Fatal("expected unknown payment hash")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout")
 	}
 }

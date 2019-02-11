@@ -1320,7 +1320,7 @@ func (n *NetworkHarness) sendCoins(ctx context.Context, amt btcutil.Amount,
 
 		// Assert that the lone unconfirmed utxo contains the same
 		// pkscript as the output generated above.
-		pkScriptStr := resp.Utxos[0].ScriptPubkey
+		pkScriptStr := resp.Utxos[0].PkScript
 		if strings.Compare(pkScriptStr, expPkScriptStr) != 0 {
 			return fmt.Errorf("pkscript mismatch, want: %s, "+
 				"found: %s", expPkScriptStr, pkScriptStr)

@@ -686,8 +686,8 @@ message Utxo {
     /// The value of the unspent coin in satoshis
     int64 amount_sat = 3 [json_name = "amount_sat"];
 
-    /// The scriptpubkey in hex
-    string script_pubkey = 4 [json_name = "script_pubkey"];
+    /// The pkscript in hex
+    string pk_script = 4 [json_name = "pk_script"];
 
     /// The outpoint in format txid:n
     OutPoint outpoint = 5 [json_name = "outpoint"];

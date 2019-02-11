@@ -257,14 +257,17 @@ var listUnspentCommand = cli.Command{
 	Name:      "listunspent",
 	Category:  "On-chain",
 	Usage:     "List utxos available for spending.",
-	ArgsUsage: "min-confs max-confs",
+	ArgsUsage: "[min-confs [max-confs]] [--unconfirmed_only]",
 	Description: `
 	For each spendable utxo currently in the wallet, with at least min_confs
-	confirmations, and at most max_confs confirmations, lists the txid, index,
-	amount, address, address type, scriptPubkey and number of confirmations.
-	Use --min_confs=0 to include unconfirmed coins. To list all coins
-	with at least min_confs confirmations, omit the second argument or flag
-	'--max_confs'.
+	confirmations, and at most max_confs confirmations, lists the txid,
+	index, amount, address, address type, scriptPubkey and number of
+	confirmations.  Use --min_confs=0 to include unconfirmed coins. To list
+	all coins with at least min_confs confirmations, omit the second
+	argument or flag '--max_confs'. To list all confirmed and unconfirmed
+	coins, no arguments are required. To see only unconfirmed coins, use 
+	'--unconfirmed_only' with '--min_confs' and '--max_confs' set to zero or
+	not present.
 	`,
 	Flags: []cli.Flag{
 		cli.Int64Flag{
@@ -274,6 +277,15 @@ var listUnspentCommand = cli.Command{
 		cli.Int64Flag{
 			Name:  "max_confs",
 			Usage: "the maximum number of confirmations for a utxo",
+		},
+		cli.BoolFlag{
+			Name: "unconfirmed_only",
+			Usage: "when min_confs and max_confs are zero, " +
+				"setting false implicitly overrides max_confs " +
+				"to be MaxInt32, otherwise max_confs remains " +
+				"zero. An error is returned if the value is " +
+				"true and both min_confs and max_confs are " +
+				"non-zero. (defualt: false)",
 		},
 	},
 	Action: actionDecorator(listUnspent),
@@ -286,11 +298,6 @@ func listUnspent(ctx *cli.Context) error {
 		err         error
 	)
 	args := ctx.Args()
-
-	if ctx.NArg() == 0 && ctx.NumFlags() == 0 {
-		cli.ShowCommandHelp(ctx, "listunspent")
-		return nil
-	}
 
 	if ctx.IsSet("max_confs") && !ctx.IsSet("min_confs") {
 		return fmt.Errorf("max_confs cannot be set without " +
@@ -307,8 +314,6 @@ func listUnspent(ctx *cli.Context) error {
 			return nil
 		}
 		args = args.Tail()
-	default:
-		return fmt.Errorf("minimum confirmations argument missing")
 	}
 
 	switch {
@@ -321,15 +326,21 @@ func listUnspent(ctx *cli.Context) error {
 			return nil
 		}
 		args = args.Tail()
-	default:
-		// No maxconfs was specified; we use max as flag;
-		// the default for ctx.Int64 (0) is *not* appropriate here.
-		maxConfirms = math.MaxInt32
 	}
 
-	if minConfirms < 0 || maxConfirms < minConfirms {
-		return fmt.Errorf("maximum confirmations must be greater or " +
-			"equal to minimum confirmations")
+	unconfirmedOnly := ctx.Bool("unconfirmed_only")
+
+	// Force minConfirms and maxConfirms to be zero if unconfirmedOnly is
+	// true.
+	if unconfirmedOnly && (minConfirms != 0 || maxConfirms != 0) {
+		cli.ShowCommandHelp(ctx, "listunspent")
+		return nil
+	}
+
+	// When unconfirmedOnly is inactive, we will override maxConfirms to be
+	// a MaxInt32 to return all confirmed and unconfirmed utxos.
+	if maxConfirms == 0 && !unconfirmedOnly {
+		maxConfirms = math.MaxInt32
 	}
 
 	ctxb := context.Background()

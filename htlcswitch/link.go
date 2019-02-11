@@ -21,6 +21,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/queue"
 	"github.com/lightningnetwork/lnd/ticker"
 )
 
@@ -345,6 +346,14 @@ type channelLink struct {
 
 	sync.RWMutex
 
+	// hodlQueue is used to receive exit hop htlc resolutions from invoice
+	// registry.
+	hodlQueue *queue.ConcurrentQueue
+
+	// hodlMap stores a list of htlc data structs per hash. It allows
+	// resolving those htlcs when we receive a message on hodlQueue.
+	hodlMap map[lntypes.Hash][]hodlHtlc
+
 	wg   sync.WaitGroup
 	quit chan struct{}
 }
@@ -368,6 +377,8 @@ func NewChannelLink(cfg ChannelLinkConfig,
 		logCommitTimer: time.NewTimer(300 * time.Millisecond),
 		overflowQueue:  newPacketQueue(input.MaxHTLCNumber / 2),
 		htlcUpdates:    make(chan []channeldb.HTLC),
+		hodlMap:        make(map[lntypes.Hash][]hodlHtlc),
+		hodlQueue:      queue.NewConcurrentQueue(10),
 		quit:           make(chan struct{}),
 	}
 }
@@ -391,6 +402,7 @@ func (l *channelLink) Start() error {
 
 	l.mailBox.ResetMessages()
 	l.overflowQueue.Start()
+	l.hodlQueue.Start()
 
 	// Before launching the htlcManager messages, revert any circuits that
 	// were marked open in the switch's circuit map, but did not make it
@@ -456,12 +468,17 @@ func (l *channelLink) Stop() {
 
 	log.Infof("ChannelLink(%v) is stopping", l)
 
+	// As the link is stopping, we are no longer interested in hodl events
+	// coming from the invoice registry.
+	l.cfg.Registry.HodlUnsubscribeAll(l.hodlQueue.ChanIn())
+
 	if l.cfg.ChainEvents.Cancel != nil {
 		l.cfg.ChainEvents.Cancel()
 	}
 
 	l.updateFeeTimer.Stop()
 	l.overflowQueue.Stop()
+	l.hodlQueue.Stop()
 
 	close(l.quit)
 	l.wg.Wait()
@@ -1065,10 +1082,73 @@ out:
 		case msg := <-l.upstream:
 			l.handleUpstreamMsg(msg)
 
+		// A hodl event is received. This means that we now have a
+		// resolution for a previously accepted htlc.
+		case hodlItem := <-l.hodlQueue.ChanOut():
+			hodlEvent := hodlItem.(invoices.HodlEvent)
+			err := l.processHodlQueue(hodlEvent)
+			if err != nil {
+				l.fail(LinkFailureError{code: ErrInternalError},
+					fmt.Sprintf("process hodl queue: %v",
+						err.Error()),
+				)
+				break out
+			}
+
 		case <-l.quit:
 			break out
 		}
 	}
+}
+
+// processHodlQueue processes a received hodl event and continues reading from
+// the hodl queue until no more events remain. When this function returns
+// without an error, the commit tx should be updated.
+func (l *channelLink) processHodlQueue(firstHodlEvent invoices.HodlEvent) error {
+	// Try to read all waiting resolution messages, so that they can all be
+	// processed in a single commitment tx update.
+	hodlEvent := firstHodlEvent
+loop:
+	for {
+		if err := l.processHodlMapEvent(hodlEvent); err != nil {
+			return err
+		}
+
+		select {
+		case item := <-l.hodlQueue.ChanOut():
+			hodlEvent = item.(invoices.HodlEvent)
+		default:
+			break loop
+		}
+	}
+
+	// Update the commitment tx.
+	if err := l.updateCommitTx(); err != nil {
+		return fmt.Errorf("unable to update commitment: %v", err)
+	}
+
+	return nil
+}
+
+// processHodlMapEvent resolves stored hodl htlcs based using the information in
+// hodlEvent.
+func (l *channelLink) processHodlMapEvent(hodlEvent invoices.HodlEvent) error {
+	// Lookup all hodl htlcs that can be failed or settled with this event.
+	// The hodl htlc must be present in the map.
+	hash := hodlEvent.Hash
+	hodlHtlcs, ok := l.hodlMap[hash]
+	if !ok {
+		return fmt.Errorf("hodl htlc not found: %v", hash)
+	}
+
+	if err := l.processHodlEvent(hodlEvent, hodlHtlcs...); err != nil {
+		return err
+	}
+
+	// Clean up hodl map.
+	delete(l.hodlMap, hash)
+
+	return nil
 }
 
 // processHodlEvent applies a received hodl event to the provided htlc. When
@@ -2620,19 +2700,6 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 		return true, nil
 	}
 
-	// Reject invoices with unknown preimages.
-	if invoice.Terms.PaymentPreimage == channeldb.UnknownPreimage {
-		log.Errorf("rejecting htlc because preimage is unknown")
-
-		failure := lnwire.NewFailUnknownPaymentHash(pd.Amount)
-		l.sendHTLCError(
-			pd.HtlcIndex, failure, obfuscator,
-			pd.SourceRef,
-		)
-
-		return true, nil
-	}
-
 	// If the invoice is already settled, we choose to accept the payment to
 	// simplify failure recovery.
 	//
@@ -2729,22 +2796,31 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 	// after this, this code will be re-executed after restart. We will
 	// receive back a resolution event.
 	event, err := l.cfg.Registry.NotifyExitHopHtlc(
-		invoiceHash, pd.Amount,
+		invoiceHash, pd.Amount, l.hodlQueue.ChanIn(),
 	)
 	if err != nil {
 		return false, err
 	}
 
-	// Process the received resolution.
+	// Create a hodlHtlc struct and decide either resolved now or later.
 	htlc := hodlHtlc{
 		pd:         pd,
 		obfuscator: obfuscator,
 	}
+
+	if event == nil {
+		// Save payment descriptor for future reference.
+		hodlHtlcs := l.hodlMap[invoiceHash]
+		l.hodlMap[invoiceHash] = append(hodlHtlcs, htlc)
+
+		return false, nil
+	}
+
+	// Process the received resolution.
 	err = l.processHodlEvent(*event, htlc)
 	if err != nil {
 		return false, err
 	}
-
 	return true, nil
 }
 

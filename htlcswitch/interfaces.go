@@ -21,13 +21,20 @@ type InvoiceDatabase interface {
 	// NotifyExitHopHtlc attempts to mark an invoice as settled. If the
 	// invoice is a debug invoice, then this method is a noop as debug
 	// invoices are never fully settled. The return value describes how the
-	// htlc should be resolved.
-	NotifyExitHopHtlc(rhash lntypes.Hash, amt lnwire.MilliSatoshi) (
-		*invoices.HodlEvent, error)
+	// htlc should be resolved. If the htlc cannot be resolved immediately,
+	// the resolution is sent on the passed in hodlChan later.
+	NotifyExitHopHtlc(payHash lntypes.Hash, paidAmount lnwire.MilliSatoshi,
+		hodlChan chan<- interface{}) (*invoices.HodlEvent, error)
 
 	// CancelInvoice attempts to cancel the invoice corresponding to the
 	// passed payment hash.
 	CancelInvoice(payHash lntypes.Hash) error
+
+	// SettleHodlInvoice settles a hold invoice.
+	SettleHodlInvoice(preimage lntypes.Preimage) error
+
+	// HodlUnsubscribeAll unsubscribes from all hodl events.
+	HodlUnsubscribeAll(subscriber chan<- interface{})
 }
 
 // ChannelLink is an interface which represents the subsystem for managing the

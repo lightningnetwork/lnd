@@ -62,6 +62,14 @@ type InvoiceRegistry struct {
 	// value from the payment request.
 	decodeFinalCltvExpiry func(invoice string) (uint32, error)
 
+	// subscriptions is a map from a payment hash to a list of subscribers.
+	// It is used for efficient notification of links.
+	hodlSubscriptions map[lntypes.Hash]map[chan<- interface{}]struct{}
+
+	// reverseSubscriptions tracks hashes subscribed to per subscriber. This
+	// is used to unsubscribe from all hashes efficiently.
+	hodlReverseSubscriptions map[chan<- interface{}]map[lntypes.Hash]struct{}
+
 	wg   sync.WaitGroup
 	quit chan struct{}
 }
@@ -82,6 +90,8 @@ func NewRegistry(cdb *channeldb.DB, decodeFinalCltvExpiry func(invoice string) (
 		newSingleSubscriptions:    make(chan *SingleInvoiceSubscription),
 		subscriptionCancels:       make(chan uint32),
 		invoiceEvents:             make(chan *invoiceEvent, 100),
+		hodlSubscriptions:         make(map[lntypes.Hash]map[chan<- interface{}]struct{}),
+		hodlReverseSubscriptions:  make(map[chan<- interface{}]map[lntypes.Hash]struct{}),
 		decodeFinalCltvExpiry:     decodeFinalCltvExpiry,
 		quit:                      make(chan struct{}),
 	}
@@ -171,8 +181,10 @@ func (i *InvoiceRegistry) invoiceEventNotifier() {
 		// dispatch notifications to all registered clients.
 		case event := <-i.invoiceEvents:
 			// For backwards compatibility, do not notify all
-			// invoice subscribers of cancel events.
-			if event.state != channeldb.ContractCanceled {
+			// invoice subscribers of cancel and accept events.
+			if event.state != channeldb.ContractCanceled &&
+				event.state != channeldb.ContractAccepted {
+
 				i.dispatchToClients(event)
 			}
 			i.dispatchToSingleClients(event)
@@ -449,8 +461,17 @@ func (i *InvoiceRegistry) LookupInvoice(rHash lntypes.Hash) (channeldb.Invoice, 
 // NotifyExitHopHtlc attempts to mark an invoice as settled. If the invoice is a
 // debug invoice, then this method is a noop as debug invoices are never fully
 // settled. The return value describes how the htlc should be resolved.
+//
+// When the preimage of the invoice is not yet known (hodl invoice), this
+// function moves the invoice to the accepted state. When SettleHoldInvoice is
+// called later, a resolution message will be send back to the caller via the
+// provided hodlChan. Invoice registry sends on this channel what action needs
+// to be taken on the htlc (settle or cancel). The caller needs to ensure that
+// the channel is either buffered or received on from another goroutine to
+// prevent deadlock.
 func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
-	amtPaid lnwire.MilliSatoshi) (*HodlEvent, error) {
+	amtPaid lnwire.MilliSatoshi, hodlChan chan<- interface{}) (
+	*HodlEvent, error) {
 
 	i.Lock()
 	defer i.Unlock()
@@ -474,7 +495,7 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 
 	// If this isn't a debug invoice, then we'll attempt to settle an
 	// invoice matching this rHash on disk (if one exists).
-	invoice, err := i.cdb.SettleInvoice(rHash, amtPaid)
+	invoice, err := i.cdb.AcceptOrSettleInvoice(rHash, amtPaid)
 	switch err {
 
 	// If invoice is already settled, settle htlc. This means we accept more
@@ -486,14 +507,55 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 	case channeldb.ErrInvoiceAlreadyCanceled:
 		return createEvent(nil), nil
 
-	// If this call settled the invoice, settle the htlc.
+	// If invoice is already accepted, add this htlc to the list of
+	// subscribers.
+	case channeldb.ErrInvoiceAlreadyAccepted:
+		i.hodlSubscribe(hodlChan, rHash)
+		return nil, nil
+
+	// If this call settled the invoice, settle the htlc. Otherwise
+	// subscribe for a future hodl event.
 	case nil:
 		i.notifyClients(rHash, invoice, invoice.Terms.State)
-		return createEvent(&invoice.Terms.PaymentPreimage), nil
+		switch invoice.Terms.State {
+		case channeldb.ContractSettled:
+			return createEvent(&invoice.Terms.PaymentPreimage), nil
+		case channeldb.ContractAccepted:
+			// Subscribe to updates to this invoice.
+			i.hodlSubscribe(hodlChan, rHash)
+			return nil, nil
+		default:
+			return nil, fmt.Errorf("unexpected invoice state %v",
+				invoice.Terms.State)
+		}
+
+	default:
+		return nil, err
+	}
+}
+
+// SettleHodlInvoice sets the preimage of a hodl invoice.
+func (i *InvoiceRegistry) SettleHodlInvoice(preimage lntypes.Preimage) error {
+	i.Lock()
+	defer i.Unlock()
+
+	invoice, err := i.cdb.SettleHoldInvoice(preimage)
+	if err != nil {
+		log.Errorf("Invoice SetPreimage %v: %v", preimage, err)
+		return err
 	}
 
-	// If another error occurred, return that.
-	return nil, err
+	hash := preimage.Hash()
+	log.Infof("Notifying clients of set preimage to %v",
+		invoice.Terms.PaymentPreimage)
+
+	i.notifyHodlSubscribers(HodlEvent{
+		Hash:     hash,
+		Preimage: &preimage,
+	})
+	i.notifyClients(hash, invoice, invoice.Terms.State)
+
+	return nil
 }
 
 // CancelInvoice attempts to cancel the invoice corresponding to the passed
@@ -512,13 +574,14 @@ func (i *InvoiceRegistry) CancelInvoice(payHash lntypes.Hash) error {
 		log.Debugf("Invoice %v already canceled", payHash)
 		return nil
 	}
-
 	if err != nil {
 		return err
 	}
 
 	log.Infof("Invoice %v canceled", payHash)
-
+	i.notifyHodlSubscribers(HodlEvent{
+		Hash: payHash,
+	})
 	i.notifyClients(payHash, invoice, channeldb.ContractCanceled)
 
 	return nil
@@ -769,4 +832,61 @@ func (i *InvoiceRegistry) SubscribeSingleInvoice(
 	}
 
 	return client
+}
+
+// notifyHodlSubscribers sends out the hodl event to all current subscribers.
+func (i *InvoiceRegistry) notifyHodlSubscribers(hodlEvent HodlEvent) {
+	subscribers, ok := i.hodlSubscriptions[hodlEvent.Hash]
+	if !ok {
+		return
+	}
+
+	// Notify all interested subscribers and remove subscription from both
+	// maps. The subscription can be removed as there only ever will be a
+	// single resolution for each hash.
+	for subscriber := range subscribers {
+		select {
+		case subscriber <- hodlEvent:
+		case <-i.quit:
+			return
+		}
+
+		delete(i.hodlReverseSubscriptions[subscriber], hodlEvent.Hash)
+	}
+
+	delete(i.hodlSubscriptions, hodlEvent.Hash)
+}
+
+// hodlSubscribe adds a new invoice subscription.
+func (i *InvoiceRegistry) hodlSubscribe(subscriber chan<- interface{},
+	hash lntypes.Hash) {
+
+	log.Debugf("Hodl subscribe for %v", hash)
+
+	subscriptions, ok := i.hodlSubscriptions[hash]
+	if !ok {
+		subscriptions = make(map[chan<- interface{}]struct{})
+		i.hodlSubscriptions[hash] = subscriptions
+	}
+	subscriptions[subscriber] = struct{}{}
+
+	reverseSubscriptions, ok := i.hodlReverseSubscriptions[subscriber]
+	if !ok {
+		reverseSubscriptions = make(map[lntypes.Hash]struct{})
+		i.hodlReverseSubscriptions[subscriber] = reverseSubscriptions
+	}
+	reverseSubscriptions[hash] = struct{}{}
+}
+
+// HodlUnsubscribeAll cancels the subscription.
+func (i *InvoiceRegistry) HodlUnsubscribeAll(subscriber chan<- interface{}) {
+	i.Lock()
+	defer i.Unlock()
+
+	hashes := i.hodlReverseSubscriptions[subscriber]
+	for hash := range hashes {
+		delete(i.hodlSubscriptions[hash], subscriber)
+	}
+
+	delete(i.hodlReverseSubscriptions, subscriber)
 }

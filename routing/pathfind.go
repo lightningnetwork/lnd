@@ -598,7 +598,7 @@ func findPath(g *graphParams, r *restrictParams,
 
 		amountToSend := toNodeDist.amountToReceive
 
-		// If the estimated band width of the channel edge is not able
+		// If the estimated bandwidth of the channel edge is not able
 		// to carry the amount that needs to be send, return.
 		if bandwidth < amountToSend {
 			return

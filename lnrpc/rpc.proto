@@ -880,16 +880,15 @@ message SendCoinsResponse {
 }
 
 message ListUnspentRequest {
-	/// The minimum number of confirmations to be included.
-	int32 min_confs = 1;
+    /// The minimum number of confirmations to be included.
+    int32 min_confs = 1;
 
-	/// The maximum number of confirmations to be included.
-	int32 max_confs = 2;
+    /// The maximum number of confirmations to be included.
+    int32 max_confs = 2;
 }
 message ListUnspentResponse {
-	/// A list of utxos
-	repeated Utxo utxos = 1 [json_name = "utxos"];
-
+    /// A list of utxos
+    repeated Utxo utxos = 1 [json_name = "utxos"];
 }
 
 /** 

@@ -12,6 +12,7 @@ import (
 	"gopkg.in/macaroon-bakery.v2/bakery"
 
 	"github.com/btcsuite/btcutil"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
 )
@@ -43,6 +44,10 @@ var (
 		"/invoicesrpc.Invoices/SubscribeSingleInvoice": {{
 			Entity: "invoices",
 			Action: "read",
+		}},
+		"/invoicesrpc.Invoices/SettleInvoice": {{
+			Entity: "invoices",
+			Action: "write",
 		}},
 		"/invoicesrpc.Invoices/CancelInvoice": {{
 			Entity: "invoices",
@@ -194,6 +199,24 @@ func (s *Server) SubscribeSingleInvoice(req *lnrpc.PaymentHash,
 			return nil
 		}
 	}
+}
+
+// SettleInvoice settles an accepted invoice. If the invoice is already settled,
+// this call will succeed.
+func (s *Server) SettleInvoice(ctx context.Context,
+	in *SettleInvoiceMsg) (*SettleInvoiceResp, error) {
+
+	preimage, err := lntypes.MakePreimage(in.Preimage)
+	if err != nil {
+		return nil, err
+	}
+
+	err = s.cfg.InvoiceRegistry.SettleHodlInvoice(preimage)
+	if err != nil && err != channeldb.ErrInvoiceAlreadySettled {
+		return nil, err
+	}
+
+	return &SettleInvoiceResp{}, nil
 }
 
 // CancelInvoice cancels a currently open invoice. If the invoice is already

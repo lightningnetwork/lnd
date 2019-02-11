@@ -751,6 +751,10 @@ func (i *mockInvoiceRegistry) LookupInvoice(rHash lntypes.Hash) (channeldb.Invoi
 	return i.registry.LookupInvoice(rHash)
 }
 
+func (i *mockInvoiceRegistry) SettleHodlInvoice(preimage lntypes.Preimage) error {
+	return i.registry.SettleHodlInvoice(preimage)
+}
+
 func (i *mockInvoiceRegistry) NotifyExitHopHtlc(rhash lntypes.Hash,
 	amt lnwire.MilliSatoshi, hodlChan chan<- interface{}) error {
 
@@ -774,6 +778,10 @@ func (i *mockInvoiceRegistry) AddInvoice(invoice channeldb.Invoice,
 
 	_, err := i.registry.AddInvoice(&invoice, paymentHash)
 	return err
+}
+
+func (i *mockInvoiceRegistry) HodlUnsubscribeAll(subscriber chan<- interface{}) {
+	i.registry.HodlUnsubscribeAll(subscriber)
 }
 
 var _ InvoiceDatabase = (*mockInvoiceRegistry)(nil)

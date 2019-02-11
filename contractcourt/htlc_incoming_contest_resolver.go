@@ -7,6 +7,9 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/invoices"
+
 	"github.com/btcsuite/btcutil"
 )
 
@@ -114,6 +117,18 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 		blockEpochs.Cancel()
 	}()
 
+	// Create a buffered hodl chan to prevent deadlock.
+	hodlChan := make(chan interface{}, 1)
+
+	// Notify registry that we are potentially settling as exit hop
+	// on-chain, so that we will get a hodl event when a corresponding hodl
+	// invoice is settled.
+	err = h.Registry.NotifyExitHopHtlc(h.payHash, h.htlcAmt, hodlChan)
+	if err != nil && err != channeldb.ErrInvoiceNotFound {
+		return nil, err
+	}
+	defer h.Registry.HodlUnsubscribeAll(hodlChan)
+
 	// With the epochs and preimage subscriptions initialized, we'll query
 	// to see if we already know the preimage.
 	preimage, ok := h.PreimageDB.LookupPreimage(h.payHash[:])
@@ -141,6 +156,26 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 			// this information to our inner resolver, then return
 			// it so it can continue contract resolution.
 			applyPreimage(preimage)
+			return &h.htlcSuccessResolver, nil
+
+		case hodlItem := <-hodlChan:
+			hodlEvent := hodlItem.(invoices.HodlEvent)
+			// Only process settle events.
+			if hodlEvent.Preimage == nil {
+				continue
+			}
+
+			// If this isn't our preimage, then we'll continue
+			// onwards. This should normally not happen.
+			if !hodlEvent.Preimage.Matches(h.payHash) {
+				log.Errorf("preimage does not match contract")
+				continue
+			}
+
+			// Otherwise, we've learned of the preimage! We'll add
+			// this information to our inner resolver, then return
+			// it so it can continue contract resolution.
+			applyPreimage(preimage[:])
 			return &h.htlcSuccessResolver, nil
 
 		case newBlock, ok := <-blockEpochs.Epochs:

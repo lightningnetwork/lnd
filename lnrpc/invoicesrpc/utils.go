@@ -60,6 +60,8 @@ func CreateRPCInvoice(invoice *channeldb.Invoice,
 		state = lnrpc.Invoice_SETTLED
 	case channeldb.ContractCanceled:
 		state = lnrpc.Invoice_CANCELED
+	case channeldb.ContractAccepted:
+		state = lnrpc.Invoice_ACCEPTED
 	default:
 		return nil, fmt.Errorf("unknown invoice state %v",
 			invoice.Terms.State)

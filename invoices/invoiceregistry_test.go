@@ -292,6 +292,128 @@ func TestCancelInvoice(t *testing.T) {
 	}
 }
 
+// TestHoldInvoice tests settling of a hold invoice and related notifications.
+func TestHoldInvoice(t *testing.T) {
+	defer timeout(t)()
+
+	cdb, cleanup, err := newDB()
+	defer cleanup()
+
+	// Instantiate and start the invoice registry.
+	registry := NewRegistry(cdb, decodeExpiry)
+
+	err = registry.Start()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer registry.Stop()
+
+	allSubscriptions := registry.SubscribeNotifications(0, 0)
+	defer allSubscriptions.Cancel()
+
+	// Subscribe to the not yet existing invoice.
+	subscription := registry.SubscribeSingleInvoice(hash)
+	defer subscription.Cancel()
+
+	if subscription.hash != hash {
+		t.Fatalf("expected subscription for provided hash")
+	}
+
+	// Add the invoice.
+	invoice := &channeldb.Invoice{
+		Terms: channeldb.ContractTerm{
+			PaymentPreimage: channeldb.UnknownPreimage,
+			Value:           lnwire.MilliSatoshi(100000),
+		},
+	}
+
+	_, err = registry.AddInvoice(invoice, hash)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// We expect the open state to be sent to the single invoice subscriber.
+	update := <-subscription.Updates
+	if update.Terms.State != channeldb.ContractOpen {
+		t.Fatalf("expected state ContractOpen, but got %v",
+			update.Terms.State)
+	}
+
+	// We expect a new invoice notification to be sent out.
+	newInvoice := <-allSubscriptions.NewInvoices
+	if newInvoice.Terms.State != channeldb.ContractOpen {
+		t.Fatalf("expected state ContractOpen, but got %v",
+			newInvoice.Terms.State)
+	}
+
+	// Use slightly higher amount for accept/settle.
+	amtPaid := lnwire.MilliSatoshi(100500)
+
+	hodlChan := make(chan interface{}, 1)
+
+	// NotifyExitHopHtlc without a preimage present in the invoice registry
+	// should be possible.
+	err = registry.NotifyExitHopHtlc(hash, amtPaid, hodlChan)
+	if err != nil {
+		t.Fatalf("expected settle to succeed but got %v", err)
+	}
+
+	// Test idempotency.
+	err = registry.NotifyExitHopHtlc(hash, amtPaid, hodlChan)
+	if err != nil {
+		t.Fatalf("expected settle to succeed but got %v", err)
+	}
+
+	// We expect the accepted state to be sent to the single invoice
+	// subscriber. For all invoice subscribers, we don't expect an update.
+	// Those only get notified on settle.
+	update = <-subscription.Updates
+	if update.Terms.State != channeldb.ContractAccepted {
+		t.Fatalf("expected state ContractAccepted, but got %v",
+			update.Terms.State)
+	}
+	if update.AmtPaid != amtPaid {
+		t.Fatal("invoice AmtPaid incorrect")
+	}
+
+	// Settling with preimage should succeed.
+	err = registry.SettleHodlInvoice(preimage)
+	if err != nil {
+		t.Fatal("expected set preimage to succeed")
+	}
+
+	hodlEvent := (<-hodlChan).(HodlEvent)
+	if *hodlEvent.Preimage != preimage {
+		t.Fatal("unexpected preimage in hodl event")
+	}
+
+	// We expect a settled notification to be sent out for both all and
+	// single invoice subscribers.
+	settledInvoice := <-allSubscriptions.SettledInvoices
+	if settledInvoice.Terms.State != channeldb.ContractSettled {
+		t.Fatalf("expected state ContractSettled, but got %v",
+			settledInvoice.Terms.State)
+	}
+
+	update = <-subscription.Updates
+	if update.Terms.State != channeldb.ContractSettled {
+		t.Fatalf("expected state ContractSettled, but got %v",
+			update.Terms.State)
+	}
+
+	// Idempotency.
+	err = registry.SettleHodlInvoice(preimage)
+	if err != channeldb.ErrInvoiceAlreadySettled {
+		t.Fatalf("expected ErrInvoiceAlreadySettled but got %v", err)
+	}
+
+	// Try to cancel.
+	err = registry.CancelInvoice(hash)
+	if err == nil {
+		t.Fatal("expected cancelation of a settled invoice to fail")
+	}
+}
+
 func newDB() (*channeldb.DB, func(), error) {
 	// First, create a temporary directory to be used for the duration of
 	// this test.

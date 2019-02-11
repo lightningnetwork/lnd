@@ -460,6 +460,10 @@ func (l *channelLink) Stop() {
 
 	log.Infof("ChannelLink(%v) is stopping", l)
 
+	// As the link is stopping, we are no longer interested in hodl events
+	// coming from the invoice registry.
+	l.cfg.Registry.HodlUnsubscribeAll(l.hodlQueue.ChanIn())
+
 	if l.cfg.ChainEvents.Cancel != nil {
 		l.cfg.ChainEvents.Cancel()
 	}
@@ -2610,19 +2614,6 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 		log.Errorf("unable to query invoice registry: %v", err)
 		failure := lnwire.NewFailUnknownPaymentHash(pd.Amount)
 		l.sendHTLCError(pd.HtlcIndex, failure, obfuscator, pd.SourceRef)
-
-		return true, nil
-	}
-
-	// Reject invoices with unknown preimages.
-	if invoice.Terms.PaymentPreimage == channeldb.UnknownPreimage {
-		log.Errorf("rejecting htlc because preimage is unknown")
-
-		failure := lnwire.NewFailUnknownPaymentHash(pd.Amount)
-		l.sendHTLCError(
-			pd.HtlcIndex, failure, obfuscator,
-			pd.SourceRef,
-		)
 
 		return true, nil
 	}

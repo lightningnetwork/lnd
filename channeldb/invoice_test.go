@@ -100,7 +100,7 @@ func TestInvoiceWorkflow(t *testing.T) {
 	// now have the settled bit toggle to true and a non-default
 	// SettledDate
 	payAmt := fakeInvoice.Terms.Value * 2
-	if _, err := db.SettleInvoice(paymentHash, payAmt); err != nil {
+	if _, err := db.AcceptOrSettleInvoice(paymentHash, payAmt); err != nil {
 		t.Fatalf("unable to settle invoice: %v", err)
 	}
 	dbInvoice2, err := db.LookupInvoice(paymentHash)
@@ -264,7 +264,7 @@ func TestInvoiceAddTimeSeries(t *testing.T) {
 			invoice.Terms.PaymentPreimage[:],
 		)
 
-		_, err := db.SettleInvoice(paymentHash, 0)
+		_, err := db.AcceptOrSettleInvoice(paymentHash, 0)
 		if err != nil {
 			t.Fatalf("unable to settle invoice: %v", err)
 		}
@@ -345,7 +345,7 @@ func TestDuplicateSettleInvoice(t *testing.T) {
 	}
 
 	// With the invoice in the DB, we'll now attempt to settle the invoice.
-	dbInvoice, err := db.SettleInvoice(payHash, amt)
+	dbInvoice, err := db.AcceptOrSettleInvoice(payHash, amt)
 	if err != nil {
 		t.Fatalf("unable to settle invoice: %v", err)
 	}
@@ -365,7 +365,7 @@ func TestDuplicateSettleInvoice(t *testing.T) {
 
 	// If we try to settle the invoice again, then we should get the very
 	// same invoice back, but with an error this time.
-	dbInvoice, err = db.SettleInvoice(payHash, amt)
+	dbInvoice, err = db.AcceptOrSettleInvoice(payHash, amt)
 	if err != ErrInvoiceAlreadySettled {
 		t.Fatalf("expected ErrInvoiceAlreadySettled")
 	}
@@ -410,7 +410,7 @@ func TestQueryInvoices(t *testing.T) {
 
 		// We'll only settle half of all invoices created.
 		if i%2 == 0 {
-			if _, err := db.SettleInvoice(paymentHash, i); err != nil {
+			if _, err := db.AcceptOrSettleInvoice(paymentHash, i); err != nil {
 				t.Fatalf("unable to settle invoice: %v", err)
 			}
 		}

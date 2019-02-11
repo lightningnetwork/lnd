@@ -25,6 +25,12 @@ type InvoiceDatabase interface {
 	// CancelInvoice attempts to cancel the invoice corresponding to the
 	// passed payment hash.
 	CancelInvoice(payHash lntypes.Hash) error
+
+	// SettleHodlInvoice settles a hold invoice.
+	SettleHodlInvoice(preimage lntypes.Preimage) error
+
+	// HodlUnsubscribeAll unsubscribes from all hodl events.
+	HodlUnsubscribeAll(subscriber chan<- interface{})
 }
 
 // ChannelLink is an interface which represents the subsystem for managing the

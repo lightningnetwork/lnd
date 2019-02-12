@@ -3,15 +3,18 @@ package discovery
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/coreos/bbolt"
 	"github.com/davecgh/go-spew/spew"
-	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnpeer"
@@ -19,9 +22,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/multimutex"
 	"github.com/lightningnetwork/lnd/routing"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/wire"
 )
 
 var (
@@ -31,6 +31,15 @@ var (
 	// AnnounceSignatures messages, by persisting them until a send
 	// operation has succeeded.
 	messageStoreKey = []byte("message-store")
+
+	// ErrGossiperShuttingDown is an error that is returned if the gossiper
+	// is in the process of being shut down.
+	ErrGossiperShuttingDown = errors.New("gossiper is shutting down")
+
+	// ErrGossipSyncerNotFound signals that we were unable to find an active
+	// gossip syncer corresponding to a gossip query message received from
+	// the remote peer.
+	ErrGossipSyncerNotFound = errors.New("gossip syncer not found")
 )
 
 // networkMsg couples a routing related wire message with the peer that
@@ -107,7 +116,9 @@ type Config struct {
 	// NotifyWhenOnline is a function that allows the gossiper to be
 	// notified when a certain peer comes online, allowing it to
 	// retry sending a peer message.
-	NotifyWhenOnline func(peer *btcec.PublicKey, connectedChan chan<- struct{})
+	//
+	// NOTE: The peerChan channel must be buffered.
+	NotifyWhenOnline func(peer *btcec.PublicKey, peerChan chan<- lnpeer.Peer)
 
 	// ProofMatureDelta the number of confirmations which is needed before
 	// exchange the channel announcement proofs.
@@ -161,9 +172,9 @@ type AuthenticatedGossiper struct {
 	// was initialized with.
 	cfg *Config
 
-	// newBlocks is a channel in which new blocks connected to the end of
-	// the main chain are sent over.
-	newBlocks <-chan *chainntnfs.BlockEpoch
+	// blockEpochs encapsulates a stream of block epochs that are sent at
+	// every new block height.
+	blockEpochs *chainntnfs.BlockEpochEvent
 
 	// prematureAnnouncements maps a block height to a set of network
 	// messages which are "premature" from our PoV. A message is premature
@@ -259,24 +270,6 @@ func (d *AuthenticatedGossiper) SynchronizeNode(syncPeer lnpeer.Peer) error {
 	// containing all the messages to be sent to the target peer.
 	var announceMessages []lnwire.Message
 
-	makeNodeAnn := func(n *channeldb.LightningNode) (*lnwire.NodeAnnouncement, error) {
-		alias, _ := lnwire.NewNodeAlias(n.Alias)
-
-		wireSig, err := lnwire.NewSigFromRawSignature(n.AuthSigBytes)
-		if err != nil {
-			return nil, err
-		}
-		return &lnwire.NodeAnnouncement{
-			Signature: wireSig,
-			Timestamp: uint32(n.LastUpdate.Unix()),
-			Addresses: n.Addresses,
-			NodeID:    n.PubKeyBytes,
-			Features:  n.Features.RawFeatureVector,
-			RGBColor:  n.Color,
-			Alias:     alias,
-		}, nil
-	}
-
 	// We'll use this map to ensure we don't send the same node
 	// announcement more than one time as one node may have many channel
 	// anns we'll need to send.
@@ -316,7 +309,7 @@ func (d *AuthenticatedGossiper) SynchronizeNode(syncPeer lnpeer.Peer) error {
 				nodePub := e1.Node.PubKeyBytes
 				hasNodeAnn := e1.Node.HaveNodeAnnouncement
 				if _, ok := nodePubsSent[nodePub]; !ok && hasNodeAnn {
-					nodeAnn, err := makeNodeAnn(e1.Node)
+					nodeAnn, err := e1.Node.NodeAnnouncement(true)
 					if err != nil {
 						return err
 					}
@@ -338,7 +331,7 @@ func (d *AuthenticatedGossiper) SynchronizeNode(syncPeer lnpeer.Peer) error {
 				nodePub := e2.Node.PubKeyBytes
 				hasNodeAnn := e2.Node.HaveNodeAnnouncement
 				if _, ok := nodePubsSent[nodePub]; !ok && hasNodeAnn {
-					nodeAnn, err := makeNodeAnn(e2.Node)
+					nodeAnn, err := e2.Node.NodeAnnouncement(true)
 					if err != nil {
 						return err
 					}
@@ -406,11 +399,11 @@ func (d *AuthenticatedGossiper) Start() error {
 	// First we register for new notifications of newly discovered blocks.
 	// We do this immediately so we'll later be able to consume any/all
 	// blocks which were discovered.
-	blockEpochs, err := d.cfg.Notifier.RegisterBlockEpochNtfn()
+	blockEpochs, err := d.cfg.Notifier.RegisterBlockEpochNtfn(nil)
 	if err != nil {
 		return err
 	}
-	d.newBlocks = blockEpochs.Epochs
+	d.blockEpochs = blockEpochs
 
 	height, err := d.cfg.Router.CurrentBlockHeight()
 	if err != nil {
@@ -440,6 +433,8 @@ func (d *AuthenticatedGossiper) Stop() {
 
 	log.Info("Authenticated Gossiper is stopping")
 
+	d.blockEpochs.Cancel()
+
 	d.syncerMtx.RLock()
 	for _, syncer := range d.peerSyncers {
 		syncer.Stop()
@@ -461,18 +456,78 @@ func (d *AuthenticatedGossiper) Stop() {
 func (d *AuthenticatedGossiper) ProcessRemoteAnnouncement(msg lnwire.Message,
 	peer lnpeer.Peer) chan error {
 
+	errChan := make(chan error, 1)
+
+	// For messages in the known set of channel series queries, we'll
+	// dispatch the message directly to the gossipSyncer, and skip the main
+	// processing loop.
+	switch m := msg.(type) {
+	case *lnwire.QueryShortChanIDs,
+		*lnwire.QueryChannelRange,
+		*lnwire.ReplyChannelRange,
+		*lnwire.ReplyShortChanIDsEnd:
+
+		syncer, err := d.findGossipSyncer(peer.IdentityKey())
+		if err != nil {
+			log.Warnf("Unable to find gossip syncer for "+
+				"peer=%x: %v", peer.PubKey(), err)
+
+			errChan <- err
+			return errChan
+		}
+
+		// If we've found the message target, then we'll dispatch the
+		// message directly to it.
+		syncer.ProcessQueryMsg(m, peer.QuitSignal())
+
+		errChan <- nil
+		return errChan
+
+	// If a peer is updating its current update horizon, then we'll dispatch
+	// that directly to the proper gossipSyncer.
+	case *lnwire.GossipTimestampRange:
+		syncer, err := d.findGossipSyncer(peer.IdentityKey())
+		if err != nil {
+			log.Warnf("Unable to find gossip syncer for "+
+				"peer=%x: %v", peer.PubKey(), err)
+
+			errChan <- err
+			return errChan
+		}
+
+		// If we've found the message target, then we'll dispatch the
+		// message directly to it.
+		err = syncer.ApplyGossipFilter(m)
+		if err != nil {
+			log.Warnf("unable to apply gossip "+
+				"filter for peer=%x: %v",
+				peer.PubKey(), err)
+
+			errChan <- err
+			return errChan
+		}
+
+		errChan <- nil
+		return errChan
+	}
+
 	nMsg := &networkMsg{
 		msg:      msg,
 		isRemote: true,
 		peer:     peer,
 		source:   peer.IdentityKey(),
-		err:      make(chan error, 1),
+		err:      errChan,
 	}
 
 	select {
 	case d.networkMsgs <- nMsg:
+
+	// If the peer that sent us this error is quitting, then we don't need
+	// to send back an error and can return immediately.
+	case <-peer.QuitSignal():
+		return nil
 	case <-d.quit:
-		nMsg.err <- errors.New("gossiper has shut down")
+		nMsg.err <- ErrGossiperShuttingDown
 	}
 
 	return nMsg.err
@@ -498,14 +553,14 @@ func (d *AuthenticatedGossiper) ProcessLocalAnnouncement(msg lnwire.Message,
 	select {
 	case d.networkMsgs <- nMsg:
 	case <-d.quit:
-		nMsg.err <- errors.New("gossiper has shut down")
+		nMsg.err <- ErrGossiperShuttingDown
 	}
 
 	return nMsg.err
 }
 
 // channelUpdateID is a unique identifier for ChannelUpdate messages, as
-// channel updates can be identified by the (ShortChannelID, Flags)
+// channel updates can be identified by the (ShortChannelID, ChannelFlags)
 // tuple.
 type channelUpdateID struct {
 	// channelID represents the set of data which is needed to
@@ -515,7 +570,7 @@ type channelUpdateID struct {
 	// Flags least-significant bit must be set to 0 if the creating node
 	// corresponds to the first node in the previously sent channel
 	// announcement and 1 otherwise.
-	flags lnwire.ChanUpdateFlag
+	flags lnwire.ChanUpdateChanFlags
 }
 
 // msgWithSenders is a wrapper struct around a message, and the set of peers
@@ -614,13 +669,13 @@ func (d *deDupedAnnouncements) addMsg(message networkMsg) {
 		mws.senders[sender] = struct{}{}
 		d.channelAnnouncements[deDupKey] = mws
 
-	// Channel updates are identified by the (short channel id, flags)
-	// tuple.
+	// Channel updates are identified by the (short channel id,
+	// channelflags) tuple.
 	case *lnwire.ChannelUpdate:
 		sender := routing.NewVertex(message.source)
 		deDupKey := channelUpdateID{
 			msg.ShortChannelID,
-			msg.Flags,
+			msg.ChannelFlags,
 		}
 
 		oldTimestamp := uint32(0)
@@ -771,7 +826,7 @@ func (d *AuthenticatedGossiper) resendAnnounceSignatures() error {
 	// TODO(halseth): database access should be abstracted
 	// behind interface.
 	var msgsResend []msgTuple
-	if err := d.cfg.DB.View(func(tx *bolt.Tx) error {
+	if err := d.cfg.DB.View(func(tx *bbolt.Tx) error {
 		bucket := tx.Bucket(messageStoreKey)
 		if bucket == nil {
 			return nil
@@ -792,7 +847,13 @@ func (d *AuthenticatedGossiper) resendAnnounceSignatures() error {
 			if err != nil {
 				return err
 			}
-			t := msgTuple{peer, msg, k}
+
+			// Make a copy of the database key corresponding to
+			// these AnnounceSignatures.
+			dbKey := make([]byte, len(k))
+			copy(dbKey, k)
+
+			t := msgTuple{peer, msg, dbKey}
 
 			// Add the message to the slice, such that we can
 			// resend it after the database transaction is over.
@@ -811,7 +872,7 @@ func (d *AuthenticatedGossiper) resendAnnounceSignatures() error {
 	deleteMsg := func(t msgTuple) error {
 		log.Debugf("Deleting message for chanID=%v from "+
 			"messageStore", t.msg.ChannelID)
-		if err := d.cfg.DB.Update(func(tx *bolt.Tx) error {
+		if err := d.cfg.DB.Update(func(tx *bbolt.Tx) error {
 			bucket := tx.Bucket(messageStoreKey)
 			if bucket == nil {
 				return fmt.Errorf("bucket " +
@@ -883,7 +944,9 @@ func (d *AuthenticatedGossiper) resendAnnounceSignatures() error {
 // gossip syncer for an inbound message so we can properly dispatch the
 // incoming message. If a gossip syncer isn't found, then one will be created
 // for the target peer.
-func (d *AuthenticatedGossiper) findGossipSyncer(pub *btcec.PublicKey) (*gossipSyncer, error) {
+func (d *AuthenticatedGossiper) findGossipSyncer(pub *btcec.PublicKey) (
+	*gossipSyncer, error) {
+
 	target := routing.NewVertex(pub)
 
 	// First, we'll try to find an existing gossiper for this peer.
@@ -896,43 +959,7 @@ func (d *AuthenticatedGossiper) findGossipSyncer(pub *btcec.PublicKey) (*gossipS
 		return syncer, nil
 	}
 
-	// A known gossip syncer doesn't exist, so we may have to create one
-	// from scratch. To do so, we'll query for a reference directly to the
-	// active peer.
-	syncPeer, err := d.cfg.FindPeer(pub)
-	if err != nil {
-		log.Debugf("unable to find gossip peer %v: %v",
-			pub.SerializeCompressed(), err)
-		return nil, err
-	}
-
-	// Finally, we'll obtain the exclusive mutex, then check again if a
-	// gossiper was added after we dropped the read mutex.
-	d.syncerMtx.Lock()
-	syncer, ok = d.peerSyncers[target]
-	if ok {
-		d.syncerMtx.Unlock()
-		return syncer, nil
-	}
-
-	// At this point, a syncer doesn't yet exist, so we'll create a new one
-	// for the peer and return it to the caller.
-	syncer = newGossiperSyncer(gossipSyncerCfg{
-		chainHash:       d.cfg.ChainHash,
-		syncChanUpdates: true,
-		channelSeries:   d.cfg.ChanSeries,
-		encodingType:    lnwire.EncodingSortedPlain,
-		sendToPeer: func(msgs ...lnwire.Message) error {
-			return syncPeer.SendMessage(false, msgs...)
-		},
-	})
-	copy(syncer.peerPub[:], pub.SerializeCompressed())
-	d.peerSyncers[target] = syncer
-	syncer.Start()
-
-	d.syncerMtx.Unlock()
-
-	return syncer, nil
+	return nil, ErrGossipSyncerNotFound
 }
 
 // networkHandler is the primary goroutine that drives this service. The roles
@@ -957,8 +984,7 @@ func (d *AuthenticatedGossiper) networkHandler() {
 	// To start, we'll first check to see if there are any stale channels
 	// that we need to re-transmit.
 	if err := d.retransmitStaleChannels(); err != nil {
-		log.Errorf("unable to rebroadcast stale channels: %v",
-			err)
+		log.Errorf("Unable to rebroadcast stale channels: %v", err)
 	}
 
 	// We'll use this validation to ensure that we process jobs in their
@@ -976,7 +1002,9 @@ func (d *AuthenticatedGossiper) networkHandler() {
 			// First, we'll now create new fully signed updates for
 			// the affected channels and also update the underlying
 			// graph with the new state.
-			newChanUpdates, err := d.processChanPolicyUpdate(policyUpdate)
+			newChanUpdates, err := d.processChanPolicyUpdate(
+				policyUpdate,
+			)
 			if err != nil {
 				log.Errorf("Unable to craft policy updates: %v",
 					err)
@@ -992,7 +1020,7 @@ func (d *AuthenticatedGossiper) networkHandler() {
 			policyUpdate.errResp <- nil
 
 		case announcement := <-d.networkMsgs:
-			switch msg := announcement.msg.(type) {
+			switch announcement.msg.(type) {
 			// Channel announcement signatures are amongst the only
 			// messages that we'll process serially.
 			case *lnwire.AnnounceSignatures:
@@ -1005,51 +1033,13 @@ func (d *AuthenticatedGossiper) networkHandler() {
 					)
 				}
 				continue
-
-			// If a peer is updating its current update horizon,
-			// then we'll dispatch that directly to the proper
-			// gossipSyncer.
-			case *lnwire.GossipTimestampRange:
-				syncer, err := d.findGossipSyncer(
-					announcement.source,
-				)
-				if err != nil {
-					continue
-				}
-
-				// If we've found the message target, then
-				// we'll dispatch the message directly to it.
-				err = syncer.ApplyGossipFilter(msg)
-				if err != nil {
-					log.Warnf("unable to apply gossip "+
-						"filter for peer=%x: %v",
-						announcement.peer.PubKey(), err)
-				}
-				continue
-
-			// For messages in the known set of channel series
-			// queries, we'll dispatch the message directly to the
-			// peer, and skip the main processing loop.
-			case *lnwire.QueryShortChanIDs,
-				*lnwire.QueryChannelRange,
-				*lnwire.ReplyChannelRange,
-				*lnwire.ReplyShortChanIDsEnd:
-
-				syncer, err := d.findGossipSyncer(
-					announcement.source,
-				)
-				if err != nil {
-					continue
-				}
-
-				syncer.ProcessQueryMsg(announcement.msg)
-				continue
 			}
 
 			// If this message was recently rejected, then we won't
 			// attempt to re-process it.
 			if d.isRecentlyRejectedMsg(announcement.msg) {
-				announcement.err <- fmt.Errorf("recently rejected")
+				announcement.err <- fmt.Errorf("recently " +
+					"rejected")
 				continue
 			}
 
@@ -1076,26 +1066,31 @@ func (d *AuthenticatedGossiper) networkHandler() {
 							"barrier shutdown: %v",
 							err)
 					}
+					announcement.err <- err
 					return
 				}
 
-				// Process the network announcement to determine if
-				// this is either a new announcement from our PoV
-				// or an edges to a prior vertex/edge we previously
-				// proceeded.
+				// Process the network announcement to
+				// determine if this is either a new
+				// announcement from our PoV or an edges to a
+				// prior vertex/edge we previously proceeded.
 				emittedAnnouncements := d.processNetworkAnnouncement(
 					announcement,
 				)
 
 				// If this message had any dependencies, then
 				// we can now signal them to continue.
-				validationBarrier.SignalDependants(announcement.msg)
+				validationBarrier.SignalDependants(
+					announcement.msg,
+				)
 
-				// If the announcement was accepted, then add the
-				// emitted announcements to our announce batch to
-				// be broadcast once the trickle timer ticks gain.
+				// If the announcement was accepted, then add
+				// the emitted announcements to our announce
+				// batch to be broadcast once the trickle timer
+				// ticks gain.
 				if emittedAnnouncements != nil {
-					// TODO(roasbeef): exclude peer that sent
+					// TODO(roasbeef): exclude peer that
+					// sent.
 					announcements.AddMsgs(
 						emittedAnnouncements...,
 					)
@@ -1105,7 +1100,7 @@ func (d *AuthenticatedGossiper) networkHandler() {
 
 		// A new block has arrived, so we can re-process the previously
 		// premature announcements.
-		case newBlock, ok := <-d.newBlocks:
+		case newBlock, ok := <-d.blockEpochs.Epochs:
 			// If the channel has been closed, then this indicates
 			// the daemon is shutting down, so we exit ourselves.
 			if !ok {
@@ -1121,16 +1116,19 @@ func (d *AuthenticatedGossiper) networkHandler() {
 			// for this height, if so, then we process them once
 			// more as normal announcements.
 			d.Lock()
-			numPremature := len(d.prematureAnnouncements[uint32(newBlock.Height)])
+			numPremature := len(d.prematureAnnouncements[blockHeight])
 			d.Unlock()
-			if numPremature != 0 {
-				log.Infof("Re-processing %v premature "+
-					"announcements for height %v",
-					numPremature, blockHeight)
+
+			// Return early if no announcement to process.
+			if numPremature == 0 {
+				continue
 			}
 
+			log.Infof("Re-processing %v premature announcements "+
+				"for height %v", numPremature, blockHeight)
+
 			d.Lock()
-			for _, ann := range d.prematureAnnouncements[uint32(newBlock.Height)] {
+			for _, ann := range d.prematureAnnouncements[blockHeight] {
 				emittedAnnouncements := d.processNetworkAnnouncement(ann)
 				if emittedAnnouncements != nil {
 					announcements.AddMsgs(
@@ -1196,9 +1194,9 @@ func (d *AuthenticatedGossiper) networkHandler() {
 
 		// The retransmission timer has ticked which indicates that we
 		// should check if we need to prune or re-broadcast any of our
-		// personal channels. This addresses the case of "zombie" channels and
-		// channel advertisements that have been dropped, or not properly
-		// propagated through the network.
+		// personal channels. This addresses the case of "zombie"
+		// channels and channel advertisements that have been dropped,
+		// or not properly propagated through the network.
 		case <-retransmitTimer.C:
 			if err := d.retransmitStaleChannels(); err != nil {
 				log.Errorf("unable to rebroadcast stale "+
@@ -1213,15 +1211,17 @@ func (d *AuthenticatedGossiper) networkHandler() {
 	}
 }
 
-// TODO(roasbeef): d/c peers that send uupdates not on our chain
+// TODO(roasbeef): d/c peers that send updates not on our chain
 
-// InitPeerSyncState is called by outside sub-systems when a connection is
+// InitSyncState is called by outside sub-systems when a connection is
 // established to a new peer that understands how to perform channel range
 // queries. We'll allocate a new gossip syncer for it, and start any goroutines
 // needed to handle new queries. The recvUpdates bool indicates if we should
 // continue to receive real-time updates from the remote peer once we've synced
 // channel state.
-func (d *AuthenticatedGossiper) InitSyncState(syncPeer lnpeer.Peer, recvUpdates bool) {
+func (d *AuthenticatedGossiper) InitSyncState(syncPeer lnpeer.Peer,
+	recvUpdates bool) {
+
 	d.syncerMtx.Lock()
 	defer d.syncerMtx.Unlock()
 
@@ -1232,14 +1232,15 @@ func (d *AuthenticatedGossiper) InitSyncState(syncPeer lnpeer.Peer, recvUpdates 
 		return
 	}
 
-	log.Infof("Creating new gossipSyncer for peer=%x",
-		nodeID[:])
+	log.Infof("Creating new gossipSyncer for peer=%x", nodeID[:])
 
+	encoding := lnwire.EncodingSortedPlain
 	syncer := newGossiperSyncer(gossipSyncerCfg{
 		chainHash:       d.cfg.ChainHash,
 		syncChanUpdates: recvUpdates,
 		channelSeries:   d.cfg.ChanSeries,
-		encodingType:    lnwire.EncodingSortedPlain,
+		encodingType:    encoding,
+		chunkSize:       encodingTypeToChunkSize[encoding],
 		sendToPeer: func(msgs ...lnwire.Message) error {
 			return syncPeer.SendMessage(false, msgs...)
 		},
@@ -1320,6 +1321,17 @@ func (d *AuthenticatedGossiper) retransmitStaleChannels() error {
 			return nil
 		}
 
+		// If this edge has a ChannelUpdate that was created before the
+		// introduction of the MaxHTLC field, then we'll update this
+		// edge to propagate this information in the network.
+		if !edge.MessageFlags.HasMaxHtlc() {
+			edgesToUpdate = append(edgesToUpdate, updateTuple{
+				info: info,
+				edge: edge,
+			})
+			return nil
+		}
+
 		const broadcastInterval = time.Hour * 24
 
 		timeElapsed := time.Since(edge.LastUpdate)
@@ -1336,9 +1348,9 @@ func (d *AuthenticatedGossiper) retransmitStaleChannels() error {
 
 		return nil
 	})
-	if err != nil {
-		return fmt.Errorf("error while retrieving outgoing "+
-			"channels: %v", err)
+	if err != nil && err != channeldb.ErrGraphNoEdgesFound {
+		return fmt.Errorf("unable to retrieve outgoing channels: %v",
+			err)
 	}
 
 	var signedUpdates []lnwire.Message
@@ -1472,7 +1484,8 @@ func (d *AuthenticatedGossiper) processChanPolicyUpdate(
 // situation in the case where we create a channel, but for some reason fail
 // to receive the remote peer's proof, while the remote peer is able to fully
 // assemble the proof and craft the ChannelAnnouncement.
-func (d *AuthenticatedGossiper) processRejectedEdge(chanAnnMsg *lnwire.ChannelAnnouncement,
+func (d *AuthenticatedGossiper) processRejectedEdge(
+	chanAnnMsg *lnwire.ChannelAnnouncement,
 	proof *channeldb.ChannelAuthProof) ([]networkMsg, error) {
 
 	// First, we'll fetch the state of the channel as we know if from the
@@ -1506,9 +1519,9 @@ func (d *AuthenticatedGossiper) processRejectedEdge(chanAnnMsg *lnwire.ChannelAn
 	if err != nil {
 		return nil, err
 	}
-	err = ValidateChannelAnn(chanAnn)
+	err = routing.ValidateChannelAnn(chanAnn)
 	if err != nil {
-		err := errors.Errorf("assembled channel announcement proof "+
+		err := fmt.Errorf("assembled channel announcement proof "+
 			"for shortChanID=%v isn't valid: %v",
 			chanAnnMsg.ShortChannelID, err)
 		log.Error(err)
@@ -1519,7 +1532,7 @@ func (d *AuthenticatedGossiper) processRejectedEdge(chanAnnMsg *lnwire.ChannelAn
 	// to the database.
 	err = d.cfg.Router.AddProof(chanAnnMsg.ShortChannelID, proof)
 	if err != nil {
-		err := errors.Errorf("unable add proof to shortChanID=%v: %v",
+		err := fmt.Errorf("unable add proof to shortChanID=%v: %v",
 			chanAnnMsg.ShortChannelID, err)
 		log.Error(err)
 		return nil, err
@@ -1555,7 +1568,9 @@ func (d *AuthenticatedGossiper) processRejectedEdge(chanAnnMsg *lnwire.ChannelAn
 // didn't affect the internal state due to either being out of date, invalid,
 // or redundant, then nil is returned. Otherwise, the set of announcements will
 // be returned which should be broadcasted to the rest of the network.
-func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []networkMsg {
+func (d *AuthenticatedGossiper) processNetworkAnnouncement(
+	nMsg *networkMsg) []networkMsg {
+
 	isPremature := func(chanID lnwire.ShortChannelID, delta uint32) bool {
 		// TODO(roasbeef) make height delta 6
 		//  * or configurable
@@ -1573,25 +1588,25 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 	case *lnwire.NodeAnnouncement:
 		timestamp := time.Unix(int64(msg.Timestamp), 0)
 
-		if nMsg.isRemote {
-			// We'll quickly ask the router if it already has a
-			// newer update for this node so we can skip validating
-			// signatures if not required.
-			if d.cfg.Router.IsStaleNode(msg.NodeID, timestamp) {
-				nMsg.err <- nil
-				return nil
-			}
-
-			if err := ValidateNodeAnn(msg); err != nil {
-				err := errors.Errorf("unable to validate "+
-					"node announcement: %v", err)
-				log.Error(err)
-				nMsg.err <- err
-				return nil
-			}
+		// We'll quickly ask the router if it already has a
+		// newer update for this node so we can skip validating
+		// signatures if not required.
+		if d.cfg.Router.IsStaleNode(msg.NodeID, timestamp) {
+			nMsg.err <- nil
+			return nil
 		}
 
-		features := lnwire.NewFeatureVector(msg.Features, lnwire.GlobalFeatures)
+		if err := routing.ValidateNodeAnn(msg); err != nil {
+			err := fmt.Errorf("unable to validate "+
+				"node announcement: %v", err)
+			log.Error(err)
+			nMsg.err <- err
+			return nil
+		}
+
+		features := lnwire.NewFeatureVector(
+			msg.Features, lnwire.GlobalFeatures,
+		)
 		node := &channeldb.LightningNode{
 			HaveNodeAnnouncement: true,
 			LastUpdate:           timestamp,
@@ -1601,6 +1616,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 			AuthSigBytes:         msg.Signature.ToSignatureBytes(),
 			Features:             features,
 			Color:                msg.RGBColor,
+			ExtraOpaqueData:      msg.ExtraOpaqueData,
 		}
 
 		if err := d.cfg.Router.AddNode(node); err != nil {
@@ -1616,13 +1632,29 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 			return nil
 		}
 
-		// Node announcement was successfully proceeded and know it
-		// might be broadcast to other connected nodes.
-		announcements = append(announcements, networkMsg{
-			peer:   nMsg.peer,
-			source: nMsg.source,
-			msg:    msg,
-		})
+		// In order to ensure we don't leak unadvertised nodes, we'll
+		// make a quick check to ensure this node intends to publicly
+		// advertise itself to the network.
+		isPublic, err := d.cfg.Router.IsPublicNode(node.PubKeyBytes)
+		if err != nil {
+			log.Errorf("Unable to determine if node %x is "+
+				"advertised: %v", node.PubKeyBytes, err)
+			nMsg.err <- err
+			return nil
+		}
+
+		// If it does, we'll add their announcement to our batch so that
+		// it can be broadcast to the rest of our peers.
+		if isPublic {
+			announcements = append(announcements, networkMsg{
+				peer:   nMsg.peer,
+				source: nMsg.source,
+				msg:    msg,
+			})
+		} else {
+			log.Tracef("Skipping broadcasting node announcement "+
+				"for %x due to being unadvertised", msg.NodeID)
+		}
 
 		nMsg.err <- nil
 		// TODO(roasbeef): get rid of the above
@@ -1636,12 +1668,16 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 		// We'll ignore any channel announcements that target any chain
 		// other than the set of chains we know of.
 		if !bytes.Equal(msg.ChainHash[:], d.cfg.ChainHash[:]) {
-			log.Errorf("Ignoring ChannelAnnouncement from "+
+			err := fmt.Errorf("Ignoring ChannelAnnouncement from "+
 				"chain=%v, gossiper on chain=%v", msg.ChainHash,
 				d.cfg.ChainHash)
+			log.Errorf(err.Error())
+
 			d.rejectMtx.Lock()
 			d.recentRejects[msg.ShortChannelID.ToUint64()] = struct{}{}
 			d.rejectMtx.Unlock()
+
+			nMsg.err <- err
 			return nil
 		}
 
@@ -1650,8 +1686,9 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 		// to be fully verified once we advance forward in the chain.
 		if nMsg.isRemote && isPremature(msg.ShortChannelID, 0) {
 			blockHeight := msg.ShortChannelID.BlockHeight
-			log.Infof("Announcement for chan_id=(%v), is premature: "+
-				"advertises height %v, only height %v is known",
+			log.Infof("Announcement for chan_id=(%v), is "+
+				"premature: advertises height %v, only "+
+				"height %v is known",
 				msg.ShortChannelID.ToUint64(),
 				msg.ShortChannelID.BlockHeight,
 				atomic.LoadUint32(&d.bestHeight))
@@ -1677,8 +1714,8 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 		// formed.
 		var proof *channeldb.ChannelAuthProof
 		if nMsg.isRemote {
-			if err := ValidateChannelAnn(msg); err != nil {
-				err := errors.Errorf("unable to validate "+
+			if err := routing.ValidateChannelAnn(msg); err != nil {
+				err := fmt.Errorf("unable to validate "+
 					"announcement: %v", err)
 				d.rejectMtx.Lock()
 				d.recentRejects[msg.ShortChannelID.ToUint64()] = struct{}{}
@@ -1718,6 +1755,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 			BitcoinKey2Bytes: msg.BitcoinKey2,
 			AuthProof:        proof,
 			Features:         featureBuf.Bytes(),
+			ExtraOpaqueData:  msg.ExtraOpaqueData,
 		}
 
 		// We will add the edge to the channel router. If the nodes
@@ -1792,35 +1830,33 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 		// ensure we don't block here, as we can handle only one
 		// announcement at a time.
 		for _, cu := range channelUpdates {
+			d.wg.Add(1)
 			go func(nMsg *networkMsg) {
+				defer d.wg.Done()
+
 				switch msg := nMsg.msg.(type) {
 
+				// Reprocess the message, making sure we return
+				// an error to the original caller in case the
+				// gossiper shuts down.
 				case *lnwire.ChannelUpdate:
-					// We can safely wait for the error to
-					// be returned, as in case of shutdown,
-					// the gossiper will return an error.
-					var err error
-					if nMsg.isRemote {
-						err = <-d.ProcessRemoteAnnouncement(
-							msg, nMsg.peer)
-					} else {
-						err = <-d.ProcessLocalAnnouncement(
-							msg, nMsg.source)
-					}
-					if err != nil {
-						log.Errorf("Failed reprocessing"+
-							" ChannelUpdate for "+
-							"shortChanID=%v: %v",
-							msg.ShortChannelID.ToUint64(),
-							err)
-						return
+					log.Debugf("Reprocessing"+
+						" ChannelUpdate for "+
+						"shortChanID=%v",
+						msg.ShortChannelID.ToUint64())
+
+					select {
+					case d.networkMsgs <- nMsg:
+					case <-d.quit:
+						nMsg.err <- ErrGossiperShuttingDown
 					}
 
 				// We don't expect any other message type than
 				// ChannelUpdate to be in this map.
 				default:
 					log.Errorf("Unsupported message type "+
-						"found among ChannelUpdates: %T", msg)
+						"found among ChannelUpdates: "+
+						"%T", msg)
 				}
 			}(cu)
 		}
@@ -1846,12 +1882,16 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 		// We'll ignore any channel announcements that target any chain
 		// other than the set of chains we know of.
 		if !bytes.Equal(msg.ChainHash[:], d.cfg.ChainHash[:]) {
-			log.Errorf("Ignoring ChannelUpdate from "+
+			err := fmt.Errorf("Ignoring ChannelUpdate from "+
 				"chain=%v, gossiper on chain=%v", msg.ChainHash,
 				d.cfg.ChainHash)
+			log.Errorf(err.Error())
+
 			d.rejectMtx.Lock()
 			d.recentRejects[msg.ShortChannelID.ToUint64()] = struct{}{}
 			d.rejectMtx.Unlock()
+
+			nMsg.err <- err
 			return nil
 		}
 
@@ -1882,7 +1922,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 		// announcement for this edge.
 		timestamp := time.Unix(int64(msg.Timestamp), 0)
 		if d.cfg.Router.IsStaleEdgePolicy(
-			msg.ShortChannelID, timestamp, msg.Flags,
+			msg.ShortChannelID, timestamp, msg.ChannelFlags,
 		) {
 
 			nMsg.err <- nil
@@ -1932,23 +1972,14 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 					"saving for reprocessing later",
 					shortChanID)
 
-				// If the node supports it, we may try to
-				// request the chan ann from it.
-				go func() {
-					reqErr := d.maybeRequestChanAnn(
-						msg.ShortChannelID,
-					)
-					if reqErr != nil {
-						log.Errorf("unable to request ann "+
-							"for chan_id=%v: %v", shortChanID,
-							reqErr)
-					}
-				}()
-
-				nMsg.err <- nil
+				// NOTE: We don't return anything on the error
+				// channel for this message, as we expect that
+				// will be done when this ChannelUpdate is
+				// later reprocessed.
 				return nil
+
 			default:
-				err := errors.Errorf("unable to validate "+
+				err := fmt.Errorf("unable to validate "+
 					"channel update short_chan_id=%v: %v",
 					shortChanID, err)
 				log.Error(err)
@@ -1966,17 +1997,18 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 		// edge is being updated.
 		var pubKey *btcec.PublicKey
 		switch {
-		case msg.Flags&lnwire.ChanUpdateDirection == 0:
+		case msg.ChannelFlags&lnwire.ChanUpdateDirection == 0:
 			pubKey, _ = chanInfo.NodeKey1()
-		case msg.Flags&lnwire.ChanUpdateDirection == 1:
+		case msg.ChannelFlags&lnwire.ChanUpdateDirection == 1:
 			pubKey, _ = chanInfo.NodeKey2()
 		}
 
-		// Validate the channel announcement with the expected public
-		// key, In the case of an invalid channel , we'll return an
-		// error to the caller and exit early.
-		if err := ValidateChannelUpdateAnn(pubKey, msg); err != nil {
-			rErr := errors.Errorf("unable to validate channel "+
+		// Validate the channel announcement with the expected public key and
+		// channel capacity. In the case of an invalid channel update, we'll
+		// return an error to the caller and exit early.
+		err = routing.ValidateChannelUpdateAnn(pubKey, chanInfo.Capacity, msg)
+		if err != nil {
+			rErr := fmt.Errorf("unable to validate channel "+
 				"update announcement for short_chan_id=%v: %v",
 				spew.Sdump(msg.ShortChannelID), err)
 
@@ -1989,15 +2021,19 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 			SigBytes:                  msg.Signature.ToSignatureBytes(),
 			ChannelID:                 shortChanID,
 			LastUpdate:                timestamp,
-			Flags:                     msg.Flags,
+			MessageFlags:              msg.MessageFlags,
+			ChannelFlags:              msg.ChannelFlags,
 			TimeLockDelta:             msg.TimeLockDelta,
 			MinHTLC:                   msg.HtlcMinimumMsat,
+			MaxHTLC:                   msg.HtlcMaximumMsat,
 			FeeBaseMSat:               lnwire.MilliSatoshi(msg.BaseFee),
 			FeeProportionalMillionths: lnwire.MilliSatoshi(msg.FeeRate),
+			ExtraOpaqueData:           msg.ExtraOpaqueData,
 		}
 
 		if err := d.cfg.Router.UpdateEdge(update); err != nil {
-			if routing.IsError(err, routing.ErrOutdated, routing.ErrIgnored) {
+			if routing.IsError(err, routing.ErrOutdated,
+				routing.ErrIgnored) {
 				log.Debug(err)
 			} else {
 				d.rejectMtx.Lock()
@@ -2019,9 +2055,9 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 			// Get our peer's public key.
 			var remotePub *btcec.PublicKey
 			switch {
-			case msg.Flags&lnwire.ChanUpdateDirection == 0:
+			case msg.ChannelFlags&lnwire.ChanUpdateDirection == 0:
 				remotePub, _ = chanInfo.NodeKey2()
-			case msg.Flags&lnwire.ChanUpdateDirection == 1:
+			case msg.ChannelFlags&lnwire.ChanUpdateDirection == 1:
 				remotePub, _ = chanInfo.NodeKey1()
 			}
 
@@ -2029,7 +2065,8 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 			if err != nil {
 				log.Errorf("unable to send channel update -- "+
 					"could not find peer %x: %v",
-					remotePub, err)
+					remotePub.SerializeCompressed(),
+					err)
 			} else {
 				// Send ChannelUpdate directly to remotePeer.
 				// TODO(halseth): make reliable send?
@@ -2062,7 +2099,8 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 	// willingness of nodes involved in the funding of a channel to
 	// announce this new channel to the rest of the world.
 	case *lnwire.AnnounceSignatures:
-		needBlockHeight := msg.ShortChannelID.BlockHeight + d.cfg.ProofMatureDelta
+		needBlockHeight := msg.ShortChannelID.BlockHeight +
+			d.cfg.ProofMatureDelta
 		shortChanID := msg.ShortChannelID.ToUint64()
 
 		prefix := "local"
@@ -2101,6 +2139,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 		// not change before we call AddProof() later.
 		d.channelMtx.Lock(msg.ShortChannelID.ToUint64())
 		defer d.channelMtx.Unlock(msg.ShortChannelID.ToUint64())
+
 		chanInfo, e1, e2, err := d.cfg.Router.GetChannelByID(
 			msg.ShortChannelID)
 		if err != nil {
@@ -2108,7 +2147,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 			// node might rewrite the waiting proof.
 			proof := channeldb.NewWaitingProof(nMsg.isRemote, msg)
 			if err := d.waitingProofs.Add(proof); err != nil {
-				err := errors.Errorf("unable to store "+
+				err := fmt.Errorf("unable to store "+
 					"the proof for short_chan_id=%v: %v",
 					shortChanID, err)
 				log.Error(err)
@@ -2130,7 +2169,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 		// Ensure that channel that was retrieved belongs to the peer
 		// which sent the proof announcement.
 		if !(isFirstNode || isSecondNode) {
-			err := errors.Errorf("channel that was received not "+
+			err := fmt.Errorf("channel that was received not "+
 				"belongs to the peer which sent the proof, "+
 				"short_chan_id=%v", shortChanID)
 			log.Error(err)
@@ -2152,8 +2191,9 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 			// Since the remote peer might not be online
 			// we'll call a method that will attempt to
 			// deliver the proof when it comes online.
-			if err := d.sendAnnSigReliably(msg, remotePeer); err != nil {
-				err := errors.Errorf("unable to send reliably "+
+			err := d.sendAnnSigReliably(msg, remotePeer)
+			if err != nil {
+				err := fmt.Errorf("unable to send reliably "+
 					"to remote for short_chan_id=%v: %v",
 					shortChanID, err)
 				log.Error(err)
@@ -2184,13 +2224,17 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 						peerID)
 
 					chanAnn, _, _, err := CreateChanAnnouncement(
-						chanInfo.AuthProof, chanInfo, e1, e2,
+						chanInfo.AuthProof, chanInfo,
+						e1, e2,
 					)
 					if err != nil {
-						log.Errorf("unable to gen ann: %v", err)
+						log.Errorf("unable to gen "+
+							"ann: %v", err)
 						return
 					}
-					err = nMsg.peer.SendMessage(false, chanAnn)
+					err = nMsg.peer.SendMessage(
+						false, chanAnn,
+					)
 					if err != nil {
 						log.Errorf("Failed sending "+
 							"full proof to "+
@@ -2199,7 +2243,8 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 						return
 					}
 					log.Debugf("Full proof sent to peer=%x"+
-						" for chanID=%v", peerID, msg.ChannelID)
+						" for chanID=%v", peerID,
+						msg.ChannelID)
 				}()
 			}
 
@@ -2217,7 +2262,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 		proof := channeldb.NewWaitingProof(nMsg.isRemote, msg)
 		oppositeProof, err := d.waitingProofs.Get(proof.OppositeKey())
 		if err != nil && err != channeldb.ErrWaitingProofNotFound {
-			err := errors.Errorf("unable to get "+
+			err := fmt.Errorf("unable to get "+
 				"the opposite proof for short_chan_id=%v: %v",
 				shortChanID, err)
 			log.Error(err)
@@ -2227,7 +2272,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 
 		if err == channeldb.ErrWaitingProofNotFound {
 			if err := d.waitingProofs.Add(proof); err != nil {
-				err := errors.Errorf("unable to store "+
+				err := fmt.Errorf("unable to store "+
 					"the proof for short_chan_id=%v: %v",
 					shortChanID, err)
 				log.Error(err)
@@ -2258,7 +2303,9 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 			dbProof.BitcoinSig1Bytes = oppositeProof.BitcoinSignature.ToSignatureBytes()
 			dbProof.BitcoinSig2Bytes = msg.BitcoinSignature.ToSignatureBytes()
 		}
-		chanAnn, e1Ann, e2Ann, err := CreateChanAnnouncement(&dbProof, chanInfo, e1, e2)
+		chanAnn, e1Ann, e2Ann, err := CreateChanAnnouncement(
+			&dbProof, chanInfo, e1, e2,
+		)
 		if err != nil {
 			log.Error(err)
 			nMsg.err <- err
@@ -2267,8 +2314,8 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 
 		// With all the necessary components assembled validate the
 		// full channel announcement proof.
-		if err := ValidateChannelAnn(chanAnn); err != nil {
-			err := errors.Errorf("channel  announcement proof "+
+		if err := routing.ValidateChannelAnn(chanAnn); err != nil {
+			err := fmt.Errorf("channel  announcement proof "+
 				"for short_chan_id=%v isn't valid: %v",
 				shortChanID, err)
 
@@ -2286,16 +2333,18 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 		// can announce it on peer connect.
 		err = d.cfg.Router.AddProof(msg.ShortChannelID, &dbProof)
 		if err != nil {
-			err := errors.Errorf("unable add proof to the "+
+			err := fmt.Errorf("unable add proof to the "+
 				"channel chanID=%v: %v", msg.ChannelID, err)
 			log.Error(err)
 			nMsg.err <- err
 			return nil
 		}
 
-		if err := d.waitingProofs.Remove(proof.OppositeKey()); err != nil {
-			err := errors.Errorf("unable remove opposite proof "+
-				"for the channel with chanID=%v: %v", msg.ChannelID, err)
+		err = d.waitingProofs.Remove(proof.OppositeKey())
+		if err != nil {
+			err := fmt.Errorf("unable remove opposite proof "+
+				"for the channel with chanID=%v: %v",
+				msg.ChannelID, err)
 			log.Error(err)
 			nMsg.err <- err
 			return nil
@@ -2329,6 +2378,31 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 			})
 		}
 
+		// We'll also send along the node announcements for each channel
+		// participant if we know of them.
+		node1Ann, err := d.fetchNodeAnn(chanInfo.NodeKey1Bytes)
+		if err != nil {
+			log.Debugf("Unable to fetch node announcement for "+
+				"%x: %v", chanInfo.NodeKey1Bytes, err)
+		} else {
+			announcements = append(announcements, networkMsg{
+				peer:   nMsg.peer,
+				source: nMsg.source,
+				msg:    node1Ann,
+			})
+		}
+		node2Ann, err := d.fetchNodeAnn(chanInfo.NodeKey2Bytes)
+		if err != nil {
+			log.Debugf("Unable to fetch node announcement for "+
+				"%x: %v", chanInfo.NodeKey2Bytes, err)
+		} else {
+			announcements = append(announcements, networkMsg{
+				peer:   nMsg.peer,
+				source: nMsg.source,
+				msg:    node2Ann,
+			})
+		}
+
 		nMsg.err <- nil
 		return announcements
 
@@ -2336,6 +2410,19 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(nMsg *networkMsg) []n
 		nMsg.err <- errors.New("wrong type of the announcement")
 		return nil
 	}
+}
+
+// fetchNodeAnn fetches the latest signed node announcement from our point of
+// view for the node with the given public key.
+func (d *AuthenticatedGossiper) fetchNodeAnn(
+	pubKey [33]byte) (*lnwire.NodeAnnouncement, error) {
+
+	node, err := d.cfg.Router.FetchLightningNode(pubKey)
+	if err != nil {
+		return nil, err
+	}
+
+	return node.NodeAnnouncement(true)
 }
 
 // sendAnnSigReliably will try to send the provided local AnnounceSignatures
@@ -2354,7 +2441,7 @@ func (d *AuthenticatedGossiper) sendAnnSigReliably(
 	copy(key[:33], remotePeer.SerializeCompressed())
 	binary.BigEndian.PutUint64(key[33:], msg.ShortChannelID.ToUint64())
 
-	err := d.cfg.DB.Update(func(tx *bolt.Tx) error {
+	err := d.cfg.DB.Update(func(tx *bbolt.Tx) error {
 		bucket, err := tx.CreateBucketIfNotExists(messageStoreKey)
 		if err != nil {
 			return err
@@ -2397,17 +2484,19 @@ func (d *AuthenticatedGossiper) sendAnnSigReliably(
 				"to peer(%x): %v. Will retry when online.",
 				remotePeer.SerializeCompressed(), err)
 
-			connected := make(chan struct{})
-			d.cfg.NotifyWhenOnline(remotePeer, connected)
+			peerChan := make(chan lnpeer.Peer, 1)
+			d.cfg.NotifyWhenOnline(remotePeer, peerChan)
 
 			select {
-			case <-connected:
-				log.Infof("peer %x reconnected. Retry sending" +
-					" AnnounceSignatures.")
+			case <-peerChan:
 				// Retry sending.
+				log.Infof("Peer %x reconnected. Retry sending"+
+					" AnnounceSignatures.",
+					remotePeer.SerializeCompressed())
+
 			case <-d.quit:
-				log.Infof("Gossiper shutting down, did not send" +
-					" AnnounceSignatures.")
+				log.Infof("Gossiper shutting down, did not " +
+					"send AnnounceSignatures.")
 				return
 			}
 		}
@@ -2426,9 +2515,15 @@ func (d *AuthenticatedGossiper) sendAnnSigReliably(
 // updateChannel creates a new fully signed update for the channel, and updates
 // the underlying graph with the new state.
 func (d *AuthenticatedGossiper) updateChannel(info *channeldb.ChannelEdgeInfo,
-	edge *channeldb.ChannelEdgePolicy) (*lnwire.ChannelAnnouncement, *lnwire.ChannelUpdate, error) {
+	edge *channeldb.ChannelEdgePolicy) (*lnwire.ChannelAnnouncement,
+	*lnwire.ChannelUpdate, error) {
 
-	var err error
+	// We'll make sure we support the new max_htlc field if not already
+	// present.
+	if !edge.MessageFlags.HasMaxHtlc() {
+		edge.MessageFlags |= lnwire.ChanUpdateOptionMaxHtlc
+		edge.MaxHTLC = lnwire.NewMSatFromSatoshis(info.Capacity)
+	}
 
 	// Make sure timestamp is always increased, such that our update gets
 	// propagated.
@@ -2437,16 +2532,22 @@ func (d *AuthenticatedGossiper) updateChannel(info *channeldb.ChannelEdgeInfo,
 		timestamp = edge.LastUpdate.Unix() + 1
 	}
 	edge.LastUpdate = time.Unix(timestamp, 0)
+
 	chanUpdate := &lnwire.ChannelUpdate{
 		ChainHash:       info.ChainHash,
 		ShortChannelID:  lnwire.NewShortChanIDFromInt(edge.ChannelID),
 		Timestamp:       uint32(timestamp),
-		Flags:           edge.Flags,
+		MessageFlags:    edge.MessageFlags,
+		ChannelFlags:    edge.ChannelFlags,
 		TimeLockDelta:   edge.TimeLockDelta,
 		HtlcMinimumMsat: edge.MinHTLC,
+		HtlcMaximumMsat: edge.MaxHTLC,
 		BaseFee:         uint32(edge.FeeBaseMSat),
 		FeeRate:         uint32(edge.FeeProportionalMillionths),
+		ExtraOpaqueData: edge.ExtraOpaqueData,
 	}
+
+	var err error
 	chanUpdate.Signature, err = lnwire.NewSigFromRawSignature(edge.SigBytes)
 	if err != nil {
 		return nil, nil, err
@@ -2469,7 +2570,7 @@ func (d *AuthenticatedGossiper) updateChannel(info *channeldb.ChannelEdgeInfo,
 
 	// To ensure that our signature is valid, we'll verify it ourself
 	// before committing it to the slice returned.
-	err = ValidateChannelUpdateAnn(d.selfKey, chanUpdate)
+	err = routing.ValidateChannelUpdateAnn(d.selfKey, info.Capacity, chanUpdate)
 	if err != nil {
 		return nil, nil, fmt.Errorf("generated invalid channel "+
 			"update sig: %v", err)
@@ -2487,13 +2588,14 @@ func (d *AuthenticatedGossiper) updateChannel(info *channeldb.ChannelEdgeInfo,
 	if info.AuthProof != nil {
 		chanID := lnwire.NewShortChanIDFromInt(info.ChannelID)
 		chanAnn = &lnwire.ChannelAnnouncement{
-			ShortChannelID: chanID,
-			NodeID1:        info.NodeKey1Bytes,
-			NodeID2:        info.NodeKey2Bytes,
-			ChainHash:      info.ChainHash,
-			BitcoinKey1:    info.BitcoinKey1Bytes,
-			Features:       lnwire.NewRawFeatureVector(),
-			BitcoinKey2:    info.BitcoinKey2Bytes,
+			ShortChannelID:  chanID,
+			NodeID1:         info.NodeKey1Bytes,
+			NodeID2:         info.NodeKey2Bytes,
+			ChainHash:       info.ChainHash,
+			BitcoinKey1:     info.BitcoinKey1Bytes,
+			Features:        lnwire.NewRawFeatureVector(),
+			BitcoinKey2:     info.BitcoinKey2Bytes,
+			ExtraOpaqueData: edge.ExtraOpaqueData,
 		}
 		chanAnn.NodeSig1, err = lnwire.NewSigFromRawSignature(
 			info.AuthProof.NodeSig1Bytes,
@@ -2522,32 +2624,4 @@ func (d *AuthenticatedGossiper) updateChannel(info *channeldb.ChannelEdgeInfo,
 	}
 
 	return chanAnn, chanUpdate, err
-}
-
-// maybeRequestChanAnn will attempt to request the full channel announcement
-// for a particular short chan ID. We do this in the case that we get a channel
-// update, yet don't already have a channel announcement for it.
-func (d *AuthenticatedGossiper) maybeRequestChanAnn(cid lnwire.ShortChannelID) error {
-	d.syncerMtx.Lock()
-	defer d.syncerMtx.Unlock()
-
-	for nodeID, syncer := range d.peerSyncers {
-		// If this syncer is already at the terminal state, then we'll
-		// chose it to request the fully channel update.
-		if syncer.SyncState() == chansSynced {
-			log.Debugf("attempting to request chan ann for "+
-				"chan_id=%v from node=%x", cid, nodeID[:])
-
-			return syncer.cfg.sendToPeer(&lnwire.QueryShortChanIDs{
-				ChainHash:    d.cfg.ChainHash,
-				EncodingType: lnwire.EncodingSortedPlain,
-				ShortChanIDs: []lnwire.ShortChannelID{cid},
-			})
-		}
-	}
-
-	log.Debugf("unable to find peer to request chan ann for chan_id=%v "+
-		"from", cid)
-
-	return nil
 }

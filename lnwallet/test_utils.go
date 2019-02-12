@@ -6,22 +6,20 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
-	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
 	"sync"
 
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/txscript"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
 )
 
 var (
@@ -143,9 +141,9 @@ func CreateTestChannels() (*LightningChannel, *LightningChannel, func(), error) 
 			MaxPendingAmount: lnwire.NewMSatFromSatoshis(channelCapacity),
 			ChanReserve:      channelCapacity / 100,
 			MinHTLC:          0,
-			MaxAcceptedHtlcs: MaxHTLCNumber / 2,
+			MaxAcceptedHtlcs: input.MaxHTLCNumber / 2,
+			CsvDelay:         uint16(csvTimeoutAlice),
 		},
-		CsvDelay: uint16(csvTimeoutAlice),
 		MultiSigKey: keychain.KeyDescriptor{
 			PubKey: aliceKeys[0].PubKey(),
 		},
@@ -168,9 +166,9 @@ func CreateTestChannels() (*LightningChannel, *LightningChannel, func(), error) 
 			MaxPendingAmount: lnwire.NewMSatFromSatoshis(channelCapacity),
 			ChanReserve:      channelCapacity / 100,
 			MinHTLC:          0,
-			MaxAcceptedHtlcs: MaxHTLCNumber / 2,
+			MaxAcceptedHtlcs: input.MaxHTLCNumber / 2,
+			CsvDelay:         uint16(csvTimeoutBob),
 		},
-		CsvDelay: uint16(csvTimeoutBob),
 		MultiSigKey: keychain.KeyDescriptor{
 			PubKey: bobKeys[0].PubKey(),
 		},
@@ -197,7 +195,7 @@ func CreateTestChannels() (*LightningChannel, *LightningChannel, func(), error) 
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	bobCommitPoint := ComputeCommitmentPoint(bobFirstRevoke[:])
+	bobCommitPoint := input.ComputeCommitmentPoint(bobFirstRevoke[:])
 
 	aliceRoot, err := chainhash.NewHash(aliceKeys[0].Serialize())
 	if err != nil {
@@ -208,7 +206,7 @@ func CreateTestChannels() (*LightningChannel, *LightningChannel, func(), error) 
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	aliceCommitPoint := ComputeCommitmentPoint(aliceFirstRevoke[:])
+	aliceCommitPoint := input.ComputeCommitmentPoint(aliceFirstRevoke[:])
 
 	aliceCommitTx, bobCommitTx, err := CreateCommitmentTxns(channelBal,
 		channelBal, &aliceCfg, &bobCfg, aliceCommitPoint, bobCommitPoint,
@@ -229,12 +227,11 @@ func CreateTestChannels() (*LightningChannel, *LightningChannel, func(), error) 
 		return nil, nil, nil, err
 	}
 
-	estimator := &StaticFeeEstimator{24}
-	feePerVSize, err := estimator.EstimateFeePerVSize(1)
+	estimator := NewStaticFeeEstimator(6000, 0)
+	feePerKw, err := estimator.EstimateFeePerKW(1)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	feePerKw := feePerVSize.FeePerKWeight()
 	commitFee := calcStaticFee(0)
 
 	aliceCommit := channeldb.ChannelCommitment{
@@ -301,8 +298,8 @@ func CreateTestChannels() (*LightningChannel, *LightningChannel, func(), error) 
 		Packager:                channeldb.NewChannelPackager(shortChanID),
 	}
 
-	aliceSigner := &mockSigner{privkeys: aliceKeys}
-	bobSigner := &mockSigner{privkeys: bobKeys}
+	aliceSigner := &input.MockSigner{Privkeys: aliceKeys}
+	bobSigner := &input.MockSigner{Privkeys: bobKeys}
 
 	pCache := &mockPreimageCache{
 		// hash -> preimage
@@ -310,18 +307,24 @@ func CreateTestChannels() (*LightningChannel, *LightningChannel, func(), error) 
 	}
 
 	// TODO(roasbeef): make mock version of pre-image store
+
+	alicePool := NewSigPool(1, aliceSigner)
 	channelAlice, err := NewLightningChannel(
-		aliceSigner, pCache, aliceChannelState,
+		aliceSigner, pCache, aliceChannelState, alicePool,
 	)
 	if err != nil {
 		return nil, nil, nil, err
 	}
+	alicePool.Start()
+
+	bobPool := NewSigPool(1, bobSigner)
 	channelBob, err := NewLightningChannel(
-		bobSigner, pCache, bobChannelState,
+		bobSigner, pCache, bobChannelState, bobPool,
 	)
 	if err != nil {
 		return nil, nil, nil, err
 	}
+	bobPool.Start()
 
 	err = SetStateNumHint(
 		aliceCommitTx, 0, channelAlice.stateHintObfuscator,
@@ -347,8 +350,8 @@ func CreateTestChannels() (*LightningChannel, *LightningChannel, func(), error) 
 		os.RemoveAll(bobPath)
 		os.RemoveAll(alicePath)
 
-		channelAlice.Stop()
-		channelBob.Stop()
+		alicePool.Stop()
+		bobPool.Stop()
 	}
 
 	// Now that the channel are open, simulate the start of a session by
@@ -381,116 +384,6 @@ func initRevocationWindows(chanA, chanB *LightningChannel) error {
 		return err
 	}
 
-	return nil
-}
-
-// mockSigner is a simple implementation of the Signer interface. Each one has
-// a set of private keys in a slice and can sign messages using the appropriate
-// one.
-type mockSigner struct {
-	privkeys  []*btcec.PrivateKey
-	netParams *chaincfg.Params
-}
-
-func (m *mockSigner) SignOutputRaw(tx *wire.MsgTx, signDesc *SignDescriptor) ([]byte, error) {
-	pubkey := signDesc.KeyDesc.PubKey
-	switch {
-	case signDesc.SingleTweak != nil:
-		pubkey = TweakPubKeyWithTweak(pubkey, signDesc.SingleTweak)
-	case signDesc.DoubleTweak != nil:
-		pubkey = DeriveRevocationPubkey(pubkey, signDesc.DoubleTweak.PubKey())
-	}
-
-	hash160 := btcutil.Hash160(pubkey.SerializeCompressed())
-	privKey := m.findKey(hash160, signDesc.SingleTweak, signDesc.DoubleTweak)
-	if privKey == nil {
-		return nil, fmt.Errorf("Mock signer does not have key")
-	}
-
-	sig, err := txscript.RawTxInWitnessSignature(tx, signDesc.SigHashes,
-		signDesc.InputIndex, signDesc.Output.Value, signDesc.WitnessScript,
-		txscript.SigHashAll, privKey)
-	if err != nil {
-		return nil, err
-	}
-
-	return sig[:len(sig)-1], nil
-}
-
-func (m *mockSigner) ComputeInputScript(tx *wire.MsgTx, signDesc *SignDescriptor) (*InputScript, error) {
-	scriptType, addresses, _, err := txscript.ExtractPkScriptAddrs(
-		signDesc.Output.PkScript, m.netParams)
-	if err != nil {
-		return nil, err
-	}
-
-	switch scriptType {
-	case txscript.PubKeyHashTy:
-		privKey := m.findKey(addresses[0].ScriptAddress(), signDesc.SingleTweak,
-			signDesc.DoubleTweak)
-		if privKey == nil {
-			return nil, fmt.Errorf("Mock signer does not have key for "+
-				"address %v", addresses[0])
-		}
-
-		scriptSig, err := txscript.SignatureScript(tx, signDesc.InputIndex,
-			signDesc.Output.PkScript, txscript.SigHashAll, privKey, true)
-		if err != nil {
-			return nil, err
-		}
-
-		return &InputScript{ScriptSig: scriptSig}, nil
-
-	case txscript.WitnessV0PubKeyHashTy:
-		privKey := m.findKey(addresses[0].ScriptAddress(), signDesc.SingleTweak,
-			signDesc.DoubleTweak)
-		if privKey == nil {
-			return nil, fmt.Errorf("Mock signer does not have key for "+
-				"address %v", addresses[0])
-		}
-
-		witnessScript, err := txscript.WitnessSignature(tx, signDesc.SigHashes,
-			signDesc.InputIndex, signDesc.Output.Value,
-			signDesc.Output.PkScript, txscript.SigHashAll, privKey, true)
-		if err != nil {
-			return nil, err
-		}
-
-		return &InputScript{Witness: witnessScript}, nil
-
-	default:
-		return nil, fmt.Errorf("Unexpected script type: %v", scriptType)
-	}
-}
-
-// findKey searches through all stored private keys and returns one
-// corresponding to the hashed pubkey if it can be found. The public key may
-// either correspond directly to the private key or to the private key with a
-// tweak applied.
-func (m *mockSigner) findKey(needleHash160 []byte, singleTweak []byte,
-	doubleTweak *btcec.PrivateKey) *btcec.PrivateKey {
-
-	for _, privkey := range m.privkeys {
-		// First check whether public key is directly derived from private key.
-		hash160 := btcutil.Hash160(privkey.PubKey().SerializeCompressed())
-		if bytes.Equal(hash160, needleHash160) {
-			return privkey
-		}
-
-		// Otherwise check if public key is derived from tweaked private key.
-		switch {
-		case singleTweak != nil:
-			privkey = TweakPrivKey(privkey, singleTweak)
-		case doubleTweak != nil:
-			privkey = DeriveRevocationPrivKey(privkey, doubleTweak)
-		default:
-			continue
-		}
-		hash160 = btcutil.Hash160(privkey.PubKey().SerializeCompressed())
-		if bytes.Equal(hash160, needleHash160) {
-			return privkey
-		}
-	}
 	return nil
 }
 

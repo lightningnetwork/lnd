@@ -9,18 +9,17 @@ import (
 	"sync"
 	"time"
 
+	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcwallet/chain"
+	"github.com/btcsuite/btcwallet/waddrmgr"
+	base "github.com/btcsuite/btcwallet/wallet"
+	"github.com/btcsuite/btcwallet/walletdb"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/txscript"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
-	"github.com/roasbeef/btcwallet/chain"
-	"github.com/roasbeef/btcwallet/waddrmgr"
-	base "github.com/roasbeef/btcwallet/wallet"
-	"github.com/roasbeef/btcwallet/walletdb"
 )
 
 const (
@@ -154,26 +153,13 @@ func (b *BtcWallet) InternalWallet() *base.Wallet {
 //
 // This is a part of the WalletController interface.
 func (b *BtcWallet) Start() error {
-	// Establish an RPC connection in addition to starting the goroutines
-	// in the underlying wallet.
-	if err := b.chain.Start(); err != nil {
-		return err
-	}
-
-	// Start the underlying btcwallet core.
-	b.wallet.Start()
-
-	// Pass the rpc client into the wallet so it can sync up to the
-	// current main chain.
-	b.wallet.SynchronizeRPC(b.chain)
-
+	// We'll start by unlocking the wallet and ensuring that the KeyScope:
+	// (1017, 1) exists within the internal waddrmgr. We'll need this in
+	// order to properly generate the keys required for signing various
+	// contracts.
 	if err := b.wallet.Unlock(b.cfg.PrivatePass, nil); err != nil {
 		return err
 	}
-
-	// We'll now ensure that the KeyScope: (1017, 1) exists within the
-	// internal waddrmgr. We'll need this in order to properly generate the
-	// keys required for signing various contracts.
 	_, err := b.wallet.Manager.FetchScopedKeyManager(b.chainKeyScope)
 	if err != nil {
 		// If the scope hasn't yet been created (it wouldn't been
@@ -191,6 +177,19 @@ func (b *BtcWallet) Start() error {
 			return err
 		}
 	}
+
+	// Establish an RPC connection in addition to starting the goroutines
+	// in the underlying wallet.
+	if err := b.chain.Start(); err != nil {
+		return err
+	}
+
+	// Start the underlying btcwallet core.
+	b.wallet.Start()
+
+	// Pass the rpc client into the wallet so it can sync up to the
+	// current main chain.
+	b.wallet.SynchronizeRPC(b.chain)
 
 	return nil
 }
@@ -218,7 +217,7 @@ func (b *BtcWallet) Stop() error {
 func (b *BtcWallet) ConfirmedBalance(confs int32) (btcutil.Amount, error) {
 	var balance btcutil.Amount
 
-	witnessOutputs, err := b.ListUnspentWitness(confs)
+	witnessOutputs, err := b.ListUnspentWitness(confs, math.MaxInt32)
 	if err != nil {
 		return 0, err
 	}
@@ -255,15 +254,12 @@ func (b *BtcWallet) NewAddress(t lnwallet.AddressType, change bool) (btcutil.Add
 	return b.wallet.NewAddress(defaultAccount, keyScope)
 }
 
-// GetPrivKey retrieves the underlying private key associated with the passed
-// address. If the we're unable to locate the proper private key, then a
-// non-nil error will be returned.
+// IsOurAddress checks if the passed address belongs to this wallet
 //
 // This is a part of the WalletController interface.
-func (b *BtcWallet) GetPrivKey(a btcutil.Address) (*btcec.PrivateKey, error) {
-	// Using the ID address, request the private key corresponding to the
-	// address from the wallet's address manager.
-	return b.wallet.PrivKeyForAddress(a)
+func (b *BtcWallet) IsOurAddress(a btcutil.Address) bool {
+	result, err := b.wallet.HaveAddress(a)
+	return result && (err == nil)
 }
 
 // SendOutputs funds, signs, and broadcasts a Bitcoin transaction paying out to
@@ -272,11 +268,11 @@ func (b *BtcWallet) GetPrivKey(a btcutil.Address) (*btcec.PrivateKey, error) {
 //
 // This is a part of the WalletController interface.
 func (b *BtcWallet) SendOutputs(outputs []*wire.TxOut,
-	feeRate lnwallet.SatPerVByte) (*chainhash.Hash, error) {
+	feeRate lnwallet.SatPerKWeight) (*wire.MsgTx, error) {
 
-	// The fee rate is passed in using units of sat/vbyte, so we'll scale
-	// this up to sat/KB as the SendOutputs method requires this unit.
-	feeSatPerKB := btcutil.Amount(feeRate * 1000)
+	// Convert our fee rate from sat/kw to sat/kb since it's required by
+	// SendOutputs.
+	feeSatPerKB := btcutil.Amount(feeRate.FeePerKVByte())
 
 	return b.wallet.SendOutputs(outputs, defaultAccount, 1, feeSatPerKB)
 }
@@ -303,9 +299,9 @@ func (b *BtcWallet) UnlockOutpoint(o wire.OutPoint) {
 // controls which pay to witness programs either directly or indirectly.
 //
 // This is a part of the WalletController interface.
-func (b *BtcWallet) ListUnspentWitness(minConfs int32) ([]*lnwallet.Utxo, error) {
+func (b *BtcWallet) ListUnspentWitness(minConfs, maxConfs int32) (
+	[]*lnwallet.Utxo, error) {
 	// First, grab all the unfiltered currently unspent outputs.
-	maxConfs := int32(math.MaxInt32)
 	unspentOutputs, err := b.wallet.ListUnspent(minConfs, maxConfs, nil)
 	if err != nil {
 		return nil, err
@@ -353,6 +349,7 @@ func (b *BtcWallet) ListUnspentWitness(minConfs int32) ([]*lnwallet.Utxo, error)
 					Hash:  *txid,
 					Index: output.Vout,
 				},
+				Confirmations: output.Confirmations,
 			}
 			witnessOutputs = append(witnessOutputs, utxo)
 		}
@@ -559,9 +556,11 @@ func (b *BtcWallet) ListTransactionDetails() ([]*lnwallet.TransactionDetail, err
 	bestBlock := b.wallet.Manager.SyncedTo()
 	currentHeight := bestBlock.Height
 
-	// TODO(roasbeef): can replace with start "wallet birthday"
+	// We'll attempt to find all unconfirmed transactions (height of -1),
+	// as well as all transactions that are known to have confirmed at this
+	// height.
 	start := base.NewBlockIdentifierFromHeight(0)
-	stop := base.NewBlockIdentifierFromHeight(bestBlock.Height)
+	stop := base.NewBlockIdentifierFromHeight(-1)
 	txns, err := b.wallet.GetTransactions(start, stop, nil)
 	if err != nil {
 		return nil, err
@@ -732,7 +731,7 @@ func (b *BtcWallet) IsSynced() (bool, int64, error) {
 
 	// If the wallet hasn't yet fully synced to the node's best chain tip,
 	// then we're not yet fully synced.
-	if syncState.Height < bestHeight {
+	if syncState.Height < bestHeight || !b.wallet.ChainSynced() {
 		return false, bestTimestamp, nil
 	}
 
@@ -745,8 +744,12 @@ func (b *BtcWallet) IsSynced() (bool, int64, error) {
 		return false, 0, err
 	}
 
-	// If the timestamp no the best header is more than 2 hours in the
+	// If the timestamp on the best header is more than 2 hours in the
 	// past, then we're not yet synced.
 	minus24Hours := time.Now().Add(-2 * time.Hour)
-	return !blockHeader.Timestamp.Before(minus24Hours), bestTimestamp, nil
+	if blockHeader.Timestamp.Before(minus24Hours) {
+		return false, bestTimestamp, nil
+	}
+
+	return true, bestTimestamp, nil
 }

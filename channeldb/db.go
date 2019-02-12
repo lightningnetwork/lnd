@@ -4,14 +4,17 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/coreos/bbolt"
 	"github.com/go-errors/errors"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/wire"
+	"github.com/lightningnetwork/lnd/lnwire"
 )
 
 const (
@@ -22,7 +25,7 @@ const (
 // migration is a function which takes a prior outdated version of the database
 // instances and mutates the key/bucket structure to arrive at a more
 // up-to-date version of the database.
-type migration func(tx *bolt.Tx) error
+type migration func(tx *bbolt.Tx) error
 
 type version struct {
 	number    uint32
@@ -47,6 +50,46 @@ var (
 			number:    1,
 			migration: migrateNodeAndEdgeUpdateIndex,
 		},
+		{
+			// The DB version that added the invoice event time
+			// series.
+			number:    2,
+			migration: migrateInvoiceTimeSeries,
+		},
+		{
+			// The DB version that updated the embedded invoice in
+			// outgoing payments to match the new format.
+			number:    3,
+			migration: migrateInvoiceTimeSeriesOutgoingPayments,
+		},
+		{
+			// The version of the database where every channel
+			// always has two entries in the edges bucket. If
+			// a policy is unknown, this will be represented
+			// by a special byte sequence.
+			number:    4,
+			migration: migrateEdgePolicies,
+		},
+		{
+			// The DB version where we persist each attempt to send
+			// an HTLC to a payment hash, and track whether the
+			// payment is in-flight, succeeded, or failed.
+			number:    5,
+			migration: paymentStatusesMigration,
+		},
+		{
+			// The DB version that properly prunes stale entries
+			// from the edge update index.
+			number:    6,
+			migration: migratePruneEdgeUpdateIndex,
+		},
+		{
+			// The DB version that migrates the ChannelCloseSummary
+			// to a format where optional fields are indicated with
+			// boolean flags.
+			number:    7,
+			migration: migrateOptionalChannelCloseSummaryFields,
+		},
 	}
 
 	// Big endian is the preferred byte order, due to cursor scans over
@@ -62,7 +105,7 @@ var bufPool = &sync.Pool{
 // information related to nodes, routing data, open/closed channels, fee
 // schedules, and reputation data.
 type DB struct {
-	*bolt.DB
+	*bbolt.DB
 	dbPath string
 }
 
@@ -77,7 +120,7 @@ func Open(dbPath string) (*DB, error) {
 		}
 	}
 
-	bdb, err := bolt.Open(path, dbFilePermission, nil)
+	bdb, err := bbolt.Open(path, dbFilePermission, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -105,41 +148,41 @@ func (d *DB) Path() string {
 // database. The deletion is done in a single transaction, therefore this
 // operation is fully atomic.
 func (d *DB) Wipe() error {
-	return d.Update(func(tx *bolt.Tx) error {
+	return d.Update(func(tx *bbolt.Tx) error {
 		err := tx.DeleteBucket(openChannelBucket)
-		if err != nil && err != bolt.ErrBucketNotFound {
+		if err != nil && err != bbolt.ErrBucketNotFound {
 			return err
 		}
 
 		err = tx.DeleteBucket(closedChannelBucket)
-		if err != nil && err != bolt.ErrBucketNotFound {
+		if err != nil && err != bbolt.ErrBucketNotFound {
 			return err
 		}
 
 		err = tx.DeleteBucket(invoiceBucket)
-		if err != nil && err != bolt.ErrBucketNotFound {
+		if err != nil && err != bbolt.ErrBucketNotFound {
 			return err
 		}
 
 		err = tx.DeleteBucket(nodeInfoBucket)
-		if err != nil && err != bolt.ErrBucketNotFound {
+		if err != nil && err != bbolt.ErrBucketNotFound {
 			return err
 		}
 
 		err = tx.DeleteBucket(nodeBucket)
-		if err != nil && err != bolt.ErrBucketNotFound {
+		if err != nil && err != bbolt.ErrBucketNotFound {
 			return err
 		}
 		err = tx.DeleteBucket(edgeBucket)
-		if err != nil && err != bolt.ErrBucketNotFound {
+		if err != nil && err != bbolt.ErrBucketNotFound {
 			return err
 		}
 		err = tx.DeleteBucket(edgeIndexBucket)
-		if err != nil && err != bolt.ErrBucketNotFound {
+		if err != nil && err != bbolt.ErrBucketNotFound {
 			return err
 		}
 		err = tx.DeleteBucket(graphMetaBucket)
-		if err != nil && err != bolt.ErrBucketNotFound {
+		if err != nil && err != bbolt.ErrBucketNotFound {
 			return err
 		}
 
@@ -159,17 +202,24 @@ func createChannelDB(dbPath string) error {
 	}
 
 	path := filepath.Join(dbPath, dbName)
-	bdb, err := bolt.Open(path, dbFilePermission, nil)
+	bdb, err := bbolt.Open(path, dbFilePermission, nil)
 	if err != nil {
 		return err
 	}
 
-	err = bdb.Update(func(tx *bolt.Tx) error {
+	err = bdb.Update(func(tx *bbolt.Tx) error {
 		if _, err := tx.CreateBucket(openChannelBucket); err != nil {
 			return err
 		}
-
 		if _, err := tx.CreateBucket(closedChannelBucket); err != nil {
+			return err
+		}
+
+		if _, err := tx.CreateBucket(forwardingLogBucket); err != nil {
+			return err
+		}
+
+		if _, err := tx.CreateBucket(fwdPackagesKey); err != nil {
 			return err
 		}
 
@@ -177,20 +227,47 @@ func createChannelDB(dbPath string) error {
 			return err
 		}
 
+		if _, err := tx.CreateBucket(paymentBucket); err != nil {
+			return err
+		}
+
 		if _, err := tx.CreateBucket(nodeInfoBucket); err != nil {
 			return err
 		}
 
-		if _, err := tx.CreateBucket(nodeBucket); err != nil {
+		nodes, err := tx.CreateBucket(nodeBucket)
+		if err != nil {
 			return err
 		}
-		if _, err := tx.CreateBucket(edgeBucket); err != nil {
+		_, err = nodes.CreateBucket(aliasIndexBucket)
+		if err != nil {
 			return err
 		}
-		if _, err := tx.CreateBucket(edgeIndexBucket); err != nil {
+		_, err = nodes.CreateBucket(nodeUpdateIndexBucket)
+		if err != nil {
 			return err
 		}
-		if _, err := tx.CreateBucket(graphMetaBucket); err != nil {
+
+		edges, err := tx.CreateBucket(edgeBucket)
+		if err != nil {
+			return err
+		}
+		if _, err := edges.CreateBucket(edgeIndexBucket); err != nil {
+			return err
+		}
+		if _, err := edges.CreateBucket(edgeUpdateIndexBucket); err != nil {
+			return err
+		}
+		if _, err := edges.CreateBucket(channelPointBucket); err != nil {
+			return err
+		}
+
+		graphMeta, err := tx.CreateBucket(graphMetaBucket)
+		if err != nil {
+			return err
+		}
+		_, err = graphMeta.CreateBucket(pruneLogBucket)
+		if err != nil {
 			return err
 		}
 
@@ -221,56 +298,70 @@ func fileExists(path string) bool {
 	return true
 }
 
-// FetchOpenChannels returns all stored currently active/open channels
-// associated with the target nodeID. In the case that no active channels are
-// known to have been created with this node, then a zero-length slice is
-// returned.
+// FetchOpenChannels starts a new database transaction and returns all stored
+// currently active/open channels associated with the target nodeID. In the case
+// that no active channels are known to have been created with this node, then a
+// zero-length slice is returned.
 func (d *DB) FetchOpenChannels(nodeID *btcec.PublicKey) ([]*OpenChannel, error) {
 	var channels []*OpenChannel
-	err := d.View(func(tx *bolt.Tx) error {
-		// Get the bucket dedicated to storing the metadata for open
-		// channels.
-		openChanBucket := tx.Bucket(openChannelBucket)
-		if openChanBucket == nil {
+	err := d.View(func(tx *bbolt.Tx) error {
+		var err error
+		channels, err = d.fetchOpenChannels(tx, nodeID)
+		return err
+	})
+
+	return channels, err
+}
+
+// fetchOpenChannels uses and existing database transaction and returns all
+// stored currently active/open channels associated with the target nodeID. In
+// the case that no active channels are known to have been created with this
+// node, then a zero-length slice is returned.
+func (d *DB) fetchOpenChannels(tx *bbolt.Tx,
+	nodeID *btcec.PublicKey) ([]*OpenChannel, error) {
+
+	// Get the bucket dedicated to storing the metadata for open channels.
+	openChanBucket := tx.Bucket(openChannelBucket)
+	if openChanBucket == nil {
+		return nil, nil
+	}
+
+	// Within this top level bucket, fetch the bucket dedicated to storing
+	// open channel data specific to the remote node.
+	pub := nodeID.SerializeCompressed()
+	nodeChanBucket := openChanBucket.Bucket(pub)
+	if nodeChanBucket == nil {
+		return nil, nil
+	}
+
+	// Next, we'll need to go down an additional layer in order to retrieve
+	// the channels for each chain the node knows of.
+	var channels []*OpenChannel
+	err := nodeChanBucket.ForEach(func(chainHash, v []byte) error {
+		// If there's a value, it's not a bucket so ignore it.
+		if v != nil {
 			return nil
 		}
 
-		// Within this top level bucket, fetch the bucket dedicated to
-		// storing open channel data specific to the remote node.
-		pub := nodeID.SerializeCompressed()
-		nodeChanBucket := openChanBucket.Bucket(pub)
-		if nodeChanBucket == nil {
-			return nil
+		// If we've found a valid chainhash bucket, then we'll retrieve
+		// that so we can extract all the channels.
+		chainBucket := nodeChanBucket.Bucket(chainHash)
+		if chainBucket == nil {
+			return fmt.Errorf("unable to read bucket for chain=%x",
+				chainHash[:])
 		}
 
-		// Next, we'll need to go down an additional layer in order to
-		// retrieve the channels for each chain the node knows of.
-		return nodeChanBucket.ForEach(func(chainHash, v []byte) error {
-			// If there's a value, it's not a bucket so ignore it.
-			if v != nil {
-				return nil
-			}
+		// Finally, we both of the necessary buckets retrieved, fetch
+		// all the active channels related to this node.
+		nodeChannels, err := d.fetchNodeChannels(chainBucket)
+		if err != nil {
+			return fmt.Errorf("unable to read channel for "+
+				"chain_hash=%x, node_key=%x: %v",
+				chainHash[:], pub, err)
+		}
 
-			// If we've found a valid chainhash bucket, then we'll
-			// retrieve that so we can extract all the channels.
-			chainBucket := nodeChanBucket.Bucket(chainHash)
-			if chainBucket == nil {
-				return fmt.Errorf("unable to read bucket for "+
-					"chain=%x", chainHash[:])
-			}
-
-			// Finally, we both of the necessary buckets retrieved,
-			// fetch all the active channels related to this node.
-			nodeChannels, err := d.fetchNodeChannels(chainBucket)
-			if err != nil {
-				return fmt.Errorf("unable to read channel for "+
-					"chain_hash=%x, node_key=%x: %v",
-					chainHash[:], pub, err)
-			}
-
-			channels = nodeChannels
-			return nil
-		})
+		channels = append(channels, nodeChannels...)
+		return nil
 	})
 
 	return channels, err
@@ -279,7 +370,7 @@ func (d *DB) FetchOpenChannels(nodeID *btcec.PublicKey) ([]*OpenChannel, error) 
 // fetchNodeChannels retrieves all active channels from the target chainBucket
 // which is under a node's dedicated channel bucket. This function is typically
 // used to fetch all the active channels related to a particular node.
-func (d *DB) fetchNodeChannels(chainBucket *bolt.Bucket) ([]*OpenChannel, error) {
+func (d *DB) fetchNodeChannels(chainBucket *bbolt.Bucket) ([]*OpenChannel, error) {
 
 	var channels []*OpenChannel
 
@@ -316,6 +407,102 @@ func (d *DB) fetchNodeChannels(chainBucket *bolt.Bucket) ([]*OpenChannel, error)
 	}
 
 	return channels, nil
+}
+
+// FetchChannel attempts to locate a channel specified by the passed channel
+// point. If the channel cannot be found, then an error will be returned.
+func (d *DB) FetchChannel(chanPoint wire.OutPoint) (*OpenChannel, error) {
+	var (
+		targetChan      *OpenChannel
+		targetChanPoint bytes.Buffer
+	)
+
+	if err := writeOutpoint(&targetChanPoint, &chanPoint); err != nil {
+		return nil, err
+	}
+
+	// chanScan will traverse the following bucket structure:
+	//  * nodePub => chainHash => chanPoint
+	//
+	// At each level we go one further, ensuring that we're traversing the
+	// proper key (that's actually a bucket). By only reading the bucket
+	// structure and skipping fully decoding each channel, we save a good
+	// bit of CPU as we don't need to do things like decompress public
+	// keys.
+	chanScan := func(tx *bbolt.Tx) error {
+		// Get the bucket dedicated to storing the metadata for open
+		// channels.
+		openChanBucket := tx.Bucket(openChannelBucket)
+		if openChanBucket == nil {
+			return ErrNoActiveChannels
+		}
+
+		// Within the node channel bucket, are the set of node pubkeys
+		// we have channels with, we don't know the entire set, so
+		// we'll check them all.
+		return openChanBucket.ForEach(func(nodePub, v []byte) error {
+			// Ensure that this is a key the same size as a pubkey,
+			// and also that it leads directly to a bucket.
+			if len(nodePub) != 33 || v != nil {
+				return nil
+			}
+
+			nodeChanBucket := openChanBucket.Bucket(nodePub)
+			if nodeChanBucket == nil {
+				return nil
+			}
+
+			// The next layer down is all the chains that this node
+			// has channels on with us.
+			return nodeChanBucket.ForEach(func(chainHash, v []byte) error {
+				// If there's a value, it's not a bucket so
+				// ignore it.
+				if v != nil {
+					return nil
+				}
+
+				chainBucket := nodeChanBucket.Bucket(chainHash)
+				if chainBucket == nil {
+					return fmt.Errorf("unable to read "+
+						"bucket for chain=%x", chainHash[:])
+				}
+
+				// Finally we reach the leaf bucket that stores
+				// all the chanPoints for this node.
+				chanBucket := chainBucket.Bucket(
+					targetChanPoint.Bytes(),
+				)
+				if chanBucket == nil {
+					return nil
+				}
+
+				channel, err := fetchOpenChannel(
+					chanBucket, &chanPoint,
+				)
+				if err != nil {
+					return err
+				}
+
+				targetChan = channel
+				targetChan.Db = d
+
+				return nil
+			})
+		})
+	}
+
+	err := d.View(chanScan)
+	if err != nil {
+		return nil, err
+	}
+
+	if targetChan != nil {
+		return targetChan, nil
+	}
+
+	// If we can't find the channel, then we return with an error, as we
+	// have nothing to  backup.
+	return nil, ErrChannelNotFound
 }
 
 // FetchAllChannels attempts to retrieve all open channels currently stored
@@ -361,21 +548,32 @@ func (d *DB) FetchPendingChannels() ([]*OpenChannel, error) {
 }
 
 // FetchWaitingCloseChannels will return all channels that have been opened,
-// but now is waiting for a closing transaction to be confirmed.
+// but are now waiting for a closing transaction to be confirmed.
+//
+// NOTE: This includes channels that are also pending to be opened.
 func (d *DB) FetchWaitingCloseChannels() ([]*OpenChannel, error) {
-	return fetchChannels(d, false, true)
+	waitingClose, err := fetchChannels(d, false, true)
+	if err != nil {
+		return nil, err
+	}
+	pendingWaitingClose, err := fetchChannels(d, true, true)
+	if err != nil {
+		return nil, err
+	}
+
+	return append(waitingClose, pendingWaitingClose...), nil
 }
 
 // fetchChannels attempts to retrieve channels currently stored in the
 // database. The pending parameter determines whether only pending channels
 // will be returned, or only open channels will be returned. The waitingClose
-// parameter determines wheter only channels waiting for a closing transaction
+// parameter determines whether only channels waiting for a closing transaction
 // to be confirmed should be returned. If no active channels exist within the
 // network, then ErrNoActiveChannels is returned.
 func fetchChannels(d *DB, pending, waitingClose bool) ([]*OpenChannel, error) {
 	var channels []*OpenChannel
 
-	err := d.View(func(tx *bolt.Tx) error {
+	err := d.View(func(tx *bbolt.Tx) error {
 		// Get the bucket dedicated to storing the metadata for open
 		// channels.
 		openChanBucket := tx.Bucket(openChannelBucket)
@@ -430,7 +628,7 @@ func fetchChannels(d *DB, pending, waitingClose bool) ([]*OpenChannel, error) {
 					// than Default, then it means it is
 					// waiting to be closed.
 					channelWaitingClose :=
-						channel.ChanStatus != Default
+						channel.ChanStatus() != ChanStatusDefault
 
 					// Only include it if we requested
 					// channels with the same waitingClose
@@ -462,7 +660,7 @@ func fetchChannels(d *DB, pending, waitingClose bool) ([]*OpenChannel, error) {
 func (d *DB) FetchClosedChannels(pendingOnly bool) ([]*ChannelCloseSummary, error) {
 	var chanSummaries []*ChannelCloseSummary
 
-	if err := d.View(func(tx *bolt.Tx) error {
+	if err := d.View(func(tx *bbolt.Tx) error {
 		closeBucket := tx.Bucket(closedChannelBucket)
 		if closeBucket == nil {
 			return ErrNoClosedChannels
@@ -500,7 +698,7 @@ var ErrClosedChannelNotFound = errors.New("unable to find closed channel summary
 // point of the channel in question.
 func (d *DB) FetchClosedChannel(chanID *wire.OutPoint) (*ChannelCloseSummary, error) {
 	var chanSummary *ChannelCloseSummary
-	if err := d.View(func(tx *bolt.Tx) error {
+	if err := d.View(func(tx *bbolt.Tx) error {
 		closeBucket := tx.Bucket(closedChannelBucket)
 		if closeBucket == nil {
 			return ErrClosedChannelNotFound
@@ -528,13 +726,61 @@ func (d *DB) FetchClosedChannel(chanID *wire.OutPoint) (*ChannelCloseSummary, er
 	return chanSummary, nil
 }
 
+// FetchClosedChannelForID queries for a channel close summary using the
+// channel ID of the channel in question.
+func (d *DB) FetchClosedChannelForID(cid lnwire.ChannelID) (
+	*ChannelCloseSummary, error) {
+
+	var chanSummary *ChannelCloseSummary
+	if err := d.View(func(tx *bbolt.Tx) error {
+		closeBucket := tx.Bucket(closedChannelBucket)
+		if closeBucket == nil {
+			return ErrClosedChannelNotFound
+		}
+
+		// The first 30 bytes of the channel ID and outpoint will be
+		// equal.
+		cursor := closeBucket.Cursor()
+		op, c := cursor.Seek(cid[:30])
+
+		// We scan over all possible candidates for this channel ID.
+		for ; op != nil && bytes.Compare(cid[:30], op[:30]) <= 0; op, c = cursor.Next() {
+			var outPoint wire.OutPoint
+			err := readOutpoint(bytes.NewReader(op), &outPoint)
+			if err != nil {
+				return err
+			}
+
+			// If the found outpoint does not correspond to this
+			// channel ID, we continue.
+			if !cid.IsChanPoint(&outPoint) {
+				continue
+			}
+
+			// Deserialize the close summary and return.
+			r := bytes.NewReader(c)
+			chanSummary, err = deserializeCloseChannelSummary(r)
+			if err != nil {
+				return err
+			}
+
+			return nil
+		}
+		return ErrClosedChannelNotFound
+	}); err != nil {
+		return nil, err
+	}
+
+	return chanSummary, nil
+}
+
 // MarkChanFullyClosed marks a channel as fully closed within the database. A
 // channel should be marked as fully closed if the channel was initially
 // cooperatively closed and it's reached a single confirmation, or after all
 // the pending funds in a channel that has been forcibly closed have been
 // swept.
 func (d *DB) MarkChanFullyClosed(chanPoint *wire.OutPoint) error {
-	return d.Update(func(tx *bolt.Tx) error {
+	return d.Update(func(tx *bbolt.Tx) error {
 		var b bytes.Buffer
 		if err := writeOutpoint(&b, chanPoint); err != nil {
 			return err
@@ -571,8 +817,216 @@ func (d *DB) MarkChanFullyClosed(chanPoint *wire.OutPoint) error {
 			return err
 		}
 
-		return closedChanBucket.Put(chanID, newSummary.Bytes())
+		err = closedChanBucket.Put(chanID, newSummary.Bytes())
+		if err != nil {
+			return err
+		}
+
+		// Now that the channel is closed, we'll check if we have any
+		// other open channels with this peer. If we don't we'll
+		// garbage collect it to ensure we don't establish persistent
+		// connections to peers without open channels.
+		return d.pruneLinkNode(tx, chanSummary.RemotePub)
 	})
+}
+
+// pruneLinkNode determines whether we should garbage collect a link node from
+// the database due to no longer having any open channels with it. If there are
+// any left, then this acts as a no-op.
+func (d *DB) pruneLinkNode(tx *bbolt.Tx, remotePub *btcec.PublicKey) error {
+	openChannels, err := d.fetchOpenChannels(tx, remotePub)
+	if err != nil {
+		return fmt.Errorf("unable to fetch open channels for peer %x: "+
+			"%v", remotePub.SerializeCompressed(), err)
+	}
+
+	if len(openChannels) > 0 {
+		return nil
+	}
+
+	log.Infof("Pruning link node %x with zero open channels from database",
+		remotePub.SerializeCompressed())
+
+	return d.deleteLinkNode(tx, remotePub)
+}
+
+// PruneLinkNodes attempts to prune all link nodes found within the databse with
+// whom we no longer have any open channels with.
+func (d *DB) PruneLinkNodes() error {
+	return d.Update(func(tx *bbolt.Tx) error {
+		linkNodes, err := d.fetchAllLinkNodes(tx)
+		if err != nil {
+			return err
+		}
+
+		for _, linkNode := range linkNodes {
+			err := d.pruneLinkNode(tx, linkNode.IdentityPub)
+			if err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+}
+
+// ChannelShell is a shell of a channel that is meant to be used for channel
+// recovery purposes. It contains a minimal OpenChannel instance along with
+// addresses for that target node.
+type ChannelShell struct {
+	// NodeAddrs the set of addresses that this node has known to be
+	// reachable at in the past.
+	NodeAddrs []net.Addr
+
+	// Chan is a shell of an OpenChannel, it contains only the items
+	// required to restore the channel on disk.
+	Chan *OpenChannel
+}
+
+// RestoreChannelShells is a method that allows the caller to reconstruct the
+// state of an OpenChannel from the ChannelShell. We'll attempt to write the
+// new channel to disk, create a LinkNode instance with the passed node
+// addresses, and finally create an edge within the graph for the channel as
+// well. This method is idempotent, so repeated calls with the same set of
+// channel shells won't modify the database after the initial call.
+func (d *DB) RestoreChannelShells(channelShells ...*ChannelShell) error {
+	chanGraph := ChannelGraph{d}
+
+	return d.Update(func(tx *bbolt.Tx) error {
+		for _, channelShell := range channelShells {
+			channel := channelShell.Chan
+
+			// First, we'll attempt to create a new open channel
+			// and link node for this channel. If the channel
+			// already exists, then in order to ensure this method
+			// is idempotent, we'll continue to the next step.
+			channel.Db = d
+			err := syncNewChannel(
+				tx, channel, channelShell.NodeAddrs,
+			)
+			if err != nil {
+				return err
+			}
+
+			// Next, we'll create an active edge in the graph
+			// database for this channel in order to restore our
+			// partial view of the network.
+			//
+			// TODO(roasbeef): if we restore *after* the channel
+			// has been closed on chain, then need to inform the
+			// router that it should try and prune these values as
+			// we can detect them
+			edgeInfo := ChannelEdgeInfo{
+				ChannelID:    channel.ShortChannelID.ToUint64(),
+				ChainHash:    channel.ChainHash,
+				ChannelPoint: channel.FundingOutpoint,
+			}
+
+			nodes := tx.Bucket(nodeBucket)
+			if nodes == nil {
+				return ErrGraphNotFound
+			}
+			selfNode, err := chanGraph.sourceNode(nodes)
+			if err != nil {
+				return err
+			}
+
+			// Depending on which pub key is smaller, we'll assign
+			// our roles as "node1" and "node2".
+			chanPeer := channel.IdentityPub.SerializeCompressed()
+			selfIsSmaller := bytes.Compare(
+				selfNode.PubKeyBytes[:], chanPeer,
+			) == -1
+			if selfIsSmaller {
+				copy(edgeInfo.NodeKey1Bytes[:], selfNode.PubKeyBytes[:])
+				copy(edgeInfo.NodeKey2Bytes[:], chanPeer)
+			} else {
+				copy(edgeInfo.NodeKey1Bytes[:], chanPeer)
+				copy(edgeInfo.NodeKey2Bytes[:], selfNode.PubKeyBytes[:])
+			}
+
+			// With the edge info shell constructed, we'll now add
+			// it to the graph.
+			err = chanGraph.addChannelEdge(tx, &edgeInfo)
+			if err != nil {
+				return err
+			}
+
+			// Similarly, we'll construct a channel edge shell and
+			// add that itself to the graph.
+			chanEdge := ChannelEdgePolicy{
+				ChannelID:  edgeInfo.ChannelID,
+				LastUpdate: time.Now(),
+			}
+
+			// If their pubkey is larger, then we'll flip the
+			// direction bit to indicate that us, the "second" node
+			// is updating their policy.
+			if !selfIsSmaller {
+				chanEdge.ChannelFlags |= lnwire.ChanUpdateDirection
+			}
+
+			err = updateEdgePolicy(tx, &chanEdge)
+			if err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+}
+
+// AddrsForNode consults the graph and channel database for all addresses known
+// to the passed node public key.
+func (d *DB) AddrsForNode(nodePub *btcec.PublicKey) ([]net.Addr, error) {
+	var (
+		linkNode  *LinkNode
+		graphNode LightningNode
+	)
+
+	dbErr := d.View(func(tx *bbolt.Tx) error {
+		var err error
+
+		linkNode, err = fetchLinkNode(tx, nodePub)
+		if err != nil {
+			return err
+		}
+
+		// We'll also query the graph for this peer to see if they have
+		// any addresses that we don't currently have stored within the
+		// link node database.
+		nodes := tx.Bucket(nodeBucket)
+		if nodes == nil {
+			return ErrGraphNotFound
+		}
+		compressedPubKey := nodePub.SerializeCompressed()
+		graphNode, err = fetchLightningNode(nodes, compressedPubKey)
+		if err != nil {
+			return err
+		}
+
+		return nil
+	})
+	if dbErr != nil {
+		return nil, dbErr
+	}
+
+	// Now that we have both sources of addrs for this node, we'll use a
+	// map to de-duplicate any addresses between the two sources, and
+	// produce a final list of the combined addrs.
+	addrs := make(map[string]net.Addr)
+	for _, addr := range linkNode.Addresses {
+		addrs[addr.String()] = addr
+	}
+	for _, addr := range graphNode.Addresses {
+		addrs[addr.String()] = addr
+	}
+	dedupedAddrs := make([]net.Addr, 0, len(addrs))
+	for _, addr := range addrs {
+		dedupedAddrs = append(dedupedAddrs, addr)
+	}
+
+	return dedupedAddrs, nil
 }
 
 // syncVersions function is used for safe db version synchronization. It
@@ -588,12 +1042,24 @@ func (d *DB) syncVersions(versions []version) error {
 		}
 	}
 
-	// If the current database version matches the latest version number,
-	// then we don't need to perform any migrations.
 	latestVersion := getLatestDBVersion(versions)
 	log.Infof("Checking for schema update: latest_version=%v, "+
 		"db_version=%v", latestVersion, meta.DbVersionNumber)
-	if meta.DbVersionNumber == latestVersion {
+
+	switch {
+
+	// If the database reports a higher version that we are aware of, the
+	// user is probably trying to revert to a prior version of lnd. We fail
+	// here to prevent reversions and unintended corruption.
+	case meta.DbVersionNumber > latestVersion:
+		log.Errorf("Refusing to revert from db_version=%d to "+
+			"lower version=%d", meta.DbVersionNumber,
+			latestVersion)
+		return ErrDBReversion
+
+	// If the current database version matches the latest version number,
+	// then we don't need to perform any migrations.
+	case meta.DbVersionNumber == latestVersion:
 		return nil
 	}
 
@@ -605,7 +1071,7 @@ func (d *DB) syncVersions(versions []version) error {
 	migrations, migrationVersions := getMigrationsToApply(
 		versions, meta.DbVersionNumber,
 	)
-	return d.Update(func(tx *bolt.Tx) error {
+	return d.Update(func(tx *bbolt.Tx) error {
 		for i, migration := range migrations {
 			if migration == nil {
 				continue

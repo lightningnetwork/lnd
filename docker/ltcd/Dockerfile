@@ -1,15 +1,14 @@
-FROM golang:1.10-alpine as builder
+FROM golang:1.11-alpine as builder
 
 MAINTAINER Olaoluwa Osuntokun <lightning.engineering>
 
 # Grab and install the latest version of roasbeef's fork of ltcd and all
 # related dependencies.
 WORKDIR $GOPATH/src/github.com/ltcsuite/ltcd
-RUN apk add --no-cache git \
-&&  git clone https://github.com/ltcsuite/ltcd ./ \
-&&  go get -u github.com/Masterminds/glide \
-&&  glide install \
-&&  go install . ./cmd/ltcctl ./cmd/gencerts
+RUN apk add --no-cache --update alpine-sdk git
+RUN git clone https://github.com/ltcsuite/ltcd ./
+RUN GO111MODULE=on go install -v . ./cmd/...
+RUN GO111MODULE=on go install . ./cmd/ltcctl ./cmd/gencerts
 
 # Start a new image
 FROM alpine as final

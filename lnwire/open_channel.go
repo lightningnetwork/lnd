@@ -3,9 +3,9 @@ package lnwire
 import (
 	"io"
 
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcutil"
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcutil"
 )
 
 // FundingFlag represents the possible bit mask values for the ChannelFlags
@@ -134,7 +134,7 @@ var _ Message = (*OpenChannel)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (o *OpenChannel) Encode(w io.Writer, pver uint32) error {
-	return writeElements(w,
+	return WriteElements(w,
 		o.ChainHash[:],
 		o.PendingChannelID[:],
 		o.FundingAmount,
@@ -162,7 +162,7 @@ func (o *OpenChannel) Encode(w io.Writer, pver uint32) error {
 //
 // This is part of the lnwire.Message interface.
 func (o *OpenChannel) Decode(r io.Reader, pver uint32) error {
-	return readElements(r,
+	return ReadElements(r,
 		o.ChainHash[:],
 		o.PendingChannelID[:],
 		&o.FundingAmount,

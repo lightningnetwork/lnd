@@ -1,16 +1,23 @@
 package discovery
 
 import (
-	"fmt"
 	"math"
 	"reflect"
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/roasbeef/btcd/chaincfg"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
+)
+
+const (
+	defaultEncoding = lnwire.EncodingSortedPlain
+)
+
+var (
+	defaultChunkSize = encodingTypeToChunkSize[defaultEncoding]
 )
 
 type horizonQuery struct {
@@ -41,7 +48,9 @@ type mockChannelGraphTimeSeries struct {
 	updateResp chan []*lnwire.ChannelUpdate
 }
 
-func newMockChannelGraphTimeSeries(hID lnwire.ShortChannelID) *mockChannelGraphTimeSeries {
+func newMockChannelGraphTimeSeries(
+	hID lnwire.ShortChannelID) *mockChannelGraphTimeSeries {
+
 	return &mockChannelGraphTimeSeries{
 		highestID: hID,
 
@@ -105,17 +114,21 @@ func (m *mockChannelGraphTimeSeries) FetchChanUpdates(chain chainhash.Hash,
 
 var _ ChannelGraphTimeSeries = (*mockChannelGraphTimeSeries)(nil)
 
-func newTestSyncer(hID lnwire.ShortChannelID) (chan []lnwire.Message, *gossipSyncer, *mockChannelGraphTimeSeries) {
+func newTestSyncer(hID lnwire.ShortChannelID,
+	encodingType lnwire.ShortChanIDEncoding, chunkSize int32,
+) (chan []lnwire.Message, *gossipSyncer, *mockChannelGraphTimeSeries) {
 
 	msgChan := make(chan []lnwire.Message, 20)
 	cfg := gossipSyncerCfg{
 		syncChanUpdates: true,
 		channelSeries:   newMockChannelGraphTimeSeries(hID),
-		encodingType:    lnwire.EncodingSortedPlain,
+		encodingType:    encodingType,
+		chunkSize:       chunkSize,
 		sendToPeer: func(msgs ...lnwire.Message) error {
 			msgChan <- msgs
 			return nil
 		},
+		delayedQueryReplyInterval: 2 * time.Second,
 	}
 	syncer := newGossiperSyncer(cfg)
 
@@ -130,7 +143,8 @@ func TestGossipSyncerFilterGossipMsgsNoHorizon(t *testing.T) {
 	// First, we'll create a gossipSyncer instance with a canned sendToPeer
 	// message to allow us to intercept their potential sends.
 	msgChan, syncer, _ := newTestSyncer(
-		lnwire.NewShortChanIDFromInt(10),
+		lnwire.NewShortChanIDFromInt(10), defaultEncoding,
+		defaultChunkSize,
 	)
 
 	// With the syncer created, we'll create a set of messages to filter
@@ -174,7 +188,8 @@ func TestGossipSyncerFilterGossipMsgsAllInMemory(t *testing.T) {
 	// First, we'll create a gossipSyncer instance with a canned sendToPeer
 	// message to allow us to intercept their potential sends.
 	msgChan, syncer, chanSeries := newTestSyncer(
-		lnwire.NewShortChanIDFromInt(10),
+		lnwire.NewShortChanIDFromInt(10), defaultEncoding,
+		defaultChunkSize,
 	)
 
 	// We'll create then apply a remote horizon for the target peer with a
@@ -189,7 +204,7 @@ func TestGossipSyncerFilterGossipMsgsAllInMemory(t *testing.T) {
 	// through the gossiper to the target peer. Our message will consist of
 	// one node announcement above the horizon, one below. Additionally,
 	// we'll include a chan ann with an update below the horizon, one
-	// with an update timestmap above the horizon, and one without any
+	// with an update timestamp above the horizon, and one without any
 	// channel updates at all.
 	msgs := []msgWithSenders{
 		{
@@ -303,7 +318,8 @@ func TestGossipSyncerApplyGossipFilter(t *testing.T) {
 	// First, we'll create a gossipSyncer instance with a canned sendToPeer
 	// message to allow us to intercept their potential sends.
 	msgChan, syncer, chanSeries := newTestSyncer(
-		lnwire.NewShortChanIDFromInt(10),
+		lnwire.NewShortChanIDFromInt(10), defaultEncoding,
+		defaultChunkSize,
 	)
 
 	// We'll apply this gossip horizon for the remote peer.
@@ -400,7 +416,8 @@ func TestGossipSyncerReplyShortChanIDsWrongChainHash(t *testing.T) {
 	// First, we'll create a gossipSyncer instance with a canned sendToPeer
 	// message to allow us to intercept their potential sends.
 	msgChan, syncer, _ := newTestSyncer(
-		lnwire.NewShortChanIDFromInt(10),
+		lnwire.NewShortChanIDFromInt(10), defaultEncoding,
+		defaultChunkSize,
 	)
 
 	// We'll now ask the syncer to reply to a chan ID query, but for a
@@ -450,7 +467,8 @@ func TestGossipSyncerReplyShortChanIDs(t *testing.T) {
 	// First, we'll create a gossipSyncer instance with a canned sendToPeer
 	// message to allow us to intercept their potential sends.
 	msgChan, syncer, chanSeries := newTestSyncer(
-		lnwire.NewShortChanIDFromInt(10),
+		lnwire.NewShortChanIDFromInt(10), defaultEncoding,
+		defaultChunkSize,
 	)
 
 	queryChanIDs := []lnwire.ShortChannelID{
@@ -527,42 +545,20 @@ func TestGossipSyncerReplyShortChanIDs(t *testing.T) {
 	}
 }
 
-// TestGossipSyncerReplyChanRangeQueryUnknownEncodingType tests that if we
-// receive a QueryChannelRange message with an unknown encoding type, then we
-// return an error.
-func TestGossipSyncerReplyChanRangeQueryUnknownEncodingType(t *testing.T) {
-	t.Parallel()
-
-	// First, we'll create a gossipSyncer instance with a canned sendToPeer
-	// message to allow us to intercept their potential sends.
-	_, syncer, _ := newTestSyncer(
-		lnwire.NewShortChanIDFromInt(10),
-	)
-
-	// If we modify the syncer to expect an encoding type that is currently
-	// unknown, then it should fail to process the message and return an
-	// error.
-	syncer.cfg.encodingType = 99
-	err := syncer.replyChanRangeQuery(&lnwire.QueryChannelRange{})
-	if err == nil {
-		t.Fatalf("expected message fail")
-	}
-}
-
 // TestGossipSyncerReplyChanRangeQuery tests that if we receive a
 // QueryChannelRange message, then we'll properly send back a chunked reply to
 // the remote peer.
 func TestGossipSyncerReplyChanRangeQuery(t *testing.T) {
 	t.Parallel()
 
-	// First, we'll modify the main map to provide e a smaller chunk size
-	// so we can easily test all the edge cases.
-	encodingTypeToChunkSize[lnwire.EncodingSortedPlain] = 2
+	// We'll use a smaller chunk size so we can easily test all the edge
+	// cases.
+	const chunkSize = 2
 
 	// We'll now create our test gossip syncer that will shortly respond to
 	// our canned query.
 	msgChan, syncer, chanSeries := newTestSyncer(
-		lnwire.NewShortChanIDFromInt(10),
+		lnwire.NewShortChanIDFromInt(10), defaultEncoding, chunkSize,
 	)
 
 	// Next, we'll craft a query to ask for all the new chan ID's after
@@ -609,7 +605,7 @@ func TestGossipSyncerReplyChanRangeQuery(t *testing.T) {
 	// full, while the other is the final fragment.
 	const numExpectedChunks = 3
 	respMsgs := make([]lnwire.ShortChannelID, 0, 5)
-	for i := 0; i < 3; i++ {
+	for i := 0; i < numExpectedChunks; i++ {
 		select {
 		case <-time.After(time.Second * 15):
 			t.Fatalf("no msgs received")
@@ -658,7 +654,8 @@ func TestGossipSyncerReplyChanRangeQueryNoNewChans(t *testing.T) {
 	// We'll now create our test gossip syncer that will shortly respond to
 	// our canned query.
 	msgChan, syncer, chanSeries := newTestSyncer(
-		lnwire.NewShortChanIDFromInt(10),
+		lnwire.NewShortChanIDFromInt(10), defaultEncoding,
+		defaultChunkSize,
 	)
 
 	// Next, we'll craft a query to ask for all the new chan ID's after
@@ -725,9 +722,8 @@ func TestGossipSyncerGenChanRangeQuery(t *testing.T) {
 	// message to allow us to intercept their potential sends.
 	const startingHeight = 200
 	_, syncer, _ := newTestSyncer(
-		lnwire.ShortChannelID{
-			BlockHeight: startingHeight,
-		},
+		lnwire.ShortChannelID{BlockHeight: startingHeight},
+		defaultEncoding, defaultChunkSize,
 	)
 
 	// If we now ask the syncer to generate an initial range query, it
@@ -760,7 +756,7 @@ func TestGossipSyncerProcessChanRangeReply(t *testing.T) {
 	// First, we'll create a gossipSyncer instance with a canned sendToPeer
 	// message to allow us to intercept their potential sends.
 	_, syncer, chanSeries := newTestSyncer(
-		lnwire.NewShortChanIDFromInt(10),
+		lnwire.NewShortChanIDFromInt(10), defaultEncoding, defaultChunkSize,
 	)
 
 	startingState := syncer.state
@@ -816,9 +812,6 @@ func TestGossipSyncerProcessChanRangeReply(t *testing.T) {
 			// We should get a request for the entire range of short
 			// chan ID's.
 			if !reflect.DeepEqual(expectedReq, req) {
-				fmt.Printf("wrong request: expected %v, got %v\n",
-					expectedReq, req)
-
 				t.Fatalf("wrong request: expected %v, got %v",
 					expectedReq, req)
 			}
@@ -873,28 +866,6 @@ func TestGossipSyncerProcessChanRangeReply(t *testing.T) {
 	}
 }
 
-// TestGossipSyncerSynchronizeChanIDsUnknownEncodingType tests that if we
-// attempt to query for a set of new channels using an unknown encoding type,
-// then we'll get an error.
-func TestGossipSyncerSynchronizeChanIDsUnknownEncodingType(t *testing.T) {
-	t.Parallel()
-
-	// First, we'll create a gossipSyncer instance with a canned sendToPeer
-	// message to allow us to intercept their potential sends.
-	_, syncer, _ := newTestSyncer(
-		lnwire.NewShortChanIDFromInt(10),
-	)
-
-	// If we modify the syncer to expect an encoding type that is currently
-	// unknown, then it should fail to process the message and return an
-	// error.
-	syncer.cfg.encodingType = 101
-	_, err := syncer.synchronizeChanIDs()
-	if err == nil {
-		t.Fatalf("expected message fail")
-	}
-}
-
 // TestGossipSyncerSynchronizeChanIDs tests that we properly request chunks of
 // the short chan ID's which were unknown to us. We'll ensure that we request
 // chunk by chunk, and after the last chunk, we return true indicating that we
@@ -902,10 +873,15 @@ func TestGossipSyncerSynchronizeChanIDsUnknownEncodingType(t *testing.T) {
 func TestGossipSyncerSynchronizeChanIDs(t *testing.T) {
 	t.Parallel()
 
+	// We'll modify the chunk size to be a smaller value, so we can ensure
+	// our chunk parsing works properly. With this value we should get 3
+	// queries: two full chunks, and one lingering chunk.
+	const chunkSize = 2
+
 	// First, we'll create a gossipSyncer instance with a canned sendToPeer
 	// message to allow us to intercept their potential sends.
 	msgChan, syncer, _ := newTestSyncer(
-		lnwire.NewShortChanIDFromInt(10),
+		lnwire.NewShortChanIDFromInt(10), defaultEncoding, chunkSize,
 	)
 
 	// Next, we'll construct a set of chan ID's that we should query for,
@@ -919,13 +895,7 @@ func TestGossipSyncerSynchronizeChanIDs(t *testing.T) {
 	}
 	syncer.newChansToQuery = newChanIDs
 
-	// We'll modify the chunk size to be a smaller value, so we can ensure
-	// our chunk parsing works properly. With this value we should get 3
-	// queries: two full chunks, and one lingering chunk.
-	chunkSize := int32(2)
-	encodingTypeToChunkSize[lnwire.EncodingSortedPlain] = chunkSize
-
-	for i := int32(0); i < chunkSize*2; i += 2 {
+	for i := 0; i < chunkSize*2; i += 2 {
 		// With our set up complete, we'll request a sync of chan ID's.
 		done, err := syncer.synchronizeChanIDs()
 		if err != nil {
@@ -1012,12 +982,20 @@ func TestGossipSyncerSynchronizeChanIDs(t *testing.T) {
 	}
 }
 
-// TestGossipSyncerRoutineSync tests all state transitions of the main syncer
-// goroutine. This ensures that given an encounter with a peer that has a set
-// of distinct channels, then we'll properly synchronize our channel state with
-// them.
-func TestGossipSyncerRoutineSync(t *testing.T) {
+// TestGossipSyncerDelayDOS tests that the gossip syncer will begin delaying
+// queries after its prescribed allotment of undelayed query responses. Once
+// this happens, all query replies should be delayed by the configurated
+// interval.
+func TestGossipSyncerDelayDOS(t *testing.T) {
 	t.Parallel()
+
+	// We'll modify the chunk size to be a smaller value, since we'll be
+	// sending a modest number of queries. After exhausting our undelayed
+	// gossip queries, we'll send two extra queries and ensure that they are
+	// delayed properly.
+	const chunkSize = 2
+	const numDelayedQueries = 2
+	const delayTolerance = time.Millisecond * 200
 
 	// First, we'll create two gossipSyncer instances with a canned
 	// sendToPeer message to allow us to intercept their potential sends.
@@ -1025,13 +1003,406 @@ func TestGossipSyncerRoutineSync(t *testing.T) {
 		BlockHeight: 1144,
 	}
 	msgChan1, syncer1, chanSeries1 := newTestSyncer(
-		startHeight,
+		startHeight, defaultEncoding, chunkSize,
 	)
 	syncer1.Start()
 	defer syncer1.Stop()
 
 	msgChan2, syncer2, chanSeries2 := newTestSyncer(
-		startHeight,
+		startHeight, defaultEncoding, chunkSize,
+	)
+	syncer2.Start()
+	defer syncer2.Stop()
+
+	// Record the delayed query reply interval used by each syncer.
+	delayedQueryInterval := syncer1.cfg.delayedQueryReplyInterval
+
+	// Record the number of undelayed queries allowed by the syncers.
+	numUndelayedQueries := syncer1.cfg.maxUndelayedQueryReplies
+
+	// We will send enough queries to exhaust the undelayed responses, and
+	// then send two more queries which should be delayed.
+	numQueryResponses := numUndelayedQueries + numDelayedQueries
+
+	// The total number of responses must include the initial reply each
+	// syner will make to QueryChannelRange.
+	numTotalQueries := 1 + numQueryResponses
+
+	// The total number of channels each syncer needs to request must be
+	// scaled by the chunk size being used.
+	numTotalChans := numQueryResponses * chunkSize
+
+	// Although both nodes are at the same height, they'll have a
+	// completely disjoint set of chan ID's that they know of.
+	var syncer1Chans []lnwire.ShortChannelID
+	for i := 0; i < numTotalChans; i++ {
+		syncer1Chans = append(
+			syncer1Chans, lnwire.NewShortChanIDFromInt(uint64(i)),
+		)
+	}
+	var syncer2Chans []lnwire.ShortChannelID
+	for i := numTotalChans; i < numTotalChans+numTotalChans; i++ {
+		syncer2Chans = append(
+			syncer2Chans, lnwire.NewShortChanIDFromInt(uint64(i)),
+		)
+	}
+
+	// We'll kick off the test by passing over the QueryChannelRange
+	// messages from one node to the other.
+	select {
+	case <-time.After(time.Second * 2):
+		t.Fatalf("didn't get msg from syncer1")
+
+	case msgs := <-msgChan1:
+		for _, msg := range msgs {
+			// The message MUST be a QueryChannelRange message.
+			_, ok := msg.(*lnwire.QueryChannelRange)
+			if !ok {
+				t.Fatalf("wrong message: expected "+
+					"QueryChannelRange for %T", msg)
+			}
+
+			select {
+			case <-time.After(time.Second * 2):
+				t.Fatalf("node 2 didn't read msg")
+
+			case syncer2.gossipMsgs <- msg:
+
+			}
+		}
+	}
+	select {
+	case <-time.After(time.Second * 2):
+		t.Fatalf("didn't get msg from syncer2")
+
+	case msgs := <-msgChan2:
+		for _, msg := range msgs {
+			// The message MUST be a QueryChannelRange message.
+			_, ok := msg.(*lnwire.QueryChannelRange)
+			if !ok {
+				t.Fatalf("wrong message: expected "+
+					"QueryChannelRange for %T", msg)
+			}
+
+			select {
+			case <-time.After(time.Second * 2):
+				t.Fatalf("node 2 didn't read msg")
+
+			case syncer1.gossipMsgs <- msg:
+
+			}
+		}
+	}
+
+	// At this point, we'll need to send responses to both nodes from their
+	// respective channel series. Both nodes will simply request the entire
+	// set of channels from the other. This will count as the first
+	// undelayed response for each syncer.
+	select {
+	case <-time.After(time.Second * 2):
+		t.Fatalf("no query recvd")
+
+	case <-chanSeries1.filterRangeReqs:
+		// We'll send all the channels that it should know of.
+		chanSeries1.filterRangeResp <- syncer1Chans
+	}
+	select {
+	case <-time.After(time.Second * 2):
+		t.Fatalf("no query recvd")
+
+	case <-chanSeries2.filterRangeReqs:
+		// We'll send back all the channels that it should know of.
+		chanSeries2.filterRangeResp <- syncer2Chans
+	}
+
+	// At this point, we'll forward the ReplyChannelRange messages to both
+	// parties. After receiving the set of channels known to the remote peer
+	for i := 0; i < numQueryResponses; i++ {
+		select {
+		case <-time.After(time.Second * 2):
+			t.Fatalf("didn't get msg from syncer1")
+
+		case msgs := <-msgChan1:
+			for _, msg := range msgs {
+				// The message MUST be a ReplyChannelRange message.
+				_, ok := msg.(*lnwire.ReplyChannelRange)
+				if !ok {
+					t.Fatalf("wrong message: expected "+
+						"QueryChannelRange for %T", msg)
+				}
+
+				select {
+				case <-time.After(time.Second * 2):
+					t.Fatalf("node 2 didn't read msg")
+
+				case syncer2.gossipMsgs <- msg:
+				}
+			}
+		}
+
+		select {
+		case <-time.After(time.Second * 2):
+			t.Fatalf("didn't get msg from syncer2")
+
+		case msgs := <-msgChan2:
+			for _, msg := range msgs {
+				// The message MUST be a ReplyChannelRange message.
+				_, ok := msg.(*lnwire.ReplyChannelRange)
+				if !ok {
+					t.Fatalf("wrong message: expected "+
+						"QueryChannelRange for %T", msg)
+				}
+
+				select {
+				case <-time.After(time.Second * 2):
+					t.Fatalf("node 2 didn't read msg")
+
+				case syncer1.gossipMsgs <- msg:
+				}
+			}
+		}
+	}
+
+	// We'll now send back a chunked response for both parties of the known
+	// short chan ID's.
+	select {
+	case <-time.After(time.Second * 2):
+		t.Fatalf("no query recvd")
+
+	case <-chanSeries1.filterReq:
+		chanSeries1.filterResp <- syncer2Chans
+	}
+	select {
+	case <-time.After(time.Second * 2):
+		t.Fatalf("no query recvd")
+
+	case <-chanSeries2.filterReq:
+		chanSeries2.filterResp <- syncer1Chans
+	}
+
+	// At this point, both parties should start to send out initial
+	// requests to query the chan IDs of the remote party. We'll keep track
+	// of the number of queries made using the iterated value, which starts
+	// at one due the initial contribution of the QueryChannelRange msgs.
+	for i := 1; i < numTotalQueries; i++ {
+		// Both parties should now have sent out the initial requests
+		// to query the chan IDs of the other party.
+		select {
+		case <-time.After(time.Second * 2):
+			t.Fatalf("didn't get msg from syncer1")
+
+		case msgs := <-msgChan1:
+			for _, msg := range msgs {
+				// The message MUST be a QueryShortChanIDs message.
+				_, ok := msg.(*lnwire.QueryShortChanIDs)
+				if !ok {
+					t.Fatalf("wrong message: expected "+
+						"QueryShortChanIDs for %T", msg)
+				}
+
+				select {
+				case <-time.After(time.Second * 2):
+					t.Fatalf("node 2 didn't read msg")
+
+				case syncer2.gossipMsgs <- msg:
+
+				}
+			}
+		}
+		select {
+		case <-time.After(time.Second * 2):
+			t.Fatalf("didn't get msg from syncer2")
+
+		case msgs := <-msgChan2:
+			for _, msg := range msgs {
+				// The message MUST be a QueryShortChanIDs message.
+				_, ok := msg.(*lnwire.QueryShortChanIDs)
+				if !ok {
+					t.Fatalf("wrong message: expected "+
+						"QueryShortChanIDs for %T", msg)
+				}
+
+				select {
+				case <-time.After(time.Second * 2):
+					t.Fatalf("node 2 didn't read msg")
+
+				case syncer1.gossipMsgs <- msg:
+
+				}
+			}
+		}
+
+		// We'll then respond to both parties with an empty set of
+		// replies (as it doesn't affect the test).
+		switch {
+
+		// If this query has surpassed the undelayed query threshold, we
+		// will impose stricter timing constraints on the response
+		// times. We'll first test that the peers don't immediately
+		// receive a query, and then check that both queries haven't
+		// gone unanswered entirely.
+		case i >= numUndelayedQueries:
+			// Create a before and after timeout to test, our test
+			// will ensure the messages are delivered to the peers
+			// in this timeframe.
+			before := time.After(
+				delayedQueryInterval - delayTolerance,
+			)
+			after := time.After(
+				delayedQueryInterval + delayTolerance,
+			)
+
+			// First, ensure neither peer tries to respond up until
+			// the before time fires.
+			select {
+			case <-before:
+				// Queries are delayed, proceed.
+
+			case <-chanSeries1.annReq:
+				t.Fatalf("DOSy query was not delayed")
+
+			case <-chanSeries2.annReq:
+				t.Fatalf("DOSy query was not delayed")
+			}
+
+			// Next, we'll need to test that both queries are
+			// received before the after timer expires. To account
+			// for ordering, we will try to pull a message from both
+			// peers, and then test that the opposite peer also
+			// receives the message promptly.
+			var (
+				firstChanSeries *mockChannelGraphTimeSeries
+				laterChanSeries *mockChannelGraphTimeSeries
+			)
+
+			// If neither peer attempts a response within the
+			// allowed interval, then the messages are probably
+			// lost. Otherwise, process the message and record the
+			// induced ordering.
+			select {
+			case <-after:
+				t.Fatalf("no delayed query received")
+
+			case <-chanSeries1.annReq:
+				chanSeries1.annResp <- []lnwire.Message{}
+				firstChanSeries = chanSeries1
+				laterChanSeries = chanSeries2
+
+			case <-chanSeries2.annReq:
+				chanSeries2.annResp <- []lnwire.Message{}
+				firstChanSeries = chanSeries2
+				laterChanSeries = chanSeries1
+			}
+
+			// Finally, using the same interval timeout as before,
+			// ensure the later peer also responds promptly. We also
+			// assert that the first peer doesn't attempt another
+			// response.
+			select {
+			case <-after:
+				t.Fatalf("no delayed query received")
+
+			case <-firstChanSeries.annReq:
+				t.Fatalf("spurious undelayed response")
+
+			case <-laterChanSeries.annReq:
+				laterChanSeries.annResp <- []lnwire.Message{}
+			}
+
+		// Otherwise, we still haven't exceeded our undelayed query
+		// limit. Assert that both peers promptly attempt a response to
+		// the queries.
+		default:
+			select {
+			case <-time.After(50 * time.Millisecond):
+				t.Fatalf("no query recvd")
+
+			case <-chanSeries1.annReq:
+				chanSeries1.annResp <- []lnwire.Message{}
+			}
+			select {
+			case <-time.After(50 * time.Millisecond):
+				t.Fatalf("no query recvd")
+
+			case <-chanSeries2.annReq:
+				chanSeries2.annResp <- []lnwire.Message{}
+			}
+		}
+
+		// Finally, both sides should then receive a
+		// ReplyShortChanIDsEnd as the first chunk has been replied to.
+		select {
+		case <-time.After(50 * time.Millisecond):
+			t.Fatalf("didn't get msg from syncer1")
+
+		case msgs := <-msgChan1:
+			for _, msg := range msgs {
+				// The message MUST be a ReplyShortChanIDsEnd message.
+				_, ok := msg.(*lnwire.ReplyShortChanIDsEnd)
+				if !ok {
+					t.Fatalf("wrong message: expected "+
+						"QueryChannelRange for %T", msg)
+				}
+
+				select {
+				case <-time.After(time.Second * 2):
+					t.Fatalf("node 2 didn't read msg")
+
+				case syncer2.gossipMsgs <- msg:
+
+				}
+			}
+		}
+		select {
+		case <-time.After(50 * time.Millisecond):
+			t.Fatalf("didn't get msg from syncer2")
+
+		case msgs := <-msgChan2:
+			for _, msg := range msgs {
+				// The message MUST be a ReplyShortChanIDsEnd message.
+				_, ok := msg.(*lnwire.ReplyShortChanIDsEnd)
+				if !ok {
+					t.Fatalf("wrong message: expected "+
+						"ReplyShortChanIDsEnd for %T", msg)
+				}
+
+				select {
+				case <-time.After(time.Second * 2):
+					t.Fatalf("node 2 didn't read msg")
+
+				case syncer1.gossipMsgs <- msg:
+
+				}
+			}
+		}
+	}
+}
+
+// TestGossipSyncerRoutineSync tests all state transitions of the main syncer
+// goroutine. This ensures that given an encounter with a peer that has a set
+// of distinct channels, then we'll properly synchronize our channel state with
+// them.
+func TestGossipSyncerRoutineSync(t *testing.T) {
+	t.Parallel()
+
+	// We'll modify the chunk size to be a smaller value, so we can ensure
+	// our chunk parsing works properly. With this value we should get 3
+	// queries: two full chunks, and one lingering chunk.
+	const chunkSize = 2
+
+	// First, we'll create two gossipSyncer instances with a canned
+	// sendToPeer message to allow us to intercept their potential sends.
+	startHeight := lnwire.ShortChannelID{
+		BlockHeight: 1144,
+	}
+	msgChan1, syncer1, chanSeries1 := newTestSyncer(
+		startHeight, defaultEncoding, chunkSize,
+	)
+	syncer1.Start()
+	defer syncer1.Stop()
+
+	msgChan2, syncer2, chanSeries2 := newTestSyncer(
+		startHeight, defaultEncoding, chunkSize,
 	)
 	syncer2.Start()
 	defer syncer2.Stop()
@@ -1048,11 +1419,6 @@ func TestGossipSyncerRoutineSync(t *testing.T) {
 		lnwire.NewShortChanIDFromInt(5),
 		lnwire.NewShortChanIDFromInt(6),
 	}
-
-	// Before we start the test, we'll set our chunk size to 2 in order to
-	// make testing the chunked requests and replies easier.
-	chunkSize := int32(2)
-	encodingTypeToChunkSize[lnwire.EncodingSortedPlain] = chunkSize
 
 	// We'll kick off the test by passing over the QueryChannelRange
 	// messages from one node to the other.
@@ -1124,7 +1490,7 @@ func TestGossipSyncerRoutineSync(t *testing.T) {
 	// At this point, we'll forward the ReplyChannelRange messages to both
 	// parties. Two replies are expected since the chunk size is 2, and we
 	// need to query for 3 channels.
-	for i := 0; i < 2; i++ {
+	for i := 0; i < chunkSize; i++ {
 		select {
 		case <-time.After(time.Second * 2):
 			t.Fatalf("didn't get msg from syncer1")
@@ -1147,7 +1513,7 @@ func TestGossipSyncerRoutineSync(t *testing.T) {
 			}
 		}
 	}
-	for i := 0; i < 2; i++ {
+	for i := 0; i < chunkSize; i++ {
 		select {
 		case <-time.After(time.Second * 2):
 			t.Fatalf("didn't get msg from syncer2")
@@ -1190,9 +1556,9 @@ func TestGossipSyncerRoutineSync(t *testing.T) {
 
 	// At this point, both parties should start to send out initial
 	// requests to query the chan IDs of the remote party. As the chunk
-	// size is 3, they'll need 2 rounds in order to fully reconcile the
+	// size is 2, they'll need 2 rounds in order to fully reconcile the
 	// state.
-	for i := 0; i < 2; i++ {
+	for i := 0; i < chunkSize; i++ {
 		// Both parties should now have sent out the initial requests
 		// to query the chan IDs of the other party.
 		select {
@@ -1359,27 +1725,27 @@ func TestGossipSyncerRoutineSync(t *testing.T) {
 func TestGossipSyncerAlreadySynced(t *testing.T) {
 	t.Parallel()
 
+	// We'll modify the chunk size to be a smaller value, so we can ensure
+	// our chunk parsing works properly. With this value we should get 3
+	// queries: two full chunks, and one lingering chunk.
+	const chunkSize = 2
+
 	// First, we'll create two gossipSyncer instances with a canned
 	// sendToPeer message to allow us to intercept their potential sends.
 	startHeight := lnwire.ShortChannelID{
 		BlockHeight: 1144,
 	}
 	msgChan1, syncer1, chanSeries1 := newTestSyncer(
-		startHeight,
+		startHeight, defaultEncoding, chunkSize,
 	)
 	syncer1.Start()
 	defer syncer1.Stop()
 
 	msgChan2, syncer2, chanSeries2 := newTestSyncer(
-		startHeight,
+		startHeight, defaultEncoding, chunkSize,
 	)
 	syncer2.Start()
 	defer syncer2.Stop()
-
-	// Before we start the test, we'll set our chunk size to 2 in order to
-	// make testing the chunked requests and replies easier.
-	chunkSize := int32(2)
-	encodingTypeToChunkSize[lnwire.EncodingSortedPlain] = chunkSize
 
 	// The channel state of both syncers will be identical. They should
 	// recognize this, and skip the sync phase below.
@@ -1463,7 +1829,7 @@ func TestGossipSyncerAlreadySynced(t *testing.T) {
 	// Next, we'll thread through the replies of both parties. As the chunk
 	// size is 2, and they both know of 3 channels, it'll take two around
 	// and two chunks.
-	for i := 0; i < 2; i++ {
+	for i := 0; i < chunkSize; i++ {
 		select {
 		case <-time.After(time.Second * 2):
 			t.Fatalf("didn't get msg from syncer1")
@@ -1486,7 +1852,7 @@ func TestGossipSyncerAlreadySynced(t *testing.T) {
 			}
 		}
 	}
-	for i := 0; i < 2; i++ {
+	for i := 0; i < chunkSize; i++ {
 		select {
 		case <-time.After(time.Second * 2):
 			t.Fatalf("didn't get msg from syncer2")

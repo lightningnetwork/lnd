@@ -1,13 +1,18 @@
 package autopilot
 
 import (
+	"bytes"
+	"fmt"
+	"math/rand"
+	"net"
 	"sync"
 	"sync/atomic"
+	"time"
 
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcutil"
 )
 
 // Config couples all the items that an autopilot agent needs to function.
@@ -32,8 +37,17 @@ type Config struct {
 	// creation, closing and update of channels within the network.
 	ChanController ChannelController
 
+	// ConnectToPeer attempts to connect to the peer using one of its
+	// advertised addresses. The boolean returned signals whether the peer
+	// was already connected.
+	ConnectToPeer func(*btcec.PublicKey, []net.Addr) (bool, error)
+
+	// DisconnectPeer attempts to disconnect the peer with the given public
+	// key.
+	DisconnectPeer func(*btcec.PublicKey) error
+
 	// WalletBalance is a function closure that should return the current
-	// available balance o the backing wallet.
+	// available balance of the backing wallet.
 	WalletBalance func() (btcutil.Amount, error)
 
 	// Graph is an abstract channel graph that the Heuristic and the Agent
@@ -41,18 +55,16 @@ type Config struct {
 	// within the graph.
 	Graph ChannelGraph
 
-	// MaxPendingOpens is the maximum number of pending channel
-	// establishment goroutines that can be lingering. We cap this value in
-	// order to control the level of parallelism caused by the autopiloit
-	// agent.
-	MaxPendingOpens uint16
+	// Constraints is the set of constraints the autopilot must adhere to
+	// when opening channels.
+	Constraints AgentConstraints
 
 	// TODO(roasbeef): add additional signals from fee rates and revenue of
 	// currently opened channels
 }
 
 // channelState is a type that represents the set of active channels of the
-// backing LN node that the Agent should be ware of. This type contains a few
+// backing LN node that the Agent should be aware of. This type contains a few
 // helper utility methods.
 type channelState map[lnwire.ShortChannelID]Channel
 
@@ -101,16 +113,56 @@ type Agent struct {
 	cfg Config
 
 	// chanState tracks the current set of open channels.
-	chanState channelState
+	chanState    channelState
+	chanStateMtx sync.Mutex
 
 	// stateUpdates is a channel that any external state updates that may
 	// affect the heuristics of the agent will be sent over.
 	stateUpdates chan interface{}
 
+	// balanceUpdates is a channel where notifications about updates to the
+	// wallet's balance will be sent. This channel will be buffered to
+	// ensure we have at most one pending update of this type to handle at
+	// a given time.
+	balanceUpdates chan *balanceUpdate
+
+	// nodeUpdates is a channel that changes to the graph node landscape
+	// will be sent over. This channel will be buffered to ensure we have
+	// at most one pending update of this type to handle at a given time.
+	nodeUpdates chan *nodeUpdates
+
+	// pendingOpenUpdates is a channel where updates about channel pending
+	// opening will be sent. This channel will be buffered to ensure we
+	// have at most one pending update of this type to handle at a given
+	// time.
+	pendingOpenUpdates chan *chanPendingOpenUpdate
+
+	// chanOpenFailures is a channel where updates about channel open
+	// failures will be sent. This channel will be buffered to ensure we
+	// have at most one pending update of this type to handle at a given
+	// time.
+	chanOpenFailures chan *chanOpenFailureUpdate
+
 	// totalBalance is the total number of satoshis the backing wallet is
 	// known to control at any given instance. This value will be updated
 	// when the agent receives external balance update signals.
 	totalBalance btcutil.Amount
+
+	// failedNodes lists nodes that we've previously attempted to initiate
+	// channels with, but didn't succeed.
+	failedNodes map[NodeID]struct{}
+
+	// pendingConns tracks the nodes that we are attempting to make
+	// connections to. This prevents us from making duplicate connection
+	// requests to the same node.
+	pendingConns map[NodeID]struct{}
+
+	// pendingOpens tracks the channels that we've requested to be
+	// initiated, but haven't yet been confirmed as being fully opened.
+	// This state is required as otherwise, we may go over our allotted
+	// channel limit, or open multiple channels to the same node.
+	pendingOpens map[NodeID]Channel
+	pendingMtx   sync.Mutex
 
 	quit chan struct{}
 	wg   sync.WaitGroup
@@ -122,10 +174,17 @@ type Agent struct {
 // the backing Lightning Node.
 func New(cfg Config, initialState []Channel) (*Agent, error) {
 	a := &Agent{
-		cfg:          cfg,
-		chanState:    make(map[lnwire.ShortChannelID]Channel),
-		quit:         make(chan struct{}),
-		stateUpdates: make(chan interface{}),
+		cfg:                cfg,
+		chanState:          make(map[lnwire.ShortChannelID]Channel),
+		quit:               make(chan struct{}),
+		stateUpdates:       make(chan interface{}),
+		balanceUpdates:     make(chan *balanceUpdate, 1),
+		nodeUpdates:        make(chan *nodeUpdates, 1),
+		chanOpenFailures:   make(chan *chanOpenFailureUpdate, 1),
+		pendingOpenUpdates: make(chan *chanPendingOpenUpdate, 1),
+		failedNodes:        make(map[NodeID]struct{}),
+		pendingConns:       make(map[NodeID]struct{}),
+		pendingOpens:       make(map[NodeID]Channel),
 	}
 
 	for _, c := range initialState {
@@ -142,15 +201,11 @@ func (a *Agent) Start() error {
 		return nil
 	}
 
+	rand.Seed(time.Now().Unix())
 	log.Infof("Autopilot Agent starting")
 
-	startingBalance, err := a.cfg.WalletBalance()
-	if err != nil {
-		return err
-	}
-
 	a.wg.Add(1)
-	go a.controller(startingBalance)
+	go a.controller()
 
 	return nil
 }
@@ -173,15 +228,23 @@ func (a *Agent) Stop() error {
 // balanceUpdate is a type of external state update that reflects an
 // increase/decrease in the funds currently available to the wallet.
 type balanceUpdate struct {
-	balanceDelta btcutil.Amount
 }
 
-// chanOpenUpdate is a type of external state update the indicates a new
+// nodeUpdates is a type of external state update that reflects an addition or
+// modification in channel graph node membership.
+type nodeUpdates struct{}
+
+// chanOpenUpdate is a type of external state update that indicates a new
 // channel has been opened, either by the Agent itself (within the main
 // controller loop), or by an external user to the system.
 type chanOpenUpdate struct {
 	newChan Channel
 }
+
+// chanPendingOpenUpdate is a type of external state update that indicates a new
+// channel has been opened, either by the agent itself or an external subsystem,
+// but is still pending.
+type chanPendingOpenUpdate struct{}
 
 // chanOpenFailureUpdate is a type of external state update that indicates
 // a previous channel open failed, and that it might be possible to try again.
@@ -193,62 +256,93 @@ type chanCloseUpdate struct {
 	closedChans []lnwire.ShortChannelID
 }
 
-// OnBalanceChange is a callback that should be executed each time the balance of
-// the backing wallet changes.
-func (a *Agent) OnBalanceChange(delta btcutil.Amount) {
-	go func() {
-		a.stateUpdates <- &balanceUpdate{
-			balanceDelta: delta,
-		}
-	}()
+// OnBalanceChange is a callback that should be executed each time the balance
+// of the backing wallet changes.
+func (a *Agent) OnBalanceChange() {
+	select {
+	case a.balanceUpdates <- &balanceUpdate{}:
+	default:
+	}
+}
+
+// OnNodeUpdates is a callback that should be executed each time our channel
+// graph has new nodes or their node announcements are updated.
+func (a *Agent) OnNodeUpdates() {
+	select {
+	case a.nodeUpdates <- &nodeUpdates{}:
+	default:
+	}
 }
 
 // OnChannelOpen is a callback that should be executed each time a new channel
 // is manually opened by the user or any system outside the autopilot agent.
 func (a *Agent) OnChannelOpen(c Channel) {
+	a.wg.Add(1)
 	go func() {
-		a.stateUpdates <- &chanOpenUpdate{
-			newChan: c,
+		defer a.wg.Done()
+
+		select {
+		case a.stateUpdates <- &chanOpenUpdate{newChan: c}:
+		case <-a.quit:
 		}
 	}()
+}
+
+// OnChannelPendingOpen is a callback that should be executed each time a new
+// channel is opened, either by the agent or an external subsystems, but is
+// still pending.
+func (a *Agent) OnChannelPendingOpen() {
+	select {
+	case a.pendingOpenUpdates <- &chanPendingOpenUpdate{}:
+	default:
+	}
 }
 
 // OnChannelOpenFailure is a callback that should be executed when the
 // autopilot has attempted to open a channel, but failed. In this case we can
 // retry channel creation with a different node.
 func (a *Agent) OnChannelOpenFailure() {
-	go func() {
-		a.stateUpdates <- &chanOpenFailureUpdate{}
-	}()
+	select {
+	case a.chanOpenFailures <- &chanOpenFailureUpdate{}:
+	default:
+	}
 }
 
 // OnChannelClose is a callback that should be executed each time a prior
 // channel has been closed for any reason. This includes regular
 // closes, force closes, and channel breaches.
 func (a *Agent) OnChannelClose(closedChans ...lnwire.ShortChannelID) {
+	a.wg.Add(1)
 	go func() {
-		a.stateUpdates <- &chanCloseUpdate{
-			closedChans: closedChans,
+		defer a.wg.Done()
+
+		select {
+		case a.stateUpdates <- &chanCloseUpdate{closedChans: closedChans}:
+		case <-a.quit:
 		}
 	}()
 }
 
 // mergeNodeMaps merges the Agent's set of nodes that it already has active
-// channels open to, with the set of nodes that are pending new channels. This
-// ensures that the Agent doesn't attempt to open any "duplicate" channels to
-// the same node.
-func mergeNodeMaps(a map[NodeID]struct{}, b map[NodeID]struct{},
-	c map[NodeID]Channel) map[NodeID]struct{} {
+// channels open to, with the other sets of nodes that should be removed from
+// consideration during heuristic selection. This ensures that the Agent doesn't
+// attempt to open any "duplicate" channels to the same node.
+func mergeNodeMaps(c map[NodeID]Channel,
+	skips ...map[NodeID]struct{}) map[NodeID]struct{} {
 
-	res := make(map[NodeID]struct{}, len(a)+len(b)+len(c))
-	for nodeID := range a {
-		res[nodeID] = struct{}{}
+	numNodes := len(c)
+	for _, skip := range skips {
+		numNodes += len(skip)
 	}
-	for nodeID := range b {
-		res[nodeID] = struct{}{}
-	}
+
+	res := make(map[NodeID]struct{}, len(c)+numNodes)
 	for nodeID := range c {
 		res[nodeID] = struct{}{}
+	}
+	for _, skip := range skips {
+		for nodeID := range skip {
+			res[nodeID] = struct{}{}
+		}
 	}
 
 	return res
@@ -279,27 +373,15 @@ func mergeChanState(pendingChans map[NodeID]Channel,
 // and external state changes as a result of decisions it  makes w.r.t channel
 // allocation, or attributes affecting its control loop being updated by the
 // backing Lightning Node.
-func (a *Agent) controller(startingBalance btcutil.Amount) {
+func (a *Agent) controller() {
 	defer a.wg.Done()
 
 	// We'll start off by assigning our starting balance, and injecting
 	// that amount as an initial wake up to the main controller goroutine.
-	a.OnBalanceChange(startingBalance)
+	a.OnBalanceChange()
 
 	// TODO(roasbeef): do we in fact need to maintain order?
 	//  * use sync.Cond if so
-
-	// failedNodes lists nodes that we've previously attempted to initiate
-	// channels with, but didn't succeed.
-	failedNodes := make(map[NodeID]struct{})
-
-	// pendingOpens tracks the channels that we've requested to be
-	// initiated, but haven't yet been confirmed as being fully opened.
-	// This state is required as otherwise, we may go over our allotted
-	// channel limit, or open multiple channels to the same node.
-	pendingOpens := make(map[NodeID]Channel)
-	var pendingMtx sync.Mutex
-
 	updateBalance := func() {
 		newBalance, err := a.cfg.WalletBalance()
 		if err != nil {
@@ -320,23 +402,6 @@ func (a *Agent) controller(startingBalance btcutil.Amount) {
 			log.Infof("Processing new external signal")
 
 			switch update := signal.(type) {
-			// The balance of the backing wallet has changed, if
-			// more funds are now available, we may attempt to open
-			// up an additional channel, or splice in funds to an
-			// existing one.
-			case *balanceUpdate:
-				log.Debugf("Applying external balance state "+
-					"update of: %v", update.balanceDelta)
-
-				a.totalBalance += update.balanceDelta
-
-			// The channel we tried to open previously failed for
-			// whatever reason.
-			case *chanOpenFailureUpdate:
-				log.Debug("Retrying after previous channel open failure.")
-
-				updateBalance()
-
 			// A new channel has been opened successfully. This was
 			// either opened by the Agent, or an external system
 			// that is able to drive the Lightning Node.
@@ -346,14 +411,15 @@ func (a *Agent) controller(startingBalance btcutil.Amount) {
 					spew.Sdump(update.newChan))
 
 				newChan := update.newChan
+				a.chanStateMtx.Lock()
 				a.chanState[newChan.ChanID] = newChan
+				a.chanStateMtx.Unlock()
 
-				pendingMtx.Lock()
-				delete(pendingOpens, newChan.Node)
-				pendingMtx.Unlock()
+				a.pendingMtx.Lock()
+				delete(a.pendingOpens, newChan.Node)
+				a.pendingMtx.Unlock()
 
 				updateBalance()
-
 			// A channel has been closed, this may free up an
 			// available slot, triggering a new channel update.
 			case *chanCloseUpdate:
@@ -361,140 +427,429 @@ func (a *Agent) controller(startingBalance btcutil.Amount) {
 					"updates: %v",
 					spew.Sdump(update.closedChans))
 
+				a.chanStateMtx.Lock()
 				for _, closedChan := range update.closedChans {
 					delete(a.chanState, closedChan)
 				}
+				a.chanStateMtx.Unlock()
 
 				updateBalance()
 			}
 
-			pendingMtx.Lock()
-			log.Debugf("Pending channels: %v", spew.Sdump(pendingOpens))
-			pendingMtx.Unlock()
+		// A new channel has been opened by the agent or an external
+		// subsystem, but is still pending confirmation.
+		case <-a.pendingOpenUpdates:
+			updateBalance()
 
-			// With all the updates applied, we'll obtain a set of
-			// the current active channels (confirmed channels),
-			// and also factor in our set of unconfirmed channels.
-			confirmedChans := a.chanState
-			pendingMtx.Lock()
-			totalChans := mergeChanState(pendingOpens, confirmedChans)
-			pendingMtx.Unlock()
+		// The balance of the backing wallet has changed, if more funds
+		// are now available, we may attempt to open up an additional
+		// channel, or splice in funds to an existing one.
+		case <-a.balanceUpdates:
+			log.Debug("Applying external balance state update")
 
-			// Now that we've updated our internal state, we'll
-			// consult our channel attachment heuristic to
-			// determine if we should open up any additional
-			// channels or modify existing channels.
-			availableFunds, numChans, needMore := a.cfg.Heuristic.NeedMoreChans(
-				totalChans, a.totalBalance,
-			)
-			if !needMore {
-				continue
-			}
+			updateBalance()
 
-			log.Infof("Triggering attachment directive dispatch, "+
-				"total_funds=%v", a.totalBalance)
+		// The channel we tried to open previously failed for whatever
+		// reason.
+		case <-a.chanOpenFailures:
+			log.Debug("Retrying after previous channel open " +
+				"failure.")
 
-			// We're to attempt an attachment so we'll o obtain the
-			// set of nodes that we currently have channels with so
-			// we avoid duplicate edges.
-			connectedNodes := a.chanState.ConnectedNodes()
-			pendingMtx.Lock()
-			nodesToSkip := mergeNodeMaps(connectedNodes, failedNodes, pendingOpens)
-			pendingMtx.Unlock()
+			updateBalance()
 
-			// If we reach this point, then according to our
-			// heuristic we should modify our channel state to tend
-			// towards what it determines to the optimal state. So
-			// we'll call Select to get a fresh batch of attachment
-			// directives, passing in the amount of funds available
-			// for us to use.
-			chanCandidates, err := a.cfg.Heuristic.Select(
-				a.cfg.Self, a.cfg.Graph, availableFunds,
-				numChans, nodesToSkip,
-			)
-			if err != nil {
-				log.Errorf("Unable to select candidates for "+
-					"attachment: %v", err)
-				continue
-			}
-
-			if len(chanCandidates) == 0 {
-				log.Infof("No eligible candidates to connect to")
-				continue
-			}
-
-			log.Infof("Attempting to execute channel attachment "+
-				"directives: %v", spew.Sdump(chanCandidates))
-
-			// For each recommended attachment directive, we'll
-			// launch a new goroutine to attempt to carry out the
-			// directive. If any of these succeed, then we'll
-			// receive a new state update, taking us back to the
-			// top of our controller loop.
-			pendingMtx.Lock()
-			for _, chanCandidate := range chanCandidates {
-				// Before we proceed, we'll check to see if
-				// this attempt would take us past the total
-				// number of allowed pending opens. If so, then
-				// we'll skip this round and wait for an
-				// attempt to either fail or succeed.
-				if uint16(len(pendingOpens))+1 >
-					a.cfg.MaxPendingOpens {
-
-					log.Debugf("Reached cap of %v pending "+
-						"channel opens, will retry "+
-						"after success/failure",
-						a.cfg.MaxPendingOpens)
-					continue
-				}
-
-				nID := NewNodeID(chanCandidate.PeerKey)
-				pendingOpens[nID] = Channel{
-					Capacity: chanCandidate.ChanAmt,
-					Node:     nID,
-				}
-
-				go func(directive AttachmentDirective) {
-
-					pub := directive.PeerKey
-					err := a.cfg.ChanController.OpenChannel(
-
-						directive.PeerKey,
-						directive.ChanAmt,
-						directive.Addrs,
-					)
-					if err != nil {
-						log.Warnf("Unable to open "+
-							"channel to %x of %v: %v",
-							pub.SerializeCompressed(),
-							directive.ChanAmt, err)
-
-						// As the attempt failed, we'll
-						// clear it from the set of
-						// pending channels.
-						pendingMtx.Lock()
-						nID := NewNodeID(directive.PeerKey)
-						delete(pendingOpens, nID)
-
-						// Mark this node as failed so we don't
-						// attempt it again.
-						failedNodes[nID] = struct{}{}
-						pendingMtx.Unlock()
-
-						// Trigger the autopilot controller to
-						// re-evaluate everything and possibly
-						// retry with a different node.
-						a.OnChannelOpenFailure()
-					}
-
-				}(chanCandidate)
-			}
-			pendingMtx.Unlock()
+		// New nodes have been added to the graph or their node
+		// announcements have been updated. We will consider opening
+		// channels to these nodes if we haven't stabilized.
+		case <-a.nodeUpdates:
+			log.Infof("Node updates received, assessing " +
+				"need for more channels")
 
 		// The agent has been signalled to exit, so we'll bail out
 		// immediately.
 		case <-a.quit:
 			return
 		}
+
+		a.pendingMtx.Lock()
+		log.Debugf("Pending channels: %v", spew.Sdump(a.pendingOpens))
+		a.pendingMtx.Unlock()
+
+		// With all the updates applied, we'll obtain a set of the
+		// current active channels (confirmed channels), and also
+		// factor in our set of unconfirmed channels.
+		a.chanStateMtx.Lock()
+		a.pendingMtx.Lock()
+		totalChans := mergeChanState(a.pendingOpens, a.chanState)
+		a.pendingMtx.Unlock()
+		a.chanStateMtx.Unlock()
+
+		// Now that we've updated our internal state, we'll consult our
+		// channel attachment heuristic to determine if we can open
+		// up any additional channels while staying within our
+		// constraints.
+		availableFunds, numChans := a.cfg.Constraints.ChannelBudget(
+			totalChans, a.totalBalance,
+		)
+		switch {
+		case numChans == 0:
+			continue
+
+		// If the amount is too small, we don't want to attempt opening
+		// another channel.
+		case availableFunds == 0:
+			continue
+		case availableFunds < a.cfg.Constraints.MinChanSize():
+			continue
+		}
+
+		log.Infof("Triggering attachment directive dispatch, "+
+			"total_funds=%v", a.totalBalance)
+
+		err := a.openChans(availableFunds, numChans, totalChans)
+		if err != nil {
+			log.Errorf("Unable to open channels: %v", err)
+		}
 	}
+}
+
+// openChans queries the agent's heuristic for a set of channel candidates, and
+// attempts to open channels to them.
+func (a *Agent) openChans(availableFunds btcutil.Amount, numChans uint32,
+	totalChans []Channel) error {
+
+	// We're to attempt an attachment so we'll obtain the set of
+	// nodes that we currently have channels with so we avoid
+	// duplicate edges.
+	a.chanStateMtx.Lock()
+	connectedNodes := a.chanState.ConnectedNodes()
+	a.chanStateMtx.Unlock()
+
+	a.pendingMtx.Lock()
+	nodesToSkip := mergeNodeMaps(a.pendingOpens,
+		a.pendingConns, connectedNodes, a.failedNodes,
+	)
+	a.pendingMtx.Unlock()
+
+	// Gather the set of all nodes in the graph, except those we
+	// want to skip.
+	selfPubBytes := a.cfg.Self.SerializeCompressed()
+	nodes := make(map[NodeID]struct{})
+	addresses := make(map[NodeID][]net.Addr)
+	if err := a.cfg.Graph.ForEachNode(func(node Node) error {
+		nID := NodeID(node.PubKey())
+
+		// If we come across ourselves, them we'll continue in
+		// order to avoid attempting to make a channel with
+		// ourselves.
+		if bytes.Equal(nID[:], selfPubBytes) {
+			return nil
+		}
+
+		// If the node has no known addresses, we cannot connect to it,
+		// so we'll skip it.
+		addrs := node.Addrs()
+		if len(addrs) == 0 {
+			return nil
+		}
+		addresses[nID] = addrs
+
+		// Additionally, if this node is in the blacklist, then
+		// we'll skip it.
+		if _, ok := nodesToSkip[nID]; ok {
+			return nil
+		}
+
+		nodes[nID] = struct{}{}
+		return nil
+	}); err != nil {
+		return fmt.Errorf("unable to get graph nodes: %v", err)
+	}
+
+	// As channel size we'll use the maximum channel size available.
+	chanSize := a.cfg.Constraints.MaxChanSize()
+	if availableFunds-chanSize < 0 {
+		chanSize = availableFunds
+	}
+
+	// Use the heuristic to calculate a score for each node in the
+	// graph.
+	scores, err := a.cfg.Heuristic.NodeScores(
+		a.cfg.Graph, totalChans, chanSize, nodes,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to calculate node scores : %v", err)
+	}
+
+	log.Debugf("Got scores for %d nodes", len(scores))
+
+	// Now use the score to make a weighted choice which nodes to attempt
+	// to open channels to.
+	scores, err = chooseN(numChans, scores)
+	if err != nil {
+		return fmt.Errorf("Unable to make weighted choice: %v",
+			err)
+	}
+
+	chanCandidates := make(map[NodeID]*AttachmentDirective)
+	for nID := range scores {
+		// Add addresses to the candidates.
+		addrs := addresses[nID]
+
+		// If the node has no known addresses, we cannot connect to it,
+		// so we'll skip it.
+		if len(addrs) == 0 {
+			continue
+		}
+
+		chanCandidates[nID] = &AttachmentDirective{
+			NodeID:  nID,
+			ChanAmt: chanSize,
+			Addrs:   addrs,
+		}
+	}
+
+	if len(chanCandidates) == 0 {
+		log.Infof("No eligible candidates to connect to")
+		return nil
+	}
+
+	log.Infof("Attempting to execute channel attachment "+
+		"directives: %v", spew.Sdump(chanCandidates))
+
+	// Before proceeding, check to see if we have any slots
+	// available to open channels. If there are any, we will attempt
+	// to dispatch the retrieved directives since we can't be
+	// certain which ones may actually succeed. If too many
+	// connections succeed, we will they will be ignored and made
+	// available to future heuristic selections.
+	a.pendingMtx.Lock()
+	defer a.pendingMtx.Unlock()
+	if uint16(len(a.pendingOpens)) >= a.cfg.Constraints.MaxPendingOpens() {
+		log.Debugf("Reached cap of %v pending "+
+			"channel opens, will retry "+
+			"after success/failure",
+			a.cfg.Constraints.MaxPendingOpens())
+		return nil
+	}
+
+	// For each recommended attachment directive, we'll launch a
+	// new goroutine to attempt to carry out the directive. If any
+	// of these succeed, then we'll receive a new state update,
+	// taking us back to the top of our controller loop.
+	for _, chanCandidate := range chanCandidates {
+		// Skip candidates which we are already trying
+		// to establish a connection with.
+		nodeID := chanCandidate.NodeID
+		if _, ok := a.pendingConns[nodeID]; ok {
+			continue
+		}
+		a.pendingConns[nodeID] = struct{}{}
+
+		a.wg.Add(1)
+		go a.executeDirective(*chanCandidate)
+	}
+	return nil
+}
+
+// executeDirective attempts to connect to the channel candidate specified by
+// the given attachment directive, and open a channel of the given size.
+//
+// NOTE: MUST be run as a goroutine.
+func (a *Agent) executeDirective(directive AttachmentDirective) {
+	defer a.wg.Done()
+
+	// We'll start out by attempting to connect to the peer in order to
+	// begin the funding workflow.
+	nodeID := directive.NodeID
+	pub, err := btcec.ParsePubKey(nodeID[:], btcec.S256())
+	if err != nil {
+		log.Errorf("Unable to parse pubkey %x: %v", nodeID, err)
+		return
+	}
+
+	connected := make(chan bool)
+	errChan := make(chan error)
+
+	// To ensure a call to ConnectToPeer doesn't block the agent from
+	// shutting down, we'll launch it in a non-waitgrouped goroutine, that
+	// will signal when a result is returned.
+	// TODO(halseth): use DialContext to cancel on transport level.
+	go func() {
+		alreadyConnected, err := a.cfg.ConnectToPeer(
+			pub, directive.Addrs,
+		)
+		if err != nil {
+			select {
+			case errChan <- err:
+			case <-a.quit:
+			}
+			return
+		}
+
+		select {
+		case connected <- alreadyConnected:
+		case <-a.quit:
+			return
+		}
+	}()
+
+	var alreadyConnected bool
+	select {
+	case alreadyConnected = <-connected:
+	case err = <-errChan:
+	case <-a.quit:
+		return
+	}
+
+	if err != nil {
+		log.Warnf("Unable to connect to %x: %v",
+			pub.SerializeCompressed(), err)
+
+		// Since we failed to connect to them, we'll mark them as
+		// failed so that we don't attempt to connect to them again.
+		a.pendingMtx.Lock()
+		delete(a.pendingConns, nodeID)
+		a.failedNodes[nodeID] = struct{}{}
+		a.pendingMtx.Unlock()
+
+		// Finally, we'll trigger the agent to select new peers to
+		// connect to.
+		a.OnChannelOpenFailure()
+
+		return
+	}
+
+	// The connection was successful, though before progressing we must
+	// check that we have not already met our quota for max pending open
+	// channels. This can happen if multiple directives were spawned but
+	// fewer slots were available, and other successful attempts finished
+	// first.
+	a.pendingMtx.Lock()
+	if uint16(len(a.pendingOpens)) >=
+		a.cfg.Constraints.MaxPendingOpens() {
+		// Since we've reached our max number of pending opens, we'll
+		// disconnect this peer and exit. However, if we were
+		// previously connected to them, then we'll make sure to
+		// maintain the connection alive.
+		if alreadyConnected {
+			// Since we succeeded in connecting, we won't add this
+			// peer to the failed nodes map, but we will remove it
+			// from a.pendingConns so that it can be retried in the
+			// future.
+			delete(a.pendingConns, nodeID)
+			a.pendingMtx.Unlock()
+			return
+		}
+
+		err = a.cfg.DisconnectPeer(pub)
+		if err != nil {
+			log.Warnf("Unable to disconnect peer %x: %v",
+				pub.SerializeCompressed(), err)
+		}
+
+		// Now that we have disconnected, we can remove this node from
+		// our pending conns map, permitting subsequent connection
+		// attempts.
+		delete(a.pendingConns, nodeID)
+		a.pendingMtx.Unlock()
+		return
+	}
+
+	// If we were successful, we'll track this peer in our set of pending
+	// opens. We do this here to ensure we don't stall on selecting new
+	// peers if the connection attempt happens to take too long.
+	delete(a.pendingConns, nodeID)
+	a.pendingOpens[nodeID] = Channel{
+		Capacity: directive.ChanAmt,
+		Node:     nodeID,
+	}
+	a.pendingMtx.Unlock()
+
+	// We can then begin the funding workflow with this peer.
+	err = a.cfg.ChanController.OpenChannel(pub, directive.ChanAmt)
+	if err != nil {
+		log.Warnf("Unable to open channel to %x of %v: %v",
+			pub.SerializeCompressed(), directive.ChanAmt, err)
+
+		// As the attempt failed, we'll clear the peer from the set of
+		// pending opens and mark them as failed so we don't attempt to
+		// open a channel to them again.
+		a.pendingMtx.Lock()
+		delete(a.pendingOpens, nodeID)
+		a.failedNodes[nodeID] = struct{}{}
+		a.pendingMtx.Unlock()
+
+		// Trigger the agent to re-evaluate everything and possibly
+		// retry with a different node.
+		a.OnChannelOpenFailure()
+
+		// Finally, we should also disconnect the peer if we weren't
+		// already connected to them beforehand by an external
+		// subsystem.
+		if alreadyConnected {
+			return
+		}
+
+		err = a.cfg.DisconnectPeer(pub)
+		if err != nil {
+			log.Warnf("Unable to disconnect peer %x: %v",
+				pub.SerializeCompressed(), err)
+		}
+	}
+
+	// Since the channel open was successful and is currently pending,
+	// we'll trigger the autopilot agent to query for more peers.
+	a.OnChannelPendingOpen()
+}
+
+// HeuristicScores is an alias for a map that maps heuristic names to a map of
+// scores for pubkeys.
+type HeuristicScores map[string]map[NodeID]float64
+
+// queryHeuristics gets node scores from all available simple heuristics, and
+// the agent's current active heuristic.
+func (a *Agent) queryHeuristics(nodes map[NodeID]struct{}) (
+	HeuristicScores, error) {
+
+	// Get the agent's current channel state.
+	a.chanStateMtx.Lock()
+	a.pendingMtx.Lock()
+	totalChans := mergeChanState(a.pendingOpens, a.chanState)
+	a.pendingMtx.Unlock()
+	a.chanStateMtx.Unlock()
+
+	// As channel size we'll use the maximum size.
+	chanSize := a.cfg.Constraints.MaxChanSize()
+
+	// We'll start by getting the scores from each available sub-heuristic,
+	// in addition the active agent heuristic.
+	report := make(HeuristicScores)
+	for _, h := range append(availableHeuristics, a.cfg.Heuristic) {
+		name := h.Name()
+
+		// If the active agent heuristic is among the simple heuristics
+		// it might get queried more than once. As an optimization
+		// we'll just skip it the second time.
+		if _, ok := report[name]; ok {
+			continue
+		}
+
+		s, err := h.NodeScores(
+			a.cfg.Graph, totalChans, chanSize, nodes,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to get sub score: %v", err)
+		}
+
+		log.Debugf("Heuristic \"%v\" scored %d nodes", name, len(s))
+
+		scores := make(map[NodeID]float64)
+		for nID, score := range s {
+			scores[nID] = score.Score
+		}
+
+		report[name] = scores
+	}
+
+	return report, nil
 }

@@ -53,9 +53,9 @@ Compiles, tests, and installs `lnd` and `lncli`. Equivalent to
 `btcd`
 ------
 Ensures that [`github.com/Masterminds/glide`][glide] is installed, and
-that the [`github.com/roasbeef/btcd`][btcd] repository is checked out
+that the [`github.com/btcsuite/btcd`][btcd] repository is checked out
 locally. Lastly, installs the version of 
-[`github.com/roasbeef/btcd`][btcd] specified in `Gopkg.toml`
+[`github.com/btcsuite/btcd`][btcd] specified in `Gopkg.toml`
 
 `build`
 -------
@@ -64,7 +64,7 @@ Compiles the current source and vendor trees, creating `./lnd` and
 
 `check`
 -------
-Installs the version of [`github.com/roasbeef/btcd`][btcd] specified
+Installs the version of [`github.com/btcsuite/btcd`][btcd] specified
 in `Gopkg.toml`, then runs the unit tests followed by the integration
 tests.
 
@@ -78,11 +78,6 @@ Removes compiled versions of both `./lnd` and `./lncli`, and removes the
 `default`
 ---------
 Alias for [`scratch`](#scratch).
-
-`dep`
-------
-Ensures that [`github.com/golang/dep/cmd/dep`][dep] is installed, then
-updates then dependencies in the `vendor` tree using `dep ensure`.
 
 `flake-unit`
 ------------
@@ -115,7 +110,7 @@ Copies the compiled `lnd` and `lncli` binaries into `$GOPATH/bin`.
 
 `itest`
 -------
-Installs the version of [`github.com/roasbeef/btcd`][btcd] specified in
+Installs the version of [`github.com/btcsuite/btcd`][btcd] specified in
 `Gopkg.toml`, builds the `./lnd` and `./lncli` binaries, then runs the
 integration test suite.
 
@@ -142,16 +137,6 @@ Compiles all dependencies and builds the `./lnd` and `./lncli` binaries.
 Equivalent to [`lint`](#lint) [`dep`](#dep) [`btcd`](#btcd)
 [`unit-race`](#unit-race).
 
-`travis`
---------
-**Note**: This must be run with either `RACE=true` or `RACE=false`.
-- `RACE=true` runs [`lint`](#lint) [`scratch`](#scratch) [`btcd`](#btcd)
-  [`unit-race`](#unit-race).
-- `RACE=false` runs [`lint`](#lint) [`scratch`](#scratch) [`itest`](#itest) 
-  [`unit-cover`](#unit-cover). Afterwards,
-  [`github.com/mattn/goveralls`][goveralls] is installed, and the coverage stats
-  are uploaded to [coveralls.io](https://coveralls.io).
-
 `unit`
 ------
 Runs the unit test suite. By default, this will run all known unit tests.
@@ -160,6 +145,8 @@ Arguments:
 - `pkg=<package>` 
 - `case=<testcase>`
 - `timeout=<timeout>`
+- `log="stdlog[ <log-level>]"` prints logs to stdout
+  - `<log-level>` can be `info` (default), `debug`, `trace`, `warn`, `error`, `critical`, or `off`
 
 `unit-cover`
 ------------
@@ -170,6 +157,8 @@ Arguments:
 - `pkg=<package>` 
 - `case=<testcase>`
 - `timeout=<timeout>`
+- `log="stdlog[ <log-level>]"` prints logs to stdout
+  - `<log-level>` can be `info` (default), `debug`, `trace`, `warn`, `error`, `critical`, or `off`
 
 Related: [`unit`](#unit)
 
@@ -181,10 +170,12 @@ Arguments:
 - `pkg=<package>` 
 - `case=<testcase>`
 - `timeout=<timeout>`
+- `log="stdlog[ <log-level>]"` prints logs to stdout
+  - `<log-level>` can be `info` (default), `debug`, `trace`, `warn`, `error`, `critical`, or `off`
 
 Related: [`unit`](#unit)
 
-[btcd]: https://github.com/roasbeef/btcd (github.com/roasbeef/btcd")
+[btcd]: https://github.com/btcsuite/btcd (github.com/btcsuite/btcd")
 [glide]: https://github.com/Masterminds/glide (github.com/Masterminds/glide)
 [gometalinter]: https://gopkg.in/alecthomas/gometalinter.v1 (gopkg.in/alecthomas/gometalinter.v1)
 [dep]: https://github.com/golang/dep/cmd/dep (github.com/golang/dep/cmd/dep)

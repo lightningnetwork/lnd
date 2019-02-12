@@ -1,11 +1,12 @@
 package macaroons_test
 
 import (
-	"testing"
-	"github.com/lightningnetwork/lnd/macaroons"
-	"gopkg.in/macaroon.v2"
-	"time"
 	"strings"
+	"testing"
+	"time"
+
+	"github.com/lightningnetwork/lnd/macaroons"
+	macaroon "gopkg.in/macaroon.v2"
 )
 
 var (
@@ -99,7 +100,7 @@ func TestIpLockConstraint(t *testing.T) {
 // TestIPLockBadIP tests that an IP constraint cannot be added if the
 // provided string is not a valid IP address.
 func TestIPLockBadIP(t *testing.T) {
-	constraintFunc := macaroons.IPLockConstraint("127.0.0/800");
+	constraintFunc := macaroons.IPLockConstraint("127.0.0/800")
 	testMacaroon := createDummyMacaroon(t)
 	err := constraintFunc(testMacaroon)
 	if err == nil {

@@ -6,9 +6,9 @@ import (
 	"net"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/coreos/bbolt"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/wire"
 )
 
 var (
@@ -62,13 +62,13 @@ type LinkNode struct {
 // NewLinkNode creates a new LinkNode from the provided parameters, which is
 // backed by an instance of channeldb.
 func (db *DB) NewLinkNode(bitNet wire.BitcoinNet, pub *btcec.PublicKey,
-	addr net.Addr) *LinkNode {
+	addrs ...net.Addr) *LinkNode {
 
 	return &LinkNode{
 		Network:     bitNet,
 		IdentityPub: pub,
 		LastSeen:    time.Now(),
-		Addresses:   []net.Addr{addr},
+		Addresses:   addrs,
 		db:          db,
 	}
 }
@@ -101,7 +101,7 @@ func (l *LinkNode) Sync() error {
 
 	// Finally update the database by storing the link node and updating
 	// any relevant indexes.
-	return l.db.Update(func(tx *bolt.Tx) error {
+	return l.db.Update(func(tx *bbolt.Tx) error {
 		nodeMetaBucket := tx.Bucket(nodeInfoBucket)
 		if nodeMetaBucket == nil {
 			return ErrLinkNodesNotFound
@@ -114,7 +114,7 @@ func (l *LinkNode) Sync() error {
 // putLinkNode serializes then writes the encoded version of the passed link
 // node into the nodeMetaBucket. This function is provided in order to allow
 // the ability to re-use a database transaction across many operations.
-func putLinkNode(nodeMetaBucket *bolt.Bucket, l *LinkNode) error {
+func putLinkNode(nodeMetaBucket *bbolt.Bucket, l *LinkNode) error {
 	// First serialize the LinkNode into its raw-bytes encoding.
 	var b bytes.Buffer
 	if err := serializeLinkNode(&b, l); err != nil {
@@ -127,70 +127,108 @@ func putLinkNode(nodeMetaBucket *bolt.Bucket, l *LinkNode) error {
 	return nodeMetaBucket.Put(nodePub, b.Bytes())
 }
 
+// DeleteLinkNode removes the link node with the given identity from the
+// database.
+func (db *DB) DeleteLinkNode(identity *btcec.PublicKey) error {
+	return db.Update(func(tx *bbolt.Tx) error {
+		return db.deleteLinkNode(tx, identity)
+	})
+}
+
+func (db *DB) deleteLinkNode(tx *bbolt.Tx, identity *btcec.PublicKey) error {
+	nodeMetaBucket := tx.Bucket(nodeInfoBucket)
+	if nodeMetaBucket == nil {
+		return ErrLinkNodesNotFound
+	}
+
+	pubKey := identity.SerializeCompressed()
+	return nodeMetaBucket.Delete(pubKey)
+}
+
 // FetchLinkNode attempts to lookup the data for a LinkNode based on a target
 // identity public key. If a particular LinkNode for the passed identity public
 // key cannot be found, then ErrNodeNotFound if returned.
 func (db *DB) FetchLinkNode(identity *btcec.PublicKey) (*LinkNode, error) {
-	var (
-		node *LinkNode
-		err  error
-	)
-
-	err = db.View(func(tx *bolt.Tx) error {
-		// First fetch the bucket for storing node metadata, bailing
-		// out early if it hasn't been created yet.
-		nodeMetaBucket := tx.Bucket(nodeInfoBucket)
-		if nodeMetaBucket == nil {
-			return ErrLinkNodesNotFound
+	var linkNode *LinkNode
+	err := db.View(func(tx *bbolt.Tx) error {
+		node, err := fetchLinkNode(tx, identity)
+		if err != nil {
+			return err
 		}
 
-		// If a link node for that particular public key cannot be
-		// located, then exit early with an ErrNodeNotFound.
-		pubKey := identity.SerializeCompressed()
-		nodeBytes := nodeMetaBucket.Get(pubKey)
-		if nodeBytes == nil {
-			return ErrNodeNotFound
+		linkNode = node
+		return nil
+	})
+
+	return linkNode, err
+}
+
+func fetchLinkNode(tx *bbolt.Tx, targetPub *btcec.PublicKey) (*LinkNode, error) {
+	// First fetch the bucket for storing node metadata, bailing out early
+	// if it hasn't been created yet.
+	nodeMetaBucket := tx.Bucket(nodeInfoBucket)
+	if nodeMetaBucket == nil {
+		return nil, ErrLinkNodesNotFound
+	}
+
+	// If a link node for that particular public key cannot be located,
+	// then exit early with an ErrNodeNotFound.
+	pubKey := targetPub.SerializeCompressed()
+	nodeBytes := nodeMetaBucket.Get(pubKey)
+	if nodeBytes == nil {
+		return nil, ErrNodeNotFound
+	}
+
+	// Finally, decode and allocate a fresh LinkNode object to be returned
+	// to the caller.
+	nodeReader := bytes.NewReader(nodeBytes)
+	return deserializeLinkNode(nodeReader)
+}
+
+// TODO(roasbeef): update link node addrs in server upon connection
+
+// FetchAllLinkNodes starts a new database transaction to fetch all nodes with
+// whom we have active channels with.
+func (db *DB) FetchAllLinkNodes() ([]*LinkNode, error) {
+	var linkNodes []*LinkNode
+	err := db.View(func(tx *bbolt.Tx) error {
+		nodes, err := db.fetchAllLinkNodes(tx)
+		if err != nil {
+			return err
 		}
 
-		// Finally, decode an allocate a fresh LinkNode object to be
-		// returned to the caller.
-		nodeReader := bytes.NewReader(nodeBytes)
-		node, err = deserializeLinkNode(nodeReader)
-		return err
+		linkNodes = nodes
+		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	return node, nil
+	return linkNodes, nil
 }
 
-// FetchAllLinkNodes attempts to fetch all active LinkNodes from the database.
-// If there haven't been any channels explicitly linked to LinkNodes written to
-// the database, then this function will return an empty slice.
-func (db *DB) FetchAllLinkNodes() ([]*LinkNode, error) {
-	var linkNodes []*LinkNode
+// fetchAllLinkNodes uses an existing database transaction to fetch all nodes
+// with whom we have active channels with.
+func (db *DB) fetchAllLinkNodes(tx *bbolt.Tx) ([]*LinkNode, error) {
+	nodeMetaBucket := tx.Bucket(nodeInfoBucket)
+	if nodeMetaBucket == nil {
+		return nil, ErrLinkNodesNotFound
+	}
 
-	err := db.View(func(tx *bolt.Tx) error {
-		nodeMetaBucket := tx.Bucket(nodeInfoBucket)
-		if nodeMetaBucket == nil {
-			return ErrLinkNodesNotFound
+	var linkNodes []*LinkNode
+	err := nodeMetaBucket.ForEach(func(k, v []byte) error {
+		if v == nil {
+			return nil
 		}
 
-		return nodeMetaBucket.ForEach(func(k, v []byte) error {
-			if v == nil {
-				return nil
-			}
+		nodeReader := bytes.NewReader(v)
+		linkNode, err := deserializeLinkNode(nodeReader)
+		if err != nil {
+			return err
+		}
 
-			nodeReader := bytes.NewReader(v)
-			linkNode, err := deserializeLinkNode(nodeReader)
-			if err != nil {
-				return err
-			}
-
-			linkNodes = append(linkNodes, linkNode)
-			return nil
-		})
+		linkNodes = append(linkNodes, linkNode)
+		return nil
 	})
 	if err != nil {
 		return nil, err

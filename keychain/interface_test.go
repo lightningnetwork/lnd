@@ -8,13 +8,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/roasbeef/btcd/chaincfg"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcwallet/waddrmgr"
-	"github.com/roasbeef/btcwallet/wallet"
-	"github.com/roasbeef/btcwallet/walletdb"
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcwallet/waddrmgr"
+	"github.com/btcsuite/btcwallet/wallet"
+	"github.com/btcsuite/btcwallet/walletdb"
+	"github.com/davecgh/go-spew/spew"
 
-	_ "github.com/roasbeef/btcwallet/walletdb/bdb" // Required in order to create the default database.
+	_ "github.com/btcsuite/btcwallet/walletdb/bdb" // Required in order to create the default database.
 )
 
 // versionZeroKeyFamilies is a slice of all the known key families for first
@@ -91,6 +93,14 @@ func createTestBtcWallet(coinType uint32) (func(), *wallet.Wallet, error) {
 	return cleanUp, baseWallet, nil
 }
 
+func assertEqualKeyLocator(t *testing.T, a, b KeyLocator) {
+	t.Helper()
+	if a != b {
+		t.Fatalf("mismatched key locators: expected %v, "+
+			"got %v", spew.Sdump(a), spew.Sdump(b))
+	}
+}
+
 // secretKeyRingConstructor is a function signature that's used as a generic
 // constructor for various implementations of the KeyRing interface. A string
 // naming the returned interface, a function closure that cleans up any
@@ -141,6 +151,8 @@ func TestKeyRingDerivation(t *testing.T) {
 		},
 	}
 
+	const numKeysToDerive = 10
+
 	// For each implementation constructor registered above, we'll execute
 	// an identical set of tests in order to ensure that the interface
 	// adheres to our nominal specification.
@@ -163,10 +175,16 @@ func TestKeyRingDerivation(t *testing.T) {
 					t.Fatalf("unable to derive next for "+
 						"keyFam=%v: %v", keyFam, err)
 				}
+				assertEqualKeyLocator(t,
+					KeyLocator{
+						Family: keyFam,
+						Index:  0,
+					}, keyDesc.KeyLocator,
+				)
 
-				// If we now try to manually derive the *first*
-				// key, then we should get an identical public
-				// key back.
+				// We'll now re-derive that key to ensure that
+				// we're able to properly access the key via
+				// the random access derivation methods.
 				keyLoc := KeyLocator{
 					Family: keyFam,
 					Index:  0,
@@ -176,12 +194,40 @@ func TestKeyRingDerivation(t *testing.T) {
 					t.Fatalf("unable to derive first key for "+
 						"keyFam=%v: %v", keyFam, err)
 				}
-
 				if !keyDesc.PubKey.IsEqual(firstKeyDesc.PubKey) {
-					t.Fatalf("mismatched keys: expected %v, "+
+					t.Fatalf("mismatched keys: expected %x, "+
 						"got %x",
 						keyDesc.PubKey.SerializeCompressed(),
 						firstKeyDesc.PubKey.SerializeCompressed())
+				}
+				assertEqualKeyLocator(t,
+					KeyLocator{
+						Family: keyFam,
+						Index:  0,
+					}, firstKeyDesc.KeyLocator,
+				)
+
+				// If we now try to manually derive the next 10
+				// keys (including the original key), then we
+				// should get an identical public key back and
+				// their KeyLocator information
+				// should be set properly.
+				for i := 0; i < numKeysToDerive+1; i++ {
+					keyLoc := KeyLocator{
+						Family: keyFam,
+						Index:  uint32(i),
+					}
+					keyDesc, err := keyRing.DeriveKey(keyLoc)
+					if err != nil {
+						t.Fatalf("unable to derive first key for "+
+							"keyFam=%v: %v", keyFam, err)
+					}
+
+					// Ensure that the key locator matches
+					// up as well.
+					assertEqualKeyLocator(
+						t, keyLoc, keyDesc.KeyLocator,
+					)
 				}
 
 				// If this succeeds, then we'll also try to
@@ -191,12 +237,15 @@ func TestKeyRingDerivation(t *testing.T) {
 					Family: keyFam,
 					Index:  randKeyIndex,
 				}
-				_, err = keyRing.DeriveKey(keyLoc)
+				keyDesc, err = keyRing.DeriveKey(keyLoc)
 				if err != nil {
 					t.Fatalf("unable to derive key_index=%v "+
 						"for keyFam=%v: %v",
 						randKeyIndex, keyFam, err)
 				}
+				assertEqualKeyLocator(
+					t, keyLoc, keyDesc.KeyLocator,
+				)
 			}
 		})
 		if !success {
@@ -268,7 +317,7 @@ func TestSecretKeyRingDerivation(t *testing.T) {
 		defer cleanUp()
 
 		success := t.Run(fmt.Sprintf("%v", keyRingName), func(t *testing.T) {
-			// First, each key family, we'll ensure that we're able
+			// For, each key family, we'll ensure that we're able
 			// to obtain the private key of a randomly select child
 			// index within the key family.
 			for _, keyFam := range versionZeroKeyFamilies {
@@ -308,6 +357,57 @@ func TestSecretKeyRingDerivation(t *testing.T) {
 						privKey.PubKey().SerializeCompressed())
 				}
 
+				// Next, we'll test that we're able to derive a
+				// key given only the public key and key
+				// family.
+				//
+				// Derive a new key from the key ring.
+				keyDesc, err := secretKeyRing.DeriveNextKey(keyFam)
+				if err != nil {
+					t.Fatalf("unable to derive key: %v", err)
+				}
+
+				// We'll now construct a key descriptor that
+				// requires us to scan the key range, and query
+				// for the key, we should be able to find it as
+				// it's valid.
+				keyDesc = KeyDescriptor{
+					PubKey: keyDesc.PubKey,
+					KeyLocator: KeyLocator{
+						Family: keyFam,
+					},
+				}
+				privKey, err = secretKeyRing.DerivePrivKey(keyDesc)
+				if err != nil {
+					t.Fatalf("unable to derive priv key "+
+						"via scanning: %v", err)
+				}
+
+				// Having to resort to scanning, we should be
+				// able to find the target public key.
+				if !keyDesc.PubKey.IsEqual(privKey.PubKey()) {
+					t.Fatalf("pubkeys mismatched: expected %x, got %x",
+						pubKeyDesc.PubKey.SerializeCompressed(),
+						privKey.PubKey().SerializeCompressed())
+				}
+
+				// We'll try again, but this time with an
+				// unknown public key.
+				_, pub := btcec.PrivKeyFromBytes(
+					btcec.S256(), testHDSeed[:],
+				)
+				keyDesc.PubKey = pub
+
+				// If we attempt to query for this key, then we
+				// should get ErrCannotDerivePrivKey.
+				privKey, err = secretKeyRing.DerivePrivKey(
+					keyDesc,
+				)
+				if err != ErrCannotDerivePrivKey {
+					t.Fatalf("expected %T, instead got %v",
+						ErrCannotDerivePrivKey, err)
+				}
+
 				// TODO(roasbeef): scalar mult once integrated
 			}
 		})
@@ -315,4 +415,10 @@ func TestSecretKeyRingDerivation(t *testing.T) {
 			break
 		}
 	}
+}
+
+func init() {
+	// We'll clamp the max range scan to constrain the run time of the
+	// private key scan test.
+	MaxKeyRangeScan = 3
 }

@@ -10,18 +10,20 @@ import (
 	"net"
 	"os"
 
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/htlcswitch"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
+	"github.com/lightningnetwork/lnd/ticker"
 )
 
 var (
@@ -116,8 +118,8 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 			ChanReserve:      btcutil.Amount(rand.Int63()),
 			MinHTLC:          lnwire.MilliSatoshi(rand.Int63()),
 			MaxAcceptedHtlcs: uint16(rand.Int31()),
+			CsvDelay:         uint16(csvTimeoutAlice),
 		},
-		CsvDelay: uint16(csvTimeoutAlice),
 		MultiSigKey: keychain.KeyDescriptor{
 			PubKey: aliceKeyPub,
 		},
@@ -141,8 +143,8 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 			ChanReserve:      btcutil.Amount(rand.Int63()),
 			MinHTLC:          lnwire.MilliSatoshi(rand.Int63()),
 			MaxAcceptedHtlcs: uint16(rand.Int31()),
+			CsvDelay:         uint16(csvTimeoutBob),
 		},
-		CsvDelay: uint16(csvTimeoutBob),
 		MultiSigKey: keychain.KeyDescriptor{
 			PubKey: bobKeyPub,
 		},
@@ -169,7 +171,7 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
-	bobCommitPoint := lnwallet.ComputeCommitmentPoint(bobFirstRevoke[:])
+	bobCommitPoint := input.ComputeCommitmentPoint(bobFirstRevoke[:])
 
 	aliceRoot, err := chainhash.NewHash(aliceKeyPriv.Serialize())
 	if err != nil {
@@ -180,7 +182,7 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
-	aliceCommitPoint := lnwallet.ComputeCommitmentPoint(aliceFirstRevoke[:])
+	aliceCommitPoint := input.ComputeCommitmentPoint(aliceFirstRevoke[:])
 
 	aliceCommitTx, bobCommitTx, err := lnwallet.CreateCommitmentTxns(channelBal,
 		channelBal, &aliceCfg, &bobCfg, aliceCommitPoint, bobCommitPoint,
@@ -201,12 +203,11 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 		return nil, nil, nil, nil, err
 	}
 
-	estimator := &lnwallet.StaticFeeEstimator{FeeRate: 50}
-	feePerVSize, err := estimator.EstimateFeePerVSize(1)
+	estimator := lnwallet.NewStaticFeeEstimator(12500, 0)
+	feePerKw, err := estimator.EstimateFeePerKW(1)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
-	feePerKw := feePerVSize.FeePerKWeight()
 
 	// TODO(roasbeef): need to factor in commit fee?
 	aliceCommit := channeldb.ChannelCommitment{
@@ -214,7 +215,7 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 		LocalBalance:  lnwire.NewMSatFromSatoshis(channelBal),
 		RemoteBalance: lnwire.NewMSatFromSatoshis(channelBal),
 		FeePerKw:      btcutil.Amount(feePerKw),
-		CommitFee:     feePerKw.FeeForWeight(lnwallet.CommitWeight),
+		CommitFee:     feePerKw.FeeForWeight(input.CommitWeight),
 		CommitTx:      aliceCommitTx,
 		CommitSig:     bytes.Repeat([]byte{1}, 71),
 	}
@@ -223,7 +224,7 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 		LocalBalance:  lnwire.NewMSatFromSatoshis(channelBal),
 		RemoteBalance: lnwire.NewMSatFromSatoshis(channelBal),
 		FeePerKw:      btcutil.Amount(feePerKw),
-		CommitFee:     feePerKw.FeeForWeight(lnwallet.CommitWeight),
+		CommitFee:     feePerKw.FeeForWeight(input.CommitWeight),
 		CommitTx:      bobCommitTx,
 		CommitSig:     bytes.Repeat([]byte{1}, 71),
 	}
@@ -272,21 +273,21 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 		Packager:                channeldb.NewChannelPackager(shortChanID),
 	}
 
-	addr := &net.TCPAddr{
+	aliceAddr := &net.TCPAddr{
 		IP:   net.ParseIP("127.0.0.1"),
 		Port: 18555,
 	}
 
-	if err := aliceChannelState.SyncPending(addr, 0); err != nil {
+	if err := aliceChannelState.SyncPending(aliceAddr, 0); err != nil {
 		return nil, nil, nil, nil, err
 	}
 
-	addr = &net.TCPAddr{
+	bobAddr := &net.TCPAddr{
 		IP:   net.ParseIP("127.0.0.1"),
 		Port: 18556,
 	}
 
-	if err := bobChannelState.SyncPending(addr, 0); err != nil {
+	if err := bobChannelState.SyncPending(bobAddr, 0); err != nil {
 		return nil, nil, nil, nil, err
 	}
 
@@ -298,20 +299,27 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 	aliceSigner := &mockSigner{aliceKeyPriv}
 	bobSigner := &mockSigner{bobKeyPriv}
 
+	alicePool := lnwallet.NewSigPool(1, aliceSigner)
 	channelAlice, err := lnwallet.NewLightningChannel(
-		aliceSigner, nil, aliceChannelState,
+		aliceSigner, nil, aliceChannelState, alicePool,
 	)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
-	channelBob, err := lnwallet.NewLightningChannel(
-		bobSigner, nil, bobChannelState,
-	)
-	if err != nil {
-		return nil, nil, nil, nil, err
-	}
+	alicePool.Start()
 
-	chainIO := &mockChainIO{}
+	bobPool := lnwallet.NewSigPool(1, bobSigner)
+	channelBob, err := lnwallet.NewLightningChannel(
+		bobSigner, nil, bobChannelState, bobPool,
+	)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	bobPool.Start()
+
+	chainIO := &mockChainIO{
+		bestHeight: fundingBroadcastHeight,
+	}
 	wallet := &lnwallet.LightningWallet{
 		WalletController: &mockWalletController{
 			rootKey:               aliceKeyPriv,
@@ -341,10 +349,21 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 		breachArbiter: breachArbiter,
 		chainArb:      chainArb,
 	}
+
+	_, currentHeight, err := s.cc.chainIO.GetBestBlock()
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+
 	htlcSwitch, err := htlcswitch.New(htlcswitch.Config{
 		DB:             dbAlice,
 		SwitchPackager: channeldb.NewSwitchPackager(),
-	})
+		Notifier:       notifier,
+		FwdEventTicker: ticker.New(
+			htlcswitch.DefaultFwdEventInterval),
+		LogEventTicker: ticker.New(
+			htlcswitch.DefaultLogInterval),
+	}, uint32(currentHeight))
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
@@ -352,6 +371,11 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 	s.htlcSwitch.Start()
 
 	alicePeer := &peer{
+		addr: &lnwire.NetAddress{
+			IdentityKey: aliceKeyPub,
+			Address:     aliceAddr,
+		},
+
 		server:        s,
 		sendQueue:     make(chan outgoingMsg, 1),
 		outgoingQueue: make(chan outgoingMsg, outgoingQueueLen),

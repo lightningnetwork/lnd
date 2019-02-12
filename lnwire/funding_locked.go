@@ -3,7 +3,7 @@ package lnwire
 import (
 	"io"
 
-	"github.com/roasbeef/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec"
 )
 
 // FundingLocked is the message that both parties to a new channel creation
@@ -40,7 +40,7 @@ var _ Message = (*FundingLocked)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (c *FundingLocked) Decode(r io.Reader, pver uint32) error {
-	return readElements(r,
+	return ReadElements(r,
 		&c.ChanID,
 		&c.NextPerCommitmentPoint)
 }
@@ -51,7 +51,7 @@ func (c *FundingLocked) Decode(r io.Reader, pver uint32) error {
 //
 // This is part of the lnwire.Message interface.
 func (c *FundingLocked) Encode(w io.Writer, pver uint32) error {
-	return writeElements(w,
+	return WriteElements(w,
 		c.ChanID,
 		c.NextPerCommitmentPoint)
 }

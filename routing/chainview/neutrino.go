@@ -5,13 +5,13 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/rpcclient"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcutil/gcs/builder"
 	"github.com/lightninglabs/neutrino"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/rpcclient"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
-	"github.com/roasbeef/btcutil/gcs/builder"
-	"github.com/roasbeef/btcwallet/waddrmgr"
+	"github.com/lightningnetwork/lnd/channeldb"
 )
 
 // CfFilteredChainView is an implementation of the FilteredChainView interface
@@ -29,7 +29,7 @@ type CfFilteredChainView struct {
 
 	// chainView is the active rescan which only watches our specified
 	// sub-set of the UTXO set.
-	chainView neutrino.Rescan
+	chainView *neutrino.Rescan
 
 	// rescanErrChan is the channel that any errors encountered during the
 	// rescan will be sent over.
@@ -83,20 +83,16 @@ func (c *CfFilteredChainView) Start() error {
 	// start the auto-rescan from this point. Once a caller actually wishes
 	// to register a chain view, the rescan state will be rewound
 	// accordingly.
-	bestHeader, bestHeight, err := c.p2pNode.BlockHeaders.ChainTip()
+	startingPoint, err := c.p2pNode.BestBlock()
 	if err != nil {
 		return err
-	}
-	startingPoint := &waddrmgr.BlockStamp{
-		Height: int32(bestHeight),
-		Hash:   bestHeader.BlockHash(),
 	}
 
 	// Next, we'll create our set of rescan options. Currently it's
 	// required that an user MUST set a addr/outpoint/txid when creating a
 	// rescan. To get around this, we'll add a "zero" outpoint, that won't
 	// actually be matched.
-	var zeroPoint wire.OutPoint
+	var zeroPoint neutrino.InputWithScript
 	rescanOptions := []neutrino.RescanOption{
 		neutrino.StartBlock(startingPoint),
 		neutrino.QuitChan(c.quit),
@@ -106,7 +102,7 @@ func (c *CfFilteredChainView) Start() error {
 				OnFilteredBlockDisconnected: c.onFilteredBlockDisconnected,
 			},
 		),
-		neutrino.WatchOutPoints(zeroPoint),
+		neutrino.WatchInputs(zeroPoint),
 	}
 
 	// Finally, we'll create our rescan struct, start it, and launch all
@@ -214,14 +210,14 @@ func (c *CfFilteredChainView) chainFilterer() {
 func (c *CfFilteredChainView) FilterBlock(blockHash *chainhash.Hash) (*FilteredBlock, error) {
 	// First, we'll fetch the block header itself so we can obtain the
 	// height which is part of our return value.
-	_, blockHeight, err := c.p2pNode.BlockHeaders.FetchHeader(blockHash)
+	blockHeight, err := c.p2pNode.GetBlockHeight(blockHash)
 	if err != nil {
 		return nil, err
 	}
 
 	filteredBlock := &FilteredBlock{
 		Hash:   *blockHash,
-		Height: blockHeight,
+		Height: uint32(blockHeight),
 	}
 
 	// If we don't have any items within our current chain filter, then we
@@ -272,7 +268,7 @@ func (c *CfFilteredChainView) FilterBlock(blockHash *chainhash.Hash) (*FilteredB
 	// If we reach this point, then there was a match, so we'll need to
 	// fetch the block itself so we can scan it for any actual matches (as
 	// there's a fp rate).
-	block, err := c.p2pNode.GetBlockFromNetwork(*blockHash)
+	block, err := c.p2pNode.GetBlock(*blockHash)
 	if err != nil {
 		return nil, err
 	}
@@ -314,23 +310,31 @@ func (c *CfFilteredChainView) FilterBlock(blockHash *chainhash.Hash) (*FilteredB
 // rewound to ensure all relevant notifications are dispatched.
 //
 // NOTE: This is part of the FilteredChainView interface.
-func (c *CfFilteredChainView) UpdateFilter(ops []wire.OutPoint,
+func (c *CfFilteredChainView) UpdateFilter(ops []channeldb.EdgePoint,
 	updateHeight uint32) error {
 
-	log.Debugf("Updating chain filter with new UTXO's: %v", ops)
+	log.Tracef("Updating chain filter with new UTXO's: %v", ops)
 
 	// First, we'll update the current chain view, by adding any new
 	// UTXO's, ignoring duplicates in the process.
 	c.filterMtx.Lock()
 	for _, op := range ops {
-		c.chainFilter[op] = builder.OutPointToFilterEntry(op)
+		c.chainFilter[op.OutPoint] = op.FundingPkScript
 	}
 	c.filterMtx.Unlock()
+
+	inputs := make([]neutrino.InputWithScript, len(ops))
+	for i, op := range ops {
+		inputs[i] = neutrino.InputWithScript{
+			PkScript: op.FundingPkScript,
+			OutPoint: op.OutPoint,
+		}
+	}
 
 	// With our internal chain view update, we'll craft a new update to the
 	// chainView which includes our new UTXO's, and current update height.
 	rescanUpdate := []neutrino.UpdateOption{
-		neutrino.AddOutPoints(ops...),
+		neutrino.AddInputs(inputs...),
 		neutrino.Rewind(updateHeight),
 		neutrino.DisableDisconnectedNtfns(true),
 	}

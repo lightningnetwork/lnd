@@ -4,9 +4,9 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcutil"
 )
 
 // ReservationError wraps certain errors returned during channel reservation
@@ -78,6 +78,13 @@ func ErrChanReserveTooLarge(reserve,
 	}
 }
 
+// ErrNonZeroPushAmount is returned by a remote peer that receives a
+// FundingOpen request for a channel with non-zero push amount while
+// they have 'rejectpush' enabled.
+func ErrNonZeroPushAmount() ReservationError {
+	return ReservationError{errors.New("Non-zero push amounts are disabled")}
+}
+
 // ErrMinHtlcTooLarge returns an error indicating that the MinHTLC value the
 // remote required is too large to be accepted.
 func ErrMinHtlcTooLarge(minHtlc,
@@ -116,6 +123,15 @@ func ErrMaxValueInFlightTooSmall(maxValInFlight,
 	}
 }
 
+// ErrNumConfsTooLarge returns an error indicating that the number of
+// confirmations required for a channel is too large.
+func ErrNumConfsTooLarge(numConfs, maxNumConfs uint32) error {
+	return ReservationError{
+		fmt.Errorf("minimum depth of %d is too large, max is %d",
+			numConfs, maxNumConfs),
+	}
+}
+
 // ErrChanTooSmall returns an error indicating that an incoming channel request
 // was too small. We'll reject any incoming channels if they're below our
 // configured value for the min channel size we'll accept.
@@ -124,4 +140,50 @@ func ErrChanTooSmall(chanSize, minChanSize btcutil.Amount) ReservationError {
 		fmt.Errorf("chan size of %v is below min chan size of %v",
 			chanSize, minChanSize),
 	}
+}
+
+// ErrHtlcIndexAlreadyFailed is returned when the HTLC index has already been
+// failed, but has not been committed by our commitment state.
+type ErrHtlcIndexAlreadyFailed uint64
+
+// Error returns a message indicating the index that had already been failed.
+func (e ErrHtlcIndexAlreadyFailed) Error() string {
+	return fmt.Sprintf("HTLC with ID %d has already been failed", e)
+}
+
+// ErrHtlcIndexAlreadySettled is returned when the HTLC index has already been
+// settled, but has not been committed by our commitment state.
+type ErrHtlcIndexAlreadySettled uint64
+
+// Error returns a message indicating the index that had already been settled.
+func (e ErrHtlcIndexAlreadySettled) Error() string {
+	return fmt.Sprintf("HTLC with ID %d has already been settled", e)
+}
+
+// ErrInvalidSettlePreimage is returned when trying to settle an HTLC, but the
+// preimage does not correspond to the payment hash.
+type ErrInvalidSettlePreimage struct {
+	preimage []byte
+	rhash    []byte
+}
+
+// Error returns an error message with the offending preimage and intended
+// payment hash.
+func (e ErrInvalidSettlePreimage) Error() string {
+	return fmt.Sprintf("Invalid payment preimage %x for hash %x",
+		e.preimage, e.rhash)
+}
+
+// ErrUnknownHtlcIndex is returned when locally settling or failing an HTLC, but
+// the HTLC index is not known to the channel. This typically indicates that the
+// HTLC was already settled in a prior commitment.
+type ErrUnknownHtlcIndex struct {
+	chanID lnwire.ShortChannelID
+	index  uint64
+}
+
+// Error returns an error logging the channel and HTLC index that was unknown.
+func (e ErrUnknownHtlcIndex) Error() string {
+	return fmt.Sprintf("No HTLC with ID %d in channel %v",
+		e.index, e.chanID)
 }

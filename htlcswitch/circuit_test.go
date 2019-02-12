@@ -6,13 +6,13 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/btcsuite/btcd/btcec"
+	bitcoinCfg "github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/roasbeef/btcd/btcec"
-	bitcoinCfg "github.com/roasbeef/btcd/chaincfg"
-	"github.com/roasbeef/btcutil"
 )
 
 var (
@@ -101,7 +101,7 @@ func newCircuitMap(t *testing.T) (*htlcswitch.CircuitMapConfig,
 	onionProcessor := newOnionProcessor(t)
 
 	circuitMapCfg := &htlcswitch.CircuitMapConfig{
-		DB: makeCircuitDB(t, ""),
+		DB:                    makeCircuitDB(t, ""),
 		ExtractErrorEncrypter: onionProcessor.ExtractErrorEncrypter,
 	}
 
@@ -227,7 +227,10 @@ func TestCircuitMapPersistence(t *testing.T) {
 
 	cfg, circuitMap := newCircuitMap(t)
 
-	circuit := circuitMap.LookupCircuit(htlcswitch.CircuitKey{chan1, 0})
+	circuit := circuitMap.LookupCircuit(htlcswitch.CircuitKey{
+		ChanID: chan1,
+		HtlcID: 0,
+	})
 	if circuit != nil {
 		t.Fatalf("LookupByHTLC returned a circuit before any were added: %v",
 			circuit)
@@ -480,8 +483,9 @@ func TestCircuitMapPersistence(t *testing.T) {
 
 	// Removing already-removed circuit should return an error.
 	err = circuitMap.DeleteCircuits(circuit1.Incoming)
-	if err == nil {
-		t.Fatal("Remove did not return expected not found error")
+	if err != nil {
+		t.Fatal("Unexpected failure when deleting already "+
+			"deleted circuit: %v", err)
 	}
 
 	// Verify that nothing related to hash1 has changed
@@ -515,10 +519,17 @@ func TestCircuitMapPersistence(t *testing.T) {
 	assertNumCircuitsWithHash(t, circuitMap, hash2, 0)
 	assertNumCircuitsWithHash(t, circuitMap, hash3, 1)
 
-	// Remove last remaining circuit with payment hash hash3.
-	err = circuitMap.DeleteCircuits(circuit3.Incoming)
+	// In removing the final circuit, we will try and remove all other known
+	// circuits as well. Any circuits that are unknown to the circuit map
+	// will be ignored, and only circuit 3 should be cause any change in the
+	// state.
+	err = circuitMap.DeleteCircuits(
+		circuit1.Incoming, circuit2.Incoming,
+		circuit3.Incoming, circuit4.Incoming,
+	)
 	if err != nil {
-		t.Fatalf("Remove returned unexpected error: %v", err)
+		t.Fatalf("Unexpected failure when removing circuit while also "+
+			"deleting already deleted circuits: %v", err)
 	}
 
 	// Check that the circuit map is empty, even after restarting.
@@ -649,7 +660,7 @@ func restartCircuitMap(t *testing.T, cfg *htlcswitch.CircuitMapConfig) (
 
 	// Reinitialize circuit map with same db path.
 	cfg2 := &htlcswitch.CircuitMapConfig{
-		DB: makeCircuitDB(t, dbPath),
+		DB:                    makeCircuitDB(t, dbPath),
 		ExtractErrorEncrypter: cfg.ExtractErrorEncrypter,
 	}
 	cm2, err := htlcswitch.NewCircuitMap(cfg2)

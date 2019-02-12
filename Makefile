@@ -1,56 +1,47 @@
 PKG := github.com/lightningnetwork/lnd
 ESCPKG := github.com\/lightningnetwork\/lnd
 
-DEP_PKG := github.com/golang/dep/cmd/dep
-BTCD_PKG := github.com/roasbeef/btcd
-GLIDE_PKG := github.com/Masterminds/glide
+BTCD_PKG := github.com/btcsuite/btcd
 GOVERALLS_PKG := github.com/mattn/goveralls
-LINT_PKG := gopkg.in/alecthomas/gometalinter.v1
+LINT_PKG := gopkg.in/alecthomas/gometalinter.v2
+GOACC_PKG := github.com/ory/go-acc
 
 GO_BIN := ${GOPATH}/bin
-DEP_BIN := $(GO_BIN)/dep
 BTCD_BIN := $(GO_BIN)/btcd
-GLIDE_BIN := $(GO_BIN)/glide
 GOVERALLS_BIN := $(GO_BIN)/goveralls
-LINT_BIN := $(GO_BIN)/gometalinter.v1
-
-HAVE_DEP := $(shell command -v $(DEP_BIN) 2> /dev/null)
-HAVE_BTCD := $(shell command -v $(BTCD_BIN) 2> /dev/null)
-HAVE_GLIDE := $(shell command -v $(GLIDE_BIN) 2> /dev/null)
-HAVE_GOVERALLS := $(shell command -v $(GOVERALLS_BIN) 2> /dev/null)
-HAVE_LINTER := $(shell command -v $(LINT_BIN) 2> /dev/null)
+LINT_BIN := $(GO_BIN)/gometalinter.v2
+GOACC_BIN := $(GO_BIN)/go-acc
 
 BTCD_DIR :=${GOPATH}/src/$(BTCD_PKG)
 
-COMMIT := $(shell git rev-parse HEAD)
-LDFLAGS := -ldflags "-X main.Commit=$(COMMIT)"
+COMMIT := $(shell git describe --abbrev=40 --dirty)
+LDFLAGS := -ldflags "-X $(PKG)/build.Commit=$(COMMIT)"
 
-GLIDE_COMMIT := 84607742b10f492430762d038e954236bbaf23f7
-BTCD_COMMIT := $(shell cat Gopkg.toml | \
-		grep -A1 $(BTCD_PKG) | \
+BTCD_COMMIT := $(shell cat go.mod | \
+		grep $(BTCD_PKG) | \
 		tail -n1 | \
-		awk '{ print $$3 }' | \
-		tr -d '"')
+		awk -F " " '{ print $$2 }' | \
+		awk -F "/" '{ print $$1 }')
 
-GOBUILD := go build -v
-GOINSTALL := go install -v
-GOTEST := go test -v
+GOACC_COMMIT := ddc355013f90fea78d83d3a6c71f1d37ac07ecd5
 
+GOBUILD := GO111MODULE=on go build -v
+GOINSTALL := GO111MODULE=on go install -v
+GOTEST := GO111MODULE=on go test -v
+
+GOFILES_NOVENDOR = $(shell find . -type f -name '*.go' -not -path "./vendor/*")
 GOLIST := go list $(PKG)/... | grep -v '/vendor/'
 GOLISTCOVER := $(shell go list -f '{{.ImportPath}}' ./... | sed -e 's/^$(ESCPKG)/./')
 GOLISTLINT := $(shell go list -f '{{.Dir}}' ./... | grep -v 'lnrpc')
 
-COVER = for dir in $(GOLISTCOVER); do \
-		$(GOTEST) $(TEST_FLAGS) \
-			-covermode=count \
-			-coverprofile=$$dir/profile.tmp $$dir; \
-		\
-		if [ -f $$dir/profile.tmp ]; then \
-			cat $$dir/profile.tmp | \
-				tail -n +2 >> profile.cov; \
-			$(RM) $$dir/profile.tmp; \
-		fi \
-	done
+RM := rm -f
+CP := cp
+MAKE := make
+XARGS := xargs -L 1
+
+include make/testing_flags.mk
+
+DEV_TAGS := $(if ${tags},$(DEV_TAGS) ${tags},$(DEV_TAGS))
 
 LINT = $(LINT_BIN) \
 	--disable-all \
@@ -62,20 +53,11 @@ LINT = $(LINT_BIN) \
 	grep -v 'ALL_CAPS\|OP_' 2>&1 | \
 	tee /dev/stderr
 
-CGO_STATUS_QUO := ${CGO_ENABLED}
-
-RM := rm -f
-CP := cp
-MAKE := make
-XARGS := xargs -L 1
-
 GREEN := "\\033[0;32m"
 NC := "\\033[0m"
 define print
 	echo $(GREEN)$1$(NC)
 endef
-
-include make/testing_flags.mk
 
 default: scratch
 
@@ -85,39 +67,22 @@ all: scratch check install
 # DEPENDENCIES
 # ============
 
-$(DEP_BIN):
-	@$(call print, "Fetching dep.")
-	go get -u $(DEP_PKG)
-
-$(GLIDE_BIN):
-	@$(call print, "Fetching glide.")
-	go get -d $(GLIDE_PKG)
-	cd ${GOPATH}/src/$(GLIDE_PKG) && git checkout $(GLIDE_COMMIT) 
-	$(GOINSTALL) $(GLIDE_PKG)
-
 $(GOVERALLS_BIN):
 	@$(call print, "Fetching goveralls.")
 	go get -u $(GOVERALLS_PKG)
 
 $(LINT_BIN):
-	@$(call print, "Fetching gometalinter.v1")
-	go get -u $(LINT_PKG)
-	$(GOINSTALL) $(LINT_PKG)
+	@$(call print, "Fetching gometalinter.v2")
+	GO111MODULE=off go get -u $(LINT_PKG)
 
-dep: $(DEP_BIN)
-	@$(call print, "Compiling dependencies.")
-	dep ensure -v
+$(GOACC_BIN):
+	@$(call print, "Fetching go-acc")
+	go get -u -v $(GOACC_PKG)@$(GOACC_COMMIT)
+	$(GOINSTALL) $(GOACC_PKG)
 
-$(BTCD_DIR):
-	@$(call print, "Fetching btcd.")
-	go get -d github.com/roasbeef/btcd
-
-btcd: $(GLIDE_BIN) $(BTCD_DIR)
-	@$(call print, "Compiling btcd dependencies.")
-	cd $(BTCD_DIR) && git checkout $(BTCD_COMMIT) && glide install
-	@$(call print, "Installing btcd and btcctl.")
-	$(GOINSTALL) $(BTCD_PKG)
-	$(GOINSTALL) $(BTCD_PKG)/cmd/btcctl
+btcd:
+	@$(call print, "Installing btcd.")
+	GO111MODULE=on go get -v github.com/btcsuite/btcd/@$(BTCD_COMMIT)
 
 # ============
 # INSTALLATION
@@ -125,15 +90,20 @@ btcd: $(GLIDE_BIN) $(BTCD_DIR)
 
 build:
 	@$(call print, "Building debug lnd and lncli.")
-	$(GOBUILD) -tags=$(TEST_TAGS) -o lnd-debug $(LDFLAGS) $(PKG)
-	$(GOBUILD) -tags=$(TEST_TAGS) -o lncli-debug $(LDFLAGS) $(PKG)/cmd/lncli
+	$(GOBUILD) -tags="$(DEV_TAGS)" -o lnd-debug $(LDFLAGS) $(PKG)
+	$(GOBUILD) -tags="$(DEV_TAGS)" -o lncli-debug $(LDFLAGS) $(PKG)/cmd/lncli
+
+build-itest:
+	@$(call print, "Building itest lnd and lncli.")
+	$(GOBUILD) -tags="$(ITEST_TAGS)" -o lnd-itest $(LDFLAGS) $(PKG)
+	$(GOBUILD) -tags="$(ITEST_TAGS)" -o lncli-itest $(LDFLAGS) $(PKG)/cmd/lncli
 
 install:
 	@$(call print, "Installing lnd and lncli.")
-	go install -v $(LDFLAGS) $(PKG)
-	go install -v $(LDFLAGS) $(PKG)/cmd/lncli
+	$(GOINSTALL) -tags="${tags}" $(LDFLAGS) $(PKG)
+	$(GOINSTALL) -tags="${tags}" $(LDFLAGS) $(PKG)/cmd/lncli
 
-scratch: dep build
+scratch: build
 
 
 # =======
@@ -142,51 +112,47 @@ scratch: dep build
 
 check: unit itest
 
-itest: btcd build
+itest-only:
 	@$(call print, "Running integration tests.")
 	$(ITEST)
+
+itest: btcd build-itest itest-only
 
 unit: btcd
 	@$(call print, "Running unit tests.")
 	$(UNIT)
 
-unit-cover:
+unit-cover: $(GOACC_BIN)
 	@$(call print, "Running unit coverage tests.")
-	echo "mode: count" > profile.cov
-	$(COVER)
-		
+	$(GOACC_BIN) $$(go list ./... | grep -v lnrpc) -- -test.tags="$(DEV_TAGS) $(LOG_TAGS)"
+
 unit-race:
 	@$(call print, "Running unit race tests.")
-	export CGO_ENABLED=1; env GORACE="history_size=7 halt_on_errors=1" $(UNIT_RACE)
-	export CGO_ENABLED=$(CGO_STATUS_QUO)
+	env CGO_ENABLED=1 GORACE="history_size=7 halt_on_errors=1" $(UNIT_RACE)
+
+goveralls: $(GOVERALLS_BIN)
+	@$(call print, "Sending coverage report.")
+	$(GOVERALLS_BIN) -coverprofile=coverage.txt -service=travis-ci
+
+
+travis-race: lint btcd unit-race
+
+travis-cover: lint btcd unit-cover goveralls
+
+travis-itest: lint itest
 
 # =============
 # FLAKE HUNTING
 # =============
 
-flakehunter: build
+flakehunter: build-itest
 	@$(call print, "Flake hunting integration tests.")
 	while [ $$? -eq 0 ]; do $(ITEST); done
 
 flake-unit:
 	@$(call print, "Flake hunting unit tests.")
-	$(UNIT) -count=1
-	while [ $$? -eq 0 ]; do /bin/sh -c "$(UNIT) -count=1"; done
-
-# ======
-# TRAVIS
-# ======
-
-ifeq ($(RACE), false)
-travis: lint scratch itest unit-cover $(GOVERALLS_BIN)
-	@$(call print, "Sending coverage report.")
-	$(GOVERALLS_BIN) -coverprofile=profile.cov -service=travis-ci
-endif
-
-ifeq ($(RACE), true)
-travis: lint dep btcd unit-race
-endif
-
+	GOTRACEBACK=all $(UNIT) -count=1
+	while [ $$? -eq 0 ]; do /bin/sh -c "GOTRACEBACK=all $(UNIT) -count=1"; done
 
 # =========
 # UTILITIES
@@ -194,12 +160,12 @@ endif
 
 fmt:
 	@$(call print, "Formatting source.")
-	$(GOLIST) | $(XARGS) go fmt -x
+	gofmt -l -w -s $(GOFILES_NOVENDOR)
 
 lint: $(LINT_BIN)
 	@$(call print, "Linting source.")
-	$(LINT_BIN) --install 1> /dev/null
-	test -z "$($(LINT))"
+	GO111MODULE=off $(LINT_BIN) --install 1> /dev/null
+	test -z "$$($(LINT))"
 
 list:
 	@$(call print, "Listing commands.")
@@ -214,25 +180,29 @@ rpc:
 
 clean:
 	@$(call print, "Cleaning source.$(NC)")
-	$(RM) ./lnd ./lncli
-	$(RM) -r ./vendor
+	$(RM) ./lnd-debug ./lncli-debug
+	$(RM) ./lnd-itest ./lncli-itest
+	$(RM) -r ./vendor .vendor-new
 
 
 .PHONY: all \
-	btcd\
+	btcd \
 	default \
-	dep \
 	build \
 	install \
 	scratch \
 	check \
+	itest-only \
 	itest \
 	unit \
 	unit-cover \
 	unit-race \
+	goveralls \
+	travis-race \
+	travis-cover \
+	travis-itest \
 	flakehunter \
 	flake-unit \
-	travis \
 	fmt \
 	lint \
 	list \

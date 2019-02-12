@@ -1,6 +1,9 @@
 package routing
 
-import "github.com/lightningnetwork/lnd/channeldb"
+import (
+	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/lnwire"
+)
 
 // nodeWithDist is a helper struct that couples the distance from the current
 // source to a node with a pointer to the node itself.
@@ -12,6 +15,14 @@ type nodeWithDist struct {
 	// node is the vertex itself. This pointer can be used to explore all
 	// the outgoing edges (channels) emanating from a node.
 	node *channeldb.LightningNode
+
+	// amountToReceive is the amount that should be received by this node.
+	// Either as final payment to the final node or as an intermediate
+	// amount that includes also the fees for subsequent hops.
+	amountToReceive lnwire.MilliSatoshi
+
+	// fee is the fee that this node is charging for forwarding.
+	fee lnwire.MilliSatoshi
 }
 
 // distanceHeap is a min-distance heap that's used within our path finding
@@ -67,9 +78,9 @@ type path struct {
 	// that the path requires.
 	dist int
 
-	// hops is an ordered list of edge that comprises a potential payment
+	// hops is an ordered list of edges that comprises a potential payment
 	// path.
-	hops []*ChannelHop
+	hops []*channeldb.ChannelEdgePolicy
 }
 
 // pathHeap is a min-heap that stores potential paths to be considered within

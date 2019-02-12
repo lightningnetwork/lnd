@@ -1,37 +1,37 @@
 package main
 
 import (
-	"os"
-
-	"io"
-
 	"fmt"
+	"io"
+	"os"
 	"path/filepath"
 
+	"github.com/btcsuite/btcd/connmgr"
 	"github.com/btcsuite/btclog"
 	"github.com/jrick/logrotate/rotator"
 	"github.com/lightninglabs/neutrino"
 	"github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/autopilot"
+	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channelnotifier"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/htlcswitch"
+	"github.com/lightningnetwork/lnd/invoices"
+	"github.com/lightningnetwork/lnd/lnrpc/autopilotrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/chainrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/netann"
 	"github.com/lightningnetwork/lnd/routing"
-	"github.com/roasbeef/btcd/connmgr"
+	"github.com/lightningnetwork/lnd/signal"
+	"github.com/lightningnetwork/lnd/sweep"
+	"github.com/lightningnetwork/lnd/watchtower"
 )
-
-// logWriter implements an io.Writer that outputs to both standard output and
-// the write-end pipe of an initialized log rotator.
-type logWriter struct{}
-
-func (logWriter) Write(p []byte) (n int, err error) {
-	os.Stdout.Write(p)
-	logRotatorPipe.Write(p)
-	return len(p), nil
-}
 
 // Loggers per subsystem.  A single backend logger is created and all subsystem
 // loggers created from it will write to the backend.  When adding new
@@ -42,38 +42,46 @@ func (logWriter) Write(p []byte) (n int, err error) {
 // log file.  This must be performed early during application startup by
 // calling initLogRotator.
 var (
+	logWriter = &build.LogWriter{}
+
 	// backendLog is the logging backend used to create all subsystem
 	// loggers.  The backend must not be used before the log rotator has
 	// been initialized, or data races and/or nil pointer dereferences will
 	// occur.
-	backendLog = btclog.NewBackend(logWriter{})
+	backendLog = btclog.NewBackend(logWriter)
 
 	// logRotator is one of the logging outputs.  It should be closed on
 	// application shutdown.
 	logRotator *rotator.Rotator
 
-	// logRotatorPipe is the write-end pipe for writing to the log rotator.
-	// It is written to by the Write method of the logWriter type.
-	logRotatorPipe *io.PipeWriter
-
-	ltndLog = backendLog.Logger("LTND")
-	lnwlLog = backendLog.Logger("LNWL")
-	peerLog = backendLog.Logger("PEER")
-	discLog = backendLog.Logger("DISC")
-	rpcsLog = backendLog.Logger("RPCS")
-	srvrLog = backendLog.Logger("SRVR")
-	ntfnLog = backendLog.Logger("NTFN")
-	chdbLog = backendLog.Logger("CHDB")
-	fndgLog = backendLog.Logger("FNDG")
-	hswcLog = backendLog.Logger("HSWC")
-	utxnLog = backendLog.Logger("UTXN")
-	brarLog = backendLog.Logger("BRAR")
-	cmgrLog = backendLog.Logger("CMGR")
-	crtrLog = backendLog.Logger("CRTR")
-	btcnLog = backendLog.Logger("BTCN")
-	atplLog = backendLog.Logger("ATPL")
-	cnctLog = backendLog.Logger("CNCT")
-	sphxLog = backendLog.Logger("SPHX")
+	ltndLog = build.NewSubLogger("LTND", backendLog.Logger)
+	lnwlLog = build.NewSubLogger("LNWL", backendLog.Logger)
+	peerLog = build.NewSubLogger("PEER", backendLog.Logger)
+	discLog = build.NewSubLogger("DISC", backendLog.Logger)
+	rpcsLog = build.NewSubLogger("RPCS", backendLog.Logger)
+	srvrLog = build.NewSubLogger("SRVR", backendLog.Logger)
+	ntfnLog = build.NewSubLogger("NTFN", backendLog.Logger)
+	chdbLog = build.NewSubLogger("CHDB", backendLog.Logger)
+	fndgLog = build.NewSubLogger("FNDG", backendLog.Logger)
+	hswcLog = build.NewSubLogger("HSWC", backendLog.Logger)
+	utxnLog = build.NewSubLogger("UTXN", backendLog.Logger)
+	brarLog = build.NewSubLogger("BRAR", backendLog.Logger)
+	cmgrLog = build.NewSubLogger("CMGR", backendLog.Logger)
+	crtrLog = build.NewSubLogger("CRTR", backendLog.Logger)
+	btcnLog = build.NewSubLogger("BTCN", backendLog.Logger)
+	atplLog = build.NewSubLogger("ATPL", backendLog.Logger)
+	cnctLog = build.NewSubLogger("CNCT", backendLog.Logger)
+	sphxLog = build.NewSubLogger("SPHX", backendLog.Logger)
+	swprLog = build.NewSubLogger("SWPR", backendLog.Logger)
+	sgnrLog = build.NewSubLogger("SGNR", backendLog.Logger)
+	wlktLog = build.NewSubLogger("WLKT", backendLog.Logger)
+	arpcLog = build.NewSubLogger("ARPC", backendLog.Logger)
+	invcLog = build.NewSubLogger("INVC", backendLog.Logger)
+	nannLog = build.NewSubLogger("NANN", backendLog.Logger)
+	wtwrLog = build.NewSubLogger("WTWR", backendLog.Logger)
+	ntfrLog = build.NewSubLogger("NTFR", backendLog.Logger)
+	irpcLog = build.NewSubLogger("IRPC", backendLog.Logger)
+	chnfLog = build.NewSubLogger("CHNF", backendLog.Logger)
 )
 
 // Initialize package-global logger variables.
@@ -89,6 +97,17 @@ func init() {
 	autopilot.UseLogger(atplLog)
 	contractcourt.UseLogger(cnctLog)
 	sphinx.UseLogger(sphxLog)
+	signal.UseLogger(ltndLog)
+	sweep.UseLogger(swprLog)
+	signrpc.UseLogger(sgnrLog)
+	walletrpc.UseLogger(wlktLog)
+	autopilotrpc.UseLogger(arpcLog)
+	invoices.UseLogger(invcLog)
+	netann.UseLogger(nannLog)
+	watchtower.UseLogger(wtwrLog)
+	chainrpc.UseLogger(ntfrLog)
+	invoicesrpc.UseLogger(irpcLog)
+	channelnotifier.UseLogger(chnfLog)
 }
 
 // subsystemLoggers maps each subsystem identifier to its associated logger.
@@ -111,6 +130,16 @@ var subsystemLoggers = map[string]btclog.Logger{
 	"ATPL": atplLog,
 	"CNCT": cnctLog,
 	"SPHX": sphxLog,
+	"SWPR": swprLog,
+	"SGNR": sgnrLog,
+	"WLKT": wlktLog,
+	"ARPC": arpcLog,
+	"INVC": invcLog,
+	"NANN": nannLog,
+	"WTWR": wtwrLog,
+	"NTFR": ntfnLog,
+	"IRPC": irpcLog,
+	"CHNF": chnfLog,
 }
 
 // initLogRotator initializes the logging rotator to write logs to logFile and
@@ -132,8 +161,8 @@ func initLogRotator(logFile string, MaxLogFileSize int, MaxLogFiles int) {
 	pr, pw := io.Pipe()
 	go r.Run(pr)
 
+	logWriter.RotatorPipe = pw
 	logRotator = r
-	logRotatorPipe = pw
 }
 
 // setLogLevel sets the logging level for provided subsystem.  Invalid

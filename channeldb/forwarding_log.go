@@ -83,7 +83,7 @@ type ForwardingEvent struct {
 // io.Writer, using the expected DB format. Note that the timestamp isn't
 // serialized as this will be the key value within the bucket.
 func encodeForwardingEvent(w io.Writer, f *ForwardingEvent) error {
-	return writeElements(
+	return WriteElements(
 		w, f.IncomingChanID, f.OutgoingChanID, f.AmtIn, f.AmtOut,
 	)
 }
@@ -93,7 +93,7 @@ func encodeForwardingEvent(w io.Writer, f *ForwardingEvent) error {
 // won't be decoded, as the caller is expected to set this due to the bucket
 // structure of the forwarding log.
 func decodeForwardingEvent(r io.Reader, f *ForwardingEvent) error {
-	return readElements(
+	return ReadElements(
 		r, &f.IncomingChanID, &f.OutgoingChanID, &f.AmtIn, &f.AmtOut,
 	)
 }
@@ -111,7 +111,7 @@ func (f *ForwardingLog) AddForwardingEvents(events []ForwardingEvent) error {
 
 	var timestamp [8]byte
 
-	return f.db.Batch(func(tx *bolt.Tx) error {
+	return f.db.Batch(func(tx *bbolt.Tx) error {
 		// First, we'll fetch the bucket that stores our time series
 		// log.
 		logBucket, err := tx.CreateBucketIfNotExists(
@@ -204,7 +204,7 @@ func (f *ForwardingLog) Query(q ForwardingEventQuery) (ForwardingLogTimeSlice, e
 	recordsToSkip := q.IndexOffset
 	recordOffset := q.IndexOffset
 
-	err := f.db.View(func(tx *bolt.Tx) error {
+	err := f.db.View(func(tx *bbolt.Tx) error {
 		// If the bucket wasn't found, then there aren't any events to
 		// be returned.
 		logBucket := tx.Bucket(forwardingLogBucket)

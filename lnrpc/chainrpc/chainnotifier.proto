@@ -1,0 +1,177 @@
+syntax = "proto3";
+
+package chainrpc;
+
+message ConfRequest {
+    /*
+    The transaction hash for which we should request a confirmation notification
+    for. If set to a hash of all zeros, then the confirmation notification will
+    be requested for the script instead.
+    */
+    bytes txid = 1;
+
+    /*
+    An output script within a transaction with the hash above which will be used
+    by light clients to match block filters. If the transaction hash is set to a
+    hash of all zeros, then a confirmation notification will be requested for
+    this script instead.
+    */
+    bytes script = 2;
+
+    /*
+    The number of desired confirmations the transaction/output script should
+    reach before dispatching a confirmation notification.
+    */
+    uint32 num_confs = 3;
+
+    /*
+    The earliest height in the chain for which the transaction/output script
+    could have been included in a block. This should in most cases be set to the
+    broadcast height of the transaction/output script.
+    */
+    uint32 height_hint = 4;
+}
+
+message ConfDetails {
+    // The raw bytes of the confirmed transaction.
+    bytes raw_tx = 1;
+
+    // The hash of the block in which the confirmed transaction was included in.
+    bytes block_hash = 2;
+
+    // The height of the block in which the confirmed transaction was included in.
+    uint32 block_height = 3;
+
+    // The index of the confirmed transaction within the transaction.
+    uint32 tx_index = 4;
+}
+
+message Reorg {
+    // TODO(wilmer): need to know how the client will use this first.
+}
+
+message ConfEvent {
+    oneof event {
+        /*
+        An event that includes the confirmation details of the request
+        (txid/ouput script).
+        */
+        ConfDetails conf = 1;
+
+        /*
+        An event send when the transaction of the request is reorged out of the
+        chain.
+        */
+        Reorg reorg = 2;
+    }
+}
+
+message Outpoint {
+    // The hash of the transaction.
+    bytes hash = 1;
+
+    // The index of the output within the transaction.
+    uint32 index = 2;
+}
+
+message SpendRequest {
+    /*
+    The outpoint for which we should request a spend notification for. If set to
+    a zero outpoint, then the spend notification will be requested for the
+    script instead.
+    */
+    Outpoint outpoint = 1;
+
+    /*
+    The output script for the outpoint above. This will be used by light clients
+    to match block filters. If the outpoint is set to a zero outpoint, then a
+    spend notification will be requested for this script instead.
+    */
+    bytes script = 2;
+
+    /*
+    The earliest height in the chain for which the outpoint/output script could
+    have been spent. This should in most cases be set to the broadcast height of
+    the outpoint/output script.
+    */
+    uint32 height_hint = 3;
+
+    // TODO(wilmer): extend to support num confs on spending tx.
+}
+
+message SpendDetails {
+    // The outpoint was that spent.
+    Outpoint spending_outpoint = 1;
+
+    // The raw bytes of the spending transaction.
+    bytes raw_spending_tx = 2;
+
+    // The hash of the spending transaction.
+    bytes spending_tx_hash = 3;
+
+    // The input of the spending transaction that fulfilled the spend request.
+    uint32 spending_input_index = 4;
+
+    // The height at which the spending transaction was included in a block.
+    uint32 spending_height = 5;
+}
+
+message SpendEvent {
+    oneof event {
+        /*
+        An event that includes the details of the spending transaction of the
+        request (outpoint/output script).
+        */
+        SpendDetails spend = 1;
+
+        /*
+        An event sent when the spending transaction of the request was
+        reorged out of the chain.
+        */
+        Reorg reorg = 2;
+    }
+}
+
+message BlockEpoch {
+    // The hash of the block.
+    bytes hash = 1;
+
+    // The height of the block.
+    uint32 height = 2;
+}
+
+service ChainNotifier {
+    /*
+    RegisterConfirmationsNtfn is a synchronous response-streaming RPC that
+    registers an intent for a client to be notified once a confirmation request
+    has reached its required number of confirmations on-chain.
+
+    A client can specify whether the confirmation request should be for a
+    particular transaction by its hash or for an output script by specifying a
+    zero hash.
+    */
+    rpc RegisterConfirmationsNtfn(ConfRequest) returns (stream ConfEvent);
+
+    /*
+    RegisterSpendNtfn is a synchronous response-streaming RPC that registers an
+    intent for a client to be notification once a spend request has been spent
+    by a transaction that has confirmed on-chain.
+
+    A client can specify whether the spend request should be for a particular
+    outpoint  or for an output script by specifying a zero outpoint.
+    */
+    rpc RegisterSpendNtfn(SpendRequest) returns (stream SpendEvent);
+
+    /*
+    RegisterBlockEpochNtfn is a synchronous response-streaming RPC that
+    registers an intent for a client to be notified of blocks in the chain. The
+    stream will return a hash and height tuple of a block for each new/stale
+    block in the chain. It is the client's responsibility to determine whether
+    the tuple returned is for a new or stale block in the chain.
+
+    A client can also request a historical backlog of blocks from a particular
+    point. This allows clients to be idempotent by ensuring that they do not
+    missing processing a single block within the chain.
+    */
+    rpc RegisterBlockEpochNtfn(BlockEpoch) returns (stream BlockEpoch);
+}

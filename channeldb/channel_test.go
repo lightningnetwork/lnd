@@ -10,16 +10,16 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
+	_ "github.com/btcsuite/btcwallet/walletdb/bdb"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
-	_ "github.com/roasbeef/btcwallet/walletdb/bdb"
 )
 
 var (
@@ -136,8 +136,8 @@ func createTestChannelState(cdb *DB) (*OpenChannel, error) {
 			ChanReserve:      btcutil.Amount(rand.Int63()),
 			MinHTLC:          lnwire.MilliSatoshi(rand.Int63()),
 			MaxAcceptedHtlcs: uint16(rand.Int31()),
+			CsvDelay:         uint16(rand.Int31()),
 		},
-		CsvDelay: uint16(rand.Int31()),
 		MultiSigKey: keychain.KeyDescriptor{
 			PubKey: privKey.PubKey(),
 		},
@@ -161,22 +161,42 @@ func createTestChannelState(cdb *DB) (*OpenChannel, error) {
 			ChanReserve:      btcutil.Amount(rand.Int63()),
 			MinHTLC:          lnwire.MilliSatoshi(rand.Int63()),
 			MaxAcceptedHtlcs: uint16(rand.Int31()),
+			CsvDelay:         uint16(rand.Int31()),
 		},
-		CsvDelay: uint16(rand.Int31()),
 		MultiSigKey: keychain.KeyDescriptor{
 			PubKey: privKey.PubKey(),
+			KeyLocator: keychain.KeyLocator{
+				Family: keychain.KeyFamilyMultiSig,
+				Index:  9,
+			},
 		},
 		RevocationBasePoint: keychain.KeyDescriptor{
 			PubKey: privKey.PubKey(),
+			KeyLocator: keychain.KeyLocator{
+				Family: keychain.KeyFamilyRevocationBase,
+				Index:  8,
+			},
 		},
 		PaymentBasePoint: keychain.KeyDescriptor{
 			PubKey: privKey.PubKey(),
+			KeyLocator: keychain.KeyLocator{
+				Family: keychain.KeyFamilyPaymentBase,
+				Index:  7,
+			},
 		},
 		DelayBasePoint: keychain.KeyDescriptor{
 			PubKey: privKey.PubKey(),
+			KeyLocator: keychain.KeyLocator{
+				Family: keychain.KeyFamilyDelayBase,
+				Index:  6,
+			},
 		},
 		HtlcBasePoint: keychain.KeyDescriptor{
 			PubKey: privKey.PubKey(),
+			KeyLocator: keychain.KeyLocator{
+				Family: keychain.KeyFamilyHtlcBase,
+				Index:  5,
+			},
 		},
 	}
 
@@ -185,7 +205,7 @@ func createTestChannelState(cdb *DB) (*OpenChannel, error) {
 	return &OpenChannel{
 		ChanType:          SingleFunder,
 		ChainHash:         key,
-		FundingOutpoint:   *testOutpoint,
+		FundingOutpoint:   wire.OutPoint{Hash: key, Index: rand.Uint32()},
 		ShortChannelID:    chanID,
 		IsInitiator:       true,
 		IsPending:         true,
@@ -228,10 +248,10 @@ func TestOpenChannelPutGetDelete(t *testing.T) {
 	t.Parallel()
 
 	cdb, cleanUp, err := makeTestDB()
-	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to make test database: %v", err)
 	}
+	defer cleanUp()
 
 	// Create the test channel state, then add an additional fake HTLC
 	// before syncing to disk.
@@ -348,10 +368,10 @@ func TestChannelStateTransition(t *testing.T) {
 	t.Parallel()
 
 	cdb, cleanUp, err := makeTestDB()
-	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to make test database: %v", err)
 	}
+	defer cleanUp()
 
 	// First create a minimal channel, then perform a full sync in order to
 	// persist the data.
@@ -772,6 +792,7 @@ func TestFetchClosedChannels(t *testing.T) {
 		TimeLockedBalance: state.RemoteCommitment.LocalBalance.ToSatoshis() + 10000,
 		CloseType:         RemoteForceClose,
 		IsPending:         true,
+		LocalChanConfig:   state.LocalChanCfg,
 	}
 	if err := state.CloseChannel(summary); err != nil {
 		t.Fatalf("unable to close channel: %v", err)
@@ -828,6 +849,79 @@ func TestFetchClosedChannels(t *testing.T) {
 	if len(pendingClose) != 0 {
 		t.Fatalf("incorrect number of closed channels: expecting %v, "+
 			"got %v", 0, len(closed))
+	}
+}
+
+// TestFetchWaitingCloseChannels ensures that the correct channels that are
+// waiting to be closed are returned.
+func TestFetchWaitingCloseChannels(t *testing.T) {
+	t.Parallel()
+
+	const numChannels = 2
+	const broadcastHeight = 99
+	addr := &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 18555}
+
+	// We'll start by creating two channels within our test database. One of
+	// them will have their funding transaction confirmed on-chain, while
+	// the other one will remain unconfirmed.
+	db, cleanUp, err := makeTestDB()
+	if err != nil {
+		t.Fatalf("unable to make test database: %v", err)
+	}
+	defer cleanUp()
+
+	channels := make([]*OpenChannel, numChannels)
+	for i := 0; i < numChannels; i++ {
+		channel, err := createTestChannelState(db)
+		if err != nil {
+			t.Fatalf("unable to create channel: %v", err)
+		}
+		err = channel.SyncPending(addr, broadcastHeight)
+		if err != nil {
+			t.Fatalf("unable to sync channel: %v", err)
+		}
+		channels[i] = channel
+	}
+
+	// We'll only confirm the first one.
+	channelConf := lnwire.ShortChannelID{
+		BlockHeight: broadcastHeight + 1,
+		TxIndex:     10,
+		TxPosition:  15,
+	}
+	if err := channels[0].MarkAsOpen(channelConf); err != nil {
+		t.Fatalf("unable to mark channel as open: %v", err)
+	}
+
+	// Then, we'll mark the channels as if their commitments were broadcast.
+	// This would happen in the event of a force close and should make the
+	// channels enter a state of waiting close.
+	for _, channel := range channels {
+		if err := channel.MarkCommitmentBroadcasted(); err != nil {
+			t.Fatalf("unable to mark commitment broadcast: %v", err)
+		}
+	}
+
+	// Now, we'll fetch all the channels waiting to be closed from the
+	// database. We should expect to see both channels above, even if any of
+	// them haven't had their funding transaction confirm on-chain.
+	waitingCloseChannels, err := db.FetchWaitingCloseChannels()
+	if err != nil {
+		t.Fatalf("unable to fetch all waiting close channels: %v", err)
+	}
+	if len(waitingCloseChannels) != 2 {
+		t.Fatalf("expected %d channels waiting to be closed, got %d", 2,
+			len(waitingCloseChannels))
+	}
+	expectedChannels := make(map[wire.OutPoint]struct{})
+	for _, channel := range channels {
+		expectedChannels[channel.FundingOutpoint] = struct{}{}
+	}
+	for _, channel := range waitingCloseChannels {
+		if _, ok := expectedChannels[channel.FundingOutpoint]; !ok {
+			t.Fatalf("expected channel %v to be waiting close",
+				channel.FundingOutpoint)
+		}
 	}
 }
 
@@ -898,6 +992,16 @@ func TestRefreshShortChanID(t *testing.T) {
 			"updated before refreshing short_chan_id")
 	}
 
+	// Now that the receiver's short channel id has been updated, check to
+	// ensure that the channel packager's source has been updated as well.
+	// This ensures that the packager will read and write to buckets
+	// corresponding to the new short chan id, instead of the prior.
+	if state.Packager.(*ChannelPackager).source != chanOpenLoc {
+		t.Fatalf("channel packager source was not updated: want %v, "+
+			"got %v", chanOpenLoc,
+			state.Packager.(*ChannelPackager).source)
+	}
+
 	// Now, refresh the short channel ID of the pending channel.
 	err = pendingChannel.RefreshShortChanID()
 	if err != nil {
@@ -910,5 +1014,15 @@ func TestRefreshShortChanID(t *testing.T) {
 		t.Fatalf("expected pending channel short_chan_id to be "+
 			"refreshed: want %v, got %v", state.ShortChanID(),
 			pendingChannel.ShortChanID())
+	}
+
+	// Check to ensure that the _other_ OpenChannel channel packager's
+	// source has also been updated after the refresh. This ensures that the
+	// other packagers will read and write to buckets corresponding to the
+	// updated short chan id.
+	if pendingChannel.Packager.(*ChannelPackager).source != chanOpenLoc {
+		t.Fatalf("channel packager source was not updated: want %v, "+
+			"got %v", chanOpenLoc,
+			pendingChannel.Packager.(*ChannelPackager).source)
 	}
 }

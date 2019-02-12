@@ -35,7 +35,7 @@ var _ Message = (*Ping)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (p *Ping) Decode(r io.Reader, pver uint32) error {
-	return readElements(r,
+	return ReadElements(r,
 		&p.NumPongBytes,
 		&p.PaddingBytes)
 }
@@ -45,7 +45,7 @@ func (p *Ping) Decode(r io.Reader, pver uint32) error {
 //
 // This is part of the lnwire.Message interface.
 func (p *Ping) Encode(w io.Writer, pver uint32) error {
-	return writeElements(w,
+	return WriteElements(w,
 		p.NumPongBytes,
 		p.PaddingBytes)
 }

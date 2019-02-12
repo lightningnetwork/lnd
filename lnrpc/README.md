@@ -29,6 +29,8 @@ description):
        `lnd`.
   * SendCoins
      * Sends an amount of satoshis to a specific address.
+  * ListUnspent
+     * Lists available utxos within a range of confirmations.
   * SubscribeTransactions
      * Returns a stream which sends async notifications each time a transaction
        is created or one is received that pays to us.
@@ -37,10 +39,8 @@ description):
        (many outputs).
   * NewAddress
      * Returns a new address, the following address types are supported:
-       pay-to-public-key-hash (p2pkh), pay-to-witness-key-hash (p2wkh), and
-       nested-pay-to-witness-key-hash (np2wkh).
-  * NewWitnessAddress
-     * Returns a new witness address (np2wkh) under control of the local wallet.
+       pay-to-witness-key-hash (p2wkh) and nested-pay-to-witness-key-hash
+       (np2wkh).
   * SignMessage
      * Signs a message with the node's identity key and returns a
        zbase32 encoded signature.
@@ -149,15 +149,22 @@ $ unzip protoc-3.4.0-osx-x86_64.zip -d protoc
 $ export PATH=$PWD/protoc/bin:$PATH
 ```
 
-2. Install `golang/protobuf` at commit `ab9f9a6dab164b7d1246e0e688b0ab7b94d8553e`.
+2. Install `golang/protobuf` at commit `aa810b61a9c79d51363740d207bb46cf8e620ed5` (v1.2.0).
 ```bash
 $ git clone https://github.com/golang/protobuf $GOPATH/src/github.com/golang/protobuf
 $ cd $GOPATH/src/github.com/golang/protobuf
-$ git reset --hard ab9f9a6dab164b7d1246e0e688b0ab7b94d8553e
+$ git reset --hard aa810b61a9c79d51363740d207bb46cf8e620ed5
 $ make
 ```
 
-3. Install `grpc-ecosystem/grpc-gateway` at commit `f2862b476edcef83412c7af8687c9cd8e4097c0f`.
+3. Install 'genproto' at commit `a8101f21cf983e773d0c1133ebc5424792003214`.
+```bash
+$ go get google.golang.org/genproto
+$ cd $GOPATH/src/google.golang.org/genproto
+$ git reset --hard a8101f21cf983e773d0c1133ebc5424792003214
+```
+
+4. Install `grpc-ecosystem/grpc-gateway` at commit `f2862b476edcef83412c7af8687c9cd8e4097c0f`.
 ```bash
 $ git clone https://github.com/grpc-ecosystem/grpc-gateway $GOPATH/src/github.com/grpc-ecosystem/grpc-gateway
 $ cd $GOPATH/src/github.com/grpc-ecosystem/grpc-gateway
@@ -165,4 +172,4 @@ $ git reset --hard f2862b476edcef83412c7af8687c9cd8e4097c0f
 $ go install ./protoc-gen-grpc-gateway ./protoc-gen-swagger
 ```
 
-4. Run [`gen_protos.sh`](https://github.com/lightningnetwork/lnd/blob/master/lnrpc/gen_protos.sh) to generate new protobuf definitions.
+5. Run [`gen_protos.sh`](https://github.com/lightningnetwork/lnd/blob/master/lnrpc/gen_protos.sh) to generate new protobuf definitions.

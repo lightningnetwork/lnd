@@ -25,7 +25,7 @@ var _ Message = (*FundingSigned)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (f *FundingSigned) Encode(w io.Writer, pver uint32) error {
-	return writeElements(w, f.ChanID, f.CommitSig)
+	return WriteElements(w, f.ChanID, f.CommitSig)
 }
 
 // Decode deserializes the serialized FundingSigned stored in the passed
@@ -34,7 +34,7 @@ func (f *FundingSigned) Encode(w io.Writer, pver uint32) error {
 //
 // This is part of the lnwire.Message interface.
 func (f *FundingSigned) Decode(r io.Reader, pver uint32) error {
-	return readElements(r, &f.ChanID, &f.CommitSig)
+	return ReadElements(r, &f.ChanID, &f.CommitSig)
 }
 
 // MsgType returns the uint32 code which uniquely identifies this message as a

@@ -9,14 +9,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/davecgh/go-spew/spew"
+
+	"github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
-	"github.com/roasbeef/btcd/wire"
-
-	"github.com/davecgh/go-spew/spew"
-	"github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/roasbeef/btcd/btcec"
 )
 
 // defaultNumRoutes is the default value for the maximum number of routes to
@@ -46,7 +47,7 @@ func (c *testCtx) RestartRouter() error {
 		Graph:     c.graph,
 		Chain:     c.chain,
 		ChainView: c.chainView,
-		SendToSwitch: func(_ [33]byte,
+		SendToSwitch: func(_ lnwire.ShortChannelID,
 			_ *lnwire.UpdateAddHTLC, _ *sphinx.Circuit) ([32]byte, error) {
 			return [32]byte{}, nil
 		},
@@ -74,55 +75,21 @@ func copyPubKey(pub *btcec.PublicKey) *btcec.PublicKey {
 	}
 }
 
-func createTestCtx(startingHeight uint32, testGraph ...string) (*testCtx, func(), error) {
-	var (
-		graph      *channeldb.ChannelGraph
-		sourceNode *channeldb.LightningNode
-		cleanup    func()
-		err        error
-	)
+func createTestCtxFromGraphInstance(startingHeight uint32, graphInstance *testGraphInstance) (
+	*testCtx, func(), error) {
 
-	aliasMap := make(map[string]*btcec.PublicKey)
-
-	// If the testGraph isn't set, then we'll create an empty graph to
-	// start out with. Our usage of a variadic parameter allows caller to
-	// omit the testGraph argument all together if they wish to start with
-	// a blank graph.
-	if testGraph == nil {
-		// First we'll set up a test graph for usage within the test.
-		graph, cleanup, err = makeTestGraph()
-		if err != nil {
-			return nil, nil, fmt.Errorf("unable to create test graph: %v", err)
-		}
-
-		sourceNode, err = createTestNode()
-		if err != nil {
-			return nil, nil, fmt.Errorf("unable to create source node: %v", err)
-		}
-		if err = graph.SetSourceNode(sourceNode); err != nil {
-			return nil, nil, fmt.Errorf("unable to set source node: %v", err)
-		}
-	} else {
-		// Otherwise, we'll attempt to locate and parse out the file
-		// that encodes the graph that our tests should be run against.
-		graph, cleanup, aliasMap, err = parseTestGraph(testGraph[0])
-		if err != nil {
-			return nil, nil, fmt.Errorf("unable to create test graph: %v", err)
-		}
-	}
-
-	// Next we'll initialize an instance of the channel router with mock
+	// We'll initialize an instance of the channel router with mock
 	// versions of the chain and channel notifier. As we don't need to test
 	// any p2p functionality, the peer send and switch send messages won't
 	// be populated.
 	chain := newMockChain(startingHeight)
 	chainView := newMockChainView(chain)
 	router, err := New(Config{
-		Graph:     graph,
+		Graph:     graphInstance.graph,
 		Chain:     chain,
 		ChainView: chainView,
-		SendToSwitch: func(_ [33]byte, _ *lnwire.UpdateAddHTLC,
-			_ *sphinx.Circuit) ([32]byte, error) {
+		SendToSwitch: func(_ lnwire.ShortChannelID,
+			_ *lnwire.UpdateAddHTLC, _ *sphinx.Circuit) ([32]byte, error) {
 
 			return [32]byte{}, nil
 		},
@@ -141,18 +108,58 @@ func createTestCtx(startingHeight uint32, testGraph ...string) (*testCtx, func()
 
 	ctx := &testCtx{
 		router:    router,
-		graph:     graph,
-		aliases:   aliasMap,
+		graph:     graphInstance.graph,
+		aliases:   graphInstance.aliasMap,
 		chain:     chain,
 		chainView: chainView,
 	}
 
 	cleanUp := func() {
 		ctx.router.Stop()
-		cleanup()
+		graphInstance.cleanUp()
 	}
 
 	return ctx, cleanUp, nil
+}
+
+func createTestCtxSingleNode(startingHeight uint32) (*testCtx, func(), error) {
+	var (
+		graph      *channeldb.ChannelGraph
+		sourceNode *channeldb.LightningNode
+		cleanup    func()
+		err        error
+	)
+
+	graph, cleanup, err = makeTestGraph()
+	if err != nil {
+		return nil, nil, fmt.Errorf("unable to create test graph: %v", err)
+	}
+
+	sourceNode, err = createTestNode()
+	if err != nil {
+		return nil, nil, fmt.Errorf("unable to create source node: %v", err)
+	}
+	if err = graph.SetSourceNode(sourceNode); err != nil {
+		return nil, nil, fmt.Errorf("unable to set source node: %v", err)
+	}
+
+	graphInstance := &testGraphInstance{
+		graph:   graph,
+		cleanUp: cleanup,
+	}
+
+	return createTestCtxFromGraphInstance(startingHeight, graphInstance)
+}
+
+func createTestCtxFromFile(startingHeight uint32, testGraph string) (*testCtx, func(), error) {
+	// We'll attempt to locate and parse out the file
+	// that encodes the graph that our tests should be run against.
+	graphInstance, err := parseTestGraph(testGraph)
+	if err != nil {
+		return nil, nil, fmt.Errorf("unable to create test graph: %v", err)
+	}
+
+	return createTestCtxFromGraphInstance(startingHeight, graphInstance)
 }
 
 // TestFindRoutesFeeSorting asserts that routes found by the FindRoutes method
@@ -162,11 +169,11 @@ func TestFindRoutesFeeSorting(t *testing.T) {
 	t.Parallel()
 
 	const startingBlockHeight = 101
-	ctx, cleanUp, err := createTestCtx(startingBlockHeight, basicGraphFilePath)
-	defer cleanUp()
+	ctx, cleanUp, err := createTestCtxFromFile(startingBlockHeight, basicGraphFilePath)
 	if err != nil {
 		t.Fatalf("unable to create router: %v", err)
 	}
+	defer cleanUp()
 
 	// In this test we'd like to ensure proper integration of the various
 	// functions that are involved in path finding, and also route
@@ -215,13 +222,13 @@ func TestFindRoutesWithFeeLimit(t *testing.T) {
 	t.Parallel()
 
 	const startingBlockHeight = 101
-	ctx, cleanUp, err := createTestCtx(
+	ctx, cleanUp, err := createTestCtxFromFile(
 		startingBlockHeight, basicGraphFilePath,
 	)
-	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to create router: %v", err)
 	}
+	defer cleanUp()
 
 	// This test will attempt to find routes from roasbeef to sophon for 100
 	// satoshis with a fee limit of 10 satoshis. There are two routes from
@@ -255,9 +262,12 @@ func TestFindRoutesWithFeeLimit(t *testing.T) {
 		t.Fatalf("expected 2 hops, got %d", len(hops))
 	}
 
-	if hops[0].Channel.Node.Alias != "songoku" {
+	if !bytes.Equal(hops[0].PubKeyBytes[:],
+		ctx.aliases["songoku"].SerializeCompressed()) {
+
 		t.Fatalf("expected first hop through songoku, got %s",
-			hops[0].Channel.Node.Alias)
+			getAliasFromPubKey(hops[0].PubKeyBytes[:],
+				ctx.aliases))
 	}
 }
 
@@ -269,11 +279,11 @@ func TestSendPaymentRouteFailureFallback(t *testing.T) {
 	t.Parallel()
 
 	const startingBlockHeight = 101
-	ctx, cleanUp, err := createTestCtx(startingBlockHeight, basicGraphFilePath)
-	defer cleanUp()
+	ctx, cleanUp, err := createTestCtxFromFile(startingBlockHeight, basicGraphFilePath)
 	if err != nil {
 		t.Fatalf("unable to create router: %v", err)
 	}
+	defer cleanUp()
 
 	// Craft a LightningPayment struct that'll send a payment from roasbeef
 	// to luo ji for 1000 satoshis, with a maximum of 1000 satoshis in fees.
@@ -295,10 +305,11 @@ func TestSendPaymentRouteFailureFallback(t *testing.T) {
 	// router's configuration to ignore the path that has luo ji as the
 	// first hop. This should force the router to instead take the
 	// available two hop path (through satoshi).
-	ctx.router.cfg.SendToSwitch = func(n [33]byte,
+	ctx.router.cfg.SendToSwitch = func(firstHop lnwire.ShortChannelID,
 		_ *lnwire.UpdateAddHTLC, _ *sphinx.Circuit) ([32]byte, error) {
 
-		if bytes.Equal(ctx.aliases["luoji"].SerializeCompressed(), n[:]) {
+		roasbeefLuoji := lnwire.NewShortChanIDFromInt(689530843)
+		if firstHop == roasbeefLuoji {
 			pub, err := sourceNode.PubKey()
 			if err != nil {
 				return preImage, err
@@ -333,10 +344,170 @@ func TestSendPaymentRouteFailureFallback(t *testing.T) {
 	}
 
 	// The route should have satoshi as the first hop.
-	if route.Hops[0].Channel.Node.Alias != "satoshi" {
+	if !bytes.Equal(route.Hops[0].PubKeyBytes[:],
+		ctx.aliases["satoshi"].SerializeCompressed()) {
+
 		t.Fatalf("route should go through satoshi as first hop, "+
 			"instead passes through: %v",
-			route.Hops[0].Channel.Node.Alias)
+			getAliasFromPubKey(route.Hops[0].PubKeyBytes[:],
+				ctx.aliases))
+	}
+}
+
+// TestChannelUpdateValidation tests that a failed payment with an associated
+// channel update will only be applied to the graph when the update contains a
+// valid signature.
+func TestChannelUpdateValidation(t *testing.T) {
+	t.Parallel()
+
+	// Setup a three node network.
+	testChannels := []*testChannel{
+		symmetricTestChannel("a", "b", 100000, &testChannelPolicy{
+			Expiry:  144,
+			FeeRate: 400,
+			MinHTLC: 1,
+		}, 1),
+		symmetricTestChannel("b", "c", 100000, &testChannelPolicy{
+			Expiry:  144,
+			FeeRate: 400,
+			MinHTLC: 1,
+		}, 2),
+	}
+
+	testGraph, err := createTestGraphFromChannels(testChannels)
+	defer testGraph.cleanUp()
+	if err != nil {
+		t.Fatalf("unable to create graph: %v", err)
+	}
+
+	const startingBlockHeight = 101
+
+	ctx, cleanUp, err := createTestCtxFromGraphInstance(startingBlockHeight,
+		testGraph)
+
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to create router: %v", err)
+	}
+
+	// Assert that the initially configured fee is retrieved correctly.
+	_, policy, _, err := ctx.router.GetChannelByID(
+		lnwire.NewShortChanIDFromInt(1))
+	if err != nil {
+		t.Fatalf("cannot retrieve channel")
+	}
+
+	if policy.FeeProportionalMillionths != 400 {
+		t.Fatalf("invalid fee")
+	}
+
+	// Setup a route from source a to destination c. The route will be used
+	// in a call to SendToRoute. SendToRoute also applies channel updates,
+	// but it saves us from including RequestRoute in the test scope too.
+	var hop1 [33]byte
+	copy(hop1[:], ctx.aliases["b"].SerializeCompressed())
+
+	var hop2 [33]byte
+	copy(hop2[:], ctx.aliases["c"].SerializeCompressed())
+
+	hops := []*Hop{
+		{
+			ChannelID:   1,
+			PubKeyBytes: hop1,
+		},
+		{
+			ChannelID:   2,
+			PubKeyBytes: hop2,
+		},
+	}
+
+	route, err := NewRouteFromHops(
+		lnwire.MilliSatoshi(10000), 100,
+		NewVertex(ctx.aliases["a"]), hops,
+	)
+	if err != nil {
+		t.Fatalf("unable to create route: %v", err)
+	}
+
+	// Set up a channel update message with an invalid signature to be
+	// returned to the sender.
+	var invalidSignature [64]byte
+	errChanUpdate := lnwire.ChannelUpdate{
+		Signature:      invalidSignature,
+		FeeRate:        500,
+		ShortChannelID: lnwire.NewShortChanIDFromInt(1),
+		Timestamp:      uint32(testTime.Add(time.Minute).Unix()),
+	}
+
+	// We'll modify the SendToSwitch method so that it simulates a failed
+	// payment with an error originating from the first hop of the route.
+	// The unsigned channel update is attached to the failure message.
+	ctx.router.cfg.SendToSwitch = func(firstHop lnwire.ShortChannelID,
+		_ *lnwire.UpdateAddHTLC, _ *sphinx.Circuit) ([32]byte, error) {
+
+		return [32]byte{}, &htlcswitch.ForwardingError{
+			ErrorSource: ctx.aliases["b"],
+			FailureMessage: &lnwire.FailFeeInsufficient{
+				Update: errChanUpdate,
+			},
+		}
+	}
+
+	// The payment parameter is mostly redundant in SendToRoute. Can be left
+	// empty for this test.
+	payment := &LightningPayment{}
+
+	// Send off the payment request to the router. The specified route
+	// should be attempted and the channel update should be received by
+	// router and ignored because it is missing a valid signature.
+	_, _, err = ctx.router.SendToRoute([]*Route{route}, payment)
+	if err == nil {
+		t.Fatalf("expected route to fail with channel update")
+	}
+
+	_, policy, _, err = ctx.router.GetChannelByID(
+		lnwire.NewShortChanIDFromInt(1))
+	if err != nil {
+		t.Fatalf("cannot retrieve channel")
+	}
+
+	if policy.FeeProportionalMillionths != 400 {
+		t.Fatalf("fee updated without valid signature")
+	}
+
+	// Next, add a signature to the channel update.
+	chanUpdateMsg, err := errChanUpdate.DataToSign()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	digest := chainhash.DoubleHashB(chanUpdateMsg)
+	sig, err := testGraph.privKeyMap["b"].Sign(digest)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	errChanUpdate.Signature, err = lnwire.NewSigFromSignature(sig)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Retry the payment using the same route as before.
+	_, _, err = ctx.router.SendToRoute([]*Route{route}, payment)
+	if err == nil {
+		t.Fatalf("expected route to fail with channel update")
+	}
+
+	// This time a valid signature was supplied and the policy change should
+	// have been applied to the graph.
+	_, policy, _, err = ctx.router.GetChannelByID(
+		lnwire.NewShortChanIDFromInt(1))
+	if err != nil {
+		t.Fatalf("cannot retrieve channel")
+	}
+
+	if policy.FeeProportionalMillionths != 500 {
+		t.Fatalf("fee not updated even though signature is valid")
 	}
 }
 
@@ -347,11 +518,11 @@ func TestSendPaymentErrorRepeatedFeeInsufficient(t *testing.T) {
 	t.Parallel()
 
 	const startingBlockHeight = 101
-	ctx, cleanUp, err := createTestCtx(startingBlockHeight, basicGraphFilePath)
-	defer cleanUp()
+	ctx, cleanUp, err := createTestCtxFromFile(startingBlockHeight, basicGraphFilePath)
 	if err != nil {
 		t.Fatalf("unable to create router: %v", err)
 	}
+	defer cleanUp()
 
 	// Craft a LightningPayment struct that'll send a payment from roasbeef
 	// to luo ji for 100 satoshis.
@@ -370,7 +541,7 @@ func TestSendPaymentErrorRepeatedFeeInsufficient(t *testing.T) {
 	// We'll also fetch the first outgoing channel edge from roasbeef to
 	// son goku. We'll obtain this as we'll need to to generate the
 	// FeeInsufficient error that we'll send back.
-	chanID := uint64(3495345)
+	chanID := uint64(12345)
 	_, _, edgeUpateToFail, err := ctx.graph.FetchChannelEdgesByID(chanID)
 	if err != nil {
 		t.Fatalf("unable to fetch chan id: %v", err)
@@ -379,7 +550,8 @@ func TestSendPaymentErrorRepeatedFeeInsufficient(t *testing.T) {
 	errChanUpdate := lnwire.ChannelUpdate{
 		ShortChannelID:  lnwire.NewShortChanIDFromInt(chanID),
 		Timestamp:       uint32(edgeUpateToFail.LastUpdate.Unix()),
-		Flags:           edgeUpateToFail.Flags,
+		MessageFlags:    edgeUpateToFail.MessageFlags,
+		ChannelFlags:    edgeUpateToFail.ChannelFlags,
 		TimeLockDelta:   edgeUpateToFail.TimeLockDelta,
 		HtlcMinimumMsat: edgeUpateToFail.MinHTLC,
 		BaseFee:         uint32(edgeUpateToFail.FeeBaseMSat),
@@ -392,10 +564,11 @@ func TestSendPaymentErrorRepeatedFeeInsufficient(t *testing.T) {
 	// We'll now modify the SendToSwitch method to return an error for the
 	// outgoing channel to Son goku. This will be a fee related error, so
 	// it should only cause the edge to be pruned after the second attempt.
-	ctx.router.cfg.SendToSwitch = func(n [33]byte,
+	ctx.router.cfg.SendToSwitch = func(firstHop lnwire.ShortChannelID,
 		_ *lnwire.UpdateAddHTLC, _ *sphinx.Circuit) ([32]byte, error) {
 
-		if bytes.Equal(sourceNode.SerializeCompressed(), n[:]) {
+		roasbeefSongoku := lnwire.NewShortChanIDFromInt(chanID)
+		if firstHop == roasbeefSongoku {
 			return [32]byte{}, &htlcswitch.ForwardingError{
 				ErrorSource: sourceNode,
 
@@ -431,10 +604,13 @@ func TestSendPaymentErrorRepeatedFeeInsufficient(t *testing.T) {
 	}
 
 	// The route should have pham nuwen as the first hop.
-	if route.Hops[0].Channel.Node.Alias != "phamnuwen" {
+	if !bytes.Equal(route.Hops[0].PubKeyBytes[:],
+		ctx.aliases["phamnuwen"].SerializeCompressed()) {
+
 		t.Fatalf("route should go through satoshi as first hop, "+
 			"instead passes through: %v",
-			route.Hops[0].Channel.Node.Alias)
+			getAliasFromPubKey(route.Hops[0].PubKeyBytes[:],
+				ctx.aliases))
 	}
 }
 
@@ -447,11 +623,11 @@ func TestSendPaymentErrorNonFinalTimeLockErrors(t *testing.T) {
 	t.Parallel()
 
 	const startingBlockHeight = 101
-	ctx, cleanUp, err := createTestCtx(startingBlockHeight, basicGraphFilePath)
-	defer cleanUp()
+	ctx, cleanUp, err := createTestCtxFromFile(startingBlockHeight, basicGraphFilePath)
 	if err != nil {
 		t.Fatalf("unable to create router: %v", err)
 	}
+	defer cleanUp()
 
 	// Craft a LightningPayment struct that'll send a payment from roasbeef
 	// to sophon for 1k satoshis.
@@ -471,7 +647,8 @@ func TestSendPaymentErrorNonFinalTimeLockErrors(t *testing.T) {
 	// son goku. This edge will be included in the time lock related expiry
 	// errors that we'll get back due to disagrements in what the current
 	// block height is.
-	chanID := uint64(3495345)
+	chanID := uint64(12345)
+	roasbeefSongoku := lnwire.NewShortChanIDFromInt(chanID)
 	_, _, edgeUpateToFail, err := ctx.graph.FetchChannelEdgesByID(chanID)
 	if err != nil {
 		t.Fatalf("unable to fetch chan id: %v", err)
@@ -480,7 +657,8 @@ func TestSendPaymentErrorNonFinalTimeLockErrors(t *testing.T) {
 	errChanUpdate := lnwire.ChannelUpdate{
 		ShortChannelID:  lnwire.NewShortChanIDFromInt(chanID),
 		Timestamp:       uint32(edgeUpateToFail.LastUpdate.Unix()),
-		Flags:           edgeUpateToFail.Flags,
+		MessageFlags:    edgeUpateToFail.MessageFlags,
+		ChannelFlags:    edgeUpateToFail.ChannelFlags,
 		TimeLockDelta:   edgeUpateToFail.TimeLockDelta,
 		HtlcMinimumMsat: edgeUpateToFail.MinHTLC,
 		BaseFee:         uint32(edgeUpateToFail.FeeBaseMSat),
@@ -494,10 +672,10 @@ func TestSendPaymentErrorNonFinalTimeLockErrors(t *testing.T) {
 	// outgoing channel to son goku. Since this is a time lock related
 	// error, we should fail the payment flow all together, as Goku is the
 	// only channel to Sophon.
-	ctx.router.cfg.SendToSwitch = func(n [33]byte,
+	ctx.router.cfg.SendToSwitch = func(firstHop lnwire.ShortChannelID,
 		_ *lnwire.UpdateAddHTLC, _ *sphinx.Circuit) ([32]byte, error) {
 
-		if bytes.Equal(sourceNode.SerializeCompressed(), n[:]) {
+		if firstHop == roasbeefSongoku {
 			return [32]byte{}, &htlcswitch.ForwardingError{
 				ErrorSource: sourceNode,
 				FailureMessage: &lnwire.FailExpiryTooSoon{
@@ -526,15 +704,18 @@ func TestSendPaymentErrorNonFinalTimeLockErrors(t *testing.T) {
 		}
 
 		// The route should have satoshi as the first hop.
-		if route.Hops[0].Channel.Node.Alias != "phamnuwen" {
+		if !bytes.Equal(route.Hops[0].PubKeyBytes[:],
+			ctx.aliases["phamnuwen"].SerializeCompressed()) {
+
 			t.Fatalf("route should go through phamnuwen as first hop, "+
 				"instead passes through: %v",
-				route.Hops[0].Channel.Node.Alias)
+				getAliasFromPubKey(route.Hops[0].PubKeyBytes[:],
+					ctx.aliases))
 		}
 	}
 
 	// Send off the payment request to the router, this payment should
-	// suceed as we should actually go through Pham Nuwen in order to get
+	// succeed as we should actually go through Pham Nuwen in order to get
 	// to Sophon, even though he has higher fees.
 	paymentPreImage, route, err := ctx.router.SendPayment(&payment)
 	if err != nil {
@@ -546,10 +727,10 @@ func TestSendPaymentErrorNonFinalTimeLockErrors(t *testing.T) {
 	// We'll now modify the error return an IncorrectCltvExpiry error
 	// instead, this should result in the same behavior of roasbeef routing
 	// around the faulty Son Goku node.
-	ctx.router.cfg.SendToSwitch = func(n [33]byte,
+	ctx.router.cfg.SendToSwitch = func(firstHop lnwire.ShortChannelID,
 		_ *lnwire.UpdateAddHTLC, _ *sphinx.Circuit) ([32]byte, error) {
 
-		if bytes.Equal(sourceNode.SerializeCompressed(), n[:]) {
+		if firstHop == roasbeefSongoku {
 			return [32]byte{}, &htlcswitch.ForwardingError{
 				ErrorSource: sourceNode,
 				FailureMessage: &lnwire.FailIncorrectCltvExpiry{
@@ -578,11 +759,11 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 	t.Parallel()
 
 	const startingBlockHeight = 101
-	ctx, cleanUp, err := createTestCtx(startingBlockHeight, basicGraphFilePath)
-	defer cleanUp()
+	ctx, cleanUp, err := createTestCtxFromFile(startingBlockHeight, basicGraphFilePath)
 	if err != nil {
 		t.Fatalf("unable to create router: %v", err)
 	}
+	defer cleanUp()
 
 	// Craft a LightningPayment struct that'll send a payment from roasbeef
 	// to luo ji for 1000 satoshis, with a maximum of 1000 satoshis in fees.
@@ -608,16 +789,18 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 		t.Fatalf("unable to fetch source node pub: %v", err)
 	}
 
+	roasbeefLuoji := lnwire.NewShortChanIDFromInt(689530843)
+
 	// First, we'll modify the SendToSwitch method to return an error
 	// indicating that the channel from roasbeef to luoji is not operable
 	// with an UnknownNextPeer.
 	//
 	// TODO(roasbeef): filtering should be intelligent enough so just not
 	// go through satoshi at all at this point.
-	ctx.router.cfg.SendToSwitch = func(n [33]byte,
+	ctx.router.cfg.SendToSwitch = func(firstHop lnwire.ShortChannelID,
 		_ *lnwire.UpdateAddHTLC, _ *sphinx.Circuit) ([32]byte, error) {
 
-		if bytes.Equal(ctx.aliases["luoji"].SerializeCompressed(), n[:]) {
+		if firstHop == roasbeefLuoji {
 			// We'll first simulate an error from the first
 			// outgoing link to simulate the channel from luo ji to
 			// roasbeef not having enough capacity.
@@ -630,7 +813,8 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 		// Next, we'll create an error from satoshi to indicate
 		// that the luoji node is not longer online, which should
 		// prune out the rest of the routes.
-		if bytes.Equal(ctx.aliases["satoshi"].SerializeCompressed(), n[:]) {
+		roasbeefSatoshi := lnwire.NewShortChanIDFromInt(2340213491)
+		if firstHop == roasbeefSatoshi {
 			return [32]byte{}, &htlcswitch.ForwardingError{
 				ErrorSource:    ctx.aliases["satoshi"],
 				FailureMessage: &lnwire.FailUnknownNextPeer{},
@@ -660,10 +844,10 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 	// Next, we'll modify the SendToSwitch method to indicate that luo ji
 	// wasn't originally online. This should also halt the send all
 	// together as all paths contain luoji and he can't be reached.
-	ctx.router.cfg.SendToSwitch = func(n [33]byte,
+	ctx.router.cfg.SendToSwitch = func(firstHop lnwire.ShortChannelID,
 		_ *lnwire.UpdateAddHTLC, _ *sphinx.Circuit) ([32]byte, error) {
 
-		if bytes.Equal(ctx.aliases["luoji"].SerializeCompressed(), n[:]) {
+		if firstHop == roasbeefLuoji {
 			return [32]byte{}, &htlcswitch.ForwardingError{
 				ErrorSource:    sourcePub,
 				FailureMessage: &lnwire.FailUnknownNextPeer{},
@@ -690,10 +874,13 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 		t.Fatalf("incorrect preimage used: expected %x got %x",
 			preImage[:], paymentPreImage[:])
 	}
-	if route.Hops[0].Channel.Node.Alias != "satoshi" {
+	if !bytes.Equal(route.Hops[0].PubKeyBytes[:],
+		ctx.aliases["satoshi"].SerializeCompressed()) {
+
 		t.Fatalf("route should go through satoshi as first hop, "+
 			"instead passes through: %v",
-			route.Hops[0].Channel.Node.Alias)
+			getAliasFromPubKey(route.Hops[0].PubKeyBytes[:],
+				ctx.aliases))
 	}
 
 	ctx.router.missionControl.ResetHistory()
@@ -701,9 +888,10 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 	// Finally, we'll modify the SendToSwitch function to indicate that the
 	// roasbeef -> luoji channel has insufficient capacity. This should
 	// again cause us to instead go via the satoshi route.
-	ctx.router.cfg.SendToSwitch = func(n [33]byte,
+	ctx.router.cfg.SendToSwitch = func(firstHop lnwire.ShortChannelID,
 		_ *lnwire.UpdateAddHTLC, _ *sphinx.Circuit) ([32]byte, error) {
-		if bytes.Equal(ctx.aliases["luoji"].SerializeCompressed(), n[:]) {
+
+		if firstHop == roasbeefLuoji {
 			// We'll first simulate an error from the first
 			// outgoing link to simulate the channel from luo ji to
 			// roasbeef not having enough capacity.
@@ -734,10 +922,13 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 	}
 
 	// The route should have satoshi as the first hop.
-	if route.Hops[0].Channel.Node.Alias != "satoshi" {
+	if !bytes.Equal(route.Hops[0].PubKeyBytes[:],
+		ctx.aliases["satoshi"].SerializeCompressed()) {
+
 		t.Fatalf("route should go through satoshi as first hop, "+
 			"instead passes through: %v",
-			route.Hops[0].Channel.Node.Alias)
+			getAliasFromPubKey(route.Hops[0].PubKeyBytes[:],
+				ctx.aliases))
 	}
 }
 
@@ -746,7 +937,7 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 func TestAddProof(t *testing.T) {
 	t.Parallel()
 
-	ctx, cleanup, err := createTestCtx(0)
+	ctx, cleanup, err := createTestCtxSingleNode(0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -809,12 +1000,12 @@ func TestIgnoreNodeAnnouncement(t *testing.T) {
 	t.Parallel()
 
 	const startingBlockHeight = 101
-	ctx, cleanUp, err := createTestCtx(startingBlockHeight,
+	ctx, cleanUp, err := createTestCtxFromFile(startingBlockHeight,
 		basicGraphFilePath)
-	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to create router: %v", err)
 	}
+	defer cleanUp()
 
 	pub := priv1.PubKey()
 	node := &channeldb.LightningNode{
@@ -842,12 +1033,12 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	t.Parallel()
 
 	const startingBlockHeight = 101
-	ctx, cleanUp, err := createTestCtx(startingBlockHeight,
+	ctx, cleanUp, err := createTestCtxFromFile(startingBlockHeight,
 		basicGraphFilePath)
-	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to create router: %v", err)
 	}
+	defer cleanUp()
 
 	var pub1 [33]byte
 	copy(pub1[:], priv1.PubKey().SerializeCompressed())
@@ -903,13 +1094,13 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	edgePolicy := &channeldb.ChannelEdgePolicy{
 		SigBytes:                  testSig.Serialize(),
 		ChannelID:                 edge.ChannelID,
-		LastUpdate:                time.Now(),
+		LastUpdate:                testTime,
 		TimeLockDelta:             10,
 		MinHTLC:                   1,
 		FeeBaseMSat:               10,
 		FeeProportionalMillionths: 10000,
 	}
-	edgePolicy.Flags = 0
+	edgePolicy.ChannelFlags = 0
 
 	if err := ctx.router.UpdateEdge(edgePolicy); err != nil {
 		t.Fatalf("unable to update edge policy: %v", err)
@@ -919,13 +1110,13 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	edgePolicy = &channeldb.ChannelEdgePolicy{
 		SigBytes:                  testSig.Serialize(),
 		ChannelID:                 edge.ChannelID,
-		LastUpdate:                time.Now(),
+		LastUpdate:                testTime,
 		TimeLockDelta:             10,
 		MinHTLC:                   1,
 		FeeBaseMSat:               10,
 		FeeProportionalMillionths: 10000,
 	}
-	edgePolicy.Flags = 1
+	edgePolicy.ChannelFlags = 1
 
 	if err := ctx.router.UpdateEdge(edgePolicy); err != nil {
 		t.Fatalf("unable to update edge policy: %v", err)
@@ -999,13 +1190,13 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	edgePolicy = &channeldb.ChannelEdgePolicy{
 		SigBytes:                  testSig.Serialize(),
 		ChannelID:                 edge.ChannelID,
-		LastUpdate:                time.Now(),
+		LastUpdate:                testTime,
 		TimeLockDelta:             10,
 		MinHTLC:                   1,
 		FeeBaseMSat:               10,
 		FeeProportionalMillionths: 10000,
 	}
-	edgePolicy.Flags = 0
+	edgePolicy.ChannelFlags = 0
 
 	if err := ctx.router.UpdateEdge(edgePolicy); err != nil {
 		t.Fatalf("unable to update edge policy: %v", err)
@@ -1014,13 +1205,13 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	edgePolicy = &channeldb.ChannelEdgePolicy{
 		SigBytes:                  testSig.Serialize(),
 		ChannelID:                 edge.ChannelID,
-		LastUpdate:                time.Now(),
+		LastUpdate:                testTime,
 		TimeLockDelta:             10,
 		MinHTLC:                   1,
 		FeeBaseMSat:               10,
 		FeeProportionalMillionths: 10000,
 	}
-	edgePolicy.Flags = 1
+	edgePolicy.ChannelFlags = 1
 
 	if err := ctx.router.UpdateEdge(edgePolicy); err != nil {
 		t.Fatalf("unable to update edge policy: %v", err)
@@ -1112,11 +1303,11 @@ func TestWakeUpOnStaleBranch(t *testing.T) {
 	t.Parallel()
 
 	const startingBlockHeight = 101
-	ctx, cleanUp, err := createTestCtx(startingBlockHeight)
-	defer cleanUp()
+	ctx, cleanUp, err := createTestCtxSingleNode(startingBlockHeight)
 	if err != nil {
 		t.Fatalf("unable to create router: %v", err)
 	}
+	defer cleanUp()
 
 	const chanValue = 10000
 
@@ -1272,7 +1463,7 @@ func TestWakeUpOnStaleBranch(t *testing.T) {
 		Graph:     ctx.graph,
 		Chain:     ctx.chain,
 		ChainView: ctx.chainView,
-		SendToSwitch: func(_ [33]byte,
+		SendToSwitch: func(_ lnwire.ShortChannelID,
 			_ *lnwire.UpdateAddHTLC, _ *sphinx.Circuit) ([32]byte, error) {
 			return [32]byte{}, nil
 		},
@@ -1315,11 +1506,11 @@ func TestDisconnectedBlocks(t *testing.T) {
 	t.Parallel()
 
 	const startingBlockHeight = 101
-	ctx, cleanUp, err := createTestCtx(startingBlockHeight)
-	defer cleanUp()
+	ctx, cleanUp, err := createTestCtxSingleNode(startingBlockHeight)
 	if err != nil {
 		t.Fatalf("unable to create router: %v", err)
 	}
+	defer cleanUp()
 
 	const chanValue = 10000
 
@@ -1505,11 +1696,11 @@ func TestRouterChansClosedOfflinePruneGraph(t *testing.T) {
 	t.Parallel()
 
 	const startingBlockHeight = 101
-	ctx, cleanUp, err := createTestCtx(startingBlockHeight)
-	defer cleanUp()
+	ctx, cleanUp, err := createTestCtxSingleNode(startingBlockHeight)
 	if err != nil {
 		t.Fatalf("unable to create router: %v", err)
 	}
+	defer cleanUp()
 
 	const chanValue = 10000
 
@@ -1658,11 +1849,11 @@ func TestFindPathFeeWeighting(t *testing.T) {
 	t.Parallel()
 
 	const startingBlockHeight = 101
-	ctx, cleanUp, err := createTestCtx(startingBlockHeight, basicGraphFilePath)
-	defer cleanUp()
+	ctx, cleanUp, err := createTestCtxFromFile(startingBlockHeight, basicGraphFilePath)
 	if err != nil {
 		t.Fatalf("unable to create router: %v", err)
 	}
+	defer cleanUp()
 
 	var preImage [32]byte
 	copy(preImage[:], bytes.Repeat([]byte{9}, 32))
@@ -1673,7 +1864,7 @@ func TestFindPathFeeWeighting(t *testing.T) {
 	}
 
 	ignoreVertex := make(map[Vertex]struct{})
-	ignoreEdge := make(map[uint64]struct{})
+	ignoreEdge := make(map[edgeLocator]struct{})
 
 	amt := lnwire.MilliSatoshi(100)
 
@@ -1686,8 +1877,15 @@ func TestFindPathFeeWeighting(t *testing.T) {
 	// the edge weighting, we should select the direct path over the 2 hop
 	// path even though the direct path has a higher potential time lock.
 	path, err := findPath(
-		nil, ctx.graph, nil, sourceNode, target, ignoreVertex,
-		ignoreEdge, amt, nil,
+		&graphParams{
+			graph: ctx.graph,
+		},
+		&restrictParams{
+			ignoredNodes: ignoreVertex,
+			ignoredEdges: ignoreEdge,
+			feeLimit:     noFeeLimit,
+		},
+		sourceNode, target, amt,
 	)
 	if err != nil {
 		t.Fatalf("unable to find path: %v", err)
@@ -1709,11 +1907,11 @@ func TestIsStaleNode(t *testing.T) {
 	t.Parallel()
 
 	const startingBlockHeight = 101
-	ctx, cleanUp, err := createTestCtx(startingBlockHeight)
-	defer cleanUp()
+	ctx, cleanUp, err := createTestCtxSingleNode(startingBlockHeight)
 	if err != nil {
 		t.Fatalf("unable to create router: %v", err)
 	}
+	defer cleanUp()
 
 	// Before we can insert a node in to the database, we need to create a
 	// channel that it's linked to.
@@ -1791,11 +1989,11 @@ func TestIsKnownEdge(t *testing.T) {
 	t.Parallel()
 
 	const startingBlockHeight = 101
-	ctx, cleanUp, err := createTestCtx(startingBlockHeight)
-	defer cleanUp()
+	ctx, cleanUp, err := createTestCtxSingleNode(startingBlockHeight)
 	if err != nil {
 		t.Fatalf("unable to create router: %v", err)
 	}
+	defer cleanUp()
 
 	// First, we'll create a new channel edge (just the info) and insert it
 	// into the database.
@@ -1843,12 +2041,12 @@ func TestIsStaleEdgePolicy(t *testing.T) {
 	t.Parallel()
 
 	const startingBlockHeight = 101
-	ctx, cleanUp, err := createTestCtx(startingBlockHeight,
+	ctx, cleanUp, err := createTestCtxFromFile(startingBlockHeight,
 		basicGraphFilePath)
-	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to create router: %v", err)
 	}
+	defer cleanUp()
 
 	// First, we'll create a new channel edge (just the info) and insert it
 	// into the database.
@@ -1903,7 +2101,7 @@ func TestIsStaleEdgePolicy(t *testing.T) {
 		FeeBaseMSat:               10,
 		FeeProportionalMillionths: 10000,
 	}
-	edgePolicy.Flags = 0
+	edgePolicy.ChannelFlags = 0
 	if err := ctx.router.UpdateEdge(edgePolicy); err != nil {
 		t.Fatalf("unable to update edge policy: %v", err)
 	}
@@ -1917,7 +2115,7 @@ func TestIsStaleEdgePolicy(t *testing.T) {
 		FeeBaseMSat:               10,
 		FeeProportionalMillionths: 10000,
 	}
-	edgePolicy.Flags = 1
+	edgePolicy.ChannelFlags = 1
 	if err := ctx.router.UpdateEdge(edgePolicy); err != nil {
 		t.Fatalf("unable to update edge policy: %v", err)
 	}
@@ -1939,5 +2137,18 @@ func TestIsStaleEdgePolicy(t *testing.T) {
 	}
 	if ctx.router.IsStaleEdgePolicy(*chanID, updateTimeStamp, 1) {
 		t.Fatalf("router failed to detect fresh edge policy")
+	}
+}
+
+// TestEmptyRoutesGenerateSphinxPacket tests that the generateSphinxPacket
+// function is able to gracefully handle being passed a nil set of hops for the
+// route by the caller.
+func TestEmptyRoutesGenerateSphinxPacket(t *testing.T) {
+	t.Parallel()
+
+	emptyRoute := &Route{}
+	_, _, err := generateSphinxPacket(emptyRoute, testHash[:])
+	if err != ErrNoRouteHopsProvided {
+		t.Fatalf("expected empty hops error: instead got: %v", err)
 	}
 }

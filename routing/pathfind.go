@@ -8,13 +8,12 @@ import (
 
 	"container/heap"
 
+	"github.com/btcsuite/btcd/btcec"
 	"github.com/coreos/bbolt"
-	"github.com/lightningnetwork/lightning-onion"
+
+	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcutil"
 )
 
 const (
@@ -26,6 +25,19 @@ const (
 
 	// infinity is used as a starting distance in our shortest path search.
 	infinity = math.MaxInt64
+
+	// RiskFactorBillionths controls the influence of time lock delta
+	// of a channel on route selection. It is expressed as billionths
+	// of msat per msat sent through the channel per time lock delta
+	// block. See edgeWeight function below for more details.
+	// The chosen value is based on the previous incorrect weight function
+	// 1 + timelock + fee * fee. In this function, the fee penalty
+	// diminishes the time lock penalty for all but the smallest amounts.
+	// To not change the behaviour of path finding too drastically, a
+	// relatively small value is chosen which is still big enough to give
+	// some effect with smaller time lock values. The value may need
+	// tweaking and/or be made configurable in the future.
+	RiskFactorBillionths = 15
 )
 
 // HopHint is a routing hint that contains the minimum information of a channel
@@ -50,33 +62,20 @@ type HopHint struct {
 	CLTVExpiryDelta uint16
 }
 
-// ChannelHop is an intermediate hop within the network with a greater
-// multi-hop payment route. This struct contains the relevant routing policy of
-// the particular edge, as well as the total capacity, and origin chain of the
-// channel itself.
-type ChannelHop struct {
-	// Capacity is the total capacity of the channel being traversed. This
-	// value is expressed for stability in satoshis.
-	Capacity btcutil.Amount
-
-	// Chain is a 32-byte has that denotes the base blockchain network of
-	// the channel. The 32-byte hash is the "genesis" block of the
-	// blockchain, or the very first block in the chain.
-	//
-	// TODO(roasbeef): store chain within edge info/policy in database.
-	Chain chainhash.Hash
-
-	*channeldb.ChannelEdgePolicy
-}
-
-// Hop represents the forwarding details at a particular position within the
-// final route. This struct houses the values necessary to create the HTLC
-// which will travel along this hop, and also encode the per-hop payload
-// included within the Sphinx packet.
+// Hop represents an intermediate or final node of the route. This naming
+// is in line with the definition given in BOLT #4: Onion Routing Protocol.
+// The struct houses the channel along which this hop can be reached and
+// the values necessary to create the HTLC that needs to be sent to the
+// next hop. It is also used to encode the per-hop payload included within
+// the Sphinx packet.
 type Hop struct {
-	// Channel is the active payment channel edge that this hop will travel
-	// along.
-	Channel *ChannelHop
+	// PubKeyBytes is the raw bytes of the public key of the target node.
+	PubKeyBytes Vertex
+
+	// ChannelID is the unique channel ID for the channel. The first 3
+	// bytes are the block height, the next 3 the index within the block,
+	// and the last 2 bytes are the output index for the channel.
+	ChannelID uint64
 
 	// OutgoingTimeLock is the timelock value that should be used when
 	// crafting the _outgoing_ HTLC from this hop.
@@ -86,11 +85,14 @@ type Hop struct {
 	// hop. This value is less than the value that the incoming HTLC
 	// carries as a fee will be subtracted by the hop.
 	AmtToForward lnwire.MilliSatoshi
+}
 
-	// Fee is the total fee that this hop will subtract from the incoming
-	// payment, this difference nets the hop fees for forwarding the
-	// payment.
-	Fee lnwire.MilliSatoshi
+// edgePolicyWithSource is a helper struct to keep track of the source node
+// of a channel edge. ChannelEdgePolicy only contains to destination node
+// of the edge.
+type edgePolicyWithSource struct {
+	sourceNode *channeldb.LightningNode
+	edge       *channeldb.ChannelEdgePolicy
 }
 
 // computeFee computes the fee to forward an HTLC of `amt` milli-satoshis over
@@ -104,7 +106,7 @@ func computeFee(amt lnwire.MilliSatoshi,
 
 // isSamePath returns true if path1 and path2 travel through the exact same
 // edges, and false otherwise.
-func isSamePath(path1, path2 []*ChannelHop) bool {
+func isSamePath(path1, path2 []*channeldb.ChannelEdgePolicy) bool {
 	if len(path1) != len(path2) {
 		return false
 	}
@@ -145,6 +147,10 @@ type Route struct {
 	// amount of fees.
 	TotalAmount lnwire.MilliSatoshi
 
+	// SourcePubKey is the pubkey of the node where this route originates
+	// from.
+	SourcePubKey Vertex
+
 	// Hops contains details concerning the specific forwarding details at
 	// each hop.
 	Hops []*Hop
@@ -157,39 +163,19 @@ type Route struct {
 	// is present in this route or not. Channels are identified by the
 	// uint64 version of the short channel ID.
 	chanIndex map[uint64]struct{}
-
-	// nextHop maps a node, to the next channel that it will pass the HTLC
-	// off to. With this map, we can easily look up the next outgoing
-	// channel or node for pruning purposes.
-	nextHopMap map[Vertex]*ChannelHop
-
-	// prevHop maps a node, to the channel that was directly before it
-	// within the route. With this map, we can easily look up the previous
-	// channel or node for pruning purposes.
-	prevHopMap map[Vertex]*ChannelHop
 }
 
-// nextHopVertex returns the next hop (by Vertex) after the target node. If the
-// target node is not found in the route, then false is returned.
-func (r *Route) nextHopVertex(n *btcec.PublicKey) (Vertex, bool) {
-	hop, ok := r.nextHopMap[NewVertex(n)]
-	return Vertex(hop.Node.PubKeyBytes), ok
-}
+// HopFee returns the fee charged by the route hop indicated by hopIndex.
+func (r *Route) HopFee(hopIndex int) lnwire.MilliSatoshi {
+	var incomingAmt lnwire.MilliSatoshi
+	if hopIndex == 0 {
+		incomingAmt = r.TotalAmount
+	} else {
+		incomingAmt = r.Hops[hopIndex-1].AmtToForward
+	}
 
-// nextHopChannel returns the uint64 channel ID of the next hop after the
-// target node. If the target node is not found in the route, then false is
-// returned.
-func (r *Route) nextHopChannel(n *btcec.PublicKey) (*ChannelHop, bool) {
-	hop, ok := r.nextHopMap[NewVertex(n)]
-	return hop, ok
-}
-
-// prevHopChannel returns the uint64 channel ID of the before hop after the
-// target node. If the target node is not found in the route, then false is
-// returned.
-func (r *Route) prevHopChannel(n *btcec.PublicKey) (*ChannelHop, bool) {
-	hop, ok := r.prevHopMap[NewVertex(n)]
-	return hop, ok
+	// Fee is calculated as difference between incoming and outgoing amount.
+	return incomingAmt - r.Hops[hopIndex].AmtToForward
 }
 
 // containsNode returns true if a node is present in the target route, and
@@ -231,7 +217,7 @@ func (r *Route) ToHopPayloads() []sphinx.HopData {
 		// If we aren't on the last hop, then we set the "next address"
 		// field to be the channel that directly follows it.
 		if i != len(r.Hops)-1 {
-			nextHop = r.Hops[i+1].Channel.ChannelID
+			nextHop = r.Hops[i+1].ChannelID
 		}
 
 		binary.BigEndian.PutUint64(hopPayloads[i].NextAddress[:],
@@ -249,153 +235,147 @@ func (r *Route) ToHopPayloads() []sphinx.HopData {
 // NOTE: The passed slice of ChannelHops MUST be sorted in forward order: from
 // the source to the target node of the path finding attempt.
 func newRoute(amtToSend, feeLimit lnwire.MilliSatoshi, sourceVertex Vertex,
-	pathEdges []*ChannelHop, currentHeight uint32,
+	pathEdges []*channeldb.ChannelEdgePolicy, currentHeight uint32,
 	finalCLTVDelta uint16) (*Route, error) {
 
-	// First, we'll create a new empty route with enough hops to match the
-	// amount of path edges. We set the TotalTimeLock to the current block
-	// height, as this is the basis that all of the time locks will be
-	// calculated from.
-	route := &Route{
-		Hops:          make([]*Hop, len(pathEdges)),
-		TotalTimeLock: currentHeight,
-		nodeIndex:     make(map[Vertex]struct{}),
-		chanIndex:     make(map[uint64]struct{}),
-		nextHopMap:    make(map[Vertex]*ChannelHop),
-		prevHopMap:    make(map[Vertex]*ChannelHop),
-	}
+	var (
+		hops []*Hop
 
-	// We'll populate the next hop map for the _source_ node with the
-	// information for the first hop so the mapping is sound.
-	route.nextHopMap[sourceVertex] = pathEdges[0]
+		// totalTimeLock will accumulate the cumulative time lock
+		// across the entire route. This value represents how long the
+		// sender will need to wait in the *worst* case.
+		totalTimeLock = currentHeight
 
-	// The running amount is the total amount of satoshis required at this
-	// point in the route. We start this value at the amount we want to
-	// send to the destination. This value will then get successively
-	// larger as we compute the fees going backwards.
-	runningAmt := amtToSend
+		// nextIncomingAmount is the amount that will need to flow into
+		// the *next* hop. Since we're going to be walking the route
+		// backwards below, this next hop gets closer and closer to the
+		// sender of the payment.
+		nextIncomingAmount lnwire.MilliSatoshi
+	)
+
 	pathLength := len(pathEdges)
 	for i := pathLength - 1; i >= 0; i-- {
+		// Now we'll start to calculate the items within the per-hop
+		// payload for the hop this edge is leading to.
 		edge := pathEdges[i]
 
-		// First, we'll update both the node and channel index, to
-		// indicate that this Vertex, and outgoing channel link are
-		// present within this route.
-		v := Vertex(edge.Node.PubKeyBytes)
-		route.nodeIndex[v] = struct{}{}
-		route.chanIndex[edge.ChannelID] = struct{}{}
+		// If this is the last hop, then the hop payload will contain
+		// the exact amount. In BOLT #4: Onion Routing
+		// Protocol / "Payload for the Last Node", this is detailed.
+		amtToForward := amtToSend
 
-		// If this isn't a direct payment, and this isn't the last hop
-		// in the route, then we'll also populate the nextHop map to
-		// allow easy route traversal by callers.
-		if len(pathEdges) > 1 && i != len(pathEdges)-1 {
-			route.nextHopMap[v] = route.Hops[i+1].Channel
-		}
-
-		// Now we'll start to calculate the items within the per-hop
-		// payload for this current hop.
-		//
-		// If this is the last hop, then we send the exact amount and
-		// pay no fee, as we're paying directly to the receiver, and
-		// there're no additional hops.
-		amtToForward := runningAmt
+		// Fee is not part of the hop payload, but only used for
+		// reporting through RPC. Set to zero for the final hop.
 		fee := lnwire.MilliSatoshi(0)
 
-		// If this isn't the last hop, to add enough funds to pay for
-		// transit over the next link.
+		// If the current hop isn't the last hop, then add enough funds
+		// to pay for transit over the next link.
 		if i != len(pathEdges)-1 {
-			// We'll grab the edge policy and per-hop payload of
-			// the prior hop so we can calculate fees properly.
-			prevEdge := pathEdges[i+1]
-			prevHop := route.Hops[i+1]
+			// The amount that the current hop needs to forward is
+			// equal to the incoming amount of the next hop.
+			amtToForward = nextIncomingAmount
 
-			// The fee for this hop, will be based on how much the
-			// prior hop carried, as we'll need to increase the
-			// amount of satoshis incoming into this hop to
-			// properly pay the required fees.
-			prevAmount := prevHop.AmtToForward
-			fee = computeFee(prevAmount, prevEdge.ChannelEdgePolicy)
-
-			// With the fee computed, we increment the total amount
-			// as we need to pay this fee. This value represents
-			// the amount of funds that will come _into_ this edge.
-			runningAmt += fee
-
-			// Otherwise, for a node to forward an HTLC, then
-			// following inequality most hold true:
-			//
-			//     * amt_in - fee >= amt_to_forward
-			amtToForward = runningAmt - fee
-		}
-
-		// Now we create the hop struct for this point in the route.
-		// The amount to forward is the running amount, and we compute
-		// the required fee based on this amount.
-		nextHop := &Hop{
-			Channel:      edge,
-			AmtToForward: amtToForward,
-			Fee:          fee,
-		}
-
-		route.TotalFees += nextHop.Fee
-
-		// Invalidate this route if its total fees exceed our fee limit.
-		if route.TotalFees > feeLimit {
-			err := fmt.Sprintf("total route fees exceeded fee "+
-				"limit of %v", feeLimit)
-			return nil, newErrf(ErrFeeLimitExceeded, err)
-		}
-
-		// As a sanity check, we ensure that the selected channel has
-		// enough capacity to forward the required amount which
-		// includes the fee dictated at each hop.
-		if nextHop.AmtToForward.ToSatoshis() > nextHop.Channel.Capacity {
-			err := fmt.Sprintf("channel graph has insufficient "+
-				"capacity for the payment: need %v, have %v",
-				nextHop.AmtToForward.ToSatoshis(),
-				nextHop.Channel.Capacity)
-
-			return nil, newErrf(ErrInsufficientCapacity, err)
+			// The fee that needs to be paid to the current hop is
+			// based on the amount that this hop needs to forward
+			// and its policy for the outgoing channel. This policy
+			// is stored as part of the incoming channel of
+			// the next hop.
+			fee = computeFee(amtToForward, pathEdges[i+1])
 		}
 
 		// If this is the last hop, then for verification purposes, the
 		// value of the outgoing time-lock should be _exactly_ the
 		// absolute time out they'd expect in the HTLC.
+		var outgoingTimeLock uint32
 		if i == len(pathEdges)-1 {
 			// As this is the last hop, we'll use the specified
 			// final CLTV delta value instead of the value from the
 			// last link in the route.
-			route.TotalTimeLock += uint32(finalCLTVDelta)
+			totalTimeLock += uint32(finalCLTVDelta)
 
-			nextHop.OutgoingTimeLock = currentHeight + uint32(finalCLTVDelta)
+			outgoingTimeLock = currentHeight + uint32(finalCLTVDelta)
 		} else {
 			// Next, increment the total timelock of the entire
 			// route such that each hops time lock increases as we
 			// walk backwards in the route, using the delta of the
 			// previous hop.
-			route.TotalTimeLock += uint32(edge.TimeLockDelta)
+			delta := uint32(pathEdges[i+1].TimeLockDelta)
+			totalTimeLock += delta
 
 			// Otherwise, the value of the outgoing time-lock will
 			// be the value of the time-lock for the _outgoing_
 			// HTLC, so we factor in their specified grace period
 			// (time lock delta).
-			nextHop.OutgoingTimeLock = route.TotalTimeLock -
-				uint32(edge.TimeLockDelta)
+			outgoingTimeLock = totalTimeLock - delta
 		}
 
-		route.Hops[i] = nextHop
+		// Since we're traversing the path backwards atm, we prepend
+		// each new hop such that, the final slice of hops will be in
+		// the forwards order.
+		currentHop := &Hop{
+			PubKeyBytes:      Vertex(edge.Node.PubKeyBytes),
+			ChannelID:        edge.ChannelID,
+			AmtToForward:     amtToForward,
+			OutgoingTimeLock: outgoingTimeLock,
+		}
+		hops = append([]*Hop{currentHop}, hops...)
+
+		// Finally, we update the amount that needs to flow into the
+		// *next* hop, which is the amount this hop needs to forward,
+		// accounting for the fee that it takes.
+		nextIncomingAmount = amtToForward + fee
 	}
 
-	// We'll then make a second run through our route in order to set up
-	// our prev hop mapping.
-	for _, hop := range route.Hops {
-		vertex := Vertex(hop.Channel.Node.PubKeyBytes)
-		route.prevHopMap[vertex] = hop.Channel
+	// With the base routing data expressed as hops, build the full route
+	newRoute, err := NewRouteFromHops(
+		nextIncomingAmount, totalTimeLock, sourceVertex, hops,
+	)
+	if err != nil {
+		return nil, err
 	}
 
-	// The total amount required for this route will be the value the
-	// source extends to the first hop in the route.
-	route.TotalAmount = runningAmt
+	// Invalidate this route if its total fees exceed our fee limit.
+	if newRoute.TotalFees > feeLimit {
+		err := fmt.Sprintf("total route fees exceeded fee "+
+			"limit of %v", feeLimit)
+		return nil, newErrf(ErrFeeLimitExceeded, err)
+	}
+
+	return newRoute, nil
+}
+
+// NewRouteFromHops creates a new Route structure from the minimally required
+// information to perform the payment. It infers fee amounts and populates the
+// node, chan and prev/next hop maps.
+func NewRouteFromHops(amtToSend lnwire.MilliSatoshi, timeLock uint32,
+	sourceVertex Vertex, hops []*Hop) (*Route, error) {
+
+	if len(hops) == 0 {
+		return nil, ErrNoRouteHopsProvided
+	}
+
+	// First, we'll create a route struct and populate it with the fields
+	// for which the values are provided as arguments of this function.
+	// TotalFees is determined based on the difference between the amount
+	// that is send from the source and the final amount that is received
+	// by the destination.
+	route := &Route{
+		SourcePubKey:  sourceVertex,
+		Hops:          hops,
+		TotalTimeLock: timeLock,
+		TotalAmount:   amtToSend,
+		TotalFees:     amtToSend - hops[len(hops)-1].AmtToForward,
+		nodeIndex:     make(map[Vertex]struct{}),
+		chanIndex:     make(map[uint64]struct{}),
+	}
+
+	// Then we'll update the node and channel index, to indicate that this
+	// Vertex and incoming channel link are present within this route.
+	for _, hop := range hops {
+		v := Vertex(hop.PubKeyBytes)
+		route.nodeIndex[v] = struct{}{}
+		route.chanIndex[hop.ChannelID] = struct{}{}
+	}
 
 	return route, nil
 }
@@ -417,37 +397,66 @@ func (v Vertex) String() string {
 	return fmt.Sprintf("%x", v[:])
 }
 
-// edgeWithPrev is a helper struct used in path finding that couples an
-// directional edge with the node's ID in the opposite direction.
-type edgeWithPrev struct {
-	edge     *ChannelHop
-	prevNode [33]byte
+// edgeWeight computes the weight of an edge. This value is used when searching
+// for the shortest path within the channel graph between two nodes. Weight is
+// is the fee itself plus a time lock penalty added to it. This benefits
+// channels with shorter time lock deltas and shorter (hops) routes in general.
+// RiskFactor controls the influence of time lock on route selection. This is
+// currently a fixed value, but might be configurable in the future.
+func edgeWeight(lockedAmt lnwire.MilliSatoshi, fee lnwire.MilliSatoshi,
+	timeLockDelta uint16) int64 {
+	// timeLockPenalty is the penalty for the time lock delta of this channel.
+	// It is controlled by RiskFactorBillionths and scales proportional
+	// to the amount that will pass through channel. Rationale is that it if
+	// a twice as large amount gets locked up, it is twice as bad.
+	timeLockPenalty := int64(lockedAmt) * int64(timeLockDelta) *
+		RiskFactorBillionths / 1000000000
+
+	return int64(fee) + timeLockPenalty
 }
 
-// edgeWeight computes the weight of an edge. This value is used when searching
-// for the shortest path within the channel graph between two nodes. Currently
-// a component is just 1 + the cltv delta value required at this hop, this
-// value should be tuned with experimental and empirical data. We'll also
-// factor in the "pure fee" through this hop, using the square of this fee as
-// part of the weighting. The goal here is to bias more heavily towards fee
-// ranking, and fallback to a time-lock based value in the case of a fee tie.
-//
-// TODO(roasbeef): compute robust weight metric
-func edgeWeight(amt lnwire.MilliSatoshi, e *channeldb.ChannelEdgePolicy) int64 {
-	// First, we'll compute the "pure" fee through this hop. We say pure,
-	// as this may not be what's ultimately paid as fees are properly
-	// calculated backwards, while we're going in the reverse direction.
-	pureFee := computeFee(amt, e)
+// graphParams wraps the set of graph parameters passed to findPath.
+type graphParams struct {
+	// tx can be set to an existing db transaction. If not set, a new
+	// transaction will be started.
+	tx *bbolt.Tx
 
-	// We'll then square the fee itself in order to more heavily weight our
-	// edge selection to bias towards lower fees.
-	feeWeight := int64(pureFee * pureFee)
+	// graph is the ChannelGraph to be used during path finding.
+	graph *channeldb.ChannelGraph
 
-	// The final component is then 1 plus the timelock delta.
-	timeWeight := int64(1 + e.TimeLockDelta)
+	// additionalEdges is an optional set of edges that should be
+	// considered during path finding, that is not already found in the
+	// channel graph.
+	additionalEdges map[Vertex][]*channeldb.ChannelEdgePolicy
 
-	// The final weighting is: fee^2 + time_lock_delta.
-	return feeWeight + timeWeight
+	// bandwidthHints is an optional map from channels to bandwidths that
+	// can be populated if the caller has a better estimate of the current
+	// channel bandwidth than what is found in the graph. If set, it will
+	// override the capacities and disabled flags found in the graph for
+	// local channels when doing path finding. In particular, it should be
+	// set to the current available sending bandwidth for active local
+	// channels, and 0 for inactive channels.
+	bandwidthHints map[uint64]lnwire.MilliSatoshi
+}
+
+// restrictParams wraps the set of restrictions passed to findPath that the
+// found path must adhere to.
+type restrictParams struct {
+	// ignoredNodes is an optional set of nodes that should be ignored if
+	// encountered during path finding.
+	ignoredNodes map[Vertex]struct{}
+
+	// ignoredEdges is an optional set of edges that should be ignored if
+	// encountered during path finding.
+	ignoredEdges map[edgeLocator]struct{}
+
+	// feeLimit is a maximum fee amount allowed to be used on the path from
+	// the source to the target.
+	feeLimit lnwire.MilliSatoshi
+
+	// outgoingChannelID is the channel that needs to be taken to the first
+	// hop. If nil, any channel may be used.
+	outgoingChannelID *uint64
 }
 
 // findPath attempts to find a path from the source node within the
@@ -457,17 +466,18 @@ func edgeWeight(amt lnwire.MilliSatoshi, e *channeldb.ChannelEdgePolicy) int64 {
 // and the destination. The distance metric used for edges is related to the
 // time-lock+fee costs along a particular edge. If a path is found, this
 // function returns a slice of ChannelHop structs which encoded the chosen path
-// from the target to the source.
-func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
-	additionalEdges map[Vertex][]*channeldb.ChannelEdgePolicy,
+// from the target to the source. The search is performed backwards from
+// destination node back to source. This is to properly accumulate fees
+// that need to be paid along the path and accurately check the amount
+// to forward at every node against the available bandwidth.
+func findPath(g *graphParams, r *restrictParams,
 	sourceNode *channeldb.LightningNode, target *btcec.PublicKey,
-	ignoredNodes map[Vertex]struct{}, ignoredEdges map[uint64]struct{},
-	amt lnwire.MilliSatoshi,
-	bandwidthHints map[uint64]lnwire.MilliSatoshi) ([]*ChannelHop, error) {
+	amt lnwire.MilliSatoshi) ([]*channeldb.ChannelEdgePolicy, error) {
 
 	var err error
+	tx := g.tx
 	if tx == nil {
-		tx, err = graph.Database().Begin(false)
+		tx, err = g.graph.Database().Begin(false)
 		if err != nil {
 			return nil, err
 		}
@@ -479,10 +489,13 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 	// traversal.
 	var nodeHeap distanceHeap
 
-	// For each node in the graph, we create an entry in the distance
-	// map for the node set with a distance of "infinity".
+	// For each node in the graph, we create an entry in the distance map
+	// for the node set with a distance of "infinity". graph.ForEachNode
+	// also returns the source node, so there is no need to add the source
+	// node explicitly.
 	distance := make(map[Vertex]nodeWithDist)
-	if err := graph.ForEachNode(tx, func(_ *bolt.Tx, node *channeldb.LightningNode) error {
+	if err := g.graph.ForEachNode(tx, func(_ *bbolt.Tx,
+		node *channeldb.LightningNode) error {
 		// TODO(roasbeef): with larger graph can just use disk seeks
 		// with a visited map
 		distance[Vertex(node.PubKeyBytes)] = nodeWithDist{
@@ -494,101 +507,191 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 		return nil, err
 	}
 
-	// We'll also include all the nodes found within the additional edges
-	// that are not known to us yet in the distance map.
-	for vertex := range additionalEdges {
+	additionalEdgesWithSrc := make(map[Vertex][]*edgePolicyWithSource)
+	for vertex, outgoingEdgePolicies := range g.additionalEdges {
+		// We'll also include all the nodes found within the additional
+		// edges that are not known to us yet in the distance map.
 		node := &channeldb.LightningNode{PubKeyBytes: vertex}
 		distance[vertex] = nodeWithDist{
 			dist: infinity,
 			node: node,
 		}
+
+		// Build reverse lookup to find incoming edges. Needed because
+		// search is taken place from target to source.
+		for _, outgoingEdgePolicy := range outgoingEdgePolicies {
+			toVertex := outgoingEdgePolicy.Node.PubKeyBytes
+			incomingEdgePolicy := &edgePolicyWithSource{
+				sourceNode: node,
+				edge:       outgoingEdgePolicy,
+			}
+
+			additionalEdgesWithSrc[toVertex] =
+				append(additionalEdgesWithSrc[toVertex],
+					incomingEdgePolicy)
+		}
 	}
+
+	sourceVertex := Vertex(sourceNode.PubKeyBytes)
 
 	// We can't always assume that the end destination is publicly
 	// advertised to the network and included in the graph.ForEachNode call
-	// above, so we'll manually include the target node.
+	// above, so we'll manually include the target node. The target node
+	// charges no fee. Distance is set to 0, because this is the starting
+	// point of the graph traversal. We are searching backwards to get the
+	// fees first time right and correctly match channel bandwidth.
 	targetVertex := NewVertex(target)
 	targetNode := &channeldb.LightningNode{PubKeyBytes: targetVertex}
 	distance[targetVertex] = nodeWithDist{
-		dist: infinity,
-		node: targetNode,
+		dist:            0,
+		node:            targetNode,
+		amountToReceive: amt,
+		fee:             0,
 	}
 
-	// We'll use this map as a series of "previous" hop pointers. So to get
-	// to `Vertex` we'll take the edge that it's mapped to within `prev`.
-	prev := make(map[Vertex]edgeWithPrev)
+	// We'll use this map as a series of "next" hop pointers. So to get
+	// from `Vertex` to the target node, we'll take the edge that it's
+	// mapped to within `next`.
+	next := make(map[Vertex]*channeldb.ChannelEdgePolicy)
 
 	// processEdge is a helper closure that will be used to make sure edges
 	// satisfy our specific requirements.
-	processEdge := func(edge *channeldb.ChannelEdgePolicy,
-		bandwidth lnwire.MilliSatoshi, pivot Vertex) {
+	processEdge := func(fromNode *channeldb.LightningNode,
+		edge *channeldb.ChannelEdgePolicy,
+		bandwidth lnwire.MilliSatoshi, toNode Vertex) {
 
-		v := Vertex(edge.Node.PubKeyBytes)
+		fromVertex := Vertex(fromNode.PubKeyBytes)
 
-		// If the edge is currently disabled, then we'll stop here, as
-		// we shouldn't attempt to route through it.
-		edgeFlags := lnwire.ChanUpdateFlag(edge.Flags)
-		if edgeFlags&lnwire.ChanUpdateDisabled != 0 {
+		// If this is not a local channel and it is disabled, we will
+		// skip it.
+		// TODO(halseth): also ignore disable flags for non-local
+		// channels if bandwidth hint is set?
+		isSourceChan := fromVertex == sourceVertex
+
+		edgeFlags := edge.ChannelFlags
+		isDisabled := edgeFlags&lnwire.ChanUpdateDisabled != 0
+
+		if !isSourceChan && isDisabled {
 			return
 		}
 
-		// If this vertex or edge has been black listed, then we'll skip
-		// exploring this edge.
-		if _, ok := ignoredNodes[v]; ok {
+		// If we have an outgoing channel restriction and this is not
+		// the specified channel, skip it.
+		if isSourceChan && r.outgoingChannelID != nil &&
+			*r.outgoingChannelID != edge.ChannelID {
+
 			return
 		}
-		if _, ok := ignoredEdges[edge.ChannelID]; ok {
+
+		// If this vertex or edge has been black listed, then we'll
+		// skip exploring this edge.
+		if _, ok := r.ignoredNodes[fromVertex]; ok {
 			return
 		}
 
-		// Compute the tentative distance to this new channel/edge which
-		// is the distance to our pivot node plus the weight of this
-		// edge.
-		tempDist := distance[pivot].dist + edgeWeight(amt, edge)
-
-		// If this new tentative distance is better than the current
-		// best known distance to this node, then we record the new
-		// better distance, and also populate our "next hop" map with
-		// this edge. We'll also shave off irrelevant edges by adding
-		// the sufficient capacity of an edge and clearing their
-		// min-htlc amount to our relaxation condition.
-		if tempDist < distance[v].dist && bandwidth >= amt &&
-			amt >= edge.MinHTLC && edge.TimeLockDelta != 0 {
-
-			distance[v] = nodeWithDist{
-				dist: tempDist,
-				node: edge.Node,
-			}
-
-			prev[v] = edgeWithPrev{
-				edge: &ChannelHop{
-					ChannelEdgePolicy: edge,
-					Capacity:          bandwidth.ToSatoshis(),
-				},
-				prevNode: pivot,
-			}
-
-			// Add this new node to our heap as we'd like to further
-			// explore down this edge.
-			heap.Push(&nodeHeap, distance[v])
+		locator := newEdgeLocator(edge)
+		if _, ok := r.ignoredEdges[*locator]; ok {
+			return
 		}
+
+		toNodeDist := distance[toNode]
+
+		amountToSend := toNodeDist.amountToReceive
+
+		// If the estimated bandwidth of the channel edge is not able
+		// to carry the amount that needs to be send, return.
+		if bandwidth < amountToSend {
+			return
+		}
+
+		// If the amountToSend is less than the minimum required
+		// amount, return.
+		if amountToSend < edge.MinHTLC {
+			return
+		}
+
+		// Compute fee that fromNode is charging. It is based on the
+		// amount that needs to be sent to the next node in the route.
+		//
+		// Source node has no predecessor to pay a fee. Therefore set
+		// fee to zero, because it should not be included in the fee
+		// limit check and edge weight.
+		//
+		// Also determine the time lock delta that will be added to the
+		// route if fromNode is selected. If fromNode is the source
+		// node, no additional timelock is required.
+		var fee lnwire.MilliSatoshi
+		var timeLockDelta uint16
+		if fromVertex != sourceVertex {
+			fee = computeFee(amountToSend, edge)
+			timeLockDelta = edge.TimeLockDelta
+		}
+
+		// amountToReceive is the amount that the node that is added to
+		// the distance map needs to receive from a (to be found)
+		// previous node in the route. That previous node will need to
+		// pay the amount that this node forwards plus the fee it
+		// charges.
+		amountToReceive := amountToSend + fee
+
+		// Check if accumulated fees would exceed fee limit when this
+		// node would be added to the path.
+		totalFee := amountToReceive - amt
+		if totalFee > r.feeLimit {
+			return
+		}
+
+		// By adding fromNode in the route, there will be an extra
+		// weight composed of the fee that this node will charge and
+		// the amount that will be locked for timeLockDelta blocks in
+		// the HTLC that is handed out to fromNode.
+		weight := edgeWeight(amountToReceive, fee, timeLockDelta)
+
+		// Compute the tentative distance to this new channel/edge
+		// which is the distance from our toNode to the target node
+		// plus the weight of this edge.
+		tempDist := toNodeDist.dist + weight
+
+		// If this new tentative distance is not better than the current
+		// best known distance to this node, return.
+		if tempDist >= distance[fromVertex].dist {
+			return
+		}
+
+		// If the edge has no time lock delta, the payment will always
+		// fail, so return.
+		//
+		// TODO(joostjager): Is this really true? Can't it be that
+		// nodes take this risk in exchange for a extraordinary high
+		// fee?
+		if edge.TimeLockDelta == 0 {
+			return
+		}
+
+		// All conditions are met and this new tentative distance is
+		// better than the current best known distance to this node.
+		// The new better distance is recorded, and also our "next hop"
+		// map is populated with this edge.
+		distance[fromVertex] = nodeWithDist{
+			dist:            tempDist,
+			node:            fromNode,
+			amountToReceive: amountToReceive,
+			fee:             fee,
+		}
+
+		next[fromVertex] = edge
+
+		// Add this new node to our heap as we'd like to further
+		// explore backwards through this edge.
+		heap.Push(&nodeHeap, distance[fromVertex])
 	}
 
 	// TODO(roasbeef): also add path caching
 	//  * similar to route caching, but doesn't factor in the amount
 
-	// To start, we add the source of our path finding attempt to the
-	// distance map with a distance of 0. This indicates our starting
-	// point in the graph traversal.
-	sourceVertex := Vertex(sourceNode.PubKeyBytes)
-	distance[sourceVertex] = nodeWithDist{
-		dist: 0,
-		node: sourceNode,
-	}
-
-	// To start, our source node will the sole item within our distance
+	// To start, our target node will the sole item within our distance
 	// heap.
-	heap.Push(&nodeHeap, distance[sourceVertex])
+	heap.Push(&nodeHeap, distance[targetVertex])
 
 	for nodeHeap.Len() != 0 {
 		// Fetch the node within the smallest distance from our source
@@ -596,25 +699,33 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 		partialPath := heap.Pop(&nodeHeap).(nodeWithDist)
 		bestNode := partialPath.node
 
-		// If we've reached our target (or we don't have any outgoing
+		// If we've reached our source (or we don't have any incoming
 		// edges), then we're done here and can exit the graph
 		// traversal early.
-		if bytes.Equal(bestNode.PubKeyBytes[:], targetVertex[:]) {
+		if bytes.Equal(bestNode.PubKeyBytes[:], sourceVertex[:]) {
 			break
 		}
 
 		// Now that we've found the next potential step to take we'll
-		// examine all the outgoing edge (channels) from this node to
+		// examine all the incoming edges (channels) from this node to
 		// further our graph traversal.
 		pivot := Vertex(bestNode.PubKeyBytes)
-		err := bestNode.ForEachChannel(tx, func(tx *bolt.Tx,
+		err := bestNode.ForEachChannel(tx, func(tx *bbolt.Tx,
 			edgeInfo *channeldb.ChannelEdgeInfo,
-			outEdge, _ *channeldb.ChannelEdgePolicy) error {
+			_, inEdge *channeldb.ChannelEdgePolicy) error {
+
+			// If there is no edge policy for this candidate
+			// node, skip. Note that we are searching backwards
+			// so this node would have come prior to the pivot
+			// node in the route.
+			if inEdge == nil {
+				return nil
+			}
 
 			// We'll query the lower layer to see if we can obtain
 			// any more up to date information concerning the
 			// bandwidth of this edge.
-			edgeBandwidth, ok := bandwidthHints[edgeInfo.ChannelID]
+			edgeBandwidth, ok := g.bandwidthHints[edgeInfo.ChannelID]
 			if !ok {
 				// If we don't have a hint for this edge, then
 				// we'll just use the known Capacity as the
@@ -624,10 +735,20 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 				)
 			}
 
-			processEdge(outEdge, edgeBandwidth, pivot)
+			// Before we can process the edge, we'll need to fetch
+			// the node on the _other_ end of this channel as we
+			// may later need to iterate over the incoming edges of
+			// this node if we explore it further.
+			channelSource, err := edgeInfo.FetchOtherNode(
+				tx, pivot[:],
+			)
+			if err != nil {
+				return err
+			}
 
-			// TODO(roasbeef): return min HTLC as error in end?
-
+			// Check if this candidate node is better than what we
+			// already have.
+			processEdge(channelSource, inEdge, edgeBandwidth, pivot)
 			return nil
 		})
 		if err != nil {
@@ -639,31 +760,33 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 		// of the private channel, we'll assume it was selected as a
 		// routing hint due to having enough capacity for the payment
 		// and use the payment amount as its capacity.
-		for _, edge := range additionalEdges[bestNode.PubKeyBytes] {
-			processEdge(edge, amt, pivot)
+		bandWidth := partialPath.amountToReceive
+		for _, reverseEdge := range additionalEdgesWithSrc[bestNode.PubKeyBytes] {
+			processEdge(reverseEdge.sourceNode, reverseEdge.edge,
+				bandWidth, pivot)
 		}
 	}
 
-	// If the target node isn't found in the prev hop map, then a path
+	// If the source node isn't found in the next hop map, then a path
 	// doesn't exist, so we terminate in an error.
-	if _, ok := prev[NewVertex(target)]; !ok {
+	if _, ok := next[sourceVertex]; !ok {
 		return nil, newErrf(ErrNoPathFound, "unable to find a path to "+
 			"destination")
 	}
 
-	// If the potential route if below the max hop limit, then we'll use
-	// the prevHop map to unravel the path. We end up with a list of edges
-	// in the reverse direction which we'll use to properly calculate the
-	// timelock and fee values.
-	pathEdges := make([]*ChannelHop, 0, len(prev))
-	prevNode := NewVertex(target)
-	for prevNode != sourceVertex { // TODO(roasbeef): assumes no cycles
-		// Add the current hop to the limit of path edges then walk
-		// backwards from this hop via the prev pointer for this hop
-		// within the prevHop map.
-		pathEdges = append(pathEdges, prev[prevNode].edge)
+	// Use the nextHop map to unravel the forward path from source to
+	// target.
+	pathEdges := make([]*channeldb.ChannelEdgePolicy, 0, len(next))
+	currentNode := sourceVertex
+	for currentNode != targetVertex { // TODO(roasbeef): assumes no cycles
+		// Determine the next hop forward using the next map.
+		nextNode := next[currentNode]
 
-		prevNode = Vertex(prev[prevNode].prevNode)
+		// Add the next hop to the list of path edges.
+		pathEdges = append(pathEdges, nextNode)
+
+		// Advance current node.
+		currentNode = Vertex(nextNode.Node.PubKeyBytes)
 	}
 
 	// The route is invalid if it spans more than 20 hops. The current
@@ -674,13 +797,6 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 	if numEdges > HopLimit {
 		return nil, newErr(ErrMaxHopsExceeded, "potential path has "+
 			"too many hops")
-	}
-
-	// As our traversal of the prev map above walked backwards from the
-	// target to the source in the route, we need to reverse it before
-	// returning the final route.
-	for i := 0; i < numEdges/2; i++ {
-		pathEdges[i], pathEdges[numEdges-i-1] = pathEdges[numEdges-i-1], pathEdges[i]
 	}
 
 	return pathEdges, nil
@@ -697,18 +813,18 @@ func findPath(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 // make our inner path finding algorithm aware of our k-shortest paths
 // algorithm, rather than attempting to use an unmodified path finding
 // algorithm in a block box manner.
-func findPaths(tx *bolt.Tx, graph *channeldb.ChannelGraph,
+func findPaths(tx *bbolt.Tx, graph *channeldb.ChannelGraph,
 	source *channeldb.LightningNode, target *btcec.PublicKey,
-	amt lnwire.MilliSatoshi, numPaths uint32,
-	bandwidthHints map[uint64]lnwire.MilliSatoshi) ([][]*ChannelHop, error) {
+	amt lnwire.MilliSatoshi, feeLimit lnwire.MilliSatoshi, numPaths uint32,
+	bandwidthHints map[uint64]lnwire.MilliSatoshi) ([][]*channeldb.ChannelEdgePolicy, error) {
 
-	ignoredEdges := make(map[uint64]struct{})
+	ignoredEdges := make(map[edgeLocator]struct{})
 	ignoredVertexes := make(map[Vertex]struct{})
 
 	// TODO(roasbeef): modifying ordering within heap to eliminate final
 	// sorting step?
 	var (
-		shortestPaths  [][]*ChannelHop
+		shortestPaths  [][]*channeldb.ChannelEdgePolicy
 		candidatePaths pathHeap
 	)
 
@@ -716,8 +832,17 @@ func findPaths(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 	// selfNode) to the target destination that's capable of carrying amt
 	// satoshis along the path before fees are calculated.
 	startingPath, err := findPath(
-		tx, graph, nil, source, target, ignoredVertexes, ignoredEdges,
-		amt, bandwidthHints,
+		&graphParams{
+			tx:             tx,
+			graph:          graph,
+			bandwidthHints: bandwidthHints,
+		},
+		&restrictParams{
+			ignoredNodes: ignoredVertexes,
+			ignoredEdges: ignoredEdges,
+			feeLimit:     feeLimit,
+		},
+		source, target, amt,
 	)
 	if err != nil {
 		log.Errorf("Unable to find path: %v", err)
@@ -727,11 +852,9 @@ func findPaths(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 	// Manually insert a "self" edge emanating from ourselves. This
 	// self-edge is required in order for the path finding algorithm to
 	// function properly.
-	firstPath := make([]*ChannelHop, 0, len(startingPath)+1)
-	firstPath = append(firstPath, &ChannelHop{
-		ChannelEdgePolicy: &channeldb.ChannelEdgePolicy{
-			Node: source,
-		},
+	firstPath := make([]*channeldb.ChannelEdgePolicy, 0, len(startingPath)+1)
+	firstPath = append(firstPath, &channeldb.ChannelEdgePolicy{
+		Node: source,
 	})
 	firstPath = append(firstPath, startingPath...)
 
@@ -750,7 +873,7 @@ func findPaths(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 			// we'll exclude from the next path finding attempt.
 			// These are required to ensure the paths are unique
 			// and loopless.
-			ignoredEdges = make(map[uint64]struct{})
+			ignoredEdges = make(map[edgeLocator]struct{})
 			ignoredVertexes = make(map[Vertex]struct{})
 
 			// Our spur node is the i-th node in the prior shortest
@@ -768,8 +891,11 @@ func findPaths(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 				// shortest path, then we'll remove the edge
 				// directly _after_ our spur node from the
 				// graph so we don't repeat paths.
-				if len(path) > i+1 && isSamePath(rootPath, path[:i+1]) {
-					ignoredEdges[path[i+1].ChannelID] = struct{}{}
+				if len(path) > i+1 &&
+					isSamePath(rootPath, path[:i+1]) {
+
+					locator := newEdgeLocator(path[i+1])
+					ignoredEdges[*locator] = struct{}{}
 				}
 			}
 
@@ -790,9 +916,16 @@ func findPaths(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 			// root path removed, we'll attempt to find another
 			// shortest path from the spur node to the destination.
 			spurPath, err := findPath(
-				tx, graph, nil, spurNode, target,
-				ignoredVertexes, ignoredEdges, amt,
-				bandwidthHints,
+				&graphParams{
+					tx:             tx,
+					graph:          graph,
+					bandwidthHints: bandwidthHints,
+				},
+				&restrictParams{
+					ignoredNodes: ignoredVertexes,
+					ignoredEdges: ignoredEdges,
+					feeLimit:     feeLimit,
+				}, spurNode, target, amt,
 			)
 
 			// If we weren't able to find a path, we'll continue to
@@ -807,7 +940,7 @@ func findPaths(tx *bolt.Tx, graph *channeldb.ChannelGraph,
 			// rootPath to the spurPath.
 			newPathLen := len(rootPath) + len(spurPath)
 			newPath := path{
-				hops: make([]*ChannelHop, 0, newPathLen),
+				hops: make([]*channeldb.ChannelEdgePolicy, 0, newPathLen),
 				dist: newPathLen,
 			}
 			newPath.hops = append(newPath.hops, rootPath...)

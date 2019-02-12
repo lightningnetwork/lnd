@@ -20,7 +20,7 @@ type Utxo struct {
 	Type          lnrpc.AddressType `json:"address_type"`
 	Address       string            `json:"address"`
 	AmountSat     int64             `json:"amount_sat"`
-	ScriptPubkey  string            `json:"script_pubkey"`
+	PkScript      string            `json:"pk_script"`
 	OutPoint      OutPoint          `json:"outpoint"`
 	Confirmations int64             `json:"confirmations"`
 }
@@ -33,7 +33,7 @@ func NewUtxoFromProto(utxo *lnrpc.Utxo) *Utxo {
 		Type:          utxo.Type,
 		Address:       utxo.Address,
 		AmountSat:     utxo.AmountSat,
-		ScriptPubkey:  utxo.ScriptPubkey,
+		PkScript:      utxo.PkScript,
 		OutPoint:      NewOutPointFromProto(utxo.Outpoint),
 		Confirmations: utxo.Confirmations,
 	}

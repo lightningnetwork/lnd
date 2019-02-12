@@ -686,8 +686,8 @@ message Utxo {
     /// The value of the unspent coin in satoshis
     int64 amount_sat = 3 [json_name = "amount_sat"];
 
-    /// The scriptpubkey in hex
-    string script_pubkey = 4 [json_name = "script_pubkey"];
+    /// The pkscript in hex
+    string pk_script = 4 [json_name = "pk_script"];
 
     /// The outpoint in format txid:n
     OutPoint outpoint = 5 [json_name = "outpoint"];
@@ -880,16 +880,15 @@ message SendCoinsResponse {
 }
 
 message ListUnspentRequest {
-	/// The minimum number of confirmations to be included.
-	int32 min_confs = 1;
+    /// The minimum number of confirmations to be included.
+    int32 min_confs = 1;
 
-	/// The maximum number of confirmations to be included.
-	int32 max_confs = 2;
+    /// The maximum number of confirmations to be included.
+    int32 max_confs = 2;
 }
 message ListUnspentResponse {
-	/// A list of utxos
-	repeated Utxo utxos = 1 [json_name = "utxos"];
-
+    /// A list of utxos
+    repeated Utxo utxos = 1 [json_name = "utxos"];
 }
 
 /** 

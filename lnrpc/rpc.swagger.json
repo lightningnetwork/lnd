@@ -3068,9 +3068,9 @@
           "format": "int64",
           "title": "/ The value of the unspent coin in satoshis"
         },
-        "script_pubkey": {
+        "pk_script": {
           "type": "string",
-          "title": "/ The scriptpubkey in hex"
+          "title": "/ The pkscript in hex"
         },
         "outpoint": {
           "$ref": "#/definitions/lnrpcOutPoint",

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"math"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -643,8 +644,8 @@ func testOnchainFundRecovery(net *lntest.NetworkHarness, t *harnessTest) {
 	// method takes the expected value of Carol's balance when using the
 	// given recovery window. Additionally, the caller can specify an action
 	// to perform on the restored node before the node is shutdown.
-	restoreCheckBalance := func(expAmount int64, recoveryWindow int32,
-		fn func(*lntest.HarnessNode)) {
+	restoreCheckBalance := func(expAmount int64, expectedNumUTXOs int,
+		recoveryWindow int32, fn func(*lntest.HarnessNode)) {
 
 		// Restore Carol, passing in the password, mnemonic, and
 		// desired recovery window.
@@ -655,8 +656,12 @@ func testOnchainFundRecovery(net *lntest.NetworkHarness, t *harnessTest) {
 			t.Fatalf("unable to restore node: %v", err)
 		}
 
-		// Query carol for her current wallet balance.
-		var currBalance int64
+		// Query carol for her current wallet balance, and also that we
+		// gain the expected number of UTXOs.
+		var (
+			currBalance  int64
+			currNumUTXOs uint32
+		)
 		err = lntest.WaitPredicate(func() bool {
 			req := &lnrpc.WalletBalanceRequest{}
 			ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
@@ -673,12 +678,27 @@ func testOnchainFundRecovery(net *lntest.NetworkHarness, t *harnessTest) {
 				return false
 			}
 
+			utxoReq := &lnrpc.ListUnspentRequest{
+				MaxConfs: math.MaxInt32,
+			}
+			ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+			utxoResp, err := node.ListUnspent(ctxt, utxoReq)
+			if err != nil {
+				t.Fatalf("unable to query utxos: %v", err)
+			}
+
+			currNumUTXOs := len(utxoResp.Utxos)
+			if currNumUTXOs != expectedNumUTXOs {
+				return false
+			}
+
 			return true
 		}, 15*time.Second)
 		if err != nil {
 			t.Fatalf("expected restored node to have %d satoshis, "+
-				"instead has %d satoshis", expAmount,
-				currBalance)
+				"instead has %d satoshis, expected %d utxos "+
+				"instead has %d", expAmount, currBalance,
+				expectedNumUTXOs, currNumUTXOs)
 		}
 
 		// If the user provided a callback, execute the commands against
@@ -750,37 +770,40 @@ func testOnchainFundRecovery(net *lntest.NetworkHarness, t *harnessTest) {
 	//
 	// After, one BTC is sent to both her first external P2WKH and NP2WKH
 	// addresses.
-	restoreCheckBalance(0, 0, skipAndSend(0))
+	restoreCheckBalance(0, 0, 0, skipAndSend(0))
 
 	// Check that restoring without a look-ahead results in having no funds
 	// in the wallet, even though they exist on-chain.
-	restoreCheckBalance(0, 0, nil)
+	restoreCheckBalance(0, 0, 0, nil)
 
-	// Now, check that using a look-ahead of 1 recovers the balance from the
-	// two transactions above.
+	// Now, check that using a look-ahead of 1 recovers the balance from
+	// the two transactions above. We should also now have 2 UTXOs in the
+	// wallet at the end of the recovery attempt.
 	//
 	// After, we will generate and skip 9 P2WKH and NP2WKH addresses, and
 	// send another BTC to the subsequent 10th address in each derivation
 	// path.
-	restoreCheckBalance(2*btcutil.SatoshiPerBitcoin, 1, skipAndSend(9))
+	restoreCheckBalance(2*btcutil.SatoshiPerBitcoin, 2, 1, skipAndSend(9))
 
 	// Check that using a recovery window of 9 does not find the two most
 	// recent txns.
-	restoreCheckBalance(2*btcutil.SatoshiPerBitcoin, 9, nil)
+	restoreCheckBalance(2*btcutil.SatoshiPerBitcoin, 2, 9, nil)
 
 	// Extending our recovery window to 10 should find the most recent
-	// transactions, leaving the wallet with 4 BTC total.
+	// transactions, leaving the wallet with 4 BTC total. We should also
+	// learn of the two additional UTXOs created above.
 	//
 	// After, we will skip 19 more addrs, sending to the 20th address past
 	// our last found address, and repeat the same checks.
-	restoreCheckBalance(4*btcutil.SatoshiPerBitcoin, 10, skipAndSend(19))
+	restoreCheckBalance(4*btcutil.SatoshiPerBitcoin, 4, 10, skipAndSend(19))
 
 	// Check that recovering with a recovery window of 19 fails to find the
 	// most recent transactions.
-	restoreCheckBalance(4*btcutil.SatoshiPerBitcoin, 19, nil)
+	restoreCheckBalance(4*btcutil.SatoshiPerBitcoin, 4, 19, nil)
 
-	// Ensure that using a recovery window of 20 succeeds.
-	restoreCheckBalance(6*btcutil.SatoshiPerBitcoin, 20, nil)
+	// Ensure that using a recovery window of 20 succeeds with all UTXOs
+	// found and the final balance reflected.
+	restoreCheckBalance(6*btcutil.SatoshiPerBitcoin, 6, 20, nil)
 }
 
 // testBasicChannelFunding performs a test exercising expected behavior from a

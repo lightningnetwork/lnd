@@ -35,8 +35,10 @@ import (
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcwallet/wallet"
+	"github.com/btcsuite/btcwallet/walletdb"
 	proxy "github.com/grpc-ecosystem/grpc-gateway/runtime"
 	flags "github.com/jessevdk/go-flags"
+	"github.com/lightninglabs/neutrino"
 
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/build"
@@ -196,6 +198,81 @@ func lndMain() error {
 	}
 	proxyOpts := []grpc.DialOption{grpc.WithTransportCredentials(cCreds)}
 
+	// Before starting the wallet, we'll create and start our Neutrino light
+	// client instance, if enabled, in order to allow it to sync while the
+	// rest of the daemon continues startup.
+	mainChain := cfg.Bitcoin
+	if registeredChains.PrimaryChain() == litecoinChain {
+		mainChain = cfg.Litecoin
+	}
+	var neutrinoCS *neutrino.ChainService
+	if mainChain.Node == "neutrino" {
+		// First we'll open the database file for neutrino, creating
+		// the database if needed. We append the normalized network name
+		// here to match the behavior of btcwallet.
+		dbPath := filepath.Join(
+			mainChain.ChainDir,
+			normalizeNetwork(activeNetParams.Name),
+		)
+
+		// Ensure that the neutrino db path exists.
+		if err := os.MkdirAll(dbPath, 0700); err != nil {
+			return err
+		}
+
+		dbName := filepath.Join(dbPath, "neutrino.db")
+		db, err := walletdb.Create("bdb", dbName)
+		if err != nil {
+			return fmt.Errorf("unable to create neutrino "+
+				"database: %v", err)
+		}
+		defer db.Close()
+
+		// With the database open, we can now create an instance of the
+		// neutrino light client. We pass in relevant configuration
+		// parameters required.
+		config := neutrino.Config{
+			DataDir:      dbPath,
+			Database:     db,
+			ChainParams:  *activeNetParams.Params,
+			AddPeers:     cfg.NeutrinoMode.AddPeers,
+			ConnectPeers: cfg.NeutrinoMode.ConnectPeers,
+			Dialer: func(addr net.Addr) (net.Conn, error) {
+				return cfg.net.Dial(addr.Network(), addr.String())
+			},
+			NameResolver: func(host string) ([]net.IP, error) {
+				addrs, err := cfg.net.LookupHost(host)
+				if err != nil {
+					return nil, err
+				}
+
+				ips := make([]net.IP, 0, len(addrs))
+				for _, strIP := range addrs {
+					ip := net.ParseIP(strIP)
+					if ip == nil {
+						continue
+					}
+
+					ips = append(ips, ip)
+				}
+
+				return ips, nil
+			},
+		}
+
+		neutrino.MaxPeers = 8
+		neutrino.BanDuration = 5 * time.Second
+
+		neutrinoCS, err = neutrino.NewChainService(config)
+		if err != nil {
+			return fmt.Errorf("unable to create neutrino light "+
+				"client: %v", err)
+		}
+
+		neutrinoCS.Start()
+		defer neutrinoCS.Stop()
+	}
+
 	var (
 		privateWalletPw = lnwallet.DefaultPrivatePassphrase
 		publicWalletPw  = lnwallet.DefaultPublicPassphrase
@@ -269,7 +346,7 @@ func lndMain() error {
 	// Lightning Network Daemon.
 	activeChainControl, chainCleanUp, err := newChainControlFromConfig(
 		cfg, chanDB, privateWalletPw, publicWalletPw, birthday,
-		recoveryWindow, unlockedWallet,
+		recoveryWindow, unlockedWallet, neutrinoCS,
 	)
 	if err != nil {
 		fmt.Printf("unable to create chain control: %v\n", err)

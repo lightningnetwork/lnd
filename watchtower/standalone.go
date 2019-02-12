@@ -78,6 +78,7 @@ func New(cfg *Config) (*Standalone, error) {
 
 	// Initialize the server with its required resources.
 	server, err := wtserver.New(&wtserver.Config{
+		ChainHash:    cfg.ChainHash,
 		DB:           cfg.DB,
 		NodePrivKey:  cfg.NodePrivKey,
 		Listeners:    listeners,

@@ -39,6 +39,11 @@ const (
 	RiskFactorBillionths = 15
 )
 
+// pathFinder defines the interface of a path finding algorithm.
+type pathFinder = func(g *graphParams, r *RestrictParams,
+	source, target Vertex, amt lnwire.MilliSatoshi) (
+	[]*channeldb.ChannelEdgePolicy, error)
+
 // Hop represents an intermediate or final node of the route. This naming
 // is in line with the definition given in BOLT #4: Onion Routing Protocol.
 // The struct houses the channel along which this hop can be reached and

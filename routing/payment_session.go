@@ -33,6 +33,8 @@ type paymentSession struct {
 
 	haveRoutes     bool
 	preBuiltRoutes []*Route
+
+	pathFinder pathFinder
 }
 
 // ReportVertexFailure adds a vertex to the graph prune view after a client
@@ -141,7 +143,7 @@ func (p *paymentSession) RequestRoute(payment *LightningPayment,
 	// Taking into account this prune view, we'll attempt to locate a path
 	// to our destination, respecting the recommendations from
 	// missionControl.
-	path, err := findPath(
+	path, err := p.pathFinder(
 		&graphParams{
 			graph:           p.mc.graph,
 			additionalEdges: p.additionalEdges,

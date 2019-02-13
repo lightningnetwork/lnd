@@ -360,10 +360,12 @@ func loadConfig() (*config, error) {
 		}
 	}
 	
-	// Check if config file exist
-        if _, err := os.Stat(configFilePath); os.IsNotExist(err) {
-                return nil, fmt.Errorf("config file does not exist in %s", configFilePath)
-        }
+        // If user supplied alternative config, check if it exist
+	if configFilePath != defaultConfigFile {
+		if _, err := os.Stat(configFilePath); os.IsNotExist(err) {
+			return nil, fmt.Errorf("command line config file does not exist in %s", configFilePath)
+		}
+	}
 
 	// Next, load any additional configuration options from the file.
 	var configFileError error

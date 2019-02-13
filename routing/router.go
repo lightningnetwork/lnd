@@ -1523,6 +1523,10 @@ type LightningPayment struct {
 	// if there isn't a route with lower fees than this limit.
 	FeeLimit lnwire.MilliSatoshi
 
+	// CltvLimit is the maximum time lock that is allowed for attempts to
+	// complete this payment.
+	CltvLimit *uint32
+
 	// PaymentHash is the r-hash value to use within the HTLC extended to
 	// the first hop.
 	PaymentHash [32]byte

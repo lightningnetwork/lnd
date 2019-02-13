@@ -1283,45 +1283,6 @@ type routingMsg struct {
 	err chan error
 }
 
-// pruneNodeFromRoutes accepts set of routes, and returns a new set of routes
-// with the target node filtered out.
-func pruneNodeFromRoutes(routes []*Route, skipNode Vertex) []*Route {
-
-	// TODO(roasbeef): pass in slice index?
-
-	prunedRoutes := make([]*Route, 0, len(routes))
-	for _, route := range routes {
-		if route.containsNode(skipNode) {
-			continue
-		}
-
-		prunedRoutes = append(prunedRoutes, route)
-	}
-
-	log.Tracef("Filtered out %v routes with node %x",
-		len(routes)-len(prunedRoutes), skipNode[:])
-
-	return prunedRoutes
-}
-
-// pruneChannelFromRoutes accepts a set of routes, and returns a new set of
-// routes with the target channel filtered out.
-func pruneChannelFromRoutes(routes []*Route, skipChan uint64) []*Route {
-	prunedRoutes := make([]*Route, 0, len(routes))
-	for _, route := range routes {
-		if route.containsChannel(skipChan) {
-			continue
-		}
-
-		prunedRoutes = append(prunedRoutes, route)
-	}
-
-	log.Tracef("Filtered out %v routes with channel %v",
-		len(routes)-len(prunedRoutes), skipChan)
-
-	return prunedRoutes
-}
-
 // pathsToFeeSortedRoutes takes a set of paths, and returns a corresponding set
 // of routes. A route differs from a path in that it has full time-lock and
 // fee information attached. The set of routes returned may be less than the

@@ -606,14 +606,11 @@ func findPath(g *graphParams, r *RestrictParams, source, target Vertex,
 			return
 		}
 
-		// If the edge has no time lock delta, the payment will always
-		// fail, so return.
-		//
-		// TODO(joostjager): Is this really true? Can't it be that
-		// nodes take this risk in exchange for a extraordinary high
-		// fee?
+		// Every edge should have a positive time lock delta. If we
+		// encounter a zero delta, log a warning line.
 		if edge.TimeLockDelta == 0 {
-			return
+			log.Warnf("Channel %v has zero cltv delta",
+				edge.ChannelID)
 		}
 
 		// All conditions are met and this new tentative distance is

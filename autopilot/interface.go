@@ -142,6 +142,21 @@ type AttachmentHeuristic interface {
 		map[NodeID]*NodeScore, error)
 }
 
+// ScoreSettable is an interface that indicates that the scores returned by the
+// heuristic can be mutated by an external caller. The ExternalScoreAttachment
+// currently implements this interface, and so should any heuristic that is
+// using the ExternalScoreAttachment as a sub-heuristic, or keeps their own
+// internal list of mutable scores, to allow access to setting the internal
+// scores.
+type ScoreSettable interface {
+	// SetNodeScores is used to set the internal map from NodeIDs to
+	// scores. The passed scores must be in the range [0, 1.0]. The fist
+	// parameter is the name of the targeted heuristic, to allow
+	// recursively target specific sub-heuristics. The returned boolean
+	// indicates whether the targeted heuristic was found.
+	SetNodeScores(string, map[NodeID]float64) (bool, error)
+}
+
 var (
 	// availableHeuristics holds all heuristics possible to combine for use
 	// with the autopilot agent.

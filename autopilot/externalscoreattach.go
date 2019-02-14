@@ -23,8 +23,9 @@ func NewExternalScoreAttachment() *ExternalScoreAttachment {
 }
 
 // A compile time assertion to ensure ExternalScoreAttachment meets the
-// AttachmentHeuristic interface.
+// AttachmentHeuristic and ScoreSettable interfaces.
 var _ AttachmentHeuristic = (*ExternalScoreAttachment)(nil)
+var _ ScoreSettable = (*ExternalScoreAttachment)(nil)
 
 // Name returns the name of this heuristic.
 //
@@ -38,6 +39,8 @@ func (s *ExternalScoreAttachment) Name() string {
 // of the targeted heuristic, to allow recursively target specific
 // sub-heuristics. The returned boolean indicates whether the targeted
 // heuristic was found.
+//
+// NOTE: This is a part of the ScoreSettable interface.
 func (s *ExternalScoreAttachment) SetNodeScores(targetHeuristic string,
 	newScores map[NodeID]float64) (bool, error) {
 

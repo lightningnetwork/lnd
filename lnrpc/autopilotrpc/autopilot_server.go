@@ -220,5 +220,23 @@ func (s *Server) QueryScores(ctx context.Context, in *QueryScoresRequest) (
 func (s *Server) SetScores(ctx context.Context,
 	in *SetScoresRequest) (*SetScoresResponse, error) {
 
+	scores := make(map[autopilot.NodeID]float64)
+	for pubStr, score := range in.Scores {
+		pubHex, err := hex.DecodeString(pubStr)
+		if err != nil {
+			return nil, err
+		}
+		pubKey, err := btcec.ParsePubKey(pubHex, btcec.S256())
+		if err != nil {
+			return nil, err
+		}
+		nID := autopilot.NewNodeID(pubKey)
+		scores[nID] = score
+	}
+
+	if err := s.manager.SetNodeScores(in.Heuristic, scores); err != nil {
+		return nil, err
+	}
+
 	return &SetScoresResponse{}, nil
 }

@@ -147,6 +147,7 @@ var (
 	// with the autopilot agent.
 	availableHeuristics = []AttachmentHeuristic{
 		NewPrefAttachment(),
+		NewExternalScoreAttachment(),
 	}
 
 	// AvailableHeuristics is a map that holds the name of available

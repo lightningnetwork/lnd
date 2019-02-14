@@ -25,6 +25,12 @@ service Autopilot {
     the given nodes.
     */
     rpc QueryScores(QueryScoresRequest) returns (QueryScoresResponse);
+
+    /**
+    SetScores attempts to set the scores used by the running autopilot agent,
+    if the external scoring heuristic is enabled.
+    */
+    rpc SetScores(SetScoresRequest) returns (SetScoresResponse);
 }
 
 message StatusRequest{
@@ -54,3 +60,16 @@ message QueryScoresResponse {
 
     repeated HeuristicResult results = 1 [json_name = "results"];
 }
+
+message SetScoresRequest{
+    /// The name of the heuristic to provide scores to.
+    string heuristic = 1 [json_name = "heuristic"];
+
+    /**
+    A map from hex-encoded public keys to scores. Scores must be in the range
+    [0.0, 1.0].
+    */
+    map<string, double> scores = 2 [json_name = "scores"];
+}
+
+message SetScoresResponse {}

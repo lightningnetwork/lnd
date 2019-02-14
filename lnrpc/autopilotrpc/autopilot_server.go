@@ -40,6 +40,13 @@ var (
 			Entity: "info",
 			Action: "read",
 		}},
+		"/autopilotrpc.Autopilot/SetScores": {{
+			Entity: "onchain",
+			Action: "write",
+		}, {
+			Entity: "offchain",
+			Action: "write",
+		}},
 	}
 )
 
@@ -205,4 +212,13 @@ func (s *Server) QueryScores(ctx context.Context, in *QueryScoresRequest) (
 	}
 
 	return resp, nil
+}
+
+// SetScores sets the scores of the external score heuristic, if active.
+//
+// NOTE: Part of the AutopilotServer interface.
+func (s *Server) SetScores(ctx context.Context,
+	in *SetScoresRequest) (*SetScoresResponse, error) {
+
+	return &SetScoresResponse{}, nil
 }

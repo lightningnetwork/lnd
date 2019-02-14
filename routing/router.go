@@ -1125,8 +1125,6 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 		}
 		r.rejectMtx.RUnlock()
 
-		channelID := lnwire.NewShortChanIDFromInt(msg.ChannelID)
-
 		// We make sure to hold the mutex for this channel ID,
 		// such that no other goroutine is concurrently doing
 		// database accesses for the same channel ID.
@@ -1140,6 +1138,15 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 			return errors.Errorf("unable to check for edge "+
 				"existence: %v", err)
 
+		}
+
+		// If the channel doesn't exist in our database, we cannot
+		// apply the updated policy.
+		if !exists {
+			return newErrf(ErrIgnored, "Ignoring update "+
+				"(flags=%v|%v) for unknown chan_id=%v",
+				msg.MessageFlags, msg.ChannelFlags,
+				msg.ChannelID)
 		}
 
 		// As edges are directional edge node has a unique policy for
@@ -1171,36 +1178,6 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 					"outdated update (flags=%v|%v) for "+
 					"known chan_id=%v", msg.MessageFlags,
 					msg.ChannelFlags, msg.ChannelID)
-			}
-		}
-
-		if !exists && !r.cfg.AssumeChannelValid {
-			// Before we can update the channel information, we'll
-			// ensure that the target channel is still open by
-			// querying the utxo-set for its existence.
-			chanPoint, fundingTxOut, err := r.fetchChanPoint(
-				&channelID,
-			)
-			if err != nil {
-				r.rejectMtx.Lock()
-				r.rejectCache[msg.ChannelID] = struct{}{}
-				r.rejectMtx.Unlock()
-
-				return errors.Errorf("unable to fetch chan "+
-					"point for chan_id=%v: %v",
-					msg.ChannelID, err)
-			}
-			_, err = r.cfg.Chain.GetUtxo(
-				chanPoint, fundingTxOut.PkScript,
-				channelID.BlockHeight,
-			)
-			if err != nil {
-				r.rejectMtx.Lock()
-				r.rejectCache[msg.ChannelID] = struct{}{}
-				r.rejectMtx.Unlock()
-
-				return errors.Errorf("unable to fetch utxo for "+
-					"chan_id=%v: %v", msg.ChannelID, err)
 			}
 		}
 

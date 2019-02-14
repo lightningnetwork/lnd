@@ -126,3 +126,34 @@ func (c *WeightedCombAttachment) NodeScores(g ChannelGraph, chans []Channel,
 
 	return scores, nil
 }
+
+// SetNodeScores is used to set the internal map from NodeIDs to scores. The
+// passed scores must be in the range [0, 1.0]. The fist parameter is the name
+// of the targeted heuristic, to allow recursively target specific
+// sub-heuristics. The returned boolean indicates whether the targeted
+// heuristic was found.
+//
+// Since this heuristic doesn't keep any internal scores, it will recursively
+// apply the scores to its sub-heuristics.
+func (c *WeightedCombAttachment) SetNodeScores(targetHeuristic string,
+	newScores map[NodeID]float64) (bool, error) {
+
+	found := false
+	for _, h := range c.heuristics {
+		// It must be ScoreSettable to be available for external
+		// scores.
+		s, ok := h.AttachmentHeuristic.(ScoreSettable)
+		if !ok {
+			continue
+		}
+
+		// Heuristic supports scoring, attempt to set them.
+		applied, err := s.SetNodeScores(targetHeuristic, newScores)
+		if err != nil {
+			return false, err
+		}
+		found = found || applied
+	}
+
+	return found, nil
+}

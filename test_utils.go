@@ -9,6 +9,7 @@ import (
 	"math/rand"
 	"net"
 	"os"
+	"time"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -22,6 +23,7 @@ import (
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/netann"
 	"github.com/lightningnetwork/lnd/shachain"
 	"github.com/lightningnetwork/lnd/ticker"
 )
@@ -367,8 +369,30 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
+	if err = htlcSwitch.Start(); err != nil {
+		return nil, nil, nil, nil, err
+	}
 	s.htlcSwitch = htlcSwitch
-	s.htlcSwitch.Start()
+
+	nodeSignerAlice := netann.NewNodeSigner(aliceKeyPriv)
+
+	const chanActiveTimeout = time.Minute
+
+	chanStatusMgr, err := netann.NewChanStatusManager(&netann.ChanStatusConfig{
+		ChanStatusSampleInterval: 30 * time.Second,
+		ChanEnableTimeout:        chanActiveTimeout,
+		ChanDisableTimeout:       2 * time.Minute,
+		DB:                       dbAlice,
+		Graph:                    dbAlice.ChannelGraph(),
+		MessageSigner:            nodeSignerAlice,
+		OurPubKey:                aliceKeyPub,
+		IsChannelActive:          s.htlcSwitch.HasActiveLink,
+		ApplyChannelUpdate:       func(*lnwire.ChannelUpdate) error { return nil },
+	})
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	s.chanStatusMgr = chanStatusMgr
 
 	alicePeer := &peer{
 		addr: &lnwire.NetAddress{
@@ -386,6 +410,8 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 		activeChanCloses:   make(map[lnwire.ChannelID]*channelCloser),
 		localCloseChanReqs: make(chan *htlcswitch.ChanClose),
 		chanCloseMsgs:      make(chan *closeMsg),
+
+		chanActiveTimeout: chanActiveTimeout,
 
 		queueQuit: make(chan struct{}),
 		quit:      make(chan struct{}),

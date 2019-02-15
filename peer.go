@@ -142,11 +142,20 @@ type peer struct {
 	// objects to queue messages to be sent out on the wire.
 	outgoingQueue chan outgoingMsg
 
+	// activeChanMtx protects access to the activeChannels and
+	// addeddChannels maps.
+	activeChanMtx sync.RWMutex
+
 	// activeChannels is a map which stores the state machines of all
 	// active channels. Channels are indexed into the map by the txid of
 	// the funding transaction which opened the channel.
-	activeChanMtx  sync.RWMutex
 	activeChannels map[lnwire.ChannelID]*lnwallet.LightningChannel
+
+	// addedChannels tracks any new channels opened during this peer's
+	// lifecycle. We use this to filter out these new channels when the time
+	// comes to request a reenable for active channels, since they will have
+	// waited a shorter duration.
+	addedChannels map[lnwire.ChannelID]struct{}
 
 	// newChannels is used by the fundingManager to send fully opened
 	// channels to the source peer which handled the funding workflow.
@@ -171,6 +180,11 @@ type peer struct {
 	// closures are sent over. This includes lnwire.Shutdown message as
 	// well as lnwire.ClosingSigned messages.
 	chanCloseMsgs chan *closeMsg
+
+	// chanActiveTimeout specifies the duration the peer will wait to
+	// request a channel reenable, beginning from the time the peer was
+	// started.
+	chanActiveTimeout time.Duration
 
 	server *server
 
@@ -212,7 +226,8 @@ var _ lnpeer.Peer = (*peer)(nil)
 // pointer to the main server.
 func newPeer(conn net.Conn, connReq *connmgr.ConnReq, server *server,
 	addr *lnwire.NetAddress, inbound bool,
-	localFeatures *lnwire.RawFeatureVector) (*peer, error) {
+	localFeatures *lnwire.RawFeatureVector,
+	chanActiveTimeout time.Duration) (*peer, error) {
 
 	nodePub := addr.IdentityKey
 
@@ -230,6 +245,7 @@ func newPeer(conn net.Conn, connReq *connmgr.ConnReq, server *server,
 		sendQueue:     make(chan outgoingMsg),
 		outgoingQueue: make(chan outgoingMsg),
 
+		addedChannels:  make(map[lnwire.ChannelID]struct{}),
 		activeChannels: make(map[lnwire.ChannelID]*lnwallet.LightningChannel),
 		newChannels:    make(chan *newChannelMsg, 1),
 
@@ -238,6 +254,8 @@ func newPeer(conn net.Conn, connReq *connmgr.ConnReq, server *server,
 		linkFailures:       make(chan linkFailureReport),
 		chanCloseMsgs:      make(chan *closeMsg),
 		failedChannels:     make(map[lnwire.ChannelID]struct{}),
+
+		chanActiveTimeout: chanActiveTimeout,
 
 		writeBuf: server.writeBufferPool.Take(),
 
@@ -392,7 +410,6 @@ func (p *peer) QuitSignal() <-chan struct{} {
 // loadActiveChannels creates indexes within the peer for tracking all active
 // channels returned by the database.
 func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
-	var activePublicChans []wire.OutPoint
 	for _, dbChan := range chans {
 		lnChan, err := lnwallet.NewLightningChannel(
 			p.server.cc.signer, p.server.witnessBeacon, dbChan,
@@ -499,32 +516,7 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 		p.activeChanMtx.Lock()
 		p.activeChannels[chanID] = lnChan
 		p.activeChanMtx.Unlock()
-
-		// To ensure we can route through this channel now that the peer
-		// is back online, we'll attempt to send an update to enable it.
-		// This will only be used for non-pending public channels, as
-		// they are the only ones capable of routing.
-		chanIsPublic := dbChan.ChannelFlags&lnwire.FFAnnounceChannel != 0
-		if chanIsPublic && !dbChan.IsPending {
-			activePublicChans = append(activePublicChans, *chanPoint)
-		}
 	}
-
-	// As a final measure we launch a goroutine that will ensure the newly
-	// loaded public channels are not currently disabled, as that will make
-	// us skip it during path finding.
-	go func() {
-		for _, chanPoint := range activePublicChans {
-			// Set the channel disabled=false by sending out a new
-			// ChannelUpdate. If this channel is already active,
-			// the update won't be sent.
-			err := p.server.announceChanStatus(chanPoint, false)
-			if err != nil && err != channeldb.ErrEdgeNotFound {
-				srvrLog.Errorf("Unable to enable channel %v: %v",
-					chanPoint, err)
-			}
-		}
-	}()
 
 	return nil
 }
@@ -1580,6 +1572,11 @@ func (p *peer) genDeliveryScript() ([]byte, error) {
 func (p *peer) channelManager() {
 	defer p.wg.Done()
 
+	// reenableTimeout will fire once after the configured channel status
+	// interval  has elapsed. This will trigger us to sign new channel
+	// updates and broadcast them with the "disabled" flag unset.
+	reenableTimeout := time.After(p.chanActiveTimeout)
+
 out:
 	for {
 		select {
@@ -1641,6 +1638,7 @@ out:
 			}
 
 			p.activeChannels[chanID] = lnChan
+			p.addedChannels[chanID] = struct{}{}
 			p.activeChanMtx.Unlock()
 
 			peerLog.Infof("New channel active ChannelPoint(%v) "+
@@ -1782,6 +1780,25 @@ out:
 			// relevant sub-systems and launching a goroutine to
 			// wait for close tx conf.
 			p.finalizeChanClosure(chanCloser)
+
+		// The channel reannounce delay has elapsed, broadcast the
+		// reenabled channel updates to the network. This should only
+		// fire once, so we set the reenableTimeout channel to nil to
+		// mark it for garbage collection. If the peer is torn down
+		// before firing, reenabling will not be attempted.
+		// TODO(conner): consolidate reenables timers inside chan status
+		// manager
+		case <-reenableTimeout:
+			p.reenableActiveChannels()
+
+			// Since this channel will never fire again during the
+			// lifecycle of the peer, we nil the channel to mark it
+			// eligible for garbage collection, and make this
+			// explicity ineligible to receive in future calls to
+			// select. This also shaves a few CPU cycles since the
+			// select will ignore this case entirely.
+			reenableTimeout = nil
+
 		case <-p.quit:
 
 			// As, we've been signalled to exit, we'll reset all
@@ -1793,6 +1810,49 @@ out:
 			p.activeChanMtx.Unlock()
 
 			break out
+		}
+	}
+}
+
+// reenableActiveChannels searches the index of channels maintained with this
+// peer, and reenables each public, non-pending channel. This is done at the
+// gossip level by broadcasting a new ChannelUpdate with the disabled bit unset.
+// No message will be sent if the channel is already enabled.
+func (p *peer) reenableActiveChannels() {
+	// First, filter all known channels with this peer for ones that are
+	// both public and not pending.
+	var activePublicChans []wire.OutPoint
+	p.activeChanMtx.RLock()
+	for chanID, lnChan := range p.activeChannels {
+		dbChan := lnChan.State()
+		isPublic := dbChan.ChannelFlags&lnwire.FFAnnounceChannel != 0
+		if !isPublic || dbChan.IsPending {
+			continue
+		}
+
+		// We'll also skip any channels added during this peer's
+		// lifecycle since they haven't waited out the timeout. Their
+		// first announcement will be enabled, and the chan status
+		// manager will begin monitoring them passively since they exist
+		// in the database.
+		if _, ok := p.addedChannels[chanID]; ok {
+			continue
+		}
+
+		activePublicChans = append(
+			activePublicChans, dbChan.FundingOutpoint,
+		)
+	}
+	p.activeChanMtx.RUnlock()
+
+	// For each of the public, non-pending channels, set the channel
+	// disabled bit to false and send out a new ChannelUpdate. If this
+	// channel is already active, the update won't be sent.
+	for _, chanPoint := range activePublicChans {
+		err := p.server.chanStatusMgr.RequestEnable(chanPoint)
+		if err != nil {
+			srvrLog.Errorf("Unable to enable channel %v: %v",
+				chanPoint, err)
 		}
 	}
 }
@@ -1854,11 +1914,8 @@ func (p *peer) fetchActiveChanCloser(chanID lnwire.ChannelID) (*channelCloser, e
 				channel:           channel,
 				unregisterChannel: p.server.htlcSwitch.RemoveLink,
 				broadcastTx:       p.server.cc.wallet.PublishTransaction,
-				disableChannel: func(op wire.OutPoint) error {
-					return p.server.announceChanStatus(op,
-						true)
-				},
-				quit: p.quit,
+				disableChannel:    p.server.chanStatusMgr.RequestDisable,
+				quit:              p.quit,
 			},
 			deliveryAddr,
 			feePerKw,
@@ -1917,11 +1974,8 @@ func (p *peer) handleLocalCloseReq(req *htlcswitch.ChanClose) {
 				channel:           channel,
 				unregisterChannel: p.server.htlcSwitch.RemoveLink,
 				broadcastTx:       p.server.cc.wallet.PublishTransaction,
-				disableChannel: func(op wire.OutPoint) error {
-					return p.server.announceChanStatus(op,
-						true)
-				},
-				quit: p.quit,
+				disableChannel:    p.server.chanStatusMgr.RequestDisable,
+				quit:              p.quit,
 			},
 			deliveryAddr,
 			req.TargetFeePerKw,

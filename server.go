@@ -161,7 +161,7 @@ type server struct {
 	peerConnectedListeners    map[string][]chan<- lnpeer.Peer
 	peerDisconnectedListeners map[string][]chan<- struct{}
 
-	persistentPeers        map[string]struct{}
+	persistentPeers        map[string]bool
 	persistentPeersBackoff map[string]time.Duration
 	persistentConnReqs     map[string][]*connmgr.ConnReq
 	persistentRetryCancels map[string]chan struct{}
@@ -381,7 +381,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 		// schedule
 		sphinx: hop.NewOnionProcessor(sphinxRouter),
 
-		persistentPeers:         make(map[string]struct{}),
+		persistentPeers:         make(map[string]bool),
 		persistentPeersBackoff:  make(map[string]time.Duration),
 		persistentConnReqs:      make(map[string][]*connmgr.ConnReq),
 		persistentRetryCancels:  make(map[string]chan struct{}),
@@ -1032,10 +1032,16 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 			peerKey *btcec.PublicKey) error {
 
 			// First, we'll mark this new peer as a persistent peer
-			// for re-connection purposes.
+			// for re-connection purposes. If the peer is not yet
+			// tracked or the user hasn't requested it to be perm,
+			// we'll set false to prevent the server from continuing
+			// to connect to this peer even if the number of
+			// channels with this peer is zero.
 			s.mu.Lock()
 			pubStr := string(peerKey.SerializeCompressed())
-			s.persistentPeers[pubStr] = struct{}{}
+			if _, ok := s.persistentPeers[pubStr]; !ok {
+				s.persistentPeers[pubStr] = false
+			}
 			s.mu.Unlock()
 
 			// With that taken care of, we'll send this channel to
@@ -2129,8 +2135,11 @@ func (s *server) establishPersistentConnections() error {
 	var numOutboundConns int
 	for pubStr, nodeAddr := range nodeAddrsMap {
 		// Add this peer to the set of peers we should maintain a
-		// persistent connection with.
-		s.persistentPeers[pubStr] = struct{}{}
+		// persistent connection with. We set the value to false to
+		// indicate that we should not continue to reconnect if the
+		// number of channels returns to zero, since this peer has not
+		// been requested as perm by the user.
+		s.persistentPeers[pubStr] = false
 		if _, ok := s.persistentPeersBackoff[pubStr]; !ok {
 			s.persistentPeersBackoff[pubStr] = cfg.MinBackoff
 		}
@@ -2197,15 +2206,20 @@ func (s *server) delayInitialReconnect(connReq *connmgr.ConnReq) {
 // persistent connections to a peer within the server. This is used to avoid
 // persistent connection retries to peers we do not have any open channels with.
 func (s *server) prunePersistentPeerConnection(compressedPubKey [33]byte) {
-	srvrLog.Infof("Pruning peer %x from persistent connections, number of "+
-		"open channels is now zero", compressedPubKey)
-
 	pubKeyStr := string(compressedPubKey[:])
 
 	s.mu.Lock()
-	delete(s.persistentPeers, pubKeyStr)
-	delete(s.persistentPeersBackoff, pubKeyStr)
-	s.cancelConnReqs(pubKeyStr, nil)
+	if perm, ok := s.persistentPeers[pubKeyStr]; ok && !perm {
+		delete(s.persistentPeers, pubKeyStr)
+		delete(s.persistentPeersBackoff, pubKeyStr)
+		s.cancelConnReqs(pubKeyStr, nil)
+		s.mu.Unlock()
+
+		srvrLog.Infof("Pruned peer %x from persistent connections, "+
+			"peer has no open channels", compressedPubKey)
+
+		return
+	}
 	s.mu.Unlock()
 }
 
@@ -3094,7 +3108,11 @@ func (s *server) ConnectToPeer(addr *lnwire.NetAddress, perm bool) error {
 			Permanent: true,
 		}
 
-		s.persistentPeers[targetPub] = struct{}{}
+		// Since the user requested a permanent connection, we'll set
+		// the entry to true which will tell the server to continue
+		// reconnecting even if the number of channels with this peer is
+		// zero.
+		s.persistentPeers[targetPub] = true
 		if _, ok := s.persistentPeersBackoff[targetPub]; !ok {
 			s.persistentPeersBackoff[targetPub] = cfg.MinBackoff
 		}

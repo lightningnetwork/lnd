@@ -394,6 +394,7 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 	chanID := lnwire.NewChanIDFromOutPoint(channelAlice.ChannelPoint())
 	alicePeer.activeChannels[chanID] = channelAlice
 
+	alicePeer.wg.Add(1)
 	go alicePeer.channelManager()
 
 	return alicePeer, channelAlice, channelBob, cleanUpFunc, nil

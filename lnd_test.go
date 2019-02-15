@@ -12755,7 +12755,7 @@ func testSendUpdateDisableChannel(net *lntest.NetworkHarness, t *harnessTest) {
 	// We create a new node Eve that has an inactive channel timeout of
 	// just 2 seconds (down from the default 20m). It will be used to test
 	// channel updates for channels going inactive.
-	eve, err := net.NewNode("Eve", []string{"--inactivechantimeout=2s"})
+	eve, err := net.NewNode("Eve", []string{"--chan-disable-timeout=2s"})
 	if err != nil {
 		t.Fatalf("unable to create eve's node: %v", err)
 	}

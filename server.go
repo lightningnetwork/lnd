@@ -3105,7 +3105,7 @@ func (s *server) watchChannelStatus() {
 	status := make(map[wire.OutPoint]activeStatus)
 
 	// We'll check in on the channel statuses every 1/4 of the timeout.
-	unchangedTimeout := cfg.InactiveChanTimeout
+	unchangedTimeout := cfg.ChanDisableTimeout
 	tickerTimeout := unchangedTimeout / 4
 
 	if unchangedTimeout == 0 || tickerTimeout == 0 {

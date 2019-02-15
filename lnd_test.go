@@ -1051,6 +1051,32 @@ out:
 	}
 }
 
+// assertNoChannelUpdates ensures that no ChannelUpdates are sent via the
+// graphSubscription. This method will block for the provided duration before
+// returning to the caller if successful.
+func assertNoChannelUpdates(t *harnessTest, subscription graphSubscription,
+	duration time.Duration) {
+
+	timeout := time.After(duration)
+	for {
+		select {
+		case graphUpdate := <-subscription.updateChan:
+			if len(graphUpdate.ChannelUpdates) > 0 {
+				t.Fatalf("received %d channel updates when "+
+					"none were expected",
+					len(graphUpdate.ChannelUpdates))
+			}
+
+		case err := <-subscription.errChan:
+			t.Fatalf("graph subscription failure: %v", err)
+
+		case <-timeout:
+			// No updates received, success.
+			return
+		}
+	}
+}
+
 // assertChannelPolicy asserts that the passed node's known channel policy for
 // the passed chanPoint is consistent with the expected policy values.
 func assertChannelPolicy(t *harnessTest, node *lntest.HarnessNode,
@@ -12734,7 +12760,13 @@ func testSendUpdateDisableChannel(net *lntest.NetworkHarness, t *harnessTest) {
 		},
 	)
 
-	carol, err := net.NewNode("Carol", nil)
+	carol, err := net.NewNode("Carol", []string{
+		"--minbackoff=10s",
+		"--unsafe-disconnect",
+		"--chan-enable-timeout=1.5s",
+		"--chan-disable-timeout=3s",
+		"--chan-status-sample-interval=.5s",
+	})
 	if err != nil {
 		t.Fatalf("unable to create carol's node: %v", err)
 	}
@@ -12755,7 +12787,12 @@ func testSendUpdateDisableChannel(net *lntest.NetworkHarness, t *harnessTest) {
 	// We create a new node Eve that has an inactive channel timeout of
 	// just 2 seconds (down from the default 20m). It will be used to test
 	// channel updates for channels going inactive.
-	eve, err := net.NewNode("Eve", []string{"--chan-disable-timeout=2s"})
+	eve, err := net.NewNode("Eve", []string{
+		"--minbackoff=10s",
+		"--chan-enable-timeout=1.5s",
+		"--chan-disable-timeout=3s",
+		"--chan-status-sample-interval=.5s",
+	})
 	if err != nil {
 		t.Fatalf("unable to create eve's node: %v", err)
 	}
@@ -12839,6 +12876,60 @@ func testSendUpdateDisableChannel(net *lntest.NetworkHarness, t *harnessTest) {
 			{eve.PubKeyStr, expectedPolicy, chanPointEveCarol},
 		},
 	)
+
+	// Now we'll test a long disconnection. Disconnect Carol and Eve and
+	// ensure they both detect each other as disabled. Their min backoffs
+	// are high enough to not interfere with disabling logic.
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	if err := net.DisconnectNodes(ctxt, carol, eve); err != nil {
+		t.Fatalf("unable to disconnect Carol from Eve: %v", err)
+	}
+
+	// Wait for a disable from both Carol and Eve to come through.
+	expectedPolicy.Disabled = true
+	waitForChannelUpdate(
+		t, daveSub,
+		[]expectedChanUpdate{
+			{eve.PubKeyStr, expectedPolicy, chanPointEveCarol},
+			{carol.PubKeyStr, expectedPolicy, chanPointEveCarol},
+		},
+	)
+
+	// Reconnect Carol and Eve, this should cause them to reenable the
+	// channel from both ends after a short delay.
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	if err := net.EnsureConnected(ctxt, carol, eve); err != nil {
+		t.Fatalf("unable to reconnect Carol to Eve: %v", err)
+	}
+
+	expectedPolicy.Disabled = false
+	waitForChannelUpdate(
+		t, daveSub,
+		[]expectedChanUpdate{
+			{eve.PubKeyStr, expectedPolicy, chanPointEveCarol},
+			{carol.PubKeyStr, expectedPolicy, chanPointEveCarol},
+		},
+	)
+
+	// Now we'll test a short disconnection. Disconnect Carol and Eve, then
+	// reconnect them after one second so that their scheduled disables are
+	// aborted. One second is twice the status sample interval, so this
+	// should allow for the disconnect to be detected, but still leave time
+	// to cancel the announcement before the 3 second inactive timeout is
+	// hit.
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	if err := net.DisconnectNodes(ctxt, carol, eve); err != nil {
+		t.Fatalf("unable to disconnect Carol from Eve: %v", err)
+	}
+	time.Sleep(time.Second)
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	if err := net.EnsureConnected(ctxt, eve, carol); err != nil {
+		t.Fatalf("unable to reconnect Carol to Eve: %v", err)
+	}
+
+	// Since the disable should have been canceled by both Carol and Eve, we
+	// expect no channel updates to appear on the network.
+	assertNoChannelUpdates(t, daveSub, 4*time.Second)
 
 	// Close Alice's channels with Bob and Carol cooperatively and
 	// unilaterally respectively.

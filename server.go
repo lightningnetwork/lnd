@@ -3017,34 +3017,11 @@ func (s *server) announceChanStatus(op wire.OutPoint, disabled bool) error {
 		return err
 	}
 
-	if disabled {
-		// Set the bit responsible for marking a channel as disabled.
-		chanUpdate.ChannelFlags |= lnwire.ChanUpdateDisabled
-	} else {
-		// Clear the bit responsible for marking a channel as disabled.
-		chanUpdate.ChannelFlags &= ^lnwire.ChanUpdateDisabled
-	}
-
-	// We must now update the message's timestamp and generate a new
-	// signature.
-	newTimestamp := uint32(time.Now().Unix())
-	if newTimestamp <= chanUpdate.Timestamp {
-		// Timestamp must increase for message to propagate.
-		newTimestamp = chanUpdate.Timestamp + 1
-	}
-	chanUpdate.Timestamp = newTimestamp
-
-	chanUpdateMsg, err := chanUpdate.DataToSign()
-	if err != nil {
-		return err
-	}
-
-	pubKey := s.identityPriv.PubKey()
-	sig, err := s.nodeSigner.SignMessage(pubKey, chanUpdateMsg)
-	if err != nil {
-		return err
-	}
-	chanUpdate.Signature, err = lnwire.NewSigFromSignature(sig)
+	// Now, sign a new update toggling the disable bit.
+	err = netann.SignChannelUpdate(
+		s.nodeSigner, s.identityPriv.PubKey(), chanUpdate,
+		netann.ChannelUpdateSetDisable(disabled),
+	)
 	if err != nil {
 		return err
 	}
@@ -3077,7 +3054,7 @@ func (s *server) fetchLastChanUpdateByOutPoint(op wire.OutPoint) (
 	}
 
 	pubKey := s.identityPriv.PubKey().SerializeCompressed()
-	return extractChannelUpdate(pubKey, info, edge1, edge2)
+	return netann.ExtractChannelUpdate(pubKey, info, edge1, edge2)
 }
 
 // fetchLastChanUpdate returns a function which is able to retrieve our latest
@@ -3091,73 +3068,10 @@ func (s *server) fetchLastChanUpdate() func(lnwire.ShortChannelID) (
 		if err != nil {
 			return nil, err
 		}
-		return extractChannelUpdate(ourPubKey[:], info, edge1, edge2)
+		return netann.ExtractChannelUpdate(
+			ourPubKey[:], info, edge1, edge2,
+		)
 	}
-}
-
-// extractChannelUpdate attempts to retrieve a lnwire.ChannelUpdate message
-// from an edge's info and a set of routing policies.
-// NOTE: the passed policies can be nil.
-func extractChannelUpdate(ownerPubKey []byte,
-	info *channeldb.ChannelEdgeInfo,
-	policies ...*channeldb.ChannelEdgePolicy) (
-	*lnwire.ChannelUpdate, error) {
-
-	// Helper function to extract the owner of the given policy.
-	owner := func(edge *channeldb.ChannelEdgePolicy) []byte {
-		var pubKey *btcec.PublicKey
-		switch {
-		case edge.ChannelFlags&lnwire.ChanUpdateDirection == 0:
-			pubKey, _ = info.NodeKey1()
-		case edge.ChannelFlags&lnwire.ChanUpdateDirection == 1:
-			pubKey, _ = info.NodeKey2()
-		}
-
-		// If pubKey was not found, just return nil.
-		if pubKey == nil {
-			return nil
-		}
-
-		return pubKey.SerializeCompressed()
-	}
-
-	// Extract the channel update from the policy we own, if any.
-	for _, edge := range policies {
-		if edge != nil && bytes.Equal(ownerPubKey, owner(edge)) {
-			return createChannelUpdate(info, edge)
-		}
-	}
-
-	return nil, fmt.Errorf("unable to extract ChannelUpdate for channel %v",
-		info.ChannelPoint)
-}
-
-// createChannelUpdate reconstructs a signed ChannelUpdate from the given edge
-// info and policy.
-func createChannelUpdate(info *channeldb.ChannelEdgeInfo,
-	policy *channeldb.ChannelEdgePolicy) (*lnwire.ChannelUpdate, error) {
-
-	update := &lnwire.ChannelUpdate{
-		ChainHash:       info.ChainHash,
-		ShortChannelID:  lnwire.NewShortChanIDFromInt(policy.ChannelID),
-		Timestamp:       uint32(policy.LastUpdate.Unix()),
-		MessageFlags:    policy.MessageFlags,
-		ChannelFlags:    policy.ChannelFlags,
-		TimeLockDelta:   policy.TimeLockDelta,
-		HtlcMinimumMsat: policy.MinHTLC,
-		HtlcMaximumMsat: policy.MaxHTLC,
-		BaseFee:         uint32(policy.FeeBaseMSat),
-		FeeRate:         uint32(policy.FeeProportionalMillionths),
-		ExtraOpaqueData: policy.ExtraOpaqueData,
-	}
-
-	var err error
-	update.Signature, err = lnwire.NewSigFromRawSignature(policy.SigBytes)
-	if err != nil {
-		return nil, err
-	}
-
-	return update, nil
 }
 
 // applyChannelUpdate applies the channel update to the different sub-systems of

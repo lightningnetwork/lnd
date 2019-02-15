@@ -1,6 +1,6 @@
 // Copyright (c) 2013-2017 The btcsuite developers
 // Copyright (c) 2015-2016 The Decred developers
-// Copyright (C) 2015-2017 The Lightning Network Developers
+// Copyright (C) 2015-2019 The Lightning Network Developers
 
 package main
 

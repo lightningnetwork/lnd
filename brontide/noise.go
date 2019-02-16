@@ -51,6 +51,12 @@ var (
 	// lightningPrologue is the noise prologue that is used to initialize
 	// the brontide noise handshake.
 	lightningPrologue = []byte("lightning")
+
+	// ephemeralGen is the default ephemeral key generator, used to derive a
+	// unique ephemeral key for each brontide handshake.
+	ephemeralGen = func() (*btcec.PrivateKey, error) {
+		return btcec.NewPrivateKey(btcec.S256())
+	}
 )
 
 // TODO(roasbeef): free buffer pool?
@@ -385,12 +391,9 @@ func NewBrontideMachine(initiator bool, localPub *btcec.PrivateKey,
 		initiator, lightningPrologue, localPub, remotePub,
 	)
 
-	m := &Machine{handshakeState: handshake}
-
-	// With the initial base machine created, we'll assign our default
-	// version of the ephemeral key generator.
-	m.ephemeralGen = func() (*btcec.PrivateKey, error) {
-		return btcec.NewPrivateKey(btcec.S256())
+	m := &Machine{
+		handshakeState: handshake,
+		ephemeralGen:   ephemeralGen,
 	}
 
 	// With the default options established, we'll now process all the

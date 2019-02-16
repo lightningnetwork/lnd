@@ -30,6 +30,10 @@ func TestRecyclers(t *testing.T) {
 			"write_buffer",
 			func() interface{} { return new(buffer.Write) },
 		},
+		{
+			"read_buffer",
+			func() interface{} { return new(buffer.Read) },
+		},
 	}
 
 	for _, test := range tests {
@@ -67,6 +71,14 @@ func TestConcreteRecyclePoolTests(t *testing.T) {
 			name: "write buffer pool",
 			newPool: func() interface{} {
 				return pool.NewWriteBuffer(
+					gcInterval, expiryInterval,
+				)
+			},
+		},
+		{
+			name: "read buffer pool",
+			newPool: func() interface{} {
+				return pool.NewReadBuffer(
 					gcInterval, expiryInterval,
 				)
 			},
@@ -124,6 +136,9 @@ func takeGeneric(t *testing.T, p interface{}) pool.Recycler {
 	case *pool.WriteBuffer:
 		return pp.Take()
 
+	case *pool.ReadBuffer:
+		return pp.Take()
+
 	default:
 		t.Fatalf("unknown pool type: %T", p)
 	}
@@ -138,6 +153,9 @@ func returnGeneric(t *testing.T, p, item interface{}) {
 	case *pool.WriteBuffer:
 		pp.Return(item.(*buffer.Write))
 
+	case *pool.ReadBuffer:
+		pp.Return(item.(*buffer.Read))
+
 	default:
 		t.Fatalf("unknown pool type: %T", p)
 	}
@@ -151,6 +169,9 @@ func dirtyGeneric(t *testing.T, i interface{}) {
 		*item = true
 
 	case *buffer.Write:
+		dirtySlice(item[:])
+
+	case *buffer.Read:
 		dirtySlice(item[:])
 
 	default:
@@ -175,6 +196,9 @@ func isCleanGeneric(t *testing.T, i interface{}) {
 		}
 
 	case *buffer.Write:
+		isCleanSlice(t, item[:])
+
+	case *buffer.Read:
 		isCleanSlice(t, item[:])
 
 	default:

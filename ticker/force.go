@@ -6,9 +6,9 @@ import (
 	"time"
 )
 
-// Mock implements the Ticker interface, and provides a method of
-// force-feeding ticks, even while paused.
-type Mock struct {
+// Force implements the Ticker interface, and provides a method of force-feeding
+// ticks, even while paused.
+type Force struct {
 	isActive uint32 // used atomically
 
 	// Force is used to force-feed a ticks into the ticker. Useful for
@@ -22,10 +22,13 @@ type Mock struct {
 	quit chan struct{}
 }
 
-// MockNew returns a Mock Ticker, used for testing and debugging. It supports
+// A compile-time constraint to ensure Force satisfies the Ticker interface.
+var _ Ticker = (*Force)(nil)
+
+// NewForce returns a Force ticker, used for testing and debugging. It supports
 // the ability to force-feed events that get output by the
-func MockNew(interval time.Duration) *Mock {
-	m := &Mock{
+func NewForce(interval time.Duration) *Force {
+	m := &Force{
 		ticker: time.NewTicker(interval).C,
 		Force:  make(chan time.Time),
 		skip:   make(chan struct{}),
@@ -64,7 +67,7 @@ func MockNew(interval time.Duration) *Mock {
 // time.
 //
 // NOTE: Part of the Ticker interface.
-func (m *Mock) Ticks() <-chan time.Time {
+func (m *Force) Ticks() <-chan time.Time {
 	return m.Force
 }
 
@@ -72,7 +75,7 @@ func (m *Mock) Ticks() <-chan time.Time {
 // delivering scheduled events.
 //
 // NOTE: Part of the Ticker interface.
-func (m *Mock) Resume() {
+func (m *Force) Resume() {
 	atomic.StoreUint32(&m.isActive, 1)
 }
 
@@ -80,7 +83,7 @@ func (m *Mock) Resume() {
 // regular intervals.
 //
 // NOTE: Part of the Ticker interface.
-func (m *Mock) Pause() {
+func (m *Force) Pause() {
 	atomic.StoreUint32(&m.isActive, 0)
 
 	// If the ticker fired and read isActive as true, it may still send the
@@ -95,7 +98,7 @@ func (m *Mock) Pause() {
 // regular intervals, and permanently frees up any resources.
 //
 // NOTE: Part of the Ticker interface.
-func (m *Mock) Stop() {
+func (m *Force) Stop() {
 	m.Pause()
 	close(m.quit)
 	m.wg.Wait()

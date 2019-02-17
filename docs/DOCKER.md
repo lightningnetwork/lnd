@@ -7,18 +7,25 @@ check out the documentation at [docker/README.md](../docker/README.md).
 
 ## Production
 
-To use Docker in a production environment, you can run `lnd` by first creating
-a Docker container, adding the appropriate command-line options as parameters.
+To use Docker in a production environment, you can run `lnd` by creating a
+Docker container, adding the appropriate command-line options as parameters.
+
+You first need to build the lnd docker image:
 
 ```
-$ docker create --name=lnd lightninglabs/lnd [command-line options]
+$ git checkout <tag-or-branch>
+$ docker build --tag=lnd .
 ```
 
-Then, just start the container:
+It is recommended that you checkout the latest tag or branch of lnd.
+
+You can continue by creating and running the container:
 
 ```
-$ docker start lnd
+$ docker run lnd [command-line options]
 ```
+
+Note: there is currently no automated docker image builds available.
 
 ## Volumes
 
@@ -28,7 +35,7 @@ persist through container restarts.
 You can also optionally manually specify a local folder to be used as a volume:
 
 ```
-$ docker create --name=lnd -v /media/lnd-docker/:/root/.lnd lightninglabs/lnd [command-line options]
+$ docker create --name=mylndcontainer -v /media/lnd-docker/:/root/.lnd lnd [command-line options]
 ```
 
 ## Example
@@ -36,13 +43,7 @@ $ docker create --name=lnd -v /media/lnd-docker/:/root/.lnd lightninglabs/lnd [c
 Here is an example testnet `lnd` that uses Neutrino:
 
 ```
-$ docker create --name lnd-testnet lightninglabs/lnd --bitcoin.active --bitcoin.testnet --bitcoin.node=neutrino --neutrino.connect=faucet.lightning.community
-```
-
-Start the container:
-
-```
-$ docker start lnd-testnet
+$ docker run --name lnd-testnet lnd --bitcoin.active --bitcoin.testnet --bitcoin.node=neutrino --neutrino.connect=faucet.lightning.community
 ```
 
 Create a wallet (and write down the seed):

@@ -7,18 +7,24 @@ check out the documentation at [docker/README.md](../docker/README.md).
 
 ## Production
 
-To use Docker in a production environment, you can run `lnd` by first creating
-a Docker container, adding the appropriate command-line options as parameters.
+To use Docker in a production environment, you can run `lnd` by creating a
+Docker container, adding the appropriate command-line options as parameters.
+
+You first need to build the `lnd` docker image:
 
 ```
-$ docker create --name=lnd lightninglabs/lnd [command-line options]
+$ docker build --tag=myrepository/lnd --build-arg checkout=v0.11.1-beta .
 ```
 
-Then, just start the container:
+It is recommended that you checkout the latest released tag.
+
+You can continue by creating and running the container:
 
 ```
-$ docker start lnd
+$ docker run lnd [command-line options]
 ```
+
+Note: there currently are no automated docker image builds available.
 
 ## Volumes
 
@@ -28,7 +34,7 @@ persist through container restarts.
 You can also optionally manually specify a local folder to be used as a volume:
 
 ```
-$ docker create --name=lnd -v /media/lnd-docker/:/root/.lnd lightninglabs/lnd [command-line options]
+$ docker create --name=mylndcontainer -v /media/lnd-docker/:/root/.lnd myrepository/lnd [command-line options]
 ```
 
 ## Example
@@ -36,13 +42,7 @@ $ docker create --name=lnd -v /media/lnd-docker/:/root/.lnd lightninglabs/lnd [c
 Here is an example testnet `lnd` that uses Neutrino:
 
 ```
-$ docker create --name lnd-testnet lightninglabs/lnd --bitcoin.active --bitcoin.testnet --bitcoin.node=neutrino --neutrino.connect=faucet.lightning.community
-```
-
-Start the container:
-
-```
-$ docker start lnd-testnet
+$ docker run --name lnd-testnet myrepository/lnd --bitcoin.active --bitcoin.testnet --bitcoin.node=neutrino --neutrino.connect=faucet.lightning.community
 ```
 
 Create a wallet (and write down the seed):
@@ -72,23 +72,23 @@ To test the Docker production image locally, run the following from
 the project root:
 
 ```
-$ docker build . -t lnd:master
+$ docker build . -t myrepository/lnd:master
 ```
 
 To choose a specific branch or tag instead, use the "checkout" build-arg.  For example, to build the latest commits in master:
 
 ```
-$ docker build . --build-arg checkout=v0.8.0-beta -t lnd:v0.8.0-beta
+$ docker build . --build-arg checkout=v0.8.0-beta -t myrepository/lnd:v0.8.0-beta
 ```
 
 To build the image using the most current tag:
 
 ```
-$ docker build . --build-arg checkout=$(git describe --tags `git rev-list --tags --max-count=1`) -t lnd:latest-tag
+$ docker build . --build-arg checkout=$(git describe --tags `git rev-list --tags --max-count=1`) -t myrepository/lnd:latest-tag
 ```
 
 Once the image has been built and tagged locally, start the container:
 
 ```
-docker run --name=lnd-testnet -it lnd:1.0 --bitcoin.active --bitcoin.testnet --bitcoin.node=neutrino --neutrino.connect=faucet.lightning.community
+docker run --name=lnd-testnet -it myrepository/lnd:latest-tag --bitcoin.active --bitcoin.testnet --bitcoin.node=neutrino --neutrino.connect=faucet.lightning.community
 ```

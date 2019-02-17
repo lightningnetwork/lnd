@@ -2176,6 +2176,13 @@ func sendPaymentRequest(client lnrpc.LightningClient, req *lnrpc.SendRequest) er
 		R: resp.PaymentRoute,
 	})
 
+	// If we get a payment error back, we pass an error
+	// up to main which eventually calls fatal() and returns
+	// with a non-zero exit code.
+	if resp.PaymentError != "" {
+		return errors.New(resp.PaymentError)
+	}
+
 	return nil
 }
 

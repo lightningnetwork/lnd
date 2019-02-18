@@ -421,6 +421,14 @@ func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID, paymentID uint64,
 	// forward it to the correct link by letting the switch route the
 	// packet.
 	default:
+		// If we already know the preimage, we can return it immediately.
+		p, ok := s.cfg.PreimageCache.LookupPreimage(htlc.PaymentHash[:])
+		if ok {
+			var preImg [32]byte
+			copy(preImg[:], p[:])
+			return preImg, nil
+		}
+
 		if err := s.route(packet); err != nil {
 			return zeroPreimage, err
 		}

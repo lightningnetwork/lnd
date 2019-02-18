@@ -5,7 +5,6 @@ import (
 
 	"github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/lnwire"
 )
 
 var (
@@ -39,7 +38,7 @@ type ControlTower interface {
 	// ClearForTakeoff atomically checks that no inflight or completed
 	// payments exist for this payment hash. If none are found, this method
 	// atomically transitions the status for this payment hash as InFlight.
-	ClearForTakeoff(htlc *lnwire.UpdateAddHTLC) error
+	ClearForTakeoff(paymentHash [32]byte) error
 
 	// Success transitions an InFlight payment into a Completed payment.
 	// After invoking this method, ClearForTakeoff should always return an
@@ -79,12 +78,12 @@ func NewPaymentControl(strict bool, db *channeldb.DB) ControlTower {
 
 // ClearForTakeoff checks that we don't already have an InFlight or Completed
 // payment identified by the same payment hash.
-func (p *paymentControl) ClearForTakeoff(htlc *lnwire.UpdateAddHTLC) error {
+func (p *paymentControl) ClearForTakeoff(paymentHash [32]byte) error {
 	var takeoffErr error
 	err := p.db.Batch(func(tx *bbolt.Tx) error {
 		// Retrieve current status of payment from local database.
 		paymentStatus, err := channeldb.FetchPaymentStatusTx(
-			tx, htlc.PaymentHash,
+			tx, paymentHash,
 		)
 		if err != nil {
 			return err
@@ -102,7 +101,7 @@ func (p *paymentControl) ClearForTakeoff(htlc *lnwire.UpdateAddHTLC) error {
 			// grounded, Transition the payment status to InFlight
 			// to prevent others.
 			return channeldb.UpdatePaymentStatusTx(
-				tx, htlc.PaymentHash, channeldb.StatusInFlight,
+				tx, paymentHash, channeldb.StatusInFlight,
 			)
 
 		case channeldb.StatusInFlight:

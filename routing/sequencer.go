@@ -1,4 +1,4 @@
-package htlcswitch
+package routing
 
 import (
 	"sync"

@@ -2424,3 +2424,121 @@ func TestSwitchSendDuplicateFailedPayment(t *testing.T) {
 		t.Fatal("wrong amount of pending payments")
 	}
 }
+
+// TestSwitchSendHTLCUniquePaymentID tests that the switch happily forwards the
+// same HTLC as long as the paymentID used is unique.
+func TestSwitchSendHTLCUniquePaymentID(t *testing.T) {
+	t.Parallel()
+
+	// Create and start the switch with the DB and preimage cache.
+	s, aliceChannelLink, err := createSwitchWithDB(t)
+	if err != nil {
+		t.Fatalf("unable to init switch: %v", err)
+	}
+
+	// Create a preimage that we will attempt to send multiple times, using
+	// different paymentIDs.
+	preimage, err := genPreimage()
+	if err != nil {
+		t.Fatalf("unable to generate preimage: %v", err)
+	}
+	rhash := fastsha256.Sum256(preimage[:])
+	update := &lnwire.UpdateAddHTLC{
+		PaymentHash: rhash,
+		Amount:      1,
+	}
+
+	// Send the HTLC and restart the switch.
+	s = sendAndRestart(t, s, aliceChannelLink, update)
+	defer s.Stop()
+
+	// Attempt to resend the HTLC, using the same paymentID.
+	errChan := make(chan error, 1)
+	preChan := make(chan [32]byte, 1)
+	go func() {
+		pre, err := s.SendHTLC(
+			aliceChannelLink.ShortChanID(), 0, update,
+			newMockDeobfuscator(),
+		)
+		errChan <- err
+		preChan <- pre
+	}()
+
+	// It should not be forwarded, but neither should an error be returned.
+	select {
+	case err := <-errChan:
+		t.Fatalf("unexpected error received: %v", err)
+	case p := <-aliceChannelLink.packets:
+		t.Fatalf("packet was forwarded again: %T", p.htlc)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	// We resend the payment once again, but using paymentID=1.
+	errChan1 := make(chan error, 1)
+	preChan1 := make(chan [32]byte, 1)
+	go func() {
+		pre, err := s.SendHTLC(
+			aliceChannelLink.ShortChanID(), 1, update,
+			newMockDeobfuscator(),
+		)
+		errChan1 <- err
+		preChan1 <- pre
+	}()
+
+	// This payment _should_ be forwarded, as the tuple (linkID, paymentID)
+	// us used to determine what are the same payments.
+	select {
+	case packet := <-aliceChannelLink.packets:
+		if err := aliceChannelLink.completeCircuit(packet); err != nil {
+			t.Fatalf("unable to complete payment circuit: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("packet was not forwarded")
+	}
+
+	// Settle the first payment.
+	packet := &htlcPacket{
+		outgoingChanID: aliceChannelLink.ShortChanID(),
+		outgoingHTLCID: 0,
+		amount:         1,
+		htlc: &lnwire.UpdateFulfillHTLC{
+			PaymentPreimage: preimage,
+		},
+	}
+
+	if err := s.forward(packet); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case pre := <-preChan:
+		if pre != preimage {
+			t.Fatalf("received incorrect preimage")
+		}
+	case <-preChan1:
+		t.Fatalf("did not expect to receive preimage for second payment")
+	case err := <-errChan1:
+		t.Fatalf("received payment error: %v", err)
+	case <-time.After(time.Second):
+		t.Fatal("response wasn't received")
+	}
+
+	// Settle the second payment.
+	packet.outgoingHTLCID = 1
+	if err := s.forward(packet); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case pre := <-preChan1:
+		if pre != preimage {
+			t.Fatalf("received incorrect preimage")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("response wasn't received")
+	}
+
+	if s.numPendingPayments() != 0 {
+		t.Fatal("wrong amount of pending payments")
+	}
+}

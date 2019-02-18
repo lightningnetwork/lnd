@@ -340,10 +340,11 @@ func (s *Switch) ProcessContractResolution(msg contractcourt.ResolutionMsg) erro
 }
 
 // SendHTLC is used by other subsystems which aren't belong to htlc switch
-// package in order to send the htlc update. The paymentID used MUST be unique
-// for this HTLC, to ensure it is not sent twice on the network. As long as the
-// paymentID is kept, this makes it safe to replay the tuple (paymentID, HTLC)
-// after a restart.
+// package in order to send the htlc update. The paymentID passed to the method
+// must be unique for the HTLC. This allows multiple idempotent calls to
+// SendHTLC across restarts as long as the same paymentID is used. In case the
+// paymentID is reused for a already settled payment after a restart, the
+// caller is guaranteed to receive the preimage that settled it.
 func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID, paymentID uint64,
 	htlc *lnwire.UpdateAddHTLC,
 	deobfuscator ErrorDecrypter) ([sha256.Size]byte, error) {

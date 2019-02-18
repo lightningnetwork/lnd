@@ -1723,7 +1723,8 @@ func TestSwitchSendPayment(t *testing.T) {
 		Amount:      1,
 	}
 
-	// Handle the request and checks that bob channel link received it.
+	// Send the same payment twice. Only one should be forwarded to the
+	// link. Both should receive the result when it comes back.
 	errChan := make(chan error)
 	go func() {
 		_, err := s.SendHTLC(
@@ -1733,8 +1734,6 @@ func TestSwitchSendPayment(t *testing.T) {
 	}()
 
 	go func() {
-		// Send the payment with the same payment hash and same
-		// amount and check that it will be propagated successfully
 		_, err := s.SendHTLC(
 			aliceChannelLink.ShortChanID(), 0, update,
 			newMockDeobfuscator(),
@@ -1749,23 +1748,17 @@ func TestSwitchSendPayment(t *testing.T) {
 		}
 
 	case err := <-errChan:
-		if err != ErrPaymentInFlight {
-			t.Fatalf("unable to send payment: %v", err)
-		}
+		t.Fatalf("unable to send payment: %v", err)
 	case <-time.After(time.Second):
 		t.Fatal("request was not propagated to destination")
 	}
 
 	select {
 	case packet := <-aliceChannelLink.packets:
-		if err := aliceChannelLink.completeCircuit(packet); err != nil {
-			t.Fatalf("unable to complete payment circuit: %v", err)
-		}
-
+		t.Fatalf("packet was forwarded twice: %T", packet)
 	case err := <-errChan:
 		t.Fatalf("unable to send payment: %v", err)
-	case <-time.After(time.Second):
-		t.Fatal("request was not propagated to destination")
+	case <-time.After(50 * time.Millisecond):
 	}
 
 	if s.numPendingPayments() != 1 {
@@ -1799,14 +1792,17 @@ func TestSwitchSendPayment(t *testing.T) {
 		t.Fatalf("can't forward htlc packet: %v", err)
 	}
 
-	select {
-	case err := <-errChan:
-		if !strings.Contains(err.Error(), lnwire.CodeUnknownPaymentHash.String()) {
-			t.Fatalf("expected %v got %v", err,
-				lnwire.CodeUnknownPaymentHash)
+	// We should receive the error twice.
+	for i := 0; i < 2; i++ {
+		select {
+		case err := <-errChan:
+			if !strings.Contains(err.Error(), lnwire.CodeUnknownPaymentHash.String()) {
+				t.Fatalf("expected %v got %v", err,
+					lnwire.CodeUnknownPaymentHash)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("err wasn't received")
 		}
-	case <-time.After(time.Second):
-		t.Fatal("err wasn't received")
 	}
 
 	if s.numPendingPayments() != 0 {

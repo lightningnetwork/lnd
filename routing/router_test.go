@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"fmt"
 	"image/color"
+	"io/ioutil"
 	"math/rand"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -76,8 +78,38 @@ func copyPubKey(pub *btcec.PublicKey) *btcec.PublicKey {
 	}
 }
 
+// makeTestDB creates a new instance of the ChannelDB for testing purposes. A
+// callback which cleans up the created temporary directories is also returned
+// and intended to be executed after the test completes.
+func makeTestDB() (*channeldb.DB, func(), error) {
+	// First, create a temporary directory to be used for the duration of
+	// this test.
+	tempDirName, err := ioutil.TempDir("", "channeldb")
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Next, create channeldb for the first time.
+	cdb, err := channeldb.Open(tempDirName)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	cleanUp := func() {
+		cdb.Close()
+		os.RemoveAll(tempDirName)
+	}
+
+	return cdb, cleanUp, nil
+}
+
 func createTestCtxFromGraphInstance(startingHeight uint32, graphInstance *testGraphInstance) (
 	*testCtx, func(), error) {
+
+	db, cleanupDB, err := makeTestDB()
+	if err != nil {
+		return nil, nil, err
+	}
 
 	// We'll initialize an instance of the channel router with mock
 	// versions of the chain and channel notifier. As we don't need to test
@@ -86,6 +118,7 @@ func createTestCtxFromGraphInstance(startingHeight uint32, graphInstance *testGr
 	chain := newMockChain(startingHeight)
 	chainView := newMockChainView(chain)
 	router, err := New(Config{
+		DB:        db,
 		Graph:     graphInstance.graph,
 		Chain:     chain,
 		ChainView: chainView,
@@ -105,9 +138,11 @@ func createTestCtxFromGraphInstance(startingHeight uint32, graphInstance *testGr
 		},
 	})
 	if err != nil {
+		cleanupDB()
 		return nil, nil, fmt.Errorf("unable to create router %v", err)
 	}
 	if err := router.Start(); err != nil {
+		cleanupDB()
 		return nil, nil, fmt.Errorf("unable to start router: %v", err)
 	}
 
@@ -120,6 +155,7 @@ func createTestCtxFromGraphInstance(startingHeight uint32, graphInstance *testGr
 	}
 
 	cleanUp := func() {
+		cleanupDB()
 		ctx.router.Stop()
 		graphInstance.cleanUp()
 	}
@@ -639,14 +675,13 @@ func TestSendPaymentErrorNonFinalTimeLockErrors(t *testing.T) {
 
 	// Craft a LightningPayment struct that'll send a payment from roasbeef
 	// to sophon for 1k satoshis.
-	var payHash [32]byte
 	amt := lnwire.NewMSatFromSatoshis(1000)
 	payment := LightningPayment{
-		Target:      ctx.aliases["sophon"],
-		Amount:      amt,
-		FeeLimit:    noFeeLimit,
-		PaymentHash: payHash,
+		Target:   ctx.aliases["sophon"],
+		Amount:   amt,
+		FeeLimit: noFeeLimit,
 	}
+	copy(payment.PaymentHash[:], bytes.Repeat([]byte{1}, 32))
 
 	var preImage [32]byte
 	copy(preImage[:], bytes.Repeat([]byte{9}, 32))
@@ -752,6 +787,10 @@ func TestSendPaymentErrorNonFinalTimeLockErrors(t *testing.T) {
 		return preImage, nil
 	}
 
+	// Before sending a new payment, change the payment hash to allow the
+	// payment to be sent.
+	copy(payment.PaymentHash[:], bytes.Repeat([]byte{2}, 32))
+
 	// Once again, Roasbeef should route around Goku since they disagree
 	// w.r.t to the block height, and instead go through Pham Nuwen.
 	paymentPreImage, route, err = ctx.router.SendPayment(&payment)
@@ -777,14 +816,13 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 
 	// Craft a LightningPayment struct that'll send a payment from roasbeef
 	// to luo ji for 1000 satoshis, with a maximum of 1000 satoshis in fees.
-	var payHash [32]byte
 	paymentAmt := lnwire.NewMSatFromSatoshis(1000)
 	payment := LightningPayment{
-		Target:      ctx.aliases["luoji"],
-		Amount:      paymentAmt,
-		FeeLimit:    noFeeLimit,
-		PaymentHash: payHash,
+		Target:   ctx.aliases["luoji"],
+		Amount:   paymentAmt,
+		FeeLimit: noFeeLimit,
 	}
+	copy(payment.PaymentHash[:], bytes.Repeat([]byte{1}, 32))
 
 	var preImage [32]byte
 	copy(preImage[:], bytes.Repeat([]byte{9}, 32))
@@ -915,6 +953,10 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 		}
 		return preImage, nil
 	}
+
+	// Before sending a new payment, change the payment hash to allow the
+	// payment to be sent.
+	copy(payment.PaymentHash[:], bytes.Repeat([]byte{2}, 32))
 
 	paymentPreImage, route, err = ctx.router.SendPayment(&payment)
 	if err != nil {

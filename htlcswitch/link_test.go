@@ -3771,14 +3771,14 @@ func TestChannelLinkAcceptDuplicatePayment(t *testing.T) {
 		t.Fatalf("unable to send payment to carol: %v", err)
 	}
 
-	// Now, if we attempt to send the payment *again* it should be rejected
-	// as it's a duplicate request.
+	// Now, if we attempt to send the payment *again*, it should succeed
+	// immediately, as the preimage is already in the cache.
 	_, err = n.aliceServer.htlcSwitch.SendHTLC(
 		n.firstBobChannelLink.ShortChanID(), pid, htlc,
 		newMockDeobfuscator(),
 	)
-	if err != ErrAlreadyPaid {
-		t.Fatalf("ErrAlreadyPaid should have been received got: %v", err)
+	if err != nil {
+		t.Fatalf("unable to re-send payment to carol: %v", err)
 	}
 }
 

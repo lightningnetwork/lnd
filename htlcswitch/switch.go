@@ -383,7 +383,25 @@ func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID, paymentID uint64,
 		htlc:           htlc,
 	}
 
-	if err := s.forward(packet); err != nil {
+	// Attempt to commit a circuit for this paymentID. This will tell us
+	// whether this payment is already in flight, or if we should forward
+	// it to the link.
+	circuit := newPaymentCircuit(&htlc.PaymentHash, packet)
+	packet.circuit = circuit
+	actions, err := s.circuits.CommitCircuits(circuit)
+	if err != nil {
+		log.Errorf("unable to commit circuit in switch: %v", err)
+		return zeroPreimage, err
+	}
+
+	switch {
+
+	// Drop duplicate packet if it has already been seen.
+	case len(actions.Drops) == 1:
+		fallthrough
+
+	// If it failed for some reason, cancel this attempt and return.
+	case len(actions.Fails) == 1:
 		s.removePendingPayment(paymentID)
 		if err := s.control.Fail(htlc.PaymentHash); err != nil {
 			return zeroPreimage, err
@@ -392,6 +410,15 @@ func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID, paymentID uint64,
 		return zeroPreimage, err
 	}
 
+	// Otherwise this was the first time we saw this paymentID, and we can
+	// forward it to the correct link by letting the switch route the
+	// packet.
+	if err := s.route(packet); err != nil {
+		return zeroPreimage, err
+	}
+
+	// Now that it is routed onto the network, wait for a result to come
+	// back before returning it to the caller.
 	return s.waitForPaymentResult(payment, deobfuscator)
 }
 
@@ -512,6 +539,7 @@ func (s *Switch) UpdateForwardingPolicies(newPolicy ForwardingPolicy,
 // forward is used in order to find next channel link and apply htlc update.
 // Also this function is used by channel links itself in order to forward the
 // update after it has been included in the channel.
+// TODO(halseth): remove, only used in tests.
 func (s *Switch) forward(packet *htlcPacket) error {
 	switch htlc := packet.htlc.(type) {
 	case *lnwire.UpdateAddHTLC:

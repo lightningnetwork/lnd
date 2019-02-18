@@ -396,9 +396,11 @@ func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID, paymentID uint64,
 
 	switch {
 
-	// Drop duplicate packet if it has already been seen.
+	// If the returned error is a duplicate add, then we can ignore it, as
+	// our HTLC was already forwarded by the switch. We fo straight into
+	// waiting for a result to come back.
 	case len(actions.Drops) == 1:
-		fallthrough
+		break
 
 	// If it failed for some reason, cancel this attempt and return.
 	case len(actions.Fails) == 1:
@@ -408,13 +410,14 @@ func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID, paymentID uint64,
 		}
 
 		return zeroPreimage, err
-	}
 
 	// Otherwise this was the first time we saw this paymentID, and we can
 	// forward it to the correct link by letting the switch route the
 	// packet.
-	if err := s.route(packet); err != nil {
-		return zeroPreimage, err
+	default:
+		if err := s.route(packet); err != nil {
+			return zeroPreimage, err
+		}
 	}
 
 	// Now that it is routed onto the network, wait for a result to come

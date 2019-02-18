@@ -153,9 +153,14 @@ func initSwitchWithDB(startingHeight uint32, db *channeldb.DB) (*Switch, error) 
 		}
 	}
 
+	pCache := &mockPreimageCache{
+		preimageMap: make(map[[32]byte][]byte),
+	}
+
 	cfg := Config{
 		DB:             db,
 		SwitchPackager: channeldb.NewSwitchPackager(),
+		PreimageCache:  pCache,
 		FwdingLog: &mockForwardingLog{
 			events: make(map[time.Time]channeldb.ForwardingEvent),
 		},

@@ -2555,20 +2555,14 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 	// We're the designated payment destination.  Therefore we attempt to
 	// see if we have an invoice locally which'll allow us to settle this
 	// htlc.
+	//
+	// Only the immutable data from LookupInvoice is used, because otherwise
+	// a race condition may be created with concurrent writes to the invoice
+	// registry. For example: cancelation of an invoice.
 	invoiceHash := lntypes.Hash(pd.RHash)
 	invoice, minCltvDelta, err := l.cfg.Registry.LookupInvoice(invoiceHash)
 	if err != nil {
 		log.Errorf("unable to query invoice registry: %v", err)
-		failure := lnwire.NewFailUnknownPaymentHash(pd.Amount)
-		l.sendHTLCError(pd.HtlcIndex, failure, obfuscator, pd.SourceRef)
-
-		return true, nil
-	}
-
-	// Reject htlcs for canceled invoices.
-	if invoice.Terms.State == channeldb.ContractCanceled {
-		l.errorf("Rejecting htlc due to canceled invoice")
-
 		failure := lnwire.NewFailUnknownPaymentHash(pd.Amount)
 		l.sendHTLCError(pd.HtlcIndex, failure, obfuscator, pd.SourceRef)
 
@@ -2588,7 +2582,13 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 	//
 	// TODO(conner): track ownership of settlements to properly recover from
 	// failures? or add batch invoice settlement
-	if invoice.Terms.State != channeldb.ContractOpen {
+	//
+	// TODO(joostjager): The log statement below is not always accurate, as
+	// the invoice may have been canceled after the LookupInvoice call.
+	// Leaving it as is for now, because fixing this would involve changing
+	// the signature of InvoiceRegistry.SettleInvoice just because of this
+	// log statement.
+	if invoice.Terms.State == channeldb.ContractSettled {
 		log.Warnf("Accepting duplicate payment for hash=%x",
 			pd.RHash[:])
 	}
@@ -2661,6 +2661,27 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 		return true, nil
 	}
 
+	// Notify the invoiceRegistry of the invoices we just settled (with the
+	// amount accepted at settle time) with this latest commitment update.
+	err = l.cfg.Registry.SettleInvoice(invoiceHash, pd.Amount)
+
+	// Reject htlcs for canceled invoices.
+	if err == channeldb.ErrInvoiceAlreadyCanceled {
+		l.errorf("Rejecting htlc due to canceled invoice")
+
+		failure := lnwire.NewFailUnknownPaymentHash(pd.Amount)
+		l.sendHTLCError(pd.HtlcIndex, failure, obfuscator, pd.SourceRef)
+
+		return true, nil
+	}
+
+	// Handle unexpected errors.
+	if err != nil {
+		return false, fmt.Errorf("unable to settle invoice: %v", err)
+	}
+
+	l.infof("settling %x as exit hop", pd.RHash)
+
 	preimage := invoice.Terms.PaymentPreimage
 	err = l.channel.SettleHTLC(
 		preimage, pd.HtlcIndex, pd.SourceRef, nil, nil,
@@ -2668,15 +2689,6 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 	if err != nil {
 		return false, fmt.Errorf("unable to settle htlc: %v", err)
 	}
-
-	// Notify the invoiceRegistry of the invoices we just settled (with the
-	// amount accepted at settle time) with this latest commitment update.
-	err = l.cfg.Registry.SettleInvoice(invoiceHash, pd.Amount)
-	if err != nil {
-		return false, fmt.Errorf("unable to settle invoice: %v", err)
-	}
-
-	l.infof("settling %x as exit hop", pd.RHash)
 
 	// If the link is in hodl.BogusSettle mode, replace the preimage with a
 	// fake one before sending it to the peer.

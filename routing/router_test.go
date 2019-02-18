@@ -2288,3 +2288,103 @@ func TestEmptyRoutesGenerateSphinxPacket(t *testing.T) {
 		t.Fatalf("expected empty hops error: instead got: %v", err)
 	}
 }
+
+// TestSendPaymentDuplicate tests that the router's ControlTower disallow
+// sending payments already in flight or finished.
+func TestSendPaymentDuplicate(t *testing.T) {
+	t.Parallel()
+
+	const startingBlockHeight = 101
+	ctx, cleanUp, err := createTestCtxFromFile(
+		startingBlockHeight, basicGraphFilePath,
+	)
+	if err != nil {
+		t.Fatalf("unable to create router: %v", err)
+	}
+	defer cleanUp()
+
+	// Craft a LightningPayment struct that'll send a payment from roasbeef
+	// to luo ji.
+	var payHash [32]byte
+	paymentAmt := lnwire.NewMSatFromSatoshis(1000)
+	payment := LightningPayment{
+		Target:      ctx.aliases["luoji"],
+		Amount:      paymentAmt,
+		PaymentHash: payHash,
+	}
+
+	var preImage [32]byte
+	copy(preImage[:], bytes.Repeat([]byte{9}, 32))
+
+	quit := make(chan struct{})
+	defer close(quit)
+
+	// First, we'll modify the SendToSwitch method to return hold the
+	// payment until we signal it to return.
+	waiting := make(chan struct{}, 1)
+	done := make(chan struct{}, 1)
+	ctx.router.cfg.SendToSwitch = func(firstHop lnwire.ShortChannelID,
+		_ uint64, _ *lnwire.UpdateAddHTLC,
+		_ *sphinx.Circuit) ([32]byte, error) {
+
+		select {
+		case waiting <- struct{}{}:
+		case <-quit:
+			return [32]byte{}, fmt.Errorf("quit")
+		}
+
+		select {
+		case <-done:
+		case <-quit:
+			return [32]byte{}, fmt.Errorf("quit")
+		}
+		return preImage, nil
+	}
+
+	// Send the payment, but go on before the result is back.
+	sendErr := make(chan error)
+	go func() {
+		_, _, err = ctx.router.SendPayment(&payment)
+		select {
+		case sendErr <- err:
+		case <-quit:
+		}
+	}()
+
+	// Wait for the SendToSwitch method to be triggered.
+	select {
+	case <-waiting:
+	case <-time.After(3 * time.Second):
+		t.Fatalf("timeout waiting for payment to be initiated")
+	}
+
+	// Atempt to send a second payment to the same hash, this should be
+	// disallowed.
+	_, _, err = ctx.router.SendPayment(&payment)
+	if err != htlcswitch.ErrPaymentInFlight {
+		t.Fatalf("expected ErrPaymentInFlight, instead got %v", err)
+	}
+
+	// Finish the first payment, and expect a non-error.
+	select {
+	case done <- struct{}{}:
+	case <-time.After(3 * time.Second):
+		t.Fatalf("unable to finish payment")
+	}
+
+	select {
+	case err := <-sendErr:
+		if err != nil {
+			t.Fatalf("got send error: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatalf("timeout waiting for send result")
+	}
+
+	// Yet again, attempting to pay to a already paid to hash should be
+	// disallowed.
+	_, _, err = ctx.router.SendPayment(&payment)
+	if err != htlcswitch.ErrAlreadyPaid {
+		t.Fatalf("expected ErrAlreadyPaid, instead got %v", err)
+	}
+}

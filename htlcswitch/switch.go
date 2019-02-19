@@ -67,8 +67,17 @@ var (
 // updates to be received whether the payment has been rejected or proceed
 // successfully.
 type pendingPayment struct {
-	ready  chan struct{}
+	// result is the final result for this payment. Will only be non-nil
+	// after the ready chan is closed.
 	result *htlcPacket
+
+	// ready is used to signal to the payment sender that the result is
+	// ready.
+	ready chan struct{}
+
+	// tornDown is a channel used to signal that the circuit for this HTLC
+	// has been torn down.
+	tornDown chan struct{}
 }
 
 // plexPacket encapsulates switch packet and adds error channel to receive
@@ -405,7 +414,8 @@ func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID, paymentID uint64,
 	// the map of pending payments in order to be notified when a
 	// result arrives.
 	payment = &pendingPayment{
-		ready: make(chan struct{}),
+		ready:    make(chan struct{}),
+		tornDown: make(chan struct{}),
 	}
 	s.pendingPayments[paymentID] = payment
 	s.pendingMutex.Unlock()
@@ -463,7 +473,21 @@ func (s *Switch) waitForPaymentResult(payment *pendingPayment,
 		paymentErr = fmt.Errorf("Received unknown response type: %T", htlc)
 	}
 
-	s.removePendingPayment(pkt.incomingHTLCID)
+	// We wait for the circuit to be torn down before deleting the payment
+	// from the pending payment map. We do this to avoid a concurrent
+	// re-send of this pid being dropped after deleting the payment,
+	// causing it to never receive the result.
+	go func() {
+		select {
+		case <-payment.tornDown:
+		case <-s.quit:
+			return
+		}
+
+		s.pendingMutex.Lock()
+		delete(s.pendingPayments, pkt.incomingHTLCID)
+		s.pendingMutex.Unlock()
+	}()
 
 	return preimage, paymentErr
 }
@@ -895,7 +919,8 @@ func (s *Switch) handleLocalResponse(pkt *htlcPacket) {
 	payment, ok := s.pendingPayments[paymentID]
 	if !ok {
 		payment = &pendingPayment{
-			ready: make(chan struct{}),
+			ready:    make(chan struct{}),
+			tornDown: make(chan struct{}),
 		}
 		s.pendingPayments[paymentID] = payment
 	}
@@ -932,6 +957,10 @@ func (s *Switch) handleLocalResponse(pkt *htlcPacket) {
 			pkt.inKey(), err)
 		return
 	}
+
+	// We signal that the circuit has been torn down, such that the payment
+	// can be deleted from the pending payment map.
+	close(payment.tornDown)
 }
 
 // parseFailedPayment determines the appropriate failure message to return to
@@ -2137,15 +2166,6 @@ func (s *Switch) getLinks(destination [33]byte) ([]ChannelLink, error) {
 	}
 
 	return channelLinks, nil
-}
-
-// removePendingPayment is the helper function which removes the pending user
-// payment.
-func (s *Switch) removePendingPayment(paymentID uint64) {
-	s.pendingMutex.Lock()
-	defer s.pendingMutex.Unlock()
-
-	delete(s.pendingPayments, paymentID)
 }
 
 // CircuitModifier returns a reference to subset of the interfaces provided by

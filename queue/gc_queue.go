@@ -8,21 +8,6 @@ import (
 	"github.com/lightningnetwork/lnd/ticker"
 )
 
-// Recycler is an interface that allows an object to be reclaimed without
-// needing to be returned to the runtime.
-type Recycler interface {
-	// Recycle resets the object to its default state.
-	Recycle()
-}
-
-// gcQueueEntry is a tuple containing a Recycler and the time at which the item
-// was added to the queue. The recorded time is used to determine when the entry
-// becomes stale, and can be released if it has not already been taken.
-type gcQueueEntry struct {
-	item Recycler
-	time time.Time
-}
-
 // GCQueue is garbage collecting queue, which dynamically grows and contracts
 // based on load. If the queue has items which have been returned, the queue
 // will check every gcInterval amount of time to see if any elements are
@@ -36,15 +21,15 @@ type gcQueueEntry struct {
 type GCQueue struct {
 	// takeBuffer coordinates the delivery of items taken from the queue
 	// such that they are delivered to requesters.
-	takeBuffer chan Recycler
+	takeBuffer chan interface{}
 
 	// returnBuffer coordinates the return of items back into the queue,
 	// where they will be kept until retaken or released.
-	returnBuffer chan Recycler
+	returnBuffer chan interface{}
 
 	// newItem is a constructor, used to generate new elements if none are
 	// otherwise available for reuse.
-	newItem func() Recycler
+	newItem func() interface{}
 
 	// expiryInterval is the minimum amount of time an element will remain
 	// in the queue before being released.
@@ -75,12 +60,12 @@ type GCQueue struct {
 // the steady state. The returnQueueSize parameter is used to size the maximal
 // number of items that can be returned without being dropped during large
 // bursts in attempts to return items to the GCQUeue.
-func NewGCQueue(newItem func() Recycler, returnQueueSize int,
+func NewGCQueue(newItem func() interface{}, returnQueueSize int,
 	gcInterval, expiryInterval time.Duration) *GCQueue {
 
 	q := &GCQueue{
-		takeBuffer:     make(chan Recycler),
-		returnBuffer:   make(chan Recycler, returnQueueSize),
+		takeBuffer:     make(chan interface{}),
+		returnBuffer:   make(chan interface{}, returnQueueSize),
 		expiryInterval: expiryInterval,
 		freeList:       list.New(),
 		recycleTicker:  ticker.New(gcInterval),
@@ -95,7 +80,7 @@ func NewGCQueue(newItem func() Recycler, returnQueueSize int,
 
 // Take returns either a recycled element from the queue, or creates a new item
 // if none are available.
-func (q *GCQueue) Take() Recycler {
+func (q *GCQueue) Take() interface{} {
 	select {
 	case item := <-q.takeBuffer:
 		return item
@@ -107,18 +92,19 @@ func (q *GCQueue) Take() Recycler {
 // Return adds the returned item to freelist if the queue's returnBuffer has
 // available capacity. Under load, items may be dropped to ensure this method
 // does not block.
-func (q *GCQueue) Return(item Recycler) {
-	// Recycle the item to ensure that a dirty instance is never offered
-	// from Take. The call is done here so that the CPU cycles spent
-	// clearing the buffer are owned by the caller, and not by the queue
-	// itself. This makes the queue more likely to be available to deliver
-	// items in the free list.
-	item.Recycle()
-
+func (q *GCQueue) Return(item interface{}) {
 	select {
 	case q.returnBuffer <- item:
 	default:
 	}
+}
+
+// gcQueueEntry is a tuple containing an interface{} and the time at which the
+// item was added to the queue. The recorded time is used to determine when the
+// entry becomes stale, and can be released if it has not already been taken.
+type gcQueueEntry struct {
+	item interface{}
+	time time.Time
 }
 
 // queueManager maintains the free list of elements by popping the head of the
@@ -190,20 +176,20 @@ func (q *GCQueue) queueManager() {
 				next = e.Next()
 				entry := e.Value.(gcQueueEntry)
 
-				// Use now - insertTime > expiryInterval to
-				// determine if this entry has expired.
-				if time.Since(entry.time) > q.expiryInterval {
-					// Remove the expired entry from the
-					// linked-list.
-					q.freeList.Remove(e)
-					entry.item = nil
-					e.Value = nil
-				} else {
+				// Use now - insertTime <= expiryInterval to
+				// determine if this entry has not expired.
+				if time.Since(entry.time) <= q.expiryInterval {
 					// If this entry hasn't expired, then
 					// all entries that follow will still be
 					// valid.
 					break
 				}
+
+				// Otherwise, remove the expired entry from the
+				// linked-list.
+				q.freeList.Remove(e)
+				entry.item = nil
+				e.Value = nil
 			}
 		}
 	}

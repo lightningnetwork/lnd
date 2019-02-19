@@ -41,6 +41,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/nat"
 	"github.com/lightningnetwork/lnd/netann"
+	"github.com/lightningnetwork/lnd/pool"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/sweep"
 	"github.com/lightningnetwork/lnd/ticker"
@@ -170,7 +171,7 @@ type server struct {
 
 	sigPool *lnwallet.SigPool
 
-	writeBufferPool *lnpeer.WriteBufferPool
+	writeBufferPool *pool.WriteBuffer
 
 	// globalFeatures feature vector which affects HTLCs and thus are also
 	// advertised to other nodes.
@@ -262,8 +263,9 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 	sharedSecretPath := filepath.Join(graphDir, "sphinxreplay.db")
 	replayLog := htlcswitch.NewDecayedLog(sharedSecretPath, cc.chainNotifier)
 	sphinxRouter := sphinx.NewRouter(privKey, activeNetParams.Params, replayLog)
-	writeBufferPool := lnpeer.NewWriteBufferPool(
-		lnpeer.DefaultGCInterval, lnpeer.DefaultExpiryInterval,
+	writeBufferPool := pool.NewWriteBuffer(
+		pool.DefaultWriteBufferGCInterval,
+		pool.DefaultWriteBufferExpiryInterval,
 	)
 
 	s := &server{

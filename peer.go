@@ -18,6 +18,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 
 	"github.com/lightningnetwork/lnd/brontide"
+	"github.com/lightningnetwork/lnd/buffer"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
@@ -212,7 +213,7 @@ type peer struct {
 	// messages to write out directly on the socket. By re-using this
 	// buffer, we avoid needing to allocate more memory each time a new
 	// message is to be sent to a peer.
-	writeBuf *lnpeer.WriteBuffer
+	writeBuf *buffer.Write
 
 	queueQuit chan struct{}
 	quit      chan struct{}

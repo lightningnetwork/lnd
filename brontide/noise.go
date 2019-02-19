@@ -8,12 +8,15 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"runtime"
 	"time"
 
 	"golang.org/x/crypto/chacha20poly1305"
 	"golang.org/x/crypto/hkdf"
 
 	"github.com/btcsuite/btcd/btcec"
+	"github.com/lightningnetwork/lnd/buffer"
+	"github.com/lightningnetwork/lnd/pool"
 )
 
 const (
@@ -47,6 +50,24 @@ var (
 	// the cipher session exceeds the maximum allowed message payload.
 	ErrMaxMessageLengthExceeded = errors.New("the generated payload exceeds " +
 		"the max allowed message length of (2^16)-1")
+
+	// lightningPrologue is the noise prologue that is used to initialize
+	// the brontide noise handshake.
+	lightningPrologue = []byte("lightning")
+
+	// ephemeralGen is the default ephemeral key generator, used to derive a
+	// unique ephemeral key for each brontide handshake.
+	ephemeralGen = func() (*btcec.PrivateKey, error) {
+		return btcec.NewPrivateKey(btcec.S256())
+	}
+
+	// readBufferPool is a singleton instance of a buffer pool, used to
+	// conserve memory allocations due to read buffers across the entire
+	// brontide package.
+	readBufferPool = pool.NewReadBuffer(
+		pool.DefaultReadBufferGCInterval,
+		pool.DefaultReadBufferExpiryInterval,
+	)
 )
 
 // TODO(roasbeef): free buffer pool?
@@ -365,7 +386,7 @@ type Machine struct {
 	// read the next one. Having a fixed buffer that's re-used also means
 	// that we save on allocations as we don't need to create a new one
 	// each time.
-	nextCipherText [math.MaxUint16 + macSize]byte
+	nextCipherText *buffer.Read
 }
 
 // NewBrontideMachine creates a new instance of the brontide state-machine. If
@@ -377,15 +398,13 @@ type Machine struct {
 func NewBrontideMachine(initiator bool, localPub *btcec.PrivateKey,
 	remotePub *btcec.PublicKey, options ...func(*Machine)) *Machine {
 
-	handshake := newHandshakeState(initiator, []byte("lightning"), localPub,
-		remotePub)
+	handshake := newHandshakeState(
+		initiator, lightningPrologue, localPub, remotePub,
+	)
 
-	m := &Machine{handshakeState: handshake}
-
-	// With the initial base machine created, we'll assign our default
-	// version of the ephemeral key generator.
-	m.ephemeralGen = func() (*btcec.PrivateKey, error) {
-		return btcec.NewPrivateKey(btcec.S256())
+	m := &Machine{
+		handshakeState: handshake,
+		ephemeralGen:   ephemeralGen,
 	}
 
 	// With the default options established, we'll now process all the
@@ -731,6 +750,15 @@ func (b *Machine) ReadMessage(r io.Reader) ([]byte, error) {
 		return nil, err
 	}
 
+	// If this is the first message being read, take a read buffer from the
+	// buffer pool. This is delayed until this point to avoid allocating
+	// read buffers until after the peer has successfully completed the
+	// handshake, and is ready to begin sending lnwire messages.
+	if b.nextCipherText == nil {
+		b.nextCipherText = readBufferPool.Take()
+		runtime.SetFinalizer(b, freeReadBuffer)
+	}
+
 	// Next, using the length read from the packet header, read the
 	// encrypted packet itself.
 	pktLen := uint32(binary.BigEndian.Uint16(pktLenBytes)) + macSize
@@ -740,4 +768,13 @@ func (b *Machine) ReadMessage(r io.Reader) ([]byte, error) {
 
 	// TODO(roasbeef): modify to let pass in slice
 	return b.recvCipher.Decrypt(nil, nil, b.nextCipherText[:pktLen])
+}
+
+// freeReadBuffer returns the Machine's read buffer back to the package wide
+// read buffer pool.
+//
+// NOTE: This method should only be called by a Machine's finalizer.
+func freeReadBuffer(b *Machine) {
+	readBufferPool.Return(b.nextCipherText)
+	b.nextCipherText = nil
 }

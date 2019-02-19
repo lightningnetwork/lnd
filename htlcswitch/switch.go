@@ -349,26 +349,6 @@ func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID, paymentID uint64,
 	htlc *lnwire.UpdateAddHTLC,
 	deobfuscator ErrorDecrypter) ([sha256.Size]byte, error) {
 
-	// We first check if there is any existing pending payment for this
-	// paymentID. If that's the case, it means that a this payment was
-	// already in flight and we got a result before we had the chance to
-	// resend it. In this case we can go directly to retrieve the result.
-	s.pendingMutex.Lock()
-	payment, ok := s.pendingPayments[paymentID]
-	if ok {
-		s.pendingMutex.Unlock()
-		return s.waitForPaymentResult(payment, deobfuscator)
-	}
-
-	// If the pending payment didn't exist, we create and add it to the map
-	// of pending payments in order later to be able to retrieve it and
-	// return response to the user.
-	payment = &pendingPayment{
-		ready: make(chan struct{}),
-	}
-	s.pendingPayments[paymentID] = payment
-	s.pendingMutex.Unlock()
-
 	// Generate and send new update packet, if error will be received on
 	// this stage it means that packet haven't left boundaries of our
 	// system and something wrong happened.
@@ -390,6 +370,7 @@ func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID, paymentID uint64,
 		return zeroPreimage, err
 	}
 
+	shouldRoute := false
 	switch {
 
 	// If the returned error is a duplicate add, then we can ignore it, as
@@ -400,13 +381,36 @@ func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID, paymentID uint64,
 
 	// If it failed for some reason, cancel this attempt and return.
 	case len(actions.Fails) == 1:
-		s.removePendingPayment(paymentID)
 		return zeroPreimage, err
 
 	// Otherwise this was the first time we saw this paymentID, and we can
 	// forward it to the correct link by letting the switch route the
 	// packet.
 	default:
+		shouldRoute = true
+	}
+
+	// We first check if there is any existing pending payment for this
+	// paymentID. If that's the case, it means that a this payment was
+	// already in flight and we can immediately check whether a result is
+	// available.
+	s.pendingMutex.Lock()
+	payment, ok := s.pendingPayments[paymentID]
+	if ok {
+		s.pendingMutex.Unlock()
+		return s.waitForPaymentResult(payment, deobfuscator)
+	}
+
+	// If the pending payment didn't exist, we create and add it to
+	// the map of pending payments in order to be notified when a
+	// result arrives.
+	payment = &pendingPayment{
+		ready: make(chan struct{}),
+	}
+	s.pendingPayments[paymentID] = payment
+	s.pendingMutex.Unlock()
+
+	if shouldRoute {
 		// If we already know the preimage, we can return it immediately.
 		p, ok := s.cfg.PreimageCache.LookupPreimage(htlc.PaymentHash[:])
 		if ok {
@@ -426,7 +430,7 @@ func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID, paymentID uint64,
 }
 
 // waitForPaymentRestult waits for a response packet to arrive for the passed
-// pendingPayment, inspects any error and returns the result.
+// pending payment, inspects any error and returns the result.
 func (s *Switch) waitForPaymentResult(payment *pendingPayment,
 	deobfuscator ErrorDecrypter) ([32]byte, error) {
 
@@ -879,6 +883,28 @@ func (s *Switch) handleLocalDispatch(pkt *htlcPacket) error {
 func (s *Switch) handleLocalResponse(pkt *htlcPacket) {
 	defer s.wg.Done()
 
+	paymentID := pkt.incomingHTLCID
+
+	// A pending payment for this paymentID should already exist for us to
+	// be able to notify the caller about the result. If it does not exist,
+	// we have probably restarted, and the caller hasn't yet attempted to
+	// resend the HTLC. To handle this case we create the pending payment
+	// now and populate it with the result, such that the caller can
+	// immediately parse it when a resend happens.
+	s.pendingMutex.Lock()
+	payment, ok := s.pendingPayments[paymentID]
+	if !ok {
+		payment = &pendingPayment{
+			ready: make(chan struct{}),
+		}
+		s.pendingPayments[paymentID] = payment
+	}
+	s.pendingMutex.Unlock()
+
+	// Set the result packet and signal that to the callers it is ready.
+	payment.result = pkt
+	close(payment.ready)
+
 	// First, we'll clean up any fwdpkg references, circuit entries, and
 	// mark in our db that the payment for this payment hash has either
 	// succeeded or failed.
@@ -906,29 +932,6 @@ func (s *Switch) handleLocalResponse(pkt *htlcPacket) {
 			pkt.inKey(), err)
 		return
 	}
-
-	paymentID := pkt.incomingHTLCID
-
-	// A pending payment for this paymentID should already exist for us to
-	// be able to notify the caller about the result. If it does not exist,
-	// we have probably restarted, and the caller hasn't yet attempted to
-	// resend the HTLC. To handle this case we create the pending payment
-	// now and populate it with the result, such that the caller can
-	// immediately parse it when a resend happens.
-	s.pendingMutex.Lock()
-	payment, ok := s.pendingPayments[paymentID]
-	if !ok {
-		payment = &pendingPayment{
-			ready: make(chan struct{}),
-		}
-		s.pendingPayments[paymentID] = payment
-	}
-	s.pendingMutex.Unlock()
-
-	// Set the result packet and signal that to the callers it is ready.
-	payment.result = pkt
-	close(payment.ready)
-
 }
 
 // parseFailedPayment determines the appropriate failure message to return to

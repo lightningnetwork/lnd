@@ -31,30 +31,32 @@ import (
 )
 
 const (
-	defaultConfigFilename      = "lnd.conf"
-	defaultDataDirname         = "data"
-	defaultChainSubDirname     = "chain"
-	defaultGraphSubDirname     = "graph"
-	defaultTLSCertFilename     = "tls.cert"
-	defaultTLSKeyFilename      = "tls.key"
-	defaultAdminMacFilename    = "admin.macaroon"
-	defaultReadMacFilename     = "readonly.macaroon"
-	defaultInvoiceMacFilename  = "invoice.macaroon"
-	defaultLogLevel            = "info"
-	defaultLogDirname          = "logs"
-	defaultLogFilename         = "lnd.log"
-	defaultRPCPort             = 10009
-	defaultRESTPort            = 8080
-	defaultPeerPort            = 9735
-	defaultRPCHost             = "localhost"
-	defaultMaxPendingChannels  = 1
-	defaultNoSeedBackup        = false
-	defaultTrickleDelay        = 90 * 1000
-	defaultInactiveChanTimeout = 20 * time.Minute
-	defaultMaxLogFiles         = 3
-	defaultMaxLogFileSize      = 10
-	defaultMinBackoff          = time.Second
-	defaultMaxBackoff          = time.Hour
+	defaultConfigFilename           = "lnd.conf"
+	defaultDataDirname              = "data"
+	defaultChainSubDirname          = "chain"
+	defaultGraphSubDirname          = "graph"
+	defaultTLSCertFilename          = "tls.cert"
+	defaultTLSKeyFilename           = "tls.key"
+	defaultAdminMacFilename         = "admin.macaroon"
+	defaultReadMacFilename          = "readonly.macaroon"
+	defaultInvoiceMacFilename       = "invoice.macaroon"
+	defaultLogLevel                 = "info"
+	defaultLogDirname               = "logs"
+	defaultLogFilename              = "lnd.log"
+	defaultRPCPort                  = 10009
+	defaultRESTPort                 = 8080
+	defaultPeerPort                 = 9735
+	defaultRPCHost                  = "localhost"
+	defaultMaxPendingChannels       = 1
+	defaultNoSeedBackup             = false
+	defaultTrickleDelay             = 90 * 1000
+	defaultChanStatusSampleInterval = time.Minute
+	defaultChanEnableTimeout        = 19 * time.Minute
+	defaultChanDisableTimeout       = 20 * time.Minute
+	defaultMaxLogFiles              = 3
+	defaultMaxLogFileSize           = 10
+	defaultMinBackoff               = time.Second
+	defaultMaxBackoff               = time.Hour
 
 	defaultTorSOCKSPort            = 9050
 	defaultTorDNSHost              = "soa.nodes.lightning.directory"
@@ -234,8 +236,10 @@ type config struct {
 
 	NoSeedBackup bool `long:"noseedbackup" description:"If true, NO SEED WILL BE EXPOSED AND THE WALLET WILL BE ENCRYPTED USING THE DEFAULT PASSPHRASE -- EVER. THIS FLAG IS ONLY FOR TESTING AND IS BEING DEPRECATED."`
 
-	TrickleDelay        int           `long:"trickledelay" description:"Time in milliseconds between each release of announcements to the network"`
-	InactiveChanTimeout time.Duration `long:"inactivechantimeout" description:"If a channel has been inactive for the set time, send a ChannelUpdate disabling it."`
+	TrickleDelay             int           `long:"trickledelay" description:"Time in milliseconds between each release of announcements to the network"`
+	ChanEnableTimeout        time.Duration `long:"chan-enable-timeout" description:"The duration that a peer connection must be stable before attempting to send a channel update to reenable or cancel a pending disables of the peer's channels on the network (default: 19m)."`
+	ChanDisableTimeout       time.Duration `long:"chan-disable-timeout" description:"The duration that must elapse after first detecting that an already active channel is actually inactive and sending channel update disabling it to the network. The pending disable can be canceled if the peer reconnects and becomes stable for chan-enable-timeout before the disable update is sent. (default: 20m)"`
+	ChanStatusSampleInterval time.Duration `long:"chan-status-sample-interval" description:"The polling interval between attempts to detect if an active channel has become inactive due to its peer going offline. (default: 1m)"`
 
 	Alias       string `long:"alias" description:"The node alias. Used as a moniker by peers and intelligence services"`
 	Color       string `long:"color" description:"The color of the node in hex format (i.e. '#3399FF'). Used to customize node appearance in intelligence services"`
@@ -317,11 +321,13 @@ func loadConfig() (*config, error) {
 				"preferential": 1.0,
 			},
 		},
-		TrickleDelay:        defaultTrickleDelay,
-		InactiveChanTimeout: defaultInactiveChanTimeout,
-		Alias:               defaultAlias,
-		Color:               defaultColor,
-		MinChanSize:         int64(minChanFundingSize),
+		TrickleDelay:             defaultTrickleDelay,
+		ChanStatusSampleInterval: defaultChanStatusSampleInterval,
+		ChanEnableTimeout:        defaultChanEnableTimeout,
+		ChanDisableTimeout:       defaultChanDisableTimeout,
+		Alias:                    defaultAlias,
+		Color:                    defaultColor,
+		MinChanSize:              int64(minChanFundingSize),
 		Tor: &torConfig{
 			SOCKS:   defaultTorSOCKS,
 			DNS:     defaultTorDNS,

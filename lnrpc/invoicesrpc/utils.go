@@ -7,7 +7,6 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnrpc"
-	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/zpay32"
 )
 
@@ -93,7 +92,7 @@ func CreateRPCInvoice(invoice *channeldb.Invoice,
 
 // CreateRPCRouteHints takes in the decoded form of an invoice's route hints
 // and converts them into the lnrpc type.
-func CreateRPCRouteHints(routeHints [][]routing.HopHint) []*lnrpc.RouteHint {
+func CreateRPCRouteHints(routeHints [][]zpay32.HopHint) []*lnrpc.RouteHint {
 	var res []*lnrpc.RouteHint
 
 	for _, route := range routeHints {

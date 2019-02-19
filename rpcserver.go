@@ -2737,7 +2737,7 @@ type rpcPaymentIntent struct {
 	dest              *btcec.PublicKey
 	rHash             [32]byte
 	cltvDelta         uint16
-	routeHints        [][]routing.HopHint
+	routeHints        [][]zpay32.HopHint
 	outgoingChannelID *uint64
 
 	routes []*routing.Route
@@ -3460,7 +3460,7 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 
 			// Finally, create the routing hint for this channel and
 			// add it to our list of route hints.
-			hint := routing.HopHint{
+			hint := zpay32.HopHint{
 				NodeID:      channel.IdentityPub,
 				ChannelID:   chanID,
 				FeeBaseMSat: uint32(remotePolicy.FeeBaseMSat),
@@ -3472,12 +3472,11 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 
 			// Include the route hint in our set of options that
 			// will be used when creating the invoice.
-			routeHint := []routing.HopHint{hint}
+			routeHint := []zpay32.HopHint{hint}
 			options = append(options, zpay32.RouteHint(routeHint))
 
 			numHints++
 		}
-
 	}
 
 	// Create and encode the payment request as a bech32 (zpay32) string.

@@ -22,6 +22,7 @@ import (
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/zpay32"
 )
 
 const (
@@ -1737,11 +1738,11 @@ func TestPathFindSpecExample(t *testing.T) {
 	// The CLTV expiry should be the current height plus 9 (the expiry for
 	// the B -> C channel.
 	if firstRoute.TotalTimeLock !=
-		startingHeight+DefaultFinalCLTVDelta {
+		startingHeight+zpay32.DefaultFinalCLTVDelta {
 
 		t.Fatalf("wrong total time lock: got %v, expecting %v",
 			firstRoute.TotalTimeLock,
-			startingHeight+DefaultFinalCLTVDelta)
+			startingHeight+zpay32.DefaultFinalCLTVDelta)
 	}
 
 	// Next, we'll set A as the source node so we can assert that we create
@@ -1830,11 +1831,11 @@ func TestPathFindSpecExample(t *testing.T) {
 	// The outgoing CLTV value itself should be the current height plus 30
 	// to meet Carol's requirements.
 	if routes[0].Hops[0].OutgoingTimeLock !=
-		startingHeight+DefaultFinalCLTVDelta {
+		startingHeight+zpay32.DefaultFinalCLTVDelta {
 
 		t.Fatalf("wrong total time lock: got %v, expecting %v",
 			routes[0].Hops[0].OutgoingTimeLock,
-			startingHeight+DefaultFinalCLTVDelta)
+			startingHeight+zpay32.DefaultFinalCLTVDelta)
 	}
 
 	// For B -> C, we assert that the final hop also has the proper
@@ -1845,11 +1846,11 @@ func TestPathFindSpecExample(t *testing.T) {
 			lastHop.AmtToForward, amt)
 	}
 	if lastHop.OutgoingTimeLock !=
-		startingHeight+DefaultFinalCLTVDelta {
+		startingHeight+zpay32.DefaultFinalCLTVDelta {
 
 		t.Fatalf("wrong total time lock: got %v, expecting %v",
 			lastHop.OutgoingTimeLock,
-			startingHeight+DefaultFinalCLTVDelta)
+			startingHeight+zpay32.DefaultFinalCLTVDelta)
 	}
 
 	// We'll also make similar assertions for the second route from A to C
@@ -1860,7 +1861,7 @@ func TestPathFindSpecExample(t *testing.T) {
 		t.Fatalf("wrong amount: got %v, expected %v",
 			secondRoute.TotalAmount, expectedAmt)
 	}
-	expectedTimeLock := startingHeight + daveFinalCLTV + DefaultFinalCLTVDelta
+	expectedTimeLock := startingHeight + daveFinalCLTV + zpay32.DefaultFinalCLTVDelta
 	if secondRoute.TotalTimeLock != uint32(expectedTimeLock) {
 		t.Fatalf("wrong total time lock: got %v, expecting %v",
 			secondRoute.TotalTimeLock, expectedTimeLock)
@@ -1870,7 +1871,7 @@ func TestPathFindSpecExample(t *testing.T) {
 		t.Fatalf("wrong forward amount: got %v, expected %v",
 			onionPayload.AmtToForward, amt)
 	}
-	expectedTimeLock = startingHeight + DefaultFinalCLTVDelta
+	expectedTimeLock = startingHeight + zpay32.DefaultFinalCLTVDelta
 	if onionPayload.OutgoingTimeLock != uint32(expectedTimeLock) {
 		t.Fatalf("wrong outgoing time lock: got %v, expecting %v",
 			onionPayload.OutgoingTimeLock,
@@ -1884,11 +1885,11 @@ func TestPathFindSpecExample(t *testing.T) {
 			lastHop.AmtToForward, amt)
 	}
 	if lastHop.OutgoingTimeLock !=
-		startingHeight+DefaultFinalCLTVDelta {
+		startingHeight+zpay32.DefaultFinalCLTVDelta {
 
 		t.Fatalf("wrong total time lock: got %v, expecting %v",
 			lastHop.OutgoingTimeLock,
-			startingHeight+DefaultFinalCLTVDelta)
+			startingHeight+zpay32.DefaultFinalCLTVDelta)
 	}
 }
 

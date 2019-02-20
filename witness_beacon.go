@@ -90,17 +90,9 @@ func (p *preimageBeacon) LookupPreimage(
 	}
 
 	// Otherwise, we'll perform a final check using the witness cache.
-	preimageBytes, err := p.wCache.LookupWitness(
-		channeldb.Sha256HashWitness, payHash[:],
-	)
+	preimage, err := p.wCache.LookupSha256Witness(payHash)
 	if err != nil {
 		ltndLog.Errorf("Unable to lookup witness: %v", err)
-		return lntypes.Preimage{}, false
-	}
-
-	preimage, err := lntypes.MakePreimage(preimageBytes)
-	if err != nil {
-		ltndLog.Errorf("Unable to build witness: %v", err)
 		return lntypes.Preimage{}, false
 	}
 

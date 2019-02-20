@@ -70,12 +70,42 @@ func (d *DB) NewWitnessCache() *WitnessCache {
 	}
 }
 
-// AddWitness adds a new witness of wType to the witness cache. The type of the
-// witness will be used to map the witness to the key that will be used to look
-// it up.
+// witnessEntry is a key-value struct that holds each key -> witness pair, used
+// when inserting records into the cache.
+type witnessEntry struct {
+	key     []byte
+	witness []byte
+}
+
+// AddWitnesses adds a batch of new witnesses of wType to the witness cache. The
+// type of the witness will be used to map each witness to the key that will be
+// used to look it up. All witnesses should be of the same WitnessType.
 //
 // TODO(roasbeef): fake closure to map instead a constructor?
-func (w *WitnessCache) AddWitness(wType WitnessType, witness []byte) error {
+func (w *WitnessCache) AddWitnesses(wType WitnessType, witnesses ...[]byte) error {
+	// Optimistically compute the witness keys before attempting to start
+	// the db transaction.
+	entries := make([]witnessEntry, 0, len(witnesses))
+	for _, witness := range witnesses {
+		// Map each witness to its key by applying the appropriate
+		// transformation for the given witness type.
+		switch wType {
+		case Sha256HashWitness:
+			key := sha256.Sum256(witness)
+			entries = append(entries, witnessEntry{
+				key:     key[:],
+				witness: witness,
+			})
+		default:
+			return ErrUnknownWitnessType
+		}
+	}
+
+	// Exit early if there are no witnesses to add.
+	if len(entries) == 0 {
+		return nil
+	}
+
 	return w.db.Batch(func(tx *bbolt.Tx) error {
 		witnessBucket, err := tx.CreateBucketIfNotExists(witnessBucketKey)
 		if err != nil {
@@ -93,16 +123,14 @@ func (w *WitnessCache) AddWitness(wType WitnessType, witness []byte) error {
 			return err
 		}
 
-		// Now that we have the proper bucket for this witness, we'll map the
-		// witness type to the proper key.
-		var witnessKey []byte
-		switch wType {
-		case Sha256HashWitness:
-			key := sha256.Sum256(witness)
-			witnessKey = key[:]
+		for _, entry := range entries {
+			err = witnessTypeBucket.Put(entry.key, entry.witness)
+			if err != nil {
+				return err
+			}
 		}
 
-		return witnessTypeBucket.Put(witnessKey, witness)
+		return nil
 	})
 }
 

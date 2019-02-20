@@ -79,7 +79,7 @@ func (h *htlcOutgoingContestResolver) Resolve() (ContractResolver, error) {
 
 		// With the preimage obtained, we can now add it to the global
 		// cache.
-		if err := h.PreimageDB.AddPreimage(preimage[:]); err != nil {
+		if err := h.PreimageDB.AddPreimages(preimage[:]); err != nil {
 			log.Errorf("%T(%v): unable to add witness to cache",
 				h, h.htlcResolution.ClaimOutpoint)
 		}

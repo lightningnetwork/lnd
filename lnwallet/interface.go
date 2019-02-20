@@ -274,9 +274,13 @@ type PreimageCache interface {
 	// argument. Otherwise, it'll return false.
 	LookupPreimage(hash []byte) ([]byte, bool)
 
-	// AddPreimage attempts to add a new preimage to the global cache. If
-	// successful a nil error will be returned.
-	AddPreimage(preimage []byte) error
+	// AddPreimages adds a batch of newly discovered preimages to the global
+	// cache, and also signals any subscribers of the newly discovered
+	// witness.
+	//
+	// NOTE: The backing slice of MUST NOT be modified, otherwise the
+	// subscribers may be notified of the incorrect preimages.
+	AddPreimages(preimages ...[]byte) error
 }
 
 // WalletDriver represents a "driver" for a particular concrete

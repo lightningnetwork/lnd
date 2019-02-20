@@ -46,11 +46,13 @@ func (m *mockPreimageCache) LookupPreimage(hash []byte) ([]byte, bool) {
 	return p, ok
 }
 
-func (m *mockPreimageCache) AddPreimage(preimage []byte) error {
+func (m *mockPreimageCache) AddPreimages(preimages ...[]byte) error {
 	m.Lock()
 	defer m.Unlock()
 
-	m.preimageMap[sha256.Sum256(preimage[:])] = preimage
+	for _, preimage := range preimages {
+		m.preimageMap[sha256.Sum256(preimage)] = preimage
+	}
 
 	return nil
 }

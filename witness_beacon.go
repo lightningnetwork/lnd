@@ -101,28 +101,41 @@ func (p *preimageBeacon) LookupPreimage(payHash []byte) ([]byte, bool) {
 	return preimage, true
 }
 
-// AddPreImage adds a newly discovered preimage to the global cache, and also
-// signals any subscribers of the newly discovered witness.
-func (p *preimageBeacon) AddPreimage(pre []byte) error {
-	p.Lock()
-	defer p.Unlock()
+// AddPreimages adds a batch of newly discovered preimages to the global cache,
+// and also signals any subscribers of the newly discovered witness.
+func (p *preimageBeacon) AddPreimages(preimages ...[]byte) error {
+	// Exit early if no preimages are presented.
+	if len(preimages) == 0 {
+		return nil
+	}
 
-	srvrLog.Infof("Adding preimage=%x to witness cache", pre[:])
+	// Copy the preimages to ensure the backing area can't be modified by
+	// the caller when delivering notifications.
+	preimageCopies := make([][]byte, 0, len(preimages))
+	for _, preimage := range preimages {
+		srvrLog.Infof("Adding preimage=%x to witness cache", preimage)
+		preimageCopies = append(preimageCopies, preimage)
+	}
 
 	// First, we'll add the witness to the decaying witness cache.
-	err := p.wCache.AddWitness(channeldb.Sha256HashWitness, pre)
+	err := p.wCache.AddWitnesses(channeldb.Sha256HashWitness, preimages...)
 	if err != nil {
 		return err
 	}
+
+	p.Lock()
+	defer p.Unlock()
 
 	// With the preimage added to our state, we'll now send a new
 	// notification to all subscribers.
 	for _, client := range p.subscribers {
 		go func(c *preimageSubscriber) {
-			select {
-			case c.updateChan <- pre:
-			case <-c.quit:
-				return
+			for _, preimage := range preimageCopies {
+				select {
+				case c.updateChan <- preimage:
+				case <-c.quit:
+					return
+				}
 			}
 		}(client)
 	}

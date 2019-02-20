@@ -64,8 +64,10 @@ type WitnessBeacon interface {
 	// True is returned for the second argument if the preimage is found.
 	LookupPreimage(payhash []byte) ([]byte, bool)
 
-	// AddPreImage adds a newly discovered preimage to the global cache.
-	AddPreimage(pre []byte) error
+	// AddPreimages adds a batch of newly discovered preimages to the global
+	// cache, and also signals any subscribers of the newly discovered
+	// witness.
+	AddPreimages(preimages ...[]byte) error
 }
 
 // ChannelArbitratorConfig contains all the functionality that the

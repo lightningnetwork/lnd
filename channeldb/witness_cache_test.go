@@ -25,7 +25,7 @@ func TestWitnessCacheRetrieval(t *testing.T) {
 	witnessKey := sha256.Sum256(witness)
 
 	// First, we'll attempt to add the witness to the database.
-	err = wCache.AddWitness(Sha256HashWitness, witness)
+	err = wCache.AddWitnesses(Sha256HashWitness, witness)
 	if err != nil {
 		t.Fatalf("unable to add witness: %v", err)
 	}
@@ -59,13 +59,13 @@ func TestWitnessCacheDeletion(t *testing.T) {
 	// We'll start by adding two witnesses to the cache.
 	witness1 := rev[:]
 	witness1Key := sha256.Sum256(witness1)
-	if err := wCache.AddWitness(Sha256HashWitness, witness1); err != nil {
+	if err := wCache.AddWitnesses(Sha256HashWitness, witness1); err != nil {
 		t.Fatalf("unable to add witness: %v", err)
 	}
 
 	witness2 := key[:]
 	witness2Key := sha256.Sum256(witness2)
-	if err := wCache.AddWitness(Sha256HashWitness, witness2); err != nil {
+	if err := wCache.AddWitnesses(Sha256HashWitness, witness2); err != nil {
 		t.Fatalf("unable to add witness: %v", err)
 	}
 
@@ -107,7 +107,7 @@ func TestWitnessCacheUnknownWitness(t *testing.T) {
 
 	// We'll attempt to add a new, undefined witness type to the database.
 	// We should get an error.
-	err = wCache.AddWitness(234, key[:])
+	err = wCache.AddWitnesses(234, key[:])
 	if err != ErrUnknownWitnessType {
 		t.Fatalf("expected ErrUnknownWitnessType, got %v", err)
 	}

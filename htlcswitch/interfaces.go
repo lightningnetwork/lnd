@@ -17,9 +17,10 @@ type InvoiceDatabase interface {
 	// extended to us gives us enough time to settle as we prescribe.
 	LookupInvoice(lntypes.Hash) (channeldb.Invoice, uint32, error)
 
-	// SettleInvoice attempts to mark an invoice corresponding to the
+	// NotifyExitHopHtlc attempts to mark an invoice corresponding to the
 	// passed payment hash as fully settled.
-	SettleInvoice(payHash lntypes.Hash, paidAmount lnwire.MilliSatoshi) error
+	NotifyExitHopHtlc(payHash lntypes.Hash, paidAmount lnwire.MilliSatoshi,
+		hodlChan chan<- interface{}) error
 
 	// CancelInvoice attempts to cancel the invoice corresponding to the
 	// passed payment hash.

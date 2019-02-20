@@ -2165,6 +2165,62 @@ func testChangeOutputSpendConfirmation(r *rpctest.Harness,
 	}
 }
 
+// testLastUnusedAddr tests that the LastUnusedAddress returns the address if
+// it isn't used, and also that once the address becomes used, then it's
+// properly rotated.
+func testLastUnusedAddr(miner *rpctest.Harness,
+	alice, bob *lnwallet.LightningWallet, t *testing.T) {
+
+	if _, err := miner.Node.Generate(1); err != nil {
+		t.Fatalf("unable to generate block: %v", err)
+	}
+
+	// We'll repeat this test for each address type to ensure they're all
+	// rotated properly.
+	addrTypes := []lnwallet.AddressType{
+		lnwallet.WitnessPubKey, lnwallet.NestedWitnessPubKey,
+	}
+	for _, addrType := range addrTypes {
+		addr1, err := alice.LastUnusedAddress(addrType)
+		if err != nil {
+			t.Fatalf("unable to get addr: %v", err)
+		}
+		addr2, err := alice.LastUnusedAddress(addrType)
+		if err != nil {
+			t.Fatalf("unable to get addr: %v", err)
+		}
+
+		// If we generate two addresses back to back, then we should
+		// get the same addr, as none of them have been used yet.
+		if addr1.String() != addr2.String() {
+			t.Fatalf("addresses changed w/o use: %v vs %v", addr1, addr2)
+		}
+
+		// Next, we'll have Bob pay to Alice's new address. This should
+		// trigger address rotation at the backend wallet.
+		addrScript, err := txscript.PayToAddrScript(addr1)
+		if err != nil {
+			t.Fatalf("unable to convert addr to script: %v", err)
+		}
+		feeRate := lnwallet.SatPerKWeight(2500)
+		output := &wire.TxOut{
+			Value:    1000000,
+			PkScript: addrScript,
+		}
+		sendCoins(t, miner, bob, alice, output, feeRate)
+
+		// If we make a new address, then it should be brand new, as
+		// the prior address has been used.
+		addr3, err := alice.LastUnusedAddress(addrType)
+		if err != nil {
+			t.Fatalf("unable to get addr: %v", err)
+		}
+		if addr1.String() == addr3.String() {
+			t.Fatalf("address should have changed but didn't")
+		}
+	}
+}
+
 type walletTestCase struct {
 	name string
 	test func(miner *rpctest.Harness, alice, bob *lnwallet.LightningWallet,
@@ -2218,6 +2274,10 @@ var walletTests = []walletTestCase{
 	{
 		name: "test cancel non-existent reservation",
 		test: testCancelNonExistentReservation,
+	},
+	{
+		name: "last unused addr",
+		test: testLastUnusedAddr,
 	},
 	{
 		name: "reorg wallet balance",

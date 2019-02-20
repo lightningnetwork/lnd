@@ -1,9 +1,12 @@
 package channeldb
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"reflect"
 	"testing"
+
+	"github.com/lightningnetwork/lnd/lntypes"
 )
 
 // TestWitnessCacheRetrieval tests that we're able to add and lookup new
@@ -123,5 +126,87 @@ func TestWitnessCacheUnknownWitness(t *testing.T) {
 	err = wCache.AddWitnesses(234, key[:])
 	if err != ErrUnknownWitnessType {
 		t.Fatalf("expected ErrUnknownWitnessType, got %v", err)
+	}
+}
+
+// TestAddSha256Witnesses tests that insertion using AddSha256Witnesses behaves
+// identically to the insertion via the generalized interface.
+func TestAddSha256Witnesses(t *testing.T) {
+	cdb, cleanUp, err := makeTestDB()
+	if err != nil {
+		t.Fatalf("unable to make test database: %v", err)
+	}
+	defer cleanUp()
+
+	wCache := cdb.NewWitnessCache()
+
+	// We'll start by adding a witnesses to the cache using the generic
+	// AddWitnesses method.
+	witness1 := rev[:]
+	witness1Key := sha256.Sum256(witness1)
+
+	witness2 := key[:]
+	witness2Key := sha256.Sum256(witness2)
+
+	var (
+		preimages = []lntypes.Preimage{rev, key}
+		witnesses = [][]byte{witness1, witness2}
+		keys      = [][]byte{witness1Key[:], witness2Key[:]}
+	)
+
+	err = wCache.AddWitnesses(Sha256HashWitness, witnesses...)
+	if err != nil {
+		t.Fatalf("unable to add witness: %v", err)
+	}
+
+	for i, key := range keys {
+		witness := witnesses[i]
+
+		dbWitness, err := wCache.LookupWitness(
+			Sha256HashWitness, key,
+		)
+		if err != nil {
+			t.Fatalf("unable to lookup witness: %v", err)
+		}
+
+		// Assert that the retrieved witness matches the original.
+		if bytes.Compare(dbWitness, witness) != 0 {
+			t.Fatalf("retrieved witness mismatch, want: %x, "+
+				"got: %x", witness, dbWitness)
+		}
+
+		// We'll now delete the witness, as we'll be reinserting it
+		// using the specialized AddSha256Witnesses method.
+		err = wCache.DeleteWitness(Sha256HashWitness, key)
+		if err != nil {
+			t.Fatalf("unable to delete witness: %v", err)
+		}
+	}
+
+	// Now, add the same witnesses using the type-safe interface for
+	// lntypes.Preimages..
+	err = wCache.AddSha256Witnesses(preimages...)
+	if err != nil {
+		t.Fatalf("unable to add sha256 preimage: %v", err)
+	}
+
+	// Finally, iterate over the keys and assert that the returned witnesses
+	// match the original witnesses. This asserts that the specialized
+	// insertion method behaves identically to the generalized interface.
+	for i, key := range keys {
+		witness := witnesses[i]
+
+		dbWitness, err := wCache.LookupWitness(
+			Sha256HashWitness, key,
+		)
+		if err != nil {
+			t.Fatalf("unable to lookup witness: %v", err)
+		}
+
+		// Assert that the retrieved witness matches the original.
+		if bytes.Compare(dbWitness, witness) != 0 {
+			t.Fatalf("retrieved witness mismatch, want: %x, "+
+				"got: %x", witness, dbWitness)
+		}
 	}
 }

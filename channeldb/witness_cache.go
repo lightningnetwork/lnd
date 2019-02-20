@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/coreos/bbolt"
+	"github.com/lightningnetwork/lnd/lntypes"
 )
 
 var (
@@ -77,6 +78,24 @@ type witnessEntry struct {
 	witness []byte
 }
 
+// AddSha256Witnesses adds a batch of new sha256 preimages into the witness
+// cache. This is an alias for AddWitnesses that uses Sha256HashWitness as the
+// preimages' witness type.
+func (w *WitnessCache) AddSha256Witnesses(preimages ...lntypes.Preimage) error {
+	// Optimistically compute the preimages' hashes before attempting to
+	// start the db transaction.
+	entries := make([]witnessEntry, 0, len(preimages))
+	for i := range preimages {
+		hash := preimages[i].Hash()
+		entries = append(entries, witnessEntry{
+			key:     hash[:],
+			witness: preimages[i][:],
+		})
+	}
+
+	return w.addWitnessEntries(Sha256HashWitness, entries)
+}
+
 // AddWitnesses adds a batch of new witnesses of wType to the witness cache. The
 // type of the witness will be used to map each witness to the key that will be
 // used to look it up. All witnesses should be of the same WitnessType.
@@ -100,6 +119,15 @@ func (w *WitnessCache) AddWitnesses(wType WitnessType, witnesses ...[]byte) erro
 			return ErrUnknownWitnessType
 		}
 	}
+
+	return w.addWitnessEntries(wType, entries)
+}
+
+// addWitnessEntries inserts the witnessEntry key-value pairs into the cache,
+// using the appropriate witness type to segment the namespace of possible
+// witness types.
+func (w *WitnessCache) addWitnessEntries(wType WitnessType,
+	entries []witnessEntry) error {
 
 	// Exit early if there are no witnesses to add.
 	if len(entries) == 0 {

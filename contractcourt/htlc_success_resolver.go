@@ -7,7 +7,6 @@ import (
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
-
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -148,7 +147,7 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 		// constructed, we'll broadcast the sweep transaction to the
 		// network.
 		err := h.PublishTx(h.sweepTx)
-		if err != nil && err != lnwallet.ErrDoubleSpend {
+		if err != nil {
 			log.Infof("%T(%x): unable to publish tx: %v",
 				h, h.payHash[:], err)
 			return nil, err
@@ -200,7 +199,7 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 	//
 	// TODO(roasbeef): after changing sighashes send to tx bundler
 	err := h.PublishTx(h.htlcResolution.SignedSuccessTx)
-	if err != nil && err != lnwallet.ErrDoubleSpend {
+	if err != nil {
 		return nil, err
 	}
 

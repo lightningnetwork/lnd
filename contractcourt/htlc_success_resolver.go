@@ -3,15 +3,16 @@ package contractcourt
 import (
 	"encoding/binary"
 	"fmt"
-	"github.com/lightningnetwork/lnd/input"
 	"io"
-
-	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/lnwire"
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
+
+	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/sweep"
 )
 
@@ -41,7 +42,7 @@ type htlcSuccessResolver struct {
 	broadcastHeight uint32
 
 	// payHash is the payment hash of the original HTLC extended to us.
-	payHash [32]byte
+	payHash lntypes.Hash
 
 	// sweepTx will be non-nil if we've already crafted a transaction to
 	// sweep a direct HTLC output. This is only a concern if we're sweeping

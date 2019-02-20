@@ -1532,10 +1532,7 @@ func newSingleLinkTestHarness(chanAmt, chanReserve btcutil.Amount) (
 		invoiceRegistry = newMockRegistry(globalPolicy.TimeLockDelta)
 	)
 
-	pCache := &mockPreimageCache{
-		// hash -> preimage
-		preimageMap: make(map[[32]byte][]byte),
-	}
+	pCache := newMockPreimageCache()
 
 	aliceDb := aliceChannel.State().Db
 	aliceSwitch, err := initSwitchWithDB(testStartingHeight, aliceDb)
@@ -4042,10 +4039,7 @@ func restartLink(aliceChannel *lnwallet.LightningChannel, aliceSwitch *Switch,
 
 		invoiceRegistry = newMockRegistry(globalPolicy.TimeLockDelta)
 
-		pCache = &mockPreimageCache{
-			// hash -> preimage
-			preimageMap: make(map[[32]byte][]byte),
-		}
+		pCache = newMockPreimageCache()
 	)
 
 	aliceDb := aliceChannel.State().Db

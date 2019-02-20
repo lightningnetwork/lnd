@@ -2,13 +2,15 @@ package contractcourt
 
 import (
 	"fmt"
-	"github.com/lightningnetwork/lnd/input"
 	"io"
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
+
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/lntypes"
 )
 
 // htlcOutgoingContestResolver is a ContractResolver that's able to resolve an
@@ -58,38 +60,47 @@ func (h *htlcOutgoingContestResolver) Resolve() (ContractResolver, error) {
 		// If this is the remote party's commitment, then we'll be
 		// looking for them to spend using the second-level success
 		// transaction.
-		var preimage [32]byte
+		var preimageBytes []byte
 		if h.htlcResolution.SignedTimeoutTx == nil {
 			// The witness stack when the remote party sweeps the
 			// output to them looks like:
 			//
 			//  * <sender sig> <recvr sig> <preimage> <witness script>
-			copy(preimage[:], spendingInput.Witness[3])
+			preimageBytes = spendingInput.Witness[3]
 		} else {
 			// Otherwise, they'll be spending directly from our
 			// commitment output. In which case the witness stack
 			// looks like:
 			//
 			//  * <sig> <preimage> <witness script>
-			copy(preimage[:], spendingInput.Witness[1])
+			preimageBytes = spendingInput.Witness[1]
 		}
 
-		log.Infof("%T(%v): extracting preimage=%x from on-chain "+
-			"spend!", h, h.htlcResolution.ClaimOutpoint, preimage[:])
+		preimage, err := lntypes.MakePreimage(preimageBytes)
+		if err != nil {
+			return nil, err
+		}
+
+		log.Infof("%T(%v): extracting preimage=%v from on-chain "+
+			"spend!", h, h.htlcResolution.ClaimOutpoint,
+			preimage)
 
 		// With the preimage obtained, we can now add it to the global
 		// cache.
-		if err := h.PreimageDB.AddPreimages(preimage[:]); err != nil {
+		if err := h.PreimageDB.AddPreimages(preimage); err != nil {
 			log.Errorf("%T(%v): unable to add witness to cache",
 				h, h.htlcResolution.ClaimOutpoint)
 		}
+
+		var pre [32]byte
+		copy(pre[:], preimage[:])
 
 		// Finally, we'll send the clean up message, mark ourselves as
 		// resolved, then exit.
 		if err := h.DeliverResolutionMsg(ResolutionMsg{
 			SourceChan: h.ShortChanID,
 			HtlcIndex:  h.htlcIndex,
-			PreImage:   &preimage,
+			PreImage:   &pre,
 		}); err != nil {
 			return nil, err
 		}

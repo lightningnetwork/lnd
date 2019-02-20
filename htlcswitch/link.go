@@ -1417,7 +1417,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// any contested contracts watched by any on-chain arbitrators
 		// can now sweep this HTLC on-chain.
 		go func() {
-			err := l.cfg.PreimageCache.AddPreimages(pre[:])
+			err := l.cfg.PreimageCache.AddPreimages(pre)
 			if err != nil {
 				l.errorf("unable to add preimage=%x to "+
 					"cache", pre[:])

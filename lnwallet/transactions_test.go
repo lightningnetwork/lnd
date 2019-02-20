@@ -780,10 +780,7 @@ func TestCommitmentAndHTLCTransactions(t *testing.T) {
 		},
 	}
 
-	pCache := &mockPreimageCache{
-		// hash -> preimage
-		preimageMap: make(map[[32]byte][]byte),
-	}
+	pCache := newMockPreimageCache()
 
 	for i, test := range testCases {
 		expectedCommitmentTx, err := txFromHex(test.expectedCommitmentTxHex)

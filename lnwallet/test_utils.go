@@ -3,7 +3,6 @@ package lnwallet
 import (
 	"bytes"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
 	"io"
@@ -18,6 +17,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
 )
@@ -301,10 +301,7 @@ func CreateTestChannels() (*LightningChannel, *LightningChannel, func(), error) 
 	aliceSigner := &input.MockSigner{Privkeys: aliceKeys}
 	bobSigner := &input.MockSigner{Privkeys: bobKeys}
 
-	pCache := &mockPreimageCache{
-		// hash -> preimage
-		preimageMap: make(map[[32]byte][]byte),
-	}
+	pCache := newMockPreimageCache()
 
 	// TODO(roasbeef): make mock version of pre-image store
 
@@ -389,26 +386,36 @@ func initRevocationWindows(chanA, chanB *LightningChannel) error {
 
 type mockPreimageCache struct {
 	sync.Mutex
-	preimageMap map[[32]byte][]byte
+	preimageMap map[lntypes.Hash]lntypes.Preimage
 }
 
-func (m *mockPreimageCache) LookupPreimage(hash []byte) ([]byte, bool) {
+func newMockPreimageCache() *mockPreimageCache {
+	return &mockPreimageCache{
+		preimageMap: make(map[lntypes.Hash]lntypes.Preimage),
+	}
+}
+
+func (m *mockPreimageCache) LookupPreimage(
+	hash lntypes.Hash) (lntypes.Preimage, bool) {
+
 	m.Lock()
 	defer m.Unlock()
 
-	var h [32]byte
-	copy(h[:], hash)
-
-	p, ok := m.preimageMap[h]
+	p, ok := m.preimageMap[hash]
 	return p, ok
 }
 
-func (m *mockPreimageCache) AddPreimages(preimages ...[]byte) error {
+func (m *mockPreimageCache) AddPreimages(preimages ...lntypes.Preimage) error {
+	preimageCopies := make([]lntypes.Preimage, 0, len(preimages))
+	for _, preimage := range preimages {
+		preimageCopies = append(preimageCopies, preimage)
+	}
+
 	m.Lock()
 	defer m.Unlock()
 
-	for _, preimage := range preimages {
-		m.preimageMap[sha256.Sum256(preimage)] = preimage
+	for _, preimage := range preimageCopies {
+		m.preimageMap[preimage.Hash()] = preimage
 	}
 
 	return nil

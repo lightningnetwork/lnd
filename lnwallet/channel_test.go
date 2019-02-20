@@ -19,6 +19,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -584,7 +585,7 @@ func TestForceClose(t *testing.T) {
 
 	// Before we force close Alice's channel, we'll add the pre-image of
 	// Bob's HTLC to her preimage cache.
-	aliceChannel.pCache.AddPreimages(preimageBob[:])
+	aliceChannel.pCache.AddPreimages(lntypes.Preimage(preimageBob))
 
 	// With the cache populated, we'll now attempt the force close
 	// initiated by Alice.
@@ -4953,7 +4954,7 @@ func TestChannelUnilateralCloseHtlcResolution(t *testing.T) {
 	// Now that Bob has force closed, we'll modify Alice's pre image cache
 	// such that she now gains the ability to also settle the incoming HTLC
 	// from Bob.
-	aliceChannel.pCache.AddPreimages(preimageBob[:])
+	aliceChannel.pCache.AddPreimages(lntypes.Preimage(preimageBob))
 
 	// We'll then use Bob's transaction to trigger a spend notification for
 	// Alice.

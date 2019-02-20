@@ -2,12 +2,12 @@ package contractcourt
 
 import (
 	"bytes"
-	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
 	"io"
 
 	"github.com/btcsuite/btcutil"
+	"github.com/lightningnetwork/lnd/lntypes"
 )
 
 // htlcIncomingContestResolver is a ContractResolver that's able to resolve an
@@ -74,11 +74,11 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 	// resolver with the preimage we learn of. This should be called once
 	// the preimage is revealed so the inner resolver can properly complete
 	// its duties.
-	applyPreimage := func(preimage []byte) {
-		copy(h.htlcResolution.Preimage[:], preimage)
+	applyPreimage := func(preimage lntypes.Preimage) {
+		h.htlcResolution.Preimage = preimage
 
-		log.Infof("%T(%v): extracted preimage=%x from beacon!", h,
-			h.htlcResolution.ClaimOutpoint, preimage[:])
+		log.Infof("%T(%v): extracted preimage=%v from beacon!", h,
+			h.htlcResolution.ClaimOutpoint, preimage)
 
 		// If this our commitment transaction, then we'll need to
 		// populate the witness for the second-level HTLC transaction.
@@ -93,8 +93,6 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 			// preimage.
 			h.htlcResolution.SignedSuccessTx.TxIn[0].Witness[3] = preimage[:]
 		}
-
-		copy(h.htlcResolution.Preimage[:], preimage[:])
 	}
 
 	// If the HTLC hasn't expired yet, then we may still be able to claim
@@ -116,12 +114,12 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 
 	// With the epochs and preimage subscriptions initialized, we'll query
 	// to see if we already know the preimage.
-	preimage, ok := h.PreimageDB.LookupPreimage(h.payHash[:])
+	preimage, ok := h.PreimageDB.LookupPreimage(h.payHash)
 	if ok {
 		// If we do, then this means we can claim the HTLC!  However,
 		// we don't know how to ourselves, so we'll return our inner
 		// resolver which has the knowledge to do so.
-		applyPreimage(preimage[:])
+		applyPreimage(preimage)
 		return &h.htlcSuccessResolver, nil
 	}
 
@@ -131,8 +129,8 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 		case preimage := <-preimageSubscription.WitnessUpdates:
 			// If this isn't our preimage, then we'll continue
 			// onwards.
-			newHash := sha256.Sum256(preimage)
-			preimageMatches := bytes.Equal(newHash[:], h.payHash[:])
+			hash := preimage.Hash()
+			preimageMatches := bytes.Equal(hash[:], h.payHash[:])
 			if !preimageMatches {
 				continue
 			}

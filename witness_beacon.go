@@ -13,7 +13,7 @@ import (
 // preimageSubscriber reprints an active subscription to be notified once the
 // daemon discovers new preimages, either on chain or off-chain.
 type preimageSubscriber struct {
-	updateChan chan []byte
+	updateChan chan lntypes.Preimage
 
 	quit chan struct{}
 }
@@ -40,7 +40,7 @@ func (p *preimageBeacon) SubscribeUpdates() *contractcourt.WitnessSubscription {
 
 	clientID := p.clientCounter
 	client := &preimageSubscriber{
-		updateChan: make(chan []byte, 10),
+		updateChan: make(chan lntypes.Preimage, 10),
 		quit:       make(chan struct{}),
 	}
 
@@ -66,36 +66,42 @@ func (p *preimageBeacon) SubscribeUpdates() *contractcourt.WitnessSubscription {
 
 // LookupPreImage attempts to lookup a preimage in the global cache.  True is
 // returned for the second argument if the preimage is found.
-func (p *preimageBeacon) LookupPreimage(payHash []byte) ([]byte, bool) {
+func (p *preimageBeacon) LookupPreimage(
+	payHash lntypes.Hash) (lntypes.Preimage, bool) {
+
 	p.RLock()
 	defer p.RUnlock()
 
 	// First, we'll check the invoice registry to see if we already know of
 	// the preimage as it's on that we created ourselves.
-	var invoiceKey lntypes.Hash
-	copy(invoiceKey[:], payHash)
-	invoice, _, err := p.invoices.LookupInvoice(invoiceKey)
+	invoice, _, err := p.invoices.LookupInvoice(payHash)
 	switch {
 	case err == channeldb.ErrInvoiceNotFound:
 		// If we get this error, then it simply means that this invoice
 		// wasn't found, so we don't treat it as a critical error.
 	case err != nil:
-		return nil, false
+		return lntypes.Preimage{}, false
 	}
 
 	// If we've found the invoice, then we can return the preimage
 	// directly.
 	if err != channeldb.ErrInvoiceNotFound {
-		return invoice.Terms.PaymentPreimage[:], true
+		return invoice.Terms.PaymentPreimage, true
 	}
 
 	// Otherwise, we'll perform a final check using the witness cache.
-	preimage, err := p.wCache.LookupWitness(
-		channeldb.Sha256HashWitness, payHash,
+	preimageBytes, err := p.wCache.LookupWitness(
+		channeldb.Sha256HashWitness, payHash[:],
 	)
 	if err != nil {
-		ltndLog.Errorf("unable to lookup witness: %v", err)
-		return nil, false
+		ltndLog.Errorf("Unable to lookup witness: %v", err)
+		return lntypes.Preimage{}, false
+	}
+
+	preimage, err := lntypes.MakePreimage(preimageBytes)
+	if err != nil {
+		ltndLog.Errorf("Unable to build witness: %v", err)
+		return lntypes.Preimage{}, false
 	}
 
 	return preimage, true
@@ -103,7 +109,7 @@ func (p *preimageBeacon) LookupPreimage(payHash []byte) ([]byte, bool) {
 
 // AddPreimages adds a batch of newly discovered preimages to the global cache,
 // and also signals any subscribers of the newly discovered witness.
-func (p *preimageBeacon) AddPreimages(preimages ...[]byte) error {
+func (p *preimageBeacon) AddPreimages(preimages ...lntypes.Preimage) error {
 	// Exit early if no preimages are presented.
 	if len(preimages) == 0 {
 		return nil
@@ -111,14 +117,14 @@ func (p *preimageBeacon) AddPreimages(preimages ...[]byte) error {
 
 	// Copy the preimages to ensure the backing area can't be modified by
 	// the caller when delivering notifications.
-	preimageCopies := make([][]byte, 0, len(preimages))
+	preimageCopies := make([]lntypes.Preimage, 0, len(preimages))
 	for _, preimage := range preimages {
-		srvrLog.Infof("Adding preimage=%x to witness cache", preimage)
+		srvrLog.Infof("Adding preimage=%v to witness cache", preimage)
 		preimageCopies = append(preimageCopies, preimage)
 	}
 
 	// First, we'll add the witness to the decaying witness cache.
-	err := p.wCache.AddWitnesses(channeldb.Sha256HashWitness, preimages...)
+	err := p.wCache.AddSha256Witnesses(preimages...)
 	if err != nil {
 		return err
 	}

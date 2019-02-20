@@ -5577,12 +5577,12 @@ func extractHtlcResolutions(feePerKw SatPerKWeight, ourCommit bool,
 			// We'll now query the preimage cache for the preimage
 			// for this HTLC. If it's present then we can fully
 			// populate this resolution.
-			preimage, _ := pCache.LookupPreimage(htlc.RHash[:])
+			preimage, _ := pCache.LookupPreimage(htlc.RHash)
 
 			// Otherwise, we'll create an incoming HTLC resolution
 			// as we can satisfy the contract.
 			var pre [32]byte
-			copy(pre[:], preimage)
+			copy(pre[:], preimage[:])
 			ihr, err := newIncomingHtlcResolution(
 				signer, localChanCfg, commitHash, &htlc, keyRing,
 				feePerKw, dustLimit, uint32(csvDelay), ourCommit,

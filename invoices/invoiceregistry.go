@@ -7,14 +7,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/queue"
-	"github.com/lightningnetwork/lnd/zpay32"
 )
 
 var (
@@ -52,7 +50,9 @@ type InvoiceRegistry struct {
 	// that *all* nodes are able to fully settle.
 	debugInvoices map[lntypes.Hash]*channeldb.Invoice
 
-	activeNetParams *chaincfg.Params
+	// decodeFinalCltvExpiry is a function used to decode the final expiry
+	// value from the payment request.
+	decodeFinalCltvExpiry func(invoice string) (uint32, error)
 
 	wg   sync.WaitGroup
 	quit chan struct{}
@@ -62,8 +62,8 @@ type InvoiceRegistry struct {
 // wraps the persistent on-disk invoice storage with an additional in-memory
 // layer. The in-memory layer is in place such that debug invoices can be added
 // which are volatile yet available system wide within the daemon.
-func NewRegistry(cdb *channeldb.DB,
-	activeNetParams *chaincfg.Params) *InvoiceRegistry {
+func NewRegistry(cdb *channeldb.DB, decodeFinalCltvExpiry func(invoice string) (
+	uint32, error)) *InvoiceRegistry {
 
 	return &InvoiceRegistry{
 		cdb:                       cdb,
@@ -74,7 +74,7 @@ func NewRegistry(cdb *channeldb.DB,
 		newSingleSubscriptions:    make(chan *SingleInvoiceSubscription),
 		subscriptionCancels:       make(chan uint32),
 		invoiceEvents:             make(chan *invoiceEvent, 100),
-		activeNetParams:           activeNetParams,
+		decodeFinalCltvExpiry:     decodeFinalCltvExpiry,
 		quit:                      make(chan struct{}),
 	}
 }
@@ -430,14 +430,12 @@ func (i *InvoiceRegistry) LookupInvoice(rHash lntypes.Hash) (channeldb.Invoice, 
 		return channeldb.Invoice{}, 0, err
 	}
 
-	payReq, err := zpay32.Decode(
-		string(invoice.PaymentRequest), i.activeNetParams,
-	)
+	expiry, err := i.decodeFinalCltvExpiry(string(invoice.PaymentRequest))
 	if err != nil {
 		return channeldb.Invoice{}, 0, err
 	}
 
-	return invoice, uint32(payReq.MinFinalCLTVExpiry()), nil
+	return invoice, expiry, nil
 }
 
 // SettleInvoice attempts to mark an invoice as settled. If the invoice is a

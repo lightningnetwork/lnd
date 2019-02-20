@@ -46,6 +46,7 @@ import (
 	"github.com/lightningnetwork/lnd/sweep"
 	"github.com/lightningnetwork/lnd/ticker"
 	"github.com/lightningnetwork/lnd/tor"
+	"github.com/lightningnetwork/lnd/zpay32"
 )
 
 const (
@@ -284,6 +285,14 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		readBufferPool, runtime.NumCPU(), pool.DefaultWorkerTimeout,
 	)
 
+	decodeFinalCltvExpiry := func(payReq string) (uint32, error) {
+		invoice, err := zpay32.Decode(payReq, activeNetParams.Params)
+		if err != nil {
+			return 0, err
+		}
+		return uint32(invoice.MinFinalCLTVExpiry()), nil
+	}
+
 	s := &server{
 		chanDB:    chanDB,
 		cc:        cc,
@@ -291,7 +300,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		writePool: writePool,
 		readPool:  readPool,
 
-		invoices: invoices.NewRegistry(chanDB, activeNetParams.Params),
+		invoices: invoices.NewRegistry(chanDB, decodeFinalCltvExpiry),
 
 		channelNotifier: channelnotifier.New(chanDB),
 

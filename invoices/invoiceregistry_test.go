@@ -10,6 +10,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/zpay32"
 )
 
 var (
@@ -28,6 +29,14 @@ var (
 	testPayReq = "lnbc500u1pwywxzwpp5nd2u9xzq02t0tuf2654as7vma42lwkcjptx4yzfq0umq4swpa7cqdqqcqzysmlpc9ewnydr8rr8dnltyxphdyf6mcqrsd6dml8zajtyhwe6a45d807kxtmzayuf0hh2d9tn478ecxkecdg7c5g85pntupug5kakm7xcpn63zqk"
 )
 
+func decodeExpiry(payReq string) (uint32, error) {
+	invoice, err := zpay32.Decode(payReq, &chaincfg.MainNetParams)
+	if err != nil {
+		return 0, err
+	}
+	return uint32(invoice.MinFinalCLTVExpiry()), nil
+}
+
 // TestSettleInvoice tests settling of an invoice and related notifications.
 func TestSettleInvoice(t *testing.T) {
 	cdb, cleanup, err := newDB()
@@ -37,7 +46,7 @@ func TestSettleInvoice(t *testing.T) {
 	defer cleanup()
 
 	// Instantiate and start the invoice registry.
-	registry := NewRegistry(cdb, &chaincfg.MainNetParams)
+	registry := NewRegistry(cdb, decodeExpiry)
 
 	err = registry.Start()
 	if err != nil {
@@ -167,7 +176,7 @@ func TestCancelInvoice(t *testing.T) {
 	defer cleanup()
 
 	// Instantiate and start the invoice registry.
-	registry := NewRegistry(cdb, &chaincfg.MainNetParams)
+	registry := NewRegistry(cdb, decodeExpiry)
 
 	err = registry.Start()
 	if err != nil {

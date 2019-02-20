@@ -65,3 +65,34 @@ $ docker logs lnd-testnet
 
 This is a simple example, it is possible to use any command-line options necessary
 to expose RPC ports, use `btcd` or `bitcoind`, or add additional chains.
+
+## LND Development
+
+For lnd development, a docker-compose file is provided for rapidly testing and developing changes in a containerized LND environment.
+
+To build the environment:
+
+```
+$ cd ./docker 
+$ docker-compose -f docker-compose.neutrino.yml build
+```
+
+Docker-compose will mount your local environment to: `/go/src/github.com/lightningnetwork/lnd` inside the container.
+  Changes to your local environment will result in changes to the aforementioned directory inside the container.
+
+Once the environment is built, start LND:
+
+```
+$ docker-compose -f docker-compose.neutrino.yml up
+```
+
+To change the parameters of lnd, modify once the file `.env` and then bring `up` the containers.
+
+
+To execute instructions after starting LND docker, run exec on the `lnd` container.  For example, to create a wallet:
+
+```
+docker exec -it lnd lncli create
+```
+
+Happy Hacking =]

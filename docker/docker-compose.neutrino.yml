@@ -1,0 +1,26 @@
+version: '3'
+services:
+  lnd:
+    container_name: lnd
+    build:
+      context: ../
+      dockerfile: docker/lnd/Dockerfile
+    volumes:
+      # mounts the root lnd directory into the container for devlopment
+      # changes can be made on the local machine
+      # and then rebuilt inside the running container
+      - ..:/go/src/github.com/lightningnetwork/lnd
+      # creates a mount used to persit data in the .lnd directory
+      - lnd:/root/.lnd
+    entrypoint:
+      - lnd
+      - --${STATE}
+      - --${NETWORK}
+      - --bitcoin.node=${BITCOIN_NODE}
+      - --neutrino.connect=${NEUTRINO_CONNECT}
+
+volumes:
+# lnd volume is used for persisting lnd application data and chain state
+# during container lifecycle
+  lnd:
+    driver: local

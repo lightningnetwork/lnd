@@ -12,6 +12,7 @@ import (
 	"github.com/coreos/bbolt"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
+	"github.com/lightningnetwork/lnd/lnwire"
 )
 
 // TestPaymentStatusesMigration checks that already completed payments will have
@@ -467,4 +468,99 @@ func TestMigrateOptionalChannelCloseSummaryFields(t *testing.T) {
 			migrateOptionalChannelCloseSummaryFields,
 			false)
 	}
+}
+
+// TestMigrateGossipMessageStoreKeys ensures that the migration to the new
+// gossip message store key format is successful/unsuccessful under various
+// scenarios.
+func TestMigrateGossipMessageStoreKeys(t *testing.T) {
+	t.Parallel()
+
+	// Construct the message which we'll use to test the migration, along
+	// with its old and new key formats.
+	shortChanID := lnwire.ShortChannelID{BlockHeight: 10}
+	msg := &lnwire.AnnounceSignatures{ShortChannelID: shortChanID}
+
+	var oldMsgKey [33 + 8]byte
+	copy(oldMsgKey[:33], pubKey.SerializeCompressed())
+	binary.BigEndian.PutUint64(oldMsgKey[33:41], shortChanID.ToUint64())
+
+	var newMsgKey [33 + 8 + 2]byte
+	copy(newMsgKey[:41], oldMsgKey[:])
+	binary.BigEndian.PutUint16(newMsgKey[41:43], uint16(msg.MsgType()))
+
+	// Before the migration, we'll create the bucket where the messages
+	// should live and insert them.
+	beforeMigration := func(db *DB) {
+		var b bytes.Buffer
+		if err := msg.Encode(&b, 0); err != nil {
+			t.Fatalf("unable to serialize message: %v", err)
+		}
+
+		err := db.Update(func(tx *bbolt.Tx) error {
+			messageStore, err := tx.CreateBucketIfNotExists(
+				messageStoreBucket,
+			)
+			if err != nil {
+				return err
+			}
+
+			return messageStore.Put(oldMsgKey[:], b.Bytes())
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// After the migration, we'll make sure that:
+	//   1. We cannot find the message under its old key.
+	//   2. We can find the message under its new key.
+	//   3. The message matches the original.
+	afterMigration := func(db *DB) {
+		meta, err := db.FetchMeta(nil)
+		if err != nil {
+			t.Fatalf("unable to fetch db version: %v", err)
+		}
+		if meta.DbVersionNumber != 1 {
+			t.Fatalf("migration should have succeeded but didn't")
+		}
+
+		var rawMsg []byte
+		err = db.View(func(tx *bbolt.Tx) error {
+			messageStore := tx.Bucket(messageStoreBucket)
+			if messageStore == nil {
+				return errors.New("message store bucket not " +
+					"found")
+			}
+			rawMsg = messageStore.Get(oldMsgKey[:])
+			if rawMsg != nil {
+				t.Fatal("expected to not find message under " +
+					"old key, but did")
+			}
+			rawMsg = messageStore.Get(newMsgKey[:])
+			if rawMsg == nil {
+				return fmt.Errorf("expected to find message " +
+					"under new key, but didn't")
+			}
+
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		gotMsg, err := lnwire.ReadMessage(bytes.NewReader(rawMsg), 0)
+		if err != nil {
+			t.Fatalf("unable to deserialize raw message: %v", err)
+		}
+		if !reflect.DeepEqual(msg, gotMsg) {
+			t.Fatalf("expected message: %v\ngot message: %v",
+				spew.Sdump(msg), spew.Sdump(gotMsg))
+		}
+	}
+
+	applyMigration(
+		t, beforeMigration, afterMigration,
+		migrateGossipMessageStoreKeys, false,
+	)
 }

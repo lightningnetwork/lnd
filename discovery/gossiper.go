@@ -2,7 +2,6 @@ package discovery
 
 import (
 	"bytes"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"runtime"
@@ -13,7 +12,6 @@ import (
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/coreos/bbolt"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -25,13 +23,6 @@ import (
 )
 
 var (
-	// messageStoreKey is a key used to create a top level bucket in
-	// the gossiper database, used for storing messages that are to
-	// be sent to peers. Currently this is used for reliably sending
-	// AnnounceSignatures messages, by persisting them until a send
-	// operation has succeeded.
-	messageStoreKey = []byte("message-store")
-
 	// ErrGossiperShuttingDown is an error that is returned if the gossiper
 	// is in the process of being shut down.
 	ErrGossiperShuttingDown = errors.New("gossiper is shutting down")
@@ -104,21 +95,19 @@ type Config struct {
 	Broadcast func(skips map[routing.Vertex]struct{},
 		msg ...lnwire.Message) error
 
-	// SendToPeer is a function which allows the service to send a set of
-	// messages to a particular peer identified by the target public key.
-	SendToPeer func(target *btcec.PublicKey, msg ...lnwire.Message) error
-
-	// FindPeer returns the actively registered peer for a given remote
-	// public key. An error is returned if the peer was not found or a
-	// shutdown has been requested.
-	FindPeer func(identityKey *btcec.PublicKey) (lnpeer.Peer, error)
-
 	// NotifyWhenOnline is a function that allows the gossiper to be
 	// notified when a certain peer comes online, allowing it to
 	// retry sending a peer message.
 	//
 	// NOTE: The peerChan channel must be buffered.
+	//
+	// TODO(wilmer): use [33]byte to avoid unnecessary serializations.
 	NotifyWhenOnline func(peer *btcec.PublicKey, peerChan chan<- lnpeer.Peer)
+
+	// NotifyWhenOffline is a function that allows the gossiper to be
+	// notified when a certain peer disconnects, allowing it to request a
+	// notification for when it reconnects.
+	NotifyWhenOffline func(peerPubKey [33]byte) <-chan struct{}
 
 	// ProofMatureDelta the number of confirmations which is needed before
 	// exchange the channel announcement proofs.
@@ -133,9 +122,18 @@ type Config struct {
 	// should check if we need re-broadcast any of our personal channels.
 	RetransmitDelay time.Duration
 
-	// DB is a global boltdb instance which is needed to pass it in waiting
-	// proof storage to make waiting proofs persistent.
-	DB *channeldb.DB
+	// WaitingProofStore is a persistent storage of partial channel proof
+	// announcement messages. We use it to buffer half of the material
+	// needed to reconstruct a full authenticated channel announcement.
+	// Once we receive the other half the channel proof, we'll be able to
+	// properly validate it and re-broadcast it out to the network.
+	//
+	// TODO(wilmer): make interface to prevent channeldb dependency.
+	WaitingProofStore *channeldb.WaitingProofStore
+
+	// MessageStore is a persistent storage of gossip messages which we will
+	// use to determine which messages need to be resent for a given peer.
+	MessageStore GossipMessageStore
 
 	// AnnSigner is an instance of the MessageSigner interface which will
 	// be used to manually sign any outgoing channel updates. The signer
@@ -193,13 +191,6 @@ type AuthenticatedGossiper struct {
 	prematureChannelUpdates map[uint64][]*networkMsg
 	pChanUpdMtx             sync.Mutex
 
-	// waitingProofs is a persistent storage of partial channel proof
-	// announcement messages. We use it to buffer half of the material
-	// needed to reconstruct a full authenticated channel announcement.
-	// Once we receive the other half the channel proof, we'll be able to
-	// properly validate it and re-broadcast it out to the network.
-	waitingProofs *channeldb.WaitingProofStore
-
 	// networkMsgs is a channel that carries new network broadcasted
 	// message from outside the gossiper service to be processed by the
 	// networkHandler.
@@ -229,18 +220,17 @@ type AuthenticatedGossiper struct {
 	syncerMtx   sync.RWMutex
 	peerSyncers map[routing.Vertex]*gossipSyncer
 
+	// reliableSender is a subsystem responsible for handling reliable
+	// message send requests to peers.
+	reliableSender *reliableSender
+
 	sync.Mutex
 }
 
 // New creates a new AuthenticatedGossiper instance, initialized with the
 // passed configuration parameters.
-func New(cfg Config, selfKey *btcec.PublicKey) (*AuthenticatedGossiper, error) {
-	storage, err := channeldb.NewWaitingProofStore(cfg.DB)
-	if err != nil {
-		return nil, err
-	}
-
-	return &AuthenticatedGossiper{
+func New(cfg Config, selfKey *btcec.PublicKey) *AuthenticatedGossiper {
+	gossiper := &AuthenticatedGossiper{
 		selfKey:                 selfKey,
 		cfg:                     &cfg,
 		networkMsgs:             make(chan *networkMsg),
@@ -248,11 +238,19 @@ func New(cfg Config, selfKey *btcec.PublicKey) (*AuthenticatedGossiper, error) {
 		chanPolicyUpdates:       make(chan *chanPolicyUpdateRequest),
 		prematureAnnouncements:  make(map[uint32][]*networkMsg),
 		prematureChannelUpdates: make(map[uint64][]*networkMsg),
-		waitingProofs:           storage,
 		channelMtx:              multimutex.NewMutex(),
 		recentRejects:           make(map[uint64]struct{}),
 		peerSyncers:             make(map[routing.Vertex]*gossipSyncer),
-	}, nil
+	}
+
+	gossiper.reliableSender = newReliableSender(&reliableSenderCfg{
+		NotifyWhenOnline:  cfg.NotifyWhenOnline,
+		NotifyWhenOffline: cfg.NotifyWhenOffline,
+		MessageStore:      cfg.MessageStore,
+		IsMsgStale:        gossiper.isMsgStale,
+	})
+
+	return gossiper
 }
 
 // SynchronizeNode sends a message to the service indicating it should
@@ -411,11 +409,10 @@ func (d *AuthenticatedGossiper) Start() error {
 	}
 	d.bestHeight = height
 
-	// In case we had an AnnounceSignatures ready to be sent when the
-	// gossiper was last shut down, we must continue on our quest to
-	// deliver this message to our peer such that they can craft the
-	// full channel proof.
-	if err := d.resendAnnounceSignatures(); err != nil {
+	// Start the reliable sender. In case we had any pending messages ready
+	// to be sent when the gossiper was last shut down, we must continue on
+	// our quest to deliver them to their respective peers.
+	if err := d.reliableSender.Start(); err != nil {
 		return err
 	}
 
@@ -443,6 +440,10 @@ func (d *AuthenticatedGossiper) Stop() {
 
 	close(d.quit)
 	d.wg.Wait()
+
+	// We'll stop our reliable sender after all of the gossiper's goroutines
+	// have exited to ensure nothing can cause it to continue executing.
+	d.reliableSender.Stop()
 }
 
 // TODO(roasbeef): need method to get current gossip timestamp?
@@ -806,138 +807,6 @@ func (d *deDupedAnnouncements) Emit() []msgWithSenders {
 
 	// Return the array of lnwire.messages.
 	return msgs
-}
-
-// resendAnnounceSignatures will inspect the messageStore database bucket for
-// AnnounceSignatures messages that we recently tried to send to a peer. If the
-// associated channels still not have the full channel proofs assembled, we
-// will try to resend them. If we have the full proof, we can safely delete the
-// message from the messageStore.
-func (d *AuthenticatedGossiper) resendAnnounceSignatures() error {
-	type msgTuple struct {
-		peer  *btcec.PublicKey
-		msg   *lnwire.AnnounceSignatures
-		dbKey []byte
-	}
-
-	// Fetch all the AnnounceSignatures messages that was added to the
-	// database.
-	//
-	// TODO(halseth): database access should be abstracted
-	// behind interface.
-	var msgsResend []msgTuple
-	if err := d.cfg.DB.View(func(tx *bbolt.Tx) error {
-		bucket := tx.Bucket(messageStoreKey)
-		if bucket == nil {
-			return nil
-		}
-
-		if err := bucket.ForEach(func(k, v []byte) error {
-			// The database value represents the encoded
-			// AnnounceSignatures message.
-			r := bytes.NewReader(v)
-			msg := &lnwire.AnnounceSignatures{}
-			if err := msg.Decode(r, 0); err != nil {
-				return err
-			}
-
-			// The first 33 bytes of the database key is the peer's
-			// public key.
-			peer, err := btcec.ParsePubKey(k[:33], btcec.S256())
-			if err != nil {
-				return err
-			}
-
-			// Make a copy of the database key corresponding to
-			// these AnnounceSignatures.
-			dbKey := make([]byte, len(k))
-			copy(dbKey, k)
-
-			t := msgTuple{peer, msg, dbKey}
-
-			// Add the message to the slice, such that we can
-			// resend it after the database transaction is over.
-			msgsResend = append(msgsResend, t)
-			return nil
-		}); err != nil {
-			return err
-		}
-		return nil
-	}); err != nil {
-		return err
-	}
-
-	// deleteMsg removes the message associated with the passed msgTuple
-	// from the messageStore.
-	deleteMsg := func(t msgTuple) error {
-		log.Debugf("Deleting message for chanID=%v from "+
-			"messageStore", t.msg.ChannelID)
-		if err := d.cfg.DB.Update(func(tx *bbolt.Tx) error {
-			bucket := tx.Bucket(messageStoreKey)
-			if bucket == nil {
-				return fmt.Errorf("bucket " +
-					"unexpectedly did not exist")
-			}
-
-			return bucket.Delete(t.dbKey[:])
-		}); err != nil {
-			return fmt.Errorf("Failed deleting message "+
-				"from database: %v", err)
-		}
-		return nil
-	}
-
-	// We now iterate over these messages, resending those that we don't
-	// have the full proof for, deleting the rest.
-	for _, t := range msgsResend {
-		// Check if the full channel proof exists in our graph.
-		chanInfo, _, _, err := d.cfg.Router.GetChannelByID(
-			t.msg.ShortChannelID)
-		if err != nil {
-			// If the channel cannot be found, it is most likely a
-			// leftover message for a channel that was closed.  In
-			// this case we delete it from the message store.
-			log.Warnf("unable to fetch channel info for "+
-				"chanID=%v from graph: %v. Will delete local"+
-				"proof from database",
-				t.msg.ChannelID, err)
-			if err := deleteMsg(t); err != nil {
-				return err
-			}
-			continue
-		}
-
-		// 1. If the full proof does not exist in the graph, it means
-		// that we haven't received the remote proof yet (or that we
-		// crashed before able to assemble the full proof). Since the
-		// remote node might think they have delivered their proof to
-		// us, we will resend _our_ proof to trigger a resend on their
-		// part: they will then be able to assemble and send us the
-		// full proof.
-		if chanInfo.AuthProof == nil {
-			err := d.sendAnnSigReliably(t.msg, t.peer)
-			if err != nil {
-				return err
-			}
-			continue
-		}
-
-		// 2. If the proof does exist in the graph, we have
-		// successfully received the remote proof and assembled the
-		// full proof. In this case we can safely delete the local
-		// proof from the database. In case the remote hasn't been able
-		// to assemble the full proof yet (maybe because of a crash),
-		// we will send them the full proof if we notice that they
-		// retry sending their half proof.
-		if chanInfo.AuthProof != nil {
-			log.Debugf("Deleting message for chanID=%v from "+
-				"messageStore", t.msg.ChannelID)
-			if err := deleteMsg(t); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
 }
 
 // findGossipSyncer is a utility method used by the gossiper to locate the
@@ -2053,30 +1922,26 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 		// so we'll try sending the update directly to the remote peer.
 		if !nMsg.isRemote && chanInfo.AuthProof == nil {
 			// Get our peer's public key.
-			var remotePub *btcec.PublicKey
+			var remotePubKey [33]byte
 			switch {
 			case msg.ChannelFlags&lnwire.ChanUpdateDirection == 0:
-				remotePub, _ = chanInfo.NodeKey2()
+				remotePubKey = chanInfo.NodeKey2Bytes
 			case msg.ChannelFlags&lnwire.ChanUpdateDirection == 1:
-				remotePub, _ = chanInfo.NodeKey1()
+				remotePubKey = chanInfo.NodeKey1Bytes
 			}
 
-			sPeer, err := d.cfg.FindPeer(remotePub)
+			// Now, we'll attempt to send the channel update message
+			// reliably to the remote peer in the background, so
+			// that we don't block if the peer happens to be offline
+			// at the moment.
+			err := d.reliableSender.sendMessage(msg, remotePubKey)
 			if err != nil {
-				log.Errorf("unable to send channel update -- "+
-					"could not find peer %x: %v",
-					remotePub.SerializeCompressed(),
-					err)
-			} else {
-				// Send ChannelUpdate directly to remotePeer.
-				// TODO(halseth): make reliable send?
-				err = sPeer.SendMessage(false, msg)
-				if err != nil {
-					log.Errorf("unable to send channel "+
-						"update message to peer %x: %v",
-						remotePub.SerializeCompressed(),
-						err)
-				}
+				err := fmt.Errorf("unable to reliably send %v "+
+					"for channel=%v to peer=%x: %v",
+					msg.MsgType(), msg.ShortChannelID,
+					remotePubKey, err)
+				nMsg.err <- err
+				return nil
 			}
 		}
 
@@ -2146,7 +2011,8 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 			// TODO(andrew.shvv) this is dangerous because remote
 			// node might rewrite the waiting proof.
 			proof := channeldb.NewWaitingProof(nMsg.isRemote, msg)
-			if err := d.waitingProofs.Add(proof); err != nil {
+			err := d.cfg.WaitingProofStore.Add(proof)
+			if err != nil {
 				err := fmt.Errorf("unable to store "+
 					"the proof for short_chan_id=%v: %v",
 					shortChanID, err)
@@ -2182,21 +2048,21 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 		// so they can also reconstruct the full channel
 		// announcement.
 		if !nMsg.isRemote {
-			var remotePeer *btcec.PublicKey
+			var remotePubKey [33]byte
 			if isFirstNode {
-				remotePeer, _ = chanInfo.NodeKey2()
+				remotePubKey = chanInfo.NodeKey2Bytes
 			} else {
-				remotePeer, _ = chanInfo.NodeKey1()
+				remotePubKey = chanInfo.NodeKey1Bytes
 			}
 			// Since the remote peer might not be online
 			// we'll call a method that will attempt to
 			// deliver the proof when it comes online.
-			err := d.sendAnnSigReliably(msg, remotePeer)
+			err := d.reliableSender.sendMessage(msg, remotePubKey)
 			if err != nil {
-				err := fmt.Errorf("unable to send reliably "+
-					"to remote for short_chan_id=%v: %v",
-					shortChanID, err)
-				log.Error(err)
+				err := fmt.Errorf("unable to reliably send %v "+
+					"for channel=%v to peer=%x: %v",
+					msg.MsgType(), msg.ShortChannelID,
+					remotePubKey, err)
 				nMsg.err <- err
 				return nil
 			}
@@ -2260,7 +2126,9 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 		// proof than we should store it this one, and wait for
 		// opposite to be received.
 		proof := channeldb.NewWaitingProof(nMsg.isRemote, msg)
-		oppositeProof, err := d.waitingProofs.Get(proof.OppositeKey())
+		oppositeProof, err := d.cfg.WaitingProofStore.Get(
+			proof.OppositeKey(),
+		)
 		if err != nil && err != channeldb.ErrWaitingProofNotFound {
 			err := fmt.Errorf("unable to get "+
 				"the opposite proof for short_chan_id=%v: %v",
@@ -2271,7 +2139,8 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 		}
 
 		if err == channeldb.ErrWaitingProofNotFound {
-			if err := d.waitingProofs.Add(proof); err != nil {
+			err := d.cfg.WaitingProofStore.Add(proof)
+			if err != nil {
 				err := fmt.Errorf("unable to store "+
 					"the proof for short_chan_id=%v: %v",
 					shortChanID, err)
@@ -2340,7 +2209,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 			return nil
 		}
 
-		err = d.waitingProofs.Remove(proof.OppositeKey())
+		err = d.cfg.WaitingProofStore.Remove(proof.OppositeKey())
 		if err != nil {
 			err := fmt.Errorf("unable remove opposite proof "+
 				"for the channel with chanID=%v: %v",
@@ -2425,91 +2294,49 @@ func (d *AuthenticatedGossiper) fetchNodeAnn(
 	return node.NodeAnnouncement(true)
 }
 
-// sendAnnSigReliably will try to send the provided local AnnounceSignatures
-// to the remote peer, waiting for it to come online if necessary. This
-// method returns after adding the message to persistent storage, such
-// that the caller knows that the message will be delivered at one point.
-func (d *AuthenticatedGossiper) sendAnnSigReliably(
-	msg *lnwire.AnnounceSignatures, remotePeer *btcec.PublicKey) error {
+// isMsgStale determines whether a message retrieved from the backing
+// MessageStore is seen as stale by the current graph.
+func (d *AuthenticatedGossiper) isMsgStale(msg lnwire.Message) bool {
+	switch msg := msg.(type) {
+	case *lnwire.AnnounceSignatures:
+		chanInfo, _, _, err := d.cfg.Router.GetChannelByID(
+			msg.ShortChannelID,
+		)
 
-	// We first add this message to the database, such that in case
-	// we do not succeed in sending it to the peer, we'll fetch it
-	// from the DB next time we start, and retry. We use the peer ID
-	// + shortChannelID as key, as there possibly is more than one
-	// channel opening in progress to the same peer.
-	var key [41]byte
-	copy(key[:33], remotePeer.SerializeCompressed())
-	binary.BigEndian.PutUint64(key[33:], msg.ShortChannelID.ToUint64())
-
-	err := d.cfg.DB.Update(func(tx *bbolt.Tx) error {
-		bucket, err := tx.CreateBucketIfNotExists(messageStoreKey)
+		// If the channel cannot be found, it is most likely a leftover
+		// message for a channel that was closed, so we can consider it
+		// stale.
+		if err == channeldb.ErrEdgeNotFound {
+			return true
+		}
 		if err != nil {
-			return err
+			log.Debugf("Unable to retrieve channel=%v from graph: "+
+				"%v", err)
+			return false
 		}
 
-		// Encode the AnnounceSignatures message.
-		var b bytes.Buffer
-		if err := msg.Encode(&b, 0); err != nil {
-			return err
+		// If the proof exists in the graph, then we have successfully
+		// received the remote proof and assembled the full proof, so we
+		// can safely delete the local proof from the database.
+		return chanInfo.AuthProof != nil
+
+	case *lnwire.ChannelUpdate:
+		// The MessageStore will always store the latest ChannelUpdate
+		// as it is not aware of its timestamp (by design), so it will
+		// never be stale. We should still however check if the channel
+		// is part of our graph. If it's not, we can mark it as stale.
+		_, _, _, err := d.cfg.Router.GetChannelByID(msg.ShortChannelID)
+		if err != nil && err != channeldb.ErrEdgeNotFound {
+			log.Debugf("Unable to retrieve channel=%v from graph: "+
+				"%v", err)
 		}
+		return err == channeldb.ErrEdgeNotFound
 
-		// Add the encoded message to the database using the peer
-		// + shortChanID as key.
-		return bucket.Put(key[:], b.Bytes())
-
-	})
-	if err != nil {
-		return err
+	default:
+		// We'll make sure to not mark any unsupported messages as stale
+		// to ensure they are not removed.
+		return false
 	}
-
-	// We have succeeded adding the message to the database. We now launch
-	// a goroutine that will keep on trying sending the message to the
-	// remote peer until it succeeds, or the gossiper shuts down. In case
-	// of success, the message will be removed from the database.
-	d.wg.Add(1)
-	go func() {
-		defer d.wg.Done()
-		for {
-			log.Debugf("Sending AnnounceSignatures for channel "+
-				"%v to remote peer %x", msg.ChannelID,
-				remotePeer.SerializeCompressed())
-			err := d.cfg.SendToPeer(remotePeer, msg)
-			if err == nil {
-				// Sending succeeded, we can
-				// continue the flow.
-				break
-			}
-
-			log.Errorf("unable to send AnnounceSignatures message "+
-				"to peer(%x): %v. Will retry when online.",
-				remotePeer.SerializeCompressed(), err)
-
-			peerChan := make(chan lnpeer.Peer, 1)
-			d.cfg.NotifyWhenOnline(remotePeer, peerChan)
-
-			select {
-			case <-peerChan:
-				// Retry sending.
-				log.Infof("Peer %x reconnected. Retry sending"+
-					" AnnounceSignatures.",
-					remotePeer.SerializeCompressed())
-
-			case <-d.quit:
-				log.Infof("Gossiper shutting down, did not " +
-					"send AnnounceSignatures.")
-				return
-			}
-		}
-
-		log.Infof("Sent channel announcement proof to remote peer: %x",
-			remotePeer.SerializeCompressed())
-	}()
-
-	// This method returns after the message has been added to the database,
-	// such that the caller don't have to wait until the message is actually
-	// delivered, but can be assured that it will be delivered eventually
-	// when this method returns.
-	return nil
 }
 
 // updateChannel creates a new fully signed update for the channel, and updates

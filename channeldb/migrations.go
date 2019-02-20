@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/coreos/bbolt"
+	"github.com/lightningnetwork/lnd/lnwire"
 )
 
 // migrateNodeAndEdgeUpdateIndex is a migration function that will update the
@@ -607,6 +608,78 @@ func migrateOptionalChannelCloseSummaryFields(tx *bbolt.Tx) error {
 	}
 
 	log.Info("Migration to new closed channel format complete!")
+
+	return nil
+}
+
+var messageStoreBucket = []byte("message-store")
+
+// migrateGossipMessageStoreKeys migrates the key format for gossip messages
+// found in the message store to a new one that takes into consideration the of
+// the message being stored.
+func migrateGossipMessageStoreKeys(tx *bbolt.Tx) error {
+	// We'll start by retrieving the bucket in which these messages are
+	// stored within. If there isn't one, there's nothing left for us to do
+	// so we can avoid the migration.
+	messageStore := tx.Bucket(messageStoreBucket)
+	if messageStore == nil {
+		return nil
+	}
+
+	log.Info("Migrating to the gossip message store new key format")
+
+	// Otherwise we'll proceed with the migration. We'll start by coalescing
+	// all the current messages within the store, which are indexed by the
+	// public key of the peer which they should be sent to, followed by the
+	// short channel ID of the channel for which the message belongs to. We
+	// should only expect to find channel announcement signatures as that
+	// was the only support message type previously.
+	msgs := make(map[[33 + 8]byte]*lnwire.AnnounceSignatures)
+	err := messageStore.ForEach(func(k, v []byte) error {
+		var msgKey [33 + 8]byte
+		copy(msgKey[:], k)
+
+		msg := &lnwire.AnnounceSignatures{}
+		if err := msg.Decode(bytes.NewReader(v), 0); err != nil {
+			return err
+		}
+
+		msgs[msgKey] = msg
+
+		return nil
+
+	})
+	if err != nil {
+		return err
+	}
+
+	// Then, we'll go over all of our messages, remove their previous entry,
+	// and add another with the new key format. Once we've done this for
+	// every message, we can consider the migration complete.
+	for oldMsgKey, msg := range msgs {
+		if err := messageStore.Delete(oldMsgKey[:]); err != nil {
+			return err
+		}
+
+		// Construct the new key for which we'll find this message with
+		// in the store. It'll be the same as the old, but we'll also
+		// include the message type.
+		var msgType [2]byte
+		binary.BigEndian.PutUint16(msgType[:], uint16(msg.MsgType()))
+		newMsgKey := append(oldMsgKey[:], msgType[:]...)
+
+		// Serialize the message with its wire encoding.
+		var b bytes.Buffer
+		if _, err := lnwire.WriteMessage(&b, msg, 0); err != nil {
+			return err
+		}
+
+		if err := messageStore.Put(newMsgKey, b.Bytes()); err != nil {
+			return err
+		}
+	}
+
+	log.Info("Migration to the gossip message store new key format complete!")
 
 	return nil
 }

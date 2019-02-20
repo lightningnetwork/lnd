@@ -19,27 +19,38 @@ func TestWitnessCacheRetrieval(t *testing.T) {
 
 	wCache := cdb.NewWitnessCache()
 
-	// We'll be attempting to add then lookup a d simple hash witness
+	// We'll be attempting to add then lookup two simple hash witnesses
 	// within this test.
-	witness := rev[:]
-	witnessKey := sha256.Sum256(witness)
+	witness1 := rev[:]
+	witness1Key := sha256.Sum256(witness1)
 
-	// First, we'll attempt to add the witness to the database.
-	err = wCache.AddWitnesses(Sha256HashWitness, witness)
+	witness2 := key[:]
+	witness2Key := sha256.Sum256(witness2)
+
+	witnesses := [][]byte{witness1, witness2}
+	keys := [][]byte{witness1Key[:], witness2Key[:]}
+
+	// First, we'll attempt to add the witnesses to the database.
+	err = wCache.AddWitnesses(Sha256HashWitness, witnesses...)
 	if err != nil {
 		t.Fatalf("unable to add witness: %v", err)
 	}
 
-	// With the witness stored, we'll now attempt to look it up. We should
-	// get back the *exact* same witness as we originally stored.
-	dbWitness, err := wCache.LookupWitness(Sha256HashWitness, witnessKey[:])
-	if err != nil {
-		t.Fatalf("unable to look up witness: %v", err)
-	}
+	// With the witnesses stored, we'll now attempt to look them up.
+	for i, key := range keys {
+		witness := witnesses[i]
 
-	if !reflect.DeepEqual(witness, dbWitness[:]) {
-		t.Fatalf("witnesses don't match: expected %x, got %x",
-			witness[:], dbWitness[:])
+		// We should get back the *exact* same witness as we originally
+		// stored.
+		dbWitness, err := wCache.LookupWitness(Sha256HashWitness, key)
+		if err != nil {
+			t.Fatalf("unable to look up witness: %v", err)
+		}
+
+		if !reflect.DeepEqual(witness, dbWitness[:]) {
+			t.Fatalf("witnesses don't match: expected %x, got %x",
+				witness[:], dbWitness[:])
+		}
 	}
 }
 
@@ -59,12 +70,14 @@ func TestWitnessCacheDeletion(t *testing.T) {
 	// We'll start by adding two witnesses to the cache.
 	witness1 := rev[:]
 	witness1Key := sha256.Sum256(witness1)
+
 	if err := wCache.AddWitnesses(Sha256HashWitness, witness1); err != nil {
 		t.Fatalf("unable to add witness: %v", err)
 	}
 
 	witness2 := key[:]
 	witness2Key := sha256.Sum256(witness2)
+
 	if err := wCache.AddWitnesses(Sha256HashWitness, witness2); err != nil {
 		t.Fatalf("unable to add witness: %v", err)
 	}

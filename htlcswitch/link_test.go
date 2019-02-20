@@ -3,6 +3,7 @@ package htlcswitch
 import (
 	"bytes"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -28,6 +29,7 @@ import (
 	"github.com/lightningnetwork/lnd/htlcswitch/hodl"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnpeer"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/ticker"
@@ -4114,6 +4116,29 @@ func restartLink(aliceChannel *lnwallet.LightningChannel, aliceSwitch *Switch,
 // gnerateHtlc generates a simple payment from Bob to Alice.
 func generateHtlc(t *testing.T, coreLink *channelLink,
 	bobChannel *lnwallet.LightningChannel, id uint64) *lnwire.UpdateAddHTLC {
+
+	t.Helper()
+
+	htlc, invoice := generateHtlcAndInvoice(t, id)
+
+	// We must add the invoice to the registry, such that Alice
+	// expects this payment.
+	err := coreLink.cfg.Registry.(*mockInvoiceRegistry).AddInvoice(
+		*invoice)
+	if err != nil {
+		t.Fatalf("unable to add invoice to registry: %v", err)
+	}
+
+	return htlc
+}
+
+// generateHtlcAndInvoice generates an invoice and a single hop htlc to send to
+// the receiver.
+func generateHtlcAndInvoice(t *testing.T,
+	id uint64) (*lnwire.UpdateAddHTLC, *channeldb.Invoice) {
+
+	t.Helper()
+
 	htlcAmt := lnwire.NewMSatFromSatoshis(10000)
 	hops := []ForwardingInfo{
 		{
@@ -4124,27 +4149,28 @@ func generateHtlc(t *testing.T, coreLink *channelLink,
 		},
 	}
 	blob, err := generateRoute(hops...)
+	if err != nil {
+		t.Fatalf("unable to generate route: %v", err)
+	}
+
 	invoice, htlc, err := generatePayment(htlcAmt, htlcAmt, 144,
 		blob)
 	if err != nil {
 		t.Fatalf("unable to create payment: %v", err)
 	}
 
-	// We must add the invoice to the registry, such that Alice
-	// expects this payment.
-	err = coreLink.cfg.Registry.(*mockInvoiceRegistry).AddInvoice(
-		*invoice)
-	if err != nil {
-		t.Fatalf("unable to add invoice to registry: %v", err)
-	}
 	htlc.ID = id
-	return htlc
+
+	return htlc, invoice
 }
 
 // sendHtlcBobToAlice sends an HTLC from Bob to Alice, that pays to a preimage
 // already in Alice's registry.
 func sendHtlcBobToAlice(t *testing.T, aliceLink ChannelLink,
 	bobChannel *lnwallet.LightningChannel, htlc *lnwire.UpdateAddHTLC) {
+
+	t.Helper()
+
 	_, err := bobChannel.AddHTLC(htlc, nil)
 	if err != nil {
 		t.Fatalf("bob failed adding htlc: %v", err)
@@ -4153,10 +4179,70 @@ func sendHtlcBobToAlice(t *testing.T, aliceLink ChannelLink,
 	aliceLink.HandleChannelUpdate(htlc)
 }
 
+// sendHtlcAliceToBob sends an HTLC from Alice to Bob, by first committing the
+// HTLC in the circuit map, then delivering the outgoing packet to Alice's link.
+// The HTLC will be sent to Bob via Alice's message stream.
+func sendHtlcAliceToBob(t *testing.T, aliceLink ChannelLink, htlcID int,
+	htlc *lnwire.UpdateAddHTLC) {
+
+	t.Helper()
+
+	circuitMap := aliceLink.(*channelLink).cfg.Switch.circuits
+	fwdActions, err := circuitMap.CommitCircuits(
+		&PaymentCircuit{
+			Incoming: CircuitKey{
+				HtlcID: uint64(htlcID),
+			},
+			PaymentHash: htlc.PaymentHash,
+		},
+	)
+	if err != nil {
+		t.Fatalf("unable to commit circuit: %v", err)
+	}
+
+	if len(fwdActions.Adds) != 1 {
+		t.Fatalf("expected 1 adds, found %d", len(fwdActions.Adds))
+	}
+
+	aliceLink.HandleSwitchPacket(&htlcPacket{
+		incomingHTLCID: uint64(htlcID),
+		htlc:           htlc,
+	})
+
+}
+
+// receiveHtlcAliceToBob pulls the next message from Alice's message stream,
+// asserts that it is an UpdateAddHTLC, then applies it to Bob's state machine.
+func receiveHtlcAliceToBob(t *testing.T, aliceMsgs <-chan lnwire.Message,
+	bobChannel *lnwallet.LightningChannel) {
+
+	t.Helper()
+
+	var msg lnwire.Message
+	select {
+	case msg = <-aliceMsgs:
+	case <-time.After(15 * time.Second):
+		t.Fatalf("did not received htlc from alice")
+	}
+
+	htlcAdd, ok := msg.(*lnwire.UpdateAddHTLC)
+	if !ok {
+		t.Fatalf("expected UpdateAddHTLC, got %T", msg)
+	}
+
+	_, err := bobChannel.ReceiveHTLC(htlcAdd)
+	if err != nil {
+		t.Fatalf("bob failed receiving htlc: %v", err)
+	}
+}
+
 // sendCommitSigBobToAlice makes Bob sign a new commitment and send it to
 // Alice, asserting that it signs expHtlcs number of HTLCs.
 func sendCommitSigBobToAlice(t *testing.T, aliceLink ChannelLink,
 	bobChannel *lnwallet.LightningChannel, expHtlcs int) {
+
+	t.Helper()
+
 	sig, htlcSigs, err := bobChannel.SignNextCommitment()
 	if err != nil {
 		t.Fatalf("error signing commitment: %v", err)
@@ -4180,6 +4266,9 @@ func sendCommitSigBobToAlice(t *testing.T, aliceLink ChannelLink,
 func receiveRevAndAckAliceToBob(t *testing.T, aliceMsgs chan lnwire.Message,
 	aliceLink ChannelLink,
 	bobChannel *lnwallet.LightningChannel) {
+
+	t.Helper()
+
 	var msg lnwire.Message
 	select {
 	case msg = <-aliceMsgs:
@@ -4233,6 +4322,9 @@ func receiveCommitSigAliceToBob(t *testing.T, aliceMsgs chan lnwire.Message,
 // the RevokeAndAck to Alice.
 func sendRevAndAckBobToAlice(t *testing.T, aliceLink ChannelLink,
 	bobChannel *lnwallet.LightningChannel) {
+
+	t.Helper()
+
 	rev, _, err := bobChannel.RevokeCurrentCommitment()
 	if err != nil {
 		t.Fatalf("unable to revoke commitment: %v", err)
@@ -4265,6 +4357,28 @@ func receiveSettleAliceToBob(t *testing.T, aliceMsgs chan lnwire.Message,
 	if err != nil {
 		t.Fatalf("failed settling htlc: %v", err)
 	}
+}
+
+// sendSettleBobToAlice settles an HTLC on Bob's state machine, then sends an
+// UpdateFulfillHTLC message to Alice's upstream inbox.
+func sendSettleBobToAlice(t *testing.T, aliceLink ChannelLink,
+	bobChannel *lnwallet.LightningChannel, htlcID uint64,
+	preimage lntypes.Preimage) {
+
+	t.Helper()
+
+	err := bobChannel.SettleHTLC(preimage, htlcID, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("alice failed settling htlc id=%d hash=%x",
+			htlcID, sha256.Sum256(preimage[:]))
+	}
+
+	settle := &lnwire.UpdateFulfillHTLC{
+		ID:              htlcID,
+		PaymentPreimage: preimage,
+	}
+
+	aliceLink.HandleChannelUpdate(settle)
 }
 
 // receiveSettleAliceToBob waits for Alice to send a HTLC settle message to
@@ -4383,6 +4497,26 @@ func TestChannelLinkNoMoreUpdates(t *testing.T) {
 	}
 }
 
+// checkHasPreimages inspects Alice's preimage cache, and asserts whether the
+// preimages for the provided HTLCs are known and unknown, and that all of them
+// match the expected status of expOk.
+func checkHasPreimages(t *testing.T, coreLink *channelLink,
+	htlcs []*lnwire.UpdateAddHTLC, expOk bool) {
+
+	t.Helper()
+
+	for i := range htlcs {
+		_, ok := coreLink.cfg.PreimageCache.LookupPreimage(
+			htlcs[i].PaymentHash,
+		)
+		if ok != expOk {
+			t.Fatalf("expected to find witness: %v, "+
+				"got %v for hash=%x", expOk, ok,
+				htlcs[i].PaymentHash)
+		}
+	}
+}
+
 // TestChannelLinkWaitForRevocation tests that we will keep accepting updates
 // to our commitment transaction, even when we are waiting for a revocation
 // from the remote node.
@@ -4491,6 +4625,135 @@ func TestChannelLinkWaitForRevocation(t *testing.T) {
 	case <-aliceMsgs:
 		t.Fatalf("did not expect message from Alice")
 	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+// TestChannelLinkBatchPreimageWrite asserts that a link will batch preimage
+// writes when just as it receives a CommitSig to lock in any Settles, and also
+// if the link is aware of any uncommitted preimages if the link is stopped,
+// i.e. due to a disconnection or shutdown.
+func TestChannelLinkBatchPreimageWrite(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		disconnect bool
+	}{
+		{
+			name:       "flush on commit sig",
+			disconnect: false,
+		},
+		{
+			name:       "flush on disconnect",
+			disconnect: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			testChannelLinkBatchPreimageWrite(t, test.disconnect)
+		})
+	}
+}
+
+func testChannelLinkBatchPreimageWrite(t *testing.T, disconnect bool) {
+	const chanAmt = btcutil.SatoshiPerBitcoin * 5
+	const chanReserve = btcutil.SatoshiPerBitcoin * 1
+	aliceLink, bobChannel, batchTicker, startUp, cleanUp, _, err :=
+		newSingleLinkTestHarness(chanAmt, chanReserve)
+	if err != nil {
+		t.Fatalf("unable to create link: %v", err)
+	}
+	defer cleanUp()
+
+	if err := startUp(); err != nil {
+		t.Fatalf("unable to start test harness: %v", err)
+	}
+
+	var (
+		coreLink  = aliceLink.(*channelLink)
+		aliceMsgs = coreLink.cfg.Peer.(*mockPeer).sentMsgs
+	)
+
+	// We will send 10 HTLCs in total, from Bob to Alice.
+	numHtlcs := 10
+	var htlcs []*lnwire.UpdateAddHTLC
+	var invoices []*channeldb.Invoice
+	for i := 0; i < numHtlcs; i++ {
+		htlc, invoice := generateHtlcAndInvoice(t, uint64(i))
+		htlcs = append(htlcs, htlc)
+		invoices = append(invoices, invoice)
+	}
+
+	// First, send a batch of Adds from Alice to Bob.
+	for i, htlc := range htlcs {
+		sendHtlcAliceToBob(t, aliceLink, i, htlc)
+		receiveHtlcAliceToBob(t, aliceMsgs, bobChannel)
+	}
+
+	// Assert that no preimages exist for these htlcs in Alice's cache.
+	checkHasPreimages(t, coreLink, htlcs, false)
+
+	// Force alice's link to sign a commitment covering the htlcs sent thus
+	// far.
+	select {
+	case batchTicker <- time.Now():
+	case <-time.After(15 * time.Second):
+		t.Fatalf("could not force commit sig")
+	}
+
+	// Do a commitment dance to lock in the Adds, we expect numHtlcs htlcs
+	// to be on each party's commitment transactions.
+	receiveCommitSigAliceToBob(
+		t, aliceMsgs, aliceLink, bobChannel, numHtlcs,
+	)
+	sendRevAndAckBobToAlice(t, aliceLink, bobChannel)
+	sendCommitSigBobToAlice(t, aliceLink, bobChannel, numHtlcs)
+	receiveRevAndAckAliceToBob(t, aliceMsgs, aliceLink, bobChannel)
+
+	// Check again that no preimages exist for these htlcs in Alice's cache.
+	checkHasPreimages(t, coreLink, htlcs, false)
+
+	// Now, have Bob settle the HTLCs back to Alice using the preimages in
+	// the invoice corresponding to each of the HTLCs.
+	for i, invoice := range invoices {
+		sendSettleBobToAlice(
+			t, aliceLink, bobChannel, uint64(i),
+			invoice.Terms.PaymentPreimage,
+		)
+	}
+
+	// Assert that Alice has not yet written the preimages, even though she
+	// has received them in the UpdateFulfillHTLC messages.
+	checkHasPreimages(t, coreLink, htlcs, false)
+
+	// If this is the disconnect run, we will having Bob send Alice his
+	// CommitSig, and simply stop Alice's link. As she exits, we should
+	// detect that she has uncommitted preimages and write them to disk.
+	if disconnect {
+		aliceLink.Stop()
+		checkHasPreimages(t, coreLink, htlcs, true)
+		return
+	}
+
+	// Otherwise, we are testing that Alice commits the preimages after
+	// receiving a CommitSig from Bob. Bob's commitment should now have 0
+	// HTLCs.
+	sendCommitSigBobToAlice(t, aliceLink, bobChannel, 0)
+
+	// Since Alice will process the CommitSig asynchronously, we wait until
+	// she replies with her RevokeAndAck to ensure the tests reliably
+	// inspect her cache after advancing her state.
+	select {
+
+	// Received Alice's RevokeAndAck, assert that she has written all of the
+	// uncommitted preimages learned in this commitment.
+	case <-aliceMsgs:
+		checkHasPreimages(t, coreLink, htlcs, true)
+
+	// Alice didn't send her RevokeAndAck, something is wrong.
+	case <-time.After(15 * time.Second):
+		t.Fatalf("alice did not send her revocation")
 	}
 }
 

@@ -3,6 +3,7 @@ package htlcswitch
 import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -17,9 +18,12 @@ type InvoiceDatabase interface {
 	// extended to us gives us enough time to settle as we prescribe.
 	LookupInvoice(lntypes.Hash) (channeldb.Invoice, uint32, error)
 
-	// SettleInvoice attempts to mark an invoice corresponding to the
-	// passed payment hash as fully settled.
-	SettleInvoice(payHash lntypes.Hash, paidAmount lnwire.MilliSatoshi) error
+	// NotifyExitHopHtlc attempts to mark an invoice as settled. If the
+	// invoice is a debug invoice, then this method is a noop as debug
+	// invoices are never fully settled. The return value describes how the
+	// htlc should be resolved.
+	NotifyExitHopHtlc(rhash lntypes.Hash, amt lnwire.MilliSatoshi) (
+		*invoices.HodlEvent, error)
 
 	// CancelInvoice attempts to cancel the invoice corresponding to the
 	// passed payment hash.

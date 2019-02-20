@@ -16,6 +16,7 @@ import (
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/htlcswitch/hodl"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -346,6 +347,12 @@ type channelLink struct {
 
 	wg   sync.WaitGroup
 	quit chan struct{}
+}
+
+// hodlHtlc contains htlc data that is required for resolution.
+type hodlHtlc struct {
+	pd         *lnwallet.PaymentDescriptor
+	obfuscator ErrorEncrypter
 }
 
 // NewChannelLink creates a new instance of a ChannelLink given a configuration
@@ -1062,6 +1069,50 @@ out:
 			break out
 		}
 	}
+}
+
+// processHodlEvent applies a received hodl event to the provided htlc. When
+// this function returns without an error, the commit tx should be updated.
+func (l *channelLink) processHodlEvent(hodlEvent invoices.HodlEvent,
+	htlcs ...hodlHtlc) error {
+
+	hash := hodlEvent.Hash
+	if hodlEvent.Preimage == nil {
+		l.debugf("Received hodl cancel event for %v", hash)
+	} else {
+		l.debugf("Received hodl settle event for %v", hash)
+	}
+
+	// Determine required action for the resolution.
+	var hodlAction func(htlc hodlHtlc) error
+	if hodlEvent.Preimage != nil {
+		hodlAction = func(htlc hodlHtlc) error {
+			return l.settleHTLC(
+				*hodlEvent.Preimage, htlc.pd.HtlcIndex,
+				htlc.pd.SourceRef,
+			)
+		}
+	} else {
+		hodlAction = func(htlc hodlHtlc) error {
+			failure := lnwire.NewFailUnknownPaymentHash(
+				htlc.pd.Amount,
+			)
+			l.sendHTLCError(
+				htlc.pd.HtlcIndex, failure, htlc.obfuscator,
+				htlc.pd.SourceRef,
+			)
+			return nil
+		}
+	}
+
+	// Apply action for all htlcs matching this hash.
+	for _, htlc := range htlcs {
+		if err := hodlAction(htlc); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // randomFeeUpdateTimeout returns a random timeout between the bounds defined
@@ -2674,30 +2725,22 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 		return true, nil
 	}
 
-	// Notify the invoiceRegistry of the invoices we just settled (with the
-	// amount accepted at settle time) with this latest commitment update.
-	//
-	// If we crash right after this, this code will be re-executed after
-	// restart and the HTLC fulfill message will be sent out then.
-	err = l.cfg.Registry.SettleInvoice(invoiceHash, pd.Amount)
-
-	// Reject htlcs for canceled invoices.
-	if err == channeldb.ErrInvoiceAlreadyCanceled {
-		l.errorf("Rejecting htlc due to canceled invoice")
-
-		failure := lnwire.NewFailUnknownPaymentHash(pd.Amount)
-		l.sendHTLCError(pd.HtlcIndex, failure, obfuscator, pd.SourceRef)
-
-		return true, nil
-	}
-
-	// Handle unexpected errors.
+	// Notify the invoiceRegistry of the exit hop htlc. If we crash right
+	// after this, this code will be re-executed after restart. We will
+	// receive back a resolution event.
+	event, err := l.cfg.Registry.NotifyExitHopHtlc(
+		invoiceHash, pd.Amount,
+	)
 	if err != nil {
-		return false, fmt.Errorf("unable to settle invoice: %v", err)
+		return false, err
 	}
 
-	preimage := invoice.Terms.PaymentPreimage
-	err = l.settleHTLC(preimage, pd.HtlcIndex, pd.SourceRef)
+	// Process the received resolution.
+	htlc := hodlHtlc{
+		pd:         pd,
+		obfuscator: obfuscator,
+	}
+	err = l.processHodlEvent(*event, htlc)
 	if err != nil {
 		return false, err
 	}

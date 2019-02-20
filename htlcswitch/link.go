@@ -333,6 +333,12 @@ type channelLink struct {
 	// commitment fee every time it fires.
 	updateFeeTimer *time.Timer
 
+	// uncommittedPreimages stores a list of all preimages that have been
+	// learned since receiving the last CommitSig from the remote peer. The
+	// batch will be flushed just before accepting the subsequent CommitSig
+	// or on shutdown to avoid doing a write for each preimage received.
+	uncommittedPreimages []lntypes.Preimage
+
 	sync.RWMutex
 
 	wg   sync.WaitGroup
@@ -449,6 +455,18 @@ func (l *channelLink) Stop() {
 
 	close(l.quit)
 	l.wg.Wait()
+
+	// As a final precaution, we will attempt to flush any uncommitted
+	// preimages to the preimage cache. The preimages should be re-delivered
+	// after channel reestablishment, however this adds an extra layer of
+	// protection in case the peer never returns. Without this, we will be
+	// unable to settle any contracts depending on the preimages even though
+	// we had learned them at some point.
+	err := l.cfg.PreimageCache.AddPreimages(l.uncommittedPreimages...)
+	if err != nil {
+		log.Errorf("Unable to add preimages=%v to cache: %v",
+			l.uncommittedPreimages, err)
+	}
 }
 
 // WaitForShutdown blocks until the link finishes shutting down, which includes
@@ -1412,17 +1430,11 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 
 		// TODO(roasbeef): pipeline to switch
 
-		// As we've learned of a new preimage for the first time, we'll
-		// add it to our preimage cache. By doing this, we ensure
-		// any contested contracts watched by any on-chain arbitrators
-		// can now sweep this HTLC on-chain.
-		go func() {
-			err := l.cfg.PreimageCache.AddPreimages(pre)
-			if err != nil {
-				l.errorf("unable to add preimage=%x to "+
-					"cache", pre[:])
-			}
-		}()
+		// Add the newly discovered preimage to our growing list of
+		// uncommitted preimage. These will be written to the witness
+		// cache just before accepting the next commitment signature
+		// from the remote peer.
+		l.uncommittedPreimages = append(l.uncommittedPreimages, pre)
 
 	case *lnwire.UpdateFailMalformedHTLC:
 		// Convert the failure type encoded within the HTLC fail
@@ -1475,10 +1487,39 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		}
 
 	case *lnwire.CommitSig:
+		// Since we may have learned new preimages for the first time,
+		// we'll add them to our preimage cache. By doing this, we
+		// ensure any contested contracts watched by any on-chain
+		// arbitrators can now sweep this HTLC on-chain. We delay
+		// committing the preimages until just before accepting the new
+		// remote commitment, as afterwards the peer won't resend the
+		// Settle messages on the next channel reestablishment. Doing so
+		// allows us to more effectively batch this operation, instead
+		// of doing a single write per preimage.
+		err := l.cfg.PreimageCache.AddPreimages(
+			l.uncommittedPreimages...,
+		)
+		if err != nil {
+			l.fail(
+				LinkFailureError{code: ErrInternalError},
+				"unable to add preimages=%v to cache: %v",
+				l.uncommittedPreimages, err,
+			)
+			return
+		}
+
+		// Instead of truncating the slice to conserve memory
+		// allocations, we simply set the uncommitted preimage slice to
+		// nil so that a new one will be initialized if any more
+		// witnesses are discovered. We do this maximum size of the
+		// slice can occupy 15KB, and want to ensure we release that
+		// memory back to the runtime.
+		l.uncommittedPreimages = nil
+
 		// We just received a new updates to our local commitment
 		// chain, validate this new commitment, closing the link if
 		// invalid.
-		err := l.channel.ReceiveNewCommitment(msg.CommitSig, msg.HtlcSigs)
+		err = l.channel.ReceiveNewCommitment(msg.CommitSig, msg.HtlcSigs)
 		if err != nil {
 			// If we were unable to reconstruct their proposed
 			// commitment, then we'll examine the type of error. If

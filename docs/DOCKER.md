@@ -65,3 +65,30 @@ $ docker logs lnd-testnet
 
 This is a simple example, it is possible to use any command-line options necessary
 to expose RPC ports, use `btcd` or `bitcoind`, or add additional chains.
+
+## LND Development and Testing
+
+To test the Docker production image locally, run the following from
+the project root:
+
+```
+$ docker build . -t lnd:1.0
+```
+
+To choose a specific branch or tag instead, use the "checkout" build-arg.  For example, to build the latest commits in master:
+
+```
+$ docker build . --build-arg checkout=master -t lnd:1.0
+```
+
+To build the image using the most current tag:
+
+```
+$ docker build . --build-arg checkout=$(git describe --tags `git rev-list --tags --max-count=1`) -t lnd:1.0
+```
+
+Once the image has been built and tagged locally, start the container:
+
+```
+docker run --name=lnd-testnet -it lnd:1.0 --bitcoin.active --bitcoin.testnet --bitcoin.node=neutrino --neutrino.connect=faucet.lightning.community
+```

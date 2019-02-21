@@ -4,6 +4,9 @@ FROM golang:alpine as builder
 # queries required to connect to linked containers succeed.
 ENV GODEBUG netdns=cgo
 
+# pass tag, branch or commit during build
+ARG checkout="master"
+
 # Install dependencies and build the binaries.
 RUN apk add --no-cache --update alpine-sdk \
     git \
@@ -11,6 +14,7 @@ RUN apk add --no-cache --update alpine-sdk \
     gcc \
 &&  git clone https://github.com/lightningnetwork/lnd /go/src/github.com/lightningnetwork/lnd \
 &&  cd /go/src/github.com/lightningnetwork/lnd \
+&&  git checkout $checkout \
 &&  make \
 &&  make install
 

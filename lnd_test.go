@@ -12715,7 +12715,9 @@ func testRouteFeeCutoff(net *lntest.NetworkHarness, t *harnessTest) {
 	// route using Carol as an intermediate hop is 10% of the payment's
 	// amount, we'll use a lower percentage in order to invalid that route.
 	feeLimitPercent := &lnrpc.FeeLimit{
-		Limit: &lnrpc.FeeLimit_Percent{baseFee/1000 - 1},
+		Limit: &lnrpc.FeeLimit_Percent{
+			Percent: baseFee/1000 - 1,
+		},
 	}
 	testFeeCutoff(feeLimitPercent)
 
@@ -12723,7 +12725,9 @@ func testRouteFeeCutoff(net *lntest.NetworkHarness, t *harnessTest) {
 	// fee for the route using Carol as an intermediate hop earlier, we can
 	// use a smaller value in order to invalidate that route.
 	feeLimitFixed := &lnrpc.FeeLimit{
-		Limit: &lnrpc.FeeLimit_Fixed{int64(carolFee.ToSatoshis()) - 1},
+		Limit: &lnrpc.FeeLimit_Fixed{
+			Fixed: int64(carolFee.ToSatoshis()) - 1,
+		},
 	}
 	testFeeCutoff(feeLimitFixed)
 

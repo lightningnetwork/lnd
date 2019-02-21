@@ -1041,7 +1041,7 @@ message Channel {
     /// Whether this channel is advertised to the network or not.
     bool private = 17 [json_name = "private"];
 
-    /// True if we were the ones that creted the channel.
+    /// True if we were the ones that created the channel.
     bool initiator = 18 [json_name = "initiator"];
 }
 

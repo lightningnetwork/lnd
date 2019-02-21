@@ -1417,7 +1417,7 @@
         "initiator": {
           "type": "boolean",
           "format": "boolean",
-          "description": "/ True if we were the ones that creted the channel."
+          "description": "/ True if we were the ones that created the channel."
         }
       }
     },

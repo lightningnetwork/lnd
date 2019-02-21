@@ -2046,7 +2046,9 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 
 	// We must add the invoice to the registry, such that Alice expects
 	// this payment.
-	err = coreLink.cfg.Registry.(*mockInvoiceRegistry).AddInvoice(*invoice)
+	err = coreLink.cfg.Registry.(*mockInvoiceRegistry).AddInvoice(
+		*invoice, htlc.PaymentHash,
+	)
 	if err != nil {
 		t.Fatalf("unable to add invoice to registry: %v", err)
 	}
@@ -2148,7 +2150,9 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to create payment: %v", err)
 	}
-	err = coreLink.cfg.Registry.(*mockInvoiceRegistry).AddInvoice(*invoice)
+	err = coreLink.cfg.Registry.(*mockInvoiceRegistry).AddInvoice(
+		*invoice, htlc.PaymentHash,
+	)
 	if err != nil {
 		t.Fatalf("unable to add invoice to registry: %v", err)
 	}
@@ -3804,7 +3808,9 @@ func TestChannelLinkAcceptDuplicatePayment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := n.carolServer.registry.AddInvoice(*invoice); err != nil {
+
+	err = n.carolServer.registry.AddInvoice(*invoice, htlc.PaymentHash)
+	if err != nil {
 		t.Fatalf("unable to add invoice in carol registry: %v", err)
 	}
 
@@ -4182,7 +4188,8 @@ func generateHtlc(t *testing.T, coreLink *channelLink,
 	// We must add the invoice to the registry, such that Alice
 	// expects this payment.
 	err := coreLink.cfg.Registry.(*mockInvoiceRegistry).AddInvoice(
-		*invoice)
+		*invoice, htlc.PaymentHash,
+	)
 	if err != nil {
 		t.Fatalf("unable to add invoice to registry: %v", err)
 	}

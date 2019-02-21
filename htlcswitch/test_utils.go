@@ -745,7 +745,7 @@ func preparePayment(sendingPeer, receivingPeer lnpeer.Peer,
 	}
 
 	// Check who is last in the route and add invoice to server registry.
-	if err := receiver.registry.AddInvoice(*invoice); err != nil {
+	if err := receiver.registry.AddInvoice(*invoice, htlc.PaymentHash); err != nil {
 		return nil, nil, err
 	}
 

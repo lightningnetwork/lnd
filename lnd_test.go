@@ -395,43 +395,36 @@ func numOpenChannelsPending(ctxt context.Context, node *lntest.HarnessNode) (int
 func assertNumOpenChannelsPending(ctxt context.Context, t *harnessTest,
 	alice, bob *lntest.HarnessNode, expected int) {
 
-	const nPolls = 10
-
-	ticker := time.NewTicker(200 * time.Millisecond)
-	defer ticker.Stop()
-
-	for i := 0; i < nPolls; i++ {
+	err := lntest.WaitNoError(func() error {
 		aliceNumChans, err := numOpenChannelsPending(ctxt, alice)
 		if err != nil {
-			t.Fatalf("error fetching alice's node (%v) pending channels %v",
-				alice.NodeID, err)
+			return fmt.Errorf("error fetching alice's node (%v) "+
+				"pending channels %v", alice.NodeID, err)
 		}
 		bobNumChans, err := numOpenChannelsPending(ctxt, bob)
 		if err != nil {
-			t.Fatalf("error fetching bob's node (%v) pending channels %v",
-				bob.NodeID, err)
+			return fmt.Errorf("error fetching bob's node (%v) "+
+				"pending channels %v", bob.NodeID, err)
 		}
 
-		isLastIteration := i == nPolls-1
-
 		aliceStateCorrect := aliceNumChans == expected
-		if !aliceStateCorrect && isLastIteration {
-			t.Fatalf("number of pending channels for alice incorrect. "+
-				"expected %v, got %v", expected, aliceNumChans)
+		if !aliceStateCorrect {
+			return fmt.Errorf("number of pending channels for "+
+				"alice incorrect. expected %v, got %v",
+				expected, aliceNumChans)
 		}
 
 		bobStateCorrect := bobNumChans == expected
-		if !bobStateCorrect && isLastIteration {
-			t.Fatalf("number of pending channels for bob incorrect. "+
-				"expected %v, got %v",
-				expected, bobNumChans)
+		if !bobStateCorrect {
+			return fmt.Errorf("number of pending channels for bob "+
+				"incorrect. expected %v, got %v", expected,
+				bobNumChans)
 		}
 
-		if aliceStateCorrect && bobStateCorrect {
-			return
-		}
-
-		<-ticker.C
+		return nil
+	}, 15*time.Second)
+	if err != nil {
+		t.Fatalf(err.Error())
 	}
 }
 
@@ -3105,7 +3098,9 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// Wait for the single sweep txn to appear in the mempool.
-	htlcSweepTxID, err := waitForTxInMempool(net.Miner.Node, minerMempoolTimeout)
+	htlcSweepTxID, err := waitForTxInMempool(
+		net.Miner.Node, minerMempoolTimeout,
+	)
 	if err != nil {
 		t.Fatalf("failed to get sweep tx from mempool: %v", err)
 	}
@@ -3201,11 +3196,9 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// Generate the final block that sweeps all htlc funds into the user's
-	// wallet.
-	blockHash, err = net.Miner.Node.Generate(1)
-	if err != nil {
-		t.Fatalf("unable to generate block: %v", err)
-	}
+	// wallet, and make sure the sweep is in this block.
+	block = mineBlocks(t, net, 1, 1)[0]
+	assertTxInBlock(t, block, htlcSweepTxID)
 
 	// Now that the channel has been fully swept, it should no longer show
 	// up within the pending channels RPC.
@@ -7431,8 +7424,11 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 		// attempt because of the second layer transactions, he will
 		// wait until the next block epoch before trying again. Because
 		// of this, we'll mine a block if we cannot find the justice tx
-		// immediately.
-		mineBlocks(t, net, 1, 1)
+		// immediately. Since we cannot tell for sure how many
+		// transactions will be in the mempool at this point, we pass 0
+		// as the last argument, indicating we don't care what's in the
+		// mempool.
+		mineBlocks(t, net, 1, 0)
 		err = lntest.WaitPredicate(func() bool {
 			txid, err := findJusticeTx()
 			if err != nil {
@@ -7718,6 +7714,10 @@ func testDataLossProtection(net *lntest.NetworkHarness, t *harnessTest) {
 			t.Fatalf("unable to restart node: %v", err)
 		}
 
+		// Make sure the channel is still there from the PoV of the
+		// node.
+		assertNodeNumChannels(t, node, 1)
+
 		// Now query for the channel state, it should show that it's at
 		// a state number in the past, not the *latest* state.
 		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
@@ -7728,7 +7728,6 @@ func testDataLossProtection(net *lntest.NetworkHarness, t *harnessTest) {
 		if nodeChan.NumUpdates != stateNumPreCopy {
 			t.Fatalf("db copy failed: %v", nodeChan.NumUpdates)
 		}
-		assertNodeNumChannels(t, node, 1)
 
 		balReq := &lnrpc.WalletBalanceRequest{}
 		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)

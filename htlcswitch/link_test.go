@@ -1066,20 +1066,13 @@ func TestChannelLinkMultiHopUnknownPaymentHash(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Generate payment: invoice and htlc.
-	invoice, htlc, err := generatePayment(amount, htlcAmt, totalTimelock,
+	// Generate payment invoice and htlc, but don't add this invoice to the
+	// receiver registry. This should trigger an unknown payment hash
+	// failure.
+	_, htlc, err := generatePayment(amount, htlcAmt, totalTimelock,
 		blob)
 	if err != nil {
 		t.Fatal(err)
-	}
-
-	// We need to have wrong rhash for that reason we should change the
-	// preimage. Inverse first byte by xoring with 0xff.
-	invoice.Terms.PaymentPreimage[0] ^= byte(255)
-
-	// Check who is last in the route and add invoice to server registry.
-	if err := n.carolServer.registry.AddInvoice(*invoice); err != nil {
-		t.Fatalf("unable to add invoice in carol registry: %v", err)
 	}
 
 	// Send payment and expose err channel.
@@ -1094,12 +1087,6 @@ func TestChannelLinkMultiHopUnknownPaymentHash(t *testing.T) {
 
 	// Wait for Alice to receive the revocation.
 	time.Sleep(100 * time.Millisecond)
-
-	// Check that alice invoice wasn't settled and bandwidth of htlc
-	// links hasn't been changed.
-	if invoice.Terms.State == channeldb.ContractSettled {
-		t.Fatal("alice invoice was settled")
-	}
 
 	if n.aliceChannelLink.Bandwidth() != aliceBandwidthBefore {
 		t.Fatal("the bandwidth of alice channel link which handles " +

@@ -9,6 +9,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
+	"github.com/lightningnetwork/lnd/lntypes"
 )
 
 // AddressType is an enum-like type which denotes the possible address types
@@ -272,11 +273,12 @@ type PreimageCache interface {
 	// LookupPreimage attempts to look up a preimage according to its hash.
 	// If found, the preimage is returned along with true for the second
 	// argument. Otherwise, it'll return false.
-	LookupPreimage(hash []byte) ([]byte, bool)
+	LookupPreimage(hash lntypes.Hash) (lntypes.Preimage, bool)
 
-	// AddPreimage attempts to add a new preimage to the global cache. If
-	// successful a nil error will be returned.
-	AddPreimage(preimage []byte) error
+	// AddPreimages adds a batch of newly discovered preimages to the global
+	// cache, and also signals any subscribers of the newly discovered
+	// witness.
+	AddPreimages(preimages ...lntypes.Preimage) error
 }
 
 // WalletDriver represents a "driver" for a particular concrete

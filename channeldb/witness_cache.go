@@ -1,10 +1,10 @@
 package channeldb
 
 import (
-	"crypto/sha256"
 	"fmt"
 
 	"github.com/coreos/bbolt"
+	"github.com/lightningnetwork/lnd/lntypes"
 )
 
 var (
@@ -70,12 +70,42 @@ func (d *DB) NewWitnessCache() *WitnessCache {
 	}
 }
 
-// AddWitness adds a new witness of wType to the witness cache. The type of the
-// witness will be used to map the witness to the key that will be used to look
-// it up.
-//
-// TODO(roasbeef): fake closure to map instead a constructor?
-func (w *WitnessCache) AddWitness(wType WitnessType, witness []byte) error {
+// witnessEntry is a key-value struct that holds each key -> witness pair, used
+// when inserting records into the cache.
+type witnessEntry struct {
+	key     []byte
+	witness []byte
+}
+
+// AddSha256Witnesses adds a batch of new sha256 preimages into the witness
+// cache. This is an alias for AddWitnesses that uses Sha256HashWitness as the
+// preimages' witness type.
+func (w *WitnessCache) AddSha256Witnesses(preimages ...lntypes.Preimage) error {
+	// Optimistically compute the preimages' hashes before attempting to
+	// start the db transaction.
+	entries := make([]witnessEntry, 0, len(preimages))
+	for i := range preimages {
+		hash := preimages[i].Hash()
+		entries = append(entries, witnessEntry{
+			key:     hash[:],
+			witness: preimages[i][:],
+		})
+	}
+
+	return w.addWitnessEntries(Sha256HashWitness, entries)
+}
+
+// addWitnessEntries inserts the witnessEntry key-value pairs into the cache,
+// using the appropriate witness type to segment the namespace of possible
+// witness types.
+func (w *WitnessCache) addWitnessEntries(wType WitnessType,
+	entries []witnessEntry) error {
+
+	// Exit early if there are no witnesses to add.
+	if len(entries) == 0 {
+		return nil
+	}
+
 	return w.db.Batch(func(tx *bbolt.Tx) error {
 		witnessBucket, err := tx.CreateBucketIfNotExists(witnessBucketKey)
 		if err != nil {
@@ -93,23 +123,32 @@ func (w *WitnessCache) AddWitness(wType WitnessType, witness []byte) error {
 			return err
 		}
 
-		// Now that we have the proper bucket for this witness, we'll map the
-		// witness type to the proper key.
-		var witnessKey []byte
-		switch wType {
-		case Sha256HashWitness:
-			key := sha256.Sum256(witness)
-			witnessKey = key[:]
+		for _, entry := range entries {
+			err = witnessTypeBucket.Put(entry.key, entry.witness)
+			if err != nil {
+				return err
+			}
 		}
 
-		return witnessTypeBucket.Put(witnessKey, witness)
+		return nil
 	})
 }
 
-// LookupWitness attempts to lookup a witness according to its type and also
+// LookupSha256Witness attempts to lookup the preimage for a sha256 hash. If
+// the witness isn't found, ErrNoWitnesses will be returned.
+func (w *WitnessCache) LookupSha256Witness(hash lntypes.Hash) (lntypes.Preimage, error) {
+	witness, err := w.lookupWitness(Sha256HashWitness, hash[:])
+	if err != nil {
+		return lntypes.Preimage{}, err
+	}
+
+	return lntypes.MakePreimage(witness)
+}
+
+// lookupWitness attempts to lookup a witness according to its type and also
 // its witness key. In the case that the witness isn't found, ErrNoWitnesses
 // will be returned.
-func (w *WitnessCache) LookupWitness(wType WitnessType, witnessKey []byte) ([]byte, error) {
+func (w *WitnessCache) lookupWitness(wType WitnessType, witnessKey []byte) ([]byte, error) {
 	var witness []byte
 	err := w.db.View(func(tx *bbolt.Tx) error {
 		witnessBucket := tx.Bucket(witnessBucketKey)
@@ -143,8 +182,13 @@ func (w *WitnessCache) LookupWitness(wType WitnessType, witnessKey []byte) ([]by
 	return witness, nil
 }
 
-// DeleteWitness attempts to delete a particular witness from the database.
-func (w *WitnessCache) DeleteWitness(wType WitnessType, witnessKey []byte) error {
+// DeleteSha256Witness attempts to delete a sha256 preimage identified by hash.
+func (w *WitnessCache) DeleteSha256Witness(hash lntypes.Hash) error {
+	return w.deleteWitness(Sha256HashWitness, hash[:])
+}
+
+// deleteWitness attempts to delete a particular witness from the database.
+func (w *WitnessCache) deleteWitness(wType WitnessType, witnessKey []byte) error {
 	return w.db.Batch(func(tx *bbolt.Tx) error {
 		witnessBucket, err := tx.CreateBucketIfNotExists(witnessBucketKey)
 		if err != nil {

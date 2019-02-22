@@ -11,6 +11,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
@@ -40,7 +41,7 @@ type WitnessSubscription struct {
 	// sent over.
 	//
 	// TODO(roasbeef): couple with WitnessType?
-	WitnessUpdates <-chan []byte
+	WitnessUpdates <-chan lntypes.Preimage
 
 	// CancelSubscription is a function closure that should be used by a
 	// client to cancel the subscription once they are no longer interested
@@ -62,10 +63,12 @@ type WitnessBeacon interface {
 
 	// LookupPreImage attempts to lookup a preimage in the global cache.
 	// True is returned for the second argument if the preimage is found.
-	LookupPreimage(payhash []byte) ([]byte, bool)
+	LookupPreimage(payhash lntypes.Hash) (lntypes.Preimage, bool)
 
-	// AddPreImage adds a newly discovered preimage to the global cache.
-	AddPreimage(pre []byte) error
+	// AddPreimages adds a batch of newly discovered preimages to the global
+	// cache, and also signals any subscribers of the newly discovered
+	// witness.
+	AddPreimages(preimages ...lntypes.Preimage) error
 }
 
 // ChannelArbitratorConfig contains all the functionality that the
@@ -1127,7 +1130,7 @@ func (c *ChannelArbitrator) checkChainActions(height uint32,
 		// know the pre-image and it's close to timing out. We need to
 		// ensure that we claim the funds that our rightfully ours
 		// on-chain.
-		if _, ok := c.cfg.PreimageDB.LookupPreimage(htlc.RHash[:]); !ok {
+		if _, ok := c.cfg.PreimageDB.LookupPreimage(htlc.RHash); !ok {
 			continue
 		}
 		haveChainActions = haveChainActions || c.shouldGoOnChain(
@@ -1204,13 +1207,12 @@ func (c *ChannelArbitrator) checkChainActions(height uint32,
 	// either learn of it eventually from the outgoing HTLC, or the sender
 	// will timeout the HTLC.
 	for _, htlc := range c.activeHTLCs.incomingHTLCs {
-		payHash := htlc.RHash
-
 		// If we have the pre-image, then we should go on-chain to
 		// redeem the HTLC immediately.
-		if _, ok := c.cfg.PreimageDB.LookupPreimage(payHash[:]); ok {
+		if _, ok := c.cfg.PreimageDB.LookupPreimage(htlc.RHash); ok {
 			log.Tracef("ChannelArbitrator(%v): preimage for "+
-				"htlc=%x is known!", c.cfg.ChanPoint, payHash[:])
+				"htlc=%x is known!", c.cfg.ChanPoint,
+				htlc.RHash[:])
 
 			actionMap[HtlcClaimAction] = append(
 				actionMap[HtlcClaimAction], htlc,
@@ -1220,7 +1222,7 @@ func (c *ChannelArbitrator) checkChainActions(height uint32,
 
 		log.Tracef("ChannelArbitrator(%v): watching chain to decide "+
 			"action for incoming htlc=%x", c.cfg.ChanPoint,
-			payHash[:])
+			htlc.RHash[:])
 
 		// Otherwise, we don't yet have the pre-image, but should watch
 		// on-chain to see if either: the remote party times out the

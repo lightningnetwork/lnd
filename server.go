@@ -171,7 +171,7 @@ type server struct {
 
 	sigPool *lnwallet.SigPool
 
-	writeBufferPool *pool.WriteBuffer
+	writePool *pool.Write
 
 	// globalFeatures feature vector which affects HTLCs and thus are also
 	// advertised to other nodes.
@@ -267,12 +267,15 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		pool.DefaultWriteBufferGCInterval,
 		pool.DefaultWriteBufferExpiryInterval,
 	)
+	writePool := pool.NewWrite(
+		writeBufferPool, runtime.NumCPU(), pool.DefaultWorkerTimeout,
+	)
 
 	s := &server{
-		chanDB:          chanDB,
-		cc:              cc,
-		sigPool:         lnwallet.NewSigPool(runtime.NumCPU()*2, cc.signer),
-		writeBufferPool: writeBufferPool,
+		chanDB:    chanDB,
+		cc:        cc,
+		sigPool:   lnwallet.NewSigPool(runtime.NumCPU()*2, cc.signer),
+		writePool: writePool,
 
 		invoices: invoices.NewRegistry(chanDB, activeNetParams.Params),
 
@@ -1010,6 +1013,9 @@ func (s *server) Start() error {
 	if err := s.sigPool.Start(); err != nil {
 		return err
 	}
+	if err := s.writePool.Start(); err != nil {
+		return err
+	}
 	if err := s.cc.chainNotifier.Start(); err != nil {
 		return err
 	}
@@ -1102,7 +1108,6 @@ func (s *server) Stop() error {
 
 	// Shutdown the wallet, funding manager, and the rpc server.
 	s.chanStatusMgr.Stop()
-	s.sigPool.Stop()
 	s.cc.chainNotifier.Stop()
 	s.chanRouter.Stop()
 	s.htlcSwitch.Stop()
@@ -1128,6 +1133,9 @@ func (s *server) Stop() error {
 
 	// Wait for all lingering goroutines to quit.
 	s.wg.Wait()
+
+	s.sigPool.Stop()
+	s.writePool.Stop()
 
 	return nil
 }

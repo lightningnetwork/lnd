@@ -173,6 +173,8 @@ type server struct {
 
 	writePool *pool.Write
 
+	readPool *pool.Read
+
 	// globalFeatures feature vector which affects HTLCs and thus are also
 	// advertised to other nodes.
 	globalFeatures *lnwire.FeatureVector
@@ -263,12 +265,23 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 	sharedSecretPath := filepath.Join(graphDir, "sphinxreplay.db")
 	replayLog := htlcswitch.NewDecayedLog(sharedSecretPath, cc.chainNotifier)
 	sphinxRouter := sphinx.NewRouter(privKey, activeNetParams.Params, replayLog)
+
 	writeBufferPool := pool.NewWriteBuffer(
 		pool.DefaultWriteBufferGCInterval,
 		pool.DefaultWriteBufferExpiryInterval,
 	)
+
 	writePool := pool.NewWrite(
 		writeBufferPool, runtime.NumCPU(), pool.DefaultWorkerTimeout,
+	)
+
+	readBufferPool := pool.NewReadBuffer(
+		pool.DefaultReadBufferGCInterval,
+		pool.DefaultReadBufferExpiryInterval,
+	)
+
+	readPool := pool.NewRead(
+		readBufferPool, runtime.NumCPU(), pool.DefaultWorkerTimeout,
 	)
 
 	s := &server{
@@ -276,6 +289,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		cc:        cc,
 		sigPool:   lnwallet.NewSigPool(runtime.NumCPU()*2, cc.signer),
 		writePool: writePool,
+		readPool:  readPool,
 
 		invoices: invoices.NewRegistry(chanDB, activeNetParams.Params),
 
@@ -1016,6 +1030,9 @@ func (s *server) Start() error {
 	if err := s.writePool.Start(); err != nil {
 		return err
 	}
+	if err := s.readPool.Start(); err != nil {
+		return err
+	}
 	if err := s.cc.chainNotifier.Start(); err != nil {
 		return err
 	}
@@ -1136,6 +1153,7 @@ func (s *server) Stop() error {
 
 	s.sigPool.Stop()
 	s.writePool.Stop()
+	s.readPool.Stop()
 
 	return nil
 }

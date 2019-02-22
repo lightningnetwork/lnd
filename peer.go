@@ -18,6 +18,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 
 	"github.com/lightningnetwork/lnd/brontide"
+	"github.com/lightningnetwork/lnd/buffer"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
@@ -45,6 +46,10 @@ const (
 
 	// writeMessageTimeout is the timeout used when writing a message to peer.
 	writeMessageTimeout = 50 * time.Second
+
+	// readMessageTimeout is the timeout used when reading a message from a
+	// peer.
+	readMessageTimeout = 5 * time.Second
 
 	// handshakeTimeout is the timeout used when waiting for peer init message.
 	handshakeTimeout = 15 * time.Second
@@ -215,6 +220,8 @@ type peer struct {
 	// buffer allocation from the peer life cycle.
 	writePool *pool.Write
 
+	readPool *pool.Read
+
 	queueQuit chan struct{}
 	quit      chan struct{}
 	wg        sync.WaitGroup
@@ -259,6 +266,7 @@ func newPeer(conn net.Conn, connReq *connmgr.ConnReq, server *server,
 		chanActiveTimeout: chanActiveTimeout,
 
 		writePool: server.writePool,
+		readPool:  server.readPool,
 
 		queueQuit: make(chan struct{}),
 		quit:      make(chan struct{}),
@@ -639,11 +647,37 @@ func (p *peer) readNextMessage() (lnwire.Message, error) {
 		return nil, fmt.Errorf("brontide.Conn required to read messages")
 	}
 
+	err := noiseConn.SetReadDeadline(time.Time{})
+	if err != nil {
+		return nil, err
+	}
+
+	pktLen, err := noiseConn.ReadNextHeader()
+	if err != nil {
+		return nil, err
+	}
+
 	// First we'll read the next _full_ message. We do this rather than
 	// reading incrementally from the stream as the Lightning wire protocol
 	// is message oriented and allows nodes to pad on additional data to
 	// the message stream.
-	rawMsg, err := noiseConn.ReadNextMessage()
+	var rawMsg []byte
+	err = p.readPool.Submit(func(buf *buffer.Read) error {
+		// Before reading the body of the message, set the read timeout
+		// accordingly to ensure we don't block other readers using the
+		// pool. We do so only after the task has been scheduled to
+		// ensure the deadline doesn't expire while the message is in
+		// the process of being scheduled.
+		readDeadline := time.Now().Add(readMessageTimeout)
+		readErr := noiseConn.SetReadDeadline(readDeadline)
+		if readErr != nil {
+			return readErr
+		}
+
+		rawMsg, readErr = noiseConn.ReadNextBody(buf[:pktLen])
+		return readErr
+	})
+
 	atomic.AddUint64(&p.bytesReceived, uint64(len(rawMsg)))
 	if err != nil {
 		return nil, err

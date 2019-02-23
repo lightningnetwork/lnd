@@ -182,12 +182,6 @@ func (u *UnlockerService) GenSeed(ctx context.Context,
 func (u *UnlockerService) InitWallet(ctx context.Context,
 	in *lnrpc.InitWalletRequest) (*lnrpc.InitWalletResponse, error) {
 
-	// Make sure the password meets our constraints.
-	password := in.WalletPassword
-	if err := validatePassword(password); err != nil {
-		return nil, err
-	}
-
 	// Require that the recovery window be non-negative.
 	recoveryWindow := in.RecoveryWindow
 	if recoveryWindow < 0 {
@@ -228,7 +222,7 @@ func (u *UnlockerService) InitWallet(ctx context.Context,
 	// now send over the wallet password and the seed. This will allow the
 	// daemon to initialize itself and startup.
 	initMsg := &WalletInitMsg{
-		Passphrase:     password,
+		Passphrase:     in.WalletPassword,
 		WalletSeed:     cipherSeed,
 		RecoveryWindow: uint32(recoveryWindow),
 	}
@@ -315,11 +309,6 @@ func (u *UnlockerService) ChangePassword(ctx context.Context,
 		privatePw = lnwallet.DefaultPrivatePassphrase
 	}
 
-	// Make sure the new password meets our constraints.
-	if err := validatePassword(in.NewPassword); err != nil {
-		return nil, err
-	}
-
 	// Load the existing wallet in order to proceed with the password change.
 	w, err := loader.OpenExistingWallet(publicPw, false)
 	if err != nil {
@@ -356,14 +345,4 @@ func (u *UnlockerService) ChangePassword(ctx context.Context,
 	u.UnlockMsgs <- &WalletUnlockMsg{Passphrase: in.NewPassword}
 
 	return &lnrpc.ChangePasswordResponse{}, nil
-}
-
-// validatePassword assures the password meets all of our constraints.
-func validatePassword(password []byte) error {
-	// Passwords should have a length of at least 8 characters.
-	if len(password) < 8 {
-		return errors.New("password must have at least 8 characters")
-	}
-
-	return nil
 }

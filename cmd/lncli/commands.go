@@ -1308,6 +1308,15 @@ func monowidthColumns(words []string, ncols int) []string {
 	return finalWords
 }
 
+func validatePassword(password []byte) error {
+	// Passwords should have a length of at least 8 characters.
+	if len(password) < 8 {
+		return errors.New("password must have at least 8 characters")
+	}
+
+	return nil
+}
+
 func create(ctx *cli.Context) error {
 	ctxb := context.Background()
 	client, cleanUp := getWalletUnlockerClient(ctx)
@@ -1320,6 +1329,13 @@ func create(ctx *cli.Context) error {
 	if err != nil {
 		return err
 	}
+
+	// Next, we check to see if the password meets our validation
+	// requirements
+	if err := validatePassword(pw1); err != nil {
+		return err
+	}
+
 	fmt.Println()
 
 	fmt.Printf("Confirm wallet password: ")
@@ -1629,6 +1645,13 @@ func changePassword(ctx *cli.Context) error {
 	if err != nil {
 		return err
 	}
+
+	// Next, we check to see if the password meets our validation
+	// requirements
+	if err := validatePassword(newPw); err != nil {
+		return err
+	}
+
 	fmt.Println()
 
 	fmt.Printf("Confirm new wallet password: ")

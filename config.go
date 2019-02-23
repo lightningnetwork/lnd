@@ -574,11 +574,6 @@ func loadConfig() (*config, error) {
 			str := "%s: simnet mode for litecoin not currently supported"
 			return nil, fmt.Errorf(str, funcName)
 		}
-		if cfg.Litecoin.RegTest {
-			str := "%s: regnet mode for litecoin not currently supported"
-			return nil, fmt.Errorf(str, funcName)
-		}
-
 		if cfg.Litecoin.TimeLockDelta < minTimeLockDelta {
 			return nil, fmt.Errorf("timelockdelta must be at least %v",
 				minTimeLockDelta)
@@ -596,6 +591,10 @@ func loadConfig() (*config, error) {
 		if cfg.Litecoin.TestNet3 {
 			numNets++
 			ltcParams = litecoinTestNetParams
+		}
+		if cfg.Litecoin.RegTest {
+			numNets++
+			ltcParams = litecoinRegTestParams
 		}
 		if numNets > 1 {
 			str := "%s: The mainnet, testnet, and simnet params " +

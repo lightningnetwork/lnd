@@ -62,6 +62,14 @@ var litecoinTestNetParams = litecoinNetParams{
 	CoinType: keychain.CoinTypeTestnet,
 }
 
+// litecoinRegNetParams contains parameters specific to the 4th version of the
+// test network.
+var litecoinRegTestParams = litecoinNetParams{
+	Params:   &litecoinCfg.RegressionNetParams,
+	rpcPort:  "19443",
+	CoinType: keychain.CoinTypeTestnet,
+}
+
 // litecoinMainNetParams contains the parameters specific to the current
 // Litecoin mainnet.
 var litecoinMainNetParams = litecoinNetParams{

@@ -45,7 +45,7 @@ var cancelInvoiceCommand = cli.Command{
 	Action: actionDecorator(cancelInvoice),
 }
 
-func cancelInvoice(ctx *cli.Context) error {
+func cancelInvoice(ctx *cli.Context, t TerminalReader) error {
 	var (
 		paymentHash []byte
 		err         error

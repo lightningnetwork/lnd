@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -37,4 +38,14 @@ func NewUtxoFromProto(utxo *lnrpc.Utxo) *Utxo {
 		OutPoint:      NewOutPointFromProto(utxo.Outpoint),
 		Confirmations: utxo.Confirmations,
 	}
+}
+
+// TerminalReader is an interface responsible for performing various actions
+// from the terminal such as reading passwords and reading from stdin. The
+// intention here is to allow easy mocking for testing.
+type TerminalReader interface {
+	// ReadPassword is a wrapper around terminal.ReadPassword()
+	ReadPassword() ([]byte, error)
+	// ReadStdin allows us to read from stdin and returns a bufio.Reader
+	ReadStdin() *bufio.Reader
 }

@@ -26,7 +26,7 @@ var getStatusCommand = cli.Command{
 	Action:      actionDecorator(getStatus),
 }
 
-func getStatus(ctx *cli.Context) error {
+func getStatus(ctx *cli.Context, t TerminalReader) error {
 	ctxb := context.Background()
 	client, cleanUp := getAutopilotClient(ctx)
 	defer cleanUp()
@@ -56,7 +56,7 @@ var disableCommand = cli.Command{
 	Action:      actionDecorator(disable),
 }
 
-func enable(ctx *cli.Context) error {
+func enable(ctx *cli.Context, t TerminalReader) error {
 	ctxb := context.Background()
 	client, cleanUp := getAutopilotClient(ctx)
 	defer cleanUp()
@@ -75,7 +75,7 @@ func enable(ctx *cli.Context) error {
 	return nil
 }
 
-func disable(ctx *cli.Context) error {
+func disable(ctx *cli.Context, t TerminalReader) error {
 	ctxb := context.Background()
 	client, cleanUp := getAutopilotClient(ctx)
 	defer cleanUp()
@@ -102,7 +102,7 @@ var queryScoresCommand = cli.Command{
 	Action:      actionDecorator(queryScores),
 }
 
-func queryScores(ctx *cli.Context) error {
+func queryScores(ctx *cli.Context, t TerminalReader) error {
 	ctxb := context.Background()
 	client, cleanUp := getAutopilotClient(ctx)
 	defer cleanUp()

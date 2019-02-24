@@ -61,11 +61,21 @@ func printRespJSON(resp proto.Message) {
 	fmt.Println(jsonStr)
 }
 
+type terminalReader struct{}
+
+func (t *terminalReader) ReadPassword() ([]byte, error) {
+	return terminal.ReadPassword(int(syscall.Stdin))
+}
+
+func (t *terminalReader) ReadStdin() *bufio.Reader {
+	return bufio.NewReader(os.Stdin)
+}
+
 // actionDecorator is used to add additional information and error handling
 // to command actions.
-func actionDecorator(f func(*cli.Context) error) func(*cli.Context) error {
+func actionDecorator(f func(*cli.Context, TerminalReader) error) func(*cli.Context) error {
 	return func(c *cli.Context) error {
-		if err := f(c); err != nil {
+		if err := f(c, &terminalReader{}); err != nil {
 			s, ok := status.FromError(err)
 
 			// If it's a command for the UnlockerService (like
@@ -112,7 +122,7 @@ var newAddressCommand = cli.Command{
 	Action: actionDecorator(newAddress),
 }
 
-func newAddress(ctx *cli.Context) error {
+func newAddress(ctx *cli.Context, t TerminalReader) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
@@ -188,7 +198,7 @@ var sendCoinsCommand = cli.Command{
 	Action: actionDecorator(sendCoins),
 }
 
-func sendCoins(ctx *cli.Context) error {
+func sendCoins(ctx *cli.Context, t TerminalReader) error {
 	var (
 		addr string
 		amt  int64
@@ -291,7 +301,7 @@ var listUnspentCommand = cli.Command{
 	Action: actionDecorator(listUnspent),
 }
 
-func listUnspent(ctx *cli.Context) error {
+func listUnspent(ctx *cli.Context, t TerminalReader) error {
 	var (
 		minConfirms int64
 		maxConfirms int64
@@ -402,7 +412,7 @@ var sendManyCommand = cli.Command{
 	Action: actionDecorator(sendMany),
 }
 
-func sendMany(ctx *cli.Context) error {
+func sendMany(ctx *cli.Context, t TerminalReader) error {
 	var amountToAddr map[string]int64
 
 	jsonMap := ctx.Args().First()
@@ -448,7 +458,7 @@ var connectCommand = cli.Command{
 	Action: actionDecorator(connectPeer),
 }
 
-func connectPeer(ctx *cli.Context) error {
+func connectPeer(ctx *cli.Context, t TerminalReader) error {
 	ctxb := context.Background()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
@@ -493,7 +503,7 @@ var disconnectCommand = cli.Command{
 	Action: actionDecorator(disconnectPeer),
 }
 
-func disconnectPeer(ctx *cli.Context) error {
+func disconnectPeer(ctx *cli.Context, t TerminalReader) error {
 	ctxb := context.Background()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
@@ -612,7 +622,7 @@ var openChannelCommand = cli.Command{
 	Action: actionDecorator(openChannel),
 }
 
-func openChannel(ctx *cli.Context) error {
+func openChannel(ctx *cli.Context, t TerminalReader) error {
 	// TODO(roasbeef): add deadline to context
 	ctxb := context.Background()
 	client, cleanUp := getClient(ctx)
@@ -831,7 +841,7 @@ var closeChannelCommand = cli.Command{
 	Action: actionDecorator(closeChannel),
 }
 
-func closeChannel(ctx *cli.Context) error {
+func closeChannel(ctx *cli.Context, t TerminalReader) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
@@ -958,7 +968,7 @@ var closeAllChannelsCommand = cli.Command{
 	Action: actionDecorator(closeAllChannels),
 }
 
-func closeAllChannels(ctx *cli.Context) error {
+func closeAllChannels(ctx *cli.Context, t TerminalReader) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
@@ -980,7 +990,7 @@ func closeAllChannels(ctx *cli.Context) error {
 			"within these channels will be locked for some blocks " +
 			"(CSV delay) before they can be spent. (yes/no): "
 
-		confirmed := promptForConfirmation(msg)
+		confirmed := promptForConfirmation(msg, t)
 
 		// We can safely exit if the user did not confirm.
 		if !confirmed {
@@ -1002,7 +1012,7 @@ func closeAllChannels(ctx *cli.Context) error {
 			"within them will be locked for a few blocks (CSV " +
 			"delay) before they can be spent. (yes/no): "
 
-		confirmed := promptForConfirmation(msg)
+		confirmed := promptForConfirmation(msg, t)
 
 		// We can safely exit if the user did not confirm.
 		if !confirmed {
@@ -1025,7 +1035,7 @@ func closeAllChannels(ctx *cli.Context) error {
 					"spent. (yes/no): ", channel.RemotePubkey,
 					channel.ChannelPoint, channel.CsvDelay)
 
-				confirmed := promptForConfirmation(msg)
+				confirmed := promptForConfirmation(msg, t)
 
 				if confirmed {
 					channelsToClose = append(
@@ -1113,8 +1123,8 @@ func closeAllChannels(ctx *cli.Context) error {
 
 // promptForConfirmation continuously prompts the user for the message until
 // receiving a response of "yes" or "no" and returns their answer as a bool.
-func promptForConfirmation(msg string) bool {
-	reader := bufio.NewReader(os.Stdin)
+func promptForConfirmation(msg string, t TerminalReader) bool {
+	reader := t.ReadStdin()
 
 	for {
 		fmt.Print(msg)
@@ -1166,7 +1176,7 @@ var abandonChannelCommand = cli.Command{
 	Action: actionDecorator(abandonChannel),
 }
 
-func abandonChannel(ctx *cli.Context) error {
+func abandonChannel(ctx *cli.Context, t TerminalReader) error {
 	ctxb := context.Background()
 
 	client, cleanUp := getClient(ctx)
@@ -1240,7 +1250,7 @@ var listPeersCommand = cli.Command{
 	Action:   actionDecorator(listPeers),
 }
 
-func listPeers(ctx *cli.Context) error {
+func listPeers(ctx *cli.Context, t TerminalReader) error {
 	ctxb := context.Background()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
@@ -1317,7 +1327,7 @@ func validatePassword(password []byte) error {
 	return nil
 }
 
-func create(ctx *cli.Context) error {
+func create(ctx *cli.Context, t TerminalReader) error {
 	ctxb := context.Background()
 	client, cleanUp := getWalletUnlockerClient(ctx)
 	defer cleanUp()
@@ -1325,7 +1335,7 @@ func create(ctx *cli.Context) error {
 	// First, we'll prompt the user for their passphrase twice to ensure
 	// both attempts match up properly.
 	fmt.Printf("Input wallet password: ")
-	pw1, err := terminal.ReadPassword(int(syscall.Stdin))
+	pw1, err := t.ReadPassword()
 	if err != nil {
 		return err
 	}
@@ -1339,7 +1349,7 @@ func create(ctx *cli.Context) error {
 	fmt.Println()
 
 	fmt.Printf("Confirm wallet password: ")
-	pw2, err := terminal.ReadPassword(int(syscall.Stdin))
+	pw2, err := t.ReadPassword()
 	if err != nil {
 		return err
 	}
@@ -1362,7 +1372,7 @@ mnemonicCheck:
 		fmt.Printf("Do you have an existing cipher seed " +
 			"mnemonic you want to use? (Enter y/n): ")
 
-		reader := bufio.NewReader(os.Stdin)
+		reader := t.ReadStdin()
 		answer, err := reader.ReadString('\n')
 		if err != nil {
 			return err
@@ -1394,7 +1404,7 @@ mnemonicCheck:
 		// We'll now prompt the user to enter in their 24-word
 		// mnemonic.
 		fmt.Printf("Input your 24-word mnemonic separated by spaces: ")
-		reader := bufio.NewReader(os.Stdin)
+		reader := t.ReadStdin()
 		mnemonic, err := reader.ReadString('\n')
 		if err != nil {
 			return err
@@ -1420,7 +1430,7 @@ mnemonicCheck:
 		// cipher seed.
 		fmt.Printf("Input your cipher seed passphrase (press enter if " +
 			"your seed doesn't have a passphrase): ")
-		passphrase, err := terminal.ReadPassword(int(syscall.Stdin))
+		passphrase, err := t.ReadPassword()
 		if err != nil {
 			return err
 		}
@@ -1433,7 +1443,7 @@ mnemonicCheck:
 				"used to scan for used keys (default %d): ",
 				defaultRecoveryWindow)
 
-			reader := bufio.NewReader(os.Stdin)
+			reader := t.ReadStdin()
 			answer, err := reader.ReadString('\n')
 			if err != nil {
 				return err
@@ -1466,7 +1476,7 @@ mnemonicCheck:
 		fmt.Printf("Input your passphrase if you wish to encrypt it " +
 			"(or press enter to proceed without a cipher seed " +
 			"passphrase): ")
-		aezeedPass1, err := terminal.ReadPassword(int(syscall.Stdin))
+		aezeedPass1, err := t.ReadPassword()
 		if err != nil {
 			return err
 		}
@@ -1474,9 +1484,7 @@ mnemonicCheck:
 
 		if len(aezeedPass1) != 0 {
 			fmt.Printf("Confirm cipher seed passphrase: ")
-			aezeedPass2, err := terminal.ReadPassword(
-				int(syscall.Stdin),
-			)
+			aezeedPass2, err := t.ReadPassword()
 			if err != nil {
 				return err
 			}
@@ -1568,13 +1576,13 @@ var unlockCommand = cli.Command{
 	Action: actionDecorator(unlock),
 }
 
-func unlock(ctx *cli.Context) error {
+func unlock(ctx *cli.Context, t TerminalReader) error {
 	ctxb := context.Background()
 	client, cleanUp := getWalletUnlockerClient(ctx)
 	defer cleanUp()
 
 	fmt.Printf("Input wallet password: ")
-	pw, err := terminal.ReadPassword(int(syscall.Stdin))
+	pw, err := t.ReadPassword()
 	if err != nil {
 		return err
 	}
@@ -1628,20 +1636,20 @@ var changePasswordCommand = cli.Command{
 	Action: actionDecorator(changePassword),
 }
 
-func changePassword(ctx *cli.Context) error {
+func changePassword(ctx *cli.Context, t TerminalReader) error {
 	ctxb := context.Background()
 	client, cleanUp := getWalletUnlockerClient(ctx)
 	defer cleanUp()
 
 	fmt.Printf("Input current wallet password: ")
-	currentPw, err := terminal.ReadPassword(int(syscall.Stdin))
+	currentPw, err := t.ReadPassword()
 	if err != nil {
 		return err
 	}
 	fmt.Println()
 
 	fmt.Printf("Input new wallet password: ")
-	newPw, err := terminal.ReadPassword(int(syscall.Stdin))
+	newPw, err := t.ReadPassword()
 	if err != nil {
 		return err
 	}
@@ -1655,7 +1663,7 @@ func changePassword(ctx *cli.Context) error {
 	fmt.Println()
 
 	fmt.Printf("Confirm new wallet password: ")
-	confirmPw, err := terminal.ReadPassword(int(syscall.Stdin))
+	confirmPw, err := t.ReadPassword()
 	if err != nil {
 		return err
 	}
@@ -1685,7 +1693,7 @@ var walletBalanceCommand = cli.Command{
 	Action:   actionDecorator(walletBalance),
 }
 
-func walletBalance(ctx *cli.Context) error {
+func walletBalance(ctx *cli.Context, t TerminalReader) error {
 	ctxb := context.Background()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
@@ -1708,7 +1716,7 @@ var channelBalanceCommand = cli.Command{
 	Action: actionDecorator(channelBalance),
 }
 
-func channelBalance(ctx *cli.Context) error {
+func channelBalance(ctx *cli.Context, t TerminalReader) error {
 	ctxb := context.Background()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
@@ -1734,7 +1742,7 @@ type chain struct {
 	Network string `json:"network"`
 }
 
-func getInfo(ctx *cli.Context) error {
+func getInfo(ctx *cli.Context, t TerminalReader) error {
 	ctxb := context.Background()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
@@ -1796,7 +1804,7 @@ var pendingChannelsCommand = cli.Command{
 	Action:   actionDecorator(pendingChannels),
 }
 
-func pendingChannels(ctx *cli.Context) error {
+func pendingChannels(ctx *cli.Context, t TerminalReader) error {
 	ctxb := context.Background()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
@@ -1837,7 +1845,7 @@ var listChannelsCommand = cli.Command{
 	Action: actionDecorator(listChannels),
 }
 
-func listChannels(ctx *cli.Context) error {
+func listChannels(ctx *cli.Context, t TerminalReader) error {
 	ctxb := context.Background()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
@@ -1899,7 +1907,7 @@ var closedChannelsCommand = cli.Command{
 	Action: actionDecorator(closedChannels),
 }
 
-func closedChannels(ctx *cli.Context) error {
+func closedChannels(ctx *cli.Context, t TerminalReader) error {
 	ctxb := context.Background()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
@@ -2025,7 +2033,7 @@ func retrieveFeeLimit(ctx *cli.Context) (*lnrpc.FeeLimit, error) {
 	return nil, nil
 }
 
-func confirmPayReq(ctx *cli.Context, client lnrpc.LightningClient, payReq string) error {
+func confirmPayReq(ctx *cli.Context, client lnrpc.LightningClient, payReq string, t TerminalReader) error {
 	ctxb := context.Background()
 
 	req := &lnrpc.PayReqString{PayReq: payReq}
@@ -2049,7 +2057,7 @@ func confirmPayReq(ctx *cli.Context, client lnrpc.LightningClient, payReq string
 	fmt.Printf("Amount (in satoshis): %v\n", amt)
 	fmt.Printf("Destination: %v\n", resp.GetDestination())
 
-	confirm := promptForConfirmation("Confirm payment (yes/no): ")
+	confirm := promptForConfirmation("Confirm payment (yes/no): ", t)
 	if !confirm {
 		return fmt.Errorf("payment not confirmed")
 	}
@@ -2057,7 +2065,7 @@ func confirmPayReq(ctx *cli.Context, client lnrpc.LightningClient, payReq string
 	return nil
 }
 
-func sendPayment(ctx *cli.Context) error {
+func sendPayment(ctx *cli.Context, t TerminalReader) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 	// Show command help if no arguments provided
@@ -2078,7 +2086,7 @@ func sendPayment(ctx *cli.Context) error {
 	// details of the payment are encoded within the request.
 	if ctx.IsSet("pay_req") {
 		if !ctx.Bool("force") {
-			err = confirmPayReq(ctx, client, ctx.String("pay_req"))
+			err = confirmPayReq(ctx, client, ctx.String("pay_req"), t)
 			if err != nil {
 				return err
 			}
@@ -2241,7 +2249,7 @@ var payInvoiceCommand = cli.Command{
 	Action: actionDecorator(payInvoice),
 }
 
-func payInvoice(ctx *cli.Context) error {
+func payInvoice(ctx *cli.Context, t TerminalReader) error {
 	args := ctx.Args()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
@@ -2262,7 +2270,7 @@ func payInvoice(ctx *cli.Context) error {
 	}
 
 	if !ctx.Bool("force") {
-		err = confirmPayReq(ctx, client, payReq)
+		err = confirmPayReq(ctx, client, payReq, t)
 		if err != nil {
 			return err
 		}
@@ -2482,7 +2490,7 @@ var addInvoiceCommand = cli.Command{
 	Action: actionDecorator(addInvoice),
 }
 
-func addInvoice(ctx *cli.Context) error {
+func addInvoice(ctx *cli.Context, t TerminalReader) error {
 	var (
 		preimage []byte
 		descHash []byte
@@ -2572,7 +2580,7 @@ var lookupInvoiceCommand = cli.Command{
 	Action: actionDecorator(lookupInvoice),
 }
 
-func lookupInvoice(ctx *cli.Context) error {
+func lookupInvoice(ctx *cli.Context, t TerminalReader) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
@@ -2655,7 +2663,7 @@ var listInvoicesCommand = cli.Command{
 	Action: actionDecorator(listInvoices),
 }
 
-func listInvoices(ctx *cli.Context) error {
+func listInvoices(ctx *cli.Context, t TerminalReader) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
@@ -2693,7 +2701,7 @@ var describeGraphCommand = cli.Command{
 	Action: actionDecorator(describeGraph),
 }
 
-func describeGraph(ctx *cli.Context) error {
+func describeGraph(ctx *cli.Context, t TerminalReader) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
@@ -2748,7 +2756,7 @@ var listPaymentsCommand = cli.Command{
 	Action:   actionDecorator(listPayments),
 }
 
-func listPayments(ctx *cli.Context) error {
+func listPayments(ctx *cli.Context, t TerminalReader) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
@@ -2779,7 +2787,7 @@ var getChanInfoCommand = cli.Command{
 	Action: actionDecorator(getChanInfo),
 }
 
-func getChanInfo(ctx *cli.Context) error {
+func getChanInfo(ctx *cli.Context, t TerminalReader) error {
 	ctxb := context.Background()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
@@ -2827,7 +2835,7 @@ var getNodeInfoCommand = cli.Command{
 	Action: actionDecorator(getNodeInfo),
 }
 
-func getNodeInfo(ctx *cli.Context) error {
+func getNodeInfo(ctx *cli.Context, t TerminalReader) error {
 	ctxb := context.Background()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
@@ -2897,7 +2905,7 @@ var queryRoutesCommand = cli.Command{
 	Action: actionDecorator(queryRoutes),
 }
 
-func queryRoutes(ctx *cli.Context) error {
+func queryRoutes(ctx *cli.Context, t TerminalReader) error {
 	ctxb := context.Background()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
@@ -2964,7 +2972,7 @@ var getNetworkInfoCommand = cli.Command{
 	Action: actionDecorator(getNetworkInfo),
 }
 
-func getNetworkInfo(ctx *cli.Context) error {
+func getNetworkInfo(ctx *cli.Context, t TerminalReader) error {
 	ctxb := context.Background()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
@@ -3000,7 +3008,7 @@ var debugLevelCommand = cli.Command{
 	Action: actionDecorator(debugLevel),
 }
 
-func debugLevel(ctx *cli.Context) error {
+func debugLevel(ctx *cli.Context, t TerminalReader) error {
 	ctxb := context.Background()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
@@ -3033,7 +3041,7 @@ var decodePayReqCommand = cli.Command{
 	Action: actionDecorator(decodePayReq),
 }
 
-func decodePayReq(ctx *cli.Context) error {
+func decodePayReq(ctx *cli.Context, t TerminalReader) error {
 	ctxb := context.Background()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
@@ -3068,7 +3076,7 @@ var listChainTxnsCommand = cli.Command{
 	Action:      actionDecorator(listChainTxns),
 }
 
-func listChainTxns(ctx *cli.Context) error {
+func listChainTxns(ctx *cli.Context, t TerminalReader) error {
 	ctxb := context.Background()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
@@ -3092,7 +3100,7 @@ var stopCommand = cli.Command{
 	Action: actionDecorator(stopDaemon),
 }
 
-func stopDaemon(ctx *cli.Context) error {
+func stopDaemon(ctx *cli.Context, t TerminalReader) error {
 	ctxb := context.Background()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
@@ -3124,7 +3132,7 @@ var signMessageCommand = cli.Command{
 	Action: actionDecorator(signMessage),
 }
 
-func signMessage(ctx *cli.Context) error {
+func signMessage(ctx *cli.Context, t TerminalReader) error {
 	ctxb := context.Background()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
@@ -3173,7 +3181,7 @@ var verifyMessageCommand = cli.Command{
 	Action: actionDecorator(verifyMessage),
 }
 
-func verifyMessage(ctx *cli.Context) error {
+func verifyMessage(ctx *cli.Context, t TerminalReader) error {
 	ctxb := context.Background()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
@@ -3224,7 +3232,7 @@ var feeReportCommand = cli.Command{
 	Action: actionDecorator(feeReport),
 }
 
-func feeReport(ctx *cli.Context) error {
+func feeReport(ctx *cli.Context, t TerminalReader) error {
 	ctxb := context.Background()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
@@ -3278,7 +3286,7 @@ var updateChannelPolicyCommand = cli.Command{
 	Action: actionDecorator(updateChannelPolicy),
 }
 
-func updateChannelPolicy(ctx *cli.Context) error {
+func updateChannelPolicy(ctx *cli.Context, t TerminalReader) error {
 	ctxb := context.Background()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
@@ -3432,7 +3440,7 @@ var forwardingHistoryCommand = cli.Command{
 	Action: actionDecorator(forwardingHistory),
 }
 
-func forwardingHistory(ctx *cli.Context) error {
+func forwardingHistory(ctx *cli.Context, t TerminalReader) error {
 	ctxb := context.Background()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()

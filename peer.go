@@ -26,6 +26,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/pool"
 	"github.com/lightningnetwork/lnd/ticker"
 )
 
@@ -43,8 +44,12 @@ const (
 	// idleTimeout is the duration of inactivity before we time out a peer.
 	idleTimeout = 5 * time.Minute
 
-	// writeMessageTimeout is the timeout used when writing a message to peer.
-	writeMessageTimeout = 50 * time.Second
+	// writeMessageTimeout is the timeout used when writing a message to a peer.
+	writeMessageTimeout = 10 * time.Second
+
+	// readMessageTimeout is the timeout used when reading a message from a
+	// peer.
+	readMessageTimeout = 5 * time.Second
 
 	// handshakeTimeout is the timeout used when waiting for peer init message.
 	handshakeTimeout = 15 * time.Second
@@ -209,11 +214,13 @@ type peer struct {
 	// TODO(halseth): remove when link failure is properly handled.
 	failedChannels map[lnwire.ChannelID]struct{}
 
-	// writeBuf is a buffer that we'll re-use in order to encode wire
-	// messages to write out directly on the socket. By re-using this
-	// buffer, we avoid needing to allocate more memory each time a new
-	// message is to be sent to a peer.
-	writeBuf *buffer.Write
+	// writePool is the task pool to that manages reuse of write buffers.
+	// Write tasks are submitted to the pool in order to conserve the total
+	// number of write buffers allocated at any one time, and decouple write
+	// buffer allocation from the peer life cycle.
+	writePool *pool.Write
+
+	readPool *pool.Read
 
 	queueQuit chan struct{}
 	quit      chan struct{}
@@ -258,7 +265,8 @@ func newPeer(conn net.Conn, connReq *connmgr.ConnReq, server *server,
 
 		chanActiveTimeout: chanActiveTimeout,
 
-		writeBuf: server.writeBufferPool.Take(),
+		writePool: server.writePool,
+		readPool:  server.readPool,
 
 		queueQuit: make(chan struct{}),
 		quit:      make(chan struct{}),
@@ -608,11 +616,6 @@ func (p *peer) WaitForDisconnect(ready chan struct{}) {
 	}
 
 	p.wg.Wait()
-
-	// Now that we are certain all active goroutines which could have been
-	// modifying the write buffer have exited, return the buffer to the pool
-	// to be reused.
-	p.server.writeBufferPool.Return(p.writeBuf)
 }
 
 // Disconnect terminates the connection with the remote peer. Additionally, a
@@ -644,11 +647,37 @@ func (p *peer) readNextMessage() (lnwire.Message, error) {
 		return nil, fmt.Errorf("brontide.Conn required to read messages")
 	}
 
+	err := noiseConn.SetReadDeadline(time.Time{})
+	if err != nil {
+		return nil, err
+	}
+
+	pktLen, err := noiseConn.ReadNextHeader()
+	if err != nil {
+		return nil, err
+	}
+
 	// First we'll read the next _full_ message. We do this rather than
 	// reading incrementally from the stream as the Lightning wire protocol
 	// is message oriented and allows nodes to pad on additional data to
 	// the message stream.
-	rawMsg, err := noiseConn.ReadNextMessage()
+	var rawMsg []byte
+	err = p.readPool.Submit(func(buf *buffer.Read) error {
+		// Before reading the body of the message, set the read timeout
+		// accordingly to ensure we don't block other readers using the
+		// pool. We do so only after the task has been scheduled to
+		// ensure the deadline doesn't expire while the message is in
+		// the process of being scheduled.
+		readDeadline := time.Now().Add(readMessageTimeout)
+		readErr := noiseConn.SetReadDeadline(readDeadline)
+		if readErr != nil {
+			return readErr
+		}
+
+		rawMsg, readErr = noiseConn.ReadNextBody(buf[:pktLen])
+		return readErr
+	})
+
 	atomic.AddUint64(&p.bytesReceived, uint64(len(rawMsg)))
 	if err != nil {
 		return nil, err
@@ -1359,32 +1388,32 @@ func (p *peer) writeMessage(msg lnwire.Message) error {
 
 	p.logWireMessage(msg, false)
 
-	// We'll re-slice of static write buffer to allow this new message to
-	// utilize all available space. We also ensure we cap the capacity of
-	// this new buffer to the static buffer which is sized for the largest
-	// possible protocol message.
-	b := bytes.NewBuffer(p.writeBuf[0:0:len(p.writeBuf)])
+	var n int
+	err := p.writePool.Submit(func(buf *bytes.Buffer) error {
+		// Using a buffer allocated by the write pool, encode the
+		// message directly into the buffer.
+		_, writeErr := lnwire.WriteMessage(buf, msg, 0)
+		if writeErr != nil {
+			return writeErr
+		}
 
-	// With the temp buffer created and sliced properly (length zero, full
-	// capacity), we'll now encode the message directly into this buffer.
-	_, err := lnwire.WriteMessage(b, msg, 0)
-	if err != nil {
-		return err
+		// Ensure the write deadline is set before we attempt to send
+		// the message.
+		writeDeadline := time.Now().Add(writeMessageTimeout)
+		writeErr = p.conn.SetWriteDeadline(writeDeadline)
+		if writeErr != nil {
+			return writeErr
+		}
+
+		// Finally, write the message itself in a single swoop.
+		n, writeErr = p.conn.Write(buf.Bytes())
+		return writeErr
+	})
+
+	// Record the number of bytes written on the wire, if any.
+	if n > 0 {
+		atomic.AddUint64(&p.bytesSent, uint64(n))
 	}
-
-	// Compute and set the write deadline we will impose on the remote peer.
-	writeDeadline := time.Now().Add(writeMessageTimeout)
-	err = p.conn.SetWriteDeadline(writeDeadline)
-	if err != nil {
-		return err
-	}
-
-	// Finally, write the message itself in a single swoop.
-	n, err := p.conn.Write(b.Bytes())
-
-	// Regardless of the error returned, record how many bytes were written
-	// to the wire.
-	atomic.AddUint64(&p.bytesSent, uint64(n))
 
 	return err
 }

@@ -8,15 +8,12 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"runtime"
 	"time"
 
 	"golang.org/x/crypto/chacha20poly1305"
 	"golang.org/x/crypto/hkdf"
 
 	"github.com/btcsuite/btcd/btcec"
-	"github.com/lightningnetwork/lnd/buffer"
-	"github.com/lightningnetwork/lnd/pool"
 )
 
 const (
@@ -60,14 +57,6 @@ var (
 	ephemeralGen = func() (*btcec.PrivateKey, error) {
 		return btcec.NewPrivateKey(btcec.S256())
 	}
-
-	// readBufferPool is a singleton instance of a buffer pool, used to
-	// conserve memory allocations due to read buffers across the entire
-	// brontide package.
-	readBufferPool = pool.NewReadBuffer(
-		pool.DefaultReadBufferGCInterval,
-		pool.DefaultReadBufferExpiryInterval,
-	)
 )
 
 // TODO(roasbeef): free buffer pool?
@@ -378,15 +367,6 @@ type Machine struct {
 	// next ciphertext header from the wire. The header is a 2 byte length
 	// (of the next ciphertext), followed by a 16 byte MAC.
 	nextCipherHeader [lengthHeaderSize + macSize]byte
-
-	// nextCipherText is a static buffer that we'll use to read in the
-	// bytes of the next cipher text message. As all messages in the
-	// protocol MUST be below 65KB plus our macSize, this will be
-	// sufficient to buffer all messages from the socket when we need to
-	// read the next one. Having a fixed buffer that's re-used also means
-	// that we save on allocations as we don't need to create a new one
-	// each time.
-	nextCipherText *buffer.Read
 }
 
 // NewBrontideMachine creates a new instance of the brontide state-machine. If
@@ -738,8 +718,28 @@ func (b *Machine) WriteMessage(w io.Writer, p []byte) error {
 // ReadMessage attempts to read the next message from the passed io.Reader. In
 // the case of an authentication error, a non-nil error is returned.
 func (b *Machine) ReadMessage(r io.Reader) ([]byte, error) {
-	if _, err := io.ReadFull(r, b.nextCipherHeader[:]); err != nil {
+	pktLen, err := b.ReadHeader(r)
+	if err != nil {
 		return nil, err
+	}
+
+	buf := make([]byte, pktLen)
+	return b.ReadBody(r, buf)
+}
+
+// ReadHeader attempts to read the next message header from the passed
+// io.Reader. The header contains the length of the next body including
+// additional overhead of the MAC. In the case of an authentication error, a
+// non-nil error is returned.
+//
+// NOTE: This method SHOULD NOT be used in the case that the io.Reader may be
+// adversarial and induce long delays. If the caller needs to set read deadlines
+// appropriately, it is preferred that they use the split ReadHeader and
+// ReadBody methods so that the deadlines can be set appropriately on each.
+func (b *Machine) ReadHeader(r io.Reader) (uint32, error) {
+	_, err := io.ReadFull(r, b.nextCipherHeader[:])
+	if err != nil {
+		return 0, err
 	}
 
 	// Attempt to decrypt+auth the packet length present in the stream.
@@ -747,34 +747,30 @@ func (b *Machine) ReadMessage(r io.Reader) ([]byte, error) {
 		nil, nil, b.nextCipherHeader[:],
 	)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 
-	// If this is the first message being read, take a read buffer from the
-	// buffer pool. This is delayed until this point to avoid allocating
-	// read buffers until after the peer has successfully completed the
-	// handshake, and is ready to begin sending lnwire messages.
-	if b.nextCipherText == nil {
-		b.nextCipherText = readBufferPool.Take()
-		runtime.SetFinalizer(b, freeReadBuffer)
-	}
-
-	// Next, using the length read from the packet header, read the
-	// encrypted packet itself.
+	// Compute the packet length that we will need to read off the wire.
 	pktLen := uint32(binary.BigEndian.Uint16(pktLenBytes)) + macSize
-	if _, err := io.ReadFull(r, b.nextCipherText[:pktLen]); err != nil {
-		return nil, err
-	}
 
-	// TODO(roasbeef): modify to let pass in slice
-	return b.recvCipher.Decrypt(nil, nil, b.nextCipherText[:pktLen])
+	return pktLen, nil
 }
 
-// freeReadBuffer returns the Machine's read buffer back to the package wide
-// read buffer pool.
-//
-// NOTE: This method should only be called by a Machine's finalizer.
-func freeReadBuffer(b *Machine) {
-	readBufferPool.Return(b.nextCipherText)
-	b.nextCipherText = nil
+// ReadBody attempts to ready the next message body from the passed io.Reader.
+// The provided buffer MUST be the length indicated by the packet length
+// returned by the preceding call to ReadHeader. In the case of an
+// authentication eerror, a non-nil error is returned.
+func (b *Machine) ReadBody(r io.Reader, buf []byte) ([]byte, error) {
+	// Next, using the length read from the packet header, read the
+	// encrypted packet itself into the buffer allocated by the read
+	// pool.
+	_, err := io.ReadFull(r, buf)
+	if err != nil {
+		return nil, err
+	}
+
+	// Finally, decrypt the message held in the buffer, and return a
+	// new byte slice containing the plaintext.
+	// TODO(roasbeef): modify to let pass in slice
+	return b.recvCipher.Decrypt(nil, nil, buf)
 }

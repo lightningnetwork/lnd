@@ -3850,6 +3850,7 @@ func marshalDbEdge(edgeInfo *channeldb.ChannelEdgeInfo,
 		edge.Node1Policy = &lnrpc.RoutingPolicy{
 			TimeLockDelta:    uint32(c1.TimeLockDelta),
 			MinHtlc:          int64(c1.MinHTLC),
+			MaxHtlc:          uint64(c1.MaxHTLC),
 			FeeBaseMsat:      int64(c1.FeeBaseMSat),
 			FeeRateMilliMsat: int64(c1.FeeProportionalMillionths),
 			Disabled:         c1.ChannelFlags&lnwire.ChanUpdateDisabled != 0,
@@ -3860,6 +3861,7 @@ func marshalDbEdge(edgeInfo *channeldb.ChannelEdgeInfo,
 		edge.Node2Policy = &lnrpc.RoutingPolicy{
 			TimeLockDelta:    uint32(c2.TimeLockDelta),
 			MinHtlc:          int64(c2.MinHTLC),
+			MaxHtlc:          uint64(c2.MaxHTLC),
 			FeeBaseMsat:      int64(c2.FeeBaseMSat),
 			FeeRateMilliMsat: int64(c2.FeeProportionalMillionths),
 			Disabled:         c2.ChannelFlags&lnwire.ChanUpdateDisabled != 0,
@@ -4408,6 +4410,7 @@ func marshallTopologyChange(topChange *routing.TopologyChange) *lnrpc.GraphTopol
 			RoutingPolicy: &lnrpc.RoutingPolicy{
 				TimeLockDelta:    uint32(channelUpdate.TimeLockDelta),
 				MinHtlc:          int64(channelUpdate.MinHTLC),
+				MaxHtlc:          uint64(channelUpdate.MaxHTLC),
 				FeeBaseMsat:      int64(channelUpdate.BaseFee),
 				FeeRateMilliMsat: int64(channelUpdate.FeeRate),
 				Disabled:         channelUpdate.Disabled,

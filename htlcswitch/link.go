@@ -71,6 +71,9 @@ type ForwardingPolicy struct {
 	// lifetime of the channel.
 	MinHTLC lnwire.MilliSatoshi
 
+	// MaxHTLC is the largest HTLC that is to be forwarded.
+	MaxHTLC lnwire.MilliSatoshi
+
 	// BaseFee is the base fee, expressed in milli-satoshi that must be
 	// paid for each incoming HTLC. This field, combined with FeeRate is
 	// used to compute the required fee for a given HTLC.
@@ -1959,6 +1962,25 @@ func (l *channelLink) HtlcSatifiesPolicy(payHash [32]byte,
 			failure = lnwire.NewAmountBelowMinimum(
 				amtToForward, *update,
 			)
+		}
+
+		return failure
+	}
+
+	// Next, ensure that the passed HTLC isn't too large. If so, we'll cancel
+	// the HTLC directly.
+	if policy.MaxHTLC != 0 && amtToForward > policy.MaxHTLC {
+		l.errorf("outgoing htlc(%x) is too large: max_htlc=%v, "+
+			"htlc_value=%v", payHash[:], policy.MaxHTLC, amtToForward)
+
+		// As part of the returned error, we'll send our latest routing policy
+		// so the sending node obtains the most up-to-date data.
+		var failure lnwire.FailureMessage
+		update, err := l.cfg.FetchLastChannelUpdate(l.ShortChanID())
+		if err != nil {
+			failure = &lnwire.FailTemporaryNodeFailure{}
+		} else {
+			failure = lnwire.NewTemporaryChannelFailure(update)
 		}
 
 		return failure

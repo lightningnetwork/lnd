@@ -1,4 +1,4 @@
-package: github.com/lightningnetwork/lnd
+package: github.com/decred/dcrlnd
 import:
 - package: github.com/boltdb/bolt
   version: ^1.2.1
@@ -67,10 +67,6 @@ import:
 - package: google.golang.org/genproto
   subpackages:
   - googleapis/api/annotations
-- package: github.com/ltcsuite/ltcd
-  version: 5f654d5faab99ee2b3488fabba98e5f7a5257ee3
-  subpackages:
-  - chaincfg
 - package: github.com/lightninglabs/neutrino
   version: 5560001600544391c68e02bd1cc7cdbd25318030
 - package: gopkg.in/macaroon.v1

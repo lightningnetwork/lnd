@@ -1,6 +1,13 @@
-hash: 59d73259b4445fdb5982f2ec2538f53805e6e789c26b98b0fdfef43b7d0676a4
-updated: 2018-01-12T11:04:32.444091731-07:00
+hash: 7c37ee553e3023e9bde27e12628f074c36bcd0e55a4c8eb0470034294fdf59fb
+updated: 2019-02-25T16:57:09.427556702+08:00
 imports:
+- name: git.schwanenlied.me/yawning/bsaes.git
+  version: e466e3c35f68a96448e3718906ca93c2eadcffe7
+  subpackages:
+  - ct32
+  - ct64
+  - ghash
+  - internal/modes
 - name: github.com/aead/chacha20
   version: d31a916ded42d1640b9d89a26f8abd53cc96790c
   subpackages:
@@ -17,12 +24,52 @@ imports:
   - token
 - name: github.com/boltdb/bolt
   version: 2f1ce7a837dcb8da3ec595b1dac9d0632f0f99e8
+- name: github.com/btcsuite/btcd
+  version: 306aecffea325e97f513b3ff0cf7895a5310651d
+  subpackages:
+  - blockchain
+  - btcec
+  - btcjson
+  - chaincfg
+  - chaincfg/chainhash
+  - connmgr
+  - database
+  - integration/rpctest
+  - rpcclient
+  - txscript
+  - wire
 - name: github.com/btcsuite/btclog
   version: 84c8d2346e9fc8c7b947e243b9c24e6df9fd206a
+- name: github.com/btcsuite/btcutil
+  version: 4c204d6978034c001714728401fcd63060d568b4
+  subpackages:
+  - base58
+  - bech32
+  - gcs
+  - gcs/builder
+  - hdkeychain
+  - txsort
+- name: github.com/btcsuite/btcwallet
+  version: b51c1adeee55b628c71f6cb7fe7ea44dfe6efc00
+  subpackages:
+  - chain
+  - internal/helpers
+  - internal/legacy/keystore
+  - internal/legacy/rename
+  - internal/prompt
+  - internal/zero
+  - snacl
+  - waddrmgr
+  - wallet
+  - wallet/internal/txsizes
+  - wallet/txauthor
+  - wallet/txrules
+  - walletdb
+  - walletdb/bdb
+  - walletdb/migration
+  - wtxmgr
 - name: github.com/btcsuite/fastsha256
   version: 637e656429416087660c84436a2a035d69d54e2e
-- name: github.com/jessevdk/go-flags
-  version: f88afde2fa19a30cf50ba4b05b3d13bc6bae3079
 - name: github.com/btcsuite/go-socks
   version: 4720035b7bfd2a9bb130b1c184f8bbe41b6f0d0f
   subpackages:
@@ -39,6 +86,8 @@ imports:
   - ssh/terminal
 - name: github.com/btcsuite/websocket
   version: 31079b6807923eb23992c421b114992b95131b55
+- name: github.com/coreos/bbolt
+  version: 63597a96ec0ad9e6d43c3fc81e809909e0237461
 - name: github.com/davecgh/go-spew
   version: ecdeabc65495df2dec95d7c4a4c3e021903035e5
   subpackages:
@@ -61,6 +110,8 @@ imports:
   - utilities
 - name: github.com/howeyc/gopass
   version: bf9dde6d0d2c004a008c27aaee91170c786f6db8
+- name: github.com/jessevdk/go-flags
+  version: f88afde2fa19a30cf50ba4b05b3d13bc6bae3079
 - name: github.com/jrick/logrotate
   version: a93b200c26cbae3bb09dd0dc2c7c7fe1468a034a
   subpackages:
@@ -69,6 +120,8 @@ imports:
   version: 8232ab8918d91c72af1a9fb94d3edbe31d88b790
 - name: github.com/kkdai/bstream
   version: f391b8402d23024e7c0f624b31267a89998fca95
+- name: github.com/lightninglabs/gozmq
+  version: b0bbb30a99d00b25c3304994d20aac68607b75c0
 - name: github.com/lightninglabs/neutrino
   version: 5560001600544391c68e02bd1cc7cdbd25318030
   subpackages:
@@ -76,9 +129,46 @@ imports:
   - headerfs
 - name: github.com/lightningnetwork/lightning-onion
   version: 18bf6612a0653a21daf1a08b4a59e54670a524a1
-- name: github.com/ltcsuite/ltcd
-  version: 5f654d5faab99ee2b3488fabba98e5f7a5257ee3
+- name: github.com/lightningnetwork/lnd
+  version: a6ba965bc4fe32c58d0b06123abde3ee742a71d6
   subpackages:
+  - aezeed
+  - autopilot
+  - brontide
+  - build
+  - chainntnfs
+  - chainntnfs/bitcoindnotify
+  - chainntnfs/btcdnotify
+  - chainntnfs/neutrinonotify
+  - channeldb
+  - contractcourt
+  - discovery
+  - htlcswitch
+  - htlcswitch/hodl
+  - input
+  - keychain
+  - lnpeer
+  - lnrpc
+  - lntest
+  - lntypes
+  - lnwallet
+  - lnwallet/btcwallet
+  - lnwire
+  - macaroons
+  - multimutex
+  - queue
+  - routing
+  - routing/chainview
+  - shachain
+  - sweep
+  - ticker
+  - tor
+  - walletunlocker
+  - zpay32
+- name: github.com/ltcsuite/ltcd
+  version: 73a7375350283b566410c09eaab46ff93aa79545
+  subpackages:
+  - btcjson
   - chaincfg
   - chaincfg/chainhash
   - wire
@@ -86,8 +176,6 @@ imports:
   version: 946bd9fbed05568b0f3cd188353d8aa28f38b688
   subpackages:
   - internal/socket
-- name: github.com/lightninglabs/gozmq
-  version: b0bbb30a99d00b25c3304994d20aac68607b75c0
 - name: github.com/roasbeef/btcd
   version: 9978b939c33973be19b932fa7b936079bb7ba38d
   subpackages:
@@ -141,9 +229,12 @@ imports:
   version: 501572607d0273fc75b3b261fa4904d63f6ffa0e
 - name: github.com/urfave/cli
   version: cfb38830724cc34fedffe9a2a29fb54fa9169cd1
+- name: github.com/Yawning/aez
+  version: ec7426b4492636b9b39cb6e173e7423500107163
 - name: golang.org/x/crypto
   version: 9419663f5a44be8b34ca85f08abc5fe1be11f8a3
   subpackages:
+  - blake2b
   - chacha20poly1305
   - chacha20poly1305/internal/chacha20
   - curve25519
@@ -166,6 +257,7 @@ imports:
   - idna
   - internal/timeseries
   - lex/httplex
+  - proxy
   - trace
 - name: golang.org/x/sys
   version: ab9e364efd8b52800ff7ee48a9ffba4e0ed78dfb
@@ -179,6 +271,10 @@ imports:
   - transform
   - unicode/bidi
   - unicode/norm
+- name: golang.org/x/time
+  version: 85acf8d2951cb2a3bde7632f9ff273ef0379bcbd
+  subpackages:
+  - rate
 - name: google.golang.org/genproto
   version: ee236bd376b077c7a89f260c026c4735b195e459
   subpackages:
@@ -208,6 +304,14 @@ imports:
   subpackages:
   - bakery
   - bakery/checkers
+- name: gopkg.in/macaroon-bakery.v2
+  version: a0743b6619d68bbf8dc5cabbb49738b846f06080
+  subpackages:
+  - bakery
+  - bakery/checkers
+  - bakery/internal/macaroonpb
 - name: gopkg.in/macaroon.v1
   version: ab101776739ee61baab9bc50e4b33b5aeb3ac843
+- name: gopkg.in/macaroon.v2
+  version: 1679699b0b723e05f9f16c45b4c6cbd46adb2c78
 testImports: []

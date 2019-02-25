@@ -460,11 +460,11 @@ func (n *NetworkHarness) EnsureConnected(ctx context.Context, a, b *HarnessNode)
 		// can exit early.
 		return nil
 
-	case aErr != errConnectionRequested:
+	case aErr != nil && aErr != errConnectionRequested:
 		// Return any critical errors returned by either alice.
 		return aErr
 
-	case bErr != errConnectionRequested:
+	case bErr != nil && bErr != errConnectionRequested:
 		// Return any critical errors returned by either bob.
 		return bErr
 

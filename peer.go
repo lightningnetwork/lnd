@@ -1710,7 +1710,7 @@ out:
 			defaultPolicy := p.server.cc.routingPolicy
 			forwardingPolicy := &htlcswitch.ForwardingPolicy{
 				MinHTLC:       fwdMinHtlc,
-				MaxHTLC:       lnChan.MaxPendingAmount(),
+				MaxHTLC:       newChan.LocalChanCfg.MaxPendingAmount,
 				BaseFee:       defaultPolicy.BaseFee,
 				FeeRate:       defaultPolicy.FeeRate,
 				TimeLockDelta: defaultPolicy.TimeLockDelta,

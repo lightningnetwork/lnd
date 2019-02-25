@@ -1779,16 +1779,21 @@ func (r *rpcServer) fetchActiveChannel(chanPoint wire.OutPoint) (
 func (r *rpcServer) GetInfo(ctx context.Context,
 	in *lnrpc.GetInfoRequest) (*lnrpc.GetInfoResponse, error) {
 
-	var activeChannels uint32
 	serverPeers := r.server.Peers()
-	for _, serverPeer := range serverPeers {
-		activeChannels += uint32(len(serverPeer.ChannelSnapshots()))
-	}
 
 	openChannels, err := r.server.chanDB.FetchAllOpenChannels()
 	if err != nil {
 		return nil, err
 	}
+
+	var activeChannels uint32
+	for _, channel := range openChannels {
+		chanID := lnwire.NewChanIDFromOutPoint(&channel.FundingOutpoint)
+		if r.server.htlcSwitch.HasActiveLink(chanID) {
+			activeChannels++
+		}
+	}
+
 	inactiveChannels := uint32(len(openChannels)) - activeChannels
 
 	pendingChannels, err := r.server.chanDB.FetchPendingChannels()

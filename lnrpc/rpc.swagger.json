@@ -2816,7 +2816,7 @@
           "type": "boolean",
           "format": "boolean"
         },
-        "max_htlc": {
+        "max_htlc_msat": {
           "type": "string",
           "format": "uint64"
         }

@@ -62,7 +62,7 @@ var litecoinTestNetParams = litecoinNetParams{
 	CoinType: keychain.CoinTypeTestnet,
 }
 
-// litecoinRegNetParams contains parameters specific to the 4th version of the
+// regTestNetParams contains parameters specific to a local regtest network.
 // test network.
 var litecoinRegTestParams = litecoinNetParams{
 	Params:   &litecoinCfg.RegressionNetParams,

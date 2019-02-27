@@ -277,8 +277,8 @@ lnd --bitcoin.active --bitcoin.testnet --debuglevel=debug --btcd.rpcuser=kek --b
 
 In order to run `lnd` in its light client mode, you'll need to locate a
 full-node which is capable of serving this new light client mode. `lnd` uses
-[BIP 157](https://github.com/bitcoin/bips/tree/master/bip-0157) and [BIP
-158](https://github.com/bitcoin/bips/tree/master/bip-0158) for its light client
+[BIP 157](https://github.com/bitcoin/bips/blob/master/bip-0157.mediawiki) and [BIP
+158](https://github.com/bitcoin/bips/blob/master/bip-0158.mediawiki) for its light client
 mode.  A public instance of such a node can be found at
 `faucet.lightning.community`.
 

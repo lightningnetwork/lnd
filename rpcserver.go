@@ -770,10 +770,45 @@ func (r *rpcServer) ListUnspent(ctx context.Context,
 	return resp, nil
 }
 
+// activeNetParams returns a string representation of the current active
+// network.
+func activeNetName() (string, error) {
+	switch {
+	case cfg.Bitcoin.MainNet || cfg.Litecoin.MainNet:
+		return "mainnet", nil
+	case cfg.Bitcoin.TestNet3 || cfg.Litecoin.TestNet3:
+		return "testnet", nil
+	case cfg.Bitcoin.SimNet || cfg.Litecoin.SimNet:
+		return "simnet", nil
+	case cfg.Bitcoin.RegTest || cfg.Litecoin.RegTest:
+		return "regest", nil
+	default:
+		return "", fmt.Errorf("unknown network for addr")
+	}
+}
+
 // SendCoins executes a request to send coins to a particular address. Unlike
 // SendMany, this RPC call only allows creating a single output at a time.
 func (r *rpcServer) SendCoins(ctx context.Context,
 	in *lnrpc.SendCoinsRequest) (*lnrpc.SendCoinsResponse, error) {
+
+	// First, we'll need to convert the sweep address passed into a useable
+	// struct.
+	targetAddr, err := btcutil.DecodeAddress(in.Addr, activeNetParams.Params)
+	if err != nil {
+		return nil, err
+	}
+
+	// As a sanity check, ensure that the user specified an address that
+	// matches the chain.
+	if !targetAddr.IsForNet(activeNetParams.Params) {
+		netName, err := activeNetName()
+		if err != nil {
+			return nil, err
+		}
+		return nil, fmt.Errorf("only addresses for %v are accepted",
+			netName)
+	}
 
 	// Based on the passed fee related parameters, we'll determine an
 	// appropriate fee rate for this transaction.
@@ -808,15 +843,6 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 				"active")
 		}
 
-		// Additionally, we'll need to convert the sweep address passed
-		// into a useable struct, and also query for the latest block
-		// height so we can properly construct the transaction.
-		sweepAddr, err := btcutil.DecodeAddress(
-			in.Addr, activeNetParams.Params,
-		)
-		if err != nil {
-			return nil, err
-		}
 		_, bestHeight, err := r.server.cc.chainIO.GetBestBlock()
 		if err != nil {
 			return nil, err
@@ -827,7 +853,7 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 		// single transaction. This will be generated in a concurrent
 		// safe manner, so no need to worry about locking.
 		sweepTxPkg, err := sweep.CraftSweepAllTx(
-			feePerKw, uint32(bestHeight), sweepAddr, wallet,
+			feePerKw, uint32(bestHeight), targetAddr, wallet,
 			wallet.WalletController, wallet.WalletController,
 			r.server.cc.feeEstimator, r.server.cc.signer,
 		)
@@ -857,7 +883,7 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 		// coin selection synchronization method to ensure that no coin
 		// selection (funding, sweep alls, other sends) can proceed
 		// while we instruct the wallet to send this transaction.
-		paymentMap := map[string]int64{in.Addr: in.Amount}
+		paymentMap := map[string]int64{targetAddr.String(): in.Amount}
 		err := wallet.WithCoinSelectLock(func() error {
 			newTXID, err := r.sendCoinsOnChain(paymentMap, feePerKw)
 			if err != nil {

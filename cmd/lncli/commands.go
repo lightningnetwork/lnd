@@ -3240,17 +3240,20 @@ var updateChannelPolicyCommand = cli.Command{
 			Usage: "the base fee in milli-satoshis that will " +
 				"be charged for each forwarded HTLC, regardless " +
 				"of payment size",
+			Value: 1,
 		},
-		cli.StringFlag{
+		cli.Float64Flag{
 			Name: "fee_rate",
 			Usage: "the fee rate that will be charged " +
 				"proportionally based on the value of each " +
 				"forwarded HTLC, the lowest possible rate is 0.000001",
+			Value: 0.000001,
 		},
 		cli.Int64Flag{
 			Name: "time_lock_delta",
 			Usage: "the CLTV delta that will be applied to all " +
 				"forwarded HTLCs",
+			Value: 144,
 		},
 		cli.StringFlag{
 			Name: "chan_point",

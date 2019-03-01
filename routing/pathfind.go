@@ -576,6 +576,13 @@ func findPath(g *graphParams, r *restrictParams,
 			return
 		}
 
+		// If this edge was constructed from a hop hint, we won't have access to
+		// its max HTLC. Therefore, only consider discarding this edge here if
+		// the field is set.
+		if edge.MaxHTLC != 0 && edge.MaxHTLC < amountToSend {
+			return
+		}
+
 		// Compute fee that fromNode is charging. It is based on the
 		// amount that needs to be sent to the next node in the route.
 		//

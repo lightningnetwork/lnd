@@ -210,7 +210,7 @@ func (r *Route) ToHopPayloads() []sphinx.HopData {
 //
 // NOTE: The passed slice of ChannelHops MUST be sorted in forward order: from
 // the source to the target node of the path finding attempt.
-func newRoute(amtToSend, feeLimit lnwire.MilliSatoshi, sourceVertex Vertex,
+func newRoute(amtToSend lnwire.MilliSatoshi, sourceVertex Vertex,
 	pathEdges []*channeldb.ChannelEdgePolicy, currentHeight uint32,
 	finalCLTVDelta uint16) (*Route, error) {
 
@@ -308,13 +308,6 @@ func newRoute(amtToSend, feeLimit lnwire.MilliSatoshi, sourceVertex Vertex,
 	)
 	if err != nil {
 		return nil, err
-	}
-
-	// Invalidate this route if its total fees exceed our fee limit.
-	if newRoute.TotalFees > feeLimit {
-		err := fmt.Sprintf("total route fees exceeded fee "+
-			"limit of %v", feeLimit)
-		return nil, newErrf(ErrFeeLimitExceeded, err)
 	}
 
 	return newRoute, nil

@@ -1,7 +1,6 @@
 package routing
 
 import (
-	"bytes"
 	"encoding/binary"
 	"fmt"
 	"math"
@@ -429,8 +428,7 @@ type RestrictParams struct {
 // destination node back to source. This is to properly accumulate fees
 // that need to be paid along the path and accurately check the amount
 // to forward at every node against the available bandwidth.
-func findPath(g *graphParams, r *RestrictParams,
-	sourceNode *channeldb.LightningNode, target *btcec.PublicKey,
+func findPath(g *graphParams, r *RestrictParams, source, target Vertex,
 	amt lnwire.MilliSatoshi) ([]*channeldb.ChannelEdgePolicy, error) {
 
 	var err error
@@ -491,17 +489,14 @@ func findPath(g *graphParams, r *RestrictParams,
 		}
 	}
 
-	sourceVertex := Vertex(sourceNode.PubKeyBytes)
-
 	// We can't always assume that the end destination is publicly
 	// advertised to the network and included in the graph.ForEachNode call
 	// above, so we'll manually include the target node. The target node
 	// charges no fee. Distance is set to 0, because this is the starting
 	// point of the graph traversal. We are searching backwards to get the
 	// fees first time right and correctly match channel bandwidth.
-	targetVertex := NewVertex(target)
-	targetNode := &channeldb.LightningNode{PubKeyBytes: targetVertex}
-	distance[targetVertex] = nodeWithDist{
+	targetNode := &channeldb.LightningNode{PubKeyBytes: target}
+	distance[target] = nodeWithDist{
 		dist:            0,
 		node:            targetNode,
 		amountToReceive: amt,
@@ -534,7 +529,7 @@ func findPath(g *graphParams, r *RestrictParams,
 		// skip it.
 		// TODO(halseth): also ignore disable flags for non-local
 		// channels if bandwidth hint is set?
-		isSourceChan := fromVertex == sourceVertex
+		isSourceChan := fromVertex == source
 
 		edgeFlags := edge.ChannelFlags
 		isDisabled := edgeFlags&lnwire.ChanUpdateDisabled != 0
@@ -597,7 +592,7 @@ func findPath(g *graphParams, r *RestrictParams,
 		// node, no additional timelock is required.
 		var fee lnwire.MilliSatoshi
 		var timeLockDelta uint16
-		if fromVertex != sourceVertex {
+		if fromVertex != source {
 			fee = computeFee(amountToSend, edge)
 			timeLockDelta = edge.TimeLockDelta
 		}
@@ -666,7 +661,7 @@ func findPath(g *graphParams, r *RestrictParams,
 
 	// To start, our target node will the sole item within our distance
 	// heap.
-	heap.Push(&nodeHeap, distance[targetVertex])
+	heap.Push(&nodeHeap, distance[target])
 
 	for nodeHeap.Len() != 0 {
 		// Fetch the node within the smallest distance from our source
@@ -677,7 +672,7 @@ func findPath(g *graphParams, r *RestrictParams,
 		// If we've reached our source (or we don't have any incoming
 		// edges), then we're done here and can exit the graph
 		// traversal early.
-		if bytes.Equal(bestNode.PubKeyBytes[:], sourceVertex[:]) {
+		if bestNode.PubKeyBytes == source {
 			break
 		}
 
@@ -744,7 +739,7 @@ func findPath(g *graphParams, r *RestrictParams,
 
 	// If the source node isn't found in the next hop map, then a path
 	// doesn't exist, so we terminate in an error.
-	if _, ok := next[sourceVertex]; !ok {
+	if _, ok := next[source]; !ok {
 		return nil, newErrf(ErrNoPathFound, "unable to find a path to "+
 			"destination")
 	}
@@ -752,8 +747,8 @@ func findPath(g *graphParams, r *RestrictParams,
 	// Use the nextHop map to unravel the forward path from source to
 	// target.
 	pathEdges := make([]*channeldb.ChannelEdgePolicy, 0, len(next))
-	currentNode := sourceVertex
-	for currentNode != targetVertex { // TODO(roasbeef): assumes no cycles
+	currentNode := source
+	for currentNode != target { // TODO(roasbeef): assumes no cycles
 		// Determine the next hop forward using the next map.
 		nextNode := next[currentNode]
 
@@ -789,9 +784,10 @@ func findPath(g *graphParams, r *RestrictParams,
 // algorithm, rather than attempting to use an unmodified path finding
 // algorithm in a block box manner.
 func findPaths(tx *bbolt.Tx, graph *channeldb.ChannelGraph,
-	source *channeldb.LightningNode, target *btcec.PublicKey,
-	amt lnwire.MilliSatoshi, restrictions *RestrictParams, numPaths uint32,
-	bandwidthHints map[uint64]lnwire.MilliSatoshi) ([][]*channeldb.ChannelEdgePolicy, error) {
+	source, target Vertex, amt lnwire.MilliSatoshi,
+	restrictions *RestrictParams, numPaths uint32,
+	bandwidthHints map[uint64]lnwire.MilliSatoshi) (
+	[][]*channeldb.ChannelEdgePolicy, error) {
 
 	// TODO(roasbeef): modifying ordering within heap to eliminate final
 	// sorting step?
@@ -821,7 +817,7 @@ func findPaths(tx *bbolt.Tx, graph *channeldb.ChannelGraph,
 	// function properly.
 	firstPath := make([]*channeldb.ChannelEdgePolicy, 0, len(startingPath)+1)
 	firstPath = append(firstPath, &channeldb.ChannelEdgePolicy{
-		Node: source,
+		Node: &channeldb.LightningNode{PubKeyBytes: source},
 	})
 	firstPath = append(firstPath, startingPath...)
 
@@ -908,7 +904,8 @@ func findPaths(tx *bbolt.Tx, graph *channeldb.ChannelGraph,
 					graph:          graph,
 					bandwidthHints: bandwidthHints,
 				},
-				spurRestrictions, spurNode, target, amt,
+				spurRestrictions, spurNode.PubKeyBytes,
+				target, amt,
 			)
 
 			// If we weren't able to find a path, we'll continue to

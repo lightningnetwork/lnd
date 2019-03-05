@@ -1325,9 +1325,9 @@ func pathsToFeeSortedRoutes(source Vertex, paths [][]*channeldb.ChannelEdgePolic
 // the required fee and time lock values running backwards along the route. The
 // route that will be ranked the highest is the one with the lowest cumulative
 // fee along the route.
-func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
-	amt lnwire.MilliSatoshi, restrictions *RestrictParams, numPaths uint32,
-	finalExpiry ...uint16) ([]*Route, error) {
+func (r *ChannelRouter) FindRoutes(target Vertex, amt lnwire.MilliSatoshi, 
+	restrictions *RestrictParams, numPaths uint32, finalExpiry ...uint16) (
+		[]*Route, error) {
 
 	var finalCLTVDelta uint16
 	if len(finalExpiry) == 0 {
@@ -1336,13 +1336,12 @@ func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
 		finalCLTVDelta = finalExpiry[0]
 	}
 
-	dest := target.SerializeCompressed()
-	log.Debugf("Searching for path to %x, sending %v", dest, amt)
+	log.Debugf("Searching for path to %x, sending %v", target, amt)
 
 	// Before attempting to perform a series of graph traversals to find
 	// the k-shortest paths to the destination, we'll first consult our
 	// path cache
-	rt := newRouteTuple(amt, dest)
+	rt := newRouteTuple(amt, target[:])
 	r.routeCacheMtx.RLock()
 	routes, ok := r.routeCache[rt]
 	r.routeCacheMtx.RUnlock()
@@ -1361,11 +1360,10 @@ func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
 
 	// We can short circuit the routing by opportunistically checking to
 	// see if the target vertex event exists in the current graph.
-	targetVertex := NewVertex(target)
-	if _, exists, err := r.cfg.Graph.HasLightningNode(targetVertex); err != nil {
+	if _, exists, err := r.cfg.Graph.HasLightningNode(target); err != nil {
 		return nil, err
 	} else if !exists {
-		log.Debugf("Target %x is not in known graph", dest)
+		log.Debugf("Target %x is not in known graph", target)
 		return nil, newErrf(ErrTargetNotInNetwork, "target not found")
 	}
 
@@ -1396,8 +1394,8 @@ func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
 	// we'll execute our KSP algorithm to find the k-shortest paths from
 	// our source to the destination.
 	shortestPaths, err := findPaths(
-		tx, r.cfg.Graph, r.selfNode, target, amt, restrictions, 
-		numPaths, bandwidthHints,
+		tx, r.cfg.Graph, r.selfNode.PubKeyBytes, target, amt, 
+		restrictions, numPaths, bandwidthHints,
 	)
 	if err != nil {
 		tx.Rollback()
@@ -1421,7 +1419,7 @@ func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
 	}
 
 	go log.Tracef("Obtained %v paths sending %v to %x: %v", len(validRoutes),
-		amt, dest, newLogClosure(func() string {
+		amt, target, newLogClosure(func() string {
 			return spew.Sdump(validRoutes)
 		}),
 	)
@@ -1513,7 +1511,7 @@ func generateSphinxPacket(route *Route, paymentHash []byte) ([]byte,
 // final destination.
 type LightningPayment struct {
 	// Target is the node in which the payment should be routed towards.
-	Target *btcec.PublicKey
+	Target Vertex
 
 	// Amount is the value of the payment to send through the network in
 	// milli-satoshis.
@@ -1608,12 +1606,6 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 
 	log.Tracef("Dispatching route for lightning payment: %v",
 		newLogClosure(func() string {
-			// Remove the public key curve parameters when logging
-			// the route to prevent spamming the logs.
-			if payment.Target != nil {
-				payment.Target.Curve = nil
-			}
-
 			for _, routeHint := range payment.RouteHints {
 				for _, hopHint := range routeHint {
 					hopHint.NodeID.Curve = nil

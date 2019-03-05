@@ -30,7 +30,7 @@ type testCtx struct {
 
 	graph *channeldb.ChannelGraph
 
-	aliases map[string]*btcec.PublicKey
+	aliases map[string]Vertex
 
 	chain *mockChain
 
@@ -265,11 +265,10 @@ func TestFindRoutesWithFeeLimit(t *testing.T) {
 		t.Fatalf("expected 2 hops, got %d", len(hops))
 	}
 
-	if !bytes.Equal(hops[0].PubKeyBytes[:],
-		ctx.aliases["songoku"].SerializeCompressed()) {
+	if hops[0].PubKeyBytes != ctx.aliases["songoku"] {
 
 		t.Fatalf("expected first hop through songoku, got %s",
-			getAliasFromPubKey(hops[0].PubKeyBytes[:],
+			getAliasFromPubKey(hops[0].PubKeyBytes,
 				ctx.aliases))
 	}
 }
@@ -347,12 +346,11 @@ func TestSendPaymentRouteFailureFallback(t *testing.T) {
 	}
 
 	// The route should have satoshi as the first hop.
-	if !bytes.Equal(route.Hops[0].PubKeyBytes[:],
-		ctx.aliases["satoshi"].SerializeCompressed()) {
+	if route.Hops[0].PubKeyBytes != ctx.aliases["satoshi"] {
 
 		t.Fatalf("route should go through satoshi as first hop, "+
 			"instead passes through: %v",
-			getAliasFromPubKey(route.Hops[0].PubKeyBytes[:],
+			getAliasFromPubKey(route.Hops[0].PubKeyBytes,
 				ctx.aliases))
 	}
 }
@@ -410,11 +408,9 @@ func TestChannelUpdateValidation(t *testing.T) {
 	// Setup a route from source a to destination c. The route will be used
 	// in a call to SendToRoute. SendToRoute also applies channel updates,
 	// but it saves us from including RequestRoute in the test scope too.
-	var hop1 [33]byte
-	copy(hop1[:], ctx.aliases["b"].SerializeCompressed())
+	hop1 := ctx.aliases["b"]
 
-	var hop2 [33]byte
-	copy(hop2[:], ctx.aliases["c"].SerializeCompressed())
+	hop2 := ctx.aliases["c"]
 
 	hops := []*Hop{
 		{
@@ -429,7 +425,7 @@ func TestChannelUpdateValidation(t *testing.T) {
 
 	route, err := NewRouteFromHops(
 		lnwire.MilliSatoshi(10000), 100,
-		NewVertex(ctx.aliases["a"]), hops,
+		ctx.aliases["a"], hops,
 	)
 	if err != nil {
 		t.Fatalf("unable to create route: %v", err)
@@ -451,8 +447,16 @@ func TestChannelUpdateValidation(t *testing.T) {
 	ctx.router.cfg.SendToSwitch = func(firstHop lnwire.ShortChannelID,
 		_ *lnwire.UpdateAddHTLC, _ *sphinx.Circuit) ([32]byte, error) {
 
+		v := ctx.aliases["b"]
+		source, err := btcec.ParsePubKey(
+			v[:], btcec.S256(),
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+
 		return [32]byte{}, &htlcswitch.ForwardingError{
-			ErrorSource: ctx.aliases["b"],
+			ErrorSource: source,
 			FailureMessage: &lnwire.FailFeeInsufficient{
 				Update: errChanUpdate,
 			},
@@ -576,8 +580,15 @@ func TestSendPaymentErrorRepeatedFeeInsufficient(t *testing.T) {
 
 		roasbeefSongoku := lnwire.NewShortChanIDFromInt(chanID)
 		if firstHop == roasbeefSongoku {
+			sourceKey, err := btcec.ParsePubKey(
+				sourceNode[:], btcec.S256(),
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+
 			return [32]byte{}, &htlcswitch.ForwardingError{
-				ErrorSource: sourceNode,
+				ErrorSource: sourceKey,
 
 				// Within our error, we'll add a channel update
 				// which is meant to reflect he new fee
@@ -611,12 +622,11 @@ func TestSendPaymentErrorRepeatedFeeInsufficient(t *testing.T) {
 	}
 
 	// The route should have pham nuwen as the first hop.
-	if !bytes.Equal(route.Hops[0].PubKeyBytes[:],
-		ctx.aliases["phamnuwen"].SerializeCompressed()) {
+	if route.Hops[0].PubKeyBytes != ctx.aliases["phamnuwen"] {
 
 		t.Fatalf("route should go through satoshi as first hop, "+
 			"instead passes through: %v",
-			getAliasFromPubKey(route.Hops[0].PubKeyBytes[:],
+			getAliasFromPubKey(route.Hops[0].PubKeyBytes,
 				ctx.aliases))
 	}
 }
@@ -684,8 +694,15 @@ func TestSendPaymentErrorNonFinalTimeLockErrors(t *testing.T) {
 		_ *lnwire.UpdateAddHTLC, _ *sphinx.Circuit) ([32]byte, error) {
 
 		if firstHop == roasbeefSongoku {
+			sourceKey, err := btcec.ParsePubKey(
+				sourceNode[:], btcec.S256(),
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+
 			return [32]byte{}, &htlcswitch.ForwardingError{
-				ErrorSource: sourceNode,
+				ErrorSource: sourceKey,
 				FailureMessage: &lnwire.FailExpiryTooSoon{
 					Update: errChanUpdate,
 				},
@@ -712,12 +729,11 @@ func TestSendPaymentErrorNonFinalTimeLockErrors(t *testing.T) {
 		}
 
 		// The route should have satoshi as the first hop.
-		if !bytes.Equal(route.Hops[0].PubKeyBytes[:],
-			ctx.aliases["phamnuwen"].SerializeCompressed()) {
+		if route.Hops[0].PubKeyBytes != ctx.aliases["phamnuwen"] {
 
 			t.Fatalf("route should go through phamnuwen as first hop, "+
 				"instead passes through: %v",
-				getAliasFromPubKey(route.Hops[0].PubKeyBytes[:],
+				getAliasFromPubKey(route.Hops[0].PubKeyBytes,
 					ctx.aliases))
 		}
 	}
@@ -739,8 +755,15 @@ func TestSendPaymentErrorNonFinalTimeLockErrors(t *testing.T) {
 		_ *lnwire.UpdateAddHTLC, _ *sphinx.Circuit) ([32]byte, error) {
 
 		if firstHop == roasbeefSongoku {
+			sourceKey, err := btcec.ParsePubKey(
+				sourceNode[:], btcec.S256(),
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+
 			return [32]byte{}, &htlcswitch.ForwardingError{
-				ErrorSource: sourceNode,
+				ErrorSource: sourceKey,
 				FailureMessage: &lnwire.FailIncorrectCltvExpiry{
 					Update: errChanUpdate,
 				},
@@ -823,8 +846,16 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 		// prune out the rest of the routes.
 		roasbeefSatoshi := lnwire.NewShortChanIDFromInt(2340213491)
 		if firstHop == roasbeefSatoshi {
+			vertex := ctx.aliases["satoshi"]
+			key, err := btcec.ParsePubKey(
+				vertex[:], btcec.S256(),
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+
 			return [32]byte{}, &htlcswitch.ForwardingError{
-				ErrorSource:    ctx.aliases["satoshi"],
+				ErrorSource:    key,
 				FailureMessage: &lnwire.FailUnknownNextPeer{},
 			}
 		}
@@ -882,12 +913,11 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 		t.Fatalf("incorrect preimage used: expected %x got %x",
 			preImage[:], paymentPreImage[:])
 	}
-	if !bytes.Equal(route.Hops[0].PubKeyBytes[:],
-		ctx.aliases["satoshi"].SerializeCompressed()) {
+	if route.Hops[0].PubKeyBytes != ctx.aliases["satoshi"] {
 
 		t.Fatalf("route should go through satoshi as first hop, "+
 			"instead passes through: %v",
-			getAliasFromPubKey(route.Hops[0].PubKeyBytes[:],
+			getAliasFromPubKey(route.Hops[0].PubKeyBytes,
 				ctx.aliases))
 	}
 
@@ -930,12 +960,11 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 	}
 
 	// The route should have satoshi as the first hop.
-	if !bytes.Equal(route.Hops[0].PubKeyBytes[:],
-		ctx.aliases["satoshi"].SerializeCompressed()) {
+	if route.Hops[0].PubKeyBytes != ctx.aliases["satoshi"] {
 
 		t.Fatalf("route should go through satoshi as first hop, "+
 			"instead passes through: %v",
-			getAliasFromPubKey(route.Hops[0].PubKeyBytes[:],
+			getAliasFromPubKey(route.Hops[0].PubKeyBytes,
 				ctx.aliases))
 	}
 }
@@ -1233,8 +1262,9 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 
 	// We will connect node 1 to "sophon"
 	connectNode := ctx.aliases["sophon"]
-	if connectNode == nil {
-		t.Fatalf("could not find node to connect to")
+	connectNodeKey, err := btcec.ParsePubKey(connectNode[:], btcec.S256())
+	if err != nil {
+		t.Fatal(err)
 	}
 
 	var (
@@ -1242,12 +1272,12 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 		pubKey2 *btcec.PublicKey
 	)
 	node1Bytes := priv1.PubKey().SerializeCompressed()
-	node2Bytes := connectNode.SerializeCompressed()
-	if bytes.Compare(node1Bytes, node2Bytes) == -1 {
+	node2Bytes := connectNode
+	if bytes.Compare(node1Bytes[:], node2Bytes[:]) == -1 {
 		pubKey1 = priv1.PubKey()
-		pubKey2 = connectNode
+		pubKey2 = connectNodeKey
 	} else {
-		pubKey1 = connectNode
+		pubKey1 = connectNodeKey
 		pubKey2 = priv1.PubKey()
 	}
 
@@ -1267,9 +1297,9 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 		AuthProof: nil,
 	}
 	copy(edge.NodeKey1Bytes[:], node1Bytes)
-	copy(edge.NodeKey2Bytes[:], node2Bytes)
+	edge.NodeKey2Bytes = node2Bytes
 	copy(edge.BitcoinKey1Bytes[:], node1Bytes)
-	copy(edge.BitcoinKey2Bytes[:], node2Bytes)
+	edge.BitcoinKey2Bytes = node2Bytes
 
 	if err := ctx.router.AddEdge(edge); err != nil {
 		t.Fatalf("unable to add edge to the channel graph: %v.", err)
@@ -1308,8 +1338,10 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	// We should now be able to find two routes to node 2.
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
 	targetNode := priv2.PubKey()
+	var targetPubKeyBytes Vertex
+	copy(targetPubKeyBytes[:], targetNode.SerializeCompressed())
 	routes, err := ctx.router.FindRoutes(
-		targetNode, paymentAmt, noRestrictions, defaultNumRoutes,
+		targetPubKeyBytes, paymentAmt, noRestrictions, defaultNumRoutes,
 		DefaultFinalCLTVDelta,
 	)
 	if err != nil {
@@ -1354,7 +1386,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	// Should still be able to find the routes, and the info should be
 	// updated.
 	routes, err = ctx.router.FindRoutes(
-		targetNode, paymentAmt, noRestrictions, defaultNumRoutes,
+		targetPubKeyBytes, paymentAmt, noRestrictions, defaultNumRoutes,
 		DefaultFinalCLTVDelta,
 	)
 	if err != nil {
@@ -1954,9 +1986,6 @@ func TestFindPathFeeWeighting(t *testing.T) {
 	amt := lnwire.MilliSatoshi(100)
 
 	target := ctx.aliases["luoji"]
-	if target == nil {
-		t.Fatalf("unable to find target node")
-	}
 
 	// We'll now attempt a path finding attempt using this set up. Due to
 	// the edge weighting, we should select the direct path over the 2 hop
@@ -1968,7 +1997,7 @@ func TestFindPathFeeWeighting(t *testing.T) {
 		&RestrictParams{
 			FeeLimit: noFeeLimit,
 		},
-		sourceNode, target, amt,
+		sourceNode.PubKeyBytes, target, amt,
 	)
 	if err != nil {
 		t.Fatalf("unable to find path: %v", err)

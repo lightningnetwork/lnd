@@ -153,7 +153,7 @@ func (m *missionControl) GraphPruneView() graphPruneView {
 // in order to populate additional edges to explore when finding a path to the
 // payment's destination.
 func (m *missionControl) NewPaymentSession(routeHints [][]HopHint,
-	target *btcec.PublicKey) (*paymentSession, error) {
+	target Vertex) (*paymentSession, error) {
 
 	viewSnapshot := m.GraphPruneView()
 
@@ -175,7 +175,13 @@ func (m *missionControl) NewPaymentSession(routeHints [][]HopHint,
 			if i != len(routeHint)-1 {
 				endNode.AddPubKey(routeHint[i+1].NodeID)
 			} else {
-				endNode.AddPubKey(target)
+				targetPubKey, err := btcec.ParsePubKey(
+					target[:], btcec.S256(),
+				)
+				if err != nil {
+					return nil, err
+				}
+				endNode.AddPubKey(targetPubKey)
 			}
 
 			// Finally, create the channel edge from the hop hint

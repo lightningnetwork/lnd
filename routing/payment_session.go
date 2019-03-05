@@ -153,7 +153,8 @@ func (p *paymentSession) RequestRoute(payment *LightningPayment,
 			FeeLimit:          payment.FeeLimit,
 			OutgoingChannelID: payment.OutgoingChannelID,
 		},
-		p.mc.selfNode, payment.Target, payment.Amount,
+		p.mc.selfNode.PubKeyBytes, payment.Target,
+		payment.Amount,
 	)
 	if err != nil {
 		return nil, err

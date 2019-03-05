@@ -1338,9 +1338,13 @@ func (r *ChannelRouter) FindRoutes(source, target Vertex,
 
 	log.Debugf("Searching for path to %x, sending %v", target, amt)
 
-	// Before attempting to perform a series of graph traversals to find
-	// the k-shortest paths to the destination, we'll first consult our
-	// path cache
+	// Before attempting to perform a series of graph traversals to find the
+	// k-shortest paths to the destination, we'll first consult our path
+	// cache
+	//
+	// TODO: Route cache should store all request parameters instead of just
+	// amt and target. Currently false positives are returned if just the
+	// restrictions (fee limit, ignore lists) or finalExpiry are different.
 	rt := newRouteTuple(amt, target[:])
 	r.routeCacheMtx.RLock()
 	routes, ok := r.routeCache[rt]

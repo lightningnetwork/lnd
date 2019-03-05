@@ -299,6 +299,10 @@ func (b *BtcWallet) SendOutputs(outputs []*wire.TxOut,
 	// SendOutputs.
 	feeSatPerKB := btcutil.Amount(feeRate.FeePerKVByte())
 
+	// Sanity check outputs.
+	if len(outputs) < 1 {
+		return nil, lnwallet.ErrNoOutputs
+	}
 	return b.wallet.SendOutputs(outputs, defaultAccount, 1, feeSatPerKB)
 }
 
@@ -321,6 +325,9 @@ func (b *BtcWallet) CreateSimpleTx(outputs []*wire.TxOut,
 	feeSatPerKB := btcutil.Amount(feeRate.FeePerKVByte())
 
 	// Sanity check outputs.
+	if len(outputs) < 1 {
+		return nil, lnwallet.ErrNoOutputs
+	}
 	for _, output := range outputs {
 		err := txrules.CheckOutput(output, feeSatPerKB)
 		if err != nil {

@@ -49,6 +49,10 @@ var (
 	ErrNotMine = errors.New("the passed output doesn't belong to the wallet")
 )
 
+// ErrNoOutputs is returned if we try to create a transaction with no outputs
+// or send coins to a set of outputs that is empty.
+var ErrNoOutputs = errors.New("no outputs")
+
 // Utxo is an unspent output denoted by its outpoint, and output value of the
 // original output.
 type Utxo struct {

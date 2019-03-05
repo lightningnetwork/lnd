@@ -888,6 +888,10 @@ func findPaths(tx *bbolt.Tx, graph *channeldb.ChannelGraph,
 			// the Vertexes (other than the spur path) within the
 			// root path removed, we'll attempt to find another
 			// shortest path from the spur node to the destination.
+			//
+			// TODO: Fee limit passed to spur path finding isn't
+			// correct, because it doesn't take into account the
+			// fees already paid on the root path.
 			spurPath, err := findPath(
 				&graphParams{
 					tx:             tx,

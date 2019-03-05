@@ -790,7 +790,7 @@ func findPath(g *graphParams, r *RestrictParams,
 // algorithm in a block box manner.
 func findPaths(tx *bbolt.Tx, graph *channeldb.ChannelGraph,
 	source *channeldb.LightningNode, target *btcec.PublicKey,
-	amt lnwire.MilliSatoshi, feeLimit lnwire.MilliSatoshi, numPaths uint32,
+	amt lnwire.MilliSatoshi, restrictions *RestrictParams, numPaths uint32,
 	bandwidthHints map[uint64]lnwire.MilliSatoshi) ([][]*channeldb.ChannelEdgePolicy, error) {
 
 	// TODO(roasbeef): modifying ordering within heap to eliminate final
@@ -809,10 +809,7 @@ func findPaths(tx *bbolt.Tx, graph *channeldb.ChannelGraph,
 			graph:          graph,
 			bandwidthHints: bandwidthHints,
 		},
-		&RestrictParams{
-			FeeLimit: feeLimit,
-		},
-		source, target, amt,
+		restrictions, source, target, amt,
 	)
 	if err != nil {
 		log.Errorf("Unable to find path: %v", err)
@@ -845,6 +842,13 @@ func findPaths(tx *bbolt.Tx, graph *channeldb.ChannelGraph,
 			// and loopless.
 			ignoredEdges := make(map[EdgeLocator]struct{})
 			ignoredVertexes := make(map[Vertex]struct{})
+
+			for e := range restrictions.IgnoredEdges {
+				ignoredEdges[e] = struct{}{}
+			}
+			for n := range restrictions.IgnoredNodes {
+				ignoredVertexes[n] = struct{}{}
+			}
 
 			// Our spur node is the i-th node in the prior shortest
 			// path, and our root path will be all nodes in the
@@ -889,17 +893,22 @@ func findPaths(tx *bbolt.Tx, graph *channeldb.ChannelGraph,
 			// TODO: Fee limit passed to spur path finding isn't
 			// correct, because it doesn't take into account the
 			// fees already paid on the root path.
+			//
+			// TODO: Outgoing channel restriction isn't obeyed for
+			// spur paths.
+			spurRestrictions := &RestrictParams{
+				IgnoredEdges: ignoredEdges,
+				IgnoredNodes: ignoredVertexes,
+				FeeLimit:     restrictions.FeeLimit,
+			}
+
 			spurPath, err := findPath(
 				&graphParams{
 					tx:             tx,
 					graph:          graph,
 					bandwidthHints: bandwidthHints,
 				},
-				&RestrictParams{
-					IgnoredNodes: ignoredVertexes,
-					IgnoredEdges: ignoredEdges,
-					FeeLimit:     feeLimit,
-				}, spurNode, target, amt,
+				spurRestrictions, spurNode, target, amt,
 			)
 
 			// If we weren't able to find a path, we'll continue to

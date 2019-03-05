@@ -593,6 +593,17 @@
             "required": false,
             "type": "string",
             "format": "int64"
+          },
+          {
+            "name": "ignored_nodes",
+            "description": "*\nA list of nodes to ignore during path finding.",
+            "in": "query",
+            "required": false,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "byte"
+            }
           }
         ],
         "tags": [

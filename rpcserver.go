@@ -4022,7 +4022,35 @@ func (r *rpcServer) QueryRoutes(ctx context.Context,
 			"allowed is %v", amt, maxPaymentMSat.ToSatoshis())
 	}
 
+	// Unmarshall restrictions from request.
 	feeLimit := calculateFeeLimit(in.FeeLimit, amtMSat)
+
+	ignoredNodes := make(map[routing.Vertex]struct{})
+	for _, ignorePubKey := range in.IgnoredNodes {
+		if len(ignorePubKey) != 33 {
+			return nil, fmt.Errorf("invalid ignore node pubkey")
+		}
+		var ignoreVertex routing.Vertex
+		copy(ignoreVertex[:], ignorePubKey)
+		ignoredNodes[ignoreVertex] = struct{}{}
+	}
+
+	ignoredEdges := make(map[routing.EdgeLocator]struct{})
+	for _, ignoredEdge := range in.IgnoredEdges {
+		locator := routing.EdgeLocator{
+			ChannelID: ignoredEdge.ChannelId,
+		}
+		if ignoredEdge.DirectionReverse {
+			locator.Direction = 1
+		}
+		ignoredEdges[locator] = struct{}{}
+	}
+
+	restrictions := &routing.RestrictParams{
+		FeeLimit:     feeLimit,
+		IgnoredNodes: ignoredNodes,
+		IgnoredEdges: ignoredEdges,
+	}
 
 	// numRoutes will default to 10 if not specified explicitly.
 	numRoutesIn := uint32(in.NumRoutes)
@@ -4037,13 +4065,14 @@ func (r *rpcServer) QueryRoutes(ctx context.Context,
 		routes  []*routing.Route
 		findErr error
 	)
+
 	if in.FinalCltvDelta == 0 {
 		routes, findErr = r.server.chanRouter.FindRoutes(
-			pubKey, amtMSat, feeLimit, numRoutesIn,
+			pubKey, amtMSat, restrictions, numRoutesIn,
 		)
 	} else {
 		routes, findErr = r.server.chanRouter.FindRoutes(
-			pubKey, amtMSat, feeLimit, numRoutesIn,
+			pubKey, amtMSat, restrictions, numRoutesIn,
 			uint16(in.FinalCltvDelta),
 		)
 	}

@@ -184,7 +184,7 @@ func TestFindRoutesFeeSorting(t *testing.T) {
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
 	target := ctx.aliases["luoji"]
 	routes, err := ctx.router.FindRoutes(
-		target, paymentAmt, noFeeLimit, defaultNumRoutes,
+		target, paymentAmt, noRestrictions, defaultNumRoutes,
 		DefaultFinalCLTVDelta,
 	)
 	if err != nil {
@@ -240,10 +240,12 @@ func TestFindRoutesWithFeeLimit(t *testing.T) {
 	// see the first route.
 	target := ctx.aliases["sophon"]
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
-	feeLimit := lnwire.NewMSatFromSatoshis(10)
+	restrictions := &RestrictParams{
+		FeeLimit: lnwire.NewMSatFromSatoshis(10),
+	}
 
 	routes, err := ctx.router.FindRoutes(
-		target, paymentAmt, feeLimit, defaultNumRoutes,
+		target, paymentAmt, restrictions, defaultNumRoutes,
 		DefaultFinalCLTVDelta,
 	)
 	if err != nil {
@@ -254,7 +256,7 @@ func TestFindRoutesWithFeeLimit(t *testing.T) {
 		t.Fatalf("expected 1 route, got %d", len(routes))
 	}
 
-	if routes[0].TotalFees > feeLimit {
+	if routes[0].TotalFees > restrictions.FeeLimit {
 		t.Fatalf("route exceeded fee limit: %v", spew.Sdump(routes[0]))
 	}
 
@@ -1307,7 +1309,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
 	targetNode := priv2.PubKey()
 	routes, err := ctx.router.FindRoutes(
-		targetNode, paymentAmt, noFeeLimit, defaultNumRoutes,
+		targetNode, paymentAmt, noRestrictions, defaultNumRoutes,
 		DefaultFinalCLTVDelta,
 	)
 	if err != nil {
@@ -1352,7 +1354,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	// Should still be able to find the routes, and the info should be
 	// updated.
 	routes, err = ctx.router.FindRoutes(
-		targetNode, paymentAmt, noFeeLimit, defaultNumRoutes,
+		targetNode, paymentAmt, noRestrictions, defaultNumRoutes,
 		DefaultFinalCLTVDelta,
 	)
 	if err != nil {

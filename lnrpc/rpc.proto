@@ -220,6 +220,16 @@ service Lightning {
         };
     }
 
+    /** lncli: `estimatefee`
+    EstimateFee asks the chain backend to estimate the fee rate and total fees
+    for a transaction that pays to multiple specified outputs.
+    */
+    rpc EstimateFee (EstimateFeeRequest) returns (EstimateFeeResponse) {
+        option (google.api.http) = {
+            get: "/v1/transactions/fee"
+        };
+    }
+
     /** lncli: `sendcoins`
     SendCoins executes a request to send coins to a particular address. Unlike
     SendMany, this RPC call only allows creating a single output at a time. If
@@ -837,6 +847,22 @@ message LightningAddress {
 
     /// The network location of the lightning node, e.g. `69.69.69.69:1337` or `localhost:10011`
     string host = 2 [json_name = "host"];
+}
+
+message EstimateFeeRequest {
+    /// The map from addresses to amounts for the transaction.
+    map<string, int64> AddrToAmount = 1;
+
+    /// The target number of blocks that this transaction should be confirmed by.
+    int32 target_conf = 2;
+}
+
+message EstimateFeeResponse {
+    /// The total fee in satoshis.
+    int64 fee_sat = 1 [json_name = "fee_sat"];
+
+    /// The fee rate in satoshi/byte.
+    int64 feerate_sat_per_byte = 2 [json_name = "feerate_sat_per_byte"];
 }
 
 message SendManyRequest {

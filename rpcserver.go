@@ -25,6 +25,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcwallet/waddrmgr"
+	"github.com/btcsuite/btcwallet/wallet/txauthor"
 	"github.com/coreos/bbolt"
 	"github.com/davecgh/go-spew/spew"
 	proxy "github.com/grpc-ecosystem/grpc-gateway/runtime"
@@ -233,6 +234,10 @@ var (
 			Action: "read",
 		}},
 		"/lnrpc.Lightning/WalletBalance": {{
+			Entity: "onchain",
+			Action: "read",
+		}},
+		"/lnrpc.Lightning/EstimateFee": {{
 			Entity: "onchain",
 			Action: "read",
 		}},
@@ -796,6 +801,59 @@ func (r *rpcServer) ListUnspent(ctx context.Context,
 
 	rpcsLog.Debugf("[listunspent] min=%v%v, generated utxos: %v", minConfs,
 		maxStr, utxos)
+
+	return resp, nil
+}
+
+// EstimateFee handles a request for estimating the fee for sending a
+// transaction spending to multiple specified outputs in parallel.
+func (r *rpcServer) EstimateFee(ctx context.Context,
+	in *lnrpc.EstimateFeeRequest) (*lnrpc.EstimateFeeResponse, error) {
+
+	// Create the list of outputs we are spending to.
+	outputs, err := addrPairsToOutputs(in.AddrToAmount)
+	if err != nil {
+		return nil, err
+	}
+
+	// Query the fee estimator for the fee rate for the given confirmation
+	// target.
+	target := in.TargetConf
+	feePerKw, err := sweep.DetermineFeePerKw(
+		r.server.cc.feeEstimator, sweep.FeePreference{
+			ConfTarget: uint32(target),
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// We will ask the wallet to create a tx using this fee rate. We set
+	// dryRun=true to avoid inflating the change addresses in the db.
+	var tx *txauthor.AuthoredTx
+	wallet := r.server.cc.wallet
+	err = wallet.WithCoinSelectLock(func() error {
+		tx, err = wallet.CreateSimpleTx(outputs, feePerKw, true)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// Use the created tx to calculate the total fee.
+	totalOutput := int64(0)
+	for _, out := range tx.Tx.TxOut {
+		totalOutput += out.Value
+	}
+	totalFee := int64(tx.TotalInput) - totalOutput
+
+	resp := &lnrpc.EstimateFeeResponse{
+		FeeSat:            totalFee,
+		FeerateSatPerByte: int64(feePerKw.FeePerKVByte() / 1000),
+	}
+
+	rpcsLog.Debugf("[estimatefee] fee estimate for conf target %d: %v",
+		target, resp)
 
 	return resp, nil
 }

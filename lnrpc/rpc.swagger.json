@@ -604,6 +604,13 @@
               "type": "string",
               "format": "byte"
             }
+          },
+          {
+            "name": "source_pub_key",
+            "description": "*\nThe source node where the request route should originated from. If empty,\nself is assumed.",
+            "in": "query",
+            "required": false,
+            "type": "string"
           }
         ],
         "tags": [

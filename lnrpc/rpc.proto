@@ -1490,6 +1490,12 @@ message QueryRoutesRequest {
     A list of edges to ignore during path finding.
     */
     repeated EdgeLocator ignored_edges = 7;
+
+    /**
+    The source node where the request route should originated from. If empty,
+    self is assumed.
+    */
+    string source_pub_key = 8;
 }
 
 message EdgeLocator {

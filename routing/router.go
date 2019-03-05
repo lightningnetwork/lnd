@@ -215,18 +215,20 @@ func newRouteTuple(amt lnwire.MilliSatoshi, dest []byte) routeTuple {
 	return r
 }
 
-// edgeLocator is a struct used to identify a specific edge. The direction
-// fields takes the value of 0 or 1 and is identical in definition to the
-// channel direction flag. A value of 0 means the direction from the lower node
-// pubkey to the higher.
-type edgeLocator struct {
-	channelID uint64
-	direction uint8
+// EdgeLocator is a struct used to identify a specific edge.
+type EdgeLocator struct {
+	// ChannelID is the channel of this edge.
+	ChannelID uint64
+
+	// Direction takes the value of 0 or 1 and is identical in definition to
+	// the channel direction flag. A value of 0 means the direction from the
+	// lower node pubkey to the higher.
+	Direction uint8
 }
 
 // newEdgeLocatorByPubkeys returns an edgeLocator based on its end point
 // pubkeys.
-func newEdgeLocatorByPubkeys(channelID uint64, fromNode, toNode *Vertex) *edgeLocator {
+func newEdgeLocatorByPubkeys(channelID uint64, fromNode, toNode *Vertex) *EdgeLocator {
 	// Determine direction based on lexicographical ordering of both
 	// pubkeys.
 	var direction uint8
@@ -234,24 +236,24 @@ func newEdgeLocatorByPubkeys(channelID uint64, fromNode, toNode *Vertex) *edgeLo
 		direction = 1
 	}
 
-	return &edgeLocator{
-		channelID: channelID,
-		direction: direction,
+	return &EdgeLocator{
+		ChannelID: channelID,
+		Direction: direction,
 	}
 }
 
 // newEdgeLocator extracts an edgeLocator based for a full edge policy
 // structure.
-func newEdgeLocator(edge *channeldb.ChannelEdgePolicy) *edgeLocator {
-	return &edgeLocator{
-		channelID: edge.ChannelID,
-		direction: uint8(edge.ChannelFlags & lnwire.ChanUpdateDirection),
+func newEdgeLocator(edge *channeldb.ChannelEdgePolicy) *EdgeLocator {
+	return &EdgeLocator{
+		ChannelID: edge.ChannelID,
+		Direction: uint8(edge.ChannelFlags & lnwire.ChanUpdateDirection),
 	}
 }
 
 // String returns a human readable version of the edgeLocator values.
-func (e *edgeLocator) String() string {
-	return fmt.Sprintf("%v:%v", e.channelID, e.direction)
+func (e *EdgeLocator) String() string {
+	return fmt.Sprintf("%v:%v", e.ChannelID, e.Direction)
 }
 
 // ChannelRouter is the layer 3 router within the Lightning stack. Below the
@@ -1275,7 +1277,7 @@ func pathsToFeeSortedRoutes(source Vertex, paths [][]*channeldb.ChannelEdgePolic
 		// hop in the path as it contains a "self-hop" that is inserted
 		// by our KSP algorithm.
 		route, err := newRoute(
-			amt, source, path[1:], currentHeight,			finalCLTVDelta,
+			amt, source, path[1:], currentHeight, finalCLTVDelta,
 		)
 		if err != nil {
 			// TODO(roasbeef): report straw breaking edge?
@@ -1411,7 +1413,7 @@ func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
 	// factored in.
 	sourceVertex := Vertex(r.selfNode.PubKeyBytes)
 	validRoutes, err := pathsToFeeSortedRoutes(
-		sourceVertex, shortestPaths, finalCLTVDelta, amt, 
+		sourceVertex, shortestPaths, finalCLTVDelta, amt,
 		uint32(currentHeight),
 	)
 	if err != nil {
@@ -1972,13 +1974,13 @@ func (r *ChannelRouter) processSendError(paySession *paymentSession,
 	// we'll prune the channel in both directions and
 	// continue with the rest of the routes.
 	case *lnwire.FailPermanentChannelFailure:
-		paySession.ReportEdgeFailure(&edgeLocator{
-			channelID: failedEdge.channelID,
-			direction: 0,
+		paySession.ReportEdgeFailure(&EdgeLocator{
+			ChannelID: failedEdge.ChannelID,
+			Direction: 0,
 		})
-		paySession.ReportEdgeFailure(&edgeLocator{
-			channelID: failedEdge.channelID,
-			direction: 1,
+		paySession.ReportEdgeFailure(&EdgeLocator{
+			ChannelID: failedEdge.ChannelID,
+			Direction: 1,
 		})
 		return false
 
@@ -1991,7 +1993,7 @@ func (r *ChannelRouter) processSendError(paySession *paymentSession,
 // pubkey of the node that sent the error. It will assume that the error is
 // associated with the outgoing channel of the error node.
 func getFailedEdge(route *Route, errSource Vertex) (
-	*edgeLocator, error) {
+	*EdgeLocator, error) {
 
 	hopCount := len(route.Hops)
 	fromNode := route.SourcePubKey

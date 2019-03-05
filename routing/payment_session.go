@@ -27,7 +27,7 @@ type paymentSession struct {
 	// source of policy related routing failures during this payment attempt.
 	// We'll use this map to prune out channels when the first error may not
 	// require pruning, but any subsequent ones do.
-	errFailedPolicyChans map[edgeLocator]struct{}
+	errFailedPolicyChans map[EdgeLocator]struct{}
 
 	mc *missionControl
 
@@ -61,7 +61,7 @@ func (p *paymentSession) ReportVertexFailure(v Vertex) {
 // retrying an edge after its pruning has expired.
 //
 // TODO(roasbeef): also add value attempted to send and capacity of channel
-func (p *paymentSession) ReportEdgeFailure(e *edgeLocator) {
+func (p *paymentSession) ReportEdgeFailure(e *EdgeLocator) {
 	log.Debugf("Reporting edge %v failure to Mission Control", e)
 
 	// First, we'll add the failed edge to our local prune view snapshot.
@@ -82,7 +82,7 @@ func (p *paymentSession) ReportEdgeFailure(e *edgeLocator) {
 // pruned. This is to prevent nodes from keeping us busy by continuously sending
 // new channel updates.
 func (p *paymentSession) ReportEdgePolicyFailure(
-	errSource Vertex, failedEdge *edgeLocator) {
+	errSource Vertex, failedEdge *EdgeLocator) {
 
 	// Check to see if we've already reported a policy related failure for
 	// this channel. If so, then we'll prune out the vertex.
@@ -147,11 +147,11 @@ func (p *paymentSession) RequestRoute(payment *LightningPayment,
 			additionalEdges: p.additionalEdges,
 			bandwidthHints:  p.bandwidthHints,
 		},
-		&restrictParams{
-			ignoredNodes:      pruneView.vertexes,
-			ignoredEdges:      pruneView.edges,
-			feeLimit:          payment.FeeLimit,
-			outgoingChannelID: payment.OutgoingChannelID,
+		&RestrictParams{
+			IgnoredNodes:      pruneView.vertexes,
+			IgnoredEdges:      pruneView.edges,
+			FeeLimit:          payment.FeeLimit,
+			OutgoingChannelID: payment.OutgoingChannelID,
 		},
 		p.mc.selfNode, payment.Target, payment.Amount,
 	)

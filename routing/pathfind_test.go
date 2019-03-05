@@ -598,7 +598,7 @@ func TestFindLowestFeePath(t *testing.T) {
 	}
 	sourceVertex := Vertex(sourceNode.PubKeyBytes)
 
-	ignoredEdges := make(map[edgeLocator]struct{})
+	ignoredEdges := make(map[EdgeLocator]struct{})
 	ignoredVertexes := make(map[Vertex]struct{})
 
 	const (
@@ -612,10 +612,10 @@ func TestFindLowestFeePath(t *testing.T) {
 		&graphParams{
 			graph: testGraphInstance.graph,
 		},
-		&restrictParams{
-			ignoredNodes: ignoredVertexes,
-			ignoredEdges: ignoredEdges,
-			feeLimit:     noFeeLimit,
+		&RestrictParams{
+			IgnoredNodes: ignoredVertexes,
+			IgnoredEdges: ignoredEdges,
+			FeeLimit:     noFeeLimit,
 		},
 		sourceNode, target, paymentAmt,
 	)
@@ -744,7 +744,7 @@ func testBasicGraphPathFindingCase(t *testing.T, graphInstance *testGraphInstanc
 	}
 	sourceVertex := Vertex(sourceNode.PubKeyBytes)
 
-	ignoredEdges := make(map[edgeLocator]struct{})
+	ignoredEdges := make(map[EdgeLocator]struct{})
 	ignoredVertexes := make(map[Vertex]struct{})
 
 	const (
@@ -758,10 +758,10 @@ func testBasicGraphPathFindingCase(t *testing.T, graphInstance *testGraphInstanc
 		&graphParams{
 			graph: graphInstance.graph,
 		},
-		&restrictParams{
-			ignoredNodes: ignoredVertexes,
-			ignoredEdges: ignoredEdges,
-			feeLimit:     test.feeLimit,
+		&RestrictParams{
+			IgnoredNodes: ignoredVertexes,
+			IgnoredEdges: ignoredEdges,
+			FeeLimit:     test.feeLimit,
 		},
 		sourceNode, target, paymentAmt,
 	)
@@ -925,8 +925,8 @@ func TestPathFindingWithAdditionalEdges(t *testing.T) {
 			graph:           graph.graph,
 			additionalEdges: additionalEdges,
 		},
-		&restrictParams{
-			feeLimit: noFeeLimit,
+		&RestrictParams{
+			FeeLimit: noFeeLimit,
 		},
 		sourceNode, dogePubKey, paymentAmt,
 	)
@@ -1224,7 +1224,7 @@ func TestNewRoutePathTooLong(t *testing.T) {
 		t.Fatalf("unable to fetch source node: %v", err)
 	}
 
-	ignoredEdges := make(map[edgeLocator]struct{})
+	ignoredEdges := make(map[EdgeLocator]struct{})
 	ignoredVertexes := make(map[Vertex]struct{})
 
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
@@ -1236,10 +1236,10 @@ func TestNewRoutePathTooLong(t *testing.T) {
 		&graphParams{
 			graph: graph.graph,
 		},
-		&restrictParams{
-			ignoredNodes: ignoredVertexes,
-			ignoredEdges: ignoredEdges,
-			feeLimit:     noFeeLimit,
+		&RestrictParams{
+			IgnoredNodes: ignoredVertexes,
+			IgnoredEdges: ignoredEdges,
+			FeeLimit:     noFeeLimit,
 		},
 		sourceNode, target, paymentAmt,
 	)
@@ -1254,10 +1254,10 @@ func TestNewRoutePathTooLong(t *testing.T) {
 		&graphParams{
 			graph: graph.graph,
 		},
-		&restrictParams{
-			ignoredNodes: ignoredVertexes,
-			ignoredEdges: ignoredEdges,
-			feeLimit:     noFeeLimit,
+		&RestrictParams{
+			IgnoredNodes: ignoredVertexes,
+			IgnoredEdges: ignoredEdges,
+			FeeLimit:     noFeeLimit,
 		},
 		sourceNode, target, paymentAmt,
 	)
@@ -1283,7 +1283,7 @@ func TestPathNotAvailable(t *testing.T) {
 		t.Fatalf("unable to fetch source node: %v", err)
 	}
 
-	ignoredEdges := make(map[edgeLocator]struct{})
+	ignoredEdges := make(map[EdgeLocator]struct{})
 	ignoredVertexes := make(map[Vertex]struct{})
 
 	// With the test graph loaded, we'll test that queries for target that
@@ -1303,10 +1303,10 @@ func TestPathNotAvailable(t *testing.T) {
 		&graphParams{
 			graph: graph.graph,
 		},
-		&restrictParams{
-			ignoredNodes: ignoredVertexes,
-			ignoredEdges: ignoredEdges,
-			feeLimit:     noFeeLimit,
+		&RestrictParams{
+			IgnoredNodes: ignoredVertexes,
+			IgnoredEdges: ignoredEdges,
+			FeeLimit:     noFeeLimit,
 		},
 		sourceNode, unknownNode, 100,
 	)
@@ -1328,7 +1328,7 @@ func TestPathInsufficientCapacity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to fetch source node: %v", err)
 	}
-	ignoredEdges := make(map[edgeLocator]struct{})
+	ignoredEdges := make(map[EdgeLocator]struct{})
 	ignoredVertexes := make(map[Vertex]struct{})
 
 	// Next, test that attempting to find a path in which the current
@@ -1346,10 +1346,10 @@ func TestPathInsufficientCapacity(t *testing.T) {
 		&graphParams{
 			graph: graph.graph,
 		},
-		&restrictParams{
-			ignoredNodes: ignoredVertexes,
-			ignoredEdges: ignoredEdges,
-			feeLimit:     noFeeLimit,
+		&RestrictParams{
+			IgnoredNodes: ignoredVertexes,
+			IgnoredEdges: ignoredEdges,
+			FeeLimit:     noFeeLimit,
 		},
 		sourceNode, target, payAmt,
 	)
@@ -1373,7 +1373,7 @@ func TestRouteFailMinHTLC(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to fetch source node: %v", err)
 	}
-	ignoredEdges := make(map[edgeLocator]struct{})
+	ignoredEdges := make(map[EdgeLocator]struct{})
 	ignoredVertexes := make(map[Vertex]struct{})
 
 	// We'll not attempt to route an HTLC of 10 SAT from roasbeef to Son
@@ -1385,10 +1385,10 @@ func TestRouteFailMinHTLC(t *testing.T) {
 		&graphParams{
 			graph: graph.graph,
 		},
-		&restrictParams{
-			ignoredNodes: ignoredVertexes,
-			ignoredEdges: ignoredEdges,
-			feeLimit:     noFeeLimit,
+		&RestrictParams{
+			IgnoredNodes: ignoredVertexes,
+			IgnoredEdges: ignoredEdges,
+			FeeLimit:     noFeeLimit,
 		},
 		sourceNode, target, payAmt,
 	)
@@ -1438,7 +1438,7 @@ func TestRouteFailMaxHTLC(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to fetch source node: %v", err)
 	}
-	ignoredEdges := make(map[edgeLocator]struct{})
+	ignoredEdges := make(map[EdgeLocator]struct{})
 	ignoredVertexes := make(map[Vertex]struct{})
 
 	// First, attempt to send a payment greater than the max HTLC we are
@@ -1449,10 +1449,10 @@ func TestRouteFailMaxHTLC(t *testing.T) {
 		&graphParams{
 			graph: graph.graph,
 		},
-		&restrictParams{
-			ignoredNodes: ignoredVertexes,
-			ignoredEdges: ignoredEdges,
-			feeLimit:     noFeeLimit,
+		&RestrictParams{
+			IgnoredNodes: ignoredVertexes,
+			IgnoredEdges: ignoredEdges,
+			FeeLimit:     noFeeLimit,
 		},
 		sourceNode, target, payAmt,
 	)
@@ -1475,10 +1475,10 @@ func TestRouteFailMaxHTLC(t *testing.T) {
 		&graphParams{
 			graph: graph.graph,
 		},
-		&restrictParams{
-			ignoredNodes: ignoredVertexes,
-			ignoredEdges: ignoredEdges,
-			feeLimit:     noFeeLimit,
+		&RestrictParams{
+			IgnoredNodes: ignoredVertexes,
+			IgnoredEdges: ignoredEdges,
+			FeeLimit:     noFeeLimit,
 		},
 		sourceNode, target, payAmt,
 	)
@@ -1505,7 +1505,7 @@ func TestRouteFailDisabledEdge(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to fetch source node: %v", err)
 	}
-	ignoredEdges := make(map[edgeLocator]struct{})
+	ignoredEdges := make(map[EdgeLocator]struct{})
 	ignoredVertexes := make(map[Vertex]struct{})
 
 	// First, we'll try to route from roasbeef -> sophon. This should
@@ -1516,10 +1516,10 @@ func TestRouteFailDisabledEdge(t *testing.T) {
 		&graphParams{
 			graph: graph.graph,
 		},
-		&restrictParams{
-			ignoredNodes: ignoredVertexes,
-			ignoredEdges: ignoredEdges,
-			feeLimit:     noFeeLimit,
+		&RestrictParams{
+			IgnoredNodes: ignoredVertexes,
+			IgnoredEdges: ignoredEdges,
+			FeeLimit:     noFeeLimit,
 		},
 		sourceNode, target, payAmt,
 	)
@@ -1548,10 +1548,10 @@ func TestRouteFailDisabledEdge(t *testing.T) {
 		&graphParams{
 			graph: graph.graph,
 		},
-		&restrictParams{
-			ignoredNodes: ignoredVertexes,
-			ignoredEdges: ignoredEdges,
-			feeLimit:     noFeeLimit,
+		&RestrictParams{
+			IgnoredNodes: ignoredVertexes,
+			IgnoredEdges: ignoredEdges,
+			FeeLimit:     noFeeLimit,
 		},
 		sourceNode, target, payAmt,
 	)
@@ -1577,10 +1577,10 @@ func TestRouteFailDisabledEdge(t *testing.T) {
 		&graphParams{
 			graph: graph.graph,
 		},
-		&restrictParams{
-			ignoredNodes: ignoredVertexes,
-			ignoredEdges: ignoredEdges,
-			feeLimit:     noFeeLimit,
+		&RestrictParams{
+			IgnoredNodes: ignoredVertexes,
+			IgnoredEdges: ignoredEdges,
+			FeeLimit:     noFeeLimit,
 		},
 		sourceNode, target, payAmt,
 	)
@@ -1605,7 +1605,7 @@ func TestPathSourceEdgesBandwidth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to fetch source node: %v", err)
 	}
-	ignoredEdges := make(map[edgeLocator]struct{})
+	ignoredEdges := make(map[EdgeLocator]struct{})
 	ignoredVertexes := make(map[Vertex]struct{})
 
 	// First, we'll try to route from roasbeef -> sophon. This should
@@ -1617,10 +1617,10 @@ func TestPathSourceEdgesBandwidth(t *testing.T) {
 		&graphParams{
 			graph: graph.graph,
 		},
-		&restrictParams{
-			ignoredNodes: ignoredVertexes,
-			ignoredEdges: ignoredEdges,
-			feeLimit:     noFeeLimit,
+		&RestrictParams{
+			IgnoredNodes: ignoredVertexes,
+			IgnoredEdges: ignoredEdges,
+			FeeLimit:     noFeeLimit,
 		},
 		sourceNode, target, payAmt,
 	)
@@ -1645,10 +1645,10 @@ func TestPathSourceEdgesBandwidth(t *testing.T) {
 			graph:          graph.graph,
 			bandwidthHints: bandwidths,
 		},
-		&restrictParams{
-			ignoredNodes: ignoredVertexes,
-			ignoredEdges: ignoredEdges,
-			feeLimit:     noFeeLimit,
+		&RestrictParams{
+			IgnoredNodes: ignoredVertexes,
+			IgnoredEdges: ignoredEdges,
+			FeeLimit:     noFeeLimit,
 		},
 		sourceNode, target, payAmt,
 	)
@@ -1667,10 +1667,10 @@ func TestPathSourceEdgesBandwidth(t *testing.T) {
 			graph:          graph.graph,
 			bandwidthHints: bandwidths,
 		},
-		&restrictParams{
-			ignoredNodes: ignoredVertexes,
-			ignoredEdges: ignoredEdges,
-			feeLimit:     noFeeLimit,
+		&RestrictParams{
+			IgnoredNodes: ignoredVertexes,
+			IgnoredEdges: ignoredEdges,
+			FeeLimit:     noFeeLimit,
 		},
 		sourceNode, target, payAmt,
 	)
@@ -1702,10 +1702,10 @@ func TestPathSourceEdgesBandwidth(t *testing.T) {
 			graph:          graph.graph,
 			bandwidthHints: bandwidths,
 		},
-		&restrictParams{
-			ignoredNodes: ignoredVertexes,
-			ignoredEdges: ignoredEdges,
-			feeLimit:     noFeeLimit,
+		&RestrictParams{
+			IgnoredNodes: ignoredVertexes,
+			IgnoredEdges: ignoredEdges,
+			FeeLimit:     noFeeLimit,
 		},
 		sourceNode, target, payAmt,
 	)
@@ -2022,7 +2022,7 @@ func TestRestrictOutgoingChannel(t *testing.T) {
 	}
 	sourceVertex := Vertex(sourceNode.PubKeyBytes)
 
-	ignoredEdges := make(map[edgeLocator]struct{})
+	ignoredEdges := make(map[EdgeLocator]struct{})
 	ignoredVertexes := make(map[Vertex]struct{})
 
 	const (
@@ -2040,11 +2040,11 @@ func TestRestrictOutgoingChannel(t *testing.T) {
 		&graphParams{
 			graph: testGraphInstance.graph,
 		},
-		&restrictParams{
-			ignoredNodes:      ignoredVertexes,
-			ignoredEdges:      ignoredEdges,
-			feeLimit:          noFeeLimit,
-			outgoingChannelID: &outgoingChannelID,
+		&RestrictParams{
+			IgnoredNodes:      ignoredVertexes,
+			IgnoredEdges:      ignoredEdges,
+			FeeLimit:          noFeeLimit,
+			OutgoingChannelID: &outgoingChannelID,
 		},
 		sourceNode, target, paymentAmt,
 	)

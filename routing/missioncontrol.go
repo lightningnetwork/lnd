@@ -46,7 +46,7 @@ type missionControl struct {
 	// it was added to the prune view. Edges are added to this map if a
 	// caller reports to missionControl a failure localized to that edge
 	// when sending a payment.
-	failedEdges map[edgeLocator]time.Time
+	failedEdges map[EdgeLocator]time.Time
 
 	// failedVertexes maps a node's public key that should be pruned, to
 	// the time that it was added to the prune view. Vertexes are added to
@@ -75,7 +75,7 @@ func newMissionControl(g *channeldb.ChannelGraph, selfNode *channeldb.LightningN
 	qb func(*channeldb.ChannelEdgeInfo) lnwire.MilliSatoshi) *missionControl {
 
 	return &missionControl{
-		failedEdges:    make(map[edgeLocator]time.Time),
+		failedEdges:    make(map[EdgeLocator]time.Time),
 		failedVertexes: make(map[Vertex]time.Time),
 		selfNode:       selfNode,
 		queryBandwidth: qb,
@@ -89,7 +89,7 @@ func newMissionControl(g *channeldb.ChannelGraph, selfNode *channeldb.LightningN
 // state of the wider network from the PoV of mission control compiled via HTLC
 // routing attempts in the past.
 type graphPruneView struct {
-	edges map[edgeLocator]struct{}
+	edges map[EdgeLocator]struct{}
 
 	vertexes map[Vertex]struct{}
 }
@@ -124,7 +124,7 @@ func (m *missionControl) GraphPruneView() graphPruneView {
 
 	// We'll also do the same for edges, but use the edgeDecay this time
 	// rather than the decay for vertexes.
-	edges := make(map[edgeLocator]struct{})
+	edges := make(map[EdgeLocator]struct{})
 	for edge, pruneTime := range m.failedEdges {
 		if now.Sub(pruneTime) >= edgeDecay {
 			log.Tracef("Pruning decayed failure report for edge %v "+
@@ -217,7 +217,7 @@ func (m *missionControl) NewPaymentSession(routeHints [][]HopHint,
 		pruneViewSnapshot:    viewSnapshot,
 		additionalEdges:      edges,
 		bandwidthHints:       bandwidthHints,
-		errFailedPolicyChans: make(map[edgeLocator]struct{}),
+		errFailedPolicyChans: make(map[EdgeLocator]struct{}),
 		mc:                   m,
 	}, nil
 }
@@ -231,7 +231,7 @@ func (m *missionControl) NewPaymentSessionFromRoutes(routes []*Route) *paymentSe
 		pruneViewSnapshot:    m.GraphPruneView(),
 		haveRoutes:           true,
 		preBuiltRoutes:       routes,
-		errFailedPolicyChans: make(map[edgeLocator]struct{}),
+		errFailedPolicyChans: make(map[EdgeLocator]struct{}),
 		mc:                   m,
 	}
 }
@@ -275,7 +275,7 @@ func generateBandwidthHints(sourceNode *channeldb.LightningNode,
 // if no payment attempts have been made.
 func (m *missionControl) ResetHistory() {
 	m.Lock()
-	m.failedEdges = make(map[edgeLocator]time.Time)
+	m.failedEdges = make(map[EdgeLocator]time.Time)
 	m.failedVertexes = make(map[Vertex]time.Time)
 	m.Unlock()
 }

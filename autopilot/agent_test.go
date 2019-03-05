@@ -58,7 +58,7 @@ func (m *mockConstraints) MaxPendingOpens() uint16 {
 }
 
 func (m *mockConstraints) MinChanSize() btcutil.Amount {
-	return 0
+	return 1e7
 }
 func (m *mockConstraints) MaxChanSize() btcutil.Amount {
 	return 1e8
@@ -85,13 +85,13 @@ func (m *mockHeuristic) Name() string {
 }
 
 func (m *mockHeuristic) NodeScores(g ChannelGraph, chans []Channel,
-	fundsAvailable btcutil.Amount, nodes map[NodeID]struct{}) (
+	chanSize btcutil.Amount, nodes map[NodeID]struct{}) (
 	map[NodeID]*NodeScore, error) {
 
 	if m.nodeScoresArgs != nil {
 		directive := directiveArg{
 			graph: g,
-			amt:   fundsAvailable,
+			amt:   chanSize,
 			chans: chans,
 			nodes: nodes,
 		}
@@ -1093,4 +1093,220 @@ func TestAgentQuitWhenPendingConns(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatalf("unable to stop agent")
 	}
+}
+
+// respondWithScores checks that the moreChansRequest contains what we expect,
+// and responds with the given node scores.
+func respondWithScores(t *testing.T, testCtx *testContext,
+	channelBudget btcutil.Amount, existingChans, newChans int,
+	nodeScores map[NodeID]*NodeScore) {
+
+	t.Helper()
+
+	select {
+	case testCtx.constraints.moreChansResps <- moreChansResp{
+		numMore: uint32(newChans),
+		amt:     channelBudget,
+	}:
+	case <-time.After(time.Second * 3):
+		t.Fatalf("heuristic wasn't queried in time")
+	}
+
+	// The agent should query for scores using the constraints returned
+	// above. We expect the agent to use the maximum channel size when
+	// opening channels.
+	chanSize := testCtx.constraints.MaxChanSize()
+
+	select {
+	case req := <-testCtx.heuristic.nodeScoresArgs:
+		// All nodes in the graph should be potential channel
+		// candidates.
+		if len(req.nodes) != len(nodeScores) {
+			t.Fatalf("expected %v nodes, instead had %v",
+				len(nodeScores), len(req.nodes))
+		}
+
+		// 'existingChans' is already open.
+		if len(req.chans) != existingChans {
+			t.Fatalf("expected %d existing channel, got %v",
+				existingChans, len(req.chans))
+		}
+		if req.amt != chanSize {
+			t.Fatalf("expected channel size of %v, got %v",
+				chanSize, req.amt)
+		}
+
+	case <-time.After(time.Second * 3):
+		t.Fatalf("select wasn't queried in time")
+	}
+
+	// Respond with the given scores.
+	select {
+	case testCtx.heuristic.nodeScoresResps <- nodeScores:
+	case <-time.After(time.Second * 3):
+		t.Fatalf("NodeScores wasn't queried in time")
+	}
+}
+
+// checkChannelOpens asserts that the channel controller attempts open the
+// number of channels we expect, and with the exact total allocation.
+func checkChannelOpens(t *testing.T, testCtx *testContext,
+	allocation btcutil.Amount, numChans int) []NodeID {
+
+	var nodes []NodeID
+
+	// The agent should attempt to open channels, totaling what we expect.
+	var totalAllocation btcutil.Amount
+	chanController := testCtx.chanController.(*mockChanController)
+	for i := 0; i < numChans; i++ {
+		select {
+		case openChan := <-chanController.openChanSignals:
+			totalAllocation += openChan.amt
+
+			testCtx.Lock()
+			testCtx.walletBalance -= openChan.amt
+			testCtx.Unlock()
+
+			nodes = append(nodes, NewNodeID(openChan.target))
+
+		case <-time.After(time.Second * 3):
+			t.Fatalf("channel not opened in time")
+		}
+	}
+
+	if totalAllocation != allocation {
+		t.Fatalf("expected agent to open channels totalling %v, "+
+			"instead was %v", allocation, totalAllocation)
+	}
+
+	// Finally, make sure the agent won't try opening more channels.
+	select {
+	case <-chanController.openChanSignals:
+		t.Fatalf("agent unexpectedly opened channel")
+
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	return nodes
+}
+
+// TestAgentChannelSizeAllocation tests that the autopilot agent opens channel
+// of size that stays within the channel budget and size restrictions.
+func TestAgentChannelSizeAllocation(t *testing.T) {
+	t.Parallel()
+
+	// Total number of nodes in our mock graph.
+	const numNodes = 10
+
+	testCtx, cleanup := setup(t, nil)
+	defer cleanup()
+
+	nodeScores := make(map[NodeID]*NodeScore)
+	for i := 0; i < numNodes; i++ {
+		nodeKey, err := testCtx.graph.addRandNode()
+		if err != nil {
+			t.Fatalf("unable to generate key: %v", err)
+		}
+		nodeID := NewNodeID(nodeKey)
+		nodeScores[nodeID] = &NodeScore{
+			NodeID: nodeID,
+			Score:  0.5,
+		}
+	}
+
+	// The agent should now query the heuristic in order to determine its
+	// next action as it local state has now been modified.
+	select {
+	case arg := <-testCtx.constraints.moreChanArgs:
+		if len(arg.chans) != 0 {
+			t.Fatalf("expected agent to have no channels open, "+
+				"had %v", len(arg.chans))
+		}
+		if arg.balance != testCtx.walletBalance {
+			t.Fatalf("expectd agent to have %v balance, had %v",
+				testCtx.walletBalance, arg.balance)
+		}
+	case <-time.After(time.Second * 3):
+		t.Fatalf("heuristic wasn't queried in time")
+	}
+
+	// We'll return a response telling the agent to open 5 channels, with a
+	// total channel budget of 5 BTC.
+	var channelBudget btcutil.Amount = 5 * btcutil.SatoshiPerBitcoin
+	numExistingChannels := 0
+	numNewChannels := 5
+	respondWithScores(
+		t, testCtx, channelBudget, numExistingChannels,
+		numNewChannels, nodeScores,
+	)
+
+	expectedAllocation := testCtx.constraints.MaxChanSize() * btcutil.Amount(numNewChannels)
+	nodes := checkChannelOpens(
+		t, testCtx, expectedAllocation, numNewChannels,
+	)
+
+	// Delete the selected nodes from our set of scores, to avoid scoring
+	// nodes we already have channels to.
+	for _, node := range nodes {
+		delete(nodeScores, node)
+	}
+
+	// TODO(halseth): this loop is a hack to ensure all the attempted
+	// channels are accounted for. This happens because the agent will
+	// query the ChannelBudget before all the pending channels are added to
+	// the map. Fix by adding them to the pending channels map before
+	// executing directives in goroutines?
+	waitForNumChans := func(expChans int) {
+		t.Helper()
+
+	Loop:
+		for {
+			select {
+			case arg := <-testCtx.constraints.moreChanArgs:
+				// As long as the number of existing channels
+				// is below our expected number of channels,
+				// we'll keep responding with "no more
+				// channels".
+				if len(arg.chans) != expChans {
+					select {
+					case testCtx.constraints.moreChansResps <- moreChansResp{0, 0}:
+					case <-time.After(time.Second * 3):
+						t.Fatalf("heuristic wasn't " +
+							"queried in time")
+					}
+					continue
+				}
+
+				if arg.balance != testCtx.walletBalance {
+					t.Fatalf("expectd agent to have %v "+
+						"balance, had %v",
+						testCtx.walletBalance,
+						arg.balance)
+				}
+				break Loop
+
+			case <-time.After(time.Second * 3):
+				t.Fatalf("heuristic wasn't queried in time")
+			}
+		}
+	}
+
+	// Wait for the agent to have 5 channels.
+	waitForNumChans(numNewChannels)
+
+	// Set the channel budget to 1.5 BTC.
+	channelBudget = btcutil.SatoshiPerBitcoin * 3 / 2
+
+	// We'll return a response telling the agent to open 3 channels, with a
+	// total channel budget of 1.5 BTC.
+	numExistingChannels = 5
+	numNewChannels = 3
+	respondWithScores(
+		t, testCtx, channelBudget, numExistingChannels,
+		numNewChannels, nodeScores,
+	)
+
+	// To stay within the budget, we expect the autopilot to open 2
+	// channels.
+	checkChannelOpens(t, testCtx, channelBudget, 2)
 }

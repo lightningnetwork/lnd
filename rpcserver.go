@@ -2317,7 +2317,7 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 		return nil, err
 	}
 
-	rpcsLog.Infof("[listchannels] fetched %v channels from DB",
+	rpcsLog.Debugf("[listchannels] fetched %v channels from DB",
 		len(dbChannels))
 
 	for _, dbChannel := range dbChannels {

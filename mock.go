@@ -11,6 +11,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcwallet/wallet/txauthor"
 
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/input"
@@ -237,6 +238,12 @@ func (*mockWalletController) IsOurAddress(a btcutil.Address) bool {
 
 func (*mockWalletController) SendOutputs(outputs []*wire.TxOut,
 	_ lnwallet.SatPerKWeight) (*wire.MsgTx, error) {
+
+	return nil, nil
+}
+
+func (*mockWalletController) CreateSimpleTx(outputs []*wire.TxOut,
+	_ lnwallet.SatPerKWeight, _ bool) (*txauthor.AuthoredTx, error) {
 
 	return nil, nil
 }

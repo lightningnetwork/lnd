@@ -9,6 +9,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcwallet/wallet/txauthor"
 	"github.com/lightningnetwork/lnd/lntypes"
 )
 
@@ -168,6 +169,19 @@ type WalletController interface {
 	// be used when crafting the transaction.
 	SendOutputs(outputs []*wire.TxOut,
 		feeRate SatPerKWeight) (*wire.MsgTx, error)
+
+	// CreateSimpleTx creates a Bitcoin transaction paying to the specified
+	// outputs. The transaction is not broadcasted to the network. In the
+	// case the wallet has insufficient funds, or the outputs are
+	// non-standard, an error should be returned. This method also takes
+	// the target fee expressed in sat/kw that should be used when crafting
+	// the transaction.
+	//
+	// NOTE: The dryRun argument can be set true to create a tx that
+	// doesn't alter the database. A tx created with this set to true
+	// SHOULD NOT be broadcasted.
+	CreateSimpleTx(outputs []*wire.TxOut, feeRate SatPerKWeight,
+		dryRun bool) (*txauthor.AuthoredTx, error)
 
 	// ListUnspentWitness returns all unspent outputs which are version 0
 	// witness programs. The 'minconfirms' and 'maxconfirms' parameters

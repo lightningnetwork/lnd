@@ -513,6 +513,15 @@ func findPath(g *graphParams, r *RestrictParams,
 	// mapped to within `next`.
 	next := make(map[Vertex]*channeldb.ChannelEdgePolicy)
 
+	ignoredEdges := r.IgnoredEdges
+	if ignoredEdges == nil {
+		ignoredEdges = make(map[EdgeLocator]struct{})
+	}
+	ignoredNodes := r.IgnoredNodes
+	if ignoredNodes == nil {
+		ignoredNodes = make(map[Vertex]struct{})
+	}
+
 	// processEdge is a helper closure that will be used to make sure edges
 	// satisfy our specific requirements.
 	processEdge := func(fromNode *channeldb.LightningNode,
@@ -544,12 +553,12 @@ func findPath(g *graphParams, r *RestrictParams,
 
 		// If this vertex or edge has been black listed, then we'll
 		// skip exploring this edge.
-		if _, ok := r.IgnoredNodes[fromVertex]; ok {
+		if _, ok := ignoredNodes[fromVertex]; ok {
 			return
 		}
 
 		locator := newEdgeLocator(edge)
-		if _, ok := r.IgnoredEdges[*locator]; ok {
+		if _, ok := ignoredEdges[*locator]; ok {
 			return
 		}
 
@@ -784,9 +793,6 @@ func findPaths(tx *bbolt.Tx, graph *channeldb.ChannelGraph,
 	amt lnwire.MilliSatoshi, feeLimit lnwire.MilliSatoshi, numPaths uint32,
 	bandwidthHints map[uint64]lnwire.MilliSatoshi) ([][]*channeldb.ChannelEdgePolicy, error) {
 
-	ignoredEdges := make(map[EdgeLocator]struct{})
-	ignoredVertexes := make(map[Vertex]struct{})
-
 	// TODO(roasbeef): modifying ordering within heap to eliminate final
 	// sorting step?
 	var (
@@ -804,9 +810,7 @@ func findPaths(tx *bbolt.Tx, graph *channeldb.ChannelGraph,
 			bandwidthHints: bandwidthHints,
 		},
 		&RestrictParams{
-			IgnoredNodes: ignoredVertexes,
-			IgnoredEdges: ignoredEdges,
-			FeeLimit:     feeLimit,
+			FeeLimit: feeLimit,
 		},
 		source, target, amt,
 	)
@@ -839,8 +843,8 @@ func findPaths(tx *bbolt.Tx, graph *channeldb.ChannelGraph,
 			// we'll exclude from the next path finding attempt.
 			// These are required to ensure the paths are unique
 			// and loopless.
-			ignoredEdges = make(map[EdgeLocator]struct{})
-			ignoredVertexes = make(map[Vertex]struct{})
+			ignoredEdges := make(map[EdgeLocator]struct{})
+			ignoredVertexes := make(map[Vertex]struct{})
 
 			// Our spur node is the i-th node in the prior shortest
 			// path, and our root path will be all nodes in the

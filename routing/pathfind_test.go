@@ -598,9 +598,6 @@ func TestFindLowestFeePath(t *testing.T) {
 	}
 	sourceVertex := Vertex(sourceNode.PubKeyBytes)
 
-	ignoredEdges := make(map[EdgeLocator]struct{})
-	ignoredVertexes := make(map[Vertex]struct{})
-
 	const (
 		startingHeight = 100
 		finalHopCLTV   = 1
@@ -613,9 +610,7 @@ func TestFindLowestFeePath(t *testing.T) {
 			graph: testGraphInstance.graph,
 		},
 		&RestrictParams{
-			IgnoredNodes: ignoredVertexes,
-			IgnoredEdges: ignoredEdges,
-			FeeLimit:     noFeeLimit,
+			FeeLimit: noFeeLimit,
 		},
 		sourceNode, target, paymentAmt,
 	)
@@ -744,9 +739,6 @@ func testBasicGraphPathFindingCase(t *testing.T, graphInstance *testGraphInstanc
 	}
 	sourceVertex := Vertex(sourceNode.PubKeyBytes)
 
-	ignoredEdges := make(map[EdgeLocator]struct{})
-	ignoredVertexes := make(map[Vertex]struct{})
-
 	const (
 		startingHeight = 100
 		finalHopCLTV   = 1
@@ -759,9 +751,7 @@ func testBasicGraphPathFindingCase(t *testing.T, graphInstance *testGraphInstanc
 			graph: graphInstance.graph,
 		},
 		&RestrictParams{
-			IgnoredNodes: ignoredVertexes,
-			IgnoredEdges: ignoredEdges,
-			FeeLimit:     test.feeLimit,
+			FeeLimit: test.feeLimit,
 		},
 		sourceNode, target, paymentAmt,
 	)
@@ -1224,9 +1214,6 @@ func TestNewRoutePathTooLong(t *testing.T) {
 		t.Fatalf("unable to fetch source node: %v", err)
 	}
 
-	ignoredEdges := make(map[EdgeLocator]struct{})
-	ignoredVertexes := make(map[Vertex]struct{})
-
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
 
 	// We start by confirming that routing a payment 20 hops away is
@@ -1237,9 +1224,7 @@ func TestNewRoutePathTooLong(t *testing.T) {
 			graph: graph.graph,
 		},
 		&RestrictParams{
-			IgnoredNodes: ignoredVertexes,
-			IgnoredEdges: ignoredEdges,
-			FeeLimit:     noFeeLimit,
+			FeeLimit: noFeeLimit,
 		},
 		sourceNode, target, paymentAmt,
 	)
@@ -1255,9 +1240,7 @@ func TestNewRoutePathTooLong(t *testing.T) {
 			graph: graph.graph,
 		},
 		&RestrictParams{
-			IgnoredNodes: ignoredVertexes,
-			IgnoredEdges: ignoredEdges,
-			FeeLimit:     noFeeLimit,
+			FeeLimit: noFeeLimit,
 		},
 		sourceNode, target, paymentAmt,
 	)
@@ -1283,9 +1266,6 @@ func TestPathNotAvailable(t *testing.T) {
 		t.Fatalf("unable to fetch source node: %v", err)
 	}
 
-	ignoredEdges := make(map[EdgeLocator]struct{})
-	ignoredVertexes := make(map[Vertex]struct{})
-
 	// With the test graph loaded, we'll test that queries for target that
 	// are either unreachable within the graph, or unknown result in an
 	// error.
@@ -1304,9 +1284,7 @@ func TestPathNotAvailable(t *testing.T) {
 			graph: graph.graph,
 		},
 		&RestrictParams{
-			IgnoredNodes: ignoredVertexes,
-			IgnoredEdges: ignoredEdges,
-			FeeLimit:     noFeeLimit,
+			FeeLimit: noFeeLimit,
 		},
 		sourceNode, unknownNode, 100,
 	)
@@ -1328,8 +1306,6 @@ func TestPathInsufficientCapacity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to fetch source node: %v", err)
 	}
-	ignoredEdges := make(map[EdgeLocator]struct{})
-	ignoredVertexes := make(map[Vertex]struct{})
 
 	// Next, test that attempting to find a path in which the current
 	// channel graph cannot support due to insufficient capacity triggers
@@ -1347,9 +1323,7 @@ func TestPathInsufficientCapacity(t *testing.T) {
 			graph: graph.graph,
 		},
 		&RestrictParams{
-			IgnoredNodes: ignoredVertexes,
-			IgnoredEdges: ignoredEdges,
-			FeeLimit:     noFeeLimit,
+			FeeLimit: noFeeLimit,
 		},
 		sourceNode, target, payAmt,
 	)
@@ -1373,8 +1347,6 @@ func TestRouteFailMinHTLC(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to fetch source node: %v", err)
 	}
-	ignoredEdges := make(map[EdgeLocator]struct{})
-	ignoredVertexes := make(map[Vertex]struct{})
 
 	// We'll not attempt to route an HTLC of 10 SAT from roasbeef to Son
 	// Goku. However, the min HTLC of Son Goku is 1k SAT, as a result, this
@@ -1386,9 +1358,7 @@ func TestRouteFailMinHTLC(t *testing.T) {
 			graph: graph.graph,
 		},
 		&RestrictParams{
-			IgnoredNodes: ignoredVertexes,
-			IgnoredEdges: ignoredEdges,
-			FeeLimit:     noFeeLimit,
+			FeeLimit: noFeeLimit,
 		},
 		sourceNode, target, payAmt,
 	)
@@ -1438,8 +1408,6 @@ func TestRouteFailMaxHTLC(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to fetch source node: %v", err)
 	}
-	ignoredEdges := make(map[EdgeLocator]struct{})
-	ignoredVertexes := make(map[Vertex]struct{})
 
 	// First, attempt to send a payment greater than the max HTLC we are
 	// about to set, which should succeed.
@@ -1450,9 +1418,7 @@ func TestRouteFailMaxHTLC(t *testing.T) {
 			graph: graph.graph,
 		},
 		&RestrictParams{
-			IgnoredNodes: ignoredVertexes,
-			IgnoredEdges: ignoredEdges,
-			FeeLimit:     noFeeLimit,
+			FeeLimit: noFeeLimit,
 		},
 		sourceNode, target, payAmt,
 	)
@@ -1476,9 +1442,7 @@ func TestRouteFailMaxHTLC(t *testing.T) {
 			graph: graph.graph,
 		},
 		&RestrictParams{
-			IgnoredNodes: ignoredVertexes,
-			IgnoredEdges: ignoredEdges,
-			FeeLimit:     noFeeLimit,
+			FeeLimit: noFeeLimit,
 		},
 		sourceNode, target, payAmt,
 	)
@@ -1505,8 +1469,6 @@ func TestRouteFailDisabledEdge(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to fetch source node: %v", err)
 	}
-	ignoredEdges := make(map[EdgeLocator]struct{})
-	ignoredVertexes := make(map[Vertex]struct{})
 
 	// First, we'll try to route from roasbeef -> sophon. This should
 	// succeed without issue, and return a single path via phamnuwen
@@ -1517,9 +1479,7 @@ func TestRouteFailDisabledEdge(t *testing.T) {
 			graph: graph.graph,
 		},
 		&RestrictParams{
-			IgnoredNodes: ignoredVertexes,
-			IgnoredEdges: ignoredEdges,
-			FeeLimit:     noFeeLimit,
+			FeeLimit: noFeeLimit,
 		},
 		sourceNode, target, payAmt,
 	)
@@ -1549,9 +1509,7 @@ func TestRouteFailDisabledEdge(t *testing.T) {
 			graph: graph.graph,
 		},
 		&RestrictParams{
-			IgnoredNodes: ignoredVertexes,
-			IgnoredEdges: ignoredEdges,
-			FeeLimit:     noFeeLimit,
+			FeeLimit: noFeeLimit,
 		},
 		sourceNode, target, payAmt,
 	)
@@ -1578,9 +1536,7 @@ func TestRouteFailDisabledEdge(t *testing.T) {
 			graph: graph.graph,
 		},
 		&RestrictParams{
-			IgnoredNodes: ignoredVertexes,
-			IgnoredEdges: ignoredEdges,
-			FeeLimit:     noFeeLimit,
+			FeeLimit: noFeeLimit,
 		},
 		sourceNode, target, payAmt,
 	)
@@ -1605,8 +1561,6 @@ func TestPathSourceEdgesBandwidth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to fetch source node: %v", err)
 	}
-	ignoredEdges := make(map[EdgeLocator]struct{})
-	ignoredVertexes := make(map[Vertex]struct{})
 
 	// First, we'll try to route from roasbeef -> sophon. This should
 	// succeed without issue, and return a path via songoku, as that's the
@@ -1618,9 +1572,7 @@ func TestPathSourceEdgesBandwidth(t *testing.T) {
 			graph: graph.graph,
 		},
 		&RestrictParams{
-			IgnoredNodes: ignoredVertexes,
-			IgnoredEdges: ignoredEdges,
-			FeeLimit:     noFeeLimit,
+			FeeLimit: noFeeLimit,
 		},
 		sourceNode, target, payAmt,
 	)
@@ -1646,9 +1598,7 @@ func TestPathSourceEdgesBandwidth(t *testing.T) {
 			bandwidthHints: bandwidths,
 		},
 		&RestrictParams{
-			IgnoredNodes: ignoredVertexes,
-			IgnoredEdges: ignoredEdges,
-			FeeLimit:     noFeeLimit,
+			FeeLimit: noFeeLimit,
 		},
 		sourceNode, target, payAmt,
 	)
@@ -1668,9 +1618,7 @@ func TestPathSourceEdgesBandwidth(t *testing.T) {
 			bandwidthHints: bandwidths,
 		},
 		&RestrictParams{
-			IgnoredNodes: ignoredVertexes,
-			IgnoredEdges: ignoredEdges,
-			FeeLimit:     noFeeLimit,
+			FeeLimit: noFeeLimit,
 		},
 		sourceNode, target, payAmt,
 	)
@@ -1703,9 +1651,7 @@ func TestPathSourceEdgesBandwidth(t *testing.T) {
 			bandwidthHints: bandwidths,
 		},
 		&RestrictParams{
-			IgnoredNodes: ignoredVertexes,
-			IgnoredEdges: ignoredEdges,
-			FeeLimit:     noFeeLimit,
+			FeeLimit: noFeeLimit,
 		},
 		sourceNode, target, payAmt,
 	)
@@ -2022,9 +1968,6 @@ func TestRestrictOutgoingChannel(t *testing.T) {
 	}
 	sourceVertex := Vertex(sourceNode.PubKeyBytes)
 
-	ignoredEdges := make(map[EdgeLocator]struct{})
-	ignoredVertexes := make(map[Vertex]struct{})
-
 	const (
 		startingHeight = 100
 		finalHopCLTV   = 1
@@ -2041,8 +1984,6 @@ func TestRestrictOutgoingChannel(t *testing.T) {
 			graph: testGraphInstance.graph,
 		},
 		&RestrictParams{
-			IgnoredNodes:      ignoredVertexes,
-			IgnoredEdges:      ignoredEdges,
 			FeeLimit:          noFeeLimit,
 			OutgoingChannelID: &outgoingChannelID,
 		},

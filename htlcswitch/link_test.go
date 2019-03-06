@@ -1549,6 +1549,9 @@ func (m *mockPeer) SendMessage(sync bool, msgs ...lnwire.Message) error {
 	}
 	return nil
 }
+func (m *mockPeer) SendMessageLazy(sync bool, msgs ...lnwire.Message) error {
+	return m.SendMessage(sync, msgs...)
+}
 func (m *mockPeer) AddNewChannel(_ *channeldb.OpenChannel,
 	_ <-chan struct{}) error {
 	return nil

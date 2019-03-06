@@ -502,6 +502,10 @@ func (s *mockServer) SendMessage(sync bool, msgs ...lnwire.Message) error {
 	return nil
 }
 
+func (s *mockServer) SendMessageLazy(sync bool, msgs ...lnwire.Message) error {
+	panic("not implemented")
+}
+
 func (s *mockServer) readHandler(message lnwire.Message) error {
 	var targetChan lnwire.ChannelID
 

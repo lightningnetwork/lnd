@@ -793,7 +793,9 @@
             "type": "string",
             "enum": [
               "WITNESS_PUBKEY_HASH",
-              "NESTED_PUBKEY_HASH"
+              "NESTED_PUBKEY_HASH",
+              "UNUSED_WITNESS_PUBKEY_HASH",
+              "UNUSED_NESTED_PUBKEY_HASH"
             ],
             "default": "WITNESS_PUBKEY_HASH"
           }
@@ -1289,7 +1291,9 @@
       "type": "string",
       "enum": [
         "WITNESS_PUBKEY_HASH",
-        "NESTED_PUBKEY_HASH"
+        "NESTED_PUBKEY_HASH",
+        "UNUSED_WITNESS_PUBKEY_HASH",
+        "UNUSED_NESTED_PUBKEY_HASH"
       ],
       "default": "WITNESS_PUBKEY_HASH",
       "description": "- `p2wkh`: Pay to witness key hash (`WITNESS_PUBKEY_HASH` = 0)\n- `np2wkh`: Pay to nested witness key hash (`NESTED_PUBKEY_HASH` = 1)",

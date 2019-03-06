@@ -254,6 +254,29 @@ func (b *BtcWallet) NewAddress(t lnwallet.AddressType, change bool) (btcutil.Add
 	return b.wallet.NewAddress(defaultAccount, keyScope)
 }
 
+// LastUnusedAddress returns the last *unused* address known by the wallet. An
+// address is unused if it hasn't received any payments. This can be useful in
+// UIs in order to continually show the "freshest" address without having to
+// worry about "address inflation" caused by continual refreshing. Similar to
+// NewAddress it can derive a specified address type, and also optionally a
+// change address.
+func (b *BtcWallet) LastUnusedAddress(addrType lnwallet.AddressType) (
+	btcutil.Address, error) {
+
+	var keyScope waddrmgr.KeyScope
+
+	switch addrType {
+	case lnwallet.WitnessPubKey:
+		keyScope = waddrmgr.KeyScopeBIP0084
+	case lnwallet.NestedWitnessPubKey:
+		keyScope = waddrmgr.KeyScopeBIP0049Plus
+	default:
+		return nil, fmt.Errorf("unknown address type")
+	}
+
+	return b.wallet.CurrentAddress(defaultAccount, keyScope)
+}
+
 // IsOurAddress checks if the passed address belongs to this wallet
 //
 // This is a part of the WalletController interface.

@@ -2380,6 +2380,9 @@ func (p *peer) sendMessage(sync, priority bool, msgs ...lnwire.Message) error {
 	// chans is populated for each message if the caller requested a sync
 	// send.
 	var errChans []chan error
+	if sync {
+		errChans = make([]chan error, 0, len(msgs))
+	}
 	for _, msg := range msgs {
 		// If a sync send was requested, create an error chan to listen
 		// for an ack from the writeHandler.

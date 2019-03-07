@@ -238,7 +238,13 @@ directly, rather than scanning blocks or BIP 158 filters for relevant items.
 (NOTE: It may take several minutes to find segwit-enabled peers.)
 
 While `btcd` is syncing you can check on its progress using btcd's `getinfo`
-RPC command:
+RPC command. This command is accessed through the `btcctl` command. To install `btcctl` and other utilities, execute the following commands.
+```
+$ cd $GOPATH/src/github.com/btcsuite/btcd
+$ GO111MODULE=on go install -v . ./cmd/...
+```
+
+You may then monitor the progress of `btcd`:
 ```
 btcctl --testnet --rpcuser=REPLACEME --rpcpass=REPLACEME getinfo
 {

@@ -19,6 +19,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/golang/protobuf/jsonpb"
 	"github.com/golang/protobuf/proto"
+	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/urfave/cli"
 	"golang.org/x/crypto/ssh/terminal"
@@ -3235,25 +3236,25 @@ var updateChannelPolicyCommand = cli.Command{
 	broadcast to the rest of the network within the next batch.
 	Channel points are encoded as: funding_txid:output_index`,
 	Flags: []cli.Flag{
-		cli.Int64Flag{
+		cli.Uint64Flag{
 			Name: "base_fee_msat",
 			Usage: "the base fee in milli-satoshis that will " +
 				"be charged for each forwarded HTLC, regardless " +
 				"of payment size",
-			Value: 1,
+			Value: uint64(lncfg.DefaultBitcoinBaseFeeMSat),
 		},
 		cli.Float64Flag{
 			Name: "fee_rate",
 			Usage: "the fee rate that will be charged " +
 				"proportionally based on the value of each " +
 				"forwarded HTLC, the lowest possible rate is 0.000001",
-			Value: 0.000001,
+			Value: float64(lncfg.DefaultBitcoinFeeRate) / 1000000,
 		},
 		cli.Int64Flag{
 			Name: "time_lock_delta",
 			Usage: "the CLTV delta that will be applied to all " +
 				"forwarded HTLCs",
-			Value: 144,
+			Value: lncfg.DefaultBitcoinTimeLockDelta,
 		},
 		cli.StringFlag{
 			Name: "chan_point",

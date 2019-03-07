@@ -31,13 +31,14 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/chainview"
+	"github.com/lightningnetwork/lnd/lncfg"
 )
 
 const (
 	defaultBitcoinMinHTLCMSat   = lnwire.MilliSatoshi(1000)
-	defaultBitcoinBaseFeeMSat   = lnwire.MilliSatoshi(1000)
-	defaultBitcoinFeeRate       = lnwire.MilliSatoshi(1)
-	defaultBitcoinTimeLockDelta = 144
+	defaultBitcoinBaseFeeMSat   = lncfg.DefaultBitcoinBaseFeeMSat
+	defaultBitcoinFeeRate       = lncfg.DefaultBitcoinFeeRate
+	defaultBitcoinTimeLockDelta = lncfg.DefaultBitcoinTimeLockDelta
 
 	defaultLitecoinMinHTLCMSat   = lnwire.MilliSatoshi(1000)
 	defaultLitecoinBaseFeeMSat   = lnwire.MilliSatoshi(1000)

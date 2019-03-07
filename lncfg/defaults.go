@@ -10,5 +10,5 @@ const (
 	// DefaultBitcoinFeeRate Default fee rate for channel policy updates
 	DefaultBitcoinFeeRate = lnwire.MilliSatoshi(1)
 	// DefaultBitcoinBaseFeeMSat Default base fee for channel policy updates
-	DefaultBitcoinBaseFeeMSat   = lnwire.MilliSatoshi(1000)
+	DefaultBitcoinBaseFeeMSat = lnwire.MilliSatoshi(1000)
 )

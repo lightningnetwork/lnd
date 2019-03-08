@@ -2121,6 +2121,7 @@ func sendPayment(ctx *cli.Context) error {
 			rHash, err = hex.DecodeString(ctx.String("payment_hash"))
 		case args.Present():
 			rHash, err = hex.DecodeString(args.First())
+			args = args.Tail()
 		default:
 			return fmt.Errorf("payment hash argument missing")
 		}

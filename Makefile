@@ -82,7 +82,9 @@ $(GOACC_BIN):
 
 btcd:
 	@$(call print, "Installing btcd.")
-	GO111MODULE=on go get -v github.com/btcsuite/btcd/@$(BTCD_COMMIT)
+	GO111MODULE=on go get -v $(BTCD_PKG)@$(BTCD_COMMIT)
+	$(GOINSTALL) $(BTCD_PKG)
+	$(GOINSTALL) $(BTCD_PKG)/cmd/btcctl
 
 # ============
 # INSTALLATION

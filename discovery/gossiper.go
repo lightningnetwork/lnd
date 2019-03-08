@@ -358,7 +358,7 @@ func (d *AuthenticatedGossiper) SynchronizeNode(syncPeer lnpeer.Peer) error {
 
 	// With all the announcement messages gathered, send them all in a
 	// single batch to the target peer.
-	return syncPeer.SendMessage(false, announceMessages...)
+	return syncPeer.SendMessageLazy(false, announceMessages...)
 }
 
 // PropagateChanPolicyUpdate signals the AuthenticatedGossiper to update the
@@ -1111,7 +1111,7 @@ func (d *AuthenticatedGossiper) InitSyncState(syncPeer lnpeer.Peer,
 		encodingType:    encoding,
 		chunkSize:       encodingTypeToChunkSize[encoding],
 		sendToPeer: func(msgs ...lnwire.Message) error {
-			return syncPeer.SendMessage(false, msgs...)
+			return syncPeer.SendMessageLazy(false, msgs...)
 		},
 	})
 	copy(syncer.peerPub[:], nodeID[:])

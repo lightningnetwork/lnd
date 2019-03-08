@@ -932,17 +932,42 @@ func (r *rpcServer) NewAddress(ctx context.Context,
 
 	// Translate the gRPC proto address type to the wallet controller's
 	// available address types.
-	var addrType lnwallet.AddressType
+	var (
+		addr btcutil.Address
+		err  error
+	)
 	switch in.Type {
 	case lnrpc.AddressType_WITNESS_PUBKEY_HASH:
-		addrType = lnwallet.WitnessPubKey
-	case lnrpc.AddressType_NESTED_PUBKEY_HASH:
-		addrType = lnwallet.NestedWitnessPubKey
-	}
+		addr, err = r.server.cc.wallet.NewAddress(
+			lnwallet.WitnessPubKey, false,
+		)
+		if err != nil {
+			return nil, err
+		}
 
-	addr, err := r.server.cc.wallet.NewAddress(addrType, false)
-	if err != nil {
-		return nil, err
+	case lnrpc.AddressType_NESTED_PUBKEY_HASH:
+		addr, err = r.server.cc.wallet.NewAddress(
+			lnwallet.NestedWitnessPubKey, false,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+	case lnrpc.AddressType_UNUSED_WITNESS_PUBKEY_HASH:
+		addr, err = r.server.cc.wallet.LastUnusedAddress(
+			lnwallet.WitnessPubKey,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+	case lnrpc.AddressType_UNUSED_NESTED_PUBKEY_HASH:
+		addr, err = r.server.cc.wallet.LastUnusedAddress(
+			lnwallet.NestedWitnessPubKey,
+		)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	rpcsLog.Infof("[newaddress] addr=%v", addr.String())
@@ -1779,16 +1804,21 @@ func (r *rpcServer) fetchActiveChannel(chanPoint wire.OutPoint) (
 func (r *rpcServer) GetInfo(ctx context.Context,
 	in *lnrpc.GetInfoRequest) (*lnrpc.GetInfoResponse, error) {
 
-	var activeChannels uint32
 	serverPeers := r.server.Peers()
-	for _, serverPeer := range serverPeers {
-		activeChannels += uint32(len(serverPeer.ChannelSnapshots()))
-	}
 
 	openChannels, err := r.server.chanDB.FetchAllOpenChannels()
 	if err != nil {
 		return nil, err
 	}
+
+	var activeChannels uint32
+	for _, channel := range openChannels {
+		chanID := lnwire.NewChanIDFromOutPoint(&channel.FundingOutpoint)
+		if r.server.htlcSwitch.HasActiveLink(chanID) {
+			activeChannels++
+		}
+	}
+
 	inactiveChannels := uint32(len(openChannels)) - activeChannels
 
 	pendingChannels, err := r.server.chanDB.FetchPendingChannels()
@@ -2317,7 +2347,7 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 		return nil, err
 	}
 
-	rpcsLog.Infof("[listchannels] fetched %v channels from DB",
+	rpcsLog.Debugf("[listchannels] fetched %v channels from DB",
 		len(dbChannels))
 
 	for _, dbChannel := range dbChannels {

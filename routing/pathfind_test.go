@@ -89,9 +89,11 @@ type testChan struct {
 	Node2        string `json:"node_2"`
 	ChannelID    uint64 `json:"channel_id"`
 	ChannelPoint string `json:"channel_point"`
-	Flags        uint16 `json:"flags"`
+	ChannelFlags uint8  `json:"channel_flags"`
+	MessageFlags uint8  `json:"message_flags"`
 	Expiry       uint16 `json:"expiry"`
 	MinHTLC      int64  `json:"min_htlc"`
+	MaxHTLC      int64  `json:"max_htlc"`
 	FeeBaseMsat  int64  `json:"fee_base_msat"`
 	FeeRate      int64  `json:"fee_rate"`
 	Capacity     int64  `json:"capacity"`
@@ -271,12 +273,13 @@ func parseTestGraph(path string) (*testGraphInstance, error) {
 
 		edgePolicy := &channeldb.ChannelEdgePolicy{
 			SigBytes:                  testSig.Serialize(),
-			MessageFlags:              lnwire.ChanUpdateMsgFlags(edge.Flags >> 8),
-			ChannelFlags:              lnwire.ChanUpdateChanFlags(edge.Flags),
+			MessageFlags:              lnwire.ChanUpdateMsgFlags(edge.MessageFlags),
+			ChannelFlags:              lnwire.ChanUpdateChanFlags(edge.ChannelFlags),
 			ChannelID:                 edge.ChannelID,
 			LastUpdate:                testTime,
 			TimeLockDelta:             edge.Expiry,
 			MinHTLC:                   lnwire.MilliSatoshi(edge.MinHTLC),
+			MaxHTLC:                   lnwire.MilliSatoshi(edge.MaxHTLC),
 			FeeBaseMSat:               lnwire.MilliSatoshi(edge.FeeBaseMsat),
 			FeeProportionalMillionths: lnwire.MilliSatoshi(edge.FeeRate),
 		}
@@ -295,6 +298,7 @@ func parseTestGraph(path string) (*testGraphInstance, error) {
 type testChannelPolicy struct {
 	Expiry      uint16
 	MinHTLC     lnwire.MilliSatoshi
+	MaxHTLC     lnwire.MilliSatoshi
 	FeeBaseMsat lnwire.MilliSatoshi
 	FeeRate     lnwire.MilliSatoshi
 }
@@ -304,12 +308,13 @@ type testChannelEnd struct {
 	testChannelPolicy
 }
 
-func defaultTestChannelEnd(alias string) *testChannelEnd {
+func defaultTestChannelEnd(alias string, capacity btcutil.Amount) *testChannelEnd {
 	return &testChannelEnd{
 		Alias: alias,
 		testChannelPolicy: testChannelPolicy{
 			Expiry:      144,
 			MinHTLC:     lnwire.MilliSatoshi(1000),
+			MaxHTLC:     lnwire.NewMSatFromSatoshis(capacity),
 			FeeBaseMsat: lnwire.MilliSatoshi(1000),
 			FeeRate:     lnwire.MilliSatoshi(1),
 		},
@@ -486,14 +491,19 @@ func createTestGraphFromChannels(testChannels []*testChannel) (*testGraphInstanc
 			return nil, err
 		}
 
+		var msgFlags lnwire.ChanUpdateMsgFlags
+		if testChannel.Node1.MaxHTLC != 0 {
+			msgFlags = 1
+		}
 		edgePolicy := &channeldb.ChannelEdgePolicy{
 			SigBytes:                  testSig.Serialize(),
-			MessageFlags:              0,
+			MessageFlags:              msgFlags,
 			ChannelFlags:              0,
 			ChannelID:                 channelID,
 			LastUpdate:                testTime,
 			TimeLockDelta:             testChannel.Node1.Expiry,
 			MinHTLC:                   testChannel.Node1.MinHTLC,
+			MaxHTLC:                   testChannel.Node1.MaxHTLC,
 			FeeBaseMSat:               testChannel.Node1.FeeBaseMsat,
 			FeeProportionalMillionths: testChannel.Node1.FeeRate,
 		}
@@ -501,14 +511,19 @@ func createTestGraphFromChannels(testChannels []*testChannel) (*testGraphInstanc
 			return nil, err
 		}
 
+		msgFlags = 0
+		if testChannel.Node2.MaxHTLC != 0 {
+			msgFlags = 1
+		}
 		edgePolicy = &channeldb.ChannelEdgePolicy{
 			SigBytes:                  testSig.Serialize(),
-			MessageFlags:              0,
+			MessageFlags:              msgFlags,
 			ChannelFlags:              lnwire.ChanUpdateDirection,
 			ChannelID:                 channelID,
 			LastUpdate:                testTime,
 			TimeLockDelta:             testChannel.Node2.Expiry,
 			MinHTLC:                   testChannel.Node2.MinHTLC,
+			MaxHTLC:                   testChannel.Node2.MaxHTLC,
 			FeeBaseMSat:               testChannel.Node2.FeeBaseMsat,
 			FeeProportionalMillionths: testChannel.Node2.FeeRate,
 		}
@@ -543,26 +558,31 @@ func TestFindLowestFeePath(t *testing.T) {
 			Expiry:  144,
 			FeeRate: 400,
 			MinHTLC: 1,
+			MaxHTLC: 100000000,
 		}),
 		symmetricTestChannel("first", "a", 100000, &testChannelPolicy{
 			Expiry:  144,
 			FeeRate: 400,
 			MinHTLC: 1,
+			MaxHTLC: 100000000,
 		}),
 		symmetricTestChannel("a", "target", 100000, &testChannelPolicy{
 			Expiry:  144,
 			FeeRate: 400,
 			MinHTLC: 1,
+			MaxHTLC: 100000000,
 		}),
 		symmetricTestChannel("first", "b", 100000, &testChannelPolicy{
 			Expiry:  144,
 			FeeRate: 100,
 			MinHTLC: 1,
+			MaxHTLC: 100000000,
 		}),
 		symmetricTestChannel("b", "target", 100000, &testChannelPolicy{
 			Expiry:  144,
 			FeeRate: 600,
 			MinHTLC: 1,
+			MaxHTLC: 100000000,
 		}),
 	}
 
@@ -1415,6 +1435,96 @@ func TestRouteFailMinHTLC(t *testing.T) {
 	// attempt should fail.
 	target := graph.aliasMap["songoku"]
 	payAmt := lnwire.MilliSatoshi(10)
+	_, err = findPath(
+		&graphParams{
+			graph: graph.graph,
+		},
+		&restrictParams{
+			ignoredNodes: ignoredVertexes,
+			ignoredEdges: ignoredEdges,
+			feeLimit:     noFeeLimit,
+		},
+		sourceNode, target, payAmt,
+	)
+	if !IsError(err, ErrNoPathFound) {
+		t.Fatalf("graph shouldn't be able to support payment: %v", err)
+	}
+}
+
+// TestRouteFailMaxHTLC tests that if we attempt to route an HTLC which is
+// larger than the advertised max HTLC of an edge, then path finding fails.
+func TestRouteFailMaxHTLC(t *testing.T) {
+	t.Parallel()
+
+	// Set up a test graph:
+	// roasbeef <--> firstHop <--> secondHop <--> target
+	// We will be adjusting the max HTLC of the edge between the first and
+	// second hops.
+	var firstToSecondID uint64 = 1
+	testChannels := []*testChannel{
+		symmetricTestChannel("roasbeef", "first", 100000, &testChannelPolicy{
+			Expiry:  144,
+			FeeRate: 400,
+			MinHTLC: 1,
+			MaxHTLC: 100000001,
+		}),
+		symmetricTestChannel("first", "second", 100000, &testChannelPolicy{
+			Expiry:  144,
+			FeeRate: 400,
+			MinHTLC: 1,
+			MaxHTLC: 100000002,
+		}, firstToSecondID),
+		symmetricTestChannel("second", "target", 100000, &testChannelPolicy{
+			Expiry:  144,
+			FeeRate: 400,
+			MinHTLC: 1,
+			MaxHTLC: 100000003,
+		}),
+	}
+
+	graph, err := createTestGraphFromChannels(testChannels)
+	if err != nil {
+		t.Fatalf("unable to create graph: %v", err)
+	}
+	defer graph.cleanUp()
+
+	sourceNode, err := graph.graph.SourceNode()
+	if err != nil {
+		t.Fatalf("unable to fetch source node: %v", err)
+	}
+	ignoredEdges := make(map[edgeLocator]struct{})
+	ignoredVertexes := make(map[Vertex]struct{})
+
+	// First, attempt to send a payment greater than the max HTLC we are
+	// about to set, which should succeed.
+	target := graph.aliasMap["target"]
+	payAmt := lnwire.MilliSatoshi(100001)
+	_, err = findPath(
+		&graphParams{
+			graph: graph.graph,
+		},
+		&restrictParams{
+			ignoredNodes: ignoredVertexes,
+			ignoredEdges: ignoredEdges,
+			feeLimit:     noFeeLimit,
+		},
+		sourceNode, target, payAmt,
+	)
+	if err != nil {
+		t.Fatalf("graph should've been able to support payment: %v", err)
+	}
+
+	// Next, update the middle edge policy to only allow payments up to 100k
+	// msat.
+	_, midEdge, _, err := graph.graph.FetchChannelEdgesByID(firstToSecondID)
+	midEdge.MessageFlags = 1
+	midEdge.MaxHTLC = payAmt - 1
+	if err := graph.graph.UpdateEdgePolicy(midEdge); err != nil {
+		t.Fatalf("unable to update edge: %v", err)
+	}
+
+	// We'll now attempt to route through that edge with a payment above
+	// 100k msat, which should fail.
 	_, err = findPath(
 		&graphParams{
 			graph: graph.graph,

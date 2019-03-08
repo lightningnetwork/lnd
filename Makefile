@@ -151,8 +151,7 @@ flakehunter: build-itest
 
 flake-unit:
 	@$(call print, "Flake hunting unit tests.")
-	GOTRACEBACK=all $(UNIT) -count=1
-	while [ $$? -eq 0 ]; do /bin/sh -c "GOTRACEBACK=all $(UNIT) -count=1"; done
+	while [ $$? -eq 0 ]; do GOTRACEBACK=all $(UNIT) -count=1; done
 
 # =========
 # UTILITIES

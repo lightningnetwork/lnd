@@ -6525,3 +6525,80 @@ func TestForceCloseFailLocalDataLoss(t *testing.T) {
 			"chan state")
 	}
 }
+
+// TestForceCloseBorkedState tests that once we force close a channel, it's
+// marked as borked in the database. Additionally, all calls to mutate channel
+// state should also fail.
+func TestForceCloseBorkedState(t *testing.T) {
+	t.Parallel()
+
+	aliceChannel, bobChannel, cleanUp, err := CreateTestChannels()
+	if err != nil {
+		t.Fatalf("unable to create test channels: %v", err)
+	}
+	defer cleanUp()
+
+	// Do the commitment dance until Bob sends a revocation so Alice is
+	// able to receive the revocation, and then also make a new state
+	// herself.
+	aliceSigs, aliceHtlcSigs, err := aliceChannel.SignNextCommitment()
+	if err != nil {
+		t.Fatalf("unable to sign commit: %v", err)
+	}
+	err = bobChannel.ReceiveNewCommitment(aliceSigs, aliceHtlcSigs)
+	if err != nil {
+		t.Fatalf("unable to receive commitment: %v", err)
+	}
+	revokeMsg, _, err := bobChannel.RevokeCurrentCommitment()
+	if err != nil {
+		t.Fatalf("unable to revoke bob commitment: %v", err)
+	}
+	bobSigs, bobHtlcSigs, err := bobChannel.SignNextCommitment()
+	if err != nil {
+		t.Fatalf("unable to sign commit: %v", err)
+	}
+	err = aliceChannel.ReceiveNewCommitment(bobSigs, bobHtlcSigs)
+	if err != nil {
+		t.Fatalf("unable to receive commitment: %v", err)
+	}
+
+	// Now that we have a new Alice channel, we'll force close once to
+	// trigger the update on disk to mark the channel as borked.
+	if _, err := aliceChannel.ForceClose(); err != nil {
+		t.Fatalf("unable to force close channel: %v", err)
+	}
+
+	// Next we'll mark the channel as borked before we proceed.
+	err = aliceChannel.channelState.ApplyChanStatus(
+		channeldb.ChanStatusBorked,
+	)
+	if err != nil {
+		t.Fatalf("unable to apply chan status: %v", err)
+	}
+
+	// The on-disk state should indicate that the channel is now borked.
+	if !aliceChannel.channelState.HasChanStatus(
+		channeldb.ChanStatusBorked,
+	) {
+		t.Fatalf("chan status not updated as borked")
+	}
+
+	// At this point, all channel mutating methods should now fail as they
+	// shouldn't be able to proceed if the channel is borked.
+	_, _, _, err = aliceChannel.ReceiveRevocation(revokeMsg)
+	if err != channeldb.ErrChanBorked {
+		t.Fatalf("advance commitment tail should have failed")
+	}
+
+	// We manually advance the commitment tail here since the above
+	// ReceiveRevocation call will fail before it's actually advanced.
+	aliceChannel.remoteCommitChain.advanceTail()
+	_, _, err = aliceChannel.SignNextCommitment()
+	if err != channeldb.ErrChanBorked {
+		t.Fatalf("sign commitment should have failed: %v", err)
+	}
+	_, _, err = aliceChannel.RevokeCurrentCommitment()
+	if err != channeldb.ErrChanBorked {
+		t.Fatalf("append remove chain tail should have failed")
+	}
+}

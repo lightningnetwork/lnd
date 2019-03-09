@@ -3641,6 +3641,8 @@ func TestChanSyncFailure(t *testing.T) {
 	// advanceState is a helper method to fully advance the channel state
 	// by one.
 	advanceState := func() {
+		t.Helper()
+
 		// We'll kick off the test by having Bob send Alice an HTLC,
 		// then lock it in with a state transition.
 		var bobPreimage [32]byte
@@ -3672,6 +3674,8 @@ func TestChanSyncFailure(t *testing.T) {
 	// halfAdvance is a helper method that sends a new commitment signature
 	// from Alice to Bob, but doesn't make Bob revoke his current state.
 	halfAdvance := func() {
+		t.Helper()
+
 		// We'll kick off the test by having Bob send Alice an HTLC,
 		// then lock it in with a state transition.
 		var bobPreimage [32]byte
@@ -3707,6 +3711,8 @@ func TestChanSyncFailure(t *testing.T) {
 	// assertLocalDataLoss checks that aliceOld and bobChannel detects that
 	// Alice has lost state during sync.
 	assertLocalDataLoss := func(aliceOld *LightningChannel) {
+		t.Helper()
+
 		aliceSyncMsg, err := ChanSyncMsg(aliceOld.channelState)
 		if err != nil {
 			t.Fatalf("unable to produce chan sync msg: %v", err)
@@ -3733,6 +3739,25 @@ func TestChanSyncFailure(t *testing.T) {
 		}
 	}
 
+	// clearBorkedState is a method that allows us to clear the borked
+	// state that will arise after the first chan message sync. We need to
+	// do this in order to be able to continue to update the commitment
+	// state for our test scenarios.
+	clearBorkedState := func() {
+		err = aliceChannel.channelState.ClearChanStatus(
+			channeldb.ChanStatusLocalDataLoss | channeldb.ChanStatusBorked,
+		)
+		if err != nil {
+			t.Fatalf("unable to update channel state: %v", err)
+		}
+		err = bobChannel.channelState.ClearChanStatus(
+			channeldb.ChanStatusLocalDataLoss | channeldb.ChanStatusBorked,
+		)
+		if err != nil {
+			t.Fatalf("unable to update channel state: %v", err)
+		}
+	}
+
 	// Start by advancing the state.
 	advanceState()
 
@@ -3754,6 +3779,9 @@ func TestChanSyncFailure(t *testing.T) {
 
 	// Make sure the up-to-date channels still are in sync.
 	assertNoChanSyncNeeded(t, aliceChannel, bobChannel)
+
+	// Clear the borked state before we attempt to advance.
+	clearBorkedState()
 
 	// Advance the state again, and do the same check.
 	advanceState()
@@ -3824,6 +3852,9 @@ func TestChanSyncFailure(t *testing.T) {
 
 	// Make sure the up-to-date channels still are good.
 	assertNoChanSyncNeeded(t, aliceChannel, bobChannel)
+
+	// Clear the borked state before we attempt to advance.
+	clearBorkedState()
 
 	// Finally check that Alice is also able to detect a wrong commit point
 	// when there's a pending remote commit.

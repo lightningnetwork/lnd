@@ -2425,7 +2425,9 @@ func putChanInfo(chanBucket *bbolt.Bucket, channel *OpenChannel) error {
 	}
 
 	// For single funder channels that we initiated, write the funding txn.
-	if channel.ChanType == SingleFunder && channel.IsInitiator {
+	if channel.ChanType == SingleFunder && channel.IsInitiator &&
+		!channel.hasChanStatus(ChanStatusRestored) {
+
 		if err := WriteElement(&w, channel.FundingTxn); err != nil {
 			return err
 		}
@@ -2545,7 +2547,9 @@ func fetchChanInfo(chanBucket *bbolt.Bucket, channel *OpenChannel) error {
 	}
 
 	// For single funder channels that we initiated, read the funding txn.
-	if channel.ChanType == SingleFunder && channel.IsInitiator {
+	if channel.ChanType == SingleFunder && channel.IsInitiator &&
+		!channel.hasChanStatus(ChanStatusRestored) {
+
 		if err := ReadElement(r, &channel.FundingTxn); err != nil {
 			return err
 		}

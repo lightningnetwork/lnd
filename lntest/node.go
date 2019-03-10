@@ -117,7 +117,8 @@ type nodeConfig struct {
 	ReadMacPath    string
 	InvoiceMacPath string
 
-	HasSeed bool
+	HasSeed  bool
+	Password []byte
 
 	P2PPort  int
 	RPCPort  int
@@ -412,11 +413,11 @@ func (hn *HarnessNode) initClientWhenReady() error {
 		conn    *grpc.ClientConn
 		connErr error
 	)
-	if err := WaitPredicate(func() bool {
+	if err := WaitNoError(func() error {
 		conn, connErr = hn.ConnectRPC(true)
-		return connErr == nil
-	}, 5*time.Second); err != nil {
 		return connErr
+	}, 5*time.Second); err != nil {
+		return err
 	}
 
 	return hn.initLightningClient(conn)
@@ -430,8 +431,7 @@ func (hn *HarnessNode) initClientWhenReady() error {
 func (hn *HarnessNode) Init(ctx context.Context,
 	initReq *lnrpc.InitWalletRequest) error {
 
-	timeout := time.Duration(time.Second * 15)
-	ctxt, _ := context.WithTimeout(ctx, timeout)
+	ctxt, _ := context.WithTimeout(ctx, DefaultTimeout)
 	_, err := hn.InitWallet(ctxt, initReq)
 	if err != nil {
 		return err
@@ -439,13 +439,27 @@ func (hn *HarnessNode) Init(ctx context.Context,
 
 	// Wait for the wallet to finish unlocking, such that we can connect to
 	// it via a macaroon-authenticated rpc connection.
-	}, 5*time.Second); err != nil {
 	return hn.initClientWhenReady()
 }
+
+// Unlock attempts to unlock the wallet of the target HarnessNode. This method
+// should be called after the restart of a HarnessNode that was created with a
+// seed+password. Once this method returns, the HarnessNode will be ready to
+// accept normal gRPC requests and harness command.
+func (hn *HarnessNode) Unlock(ctx context.Context,
+	unlockReq *lnrpc.UnlockWalletRequest) error {
+
+	ctxt, _ := context.WithTimeout(ctx, DefaultTimeout)
+
+	// Otherwise, we'll need to unlock the node before it's able to start
+	// up properly.
+	if _, err := hn.UnlockWallet(ctxt, unlockReq); err != nil {
 		return err
 	}
 
-	return hn.initLightningClient(conn)
+	// Now that the wallet has been unlocked, we'll wait for the RPC client
+	// to be ready, then establish the normal gRPC connection.
+	return hn.initClientWhenReady()
 }
 
 // initLightningClient constructs the grpc LightningClient from the given client

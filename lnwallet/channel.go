@@ -3496,9 +3496,9 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 	// is valid.
 	var commitPoint *btcec.PublicKey
 	switch {
-	case msg.NextLocalCommitHeight == remoteTailHeight+2:
-		commitPoint = lc.channelState.RemoteNextRevocation
-
+	// If their height is one beyond what we know their current height to
+	// be, then we need to compare their current unrevoked commitment point
+	// as that's what they should send.
 	case msg.NextLocalCommitHeight == remoteTailHeight+1:
 		commitPoint = lc.channelState.RemoteCurrentRevocation
 	}

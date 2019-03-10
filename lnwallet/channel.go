@@ -856,12 +856,16 @@ func (lc *LightningChannel) diskCommitToMemCommit(isLocal bool,
 	// haven't yet received a responding commitment from the remote party.
 	var localCommitKeys, remoteCommitKeys *CommitmentKeyRing
 	if localCommitPoint != nil {
-		localCommitKeys = deriveCommitmentKeys(localCommitPoint, true,
-			lc.localChanCfg, lc.remoteChanCfg)
+		localCommitKeys = deriveCommitmentKeys(
+			localCommitPoint, true, lc.localChanCfg,
+			lc.remoteChanCfg,
+		)
 	}
 	if remoteCommitPoint != nil {
-		remoteCommitKeys = deriveCommitmentKeys(remoteCommitPoint, false,
-			lc.localChanCfg, lc.remoteChanCfg)
+		remoteCommitKeys = deriveCommitmentKeys(
+			remoteCommitPoint, false, lc.localChanCfg,
+			lc.remoteChanCfg,
+		)
 	}
 
 	// With the key rings re-created, we'll now convert all the on-disk
@@ -1408,8 +1412,7 @@ func NewLightningChannel(signer input.Signer, pCache PreimageCache,
 	// Create the sign descriptor which we'll be using very frequently to
 	// request a signature for the 2-of-2 multi-sig from the signer in
 	// order to complete channel state transitions.
-	err = lc.createSignDesc()
-	if err != nil {
+	if err := lc.createSignDesc(); err != nil {
 		return nil, err
 	}
 
@@ -1701,7 +1704,8 @@ func (lc *LightningChannel) restoreCommitState(
 	// Finally, with the commitment states restored, we'll now restore the
 	// state logs based on the current local+remote commit, and any pending
 	// remote commit that exists.
-	err = lc.restoreStateLogs(localCommit, remoteCommit, pendingRemoteCommit,
+	err = lc.restoreStateLogs(
+		localCommit, remoteCommit, pendingRemoteCommit,
 		pendingRemoteCommitDiff, pendingRemoteKeyChain,
 	)
 	if err != nil {
@@ -3248,6 +3252,13 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 		}
 	}
 
+	// If we detect that this is is a restored channel, then we can skip a
+	// portion of the verification, as we already know that we're unable to
+	// proceed with any updates.
+	isRestoredChan := lc.channelState.HasChanStatus(
+		channeldb.ChanStatusRestored,
+	)
+
 	// Take note of our current commit chain heights before we begin adding
 	// more to them.
 	var (
@@ -3265,11 +3276,16 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 
 	// If their reported height for our local chain tail is ahead of our
 	// view, then we're behind!
-	case msg.RemoteCommitTailHeight > localTailHeight:
+	case msg.RemoteCommitTailHeight > localTailHeight || isRestoredChan:
 		walletLog.Errorf("ChannelPoint(%v), sync failed with local "+
 			"data loss: remote believes our tail height is %v, "+
 			"while we have %v!", lc.channelState.FundingOutpoint,
 			msg.RemoteCommitTailHeight, localTailHeight)
+
+		if isRestoredChan {
+			walletLog.Warnf("ChannelPoint(%v): detected restored " +
+				"triggering DLP")
+		}
 
 		// We must check that we had recovery options to ensure the
 		// commitment secret matched up, and the remote is just not

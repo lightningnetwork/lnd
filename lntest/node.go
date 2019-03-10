@@ -404,6 +404,24 @@ func (hn *HarnessNode) start(lndError chan<- error) error {
 	return hn.initLightningClient(conn)
 }
 
+// initClientWhenReady waits until the main gRPC server is detected as active,
+// then complete the normal HarnessNode gRPC connection creation. This can be
+// used it a node has just been unlocked, or has its wallet state initialized.
+func (hn *HarnessNode) initClientWhenReady() error {
+	var (
+		conn    *grpc.ClientConn
+		connErr error
+	)
+	if err := WaitPredicate(func() bool {
+		conn, connErr = hn.ConnectRPC(true)
+		return connErr == nil
+	}, 5*time.Second); err != nil {
+		return connErr
+	}
+
+	return hn.initLightningClient(conn)
+}
+
 // Init initializes a harness node by passing the init request via rpc. After
 // the request is submitted, this method will block until an
 // macaroon-authenticated rpc connection can be established to the harness node.
@@ -421,11 +439,9 @@ func (hn *HarnessNode) Init(ctx context.Context,
 
 	// Wait for the wallet to finish unlocking, such that we can connect to
 	// it via a macaroon-authenticated rpc connection.
-	var conn *grpc.ClientConn
-	if err = WaitPredicate(func() bool {
-		conn, err = hn.ConnectRPC(true)
-		return err == nil
 	}, 5*time.Second); err != nil {
+	return hn.initClientWhenReady()
+}
 		return err
 	}
 

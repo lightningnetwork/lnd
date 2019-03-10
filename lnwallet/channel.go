@@ -3531,7 +3531,14 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 //      it.
 //   3. We didn't get the last RevokeAndAck message they sent, so they'll
 //      re-send it.
-func ChanSyncMsg(c *channeldb.OpenChannel) (*lnwire.ChannelReestablish, error) {
+//
+// The isRestoredChan bool indicates if we need to craft a chan sync message
+// for a channel that's been restored. If this is a restored channel, then
+// we'll modify our typical chan sync  message to ensure they force close even
+// if we're on the very first state.
+func ChanSyncMsg(c *channeldb.OpenChannel,
+	isRestoredChan bool) (*lnwire.ChannelReestablish, error) {
+
 	c.Lock()
 	defer c.Unlock()
 
@@ -3570,6 +3577,13 @@ func ChanSyncMsg(c *channeldb.OpenChannel) (*lnwire.ChannelReestablish, error) {
 	)
 	if err != nil {
 		return nil, err
+	}
+
+	// If we've restored this channel, then we'll purposefully give them an
+	// invalid LocalUnrevokedCommitPoint so they'll force close the channel
+	// allowing us to sweep our funds.
+	if isRestoredChan {
+		currentCommitSecret[0] ^= 1
 	}
 
 	return &lnwire.ChannelReestablish{
@@ -3632,7 +3646,7 @@ func (lc *LightningChannel) computeView(view *htlcView, remoteChain bool,
 	// will remove their corresponding added HTLCs.  The resulting filtered
 	// view will only have Add entries left, making it easy to compare the
 	// channel constraints to the final commitment state. If any fee
-	// updates are found in the logs, the comitment fee rate should be
+	// updates are found in the logs, the commitment fee rate should be
 	// changed, so we'll also set the feePerKw to this new value.
 	filteredHTLCView := lc.evaluateHTLCView(view, &ourBalance,
 		&theirBalance, nextHeight, remoteChain, updateState)
@@ -5086,12 +5100,14 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, signer input.Si
 	// Next, we'll obtain HTLC resolutions for all the outgoing HTLC's we
 	// had on their commitment transaction.
 	htlcResolutions, err := extractHtlcResolutions(
-		SatPerKWeight(remoteCommit.FeePerKw), false, signer, remoteCommit.Htlcs,
-		keyRing, &chanState.LocalChanCfg, &chanState.RemoteChanCfg,
-		*commitSpend.SpenderTxHash, pCache,
+		SatPerKWeight(remoteCommit.FeePerKw), false, signer,
+		remoteCommit.Htlcs, keyRing, &chanState.LocalChanCfg,
+		&chanState.RemoteChanCfg, *commitSpend.SpenderTxHash,
+		pCache,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("unable to create htlc resolutions: %v", err)
+		return nil, fmt.Errorf("unable to create htlc "+
+			"resolutions: %v", err)
 	}
 
 	commitTxBroadcast := commitSpend.SpendingTx
@@ -5101,7 +5117,8 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, signer input.Si
 	// transaction.
 	selfP2WKH, err := input.CommitScriptUnencumbered(keyRing.NoDelayKey)
 	if err != nil {
-		return nil, fmt.Errorf("unable to create self commit script: %v", err)
+		return nil, fmt.Errorf("unable to create self commit "+
+			"script: %v", err)
 	}
 
 	var (
@@ -5159,7 +5176,10 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, signer input.Si
 	}
 
 	// Attempt to add a channel sync message to the close summary.
-	chanSync, err := ChanSyncMsg(chanState)
+	chanSync, err := ChanSyncMsg(
+		chanState,
+		chanState.HasChanStatus(channeldb.ChanStatusRestored),
+	)
 	if err != nil {
 		walletLog.Errorf("ChannelPoint(%v): unable to create channel sync "+
 			"message: %v", chanState.FundingOutpoint, err)

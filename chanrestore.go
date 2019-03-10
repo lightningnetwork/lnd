@@ -101,16 +101,6 @@ func (c *chanDBRestorer) openChannelShell(backup chanbackup.Single) (
 		},
 	}
 
-	// TODO(roasbeef): move this mapping elsewhere?
-
-	// When we make a channel, we mark that the channel has been restored,
-	// this will signal to other sub-systems to not attempt to use the
-	// channel as if it was a regular one.
-	chanStatus := channeldb.ChanStatusDefault |
-		channeldb.ChanStatusRestored
-
-	chanShell.Chan.ApplyChanStatus(chanStatus)
-
 	return &chanShell, nil
 }
 

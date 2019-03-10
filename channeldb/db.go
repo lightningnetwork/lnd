@@ -906,6 +906,12 @@ func (d *DB) RestoreChannelShells(channelShells ...*ChannelShell) error {
 		for _, channelShell := range channelShells {
 			channel := channelShell.Chan
 
+			// When we make a channel, we mark that the channel has
+			// been restored, this will signal to other sub-systems
+			// to not attempt to use the channel as if it was a
+			// regular one.
+			channel.chanStatus |= ChanStatusRestored
+
 			// First, we'll attempt to create a new open channel
 			// and link node for this channel. If the channel
 			// already exists, then in order to ensure this method

@@ -562,7 +562,11 @@ func (l *channelLink) syncChanStates() error {
 	// First, we'll generate our ChanSync message to send to the other
 	// side. Based on this message, the remote party will decide if they
 	// need to retransmit any data or not.
-	localChanSyncMsg, err := lnwallet.ChanSyncMsg(l.channel.State())
+	chanState := l.channel.State()
+	localChanSyncMsg, err := lnwallet.ChanSyncMsg(
+		chanState,
+		chanState.HasChanStatus(channeldb.ChanStatusRestored),
+	)
 	if err != nil {
 		return fmt.Errorf("unable to generate chan sync message for "+
 			"ChannelPoint(%v)", l.channel.ChannelPoint())

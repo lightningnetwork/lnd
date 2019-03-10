@@ -576,7 +576,9 @@ func (n *NetworkHarness) DisconnectNodes(ctx context.Context, a, b *HarnessNode)
 // This method can be useful when testing edge cases such as a node broadcast
 // and invalidated prior state, or persistent state recovery, simulating node
 // crashes, etc.
-func (n *NetworkHarness) RestartNode(node *HarnessNode, callback func() error) error {
+func (n *NetworkHarness) RestartNode(node *HarnessNode,
+	callback func() error) error {
+
 	if err := node.stop(); err != nil {
 		return err
 	}
@@ -587,7 +589,19 @@ func (n *NetworkHarness) RestartNode(node *HarnessNode, callback func() error) e
 		}
 	}
 
-	return node.start(n.lndErrorChan)
+	if err := node.start(n.lndErrorChan); err != nil {
+		return err
+	}
+
+	// If the node doesn't have a password set, then we can exit here as we
+	// don't need to unlock it.
+	if len(node.cfg.Password) == 0 {
+		return nil
+	}
+
+	// Otherwise, we'll unlock the wallet, then complete the final steps
+	// for the node initialization process.
+	return node.Unlock(context.Background(), node.cfg.Password)
 }
 
 // SuspendNode stops the given node and returns a callback that can be used to

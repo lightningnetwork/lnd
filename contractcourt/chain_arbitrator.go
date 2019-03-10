@@ -227,25 +227,37 @@ func newActiveChannelArbitrator(channel *channeldb.OpenChannel,
 		ShortChanID: channel.ShortChanID(),
 		BlockEpochs: blockEpoch,
 		ForceCloseChan: func() (*lnwallet.LocalForceCloseSummary, error) {
-			// With the channels fetched, attempt to locate
-			// the target channel according to its channel
-			// point.
+			// First, we mark the channel as borked, this ensure
+			// that no new state transitions can happen, and also
+			// that the link won't be loaded into the switch.
+			if err := channel.MarkBorked(); err != nil {
+				return nil, err
+			}
+
+			// With the channel marked as borked, we'll now remove
+			// the link from the switch if its there. If the link
+			// is active, then this method will block until it
+			// exits.
+			if err := c.cfg.MarkLinkInactive(chanPoint); err != nil {
+				log.Errorf("unable to mark link inactive: %v", err)
+			}
+
+			// Now that we know the link can't mutate the channel
+			// state, we'll read the channel from disk the target
+			// channel according to its channel point.
 			channel, err := c.chanSource.FetchChannel(chanPoint)
 			if err != nil {
 				return nil, err
 			}
 
+			// Finally, we'll force close the channel completing
+			// the force close workflow.
 			chanMachine, err := lnwallet.NewLightningChannel(
 				c.cfg.Signer, c.cfg.PreimageDB, channel, nil,
 			)
 			if err != nil {
 				return nil, err
 			}
-
-			if err := c.cfg.MarkLinkInactive(chanPoint); err != nil {
-				log.Errorf("unable to mark link inactive: %v", err)
-			}
-
 			return chanMachine.ForceClose()
 		},
 		MarkCommitmentBroadcasted: channel.MarkCommitmentBroadcasted,

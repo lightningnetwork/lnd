@@ -107,6 +107,10 @@ var (
 	// mutate a channel that's been recovered.
 	ErrNoRestoredChannelMutation = fmt.Errorf("cannot mutate restored " +
 		"channel state")
+
+	// ErrChanBorked is returned when a caller attempts to mutate a borked
+	// channel.
+	ErrChanBorked = fmt.Errorf("cannot mutate borked channel")
 )
 
 // ChannelType is an enum-like type that describes one of several possible
@@ -545,6 +549,16 @@ func (c *OpenChannel) ApplyChanStatus(status ChannelStatus) error {
 	return c.putChanStatus(status)
 }
 
+// ClearChanStatus allows the caller to clear a particular channel status from
+// the primary channel status bit field. After this method returns, a call to
+// HasChanStatus(status) should return false.
+func (c *OpenChannel) ClearChanStatus(status ChannelStatus) error {
+	c.Lock()
+	defer c.Unlock()
+
+	return c.clearChanStatus(status)
+}
+
 // HasChanStatus returns true if the internal bitfield channel status of the
 // target channel has the specified status bit set.
 func (c *OpenChannel) HasChanStatus(status ChannelStatus) bool {
@@ -807,6 +821,20 @@ func (c *OpenChannel) MarkBorked() error {
 	return c.putChanStatus(ChanStatusBorked)
 }
 
+// isBorked returns true if the channel has been marked as borked in the
+// database. This requires an existing database transaction to already be
+// active.
+//
+// NOTE: The primary mutex should already be held before this method is called.
+func (c *OpenChannel) isBorked(chanBucket *bbolt.Bucket) (bool, error) {
+	channel, err := fetchOpenChannel(chanBucket, &c.FundingOutpoint)
+	if err != nil {
+		return false, err
+	}
+
+	return channel.chanStatus != ChanStatusDefault, nil
+}
+
 // MarkCommitmentBroadcasted marks the channel as a commitment transaction has
 // been broadcast, either our own or the remote, and we should watch the chain
 // for it to confirm before taking any further action.
@@ -833,6 +861,35 @@ func (c *OpenChannel) putChanStatus(status ChannelStatus) error {
 
 		// Add this status to the existing bitvector found in the DB.
 		status = channel.chanStatus | status
+		channel.chanStatus = status
+
+		return putOpenChannel(chanBucket, channel)
+	}); err != nil {
+		return err
+	}
+
+	// Update the in-memory representation to keep it in sync with the DB.
+	c.chanStatus = status
+
+	return nil
+}
+
+func (c *OpenChannel) clearChanStatus(status ChannelStatus) error {
+	if err := c.Db.Update(func(tx *bbolt.Tx) error {
+		chanBucket, err := fetchChanBucket(
+			tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
+		)
+		if err != nil {
+			return err
+		}
+
+		channel, err := fetchOpenChannel(chanBucket, &c.FundingOutpoint)
+		if err != nil {
+			return err
+		}
+
+		// Unset this bit in the bitvector on disk.
+		status = channel.chanStatus & ^status
 		channel.chanStatus = status
 
 		return putOpenChannel(chanBucket, channel)
@@ -976,6 +1033,16 @@ func (c *OpenChannel) UpdateCommitment(newCommitment *ChannelCommitment) error {
 		)
 		if err != nil {
 			return err
+		}
+
+		// If the channel is marked as borked, then for safety reasons,
+		// we shouldn't attempt any further updates.
+		isBorked, err := c.isBorked(chanBucket)
+		if err != nil {
+			return err
+		}
+		if isBorked {
+			return ErrChanBorked
 		}
 
 		if err = putChanInfo(chanBucket, c); err != nil {
@@ -1408,6 +1475,16 @@ func (c *OpenChannel) AppendRemoteCommitChain(diff *CommitDiff) error {
 			return err
 		}
 
+		// If the channel is marked as borked, then for safety reasons,
+		// we shouldn't attempt any further updates.
+		isBorked, err := c.isBorked(chanBucket)
+		if err != nil {
+			return err
+		}
+		if isBorked {
+			return ErrChanBorked
+		}
+
 		// Any outgoing settles and fails necessarily have a
 		// corresponding adds in this channel's forwarding packages.
 		// Mark all of these as being fully processed in our forwarding
@@ -1537,6 +1614,16 @@ func (c *OpenChannel) AdvanceCommitChainTail(fwdPkg *FwdPkg) error {
 		)
 		if err != nil {
 			return err
+		}
+
+		// If the channel is marked as borked, then for safety reasons,
+		// we shouldn't attempt any further updates.
+		isBorked, err := c.isBorked(chanBucket)
+		if err != nil {
+			return err
+		}
+		if isBorked {
+			return ErrChanBorked
 		}
 
 		// Persist the latest preimage state to disk as the remote peer

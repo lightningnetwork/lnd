@@ -1018,7 +1018,9 @@ func (d *DB) AddrsForNode(nodePub *btcec.PublicKey) ([]net.Addr, error) {
 		}
 		compressedPubKey := nodePub.SerializeCompressed()
 		graphNode, err = fetchLightningNode(nodes, compressedPubKey)
-		if err != nil {
+		if err != nil && err != ErrGraphNodeNotFound {
+			// If the node isn't found, then that's OK, as we still
+			// have the link node data.
 			return err
 		}
 

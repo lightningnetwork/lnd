@@ -25,6 +25,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/go-errors/errors"
+	"github.com/lightningnetwork/lnd/chanbackup"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
 )
@@ -140,6 +141,16 @@ func (cfg nodeConfig) RESTAddr() string {
 func (cfg nodeConfig) DBPath() string {
 	return filepath.Join(cfg.DataDir, "graph",
 		fmt.Sprintf("%v/channel.db", cfg.NetParams.Name))
+}
+
+func (cfg nodeConfig) ChanBackupPath() string {
+	return filepath.Join(
+		cfg.DataDir, "chain", "bitcoin",
+		fmt.Sprintf(
+			"%v/%v", cfg.NetParams.Name,
+			chanbackup.DefaultBackupFileName,
+		),
+	)
 }
 
 // genArgs generates a slice of command line arguments from the lightning node
@@ -277,6 +288,12 @@ func (hn *HarnessNode) DBPath() string {
 // Name returns the name of this node set during initialization.
 func (hn *HarnessNode) Name() string {
 	return hn.cfg.Name
+}
+
+// ChanBackupPath returns the fielpath to the on-disk channels.backup file for
+// this node.
+func (hn *HarnessNode) ChanBackupPath() string {
+	return hn.cfg.ChanBackupPath()
 }
 
 // Start launches a new process running lnd. Additionally, the PID of the

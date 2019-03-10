@@ -9,6 +9,7 @@ import (
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -40,6 +41,11 @@ type Single struct {
 	// pack the single backup.
 	Version SingleBackupVersion
 
+	// IsInitiator is true if we were the initiator of the channel, and
+	// false otherwise. We'll need to know this information in order to
+	// properly re-derive the state hint information.
+	IsInitiator bool
+
 	// ChainHash is a hash which represents the blockchain that this
 	// channel will be opened within. This value is typically the genesis
 	// hash. In the case that the original chain went through a contentious
@@ -66,16 +72,29 @@ type Single struct {
 	// authenticated connection for the stored identity public key.
 	Addresses []net.Addr
 
-	// CsvDelay is the local CSV delay used within the channel. We may need
-	// this value to reconstruct our script to recover the funds on-chain
-	// after a force close.
-	CsvDelay uint16
+	// Capacity is the size of the original channel.
+	Capacity btcutil.Amount
 
-	// PaymentBasePoint describes how to derive base public that's used to
-	// deriving the key used within the non-delayed pay-to-self output on
-	// the commitment transaction for a node. With this information, we can
-	// re-derive the private key needed to sweep the funds on-chain.
-	PaymentBasePoint keychain.KeyLocator
+	// LocalChanCfg is our local channel configuration. It contains all the
+	// information we need to re-derive the keys we used within the
+	// channel. Most importantly, it allows to derive the base public
+	// that's used to deriving the key used within the non-delayed
+	// pay-to-self output on the commitment transaction for a node. With
+	// this information, we can re-derive the private key needed to sweep
+	// the funds on-chain.
+	//
+	// NOTE: Of the items in the ChannelConstraints, we only write the CSV
+	// delay.
+	LocalChanCfg channeldb.ChannelConfig
+
+	// RemoteChanCfg is the remote channel confirmation. We store this as
+	// well since we'll need some of their keys to re-derive things like
+	// the state hint obfuscator which will allow us to recognize the state
+	// their broadcast on chain.
+	//
+	// NOTE: Of the items in the ChannelConstraints, we only write the CSV
+	// delay.
+	RemoteChanCfg channeldb.ChannelConfig
 
 	// ShaChainRootDesc describes how to derive the private key that was
 	// used as the shachain root for this channel.
@@ -87,8 +106,6 @@ type Single struct {
 // connect to the channel peer.
 func NewSingle(channel *channeldb.OpenChannel,
 	nodeAddrs []net.Addr) Single {
-
-	chanCfg := channel.LocalChanCfg
 
 	// TODO(roasbeef): update after we start to store the KeyLoc for
 	// shachain root
@@ -105,13 +122,16 @@ func NewSingle(channel *channeldb.OpenChannel,
 	_, shaChainPoint := btcec.PrivKeyFromBytes(btcec.S256(), b.Bytes())
 
 	return Single{
-		ChainHash:        channel.ChainHash,
-		FundingOutpoint:  channel.FundingOutpoint,
-		ShortChannelID:   channel.ShortChannelID,
-		RemoteNodePub:    channel.IdentityPub,
-		Addresses:        nodeAddrs,
-		CsvDelay:         chanCfg.CsvDelay,
-		PaymentBasePoint: chanCfg.PaymentBasePoint.KeyLocator,
+		Version:         DefaultSingleVersion,
+		IsInitiator:     channel.IsInitiator,
+		ChainHash:       channel.ChainHash,
+		FundingOutpoint: channel.FundingOutpoint,
+		ShortChannelID:  channel.ShortChannelID,
+		RemoteNodePub:   channel.IdentityPub,
+		Addresses:       nodeAddrs,
+		Capacity:        channel.Capacity,
+		LocalChanCfg:    channel.LocalChanCfg,
+		RemoteChanCfg:   channel.RemoteChanCfg,
 		ShaChainRootDesc: keychain.KeyDescriptor{
 			PubKey: shaChainPoint,
 			KeyLocator: keychain.KeyLocator{
@@ -150,14 +170,39 @@ func (s *Single) Serialize(w io.Writer) error {
 	var singleBytes bytes.Buffer
 	if err := lnwire.WriteElements(
 		&singleBytes,
+		s.IsInitiator,
 		s.ChainHash[:],
 		s.FundingOutpoint,
 		s.ShortChannelID,
 		s.RemoteNodePub,
 		s.Addresses,
-		s.CsvDelay,
-		uint32(s.PaymentBasePoint.Family),
-		s.PaymentBasePoint.Index,
+		s.Capacity,
+
+		s.LocalChanCfg.CsvDelay,
+
+		// We only need to write out the KeyLocator portion of the
+		// local channel config.
+		uint32(s.LocalChanCfg.MultiSigKey.Family),
+		s.LocalChanCfg.MultiSigKey.Index,
+		uint32(s.LocalChanCfg.RevocationBasePoint.Family),
+		s.LocalChanCfg.RevocationBasePoint.Index,
+		uint32(s.LocalChanCfg.PaymentBasePoint.Family),
+		s.LocalChanCfg.PaymentBasePoint.Index,
+		uint32(s.LocalChanCfg.DelayBasePoint.Family),
+		s.LocalChanCfg.DelayBasePoint.Index,
+		uint32(s.LocalChanCfg.HtlcBasePoint.Family),
+		s.LocalChanCfg.HtlcBasePoint.Index,
+
+		s.RemoteChanCfg.CsvDelay,
+
+		// We only need to write out the raw pubkey for the remote
+		// channel config.
+		s.RemoteChanCfg.MultiSigKey.PubKey,
+		s.RemoteChanCfg.RevocationBasePoint.PubKey,
+		s.RemoteChanCfg.PaymentBasePoint.PubKey,
+		s.RemoteChanCfg.DelayBasePoint.PubKey,
+		s.RemoteChanCfg.HtlcBasePoint.PubKey,
+
 		shaChainPub[:],
 		uint32(s.ShaChainRootDesc.KeyLocator.Family),
 		s.ShaChainRootDesc.KeyLocator.Index,
@@ -201,6 +246,49 @@ func (s *Single) PackToWriter(w io.Writer, keyRing keychain.KeyRing) error {
 	return encryptPayloadToWriter(rawBytes, w, keyRing)
 }
 
+// readLocalKeyDesc reads a KeyDescriptor encoded within an unpacked Single.
+// For local KeyDescs, we only write out the KeyLocator information as we can
+// re-derive the pubkey from it.
+func readLocalKeyDesc(r io.Reader) (keychain.KeyDescriptor, error) {
+	var keyDesc keychain.KeyDescriptor
+
+	var keyFam uint32
+	if err := lnwire.ReadElements(r, &keyFam); err != nil {
+		return keyDesc, err
+	}
+	keyDesc.Family = keychain.KeyFamily(keyFam)
+
+	if err := lnwire.ReadElements(r, &keyDesc.Index); err != nil {
+		return keyDesc, err
+	}
+
+	return keyDesc, nil
+}
+
+// readRemoteKeyDesc reads a remote KeyDescriptor encoded within an unpacked
+// Single. For remote KeyDescs, we write out only the PubKey since we don't
+// actually have the KeyLocator data.
+func readRemoteKeyDesc(r io.Reader) (keychain.KeyDescriptor, error) {
+	var (
+		keyDesc keychain.KeyDescriptor
+		pub     [33]byte
+	)
+
+	_, err := io.ReadFull(r, pub[:])
+	if err != nil {
+		return keyDesc, nil
+	}
+
+	keyDesc.PubKey, err = btcec.ParsePubKey(pub[:], btcec.S256())
+	if err != nil {
+		return keyDesc, nil
+	}
+
+	keyDesc.PubKey.Curve = nil
+
+	return keyDesc, nil
+}
+
 // Deserialize attempts to read the raw plaintext serialized SCB from the
 // passed io.Reader. If the method is successful, then the target
 // StaticChannelBackup will be fully populated.
@@ -228,20 +316,59 @@ func (s *Single) Deserialize(r io.Reader) error {
 	}
 
 	err = lnwire.ReadElements(
-		r, s.ChainHash[:], &s.FundingOutpoint, &s.ShortChannelID,
-		&s.RemoteNodePub, &s.Addresses, &s.CsvDelay,
+		r, &s.IsInitiator, s.ChainHash[:], &s.FundingOutpoint,
+		&s.ShortChannelID, &s.RemoteNodePub, &s.Addresses, &s.Capacity,
 	)
 	if err != nil {
 		return err
 	}
 
-	var keyFam uint32
-	if err := lnwire.ReadElements(r, &keyFam); err != nil {
+	err = lnwire.ReadElements(r, &s.LocalChanCfg.CsvDelay)
+	if err != nil {
 		return err
 	}
-	s.PaymentBasePoint.Family = keychain.KeyFamily(keyFam)
+	s.LocalChanCfg.MultiSigKey, err = readLocalKeyDesc(r)
+	if err != nil {
+		return err
+	}
+	s.LocalChanCfg.RevocationBasePoint, err = readLocalKeyDesc(r)
+	if err != nil {
+		return err
+	}
+	s.LocalChanCfg.PaymentBasePoint, err = readLocalKeyDesc(r)
+	if err != nil {
+		return err
+	}
+	s.LocalChanCfg.DelayBasePoint, err = readLocalKeyDesc(r)
+	if err != nil {
+		return err
+	}
+	s.LocalChanCfg.HtlcBasePoint, err = readLocalKeyDesc(r)
+	if err != nil {
+		return err
+	}
 
-	err = lnwire.ReadElements(r, &s.PaymentBasePoint.Index)
+	err = lnwire.ReadElements(r, &s.RemoteChanCfg.CsvDelay)
+	if err != nil {
+		return err
+	}
+	s.RemoteChanCfg.MultiSigKey, err = readRemoteKeyDesc(r)
+	if err != nil {
+		return err
+	}
+	s.RemoteChanCfg.RevocationBasePoint, err = readRemoteKeyDesc(r)
+	if err != nil {
+		return err
+	}
+	s.RemoteChanCfg.PaymentBasePoint, err = readRemoteKeyDesc(r)
+	if err != nil {
+		return err
+	}
+	s.RemoteChanCfg.DelayBasePoint, err = readRemoteKeyDesc(r)
+	if err != nil {
+		return err
+	}
+	s.RemoteChanCfg.HtlcBasePoint, err = readRemoteKeyDesc(r)
 	if err != nil {
 		return err
 	}
@@ -256,7 +383,7 @@ func (s *Single) Deserialize(r io.Reader) error {
 	}
 
 	// Since this field is optional, we'll check to see if the pubkey has
-	// ben specified or not.
+	// been specified or not.
 	if !bytes.Equal(shaChainPub[:], zeroPub[:]) {
 		s.ShaChainRootDesc.PubKey, err = btcec.ParsePubKey(
 			shaChainPub[:], btcec.S256(),

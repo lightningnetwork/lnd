@@ -96,17 +96,17 @@ func (b *MultiFile) UpdateAndSwap(newBackup PackedMulti) error {
 	var err error
 	b.tempFile, err = os.Create(b.tempFileName)
 	if err != nil {
-		return err
+		return fmt.Errorf("unable to create temp file: %v", err)
 	}
 
 	// With the file created, we'll write the new packed multi backup and
 	// remove the temporary file all together once this method exits.
 	_, err = b.tempFile.Write([]byte(newBackup))
 	if err != nil {
-		return err
+		return fmt.Errorf("unable to write backup to temp file: %v", err)
 	}
 	if err := b.tempFile.Sync(); err != nil {
-		return err
+		return fmt.Errorf("unable to sync temp file: %v", err)
 	}
 	defer os.Remove(b.tempFileName)
 

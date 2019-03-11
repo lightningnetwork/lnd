@@ -366,6 +366,10 @@ var (
 			Entity: "offchain",
 			Action: "read",
 		}},
+		"/lnrpc.Lightning/VerifyChanBackup": {{
+			Entity: "offchain",
+			Action: "read",
+		}},
 		"/lnrpc.Lightning/ExportAllChannelBackups": {{
 			Entity: "offchain",
 			Action: "read",
@@ -4731,6 +4735,65 @@ func (r *rpcServer) ExportChannelBackup(ctx context.Context,
 		ChanPoint:  in.ChanPoint,
 		ChanBackup: packedBackup,
 	}, nil
+}
+
+// VerifyChanBackup allows a caller to verify the integrity of a channel
+// backup snapshot. This method will accept both a packed Single, and also a
+// Packed multi. Two bools are returned which indicate if the passed Single
+// (if present) is valid and also if the passed Multi (if present) is valid.
+func (r *rpcServer) VerifyChanBackup(ctx context.Context,
+	in *lnrpc.ChanBackupSnapshot) (*lnrpc.VerifyChanBackupResponse, error) {
+
+	// If neither a Single or Multi has been specified, then we have
+	// nothing to verify.
+	if in.GetSingleChanBackups() == nil && in.GetMultiChanBackup() == nil {
+		return nil, fmt.Errorf("either a Single or Multi channel " +
+			"backup must be specified")
+	}
+
+	// If a Single is specified then we'll only accept one of them to allow
+	// the caller to map the valid/invalid state for each individual
+	// Single.
+	if in.GetSingleChanBackups() != nil &&
+		len(in.GetSingleChanBackups().ChanBackups) != 1 {
+
+		return nil, fmt.Errorf("only one Single is accepted at a time")
+	}
+
+	// By default, we'll assume that both backups are valid.
+	resp := lnrpc.VerifyChanBackupResponse{
+		SinglesValid: true,
+		MultiValid:   true,
+	}
+
+	if in.GetSingleChanBackups() != nil {
+		// First, we'll convert the raw byte sliice into a type we can
+		// work with a bit better.
+		chanBackupsProtos := in.GetSingleChanBackups().ChanBackups
+		chanBackup := chanbackup.PackedSingles(
+			[][]byte{chanBackupsProtos[0].ChanBackup},
+		)
+
+		// With our PackedSingles created, we'll attempt to unpack the
+		// backup. If this fails, then we know the backup is invalid
+		// for some reason.
+		_, err := chanBackup.Unpack(r.server.cc.keyRing)
+		resp.SinglesValid = err == nil
+	}
+
+	if in.GetMultiChanBackup() != nil {
+		// Similarly, we'll convert the raw byte slice into a
+		// PackedMulti that we can easily work with.
+		packedMultiBackup := in.GetMultiChanBackup().MultiChanBackup
+		packedMulti := chanbackup.PackedMulti(packedMultiBackup)
+
+		// We'll now attempt to unpack the Multi. If this fails, then
+		// we know it's invalid.
+		_, err := packedMulti.Unpack(r.server.cc.keyRing)
+		resp.MultiValid = err == nil
+	}
+
+	return &resp, nil
 }
 
 // createBackupSnapshot converts the passed Single backup into a snapshot which

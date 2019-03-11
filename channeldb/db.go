@@ -965,7 +965,7 @@ func (d *DB) RestoreChannelShells(channelShells ...*ChannelShell) error {
 			// With the edge info shell constructed, we'll now add
 			// it to the graph.
 			err = chanGraph.addChannelEdge(tx, &edgeInfo)
-			if err != nil {
+			if err != nil && err != ErrEdgeAlreadyExist {
 				return err
 			}
 

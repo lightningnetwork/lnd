@@ -4707,7 +4707,7 @@ func (r *rpcServer) FeeReport(ctx context.Context,
 	// Before we perform the queries below, we'll instruct the switch to
 	// flush any pending events to disk. This ensure we get a complete
 	// snapshot at this particular time.
-	if r.server.htlcSwitch.FlushForwardingEvents(); err != nil {
+	if err := r.server.htlcSwitch.FlushForwardingEvents(); err != nil {
 		return nil, fmt.Errorf("unable to flush forwarding "+
 			"events: %v", err)
 	}

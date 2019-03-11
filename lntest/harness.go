@@ -301,12 +301,13 @@ func (n *NetworkHarness) NewNodeWithSeed(name string, extraArgs []string,
 }
 
 // RestoreNodeWithSeed fully initializes a HarnessNode using a chosen mnemonic,
-// password, and recovery window. After providing the initialization request to
-// unlock the node, this method will finish initializing the LightningClient
-// such that the HarnessNode can be used for regular rpc operations.
+// password, recovery window, and optionally a set of static channel backups.
+// After providing the initialization request to unlock the node, this method
+// will finish initializing the LightningClient such that the HarnessNode can
+// be used for regular rpc operations.
 func (n *NetworkHarness) RestoreNodeWithSeed(name string, extraArgs []string,
-	password []byte, mnemonic []string,
-	recoveryWindow int32) (*HarnessNode, error) {
+	password []byte, mnemonic []string, recoveryWindow int32,
+	chanBackups *lnrpc.ChanBackupSnapshot) (*HarnessNode, error) {
 
 	node, err := n.newNode(name, extraArgs, true, password)
 	if err != nil {
@@ -318,6 +319,7 @@ func (n *NetworkHarness) RestoreNodeWithSeed(name string, extraArgs []string,
 		CipherSeedMnemonic: mnemonic,
 		AezeedPassphrase:   password,
 		RecoveryWindow:     recoveryWindow,
+		ChannelBackups:     chanBackups,
 	}
 
 	err = node.Init(context.Background(), initReq)
@@ -575,9 +577,11 @@ func (n *NetworkHarness) DisconnectNodes(ctx context.Context, a, b *HarnessNode)
 //
 // This method can be useful when testing edge cases such as a node broadcast
 // and invalidated prior state, or persistent state recovery, simulating node
-// crashes, etc.
-func (n *NetworkHarness) RestartNode(node *HarnessNode,
-	callback func() error) error {
+// crashes, etc. Additionally, each time the node is restarted, the caller can
+// pass a set of SCBs to pass in via the Unlock method allowing them to restore
+// channels during restart.
+func (n *NetworkHarness) RestartNode(node *HarnessNode, callback func() error,
+	chanBackups ...*lnrpc.ChanBackupSnapshot) error {
 
 	if err := node.stop(); err != nil {
 		return err
@@ -601,7 +605,15 @@ func (n *NetworkHarness) RestartNode(node *HarnessNode,
 
 	// Otherwise, we'll unlock the wallet, then complete the final steps
 	// for the node initialization process.
-	return node.Unlock(context.Background(), node.cfg.Password)
+	unlockReq := &lnrpc.UnlockWalletRequest{
+		WalletPassword: node.cfg.Password,
+	}
+	if len(chanBackups) != 0 {
+		unlockReq.ChannelBackups = chanBackups[0]
+		unlockReq.RecoveryWindow = 1000
+	}
+
+	return node.Unlock(context.Background(), unlockReq)
 }
 
 // SuspendNode stops the given node and returns a callback that can be used to

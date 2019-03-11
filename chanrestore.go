@@ -121,7 +121,8 @@ func (c *chanDBRestorer) RestoreChansFromSingles(backups ...chanbackup.Single) e
 		channelShells = append(channelShells, chanShell)
 	}
 
-	ltndLog.Infof("Inserting %v SCB channel shells into DB")
+	ltndLog.Infof("Inserting %v SCB channel shells into DB",
+		len(channelShells))
 
 	// Now that we have all the backups mapped into a series of Singles,
 	// we'll insert them all into the database.

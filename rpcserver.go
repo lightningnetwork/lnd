@@ -2436,8 +2436,6 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 
 	resp := &lnrpc.ListChannelsResponse{}
 
-	// TODO(roasbeef): expose chan status flags as well
-
 	graph := r.server.chanDB.ChannelGraph()
 
 	dbChannels, err := r.server.chanDB.FetchAllOpenChannels()
@@ -4686,17 +4684,17 @@ func (r *rpcServer) ForwardingHistory(ctx context.Context,
 // once lnd is running, or via the InitWallet and UnlockWallet methods from the
 // WalletUnlocker service.
 func (r *rpcServer) ExportChannelBackup(ctx context.Context,
-	in *lnrpc.ChannelPoint) (*lnrpc.ChannelBackup, error) {
+	in *lnrpc.ExportChannelBackupRequest) (*lnrpc.ChannelBackup, error) {
 
 	// First, we'll convert the lnrpc channel point into a wire.OutPoint
 	// that we can manipulate.
-	txid, err := getChanPointFundingTxid(in)
+	txid, err := getChanPointFundingTxid(in.ChanPoint)
 	if err != nil {
 		return nil, err
 	}
 	chanPoint := wire.OutPoint{
 		Hash:  *txid,
-		Index: in.OutputIndex,
+		Index: in.ChanPoint.OutputIndex,
 	}
 
 	// Next, we'll attempt to fetch a channel backup for this channel from
@@ -4730,7 +4728,7 @@ func (r *rpcServer) ExportChannelBackup(ctx context.Context,
 	}
 
 	return &lnrpc.ChannelBackup{
-		ChanPoint:  in,
+		ChanPoint:  in.ChanPoint,
 		ChanBackup: packedBackup,
 	}, nil
 }

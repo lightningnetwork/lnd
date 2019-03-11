@@ -386,12 +386,12 @@ func (c *chainWatcher) closeObserver(spendNtfn *chainntnfs.SpendEvent) {
 		}
 
 		switch {
-		// If state number spending transaction matches the
-		// current latest state, then they've initiated a
-		// unilateral close. So we'll trigger the unilateral
-		// close signal so subscribers can clean up the state
-		// as necessary.
-		case broadcastStateNum == remoteStateNum:
+		// If state number spending transaction matches the current
+		// latest state, then they've initiated a unilateral close. So
+		// we'll trigger the unilateral close signal so subscribers can
+		// clean up the state as necessary.
+		case broadcastStateNum == remoteStateNum && !isRecoveredChan:
+
 			err := c.dispatchRemoteForceClose(
 				commitSpend, *remoteCommit,
 				c.cfg.chanState.RemoteCurrentRevocation,
@@ -402,14 +402,13 @@ func (c *chainWatcher) closeObserver(spendNtfn *chainntnfs.SpendEvent) {
 					c.cfg.chanState.FundingOutpoint, err)
 			}
 
-		// We'll also handle the case of the remote party
-		// broadcasting their commitment transaction which is
-		// one height above ours. This case can arise when we
-		// initiate a state transition, but the remote party
-		// has a fail crash _after_ accepting the new state,
-		// but _before_ sending their signature to us.
+		// We'll also handle the case of the remote party broadcasting
+		// their commitment transaction which is one height above ours.
+		// This case can arise when we initiate a state transition, but
+		// the remote party has a fail crash _after_ accepting the new
+		// state, but _before_ sending their signature to us.
 		case broadcastStateNum == remoteStateNum+1 &&
-			remoteChainTip != nil:
+			remoteChainTip != nil && !isRecoveredChan:
 
 			err := c.dispatchRemoteForceClose(
 				commitSpend, remoteChainTip.Commitment,
@@ -425,8 +424,12 @@ func (c *chainWatcher) closeObserver(spendNtfn *chainntnfs.SpendEvent) {
 		// known state for them, and they don't have a pending
 		// commitment (we write them to disk before sending out), then
 		// this means that we've lost data. In this case, we'll enter
-		// the DLP protocol.
-		case broadcastStateNum > remoteStateNum:
+		// the DLP protocol. Otherwise, if we've recovered our channel
+		// state from scratch, then we don't know what the precise
+		// current state is, so we assume either the remote party
+		// forced closed or we've been breached. In the latter case,
+		// our tower will take care of us.
+		case broadcastStateNum > remoteStateNum || isRecoveredChan:
 			log.Warnf("Remote node broadcast state #%v, "+
 				"which is more than 1 beyond best known "+
 				"state #%v!!! Attempting recovery...",

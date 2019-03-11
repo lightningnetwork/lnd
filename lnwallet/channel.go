@@ -3504,7 +3504,7 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 
 	// Alternatively, if their height is two beyond what we know their best
 	// height to be, then they're holding onto two commitments, and the
-	// highest unrevoked point it their next revocation.
+	// highest unrevoked point is their next revocation.
 	//
 	// TODO(roasbeef): verify this in the spec...
 	case msg.NextLocalCommitHeight == remoteTailHeight+2:

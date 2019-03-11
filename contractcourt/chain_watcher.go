@@ -320,22 +320,35 @@ func (c *chainWatcher) closeObserver(spendNtfn *chainntnfs.SpendEvent) {
 			return
 		}
 
-		// If this is our commitment transaction, then we can
-		// exit here as we don't have any further processing we
-		// need to do (we can't cheat ourselves :p).
-		commitmentHash := localCommit.CommitTx.TxHash()
-		isOurCommitment := commitSpend.SpenderTxHash.IsEqual(
-			&commitmentHash,
+		// If this channel has been recovered, then we'll modify our
+		// behavior as it isn't possible for us to close out the
+		// channel off-chain ourselves. It can only be the remote party
+		// force closing, or a cooperative closure we signed off on
+		// before losing data getting confirmed in the chain.
+		isRecoveredChan := c.cfg.chanState.HasChanStatus(
+			channeldb.ChanStatusRestored,
 		)
-		if isOurCommitment {
-			if err := c.dispatchLocalForceClose(
-				commitSpend, *localCommit,
-			); err != nil {
-				log.Errorf("unable to handle local"+
-					"close for chan_point=%v: %v",
-					c.cfg.chanState.FundingOutpoint, err)
+
+		// If we're not recovering this channel, and this is our
+		// commitment transaction, then we can exit here as we don't
+		// have any further processing we need to do (we can't cheat
+		// ourselves :p).
+		if !isRecoveredChan {
+			commitmentHash := localCommit.CommitTx.TxHash()
+			isOurCommitment := commitSpend.SpenderTxHash.IsEqual(
+				&commitmentHash,
+			)
+
+			if isOurCommitment {
+				if err := c.dispatchLocalForceClose(
+					commitSpend, *localCommit,
+				); err != nil {
+					log.Errorf("unable to handle local"+
+						"close for chan_point=%v: %v",
+						c.cfg.chanState.FundingOutpoint, err)
+				}
+				return
 			}
-			return
 		}
 
 		// Next, we'll check to see if this is a cooperative channel

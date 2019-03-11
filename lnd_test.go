@@ -710,7 +710,7 @@ func testOnchainFundRecovery(net *lntest.NetworkHarness, t *harnessTest) {
 		// Restore Carol, passing in the password, mnemonic, and
 		// desired recovery window.
 		node, err := net.RestoreNodeWithSeed(
-			"Carol", nil, password, mnemonic, recoveryWindow,
+			"Carol", nil, password, mnemonic, recoveryWindow, nil,
 		)
 		if err != nil {
 			t.Fatalf("unable to restore node: %v", err)
@@ -7543,7 +7543,7 @@ func assertNumPendingChannels(t *harnessTest, node *lntest.HarnessNode,
 // testDataLossProtection tests that if one of the nodes in a channel
 // relationship lost state, they will detect this during channel sync, and the
 // up-to-date party will force close the channel, giving the outdated party the
-// oppurtunity to sweep its output.
+// opportunity to sweep its output.
 func testDataLossProtection(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxb := context.Background()
 	const (
@@ -7739,8 +7739,8 @@ func testDataLossProtection(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to time travel dave: %v", err)
 	}
 
-	// We a´make a note of the nodes' current on-chain balances, to make
-	// sure they are able to retrieve the channel funds eventually,
+	// We make a note of the nodes' current on-chain balances, to make sure
+	// they are able to retrieve the channel funds eventually,
 	balReq := &lnrpc.WalletBalanceRequest{}
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	carolBalResp, err := carol.WalletBalance(ctxt, balReq)

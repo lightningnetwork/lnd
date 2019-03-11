@@ -962,20 +962,6 @@ func loadConfig() (*config, error) {
 		}
 	}
 
-	// Ensure that we are only listening on localhost if Tor inbound support
-	// is enabled.
-	if cfg.Tor.V2 || cfg.Tor.V3 {
-		for _, addr := range cfg.Listeners {
-			if lncfg.IsLoopback(addr.String()) {
-				continue
-			}
-
-			return nil, errors.New("lnd must *only* be listening " +
-				"on localhost when running with Tor inbound " +
-				"support enabled")
-		}
-	}
-
 	// Ensure that the specified minimum backoff is below or equal to the
 	// maximum backoff.
 	if cfg.MinBackoff > cfg.MaxBackoff {

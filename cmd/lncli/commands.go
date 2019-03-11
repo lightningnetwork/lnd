@@ -3785,6 +3785,83 @@ func exportChanBackup(ctx *cli.Context) error {
 	return nil
 }
 
+var verifyChanBackupCommand = cli.Command{
+	Name:      "verifychanbackup",
+	Category:  "Channels",
+	Usage:     "Verify an existing channel backup",
+	ArgsUsage: "[--single_backup] [--multi_backup] [--multi_file=]",
+	Description: `
+    This command allows a user to verify an existing Single or Multi channel
+    backup for integrity. This is useful when a user has a backup, but is
+    unsure as to if it's valid or for the target node. 
+
+    The command will accept backups in one of three forms:
+
+       * A single channel packed SCB, which can be obtained from
+	 exportchanbackup. This should be passed in hex encoded format.
+
+       * A packed multi-channel SCB, which couples several individual
+	 static channel backups in single blob.
+
+       * A file path which points to a packed multi-channel backup within a
+	 file, using the same format that lnd does in its channels.backup
+	 file.
+    `,
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name: "single_backup",
+			Usage: "a hex encoded single channel backup obtained " +
+				"from exportchanbackup",
+		},
+		cli.StringFlag{
+			Name: "multi_backup",
+			Usage: "a hex encoded multi-channel backup obtained " +
+				"from exportchanbackup",
+		},
+		cli.StringFlag{
+			Name:  "multi_file",
+			Usage: "the path to a multi-channel back up file",
+		},
+	},
+	Action: actionDecorator(verifyChanBackup),
+}
+
+func verifyChanBackup(ctx *cli.Context) error {
+	ctxb := context.Background()
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
+	// Show command help if no arguments provided
+	if ctx.NArg() == 0 && ctx.NumFlags() == 0 {
+		cli.ShowCommandHelp(ctx, "verifychanbackup")
+		return nil
+	}
+
+	backups, err := parseChanBackups(ctx)
+	if err != nil {
+		return err
+	}
+
+	verifyReq := lnrpc.ChanBackupSnapshot{}
+
+	if backups.GetChanBackups() != nil {
+		verifyReq.SingleChanBackups = backups.GetChanBackups()
+	}
+	if backups.GetMultiChanBackup() != nil {
+		verifyReq.MultiChanBackup = &lnrpc.MultiChanBackup{
+			MultiChanBackup: backups.GetMultiChanBackup(),
+		}
+	}
+
+	resp, err := client.VerifyChanBackup(ctxb, &verifyReq)
+	if err != nil {
+		return err
+	}
+
+	printRespJSON(resp)
+	return nil
+}
+
 var restoreChanBackupCommand = cli.Command{
 	Name:     "restorechanbackup",
 	Category: "Channels",

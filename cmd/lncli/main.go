@@ -296,6 +296,7 @@ func main() {
 		updateChannelPolicyCommand,
 		forwardingHistoryCommand,
 		exportChanBackupCommand,
+		verifyChanBackupCommand,
 		restoreChanBackupCommand,
 	}
 

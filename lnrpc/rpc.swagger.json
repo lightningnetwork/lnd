@@ -3232,6 +3232,19 @@
         }
       }
     },
+    "lnrpcVerifyChanBackupResponse": {
+      "type": "object",
+      "properties": {
+        "singles_valid": {
+          "type": "boolean",
+          "format": "boolean"
+        },
+        "multi_valid": {
+          "type": "boolean",
+          "format": "boolean"
+        }
+      }
+    },
     "lnrpcVerifyMessageRequest": {
       "type": "object",
       "properties": {

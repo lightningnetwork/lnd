@@ -726,6 +726,15 @@ service Lightning {
     rpc ExportAllChannelBackups(ChanBackupExportRequest) returns (ChanBackupSnapshot) {
     };
 
+    /**
+    VerifyChanBackup allows a caller to verify the integrity of a channel
+    backup snapshot. This method will accept both a packed Single, and also a
+    Packed multi. Two bools are returned which indicate if the passed Single
+    (if present) is valid and also if the passed Multi (if present) is valid.
+    */
+    rpc VerifyChanBackup(ChanBackupSnapshot) returns (VerifyChanBackupResponse) {
+    };
+
     /** lncli: `restorechanbackup`
     RestoreChannelBackups accepts a set of singular channel backups, or a
     single encrypted multi-chan backup and attempts to recover any funds
@@ -2320,3 +2329,8 @@ message RestoreChanBackupRequest {
 message RestoreBackupResponse {}
 
 message ChannelBackupSubscription {}
+
+message VerifyChanBackupResponse {
+    bool singles_valid = 1 [ json_name = "singles_valid"];
+    bool multi_valid = 2 [ json_name = "multi_valid"];
+}

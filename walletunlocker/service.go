@@ -184,7 +184,7 @@ func (u *UnlockerService) InitWallet(ctx context.Context,
 
 	// Make sure the password meets our constraints.
 	password := in.WalletPassword
-	if err := validatePassword(password); err != nil {
+	if err := ValidatePassword(password); err != nil {
 		return nil, err
 	}
 
@@ -316,7 +316,7 @@ func (u *UnlockerService) ChangePassword(ctx context.Context,
 	}
 
 	// Make sure the new password meets our constraints.
-	if err := validatePassword(in.NewPassword); err != nil {
+	if err := ValidatePassword(in.NewPassword); err != nil {
 		return nil, err
 	}
 
@@ -358,8 +358,8 @@ func (u *UnlockerService) ChangePassword(ctx context.Context,
 	return &lnrpc.ChangePasswordResponse{}, nil
 }
 
-// validatePassword assures the password meets all of our constraints.
-func validatePassword(password []byte) error {
+// ValidatePassword assures the password meets all of our constraints.
+func ValidatePassword(password []byte) error {
 	// Passwords should have a length of at least 8 characters.
 	if len(password) < 8 {
 		return errors.New("password must have at least 8 characters")

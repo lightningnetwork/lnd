@@ -1151,7 +1151,7 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 	const (
 		defaultFeeBase       = 1000
 		defaultFeeRate       = 1
-		defaultTimeLockDelta = 144
+		defaultTimeLockDelta = defaultBitcoinTimeLockDelta
 		defaultMinHtlc       = 1000
 	)
 
@@ -1347,7 +1347,7 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 		PubKey:         carol.PubKeyStr,
 		Amt:            int64(payAmt),
 		NumRoutes:      1,
-		FinalCltvDelta: 144,
+		FinalCltvDelta: defaultTimeLockDelta,
 	}
 
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
@@ -3998,11 +3998,15 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	// Set the fee policies of the Alice -> Bob and the Dave -> Alice
 	// channel edges to relatively large non default values. This makes it
 	// possible to pick up more subtle fee calculation errors.
-	updateChannelPolicy(t, net.Alice, chanPointAlice, 1000, 100000,
-		144, carol)
+	updateChannelPolicy(
+		t, net.Alice, chanPointAlice, 1000, 100000,
+		defaultBitcoinTimeLockDelta, carol,
+	)
 
-	updateChannelPolicy(t, dave, chanPointDave, 5000, 150000,
-		144, carol)
+	updateChannelPolicy(
+		t, dave, chanPointDave, 5000, 150000,
+		defaultBitcoinTimeLockDelta, carol,
+	)
 
 	// Using Carol as the source, pay to the 5 invoices from Bob created
 	// above.
@@ -4177,15 +4181,15 @@ func testSingleHopSendToRoute(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// Query for routes to pay from Alice to Bob.
-	// We set FinalCltvDelta to 144 since by default QueryRoutes returns
+	// We set FinalCltvDelta to 40 since by default QueryRoutes returns
 	// the last hop with a final cltv delta of 9 where as the default in
-	// htlcswitch is 144.
+	// htlcswitch is 40.
 	const paymentAmt = 1000
 	routesReq := &lnrpc.QueryRoutesRequest{
 		PubKey:         net.Bob.PubKeyStr,
 		Amt:            paymentAmt,
 		NumRoutes:      1,
-		FinalCltvDelta: 144,
+		FinalCltvDelta: defaultBitcoinTimeLockDelta,
 	}
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	routes, err := net.Alice.QueryRoutes(ctxt, routesReq)
@@ -4362,15 +4366,15 @@ func testMultiHopSendToRoute(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// Query for routes to pay from Alice to Carol.
-	// We set FinalCltvDelta to 144 since by default QueryRoutes returns
+	// We set FinalCltvDelta to 40 since by default QueryRoutes returns
 	// the last hop with a final cltv delta of 9 where as the default in
-	// htlcswitch is 144.
+	// htlcswitch is 40.
 	const paymentAmt = 1000
 	routesReq := &lnrpc.QueryRoutesRequest{
 		PubKey:         carol.PubKeyStr,
 		Amt:            paymentAmt,
 		NumRoutes:      1,
-		FinalCltvDelta: 144,
+		FinalCltvDelta: defaultBitcoinTimeLockDelta,
 	}
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	routes, err := net.Alice.QueryRoutes(ctxt, routesReq)
@@ -12581,7 +12585,7 @@ func testRouteFeeCutoff(net *lntest.NetworkHarness, t *harnessTest) {
 	//	Alice -> Carol -> Dave
 	baseFee := int64(10000)
 	feeRate := int64(5)
-	timeLockDelta := uint32(144)
+	timeLockDelta := uint32(defaultBitcoinTimeLockDelta)
 
 	expectedPolicy := &lnrpc.RoutingPolicy{
 		FeeBaseMsat:      baseFee,

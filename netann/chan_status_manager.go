@@ -466,6 +466,18 @@ func (m *ChanStatusManager) disableInactiveChannels() {
 		if err != nil {
 			log.Errorf("Unable to sign update disabling "+
 				"channel(%v): %v", outpoint, err)
+
+			// If the edge was not found, this is a likely indicator
+			// that the channel has been closed. Thus we remove the
+			// outpoint from the set of tracked outpoints to prevent
+			// further attempts.
+			if err == channeldb.ErrEdgeNotFound {
+				log.Debugf("Removing channel(%v) from "+
+					"consideration for passive disabling",
+					outpoint)
+				delete(m.chanStates, outpoint)
+			}
+
 			continue
 		}
 

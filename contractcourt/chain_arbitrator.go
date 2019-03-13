@@ -635,6 +635,14 @@ func (c *ChainArbitrator) ForceCloseContract(chanPoint wire.OutPoint) (*wire.Msg
 
 	log.Infof("Attempting to force close ChannelPoint(%v)", chanPoint)
 
+	// Before closing, we'll attempt to send a disable update for the
+	// channel. We do so before closing the channel as otherwise the current
+	// edge policy won't be retrievable from the graph.
+	if err := c.cfg.DisableChannel(chanPoint); err != nil {
+		log.Warnf("Unable to disable channel %v on "+
+			"close: %v", chanPoint, err)
+	}
+
 	errChan := make(chan error, 1)
 	respChan := make(chan *wire.MsgTx, 1)
 
@@ -666,16 +674,6 @@ func (c *ChainArbitrator) ForceCloseContract(chanPoint wire.OutPoint) (*wire.Msg
 	case <-c.quit:
 		return nil, ErrChainArbExiting
 	}
-
-	// We'll attempt to disable the channel in the background to
-	// avoid blocking due to sending the update message to all
-	// active peers.
-	go func() {
-		if err := c.cfg.DisableChannel(chanPoint); err != nil {
-			log.Errorf("Unable to disable channel %v on "+
-				"close: %v", chanPoint, err)
-		}
-	}()
 
 	return closeTx, nil
 }

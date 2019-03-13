@@ -225,6 +225,14 @@ out:
 		// can only contain messages which have a ShortChannelID field.
 		shortChanID, _ := msgShortChanID(msg)
 
+		// Ensure the peer is still online right before sending the
+		// message.
+		select {
+		case <-offlineChan:
+			goto waitUntilOnline
+		default:
+		}
+
 		if err := peer.SendMessage(false, msg); err != nil {
 			log.Errorf("Unable to send %v message for channel=%v "+
 				"to %x: %v", msg.MsgType(), shortChanID,

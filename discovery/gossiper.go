@@ -221,7 +221,10 @@ type AuthenticatedGossiper struct {
 	peerSyncers map[routing.Vertex]*gossipSyncer
 
 	// reliableSender is a subsystem responsible for handling reliable
-	// message send requests to peers.
+	// message send requests to peers. This should only be used for channels
+	// that are unadvertised at the time of handling the message since if it
+	// is advertised, then peers should be able to get the message from the
+	// network.
 	reliableSender *reliableSender
 
 	sync.Mutex
@@ -2364,16 +2367,32 @@ func (d *AuthenticatedGossiper) isMsgStale(msg lnwire.Message) bool {
 		return chanInfo.AuthProof != nil
 
 	case *lnwire.ChannelUpdate:
-		// The MessageStore will always store the latest ChannelUpdate
-		// as it is not aware of its timestamp (by design), so it will
-		// never be stale. We should still however check if the channel
-		// is part of our graph. If it's not, we can mark it as stale.
-		_, _, _, err := d.cfg.Router.GetChannelByID(msg.ShortChannelID)
-		if err != nil && err != channeldb.ErrEdgeNotFound {
-			log.Debugf("Unable to retrieve channel=%v from graph: "+
-				"%v", err)
+		_, p1, p2, err := d.cfg.Router.GetChannelByID(msg.ShortChannelID)
+
+		// If the channel cannot be found, it is most likely a leftover
+		// message for a channel that was closed, so we can consider it
+		// stale.
+		if err == channeldb.ErrEdgeNotFound {
+			return true
 		}
-		return err == channeldb.ErrEdgeNotFound
+		if err != nil {
+			log.Debugf("Unable to retrieve channel=%v from graph: "+
+				"%v", msg.ShortChannelID, err)
+			return false
+		}
+
+		// Otherwise, we'll retrieve the correct policy that we
+		// currently have stored within our graph to check if this
+		// message is stale by comparing its timestamp.
+		var p *channeldb.ChannelEdgePolicy
+		if msg.ChannelFlags&lnwire.ChanUpdateDirection == 0 {
+			p = p1
+		} else {
+			p = p2
+		}
+
+		timestamp := time.Unix(int64(msg.Timestamp), 0)
+		return p.LastUpdate.After(timestamp)
 
 	default:
 		// We'll make sure to not mark any unsupported messages as stale

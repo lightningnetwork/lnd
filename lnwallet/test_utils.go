@@ -492,3 +492,43 @@ func calcStaticFee(numHTLCs int) btcutil.Amount {
 	return feePerKw * (commitWeight +
 		btcutil.Amount(htlcWeight*numHTLCs)) / 1000
 }
+
+// ForceStateTransition executes the necessary interaction between the two
+// commitment state machines to transition to a new state locking in any
+// pending updates. This method is useful when testing interactions between two
+// live state machines.
+func ForceStateTransition(chanA, chanB *LightningChannel) error {
+	aliceSig, aliceHtlcSigs, err := chanA.SignNextCommitment()
+	if err != nil {
+		return err
+	}
+	if err = chanB.ReceiveNewCommitment(aliceSig, aliceHtlcSigs); err != nil {
+		return err
+	}
+
+	bobRevocation, _, err := chanB.RevokeCurrentCommitment()
+	if err != nil {
+		return err
+	}
+	bobSig, bobHtlcSigs, err := chanB.SignNextCommitment()
+	if err != nil {
+		return err
+	}
+
+	if _, _, _, err := chanA.ReceiveRevocation(bobRevocation); err != nil {
+		return err
+	}
+	if err := chanA.ReceiveNewCommitment(bobSig, bobHtlcSigs); err != nil {
+		return err
+	}
+
+	aliceRevocation, _, err := chanA.RevokeCurrentCommitment()
+	if err != nil {
+		return err
+	}
+	if _, _, _, err := chanB.ReceiveRevocation(aliceRevocation); err != nil {
+		return err
+	}
+
+	return nil
+}

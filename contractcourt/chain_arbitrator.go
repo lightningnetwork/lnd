@@ -375,6 +375,7 @@ func (c *ChainArbitrator) Start() error {
 				contractBreach: func(retInfo *lnwallet.BreachRetribution) error {
 					return c.cfg.ContractBreach(chanPoint, retInfo)
 				},
+				extractStateNumHint: lnwallet.GetStateNumHint,
 			},
 		)
 		if err != nil {
@@ -710,6 +711,7 @@ func (c *ChainArbitrator) WatchNewChannel(newChan *channeldb.OpenChannel) error 
 			contractBreach: func(retInfo *lnwallet.BreachRetribution) error {
 				return c.cfg.ContractBreach(chanPoint, retInfo)
 			},
+			extractStateNumHint: lnwallet.GetStateNumHint,
 		},
 	)
 	if err != nil {

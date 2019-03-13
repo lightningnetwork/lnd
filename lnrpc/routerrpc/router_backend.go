@@ -15,11 +15,18 @@ import (
 // RouterBackend contains the backend implementation of the router rpc sub
 // server calls.
 type RouterBackend struct {
+	// MaxPaymentMSat is the largest payment permitted by the backend.
 	MaxPaymentMSat lnwire.MilliSatoshi
-	SelfNode       routing.Vertex
 
+	// SelfNode is the vertex of the node sending the payment.
+	SelfNode routing.Vertex
+
+	// FetchChannelCapacity is a closure that we'll use the fetch the total
+	// capacity of a channel to populate in responses.
 	FetchChannelCapacity func(chanID uint64) (btcutil.Amount, error)
 
+	// FindRoutes is a closure that abstracts away how we locate/query for
+	// routes.
 	FindRoutes func(source, target routing.Vertex,
 		amt lnwire.MilliSatoshi, restrictions *routing.RestrictParams,
 		numPaths uint32, finalExpiry ...uint16) (
@@ -33,8 +40,8 @@ type RouterBackend struct {
 // information that should be present within the Sphinx packet encapsulated
 // within the HTLC.
 //
-// TODO(roasbeef): should return a slice of routes in reality
-//  * create separate PR to send based on well formatted route
+// TODO(roasbeef): should return a slice of routes in reality * create separate
+// PR to send based on well formatted route
 func (r *RouterBackend) QueryRoutes(ctx context.Context,
 	in *lnrpc.QueryRoutesRequest) (*lnrpc.QueryRoutesResponse, error) {
 
@@ -130,12 +137,13 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 
 	if in.FinalCltvDelta == 0 {
 		routes, findErr = r.FindRoutes(
-			sourcePubKey, targetPubKey, amtMSat, restrictions, numRoutesIn,
+			sourcePubKey, targetPubKey, amtMSat, restrictions,
+			numRoutesIn,
 		)
 	} else {
 		routes, findErr = r.FindRoutes(
-			sourcePubKey, targetPubKey, amtMSat, restrictions, numRoutesIn,
-			uint16(in.FinalCltvDelta),
+			sourcePubKey, targetPubKey, amtMSat, restrictions,
+			numRoutesIn, uint16(in.FinalCltvDelta),
 		)
 	}
 	if findErr != nil {
@@ -220,7 +228,8 @@ func (r *RouterBackend) MarshallRoute(route *routing.Route) *lnrpc.Route {
 			FeeMsat:          int64(fee),
 			Expiry:           uint32(hop.OutgoingTimeLock),
 			PubKey: hex.EncodeToString(
-				hop.PubKeyBytes[:]),
+				hop.PubKeyBytes[:],
+			),
 		}
 		incomingAmt = hop.AmtToForward
 	}

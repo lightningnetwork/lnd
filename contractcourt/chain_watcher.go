@@ -406,11 +406,12 @@ func (c *chainWatcher) closeObserver(spendNtfn *chainntnfs.SpendEvent) {
 					c.cfg.chanState.FundingOutpoint, err)
 			}
 
-		// This is the case that somehow the commitment broadcast is
-		// actually greater than even one beyond our best known state
-		// number. This should ONLY happen in case we experienced some
-		// sort of data loss.
-		case broadcastStateNum > remoteStateNum+1:
+		// If the remote party has broadcasted a state beyond our best
+		// known state for them, and they don't have a pending
+		// commitment (we write them to disk before sending out), then
+		// this means that we've lost data. In this case, we'll enter
+		// the DLP protocol.
+		case broadcastStateNum > remoteStateNum:
 			log.Warnf("Remote node broadcast state #%v, "+
 				"which is more than 1 beyond best known "+
 				"state #%v!!! Attempting recovery...",

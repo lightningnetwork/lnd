@@ -223,8 +223,62 @@ func openChannelAndAssert(ctx context.Context, t *harnessTest,
 // closure is attempted, therefore the passed context should be a child derived
 // via timeout from a base parent. Additionally, once the channel has been
 // detected as closed, an assertion checks that the transaction is found within
-// a block.
+// a block. Finally, this assertion verifies that the node always sends out a
+// disable update when closing the channel if the channel was previously enabled.
+//
+// NOTE: This method assumes that the provided funding point is confirmed
+// on-chain AND that the edge exists in the node's channel graph. If the funding
+// transactions was reorged out at some point, use closeReorgedChannelAndAssert.
 func closeChannelAndAssert(ctx context.Context, t *harnessTest,
+	net *lntest.NetworkHarness, node *lntest.HarnessNode,
+	fundingChanPoint *lnrpc.ChannelPoint, force bool) *chainhash.Hash {
+
+	// Fetch the current channel policy. If the channel is currently
+	// enabled, we will register for graph notifications before closing to
+	// assert that the node sends out a disabling update as a result of the
+	// channel being closed.
+	curPolicy := getChannelPolicies(t, node, node.PubKeyStr, fundingChanPoint)[0]
+	expectDisable := !curPolicy.Disabled
+
+	// If the current channel policy is enabled, begin subscribing the graph
+	// updates before initiating the channel closure.
+	var graphSub *graphSubscription
+	if expectDisable {
+		sub := subscribeGraphNotifications(t, ctx, node)
+		graphSub = &sub
+		defer close(graphSub.quit)
+	}
+
+	closeUpdates, _, err := net.CloseChannel(ctx, node, fundingChanPoint, force)
+	if err != nil {
+		t.Fatalf("unable to close channel: %v", err)
+	}
+
+	// If the channel policy was enabled prior to the closure, wait until we
+	// received the disabled update.
+	if expectDisable {
+		curPolicy.Disabled = true
+		waitForChannelUpdate(
+			t, *graphSub,
+			[]expectedChanUpdate{
+				{node.PubKeyStr, curPolicy, fundingChanPoint},
+			},
+		)
+	}
+
+	return assertChannelClosed(ctx, t, net, node, fundingChanPoint, closeUpdates)
+}
+
+// closeReorgedChannelAndAssert attempts to close a channel identified by the
+// passed channel point owned by the passed Lightning node. A fully blocking
+// channel closure is attempted, therefore the passed context should be a child
+// derived via timeout from a base parent. Additionally, once the channel has
+// been detected as closed, an assertion checks that the transaction is found
+// within a block.
+//
+// NOTE: This method does not verify that the node sends a disable update for
+// the closed channel.
+func closeReorgedChannelAndAssert(ctx context.Context, t *harnessTest,
 	net *lntest.NetworkHarness, node *lntest.HarnessNode,
 	fundingChanPoint *lnrpc.ChannelPoint, force bool) *chainhash.Hash {
 
@@ -232,6 +286,16 @@ func closeChannelAndAssert(ctx context.Context, t *harnessTest,
 	if err != nil {
 		t.Fatalf("unable to close channel: %v", err)
 	}
+
+	return assertChannelClosed(ctx, t, net, node, fundingChanPoint, closeUpdates)
+}
+
+// assertChannelClosed asserts that the channel is properly cleaned up after
+// initiating a cooperative or local close.
+func assertChannelClosed(ctx context.Context, t *harnessTest,
+	net *lntest.NetworkHarness, node *lntest.HarnessNode,
+	fundingChanPoint *lnrpc.ChannelPoint,
+	closeUpdates lnrpc.Lightning_CloseChannelClient) *chainhash.Hash {
 
 	txidHash, err := getChanPointFundingTxid(fundingChanPoint)
 	if err != nil {
@@ -989,7 +1053,6 @@ out:
 		select {
 		case graphUpdate := <-subscription.updateChan:
 			for _, update := range graphUpdate.ChannelUpdates {
-
 				// For each expected update, check if it matches
 				// the update we just received.
 				for i, exp := range expUpdates {
@@ -1070,11 +1133,12 @@ func assertNoChannelUpdates(t *harnessTest, subscription graphSubscription,
 	}
 }
 
-// assertChannelPolicy asserts that the passed node's known channel policy for
-// the passed chanPoint is consistent with the expected policy values.
-func assertChannelPolicy(t *harnessTest, node *lntest.HarnessNode,
-	advertisingNode string, expectedPolicy *lnrpc.RoutingPolicy,
-	chanPoints ...*lnrpc.ChannelPoint) {
+// getChannelPolicies queries the channel graph and retrieves the current edge
+// policies for the provided channel points.
+func getChannelPolicies(t *harnessTest, node *lntest.HarnessNode,
+	advertisingNode string,
+	chanPoints ...*lnrpc.ChannelPoint) []*lnrpc.RoutingPolicy {
+
 	ctxb := context.Background()
 
 	descReq := &lnrpc.ChannelGraphRequest{
@@ -1086,6 +1150,7 @@ func assertChannelPolicy(t *harnessTest, node *lntest.HarnessNode,
 		t.Fatalf("unable to query for alice's graph: %v", err)
 	}
 
+	var policies []*lnrpc.RoutingPolicy
 out:
 	for _, chanPoint := range chanPoints {
 		for _, e := range chanGraph.Edges {
@@ -1093,18 +1158,10 @@ out:
 				continue
 			}
 
-			var err error
 			if e.Node1Pub == advertisingNode {
-				err = checkChannelPolicy(
-					e.Node1Policy, expectedPolicy,
-				)
+				policies = append(policies, e.Node1Policy)
 			} else {
-				err = checkChannelPolicy(
-					e.Node2Policy, expectedPolicy,
-				)
-			}
-			if err != nil {
-				t.Fatalf(err.Error())
+				policies = append(policies, e.Node2Policy)
 			}
 
 			continue out
@@ -1113,6 +1170,23 @@ out:
 		// If we've iterated over all the known edges and we weren't
 		// able to find this specific one, then we'll fail.
 		t.Fatalf("did not find edge %v", txStr(chanPoint))
+	}
+
+	return policies
+}
+
+// assertChannelPolicy asserts that the passed node's known channel policy for
+// the passed chanPoint is consistent with the expected policy values.
+func assertChannelPolicy(t *harnessTest, node *lntest.HarnessNode,
+	advertisingNode string, expectedPolicy *lnrpc.RoutingPolicy,
+	chanPoints ...*lnrpc.ChannelPoint) {
+
+	policies := getChannelPolicies(t, node, advertisingNode, chanPoints...)
+	for _, policy := range policies {
+		err := checkChannelPolicy(policy, expectedPolicy)
+		if err != nil {
+			t.Fatalf(err.Error())
+		}
 	}
 }
 
@@ -1872,7 +1946,7 @@ func testOpenChannelAfterReorg(net *lntest.NetworkHarness, t *harnessTest) {
 	assertTxInBlock(t, block, fundingTxID)
 
 	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, false)
+	closeReorgedChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, false)
 }
 
 // testDisconnectingTargetPeer performs a test which

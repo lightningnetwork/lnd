@@ -1362,25 +1362,14 @@ func TestSignatureAnnouncementRetryAtStartup(t *testing.T) {
 	sentToPeer := make(chan lnwire.Message, 1)
 	remotePeer := &mockPeer{remoteKey, sentToPeer, ctx.gossiper.quit}
 
-	// Override NotifyWhenOnline to return the remote peer which we expect
-	// meesages to be sent to.
+	// Since the reliable send to the remote peer of the local channel proof
+	// requires a notification when the peer comes online, we'll capture the
+	// channel through which it gets sent to control exactly when to
+	// dispatch it.
+	notifyPeers := make(chan chan<- lnpeer.Peer, 1)
 	ctx.gossiper.reliableSender.cfg.NotifyWhenOnline = func(peer *btcec.PublicKey,
-		peerChan chan<- lnpeer.Peer) {
-
-		peerChan <- remotePeer
-	}
-
-	// Override NotifyWhenOffline to return the channel which will notify
-	// the gossiper that the peer is offline. We'll use this to signal that
-	// the peer is offline so that the gossiper requests a notification when
-	// it comes back online.
-	notifyOffline := make(chan chan struct{}, 1)
-	ctx.gossiper.reliableSender.cfg.NotifyWhenOffline = func(
-		_ [33]byte) <-chan struct{} {
-
-		c := make(chan struct{})
-		notifyOffline <- c
-		return c
+		connectedChan chan<- lnpeer.Peer) {
+		notifyPeers <- connectedChan
 	}
 
 	// Recreate lightning network topology. Initialize router with channel
@@ -1401,102 +1390,12 @@ func TestSignatureAnnouncementRetryAtStartup(t *testing.T) {
 	case <-time.After(2 * trickleDelay):
 	}
 
-	select {
-	case err = <-ctx.gossiper.ProcessLocalAnnouncement(
-		batch.chanUpdAnn1, localKey,
-	):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process local announcement")
-	}
-	if err != nil {
-		t.Fatalf("unable to process channel update: %v", err)
-	}
-	select {
-	case <-ctx.broadcastedMessage:
-		t.Fatal("channel update announcement was broadcast")
-	case <-time.After(2 * trickleDelay):
-	}
-	select {
-	case msg := <-sentToPeer:
-		assertMessage(t, batch.chanUpdAnn1, msg)
-	case <-time.After(1 * time.Second):
-		t.Fatal("gossiper did not send channel update to peer")
-	}
-
-	select {
-	case err = <-ctx.gossiper.ProcessLocalAnnouncement(
-		batch.nodeAnn1, localKey,
-	):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process local announcement")
-	}
-	if err != nil {
-		t.Fatalf("unable to process node ann: %v", err)
-	}
-	select {
-	case <-ctx.broadcastedMessage:
-		t.Fatal("node announcement was broadcast")
-	case <-time.After(2 * trickleDelay):
-	}
-
-	select {
-	case err = <-ctx.gossiper.ProcessRemoteAnnouncement(
-		batch.chanUpdAnn2, remotePeer,
-	):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process remote announcement")
-	}
-	if err != nil {
-		t.Fatalf("unable to process channel update: %v", err)
-	}
-	select {
-	case <-ctx.broadcastedMessage:
-		t.Fatal("channel update announcement was broadcast")
-	case <-time.After(2 * trickleDelay):
-	}
-
-	select {
-	case err = <-ctx.gossiper.ProcessRemoteAnnouncement(
-		batch.nodeAnn2, remotePeer,
-	):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process local announcement")
-	}
-	if err != nil {
-		t.Fatalf("unable to process node ann: %v", err)
-	}
-	select {
-	case <-ctx.broadcastedMessage:
-		t.Fatal("node announcement was broadcast")
-	case <-time.After(2 * trickleDelay):
-	}
-
-	// Since the reliable send to the remote peer of the local channel proof
-	// requires a notification when the peer comes online, we'll capture the
-	// channel through which it gets sent to control exactly when to
-	// dispatch it.
-	notifyPeers := make(chan chan<- lnpeer.Peer, 1)
-	ctx.gossiper.reliableSender.cfg.NotifyWhenOnline = func(peer *btcec.PublicKey,
-		connectedChan chan<- lnpeer.Peer) {
-		notifyPeers <- connectedChan
-	}
-
-	// Before sending the local channel proof, we'll notify that the peer is
-	// offline, so that it's not sent to the peer.
-	var peerOffline chan struct{}
-	select {
-	case peerOffline = <-notifyOffline:
-	case <-time.After(2 * time.Second):
-		t.Fatalf("gossiper did not request notification for when " +
-			"peer disconnects")
-	}
-	close(peerOffline)
-
 	// Pretending that we receive local channel announcement from funding
 	// manager, thereby kick off the announcement exchange process.
 	select {
-	case err = <-ctx.gossiper.ProcessLocalAnnouncement(batch.localProofAnn,
-		localKey):
+	case err = <-ctx.gossiper.ProcessLocalAnnouncement(
+		batch.localProofAnn, localKey,
+	):
 	case <-time.After(2 * time.Second):
 		t.Fatal("did not process remote announcement")
 	}
@@ -1615,12 +1514,10 @@ out:
 		t.Fatalf("unable to process :%v", err)
 	}
 
-	for i := 0; i < 5; i++ {
-		select {
-		case <-ctx.broadcastedMessage:
-		case <-time.After(time.Second):
-			t.Fatal("announcement wasn't broadcast")
-		}
+	select {
+	case <-ctx.broadcastedMessage:
+	case <-time.After(time.Second):
+		t.Fatal("announcement wasn't broadcast")
 	}
 
 	number = 0

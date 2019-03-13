@@ -17,6 +17,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
+
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -388,6 +390,10 @@ type rpcServer struct {
 	// connect to the main gRPC server to proxy all incoming requests.
 	tlsCfg *tls.Config
 
+	// RouterBackend contains the backend implementation of the router
+	// rpc sub server.
+	RouterBackend *routerrpc.RouterBackend
+
 	quit chan struct{}
 }
 
@@ -471,6 +477,28 @@ func newRPCServer(s *server, macService *macaroons.Service,
 		)
 	}
 
+	// Set up router rpc backend.
+	channelGraph := s.chanDB.ChannelGraph()
+	selfNode, err := channelGraph.SourceNode()
+	if err != nil {
+		return nil, err
+	}
+	graph := s.chanDB.ChannelGraph()
+	RouterBackend := &routerrpc.RouterBackend{
+		MaxPaymentMSat: maxPaymentMSat,
+		SelfNode:       selfNode.PubKeyBytes,
+		FetchChannelCapacity: func(chanID uint64) (btcutil.Amount,
+			error) {
+
+			info, _, _, err := graph.FetchChannelEdgesByID(chanID)
+			if err != nil {
+				return 0, err
+			}
+			return info.Capacity, nil
+		},
+		FindRoutes: s.chanRouter.FindRoutes,
+	}
+
 	// Finally, with all the pre-set up complete,  we can create the main
 	// gRPC server, and register the main lnrpc server along side.
 	grpcServer := grpc.NewServer(serverOpts...)
@@ -480,6 +508,7 @@ func newRPCServer(s *server, macService *macaroons.Service,
 		tlsCfg:         tlsCfg,
 		grpcServer:     grpcServer,
 		server:         s,
+		RouterBackend:  RouterBackend,
 		quit:           make(chan struct{}, 1),
 	}
 	lnrpc.RegisterLightningServer(grpcServer, rootRPCServer)
@@ -2764,7 +2793,7 @@ func unmarshallSendToRouteRequest(req *lnrpc.SendToRouteRequest,
 type rpcPaymentIntent struct {
 	msat              lnwire.MilliSatoshi
 	feeLimit          lnwire.MilliSatoshi
-	dest              *btcec.PublicKey
+	dest              routing.Vertex
 	rHash             [32]byte
 	cltvDelta         uint16
 	routeHints        [][]routing.HopHint
@@ -2778,7 +2807,6 @@ type rpcPaymentIntent struct {
 // three ways a client can specify their payment details: a payment request,
 // via manual details, or via a complete route.
 func extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPaymentIntent, error) {
-	var err error
 	payIntent := rpcPaymentIntent{}
 
 	// If a route was specified, then we can use that directly.
@@ -2849,7 +2877,8 @@ func extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPaymentIntent, error
 		)
 
 		copy(payIntent.rHash[:], payReq.PaymentHash[:])
-		payIntent.dest = payReq.Destination
+		destKey := payReq.Destination.SerializeCompressed()
+		copy(payIntent.dest[:], destKey)
 		payIntent.cltvDelta = uint16(payReq.MinFinalCLTVExpiry())
 		payIntent.routeHints = payReq.RouteHints
 
@@ -2859,24 +2888,20 @@ func extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPaymentIntent, error
 	// At this point, a destination MUST be specified, so we'll convert it
 	// into the proper representation now. The destination will either be
 	// encoded as raw bytes, or via a hex string.
+	var pubBytes []byte
 	if len(rpcPayReq.Dest) != 0 {
-		payIntent.dest, err = btcec.ParsePubKey(
-			rpcPayReq.Dest, btcec.S256(),
-		)
-		if err != nil {
-			return payIntent, err
-		}
-
+		pubBytes = rpcPayReq.Dest
 	} else {
-		pubBytes, err := hex.DecodeString(rpcPayReq.DestString)
-		if err != nil {
-			return payIntent, err
-		}
-		payIntent.dest, err = btcec.ParsePubKey(pubBytes, btcec.S256())
+		var err error
+		pubBytes, err = hex.DecodeString(rpcPayReq.DestString)
 		if err != nil {
 			return payIntent, err
 		}
 	}
+	if len(pubBytes) != 33 {
+		return payIntent, errors.New("invalid key length")
+	}
+	copy(payIntent.dest[:], pubBytes)
 
 	// Otherwise, If the payment request field was not specified
 	// (and a custom route wasn't specified), construct the payment
@@ -3157,7 +3182,7 @@ func (r *rpcServer) sendPayment(stream *paymentStream) error {
 					return
 				}
 
-				marshalledRouted := r.marshallRoute(resp.Route)
+				marshalledRouted := r.RouterBackend.MarshallRoute(resp.Route)
 				err := stream.send(&lnrpc.SendResponse{
 					PaymentHash:     payIntent.rHash[:],
 					PaymentPreimage: resp.Preimage[:],
@@ -3242,7 +3267,7 @@ func (r *rpcServer) sendPaymentSync(ctx context.Context,
 	return &lnrpc.SendResponse{
 		PaymentHash:     payIntent.rHash[:],
 		PaymentPreimage: resp.Preimage[:],
-		PaymentRoute:    r.marshallRoute(resp.Route),
+		PaymentRoute:    r.RouterBackend.MarshallRoute(resp.Route),
 	}, nil
 }
 
@@ -4001,121 +4026,7 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 func (r *rpcServer) QueryRoutes(ctx context.Context,
 	in *lnrpc.QueryRoutesRequest) (*lnrpc.QueryRoutesResponse, error) {
 
-	// First parse the hex-encoded public key into a full public key object
-	// we can properly manipulate.
-	pubKeyBytes, err := hex.DecodeString(in.PubKey)
-	if err != nil {
-		return nil, err
-	}
-	pubKey, err := btcec.ParsePubKey(pubKeyBytes, btcec.S256())
-	if err != nil {
-		return nil, err
-	}
-
-	// Currently, within the bootstrap phase of the network, we limit the
-	// largest payment size allotted to (2^32) - 1 mSAT or 4.29 million
-	// satoshis.
-	amt := btcutil.Amount(in.Amt)
-	amtMSat := lnwire.NewMSatFromSatoshis(amt)
-	if amtMSat > maxPaymentMSat {
-		return nil, fmt.Errorf("payment of %v is too large, max payment "+
-			"allowed is %v", amt, maxPaymentMSat.ToSatoshis())
-	}
-
-	feeLimit := calculateFeeLimit(in.FeeLimit, amtMSat)
-
-	// numRoutes will default to 10 if not specified explicitly.
-	numRoutesIn := uint32(in.NumRoutes)
-	if numRoutesIn == 0 {
-		numRoutesIn = 10
-	}
-
-	// Query the channel router for a possible path to the destination that
-	// can carry `in.Amt` satoshis _including_ the total fee required on
-	// the route.
-	var (
-		routes  []*routing.Route
-		findErr error
-	)
-	if in.FinalCltvDelta == 0 {
-		routes, findErr = r.server.chanRouter.FindRoutes(
-			pubKey, amtMSat, feeLimit, numRoutesIn,
-		)
-	} else {
-		routes, findErr = r.server.chanRouter.FindRoutes(
-			pubKey, amtMSat, feeLimit, numRoutesIn,
-			uint16(in.FinalCltvDelta),
-		)
-	}
-	if findErr != nil {
-		return nil, findErr
-	}
-
-	// As the number of returned routes can be less than the number of
-	// requested routes, we'll clamp down the length of the response to the
-	// minimum of the two.
-	numRoutes := uint32(len(routes))
-	if numRoutesIn < numRoutes {
-		numRoutes = numRoutesIn
-	}
-
-	// For each valid route, we'll convert the result into the format
-	// required by the RPC system.
-	routeResp := &lnrpc.QueryRoutesResponse{
-		Routes: make([]*lnrpc.Route, 0, in.NumRoutes),
-	}
-	for i := uint32(0); i < numRoutes; i++ {
-		routeResp.Routes = append(
-			routeResp.Routes, r.marshallRoute(routes[i]),
-		)
-	}
-
-	return routeResp, nil
-}
-
-func (r *rpcServer) marshallRoute(route *routing.Route) *lnrpc.Route {
-	resp := &lnrpc.Route{
-		TotalTimeLock: route.TotalTimeLock,
-		TotalFees:     int64(route.TotalFees.ToSatoshis()),
-		TotalFeesMsat: int64(route.TotalFees),
-		TotalAmt:      int64(route.TotalAmount.ToSatoshis()),
-		TotalAmtMsat:  int64(route.TotalAmount),
-		Hops:          make([]*lnrpc.Hop, len(route.Hops)),
-	}
-	graph := r.server.chanDB.ChannelGraph()
-	incomingAmt := route.TotalAmount
-	for i, hop := range route.Hops {
-		fee := route.HopFee(i)
-
-		// Channel capacity is not a defining property of a route. For
-		// backwards RPC compatibility, we retrieve it here from the
-		// graph.
-		var chanCapacity btcutil.Amount
-		info, _, _, err := graph.FetchChannelEdgesByID(hop.ChannelID)
-		if err == nil {
-			chanCapacity = info.Capacity
-		} else {
-			// If capacity cannot be retrieved, this may be a
-			// not-yet-received or private channel. Then report
-			// amount that is sent through the channel as capacity.
-			chanCapacity = incomingAmt.ToSatoshis()
-		}
-
-		resp.Hops[i] = &lnrpc.Hop{
-			ChanId:           hop.ChannelID,
-			ChanCapacity:     int64(chanCapacity),
-			AmtToForward:     int64(hop.AmtToForward.ToSatoshis()),
-			AmtToForwardMsat: int64(hop.AmtToForward),
-			Fee:              int64(fee.ToSatoshis()),
-			FeeMsat:          int64(fee),
-			Expiry:           uint32(hop.OutgoingTimeLock),
-			PubKey: hex.EncodeToString(
-				hop.PubKeyBytes[:]),
-		}
-		incomingAmt = hop.AmtToForward
-	}
-
-	return resp
+	return r.RouterBackend.QueryRoutes(ctx, in)
 }
 
 // unmarshallHopByChannelLookup unmarshalls an rpc hop for which the pub key is

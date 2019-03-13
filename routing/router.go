@@ -215,18 +215,20 @@ func newRouteTuple(amt lnwire.MilliSatoshi, dest []byte) routeTuple {
 	return r
 }
 
-// edgeLocator is a struct used to identify a specific edge. The direction
-// fields takes the value of 0 or 1 and is identical in definition to the
-// channel direction flag. A value of 0 means the direction from the lower node
-// pubkey to the higher.
-type edgeLocator struct {
-	channelID uint64
-	direction uint8
+// EdgeLocator is a struct used to identify a specific edge.
+type EdgeLocator struct {
+	// ChannelID is the channel of this edge.
+	ChannelID uint64
+
+	// Direction takes the value of 0 or 1 and is identical in definition to
+	// the channel direction flag. A value of 0 means the direction from the
+	// lower node pubkey to the higher.
+	Direction uint8
 }
 
 // newEdgeLocatorByPubkeys returns an edgeLocator based on its end point
 // pubkeys.
-func newEdgeLocatorByPubkeys(channelID uint64, fromNode, toNode *Vertex) *edgeLocator {
+func newEdgeLocatorByPubkeys(channelID uint64, fromNode, toNode *Vertex) *EdgeLocator {
 	// Determine direction based on lexicographical ordering of both
 	// pubkeys.
 	var direction uint8
@@ -234,24 +236,24 @@ func newEdgeLocatorByPubkeys(channelID uint64, fromNode, toNode *Vertex) *edgeLo
 		direction = 1
 	}
 
-	return &edgeLocator{
-		channelID: channelID,
-		direction: direction,
+	return &EdgeLocator{
+		ChannelID: channelID,
+		Direction: direction,
 	}
 }
 
 // newEdgeLocator extracts an edgeLocator based for a full edge policy
 // structure.
-func newEdgeLocator(edge *channeldb.ChannelEdgePolicy) *edgeLocator {
-	return &edgeLocator{
-		channelID: edge.ChannelID,
-		direction: uint8(edge.ChannelFlags & lnwire.ChanUpdateDirection),
+func newEdgeLocator(edge *channeldb.ChannelEdgePolicy) *EdgeLocator {
+	return &EdgeLocator{
+		ChannelID: edge.ChannelID,
+		Direction: uint8(edge.ChannelFlags & lnwire.ChanUpdateDirection),
 	}
 }
 
 // String returns a human readable version of the edgeLocator values.
-func (e *edgeLocator) String() string {
-	return fmt.Sprintf("%v:%v", e.channelID, e.direction)
+func (e *EdgeLocator) String() string {
+	return fmt.Sprintf("%v:%v", e.ChannelID, e.Direction)
 }
 
 // ChannelRouter is the layer 3 router within the Lightning stack. Below the
@@ -1266,7 +1268,7 @@ type routingMsg struct {
 // initial set of paths as it's possible we drop a route if it can't handle the
 // total payment flow after fees are calculated.
 func pathsToFeeSortedRoutes(source Vertex, paths [][]*channeldb.ChannelEdgePolicy,
-	finalCLTVDelta uint16, amt, feeLimit lnwire.MilliSatoshi,
+	finalCLTVDelta uint16, amt lnwire.MilliSatoshi,
 	currentHeight uint32) ([]*Route, error) {
 
 	validRoutes := make([]*Route, 0, len(paths))
@@ -1275,8 +1277,7 @@ func pathsToFeeSortedRoutes(source Vertex, paths [][]*channeldb.ChannelEdgePolic
 		// hop in the path as it contains a "self-hop" that is inserted
 		// by our KSP algorithm.
 		route, err := newRoute(
-			amt, feeLimit, source, path[1:], currentHeight,
-			finalCLTVDelta,
+			amt, source, path[1:], currentHeight, finalCLTVDelta,
 		)
 		if err != nil {
 			// TODO(roasbeef): report straw breaking edge?
@@ -1324,8 +1325,8 @@ func pathsToFeeSortedRoutes(source Vertex, paths [][]*channeldb.ChannelEdgePolic
 // the required fee and time lock values running backwards along the route. The
 // route that will be ranked the highest is the one with the lowest cumulative
 // fee along the route.
-func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
-	amt, feeLimit lnwire.MilliSatoshi, numPaths uint32,
+func (r *ChannelRouter) FindRoutes(source, target Vertex,
+	amt lnwire.MilliSatoshi, restrictions *RestrictParams, numPaths uint32,
 	finalExpiry ...uint16) ([]*Route, error) {
 
 	var finalCLTVDelta uint16
@@ -1335,13 +1336,16 @@ func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
 		finalCLTVDelta = finalExpiry[0]
 	}
 
-	dest := target.SerializeCompressed()
-	log.Debugf("Searching for path to %x, sending %v", dest, amt)
+	log.Debugf("Searching for path to %x, sending %v", target, amt)
 
-	// Before attempting to perform a series of graph traversals to find
-	// the k-shortest paths to the destination, we'll first consult our
-	// path cache
-	rt := newRouteTuple(amt, dest)
+	// Before attempting to perform a series of graph traversals to find the
+	// k-shortest paths to the destination, we'll first consult our path
+	// cache
+	//
+	// TODO: Route cache should store all request parameters instead of just
+	// amt and target. Currently false positives are returned if just the
+	// restrictions (fee limit, ignore lists) or finalExpiry are different.
+	rt := newRouteTuple(amt, target[:])
 	r.routeCacheMtx.RLock()
 	routes, ok := r.routeCache[rt]
 	r.routeCacheMtx.RUnlock()
@@ -1360,11 +1364,10 @@ func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
 
 	// We can short circuit the routing by opportunistically checking to
 	// see if the target vertex event exists in the current graph.
-	targetVertex := NewVertex(target)
-	if _, exists, err := r.cfg.Graph.HasLightningNode(targetVertex); err != nil {
+	if _, exists, err := r.cfg.Graph.HasLightningNode(target); err != nil {
 		return nil, err
 	} else if !exists {
-		log.Debugf("Target %x is not in known graph", dest)
+		log.Debugf("Target %x is not in known graph", target)
 		return nil, newErrf(ErrTargetNotInNetwork, "target not found")
 	}
 
@@ -1395,8 +1398,8 @@ func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
 	// we'll execute our KSP algorithm to find the k-shortest paths from
 	// our source to the destination.
 	shortestPaths, err := findPaths(
-		tx, r.cfg.Graph, r.selfNode, target, amt, feeLimit, numPaths,
-		bandwidthHints,
+		tx, r.cfg.Graph, source, target, amt, restrictions,
+		numPaths, bandwidthHints,
 	)
 	if err != nil {
 		tx.Rollback()
@@ -1412,7 +1415,7 @@ func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
 	// factored in.
 	sourceVertex := Vertex(r.selfNode.PubKeyBytes)
 	validRoutes, err := pathsToFeeSortedRoutes(
-		sourceVertex, shortestPaths, finalCLTVDelta, amt, feeLimit,
+		sourceVertex, shortestPaths, finalCLTVDelta, amt,
 		uint32(currentHeight),
 	)
 	if err != nil {
@@ -1420,7 +1423,7 @@ func (r *ChannelRouter) FindRoutes(target *btcec.PublicKey,
 	}
 
 	go log.Tracef("Obtained %v paths sending %v to %x: %v", len(validRoutes),
-		amt, dest, newLogClosure(func() string {
+		amt, target, newLogClosure(func() string {
 			return spew.Sdump(validRoutes)
 		}),
 	)
@@ -1512,7 +1515,7 @@ func generateSphinxPacket(route *Route, paymentHash []byte) ([]byte,
 // final destination.
 type LightningPayment struct {
 	// Target is the node in which the payment should be routed towards.
-	Target *btcec.PublicKey
+	Target Vertex
 
 	// Amount is the value of the payment to send through the network in
 	// milli-satoshis.
@@ -1607,12 +1610,6 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 
 	log.Tracef("Dispatching route for lightning payment: %v",
 		newLogClosure(func() string {
-			// Remove the public key curve parameters when logging
-			// the route to prevent spamming the logs.
-			if payment.Target != nil {
-				payment.Target.Curve = nil
-			}
-
 			for _, routeHint := range payment.RouteHints {
 				for _, hopHint := range routeHint {
 					hopHint.NodeID.Curve = nil
@@ -1973,13 +1970,13 @@ func (r *ChannelRouter) processSendError(paySession *paymentSession,
 	// we'll prune the channel in both directions and
 	// continue with the rest of the routes.
 	case *lnwire.FailPermanentChannelFailure:
-		paySession.ReportEdgeFailure(&edgeLocator{
-			channelID: failedEdge.channelID,
-			direction: 0,
+		paySession.ReportEdgeFailure(&EdgeLocator{
+			ChannelID: failedEdge.ChannelID,
+			Direction: 0,
 		})
-		paySession.ReportEdgeFailure(&edgeLocator{
-			channelID: failedEdge.channelID,
-			direction: 1,
+		paySession.ReportEdgeFailure(&EdgeLocator{
+			ChannelID: failedEdge.ChannelID,
+			Direction: 1,
 		})
 		return false
 
@@ -1992,7 +1989,7 @@ func (r *ChannelRouter) processSendError(paySession *paymentSession,
 // pubkey of the node that sent the error. It will assume that the error is
 // associated with the outgoing channel of the error node.
 func getFailedEdge(route *Route, errSource Vertex) (
-	*edgeLocator, error) {
+	*EdgeLocator, error) {
 
 	hopCount := len(route.Hops)
 	fromNode := route.SourcePubKey

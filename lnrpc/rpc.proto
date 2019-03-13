@@ -1467,8 +1467,11 @@ message QueryRoutesRequest {
     /// The amount to send expressed in satoshis
     int64 amt = 2;
 
-    /// The max number of routes to return.
-    int32 num_routes = 3;
+    /**
+    Deprecated. The max number of routes to return. In the future, QueryRoutes
+    will only return a single route.
+    */
+    int32 num_routes = 3 [deprecated = true]; 
 
     /// An optional CLTV delta from the current height that should be used for the timelock of the final hop
     int32 final_cltv_delta = 4;
@@ -1480,7 +1483,37 @@ message QueryRoutesRequest {
     send the payment.
     */
     FeeLimit fee_limit = 5;
+
+    /**
+    A list of nodes to ignore during path finding.
+    */
+    repeated bytes ignored_nodes = 6;
+
+    /**
+    A list of edges to ignore during path finding.
+    */
+    repeated EdgeLocator ignored_edges = 7;
+
+    /**
+    The source node where the request route should originated from. If empty,
+    self is assumed.
+    */
+    string source_pub_key = 8;
 }
+
+message EdgeLocator {
+    /// The short channel id of this edge.
+    uint64 channel_id = 1;
+
+    /**
+    The direction of this edge. If direction_reverse is false, the direction
+    of this edge is from the channel endpoint with the lexicographically smaller
+    pub key to the endpoint with the larger pub key. If direction_reverse is
+    is true, the edge goes the other way.
+    */
+    bool direction_reverse = 2;
+}
+
 message QueryRoutesResponse {
     repeated Route routes = 1 [json_name = "routes"];
 }

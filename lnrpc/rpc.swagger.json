@@ -564,7 +564,7 @@
           },
           {
             "name": "num_routes",
-            "description": "/ The max number of routes to return.",
+            "description": "*\nDeprecated. The max number of routes to return. In the future, QueryRoutes\nwill only return a single route.",
             "in": "query",
             "required": false,
             "type": "integer",
@@ -593,6 +593,24 @@
             "required": false,
             "type": "string",
             "format": "int64"
+          },
+          {
+            "name": "ignored_nodes",
+            "description": "*\nA list of nodes to ignore during path finding.",
+            "in": "query",
+            "required": false,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "byte"
+            }
+          },
+          {
+            "name": "source_pub_key",
+            "description": "*\nThe source node where the request route should originated from. If empty,\nself is assumed.",
+            "in": "query",
+            "required": false,
+            "type": "string"
           }
         ],
         "tags": [

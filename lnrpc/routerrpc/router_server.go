@@ -11,6 +11,9 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/lightningnetwork/lnd/htlcswitch"
+	"github.com/lightningnetwork/lnd/lntypes"
+
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -34,17 +37,25 @@ var (
 	macaroonOps = []bakery.Op{
 		{
 			Entity: "offchain",
+			Action: "read",
+		},
+		{
+			Entity: "offchain",
 			Action: "write",
 		},
 	}
 
 	// macPermissions maps RPC calls to the permissions they require.
 	macPermissions = map[string][]bakery.Op{
-		"/routerpc.Router/SendPayment": {{
+		"/routerrpc.Router/SendPayment": {{
 			Entity: "offchain",
 			Action: "write",
 		}},
-		"/routerpc.Router/EstimateRouteFee": {{
+		"/routerrpc.Router/SendToRoute": {{
+			Entity: "offchain",
+			Action: "write",
+		}},
+		"/routerrpc.Router/EstimateRouteFee": {{
 			Entity: "offchain",
 			Action: "read",
 		}},
@@ -261,4 +272,167 @@ func (s *Server) EstimateRouteFee(ctx context.Context,
 		RoutingFeeMsat: int64(route.TotalFees),
 		TimeLockDelay:  int64(route.TotalTimeLock),
 	}, nil
+}
+
+// SendToRoute sends a payment through a predefined route. The response of this
+// call contains structured error information.
+func (s *Server) SendToRoute(ctx context.Context,
+	req *SendToRouteRequest) (*SendToRouteResponse, error) {
+
+	if req.Route == nil {
+		return nil, fmt.Errorf("unable to send, no routes provided")
+	}
+
+	route, err := s.cfg.RouterBackend.UnmarshallRoute(req.Route)
+	if err != nil {
+		return nil, err
+	}
+
+	hash, err := lntypes.MakeHash(req.PaymentHash)
+	if err != nil {
+		return nil, err
+	}
+
+	preimage, err := s.cfg.Router.SendToRoute(hash, route)
+
+	// In the success case, return the preimage.
+	if err == nil {
+		return &SendToRouteResponse{
+			Preimage: preimage[:],
+		}, nil
+	}
+
+	// In the failure case, marshall the failure message to the rpc format
+	// before returning it to the caller.
+	rpcErr, err := marshallError(err)
+	if err != nil {
+		return nil, err
+	}
+
+	return &SendToRouteResponse{
+		Failure: rpcErr,
+	}, nil
+}
+
+// marshallError marshall an error as received from the switch to rpc structs
+// suitable for returning to the caller of an rpc method.
+//
+// Because of difficulties with using protobuf oneof constructs in some
+// languages, the decision was made here to use a single message format for all
+// failure messages with some fields left empty depending on the failure type.
+func marshallError(sendError error) (*Failure, error) {
+	response := &Failure{}
+
+	fErr, ok := sendError.(*htlcswitch.ForwardingError)
+	if !ok {
+		return nil, sendError
+	}
+
+	switch onionErr := fErr.FailureMessage.(type) {
+
+	case *lnwire.FailUnknownPaymentHash:
+		response.Code = Failure_UNKNOWN_PAYMENT_HASH
+
+	case *lnwire.FailIncorrectPaymentAmount:
+		response.Code = Failure_INCORRECT_PAYMENT_AMOUNT
+
+	case *lnwire.FailFinalIncorrectCltvExpiry:
+		response.Code = Failure_FINAL_INCORRECT_CLTV_EXPIRY
+		response.CltvExpiry = onionErr.CltvExpiry
+
+	case *lnwire.FailFinalIncorrectHtlcAmount:
+		response.Code = Failure_FINAL_INCORRECT_HTLC_AMOUNT
+		response.HtlcMsat = uint64(onionErr.IncomingHTLCAmount)
+
+	case *lnwire.FailFinalExpiryTooSoon:
+		response.Code = Failure_FINAL_EXPIRY_TOO_SOON
+
+	case *lnwire.FailInvalidRealm:
+		response.Code = Failure_INVALID_REALM
+
+	case *lnwire.FailExpiryTooSoon:
+		response.Code = Failure_EXPIRY_TOO_SOON
+		response.ChannelUpdate = marshallChannelUpdate(&onionErr.Update)
+
+	case *lnwire.FailInvalidOnionVersion:
+		response.Code = Failure_INVALID_ONION_VERSION
+		response.OnionSha_256 = onionErr.OnionSHA256[:]
+
+	case *lnwire.FailInvalidOnionHmac:
+		response.Code = Failure_INVALID_ONION_HMAC
+		response.OnionSha_256 = onionErr.OnionSHA256[:]
+
+	case *lnwire.FailInvalidOnionKey:
+		response.Code = Failure_INVALID_ONION_KEY
+		response.OnionSha_256 = onionErr.OnionSHA256[:]
+
+	case *lnwire.FailAmountBelowMinimum:
+		response.Code = Failure_AMOUNT_BELOW_MINIMUM
+		response.ChannelUpdate = marshallChannelUpdate(&onionErr.Update)
+		response.HtlcMsat = uint64(onionErr.HtlcMsat)
+
+	case *lnwire.FailFeeInsufficient:
+		response.Code = Failure_FEE_INSUFFICIENT
+		response.ChannelUpdate = marshallChannelUpdate(&onionErr.Update)
+		response.HtlcMsat = uint64(onionErr.HtlcMsat)
+
+	case *lnwire.FailIncorrectCltvExpiry:
+		response.Code = Failure_INCORRECT_CLTV_EXPIRY
+		response.ChannelUpdate = marshallChannelUpdate(&onionErr.Update)
+		response.CltvExpiry = onionErr.CltvExpiry
+
+	case *lnwire.FailChannelDisabled:
+		response.Code = Failure_CHANNEL_DISABLED
+		response.ChannelUpdate = marshallChannelUpdate(&onionErr.Update)
+		response.Flags = uint32(onionErr.Flags)
+
+	case *lnwire.FailTemporaryChannelFailure:
+		response.Code = Failure_TEMPORARY_CHANNEL_FAILURE
+		response.ChannelUpdate = marshallChannelUpdate(onionErr.Update)
+
+	case *lnwire.FailRequiredNodeFeatureMissing:
+		response.Code = Failure_REQUIRED_NODE_FEATURE_MISSING
+
+	case *lnwire.FailRequiredChannelFeatureMissing:
+		response.Code = Failure_REQUIRED_CHANNEL_FEATURE_MISSING
+
+	case *lnwire.FailUnknownNextPeer:
+		response.Code = Failure_UNKNOWN_NEXT_PEER
+
+	case *lnwire.FailTemporaryNodeFailure:
+		response.Code = Failure_TEMPORARY_NODE_FAILURE
+
+	case *lnwire.FailPermanentNodeFailure:
+		response.Code = Failure_PERMANENT_NODE_FAILURE
+
+	case *lnwire.FailPermanentChannelFailure:
+		response.Code = Failure_PERMANENT_CHANNEL_FAILURE
+
+	default:
+		return nil, errors.New("unknown wire error")
+	}
+
+	response.FailureSourcePubkey = fErr.ErrorSource.SerializeCompressed()
+
+	return response, nil
+}
+
+// marshallChannelUpdate marshalls a channel update as received over the wire to
+// the router rpc format.
+func marshallChannelUpdate(update *lnwire.ChannelUpdate) *ChannelUpdate {
+	if update == nil {
+		return nil
+	}
+
+	return &ChannelUpdate{
+		Signature:       update.Signature[:],
+		ChainHash:       update.ChainHash[:],
+		ChanId:          update.ShortChannelID.ToUint64(),
+		Timestamp:       update.Timestamp,
+		ChannelFlags:    uint32(update.ChannelFlags),
+		TimeLockDelta:   uint32(update.TimeLockDelta),
+		HtlcMinimumMsat: uint64(update.HtlcMinimumMsat),
+		BaseFee:         update.BaseFee,
+		FeeRate:         update.FeeRate,
+	}
 }

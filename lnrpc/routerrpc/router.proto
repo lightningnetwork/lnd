@@ -1,6 +1,10 @@
 syntax = "proto3";
 
+import "rpc.proto";
+
 package routerrpc;
+
+option go_package = "github.com/lightningnetwork/lnd/lnrpc/routerrpc";
 
 message PaymentRequest {
     /**
@@ -85,6 +89,127 @@ message RouteFeeResponse {
     int64 time_lock_delay = 2;
 }
 
+message SendToRouteRequest {
+    /// The payment hash to use for the HTLC.
+    bytes payment_hash = 1;
+
+    /// Route that should be used to attempt to complete the payment.
+    lnrpc.Route route = 2;
+}
+
+message SendToRouteResponse {
+    /// The preimage obtained by making the payment.
+    bytes preimage = 1;
+
+    /// The failure message in case the payment failed.
+    Failure failure = 2;
+}
+
+message Failure {
+    enum FailureCode {
+        /**
+        The numbers assigned in this enumeration match the failure codes as
+        defined in BOLT #4. Because protobuf 3 requires enums to start with 0,
+        a RESERVED value is added.
+        */
+        RESERVED = 0;
+
+        UNKNOWN_PAYMENT_HASH = 1;
+        INCORRECT_PAYMENT_AMOUNT = 2;
+        FINAL_INCORRECT_CLTV_EXPIRY = 3;
+        FINAL_INCORRECT_HTLC_AMOUNT = 4;
+        FINAL_EXPIRY_TOO_SOON = 5;
+        INVALID_REALM = 6;
+        EXPIRY_TOO_SOON = 7;
+        INVALID_ONION_VERSION = 8;
+        INVALID_ONION_HMAC = 9;
+        INVALID_ONION_KEY = 10;
+        AMOUNT_BELOW_MINIMUM = 11;
+        FEE_INSUFFICIENT = 12;
+        INCORRECT_CLTV_EXPIRY = 13;
+        CHANNEL_DISABLED = 14;
+        TEMPORARY_CHANNEL_FAILURE = 15;
+        REQUIRED_NODE_FEATURE_MISSING = 16;
+        REQUIRED_CHANNEL_FEATURE_MISSING = 17;
+        UNKNOWN_NEXT_PEER = 18;
+        TEMPORARY_NODE_FAILURE = 19;
+        PERMANENT_NODE_FAILURE = 20;
+        PERMANENT_CHANNEL_FAILURE = 21;
+    }
+
+    /// Failure code as defined in the Lightning spec
+    FailureCode code = 1;
+
+    /**
+    The node pubkey of the intermediate or final node that generated the failure
+    message.
+    **/
+    bytes failure_source_pubkey = 2;
+
+    /// An optional channel update message.
+    ChannelUpdate channel_update = 3;
+
+    /// A failure type-dependent htlc value.
+    uint64 htlc_msat = 4;
+
+    /// The sha256 sum of the onion payload.
+    bytes onion_sha_256 = 5;
+
+    /// A failure type-dependent cltv expiry value.
+    uint32 cltv_expiry = 6;
+
+    /// A failure type-dependent flags value.
+    uint32 flags = 7;
+}
+
+
+message ChannelUpdate {
+	// Signature is used to validate the announced data and prove the
+	// ownership of node id.
+	bytes signature = 1;
+
+	// ChainHash denotes the target chain that this channel was opened
+	// within. This value should be the genesis hash of the target chain.
+	// Along with the short channel ID, this uniquely identifies the
+	// channel globally in a blockchain.
+	bytes chain_hash = 2;
+
+	// ShortChannelID is the unique description of the funding transaction.
+	uint64 chan_id = 3;
+
+	// Timestamp allows ordering in the case of multiple announcements.  We
+	// should ignore the message if timestamp is not greater than
+	// the last-received.
+	uint32 timestamp = 4;
+
+	// Flags is a bitfield that describes additional meta-data concerning
+	// how the update is to be interpreted. Currently, the
+	// least-significant bit must be set to 0 if the creating node
+	// corresponds to the first node in the previously sent channel
+	// announcement and 1 otherwise. If the second bit is set, then the
+	// channel is set to be disabled.
+	uint32 channel_flags = 5;
+
+	// TimeLockDelta is the minimum number of blocks this node requires to
+	// be added to the expiry of HTLCs. This is a security parameter
+	// determined by the node operator. This value represents the required
+	// gap between the time locks of the incoming and outgoing HTLC's set
+	// to this node.
+	uint32 time_lock_delta = 6;
+
+	// HtlcMinimumMsat is the minimum HTLC value which will be accepted.
+	uint64 htlc_minimum_msat = 7;
+
+	// BaseFee is the base fee that must be used for incoming HTLC's to
+	// this particular channel. This value will be tacked onto the required
+	// for a payment independent of the size of the payment.
+	uint32 base_fee = 8;
+
+	// FeeRate is the fee rate that will be charged per millionth of a
+	// satoshi.
+	uint32 fee_rate = 9;
+}
+
 service Router {
     /**
     SendPayment attempts to route a payment described by the passed
@@ -100,4 +225,11 @@ service Router {
     may cost to send an HTLC to the target end destination.
     */
     rpc EstimateRouteFee(RouteFeeRequest) returns (RouteFeeResponse);
+
+    /**
+    SendToRoute attempts to make a payment via the specified route. This method
+    differs from SendPayment in that it allows users to specify a full route
+    manually. This can be used for things like rebalancing, and atomic swaps.
+    */
+    rpc SendToRoute(SendToRouteRequest) returns (SendToRouteResponse);
 }

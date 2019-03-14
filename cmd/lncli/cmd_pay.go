@@ -836,7 +836,7 @@ func sendToRoute(ctx *cli.Context) error {
 		route = routes.Route
 	}
 
-	req := &lnrpc.SendToRouteRequest{
+	req := &routerrpc.SendToRouteRequest{
 		PaymentHash: rHash,
 		Route:       route,
 	}
@@ -844,20 +844,13 @@ func sendToRoute(ctx *cli.Context) error {
 	return sendToRouteRequest(ctx, req)
 }
 
-func sendToRouteRequest(ctx *cli.Context, req *lnrpc.SendToRouteRequest) error {
-	client, cleanUp := getClient(ctx)
-	defer cleanUp()
+func sendToRouteRequest(ctx *cli.Context, req *routerrpc.SendToRouteRequest) error {
+	conn := getClientConn(ctx, false)
+	defer conn.Close()
 
-	paymentStream, err := client.SendToRoute(context.Background())
-	if err != nil {
-		return err
-	}
+	client := routerrpc.NewRouterClient(conn)
 
-	if err := paymentStream.Send(req); err != nil {
-		return err
-	}
-
-	resp, err := paymentStream.Recv()
+	resp, err := client.SendToRouteV2(context.Background(), req)
 	if err != nil {
 		return err
 	}

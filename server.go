@@ -11,7 +11,6 @@ import (
 	"net"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -272,7 +271,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 	)
 
 	writePool := pool.NewWrite(
-		writeBufferPool, runtime.NumCPU(), pool.DefaultWorkerTimeout,
+		writeBufferPool, cfg.Workers.Write, pool.DefaultWorkerTimeout,
 	)
 
 	readBufferPool := pool.NewReadBuffer(
@@ -281,13 +280,13 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 	)
 
 	readPool := pool.NewRead(
-		readBufferPool, runtime.NumCPU(), pool.DefaultWorkerTimeout,
+		readBufferPool, cfg.Workers.Read, pool.DefaultWorkerTimeout,
 	)
 
 	s := &server{
 		chanDB:    chanDB,
 		cc:        cc,
-		sigPool:   lnwallet.NewSigPool(runtime.NumCPU()*2, cc.signer),
+		sigPool:   lnwallet.NewSigPool(cfg.Workers.Sig, cc.signer),
 		writePool: writePool,
 		readPool:  readPool,
 

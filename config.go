@@ -252,6 +252,8 @@ type config struct {
 	net tor.Net
 
 	Routing *routing.Conf `group:"routing" namespace:"routing"`
+
+	Workers *lncfg.Workers `group:"workers" namespace:"workers"`
 }
 
 // loadConfig initializes and parses the config using a config file and command
@@ -334,6 +336,11 @@ func loadConfig() (*config, error) {
 			Control: defaultTorControl,
 		},
 		net: &tor.ClearNet{},
+		Workers: &lncfg.Workers{
+			Read:  lncfg.DefaultReadWorkers,
+			Write: lncfg.DefaultWriteWorkers,
+			Sig:   lncfg.DefaultSigWorkers,
+		},
 	}
 
 	// Pre-parse the command line options to pick up an alternative config

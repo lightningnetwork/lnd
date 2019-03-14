@@ -1,5 +1,7 @@
 package lncfg
 
+import "fmt"
+
 const (
 	// DefaultReadWorkers is the default maximum number of concurrent
 	// workers used by the daemon's read pool.
@@ -25,4 +27,23 @@ type Workers struct {
 
 	// Sig is the maximum number of concurrent sig pool workers.
 	Sig int `long:"sig" description:"Maximum number of concurrent sig pool workers."`
+}
+
+// Validate checks the Workers configuration to ensure that the input values are
+// sane.
+func (w *Workers) Validate() error {
+	if w.Read <= 0 {
+		return fmt.Errorf("number of read workers (%d) must be "+
+			"positive", w.Read)
+	}
+	if w.Write <= 0 {
+		return fmt.Errorf("number of write workers (%d) must be "+
+			"positive", w.Write)
+	}
+	if w.Sig <= 0 {
+		return fmt.Errorf("number of sig workers (%d) must be "+
+			"positive", w.Sig)
+	}
+
+	return nil
 }

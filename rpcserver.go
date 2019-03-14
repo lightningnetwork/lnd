@@ -2865,14 +2865,14 @@ func unmarshallSendToRouteRequest(req *lnrpc.SendToRouteRequest,
 	if len(req.Routes) > 0 {
 		routes = make([]*route.Route, len(req.Routes))
 		for i, rpcroute := range req.Routes {
-			route, err := unmarshallRoute(rpcroute, graph)
+			route, err := routerrpc.UnmarshallRoute(rpcroute, graph)
 			if err != nil {
 				return nil, err
 			}
 			routes[i] = route
 		}
 	} else {
-		rt, err := unmarshallRoute(req.Route, graph)
+		rt, err := routerrpc.UnmarshallRoute(req.Route, graph)
 		if err != nil {
 			return nil, err
 		}
@@ -3881,112 +3881,6 @@ func (r *rpcServer) QueryRoutes(ctx context.Context,
 	in *lnrpc.QueryRoutesRequest) (*lnrpc.QueryRoutesResponse, error) {
 
 	return r.routerBackend.QueryRoutes(ctx, in)
-}
-
-// unmarshallHopByChannelLookup unmarshalls an rpc hop for which the pub key is
-// not known. This function will query the channel graph with channel id to
-// retrieve both endpoints and determine the hop pubkey using the previous hop
-// pubkey. If the channel is unknown, an error is returned.
-func unmarshallHopByChannelLookup(graph *channeldb.ChannelGraph, hop *lnrpc.Hop,
-	prevPubKeyBytes [33]byte) (*route.Hop, error) {
-
-	// Discard edge policies, because they may be nil.
-	edgeInfo, _, _, err := graph.FetchChannelEdgesByID(hop.ChanId)
-	if err != nil {
-		return nil, fmt.Errorf("unable to fetch channel edges by "+
-			"channel ID %d: %v", hop.ChanId, err)
-	}
-
-	var pubKeyBytes [33]byte
-	switch {
-	case prevPubKeyBytes == edgeInfo.NodeKey1Bytes:
-		pubKeyBytes = edgeInfo.NodeKey2Bytes
-	case prevPubKeyBytes == edgeInfo.NodeKey2Bytes:
-		pubKeyBytes = edgeInfo.NodeKey1Bytes
-	default:
-		return nil, fmt.Errorf("channel edge does not match expected node")
-	}
-
-	return &route.Hop{
-		OutgoingTimeLock: hop.Expiry,
-		AmtToForward:     lnwire.MilliSatoshi(hop.AmtToForwardMsat),
-		PubKeyBytes:      pubKeyBytes,
-		ChannelID:        edgeInfo.ChannelID,
-	}, nil
-}
-
-// unmarshallKnownPubkeyHop unmarshalls an rpc hop that contains the hop pubkey.
-// The channel graph doesn't need to be queried because all information required
-// for sending the payment is present.
-func unmarshallKnownPubkeyHop(hop *lnrpc.Hop) (*route.Hop, error) {
-	pubKey, err := hex.DecodeString(hop.PubKey)
-	if err != nil {
-		return nil, fmt.Errorf("cannot decode pubkey %s", hop.PubKey)
-	}
-
-	var pubKeyBytes [33]byte
-	copy(pubKeyBytes[:], pubKey)
-
-	return &route.Hop{
-		OutgoingTimeLock: hop.Expiry,
-		AmtToForward:     lnwire.MilliSatoshi(hop.AmtToForwardMsat),
-		PubKeyBytes:      pubKeyBytes,
-		ChannelID:        hop.ChanId,
-	}, nil
-}
-
-// unmarshallHop unmarshalls an rpc hop that may or may not contain a node
-// pubkey.
-func unmarshallHop(graph *channeldb.ChannelGraph, hop *lnrpc.Hop,
-	prevNodePubKey [33]byte) (*route.Hop, error) {
-
-	if hop.PubKey == "" {
-		// If no pub key is given of the hop, the local channel
-		// graph needs to be queried to complete the information
-		// necessary for routing.
-		return unmarshallHopByChannelLookup(graph, hop, prevNodePubKey)
-	}
-
-	return unmarshallKnownPubkeyHop(hop)
-}
-
-// unmarshallRoute unmarshalls an rpc route. For hops that don't specify a
-// pubkey, the channel graph is queried.
-func unmarshallRoute(rpcroute *lnrpc.Route,
-	graph *channeldb.ChannelGraph) (*route.Route, error) {
-
-	sourceNode, err := graph.SourceNode()
-	if err != nil {
-		return nil, fmt.Errorf("unable to fetch source node from graph "+
-			"while unmarshaling route. %v", err)
-	}
-
-	prevNodePubKey := sourceNode.PubKeyBytes
-
-	hops := make([]*route.Hop, len(rpcroute.Hops))
-	for i, hop := range rpcroute.Hops {
-		routeHop, err := unmarshallHop(graph,
-			hop, prevNodePubKey)
-		if err != nil {
-			return nil, err
-		}
-
-		hops[i] = routeHop
-
-		prevNodePubKey = routeHop.PubKeyBytes
-	}
-
-	route, err := route.NewRouteFromHops(
-		lnwire.MilliSatoshi(rpcroute.TotalAmtMsat),
-		rpcroute.TotalTimeLock,
-		sourceNode.PubKeyBytes,
-		hops,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	return route, nil
 }
 
 // GetNetworkInfo returns some basic stats about the known channel graph from

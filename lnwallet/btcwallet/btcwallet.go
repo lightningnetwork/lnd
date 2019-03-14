@@ -384,28 +384,13 @@ func (b *BtcWallet) ListUnspentWitness(minConfs, maxConfs int32) (
 
 // PublishTransaction performs cursory validation (dust checks, etc), then
 // finally broadcasts the passed transaction to the Bitcoin network. If
-// publishing the transaction fails, an error describing the reason is
-// returned (currently ErrDoubleSpend). If the transaction is already
-// published to the network (either in the mempool or chain) no error
-// will be returned.
+// publishing the transaction fails, an error describing the reason is returned
+// (currently ErrDoubleSpend). If the transaction is already published to the
+// network (either in the mempool or chain) no error will be returned.
 func (b *BtcWallet) PublishTransaction(tx *wire.MsgTx) error {
 	if err := b.wallet.PublishTransaction(tx); err != nil {
 		switch b.chain.(type) {
 		case *chain.RPCClient:
-			if strings.Contains(err.Error(), "already have") {
-				// Transaction was already in the mempool, do
-				// not treat as an error. We do this to mimic
-				// the behaviour of bitcoind, which will not
-				// return an error if a transaction in the
-				// mempool is sent again using the
-				// sendrawtransaction RPC call.
-				return nil
-			}
-			if strings.Contains(err.Error(), "already exists") {
-				// Transaction was already mined, we don't
-				// consider this an error.
-				return nil
-			}
 			if strings.Contains(err.Error(), "already spent") {
 				// Output was already spent.
 				return lnwallet.ErrDoubleSpend
@@ -421,19 +406,6 @@ func (b *BtcWallet) PublishTransaction(tx *wire.MsgTx) error {
 			}
 
 		case *chain.BitcoindClient:
-			if strings.Contains(err.Error(), "txn-already-in-mempool") {
-				// Transaction in mempool, treat as non-error.
-				return nil
-			}
-			if strings.Contains(err.Error(), "txn-already-known") {
-				// Transaction in mempool, treat as non-error.
-				return nil
-			}
-			if strings.Contains(err.Error(), "already in block") {
-				// Transaction was already mined, we don't
-				// consider this an error.
-				return nil
-			}
 			if strings.Contains(err.Error(), "txn-mempool-conflict") {
 				// Output was spent by other transaction
 				// already in the mempool.
@@ -450,16 +422,6 @@ func (b *BtcWallet) PublishTransaction(tx *wire.MsgTx) error {
 			}
 
 		case *chain.NeutrinoClient:
-			if strings.Contains(err.Error(), "already have") {
-				// Transaction was already in the mempool, do
-				// not treat as an error.
-				return nil
-			}
-			if strings.Contains(err.Error(), "already exists") {
-				// Transaction was already mined, we don't
-				// consider this an error.
-				return nil
-			}
 			if strings.Contains(err.Error(), "already spent") {
 				// Output was already spent.
 				return lnwallet.ErrDoubleSpend

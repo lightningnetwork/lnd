@@ -894,7 +894,7 @@ func (u *utxoNursery) sweepCribOutput(classHeight uint32, baby *babyOutput) erro
 	// We'll now broadcast the HTLC transaction, then wait for it to be
 	// confirmed before transitioning it to kindergarten.
 	err := u.cfg.PublishTransaction(baby.timeoutTx)
-	if err != nil && err != lnwallet.ErrDoubleSpend {
+	if err != nil {
 		utxnLog.Errorf("Unable to broadcast baby tx: "+
 			"%v, %v", err, spew.Sdump(baby.timeoutTx))
 		return err

@@ -462,6 +462,21 @@ func newRPCServer(s *server, macService *macaroons.Service,
 			}
 			return info.Capacity, nil
 		},
+		FetchChannelEndpoints: func(chanID uint64) (route.Vertex,
+			route.Vertex, error) {
+
+			info, _, _, err := graph.FetchChannelEdgesByID(
+				chanID,
+			)
+			if err != nil {
+				return route.Vertex{}, route.Vertex{},
+					fmt.Errorf("unable to fetch channel "+
+						"edges by channel ID %d: %v",
+						chanID, err)
+			}
+
+			return info.NodeKey1Bytes, info.NodeKey2Bytes, nil
+		},
 		FindRoute: s.chanRouter.FindRoute,
 	}
 
@@ -2837,9 +2852,7 @@ func (r *rpcServer) SendToRoute(stream lnrpc.Lightning_SendToRouteServer) error 
 				return nil, err
 			}
 
-			graph := r.server.chanDB.ChannelGraph()
-
-			return unmarshallSendToRouteRequest(req, graph)
+			return r.unmarshallSendToRouteRequest(req)
 		},
 		send: func(r *lnrpc.SendResponse) error {
 			// Calling stream.Send concurrently is not safe.
@@ -2851,14 +2864,14 @@ func (r *rpcServer) SendToRoute(stream lnrpc.Lightning_SendToRouteServer) error 
 }
 
 // unmarshallSendToRouteRequest unmarshalls an rpc sendtoroute request
-func unmarshallSendToRouteRequest(req *lnrpc.SendToRouteRequest,
-	graph *channeldb.ChannelGraph) (*rpcPaymentRequest, error) {
+func (r *rpcServer) unmarshallSendToRouteRequest(
+	req *lnrpc.SendToRouteRequest) (*rpcPaymentRequest, error) {
 
 	if req.Route == nil {
 		return nil, fmt.Errorf("unable to send, no route provided")
 	}
 
-	route, err := routerrpc.UnmarshallRoute(req.Route, graph)
+	route, err := r.routerBackend.UnmarshallRoute(req.Route)
 	if err != nil {
 		return nil, err
 	}
@@ -3308,9 +3321,7 @@ func (r *rpcServer) SendToRouteSync(ctx context.Context,
 		return nil, fmt.Errorf("unable to send, no routes provided")
 	}
 
-	graph := r.server.chanDB.ChannelGraph()
-
-	paymentRequest, err := unmarshallSendToRouteRequest(req, graph)
+	paymentRequest, err := r.unmarshallSendToRouteRequest(req)
 	if err != nil {
 		return nil, err
 	}

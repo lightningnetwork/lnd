@@ -2609,7 +2609,7 @@ func sendToRoute(ctx *cli.Context) error {
 		route = routes.Route
 	}
 
-	req := &lnrpc.SendToRouteRequest{
+	req := &routerrpc.SendToRouteRequest{
 		PaymentHash: rHash,
 		Route:       route,
 	}
@@ -2617,25 +2617,28 @@ func sendToRoute(ctx *cli.Context) error {
 	return sendToRouteRequest(ctx, req)
 }
 
-func sendToRouteRequest(ctx *cli.Context, req *lnrpc.SendToRouteRequest) error {
-	client, cleanUp := getClient(ctx)
-	defer cleanUp()
+func sendToRouteRequest(ctx *cli.Context, req *routerrpc.SendToRouteRequest) error {
+	conn := getClientConn(ctx, false)
+	defer conn.Close()
 
-	paymentStream, err := client.SendToRoute(context.Background())
+	client := routerrpc.NewRouterClient(conn)
+
+	resp, err := client.SendToRoute(context.Background(), req)
 	if err != nil {
 		return err
 	}
 
-	if err := paymentStream.Send(req); err != nil {
-		return err
+	marshaller := jsonpb.Marshaler{
+		Indent: "    ",
 	}
 
-	resp, err := paymentStream.Recv()
+	var buf bytes.Buffer
+	err = marshaller.Marshal(&buf, resp)
 	if err != nil {
-		return err
+		fatal(err)
 	}
 
-	printRespJSON(resp)
+	fmt.Println(buf.String())
 
 	return nil
 }

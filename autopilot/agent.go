@@ -567,8 +567,13 @@ func (a *Agent) openChans(availableFunds btcutil.Amount, numChans uint32,
 
 	// As channel size we'll use the maximum channel size available.
 	chanSize := a.cfg.Constraints.MaxChanSize()
-	if availableFunds-chanSize < 0 {
+	if availableFunds < chanSize {
 		chanSize = availableFunds
+	}
+
+	if chanSize < a.cfg.Constraints.MinChanSize() {
+		return fmt.Errorf("not enough funds available to open a " +
+			"single channel")
 	}
 
 	// Use the heuristic to calculate a score for each node in the
@@ -599,6 +604,17 @@ func (a *Agent) openChans(availableFunds btcutil.Amount, numChans uint32,
 		// so we'll skip it.
 		if len(addrs) == 0 {
 			continue
+		}
+
+		// Track the available funds we have left.
+		if availableFunds < chanSize {
+			chanSize = availableFunds
+		}
+		availableFunds -= chanSize
+
+		// If we run out of funds, we can break early.
+		if chanSize < a.cfg.Constraints.MinChanSize() {
+			break
 		}
 
 		chanCandidates[nID] = &AttachmentDirective{
@@ -725,8 +741,7 @@ func (a *Agent) executeDirective(directive AttachmentDirective) {
 	// fewer slots were available, and other successful attempts finished
 	// first.
 	a.pendingMtx.Lock()
-	if uint16(len(a.pendingOpens)) >=
-		a.cfg.Constraints.MaxPendingOpens() {
+	if uint16(len(a.pendingOpens)) >= a.cfg.Constraints.MaxPendingOpens() {
 		// Since we've reached our max number of pending opens, we'll
 		// disconnect this peer and exit. However, if we were
 		// previously connected to them, then we'll make sure to
@@ -799,6 +814,9 @@ func (a *Agent) executeDirective(directive AttachmentDirective) {
 
 	// Since the channel open was successful and is currently pending,
 	// we'll trigger the autopilot agent to query for more peers.
+	// TODO(halseth): this triggers a new loop before all the new channels
+	// are added to the pending channels map. Should add before executing
+	// directive in goroutine?
 	a.OnChannelPendingOpen()
 }
 

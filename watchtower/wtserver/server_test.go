@@ -622,6 +622,136 @@ func testServerStateUpdates(t *testing.T, test stateUpdateTestCase) {
 	assertConnClosed(t, peer, 2*timeoutDuration)
 }
 
+// TestServerDeleteSession asserts the response to a DeleteSession request, and
+// checking that the proper error is returned when the session doesn't exist and
+// that a successful deletion does not disrupt other sessions.
+func TestServerDeleteSession(t *testing.T) {
+	db := wtdb.NewMockDB()
+
+	localPub := randPubKey(t)
+
+	// Initialize two distinct peers with different session ids.
+	peerPub1 := randPubKey(t)
+	peerPub2 := randPubKey(t)
+
+	id1 := wtdb.NewSessionIDFromPubKey(peerPub1)
+	id2 := wtdb.NewSessionIDFromPubKey(peerPub2)
+
+	// Create closure to simplify assertions on session existence with the
+	// server's database.
+	hasSession := func(t *testing.T, id *wtdb.SessionID, shouldHave bool) {
+		t.Helper()
+
+		_, err := db.GetSessionInfo(id)
+		switch {
+		case shouldHave && err != nil:
+			t.Fatalf("expected server to have session %s, got: %v",
+				id, err)
+		case !shouldHave && err != wtdb.ErrSessionNotFound:
+			t.Fatalf("expected ErrSessionNotFound for session %s, "+
+				"got: %v", id, err)
+		}
+	}
+
+	initMsg := wtwire.NewInitMessage(
+		lnwire.NewRawFeatureVector(),
+		testnetChainHash,
+	)
+
+	createSession := &wtwire.CreateSession{
+		BlobType:     blob.TypeDefault,
+		MaxUpdates:   1000,
+		RewardBase:   0,
+		RewardRate:   0,
+		SweepFeeRate: 1,
+	}
+
+	const timeoutDuration = 100 * time.Millisecond
+
+	s := initServer(t, db, timeoutDuration)
+	defer s.Stop()
+
+	// Create a session for peer2 so that the server's db isn't completely
+	// empty.
+	peer2 := wtmock.NewMockPeer(localPub, peerPub2, nil, 0)
+	connect(t, s, peer2, initMsg, timeoutDuration)
+	sendMsg(t, createSession, peer2, timeoutDuration)
+	assertConnClosed(t, peer2, 2*timeoutDuration)
+
+	// Our initial assertions are that peer2 has a valid session, but peer1
+	// has not created one.
+	hasSession(t, &id1, false)
+	hasSession(t, &id2, true)
+
+	peer1Msgs := []struct {
+		send   wtwire.Message
+		recv   wtwire.Message
+		assert func(t *testing.T)
+	}{
+		{
+			// Deleting unknown session should fail.
+			send: &wtwire.DeleteSession{},
+			recv: &wtwire.DeleteSessionReply{
+				Code: wtwire.DeleteSessionCodeNotFound,
+			},
+			assert: func(t *testing.T) {
+				// Peer2 should still be only session.
+				hasSession(t, &id1, false)
+				hasSession(t, &id2, true)
+			},
+		},
+		{
+			// Create session for peer1.
+			send: createSession,
+			recv: &wtwire.CreateSessionReply{
+				Code: wtwire.CodeOK,
+				Data: addrScript,
+			},
+			assert: func(t *testing.T) {
+				// Both peers should have sessions.
+				hasSession(t, &id1, true)
+				hasSession(t, &id2, true)
+			},
+		},
+
+		{
+			// Delete peer1's session.
+			send: &wtwire.DeleteSession{},
+			recv: &wtwire.DeleteSessionReply{
+				Code: wtwire.CodeOK,
+			},
+			assert: func(t *testing.T) {
+				// Peer1's session should have been removed.
+				hasSession(t, &id1, false)
+				hasSession(t, &id2, true)
+			},
+		},
+	}
+
+	// Now as peer1, process the canned messages defined above. This will:
+	// 1. Try to delete an unknown session and get a not found error code.
+	// 2. Create a new session using the same parameters as peer2.
+	// 3. Delete the newly created session and get an OK.
+	for _, msg := range peer1Msgs {
+		peer1 := wtmock.NewMockPeer(localPub, peerPub1, nil, 0)
+		connect(t, s, peer1, initMsg, timeoutDuration)
+		sendMsg(t, msg.send, peer1, timeoutDuration)
+		reply := recvReply(
+			t, msg.recv.MsgType().String(), peer1, timeoutDuration,
+		)
+
+		if !reflect.DeepEqual(reply, msg.recv) {
+			t.Fatalf("expected reply: %v, got: %v", msg.recv, reply)
+		}
+
+		assertConnClosed(t, peer1, 2*timeoutDuration)
+
+		// Invoke assertions after completing the request/response
+		// dance.
+		msg.assert(t)
+	}
+}
+
 func connect(t *testing.T, s wtserver.Interface, peer *wtmock.MockPeer,
 	initMsg *wtwire.Init, timeout time.Duration) {
 
@@ -690,6 +820,11 @@ func recvReply(t *testing.T, name string, peer *wtmock.MockPeer,
 		}
 	case "MsgStateUpdateReply":
 		if _, ok := msg.(*wtwire.StateUpdateReply); !ok {
+			t.Fatalf("expected %s reply message, "+
+				"got %T", name, msg)
+		}
+	case "MsgDeleteSessionReply":
+		if _, ok := msg.(*wtwire.DeleteSessionReply); !ok {
 			t.Fatalf("expected %s reply message, "+
 				"got %T", name, msg)
 		}

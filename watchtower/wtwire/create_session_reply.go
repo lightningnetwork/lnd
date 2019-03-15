@@ -14,9 +14,9 @@ const (
 	// reply was never received and/or processed by the client.
 	CreateSessionCodeAlreadyExists CreateSessionCode = 60
 
-	// CreateSessionCodeRejectRejectMaxUpdates the tower rejected the maximum
+	// CreateSessionCodeRejectMaxUpdates the tower rejected the maximum
 	// number of state updates proposed by the client.
-	CreateSessionCodeRejectRejectMaxUpdates CreateSessionCode = 61
+	CreateSessionCodeRejectMaxUpdates CreateSessionCode = 61
 
 	// CreateSessionCodeRejectRewardRate the tower rejected the reward rate
 	// proposed by the client.

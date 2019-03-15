@@ -1066,20 +1066,13 @@ func TestChannelLinkMultiHopUnknownPaymentHash(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Generate payment: invoice and htlc.
-	invoice, htlc, err := generatePayment(amount, htlcAmt, totalTimelock,
+	// Generate payment invoice and htlc, but don't add this invoice to the
+	// receiver registry. This should trigger an unknown payment hash
+	// failure.
+	_, htlc, err := generatePayment(amount, htlcAmt, totalTimelock,
 		blob)
 	if err != nil {
 		t.Fatal(err)
-	}
-
-	// We need to have wrong rhash for that reason we should change the
-	// preimage. Inverse first byte by xoring with 0xff.
-	invoice.Terms.PaymentPreimage[0] ^= byte(255)
-
-	// Check who is last in the route and add invoice to server registry.
-	if err := n.carolServer.registry.AddInvoice(*invoice); err != nil {
-		t.Fatalf("unable to add invoice in carol registry: %v", err)
 	}
 
 	// Send payment and expose err channel.
@@ -1094,12 +1087,6 @@ func TestChannelLinkMultiHopUnknownPaymentHash(t *testing.T) {
 
 	// Wait for Alice to receive the revocation.
 	time.Sleep(100 * time.Millisecond)
-
-	// Check that alice invoice wasn't settled and bandwidth of htlc
-	// links hasn't been changed.
-	if invoice.Terms.State == channeldb.ContractSettled {
-		t.Fatal("alice invoice was settled")
-	}
 
 	if n.aliceChannelLink.Bandwidth() != aliceBandwidthBefore {
 		t.Fatal("the bandwidth of alice channel link which handles " +
@@ -2059,7 +2046,9 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 
 	// We must add the invoice to the registry, such that Alice expects
 	// this payment.
-	err = coreLink.cfg.Registry.(*mockInvoiceRegistry).AddInvoice(*invoice)
+	err = coreLink.cfg.Registry.(*mockInvoiceRegistry).AddInvoice(
+		*invoice, htlc.PaymentHash,
+	)
 	if err != nil {
 		t.Fatalf("unable to add invoice to registry: %v", err)
 	}
@@ -2161,7 +2150,9 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to create payment: %v", err)
 	}
-	err = coreLink.cfg.Registry.(*mockInvoiceRegistry).AddInvoice(*invoice)
+	err = coreLink.cfg.Registry.(*mockInvoiceRegistry).AddInvoice(
+		*invoice, htlc.PaymentHash,
+	)
 	if err != nil {
 		t.Fatalf("unable to add invoice to registry: %v", err)
 	}
@@ -3817,7 +3808,9 @@ func TestChannelLinkAcceptDuplicatePayment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := n.carolServer.registry.AddInvoice(*invoice); err != nil {
+
+	err = n.carolServer.registry.AddInvoice(*invoice, htlc.PaymentHash)
+	if err != nil {
 		t.Fatalf("unable to add invoice in carol registry: %v", err)
 	}
 
@@ -4195,7 +4188,8 @@ func generateHtlc(t *testing.T, coreLink *channelLink,
 	// We must add the invoice to the registry, such that Alice
 	// expects this payment.
 	err := coreLink.cfg.Registry.(*mockInvoiceRegistry).AddInvoice(
-		*invoice)
+		*invoice, htlc.PaymentHash,
+	)
 	if err != nil {
 		t.Fatalf("unable to add invoice to registry: %v", err)
 	}
@@ -5593,5 +5587,171 @@ func TestChannelLinkCanceledInvoice(t *testing.T) {
 	_, ok = fErr.FailureMessage.(*lnwire.FailUnknownPaymentHash)
 	if !ok {
 		t.Fatalf("expected unknown payment hash, but got %v", err)
+	}
+}
+
+type hodlInvoiceTestCtx struct {
+	n                   *twoHopNetwork
+	startBandwidthAlice lnwire.MilliSatoshi
+	startBandwidthBob   lnwire.MilliSatoshi
+	hash                lntypes.Hash
+	preimage            lntypes.Preimage
+	amount              lnwire.MilliSatoshi
+	errChan             chan error
+
+	cleanUp func()
+}
+
+func newHodlInvoiceTestCtx(t *testing.T) (*hodlInvoiceTestCtx, error) {
+	// Setup a alice-bob network.
+	aliceChannel, bobChannel, cleanUp, err := createTwoClusterChannels(
+		btcutil.SatoshiPerBitcoin*3,
+		btcutil.SatoshiPerBitcoin*5,
+	)
+	if err != nil {
+		t.Fatalf("unable to create channel: %v", err)
+	}
+
+	n := newTwoHopNetwork(t, aliceChannel, bobChannel, testStartingHeight)
+	if err := n.start(); err != nil {
+		t.Fatal(err)
+	}
+
+	aliceBandwidthBefore := n.aliceChannelLink.Bandwidth()
+	bobBandwidthBefore := n.bobChannelLink.Bandwidth()
+
+	debug := false
+	if debug {
+		// Log message that alice receives.
+		n.aliceServer.intersect(
+			createLogFunc("alice", n.aliceChannelLink.ChanID()),
+		)
+
+		// Log message that bob receives.
+		n.bobServer.intersect(
+			createLogFunc("bob", n.bobChannelLink.ChanID()),
+		)
+	}
+
+	amount := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
+	htlcAmt, totalTimelock, hops := generateHops(
+		amount, testStartingHeight, n.bobChannelLink,
+	)
+
+	// Generate hold invoice preimage.
+	r, err := generateRandomBytes(sha256.Size)
+	if err != nil {
+		t.Fatal(err)
+	}
+	preimage, err := lntypes.MakePreimage(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash := preimage.Hash()
+
+	// Have alice pay the hodl invoice, wait for bob's commitment state to
+	// be updated and the invoice state to be updated.
+	receiver := n.bobServer
+	receiver.registry.settleChan = make(chan lntypes.Hash)
+	firstHop := n.bobChannelLink.ShortChanID()
+	errChan := n.makeHoldPayment(
+		n.aliceServer, receiver, firstHop, hops, amount, htlcAmt,
+		totalTimelock, preimage,
+	)
+
+	select {
+	case err := <-errChan:
+		t.Fatalf("no payment result expected: %v", err)
+	case <-time.After(time.Second):
+		t.Fatal("timeout")
+	case h := <-receiver.registry.settleChan:
+		if hash != h {
+			t.Fatal("unexpect invoice settled")
+		}
+	}
+
+	return &hodlInvoiceTestCtx{
+		n:                   n,
+		startBandwidthAlice: aliceBandwidthBefore,
+		startBandwidthBob:   bobBandwidthBefore,
+		preimage:            preimage,
+		hash:                hash,
+		amount:              amount,
+		errChan:             errChan,
+
+		cleanUp: func() {
+			cleanUp()
+			n.stop()
+		},
+	}, nil
+}
+
+// TestChannelLinkHoldInvoiceSettle asserts that a hodl invoice can be settled.
+func TestChannelLinkHoldInvoiceSettle(t *testing.T) {
+	t.Parallel()
+
+	ctx, err := newHodlInvoiceTestCtx(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ctx.cleanUp()
+
+	err = ctx.n.bobServer.registry.SettleHodlInvoice(ctx.preimage)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Wait for payment to succeed.
+	select {
+	case err := <-ctx.errChan:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout")
+	}
+
+	// Wait for Bob to receive the revocation.
+	if ctx.startBandwidthAlice-ctx.amount !=
+		ctx.n.aliceChannelLink.Bandwidth() {
+
+		t.Fatal("alice bandwidth should have decrease on payment " +
+			"amount")
+	}
+
+	if ctx.startBandwidthBob+ctx.amount !=
+		ctx.n.bobChannelLink.Bandwidth() {
+
+		t.Fatalf("bob bandwidth isn't match: expected %v, got %v",
+			ctx.startBandwidthBob+ctx.amount,
+			ctx.n.bobChannelLink.Bandwidth())
+	}
+}
+
+// TestChannelLinkHoldInvoiceSettle asserts that a hodl invoice can be canceled.
+func TestChannelLinkHoldInvoiceCancel(t *testing.T) {
+	t.Parallel()
+
+	ctx, err := newHodlInvoiceTestCtx(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ctx.cleanUp()
+
+	err = ctx.n.bobServer.registry.CancelInvoice(ctx.hash)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Wait for payment to succeed.
+	select {
+	case err := <-ctx.errChan:
+		if !strings.Contains(err.Error(),
+			lnwire.CodeUnknownPaymentHash.String()) {
+
+			t.Fatal("expected unknown payment hash")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout")
 	}
 }

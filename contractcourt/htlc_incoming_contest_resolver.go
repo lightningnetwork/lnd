@@ -1,10 +1,12 @@
 package contractcourt
 
 import (
-	"bytes"
 	"encoding/binary"
 	"fmt"
 	"io"
+
+	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/invoices"
 
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -70,11 +72,18 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 		return nil, h.Checkpoint(h)
 	}
 
-	// applyPreimage is a helper function that will populate our internal
+	// tryApplyPreimage is a helper function that will populate our internal
 	// resolver with the preimage we learn of. This should be called once
 	// the preimage is revealed so the inner resolver can properly complete
-	// its duties.
-	applyPreimage := func(preimage lntypes.Preimage) {
+	// its duties. The boolean return value indicates whether the preimage
+	// was properly applied.
+	tryApplyPreimage := func(preimage lntypes.Preimage) bool {
+		// Check to see if this preimage matches our htlc.
+		if !preimage.Matches(h.payHash) {
+			return false
+		}
+
+		// Update htlcResolution with the matching preimage.
 		h.htlcResolution.Preimage = preimage
 
 		log.Infof("%T(%v): extracted preimage=%v from beacon!", h,
@@ -93,6 +102,8 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 			// preimage.
 			h.htlcResolution.SignedSuccessTx.TxIn[0].Witness[3] = preimage[:]
 		}
+
+		return true
 	}
 
 	// If the HTLC hasn't expired yet, then we may still be able to claim
@@ -112,6 +123,26 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 		blockEpochs.Cancel()
 	}()
 
+	// Create a buffered hodl chan to prevent deadlock.
+	hodlChan := make(chan interface{}, 1)
+
+	// Notify registry that we are potentially settling as exit hop
+	// on-chain, so that we will get a hodl event when a corresponding hodl
+	// invoice is settled.
+	event, err := h.Registry.NotifyExitHopHtlc(h.payHash, h.htlcAmt, hodlChan)
+	if err != nil && err != channeldb.ErrInvoiceNotFound {
+		return nil, err
+	}
+	defer h.Registry.HodlUnsubscribeAll(hodlChan)
+
+	// If the htlc can be settled directly, we can progress to the inner
+	// resolver immediately.
+	if event != nil && event.Preimage != nil {
+		if tryApplyPreimage(*event.Preimage) {
+			return &h.htlcSuccessResolver, nil
+		}
+	}
+
 	// With the epochs and preimage subscriptions initialized, we'll query
 	// to see if we already know the preimage.
 	preimage, ok := h.PreimageDB.LookupPreimage(h.payHash)
@@ -119,26 +150,35 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 		// If we do, then this means we can claim the HTLC!  However,
 		// we don't know how to ourselves, so we'll return our inner
 		// resolver which has the knowledge to do so.
-		applyPreimage(preimage)
-		return &h.htlcSuccessResolver, nil
+		if tryApplyPreimage(preimage) {
+			return &h.htlcSuccessResolver, nil
+		}
 	}
 
 	for {
 
 		select {
 		case preimage := <-preimageSubscription.WitnessUpdates:
-			// If this isn't our preimage, then we'll continue
-			// onwards.
-			hash := preimage.Hash()
-			preimageMatches := bytes.Equal(hash[:], h.payHash[:])
-			if !preimageMatches {
+			if !tryApplyPreimage(preimage) {
 				continue
 			}
 
-			// Otherwise, we've learned of the preimage! We'll add
-			// this information to our inner resolver, then return
-			// it so it can continue contract resolution.
-			applyPreimage(preimage)
+			// We've learned of the preimage and this information
+			// has been added to our inner resolver. We return it so
+			// it can continue contract resolution.
+			return &h.htlcSuccessResolver, nil
+
+		case hodlItem := <-hodlChan:
+			hodlEvent := hodlItem.(invoices.HodlEvent)
+
+			// Only process settle events.
+			if hodlEvent.Preimage == nil {
+				continue
+			}
+
+			if !tryApplyPreimage(*hodlEvent.Preimage) {
+				continue
+			}
 			return &h.htlcSuccessResolver, nil
 
 		case newBlock, ok := <-blockEpochs.Epochs:

@@ -178,8 +178,13 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 		}
 
 		// With the HTLC claimed, we can attempt to settle its
-		// corresponding invoice if we were the original destination.
-		err = h.SettleInvoice(h.payHash, h.htlcAmt)
+		// corresponding invoice if we were the original destination. As
+		// the htlc is already settled at this point, we don't need to
+		// read on the hodl channel.
+		hodlChan := make(chan interface{}, 1)
+		_, err = h.Registry.NotifyExitHopHtlc(
+			h.payHash, h.htlcAmt, hodlChan,
+		)
 		if err != nil && err != channeldb.ErrInvoiceNotFound {
 			log.Errorf("Unable to settle invoice with payment "+
 				"hash %x: %v", h.payHash, err)
@@ -251,8 +256,11 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 	}
 
 	// With the HTLC claimed, we can attempt to settle its corresponding
-	// invoice if we were the original destination.
-	err = h.SettleInvoice(h.payHash, h.htlcAmt)
+	// invoice if we were the original destination. As the htlc is already
+	// settled at this point, we don't need to read on the hodl
+	// channel.
+	hodlChan := make(chan interface{}, 1)
+	_, err = h.Registry.NotifyExitHopHtlc(h.payHash, h.htlcAmt, hodlChan)
 	if err != nil && err != channeldb.ErrInvoiceNotFound {
 		log.Errorf("Unable to settle invoice with payment "+
 			"hash %x: %v", h.payHash, err)

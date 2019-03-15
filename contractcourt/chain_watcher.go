@@ -105,6 +105,11 @@ type chainWatcherConfig struct {
 	// isOurAddr is a function that returns true if the passed address is
 	// known to us.
 	isOurAddr func(btcutil.Address) bool
+
+	// extractStateNumHint extracts the encoded state hint using the passed
+	// obfuscater. This is used by the chain watcher to identify which
+	// state was broadcast and confirmed on-chain.
+	extractStateNumHint func(*wire.MsgTx, [lnwallet.StateHintSize]byte) uint64
 }
 
 // chainWatcher is a system that's assigned to every active channel. The duty
@@ -350,10 +355,9 @@ func (c *chainWatcher) closeObserver(spendNtfn *chainntnfs.SpendEvent) {
 			"ChannelPoint(%v) ", c.cfg.chanState.FundingOutpoint)
 
 		// Decode the state hint encoded within the commitment
-		// transaction to determine if this is a revoked state
-		// or not.
+		// transaction to determine if this is a revoked state or not.
 		obfuscator := c.stateHintObfuscator
-		broadcastStateNum := lnwallet.GetStateNumHint(
+		broadcastStateNum := c.cfg.extractStateNumHint(
 			commitTxBroadcast, obfuscator,
 		)
 		remoteStateNum := remoteCommit.CommitHeight
@@ -402,11 +406,12 @@ func (c *chainWatcher) closeObserver(spendNtfn *chainntnfs.SpendEvent) {
 					c.cfg.chanState.FundingOutpoint, err)
 			}
 
-		// This is the case that somehow the commitment broadcast is
-		// actually greater than even one beyond our best known state
-		// number. This should ONLY happen in case we experienced some
-		// sort of data loss.
-		case broadcastStateNum > remoteStateNum+1:
+		// If the remote party has broadcasted a state beyond our best
+		// known state for them, and they don't have a pending
+		// commitment (we write them to disk before sending out), then
+		// this means that we've lost data. In this case, we'll enter
+		// the DLP protocol.
+		case broadcastStateNum > remoteStateNum:
 			log.Warnf("Remote node broadcast state #%v, "+
 				"which is more than 1 beyond best known "+
 				"state #%v!!! Attempting recovery...",
@@ -418,6 +423,7 @@ func (c *chainWatcher) closeObserver(spendNtfn *chainntnfs.SpendEvent) {
 			// point, there's not much we can do other than wait
 			// for us to retrieve it. We will attempt to retrieve
 			// it from the peer each time we connect to it.
+			//
 			// TODO(halseth): actively initiate re-connection to
 			// the peer?
 			var commitPoint *btcec.PublicKey
@@ -458,6 +464,7 @@ func (c *chainWatcher) closeObserver(spendNtfn *chainntnfs.SpendEvent) {
 			// state, we'll just pass an empty commitment. Note
 			// that this means we won't be able to recover any HTLC
 			// funds.
+			//
 			// TODO(halseth): can we try to recover some HTLCs?
 			err = c.dispatchRemoteForceClose(
 				commitSpend, channeldb.ChannelCommitment{},

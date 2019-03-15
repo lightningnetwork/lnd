@@ -27,14 +27,17 @@ type MockPeer struct {
 }
 
 // NewMockPeer returns a fresh MockPeer.
-func NewMockPeer(pk *btcec.PublicKey, addr net.Addr, bufferSize int) *MockPeer {
+func NewMockPeer(lpk, rpk *btcec.PublicKey, addr net.Addr,
+	bufferSize int) *MockPeer {
+
 	return &MockPeer{
-		remotePub:  pk,
+		remotePub:  rpk,
 		remoteAddr: addr,
 		localAddr: &net.TCPAddr{
 			IP:   net.IP{0x32, 0x31, 0x30, 0x29},
 			Port: 36723,
 		},
+		localPub:     lpk,
 		IncomingMsgs: make(chan []byte, bufferSize),
 		OutgoingMsgs: make(chan []byte, bufferSize),
 		Quit:         make(chan struct{}),

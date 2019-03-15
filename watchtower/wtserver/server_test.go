@@ -87,10 +87,12 @@ func TestServerOnlyAcceptOnePeer(t *testing.T) {
 	s := initServer(t, nil, timeoutDuration)
 	defer s.Stop()
 
+	localPub := randPubKey(t)
+
 	// Create two peers using the same session id.
 	peerPub := randPubKey(t)
-	peer1 := wtmock.NewMockPeer(peerPub, nil, 0)
-	peer2 := wtmock.NewMockPeer(peerPub, nil, 0)
+	peer1 := wtmock.NewMockPeer(localPub, peerPub, nil, 0)
+	peer2 := wtmock.NewMockPeer(localPub, peerPub, nil, 0)
 
 	// Serialize a Init message to be sent by both peers.
 	init := wtwire.NewInitMessage(
@@ -219,9 +221,11 @@ func testServerCreateSession(t *testing.T, i int, test createSessionTestCase) {
 	s := initServer(t, nil, timeoutDuration)
 	defer s.Stop()
 
+	localPub := randPubKey(t)
+
 	// Create a new client and connect to server.
 	peerPub := randPubKey(t)
-	peer := wtmock.NewMockPeer(peerPub, nil, 0)
+	peer := wtmock.NewMockPeer(localPub, peerPub, nil, 0)
 	connect(t, i, s, peer, test.initMsg, timeoutDuration)
 
 	// Send the CreateSession message, and wait for a reply.
@@ -249,7 +253,7 @@ func testServerCreateSession(t *testing.T, i int, test createSessionTestCase) {
 
 	// Simulate a peer with the same session id connection to the server
 	// again.
-	peer = wtmock.NewMockPeer(peerPub, nil, 0)
+	peer = wtmock.NewMockPeer(localPub, peerPub, nil, 0)
 	connect(t, i, s, peer, test.initMsg, timeoutDuration)
 
 	// Send the _same_ CreateSession message as the first attempt.
@@ -559,9 +563,11 @@ func testServerStateUpdates(t *testing.T, i int, test stateUpdateTestCase) {
 	s := initServer(t, nil, timeoutDuration)
 	defer s.Stop()
 
+	localPub := randPubKey(t)
+
 	// Create a new client and connect to the server.
 	peerPub := randPubKey(t)
-	peer := wtmock.NewMockPeer(peerPub, nil, 0)
+	peer := wtmock.NewMockPeer(localPub, peerPub, nil, 0)
 	connect(t, i, s, peer, test.initMsg, timeoutDuration)
 
 	// Register a session for this client to use in the subsequent tests.
@@ -581,7 +587,7 @@ func testServerStateUpdates(t *testing.T, i int, test stateUpdateTestCase) {
 
 	// Now that the original connection has been closed, connect a new
 	// client with the same session id.
-	peer = wtmock.NewMockPeer(peerPub, nil, 0)
+	peer = wtmock.NewMockPeer(localPub, peerPub, nil, 0)
 	connect(t, i, s, peer, test.initMsg, timeoutDuration)
 
 	// Send the intended StateUpdate messages in series.
@@ -592,7 +598,7 @@ func testServerStateUpdates(t *testing.T, i int, test stateUpdateTestCase) {
 		if update == nil {
 			assertConnClosed(t, peer, 2*timeoutDuration)
 
-			peer = wtmock.NewMockPeer(peerPub, nil, 0)
+			peer = wtmock.NewMockPeer(localPub, peerPub, nil, 0)
 			connect(t, i, s, peer, test.initMsg, timeoutDuration)
 
 			continue

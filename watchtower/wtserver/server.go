@@ -55,6 +55,10 @@ type Config struct {
 
 	// ChainHash identifies the network that the server is watching.
 	ChainHash chainhash.Hash
+
+	// NoAckUpdates causes the server to not acknowledge state updates, this
+	// should only be used for testing.
+	NoAckUpdates bool
 }
 
 // Server houses the state required to handle watchtower peers. It's primary job
@@ -443,6 +447,13 @@ func (s *Server) handleStateUpdate(peer Peer, id *wtdb.SessionID,
 
 	default:
 		failCode = wtwire.CodeTemporaryFailure
+	}
+
+	if s.cfg.NoAckUpdates {
+		return &connFailure{
+			ID:   *id,
+			Code: uint16(failCode),
+		}
 	}
 
 	return s.replyStateUpdate(

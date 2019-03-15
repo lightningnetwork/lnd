@@ -418,8 +418,8 @@ var stateUpdateTests = []stateUpdateTestCase{
 			{Code: wtwire.CodeOK, LastApplied: 4},
 		},
 	},
-	// Valid update sequence with disconnection, ensure resumes resume.
-	// Client doesn't echo last applied until last message.
+	// Valid update sequence with disconnection, resume next update. Client
+	// doesn't echo last applied until last message.
 	{
 		name: "resume after disconnect lagging lastapplied",
 		initMsg: wtwire.NewInitMessage(
@@ -444,6 +444,38 @@ var stateUpdateTests = []stateUpdateTestCase{
 			{Code: wtwire.CodeOK, LastApplied: 1},
 			{Code: wtwire.CodeOK, LastApplied: 2},
 			nil,
+			{Code: wtwire.CodeOK, LastApplied: 3},
+			{Code: wtwire.CodeOK, LastApplied: 4},
+		},
+	},
+	// Valid update sequence with disconnection, resume last update.  Client
+	// doesn't echo last applied until last message.
+	{
+		name: "resume after disconnect lagging lastapplied",
+		initMsg: wtwire.NewInitMessage(
+			lnwire.NewRawFeatureVector(),
+			testnetChainHash,
+		),
+		createMsg: &wtwire.CreateSession{
+			BlobType:     blob.TypeDefault,
+			MaxUpdates:   4,
+			RewardBase:   0,
+			RewardRate:   0,
+			SweepFeeRate: 1,
+		},
+		updates: []*wtwire.StateUpdate{
+			{SeqNum: 1, LastApplied: 0},
+			{SeqNum: 2, LastApplied: 0},
+			nil, // Wait for read timeout to drop conn, then reconnect.
+			{SeqNum: 2, LastApplied: 0},
+			{SeqNum: 3, LastApplied: 0},
+			{SeqNum: 4, LastApplied: 3},
+		},
+		replies: []*wtwire.StateUpdateReply{
+			{Code: wtwire.CodeOK, LastApplied: 1},
+			{Code: wtwire.CodeOK, LastApplied: 2},
+			nil,
+			{Code: wtwire.CodeOK, LastApplied: 2},
 			{Code: wtwire.CodeOK, LastApplied: 3},
 			{Code: wtwire.CodeOK, LastApplied: 4},
 		},

@@ -34,9 +34,8 @@ import (
 //     necessary components are stripped out and encrypted before being sent to
 //     the tower in a StateUpdate.
 type backupTask struct {
-	chanID       lnwire.ChannelID
-	commitHeight uint64
-	breachInfo   *lnwallet.BreachRetribution
+	id         wtdb.BackupID
+	breachInfo *lnwallet.BreachRetribution
 
 	// state-dependent variables
 
@@ -96,8 +95,10 @@ func newBackupTask(chanID *lnwire.ChannelID,
 	}
 
 	return &backupTask{
-		chanID:        *chanID,
-		commitHeight:  breachInfo.RevokedStateNum,
+		id: wtdb.BackupID{
+			ChanID:       *chanID,
+			CommitHeight: breachInfo.RevokedStateNum,
+		},
 		breachInfo:    breachInfo,
 		toLocalInput:  toLocalInput,
 		toRemoteInput: toRemoteInput,
@@ -125,7 +126,7 @@ func (t *backupTask) inputs() map[wire.OutPoint]input.Input {
 // SessionInfo's policy. If no error is returned, the task has been bound to the
 // session and can be queued to upload to the tower. Otherwise, the bind failed
 // and should be rescheduled with a different session.
-func (t *backupTask) bindSession(session *wtdb.SessionInfo) error {
+func (t *backupTask) bindSession(session *wtdb.ClientSession) error {
 
 	// First we'll begin by deriving a weight estimate for the justice
 	// transaction. The final weight can be different depending on whether
@@ -154,7 +155,7 @@ func (t *backupTask) bindSession(session *wtdb.SessionInfo) error {
 	// in the current session's policy.
 	outputs, err := session.Policy.ComputeJusticeTxOuts(
 		t.totalAmt, int64(weightEstimate.Weight()),
-		t.sweepPkScript, session.RewardAddress,
+		t.sweepPkScript, session.RewardPkScript,
 	)
 	if err != nil {
 		return err

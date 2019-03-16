@@ -69,7 +69,7 @@ type backupTaskTest struct {
 	expSweepAmt      int64
 	expRewardAmt     int64
 	expRewardScript  []byte
-	session          *wtdb.SessionInfo
+	session          *wtdb.ClientSession
 	bindErr          error
 	expSweepScript   []byte
 	signer           input.Signer
@@ -205,13 +205,13 @@ func genTaskTest(
 		expSweepAmt:      expSweepAmt,
 		expRewardAmt:     expRewardAmt,
 		expRewardScript:  rewardScript,
-		session: &wtdb.SessionInfo{
+		session: &wtdb.ClientSession{
 			Policy: wtpolicy.Policy{
 				BlobType:     blobType,
 				SweepFeeRate: sweepFeeRate,
 				RewardRate:   10000,
 			},
-			RewardAddress: rewardScript,
+			RewardPkScript: rewardScript,
 		},
 		bindErr:        bindErr,
 		expSweepScript: makeAddrSlice(22),
@@ -379,7 +379,7 @@ var backupTaskTests = []backupTaskTest{
 }
 
 // TestBackupTaskBind tests the initialization and binding of a backupTask to a
-// SessionInfo. After a succesfful bind, all parameters of the justice
+// ClientSession. After a successful bind, all parameters of the justice
 // transaction should be solidified, so we assert there correctness. In an
 // unsuccessful bind, the session-dependent parameters should be unmodified so
 // that the backup task can be rescheduled if necessary. Finally, we assert that
@@ -401,14 +401,14 @@ func testBackupTask(t *testing.T, test backupTaskTest) {
 
 	// Assert that all parameters set during initialization are properly
 	// populated.
-	if task.chanID != test.chanID {
+	if task.id.ChanID != test.chanID {
 		t.Fatalf("channel id mismatch, want: %s, got: %s",
-			test.chanID, task.chanID)
+			test.chanID, task.id.ChanID)
 	}
 
-	if task.commitHeight != test.breachInfo.RevokedStateNum {
+	if task.id.CommitHeight != test.breachInfo.RevokedStateNum {
 		t.Fatalf("commit height mismatch, want: %d, got: %d",
-			test.breachInfo.RevokedStateNum, task.commitHeight)
+			test.breachInfo.RevokedStateNum, task.id.CommitHeight)
 	}
 
 	if task.totalAmt != test.expTotalAmt {

@@ -82,7 +82,7 @@ func (s *SessionInfo) AcceptUpdateSequence(seqNum, lastApplied uint16) error {
 		return ErrSessionConsumed
 
 	// Client update does not match our expected next seqnum.
-	case seqNum != s.LastApplied+1:
+	case seqNum != s.LastApplied && seqNum != s.LastApplied+1:
 		return ErrUpdateOutOfOrder
 	}
 

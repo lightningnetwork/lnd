@@ -6,6 +6,10 @@ import (
 	"io"
 
 	"github.com/btcsuite/btcd/wire"
+	"github.com/davecgh/go-spew/spew"
+	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
@@ -67,6 +71,83 @@ func (h *htlcTimeoutResolver) ResolverKey() []byte {
 	return key[:]
 }
 
+const (
+	// expectedRemoteWitnessSuccessSize is the expected size of the witness
+	// on the remote commitment transaction for an outgoing HTLC that is
+	// swept on-chain by them with pre-image.
+	expectedRemoteWitnessSuccessSize = 5
+
+	// remotePreimageIndex index within the witness on the remote
+	// commitment transaction that will hold they pre-image if they go to
+	// sweep it on chain.
+	remotePreimageIndex = 3
+
+	// localPreimageIndex is the index within the witness on the local
+	// commitment transaction for an outgoing HTLC that will hold the
+	// pre-image if the remote party sweeps it.
+	localPreimageIndex = 1
+)
+
+// claimCleanUp is a helper method that's called once the HTLC output is spent
+// by the remote party. It'll extract the preimage, add it to the global cache,
+// and finally send the appropriate clean up message.
+func (h *htlcTimeoutResolver) claimCleanUp(commitSpend *chainntnfs.SpendDetail) (ContractResolver, error) {
+	// Depending on if this is our commitment or not, then we'll be looking
+	// for a different witness pattern.
+	spenderIndex := commitSpend.SpenderInputIndex
+	spendingInput := commitSpend.SpendingTx.TxIn[spenderIndex]
+
+	log.Infof("%T(%v): extracting preimage! remote party spent "+
+		"HTLC with tx=%v", h, h.htlcResolution.ClaimOutpoint,
+		spew.Sdump(commitSpend.SpendingTx))
+
+	// If this is the remote party's commitment, then we'll be looking for
+	// them to spend using the second-level success transaction.
+	var preimageBytes []byte
+	if h.htlcResolution.SignedTimeoutTx == nil {
+		// The witness stack when the remote party sweeps the output to
+		// them looks like:
+		//
+		//  * <0> <sender sig> <recvr sig> <preimage> <witness script>
+		preimageBytes = spendingInput.Witness[remotePreimageIndex]
+	} else {
+		// Otherwise, they'll be spending directly from our commitment
+		// output. In which case the witness stack looks like:
+		//
+		//  * <sig> <preimage> <witness script>
+		preimageBytes = spendingInput.Witness[localPreimageIndex]
+	}
+
+	preimage, err := lntypes.MakePreimage(preimageBytes)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create pre-image from "+
+			"witness: %v", err)
+	}
+
+	log.Infof("%T(%v): extracting preimage=%v from on-chain "+
+		"spend!", h, h.htlcResolution.ClaimOutpoint, preimage)
+
+	// With the preimage obtained, we can now add it to the global cache.
+	if err := h.PreimageDB.AddPreimages(preimage); err != nil {
+		log.Errorf("%T(%v): unable to add witness to cache",
+			h, h.htlcResolution.ClaimOutpoint)
+	}
+
+	var pre [32]byte
+	copy(pre[:], preimage[:])
+
+	// Finally, we'll send the clean up message, mark ourselves as
+	// resolved, then exit.
+	if err := h.DeliverResolutionMsg(ResolutionMsg{
+		SourceChan: h.ShortChanID,
+		HtlcIndex:  h.htlcIndex,
+		PreImage:   &pre,
+	}); err != nil {
+		return nil, err
+	}
+	h.resolved = true
+	return nil, h.Checkpoint(h)
+}
 // Resolve kicks off full resolution of an outgoing HTLC output. If it's our
 // commitment, it isn't resolved until we see the second level HTLC txn
 // confirmed. If it's the remote party's commitment, we don't resolve until we

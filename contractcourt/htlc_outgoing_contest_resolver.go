@@ -4,13 +4,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
-	"github.com/davecgh/go-spew/spew"
-
-	"github.com/lightningnetwork/lnd/chainntnfs"
-	"github.com/lightningnetwork/lnd/input"
-	"github.com/lightningnetwork/lnd/lntypes"
 )
 
 // htlcOutgoingContestResolver is a ContractResolver that's able to resolve an
@@ -42,70 +36,6 @@ func (h *htlcOutgoingContestResolver) Resolve() (ContractResolver, error) {
 	// to do.
 	if h.resolved {
 		return nil, nil
-	}
-
-	// claimCleanUp is a helper function that's called once the HTLC output
-	// is spent by the remote party. It'll extract the preimage, add it to
-	// the global cache, and finally send the appropriate clean up message.
-	claimCleanUp := func(commitSpend *chainntnfs.SpendDetail) (ContractResolver, error) {
-		// Depending on if this is our commitment or not, then we'll be
-		// looking for a different witness pattern.
-		spenderIndex := commitSpend.SpenderInputIndex
-		spendingInput := commitSpend.SpendingTx.TxIn[spenderIndex]
-
-		log.Infof("%T(%v): extracting preimage! remote party spent "+
-			"HTLC with tx=%v", h, h.htlcResolution.ClaimOutpoint,
-			spew.Sdump(commitSpend.SpendingTx))
-
-		// If this is the remote party's commitment, then we'll be
-		// looking for them to spend using the second-level success
-		// transaction.
-		var preimageBytes []byte
-		if h.htlcResolution.SignedTimeoutTx == nil {
-			// The witness stack when the remote party sweeps the
-			// output to them looks like:
-			//
-			//  * <sender sig> <recvr sig> <preimage> <witness script>
-			preimageBytes = spendingInput.Witness[3]
-		} else {
-			// Otherwise, they'll be spending directly from our
-			// commitment output. In which case the witness stack
-			// looks like:
-			//
-			//  * <sig> <preimage> <witness script>
-			preimageBytes = spendingInput.Witness[1]
-		}
-
-		preimage, err := lntypes.MakePreimage(preimageBytes)
-		if err != nil {
-			return nil, err
-		}
-
-		log.Infof("%T(%v): extracting preimage=%v from on-chain "+
-			"spend!", h, h.htlcResolution.ClaimOutpoint,
-			preimage)
-
-		// With the preimage obtained, we can now add it to the global
-		// cache.
-		if err := h.PreimageDB.AddPreimages(preimage); err != nil {
-			log.Errorf("%T(%v): unable to add witness to cache",
-				h, h.htlcResolution.ClaimOutpoint)
-		}
-
-		var pre [32]byte
-		copy(pre[:], preimage[:])
-
-		// Finally, we'll send the clean up message, mark ourselves as
-		// resolved, then exit.
-		if err := h.DeliverResolutionMsg(ResolutionMsg{
-			SourceChan: h.ShortChanID,
-			HtlcIndex:  h.htlcIndex,
-			PreImage:   &pre,
-		}); err != nil {
-			return nil, err
-		}
-		h.resolved = true
-		return nil, h.Checkpoint(h)
 	}
 
 	// Otherwise, we'll watch for two external signals to decide if we'll
@@ -161,7 +91,7 @@ func (h *htlcOutgoingContestResolver) Resolve() (ContractResolver, error) {
 		}
 
 		// TODO(roasbeef): Checkpoint?
-		return claimCleanUp(commitSpend)
+		return h.claimCleanUp(commitSpend)
 
 	// If it hasn't, then we'll watch for both the expiration, and the
 	// sweeping out this output.
@@ -190,7 +120,6 @@ func (h *htlcOutgoingContestResolver) Resolve() (ContractResolver, error) {
 	//
 	// Source:
 	// https://github.com/btcsuite/btcd/blob/991d32e72fe84d5fbf9c47cd604d793a0cd3a072/blockchain/validate.go#L154
-
 	if uint32(currentHeight) >= h.htlcResolution.Expiry-1 {
 		log.Infof("%T(%v): HTLC has expired (height=%v, expiry=%v), "+
 			"transforming into timeout resolver", h,
@@ -242,7 +171,7 @@ func (h *htlcOutgoingContestResolver) Resolve() (ContractResolver, error) {
 			// party is by revealing the preimage. So we'll perform
 			// our duties to clean up the contract once it has been
 			// claimed.
-			return claimCleanUp(commitSpend)
+			return h.claimCleanUp(commitSpend)
 
 		case <-h.Quit:
 			return nil, fmt.Errorf("resolver cancelled")

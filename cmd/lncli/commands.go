@@ -1548,6 +1548,10 @@ var unlockCommand = cli.Command{
 	--noseedbackup, then a default passphrase will be used.
 	`,
 	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name:  "password",
+			Usage: "the wallet encryption password",
+		},
 		cli.IntFlag{
 			Name: "recovery_window",
 			Usage: "address lookahead to resume recovery rescan, " +
@@ -1565,19 +1569,31 @@ func unlock(ctx *cli.Context) error {
 	client, cleanUp := getWalletUnlockerClient(ctx)
 	defer cleanUp()
 
-	fmt.Printf("Input wallet password: ")
-	pw, err := terminal.ReadPassword(int(syscall.Stdin))
-	if err != nil {
-		return err
-	}
-	fmt.Println()
-
+	var (
+		pw             []byte
+		recoveryWindow int32
+		err            error
+	)
 	args := ctx.Args()
+
+	switch {
+	case ctx.IsSet("password"):
+		pw = []byte(ctx.String("password"))
+	case args.Present():
+		pw = []byte(args.First())
+		args = args.Tail()
+	default:
+		fmt.Printf("Input wallet password: ")
+		pw, err = terminal.ReadPassword(int(syscall.Stdin))
+		if err != nil {
+			return err
+		}
+		fmt.Println()
+	}
 
 	// Parse the optional recovery window if it is specified. By default,
 	// the recovery window will be 0, indicating no lookahead should be
 	// used.
-	var recoveryWindow int32
 	switch {
 	case ctx.IsSet("recovery_window"):
 		recoveryWindow = int32(ctx.Int64("recovery_window"))

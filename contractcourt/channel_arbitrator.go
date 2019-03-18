@@ -1012,10 +1012,13 @@ const (
 	HtlcFailNowAction = 3
 
 	// HtlcOutgoingWatchAction indicates that we can't yet timeout this
-	// HTLC, but we had to go to chain on order to resolve an existing
-	// HTLC.  In this case, we'll either: time it out once it expires, or
-	// will learn the pre-image if the remote party claims the output. In
-	// this case, well add the pre-image to our global store.
+	// HTLC, but we had to go to chain on order to resolve an existing HTLC.
+	// In this case, we'll either: time it out once it expires, or will
+	// learn the pre-image if the remote party claims the output. In this
+	// case, well add the pre-image to our global store.
+	//
+	// Note: this action is no longer used. HtlcTimeoutAction will always
+	// also watch for the preimage before expiry.
 	HtlcOutgoingWatchAction = 4
 
 	// HtlcIncomingWatchAction indicates that we don't yet have the
@@ -1153,12 +1156,11 @@ func (c *ChannelArbitrator) checkChainActions(height uint32,
 	// a timeout (then cancel backwards), cancel them backwards
 	// immediately, or watch them as they're still active contracts.
 	for _, htlc := range c.activeHTLCs.outgoingHTLCs {
-		switch {
 		// If the HTLC is dust, then we can cancel it backwards
 		// immediately as there's no matching contract to arbitrate
 		// on-chain. We know the HTLC is dust, if the OutputIndex
 		// negative.
-		case htlc.OutputIndex < 0:
+		if htlc.OutputIndex < 0 {
 			log.Tracef("ChannelArbitrator(%v): immediately "+
 				"failing dust htlc=%x", c.cfg.ChanPoint,
 				htlc.RHash[:])
@@ -1166,39 +1168,21 @@ func (c *ChannelArbitrator) checkChainActions(height uint32,
 			actionMap[HtlcFailNowAction] = append(
 				actionMap[HtlcFailNowAction], htlc,
 			)
-
-		// If we don't need to immediately act on this HTLC, then we'll
-		// mark it still "live". After we broadcast, we'll monitor it
-		// until the HTLC times out to see if we can also redeem it
-		// on-chain.
-		case !c.shouldGoOnChain(
-			htlc.RefundTimeout, c.cfg.BroadcastDelta, height,
-		):
-			// TODO(roasbeef): also need to be able to query
-			// circuit map to see if HTLC hasn't been fully
-			// resolved
-			//
-			//  * can't fail incoming until if outgoing not yet
-			//  failed
-
-			log.Tracef("ChannelArbitrator(%v): watching chain to "+
-				"decide action for outgoing htlc=%x",
-				c.cfg.ChanPoint, htlc.RHash[:])
-
-			actionMap[HtlcOutgoingWatchAction] = append(
-				actionMap[HtlcOutgoingWatchAction], htlc,
-			)
-
-		// Otherwise, we'll update our actionMap to mark that we need
-		// to sweep this HTLC on-chain
-		default:
-			log.Tracef("ChannelArbitrator(%v): going on-chain to "+
-				"timeout htlc=%x", c.cfg.ChanPoint, htlc.RHash[:])
-
-			actionMap[HtlcTimeoutAction] = append(
-				actionMap[HtlcTimeoutAction], htlc,
-			)
+			continue
 		}
+
+		// Otherwise, we'll update our actionMap to mark that we need to
+		// timeout this HTLC on-chain. If necessary we will wait out the
+		// htlc expiry first. If the remote party spends with the
+		// preimage, we will extract that preimage to settle potential
+		// incoming htlcs.
+
+		log.Tracef("ChannelArbitrator(%v): going on-chain to "+
+			"timeout htlc=%x", c.cfg.ChanPoint, htlc.RHash[:])
+
+		actionMap[HtlcTimeoutAction] = append(
+			actionMap[HtlcTimeoutAction], htlc,
+		)
 	}
 
 	// Similarly, for each incoming HTLC, now that we need to go on-chain,
@@ -1329,34 +1313,6 @@ func (c *ChannelArbitrator) prepContractResolutions(htlcActions ChainActionMap,
 				htlcResolvers = append(htlcResolvers, resolver)
 			}
 
-		// If we can timeout the HTLC directly, then we'll create the
-		// proper resolver to do so, who will then cancel the packet
-		// backwards.
-		case HtlcTimeoutAction:
-			for _, htlc := range htlcs {
-				htlcOp := wire.OutPoint{
-					Hash:  commitHash,
-					Index: uint32(htlc.OutputIndex),
-				}
-
-				resolution, ok := outResolutionMap[htlcOp]
-				if !ok {
-					log.Errorf("ChannelArbitrator(%v) unable to find "+
-						"outgoing resolution: %v", c.cfg.ChanPoint, htlcOp)
-					continue
-				}
-
-				resKit.Quit = make(chan struct{})
-				resolver := &htlcTimeoutResolver{
-					htlcResolution:  resolution,
-					broadcastHeight: height,
-					htlcIndex:       htlc.HtlcIndex,
-					htlcAmt:         htlc.Amt,
-					ResolverKit:     resKit,
-				}
-				htlcResolvers = append(htlcResolvers, resolver)
-			}
-
 		// If this is an incoming HTLC, but we can't act yet, then
 		// we'll create an incoming resolver to redeem the HTLC if we
 		// learn of the pre-image, or let the remote party time out.
@@ -1395,7 +1351,11 @@ func (c *ChannelArbitrator) prepContractResolutions(htlcActions ChainActionMap,
 		// Finally, if this is an outgoing HTLC we've sent, then we'll
 		// launch a resolver to watch for the pre-image (and settle
 		// backwards), or just timeout.
-		case HtlcOutgoingWatchAction:
+		//
+		// HtlcOutgoingWatchAction is no longer used, but when we run into it
+		// because of an action map restored from disk, we treat it as
+		// if it was an HtlcTimeoutAction.
+		case HtlcTimeoutAction, HtlcOutgoingWatchAction:
 			for _, htlc := range htlcs {
 				htlcOp := wire.OutPoint{
 					Hash:  commitHash,

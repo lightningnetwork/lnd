@@ -144,6 +144,52 @@ func newAddress(ctx *cli.Context) error {
 	return nil
 }
 
+var estimateFeeCommand = cli.Command{
+	Name:      "estimatefee",
+	Category:  "On-chain",
+	Usage:     "Get fee estimates for sending bitcoin on-chain to multiple addresses.",
+	ArgsUsage: "send-json-string [--conf_target=N]",
+	Description: `
+	Get fee estimates for sending a transaction paying the specified amount(s) to the passed address(es).
+
+	The send-json-string' param decodes addresses and the amount to send respectively in the following format:
+
+	    '{"ExampleAddr": NumCoinsInSatoshis, "SecondAddr": NumCoins}'
+	`,
+	Flags: []cli.Flag{
+		cli.Int64Flag{
+			Name: "conf_target",
+			Usage: "(optional) the number of blocks that the transaction *should* " +
+				"confirm in",
+		},
+	},
+	Action: actionDecorator(estimateFees),
+}
+
+func estimateFees(ctx *cli.Context) error {
+	var amountToAddr map[string]int64
+
+	jsonMap := ctx.Args().First()
+	if err := json.Unmarshal([]byte(jsonMap), &amountToAddr); err != nil {
+		return err
+	}
+
+	ctxb := context.Background()
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
+	resp, err := client.EstimateFee(ctxb, &lnrpc.EstimateFeeRequest{
+		AddrToAmount: amountToAddr,
+		TargetConf:   int32(ctx.Int64("conf_target")),
+	})
+	if err != nil {
+		return err
+	}
+
+	printRespJSON(resp)
+	return nil
+}
+
 var sendCoinsCommand = cli.Command{
 	Name:      "sendcoins",
 	Category:  "On-chain",

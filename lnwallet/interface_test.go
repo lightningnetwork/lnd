@@ -2221,6 +2221,187 @@ func testLastUnusedAddr(miner *rpctest.Harness,
 	}
 }
 
+// testCreateSimpleTx checks that a call to CreateSimpleTx will return a
+// transaction that is equal to the one that is being created by SendOutputs in
+// a subsequent call.
+func testCreateSimpleTx(r *rpctest.Harness, w *lnwallet.LightningWallet,
+	_ *lnwallet.LightningWallet, t *testing.T) {
+
+	// Send some money from the miner to the wallet
+	err := loadTestCredits(r, w, 20, 4)
+	if err != nil {
+		t.Fatalf("unable to send money to lnwallet: %v", err)
+	}
+
+	// The test cases we will run through for all backends.
+	testCases := []struct {
+		outVals []int64
+		feeRate lnwallet.SatPerKWeight
+		valid   bool
+	}{
+		{
+			outVals: []int64{},
+			feeRate: 2500,
+			valid:   false, // No outputs.
+		},
+
+		{
+			outVals: []int64{1e3},
+			feeRate: 2500,
+			valid:   false, // Dust output.
+		},
+
+		{
+			outVals: []int64{1e8},
+			feeRate: 2500,
+			valid:   true,
+		},
+		{
+			outVals: []int64{1e8, 2e8, 1e8, 2e7, 3e5},
+			feeRate: 2500,
+			valid:   true,
+		},
+		{
+			outVals: []int64{1e8, 2e8, 1e8, 2e7, 3e5},
+			feeRate: 12500,
+			valid:   true,
+		},
+		{
+			outVals: []int64{1e8, 2e8, 1e8, 2e7, 3e5},
+			feeRate: 50000,
+			valid:   true,
+		},
+		{
+			outVals: []int64{1e8, 2e8, 1e8, 2e7, 3e5, 1e8, 2e8,
+				1e8, 2e7, 3e5},
+			feeRate: 44250,
+			valid:   true,
+		},
+	}
+
+	for _, test := range testCases {
+		feeRate := test.feeRate
+
+		// Grab some fresh addresses from the miner that we will send
+		// to.
+		outputs := make([]*wire.TxOut, len(test.outVals))
+		for i, outVal := range test.outVals {
+			minerAddr, err := r.NewAddress()
+			if err != nil {
+				t.Fatalf("unable to generate address for "+
+					"miner: %v", err)
+			}
+			script, err := txscript.PayToAddrScript(minerAddr)
+			if err != nil {
+				t.Fatalf("unable to create pay to addr "+
+					"script: %v", err)
+			}
+			output := &wire.TxOut{
+				Value:    outVal,
+				PkScript: script,
+			}
+
+			outputs[i] = output
+		}
+
+		// Now try creating a tx spending to these outputs.
+		createTx, createErr := w.CreateSimpleTx(
+			outputs, feeRate, true,
+		)
+		if test.valid == (createErr != nil) {
+			fmt.Println(spew.Sdump(createTx.Tx))
+			t.Fatalf("got unexpected error when creating tx: %v",
+				createErr)
+		}
+
+		// Also send to these outputs. This should result in a tx
+		// _very_ similar to the one we just created being sent. The
+		// only difference is that the dry run tx is not signed, and
+		// that the change output position might be different.
+		tx, sendErr := w.SendOutputs(outputs, feeRate)
+		if test.valid == (sendErr != nil) {
+			t.Fatalf("got unexpected error when sending tx: %v",
+				sendErr)
+		}
+
+		// We expected either both to not fail, or both to fail with
+		// the same error.
+		if createErr != sendErr {
+			t.Fatalf("error creating tx (%v) different "+
+				"from error sending outputs (%v)",
+				createErr, sendErr)
+		}
+
+		// If we expected the creation to fail, then this test is over.
+		if !test.valid {
+			continue
+		}
+
+		txid := tx.TxHash()
+		err = waitForMempoolTx(r, &txid)
+		if err != nil {
+			t.Fatalf("tx not relayed to miner: %v", err)
+		}
+
+		// Helper method to check that the two txs are similar.
+		assertSimilarTx := func(a, b *wire.MsgTx) error {
+			if a.Version != b.Version {
+				return fmt.Errorf("different versions: "+
+					"%v vs %v", a.Version, b.Version)
+			}
+			if a.LockTime != b.LockTime {
+				return fmt.Errorf("different locktimes: "+
+					"%v vs %v", a.LockTime, b.LockTime)
+			}
+			if len(a.TxIn) != len(b.TxIn) {
+				return fmt.Errorf("different number of "+
+					"inputs: %v vs %v", len(a.TxIn),
+					len(b.TxIn))
+			}
+			if len(a.TxOut) != len(b.TxOut) {
+				return fmt.Errorf("different number of "+
+					"outputs: %v vs %v", len(a.TxOut),
+					len(b.TxOut))
+			}
+
+			// They should be spending the same inputs.
+			for i := range a.TxIn {
+				prevA := a.TxIn[i].PreviousOutPoint
+				prevB := b.TxIn[i].PreviousOutPoint
+				if prevA != prevB {
+					return fmt.Errorf("different inputs: "+
+						"%v vs %v", spew.Sdump(prevA),
+						spew.Sdump(prevB))
+				}
+			}
+
+			// They should have the same outputs. Since the change
+			// output position gets randomized, they are not
+			// guaranteed to be in the same order.
+			for _, outA := range a.TxOut {
+				found := false
+				for _, outB := range b.TxOut {
+					if reflect.DeepEqual(outA, outB) {
+						found = true
+						break
+					}
+				}
+				if !found {
+					return fmt.Errorf("did not find "+
+						"output %v", spew.Sdump(outA))
+				}
+			}
+			return nil
+		}
+
+		// Assert that our "template tx" was similar to the one that
+		// ended up being sent.
+		if err := assertSimilarTx(createTx.Tx, tx); err != nil {
+			t.Fatalf("transactions not similar: %v", err)
+		}
+	}
+}
+
 type walletTestCase struct {
 	name string
 	test func(miner *rpctest.Harness, alice, bob *lnwallet.LightningWallet,
@@ -2282,6 +2463,10 @@ var walletTests = []walletTestCase{
 	{
 		name: "reorg wallet balance",
 		test: testReorgWalletBalance,
+	},
+	{
+		name: "create simple tx",
+		test: testCreateSimpleTx,
 	},
 }
 

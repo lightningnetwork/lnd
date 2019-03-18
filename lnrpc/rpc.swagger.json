@@ -1044,6 +1044,33 @@
         ]
       }
     },
+    "/v1/transactions/fee": {
+      "get": {
+        "summary": "* lncli: `estimatefee`\nEstimateFee asks the chain backend to estimate the fee rate and total fees\nfor a transaction that pays to multiple specified outputs.",
+        "operationId": "EstimateFee",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/lnrpcEstimateFeeResponse"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "target_conf",
+            "description": "/ The target number of blocks that this transaction should be confirmed by.",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          }
+        ],
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
     "/v1/unlockwallet": {
       "post": {
         "summary": "* lncli: `unlock`\nUnlockWallet is used at startup of lnd to provide a password to unlock\nthe wallet database.",
@@ -1746,6 +1773,21 @@
     },
     "lnrpcDisconnectPeerResponse": {
       "type": "object"
+    },
+    "lnrpcEstimateFeeResponse": {
+      "type": "object",
+      "properties": {
+        "fee_sat": {
+          "type": "string",
+          "format": "int64",
+          "description": "/ The total fee in satoshis."
+        },
+        "feerate_sat_per_byte": {
+          "type": "string",
+          "format": "int64",
+          "description": "/ The fee rate in satoshi/byte."
+        }
+      }
     },
     "lnrpcFeeLimit": {
       "type": "object",

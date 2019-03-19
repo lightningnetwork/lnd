@@ -25,8 +25,14 @@ type nodeWithDist struct {
 	// node. This value does not include the final cltv.
 	incomingCltv uint32
 
-	// fee is the fee that this node is charging for forwarding.
-	fee lnwire.MilliSatoshi
+	// probability is the probability that from this node onward the route
+	// is successful.
+	probability float64
+
+	// weight is the cost of the route from this node to the destination.
+	// Includes the routing fees and a virtual cost factor to account for
+	// time locks.
+	weight int64
 }
 
 // distanceHeap is a min-distance heap that's used within our path finding

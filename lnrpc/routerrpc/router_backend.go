@@ -123,9 +123,21 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 	}
 
 	restrictions := &routing.RestrictParams{
-		FeeLimit:     feeLimit,
-		IgnoredNodes: ignoredNodes,
-		IgnoredEdges: ignoredEdges,
+		FeeLimit: feeLimit,
+		ProbabilitySource: func(node route.Vertex,
+			edge routing.EdgeLocator) float64 {
+
+			if _, ok := ignoredNodes[node]; ok {
+				return 0
+			}
+
+			if _, ok := ignoredEdges[edge]; ok {
+				return 0
+			}
+
+			return 1
+		},
+		PaymentAttemptPenalty: routing.DefaultPaymentAttemptPenalty,
 	}
 
 	// Query the channel router for a possible path to the destination that

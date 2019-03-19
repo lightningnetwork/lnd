@@ -39,6 +39,11 @@ func TestQueryRoutes(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	ignoredEdge := routing.EdgeLocator{
+		ChannelID: 555,
+		Direction: 1,
+	}
+
 	request := &lnrpc.QueryRoutesRequest{
 		PubKey:         destKey,
 		Amt:            100000,
@@ -75,22 +80,22 @@ func TestQueryRoutes(t *testing.T) {
 			t.Fatal("unexpected fee limit")
 		}
 
-		if len(restrictions.IgnoredEdges) != 1 {
-			t.Fatal("unexpected ignored edges map size")
+		if restrictions.ProbabilitySource(route.Vertex{},
+			ignoredEdge,
+		) != 0 {
+			t.Fatal("expecting 0% probability for ignored edge")
 		}
 
-		if _, ok := restrictions.IgnoredEdges[routing.EdgeLocator{
-			ChannelID: 555, Direction: 1,
-		}]; !ok {
-			t.Fatal("unexpected ignored edge")
+		if restrictions.ProbabilitySource(ignoreNodeVertex,
+			routing.EdgeLocator{},
+		) != 0 {
+			t.Fatal("expecting 0% probability for ignored node")
 		}
 
-		if len(restrictions.IgnoredNodes) != 1 {
-			t.Fatal("unexpected ignored nodes map size")
-		}
-
-		if _, ok := restrictions.IgnoredNodes[ignoreNodeVertex]; !ok {
-			t.Fatal("unexpected ignored node")
+		if restrictions.ProbabilitySource(route.Vertex{},
+			routing.EdgeLocator{},
+		) != 1 {
+			t.Fatal("expecting 100% probability")
 		}
 
 		hops := []*route.Hop{{}}

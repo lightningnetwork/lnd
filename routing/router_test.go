@@ -201,7 +201,8 @@ func TestFindRoutesWithFeeLimit(t *testing.T) {
 	target := ctx.aliases["sophon"]
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
 	restrictions := &RestrictParams{
-		FeeLimit: lnwire.NewMSatFromSatoshis(10),
+		FeeLimit:          lnwire.NewMSatFromSatoshis(10),
+		ProbabilitySource: noProbabilitySource,
 	}
 
 	route, err := ctx.router.FindRoute(
@@ -2198,9 +2199,7 @@ func TestFindPathFeeWeighting(t *testing.T) {
 		&graphParams{
 			graph: ctx.graph,
 		},
-		&RestrictParams{
-			FeeLimit: noFeeLimit,
-		},
+		noRestrictions,
 		sourceNode.PubKeyBytes, target, amt,
 	)
 	if err != nil {

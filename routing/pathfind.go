@@ -10,6 +10,7 @@ import (
 	"container/heap"
 
 	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcutil"
 	"github.com/coreos/bbolt"
 
 	sphinx "github.com/lightningnetwork/lightning-onion"
@@ -45,6 +46,14 @@ const (
 type pathFinder = func(g *graphParams, r *RestrictParams,
 	source, target Vertex, amt lnwire.MilliSatoshi) (
 	[]*channeldb.ChannelEdgePolicy, error)
+
+var (
+	// PaymentAttemptPenalty is the virtual cost in path finding weight
+	// units of executing a payment attempt that fails. It is used to trade
+	// off potentially better routes against their probability of
+	// succeeding.
+	PaymentAttemptPenalty = lnwire.NewMSatFromSatoshis(10)
+)
 
 // Hop represents an intermediate or final node of the route. This naming
 // is in line with the definition given in BOLT #4: Onion Routing Protocol.
@@ -400,13 +409,8 @@ type graphParams struct {
 // RestrictParams wraps the set of restrictions passed to findPath that the
 // found path must adhere to.
 type RestrictParams struct {
-	// IgnoredNodes is an optional set of nodes that should be ignored if
-	// encountered during path finding.
-	IgnoredNodes map[Vertex]struct{}
-
-	// IgnoredEdges is an optional set of edges that should be ignored if
-	// encountered during path finding.
-	IgnoredEdges map[EdgeLocator]struct{}
+	ProbabilitySource func(Vertex, lnwire.MilliSatoshi, EdgeLocator,
+		btcutil.Amount) float64
 
 	// FeeLimit is a maximum fee amount allowed to be used on the path from
 	// the source to the target.
@@ -507,21 +511,13 @@ func findPath(g *graphParams, r *RestrictParams, source, target Vertex,
 		amountToReceive: amt,
 		fee:             0,
 		incomingCltv:    0,
+		probability:     1,
 	}
 
 	// We'll use this map as a series of "next" hop pointers. So to get
 	// from `Vertex` to the target node, we'll take the edge that it's
 	// mapped to within `next`.
 	next := make(map[Vertex]*channeldb.ChannelEdgePolicy)
-
-	ignoredEdges := r.IgnoredEdges
-	if ignoredEdges == nil {
-		ignoredEdges = make(map[EdgeLocator]struct{})
-	}
-	ignoredNodes := r.IgnoredNodes
-	if ignoredNodes == nil {
-		ignoredNodes = make(map[Vertex]struct{})
-	}
 
 	// processEdge is a helper closure that will be used to make sure edges
 	// satisfy our specific requirements.
@@ -552,20 +548,25 @@ func findPath(g *graphParams, r *RestrictParams, source, target Vertex,
 			return
 		}
 
-		// If this vertex or edge has been black listed, then we'll
-		// skip exploring this edge.
-		if _, ok := ignoredNodes[fromVertex]; ok {
-			return
-		}
-
-		locator := newEdgeLocator(edge)
-		if _, ok := ignoredEdges[*locator]; ok {
-			return
-		}
-
+		// Calculate amount that the candidate node would have to sent
+		// out.
 		toNodeDist := distance[toNode]
-
 		amountToSend := toNodeDist.amountToReceive
+
+		// Request the success probability for this edge.
+		edgeProbability := float64(1)
+		if r.ProbabilitySource != nil {
+			locator := newEdgeLocator(edge)
+			edgeProbability = r.ProbabilitySource(
+				fromVertex, amountToSend,
+				*locator, bandwidth.ToSatoshis(),
+			)
+
+			// If the probability is zero, there is no point in trying.
+			if edgeProbability == 0 {
+				return
+			}
+		}
 
 		// If the estimated bandwidth of the channel edge is not able
 		// to carry the amount that needs to be send, return.
@@ -625,6 +626,9 @@ func findPath(g *graphParams, r *RestrictParams, source, target Vertex,
 			return
 		}
 
+		// Calculate total probability of successfully reaching target.
+		probability := toNodeDist.probability * edgeProbability
+
 		// By adding fromNode in the route, there will be an extra
 		// weight composed of the fee that this node will charge and
 		// the amount that will be locked for timeLockDelta blocks in
@@ -636,9 +640,13 @@ func findPath(g *graphParams, r *RestrictParams, source, target Vertex,
 		// plus the weight of this edge.
 		tempDist := toNodeDist.dist + weight
 
-		// If this new tentative distance is not better than the current
-		// best known distance to this node, return.
-		if tempDist >= distance[fromVertex].dist {
+		// If the current best route is better than this candidate
+		// route, return.
+		if distance[fromVertex].dist != infinity && isBetterRoute(
+			distance[fromVertex].dist,
+			distance[fromVertex].probability,
+			tempDist, probability,
+		) {
 			return
 		}
 
@@ -659,6 +667,7 @@ func findPath(g *graphParams, r *RestrictParams, source, target Vertex,
 			amountToReceive: amountToReceive,
 			fee:             fee,
 			incomingCltv:    incomingCltv,
+			probability:     probability,
 		}
 
 		next[fromVertex] = edge
@@ -781,6 +790,8 @@ func findPath(g *graphParams, r *RestrictParams, source, target Vertex,
 			"too many hops")
 	}
 
+	log.Infof("Found route with probability: %v\n", distance[source].probability)
+
 	return pathEdges, nil
 }
 
@@ -851,13 +862,6 @@ func findPaths(tx *bbolt.Tx, graph *channeldb.ChannelGraph,
 			ignoredEdges := make(map[EdgeLocator]struct{})
 			ignoredVertexes := make(map[Vertex]struct{})
 
-			for e := range restrictions.IgnoredEdges {
-				ignoredEdges[e] = struct{}{}
-			}
-			for n := range restrictions.IgnoredNodes {
-				ignoredVertexes[n] = struct{}{}
-			}
-
 			// Our spur node is the i-th node in the prior shortest
 			// path, and our root path will be all nodes in the
 			// path leading up to our spurNode.
@@ -905,9 +909,7 @@ func findPaths(tx *bbolt.Tx, graph *channeldb.ChannelGraph,
 			// TODO: Outgoing channel restriction isn't obeyed for
 			// spur paths.
 			spurRestrictions := &RestrictParams{
-				IgnoredEdges: ignoredEdges,
-				IgnoredNodes: ignoredVertexes,
-				FeeLimit:     restrictions.FeeLimit,
+				FeeLimit: restrictions.FeeLimit,
 			}
 
 			spurPath, err := findPath(
@@ -959,4 +961,27 @@ func findPaths(tx *bbolt.Tx, graph *channeldb.ChannelGraph,
 	}
 
 	return shortestPaths, nil
+}
+
+// isBetterRoute returns whether the a route with feeA and probA is a better
+// route than the route describe by the second pair feeB and probB. This
+// function assumes a virtual cost for a failed payment attempt.
+func isBetterRoute(feeA int64, probA float64,
+	feeB int64, probB float64) bool {
+
+	// Calculate expected cost when trying route A before route B. If route
+	// A succeeds, we pay fee A. If it fails, and route B succeeds, we pay
+	// fee B plus the virtual cost of a failed payment attempt. If route A
+	// and B both fail, we need to continue with other routes. The expected
+	// cost of this is not factored in, because it would be the same
+	// regardless of the order in which we try route A and B.
+	expectedCostAB := probA*float64(feeA) +
+		(1-probA)*probB*float64(int64(PaymentAttemptPenalty)+feeB)
+
+	// Calculate expected cost when trying route B before route A.
+	expectedCostBA := probB*float64(feeB) +
+		(1-probB)*probA*float64(int64(PaymentAttemptPenalty)+feeA)
+
+	// Return whether starting with route A has the lowest expected cost.
+	return expectedCostAB < expectedCostBA
 }

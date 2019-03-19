@@ -135,9 +135,21 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 	}
 
 	restrictions := &routing.RestrictParams{
-		FeeLimit:     feeLimit,
-		IgnoredNodes: ignoredNodes,
-		IgnoredEdges: ignoredEdges,
+		FeeLimit: feeLimit,
+		ProbabilitySource: func(node routing.Vertex,
+			amt lnwire.MilliSatoshi, edge routing.EdgeLocator,
+			capacity btcutil.Amount) float64 {
+
+			if _, ok := ignoredNodes[node]; ok {
+				return 0
+			}
+
+			if _, ok := ignoredEdges[edge]; ok {
+				return 0
+			}
+
+			return 1
+		},
 	}
 
 	// numRoutes will default to 10 if not specified explicitly.

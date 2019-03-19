@@ -2076,9 +2076,6 @@ func testCltvLimit(t *testing.T, limit uint32, expectedChannel uint64) {
 	}
 	sourceVertex := Vertex(sourceNode.PubKeyBytes)
 
-	ignoredEdges := make(map[EdgeLocator]struct{})
-	ignoredVertexes := make(map[Vertex]struct{})
-
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
 	target := testGraphInstance.aliasMap["target"]
 
@@ -2093,10 +2090,8 @@ func testCltvLimit(t *testing.T, limit uint32, expectedChannel uint64) {
 			graph: testGraphInstance.graph,
 		},
 		&RestrictParams{
-			IgnoredNodes: ignoredVertexes,
-			IgnoredEdges: ignoredEdges,
-			FeeLimit:     noFeeLimit,
-			CltvLimit:    cltvLimit,
+			FeeLimit:  noFeeLimit,
+			CltvLimit: cltvLimit,
 		},
 		sourceVertex, target, paymentAmt,
 	)

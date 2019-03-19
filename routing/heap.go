@@ -27,6 +27,10 @@ type nodeWithDist struct {
 
 	// fee is the fee that this node is charging for forwarding.
 	fee lnwire.MilliSatoshi
+
+	// probability is the probability that from this node onward the route
+	// is successful.
+	probability float64
 }
 
 // distanceHeap is a min-distance heap that's used within our path finding

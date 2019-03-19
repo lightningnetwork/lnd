@@ -611,9 +611,35 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		Graph:     chanGraph,
 		Chain:     cc.chainIO,
 		ChainView: cc.chainView,
-		SendToSwitch: func(firstHop lnwire.ShortChannelID,
-			htlcAdd *lnwire.UpdateAddHTLC,
-			circuit *sphinx.Circuit) ([32]byte, error) {
+		SendToSwitch: func(route *route.Route, paymentHash [32]byte) (
+			[32]byte, error) {
+
+			// Generate the raw encoded sphinx packet to be included along
+			// with the htlcAdd message that we send directly to the
+			// switch.
+			onionBlob, circuit, err := routing.GenerateSphinxPacket(
+				route, paymentHash[:],
+			)
+			if err != nil {
+				return [32]byte{}, err
+			}
+
+			// Craft an HTLC packet to send to the layer 2 switch. The
+			// metadata within this packet will be used to route the
+			// payment through the network, starting with the first-hop.
+			htlcAdd := &lnwire.UpdateAddHTLC{
+				Amount:      route.TotalAmount,
+				Expiry:      route.TotalTimeLock,
+				PaymentHash: paymentHash,
+			}
+			copy(htlcAdd.OnionBlob[:], onionBlob)
+
+			// Attempt to send this payment through the network to complete
+			// the payment. If this attempt fails, then we'll continue on
+			// to the next available route.
+			firstHop := lnwire.NewShortChanIDFromInt(
+				route.Hops[0].ChannelID,
+			)
 
 			// Using the created circuit, initialize the error
 			// decrypter so we can parse+decode any failures

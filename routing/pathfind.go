@@ -52,7 +52,7 @@ var (
 	// units of executing a payment attempt that fails. It is used to trade
 	// off potentially better routes against their probability of
 	// succeeding.
-	PaymentAttemptPenalty = lnwire.NewMSatFromSatoshis(10)
+	PaymentAttemptPenalty = lnwire.NewMSatFromSatoshis(1000)
 )
 
 // Hop represents an intermediate or final node of the route. This naming

@@ -471,6 +471,16 @@ func createTestGraphFromChannels(testChannels []*testChannel) (*testGraphInstanc
 			Index: 0,
 		}
 
+		// Sort nodes
+		node1 := testChannel.Node1
+		node2 := testChannel.Node2
+		node1Vertex := aliasMap[node1.Alias]
+		node2Vertex := aliasMap[node2.Alias]
+		if bytes.Compare(node1Vertex[:], node2Vertex[:]) == 1 {
+			node1, node2 = node2, node1
+			node1Vertex, node2Vertex = node2Vertex, node1Vertex
+		}
+
 		// We first insert the existence of the edge between the two
 		// nodes.
 		edgeInfo := channeldb.ChannelEdgeInfo{
@@ -479,10 +489,10 @@ func createTestGraphFromChannels(testChannels []*testChannel) (*testGraphInstanc
 			ChannelPoint: *fundingPoint,
 			Capacity:     testChannel.Capacity,
 
-			NodeKey1Bytes:    aliasMap[testChannel.Node1.Alias],
-			BitcoinKey1Bytes: aliasMap[testChannel.Node1.Alias],
-			NodeKey2Bytes:    aliasMap[testChannel.Node2.Alias],
-			BitcoinKey2Bytes: aliasMap[testChannel.Node2.Alias],
+			NodeKey1Bytes:    node1Vertex,
+			BitcoinKey1Bytes: node1Vertex,
+			NodeKey2Bytes:    node2Vertex,
+			BitcoinKey2Bytes: node2Vertex,
 		}
 
 		err = graph.AddChannelEdge(&edgeInfo)
@@ -491,7 +501,7 @@ func createTestGraphFromChannels(testChannels []*testChannel) (*testGraphInstanc
 		}
 
 		var msgFlags lnwire.ChanUpdateMsgFlags
-		if testChannel.Node1.MaxHTLC != 0 {
+		if node1.MaxHTLC != 0 {
 			msgFlags = 1
 		}
 		edgePolicy := &channeldb.ChannelEdgePolicy{
@@ -500,18 +510,18 @@ func createTestGraphFromChannels(testChannels []*testChannel) (*testGraphInstanc
 			ChannelFlags:              0,
 			ChannelID:                 channelID,
 			LastUpdate:                testTime,
-			TimeLockDelta:             testChannel.Node1.Expiry,
-			MinHTLC:                   testChannel.Node1.MinHTLC,
-			MaxHTLC:                   testChannel.Node1.MaxHTLC,
-			FeeBaseMSat:               testChannel.Node1.FeeBaseMsat,
-			FeeProportionalMillionths: testChannel.Node1.FeeRate,
+			TimeLockDelta:             node1.Expiry,
+			MinHTLC:                   node1.MinHTLC,
+			MaxHTLC:                   node1.MaxHTLC,
+			FeeBaseMSat:               node1.FeeBaseMsat,
+			FeeProportionalMillionths: node1.FeeRate,
 		}
 		if err := graph.UpdateEdgePolicy(edgePolicy); err != nil {
 			return nil, err
 		}
 
 		msgFlags = 0
-		if testChannel.Node2.MaxHTLC != 0 {
+		if node2.MaxHTLC != 0 {
 			msgFlags = 1
 		}
 		edgePolicy = &channeldb.ChannelEdgePolicy{
@@ -520,11 +530,11 @@ func createTestGraphFromChannels(testChannels []*testChannel) (*testGraphInstanc
 			ChannelFlags:              lnwire.ChanUpdateDirection,
 			ChannelID:                 channelID,
 			LastUpdate:                testTime,
-			TimeLockDelta:             testChannel.Node2.Expiry,
-			MinHTLC:                   testChannel.Node2.MinHTLC,
-			MaxHTLC:                   testChannel.Node2.MaxHTLC,
-			FeeBaseMSat:               testChannel.Node2.FeeBaseMsat,
-			FeeProportionalMillionths: testChannel.Node2.FeeRate,
+			TimeLockDelta:             node2.Expiry,
+			MinHTLC:                   node2.MinHTLC,
+			MaxHTLC:                   node2.MaxHTLC,
+			FeeBaseMSat:               node2.FeeBaseMsat,
+			FeeProportionalMillionths: node2.FeeRate,
 		}
 
 		if err := graph.UpdateEdgePolicy(edgePolicy); err != nil {

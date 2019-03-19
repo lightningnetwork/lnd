@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
@@ -102,6 +103,21 @@ func (p *paymentSession) ReportEdgePolicyFailure(
 	p.errFailedPolicyChans[*failedEdge] = struct{}{}
 }
 
+func (p *paymentSession) getEdgeProbability(node Vertex,
+	amt lnwire.MilliSatoshi, edge EdgeLocator,
+	capacity btcutil.Amount) float64 {
+
+	if _, ok := p.pruneViewSnapshot.vertexes[node]; ok {
+		return 0
+	}
+
+	if _, ok := p.pruneViewSnapshot.edges[edge]; ok {
+		return 0
+	}
+
+	return 1
+}
+
 // RequestRoute returns a route which is likely to be capable for successfully
 // routing the specified HTLC payment to the target node. Initially the first
 // set of paths returned from this method may encounter routing failure along
@@ -160,11 +176,11 @@ func (p *paymentSession) RequestRoute(payment *LightningPayment,
 			bandwidthHints:  p.bandwidthHints,
 		},
 		&RestrictParams{
-			IgnoredNodes:      pruneView.vertexes,
-			IgnoredEdges:      pruneView.edges,
-			FeeLimit:          payment.FeeLimit,
-			OutgoingChannelID: payment.OutgoingChannelID,
-			CltvLimit:         cltvLimit,
+			ProbabilitySource:     p.getEdgeProbability,
+			FeeLimit:              payment.FeeLimit,
+			OutgoingChannelID:     payment.OutgoingChannelID,
+			CltvLimit:             cltvLimit,
+			PaymentAttemptPenalty: DefaultPaymentAttemptPenalty,
 		},
 		p.mc.selfNode.PubKeyBytes, payment.Target,
 		payment.Amount,

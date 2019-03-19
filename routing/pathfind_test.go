@@ -2086,9 +2086,6 @@ func testCltvLimit(t *testing.T, limit uint32, expectedChannel uint64) {
 	}
 	sourceVertex := Vertex(sourceNode.PubKeyBytes)
 
-	ignoredEdges := make(map[EdgeLocator]struct{})
-	ignoredVertexes := make(map[Vertex]struct{})
-
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
 	target := testGraphInstance.aliasMap["target"]
 
@@ -2103,10 +2100,8 @@ func testCltvLimit(t *testing.T, limit uint32, expectedChannel uint64) {
 			graph: testGraphInstance.graph,
 		},
 		&RestrictParams{
-			IgnoredNodes: ignoredVertexes,
-			IgnoredEdges: ignoredEdges,
-			FeeLimit:     noFeeLimit,
-			CltvLimit:    cltvLimit,
+			FeeLimit:  noFeeLimit,
+			CltvLimit: cltvLimit,
 		},
 		sourceVertex, target, paymentAmt,
 	)
@@ -2137,5 +2132,126 @@ func testCltvLimit(t *testing.T, limit uint32, expectedChannel uint64) {
 		t.Fatalf("expected route to pass through channel %v, "+
 			"but channel %v was selected instead", expectedChannel,
 			route.Hops[0].ChannelID)
+	}
+}
+
+// TestProbabilityRouting asserts that path finding not only takes into account
+// fees but also success probability.
+func TestProbabilityRouting(t *testing.T) {
+	// Test two variations with probabilities that should multiply to the
+	// same total route probability. In both cases the three hop route
+	// should be the best route. The three hop route has a probability of
+	// 0.5 * 0.8 = 0.4. The fee is 5 (chan 10) + 8 (chan 11) = 13. Path
+	// finding distance should work out to: 13 + 10 (attempt penalty) / 0.4
+	// = 38. The two hop route is 25 + 10 / 0.7 = 39.
+	t.Run("three hop 1", func(t *testing.T) {
+		testProbabilityRouting(t, 0.8, 0.5, 0.7, 10)
+	})
+	t.Run("three hop 2", func(t *testing.T) {
+		testProbabilityRouting(t, 0.5, 0.8, 0.7, 10)
+	})
+
+	// If the probability of the two hop route is increased, its distance
+	// becomes 25 + 10 / 0.85 = 37. This is less than the three hop route
+	// with its distance 38. So with an attempt penalty of 10, the higher
+	// fee route is chosen because of the compensation for success
+	// probability.
+	t.Run("two hop higher cost", func(t *testing.T) {
+		testProbabilityRouting(t, 0.5, 0.8, 0.85, 20)
+	})
+}
+
+func testProbabilityRouting(t *testing.T, p10, p11, p20 float64,
+	expectedChan uint64) {
+
+	t.Parallel()
+
+	// Set up a test graph with two possible paths to the target: a three
+	// hop path (via channels 10 and 11) and a two hop path (via channel
+	// 20).
+	testChannels := []*testChannel{
+		symmetricTestChannel("roasbeef", "a1", 100000, &testChannelPolicy{}),
+		symmetricTestChannel("roasbeef", "b", 100000, &testChannelPolicy{}),
+		symmetricTestChannel("roasbeef", "c", 100000, &testChannelPolicy{}),
+		symmetricTestChannel("a1", "a2", 100000, &testChannelPolicy{
+			Expiry:      144,
+			FeeBaseMsat: lnwire.NewMSatFromSatoshis(5),
+			MinHTLC:     1,
+		}, 10),
+		symmetricTestChannel("a2", "target", 100000, &testChannelPolicy{
+			Expiry:      144,
+			FeeBaseMsat: lnwire.NewMSatFromSatoshis(8),
+			MinHTLC:     1,
+		}, 11),
+		symmetricTestChannel("b", "target", 100000, &testChannelPolicy{
+			Expiry:      100,
+			FeeBaseMsat: lnwire.NewMSatFromSatoshis(25),
+			MinHTLC:     1,
+		}, 20),
+	}
+
+	testGraphInstance, err := createTestGraphFromChannels(testChannels)
+	if err != nil {
+		t.Fatalf("unable to create graph: %v", err)
+	}
+	defer testGraphInstance.cleanUp()
+
+	sourceNode, err := testGraphInstance.graph.SourceNode()
+	if err != nil {
+		t.Fatalf("unable to fetch source node: %v", err)
+	}
+	sourceVertex := Vertex(sourceNode.PubKeyBytes)
+
+	paymentAmt := lnwire.NewMSatFromSatoshis(100)
+	target := testGraphInstance.aliasMap["target"]
+
+	// Configure a probability source with the test parameters.
+	probabilitySource := func(node Vertex, amt lnwire.MilliSatoshi,
+		edge EdgeLocator, capacity btcutil.Amount) float64 {
+
+		switch edge.ChannelID {
+		case 10:
+			return p10
+		case 11:
+			return p11
+		case 20:
+			return p20
+		default:
+			t.Fatal("unexpected channel id")
+			return 0
+		}
+	}
+
+	path, err := findPath(
+		&graphParams{
+			graph: testGraphInstance.graph,
+		},
+		&RestrictParams{
+			FeeLimit:              noFeeLimit,
+			ProbabilitySource:     probabilitySource,
+			PaymentAttemptPenalty: lnwire.NewMSatFromSatoshis(10),
+		},
+		sourceVertex, target, paymentAmt,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const (
+		startingHeight = 100
+		finalHopCLTV   = 1
+	)
+	route, err := newRoute(
+		paymentAmt, sourceVertex, path, startingHeight, finalHopCLTV,
+	)
+	if err != nil {
+		t.Fatalf("unable to create path: %v", err)
+	}
+
+	// Assert that the route starts with the expected channel.
+	if route.Hops[1].ChannelID != expectedChan {
+		t.Fatalf("expected route to pass through channel %v, "+
+			"but channel %v was selected instead", expectedChan,
+			route.Hops[1].ChannelID)
 	}
 }

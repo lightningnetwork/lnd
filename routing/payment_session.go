@@ -2,9 +2,7 @@ package routing
 
 import (
 	"fmt"
-	"time"
 
-	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
@@ -18,8 +16,6 @@ import (
 // loop if payment attempts take long enough. An additional set of edges can
 // also be provided to assist in reaching the payment's destination.
 type paymentSession struct {
-	pruneViewSnapshot graphPruneView
-
 	additionalEdges map[Vertex][]*channeldb.ChannelEdgePolicy
 
 	bandwidthHints map[uint64]lnwire.MilliSatoshi
@@ -44,17 +40,7 @@ type paymentSession struct {
 // vertexDecay. However, the vertex will remain pruned for the *local* session.
 // This ensures we don't retry this vertex during the payment attempt.
 func (p *paymentSession) ReportVertexFailure(v Vertex) {
-	log.Debugf("Reporting vertex %v failure to Mission Control", v)
-
-	// First, we'll add the failed vertex to our local prune view snapshot.
-	p.pruneViewSnapshot.vertexes[v] = struct{}{}
-
-	// With the vertex added, we'll now report back to the global prune
-	// view, with this new piece of information so it can be utilized for
-	// new payment sessions.
-	p.mc.Lock()
-	p.mc.failedVertexes[v] = time.Now()
-	p.mc.Unlock()
+	p.mc.reportVertexFailure(v)
 }
 
 // ReportChannelFailure adds a channel to the graph prune view. The time the
@@ -65,17 +51,7 @@ func (p *paymentSession) ReportVertexFailure(v Vertex) {
 //
 // TODO(roasbeef): also add value attempted to send and capacity of channel
 func (p *paymentSession) ReportEdgeFailure(e *EdgeLocator) {
-	log.Debugf("Reporting edge %v failure to Mission Control", e)
-
-	// First, we'll add the failed edge to our local prune view snapshot.
-	p.pruneViewSnapshot.edges[*e] = struct{}{}
-
-	// With the edge added, we'll now report back to the global prune view,
-	// with this new piece of information so it can be utilized for new
-	// payment sessions.
-	p.mc.Lock()
-	p.mc.failedEdges[*e] = time.Now()
-	p.mc.Unlock()
+	p.mc.reportEdgeFailure(e)
 }
 
 // ReportChannelPolicyFailure handles a failure message that relates to a
@@ -101,21 +77,6 @@ func (p *paymentSession) ReportEdgePolicyFailure(
 
 	// Finally, we'll record a policy failure from this node and move on.
 	p.errFailedPolicyChans[*failedEdge] = struct{}{}
-}
-
-func (p *paymentSession) getEdgeProbability(node Vertex,
-	amt lnwire.MilliSatoshi, edge EdgeLocator,
-	capacity btcutil.Amount) float64 {
-
-	if _, ok := p.pruneViewSnapshot.vertexes[node]; ok {
-		return 0
-	}
-
-	if _, ok := p.pruneViewSnapshot.edges[edge]; ok {
-		return 0
-	}
-
-	return 1
 }
 
 // RequestRoute returns a route which is likely to be capable for successfully
@@ -145,15 +106,6 @@ func (p *paymentSession) RequestRoute(payment *LightningPayment,
 		return nil, fmt.Errorf("pre-built routes exhausted")
 	}
 
-	// Otherwise we actually need to perform path finding, so we'll obtain
-	// our current prune view snapshot. This view will only ever grow
-	// during the duration of this payment session, never shrinking.
-	pruneView := p.pruneViewSnapshot
-
-	log.Debugf("Mission Control session using prune view of %v "+
-		"edges, %v vertexes", len(pruneView.edges),
-		len(pruneView.vertexes))
-
 	// If a route cltv limit was specified, we need to subtract the final
 	// delta before passing it into path finding. The optimal path is
 	// independent of the final cltv delta and the path finding algorithm is
@@ -176,7 +128,7 @@ func (p *paymentSession) RequestRoute(payment *LightningPayment,
 			bandwidthHints:  p.bandwidthHints,
 		},
 		&RestrictParams{
-			ProbabilitySource:     p.getEdgeProbability,
+			ProbabilitySource:     p.mc.getEdgeProbability,
 			FeeLimit:              payment.FeeLimit,
 			OutgoingChannelID:     payment.OutgoingChannelID,
 			CltvLimit:             cltvLimit,

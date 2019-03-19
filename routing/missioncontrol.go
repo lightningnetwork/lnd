@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcutil"
 	"github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -18,7 +19,7 @@ const (
 	// larger than edgeDecay as an edge failure typical indicates an
 	// unbalanced channel, while a vertex failure indicates a node is not
 	// online and active.
-	vertexDecay = time.Duration(time.Minute * 5)
+	defaultVertexDecay = time.Hour
 
 	// edgeDecay is the decay period of colored edges added to
 	// missionControl. Once edgeDecay passed after an entry has been added,
@@ -27,7 +28,11 @@ const (
 	// that a channel was unbalanced, a condition which may quickly change.
 	//
 	// TODO(roasbeef): instead use random delay on each?
-	edgeDecay = time.Duration(time.Second * 5)
+	defaultEdgeDecay = time.Hour
+
+	// hardPruneDuration defines the time window during which pruned nodes
+	// and edges will receive zero probability.
+	defaultHardPruneDuration = time.Minute
 )
 
 // missionControl contains state which summarizes the past attempts of HTLC
@@ -61,6 +66,21 @@ type missionControl struct {
 
 	queryBandwidth func(*channeldb.ChannelEdgeInfo) lnwire.MilliSatoshi
 
+	now func() time.Time
+
+	vertexDecay time.Duration
+
+	// edgeDecay is the decay period of colored edges added to
+	// missionControl. Once edgeDecay passed after an entry has been added,
+	// it is garbage collected. This value is smaller than vertexDecay as
+	// an edge related failure during payment sending typically indicates
+	// that a channel was unbalanced, a condition which may quickly change.
+	edgeDecay time.Duration
+
+	// hardPruneDuration defines the time window during which pruned nodes
+	// and edges will receive zero probability.
+	hardPruneDuration time.Duration
+
 	sync.Mutex
 
 	// TODO(roasbeef): further counters, if vertex continually unavailable,
@@ -76,76 +96,15 @@ func newMissionControl(g *channeldb.ChannelGraph, selfNode *channeldb.LightningN
 	qb func(*channeldb.ChannelEdgeInfo) lnwire.MilliSatoshi) *missionControl {
 
 	return &missionControl{
-		failedEdges:    make(map[EdgeLocator]time.Time),
-		failedVertexes: make(map[Vertex]time.Time),
-		selfNode:       selfNode,
-		queryBandwidth: qb,
-		graph:          g,
-	}
-}
-
-// graphPruneView is a filter of sorts that path finding routines should
-// consult during the execution. Any edges or vertexes within the view should
-// be ignored during path finding. The contents of the view reflect the current
-// state of the wider network from the PoV of mission control compiled via HTLC
-// routing attempts in the past.
-type graphPruneView struct {
-	edges map[EdgeLocator]struct{}
-
-	vertexes map[Vertex]struct{}
-}
-
-// GraphPruneView returns a new graphPruneView instance which is to be
-// consulted during path finding. If a vertex/edge is found within the returned
-// prune view, it is to be ignored as a goroutine has had issues routing
-// through it successfully. Within this method the main view of the
-// missionControl is garbage collected as entries are detected to be "stale".
-func (m *missionControl) GraphPruneView() graphPruneView {
-	// First, we'll grab the current time, this value will be used to
-	// determine if an entry is stale or not.
-	now := time.Now()
-
-	m.Lock()
-
-	// For each of the vertexes that have been added to the prune view, if
-	// it is now "stale", then we'll ignore it and avoid adding it to the
-	// view we'll return.
-	vertexes := make(map[Vertex]struct{})
-	for vertex, pruneTime := range m.failedVertexes {
-		if now.Sub(pruneTime) >= vertexDecay {
-			log.Tracef("Pruning decayed failure report for vertex %v "+
-				"from Mission Control", vertex)
-
-			delete(m.failedVertexes, vertex)
-			continue
-		}
-
-		vertexes[vertex] = struct{}{}
-	}
-
-	// We'll also do the same for edges, but use the edgeDecay this time
-	// rather than the decay for vertexes.
-	edges := make(map[EdgeLocator]struct{})
-	for edge, pruneTime := range m.failedEdges {
-		if now.Sub(pruneTime) >= edgeDecay {
-			log.Tracef("Pruning decayed failure report for edge %v "+
-				"from Mission Control", edge)
-
-			delete(m.failedEdges, edge)
-			continue
-		}
-
-		edges[edge] = struct{}{}
-	}
-
-	m.Unlock()
-
-	log.Debugf("Mission Control returning prune view of %v edges, %v "+
-		"vertexes", len(edges), len(vertexes))
-
-	return graphPruneView{
-		edges:    edges,
-		vertexes: vertexes,
+		failedEdges:       make(map[EdgeLocator]time.Time),
+		failedVertexes:    make(map[Vertex]time.Time),
+		selfNode:          selfNode,
+		queryBandwidth:    qb,
+		graph:             g,
+		now:               time.Now,
+		edgeDecay:         defaultEdgeDecay,
+		vertexDecay:       defaultVertexDecay,
+		hardPruneDuration: defaultHardPruneDuration,
 	}
 }
 
@@ -155,8 +114,6 @@ func (m *missionControl) GraphPruneView() graphPruneView {
 // payment's destination.
 func (m *missionControl) NewPaymentSession(routeHints [][]zpay32.HopHint,
 	target Vertex) (*paymentSession, error) {
-
-	viewSnapshot := m.GraphPruneView()
 
 	edges := make(map[Vertex][]*channeldb.ChannelEdgePolicy)
 
@@ -221,7 +178,6 @@ func (m *missionControl) NewPaymentSession(routeHints [][]zpay32.HopHint,
 	}
 
 	return &paymentSession{
-		pruneViewSnapshot:    viewSnapshot,
 		additionalEdges:      edges,
 		bandwidthHints:       bandwidthHints,
 		errFailedPolicyChans: make(map[EdgeLocator]struct{}),
@@ -236,7 +192,6 @@ func (m *missionControl) NewPaymentSession(routeHints [][]zpay32.HopHint,
 // used for things like channel rebalancing, and swaps.
 func (m *missionControl) NewPaymentSessionFromRoutes(routes []*Route) *paymentSession {
 	return &paymentSession{
-		pruneViewSnapshot:    m.GraphPruneView(),
 		haveRoutes:           true,
 		preBuiltRoutes:       routes,
 		errFailedPolicyChans: make(map[EdgeLocator]struct{}),
@@ -286,5 +241,100 @@ func (m *missionControl) ResetHistory() {
 	m.Lock()
 	m.failedEdges = make(map[EdgeLocator]time.Time)
 	m.failedVertexes = make(map[Vertex]time.Time)
+	m.Unlock()
+}
+
+// getEdgeProbability is expected to return the success probability of a payment
+// of amount amt from fromNode along edge.
+func (m *missionControl) getEdgeProbability(fromNode Vertex,
+	amt lnwire.MilliSatoshi, edge EdgeLocator,
+	capacity btcutil.Amount) float64 {
+
+	now := m.now()
+
+	m.Lock()
+	defer m.Unlock()
+
+	// A priori node probability is assumed to be 1.
+	nodeProbability := 1.0
+
+	// Calculate an a priori edge probability based on the amount to send.
+	// This assumes the channel balance is at a random point.
+	satAmt := amt.ToSatoshis()
+	edgeProbability := 1 - float64(satAmt)/float64(capacity)
+
+	// There can be failed nodes and failed edges. The assumption in this
+	// probability calculation is that these are independent factors. Both
+	// the node and the edge must be successful. Therefore the probabilities
+	// are calculated separately and multiplied to get to the total
+	// probability of this edge.
+	pruneTime, ok := m.failedVertexes[fromNode]
+	if ok {
+		timeSincePrune := now.Sub(pruneTime)
+		switch {
+
+		case timeSincePrune < m.hardPruneDuration:
+			return 0
+
+		case timeSincePrune < m.hardPruneDuration+m.vertexDecay:
+			nodeProbability = float64(timeSincePrune-
+				m.hardPruneDuration) / float64(m.vertexDecay)
+
+		default:
+			delete(m.failedVertexes, fromNode)
+		}
+	}
+
+	pruneTime, ok = m.failedEdges[edge]
+	if ok {
+		timeSincePrune := now.Sub(pruneTime)
+		switch {
+
+		case timeSincePrune < m.hardPruneDuration:
+			return 0
+
+		case timeSincePrune < m.hardPruneDuration+m.edgeDecay:
+			edgeProbability *= float64(timeSincePrune-
+				m.hardPruneDuration) / float64(m.edgeDecay)
+
+		default:
+			delete(m.failedEdges, edge)
+		}
+	}
+
+	return nodeProbability * edgeProbability
+}
+
+// reportVertexFailure adds a vertex to the graph prune view after a client
+// reports a routing failure localized to the vertex. The time the vertex was
+// added is noted, as it'll be pruned from the shared view after a period of
+// vertexDecay. However, the vertex will remain pruned for the *local* session.
+// This ensures we don't retry this vertex during the payment attempt.
+func (m *missionControl) reportVertexFailure(v Vertex) {
+	log.Debugf("Reporting vertex %v failure to Mission Control", v)
+
+	// With the vertex added, we'll now report back to the global prune
+	// view, with this new piece of information so it can be utilized for
+	// new payment sessions.
+	m.Lock()
+	m.failedVertexes[v] = m.now()
+	m.Unlock()
+}
+
+// reportChannelFailure adds a channel to the graph prune view. The time the
+// channel was added is noted, as it'll be pruned from the global view after a
+// period of edgeDecay. However, the edge will remain pruned for the duration
+// of the *local* session. This ensures that we don't flap by continually
+// retrying an edge after its pruning has expired.
+//
+// TODO(roasbeef): also add value attempted to send and capacity of channel
+func (m *missionControl) reportEdgeFailure(e *EdgeLocator) {
+	log.Debugf("Reporting edge %v failure to Mission Control", e)
+
+	// With the edge added, we'll now report back to the global prune view,
+	// with this new piece of information so it can be utilized for new
+	// payment sessions.
+	m.Lock()
+	m.failedEdges[*e] = m.now()
 	m.Unlock()
 }

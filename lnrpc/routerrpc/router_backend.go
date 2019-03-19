@@ -125,7 +125,8 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 	restrictions := &routing.RestrictParams{
 		FeeLimit: feeLimit,
 		ProbabilitySource: func(node route.Vertex,
-			edge routing.EdgeLocator) float64 {
+			edge routing.EdgeLocator,
+			amt lnwire.MilliSatoshi) float64 {
 
 			if _, ok := ignoredNodes[node]; ok {
 				return 0

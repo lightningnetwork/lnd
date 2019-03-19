@@ -81,19 +81,19 @@ func TestQueryRoutes(t *testing.T) {
 		}
 
 		if restrictions.ProbabilitySource(route.Vertex{},
-			ignoredEdge,
+			ignoredEdge, 0,
 		) != 0 {
 			t.Fatal("expecting 0% probability for ignored edge")
 		}
 
 		if restrictions.ProbabilitySource(ignoreNodeVertex,
-			routing.EdgeLocator{},
+			routing.EdgeLocator{}, 0,
 		) != 0 {
 			t.Fatal("expecting 0% probability for ignored node")
 		}
 
 		if restrictions.ProbabilitySource(route.Vertex{},
-			routing.EdgeLocator{},
+			routing.EdgeLocator{}, 0,
 		) != 1 {
 			t.Fatal("expecting 100% probability")
 		}

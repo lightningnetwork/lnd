@@ -91,7 +91,9 @@ const (
 // claimCleanUp is a helper method that's called once the HTLC output is spent
 // by the remote party. It'll extract the preimage, add it to the global cache,
 // and finally send the appropriate clean up message.
-func (h *htlcTimeoutResolver) claimCleanUp(commitSpend *chainntnfs.SpendDetail) (ContractResolver, error) {
+func (h *htlcTimeoutResolver) claimCleanUp(
+	commitSpend *chainntnfs.SpendDetail) (ContractResolver, error) {
+
 	// Depending on if this is our commitment or not, then we'll be looking
 	// for a different witness pattern.
 	spenderIndex := commitSpend.SpenderInputIndex
@@ -172,15 +174,51 @@ func (h *htlcTimeoutResolver) chainDetailsToWatch() (*wire.OutPoint, []byte, err
 	// we need to watch.
 	outPointToWatch := h.htlcResolution.SignedTimeoutTx.TxIn[0].PreviousOutPoint
 	witness := h.htlcResolution.SignedTimeoutTx.TxIn[0].Witness
-	scriptToWatch, err := input.WitnessScriptHash(
-		witness[len(witness)-1],
-	)
+	scriptToWatch, err := input.WitnessScriptHash(witness[len(witness)-1])
 	if err != nil {
 		return nil, nil, err
 	}
 
 	return &outPointToWatch, scriptToWatch, nil
 }
+
+// isSuccessSpend returns true if the passed spend on the specified commitment
+// is a success spend that reveals the pre-image or not.
+func isSuccessSpend(spend *chainntnfs.SpendDetail, localCommit bool) bool {
+	// Based on the spending input index and transaction, obtain the
+	// witness that tells us what type of spend this is.
+	spenderIndex := spend.SpenderInputIndex
+	spendingInput := spend.SpendingTx.TxIn[spenderIndex]
+	spendingWitness := spendingInput.Witness
+
+	// If this is the remote commitment then the only possible spends for
+	// outgoing HTLCs are:
+	//
+	//  RECVR: <0> <sender sig> <recvr sig> <preimage> (2nd level success spend)
+	//  REVOK: <sig> <key>
+	//  SENDR: <sig> 0
+	//
+	// In this case, if 5 witness elements are present (factoring the
+	// witness script), and the 3rd element is the size of the pre-image,
+	// then this is a remote spend. If not, then we swept it ourselves, or
+	// revoked their output.
+	if !localCommit {
+		return len(spendingWitness) == expectedRemoteWitnessSuccessSize &&
+			len(spendingWitness[remotePreimageIndex]) == lntypes.HashSize
+	}
+
+	// Otherwise, for our commitment, the only possible spends for an
+	// outgoing HTLC are:
+	//
+	//  SENDR: <0> <sendr sig>  <recvr sig> <0> (2nd level timeout)
+	//  RECVR: <recvr sig>  <preimage>
+	//  REVOK: <revoke sig> <revoke key>
+	//
+	// So the only success case has the pre-image as the 2nd (index 1)
+	// element in the witness.
+	return len(spendingWitness[localPreimageIndex]) == lntypes.HashSize
+}
+
 // Resolve kicks off full resolution of an outgoing HTLC output. If it's our
 // commitment, it isn't resolved until we see the second level HTLC txn
 // confirmed. If it's the remote party's commitment, we don't resolve until we
@@ -243,60 +281,59 @@ func (h *htlcTimeoutResolver) Resolve() (ContractResolver, error) {
 		return nil
 	}
 
-	// With the output sent to the nursery, we'll now wait until the output
-	// has been fully resolved before sending the clean up message.
-	//
-	// TODO(roasbeef): need to be able to cancel nursery?
-	//  * if they pull on-chain while we're waiting
-
-	// If we don't have a second layer transaction, then this is a remote
-	// party's commitment, so we'll watch for a direct spend.
-	if h.htlcResolution.SignedTimeoutTx == nil {
-		// We'll block until: the HTLC output has been spent, and the
-		// transaction spending that output is sufficiently confirmed.
-		log.Infof("%T(%v): waiting for nursery to spend CLTV-locked "+
-			"output", h, h.htlcResolution.ClaimOutpoint)
-		if err := waitForOutputResolution(); err != nil {
-			return nil, err
-		}
-	} else {
-		// Otherwise, this is our commitment, so we'll watch for the
-		// second-level transaction to be sufficiently confirmed.
-		secondLevelTXID := h.htlcResolution.SignedTimeoutTx.TxHash()
-		sweepScript := h.htlcResolution.SignedTimeoutTx.TxOut[0].PkScript
-		confNtfn, err := h.Notifier.RegisterConfirmationsNtfn(
-			&secondLevelTXID, sweepScript, 1, h.broadcastHeight,
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		log.Infof("%T(%v): waiting second-level tx (txid=%v) to be "+
-			"fully confirmed", h, h.htlcResolution.ClaimOutpoint,
-			secondLevelTXID)
-
-		select {
-		case _, ok := <-confNtfn.Confirmed:
-			if !ok {
-				return nil, fmt.Errorf("quitting")
-			}
-
-		case <-h.Quit:
-			return nil, fmt.Errorf("quitting")
-		}
+	// Now that we've handed off the HTLC to the nursery, we'll watch for a
+	// spend of the output, and make our next move off of that. Depending
+	// on if this is our commitment, or the remote party's commitment,
+	// we'll be watching a different outpoint and script.
+	outpointToWatch, scriptToWatch, err := h.chainDetailsToWatch()
+	if err != nil {
+		return nil, err
+	}
+	spendNtfn, err := h.Notifier.RegisterSpendNtfn(
+		outpointToWatch, scriptToWatch, h.broadcastHeight,
+	)
+	if err != nil {
+		return nil, err
 	}
 
-	// TODO(roasbeef): need to watch for remote party sweeping with pre-image?
-	//  * have another waiting on spend above, will check the type, if it's
-	//    pre-image, then we'll cancel, and send a clean up back with
-	//    pre-image, also add to preimage cache
+	log.Infof("%T(%v): waiting for HTLC output %v to be spent"+
+		"fully confirmed", h, h.htlcResolution.ClaimOutpoint,
+		outpointToWatch)
+
+	// We'll block here until either we exit, or the HTLC output on the
+	// commitment transaction has been spent.
+	var (
+		spend *chainntnfs.SpendDetail
+		ok    bool
+	)
+	select {
+	case spend, ok = <-spendNtfn.Spend:
+		if !ok {
+			return nil, fmt.Errorf("quitting")
+		}
+
+	case <-h.Quit:
+		return nil, fmt.Errorf("quitting")
+	}
+
+	// If the spend reveals the pre-image, then we'll enter the clean up
+	// workflow to pass the pre-image back to the incoming link, add it to
+	// the witness cache, and exit.
+	if isSuccessSpend(spend, h.htlcResolution.SignedTimeoutTx != nil) {
+		log.Infof("%T(%v): HTLC has been swept with pre-image by "+
+			"remote party during timeout flow! Adding pre-image to "+
+			"witness cache", h.htlcResolution.ClaimOutpoint)
+
+		return h.claimCleanUp(spend)
+	}
 
 	log.Infof("%T(%v): resolving htlc with incoming fail msg, fully "+
 		"confirmed", h, h.htlcResolution.ClaimOutpoint)
 
 	// At this point, the second-level transaction is sufficiently
 	// confirmed, or a transaction directly spending the output is.
-	// Therefore, we can now send back our clean up message.
+	// Therefore, we can now send back our clean up message, failing the
+	// HTLC on the incoming link.
 	failureMsg := &lnwire.FailPermanentChannelFailure{}
 	if err := h.DeliverResolutionMsg(ResolutionMsg{
 		SourceChan: h.ShortChanID,
@@ -307,7 +344,7 @@ func (h *htlcTimeoutResolver) Resolve() (ContractResolver, error) {
 	}
 
 	// Finally, if this was an output on our commitment transaction, we'll
-	// for the second-level HTLC output to be spent, and for that
+	// wait for the second-level HTLC output to be spent, and for that
 	// transaction itself to confirm.
 	if h.htlcResolution.SignedTimeoutTx != nil {
 		log.Infof("%T(%v): waiting for nursery to spend CSV delayed "+

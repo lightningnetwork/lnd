@@ -166,6 +166,15 @@ type Config struct {
 	// we need in order to properly maintain the channel graph.
 	ChainView chainview.FilteredChainView
 
+	// MissionControl is a shared memory of sorts that executions of
+	// payment path finding use in order to remember which vertexes/edges
+	// were pruned from prior attempts. During SendPayment execution,
+	// errors sent by nodes are mapped into a vertex or edge to be pruned.
+	// Each run will then take into account this set of pruned
+	// vertexes/edges to reduce route failure and pass on graph information
+	// gained to the next execution.
+	MissionControl *MissionControl
+
 	// SendToSwitch is a function that directs a link-layer switch to
 	// forward a fully encoded payment to the first hop in the route
 	// denoted by its public key. A non-nil error is to be returned if the
@@ -305,15 +314,6 @@ type ChannelRouter struct {
 	// existing client.
 	ntfnClientUpdates chan *topologyClientUpdate
 
-	// missionControl is a shared memory of sorts that executions of
-	// payment path finding use in order to remember which vertexes/edges
-	// were pruned from prior attempts. During SendPayment execution,
-	// errors sent by nodes are mapped into a vertex or edge to be pruned.
-	// Each run will then take into account this set of pruned
-	// vertexes/edges to reduce route failure and pass on graph information
-	// gained to the next execution.
-	missionControl *MissionControl
-
 	// channelEdgeMtx is a mutex we use to make sure we process only one
 	// ChannelEdgePolicy at a time for a given channelID, to ensure
 	// consistency between the various database accesses.
@@ -354,10 +354,6 @@ func New(cfg Config) (*ChannelRouter, error) {
 		rejectCache:       make(map[uint64]struct{}),
 		quit:              make(chan struct{}),
 	}
-
-	r.missionControl = NewMissionControl(
-		cfg.Graph, selfNode, cfg.QueryBandwidth,
-	)
 
 	return r, nil
 }
@@ -1500,11 +1496,13 @@ type LightningPayment struct {
 // will be returned which describes the path the successful payment traversed
 // within the network to reach the destination. Additionally, the payment
 // preimage will also be returned.
-func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *route.Route, error) {
+func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte,
+	*route.Route, error) {
+
 	// Before starting the HTLC routing attempt, we'll create a fresh
 	// payment session which will report our errors back to mission
 	// control.
-	paySession, err := r.missionControl.newPaymentSession(
+	paySession, err := r.cfg.MissionControl.newPaymentSession(
 		payment.RouteHints, payment.Target,
 	)
 	if err != nil {
@@ -1524,7 +1522,7 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *route
 func (r *ChannelRouter) SendToRoute(routes []*route.Route,
 	payment *LightningPayment) ([32]byte, *route.Route, error) {
 
-	paySession := r.missionControl.newPaymentSessionFromRoutes(
+	paySession := r.cfg.MissionControl.newPaymentSessionFromRoutes(
 		routes,
 	)
 
@@ -1710,9 +1708,7 @@ func (r *ChannelRouter) processSendError(paySession *paymentSession,
 			)
 		}
 
-		paySession.ReportEdgePolicyFailure(
-			route.NewVertex(errSource), failedEdge,
-		)
+		paySession.ReportEdgePolicyFailure(failedEdge)
 	}
 
 	switch onionErr := fErr.FailureMessage.(type) {
@@ -1867,13 +1863,11 @@ func (r *ChannelRouter) processSendError(paySession *paymentSession,
 	// we'll prune the channel in both directions and
 	// continue with the rest of the routes.
 	case *lnwire.FailPermanentChannelFailure:
-		paySession.ReportEdgeFailure(&EdgeLocator{
-			ChannelID: failedEdge.ChannelID,
-			Direction: 0,
-		})
-		paySession.ReportEdgeFailure(&EdgeLocator{
-			ChannelID: failedEdge.ChannelID,
-			Direction: 1,
+		paySession.ReportEdgeFailure(failedEdge)
+		paySession.ReportEdgeFailure(edge{
+			from:    failedEdge.to,
+			to:      failedEdge.from,
+			channel: failedEdge.channel,
 		})
 		return false
 
@@ -1885,8 +1879,7 @@ func (r *ChannelRouter) processSendError(paySession *paymentSession,
 // getFailedEdge tries to locate the failing channel given a route and the
 // pubkey of the node that sent the error. It will assume that the error is
 // associated with the outgoing channel of the error node.
-func getFailedEdge(route *route.Route, errSource route.Vertex) (
-	*EdgeLocator, error) {
+func getFailedEdge(route *route.Route, errSource route.Vertex) (edge, error) {
 
 	hopCount := len(route.Hops)
 	fromNode := route.SourcePubKey
@@ -1908,17 +1901,17 @@ func getFailedEdge(route *route.Route, errSource route.Vertex) (
 		// If the errSource is the final hop, we assume that the failing
 		// channel is the incoming channel.
 		if errSource == fromNode || finalHopFailing {
-			return newEdgeLocatorByPubkeys(
-				hop.ChannelID,
-				&fromNode,
-				&toNode,
-			), nil
+			return edge{
+				from:    fromNode,
+				to:      toNode,
+				channel: hop.ChannelID,
+			}, nil
 		}
 
 		fromNode = toNode
 	}
 
-	return nil, fmt.Errorf("cannot find error source node in route")
+	return edge{}, fmt.Errorf("cannot find error source node in route")
 }
 
 // applyChannelUpdate validates a channel update and if valid, applies it to the
@@ -2207,4 +2200,11 @@ func (r *ChannelRouter) IsStaleEdgePolicy(chanID lnwire.ShortChannelID,
 // NOTE: This method is part of the ChannelGraphSource interface.
 func (r *ChannelRouter) MarkEdgeLive(chanID lnwire.ShortChannelID) error {
 	return r.cfg.Graph.MarkEdgeLive(chanID.ToUint64())
+}
+
+// edge is a combination of a channel and the node pubkeys of both of its
+// endpoints.
+type edge struct {
+	from, to route.Vertex
+	channel  uint64
 }

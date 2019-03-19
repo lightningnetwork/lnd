@@ -36,8 +36,7 @@ func TestRequestRoute(t *testing.T) {
 		mc: &MissionControl{
 			selfNode: &channeldb.LightningNode{},
 		},
-		pruneViewSnapshot: graphPruneView{},
-		pathFinder:        findPath,
+		pathFinder: findPath,
 	}
 
 	cltvLimit := uint32(30)

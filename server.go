@@ -187,6 +187,8 @@ type server struct {
 
 	breachArbiter *breachArbiter
 
+	missionControl *routing.MissionControl
+
 	chanRouter *routing.ChannelRouter
 
 	authGossiper *discovery.AuthenticatedGossiper
@@ -607,10 +609,45 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 	}
 	s.currentNodeAnn = nodeAnn
 
+	queryBandwidth := func(edge *channeldb.ChannelEdgeInfo) lnwire.MilliSatoshi {
+		// If we aren't on either side of this edge, then we'll
+		// just thread through the capacity of the edge as we
+		// know it.
+		if !bytes.Equal(edge.NodeKey1Bytes[:], selfNode.PubKeyBytes[:]) &&
+			!bytes.Equal(edge.NodeKey2Bytes[:], selfNode.PubKeyBytes[:]) {
+
+			return lnwire.NewMSatFromSatoshis(edge.Capacity)
+		}
+
+		cid := lnwire.NewChanIDFromOutPoint(&edge.ChannelPoint)
+		link, err := s.htlcSwitch.GetLink(cid)
+		if err != nil {
+			// If the link isn't online, then we'll report
+			// that it has zero bandwidth to the router.
+			return 0
+		}
+
+		// If the link is found within the switch, but it isn't
+		// yet eligible to forward any HTLCs, then we'll treat
+		// it as if it isn't online in the first place.
+		if !link.EligibleToForward() {
+			return 0
+		}
+
+		// Otherwise, we'll return the current best estimate
+		// for the available bandwidth for the link.
+		return link.Bandwidth()
+	}
+
+	s.missionControl = routing.NewMissionControl(
+		chanGraph, selfNode, queryBandwidth,
+	)
+
 	s.chanRouter, err = routing.New(routing.Config{
-		Graph:     chanGraph,
-		Chain:     cc.chainIO,
-		ChainView: cc.chainView,
+		Graph:          chanGraph,
+		Chain:          cc.chainIO,
+		ChainView:      cc.chainView,
+		MissionControl: s.missionControl,
 		SendToSwitch: func(route *route.Route, paymentHash [32]byte) (
 			[32]byte, error) {
 
@@ -654,35 +691,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		},
 		ChannelPruneExpiry: routing.DefaultChannelPruneExpiry,
 		GraphPruneInterval: time.Duration(time.Hour),
-		QueryBandwidth: func(edge *channeldb.ChannelEdgeInfo) lnwire.MilliSatoshi {
-			// If we aren't on either side of this edge, then we'll
-			// just thread through the capacity of the edge as we
-			// know it.
-			if !bytes.Equal(edge.NodeKey1Bytes[:], selfNode.PubKeyBytes[:]) &&
-				!bytes.Equal(edge.NodeKey2Bytes[:], selfNode.PubKeyBytes[:]) {
-
-				return lnwire.NewMSatFromSatoshis(edge.Capacity)
-			}
-
-			cid := lnwire.NewChanIDFromOutPoint(&edge.ChannelPoint)
-			link, err := s.htlcSwitch.GetLink(cid)
-			if err != nil {
-				// If the link isn't online, then we'll report
-				// that it has zero bandwidth to the router.
-				return 0
-			}
-
-			// If the link is found within the switch, but it isn't
-			// yet eligible to forward any HTLCs, then we'll treat
-			// it as if it isn't online in the first place.
-			if !link.EligibleToForward() {
-				return 0
-			}
-
-			// Otherwise, we'll return the current best estimate
-			// for the available bandwidth for the link.
-			return link.Bandwidth()
-		},
+		QueryBandwidth:     queryBandwidth,
 		AssumeChannelValid: cfg.Routing.UseAssumeChannelValid(),
 	})
 	if err != nil {

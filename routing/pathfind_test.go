@@ -395,6 +395,7 @@ func createTestGraphFromChannels(testChannels []*testChannel) (*testGraphInstanc
 
 	nodeIndex := byte(0)
 	addNodeWithAlias := func(alias string) (*channeldb.LightningNode, error) {
+		// fmt.Printf("Add node %v\n", alias)
 		keyBytes := make([]byte, 32)
 		keyBytes = []byte{
 			0, 0, 0, 0, 0, 0, 0, 0,
@@ -494,6 +495,9 @@ func createTestGraphFromChannels(testChannels []*testChannel) (*testGraphInstanc
 			NodeKey2Bytes:    node2Vertex,
 			BitcoinKey2Bytes: node2Vertex,
 		}
+
+		// fmt.Printf("Add edge %v -> %v\n", testChannel.Node1.Alias,
+		// 	testChannel.Node2.Alias)
 
 		err = graph.AddChannelEdge(&edgeInfo)
 		if err != nil && err != channeldb.ErrEdgeAlreadyExist {

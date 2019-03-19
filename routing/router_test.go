@@ -2321,3 +2321,203 @@ func TestEmptyRoutesGenerateSphinxPacket(t *testing.T) {
 		t.Fatalf("expected empty hops error: instead got: %v", err)
 	}
 }
+
+func createRandomTestGraph(t *testing.T) *testGraphInstance {
+	nodeCount := 20
+	channelCount := 100
+
+	rand.Seed(99)
+
+	nodes := make([]string, nodeCount)
+	for i := 0; i < nodeCount; i++ {
+		nodes[i] = fmt.Sprintf("n_%v", i)
+	}
+
+	testChannels := make([]*testChannel, channelCount)
+	for i := 0; i < channelCount; i++ {
+
+		// Only generate channels between nodes that are close to each
+		// other. This is to force many hop routes.
+		fromNode := int(rand.Int31n(int32(nodeCount)))
+		toNode := (fromNode + 1 + int(rand.Int31n(5))) % nodeCount
+
+		var feeRate, feeBase lnwire.MilliSatoshi
+		switch rand.Int31n(4) {
+		case 0:
+			feeBase = 0
+		case 1:
+			feeBase = 1000
+		case 2:
+			feeBase = 10000
+		case 3:
+			feeBase = 100000
+		}
+		switch rand.Int31n(5) {
+		case 0:
+			feeRate = 1
+		case 1:
+			feeRate = 100
+		case 2:
+			feeRate = 5000
+		case 3:
+			feeRate = 30000
+		case 4:
+			feeRate = 140000
+		}
+
+		var chanCapSat btcutil.Amount
+		switch rand.Int31n(4) {
+		case 0:
+			chanCapSat = 50000
+		case 1:
+			chanCapSat = 200000
+		case 2:
+			chanCapSat = 500000
+		case 3:
+			chanCapSat = 2000000
+		}
+
+		c := symmetricTestChannel(nodes[fromNode],
+			nodes[toNode], chanCapSat, &testChannelPolicy{
+				Expiry:      144,
+				FeeBaseMsat: feeBase,
+				FeeRate:     feeRate,
+				MinHTLC:     1,
+				MaxHTLC:     lnwire.NewMSatFromSatoshis(chanCapSat),
+			}, uint64(i+1))
+
+		testChannels[i] = c
+	}
+
+	testGraph, err := createTestGraphFromChannels(testChannels)
+	if err != nil {
+		t.Fatalf("unable to create graph: %v", err)
+	}
+
+	if err = testGraph.graph.SetSourceNode(&channeldb.LightningNode{
+		PubKeyBytes: testGraph.aliasMap["n_0"],
+	}); err != nil {
+		testGraph.cleanUp()
+		t.Fatal(err)
+	}
+
+	return testGraph
+}
+
+func TestRoutingEffectiveness(t *testing.T) {
+	t.Parallel()
+
+	testGraph := createRandomTestGraph(t)
+	defer testGraph.cleanUp()
+
+	// Balance defines the channel balance of node 1.
+	balances := make(map[uint64]lnwire.MilliSatoshi)
+
+	channels := make(map[uint64]*channeldb.ChannelEdgeInfo)
+	err := testGraph.graph.ForEachChannel(func(e *channeldb.ChannelEdgeInfo,
+		p1, p2 *channeldb.ChannelEdgePolicy) error {
+
+		chanCapSat := e.Capacity
+		channels[e.ChannelID] = e
+
+		// Initialize with random balances.
+		var balance lnwire.MilliSatoshi
+		if rand.Int63n(2) == 0 {
+			balance = lnwire.NewMSatFromSatoshis(
+				btcutil.Amount(rand.Int63n(int64(chanCapSat))),
+			)
+		}
+		balances[e.ChannelID] = balance
+
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const startingBlockHeight = 101
+
+	ctx, cleanUp, err := createTestCtxFromGraphInstance(startingBlockHeight,
+		testGraph)
+
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to create router: %v", err)
+	}
+
+	now := testTime
+	ctx.router.missionControl.now = func() time.Time { return now }
+
+	var attempts int
+	ctx.router.cfg.SendToSwitch = func(route *Route, hash [32]byte) (
+		[32]byte, error) {
+
+		attempts++
+
+		for i := 1; i < len(route.Hops); i++ {
+			chanID := route.Hops[i].ChannelID
+			chanInfo := channels[chanID]
+			amt := route.Hops[i-1].AmtToForward
+			reverse := chanInfo.NodeKey1Bytes == route.Hops[i].PubKeyBytes
+
+			balance := balances[chanID]
+			if reverse {
+				balance = lnwire.NewMSatFromSatoshis(chanInfo.Capacity) -
+					balance
+			}
+
+			log.Infof("Checking hop %v: amt=%v,chanid=%v,cap=%v,balance=%v",
+				i, amt, chanID, int64(chanInfo.Capacity), balance)
+
+			key, err := btcec.ParsePubKey(
+				route.Hops[i-1].PubKeyBytes[:],
+				btcec.S256(),
+			)
+			if err != nil {
+				return [32]byte{}, err
+			}
+
+			fErr := &htlcswitch.ForwardingError{
+				ErrorSource: key,
+				FailureMessage: lnwire.NewTemporaryChannelFailure(
+					nil,
+				),
+			}
+
+			if balance < amt {
+				return [32]byte{}, fErr
+			}
+		}
+
+		log.Infof("Sending to route %v\n", route)
+
+		return [32]byte{}, nil
+	}
+
+	var payHash [32]byte
+	paymentAmt := lnwire.NewMSatFromSatoshis(150000)
+	payment := LightningPayment{
+		Target:      ctx.aliases["n_10"],
+		Amount:      paymentAmt,
+		FeeLimit:    noFeeLimit,
+		PaymentHash: payHash,
+	}
+
+	paymentNr := 0
+	for paymentNr < 10 {
+		attempts = 0
+		// Send off the payment request to the router, route through satoshi
+		// should've been selected as a fall back and succeeded correctly.
+		_, _, err = ctx.router.SendPayment(&payment)
+		if err != nil {
+			t.Fatalf("unable to send payment: %v", err)
+		}
+
+		fmt.Printf("------> Payment %v: attempts=%v, time=%v\n",
+			paymentNr, attempts, now)
+		paymentNr++
+
+		now = now.Add(time.Minute * 5)
+	}
+
+}

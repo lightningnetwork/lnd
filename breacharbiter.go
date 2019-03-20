@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"sync"
 	"sync/atomic"
@@ -320,6 +321,8 @@ func convertToSecondLevelRevoke(bo *breachedOutput, breachInfo *retributionInfo,
 func (b *breachArbiter) waitForSpendEvent(breachInfo *retributionInfo,
 	spendNtfns map[wire.OutPoint]*chainntnfs.SpendEvent) error {
 
+	inputs := breachInfo.breachedOutputs
+
 	// spend is used to wrap the index of the output that gets spent
 	// together with the spend details.
 	type spend struct {
@@ -330,11 +333,11 @@ func (b *breachArbiter) waitForSpendEvent(breachInfo *retributionInfo,
 	// We create a channel the first goroutine that gets a spend event can
 	// signal. We make it buffered in case multiple spend events come in at
 	// the same time.
-	anySpend := make(chan struct{}, len(breachInfo.breachedOutputs))
+	anySpend := make(chan struct{}, len(inputs))
 
 	// The allSpends channel will be used to pass spend events from all the
 	// goroutines that detects a spend before they are signalled to exit.
-	allSpends := make(chan spend, len(breachInfo.breachedOutputs))
+	allSpends := make(chan spend, len(inputs))
 
 	// exit will be used to signal the goroutines that they can exit.
 	exit := make(chan struct{})
@@ -342,17 +345,11 @@ func (b *breachArbiter) waitForSpendEvent(breachInfo *retributionInfo,
 
 	// We'll now launch a goroutine for each of the HTLC outputs, that will
 	// signal the moment they detect a spend event.
-	for i := 0; i < len(breachInfo.breachedOutputs); i++ {
-		breachedOutput := &breachInfo.breachedOutputs[i]
+	for i := range inputs {
+		breachedOutput := &inputs[i]
 
-		// If this isn't an HTLC output, then we can skip it.
-		if breachedOutput.witnessType != input.HtlcAcceptedRevoke &&
-			breachedOutput.witnessType != input.HtlcOfferedRevoke {
-			continue
-		}
-
-		brarLog.Debugf("Checking for second-level attempt on HTLC(%v) "+
-			"for ChannelPoint(%v)", breachedOutput.outpoint,
+		brarLog.Infof("Checking spend from %v(%v) for ChannelPoint(%v)",
+			breachedOutput.witnessType, breachedOutput.outpoint,
 			breachInfo.chanPoint)
 
 		// If we have already registered for a notification for this
@@ -396,9 +393,12 @@ func (b *breachArbiter) waitForSpendEvent(breachInfo *retributionInfo,
 				if !ok {
 					return
 				}
-				brarLog.Debugf("Detected spend of HTLC(%v) "+
-					"for ChannelPoint(%v)",
-					breachedOutput.outpoint,
+
+				brarLog.Infof("Detected spend on %s(%v) by "+
+					"txid(%v) for ChannelPoint(%v)",
+					inputs[index].witnessType,
+					inputs[index].outpoint,
+					sp.SpenderTxHash,
 					breachInfo.chanPoint)
 
 				// First we send the spend event on the
@@ -431,21 +431,58 @@ func (b *breachArbiter) waitForSpendEvent(breachInfo *retributionInfo,
 		// channel have exited. We can therefore safely close the
 		// channel before ranging over its content.
 		close(allSpends)
-		for s := range allSpends {
-			breachedOutput := &breachInfo.breachedOutputs[s.index]
-			brarLog.Debugf("Detected second-level spend on "+
-				"HTLC(%v) for ChannelPoint(%v)",
-				breachedOutput.outpoint, breachInfo.chanPoint)
 
+		doneOutputs := make(map[int]struct{})
+		for s := range allSpends {
+			breachedOutput := &inputs[s.index]
 			delete(spendNtfns, breachedOutput.outpoint)
 
-			// In this case we'll morph our initial revoke spend to
-			// instead point to the second level output, and update
-			// the sign descriptor in the process.
-			convertToSecondLevelRevoke(
-				breachedOutput, breachInfo, s.detail,
-			)
+			switch breachedOutput.witnessType {
+			case input.HtlcAcceptedRevoke:
+				fallthrough
+			case input.HtlcOfferedRevoke:
+				brarLog.Infof("Spend on second-level"+
+					"%s(%v) for ChannelPoint(%v) "+
+					"transitions to second-level output",
+					breachedOutput.witnessType,
+					breachedOutput.outpoint,
+					breachInfo.chanPoint)
+
+				// In this case we'll morph our initial revoke
+				// spend to instead point to the second level
+				// output, and update the sign descriptor in the
+				// process.
+				convertToSecondLevelRevoke(
+					breachedOutput, breachInfo, s.detail,
+				)
+
+				continue
+			}
+
+			brarLog.Infof("Spend on %s(%v) for ChannelPoint(%v) "+
+				"transitions output to terminal state, "+
+				"removing input from justice transaction",
+				breachedOutput.witnessType,
+				breachedOutput.outpoint, breachInfo.chanPoint)
+
+			doneOutputs[s.index] = struct{}{}
 		}
+
+		// Filter the inputs for which we can no longer proceed.
+		var nextIndex int
+		for i := range inputs {
+			if _, ok := doneOutputs[i]; ok {
+				continue
+			}
+
+			inputs[nextIndex] = inputs[i]
+			nextIndex++
+		}
+
+		// Update our remaining set of outputs before continuing with
+		// another attempt at publication.
+		breachInfo.breachedOutputs = inputs[:nextIndex]
+
 	case <-b.quit:
 		return errBrarShuttingDown
 	}
@@ -552,7 +589,24 @@ justiceTxBroadcast:
 				return
 			}
 
-			brarLog.Infof("Attempting another justice tx broadcast")
+			if len(breachInfo.breachedOutputs) == 0 {
+				brarLog.Debugf("No more outputs to sweep for "+
+					"breach, marking ChannelPoint(%v) "+
+					"fully resolved", breachInfo.chanPoint)
+
+				err = b.cleanupBreach(&breachInfo.chanPoint)
+				if err != nil {
+					brarLog.Errorf("Failed to cleanup "+
+						"breached ChannelPoint(%v): %v",
+						breachInfo.chanPoint, err)
+				}
+				return
+			}
+
+			brarLog.Infof("Attempting another justice tx "+
+				"with %d inputs",
+				len(breachInfo.breachedOutputs))
+
 			goto justiceTxBroadcast
 		}
 	}
@@ -602,19 +656,11 @@ justiceTxBroadcast:
 			"have been claimed", breachInfo.chanPoint,
 			revokedFunds, totalFunds)
 
-		// With the channel closed, mark it in the database as such.
-		err := b.cfg.DB.MarkChanFullyClosed(&breachInfo.chanPoint)
+		err = b.cleanupBreach(&breachInfo.chanPoint)
 		if err != nil {
-			brarLog.Errorf("Unable to mark chan as closed: %v", err)
-			return
-		}
-
-		// Justice has been carried out; we can safely delete the
-		// retribution info from the database.
-		err = b.cfg.Store.Remove(&breachInfo.chanPoint)
-		if err != nil {
-			brarLog.Errorf("Unable to remove retribution "+
-				"from the db: %v", err)
+			brarLog.Errorf("Failed to cleanup breached "+
+				"ChannelPoint(%v): %v", breachInfo.chanPoint,
+				err)
 		}
 
 		// TODO(roasbeef): add peer to blacklist?
@@ -626,6 +672,26 @@ justiceTxBroadcast:
 	case <-b.quit:
 		return
 	}
+}
+
+// cleanupBreach marks the given channel point as fully resolved and removes the
+// retribution for that the channel from the retribution store.
+func (b *breachArbiter) cleanupBreach(chanPoint *wire.OutPoint) error {
+	// With the channel closed, mark it in the database as such.
+	err := b.cfg.DB.MarkChanFullyClosed(chanPoint)
+	if err != nil {
+		return fmt.Errorf("unable to mark chan as closed: %v", err)
+	}
+
+	// Justice has been carried out; we can safely delete the retribution
+	// info from the database.
+	err = b.cfg.Store.Remove(chanPoint)
+	if err != nil {
+		return fmt.Errorf("unable to remove retribution from db: %v",
+			err)
+	}
+
+	return nil
 }
 
 // handleBreachHandoff handles a new breach event, by writing it to disk, then

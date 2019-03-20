@@ -226,13 +226,13 @@ func testServerCreateSession(t *testing.T, i int, test createSessionTestCase) {
 	// Create a new client and connect to server.
 	peerPub := randPubKey(t)
 	peer := wtmock.NewMockPeer(localPub, peerPub, nil, 0)
-	connect(t, i, s, peer, test.initMsg, timeoutDuration)
+	connect(t, s, peer, test.initMsg, timeoutDuration)
 
 	// Send the CreateSession message, and wait for a reply.
-	sendMsg(t, i, test.createMsg, peer, timeoutDuration)
+	sendMsg(t, test.createMsg, peer, timeoutDuration)
 
 	reply := recvReply(
-		t, i, "CreateSessionReply", peer, timeoutDuration,
+		t, "MsgCreateSessionReply", peer, timeoutDuration,
 	).(*wtwire.CreateSessionReply)
 
 	// Verify that the server's response matches our expectation.
@@ -254,13 +254,13 @@ func testServerCreateSession(t *testing.T, i int, test createSessionTestCase) {
 	// Simulate a peer with the same session id connection to the server
 	// again.
 	peer = wtmock.NewMockPeer(localPub, peerPub, nil, 0)
-	connect(t, i, s, peer, test.initMsg, timeoutDuration)
+	connect(t, s, peer, test.initMsg, timeoutDuration)
 
 	// Send the _same_ CreateSession message as the first attempt.
-	sendMsg(t, i, test.createMsg, peer, timeoutDuration)
+	sendMsg(t, test.createMsg, peer, timeoutDuration)
 
 	reply = recvReply(
-		t, i, "CreateSessionReply", peer, timeoutDuration,
+		t, "MsgCreateSessionReply", peer, timeoutDuration,
 	).(*wtwire.CreateSessionReply)
 
 	// Ensure that the server's reply matches our expected response for a
@@ -550,14 +550,14 @@ var stateUpdateTests = []stateUpdateTestCase{
 func TestServerStateUpdates(t *testing.T) {
 	t.Parallel()
 
-	for i, test := range stateUpdateTests {
+	for _, test := range stateUpdateTests {
 		t.Run(test.name, func(t *testing.T) {
-			testServerStateUpdates(t, i, test)
+			testServerStateUpdates(t, test)
 		})
 	}
 }
 
-func testServerStateUpdates(t *testing.T, i int, test stateUpdateTestCase) {
+func testServerStateUpdates(t *testing.T, test stateUpdateTestCase) {
 	const timeoutDuration = 100 * time.Millisecond
 
 	s := initServer(t, nil, timeoutDuration)
@@ -568,17 +568,17 @@ func testServerStateUpdates(t *testing.T, i int, test stateUpdateTestCase) {
 	// Create a new client and connect to the server.
 	peerPub := randPubKey(t)
 	peer := wtmock.NewMockPeer(localPub, peerPub, nil, 0)
-	connect(t, i, s, peer, test.initMsg, timeoutDuration)
+	connect(t, s, peer, test.initMsg, timeoutDuration)
 
 	// Register a session for this client to use in the subsequent tests.
-	sendMsg(t, i, test.createMsg, peer, timeoutDuration)
+	sendMsg(t, test.createMsg, peer, timeoutDuration)
 	initReply := recvReply(
-		t, i, "CreateSessionReply", peer, timeoutDuration,
+		t, "MsgCreateSessionReply", peer, timeoutDuration,
 	).(*wtwire.CreateSessionReply)
 
 	// Fail if the server rejected our proposed CreateSession message.
 	if initReply.Code != wtwire.CodeOK {
-		t.Fatalf("[test %d] server rejected session init", i)
+		t.Fatalf("server rejected session init")
 	}
 
 	// Check that the server closed the connection used to register the
@@ -588,7 +588,7 @@ func testServerStateUpdates(t *testing.T, i int, test stateUpdateTestCase) {
 	// Now that the original connection has been closed, connect a new
 	// client with the same session id.
 	peer = wtmock.NewMockPeer(localPub, peerPub, nil, 0)
-	connect(t, i, s, peer, test.initMsg, timeoutDuration)
+	connect(t, s, peer, test.initMsg, timeoutDuration)
 
 	// Send the intended StateUpdate messages in series.
 	for j, update := range test.updates {
@@ -599,21 +599,21 @@ func testServerStateUpdates(t *testing.T, i int, test stateUpdateTestCase) {
 			assertConnClosed(t, peer, 2*timeoutDuration)
 
 			peer = wtmock.NewMockPeer(localPub, peerPub, nil, 0)
-			connect(t, i, s, peer, test.initMsg, timeoutDuration)
+			connect(t, s, peer, test.initMsg, timeoutDuration)
 
 			continue
 		}
 
 		// Send the state update and verify it against our expected
 		// response.
-		sendMsg(t, i, update, peer, timeoutDuration)
+		sendMsg(t, update, peer, timeoutDuration)
 		reply := recvReply(
-			t, i, "StateUpdateReply", peer, timeoutDuration,
+			t, "MsgStateUpdateReply", peer, timeoutDuration,
 		).(*wtwire.StateUpdateReply)
 
 		if !reflect.DeepEqual(reply, test.replies[j]) {
-			t.Fatalf("[test %d, update %d] expected reply "+
-				"%v, got %d", i, j,
+			t.Fatalf("[update %d] expected reply "+
+				"%v, got %d", j,
 				test.replies[j], reply)
 		}
 	}
@@ -622,16 +622,18 @@ func testServerStateUpdates(t *testing.T, i int, test stateUpdateTestCase) {
 	assertConnClosed(t, peer, 2*timeoutDuration)
 }
 
-func connect(t *testing.T, i int, s wtserver.Interface, peer *wtmock.MockPeer,
+func connect(t *testing.T, s wtserver.Interface, peer *wtmock.MockPeer,
 	initMsg *wtwire.Init, timeout time.Duration) {
 
+	t.Helper()
+
 	s.InboundPeerConnected(peer)
-	sendMsg(t, i, initMsg, peer, timeout)
-	recvReply(t, i, "Init", peer, timeout)
+	sendMsg(t, initMsg, peer, timeout)
+	recvReply(t, "MsgInit", peer, timeout)
 }
 
 // sendMsg sends a wtwire.Message message via a wtmock.MockPeer.
-func sendMsg(t *testing.T, i int, msg wtwire.Message,
+func sendMsg(t *testing.T, msg wtwire.Message,
 	peer *wtmock.MockPeer, timeout time.Duration) {
 
 	t.Helper()
@@ -639,22 +641,22 @@ func sendMsg(t *testing.T, i int, msg wtwire.Message,
 	var b bytes.Buffer
 	_, err := wtwire.WriteMessage(&b, msg, 0)
 	if err != nil {
-		t.Fatalf("[test %d] unable to encode %T message: %v",
-			i, msg, err)
+		t.Fatalf("unable to encode %T message: %v",
+			msg, err)
 	}
 
 	select {
 	case peer.IncomingMsgs <- b.Bytes():
 	case <-time.After(2 * timeout):
-		t.Fatalf("[test %d] unable to send %T message", i, msg)
+		t.Fatalf("unable to send %T message", msg)
 	}
 }
 
 // recvReply receives a message from the server, and parses it according to
 // expected reply type. The supported replies are CreateSessionReply and
 // StateUpdateReply.
-func recvReply(t *testing.T, i int, name string,
-	peer *wtmock.MockPeer, timeout time.Duration) wtwire.Message {
+func recvReply(t *testing.T, name string, peer *wtmock.MockPeer,
+	timeout time.Duration) wtwire.Message {
 
 	t.Helper()
 
@@ -667,29 +669,29 @@ func recvReply(t *testing.T, i int, name string,
 	case b := <-peer.OutgoingMsgs:
 		msg, err = wtwire.ReadMessage(bytes.NewReader(b), 0)
 		if err != nil {
-			t.Fatalf("[test %d] unable to decode server "+
-				"reply: %v", i, err)
+			t.Fatalf("unable to decode server "+
+				"reply: %v", err)
 		}
 
 	case <-time.After(2 * timeout):
-		t.Fatalf("[test %d] server did not reply", i)
+		t.Fatalf("server did not reply")
 	}
 
 	switch name {
-	case "Init":
+	case "MsgInit":
 		if _, ok := msg.(*wtwire.Init); !ok {
-			t.Fatalf("[test %d] expected %s reply "+
-				"message, got %T", i, name, msg)
+			t.Fatalf("expected %s reply message, "+
+				"got %T", name, msg)
 		}
-	case "CreateSessionReply":
+	case "MsgCreateSessionReply":
 		if _, ok := msg.(*wtwire.CreateSessionReply); !ok {
-			t.Fatalf("[test %d] expected %s reply "+
-				"message, got %T", i, name, msg)
+			t.Fatalf("expected %s reply message, "+
+				"got %T", name, msg)
 		}
-	case "StateUpdateReply":
+	case "MsgStateUpdateReply":
 		if _, ok := msg.(*wtwire.StateUpdateReply); !ok {
-			t.Fatalf("[test %d] expected %s reply "+
-				"message, got %T", i, name, msg)
+			t.Fatalf("expected %s reply message, "+
+				"got %T", name, msg)
 		}
 	}
 

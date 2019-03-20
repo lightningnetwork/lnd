@@ -161,7 +161,7 @@ func (b *breachArbiter) Start() error {
 	// retribution store.
 	closedChans, err := b.cfg.DB.FetchClosedChannels(false)
 	if err != nil {
-		brarLog.Errorf("unable to fetch closing channels: %v", err)
+		brarLog.Errorf("Unable to fetch closing channels: %v", err)
 		return err
 	}
 
@@ -181,7 +181,7 @@ func (b *breachArbiter) Start() error {
 		chanPoint := &chanSummary.ChanPoint
 		if _, ok := breachRetInfos[*chanPoint]; ok {
 			if err := b.cfg.Store.Remove(chanPoint); err != nil {
-				brarLog.Errorf("unable to remove closed "+
+				brarLog.Errorf("Unable to remove closed "+
 					"chanid=%v from breach arbiter: %v",
 					chanPoint, err)
 				return err
@@ -203,7 +203,7 @@ func (b *breachArbiter) Start() error {
 			&breachTXID, breachScript, 1, retInfo.breachHeight,
 		)
 		if err != nil {
-			brarLog.Errorf("unable to register for conf updates "+
+			brarLog.Errorf("Unable to register for conf updates "+
 				"for txid: %v, err: %v", breachTXID, err)
 			return err
 		}
@@ -366,8 +366,8 @@ func (b *breachArbiter) waitForSpendEvent(breachInfo *retributionInfo,
 				breachInfo.breachHeight,
 			)
 			if err != nil {
-				brarLog.Errorf("unable to check for spentness "+
-					"of out_point=%v: %v",
+				brarLog.Errorf("Unable to check for spentness "+
+					"of outpoint=%v: %v",
 					breachedOutput.outpoint, err)
 
 				// Registration may have failed if we've been
@@ -492,7 +492,7 @@ func (b *breachArbiter) exactRetribution(confChan *chainntnfs.ConfirmationEvent,
 
 	finalTx, err := b.cfg.Store.GetFinalizedTxn(&breachInfo.chanPoint)
 	if err != nil {
-		brarLog.Errorf("unable to get finalized txn for"+
+		brarLog.Errorf("Unable to get finalized txn for"+
 			"chanid=%v: %v", &breachInfo.chanPoint, err)
 		return
 	}
@@ -508,7 +508,7 @@ justiceTxBroadcast:
 		// channel.
 		finalTx, err = b.createJusticeTx(breachInfo)
 		if err != nil {
-			brarLog.Errorf("unable to create justice tx: %v", err)
+			brarLog.Errorf("Unable to create justice tx: %v", err)
 			return
 		}
 
@@ -516,7 +516,7 @@ justiceTxBroadcast:
 		// attempt to broadcast.
 		err := b.cfg.Store.Finalize(&breachInfo.chanPoint, finalTx)
 		if err != nil {
-			brarLog.Errorf("unable to finalize justice tx for "+
+			brarLog.Errorf("Unable to finalize justice tx for "+
 				"chanid=%v: %v", &breachInfo.chanPoint, err)
 			return
 		}
@@ -530,7 +530,7 @@ justiceTxBroadcast:
 	// channel's retribution against the cheating counter party.
 	err = b.cfg.PublishTransaction(finalTx)
 	if err != nil {
-		brarLog.Errorf("unable to broadcast justice tx: %v", err)
+		brarLog.Errorf("Unable to broadcast justice tx: %v", err)
 
 		if err == lnwallet.ErrDoubleSpend {
 			// Broadcasting the transaction failed because of a
@@ -567,7 +567,7 @@ justiceTxBroadcast:
 		&justiceTXID, justiceScript, 1, breachConfHeight,
 	)
 	if err != nil {
-		brarLog.Errorf("unable to register for conf for txid(%v): %v",
+		brarLog.Errorf("Unable to register for conf for txid(%v): %v",
 			justiceTXID, err)
 		return
 	}
@@ -605,7 +605,7 @@ justiceTxBroadcast:
 		// With the channel closed, mark it in the database as such.
 		err := b.cfg.DB.MarkChanFullyClosed(&breachInfo.chanPoint)
 		if err != nil {
-			brarLog.Errorf("unable to mark chan as closed: %v", err)
+			brarLog.Errorf("Unable to mark chan as closed: %v", err)
 			return
 		}
 
@@ -613,7 +613,7 @@ justiceTxBroadcast:
 		// retribution info from the database.
 		err = b.cfg.Store.Remove(&breachInfo.chanPoint)
 		if err != nil {
-			brarLog.Errorf("unable to remove retribution "+
+			brarLog.Errorf("Unable to remove retribution "+
 				"from the db: %v", err)
 		}
 
@@ -672,7 +672,7 @@ func (b *breachArbiter) handleBreachHandoff(breachEvent *ContractBreachEvent) {
 	breached, err := b.cfg.Store.IsBreached(&chanPoint)
 	if err != nil {
 		b.Unlock()
-		brarLog.Errorf("unable to check breach info in DB: %v", err)
+		brarLog.Errorf("Unable to check breach info in DB: %v", err)
 
 		select {
 		case breachEvent.ProcessACK <- err:
@@ -703,7 +703,7 @@ func (b *breachArbiter) handleBreachHandoff(breachEvent *ContractBreachEvent) {
 	err = b.cfg.Store.Add(retInfo)
 	b.Unlock()
 	if err != nil {
-		brarLog.Errorf("unable to persist retribution "+
+		brarLog.Errorf("Unable to persist retribution "+
 			"info to db: %v", err)
 	}
 
@@ -733,7 +733,7 @@ func (b *breachArbiter) handleBreachHandoff(breachEvent *ContractBreachEvent) {
 		breachTXID, breachScript, 1, retInfo.breachHeight,
 	)
 	if err != nil {
-		brarLog.Errorf("unable to register for conf updates for "+
+		brarLog.Errorf("Unable to register for conf updates for "+
 			"txid: %v, err: %v", breachTXID, err)
 		return
 	}
@@ -1286,7 +1286,7 @@ func (rs *retributionStore) Remove(chanPoint *wire.OutPoint) error {
 		// to remove a finalized retribution state that is not already
 		// stored in the db.
 		if retBucket == nil {
-			return errors.New("unable to remove retribution " +
+			return errors.New("Unable to remove retribution " +
 				"because the retribution bucket doesn't exist.")
 		}
 

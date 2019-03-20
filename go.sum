@@ -25,8 +25,8 @@ github.com/btcsuite/btcutil v0.0.0-20190316010144-3ac1210f4b38 h1:GbQHMJ2u/geMPV
 github.com/btcsuite/btcutil v0.0.0-20190316010144-3ac1210f4b38/go.mod h1:+5NJ2+qvTyV9exUAL/rxXi3DcLg2Ts+ymUAY5y4NvMg=
 github.com/btcsuite/btcwallet v0.0.0-20180904010540-284e2e0e696e33d5be388f7f3d9a26db703e0c06/go.mod h1:/d7QHZsfUAruXuBhyPITqoYOmJ+nq35qPsJjz/aSpCg=
 github.com/btcsuite/btcwallet v0.0.0-20190313032608-acf3b04b0273/go.mod h1:mkOYY8/psBiL5E+Wb0V7M0o+N7NXi2SZJz6+RKkncIc=
-github.com/btcsuite/btcwallet v0.0.0-20190313041134-68fc7c82e131 h1:BhBlN90EcFIWGSduKOGckSwBQC1kBeavQ16DqzFj+gw=
-github.com/btcsuite/btcwallet v0.0.0-20190313041134-68fc7c82e131/go.mod h1:qMi4jGpAO6YRsd81RYDG7o5pBIGqN9faCioJdagLu64=
+github.com/btcsuite/btcwallet v0.0.0-20190319010515-89ab2044f962 h1:/6EtNbubaGgo10bFyYyE6S6yXfxtc3dxKpvLHxMt5rg=
+github.com/btcsuite/btcwallet v0.0.0-20190319010515-89ab2044f962/go.mod h1:qMi4jGpAO6YRsd81RYDG7o5pBIGqN9faCioJdagLu64=
 github.com/btcsuite/fastsha256 v0.0.0-20160815193821-637e65642941 h1:kij1x2aL7VE6gtx8KMIt8PGPgI5GV9LgtHFG5KaEMPY=
 github.com/btcsuite/fastsha256 v0.0.0-20160815193821-637e65642941/go.mod h1:QcFA8DZHtuIAdYKCq/BzELOaznRsCvwf4zTPmaYwaig=
 github.com/btcsuite/go-socks v0.0.0-20170105172521-4720035b7bfd h1:R/opQEbFEy9JGkIguV40SvRY1uliPX8ifOvi6ICsFCw=
@@ -104,8 +104,8 @@ github.com/lightninglabs/neutrino v0.0.0-20190213031021-ae4583a89cfb h1:Bwqgn9JX
 github.com/lightninglabs/neutrino v0.0.0-20190213031021-ae4583a89cfb/go.mod h1:g6cMQd+hfAU8pQTJAdjm6/EQREhupyd22f+CL0qYFOE=
 github.com/lightninglabs/neutrino v0.0.0-20190313035638-e1ad4c33fb18 h1:lxD7RgKYrjRRht6Cn1AiBPn4Rjgr5pkKSRxTs++EgaI=
 github.com/lightninglabs/neutrino v0.0.0-20190313035638-e1ad4c33fb18/go.mod h1:v6tz6jbuAubTrRpX8ke2KH9sJxml8KlPQTKgo9mAp1Q=
-github.com/lightninglabs/neutrino v0.0.0-20190313220016-a6cc2a8361d5 h1:ThN7nfjIuWm+FernrTGfIUkqbIHrZTKGFS0144jVjbY=
-github.com/lightninglabs/neutrino v0.0.0-20190313220016-a6cc2a8361d5/go.mod h1:NXpKUhcszEdn7v7ze5vsnSHI1KX6HqFdNRu0eqhkJzk=
+github.com/lightninglabs/neutrino v0.0.0-20190321023416-6dac90b98052 h1:YVi5x7xCumfIVtEejy3zBAej+NqY9EONy/fRim2+azQ=
+github.com/lightninglabs/neutrino v0.0.0-20190321023416-6dac90b98052/go.mod h1:IcX2/lKnXpLkF4XzefhiJOPn5he2+kZyJE32dxX4F4E=
 github.com/lightningnetwork/lightning-onion v0.0.0-20180605012408-ac4d9da8f1d6 h1:ONLGrYJVQdbtP6CE/ff1KNWZtygRGEh12RzonTiCzPs=
 github.com/lightningnetwork/lightning-onion v0.0.0-20180605012408-ac4d9da8f1d6/go.mod h1:8EgEt4a/NUOVQd+3kk6n9aZCJ1Ssj96Pb6lCrci+6oc=
 github.com/ltcsuite/ltcd v0.0.0-20190101042124-f37f8bf35796 h1:sjOGyegMIhvgfq5oaue6Td+hxZuf3tDC8lAPrFldqFw=

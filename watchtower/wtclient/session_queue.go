@@ -560,8 +560,8 @@ func (q *sessionQueue) sendStateUpdate(conn wtserver.Peer,
 
 	// TODO(conner): handle other error cases properly, ban towers, etc.
 	default:
-		err := fmt.Errorf("received error code %s in "+
-			"StateUpdateReply from tower=%x session=%s",
+		err := fmt.Errorf("received error code %v in "+
+			"StateUpdateReply from tower=%x session=%v",
 			stateUpdateReply.Code,
 			conn.RemotePub().SerializeCompressed(), q.ID())
 		log.Warnf("Unable to upload state update: %v", err)

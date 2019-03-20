@@ -259,6 +259,13 @@ func (s *Server) handleClient(peer Peer) {
 				"from %s: %v", id, err)
 		}
 
+	case *wtwire.DeleteSession:
+		err = s.handleDeleteSession(peer, &id)
+		if err != nil {
+			log.Errorf("Unable to handle DeleteSession "+
+				"from %s: %v", id, err)
+		}
+
 	case *wtwire.StateUpdate:
 		err = s.handleStateUpdates(peer, &id, msg)
 		if err != nil {

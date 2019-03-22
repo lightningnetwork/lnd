@@ -97,6 +97,18 @@ const (
 	// TODO(halseth): cancel state.
 )
 
+// String returns a human readable FailureReason
+func (r FailureReason) String() string {
+	switch r {
+	case FailureReasonTimeout:
+		return "timeout"
+	case FailureReasonNoRoute:
+		return "no_route"
+	}
+
+	return "unknown"
+}
+
 // PaymentStatus represent current status of payment
 type PaymentStatus byte
 

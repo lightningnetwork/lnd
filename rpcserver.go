@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"crypto/tls"
 	"encoding/hex"
@@ -65,8 +64,6 @@ const (
 )
 
 var (
-	zeroHash [32]byte
-
 	// maxPaymentMSat is the maximum allowed payment currently permitted as
 	// defined in BOLT-002. This value depends on which chain is active.
 	// It is set to the value under the Bitcoin chain as default.
@@ -436,7 +433,9 @@ func newRPCServer(s *server, macService *macaroons.Service,
 			}
 			return info.Capacity, nil
 		},
-		FindRoutes: s.chanRouter.FindRoutes,
+		FindRoutes:      s.chanRouter.FindRoutes,
+		DebugHTLC:       cfg.DebugHTLC,
+		ActiveNetParams: activeNetParams.Params,
 	}
 
 	var (
@@ -2697,18 +2696,6 @@ func (r *rpcServer) savePayment(route *routing.Route,
 	return r.server.chanDB.AddPayment(payment)
 }
 
-// validatePayReqExpiry checks if the passed payment request has expired. In
-// the case it has expired, an error will be returned.
-func validatePayReqExpiry(payReq *zpay32.Invoice) error {
-	expiry := payReq.Expiry()
-	validUntil := payReq.Timestamp.Add(expiry)
-	if time.Now().After(validUntil) {
-		return fmt.Errorf("invoice expired. Valid until %v", validUntil)
-	}
-
-	return nil
-}
-
 // paymentStream enables different types of payment streams, such as:
 // lnrpc.Lightning_SendPaymentServer and lnrpc.Lightning_SendToRouteServer to
 // execute sendPayment. We use this struct as a sort of bridge to enable code
@@ -2854,7 +2841,8 @@ type rpcPaymentIntent struct {
 // dispatch a client from the information presented by an RPC client. There are
 // three ways a client can specify their payment details: a payment request,
 // via manual details, or via a complete route.
-func extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPaymentIntent, error) {
+func (r *rpcServer) extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (
+	rpcPaymentIntent, error) {
 	payIntent := rpcPaymentIntent{}
 
 	// If a route was specified, then we can use that directly.
@@ -2878,152 +2866,13 @@ func extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPaymentIntent, error
 		return payIntent, nil
 	}
 
-	return extractIntentFromSendRequest(rpcPayReq.SendRequest)
-}
-
-// extractIntentFromSendRequest attempts to parse the SendRequest details
-// required to dispatch a client from the information presented by an RPC
-// client.
-func extractIntentFromSendRequest(rpcPayReq *lnrpc.SendRequest) (
-	rpcPaymentIntent, error) {
-
-	payIntent := rpcPaymentIntent{}
-
-	// If there are no routes specified, pass along a outgoing channel
-	// restriction if specified.
-	if rpcPayReq.OutgoingChanId != 0 {
-		payIntent.OutgoingChannelID = &rpcPayReq.OutgoingChanId
-	}
-
-	// Take cltv limit from request if set.
-	if rpcPayReq.CltvLimit != 0 {
-		payIntent.CltvLimit = &rpcPayReq.CltvLimit
-	}
-
-	// If the payment request field isn't blank, then the details of the
-	// invoice are encoded entirely within the encoded payReq.  So we'll
-	// attempt to decode it, populating the payment accordingly.
-	if rpcPayReq.PaymentRequest != "" {
-		payReq, err := zpay32.Decode(
-			rpcPayReq.PaymentRequest, activeNetParams.Params,
-		)
-		if err != nil {
-			return payIntent, err
-		}
-
-		// Next, we'll ensure that this payreq hasn't already expired.
-		err = validatePayReqExpiry(payReq)
-		if err != nil {
-			return payIntent, err
-		}
-
-		// If the amount was not included in the invoice, then we let
-		// the payee specify the amount of satoshis they wish to send.
-		// We override the amount to pay with the amount provided from
-		// the payment request.
-		if payReq.MilliSat == nil {
-			if rpcPayReq.Amt == 0 {
-				return payIntent, errors.New("amount must be " +
-					"specified when paying a zero amount " +
-					"invoice")
-			}
-
-			payIntent.Amount = lnwire.NewMSatFromSatoshis(
-				btcutil.Amount(rpcPayReq.Amt),
-			)
-		} else {
-			payIntent.Amount = *payReq.MilliSat
-		}
-
-		// Calculate the fee limit that should be used for this payment.
-		payIntent.FeeLimit = calculateFeeLimit(
-			rpcPayReq.FeeLimit, payIntent.Amount,
-		)
-
-		copy(payIntent.PaymentHash[:], payReq.PaymentHash[:])
-		destKey := payReq.Destination.SerializeCompressed()
-		copy(payIntent.Target[:], destKey)
-
-		cltvDelta := uint16(payReq.MinFinalCLTVExpiry())
-		if cltvDelta != 0 {
-			payIntent.FinalCLTVDelta = &cltvDelta
-		}
-
-		payIntent.RouteHints = payReq.RouteHints
-
-		return payIntent, nil
-	}
-
-	// At this point, a destination MUST be specified, so we'll convert it
-	// into the proper representation now. The destination will either be
-	// encoded as raw bytes, or via a hex string.
-	var pubBytes []byte
-	if len(rpcPayReq.Dest) != 0 {
-		pubBytes = rpcPayReq.Dest
-	} else {
-		var err error
-		pubBytes, err = hex.DecodeString(rpcPayReq.DestString)
-		if err != nil {
-			return payIntent, err
-		}
-	}
-	if len(pubBytes) != 33 {
-		return payIntent, errors.New("invalid key length")
-	}
-	copy(payIntent.Target[:], pubBytes)
-
-	// Otherwise, If the payment request field was not specified
-	// (and a custom route wasn't specified), construct the payment
-	// from the other fields.
-	payIntent.Amount = lnwire.NewMSatFromSatoshis(
-		btcutil.Amount(rpcPayReq.Amt),
+	payment, err := r.routerBackend.ExtractIntentFromSendRequest(
+		rpcPayReq.SendRequest,
 	)
-
-	// Calculate the fee limit that should be used for this payment.
-	payIntent.FeeLimit = calculateFeeLimit(
-		rpcPayReq.FeeLimit, payIntent.Amount,
-	)
-
-	cltvDelta := uint16(rpcPayReq.FinalCltvDelta)
-	if cltvDelta != 0 {
-		payIntent.FinalCLTVDelta = &cltvDelta
+	if err != nil {
+		return payIntent, err
 	}
-
-	// If the user is manually specifying payment details, then the payment
-	// hash may be encoded as a string.
-	switch {
-	case rpcPayReq.PaymentHashString != "":
-		paymentHash, err := hex.DecodeString(
-			rpcPayReq.PaymentHashString,
-		)
-		if err != nil {
-			return payIntent, err
-		}
-
-		copy(payIntent.PaymentHash[:], paymentHash)
-
-	// If we're in debug HTLC mode, then all outgoing HTLCs will pay to the
-	// same debug rHash. Otherwise, we pay to the rHash specified within
-	// the RPC request.
-	case cfg.DebugHTLC && bytes.Equal(payIntent.PaymentHash[:], zeroHash[:]):
-		copy(payIntent.PaymentHash[:], invoices.DebugHash[:])
-
-	default:
-		copy(payIntent.PaymentHash[:], rpcPayReq.PaymentHash)
-	}
-
-	// Currently, within the bootstrap phase of the network, we limit the
-	// largest payment size allotted to (2^32) - 1 mSAT or 4.29 million
-	// satoshis.
-	if payIntent.Amount > maxPaymentMSat {
-		// In this case, we'll send an error to the caller, but
-		// continue our loop for the next payment.
-		return payIntent, fmt.Errorf("payment of %v is too large, "+
-			"max payment allowed is %v", payIntent.Amount,
-			maxPaymentMSat)
-
-	}
-
+	payIntent.LightningPayment = *payment
 	return payIntent, nil
 }
 
@@ -3168,7 +3017,7 @@ func (r *rpcServer) sendPayment(stream *paymentStream) error {
 				// fields. If the payment proto wasn't well
 				// formed, then we'll send an error reply and
 				// wait for the next payment.
-				payIntent, err := extractPaymentIntent(nextPayment)
+				payIntent, err := r.extractPaymentIntent(nextPayment)
 				if err != nil {
 					if err := stream.send(&lnrpc.SendResponse{
 						PaymentError: err.Error(),
@@ -3304,7 +3153,7 @@ func (r *rpcServer) sendPaymentSync(ctx context.Context,
 
 	// First we'll attempt to map the proto describing the next payment to
 	// an intent that we can pass to local sub-systems.
-	payIntent, err := extractPaymentIntent(nextPayment)
+	payIntent, err := r.extractPaymentIntent(nextPayment)
 	if err != nil {
 		return nil, err
 	}

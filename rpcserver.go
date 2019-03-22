@@ -2898,6 +2898,17 @@ func extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPaymentIntent, error
 		return payIntent, nil
 	}
 
+	return extractIntentFromSendRequest(rpcPayReq.SendRequest)
+}
+
+// extractIntentFromSendRequest attempts to parse the SendRequest details
+// required to dispatch a client from the information presented by an RPC
+// client.
+func extractIntentFromSendRequest(rpcPayReq *lnrpc.SendRequest) (
+	rpcPaymentIntent, error) {
+
+	payIntent := rpcPaymentIntent{}
+
 	// If there are no routes specified, pass along a outgoing channel
 	// restriction if specified.
 	if rpcPayReq.OutgoingChanId != 0 {

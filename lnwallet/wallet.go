@@ -971,7 +971,12 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 				txin.Witness[len(txin.Witness)-1],
 			)
 			if err != nil {
+				msg.err <- fmt.Errorf("cannot create script: "+
+					"%v", err)
+				msg.completeChan <- nil
+				return
 			}
+
 			output, err := l.Cfg.ChainIO.GetUtxo(
 				&txin.PreviousOutPoint,
 				pkScript, 0, l.quit,

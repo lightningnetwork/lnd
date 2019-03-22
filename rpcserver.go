@@ -2858,14 +2858,7 @@ func unmarshallSendToRouteRequest(req *lnrpc.SendToRouteRequest,
 // hints), or we'll get a fully populated route from the user that we'll pass
 // directly to the channel router for dispatching.
 type rpcPaymentIntent struct {
-	msat              lnwire.MilliSatoshi
-	feeLimit          lnwire.MilliSatoshi
-	cltvLimit         *uint32
-	dest              routing.Vertex
-	rHash             [32]byte
-	cltvDelta         uint16
-	routeHints        [][]zpay32.HopHint
-	outgoingChannelID *uint64
+	routing.LightningPayment
 
 	routes []*routing.Route
 }
@@ -2889,9 +2882,9 @@ func extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPaymentIntent, error
 				return payIntent, err
 			}
 
-			copy(payIntent.rHash[:], paymentHash)
+			copy(payIntent.PaymentHash[:], paymentHash)
 		} else {
-			copy(payIntent.rHash[:], rpcPayReq.PaymentHash)
+			copy(payIntent.PaymentHash[:], rpcPayReq.PaymentHash)
 		}
 
 		payIntent.routes = rpcPayReq.routes
@@ -2912,12 +2905,12 @@ func extractIntentFromSendRequest(rpcPayReq *lnrpc.SendRequest) (
 	// If there are no routes specified, pass along a outgoing channel
 	// restriction if specified.
 	if rpcPayReq.OutgoingChanId != 0 {
-		payIntent.outgoingChannelID = &rpcPayReq.OutgoingChanId
+		payIntent.OutgoingChannelID = &rpcPayReq.OutgoingChanId
 	}
 
 	// Take cltv limit from request if set.
 	if rpcPayReq.CltvLimit != 0 {
-		payIntent.cltvLimit = &rpcPayReq.CltvLimit
+		payIntent.CltvLimit = &rpcPayReq.CltvLimit
 	}
 
 	// If the payment request field isn't blank, then the details of the
@@ -2948,23 +2941,28 @@ func extractIntentFromSendRequest(rpcPayReq *lnrpc.SendRequest) (
 					"invoice")
 			}
 
-			payIntent.msat = lnwire.NewMSatFromSatoshis(
+			payIntent.Amount = lnwire.NewMSatFromSatoshis(
 				btcutil.Amount(rpcPayReq.Amt),
 			)
 		} else {
-			payIntent.msat = *payReq.MilliSat
+			payIntent.Amount = *payReq.MilliSat
 		}
 
 		// Calculate the fee limit that should be used for this payment.
-		payIntent.feeLimit = calculateFeeLimit(
-			rpcPayReq.FeeLimit, payIntent.msat,
+		payIntent.FeeLimit = calculateFeeLimit(
+			rpcPayReq.FeeLimit, payIntent.Amount,
 		)
 
-		copy(payIntent.rHash[:], payReq.PaymentHash[:])
+		copy(payIntent.PaymentHash[:], payReq.PaymentHash[:])
 		destKey := payReq.Destination.SerializeCompressed()
-		copy(payIntent.dest[:], destKey)
-		payIntent.cltvDelta = uint16(payReq.MinFinalCLTVExpiry())
-		payIntent.routeHints = payReq.RouteHints
+		copy(payIntent.Target[:], destKey)
+
+		cltvDelta := uint16(payReq.MinFinalCLTVExpiry())
+		if cltvDelta != 0 {
+			payIntent.FinalCLTVDelta = &cltvDelta
+		}
+
+		payIntent.RouteHints = payReq.RouteHints
 
 		return payIntent, nil
 	}
@@ -2985,21 +2983,24 @@ func extractIntentFromSendRequest(rpcPayReq *lnrpc.SendRequest) (
 	if len(pubBytes) != 33 {
 		return payIntent, errors.New("invalid key length")
 	}
-	copy(payIntent.dest[:], pubBytes)
+	copy(payIntent.Target[:], pubBytes)
 
 	// Otherwise, If the payment request field was not specified
 	// (and a custom route wasn't specified), construct the payment
 	// from the other fields.
-	payIntent.msat = lnwire.NewMSatFromSatoshis(
+	payIntent.Amount = lnwire.NewMSatFromSatoshis(
 		btcutil.Amount(rpcPayReq.Amt),
 	)
 
 	// Calculate the fee limit that should be used for this payment.
-	payIntent.feeLimit = calculateFeeLimit(
-		rpcPayReq.FeeLimit, payIntent.msat,
+	payIntent.FeeLimit = calculateFeeLimit(
+		rpcPayReq.FeeLimit, payIntent.Amount,
 	)
 
-	payIntent.cltvDelta = uint16(rpcPayReq.FinalCltvDelta)
+	cltvDelta := uint16(rpcPayReq.FinalCltvDelta)
+	if cltvDelta != 0 {
+		payIntent.FinalCLTVDelta = &cltvDelta
+	}
 
 	// If the user is manually specifying payment details, then the payment
 	// hash may be encoded as a string.
@@ -3012,26 +3013,26 @@ func extractIntentFromSendRequest(rpcPayReq *lnrpc.SendRequest) (
 			return payIntent, err
 		}
 
-		copy(payIntent.rHash[:], paymentHash)
+		copy(payIntent.PaymentHash[:], paymentHash)
 
 	// If we're in debug HTLC mode, then all outgoing HTLCs will pay to the
 	// same debug rHash. Otherwise, we pay to the rHash specified within
 	// the RPC request.
-	case cfg.DebugHTLC && bytes.Equal(payIntent.rHash[:], zeroHash[:]):
-		copy(payIntent.rHash[:], invoices.DebugHash[:])
+	case cfg.DebugHTLC && bytes.Equal(payIntent.PaymentHash[:], zeroHash[:]):
+		copy(payIntent.PaymentHash[:], invoices.DebugHash[:])
 
 	default:
-		copy(payIntent.rHash[:], rpcPayReq.PaymentHash)
+		copy(payIntent.PaymentHash[:], rpcPayReq.PaymentHash)
 	}
 
 	// Currently, within the bootstrap phase of the network, we limit the
 	// largest payment size allotted to (2^32) - 1 mSAT or 4.29 million
 	// satoshis.
-	if payIntent.msat > maxPaymentMSat {
+	if payIntent.Amount > maxPaymentMSat {
 		// In this case, we'll send an error to the caller, but
 		// continue our loop for the next payment.
 		return payIntent, fmt.Errorf("payment of %v is too large, "+
-			"max payment allowed is %v", payIntent.msat,
+			"max payment allowed is %v", payIntent.Amount,
 			maxPaymentMSat)
 
 	}
@@ -3065,28 +3066,12 @@ func (r *rpcServer) dispatchPaymentIntent(
 	// If a route was specified, then we'll pass the route directly to the
 	// router, otherwise we'll create a payment session to execute it.
 	if len(payIntent.routes) == 0 {
-		payment := &routing.LightningPayment{
-			Target:            payIntent.dest,
-			Amount:            payIntent.msat,
-			FeeLimit:          payIntent.feeLimit,
-			CltvLimit:         payIntent.cltvLimit,
-			PaymentHash:       payIntent.rHash,
-			RouteHints:        payIntent.routeHints,
-			OutgoingChannelID: payIntent.outgoingChannelID,
-		}
-
-		// If the final CLTV value was specified, then we'll use that
-		// rather than the default.
-		if payIntent.cltvDelta != 0 {
-			payment.FinalCLTVDelta = &payIntent.cltvDelta
-		}
-
 		preImage, route, routerErr = r.server.chanRouter.SendPayment(
-			payment,
+			&payIntent.LightningPayment,
 		)
 	} else {
 		payment := &routing.LightningPayment{
-			PaymentHash: payIntent.rHash,
+			PaymentHash: payIntent.PaymentHash,
 		}
 
 		preImage, route, routerErr = r.server.chanRouter.SendToRoute(
@@ -3108,7 +3093,7 @@ func (r *rpcServer) dispatchPaymentIntent(
 	if len(payIntent.routes) > 0 {
 		amt = route.TotalAmount - route.TotalFees
 	} else {
-		amt = payIntent.msat
+		amt = payIntent.Amount
 	}
 
 	// Save the completed payment to the database for record keeping
@@ -3200,7 +3185,7 @@ func (r *rpcServer) sendPayment(stream *paymentStream) error {
 				if err != nil {
 					if err := stream.send(&lnrpc.SendResponse{
 						PaymentError: err.Error(),
-						PaymentHash:  payIntent.rHash[:],
+						PaymentHash:  payIntent.PaymentHash[:],
 					}); err != nil {
 						select {
 						case errChan <- err:
@@ -3259,7 +3244,7 @@ func (r *rpcServer) sendPayment(stream *paymentStream) error {
 				case resp.Err != nil:
 					err := stream.send(&lnrpc.SendResponse{
 						PaymentError: resp.Err.Error(),
-						PaymentHash:  payIntent.rHash[:],
+						PaymentHash:  payIntent.PaymentHash[:],
 					})
 					if err != nil {
 						errChan <- err
@@ -3271,7 +3256,7 @@ func (r *rpcServer) sendPayment(stream *paymentStream) error {
 					MarshallRoute(resp.Route)
 
 				err := stream.send(&lnrpc.SendResponse{
-					PaymentHash:     payIntent.rHash[:],
+					PaymentHash:     payIntent.PaymentHash[:],
 					PaymentPreimage: resp.Preimage[:],
 					PaymentRoute:    marshalledRouted,
 				})
@@ -3347,12 +3332,12 @@ func (r *rpcServer) sendPaymentSync(ctx context.Context,
 	case resp.Err != nil:
 		return &lnrpc.SendResponse{
 			PaymentError: resp.Err.Error(),
-			PaymentHash:  payIntent.rHash[:],
+			PaymentHash:  payIntent.PaymentHash[:],
 		}, nil
 	}
 
 	return &lnrpc.SendResponse{
-		PaymentHash:     payIntent.rHash[:],
+		PaymentHash:     payIntent.PaymentHash[:],
 		PaymentPreimage: resp.Preimage[:],
 		PaymentRoute:    r.routerBackend.MarshallRoute(resp.Route),
 	}, nil

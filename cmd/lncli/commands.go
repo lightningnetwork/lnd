@@ -2295,6 +2295,58 @@ func sendPaymentRequest(client lnrpc.LightningClient, req *lnrpc.SendRequest) er
 	return nil
 }
 
+var lookupPaymentCommand = cli.Command{
+	Name:      "lookuppayment",
+	Category:  "Payments",
+	ArgsUsage: "hash",
+	Action:    actionDecorator(lookupPayment),
+}
+
+func lookupPayment(ctx *cli.Context) error {
+	args := ctx.Args()
+
+	conn := getClientConn(ctx, false)
+	defer conn.Close()
+
+	client := routerrpc.NewRouterClient(conn)
+
+	if !args.Present() {
+		return fmt.Errorf("hash argument missing")
+	}
+
+	hash, err := hex.DecodeString(args.First())
+	if err != nil {
+		return err
+	}
+
+	req := &lnrpc.PaymentHash{
+		RHash: hash,
+	}
+
+	stream, err := client.LookupPayment(context.Background(), req)
+	if err != nil {
+		return err
+	}
+
+	for {
+		status, err := stream.Recv()
+		if err != nil {
+			return err
+		}
+
+		fmt.Printf("State: %v\n", status.State)
+		if status.State == routerrpc.PaymentState_SUCCEEDED {
+			fmt.Printf("Preimage: %v\n", status.Preimage)
+		}
+
+		if status.State != routerrpc.PaymentState_UNKNOWN &&
+			status.State != routerrpc.PaymentState_IN_FLIGHT {
+
+			return nil
+		}
+	}
+}
+
 var payInvoiceCommand = cli.Command{
 	Name:      "payinvoice",
 	Category:  "Payments",
@@ -2372,25 +2424,9 @@ func payInvoice(ctx *cli.Context) error {
 		OutgoingChanId: ctx.Uint64("outgoing_chan_id"),
 		CltvLimit:      uint32(ctx.Int(cltvLimitFlag.Name)),
 	}
-	resp, err := client.SendPayment(context.Background(), req)
+	_, err = client.SendPayment(context.Background(), req)
 	if err != nil {
 		return err
-	}
-
-	printJSON(struct {
-		E string       `json:"payment_error"`
-		P string       `json:"payment_preimage"`
-		R *lnrpc.Route `json:"payment_route"`
-	}{
-		E: resp.PaymentErr,
-		P: hex.EncodeToString(resp.PreImage),
-	})
-
-	// If we get a payment error back, we pass an error
-	// up to main which eventually calls fatal() and returns
-	// with a non-zero exit code.
-	if resp.PaymentErr != "" {
-		return errors.New(resp.PaymentErr)
 	}
 
 	return nil

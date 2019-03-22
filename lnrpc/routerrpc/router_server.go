@@ -9,9 +9,12 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"sync"
+	"time"
 
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
 	"google.golang.org/grpc"
@@ -37,11 +40,15 @@ var (
 
 	// macPermissions maps RPC calls to the permissions they require.
 	macPermissions = map[string][]bakery.Op{
-		"/routerpc.Router/SendPayment": {{
+		"/routerrpc.Router/SendPayment": {{
 			Entity: "offchain",
 			Action: "write",
 		}},
-		"/routerpc.Router/EstimateRouteFee": {{
+		"/routerrpc.Router/LookupPayment": {{
+			Entity: "offchain",
+			Action: "write",
+		}},
+		"/routerrpc.Router/EstimateRouteFee": {{
 			Entity: "offchain",
 			Action: "read",
 		}},
@@ -53,10 +60,20 @@ var (
 	DefaultRouterMacFilename = "router.macaroon"
 )
 
+type paymentResult struct {
+	err      error
+	preimage lntypes.Preimage
+	route    *routing.Route
+}
+
 // Server is a stand alone sub RPC server which exposes functionality that
 // allows clients to route arbitrary payment through the Lightning Network.
 type Server struct {
 	cfg *Config
+
+	pendingPayments map[lntypes.Hash]chan paymentResult
+	outcomes        map[lntypes.Hash]paymentResult
+	lock            sync.Mutex
 }
 
 // A compile time check to ensure that Server fully implements the RouterServer
@@ -116,7 +133,9 @@ func New(cfg *Config) (*Server, lnrpc.MacaroonPerms, error) {
 	}
 
 	routerServer := &Server{
-		cfg: cfg,
+		cfg:             cfg,
+		pendingPayments: make(map[lntypes.Hash]chan paymentResult),
+		outcomes:        make(map[lntypes.Hash]paymentResult),
 	}
 
 	return routerServer, macPermissions, nil
@@ -173,15 +192,27 @@ func (s *Server) SendPayment(ctx context.Context,
 		return nil, err
 	}
 
-	preImage, _, err := s.cfg.Router.SendPayment(payment)
-	if err != nil {
-		return nil, err
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	if _, ok := s.pendingPayments[payment.PaymentHash]; ok {
+		return nil, errors.New("payment already in flight")
 	}
 
-	return &PaymentResponse{
-		PayHash:  payment.PaymentHash[:],
-		PreImage: preImage[:],
-	}, nil
+	c := make(chan paymentResult)
+	s.pendingPayments[payment.PaymentHash] = c
+
+	go func() {
+		preImage, route, err := s.cfg.Router.SendPayment(payment)
+
+		c <- paymentResult{
+			err:      err,
+			preimage: preImage,
+			route:    route,
+		}
+	}()
+
+	return &PaymentResponse{}, nil
 }
 
 // EstimateRouteFee allows callers to obtain a lower bound w.r.t how much it
@@ -224,4 +255,90 @@ func (s *Server) EstimateRouteFee(ctx context.Context,
 		RoutingFeeMsat: int64(routes[0].TotalFees),
 		TimeLockDelay:  int64(routes[0].TotalTimeLock),
 	}, nil
+}
+
+func (s *Server) LookupPayment(hash *lnrpc.PaymentHash,
+	stream Router_LookupPaymentServer) error {
+
+	paymentHash, err := lntypes.MakeHash(hash.RHash)
+	if err != nil {
+		return err
+	}
+
+	log.Debugf("LookupPayment %v", paymentHash)
+	s.lock.Lock()
+	c, ok := s.pendingPayments[paymentHash]
+	s.lock.Unlock()
+	if !ok {
+		// If payment is not yet initiated, poll for its start.
+		log.Debugf("LookupPayment %v unknown", paymentHash)
+		err := stream.Send(&PaymentStatus{
+			State: PaymentState_UNKNOWN,
+		})
+		if err != nil {
+			return err
+		}
+
+		log.Debugf("LookupPayment %v waiting for initiation", paymentHash)
+		initiated := make(chan struct{})
+		go func() {
+			var ok bool
+			for !ok {
+				time.Sleep(time.Second)
+				s.lock.Lock()
+				c, ok = s.pendingPayments[paymentHash]
+				s.lock.Unlock()
+			}
+			close(initiated)
+		}()
+		select {
+		case <-initiated:
+		case <-stream.Context().Done():
+			log.Debugf("LookupPayment %v canceled", paymentHash)
+			return stream.Context().Err()
+		}
+	}
+
+	// If outcome is already available, fake a channel with that outcome.
+	s.lock.Lock()
+	result, ok := s.outcomes[paymentHash]
+	s.lock.Unlock()
+	if ok {
+		c = make(chan paymentResult, 1)
+		c <- result
+	} else {
+		log.Debugf("LookupPayment %v in flight", paymentHash)
+		err = stream.Send(&PaymentStatus{
+			State: PaymentState_IN_FLIGHT,
+		})
+		if err != nil {
+			return err
+		}
+	}
+
+	select {
+	case result := <-c:
+		s.lock.Lock()
+		s.outcomes[paymentHash] = result
+		s.lock.Unlock()
+
+		if result.err == nil {
+			log.Debugf("LookupPayment %v success", paymentHash)
+			route := s.cfg.RouterBackend.MarshallRoute(result.route)
+			return stream.Send(&PaymentStatus{
+				State:    PaymentState_SUCCEEDED,
+				Preimage: result.preimage[:],
+				Route:    route,
+			})
+		}
+
+		// TODO: Interpret result.err and return proper final state.
+		log.Debugf("LookupPayment %v failed", paymentHash)
+		return stream.Send(&PaymentStatus{
+			State: PaymentState_FAILED_NO_ROUTE,
+		})
+	case <-stream.Context().Done():
+		log.Debugf("LookupPayment canceled", paymentHash)
+		return stream.Context().Err()
+	}
 }

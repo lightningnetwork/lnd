@@ -16,6 +16,8 @@ import (
 	"sync"
 	"syscall"
 
+	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
+
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/golang/protobuf/jsonpb"
@@ -2341,8 +2343,11 @@ var payInvoiceCommand = cli.Command{
 
 func payInvoice(ctx *cli.Context) error {
 	args := ctx.Args()
-	client, cleanUp := getClient(ctx)
-	defer cleanUp()
+
+	conn := getClientConn(ctx, false)
+	defer conn.Close()
+
+	client := routerrpc.NewRouterClient(conn)
 
 	var payReq string
 	switch {
@@ -2359,12 +2364,12 @@ func payInvoice(ctx *cli.Context) error {
 		return err
 	}
 
-	if !ctx.Bool("force") {
-		err = confirmPayReq(ctx, client, payReq)
-		if err != nil {
-			return err
-		}
-	}
+	// if !ctx.Bool("force") {
+	// 	err = confirmPayReq(ctx, client, payReq)
+	// 	if err != nil {
+	// 		return err
+	// 	}
+	// }
 
 	req := &lnrpc.SendRequest{
 		PaymentRequest: payReq,
@@ -2373,8 +2378,28 @@ func payInvoice(ctx *cli.Context) error {
 		OutgoingChanId: ctx.Uint64("outgoing_chan_id"),
 		CltvLimit:      uint32(ctx.Int(cltvLimitFlag.Name)),
 	}
+	resp, err := client.SendPayment(context.Background(), req)
+	if err != nil {
+		return err
+	}
 
-	return sendPaymentRequest(client, req)
+	printJSON(struct {
+		E string       `json:"payment_error"`
+		P string       `json:"payment_preimage"`
+		R *lnrpc.Route `json:"payment_route"`
+	}{
+		E: resp.PaymentErr,
+		P: hex.EncodeToString(resp.PreImage),
+	})
+
+	// If we get a payment error back, we pass an error
+	// up to main which eventually calls fatal() and returns
+	// with a non-zero exit code.
+	if resp.PaymentErr != "" {
+		return errors.New(resp.PaymentErr)
+	}
+
+	return nil
 }
 
 var sendToRouteCommand = cli.Command{

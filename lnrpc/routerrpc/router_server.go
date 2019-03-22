@@ -10,15 +10,18 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
-	"github.com/lightningnetwork/lnd/lntypes"
-
-	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/routing/route"
+
+	"github.com/btcsuite/btcutil"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 )
 
@@ -52,6 +55,10 @@ var (
 		"/routerrpc.Router/SendToRoute": {{
 			Entity: "offchain",
 			Action: "write",
+		}},
+		"/routerrpc.Router/LookupPayment": {{
+			Entity: "offchain",
+			Action: "read",
 		}},
 		"/routerrpc.Router/EstimateRouteFee": {{
 			Entity: "offchain",
@@ -178,22 +185,26 @@ func (s *Server) RegisterWithRootServer(grpcServer *grpc.Server) error {
 // PaymentRequest, then an error will be returned. Otherwise, the payment
 // pre-image, along with the final route will be returned.
 func (s *Server) SendPayment(ctx context.Context,
-	req *PaymentRequest) (*PaymentResponse, error) {
+	req *SendPaymentRequest) (*SendPaymentResponse, error) {
 
 	payment, err := s.cfg.RouterBackend.extractIntentFromSendRequest(req)
 	if err != nil {
 		return nil, err
 	}
 
-	preImage, _, err := s.cfg.Router.SendPayment(payment)
+	// Launch the payment in a goroutine. It is no problem that we discard
+	// the error, because errors will also be recorded by control tower and
+	// available through LookupPayment. Exception to this are internal
+	// errors, but those should not happen.
+	err = s.cfg.Router.SendPaymentAsync(payment)
 	if err != nil {
+		log.Debugf("SendPayment async result for hash %x: %v",
+			payment.PaymentHash, err)
+
 		return nil, err
 	}
 
-	return &PaymentResponse{
-		PayHash:  payment.PaymentHash[:],
-		PreImage: preImage[:],
-	}, nil
+	return &SendPaymentResponse{}, nil
 }
 
 // EstimateRouteFee allows callers to obtain a lower bound w.r.t how much it
@@ -395,4 +406,80 @@ func marshallChannelUpdate(update *lnwire.ChannelUpdate) *ChannelUpdate {
 		BaseFee:         update.BaseFee,
 		FeeRate:         update.FeeRate,
 	}
+}
+
+// LookupPayments returns a stream of payment state updates. The stream is
+// closed when the payment completes.
+func (s *Server) LookupPayment(request *LookupPaymentRequest,
+	stream Router_LookupPaymentServer) error {
+
+	paymentHash, err := lntypes.MakeHash(request.PaymentHash)
+	if err != nil {
+		return err
+	}
+
+	log.Debugf("LookupPayment called for payment %v", paymentHash)
+
+	// Subscribe to the outcome of this payment.
+	inFlight, events, err := s.cfg.RouterBackend.Tower.SubscribePayment(
+		paymentHash,
+	)
+	switch err {
+	case nil:
+	case channeldb.ErrPaymentNotInitiated:
+		return status.Error(codes.NotFound, err.Error())
+	default:
+		return err
+	}
+
+	// If it is in flight, send a state update to the client. LookupPayment
+	// is expected to always send the current payment state immediately.
+	if inFlight {
+		err = stream.Send(&PaymentStatus{
+			State: PaymentState_IN_FLIGHT,
+		})
+		if err != nil {
+			return err
+		}
+	}
+
+	// Wait for the outcome of the payment. For payments that have already
+	// completed, the event should already be waiting on the channel.
+	select {
+	case event := <-events:
+		// Marshall event to rpc type.
+		var status PaymentStatus
+
+		if event.Success {
+			status.State = PaymentState_SUCCEEDED
+			status.Preimage = event.Preimage[:]
+			status.Route = s.cfg.RouterBackend.MarshallRoute(
+				event.Route,
+			)
+		} else {
+			switch event.FailureReason {
+
+			case channeldb.FailureReasonTimeout:
+				status.State = PaymentState_FAILED_TIMEOUT
+
+			case channeldb.FailureReasonNoRoute:
+				status.State = PaymentState_FAILED_NO_ROUTE
+
+			default:
+				return errors.New("unknown failure reason")
+			}
+		}
+
+		// Send event to the client.
+		err = stream.Send(&status)
+		if err != nil {
+			return err
+		}
+
+	case <-stream.Context().Done():
+		log.Debugf("LookupPayment %v canceled", paymentHash)
+		return stream.Context().Err()
+	}
+
+	return nil
 }

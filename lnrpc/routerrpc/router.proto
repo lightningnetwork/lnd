@@ -6,7 +6,7 @@ package routerrpc;
 
 option go_package = "github.com/lightningnetwork/lnd/lnrpc/routerrpc";
 
-message PaymentRequest {
+message SendPaymentRequest {
     /// The identity pubkey of the payment recipient
     bytes dest = 1;
 
@@ -60,23 +60,53 @@ message PaymentRequest {
     int32 cltv_limit = 9;
 }
 
-message PaymentResponse {
-    /**
-    The payment hash that we paid to. Provided so callers are able to map
-    responses (which may be streaming) back to their original requests.
-    */
-    bytes pay_hash = 1;
-
-    /**
-    The pre-image of the payment successfully completed.
-    */
-    bytes pre_image = 2;
-
-    /**
-    If not an empty string, then a string representation of the payment error.
-    */
-    string payment_err = 3;
+message SendPaymentResponse {
 }
+
+message LookupPaymentRequest {
+    /// The hash of the payment to look up.
+    bytes payment_hash = 1;
+}
+
+enum PaymentState {
+    /**
+    Payment is still in flight.
+    */
+    IN_FLIGHT = 0;
+
+    /**
+    Payment completed successfully.
+    */
+    SUCCEEDED = 1;
+
+    /**
+    There are more routes to try, but the payment timeout was exceeded.
+    */
+    FAILED_TIMEOUT = 2;
+    
+    /**
+    All possible routes were tried and failed permanently. Or were no
+    routes to the destination at all.
+    */
+    FAILED_NO_ROUTE = 3;
+}
+
+
+message PaymentStatus {
+    /// Current state the payment is in.
+    PaymentState state = 1;
+
+    /**
+    The pre-image of the payment when state is SUCCEEDED.
+    */
+    bytes preimage = 2;
+
+    /**
+    The taken route when state is SUCCEEDED.
+    */
+    lnrpc.Route route = 3;
+}
+
 
 message RouteFeeRequest {
     /**
@@ -229,12 +259,20 @@ message ChannelUpdate {
 service Router {
     /**
     SendPayment attempts to route a payment described by the passed
-    PaymentRequest to the final destination. If we are unable to route the
-    payment, or cannot find a route that satisfies the constraints in the
-    PaymentRequest, then an error will be returned. Otherwise, the payment
-    pre-image, along with the final route will be returned.
+    PaymentRequest to the final destination. The call returns immediately after
+    it has been assured that there is not already a different payment for the
+    same hash in flight. Further status information can be obtained through a
+    LookupPayment stream.
     */
-    rpc SendPayment(PaymentRequest) returns (PaymentResponse);
+    rpc SendPayment(SendPaymentRequest) returns (SendPaymentResponse);
+
+    /**
+    LookupPayment returns an update stream for the payment identified by the
+    payment hash. A first update will always be send over the stream
+    immediately. If the payment is not known, it will report state UNKNOWN.
+    */
+    rpc LookupPayment(LookupPaymentRequest) returns (stream PaymentStatus);
+
 
     /**
     EstimateRouteFee allows callers to obtain a lower bound w.r.t how much it

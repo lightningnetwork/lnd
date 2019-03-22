@@ -45,6 +45,8 @@ type RouterBackend struct {
 	// that we receive payment requests that send to destinations on our
 	// network.
 	ActiveNetParams *chaincfg.Params
+
+	Tower routing.ControlTower
 }
 
 // QueryRoutes attempts to query the daemons' Channel Router for a possible
@@ -334,8 +336,8 @@ func (r *RouterBackend) UnmarshallRoute(rpcroute *lnrpc.Route) (
 // extractIntentFromSendRequest attempts to parse the SendRequest details
 // required to dispatch a client from the information presented by an RPC
 // client.
-func (r *RouterBackend) extractIntentFromSendRequest(rpcPayReq *PaymentRequest) (
-	*routing.LightningPayment, error) {
+func (r *RouterBackend) extractIntentFromSendRequest(
+	rpcPayReq *SendPaymentRequest) (*routing.LightningPayment, error) {
 
 	payIntent := &routing.LightningPayment{}
 

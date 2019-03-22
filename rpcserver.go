@@ -476,6 +476,7 @@ func newRPCServer(s *server, macService *macaroons.Service,
 		},
 		FindRoute:       s.chanRouter.FindRoute,
 		ActiveNetParams: activeNetParams.Params,
+		Tower:           s.controlTower,
 	}
 
 	var (

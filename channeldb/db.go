@@ -899,7 +899,7 @@ type ChannelShell struct {
 // well. This method is idempotent, so repeated calls with the same set of
 // channel shells won't modify the database after the initial call.
 func (d *DB) RestoreChannelShells(channelShells ...*ChannelShell) error {
-	chanGraph := ChannelGraph{d}
+	chanGraph := d.ChannelGraph()
 
 	return d.Update(func(tx *bbolt.Tx) error {
 		for _, channelShell := range channelShells {

@@ -10,6 +10,7 @@ import (
 	"io"
 	"math"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec"
@@ -149,6 +150,9 @@ const (
 type ChannelGraph struct {
 	db *DB
 
+	edgeMu    sync.Mutex
+	edgeCache *edgeCache
+
 	// TODO(roasbeef): store and update bloom filter to reduce disk access
 	// due to current gossip model
 	//  * LRU cache for edges?
@@ -158,7 +162,8 @@ type ChannelGraph struct {
 // returned instance has its own unique edge cache.
 func NewChannelGraph(db *DB) *ChannelGraph {
 	return &ChannelGraph{
-		db: db,
+		db:        db,
+		edgeCache: newEdgeCache(20000),
 	}
 }
 
@@ -491,9 +496,19 @@ func (c *ChannelGraph) deleteLightningNode(nodes *bbolt.Bucket,
 // the channel supports. The chanPoint and chanID are used to uniquely identify
 // the edge globally within the database.
 func (c *ChannelGraph) AddChannelEdge(edge *ChannelEdgeInfo) error {
-	return c.db.Batch(func(tx *bbolt.Tx) error {
+	c.edgeMu.Lock()
+	defer c.edgeMu.Unlock()
+
+	err := c.db.Batch(func(tx *bbolt.Tx) error {
 		return c.addChannelEdge(tx, edge)
 	})
+	if err != nil {
+		return err
+	}
+
+	c.edgeCache.remove(edge.ChannelID)
+
+	return nil
 }
 
 // addChannelEdge is the private form of AddChannelEdge that allows callers to
@@ -599,6 +614,15 @@ func (c *ChannelGraph) addChannelEdge(tx *bbolt.Tx, edge *ChannelEdgeInfo) error
 func (c *ChannelGraph) HasChannelEdge(chanID uint64) (time.Time, time.Time, bool, error) {
 	// TODO(roasbeef): check internal bloom filter first
 
+	c.edgeMu.Lock()
+	defer c.edgeMu.Unlock()
+
+	if entry, ok := c.edgeCache.get(chanID); ok {
+		upd1Time := time.Unix(int64(entry.upd1Time), 0)
+		upd2Time := time.Unix(int64(entry.upd2Time), 0)
+		return upd1Time, upd2Time, entry.exists, nil
+	}
+
 	var (
 		node1UpdateTime time.Time
 		node2UpdateTime time.Time
@@ -652,6 +676,12 @@ func (c *ChannelGraph) HasChannelEdge(chanID uint64) (time.Time, time.Time, bool
 		return time.Time{}, time.Time{}, exists, err
 	}
 
+	c.edgeCache.insert(chanID, edgeCacheEntry{
+		upd1Time: uint32(node1UpdateTime.Unix()),
+		upd2Time: uint32(node2UpdateTime.Unix()),
+		exists:   exists,
+	})
+
 	return node1UpdateTime, node2UpdateTime, exists, nil
 }
 
@@ -702,6 +732,9 @@ const (
 // the target block are returned if the function succeeds without error.
 func (c *ChannelGraph) PruneGraph(spentOutputs []*wire.OutPoint,
 	blockHash *chainhash.Hash, blockHeight uint32) ([]*ChannelEdgeInfo, error) {
+
+	c.edgeMu.Lock()
+	defer c.edgeMu.Unlock()
 
 	var chansClosed []*ChannelEdgeInfo
 
@@ -801,6 +834,10 @@ func (c *ChannelGraph) PruneGraph(spentOutputs []*wire.OutPoint,
 	})
 	if err != nil {
 		return nil, err
+	}
+
+	for _, channel := range chansClosed {
+		c.edgeCache.remove(channel.ChannelID)
 	}
 
 	return chansClosed, nil
@@ -953,6 +990,9 @@ func (c *ChannelGraph) DisconnectBlockAtHeight(height uint32) ([]*ChannelEdgeInf
 	var chanIDEnd [8]byte
 	byteOrder.PutUint64(chanIDEnd[:], endShortChanID.ToUint64())
 
+	c.edgeMu.Lock()
+	defer c.edgeMu.Unlock()
+
 	// Keep track of the channels that are removed from the graph.
 	var removedChans []*ChannelEdgeInfo
 
@@ -1028,6 +1068,10 @@ func (c *ChannelGraph) DisconnectBlockAtHeight(height uint32) ([]*ChannelEdgeInf
 		return nil, err
 	}
 
+	for _, channel := range removedChans {
+		c.edgeCache.remove(channel.ChannelID)
+	}
+
 	return removedChans, nil
 }
 
@@ -1082,7 +1126,17 @@ func (c *ChannelGraph) DeleteChannelEdge(chanPoint *wire.OutPoint) error {
 	// channels
 	// TODO(roasbeef): don't delete both edges?
 
-	return c.db.Batch(func(tx *bbolt.Tx) error {
+	c.edgeMu.Lock()
+	defer c.edgeMu.Unlock()
+
+	var chanID uint64
+	err := c.db.Batch(func(tx *bbolt.Tx) error {
+		var err error
+		chanID, err = getChanID(tx, chanPoint)
+		if err != nil {
+			return err
+		}
+
 		// First grab the edges bucket which houses the information
 		// we'd like to delete
 		edges := tx.Bucket(edgeBucket)
@@ -1111,6 +1165,13 @@ func (c *ChannelGraph) DeleteChannelEdge(chanPoint *wire.OutPoint) error {
 			edges, edgeIndex, chanIndex, nodes, chanPoint,
 		)
 	})
+	if err != nil {
+		return err
+	}
+
+	c.edgeCache.remove(chanID)
+
+	return nil
 }
 
 // ChannelID attempt to lookup the 8-byte compact channel ID which maps to the
@@ -1118,33 +1179,39 @@ func (c *ChannelGraph) DeleteChannelEdge(chanPoint *wire.OutPoint) error {
 // the database, then ErrEdgeNotFound is returned.
 func (c *ChannelGraph) ChannelID(chanPoint *wire.OutPoint) (uint64, error) {
 	var chanID uint64
+	if err := c.db.View(func(tx *bbolt.Tx) error {
+		var err error
+		chanID, err = getChanID(tx, chanPoint)
+		return err
+	}); err != nil {
+		return 0, err
+	}
 
+	return chanID, nil
+}
+
+// getChanID returns the assigned channel ID for a given channel point.
+func getChanID(tx *bbolt.Tx, chanPoint *wire.OutPoint) (uint64, error) {
 	var b bytes.Buffer
 	if err := writeOutpoint(&b, chanPoint); err != nil {
 		return 0, nil
 	}
 
-	if err := c.db.View(func(tx *bbolt.Tx) error {
-		edges := tx.Bucket(edgeBucket)
-		if edges == nil {
-			return ErrGraphNoEdgesFound
-		}
-		chanIndex := edges.Bucket(channelPointBucket)
-		if chanIndex == nil {
-			return ErrGraphNoEdgesFound
-		}
-
-		chanIDBytes := chanIndex.Get(b.Bytes())
-		if chanIDBytes == nil {
-			return ErrEdgeNotFound
-		}
-
-		chanID = byteOrder.Uint64(chanIDBytes)
-
-		return nil
-	}); err != nil {
-		return 0, err
+	edges := tx.Bucket(edgeBucket)
+	if edges == nil {
+		return 0, ErrGraphNoEdgesFound
 	}
+	chanIndex := edges.Bucket(channelPointBucket)
+	if chanIndex == nil {
+		return 0, ErrGraphNoEdgesFound
+	}
+
+	chanIDBytes := chanIndex.Get(b.Bytes())
+	if chanIDBytes == nil {
+		return 0, ErrEdgeNotFound
+	}
+
+	chanID := byteOrder.Uint64(chanIDBytes)
 
 	return chanID, nil
 }
@@ -1654,9 +1721,19 @@ func delChannelByEdge(edges *bbolt.Bucket, edgeIndex *bbolt.Bucket,
 // determined by the lexicographical ordering of the identity public keys of
 // the nodes on either side of the channel.
 func (c *ChannelGraph) UpdateEdgePolicy(edge *ChannelEdgePolicy) error {
-	return c.db.Batch(func(tx *bbolt.Tx) error {
+	c.edgeMu.Lock()
+	defer c.edgeMu.Unlock()
+
+	err := c.db.Batch(func(tx *bbolt.Tx) error {
 		return updateEdgePolicy(tx, edge)
 	})
+	if err != nil {
+		return err
+	}
+
+	c.edgeCache.remove(edge.ChannelID)
+
+	return nil
 }
 
 // updateEdgePolicy attempts to update an edge's policy within the relevant

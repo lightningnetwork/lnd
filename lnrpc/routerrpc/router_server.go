@@ -179,7 +179,9 @@ func (s *Server) SendPayment(ctx context.Context,
 
 	// Now that we know the payment request is present, we'll attempt to
 	// decode it in order to parse out all the parameters for the route.
-	payReq, err := zpay32.Decode(req.PayReq, s.cfg.ActiveNetParams)
+	payReq, err := zpay32.Decode(
+		req.PayReq, s.cfg.RouterBackend.ActiveNetParams,
+	)
 	if err != nil {
 		return nil, err
 	}

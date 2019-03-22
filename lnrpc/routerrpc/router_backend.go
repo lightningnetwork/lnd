@@ -1,15 +1,24 @@
 package routerrpc
 
 import (
+	"bytes"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"time"
 
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcutil"
+	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
+	"github.com/lightningnetwork/lnd/zpay32"
 	context "golang.org/x/net/context"
+)
+
+var (
+	zeroHash [32]byte
 )
 
 // RouterBackend contains the backend implementation of the router rpc sub
@@ -31,6 +40,16 @@ type RouterBackend struct {
 		amt lnwire.MilliSatoshi, restrictions *routing.RestrictParams,
 		numPaths uint32, finalExpiry ...uint16) (
 		[]*routing.Route, error)
+
+	// Activate the debug htlc mode. With the debug HTLC mode, all payments
+	// sent use a pre-determined payment hash.
+	DebugHTLC bool
+
+	// ActiveNetParams are the network parameters of the primary network
+	// that the route is operating on. This is necessary so we can ensure
+	// that we receive payment requests that send to destinations on our
+	// network.
+	ActiveNetParams *chaincfg.Params
 }
 
 // QueryRoutes attempts to query the daemons' Channel Router for a possible
@@ -235,4 +254,161 @@ func (r *RouterBackend) MarshallRoute(route *routing.Route) *lnrpc.Route {
 	}
 
 	return resp
+}
+
+// ExtractIntentFromSendRequest attempts to parse the SendRequest details
+// required to dispatch a client from the information presented by an RPC
+// client.
+func (r *RouterBackend) ExtractIntentFromSendRequest(rpcPayReq *lnrpc.SendRequest) (
+	*routing.LightningPayment, error) {
+
+	payIntent := &routing.LightningPayment{}
+
+	// If there are no routes specified, pass along a outgoing channel
+	// restriction if specified.
+	if rpcPayReq.OutgoingChanId != 0 {
+		payIntent.OutgoingChannelID = &rpcPayReq.OutgoingChanId
+	}
+
+	// Take cltv limit from request if set.
+	if rpcPayReq.CltvLimit != 0 {
+		payIntent.CltvLimit = &rpcPayReq.CltvLimit
+	}
+
+	// If the payment request field isn't blank, then the details of the
+	// invoice are encoded entirely within the encoded payReq.  So we'll
+	// attempt to decode it, populating the payment accordingly.
+	if rpcPayReq.PaymentRequest != "" {
+		payReq, err := zpay32.Decode(
+			rpcPayReq.PaymentRequest, r.ActiveNetParams,
+		)
+		if err != nil {
+			return payIntent, err
+		}
+
+		// Next, we'll ensure that this payreq hasn't already expired.
+		err = validatePayReqExpiry(payReq)
+		if err != nil {
+			return payIntent, err
+		}
+
+		// If the amount was not included in the invoice, then we let
+		// the payee specify the amount of satoshis they wish to send.
+		// We override the amount to pay with the amount provided from
+		// the payment request.
+		if payReq.MilliSat == nil {
+			if rpcPayReq.Amt == 0 {
+				return payIntent, errors.New("amount must be " +
+					"specified when paying a zero amount " +
+					"invoice")
+			}
+
+			payIntent.Amount = lnwire.NewMSatFromSatoshis(
+				btcutil.Amount(rpcPayReq.Amt),
+			)
+		} else {
+			payIntent.Amount = *payReq.MilliSat
+		}
+
+		// Calculate the fee limit that should be used for this payment.
+		payIntent.FeeLimit = calculateFeeLimit(
+			rpcPayReq.FeeLimit, payIntent.Amount,
+		)
+
+		copy(payIntent.PaymentHash[:], payReq.PaymentHash[:])
+		destKey := payReq.Destination.SerializeCompressed()
+		copy(payIntent.Target[:], destKey)
+
+		cltvDelta := uint16(payReq.MinFinalCLTVExpiry())
+		if cltvDelta != 0 {
+			payIntent.FinalCLTVDelta = &cltvDelta
+		}
+		payIntent.RouteHints = payReq.RouteHints
+
+		return payIntent, nil
+	}
+
+	// At this point, a destination MUST be specified, so we'll convert it
+	// into the proper representation now. The destination will either be
+	// encoded as raw bytes, or via a hex string.
+	var pubBytes []byte
+	if len(rpcPayReq.Dest) != 0 {
+		pubBytes = rpcPayReq.Dest
+	} else {
+		var err error
+		pubBytes, err = hex.DecodeString(rpcPayReq.DestString)
+		if err != nil {
+			return payIntent, err
+		}
+	}
+	if len(pubBytes) != 33 {
+		return payIntent, errors.New("invalid key length")
+	}
+	copy(payIntent.Target[:], pubBytes)
+
+	// Otherwise, If the payment request field was not specified
+	// (and a custom route wasn't specified), construct the payment
+	// from the other fields.
+	payIntent.Amount = lnwire.NewMSatFromSatoshis(
+		btcutil.Amount(rpcPayReq.Amt),
+	)
+
+	// Calculate the fee limit that should be used for this payment.
+	payIntent.FeeLimit = calculateFeeLimit(
+		rpcPayReq.FeeLimit, payIntent.Amount,
+	)
+
+	cltvDelta := uint16(rpcPayReq.FinalCltvDelta)
+	if cltvDelta != 0 {
+		payIntent.FinalCLTVDelta = &cltvDelta
+	}
+
+	// If the user is manually specifying payment details, then the payment
+	// hash may be encoded as a string.
+	switch {
+	case rpcPayReq.PaymentHashString != "":
+		paymentHash, err := hex.DecodeString(
+			rpcPayReq.PaymentHashString,
+		)
+		if err != nil {
+			return payIntent, err
+		}
+
+		copy(payIntent.PaymentHash[:], paymentHash)
+
+	// If we're in debug HTLC mode, then all outgoing HTLCs will pay to the
+	// same debug rHash. Otherwise, we pay to the rHash specified within
+	// the RPC request.
+	case r.DebugHTLC && bytes.Equal(payIntent.PaymentHash[:], zeroHash[:]):
+		copy(payIntent.PaymentHash[:], invoices.DebugHash[:])
+
+	default:
+		copy(payIntent.PaymentHash[:], rpcPayReq.PaymentHash)
+	}
+
+	// Currently, within the bootstrap phase of the network, we limit the
+	// largest payment size allotted to (2^32) - 1 mSAT or 4.29 million
+	// satoshis.
+	if payIntent.Amount > r.MaxPaymentMSat {
+		// In this case, we'll send an error to the caller, but
+		// continue our loop for the next payment.
+		return payIntent, fmt.Errorf("payment of %v is too large, "+
+			"max payment allowed is %v", payIntent.Amount,
+			r.MaxPaymentMSat)
+
+	}
+
+	return payIntent, nil
+}
+
+// validatePayReqExpiry checks if the passed payment request has expired. In
+// the case it has expired, an error will be returned.
+func validatePayReqExpiry(payReq *zpay32.Invoice) error {
+	expiry := payReq.Expiry()
+	validUntil := payReq.Timestamp.Add(expiry)
+	if time.Now().After(validUntil) {
+		return fmt.Errorf("invoice expired. Valid until %v", validUntil)
+	}
+
+	return nil
 }

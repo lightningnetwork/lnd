@@ -395,9 +395,9 @@ type rpcServer struct {
 	// connect to the main gRPC server to proxy all incoming requests.
 	tlsCfg *tls.Config
 
-	// RouterBackend contains the backend implementation of the router
+	// routerBackend contains the backend implementation of the router
 	// rpc sub server.
-	RouterBackend *routerrpc.RouterBackend
+	routerBackend *routerrpc.RouterBackend
 
 	quit chan struct{}
 }
@@ -417,6 +417,28 @@ func newRPCServer(s *server, macService *macaroons.Service,
 	invoiceRegistry *invoices.InvoiceRegistry,
 	tlsCfg *tls.Config) (*rpcServer, error) {
 
+	// Set up router rpc backend.
+	channelGraph := s.chanDB.ChannelGraph()
+	selfNode, err := channelGraph.SourceNode()
+	if err != nil {
+		return nil, err
+	}
+	graph := s.chanDB.ChannelGraph()
+	routerBackend := &routerrpc.RouterBackend{
+		MaxPaymentMSat: maxPaymentMSat,
+		SelfNode:       selfNode.PubKeyBytes,
+		FetchChannelCapacity: func(chanID uint64) (btcutil.Amount,
+			error) {
+
+			info, _, _, err := graph.FetchChannelEdgesByID(chanID)
+			if err != nil {
+				return 0, err
+			}
+			return info.Capacity, nil
+		},
+		FindRoutes: s.chanRouter.FindRoutes,
+	}
+
 	var (
 		subServers     []lnrpc.SubServer
 		subServerPerms []lnrpc.MacaroonPerms
@@ -425,10 +447,10 @@ func newRPCServer(s *server, macService *macaroons.Service,
 	// Before we create any of the sub-servers, we need to ensure that all
 	// the dependencies they need are properly populated within each sub
 	// server configuration struct.
-	err := subServerCgs.PopulateDependencies(
+	err = subServerCgs.PopulateDependencies(
 		s.cc, networkDir, macService, atpl, invoiceRegistry,
 		s.htlcSwitch, activeNetParams.Params, s.chanRouter,
-		s.nodeSigner, s.chanDB,
+		routerBackend, s.nodeSigner, s.chanDB,
 	)
 	if err != nil {
 		return nil, err
@@ -483,28 +505,6 @@ func newRPCServer(s *server, macService *macaroons.Service,
 		)
 	}
 
-	// Set up router rpc backend.
-	channelGraph := s.chanDB.ChannelGraph()
-	selfNode, err := channelGraph.SourceNode()
-	if err != nil {
-		return nil, err
-	}
-	graph := s.chanDB.ChannelGraph()
-	RouterBackend := &routerrpc.RouterBackend{
-		MaxPaymentMSat: maxPaymentMSat,
-		SelfNode:       selfNode.PubKeyBytes,
-		FetchChannelCapacity: func(chanID uint64) (btcutil.Amount,
-			error) {
-
-			info, _, _, err := graph.FetchChannelEdgesByID(chanID)
-			if err != nil {
-				return 0, err
-			}
-			return info.Capacity, nil
-		},
-		FindRoutes: s.chanRouter.FindRoutes,
-	}
-
 	// Finally, with all the pre-set up complete,  we can create the main
 	// gRPC server, and register the main lnrpc server along side.
 	grpcServer := grpc.NewServer(serverOpts...)
@@ -514,7 +514,7 @@ func newRPCServer(s *server, macService *macaroons.Service,
 		tlsCfg:         tlsCfg,
 		grpcServer:     grpcServer,
 		server:         s,
-		RouterBackend:  RouterBackend,
+		routerBackend:  routerBackend,
 		quit:           make(chan struct{}, 1),
 	}
 	lnrpc.RegisterLightningServer(grpcServer, rootRPCServer)
@@ -3241,7 +3241,9 @@ func (r *rpcServer) sendPayment(stream *paymentStream) error {
 					return
 				}
 
-				marshalledRouted := r.RouterBackend.MarshallRoute(resp.Route)
+				marshalledRouted := r.routerBackend.
+					MarshallRoute(resp.Route)
+
 				err := stream.send(&lnrpc.SendResponse{
 					PaymentHash:     payIntent.rHash[:],
 					PaymentPreimage: resp.Preimage[:],
@@ -3326,7 +3328,7 @@ func (r *rpcServer) sendPaymentSync(ctx context.Context,
 	return &lnrpc.SendResponse{
 		PaymentHash:     payIntent.rHash[:],
 		PaymentPreimage: resp.Preimage[:],
-		PaymentRoute:    r.RouterBackend.MarshallRoute(resp.Route),
+		PaymentRoute:    r.routerBackend.MarshallRoute(resp.Route),
 	}, nil
 }
 
@@ -3827,7 +3829,7 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 func (r *rpcServer) QueryRoutes(ctx context.Context,
 	in *lnrpc.QueryRoutesRequest) (*lnrpc.QueryRoutesResponse, error) {
 
-	return r.RouterBackend.QueryRoutes(ctx, in)
+	return r.routerBackend.QueryRoutes(ctx, in)
 }
 
 // unmarshallHopByChannelLookup unmarshalls an rpc hop for which the pub key is

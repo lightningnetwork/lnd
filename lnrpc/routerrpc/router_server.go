@@ -9,13 +9,11 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
-	"github.com/lightningnetwork/lnd/zpay32"
 	"google.golang.org/grpc"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 )
@@ -168,60 +166,20 @@ func (s *Server) RegisterWithRootServer(grpcServer *grpc.Server) error {
 // PaymentRequest, then an error will be returned. Otherwise, the payment
 // pre-image, along with the final route will be returned.
 func (s *Server) SendPayment(ctx context.Context,
-	req *PaymentRequest) (*PaymentResponse, error) {
+	req *lnrpc.SendRequest) (*PaymentResponse, error) {
 
-	switch {
-	// If the payment request isn't populated, then we won't be able to
-	// even attempt a payment.
-	case req.PayReq == "":
-		return nil, fmt.Errorf("a valid payment request MUST be specified")
-	}
-
-	// Now that we know the payment request is present, we'll attempt to
-	// decode it in order to parse out all the parameters for the route.
-	payReq, err := zpay32.Decode(
-		req.PayReq, s.cfg.RouterBackend.ActiveNetParams,
-	)
+	payment, err := s.cfg.RouterBackend.ExtractIntentFromSendRequest(req)
 	if err != nil {
 		return nil, err
 	}
 
-	// Atm, this service does not support invoices that don't have their
-	// value fully specified.
-	if payReq.MilliSat == nil {
-		return nil, fmt.Errorf("zero value invoices are not supported")
-	}
-
-	var destination routing.Vertex
-	copy(destination[:], payReq.Destination.SerializeCompressed())
-
-	// Now that all the information we need has been parsed, we'll map this
-	// proto request into a proper request that our backing router can
-	// understand.
-	finalDelta := uint16(payReq.MinFinalCLTVExpiry())
-	payment := routing.LightningPayment{
-		Target:            destination,
-		Amount:            *payReq.MilliSat,
-		FeeLimit:          lnwire.MilliSatoshi(req.FeeLimitSat),
-		PaymentHash:       *payReq.PaymentHash,
-		FinalCLTVDelta:    &finalDelta,
-		PayAttemptTimeout: time.Second * time.Duration(req.TimeoutSeconds),
-		RouteHints:        payReq.RouteHints,
-	}
-
-	// Pin to an outgoing channel if specified.
-	if req.OutgoingChannelId != 0 {
-		chanID := uint64(req.OutgoingChannelId)
-		payment.OutgoingChannelID = &chanID
-	}
-
-	preImage, _, err := s.cfg.Router.SendPayment(&payment)
+	preImage, _, err := s.cfg.Router.SendPayment(payment)
 	if err != nil {
 		return nil, err
 	}
 
 	return &PaymentResponse{
-		PayHash:  (*payReq.PaymentHash)[:],
+		PayHash:  payment.PaymentHash[:],
 		PreImage: preImage[:],
 	}, nil
 }

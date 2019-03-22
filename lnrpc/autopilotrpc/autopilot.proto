@@ -50,6 +50,9 @@ message ModifyStatusResponse {}
 
 message QueryScoresRequest{
     repeated string pubkeys = 1 [json_name = "pubkeys"];
+
+    /// If set, we will ignore the local channel state when calculating scores.
+    bool ignore_local_state = 2 [json_name = "no_state"];
 }
 
 message QueryScoresResponse {

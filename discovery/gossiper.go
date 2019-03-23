@@ -1108,16 +1108,20 @@ func (d *AuthenticatedGossiper) InitSyncState(syncPeer lnpeer.Peer,
 
 	encoding := lnwire.EncodingSortedPlain
 	syncer := newGossipSyncer(gossipSyncerCfg{
-		chainHash:       d.cfg.ChainHash,
-		peerPub:         nodeID,
-		syncChanUpdates: recvUpdates,
-		channelSeries:   d.cfg.ChanSeries,
-		encodingType:    encoding,
-		chunkSize:       encodingTypeToChunkSize[encoding],
+		chainHash:     d.cfg.ChainHash,
+		peerPub:       nodeID,
+		channelSeries: d.cfg.ChanSeries,
+		encodingType:  encoding,
+		chunkSize:     encodingTypeToChunkSize[encoding],
 		sendToPeer: func(msgs ...lnwire.Message) error {
 			return syncPeer.SendMessageLazy(false, msgs...)
 		},
 	})
+
+	if !recvUpdates {
+		syncer.syncType = uint32(PassiveSync)
+	}
+
 	d.peerSyncers[nodeID] = syncer
 
 	syncer.Start()

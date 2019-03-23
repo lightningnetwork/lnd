@@ -120,10 +120,9 @@ func newTestSyncer(hID lnwire.ShortChannelID,
 
 	msgChan := make(chan []lnwire.Message, 20)
 	cfg := gossipSyncerCfg{
-		syncChanUpdates: true,
-		channelSeries:   newMockChannelGraphTimeSeries(hID),
-		encodingType:    encodingType,
-		chunkSize:       chunkSize,
+		channelSeries: newMockChannelGraphTimeSeries(hID),
+		encodingType:  encodingType,
+		chunkSize:     chunkSize,
 		sendToPeer: func(msgs ...lnwire.Message) error {
 			msgChan <- msgs
 			return nil

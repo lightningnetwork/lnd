@@ -966,7 +966,8 @@ func (g *GossipSyncer) FilterGossipMsgs(msgs ...msgWithSenders) {
 
 	passesFilter := func(timeStamp uint32) bool {
 		t := time.Unix(int64(timeStamp), 0)
-		return t.After(startTime) && t.Before(endTime)
+		return t.Equal(startTime) ||
+			(t.After(startTime) && t.Before(endTime))
 	}
 
 	msgsToSend := make([]lnwire.Message, 0, len(msgs))

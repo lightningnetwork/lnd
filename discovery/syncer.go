@@ -437,13 +437,7 @@ func (g *GossipSyncer) channelGraphSyncer() {
 			// we want to receive real-time channel updates, we'll
 			// do so now.
 			if g.localUpdateHorizon == nil && syncType == ActiveSync {
-				// TODO(roasbeef): query DB for most recent
-				// update?
-
-				// We'll give an hours room in our update
-				// horizon to ensure we don't miss any newer
-				// items.
-				updateHorizon := time.Now().Add(-time.Hour * 1)
+				updateHorizon := time.Now()
 				log.Infof("GossipSyncer(%x): applying "+
 					"gossipFilter(start=%v)",
 					g.cfg.peerPub[:], updateHorizon)

@@ -402,7 +402,7 @@ func (p *peer) initGossipSync() {
 		//
 		// TODO(roasbeef): craft s.t. we only get updates from a few
 		// peers
-		recvUpdates := !cfg.NoChanUpdates
+		recvUpdates := cfg.NumGraphSyncPeers != 0
 
 		// Register the this peer's for gossip syncer with the gossiper.
 		// This is blocks synchronously to ensure the gossip syncer is

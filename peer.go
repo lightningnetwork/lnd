@@ -396,19 +396,16 @@ func (p *peer) initGossipSync() {
 		srvrLog.Infof("Negotiated chan series queries with %x",
 			p.pubKeyBytes[:])
 
-		// We'll only request channel updates from the remote peer if
-		// its enabled in the config, or we're already getting updates
-		// from enough peers.
-		//
-		// TODO(roasbeef): craft s.t. we only get updates from a few
-		// peers
-		recvUpdates := cfg.NumGraphSyncPeers != 0
-
 		// Register the this peer's for gossip syncer with the gossiper.
 		// This is blocks synchronously to ensure the gossip syncer is
 		// registered with the gossiper before attempting to read
 		// messages from the remote peer.
-		p.server.authGossiper.InitSyncState(p, recvUpdates)
+		//
+		// TODO(wilmer): Only sync updates from non-channel peers. This
+		// requires an improved version of the current network
+		// bootstrapper to ensure we can find and connect to non-channel
+		// peers.
+		p.server.authGossiper.InitSyncState(p)
 
 	// If the remote peer has the initial sync feature bit set, then we'll
 	// being the synchronization protocol to exchange authenticated channel

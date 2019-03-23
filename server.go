@@ -636,10 +636,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		return nil, fmt.Errorf("can't create router: %v", err)
 	}
 
-	chanSeries := discovery.NewChanSeries(
-		s.chanDB.ChannelGraph(),
-	)
-
+	chanSeries := discovery.NewChanSeries(s.chanDB.ChannelGraph())
 	gossipMessageStore, err := discovery.NewMessageStore(s.chanDB)
 	if err != nil {
 		return nil, err
@@ -650,19 +647,23 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 	}
 
 	s.authGossiper = discovery.New(discovery.Config{
-		Router:            s.chanRouter,
-		Notifier:          s.cc.chainNotifier,
-		ChainHash:         *activeNetParams.GenesisHash,
-		Broadcast:         s.BroadcastMessage,
-		ChanSeries:        chanSeries,
-		NotifyWhenOnline:  s.NotifyWhenOnline,
-		NotifyWhenOffline: s.NotifyWhenOffline,
-		ProofMatureDelta:  0,
-		TrickleDelay:      time.Millisecond * time.Duration(cfg.TrickleDelay),
-		RetransmitDelay:   time.Minute * 30,
-		WaitingProofStore: waitingProofStore,
-		MessageStore:      gossipMessageStore,
-		AnnSigner:         s.nodeSigner,
+		Router:                    s.chanRouter,
+		Notifier:                  s.cc.chainNotifier,
+		ChainHash:                 *activeNetParams.GenesisHash,
+		Broadcast:                 s.BroadcastMessage,
+		ChanSeries:                chanSeries,
+		NotifyWhenOnline:          s.NotifyWhenOnline,
+		NotifyWhenOffline:         s.NotifyWhenOffline,
+		ProofMatureDelta:          0,
+		TrickleDelay:              time.Millisecond * time.Duration(cfg.TrickleDelay),
+		RetransmitDelay:           time.Minute * 30,
+		WaitingProofStore:         waitingProofStore,
+		MessageStore:              gossipMessageStore,
+		AnnSigner:                 s.nodeSigner,
+		RotateTicker:              ticker.New(discovery.DefaultSyncerRotationInterval),
+		HistoricalSyncTicker:      ticker.New(discovery.DefaultHistoricalSyncInterval),
+		ActiveSyncerTimeoutTicker: ticker.New(discovery.DefaultActiveSyncerTimeout),
+		NumActiveSyncers:          cfg.NumGraphSyncPeers,
 	},
 		s.identityPriv.PubKey(),
 	)
@@ -2622,7 +2623,7 @@ func (s *server) peerTerminationWatcher(p *peer, ready chan struct{}) {
 
 	// We'll also inform the gossiper that this peer is no longer active,
 	// so we don't need to maintain sync state for it any longer.
-	s.authGossiper.PruneSyncState(pubKey)
+	s.authGossiper.PruneSyncState(p.PubKey())
 
 	// Tell the switch to remove all links associated with this peer.
 	// Passing nil as the target link indicates that all links associated

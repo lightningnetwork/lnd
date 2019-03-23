@@ -8,6 +8,7 @@ import (
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/lnpeer"
+	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -55,29 +56,6 @@ func assertMsgsSent(t *testing.T, msgChan chan lnwire.Message,
 			}
 		case <-time.After(time.Second):
 			t.Fatal("reliable sender did not send message to peer")
-		}
-	}
-}
-
-// waitPredicate is a helper test function that will wait for a timeout period
-// of time until the passed predicate returns true.
-func waitPredicate(t *testing.T, timeout time.Duration, pred func() bool) {
-	t.Helper()
-
-	const pollInterval = 20 * time.Millisecond
-	exitTimer := time.After(timeout)
-
-	for {
-		<-time.After(pollInterval)
-
-		select {
-		case <-exitTimer:
-			t.Fatalf("predicate not satisfied after timeout")
-		default:
-		}
-
-		if pred() {
-			return
 		}
 	}
 }
@@ -262,27 +240,23 @@ func TestReliableSenderStaleMessages(t *testing.T) {
 	// message store since it is seen as stale and has been sent at least
 	// once. Once the message is removed, the peerHandler should be torn
 	// down as there are no longer any pending messages within the store.
-	var predErr error
-	waitPredicate(t, time.Second, func() bool {
+	err := lntest.WaitNoError(func() error {
 		msgs, err := reliableSender.cfg.MessageStore.MessagesForPeer(
 			peerPubKey,
 		)
 		if err != nil {
-			predErr = fmt.Errorf("unable to retrieve messages for "+
+			return fmt.Errorf("unable to retrieve messages for "+
 				"peer: %v", err)
-			return false
 		}
 		if len(msgs) != 0 {
-			predErr = fmt.Errorf("expected to not find any "+
+			return fmt.Errorf("expected to not find any "+
 				"messages for peer, found %d", len(msgs))
-			return false
 		}
 
-		predErr = nil
-		return true
-	})
-	if predErr != nil {
-		t.Fatal(predErr)
+		return nil
+	}, time.Second)
+	if err != nil {
+		t.Fatal(err)
 	}
 
 	// Override IsMsgStale to no longer mark messages as stale.

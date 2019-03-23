@@ -75,7 +75,7 @@ type Config struct {
 	Router routing.ChannelGraphSource
 
 	// ChanSeries is an interfaces that provides access to a time series
-	// view of the current known channel graph. Each gossipSyncer enabled
+	// view of the current known channel graph. Each GossipSyncer enabled
 	// peer will utilize this in order to create and respond to channel
 	// graph time series queries.
 	ChanSeries ChannelGraphTimeSeries
@@ -218,7 +218,7 @@ type AuthenticatedGossiper struct {
 	// directly to their gossiper, rather than broadcasting them. With this
 	// change, we ensure we filter out all updates properly.
 	syncerMtx   sync.RWMutex
-	peerSyncers map[routing.Vertex]*gossipSyncer
+	peerSyncers map[routing.Vertex]*GossipSyncer
 
 	// reliableSender is a subsystem responsible for handling reliable
 	// message send requests to peers. This should only be used for channels
@@ -243,7 +243,7 @@ func New(cfg Config, selfKey *btcec.PublicKey) *AuthenticatedGossiper {
 		prematureChannelUpdates: make(map[uint64][]*networkMsg),
 		channelMtx:              multimutex.NewMutex(),
 		recentRejects:           make(map[uint64]struct{}),
-		peerSyncers:             make(map[routing.Vertex]*gossipSyncer),
+		peerSyncers:             make(map[routing.Vertex]*GossipSyncer),
 	}
 
 	gossiper.reliableSender = newReliableSender(&reliableSenderCfg{
@@ -463,7 +463,7 @@ func (d *AuthenticatedGossiper) ProcessRemoteAnnouncement(msg lnwire.Message,
 	errChan := make(chan error, 1)
 
 	// For messages in the known set of channel series queries, we'll
-	// dispatch the message directly to the gossipSyncer, and skip the main
+	// dispatch the message directly to the GossipSyncer, and skip the main
 	// processing loop.
 	switch m := msg.(type) {
 	case *lnwire.QueryShortChanIDs,
@@ -488,7 +488,7 @@ func (d *AuthenticatedGossiper) ProcessRemoteAnnouncement(msg lnwire.Message,
 		return errChan
 
 	// If a peer is updating its current update horizon, then we'll dispatch
-	// that directly to the proper gossipSyncer.
+	// that directly to the proper GossipSyncer.
 	case *lnwire.GossipTimestampRange:
 		syncer, err := d.findGossipSyncer(peer.IdentityKey())
 		if err != nil {
@@ -590,10 +590,10 @@ type msgWithSenders struct {
 }
 
 // mergeSyncerMap is used to merge the set of senders of a particular message
-// with peers that we have an active gossipSyncer with. We do this to ensure
+// with peers that we have an active GossipSyncer with. We do this to ensure
 // that we don't broadcast messages to any peers that we have active gossip
 // syncers for.
-func (m *msgWithSenders) mergeSyncerMap(syncers map[routing.Vertex]*gossipSyncer) {
+func (m *msgWithSenders) mergeSyncerMap(syncers map[routing.Vertex]*GossipSyncer) {
 	for peerPub := range syncers {
 		m.senders[peerPub] = struct{}{}
 	}
@@ -817,7 +817,7 @@ func (d *deDupedAnnouncements) Emit() []msgWithSenders {
 // incoming message. If a gossip syncer isn't found, then one will be created
 // for the target peer.
 func (d *AuthenticatedGossiper) findGossipSyncer(pub *btcec.PublicKey) (
-	*gossipSyncer, error) {
+	*GossipSyncer, error) {
 
 	target := routing.NewVertex(pub)
 
@@ -1029,7 +1029,7 @@ func (d *AuthenticatedGossiper) networkHandler() {
 			// syncers, we'll collect their pubkeys so we can avoid
 			// sending them the full message blast below.
 			d.syncerMtx.RLock()
-			syncerPeers := make(map[routing.Vertex]*gossipSyncer)
+			syncerPeers := make(map[routing.Vertex]*GossipSyncer)
 			for peerPub, syncer := range d.peerSyncers {
 				syncerPeers[peerPub] = syncer
 			}
@@ -1104,7 +1104,7 @@ func (d *AuthenticatedGossiper) InitSyncState(syncPeer lnpeer.Peer,
 		return
 	}
 
-	log.Infof("Creating new gossipSyncer for peer=%x", nodeID[:])
+	log.Infof("Creating new GossipSyncer for peer=%x", nodeID[:])
 
 	encoding := lnwire.EncodingSortedPlain
 	syncer := newGossipSyncer(gossipSyncerCfg{
@@ -1125,12 +1125,12 @@ func (d *AuthenticatedGossiper) InitSyncState(syncPeer lnpeer.Peer,
 
 // PruneSyncState is called by outside sub-systems once a peer that we were
 // previously connected to has been disconnected. In this case we can stop the
-// existing gossipSyncer assigned to the peer and free up resources.
+// existing GossipSyncer assigned to the peer and free up resources.
 func (d *AuthenticatedGossiper) PruneSyncState(peer *btcec.PublicKey) {
 	d.syncerMtx.Lock()
 	defer d.syncerMtx.Unlock()
 
-	log.Infof("Removing gossipSyncer for peer=%x",
+	log.Infof("Removing GossipSyncer for peer=%x",
 		peer.SerializeCompressed())
 
 	vertex := routing.NewVertex(peer)

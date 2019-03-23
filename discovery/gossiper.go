@@ -1107,8 +1107,9 @@ func (d *AuthenticatedGossiper) InitSyncState(syncPeer lnpeer.Peer,
 	log.Infof("Creating new gossipSyncer for peer=%x", nodeID[:])
 
 	encoding := lnwire.EncodingSortedPlain
-	syncer := newGossiperSyncer(gossipSyncerCfg{
+	syncer := newGossipSyncer(gossipSyncerCfg{
 		chainHash:       d.cfg.ChainHash,
+		peerPub:         nodeID,
 		syncChanUpdates: recvUpdates,
 		channelSeries:   d.cfg.ChanSeries,
 		encodingType:    encoding,
@@ -1117,7 +1118,6 @@ func (d *AuthenticatedGossiper) InitSyncState(syncPeer lnpeer.Peer,
 			return syncPeer.SendMessageLazy(false, msgs...)
 		},
 	})
-	copy(syncer.peerPub[:], nodeID[:])
 	d.peerSyncers[nodeID] = syncer
 
 	syncer.Start()

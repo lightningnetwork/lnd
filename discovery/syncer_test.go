@@ -130,7 +130,7 @@ func newTestSyncer(hID lnwire.ShortChannelID,
 		},
 		delayedQueryReplyInterval: 2 * time.Second,
 	}
-	syncer := newGossiperSyncer(cfg)
+	syncer := newGossipSyncer(cfg)
 
 	return msgChan, syncer, cfg.channelSeries.(*mockChannelGraphTimeSeries)
 }

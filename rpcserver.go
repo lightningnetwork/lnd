@@ -34,6 +34,7 @@ import (
 	"github.com/lightningnetwork/lnd/chanbackup"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channelnotifier"
+	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/invoices"
@@ -2012,9 +2013,36 @@ func (r *rpcServer) ListPeers(ctx context.Context,
 			satRecv += int64(c.TotalMSatReceived.ToSatoshis())
 		}
 
-		nodePub := serverPeer.addr.IdentityKey.SerializeCompressed()
+		nodePub := serverPeer.PubKey()
+
+		// Retrieve the peer's sync type. If we don't currently have a
+		// syncer for the peer, then we'll default to a passive sync.
+		// This can happen if the RPC is called while a peer is
+		// initializing.
+		syncer, ok := r.server.authGossiper.SyncManager().GossipSyncer(
+			nodePub,
+		)
+
+		var lnrpcSyncType lnrpc.Peer_SyncType
+		if !ok {
+			rpcsLog.Warnf("Gossip syncer for peer=%x not found",
+				nodePub)
+			lnrpcSyncType = lnrpc.Peer_UNKNOWN_SYNC
+		} else {
+			syncType := syncer.SyncType()
+			switch syncType {
+			case discovery.ActiveSync:
+				lnrpcSyncType = lnrpc.Peer_ACTIVE_SYNC
+			case discovery.PassiveSync:
+				lnrpcSyncType = lnrpc.Peer_PASSIVE_SYNC
+			default:
+				return nil, fmt.Errorf("unhandled sync type %v",
+					syncType)
+			}
+		}
+
 		peer := &lnrpc.Peer{
-			PubKey:    hex.EncodeToString(nodePub),
+			PubKey:    hex.EncodeToString(nodePub[:]),
 			Address:   serverPeer.conn.RemoteAddr().String(),
 			Inbound:   serverPeer.inbound,
 			BytesRecv: atomic.LoadUint64(&serverPeer.bytesReceived),
@@ -2022,6 +2050,7 @@ func (r *rpcServer) ListPeers(ctx context.Context,
 			SatSent:   satSent,
 			SatRecv:   satRecv,
 			PingTime:  serverPeer.PingTime(),
+			SyncType:  lnrpcSyncType,
 		}
 
 		resp.Peers = append(resp.Peers, peer)

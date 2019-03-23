@@ -13,7 +13,9 @@ import (
 )
 
 const (
-	defaultEncoding = lnwire.EncodingSortedPlain
+	defaultEncoding   = lnwire.EncodingSortedPlain
+	latestKnownHeight = 1337
+	startHeight       = latestKnownHeight - chanRangeQueryBuffer
 )
 
 var (
@@ -1938,5 +1940,145 @@ func TestGossipSyncerAlreadySynced(t *testing.T) {
 
 			}
 		}
+	}
+}
+
+// TestGossipSyncerSyncTransitions ensures that the gossip syncer properly
+// carries out its duties when accepting a new sync transition request.
+func TestGossipSyncerSyncTransitions(t *testing.T) {
+	t.Parallel()
+
+	assertMsgSent := func(t *testing.T, msgChan chan []lnwire.Message,
+		msg lnwire.Message) {
+
+		t.Helper()
+
+		var msgSent lnwire.Message
+		select {
+		case msgs := <-msgChan:
+			if len(msgs) != 1 {
+				t.Fatal("expected to send a single message at "+
+					"a time, got %d", len(msgs))
+			}
+			msgSent = msgs[0]
+		case <-time.After(time.Second):
+			t.Fatalf("expected to send %T message", msg)
+		}
+
+		if !reflect.DeepEqual(msgSent, msg) {
+			t.Fatalf("expected to send message: %v\ngot: %v",
+				spew.Sdump(msg), spew.Sdump(msgSent))
+		}
+	}
+
+	tests := []struct {
+		name          string
+		entrySyncType SyncerType
+		finalSyncType SyncerType
+		assert        func(t *testing.T, msgChan chan []lnwire.Message,
+			syncer *GossipSyncer)
+	}{
+		{
+			name:          "active to passive",
+			entrySyncType: ActiveSync,
+			finalSyncType: PassiveSync,
+			assert: func(t *testing.T, msgChan chan []lnwire.Message,
+				g *GossipSyncer) {
+
+				// When transitioning from active to passive, we
+				// should expect to see a new local update
+				// horizon sent to the remote peer indicating
+				// that it would not like to receive any future
+				// updates.
+				assertMsgSent(t, msgChan, &lnwire.GossipTimestampRange{
+					FirstTimestamp: uint32(zeroTimestamp.Unix()),
+					TimestampRange: 0,
+				})
+
+				syncState := g.syncState()
+				if syncState != chansSynced {
+					t.Fatalf("expected syncerState %v, "+
+						"got %v", chansSynced,
+						syncState)
+				}
+			},
+		},
+		{
+			name:          "passive to active",
+			entrySyncType: PassiveSync,
+			finalSyncType: ActiveSync,
+			assert: func(t *testing.T, msgChan chan []lnwire.Message,
+				g *GossipSyncer) {
+
+				// When transitioning from historical to active,
+				// we should expect to see a new local update
+				// horizon sent to the remote peer indicating
+				// that it would like to receive any future
+				// updates.
+				firstTimestamp := uint32(time.Now().Unix())
+				assertMsgSent(t, msgChan, &lnwire.GossipTimestampRange{
+					FirstTimestamp: firstTimestamp,
+					TimestampRange: math.MaxUint32,
+				})
+
+				// The local update horizon should be followed
+				// by a QueryChannelRange message sent to the
+				// remote peer requesting all channels it
+				// knows of from the highest height the syncer
+				// knows of.
+				assertMsgSent(t, msgChan, &lnwire.QueryChannelRange{
+					FirstBlockHeight: startHeight,
+					NumBlocks:        math.MaxUint32 - startHeight,
+				})
+
+				syncState := g.syncState()
+				if syncState != waitingQueryRangeReply {
+					t.Fatalf("expected syncerState %v, "+
+						"got %v", waitingQueryRangeReply,
+						syncState)
+				}
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			// We'll start each test by creating our syncer. We'll
+			// initialize it with a state of chansSynced, as that's
+			// the only time when it can process sync transitions.
+			msgChan, syncer, _ := newTestSyncer(
+				lnwire.ShortChannelID{
+					BlockHeight: latestKnownHeight,
+				},
+				defaultEncoding, defaultChunkSize,
+			)
+			syncer.setSyncState(chansSynced)
+
+			// We'll set the initial syncType to what the test
+			// demands.
+			syncer.setSyncType(test.entrySyncType)
+
+			// We'll then start the syncer in order to process the
+			// request.
+			syncer.Start()
+			defer syncer.Stop()
+
+			syncer.ProcessSyncTransition(test.finalSyncType)
+
+			// The syncer should now have the expected final
+			// SyncerType that the test expects.
+			syncType := syncer.SyncType()
+			if syncType != test.finalSyncType {
+				t.Fatalf("expected syncType %v, got %v",
+					test.finalSyncType, syncType)
+			}
+
+			// Finally, we'll run a set of assertions for each test
+			// to ensure the syncer performed its expected duties
+			// after processing its sync transition.
+			test.assert(t, msgChan, syncer)
+		})
 	}
 }

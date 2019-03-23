@@ -16,9 +16,13 @@ import (
 )
 
 var (
-	testOperation = bakery.Op{
+	testReadOperation = bakery.Op{
 		Entity: "testEntity",
 		Action: "read",
+	}
+	testWriteOperation = bakery.Op{
+		Entity: "testEntity",
+		Action: "write",
 	}
 	defaultPw = []byte("hello")
 )
@@ -69,7 +73,7 @@ func TestNewService(t *testing.T) {
 
 	// Third, check if the created service can bake macaroons.
 	macaroon, err := service.Oven.NewMacaroon(nil, bakery.LatestVersion,
-		nil, testOperation)
+		nil, testReadOperation)
 	if err != nil {
 		t.Fatalf("Error creating macaroon from service: %v", err)
 	}
@@ -112,7 +116,7 @@ func TestValidateMacaroon(t *testing.T) {
 
 	// Then, create a new macaroon that we can serialize.
 	macaroon, err := service.Oven.NewMacaroon(nil, bakery.LatestVersion,
-		nil, testOperation)
+		nil, testReadOperation)
 	if err != nil {
 		t.Fatalf("Error creating macaroon from service: %v", err)
 	}
@@ -129,8 +133,23 @@ func TestValidateMacaroon(t *testing.T) {
 	mockContext := metadata.NewIncomingContext(context.Background(), md)
 
 	// Finally, validate the macaroon against the required permissions.
-	err = service.ValidateMacaroon(mockContext, []bakery.Op{testOperation})
+	err = service.ValidateMacaroon(mockContext, []bakery.Op{testReadOperation})
 	if err != nil {
 		t.Fatalf("Error validating the macaroon: %v", err)
+	}
+
+	// Also test the behavior with an invalid macaroon
+	// (here the macaroon with read permission is tested against write permission).
+	err = service.ValidateMacaroon(mockContext, []bakery.Op{testWriteOperation})
+	if err == nil {
+		t.Fatal("An error should have occurred during validating the macaroon")
+	}
+
+	// Also test the behavior without any macaroon.
+	md = metadata.New(map[string]string{})
+	mockContext = metadata.NewIncomingContext(context.Background(), md)
+	err = service.ValidateMacaroon(mockContext, []bakery.Op{testReadOperation})
+	if err == nil {
+		t.Fatal("An error should have occurred during validating the macaroon")
 	}
 }

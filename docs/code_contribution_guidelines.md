@@ -612,9 +612,8 @@ Rejoice as you will now be listed as a [contributor](https://github.com/lightnin
 
 #### 6.1. Contribution Checklist
 
-- [&nbsp;&nbsp;] All changes are Go version 1.11 compliant
-- [&nbsp;&nbsp;] The code being submitted is commented according to the
-  [Code Documentation and Commenting](#CodeDocumentation) section
+- [&nbsp;&nbsp;] All changes are Go version 1.12 compliant
+- [&nbsp;&nbsp;] The code being submitted is commented according to [Code Documentation and Commenting](#CodeDocumentation)
 - [&nbsp;&nbsp;] For new code: Code is accompanied by tests which exercise both
   the positive and negative (error paths) conditions (if applicable)
 - [&nbsp;&nbsp;] For bug fixes: Code is accompanied by new tests which trigger
@@ -632,7 +631,7 @@ Rejoice as you will now be listed as a [contributor](https://github.com/lightnin
 - [&nbsp;&nbsp;] All commits build properly and pass tests. Only in exceptional
   cases it can be justifiable to violate this condition. In that case, the
   reason should be stated in the commit message.
-- [&nbsp;&nbsp;] Commits have a logical structure (see section 4.5).
+- [&nbsp;&nbsp;] Commits have a logical structure according to [Ideal Git Commit Structure](#IdealGitCommitStructure).
 
 <a name="Licensing" />
 

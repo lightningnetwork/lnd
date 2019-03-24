@@ -4033,7 +4033,7 @@ func (r *rpcServer) GetNetworkInfo(ctx context.Context,
 	//  * also add median channel size
 	netInfo := &lnrpc.NetworkInfo{
 		MaxOutDegree:         maxChanOut,
-		AvgOutDegree:         float64(numChannels) / float64(numNodes),
+		AvgOutDegree:         float64(2*numChannels) / float64(numNodes),
 		NumNodes:             numNodes,
 		NumChannels:          numChannels,
 		TotalNetworkCapacity: int64(totalNetworkCapacity),

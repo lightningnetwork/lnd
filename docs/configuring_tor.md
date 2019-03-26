@@ -3,8 +3,6 @@
 2. [Getting Started](#getting-started)
 3. [Tor Stream Isolation](#tor-stream-isolation)
 4. [Listening for Inbound Connections](#listening-for-inbound-connections)
-	1. [v2 Onion Services](#v2-onion-services)
-	2. [v3 Onion Services](#v3-onion-services)
 
 ## Overview
 
@@ -110,6 +108,8 @@ v2 or v3 onion services:
 ```shell
 ⛰  ./lnd --tor.active --tor.v3
 ```
+See [Listening for Inbound Connections](#listening-for-inbound-connections) for
+more info about allowing inbound connections via Tor.
 
 Outbound support only can also be used with:
 ```shell

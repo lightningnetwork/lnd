@@ -45,7 +45,7 @@ const (
 	idleTimeout = 5 * time.Minute
 
 	// writeMessageTimeout is the timeout used when writing a message to peer.
-	writeMessageTimeout = 50 * time.Second
+	writeMessageTimeout = 5 * time.Second
 
 	// readMessageTimeout is the timeout used when reading a message from a
 	// peer.

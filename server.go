@@ -711,9 +711,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 	contractBreaches := make(chan *ContractBreachEvent, 1)
 
 	s.chainArb = contractcourt.NewChainArbitrator(contractcourt.ChainArbitratorConfig{
-		ChainHash: *activeNetParams.GenesisHash,
-		// TODO(roasbeef): properly configure
-		//  * needs to be << or specified final hop time delta
+		ChainHash:      *activeNetParams.GenesisHash,
 		BroadcastDelta: defaultBroadcastDelta,
 		NewSweepAddr: func() ([]byte, error) {
 			return newSweepPkScript(cc.wallet)
@@ -2373,11 +2371,15 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 	localFeatures.Set(lnwire.DataLossProtectRequired)
 	localFeatures.Set(lnwire.GossipQueriesOptional)
 
-	// Now that we've established a connection, create a peer, and it to
-	// the set of currently active peers.
+	// Now that we've established a connection, create a peer, and it to the
+	// set of currently active peers. Configure the peer with a expiry grace
+	// delta greater than the broadcast delta, to prevent links from
+	// accepting htlcs that may trigger channel arbitrator force close the
+	// channel immediately.
 	p, err := newPeer(
 		conn, connReq, s, peerAddr, inbound, localFeatures,
 		cfg.ChanEnableTimeout,
+		defaultBroadcastDelta+extraExpiryGraceDelta,
 	)
 	if err != nil {
 		srvrLog.Errorf("unable to create peer %v", err)

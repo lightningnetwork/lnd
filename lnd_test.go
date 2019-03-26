@@ -8164,6 +8164,14 @@ out:
 		t.Fatalf("unable to generate carol invoice: %v", err)
 	}
 
+	carolPayReq, err := carol.DecodePayReq(ctxb,
+		&lnrpc.PayReqString{
+			PayReq: carolInvoice.PaymentRequest,
+		})
+	if err != nil {
+		t.Fatalf("unable to decode generated payment request: %v", err)
+	}
+
 	// Before we send the payment, ensure that the announcement of the new
 	// channel has been processed by Alice.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
@@ -8180,6 +8188,7 @@ out:
 		PaymentHashString: hex.EncodeToString(makeFakePayHash(t)),
 		DestString:        hex.EncodeToString(carol.PubKey[:]),
 		Amt:               payAmt,
+		FinalCltvDelta:    int32(carolPayReq.CltvExpiry),
 	}
 	resp, err := net.Alice.SendPaymentSync(ctxt, sendReq)
 	if err != nil {
@@ -8210,6 +8219,7 @@ out:
 		PaymentHashString: hex.EncodeToString(carolInvoice.RHash),
 		DestString:        hex.EncodeToString(carol.PubKey[:]),
 		Amt:               int64(htlcAmt.ToSatoshis()), // 10k satoshis are expected.
+		FinalCltvDelta:    int32(carolPayReq.CltvExpiry),
 	}
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	resp, err = net.Alice.SendPaymentSync(ctxt, sendReq)
@@ -9652,9 +9662,12 @@ func testMultiHopReceiverChainClaim(net *lntest.NetworkHarness, t *harnessTest) 
 	defer shutdownAndAssert(net, t, carol)
 
 	// With the network active, we'll now add a new invoice at Carol's end.
+	// Make sure the cltv expiry delta is large enough, otherwise Bob won't
+	// send out the outgoing htlc.
 	const invoiceAmt = 100000
 	invoiceReq := &lnrpc.Invoice{
-		Value: invoiceAmt,
+		Value:      invoiceAmt,
+		CltvExpiry: 20,
 	}
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	carolInvoice, err := carol.AddInvoice(ctxt, invoiceReq)
@@ -9698,7 +9711,7 @@ func testMultiHopReceiverChainClaim(net *lntest.NetworkHarness, t *harnessTest) 
 	// Now we'll mine enough blocks to prompt carol to actually go to the
 	// chain in order to sweep her HTLC since the value is high enough.
 	// TODO(roasbeef): modify once go to chain policy changes
-	numBlocks := uint32(defaultBitcoinTimeLockDelta - (2 * defaultBroadcastDelta))
+	numBlocks := uint32(invoiceReq.CltvExpiry - defaultBroadcastDelta)
 	if _, err := net.Miner.Node.Generate(numBlocks); err != nil {
 		t.Fatalf("unable to generate blocks")
 	}
@@ -10382,7 +10395,8 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest)
 
 	// With the network active, we'll now add a new invoice at Carol's end.
 	invoiceReq := &lnrpc.Invoice{
-		Value: 100000,
+		Value:      100000,
+		CltvExpiry: 20,
 	}
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	carolInvoice, err := carol.AddInvoice(ctxt, invoiceReq)
@@ -10438,7 +10452,7 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest)
 
 	// We'll now mine enough blocks so Carol decides that she needs to go
 	// on-chain to claim the HTLC as Bob has been inactive.
-	numBlocks := uint32(defaultBitcoinTimeLockDelta - (2 * defaultBroadcastDelta))
+	numBlocks := uint32(20 - defaultBroadcastDelta)
 	if _, err := net.Miner.Node.Generate(numBlocks); err != nil {
 		t.Fatalf("unable to generate blocks")
 	}
@@ -10722,7 +10736,8 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 	// With the network active, we'll now add a new invoice at Carol's end.
 	const invoiceAmt = 100000
 	invoiceReq := &lnrpc.Invoice{
-		Value: invoiceAmt,
+		Value:      invoiceAmt,
+		CltvExpiry: 20,
 	}
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	carolInvoice, err := carol.AddInvoice(ctxt, invoiceReq)
@@ -10792,8 +10807,7 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 
 	// We'll now mine enough blocks so Carol decides that she needs to go
 	// on-chain to claim the HTLC as Bob has been inactive.
-	claimDelta := uint32(2 * defaultBroadcastDelta)
-	numBlocks := uint32(defaultBitcoinTimeLockDelta-claimDelta) - defaultCSV
+	numBlocks := uint32(20-defaultBroadcastDelta) - defaultCSV
 	if _, err := net.Miner.Node.Generate(numBlocks); err != nil {
 		t.Fatalf("unable to generate blocks")
 	}

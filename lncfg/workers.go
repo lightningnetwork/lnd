@@ -5,11 +5,11 @@ import "fmt"
 const (
 	// DefaultReadWorkers is the default maximum number of concurrent
 	// workers used by the daemon's read pool.
-	DefaultReadWorkers = 16
+	DefaultReadWorkers = 100
 
 	// DefaultWriteWorkers is the default maximum number of concurrent
 	// workers used by the daemon's write pool.
-	DefaultWriteWorkers = 16
+	DefaultWriteWorkers = 100
 
 	// DefaultSigWorkers is the default maximum number of concurrent workers
 	// used by the daemon's sig pool.

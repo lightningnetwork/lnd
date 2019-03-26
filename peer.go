@@ -638,7 +638,7 @@ func (p *peer) Disconnect(reason error) {
 
 // String returns the string representation of this peer.
 func (p *peer) String() string {
-	return p.conn.RemoteAddr().String()
+	return fmt.Sprintf("%x@%s", p.pubKeyBytes, p.conn.RemoteAddr())
 }
 
 // readNextMessage reads, and returns the next message on the wire along with

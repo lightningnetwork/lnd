@@ -30,14 +30,16 @@ func init() {
 }
 
 const (
-	// expiryGraceDelta is a grace period that the timeout of incoming
-	// HTLC's that pay directly to us (i.e we're the "exit node") must up
-	// hold. We'll reject any HTLC's who's timeout minus this value is less
-	// that or equal to the current block height. We require this in order
-	// to ensure that if the extending party goes to the chain, then we'll
-	// be able to claim the HTLC still.
+	// expiryGraceDelta is the minimum difference between the current block
+	// height and the CLTV we require on 1) an outgoing HTLC in order to
+	// forward as an intermediary hop, or 2) an incoming HTLC to reveal the
+	// preimage as the final hop. We'll reject any HTLC's who's timeout minus
+	// this value is less than or equal to the current block height. We require
+	// this in order to ensure that we have sufficient time to claim or
+	// timeout an HTLC on chain.
 	//
-	// TODO(roasbeef): must be < default delta
+	// This MUST be greater than the maximum BroadcastDelta of the
+	// ChannelArbitrator for the outbound channel.
 	expiryGraceDelta = 2
 
 	// maxCltvExpiry is the maximum outgoing time lock that the node accepts
@@ -2147,14 +2149,13 @@ func (l *channelLink) HtlcSatifiesPolicy(payHash [32]byte,
 		return failure
 	}
 
-	// We want to avoid accepting an HTLC which will expire in the near
-	// future, so we'll reject an HTLC if its expiration time is too close
-	// to the current height.
-	timeDelta := policy.TimeLockDelta
-	if incomingTimeout-timeDelta <= heightNow {
+	// We want to avoid offering an HTLC which will expire in the near
+	// future, so we'll reject an HTLC if the outgoing expiration time is
+	// too close to the current height.
+	if outgoingTimeout-expiryGraceDelta <= heightNow {
 		l.errorf("htlc(%x) has an expiry that's too soon: "+
 			"outgoing_expiry=%v, best_height=%v", payHash[:],
-			incomingTimeout-timeDelta, heightNow)
+			outgoingTimeout, heightNow)
 
 		var failure lnwire.FailureMessage
 		update, err := l.cfg.FetchLastChannelUpdate(
@@ -2181,6 +2182,7 @@ func (l *channelLink) HtlcSatifiesPolicy(payHash [32]byte,
 	// the following constraint: the incoming time-lock minus our time-lock
 	// delta should equal the outgoing time lock. Otherwise, whether the
 	// sender messed up, or an intermediate node tampered with the HTLC.
+	timeDelta := policy.TimeLockDelta
 	if incomingTimeout-timeDelta < outgoingTimeout {
 		l.errorf("Incoming htlc(%x) has incorrect time-lock value: "+
 			"expected at least %v block delta, got %v block delta",

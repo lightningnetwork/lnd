@@ -2156,14 +2156,17 @@ func (s *server) InboundPeerConnected(conn net.Conn) {
 
 	case nil:
 		// We already have a connection with the incoming peer. If the
-		// connection we've already established should be kept and is not of
-		// the same type of the new connection (inbound), then we'll close out
-		// the new connection s.t there's only a single connection between us.
+		// connection we've already established should be kept and is
+		// not of the same type of the new connection (inbound), then
+		// we'll close out the new connection s.t there's only a single
+		// connection between us.
 		localPub := s.identityPriv.PubKey()
-		if !connectedPeer.inbound && !shouldDropLocalConnection(localPub, nodePub) {
-			srvrLog.Warnf("Received inbound connection from peer %v, "+
-				"but already have outbound connection, dropping conn",
-				connectedPeer)
+		if !connectedPeer.inbound &&
+			!shouldDropLocalConnection(localPub, nodePub) {
+
+			srvrLog.Warnf("Received inbound connection from "+
+				"peer %v, but already have outbound "+
+				"connection, dropping conn", connectedPeer)
 			conn.Close()
 			return
 		}
@@ -2264,14 +2267,17 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 
 	case nil:
 		// We already have a connection with the incoming peer. If the
-		// connection we've already established should be kept and is not of
-		// the same type of the new connection (outbound), then we'll close out
-		// the new connection s.t there's only a single connection between us.
+		// connection we've already established should be kept and is
+		// not of the same type of the new connection (outbound), then
+		// we'll close out the new connection s.t there's only a single
+		// connection between us.
 		localPub := s.identityPriv.PubKey()
-		if connectedPeer.inbound && shouldDropLocalConnection(localPub, nodePub) {
-			srvrLog.Warnf("Established outbound connection to peer %v, "+
-				"but already have inbound connection, dropping conn",
-				connectedPeer)
+		if connectedPeer.inbound &&
+			shouldDropLocalConnection(localPub, nodePub) {
+
+			srvrLog.Warnf("Established outbound connection to "+
+				"peer %v, but already have inbound "+
+				"connection, dropping conn", connectedPeer)
 			if connReq != nil {
 				s.connMgr.Remove(connReq.ID())
 			}

@@ -1571,8 +1571,9 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 			return nil
 		}
 
-		// At this point, we'll now ask the router if this is a stale
-		// update. If so we can skip all the processing below.
+		// At this point, we'll now ask the router if this is a
+		// zombie/known edge. If so we can skip all the processing
+		// below.
 		if d.cfg.Router.IsKnownEdge(msg.ShortChannelID) {
 			nMsg.err <- nil
 			return nil
@@ -1787,8 +1788,8 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 		}
 
 		// Before we perform any of the expensive checks below, we'll
-		// make sure that the router doesn't already have a fresher
-		// announcement for this edge.
+		// check whether this update is stale or is for a zombie
+		// channel in order to quickly reject it.
 		timestamp := time.Unix(int64(msg.Timestamp), 0)
 		if d.cfg.Router.IsStaleEdgePolicy(
 			msg.ShortChannelID, timestamp, msg.ChannelFlags,
@@ -1808,56 +1809,99 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 		d.channelMtx.Lock(msg.ShortChannelID.ToUint64())
 		defer d.channelMtx.Unlock(msg.ShortChannelID.ToUint64())
 		chanInfo, _, _, err := d.cfg.Router.GetChannelByID(msg.ShortChannelID)
-		if err != nil {
-			switch err {
-			case channeldb.ErrGraphNotFound:
-				fallthrough
-			case channeldb.ErrGraphNoEdgesFound:
-				fallthrough
-			case channeldb.ErrEdgeNotFound:
-				// If the edge corresponding to this
-				// ChannelUpdate was not found in the graph,
-				// this might be a channel in the process of
-				// being opened, and we haven't processed our
-				// own ChannelAnnouncement yet, hence it is not
-				// found in the graph. This usually gets
-				// resolved after the channel proofs are
-				// exchanged and the channel is broadcasted to
-				// the rest of the network, but in case this
-				// is a private channel this won't ever happen.
-				// Because of this, we temporarily add it to a
-				// map, and reprocess it after our own
-				// ChannelAnnouncement has been processed.
-				d.pChanUpdMtx.Lock()
-				d.prematureChannelUpdates[shortChanID] = append(
-					d.prematureChannelUpdates[shortChanID],
-					nMsg,
-				)
-				d.pChanUpdMtx.Unlock()
+		switch err {
+		// No error, break.
+		case nil:
+			break
 
-				log.Debugf("Got ChannelUpdate for edge not "+
-					"found in graph(shortChanID=%v), "+
-					"saving for reprocessing later",
-					shortChanID)
+		case channeldb.ErrZombieEdge:
+			// Since we've deemed the update as not stale above,
+			// before marking it live, we'll make sure it has been
+			// signed by the correct party. The least-significant
+			// bit in the flag on the channel update tells us which
+			// edge is being updated.
+			var pubKey *btcec.PublicKey
+			switch {
+			case msg.ChannelFlags&lnwire.ChanUpdateDirection == 0:
+				pubKey, _ = chanInfo.NodeKey1()
+			case msg.ChannelFlags&lnwire.ChanUpdateDirection == 1:
+				pubKey, _ = chanInfo.NodeKey2()
+			}
 
-				// NOTE: We don't return anything on the error
-				// channel for this message, as we expect that
-				// will be done when this ChannelUpdate is
-				// later reprocessed.
-				return nil
-
-			default:
-				err := fmt.Errorf("unable to validate "+
-					"channel update short_chan_id=%v: %v",
-					shortChanID, err)
+			err := routing.VerifyChannelUpdateSignature(msg, pubKey)
+			if err != nil {
+				err := fmt.Errorf("unable to verify channel "+
+					"update signature: %v", err)
 				log.Error(err)
 				nMsg.err <- err
-
-				d.rejectMtx.Lock()
-				d.recentRejects[msg.ShortChannelID.ToUint64()] = struct{}{}
-				d.rejectMtx.Unlock()
 				return nil
 			}
+
+			// With the signature valid, we'll proceed to mark the
+			// edge as live and wait for the channel announcement to
+			// come through again.
+			err = d.cfg.Router.MarkEdgeLive(msg.ShortChannelID)
+			if err != nil {
+				err := fmt.Errorf("unable to remove edge with "+
+					"chan_id=%v from zombie index: %v",
+					msg.ShortChannelID, err)
+				log.Error(err)
+				nMsg.err <- err
+				return nil
+			}
+
+			log.Debugf("Removed edge with chan_id=%v from zombie "+
+				"index", msg.ShortChannelID)
+
+			// We'll fallthrough to ensure we stash the update until
+			// we receive its corresponding ChannelAnnouncement.
+			// This is needed to ensure the edge exists in the graph
+			// before applying the update.
+			fallthrough
+		case channeldb.ErrGraphNotFound:
+			fallthrough
+		case channeldb.ErrGraphNoEdgesFound:
+			fallthrough
+		case channeldb.ErrEdgeNotFound:
+			// If the edge corresponding to this ChannelUpdate was
+			// not found in the graph, this might be a channel in
+			// the process of being opened, and we haven't processed
+			// our own ChannelAnnouncement yet, hence it is not
+			// found in the graph. This usually gets resolved after
+			// the channel proofs are exchanged and the channel is
+			// broadcasted to the rest of the network, but in case
+			// this is a private channel this won't ever happen.
+			// This can also happen in the case of a zombie channel
+			// with a fresh update for which we don't have a
+			// ChannelAnnouncement for since we reject them. Because
+			// of this, we temporarily add it to a map, and
+			// reprocess it after our own ChannelAnnouncement has
+			// been processed.
+			d.pChanUpdMtx.Lock()
+			d.prematureChannelUpdates[shortChanID] = append(
+				d.prematureChannelUpdates[shortChanID], nMsg,
+			)
+			d.pChanUpdMtx.Unlock()
+
+			log.Debugf("Got ChannelUpdate for edge not found in "+
+				"graph(shortChanID=%v), saving for "+
+				"reprocessing later", shortChanID)
+
+			// NOTE: We don't return anything on the error channel
+			// for this message, as we expect that will be done when
+			// this ChannelUpdate is later reprocessed.
+			return nil
+
+		default:
+			err := fmt.Errorf("unable to validate channel update "+
+				"short_chan_id=%v: %v", shortChanID, err)
+			log.Error(err)
+			nMsg.err <- err
+
+			d.rejectMtx.Lock()
+			d.recentRejects[msg.ShortChannelID.ToUint64()] = struct{}{}
+			d.rejectMtx.Unlock()
+			return nil
 		}
 
 		// The least-significant bit in the flag on the channel update

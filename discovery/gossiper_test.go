@@ -110,10 +110,11 @@ func (n *mockSigner) SignMessage(pubKey *btcec.PublicKey,
 type mockGraphSource struct {
 	bestHeight uint32
 
-	mu    sync.Mutex
-	nodes []channeldb.LightningNode
-	infos map[uint64]channeldb.ChannelEdgeInfo
-	edges map[uint64][]channeldb.ChannelEdgePolicy
+	mu      sync.Mutex
+	nodes   []channeldb.LightningNode
+	infos   map[uint64]channeldb.ChannelEdgeInfo
+	edges   map[uint64][]channeldb.ChannelEdgePolicy
+	zombies map[uint64][][33]byte
 }
 
 func newMockRouter(height uint32) *mockGraphSource {
@@ -121,6 +122,7 @@ func newMockRouter(height uint32) *mockGraphSource {
 		bestHeight: height,
 		infos:      make(map[uint64]channeldb.ChannelEdgeInfo),
 		edges:      make(map[uint64][]channeldb.ChannelEdgePolicy),
+		zombies:    make(map[uint64][][33]byte),
 	}
 }
 
@@ -205,9 +207,18 @@ func (r *mockGraphSource) GetChannelByID(chanID lnwire.ShortChannelID) (
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	chanInfo, ok := r.infos[chanID.ToUint64()]
+	chanIDInt := chanID.ToUint64()
+	chanInfo, ok := r.infos[chanIDInt]
 	if !ok {
-		return nil, nil, nil, channeldb.ErrEdgeNotFound
+		pubKeys, isZombie := r.zombies[chanIDInt]
+		if !isZombie {
+			return nil, nil, nil, channeldb.ErrEdgeNotFound
+		}
+
+		return &channeldb.ChannelEdgeInfo{
+			NodeKey1Bytes: pubKeys[0],
+			NodeKey2Bytes: pubKeys[1],
+		}, nil, nil, channeldb.ErrZombieEdge
 	}
 
 	edges := r.edges[chanID.ToUint64()]
@@ -280,13 +291,15 @@ func (r *mockGraphSource) IsPublicNode(node routing.Vertex) (bool, error) {
 }
 
 // IsKnownEdge returns true if the graph source already knows of the passed
-// channel ID.
+// channel ID either as a live or zombie channel.
 func (r *mockGraphSource) IsKnownEdge(chanID lnwire.ShortChannelID) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	_, ok := r.infos[chanID.ToUint64()]
-	return ok
+	chanIDInt := chanID.ToUint64()
+	_, exists := r.infos[chanIDInt]
+	_, isZombie := r.zombies[chanIDInt]
+	return exists || isZombie
 }
 
 // IsStaleEdgePolicy returns true if the graph source has a channel edge for
@@ -297,13 +310,23 @@ func (r *mockGraphSource) IsStaleEdgePolicy(chanID lnwire.ShortChannelID,
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	edges, ok := r.edges[chanID.ToUint64()]
+	chanIDInt := chanID.ToUint64()
+	edges, ok := r.edges[chanIDInt]
 	if !ok {
-		return false
+		// Since the edge doesn't exist, we'll check our zombie index as
+		// well.
+		_, isZombie := r.zombies[chanIDInt]
+		if !isZombie {
+			return false
+		}
+
+		// Since it exists within our zombie index, we'll check that it
+		// respects the router's live edge horizon to determine whether
+		// it is stale or not.
+		return time.Since(timestamp) > routing.DefaultChannelPruneExpiry
 	}
 
 	switch {
-
 	case len(edges) >= 1 && edges[0].ChannelFlags == flags:
 		return !edges[0].LastUpdate.Before(timestamp)
 
@@ -313,6 +336,26 @@ func (r *mockGraphSource) IsStaleEdgePolicy(chanID lnwire.ShortChannelID,
 	default:
 		return false
 	}
+}
+
+// MarkEdgeLive clears an edge from our zombie index, deeming it as live.
+//
+// NOTE: This method is part of the ChannelGraphSource interface.
+func (r *mockGraphSource) MarkEdgeLive(chanID lnwire.ShortChannelID) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.zombies, chanID.ToUint64())
+	return nil
+}
+
+// MarkEdgeZombie marks an edge as a zombie within our zombie index.
+func (r *mockGraphSource) MarkEdgeZombie(chanID lnwire.ShortChannelID, pubKey1,
+	pubKey2 [33]byte) error {
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.zombies[chanID.ToUint64()] = [][33]byte{pubKey1, pubKey2}
+	return nil
 }
 
 type mockNotifier struct {

@@ -526,28 +526,37 @@ func TestDisconnectBlockAtHeight(t *testing.T) {
 	}
 
 	// The two first edges should be removed from the db.
-	_, _, has, err := graph.HasChannelEdge(edgeInfo.ChannelID)
+	_, _, has, isZombie, err := graph.HasChannelEdge(edgeInfo.ChannelID)
 	if err != nil {
 		t.Fatalf("unable to query for edge: %v", err)
 	}
 	if has {
 		t.Fatalf("edge1 was not pruned from the graph")
 	}
-	_, _, has, err = graph.HasChannelEdge(edgeInfo2.ChannelID)
+	if isZombie {
+		t.Fatal("reorged edge1 should not be marked as zombie")
+	}
+	_, _, has, isZombie, err = graph.HasChannelEdge(edgeInfo2.ChannelID)
 	if err != nil {
 		t.Fatalf("unable to query for edge: %v", err)
 	}
 	if has {
 		t.Fatalf("edge2 was not pruned from the graph")
 	}
+	if isZombie {
+		t.Fatal("reorged edge2 should not be marked as zombie")
+	}
 
 	// Edge 3 should not be removed.
-	_, _, has, err = graph.HasChannelEdge(edgeInfo3.ChannelID)
+	_, _, has, isZombie, err = graph.HasChannelEdge(edgeInfo3.ChannelID)
 	if err != nil {
 		t.Fatalf("unable to query for edge: %v", err)
 	}
 	if !has {
 		t.Fatalf("edge3 was pruned from the graph")
+	}
+	if isZombie {
+		t.Fatal("edge3 was marked as zombie")
 	}
 
 	// PruneTip should be set to the blockHash we specified for the block
@@ -759,11 +768,15 @@ func TestEdgeInfoUpdates(t *testing.T) {
 
 	// Check for existence of the edge within the database, it should be
 	// found.
-	_, _, found, err := graph.HasChannelEdge(chanID)
+	_, _, found, isZombie, err := graph.HasChannelEdge(chanID)
 	if err != nil {
 		t.Fatalf("unable to query for edge: %v", err)
-	} else if !found {
+	}
+	if !found {
 		t.Fatalf("graph should have of inserted edge")
+	}
+	if isZombie {
+		t.Fatal("live edge should not be marked as zombie")
 	}
 
 	// We should also be able to retrieve the channelID only knowing the

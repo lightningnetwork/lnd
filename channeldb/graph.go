@@ -595,17 +595,20 @@ func (c *ChannelGraph) addChannelEdge(tx *bbolt.Tx, edge *ChannelEdgeInfo) error
 // HasChannelEdge returns true if the database knows of a channel edge with the
 // passed channel ID, and false otherwise. If an edge with that ID is found
 // within the graph, then two time stamps representing the last time the edge
-// was updated for both directed edges are returned along with the boolean.
-func (c *ChannelGraph) HasChannelEdge(chanID uint64) (time.Time, time.Time, bool, error) {
-	// TODO(roasbeef): check internal bloom filter first
+// was updated for both directed edges are returned along with the boolean. If
+// it is not found, then the zombie index is checked and its result is returned
+// as the second boolean.
+func (c *ChannelGraph) HasChannelEdge(chanID uint64,
+) (time.Time, time.Time, bool, bool, error) {
 
 	var (
 		node1UpdateTime time.Time
 		node2UpdateTime time.Time
 		exists          bool
+		isZombie        bool
 	)
 
-	if err := c.db.View(func(tx *bbolt.Tx) error {
+	err := c.db.View(func(tx *bbolt.Tx) error {
 		edges := tx.Bucket(edgeBucket)
 		if edges == nil {
 			return ErrGraphNoEdgesFound
@@ -617,12 +620,21 @@ func (c *ChannelGraph) HasChannelEdge(chanID uint64) (time.Time, time.Time, bool
 
 		var channelID [8]byte
 		byteOrder.PutUint64(channelID[:], chanID)
+
+		// If the edge doesn't exist, then we'll also check our zombie
+		// index.
 		if edgeIndex.Get(channelID[:]) == nil {
 			exists = false
+			zombieIndex := edges.Bucket(zombieBucket)
+			if zombieIndex != nil {
+				isZombie, _, _ = isZombieEdge(zombieIndex, chanID)
+			}
+
 			return nil
 		}
 
 		exists = true
+		isZombie = false
 
 		// If the channel has been found in the graph, then retrieve
 		// the edges itself so we can return the last updated
@@ -648,11 +660,9 @@ func (c *ChannelGraph) HasChannelEdge(chanID uint64) (time.Time, time.Time, bool
 		}
 
 		return nil
-	}); err != nil {
-		return time.Time{}, time.Time{}, exists, err
-	}
+	})
 
-	return node1UpdateTime, node2UpdateTime, exists, nil
+	return node1UpdateTime, node2UpdateTime, exists, isZombie, err
 }
 
 // UpdateChannelEdge retrieves and update edge of the graph database. Method
@@ -2537,7 +2547,8 @@ func (c *ChannelEdgePolicy) Signature() (*btcec.Signature, error) {
 // found, then ErrEdgeNotFound is returned. A struct which houses the general
 // information for the channel itself is returned as well as two structs that
 // contain the routing policies for the channel in either direction.
-func (c *ChannelGraph) FetchChannelEdgesByOutpoint(op *wire.OutPoint) (*ChannelEdgeInfo, *ChannelEdgePolicy, *ChannelEdgePolicy, error) {
+func (c *ChannelGraph) FetchChannelEdgesByOutpoint(op *wire.OutPoint,
+) (*ChannelEdgeInfo, *ChannelEdgePolicy, *ChannelEdgePolicy, error) {
 
 	var (
 		edgeInfo *ChannelEdgeInfo
@@ -2615,7 +2626,12 @@ func (c *ChannelGraph) FetchChannelEdgesByOutpoint(op *wire.OutPoint) (*ChannelE
 // ErrEdgeNotFound is returned. A struct which houses the general information
 // for the channel itself is returned as well as two structs that contain the
 // routing policies for the channel in either direction.
-func (c *ChannelGraph) FetchChannelEdgesByID(chanID uint64) (*ChannelEdgeInfo, *ChannelEdgePolicy, *ChannelEdgePolicy, error) {
+//
+// ErrZombieEdge an be returned if the edge is currently marked as a zombie
+// within the database. In this case, the ChannelEdgePolicy's will be nil, and
+// the ChannelEdgeInfo will only include the public keys of each node.
+func (c *ChannelGraph) FetchChannelEdgesByID(chanID uint64,
+) (*ChannelEdgeInfo, *ChannelEdgePolicy, *ChannelEdgePolicy, error) {
 
 	var (
 		edgeInfo  *ChannelEdgeInfo
@@ -2646,13 +2662,48 @@ func (c *ChannelGraph) FetchChannelEdgesByID(chanID uint64) (*ChannelEdgeInfo, *
 
 		byteOrder.PutUint64(channelID[:], chanID)
 
+		// Now, attempt to fetch edge.
 		edge, err := fetchChanEdgeInfo(edgeIndex, channelID[:])
+
+		// If it doesn't exist, we'll quickly check our zombie index to
+		// see if we've previously marked it as so.
+		if err == ErrEdgeNotFound {
+			// If the zombie index doesn't exist, or the edge is not
+			// marked as a zombie within it, then we'll return the
+			// original ErrEdgeNotFound error.
+			zombieIndex := edges.Bucket(zombieBucket)
+			if zombieIndex == nil {
+				return ErrEdgeNotFound
+			}
+
+			isZombie, pubKey1, pubKey2 := isZombieEdge(
+				zombieIndex, chanID,
+			)
+			if !isZombie {
+				return ErrEdgeNotFound
+			}
+
+			// Otherwise, the edge is marked as a zombie, so we'll
+			// populate the edge info with the public keys of each
+			// party as this is the only information we have about
+			// it and return an error signaling so.
+			edgeInfo = &ChannelEdgeInfo{
+				NodeKey1Bytes: pubKey1,
+				NodeKey2Bytes: pubKey2,
+			}
+			return ErrZombieEdge
+		}
+
+		// Otherwise, we'll just return the error if any.
 		if err != nil {
 			return err
 		}
+
 		edgeInfo = &edge
 		edgeInfo.db = c.db
 
+		// Then we'll attempt to fetch the accompanying policies of this
+		// edge.
 		e1, e2, err := fetchChanEdgePolicies(
 			edgeIndex, edges, nodes, channelID[:], c.db,
 		)
@@ -2664,6 +2715,9 @@ func (c *ChannelGraph) FetchChannelEdgesByID(chanID uint64) (*ChannelEdgeInfo, *
 		policy2 = e2
 		return nil
 	})
+	if err == ErrZombieEdge {
+		return edgeInfo, nil, nil, err
+	}
 	if err != nil {
 		return nil, nil, nil, err
 	}

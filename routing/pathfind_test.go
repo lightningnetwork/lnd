@@ -2021,3 +2021,111 @@ func TestRestrictOutgoingChannel(t *testing.T) {
 			"but channel %v was selected instead", route.Hops[0].ChannelID)
 	}
 }
+
+// TestCltvLimit asserts that a cltv limit is obeyed by the path finding
+// algorithm.
+func TestCltvLimit(t *testing.T) {
+	t.Run("no limit", func(t *testing.T) { testCltvLimit(t, 0, 1) })
+	t.Run("no path", func(t *testing.T) { testCltvLimit(t, 50, 0) })
+	t.Run("force high cost", func(t *testing.T) { testCltvLimit(t, 80, 3) })
+}
+
+func testCltvLimit(t *testing.T, limit uint32, expectedChannel uint64) {
+	t.Parallel()
+
+	// Set up a test graph with three possible paths to the target. The path
+	// through a is the lowest cost with a high time lock (144). The path
+	// through b has a higher cost but a lower time lock (100). That path
+	// through c and d (two hops) has the same case as the path through b,
+	// but the total time lock is lower (60).
+	testChannels := []*testChannel{
+		symmetricTestChannel("roasbeef", "a", 100000, &testChannelPolicy{}, 1),
+		symmetricTestChannel("a", "target", 100000, &testChannelPolicy{
+			Expiry:      144,
+			FeeBaseMsat: 10000,
+			MinHTLC:     1,
+		}),
+		symmetricTestChannel("roasbeef", "b", 100000, &testChannelPolicy{}, 2),
+		symmetricTestChannel("b", "target", 100000, &testChannelPolicy{
+			Expiry:      100,
+			FeeBaseMsat: 20000,
+			MinHTLC:     1,
+		}),
+		symmetricTestChannel("roasbeef", "c", 100000, &testChannelPolicy{}, 3),
+		symmetricTestChannel("c", "d", 100000, &testChannelPolicy{
+			Expiry:      30,
+			FeeBaseMsat: 10000,
+			MinHTLC:     1,
+		}),
+		symmetricTestChannel("d", "target", 100000, &testChannelPolicy{
+			Expiry:      30,
+			FeeBaseMsat: 10000,
+			MinHTLC:     1,
+		}),
+	}
+
+	testGraphInstance, err := createTestGraphFromChannels(testChannels)
+	if err != nil {
+		t.Fatalf("unable to create graph: %v", err)
+	}
+	defer testGraphInstance.cleanUp()
+
+	sourceNode, err := testGraphInstance.graph.SourceNode()
+	if err != nil {
+		t.Fatalf("unable to fetch source node: %v", err)
+	}
+	sourceVertex := Vertex(sourceNode.PubKeyBytes)
+
+	ignoredEdges := make(map[EdgeLocator]struct{})
+	ignoredVertexes := make(map[Vertex]struct{})
+
+	paymentAmt := lnwire.NewMSatFromSatoshis(100)
+	target := testGraphInstance.aliasMap["target"]
+
+	// Find the best path given the cltv limit.
+	var cltvLimit *uint32
+	if limit != 0 {
+		cltvLimit = &limit
+	}
+
+	path, err := findPath(
+		&graphParams{
+			graph: testGraphInstance.graph,
+		},
+		&RestrictParams{
+			IgnoredNodes: ignoredVertexes,
+			IgnoredEdges: ignoredEdges,
+			FeeLimit:     noFeeLimit,
+			CltvLimit:    cltvLimit,
+		},
+		sourceVertex, target, paymentAmt,
+	)
+	if expectedChannel == 0 {
+		// Finish test if we expect no route.
+		if IsError(err, ErrNoPathFound) {
+			return
+		}
+		t.Fatal("expected no path to be found")
+	}
+	if err != nil {
+		t.Fatalf("unable to find path: %v", err)
+	}
+
+	const (
+		startingHeight = 100
+		finalHopCLTV   = 1
+	)
+	route, err := newRoute(
+		paymentAmt, sourceVertex, path, startingHeight, finalHopCLTV,
+	)
+	if err != nil {
+		t.Fatalf("unable to create path: %v", err)
+	}
+
+	// Assert that the route starts with the expected channel.
+	if route.Hops[0].ChannelID != expectedChannel {
+		t.Fatalf("expected route to pass through channel %v, "+
+			"but channel %v was selected instead", expectedChannel,
+			route.Hops[0].ChannelID)
+	}
+}

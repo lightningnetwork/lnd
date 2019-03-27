@@ -790,7 +790,14 @@ message SendRequest {
     any channel may be used.
     */
     uint64 outgoing_chan_id = 9;
+
+    /** 
+    An optional maximum total time lock for the route. If zero, there is no
+    maximum enforced.
+    */
+    uint32 cltv_limit = 10;
 }
+
 message SendResponse {
     string payment_error = 1 [json_name = "payment_error"];
     bytes payment_preimage = 2 [json_name = "payment_preimage"];

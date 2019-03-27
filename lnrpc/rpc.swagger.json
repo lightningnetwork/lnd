@@ -2977,6 +2977,11 @@
           "type": "string",
           "format": "uint64",
           "description": "*\nThe channel id of the channel that must be taken to the first hop. If zero,\nany channel may be used."
+        },
+        "cltv_limit": {
+          "type": "integer",
+          "format": "int64",
+          "description": "* \nAn optional maximum total time lock for the route. If zero, there is no\nmaximum enforced."
         }
       }
     },

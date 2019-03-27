@@ -2852,6 +2852,7 @@ func unmarshallSendToRouteRequest(req *lnrpc.SendToRouteRequest,
 type rpcPaymentIntent struct {
 	msat              lnwire.MilliSatoshi
 	feeLimit          lnwire.MilliSatoshi
+	cltvLimit         *uint32
 	dest              routing.Vertex
 	rHash             [32]byte
 	cltvDelta         uint16
@@ -2893,6 +2894,11 @@ func extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPaymentIntent, error
 	// restriction if specified.
 	if rpcPayReq.OutgoingChanId != 0 {
 		payIntent.outgoingChannelID = &rpcPayReq.OutgoingChanId
+	}
+
+	// Take cltv limit from request if set.
+	if rpcPayReq.CltvLimit != 0 {
+		payIntent.cltvLimit = &rpcPayReq.CltvLimit
 	}
 
 	// If the payment request field isn't blank, then the details of the
@@ -3044,6 +3050,7 @@ func (r *rpcServer) dispatchPaymentIntent(
 			Target:            payIntent.dest,
 			Amount:            payIntent.msat,
 			FeeLimit:          payIntent.feeLimit,
+			CltvLimit:         payIntent.cltvLimit,
 			PaymentHash:       payIntent.rHash,
 			RouteHints:        payIntent.routeHints,
 			OutgoingChannelID: payIntent.outgoingChannelID,

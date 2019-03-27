@@ -226,6 +226,7 @@ func (m *missionControl) NewPaymentSession(routeHints [][]zpay32.HopHint,
 		bandwidthHints:       bandwidthHints,
 		errFailedPolicyChans: make(map[EdgeLocator]struct{}),
 		mc:                   m,
+		pathFinder:           findPath,
 	}, nil
 }
 
@@ -240,6 +241,7 @@ func (m *missionControl) NewPaymentSessionFromRoutes(routes []*Route) *paymentSe
 		preBuiltRoutes:       routes,
 		errFailedPolicyChans: make(map[EdgeLocator]struct{}),
 		mc:                   m,
+		pathFinder:           findPath,
 	}
 }
 

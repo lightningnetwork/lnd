@@ -123,9 +123,6 @@ var (
 	// case we'll remove all entries from the prune log with a block height
 	// that no longer exists.
 	pruneLogBucket = []byte("prune-log")
-
-	edgeBloomKey = []byte("edge-bloom")
-	nodeBloomKey = []byte("node-bloom")
 )
 
 const (

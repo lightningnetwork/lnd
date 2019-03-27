@@ -45,7 +45,7 @@ const (
 	idleTimeout = 5 * time.Minute
 
 	// writeMessageTimeout is the timeout used when writing a message to peer.
-	writeMessageTimeout = 50 * time.Second
+	writeMessageTimeout = 5 * time.Second
 
 	// readMessageTimeout is the timeout used when reading a message from a
 	// peer.
@@ -638,7 +638,7 @@ func (p *peer) Disconnect(reason error) {
 
 // String returns the string representation of this peer.
 func (p *peer) String() string {
-	return p.conn.RemoteAddr().String()
+	return fmt.Sprintf("%x@%s", p.pubKeyBytes, p.conn.RemoteAddr())
 }
 
 // readNextMessage reads, and returns the next message on the wire along with
@@ -1005,7 +1005,12 @@ func (p *peer) readHandler() {
 out:
 	for atomic.LoadInt32(&p.disconnect) == 0 {
 		nextMsg, err := p.readNextMessage()
-		idleTimer.Stop()
+		if !idleTimer.Stop() {
+			select {
+			case <-idleTimer.C:
+			default:
+			}
+		}
 		if err != nil {
 			peerLog.Infof("unable to read message from %v: %v",
 				p, err)
@@ -1427,29 +1432,100 @@ func (p *peer) writeMessage(msg lnwire.Message) error {
 //
 // NOTE: This method MUST be run as a goroutine.
 func (p *peer) writeHandler() {
+	// We'll stop the timer after a new messages is sent, and also reset it
+	// after we process the next message.
+	idleTimer := time.AfterFunc(idleTimeout, func() {
+		err := fmt.Errorf("Peer %s no write for %s -- disconnecting",
+			p, idleTimeout)
+		p.Disconnect(err)
+	})
+
 	var exitErr error
+
+	const (
+		minRetryDelay = 5 * time.Second
+		maxRetryDelay = time.Minute
+	)
 
 out:
 	for {
 		select {
 		case outMsg := <-p.sendQueue:
-			switch outMsg.msg.(type) {
+			// Record the time at which we first attempt to send the
+			// message.
+			startTime := time.Now()
+
+			// Initialize a retry delay of zero, which will be
+			// increased if we encounter a write timeout on the
+			// send.
+			var retryDelay time.Duration
+		retryWithDelay:
+			if retryDelay > 0 {
+				select {
+				case <-time.After(retryDelay):
+				case <-p.quit:
+					// Inform synchronous writes that the
+					// peer is exiting.
+					if outMsg.errChan != nil {
+						outMsg.errChan <- ErrPeerExiting
+					}
+					exitErr = ErrPeerExiting
+					break out
+				}
+			}
+
 			// If we're about to send a ping message, then log the
 			// exact time in which we send the message so we can
 			// use the delay as a rough estimate of latency to the
 			// remote peer.
-			case *lnwire.Ping:
+			if _, ok := outMsg.msg.(*lnwire.Ping); ok {
 				// TODO(roasbeef): do this before the write?
 				// possibly account for processing within func?
 				now := time.Now().UnixNano()
 				atomic.StoreInt64(&p.pingLastSend, now)
 			}
 
-			// Write out the message to the socket, responding with
-			// error if `errChan` is non-nil. The `errChan` allows
-			// callers to optionally synchronize sends with the
-			// writeHandler.
+			// Write out the message to the socket. If a timeout
+			// error is encountered, we will catch this and retry
+			// after backing off in case the remote peer is just
+			// slow to process messages from the wire.
 			err := p.writeMessage(outMsg.msg)
+			if nerr, ok := err.(net.Error); ok && nerr.Timeout() {
+				// Increase the retry delay in the event of a
+				// timeout error, this prevents us from
+				// disconnecting if the remote party is slow to
+				// pull messages off the wire. We back off
+				// exponentially up to our max delay to prevent
+				// blocking the write pool.
+				if retryDelay == 0 {
+					retryDelay = minRetryDelay
+				} else {
+					retryDelay *= 2
+					if retryDelay > maxRetryDelay {
+						retryDelay = maxRetryDelay
+					}
+				}
+
+				peerLog.Debugf("Write timeout detected for "+
+					"peer %s, retrying after %v, "+
+					"first attempted %v ago", p, retryDelay,
+					time.Since(startTime))
+
+				goto retryWithDelay
+			}
+
+			// The write succeeded, reset the idle timer to prevent
+			// us from disconnecting the peer.
+			if !idleTimer.Stop() {
+				select {
+				case <-idleTimer.C:
+				default:
+				}
+			}
+			idleTimer.Reset(idleTimeout)
+
+			// If the peer requested a synchronous write, respond
+			// with the error.
 			if outMsg.errChan != nil {
 				outMsg.errChan <- err
 			}

@@ -374,6 +374,10 @@ func TestEdgeInsertionDeletion(t *testing.T) {
 	if _, _, _, err := graph.FetchChannelEdgesByID(chanID); err == nil {
 		t.Fatalf("channel edge not deleted")
 	}
+	isZombie, _, _ := graph.IsZombieEdge(chanID)
+	if !isZombie {
+		t.Fatal("channel edge not marked as zombie")
+	}
 
 	// Finally, attempt to delete a (now) non-existent edge within the
 	// database, this should result in an error.

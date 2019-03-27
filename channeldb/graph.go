@@ -728,6 +728,10 @@ func (c *ChannelGraph) PruneGraph(spentOutputs []*wire.OutPoint,
 		if nodes == nil {
 			return ErrSourceNodeNotSet
 		}
+		zombieIndex, err := edges.CreateBucketIfNotExists(zombieBucket)
+		if err != nil {
+			return err
+		}
 
 		// For each of the outpoints that have been spent within the
 		// block, we attempt to delete them from the graph as if that
@@ -761,7 +765,8 @@ func (c *ChannelGraph) PruneGraph(spentOutputs []*wire.OutPoint,
 			// a channel. If no error is returned, then a channel
 			// was successfully pruned.
 			err = delChannelByEdge(
-				edges, edgeIndex, chanIndex, nodes, chanPoint,
+				edges, edgeIndex, chanIndex, zombieIndex, nodes,
+				chanPoint, false,
 			)
 			if err != nil && err != ErrEdgeNotFound {
 				return err
@@ -971,6 +976,10 @@ func (c *ChannelGraph) DisconnectBlockAtHeight(height uint32) ([]*ChannelEdgeInf
 		if err != nil {
 			return err
 		}
+		zombieIndex, err := edges.CreateBucketIfNotExists(zombieBucket)
+		if err != nil {
+			return err
+		}
 		nodes, err := tx.CreateBucketIfNotExists(nodeBucket)
 		if err != nil {
 			return err
@@ -988,7 +997,8 @@ func (c *ChannelGraph) DisconnectBlockAtHeight(height uint32) ([]*ChannelEdgeInf
 				return err
 			}
 			err = delChannelByEdge(
-				edges, edgeIndex, chanIndex, nodes, &edgeInfo.ChannelPoint,
+				edges, edgeIndex, chanIndex, zombieIndex, nodes,
+				&edgeInfo.ChannelPoint, false,
 			)
 			if err != nil && err != ErrEdgeNotFound {
 				return err
@@ -1075,8 +1085,9 @@ func (c *ChannelGraph) PruneTip() (*chainhash.Hash, uint32, error) {
 }
 
 // DeleteChannelEdge removes an edge from the database as identified by its
-// funding outpoint. If the edge does not exist within the database, then
-// ErrEdgeNotFound will be returned.
+// funding outpoint and also marks it as a zombie. This ensures that we're
+// unable to re-add this to our database once again. If the edge does not exist
+// within the database, then ErrEdgeNotFound will be returned.
 func (c *ChannelGraph) DeleteChannelEdge(chanPoint *wire.OutPoint) error {
 	// TODO(roasbeef): possibly delete from node bucket if node has no more
 	// channels
@@ -1096,19 +1107,22 @@ func (c *ChannelGraph) DeleteChannelEdge(chanPoint *wire.OutPoint) error {
 		if edgeIndex == nil {
 			return ErrEdgeNotFound
 		}
-
 		chanIndex := edges.Bucket(channelPointBucket)
 		if chanIndex == nil {
 			return ErrEdgeNotFound
 		}
-
 		nodes := tx.Bucket(nodeBucket)
 		if nodes == nil {
 			return ErrGraphNodeNotFound
 		}
+		zombieIndex, err := edges.CreateBucketIfNotExists(zombieBucket)
+		if err != nil {
+			return err
+		}
 
 		return delChannelByEdge(
-			edges, edgeIndex, chanIndex, nodes, chanPoint,
+			edges, edgeIndex, chanIndex, zombieIndex, nodes,
+			chanPoint, true,
 		)
 	})
 }
@@ -1579,8 +1593,9 @@ func delEdgeUpdateIndexEntry(edgesBucket *bbolt.Bucket, chanID uint64,
 	return nil
 }
 
-func delChannelByEdge(edges *bbolt.Bucket, edgeIndex *bbolt.Bucket,
-	chanIndex *bbolt.Bucket, nodes *bbolt.Bucket, chanPoint *wire.OutPoint) error {
+func delChannelByEdge(edges, edgeIndex, chanIndex, zombieIndex,
+	nodes *bbolt.Bucket, chanPoint *wire.OutPoint, isZombie bool) error {
+
 	var b bytes.Buffer
 	if err := writeOutpoint(&b, chanPoint); err != nil {
 		return err
@@ -1638,12 +1653,29 @@ func delChannelByEdge(edges *bbolt.Bucket, edgeIndex *bbolt.Bucket,
 		}
 	}
 
-	// Finally, with the edge data deleted, we can purge the information
-	// from the two edge indexes.
+	// With the edge data deleted, we can purge the information from the two
+	// edge indexes.
 	if err := edgeIndex.Delete(chanID); err != nil {
 		return err
 	}
-	return chanIndex.Delete(b.Bytes())
+	if err := chanIndex.Delete(b.Bytes()); err != nil {
+		return err
+	}
+
+	// Finally, we'll mark the edge as a zombie within our index if it's
+	// being removed due to the channel becoming a zombie. We do this to
+	// ensure we don't store unnecessary data for spent channels.
+	if !isZombie {
+		return nil
+	}
+
+	var pubKey1, pubKey2 [33]byte
+	copy(pubKey1[:], nodeKeys[:33])
+	copy(pubKey2[:], nodeKeys[33:])
+
+	return markEdgeZombie(
+		zombieIndex, byteOrder.Uint64(chanID), pubKey1, pubKey2,
+	)
 }
 
 // UpdateEdgePolicy updates the edge routing policy for a single directed edge

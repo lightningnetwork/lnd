@@ -1,11 +1,18 @@
 package wtdb
 
 import (
+	"errors"
 	"net"
 	"sync"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/lightningnetwork/lnd/lnwire"
+)
+
+var (
+	// ErrTowerNotFound signals that the target tower was not found in the
+	// database.
+	ErrTowerNotFound = errors.New("tower not found")
 )
 
 // Tower holds the necessary components required to connect to a remote tower.

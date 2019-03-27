@@ -64,6 +64,18 @@ func (m *ClientDB) CreateTower(lnAddr *lnwire.NetAddress) (*wtdb.Tower, error) {
 	return tower, nil
 }
 
+// LoadTower retrieves a tower by its tower ID.
+func (m *ClientDB) LoadTower(towerID uint64) (*wtdb.Tower, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if tower, ok := m.towers[towerID]; ok {
+		return tower, nil
+	}
+
+	return nil, wtdb.ErrTowerNotFound
+}
+
 // MarkBackupIneligible records that particular commit height is ineligible for
 // backup. This allows the client to track which updates it should not attempt
 // to retry after startup.
@@ -92,7 +104,6 @@ func (m *ClientDB) CreateClientSession(session *wtdb.ClientSession) error {
 
 	m.activeSessions[session.ID] = &wtdb.ClientSession{
 		TowerID:          session.TowerID,
-		Tower:            session.Tower,
 		SessionKeyDesc:   session.SessionKeyDesc,
 		SessionPrivKey:   session.SessionPrivKey,
 		ID:               session.ID,

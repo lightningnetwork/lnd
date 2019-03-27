@@ -19,6 +19,9 @@ type DB interface {
 	// sessions.
 	CreateTower(*lnwire.NetAddress) (*wtdb.Tower, error)
 
+	// LoadTower retrieves a tower by its tower ID.
+	LoadTower(uint64) (*wtdb.Tower, error)
+
 	// CreateClientSession saves a newly negotiated client session to the
 	// client's database. This enables the session to be used across
 	// restarts.

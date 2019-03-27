@@ -221,6 +221,17 @@ func New(config *Config) (*TowerClient, error) {
 		return nil, err
 	}
 
+	// Reload any towers from disk using the tower IDs contained in each
+	// candidate session.
+	for _, s := range c.candidateSessions {
+		tower, err := c.cfg.DB.LoadTower(s.TowerID)
+		if err != nil {
+			return nil, err
+		}
+
+		s.Tower = tower
+	}
+
 	// Finally, load the sweep pkscripts that have been generated for all
 	// previously registered channels.
 	c.sweepPkScripts, err = c.cfg.DB.FetchChanPkScripts()

@@ -2488,11 +2488,6 @@ func createRPCOpenChannel(r *rpcServer, graph *channeldb.ChannelGraph,
 	nodeID := hex.EncodeToString(nodePub.SerializeCompressed())
 	chanPoint := dbChannel.FundingOutpoint
 
-	// With the channel point known, retrieve the network channel
-	// ID from the database.
-	var chanID uint64
-	chanID, _ = graph.ChannelID(&chanPoint)
-
 	// Next, we'll determine whether the channel is public or not.
 	isPublic := dbChannel.ChannelFlags&lnwire.FFAnnounceChannel != 0
 
@@ -2527,7 +2522,7 @@ func createRPCOpenChannel(r *rpcServer, graph *channeldb.ChannelGraph,
 		Private:               !isPublic,
 		RemotePubkey:          nodeID,
 		ChannelPoint:          chanPoint.String(),
-		ChanId:                chanID,
+		ChanId:                dbChannel.ShortChannelID.ToUint64(),
 		Capacity:              int64(dbChannel.Capacity),
 		LocalBalance:          int64(localBalance.ToSatoshis()),
 		RemoteBalance:         int64(remoteBalance.ToSatoshis()),

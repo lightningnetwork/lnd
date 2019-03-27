@@ -268,6 +268,9 @@ func createChannelDB(dbPath string) error {
 		if _, err := edges.CreateBucket(channelPointBucket); err != nil {
 			return err
 		}
+		if _, err := edges.CreateBucket(zombieBucket); err != nil {
+			return err
+		}
 
 		graphMeta, err := tx.CreateBucket(graphMetaBucket)
 		if err != nil {

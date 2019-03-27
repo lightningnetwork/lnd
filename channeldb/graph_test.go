@@ -2786,6 +2786,67 @@ func TestEdgePolicyMissingMaxHtcl(t *testing.T) {
 	assertEdgeInfoEqual(t, dbEdgeInfo, edgeInfo)
 }
 
+// TestGraphZombieIndex ensures that we can mark edges correctly as zombie/live.
+func TestGraphZombieIndex(t *testing.T) {
+	t.Parallel()
+
+	// We'll start by creating our test graph along with a test edge.
+	db, cleanUp, err := makeTestDB()
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to create test database: %v", err)
+	}
+	graph := db.ChannelGraph()
+
+	node1, err := createTestVertex(db)
+	if err != nil {
+		t.Fatalf("unable to create test vertex: %v", err)
+	}
+	node2, err := createTestVertex(db)
+	if err != nil {
+		t.Fatalf("unable to create test vertex: %v", err)
+	}
+	edge, _, _ := createChannelEdge(db, node1, node2)
+
+	// If the graph is not aware of the edge, then it should not be a
+	// zombie.
+	isZombie, _, _ := graph.IsZombieEdge(edge.ChannelID)
+	if isZombie {
+		t.Fatal("expected edge to not be marked as zombie")
+	}
+
+	// If we mark the edge as a zombie, then we should expect to see it
+	// within the index.
+	err = graph.MarkEdgeZombie(
+		edge.ChannelID, node1.PubKeyBytes, node2.PubKeyBytes,
+	)
+	if err != nil {
+		t.Fatalf("unable to mark edge as zombie: %v", err)
+	}
+	isZombie, pubKey1, pubKey2 := graph.IsZombieEdge(edge.ChannelID)
+	if !isZombie {
+		t.Fatal("expected edge to be marked as zombie")
+	}
+	if pubKey1 != node1.PubKeyBytes {
+		t.Fatalf("expected pubKey1 %x, got %x", node1.PubKeyBytes,
+			pubKey1)
+	}
+	if pubKey2 != node2.PubKeyBytes {
+		t.Fatalf("expected pubKey2 %x, got %x", node2.PubKeyBytes,
+			pubKey2)
+	}
+
+	// Similarly, if we mark the same edge as live, we should no longer see
+	// it within the index.
+	if err := graph.MarkEdgeLive(edge.ChannelID); err != nil {
+		t.Fatalf("unable to mark edge as live: %v", err)
+	}
+	isZombie, _, _ = graph.IsZombieEdge(edge.ChannelID)
+	if isZombie {
+		t.Fatal("expected edge to not be marked as zombie")
+	}
+}
+
 // compareNodes is used to compare two LightningNodes while excluding the
 // Features struct, which cannot be compared as the semantics for reserializing
 // the featuresMap have not been defined.

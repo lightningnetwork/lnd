@@ -106,6 +106,17 @@ var (
 	// maps: outPoint -> chanID
 	channelPointBucket = []byte("chan-index")
 
+	// zombieBucket is a sub-bucket of the main edgeBucket bucket
+	// responsible for maintaining an index of zombie channels. Each entry
+	// exists within the bucket as follows:
+	//
+	// maps: chanID -> pubKey1 || pubKey2
+	//
+	// The chanID represents the channel ID of the edge that is marked as a
+	// zombie and is used as the key, which maps to the public keys of the
+	// edge's participants.
+	zombieBucket = []byte("zombie-index")
+
 	// graphMetaBucket is a top-level bucket which stores various meta-deta
 	// related to the on-disk channel graph. Data stored in this bucket
 	// includes the block to which the graph has been synced to, the total
@@ -2780,6 +2791,109 @@ func (c *ChannelGraph) ChannelView() ([]EdgePoint, error) {
 // NewChannelEdgePolicy returns a new blank ChannelEdgePolicy.
 func (c *ChannelGraph) NewChannelEdgePolicy() *ChannelEdgePolicy {
 	return &ChannelEdgePolicy{db: c.db}
+}
+
+// MarkEdgeZombie marks an edge as a zombie within the graph's zombie index.
+// The public keys should represent the node public keys of the two parties
+// involved in the edge.
+func (c *ChannelGraph) MarkEdgeZombie(chanID uint64, pubKey1,
+	pubKey2 [33]byte) error {
+
+	return c.db.Batch(func(tx *bbolt.Tx) error {
+		edges := tx.Bucket(edgeBucket)
+		if edges == nil {
+			return ErrGraphNoEdgesFound
+		}
+		zombieIndex, err := edges.CreateBucketIfNotExists(zombieBucket)
+		if err != nil {
+			return err
+		}
+		return markEdgeZombie(zombieIndex, chanID, pubKey1, pubKey2)
+	})
+}
+
+// markEdgeZombie marks an edge as a zombie within our zombie index. The public
+// keys should represent the node public keys of the two parties involved in the
+// edge.
+func markEdgeZombie(zombieIndex *bbolt.Bucket, chanID uint64, pubKey1,
+	pubKey2 [33]byte) error {
+
+	var k [8]byte
+	byteOrder.PutUint64(k[:], chanID)
+
+	var v [66]byte
+	copy(v[:33], pubKey1[:])
+	copy(v[33:], pubKey2[:])
+
+	return zombieIndex.Put(k[:], v[:])
+}
+
+// MarkEdgeLive clears an edge from our zombie index, deeming it as live.
+func (c *ChannelGraph) MarkEdgeLive(chanID uint64) error {
+	return c.db.Batch(func(tx *bbolt.Tx) error {
+		edges := tx.Bucket(edgeBucket)
+		if edges == nil {
+			return ErrGraphNoEdgesFound
+		}
+		zombieIndex := edges.Bucket(zombieBucket)
+		if zombieIndex == nil {
+			return nil
+		}
+
+		var k [8]byte
+		byteOrder.PutUint64(k[:], chanID)
+		return zombieIndex.Delete(k[:])
+	})
+}
+
+// IsZombieEdge returns whether the edge is considered zombie. If it is a
+// zombie, then the two node public keys corresponding to this edge are also
+// returned.
+func (c *ChannelGraph) IsZombieEdge(chanID uint64) (bool, [33]byte, [33]byte) {
+	var (
+		isZombie         bool
+		pubKey1, pubKey2 [33]byte
+	)
+
+	err := c.db.View(func(tx *bbolt.Tx) error {
+		edges := tx.Bucket(edgeBucket)
+		if edges == nil {
+			return ErrGraphNoEdgesFound
+		}
+		zombieIndex := edges.Bucket(zombieBucket)
+		if zombieIndex == nil {
+			return nil
+		}
+
+		isZombie, pubKey1, pubKey2 = isZombieEdge(zombieIndex, chanID)
+		return nil
+	})
+	if err != nil {
+		return false, [33]byte{}, [33]byte{}
+	}
+
+	return isZombie, pubKey1, pubKey2
+}
+
+// isZombieEdge returns whether an entry exists for the given channel in the
+// zombie index. If an entry exists, then the two node public keys corresponding
+// to this edge are also returned.
+func isZombieEdge(zombieIndex *bbolt.Bucket,
+	chanID uint64) (bool, [33]byte, [33]byte) {
+
+	var k [8]byte
+	byteOrder.PutUint64(k[:], chanID)
+
+	v := zombieIndex.Get(k[:])
+	if v == nil {
+		return false, [33]byte{}, [33]byte{}
+	}
+
+	var pubKey1, pubKey2 [33]byte
+	copy(pubKey1[:], v[:33])
+	copy(pubKey2[:], v[33:])
+
+	return true, pubKey1, pubKey2
 }
 
 func putLightningNode(nodeBucket *bbolt.Bucket, aliasBucket *bbolt.Bucket,

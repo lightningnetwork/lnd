@@ -320,9 +320,10 @@ func (r *RouterBackend) ExtractIntentFromSendRequest(rpcPayReq *lnrpc.SendReques
 		copy(payIntent.Target[:], destKey)
 
 		cltvDelta := uint16(payReq.MinFinalCLTVExpiry())
-		if cltvDelta != 0 {
-			payIntent.FinalCLTVDelta = &cltvDelta
+		if cltvDelta == 0 {
+			cltvDelta = zpay32.DefaultFinalCLTVDelta
 		}
+		payIntent.FinalCLTVDelta = cltvDelta
 		payIntent.RouteHints = payReq.RouteHints
 
 		return payIntent, nil
@@ -359,9 +360,10 @@ func (r *RouterBackend) ExtractIntentFromSendRequest(rpcPayReq *lnrpc.SendReques
 	)
 
 	cltvDelta := uint16(rpcPayReq.FinalCltvDelta)
-	if cltvDelta != 0 {
-		payIntent.FinalCLTVDelta = &cltvDelta
+	if cltvDelta == 0 {
+		cltvDelta = zpay32.DefaultFinalCLTVDelta
 	}
+	payIntent.FinalCLTVDelta = cltvDelta
 
 	// If the user is manually specifying payment details, then the payment
 	// hash may be encoded as a string.

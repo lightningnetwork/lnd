@@ -2903,7 +2903,7 @@ func (r *rpcServer) dispatchPaymentIntent(
 	// router, otherwise we'll create a payment session to execute it.
 	if len(payIntent.routes) == 0 {
 		preImage, route, routerErr = r.server.chanRouter.SendPayment(
-			&payIntent.LightningPayment,
+			&payIntent.LightningPayment, false,
 		)
 	} else {
 		payment := &routing.LightningPayment{

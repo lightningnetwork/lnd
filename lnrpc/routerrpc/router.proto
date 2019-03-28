@@ -65,5 +65,5 @@ service Router {
     EstimateRouteFee allows callers to obtain a lower bound w.r.t how much it
     may cost to send an HTLC to the target end destination.
     */
-    rpc EstimateRouteFee(RouteFeeRequest) returns (RouteFeeResponse);
+    rpc EstimateRouteFee(lnrpc.SendRequest) returns (RouteFeeResponse);
 }

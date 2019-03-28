@@ -333,7 +333,7 @@ func TestSendPaymentRouteFailureFallback(t *testing.T) {
 
 	// Send off the payment request to the router, route through satoshi
 	// should've been selected as a fall back and succeeded correctly.
-	paymentPreImage, route, err := ctx.router.SendPayment(&payment)
+	paymentPreImage, route, err := ctx.router.SendPayment(&payment, false)
 	if err != nil {
 		t.Fatalf("unable to send payment: %v", err)
 	}
@@ -613,7 +613,7 @@ func TestSendPaymentErrorRepeatedFeeInsufficient(t *testing.T) {
 
 	// Send off the payment request to the router, route through satoshi
 	// should've been selected as a fall back and succeeded correctly.
-	paymentPreImage, route, err := ctx.router.SendPayment(&payment)
+	paymentPreImage, route, err := ctx.router.SendPayment(&payment, false)
 	if err != nil {
 		t.Fatalf("unable to send payment: %v", err)
 	}
@@ -754,7 +754,7 @@ func TestSendPaymentErrorNonFinalTimeLockErrors(t *testing.T) {
 	// Send off the payment request to the router, this payment should
 	// succeed as we should actually go through Pham Nuwen in order to get
 	// to Sophon, even though he has higher fees.
-	paymentPreImage, route, err := ctx.router.SendPayment(&payment)
+	paymentPreImage, route, err := ctx.router.SendPayment(&payment, false)
 	if err != nil {
 		t.Fatalf("unable to send payment: %v", err)
 	}
@@ -792,7 +792,7 @@ func TestSendPaymentErrorNonFinalTimeLockErrors(t *testing.T) {
 
 	// Once again, Roasbeef should route around Goku since they disagree
 	// w.r.t to the block height, and instead go through Pham Nuwen.
-	paymentPreImage, route, err = ctx.router.SendPayment(&payment)
+	paymentPreImage, route, err = ctx.router.SendPayment(&payment, false)
 	if err != nil {
 		t.Fatalf("unable to send payment: %v", err)
 	}
@@ -888,7 +888,7 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 
 	// When we try to dispatch that payment, we should receive an error as
 	// both attempts should fail and cause both routes to be pruned.
-	_, _, err = ctx.router.SendPayment(&payment)
+	_, _, err = ctx.router.SendPayment(&payment, false)
 	if err == nil {
 		t.Fatalf("payment didn't return error")
 	}
@@ -924,7 +924,7 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 	// This shouldn't return an error, as we'll make a payment attempt via
 	// the satoshi channel based on the assumption that there might be an
 	// intermittent issue with the roasbeef <-> lioji channel.
-	paymentPreImage, route, err := ctx.router.SendPayment(&payment)
+	paymentPreImage, route, err := ctx.router.SendPayment(&payment, false)
 	if err != nil {
 		t.Fatalf("unable send payment: %v", err)
 	}
@@ -970,7 +970,7 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 		return preImage, nil
 	}
 
-	paymentPreImage, route, err = ctx.router.SendPayment(&payment)
+	paymentPreImage, route, err = ctx.router.SendPayment(&payment, false)
 	if err != nil {
 		t.Fatalf("unable to send payment: %v", err)
 	}

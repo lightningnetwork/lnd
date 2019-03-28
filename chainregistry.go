@@ -37,7 +37,7 @@ const (
 	defaultBitcoinMinHTLCMSat   = lnwire.MilliSatoshi(1000)
 	defaultBitcoinBaseFeeMSat   = lnwire.MilliSatoshi(1000)
 	defaultBitcoinFeeRate       = lnwire.MilliSatoshi(1)
-	defaultBitcoinTimeLockDelta = 144
+	defaultBitcoinTimeLockDelta = 40
 
 	defaultLitecoinMinHTLCMSat   = lnwire.MilliSatoshi(1000)
 	defaultLitecoinBaseFeeMSat   = lnwire.MilliSatoshi(1000)

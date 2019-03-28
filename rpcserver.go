@@ -3954,12 +3954,17 @@ func (r *rpcServer) GetNetworkInfo(ctx context.Context,
 		totalNetworkCapacity btcutil.Amount
 		minChannelSize       btcutil.Amount = math.MaxInt64
 		maxChannelSize       btcutil.Amount
+		medianChanSize       btcutil.Amount
 	)
 
 	// We'll use this map to de-duplicate channels during our traversal.
 	// This is needed since channels are directional, so there will be two
 	// edges for each channel within the graph.
 	seenChans := make(map[uint64]struct{})
+
+	// We also keep a list of all encountered capacities, in order to
+	// calculate the median channel size.
+	var allChans []btcutil.Amount
 
 	// We'll run through all the known nodes in the within our view of the
 	// network, tallying up the total number of nodes, and also gathering
@@ -4007,6 +4012,7 @@ func (r *rpcServer) GetNetworkInfo(ctx context.Context,
 			numChannels++
 
 			seenChans[edge.ChannelID] = struct{}{}
+			allChans = append(allChans, edge.Capacity)
 			return nil
 		}); err != nil {
 			return err
@@ -4023,6 +4029,9 @@ func (r *rpcServer) GetNetworkInfo(ctx context.Context,
 		return nil, err
 	}
 
+	// Find the median.
+	medianChanSize = autopilot.Median(allChans)
+
 	// If we don't have any channels, then reset the minChannelSize to zero
 	// to avoid outputting NaN in encoded JSON.
 	if numChannels == 0 {
@@ -4032,7 +4041,6 @@ func (r *rpcServer) GetNetworkInfo(ctx context.Context,
 	// TODO(roasbeef): graph diameter
 
 	// TODO(roasbeef): also add oldest channel?
-	//  * also add median channel size
 	netInfo := &lnrpc.NetworkInfo{
 		MaxOutDegree:         maxChanOut,
 		AvgOutDegree:         float64(numChannels) / float64(numNodes),
@@ -4041,8 +4049,9 @@ func (r *rpcServer) GetNetworkInfo(ctx context.Context,
 		TotalNetworkCapacity: int64(totalNetworkCapacity),
 		AvgChannelSize:       float64(totalNetworkCapacity) / float64(numChannels),
 
-		MinChannelSize: int64(minChannelSize),
-		MaxChannelSize: int64(maxChannelSize),
+		MinChannelSize:       int64(minChannelSize),
+		MaxChannelSize:       int64(maxChannelSize),
+		MedianChannelSizeSat: int64(medianChanSize),
 	}
 
 	// Similarly, if we don't have any channels, then we'll also set the

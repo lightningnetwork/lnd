@@ -2400,6 +2400,10 @@
         "max_channel_size": {
           "type": "string",
           "format": "int64"
+        },
+        "median_channel_size_sat": {
+          "type": "string",
+          "format": "int64"
         }
       }
     },

@@ -20,6 +20,7 @@ import (
 	"github.com/golang/protobuf/jsonpb"
 	"github.com/golang/protobuf/proto"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/walletunlocker"
 	"github.com/urfave/cli"
 	"golang.org/x/crypto/ssh/terminal"
@@ -2285,6 +2286,10 @@ var payInvoiceCommand = cli.Command{
 			Name:  "force, f",
 			Usage: "will skip payment request confirmation",
 		},
+		cli.BoolFlag{
+			Name:  "probe",
+			Usage: "only probe payment",
+		},
 	},
 	Action: actionDecorator(payInvoice),
 }
@@ -2309,19 +2314,35 @@ func payInvoice(ctx *cli.Context) error {
 		return err
 	}
 
-	if !ctx.Bool("force") {
-		err = confirmPayReq(ctx, client, payReq)
-		if err != nil {
-			return err
-		}
-	}
-
 	req := &lnrpc.SendRequest{
 		PaymentRequest: payReq,
 		Amt:            ctx.Int64("amt"),
 		FeeLimit:       feeLimit,
 		OutgoingChanId: ctx.Uint64("outgoing_chan_id"),
 		CltvLimit:      uint32(ctx.Int(cltvLimitFlag.Name)),
+	}
+
+	if ctx.Bool("probe") {
+		conn := getClientConn(ctx, false)
+		defer conn.Close()
+
+		routerClient := routerrpc.NewRouterClient(conn)
+
+		resp, err := routerClient.EstimateRouteFee(context.Background(), req)
+		if err != nil {
+			return err
+		}
+
+		printJSON(resp)
+
+		return nil
+	}
+
+	if !ctx.Bool("force") {
+		err = confirmPayReq(ctx, client, payReq)
+		if err != nil {
+			return err
+		}
 	}
 
 	return sendPaymentRequest(client, req)

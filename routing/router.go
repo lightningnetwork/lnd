@@ -2,6 +2,7 @@ package routing
 
 import (
 	"bytes"
+	"crypto/rand"
 	"crypto/sha256"
 	"fmt"
 	"runtime"
@@ -21,6 +22,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/multimutex"
@@ -1591,7 +1593,9 @@ type LightningPayment struct {
 // will be returned which describes the path the successful payment traversed
 // within the network to reach the destination. Additionally, the payment
 // preimage will also be returned.
-func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route, error) {
+func (r *ChannelRouter) SendPayment(payment *LightningPayment, probe bool) (
+	[32]byte, *Route, error) {
+
 	// Before starting the HTLC routing attempt, we'll create a fresh
 	// payment session which will report our errors back to mission
 	// control.
@@ -1602,7 +1606,7 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *Route
 		return [32]byte{}, nil, err
 	}
 
-	return r.sendPayment(payment, paySession)
+	return r.sendPayment(payment, paySession, probe)
 }
 
 // SendToRoute attempts to send a payment as described within the passed
@@ -1619,7 +1623,7 @@ func (r *ChannelRouter) SendToRoute(routes []*Route,
 		routes,
 	)
 
-	return r.sendPayment(payment, paySession)
+	return r.sendPayment(payment, paySession, false)
 }
 
 // sendPayment attempts to send a payment as described within the passed
@@ -1630,7 +1634,7 @@ func (r *ChannelRouter) SendToRoute(routes []*Route,
 // within the network to reach the destination. Additionally, the payment
 // preimage will also be returned.
 func (r *ChannelRouter) sendPayment(payment *LightningPayment,
-	paySession *paymentSession) ([32]byte, *Route, error) {
+	paySession *paymentSession, probe bool) ([32]byte, *Route, error) {
 
 	log.Tracef("Dispatching route for lightning payment: %v",
 		newLogClosure(func() string {
@@ -1702,7 +1706,7 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 		// Send payment attempt. It will return a final boolean
 		// indicating if more attempts are needed.
 		preimage, final, err := r.sendPaymentAttempt(
-			paySession, route, payment.PaymentHash,
+			paySession, route, payment.PaymentHash, probe,
 		)
 		if final {
 			return preimage, route, err
@@ -1717,7 +1721,7 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 // bool parameter indicates whether this is a final outcome or more attempts
 // should be made.
 func (r *ChannelRouter) sendPaymentAttempt(paySession *paymentSession,
-	route *Route, paymentHash [32]byte) ([32]byte, bool, error) {
+	route *Route, paymentHash [32]byte, probe bool) ([32]byte, bool, error) {
 
 	log.Tracef("Attempting to send payment %x, using route: %v",
 		paymentHash, newLogClosure(func() string {
@@ -1725,9 +1729,20 @@ func (r *ChannelRouter) sendPaymentAttempt(paySession *paymentSession,
 		}),
 	)
 
+	// If probing, make up a random payment hash.
+	if probe {
+		if _, err := rand.Read(paymentHash[:]); err != nil {
+			return lntypes.Preimage{}, true, err
+		}
+	}
+
 	preimage, err := r.sendToSwitch(route, paymentHash)
 	if err == nil {
 		return preimage, true, nil
+	}
+
+	if probe && r.isProbeSuccess(route, err) {
+		return lntypes.Preimage{}, true, nil
 	}
 
 	log.Errorf("Attempt to send payment %x failed: %v",
@@ -1736,6 +1751,28 @@ func (r *ChannelRouter) sendPaymentAttempt(paySession *paymentSession,
 	finalOutcome := r.processSendError(paySession, route, err)
 
 	return [32]byte{}, finalOutcome, err
+}
+
+// isProbeSuccess interprets the error to determine whether this attempt was a
+// successful probe.
+func (r *ChannelRouter) isProbeSuccess(route *Route, err error) bool {
+	fErr, ok := err.(*htlcswitch.ForwardingError)
+	if !ok {
+		return false
+	}
+
+	if _, ok := fErr.FailureMessage.(*lnwire.FailUnknownPaymentHash); !ok {
+		return false
+	}
+
+	errSource := fErr.ErrorSource
+	errVertex := NewVertex(errSource)
+	dest := route.Hops[len(route.Hops)-1].PubKeyBytes
+	if errVertex != dest {
+		return false
+	}
+
+	return true
 }
 
 // sendToSwitch sends a payment along the specified route and returns the

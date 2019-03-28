@@ -4,16 +4,11 @@ package routerrpc
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"io/ioutil"
 	"os"
 	"path/filepath"
 
-	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/lnrpc"
-	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/lightningnetwork/lnd/routing"
 	"google.golang.org/grpc"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 )
@@ -173,7 +168,7 @@ func (s *Server) SendPayment(ctx context.Context,
 		return nil, err
 	}
 
-	preImage, _, err := s.cfg.Router.SendPayment(payment)
+	preImage, _, err := s.cfg.Router.SendPayment(payment, false)
 	if err != nil {
 		return nil, err
 	}
@@ -187,41 +182,24 @@ func (s *Server) SendPayment(ctx context.Context,
 // EstimateRouteFee allows callers to obtain a lower bound w.r.t how much it
 // may cost to send an HTLC to the target end destination.
 func (s *Server) EstimateRouteFee(ctx context.Context,
-	req *RouteFeeRequest) (*RouteFeeResponse, error) {
+	req *lnrpc.SendRequest) (*RouteFeeResponse, error) {
 
-	if len(req.Dest) != 33 {
-		return nil, errors.New("invalid length destination key")
-	}
-	var destNode routing.Vertex
-	copy(destNode[:], req.Dest)
-
-	// Next, we'll convert the amount in satoshis to mSAT, which are the
-	// native unit of LN.
-	amtMsat := lnwire.NewMSatFromSatoshis(btcutil.Amount(req.AmtSat))
-
-	// Pick a fee limit
-	//
-	// TODO: Change this into behaviour that makes more sense.
-	feeLimit := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
-
-	// Finally, we'll query for a route to the destination that can carry
-	// that target amount, we'll only request a single route.
-	routes, err := s.cfg.Router.FindRoutes(
-		s.cfg.RouterBackend.SelfNode, destNode, amtMsat,
-		&routing.RestrictParams{
-			FeeLimit: feeLimit,
-		}, 1,
-	)
+	payment, err := s.cfg.RouterBackend.ExtractIntentFromSendRequest(req)
 	if err != nil {
 		return nil, err
 	}
 
-	if len(routes) == 0 {
-		return nil, fmt.Errorf("unable to find route to dest: %v", err)
+	_, route, err := s.cfg.Router.SendPayment(payment, true)
+	if err != nil {
+		return nil, err
 	}
 
+	lastHop := route.Hops[len(route.Hops)-1]
+	timelock := route.TotalTimeLock - lastHop.OutgoingTimeLock +
+		uint32(payment.FinalCLTVDelta)
+
 	return &RouteFeeResponse{
-		RoutingFeeMsat: int64(routes[0].TotalFees),
-		TimeLockDelay:  int64(routes[0].TotalTimeLock),
+		RoutingFeeMsat: int64(route.TotalFees),
+		TimeLockDelay:  int64(timelock),
 	}, nil
 }

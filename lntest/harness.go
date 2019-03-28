@@ -24,27 +24,8 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
-const (
-	// DefaultCSV is the CSV delay (remotedelay) we will start our test
-	// nodes with.
-	DefaultCSV = 4
-
-	// MinerMempoolTimeout is the max time we will wait for a transaction
-	// to propagate to the mining node's mempool.
-	MinerMempoolTimeout = time.Second * 30
-
-	// ChannelOpenTimeout is the max time we will wait before a channel to
-	// be considered opened.
-	ChannelOpenTimeout = time.Second * 30
-
-	// ChannelCloseTimeout is the max time we will wait before a channel is
-	// considered closed.
-	ChannelCloseTimeout = time.Second * 30
-
-	// DefaultTimeout is a timeout that will be used for various wait
-	// scenarios where no custom timeout value is defined.
-	DefaultTimeout = time.Second * 30
-)
+// DefaultCSV is the CSV delay (remotedelay) we will start our test nodes with.
+const DefaultCSV = 4
 
 // NetworkHarness is an integration testing harness for the lightning network.
 // The harness by default is created with two active nodes on the network:

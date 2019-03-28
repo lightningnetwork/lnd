@@ -8887,7 +8887,7 @@ func testAsyncPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	// Open up a payment stream to Alice that we'll use to send payment to
 	// Bob. We also create a small helper function to send payments to Bob,
 	// consuming the payment hashes we generated above.
-	ctxt, _ = context.WithTimeout(ctxb, time.Minute)
+	ctxt, _ = context.WithTimeout(ctxb, lntest.AsyncBenchmarkTimeout)
 	alicePayStream, err := net.Alice.SendPayment(ctxt)
 	if err != nil {
 		t.Fatalf("unable to create payment stream for alice: %v", err)

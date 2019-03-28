@@ -583,7 +583,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 				firstHop, htlcAdd, errorDecryptor,
 			)
 		},
-		ChannelPruneExpiry: time.Duration(time.Hour * 24 * 14),
+		ChannelPruneExpiry: routing.DefaultChannelPruneExpiry,
 		GraphPruneInterval: time.Duration(time.Hour),
 		QueryBandwidth: func(edge *channeldb.ChannelEdgeInfo) lnwire.MilliSatoshi {
 			// If we aren't on either side of this edge, then we'll

@@ -110,10 +110,11 @@ func (n *mockSigner) SignMessage(pubKey *btcec.PublicKey,
 type mockGraphSource struct {
 	bestHeight uint32
 
-	mu    sync.Mutex
-	nodes []channeldb.LightningNode
-	infos map[uint64]channeldb.ChannelEdgeInfo
-	edges map[uint64][]channeldb.ChannelEdgePolicy
+	mu      sync.Mutex
+	nodes   []channeldb.LightningNode
+	infos   map[uint64]channeldb.ChannelEdgeInfo
+	edges   map[uint64][]channeldb.ChannelEdgePolicy
+	zombies map[uint64][][33]byte
 }
 
 func newMockRouter(height uint32) *mockGraphSource {
@@ -121,6 +122,7 @@ func newMockRouter(height uint32) *mockGraphSource {
 		bestHeight: height,
 		infos:      make(map[uint64]channeldb.ChannelEdgeInfo),
 		edges:      make(map[uint64][]channeldb.ChannelEdgePolicy),
+		zombies:    make(map[uint64][][33]byte),
 	}
 }
 
@@ -205,9 +207,18 @@ func (r *mockGraphSource) GetChannelByID(chanID lnwire.ShortChannelID) (
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	chanInfo, ok := r.infos[chanID.ToUint64()]
+	chanIDInt := chanID.ToUint64()
+	chanInfo, ok := r.infos[chanIDInt]
 	if !ok {
-		return nil, nil, nil, channeldb.ErrEdgeNotFound
+		pubKeys, isZombie := r.zombies[chanIDInt]
+		if !isZombie {
+			return nil, nil, nil, channeldb.ErrEdgeNotFound
+		}
+
+		return &channeldb.ChannelEdgeInfo{
+			NodeKey1Bytes: pubKeys[0],
+			NodeKey2Bytes: pubKeys[1],
+		}, nil, nil, channeldb.ErrZombieEdge
 	}
 
 	edges := r.edges[chanID.ToUint64()]
@@ -280,13 +291,15 @@ func (r *mockGraphSource) IsPublicNode(node routing.Vertex) (bool, error) {
 }
 
 // IsKnownEdge returns true if the graph source already knows of the passed
-// channel ID.
+// channel ID either as a live or zombie channel.
 func (r *mockGraphSource) IsKnownEdge(chanID lnwire.ShortChannelID) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	_, ok := r.infos[chanID.ToUint64()]
-	return ok
+	chanIDInt := chanID.ToUint64()
+	_, exists := r.infos[chanIDInt]
+	_, isZombie := r.zombies[chanIDInt]
+	return exists || isZombie
 }
 
 // IsStaleEdgePolicy returns true if the graph source has a channel edge for
@@ -297,13 +310,23 @@ func (r *mockGraphSource) IsStaleEdgePolicy(chanID lnwire.ShortChannelID,
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	edges, ok := r.edges[chanID.ToUint64()]
+	chanIDInt := chanID.ToUint64()
+	edges, ok := r.edges[chanIDInt]
 	if !ok {
-		return false
+		// Since the edge doesn't exist, we'll check our zombie index as
+		// well.
+		_, isZombie := r.zombies[chanIDInt]
+		if !isZombie {
+			return false
+		}
+
+		// Since it exists within our zombie index, we'll check that it
+		// respects the router's live edge horizon to determine whether
+		// it is stale or not.
+		return time.Since(timestamp) > routing.DefaultChannelPruneExpiry
 	}
 
 	switch {
-
 	case len(edges) >= 1 && edges[0].ChannelFlags == flags:
 		return !edges[0].LastUpdate.Before(timestamp)
 
@@ -313,6 +336,26 @@ func (r *mockGraphSource) IsStaleEdgePolicy(chanID lnwire.ShortChannelID,
 	default:
 		return false
 	}
+}
+
+// MarkEdgeLive clears an edge from our zombie index, deeming it as live.
+//
+// NOTE: This method is part of the ChannelGraphSource interface.
+func (r *mockGraphSource) MarkEdgeLive(chanID lnwire.ShortChannelID) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.zombies, chanID.ToUint64())
+	return nil
+}
+
+// MarkEdgeZombie marks an edge as a zombie within our zombie index.
+func (r *mockGraphSource) MarkEdgeZombie(chanID lnwire.ShortChannelID, pubKey1,
+	pubKey2 [33]byte) error {
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.zombies[chanID.ToUint64()] = [][33]byte{pubKey1, pubKey2}
+	return nil
 }
 
 type mockNotifier struct {
@@ -2155,6 +2198,259 @@ func TestForwardPrivateNodeAnnouncement(t *testing.T) {
 	case <-ctx.broadcastedMessage:
 	case <-time.After(2 * trickleDelay):
 		t.Fatal("gossiper should have broadcast the node announcement")
+	}
+}
+
+// TestRejectZombieEdge ensures that we properly reject any announcements for
+// zombie edges.
+func TestRejectZombieEdge(t *testing.T) {
+	t.Parallel()
+
+	// We'll start by creating our test context with a batch of
+	// announcements.
+	ctx, cleanup, err := createTestCtx(0)
+	if err != nil {
+		t.Fatalf("unable to create test context: %v", err)
+	}
+	defer cleanup()
+
+	batch, err := createAnnouncements(0)
+	if err != nil {
+		t.Fatalf("unable to create announcements: %v", err)
+	}
+	remotePeer := &mockPeer{pk: nodeKeyPriv2.PubKey()}
+
+	// processAnnouncements is a helper closure we'll use to test that we
+	// properly process/reject announcements based on whether they're for a
+	// zombie edge or not.
+	processAnnouncements := func(isZombie bool) {
+		t.Helper()
+
+		errChan := ctx.gossiper.ProcessRemoteAnnouncement(
+			batch.remoteChanAnn, remotePeer,
+		)
+		select {
+		case err := <-errChan:
+			if isZombie && err != nil {
+				t.Fatalf("expected to reject live channel "+
+					"announcement with nil error: %v", err)
+			}
+			if !isZombie && err != nil {
+				t.Fatalf("expected to process live channel "+
+					"announcement: %v", err)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("expected to process channel announcement")
+		}
+		select {
+		case <-ctx.broadcastedMessage:
+			if isZombie {
+				t.Fatal("expected to not broadcast zombie " +
+					"channel announcement")
+			}
+		case <-time.After(2 * trickleDelay):
+			if !isZombie {
+				t.Fatal("expected to broadcast live channel " +
+					"announcement")
+			}
+		}
+
+		errChan = ctx.gossiper.ProcessRemoteAnnouncement(
+			batch.chanUpdAnn2, remotePeer,
+		)
+		select {
+		case err := <-errChan:
+			if isZombie && err != nil {
+				t.Fatalf("expected to reject zombie channel "+
+					"update with nil error: %v", err)
+			}
+			if !isZombie && err != nil {
+				t.Fatalf("expected to process live channel "+
+					"update: %v", err)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("expected to process channel update")
+		}
+		select {
+		case <-ctx.broadcastedMessage:
+			if isZombie {
+				t.Fatal("expected to not broadcast zombie " +
+					"channel update")
+			}
+		case <-time.After(2 * trickleDelay):
+			if !isZombie {
+				t.Fatal("expected to broadcast live channel " +
+					"update")
+			}
+		}
+	}
+
+	// We'll mark the edge for which we'll process announcements for as a
+	// zombie within the router. This should reject any announcements for
+	// this edge while it remains as a zombie.
+	chanID := batch.remoteChanAnn.ShortChannelID
+	err = ctx.router.MarkEdgeZombie(
+		chanID, batch.remoteChanAnn.NodeID1, batch.remoteChanAnn.NodeID2,
+	)
+	if err != nil {
+		t.Fatalf("unable to mark channel %v as zombie: %v", chanID, err)
+	}
+
+	processAnnouncements(true)
+
+	// If we then mark the edge as live, the edge's zombie status should be
+	// overridden and the announcements should be processed.
+	if err := ctx.router.MarkEdgeLive(chanID); err != nil {
+		t.Fatalf("unable mark channel %v as zombie: %v", chanID, err)
+	}
+
+	processAnnouncements(false)
+}
+
+// TestProcessZombieEdgeNowLive ensures that we can detect when a zombie edge
+// becomes live by receiving a fresh update.
+func TestProcessZombieEdgeNowLive(t *testing.T) {
+	t.Parallel()
+
+	// We'll start by creating our test context with a batch of
+	// announcements.
+	ctx, cleanup, err := createTestCtx(0)
+	if err != nil {
+		t.Fatalf("unable to create test context: %v", err)
+	}
+	defer cleanup()
+
+	batch, err := createAnnouncements(0)
+	if err != nil {
+		t.Fatalf("unable to create announcements: %v", err)
+	}
+
+	localPrivKey := nodeKeyPriv1
+	remotePrivKey := nodeKeyPriv2
+
+	remotePeer := &mockPeer{pk: remotePrivKey.PubKey()}
+
+	// processAnnouncement is a helper closure we'll use to ensure an
+	// announcement is properly processed/rejected based on whether the edge
+	// is a zombie or not. The expectsErr boolean can be used to determine
+	// whether we should expect an error when processing the message, while
+	// the isZombie boolean can be used to determine whether the
+	// announcement should be or not be broadcast.
+	processAnnouncement := func(ann lnwire.Message, isZombie, expectsErr bool) {
+		t.Helper()
+
+		errChan := ctx.gossiper.ProcessRemoteAnnouncement(
+			ann, remotePeer,
+		)
+
+		var err error
+		select {
+		case err = <-errChan:
+		case <-time.After(time.Second):
+			t.Fatal("expected to process announcement")
+		}
+		if expectsErr && err == nil {
+			t.Fatal("expected error when processing announcement")
+		}
+		if !expectsErr && err != nil {
+			t.Fatalf("received unexpected error when processing "+
+				"announcement: %v", err)
+		}
+
+		select {
+		case msgWithSenders := <-ctx.broadcastedMessage:
+			if isZombie {
+				t.Fatal("expected to not broadcast zombie " +
+					"channel message")
+			}
+			assertMessage(t, ann, msgWithSenders.msg)
+
+		case <-time.After(2 * trickleDelay):
+			if !isZombie {
+				t.Fatal("expected to broadcast live channel " +
+					"message")
+			}
+		}
+	}
+
+	// We'll generate a channel update with a timestamp far enough in the
+	// past to consider it a zombie.
+	zombieTimestamp := time.Now().Add(-routing.DefaultChannelPruneExpiry)
+	batch.chanUpdAnn2.Timestamp = uint32(zombieTimestamp.Unix())
+	if err := signUpdate(remotePrivKey, batch.chanUpdAnn2); err != nil {
+		t.Fatalf("unable to sign update with new timestamp: %v", err)
+	}
+
+	// We'll also add the edge to our zombie index.
+	chanID := batch.remoteChanAnn.ShortChannelID
+	err = ctx.router.MarkEdgeZombie(
+		chanID, batch.remoteChanAnn.NodeID1, batch.remoteChanAnn.NodeID2,
+	)
+	if err != nil {
+		t.Fatalf("unable mark channel %v as zombie: %v", chanID, err)
+	}
+
+	// Attempting to process the current channel update should fail due to
+	// its edge being considered a zombie and its timestamp not being within
+	// the live horizon. We should not expect an error here since it is just
+	// a stale update.
+	processAnnouncement(batch.chanUpdAnn2, true, false)
+
+	// Now we'll generate a new update with a fresh timestamp. This should
+	// allow the channel update to be processed even though it is still
+	// marked as a zombie within the index, since it is a fresh new update.
+	// This won't work however since we'll sign it with the wrong private
+	// key (local rather than remote).
+	batch.chanUpdAnn2.Timestamp = uint32(time.Now().Unix())
+	if err := signUpdate(localPrivKey, batch.chanUpdAnn2); err != nil {
+		t.Fatalf("unable to sign update with new timestamp: %v", err)
+	}
+
+	// We should expect an error due to the signature being invalid.
+	processAnnouncement(batch.chanUpdAnn2, true, true)
+
+	// Signing it with the correct private key should allow it to be
+	// processed.
+	if err := signUpdate(remotePrivKey, batch.chanUpdAnn2); err != nil {
+		t.Fatalf("unable to sign update with new timestamp: %v", err)
+	}
+
+	// The channel update cannot be successfully processed and broadcast
+	// until the channel announcement is. Since the channel update indicates
+	// a fresh new update, the gossiper should stash it until it sees the
+	// corresponding channel announcement.
+	updateErrChan := ctx.gossiper.ProcessRemoteAnnouncement(
+		batch.chanUpdAnn2, remotePeer,
+	)
+
+	select {
+	case <-ctx.broadcastedMessage:
+		t.Fatal("expected to not broadcast live channel update " +
+			"without announcement")
+	case <-time.After(2 * trickleDelay):
+	}
+
+	// We'll go ahead and process the channel announcement to ensure the
+	// channel update is processed thereafter.
+	processAnnouncement(batch.remoteChanAnn, false, false)
+
+	// After successfully processing the announcement, the channel update
+	// should have been processed and broadcast successfully as well.
+	select {
+	case err := <-updateErrChan:
+		if err != nil {
+			t.Fatalf("expected to process live channel update: %v",
+				err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected to process announcement")
+	}
+
+	select {
+	case msgWithSenders := <-ctx.broadcastedMessage:
+		assertMessage(t, batch.chanUpdAnn2, msgWithSenders.msg)
+	case <-time.After(2 * trickleDelay):
+		t.Fatal("expected to broadcast live channel update")
 	}
 }
 

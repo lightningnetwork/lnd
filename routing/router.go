@@ -33,6 +33,10 @@ const (
 	// if we should give up on a payment attempt. This will be used if a
 	// value isn't specified in the LightningNode struct.
 	defaultPayAttemptTimeout = time.Duration(time.Second * 60)
+
+	// DefaultChannelPruneExpiry is the default duration used to determine
+	// if a channel should be pruned or not.
+	DefaultChannelPruneExpiry = time.Duration(time.Hour * 24 * 14)
 )
 
 var (
@@ -76,7 +80,7 @@ type ChannelGraphSource interface {
 	IsPublicNode(node Vertex) (bool, error)
 
 	// IsKnownEdge returns true if the graph source already knows of the
-	// passed channel ID.
+	// passed channel ID either as a live or zombie edge.
 	IsKnownEdge(chanID lnwire.ShortChannelID) bool
 
 	// IsStaleEdgePolicy returns true if the graph source has a channel
@@ -84,6 +88,10 @@ type ChannelGraphSource interface {
 	// timestamp.
 	IsStaleEdgePolicy(chanID lnwire.ShortChannelID, timestamp time.Time,
 		flags lnwire.ChanUpdateChanFlags) bool
+
+	// MarkEdgeLive clears an edge from our zombie index, deeming it as
+	// live.
+	MarkEdgeLive(chanID lnwire.ShortChannelID) error
 
 	// ForAllOutgoingChannels is used to iterate over all channels
 	// emanating from the "source" node which is the center of the
@@ -1009,12 +1017,19 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 
 		// Prior to processing the announcement we first check if we
 		// already know of this channel, if so, then we can exit early.
-		_, _, exists, err := r.cfg.Graph.HasChannelEdge(msg.ChannelID)
+		_, _, exists, isZombie, err := r.cfg.Graph.HasChannelEdge(
+			msg.ChannelID,
+		)
 		if err != nil && err != channeldb.ErrGraphNoEdgesFound {
 			return errors.Errorf("unable to check for edge "+
 				"existence: %v", err)
-		} else if exists {
-			return newErrf(ErrIgnored, "Ignoring msg for known "+
+		}
+		if isZombie {
+			return newErrf(ErrIgnored, "ignoring msg for zombie "+
+				"chan_id=%v", msg.ChannelID)
+		}
+		if exists {
+			return newErrf(ErrIgnored, "ignoring msg for known "+
 				"chan_id=%v", msg.ChannelID)
 		}
 
@@ -1130,19 +1145,29 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 		r.channelEdgeMtx.Lock(msg.ChannelID)
 		defer r.channelEdgeMtx.Unlock(msg.ChannelID)
 
-		edge1Timestamp, edge2Timestamp, exists, err := r.cfg.Graph.HasChannelEdge(
-			msg.ChannelID,
-		)
+		edge1Timestamp, edge2Timestamp, exists, isZombie, err :=
+			r.cfg.Graph.HasChannelEdge(msg.ChannelID)
 		if err != nil && err != channeldb.ErrGraphNoEdgesFound {
 			return errors.Errorf("unable to check for edge "+
 				"existence: %v", err)
 
 		}
 
+		// If the channel is marked as a zombie in our database, and
+		// we consider this a stale update, then we should not apply the
+		// policy.
+		isStaleUpdate := time.Since(msg.LastUpdate) > r.cfg.ChannelPruneExpiry
+		if isZombie && isStaleUpdate {
+			return newErrf(ErrIgnored, "ignoring stale update "+
+				"(flags=%v|%v) for zombie chan_id=%v",
+				msg.MessageFlags, msg.ChannelFlags,
+				msg.ChannelID)
+		}
+
 		// If the channel doesn't exist in our database, we cannot
 		// apply the updated policy.
 		if !exists {
-			return newErrf(ErrIgnored, "Ignoring update "+
+			return newErrf(ErrIgnored, "ignoring update "+
 				"(flags=%v|%v) for unknown chan_id=%v",
 				msg.MessageFlags, msg.ChannelFlags,
 				msg.ChannelID)
@@ -2241,12 +2266,12 @@ func (r *ChannelRouter) IsPublicNode(node Vertex) (bool, error) {
 }
 
 // IsKnownEdge returns true if the graph source already knows of the passed
-// channel ID.
+// channel ID either as a live or zombie edge.
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
 func (r *ChannelRouter) IsKnownEdge(chanID lnwire.ShortChannelID) bool {
-	_, _, exists, _ := r.cfg.Graph.HasChannelEdge(chanID.ToUint64())
-	return exists
+	_, _, exists, isZombie, _ := r.cfg.Graph.HasChannelEdge(chanID.ToUint64())
+	return exists || isZombie
 }
 
 // IsStaleEdgePolicy returns true if the graph soruce has a channel edge for
@@ -2256,12 +2281,17 @@ func (r *ChannelRouter) IsKnownEdge(chanID lnwire.ShortChannelID) bool {
 func (r *ChannelRouter) IsStaleEdgePolicy(chanID lnwire.ShortChannelID,
 	timestamp time.Time, flags lnwire.ChanUpdateChanFlags) bool {
 
-	edge1Timestamp, edge2Timestamp, exists, err := r.cfg.Graph.HasChannelEdge(
-		chanID.ToUint64(),
-	)
+	edge1Timestamp, edge2Timestamp, exists, isZombie, err :=
+		r.cfg.Graph.HasChannelEdge(chanID.ToUint64())
 	if err != nil {
 		return false
 
+	}
+
+	// If we know of the edge as a zombie, then we'll check the timestamp of
+	// this message to determine whether it's fresh.
+	if isZombie {
+		return time.Since(timestamp) > r.cfg.ChannelPruneExpiry
 	}
 
 	// If we don't know of the edge, then it means it's fresh (thus not
@@ -2275,7 +2305,6 @@ func (r *ChannelRouter) IsStaleEdgePolicy(chanID lnwire.ShortChannelID,
 	// already have the most up to date information for that edge. If so,
 	// then we can exit early.
 	switch {
-
 	// A flag set of 0 indicates this is an announcement for the "first"
 	// node in the channel.
 	case flags&lnwire.ChanUpdateDirection == 0:
@@ -2288,4 +2317,11 @@ func (r *ChannelRouter) IsStaleEdgePolicy(chanID lnwire.ShortChannelID,
 	}
 
 	return false
+}
+
+// MarkEdgeLive clears an edge from our zombie index, deeming it as live.
+//
+// NOTE: This method is part of the ChannelGraphSource interface.
+func (r *ChannelRouter) MarkEdgeLive(chanID lnwire.ShortChannelID) error {
+	return r.cfg.Graph.MarkEdgeLive(chanID.ToUint64())
 }

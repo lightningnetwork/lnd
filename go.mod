@@ -9,7 +9,7 @@ require (
 	github.com/btcsuite/btcd v0.0.0-20190213025234-306aecffea32
 	github.com/btcsuite/btclog v0.0.0-20170628155309-84c8d2346e9f
 	github.com/btcsuite/btcutil v0.0.0-20190316010144-3ac1210f4b38
-	github.com/btcsuite/btcwallet v0.0.0-20190319010515-89ab2044f962
+	github.com/btcsuite/btcwallet v0.0.0-20190327034548-8b90263a6190
 	github.com/btcsuite/fastsha256 v0.0.0-20160815193821-637e65642941
 	github.com/coreos/bbolt v1.3.2
 	github.com/davecgh/go-spew v1.1.1

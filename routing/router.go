@@ -1709,9 +1709,8 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 				paySession, route, uint32(currentHeight),
 			)
 			if err != nil {
-				// If an unexpected error occurs, ignore and
-				// continue the payment attempt.
 				log.Errorf("Probe error: %v", err)
+				return [32]byte{}, nil, err
 			} else {
 				// If probe failed, retry path finding with
 				// updated mission control.
@@ -1800,12 +1799,13 @@ func (r *ChannelRouter) probe(paySession *paymentSession, route *Route,
 	hops := len(route.Hops)
 
 	// Get locators for route.
-	locators := make([]*EdgeLocator, hops)
+	locators := make([]EdgeLocator, hops)
 	from := route.SourcePubKey
 	for i, hop := range route.Hops {
-		locators[i] = newEdgeLocatorByPubkeys(
+		l := newEdgeLocatorByPubkeys(
 			hop.ChannelID, &from, &hop.PubKeyBytes,
 		)
+		locators[i] = *l
 
 		from = hop.PubKeyBytes
 	}
@@ -1833,8 +1833,10 @@ func (r *ChannelRouter) probe(paySession *paymentSession, route *Route,
 	// control should have been updated and path finding should find an
 	// alternative route.
 	if probeDepth > 0 {
-		paySession.mc.markProbed(locators[:probeDepth])
+		paySession.mc.markSuccessfullyProbed(locators[:probeDepth])
 
+		// If we reached the destination, we consider the probe as
+		// successful.
 		probeSuccess := probeDepth == hops
 
 		return probeSuccess, nil
@@ -1854,15 +1856,17 @@ func (r *ChannelRouter) probe(paySession *paymentSession, route *Route,
 			return false, err
 		}
 
+		// If the probe fails, the last edge of this probe route must be
+		// the black hole.
 		if probeDepth == 0 {
-			paySession.ReportEdgeFailure(locators[depth-1])
+			paySession.mc.markFailedProbe(locators[depth-1])
 			return false, nil
 		}
 
 		// Mark probed edges.
-		paySession.mc.markProbed(locators[:probeDepth])
+		paySession.mc.markSuccessfullyProbed(locators[:probeDepth])
 
-		// If probe didn't reach the final node for this probe, we
+		// If probe didn't reach the final node for this probe route, we
 		// cannot get more probe information for this route. Retry path
 		// finding with updated mission control.
 		if probeDepth < depth {
@@ -1872,7 +1876,7 @@ func (r *ChannelRouter) probe(paySession *paymentSession, route *Route,
 
 	// If all shorter paths can be probed successfully, the last hop must
 	// be the problem.
-	paySession.ReportEdgeFailure(locators[hops-1])
+	paySession.mc.markFailedProbe(locators[hops-1])
 
 	return false, nil
 }

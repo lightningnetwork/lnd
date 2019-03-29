@@ -2414,7 +2414,7 @@ func TestProbe(t *testing.T) {
 	// Send off the payment request to the router. The specified route
 	// should be attempted and the channel update should be received by
 	// router and ignored because it is missing a valid signature.
-	_, _, err = ctx.router.SendPayment(payment)
+	_, _, err = ctx.router.SendPayment(payment, false)
 	if err != nil {
 		t.Fatalf("expected payment to succeed, but got %v", err)
 	}
@@ -2609,7 +2609,7 @@ func TestRoutingEffectiveness(t *testing.T) {
 		attempts = 0
 		// Send off the payment request to the router, route through satoshi
 		// should've been selected as a fall back and succeeded correctly.
-		_, _, err = ctx.router.SendPayment(&payment)
+		_, _, err = ctx.router.SendPayment(&payment, false)
 		if err != nil {
 			t.Fatalf("unable to send payment: %v", err)
 		}

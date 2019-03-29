@@ -1713,23 +1713,33 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 			)
 			if err != nil {
 				log.Errorf("Probe error: %v", err)
-				return [32]byte{}, nil, err
-			} else {
-				// If probe failed, retry path finding with
-				// updated mission control.
-				if !success {
-					log.Debugf("Probe failed, retry path " +
-						"finding")
-					continue
-				}
-				log.Debugf("Probe succeeded")
+
+				return lntypes.Preimage{}, nil, err
 			}
+			// If probe failed, retry path finding with
+			// updated mission control.
+			if !success {
+				continue
+			}
+		}
+
+		if probe {
+			success, _, err := r.sendProbeAttempt(paySession, route)
+			if err != nil {
+				log.Errorf("Probe error: %v", err)
+
+				return lntypes.Preimage{}, nil, err
+			}
+			if !success {
+				continue
+			}
+			return lntypes.Preimage{}, route, nil
 		}
 
 		// Send payment attempt. It will return a final boolean
 		// indicating if more attempts are needed.
 		preimage, final, err := r.sendPaymentAttempt(
-			paySession, route, payment.PaymentHash, probe,
+			paySession, route, payment.PaymentHash,
 		)
 		if final {
 			return preimage, route, err
@@ -1744,7 +1754,7 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 // bool parameter indicates whether this is a final outcome or more attempts
 // should be made.
 func (r *ChannelRouter) sendPaymentAttempt(paySession *paymentSession,
-	route *Route, paymentHash [32]byte, probe bool) ([32]byte, bool, error) {
+	route *Route, paymentHash [32]byte) ([32]byte, bool, error) {
 
 	log.Tracef("Attempting to send payment %x, using route: %v",
 		paymentHash, newLogClosure(func() string {
@@ -1752,20 +1762,9 @@ func (r *ChannelRouter) sendPaymentAttempt(paySession *paymentSession,
 		}),
 	)
 
-	// If probing, make up a random payment hash.
-	if probe {
-		if _, err := rand.Read(paymentHash[:]); err != nil {
-			return lntypes.Preimage{}, true, err
-		}
-	}
-
 	preimage, err := r.cfg.SendToSwitch(route, paymentHash)
 	if err == nil {
 		return preimage, true, nil
-	}
-
-	if probe && r.isProbeSuccess(route, err) {
-		return lntypes.Preimage{}, true, nil
 	}
 
 	log.Errorf("Attempt to send payment %x failed: %v",
@@ -1774,28 +1773,6 @@ func (r *ChannelRouter) sendPaymentAttempt(paySession *paymentSession,
 	finalOutcome := r.processSendError(paySession, route, err)
 
 	return [32]byte{}, finalOutcome, err
-}
-
-// isProbeSuccess interprets the error to determine whether this attempt was a
-// successful probe.
-func (r *ChannelRouter) isProbeSuccess(route *Route, err error) bool {
-	fErr, ok := err.(*htlcswitch.ForwardingError)
-	if !ok {
-		return false
-	}
-
-	if _, ok := fErr.FailureMessage.(*lnwire.FailUnknownPaymentHash); !ok {
-		return false
-	}
-
-	errSource := fErr.ErrorSource
-	errVertex := NewVertex(errSource)
-	dest := route.Hops[len(route.Hops)-1].PubKeyBytes
-	if errVertex != dest {
-		return false
-	}
-
-	return true
 }
 
 func (r *ChannelRouter) createProbeRoute(route *Route, depth int,
@@ -1859,7 +1836,7 @@ func (r *ChannelRouter) probe(paySession *paymentSession, route *Route,
 		return false, err
 	}
 
-	probeDepth, err := r.sendProbeAttempt(paySession, probeRoute)
+	_, probeDepth, err := r.sendProbeAttempt(paySession, probeRoute)
 	if err != nil {
 		return false, err
 	}
@@ -1887,7 +1864,7 @@ func (r *ChannelRouter) probe(paySession *paymentSession, route *Route,
 			return false, err
 		}
 
-		probeDepth, err := r.sendProbeAttempt(paySession, probeRoute)
+		_, probeDepth, err := r.sendProbeAttempt(paySession, probeRoute)
 		if err != nil {
 			return false, err
 		}
@@ -1917,17 +1894,15 @@ func (r *ChannelRouter) probe(paySession *paymentSession, route *Route,
 	return false, nil
 }
 
+// sendProbeAttempt sends out a probe attempt. It returns whether the probe was
+// successful and the number of hops that are alive.
 func (r *ChannelRouter) sendProbeAttempt(paySession *paymentSession,
-	route *Route) (int, error) {
+	route *Route) (bool, int, error) {
 
 	var paymentHash [32]byte
 	if _, err := io.ReadFull(rand.Reader, paymentHash[:]); err != nil {
-		return 0, err
+		return false, 0, err
 	}
-
-	log.Debugf("Attempting to send probe %x, using route: %v",
-		paymentHash, route,
-	)
 
 	var err error
 	done := make(chan struct{})
@@ -1939,32 +1914,46 @@ func (r *ChannelRouter) sendProbeAttempt(paySession *paymentSession,
 	select {
 	case <-done:
 	case <-time.After(r.cfg.ProbeTimeout):
-		log.Debugf("Probe timed out")
-		return 0, nil
+		log.Debugf("Probe route %v: time out", route)
+		return false, 0, nil
 	}
 
 	if err == nil {
-		return 0, errors.New("probe accepted (impossible)")
+		return false, 0, errors.New("probe accepted (impossible)")
 	}
-
-	log.Errorf("Probe attempt result: %v", err)
 
 	// Process send error to apply channel updates and prune the graph.
 	r.processSendError(paySession, route, err)
 
 	fErr, ok := err.(*htlcswitch.ForwardingError)
 	if !ok {
-		return 0, err
+		return false, 0, err
 	}
 
 	errSource := NewVertex(fErr.ErrorSource)
-	for i, hop := range route.Hops {
-		if hop.PubKeyBytes == errSource {
-			return i + 1, nil
-		}
+	index, err := getHopIndex(route, errSource)
+	if err != nil {
+		return false, 0, err
 	}
 
-	return 0, errors.New("unknown error source")
+	_, isUnknownHashError :=
+		fErr.FailureMessage.(*lnwire.FailUnknownPaymentHash)
+
+	success := index == len(route.Hops)-1 && isUnknownHashError
+
+	log.Debugf("Probe route %v: success=%v, hops=%v",
+		route, success, index+1)
+
+	return success, index + 1, nil
+}
+
+func getHopIndex(route *Route, node Vertex) (int, error) {
+	for i, hop := range route.Hops {
+		if hop.PubKeyBytes == node {
+			return i, nil
+		}
+	}
+	return 0, errors.New("unknown node")
 }
 
 func (r *ChannelRouter) getPath(hops []*Hop) ([]*channeldb.ChannelEdgePolicy,

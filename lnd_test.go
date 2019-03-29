@@ -9126,7 +9126,7 @@ func testBidirectionalAsyncPayments(net *lntest.NetworkHarness, t *harnessTest) 
 
 	// Wait for Alice and Bob receive their payments, and throw and error
 	// if something goes wrong.
-	maxTime := 60 * time.Second
+	maxTime := lntest.AsyncBenchmarkTimeout
 	for i := 0; i < 2; i++ {
 		select {
 		case err := <-errChan:

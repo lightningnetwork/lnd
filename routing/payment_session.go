@@ -31,24 +31,7 @@ type paymentSession struct {
 	haveRoutes     bool
 	preBuiltRoutes []*Route
 
-	pathFinder  pathFinder
-	probedChans map[EdgeLocator]struct{}
-}
-
-func (p *paymentSession) getProbedDepth(edges []*EdgeLocator) int {
-	for i, e := range edges {
-		if _, ok := p.probedChans[*e]; !ok {
-			return i
-		}
-	}
-	return len(edges)
-}
-
-func (p *paymentSession) markProbed(edges []*EdgeLocator) int {
-	for _, e := range edges {
-		p.probedChans[*e] = struct{}{}
-	}
-	return len(edges)
+	pathFinder pathFinder
 }
 
 // ReportVertexFailure adds a vertex to the graph prune view after a client

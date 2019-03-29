@@ -1812,7 +1812,7 @@ func (r *ChannelRouter) probe(paySession *paymentSession, route *Route,
 
 	// If complete route has already been probed, return early. This should
 	// not happen normally.
-	previousProbedDepth := paySession.getProbedDepth(locators)
+	previousProbedDepth := paySession.mc.getProbedDepth(locators)
 	if previousProbedDepth == hops {
 		return true, nil
 	}
@@ -1833,7 +1833,7 @@ func (r *ChannelRouter) probe(paySession *paymentSession, route *Route,
 	// control should have been updated and path finding should find an
 	// alternative route.
 	if probeDepth > 0 {
-		paySession.markProbed(locators[:probeDepth])
+		paySession.mc.markProbed(locators[:probeDepth])
 
 		probeSuccess := probeDepth == hops
 
@@ -1860,7 +1860,7 @@ func (r *ChannelRouter) probe(paySession *paymentSession, route *Route,
 		}
 
 		// Mark probed edges.
-		paySession.markProbed(locators[:probeDepth])
+		paySession.mc.markProbed(locators[:probeDepth])
 
 		// If probe didn't reach the final node for this probe, we
 		// cannot get more probe information for this route. Retry path

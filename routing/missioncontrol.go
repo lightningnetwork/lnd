@@ -60,6 +60,8 @@ type missionControl struct {
 	// to that particular vertex.
 	failedVertexes map[Vertex]time.Time
 
+	probedChans map[EdgeLocator]struct{}
+
 	graph *channeldb.ChannelGraph
 
 	selfNode *channeldb.LightningNode
@@ -85,6 +87,7 @@ func newMissionControl(g *channeldb.ChannelGraph, selfNode *channeldb.LightningN
 	return &missionControl{
 		failedEdges:    make(map[EdgeLocator]time.Time),
 		failedVertexes: make(map[Vertex]time.Time),
+		probedChans:    make(map[EdgeLocator]struct{}),
 		selfNode:       selfNode,
 		queryBandwidth: qb,
 		graph:          g,
@@ -165,7 +168,6 @@ func (m *missionControl) NewPaymentSession(routeHints [][]zpay32.HopHint,
 		additionalEdges:      edges,
 		bandwidthHints:       bandwidthHints,
 		errFailedPolicyChans: make(map[EdgeLocator]struct{}),
-		probedChans:          make(map[EdgeLocator]struct{}),
 		mc:                   m,
 		pathFinder:           findPath,
 	}, nil
@@ -180,7 +182,6 @@ func (m *missionControl) NewPaymentSessionFromRoutes(routes []*Route) *paymentSe
 		haveRoutes:           true,
 		preBuiltRoutes:       routes,
 		errFailedPolicyChans: make(map[EdgeLocator]struct{}),
-		probedChans:          make(map[EdgeLocator]struct{}),
 		mc:                   m,
 		pathFinder:           findPath,
 	}
@@ -318,4 +319,20 @@ func (m *missionControl) reportEdgeFailure(e *EdgeLocator) {
 	m.Lock()
 	m.failedEdges[*e] = m.now()
 	m.Unlock()
+}
+
+func (m *missionControl) getProbedDepth(edges []*EdgeLocator) int {
+	for i, e := range edges {
+		if _, ok := m.probedChans[*e]; !ok {
+			return i
+		}
+	}
+	return len(edges)
+}
+
+func (m *missionControl) markProbed(edges []*EdgeLocator) int {
+	for _, e := range edges {
+		m.probedChans[*e] = struct{}{}
+	}
+	return len(edges)
 }

@@ -236,6 +236,20 @@ type GossipSyncer struct {
 	// machine behaves as expected.
 	syncTransitionReqs chan *syncTransitionReq
 
+	// historicalSyncReqs is a channel that serves as a signal for the
+	// gossip syncer to perform a historical sync. Theese can only be done
+	// once the gossip syncer is in a chansSynced state to ensure its state
+	// machine behaves as expected.
+	historicalSyncReqs chan struct{}
+
+	// genHistoricalChanRangeQuery when true signals to the gossip syncer
+	// that it should request the remote peer for all of its known channel
+	// IDs starting from the genesis block of the chain. This can only
+	// happen if the gossip syncer receives a request to attempt a
+	// historical sync. It can be unset if the syncer ever transitions from
+	// PassiveSync to ActiveSync.
+	genHistoricalChanRangeQuery bool
+
 	// gossipMsgs is a channel that all messages from the target peer will
 	// be sent over.
 	gossipMsgs chan lnwire.Message
@@ -291,6 +305,7 @@ func newGossipSyncer(cfg gossipSyncerCfg) *GossipSyncer {
 		cfg:                cfg,
 		rateLimiter:        rateLimiter,
 		syncTransitionReqs: make(chan *syncTransitionReq),
+		historicalSyncReqs: make(chan struct{}),
 		gossipMsgs:         make(chan lnwire.Message, 100),
 		quit:               make(chan struct{}),
 	}
@@ -338,7 +353,9 @@ func (g *GossipSyncer) channelGraphSyncer() {
 		case syncingChans:
 			// If we're in this state, then we'll send the remote
 			// peer our opening QueryChannelRange message.
-			queryRangeMsg, err := g.genChanRangeQuery()
+			queryRangeMsg, err := g.genChanRangeQuery(
+				g.genHistoricalChanRangeQuery,
+			)
 			if err != nil {
 				log.Errorf("unable to gen chan range "+
 					"query: %v", err)
@@ -480,6 +497,9 @@ func (g *GossipSyncer) channelGraphSyncer() {
 
 			case req := <-g.syncTransitionReqs:
 				req.errChan <- g.handleSyncTransition(req)
+
+			case <-g.historicalSyncReqs:
+				g.handleHistoricalSync()
 
 			case <-g.quit:
 				return
@@ -624,8 +644,11 @@ func (g *GossipSyncer) processChanRangeReply(msg *lnwire.ReplyChannelRange) erro
 
 // genChanRangeQuery generates the initial message we'll send to the remote
 // party when we're kicking off the channel graph synchronization upon
-// connection.
-func (g *GossipSyncer) genChanRangeQuery() (*lnwire.QueryChannelRange, error) {
+// connection. The historicalQuery boolean can be used to generate a query from
+// the genesis block of the chain.
+func (g *GossipSyncer) genChanRangeQuery(
+	historicalQuery bool) (*lnwire.QueryChannelRange, error) {
+
 	// First, we'll query our channel graph time series for its highest
 	// known channel ID.
 	newestChan, err := g.cfg.channelSeries.HighestChanID(g.cfg.chainHash)
@@ -633,17 +656,17 @@ func (g *GossipSyncer) genChanRangeQuery() (*lnwire.QueryChannelRange, error) {
 		return nil, err
 	}
 
-	// Once we have the chan ID of the newest, we'll obtain the block
-	// height of the channel, then subtract our default horizon to ensure
-	// we don't miss any channels. By default, we go back 1 day from the
-	// newest channel.
+	// Once we have the chan ID of the newest, we'll obtain the block height
+	// of the channel, then subtract our default horizon to ensure we don't
+	// miss any channels. By default, we go back 1 day from the newest
+	// channel, unless we're attempting a historical sync, where we'll
+	// actually start from the genesis block instead.
 	var startHeight uint32
 	switch {
-	case newestChan.BlockHeight <= chanRangeQueryBuffer:
+	case historicalQuery:
 		fallthrough
-	case newestChan.BlockHeight == 0:
+	case newestChan.BlockHeight <= chanRangeQueryBuffer:
 		startHeight = 0
-
 	default:
 		startHeight = uint32(newestChan.BlockHeight - chanRangeQueryBuffer)
 	}
@@ -1080,6 +1103,10 @@ func (g *GossipSyncer) handleSyncTransition(req *syncTransitionReq) error {
 		timestampRange = math.MaxUint32
 		newState = syncingChans
 
+		// We'll set genHistoricalChanRangeQuery to false since in order
+		// to not perform another historical sync if we previously have.
+		g.genHistoricalChanRangeQuery = false
+
 	// If a PassiveSync transition has been requested, then we should no
 	// longer receive any new updates from the remote peer. We can do this
 	// by setting our update horizon to a range in the past ensuring no
@@ -1113,4 +1140,30 @@ func (g *GossipSyncer) setSyncType(syncType SyncerType) {
 // SyncType returns the current SyncerType of the target GossipSyncer.
 func (g *GossipSyncer) SyncType() SyncerType {
 	return SyncerType(atomic.LoadUint32(&g.syncType))
+}
+
+// historicalSync sends a request to the gossip syncer to perofmr a historical
+// sync.
+//
+// NOTE: This can only be done once the gossip syncer has reached its final
+// chansSynced state.
+func (g *GossipSyncer) historicalSync() error {
+	select {
+	case g.historicalSyncReqs <- struct{}{}:
+		return nil
+	case <-time.After(syncTransitionTimeout):
+		return ErrSyncTransitionTimeout
+	case <-g.quit:
+		return ErrGossiperShuttingDown
+	}
+}
+
+// handleHistoricalSync handles a request to the gossip syncer to perform a
+// historical sync.
+func (g *GossipSyncer) handleHistoricalSync() {
+	// We'll go back to our initial syncingChans state in order to request
+	// the remote peer to give us all of the channel IDs they know of
+	// starting from the genesis block.
+	g.genHistoricalChanRangeQuery = true
+	g.setSyncState(syncingChans)
 }

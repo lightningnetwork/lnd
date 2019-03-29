@@ -730,7 +730,7 @@ func TestGossipSyncerGenChanRangeQuery(t *testing.T) {
 	// If we now ask the syncer to generate an initial range query, it
 	// should return a start height that's back chanRangeQueryBuffer
 	// blocks.
-	rangeQuery, err := syncer.genChanRangeQuery()
+	rangeQuery, err := syncer.genChanRangeQuery(false)
 	if err != nil {
 		t.Fatalf("unable to resp: %v", err)
 	}
@@ -743,7 +743,22 @@ func TestGossipSyncerGenChanRangeQuery(t *testing.T) {
 	}
 	if rangeQuery.NumBlocks != math.MaxUint32-firstHeight {
 		t.Fatalf("wrong num blocks: expected %v, got %v",
-			rangeQuery.NumBlocks, math.MaxUint32-firstHeight)
+			math.MaxUint32-firstHeight, rangeQuery.NumBlocks)
+	}
+
+	// Generating a historical range query should result in a start height
+	// of 0.
+	rangeQuery, err = syncer.genChanRangeQuery(true)
+	if err != nil {
+		t.Fatalf("unable to resp: %v", err)
+	}
+	if rangeQuery.FirstBlockHeight != 0 {
+		t.Fatalf("incorrect chan range query: expected %v, %v", 0,
+			rangeQuery.FirstBlockHeight)
+	}
+	if rangeQuery.NumBlocks != math.MaxUint32 {
+		t.Fatalf("wrong num blocks: expected %v, got %v",
+			math.MaxUint32, rangeQuery.NumBlocks)
 	}
 }
 
@@ -2080,5 +2095,48 @@ func TestGossipSyncerSyncTransitions(t *testing.T) {
 			// after processing its sync transition.
 			test.assert(t, msgChan, syncer)
 		})
+	}
+}
+
+// TestGossipSyncerHistoricalSync tests that a gossip syncer can perform a
+// historical sync with the remote peer.
+func TestGossipSyncerHistoricalSync(t *testing.T) {
+	t.Parallel()
+
+	// We'll create a new gossip syncer and manually override its state to
+	// chansSynced. This is necessary as the syncer can only process
+	// historical sync requests in this state.
+	msgChan, syncer, _ := newTestSyncer(
+		lnwire.ShortChannelID{BlockHeight: latestKnownHeight},
+		defaultEncoding, defaultChunkSize,
+	)
+	syncer.setSyncType(PassiveSync)
+	syncer.setSyncState(chansSynced)
+
+	syncer.Start()
+	defer syncer.Stop()
+
+	syncer.historicalSync()
+
+	// We should expect to see a single lnwire.QueryChannelRange message be
+	// sent to the remote peer with a FirstBlockHeight of 0.
+	expectedMsg := &lnwire.QueryChannelRange{
+		FirstBlockHeight: 0,
+		NumBlocks:        math.MaxUint32,
+	}
+
+	select {
+	case msgs := <-msgChan:
+		if len(msgs) != 1 {
+			t.Fatalf("expected to send a single "+
+				"lnwire.QueryChannelRange message, got %d",
+				len(msgs))
+		}
+		if !reflect.DeepEqual(msgs[0], expectedMsg) {
+			t.Fatalf("expected to send message: %v\ngot: %v",
+				spew.Sdump(expectedMsg), spew.Sdump(msgs[0]))
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("expected to send a lnwire.QueryChannelRange message")
 	}
 }

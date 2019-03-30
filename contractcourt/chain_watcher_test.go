@@ -234,6 +234,24 @@ type dlpTestCase struct {
 	NumUpdates        uint8
 }
 
+func executeStateTransitions(t *testing.T, htlcAmount lnwire.MilliSatoshi,
+	aliceChannel, bobChannel *lnwallet.LightningChannel,
+	numUpdates uint8) error {
+
+	for i := 0; i < int(numUpdates); i++ {
+		addFakeHTLC(
+			t, htlcAmount, uint64(i), aliceChannel, bobChannel,
+		)
+
+		err := lnwallet.ForceStateTransition(aliceChannel, bobChannel)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 // TestChainWatcherDataLossProtect tests that if we've lost data (and are
 // behind the remote node), then we'll properly detect this case and dispatch a
 // remote force close using the obtained data loss commitment point.
@@ -291,19 +309,13 @@ func TestChainWatcherDataLossProtect(t *testing.T) {
 		// new HTLC to add to the commitment, and then lock in a state
 		// transition.
 		const htlcAmt = 1000
-		for i := 0; i < int(testCase.NumUpdates); i++ {
-			addFakeHTLC(
-				t, 1000, uint64(i), aliceChannel, bobChannel,
-			)
-
-			err := lnwallet.ForceStateTransition(
-				aliceChannel, bobChannel,
-			)
-			if err != nil {
-				t.Errorf("unable to trigger state "+
-					"transition: %v", err)
-				return false
-			}
+		err = executeStateTransitions(
+			t, htlcAmt, aliceChannel, bobChannel, testCase.NumUpdates,
+		)
+		if err != nil {
+			t.Errorf("unable to trigger state "+
+				"transition: %v", err)
+			return false
 		}
 
 		// We'll request a new channel event subscription from Alice's
@@ -409,6 +421,152 @@ func TestChainWatcherDataLossProtect(t *testing.T) {
 			if !dlpScenario(t, testCase) {
 				t.Fatalf("test %v failed", testName)
 			}
+		})
+	}
+}
+
+// TestChainWatcherLocalForceCloseDetect tests we're able to always detect our
+// commitment output based on only the outputs present on the transaction.
+func TestChainWatcherLocalForceCloseDetect(t *testing.T) {
+	t.Parallel()
+
+	// localForceCloseScenario is the primary test we'll use to execut eout
+	// table driven tests. We'll assert that for any number of state
+	// updates, and if the commitment transaction has our output or not,
+	// we're able to properly detect a local force close.
+	localForceCloseScenario := func(t *testing.T, numUpdates uint8,
+		remoteOutputOnly, localOutputOnly bool) bool {
+
+		// First, we'll create two channels which already have
+		// established a commitment contract between themselves.
+		aliceChannel, bobChannel, cleanUp, err := lnwallet.CreateTestChannels()
+		if err != nil {
+			t.Fatalf("unable to create test channels: %v", err)
+		}
+		defer cleanUp()
+
+		// With the channels created, we'll now create a chain watcher
+		// instance which will be watching for any closes of Alice's
+		// channel.
+		aliceNotifier := &mockNotifier{
+			spendChan: make(chan *chainntnfs.SpendDetail),
+		}
+		aliceChainWatcher, err := newChainWatcher(chainWatcherConfig{
+			chanState:           aliceChannel.State(),
+			notifier:            aliceNotifier,
+			signer:              aliceChannel.Signer,
+			extractStateNumHint: lnwallet.GetStateNumHint,
+		})
+		if err != nil {
+			t.Fatalf("unable to create chain watcher: %v", err)
+		}
+		if err := aliceChainWatcher.Start(); err != nil {
+			t.Fatalf("unable to start chain watcher: %v", err)
+		}
+		defer aliceChainWatcher.Stop()
+
+		// We'll execute a number of state transitions based on the
+		// randomly selected number from testing/quick. We do this to
+		// get more coverage of various state hint encodings beyond 0
+		// and 1.
+		const htlcAmt = 1000
+		err = executeStateTransitions(
+			t, htlcAmt, aliceChannel, bobChannel, numUpdates,
+		)
+		if err != nil {
+			t.Errorf("unable to trigger state "+
+				"transition: %v", err)
+			return false
+		}
+
+		// We'll request a new channel event subscription from Alice's
+		// chain watcher so we can be notified of our fake close below.
+		chanEvents := aliceChainWatcher.SubscribeChannelEvents()
+
+		// Next, we'll obtain Alice's commitment transaction and
+		// trigger a force close. This should cause her to detect a
+		// local force close, and dispatch a local close event.
+		aliceCommit := aliceChannel.State().LocalCommitment.CommitTx
+
+		// Since this is Alice's commitment, her output is always first
+		// since she's the one creating the HTLCs (lower balance). In
+		// order to simulate the commitment only having the remote
+		// party's output, we'll remove Alice's output.
+		if remoteOutputOnly {
+			aliceCommit.TxOut = aliceCommit.TxOut[1:]
+		}
+		if localOutputOnly {
+			aliceCommit.TxOut = aliceCommit.TxOut[:1]
+		}
+
+		aliceTxHash := aliceCommit.TxHash()
+		aliceSpend := &chainntnfs.SpendDetail{
+			SpenderTxHash: &aliceTxHash,
+			SpendingTx:    aliceCommit,
+		}
+		aliceNotifier.spendChan <- aliceSpend
+
+		// We should get a local force close event from Alice as she
+		// should be able to detect the close based on the commitment
+		// outputs.
+		select {
+		case <-chanEvents.LocalUnilateralClosure:
+			return true
+
+		case <-time.After(time.Second * 5):
+			t.Errorf("didn't get local for close for state #%v",
+				numUpdates)
+			return false
+		}
+	}
+
+	// For our test cases, we'll ensure that we test having a remote output
+	// present and absent with non or some number of updates in the channel.
+	testCases := []struct {
+		numUpdates       uint8
+		remoteOutputOnly bool
+		localOutputOnly  bool
+	}{
+		{
+			numUpdates:       0,
+			remoteOutputOnly: true,
+		},
+		{
+			numUpdates:       0,
+			remoteOutputOnly: false,
+		},
+		{
+			numUpdates:      0,
+			localOutputOnly: true,
+		},
+		{
+			numUpdates:       20,
+			remoteOutputOnly: false,
+		},
+		{
+			numUpdates:       20,
+			remoteOutputOnly: true,
+		},
+		{
+			numUpdates:      20,
+			localOutputOnly: true,
+		},
+	}
+	for _, testCase := range testCases {
+		testName := fmt.Sprintf(
+			"num_updates=%v,remote_output=%v,local_output=%v",
+			testCase.numUpdates, testCase.remoteOutputOnly,
+			testCase.localOutputOnly,
+		)
+
+		testCase := testCase
+		t.Run(testName, func(t *testing.T) {
+			t.Parallel()
+
+			localForceCloseScenario(
+				t, testCase.numUpdates, testCase.remoteOutputOnly,
+				testCase.localOutputOnly,
+			)
 		})
 	}
 }

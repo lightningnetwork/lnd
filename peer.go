@@ -891,11 +891,23 @@ func newChanMsgStream(p *peer, cid lnwire.ChannelID) *msgStream {
 				)
 				if err != nil {
 					// If we have a non-nil error, then the
-					// funding manager is shutting down, s
+					// funding manager is shutting down, so
 					// we can exit here without attempting
 					// to deliver the message.
 					return
 				}
+				err := p.server.authGossiper.waitUntilChannelEstablish(
+					cid, p.quit,
+				)
+				if err != nil {
+					// If we have a non-nil error, then the
+					// Gossiper is shutting down, so
+					// we can exit here without attempting
+					// to deliver the message.
+					return
+				}
+				
+				
 			}
 
 			// In order to avoid unnecessarily delivering message

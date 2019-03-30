@@ -10,9 +10,12 @@ import (
 // requests it.
 var log btclog.Logger
 
+// Subsystem defines the logging code for this subsystem.
+const Subsystem = "RRPC"
+
 // The default amount of logging is none.
 func init() {
-	UseLogger(build.NewSubLogger("RRPC", nil))
+	UseLogger(build.NewSubLogger(Subsystem, nil))
 }
 
 // DisableLog disables all library log output.  Logging output is disabled

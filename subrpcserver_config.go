@@ -70,6 +70,7 @@ func (s *subRPCServerConfigs) PopulateDependencies(cc *chainControl,
 	htlcSwitch *htlcswitch.Switch,
 	activeNetParams *chaincfg.Params,
 	chanRouter *routing.ChannelRouter,
+	routerBackend *routerrpc.RouterBackend,
 	nodeSigner *netann.NodeSigner,
 	chanDB *channeldb.DB) error {
 
@@ -185,7 +186,7 @@ func (s *subRPCServerConfigs) PopulateDependencies(cc *chainControl,
 			)
 
 		case *routerrpc.Config:
-			subCfgValue := extractReflectValue(cfg)
+			subCfgValue := extractReflectValue(subCfg)
 
 			subCfgValue.FieldByName("NetworkDir").Set(
 				reflect.ValueOf(networkDir),
@@ -198,6 +199,9 @@ func (s *subRPCServerConfigs) PopulateDependencies(cc *chainControl,
 			)
 			subCfgValue.FieldByName("Router").Set(
 				reflect.ValueOf(chanRouter),
+			)
+			subCfgValue.FieldByName("RouterBackend").Set(
+				reflect.ValueOf(routerBackend),
 			)
 
 		default:

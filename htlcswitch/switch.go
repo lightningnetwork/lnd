@@ -1038,7 +1038,8 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 
 			return s.failAddPacket(packet, failure, addErr)
 		}
-		interfaceLinks, _ := s.getLinks(targetLink.Peer().PubKey())
+		targetPeerKey := targetLink.Peer().PubKey()
+		interfaceLinks, _ := s.getLinks(targetPeerKey)
 		s.indexMtx.RUnlock()
 
 		// We'll keep track of any HTLC failures during the link
@@ -1105,7 +1106,7 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 
 			addErr := fmt.Errorf("unable to find appropriate "+
 				"channel link insufficient capacity, need "+
-				"%v", htlc.Amount)
+				"%v towards node=%x", htlc.Amount, targetPeerKey)
 
 			return s.failAddPacket(packet, failure, addErr)
 

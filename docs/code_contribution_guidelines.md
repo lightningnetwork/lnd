@@ -168,7 +168,7 @@ A quick summary of test practices follows:
   [`lnd_test.go`](https://github.com/lightningnetwork/lnd/blob/master/lnd_test.go#L181). 
 
 Throughout the process of contributing to `lnd`, you'll likely also be
-extensively using the commands within our `Makefile`. As a result, we recommned
+extensively using the commands within our `Makefile`. As a result, we recommend
 [perusing the make file documentation](https://github.com/lightningnetwork/lnd/blob/master/docs/MAKEFILE.md).
 
 <a name="CodeDocumentation" />

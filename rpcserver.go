@@ -395,9 +395,9 @@ type rpcServer struct {
 	// connect to the main gRPC server to proxy all incoming requests.
 	tlsCfg *tls.Config
 
-	// RouterBackend contains the backend implementation of the router
+	// routerBackend contains the backend implementation of the router
 	// rpc sub server.
-	RouterBackend *routerrpc.RouterBackend
+	routerBackend *routerrpc.RouterBackend
 
 	quit chan struct{}
 }
@@ -417,6 +417,28 @@ func newRPCServer(s *server, macService *macaroons.Service,
 	invoiceRegistry *invoices.InvoiceRegistry,
 	tlsCfg *tls.Config) (*rpcServer, error) {
 
+	// Set up router rpc backend.
+	channelGraph := s.chanDB.ChannelGraph()
+	selfNode, err := channelGraph.SourceNode()
+	if err != nil {
+		return nil, err
+	}
+	graph := s.chanDB.ChannelGraph()
+	routerBackend := &routerrpc.RouterBackend{
+		MaxPaymentMSat: maxPaymentMSat,
+		SelfNode:       selfNode.PubKeyBytes,
+		FetchChannelCapacity: func(chanID uint64) (btcutil.Amount,
+			error) {
+
+			info, _, _, err := graph.FetchChannelEdgesByID(chanID)
+			if err != nil {
+				return 0, err
+			}
+			return info.Capacity, nil
+		},
+		FindRoutes: s.chanRouter.FindRoutes,
+	}
+
 	var (
 		subServers     []lnrpc.SubServer
 		subServerPerms []lnrpc.MacaroonPerms
@@ -425,10 +447,10 @@ func newRPCServer(s *server, macService *macaroons.Service,
 	// Before we create any of the sub-servers, we need to ensure that all
 	// the dependencies they need are properly populated within each sub
 	// server configuration struct.
-	err := subServerCgs.PopulateDependencies(
+	err = subServerCgs.PopulateDependencies(
 		s.cc, networkDir, macService, atpl, invoiceRegistry,
 		s.htlcSwitch, activeNetParams.Params, s.chanRouter,
-		s.nodeSigner, s.chanDB,
+		routerBackend, s.nodeSigner, s.chanDB,
 	)
 	if err != nil {
 		return nil, err
@@ -483,28 +505,6 @@ func newRPCServer(s *server, macService *macaroons.Service,
 		)
 	}
 
-	// Set up router rpc backend.
-	channelGraph := s.chanDB.ChannelGraph()
-	selfNode, err := channelGraph.SourceNode()
-	if err != nil {
-		return nil, err
-	}
-	graph := s.chanDB.ChannelGraph()
-	RouterBackend := &routerrpc.RouterBackend{
-		MaxPaymentMSat: maxPaymentMSat,
-		SelfNode:       selfNode.PubKeyBytes,
-		FetchChannelCapacity: func(chanID uint64) (btcutil.Amount,
-			error) {
-
-			info, _, _, err := graph.FetchChannelEdgesByID(chanID)
-			if err != nil {
-				return 0, err
-			}
-			return info.Capacity, nil
-		},
-		FindRoutes: s.chanRouter.FindRoutes,
-	}
-
 	// Finally, with all the pre-set up complete,  we can create the main
 	// gRPC server, and register the main lnrpc server along side.
 	grpcServer := grpc.NewServer(serverOpts...)
@@ -514,7 +514,7 @@ func newRPCServer(s *server, macService *macaroons.Service,
 		tlsCfg:         tlsCfg,
 		grpcServer:     grpcServer,
 		server:         s,
-		RouterBackend:  RouterBackend,
+		routerBackend:  routerBackend,
 		quit:           make(chan struct{}, 1),
 	}
 	lnrpc.RegisterLightningServer(grpcServer, rootRPCServer)
@@ -880,6 +880,20 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 		in.Addr, btcutil.Amount(in.Amount), int64(feePerKw),
 		in.SendAll)
 
+	// Decode the address receiving the coins, we need to check whether the
+	// address is valid for this network.
+	targetAddr, err := btcutil.DecodeAddress(in.Addr, activeNetParams.Params)
+	if err != nil {
+		return nil, err
+	}
+
+	// Make the check on the decoded address according to the active network.
+	if !targetAddr.IsForNet(activeNetParams.Params) {
+		return nil, fmt.Errorf("address: %v is not valid for this "+
+			"network: %v", targetAddr.String(),
+			activeNetParams.Params.Name)
+	}
+
 	var txid *chainhash.Hash
 
 	wallet := r.server.cc.wallet
@@ -896,15 +910,6 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 				"active")
 		}
 
-		// Additionally, we'll need to convert the sweep address passed
-		// into a useable struct, and also query for the latest block
-		// height so we can properly construct the transaction.
-		sweepAddr, err := btcutil.DecodeAddress(
-			in.Addr, activeNetParams.Params,
-		)
-		if err != nil {
-			return nil, err
-		}
 		_, bestHeight, err := r.server.cc.chainIO.GetBestBlock()
 		if err != nil {
 			return nil, err
@@ -915,7 +920,7 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 		// single transaction. This will be generated in a concurrent
 		// safe manner, so no need to worry about locking.
 		sweepTxPkg, err := sweep.CraftSweepAllTx(
-			feePerKw, uint32(bestHeight), sweepAddr, wallet,
+			feePerKw, uint32(bestHeight), targetAddr, wallet,
 			wallet.WalletController, wallet.WalletController,
 			r.server.cc.feeEstimator, r.server.cc.signer,
 		)
@@ -945,7 +950,7 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 		// coin selection synchronization method to ensure that no coin
 		// selection (funding, sweep alls, other sends) can proceed
 		// while we instruct the wallet to send this transaction.
-		paymentMap := map[string]int64{in.Addr: in.Amount}
+		paymentMap := map[string]int64{targetAddr.String(): in.Amount}
 		err := wallet.WithCoinSelectLock(func() error {
 			newTXID, err := r.sendCoinsOnChain(paymentMap, feePerKw)
 			if err != nil {
@@ -2488,11 +2493,6 @@ func createRPCOpenChannel(r *rpcServer, graph *channeldb.ChannelGraph,
 	nodeID := hex.EncodeToString(nodePub.SerializeCompressed())
 	chanPoint := dbChannel.FundingOutpoint
 
-	// With the channel point known, retrieve the network channel
-	// ID from the database.
-	var chanID uint64
-	chanID, _ = graph.ChannelID(&chanPoint)
-
 	// Next, we'll determine whether the channel is public or not.
 	isPublic := dbChannel.ChannelFlags&lnwire.FFAnnounceChannel != 0
 
@@ -2527,7 +2527,7 @@ func createRPCOpenChannel(r *rpcServer, graph *channeldb.ChannelGraph,
 		Private:               !isPublic,
 		RemotePubkey:          nodeID,
 		ChannelPoint:          chanPoint.String(),
-		ChanId:                chanID,
+		ChanId:                dbChannel.ShortChannelID.ToUint64(),
 		Capacity:              int64(dbChannel.Capacity),
 		LocalBalance:          int64(localBalance.ToSatoshis()),
 		RemoteBalance:         int64(remoteBalance.ToSatoshis()),
@@ -2852,6 +2852,7 @@ func unmarshallSendToRouteRequest(req *lnrpc.SendToRouteRequest,
 type rpcPaymentIntent struct {
 	msat              lnwire.MilliSatoshi
 	feeLimit          lnwire.MilliSatoshi
+	cltvLimit         *uint32
 	dest              routing.Vertex
 	rHash             [32]byte
 	cltvDelta         uint16
@@ -2893,6 +2894,11 @@ func extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPaymentIntent, error
 	// restriction if specified.
 	if rpcPayReq.OutgoingChanId != 0 {
 		payIntent.outgoingChannelID = &rpcPayReq.OutgoingChanId
+	}
+
+	// Take cltv limit from request if set.
+	if rpcPayReq.CltvLimit != 0 {
+		payIntent.cltvLimit = &rpcPayReq.CltvLimit
 	}
 
 	// If the payment request field isn't blank, then the details of the
@@ -3044,6 +3050,7 @@ func (r *rpcServer) dispatchPaymentIntent(
 			Target:            payIntent.dest,
 			Amount:            payIntent.msat,
 			FeeLimit:          payIntent.feeLimit,
+			CltvLimit:         payIntent.cltvLimit,
 			PaymentHash:       payIntent.rHash,
 			RouteHints:        payIntent.routeHints,
 			OutgoingChannelID: payIntent.outgoingChannelID,
@@ -3241,7 +3248,9 @@ func (r *rpcServer) sendPayment(stream *paymentStream) error {
 					return
 				}
 
-				marshalledRouted := r.RouterBackend.MarshallRoute(resp.Route)
+				marshalledRouted := r.routerBackend.
+					MarshallRoute(resp.Route)
+
 				err := stream.send(&lnrpc.SendResponse{
 					PaymentHash:     payIntent.rHash[:],
 					PaymentPreimage: resp.Preimage[:],
@@ -3326,7 +3335,7 @@ func (r *rpcServer) sendPaymentSync(ctx context.Context,
 	return &lnrpc.SendResponse{
 		PaymentHash:     payIntent.rHash[:],
 		PaymentPreimage: resp.Preimage[:],
-		PaymentRoute:    r.RouterBackend.MarshallRoute(resp.Route),
+		PaymentRoute:    r.routerBackend.MarshallRoute(resp.Route),
 	}, nil
 }
 
@@ -3827,7 +3836,7 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 func (r *rpcServer) QueryRoutes(ctx context.Context,
 	in *lnrpc.QueryRoutesRequest) (*lnrpc.QueryRoutesResponse, error) {
 
-	return r.RouterBackend.QueryRoutes(ctx, in)
+	return r.routerBackend.QueryRoutes(ctx, in)
 }
 
 // unmarshallHopByChannelLookup unmarshalls an rpc hop for which the pub key is
@@ -3950,12 +3959,17 @@ func (r *rpcServer) GetNetworkInfo(ctx context.Context,
 		totalNetworkCapacity btcutil.Amount
 		minChannelSize       btcutil.Amount = math.MaxInt64
 		maxChannelSize       btcutil.Amount
+		medianChanSize       btcutil.Amount
 	)
 
 	// We'll use this map to de-duplicate channels during our traversal.
 	// This is needed since channels are directional, so there will be two
 	// edges for each channel within the graph.
 	seenChans := make(map[uint64]struct{})
+
+	// We also keep a list of all encountered capacities, in order to
+	// calculate the median channel size.
+	var allChans []btcutil.Amount
 
 	// We'll run through all the known nodes in the within our view of the
 	// network, tallying up the total number of nodes, and also gathering
@@ -4003,6 +4017,7 @@ func (r *rpcServer) GetNetworkInfo(ctx context.Context,
 			numChannels++
 
 			seenChans[edge.ChannelID] = struct{}{}
+			allChans = append(allChans, edge.Capacity)
 			return nil
 		}); err != nil {
 			return err
@@ -4019,6 +4034,9 @@ func (r *rpcServer) GetNetworkInfo(ctx context.Context,
 		return nil, err
 	}
 
+	// Find the median.
+	medianChanSize = autopilot.Median(allChans)
+
 	// If we don't have any channels, then reset the minChannelSize to zero
 	// to avoid outputting NaN in encoded JSON.
 	if numChannels == 0 {
@@ -4028,17 +4046,17 @@ func (r *rpcServer) GetNetworkInfo(ctx context.Context,
 	// TODO(roasbeef): graph diameter
 
 	// TODO(roasbeef): also add oldest channel?
-	//  * also add median channel size
 	netInfo := &lnrpc.NetworkInfo{
 		MaxOutDegree:         maxChanOut,
-		AvgOutDegree:         float64(numChannels) / float64(numNodes),
+		AvgOutDegree:         float64(2*numChannels) / float64(numNodes),
 		NumNodes:             numNodes,
 		NumChannels:          numChannels,
 		TotalNetworkCapacity: int64(totalNetworkCapacity),
 		AvgChannelSize:       float64(totalNetworkCapacity) / float64(numChannels),
 
-		MinChannelSize: int64(minChannelSize),
-		MaxChannelSize: int64(maxChannelSize),
+		MinChannelSize:       int64(minChannelSize),
+		MaxChannelSize:       int64(maxChannelSize),
+		MedianChannelSizeSat: int64(medianChanSize),
 	}
 
 	// Similarly, if we don't have any channels, then we'll also set the

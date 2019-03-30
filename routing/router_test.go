@@ -1549,20 +1549,26 @@ func TestWakeUpOnStaleBranch(t *testing.T) {
 	}
 
 	// Check that the fundingTxs are in the graph db.
-	_, _, has, err := ctx.graph.HasChannelEdge(chanID1)
+	_, _, has, isZombie, err := ctx.graph.HasChannelEdge(chanID1)
 	if err != nil {
 		t.Fatalf("error looking for edge: %v", chanID1)
 	}
 	if !has {
 		t.Fatalf("could not find edge in graph")
 	}
+	if isZombie {
+		t.Fatal("edge was marked as zombie")
+	}
 
-	_, _, has, err = ctx.graph.HasChannelEdge(chanID2)
+	_, _, has, isZombie, err = ctx.graph.HasChannelEdge(chanID2)
 	if err != nil {
 		t.Fatalf("error looking for edge: %v", chanID2)
 	}
 	if !has {
 		t.Fatalf("could not find edge in graph")
+	}
+	if isZombie {
+		t.Fatal("edge was marked as zombie")
 	}
 
 	// Stop the router, so we can reorg the chain while its offline.
@@ -1607,22 +1613,27 @@ func TestWakeUpOnStaleBranch(t *testing.T) {
 	// The channel with chanID2 should not be in the database anymore,
 	// since it is not confirmed on the longest chain. chanID1 should
 	// still be.
-	_, _, has, err = ctx.graph.HasChannelEdge(chanID1)
+	_, _, has, isZombie, err = ctx.graph.HasChannelEdge(chanID1)
 	if err != nil {
 		t.Fatalf("error looking for edge: %v", chanID1)
 	}
 	if !has {
 		t.Fatalf("did not find edge in graph")
 	}
+	if isZombie {
+		t.Fatal("edge was marked as zombie")
+	}
 
-	_, _, has, err = ctx.graph.HasChannelEdge(chanID2)
+	_, _, has, isZombie, err = ctx.graph.HasChannelEdge(chanID2)
 	if err != nil {
 		t.Fatalf("error looking for edge: %v", chanID2)
 	}
 	if has {
 		t.Fatalf("found edge in graph")
 	}
-
+	if isZombie {
+		t.Fatal("reorged edge should not be marked as zombie")
+	}
 }
 
 // TestDisconnectedBlocks checks that the router handles a reorg happening when
@@ -1755,20 +1766,26 @@ func TestDisconnectedBlocks(t *testing.T) {
 	}
 
 	// Check that the fundingTxs are in the graph db.
-	_, _, has, err := ctx.graph.HasChannelEdge(chanID1)
+	_, _, has, isZombie, err := ctx.graph.HasChannelEdge(chanID1)
 	if err != nil {
 		t.Fatalf("error looking for edge: %v", chanID1)
 	}
 	if !has {
 		t.Fatalf("could not find edge in graph")
 	}
+	if isZombie {
+		t.Fatal("edge was marked as zombie")
+	}
 
-	_, _, has, err = ctx.graph.HasChannelEdge(chanID2)
+	_, _, has, isZombie, err = ctx.graph.HasChannelEdge(chanID2)
 	if err != nil {
 		t.Fatalf("error looking for edge: %v", chanID2)
 	}
 	if !has {
 		t.Fatalf("could not find edge in graph")
+	}
+	if isZombie {
+		t.Fatal("edge was marked as zombie")
 	}
 
 	// Create a 15 block fork. We first let the chainView notify the router
@@ -1796,22 +1813,27 @@ func TestDisconnectedBlocks(t *testing.T) {
 
 	// chanID2 should not be in the database anymore, since it is not
 	// confirmed on the longest chain. chanID1 should still be.
-	_, _, has, err = ctx.graph.HasChannelEdge(chanID1)
+	_, _, has, isZombie, err = ctx.graph.HasChannelEdge(chanID1)
 	if err != nil {
 		t.Fatalf("error looking for edge: %v", chanID1)
 	}
 	if !has {
 		t.Fatalf("did not find edge in graph")
 	}
+	if isZombie {
+		t.Fatal("edge was marked as zombie")
+	}
 
-	_, _, has, err = ctx.graph.HasChannelEdge(chanID2)
+	_, _, has, isZombie, err = ctx.graph.HasChannelEdge(chanID2)
 	if err != nil {
 		t.Fatalf("error looking for edge: %v", chanID2)
 	}
 	if has {
 		t.Fatalf("found edge in graph")
 	}
-
+	if isZombie {
+		t.Fatal("reorged edge should not be marked as zombie")
+	}
 }
 
 // TestChansClosedOfflinePruneGraph tests that if channels we know of are
@@ -1876,12 +1898,15 @@ func TestRouterChansClosedOfflinePruneGraph(t *testing.T) {
 	}
 
 	// The router should now be aware of the channel we created above.
-	_, _, hasChan, err := ctx.graph.HasChannelEdge(chanID1.ToUint64())
+	_, _, hasChan, isZombie, err := ctx.graph.HasChannelEdge(chanID1.ToUint64())
 	if err != nil {
 		t.Fatalf("error looking for edge: %v", chanID1)
 	}
 	if !hasChan {
 		t.Fatalf("could not find edge in graph")
+	}
+	if isZombie {
+		t.Fatal("edge was marked as zombie")
 	}
 
 	// With the transaction included, and the router's database state
@@ -1957,12 +1982,15 @@ func TestRouterChansClosedOfflinePruneGraph(t *testing.T) {
 
 	// At this point, the channel that was pruned should no longer be known
 	// by the router.
-	_, _, hasChan, err = ctx.graph.HasChannelEdge(chanID1.ToUint64())
+	_, _, hasChan, isZombie, err = ctx.graph.HasChannelEdge(chanID1.ToUint64())
 	if err != nil {
 		t.Fatalf("error looking for edge: %v", chanID1)
 	}
 	if hasChan {
 		t.Fatalf("channel was found in graph but shouldn't have been")
+	}
+	if isZombie {
+		t.Fatal("closed channel should not be marked as zombie")
 	}
 }
 

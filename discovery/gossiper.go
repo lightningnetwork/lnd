@@ -2480,9 +2480,9 @@ func (d *AuthenticatedGossiper) updateChannel(info *channeldb.ChannelEdgeInfo,
 func (d *AuthenticatedGossiper) waitUntilChannelEstablish(targetChan lnwire.ChannelID,
 	quit <-chan struct{}) error {
 
-	f.barrierMtx.RLock()
-	barrier, ok := f.newChanBarriers[targetChan]
-	f.barrierMtx.RUnlock()
+	d.barrierMtx.RLock()
+	barrier, ok := d.newChanBarriers[targetChan]
+	d.barrierMtx.RUnlock()
 	if ok {
 		fndgLog.Tracef("waiting for chan barrier signal for ChanID(%v)",
 			targetChan)
@@ -2491,7 +2491,7 @@ func (d *AuthenticatedGossiper) waitUntilChannelEstablish(targetChan lnwire.Chan
 		case <-barrier:
 		case <-quit:
 			return ErrGossiperShuttingDown
-		case <-f.quit:
+		case <-d.quit:
 			return ErrGossiperShuttingDown
 		}
 

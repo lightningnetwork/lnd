@@ -225,6 +225,24 @@ type AuthenticatedGossiper struct {
 	reliableSender *reliableSender
 
 	sync.Mutex
+	
+	// newChanBarriers1 is a map from a channel ID to a 'barrier' which will
+	// be signalled once the channel is fully open. This barrier acts as a
+	// synchronization point for any incoming/outgoing HTLCs before the
+	// channel has been fully opened.
+	barrierMtx      sync.RWMutex
+	newChanBarriers1 map[lnwire.ChannelID]chan struct{}
+
+	localDiscoveryMtx     sync.Mutex
+	localDiscoverySignals map[lnwire.ChannelID]chan struct{}
+
+	handleFundingLockedMtx      sync.RWMutex
+	handleFundingLockedBarriers map[lnwire.ChannelID]struct{}
+
+	quit chan struct{}
+	wg   sync.WaitGroup
+		
+	
 }
 
 // New creates a new AuthenticatedGossiper instance, initialized with the
@@ -2460,7 +2478,7 @@ func (f *discovery.AuthenticatedGossiper) waitUntilChannelEstablish(targetChan l
 	quit <-chan struct{}) error {
 
 	f.barrierMtx.RLock()
-	barrier, ok := f.newChanBarriers[targetChan]
+	barrier, ok := f.newChanBarriers1[targetChan]
 	f.barrierMtx.RUnlock()
 	if ok {
 		fndgLog.Tracef("waiting for chan barrier signal for ChanID(%v)",

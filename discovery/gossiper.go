@@ -231,13 +231,13 @@ type AuthenticatedGossiper struct {
 	// synchronization point for any incoming/outgoing HTLCs before the
 	// channel has been fully opened.
 	barrierMtx      sync.RWMutex
-	newChanBarriers map[lnwire.ChannelID]chan struct{}
+	newChanBarriers map[uint64][]*networkMsg
 
 	localDiscoveryMtx     sync.Mutex
-	localDiscoverySignals map[lnwire.ChannelID]chan struct{}
+	localDiscoverySignals map[uint64][]*networkMsg
 
 	handleFundingLockedMtx      sync.RWMutex
-	handleFundingLockedBarriers map[lnwire.ChannelID]struct{}
+	handleFundingLockedBarriers map[uint64][]*networkMsg
 
 	quit chan struct{}
 	wg   sync.WaitGroup
@@ -259,9 +259,9 @@ func New(cfg Config, selfKey *btcec.PublicKey) *AuthenticatedGossiper {
 		channelMtx:              multimutex.NewMutex(),
 		recentRejects:           make(map[uint64]struct{}),
 		peerSyncers:             make(map[routing.Vertex]*gossipSyncer),
-		newChanBarriers:             make(map[lnwire.ChannelID]chan struct{}),
-		localDiscoverySignals:       make(map[lnwire.ChannelID]chan struct{}),
-		handleFundingLockedBarriers: make(map[lnwire.ChannelID]struct{}),
+		newChanBarriers:             make(map[uint64][]*networkMsg),
+		localDiscoverySignals:       make(map[uint64][]*networkMsg),
+		handleFundingLockedBarriers: make(map[uint64][]*networkMsg),
 	}
 
 	gossiper.reliableSender = newReliableSender(&reliableSenderCfg{

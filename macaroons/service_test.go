@@ -8,9 +8,12 @@ import (
 	"path"
 	"testing"
 
+	"google.golang.org/grpc/codes"
+
 	"github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 	"gopkg.in/macaroon-bakery.v2/bakery/checkers"
 )
@@ -138,18 +141,58 @@ func TestValidateMacaroon(t *testing.T) {
 		t.Fatalf("Error validating the macaroon: %v", err)
 	}
 
-	// Also test the behavior with an invalid macaroon
-	// (here the macaroon with read permission is tested against write permission).
+	// Also test the behavior with an invalid macaroon.
+	// Here the macaroon with read permission is tested against an operation
+	// that requires write permission.
 	err = service.ValidateMacaroon(mockContext, []bakery.Op{testWriteOperation})
 	if err == nil {
 		t.Fatal("An error should have occurred during validating the macaroon")
 	}
+	// The error should also be convertible to a gRPC status.Status.
+	s, ok := status.FromError(err)
+	if !ok {
+		t.Fatalf("The returned error couldn't be converted to a "+
+			"gRPC status.Status. Its type is: %T",
+			err)
+	}
+	if s.Code() != codes.PermissionDenied {
+		t.Fatalf("The returned error's code was expected to be "+
+			"codes.PermissionDenied, but was: %d",
+			s.Code())
+	}
 
-	// Also test the behavior without any macaroon.
-	md = metadata.New(map[string]string{})
-	mockContext = metadata.NewIncomingContext(context.Background(), md)
-	err = service.ValidateMacaroon(mockContext, []bakery.Op{testReadOperation})
-	if err == nil {
-		t.Fatal("An error should have occurred during validating the macaroon")
+	// Also test the behavior with invalid macaroon *data*:
+	// - No macaroon at all
+	// - Invalid encoding (not hex)
+	// - Not parsable to macaroon
+	unauthMD := []metadata.MD{
+		metadata.New(map[string]string{}),
+		metadata.New(map[string]string{
+			"macaroon": "invalid-hex",
+		}),
+		metadata.New(map[string]string{
+			"macaroon": "1234567890ABCDEF",
+		}),
+	}
+	for _, md := range unauthMD {
+		mockContext = metadata.NewIncomingContext(context.Background(), md)
+		err = service.ValidateMacaroon(
+			mockContext, []bakery.Op{testReadOperation})
+		if err == nil {
+			t.Fatal(
+				"An error should have occurred during validating the macaroon")
+		}
+		// The error should also be convertible to a gRPC status.Status.
+		s, ok = status.FromError(err)
+		if !ok {
+			t.Fatalf("The returned error couldn't be converted to a gRPC "+
+				"status.Status. Its type is: %T",
+				err)
+		}
+		if s.Code() != codes.Unauthenticated {
+			t.Fatalf("The returned error's code was expected to be "+
+				"codes.Unauthenticated, but was: %d",
+				s.Code())
+		}
 	}
 }

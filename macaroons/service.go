@@ -8,7 +8,9 @@ import (
 
 	"github.com/coreos/bbolt"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 
 	"gopkg.in/macaroon-bakery.v2/bakery"
 	"gopkg.in/macaroon-bakery.v2/bakery/checkers"
@@ -154,16 +156,26 @@ func (svc *Service) StreamServerInterceptor(
 // bakery service, context, and uri. Within the passed context.Context, we
 // expect a macaroon to be encoded as request metadata using the key
 // "macaroon".
+//
+// The returned errors implement gRPC's status.statusError, which is required
+// for the gRPC gateway to properly turn the gRPC error into an HTTP status
+// code. Possible error codes of the returned errors are gRPC's
+// codes.Unauthenticated if an error occurs before the macaroon's permissions
+// can be checked (leading to a 401 Unauthorized HTTP status code), and
+// codes.PermissionDenied if the macaroon's permissions aren't sufficient for
+// the operations (leading to a 403 Forbidden HTTP status code).
 func (svc *Service) ValidateMacaroon(ctx context.Context,
 	requiredPermissions []bakery.Op) error {
 
 	// Get macaroon bytes from context and unmarshal into macaroon.
 	md, ok := metadata.FromIncomingContext(ctx)
 	if !ok {
-		return fmt.Errorf("unable to get metadata from context")
+		return status.Error(
+			codes.Unauthenticated, "unable to get metadata from context")
 	}
 	if len(md["macaroon"]) != 1 {
-		return fmt.Errorf("expected 1 macaroon, got %d",
+		return status.Errorf(
+			codes.Unauthenticated, "expected 1 macaroon, got %d",
 			len(md["macaroon"]))
 	}
 
@@ -172,19 +184,25 @@ func (svc *Service) ValidateMacaroon(ctx context.Context,
 	// representation.
 	macBytes, err := hex.DecodeString(md["macaroon"][0])
 	if err != nil {
-		return err
+		return status.Errorf(
+			codes.Unauthenticated, "unable to decode macaroon: %s", err)
 	}
 	mac := &macaroon.Macaroon{}
 	err = mac.UnmarshalBinary(macBytes)
 	if err != nil {
-		return err
+		return status.Errorf(
+			codes.Unauthenticated,
+			"unable to unmarshal macaroon binary: %s", err)
 	}
 
 	// Check the method being called against the permitted operation and
 	// the expiration time and IP address and return the result.
 	authChecker := svc.Checker.Auth(macaroon.Slice{mac})
 	_, err = authChecker.Allow(ctx, requiredPermissions...)
-	return err
+	if err != nil {
+		return status.Error(codes.PermissionDenied, err.Error())
+	}
+	return nil
 }
 
 // Close closes the database that underlies the RootKeyStore and zeroes the

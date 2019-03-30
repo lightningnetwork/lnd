@@ -2477,7 +2477,7 @@ func (d *AuthenticatedGossiper) updateChannel(info *channeldb.ChannelEdgeInfo,
 // waitUntilChannelEstablish is designed to prevent other lnd subsystems from
 // sending new update messages to a channel before the channel is fully
 // opened.
-func (f *discovery.AuthenticatedGossiper) waitUntilChannelEstablish(targetChan lnwire.ChannelID,
+func (d *AuthenticatedGossiper) waitUntilChannelEstablish(targetChan lnwire.ChannelID,
 	quit <-chan struct{}) error {
 
 	f.barrierMtx.RLock()

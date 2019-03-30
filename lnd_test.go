@@ -223,8 +223,62 @@ func openChannelAndAssert(ctx context.Context, t *harnessTest,
 // closure is attempted, therefore the passed context should be a child derived
 // via timeout from a base parent. Additionally, once the channel has been
 // detected as closed, an assertion checks that the transaction is found within
-// a block.
+// a block. Finally, this assertion verifies that the node always sends out a
+// disable update when closing the channel if the channel was previously enabled.
+//
+// NOTE: This method assumes that the provided funding point is confirmed
+// on-chain AND that the edge exists in the node's channel graph. If the funding
+// transactions was reorged out at some point, use closeReorgedChannelAndAssert.
 func closeChannelAndAssert(ctx context.Context, t *harnessTest,
+	net *lntest.NetworkHarness, node *lntest.HarnessNode,
+	fundingChanPoint *lnrpc.ChannelPoint, force bool) *chainhash.Hash {
+
+	// Fetch the current channel policy. If the channel is currently
+	// enabled, we will register for graph notifications before closing to
+	// assert that the node sends out a disabling update as a result of the
+	// channel being closed.
+	curPolicy := getChannelPolicies(t, node, node.PubKeyStr, fundingChanPoint)[0]
+	expectDisable := !curPolicy.Disabled
+
+	// If the current channel policy is enabled, begin subscribing the graph
+	// updates before initiating the channel closure.
+	var graphSub *graphSubscription
+	if expectDisable {
+		sub := subscribeGraphNotifications(t, ctx, node)
+		graphSub = &sub
+		defer close(graphSub.quit)
+	}
+
+	closeUpdates, _, err := net.CloseChannel(ctx, node, fundingChanPoint, force)
+	if err != nil {
+		t.Fatalf("unable to close channel: %v", err)
+	}
+
+	// If the channel policy was enabled prior to the closure, wait until we
+	// received the disabled update.
+	if expectDisable {
+		curPolicy.Disabled = true
+		waitForChannelUpdate(
+			t, *graphSub,
+			[]expectedChanUpdate{
+				{node.PubKeyStr, curPolicy, fundingChanPoint},
+			},
+		)
+	}
+
+	return assertChannelClosed(ctx, t, net, node, fundingChanPoint, closeUpdates)
+}
+
+// closeReorgedChannelAndAssert attempts to close a channel identified by the
+// passed channel point owned by the passed Lightning node. A fully blocking
+// channel closure is attempted, therefore the passed context should be a child
+// derived via timeout from a base parent. Additionally, once the channel has
+// been detected as closed, an assertion checks that the transaction is found
+// within a block.
+//
+// NOTE: This method does not verify that the node sends a disable update for
+// the closed channel.
+func closeReorgedChannelAndAssert(ctx context.Context, t *harnessTest,
 	net *lntest.NetworkHarness, node *lntest.HarnessNode,
 	fundingChanPoint *lnrpc.ChannelPoint, force bool) *chainhash.Hash {
 
@@ -232,6 +286,16 @@ func closeChannelAndAssert(ctx context.Context, t *harnessTest,
 	if err != nil {
 		t.Fatalf("unable to close channel: %v", err)
 	}
+
+	return assertChannelClosed(ctx, t, net, node, fundingChanPoint, closeUpdates)
+}
+
+// assertChannelClosed asserts that the channel is properly cleaned up after
+// initiating a cooperative or local close.
+func assertChannelClosed(ctx context.Context, t *harnessTest,
+	net *lntest.NetworkHarness, node *lntest.HarnessNode,
+	fundingChanPoint *lnrpc.ChannelPoint,
+	closeUpdates lnrpc.Lightning_CloseChannelClient) *chainhash.Hash {
 
 	txidHash, err := getChanPointFundingTxid(fundingChanPoint)
 	if err != nil {
@@ -561,9 +625,8 @@ func makeFakePayHash(t *harnessTest) []byte {
 
 // createPayReqs is a helper method that will create a slice of payment
 // requests for the given node.
-func createPayReqs(ctx context.Context, node *lntest.HarnessNode,
-	paymentAmt btcutil.Amount, numInvoices int) ([]string, [][]byte,
-	[]*lnrpc.Invoice, error) {
+func createPayReqs(node *lntest.HarnessNode, paymentAmt btcutil.Amount,
+	numInvoices int) ([]string, [][]byte, []*lnrpc.Invoice, error) {
 
 	payReqs := make([]string, numInvoices)
 	rHashes := make([][]byte, numInvoices)
@@ -580,7 +643,10 @@ func createPayReqs(ctx context.Context, node *lntest.HarnessNode,
 			RPreimage: preimage,
 			Value:     int64(paymentAmt),
 		}
-		resp, err := node.AddInvoice(ctx, invoice)
+		ctxt, _ := context.WithTimeout(
+			context.Background(), defaultTimeout,
+		)
+		resp, err := node.AddInvoice(ctxt, invoice)
 		if err != nil {
 			return nil, nil, nil, fmt.Errorf("unable to add "+
 				"invoice: %v", err)
@@ -989,7 +1055,6 @@ out:
 		select {
 		case graphUpdate := <-subscription.updateChan:
 			for _, update := range graphUpdate.ChannelUpdates {
-
 				// For each expected update, check if it matches
 				// the update we just received.
 				for i, exp := range expUpdates {
@@ -1070,11 +1135,12 @@ func assertNoChannelUpdates(t *harnessTest, subscription graphSubscription,
 	}
 }
 
-// assertChannelPolicy asserts that the passed node's known channel policy for
-// the passed chanPoint is consistent with the expected policy values.
-func assertChannelPolicy(t *harnessTest, node *lntest.HarnessNode,
-	advertisingNode string, expectedPolicy *lnrpc.RoutingPolicy,
-	chanPoints ...*lnrpc.ChannelPoint) {
+// getChannelPolicies queries the channel graph and retrieves the current edge
+// policies for the provided channel points.
+func getChannelPolicies(t *harnessTest, node *lntest.HarnessNode,
+	advertisingNode string,
+	chanPoints ...*lnrpc.ChannelPoint) []*lnrpc.RoutingPolicy {
+
 	ctxb := context.Background()
 
 	descReq := &lnrpc.ChannelGraphRequest{
@@ -1086,6 +1152,7 @@ func assertChannelPolicy(t *harnessTest, node *lntest.HarnessNode,
 		t.Fatalf("unable to query for alice's graph: %v", err)
 	}
 
+	var policies []*lnrpc.RoutingPolicy
 out:
 	for _, chanPoint := range chanPoints {
 		for _, e := range chanGraph.Edges {
@@ -1093,18 +1160,10 @@ out:
 				continue
 			}
 
-			var err error
 			if e.Node1Pub == advertisingNode {
-				err = checkChannelPolicy(
-					e.Node1Policy, expectedPolicy,
-				)
+				policies = append(policies, e.Node1Policy)
 			} else {
-				err = checkChannelPolicy(
-					e.Node2Policy, expectedPolicy,
-				)
-			}
-			if err != nil {
-				t.Fatalf(err.Error())
+				policies = append(policies, e.Node2Policy)
 			}
 
 			continue out
@@ -1113,6 +1172,23 @@ out:
 		// If we've iterated over all the known edges and we weren't
 		// able to find this specific one, then we'll fail.
 		t.Fatalf("did not find edge %v", txStr(chanPoint))
+	}
+
+	return policies
+}
+
+// assertChannelPolicy asserts that the passed node's known channel policy for
+// the passed chanPoint is consistent with the expected policy values.
+func assertChannelPolicy(t *harnessTest, node *lntest.HarnessNode,
+	advertisingNode string, expectedPolicy *lnrpc.RoutingPolicy,
+	chanPoints ...*lnrpc.ChannelPoint) {
+
+	policies := getChannelPolicies(t, node, advertisingNode, chanPoints...)
+	for _, policy := range policies {
+		err := checkChannelPolicy(policy, expectedPolicy)
+		if err != nil {
+			t.Fatalf(err.Error())
+		}
 	}
 }
 
@@ -1151,7 +1227,7 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 	const (
 		defaultFeeBase       = 1000
 		defaultFeeRate       = 1
-		defaultTimeLockDelta = 144
+		defaultTimeLockDelta = defaultBitcoinTimeLockDelta
 		defaultMinHtlc       = 1000
 	)
 
@@ -1347,7 +1423,7 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 		PubKey:         carol.PubKeyStr,
 		Amt:            int64(payAmt),
 		NumRoutes:      1,
-		FinalCltvDelta: 144,
+		FinalCltvDelta: defaultTimeLockDelta,
 	}
 
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
@@ -1872,7 +1948,7 @@ func testOpenChannelAfterReorg(net *lntest.NetworkHarness, t *harnessTest) {
 	assertTxInBlock(t, block, fundingTxID)
 
 	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, false)
+	closeReorgedChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, false)
 }
 
 // testDisconnectingTargetPeer performs a test which
@@ -3971,9 +4047,8 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	// satoshis with a different preimage each time.
 	const numPayments = 5
 	const paymentAmt = 1000
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	payReqs, _, _, err := createPayReqs(
-		ctxt, net.Bob, paymentAmt, numPayments,
+		net.Bob, paymentAmt, numPayments,
 	)
 	if err != nil {
 		t.Fatalf("unable to create pay reqs: %v", err)
@@ -3998,11 +4073,15 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	// Set the fee policies of the Alice -> Bob and the Dave -> Alice
 	// channel edges to relatively large non default values. This makes it
 	// possible to pick up more subtle fee calculation errors.
-	updateChannelPolicy(t, net.Alice, chanPointAlice, 1000, 100000,
-		144, carol)
+	updateChannelPolicy(
+		t, net.Alice, chanPointAlice, 1000, 100000,
+		defaultBitcoinTimeLockDelta, carol,
+	)
 
-	updateChannelPolicy(t, dave, chanPointDave, 5000, 150000,
-		144, carol)
+	updateChannelPolicy(
+		t, dave, chanPointDave, 5000, 150000,
+		defaultBitcoinTimeLockDelta, carol,
+	)
 
 	// Using Carol as the source, pay to the 5 invoices from Bob created
 	// above.
@@ -4177,15 +4256,15 @@ func testSingleHopSendToRoute(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// Query for routes to pay from Alice to Bob.
-	// We set FinalCltvDelta to 144 since by default QueryRoutes returns
+	// We set FinalCltvDelta to 40 since by default QueryRoutes returns
 	// the last hop with a final cltv delta of 9 where as the default in
-	// htlcswitch is 144.
+	// htlcswitch is 40.
 	const paymentAmt = 1000
 	routesReq := &lnrpc.QueryRoutesRequest{
 		PubKey:         net.Bob.PubKeyStr,
 		Amt:            paymentAmt,
 		NumRoutes:      1,
-		FinalCltvDelta: 144,
+		FinalCltvDelta: defaultBitcoinTimeLockDelta,
 	}
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	routes, err := net.Alice.QueryRoutes(ctxt, routesReq)
@@ -4196,9 +4275,8 @@ func testSingleHopSendToRoute(net *lntest.NetworkHarness, t *harnessTest) {
 	// Create 5 invoices for Bob, which expect a payment from Alice for 1k
 	// satoshis with a different preimage each time.
 	const numPayments = 5
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	_, rHashes, _, err := createPayReqs(
-		ctxt, net.Bob, paymentAmt, numPayments,
+		net.Bob, paymentAmt, numPayments,
 	)
 	if err != nil {
 		t.Fatalf("unable to create pay reqs: %v", err)
@@ -4362,15 +4440,15 @@ func testMultiHopSendToRoute(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// Query for routes to pay from Alice to Carol.
-	// We set FinalCltvDelta to 144 since by default QueryRoutes returns
+	// We set FinalCltvDelta to 40 since by default QueryRoutes returns
 	// the last hop with a final cltv delta of 9 where as the default in
-	// htlcswitch is 144.
+	// htlcswitch is 40.
 	const paymentAmt = 1000
 	routesReq := &lnrpc.QueryRoutesRequest{
 		PubKey:         carol.PubKeyStr,
 		Amt:            paymentAmt,
 		NumRoutes:      1,
-		FinalCltvDelta: 144,
+		FinalCltvDelta: defaultBitcoinTimeLockDelta,
 	}
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	routes, err := net.Alice.QueryRoutes(ctxt, routesReq)
@@ -4381,9 +4459,8 @@ func testMultiHopSendToRoute(net *lntest.NetworkHarness, t *harnessTest) {
 	// Create 5 invoices for Carol, which expect a payment from Alice for 1k
 	// satoshis with a different preimage each time.
 	const numPayments = 5
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	_, rHashes, _, err := createPayReqs(
-		ctxt, carol, paymentAmt, numPayments,
+		carol, paymentAmt, numPayments,
 	)
 	if err != nil {
 		t.Fatalf("unable to create pay reqs: %v", err)
@@ -4908,9 +4985,8 @@ func testPrivateChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	// by only using one of the channels.
 	const numPayments = 2
 	const paymentAmt = 70000
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	payReqs, _, _, err := createPayReqs(
-		ctxt, net.Bob, paymentAmt, numPayments,
+		net.Bob, paymentAmt, numPayments,
 	)
 	if err != nil {
 		t.Fatalf("unable to create pay reqs: %v", err)
@@ -4965,9 +5041,8 @@ func testPrivateChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	// Alice should also be able to route payments using this channel,
 	// so send two payments of 60k back to Carol.
 	const paymentAmt60k = 60000
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	payReqs, _, _, err = createPayReqs(
-		ctxt, carol, paymentAmt60k, numPayments,
+		carol, paymentAmt60k, numPayments,
 	)
 	if err != nil {
 		t.Fatalf("unable to create pay reqs: %v", err)
@@ -5628,9 +5703,8 @@ func testInvoiceSubscriptions(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// We'll now add 3 more invoices to Bob's invoice registry.
 	const numInvoices = 3
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	payReqs, _, newInvoices, err := createPayReqs(
-		ctxt, net.Bob, paymentAmt, numInvoices,
+		net.Bob, paymentAmt, numInvoices,
 	)
 	if err != nil {
 		t.Fatalf("unable to create pay reqs: %v", err)
@@ -6646,9 +6720,8 @@ func testRevokedCloseRetribution(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// With the channel open, we'll create a few invoices for Bob that
 	// Carol will pay to in order to advance the state of the channel.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	bobPayReqs, _, _, err := createPayReqs(
-		ctxt, net.Bob, paymentAmt, numInvoices,
+		net.Bob, paymentAmt, numInvoices,
 	)
 	if err != nil {
 		t.Fatalf("unable to create pay reqs: %v", err)
@@ -6910,9 +6983,8 @@ func testRevokedCloseRetributionZeroValueRemoteOutput(net *lntest.NetworkHarness
 
 	// With the channel open, we'll create a few invoices for Carol that
 	// Dave will pay to in order to advance the state of the channel.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	carolPayReqs, _, _, err := createPayReqs(
-		ctxt, carol, paymentAmt, numInvoices,
+		carol, paymentAmt, numInvoices,
 	)
 	if err != nil {
 		t.Fatalf("unable to create pay reqs: %v", err)
@@ -7162,9 +7234,8 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 
 	// With the channel open, we'll create a few invoices for Carol that
 	// Dave will pay to in order to advance the state of the channel.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	carolPayReqs, _, _, err := createPayReqs(
-		ctxt, carol, paymentAmt, numInvoices,
+		carol, paymentAmt, numInvoices,
 	)
 	if err != nil {
 		t.Fatalf("unable to create pay reqs: %v", err)
@@ -7225,9 +7296,8 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 	// At this point, we'll also send over a set of HTLC's from Carol to
 	// Dave. This ensures that the final revoked transaction has HTLC's in
 	// both directions.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	davePayReqs, _, _, err := createPayReqs(
-		ctxt, dave, paymentAmt, numInvoices,
+		dave, paymentAmt, numInvoices,
 	)
 	if err != nil {
 		t.Fatalf("unable to create pay reqs: %v", err)
@@ -7616,9 +7686,8 @@ func testDataLossProtection(net *lntest.NetworkHarness, t *harnessTest) {
 		// the channel.
 		// TODO(halseth): have dangling HTLCs on the commitment, able to
 		// retrive funds?
-		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 		payReqs, _, _, err := createPayReqs(
-			ctxt, node, paymentAmt, numInvoices,
+			node, paymentAmt, numInvoices,
 		)
 		if err != nil {
 			t.Fatalf("unable to create pay reqs: %v", err)
@@ -8804,9 +8873,8 @@ func testAsyncPayments(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// With the channel open, we'll create invoices for Bob that Alice
 	// will pay to in order to advance the state of the channel.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	bobPayReqs, _, _, err := createPayReqs(
-		ctxt, net.Bob, paymentAmt, numInvoices,
+		net.Bob, paymentAmt, numInvoices,
 	)
 	if err != nil {
 		t.Fatalf("unable to create pay reqs: %v", err)
@@ -8823,7 +8891,7 @@ func testAsyncPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	// Open up a payment stream to Alice that we'll use to send payment to
 	// Bob. We also create a small helper function to send payments to Bob,
 	// consuming the payment hashes we generated above.
-	ctxt, _ = context.WithTimeout(ctxb, time.Minute)
+	ctxt, _ = context.WithTimeout(ctxb, lntest.AsyncBenchmarkTimeout)
 	alicePayStream, err := net.Alice.SendPayment(ctxt)
 	if err != nil {
 		t.Fatalf("unable to create payment stream for alice: %v", err)
@@ -8956,9 +9024,8 @@ func testBidirectionalAsyncPayments(net *lntest.NetworkHarness, t *harnessTest) 
 
 	// With the channel open, we'll create invoices for Bob that Alice
 	// will pay to in order to advance the state of the channel.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	bobPayReqs, _, _, err := createPayReqs(
-		ctxt, net.Bob, paymentAmt, numInvoices,
+		net.Bob, paymentAmt, numInvoices,
 	)
 	if err != nil {
 		t.Fatalf("unable to create pay reqs: %v", err)
@@ -8966,9 +9033,8 @@ func testBidirectionalAsyncPayments(net *lntest.NetworkHarness, t *harnessTest) 
 
 	// With the channel open, we'll create invoices for Alice that Bob
 	// will pay to in order to advance the state of the channel.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	alicePayReqs, _, _, err := createPayReqs(
-		ctxt, net.Alice, paymentAmt, numInvoices,
+		net.Alice, paymentAmt, numInvoices,
 	)
 	if err != nil {
 		t.Fatalf("unable to create pay reqs: %v", err)
@@ -11069,9 +11135,8 @@ func testSwitchCircuitPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 	// satoshis with a different preimage each time.
 	const numPayments = 5
 	const paymentAmt = 1000
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	payReqs, _, _, err := createPayReqs(
-		ctxt, carol, paymentAmt, numPayments,
+		carol, paymentAmt, numPayments,
 	)
 	if err != nil {
 		t.Fatalf("unable to create pay reqs: %v", err)
@@ -11409,9 +11474,8 @@ func testSwitchOfflineDelivery(net *lntest.NetworkHarness, t *harnessTest) {
 	// satoshis with a different preimage each time.
 	const numPayments = 5
 	const paymentAmt = 1000
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	payReqs, _, _, err := createPayReqs(
-		ctxt, carol, paymentAmt, numPayments,
+		carol, paymentAmt, numPayments,
 	)
 	if err != nil {
 		t.Fatalf("unable to create pay reqs: %v", err)
@@ -11757,9 +11821,8 @@ func testSwitchOfflineDeliveryPersistence(net *lntest.NetworkHarness, t *harness
 	// satoshis with a different preimage each time.
 	const numPayments = 5
 	const paymentAmt = 1000
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	payReqs, _, _, err := createPayReqs(
-		ctxt, carol, paymentAmt, numPayments,
+		carol, paymentAmt, numPayments,
 	)
 	if err != nil {
 		t.Fatalf("unable to create pay reqs: %v", err)
@@ -12108,9 +12171,8 @@ func testSwitchOfflineDeliveryOutgoingOffline(
 	// satoshis with a different preimage each time.
 	const numPayments = 5
 	const paymentAmt = 1000
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	payReqs, _, _, err := createPayReqs(
-		ctxt, carol, paymentAmt, numPayments,
+		carol, paymentAmt, numPayments,
 	)
 	if err != nil {
 		t.Fatalf("unable to create pay reqs: %v", err)
@@ -12581,7 +12643,7 @@ func testRouteFeeCutoff(net *lntest.NetworkHarness, t *harnessTest) {
 	//	Alice -> Carol -> Dave
 	baseFee := int64(10000)
 	feeRate := int64(5)
-	timeLockDelta := uint32(144)
+	timeLockDelta := uint32(defaultBitcoinTimeLockDelta)
 
 	expectedPolicy := &lnrpc.RoutingPolicy{
 		FeeBaseMsat:      baseFee,
@@ -13106,12 +13168,40 @@ func testSweepAllCoins(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// With the two coins above mined, we'll now instruct ainz to sweep all
 	// the coins to an external address not under its control.
+	// We will first attempt to send the coins to addresses that are not
+	// compatible with the current network. This is to test that the wallet
+	// will prevent any onchain transactions to addresses that are not on the
+	// same network as the user.
+
+	// Send coins to a testnet3 address.
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	sweepReq := &lnrpc.SendCoinsRequest{
+		Addr:    "tb1qfc8fusa98jx8uvnhzavxccqlzvg749tvjw82tg",
+		SendAll: true,
+	}
+	_, err = ainz.SendCoins(ctxt, sweepReq)
+	if err == nil {
+		t.Fatalf("expected SendCoins to different network to fail")
+	}
+
+	// Send coins to a mainnet address.
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	sweepReq = &lnrpc.SendCoinsRequest{
+		Addr:    "1MPaXKp5HhsLNjVSqaL7fChE3TVyrTMRT3",
+		SendAll: true,
+	}
+	_, err = ainz.SendCoins(ctxt, sweepReq)
+	if err == nil {
+		t.Fatalf("expected SendCoins to different network to fail")
+	}
+
+	// Send coins to a compatible address.
 	minerAddr, err := net.Miner.NewAddress()
 	if err != nil {
 		t.Fatalf("unable to create new miner addr: %v", err)
 	}
 
-	sweepReq := &lnrpc.SendCoinsRequest{
+	sweepReq = &lnrpc.SendCoinsRequest{
 		Addr:    minerAddr.String(),
 		SendAll: true,
 	}
@@ -13121,7 +13211,7 @@ func testSweepAllCoins(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to sweep coins: %v", err)
 	}
 
-	// We'll mine a block wish should include the sweep transaction we
+	// We'll mine a block which should include the sweep transaction we
 	// generated above.
 	block := mineBlocks(t, net, 1, 1)[0]
 

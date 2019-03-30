@@ -39,6 +39,11 @@ const (
 	RiskFactorBillionths = 15
 )
 
+// pathFinder defines the interface of a path finding algorithm.
+type pathFinder = func(g *graphParams, r *RestrictParams,
+	source, target Vertex, amt lnwire.MilliSatoshi) (
+	[]*channeldb.ChannelEdgePolicy, error)
+
 // Hop represents an intermediate or final node of the route. This naming
 // is in line with the definition given in BOLT #4: Onion Routing Protocol.
 // The struct houses the channel along which this hop can be reached and
@@ -393,6 +398,11 @@ type RestrictParams struct {
 	// OutgoingChannelID is the channel that needs to be taken to the first
 	// hop. If nil, any channel may be used.
 	OutgoingChannelID *uint64
+
+	// CltvLimit is the maximum time lock of the route excluding the final
+	// ctlv. After path finding is complete, the caller needs to increase
+	// all cltv expiry heights with the required final cltv delta.
+	CltvLimit *uint32
 }
 
 // findPath attempts to find a path from the source node within the
@@ -479,6 +489,7 @@ func findPath(g *graphParams, r *RestrictParams, source, target Vertex,
 		node:            targetNode,
 		amountToReceive: amt,
 		fee:             0,
+		incomingCltv:    0,
 	}
 
 	// We'll use this map as a series of "next" hop pointers. So to get
@@ -575,6 +586,14 @@ func findPath(g *graphParams, r *RestrictParams, source, target Vertex,
 			timeLockDelta = edge.TimeLockDelta
 		}
 
+		incomingCltv := toNodeDist.incomingCltv +
+			uint32(timeLockDelta)
+
+		// Check that we have cltv limit and that we are within it.
+		if r.CltvLimit != nil && incomingCltv > *r.CltvLimit {
+			return
+		}
+
 		// amountToReceive is the amount that the node that is added to
 		// the distance map needs to receive from a (to be found)
 		// previous node in the route. That previous node will need to
@@ -606,14 +625,11 @@ func findPath(g *graphParams, r *RestrictParams, source, target Vertex,
 			return
 		}
 
-		// If the edge has no time lock delta, the payment will always
-		// fail, so return.
-		//
-		// TODO(joostjager): Is this really true? Can't it be that
-		// nodes take this risk in exchange for a extraordinary high
-		// fee?
+		// Every edge should have a positive time lock delta. If we
+		// encounter a zero delta, log a warning line.
 		if edge.TimeLockDelta == 0 {
-			return
+			log.Warnf("Channel %v has zero cltv delta",
+				edge.ChannelID)
 		}
 
 		// All conditions are met and this new tentative distance is
@@ -625,6 +641,7 @@ func findPath(g *graphParams, r *RestrictParams, source, target Vertex,
 			node:            fromNode,
 			amountToReceive: amountToReceive,
 			fee:             fee,
+			incomingCltv:    incomingCltv,
 		}
 
 		next[fromVertex] = edge

@@ -63,5 +63,5 @@ func (msg *Init) MsgType() MessageType {
 //
 // This is part of the lnwire.Message interface.
 func (msg *Init) MaxPayloadLength(uint32) uint32 {
-	return 2 + maxAllowedSize + 2 + maxAllowedSize
+	return 2 + 2 + maxAllowedSize + 2 + maxAllowedSize
 }

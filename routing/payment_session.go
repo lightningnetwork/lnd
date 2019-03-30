@@ -33,6 +33,8 @@ type paymentSession struct {
 
 	haveRoutes     bool
 	preBuiltRoutes []*Route
+
+	pathFinder pathFinder
 }
 
 // ReportVertexFailure adds a vertex to the graph prune view after a client
@@ -136,12 +138,22 @@ func (p *paymentSession) RequestRoute(payment *LightningPayment,
 		"edges, %v vertexes", len(pruneView.edges),
 		len(pruneView.vertexes))
 
+	// If a route cltv limit was specified, we need to subtract the final
+	// delta before passing it into path finding. The optimal path is
+	// independent of the final cltv delta and the path finding algorithm is
+	// unaware of this value.
+	var cltvLimit *uint32
+	if payment.CltvLimit != nil {
+		limit := *payment.CltvLimit - uint32(finalCltvDelta)
+		cltvLimit = &limit
+	}
+
 	// TODO(roasbeef): sync logic amongst dist sys
 
 	// Taking into account this prune view, we'll attempt to locate a path
 	// to our destination, respecting the recommendations from
 	// missionControl.
-	path, err := findPath(
+	path, err := p.pathFinder(
 		&graphParams{
 			graph:           p.mc.graph,
 			additionalEdges: p.additionalEdges,
@@ -152,6 +164,7 @@ func (p *paymentSession) RequestRoute(payment *LightningPayment,
 			IgnoredEdges:      pruneView.edges,
 			FeeLimit:          payment.FeeLimit,
 			OutgoingChannelID: payment.OutgoingChannelID,
+			CltvLimit:         cltvLimit,
 		},
 		p.mc.selfNode.PubKeyBytes, payment.Target,
 		payment.Amount,

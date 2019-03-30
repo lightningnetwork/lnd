@@ -8,6 +8,12 @@ import (
 	"github.com/btcsuite/btcutil"
 )
 
+// minMedianChanSizeFraction determines the minimum size a channel must have to
+// count positively when calculating the scores using preferential attachment.
+// The minimum channel size is calculated as median/minMedianChanSizeFraction,
+// where median is the median channel size of the entire graph.
+const minMedianChanSizeFraction = 4
+
 // PrefAttachment is an implementation of the AttachmentHeuristic interface
 // that implement a non-linear preferential attachment heuristic. This means
 // that given a threshold to allocate to automatic channel establishment, the
@@ -64,6 +70,10 @@ func (p *PrefAttachment) Name() string {
 // implemented globally for each new participant, this results in a channel
 // graph that is scale-free and follows a power law distribution with k=-3.
 //
+// To avoid assigning a high score to nodes with a large number of small
+// channels, we only count channels at least as large as a given fraction of
+// the graph's median channel size.
+//
 // The returned scores will be in the range [0.0, 1.0], where higher scores are
 // given to nodes already having high connectivity in the graph.
 //
@@ -72,12 +82,50 @@ func (p *PrefAttachment) NodeScores(g ChannelGraph, chans []Channel,
 	chanSize btcutil.Amount, nodes map[NodeID]struct{}) (
 	map[NodeID]*NodeScore, error) {
 
-	// Count the number of channels for each particular node in the graph.
+	// We first run though the graph once in order to find the median
+	// channel size.
+	var (
+		allChans  []btcutil.Amount
+		seenChans = make(map[uint64]struct{})
+	)
+	if err := g.ForEachNode(func(n Node) error {
+		err := n.ForEachChannel(func(e ChannelEdge) error {
+			if _, ok := seenChans[e.ChanID.ToUint64()]; ok {
+				return nil
+			}
+			seenChans[e.ChanID.ToUint64()] = struct{}{}
+			allChans = append(allChans, e.Capacity)
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+
+	medianChanSize := Median(allChans)
+
+	// Count the number of large-ish channels for each particular node in
+	// the graph.
 	var maxChans int
 	nodeChanNum := make(map[NodeID]int)
 	if err := g.ForEachNode(func(n Node) error {
 		var nodeChans int
-		err := n.ForEachChannel(func(_ ChannelEdge) error {
+		err := n.ForEachChannel(func(e ChannelEdge) error {
+			// Since connecting to nodes with a lot of small
+			// channels actually worsens our connectivity in the
+			// graph (we will potentially waste time trying to use
+			// these useless channels in path finding), we decrease
+			// the counter for such channels.
+			if e.Capacity < medianChanSize/minMedianChanSizeFraction {
+				nodeChans--
+				return nil
+			}
+
+			// Larger channels we count.
 			nodeChans++
 			return nil
 		})
@@ -132,9 +180,9 @@ func (p *PrefAttachment) NodeScores(g ChannelGraph, chans []Channel,
 		case ok:
 			continue
 
-		// If the node had no channels, we skip it, since it would have
-		// gotten a zero score anyway.
-		case nodeChans == 0:
+		// If the node had no large channels, we skip it, since it
+		// would have gotten a zero score anyway.
+		case nodeChans <= 0:
 			continue
 		}
 

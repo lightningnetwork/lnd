@@ -790,7 +790,14 @@ message SendRequest {
     any channel may be used.
     */
     uint64 outgoing_chan_id = 9;
+
+    /** 
+    An optional maximum total time lock for the route. If zero, there is no
+    maximum enforced.
+    */
+    uint32 cltv_limit = 10;
 }
+
 message SendResponse {
     string payment_error = 1 [json_name = "payment_error"];
     bytes payment_preimage = 2 [json_name = "payment_preimage"];
@@ -1731,6 +1738,7 @@ message NetworkInfo {
     double avg_channel_size = 7 [json_name = "avg_channel_size"];
     int64 min_channel_size = 8 [json_name = "min_channel_size"];
     int64 max_channel_size = 9 [json_name = "max_channel_size"];
+    int64 median_channel_size_sat = 10 [json_name = "median_channel_size_sat"];
 
     // TODO(roasbeef): fee rate info, expiry
     //  * also additional RPC for tracking fee info once in

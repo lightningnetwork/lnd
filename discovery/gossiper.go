@@ -241,6 +241,9 @@ func New(cfg Config, selfKey *btcec.PublicKey) *AuthenticatedGossiper {
 		channelMtx:              multimutex.NewMutex(),
 		recentRejects:           make(map[uint64]struct{}),
 		peerSyncers:             make(map[routing.Vertex]*gossipSyncer),
+		newChanBarriers1:         make(map[lnwire.ChannelID]chan struct{}),
+                localDiscoverySignals1:       make(map[lnwire.ChannelID]chan struct{}),
+		handleFundingLockedBarriers1: make(map[lnwire.ChannelID]struct{}),
 	}
 
 	gossiper.reliableSender = newReliableSender(&reliableSenderCfg{

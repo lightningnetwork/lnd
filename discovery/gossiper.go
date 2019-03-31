@@ -2484,7 +2484,7 @@ func (d *AuthenticatedGossiper) waitUntilChannelEstablish(targetChan lnwire.Chan
 	barrier, ok := d.newChanBarriers[targetChan]
 	d.barrierMtx.RUnlock()
 	if ok {
-		fndgLog.Tracef("waiting for chan barrier signal for ChanID(%v)",
+		fndgLog.Traced("waiting for chan barrier signal for ChanID(%v)",
 			targetChan)
 
 		select {
@@ -2495,7 +2495,7 @@ func (d *AuthenticatedGossiper) waitUntilChannelEstablish(targetChan lnwire.Chan
 			return ErrGossiperShuttingDown
 		}
 
-		fndgLog.Tracef("barrier for ChanID(%v) closed", targetChan)
+		fndgLog.Traced("barrier for ChanID(%v) closed", targetChan)
 		return nil
 	}
 

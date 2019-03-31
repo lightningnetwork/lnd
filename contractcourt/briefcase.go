@@ -84,7 +84,7 @@ type ArbitratorLog interface {
 
 	// LogChainActions stores a set of chain actions which are derived from
 	// our set of active contracts, and the on-chain state. We'll write
-	// this et of cations when: we decide to go on-chain to resolve a
+	// this set of actions when: we decide to go on-chain to resolve a
 	// contract, or we detect that the remote party has gone on-chain.
 	LogChainActions(ChainActionMap) error
 

@@ -896,16 +896,7 @@ func newChanMsgStream(p *peer, cid lnwire.ChannelID) *msgStream {
 					// to deliver the message.
 					return
 				}
-				err := p.server.authGossiper.waitUntilChannelEstablish(
-					cid, p.quit,
-				)
-				if err != nil {
-					// If we have a non-nil error, then the
-					// Gossiper is shutting down, so
-					// we can exit here without attempting
-					// to deliver the message.
-					return
-				}
+
 				
 				
 			}
@@ -985,6 +976,7 @@ func newDiscMsgStream(p *peer) *msgStream {
 		},
 	)
 }
+
 
 // readHandler is responsible for reading messages off the wire in series, then
 // properly dispatching the handling of the message to the proper subsystem.

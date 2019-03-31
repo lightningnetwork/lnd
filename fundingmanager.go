@@ -33,7 +33,7 @@ const (
 	// TODO(roasbeef): tune
 	msgBufferSize = 50
 
-	// minBtcRemoteDelay and maxBtcRemoteDelay is the extremes of the
+	// minBtcRemoteDelay and maxBtcRemoteDelay are the extremes of the
 	// Bitcoin CSV delay we will require the remote to use for its
 	// commitment transaction. The actual delay we will require will be
 	// somewhere between these values, depending on channel size.

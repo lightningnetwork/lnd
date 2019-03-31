@@ -33,7 +33,7 @@ import (
 var (
 	numNodes int32
 
-	// ErrPeerExiting signals that the peer received a disconnect requests.
+	// ErrPeerExiting signals that the peer received a disconnect request.
 	ErrPeerExiting = fmt.Errorf("peer exiting")
 )
 

@@ -109,6 +109,7 @@ var (
 type DB struct {
 	*bbolt.DB
 	dbPath string
+	graph  *ChannelGraph
 }
 
 // Open opens an existing channeldb. Any necessary schemas migrations due to
@@ -131,6 +132,7 @@ func Open(dbPath string) (*DB, error) {
 		DB:     bdb,
 		dbPath: dbPath,
 	}
+	chanDB.graph = newChannelGraph(chanDB)
 
 	// Synchronize the version of database and apply migrations if needed.
 	if err := chanDB.syncVersions(dbVersions); err != nil {
@@ -895,7 +897,7 @@ type ChannelShell struct {
 // well. This method is idempotent, so repeated calls with the same set of
 // channel shells won't modify the database after the initial call.
 func (d *DB) RestoreChannelShells(channelShells ...*ChannelShell) error {
-	chanGraph := ChannelGraph{d}
+	chanGraph := d.ChannelGraph()
 
 	return d.Update(func(tx *bbolt.Tx) error {
 		for _, channelShell := range channelShells {
@@ -1107,7 +1109,7 @@ func (d *DB) syncVersions(versions []version) error {
 
 // ChannelGraph returns a new instance of the directed channel graph.
 func (d *DB) ChannelGraph() *ChannelGraph {
-	return &ChannelGraph{d}
+	return d.graph
 }
 
 func getLatestDBVersion(versions []version) uint32 {

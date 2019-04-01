@@ -161,7 +161,11 @@ func lndMain() error {
 
 	// Open the channeldb, which is dedicated to storing channel, and
 	// network related metadata.
-	chanDB, err := channeldb.Open(graphDir)
+	chanDB, err := channeldb.Open(
+		graphDir,
+		channeldb.OptionSetRejectCacheSize(cfg.Caches.RejectCacheSize),
+		channeldb.OptionSetChannelCacheSize(cfg.Caches.ChannelCacheSize),
+	)
 	if err != nil {
 		ltndLog.Errorf("unable to open channeldb: %v", err)
 		return err

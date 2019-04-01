@@ -47,3 +47,6 @@ func (w *Workers) Validate() error {
 
 	return nil
 }
+
+// Compile-time constraint to ensure Workers implements the Validator interface.
+var _ Validator = (*Workers)(nil)

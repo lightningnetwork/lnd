@@ -217,18 +217,21 @@ func lndMain() error {
 	}
 
 	var (
-		privateWalletPw = lnwallet.DefaultPrivatePassphrase
-		publicWalletPw  = lnwallet.DefaultPublicPassphrase
-		birthday        = time.Now()
-		recoveryWindow  uint32
-		unlockedWallet  *wallet.Wallet
+		walletInitParams WalletUnlockParams
+		privateWalletPw  = lnwallet.DefaultPrivatePassphrase
+		publicWalletPw   = lnwallet.DefaultPublicPassphrase
 	)
+
+	// If the user didn't request a seed, then we'll manually assume a
+	// wallet birthday of now, as otherwise the seed would've specified
+	// this information.
+	walletInitParams.Birthday = time.Now()
 
 	// We wait until the user provides a password over RPC. In case lnd is
 	// started with the --noseedbackup flag, we use the default password
 	// for wallet encryption.
 	if !cfg.NoSeedBackup {
-		walletInitParams, err := waitForWalletPassword(
+		params, err := waitForWalletPassword(
 			cfg.RPCListeners, cfg.RESTListeners, serverOpts,
 			proxyOpts, tlsConf,
 		)
@@ -236,16 +239,14 @@ func lndMain() error {
 			return err
 		}
 
+		walletInitParams = *params
 		privateWalletPw = walletInitParams.Password
 		publicWalletPw = walletInitParams.Password
-		birthday = walletInitParams.Birthday
-		recoveryWindow = walletInitParams.RecoveryWindow
-		unlockedWallet = walletInitParams.Wallet
 
-		if recoveryWindow > 0 {
+		if walletInitParams.RecoveryWindow > 0 {
 			ltndLog.Infof("Wallet recovery mode enabled with "+
 				"address lookahead of %d addresses",
-				recoveryWindow)
+				walletInitParams.RecoveryWindow)
 		}
 	}
 
@@ -264,7 +265,7 @@ func lndMain() error {
 		// Try to unlock the macaroon store with the private password.
 		err = macaroonService.CreateUnlock(&privateWalletPw)
 		if err != nil {
-			srvrLog.Error(err)
+			srvrLog.Errorf("unable to unlock macaroons: %v", err)
 			return err
 		}
 
@@ -288,8 +289,9 @@ func lndMain() error {
 	// instances of the pertinent interfaces required to operate the
 	// Lightning Network Daemon.
 	activeChainControl, chainCleanUp, err := newChainControlFromConfig(
-		cfg, chanDB, privateWalletPw, publicWalletPw, birthday,
-		recoveryWindow, unlockedWallet, neutrinoCS,
+		cfg, chanDB, privateWalletPw, publicWalletPw,
+		walletInitParams.Birthday, walletInitParams.RecoveryWindow,
+		walletInitParams.Wallet, neutrinoCS,
 	)
 	if err != nil {
 		fmt.Printf("unable to create chain control: %v\n", err)
@@ -327,6 +329,7 @@ func lndMain() error {
 	// connections.
 	server, err := newServer(
 		cfg.Listeners, chanDB, activeChainControl, idPrivKey,
+		walletInitParams.ChansToRestore,
 	)
 	if err != nil {
 		srvrLog.Errorf("unable to create server: %v\n", err)
@@ -672,6 +675,10 @@ type WalletUnlockParams struct {
 	// later when lnd actually uses it). Because unlocking involves scrypt
 	// which is resource intensive, we want to avoid doing it twice.
 	Wallet *wallet.Wallet
+
+	// ChansToRestore a set of static channel backups that should be
+	// restored before the main server instance starts up.
+	ChansToRestore walletunlocker.ChannelsToRecover
 }
 
 // waitForWalletPassword will spin up gRPC and REST endpoints for the
@@ -825,24 +832,23 @@ func waitForWalletPassword(grpcEndpoints, restEndpoints []net.Addr,
 			return nil, err
 		}
 
-		walletInitParams := &WalletUnlockParams{
+		return &WalletUnlockParams{
 			Password:       password,
 			Birthday:       birthday,
 			RecoveryWindow: recoveryWindow,
 			Wallet:         newWallet,
-		}
-
-		return walletInitParams, nil
+			ChansToRestore: initMsg.ChanBackups,
+		}, nil
 
 	// The wallet has already been created in the past, and is simply being
 	// unlocked. So we'll just return these passphrases.
 	case unlockMsg := <-pwService.UnlockMsgs:
-		walletInitParams := &WalletUnlockParams{
+		return &WalletUnlockParams{
 			Password:       unlockMsg.Passphrase,
 			RecoveryWindow: unlockMsg.RecoveryWindow,
 			Wallet:         unlockMsg.Wallet,
-		}
-		return walletInitParams, nil
+			ChansToRestore: unlockMsg.ChanBackups,
+		}, nil
 
 	case <-signal.ShutdownChannel():
 		return nil, fmt.Errorf("shutting down")

@@ -856,12 +856,16 @@ func (lc *LightningChannel) diskCommitToMemCommit(isLocal bool,
 	// haven't yet received a responding commitment from the remote party.
 	var localCommitKeys, remoteCommitKeys *CommitmentKeyRing
 	if localCommitPoint != nil {
-		localCommitKeys = deriveCommitmentKeys(localCommitPoint, true,
-			lc.localChanCfg, lc.remoteChanCfg)
+		localCommitKeys = deriveCommitmentKeys(
+			localCommitPoint, true, lc.localChanCfg,
+			lc.remoteChanCfg,
+		)
 	}
 	if remoteCommitPoint != nil {
-		remoteCommitKeys = deriveCommitmentKeys(remoteCommitPoint, false,
-			lc.localChanCfg, lc.remoteChanCfg)
+		remoteCommitKeys = deriveCommitmentKeys(
+			remoteCommitPoint, false, lc.localChanCfg,
+			lc.remoteChanCfg,
+		)
 	}
 
 	// With the key rings re-created, we'll now convert all the on-disk
@@ -1408,8 +1412,7 @@ func NewLightningChannel(signer input.Signer, pCache PreimageCache,
 	// Create the sign descriptor which we'll be using very frequently to
 	// request a signature for the 2-of-2 multi-sig from the signer in
 	// order to complete channel state transitions.
-	err = lc.createSignDesc()
-	if err != nil {
+	if err := lc.createSignDesc(); err != nil {
 		return nil, err
 	}
 
@@ -1701,7 +1704,8 @@ func (lc *LightningChannel) restoreCommitState(
 	// Finally, with the commitment states restored, we'll now restore the
 	// state logs based on the current local+remote commit, and any pending
 	// remote commit that exists.
-	err = lc.restoreStateLogs(localCommit, remoteCommit, pendingRemoteCommit,
+	err = lc.restoreStateLogs(
+		localCommit, remoteCommit, pendingRemoteCommit,
 		pendingRemoteCommitDiff, pendingRemoteKeyChain,
 	)
 	if err != nil {
@@ -3248,6 +3252,13 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 		}
 	}
 
+	// If we detect that this is is a restored channel, then we can skip a
+	// portion of the verification, as we already know that we're unable to
+	// proceed with any updates.
+	isRestoredChan := lc.channelState.HasChanStatus(
+		channeldb.ChanStatusRestored,
+	)
+
 	// Take note of our current commit chain heights before we begin adding
 	// more to them.
 	var (
@@ -3265,11 +3276,16 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 
 	// If their reported height for our local chain tail is ahead of our
 	// view, then we're behind!
-	case msg.RemoteCommitTailHeight > localTailHeight:
+	case msg.RemoteCommitTailHeight > localTailHeight || isRestoredChan:
 		walletLog.Errorf("ChannelPoint(%v), sync failed with local "+
 			"data loss: remote believes our tail height is %v, "+
 			"while we have %v!", lc.channelState.FundingOutpoint,
 			msg.RemoteCommitTailHeight, localTailHeight)
+
+		if isRestoredChan {
+			walletLog.Warnf("ChannelPoint(%v): detected restored " +
+				"triggering DLP")
+		}
 
 		// We must check that we had recovery options to ensure the
 		// commitment secret matched up, and the remote is just not
@@ -3480,12 +3496,21 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 	// is valid.
 	var commitPoint *btcec.PublicKey
 	switch {
-	case msg.NextLocalCommitHeight == remoteTailHeight+2:
-		commitPoint = lc.channelState.RemoteNextRevocation
-
+	// If their height is one beyond what we know their current height to
+	// be, then we need to compare their current unrevoked commitment point
+	// as that's what they should send.
 	case msg.NextLocalCommitHeight == remoteTailHeight+1:
 		commitPoint = lc.channelState.RemoteCurrentRevocation
+
+	// Alternatively, if their height is two beyond what we know their best
+	// height to be, then they're holding onto two commitments, and the
+	// highest unrevoked point is their next revocation.
+	//
+	// TODO(roasbeef): verify this in the spec...
+	case msg.NextLocalCommitHeight == remoteTailHeight+2:
+		commitPoint = lc.channelState.RemoteNextRevocation
 	}
+
 	if commitPoint != nil &&
 		!commitPoint.IsEqual(msg.LocalUnrevokedCommitPoint) {
 
@@ -3497,6 +3522,7 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 		if err := lc.channelState.MarkBorked(); err != nil {
 			return nil, nil, nil, err
 		}
+
 		// TODO(halseth): force close?
 		return nil, nil, nil, ErrInvalidLocalUnrevokedCommitPoint
 	}
@@ -3515,7 +3541,14 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 //      it.
 //   3. We didn't get the last RevokeAndAck message they sent, so they'll
 //      re-send it.
-func ChanSyncMsg(c *channeldb.OpenChannel) (*lnwire.ChannelReestablish, error) {
+//
+// The isRestoredChan bool indicates if we need to craft a chan sync message
+// for a channel that's been restored. If this is a restored channel, then
+// we'll modify our typical chan sync  message to ensure they force close even
+// if we're on the very first state.
+func ChanSyncMsg(c *channeldb.OpenChannel,
+	isRestoredChan bool) (*lnwire.ChannelReestablish, error) {
+
 	c.Lock()
 	defer c.Unlock()
 
@@ -3554,6 +3587,13 @@ func ChanSyncMsg(c *channeldb.OpenChannel) (*lnwire.ChannelReestablish, error) {
 	)
 	if err != nil {
 		return nil, err
+	}
+
+	// If we've restored this channel, then we'll purposefully give them an
+	// invalid LocalUnrevokedCommitPoint so they'll force close the channel
+	// allowing us to sweep our funds.
+	if isRestoredChan {
+		currentCommitSecret[0] ^= 1
 	}
 
 	return &lnwire.ChannelReestablish{
@@ -3616,7 +3656,7 @@ func (lc *LightningChannel) computeView(view *htlcView, remoteChain bool,
 	// will remove their corresponding added HTLCs.  The resulting filtered
 	// view will only have Add entries left, making it easy to compare the
 	// channel constraints to the final commitment state. If any fee
-	// updates are found in the logs, the comitment fee rate should be
+	// updates are found in the logs, the commitment fee rate should be
 	// changed, so we'll also set the feePerKw to this new value.
 	filteredHTLCView := lc.evaluateHTLCView(view, &ourBalance,
 		&theirBalance, nextHeight, remoteChain, updateState)
@@ -5070,12 +5110,14 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, signer input.Si
 	// Next, we'll obtain HTLC resolutions for all the outgoing HTLC's we
 	// had on their commitment transaction.
 	htlcResolutions, err := extractHtlcResolutions(
-		SatPerKWeight(remoteCommit.FeePerKw), false, signer, remoteCommit.Htlcs,
-		keyRing, &chanState.LocalChanCfg, &chanState.RemoteChanCfg,
-		*commitSpend.SpenderTxHash, pCache,
+		SatPerKWeight(remoteCommit.FeePerKw), false, signer,
+		remoteCommit.Htlcs, keyRing, &chanState.LocalChanCfg,
+		&chanState.RemoteChanCfg, *commitSpend.SpenderTxHash,
+		pCache,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("unable to create htlc resolutions: %v", err)
+		return nil, fmt.Errorf("unable to create htlc "+
+			"resolutions: %v", err)
 	}
 
 	commitTxBroadcast := commitSpend.SpendingTx
@@ -5085,7 +5127,8 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, signer input.Si
 	// transaction.
 	selfP2WKH, err := input.CommitScriptUnencumbered(keyRing.NoDelayKey)
 	if err != nil {
-		return nil, fmt.Errorf("unable to create self commit script: %v", err)
+		return nil, fmt.Errorf("unable to create self commit "+
+			"script: %v", err)
 	}
 
 	var (
@@ -5143,7 +5186,10 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, signer input.Si
 	}
 
 	// Attempt to add a channel sync message to the close summary.
-	chanSync, err := ChanSyncMsg(chanState)
+	chanSync, err := ChanSyncMsg(
+		chanState,
+		chanState.HasChanStatus(channeldb.ChanStatusRestored),
+	)
 	if err != nil {
 		walletLog.Errorf("ChannelPoint(%v): unable to create channel sync "+
 			"message: %v", chanState.FundingOutpoint, err)

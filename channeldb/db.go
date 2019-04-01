@@ -906,6 +906,12 @@ func (d *DB) RestoreChannelShells(channelShells ...*ChannelShell) error {
 		for _, channelShell := range channelShells {
 			channel := channelShell.Chan
 
+			// When we make a channel, we mark that the channel has
+			// been restored, this will signal to other sub-systems
+			// to not attempt to use the channel as if it was a
+			// regular one.
+			channel.chanStatus |= ChanStatusRestored
+
 			// First, we'll attempt to create a new open channel
 			// and link node for this channel. If the channel
 			// already exists, then in order to ensure this method
@@ -930,6 +936,7 @@ func (d *DB) RestoreChannelShells(channelShells ...*ChannelShell) error {
 				ChannelID:    channel.ShortChannelID.ToUint64(),
 				ChainHash:    channel.ChainHash,
 				ChannelPoint: channel.FundingOutpoint,
+				Capacity:     channel.Capacity,
 			}
 
 			nodes := tx.Bucket(nodeBucket)
@@ -958,7 +965,7 @@ func (d *DB) RestoreChannelShells(channelShells ...*ChannelShell) error {
 			// With the edge info shell constructed, we'll now add
 			// it to the graph.
 			err = chanGraph.addChannelEdge(tx, &edgeInfo)
-			if err != nil {
+			if err != nil && err != ErrEdgeAlreadyExist {
 				return err
 			}
 
@@ -1011,7 +1018,9 @@ func (d *DB) AddrsForNode(nodePub *btcec.PublicKey) ([]net.Addr, error) {
 		}
 		compressedPubKey := nodePub.SerializeCompressed()
 		graphNode, err = fetchLightningNode(nodes, compressedPubKey)
-		if err != nil {
+		if err != nil && err != ErrGraphNodeNotFound {
+			// If the node isn't found, then that's OK, as we still
+			// have the link node data.
 			return err
 		}
 

@@ -19,6 +19,11 @@ const (
 	// backup. The serialized format for this version is simply: version ||
 	// numBackups || SCBs...
 	DefaultMultiVersion = 0
+
+	// NilMultiSizePacked is the size of a "nil" packed Multi (45 bytes).
+	// This consists of the 24 byte chacha nonce, the 16 byte MAC, one byte
+	// for the version, and 4 bytes to signal zero entries.
+	NilMultiSizePacked = 24 + 16 + 1 + 4
 )
 
 // Multi is a form of static channel backup that is amenable to being

@@ -25,6 +25,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/go-errors/errors"
+	"github.com/lightningnetwork/lnd/chanbackup"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
 )
@@ -117,7 +118,8 @@ type nodeConfig struct {
 	ReadMacPath    string
 	InvoiceMacPath string
 
-	HasSeed bool
+	HasSeed  bool
+	Password []byte
 
 	P2PPort  int
 	RPCPort  int
@@ -139,6 +141,16 @@ func (cfg nodeConfig) RESTAddr() string {
 func (cfg nodeConfig) DBPath() string {
 	return filepath.Join(cfg.DataDir, "graph",
 		fmt.Sprintf("%v/channel.db", cfg.NetParams.Name))
+}
+
+func (cfg nodeConfig) ChanBackupPath() string {
+	return filepath.Join(
+		cfg.DataDir, "chain", "bitcoin",
+		fmt.Sprintf(
+			"%v/%v", cfg.NetParams.Name,
+			chanbackup.DefaultBackupFileName,
+		),
+	)
 }
 
 // genArgs generates a slice of command line arguments from the lightning node
@@ -278,6 +290,12 @@ func (hn *HarnessNode) Name() string {
 	return hn.cfg.Name
 }
 
+// ChanBackupPath returns the fielpath to the on-disk channels.backup file for
+// this node.
+func (hn *HarnessNode) ChanBackupPath() string {
+	return hn.cfg.ChanBackupPath()
+}
+
 // Start launches a new process running lnd. Additionally, the PID of the
 // launched process is saved in order to possibly kill the process forcibly
 // later.
@@ -404,6 +422,24 @@ func (hn *HarnessNode) start(lndError chan<- error) error {
 	return hn.initLightningClient(conn)
 }
 
+// initClientWhenReady waits until the main gRPC server is detected as active,
+// then complete the normal HarnessNode gRPC connection creation. This can be
+// used it a node has just been unlocked, or has its wallet state initialized.
+func (hn *HarnessNode) initClientWhenReady() error {
+	var (
+		conn    *grpc.ClientConn
+		connErr error
+	)
+	if err := WaitNoError(func() error {
+		conn, connErr = hn.ConnectRPC(true)
+		return connErr
+	}, 5*time.Second); err != nil {
+		return err
+	}
+
+	return hn.initLightningClient(conn)
+}
+
 // Init initializes a harness node by passing the init request via rpc. After
 // the request is submitted, this method will block until an
 // macaroon-authenticated rpc connection can be established to the harness node.
@@ -412,8 +448,7 @@ func (hn *HarnessNode) start(lndError chan<- error) error {
 func (hn *HarnessNode) Init(ctx context.Context,
 	initReq *lnrpc.InitWalletRequest) error {
 
-	timeout := time.Duration(time.Second * 15)
-	ctxt, _ := context.WithTimeout(ctx, timeout)
+	ctxt, _ := context.WithTimeout(ctx, DefaultTimeout)
 	_, err := hn.InitWallet(ctxt, initReq)
 	if err != nil {
 		return err
@@ -421,15 +456,27 @@ func (hn *HarnessNode) Init(ctx context.Context,
 
 	// Wait for the wallet to finish unlocking, such that we can connect to
 	// it via a macaroon-authenticated rpc connection.
-	var conn *grpc.ClientConn
-	if err = WaitPredicate(func() bool {
-		conn, err = hn.ConnectRPC(true)
-		return err == nil
-	}, 5*time.Second); err != nil {
+	return hn.initClientWhenReady()
+}
+
+// Unlock attempts to unlock the wallet of the target HarnessNode. This method
+// should be called after the restart of a HarnessNode that was created with a
+// seed+password. Once this method returns, the HarnessNode will be ready to
+// accept normal gRPC requests and harness command.
+func (hn *HarnessNode) Unlock(ctx context.Context,
+	unlockReq *lnrpc.UnlockWalletRequest) error {
+
+	ctxt, _ := context.WithTimeout(ctx, DefaultTimeout)
+
+	// Otherwise, we'll need to unlock the node before it's able to start
+	// up properly.
+	if _, err := hn.UnlockWallet(ctxt, unlockReq); err != nil {
 		return err
 	}
 
-	return hn.initLightningClient(conn)
+	// Now that the wallet has been unlocked, we'll wait for the RPC client
+	// to be ready, then establish the normal gRPC connection.
+	return hn.initClientWhenReady()
 }
 
 // initLightningClient constructs the grpc LightningClient from the given client

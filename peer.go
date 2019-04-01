@@ -438,7 +438,12 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 
 		// Skip adding any permanently irreconcilable channels to the
 		// htlcswitch.
-		if dbChan.ChanStatus() != channeldb.ChanStatusDefault {
+		switch {
+		case dbChan.HasChanStatus(channeldb.ChanStatusBorked):
+			fallthrough
+		case dbChan.HasChanStatus(channeldb.ChanStatusCommitBroadcasted):
+			fallthrough
+		case dbChan.HasChanStatus(channeldb.ChanStatusLocalDataLoss):
 			peerLog.Warnf("ChannelPoint(%v) has status %v, won't "+
 				"start.", chanPoint, dbChan.ChanStatus())
 			continue

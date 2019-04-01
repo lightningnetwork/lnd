@@ -899,7 +899,12 @@ type ChannelShell struct {
 func (d *DB) RestoreChannelShells(channelShells ...*ChannelShell) error {
 	chanGraph := d.ChannelGraph()
 
-	return d.Update(func(tx *bbolt.Tx) error {
+	// TODO(conner): find way to do this w/o accessing internal members?
+	chanGraph.cacheMu.Lock()
+	defer chanGraph.cacheMu.Unlock()
+
+	var chansRestored []uint64
+	err := d.Update(func(tx *bbolt.Tx) error {
 		for _, channelShell := range channelShells {
 			channel := channelShell.Chan
 
@@ -984,10 +989,22 @@ func (d *DB) RestoreChannelShells(channelShells ...*ChannelShell) error {
 			if err != nil {
 				return err
 			}
+
+			chansRestored = append(chansRestored, edgeInfo.ChannelID)
 		}
 
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+
+	for _, chanid := range chansRestored {
+		chanGraph.rejectCache.remove(chanid)
+		chanGraph.chanCache.remove(chanid)
+	}
+
+	return nil
 }
 
 // AddrsForNode consults the graph and channel database for all addresses known

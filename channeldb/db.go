@@ -7,7 +7,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"sync"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec"
@@ -103,10 +102,6 @@ var (
 	// integer keys iterating in order.
 	byteOrder = binary.BigEndian
 )
-
-var bufPool = &sync.Pool{
-	New: func() interface{} { return new(bytes.Buffer) },
-}
 
 // DB is the primary datastore for the lnd daemon. The database stores
 // information related to nodes, routing data, open/closed channels, fee

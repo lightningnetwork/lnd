@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/routing"
 	"google.golang.org/grpc"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 )
@@ -168,7 +169,7 @@ func (s *Server) SendPayment(ctx context.Context,
 		return nil, err
 	}
 
-	preImage, _, err := s.cfg.Router.SendPayment(payment, false)
+	preImage, _, err := s.cfg.Router.SendPayment(payment, routing.PayDirect)
 	if err != nil {
 		return nil, err
 	}
@@ -189,7 +190,7 @@ func (s *Server) EstimateRouteFee(ctx context.Context,
 		return nil, err
 	}
 
-	_, route, err := s.cfg.Router.SendPayment(payment, true)
+	_, route, err := s.cfg.Router.SendPayment(payment, routing.OnlyProbe)
 	if err != nil {
 		return nil, err
 	}

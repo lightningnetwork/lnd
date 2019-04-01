@@ -1585,10 +1585,23 @@ type LightningPayment struct {
 	// hop. If nil, any channel may be used.
 	OutgoingChannelID *uint64
 
-	Probe bool
-
 	// TODO(roasbeef): add e2e message?
 }
+
+// PaymentMode defines the operating mode of SendPayment.
+type PaymentMode int8
+
+const (
+	// PayDirect tries to make the payment without probing beforehand.
+	PayDirect PaymentMode = iota
+
+	// PayProbe probes the route before making the actual payment.
+	PayProbe
+
+	// OnlyProbe just probes the route and doesn't make the payment. This is
+	// useful for fee estimation.
+	OnlyProbe
+)
 
 // SendPayment attempts to send a payment as described within the passed
 // LightningPayment. This function is blocking and will return either: when the
@@ -1597,7 +1610,7 @@ type LightningPayment struct {
 // will be returned which describes the path the successful payment traversed
 // within the network to reach the destination. Additionally, the payment
 // preimage will also be returned.
-func (r *ChannelRouter) SendPayment(payment *LightningPayment, probe bool) (
+func (r *ChannelRouter) SendPayment(payment *LightningPayment, mode PaymentMode) (
 	[32]byte, *Route, error) {
 
 	// Before starting the HTLC routing attempt, we'll create a fresh
@@ -1610,7 +1623,7 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment, probe bool) (
 		return [32]byte{}, nil, err
 	}
 
-	return r.sendPayment(payment, paySession, probe)
+	return r.sendPayment(payment, paySession, mode)
 }
 
 // SendToRoute attempts to send a payment as described within the passed
@@ -1627,7 +1640,7 @@ func (r *ChannelRouter) SendToRoute(routes []*Route,
 		routes,
 	)
 
-	return r.sendPayment(payment, paySession, false)
+	return r.sendPayment(payment, paySession, PayDirect)
 }
 
 // sendPayment attempts to send a payment as described within the passed
@@ -1638,7 +1651,8 @@ func (r *ChannelRouter) SendToRoute(routes []*Route,
 // within the network to reach the destination. Additionally, the payment
 // preimage will also be returned.
 func (r *ChannelRouter) sendPayment(payment *LightningPayment,
-	paySession *paymentSession, probe bool) ([32]byte, *Route, error) {
+	paySession *paymentSession, mode PaymentMode) (
+	[32]byte, *Route, error) {
 
 	log.Tracef("Dispatching route for lightning payment: %v",
 		newLogClosure(func() string {
@@ -1707,7 +1721,7 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 			return [32]byte{}, nil, err
 		}
 
-		if payment.Probe {
+		if mode == PayProbe || mode == OnlyProbe {
 			success, err := r.probe(
 				paySession, route, uint32(currentHeight),
 			)
@@ -1716,24 +1730,12 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 
 				return lntypes.Preimage{}, nil, err
 			}
-			// If probe failed, retry path finding with
-			// updated mission control.
 			if !success {
 				continue
 			}
-		}
-
-		if probe {
-			success, _, err := r.sendProbeAttempt(paySession, route)
-			if err != nil {
-				log.Errorf("Probe error: %v", err)
-
-				return lntypes.Preimage{}, nil, err
+			if mode == OnlyProbe {
+				return lntypes.Preimage{}, route, nil
 			}
-			if !success {
-				continue
-			}
-			return lntypes.Preimage{}, route, nil
 		}
 
 		// Send payment attempt. It will return a final boolean
@@ -1807,6 +1809,23 @@ func (r *ChannelRouter) createProbeRoute(route *Route, depth int,
 }
 
 func (r *ChannelRouter) probe(paySession *paymentSession, route *Route,
+	currentHeight uint32) (bool, error) {
+
+	// First pre-probe with small amounts.
+	success, err := r.preProbe(
+		paySession, route, uint32(currentHeight),
+	)
+	if err != nil || !success {
+		return false, err
+	}
+
+	// Then probe with the full payment amount.
+	success, _, err = r.sendProbeAttempt(paySession, route)
+
+	return success, err
+}
+
+func (r *ChannelRouter) preProbe(paySession *paymentSession, route *Route,
 	currentHeight uint32) (bool, error) {
 
 	hops := len(route.Hops)

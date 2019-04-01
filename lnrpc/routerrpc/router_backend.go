@@ -274,9 +274,7 @@ func (r *RouterBackend) MarshallRoute(route *routing.Route) *lnrpc.Route {
 func (r *RouterBackend) ExtractIntentFromSendRequest(rpcPayReq *lnrpc.SendRequest) (
 	*routing.LightningPayment, error) {
 
-	payIntent := &routing.LightningPayment{
-		Probe: true,
-	}
+	payIntent := &routing.LightningPayment{}
 
 	// If there are no routes specified, pass along a outgoing channel
 	// restriction if specified.

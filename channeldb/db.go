@@ -114,13 +114,18 @@ type DB struct {
 
 // Open opens an existing channeldb. Any necessary schemas migrations due to
 // updates will take place as necessary.
-func Open(dbPath string) (*DB, error) {
+func Open(dbPath string, modifiers ...OptionModifier) (*DB, error) {
 	path := filepath.Join(dbPath, dbName)
 
 	if !fileExists(path) {
 		if err := createChannelDB(dbPath); err != nil {
 			return nil, err
 		}
+	}
+
+	opts := DefaultOptions()
+	for _, modifier := range modifiers {
+		modifier(&opts)
 	}
 
 	bdb, err := bbolt.Open(path, dbFilePermission, nil)
@@ -132,7 +137,9 @@ func Open(dbPath string) (*DB, error) {
 		DB:     bdb,
 		dbPath: dbPath,
 	}
-	chanDB.graph = newChannelGraph(chanDB)
+	chanDB.graph = newChannelGraph(
+		chanDB, opts.RejectCacheSize, opts.ChannelCacheSize,
+	)
 
 	// Synchronize the version of database and apply migrations if needed.
 	if err := chanDB.syncVersions(dbVersions); err != nil {

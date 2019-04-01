@@ -162,6 +162,13 @@ type ChannelGraph struct {
 	//  * LRU cache for edges?
 }
 
+// newChannelGraph allocates a new ChannelGraph backed by a DB instance.
+func newChannelGraph(db *DB) *ChannelGraph {
+	return &ChannelGraph{
+		db: db,
+	}
+}
+
 // Database returns a pointer to the underlying database.
 func (c *ChannelGraph) Database() *DB {
 	return c.db

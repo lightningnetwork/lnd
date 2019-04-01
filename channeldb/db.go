@@ -992,7 +992,7 @@ func (d *DB) RestoreChannelShells(channelShells ...*ChannelShell) error {
 				chanEdge.ChannelFlags |= lnwire.ChanUpdateDirection
 			}
 
-			err = updateEdgePolicy(tx, &chanEdge)
+			_, err = updateEdgePolicy(tx, &chanEdge)
 			if err != nil {
 				return err
 			}

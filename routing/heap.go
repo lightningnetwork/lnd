@@ -21,6 +21,10 @@ type nodeWithDist struct {
 	// amount that includes also the fees for subsequent hops.
 	amountToReceive lnwire.MilliSatoshi
 
+	// incomingCltv is the expected cltv value for the incoming htlc of this
+	// node. This value does not include the final cltv.
+	incomingCltv uint32
+
 	// fee is the fee that this node is charging for forwarding.
 	fee lnwire.MilliSatoshi
 }
@@ -78,9 +82,9 @@ type path struct {
 	// that the path requires.
 	dist int
 
-	// hops is an ordered list of edge that comprises a potential payment
+	// hops is an ordered list of edges that comprises a potential payment
 	// path.
-	hops []*ChannelHop
+	hops []*channeldb.ChannelEdgePolicy
 }
 
 // pathHeap is a min-heap that stores potential paths to be considered within

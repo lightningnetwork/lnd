@@ -540,7 +540,7 @@ func testFilterBlockDisconnected(node *rpctest.Harness,
 
 	// Create a node that has a shorter chain than the main chain, so we
 	// can trigger a reorg.
-	reorgNode, err := rpctest.New(netParams, nil, nil)
+	reorgNode, err := rpctest.New(netParams, nil, []string{"--txindex"})
 	if err != nil {
 		t.Fatalf("unable to create mining node: %v", err)
 	}
@@ -902,7 +902,7 @@ func TestFilteredChainView(t *testing.T) {
 	// dedicated miner to generate blocks, cause re-orgs, etc. We'll set up
 	// this node with a chain length of 125, so we have plenty of BTC to
 	// play around with.
-	miner, err := rpctest.New(netParams, nil, nil)
+	miner, err := rpctest.New(netParams, nil, []string{"--txindex"})
 	if err != nil {
 		t.Fatalf("unable to create mining node: %v", err)
 	}

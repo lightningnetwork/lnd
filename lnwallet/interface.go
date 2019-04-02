@@ -9,6 +9,8 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcwallet/wallet/txauthor"
+	"github.com/lightningnetwork/lnd/lntypes"
 )
 
 // AddressType is an enum-like type which denotes the possible address types
@@ -47,11 +49,16 @@ var (
 	ErrNotMine = errors.New("the passed output doesn't belong to the wallet")
 )
 
+// ErrNoOutputs is returned if we try to create a transaction with no outputs
+// or send coins to a set of outputs that is empty.
+var ErrNoOutputs = errors.New("no outputs")
+
 // Utxo is an unspent output denoted by its outpoint, and output value of the
 // original output.
 type Utxo struct {
 	AddressType   AddressType
 	Value         btcutil.Amount
+	Confirmations int64
 	PkScript      []byte
 	RedeemScript  []byte
 	WitnessScript []byte
@@ -126,7 +133,7 @@ type TransactionSubscription interface {
 type WalletController interface {
 	// FetchInputInfo queries for the WalletController's knowledge of the
 	// passed outpoint. If the base wallet determines this output is under
-	// its control, then the original txout should be returned. Otherwise,
+	// its control, then the original txout should be returned.  Otherwise,
 	// a non-nil error value of ErrNotMine should be returned instead.
 	FetchInputInfo(prevOut *wire.OutPoint) (*wire.TxOut, error)
 
@@ -148,11 +155,16 @@ type WalletController interface {
 	// p2wsh, etc.
 	NewAddress(addrType AddressType, change bool) (btcutil.Address, error)
 
-	// GetPrivKey retrieves the underlying private key associated with the
-	// passed address. If the wallet is unable to locate this private key
-	// due to the address not being under control of the wallet, then an
-	// error should be returned.
-	GetPrivKey(a btcutil.Address) (*btcec.PrivateKey, error)
+	// LastUnusedAddress returns the last *unused* address known by the
+	// wallet. An address is unused if it hasn't received any payments.
+	// This can be useful in UIs in order to continually show the
+	// "freshest" address without having to worry about "address inflation"
+	// caused by continual refreshing. Similar to NewAddress it can derive
+	// a specified address type. By default, this is a non-change address.
+	LastUnusedAddress(addrType AddressType) (btcutil.Address, error)
+
+	// IsOurAddress checks if the passed address belongs to this wallet
+	IsOurAddress(a btcutil.Address) bool
 
 	// SendOutputs funds, signs, and broadcasts a Bitcoin transaction paying
 	// out to the specified outputs. In the case the wallet has insufficient
@@ -160,14 +172,29 @@ type WalletController interface {
 	// This method also takes the target fee expressed in sat/kw that should
 	// be used when crafting the transaction.
 	SendOutputs(outputs []*wire.TxOut,
-		feeRate SatPerKWeight) (*chainhash.Hash, error)
+		feeRate SatPerKWeight) (*wire.MsgTx, error)
+
+	// CreateSimpleTx creates a Bitcoin transaction paying to the specified
+	// outputs. The transaction is not broadcasted to the network. In the
+	// case the wallet has insufficient funds, or the outputs are
+	// non-standard, an error should be returned. This method also takes
+	// the target fee expressed in sat/kw that should be used when crafting
+	// the transaction.
+	//
+	// NOTE: The dryRun argument can be set true to create a tx that
+	// doesn't alter the database. A tx created with this set to true
+	// SHOULD NOT be broadcasted.
+	CreateSimpleTx(outputs []*wire.TxOut, feeRate SatPerKWeight,
+		dryRun bool) (*txauthor.AuthoredTx, error)
 
 	// ListUnspentWitness returns all unspent outputs which are version 0
-	// witness programs. The 'confirms' parameter indicates the minimum
-	// number of confirmations an output needs in order to be returned by
-	// this method. Passing -1 as 'confirms' indicates that even
-	// unconfirmed outputs should be returned.
-	ListUnspentWitness(confirms int32) ([]*Utxo, error)
+	// witness programs. The 'minconfirms' and 'maxconfirms' parameters
+	// indicate the minimum and maximum number of confirmations an output
+	// needs in order to be returned by this method. Passing -1 as
+	// 'minconfirms' indicates that even unconfirmed outputs should be
+	// returned. Using MaxInt32 as 'maxconfirms' implies returning all
+	// outputs with at least 'minconfirms'.
+	ListUnspentWitness(minconfirms, maxconfirms int32) ([]*Utxo, error)
 
 	// ListTransactionDetails returns a list of all transactions which are
 	// relevant to the wallet.
@@ -253,30 +280,6 @@ type BlockChainIO interface {
 	GetBlock(blockHash *chainhash.Hash) (*wire.MsgBlock, error)
 }
 
-// Signer represents an abstract object capable of generating raw signatures as
-// well as full complete input scripts given a valid SignDescriptor and
-// transaction. This interface fully abstracts away signing paving the way for
-// Signer implementations such as hardware wallets, hardware tokens, HSM's, or
-// simply a regular wallet.
-type Signer interface {
-	// SignOutputRaw generates a signature for the passed transaction
-	// according to the data within the passed SignDescriptor.
-	//
-	// NOTE: The resulting signature should be void of a sighash byte.
-	SignOutputRaw(tx *wire.MsgTx, signDesc *SignDescriptor) ([]byte, error)
-
-	// ComputeInputScript generates a complete InputIndex for the passed
-	// transaction with the signature as defined within the passed
-	// SignDescriptor. This method should be capable of generating the
-	// proper input script for both regular p2wkh output and p2wkh outputs
-	// nested within a regular p2sh output.
-	//
-	// NOTE: This method will ignore any tweak parameters set within the
-	// passed SignDescriptor as it assumes a set of typical script
-	// templates (p2wkh, np2wkh, etc).
-	ComputeInputScript(tx *wire.MsgTx, signDesc *SignDescriptor) (*InputScript, error)
-}
-
 // MessageSigner represents an abstract object capable of signing arbitrary
 // messages. The capabilities of this interface are used to sign announcements
 // to the network, or just arbitrary messages that leverage the wallet's keys
@@ -296,11 +299,12 @@ type PreimageCache interface {
 	// LookupPreimage attempts to look up a preimage according to its hash.
 	// If found, the preimage is returned along with true for the second
 	// argument. Otherwise, it'll return false.
-	LookupPreimage(hash []byte) ([]byte, bool)
+	LookupPreimage(hash lntypes.Hash) (lntypes.Preimage, bool)
 
-	// AddPreimage attempts to add a new preimage to the global cache. If
-	// successful a nil error will be returned.
-	AddPreimage(preimage []byte) error
+	// AddPreimages adds a batch of newly discovered preimages to the global
+	// cache, and also signals any subscribers of the newly discovered
+	// witness.
+	AddPreimages(preimages ...lntypes.Preimage) error
 }
 
 // WalletDriver represents a "driver" for a particular concrete

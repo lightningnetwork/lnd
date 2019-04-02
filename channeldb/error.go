@@ -1,6 +1,9 @@
 package channeldb
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
 
 var (
 	// ErrNoChanDBExists is returned when a channel bucket hasn't been
@@ -43,6 +46,10 @@ var (
 	// specific identity can't be found.
 	ErrNodeNotFound = fmt.Errorf("link node with target identity not found")
 
+	// ErrChannelNotFound is returned when we attempt to locate a channel
+	// for a specific chain, but it is not found.
+	ErrChannelNotFound = fmt.Errorf("channel not found")
+
 	// ErrMetaNotFound is returned when meta bucket hasn't been
 	// created.
 	ErrMetaNotFound = fmt.Errorf("unable to locate meta information")
@@ -75,6 +82,10 @@ var (
 	// can't be found.
 	ErrEdgeNotFound = fmt.Errorf("edge not found")
 
+	// ErrZombieEdge is an error returned when we attempt to look up an edge
+	// but it is marked as a zombie within the zombie index.
+	ErrZombieEdge = errors.New("edge marked as zombie")
+
 	// ErrEdgeAlreadyExist is returned when edge with specific
 	// channel id can't be added because it already exist.
 	ErrEdgeAlreadyExist = fmt.Errorf("edge already exist")
@@ -93,4 +104,25 @@ var (
 	// ErrNoForwardingEvents is returned in the case that a query fails due
 	// to the log not having any recorded events.
 	ErrNoForwardingEvents = fmt.Errorf("no recorded forwarding events")
+
+	// ErrEdgePolicyOptionalFieldNotFound is an error returned if a channel
+	// policy field is not found in the db even though its message flags
+	// indicate it should be.
+	ErrEdgePolicyOptionalFieldNotFound = fmt.Errorf("optional field not " +
+		"present")
+
+	// ErrChanAlreadyExists is return when the caller attempts to create a
+	// channel with a channel point that is already present in the
+	// database.
+	ErrChanAlreadyExists = fmt.Errorf("channel already exists")
 )
+
+// ErrTooManyExtraOpaqueBytes creates an error which should be returned if the
+// caller attempts to write an announcement message which bares too many extra
+// opaque bytes. We limit this value in order to ensure that we don't waste
+// disk space due to nodes unnecessarily padding out their announcements with
+// garbage data.
+func ErrTooManyExtraOpaqueBytes(numBytes int) error {
+	return fmt.Errorf("max allowed number of opaque bytes is %v, received "+
+		"%v bytes", MaxAllowedExtraOpaqueBytes, numBytes)
+}

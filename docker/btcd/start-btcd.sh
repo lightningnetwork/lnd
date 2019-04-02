@@ -44,8 +44,12 @@ RPCPASS=$(set_default "$RPCPASS" "devpass")
 DEBUG=$(set_default "$DEBUG" "info")
 NETWORK=$(set_default "$NETWORK" "simnet")
 
-PARAMS=$(echo \
-    "--$NETWORK" \
+PARAMS=""
+if [ "$NETWORK" != "mainnet" ]; then
+   PARAMS=$(echo --$NETWORK)
+fi
+
+PARAMS=$(echo $PARAMS \
     "--debuglevel=$DEBUG" \
     "--rpcuser=$RPCUSER" \
     "--rpcpass=$RPCPASS" \

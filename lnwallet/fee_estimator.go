@@ -59,22 +59,50 @@ type FeeEstimator interface {
 	// Stop stops any spawned goroutines and cleans up the resources used
 	// by the fee estimator.
 	Stop() error
+
+	// RelayFeePerKW returns the minimum fee rate required for transactions
+	// to be relayed. This is also the basis for calculation of the dust
+	// limit.
+	RelayFeePerKW() SatPerKWeight
 }
 
 // StaticFeeEstimator will return a static value for all fee calculation
 // requests. It is designed to be replaced by a proper fee calculation
-// implementation.
+// implementation. The fees are not accessible directly, because changing them
+// would not be thread safe.
 type StaticFeeEstimator struct {
-	// FeePerKW is the static fee rate in satoshis-per-vbyte that will be
+	// feePerKW is the static fee rate in satoshis-per-vbyte that will be
 	// returned by this fee estimator.
-	FeePerKW SatPerKWeight
+	feePerKW SatPerKWeight
+
+	// relayFee is the minimum fee rate required for transactions to be
+	// relayed.
+	relayFee SatPerKWeight
+}
+
+// NewStaticFeeEstimator returns a new static fee estimator instance.
+func NewStaticFeeEstimator(feePerKW,
+	relayFee SatPerKWeight) *StaticFeeEstimator {
+
+	return &StaticFeeEstimator{
+		feePerKW: feePerKW,
+		relayFee: relayFee,
+	}
 }
 
 // EstimateFeePerKW will return a static value for fee calculations.
 //
 // NOTE: This method is part of the FeeEstimator interface.
 func (e StaticFeeEstimator) EstimateFeePerKW(numBlocks uint32) (SatPerKWeight, error) {
-	return e.FeePerKW, nil
+	return e.feePerKW, nil
+}
+
+// RelayFeePerKW returns the minimum fee rate required for transactions to be
+// relayed.
+//
+// NOTE: This method is part of the FeeEstimator interface.
+func (e StaticFeeEstimator) RelayFeePerKW() SatPerKWeight {
+	return e.relayFee
 }
 
 // Start signals the FeeEstimator to start any processes or goroutines
@@ -206,6 +234,14 @@ func (b *BtcdFeeEstimator) EstimateFeePerKW(numBlocks uint32) (SatPerKWeight, er
 	return feeEstimate, nil
 }
 
+// RelayFeePerKW returns the minimum fee rate required for transactions to be
+// relayed.
+//
+// NOTE: This method is part of the FeeEstimator interface.
+func (b *BtcdFeeEstimator) RelayFeePerKW() SatPerKWeight {
+	return b.minFeePerKW
+}
+
 // fetchEstimate returns a fee estimate for a transaction to be confirmed in
 // confTarget blocks. The estimate is returned in sat/kw.
 func (b *BtcdFeeEstimator) fetchEstimate(confTarget uint32) (SatPerKWeight, error) {
@@ -229,7 +265,8 @@ func (b *BtcdFeeEstimator) fetchEstimate(confTarget uint32) (SatPerKWeight, erro
 	// Finally, we'll enforce our fee floor.
 	if satPerKw < b.minFeePerKW {
 		walletLog.Debugf("Estimated fee rate of %v sat/kw is too low, "+
-			"using fee floor of %v sat/kw instead", b.minFeePerKW)
+			"using fee floor of %v sat/kw instead", satPerKw,
+			b.minFeePerKW)
 		satPerKw = b.minFeePerKW
 	}
 
@@ -358,6 +395,14 @@ func (b *BitcoindFeeEstimator) EstimateFeePerKW(numBlocks uint32) (SatPerKWeight
 	return feeEstimate, nil
 }
 
+// RelayFeePerKW returns the minimum fee rate required for transactions to be
+// relayed.
+//
+// NOTE: This method is part of the FeeEstimator interface.
+func (b *BitcoindFeeEstimator) RelayFeePerKW() SatPerKWeight {
+	return b.minFeePerKW
+}
+
 // fetchEstimate returns a fee estimate for a transaction to be confirmed in
 // confTarget blocks. The estimate is returned in sat/kw.
 func (b *BitcoindFeeEstimator) fetchEstimate(confTarget uint32) (SatPerKWeight, error) {
@@ -398,7 +443,9 @@ func (b *BitcoindFeeEstimator) fetchEstimate(confTarget uint32) (SatPerKWeight, 
 	// Finally, we'll enforce our fee floor.
 	if satPerKw < b.minFeePerKW {
 		walletLog.Debugf("Estimated fee rate of %v sat/kw is too low, "+
-			"using fee floor of %v sat/kw instead", b.minFeePerKW)
+			"using fee floor of %v sat/kw instead", satPerKw,
+			b.minFeePerKW)
+
 		satPerKw = b.minFeePerKW
 	}
 

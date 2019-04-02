@@ -1,11 +1,12 @@
 package macaroons_test
 
 import (
-	"github.com/lightningnetwork/lnd/macaroons"
-	"gopkg.in/macaroon.v2"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/lightningnetwork/lnd/macaroons"
+	macaroon "gopkg.in/macaroon.v2"
 )
 
 var (

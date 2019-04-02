@@ -49,7 +49,7 @@ var _ Message = (*ClosingSigned)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (c *ClosingSigned) Decode(r io.Reader, pver uint32) error {
-	return readElements(r, &c.ChannelID, &c.FeeSatoshis, &c.Signature)
+	return ReadElements(r, &c.ChannelID, &c.FeeSatoshis, &c.Signature)
 }
 
 // Encode serializes the target ClosingSigned into the passed io.Writer
@@ -57,7 +57,7 @@ func (c *ClosingSigned) Decode(r io.Reader, pver uint32) error {
 //
 // This is part of the lnwire.Message interface.
 func (c *ClosingSigned) Encode(w io.Writer, pver uint32) error {
-	return writeElements(w, c.ChannelID, c.FeeSatoshis, c.Signature)
+	return WriteElements(w, c.ChannelID, c.FeeSatoshis, c.Signature)
 }
 
 // MsgType returns the integer uniquely identifying this message type on the

@@ -67,15 +67,20 @@ func (a addressType) AddrLen() uint16 {
 	}
 }
 
-// writeElement is a one-stop shop to write the big endian representation of
+// WriteElement is a one-stop shop to write the big endian representation of
 // any element which is to be serialized for the wire protocol. The passed
 // io.Writer should be backed by an appropriately sized byte slice, or be able
 // to dynamically expand to accommodate additional data.
 //
 // TODO(roasbeef): this should eventually draw from a buffer pool for
 // serialization.
-func writeElement(w io.Writer, element interface{}) error {
+func WriteElement(w io.Writer, element interface{}) error {
 	switch e := element.(type) {
+	case NodeAlias:
+		if _, err := w.Write(e[:]); err != nil {
+			return err
+		}
+
 	case ShortChanIDEncoding:
 		var b [1]byte
 		b[0] = uint8(e)
@@ -100,9 +105,15 @@ func writeElement(w io.Writer, element interface{}) error {
 		if _, err := w.Write(b[:]); err != nil {
 			return err
 		}
-	case ChanUpdateFlag:
-		var b [2]byte
-		binary.BigEndian.PutUint16(b[:], uint16(e))
+	case ChanUpdateMsgFlags:
+		var b [1]byte
+		b[0] = uint8(e)
+		if _, err := w.Write(b[:]); err != nil {
+			return err
+		}
+	case ChanUpdateChanFlags:
+		var b [1]byte
+		b[0] = uint8(e)
 		if _, err := w.Write(b[:]); err != nil {
 			return err
 		}
@@ -156,7 +167,7 @@ func writeElement(w io.Writer, element interface{}) error {
 		}
 
 		for _, sig := range e {
-			if err := writeElement(w, sig); err != nil {
+			if err := WriteElement(w, sig); err != nil {
 				return err
 			}
 		}
@@ -257,7 +268,7 @@ func writeElement(w io.Writer, element interface{}) error {
 			return err
 		}
 	case FailCode:
-		if err := writeElement(w, uint16(e)); err != nil {
+		if err := WriteElement(w, uint16(e)); err != nil {
 			return err
 		}
 	case ShortChannelID:
@@ -371,7 +382,7 @@ func writeElement(w io.Writer, element interface{}) error {
 		// length of the addresses.
 		var addrBuf bytes.Buffer
 		for _, address := range e {
-			if err := writeElement(&addrBuf, address); err != nil {
+			if err := WriteElement(&addrBuf, address); err != nil {
 				return err
 			}
 		}
@@ -379,7 +390,7 @@ func writeElement(w io.Writer, element interface{}) error {
 		// With the addresses fully encoded, we can now write out the
 		// number of bytes needed to encode them.
 		addrLen := addrBuf.Len()
-		if err := writeElement(w, uint16(addrLen)); err != nil {
+		if err := WriteElement(w, uint16(addrLen)); err != nil {
 			return err
 		}
 
@@ -391,7 +402,7 @@ func writeElement(w io.Writer, element interface{}) error {
 			}
 		}
 	case color.RGBA:
-		if err := writeElements(w, e.R, e.G, e.B); err != nil {
+		if err := WriteElements(w, e.R, e.G, e.B); err != nil {
 			return err
 		}
 
@@ -405,18 +416,26 @@ func writeElement(w io.Writer, element interface{}) error {
 			return err
 		}
 
+	case bool:
+		var b [1]byte
+		if e {
+			b[0] = 1
+		}
+		if _, err := w.Write(b[:]); err != nil {
+			return err
+		}
 	default:
-		return fmt.Errorf("Unknown type in writeElement: %T", e)
+		return fmt.Errorf("Unknown type in WriteElement: %T", e)
 	}
 
 	return nil
 }
 
-// writeElements is writes each element in the elements slice to the passed
-// io.Writer using writeElement.
-func writeElements(w io.Writer, elements ...interface{}) error {
+// WriteElements is writes each element in the elements slice to the passed
+// io.Writer using WriteElement.
+func WriteElements(w io.Writer, elements ...interface{}) error {
 	for _, element := range elements {
-		err := writeElement(w, element)
+		err := WriteElement(w, element)
 		if err != nil {
 			return err
 		}
@@ -424,11 +443,33 @@ func writeElements(w io.Writer, elements ...interface{}) error {
 	return nil
 }
 
-// readElement is a one-stop utility function to deserialize any datastructure
+// ReadElement is a one-stop utility function to deserialize any datastructure
 // encoded using the serialization format of lnwire.
-func readElement(r io.Reader, element interface{}) error {
+func ReadElement(r io.Reader, element interface{}) error {
 	var err error
 	switch e := element.(type) {
+	case *bool:
+		var b [1]byte
+		if _, err := io.ReadFull(r, b[:]); err != nil {
+			return err
+		}
+
+		if b[0] == 1 {
+			*e = true
+		}
+
+	case *NodeAlias:
+		var a [32]byte
+		if _, err := io.ReadFull(r, a[:]); err != nil {
+			return err
+		}
+
+		alias, err := NewNodeAlias(string(a[:]))
+		if err != nil {
+			return err
+		}
+
+		*e = alias
 	case *ShortChanIDEncoding:
 		var b [1]uint8
 		if _, err := r.Read(b[:]); err != nil {
@@ -453,12 +494,18 @@ func readElement(r io.Reader, element interface{}) error {
 			return err
 		}
 		*e = binary.BigEndian.Uint16(b[:])
-	case *ChanUpdateFlag:
-		var b [2]byte
-		if _, err := io.ReadFull(r, b[:]); err != nil {
+	case *ChanUpdateMsgFlags:
+		var b [1]uint8
+		if _, err := r.Read(b[:]); err != nil {
 			return err
 		}
-		*e = ChanUpdateFlag(binary.BigEndian.Uint16(b[:]))
+		*e = ChanUpdateMsgFlags(b[0])
+	case *ChanUpdateChanFlags:
+		var b [1]uint8
+		if _, err := r.Read(b[:]); err != nil {
+			return err
+		}
+		*e = ChanUpdateChanFlags(b[0])
 	case *ErrorCode:
 		var b [2]byte
 		if _, err := io.ReadFull(r, b[:]); err != nil {
@@ -520,7 +567,7 @@ func readElement(r io.Reader, element interface{}) error {
 		if numSigs > 0 {
 			sigs = make([]Sig, numSigs)
 			for i := 0; i < int(numSigs); i++ {
-				if err := readElement(r, &sigs[i]); err != nil {
+				if err := ReadElement(r, &sigs[i]); err != nil {
 					return err
 				}
 			}
@@ -612,7 +659,7 @@ func readElement(r io.Reader, element interface{}) error {
 			Index: uint32(index),
 		}
 	case *FailCode:
-		if err := readElement(r, (*uint16)(e)); err != nil {
+		if err := ReadElement(r, (*uint16)(e)); err != nil {
 			return err
 		}
 	case *ChannelID:
@@ -766,7 +813,7 @@ func readElement(r io.Reader, element interface{}) error {
 
 		*e = addresses
 	case *color.RGBA:
-		err := readElements(r,
+		err := ReadElements(r,
 			&e.R,
 			&e.G,
 			&e.B,
@@ -790,18 +837,18 @@ func readElement(r io.Reader, element interface{}) error {
 		}
 		*e = addrBytes[:length]
 	default:
-		return fmt.Errorf("Unknown type in readElement: %T", e)
+		return fmt.Errorf("Unknown type in ReadElement: %T", e)
 	}
 
 	return nil
 }
 
-// readElements deserializes a variable number of elements into the passed
-// io.Reader, with each element being deserialized according to the readElement
+// ReadElements deserializes a variable number of elements into the passed
+// io.Reader, with each element being deserialized according to the ReadElement
 // function.
-func readElements(r io.Reader, elements ...interface{}) error {
+func ReadElements(r io.Reader, elements ...interface{}) error {
 	for _, element := range elements {
-		err := readElement(r, element)
+		err := ReadElement(r, element)
 		if err != nil {
 			return err
 		}

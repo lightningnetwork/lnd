@@ -2,7 +2,6 @@ package channeldb
 
 import (
 	"crypto/rand"
-	"crypto/sha256"
 	"reflect"
 	"testing"
 	"time"
@@ -67,17 +66,18 @@ func TestInvoiceWorkflow(t *testing.T) {
 	copy(fakeInvoice.Terms.PaymentPreimage[:], rev[:])
 	fakeInvoice.Terms.Value = lnwire.NewMSatFromSatoshis(10000)
 
+	paymentHash := fakeInvoice.Terms.PaymentPreimage.Hash()
+
 	// Add the invoice to the database, this should succeed as there aren't
 	// any existing invoices within the database with the same payment
 	// hash.
-	if _, err := db.AddInvoice(fakeInvoice); err != nil {
+	if _, err := db.AddInvoice(fakeInvoice, paymentHash); err != nil {
 		t.Fatalf("unable to find invoice: %v", err)
 	}
 
 	// Attempt to retrieve the invoice which was just added to the
 	// database. It should be found, and the invoice returned should be
 	// identical to the one created above.
-	paymentHash := sha256.Sum256(fakeInvoice.Terms.PaymentPreimage[:])
 	dbInvoice, err := db.LookupInvoice(paymentHash)
 	if err != nil {
 		t.Fatalf("unable to find invoice: %v", err)
@@ -99,14 +99,14 @@ func TestInvoiceWorkflow(t *testing.T) {
 	// now have the settled bit toggle to true and a non-default
 	// SettledDate
 	payAmt := fakeInvoice.Terms.Value * 2
-	if _, err := db.SettleInvoice(paymentHash, payAmt); err != nil {
+	if _, err := db.AcceptOrSettleInvoice(paymentHash, payAmt); err != nil {
 		t.Fatalf("unable to settle invoice: %v", err)
 	}
 	dbInvoice2, err := db.LookupInvoice(paymentHash)
 	if err != nil {
 		t.Fatalf("unable to fetch invoice: %v", err)
 	}
-	if !dbInvoice2.Terms.Settled {
+	if dbInvoice2.Terms.State != ContractSettled {
 		t.Fatalf("invoice should now be settled but isn't")
 	}
 	if dbInvoice2.SettleDate.IsZero() {
@@ -126,7 +126,7 @@ func TestInvoiceWorkflow(t *testing.T) {
 
 	// Attempt to insert generated above again, this should fail as
 	// duplicates are rejected by the processing logic.
-	if _, err := db.AddInvoice(fakeInvoice); err != ErrDuplicateInvoice {
+	if _, err := db.AddInvoice(fakeInvoice, paymentHash); err != ErrDuplicateInvoice {
 		t.Fatalf("invoice insertion should fail due to duplication, "+
 			"instead %v", err)
 	}
@@ -149,7 +149,8 @@ func TestInvoiceWorkflow(t *testing.T) {
 			t.Fatalf("unable to create invoice: %v", err)
 		}
 
-		if _, err := db.AddInvoice(invoice); err != nil {
+		hash := invoice.Terms.PaymentPreimage.Hash()
+		if _, err := db.AddInvoice(invoice, hash); err != nil {
 			t.Fatalf("unable to add invoice %v", err)
 		}
 
@@ -198,7 +199,9 @@ func TestInvoiceAddTimeSeries(t *testing.T) {
 			t.Fatalf("unable to create invoice: %v", err)
 		}
 
-		if _, err := db.AddInvoice(invoice); err != nil {
+		paymentHash := invoice.Terms.PaymentPreimage.Hash()
+
+		if _, err := db.AddInvoice(invoice, paymentHash); err != nil {
 			t.Fatalf("unable to add invoice %v", err)
 		}
 
@@ -256,11 +259,9 @@ func TestInvoiceAddTimeSeries(t *testing.T) {
 	for i := 10; i < len(invoices); i++ {
 		invoice := &invoices[i]
 
-		paymentHash := sha256.Sum256(
-			invoice.Terms.PaymentPreimage[:],
-		)
+		paymentHash := invoice.Terms.PaymentPreimage.Hash()
 
-		_, err := db.SettleInvoice(paymentHash, 0)
+		_, err := db.AcceptOrSettleInvoice(paymentHash, 0)
 		if err != nil {
 			t.Fatalf("unable to settle invoice: %v", err)
 		}
@@ -334,13 +335,14 @@ func TestDuplicateSettleInvoice(t *testing.T) {
 		t.Fatalf("unable to create invoice: %v", err)
 	}
 
-	if _, err := db.AddInvoice(invoice); err != nil {
+	payHash := invoice.Terms.PaymentPreimage.Hash()
+
+	if _, err := db.AddInvoice(invoice, payHash); err != nil {
 		t.Fatalf("unable to add invoice %v", err)
 	}
 
 	// With the invoice in the DB, we'll now attempt to settle the invoice.
-	payHash := sha256.Sum256(invoice.Terms.PaymentPreimage[:])
-	dbInvoice, err := db.SettleInvoice(payHash, amt)
+	dbInvoice, err := db.AcceptOrSettleInvoice(payHash, amt)
 	if err != nil {
 		t.Fatalf("unable to settle invoice: %v", err)
 	}
@@ -348,7 +350,7 @@ func TestDuplicateSettleInvoice(t *testing.T) {
 	// We'll update what we expect the settle invoice to be so that our
 	// comparison below has the correct assumption.
 	invoice.SettleIndex = 1
-	invoice.Terms.Settled = true
+	invoice.Terms.State = ContractSettled
 	invoice.AmtPaid = amt
 	invoice.SettleDate = dbInvoice.SettleDate
 
@@ -359,10 +361,10 @@ func TestDuplicateSettleInvoice(t *testing.T) {
 	}
 
 	// If we try to settle the invoice again, then we should get the very
-	// same invoice back.
-	dbInvoice, err = db.SettleInvoice(payHash, amt)
-	if err != nil {
-		t.Fatalf("unable to settle invoice: %v", err)
+	// same invoice back, but with an error this time.
+	dbInvoice, err = db.AcceptOrSettleInvoice(payHash, amt)
+	if err != ErrInvoiceAlreadySettled {
+		t.Fatalf("expected ErrInvoiceAlreadySettled")
 	}
 
 	if dbInvoice == nil {
@@ -373,5 +375,276 @@ func TestDuplicateSettleInvoice(t *testing.T) {
 	if !reflect.DeepEqual(dbInvoice, invoice) {
 		t.Fatalf("wrong invoice after second settle, expected %v got %v",
 			spew.Sdump(invoice), spew.Sdump(dbInvoice))
+	}
+}
+
+// TestQueryInvoices ensures that we can properly query the invoice database for
+// invoices using different types of queries.
+func TestQueryInvoices(t *testing.T) {
+	t.Parallel()
+
+	db, cleanUp, err := makeTestDB()
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to make test db: %v", err)
+	}
+
+	// To begin the test, we'll add 50 invoices to the database. We'll
+	// assume that the index of the invoice within the database is the same
+	// as the amount of the invoice itself.
+	const numInvoices = 50
+	for i := lnwire.MilliSatoshi(1); i <= numInvoices; i++ {
+		invoice, err := randInvoice(i)
+		if err != nil {
+			t.Fatalf("unable to create invoice: %v", err)
+		}
+
+		paymentHash := invoice.Terms.PaymentPreimage.Hash()
+
+		if _, err := db.AddInvoice(invoice, paymentHash); err != nil {
+			t.Fatalf("unable to add invoice: %v", err)
+		}
+
+		// We'll only settle half of all invoices created.
+		if i%2 == 0 {
+			if _, err := db.AcceptOrSettleInvoice(paymentHash, i); err != nil {
+				t.Fatalf("unable to settle invoice: %v", err)
+			}
+		}
+	}
+
+	// We'll then retrieve the set of all invoices and pending invoices.
+	// This will serve useful when comparing the expected responses of the
+	// query with the actual ones.
+	invoices, err := db.FetchAllInvoices(false)
+	if err != nil {
+		t.Fatalf("unable to retrieve invoices: %v", err)
+	}
+	pendingInvoices, err := db.FetchAllInvoices(true)
+	if err != nil {
+		t.Fatalf("unable to retrieve pending invoices: %v", err)
+	}
+
+	// The test will consist of several queries along with their respective
+	// expected response. Each query response should match its expected one.
+	testCases := []struct {
+		query    InvoiceQuery
+		expected []Invoice
+	}{
+		// Fetch all invoices with a single query.
+		{
+			query: InvoiceQuery{
+				NumMaxInvoices: numInvoices,
+			},
+			expected: invoices,
+		},
+		// Fetch all invoices with a single query, reversed.
+		{
+			query: InvoiceQuery{
+				Reversed:       true,
+				NumMaxInvoices: numInvoices,
+			},
+			expected: invoices,
+		},
+		// Fetch the first 25 invoices.
+		{
+			query: InvoiceQuery{
+				NumMaxInvoices: numInvoices / 2,
+			},
+			expected: invoices[:numInvoices/2],
+		},
+		// Fetch the first 10 invoices, but this time iterating
+		// backwards.
+		{
+			query: InvoiceQuery{
+				IndexOffset:    11,
+				Reversed:       true,
+				NumMaxInvoices: numInvoices,
+			},
+			expected: invoices[:10],
+		},
+		// Fetch the last 40 invoices.
+		{
+			query: InvoiceQuery{
+				IndexOffset:    10,
+				NumMaxInvoices: numInvoices,
+			},
+			expected: invoices[10:],
+		},
+		// Fetch all but the first invoice.
+		{
+			query: InvoiceQuery{
+				IndexOffset:    1,
+				NumMaxInvoices: numInvoices,
+			},
+			expected: invoices[1:],
+		},
+		// Fetch one invoice, reversed, with index offset 3. This
+		// should give us the second invoice in the array.
+		{
+			query: InvoiceQuery{
+				IndexOffset:    3,
+				Reversed:       true,
+				NumMaxInvoices: 1,
+			},
+			expected: invoices[1:2],
+		},
+		// Same as above, at index 2.
+		{
+			query: InvoiceQuery{
+				IndexOffset:    2,
+				Reversed:       true,
+				NumMaxInvoices: 1,
+			},
+			expected: invoices[0:1],
+		},
+		// Fetch one invoice, at index 1, reversed. Since invoice#1 is
+		// the very first, there won't be any left in a reverse search,
+		// so we expect no invoices to be returned.
+		{
+			query: InvoiceQuery{
+				IndexOffset:    1,
+				Reversed:       true,
+				NumMaxInvoices: 1,
+			},
+			expected: nil,
+		},
+		// Same as above, but don't restrict the number of invoices to
+		// 1.
+		{
+			query: InvoiceQuery{
+				IndexOffset:    1,
+				Reversed:       true,
+				NumMaxInvoices: numInvoices,
+			},
+			expected: nil,
+		},
+		// Fetch one invoice, reversed, with no offset set. We expect
+		// the last invoice in the response.
+		{
+			query: InvoiceQuery{
+				Reversed:       true,
+				NumMaxInvoices: 1,
+			},
+			expected: invoices[numInvoices-1:],
+		},
+		// Fetch one invoice, reversed, the offset set at numInvoices+1.
+		// We expect this to return the last invoice.
+		{
+			query: InvoiceQuery{
+				IndexOffset:    numInvoices + 1,
+				Reversed:       true,
+				NumMaxInvoices: 1,
+			},
+			expected: invoices[numInvoices-1:],
+		},
+		// Same as above, at offset numInvoices.
+		{
+			query: InvoiceQuery{
+				IndexOffset:    numInvoices,
+				Reversed:       true,
+				NumMaxInvoices: 1,
+			},
+			expected: invoices[numInvoices-2 : numInvoices-1],
+		},
+		// Fetch one invoice, at no offset (same as offset 0). We
+		// expect the first invoice only in the response.
+		{
+			query: InvoiceQuery{
+				NumMaxInvoices: 1,
+			},
+			expected: invoices[:1],
+		},
+		// Same as above, at offset 1.
+		{
+			query: InvoiceQuery{
+				IndexOffset:    1,
+				NumMaxInvoices: 1,
+			},
+			expected: invoices[1:2],
+		},
+		// Same as above, at offset 2.
+		{
+			query: InvoiceQuery{
+				IndexOffset:    2,
+				NumMaxInvoices: 1,
+			},
+			expected: invoices[2:3],
+		},
+		// Same as above, at offset numInvoices-1. Expect the last
+		// invoice to be returned.
+		{
+			query: InvoiceQuery{
+				IndexOffset:    numInvoices - 1,
+				NumMaxInvoices: 1,
+			},
+			expected: invoices[numInvoices-1:],
+		},
+		// Same as above, at offset numInvoices. No invoices should be
+		// returned, as there are no invoices after this offset.
+		{
+			query: InvoiceQuery{
+				IndexOffset:    numInvoices,
+				NumMaxInvoices: 1,
+			},
+			expected: nil,
+		},
+		// Fetch all pending invoices with a single query.
+		{
+			query: InvoiceQuery{
+				PendingOnly:    true,
+				NumMaxInvoices: numInvoices,
+			},
+			expected: pendingInvoices,
+		},
+		// Fetch the first 12 pending invoices.
+		{
+			query: InvoiceQuery{
+				PendingOnly:    true,
+				NumMaxInvoices: numInvoices / 4,
+			},
+			expected: pendingInvoices[:len(pendingInvoices)/2],
+		},
+		// Fetch the first 5 pending invoices, but this time iterating
+		// backwards.
+		{
+			query: InvoiceQuery{
+				IndexOffset:    10,
+				PendingOnly:    true,
+				Reversed:       true,
+				NumMaxInvoices: numInvoices,
+			},
+			// Since we seek to the invoice with index 10 and
+			// iterate backwards, there should only be 5 pending
+			// invoices before it as every other invoice within the
+			// index is settled.
+			expected: pendingInvoices[:5],
+		},
+		// Fetch the last 15 invoices.
+		{
+			query: InvoiceQuery{
+				IndexOffset:    20,
+				PendingOnly:    true,
+				NumMaxInvoices: numInvoices,
+			},
+			// Since we seek to the invoice with index 20, there are
+			// 30 invoices left. From these 30, only 15 of them are
+			// still pending.
+			expected: pendingInvoices[len(pendingInvoices)-15:],
+		},
+	}
+
+	for i, testCase := range testCases {
+		response, err := db.QueryInvoices(testCase.query)
+		if err != nil {
+			t.Fatalf("unable to query invoice database: %v", err)
+		}
+
+		if !reflect.DeepEqual(response.Invoices, testCase.expected) {
+			t.Fatalf("test #%d: query returned incorrect set of "+
+				"invoices: expcted %v, got %v", i,
+				spew.Sdump(response.Invoices),
+				spew.Sdump(testCase.expected))
+		}
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"image/color"
 	"io"
+	"io/ioutil"
 	"net"
 	"unicode/utf8"
 )
@@ -27,6 +28,17 @@ func (e ErrUnknownAddrType) Error() string {
 	return fmt.Sprintf("unknown address type: %v", e.addrType)
 }
 
+// ErrInvalidNodeAlias is an error returned if a node alias we parse on the
+// wire is invalid, as in it has non UTF-8 characters.
+type ErrInvalidNodeAlias struct{}
+
+// Error returns a human readable string describing the error.
+//
+// NOTE: implements the error interface.
+func (e ErrInvalidNodeAlias) Error() string {
+	return "node alias has non-utf8 characters"
+}
+
 // NodeAlias a hex encoded UTF-8 string that may be displayed as an alternative
 // to the node's ID. Notice that aliases are not unique and may be freely
 // chosen by the node operators.
@@ -38,11 +50,12 @@ func NewNodeAlias(s string) (NodeAlias, error) {
 	var n NodeAlias
 
 	if len(s) > 32 {
-		return n, fmt.Errorf("alias too large: max is %v, got %v", 32, len(s))
+		return n, fmt.Errorf("alias too large: max is %v, got %v", 32,
+			len(s))
 	}
 
 	if !utf8.ValidString(s) {
-		return n, fmt.Errorf("invalid utf8 string")
+		return n, &ErrInvalidNodeAlias{}
 	}
 
 	copy(n[:], []byte(s))
@@ -83,6 +96,14 @@ type NodeAnnouncement struct {
 	// Address includes two specification fields: 'ipv6' and 'port' on
 	// which the node is accepting incoming connections.
 	Addresses []net.Addr
+
+	// ExtraOpaqueData is the set of data that was appended to this
+	// message, some of which we may not actually know how to iterate or
+	// parse. By holding onto this data, we ensure that we're able to
+	// properly validate the set of signatures that cover these new fields,
+	// and ensure we're able to make upgrades to the network in a forwards
+	// compatible manner.
+	ExtraOpaqueData []byte
 }
 
 // UpdateNodeAnnAddrs is a functional option that allows updating the addresses
@@ -102,29 +123,47 @@ var _ Message = (*NodeAnnouncement)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (a *NodeAnnouncement) Decode(r io.Reader, pver uint32) error {
-	return readElements(r,
+	err := ReadElements(r,
 		&a.Signature,
 		&a.Features,
 		&a.Timestamp,
 		&a.NodeID,
 		&a.RGBColor,
-		a.Alias[:],
+		&a.Alias,
 		&a.Addresses,
 	)
+	if err != nil {
+		return err
+	}
+
+	// Now that we've read out all the fields that we explicitly know of,
+	// we'll collect the remainder into the ExtraOpaqueData field. If there
+	// aren't any bytes, then we'll snip off the slice to avoid carrying
+	// around excess capacity.
+	a.ExtraOpaqueData, err = ioutil.ReadAll(r)
+	if err != nil {
+		return err
+	}
+	if len(a.ExtraOpaqueData) == 0 {
+		a.ExtraOpaqueData = nil
+	}
+
+	return nil
 }
 
 // Encode serializes the target NodeAnnouncement into the passed io.Writer
 // observing the protocol version specified.
 //
 func (a *NodeAnnouncement) Encode(w io.Writer, pver uint32) error {
-	return writeElements(w,
+	return WriteElements(w,
 		a.Signature,
 		a.Features,
 		a.Timestamp,
 		a.NodeID,
 		a.RGBColor,
-		a.Alias[:],
+		a.Alias,
 		a.Addresses,
+		a.ExtraOpaqueData,
 	)
 }
 
@@ -149,19 +188,18 @@ func (a *NodeAnnouncement) DataToSign() ([]byte, error) {
 
 	// We should not include the signatures itself.
 	var w bytes.Buffer
-	err := writeElements(&w,
+	err := WriteElements(&w,
 		a.Features,
 		a.Timestamp,
 		a.NodeID,
 		a.RGBColor,
 		a.Alias[:],
 		a.Addresses,
+		a.ExtraOpaqueData,
 	)
 	if err != nil {
 		return nil, err
 	}
-
-	// TODO(roasbeef): also capture the excess bytes in msg padded out?
 
 	return w.Bytes(), nil
 }

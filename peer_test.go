@@ -7,25 +7,12 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btclog"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/chainntnfs"
-	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/htlcswitch"
-	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
-
-func init() {
-	peerLog = btclog.Disabled
-	srvrLog = btclog.Disabled
-	lnwallet.UseLogger(btclog.Disabled)
-	htlcswitch.UseLogger(btclog.Disabled)
-	channeldb.UseLogger(btclog.Disabled)
-	contractcourt.UseLogger(btclog.Disabled)
-}
 
 // TestPeerChannelClosureAcceptFeeResponder tests the shutdown responder's
 // behavior if we can agree on the fee immediately.
@@ -133,7 +120,7 @@ func TestPeerChannelClosureAcceptFeeInitiator(t *testing.T) {
 	defer cleanUp()
 
 	// We make the initiator send a shutdown request.
-	updateChan := make(chan *lnrpc.CloseStatusUpdate, 1)
+	updateChan := make(chan interface{}, 1)
 	errChan := make(chan error, 1)
 	closeCommand := &htlcswitch.ChanClose{
 		CloseType:      htlcswitch.CloseRegular,
@@ -169,7 +156,7 @@ func TestPeerChannelClosureAcceptFeeInitiator(t *testing.T) {
 			dummyDeliveryScript),
 	}
 
-	estimator := lnwallet.StaticFeeEstimator{FeePerKW: 12500}
+	estimator := lnwallet.NewStaticFeeEstimator(12500, 0)
 	feePerKw, err := estimator.EstimateFeePerKW(1)
 	if err != nil {
 		t.Fatalf("unable to query fee estimator: %v", err)
@@ -422,7 +409,7 @@ func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 	defer cleanUp()
 
 	// We make the initiator send a shutdown request.
-	updateChan := make(chan *lnrpc.CloseStatusUpdate, 1)
+	updateChan := make(chan interface{}, 1)
 	errChan := make(chan error, 1)
 	closeCommand := &htlcswitch.ChanClose{
 		CloseType:      htlcswitch.CloseRegular,
@@ -459,7 +446,7 @@ func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 		msg: respShutdown,
 	}
 
-	estimator := lnwallet.StaticFeeEstimator{FeePerKW: 12500}
+	estimator := lnwallet.NewStaticFeeEstimator(12500, 0)
 	initiatorIdealFeeRate, err := estimator.EstimateFeePerKW(1)
 	if err != nil {
 		t.Fatalf("unable to query fee estimator: %v", err)

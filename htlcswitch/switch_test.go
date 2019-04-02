@@ -6,15 +6,16 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/fastsha256"
 	"github.com/davecgh/go-spew/spew"
-	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/ticker"
 )
 
 func genPreimage() ([32]byte, error) {
@@ -79,6 +80,76 @@ func TestSwitchAddDuplicateLink(t *testing.T) {
 	// Alice has no links, adding should succeed.
 	if err := s.AddLink(aliceChannelLink); err != nil {
 		t.Fatalf("unable to add alice link: %v", err)
+	}
+}
+
+// TestSwitchHasActiveLink tests the behavior of HasActiveLink, and asserts that
+// it only returns true if a link's short channel id has confirmed (meaning the
+// channel is no longer pending) and it's EligibleToForward method returns true,
+// i.e. it has received FundingLocked from the remote peer.
+func TestSwitchHasActiveLink(t *testing.T) {
+	t.Parallel()
+
+	alicePeer, err := newMockServer(t, "alice", testStartingHeight, nil, 6)
+	if err != nil {
+		t.Fatalf("unable to create alice server: %v", err)
+	}
+
+	s, err := initSwitchWithDB(testStartingHeight, nil)
+	if err != nil {
+		t.Fatalf("unable to init switch: %v", err)
+	}
+	if err := s.Start(); err != nil {
+		t.Fatalf("unable to start switch: %v", err)
+	}
+	defer s.Stop()
+
+	chanID1, _, aliceChanID, _ := genIDs()
+
+	pendingChanID := lnwire.ShortChannelID{}
+
+	aliceChannelLink := newMockChannelLink(
+		s, chanID1, pendingChanID, alicePeer, false,
+	)
+	if err := s.AddLink(aliceChannelLink); err != nil {
+		t.Fatalf("unable to add alice link: %v", err)
+	}
+
+	// The link has been added, but it's still pending. HasActiveLink should
+	// return false since the link has not been added to the linkIndex
+	// containing live links.
+	if s.HasActiveLink(chanID1) {
+		t.Fatalf("link should not be active yet, still pending")
+	}
+
+	// Update the short chan id of the channel, so that the link goes live.
+	aliceChannelLink.setLiveShortChanID(aliceChanID)
+	err = s.UpdateShortChanID(chanID1)
+	if err != nil {
+		t.Fatalf("unable to update alice short_chan_id: %v", err)
+	}
+
+	// UpdateShortChanID will cause the mock link to become eligible to
+	// forward. However, we can simulate the event where the short chan id
+	// is confirmed, but funding locked has yet to be received by resetting
+	// the mock link's eligibility to false.
+	aliceChannelLink.eligible = false
+
+	// Now, even though the link has been added to the linkIndex because the
+	// short channel id has confirmed, we should still see HasActiveLink
+	// fail because EligibleToForward should return false.
+	if s.HasActiveLink(chanID1) {
+		t.Fatalf("link should not be active yet, still ineligible")
+	}
+
+	// Finally, simulate the link receiving funding locked by setting its
+	// eligibility to true.
+	aliceChannelLink.eligible = true
+
+	// The link should now be reported as active, since EligibleToForward
+	// returns true and the link is in the linkIndex.
+	if !s.HasActiveLink(chanID1) {
+		t.Fatalf("link should not be active now")
 	}
 }
 
@@ -1678,7 +1749,9 @@ func TestSwitchSendPayment(t *testing.T) {
 		}
 
 	case err := <-errChan:
-		t.Fatalf("unable to send payment: %v", err)
+		if err != ErrPaymentInFlight {
+			t.Fatalf("unable to send payment: %v", err)
+		}
 	case <-time.After(time.Second):
 		t.Fatal("request was not propagated to destination")
 	}
@@ -1695,11 +1768,11 @@ func TestSwitchSendPayment(t *testing.T) {
 		t.Fatal("request was not propagated to destination")
 	}
 
-	if s.numPendingPayments() != 2 {
+	if s.numPendingPayments() != 1 {
 		t.Fatal("wrong amount of pending payments")
 	}
 
-	if s.circuits.NumOpen() != 2 {
+	if s.circuits.NumOpen() != 1 {
 		t.Fatal("wrong amount of circuits")
 	}
 
@@ -1707,7 +1780,7 @@ func TestSwitchSendPayment(t *testing.T) {
 	// the add htlc request with error and sent the htlc fail request
 	// back. This request should be forwarded back to alice channel link.
 	obfuscator := NewMockObfuscator()
-	failure := lnwire.FailIncorrectPaymentAmount{}
+	failure := lnwire.NewFailUnknownPaymentHash(update.Amount)
 	reason, err := obfuscator.EncryptFirstHop(failure)
 	if err != nil {
 		t.Fatalf("unable obfuscate failure: %v", err)
@@ -1728,31 +1801,9 @@ func TestSwitchSendPayment(t *testing.T) {
 
 	select {
 	case err := <-errChan:
-		if err.Error() != errors.New(lnwire.CodeIncorrectPaymentAmount).Error() {
-			t.Fatal("err wasn't received")
-		}
-	case <-time.After(time.Second):
-		t.Fatal("err wasn't received")
-	}
-
-	packet = &htlcPacket{
-		outgoingChanID: aliceChannelLink.ShortChanID(),
-		outgoingHTLCID: 1,
-		htlc: &lnwire.UpdateFailHTLC{
-			Reason: reason,
-		},
-	}
-
-	// Send second failure response and check that user were able to
-	// receive the error.
-	if err := s.forward(packet); err != nil {
-		t.Fatalf("can't forward htlc packet: %v", err)
-	}
-
-	select {
-	case err := <-errChan:
-		if err.Error() != errors.New(lnwire.CodeIncorrectPaymentAmount).Error() {
-			t.Fatal("err wasn't received")
+		if !strings.Contains(err.Error(), lnwire.CodeUnknownPaymentHash.String()) {
+			t.Fatalf("expected %v got %v", err,
+				lnwire.CodeUnknownPaymentHash)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("err wasn't received")
@@ -1796,7 +1847,7 @@ func TestLocalPaymentNoForwardingEvents(t *testing.T) {
 	// proceeding.
 	receiver := n.bobServer
 	firstHop := n.firstBobChannelLink.ShortChanID()
-	_, err = n.makePayment(
+	_, err = makePayment(
 		n.aliceServer, receiver, firstHop, hops, amount, htlcAmt,
 		totalTimelock,
 	).Wait(30 * time.Second)
@@ -1856,8 +1907,61 @@ func TestMultiHopPaymentForwardingEvents(t *testing.T) {
 		n.carolChannelLink,
 	)
 	firstHop := n.firstBobChannelLink.ShortChanID()
-	for i := 0; i < numPayments; i++ {
-		_, err := n.makePayment(
+	for i := 0; i < numPayments/2; i++ {
+		_, err := makePayment(
+			n.aliceServer, n.carolServer, firstHop, hops, finalAmt,
+			htlcAmt, totalTimelock,
+		).Wait(30 * time.Second)
+		if err != nil {
+			t.Fatalf("unable to send payment: %v", err)
+		}
+	}
+
+	bobLog, ok := n.bobServer.htlcSwitch.cfg.FwdingLog.(*mockForwardingLog)
+	if !ok {
+		t.Fatalf("mockForwardingLog assertion failed")
+	}
+
+	// After sending 5 of the payments, trigger the forwarding ticker, to
+	// make sure the events are properly flushed.
+	bobTicker, ok := n.bobServer.htlcSwitch.cfg.FwdEventTicker.(*ticker.Force)
+	if !ok {
+		t.Fatalf("mockTicker assertion failed")
+	}
+
+	// We'll trigger the ticker, and wait for the events to appear in Bob's
+	// forwarding log.
+	timeout := time.After(15 * time.Second)
+	for {
+		select {
+		case bobTicker.Force <- time.Now():
+		case <-time.After(1 * time.Second):
+			t.Fatalf("unable to force tick")
+		}
+
+		// If all 5 events is found in Bob's log, we can break out and
+		// continue the test.
+		bobLog.Lock()
+		if len(bobLog.events) == 5 {
+			bobLog.Unlock()
+			break
+		}
+		bobLog.Unlock()
+
+		// Otherwise wait a little bit before checking again.
+		select {
+		case <-time.After(50 * time.Millisecond):
+		case <-timeout:
+			bobLog.Lock()
+			defer bobLog.Unlock()
+			t.Fatalf("expected 5 events in event log, instead "+
+				"found: %v", spew.Sdump(bobLog.events))
+		}
+	}
+
+	// Send the remaining payments.
+	for i := numPayments / 2; i < numPayments; i++ {
+		_, err := makePayment(
 			n.aliceServer, n.carolServer, firstHop, hops, finalAmt,
 			htlcAmt, totalTimelock,
 		).Wait(30 * time.Second)
@@ -1895,10 +1999,6 @@ func TestMultiHopPaymentForwardingEvents(t *testing.T) {
 	}
 
 	// Bob on the other hand, should have 10 events.
-	bobLog, ok := n.bobServer.htlcSwitch.cfg.FwdingLog.(*mockForwardingLog)
-	if !ok {
-		t.Fatalf("mockForwardingLog assertion failed")
-	}
 	bobLog.Lock()
 	defer bobLog.Unlock()
 	if len(bobLog.events) != 10 {

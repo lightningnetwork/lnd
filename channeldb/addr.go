@@ -3,6 +3,7 @@ package channeldb
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 
@@ -43,6 +44,10 @@ func encodeTCPAddr(w io.Writer, addr *net.TCPAddr) error {
 		ip = addr.IP.To16()
 	}
 
+	if ip == nil {
+		return fmt.Errorf("unable to encode IP %v", addr.IP)
+	}
+
 	if _, err := w.Write([]byte{addrType}); err != nil {
 		return err
 	}
@@ -64,7 +69,8 @@ func encodeTCPAddr(w io.Writer, addr *net.TCPAddr) error {
 // representation.
 func encodeOnionAddr(w io.Writer, addr *tor.OnionAddr) error {
 	var suffixIndex int
-	switch len(addr.OnionService) {
+	hostLen := len(addr.OnionService)
+	switch hostLen {
 	case tor.V2Len:
 		if _, err := w.Write([]byte{byte(v2OnionAddr)}); err != nil {
 			return err
@@ -79,12 +85,29 @@ func encodeOnionAddr(w io.Writer, addr *tor.OnionAddr) error {
 		return errors.New("unknown onion service length")
 	}
 
+	suffix := addr.OnionService[suffixIndex:]
+	if suffix != tor.OnionSuffix {
+		return fmt.Errorf("invalid suffix \"%v\"", suffix)
+	}
+
 	host, err := tor.Base32Encoding.DecodeString(
 		addr.OnionService[:suffixIndex],
 	)
 	if err != nil {
 		return err
 	}
+
+	// Sanity check the decoded length.
+	switch {
+	case hostLen == tor.V2Len && len(host) != tor.V2DecodedLen:
+		return fmt.Errorf("onion service %v decoded to invalid host %x",
+			addr.OnionService, host)
+
+	case hostLen == tor.V3Len && len(host) != tor.V3DecodedLen:
+		return fmt.Errorf("onion service %v decoded to invalid host %x",
+			addr.OnionService, host)
+	}
+
 	if _, err := w.Write(host); err != nil {
 		return err
 	}

@@ -1,9 +1,11 @@
 package htlcswitch
 
 import (
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lnpeer"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -14,11 +16,25 @@ type InvoiceDatabase interface {
 	// byte payment hash. This method should also reutrn the min final CLTV
 	// delta for this invoice. We'll use this to ensure that the HTLC
 	// extended to us gives us enough time to settle as we prescribe.
-	LookupInvoice(chainhash.Hash) (channeldb.Invoice, uint32, error)
+	LookupInvoice(lntypes.Hash) (channeldb.Invoice, uint32, error)
 
-	// SettleInvoice attempts to mark an invoice corresponding to the
-	// passed payment hash as fully settled.
-	SettleInvoice(payHash chainhash.Hash, paidAmount lnwire.MilliSatoshi) error
+	// NotifyExitHopHtlc attempts to mark an invoice as settled. If the
+	// invoice is a debug invoice, then this method is a noop as debug
+	// invoices are never fully settled. The return value describes how the
+	// htlc should be resolved. If the htlc cannot be resolved immediately,
+	// the resolution is sent on the passed in hodlChan later.
+	NotifyExitHopHtlc(payHash lntypes.Hash, paidAmount lnwire.MilliSatoshi,
+		hodlChan chan<- interface{}) (*invoices.HodlEvent, error)
+
+	// CancelInvoice attempts to cancel the invoice corresponding to the
+	// passed payment hash.
+	CancelInvoice(payHash lntypes.Hash) error
+
+	// SettleHodlInvoice settles a hold invoice.
+	SettleHodlInvoice(preimage lntypes.Preimage) error
+
+	// HodlUnsubscribeAll unsubscribes from all hodl events.
+	HodlUnsubscribeAll(subscriber chan<- interface{})
 }
 
 // ChannelLink is an interface which represents the subsystem for managing the
@@ -57,6 +73,9 @@ type ChannelLink interface {
 	// NOTE: This function MUST be non-blocking (or block as little as
 	// possible).
 	HandleChannelUpdate(lnwire.Message)
+
+	// ChannelPoint returns the channel outpoint for the channel link.
+	ChannelPoint() *wire.OutPoint
 
 	// ChanID returns the channel ID for the channel link. The channel ID
 	// is a more compact representation of a channel's full outpoint.

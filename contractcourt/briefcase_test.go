@@ -17,6 +17,7 @@ import (
 	"github.com/coreos/bbolt"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
@@ -63,7 +64,7 @@ var (
 		0xb4, 0x12, 0xa3,
 	}
 
-	testSignDesc = lnwallet.SignDescriptor{
+	testSignDesc = input.SignDescriptor{
 		SingleTweak: []byte{
 			0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02,
 			0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02,
@@ -95,7 +96,7 @@ var (
 	}
 )
 
-func makeTestDB() (*bolt.DB, func(), error) {
+func makeTestDB() (*bbolt.DB, func(), error) {
 	// First, create a temporary directory to be used for the duration of
 	// this test.
 	tempDirName, err := ioutil.TempDir("", "arblog")
@@ -103,7 +104,7 @@ func makeTestDB() (*bolt.DB, func(), error) {
 		return nil, nil, err
 	}
 
-	db, err := bolt.Open(tempDirName+"/test.db", 0600, nil)
+	db, err := bbolt.Open(tempDirName+"/test.db", 0600, nil)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -293,7 +294,6 @@ func TestContractInsertionRetrieval(t *testing.T) {
 			resolved:        false,
 			broadcastHeight: 109,
 			chanPoint:       testChanPoint1,
-			sweepTx:         nil,
 		},
 	}
 
@@ -530,6 +530,13 @@ func TestContractResolutionsStorage(t *testing.T) {
 				},
 			},
 		},
+	}
+
+	// First make sure that fetching unlogged contract resolutions will
+	// fail.
+	_, err = testLog.FetchContractResolutions()
+	if err == nil {
+		t.Fatalf("expected reading unlogged resolution from db to fail")
 	}
 
 	// Insert the resolution into the database, then immediately retrieve

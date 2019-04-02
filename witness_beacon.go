@@ -3,16 +3,17 @@ package main
 import (
 	"sync"
 
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
+	"github.com/lightningnetwork/lnd/invoices"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 )
 
 // preimageSubscriber reprints an active subscription to be notified once the
 // daemon discovers new preimages, either on chain or off-chain.
 type preimageSubscriber struct {
-	updateChan chan []byte
+	updateChan chan lntypes.Preimage
 
 	quit chan struct{}
 }
@@ -23,7 +24,7 @@ type preimageSubscriber struct {
 type preimageBeacon struct {
 	sync.RWMutex
 
-	invoices *invoiceRegistry
+	invoices *invoices.InvoiceRegistry
 
 	wCache *channeldb.WitnessCache
 
@@ -39,7 +40,7 @@ func (p *preimageBeacon) SubscribeUpdates() *contractcourt.WitnessSubscription {
 
 	clientID := p.clientCounter
 	client := &preimageSubscriber{
-		updateChan: make(chan []byte, 10),
+		updateChan: make(chan lntypes.Preimage, 10),
 		quit:       make(chan struct{}),
 	}
 
@@ -65,63 +66,76 @@ func (p *preimageBeacon) SubscribeUpdates() *contractcourt.WitnessSubscription {
 
 // LookupPreImage attempts to lookup a preimage in the global cache.  True is
 // returned for the second argument if the preimage is found.
-func (p *preimageBeacon) LookupPreimage(payHash []byte) ([]byte, bool) {
+func (p *preimageBeacon) LookupPreimage(
+	payHash lntypes.Hash) (lntypes.Preimage, bool) {
+
 	p.RLock()
 	defer p.RUnlock()
 
 	// First, we'll check the invoice registry to see if we already know of
 	// the preimage as it's on that we created ourselves.
-	var invoiceKey chainhash.Hash
-	copy(invoiceKey[:], payHash)
-	invoice, _, err := p.invoices.LookupInvoice(invoiceKey)
+	invoice, _, err := p.invoices.LookupInvoice(payHash)
 	switch {
 	case err == channeldb.ErrInvoiceNotFound:
 		// If we get this error, then it simply means that this invoice
 		// wasn't found, so we don't treat it as a critical error.
 	case err != nil:
-		return nil, false
+		return lntypes.Preimage{}, false
 	}
 
 	// If we've found the invoice, then we can return the preimage
 	// directly.
-	if err != channeldb.ErrInvoiceNotFound {
-		return invoice.Terms.PaymentPreimage[:], true
+	if err != channeldb.ErrInvoiceNotFound &&
+		invoice.Terms.PaymentPreimage != channeldb.UnknownPreimage {
+
+		return invoice.Terms.PaymentPreimage, true
 	}
 
 	// Otherwise, we'll perform a final check using the witness cache.
-	preimage, err := p.wCache.LookupWitness(
-		channeldb.Sha256HashWitness, payHash,
-	)
+	preimage, err := p.wCache.LookupSha256Witness(payHash)
 	if err != nil {
-		ltndLog.Errorf("unable to lookup witness: %v", err)
-		return nil, false
+		ltndLog.Errorf("Unable to lookup witness: %v", err)
+		return lntypes.Preimage{}, false
 	}
 
 	return preimage, true
 }
 
-// AddPreImage adds a newly discovered preimage to the global cache, and also
-// signals any subscribers of the newly discovered witness.
-func (p *preimageBeacon) AddPreimage(pre []byte) error {
-	p.Lock()
-	defer p.Unlock()
+// AddPreimages adds a batch of newly discovered preimages to the global cache,
+// and also signals any subscribers of the newly discovered witness.
+func (p *preimageBeacon) AddPreimages(preimages ...lntypes.Preimage) error {
+	// Exit early if no preimages are presented.
+	if len(preimages) == 0 {
+		return nil
+	}
 
-	srvrLog.Infof("Adding preimage=%x to witness cache", pre[:])
+	// Copy the preimages to ensure the backing area can't be modified by
+	// the caller when delivering notifications.
+	preimageCopies := make([]lntypes.Preimage, 0, len(preimages))
+	for _, preimage := range preimages {
+		srvrLog.Infof("Adding preimage=%v to witness cache", preimage)
+		preimageCopies = append(preimageCopies, preimage)
+	}
 
 	// First, we'll add the witness to the decaying witness cache.
-	err := p.wCache.AddWitness(channeldb.Sha256HashWitness, pre)
+	err := p.wCache.AddSha256Witnesses(preimages...)
 	if err != nil {
 		return err
 	}
+
+	p.Lock()
+	defer p.Unlock()
 
 	// With the preimage added to our state, we'll now send a new
 	// notification to all subscribers.
 	for _, client := range p.subscribers {
 		go func(c *preimageSubscriber) {
-			select {
-			case c.updateChan <- pre:
-			case <-c.quit:
-				return
+			for _, preimage := range preimageCopies {
+				select {
+				case c.updateChan <- preimage:
+				case <-c.quit:
+					return
+				}
 			}
 		}(client)
 	}

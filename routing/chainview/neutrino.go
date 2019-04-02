@@ -10,7 +10,6 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcutil/gcs/builder"
-	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/lightninglabs/neutrino"
 	"github.com/lightningnetwork/lnd/channeldb"
 )
@@ -84,13 +83,9 @@ func (c *CfFilteredChainView) Start() error {
 	// start the auto-rescan from this point. Once a caller actually wishes
 	// to register a chain view, the rescan state will be rewound
 	// accordingly.
-	bestHeader, bestHeight, err := c.p2pNode.BlockHeaders.ChainTip()
+	startingPoint, err := c.p2pNode.BestBlock()
 	if err != nil {
 		return err
-	}
-	startingPoint := &waddrmgr.BlockStamp{
-		Height: int32(bestHeight),
-		Hash:   bestHeader.BlockHash(),
 	}
 
 	// Next, we'll create our set of rescan options. Currently it's
@@ -112,7 +107,12 @@ func (c *CfFilteredChainView) Start() error {
 
 	// Finally, we'll create our rescan struct, start it, and launch all
 	// the goroutines we need to operate this FilteredChainView instance.
-	c.chainView = c.p2pNode.NewRescan(rescanOptions...)
+	c.chainView = neutrino.NewRescan(
+		&neutrino.RescanChainSource{
+			ChainService: c.p2pNode,
+		},
+		rescanOptions...,
+	)
 	c.rescanErrChan = c.chainView.Start()
 
 	c.blockQueue.Start()
@@ -215,14 +215,14 @@ func (c *CfFilteredChainView) chainFilterer() {
 func (c *CfFilteredChainView) FilterBlock(blockHash *chainhash.Hash) (*FilteredBlock, error) {
 	// First, we'll fetch the block header itself so we can obtain the
 	// height which is part of our return value.
-	_, blockHeight, err := c.p2pNode.BlockHeaders.FetchHeader(blockHash)
+	blockHeight, err := c.p2pNode.GetBlockHeight(blockHash)
 	if err != nil {
 		return nil, err
 	}
 
 	filteredBlock := &FilteredBlock{
 		Hash:   *blockHash,
-		Height: blockHeight,
+		Height: uint32(blockHeight),
 	}
 
 	// If we don't have any items within our current chain filter, then we
@@ -273,7 +273,7 @@ func (c *CfFilteredChainView) FilterBlock(blockHash *chainhash.Hash) (*FilteredB
 	// If we reach this point, then there was a match, so we'll need to
 	// fetch the block itself so we can scan it for any actual matches (as
 	// there's a fp rate).
-	block, err := c.p2pNode.GetBlockFromNetwork(*blockHash)
+	block, err := c.p2pNode.GetBlock(*blockHash)
 	if err != nil {
 		return nil, err
 	}
@@ -318,7 +318,7 @@ func (c *CfFilteredChainView) FilterBlock(blockHash *chainhash.Hash) (*FilteredB
 func (c *CfFilteredChainView) UpdateFilter(ops []channeldb.EdgePoint,
 	updateHeight uint32) error {
 
-	log.Debugf("Updating chain filter with new UTXO's: %v", ops)
+	log.Tracef("Updating chain filter with new UTXO's: %v", ops)
 
 	// First, we'll update the current chain view, by adding any new
 	// UTXO's, ignoring duplicates in the process.

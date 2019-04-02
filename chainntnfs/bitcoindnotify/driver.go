@@ -1,8 +1,10 @@
 package bitcoindnotify
 
 import (
+	"errors"
 	"fmt"
 
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcwallet/chain"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 )
@@ -10,18 +12,36 @@ import (
 // createNewNotifier creates a new instance of the ChainNotifier interface
 // implemented by BitcoindNotifier.
 func createNewNotifier(args ...interface{}) (chainntnfs.ChainNotifier, error) {
-	if len(args) != 1 {
+	if len(args) != 4 {
 		return nil, fmt.Errorf("incorrect number of arguments to "+
-			".New(...), expected 1, instead passed %v", len(args))
+			".New(...), expected 4, instead passed %v", len(args))
 	}
 
 	chainConn, ok := args[0].(*chain.BitcoindConn)
 	if !ok {
-		return nil, fmt.Errorf("first argument to bitcoindnotify.New " +
+		return nil, errors.New("first argument to bitcoindnotify.New " +
 			"is incorrect, expected a *chain.BitcoindConn")
 	}
 
-	return New(chainConn), nil
+	chainParams, ok := args[1].(*chaincfg.Params)
+	if !ok {
+		return nil, errors.New("second argument to bitcoindnotify.New " +
+			"is incorrect, expected a *chaincfg.Params")
+	}
+
+	spendHintCache, ok := args[2].(chainntnfs.SpendHintCache)
+	if !ok {
+		return nil, errors.New("third argument to bitcoindnotify.New " +
+			"is incorrect, expected a chainntnfs.SpendHintCache")
+	}
+
+	confirmHintCache, ok := args[3].(chainntnfs.ConfirmHintCache)
+	if !ok {
+		return nil, errors.New("fourth argument to bitcoindnotify.New " +
+			"is incorrect, expected a chainntnfs.ConfirmHintCache")
+	}
+
+	return New(chainConn, chainParams, spendHintCache, confirmHintCache), nil
 }
 
 // init registers a driver for the BtcdNotifier concrete implementation of the

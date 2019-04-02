@@ -40,7 +40,7 @@ var _ Message = (*GossipTimestampRange)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (g *GossipTimestampRange) Decode(r io.Reader, pver uint32) error {
-	return readElements(r,
+	return ReadElements(r,
 		g.ChainHash[:],
 		&g.FirstTimestamp,
 		&g.TimestampRange,
@@ -52,7 +52,7 @@ func (g *GossipTimestampRange) Decode(r io.Reader, pver uint32) error {
 //
 // This is part of the lnwire.Message interface.
 func (g *GossipTimestampRange) Encode(w io.Writer, pver uint32) error {
-	return writeElements(w,
+	return WriteElements(w,
 		g.ChainHash[:],
 		g.FirstTimestamp,
 		g.TimestampRange,

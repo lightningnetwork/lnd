@@ -9,6 +9,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -47,14 +48,6 @@ type ChannelContribution struct {
 // contribution to the channel.
 func (c *ChannelContribution) toChanConfig() channeldb.ChannelConfig {
 	return *c.ChannelConfig
-}
-
-// InputScript represents any script inputs required to redeem a previous
-// output. This struct is used rather than just a witness, or scripSig in
-// order to accommodate nested p2sh which utilizes both types of input scripts.
-type InputScript struct {
-	Witness   [][]byte
-	ScriptSig []byte
 }
 
 // ChannelReservation represents an intent to open a lightning payment channel
@@ -98,8 +91,8 @@ type ChannelReservation struct {
 
 	// In order of sorted inputs. Sorting is done in accordance
 	// to BIP-69: https://github.com/bitcoin/bips/blob/master/bip-0069.mediawiki.
-	ourFundingInputScripts   []*InputScript
-	theirFundingInputScripts []*InputScript
+	ourFundingInputScripts   []*input.Script
+	theirFundingInputScripts []*input.Script
 
 	// Our signature for their version of the commitment transaction.
 	ourCommitmentSig   []byte
@@ -145,7 +138,7 @@ func NewChannelReservation(capacity, fundingAmt btcutil.Amount,
 		initiator    bool
 	)
 
-	commitFee := commitFeePerKw.FeeForWeight(CommitWeight)
+	commitFee := commitFeePerKw.FeeForWeight(input.CommitWeight)
 	fundingMSat := lnwire.NewMSatFromSatoshis(fundingAmt)
 	capacityMSat := lnwire.NewMSatFromSatoshis(capacity)
 	feeMSat := lnwire.NewMSatFromSatoshis(commitFee)
@@ -282,72 +275,72 @@ func (r *ChannelReservation) SetNumConfsRequired(numConfs uint16) {
 // of satoshis that can be transferred in a single commitment. This function
 // will also attempt to verify the constraints for sanity, returning an error
 // if the parameters are seemed unsound.
-func (r *ChannelReservation) CommitConstraints(csvDelay, maxHtlcs uint16,
-	maxValueInFlight, minHtlc lnwire.MilliSatoshi,
-	chanReserve, dustLimit btcutil.Amount) error {
-
+func (r *ChannelReservation) CommitConstraints(c *channeldb.ChannelConstraints) error {
 	r.Lock()
 	defer r.Unlock()
 
 	// Fail if we consider csvDelay excessively large.
 	// TODO(halseth): find a more scientific choice of value.
 	const maxDelay = 10000
-	if csvDelay > maxDelay {
-		return ErrCsvDelayTooLarge(csvDelay, maxDelay)
+	if c.CsvDelay > maxDelay {
+		return ErrCsvDelayTooLarge(c.CsvDelay, maxDelay)
 	}
 
 	// The dust limit should always be greater or equal to the channel
 	// reserve. The reservation request should be denied if otherwise.
-	if dustLimit > chanReserve {
-		return ErrChanReserveTooSmall(chanReserve, dustLimit)
+	if c.DustLimit > c.ChanReserve {
+		return ErrChanReserveTooSmall(c.ChanReserve, c.DustLimit)
 	}
 
 	// Fail if we consider the channel reserve to be too large.  We
 	// currently fail if it is greater than 20% of the channel capacity.
 	maxChanReserve := r.partialState.Capacity / 5
-	if chanReserve > maxChanReserve {
-		return ErrChanReserveTooLarge(chanReserve, maxChanReserve)
+	if c.ChanReserve > maxChanReserve {
+		return ErrChanReserveTooLarge(c.ChanReserve, maxChanReserve)
 	}
 
 	// Fail if the minimum HTLC value is too large. If this is too large,
 	// the channel won't be useful for sending small payments. This limit
 	// is currently set to maxValueInFlight, effectively letting the remote
 	// setting this as large as it wants.
-	if minHtlc > maxValueInFlight {
-		return ErrMinHtlcTooLarge(minHtlc, maxValueInFlight)
+	if c.MinHTLC > c.MaxPendingAmount {
+		return ErrMinHtlcTooLarge(c.MinHTLC, c.MaxPendingAmount)
 	}
 
 	// Fail if maxHtlcs is above the maximum allowed number of 483.  This
 	// number is specified in BOLT-02.
-	if maxHtlcs > uint16(MaxHTLCNumber/2) {
-		return ErrMaxHtlcNumTooLarge(maxHtlcs, uint16(MaxHTLCNumber/2))
+	if c.MaxAcceptedHtlcs > uint16(input.MaxHTLCNumber/2) {
+		return ErrMaxHtlcNumTooLarge(
+			c.MaxAcceptedHtlcs, uint16(input.MaxHTLCNumber/2),
+		)
 	}
 
 	// Fail if we consider maxHtlcs too small. If this is too small we
 	// cannot offer many HTLCs to the remote.
 	const minNumHtlc = 5
-	if maxHtlcs < minNumHtlc {
-		return ErrMaxHtlcNumTooSmall(maxHtlcs, minNumHtlc)
+	if c.MaxAcceptedHtlcs < minNumHtlc {
+		return ErrMaxHtlcNumTooSmall(c.MaxAcceptedHtlcs, minNumHtlc)
 	}
 
 	// Fail if we consider maxValueInFlight too small. We currently require
 	// the remote to at least allow minNumHtlc * minHtlc in flight.
-	if maxValueInFlight < minNumHtlc*minHtlc {
-		return ErrMaxValueInFlightTooSmall(maxValueInFlight,
-			minNumHtlc*minHtlc)
+	if c.MaxPendingAmount < minNumHtlc*c.MinHTLC {
+		return ErrMaxValueInFlightTooSmall(
+			c.MaxPendingAmount, minNumHtlc*c.MinHTLC,
+		)
 	}
 
-	// Our dust limit should always be less than or equal our proposed
+	// Our dust limit should always be less than or equal to our proposed
 	// channel reserve.
-	if r.ourContribution.DustLimit > chanReserve {
-		r.ourContribution.DustLimit = chanReserve
+	if r.ourContribution.DustLimit > c.ChanReserve {
+		r.ourContribution.DustLimit = c.ChanReserve
 	}
 
-	r.ourContribution.ChannelConfig.CsvDelay = csvDelay
-	r.ourContribution.ChannelConfig.ChanReserve = chanReserve
-	r.ourContribution.ChannelConfig.MaxAcceptedHtlcs = maxHtlcs
-	r.ourContribution.ChannelConfig.MaxPendingAmount = maxValueInFlight
-	r.ourContribution.ChannelConfig.MinHTLC = minHtlc
+	r.ourContribution.ChanReserve = c.ChanReserve
+	r.ourContribution.MaxPendingAmount = c.MaxPendingAmount
+	r.ourContribution.MinHTLC = c.MinHTLC
+	r.ourContribution.MaxAcceptedHtlcs = c.MaxAcceptedHtlcs
+	r.ourContribution.CsvDelay = c.CsvDelay
 
 	return nil
 }
@@ -403,7 +396,7 @@ func (r *ChannelReservation) ProcessSingleContribution(theirContribution *Channe
 // TheirContribution returns the counterparty's pending contribution to the
 // payment channel. See 'ChannelContribution' for further details regarding the
 // contents of a contribution. This attribute will ONLY be available after a
-// call to .ProcesContribution().
+// call to .ProcessContribution().
 //
 // NOTE: This SHOULD NOT be modified.
 func (r *ChannelReservation) TheirContribution() *ChannelContribution {
@@ -419,8 +412,8 @@ func (r *ChannelReservation) TheirContribution() *ChannelContribution {
 // BIP-69: https://github.com/bitcoin/bips/blob/master/bip-0069.mediawiki.
 //
 // NOTE: These signatures will only be populated after a call to
-// .ProcesContribution()
-func (r *ChannelReservation) OurSignatures() ([]*InputScript, []byte) {
+// .ProcessContribution()
+func (r *ChannelReservation) OurSignatures() ([]*input.Script, []byte) {
 	r.RLock()
 	defer r.RUnlock()
 	return r.ourFundingInputScripts, r.ourCommitmentSig
@@ -439,7 +432,7 @@ func (r *ChannelReservation) OurSignatures() ([]*InputScript, []byte) {
 // block until the funding transaction obtains the configured number of
 // confirmations. Once the method unblocks, a LightningChannel instance is
 // returned, marking the channel available for updates.
-func (r *ChannelReservation) CompleteReservation(fundingInputScripts []*InputScript,
+func (r *ChannelReservation) CompleteReservation(fundingInputScripts []*input.Script,
 	commitmentSig []byte) (*channeldb.OpenChannel, error) {
 
 	// TODO(roasbeef): add flag for watch or not?
@@ -490,7 +483,7 @@ func (r *ChannelReservation) CompleteReservationSingle(fundingPoint *wire.OutPoi
 //
 // NOTE: These attributes will be unpopulated before a call to
 // .CompleteReservation().
-func (r *ChannelReservation) TheirSignatures() ([]*InputScript, []byte) {
+func (r *ChannelReservation) TheirSignatures() ([]*input.Script, []byte) {
 	r.RLock()
 	defer r.RUnlock()
 	return r.theirFundingInputScripts, r.theirCommitmentSig

@@ -16,6 +16,7 @@ import (
 	"github.com/btcsuite/btcutil"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/chainview"
@@ -34,6 +35,8 @@ var (
 		0x4f, 0x2f, 0x6f, 0x25, 0x88, 0xa3, 0xef, 0xb9,
 		0x6a, 0x49, 0x18, 0x83, 0x31, 0x98, 0x47, 0x53,
 	}
+
+	testTime = time.Date(2018, time.January, 9, 14, 00, 00, 0, time.UTC)
 
 	priv1, _    = btcec.NewPrivateKey(btcec.S256())
 	bitcoinKey1 = priv1.PubKey()
@@ -74,9 +77,10 @@ func randEdgePolicy(chanID *lnwire.ShortChannelID,
 		LastUpdate:                time.Unix(int64(prand.Int31()), 0),
 		TimeLockDelta:             uint16(prand.Int63()),
 		MinHTLC:                   lnwire.MilliSatoshi(prand.Int31()),
+		MaxHTLC:                   lnwire.MilliSatoshi(prand.Int31()),
 		FeeBaseMSat:               lnwire.MilliSatoshi(prand.Int31()),
 		FeeProportionalMillionths: lnwire.MilliSatoshi(prand.Int31()),
-		Node: node,
+		Node:                      node,
 	}
 }
 
@@ -85,7 +89,7 @@ func createChannelEdge(ctx *testCtx, bitcoinKey1, bitcoinKey2 []byte,
 	*lnwire.ShortChannelID, error) {
 
 	fundingTx := wire.NewMsgTx(2)
-	_, tx, err := lnwallet.GenFundingPkScript(
+	_, tx, err := input.GenFundingPkScript(
 		bitcoinKey1,
 		bitcoinKey2,
 		int64(chanValue),
@@ -337,7 +341,7 @@ func (m *mockChainView) Stop() error {
 func TestEdgeUpdateNotification(t *testing.T) {
 	t.Parallel()
 
-	ctx, cleanUp, err := createTestCtx(0)
+	ctx, cleanUp, err := createTestCtxSingleNode(0)
 	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to create router: %v", err)
@@ -400,9 +404,9 @@ func TestEdgeUpdateNotification(t *testing.T) {
 	// Create random policy edges that are stemmed to the channel id
 	// created above.
 	edge1 := randEdgePolicy(chanID, node1)
-	edge1.Flags = 0
+	edge1.ChannelFlags = 0
 	edge2 := randEdgePolicy(chanID, node2)
-	edge2.Flags = 1
+	edge2.ChannelFlags = 1
 
 	if err := ctx.router.UpdateEdge(edge1); err != nil {
 		t.Fatalf("unable to add edge update: %v", err)
@@ -431,6 +435,11 @@ func TestEdgeUpdateNotification(t *testing.T) {
 			t.Fatalf("min HTLC of edge doesn't match: "+
 				"expected %v, got %v", edgeAnn.MinHTLC,
 				edgeUpdate.MinHTLC)
+		}
+		if edgeUpdate.MaxHTLC != edgeAnn.MaxHTLC {
+			t.Fatalf("max HTLC of edge doesn't match: "+
+				"expected %v, got %v", edgeAnn.MaxHTLC,
+				edgeUpdate.MaxHTLC)
 		}
 		if edgeUpdate.BaseFee != edgeAnn.FeeBaseMSat {
 			t.Fatalf("base fee of edge doesn't match: "+
@@ -526,7 +535,7 @@ func TestNodeUpdateNotification(t *testing.T) {
 	t.Parallel()
 
 	const startingBlockHeight = 101
-	ctx, cleanUp, err := createTestCtx(startingBlockHeight)
+	ctx, cleanUp, err := createTestCtxSingleNode(startingBlockHeight)
 	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to create router: %v", err)
@@ -704,7 +713,7 @@ func TestNotificationCancellation(t *testing.T) {
 	t.Parallel()
 
 	const startingBlockHeight = 101
-	ctx, cleanUp, err := createTestCtx(startingBlockHeight)
+	ctx, cleanUp, err := createTestCtxSingleNode(startingBlockHeight)
 	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to create router: %v", err)
@@ -796,7 +805,7 @@ func TestChannelCloseNotification(t *testing.T) {
 	t.Parallel()
 
 	const startingBlockHeight = 101
-	ctx, cleanUp, err := createTestCtx(startingBlockHeight)
+	ctx, cleanUp, err := createTestCtxSingleNode(startingBlockHeight)
 	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to create router: %v", err)

@@ -116,7 +116,12 @@ func (l *Listener) doHandshake(conn net.Conn) {
 	// We'll ensure that we get ActOne from the remote peer in a timely
 	// manner. If they don't respond within 1s, then we'll kill the
 	// connection.
-	conn.SetReadDeadline(time.Now().Add(handshakeReadTimeout))
+	err := conn.SetReadDeadline(time.Now().Add(handshakeReadTimeout))
+	if err != nil {
+		brontideConn.conn.Close()
+		l.rejectConn(rejectedConnErr(err, remoteAddr))
+		return
+	}
 
 	// Attempt to carry out the first act of the handshake protocol. If the
 	// connecting node doesn't know our long-term static public key, then
@@ -156,7 +161,12 @@ func (l *Listener) doHandshake(conn net.Conn) {
 	// We'll ensure that we get ActTwo from the remote peer in a timely
 	// manner. If they don't respond within 1 second, then we'll kill the
 	// connection.
-	conn.SetReadDeadline(time.Now().Add(handshakeReadTimeout))
+	err = conn.SetReadDeadline(time.Now().Add(handshakeReadTimeout))
+	if err != nil {
+		brontideConn.conn.Close()
+		l.rejectConn(rejectedConnErr(err, remoteAddr))
+		return
+	}
 
 	// Finally, finish the handshake processes by reading and decrypting
 	// the connection peer's static public key. If this succeeds then both
@@ -175,7 +185,12 @@ func (l *Listener) doHandshake(conn net.Conn) {
 
 	// We'll reset the deadline as it's no longer critical beyond the
 	// initial handshake.
-	conn.SetReadDeadline(time.Time{})
+	err = conn.SetReadDeadline(time.Time{})
+	if err != nil {
+		brontideConn.conn.Close()
+		l.rejectConn(rejectedConnErr(err, remoteAddr))
+		return
+	}
 
 	l.acceptConn(brontideConn)
 }

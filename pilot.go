@@ -14,6 +14,60 @@ import (
 	"github.com/lightningnetwork/lnd/tor"
 )
 
+// validateAtplConfig is a helper method that makes sure the passed
+// configuration is sane. Currently it checks that the heuristic configuration
+// makes sense. In case the config is valid, it will return a list of
+// WeightedHeuristics that can be combined for use with the autopilot agent.
+func validateAtplCfg(cfg *autoPilotConfig) ([]*autopilot.WeightedHeuristic,
+	error) {
+
+	var (
+		heuristicsStr string
+		sum           float64
+		heuristics    []*autopilot.WeightedHeuristic
+	)
+
+	// Create a help text that we can return in case the config is not
+	// correct.
+	for _, a := range autopilot.AvailableHeuristics {
+		heuristicsStr += fmt.Sprintf(" '%v' ", a.Name())
+	}
+	availStr := fmt.Sprintf("Avaiblable heuristcs are: [%v]", heuristicsStr)
+
+	// We'll go through the config and make sure all the heuristics exists,
+	// and that the sum of their weights is 1.0.
+	for name, weight := range cfg.Heuristic {
+		a, ok := autopilot.AvailableHeuristics[name]
+		if !ok {
+			// No heuristic matching this config option was found.
+			return nil, fmt.Errorf("Heuristic %v not available. %v",
+				name, availStr)
+		}
+
+		// If this heuristic was among the registered ones, we add it
+		// to the list we'll give to the agent, and keep track of the
+		// sum of weights.
+		heuristics = append(
+			heuristics,
+			&autopilot.WeightedHeuristic{
+				Weight:              weight,
+				AttachmentHeuristic: a,
+			},
+		)
+		sum += weight
+	}
+
+	// Check found heuristics. We must have at least one to operate.
+	if len(heuristics) == 0 {
+		return nil, fmt.Errorf("No active heuristics. %v", availStr)
+	}
+
+	if sum != 1.0 {
+		return nil, fmt.Errorf("Heuristic weights must sum to 1.0")
+	}
+	return heuristics, nil
+}
+
 // chanController is an implementation of the autopilot.ChannelController
 // interface that's backed by a running lnd instance.
 type chanController struct {
@@ -55,18 +109,6 @@ func (c *chanController) OpenChannel(target *btcec.PublicKey,
 	updateStream, errChan := c.server.OpenChannel(req)
 	select {
 	case err := <-errChan:
-		// If we were not able to actually open a channel to the peer
-		// for whatever reason, then we'll disconnect from the peer to
-		// ensure we don't accumulate a bunch of unnecessary
-		// connections.
-		if err != nil {
-			dcErr := c.server.DisconnectPeer(target)
-			if dcErr != nil {
-				atplLog.Errorf("Unable to disconnect from peer %v",
-					target.SerializeCompressed())
-			}
-		}
-
 		return err
 	case <-updateStream:
 		return nil
@@ -91,26 +133,39 @@ func (c *chanController) SpliceOut(chanPoint *wire.OutPoint,
 // autopilot.ChannelController interface.
 var _ autopilot.ChannelController = (*chanController)(nil)
 
-// initAutoPilot initializes a new autopilot.Agent instance based on the passed
-// configuration struct. All interfaces needed to drive the pilot will be
-// registered and launched.
-func initAutoPilot(svr *server, cfg *autoPilotConfig) (*autopilot.Agent, error) {
+// initAutoPilot initializes a new autopilot.ManagerCfg to manage an
+// autopilot.Agent instance based on the passed configuration struct. The agent
+// and all interfaces needed to drive it won't be launched before the Manager's
+// StartAgent method is called.
+func initAutoPilot(svr *server, cfg *autoPilotConfig) (*autopilot.ManagerCfg, error) {
 	atplLog.Infof("Instantiating autopilot with cfg: %v", spew.Sdump(cfg))
 
-	// First, we'll create the preferential attachment heuristic,
-	// initialized with the passed auto pilot configuration parameters.
-	prefAttachment := autopilot.NewConstrainedPrefAttachment(
+	// Set up the constraints the autopilot heuristics must adhere to.
+	atplConstraints := autopilot.NewConstraints(
 		btcutil.Amount(cfg.MinChannelSize),
 		btcutil.Amount(cfg.MaxChannelSize),
-		uint16(cfg.MaxChannels), cfg.Allocation,
+		uint16(cfg.MaxChannels),
+		10,
+		cfg.Allocation,
 	)
+	heuristics, err := validateAtplCfg(cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	weightedAttachment, err := autopilot.NewWeightedCombAttachment(
+		heuristics...,
+	)
+	if err != nil {
+		return nil, err
+	}
 
 	// With the heuristic itself created, we can now populate the remainder
 	// of the items that the autopilot agent needs to perform its duties.
 	self := svr.identityPriv.PubKey()
 	pilotCfg := autopilot.Config{
 		Self:      self,
-		Heuristic: prefAttachment,
+		Heuristic: weightedAttachment,
 		ChanController: &chanController{
 			server:   svr,
 			private:  cfg.Private,
@@ -119,8 +174,8 @@ func initAutoPilot(svr *server, cfg *autoPilotConfig) (*autopilot.Agent, error) 
 		WalletBalance: func() (btcutil.Amount, error) {
 			return svr.cc.wallet.ConfirmedBalance(cfg.MinConfs)
 		},
-		Graph:           autopilot.ChannelGraphFromDatabase(svr.chanDB.ChannelGraph()),
-		MaxPendingOpens: 10,
+		Graph:       autopilot.ChannelGraphFromDatabase(svr.chanDB.ChannelGraph()),
+		Constraints: atplConstraints,
 		ConnectToPeer: func(target *btcec.PublicKey, addrs []net.Addr) (bool, error) {
 			// First, we'll check if we're already connected to the
 			// target peer. If we are, we can exit early. Otherwise,
@@ -172,8 +227,8 @@ func initAutoPilot(svr *server, cfg *autoPilotConfig) (*autopilot.Agent, error) 
 			// If we weren't able to establish a connection at all,
 			// then we'll error out.
 			if !connected {
-				return false, fmt.Errorf("unable to connect "+
-					"to %x", target.SerializeCompressed())
+				return false, errors.New("exhausted all " +
+					"advertised addresses")
 			}
 
 			return false, nil
@@ -181,136 +236,33 @@ func initAutoPilot(svr *server, cfg *autoPilotConfig) (*autopilot.Agent, error) 
 		DisconnectPeer: svr.DisconnectPeer,
 	}
 
-	// Next, we'll fetch the current state of open channels from the
-	// database to use as initial state for the auto-pilot agent.
-	activeChannels, err := svr.chanDB.FetchAllChannels()
-	if err != nil {
-		return nil, err
-	}
-	initialChanState := make([]autopilot.Channel, len(activeChannels))
-	for i, channel := range activeChannels {
-		initialChanState[i] = autopilot.Channel{
-			ChanID:   channel.ShortChanID(),
-			Capacity: channel.Capacity,
-			Node:     autopilot.NewNodeID(channel.IdentityPub),
-		}
-	}
-
-	// Now that we have all the initial dependencies, we can create the
-	// auto-pilot instance itself.
-	pilot, err := autopilot.New(pilotCfg, initialChanState)
-	if err != nil {
-		return nil, err
-	}
-
-	// Finally, we'll need to subscribe to two things: incoming
-	// transactions that modify the wallet's balance, and also any graph
-	// topology updates.
-	txnSubscription, err := svr.cc.wallet.SubscribeTransactions()
-	if err != nil {
-		return nil, err
-	}
-	graphSubscription, err := svr.chanRouter.SubscribeTopology()
-	if err != nil {
-		return nil, err
-	}
-
-	// We'll launch a goroutine to provide the agent with notifications
-	// whenever the balance of the wallet changes.
-	svr.wg.Add(2)
-	go func() {
-		defer txnSubscription.Cancel()
-		defer svr.wg.Done()
-
-		for {
-			select {
-			case txnUpdate := <-txnSubscription.ConfirmedTransactions():
-				pilot.OnBalanceChange(txnUpdate.Value)
-			case <-svr.quit:
-				return
+	// Create and return the autopilot.ManagerCfg that administrates this
+	// agent-pilot instance.
+	return &autopilot.ManagerCfg{
+		Self:     self,
+		PilotCfg: &pilotCfg,
+		ChannelState: func() ([]autopilot.Channel, error) {
+			// We'll fetch the current state of open
+			// channels from the database to use as initial
+			// state for the auto-pilot agent.
+			activeChannels, err := svr.chanDB.FetchAllChannels()
+			if err != nil {
+				return nil, err
 			}
-		}
-
-	}()
-	go func() {
-		defer svr.wg.Done()
-
-		for {
-			select {
-			// We won't act upon new unconfirmed transaction, as
-			// we'll only use confirmed outputs when funding.
-			// However, we will still drain this request in order
-			// to avoid goroutine leaks, and ensure we promptly
-			// read from the channel if available.
-			case <-txnSubscription.UnconfirmedTransactions():
-			case <-svr.quit:
-				return
+			chanState := make([]autopilot.Channel,
+				len(activeChannels))
+			for i, channel := range activeChannels {
+				chanState[i] = autopilot.Channel{
+					ChanID:   channel.ShortChanID(),
+					Capacity: channel.Capacity,
+					Node: autopilot.NewNodeID(
+						channel.IdentityPub),
+				}
 			}
-		}
 
-	}()
-
-	// We'll also launch a goroutine to provide the agent with
-	// notifications for when the graph topology controlled by the node
-	// changes.
-	svr.wg.Add(1)
-	go func() {
-		defer graphSubscription.Cancel()
-		defer svr.wg.Done()
-
-		for {
-			select {
-			case topChange, ok := <-graphSubscription.TopologyChanges:
-				// If the router is shutting down, then we will
-				// as well.
-				if !ok {
-					return
-				}
-
-				for _, edgeUpdate := range topChange.ChannelEdgeUpdates {
-					// If this isn't an advertisement by
-					// the backing lnd node, then we'll
-					// continue as we only want to add
-					// channels that we've created
-					// ourselves.
-					if !edgeUpdate.AdvertisingNode.IsEqual(self) {
-						continue
-					}
-
-					// If this is indeed a channel we
-					// opened, then we'll convert it to the
-					// autopilot.Channel format, and notify
-					// the pilot of the new channel.
-					chanNode := autopilot.NewNodeID(
-						edgeUpdate.ConnectingNode,
-					)
-					chanID := lnwire.NewShortChanIDFromInt(
-						edgeUpdate.ChanID,
-					)
-					edge := autopilot.Channel{
-						ChanID:   chanID,
-						Capacity: edgeUpdate.Capacity,
-						Node:     chanNode,
-					}
-					pilot.OnChannelOpen(edge)
-				}
-
-				// For each closed channel, we'll obtain
-				// the chanID of the closed channel and send it
-				// to the pilot.
-				for _, chanClose := range topChange.ClosedChannels {
-					chanID := lnwire.NewShortChanIDFromInt(
-						chanClose.ChanID,
-					)
-
-					pilot.OnChannelClose(chanID)
-				}
-
-			case <-svr.quit:
-				return
-			}
-		}
-	}()
-
-	return pilot, nil
+			return chanState, nil
+		},
+		SubscribeTransactions: svr.cc.wallet.SubscribeTransactions,
+		SubscribeTopology:     svr.chanRouter.SubscribeTopology,
+	}, nil
 }

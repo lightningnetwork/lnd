@@ -37,6 +37,10 @@ import (
 	"github.com/btcsuite/btcwallet/wallet"
 	proxy "github.com/grpc-ecosystem/grpc-gateway/runtime"
 	flags "github.com/jessevdk/go-flags"
+	"github.com/lightninglabs/neutrino"
+
+	"github.com/lightningnetwork/lnd/autopilot"
+	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lncfg"
@@ -54,14 +58,13 @@ const (
 )
 
 var (
-	//Commit stores the current commit hash of this build. This should be
-	//set using -ldflags during compilation.
-	Commit string
-
 	cfg              *config
 	registeredChains = newChainRegistry()
 
-	macaroonDatabaseDir string
+	// networkDir is the path to the directory of the currently active
+	// network. This path will hold the files related to each different
+	// network.
+	networkDir string
 
 	// End of ASN.1 time.
 	endOfTime = time.Date(2049, 12, 31, 23, 59, 59, 0, time.UTC)
@@ -90,12 +93,6 @@ var (
 // defers created in the top-level scope of a main method aren't executed if
 // os.Exit() is called.
 func lndMain() error {
-	defer func() {
-		if logRotatorPipe != nil {
-			ltndLog.Info("Shutdown complete")
-		}
-	}()
-
 	// Load the configuration, and parse any command line options. This
 	// function will also set up logging properly.
 	loadedConfig, err := loadConfig()
@@ -105,12 +102,14 @@ func lndMain() error {
 	cfg = loadedConfig
 	defer func() {
 		if logRotator != nil {
+			ltndLog.Info("Shutdown complete")
 			logRotator.Close()
 		}
 	}()
 
 	// Show version at startup.
-	ltndLog.Infof("Version %s", version())
+	ltndLog.Infof("Version: %s, build=%s, logging=%s",
+		build.Version(), build.Deployment, build.LoggingType)
 
 	var network string
 	switch {
@@ -198,19 +197,41 @@ func lndMain() error {
 	}
 	proxyOpts := []grpc.DialOption{grpc.WithTransportCredentials(cCreds)}
 
+	// Before starting the wallet, we'll create and start our Neutrino
+	// light client instance, if enabled, in order to allow it to sync
+	// while the rest of the daemon continues startup.
+	mainChain := cfg.Bitcoin
+	if registeredChains.PrimaryChain() == litecoinChain {
+		mainChain = cfg.Litecoin
+	}
+	var neutrinoCS *neutrino.ChainService
+	if mainChain.Node == "neutrino" {
+		neutrinoBackend, neutrinoCleanUp, err := initNeutrinoBackend(
+			mainChain.ChainDir,
+		)
+		defer neutrinoCleanUp()
+		if err != nil {
+			return err
+		}
+		neutrinoCS = neutrinoBackend
+	}
+
 	var (
-		privateWalletPw = lnwallet.DefaultPrivatePassphrase
-		publicWalletPw  = lnwallet.DefaultPublicPassphrase
-		birthday        time.Time
-		recoveryWindow  uint32
-		unlockedWallet  *wallet.Wallet
+		walletInitParams WalletUnlockParams
+		privateWalletPw  = lnwallet.DefaultPrivatePassphrase
+		publicWalletPw   = lnwallet.DefaultPublicPassphrase
 	)
 
+	// If the user didn't request a seed, then we'll manually assume a
+	// wallet birthday of now, as otherwise the seed would've specified
+	// this information.
+	walletInitParams.Birthday = time.Now()
+
 	// We wait until the user provides a password over RPC. In case lnd is
-	// started with the --noencryptwallet flag, we use the default password
+	// started with the --noseedbackup flag, we use the default password
 	// for wallet encryption.
-	if !cfg.NoEncryptWallet {
-		walletInitParams, err := waitForWalletPassword(
+	if !cfg.NoSeedBackup {
+		params, err := waitForWalletPassword(
 			cfg.RPCListeners, cfg.RESTListeners, serverOpts,
 			proxyOpts, tlsConf,
 		)
@@ -218,24 +239,23 @@ func lndMain() error {
 			return err
 		}
 
+		walletInitParams = *params
 		privateWalletPw = walletInitParams.Password
 		publicWalletPw = walletInitParams.Password
-		birthday = walletInitParams.Birthday
-		recoveryWindow = walletInitParams.RecoveryWindow
-		unlockedWallet = walletInitParams.Wallet
 
-		if recoveryWindow > 0 {
+		if walletInitParams.RecoveryWindow > 0 {
 			ltndLog.Infof("Wallet recovery mode enabled with "+
 				"address lookahead of %d addresses",
-				recoveryWindow)
+				walletInitParams.RecoveryWindow)
 		}
 	}
 
 	var macaroonService *macaroons.Service
 	if !cfg.NoMacaroons {
 		// Create the macaroon authentication/authorization service.
-		macaroonService, err = macaroons.NewService(macaroonDatabaseDir,
-			macaroons.IPLockChecker)
+		macaroonService, err = macaroons.NewService(
+			networkDir, macaroons.IPLockChecker,
+		)
 		if err != nil {
 			srvrLog.Errorf("unable to create macaroon service: %v", err)
 			return err
@@ -245,7 +265,7 @@ func lndMain() error {
 		// Try to unlock the macaroon store with the private password.
 		err = macaroonService.CreateUnlock(&privateWalletPw)
 		if err != nil {
-			srvrLog.Error(err)
+			srvrLog.Errorf("unable to unlock macaroons: %v", err)
 			return err
 		}
 
@@ -269,8 +289,9 @@ func lndMain() error {
 	// instances of the pertinent interfaces required to operate the
 	// Lightning Network Daemon.
 	activeChainControl, chainCleanUp, err := newChainControlFromConfig(
-		cfg, chanDB, privateWalletPw, publicWalletPw, birthday,
-		recoveryWindow, unlockedWallet,
+		cfg, chanDB, privateWalletPw, publicWalletPw,
+		walletInitParams.Birthday, walletInitParams.RecoveryWindow,
+		walletInitParams.Wallet, neutrinoCS,
 	)
 	if err != nil {
 		fmt.Printf("unable to create chain control: %v\n", err)
@@ -308,72 +329,47 @@ func lndMain() error {
 	// connections.
 	server, err := newServer(
 		cfg.Listeners, chanDB, activeChainControl, idPrivKey,
+		walletInitParams.ChansToRestore,
 	)
 	if err != nil {
 		srvrLog.Errorf("unable to create server: %v\n", err)
 		return err
 	}
 
-	// Check macaroon authentication if macaroons aren't disabled.
-	if macaroonService != nil {
-		serverOpts = append(serverOpts,
-			grpc.UnaryInterceptor(macaroonService.
-				UnaryServerInterceptor(permissions)),
-			grpc.StreamInterceptor(macaroonService.
-				StreamServerInterceptor(permissions)),
-		)
+	// Set up an autopilot manager from the current config. This will be
+	// used to manage the underlying autopilot agent, starting and stopping
+	// it at will.
+	atplCfg, err := initAutoPilot(server, cfg.Autopilot)
+	if err != nil {
+		ltndLog.Errorf("unable to init autopilot: %v", err)
+		return err
 	}
+
+	atplManager, err := autopilot.NewManager(atplCfg)
+	if err != nil {
+		ltndLog.Errorf("unable to create autopilot manager: %v", err)
+		return err
+	}
+	if err := atplManager.Start(); err != nil {
+		ltndLog.Errorf("unable to start autopilot manager: %v", err)
+		return err
+	}
+	defer atplManager.Stop()
 
 	// Initialize, and register our implementation of the gRPC interface
 	// exported by the rpcServer.
-	rpcServer := newRPCServer(server)
+	rpcServer, err := newRPCServer(
+		server, macaroonService, cfg.SubRPCServers, serverOpts,
+		proxyOpts, atplManager, server.invoices, tlsConf,
+	)
+	if err != nil {
+		srvrLog.Errorf("unable to start RPC server: %v", err)
+		return err
+	}
 	if err := rpcServer.Start(); err != nil {
 		return err
 	}
 	defer rpcServer.Stop()
-
-	grpcServer := grpc.NewServer(serverOpts...)
-	lnrpc.RegisterLightningServer(grpcServer, rpcServer)
-
-	// Next, Start the gRPC server listening for HTTP/2 connections.
-	for _, listener := range cfg.RPCListeners {
-		lis, err := lncfg.ListenOnAddress(listener)
-		if err != nil {
-			ltndLog.Errorf(
-				"RPC server unable to listen on %s", listener,
-			)
-			return err
-		}
-		defer lis.Close()
-		go func() {
-			rpcsLog.Infof("RPC server listening on %s", lis.Addr())
-			grpcServer.Serve(lis)
-		}()
-	}
-
-	// Finally, start the REST proxy for our gRPC server above.
-	mux := proxy.NewServeMux()
-	err = lnrpc.RegisterLightningHandlerFromEndpoint(
-		ctx, mux, cfg.RPCListeners[0].String(), proxyOpts,
-	)
-	if err != nil {
-		return err
-	}
-	for _, restEndpoint := range cfg.RESTListeners {
-		lis, err := lncfg.TLSListenOnAddress(restEndpoint, tlsConf)
-		if err != nil {
-			ltndLog.Errorf(
-				"gRPC proxy unable to listen on %s",
-				restEndpoint,
-			)
-			return err
-		}
-		defer lis.Close()
-		go func() {
-			rpcsLog.Infof("gRPC proxy started at %s", lis.Addr())
-			http.Serve(lis, mux)
-		}()
-	}
 
 	// If we're not in simnet mode, We'll wait until we're fully synced to
 	// continue the start up of the remainder of the daemon. This ensures
@@ -423,20 +419,14 @@ func lndMain() error {
 	defer server.Stop()
 
 	// Now that the server has started, if the autopilot mode is currently
-	// active, then we'll initialize a fresh instance of it and start it.
+	// active, then we'll start the autopilot agent immediately. It will be
+	// stopped together with the autopilot service.
 	if cfg.Autopilot.Active {
-		pilot, err := initAutoPilot(server, cfg.Autopilot)
-		if err != nil {
-			ltndLog.Errorf("unable to create autopilot agent: %v",
-				err)
-			return err
-		}
-		if err := pilot.Start(); err != nil {
+		if err := atplManager.StartAgent(); err != nil {
 			ltndLog.Errorf("unable to start autopilot agent: %v",
 				err)
 			return err
 		}
-		defer pilot.Stop()
 	}
 
 	// Wait for shutdown signal from either a graceful server stop or from
@@ -560,7 +550,7 @@ func genCertPair(certFile, keyFile string) error {
 
 		KeyUsage: x509.KeyUsageKeyEncipherment |
 			x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
-		IsCA: true, // so can sign self.
+		IsCA:                  true, // so can sign self.
 		BasicConstraintsValid: true,
 
 		DNSNames:    dnsNames,
@@ -604,9 +594,9 @@ func genCertPair(certFile, keyFile string) error {
 	return nil
 }
 
-// genMacaroons generates three macaroon files; one admin-level, one
-// for invoice access and one read-only. These can also be used
-// to generate more granular macaroons.
+// genMacaroons generates three macaroon files; one admin-level, one for
+// invoice access and one read-only. These can also be used to generate more
+// granular macaroons.
 func genMacaroons(ctx context.Context, svc *macaroons.Service,
 	admFile, roFile, invoiceFile string) error {
 
@@ -685,6 +675,10 @@ type WalletUnlockParams struct {
 	// later when lnd actually uses it). Because unlocking involves scrypt
 	// which is resource intensive, we want to avoid doing it twice.
 	Wallet *wallet.Wallet
+
+	// ChansToRestore a set of static channel backups that should be
+	// restored before the main server instance starts up.
+	ChansToRestore walletunlocker.ChannelsToRecover
 }
 
 // waitForWalletPassword will spin up gRPC and REST endpoints for the
@@ -708,7 +702,7 @@ func waitForWalletPassword(grpcEndpoints, restEndpoints []net.Addr,
 	// deleted within it and recreated when successfully changing the
 	// wallet's password.
 	macaroonFiles := []string{
-		filepath.Join(macaroonDatabaseDir, macaroons.DBFilename),
+		filepath.Join(networkDir, macaroons.DBFilename),
 		cfg.AdminMacPath, cfg.ReadMacPath, cfg.InvoiceMacPath,
 	}
 	pwService := walletunlocker.New(
@@ -838,24 +832,23 @@ func waitForWalletPassword(grpcEndpoints, restEndpoints []net.Addr,
 			return nil, err
 		}
 
-		walletInitParams := &WalletUnlockParams{
+		return &WalletUnlockParams{
 			Password:       password,
 			Birthday:       birthday,
 			RecoveryWindow: recoveryWindow,
 			Wallet:         newWallet,
-		}
-
-		return walletInitParams, nil
+			ChansToRestore: initMsg.ChanBackups,
+		}, nil
 
 	// The wallet has already been created in the past, and is simply being
 	// unlocked. So we'll just return these passphrases.
 	case unlockMsg := <-pwService.UnlockMsgs:
-		walletInitParams := &WalletUnlockParams{
+		return &WalletUnlockParams{
 			Password:       unlockMsg.Passphrase,
 			RecoveryWindow: unlockMsg.RecoveryWindow,
 			Wallet:         unlockMsg.Wallet,
-		}
-		return walletInitParams, nil
+			ChansToRestore: unlockMsg.ChanBackups,
+		}, nil
 
 	case <-signal.ShutdownChannel():
 		return nil, fmt.Errorf("shutting down")

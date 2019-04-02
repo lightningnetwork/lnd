@@ -47,6 +47,16 @@ var (
 	// the cipher session exceeds the maximum allowed message payload.
 	ErrMaxMessageLengthExceeded = errors.New("the generated payload exceeds " +
 		"the max allowed message length of (2^16)-1")
+
+	// lightningPrologue is the noise prologue that is used to initialize
+	// the brontide noise handshake.
+	lightningPrologue = []byte("lightning")
+
+	// ephemeralGen is the default ephemeral key generator, used to derive a
+	// unique ephemeral key for each brontide handshake.
+	ephemeralGen = func() (*btcec.PrivateKey, error) {
+		return btcec.NewPrivateKey(btcec.S256())
+	}
 )
 
 // TODO(roasbeef): free buffer pool?
@@ -357,15 +367,6 @@ type Machine struct {
 	// next ciphertext header from the wire. The header is a 2 byte length
 	// (of the next ciphertext), followed by a 16 byte MAC.
 	nextCipherHeader [lengthHeaderSize + macSize]byte
-
-	// nextCipherText is a static buffer that we'll use to read in the
-	// bytes of the next cipher text message. As all messages in the
-	// protocol MUST be below 65KB plus our macSize, this will be
-	// sufficient to buffer all messages from the socket when we need to
-	// read the next one. Having a fixed buffer that's re-used also means
-	// that we save on allocations as we don't need to create a new one
-	// each time.
-	nextCipherText [math.MaxUint16 + macSize]byte
 }
 
 // NewBrontideMachine creates a new instance of the brontide state-machine. If
@@ -377,15 +378,13 @@ type Machine struct {
 func NewBrontideMachine(initiator bool, localPub *btcec.PrivateKey,
 	remotePub *btcec.PublicKey, options ...func(*Machine)) *Machine {
 
-	handshake := newHandshakeState(initiator, []byte("lightning"), localPub,
-		remotePub)
+	handshake := newHandshakeState(
+		initiator, lightningPrologue, localPub, remotePub,
+	)
 
-	m := &Machine{handshakeState: handshake}
-
-	// With the initial base machine created, we'll assign our default
-	// version of the ephemeral key generator.
-	m.ephemeralGen = func() (*btcec.PrivateKey, error) {
-		return btcec.NewPrivateKey(btcec.S256())
+	m := &Machine{
+		handshakeState: handshake,
+		ephemeralGen:   ephemeralGen,
 	}
 
 	// With the default options established, we'll now process all the
@@ -719,8 +718,28 @@ func (b *Machine) WriteMessage(w io.Writer, p []byte) error {
 // ReadMessage attempts to read the next message from the passed io.Reader. In
 // the case of an authentication error, a non-nil error is returned.
 func (b *Machine) ReadMessage(r io.Reader) ([]byte, error) {
-	if _, err := io.ReadFull(r, b.nextCipherHeader[:]); err != nil {
+	pktLen, err := b.ReadHeader(r)
+	if err != nil {
 		return nil, err
+	}
+
+	buf := make([]byte, pktLen)
+	return b.ReadBody(r, buf)
+}
+
+// ReadHeader attempts to read the next message header from the passed
+// io.Reader. The header contains the length of the next body including
+// additional overhead of the MAC. In the case of an authentication error, a
+// non-nil error is returned.
+//
+// NOTE: This method SHOULD NOT be used in the case that the io.Reader may be
+// adversarial and induce long delays. If the caller needs to set read deadlines
+// appropriately, it is preferred that they use the split ReadHeader and
+// ReadBody methods so that the deadlines can be set appropriately on each.
+func (b *Machine) ReadHeader(r io.Reader) (uint32, error) {
+	_, err := io.ReadFull(r, b.nextCipherHeader[:])
+	if err != nil {
+		return 0, err
 	}
 
 	// Attempt to decrypt+auth the packet length present in the stream.
@@ -728,16 +747,30 @@ func (b *Machine) ReadMessage(r io.Reader) ([]byte, error) {
 		nil, nil, b.nextCipherHeader[:],
 	)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 
-	// Next, using the length read from the packet header, read the
-	// encrypted packet itself.
+	// Compute the packet length that we will need to read off the wire.
 	pktLen := uint32(binary.BigEndian.Uint16(pktLenBytes)) + macSize
-	if _, err := io.ReadFull(r, b.nextCipherText[:pktLen]); err != nil {
+
+	return pktLen, nil
+}
+
+// ReadBody attempts to ready the next message body from the passed io.Reader.
+// The provided buffer MUST be the length indicated by the packet length
+// returned by the preceding call to ReadHeader. In the case of an
+// authentication eerror, a non-nil error is returned.
+func (b *Machine) ReadBody(r io.Reader, buf []byte) ([]byte, error) {
+	// Next, using the length read from the packet header, read the
+	// encrypted packet itself into the buffer allocated by the read
+	// pool.
+	_, err := io.ReadFull(r, buf)
+	if err != nil {
 		return nil, err
 	}
 
+	// Finally, decrypt the message held in the buffer, and return a
+	// new byte slice containing the plaintext.
 	// TODO(roasbeef): modify to let pass in slice
-	return b.recvCipher.Decrypt(nil, nil, b.nextCipherText[:pktLen])
+	return b.recvCipher.Decrypt(nil, nil, buf)
 }

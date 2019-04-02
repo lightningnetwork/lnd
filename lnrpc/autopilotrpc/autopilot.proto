@@ -1,0 +1,78 @@
+syntax = "proto3";
+
+package autopilotrpc;
+
+option go_package = "github.com/lightningnetwork/lnd/lnrpc/autopilotrpc";
+
+// Autopilot is a service that can be used to get information about the current
+// state of the daemon's autopilot agent, and also supply it with information
+// that can be used when deciding where to open channels.
+service Autopilot {
+    /**
+    Status returns whether the daemon's autopilot agent is active.
+    */
+    rpc Status(StatusRequest) returns (StatusResponse);
+
+    /**
+    ModifyStatus is used to modify the status of the autopilot agent, like
+    enabling or disabling it.
+    */
+    rpc ModifyStatus(ModifyStatusRequest) returns (ModifyStatusResponse);
+
+    /**
+    QueryScores queries all available autopilot heuristics, in addition to any
+    active combination of these heruristics, for the scores they would give to
+    the given nodes.
+    */
+    rpc QueryScores(QueryScoresRequest) returns (QueryScoresResponse);
+
+    /**
+    SetScores attempts to set the scores used by the running autopilot agent,
+    if the external scoring heuristic is enabled.
+    */
+    rpc SetScores(SetScoresRequest) returns (SetScoresResponse);
+}
+
+message StatusRequest{
+}
+
+message StatusResponse{
+    /// Indicates whether the autopilot is active or not.
+    bool active = 1 [json_name = "active"];
+}
+
+message ModifyStatusRequest{
+    /// Whether the autopilot agent should be enabled or not.
+    bool enable = 1 [json_name = "enable"];
+}
+
+message ModifyStatusResponse {}
+
+message QueryScoresRequest{
+    repeated string pubkeys = 1 [json_name = "pubkeys"];
+
+    /// If set, we will ignore the local channel state when calculating scores.
+    bool ignore_local_state = 2 [json_name = "no_state"];
+}
+
+message QueryScoresResponse {
+    message HeuristicResult {
+        string heuristic = 1 [json_name = "heuristic"];
+        map<string, double> scores= 2 [json_name = "scores"];
+    }
+
+    repeated HeuristicResult results = 1 [json_name = "results"];
+}
+
+message SetScoresRequest{
+    /// The name of the heuristic to provide scores to.
+    string heuristic = 1 [json_name = "heuristic"];
+
+    /**
+    A map from hex-encoded public keys to scores. Scores must be in the range
+    [0.0, 1.0].
+    */
+    map<string, double> scores = 2 [json_name = "scores"];
+}
+
+message SetScoresResponse {}

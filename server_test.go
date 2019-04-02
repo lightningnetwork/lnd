@@ -5,32 +5,39 @@ package main
 import "testing"
 
 func TestParseHexColor(t *testing.T) {
-	empty := ""
-	color, err := parseHexColor(empty)
-	if err == nil {
-		t.Fatalf("Empty color string should return error, but did not")
+	var colorTestCases = []struct {
+		test  string
+		valid bool // If valid format
+		R     byte
+		G     byte
+		B     byte
+	}{
+		{"#123", false, 0, 0, 0},
+		{"#1234567", false, 0, 0, 0},
+		{"$123456", false, 0, 0, 0},
+		{"#12345+", false, 0, 0, 0},
+		{"#fFGG00", false, 0, 0, 0},
+		{"", false, 0, 0, 0},
+		{"#123456", true, 0x12, 0x34, 0x56},
+		{"#C0FfeE", true, 0xc0, 0xff, 0xee},
 	}
 
-	tooLong := "#1234567"
-	color, err = parseHexColor(tooLong)
-	if err == nil {
-		t.Fatalf("Invalid color string %s should return error, but did not",
-			tooLong)
-	}
+	// Perform the table driven tests.
+	for _, ct := range colorTestCases {
 
-	invalidFormat := "$123456"
-	color, err = parseHexColor(invalidFormat)
-	if err == nil {
-		t.Fatalf("Invalid color string %s should return error, but did not",
-			invalidFormat)
-	}
+		color, err := parseHexColor(ct.test)
+		if !ct.valid && err == nil {
+			t.Fatalf("Invalid color string: %s, should return "+
+				"error, but did not", ct.test)
+		}
 
-	valid := "#C0FfeE"
-	color, err = parseHexColor(valid)
-	if err != nil {
-		t.Fatalf("Color %s valid to parse: %s", valid, err)
-	}
-	if color.R != 0xc0 || color.G != 0xff || color.B != 0xee {
-		t.Fatalf("Color %s incorrectly parsed as %v", valid, color)
+		if ct.valid && err != nil {
+			t.Fatalf("Color %s valid to parse: %s", ct.test, err)
+		}
+
+		// Ensure that the string to hex decoding is working properly.
+		if color.R != ct.R || color.G != ct.G || color.B != ct.B {
+			t.Fatalf("Color %s incorrectly parsed as %v", ct.test, color)
+		}
 	}
 }

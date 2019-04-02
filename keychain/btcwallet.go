@@ -269,24 +269,74 @@ func (b *BtcWalletKeyRing) DerivePrivKey(keyDesc KeyDescriptor) (*btcec.PrivateK
 			return err
 		}
 
-		// Now that we know the account exists, we can safely derive
-		// the full private key from the given path.
-		path := waddrmgr.DerivationPath{
+		// If the public key isn't set or they have a non-zero index,
+		// then we know that the caller instead knows the derivation
+		// path for a key.
+		if keyDesc.PubKey == nil || keyDesc.Index > 0 {
+			// Now that we know the account exists, we can safely
+			// derive the full private key from the given path.
+			path := waddrmgr.DerivationPath{
+				Account: uint32(keyDesc.Family),
+				Branch:  0,
+				Index:   uint32(keyDesc.Index),
+			}
+			addr, err := scope.DeriveFromKeyPath(addrmgrNs, path)
+			if err != nil {
+				return err
+			}
+
+			key, err = addr.(waddrmgr.ManagedPubKeyAddress).PrivKey()
+			if err != nil {
+				return err
+			}
+
+			return nil
+		}
+
+		// If the public key isn't nil, then this indicates that we
+		// need to scan for the private key, assuming that we know the
+		// valid key family.
+		nextPath := waddrmgr.DerivationPath{
 			Account: uint32(keyDesc.Family),
 			Branch:  0,
-			Index:   uint32(keyDesc.Index),
-		}
-		addr, err := scope.DeriveFromKeyPath(addrmgrNs, path)
-		if err != nil {
-			return err
+			Index:   0,
 		}
 
-		key, err = addr.(waddrmgr.ManagedPubKeyAddress).PrivKey()
-		if err != nil {
-			return err
+		// We'll now iterate through our key range in an attempt to
+		// find the target public key.
+		//
+		// TODO(roasbeef): possibly move scanning into wallet to allow
+		// to be parallelized
+		for i := 0; i < MaxKeyRangeScan; i++ {
+			// Derive the next key in the range and fetch its
+			// managed address.
+			addr, err := scope.DeriveFromKeyPath(
+				addrmgrNs, nextPath,
+			)
+			if err != nil {
+				return err
+			}
+			managedAddr := addr.(waddrmgr.ManagedPubKeyAddress)
+
+			// If this is the target public key, then we'll return
+			// it directly back to the caller.
+			if managedAddr.PubKey().IsEqual(keyDesc.PubKey) {
+				key, err = managedAddr.PrivKey()
+				if err != nil {
+					return err
+				}
+
+				return nil
+			}
+
+			// This wasn't the target key, so roll forward and try
+			// the next one.
+			nextPath.Index++
 		}
 
-		return nil
+		// If we reach this point, then we we're unable to derive the
+		// private key, so return an error back to the user.
+		return ErrCannotDerivePrivKey
 	})
 	if err != nil {
 		return nil, err

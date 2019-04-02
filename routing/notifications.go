@@ -266,6 +266,9 @@ type ChannelEdgeUpdate struct {
 	// MinHTLC is the minimum HTLC amount that this channel will forward.
 	MinHTLC lnwire.MilliSatoshi
 
+	// MaxHTLC is the maximum HTLC amount that this channel will forward.
+	MaxHTLC lnwire.MilliSatoshi
+
 	// BaseFee is the base fee that will charged for all HTLC's forwarded
 	// across the this channel direction.
 	BaseFee lnwire.MilliSatoshi
@@ -339,7 +342,7 @@ func addToTopologyChange(graph *channeldb.ChannelGraph, update *TopologyChange,
 		// the second node.
 		sourceNode := edgeInfo.NodeKey1
 		connectingNode := edgeInfo.NodeKey2
-		if m.Flags&lnwire.ChanUpdateDirection == 1 {
+		if m.ChannelFlags&lnwire.ChanUpdateDirection == 1 {
 			sourceNode = edgeInfo.NodeKey2
 			connectingNode = edgeInfo.NodeKey1
 		}
@@ -359,11 +362,12 @@ func addToTopologyChange(graph *channeldb.ChannelGraph, update *TopologyChange,
 			TimeLockDelta:   m.TimeLockDelta,
 			Capacity:        edgeInfo.Capacity,
 			MinHTLC:         m.MinHTLC,
+			MaxHTLC:         m.MaxHTLC,
 			BaseFee:         m.FeeBaseMSat,
 			FeeRate:         m.FeeProportionalMillionths,
 			AdvertisingNode: aNode,
 			ConnectingNode:  cNode,
-			Disabled:        m.Flags&lnwire.ChanUpdateDisabled != 0,
+			Disabled:        m.ChannelFlags&lnwire.ChanUpdateDisabled != 0,
 		}
 		edgeUpdate.AdvertisingNode.Curve = nil
 		edgeUpdate.ConnectingNode.Curve = nil

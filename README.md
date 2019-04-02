@@ -8,8 +8,7 @@
 <img src="logo.png">
 
 The Lightning Network Daemon (`lnd`) - is a complete implementation of a
-[Lightning Network](https://lightning.network) node and currently deployed on
-`testnet3` - the Bitcoin Test Network.  `lnd` has several pluggable back-end
+[Lightning Network](https://lightning.network) node.  `lnd` has several pluggable back-end
 chain services including [`btcd`](https://github.com/btcsuite/btcd) (a
 full-node), [`bitcoind`](https://github.com/bitcoin/bitcoin), and
 [`neutrino`](https://github.com/lightninglabs/neutrino) (a new experimental light client). The project's codebase uses the
@@ -29,7 +28,7 @@ through the network.
 ## Lightning Network Specification Compliance
 `lnd` _fully_ conforms to the [Lightning Network specification
 (BOLTs)](https://github.com/lightningnetwork/lightning-rfc). BOLT stands for:
-Basic of Lightning Technologies. The specifications are currently being drafted
+Basis of Lightning Technology. The specifications are currently being drafted
 by several groups of implementers based around the world including the
 developers of `lnd`. The set of specification documents as well as our
 implementation of the specification are still a work-in-progress. With that
@@ -74,6 +73,17 @@ discuss various aspects of `lnd` and also Lightning in general.
   * irc.freenode.net
   * channel #lnd
   * [webchat](https://webchat.freenode.net/?channels=lnd)
+
+## Security
+
+The developers of `lnd` take security _very_ seriously. The disclosure of
+security vulnerabilities helps us secure the health of `lnd`, privacy of our
+users, and also the health of the Lightning Network as a whole.  If you find
+any issues regarding security or privacy, please disclose the information
+responsibly by sending an email to security at lightning dot engineering,
+preferably [encrypted using our designated PGP key
+(`91FE464CD75101DA6B6BAB60555C6465E5BCB3AF`) which can be found
+here](https://pgp.mit.edu/pks/lookup?op=vindex&search=0x555C6465E5BCB3AF).
 
 ## Further reading
 * [Step-by-step send payment guide with docker](https://github.com/lightningnetwork/lnd/tree/master/docker)

@@ -31,13 +31,18 @@ const (
 	ErrTargetNotInNetwork
 
 	// ErrOutdated is returned when the routing update already have
-	// been applied.
+	// been applied, or a newer update is already known.
 	ErrOutdated
 
 	// ErrIgnored is returned when the update have been ignored because
 	// this update can't bring us something new, or because a node
 	// announcement was given for node not found in any channel.
 	ErrIgnored
+
+	// ErrRejected is returned if the update is for a channel ID that was
+	// previously added to the reject cache because of an invalid update
+	// was attempted to be processed.
+	ErrRejected
 
 	// ErrPaymentAttemptTimeout is an error that indicates that a payment
 	// attempt timed out before we were able to successfully route an HTLC.

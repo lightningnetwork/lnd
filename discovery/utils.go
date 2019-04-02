@@ -23,13 +23,14 @@ func CreateChanAnnouncement(chanProof *channeldb.ChannelAuthProof,
 	// authenticated channel announcement.
 	chanID := lnwire.NewShortChanIDFromInt(chanInfo.ChannelID)
 	chanAnn := &lnwire.ChannelAnnouncement{
-		ShortChannelID: chanID,
-		NodeID1:        chanInfo.NodeKey1Bytes,
-		NodeID2:        chanInfo.NodeKey2Bytes,
-		ChainHash:      chanInfo.ChainHash,
-		BitcoinKey1:    chanInfo.BitcoinKey1Bytes,
-		BitcoinKey2:    chanInfo.BitcoinKey2Bytes,
-		Features:       lnwire.NewRawFeatureVector(),
+		ShortChannelID:  chanID,
+		NodeID1:         chanInfo.NodeKey1Bytes,
+		NodeID2:         chanInfo.NodeKey2Bytes,
+		ChainHash:       chanInfo.ChainHash,
+		BitcoinKey1:     chanInfo.BitcoinKey1Bytes,
+		BitcoinKey2:     chanInfo.BitcoinKey2Bytes,
+		Features:        lnwire.NewRawFeatureVector(),
+		ExtraOpaqueData: chanInfo.ExtraOpaqueData,
 	}
 
 	var err error
@@ -71,11 +72,14 @@ func CreateChanAnnouncement(chanProof *channeldb.ChannelAuthProof,
 			ChainHash:       chanInfo.ChainHash,
 			ShortChannelID:  chanID,
 			Timestamp:       uint32(e1.LastUpdate.Unix()),
-			Flags:           e1.Flags,
+			MessageFlags:    e1.MessageFlags,
+			ChannelFlags:    e1.ChannelFlags,
 			TimeLockDelta:   e1.TimeLockDelta,
 			HtlcMinimumMsat: e1.MinHTLC,
+			HtlcMaximumMsat: e1.MaxHTLC,
 			BaseFee:         uint32(e1.FeeBaseMSat),
 			FeeRate:         uint32(e1.FeeProportionalMillionths),
+			ExtraOpaqueData: e1.ExtraOpaqueData,
 		}
 		edge1Ann.Signature, err = lnwire.NewSigFromRawSignature(e1.SigBytes)
 		if err != nil {
@@ -87,11 +91,14 @@ func CreateChanAnnouncement(chanProof *channeldb.ChannelAuthProof,
 			ChainHash:       chanInfo.ChainHash,
 			ShortChannelID:  chanID,
 			Timestamp:       uint32(e2.LastUpdate.Unix()),
-			Flags:           e2.Flags,
+			MessageFlags:    e2.MessageFlags,
+			ChannelFlags:    e2.ChannelFlags,
 			TimeLockDelta:   e2.TimeLockDelta,
 			HtlcMinimumMsat: e2.MinHTLC,
+			HtlcMaximumMsat: e2.MaxHTLC,
 			BaseFee:         uint32(e2.FeeBaseMSat),
 			FeeRate:         uint32(e2.FeeProportionalMillionths),
+			ExtraOpaqueData: e2.ExtraOpaqueData,
 		}
 		edge2Ann.Signature, err = lnwire.NewSigFromRawSignature(e2.SigBytes)
 		if err != nil {

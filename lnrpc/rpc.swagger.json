@@ -148,6 +148,38 @@
         ]
       }
     },
+    "/v1/channels/abandon/{channel_point.funding_txid_str}/{channel_point.output_index}": {
+      "delete": {
+        "summary": "* lncli: `abandonchannel`\nAbandonChannel removes all channel state from the database except for a\nclose summary. This method can be used to get rid of permanently unusable\nchannels due to bugs fixed in newer versions of lnd. Only available\nwhen in debug builds of lnd.",
+        "operationId": "AbandonChannel",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/lnrpcAbandonChannelResponse"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "channel_point.funding_txid_str",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "channel_point.output_index",
+            "in": "path",
+            "required": true,
+            "type": "integer",
+            "format": "int64"
+          }
+        ],
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
     "/v1/channels/closed": {
       "get": {
         "summary": "* lncli: `closedchannels`\nClosedChannels returns a description of all the closed channels that \nthis node was a participant in.",
@@ -191,6 +223,13 @@
           },
           {
             "name": "funding_canceled",
+            "in": "query",
+            "required": false,
+            "type": "boolean",
+            "format": "boolean"
+          },
+          {
+            "name": "abandoned",
             "in": "query",
             "required": false,
             "type": "boolean",
@@ -414,6 +453,16 @@
             }
           }
         },
+        "parameters": [
+          {
+            "name": "include_unannounced",
+            "description": "*\nWhether unannounced channels are included in the response or not. If set,\nunannounced channels are included. Unannounced channels are both private\nchannels, and public channels that are not yet announced to the network.",
+            "in": "query",
+            "required": false,
+            "type": "boolean",
+            "format": "boolean"
+          }
+        ],
         "tags": [
           "Lightning"
         ]
@@ -515,7 +564,7 @@
           },
           {
             "name": "num_routes",
-            "description": "/ The max number of routes to return.",
+            "description": "*\nDeprecated. The max number of routes to return. In the future, QueryRoutes\nwill only return a single route.",
             "in": "query",
             "required": false,
             "type": "integer",
@@ -544,6 +593,24 @@
             "required": false,
             "type": "string",
             "format": "int64"
+          },
+          {
+            "name": "ignored_nodes",
+            "description": "*\nA list of nodes to ignore during path finding.",
+            "in": "query",
+            "required": false,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "byte"
+            }
+          },
+          {
+            "name": "source_pub_key",
+            "description": "*\nThe source node where the request route should originated from. If empty,\nself is assumed.",
+            "in": "query",
+            "required": false,
+            "type": "string"
           }
         ],
         "tags": [
@@ -614,7 +681,7 @@
     },
     "/v1/invoices": {
       "get": {
-        "summary": "* lncli: `listinvoices`\nListInvoices returns a list of all the invoices currently stored within the\ndatabase. Any active debug invoices are ignored.",
+        "summary": "* lncli: `listinvoices`\nListInvoices returns a list of all the invoices currently stored within the\ndatabase. Any active debug invoices are ignored. It has full support for\npaginated responses, allowing users to query for specific invoices through\ntheir add_index. This can be done by using either the first_index_offset or\nlast_index_offset fields included in the response as the index_offset of the\nnext request. By default, the first 100 invoices created will be returned.\nBackwards pagination is also supported through the Reversed flag.",
         "operationId": "ListInvoices",
         "responses": {
           "200": {
@@ -627,7 +694,31 @@
         "parameters": [
           {
             "name": "pending_only",
-            "description": "/ Toggles if all invoices should be returned, or only those that are currently unsettled.",
+            "description": "/ If set, only unsettled invoices will be returned in the response.",
+            "in": "query",
+            "required": false,
+            "type": "boolean",
+            "format": "boolean"
+          },
+          {
+            "name": "index_offset",
+            "description": "*\nThe index of an invoice that will be used as either the start or end of a\nquery to determine which invoices should be returned in the response.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "uint64"
+          },
+          {
+            "name": "num_max_invoices",
+            "description": "/ The max number of invoices to return in the response to this query.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "uint64"
+          },
+          {
+            "name": "reversed",
+            "description": "*\nIf set, the invoices returned will result from seeking backwards from the\nspecified index offset. This can be used to paginate backwards.",
             "in": "query",
             "required": false,
             "type": "boolean",
@@ -666,7 +757,7 @@
     },
     "/v1/invoices/subscribe": {
       "get": {
-        "summary": "*\nSubscribeInvoices returns a uni-directional stream (sever -\u003e client) for\nnotifying the client of newly added/settled invoices. The caller can\noptionally specify the add_index and/or the settle_index. If the add_index\nis specified, then we'll first start by sending add invoice events for all\ninvoices with an add_index greater than the specified value.  If the\nsettle_index is specified, the next, we'll send out all settle events for\ninvoices with a settle_index greater than the specified value.  One or both\nof these fields can be set. If no fields are set, then we'll only send out\nthe latest add/settle events.",
+        "summary": "*\nSubscribeInvoices returns a uni-directional stream (server -\u003e client) for\nnotifying the client of newly added/settled invoices. The caller can\noptionally specify the add_index and/or the settle_index. If the add_index\nis specified, then we'll first start by sending add invoice events for all\ninvoices with an add_index greater than the specified value.  If the\nsettle_index is specified, the next, we'll send out all settle events for\ninvoices with a settle_index greater than the specified value.  One or both\nof these fields can be set. If no fields are set, then we'll only send out\nthe latest add/settle events.",
         "operationId": "SubscribeInvoices",
         "responses": {
           "200": {
@@ -701,8 +792,8 @@
     },
     "/v1/newaddress": {
       "get": {
-        "summary": "*\nNewWitnessAddress creates a new witness address under control of the local wallet.",
-        "operationId": "NewWitnessAddress",
+        "summary": "* lncli: `newaddress`\nNewAddress creates a new address under control of the local wallet.",
+        "operationId": "NewAddress",
         "responses": {
           "200": {
             "description": "",
@@ -711,6 +802,22 @@
             }
           }
         },
+        "parameters": [
+          {
+            "name": "type",
+            "description": "/ The address type.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "enum": [
+              "WITNESS_PUBKEY_HASH",
+              "NESTED_PUBKEY_HASH",
+              "UNUSED_WITNESS_PUBKEY_HASH",
+              "UNUSED_NESTED_PUBKEY_HASH"
+            ],
+            "default": "WITNESS_PUBKEY_HASH"
+          }
+        ],
         "tags": [
           "Lightning"
         ]
@@ -840,9 +947,36 @@
         ]
       }
     },
+    "/v1/signmessage": {
+      "post": {
+        "summary": "* lncli: `signmessage`\nSignMessage signs a message with this node's private key. The returned\nsignature string is `zbase32` encoded and pubkey recoverable, meaning that\nonly the message digest and signature are needed for verification.",
+        "operationId": "SignMessage",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/lnrpcSignMessageResponse"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/lnrpcSignMessageRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
     "/v1/switch": {
       "post": {
-        "summary": "* lncli: `fwdinghistory`\nForwardingHistory allows the caller to query the htlcswitch for a record of\nall HTLC's forwarded within the target time range, and integer offset\nwithin that time range. If no time-range is specified, then the first chunk\nof the past 24 hrs of forwarding history are returned.",
+        "summary": "* lncli: `fwdinghistory`\nForwardingHistory allows the caller to query the htlcswitch for a record of\nall HTLCs forwarded within the target time range, and integer offset\nwithin that time range. If no time-range is specified, then the first chunk\nof the past 24 hrs of forwarding history are returned.",
         "description": "A list of forwarding events are returned. The size of each forwarding event\nis 40 bytes, and the max message size able to be returned in gRPC is 4 MiB.\nAs a result each message can only contain 50k entries.  Each response has\nthe index offset of the last entry. The index offset can be provided to the\nrequest to allow the caller to skip a series of records.",
         "operationId": "ForwardingHistory",
         "responses": {
@@ -910,6 +1044,33 @@
         ]
       }
     },
+    "/v1/transactions/fee": {
+      "get": {
+        "summary": "* lncli: `estimatefee`\nEstimateFee asks the chain backend to estimate the fee rate and total fees\nfor a transaction that pays to multiple specified outputs.",
+        "operationId": "EstimateFee",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/lnrpcEstimateFeeResponse"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "target_conf",
+            "description": "/ The target number of blocks that this transaction should be confirmed by.",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          }
+        ],
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
     "/v1/unlockwallet": {
       "post": {
         "summary": "* lncli: `unlock`\nUnlockWallet is used at startup of lnd to provide a password to unlock\nthe wallet database.",
@@ -936,6 +1097,68 @@
           "WalletUnlocker"
         ]
       }
+    },
+    "/v1/utxos": {
+      "get": {
+        "summary": "* lncli: `listunspent`\nListUnspent returns a list of all utxos spendable by the wallet with a\nnumber of confirmations between the specified minimum and maximum.",
+        "operationId": "ListUnspent",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/lnrpcListUnspentResponse"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "min_confs",
+            "description": "/ The minimum number of confirmations to be included.",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          },
+          {
+            "name": "max_confs",
+            "description": "/ The maximum number of confirmations to be included.",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          }
+        ],
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
+    "/v1/verifymessage": {
+      "post": {
+        "summary": "* lncli: `verifymessage`\nVerifyMessage verifies a signature over a msg. The signature must be\nzbase32 encoded and signed by an active node in the resident node's\nchannel database. In addition to returning the validity of the signature,\nVerifyMessage also returns the recovered pubkey from the signature.",
+        "operationId": "VerifyMessage",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/lnrpcVerifyMessageResponse"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/lnrpcVerifyMessageRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Lightning"
+        ]
+      }
     }
   },
   "definitions": {
@@ -946,9 +1169,30 @@
         "LOCAL_FORCE_CLOSE",
         "REMOTE_FORCE_CLOSE",
         "BREACH_CLOSE",
-        "FUNDING_CANCELED"
+        "FUNDING_CANCELED",
+        "ABANDONED"
       ],
       "default": "COOPERATIVE_CLOSE"
+    },
+    "ChannelEventUpdateUpdateType": {
+      "type": "string",
+      "enum": [
+        "OPEN_CHANNEL",
+        "CLOSED_CHANNEL",
+        "ACTIVE_CHANNEL",
+        "INACTIVE_CHANNEL"
+      ],
+      "default": "OPEN_CHANNEL"
+    },
+    "InvoiceInvoiceState": {
+      "type": "string",
+      "enum": [
+        "OPEN",
+        "SETTLED",
+        "CANCELED",
+        "ACCEPTED"
+      ],
+      "default": "OPEN"
     },
     "PendingChannelsResponseClosedChannel": {
       "type": "object",
@@ -1068,6 +1312,9 @@
         }
       }
     },
+    "lnrpcAbandonChannelResponse": {
+      "type": "object"
+    },
     "lnrpcAddInvoiceResponse": {
       "type": "object",
       "properties": {
@@ -1083,6 +1330,44 @@
           "type": "string",
           "format": "uint64",
           "description": "*\nThe \"add\" index of this invoice. Each newly created invoice will increment\nthis index making it monotonically increasing. Callers to the\nSubscribeInvoices call can use this to instantly get notified of all added\ninvoices with an add_index greater than this one."
+        }
+      }
+    },
+    "lnrpcAddressType": {
+      "type": "string",
+      "enum": [
+        "WITNESS_PUBKEY_HASH",
+        "NESTED_PUBKEY_HASH",
+        "UNUSED_WITNESS_PUBKEY_HASH",
+        "UNUSED_NESTED_PUBKEY_HASH"
+      ],
+      "default": "WITNESS_PUBKEY_HASH",
+      "description": "- `p2wkh`: Pay to witness key hash (`WITNESS_PUBKEY_HASH` = 0)\n- `np2wkh`: Pay to nested witness key hash (`NESTED_PUBKEY_HASH` = 1)",
+      "title": "* \n`AddressType` has to be one of:"
+    },
+    "lnrpcChain": {
+      "type": "object",
+      "properties": {
+        "chain": {
+          "type": "string",
+          "title": "/ The blockchain the node is on (eg bitcoin, litecoin)"
+        },
+        "network": {
+          "type": "string",
+          "title": "/ The network the node is on (eg regtest, testnet, mainnet)"
+        }
+      }
+    },
+    "lnrpcChanBackupSnapshot": {
+      "type": "object",
+      "properties": {
+        "single_chan_backups": {
+          "$ref": "#/definitions/lnrpcChannelBackups",
+          "description": "*\nThe set of new channels that have been added since the last channel backup\nsnapshot was requested."
+        },
+        "multi_chan_backup": {
+          "$ref": "#/definitions/lnrpcMultiChanBackup",
+          "description": "*\nA multi-channel backup that covers all open channels currently known to\nlnd."
         }
       }
     },
@@ -1185,12 +1470,47 @@
         "csv_delay": {
           "type": "integer",
           "format": "int64",
-          "description": "*\nThe CSV delay expressed in relative blocks. If the channel is force\nclosed, we'll need to wait for this many blocks before we can regain our\nfunds."
+          "description": "*\nThe CSV delay expressed in relative blocks. If the channel is force closed,\nwe will need to wait for this many blocks before we can regain our funds."
         },
         "private": {
           "type": "boolean",
           "format": "boolean",
-          "title": "/ Whether this channel is advertised to the network or not"
+          "description": "/ Whether this channel is advertised to the network or not."
+        },
+        "initiator": {
+          "type": "boolean",
+          "format": "boolean",
+          "description": "/ True if we were the ones that created the channel."
+        },
+        "chan_status_flags": {
+          "type": "string",
+          "description": "/ A set of flags showing the current state of the cahnnel."
+        }
+      }
+    },
+    "lnrpcChannelBackup": {
+      "type": "object",
+      "properties": {
+        "chan_point": {
+          "$ref": "#/definitions/lnrpcChannelPoint",
+          "description": "*\nIdentifies the channel that this backup belongs to."
+        },
+        "chan_backup": {
+          "type": "string",
+          "format": "byte",
+          "description": "*\nIs an encrypted single-chan backup. this can be passed to\nRestoreChannelBackups, or the WalletUnlocker Innit and Unlock methods in\norder to trigger the recovery protocol."
+        }
+      }
+    },
+    "lnrpcChannelBackups": {
+      "type": "object",
+      "properties": {
+        "chan_backups": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcChannelBackup"
+          },
+          "description": "*\nA set of single-chan static channel backups."
         }
       }
     },
@@ -1332,6 +1652,26 @@
         }
       }
     },
+    "lnrpcChannelEventUpdate": {
+      "type": "object",
+      "properties": {
+        "open_channel": {
+          "$ref": "#/definitions/lnrpcChannel"
+        },
+        "closed_channel": {
+          "$ref": "#/definitions/lnrpcChannelCloseSummary"
+        },
+        "active_channel": {
+          "$ref": "#/definitions/lnrpcChannelPoint"
+        },
+        "inactive_channel": {
+          "$ref": "#/definitions/lnrpcChannelPoint"
+        },
+        "type": {
+          "$ref": "#/definitions/ChannelEventUpdateUpdateType"
+        }
+      }
+    },
     "lnrpcChannelFeeReport": {
       "type": "object",
       "properties": {
@@ -1409,9 +1749,6 @@
         "close_pending": {
           "$ref": "#/definitions/lnrpcPendingUpdate"
         },
-        "confirmation": {
-          "$ref": "#/definitions/lnrpcConfirmationUpdate"
-        },
         "chan_close": {
           "$ref": "#/definitions/lnrpcChannelCloseUpdate"
         }
@@ -1449,23 +1786,6 @@
         }
       }
     },
-    "lnrpcConfirmationUpdate": {
-      "type": "object",
-      "properties": {
-        "block_sha": {
-          "type": "string",
-          "format": "byte"
-        },
-        "block_height": {
-          "type": "integer",
-          "format": "int32"
-        },
-        "num_confs_left": {
-          "type": "integer",
-          "format": "int64"
-        }
-      }
-    },
     "lnrpcConnectPeerRequest": {
       "type": "object",
       "properties": {
@@ -1496,6 +1816,21 @@
     },
     "lnrpcDisconnectPeerResponse": {
       "type": "object"
+    },
+    "lnrpcEstimateFeeResponse": {
+      "type": "object",
+      "properties": {
+        "fee_sat": {
+          "type": "string",
+          "format": "int64",
+          "description": "/ The total fee in satoshis."
+        },
+        "feerate_sat_per_byte": {
+          "type": "string",
+          "format": "int64",
+          "description": "/ The fee rate in satoshi/byte."
+        }
+      }
     },
     "lnrpcFeeLimit": {
       "type": "object",
@@ -1560,17 +1895,22 @@
         "amt_in": {
           "type": "string",
           "format": "uint64",
-          "description": "/ The total amount of the incoming HTLC that created half the circuit."
+          "description": "/ The total amount (in satoshis) of the incoming HTLC that created half the circuit."
         },
         "amt_out": {
           "type": "string",
           "format": "uint64",
-          "description": "/ The total amount of the outgoign HTLC that created the second half of the circuit."
+          "description": "/ The total amount (in satoshis) of the outgoing HTLC that created the second half of the circuit."
         },
         "fee": {
           "type": "string",
           "format": "uint64",
-          "description": "/ The total fee that this payment circuit carried."
+          "description": "/ The total fee (in satoshis) that this payment circuit carried."
+        },
+        "fee_msat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "/ The total fee (in milli-satoshis) that this payment circuit carried."
         }
       }
     },
@@ -1676,14 +2016,7 @@
         "testnet": {
           "type": "boolean",
           "format": "boolean",
-          "title": "/ Whether the current node is connected to testnet"
-        },
-        "chains": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "title": "/ A list of active chains the node is connected to"
+          "title": "* \nWhether the current node is connected to testnet. This field is \ndeprecated and the network field should be used instead"
         },
         "uris": {
           "type": "array",
@@ -1700,6 +2033,18 @@
         "version": {
           "type": "string",
           "description": "/ The version of the LND software that the node is running."
+        },
+        "num_inactive_channels": {
+          "type": "integer",
+          "format": "int64",
+          "title": "/ Number of inactive channels"
+        },
+        "chains": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcChain"
+          },
+          "title": "/ A list of active chains the node is connected to"
         }
       }
     },
@@ -1778,6 +2123,10 @@
         "fee_msat": {
           "type": "string",
           "format": "int64"
+        },
+        "pub_key": {
+          "type": "string",
+          "description": "*\nAn optional public key of the hop. If the public key is given, the payment\ncan be executed without relying on a copy of the channel graph."
         }
       }
     },
@@ -1833,7 +2182,11 @@
         "recovery_window": {
           "type": "integer",
           "format": "int32",
-          "description": "*\nrecovery_window is an optional argument specifying the address lookahead\nwhen restoring a wallet seed. The recovery window applies to each\ninvdividual branch of the BIP44 derivation paths. Supplying a recovery\nwindow of zero indicates that no addresses should be recovered, such after\nthe first initialization of the wallet."
+          "description": "*\nrecovery_window is an optional argument specifying the address lookahead\nwhen restoring a wallet seed. The recovery window applies to each\nindividual branch of the BIP44 derivation paths. Supplying a recovery\nwindow of zero indicates that no addresses should be recovered, such after\nthe first initialization of the wallet."
+        },
+        "channel_backups": {
+          "$ref": "#/definitions/lnrpcChanBackupSnapshot",
+          "description": "*\nchannel_backups is an optional argument that allows clients to recover the\nsettled funds within a set of channels. This should be populated if the\nuser was unable to close out all channels and sweep funds before partial or\ntotal data loss occurred. If specified, then after on-chain recovery of\nfunds, lnd begin to carry out the data loss recovery protocol in order to\nrecover the funds in each channel from a remote force closed transaction."
         }
       }
     },
@@ -1850,7 +2203,7 @@
         "receipt": {
           "type": "string",
           "format": "byte",
-          "title": "/ An optional cryptographic receipt of payment"
+          "description": "* Deprecated. An optional cryptographic receipt of payment which is not\nimplemented."
         },
         "r_preimage": {
           "type": "string",
@@ -1930,7 +2283,21 @@
         "amt_paid": {
           "type": "string",
           "format": "int64",
-          "description": "*\nThe amount that was accepted for this invoice. This will ONLY be set if\nthis invoice has been settled. We provide this field as if the invoice was\ncreated with a zero value, then we need to record what amount was\nultimately accepted. Additionally, it's possible that the sender paid MORE\nthat was specified in the original invoice. So we'll record that here as\nwell."
+          "description": "/ Deprecated, use amt_paid_sat or amt_paid_msat."
+        },
+        "amt_paid_sat": {
+          "type": "string",
+          "format": "int64",
+          "description": "*\nThe amount that was accepted for this invoice, in satoshis. This will ONLY\nbe set if this invoice has been settled. We provide this field as if the\ninvoice was created with a zero value, then we need to record what amount\nwas ultimately accepted. Additionally, it's possible that the sender paid\nMORE that was specified in the original invoice. So we'll record that here\nas well."
+        },
+        "amt_paid_msat": {
+          "type": "string",
+          "format": "int64",
+          "description": "*\nThe amount that was accepted for this invoice, in millisatoshis. This will\nONLY be set if this invoice has been settled. We provide this field as if\nthe invoice was created with a zero value, then we need to record what\namount was ultimately accepted. Additionally, it's possible that the sender\npaid MORE that was specified in the original invoice. So we'll record that\nhere as well."
+        },
+        "state": {
+          "$ref": "#/definitions/InvoiceInvoiceState",
+          "description": "*\nThe state the invoice is in."
         }
       }
     },
@@ -1991,7 +2358,18 @@
           "type": "array",
           "items": {
             "$ref": "#/definitions/lnrpcInvoice"
-          }
+          },
+          "description": "*\nA list of invoices from the time slice of the time series specified in the\nrequest."
+        },
+        "last_index_offset": {
+          "type": "string",
+          "format": "uint64",
+          "description": "*\nThe index of the last item in the set of returned invoices. This can be used\nto seek further, pagination style."
+        },
+        "first_index_offset": {
+          "type": "string",
+          "format": "uint64",
+          "description": "*\nThe index of the last item in the set of returned invoices. This can be used\nto seek backwards, pagination style."
         }
       }
     },
@@ -2016,6 +2394,35 @@
             "$ref": "#/definitions/lnrpcPeer"
           },
           "title": "/ The list of currently connected peers"
+        }
+      }
+    },
+    "lnrpcListUnspentResponse": {
+      "type": "object",
+      "properties": {
+        "utxos": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcUtxo"
+          },
+          "title": "/ A list of utxos"
+        }
+      }
+    },
+    "lnrpcMultiChanBackup": {
+      "type": "object",
+      "properties": {
+        "chan_points": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcChannelPoint"
+          },
+          "description": "*\nIs the set of all channels that are included in this multi-channel backup."
+        },
+        "multi_chan_backup": {
+          "type": "string",
+          "format": "byte",
+          "description": "*\nA single encrypted blob containing all the static channel backups of the\nchannel listed above. This can be stored as a single file or blob, and\nsafely be replaced with any prior/future versions."
         }
       }
     },
@@ -2055,6 +2462,10 @@
           "format": "int64"
         },
         "max_channel_size": {
+          "type": "string",
+          "format": "int64"
+        },
+        "median_channel_size_sat": {
           "type": "string",
           "format": "int64"
         }
@@ -2169,6 +2580,11 @@
           "type": "integer",
           "format": "int32",
           "description": "/ The minimum number of confirmations each one of your outputs used for the funding transaction must satisfy."
+        },
+        "spend_unconfirmed": {
+          "type": "boolean",
+          "format": "boolean",
+          "description": "/ Whether unconfirmed outputs should be used as inputs for the funding transaction."
         }
       }
     },
@@ -2178,11 +2594,27 @@
         "chan_pending": {
           "$ref": "#/definitions/lnrpcPendingUpdate"
         },
-        "confirmation": {
-          "$ref": "#/definitions/lnrpcConfirmationUpdate"
-        },
         "chan_open": {
           "$ref": "#/definitions/lnrpcChannelOpenUpdate"
+        }
+      }
+    },
+    "lnrpcOutPoint": {
+      "type": "object",
+      "properties": {
+        "txid_bytes": {
+          "type": "string",
+          "format": "byte",
+          "description": "/ Raw bytes representing the transaction id."
+        },
+        "txid_str": {
+          "type": "string",
+          "description": "/ Reversed, hex-encoded string representing the transaction id."
+        },
+        "output_index": {
+          "type": "integer",
+          "format": "int64",
+          "description": "/ The index of the output on the transaction."
         }
       }
     },
@@ -2238,7 +2670,7 @@
         "value": {
           "type": "string",
           "format": "int64",
-          "title": "/ The value of the payment in satoshis"
+          "description": "/ Deprecated, use value_sat or value_msat."
         },
         "creation_date": {
           "type": "string",
@@ -2260,6 +2692,16 @@
         "payment_preimage": {
           "type": "string",
           "title": "/ The payment preimage"
+        },
+        "value_sat": {
+          "type": "string",
+          "format": "int64",
+          "title": "/ The value of the payment in satoshis"
+        },
+        "value_msat": {
+          "type": "string",
+          "format": "int64",
+          "title": "/ The value of the payment in milli-satoshis"
         }
       }
     },
@@ -2434,6 +2876,9 @@
         }
       }
     },
+    "lnrpcRestoreBackupResponse": {
+      "type": "object"
+    },
     "lnrpcRoute": {
       "type": "object",
       "properties": {
@@ -2506,6 +2951,10 @@
         "disabled": {
           "type": "boolean",
           "format": "boolean"
+        },
+        "max_htlc_msat": {
+          "type": "string",
+          "format": "uint64"
         }
       }
     },
@@ -2530,6 +2979,11 @@
           "type": "string",
           "format": "int64",
           "description": "/ A manual fee rate set in sat/byte that should be used when crafting the transaction."
+        },
+        "send_all": {
+          "type": "boolean",
+          "format": "boolean",
+          "description": "*\nIf set, then the amount field will be ignored, and lnd will attempt to\nsend all the coins under control of the internal wallet to the specified\naddress."
         }
       }
     },
@@ -2589,6 +3043,16 @@
         "fee_limit": {
           "$ref": "#/definitions/lnrpcFeeLimit",
           "description": "*\nThe maximum number of satoshis that will be paid as a fee of the payment.\nThis value can be represented either as a percentage of the amount being\nsent, or as a fixed amount of the maximum fee the user is willing the pay to\nsend the payment."
+        },
+        "outgoing_chan_id": {
+          "type": "string",
+          "format": "uint64",
+          "description": "*\nThe channel id of the channel that must be taken to the first hop. If zero,\nany channel may be used."
+        },
+        "cltv_limit": {
+          "type": "integer",
+          "format": "int64",
+          "description": "* \nAn optional maximum total time lock for the route. If zero, there is no\nmaximum enforced."
         }
       }
     },
@@ -2604,6 +3068,10 @@
         },
         "payment_route": {
           "$ref": "#/definitions/lnrpcRoute"
+        },
+        "payment_hash": {
+          "type": "string",
+          "format": "byte"
         }
       }
     },
@@ -2624,7 +3092,21 @@
           "items": {
             "$ref": "#/definitions/lnrpcRoute"
           },
-          "description": "/ The set of routes that should be used to attempt to complete the payment."
+          "description": "*\nDeprecated. The set of routes that should be used to attempt to complete the\npayment. The possibility to pass in multiple routes is deprecated and \ninstead the single route field below should be used in combination with the \nstreaming variant of SendToRoute."
+        },
+        "route": {
+          "$ref": "#/definitions/lnrpcRoute",
+          "description": "/ Route that should be used to attempt to complete the payment."
+        }
+      }
+    },
+    "lnrpcSignMessageRequest": {
+      "type": "object",
+      "properties": {
+        "msg": {
+          "type": "string",
+          "format": "byte",
+          "title": "/ The message to be signed"
         }
       }
     },
@@ -2650,7 +3132,7 @@
         "amount": {
           "type": "string",
           "format": "int64",
-          "title": "/ The transaction ammount, denominated in satoshis"
+          "title": "/ The transaction amount, denominated in satoshis"
         },
         "num_confirmations": {
           "type": "integer",
@@ -2709,11 +3191,73 @@
           "type": "integer",
           "format": "int32",
           "description": "*\nrecovery_window is an optional argument specifying the address lookahead\nwhen restoring a wallet seed. The recovery window applies to each\ninvdividual branch of the BIP44 derivation paths. Supplying a recovery\nwindow of zero indicates that no addresses should be recovered, such after\nthe first initialization of the wallet."
+        },
+        "channel_backups": {
+          "$ref": "#/definitions/lnrpcChanBackupSnapshot",
+          "description": "*\nchannel_backups is an optional argument that allows clients to recover the\nsettled funds within a set of channels. This should be populated if the\nuser was unable to close out all channels and sweep funds before partial or\ntotal data loss occurred. If specified, then after on-chain recovery of\nfunds, lnd begin to carry out the data loss recovery protocol in order to\nrecover the funds in each channel from a remote force closed transaction."
         }
       }
     },
     "lnrpcUnlockWalletResponse": {
       "type": "object"
+    },
+    "lnrpcUtxo": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "$ref": "#/definitions/lnrpcAddressType",
+          "title": "/ The type of address"
+        },
+        "address": {
+          "type": "string",
+          "title": "/ The address"
+        },
+        "amount_sat": {
+          "type": "string",
+          "format": "int64",
+          "title": "/ The value of the unspent coin in satoshis"
+        },
+        "pk_script": {
+          "type": "string",
+          "title": "/ The pkscript in hex"
+        },
+        "outpoint": {
+          "$ref": "#/definitions/lnrpcOutPoint",
+          "title": "/ The outpoint in format txid:n"
+        },
+        "confirmations": {
+          "type": "string",
+          "format": "int64",
+          "title": "/ The number of confirmations for the Utxo"
+        }
+      }
+    },
+    "lnrpcVerifyChanBackupResponse": {
+      "type": "object",
+      "properties": {
+        "singles_valid": {
+          "type": "boolean",
+          "format": "boolean"
+        },
+        "multi_valid": {
+          "type": "boolean",
+          "format": "boolean"
+        }
+      }
+    },
+    "lnrpcVerifyMessageRequest": {
+      "type": "object",
+      "properties": {
+        "msg": {
+          "type": "string",
+          "format": "byte",
+          "title": "/ The message over which the signature is to be verified"
+        },
+        "signature": {
+          "type": "string",
+          "title": "/ The signature to be verified over the given message"
+        }
+      }
     },
     "lnrpcVerifyMessageResponse": {
       "type": "object",

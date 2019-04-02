@@ -22,13 +22,14 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btclog"
 	"github.com/btcsuite/btcutil"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
@@ -95,8 +96,8 @@ var (
 		{
 			amt:         btcutil.Amount(1e7),
 			outpoint:    breachOutPoints[0],
-			witnessType: lnwallet.CommitmentNoDelay,
-			signDesc: lnwallet.SignDescriptor{
+			witnessType: input.CommitmentNoDelay,
+			signDesc: input.SignDescriptor{
 				SingleTweak: []byte{
 					0x02, 0x02, 0x02, 0x02, 0x02, 0x02,
 					0x02, 0x02, 0x02, 0x02, 0x02, 0x02,
@@ -139,8 +140,8 @@ var (
 		{
 			amt:         btcutil.Amount(2e9),
 			outpoint:    breachOutPoints[1],
-			witnessType: lnwallet.CommitmentRevoke,
-			signDesc: lnwallet.SignDescriptor{
+			witnessType: input.CommitmentRevoke,
+			signDesc: input.SignDescriptor{
 				SingleTweak: []byte{
 					0x02, 0x02, 0x02, 0x02, 0x02, 0x02,
 					0x02, 0x02, 0x02, 0x02, 0x02, 0x02,
@@ -183,8 +184,8 @@ var (
 		{
 			amt:         btcutil.Amount(3e4),
 			outpoint:    breachOutPoints[2],
-			witnessType: lnwallet.CommitmentDelayOutput,
-			signDesc: lnwallet.SignDescriptor{
+			witnessType: input.CommitmentDelayOutput,
+			signDesc: input.SignDescriptor{
 				SingleTweak: []byte{
 					0x02, 0x02, 0x02, 0x02, 0x02, 0x02,
 					0x02, 0x02, 0x02, 0x02, 0x02, 0x02,
@@ -268,10 +269,6 @@ var (
 )
 
 func init() {
-	channeldb.UseLogger(btclog.Disabled)
-	lnwallet.UseLogger(btclog.Disabled)
-	brarLog = btclog.Disabled
-
 	// Ensure that breached outputs are initialized before starting tests.
 	if err := initBreachedOutputs(); err != nil {
 		panic(err)
@@ -633,36 +630,34 @@ func makeTestChannelDB() (*channeldb.DB, func(), error) {
 // channeldb.DB, and tests its behavior using the general RetributionStore test
 // suite.
 func TestChannelDBRetributionStore(t *testing.T) {
-	db, cleanUp, err := makeTestChannelDB()
-	if err != nil {
-		t.Fatalf("unable to open channeldb: %v", err)
-	}
-	defer db.Close()
-	defer cleanUp()
-
-	restartDb := func() RetributionStore {
-		// Close and reopen channeldb
-		if err = db.Close(); err != nil {
-			t.Fatalf("unable to close channeldb during restart: %v",
-				err)
-		}
-		db, err = channeldb.Open(db.Path())
-		if err != nil {
-			t.Fatalf("unable to open channeldb: %v", err)
-		}
-
-		return newRetributionStore(db)
-	}
-
 	// Finally, instantiate retribution store and execute RetributionStore
 	// test suite.
 	for _, test := range retributionStoreTestSuite {
 		t.Run(
 			"channeldbDBRetributionStore."+test.name,
 			func(tt *testing.T) {
-				if err = db.Wipe(); err != nil {
-					t.Fatalf("unable to wipe channeldb: %v",
-						err)
+				db, cleanUp, err := makeTestChannelDB()
+				if err != nil {
+					t.Fatalf("unable to open channeldb: %v", err)
+				}
+				defer db.Close()
+				defer cleanUp()
+
+				restartDb := func() RetributionStore {
+					// Close and reopen channeldb
+					if err = db.Close(); err != nil {
+						t.Fatalf("unable to close "+
+							"channeldb during "+
+							"restart: %v",
+							err)
+					}
+					db, err = channeldb.Open(db.Path())
+					if err != nil {
+						t.Fatalf("unable to open "+
+							"channeldb: %v", err)
+					}
+
+					return newRetributionStore(db)
 				}
 
 				frs := newFailingRetributionStore(restartDb)
@@ -823,7 +818,11 @@ func testRetributionStoreRemoves(
 	for i, retInfo := range retributions {
 		// Snapshot number of entries before and after the removal.
 		nbefore := countRetributions(t, frs)
-		if err := frs.Remove(&retInfo.chanPoint); err != nil {
+		err := frs.Remove(&retInfo.chanPoint)
+		switch {
+		case nbefore == 0 && err == nil:
+
+		case nbefore > 0 && err != nil:
 			t.Fatalf("unable to remove to retribution %v "+
 				"from store: %v", i, err)
 		}
@@ -1012,7 +1011,7 @@ func TestBreachHandoffSuccess(t *testing.T) {
 		ProcessACK: make(chan error, 1),
 		BreachRetribution: &lnwallet.BreachRetribution{
 			BreachTransaction: bobClose.CloseTx,
-			LocalOutputSignDesc: &lnwallet.SignDescriptor{
+			LocalOutputSignDesc: &input.SignDescriptor{
 				Output: &wire.TxOut{
 					PkScript: breachKeys[0],
 				},
@@ -1044,7 +1043,7 @@ func TestBreachHandoffSuccess(t *testing.T) {
 		ProcessACK: make(chan error, 1),
 		BreachRetribution: &lnwallet.BreachRetribution{
 			BreachTransaction: bobClose.CloseTx,
-			LocalOutputSignDesc: &lnwallet.SignDescriptor{
+			LocalOutputSignDesc: &input.SignDescriptor{
 				Output: &wire.TxOut{
 					PkScript: breachKeys[0],
 				},
@@ -1093,7 +1092,7 @@ func TestBreachHandoffFail(t *testing.T) {
 		ProcessACK: make(chan error, 1),
 		BreachRetribution: &lnwallet.BreachRetribution{
 			BreachTransaction: bobClose.CloseTx,
-			LocalOutputSignDesc: &lnwallet.SignDescriptor{
+			LocalOutputSignDesc: &input.SignDescriptor{
 				Output: &wire.TxOut{
 					PkScript: breachKeys[0],
 				},
@@ -1126,18 +1125,6 @@ func TestBreachHandoffFail(t *testing.T) {
 	}
 	defer cleanUpArb()
 
-	// Instantiate a second lightning channel for alice, using the state of
-	// her last channel.
-	aliceKeyPriv, _ := btcec.PrivKeyFromBytes(btcec.S256(),
-		alicesPrivKey)
-	aliceSigner := &mockSigner{aliceKeyPriv}
-
-	alice2, err := lnwallet.NewLightningChannel(aliceSigner, nil, alice.State())
-	if err != nil {
-		t.Fatalf("unable to create test channels: %v", err)
-	}
-	defer alice2.Stop()
-
 	// Signal a spend of the funding transaction and wait for the close
 	// observer to exit. This time we are allowing the handoff to succeed.
 	breach = &ContractBreachEvent{
@@ -1145,7 +1132,7 @@ func TestBreachHandoffFail(t *testing.T) {
 		ProcessACK: make(chan error, 1),
 		BreachRetribution: &lnwallet.BreachRetribution{
 			BreachTransaction: bobClose.CloseTx,
-			LocalOutputSignDesc: &lnwallet.SignDescriptor{
+			LocalOutputSignDesc: &input.SignDescriptor{
 				Output: &wire.TxOut{
 					PkScript: breachKeys[0],
 				},
@@ -1170,10 +1157,162 @@ func TestBreachHandoffFail(t *testing.T) {
 	assertArbiterBreach(t, brar, chanPoint)
 }
 
-// TestBreachSecondLevelTransfer tests that sweep of a HTLC output on a
-// breached commitment is transferred to a second level spend if the output is
-// already spent.
-func TestBreachSecondLevelTransfer(t *testing.T) {
+type publAssertion func(*testing.T, map[wire.OutPoint]*wire.MsgTx,
+	chan *wire.MsgTx)
+
+type breachTest struct {
+	name string
+
+	// spend2ndLevel requests that second level htlcs be spent *again*, as
+	// if by a remote party or watchtower. The outpoint of the second level
+	// htlc is in effect "readded" to the set of inputs.
+	spend2ndLevel bool
+
+	// sendFinalConf informs the test to send a confirmation for the justice
+	// transaction before asserting the arbiter is cleaned up.
+	sendFinalConf bool
+
+	// whenNonZeroInputs is called after spending an input but there are
+	// further inputs to spend in the test.
+	whenNonZeroInputs publAssertion
+
+	// whenZeroInputs is called after spending an input but there are no
+	// further inputs to spend in the test.
+	whenZeroInputs publAssertion
+}
+
+var (
+	// commitSpendTx is used to spend commitment outputs.
+	commitSpendTx = &wire.MsgTx{
+		TxOut: []*wire.TxOut{
+			{Value: 500000000},
+		},
+	}
+	// htlc2ndLevlTx is used to transition an htlc output on the commitment
+	// transaction to a second level htlc.
+	htlc2ndLevlTx = &wire.MsgTx{
+		TxOut: []*wire.TxOut{
+			{Value: 20000},
+		},
+	}
+	// htlcSpendTx is used to spend from a second level htlc.
+	htlcSpendTx = &wire.MsgTx{
+		TxOut: []*wire.TxOut{
+			{Value: 10000},
+		},
+	}
+)
+
+var breachTests = []breachTest{
+	{
+		name:          "all spends",
+		spend2ndLevel: true,
+		whenNonZeroInputs: func(t *testing.T,
+			inputs map[wire.OutPoint]*wire.MsgTx,
+			publTx chan *wire.MsgTx) {
+
+			var tx *wire.MsgTx
+			select {
+			case tx = <-publTx:
+			case <-time.After(5 * time.Second):
+				t.Fatalf("tx was not published")
+			}
+
+			// The justice transaction should have thee same number
+			// of inputs as we are tracking in the test.
+			if len(tx.TxIn) != len(inputs) {
+				t.Fatalf("expected justice txn to have %d "+
+					"inputs, found %d", len(inputs),
+					len(tx.TxIn))
+			}
+
+			// Ensure that each input exists on the justice
+			// transaction.
+			for in := range inputs {
+				findInputIndex(t, in, tx)
+			}
+
+		},
+		whenZeroInputs: func(t *testing.T,
+			inputs map[wire.OutPoint]*wire.MsgTx,
+			publTx chan *wire.MsgTx) {
+
+			// Sanity check to ensure the brar doesn't try to
+			// broadcast another sweep, since all outputs have been
+			// spent externally.
+			select {
+			case <-publTx:
+				t.Fatalf("tx published unexpectedly")
+			case <-time.After(50 * time.Millisecond):
+			}
+		},
+	},
+	{
+		name:          "commit spends, second level sweep",
+		spend2ndLevel: false,
+		sendFinalConf: true,
+		whenNonZeroInputs: func(t *testing.T,
+			inputs map[wire.OutPoint]*wire.MsgTx,
+			publTx chan *wire.MsgTx) {
+
+			select {
+			case <-publTx:
+			case <-time.After(5 * time.Second):
+				t.Fatalf("tx was not published")
+			}
+		},
+		whenZeroInputs: func(t *testing.T,
+			inputs map[wire.OutPoint]*wire.MsgTx,
+			publTx chan *wire.MsgTx) {
+
+			// Now a transaction attempting to spend from the second
+			// level tx should be published instead. Let this
+			// publish succeed by setting the publishing error to
+			// nil.
+			var tx *wire.MsgTx
+			select {
+			case tx = <-publTx:
+			case <-time.After(5 * time.Second):
+				t.Fatalf("tx was not published")
+			}
+
+			// The commitment outputs should be gone, and there
+			// should only be a single htlc spend.
+			if len(tx.TxIn) != 1 {
+				t.Fatalf("expect 1 htlc output, found %d "+
+					"outputs", len(tx.TxIn))
+			}
+
+			// The remaining TxIn  previously attempting to spend
+			// the HTLC outpoint should now be spending from the
+			// second level tx.
+			//
+			// NOTE: Commitment outputs and htlc sweeps are spent
+			// with a different transactions (and thus txids),
+			// ensuring we aren't mistaking this for a different
+			// output type.
+			onlyInput := tx.TxIn[0].PreviousOutPoint.Hash
+			if onlyInput != htlc2ndLevlTx.TxHash() {
+				t.Fatalf("tx not attempting to spend second "+
+					"level tx, %v", tx.TxIn[0])
+			}
+		},
+	},
+}
+
+// TestBreachSpends checks the behavior of the breach arbiter in response to
+// spend events on a channels outputs by asserting that it properly removes or
+// modifies the inputs from the justice txn.
+func TestBreachSpends(t *testing.T) {
+	for _, test := range breachTests {
+		tc := test
+		t.Run(tc.name, func(t *testing.T) {
+			testBreachSpends(t, tc)
+		})
+	}
+}
+
+func testBreachSpends(t *testing.T, test breachTest) {
 	brar, alice, _, bobClose, contractBreaches,
 		cleanUpChans, cleanUpArb := initBreachedState(t)
 	defer cleanUpChans()
@@ -1185,18 +1324,22 @@ func TestBreachSecondLevelTransfer(t *testing.T) {
 		chanPoint    = alice.ChanPoint
 		publTx       = make(chan *wire.MsgTx)
 		publErr      error
+		publMtx      sync.Mutex
 	)
 
 	// Make PublishTransaction always return ErrDoubleSpend to begin with.
 	publErr = lnwallet.ErrDoubleSpend
 	brar.cfg.PublishTransaction = func(tx *wire.MsgTx) error {
 		publTx <- tx
+
+		publMtx.Lock()
+		defer publMtx.Unlock()
 		return publErr
 	}
 
 	// Notify the breach arbiter about the breach.
 	retribution, err := lnwallet.NewBreachRetribution(
-		alice.State(), height, forceCloseTx, 1)
+		alice.State(), height, 1)
 	if err != nil {
 		t.Fatalf("unable to create breach retribution: %v", err)
 	}
@@ -1218,10 +1361,31 @@ func TestBreachSecondLevelTransfer(t *testing.T) {
 		t.Fatalf("breach arbiter didn't send ack back")
 	}
 
+	state := alice.State()
+	err = state.CloseChannel(&channeldb.ChannelCloseSummary{
+		ChanPoint:               state.FundingOutpoint,
+		ChainHash:               state.ChainHash,
+		RemotePub:               state.IdentityPub,
+		CloseType:               channeldb.BreachClose,
+		Capacity:                state.Capacity,
+		IsPending:               true,
+		ShortChanID:             state.ShortChanID(),
+		RemoteCurrentRevocation: state.RemoteCurrentRevocation,
+		RemoteNextRevocation:    state.RemoteNextRevocation,
+		LocalChanConfig:         state.LocalChanCfg,
+	})
+	if err != nil {
+		t.Fatalf("unable to close channel: %v", err)
+	}
+
 	// After exiting, the breach arbiter should have persisted the
 	// retribution information and the channel should be shown as pending
 	// force closed.
 	assertArbiterBreach(t, brar, chanPoint)
+
+	// Assert that the database sees the channel as pending close, otherwise
+	// the breach arbiter won't be able to fully close it.
+	assertPendingClosed(t, alice)
 
 	// Notify that the breaching transaction is confirmed, to trigger the
 	// retribution logic.
@@ -1238,53 +1402,101 @@ func TestBreachSecondLevelTransfer(t *testing.T) {
 		t.Fatalf("tx was not published")
 	}
 
-	if tx.TxIn[0].PreviousOutPoint.Hash != forceCloseTx.TxHash() {
-		t.Fatalf("tx not attempting to spend commitment")
-	}
-
-	// Find the index of the TxIn spending the HTLC output.
-	htlcOutpoint := &retribution.HtlcRetributions[0].OutPoint
-	htlcIn := -1
-	for i, txIn := range tx.TxIn {
-		if txIn.PreviousOutPoint == *htlcOutpoint {
-			htlcIn = i
+	// All outputs should initially spend from the force closed txn.
+	forceTxID := forceCloseTx.TxHash()
+	for _, txIn := range tx.TxIn {
+		if txIn.PreviousOutPoint.Hash != forceTxID {
+			t.Fatalf("og justice tx not spending commitment")
 		}
 	}
-	if htlcIn == -1 {
-		t.Fatalf("htlc in not found")
+
+	localOutpoint := retribution.LocalOutpoint
+	remoteOutpoint := retribution.RemoteOutpoint
+	htlcOutpoint := retribution.HtlcRetributions[0].OutPoint
+
+	// Construct a map from outpoint on the force close to the transaction
+	// we want it to be spent by. As the test progresses, this map will be
+	// updated to contain only the set of commitment or second level
+	// outpoints that remain to be spent.
+	inputs := map[wire.OutPoint]*wire.MsgTx{
+		htlcOutpoint:   htlc2ndLevlTx,
+		localOutpoint:  commitSpendTx,
+		remoteOutpoint: commitSpendTx,
 	}
 
-	// Since publishing the transaction failed above, the breach arbiter
-	// will attempt another second level check. Now notify that the htlc
-	// output is spent by a second level tx.
-	secondLvlTx := &wire.MsgTx{
-		TxOut: []*wire.TxOut{
-			{Value: 1},
-		},
-	}
-	notifier.Spend(htlcOutpoint, 2, secondLvlTx)
+	// Until no more inputs to spend remain, deliver the spend events and
+	// process the assertions prescribed by the test case.
+	for len(inputs) > 0 {
+		var (
+			op      wire.OutPoint
+			spendTx *wire.MsgTx
+		)
 
-	// Now a transaction attempting to spend from the second level tx
-	// should be published instead. Let this publish succeed by setting the
-	// publishing error to nil.
-	publErr = nil
-	select {
-	case tx = <-publTx:
-	case <-time.After(5 * time.Second):
-		t.Fatalf("tx was not published")
+		// Pick an outpoint at random from the set of inputs.
+		for op, spendTx = range inputs {
+			delete(inputs, op)
+			break
+		}
+
+		// Deliver the spend notification for the chosen transaction.
+		notifier.Spend(&op, 2, spendTx)
+
+		// When the second layer transfer is detected, add back the
+		// outpoint of the second layer tx so that we can spend it
+		// again. Only do so if the test requests this behavior.
+		spendTxID := spendTx.TxHash()
+		if test.spend2ndLevel && spendTxID == htlc2ndLevlTx.TxHash() {
+			// Create the second level outpoint that will be spent,
+			// the index is always zero for these 1-in-1-out txns.
+			spendOp := wire.OutPoint{Hash: spendTxID}
+			inputs[spendOp] = htlcSpendTx
+		}
+
+		if len(inputs) > 0 {
+			test.whenNonZeroInputs(t, inputs, publTx)
+		} else {
+			// Reset the publishing error so that any publication,
+			// made by the breach arbiter, if any, will succeed.
+			publMtx.Lock()
+			publErr = nil
+			publMtx.Unlock()
+			test.whenZeroInputs(t, inputs, publTx)
+		}
 	}
 
-	// The TxIn previously attempting to spend the HTLC outpoint should now
-	// be spending from the second level tx.
-	if tx.TxIn[htlcIn].PreviousOutPoint.Hash != secondLvlTx.TxHash() {
-		t.Fatalf("tx not attempting to spend second level tx, %v", tx.TxIn[0])
+	// Deliver confirmation of sweep if the test expects it.
+	if test.sendFinalConf {
+		notifier.confChannel <- &chainntnfs.TxConfirmation{}
 	}
+
+	// Assert that the channel is fully resolved.
+	assertBrarCleanup(t, brar, alice.ChanPoint, alice.State().Db)
+}
+
+// findInputIndex returns the index of the input that spends from the given
+// outpoint. This method fails if the outpoint is not found.
+func findInputIndex(t *testing.T, op wire.OutPoint, tx *wire.MsgTx) int {
+	t.Helper()
+
+	inputIdx := -1
+	for i, txIn := range tx.TxIn {
+		if txIn.PreviousOutPoint == op {
+			inputIdx = i
+		}
+	}
+	if inputIdx == -1 {
+		t.Fatalf("input %v in not found", op)
+	}
+
+	return inputIdx
 }
 
 // assertArbiterBreach checks that the breach arbiter has persisted the breach
 // information for a particular channel.
 func assertArbiterBreach(t *testing.T, brar *breachArbiter,
 	chanPoint *wire.OutPoint) {
+
+	t.Helper()
 
 	isBreached, err := brar.IsBreached(chanPoint)
 	if err != nil {
@@ -1304,6 +1516,8 @@ func assertArbiterBreach(t *testing.T, brar *breachArbiter,
 func assertNoArbiterBreach(t *testing.T, brar *breachArbiter,
 	chanPoint *wire.OutPoint) {
 
+	t.Helper()
+
 	isBreached, err := brar.IsBreached(chanPoint)
 	if err != nil {
 		t.Fatalf("unable to determine if channel is "+
@@ -1316,9 +1530,77 @@ func assertNoArbiterBreach(t *testing.T, brar *breachArbiter,
 	}
 }
 
+// assertBrarCleanup blocks until the given channel point has been removed the
+// retribution store and the channel is fully closed in the database.
+func assertBrarCleanup(t *testing.T, brar *breachArbiter,
+	chanPoint *wire.OutPoint, db *channeldb.DB) {
+
+	t.Helper()
+
+	err := lntest.WaitNoError(func() error {
+		isBreached, err := brar.IsBreached(chanPoint)
+		if err != nil {
+			return err
+		}
+
+		if isBreached {
+			return fmt.Errorf("channel %v still breached",
+				chanPoint)
+		}
+
+		closedChans, err := db.FetchClosedChannels(false)
+		if err != nil {
+			return err
+		}
+
+		for _, channel := range closedChans {
+			switch {
+			// Wrong channel.
+			case channel.ChanPoint != *chanPoint:
+				continue
+
+			// Right channel, fully closed!
+			case !channel.IsPending:
+				return nil
+			}
+
+			// Still pending.
+			return fmt.Errorf("channel %v still pending "+
+				"close", chanPoint)
+		}
+
+		return fmt.Errorf("channel %v not closed", chanPoint)
+
+	}, time.Second)
+	if err != nil {
+		t.Fatalf(err.Error())
+	}
+}
+
+// assertPendingClosed checks that the channel has been marked pending closed in
+// the channel database.
+func assertPendingClosed(t *testing.T, c *lnwallet.LightningChannel) {
+	t.Helper()
+
+	closedChans, err := c.State().Db.FetchClosedChannels(true)
+	if err != nil {
+		t.Fatalf("unable to load pending closed channels: %v", err)
+	}
+
+	for _, chanSummary := range closedChans {
+		if chanSummary.ChanPoint == *c.ChanPoint {
+			return
+		}
+	}
+
+	t.Fatalf("channel %v was not marked pending closed", c.ChanPoint)
+}
+
 // assertNotPendingClosed checks that the channel has not been marked pending
 // closed in the channel database.
 func assertNotPendingClosed(t *testing.T, c *lnwallet.LightningChannel) {
+	t.Helper()
+
 	closedChans, err := c.State().Db.FetchClosedChannels(true)
 	if err != nil {
 		t.Fatalf("unable to load pending closed channels: %v", err)
@@ -1351,7 +1633,7 @@ func createTestArbiter(t *testing.T, contractBreaches chan *ContractBreachEvent,
 	ba := newBreachArbiter(&BreachConfig{
 		CloseLink:          func(_ *wire.OutPoint, _ htlcswitch.ChannelCloseType) {},
 		DB:                 db,
-		Estimator:          &lnwallet.StaticFeeEstimator{FeePerKW: 12500},
+		Estimator:          lnwallet.NewStaticFeeEstimator(12500, 0),
 		GenSweepScript:     func() ([]byte, error) { return nil, nil },
 		ContractBreaches:   contractBreaches,
 		Signer:             signer,
@@ -1406,8 +1688,8 @@ func createInitChannels(revocationWindow int) (*lnwallet.LightningChannel, *lnwa
 			ChanReserve:      0,
 			MinHTLC:          0,
 			MaxAcceptedHtlcs: uint16(rand.Int31()),
+			CsvDelay:         uint16(csvTimeoutAlice),
 		},
-		CsvDelay: uint16(csvTimeoutAlice),
 		MultiSigKey: keychain.KeyDescriptor{
 			PubKey: aliceKeyPub,
 		},
@@ -1431,8 +1713,8 @@ func createInitChannels(revocationWindow int) (*lnwallet.LightningChannel, *lnwa
 			ChanReserve:      0,
 			MinHTLC:          0,
 			MaxAcceptedHtlcs: uint16(rand.Int31()),
+			CsvDelay:         uint16(csvTimeoutBob),
 		},
-		CsvDelay: uint16(csvTimeoutBob),
 		MultiSigKey: keychain.KeyDescriptor{
 			PubKey: bobKeyPub,
 		},
@@ -1459,7 +1741,7 @@ func createInitChannels(revocationWindow int) (*lnwallet.LightningChannel, *lnwa
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	bobCommitPoint := lnwallet.ComputeCommitmentPoint(bobFirstRevoke[:])
+	bobCommitPoint := input.ComputeCommitmentPoint(bobFirstRevoke[:])
 
 	aliceRoot, err := chainhash.NewHash(aliceKeyPriv.Serialize())
 	if err != nil {
@@ -1470,7 +1752,7 @@ func createInitChannels(revocationWindow int) (*lnwallet.LightningChannel, *lnwa
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	aliceCommitPoint := lnwallet.ComputeCommitmentPoint(aliceFirstRevoke[:])
+	aliceCommitPoint := input.ComputeCommitmentPoint(aliceFirstRevoke[:])
 
 	aliceCommitTx, bobCommitTx, err := lnwallet.CreateCommitmentTxns(channelBal,
 		channelBal, &aliceCfg, &bobCfg, aliceCommitPoint, bobCommitPoint,
@@ -1491,7 +1773,7 @@ func createInitChannels(revocationWindow int) (*lnwallet.LightningChannel, *lnwa
 		return nil, nil, nil, err
 	}
 
-	estimator := &lnwallet.StaticFeeEstimator{FeePerKW: 12500}
+	estimator := lnwallet.NewStaticFeeEstimator(12500, 0)
 	feePerKw, err := estimator.EstimateFeePerKW(1)
 	if err != nil {
 		return nil, nil, nil, err
@@ -1562,26 +1844,28 @@ func createInitChannels(revocationWindow int) (*lnwallet.LightningChannel, *lnwa
 		Packager:                channeldb.NewChannelPackager(shortChanID),
 	}
 
-	pCache := &mockPreimageCache{
-		// hash -> preimage
-		preimageMap: make(map[[32]byte][]byte),
-	}
+	pCache := newMockPreimageCache()
 
 	aliceSigner := &mockSigner{aliceKeyPriv}
 	bobSigner := &mockSigner{bobKeyPriv}
 
+	alicePool := lnwallet.NewSigPool(1, aliceSigner)
 	channelAlice, err := lnwallet.NewLightningChannel(
-		aliceSigner, pCache, aliceChannelState,
+		aliceSigner, pCache, aliceChannelState, alicePool,
 	)
 	if err != nil {
 		return nil, nil, nil, err
 	}
+	alicePool.Start()
+
+	bobPool := lnwallet.NewSigPool(1, bobSigner)
 	channelBob, err := lnwallet.NewLightningChannel(
-		bobSigner, pCache, bobChannelState,
+		bobSigner, pCache, bobChannelState, bobPool,
 	)
 	if err != nil {
 		return nil, nil, nil, err
 	}
+	bobPool.Start()
 
 	addr := &net.TCPAddr{
 		IP:   net.ParseIP("127.0.0.1"),
@@ -1590,18 +1874,12 @@ func createInitChannels(revocationWindow int) (*lnwallet.LightningChannel, *lnwa
 	if err := channelAlice.State().SyncPending(addr, 101); err != nil {
 		return nil, nil, nil, err
 	}
-	if err := channelAlice.State().FullSync(); err != nil {
-		return nil, nil, nil, err
-	}
 
 	addr = &net.TCPAddr{
 		IP:   net.ParseIP("127.0.0.1"),
 		Port: 18555,
 	}
 	if err := channelBob.State().SyncPending(addr, 101); err != nil {
-		return nil, nil, nil, err
-	}
-	if err := channelBob.State().FullSync(); err != nil {
 		return nil, nil, nil, err
 	}
 

@@ -322,7 +322,7 @@ func (b *BtcdFilteredChainView) chainFilterer() {
 			// First, we'll add all the new UTXO's to the set of
 			// watched UTXO's, eliminating any duplicates in the
 			// process.
-			log.Debugf("Updating chain filter with new UTXO's: %v",
+			log.Tracef("Updating chain filter with new UTXO's: %v",
 				update.newUtxos)
 
 			b.filterMtx.Lock()

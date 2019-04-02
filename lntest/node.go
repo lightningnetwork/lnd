@@ -22,9 +22,10 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/go-errors/errors"
+	"github.com/lightningnetwork/lnd/chanbackup"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
 )
@@ -90,12 +91,24 @@ func generateListeningPorts() (int, int, int) {
 	return p2p, rpc, rest
 }
 
+// BackendConfig is an interface that abstracts away the specific chain backend
+// node implementation.
+type BackendConfig interface {
+	// GenArgs returns the arguments needed to be passed to LND at startup
+	// for using this node as a chain backend.
+	GenArgs() []string
+
+	// P2PAddr returns the address of this node to be used when connection
+	// over the Bitcoin P2P network.
+	P2PAddr() string
+}
+
 type nodeConfig struct {
-	Name      string
-	RPCConfig *rpcclient.ConnConfig
-	NetParams *chaincfg.Params
-	BaseDir   string
-	ExtraArgs []string
+	Name       string
+	BackendCfg BackendConfig
+	NetParams  *chaincfg.Params
+	BaseDir    string
+	ExtraArgs  []string
 
 	DataDir        string
 	LogDir         string
@@ -105,7 +118,8 @@ type nodeConfig struct {
 	ReadMacPath    string
 	InvoiceMacPath string
 
-	HasSeed bool
+	HasSeed  bool
+	Password []byte
 
 	P2PPort  int
 	RPCPort  int
@@ -125,7 +139,18 @@ func (cfg nodeConfig) RESTAddr() string {
 }
 
 func (cfg nodeConfig) DBPath() string {
-	return filepath.Join(cfg.DataDir, "graph", "simnet/channel.db")
+	return filepath.Join(cfg.DataDir, "graph",
+		fmt.Sprintf("%v/channel.db", cfg.NetParams.Name))
+}
+
+func (cfg nodeConfig) ChanBackupPath() string {
+	return filepath.Join(
+		cfg.DataDir, "chain", "bitcoin",
+		fmt.Sprintf(
+			"%v/%v", cfg.NetParams.Name,
+			chanbackup.DefaultBackupFileName,
+		),
+	)
 }
 
 // genArgs generates a slice of command line arguments from the lightning node
@@ -142,16 +167,13 @@ func (cfg nodeConfig) genArgs() []string {
 		args = append(args, "--bitcoin.regtest")
 	}
 
-	encodedCert := hex.EncodeToString(cfg.RPCConfig.Certificates)
+	backendArgs := cfg.BackendCfg.GenArgs()
+	args = append(args, backendArgs...)
 	args = append(args, "--bitcoin.active")
 	args = append(args, "--nobootstrap")
 	args = append(args, "--debuglevel=debug")
 	args = append(args, "--bitcoin.defaultchanconfs=1")
-	args = append(args, "--bitcoin.defaultremotedelay=4")
-	args = append(args, fmt.Sprintf("--btcd.rpchost=%v", cfg.RPCConfig.Host))
-	args = append(args, fmt.Sprintf("--btcd.rpcuser=%v", cfg.RPCConfig.User))
-	args = append(args, fmt.Sprintf("--btcd.rpcpass=%v", cfg.RPCConfig.Pass))
-	args = append(args, fmt.Sprintf("--btcd.rawrpccert=%v", encodedCert))
+	args = append(args, fmt.Sprintf("--bitcoin.defaultremotedelay=%v", DefaultCSV))
 	args = append(args, fmt.Sprintf("--rpclisten=%v", cfg.RPCAddr()))
 	args = append(args, fmt.Sprintf("--restlisten=%v", cfg.RESTAddr()))
 	args = append(args, fmt.Sprintf("--listen=%v", cfg.P2PAddr()))
@@ -164,11 +186,10 @@ func (cfg nodeConfig) genArgs() []string {
 	args = append(args, fmt.Sprintf("--adminmacaroonpath=%v", cfg.AdminMacPath))
 	args = append(args, fmt.Sprintf("--readonlymacaroonpath=%v", cfg.ReadMacPath))
 	args = append(args, fmt.Sprintf("--invoicemacaroonpath=%v", cfg.InvoiceMacPath))
-	args = append(args, fmt.Sprintf("--externalip=%s", cfg.P2PAddr()))
 	args = append(args, fmt.Sprintf("--trickledelay=%v", trickleDelay))
 
 	if !cfg.HasSeed {
-		args = append(args, "--noencryptwallet")
+		args = append(args, "--noseedbackup")
 	}
 
 	if cfg.ExtraArgs != nil {
@@ -202,6 +223,16 @@ type HarnessNode struct {
 	processExit chan struct{}
 
 	chanWatchRequests chan *chanWatchRequest
+
+	// For each outpoint, we'll track an integer which denotes the number of
+	// edges seen for that channel within the network. When this number
+	// reaches 2, then it means that both edge advertisements has propagated
+	// through the network.
+	openChans   map[wire.OutPoint]int
+	openClients map[wire.OutPoint][]chan struct{}
+
+	closedChans  map[wire.OutPoint]struct{}
+	closeClients map[wire.OutPoint][]chan struct{}
 
 	quit chan struct{}
 	wg   sync.WaitGroup
@@ -241,6 +272,11 @@ func newNode(cfg nodeConfig) (*HarnessNode, error) {
 		cfg:               &cfg,
 		NodeID:            nodeNum,
 		chanWatchRequests: make(chan *chanWatchRequest),
+		openChans:         make(map[wire.OutPoint]int),
+		openClients:       make(map[wire.OutPoint][]chan struct{}),
+
+		closedChans:  make(map[wire.OutPoint]struct{}),
+		closeClients: make(map[wire.OutPoint][]chan struct{}),
 	}, nil
 }
 
@@ -254,6 +290,12 @@ func (hn *HarnessNode) Name() string {
 	return hn.cfg.Name
 }
 
+// ChanBackupPath returns the fielpath to the on-disk channels.backup file for
+// this node.
+func (hn *HarnessNode) ChanBackupPath() string {
+	return hn.cfg.ChanBackupPath()
+}
+
 // Start launches a new process running lnd. Additionally, the PID of the
 // launched process is saved in order to possibly kill the process forcibly
 // later.
@@ -265,7 +307,7 @@ func (hn *HarnessNode) start(lndError chan<- error) error {
 
 	args := hn.cfg.genArgs()
 	args = append(args, fmt.Sprintf("--profile=%d", 9000+hn.NodeID))
-	hn.cmd = exec.Command("./lnd-debug", args...)
+	hn.cmd = exec.Command("./lnd-itest", args...)
 
 	// Redirect stderr output to buffer
 	var errb bytes.Buffer
@@ -380,6 +422,24 @@ func (hn *HarnessNode) start(lndError chan<- error) error {
 	return hn.initLightningClient(conn)
 }
 
+// initClientWhenReady waits until the main gRPC server is detected as active,
+// then complete the normal HarnessNode gRPC connection creation. This can be
+// used it a node has just been unlocked, or has its wallet state initialized.
+func (hn *HarnessNode) initClientWhenReady() error {
+	var (
+		conn    *grpc.ClientConn
+		connErr error
+	)
+	if err := WaitNoError(func() error {
+		conn, connErr = hn.ConnectRPC(true)
+		return connErr
+	}, 5*time.Second); err != nil {
+		return err
+	}
+
+	return hn.initLightningClient(conn)
+}
+
 // Init initializes a harness node by passing the init request via rpc. After
 // the request is submitted, this method will block until an
 // macaroon-authenticated rpc connection can be established to the harness node.
@@ -388,8 +448,7 @@ func (hn *HarnessNode) start(lndError chan<- error) error {
 func (hn *HarnessNode) Init(ctx context.Context,
 	initReq *lnrpc.InitWalletRequest) error {
 
-	timeout := time.Duration(time.Second * 15)
-	ctxt, _ := context.WithTimeout(ctx, timeout)
+	ctxt, _ := context.WithTimeout(ctx, DefaultTimeout)
 	_, err := hn.InitWallet(ctxt, initReq)
 	if err != nil {
 		return err
@@ -397,19 +456,33 @@ func (hn *HarnessNode) Init(ctx context.Context,
 
 	// Wait for the wallet to finish unlocking, such that we can connect to
 	// it via a macaroon-authenticated rpc connection.
-	var conn *grpc.ClientConn
-	if err = WaitPredicate(func() bool {
-		conn, err = hn.ConnectRPC(true)
-		return err == nil
-	}, 5*time.Second); err != nil {
+	return hn.initClientWhenReady()
+}
+
+// Unlock attempts to unlock the wallet of the target HarnessNode. This method
+// should be called after the restart of a HarnessNode that was created with a
+// seed+password. Once this method returns, the HarnessNode will be ready to
+// accept normal gRPC requests and harness command.
+func (hn *HarnessNode) Unlock(ctx context.Context,
+	unlockReq *lnrpc.UnlockWalletRequest) error {
+
+	ctxt, _ := context.WithTimeout(ctx, DefaultTimeout)
+
+	// Otherwise, we'll need to unlock the node before it's able to start
+	// up properly.
+	if _, err := hn.UnlockWallet(ctxt, unlockReq); err != nil {
 		return err
 	}
 
-	return hn.initLightningClient(conn)
+	// Now that the wallet has been unlocked, we'll wait for the RPC client
+	// to be ready, then establish the normal gRPC connection.
+	return hn.initClientWhenReady()
 }
 
 // initLightningClient constructs the grpc LightningClient from the given client
 // connection and subscribes the harness node to graph topology updates.
+// This method also spawns a lightning network watcher for this node,
+// which watches for topology changes.
 func (hn *HarnessNode) initLightningClient(conn *grpc.ClientConn) error {
 	// Construct the LightningClient that will allow us to use the
 	// HarnessNode directly for normal rpc operations.
@@ -429,9 +502,7 @@ func (hn *HarnessNode) initLightningClient(conn *grpc.ClientConn) error {
 	return nil
 }
 
-// FetchNodeInfo queries an unlocked node to retrieve its public key. This
-// method also spawns a lightning network watcher for this node, which watches
-// for topology changes.
+// FetchNodeInfo queries an unlocked node to retrieve its public key.
 func (hn *HarnessNode) FetchNodeInfo() error {
 	// Obtain the lnid of this node for quick identification purposes.
 	ctxb := context.Background()
@@ -672,16 +743,6 @@ func (hn *HarnessNode) lightningNetworkWatcher() {
 		}
 	}()
 
-	// For each outpoint, we'll track an integer which denotes the number
-	// of edges seen for that channel within the network. When this number
-	// reaches 2, then it means that both edge advertisements has
-	// propagated through the network.
-	openChans := make(map[wire.OutPoint]int)
-	openClients := make(map[wire.OutPoint][]chan struct{})
-
-	closedChans := make(map[wire.OutPoint]struct{})
-	closeClients := make(map[wire.OutPoint][]chan struct{})
-
 	for {
 		select {
 
@@ -698,21 +759,21 @@ func (hn *HarnessNode) lightningNetworkWatcher() {
 					Hash:  *txid,
 					Index: newChan.ChanPoint.OutputIndex,
 				}
-				openChans[op]++
+				hn.openChans[op]++
 
 				// For this new channel, if the number of edges
 				// seen is less than two, then the channel
 				// hasn't been fully announced yet.
-				if numEdges := openChans[op]; numEdges < 2 {
+				if numEdges := hn.openChans[op]; numEdges < 2 {
 					continue
 				}
 
 				// Otherwise, we'll notify all the registered
 				// clients and remove the dispatched clients.
-				for _, eventChan := range openClients[op] {
+				for _, eventChan := range hn.openClients[op] {
 					close(eventChan)
 				}
-				delete(openClients, op)
+				delete(hn.openClients, op)
 			}
 
 			// For each channel closed, we'll mark that we've
@@ -725,14 +786,14 @@ func (hn *HarnessNode) lightningNetworkWatcher() {
 					Hash:  *txid,
 					Index: closedChan.ChanPoint.OutputIndex,
 				}
-				closedChans[op] = struct{}{}
+				hn.closedChans[op] = struct{}{}
 
 				// As the channel has been closed, we'll notify
 				// all register clients.
-				for _, eventChan := range closeClients[op] {
+				for _, eventChan := range hn.closeClients[op] {
 					close(eventChan)
 				}
-				delete(closeClients, op)
+				delete(hn.closeClients, op)
 			}
 
 		// A new watch request, has just arrived. We'll either be able
@@ -747,30 +808,34 @@ func (hn *HarnessNode) lightningNetworkWatcher() {
 				// If this is an open request, then it can be
 				// dispatched if the number of edges seen for
 				// the channel is at least two.
-				if numEdges := openChans[targetChan]; numEdges >= 2 {
+				if numEdges := hn.openChans[targetChan]; numEdges >= 2 {
 					close(watchRequest.eventChan)
 					continue
 				}
 
 				// Otherwise, we'll add this to the list of
 				// watch open clients for this out point.
-				openClients[targetChan] = append(openClients[targetChan],
-					watchRequest.eventChan)
+				hn.openClients[targetChan] = append(
+					hn.openClients[targetChan],
+					watchRequest.eventChan,
+				)
 				continue
 			}
 
 			// If this is a close request, then it can be
 			// immediately dispatched if we've already seen a
 			// channel closure for this channel.
-			if _, ok := closedChans[targetChan]; ok {
+			if _, ok := hn.closedChans[targetChan]; ok {
 				close(watchRequest.eventChan)
 				continue
 			}
 
 			// Otherwise, we'll add this to the list of close watch
 			// clients for this out point.
-			closeClients[targetChan] = append(closeClients[targetChan],
-				watchRequest.eventChan)
+			hn.closeClients[targetChan] = append(
+				hn.closeClients[targetChan],
+				watchRequest.eventChan,
+			)
 
 		case <-hn.quit:
 			return
@@ -897,10 +962,11 @@ func (hn *HarnessNode) WaitForBlockchainSync(ctx context.Context) error {
 
 // WaitForBalance waits until the node sees the expected confirmed/unconfirmed
 // balance within their wallet.
-func (hn *HarnessNode) WaitForBalance(expectedBalance int64, confirmed bool) error {
+func (hn *HarnessNode) WaitForBalance(expectedBalance btcutil.Amount, confirmed bool) error {
 	ctx := context.Background()
 	req := &lnrpc.WalletBalanceRequest{}
 
+	var lastBalance btcutil.Amount
 	doesBalanceMatch := func() bool {
 		balance, err := hn.WalletBalance(ctx, req)
 		if err != nil {
@@ -908,15 +974,18 @@ func (hn *HarnessNode) WaitForBalance(expectedBalance int64, confirmed bool) err
 		}
 
 		if confirmed {
-			return balance.ConfirmedBalance == expectedBalance
+			lastBalance = btcutil.Amount(balance.ConfirmedBalance)
+			return btcutil.Amount(balance.ConfirmedBalance) == expectedBalance
 		}
 
-		return balance.UnconfirmedBalance == expectedBalance
+		lastBalance = btcutil.Amount(balance.UnconfirmedBalance)
+		return btcutil.Amount(balance.UnconfirmedBalance) == expectedBalance
 	}
 
 	err := WaitPredicate(doesBalanceMatch, 30*time.Second)
 	if err != nil {
-		return errors.New("balances not synced after deadline")
+		return fmt.Errorf("balances not synced after deadline: "+
+			"expected %v, only have %v", expectedBalance, lastBalance)
 	}
 
 	return nil

@@ -228,7 +228,13 @@ out:
 						msg.StartHeight, msg.EndHeight,
 					)
 					if err != nil {
-						chainntnfs.Log.Error(err)
+						chainntnfs.Log.Errorf("Rescan to "+
+							"determine the conf "+
+							"details of %v within "+
+							"range %d-%d failed: %v",
+							msg.ConfRequest,
+							msg.StartHeight,
+							msg.EndHeight, err)
 						return
 					}
 
@@ -243,7 +249,10 @@ out:
 						msg.ConfRequest, confDetails,
 					)
 					if err != nil {
-						chainntnfs.Log.Error(err)
+						chainntnfs.Log.Errorf("Unable "+
+							"to update conf "+
+							"details of %v: %v",
+							msg.ConfRequest, err)
 					}
 				}()
 

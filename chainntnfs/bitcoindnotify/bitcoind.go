@@ -25,13 +25,6 @@ const (
 	notifierType = "bitcoind"
 )
 
-var (
-	// ErrTransactionNotFound is an error returned when we attempt to find a
-	// transaction by manually scanning the chain within a specific range
-	// but it is not found.
-	ErrTransactionNotFound = errors.New("transaction not found within range")
-)
-
 // chainUpdate encapsulates an update to the current main chain. This struct is
 // used as an element within an unbounded queue in order to avoid blocking the
 // main rpc dispatch rule.
@@ -264,7 +257,10 @@ out:
 				go func() {
 					defer b.wg.Done()
 
-					err := b.dispatchSpendDetailsManually(msg)
+					spendDetails, err := b.historicalSpendDetails(
+						msg.SpendRequest,
+						msg.StartHeight, msg.EndHeight,
+					)
 					if err != nil {
 						chainntnfs.Log.Errorf("Rescan to "+
 							"determine the spend "+
@@ -273,6 +269,24 @@ out:
 							msg.SpendRequest,
 							msg.StartHeight,
 							msg.EndHeight, err)
+						return
+					}
+
+					// If the historical dispatch finished
+					// without error, we will invoke
+					// UpdateSpendDetails even if none were
+					// found. This allows the notifier to
+					// begin safely updating the height hint
+					// cache at tip, since any pending
+					// rescans have now completed.
+					err = b.txNotifier.UpdateSpendDetails(
+						msg.SpendRequest, spendDetails,
+					)
+					if err != nil {
+						chainntnfs.Log.Errorf("Unable "+
+							"to update spend "+
+							"details of %v: %v",
+							msg.SpendRequest, err)
 					}
 				}()
 
@@ -823,16 +837,13 @@ func (b *BitcoindNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 	return ntfn.Event, nil
 }
 
-// disaptchSpendDetailsManually attempts to manually scan the chain within the
-// given height range for a transaction that spends the given outpoint/output
-// script. If one is found, it's spending details are sent to the TxNotifier,
-// which will then dispatch the notification to all of its clients.
-func (b *BitcoindNotifier) dispatchSpendDetailsManually(
-	historicalDispatchDetails *chainntnfs.HistoricalSpendDispatch) error {
-
-	spendRequest := historicalDispatchDetails.SpendRequest
-	startHeight := historicalDispatchDetails.StartHeight
-	endHeight := historicalDispatchDetails.EndHeight
+// historicalSpendDetails attempts to manually scan the chain within the given
+// height range for a transaction that spends the given outpoint/output script.
+// If one is found, the spend details are assembled and returned to the caller.
+// If the spend is not found, a nil spend detail will be returned.
+func (b *BitcoindNotifier) historicalSpendDetails(
+	spendRequest chainntnfs.SpendRequest, startHeight, endHeight uint32) (
+	*chainntnfs.SpendDetail, error) {
 
 	// Begin scanning blocks at every height to determine if the outpoint
 	// was spent.
@@ -841,20 +852,20 @@ func (b *BitcoindNotifier) dispatchSpendDetailsManually(
 		// processing the next height.
 		select {
 		case <-b.quit:
-			return chainntnfs.ErrChainNotifierShuttingDown
+			return nil, chainntnfs.ErrChainNotifierShuttingDown
 		default:
 		}
 
 		// First, we'll fetch the block for the current height.
 		blockHash, err := b.chainConn.GetBlockHash(int64(height))
 		if err != nil {
-			return fmt.Errorf("unable to retrieve hash for block "+
-				"with height %d: %v", height, err)
+			return nil, fmt.Errorf("unable to retrieve hash for "+
+				"block with height %d: %v", height, err)
 		}
 		block, err := b.chainConn.GetBlock(blockHash)
 		if err != nil {
-			return fmt.Errorf("unable to retrieve block with hash "+
-				"%v: %v", blockHash, err)
+			return nil, fmt.Errorf("unable to retrieve block "+
+				"with hash %v: %v", blockHash, err)
 		}
 
 		// Then, we'll manually go over every input in every transaction
@@ -863,29 +874,24 @@ func (b *BitcoindNotifier) dispatchSpendDetailsManually(
 		for _, tx := range block.Transactions {
 			matches, inputIdx, err := spendRequest.MatchesTx(tx)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			if !matches {
 				continue
 			}
 
 			txHash := tx.TxHash()
-			details := &chainntnfs.SpendDetail{
+			return &chainntnfs.SpendDetail{
 				SpentOutPoint:     &tx.TxIn[inputIdx].PreviousOutPoint,
 				SpenderTxHash:     &txHash,
 				SpendingTx:        tx,
 				SpenderInputIndex: inputIdx,
 				SpendingHeight:    int32(height),
-			}
-
-			return b.txNotifier.UpdateSpendDetails(
-				historicalDispatchDetails.SpendRequest,
-				details,
-			)
+			}, nil
 		}
 	}
 
-	return ErrTransactionNotFound
+	return nil, nil
 }
 
 // RegisterConfirmationsNtfn registers an intent to be notified once the target

@@ -1336,10 +1336,13 @@ func TestChannelLinkExpiryTooSoonExitNode(t *testing.T) {
 
 	amount := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
 
-	// We'll craft an HTLC packet, but set the starting height to 10 blocks
-	// before the current true height.
+	// We'll craft an HTLC packet, but set the final hop CLTV to 3 blocks
+	// after the current true height. This is less or equal to the expiry
+	// grace delta of 3, so we expect the incoming htlc to be failed by the
+	// exit hop.
+	lastHopDelta := n.firstBobChannelLink.cfg.FwrdingPolicy.TimeLockDelta
 	htlcAmt, totalTimelock, hops := generateHops(amount,
-		startingHeight-10, n.firstBobChannelLink)
+		startingHeight+3-lastHopDelta, n.firstBobChannelLink)
 
 	// Now we'll send out the payment from Alice to Bob.
 	firstHop := n.firstBobChannelLink.ShortChanID()
@@ -1395,11 +1398,14 @@ func TestChannelLinkExpiryTooSoonMidNode(t *testing.T) {
 
 	amount := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
 
-	// We'll craft an HTLC packet, but set the starting height to 10 blocks
-	// before the current true height. The final route will be three hops,
-	// so the middle hop should detect the issue.
+	// We'll craft an HTLC packet, but set the starting height to 3 blocks
+	// before the current true height. This means that the outgoing time
+	// lock of the middle hop will be at starting height + 3 blocks (channel
+	// policy time lock delta is 6 blocks). There is an expiry grace delta
+	// of 3 blocks relative to the current height, meaning that htlc will
+	// not be sent out by the middle hop.
 	htlcAmt, totalTimelock, hops := generateHops(amount,
-		startingHeight-10, n.firstBobChannelLink, n.carolChannelLink)
+		startingHeight-3, n.firstBobChannelLink, n.carolChannelLink)
 
 	// Now we'll send out the payment from Alice to Bob.
 	firstHop := n.firstBobChannelLink.ShortChanID()

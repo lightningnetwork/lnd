@@ -1240,7 +1240,7 @@ func (s *server) Stop() error {
 		s.cc.feeEstimator.Stop()
 		s.invoices.Stop()
 		s.fundingMgr.Stop()
-		s.chanSubSwapper.Start()
+		s.chanSubSwapper.Stop()
 
 		// Disconnect from each active peers to ensure that
 		// peerTerminationWatchers signal completion to each peer.

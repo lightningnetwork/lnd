@@ -308,11 +308,9 @@ func (c *chainWatcher) closeObserver(spendNtfn *chainntnfs.SpendEvent) {
 			return
 		}
 
-
 		// We'll now retrieve the latest sate of the revocation store
 		// so we can populate the information within the channel state
 		// object that we have.
-
 		//
 		// TODO(roasbeef): mutation is bad mkay
 		_, err = c.cfg.chanState.RemoteRevocationStore()

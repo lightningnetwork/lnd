@@ -2478,10 +2478,22 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 	// delta greater than the broadcast delta, to prevent links from
 	// accepting htlcs that may trigger channel arbitrator force close the
 	// channel immediately.
+
+	// TODO: Revert back to a safe expiry grace delta. It is temporarily
+	// hard coded to 3 to prevent lnd not being able to forward to final
+	// destinations with low invoice cltv values. There is a risk that
+	// handing out an htlc with such a low expiry height triggers a channel
+	// force close if a new block arrives while the htlc is still active.
+	//
+	// expiryGraceDelta := uint32(defaultBroadcastDelta +
+	//      extraExpiryGraceDelta)
+
+	expiryGraceDelta := uint32(3)
+
 	p, err := newPeer(
 		conn, connReq, s, peerAddr, inbound, localFeatures,
 		cfg.ChanEnableTimeout,
-		defaultBroadcastDelta+extraExpiryGraceDelta,
+		expiryGraceDelta,
 	)
 	if err != nil {
 		srvrLog.Errorf("unable to create peer %v", err)

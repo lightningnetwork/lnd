@@ -714,6 +714,9 @@ service Lightning {
     from the WalletUnlocker service.
     */
     rpc ExportChannelBackup(ExportChannelBackupRequest) returns (ChannelBackup) {
+        option (google.api.http) = {
+            get: "/v1/channels/backup/{chan_point.funding_txid_str}/{chan_point.output_index}"
+        };
     };
 
     /**
@@ -724,6 +727,9 @@ service Lightning {
     each channel.
     */
     rpc ExportAllChannelBackups(ChanBackupExportRequest) returns (ChanBackupSnapshot) {
+        option (google.api.http) = {
+            get: "/v1/channels/backup"
+        };
     };
 
     /**
@@ -733,6 +739,10 @@ service Lightning {
     (if present) is valid and also if the passed Multi (if present) is valid.
     */
     rpc VerifyChanBackup(ChanBackupSnapshot) returns (VerifyChanBackupResponse) {
+        option (google.api.http) = {
+            post: "/v1/channels/backup/verify"
+            body: "*"
+        };
     };
 
     /** lncli: `restorechanbackup`
@@ -742,6 +752,10 @@ service Lightning {
     new channel will be shown under listchannels, as well as pending channels.
     */
     rpc RestoreChannelBackups(RestoreChanBackupRequest) returns (RestoreBackupResponse)  {
+        option (google.api.http) = {
+            post: "/v1/channels/backup/restore"
+            body: "*"
+        };
     };
 
     /**

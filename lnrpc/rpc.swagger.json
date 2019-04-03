@@ -180,6 +180,117 @@
         ]
       }
     },
+    "/v1/channels/backup": {
+      "get": {
+        "summary": "*\nExportAllChannelBackups returns static channel backups for all existing\nchannels known to lnd. A set of regular singular static channel backups for\neach channel are returned. Additionally, a multi-channel backup is returned\nas well, which contains a single encrypted blob containing the backups of\neach channel.",
+        "operationId": "ExportAllChannelBackups",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/lnrpcChanBackupSnapshot"
+            }
+          }
+        },
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
+    "/v1/channels/backup/restore": {
+      "post": {
+        "summary": "* lncli: `restorechanbackup`\nRestoreChannelBackups accepts a set of singular channel backups, or a\nsingle encrypted multi-chan backup and attempts to recover any funds\nremaining within the channel. If we are able to unpack the backup, then the\nnew channel will be shown under listchannels, as well as pending channels.",
+        "operationId": "RestoreChannelBackups",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/lnrpcRestoreBackupResponse"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/lnrpcRestoreChanBackupRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
+    "/v1/channels/backup/verify": {
+      "post": {
+        "summary": "*\nVerifyChanBackup allows a caller to verify the integrity of a channel\nbackup snapshot. This method will accept both a packed Single, and also a\nPacked multi. Two bools are returned which indicate if the passed Single\n(if present) is valid and also if the passed Multi (if present) is valid.",
+        "operationId": "VerifyChanBackup",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/lnrpcVerifyChanBackupResponse"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/lnrpcChanBackupSnapshot"
+            }
+          }
+        ],
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
+    "/v1/channels/backup/{chan_point.funding_txid_str}/{chan_point.output_index}": {
+      "get": {
+        "summary": "* lncli: `exportchanbackup`\nExportChannelBackup attempts to return an encrypted static channel backup\nfor the target channel identified by it channel point. The backup is\nencrypted with a key generated from the aezeed seed of the user. The\nreturned backup can either be restored using the RestoreChannelBackup\nmethod once lnd is running, or via the InitWallet and UnlockWallet methods\nfrom the WalletUnlocker service.",
+        "operationId": "ExportChannelBackup",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/lnrpcChannelBackup"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "chan_point.funding_txid_str",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "chan_point.output_index",
+            "in": "path",
+            "required": true,
+            "type": "integer",
+            "format": "int64"
+          },
+          {
+            "name": "chan_point.funding_txid_bytes",
+            "description": "/ Txid of the funding transaction.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          }
+        ],
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
     "/v1/channels/closed": {
       "get": {
         "summary": "* lncli: `closedchannels`\nClosedChannels returns a description of all the closed channels that \nthis node was a participant in.",
@@ -2878,6 +2989,18 @@
     },
     "lnrpcRestoreBackupResponse": {
       "type": "object"
+    },
+    "lnrpcRestoreChanBackupRequest": {
+      "type": "object",
+      "properties": {
+        "chan_backups": {
+          "$ref": "#/definitions/lnrpcChannelBackups"
+        },
+        "multi_chan_backup": {
+          "type": "string",
+          "format": "byte"
+        }
+      }
     },
     "lnrpcRoute": {
       "type": "object",

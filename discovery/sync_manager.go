@@ -353,19 +353,20 @@ func (m *SyncManager) roundRobinHandler() {
 			// the set of inactive syncers.
 			if staleActiveSyncer.transitioned {
 				m.inactiveSyncers[s.cfg.peerPub] = s
+			} else {
+				// Otherwise, since the peer is disconnecting,
+				// we'll attempt to find a passive syncer that
+				// can replace it.
+				newActiveSyncer := m.chooseRandomSyncer(nil, false)
+				if newActiveSyncer != nil {
+					m.queueActiveSyncer(newActiveSyncer)
+				}
 			}
 
 			// Remove the internal active syncer references for this
 			// peer.
 			delete(m.pendingActiveSyncers, s.cfg.peerPub)
 			delete(m.activeSyncers, s.cfg.peerPub)
-
-			// We'll then attempt to find a passive syncer that can
-			// replace the stale active syncer.
-			newActiveSyncer := m.chooseRandomSyncer(nil, false)
-			if newActiveSyncer != nil {
-				m.queueActiveSyncer(newActiveSyncer)
-			}
 			m.Unlock()
 
 			// Signal to the caller that they can now proceed since

@@ -1027,7 +1027,7 @@ func (c *OpenChannel) UpdateCommitment(newCommitment *ChannelCommitment) error {
 		return ErrNoRestoredChannelMutation
 	}
 
-	err := c.Db.Batch(func(tx *bbolt.Tx) error {
+	err := c.Db.Update(func(tx *bbolt.Tx) error {
 		chanBucket, err := fetchChanBucket(
 			tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
 		)
@@ -1465,7 +1465,7 @@ func (c *OpenChannel) AppendRemoteCommitChain(diff *CommitDiff) error {
 		return ErrNoRestoredChannelMutation
 	}
 
-	return c.Db.Batch(func(tx *bbolt.Tx) error {
+	return c.Db.Update(func(tx *bbolt.Tx) error {
 		// First, we'll grab the writable bucket where this channel's
 		// data resides.
 		chanBucket, err := fetchChanBucket(
@@ -1608,9 +1608,7 @@ func (c *OpenChannel) AdvanceCommitChainTail(fwdPkg *FwdPkg) error {
 
 	var newRemoteCommit *ChannelCommitment
 
-	err := c.Db.Batch(func(tx *bbolt.Tx) error {
-		newRemoteCommit = nil
-
+	err := c.Db.Update(func(tx *bbolt.Tx) error {
 		chanBucket, err := fetchChanBucket(
 			tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
 		)
@@ -1748,7 +1746,7 @@ func (c *OpenChannel) AckAddHtlcs(addRefs ...AddRef) error {
 	c.Lock()
 	defer c.Unlock()
 
-	return c.Db.Batch(func(tx *bbolt.Tx) error {
+	return c.Db.Update(func(tx *bbolt.Tx) error {
 		return c.Packager.AckAddHtlcs(tx, addRefs...)
 	})
 }
@@ -1761,7 +1759,7 @@ func (c *OpenChannel) AckSettleFails(settleFailRefs ...SettleFailRef) error {
 	c.Lock()
 	defer c.Unlock()
 
-	return c.Db.Batch(func(tx *bbolt.Tx) error {
+	return c.Db.Update(func(tx *bbolt.Tx) error {
 		return c.Packager.AckSettleFails(tx, settleFailRefs...)
 	})
 }
@@ -1772,7 +1770,7 @@ func (c *OpenChannel) SetFwdFilter(height uint64, fwdFilter *PkgFilter) error {
 	c.Lock()
 	defer c.Unlock()
 
-	return c.Db.Batch(func(tx *bbolt.Tx) error {
+	return c.Db.Update(func(tx *bbolt.Tx) error {
 		return c.Packager.SetFwdFilter(tx, height, fwdFilter)
 	})
 }
@@ -1785,15 +1783,14 @@ func (c *OpenChannel) RemoveFwdPkg(height uint64) error {
 	c.Lock()
 	defer c.Unlock()
 
-	return c.Db.Batch(func(tx *bbolt.Tx) error {
+	return c.Db.Update(func(tx *bbolt.Tx) error {
 		return c.Packager.RemovePkg(tx, height)
 	})
 }
 
 // RevocationLogTail returns the "tail", or the end of the current revocation
 // log. This entry represents the last previous state for the remote node's
-// commitment chain. The ChannelDelta returned by this method will always lag
-// one state behind the most current (unrevoked) state of the remote node's
+// commitment chain. The ChannelDelta returned by this method will always lag one state behind the most current (unrevoked) state of the remote node's
 // commitment chain.
 func (c *OpenChannel) RevocationLogTail() (*ChannelCommitment, error) {
 	c.RLock()

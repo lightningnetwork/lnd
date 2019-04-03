@@ -23,6 +23,7 @@ import (
 	flags "github.com/jessevdk/go-flags"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/chanbackup"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch/hodl"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
@@ -256,6 +257,8 @@ type config struct {
 	Routing *routing.Conf `group:"routing" namespace:"routing"`
 
 	Workers *lncfg.Workers `group:"workers" namespace:"workers"`
+
+	Caches *lncfg.Caches `group:"caches" namespace:"caches"`
 }
 
 // loadConfig initializes and parses the config using a config file and command
@@ -342,6 +345,10 @@ func loadConfig() (*config, error) {
 			Read:  lncfg.DefaultReadWorkers,
 			Write: lncfg.DefaultWriteWorkers,
 			Sig:   lncfg.DefaultSigWorkers,
+		},
+		Caches: &lncfg.Caches{
+			RejectCacheSize:  channeldb.DefaultRejectCacheSize,
+			ChannelCacheSize: channeldb.DefaultChannelCacheSize,
 		},
 	}
 
@@ -985,9 +992,12 @@ func loadConfig() (*config, error) {
 			"minbackoff")
 	}
 
-	// Assert that all worker pools will have a positive number of
-	// workers, otherwise the pools will rendered useless.
-	if err := cfg.Workers.Validate(); err != nil {
+	// Validate the subconfigs for workers and caches.
+	err = lncfg.Validate(
+		cfg.Workers,
+		cfg.Caches,
+	)
+	if err != nil {
 		return nil, err
 	}
 

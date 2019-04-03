@@ -242,9 +242,7 @@ func (d *DB) AddInvoice(newInvoice *Invoice, paymentHash lntypes.Hash) (
 	}
 
 	var invoiceAddIndex uint64
-	err := d.Batch(func(tx *bbolt.Tx) error {
-		invoiceAddIndex = 0
-
+	err := d.Update(func(tx *bbolt.Tx) error {
 		invoices, err := tx.CreateBucketIfNotExists(invoiceBucket)
 		if err != nil {
 			return err
@@ -637,9 +635,7 @@ func (d *DB) AcceptOrSettleInvoice(paymentHash [32]byte,
 	amtPaid lnwire.MilliSatoshi) (*Invoice, error) {
 
 	var settledInvoice *Invoice
-	err := d.Batch(func(tx *bbolt.Tx) error {
-		settledInvoice = nil
-
+	err := d.Update(func(tx *bbolt.Tx) error {
 		invoices, err := tx.CreateBucketIfNotExists(invoiceBucket)
 		if err != nil {
 			return err
@@ -718,9 +714,7 @@ func (d *DB) SettleHoldInvoice(preimage lntypes.Preimage) (*Invoice, error) {
 // payment hash.
 func (d *DB) CancelInvoice(paymentHash lntypes.Hash) (*Invoice, error) {
 	var canceledInvoice *Invoice
-	err := d.Batch(func(tx *bbolt.Tx) error {
-		canceledInvoice = nil
-
+	err := d.Update(func(tx *bbolt.Tx) error {
 		invoices, err := tx.CreateBucketIfNotExists(invoiceBucket)
 		if err != nil {
 			return err

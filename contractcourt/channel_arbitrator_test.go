@@ -165,7 +165,8 @@ func createTestChannelArbitrator(log ArbitratorLog) (*ChannelArbitrator,
 		DeliverResolutionMsg: func(...ResolutionMsg) error {
 			return nil
 		},
-		BroadcastDelta: 5,
+		OutgoingBroadcastDelta: 5,
+		IncomingBroadcastDelta: 5,
 		Notifier: &mockNotifier{
 			epochChan: make(chan *chainntnfs.BlockEpoch),
 			spendChan: make(chan *chainntnfs.SpendDetail),

@@ -248,7 +248,7 @@ type config struct {
 	Color       string `long:"color" description:"The color of the node in hex format (i.e. '#3399FF'). Used to customize node appearance in intelligence services"`
 	MinChanSize int64  `long:"minchansize" description:"The smallest channel size (in satoshis) that we should accept. Incoming channels smaller than this will be rejected"`
 
-	NoChanUpdates bool `long:"nochanupdates" description:"If specified, lnd will not request real-time channel updates from connected peers. This option should be used by routing nodes to save bandwidth."`
+	NumGraphSyncPeers int `long:"numgraphsyncpeers" description:"The number of peers that we should receive new graph updates from. This option can be tuned to save bandwidth for light clients or routing nodes."`
 
 	RejectPush bool `long:"rejectpush" description:"If true, lnd will not accept channel opening requests with non-zero push amounts. This should prevent accidental pushes to merchant nodes."`
 
@@ -335,6 +335,7 @@ func loadConfig() (*config, error) {
 		Alias:                    defaultAlias,
 		Color:                    defaultColor,
 		MinChanSize:              int64(minChanFundingSize),
+		NumGraphSyncPeers:        defaultMinPeers,
 		Tor: &torConfig{
 			SOCKS:   defaultTorSOCKS,
 			DNS:     defaultTorDNS,

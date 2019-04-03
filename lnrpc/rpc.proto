@@ -1257,6 +1257,26 @@ message Peer {
 
     /// Ping time to this peer
     int64 ping_time = 9 [json_name = "ping_time"];
+
+    enum SyncType {
+        /**
+        Denotes that we cannot determine the peer's current sync type.
+        */
+        UNKNOWN_SYNC = 0;
+
+        /**
+        Denotes that we are actively receiving new graph updates from the peer.
+        */
+        ACTIVE_SYNC = 1;
+
+        /**
+        Denotes that we are not receiving new graph updates from the peer.
+        */
+        PASSIVE_SYNC = 2;
+    }
+
+    // The type of sync we are currently performing with this peer.
+    SyncType sync_type = 10 [json_name = "sync_type"];
 }
 
 message ListPeersRequest {

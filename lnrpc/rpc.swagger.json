@@ -1305,6 +1305,16 @@
       ],
       "default": "OPEN"
     },
+    "PeerSyncType": {
+      "type": "string",
+      "enum": [
+        "UNKNOWN_SYNC",
+        "ACTIVE_SYNC",
+        "PASSIVE_SYNC"
+      ],
+      "default": "UNKNOWN_SYNC",
+      "description": " - UNKNOWN_SYNC: *\nDenotes that we cannot determine the peer's current sync type.\n - ACTIVE_SYNC: *\nDenotes that we are actively receiving new graph updates from the peer.\n - PASSIVE_SYNC: *\nDenotes that we are not receiving new graph updates from the peer."
+    },
     "PendingChannelsResponseClosedChannel": {
       "type": "object",
       "properties": {
@@ -2856,6 +2866,10 @@
           "type": "string",
           "format": "int64",
           "title": "/ Ping time to this peer"
+        },
+        "sync_type": {
+          "$ref": "#/definitions/PeerSyncType",
+          "description": "The type of sync we are currently performing with this peer."
         }
       }
     },

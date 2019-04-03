@@ -1106,7 +1106,8 @@ func (c *ChannelArbitrator) checkChainActions(height uint32,
 		// We'll need to go on-chain for an outgoing HTLC if it was
 		// never resolved downstream, and it's "close" to timing out.
 		haveChainActions = haveChainActions || c.shouldGoOnChain(
-			htlc.RefundTimeout, c.cfg.BroadcastDelta, height,
+			htlc.RefundTimeout, c.cfg.OutgoingBroadcastDelta,
+			height,
 		)
 	}
 	for _, htlc := range c.activeHTLCs.incomingHTLCs {
@@ -1124,7 +1125,8 @@ func (c *ChannelArbitrator) checkChainActions(height uint32,
 			continue
 		}
 		haveChainActions = haveChainActions || c.shouldGoOnChain(
-			htlc.RefundTimeout, c.cfg.BroadcastDelta, height,
+			htlc.RefundTimeout, c.cfg.IncomingBroadcastDelta,
+			height,
 		)
 	}
 
@@ -1162,7 +1164,8 @@ func (c *ChannelArbitrator) checkChainActions(height uint32,
 		// until the HTLC times out to see if we can also redeem it
 		// on-chain.
 		case !c.shouldGoOnChain(
-			htlc.RefundTimeout, c.cfg.BroadcastDelta, height,
+			htlc.RefundTimeout, c.cfg.OutgoingBroadcastDelta,
+			height,
 		):
 			// TODO(roasbeef): also need to be able to query
 			// circuit map to see if HTLC hasn't been fully

@@ -235,17 +235,18 @@ type ChannelLinkConfig struct {
 	MinFeeUpdateTimeout time.Duration
 	MaxFeeUpdateTimeout time.Duration
 
-	// ExpiryGraceDelta is the minimum difference between the current block
-	// height and the CLTV we require on 1) an outgoing HTLC in order to
-	// forward as an intermediary hop, or 2) an incoming HTLC to reveal the
-	// preimage as the final hop. We'll reject any HTLC's who's timeout minus
-	// this value is less than or equal to the current block height. We require
-	// this in order to ensure that we have sufficient time to claim or
-	// timeout an HTLC on chain.
-	//
-	// This MUST be greater than the maximum BroadcastDelta of the
-	// ChannelArbitrator for the outbound channel.
-	ExpiryGraceDelta uint32
+	// FinalCltvRejectDelta defines the number of blocks before the expiry
+	// of the htlc where we no longer settle it as an exit hop and instead
+	// cancel it back. Normally this value should be lower than the cltv
+	// expiry of any invoice we create and the code effectuating this should
+	// not be hit.
+	FinalCltvRejectDelta uint32
+
+	// OutgoingCltvRejectDelta defines the number of blocks before expiry of
+	// an htlc where we don't offer an htlc anymore. This should be at least
+	// the outgoing broadcast delta, because in any case we don't want to
+	// risk offering an htlc that triggers channel closure.
+	OutgoingCltvRejectDelta uint32
 }
 
 // channelLink is the service which drives a channel's commitment update
@@ -2156,7 +2157,7 @@ func (l *channelLink) HtlcSatifiesPolicy(payHash [32]byte,
 	// We want to avoid offering an HTLC which will expire in the near
 	// future, so we'll reject an HTLC if the outgoing expiration time is too
 	// close to the current height.
-	if outgoingTimeout-l.cfg.ExpiryGraceDelta <= heightNow {
+	if outgoingTimeout-l.cfg.OutgoingCltvRejectDelta <= heightNow {
 		l.errorf("htlc(%x) has an expiry that's too soon: "+
 			"outgoing_expiry=%v, best_height=%v", payHash[:],
 			outgoingTimeout, heightNow)
@@ -2679,7 +2680,7 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 
 	// First, we'll check the expiry of the HTLC itself against, the current
 	// block height. If the timeout is too soon, then we'll reject the HTLC.
-	if pd.Timeout-l.cfg.ExpiryGraceDelta <= heightNow {
+	if pd.Timeout-l.cfg.FinalCltvRejectDelta <= heightNow {
 		log.Errorf("htlc(%x) has an expiry that's too soon: expiry=%v"+
 			", best_height=%v", pd.RHash[:], pd.Timeout, heightNow)
 

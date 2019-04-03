@@ -58,13 +58,6 @@ const (
 	// messages to be sent across the wire, requested by objects outside
 	// this struct.
 	outgoingQueueLen = 50
-
-	// extraExpiryGraceDelta is the additional number of blocks required by
-	// the ExpiryGraceDelta of the forwarding policy beyond the maximum
-	// broadcast delta. This is the minimum number of blocks between the
-	// expiry on an accepted or offered HTLC and the block height at which
-	// we will go to chain.
-	extraExpiryGraceDelta = 3
 )
 
 // outgoingMsg packages an lnwire.Message to be sent out on the wire, along with
@@ -206,11 +199,13 @@ type peer struct {
 	// remote node.
 	localFeatures *lnwire.RawFeatureVector
 
-	// expiryGraceDelta is the block time allowance for HTLCs offered and
-	// received on channels with this peer. The parameter is used to
-	// configure links with the peer. See ExpiryGraceDelta on
-	// ChannelLinkConfig for more information.
-	expiryGraceDelta uint32
+	// finalCltvRejectDelta defines the number of blocks before the expiry
+	// of the htlc where we no longer settle it as an exit hop.
+	finalCltvRejectDelta uint32
+
+	// outgoingCltvRejectDelta defines the number of blocks before expiry of
+	// an htlc where we don't offer an htlc anymore.
+	outgoingCltvRejectDelta uint32
 
 	// remoteLocalFeatures is the local feature vector received from the
 	// peer during the connection handshake.
@@ -249,7 +244,8 @@ var _ lnpeer.Peer = (*peer)(nil)
 func newPeer(conn net.Conn, connReq *connmgr.ConnReq, server *server,
 	addr *lnwire.NetAddress, inbound bool,
 	localFeatures *lnwire.RawFeatureVector,
-	chanActiveTimeout time.Duration, expiryGraceDelta uint32) (
+	chanActiveTimeout time.Duration,
+	finalCltvRejectDelta, outgoingCltvRejectDelta uint32) (
 	*peer, error) {
 
 	nodePub := addr.IdentityKey
@@ -263,8 +259,10 @@ func newPeer(conn net.Conn, connReq *connmgr.ConnReq, server *server,
 
 		server: server,
 
-		localFeatures:    localFeatures,
-		expiryGraceDelta: expiryGraceDelta,
+		localFeatures: localFeatures,
+
+		finalCltvRejectDelta:    finalCltvRejectDelta,
+		outgoingCltvRejectDelta: outgoingCltvRejectDelta,
 
 		sendQueue:     make(chan outgoingMsg),
 		outgoingQueue: make(chan outgoingMsg),
@@ -596,15 +594,16 @@ func (p *peer) addLink(chanPoint *wire.OutPoint,
 				*chanPoint, signals,
 			)
 		},
-		OnChannelFailure:    onChannelFailure,
-		SyncStates:          syncStates,
-		BatchTicker:         ticker.New(50 * time.Millisecond),
-		FwdPkgGCTicker:      ticker.New(time.Minute),
-		BatchSize:           10,
-		UnsafeReplay:        cfg.UnsafeReplay,
-		MinFeeUpdateTimeout: htlcswitch.DefaultMinLinkFeeUpdateTimeout,
-		MaxFeeUpdateTimeout: htlcswitch.DefaultMaxLinkFeeUpdateTimeout,
-		ExpiryGraceDelta:    p.expiryGraceDelta,
+		OnChannelFailure:        onChannelFailure,
+		SyncStates:              syncStates,
+		BatchTicker:             ticker.New(50 * time.Millisecond),
+		FwdPkgGCTicker:          ticker.New(time.Minute),
+		BatchSize:               10,
+		UnsafeReplay:            cfg.UnsafeReplay,
+		MinFeeUpdateTimeout:     htlcswitch.DefaultMinLinkFeeUpdateTimeout,
+		MaxFeeUpdateTimeout:     htlcswitch.DefaultMaxLinkFeeUpdateTimeout,
+		FinalCltvRejectDelta:    p.finalCltvRejectDelta,
+		OutgoingCltvRejectDelta: p.outgoingCltvRejectDelta,
 	}
 
 	link := htlcswitch.NewChannelLink(linkCfg, lnChan)

@@ -67,7 +67,11 @@ const (
 	defaultTorV2PrivateKeyFilename = "v2_onion_private_key"
 	defaultTorV3PrivateKeyFilename = "v3_onion_private_key"
 
-	defaultBroadcastDelta = 10
+	defaultIncomingBroadcastDelta = 20
+	defaultFinalCltvRejectDelta   = 2
+
+	defaultOutgoingBroadcastDelta  = 10
+	defaultOutgoingCltvRejectDelta = 0
 
 	// minTimeLockDelta is the minimum timelock we require for incoming
 	// HTLCs on our channels.

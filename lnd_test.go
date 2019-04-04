@@ -13250,15 +13250,10 @@ func testChannelBackupUpdates(net *lntest.NetworkHarness, t *harnessTest) {
 						MultiChanBackup: backup,
 					},
 				}
-				resp, err := carol.VerifyChanBackup(ctxb, snapshot)
+				_, err := carol.VerifyChanBackup(ctxb, snapshot)
 				if err != nil {
 					return fmt.Errorf("unable to verify "+
-						"back up: %v", err)
-				}
-
-				if !resp.SinglesValid || !resp.MultiValid {
-					return fmt.Errorf("backup #%v is "+
-						"invalid", i)
+						"backup #%d: %v", i, err)
 				}
 			}
 

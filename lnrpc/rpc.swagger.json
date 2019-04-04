@@ -226,7 +226,7 @@
     },
     "/v1/channels/backup/verify": {
       "post": {
-        "summary": "*\nVerifyChanBackup allows a caller to verify the integrity of a channel\nbackup snapshot. This method will accept both a packed Single, and also a\nPacked multi. Two bools are returned which indicate if the passed Single\n(if present) is valid and also if the passed Multi (if present) is valid.",
+        "summary": "*\nVerifyChanBackup allows a caller to verify the integrity of a channel backup\nsnapshot. This method will accept either a packed Single or a packed Multi.\nSpecifying both will result in an error.",
         "operationId": "VerifyChanBackup",
         "responses": {
           "200": {
@@ -3370,17 +3370,7 @@
       }
     },
     "lnrpcVerifyChanBackupResponse": {
-      "type": "object",
-      "properties": {
-        "singles_valid": {
-          "type": "boolean",
-          "format": "boolean"
-        },
-        "multi_valid": {
-          "type": "boolean",
-          "format": "boolean"
-        }
-      }
+      "type": "object"
     },
     "lnrpcVerifyMessageRequest": {
       "type": "object",

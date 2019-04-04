@@ -733,10 +733,9 @@ service Lightning {
     };
 
     /**
-    VerifyChanBackup allows a caller to verify the integrity of a channel
-    backup snapshot. This method will accept both a packed Single, and also a
-    Packed multi. Two bools are returned which indicate if the passed Single
-    (if present) is valid and also if the passed Multi (if present) is valid.
+    VerifyChanBackup allows a caller to verify the integrity of a channel backup
+    snapshot. This method will accept either a packed Single or a packed Multi.
+    Specifying both will result in an error.
     */
     rpc VerifyChanBackup(ChanBackupSnapshot) returns (VerifyChanBackupResponse) {
         option (google.api.http) = {
@@ -2365,6 +2364,4 @@ message RestoreBackupResponse {}
 message ChannelBackupSubscription {}
 
 message VerifyChanBackupResponse {
-    bool singles_valid = 1 [ json_name = "singles_valid"];
-    bool multi_valid = 2 [ json_name = "multi_valid"];
 }

@@ -286,6 +286,13 @@ func (m *SyncManager) roundRobinHandler() {
 		current = m.nextPendingActiveSyncer()
 		m.Unlock()
 		for current != nil {
+			// Ensure we properly handle a shutdown signal.
+			select {
+			case <-m.quit:
+				return
+			default:
+			}
+
 			// We'll avoid performing the transition with the lock
 			// as it can potentially stall the SyncManager due to
 			// the syncTransitionTimeout.
@@ -353,19 +360,20 @@ func (m *SyncManager) roundRobinHandler() {
 			// the set of inactive syncers.
 			if staleActiveSyncer.transitioned {
 				m.inactiveSyncers[s.cfg.peerPub] = s
+			} else {
+				// Otherwise, since the peer is disconnecting,
+				// we'll attempt to find a passive syncer that
+				// can replace it.
+				newActiveSyncer := m.chooseRandomSyncer(nil, false)
+				if newActiveSyncer != nil {
+					m.queueActiveSyncer(newActiveSyncer)
+				}
 			}
 
 			// Remove the internal active syncer references for this
 			// peer.
 			delete(m.pendingActiveSyncers, s.cfg.peerPub)
 			delete(m.activeSyncers, s.cfg.peerPub)
-
-			// We'll then attempt to find a passive syncer that can
-			// replace the stale active syncer.
-			newActiveSyncer := m.chooseRandomSyncer(nil, false)
-			if newActiveSyncer != nil {
-				m.queueActiveSyncer(newActiveSyncer)
-			}
 			m.Unlock()
 
 			// Signal to the caller that they can now proceed since
@@ -530,6 +538,13 @@ func (m *SyncManager) forceHistoricalSync() {
 	candidatesChosen := make(map[routing.Vertex]struct{})
 	s := m.chooseRandomSyncer(candidatesChosen, true)
 	for s != nil {
+		// Ensure we properly handle a shutdown signal.
+		select {
+		case <-m.quit:
+			return
+		default:
+		}
+
 		// Blacklist the candidate to ensure it's not chosen again.
 		candidatesChosen[s.cfg.peerPub] = struct{}{}
 

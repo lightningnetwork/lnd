@@ -173,12 +173,14 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 
 	// The value of the invoice must also not exceed the current soft-limit
 	// on the largest payment within the network.
-	if amtMSat > cfg.MaxPaymentMSat {
-		return nil, nil, fmt.Errorf("payment of %v is too large, max "+
-			"payment allowed is %v", invoice.Value,
-			cfg.MaxPaymentMSat.ToSatoshis(),
-		)
-	}
+
+	// TODO(jack/riz): make this a conditional that checks against the feature bit?
+	// if amtMSat > cfg.MaxPaymentMSat {
+	// 	return nil, nil, fmt.Errorf("payment of %v is too large, max "+
+	// 		"payment allowed is %v", invoice.Value,
+	// 		cfg.MaxPaymentMSat.ToSatoshis(),
+	// 	)
+	// }
 
 	// We also create an encoded payment request which allows the
 	// caller to compactly send the invoice to the payer. We'll create a

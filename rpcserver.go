@@ -1334,10 +1334,12 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 	// Ensure that the user doesn't exceed the current soft-limit for
 	// channel size. If the funding amount is above the soft-limit, then
 	// we'll reject the request.
-	if localFundingAmt > maxFundingAmount {
-		return fmt.Errorf("funding amount is too large, the max "+
-			"channel size is: %v", maxFundingAmount)
-	}
+
+	// TODO(jack/riz): make this a conditional that checks against the feature bit?
+	// if localFundingAmt > maxFundingAmount {
+	// 	return fmt.Errorf("funding amount is too large, the max "+
+	// 		"channel size is: %v", maxFundingAmount)
+	// }
 
 	// Restrict the size of the channel we'll actually open. At a later
 	// level, we'll ensure that the output we create after accounting for
@@ -3016,14 +3018,16 @@ func extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPaymentIntent, error
 	// Currently, within the bootstrap phase of the network, we limit the
 	// largest payment size allotted to (2^32) - 1 mSAT or 4.29 million
 	// satoshis.
-	if payIntent.msat > maxPaymentMSat {
-		// In this case, we'll send an error to the caller, but
-		// continue our loop for the next payment.
-		return payIntent, fmt.Errorf("payment of %v is too large, "+
-			"max payment allowed is %v", payIntent.msat,
-			maxPaymentMSat)
 
-	}
+	// TODO(jack/riz): replace with feature bit conditional?
+	// if payIntent.msat > maxPaymentMSat {
+	// 	// In this case, we'll send an error to the caller, but
+	// 	// continue our loop for the next payment.
+	// 	return payIntent, fmt.Errorf("payment of %v is too large, "+
+	// 		"max payment allowed is %v", payIntent.msat,
+	// 		maxPaymentMSat)
+
+	// }
 
 	return payIntent, nil
 }

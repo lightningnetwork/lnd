@@ -206,6 +206,9 @@ type peer struct {
 	// remote node.
 	localFeatures *lnwire.RawFeatureVector
 
+	// TODO(jack/riz): good enough comment
+	globalFeatures *lnwire.RawFeatureVector
+
 	// expiryGraceDelta is the block time allowance for HTLCs offered and
 	// received on channels with this peer. The parameter is used to
 	// configure links with the peer. See ExpiryGraceDelta on
@@ -249,6 +252,7 @@ var _ lnpeer.Peer = (*peer)(nil)
 func newPeer(conn net.Conn, connReq *connmgr.ConnReq, server *server,
 	addr *lnwire.NetAddress, inbound bool,
 	localFeatures *lnwire.RawFeatureVector,
+	globalFeatures *lnwire.RawFeatureVector,
 	chanActiveTimeout time.Duration, expiryGraceDelta uint32) (
 	*peer, error) {
 
@@ -264,6 +268,7 @@ func newPeer(conn net.Conn, connReq *connmgr.ConnReq, server *server,
 		server: server,
 
 		localFeatures:    localFeatures,
+		globalFeatures:    globalFeatures,
 		expiryGraceDelta: expiryGraceDelta,
 
 		sendQueue:     make(chan outgoingMsg),

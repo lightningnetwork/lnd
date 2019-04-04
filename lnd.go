@@ -93,6 +93,8 @@ var (
 // defers created in the top-level scope of a main method aren't executed if
 // os.Exit() is called.
 func lndMain() error {
+	ltndLog.Info("bfoofoo gang :p")
+
 	// Load the configuration, and parse any command line options. This
 	// function will also set up logging properly.
 	loadedConfig, err := loadConfig()

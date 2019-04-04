@@ -1019,13 +1019,15 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 
 	// We'll reject any request to create a channel that's above the
 	// current soft-limit for channel size.
-	if msg.FundingAmount > maxFundingAmount {
-		f.failFundingFlow(
-			fmsg.peer, fmsg.msg.PendingChannelID,
-			lnwire.ErrChanTooLarge,
-		)
-		return
-	}
+
+	// TODO(jack/riz): make this a conditional that checks against the feature bit?
+	// if msg.FundingAmount > maxFundingAmount {
+	// 	f.failFundingFlow(
+	// 		fmsg.peer, fmsg.msg.PendingChannelID,
+	// 		lnwire.ErrChanTooLarge,
+	// 	)
+	// 	return
+	// }
 
 	// We'll, also ensure that the remote party isn't attempting to propose
 	// a channel that's below our current min channel size.

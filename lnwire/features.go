@@ -46,6 +46,11 @@ const (
 	// efficient network view reconciliation.
 	GossipQueriesOptional FeatureBit = 7
 
+	// TODO(jack/riz): good enough comment
+	SupportLargeChannelRequired FeatureBit = 16
+	// TODO(jack/riz): good enough comment
+	SupportLargeChannelOptional FeatureBit = 17
+
 	// maxAllowedSize is a maximum allowed size of feature vector.
 	//
 	// NOTE: Within the protocol, the maximum allowed message size is 65535
@@ -76,7 +81,10 @@ var LocalFeatures = map[FeatureBit]string{
 // name. All known global feature bits must be assigned a name in this mapping.
 // Global features are those which are advertised to the entire network. A full
 // description of these feature bits is provided in the BOLT-09 specification.
-var GlobalFeatures map[FeatureBit]string
+var GlobalFeatures = map[FeatureBit]string{
+  SupportLargeChannelRequired: "support-larger-channel",
+  SupportLargeChannelOptional: "support-larger-channel",
+}
 
 // RawFeatureVector represents a set of feature bits as defined in BOLT-09.  A
 // RawFeatureVector itself just stores a set of bit flags but can be used to

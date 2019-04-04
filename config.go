@@ -68,11 +68,50 @@ const (
 	defaultTorV2PrivateKeyFilename = "v2_onion_private_key"
 	defaultTorV3PrivateKeyFilename = "v3_onion_private_key"
 
-	defaultIncomingBroadcastDelta = 20
-	defaultFinalCltvRejectDelta   = 2
+	// defaultIncomingBroadcastDelta defines the number of blocks before the
+	// expiry of an incoming htlc at which we force close the channel. We
+	// only go to chain if we also have the preimage to actually pull in the
+	// htlc. BOLT #2 suggests 7 blocks. We use a few more for extra safety.
+	// Within this window we need to get our sweep or 2nd level success tx
+	// confirmed, because after that the remote party is also able to claim
+	// the htlc using the timeout path.
+	defaultIncomingBroadcastDelta = 10
 
-	defaultOutgoingBroadcastDelta  = 10
-	defaultOutgoingCltvRejectDelta = 0
+	// defaultFinalCltvRejectDelta defines the number of blocks before the
+	// expiry of an incoming exit hop htlc at which we cancel it back
+	// immediately. It is an extra safety measure over the final cltv
+	// requirement as it is defined in the invoice. It ensures that we
+	// cancel back htlcs that, when held on to, may cause us to force close
+	// the channel because we enter the incoming broadcast window. Bolt #11
+	// suggests 9 blocks here. We use a few more for additional safety.
+	//
+	// There is still a small gap that remains between receiving the
+	// RevokeAndAck and canceling back. If a new block arrives within that
+	// window, we may still force close the channel. There is currently no
+	// way to reject an UpdateAddHtlc of which we already know that it will
+	// push us in the broadcast window.
+	defaultFinalCltvRejectDelta = defaultIncomingBroadcastDelta + 3
+
+	// defaultOutgoingBroadcastDelta defines the number of blocks before the
+	// expiry of an outgoing htlc at which we force close the channel. We
+	// are not in a hurry to force close, because there is nothing to claim
+	// for us. We do need to time the htlc out, because there may be an
+	// incoming htlc that will time out too (albeit later). Bolt #2 suggests
+	// a value of -1 here, but we allow one block less to prevent potential
+	// confusion around the negative value. It means we force close the
+	// channel at exactly the htlc expiry height.
+	defaultOutgoingBroadcastDelta = 0
+
+	// defaultOutgoingCltvRejectDelta defines the number of blocks before
+	// the expiry of an outgoing htlc at which we don't want to offer it to
+	// the next peer anymore. If that happens, we cancel back the incoming
+	// htlc. This is to prevent the situation where we have an outstanding
+	// htlc that brings or will soon bring us inside the outgoing broadcast
+	// window and trigger us to force close the channel. Bolt #2 suggests a
+	// value of 0. We pad it a bit, to prevent a slow round trip to the next
+	// peer and a block arriving during that round trip to trigger force
+	// closure.
+	defaultOutgoingCltvRejectDelta = defaultOutgoingBroadcastDelta + 3
 
 	// minTimeLockDelta is the minimum timelock we require for incoming
 	// HTLCs on our channels.

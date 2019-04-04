@@ -286,6 +286,13 @@ func (m *SyncManager) roundRobinHandler() {
 		current = m.nextPendingActiveSyncer()
 		m.Unlock()
 		for current != nil {
+			// Ensure we properly handle a shutdown signal.
+			select {
+			case <-m.quit:
+				return
+			default:
+			}
+
 			// We'll avoid performing the transition with the lock
 			// as it can potentially stall the SyncManager due to
 			// the syncTransitionTimeout.
@@ -531,6 +538,13 @@ func (m *SyncManager) forceHistoricalSync() {
 	candidatesChosen := make(map[routing.Vertex]struct{})
 	s := m.chooseRandomSyncer(candidatesChosen, true)
 	for s != nil {
+		// Ensure we properly handle a shutdown signal.
+		select {
+		case <-m.quit:
+			return
+		default:
+		}
+
 		// Blacklist the candidate to ensure it's not chosen again.
 		candidatesChosen[s.cfg.peerPub] = struct{}{}
 

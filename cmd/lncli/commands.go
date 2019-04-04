@@ -3789,7 +3789,7 @@ var verifyChanBackupCommand = cli.Command{
 	Name:      "verifychanbackup",
 	Category:  "Channels",
 	Usage:     "Verify an existing channel backup",
-	ArgsUsage: "[--single_backup] [--multi_backup] [--multi_file=]",
+	ArgsUsage: "[--single_backup] [--multi_backup] [--multi_file]",
 	Description: `
     This command allows a user to verify an existing Single or Multi channel
     backup for integrity. This is useful when a user has a backup, but is

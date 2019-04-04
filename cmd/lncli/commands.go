@@ -3626,7 +3626,7 @@ var exportChanBackupCommand = cli.Command{
 	Description: `
 	This command allows a user to export a Static Channel Backup (SCB) for
 	as selected channel. SCB's are encrypted backups of a channel's initial
-	state that are encrypted with a key derived from the seed of a user.In
+	state that are encrypted with a key derived from the seed of a user. In
 	the case of partial or complete data loss, the SCB will allow the user
 	to reclaim settled funds in the channel at its final state. The
 	exported channel backups can be restored at a later time using the
@@ -3643,7 +3643,7 @@ var exportChanBackupCommand = cli.Command{
 	     returned. A multi backup is a single encrypted blob (displayed in
 	     hex encoding) that contains several channels in a single cipher
 	     text.
-	
+
 	Both of the backup types can be restored using the restorechanbackup
 	command.
 	`,
@@ -3793,7 +3793,7 @@ var verifyChanBackupCommand = cli.Command{
 	Description: `
     This command allows a user to verify an existing Single or Multi channel
     backup for integrity. This is useful when a user has a backup, but is
-    unsure as to if it's valid or for the target node. 
+    unsure as to if it's valid or for the target node.
 
     The command will accept backups in one of three forms:
 

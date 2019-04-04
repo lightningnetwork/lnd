@@ -32,7 +32,7 @@ const (
 	// defaultPayAttemptTimeout is a duration that we'll use to determine
 	// if we should give up on a payment attempt. This will be used if a
 	// value isn't specified in the LightningNode struct.
-	defaultPayAttemptTimeout = time.Duration(time.Second * 60)
+	defaultPayAttemptTimeout = time.Duration(time.Minute * 10)
 
 	// DefaultChannelPruneExpiry is the default duration used to determine
 	// if a channel should be pruned or not.

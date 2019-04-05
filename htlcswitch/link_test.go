@@ -394,7 +394,29 @@ func TestChannelLinkBidirectionalOneHopPayments(t *testing.T) {
 // hops. In this test we send the payment from Carol to Alice over Bob peer.
 // (Carol -> Bob -> Alice) and checking that HTLC was settled properly and
 // balances were changed in two channels.
+//
+// The test is executed with two different OutgoingCltvRejectDelta values for
+// bob. In addition to a normal positive value, we also test the zero case
+// because this is currently the configured value in lnd
+// (defaultOutgoingCltvRejectDelta).
 func TestChannelLinkMultiHopPayment(t *testing.T) {
+	t.Run(
+		"bobOutgoingCltvRejectDelta 3",
+		func(t *testing.T) {
+			testChannelLinkMultiHopPayment(t, 3)
+		},
+	)
+	t.Run(
+		"bobOutgoingCltvRejectDelta 0",
+		func(t *testing.T) {
+			testChannelLinkMultiHopPayment(t, 0)
+		},
+	)
+}
+
+func testChannelLinkMultiHopPayment(t *testing.T,
+	bobOutgoingCltvRejectDelta uint32) {
+
 	t.Parallel()
 
 	channels, cleanUp, _, err := createClusterChannels(
@@ -407,6 +429,13 @@ func TestChannelLinkMultiHopPayment(t *testing.T) {
 
 	n := newThreeHopNetwork(t, channels.aliceToBob, channels.bobToAlice,
 		channels.bobToCarol, channels.carolToBob, testStartingHeight)
+
+	n.firstBobChannelLink.cfg.OutgoingCltvRejectDelta =
+		bobOutgoingCltvRejectDelta
+
+	n.secondBobChannelLink.cfg.OutgoingCltvRejectDelta =
+		bobOutgoingCltvRejectDelta
+
 	if err := n.start(); err != nil {
 		t.Fatal(err)
 	}

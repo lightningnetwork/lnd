@@ -49,7 +49,7 @@ func TestQueryRoutes(t *testing.T) {
 			},
 		},
 		IgnoredNodes: [][]byte{ignoreNodeBytes},
-		IgnoredEdges: []*lnrpc.EdgeLocator{&lnrpc.EdgeLocator{
+		IgnoredEdges: []*lnrpc.EdgeLocator{{
 			ChannelId:        555,
 			DirectionReverse: true,
 		}},

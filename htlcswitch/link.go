@@ -2155,9 +2155,9 @@ func (l *channelLink) HtlcSatifiesPolicy(payHash [32]byte,
 	}
 
 	// We want to avoid offering an HTLC which will expire in the near
-	// future, so we'll reject an HTLC if the outgoing expiration time is too
-	// close to the current height.
-	if outgoingTimeout-l.cfg.OutgoingCltvRejectDelta <= heightNow {
+	// future, so we'll reject an HTLC if the outgoing expiration time is
+	// too close to the current height.
+	if outgoingTimeout <= heightNow+l.cfg.OutgoingCltvRejectDelta {
 		l.errorf("htlc(%x) has an expiry that's too soon: "+
 			"outgoing_expiry=%v, best_height=%v", payHash[:],
 			outgoingTimeout, heightNow)
@@ -2175,7 +2175,8 @@ func (l *channelLink) HtlcSatifiesPolicy(payHash [32]byte,
 		return failure
 	}
 
-	if outgoingTimeout-heightNow > maxCltvExpiry {
+	// Check absolute max delta.
+	if outgoingTimeout > maxCltvExpiry+heightNow {
 		l.errorf("outgoing htlc(%x) has a time lock too far in the "+
 			"future: got %v, but maximum is %v", payHash[:],
 			outgoingTimeout-heightNow, maxCltvExpiry)
@@ -2188,7 +2189,7 @@ func (l *channelLink) HtlcSatifiesPolicy(payHash [32]byte,
 	// delta should equal the outgoing time lock. Otherwise, whether the
 	// sender messed up, or an intermediate node tampered with the HTLC.
 	timeDelta := policy.TimeLockDelta
-	if incomingTimeout-timeDelta < outgoingTimeout {
+	if incomingTimeout < outgoingTimeout+timeDelta {
 		l.errorf("Incoming htlc(%x) has incorrect time-lock value: "+
 			"expected at least %v block delta, got %v block delta",
 			payHash[:], timeDelta, incomingTimeout-outgoingTimeout)
@@ -2680,7 +2681,7 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 
 	// First, we'll check the expiry of the HTLC itself against, the current
 	// block height. If the timeout is too soon, then we'll reject the HTLC.
-	if pd.Timeout-l.cfg.FinalCltvRejectDelta <= heightNow {
+	if pd.Timeout <= heightNow+l.cfg.FinalCltvRejectDelta {
 		log.Errorf("htlc(%x) has an expiry that's too soon: expiry=%v"+
 			", best_height=%v", pd.RHash[:], pd.Timeout, heightNow)
 

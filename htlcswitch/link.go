@@ -2155,9 +2155,10 @@ func (l *channelLink) HtlcSatifiesPolicy(payHash [32]byte,
 	}
 
 	// We want to avoid offering an HTLC which will expire in the near
-	// future, so we'll reject an HTLC if the outgoing expiration time is too
-	// close to the current height.
-	if outgoingTimeout-l.cfg.OutgoingCltvRejectDelta <= heightNow {
+	// future, so we'll reject an HTLC if the outgoing expiration time is
+	// too close to the current height. Make sure not to subtract uint32
+	// values to prevent wrap around.
+	if outgoingTimeout <= heightNow+l.cfg.OutgoingCltvRejectDelta {
 		l.errorf("htlc(%x) has an expiry that's too soon: "+
 			"outgoing_expiry=%v, best_height=%v", payHash[:],
 			outgoingTimeout, heightNow)
@@ -2175,7 +2176,9 @@ func (l *channelLink) HtlcSatifiesPolicy(payHash [32]byte,
 		return failure
 	}
 
-	if outgoingTimeout-heightNow > maxCltvExpiry {
+	// Check absolute max delta. Make sure not to subtract uint32 values to
+	// prevent wrap around.
+	if outgoingTimeout > maxCltvExpiry+heightNow {
 		l.errorf("outgoing htlc(%x) has a time lock too far in the "+
 			"future: got %v, but maximum is %v", payHash[:],
 			outgoingTimeout-heightNow, maxCltvExpiry)
@@ -2187,8 +2190,9 @@ func (l *channelLink) HtlcSatifiesPolicy(payHash [32]byte,
 	// the following constraint: the incoming time-lock minus our time-lock
 	// delta should equal the outgoing time lock. Otherwise, whether the
 	// sender messed up, or an intermediate node tampered with the HTLC.
+	// Make sure not to subtract uint32 values to prevent wrap around.
 	timeDelta := policy.TimeLockDelta
-	if incomingTimeout-timeDelta < outgoingTimeout {
+	if incomingTimeout < outgoingTimeout+timeDelta {
 		l.errorf("Incoming htlc(%x) has incorrect time-lock value: "+
 			"expected at least %v block delta, got %v block delta",
 			payHash[:], timeDelta, incomingTimeout-outgoingTimeout)

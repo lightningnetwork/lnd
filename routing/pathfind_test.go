@@ -23,6 +23,7 @@ import (
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/zpay32"
 )
 
@@ -164,7 +165,7 @@ func parseTestGraph(path string) (*testGraphInstance, error) {
 		return nil, err
 	}
 
-	aliasMap := make(map[string]Vertex)
+	aliasMap := make(map[string]route.Vertex)
 	var source *channeldb.LightningNode
 
 	// First we insert all the nodes within the graph as vertexes.
@@ -366,7 +367,7 @@ type testGraphInstance struct {
 	// aliasMap is a map from a node's alias to its public key. This type is
 	// provided in order to allow easily look up from the human memorable alias
 	// to an exact node's public key.
-	aliasMap map[string]Vertex
+	aliasMap map[string]route.Vertex
 
 	// privKeyMap maps a node alias to its private key. This is used to be
 	// able to mock a remote node's signing behaviour.
@@ -395,7 +396,7 @@ func createTestGraphFromChannels(testChannels []*testChannel) (*testGraphInstanc
 		return nil, err
 	}
 
-	aliasMap := make(map[string]Vertex)
+	aliasMap := make(map[string]route.Vertex)
 	privKeyMap := make(map[string]*btcec.PrivateKey)
 
 	nodeIndex := byte(0)
@@ -611,7 +612,7 @@ func TestFindLowestFeePath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to fetch source node: %v", err)
 	}
-	sourceVertex := Vertex(sourceNode.PubKeyBytes)
+	sourceVertex := route.Vertex(sourceNode.PubKeyBytes)
 
 	const (
 		startingHeight = 100
@@ -648,8 +649,8 @@ func TestFindLowestFeePath(t *testing.T) {
 	}
 }
 
-func getAliasFromPubKey(pubKey Vertex,
-	aliases map[string]Vertex) string {
+func getAliasFromPubKey(pubKey route.Vertex,
+	aliases map[string]route.Vertex) string {
 
 	for alias, key := range aliases {
 		if key == pubKey {
@@ -751,7 +752,7 @@ func testBasicGraphPathFindingCase(t *testing.T, graphInstance *testGraphInstanc
 	if err != nil {
 		t.Fatalf("unable to fetch source node: %v", err)
 	}
-	sourceVertex := Vertex(sourceNode.PubKeyBytes)
+	sourceVertex := route.Vertex(sourceNode.PubKeyBytes)
 
 	const (
 		startingHeight = 100
@@ -920,7 +921,7 @@ func TestPathFindingWithAdditionalEdges(t *testing.T) {
 		TimeLockDelta:             9,
 	}
 
-	additionalEdges := map[Vertex][]*channeldb.ChannelEdgePolicy{
+	additionalEdges := map[route.Vertex][]*channeldb.ChannelEdgePolicy{
 		graph.aliasMap["songoku"]: {songokuToDoge},
 	}
 
@@ -1006,7 +1007,7 @@ func TestKShortestPathFinding(t *testing.T) {
 func TestNewRoute(t *testing.T) {
 
 	var sourceKey [33]byte
-	sourceVertex := Vertex(sourceKey)
+	sourceVertex := route.Vertex(sourceKey)
 
 	const (
 		startingHeight = 100
@@ -1148,7 +1149,7 @@ func TestNewRoute(t *testing.T) {
 		}}
 
 	for _, testCase := range testCases {
-		assertRoute := func(t *testing.T, route *Route) {
+		assertRoute := func(t *testing.T, route *route.Route) {
 			if route.TotalAmount != testCase.expectedTotalAmount {
 				t.Errorf("Expected total amount is be %v"+
 					", but got %v instead",
@@ -1294,7 +1295,7 @@ func TestPathNotAvailable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to parse bytes: %v", err)
 	}
-	var unknownNode Vertex
+	var unknownNode route.Vertex
 	copy(unknownNode[:], unknownNodeBytes)
 
 	_, err = findPath(
@@ -1923,7 +1924,7 @@ func TestPathFindSpecExample(t *testing.T) {
 	}
 }
 
-func assertExpectedPath(t *testing.T, aliasMap map[string]Vertex,
+func assertExpectedPath(t *testing.T, aliasMap map[string]route.Vertex,
 	path []*channeldb.ChannelEdgePolicy, nodeAliases ...string) {
 
 	if len(path) != len(nodeAliases) {
@@ -1943,9 +1944,9 @@ func assertExpectedPath(t *testing.T, aliasMap map[string]Vertex,
 func TestNewRouteFromEmptyHops(t *testing.T) {
 	t.Parallel()
 
-	var source Vertex
-	_, err := NewRouteFromHops(0, 0, source, []*Hop{})
-	if err != ErrNoRouteHopsProvided {
+	var source route.Vertex
+	_, err := route.NewRouteFromHops(0, 0, source, []*route.Hop{})
+	if err != route.ErrNoRouteHopsProvided {
 		t.Fatalf("expected empty hops error: instead got: %v", err)
 	}
 }
@@ -1995,7 +1996,7 @@ func TestRestrictOutgoingChannel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to fetch source node: %v", err)
 	}
-	sourceVertex := Vertex(sourceNode.PubKeyBytes)
+	sourceVertex := route.Vertex(sourceNode.PubKeyBytes)
 
 	const (
 		startingHeight = 100
@@ -2089,10 +2090,10 @@ func testCltvLimit(t *testing.T, limit uint32, expectedChannel uint64) {
 	if err != nil {
 		t.Fatalf("unable to fetch source node: %v", err)
 	}
-	sourceVertex := Vertex(sourceNode.PubKeyBytes)
+	sourceVertex := route.Vertex(sourceNode.PubKeyBytes)
 
 	ignoredEdges := make(map[EdgeLocator]struct{})
-	ignoredVertexes := make(map[Vertex]struct{})
+	ignoredVertexes := make(map[route.Vertex]struct{})
 
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
 	target := testGraphInstance.aliasMap["target"]

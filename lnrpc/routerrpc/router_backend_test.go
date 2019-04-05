@@ -9,6 +9,7 @@ import (
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
+	"github.com/lightningnetwork/lnd/routing/route"
 
 	"github.com/lightningnetwork/lnd/lnrpc"
 )
@@ -19,7 +20,7 @@ const (
 )
 
 var (
-	sourceKey = routing.Vertex{1, 2, 3}
+	sourceKey = route.Vertex{1, 2, 3}
 )
 
 // TestQueryRoutes asserts that query routes rpc parameters are properly parsed
@@ -30,7 +31,7 @@ func TestQueryRoutes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var ignoreNodeVertex routing.Vertex
+	var ignoreNodeVertex route.Vertex
 	copy(ignoreNodeVertex[:], ignoreNodeBytes)
 
 	destNodeBytes, err := hex.DecodeString(destKey)
@@ -55,12 +56,12 @@ func TestQueryRoutes(t *testing.T) {
 		}},
 	}
 
-	route := &routing.Route{}
+	rt := &route.Route{}
 
-	findRoutes := func(source, target routing.Vertex,
+	findRoutes := func(source, target route.Vertex,
 		amt lnwire.MilliSatoshi, restrictions *routing.RestrictParams,
 		numPaths uint32, finalExpiry ...uint16) (
-		[]*routing.Route, error) {
+		[]*route.Route, error) {
 
 		if int64(amt) != request.Amt*1000 {
 			t.Fatal("unexpected amount")
@@ -100,15 +101,15 @@ func TestQueryRoutes(t *testing.T) {
 			t.Fatal("unexpected ignored node")
 		}
 
-		return []*routing.Route{
-			route,
+		return []*route.Route{
+			rt,
 		}, nil
 	}
 
 	backend := &RouterBackend{
 		MaxPaymentMSat: lnwire.NewMSatFromSatoshis(1000000),
 		FindRoutes:     findRoutes,
-		SelfNode:       routing.Vertex{1, 2, 3},
+		SelfNode:       route.Vertex{1, 2, 3},
 		FetchChannelCapacity: func(chanID uint64) (
 			btcutil.Amount, error) {
 

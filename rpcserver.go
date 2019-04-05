@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
+	"github.com/lightningnetwork/lnd/routing/route"
 
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec"
@@ -2720,7 +2721,7 @@ func (r *rpcServer) SubscribeChannelEvents(req *lnrpc.ChannelEventSubscription,
 
 // savePayment saves a successfully completed payment to the database for
 // historical record keeping.
-func (r *rpcServer) savePayment(route *routing.Route,
+func (r *rpcServer) savePayment(route *route.Route,
 	amount lnwire.MilliSatoshi, preImage []byte) error {
 
 	paymentPath := make([][33]byte, len(route.Hops))
@@ -2770,7 +2771,7 @@ type paymentStream struct {
 // lnrpc.SendToRouteRequest can be passed to sendPayment.
 type rpcPaymentRequest struct {
 	*lnrpc.SendRequest
-	routes []*routing.Route
+	routes []*route.Route
 }
 
 // calculateFeeLimit returns the fee limit in millisatoshis. If a percentage
@@ -2860,9 +2861,9 @@ func unmarshallSendToRouteRequest(req *lnrpc.SendToRouteRequest,
 		return nil, fmt.Errorf("cannot use both route and routes field")
 	}
 
-	var routes []*routing.Route
+	var routes []*route.Route
 	if len(req.Routes) > 0 {
-		routes = make([]*routing.Route, len(req.Routes))
+		routes = make([]*route.Route, len(req.Routes))
 		for i, rpcroute := range req.Routes {
 			route, err := unmarshallRoute(rpcroute, graph)
 			if err != nil {
@@ -2871,11 +2872,11 @@ func unmarshallSendToRouteRequest(req *lnrpc.SendToRouteRequest,
 			routes[i] = route
 		}
 	} else {
-		route, err := unmarshallRoute(req.Route, graph)
+		rt, err := unmarshallRoute(req.Route, graph)
 		if err != nil {
 			return nil, err
 		}
-		routes = []*routing.Route{route}
+		routes = []*route.Route{rt}
 	}
 
 	return &rpcPaymentRequest{
@@ -2896,13 +2897,13 @@ type rpcPaymentIntent struct {
 	msat              lnwire.MilliSatoshi
 	feeLimit          lnwire.MilliSatoshi
 	cltvLimit         *uint32
-	dest              routing.Vertex
+	dest              route.Vertex
 	rHash             [32]byte
 	cltvDelta         uint16
 	routeHints        [][]zpay32.HopHint
 	outgoingChannelID *uint64
 
-	routes []*routing.Route
+	routes []*route.Route
 }
 
 // extractPaymentIntent attempts to parse the complete details required to
@@ -3064,7 +3065,7 @@ func extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPaymentIntent, error
 }
 
 type paymentIntentResponse struct {
-	Route    *routing.Route
+	Route    *route.Route
 	Preimage [32]byte
 	Err      error
 }
@@ -3082,7 +3083,7 @@ func (r *rpcServer) dispatchPaymentIntent(
 	// we'll get a non-nil error.
 	var (
 		preImage  [32]byte
-		route     *routing.Route
+		route     *route.Route
 		routerErr error
 	)
 
@@ -3887,7 +3888,7 @@ func (r *rpcServer) QueryRoutes(ctx context.Context,
 // retrieve both endpoints and determine the hop pubkey using the previous hop
 // pubkey. If the channel is unknown, an error is returned.
 func unmarshallHopByChannelLookup(graph *channeldb.ChannelGraph, hop *lnrpc.Hop,
-	prevPubKeyBytes [33]byte) (*routing.Hop, error) {
+	prevPubKeyBytes [33]byte) (*route.Hop, error) {
 
 	// Discard edge policies, because they may be nil.
 	edgeInfo, _, _, err := graph.FetchChannelEdgesByID(hop.ChanId)
@@ -3906,7 +3907,7 @@ func unmarshallHopByChannelLookup(graph *channeldb.ChannelGraph, hop *lnrpc.Hop,
 		return nil, fmt.Errorf("channel edge does not match expected node")
 	}
 
-	return &routing.Hop{
+	return &route.Hop{
 		OutgoingTimeLock: hop.Expiry,
 		AmtToForward:     lnwire.MilliSatoshi(hop.AmtToForwardMsat),
 		PubKeyBytes:      pubKeyBytes,
@@ -3917,7 +3918,7 @@ func unmarshallHopByChannelLookup(graph *channeldb.ChannelGraph, hop *lnrpc.Hop,
 // unmarshallKnownPubkeyHop unmarshalls an rpc hop that contains the hop pubkey.
 // The channel graph doesn't need to be queried because all information required
 // for sending the payment is present.
-func unmarshallKnownPubkeyHop(hop *lnrpc.Hop) (*routing.Hop, error) {
+func unmarshallKnownPubkeyHop(hop *lnrpc.Hop) (*route.Hop, error) {
 	pubKey, err := hex.DecodeString(hop.PubKey)
 	if err != nil {
 		return nil, fmt.Errorf("cannot decode pubkey %s", hop.PubKey)
@@ -3926,7 +3927,7 @@ func unmarshallKnownPubkeyHop(hop *lnrpc.Hop) (*routing.Hop, error) {
 	var pubKeyBytes [33]byte
 	copy(pubKeyBytes[:], pubKey)
 
-	return &routing.Hop{
+	return &route.Hop{
 		OutgoingTimeLock: hop.Expiry,
 		AmtToForward:     lnwire.MilliSatoshi(hop.AmtToForwardMsat),
 		PubKeyBytes:      pubKeyBytes,
@@ -3937,7 +3938,7 @@ func unmarshallKnownPubkeyHop(hop *lnrpc.Hop) (*routing.Hop, error) {
 // unmarshallHop unmarshalls an rpc hop that may or may not contain a node
 // pubkey.
 func unmarshallHop(graph *channeldb.ChannelGraph, hop *lnrpc.Hop,
-	prevNodePubKey [33]byte) (*routing.Hop, error) {
+	prevNodePubKey [33]byte) (*route.Hop, error) {
 
 	if hop.PubKey == "" {
 		// If no pub key is given of the hop, the local channel
@@ -3952,7 +3953,7 @@ func unmarshallHop(graph *channeldb.ChannelGraph, hop *lnrpc.Hop,
 // unmarshallRoute unmarshalls an rpc route. For hops that don't specify a
 // pubkey, the channel graph is queried.
 func unmarshallRoute(rpcroute *lnrpc.Route,
-	graph *channeldb.ChannelGraph) (*routing.Route, error) {
+	graph *channeldb.ChannelGraph) (*route.Route, error) {
 
 	sourceNode, err := graph.SourceNode()
 	if err != nil {
@@ -3962,7 +3963,7 @@ func unmarshallRoute(rpcroute *lnrpc.Route,
 
 	prevNodePubKey := sourceNode.PubKeyBytes
 
-	hops := make([]*routing.Hop, len(rpcroute.Hops))
+	hops := make([]*route.Hop, len(rpcroute.Hops))
 	for i, hop := range rpcroute.Hops {
 		routeHop, err := unmarshallHop(graph,
 			hop, prevNodePubKey)
@@ -3975,7 +3976,7 @@ func unmarshallRoute(rpcroute *lnrpc.Route,
 		prevNodePubKey = routeHop.PubKeyBytes
 	}
 
-	route, err := routing.NewRouteFromHops(
+	route, err := route.NewRouteFromHops(
 		lnwire.MilliSatoshi(rpcroute.TotalAmtMsat),
 		rpcroute.TotalTimeLock,
 		sourceNode.PubKeyBytes,

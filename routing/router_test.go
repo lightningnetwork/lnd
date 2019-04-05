@@ -19,6 +19,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/zpay32"
 )
 
@@ -31,7 +32,7 @@ type testCtx struct {
 
 	graph *channeldb.ChannelGraph
 
-	aliases map[string]Vertex
+	aliases map[string]route.Vertex
 
 	chain *mockChain
 
@@ -415,7 +416,7 @@ func TestChannelUpdateValidation(t *testing.T) {
 
 	hop2 := ctx.aliases["c"]
 
-	hops := []*Hop{
+	hops := []*route.Hop{
 		{
 			ChannelID:   1,
 			PubKeyBytes: hop1,
@@ -426,7 +427,7 @@ func TestChannelUpdateValidation(t *testing.T) {
 		},
 	}
 
-	route, err := NewRouteFromHops(
+	rt, err := route.NewRouteFromHops(
 		lnwire.MilliSatoshi(10000), 100,
 		ctx.aliases["a"], hops,
 	)
@@ -473,7 +474,7 @@ func TestChannelUpdateValidation(t *testing.T) {
 	// Send off the payment request to the router. The specified route
 	// should be attempted and the channel update should be received by
 	// router and ignored because it is missing a valid signature.
-	_, _, err = ctx.router.SendToRoute([]*Route{route}, payment)
+	_, _, err = ctx.router.SendToRoute([]*route.Route{rt}, payment)
 	if err == nil {
 		t.Fatalf("expected route to fail with channel update")
 	}
@@ -506,7 +507,7 @@ func TestChannelUpdateValidation(t *testing.T) {
 	}
 
 	// Retry the payment using the same route as before.
-	_, _, err = ctx.router.SendToRoute([]*Route{route}, payment)
+	_, _, err = ctx.router.SendToRoute([]*route.Route{rt}, payment)
 	if err == nil {
 		t.Fatalf("expected route to fail with channel update")
 	}
@@ -718,7 +719,7 @@ func TestSendPaymentErrorNonFinalTimeLockErrors(t *testing.T) {
 	// assertExpectedPath is a helper function that asserts the returned
 	// route properly routes around the failure we've introduced in the
 	// graph.
-	assertExpectedPath := func(retPreImage [32]byte, route *Route) {
+	assertExpectedPath := func(retPreImage [32]byte, route *route.Route) {
 		// The route selected should have two hops
 		if len(route.Hops) != 2 {
 			t.Fatalf("incorrect route length: expected %v got %v", 2,
@@ -744,12 +745,12 @@ func TestSendPaymentErrorNonFinalTimeLockErrors(t *testing.T) {
 	// Send off the payment request to the router, this payment should
 	// succeed as we should actually go through Pham Nuwen in order to get
 	// to Sophon, even though he has higher fees.
-	paymentPreImage, route, err := ctx.router.SendPayment(&payment)
+	paymentPreImage, rt, err := ctx.router.SendPayment(&payment)
 	if err != nil {
 		t.Fatalf("unable to send payment: %v", err)
 	}
 
-	assertExpectedPath(paymentPreImage, route)
+	assertExpectedPath(paymentPreImage, rt)
 
 	// We'll now modify the error return an IncorrectCltvExpiry error
 	// instead, this should result in the same behavior of roasbeef routing
@@ -778,12 +779,12 @@ func TestSendPaymentErrorNonFinalTimeLockErrors(t *testing.T) {
 
 	// Once again, Roasbeef should route around Goku since they disagree
 	// w.r.t to the block height, and instead go through Pham Nuwen.
-	paymentPreImage, route, err = ctx.router.SendPayment(&payment)
+	paymentPreImage, rt, err = ctx.router.SendPayment(&payment)
 	if err != nil {
 		t.Fatalf("unable to send payment: %v", err)
 	}
 
-	assertExpectedPath(paymentPreImage, route)
+	assertExpectedPath(paymentPreImage, rt)
 }
 
 // TestSendPaymentErrorPathPruning tests that the send of candidate routes
@@ -902,25 +903,25 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 	// This shouldn't return an error, as we'll make a payment attempt via
 	// the satoshi channel based on the assumption that there might be an
 	// intermittent issue with the roasbeef <-> lioji channel.
-	paymentPreImage, route, err := ctx.router.SendPayment(&payment)
+	paymentPreImage, rt, err := ctx.router.SendPayment(&payment)
 	if err != nil {
 		t.Fatalf("unable send payment: %v", err)
 	}
 
 	// This path should go: roasbeef -> satoshi -> luoji
-	if len(route.Hops) != 2 {
+	if len(rt.Hops) != 2 {
 		t.Fatalf("incorrect route length: expected %v got %v", 2,
-			len(route.Hops))
+			len(rt.Hops))
 	}
 	if !bytes.Equal(paymentPreImage[:], preImage[:]) {
 		t.Fatalf("incorrect preimage used: expected %x got %x",
 			preImage[:], paymentPreImage[:])
 	}
-	if route.Hops[0].PubKeyBytes != ctx.aliases["satoshi"] {
+	if rt.Hops[0].PubKeyBytes != ctx.aliases["satoshi"] {
 
 		t.Fatalf("route should go through satoshi as first hop, "+
 			"instead passes through: %v",
-			getAliasFromPubKey(route.Hops[0].PubKeyBytes,
+			getAliasFromPubKey(rt.Hops[0].PubKeyBytes,
 				ctx.aliases))
 	}
 
@@ -944,16 +945,16 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 		return preImage, nil
 	}
 
-	paymentPreImage, route, err = ctx.router.SendPayment(&payment)
+	paymentPreImage, rt, err = ctx.router.SendPayment(&payment)
 	if err != nil {
 		t.Fatalf("unable to send payment: %v", err)
 	}
 
 	// This should succeed finally.  The route selected should have two
 	// hops.
-	if len(route.Hops) != 2 {
+	if len(rt.Hops) != 2 {
 		t.Fatalf("incorrect route length: expected %v got %v", 2,
-			len(route.Hops))
+			len(rt.Hops))
 	}
 
 	// The preimage should match up with the once created above.
@@ -963,11 +964,11 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 	}
 
 	// The route should have satoshi as the first hop.
-	if route.Hops[0].PubKeyBytes != ctx.aliases["satoshi"] {
+	if rt.Hops[0].PubKeyBytes != ctx.aliases["satoshi"] {
 
 		t.Fatalf("route should go through satoshi as first hop, "+
 			"instead passes through: %v",
-			getAliasFromPubKey(route.Hops[0].PubKeyBytes,
+			getAliasFromPubKey(rt.Hops[0].PubKeyBytes,
 				ctx.aliases))
 	}
 }
@@ -1341,7 +1342,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	// We should now be able to find two routes to node 2.
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
 	targetNode := priv2.PubKey()
-	var targetPubKeyBytes Vertex
+	var targetPubKeyBytes route.Vertex
 	copy(targetPubKeyBytes[:], targetNode.SerializeCompressed())
 	routes, err := ctx.router.FindRoutes(
 		ctx.router.selfNode.PubKeyBytes,
@@ -2512,9 +2513,9 @@ func TestIsStaleEdgePolicy(t *testing.T) {
 func TestEmptyRoutesGenerateSphinxPacket(t *testing.T) {
 	t.Parallel()
 
-	emptyRoute := &Route{}
+	emptyRoute := &route.Route{}
 	_, _, err := generateSphinxPacket(emptyRoute, testHash[:])
-	if err != ErrNoRouteHopsProvided {
+	if err != route.ErrNoRouteHopsProvided {
 		t.Fatalf("expected empty hops error: instead got: %v", err)
 	}
 }

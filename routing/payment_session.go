@@ -6,6 +6,7 @@ import (
 
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing/route"
 )
 
 // paymentSession is used during an HTLC routings session to prune the local
@@ -19,7 +20,7 @@ import (
 type paymentSession struct {
 	pruneViewSnapshot graphPruneView
 
-	additionalEdges map[Vertex][]*channeldb.ChannelEdgePolicy
+	additionalEdges map[route.Vertex][]*channeldb.ChannelEdgePolicy
 
 	bandwidthHints map[uint64]lnwire.MilliSatoshi
 
@@ -32,7 +33,7 @@ type paymentSession struct {
 	mc *missionControl
 
 	haveRoutes     bool
-	preBuiltRoutes []*Route
+	preBuiltRoutes []*route.Route
 
 	pathFinder pathFinder
 }
@@ -42,7 +43,7 @@ type paymentSession struct {
 // added is noted, as it'll be pruned from the shared view after a period of
 // vertexDecay. However, the vertex will remain pruned for the *local* session.
 // This ensures we don't retry this vertex during the payment attempt.
-func (p *paymentSession) ReportVertexFailure(v Vertex) {
+func (p *paymentSession) ReportVertexFailure(v route.Vertex) {
 	log.Debugf("Reporting vertex %v failure to Mission Control", v)
 
 	// First, we'll add the failed vertex to our local prune view snapshot.
@@ -84,7 +85,7 @@ func (p *paymentSession) ReportEdgeFailure(e *EdgeLocator) {
 // pruned. This is to prevent nodes from keeping us busy by continuously sending
 // new channel updates.
 func (p *paymentSession) ReportEdgePolicyFailure(
-	errSource Vertex, failedEdge *EdgeLocator) {
+	errSource route.Vertex, failedEdge *EdgeLocator) {
 
 	// Check to see if we've already reported a policy related failure for
 	// this channel. If so, then we'll prune out the vertex.
@@ -111,7 +112,7 @@ func (p *paymentSession) ReportEdgePolicyFailure(
 //
 // NOTE: This function is safe for concurrent access.
 func (p *paymentSession) RequestRoute(payment *LightningPayment,
-	height uint32, finalCltvDelta uint16) (*Route, error) {
+	height uint32, finalCltvDelta uint16) (*route.Route, error) {
 
 	switch {
 	// If we have a set of pre-built routes, then we'll just pop off the
@@ -175,7 +176,7 @@ func (p *paymentSession) RequestRoute(payment *LightningPayment,
 
 	// With the next candidate path found, we'll attempt to turn this into
 	// a route by applying the time-lock and fee requirements.
-	sourceVertex := Vertex(p.mc.selfNode.PubKeyBytes)
+	sourceVertex := route.Vertex(p.mc.selfNode.PubKeyBytes)
 	route, err := newRoute(
 		payment.Amount, sourceVertex, path, height, finalCltvDelta,
 	)

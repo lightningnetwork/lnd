@@ -1513,10 +1513,10 @@ func (c *ChannelGraph) NodeUpdatesInHorizon(startTime, endTime time.Time) ([]Lig
 }
 
 // FilterKnownChanIDs takes a set of channel IDs and return the subset of chan
-// ID's that we don't know of in the passed set. In other words, we perform a
-// set difference of our set of chan ID's and the ones passed in. This method
-// can be used by callers to determine the set of channels ta peer knows of
-// that we don't.
+// ID's that we don't know and are not known zombies of the passed set. In other
+// words, we perform a set difference of our set of chan ID's and the ones
+// passed in. This method can be used by callers to determine the set of
+// channels another peer knows of that we don't.
 func (c *ChannelGraph) FilterKnownChanIDs(chanIDs []uint64) ([]uint64, error) {
 	var newChanIDs []uint64
 
@@ -1530,15 +1530,31 @@ func (c *ChannelGraph) FilterKnownChanIDs(chanIDs []uint64) ([]uint64, error) {
 			return ErrGraphNoEdgesFound
 		}
 
+		// Fetch the zombie index, it may not exist if no edges have
+		// ever been marked as zombies. If the index has been
+		// initialized, we will use it later to skip known zombie edges.
+		zombieIndex := edges.Bucket(zombieBucket)
+
 		// We'll run through the set of chanIDs and collate only the
 		// set of channel that are unable to be found within our db.
 		var cidBytes [8]byte
 		for _, cid := range chanIDs {
 			byteOrder.PutUint64(cidBytes[:], cid)
 
-			if v := edgeIndex.Get(cidBytes[:]); v == nil {
-				newChanIDs = append(newChanIDs, cid)
+			// If the edge is already known, skip it.
+			if v := edgeIndex.Get(cidBytes[:]); v != nil {
+				continue
 			}
+
+			// If the edge is a known zombie, skip it.
+			if zombieIndex != nil {
+				isZombie, _, _ := isZombieEdge(zombieIndex, cid)
+				if isZombie {
+					continue
+				}
+			}
+
+			newChanIDs = append(newChanIDs, cid)
 		}
 
 		return nil

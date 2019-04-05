@@ -1741,6 +1741,24 @@ func TestFilterKnownChanIDs(t *testing.T) {
 		chanIDs = append(chanIDs, chanID.ToUint64())
 	}
 
+	const numZombies = 5
+	zombieIDs := make([]uint64, 0, numZombies)
+	for i := 0; i < numZombies; i++ {
+		channel, chanID := createEdge(
+			uint32(i*10+1), 0, 0, 0, node1, node2,
+		)
+		if err := graph.AddChannelEdge(&channel); err != nil {
+			t.Fatalf("unable to create channel edge: %v", err)
+		}
+		if err := graph.MarkEdgeZombie(
+			chanID.ToUint64(), node1.PubKeyBytes, node2.PubKeyBytes,
+		); err != nil {
+			t.Fatalf("unable to mark edge zombie: %v", err)
+		}
+
+		zombieIDs = append(zombieIDs, chanID.ToUint64())
+	}
+
 	queryCases := []struct {
 		queryIDs []uint64
 
@@ -1750,6 +1768,11 @@ func TestFilterKnownChanIDs(t *testing.T) {
 		// response should be the empty set.
 		{
 			queryIDs: chanIDs,
+		},
+		// If we attempt to filter out all zombies that we know of, the
+		// response should be the empty set.
+		{
+			queryIDs: zombieIDs,
 		},
 
 		// If we query for a set of ID's that we didn't insert, we

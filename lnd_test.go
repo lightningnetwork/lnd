@@ -13847,8 +13847,9 @@ func testChannelBackupRestore(net *lntest.NetworkHarness, t *harnessTest) {
 	// ann is updated?
 
 	for _, testCase := range testCases {
-		success := t.t.Run(testCase.name, func(_ *testing.T) {
-			testChanRestoreScenario(t, net, &testCase, password)
+		success := t.t.Run(testCase.name, func(t *testing.T) {
+			h := newHarnessTest(t)
+			testChanRestoreScenario(h, net, &testCase, password)
 		})
 		if !success {
 			break

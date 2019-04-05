@@ -9420,7 +9420,7 @@ func testMultiHopHtlcLocalTimeout(net *lntest.NetworkHarness, t *harnessTest) {
 	// We'll now mine enough blocks to trigger Bob's broadcast of his
 	// commitment transaction due to the fact that the HTLC is about to
 	// timeout.
-	numBlocks := uint32(finalCltvDelta - defaultBroadcastDelta)
+	numBlocks := uint32(finalCltvDelta - defaultOutgoingBroadcastDelta)
 	if _, err := net.Miner.Node.Generate(numBlocks); err != nil {
 		t.Fatalf("unable to generate blocks: %v", err)
 	}
@@ -9469,7 +9469,10 @@ func testMultiHopHtlcLocalTimeout(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// We'll now mine the remaining blocks to cause the HTLC itself to
 	// timeout.
-	if _, err := net.Miner.Node.Generate(defaultBroadcastDelta - defaultCSV); err != nil {
+	_, err = net.Miner.Node.Generate(
+		defaultOutgoingBroadcastDelta - defaultCSV,
+	)
+	if err != nil {
 		t.Fatalf("unable to generate blocks: %v", err)
 	}
 
@@ -9600,7 +9603,7 @@ func testMultiHopReceiverChainClaim(net *lntest.NetworkHarness, t *harnessTest) 
 	const invoiceAmt = 100000
 	invoiceReq := &lnrpc.Invoice{
 		Value:      invoiceAmt,
-		CltvExpiry: 20,
+		CltvExpiry: 40,
 	}
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	carolInvoice, err := carol.AddInvoice(ctxt, invoiceReq)
@@ -9644,7 +9647,9 @@ func testMultiHopReceiverChainClaim(net *lntest.NetworkHarness, t *harnessTest) 
 	// Now we'll mine enough blocks to prompt carol to actually go to the
 	// chain in order to sweep her HTLC since the value is high enough.
 	// TODO(roasbeef): modify once go to chain policy changes
-	numBlocks := uint32(invoiceReq.CltvExpiry - defaultBroadcastDelta)
+	numBlocks := uint32(
+		invoiceReq.CltvExpiry - defaultIncomingBroadcastDelta,
+	)
 	if _, err := net.Miner.Node.Generate(numBlocks); err != nil {
 		t.Fatalf("unable to generate blocks")
 	}
@@ -10324,7 +10329,7 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest)
 	// With the network active, we'll now add a new invoice at Carol's end.
 	invoiceReq := &lnrpc.Invoice{
 		Value:      100000,
-		CltvExpiry: 20,
+		CltvExpiry: 40,
 	}
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	carolInvoice, err := carol.AddInvoice(ctxt, invoiceReq)
@@ -10380,7 +10385,9 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest)
 
 	// We'll now mine enough blocks so Carol decides that she needs to go
 	// on-chain to claim the HTLC as Bob has been inactive.
-	numBlocks := uint32(20 - defaultBroadcastDelta)
+	numBlocks := uint32(invoiceReq.CltvExpiry -
+		defaultIncomingBroadcastDelta)
+
 	if _, err := net.Miner.Node.Generate(numBlocks); err != nil {
 		t.Fatalf("unable to generate blocks")
 	}
@@ -10661,7 +10668,7 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 	const invoiceAmt = 100000
 	invoiceReq := &lnrpc.Invoice{
 		Value:      invoiceAmt,
-		CltvExpiry: 20,
+		CltvExpiry: 40,
 	}
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	carolInvoice, err := carol.AddInvoice(ctxt, invoiceReq)
@@ -10731,7 +10738,9 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 
 	// We'll now mine enough blocks so Carol decides that she needs to go
 	// on-chain to claim the HTLC as Bob has been inactive.
-	numBlocks := uint32(20-defaultBroadcastDelta) - defaultCSV
+	numBlocks := uint32(invoiceReq.CltvExpiry-
+		defaultIncomingBroadcastDelta) - defaultCSV
+
 	if _, err := net.Miner.Node.Generate(numBlocks); err != nil {
 		t.Fatalf("unable to generate blocks")
 	}

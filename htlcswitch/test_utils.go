@@ -527,6 +527,12 @@ func generatePaymentWithPreimage(invoiceAmt, htlcAmt lnwire.MilliSatoshi,
 	preimage, rhash [32]byte) (*channeldb.Invoice, *lnwire.UpdateAddHTLC,
 	error) {
 
+	// Create the db invoice. Normally the payment requests needs to be set,
+	// because it is decoded in InvoiceRegistry to obtain the cltv expiry.
+	// But because the mock registry used in tests is mocking the decode
+	// step and always returning the value of testInvoiceCltvExpiry, we
+	// don't need to bother here with creating and signing a payment
+	// request.
 	invoice := &channeldb.Invoice{
 		CreationDate: time.Now(),
 		Terms: channeldb.ContractTerm{
@@ -602,8 +608,6 @@ type threeHopNetwork struct {
 func generateHops(payAmt lnwire.MilliSatoshi, startingHeight uint32,
 	path ...*channelLink) (lnwire.MilliSatoshi, uint32, []ForwardingInfo) {
 
-	lastHop := path[len(path)-1]
-
 	totalTimelock := startingHeight
 	runningAmt := payAmt
 
@@ -620,7 +624,7 @@ func generateHops(payAmt lnwire.MilliSatoshi, startingHeight uint32,
 		// If this is the last, hop, then the time lock will be their
 		// specified delta policy plus our starting height.
 		if i == len(path)-1 {
-			totalTimelock += lastHop.cfg.FwrdingPolicy.TimeLockDelta
+			totalTimelock += testInvoiceCltvExpiry
 			timeLock = totalTimelock
 		} else {
 			// Otherwise, the outgoing time lock should be the
@@ -1019,7 +1023,6 @@ func (h *hopNetwork) createChannelLink(server, peer *mockServer,
 		fwdPkgTimeout       = 15 * time.Second
 		minFeeUpdateTimeout = 30 * time.Minute
 		maxFeeUpdateTimeout = 40 * time.Minute
-		expiryGraceDelta    = 3
 	)
 
 	link := NewChannelLink(
@@ -1041,15 +1044,16 @@ func (h *hopNetwork) createChannelLink(server, peer *mockServer,
 			UpdateContractSignals: func(*contractcourt.ContractSignals) error {
 				return nil
 			},
-			ChainEvents:         &contractcourt.ChainEventSubscription{},
-			SyncStates:          true,
-			BatchSize:           10,
-			BatchTicker:         ticker.NewForce(batchTimeout),
-			FwdPkgGCTicker:      ticker.NewForce(fwdPkgTimeout),
-			MinFeeUpdateTimeout: minFeeUpdateTimeout,
-			MaxFeeUpdateTimeout: maxFeeUpdateTimeout,
-			OnChannelFailure:    func(lnwire.ChannelID, lnwire.ShortChannelID, LinkFailureError) {},
-			ExpiryGraceDelta:    expiryGraceDelta,
+			ChainEvents:             &contractcourt.ChainEventSubscription{},
+			SyncStates:              true,
+			BatchSize:               10,
+			BatchTicker:             ticker.NewForce(batchTimeout),
+			FwdPkgGCTicker:          ticker.NewForce(fwdPkgTimeout),
+			MinFeeUpdateTimeout:     minFeeUpdateTimeout,
+			MaxFeeUpdateTimeout:     maxFeeUpdateTimeout,
+			OnChannelFailure:        func(lnwire.ChannelID, lnwire.ShortChannelID, LinkFailureError) {},
+			FinalCltvRejectDelta:    3,
+			OutgoingCltvRejectDelta: 3,
 		},
 		channel,
 	)

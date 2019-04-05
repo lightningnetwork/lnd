@@ -53,13 +53,20 @@ type ChainArbitratorConfig struct {
 	// ChainHash is the chain that this arbitrator is to operate within.
 	ChainHash chainhash.Hash
 
-	// BroadcastDelta is the delta that we'll use to decide when to
-	// broadcast our commitment transaction.  This value should be set
-	// based on our current fee estimation of the commitment transaction.
-	// We use this to determine when we should broadcast instead of the
-	// just the HTLC timeout, as we want to ensure that the commitment
-	// transaction is already confirmed, by the time the HTLC expires.
-	BroadcastDelta uint32
+	// IncomingBroadcastDelta is the delta that we'll use to decide when to
+	// broadcast our commitment transaction if we have incoming htlcs. This
+	// value should be set based on our current fee estimation of the
+	// commitment transaction. We use this to determine when we should
+	// broadcast instead of the just the HTLC timeout, as we want to ensure
+	// that the commitment transaction is already confirmed, by the time the
+	// HTLC expires. Otherwise we may end up not settling the htlc on-chain
+	// because the other party managed to time it out.
+	IncomingBroadcastDelta uint32
+
+	// OutgoingBroadcastDelta is the delta that we'll use to decide when to
+	// broadcast our commitment transaction if there are active outgoing
+	// htlcs. This value can be lower than the incoming broadcast delta.
+	OutgoingBroadcastDelta uint32
 
 	// NewSweepAddr is a function that returns a new address under control
 	// by the wallet. We'll use this to sweep any no-delay outputs as a

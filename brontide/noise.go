@@ -703,7 +703,7 @@ func (b *Machine) WriteMessage(w io.Writer, p []byte) error {
 
 	// First, write out the encrypted+MAC'd length prefix for the packet.
 	cipherLen := b.sendCipher.Encrypt(nil, nil, pktLen[:])
-	if _, err := w.Write(cipherLen); err != nil {
+	if err := safeWrite(w, cipherLen); err != nil {
 		return err
 	}
 
@@ -711,7 +711,22 @@ func (b *Machine) WriteMessage(w io.Writer, p []byte) error {
 	// single packet, as any fragmentation should have taken place at a
 	// higher level.
 	cipherText := b.sendCipher.Encrypt(nil, nil, p)
-	_, err := w.Write(cipherText)
+	return safeWrite(w, cipherText)
+}
+
+// safeWrite writes the message p to the given io.Writer. An error is returned
+// if the message was partially written, i.e. the number of bytes written was
+// in the range [1, len(p)). This allows us to propagate timeout errors that
+// happen before any bytes are sent, but fail when a timeout (or another error)
+// causes us to write a partial message. Since the payloads are authenticated,
+// attempting to write the message again will cause a message authentication
+// error and cause a disconnection anyway.
+func safeWrite(w io.Writer, p []byte) error {
+	n, err := w.Write(p)
+	if err != nil && n > 0 && n < len(p) {
+		return fmt.Errorf("partial write (%d/%d) bytes: %v",
+			n, len(p), err)
+	}
 	return err
 }
 

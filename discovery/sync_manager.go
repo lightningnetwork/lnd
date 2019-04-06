@@ -629,7 +629,7 @@ func (m *SyncManager) InitSyncState(peer lnpeer.Peer) {
 		encodingType:  encoding,
 		chunkSize:     encodingTypeToChunkSize[encoding],
 		sendToPeer: func(msgs ...lnwire.Message) error {
-			return peer.SendMessage(false, msgs...)
+			return peer.SendMessageLazy(false, msgs...)
 		},
 	})
 

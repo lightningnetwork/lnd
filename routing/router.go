@@ -1810,7 +1810,9 @@ func (r *ChannelRouter) processSendError(paySession *paymentSession,
 	// update with id may not be available.
 	failedEdge, err := getFailedEdge(route, errVertex)
 	if err != nil {
-		return true
+		// If channel identification fails, ignore the error
+		// message and try again, until timeout.
+		return false
 	}
 
 	// processChannelUpdateAndRetry is a closure that
@@ -1829,7 +1831,8 @@ func (r *ChannelRouter) processSendError(paySession *paymentSession,
 		pubKey *btcec.PublicKey) {
 
 		// Try to apply the channel update.
-		updateOk := r.applyChannelUpdate(update, pubKey)
+		updateOk := r.applyChannelUpdate(update,
+			pubKey, failedEdge)
 
 		// If the update could not be applied, prune the
 		// edge. There is no reason to continue trying
@@ -1896,7 +1899,8 @@ func (r *ChannelRouter) processSendError(paySession *paymentSession,
 	// that sent us this error, as it doesn't now what the
 	// correct block height is.
 	case *lnwire.FailExpiryTooSoon:
-		r.applyChannelUpdate(&onionErr.Update, errSource)
+		r.applyChannelUpdate(&onionErr.Update,
+			errSource, failedEdge)
 		paySession.ReportVertexFailure(errVertex)
 		return false
 
@@ -1941,7 +1945,8 @@ func (r *ChannelRouter) processSendError(paySession *paymentSession,
 	// forward one is currently disabled, so we'll apply
 	// the update and continue.
 	case *lnwire.FailChannelDisabled:
-		r.applyChannelUpdate(&onionErr.Update, errSource)
+		r.applyChannelUpdate(&onionErr.Update,
+			errSource, failedEdge)
 		paySession.ReportEdgeFailure(failedEdge)
 		return false
 
@@ -1949,7 +1954,8 @@ func (r *ChannelRouter) processSendError(paySession *paymentSession,
 	// sufficient capacity, so we'll prune this edge for
 	// now, and continue onwards with our path finding.
 	case *lnwire.FailTemporaryChannelFailure:
-		r.applyChannelUpdate(onionErr.Update, errSource)
+		r.applyChannelUpdate(onionErr.Update,
+			errSource, failedEdge)
 		paySession.ReportEdgeFailure(failedEdge)
 		return false
 
@@ -2063,7 +2069,7 @@ func getFailedEdge(route *Route, errSource Vertex) (
 // applyChannelUpdate validates a channel update and if valid, applies it to the
 // database. It returns a bool indicating whether the updates was successful.
 func (r *ChannelRouter) applyChannelUpdate(msg *lnwire.ChannelUpdate,
-	pubKey *btcec.PublicKey) bool {
+	pubKey *btcec.PublicKey, e *EdgeLocator) bool {
 	// If we get passed a nil channel update (as it's optional with some
 	// onion errors), then we'll exit early with a success result.
 	if msg == nil {
@@ -2089,9 +2095,16 @@ func (r *ChannelRouter) applyChannelUpdate(msg *lnwire.ChannelUpdate,
 		return false
 	}
 
+	// Trust the direction of the edge locator, and not the one
+	// in the message.
+	if e.Direction == 1 {
+		msg.ChannelFlags |= lnwire.ChanUpdateDirection
+	} else {
+		msg.ChannelFlags ^= lnwire.ChanUpdateDirection
+	}
 	err = r.UpdateEdge(&channeldb.ChannelEdgePolicy{
 		SigBytes:                  msg.Signature.ToSignatureBytes(),
-		ChannelID:                 msg.ShortChannelID.ToUint64(),
+		ChannelID:                 e.ChannelID,
 		LastUpdate:                time.Unix(int64(msg.Timestamp), 0),
 		MessageFlags:              msg.MessageFlags,
 		ChannelFlags:              msg.ChannelFlags,

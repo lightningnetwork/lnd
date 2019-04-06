@@ -420,10 +420,10 @@ func TestChannelUpdateValidation(t *testing.T) {
 	ctx, cleanUp, err := createTestCtxFromGraphInstance(startingBlockHeight,
 		testGraph)
 
-	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to create router: %v", err)
 	}
+	defer cleanUp()
 
 	// Assert that the initially configured fee is retrieved correctly.
 	_, policy, _, err := ctx.router.GetChannelByID(
@@ -583,7 +583,7 @@ func TestSendPaymentErrorRepeatedFeeInsufficient(t *testing.T) {
 	// to sophon. We'll obtain this as we'll need to to generate the
 	// FeeInsufficient error that we'll send back.
 	chanID := uint64(3495345)
-	_, _, edgeUpateToFail, err := ctx.graph.FetchChannelEdgesByID(chanID)
+	_, _, edgeUpdateToFail, err := ctx.graph.FetchChannelEdgesByID(chanID)
 	if err != nil {
 		t.Fatalf("unable to fetch chan id: %v", err)
 	}
@@ -682,10 +682,10 @@ func TestSendPaymentErrorFeeInsufficientPrivateEdge(t *testing.T) {
 
 	const startingBlockHeight = 101
 	ctx, cleanUp, err := createTestCtxFromFile(startingBlockHeight, basicGraphFilePath)
-	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to create router: %v", err)
 	}
+	defer cleanUp()
 
 	// Craft a LightningPayment struct that'll send a payment from roasbeef
 	// to elst, through a private channel between son goku and elst
@@ -699,14 +699,19 @@ func TestSendPaymentErrorFeeInsufficientPrivateEdge(t *testing.T) {
 	feeBaseMSat := uint32(15)
 	feeProportionalMillionths := uint32(10)
 	expiryDelta := uint16(32)
-	hopHint := HopHint{
-		NodeID:                    ctx.aliases["songoku"],
+	sgNode := ctx.aliases["songoku"]
+	sgNodeID, err := btcec.ParsePubKey(sgNode[:], btcec.S256())
+	if err != nil {
+		t.Fatal(err)
+	}
+	hopHint := zpay32.HopHint{
+		NodeID:                    sgNodeID,
 		ChannelID:                 privateChannelID,
 		FeeBaseMSat:               feeBaseMSat,
 		FeeProportionalMillionths: feeProportionalMillionths,
 		CLTVExpiryDelta:           expiryDelta,
 	}
-	routeHints := [][]HopHint{{hopHint}}
+	routeHints := [][]zpay32.HopHint{{hopHint}}
 	payment := LightningPayment{
 		Target:      ctx.aliases["elst"],
 		Amount:      amt,
@@ -749,8 +754,15 @@ func TestSendPaymentErrorFeeInsufficientPrivateEdge(t *testing.T) {
 
 		if !errorReturned {
 			errorReturned = true
+			sourceKey, err := btcec.ParsePubKey(
+				sourceNode[:], btcec.S256(),
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+
 			return [32]byte{}, &htlcswitch.ForwardingError{
-				ErrorSource: sourceNode,
+				ErrorSource: sourceKey,
 
 				// Within our error, we'll add a channel update
 				// which is meant to reflect the new fee
@@ -797,12 +809,10 @@ func TestSendPaymentErrorFeeInsufficientPrivateEdge(t *testing.T) {
 	}
 
 	// The route should have son goku as the first hop.
-	if !bytes.Equal(route.Hops[0].PubKeyBytes[:],
-		ctx.aliases["songoku"].SerializeCompressed()) {
-
+	if route.Hops[0].PubKeyBytes != ctx.aliases["songoku"] {
 		t.Fatalf("route should go through son goku as first hop, "+
 			"instead passes through: %v",
-			getAliasFromPubKey(route.Hops[0].PubKeyBytes[:],
+			getAliasFromPubKey(route.Hops[0].PubKeyBytes,
 				ctx.aliases))
 	}
 
@@ -931,20 +941,20 @@ func TestSendPaymentPrivateEdgeDirection(t *testing.T) {
 		}, c2eChanID)}
 
 	testGraph, err := createTestGraphFromChannels(testChannels)
-	defer testGraph.cleanUp()
 	if err != nil {
 		t.Fatalf("unable to create graph: %v", err)
 	}
+	defer testGraph.cleanUp()
 
 	const startingBlockHeight = 101
 
 	ctx, cleanUp, err := createTestCtxFromGraphInstance(startingBlockHeight,
 		testGraph)
 
-	defer cleanUp()
 	if err != nil {
 		t.Fatalf("unable to create router: %v", err)
 	}
+	defer cleanUp()
 
 	// Create private part of the network.
 	// f is a private node connected to both d and e.
@@ -955,24 +965,34 @@ func TestSendPaymentPrivateEdgeDirection(t *testing.T) {
 		0, 0, 0, 0, 0, 0, 0, 80,
 	}
 	_, pubKey := btcec.PrivKeyFromBytes(btcec.S256(), keyBytes)
-	ctx.aliases["f"] = pubKey
+	ctx.aliases["f"] = NewVertex(pubKey)
 
 	// Prepare hints.
 	expiryDelta := uint16(32)
 	d2eChanID := uint64(100)
 	d2fChanID := uint64(101)
 	e2fChanID := uint64(102)
-	routeHints := [][]HopHint{
+	dNode := ctx.aliases["d"]
+	dNodeID, err := btcec.ParsePubKey(dNode[:], btcec.S256())
+	if err != nil {
+		t.Fatal(err)
+	}
+	eNode := ctx.aliases["e"]
+	eNodeID, err := btcec.ParsePubKey(eNode[:], btcec.S256())
+	if err != nil {
+		t.Fatal(err)
+	}
+	routeHints := [][]zpay32.HopHint{
 		{
 			{
-				NodeID:                    ctx.aliases["d"],
+				NodeID:                    dNodeID,
 				ChannelID:                 d2eChanID,
 				FeeBaseMSat:               20,
 				FeeProportionalMillionths: 0,
 				CLTVExpiryDelta:           expiryDelta,
 			},
 			{
-				NodeID:                    ctx.aliases["e"],
+				NodeID:                    eNodeID,
 				ChannelID:                 e2fChanID,
 				FeeBaseMSat:               30,
 				FeeProportionalMillionths: 0,
@@ -981,14 +1001,14 @@ func TestSendPaymentPrivateEdgeDirection(t *testing.T) {
 		},
 		{
 			{
-				NodeID:                    ctx.aliases["e"],
+				NodeID:                    eNodeID,
 				ChannelID:                 d2eChanID,
 				FeeBaseMSat:               20,
 				FeeProportionalMillionths: 0,
 				CLTVExpiryDelta:           expiryDelta,
 			},
 			{
-				NodeID:                    ctx.aliases["d"],
+				NodeID:                    dNodeID,
 				ChannelID:                 d2fChanID,
 				FeeBaseMSat:               80,
 				FeeProportionalMillionths: 0,
@@ -1044,8 +1064,15 @@ func TestSendPaymentPrivateEdgeDirection(t *testing.T) {
 
 		// Prepare the error
 		source := errorSeq[0].source
+		sourceNode := ctx.aliases[source]
+		sourceKey, err := btcec.ParsePubKey(
+			sourceNode[:], btcec.S256(),
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
 		channelID := errorSeq[0].channelID
-		htlcError.ErrorSource = ctx.aliases[source]
+		htlcError.ErrorSource = sourceKey
 		update.ShortChannelID = lnwire.NewShortChanIDFromInt(channelID)
 		update.Timestamp = uint32(testTime.Add(time.Minute).Unix())
 
@@ -1083,7 +1110,7 @@ func TestSendPaymentPrivateEdgeDirection(t *testing.T) {
 	var actualSeq []string
 	for i := 0; i < len(route.Hops); i++ {
 		actualSeq = append(actualSeq,
-			getAliasFromPubKey(route.Hops[i].PubKeyBytes[:],
+			getAliasFromPubKey(route.Hops[i].PubKeyBytes,
 				ctx.aliases),
 		)
 	}
@@ -1103,35 +1130,30 @@ func TestSendPaymentPrivateEdgeDirection(t *testing.T) {
 	ctx.router.missionControl.ResetHistory()
 
 	// Switch fees on public channels.
-	edgePolicy := &channeldb.ChannelEdgePolicy{
-		SigBytes:                  testSig.Serialize(),
-		ChannelFlags:              lnwire.ChanUpdateChanFlags(0),
-		ChannelID:                 b2dChanID,
-		LastUpdate:                testTime,
-		TimeLockDelta:             144,
-		MinHTLC:                   1,
-		FeeBaseMSat:               50,
-		FeeProportionalMillionths: 0,
+	_, e1, e2, err := ctx.graph.FetchChannelEdgesByID(b2dChanID)
+	if err != nil {
+		t.Fatalf("unable to fetch edge: %v", err)
 	}
-	if err := ctx.graph.UpdateEdgePolicy(edgePolicy); err != nil {
-		t.Fatalf("fail to update fee base b-d channel direction 0")
+	e1.FeeBaseMSat = 50
+	if err := ctx.graph.UpdateEdgePolicy(e1); err != nil {
+		t.Fatalf("unable to update edge: %v", err)
 	}
-
-	edgePolicy.ChannelFlags = lnwire.ChanUpdateChanFlags(lnwire.ChanUpdateDirection)
-	if err := ctx.graph.UpdateEdgePolicy(edgePolicy); err != nil {
-		t.Fatalf("fail to update fee base b-d channel direction 1")
+	e2.FeeBaseMSat = 50
+	if err := ctx.graph.UpdateEdgePolicy(e2); err != nil {
+		t.Fatalf("unable to update edge: %v", err)
 	}
 
-	edgePolicy.ChannelFlags = lnwire.ChanUpdateChanFlags(0)
-	edgePolicy.ChannelID = c2eChanID
-	edgePolicy.FeeBaseMSat = 30
-	if err := ctx.graph.UpdateEdgePolicy(edgePolicy); err != nil {
-		t.Fatalf("fail to update fee base c-e channel direction 1")
+	_, e1, e2, err = ctx.graph.FetchChannelEdgesByID(c2eChanID)
+	if err != nil {
+		t.Fatalf("unable to fetch edge: %v", err)
 	}
-
-	edgePolicy.ChannelFlags = lnwire.ChanUpdateChanFlags(lnwire.ChanUpdateDirection)
-	if err := ctx.graph.UpdateEdgePolicy(edgePolicy); err != nil {
-		t.Fatalf("fail to update fee base c-e channel direction 1")
+	e1.FeeBaseMSat = 10
+	if err := ctx.graph.UpdateEdgePolicy(e1); err != nil {
+		t.Fatalf("unable to update edge: %v", err)
+	}
+	e2.FeeBaseMSat = 10
+	if err := ctx.graph.UpdateEdgePolicy(e2); err != nil {
+		t.Fatalf("unable to update edge: %v", err)
 	}
 
 	// Switch route hints.
@@ -1167,12 +1189,12 @@ func TestSendPaymentPrivateEdgeDirection(t *testing.T) {
 			" (direction switched)", len(errorSeq))
 	}
 
-	// Check route is: A->B->E->E->F.
+	// Check route is: A->B->D->E->F.
 	expectedSeq = []string{"b", "d", "e", "f"}
 	actualSeq = []string{}
 	for i := 0; i < len(route.Hops); i++ {
 		actualSeq = append(actualSeq,
-			getAliasFromPubKey(route.Hops[i].PubKeyBytes[:],
+			getAliasFromPubKey(route.Hops[i].PubKeyBytes,
 				ctx.aliases),
 		)
 	}

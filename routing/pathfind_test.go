@@ -208,7 +208,9 @@ func parseTestGraph(path string) (*testGraphInstance, error) {
 			key, derivedPub := btcec.PrivKeyFromBytes(btcec.S256(),
 				privBytes)
 
-			if !pub.IsEqual(derivedPub) {
+			if !bytes.Equal(dbNode.PubKeyBytes[:],
+				derivedPub.SerializeCompressed()) {
+
 				return nil, fmt.Errorf("%s public key and "+
 					"private key are inconsistent",
 					node.Alias)

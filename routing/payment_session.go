@@ -39,10 +39,10 @@ type paymentSession struct {
 
 // edgeLocatorOfEdgePolicy returns the edge locator corresponding to
 // the channel edge policy
-func edgeLocatorOfEdgePolicy(ep *channeldb.ChannelEdgePolicy) *edgeLocator {
-	return &edgeLocator{
-		channelID: ep.ChannelID,
-		direction: edgePolicyDirection(ep),
+func edgeLocatorOfEdgePolicy(ep *channeldb.ChannelEdgePolicy) *EdgeLocator {
+	return &EdgeLocator{
+		ChannelID: ep.ChannelID,
+		Direction: edgePolicyDirection(ep),
 	}
 }
 
@@ -67,7 +67,7 @@ func updateEdgePolicy(up *lnwire.ChannelUpdate,
 
 // UpdateEdgePolicy updates edge policy of the routing hints kept in the
 // payment session.
-func (p *paymentSession) UpdateEdgePolicy(el *edgeLocator,
+func (p *paymentSession) UpdateEdgePolicy(el *EdgeLocator,
 	update *lnwire.ChannelUpdate) {
 
 	log.Debugf("Updating edge %v policy in Mission Control", el)

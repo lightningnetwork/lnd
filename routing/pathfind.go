@@ -138,6 +138,18 @@ type Route struct {
 	Hops []*Hop
 }
 
+// containsChannel returns true if a channel is present in the target route,
+// and false otherwise. The passed chanID should be the converted uint64 form
+// of lnwire.ShortChannelID.
+func (r *Route) containsChannel(chanID uint64) bool {
+	for _, hop := range r.Hops {
+		if hop.ChannelID == chanID {
+			return true
+		}
+	}
+	return false
+}
+
 // HopFee returns the fee charged by the route hop indicated by hopIndex.
 func (r *Route) HopFee(hopIndex int) lnwire.MilliSatoshi {
 	var incomingAmt lnwire.MilliSatoshi

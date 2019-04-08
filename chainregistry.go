@@ -736,8 +736,8 @@ func initNeutrinoBackend(chainDir string) (*neutrino.ChainService, func(), error
 	}
 
 	cleanUp := func() {
-		db.Close()
 		neutrinoCS.Stop()
+		db.Close()
 	}
 
 	return neutrinoCS, cleanUp, nil

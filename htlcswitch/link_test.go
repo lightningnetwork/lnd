@@ -4026,16 +4026,10 @@ func (h *persistentLinkHarness) restart(restartSwitch bool,
 	// First, remove the link from the switch.
 	h.coreLink.cfg.Switch.RemoveLink(h.link.ChanID())
 
-	var htlcSwitch *Switch
 	if restartSwitch {
-		// If a switch restart is requested, we will stop it and
-		// leave htlcSwitch nil, which will trigger the creation
-		// of a fresh instance in restartLink.
+		// If a switch restart is requested, we will stop it. It will be
+		// reinstantiated in restartLink.
 		h.coreLink.cfg.Switch.Stop()
-	} else {
-		// Otherwise, we capture the switch's reference so that
-		// it can be carried over to the restarted link.
-		htlcSwitch = h.coreLink.cfg.Switch
 	}
 
 	// Since our in-memory state may have diverged from our persistent
@@ -4051,8 +4045,8 @@ func (h *persistentLinkHarness) restart(restartSwitch bool,
 	// adding the link to an existing switch, or creating a new one using
 	// the database owned by the link.
 	var cleanUp func()
-	h.link, h.batchTicker, cleanUp, err = restartLink(
-		h.channel, htlcSwitch, hodlFlags,
+	h.link, h.batchTicker, cleanUp, err = h.restartLink(
+		h.channel, restartSwitch, hodlFlags,
 	)
 	if err != nil {
 		h.t.Fatalf("unable to restart alicelink: %v", err)
@@ -4128,8 +4122,10 @@ func (h *persistentLinkHarness) trySignNextCommitment() {
 // restartLink creates a new channel link from the given channel state, and adds
 // to an htlcswitch. If none is provided by the caller, a new one will be
 // created using Alice's database.
-func restartLink(aliceChannel *lnwallet.LightningChannel, aliceSwitch *Switch,
-	hodlFlags []hodl.Flag) (ChannelLink, chan time.Time, func(), error) {
+func (h *persistentLinkHarness) restartLink(
+	aliceChannel *lnwallet.LightningChannel, restartSwitch bool,
+	hodlFlags []hodl.Flag) (
+	ChannelLink, chan time.Time, func(), error) {
 
 	var (
 		decoder    = newMockIteratorDecoder()
@@ -4145,14 +4141,12 @@ func restartLink(aliceChannel *lnwallet.LightningChannel, aliceSwitch *Switch,
 			TimeLockDelta: 6,
 		}
 
-		invoiceRegistry = newMockRegistry(globalPolicy.TimeLockDelta)
-
 		pCache = newMockPreimageCache()
 	)
 
 	aliceDb := aliceChannel.State().Db
-
-	if aliceSwitch == nil {
+	aliceSwitch := h.coreLink.cfg.Switch
+	if restartSwitch {
 		var err error
 		aliceSwitch, err = initSwitchWithDB(testStartingHeight, aliceDb)
 		if err != nil {
@@ -4182,7 +4176,7 @@ func restartLink(aliceChannel *lnwallet.LightningChannel, aliceSwitch *Switch,
 		UpdateContractSignals: func(*contractcourt.ContractSignals) error {
 			return nil
 		},
-		Registry:       invoiceRegistry,
+		Registry:       h.coreLink.cfg.Registry,
 		ChainEvents:    &contractcourt.ChainEventSubscription{},
 		BatchTicker:    bticker,
 		FwdPkgGCTicker: ticker.New(5 * time.Second),
@@ -4247,12 +4241,13 @@ func generateHtlcAndInvoice(t *testing.T,
 	t.Helper()
 
 	htlcAmt := lnwire.NewMSatFromSatoshis(10000)
+	htlcExpiry := testStartingHeight + testInvoiceCltvExpiry
 	hops := []ForwardingInfo{
 		{
 			Network:         BitcoinHop,
 			NextHop:         exitHop,
 			AmountToForward: htlcAmt,
-			OutgoingCTLV:    144,
+			OutgoingCTLV:    uint32(htlcExpiry),
 		},
 	}
 	blob, err := generateRoute(hops...)
@@ -4260,8 +4255,9 @@ func generateHtlcAndInvoice(t *testing.T,
 		t.Fatalf("unable to generate route: %v", err)
 	}
 
-	invoice, htlc, err := generatePayment(htlcAmt, htlcAmt, 144,
-		blob)
+	invoice, htlc, err := generatePayment(
+		htlcAmt, htlcAmt, uint32(htlcExpiry), blob,
+	)
 	if err != nil {
 		t.Fatalf("unable to create payment: %v", err)
 	}
@@ -5641,6 +5637,8 @@ type hodlInvoiceTestCtx struct {
 	amount              lnwire.MilliSatoshi
 	errChan             chan error
 
+	restoreBob func() (*lnwallet.LightningChannel, error)
+
 	cleanUp func()
 }
 
@@ -5720,6 +5718,7 @@ func newHodlInvoiceTestCtx(t *testing.T) (*hodlInvoiceTestCtx, error) {
 		hash:                hash,
 		amount:              amount,
 		errChan:             errChan,
+		restoreBob:          bob.restore,
 
 		cleanUp: func() {
 			cleanUp()
@@ -5731,6 +5730,8 @@ func newHodlInvoiceTestCtx(t *testing.T) (*hodlInvoiceTestCtx, error) {
 // TestChannelLinkHoldInvoiceSettle asserts that a hodl invoice can be settled.
 func TestChannelLinkHoldInvoiceSettle(t *testing.T) {
 	t.Parallel()
+
+	defer timeout(t)()
 
 	ctx, err := newHodlInvoiceTestCtx(t)
 	if err != nil {
@@ -5744,13 +5745,9 @@ func TestChannelLinkHoldInvoiceSettle(t *testing.T) {
 	}
 
 	// Wait for payment to succeed.
-	select {
-	case err := <-ctx.errChan:
-		if err != nil {
-			t.Fatal(err)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("timeout")
+	err = <-ctx.errChan
+	if err != nil {
+		t.Fatal(err)
 	}
 
 	// Wait for Bob to receive the revocation.
@@ -5774,6 +5771,8 @@ func TestChannelLinkHoldInvoiceSettle(t *testing.T) {
 func TestChannelLinkHoldInvoiceCancel(t *testing.T) {
 	t.Parallel()
 
+	defer timeout(t)()
+
 	ctx, err := newHodlInvoiceTestCtx(t)
 	if err != nil {
 		t.Fatal(err)
@@ -5786,15 +5785,102 @@ func TestChannelLinkHoldInvoiceCancel(t *testing.T) {
 	}
 
 	// Wait for payment to succeed.
-	select {
-	case err := <-ctx.errChan:
-		if !strings.Contains(err.Error(),
-			lnwire.CodeUnknownPaymentHash.String()) {
+	err = <-ctx.errChan
+	if !strings.Contains(err.Error(),
+		lnwire.CodeUnknownPaymentHash.String()) {
 
-			t.Fatal("expected unknown payment hash")
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("timeout")
+		t.Fatal("expected unknown payment hash")
+	}
+}
+
+// TestChannelLinkHoldInvoiceRestart asserts hodl htlcs are held after blocks
+// are mined and the link is restarted. The initial expiry checks should not
+// apply to hodl htlcs after restart.
+func TestChannelLinkHoldInvoiceRestart(t *testing.T) {
+	t.Parallel()
+
+	defer timeout(t)()
+
+	const (
+		chanAmt = btcutil.SatoshiPerBitcoin * 5
+	)
+
+	// We'll start by creating a new link with our chanAmt (5 BTC). We will
+	// only be testing Alice's behavior, so the reference to Bob's channel
+	// state is unnecessary.
+	aliceLink, bobChannel, _, start, cleanUp, restore, err :=
+		newSingleLinkTestHarness(chanAmt, 0)
+	if err != nil {
+		t.Fatalf("unable to create link: %v", err)
+	}
+	defer cleanUp()
+
+	alice := newPersistentLinkHarness(
+		t, aliceLink, nil, restore,
+	)
+
+	if err := start(); err != nil {
+		t.Fatalf("unable to start test harness: %v", err)
+	}
+
+	var (
+		coreLink = alice.coreLink
+		registry = coreLink.cfg.Registry.(*mockInvoiceRegistry)
+	)
+
+	registry.settleChan = make(chan lntypes.Hash)
+
+	htlc, invoice := generateHtlcAndInvoice(t, 0)
+
+	// Convert into a hodl invoice and save the preimage for later.
+	preimage := invoice.Terms.PaymentPreimage
+	invoice.Terms.PaymentPreimage = channeldb.UnknownPreimage
+
+	// We must add the invoice to the registry, such that Alice
+	// expects this payment.
+	err = registry.AddInvoice(
+		*invoice, htlc.PaymentHash,
+	)
+	if err != nil {
+		t.Fatalf("unable to add invoice to registry: %v", err)
+	}
+
+	// Lock in htlc paying the hodl invoice.
+	sendHtlcBobToAlice(t, alice.link, bobChannel, htlc)
+	sendCommitSigBobToAlice(t, alice.link, bobChannel, 1)
+	receiveRevAndAckAliceToBob(t, alice.msgs, alice.link, bobChannel)
+	receiveCommitSigAliceToBob(t, alice.msgs, alice.link, bobChannel, 1)
+	sendRevAndAckBobToAlice(t, alice.link, bobChannel)
+
+	// We expect a call to the invoice registry to notify the arrival of the
+	// htlc.
+	<-registry.settleChan
+
+	// Increase block height. This height will be retrieved by the link
+	// after restart.
+	coreLink.cfg.Switch.bestHeight++
+
+	// Restart link.
+	alice.restart(false)
+
+	// Expect htlc to be reprocessed.
+	<-registry.settleChan
+
+	// Settle the invoice with the preimage.
+	registry.SettleHodlInvoice(preimage)
+
+	// Expect alice to send a settle and commitsig message to bob.
+	receiveSettleAliceToBob(t, alice.msgs, alice.link, bobChannel)
+	receiveCommitSigAliceToBob(t, alice.msgs, alice.link, bobChannel, 0)
+
+	// Stop the link
+	alice.link.Stop()
+
+	// Check that no unexpected messages were sent.
+	select {
+	case msg := <-alice.msgs:
+		t.Fatalf("did not expect message %T", msg)
+	default:
 	}
 }
 

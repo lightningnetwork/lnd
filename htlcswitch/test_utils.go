@@ -11,6 +11,7 @@ import (
 	"net"
 	"os"
 	"runtime"
+	"runtime/pprof"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -91,6 +92,8 @@ var (
 		},
 		LockTime: 5,
 	}
+
+	testBatchTimeout = 50 * time.Millisecond
 )
 
 var idSeqNum uint64
@@ -1051,7 +1054,6 @@ func (h *hopNetwork) createChannelLink(server, peer *mockServer,
 	decoder *mockIteratorDecoder) (ChannelLink, error) {
 
 	const (
-		batchTimeout        = 50 * time.Millisecond
 		fwdPkgTimeout       = 15 * time.Second
 		minFeeUpdateTimeout = 30 * time.Minute
 		maxFeeUpdateTimeout = 40 * time.Minute
@@ -1079,7 +1081,7 @@ func (h *hopNetwork) createChannelLink(server, peer *mockServer,
 			ChainEvents:             &contractcourt.ChainEventSubscription{},
 			SyncStates:              true,
 			BatchSize:               10,
-			BatchTicker:             ticker.NewForce(batchTimeout),
+			BatchTicker:             ticker.NewForce(testBatchTimeout),
 			FwdPkgGCTicker:          ticker.NewForce(fwdPkgTimeout),
 			MinFeeUpdateTimeout:     minFeeUpdateTimeout,
 			MaxFeeUpdateTimeout:     maxFeeUpdateTimeout,
@@ -1255,4 +1257,22 @@ func (n *twoHopNetwork) makeHoldPayment(sendingPeer, receivingPeer lnpeer.Peer,
 	}()
 
 	return paymentErr
+}
+
+// timeout implements a test level timeout.
+func timeout(t *testing.T) func() {
+	done := make(chan struct{})
+	go func() {
+		select {
+		case <-time.After(5 * time.Second):
+			pprof.Lookup("goroutine").WriteTo(os.Stdout, 1)
+
+			panic("test timeout")
+		case <-done:
+		}
+	}()
+
+	return func() {
+		close(done)
+	}
 }

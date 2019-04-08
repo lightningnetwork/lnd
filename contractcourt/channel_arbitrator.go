@@ -1097,26 +1097,27 @@ func (c *ChannelArbitrator) checkChainActions(height uint32,
 	// outgoing HTLC's to decide if we need to go on chain at all.
 	haveChainActions := false
 	for _, htlc := range c.activeHTLCs.outgoingHTLCs {
-		// If any of our HTLC's triggered an on-chain action, then we
-		// can break early.
-		if haveChainActions {
-			break
-		}
-
 		// We'll need to go on-chain for an outgoing HTLC if it was
 		// never resolved downstream, and it's "close" to timing out.
-		haveChainActions = haveChainActions || c.shouldGoOnChain(
+		toChain := c.shouldGoOnChain(
 			htlc.RefundTimeout, c.cfg.OutgoingBroadcastDelta,
 			height,
 		)
-	}
-	for _, htlc := range c.activeHTLCs.incomingHTLCs {
-		// If any of our HTLC's triggered an on-chain action, then we
-		// can break early.
-		if haveChainActions {
-			break
+
+		if toChain {
+			log.Debugf("ChannelArbitrator(%v): go to chain for "+
+				"outgoing htlc %x: timeout=%v, "+
+				"blocks_until_expiry=%v, broadcast_delta=%v",
+				c.cfg.ChanPoint, htlc.RHash[:],
+				htlc.RefundTimeout, htlc.RefundTimeout-height,
+				c.cfg.OutgoingBroadcastDelta,
+			)
 		}
 
+		haveChainActions = haveChainActions || toChain
+	}
+
+	for _, htlc := range c.activeHTLCs.incomingHTLCs {
 		// We'll need to go on-chain to pull an incoming HTLC iff we
 		// know the pre-image and it's close to timing out. We need to
 		// ensure that we claim the funds that our rightfully ours
@@ -1124,10 +1125,23 @@ func (c *ChannelArbitrator) checkChainActions(height uint32,
 		if _, ok := c.cfg.PreimageDB.LookupPreimage(htlc.RHash); !ok {
 			continue
 		}
-		haveChainActions = haveChainActions || c.shouldGoOnChain(
+
+		toChain := c.shouldGoOnChain(
 			htlc.RefundTimeout, c.cfg.IncomingBroadcastDelta,
 			height,
 		)
+
+		if toChain {
+			log.Debugf("ChannelArbitrator(%v): go to chain for "+
+				"incoming htlc %x: timeout=%v, "+
+				"blocks_until_expiry=%v, broadcast_delta=%v",
+				c.cfg.ChanPoint, htlc.RHash[:],
+				htlc.RefundTimeout, htlc.RefundTimeout-height,
+				c.cfg.IncomingBroadcastDelta,
+			)
+		}
+
+		haveChainActions = haveChainActions || toChain
 	}
 
 	// If we don't have any actions to make, then we'll return an empty

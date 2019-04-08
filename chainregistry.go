@@ -730,13 +730,14 @@ func initNeutrinoBackend(chainDir string) (*neutrino.ChainService, func(), error
 			"client: %v", err)
 	}
 
+	if err := neutrinoCS.Start(); err != nil {
+		db.Close()
+		return nil, nil, err
+	}
+
 	cleanUp := func() {
 		db.Close()
 		neutrinoCS.Stop()
-	}
-	if err := neutrinoCS.Start(); err != nil {
-		cleanUp()
-		return nil, nil, err
 	}
 
 	return neutrinoCS, cleanUp, nil

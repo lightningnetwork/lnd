@@ -2775,10 +2775,15 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 	}
 
 	// We'll also ensure that our time-lock value has been computed
-	// correctly.
+	// correctly. Only check the final cltv expiry for invoices when the
+	// invoice has not yet moved to the accepted state. Otherwise hodl htlcs
+	// would be canceled after a restart.
 	expectedHeight := heightNow + minCltvDelta
 	switch {
-	case !l.cfg.DebugHTLC && pd.Timeout < expectedHeight:
+	case !l.cfg.DebugHTLC &&
+		invoice.Terms.State != channeldb.ContractAccepted &&
+		pd.Timeout < expectedHeight:
+
 		log.Errorf("Incoming htlc(%x) has an expiration that is too "+
 			"soon: expected at least %v, got %v",
 			pd.RHash[:], expectedHeight, pd.Timeout)

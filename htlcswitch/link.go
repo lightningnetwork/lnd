@@ -1898,7 +1898,9 @@ func (l *channelLink) updateCommitTx() error {
 		CommitSig: theirCommitSig,
 		HtlcSigs:  htlcSigs,
 	}
-	l.cfg.Peer.SendMessage(false, commitSig)
+	if err := l.cfg.Peer.SendMessage(false, commitSig); err != nil {
+		return err
+	}
 
 	// We've just initiated a state transition, attempt to stop the
 	// logCommitTimer. If the timer already ticked, then we'll consume the

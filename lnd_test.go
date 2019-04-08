@@ -9008,7 +9008,7 @@ func testBidirectionalAsyncPayments(net *lntest.NetworkHarness, t *harnessTest) 
 
 	// Open up a payment streams to Alice and to Bob, that we'll use to
 	// send payment between nodes.
-	ctx, cancel := context.WithCancel(ctxb)
+	ctx, cancel := context.WithTimeout(ctxb, lntest.AsyncBenchmarkTimeout)
 	defer cancel()
 
 	alicePayStream, err := net.Alice.SendPayment(ctx)
@@ -9016,7 +9016,7 @@ func testBidirectionalAsyncPayments(net *lntest.NetworkHarness, t *harnessTest) 
 		t.Fatalf("unable to create payment stream for alice: %v", err)
 	}
 
-	ctx, cancel = context.WithCancel(ctxb)
+	ctx, cancel = context.WithTimeout(ctxb, lntest.AsyncBenchmarkTimeout)
 	defer cancel()
 
 	bobPayStream, err := net.Bob.SendPayment(ctx)

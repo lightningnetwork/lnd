@@ -1292,6 +1292,12 @@ func (d *AuthenticatedGossiper) processChanPolicyUpdate(
 			return nil, err
 		}
 
+		// We'll avoid broadcasting any updates for private channels to
+		// avoid directly giving away their existence.
+		if edgeInfo.info.AuthProof == nil {
+			continue
+		}
+
 		// We set ourselves as the source of this message to indicate
 		// that we shouldn't skip any peers when sending this message.
 		chanUpdates = append(chanUpdates, networkMsg{

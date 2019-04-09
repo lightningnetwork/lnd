@@ -3266,6 +3266,161 @@ func TestSendChannelUpdateReliably(t *testing.T) {
 	}
 }
 
+func sendLocalMsg(t *testing.T, ctx *testCtx, msg lnwire.Message,
+	localPub *btcec.PublicKey) {
+
+	t.Helper()
+
+	select {
+	case err := <-ctx.gossiper.ProcessLocalAnnouncement(msg, localPub):
+		if err != nil {
+			t.Fatalf("unable to process channel msg: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("did not process local announcement")
+	}
+}
+
+func sendRemoteMsg(t *testing.T, ctx *testCtx, msg lnwire.Message,
+	remotePeer lnpeer.Peer) {
+
+	t.Helper()
+
+	select {
+	case err := <-ctx.gossiper.ProcessRemoteAnnouncement(msg, remotePeer):
+		if err != nil {
+			t.Fatalf("unable to process channel msg: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("did not process local announcement")
+	}
+}
+
+func assertBroadcastMsg(t *testing.T, ctx *testCtx,
+	predicate func(lnwire.Message) error) {
+
+	t.Helper()
+
+	// We don't care about the order of the broadcast, only that our target
+	// predicate returns true for any of the messages, so we'll continue to
+	// retry until either we hit our timeout, or it returns with no error
+	// (message found).
+	err := lntest.WaitNoError(func() error {
+		select {
+		case msg := <-ctx.broadcastedMessage:
+			return predicate(msg.msg)
+		case <-time.After(2 * trickleDelay):
+			return fmt.Errorf("no message broadcast")
+		}
+	}, time.Second*5)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestPropagateChanPolicyUpdate tests that we're able to issue requests to
+// update policies for all channels and also select target channels.
+// Additionally, we ensure that we don't propagate updates for any private
+// channels.
+func TestPropagateChanPolicyUpdate(t *testing.T) {
+	t.Parallel()
+
+	// First, we'll make out test context and add 3 random channels to the
+	// graph.
+	startingHeight := uint32(10)
+	ctx, cleanup, err := createTestCtx(startingHeight)
+	if err != nil {
+		t.Fatalf("unable to create test context: %v", err)
+	}
+	defer cleanup()
+
+	const numChannels = 3
+	channelsToAnnounce := make([]*annBatch, 0, numChannels)
+	for i := 0; i < numChannels; i++ {
+		newChan, err := createAnnouncements(uint32(i + 1))
+		if err != nil {
+			t.Fatalf("unable to make new channel ann: %v", err)
+		}
+
+		channelsToAnnounce = append(channelsToAnnounce, newChan)
+	}
+
+	localKey := nodeKeyPriv1.PubKey()
+	remoteKey := nodeKeyPriv2.PubKey()
+
+	sentMsgs := make(chan lnwire.Message, 10)
+	remotePeer := &mockPeer{remoteKey, sentMsgs, ctx.gossiper.quit}
+
+	// With our channel announcements created, we'll now send them all to
+	// the gossiper in order for it to process. However, we'll hold back
+	// the channel ann proof from the first channel in order to have it be
+	// marked as private channel.
+	firstChanID := channelsToAnnounce[0].localChanAnn.ShortChannelID
+	for _, batch := range channelsToAnnounce {
+		sendLocalMsg(t, ctx, batch.localChanAnn, localKey)
+		sendLocalMsg(t, ctx, batch.chanUpdAnn1, localKey)
+		sendLocalMsg(t, ctx, batch.nodeAnn1, localKey)
+
+		sendRemoteMsg(t, ctx, batch.chanUpdAnn2, remotePeer)
+		sendRemoteMsg(t, ctx, batch.nodeAnn2, remotePeer)
+
+		// We'll skip sending the auth proofs from the first channel to
+		// ensure that it's seen as a private channel.
+		if batch.localChanAnn.ShortChannelID == firstChanID {
+			continue
+		}
+
+		sendLocalMsg(t, ctx, batch.localProofAnn, localKey)
+		sendRemoteMsg(t, ctx, batch.remoteProofAnn, remotePeer)
+	}
+
+	// Drain out any broadcast messages we might not have read up to this
+	// point.
+out:
+	for {
+		select {
+		case <-ctx.broadcastedMessage:
+		default:
+			break out
+		}
+	}
+
+	// Now that all of our channels are loaded, we'll attempt to update the
+	// policy of all of them.
+	const newTimeLockDelta = 100
+	newPolicy := routing.ChannelPolicy{
+		TimeLockDelta: newTimeLockDelta,
+	}
+	err = ctx.gossiper.PropagateChanPolicyUpdate(newPolicy)
+	if err != nil {
+		t.Fatalf("unable to chan policies: %v", err)
+	}
+
+	// Two channel updates should now be broadcast, with neither of them
+	// being the channel our first private channel.
+	for i := 0; i < numChannels-1; i++ {
+		assertBroadcastMsg(t, ctx, func(msg lnwire.Message) error {
+			upd, ok := msg.(*lnwire.ChannelUpdate)
+			if !ok {
+				return fmt.Errorf("channel update not "+
+					"broadcast, instead %T was", msg)
+			}
+
+			if upd.ShortChannelID == firstChanID {
+				return fmt.Errorf("private channel upd " +
+					"broadcast")
+			}
+			if upd.TimeLockDelta != newTimeLockDelta {
+				return fmt.Errorf("wrong delta: expected %v, "+
+					"got %v", newTimeLockDelta,
+					upd.TimeLockDelta)
+			}
+
+			return nil
+		})
+	}
+}
+
 func assertMessage(t *testing.T, expected, got lnwire.Message) {
 	t.Helper()
 

@@ -471,12 +471,10 @@ func createAnnouncements(blockHeight uint32) (*annBatch, error) {
 		return nil, err
 	}
 
-	batch.localProofAnn = &lnwire.AnnounceSignatures{
-		NodeSignature:    batch.remoteChanAnn.NodeSig1,
-		BitcoinSignature: batch.remoteChanAnn.BitcoinSig1,
-	}
-
 	batch.remoteProofAnn = &lnwire.AnnounceSignatures{
+		ShortChannelID: lnwire.ShortChannelID{
+			BlockHeight: blockHeight,
+		},
 		NodeSignature:    batch.remoteChanAnn.NodeSig2,
 		BitcoinSignature: batch.remoteChanAnn.BitcoinSig2,
 	}
@@ -484,6 +482,14 @@ func createAnnouncements(blockHeight uint32) (*annBatch, error) {
 	batch.localChanAnn, err = createRemoteChannelAnnouncement(blockHeight)
 	if err != nil {
 		return nil, err
+	}
+
+	batch.localProofAnn = &lnwire.AnnounceSignatures{
+		ShortChannelID: lnwire.ShortChannelID{
+			BlockHeight: blockHeight,
+		},
+		NodeSignature:    batch.localChanAnn.NodeSig1,
+		BitcoinSignature: batch.localChanAnn.BitcoinSig1,
 	}
 
 	batch.chanUpdAnn1, err = createUpdateAnnouncement(

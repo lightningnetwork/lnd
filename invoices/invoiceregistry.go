@@ -408,9 +408,11 @@ func (i *InvoiceRegistry) AddInvoice(invoice *channeldb.Invoice,
 	i.Lock()
 	defer i.Unlock()
 
-	log.Debugf("Adding invoice %v", newLogClosure(func() string {
-		return spew.Sdump(invoice)
-	}))
+	log.Debugf("Invoice(%v): added %v", paymentHash,
+		newLogClosure(func() string {
+			return spew.Sdump(invoice)
+		}),
+	)
 
 	addIndex, err := i.cdb.AddInvoice(invoice, paymentHash)
 	if err != nil {
@@ -476,7 +478,7 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 	i.Lock()
 	defer i.Unlock()
 
-	log.Debugf("Settling invoice %x", rHash[:])
+	log.Debugf("Invoice(%x): htlc accepted", rHash[:])
 
 	createEvent := func(preimage *lntypes.Preimage) *HodlEvent {
 		return &HodlEvent{
@@ -519,6 +521,8 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 		i.notifyClients(rHash, invoice, invoice.Terms.State)
 		switch invoice.Terms.State {
 		case channeldb.ContractSettled:
+			log.Debugf("Invoice(%x): settled", rHash[:])
+
 			return createEvent(&invoice.Terms.PaymentPreimage), nil
 		case channeldb.ContractAccepted:
 			// Subscribe to updates to this invoice.
@@ -541,12 +545,12 @@ func (i *InvoiceRegistry) SettleHodlInvoice(preimage lntypes.Preimage) error {
 
 	invoice, err := i.cdb.SettleHoldInvoice(preimage)
 	if err != nil {
-		log.Errorf("Invoice SetPreimage %v: %v", preimage, err)
+		log.Errorf("SettleHodlInvoice with preimage %v: %v", preimage, err)
 		return err
 	}
 
 	hash := preimage.Hash()
-	log.Infof("Notifying clients of set preimage to %v",
+	log.Debugf("Invoice(%v): settled with preimage %v", hash,
 		invoice.Terms.PaymentPreimage)
 
 	i.notifyHodlSubscribers(HodlEvent{
@@ -564,21 +568,21 @@ func (i *InvoiceRegistry) CancelInvoice(payHash lntypes.Hash) error {
 	i.Lock()
 	defer i.Unlock()
 
-	log.Debugf("Canceling invoice %v", payHash)
+	log.Debugf("Invoice(%v): canceling invoice", payHash)
 
 	invoice, err := i.cdb.CancelInvoice(payHash)
 
 	// Implement idempotency by returning success if the invoice was already
 	// canceled.
 	if err == channeldb.ErrInvoiceAlreadyCanceled {
-		log.Debugf("Invoice %v already canceled", payHash)
+		log.Debugf("Invoice(%v): already canceled", payHash)
 		return nil
 	}
 	if err != nil {
 		return err
 	}
 
-	log.Infof("Invoice %v canceled", payHash)
+	log.Debugf("Invoice(%v): canceled", payHash)
 	i.notifyHodlSubscribers(HodlEvent{
 		Hash: payHash,
 	})

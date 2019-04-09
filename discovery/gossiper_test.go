@@ -730,6 +730,7 @@ func createTestCtx(startHeight uint32) (*testCtx, func(), error) {
 		HistoricalSyncTicker:      ticker.NewForce(DefaultHistoricalSyncInterval),
 		ActiveSyncerTimeoutTicker: ticker.NewForce(DefaultActiveSyncerTimeout),
 		NumActiveSyncers:          3,
+		AnnSigner:                 &mockSigner{nodeKeyPriv1},
 	}, nodeKeyPub1)
 
 	if err := gossiper.Start(); err != nil {

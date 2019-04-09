@@ -202,6 +202,30 @@ func (r *mockGraphSource) ForEachNode(func(node *channeldb.LightningNode) error)
 
 func (r *mockGraphSource) ForAllOutgoingChannels(cb func(i *channeldb.ChannelEdgeInfo,
 	c *channeldb.ChannelEdgePolicy) error) error {
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	chans := make(map[uint64]channeldb.ChannelEdge)
+	for _, info := range r.infos {
+		info := info
+
+		edgeInfo := chans[info.ChannelID]
+		edgeInfo.Info = &info
+		chans[info.ChannelID] = edgeInfo
+	}
+	for _, edges := range r.edges {
+		edges := edges
+
+		edge := chans[edges[0].ChannelID]
+		edge.Policy1 = &edges[0]
+		chans[edges[0].ChannelID] = edge
+	}
+
+	for _, channel := range chans {
+		cb(channel.Info, channel.Policy1)
+	}
+
 	return nil
 }
 

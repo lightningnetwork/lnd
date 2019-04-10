@@ -89,6 +89,19 @@ var (
 	validColorRegexp = regexp.MustCompile("^#[A-Fa-f0-9]{6}$")
 )
 
+// errPeerAlreadyConnected is an error returned by the server when we're
+// commanded to connect to a peer, but they're already connected.
+type errPeerAlreadyConnected struct {
+	peer *peer
+}
+
+// Error returns the human readable version of this error type.
+//
+// NOTE: Part of the error interface.
+func (e *errPeerAlreadyConnected) Error() string {
+	return fmt.Sprintf("already connected to peer: %v", e.peer)
+}
+
 // server is the main server of the Lightning Network Daemon. The server houses
 // global state pertaining to the wallet, database, and the rpcserver.
 // Additionally, the server is also used as a central messaging bus to interact
@@ -2875,7 +2888,7 @@ func (s *server) ConnectToPeer(addr *lnwire.NetAddress, perm bool) error {
 	peer, err := s.findPeerByPubStr(targetPub)
 	if err == nil {
 		s.mu.Unlock()
-		return fmt.Errorf("already connected to peer: %v", peer)
+		return &errPeerAlreadyConnected{peer: peer}
 	}
 
 	// Peer was not found, continue to pursue connection with peer.

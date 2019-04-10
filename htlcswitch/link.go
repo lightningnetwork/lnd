@@ -278,15 +278,6 @@ type channelLink struct {
 	// sure we don't process any more updates.
 	failed bool
 
-	// batchCounter is the number of updates which we received from remote
-	// side, but not include in commitment transaction yet and plus the
-	// current number of settles that have been sent, but not yet committed
-	// to the commitment.
-	//
-	// TODO(andrew.shvv) remove after we add additional BatchNumber()
-	// method in state machine.
-	batchCounter uint32
-
 	// keystoneBatch represents a volatile list of keystones that must be
 	// written before attempting to sign the next commitment txn. These
 	// represent all the HTLC's forwarded to the link from the switch. Once
@@ -980,7 +971,7 @@ out:
 		// the batch ticker so that it can be cleared. Otherwise pause
 		// the ticker to prevent waking up the htlcManager while the
 		// batch is empty.
-		if l.batchCounter > 0 {
+		if l.channel.PendingLocalUpdateCount() > 0 {
 			l.cfg.BatchTicker.Resume()
 		} else {
 			l.cfg.BatchTicker.Pause()
@@ -1096,9 +1087,9 @@ out:
 			if ok && l.overflowQueue.Length() != 0 {
 				log.Infof("Downstream htlc add update with "+
 					"payment hash(%x) have been added to "+
-					"reprocessing queue, batch_size=%v",
+					"reprocessing queue, pend_updates=%v",
 					htlc.PaymentHash[:],
-					l.batchCounter)
+					l.channel.PendingLocalUpdateCount())
 
 				l.overflowQueue.AddPkt(pkt)
 				continue
@@ -1176,8 +1167,6 @@ loop:
 func (l *channelLink) processHodlEvent(hodlEvent invoices.HodlEvent,
 	htlc hodlHtlc) error {
 
-	l.batchCounter++
-
 	circuitKey := hodlEvent.CircuitKey
 
 	// Determine required action for the resolution.
@@ -1247,9 +1236,9 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 			case lnwallet.ErrMaxHTLCNumber:
 				l.infof("Downstream htlc add update with "+
 					"payment hash(%x) have been added to "+
-					"reprocessing queue, batch: %v",
+					"reprocessing queue, pend_updates: %v",
 					htlc.PaymentHash[:],
-					l.batchCounter)
+					l.channel.PendingLocalUpdateCount())
 
 				l.overflowQueue.AddPkt(pkt)
 				return
@@ -1329,8 +1318,9 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 		}
 
 		l.tracef("Received downstream htlc: payment_hash=%x, "+
-			"local_log_index=%v, batch_size=%v",
-			htlc.PaymentHash[:], index, l.batchCounter+1)
+			"local_log_index=%v, pend_updates=%v",
+			htlc.PaymentHash[:], index,
+			l.channel.PendingLocalUpdateCount())
 
 		pkt.outgoingChanID = l.ShortChanID()
 		pkt.outgoingHTLCID = index
@@ -1461,11 +1451,11 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 		isSettle = true
 	}
 
-	l.batchCounter++
-
 	// If this newly added update exceeds the min batch size for adds, or
 	// this is a settle request, then initiate an update.
-	if l.batchCounter >= l.cfg.BatchSize || isSettle {
+	if l.channel.PendingLocalUpdateCount() >= uint64(l.cfg.BatchSize) ||
+		isSettle {
+
 		if err := l.updateCommitTx(); err != nil {
 			l.fail(LinkFailureError{code: ErrInternalError},
 				"unable to update commitment: %v", err)
@@ -1944,8 +1934,9 @@ func (l *channelLink) updateCommitTx() error {
 	theirCommitSig, htlcSigs, pendingHTLCs, err := l.channel.SignNextCommitment()
 	if err == lnwallet.ErrNoWindow {
 		l.tracef("revocation window exhausted, unable to send: %v, "+
-			"dangling_opens=%v, dangling_closes%v",
-			l.batchCounter, newLogClosure(func() string {
+			"pend_updates=%v, dangling_closes%v",
+			l.channel.PendingLocalUpdateCount(),
+			newLogClosure(func() string {
 				return spew.Sdump(l.openedCircuits)
 			}),
 			newLogClosure(func() string {
@@ -1990,10 +1981,6 @@ func (l *channelLink) updateCommitTx() error {
 		}
 	}
 	l.logCommitTick = nil
-
-	// Finally, clear our the current batch, so we can accurately make
-	// further batch flushing decisions.
-	l.batchCounter = 0
 
 	return nil
 }

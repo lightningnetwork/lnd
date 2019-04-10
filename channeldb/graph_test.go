@@ -2006,6 +2006,24 @@ func TestFetchChanInfos(t *testing.T) {
 		edgeQuery = append(edgeQuery, chanID.ToUint64())
 	}
 
+	// Add an additional edge that does not exist. The query should skip
+	// this channel and return only infos for the edges that exist.
+	edgeQuery = append(edgeQuery, 500)
+
+	// Add an another edge to the query that has been marked as a zombie
+	// edge. The query should also skip this channel.
+	zombieChan, zombieChanID := createEdge(
+		666, 0, 0, 0, node1, node2,
+	)
+	if err := graph.AddChannelEdge(&zombieChan); err != nil {
+		t.Fatalf("unable to create channel edge: %v", err)
+	}
+	err = graph.DeleteChannelEdge(&zombieChan.ChannelPoint)
+	if err != nil {
+		t.Fatalf("unable to delete and mark edge zombie: %v", err)
+	}
+	edgeQuery = append(edgeQuery, zombieChanID.ToUint64())
+
 	// We'll now attempt to query for the range of channel ID's we just
 	// inserted into the database. We should get the exact same set of
 	// edges back.

@@ -1636,9 +1636,11 @@ func (c *ChannelGraph) FilterChannelRange(startHeight, endHeight uint32) ([]uint
 	return chanIDs, nil
 }
 
-// FetchChanInfos returns the set of channel edges that correspond to the
-// passed channel ID's. This can be used to respond to peer queries that are
-// seeking to fill in gaps in their view of the channel graph.
+// FetchChanInfos returns the set of channel edges that correspond to the passed
+// channel ID's. If an edge is the query is unknown to the database, it will
+// skipped and the result will contain only those edges that exist at the time
+// of the query. This can be used to respond to peer queries that are seeking to
+// fill in gaps in their view of the channel graph.
 func (c *ChannelGraph) FetchChanInfos(chanIDs []uint64) ([]ChannelEdge, error) {
 	// TODO(roasbeef): sort cids?
 
@@ -1664,11 +1666,16 @@ func (c *ChannelGraph) FetchChanInfos(chanIDs []uint64) ([]ChannelEdge, error) {
 		for _, cid := range chanIDs {
 			byteOrder.PutUint64(cidBytes[:], cid)
 
-			// First, we'll fetch the static edge information.
+			// First, we'll fetch the static edge information. If
+			// the edge is unknown, we will skip the edge and
+			// continue gathering all known edges.
 			edgeInfo, err := fetchChanEdgeInfo(
 				edgeIndex, cidBytes[:],
 			)
-			if err != nil {
+			switch {
+			case err == ErrEdgeNotFound:
+				continue
+			case err != nil:
 				return err
 			}
 			edgeInfo.db = c.db

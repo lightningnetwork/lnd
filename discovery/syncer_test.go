@@ -125,6 +125,7 @@ func newTestSyncer(hID lnwire.ShortChannelID,
 		channelSeries: newMockChannelGraphTimeSeries(hID),
 		encodingType:  encodingType,
 		chunkSize:     chunkSize,
+		batchSize:     chunkSize,
 		sendToPeer: func(msgs ...lnwire.Message) error {
 			msgChan <- msgs
 			return nil

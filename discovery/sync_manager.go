@@ -628,6 +628,7 @@ func (m *SyncManager) InitSyncState(peer lnpeer.Peer) {
 		channelSeries: m.cfg.ChanSeries,
 		encodingType:  encoding,
 		chunkSize:     encodingTypeToChunkSize[encoding],
+		batchSize:     requestBatchSize,
 		sendToPeer: func(msgs ...lnwire.Message) error {
 			return peer.SendMessageLazy(false, msgs...)
 		},

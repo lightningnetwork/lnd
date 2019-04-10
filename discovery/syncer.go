@@ -128,6 +128,10 @@ const (
 	// syncTransitionTimeout is the default timeout in which we'll wait up
 	// to when attempting to perform a sync transition.
 	syncTransitionTimeout = 5 * time.Second
+
+	// requestBatchSize is the maximum number of channels we will query the
+	// remote peer for in a QueryShortChanIDs message.
+	requestBatchSize = 500
 )
 
 var (
@@ -182,6 +186,10 @@ type gossipSyncerCfg struct {
 	// chunkSize is the max number of short chan IDs using the syncer's
 	// encoding type that we can fit into a single message safely.
 	chunkSize int32
+
+	// batchSize is the max number of channels the syncer will query from
+	// the remote node in a single QueryShortChanIDs request.
+	batchSize int32
 
 	// sendToPeer is a function closure that should send the set of
 	// targeted messages to the peer we've been assigned to sync the graph
@@ -570,7 +578,7 @@ func (g *GossipSyncer) synchronizeChanIDs() (bool, error) {
 
 	// If the number of channels to query for is less than the chunk size,
 	// then we can issue a single query.
-	if int32(len(g.newChansToQuery)) < g.cfg.chunkSize {
+	if int32(len(g.newChansToQuery)) < g.cfg.batchSize {
 		queryChunk = g.newChansToQuery
 		g.newChansToQuery = nil
 
@@ -578,8 +586,8 @@ func (g *GossipSyncer) synchronizeChanIDs() (bool, error) {
 		// Otherwise, we'll need to only query for the next chunk.
 		// We'll slice into our query chunk, then slide down our main
 		// pointer down by the chunk size.
-		queryChunk = g.newChansToQuery[:g.cfg.chunkSize]
-		g.newChansToQuery = g.newChansToQuery[g.cfg.chunkSize:]
+		queryChunk = g.newChansToQuery[:g.cfg.batchSize]
+		g.newChansToQuery = g.newChansToQuery[g.cfg.batchSize:]
 	}
 
 	log.Infof("GossipSyncer(%x): querying for %v new channels",

@@ -13044,6 +13044,36 @@ func testSweepAllCoins(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to send coins to eve: %v", err)
 	}
 
+	// Ensure that we can't send coins to our own Pubkey.
+	info, err := ainz.GetInfo(ctxt, &lnrpc.GetInfoRequest{})
+	if err != nil {
+		t.Fatalf("unable to get node info: %v", err)
+	}
+
+	sweepReq := &lnrpc.SendCoinsRequest{
+		Addr:    info.IdentityPubkey,
+		SendAll: true,
+	}
+	_, err = ainz.SendCoins(ctxt, sweepReq)
+	if err == nil {
+		t.Fatalf("expected SendCoins to users own pubkey to fail")
+	}
+
+	// Ensure that we can't send coins to another users Pubkey.
+	info, err = net.Alice.GetInfo(ctxt, &lnrpc.GetInfoRequest{})
+	if err != nil {
+		t.Fatalf("unable to get node info: %v", err)
+	}
+
+	sweepReq = &lnrpc.SendCoinsRequest{
+		Addr:    info.IdentityPubkey,
+		SendAll: true,
+	}
+	_, err = ainz.SendCoins(ctxt, sweepReq)
+	if err == nil {
+		t.Fatalf("expected SendCoins to Alices pubkey to fail")
+	}
+
 	// With the two coins above mined, we'll now instruct ainz to sweep all
 	// the coins to an external address not under its control.
 	// We will first attempt to send the coins to addresses that are not
@@ -13053,7 +13083,7 @@ func testSweepAllCoins(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Send coins to a testnet3 address.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	sweepReq := &lnrpc.SendCoinsRequest{
+	sweepReq = &lnrpc.SendCoinsRequest{
 		Addr:    "tb1qfc8fusa98jx8uvnhzavxccqlzvg749tvjw82tg",
 		SendAll: true,
 	}

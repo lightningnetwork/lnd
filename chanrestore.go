@@ -171,7 +171,16 @@ func (s *server) ConnectPeer(nodePub *btcec.PublicKey, addrs []net.Addr) error {
 		// Attempt to connect to the peer using this full address. If
 		// we're unable to connect to them, then we'll try the next
 		// address in place of it.
-		if err := s.ConnectToPeer(netAddr, true); err != nil {
+		err := s.ConnectToPeer(netAddr, true)
+
+		// If we're already connected to this peer, then we don't
+		// consider this an erorr, so we'll exit here.
+		if _, ok := err.(*errPeerAlreadyConnected); ok {
+			return nil
+
+		} else if err != nil {
+			// Otherwise, something else happened, so we'll try the
+			// next address.
 			ltndLog.Errorf("unable to connect to %v to "+
 				"complete SCB restore: %v", netAddr, err)
 			continue

@@ -5902,6 +5902,103 @@ func TestChannelLinkHoldInvoiceRestart(t *testing.T) {
 	}
 }
 
+// TestChannelLinkRevocationWindowRegular asserts that htlcs paying to a regular
+// invoice are settled even if the revocation window gets exhausted.
+func TestChannelLinkRevocationWindowRegular(t *testing.T) {
+	t.Parallel()
+
+	const (
+		chanAmt = btcutil.SatoshiPerBitcoin * 5
+	)
+
+	// We'll start by creating a new link with our chanAmt (5 BTC). We will
+	// only be testing Alice's behavior, so the reference to Bob's channel
+	// state is unnecessary.
+	aliceLink, bobChannel, _, start, cleanUp, _, err :=
+		newSingleLinkTestHarness(chanAmt, 0)
+	if err != nil {
+		t.Fatalf("unable to create link: %v", err)
+	}
+	defer cleanUp()
+
+	if err := start(); err != nil {
+		t.Fatalf("unable to start test harness: %v", err)
+	}
+	defer aliceLink.Stop()
+
+	var (
+		coreLink  = aliceLink.(*channelLink)
+		registry  = coreLink.cfg.Registry.(*mockInvoiceRegistry)
+		aliceMsgs = coreLink.cfg.Peer.(*mockPeer).sentMsgs
+	)
+
+	ctx := linkTestContext{
+		t:          t,
+		aliceLink:  aliceLink,
+		aliceMsgs:  aliceMsgs,
+		bobChannel: bobChannel,
+	}
+
+	registry.settleChan = make(chan lntypes.Hash)
+
+	htlc1, invoice1 := generateHtlcAndInvoice(t, 0)
+	htlc2, invoice2 := generateHtlcAndInvoice(t, 1)
+
+	// We must add the invoice to the registry, such that Alice
+	// expects this payment.
+	err = registry.AddInvoice(*invoice1, htlc1.PaymentHash)
+	if err != nil {
+		t.Fatalf("unable to add invoice to registry: %v", err)
+	}
+	err = registry.AddInvoice(*invoice2, htlc2.PaymentHash)
+	if err != nil {
+		t.Fatalf("unable to add invoice to registry: %v", err)
+	}
+
+	// Lock in htlc 1 on both sides.
+	ctx.sendHtlcBobToAlice(htlc1)
+	ctx.sendCommitSigBobToAlice(1)
+	ctx.receiveRevAndAckAliceToBob()
+	ctx.receiveCommitSigAliceToBob(1)
+	ctx.sendRevAndAckBobToAlice()
+
+	// We expect a call to the invoice registry to notify the arrival of the
+	// htlc.
+	select {
+	case <-registry.settleChan:
+	case <-time.After(5 * time.Second):
+		t.Fatal("expected invoice to be settled")
+	}
+
+	// Expect alice to send a settle and commitsig message to bob. Bob does
+	// not yet send the revocation.
+	ctx.receiveSettleAliceToBob()
+	ctx.receiveCommitSigAliceToBob(0)
+
+	// Pay invoice 2.
+	ctx.sendHtlcBobToAlice(htlc2)
+	ctx.sendCommitSigBobToAlice(2)
+	ctx.receiveRevAndAckAliceToBob()
+
+	// At this point, Alice cannot send a new commit sig to bob because the
+	// revocation window is exhausted.
+
+	// Sleep to let the commit ticker expire. The revocation window is still
+	// exhausted.
+	time.Sleep(time.Second)
+
+	// Bob sends revocation and signs commit with htlc1 settled.
+	ctx.sendRevAndAckBobToAlice()
+
+	// Allow some time for the log commit ticker to trigger for Alice.
+	time.Sleep(time.Second)
+
+	// Now that Bob revoked, Alice should send the sig she owes.
+	//
+	// THIS SHOULD NOT HAPPEN.
+	ctx.assertNoMsgFromAlice(time.Second)
+}
+
 // TestChannelLinkRevocationWindowHodl asserts that htlcs paying to a hodl
 // invoice are settled even if the revocation window gets exhausted.
 func TestChannelLinkRevocationWindowHodl(t *testing.T) {

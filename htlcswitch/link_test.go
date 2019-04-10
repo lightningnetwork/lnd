@@ -5983,20 +5983,12 @@ func TestChannelLinkRevocationWindowRegular(t *testing.T) {
 	// At this point, Alice cannot send a new commit sig to bob because the
 	// revocation window is exhausted.
 
-	// Sleep to let the commit ticker expire. The revocation window is still
-	// exhausted.
-	time.Sleep(time.Second)
-
 	// Bob sends revocation and signs commit with htlc1 settled.
 	ctx.sendRevAndAckBobToAlice()
 
-	// Allow some time for the log commit ticker to trigger for Alice.
-	time.Sleep(time.Second)
-
-	// Now that Bob revoked, Alice should send the sig she owes.
-	//
-	// THIS SHOULD NOT HAPPEN.
-	ctx.assertNoMsgFromAlice(time.Second)
+	// After the revocation, it is again possible for Alice to send a commit
+	// sig with htlc2.
+	ctx.receiveCommitSigAliceToBob(1)
 }
 
 // TestChannelLinkRevocationWindowHodl asserts that htlcs paying to a hodl

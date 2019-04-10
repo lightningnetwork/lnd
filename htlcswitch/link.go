@@ -344,14 +344,6 @@ type channelLink struct {
 	// sub-systems with the latest set of active HTLC's on our channel.
 	htlcUpdates chan *contractcourt.ContractUpdate
 
-	// logCommitTimer is a timer which is sent upon if we go an interval
-	// without receiving/sending a commitment update. It's role is to
-	// ensure both chains converge to identical state in a timely manner.
-	//
-	// TODO(roasbeef): timer should be >> then RTT
-	logCommitTimer *time.Timer
-	logCommitTick  <-chan time.Time
-
 	// updateFeeTimer is the timer responsible for updating the link's
 	// commitment fee every time it fires.
 	updateFeeTimer *time.Timer
@@ -397,13 +389,12 @@ func NewChannelLink(cfg ChannelLinkConfig,
 		channel:     channel,
 		shortChanID: channel.ShortChanID(),
 		// TODO(roasbeef): just do reserve here?
-		logCommitTimer: time.NewTimer(300 * time.Millisecond),
-		overflowQueue:  newPacketQueue(input.MaxHTLCNumber / 2),
-		htlcUpdates:    make(chan *contractcourt.ContractUpdate),
-		hodlMap:        make(map[channeldb.CircuitKey]hodlHtlc),
-		hodlQueue:      queue.NewConcurrentQueue(10),
-		log:            build.NewPrefixLog(logPrefix, log),
-		quit:           make(chan struct{}),
+		overflowQueue: newPacketQueue(input.MaxHTLCNumber / 2),
+		htlcUpdates:   make(chan *contractcourt.ContractUpdate),
+		hodlMap:       make(map[channeldb.CircuitKey]hodlHtlc),
+		hodlQueue:     queue.NewConcurrentQueue(10),
+		log:           build.NewPrefixLog(logPrefix, log),
+		quit:          make(chan struct{}),
 	}
 }
 
@@ -1087,21 +1078,6 @@ out:
 
 			break out
 
-		case <-l.logCommitTick:
-			// If we haven't sent or received a new commitment
-			// update in some time, check to see if we have any
-			// pending updates we need to commit due to our
-			// commitment chains being desynchronized.
-			if !l.channel.OweCommitment(true) {
-				continue
-			}
-
-			if err := l.updateCommitTx(); err != nil {
-				l.fail(LinkFailureError{code: ErrInternalError},
-					"unable to update commitment: %v", err)
-				break out
-			}
-
 		case <-l.cfg.BatchTicker.Ticks():
 			// Attempt to extend the remote commitment chain
 			// including all the currently pending entries. If the
@@ -1769,21 +1745,6 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			return
 		}
 
-		// As we've just received a commitment signature, we'll
-		// re-start the log commit timer to wake up the main processing
-		// loop to check if we need to send a commitment signature as
-		// we owe one.
-		//
-		// TODO(roasbeef): instead after revocation?
-		if !l.logCommitTimer.Stop() {
-			select {
-			case <-l.logCommitTimer.C:
-			default:
-			}
-		}
-		l.logCommitTimer.Reset(300 * time.Millisecond)
-		l.logCommitTick = l.logCommitTimer.C
-
 		// If both commitment chains are fully synced from our PoV,
 		// then we don't need to reply with a signature as both sides
 		// already have a commitment with the latest accepted.
@@ -1861,11 +1822,14 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			return
 		}
 
-		// If there are pending local updates, try to update the commit
-		// tx. Pending updates could already have been present because
-		// of a previously failed update to the commit tx or freshly
-		// added by processRemoteAdds.
-		if l.channel.PendingLocalUpdateCount() > 0 {
+		// The revocation window opened up. If there are pending local
+		// updates, try to update the commit tx. Pending updates could
+		// already have been present because of a previously failed
+		// update to the commit tx or freshly added in by
+		// processRemoteAdds. Also in case there are no local updates,
+		// but there are still remote updates that are not in the remote
+		// commit tx yet, send out an update.
+		if l.channel.OweCommitment(true) {
 			if err := l.updateCommitTx(); err != nil {
 				l.fail(LinkFailureError{code: ErrInternalError},
 					"unable to update commitment: %v", err)
@@ -2015,17 +1979,6 @@ func (l *channelLink) updateCommitTx() error {
 		HtlcSigs:  htlcSigs,
 	}
 	l.cfg.Peer.SendMessage(false, commitSig)
-
-	// We've just initiated a state transition, attempt to stop the
-	// logCommitTimer. If the timer already ticked, then we'll consume the
-	// value, dropping
-	if l.logCommitTimer != nil && !l.logCommitTimer.Stop() {
-		select {
-		case <-l.logCommitTimer.C:
-		default:
-		}
-	}
-	l.logCommitTick = nil
 
 	return nil
 }

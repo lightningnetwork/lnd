@@ -26,46 +26,46 @@
   * **Go:** `lnd` is written in Go. To install, run one of the following commands:
 
 
-    **Note**: The minimum version of Go supported is Go 1.11. We recommend that
+    **Note**: The minimum version of Go supported is Go 1.12. We recommend that
     users use the latest version of Go, which at the time of writing is
-    [`1.11`](https://blog.golang.org/go1.11).
+    [`1.12`](https://blog.golang.org/go1.12).
 
 
     On Linux:
 
     (x86-64)
     ```
-    wget https://dl.google.com/go/go1.11.5.linux-amd64.tar.gz
-    sha256sum go1.11.5.linux-amd64.tar.gz | awk -F " " '{ print $1 }'
+    wget https://dl.google.com/go/go1.12.3.linux-amd64.tar.gz
+    sha256sum go1.12.3.linux-amd64.tar.gz | awk -F " " '{ print $1 }'
     ```
 
     The final output of the command above should be
-    `ff54aafedff961eb94792487e827515da683d61a5f9482f668008832631e5d25`. If it
+    `3924819eed16e55114f02d25d03e77c916ec40b7fd15c8acb5838b63135b03df`. If it
     isn't, then the target REPO HAS BEEN MODIFIED, and you shouldn't install
     this version of Go. If it matches, then proceed to install Go:
     ```
-    tar -C /usr/local -xzf go1.11.5.linux-amd64.tar.gz
+    tar -C /usr/local -xzf go1.12.3.linux-amd64.tar.gz
     export PATH=$PATH:/usr/local/go/bin
     ```
 
     (ARMv6)
     ```
-    wget https://dl.google.com/go/go1.11.5.linux-armv6l.tar.gz
-    sha256sum go1.11.5.linux-armv6l.tar.gz | awk -F " " '{ print $1 }'
+    wget https://dl.google.com/go/go1.12.3.linux-armv6l.tar.gz
+    sha256sum go1.12.3.linux-armv6l.tar.gz | awk -F " " '{ print $1 }'
     ```
 
     The final output of the command above should be
-    `b26b53c94923f78955236386fee0725ef4e76b6cb47e0df0ed0c0c4724e7b198`. If it
+    `efce59fac5ebc7302263ca1093fe2c3252c1b936f5b1ae08afc328eea0403c79`. If it
     isn't, then the target REPO HAS BEEN MODIFIED, and you shouldn't install
     this version of Go. If it matches, then proceed to install Go:
     ```
-    tar -C /usr/local -xzf go1.11.5.linux-armv6l.tar.gz
+    tar -C /usr/local -xzf go1.12.3.linux-armv6l.tar.gz
     export PATH=$PATH:/usr/local/go/bin
     ```
 
     On Mac OS X:
     ```
-    brew install go@1.11
+    brew install go@1.12
     ```
 
     On FreeBSD:
@@ -74,9 +74,9 @@
     ```
 
     Alternatively, one can download the pre-compiled binaries hosted on the
-    [golang download page](https://golang.org/dl/). If one seeks to install
+    [Golang download page](https://golang.org/dl/). If one seeks to install
     from source, then more detailed installation instructions can be found
-    [here](http://golang.org/doc/install).
+    [here](https://golang.org/doc/install).
 
     At this point, you should set your `$GOPATH` environment variable, which
     represents the path to your workspace. By default, `$GOPATH` is set to
@@ -91,10 +91,10 @@
     We recommend placing the above in your .bashrc or in a setup script so that
     you can avoid typing this every time you open a new terminal window.
 
-  * **go modules:** This project uses [go modules](https://github.com/golang/go/wiki/Modules) 
+  * **Go modules:** This project uses [Go modules](https://github.com/golang/go/wiki/Modules) 
     to manage dependencies as well as to provide *reproducible builds*.
 
-    Usage of go modules (with go 1.11) means that you no longer need to clone
+    Usage of Go modules (with Go 1.12) means that you no longer need to clone
     `lnd` into your `$GOPATH` for development purposes. Instead, your `lnd`
     repo can now live anywhere!
 
@@ -109,7 +109,7 @@ make && make install
 ```
 
 **NOTE**: Our instructions still use the `$GOPATH` directory from prior
-versions of Go, but with go 1.11, it's now possible for `lnd` to live
+versions of Go, but with Go 1.12, it's now possible for `lnd` to live
 _anywhere_ on your file system.
 
 For Windows WSL users, make will need to be referenced directly via
@@ -268,7 +268,7 @@ btcctl --testnet --rpcuser=REPLACEME --rpcpass=REPLACEME getpeerinfo | more
 If you are on testnet, run this command after `btcd` has finished syncing.
 Otherwise, replace `--bitcoin.testnet` with `--bitcoin.simnet`. If you are
 installing `lnd` in preparation for the
-[tutorial](http://dev.lightning.community/tutorial), you may skip this step.
+[tutorial](https://dev.lightning.community/tutorial), you may skip this step.
 ```
 lnd --bitcoin.active --bitcoin.testnet --debuglevel=debug --btcd.rpcuser=kek --btcd.rpcpass=kek --externalip=X.X.X.X
 ```

@@ -4225,6 +4225,17 @@ func (lc *LightningChannel) oweCommitment(local bool) bool {
 	return oweCommitment
 }
 
+// PendingLocalUpdateCount returns the number of local updates that still need
+// to be applied to the remote commitment tx.
+func (lc *LightningChannel) PendingLocalUpdateCount() uint64 {
+	lc.RLock()
+	defer lc.RUnlock()
+
+	lastRemoteCommit := lc.remoteCommitChain.tip()
+
+	return lc.localUpdateLog.logIndex - lastRemoteCommit.ourMessageIndex
+}
+
 // RevokeCurrentCommitment revokes the next lowest unrevoked commitment
 // transaction in the local commitment chain. As a result the edge of our
 // revocation window is extended by one, and the tail of our local commitment

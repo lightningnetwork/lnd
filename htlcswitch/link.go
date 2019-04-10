@@ -742,19 +742,15 @@ func (l *channelLink) resolveFwdPkgs() error {
 
 	l.log.Debugf("loaded %d fwd pks", len(fwdPkgs))
 
-	var needUpdate bool
 	for _, fwdPkg := range fwdPkgs {
-		hasUpdate, err := l.resolveFwdPkg(fwdPkg)
-		if err != nil {
+		if err := l.resolveFwdPkg(fwdPkg); err != nil {
 			return err
 		}
-
-		needUpdate = needUpdate || hasUpdate
 	}
 
 	// If any of our reprocessing steps require an update to the commitment
 	// txn, we initiate a state transition to capture all relevant changes.
-	if needUpdate {
+	if l.channel.PendingLocalUpdateCount() > 0 {
 		return l.updateCommitTx()
 	}
 
@@ -764,7 +760,7 @@ func (l *channelLink) resolveFwdPkgs() error {
 // resolveFwdPkg interprets the FwdState of the provided package, either
 // reprocesses any outstanding htlcs in the package, or performs garbage
 // collection on the package.
-func (l *channelLink) resolveFwdPkg(fwdPkg *channeldb.FwdPkg) (bool, error) {
+func (l *channelLink) resolveFwdPkg(fwdPkg *channeldb.FwdPkg) error {
 	// Remove any completed packages to clear up space.
 	if fwdPkg.State == channeldb.FwdStateCompleted {
 		l.log.Debugf("removing completed fwd pkg for height=%d",
@@ -774,7 +770,7 @@ func (l *channelLink) resolveFwdPkg(fwdPkg *channeldb.FwdPkg) (bool, error) {
 		if err != nil {
 			l.log.Errorf("unable to remove fwd pkg for height=%d: "+
 				"%v", fwdPkg.Height, err)
-			return false, err
+			return err
 		}
 	}
 
@@ -793,7 +789,7 @@ func (l *channelLink) resolveFwdPkg(fwdPkg *channeldb.FwdPkg) (bool, error) {
 		if err != nil {
 			l.log.Errorf("unable to process remote log updates: %v",
 				err)
-			return false, err
+			return err
 		}
 		l.processRemoteSettleFails(fwdPkg, settleFails)
 	}
@@ -802,7 +798,6 @@ func (l *channelLink) resolveFwdPkg(fwdPkg *channeldb.FwdPkg) (bool, error) {
 	// downstream logic is able to filter out any duplicates, but we must
 	// shove the entire, original set of adds down the pipeline so that the
 	// batch of adds presented to the sphinx router does not ever change.
-	var needUpdate bool
 	if !fwdPkg.AckFilter.IsFull() {
 		adds, err := lnwallet.PayDescsFromRemoteLogUpdates(
 			fwdPkg.Source, fwdPkg.Height, fwdPkg.Adds,
@@ -810,20 +805,20 @@ func (l *channelLink) resolveFwdPkg(fwdPkg *channeldb.FwdPkg) (bool, error) {
 		if err != nil {
 			l.log.Errorf("unable to process remote log updates: %v",
 				err)
-			return false, err
+			return err
 		}
-		needUpdate = l.processRemoteAdds(fwdPkg, adds)
+		l.processRemoteAdds(fwdPkg, adds)
 
 		// If the link failed during processing the adds, we must
 		// return to ensure we won't attempted to update the state
 		// further.
 		if l.failed {
-			return false, fmt.Errorf("link failed while " +
+			return fmt.Errorf("link failed while " +
 				"processing remote adds")
 		}
 	}
 
-	return needUpdate, nil
+	return nil
 }
 
 // fwdPkgGarbager periodically reads all forwarding packages from disk and
@@ -1873,7 +1868,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		}
 
 		l.processRemoteSettleFails(fwdPkg, settleFails)
-		needUpdate := l.processRemoteAdds(fwdPkg, adds)
+		l.processRemoteAdds(fwdPkg, adds)
 
 		// If the link failed during processing the adds, we must
 		// return to ensure we won't attempted to update the state
@@ -1882,7 +1877,11 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			return
 		}
 
-		if needUpdate {
+		// If there are pending local updates, try to update the commit
+		// tx. Pending updates could already have been present because
+		// of a previously failed update to the commit tx or freshly
+		// added by processRemoteAdds.
+		if l.channel.PendingLocalUpdateCount() > 0 {
 			if err := l.updateCommitTx(); err != nil {
 				l.fail(LinkFailureError{code: ErrInternalError},
 					"unable to update commitment: %v", err)
@@ -2532,7 +2531,7 @@ func (l *channelLink) processRemoteSettleFails(fwdPkg *channeldb.FwdPkg,
 // whether we are reprocessing as a result of a failure or restart. Adds that
 // have already been acknowledged in the forwarding package will be ignored.
 func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
-	lockedInHtlcs []*lnwallet.PaymentDescriptor) bool {
+	lockedInHtlcs []*lnwallet.PaymentDescriptor) {
 
 	l.log.Tracef("processing %d remote adds for height %d",
 		len(lockedInHtlcs), fwdPkg.Height)
@@ -2571,13 +2570,10 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 	if sphinxErr != nil {
 		l.fail(LinkFailureError{code: ErrInternalError},
 			"unable to decode hop iterators: %v", sphinxErr)
-		return false
+		return
 	}
 
-	var (
-		needUpdate    bool
-		switchPackets []*htlcPacket
-	)
+	var switchPackets []*htlcPacket
 
 	for i, pd := range lockedInHtlcs {
 		idx := uint16(i)
@@ -2614,7 +2610,6 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 			// sender.
 			l.sendMalformedHTLCError(pd.HtlcIndex, failureCode,
 				onionBlob[:], pd.SourceRef)
-			needUpdate = true
 
 			l.log.Errorf("unable to decode onion hop "+
 				"iterator: %v", failureCode)
@@ -2633,7 +2628,6 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 			l.sendMalformedHTLCError(
 				pd.HtlcIndex, failureCode, onionBlob[:], pd.SourceRef,
 			)
-			needUpdate = true
 
 			l.log.Errorf("unable to decode onion "+
 				"obfuscator: %v", failureCode)
@@ -2664,7 +2658,6 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 				lnwire.NewInvalidOnionPayload(failedType, 0),
 				obfuscator, pd.SourceRef,
 			)
-			needUpdate = true
 
 			l.log.Errorf("unable to decode forwarding "+
 				"instructions: %v", err)
@@ -2675,7 +2668,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 
 		switch fwdInfo.NextHop {
 		case hop.Exit:
-			updated, err := l.processExitHop(
+			err := l.processExitHop(
 				pd, obfuscator, fwdInfo, heightNow, pld,
 			)
 			if err != nil {
@@ -2683,10 +2676,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 					err.Error(),
 				)
 
-				return false
-			}
-			if updated {
-				needUpdate = true
+				return
 			}
 
 		// There are additional channels left within this route. So
@@ -2781,7 +2771,6 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 				l.sendHTLCError(
 					pd.HtlcIndex, failure, obfuscator, pd.SourceRef,
 				)
-				needUpdate = true
 				continue
 			}
 
@@ -2821,12 +2810,12 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 		if err != nil {
 			l.fail(LinkFailureError{code: ErrInternalError},
 				"unable to set fwd filter: %v", err)
-			return false
+			return
 		}
 	}
 
 	if len(switchPackets) == 0 {
-		return needUpdate
+		return
 	}
 
 	l.log.Debugf("forwarding %d packets to switch", len(switchPackets))
@@ -2837,15 +2826,13 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 	// opened circuits, which violates assumptions made by the circuit
 	// trimming.
 	l.forwardBatch(switchPackets...)
-
-	return needUpdate
 }
 
 // processExitHop handles an htlc for which this link is the exit hop. It
 // returns a boolean indicating whether the commitment tx needs an update.
 func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 	obfuscator hop.ErrorEncrypter, fwdInfo hop.ForwardingInfo,
-	heightNow uint32, payload invoices.Payload) (bool, error) {
+	heightNow uint32, payload invoices.Payload) error {
 
 	// If hodl.ExitSettle is requested, we will not validate the final hop's
 	// ADD, nor will we settle the corresponding invoice or respond with the
@@ -2853,7 +2840,7 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 	if l.cfg.HodlMask.Active(hodl.ExitSettle) {
 		l.log.Warnf(hodl.ExitSettle.Warning())
 
-		return false, nil
+		return nil
 	}
 
 	// As we're the exit hop, we'll double check the hop-payload included in
@@ -2868,7 +2855,7 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 		failure := lnwire.NewFinalIncorrectHtlcAmount(pd.Amount)
 		l.sendHTLCError(pd.HtlcIndex, failure, obfuscator, pd.SourceRef)
 
-		return true, nil
+		return nil
 	}
 
 	// We'll also ensure that our time-lock value has been computed
@@ -2881,7 +2868,7 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 		failure := lnwire.NewFinalIncorrectCltvExpiry(pd.Timeout)
 		l.sendHTLCError(pd.HtlcIndex, failure, obfuscator, pd.SourceRef)
 
-		return true, nil
+		return nil
 	}
 
 	// Notify the invoiceRegistry of the exit hop htlc. If we crash right
@@ -2906,14 +2893,14 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 		failure := lnwire.NewFailIncorrectDetails(pd.Amount, heightNow)
 		l.sendHTLCError(pd.HtlcIndex, failure, obfuscator, pd.SourceRef)
 
-		return true, nil
+		return nil
 
 	// No error.
 	case nil:
 
 	// Pass error to caller.
 	default:
-		return false, err
+		return err
 	}
 
 	// Create a hodlHtlc struct and decide either resolved now or later.
@@ -2926,15 +2913,11 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 		// Save payment descriptor for future reference.
 		l.hodlMap[circuitKey] = htlc
 
-		return false, nil
+		return nil
 	}
 
 	// Process the received resolution.
-	err = l.processHodlEvent(*event, htlc)
-	if err != nil {
-		return false, err
-	}
-	return true, nil
+	return l.processHodlEvent(*event, htlc)
 }
 
 // settleHTLC settles the HTLC on the channel.

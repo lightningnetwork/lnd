@@ -3351,6 +3351,24 @@ func TestPropagateChanPolicyUpdate(t *testing.T) {
 	sentMsgs := make(chan lnwire.Message, 10)
 	remotePeer := &mockPeer{remoteKey, sentMsgs, ctx.gossiper.quit}
 
+	// The forced code path for sending the private ChannelUpdate to the
+	// remote peer will be hit, forcing it to request a notification that
+	// the remote peer is active. We'll ensure that it targets the proper
+	// pubkey, and hand it our mock peer above.
+	notifyErr := make(chan error, 1)
+	ctx.gossiper.reliableSender.cfg.NotifyWhenOnline = func(
+		targetPub *btcec.PublicKey, peerChan chan<- lnpeer.Peer) {
+
+		if !targetPub.IsEqual(remoteKey) {
+			notifyErr <- fmt.Errorf("reliableSender attempted to send the "+
+				"message to the wrong peer: expected %x got %x",
+				remoteKey.SerializeCompressed(),
+				targetPub.SerializeCompressed())
+		}
+
+		peerChan <- remotePeer
+	}
+
 	// With our channel announcements created, we'll now send them all to
 	// the gossiper in order for it to process. However, we'll hold back
 	// the channel ann proof from the first channel in order to have it be
@@ -3374,12 +3392,16 @@ func TestPropagateChanPolicyUpdate(t *testing.T) {
 		sendRemoteMsg(t, ctx, batch.remoteProofAnn, remotePeer)
 	}
 
-	// Drain out any broadcast messages we might not have read up to this
-	// point.
+	// Drain out any broadcast or direct messages we might not have read up
+	// to this point. We'll also check out notifyErr to detect if the
+	// reliable sender had an issue sending to the remote peer.
 out:
 	for {
 		select {
 		case <-ctx.broadcastedMessage:
+		case <-sentMsgs:
+		case err := <-notifyErr:
+			t.Fatal(err)
 		default:
 			break out
 		}
@@ -3418,6 +3440,45 @@ out:
 
 			return nil
 		})
+	}
+
+	// Finally the ChannelUpdate should have been sent directly to the
+	// remote peer via the reliable sender.
+	select {
+	case msg := <-sentMsgs:
+		upd, ok := msg.(*lnwire.ChannelUpdate)
+		if !ok {
+			t.Fatalf("channel update not "+
+				"broadcast, instead %T was", msg)
+		}
+		if upd.TimeLockDelta != newTimeLockDelta {
+			t.Fatalf("wrong delta: expected %v, "+
+				"got %v", newTimeLockDelta,
+				upd.TimeLockDelta)
+		}
+		if upd.ShortChannelID != firstChanID {
+			t.Fatalf("private channel upd " +
+				"broadcast")
+		}
+	case <-time.After(time.Second * 5):
+		t.Fatalf("message not sent directly to peer")
+	}
+
+	// At this point, no other ChannelUpdate messages should be broadcast
+	// as we sent the two public ones to the network, and the private one
+	// was sent directly to the peer.
+	for {
+		select {
+		case msg := <-ctx.broadcastedMessage:
+			if upd, ok := msg.msg.(*lnwire.ChannelUpdate); ok {
+				if upd.ShortChannelID == firstChanID {
+					t.Fatalf("chan update msg received: %v",
+						spew.Sdump(msg))
+				}
+			}
+		default:
+			return
+		}
 	}
 }
 

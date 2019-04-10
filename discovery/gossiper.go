@@ -1293,8 +1293,22 @@ func (d *AuthenticatedGossiper) processChanPolicyUpdate(
 		}
 
 		// We'll avoid broadcasting any updates for private channels to
-		// avoid directly giving away their existence.
+		// avoid directly giving away their existence. Instead, we'll
+		// send the update directly to the remote party.
 		if edgeInfo.info.AuthProof == nil {
+			remotePubKey := remotePubFromChanInfo(
+				edgeInfo.info, chanUpdate.ChannelFlags,
+			)
+			err := d.reliableSender.sendMessage(
+				chanUpdate, remotePubKey,
+			)
+			if err != nil {
+				log.Errorf("Unable to reliably send %v for "+
+					"channel=%v to peer=%x: %v",
+					chanUpdate.MsgType(),
+					chanUpdate.ShortChannelID,
+					remotePubKey, err)
+			}
 			continue
 		}
 
@@ -1928,13 +1942,9 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 		// so we'll try sending the update directly to the remote peer.
 		if !nMsg.isRemote && chanInfo.AuthProof == nil {
 			// Get our peer's public key.
-			var remotePubKey [33]byte
-			switch {
-			case msg.ChannelFlags&lnwire.ChanUpdateDirection == 0:
-				remotePubKey = chanInfo.NodeKey2Bytes
-			case msg.ChannelFlags&lnwire.ChanUpdateDirection == 1:
-				remotePubKey = chanInfo.NodeKey1Bytes
-			}
+			remotePubKey := remotePubFromChanInfo(
+				chanInfo, msg.ChannelFlags,
+			)
 
 			// Now, we'll attempt to send the channel update message
 			// reliably to the remote peer in the background, so

@@ -3065,36 +3065,6 @@ func (c *ChannelGraph) NewChannelEdgePolicy() *ChannelEdgePolicy {
 	return &ChannelEdgePolicy{db: c.db}
 }
 
-// MarkEdgeZombie marks an edge as a zombie within the graph's zombie index.
-// The public keys should represent the node public keys of the two parties
-// involved in the edge.
-func (c *ChannelGraph) MarkEdgeZombie(chanID uint64, pubKey1,
-	pubKey2 [33]byte) error {
-
-	c.cacheMu.Lock()
-	defer c.cacheMu.Unlock()
-
-	err := c.db.Update(func(tx *bbolt.Tx) error {
-		edges := tx.Bucket(edgeBucket)
-		if edges == nil {
-			return ErrGraphNoEdgesFound
-		}
-		zombieIndex, err := edges.CreateBucketIfNotExists(zombieBucket)
-		if err != nil {
-			return err
-		}
-		return markEdgeZombie(zombieIndex, chanID, pubKey1, pubKey2)
-	})
-	if err != nil {
-		return err
-	}
-
-	c.rejectCache.remove(chanID)
-	c.chanCache.remove(chanID)
-
-	return nil
-}
-
 // markEdgeZombie marks an edge as a zombie within our zombie index. The public
 // keys should represent the node public keys of the two parties involved in the
 // edge.

@@ -21,7 +21,7 @@ const (
 	// DefaultHistoricalSyncInterval is the default interval in which we'll
 	// force a historical sync to ensure we have as much of the public
 	// network as possible.
-	DefaultHistoricalSyncInterval = 20 * time.Minute
+	DefaultHistoricalSyncInterval = time.Hour
 
 	// DefaultActiveSyncerTimeout is the default timeout interval in which
 	// we'll wait until an active syncer has completed its state machine and

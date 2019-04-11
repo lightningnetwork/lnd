@@ -13378,21 +13378,32 @@ func testExportChannelBackup(net *lntest.NetworkHarness, t *harnessTest) {
 	// Before we proceed, we'll make two utility methods we'll use below
 	// for our primary assertions.
 	assertNumSingleBackups := func(numSingles int) {
-		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-		req := &lnrpc.ChanBackupExportRequest{}
-		chanSnapshot, err := carol.ExportAllChannelBackups(ctxt, req)
+		err := lntest.WaitNoError(func() error {
+			ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
+			req := &lnrpc.ChanBackupExportRequest{}
+			chanSnapshot, err := carol.ExportAllChannelBackups(
+				ctxt, req,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to export channel "+
+					"backup: %v", err)
+			}
+
+			if chanSnapshot.SingleChanBackups == nil {
+				return fmt.Errorf("single chan backups not " +
+					"populated")
+			}
+
+			backups := chanSnapshot.SingleChanBackups.ChanBackups
+			if len(backups) != numSingles {
+				return fmt.Errorf("expected %v singles, "+
+					"got %v", len(backups), numSingles)
+			}
+
+			return nil
+		}, defaultTimeout)
 		if err != nil {
-			t.Fatalf("unable to export channel backup: %v", err)
-		}
-
-		if chanSnapshot.SingleChanBackups == nil {
-			t.Fatalf("single chan backups not populated")
-		}
-
-		backups := chanSnapshot.SingleChanBackups.ChanBackups
-		if len(backups) != numSingles {
-			t.Fatalf("expected %v singles, got %v", len(backups),
-				numSingles)
+			t.Fatalf(err.Error())
 		}
 	}
 	assertMultiBackupFound := func() func(bool, map[wire.OutPoint]struct{}) {

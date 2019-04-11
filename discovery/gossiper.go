@@ -306,12 +306,11 @@ func New(cfg Config, selfKey *btcec.PublicKey) *AuthenticatedGossiper {
 		channelMtx:              multimutex.NewMutex(),
 		recentRejects:           make(map[uint64]struct{}),
 		syncMgr: newSyncManager(&SyncManagerCfg{
-			ChainHash:                 cfg.ChainHash,
-			ChanSeries:                cfg.ChanSeries,
-			RotateTicker:              cfg.RotateTicker,
-			HistoricalSyncTicker:      cfg.HistoricalSyncTicker,
-			ActiveSyncerTimeoutTicker: cfg.ActiveSyncerTimeoutTicker,
-			NumActiveSyncers:          cfg.NumActiveSyncers,
+			ChainHash:            cfg.ChainHash,
+			ChanSeries:           cfg.ChanSeries,
+			RotateTicker:         cfg.RotateTicker,
+			HistoricalSyncTicker: cfg.HistoricalSyncTicker,
+			NumActiveSyncers:     cfg.NumActiveSyncers,
 		}),
 	}
 

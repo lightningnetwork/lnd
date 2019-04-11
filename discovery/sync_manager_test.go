@@ -30,11 +30,10 @@ func randPeer(t *testing.T, quit chan struct{}) *mockPeer {
 func newTestSyncManager(numActiveSyncers int) *SyncManager {
 	hID := lnwire.ShortChannelID{BlockHeight: latestKnownHeight}
 	return newSyncManager(&SyncManagerCfg{
-		ChanSeries:                newMockChannelGraphTimeSeries(hID),
-		RotateTicker:              ticker.NewForce(DefaultSyncerRotationInterval),
-		HistoricalSyncTicker:      ticker.NewForce(DefaultHistoricalSyncInterval),
-		ActiveSyncerTimeoutTicker: ticker.NewForce(DefaultActiveSyncerTimeout),
-		NumActiveSyncers:          numActiveSyncers,
+		ChanSeries:           newMockChannelGraphTimeSeries(hID),
+		RotateTicker:         ticker.NewForce(DefaultSyncerRotationInterval),
+		HistoricalSyncTicker: ticker.NewForce(DefaultHistoricalSyncInterval),
+		NumActiveSyncers:     numActiveSyncers,
 	})
 }
 
@@ -56,15 +55,14 @@ func TestSyncManagerNumActiveSyncers(t *testing.T) {
 	// should be active and passive to check them later on.
 	for i := 0; i < numActiveSyncers; i++ {
 		peer := randPeer(t, syncMgr.quit)
-		syncMgr.InitSyncState(peer)
+		go syncMgr.InitSyncState(peer)
 
 		// The first syncer registered always attempts a historical
 		// sync.
+		assertActiveGossipTimestampRange(t, peer)
 		if i == 0 {
-			assertTransitionToChansSynced(t, syncMgr, peer, true)
+			assertTransitionToChansSynced(t, syncMgr, peer)
 		}
-
-		assertPassiveSyncerTransition(t, syncMgr, peer)
 		assertSyncerStatus(t, syncMgr, peer, chansSynced, ActiveSync)
 	}
 
@@ -88,9 +86,10 @@ func TestSyncManagerNewActiveSyncerAfterDisconnect(t *testing.T) {
 	// peer1 will represent an active syncer that performs a historical
 	// sync since it is the first registered peer with the SyncManager.
 	peer1 := randPeer(t, syncMgr.quit)
-	syncMgr.InitSyncState(peer1)
-	assertTransitionToChansSynced(t, syncMgr, peer1, true)
-	assertPassiveSyncerTransition(t, syncMgr, peer1)
+	go syncMgr.InitSyncState(peer1)
+	assertActiveGossipTimestampRange(t, peer1)
+	assertTransitionToChansSynced(t, syncMgr, peer1)
+	assertSyncerStatus(t, syncMgr, peer1, chansSynced, ActiveSync)
 
 	// It will then be torn down to simulate a disconnection. Since there
 	// are no other candidate syncers available, the active syncer won't be
@@ -100,8 +99,9 @@ func TestSyncManagerNewActiveSyncerAfterDisconnect(t *testing.T) {
 	// Then, we'll start our active syncer again, but this time we'll also
 	// have a passive syncer available to replace the active syncer after
 	// the peer disconnects.
-	syncMgr.InitSyncState(peer1)
-	assertPassiveSyncerTransition(t, syncMgr, peer1)
+	go syncMgr.InitSyncState(peer1)
+	assertActiveGossipTimestampRange(t, peer1)
+	assertSyncerStatus(t, syncMgr, peer1, chansSynced, ActiveSync)
 
 	// Create our second peer, which should be initialized as a passive
 	// syncer.
@@ -111,7 +111,7 @@ func TestSyncManagerNewActiveSyncerAfterDisconnect(t *testing.T) {
 
 	// Disconnect our active syncer, which should trigger the SyncManager to
 	// replace it with our passive syncer.
-	syncMgr.PruneSyncState(peer1.PubKey())
+	go syncMgr.PruneSyncState(peer1.PubKey())
 	assertPassiveSyncerTransition(t, syncMgr, peer2)
 }
 
@@ -127,9 +127,10 @@ func TestSyncManagerRotateActiveSyncerCandidate(t *testing.T) {
 
 	// The first syncer registered always performs a historical sync.
 	activeSyncPeer := randPeer(t, syncMgr.quit)
-	syncMgr.InitSyncState(activeSyncPeer)
-	assertTransitionToChansSynced(t, syncMgr, activeSyncPeer, true)
-	assertPassiveSyncerTransition(t, syncMgr, activeSyncPeer)
+	go syncMgr.InitSyncState(activeSyncPeer)
+	assertActiveGossipTimestampRange(t, activeSyncPeer)
+	assertTransitionToChansSynced(t, syncMgr, activeSyncPeer)
+	assertSyncerStatus(t, syncMgr, activeSyncPeer, chansSynced, ActiveSync)
 
 	// We'll send a tick to force a rotation. Since there aren't any
 	// candidates, none of the active syncers will be rotated.
@@ -195,192 +196,6 @@ func TestSyncManagerHistoricalSync(t *testing.T) {
 		FirstBlockHeight: 0,
 		NumBlocks:        math.MaxUint32,
 	})
-}
-
-// TestSyncManagerRoundRobinQueue ensures that any subsequent active syncers can
-// only be started after the previous one has completed its state machine.
-func TestSyncManagerRoundRobinQueue(t *testing.T) {
-	t.Parallel()
-
-	const numActiveSyncers = 3
-
-	// We'll start by creating our sync manager with support for three
-	// active syncers.
-	syncMgr := newTestSyncManager(numActiveSyncers)
-	syncMgr.Start()
-	defer syncMgr.Stop()
-
-	peers := make([]*mockPeer, 0, numActiveSyncers)
-
-	// The first syncer registered always attempts a historical sync.
-	firstPeer := randPeer(t, syncMgr.quit)
-	syncMgr.InitSyncState(firstPeer)
-	peers = append(peers, firstPeer)
-	assertTransitionToChansSynced(t, syncMgr, firstPeer, true)
-
-	// After completing the historical sync, a sync transition to ActiveSync
-	// should happen. It should transition immediately since it has no
-	// dependents.
-	assertActiveGossipTimestampRange(t, firstPeer)
-
-	// We'll create the remaining numActiveSyncers. These will be queued in
-	// the round robin since the first syncer has yet to reach chansSynced.
-	queuedPeers := make([]*mockPeer, 0, numActiveSyncers-1)
-	for i := 0; i < numActiveSyncers-1; i++ {
-		peer := randPeer(t, syncMgr.quit)
-		syncMgr.InitSyncState(peer)
-		peers = append(peers, peer)
-		queuedPeers = append(queuedPeers, peer)
-	}
-
-	// Ensure they cannot transition without sending a GossipTimestampRange
-	// message first.
-	for _, peer := range queuedPeers {
-		assertNoMsgSent(t, peer)
-	}
-
-	// Transition the first syncer to chansSynced, which should allow the
-	// second to transition next.
-	assertTransitionToChansSynced(t, syncMgr, firstPeer, false)
-
-	// assertSyncerTransitioned ensures the target peer's syncer is the only
-	// that has transitioned.
-	assertSyncerTransitioned := func(target *mockPeer) {
-		t.Helper()
-
-		for _, peer := range peers {
-			if peer.PubKey() != target.PubKey() {
-				assertNoMsgSent(t, peer)
-				continue
-			}
-
-			assertActiveGossipTimestampRange(t, target)
-		}
-	}
-
-	// For each queued syncer, we'll ensure they have transitioned to an
-	// ActiveSync type and reached their final chansSynced state to allow
-	// the next one to transition.
-	for _, peer := range queuedPeers {
-		assertSyncerTransitioned(peer)
-		assertTransitionToChansSynced(t, syncMgr, peer, false)
-	}
-}
-
-// TestSyncManagerRoundRobinTimeout ensures that if we timeout while waiting for
-// an active syncer to reach its final chansSynced state, then we will go on to
-// start the next.
-func TestSyncManagerRoundRobinTimeout(t *testing.T) {
-	t.Parallel()
-
-	// Create our sync manager with support for two active syncers.
-	syncMgr := newTestSyncManager(2)
-	syncMgr.Start()
-	defer syncMgr.Stop()
-
-	// peer1 will be the first peer we start, which will time out and cause
-	// peer2 to start.
-	peer1 := randPeer(t, syncMgr.quit)
-	peer2 := randPeer(t, syncMgr.quit)
-
-	// The first syncer registered always attempts a historical sync.
-	syncMgr.InitSyncState(peer1)
-	assertTransitionToChansSynced(t, syncMgr, peer1, true)
-
-	// We assume the syncer for peer1 has transitioned once we see it send a
-	// lnwire.GossipTimestampRange message.
-	assertActiveGossipTimestampRange(t, peer1)
-
-	// We'll then create the syncer for peer2. This should cause it to be
-	// queued so that it starts once the syncer for peer1 is done.
-	syncMgr.InitSyncState(peer2)
-	assertNoMsgSent(t, peer2)
-
-	// Send a force tick to pretend the sync manager has timed out waiting
-	// for peer1's syncer to reach chansSynced.
-	syncMgr.cfg.ActiveSyncerTimeoutTicker.(*ticker.Force).Force <- time.Time{}
-
-	// Finally, ensure that the syncer for peer2 has transitioned.
-	assertActiveGossipTimestampRange(t, peer2)
-}
-
-// TestSyncManagerRoundRobinStaleSyncer ensures that any stale active syncers we
-// are currently waiting for or are queued up to start are properly removed and
-// stopped.
-func TestSyncManagerRoundRobinStaleSyncer(t *testing.T) {
-	t.Parallel()
-
-	const numActiveSyncers = 4
-
-	// We'll create and start our sync manager with some active syncers.
-	syncMgr := newTestSyncManager(numActiveSyncers)
-	syncMgr.Start()
-	defer syncMgr.Stop()
-
-	peers := make([]*mockPeer, 0, numActiveSyncers)
-
-	// The first syncer registered always attempts a historical sync.
-	firstPeer := randPeer(t, syncMgr.quit)
-	syncMgr.InitSyncState(firstPeer)
-	peers = append(peers, firstPeer)
-	assertTransitionToChansSynced(t, syncMgr, firstPeer, true)
-
-	// After completing the historical sync, a sync transition to ActiveSync
-	// should happen. It should transition immediately since it has no
-	// dependents.
-	assertActiveGossipTimestampRange(t, firstPeer)
-	assertMsgSent(t, firstPeer, &lnwire.QueryChannelRange{
-		FirstBlockHeight: startHeight,
-		NumBlocks:        math.MaxUint32 - startHeight,
-	})
-
-	// We'll create the remaining numActiveSyncers. These will be queued in
-	// the round robin since the first syncer has yet to reach chansSynced.
-	queuedPeers := make([]*mockPeer, 0, numActiveSyncers-1)
-	for i := 0; i < numActiveSyncers-1; i++ {
-		peer := randPeer(t, syncMgr.quit)
-		syncMgr.InitSyncState(peer)
-		peers = append(peers, peer)
-		queuedPeers = append(queuedPeers, peer)
-	}
-
-	// Ensure they cannot transition without sending a GossipTimestampRange
-	// message first.
-	for _, peer := range queuedPeers {
-		assertNoMsgSent(t, peer)
-	}
-
-	// assertSyncerTransitioned ensures the target peer's syncer is the only
-	// that has transitioned.
-	assertSyncerTransitioned := func(target *mockPeer) {
-		t.Helper()
-
-		for _, peer := range peers {
-			if peer.PubKey() != target.PubKey() {
-				assertNoMsgSent(t, peer)
-				continue
-			}
-
-			assertPassiveSyncerTransition(t, syncMgr, target)
-		}
-	}
-
-	// We'll then remove the syncers in the middle to cover the case where
-	// they are queued up in the sync manager's pending list.
-	for i, peer := range peers {
-		if i == 0 || i == len(peers)-1 {
-			continue
-		}
-
-		syncMgr.PruneSyncState(peer.PubKey())
-	}
-
-	// We'll then remove the syncer we are currently waiting for. This
-	// should prompt the last syncer to start since it is the only one left
-	// pending. We'll do this in a goroutine since the peer behind the new
-	// active syncer will need to send out its new GossipTimestampRange.
-	go syncMgr.PruneSyncState(peers[0].PubKey())
-	assertSyncerTransitioned(peers[len(peers)-1])
 }
 
 // assertNoMsgSent is a helper function that ensures a peer hasn't sent any
@@ -480,7 +295,7 @@ func assertSyncerStatus(t *testing.T, syncMgr *SyncManager, peer *mockPeer,
 // assertTransitionToChansSynced asserts the transition of an ActiveSync
 // GossipSyncer to its final chansSynced state.
 func assertTransitionToChansSynced(t *testing.T, syncMgr *SyncManager,
-	peer *mockPeer, historicalSync bool) {
+	peer *mockPeer) {
 
 	t.Helper()
 
@@ -489,13 +304,9 @@ func assertTransitionToChansSynced(t *testing.T, syncMgr *SyncManager,
 		t.Fatalf("gossip syncer for peer %x not found", peer.PubKey())
 	}
 
-	firstBlockHeight := uint32(startHeight)
-	if historicalSync {
-		firstBlockHeight = 0
-	}
 	assertMsgSent(t, peer, &lnwire.QueryChannelRange{
-		FirstBlockHeight: firstBlockHeight,
-		NumBlocks:        math.MaxUint32 - firstBlockHeight,
+		FirstBlockHeight: 0,
+		NumBlocks:        math.MaxUint32,
 	})
 
 	s.ProcessQueryMsg(&lnwire.ReplyChannelRange{Complete: 1}, nil)
@@ -531,7 +342,7 @@ func assertPassiveSyncerTransition(t *testing.T, syncMgr *SyncManager,
 	t.Helper()
 
 	assertActiveGossipTimestampRange(t, peer)
-	assertTransitionToChansSynced(t, syncMgr, peer, false)
+	assertSyncerStatus(t, syncMgr, peer, chansSynced, ActiveSync)
 }
 
 // assertActiveSyncerTransition asserts that a gossip syncer goes through all of

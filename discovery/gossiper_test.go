@@ -741,17 +741,16 @@ func createTestCtx(startHeight uint32) (*testCtx, func(), error) {
 			c := make(chan struct{})
 			return c
 		},
-		Router:                    router,
-		TrickleDelay:              trickleDelay,
-		RetransmitDelay:           retransmitDelay,
-		ProofMatureDelta:          proofMatureDelta,
-		WaitingProofStore:         waitingProofStore,
-		MessageStore:              newMockMessageStore(),
-		RotateTicker:              ticker.NewForce(DefaultSyncerRotationInterval),
-		HistoricalSyncTicker:      ticker.NewForce(DefaultHistoricalSyncInterval),
-		ActiveSyncerTimeoutTicker: ticker.NewForce(DefaultActiveSyncerTimeout),
-		NumActiveSyncers:          3,
-		AnnSigner:                 &mockSigner{nodeKeyPriv1},
+		Router:               router,
+		TrickleDelay:         trickleDelay,
+		RetransmitDelay:      retransmitDelay,
+		ProofMatureDelta:     proofMatureDelta,
+		WaitingProofStore:    waitingProofStore,
+		MessageStore:         newMockMessageStore(),
+		RotateTicker:         ticker.NewForce(DefaultSyncerRotationInterval),
+		HistoricalSyncTicker: ticker.NewForce(DefaultHistoricalSyncInterval),
+		NumActiveSyncers:     3,
+		AnnSigner:            &mockSigner{nodeKeyPriv1},
 	}, nodeKeyPub1)
 
 	if err := gossiper.Start(); err != nil {
@@ -1480,20 +1479,19 @@ func TestSignatureAnnouncementRetryAtStartup(t *testing.T) {
 	// the message to the peer.
 	ctx.gossiper.Stop()
 	gossiper := New(Config{
-		Notifier:                  ctx.gossiper.cfg.Notifier,
-		Broadcast:                 ctx.gossiper.cfg.Broadcast,
-		NotifyWhenOnline:          ctx.gossiper.reliableSender.cfg.NotifyWhenOnline,
-		NotifyWhenOffline:         ctx.gossiper.reliableSender.cfg.NotifyWhenOffline,
-		Router:                    ctx.gossiper.cfg.Router,
-		TrickleDelay:              trickleDelay,
-		RetransmitDelay:           retransmitDelay,
-		ProofMatureDelta:          proofMatureDelta,
-		WaitingProofStore:         ctx.gossiper.cfg.WaitingProofStore,
-		MessageStore:              ctx.gossiper.cfg.MessageStore,
-		RotateTicker:              ticker.NewForce(DefaultSyncerRotationInterval),
-		HistoricalSyncTicker:      ticker.NewForce(DefaultHistoricalSyncInterval),
-		ActiveSyncerTimeoutTicker: ticker.NewForce(DefaultActiveSyncerTimeout),
-		NumActiveSyncers:          3,
+		Notifier:             ctx.gossiper.cfg.Notifier,
+		Broadcast:            ctx.gossiper.cfg.Broadcast,
+		NotifyWhenOnline:     ctx.gossiper.reliableSender.cfg.NotifyWhenOnline,
+		NotifyWhenOffline:    ctx.gossiper.reliableSender.cfg.NotifyWhenOffline,
+		Router:               ctx.gossiper.cfg.Router,
+		TrickleDelay:         trickleDelay,
+		RetransmitDelay:      retransmitDelay,
+		ProofMatureDelta:     proofMatureDelta,
+		WaitingProofStore:    ctx.gossiper.cfg.WaitingProofStore,
+		MessageStore:         ctx.gossiper.cfg.MessageStore,
+		RotateTicker:         ticker.NewForce(DefaultSyncerRotationInterval),
+		HistoricalSyncTicker: ticker.NewForce(DefaultHistoricalSyncInterval),
+		NumActiveSyncers:     3,
 	}, ctx.gossiper.selfKey)
 	if err != nil {
 		t.Fatalf("unable to recreate gossiper: %v", err)

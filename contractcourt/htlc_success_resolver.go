@@ -94,14 +94,14 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 	// If we don't have a success transaction, then this means that this is
 	// an output on the remote party's commitment transaction.
 	if h.htlcResolution.SignedSuccessTx == nil {
-		return h.resolveRemote()
+		return nil, h.resolveRemote(h.htlcResolution.Preimage)
 	}
 
-	return h.resolveLocal()
+	return nil, h.resolveLocal()
 }
 
 // resolveLocal handles the resolution in case we published the commit tx.
-func (h *htlcSuccessResolver) resolveLocal() (ContractResolver, error) {
+func (h *htlcSuccessResolver) resolveLocal() error {
 	log.Infof("%T(%x): broadcasting second-layer transition tx: %v",
 		h, h.payHash[:], spew.Sdump(h.htlcResolution.SignedSuccessTx))
 
@@ -111,7 +111,7 @@ func (h *htlcSuccessResolver) resolveLocal() (ContractResolver, error) {
 	// TODO(roasbeef): after changing sighashes send to tx bundler
 	err := h.PublishTx(h.htlcResolution.SignedSuccessTx)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	// Otherwise, this is an output on our commitment transaction. In this
@@ -126,14 +126,14 @@ func (h *htlcSuccessResolver) resolveLocal() (ContractResolver, error) {
 			h.broadcastHeight,
 		)
 		if err != nil {
-			return nil, err
+			return err
 		}
 
 		h.outputIncubating = true
 
 		if err := h.Checkpoint(h); err != nil {
 			log.Errorf("unable to Checkpoint: %v", err)
-			return nil, err
+			return err
 		}
 	}
 
@@ -145,7 +145,7 @@ func (h *htlcSuccessResolver) resolveLocal() (ContractResolver, error) {
 		h.broadcastHeight,
 	)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	log.Infof("%T(%x): waiting for second-level HTLC output to be spent "+
@@ -154,11 +154,11 @@ func (h *htlcSuccessResolver) resolveLocal() (ContractResolver, error) {
 	select {
 	case _, ok := <-spendNtfn.Spend:
 		if !ok {
-			return nil, fmt.Errorf("quitting")
+			return fmt.Errorf("quitting")
 		}
 
 	case <-h.Quit:
-		return nil, fmt.Errorf("quitting")
+		return fmt.Errorf("quitting")
 	}
 
 	// With the HTLC claimed, we can attempt to settle its corresponding
@@ -173,12 +173,12 @@ func (h *htlcSuccessResolver) resolveLocal() (ContractResolver, error) {
 	}
 
 	h.resolved = true
-	return nil, h.Checkpoint(h)
+	return h.Checkpoint(h)
 }
 
 // resolveLocal handles the resolution in case the remote party published the
 // commit tx.
-func (h *htlcSuccessResolver) resolveRemote() (ContractResolver, error) {
+func (h *htlcSuccessResolver) resolveRemote(preimage lntypes.Preimage) error {
 	// If we don't already have the sweep transaction constructed,
 	// we'll do so and broadcast it.
 	if h.sweepTx == nil {
@@ -193,7 +193,7 @@ func (h *htlcSuccessResolver) resolveRemote() (ContractResolver, error) {
 		inp := input.MakeHtlcSucceedInput(
 			&h.htlcResolution.ClaimOutpoint,
 			&h.htlcResolution.SweepSignDesc,
-			h.htlcResolution.Preimage[:],
+			preimage[:],
 			h.broadcastHeight,
 		)
 
@@ -214,7 +214,7 @@ func (h *htlcSuccessResolver) resolveRemote() (ContractResolver, error) {
 			}, 0,
 		)
 		if err != nil {
-			return nil, err
+			return err
 		}
 
 		log.Infof("%T(%x): crafted sweep tx=%v", h,
@@ -224,7 +224,7 @@ func (h *htlcSuccessResolver) resolveRemote() (ContractResolver, error) {
 		// Checkpoint our state.
 		if err := h.Checkpoint(h); err != nil {
 			log.Errorf("unable to Checkpoint: %v", err)
-			return nil, err
+			return err
 		}
 	}
 
@@ -235,7 +235,7 @@ func (h *htlcSuccessResolver) resolveRemote() (ContractResolver, error) {
 	if err != nil {
 		log.Infof("%T(%x): unable to publish tx: %v",
 			h, h.payHash[:], err)
-		return nil, err
+		return err
 	}
 
 	// With the sweep transaction broadcast, we'll wait for its
@@ -246,7 +246,7 @@ func (h *htlcSuccessResolver) resolveRemote() (ContractResolver, error) {
 		&sweepTXID, sweepScript, 1, h.broadcastHeight,
 	)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	log.Infof("%T(%x): waiting for sweep tx (txid=%v) to be "+
@@ -255,11 +255,11 @@ func (h *htlcSuccessResolver) resolveRemote() (ContractResolver, error) {
 	select {
 	case _, ok := <-confNtfn.Confirmed:
 		if !ok {
-			return nil, fmt.Errorf("quitting")
+			return fmt.Errorf("quitting")
 		}
 
 	case <-h.Quit:
-		return nil, fmt.Errorf("quitting")
+		return fmt.Errorf("quitting")
 	}
 
 	// With the HTLC claimed, we can attempt to settle its
@@ -281,7 +281,7 @@ func (h *htlcSuccessResolver) resolveRemote() (ContractResolver, error) {
 	// Once the transaction has received a sufficient number of
 	// confirmations, we'll mark ourselves as fully resolved and exit.
 	h.resolved = true
-	return nil, h.Checkpoint(h)
+	return h.Checkpoint(h)
 }
 
 // Stop signals the resolver to cancel any current resolution processes, and

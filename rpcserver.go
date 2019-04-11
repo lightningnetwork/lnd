@@ -1082,7 +1082,7 @@ func (r *rpcServer) NewAddress(ctx context.Context,
 		}
 	}
 
-	rpcsLog.Infof("[newaddress] addr=%v", addr.String())
+	rpcsLog.Debugf("[newaddress] type=%v addr=%v", in.Type, addr.String())
 	return &lnrpc.NewAddressResponse{Address: addr.String()}, nil
 }
 

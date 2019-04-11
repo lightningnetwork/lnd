@@ -9081,16 +9081,15 @@ func testBidirectionalAsyncPayments(net *lntest.NetworkHarness, t *harnessTest) 
 
 	// Wait for Alice and Bob receive their payments, and throw and error
 	// if something goes wrong.
-	maxTime := 60 * time.Second
 	for i := 0; i < 2; i++ {
 		select {
 		case err := <-errChan:
 			if err != nil {
 				t.Fatalf(err.Error())
 			}
-		case <-time.After(maxTime):
+		case <-time.After(lntest.AsyncBenchmarkTimeout):
 			t.Fatalf("waiting for payments to finish too long "+
-				"(%v)", maxTime)
+				"(%v)", lntest.AsyncBenchmarkTimeout)
 		}
 	}
 

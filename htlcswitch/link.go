@@ -574,6 +574,22 @@ func (l *channelLink) syncChanStates() error {
 		return fmt.Errorf("unable to generate chan sync message for "+
 			"ChannelPoint(%v)", l.channel.ChannelPoint())
 	}
+
+	// If we have a restored channel, we'll delay sending our channel
+	// reestablish message briefly to ensure we first have a stable
+	// connection. Sending the message will cause the remote peer to force
+	// close the channel, which currently may not be resumed reliably if the
+	// connection is being torn down simultaneously. This delay can be
+	// removed after the force close is reliable, but in the meantime it
+	// improves the reliability of successfully closing out the channel.
+	if chanState.HasChanStatus(channeldb.ChanStatusRestored) {
+		select {
+		case <-time.After(5 * time.Second):
+		case <-l.quit:
+			return ErrLinkShuttingDown
+		}
+	}
+
 	if err := l.cfg.Peer.SendMessage(true, localChanSyncMsg); err != nil {
 		return fmt.Errorf("Unable to send chan sync message for "+
 			"ChannelPoint(%v)", l.channel.ChannelPoint())

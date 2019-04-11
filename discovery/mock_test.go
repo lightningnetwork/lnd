@@ -1,6 +1,7 @@
 package discovery
 
 import (
+	"errors"
 	"net"
 	"sync"
 
@@ -30,6 +31,7 @@ func (p *mockPeer) SendMessage(_ bool, msgs ...lnwire.Message) error {
 		select {
 		case p.sentMsgs <- msg:
 		case <-p.quit:
+			return errors.New("peer disconnected")
 		}
 	}
 

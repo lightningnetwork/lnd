@@ -190,6 +190,15 @@ func (m *SyncManager) syncerHandler() {
 		// attempt an initial historical sync when a new peer connects.
 		attemptInitialHistoricalSync = true
 
+		// initialHistoricalSyncCompleted serves as a barrier when
+		// initializing new active GossipSyncers. If false, the initial
+		// historical sync has not completed, so we'll defer
+		// initializing any active GossipSyncers. If true, then we can
+		// transition the GossipSyncer immediately. We set up this
+		// barrier to ensure we have most of the graph before attempting
+		// to accept new updates at tip.
+		initialHistoricalSyncCompleted = false
+
 		// initialHistoricalSyncer is the syncer we are currently
 		// performing an initial historical sync with.
 		initialHistoricalSyncer *GossipSyncer
@@ -221,10 +230,18 @@ func (m *SyncManager) syncerHandler() {
 			// If we've exceeded our total number of active syncers,
 			// we'll initialize this GossipSyncer as passive.
 			case len(m.activeSyncers) >= m.cfg.NumActiveSyncers:
+				fallthrough
+
+			// Otherwise, it should be initialized as active. If the
+			// initial historical sync has yet to complete, then
+			// we'll declare is as passive and attempt to transition
+			// it when the initial historical sync completes.
+			case !initialHistoricalSyncCompleted:
 				s.setSyncType(PassiveSync)
 				m.inactiveSyncers[s.cfg.peerPub] = s
 
-			// Otherwise, it should be initialized as active.
+			// The initial historical sync has completed, so we can
+			// immediately start the GossipSyncer as active.
 			default:
 				s.setSyncType(ActiveSync)
 				m.activeSyncers[s.cfg.peerPub] = s
@@ -310,6 +327,32 @@ func (m *SyncManager) syncerHandler() {
 		case <-initialHistoricalSyncSignal:
 			initialHistoricalSyncer = nil
 			initialHistoricalSyncSignal = nil
+			initialHistoricalSyncCompleted = true
+
+			log.Debug("Initial historical sync completed")
+
+			// With the initial historical sync complete, we can
+			// begin receiving new graph updates at tip. We'll
+			// determine whether we can have any more active
+			// GossipSyncers. If we do, we'll randomly select some
+			// that are currently passive to transition.
+			m.syncersMu.Lock()
+			numActiveLeft := m.cfg.NumActiveSyncers - len(m.activeSyncers)
+			if numActiveLeft <= 0 {
+				m.syncersMu.Unlock()
+				continue
+			}
+
+			log.Debugf("Attempting to transition %v passive "+
+				"GossipSyncers to active", numActiveLeft)
+
+			for i := 0; i < numActiveLeft; i++ {
+				chooseRandomSyncer(
+					m.inactiveSyncers, m.transitionPassiveSyncer,
+				)
+			}
+
+			m.syncersMu.Unlock()
 
 		// Our RotateTicker has ticked, so we'll attempt to rotate a
 		// single active syncer with a passive one.

@@ -268,7 +268,6 @@ func TestContractInsertionRetrieval(t *testing.T) {
 	}
 	incomingContestResolver := htlcIncomingContestResolver{
 		htlcResolution: lnwallet.IncomingHtlcResolution{
-			Preimage:        testPreimage,
 			SignedSuccessTx: nil,
 			CsvDelay:        900,
 			ClaimOutpoint:   randOutPoint(),
@@ -504,7 +503,6 @@ func TestContractResolutionsStorage(t *testing.T) {
 		HtlcResolutions: lnwallet.HtlcResolutions{
 			IncomingHTLCs: []lnwallet.IncomingHtlcResolution{
 				{
-					Preimage:        testPreimage,
 					SignedSuccessTx: nil,
 					CsvDelay:        900,
 					ClaimOutpoint:   randOutPoint(),

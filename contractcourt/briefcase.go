@@ -12,6 +12,7 @@ import (
 	"github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 )
 
@@ -888,7 +889,9 @@ func (b *boltArbitratorLog) checkpointContract(c ContractResolver) error {
 }
 
 func encodeIncomingResolution(w io.Writer, i *lnwallet.IncomingHtlcResolution) error {
-	if _, err := w.Write(i.Preimage[:]); err != nil {
+	// Preimage is no longer needed.
+	var dummy lntypes.Preimage
+	if _, err := w.Write(dummy[:]); err != nil {
 		return err
 	}
 
@@ -924,7 +927,9 @@ func encodeIncomingResolution(w io.Writer, i *lnwallet.IncomingHtlcResolution) e
 }
 
 func decodeIncomingResolution(r io.Reader, h *lnwallet.IncomingHtlcResolution) error {
-	if _, err := io.ReadFull(r, h.Preimage[:]); err != nil {
+	// Preimage is no longer needed.
+	var dummy lntypes.Preimage
+	if _, err := io.ReadFull(r, dummy[:]); err != nil {
 		return err
 	}
 

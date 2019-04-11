@@ -301,13 +301,11 @@ func CreateTestChannels() (*LightningChannel, *LightningChannel, func(), error) 
 	aliceSigner := &input.MockSigner{Privkeys: aliceKeys}
 	bobSigner := &input.MockSigner{Privkeys: bobKeys}
 
-	pCache := newMockPreimageCache()
-
 	// TODO(roasbeef): make mock version of pre-image store
 
 	alicePool := NewSigPool(1, aliceSigner)
 	channelAlice, err := NewLightningChannel(
-		aliceSigner, pCache, aliceChannelState, alicePool,
+		aliceSigner, aliceChannelState, alicePool,
 	)
 	if err != nil {
 		return nil, nil, nil, err
@@ -316,7 +314,7 @@ func CreateTestChannels() (*LightningChannel, *LightningChannel, func(), error) 
 
 	bobPool := NewSigPool(1, bobSigner)
 	channelBob, err := NewLightningChannel(
-		bobSigner, pCache, bobChannelState, bobPool,
+		bobSigner, bobChannelState, bobPool,
 	)
 	if err != nil {
 		return nil, nil, nil, err

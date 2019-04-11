@@ -156,6 +156,14 @@ var _ chanbackup.ChannelRestorer = (*chanDBRestorer)(nil)
 //
 // NOTE: Part of the chanbackup.PeerConnector interface.
 func (s *server) ConnectPeer(nodePub *btcec.PublicKey, addrs []net.Addr) error {
+	// Before we connect to the remote peer, we'll remove any connections
+	// to ensure the new connection is created after this new link/channel
+	// is known.
+	if err := s.DisconnectPeer(nodePub); err != nil {
+		ltndLog.Infof("Peer(%v) is already connected, proceeding "+
+			"with chan restore", nodePub.SerializeCompressed())
+	}
+
 	// For each of the known addresses, we'll attempt to launch a
 	// persistent connection to the (pub, addr) pair. In the event that any
 	// of them connect, all the other stale requests will be cancelled.
@@ -174,7 +182,7 @@ func (s *server) ConnectPeer(nodePub *btcec.PublicKey, addrs []net.Addr) error {
 		err := s.ConnectToPeer(netAddr, true)
 
 		// If we're already connected to this peer, then we don't
-		// consider this an erorr, so we'll exit here.
+		// consider this an error, so we'll exit here.
 		if _, ok := err.(*errPeerAlreadyConnected); ok {
 			return nil
 

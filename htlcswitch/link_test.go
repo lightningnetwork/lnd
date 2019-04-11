@@ -5790,3 +5790,141 @@ func TestChannelLinkHoldInvoiceCancel(t *testing.T) {
 		t.Fatal("timeout")
 	}
 }
+
+// TestChannelLinkRevocationWindowHodl asserts that htlcs paying to a hodl
+// invoice are settled even if the revocation window gets exhausted.
+func TestChannelLinkRevocationWindowHodl(t *testing.T) {
+	t.Parallel()
+
+	const (
+		chanAmt = btcutil.SatoshiPerBitcoin * 5
+	)
+
+	// We'll start by creating a new link with our chanAmt (5 BTC). We will
+	// only be testing Alice's behavior, so the reference to Bob's channel
+	// state is unnecessary.
+	aliceLink, bobChannel, batchTicker, start, cleanUp, _, err :=
+		newSingleLinkTestHarness(chanAmt, 0)
+	if err != nil {
+		t.Fatalf("unable to create link: %v", err)
+	}
+	defer cleanUp()
+
+	if err := start(); err != nil {
+		t.Fatalf("unable to start test harness: %v", err)
+	}
+
+	var (
+		coreLink  = aliceLink.(*channelLink)
+		registry  = coreLink.cfg.Registry.(*mockInvoiceRegistry)
+		aliceMsgs = coreLink.cfg.Peer.(*mockPeer).sentMsgs
+	)
+
+	registry.settleChan = make(chan lntypes.Hash)
+
+	// Generate two invoice-htlc pairs.
+	htlc1, invoice1 := generateHtlcAndInvoice(t, 0)
+	htlc2, invoice2 := generateHtlcAndInvoice(t, 1)
+
+	// Convert into hodl invoices and save the preimages for later.
+	preimage1 := invoice1.Terms.PaymentPreimage
+	invoice1.Terms.PaymentPreimage = channeldb.UnknownPreimage
+
+	preimage2 := invoice2.Terms.PaymentPreimage
+	invoice2.Terms.PaymentPreimage = channeldb.UnknownPreimage
+
+	// We must add the invoices to the registry, such that Alice
+	// expects the payments.
+	err = registry.AddInvoice(*invoice1, htlc1.PaymentHash)
+	if err != nil {
+		t.Fatalf("unable to add invoice to registry: %v", err)
+	}
+	err = registry.AddInvoice(*invoice2, htlc2.PaymentHash)
+	if err != nil {
+		t.Fatalf("unable to add invoice to registry: %v", err)
+	}
+
+	// Lock in htlc 1 on both sides.
+	sendHtlcBobToAlice(t, aliceLink, bobChannel, htlc1)
+	sendCommitSigBobToAlice(t, aliceLink, bobChannel, 1)
+	receiveRevAndAckAliceToBob(t, aliceMsgs, aliceLink, bobChannel)
+	receiveCommitSigAliceToBob(t, aliceMsgs, aliceLink, bobChannel, 1)
+	sendRevAndAckBobToAlice(t, aliceLink, bobChannel)
+
+	// We expect a call to the invoice registry to notify the arrival of
+	// htlc 1.
+	select {
+	case <-registry.settleChan:
+	case <-time.After(15 * time.Second):
+		t.Fatal("exit hop notification not received")
+	}
+
+	// Lock in htlc 2 on both sides.
+	sendHtlcBobToAlice(t, aliceLink, bobChannel, htlc2)
+	sendCommitSigBobToAlice(t, aliceLink, bobChannel, 2)
+	receiveRevAndAckAliceToBob(t, aliceMsgs, aliceLink, bobChannel)
+	receiveCommitSigAliceToBob(t, aliceMsgs, aliceLink, bobChannel, 2)
+	sendRevAndAckBobToAlice(t, aliceLink, bobChannel)
+
+	select {
+	case <-registry.settleChan:
+	case <-time.After(15 * time.Second):
+		t.Fatal("exit hop notification not received")
+	}
+
+	// Settle invoice 1 with the preimage.
+	registry.SettleHodlInvoice(preimage1)
+
+	// Expect alice to send a settle and commitsig message to bob. Bob does
+	// not yet send the revocation.
+	receiveSettleAliceToBob(t, aliceMsgs, aliceLink, bobChannel)
+	receiveCommitSigAliceToBob(t, aliceMsgs, aliceLink, bobChannel, 1)
+
+	// Settle invoice 2 with the preimage.
+	registry.SettleHodlInvoice(preimage2)
+
+	// Expect alice to send a settle for htlc 2.
+	receiveSettleAliceToBob(t, aliceMsgs, aliceLink, bobChannel)
+
+	// At this point, Alice cannot send a new commit sig to bob because the
+	// revocation window is exhausted.
+
+	// Sleep to let timer(s) expire.
+	time.Sleep(time.Second)
+
+	// We don't expect a commitSig from Alice.
+	select {
+	case msg := <-aliceMsgs:
+		t.Fatalf("did not expect message %T", msg)
+	default:
+	}
+
+	// Bob sends revocation and signs commit with htlc 1 settled.
+	sendRevAndAckBobToAlice(t, aliceLink, bobChannel)
+
+	// Allow some time for it to be processed by the link.
+	time.Sleep(time.Second)
+
+	// Trigger the batch timer as this may trigger Alice to send a commit
+	// sig.
+	batchTicker <- time.Time{}
+
+	// After the revocation, it is again possible for Alice to send a commit
+	// sig no more htlcs. Bob acks the update.
+	receiveCommitSigAliceToBob(t, aliceMsgs, aliceLink, bobChannel, 0)
+	sendRevAndAckBobToAlice(t, aliceLink, bobChannel)
+
+	// Bob updates his remote commit tx.
+	sendCommitSigBobToAlice(t, aliceLink, bobChannel, 0)
+	receiveRevAndAckAliceToBob(t, aliceMsgs, aliceLink, bobChannel)
+
+	// Stop the link
+	aliceLink.Stop()
+
+	// Check that no unexpected messages were sent.
+	select {
+	case msg := <-aliceMsgs:
+		t.Fatalf("did not expect message %T", msg)
+	default:
+	}
+}

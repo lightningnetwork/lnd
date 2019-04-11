@@ -945,6 +945,13 @@ out:
 			break out
 		}
 
+		// If the previous event resulted in a non-empty
+		// batch, reinstate the batch ticker so that it can be
+		// cleared.
+		if l.batchCounter > 0 {
+			l.cfg.BatchTicker.Resume()
+		}
+
 		select {
 		// Our update fee timer has fired, so we'll check the network
 		// fee to see if we should adjust our commitment fee.
@@ -1047,13 +1054,6 @@ out:
 
 			l.handleDownStreamPkt(packet, true)
 
-			// If the downstream packet resulted in a non-empty
-			// batch, reinstate the batch ticker so that it can be
-			// cleared.
-			if l.batchCounter > 0 {
-				l.cfg.BatchTicker.Resume()
-			}
-
 		// A message from the switch was just received. This indicates
 		// that the link is an intermediate hop in a multi-hop HTLC
 		// circuit.
@@ -1075,13 +1075,6 @@ out:
 			}
 
 			l.handleDownStreamPkt(pkt, false)
-
-			// If the downstream packet resulted in a non-empty
-			// batch, reinstate the batch ticker so that it can be
-			// cleared.
-			if l.batchCounter > 0 {
-				l.cfg.BatchTicker.Resume()
-			}
 
 		// A message from the connected peer was just received. This
 		// indicates that we have a new incoming HTLC, either directly
@@ -1197,6 +1190,8 @@ func (l *channelLink) processHodlEvent(hodlEvent invoices.HodlEvent,
 		if err := hodlAction(htlc); err != nil {
 			return err
 		}
+
+		l.batchCounter++
 	}
 
 	return nil

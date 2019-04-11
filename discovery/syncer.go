@@ -18,16 +18,23 @@ import (
 type SyncerType uint8
 
 const (
-	// ActiveSync denotes that a gossip syncer should exercise its default
-	// behavior. This includes reconciling the set of missing graph updates
-	// with the remote peer _and_ receiving new updates from them.
+	// ActiveSync denotes that a gossip syncer:
+	//
+	// 1. Should not attempt to synchronize with the remote peer for
+	//    missing channels.
+	// 2. Should respond to queries from the remote peer.
+	// 3. Should receive new updates from the remote peer.
+	//
+	// They are started in a chansSynced state in order to accomplish their
+	// responsibilities above.
 	ActiveSync SyncerType = iota
 
 	// PassiveSync denotes that a gossip syncer:
 	//
-	//   1. Should not attempt to query the remote peer for graph updates.
-	//   2. Should respond to queries from the remote peer.
-	//   3. Should not receive new updates from the remote peer.
+	// 1. Should not attempt to synchronize with the remote peer for
+	//    missing channels.
+	// 2. Should respond to queries from the remote peer.
+	// 3. Should not receive new updates from the remote peer.
 	//
 	// They are started in a chansSynced state in order to accomplish their
 	// responsibilities above.
@@ -1128,7 +1135,6 @@ func (g *GossipSyncer) handleSyncTransition(req *syncTransitionReq) error {
 	var (
 		firstTimestamp time.Time
 		timestampRange uint32
-		newState       syncerState
 	)
 
 	switch req.newSyncType {
@@ -1137,11 +1143,6 @@ func (g *GossipSyncer) handleSyncTransition(req *syncTransitionReq) error {
 	case ActiveSync:
 		firstTimestamp = time.Now()
 		timestampRange = math.MaxUint32
-		newState = syncingChans
-
-		// We'll set genHistoricalChanRangeQuery to false since in order
-		// to not perform another historical sync if we previously have.
-		g.genHistoricalChanRangeQuery = false
 
 	// If a PassiveSync transition has been requested, then we should no
 	// longer receive any new updates from the remote peer. We can do this
@@ -1150,7 +1151,6 @@ func (g *GossipSyncer) handleSyncTransition(req *syncTransitionReq) error {
 	case PassiveSync:
 		firstTimestamp = zeroTimestamp
 		timestampRange = 0
-		newState = chansSynced
 
 	default:
 		return fmt.Errorf("unhandled sync transition %v",
@@ -1162,7 +1162,6 @@ func (g *GossipSyncer) handleSyncTransition(req *syncTransitionReq) error {
 		return fmt.Errorf("unable to send local update horizon: %v", err)
 	}
 
-	g.setSyncState(newState)
 	g.setSyncType(req.newSyncType)
 
 	return nil

@@ -1750,9 +1750,8 @@ func TestFilterKnownChanIDs(t *testing.T) {
 		if err := graph.AddChannelEdge(&channel); err != nil {
 			t.Fatalf("unable to create channel edge: %v", err)
 		}
-		if err := graph.MarkEdgeZombie(
-			chanID.ToUint64(), node1.PubKeyBytes, node2.PubKeyBytes,
-		); err != nil {
+		err := graph.DeleteChannelEdge(&channel.ChannelPoint)
+		if err != nil {
 			t.Fatalf("unable to mark edge zombie: %v", err)
 		}
 
@@ -2005,6 +2004,24 @@ func TestFetchChanInfos(t *testing.T) {
 
 		edgeQuery = append(edgeQuery, chanID.ToUint64())
 	}
+
+	// Add an additional edge that does not exist. The query should skip
+	// this channel and return only infos for the edges that exist.
+	edgeQuery = append(edgeQuery, 500)
+
+	// Add an another edge to the query that has been marked as a zombie
+	// edge. The query should also skip this channel.
+	zombieChan, zombieChanID := createEdge(
+		666, 0, 0, 0, node1, node2,
+	)
+	if err := graph.AddChannelEdge(&zombieChan); err != nil {
+		t.Fatalf("unable to create channel edge: %v", err)
+	}
+	err = graph.DeleteChannelEdge(&zombieChan.ChannelPoint)
+	if err != nil {
+		t.Fatalf("unable to delete and mark edge zombie: %v", err)
+	}
+	edgeQuery = append(edgeQuery, zombieChanID.ToUint64())
 
 	// We'll now attempt to query for the range of channel ID's we just
 	// inserted into the database. We should get the exact same set of
@@ -2846,20 +2863,28 @@ func TestGraphZombieIndex(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to create test vertex: %v", err)
 	}
-	edge, _, _ := createChannelEdge(db, node1, node2)
 
-	// If the graph is not aware of the edge, then it should not be a
-	// zombie.
+	// Swap the nodes if the second's pubkey is smaller than the first.
+	// Without this, the comparisons at the end will fail probabilistically.
+	if bytes.Compare(node2.PubKeyBytes[:], node1.PubKeyBytes[:]) < 0 {
+		node1, node2 = node2, node1
+	}
+
+	edge, _, _ := createChannelEdge(db, node1, node2)
+	if err := graph.AddChannelEdge(edge); err != nil {
+		t.Fatalf("unable to create channel edge: %v", err)
+	}
+
+	// Since the edge is known the graph and it isn't a zombie, IsZombieEdge
+	// should not report the channel as a zombie.
 	isZombie, _, _ := graph.IsZombieEdge(edge.ChannelID)
 	if isZombie {
 		t.Fatal("expected edge to not be marked as zombie")
 	}
 
-	// If we mark the edge as a zombie, then we should expect to see it
-	// within the index.
-	err = graph.MarkEdgeZombie(
-		edge.ChannelID, node1.PubKeyBytes, node2.PubKeyBytes,
-	)
+	// If we delete the edge and mark it as a zombie, then we should expect
+	// to see it within the index.
+	err = graph.DeleteChannelEdge(&edge.ChannelPoint)
 	if err != nil {
 		t.Fatalf("unable to mark edge as zombie: %v", err)
 	}

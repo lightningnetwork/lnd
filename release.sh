@@ -60,8 +60,8 @@ for i in $SYS; do
     cd $PACKAGE-$i-$TAG
 
     echo "Building:" $OS $ARCH $ARM
-    env GOOS=$OS GOARCH=$ARCH GOARM=$ARM go build -v -ldflags "$COMMITFLAGS" github.com/lightningnetwork/lnd
-    env GOOS=$OS GOARCH=$ARCH GOARM=$ARM go build -v -ldflags "$COMMITFLAGS" github.com/lightningnetwork/lnd/cmd/lncli
+    env GOOS=$OS GOARCH=$ARCH GOARM=$ARM go build -v -ldflags "$COMMITFLAGS" -tags="signrpc walletrpc chainrpc invoicesrpc" github.com/lightningnetwork/lnd
+    env GOOS=$OS GOARCH=$ARCH GOARM=$ARM go build -v -ldflags "$COMMITFLAGS" -tags="invoicesrpc" github.com/lightningnetwork/lnd/cmd/lncli
     cd ..
 
     if [[ $OS = "windows" ]]; then

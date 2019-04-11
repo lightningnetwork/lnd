@@ -156,6 +156,14 @@ var _ chanbackup.ChannelRestorer = (*chanDBRestorer)(nil)
 //
 // NOTE: Part of the chanbackup.PeerConnector interface.
 func (s *server) ConnectPeer(nodePub *btcec.PublicKey, addrs []net.Addr) error {
+	// Before we connect to the remote peer, we'll remove any connections
+	// to ensure the new connection is created after this new link/channel
+	// is known.
+	if err := s.DisconnectPeer(nodePub); err != nil {
+		ltndLog.Infof("Peer(%v) is already connected, proceeding "+
+			"with chan restore", nodePub.SerializeCompressed())
+	}
+
 	// For each of the known addresses, we'll attempt to launch a
 	// persistent connection to the (pub, addr) pair. In the event that any
 	// of them connect, all the other stale requests will be cancelled.
@@ -171,7 +179,16 @@ func (s *server) ConnectPeer(nodePub *btcec.PublicKey, addrs []net.Addr) error {
 		// Attempt to connect to the peer using this full address. If
 		// we're unable to connect to them, then we'll try the next
 		// address in place of it.
-		if err := s.ConnectToPeer(netAddr, true); err != nil {
+		err := s.ConnectToPeer(netAddr, true)
+
+		// If we're already connected to this peer, then we don't
+		// consider this an error, so we'll exit here.
+		if _, ok := err.(*errPeerAlreadyConnected); ok {
+			return nil
+
+		} else if err != nil {
+			// Otherwise, something else happened, so we'll try the
+			// next address.
 			ltndLog.Errorf("unable to connect to %v to "+
 				"complete SCB restore: %v", netAddr, err)
 			continue

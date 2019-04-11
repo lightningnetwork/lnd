@@ -168,7 +168,9 @@ func assertResolversEqual(t *testing.T, originalResolver ContractResolver,
 		}
 	}
 
-	assertSuccessResEqual := func(ogRes, diskRes *htlcSuccessResolver) {
+	assertIncomingContestResEqual := func(ogRes,
+		diskRes *htlcIncomingContestResolver) {
+
 		if !reflect.DeepEqual(ogRes.htlcResolution, diskRes.htlcResolution) {
 			t.Fatalf("resolution mismatch: expected %#v, got %v#",
 				ogRes.htlcResolution, diskRes.htlcResolution)
@@ -189,16 +191,17 @@ func assertResolversEqual(t *testing.T, originalResolver ContractResolver,
 			t.Fatalf("expected %v, got %v", ogRes.payHash,
 				diskRes.payHash)
 		}
+
+		if ogRes.htlcExpiry != diskRes.htlcExpiry {
+			t.Fatalf("expected %v, got %v", ogRes.htlcExpiry,
+				diskRes.htlcExpiry)
+		}
 	}
 
 	switch ogRes := originalResolver.(type) {
 	case *htlcTimeoutResolver:
 		diskRes := diskResolver.(*htlcTimeoutResolver)
 		assertTimeoutResEqual(ogRes, diskRes)
-
-	case *htlcSuccessResolver:
-		diskRes := diskResolver.(*htlcSuccessResolver)
-		assertSuccessResEqual(ogRes, diskRes)
 
 	case *htlcOutgoingContestResolver:
 		diskRes := diskResolver.(*htlcOutgoingContestResolver)
@@ -208,14 +211,9 @@ func assertResolversEqual(t *testing.T, originalResolver ContractResolver,
 
 	case *htlcIncomingContestResolver:
 		diskRes := diskResolver.(*htlcIncomingContestResolver)
-		assertSuccessResEqual(
-			&ogRes.htlcSuccessResolver, &diskRes.htlcSuccessResolver,
+		assertIncomingContestResEqual(
+			ogRes, diskRes,
 		)
-
-		if ogRes.htlcExpiry != diskRes.htlcExpiry {
-			t.Fatalf("expected %v, got %v", ogRes.htlcExpiry,
-				diskRes.htlcExpiry)
-		}
 
 	case *commitSweepResolver:
 		diskRes := diskResolver.(*commitSweepResolver)
@@ -268,7 +266,7 @@ func TestContractInsertionRetrieval(t *testing.T) {
 		broadcastHeight:  102,
 		htlcIndex:        12,
 	}
-	successResolver := htlcSuccessResolver{
+	incomingContestResolver := htlcIncomingContestResolver{
 		htlcResolution: lnwallet.IncomingHtlcResolution{
 			Preimage:        testPreimage,
 			SignedSuccessTx: nil,
@@ -284,7 +282,7 @@ func TestContractInsertionRetrieval(t *testing.T) {
 	}
 	resolvers := []ContractResolver{
 		&timeoutResolver,
-		&successResolver,
+		&incomingContestResolver,
 		&commitSweepResolver{
 			commitResolution: lnwallet.CommitOutputResolution{
 				SelfOutPoint:       testChanPoint2,
@@ -305,21 +303,14 @@ func TestContractInsertionRetrieval(t *testing.T) {
 	resolvers = append(resolvers, &htlcOutgoingContestResolver{
 		htlcTimeoutResolver: contestTimeout,
 	})
-	contestSuccess := successResolver
-	contestSuccess.htlcResolution.ClaimOutpoint = randOutPoint()
-	resolvers = append(resolvers, &htlcIncomingContestResolver{
-		htlcExpiry:          100,
-		htlcSuccessResolver: contestSuccess,
-	})
 
 	// For quick lookup during the test, we'll create this map which allow
 	// us to lookup a resolver according to its unique resolver key.
 	resolverMap := make(map[string]ContractResolver)
 	resolverMap[string(timeoutResolver.ResolverKey())] = resolvers[0]
-	resolverMap[string(successResolver.ResolverKey())] = resolvers[1]
+	resolverMap[string(incomingContestResolver.ResolverKey())] = resolvers[1]
 	resolverMap[string(resolvers[2].ResolverKey())] = resolvers[2]
 	resolverMap[string(resolvers[3].ResolverKey())] = resolvers[3]
-	resolverMap[string(resolvers[4].ResolverKey())] = resolvers[4]
 
 	// Now, we'll insert the resolver into the log.
 	if err := testLog.InsertUnresolvedContracts(resolvers...); err != nil {

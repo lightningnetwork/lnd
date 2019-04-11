@@ -3,6 +3,7 @@ package contractcourt
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 
@@ -354,14 +355,14 @@ func (b *boltArbitratorLog) writeResolver(contractBucket *bbolt.Bucket,
 	switch res.(type) {
 	case *htlcTimeoutResolver:
 		rType = resolverTimeout
-	case *htlcSuccessResolver:
-		rType = resolverSuccess
 	case *htlcOutgoingContestResolver:
 		rType = resolverOutgoingContest
 	case *htlcIncomingContestResolver:
 		rType = resolverIncomingContest
 	case *commitSweepResolver:
 		rType = resolverUnilateralSweep
+	default:
+		return errors.New("unknown resolver type")
 	}
 	if _, err := buf.Write([]byte{byte(rType)}); err != nil {
 		return err
@@ -460,14 +461,6 @@ func (b *boltArbitratorLog) FetchUnresolvedContracts() ([]ContractResolver, erro
 
 				res = timeoutRes
 
-			case resolverSuccess:
-				successRes := &htlcSuccessResolver{}
-				if err := successRes.Decode(resReader); err != nil {
-					return err
-				}
-
-				res = successRes
-
 			case resolverOutgoingContest:
 				outContestRes := &htlcOutgoingContestResolver{
 					htlcTimeoutResolver: htlcTimeoutResolver{},
@@ -478,10 +471,23 @@ func (b *boltArbitratorLog) FetchUnresolvedContracts() ([]ContractResolver, erro
 
 				res = outContestRes
 
+			case resolverSuccess:
+				// resolverSuccess is no longer used, but we may
+				// encounter it while deserializing. In that
+				// case convert the serialized data into the
+				// incoming contest resolver format by
+				// prepending it with the missing field
+				// htlcExpiry. The field will be left 0 so that
+				// the incoming contest resolver will conclude
+				// that the htlc is expired.
+				converted := make([]byte, len(resBytes)+4)
+				copy(converted[4:], resBytes)
+				resReader = bytes.NewReader(converted)
+
+				fallthrough
+
 			case resolverIncomingContest:
-				inContestRes := &htlcIncomingContestResolver{
-					htlcSuccessResolver: htlcSuccessResolver{},
-				}
+				inContestRes := &htlcIncomingContestResolver{}
 				if err := inContestRes.Decode(resReader); err != nil {
 					return err
 				}

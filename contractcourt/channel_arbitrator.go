@@ -437,12 +437,9 @@ func supplementResolver(resolver ContractResolver,
 
 	switch r := resolver.(type) {
 
-	case *htlcSuccessResolver:
-		return supplementSuccessResolver(r, htlcMap)
-
 	case *htlcIncomingContestResolver:
-		return supplementSuccessResolver(
-			&r.htlcSuccessResolver, htlcMap,
+		return supplementHtlcIncomingContestResolver(
+			r, htlcMap,
 		)
 
 	case *htlcTimeoutResolver:
@@ -452,14 +449,17 @@ func supplementResolver(resolver ContractResolver,
 		return supplementTimeoutResolver(
 			&r.htlcTimeoutResolver, htlcMap,
 		)
+
+	case *commitSweepResolver:
+		return nil
 	}
 
-	return nil
+	return errors.New("unknown resolver type")
 }
 
-// supplementSuccessResolver takes a htlcSuccessResolver as it is restored from
+// supplementHtlcIncomingContestResolver takes a htlcSuccessResolver as it is restored from
 // the log and fills in missing data from the htlcMap.
-func supplementSuccessResolver(r *htlcSuccessResolver,
+func supplementHtlcIncomingContestResolver(r *htlcIncomingContestResolver,
 	htlcMap map[wire.OutPoint]*channeldb.HTLC) error {
 
 	res := r.htlcResolution
@@ -1214,26 +1214,10 @@ func (c *ChannelArbitrator) checkChainActions(height uint32,
 	// either learn of it eventually from the outgoing HTLC, or the sender
 	// will timeout the HTLC.
 	for _, htlc := range c.activeHTLCs.incomingHTLCs {
-		// If we have the pre-image, then we should go on-chain to
-		// redeem the HTLC immediately.
-		if _, ok := c.cfg.PreimageDB.LookupPreimage(htlc.RHash); ok {
-			log.Tracef("ChannelArbitrator(%v): preimage for "+
-				"htlc=%x is known!", c.cfg.ChanPoint,
-				htlc.RHash[:])
-
-			actionMap[HtlcClaimAction] = append(
-				actionMap[HtlcClaimAction], htlc,
-			)
-			continue
-		}
-
 		log.Tracef("ChannelArbitrator(%v): watching chain to decide "+
 			"action for incoming htlc=%x", c.cfg.ChanPoint,
 			htlc.RHash[:])
 
-		// Otherwise, we don't yet have the pre-image, but should watch
-		// on-chain to see if either: the remote party times out the
-		// HTLC, or we learn of the pre-image.
 		actionMap[HtlcIncomingWatchAction] = append(
 			actionMap[HtlcIncomingWatchAction], htlc,
 		)
@@ -1307,35 +1291,6 @@ func (c *ChannelArbitrator) prepContractResolutions(htlcActions ChainActionMap,
 				msgsToSend = append(msgsToSend, failMsg)
 			}
 
-		// If we can claim this HTLC, we'll create an HTLC resolver to
-		// claim the HTLC (second-level or directly), then add the pre
-		case HtlcClaimAction:
-			for _, htlc := range htlcs {
-				htlcOp := wire.OutPoint{
-					Hash:  commitHash,
-					Index: uint32(htlc.OutputIndex),
-				}
-
-				resolution, ok := inResolutionMap[htlcOp]
-				if !ok {
-					// TODO(roasbeef): panic?
-					log.Errorf("ChannelArbitrator(%v) unable to find "+
-						"incoming resolution: %v",
-						c.cfg.ChanPoint, htlcOp)
-					continue
-				}
-
-				resKit.Quit = make(chan struct{})
-				resolver := &htlcSuccessResolver{
-					htlcResolution:  resolution,
-					broadcastHeight: height,
-					payHash:         htlc.RHash,
-					htlcAmt:         htlc.Amt,
-					ResolverKit:     resKit,
-				}
-				htlcResolvers = append(htlcResolvers, resolver)
-			}
-
 		// If we can timeout the HTLC directly, then we'll create the
 		// proper resolver to do so, who will then cancel the packet
 		// backwards.
@@ -1364,9 +1319,12 @@ func (c *ChannelArbitrator) prepContractResolutions(htlcActions ChainActionMap,
 				htlcResolvers = append(htlcResolvers, resolver)
 			}
 
-		// If this is an incoming HTLC, but we can't act yet, then
-		// we'll create an incoming resolver to redeem the HTLC if we
-		// learn of the pre-image, or let the remote party time out.
+		case HtlcClaimAction:
+			fallthrough
+
+		// If this is an incoming HTLC, we'll create an incoming
+		// resolver to redeem the HTLC if we learn of the pre-image, or
+		// let the remote party time out.
 		case HtlcIncomingWatchAction:
 			for _, htlc := range htlcs {
 				htlcOp := wire.OutPoint{
@@ -1387,14 +1345,12 @@ func (c *ChannelArbitrator) prepContractResolutions(htlcActions ChainActionMap,
 
 				resKit.Quit = make(chan struct{})
 				resolver := &htlcIncomingContestResolver{
-					htlcExpiry: htlc.RefundTimeout,
-					htlcSuccessResolver: htlcSuccessResolver{
-						htlcResolution:  resolution,
-						broadcastHeight: height,
-						payHash:         htlc.RHash,
-						htlcAmt:         htlc.Amt,
-						ResolverKit:     resKit,
-					},
+					htlcExpiry:      htlc.RefundTimeout,
+					htlcResolution:  resolution,
+					broadcastHeight: height,
+					payHash:         htlc.RHash,
+					htlcAmt:         htlc.Amt,
+					ResolverKit:     resKit,
 				}
 				htlcResolvers = append(htlcResolvers, resolver)
 			}

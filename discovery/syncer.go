@@ -168,6 +168,14 @@ type syncTransitionReq struct {
 	errChan     chan error
 }
 
+// historicalSyncReq encapsulates a request for a gossip syncer to perform a
+// historical sync.
+type historicalSyncReq struct {
+	// doneChan is a channel that serves as a signal and is closed to ensure
+	// the historical sync is attempted by the time we return to the caller.
+	doneChan chan struct{}
+}
+
 // gossipSyncerCfg is a struct that packages all the information a GossipSyncer
 // needs to carry out its duties.
 type gossipSyncerCfg struct {
@@ -253,7 +261,7 @@ type GossipSyncer struct {
 	// gossip syncer to perform a historical sync. Theese can only be done
 	// once the gossip syncer is in a chansSynced state to ensure its state
 	// machine behaves as expected.
-	historicalSyncReqs chan struct{}
+	historicalSyncReqs chan *historicalSyncReq
 
 	// genHistoricalChanRangeQuery when true signals to the gossip syncer
 	// that it should request the remote peer for all of its known channel
@@ -322,7 +330,7 @@ func newGossipSyncer(cfg gossipSyncerCfg) *GossipSyncer {
 		cfg:                cfg,
 		rateLimiter:        rateLimiter,
 		syncTransitionReqs: make(chan *syncTransitionReq),
-		historicalSyncReqs: make(chan struct{}),
+		historicalSyncReqs: make(chan *historicalSyncReq),
 		gossipMsgs:         make(chan lnwire.Message, 100),
 		quit:               make(chan struct{}),
 	}
@@ -522,8 +530,8 @@ func (g *GossipSyncer) channelGraphSyncer() {
 			case req := <-g.syncTransitionReqs:
 				req.errChan <- g.handleSyncTransition(req)
 
-			case <-g.historicalSyncReqs:
-				g.handleHistoricalSync()
+			case req := <-g.historicalSyncReqs:
+				g.handleHistoricalSync(req)
 
 			case <-g.quit:
 				return
@@ -1183,11 +1191,21 @@ func (g *GossipSyncer) SyncType() SyncerType {
 // NOTE: This can only be done once the gossip syncer has reached its final
 // chansSynced state.
 func (g *GossipSyncer) historicalSync() error {
+	done := make(chan struct{})
+
 	select {
-	case g.historicalSyncReqs <- struct{}{}:
-		return nil
+	case g.historicalSyncReqs <- &historicalSyncReq{
+		doneChan: done,
+	}:
 	case <-time.After(syncTransitionTimeout):
 		return ErrSyncTransitionTimeout
+	case <-g.quit:
+		return ErrGossiperShuttingDown
+	}
+
+	select {
+	case <-done:
+		return nil
 	case <-g.quit:
 		return ErrGossiperShuttingDown
 	}
@@ -1195,10 +1213,11 @@ func (g *GossipSyncer) historicalSync() error {
 
 // handleHistoricalSync handles a request to the gossip syncer to perform a
 // historical sync.
-func (g *GossipSyncer) handleHistoricalSync() {
+func (g *GossipSyncer) handleHistoricalSync(req *historicalSyncReq) {
 	// We'll go back to our initial syncingChans state in order to request
 	// the remote peer to give us all of the channel IDs they know of
 	// starting from the genesis block.
 	g.genHistoricalChanRangeQuery = true
 	g.setSyncState(syncingChans)
+	close(req.doneChan)
 }

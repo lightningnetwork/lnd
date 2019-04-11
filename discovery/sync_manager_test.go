@@ -80,44 +80,52 @@ func TestSyncManagerNumActiveSyncers(t *testing.T) {
 func TestSyncManagerNewActiveSyncerAfterDisconnect(t *testing.T) {
 	t.Parallel()
 
-	// We'll create our test sync manager to only have one active syncer.
-	syncMgr := newTestSyncManager(1)
+	// We'll create our test sync manager to have two active syncers.
+	syncMgr := newTestSyncManager(2)
 	syncMgr.Start()
 	defer syncMgr.Stop()
 
-	// peer1 will represent an active syncer that performs a historical
-	// sync since it is the first registered peer with the SyncManager.
-	peer1 := randPeer(t, syncMgr.quit)
-	syncMgr.InitSyncState(peer1)
-	syncer1 := assertSyncerExistence(t, syncMgr, peer1)
-	assertActiveGossipTimestampRange(t, peer1)
-	assertTransitionToChansSynced(t, syncer1, peer1)
-	assertSyncerStatus(t, syncer1, chansSynced, ActiveSync)
+	// The first will be an active syncer that performs a historical sync
+	// since it is the first one registered with the SyncManager.
+	historicalSyncPeer := randPeer(t, syncMgr.quit)
+	syncMgr.InitSyncState(historicalSyncPeer)
+	historicalSyncer := assertSyncerExistence(t, syncMgr, historicalSyncPeer)
+	assertActiveGossipTimestampRange(t, historicalSyncPeer)
+	assertTransitionToChansSynced(t, historicalSyncer, historicalSyncPeer)
+	assertSyncerStatus(t, historicalSyncer, chansSynced, ActiveSync)
+
+	// Then, we'll create the second active syncer, which is the one we'll
+	// disconnect.
+	activeSyncPeer := randPeer(t, syncMgr.quit)
+	syncMgr.InitSyncState(activeSyncPeer)
+	activeSyncer := assertSyncerExistence(t, syncMgr, activeSyncPeer)
+	assertActiveGossipTimestampRange(t, activeSyncPeer)
+	assertSyncerStatus(t, activeSyncer, chansSynced, ActiveSync)
 
 	// It will then be torn down to simulate a disconnection. Since there
 	// are no other candidate syncers available, the active syncer won't be
 	// replaced.
-	syncMgr.PruneSyncState(peer1.PubKey())
+	syncMgr.PruneSyncState(activeSyncPeer.PubKey())
 
 	// Then, we'll start our active syncer again, but this time we'll also
 	// have a passive syncer available to replace the active syncer after
 	// the peer disconnects.
-	syncMgr.InitSyncState(peer1)
-	syncer1 = assertSyncerExistence(t, syncMgr, peer1)
-	assertActiveGossipTimestampRange(t, peer1)
-	assertSyncerStatus(t, syncer1, chansSynced, ActiveSync)
+	syncMgr.InitSyncState(activeSyncPeer)
+	activeSyncer = assertSyncerExistence(t, syncMgr, activeSyncPeer)
+	assertActiveGossipTimestampRange(t, activeSyncPeer)
+	assertSyncerStatus(t, activeSyncer, chansSynced, ActiveSync)
 
 	// Create our second peer, which should be initialized as a passive
 	// syncer.
-	peer2 := randPeer(t, syncMgr.quit)
-	syncMgr.InitSyncState(peer2)
-	syncer2 := assertSyncerExistence(t, syncMgr, peer2)
-	assertSyncerStatus(t, syncer2, chansSynced, PassiveSync)
+	newActiveSyncPeer := randPeer(t, syncMgr.quit)
+	syncMgr.InitSyncState(newActiveSyncPeer)
+	newActiveSyncer := assertSyncerExistence(t, syncMgr, newActiveSyncPeer)
+	assertSyncerStatus(t, newActiveSyncer, chansSynced, PassiveSync)
 
 	// Disconnect our active syncer, which should trigger the SyncManager to
 	// replace it with our passive syncer.
-	go syncMgr.PruneSyncState(peer1.PubKey())
-	assertPassiveSyncerTransition(t, syncer2, peer2)
+	go syncMgr.PruneSyncState(activeSyncPeer.PubKey())
+	assertPassiveSyncerTransition(t, newActiveSyncer, newActiveSyncPeer)
 }
 
 // TestSyncManagerRotateActiveSyncerCandidate tests that we can successfully
@@ -169,10 +177,51 @@ func TestSyncManagerRotateActiveSyncerCandidate(t *testing.T) {
 	assertPassiveSyncerTransition(t, passiveSyncer, passiveSyncPeer)
 }
 
-// TestSyncManagerHistoricalSync ensures that we only attempt a single
-// historical sync during the SyncManager's startup, and that we can routinely
-// force historical syncs whenever the HistoricalSyncTicker fires.
-func TestSyncManagerHistoricalSync(t *testing.T) {
+// TestSyncManagerInitialHistoricalSync ensures that we only attempt a single
+// historical sync during the SyncManager's startup. If the peer corresponding
+// to the initial historical syncer disconnects, we should attempt to find a
+// replacement.
+func TestSyncManagerInitialHistoricalSync(t *testing.T) {
+	t.Parallel()
+
+	syncMgr := newTestSyncManager(0)
+	syncMgr.Start()
+	defer syncMgr.Stop()
+
+	// We should expect to see a QueryChannelRange message with a
+	// FirstBlockHeight of the genesis block, signaling that an initial
+	// historical sync is being attempted.
+	peer := randPeer(t, syncMgr.quit)
+	syncMgr.InitSyncState(peer)
+	assertMsgSent(t, peer, &lnwire.QueryChannelRange{
+		FirstBlockHeight: 0,
+		NumBlocks:        math.MaxUint32,
+	})
+
+	// If an additional peer connects, then another historical sync should
+	// not be attempted.
+	finalHistoricalPeer := randPeer(t, syncMgr.quit)
+	syncMgr.InitSyncState(finalHistoricalPeer)
+	finalHistoricalSyncer := assertSyncerExistence(t, syncMgr, finalHistoricalPeer)
+	assertNoMsgSent(t, finalHistoricalPeer)
+
+	// If we disconnect the peer performing the initial historical sync, a
+	// new one should be chosen.
+	syncMgr.PruneSyncState(peer.PubKey())
+	assertTransitionToChansSynced(t, finalHistoricalSyncer, finalHistoricalPeer)
+
+	// Once the initial historical sync has succeeded, another one should
+	// not be attempted by disconnecting the peer who performed it.
+	extraPeer := randPeer(t, syncMgr.quit)
+	syncMgr.InitSyncState(extraPeer)
+	assertNoMsgSent(t, extraPeer)
+	syncMgr.PruneSyncState(finalHistoricalPeer.PubKey())
+	assertNoMsgSent(t, extraPeer)
+}
+
+// TestSyncManagerForceHistoricalSync ensures that we can perform routine
+// historical syncs whenever the HistoricalSyncTicker fires.
+func TestSyncManagerForceHistoricalSync(t *testing.T) {
 	t.Parallel()
 
 	syncMgr := newTestSyncManager(0)

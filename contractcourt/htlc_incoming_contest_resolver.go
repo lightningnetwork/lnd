@@ -9,13 +9,13 @@ import (
 	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
 
+	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/lightningnetwork/lnd/sweep"
 )
 
 // htlcIncomingContestResolver is a ContractResolver that's able to resolve an
@@ -82,26 +82,10 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 		return nil, nil
 	}
 
-	// We'll first check if this HTLC has been timed out, if so, we can
-	// return now and mark ourselves as resolved.
+	// Get current block height for checking htlc cltv and csv expiry.
 	_, currentHeight, err := h.ChainIO.GetBestBlock()
 	if err != nil {
 		return nil, err
-	}
-
-	// If we're past the point of expiry of the HTLC, then at this point
-	// the sender can sweep it, so we'll end our lifetime.
-	if uint32(currentHeight) >= h.htlcExpiry {
-		// TODO(roasbeef): should also somehow check if outgoing is
-		// resolved or not
-		//  * may need to hook into the circuit map
-		//  * can't timeout before the outgoing has been
-
-		log.Infof("%T(%v): HTLC has timed out (expiry=%v, height=%v), "+
-			"abandoning", h, h.htlcResolution.ClaimOutpoint,
-			h.htlcExpiry, currentHeight)
-		h.resolved = true
-		return nil, h.Checkpoint(h)
 	}
 
 	// If the HTLC hasn't expired yet, then we may still be able to claim
@@ -136,7 +120,9 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 	// If the htlc can be settled directly, we can progress to the inner
 	// resolver immediately.
 	if event != nil && event.Preimage != nil {
-		return nil, h.resolveSuccess(*event.Preimage)
+		return nil, h.resolveSuccess(
+			*event.Preimage, currentHeight, blockEpochs,
+		)
 	}
 
 	// With the epochs and preimage subscriptions initialized, we'll query
@@ -146,7 +132,33 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 		// If we do, then this means we can claim the HTLC!  However,
 		// we don't know how to ourselves, so we'll return our inner
 		// resolver which has the knowledge to do so.
-		return nil, h.resolveSuccess(preimage)
+		return nil, h.resolveSuccess(
+			preimage, currentHeight, blockEpochs,
+		)
+	}
+
+	checkTimeout := func() bool {
+		if currentHeight < int32(h.htlcExpiry) {
+			return false
+		}
+
+		// TODO(roasbeef): should also somehow check if outgoing is
+		// resolved or not
+		//  * may need to hook into the circuit map
+		//  * can't timeout before the outgoing has been
+
+		log.Infof("%T(%v): HTLC has timed out (expiry=%v, height=%v), "+
+			"abandoning", h, h.htlcResolution.ClaimOutpoint,
+			h.htlcExpiry, currentHeight)
+
+		return true
+	}
+
+	// If we're past the point of expiry of the HTLC, then at this point
+	// the sender can sweep it, so we'll end our lifetime.
+	if checkTimeout() {
+		h.resolved = true
+		return nil, h.Checkpoint(h)
 	}
 
 	for {
@@ -162,7 +174,9 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 			// has been added to our inner resolver. We return it so
 			// it can continue contract resolution.
 
-			return nil, h.resolveSuccess(preimage)
+			return nil, h.resolveSuccess(
+				preimage, currentHeight, blockEpochs,
+			)
 
 		case hodlItem := <-hodlChan:
 			hodlEvent := hodlItem.(invoices.HodlEvent)
@@ -177,23 +191,22 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 				return nil, h.Checkpoint(h)
 			}
 
-			return nil, h.resolveSuccess(*hodlEvent.Preimage)
+			return nil, h.resolveSuccess(
+				*hodlEvent.Preimage, currentHeight, blockEpochs,
+			)
 
 		case newBlock, ok := <-blockEpochs.Epochs:
 			if !ok {
 				return nil, fmt.Errorf("quitting")
 			}
 
+			currentHeight = int32(newBlock.Height)
+
 			// If this new height expires the HTLC, then this means
 			// we never found out the preimage, so we can mark
 			// resolved and
 			// exit.
-			newHeight := uint32(newBlock.Height)
-			if newHeight >= h.htlcExpiry {
-				log.Infof("%T(%v): HTLC has timed out "+
-					"(expiry=%v, height=%v), abandoning", h,
-					h.htlcResolution.ClaimOutpoint,
-					h.htlcExpiry, currentHeight)
+			if checkTimeout() {
 				h.resolved = true
 				return nil, h.Checkpoint(h)
 			}
@@ -207,7 +220,8 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 // resolveSuccess continues contract resolution from the point the preimage is
 // known.
 func (h *htlcIncomingContestResolver) resolveSuccess(
-	preimage lntypes.Preimage) error {
+	preimage lntypes.Preimage, currentHeight int32,
+	blockEpochs *chainntnfs.BlockEpochEvent) error {
 
 	log.Infof("%T(%v): settle htlc on-chain using preimage=%v", h,
 		h.htlcResolution.ClaimOutpoint, preimage)
@@ -225,65 +239,112 @@ func (h *htlcIncomingContestResolver) resolveSuccess(
 		// preimage.
 		h.htlcResolution.SignedSuccessTx.TxIn[0].Witness[3] = preimage[:]
 
-		return h.resolveLocal()
+		return h.resolveLocal(currentHeight, blockEpochs)
 	}
 
 	return h.resolveRemote(preimage)
 }
 
 // resolveLocal handles the resolution in case we published the commit tx.
-func (h *htlcIncomingContestResolver) resolveLocal() error {
-	log.Infof("%T(%x): broadcasting second-layer transition tx: %v",
-		h, h.payHash[:], spew.Sdump(h.htlcResolution.SignedSuccessTx))
+func (h *htlcIncomingContestResolver) resolveLocal(currentHeight int32,
+	blockEpochs *chainntnfs.BlockEpochEvent) error {
+
+	successTx := h.htlcResolution.SignedSuccessTx
+
+	log.Infof("%T(%x): broadcasting second-layer success tx: %v",
+		h, h.payHash[:], spew.Sdump(successTx))
 
 	// We'll now broadcast the second layer transaction so we can kick off
-	// the claiming process.
-	//
-	// TODO(roasbeef): after changing sighashes send to tx bundler
-	err := h.PublishTx(h.htlcResolution.SignedSuccessTx)
+	// the claiming process. In case of a publish error, continue because it
+	// may be that we already published the tx in a previous run.
+	err := h.PublishTx(successTx)
+	if err != nil {
+		log.Warnf("%T(%x): cannot publish success tx: %v", h,
+			h.payHash[:], err)
+	}
+
+	// Wait for confirmation of the success tx.
+	log.Infof("%T(%x): waiting for commit output to be spent",
+		h, h.payHash[:])
+
+	outpointToWatch, scriptToWatch, err := h.chainDetailsToWatch()
 	if err != nil {
 		return err
 	}
-
-	// Otherwise, this is an output on our commitment transaction. In this
-	// case, we'll send it to the incubator, but only if we haven't already
-	// done so.
-	if !h.outputIncubating {
-		log.Infof("%T(%x): incubating incoming htlc output",
-			h, h.payHash[:])
-
-		err := h.IncubateOutputs(
-			h.ChanPoint, nil, nil, &h.htlcResolution,
-			h.broadcastHeight,
-		)
-		if err != nil {
-			return err
-		}
-
-		h.outputIncubating = true
-
-		if err := h.Checkpoint(h); err != nil {
-			log.Errorf("unable to Checkpoint: %v", err)
-			return err
-		}
-	}
-
-	// To wrap this up, we'll wait until the second-level transaction has
-	// been spent, then fully resolve the contract.
 	spendNtfn, err := h.Notifier.RegisterSpendNtfn(
-		&h.htlcResolution.ClaimOutpoint,
-		h.htlcResolution.SweepSignDesc.Output.PkScript,
-		h.broadcastHeight,
+		outpointToWatch, scriptToWatch, h.broadcastHeight,
 	)
 	if err != nil {
 		return err
 	}
 
-	log.Infof("%T(%x): waiting for second-level HTLC output to be spent "+
-		"after csv_delay=%v", h, h.payHash[:], h.htlcResolution.CsvDelay)
+	var (
+		spend *chainntnfs.SpendDetail
+		ok    bool
+	)
+	select {
+	case spend, ok = <-spendNtfn.Spend:
+		if !ok {
+			return fmt.Errorf("quitting")
+		}
+
+	case <-h.Quit:
+		return fmt.Errorf("quitting")
+	}
+
+	successTxHash := successTx.TxHash()
+	if *spend.SpenderTxHash != successTxHash {
+		log.Infof("%T(%x): commit output spent by remote party tx %v "+
+			"at height %v, abandoning", h, h.payHash[:],
+			*spend.SpenderTxHash, spend.SpendingHeight)
+
+		h.resolved = true
+		return h.Checkpoint(h)
+	}
+
+	log.Infof("%T(%x): commit output spent by second-layer "+
+		"success tx at height %v", h, h.payHash[:],
+		*spend.SpenderTxHash, spend.SpendingHeight)
+
+	// Wait for csv delay
+	maturityHeight := spend.SpendingHeight + int32(h.htlcResolution.CsvDelay)
+
+	log.Infof("%T(%x): waiting for success tx output to mature at height "+
+		"%v", h, h.payHash[:], *spend.SpenderTxHash, maturityHeight)
+
+	for currentHeight < maturityHeight {
+		select {
+		case newBlock, ok := <-blockEpochs.Epochs:
+			if !ok {
+				return fmt.Errorf("quitting")
+			}
+
+			currentHeight = int32(newBlock.Height)
+		case <-h.Quit:
+			return fmt.Errorf("quitting")
+		}
+	}
+
+	log.Infof("%T(%x): success tx output is mature", h, h.payHash[:])
+
+	inp := input.NewBaseInput(&h.htlcResolution.ClaimOutpoint,
+		input.HtlcAcceptedSuccessSecondLevel,
+		&h.htlcResolution.SweepSignDesc,
+		h.broadcastHeight,
+	)
+
+	return h.sweep(inp)
+}
+
+func (h *htlcIncomingContestResolver) sweep(inp input.Input) error {
+	resultChan, err := h.Sweeper.SweepInput(inp)
+	if err != nil {
+		return err
+	}
 
 	select {
-	case _, ok := <-spendNtfn.Spend:
+	case _, ok := <-resultChan:
+		// TODO: Handle result (remote spend possibility)
 		if !ok {
 			return fmt.Errorf("quitting")
 		}
@@ -315,115 +376,21 @@ func (h *htlcIncomingContestResolver) resolveLocal() error {
 // resolveLocal handles the resolution in case the remote party published the
 // commit tx.
 func (h *htlcIncomingContestResolver) resolveRemote(preimage lntypes.Preimage) error {
-	// If we don't already have the sweep transaction constructed,
-	// we'll do so and broadcast it.
-	if h.sweepTx == nil {
-		log.Infof("%T(%x): crafting sweep tx for "+
-			"incoming+remote htlc confirmed", h,
-			h.payHash[:])
-
-		// Before we can craft out sweeping transaction, we
-		// need to create an input which contains all the items
-		// required to add this input to a sweeping transaction,
-		// and generate a witness.
-		inp := input.MakeHtlcSucceedInput(
-			&h.htlcResolution.ClaimOutpoint,
-			&h.htlcResolution.SweepSignDesc,
-			preimage[:],
-			h.broadcastHeight,
-		)
-
-		// With the input created, we can now generate the full
-		// sweep transaction, that we'll use to move these
-		// coins back into the backing wallet.
-		//
-		// TODO: Set tx lock time to current block height
-		// instead of zero. Will be taken care of once sweeper
-		// implementation is complete.
-		//
-		// TODO: Use time-based sweeper and result chan.
-		var err error
-		h.sweepTx, err = h.Sweeper.CreateSweepTx(
-			[]input.Input{&inp},
-			sweep.FeePreference{
-				ConfTarget: sweepConfTarget,
-			}, 0,
-		)
-		if err != nil {
-			return err
-		}
-
-		log.Infof("%T(%x): crafted sweep tx=%v", h,
-			h.payHash[:], spew.Sdump(h.sweepTx))
-
-		// With the sweep transaction signed, we'll now
-		// Checkpoint our state.
-		if err := h.Checkpoint(h); err != nil {
-			log.Errorf("unable to Checkpoint: %v", err)
-			return err
-		}
-	}
-
-	// Regardless of whether an existing transaction was found or newly
-	// constructed, we'll broadcast the sweep transaction to the
-	// network.
-	err := h.PublishTx(h.sweepTx)
-	if err != nil {
-		log.Infof("%T(%x): unable to publish tx: %v",
-			h, h.payHash[:], err)
-		return err
-	}
-
-	// With the sweep transaction broadcast, we'll wait for its
-	// confirmation.
-	sweepTXID := h.sweepTx.TxHash()
-	sweepScript := h.sweepTx.TxOut[0].PkScript
-	confNtfn, err := h.Notifier.RegisterConfirmationsNtfn(
-		&sweepTXID, sweepScript, 1, h.broadcastHeight,
+	inp := input.MakeHtlcSucceedInput(
+		&h.htlcResolution.ClaimOutpoint,
+		&h.htlcResolution.SweepSignDesc,
+		preimage[:],
+		h.broadcastHeight,
 	)
-	if err != nil {
-		return err
-	}
 
-	log.Infof("%T(%x): waiting for sweep tx (txid=%v) to be "+
-		"confirmed", h, h.payHash[:], sweepTXID)
-
-	select {
-	case _, ok := <-confNtfn.Confirmed:
-		if !ok {
-			return fmt.Errorf("quitting")
-		}
-
-	case <-h.Quit:
-		return fmt.Errorf("quitting")
-	}
-
-	// With the HTLC claimed, we can attempt to settle its
-	// corresponding invoice if we were the original destination. As
-	// the htlc is already settled at this point, we don't need to
-	// read on the hodl channel.
-	//
-	// TODO: Passing MaxInt32 to circumvent the expiry is not the
-	// way to do this.
-	hodlChan := make(chan interface{}, 1)
-	_, err = h.Registry.NotifyExitHopHtlc(
-		h.payHash, h.htlcAmt, hodlChan,
-	)
-	if err != nil && err != channeldb.ErrInvoiceNotFound {
-		log.Errorf("Unable to settle invoice with payment "+
-			"hash %x: %v", h.payHash, err)
-	}
-
-	// Once the transaction has received a sufficient number of
-	// confirmations, we'll mark ourselves as fully resolved and exit.
-	h.resolved = true
-	return h.Checkpoint(h)
+	return h.sweep(&inp)
 }
 
 // report returns a report on the resolution state of the contract.
 func (h *htlcIncomingContestResolver) report() *ContractReport {
-	// No locking needed as these values are read-only.
+	// TODO: Report stage 2
 
+	// No locking needed as these values are read-only.
 	finalAmt := h.htlcAmt.ToSatoshis()
 	if h.htlcResolution.SignedSuccessTx != nil {
 		finalAmt = btcutil.Amount(
@@ -550,6 +517,36 @@ func (h *htlcIncomingContestResolver) ResolverKey() []byte {
 
 	key := newResolverID(op)
 	return key[:]
+}
+
+// chainDetailsToWatch returns the output and script which we use to watch for
+// spends from the direct HTLC output on the commitment transaction.
+func (h *htlcIncomingContestResolver) chainDetailsToWatch() (*wire.OutPoint,
+	[]byte, error) {
+
+	// If there's no success transaction, then the claim output is the
+	// output directly on the commitment transaction, so we'll just use
+	// that.
+	if h.htlcResolution.SignedSuccessTx == nil {
+		outPointToWatch := h.htlcResolution.ClaimOutpoint
+		scriptToWatch := h.htlcResolution.SweepSignDesc.Output.PkScript
+
+		return &outPointToWatch, scriptToWatch, nil
+	}
+
+	// If this is the remote party's commitment, then we'll need to grab
+	// watch the output that our success transaction points to. We can
+	// directly grab the outpoint, then also extract the witness script
+	// (the last element of the witness stack) to re-construct the pkScript
+	// we need to watch.
+	outPointToWatch := h.htlcResolution.SignedSuccessTx.TxIn[0].PreviousOutPoint
+	witness := h.htlcResolution.SignedSuccessTx.TxIn[0].Witness
+	scriptToWatch, err := input.WitnessScriptHash(witness[len(witness)-1])
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return &outPointToWatch, scriptToWatch, nil
 }
 
 // A compile time assertion to ensure htlcIncomingContestResolver meets the

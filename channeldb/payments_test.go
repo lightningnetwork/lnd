@@ -144,7 +144,7 @@ func TestOutgoingPaymentWorkflow(t *testing.T) {
 	}
 
 	fakePayment := makeFakePayment()
-	if err = db.AddPayment(fakePayment); err != nil {
+	if _, err = db.AddPayment(fakePayment); err != nil {
 		t.Fatalf("unable to put payment in DB: %v", err)
 	}
 
@@ -176,7 +176,7 @@ func TestOutgoingPaymentWorkflow(t *testing.T) {
 			t.Fatalf("Internal error in tests: %v", err)
 		}
 
-		if err = db.AddPayment(randomPayment); err != nil {
+		if _, err = db.AddPayment(randomPayment); err != nil {
 			t.Fatalf("unable to put payment in DB: %v", err)
 		}
 

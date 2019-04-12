@@ -1365,18 +1365,30 @@ func (r *ChannelRouter) FindRoutes(source, target Vertex,
 	// cache
 	//
 	// TODO: Route cache should store all request parameters instead of just
-	// amt and target. Currently false positives are returned if just the
-	// restrictions (fee limit, ignore lists) or finalExpiry are different.
-	rt := newRouteTuple(amt, target[:])
-	r.routeCacheMtx.RLock()
-	routes, ok := r.routeCache[rt]
-	r.routeCacheMtx.RUnlock()
+	// amt and target. The current workaround is to only cache requests with
+	// default restrictions.
+	//
+	// TODO: Workaround does not address finalCLTVDelta.
+	cachableRequest := source == r.selfNode.PubKeyBytes &&
+		restrictions.CltvLimit == nil &&
+		restrictions.OutgoingChannelID == nil &&
+		len(restrictions.IgnoredEdges) == 0 &&
+		len(restrictions.IgnoredNodes) == 0 &&
+		restrictions.FeeLimit == amt
 
-	// If we already have a cached route, and it contains at least the
-	// number of paths requested, then we'll return it directly as there's
-	// no need to repeat the computation.
-	if ok && uint32(len(routes)) >= numPaths {
-		return routes, nil
+	rt := newRouteTuple(amt, target[:])
+
+	if cachableRequest {
+		r.routeCacheMtx.RLock()
+		routes, ok := r.routeCache[rt]
+		r.routeCacheMtx.RUnlock()
+
+		// If we already have a cached route, and it contains at least the
+		// number of paths requested, then we'll return it directly as there's
+		// no need to repeat the computation.
+		if ok && uint32(len(routes)) >= numPaths {
+			return routes, nil
+		}
 	}
 
 	// If we don't have a set of routes cached, we'll query the graph for a
@@ -1452,9 +1464,11 @@ func (r *ChannelRouter) FindRoutes(source, target Vertex,
 
 	// Populate the cache with this set of fresh routes so we can reuse
 	// them in the future.
-	r.routeCacheMtx.Lock()
-	r.routeCache[rt] = validRoutes
-	r.routeCacheMtx.Unlock()
+	if cachableRequest {
+		r.routeCacheMtx.Lock()
+		r.routeCache[rt] = validRoutes
+		r.routeCacheMtx.Unlock()
+	}
 
 	return validRoutes, nil
 }

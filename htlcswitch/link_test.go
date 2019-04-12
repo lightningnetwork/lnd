@@ -5697,7 +5697,7 @@ func newHodlInvoiceTestCtx(t *testing.T) (*hodlInvoiceTestCtx, error) {
 	select {
 	case err := <-errChan:
 		t.Fatalf("no payment result expected: %v", err)
-	case <-time.After(time.Second):
+	case <-time.After(5 * time.Second):
 		t.Fatal("timeout")
 	case h := <-receiver.registry.settleChan:
 		if hash != h {

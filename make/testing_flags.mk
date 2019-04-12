@@ -33,7 +33,7 @@ endif
 ifneq ($(timeout),)
 TEST_FLAGS += -test.timeout=$(timeout)
 else
-TEST_FLAGS += -test.timeout=20m
+TEST_FLAGS += -test.timeout=30m
 endif
 
 # UNIT_TARGTED is undefined iff a specific package and/or unit test case is

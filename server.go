@@ -1371,6 +1371,21 @@ out:
 				continue
 			}
 
+			// Periodically renew the NAT port forwarding.
+			for _, port := range forwardedPorts {
+				err := s.natTraversal.AddPortMapping(port)
+				if err != nil {
+					srvrLog.Warnf("Unable to automatically "+
+						"re-create port forwarding using %s: %v",
+						s.natTraversal.Name(), err)
+				} else {
+					srvrLog.Debugf("Automatically re-created "+
+						"forwarding for port %d using %s to "+
+						"advertise external IP",
+						port, s.natTraversal.Name())
+				}
+			}
+
 			if ip.Equal(s.lastDetectedIP) {
 				continue
 			}

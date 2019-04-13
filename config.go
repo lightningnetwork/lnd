@@ -919,22 +919,6 @@ func loadConfig() (*config, error) {
 		cfg.RawListeners = append(cfg.RawListeners, addr)
 	}
 
-	// For each of the RPC listeners (REST+gRPC), we'll ensure that users
-	// have specified a safe combo for authentication. If not, we'll bail
-	// out with an error.
-	err = lncfg.EnforceSafeAuthentication(
-		cfg.RPCListeners, !cfg.NoMacaroons,
-	)
-	if err != nil {
-		return nil, err
-	}
-	err = lncfg.EnforceSafeAuthentication(
-		cfg.RESTListeners, !cfg.NoMacaroons,
-	)
-	if err != nil {
-		return nil, err
-	}
-
 	// Add default port to all RPC listener addresses if needed and remove
 	// duplicate addresses.
 	cfg.RPCListeners, err = lncfg.NormalizeAddresses(
@@ -950,6 +934,22 @@ func loadConfig() (*config, error) {
 	cfg.RESTListeners, err = lncfg.NormalizeAddresses(
 		cfg.RawRESTListeners, strconv.Itoa(defaultRESTPort),
 		cfg.net.ResolveTCPAddr,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// For each of the RPC listeners (REST+gRPC), we'll ensure that users
+	// have specified a safe combo for authentication. If not, we'll bail
+	// out with an error.
+	err = lncfg.EnforceSafeAuthentication(
+		cfg.RPCListeners, !cfg.NoMacaroons,
+	)
+	if err != nil {
+		return nil, err
+	}
+	err = lncfg.EnforceSafeAuthentication(
+		cfg.RESTListeners, !cfg.NoMacaroons,
 	)
 	if err != nil {
 		return nil, err

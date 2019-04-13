@@ -70,15 +70,33 @@ func EnforceSafeAuthentication(addrs []net.Addr, macaroonsActive bool) error {
 	return nil
 }
 
+// parseNetwork parses the network type of the given address.
+func parseNetwork(addr net.Addr) string {
+	switch addr := addr.(type) {
+	// TCP addresses resolved through net.ResolveTCPAddr give a default
+	// network of "tcp", so we'll map back the correct network for the given
+	// address. This ensures that we can listen on the correct interface
+	// (IPv4 vs IPv6).
+	case *net.TCPAddr:
+		if addr.IP.To4() != nil {
+			return "tcp4"
+		}
+		return "tcp6"
+
+	default:
+		return addr.Network()
+	}
+}
+
 // ListenOnAddress creates a listener that listens on the given address.
 func ListenOnAddress(addr net.Addr) (net.Listener, error) {
-	return net.Listen(addr.Network(), addr.String())
+	return net.Listen(parseNetwork(addr), addr.String())
 }
 
 // TLSListenOnAddress creates a TLS listener that listens on the given address.
 func TLSListenOnAddress(addr net.Addr,
 	config *tls.Config) (net.Listener, error) {
-	return tls.Listen(addr.Network(), addr.String(), config)
+	return tls.Listen(parseNetwork(addr), addr.String(), config)
 }
 
 // IsLoopback returns true if an address describes a loopback interface.

@@ -1419,13 +1419,8 @@ func (c *ChannelGraph) ChanUpdatesInHorizon(startTime, endTime time.Time) ([]Cha
 	// additional map to keep track of the edges already seen to prevent
 	// re-adding it.
 	edgesSeen := make(map[uint64]struct{})
-	edgesToCache := make(map[uint64]ChannelEdge)
 	var edgesInHorizon []ChannelEdge
 
-	c.cacheMu.Lock()
-	defer c.cacheMu.Unlock()
-
-	var hits int
 	err := c.db.View(func(tx *bbolt.Tx) error {
 		edges := tx.Bucket(edgeBucket)
 		if edges == nil {
@@ -1475,44 +1470,16 @@ func (c *ChannelGraph) ChanUpdatesInHorizon(startTime, endTime time.Time) ([]Cha
 				continue
 			}
 
-			if channel, ok := c.chanCache.get(chanIDInt); ok {
-				hits++
-				edgesSeen[chanIDInt] = struct{}{}
-				edgesInHorizon = append(edgesInHorizon, channel)
-				continue
-			}
-
-			// First, we'll fetch the static edge information.
-			edgeInfo, err := fetchChanEdgeInfo(edgeIndex, chanID)
+			channel, err := fetchChannel(c.db, nodes, edges, edgeIndex, chanID)
 			if err != nil {
 				chanID := byteOrder.Uint64(chanID)
-				return fmt.Errorf("unable to fetch info for "+
-					"edge with chan_id=%v: %v", chanID, err)
-			}
-			edgeInfo.db = c.db
-
-			// With the static information obtained, we'll now
-			// fetch the dynamic policy info.
-			edge1, edge2, err := fetchChanEdgePolicies(
-				edgeIndex, edges, nodes, chanID, c.db,
-			)
-			if err != nil {
-				chanID := byteOrder.Uint64(chanID)
-				return fmt.Errorf("unable to fetch policies "+
-					"for edge with chan_id=%v: %v", chanID,
-					err)
+				return fmt.Errorf("unable to fetch policies for edge with chan_id=%v: %v", chanID, err)
 			}
 
 			// Finally, we'll collate this edge with the rest of
 			// edges to be returned.
 			edgesSeen[chanIDInt] = struct{}{}
-			channel := ChannelEdge{
-				Info:    &edgeInfo,
-				Policy1: edge1,
-				Policy2: edge2,
-			}
 			edgesInHorizon = append(edgesInHorizon, channel)
-			edgesToCache[chanIDInt] = channel
 		}
 
 		return nil
@@ -1526,15 +1493,6 @@ func (c *ChannelGraph) ChanUpdatesInHorizon(startTime, endTime time.Time) ([]Cha
 	case err != nil:
 		return nil, err
 	}
-
-	// Insert any edges loaded from disk into the cache.
-	for chanid, channel := range edgesToCache {
-		c.chanCache.insert(chanid, channel)
-	}
-
-	log.Debugf("ChanUpdatesInHorizon hit percentage: %f (%d/%d)",
-		float64(hits)/float64(len(edgesInHorizon)), hits,
-		len(edgesInHorizon))
 
 	return edgesInHorizon, nil
 }
@@ -1757,31 +1715,16 @@ func (c *ChannelGraph) FetchChanInfos(chanIDs []uint64) ([]ChannelEdge, error) {
 			// First, we'll fetch the static edge information. If
 			// the edge is unknown, we will skip the edge and
 			// continue gathering all known edges.
-			edgeInfo, err := fetchChanEdgeInfo(
-				edgeIndex, cidBytes[:],
-			)
+
+			channel, err := fetchChannel(c.db, nodes, edges, edgeIndex, cidBytes[:])
 			switch {
 			case err == ErrEdgeNotFound:
 				continue
 			case err != nil:
 				return err
 			}
-			edgeInfo.db = c.db
 
-			// With the static information obtained, we'll now
-			// fetch the dynamic policy info.
-			edge1, edge2, err := fetchChanEdgePolicies(
-				edgeIndex, edges, nodes, cidBytes[:], c.db,
-			)
-			if err != nil {
-				return err
-			}
-
-			chanEdges = append(chanEdges, ChannelEdge{
-				Info:    &edgeInfo,
-				Policy1: edge1,
-				Policy2: edge2,
-			})
+			chanEdges = append(chanEdges, channel)
 		}
 		return nil
 	})
@@ -1949,6 +1892,25 @@ func (c *ChannelGraph) UpdateEdgePolicy(edge *ChannelEdgePolicy) error {
 		} else {
 			channel.Policy2 = edge
 		}
+
+		// Updates arrive without a node set and make the cache incomplete
+		if edge.Node == nil {
+			var nodeKey *btcec.PublicKey
+			if isUpdate1 {
+				nodeKey, err = channel.Info.NodeKey2()
+			} else {
+				nodeKey, err = channel.Info.NodeKey1()
+			}
+			if err != nil {
+				return err
+			}
+
+			edge.Node, err = c.FetchLightningNode(nodeKey)
+			if err != nil {
+				return err
+			}
+		}
+
 		c.chanCache.insert(edge.ChannelID, channel)
 	}
 
@@ -2262,6 +2224,46 @@ func (c *ChannelGraph) HasLightningNode(nodePub [33]byte) (time.Time, bool, erro
 	return updateTime, exists, nil
 }
 
+func fetchChannel(db *DB, nodes, edges, edgeIndex *bbolt.Bucket, chanID []byte) (ChannelEdge, error) {
+
+	intChanID := byteOrder.Uint64(chanID)
+
+	// try to fetch the channel from cache
+	db.graph.cacheMu.RLock()
+	ch, ok := db.graph.chanCache.get(intChanID)
+	db.graph.cacheMu.RUnlock()
+
+	if ok {
+		return ch, nil
+	}
+
+	var channel ChannelEdge
+	// generate the edge data if it's not cached
+	edgeInfo, err := fetchChanEdgeInfo(edgeIndex, chanID)
+	if err != nil {
+		return channel, err
+	}
+	edgeInfo.db = db
+
+	edge1, edge2, err := fetchChanEdgePolicies(
+		edgeIndex, edges, nodes, chanID, db,
+	)
+	if err != nil {
+		return channel, err
+	}
+
+	channel = ChannelEdge{
+		Info:    &edgeInfo,
+		Policy1: edge1,
+		Policy2: edge2,
+	}
+
+	db.graph.cacheMu.Lock()
+	db.graph.chanCache.insert(intChanID, channel)
+	db.graph.cacheMu.Unlock()
+
+	return channel, nil
+}
 // nodeTraversal is used to traverse all channels of a node given by its
 // public key and passes channel information into the specified callback.
 func nodeTraversal(tx *bbolt.Tx, nodePub []byte, db *DB,
@@ -2292,6 +2294,7 @@ func nodeTraversal(tx *bbolt.Tx, nodePub []byte, db *DB,
 		copy(nodeStart[:], nodePub)
 		copy(nodeStart[33:], chanStart[:])
 
+
 		// Starting from the key pubKey || 0, we seek forward in the
 		// bucket until the retrieved key no longer has the public key
 		// as its prefix. This indicates that we've stepped over into
@@ -2303,33 +2306,23 @@ func nodeTraversal(tx *bbolt.Tx, nodePub []byte, db *DB,
 			// the node at the other end of the channel and both
 			// edge policies.
 			chanID := nodeEdge[33:]
-			edgeInfo, err := fetchChanEdgeInfo(edgeIndex, chanID)
-			if err != nil {
-				return err
-			}
-			edgeInfo.db = db
 
-			outgoingPolicy, err := fetchChanEdgePolicy(
-				edges, chanID, nodePub, nodes,
-			)
+			channel, err := fetchChannel(db, nodes, edges, edgeIndex, chanID)
 			if err != nil {
 				return err
 			}
 
-			otherNode, err := edgeInfo.OtherNodeKeyBytes(nodePub)
-			if err != nil {
-				return err
-			}
-
-			incomingPolicy, err := fetchChanEdgePolicy(
-				edges, chanID, otherNode[:], nodes,
-			)
-			if err != nil {
-				return err
+			var incomingPolicy, outgoingPolicy *ChannelEdgePolicy
+			if bytes.Equal(channel.Info.NodeKey1Bytes[:], nodePub) {
+				incomingPolicy = channel.Policy2
+				outgoingPolicy = channel.Policy1
+			} else {
+				incomingPolicy = channel.Policy1
+				outgoingPolicy = channel.Policy2
 			}
 
 			// Finally, we execute the callback.
-			err = cb(tx, &edgeInfo, outgoingPolicy, incomingPolicy)
+			err = cb(tx, channel.Info, outgoingPolicy, incomingPolicy)
 			if err != nil {
 				return err
 			}
@@ -2869,27 +2862,14 @@ func (c *ChannelGraph) FetchChannelEdgesByOutpoint(op *wire.OutPoint,
 			return ErrEdgeNotFound
 		}
 
-		// If the channel is found to exists, then we'll first retrieve
-		// the general information for the channel.
-		edge, err := fetchChanEdgeInfo(edgeIndex, chanID)
-		if err != nil {
-			return err
-		}
-		edgeInfo = &edge
-		edgeInfo.db = c.db
-
-		// Once we have the information about the channels' parameters,
-		// we'll fetch the routing policies for each for the directed
-		// edges.
-		e1, e2, err := fetchChanEdgePolicies(
-			edgeIndex, edges, nodes, chanID, c.db,
-		)
+		channel, err := fetchChannel(c.db, nodes, edges, edgeIndex, chanID)
 		if err != nil {
 			return err
 		}
 
-		policy1 = e1
-		policy2 = e2
+		edgeInfo = channel.Info
+		policy1 = channel.Policy1
+		policy2 = channel.Policy2
 		return nil
 	})
 	if err != nil {
@@ -2939,9 +2919,7 @@ func (c *ChannelGraph) FetchChannelEdgesByID(chanID uint64,
 		}
 
 		byteOrder.PutUint64(channelID[:], chanID)
-
-		// Now, attempt to fetch edge.
-		edge, err := fetchChanEdgeInfo(edgeIndex, channelID[:])
+		channel, err := fetchChannel(c.db, nodes, edges, edgeIndex, channelID[:])
 
 		// If it doesn't exist, we'll quickly check our zombie index to
 		// see if we've previously marked it as so.
@@ -2977,20 +2955,9 @@ func (c *ChannelGraph) FetchChannelEdgesByID(chanID uint64,
 			return err
 		}
 
-		edgeInfo = &edge
-		edgeInfo.db = c.db
-
-		// Then we'll attempt to fetch the accompanying policies of this
-		// edge.
-		e1, e2, err := fetchChanEdgePolicies(
-			edgeIndex, edges, nodes, channelID[:], c.db,
-		)
-		if err != nil {
-			return err
-		}
-
-		policy1 = e1
-		policy2 = e2
+		edgeInfo = channel.Info
+		policy1 = channel.Policy1
+		policy2 = channel.Policy2
 		return nil
 	})
 	if err == ErrZombieEdge {
@@ -3021,6 +2988,7 @@ func (c *ChannelGraph) IsPublicNode(pubKey [33]byte) (bool, error) {
 		if err != nil {
 			return err
 		}
+		node.db = c.db
 
 		nodeIsPublic, err = node.isPublic(tx, ourPubKey)
 		return err

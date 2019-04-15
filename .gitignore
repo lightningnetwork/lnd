@@ -33,6 +33,7 @@ _testmain.go
 
 # Integration test log files
 lntest/itest/output*.log
+lntest/itest/pprof*.log
 lntest/itest/.backendlogs
 lntest/itest/.minerlogs
 

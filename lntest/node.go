@@ -80,7 +80,12 @@ var (
 	// logOutput is a flag that can be set to append the output from the
 	// seed nodes to log files.
 	logOutput = flag.Bool("logoutput", false,
-		"log output from node n to file outputn.log")
+		"log output from node n to file output-n.log")
+
+	// goroutineDump is a flag that can be set to dump the active
+	// goroutines of test nodes on failure.
+	goroutineDump = flag.Bool("goroutinedump", false,
+		"write goroutine dump from node n to file pprof-n.log")
 )
 
 // generateListeningPorts returns three ints representing ports to listen on

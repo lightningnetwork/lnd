@@ -652,6 +652,11 @@ func (n *NetworkHarness) StopNode(node *HarnessNode) error {
 // SaveProfilesPages hits profiles pages of all active nodes and writes it to
 // disk using a similar naming scheme as to the regular set of logs.
 func (n *NetworkHarness) SaveProfilesPages() {
+	// Only write gorutine dumps if flag is active.
+	if !(*goroutineDump) {
+		return
+	}
+
 	for _, node := range n.activeNodes {
 		if err := saveProfilesPage(node); err != nil {
 			fmt.Println(err)

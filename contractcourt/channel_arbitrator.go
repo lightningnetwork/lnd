@@ -1214,26 +1214,10 @@ func (c *ChannelArbitrator) checkChainActions(height uint32,
 	// either learn of it eventually from the outgoing HTLC, or the sender
 	// will timeout the HTLC.
 	for _, htlc := range c.activeHTLCs.incomingHTLCs {
-		// If we have the pre-image, then we should go on-chain to
-		// redeem the HTLC immediately.
-		if _, ok := c.cfg.PreimageDB.LookupPreimage(htlc.RHash); ok {
-			log.Tracef("ChannelArbitrator(%v): preimage for "+
-				"htlc=%x is known!", c.cfg.ChanPoint,
-				htlc.RHash[:])
-
-			actionMap[HtlcClaimAction] = append(
-				actionMap[HtlcClaimAction], htlc,
-			)
-			continue
-		}
-
 		log.Tracef("ChannelArbitrator(%v): watching chain to decide "+
 			"action for incoming htlc=%x", c.cfg.ChanPoint,
 			htlc.RHash[:])
 
-		// Otherwise, we don't yet have the pre-image, but should watch
-		// on-chain to see if either: the remote party times out the
-		// HTLC, or we learn of the pre-image.
 		actionMap[HtlcIncomingWatchAction] = append(
 			actionMap[HtlcIncomingWatchAction], htlc,
 		)

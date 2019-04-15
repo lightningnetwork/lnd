@@ -2361,6 +2361,12 @@ func (d *AuthenticatedGossiper) isMsgStale(msg lnwire.Message) bool {
 			p = p2
 		}
 
+		// If the policy is still unknown, then we can consider this
+		// policy fresh.
+		if p == nil {
+			return false
+		}
+
 		timestamp := time.Unix(int64(msg.Timestamp), 0)
 		return p.LastUpdate.After(timestamp)
 

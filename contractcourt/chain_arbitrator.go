@@ -259,7 +259,7 @@ func newActiveChannelArbitrator(channel *channeldb.OpenChannel,
 			// Finally, we'll force close the channel completing
 			// the force close workflow.
 			chanMachine, err := lnwallet.NewLightningChannel(
-				c.cfg.Signer, c.cfg.PreimageDB, channel, nil,
+				c.cfg.Signer, channel, nil,
 			)
 			if err != nil {
 				return nil, err
@@ -375,7 +375,6 @@ func (c *ChainArbitrator) Start() error {
 			chainWatcherConfig{
 				chanState: channel,
 				notifier:  c.cfg.Notifier,
-				pCache:    c.cfg.PreimageDB,
 				signer:    c.cfg.Signer,
 				isOurAddr: c.cfg.IsOurAddress,
 				contractBreach: func(retInfo *lnwallet.BreachRetribution) error {
@@ -709,7 +708,6 @@ func (c *ChainArbitrator) WatchNewChannel(newChan *channeldb.OpenChannel) error 
 		chainWatcherConfig{
 			chanState: newChan,
 			notifier:  c.cfg.Notifier,
-			pCache:    c.cfg.PreimageDB,
 			signer:    c.cfg.Signer,
 			isOurAddr: c.cfg.IsOurAddress,
 			contractBreach: func(retInfo *lnwallet.BreachRetribution) error {

@@ -780,8 +780,6 @@ func TestCommitmentAndHTLCTransactions(t *testing.T) {
 		},
 	}
 
-	pCache := newMockPreimageCache()
-
 	for i, test := range testCases {
 		expectedCommitmentTx, err := txFromHex(test.expectedCommitmentTxHex)
 		if err != nil {
@@ -848,7 +846,7 @@ func TestCommitmentAndHTLCTransactions(t *testing.T) {
 		htlcResolutions, err := extractHtlcResolutions(
 			SatPerKWeight(test.commitment.FeePerKw), true, signer,
 			htlcs, keys, channel.localChanCfg, channel.remoteChanCfg,
-			commitTx.TxHash(), pCache,
+			commitTx.TxHash(),
 		)
 		if err != nil {
 			t.Errorf("Case %d: Failed to extract HTLC resolutions: %v", i, err)

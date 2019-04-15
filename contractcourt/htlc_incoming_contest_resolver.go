@@ -57,8 +57,11 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 		return nil, err
 	}
 
-	// If we're past the point of expiry of the HTLC, then at this point
-	// the sender can sweep it, so we'll end our lifetime.
+	// If we're past the point of expiry of the HTLC, then at this point the
+	// sender can sweep it, so we'll end our lifetime. Here we deliberately
+	// forego the chance that the sender doesn't sweep and we already have
+	// or will learn the preimage. Otherwise the resolver could potentially
+	// stay active indefinitely and the channel will never close properly.
 	if uint32(currentHeight) >= h.htlcExpiry {
 		// TODO(roasbeef): should also somehow check if outgoing is
 		// resolved or not

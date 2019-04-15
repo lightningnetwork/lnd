@@ -50,18 +50,32 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 		return nil, nil
 	}
 
-	// We'll first check if this HTLC has been timed out, if so, we can
-	// return now and mark ourselves as resolved.
-	_, currentHeight, err := h.ChainIO.GetBestBlock()
+	// Register for block epochs. After registration, the current height
+	// will be sent on the channel immediately.
+	blockEpochs, err := h.Notifier.RegisterBlockEpochNtfn(nil)
 	if err != nil {
 		return nil, err
 	}
+	defer blockEpochs.Cancel()
 
-	// If we're past the point of expiry of the HTLC, then at this point the
-	// sender can sweep it, so we'll end our lifetime. Here we deliberately
-	// forego the chance that the sender doesn't sweep and we already have
-	// or will learn the preimage. Otherwise the resolver could potentially
-	// stay active indefinitely and the channel will never close properly.
+	var currentHeight int32
+	select {
+	case newBlock, ok := <-blockEpochs.Epochs:
+		if !ok {
+			return nil, fmt.Errorf("quitting")
+		}
+		currentHeight = newBlock.Height
+	case <-h.Quit:
+		return nil, fmt.Errorf("resolver stopped")
+	}
+
+	// We'll first check if this HTLC has been timed out, if so, we can
+	// return now and mark ourselves as resolved. If we're past the point of
+	// expiry of the HTLC, then at this point the sender can sweep it, so
+	// we'll end our lifetime. Here we deliberately forego the chance that
+	// the sender doesn't sweep and we already have or will learn the
+	// preimage. Otherwise the resolver could potentially stay active
+	// indefinitely and the channel will never close properly.
 	if uint32(currentHeight) >= h.htlcExpiry {
 		// TODO(roasbeef): should also somehow check if outgoing is
 		// resolved or not
@@ -117,14 +131,7 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 	// ensure the preimage can't be delivered between querying and
 	// registering for the preimage subscription.
 	preimageSubscription := h.PreimageDB.SubscribeUpdates()
-	blockEpochs, err := h.Notifier.RegisterBlockEpochNtfn(nil)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		preimageSubscription.CancelSubscription()
-		blockEpochs.Cancel()
-	}()
+	defer preimageSubscription.CancelSubscription()
 
 	// Create a buffered hodl chan to prevent deadlock.
 	hodlChan := make(chan interface{}, 1)

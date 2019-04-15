@@ -2792,7 +2792,7 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 	expectedHeight := heightNow + minCltvDelta
 	switch {
 	case !l.cfg.DebugHTLC &&
-		invoice.Terms.State != channeldb.ContractAccepted &&
+		invoice.Terms.State == channeldb.ContractOpen &&
 		pd.Timeout < expectedHeight:
 
 		log.Errorf("Incoming htlc(%x) has an expiration that is too "+

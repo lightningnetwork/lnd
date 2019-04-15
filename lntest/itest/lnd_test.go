@@ -73,12 +73,16 @@ type harnessTest struct {
 	// testCase is populated during test execution and represents the
 	// current test case.
 	testCase *testCase
+
+	// lndHarness is a reference to the current network harness. Will be
+	// nil if not yet set up.
+	lndHarness *lntest.NetworkHarness
 }
 
 // newHarnessTest creates a new instance of a harnessTest from a regular
 // testing.T instance.
-func newHarnessTest(t *testing.T) *harnessTest {
-	return &harnessTest{t, nil}
+func newHarnessTest(t *testing.T, net *lntest.NetworkHarness) *harnessTest {
+	return &harnessTest{t, nil, net}
 }
 
 // Skipf calls the underlying testing.T's Skip method, causing the current test
@@ -91,6 +95,10 @@ func (h *harnessTest) Skipf(format string, args ...interface{}) {
 // integration tests should mark test failures solely with this method due to
 // the error stack traces it produces.
 func (h *harnessTest) Fatalf(format string, a ...interface{}) {
+	if h.lndHarness != nil {
+		h.lndHarness.SaveProfilesPages()
+	}
+
 	stacktrace := errors.Wrap(fmt.Sprintf(format, a...), 1).ErrorStack()
 
 	if h.testCase != nil {
@@ -103,8 +111,7 @@ func (h *harnessTest) Fatalf(format string, a ...interface{}) {
 
 // RunTestCase executes a harness test case. Any errors or panics will be
 // represented as fatal.
-func (h *harnessTest) RunTestCase(testCase *testCase,
-	net *lntest.NetworkHarness) {
+func (h *harnessTest) RunTestCase(testCase *testCase) {
 
 	h.testCase = testCase
 	defer func() {
@@ -119,7 +126,7 @@ func (h *harnessTest) RunTestCase(testCase *testCase,
 		}
 	}()
 
-	testCase.test(net, h)
+	testCase.test(h.lndHarness, h)
 
 	return
 }
@@ -13513,7 +13520,7 @@ func testChannelBackupRestore(net *lntest.NetworkHarness, t *harnessTest) {
 
 	for _, testCase := range testCases {
 		success := t.t.Run(testCase.name, func(t *testing.T) {
-			h := newHarnessTest(t)
+			h := newHarnessTest(t, net)
 			testChanRestoreScenario(h, net, &testCase, password)
 		})
 		if !success {
@@ -14267,7 +14274,7 @@ var testsCases = []*testCase{
 // TestLightningNetworkDaemon performs a series of integration tests amongst a
 // programmatically driven network of lnd nodes.
 func TestLightningNetworkDaemon(t *testing.T) {
-	ht := newHarnessTest(t)
+	ht := newHarnessTest(t, nil)
 
 	// Declare the network harness here to gain access to its
 	// 'OnTxAccepted' call back.
@@ -14391,8 +14398,8 @@ func TestLightningNetworkDaemon(t *testing.T) {
 		}
 
 		success := t.Run(testCase.name, func(t1 *testing.T) {
-			ht := newHarnessTest(t1)
-			ht.RunTestCase(testCase, lndHarness)
+			ht := newHarnessTest(t1, lndHarness)
+			ht.RunTestCase(testCase)
 		})
 
 		// Stop at the first failure. Mimic behavior of original test

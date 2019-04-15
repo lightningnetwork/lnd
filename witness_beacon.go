@@ -7,7 +7,6 @@ import (
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lntypes"
-	"github.com/lightningnetwork/lnd/lnwallet"
 )
 
 // preimageSubscriber reprints an active subscription to be notified once the
@@ -144,4 +143,3 @@ func (p *preimageBeacon) AddPreimages(preimages ...lntypes.Preimage) error {
 }
 
 var _ contractcourt.WitnessBeacon = (*preimageBeacon)(nil)
-var _ lnwallet.PreimageCache = (*preimageBeacon)(nil)

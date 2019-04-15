@@ -429,8 +429,7 @@ func (p *peer) QuitSignal() <-chan struct{} {
 func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 	for _, dbChan := range chans {
 		lnChan, err := lnwallet.NewLightningChannel(
-			p.server.cc.signer, p.server.witnessBeacon, dbChan,
-			p.server.sigPool,
+			p.server.cc.signer, dbChan, p.server.sigPool,
 		)
 		if err != nil {
 			return err
@@ -1789,8 +1788,7 @@ out:
 			// set of active channels, so we can look it up later
 			// easily according to its channel ID.
 			lnChan, err := lnwallet.NewLightningChannel(
-				p.server.cc.signer, p.server.witnessBeacon,
-				newChan, p.server.sigPool,
+				p.server.cc.signer, newChan, p.server.sigPool,
 			)
 			if err != nil {
 				p.activeChanMtx.Unlock()

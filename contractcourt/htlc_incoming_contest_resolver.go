@@ -2,6 +2,7 @@ package contractcourt
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 
@@ -94,10 +95,11 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 	// the preimage is revealed so the inner resolver can properly complete
 	// its duties. The boolean return value indicates whether the preimage
 	// was properly applied.
-	tryApplyPreimage := func(preimage lntypes.Preimage) bool {
-		// Check to see if this preimage matches our htlc.
+	applyPreimage := func(preimage lntypes.Preimage) error {
+		// Sanity check to see if this preimage matches our htlc. At
+		// this point it should never happen that it does not match.
 		if !preimage.Matches(h.payHash) {
-			return false
+			return errors.New("preimage does not match hash")
 		}
 
 		// Update htlcResolution with the matching preimage.
@@ -120,7 +122,7 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 			h.htlcResolution.SignedSuccessTx.TxIn[0].Witness[3] = preimage[:]
 		}
 
-		return true
+		return nil
 	}
 
 	// If the HTLC hasn't expired yet, then we may still be able to claim
@@ -148,9 +150,11 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 	// If the htlc can be settled directly, we can progress to the inner
 	// resolver immediately.
 	if event != nil && event.Preimage != nil {
-		if tryApplyPreimage(*event.Preimage) {
-			return &h.htlcSuccessResolver, nil
+		if err := applyPreimage(*event.Preimage); err != nil {
+			return nil, err
 		}
+
+		return &h.htlcSuccessResolver, nil
 	}
 
 	// With the epochs and preimage subscriptions initialized, we'll query
@@ -160,17 +164,25 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 		// If we do, then this means we can claim the HTLC!  However,
 		// we don't know how to ourselves, so we'll return our inner
 		// resolver which has the knowledge to do so.
-		if tryApplyPreimage(preimage) {
-			return &h.htlcSuccessResolver, nil
+		if err := applyPreimage(preimage); err != nil {
+			return nil, err
 		}
+
+		return &h.htlcSuccessResolver, nil
 	}
 
 	for {
 
 		select {
 		case preimage := <-preimageSubscription.WitnessUpdates:
-			if !tryApplyPreimage(preimage) {
+			// We receive all new preimages, so we need to ignore
+			// all except the preimage we are waiting for.
+			if !preimage.Matches(h.payHash) {
 				continue
+			}
+
+			if err := applyPreimage(preimage); err != nil {
+				return nil, err
 			}
 
 			// We've learned of the preimage and this information
@@ -186,9 +198,10 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 				continue
 			}
 
-			if !tryApplyPreimage(*hodlEvent.Preimage) {
-				continue
+			if err := applyPreimage(*event.Preimage); err != nil {
+				return nil, err
 			}
+
 			return &h.htlcSuccessResolver, nil
 
 		case newBlock, ok := <-blockEpochs.Epochs:

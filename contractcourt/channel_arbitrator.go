@@ -620,7 +620,10 @@ func (c *ChannelArbitrator) stateStep(triggerHeight uint32,
 		// chain, we'll check to see if we need to make any on-chain
 		// claims on behalf of the channel contract that we're
 		// arbitrating for.
-		chainActions := c.checkChainActions(triggerHeight, trigger)
+		chainActions, err := c.checkChainActions(triggerHeight, trigger)
+		if err != nil {
+			return StateError, closeTx, err
+		}
 
 		// If there are no actions to be made, then we'll remain in the
 		// default state. If this isn't a self initiated event (we're
@@ -1082,7 +1085,7 @@ func (c *ChannelArbitrator) shouldGoOnChain(htlcExpiry, broadcastDelta,
 // been sufficiently confirmed, the HTLC's should be canceled backwards. For
 // redeemed HTLC's, we should send the pre-image back to the incoming link.
 func (c *ChannelArbitrator) checkChainActions(height uint32,
-	trigger transitionTrigger) ChainActionMap {
+	trigger transitionTrigger) (ChainActionMap, error) {
 
 	// TODO(roasbeef): would need to lock channel? channel totem?
 	//  * race condition if adding and we broadcast, etc
@@ -1122,7 +1125,12 @@ func (c *ChannelArbitrator) checkChainActions(height uint32,
 		// know the pre-image and it's close to timing out. We need to
 		// ensure that we claim the funds that our rightfully ours
 		// on-chain.
-		if _, ok := c.cfg.PreimageDB.LookupPreimage(htlc.RHash); !ok {
+		preimageAvailable, err := c.isPreimageAvailable(htlc.RHash)
+		if err != nil {
+			return nil, err
+		}
+
+		if !preimageAvailable {
 			continue
 		}
 
@@ -1151,7 +1159,7 @@ func (c *ChannelArbitrator) checkChainActions(height uint32,
 	if !haveChainActions && trigger == chainTrigger {
 		log.Tracef("ChannelArbitrator(%v): no actions to take at "+
 			"height=%v", c.cfg.ChanPoint, height)
-		return actionMap
+		return actionMap, nil
 	}
 
 	// Now that we know we'll need to go on-chain, we'll examine all of our
@@ -1223,7 +1231,42 @@ func (c *ChannelArbitrator) checkChainActions(height uint32,
 		)
 	}
 
-	return actionMap
+	return actionMap, nil
+}
+
+// isPreimageAvailable returns whether the hash preimage is available in either
+// the preimage cache or the invoice database.
+func (c *ChannelArbitrator) isPreimageAvailable(hash lntypes.Hash) (bool,
+	error) {
+
+	// Start by checking the preimage cache for preimages of
+	// forwarded HTLCs.
+	_, preimageAvailable := c.cfg.PreimageDB.LookupPreimage(
+		hash,
+	)
+	if preimageAvailable {
+		return true, nil
+	}
+
+	// Then check if we have an invoice that can be settled by this HTLC.
+	//
+	// TODO(joostjager): Check that there are still more blocks remaining
+	// than the invoice cltv delta. We don't want to go to chain only to
+	// have the incoming contest resolver decide that we don't want to
+	// settle this invoice.
+	invoice, _, err := c.cfg.Registry.LookupInvoice(hash)
+	switch err {
+	case nil:
+	case channeldb.ErrInvoiceNotFound, channeldb.ErrNoInvoicesCreated:
+		return false, nil
+	default:
+		return false, err
+	}
+
+	preimageAvailable = invoice.Terms.PaymentPreimage !=
+		channeldb.UnknownPreimage
+
+	return preimageAvailable, nil
 }
 
 // prepContractResolutions is called either int he case that we decide we need

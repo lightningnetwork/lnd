@@ -6,11 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/lightningnetwork/lnd/zpay32"
 )
 
 var (
@@ -23,18 +21,15 @@ var (
 
 	hash = preimage.Hash()
 
-	// testPayReq is a dummy payment request that does parse properly. It
-	// has no relation with the real invoice parameters and isn't asserted
-	// on in this test. LookupInvoice requires this to have a valid value.
-	testPayReq = "lnbc500u1pwywxzwpp5nd2u9xzq02t0tuf2654as7vma42lwkcjptx4yzfq0umq4swpa7cqdqqcqzysmlpc9ewnydr8rr8dnltyxphdyf6mcqrsd6dml8zajtyhwe6a45d807kxtmzayuf0hh2d9tn478ecxkecdg7c5g85pntupug5kakm7xcpn63zqk"
+	testInvoiceExpiry = uint32(3)
+
+	testCurrentHeight = int32(0)
+
+	testFinalCltvRejectDelta = int32(3)
 )
 
 func decodeExpiry(payReq string) (uint32, error) {
-	invoice, err := zpay32.Decode(payReq, &chaincfg.MainNetParams)
-	if err != nil {
-		return 0, err
-	}
-	return uint32(invoice.MinFinalCLTVExpiry()), nil
+	return uint32(testInvoiceExpiry), nil
 }
 
 var (
@@ -43,7 +38,6 @@ var (
 			PaymentPreimage: preimage,
 			Value:           lnwire.MilliSatoshi(100000),
 		},
-		PaymentRequest: []byte(testPayReq),
 	}
 )
 
@@ -54,7 +48,7 @@ func newTestContext(t *testing.T) (*InvoiceRegistry, func()) {
 	}
 
 	// Instantiate and start the invoice registry.
-	registry := NewRegistry(cdb, decodeExpiry)
+	registry := NewRegistry(cdb, decodeExpiry, testFinalCltvRejectDelta)
 
 	err = registry.Start()
 	if err != nil {
@@ -121,7 +115,9 @@ func TestSettleInvoice(t *testing.T) {
 
 	// Settle invoice with a slightly higher amount.
 	amtPaid := lnwire.MilliSatoshi(100500)
-	_, err = registry.NotifyExitHopHtlc(hash, amtPaid, hodlChan)
+	_, err = registry.NotifyExitHopHtlc(
+		hash, amtPaid, testInvoiceExpiry, 0, hodlChan,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,13 +149,18 @@ func TestSettleInvoice(t *testing.T) {
 	}
 
 	// Try to settle again.
-	_, err = registry.NotifyExitHopHtlc(hash, amtPaid, hodlChan)
+	_, err = registry.NotifyExitHopHtlc(
+		hash, amtPaid, testInvoiceExpiry, testCurrentHeight, hodlChan,
+	)
 	if err != nil {
 		t.Fatal("expected duplicate settle to succeed")
 	}
 
 	// Try to settle again with a different amount.
-	_, err = registry.NotifyExitHopHtlc(hash, amtPaid+600, hodlChan)
+	_, err = registry.NotifyExitHopHtlc(
+		hash, amtPaid+600, testInvoiceExpiry, testCurrentHeight,
+		hodlChan,
+	)
 	if err != nil {
 		t.Fatal("expected duplicate settle to succeed")
 	}
@@ -274,7 +275,9 @@ func TestCancelInvoice(t *testing.T) {
 	// Notify arrival of a new htlc paying to this invoice. This should
 	// succeed.
 	hodlChan := make(chan interface{})
-	event, err := registry.NotifyExitHopHtlc(hash, amt, hodlChan)
+	event, err := registry.NotifyExitHopHtlc(
+		hash, amt, testInvoiceExpiry, testCurrentHeight, hodlChan,
+	)
 	if err != nil {
 		t.Fatal("expected settlement of a canceled invoice to succeed")
 	}
@@ -292,7 +295,7 @@ func TestHoldInvoice(t *testing.T) {
 	defer cleanup()
 
 	// Instantiate and start the invoice registry.
-	registry := NewRegistry(cdb, decodeExpiry)
+	registry := NewRegistry(cdb, decodeExpiry, testFinalCltvRejectDelta)
 
 	err = registry.Start()
 	if err != nil {
@@ -345,7 +348,9 @@ func TestHoldInvoice(t *testing.T) {
 
 	// NotifyExitHopHtlc without a preimage present in the invoice registry
 	// should be possible.
-	event, err := registry.NotifyExitHopHtlc(hash, amtPaid, hodlChan)
+	event, err := registry.NotifyExitHopHtlc(
+		hash, amtPaid, testInvoiceExpiry, testCurrentHeight, hodlChan,
+	)
 	if err != nil {
 		t.Fatalf("expected settle to succeed but got %v", err)
 	}
@@ -354,7 +359,9 @@ func TestHoldInvoice(t *testing.T) {
 	}
 
 	// Test idempotency.
-	event, err = registry.NotifyExitHopHtlc(hash, amtPaid, hodlChan)
+	event, err = registry.NotifyExitHopHtlc(
+		hash, amtPaid, testInvoiceExpiry, testCurrentHeight, hodlChan,
+	)
 	if err != nil {
 		t.Fatalf("expected settle to succeed but got %v", err)
 	}
@@ -433,4 +440,25 @@ func newDB() (*channeldb.DB, func(), error) {
 	}
 
 	return cdb, cleanUp, nil
+}
+
+// TestUnknownInvoice tests that invoice registry returns an error when the
+// invoice is unknown. This is to guard against returning a cancel hodl event
+// for forwarded htlcs. In the link, NotifyExitHopHtlc is only called if we are
+// the exit hop, but in htlcIncomingContestResolver it is called with forwarded
+// htlc hashes as well.
+func TestUnknownInvoice(t *testing.T) {
+	registry, cleanup := newTestContext(t)
+	defer cleanup()
+
+	// Notify arrival of a new htlc paying to this invoice. This should
+	// succeed.
+	hodlChan := make(chan interface{})
+	amt := lnwire.MilliSatoshi(100000)
+	_, err := registry.NotifyExitHopHtlc(
+		hash, amt, testInvoiceExpiry, testCurrentHeight, hodlChan,
+	)
+	if err != channeldb.ErrInvoiceNotFound {
+		t.Fatal("expected invoice not found error")
+	}
 }

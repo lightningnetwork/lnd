@@ -135,26 +135,50 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 	preimageSubscription := h.PreimageDB.SubscribeUpdates()
 	defer preimageSubscription.CancelSubscription()
 
-	// Create a buffered hodl chan to prevent deadlock.
-	hodlChan := make(chan interface{}, 1)
+	// Define closure to process hodl events either direct or triggered by
+	// later notifcation.
+	processHodlEvent := func(e invoices.HodlEvent) (ContractResolver,
+		error) {
 
-	// Notify registry that we are potentially settling as exit hop
-	// on-chain, so that we will get a hodl event when a corresponding hodl
-	// invoice is settled.
-	event, err := h.Registry.NotifyExitHopHtlc(h.payHash, h.htlcAmt, hodlChan)
-	if err != nil && err != channeldb.ErrInvoiceNotFound {
-		return nil, err
-	}
-	defer h.Registry.HodlUnsubscribeAll(hodlChan)
+		if e.Preimage == nil {
+			log.Infof("%T(%v): Exit hop HTLC canceled "+
+				"(expiry=%v, height=%v), abandoning", h,
+				h.htlcResolution.ClaimOutpoint,
+				h.htlcExpiry, currentHeight)
 
-	// If the htlc can be settled directly, we can progress to the inner
-	// resolver immediately.
-	if event != nil && event.Preimage != nil {
-		if err := applyPreimage(*event.Preimage); err != nil {
+			h.resolved = true
+			return nil, h.Checkpoint(h)
+		}
+
+		if err := applyPreimage(*e.Preimage); err != nil {
 			return nil, err
 		}
 
 		return &h.htlcSuccessResolver, nil
+	}
+
+	// Create a buffered hodl chan to prevent deadlock.
+	hodlChan := make(chan interface{}, 1)
+
+	// Notify registry that we are potentially resolving as an exit hop
+	// on-chain. If this HTLC indeed pays to an existing invoice, the
+	// invoice registry will tell us what to do with the HTLC. This is
+	// identical to HTLC resolution in the link.
+	event, err := h.Registry.NotifyExitHopHtlc(
+		h.payHash, h.htlcAmt, h.htlcExpiry, currentHeight,
+		hodlChan,
+	)
+	switch err {
+	case channeldb.ErrInvoiceNotFound:
+	case nil:
+		defer h.Registry.HodlUnsubscribeAll(hodlChan)
+
+		// Resolve the htlc directly if possible.
+		if event != nil {
+			return processHodlEvent(*event)
+		}
+	default:
+		return nil, err
 	}
 
 	// With the epochs and preimage subscriptions initialized, we'll query
@@ -193,16 +217,7 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 		case hodlItem := <-hodlChan:
 			hodlEvent := hodlItem.(invoices.HodlEvent)
 
-			// Only process settle events.
-			if hodlEvent.Preimage == nil {
-				continue
-			}
-
-			if err := applyPreimage(*event.Preimage); err != nil {
-				return nil, err
-			}
-
-			return &h.htlcSuccessResolver, nil
+			return processHodlEvent(hodlEvent)
 
 		case newBlock, ok := <-blockEpochs.Epochs:
 			if !ok {
@@ -211,8 +226,7 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 
 			// If this new height expires the HTLC, then this means
 			// we never found out the preimage, so we can mark
-			// resolved and
-			// exit.
+			// resolved and exit.
 			newHeight := uint32(newBlock.Height)
 			if newHeight >= h.htlcExpiry {
 				log.Infof("%T(%v): HTLC has timed out "+

@@ -235,13 +235,6 @@ type ChannelLinkConfig struct {
 	MinFeeUpdateTimeout time.Duration
 	MaxFeeUpdateTimeout time.Duration
 
-	// FinalCltvRejectDelta defines the number of blocks before the expiry
-	// of the htlc where we no longer settle it as an exit hop and instead
-	// cancel it back. Normally this value should be lower than the cltv
-	// expiry of any invoice we create and the code effectuating this should
-	// not be hit.
-	FinalCltvRejectDelta uint32
-
 	// OutgoingCltvRejectDelta defines the number of blocks before expiry of
 	// an htlc where we don't offer an htlc anymore. This should be at least
 	// the outgoing broadcast delta, because in any case we don't want to
@@ -1173,15 +1166,12 @@ func (l *channelLink) processHodlEvent(hodlEvent invoices.HodlEvent,
 	htlcs ...hodlHtlc) error {
 
 	hash := hodlEvent.Hash
-	if hodlEvent.Preimage == nil {
-		l.debugf("Received hodl cancel event for %v", hash)
-	} else {
-		l.debugf("Received hodl settle event for %v", hash)
-	}
 
 	// Determine required action for the resolution.
 	var hodlAction func(htlc hodlHtlc) error
 	if hodlEvent.Preimage != nil {
+		l.debugf("Received hodl settle event for %v", hash)
+
 		hodlAction = func(htlc hodlHtlc) error {
 			return l.settleHTLC(
 				*hodlEvent.Preimage, htlc.pd.HtlcIndex,
@@ -1189,10 +1179,30 @@ func (l *channelLink) processHodlEvent(hodlEvent invoices.HodlEvent,
 			)
 		}
 	} else {
+		l.debugf("Received hodl cancel event for %v, reason=%v",
+			hash, hodlEvent.CancelReason)
+
 		hodlAction = func(htlc hodlHtlc) error {
-			failure := lnwire.NewFailUnknownPaymentHash(
-				htlc.pd.Amount,
-			)
+			var failure lnwire.FailureMessage
+			switch hodlEvent.CancelReason {
+
+			case invoices.CancelAmountTooLow:
+				fallthrough
+			case invoices.CancelInvoiceUnknown:
+				fallthrough
+			case invoices.CancelInvoiceCanceled:
+				failure = lnwire.NewFailUnknownPaymentHash(
+					htlc.pd.Amount,
+				)
+
+			case invoices.CancelExpiryTooSoon:
+				failure = lnwire.FailFinalExpiryTooSoon{}
+
+			default:
+				return fmt.Errorf("unknown cancel reason: %v",
+					hodlEvent.CancelReason)
+			}
+
 			l.sendHTLCError(
 				htlc.pd.HtlcIndex, failure, htlc.obfuscator,
 				htlc.pd.SourceRef,
@@ -2739,94 +2749,14 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 		return false, nil
 	}
 
-	// First, we'll check the expiry of the HTLC itself against, the current
-	// block height. If the timeout is too soon, then we'll reject the HTLC.
-	if pd.Timeout <= heightNow+l.cfg.FinalCltvRejectDelta {
-		log.Errorf("htlc(%x) has an expiry that's too soon: expiry=%v"+
-			", best_height=%v", pd.RHash[:], pd.Timeout, heightNow)
-
-		failure := lnwire.NewFinalExpiryTooSoon()
-		l.sendHTLCError(pd.HtlcIndex, failure, obfuscator, pd.SourceRef)
-
-		return true, nil
-	}
-
-	// We're the designated payment destination.  Therefore we attempt to
-	// see if we have an invoice locally which'll allow us to settle this
-	// htlc.
-	//
-	// Only the immutable data from LookupInvoice is used, because otherwise
-	// a race condition may be created with concurrent writes to the invoice
-	// registry. For example: cancelation of an invoice.
-	invoiceHash := lntypes.Hash(pd.RHash)
-	invoice, minCltvDelta, err := l.cfg.Registry.LookupInvoice(invoiceHash)
-	if err != nil {
-		log.Errorf("unable to query invoice registry: %v", err)
-		failure := lnwire.NewFailUnknownPaymentHash(pd.Amount)
-		l.sendHTLCError(pd.HtlcIndex, failure, obfuscator, pd.SourceRef)
-
-		return true, nil
-	}
-
-	// If the invoice is already settled, we choose to accept the payment to
-	// simplify failure recovery.
-	//
-	// NOTE: Though our recovery and forwarding logic is predominately
-	// batched, settling invoices happens iteratively. We may reject one of
-	// two payments for the same rhash at first, but then restart and reject
-	// both after seeing that the invoice has been settled. Without any
-	// record of which one settles first, it is ambiguous as to which one
-	// actually settled the invoice. Thus, by accepting all payments, we
-	// eliminate the race condition that can lead to this inconsistency.
-	//
-	// TODO(conner): track ownership of settlements to properly recover from
-	// failures? or add batch invoice settlement
-	//
-	// TODO(joostjager): The log statement below is not always accurate, as
-	// the invoice may have been canceled after the LookupInvoice call.
-	// Leaving it as is for now, because fixing this would involve changing
-	// the signature of InvoiceRegistry.SettleInvoice just because of this
-	// log statement.
-	if invoice.Terms.State == channeldb.ContractSettled {
-		log.Warnf("Accepting duplicate payment for hash=%x",
-			pd.RHash[:])
-	}
-
-	// If we're not currently in debug mode, and the extended htlc doesn't
-	// meet the value requested, then we'll fail the htlc.  Otherwise, we
-	// settle this htlc within our local state update log, then send the
-	// update entry to the remote party.
-	//
-	// NOTE: We make an exception when the value requested by the invoice is
-	// zero. This means the invoice allows the payee to specify the amount
-	// of satoshis they wish to send.  So since we expect the htlc to have a
-	// different amount, we should not fail.
-	if !l.cfg.DebugHTLC && invoice.Terms.Value > 0 &&
-		pd.Amount < invoice.Terms.Value {
-
-		log.Errorf("rejecting htlc due to incorrect amount: expected "+
-			"%v, received %v", invoice.Terms.Value, pd.Amount)
-
-		failure := lnwire.NewFailUnknownPaymentHash(pd.Amount)
-		l.sendHTLCError(pd.HtlcIndex, failure, obfuscator, pd.SourceRef)
-
-		return true, nil
-	}
-
 	// As we're the exit hop, we'll double check the hop-payload included in
 	// the HTLC to ensure that it was crafted correctly by the sender and
 	// matches the HTLC we were extended.
-	//
-	// NOTE: We make an exception when the value requested by the invoice is
-	// zero. This means the invoice allows the payee to specify the amount
-	// of satoshis they wish to send.  So since we expect the htlc to have a
-	// different amount, we should not fail.
-	if !l.cfg.DebugHTLC && invoice.Terms.Value > 0 &&
-		fwdInfo.AmountToForward < invoice.Terms.Value {
+	if !l.cfg.DebugHTLC && pd.Amount != fwdInfo.AmountToForward {
 
 		log.Errorf("Onion payload of incoming htlc(%x) has incorrect "+
 			"value: expected %v, got %v", pd.RHash,
-			invoice.Terms.Value, fwdInfo.AmountToForward)
+			pd.Amount, fwdInfo.AmountToForward)
 
 		failure := lnwire.NewFailUnknownPaymentHash(pd.Amount)
 		l.sendHTLCError(pd.HtlcIndex, failure, obfuscator, pd.SourceRef)
@@ -2835,27 +2765,11 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 	}
 
 	// We'll also ensure that our time-lock value has been computed
-	// correctly. Only check the final cltv expiry for invoices when the
-	// invoice has not yet moved to the accepted state. Otherwise hodl htlcs
-	// would be canceled after a restart.
-	expectedHeight := heightNow + minCltvDelta
-	switch {
-	case !l.cfg.DebugHTLC &&
-		invoice.Terms.State == channeldb.ContractOpen &&
-		pd.Timeout < expectedHeight:
-
-		log.Errorf("Incoming htlc(%x) has an expiration that is too "+
-			"soon: expected at least %v, got %v",
-			pd.RHash[:], expectedHeight, pd.Timeout)
-
-		failure := lnwire.FailFinalExpiryTooSoon{}
-		l.sendHTLCError(pd.HtlcIndex, failure, obfuscator, pd.SourceRef)
-
-		return true, nil
-
-	case !l.cfg.DebugHTLC && pd.Timeout != fwdInfo.OutgoingCTLV:
-		log.Errorf("HTLC(%x) has incorrect time-lock: expected %v, "+
-			"got %v", pd.RHash[:], pd.Timeout, fwdInfo.OutgoingCTLV)
+	// correctly.
+	if !l.cfg.DebugHTLC && pd.Timeout != fwdInfo.OutgoingCTLV {
+		log.Errorf("Onion payload of incoming htlc(%x) has incorrect "+
+			"time-lock: expected %v, got %v",
+			pd.RHash[:], pd.Timeout, fwdInfo.OutgoingCTLV)
 
 		failure := lnwire.NewFinalIncorrectCltvExpiry(
 			fwdInfo.OutgoingCTLV,
@@ -2868,10 +2782,27 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 	// Notify the invoiceRegistry of the exit hop htlc. If we crash right
 	// after this, this code will be re-executed after restart. We will
 	// receive back a resolution event.
+	invoiceHash := lntypes.Hash(pd.RHash)
+
 	event, err := l.cfg.Registry.NotifyExitHopHtlc(
-		invoiceHash, pd.Amount, l.hodlQueue.ChanIn(),
+		invoiceHash, pd.Amount, pd.Timeout, int32(heightNow),
+		l.hodlQueue.ChanIn(),
 	)
-	if err != nil {
+
+	switch err {
+
+	// Cancel htlc if we don't have an invoice for it.
+	case channeldb.ErrInvoiceNotFound:
+		failure := lnwire.NewFailUnknownPaymentHash(pd.Amount)
+		l.sendHTLCError(pd.HtlcIndex, failure, obfuscator, pd.SourceRef)
+
+		return true, nil
+
+	// No error.
+	case nil:
+
+	// Pass error to caller.
+	default:
 		return false, err
 	}
 

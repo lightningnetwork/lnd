@@ -342,7 +342,10 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		readPool:       readPool,
 		chansToRestore: chansToRestore,
 
-		invoices: invoices.NewRegistry(chanDB, decodeFinalCltvExpiry),
+		invoices: invoices.NewRegistry(
+			chanDB, decodeFinalCltvExpiry,
+			defaultFinalCltvRejectDelta,
+		),
 
 		channelNotifier: channelnotifier.New(chanDB),
 
@@ -2556,7 +2559,6 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 	p, err := newPeer(
 		conn, connReq, s, peerAddr, inbound, localFeatures,
 		cfg.ChanEnableTimeout,
-		defaultFinalCltvRejectDelta,
 		defaultOutgoingCltvRejectDelta,
 	)
 	if err != nil {

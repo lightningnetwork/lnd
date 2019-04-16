@@ -10,7 +10,9 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntypes"
 )
 
 // testMultiHopHtlcRemoteChainClaim tests that in the multi-hop HTLC scenario,
@@ -24,22 +26,28 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 	// Carol refusing to actually settle or directly cancel any HTLC's
 	// self.
 	aliceChanPoint, bobChanPoint, carol := createThreeHopNetwork(
-		t, net, true,
+		t, net, false,
 	)
 
 	// Clean up carol's node when the test finishes.
 	defer shutdownAndAssert(net, t, carol)
 
-	// With the network active, we'll now add a new invoice at Carol's end.
+	// With the network active, we'll now add a new hodl invoice at Carol's
+	// end. Make sure the cltv expiry delta is large enough, otherwise Bob
+	// won't send out the outgoing htlc.
 	const invoiceAmt = 100000
-	invoiceReq := &lnrpc.Invoice{
+	preimage := lntypes.Preimage{1, 2, 5}
+	payHash := preimage.Hash()
+	invoiceReq := &invoicesrpc.AddHoldInvoiceRequest{
 		Value:      invoiceAmt,
 		CltvExpiry: 40,
+		Hash:       payHash[:],
 	}
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	carolInvoice, err := carol.AddInvoice(ctxt, invoiceReq)
+	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
+	defer cancel()
+	carolInvoice, err := carol.AddHoldInvoice(ctxt, invoiceReq)
 	if err != nil {
-		t.Fatalf("unable to generate carol invoice: %v", err)
+		t.Fatalf("unable to add invoice: %v", err)
 	}
 
 	// Now that we've created the invoice, we'll send a single payment from
@@ -59,12 +67,12 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 		t.Fatalf("unable to send payment: %v", err)
 	}
 
-	// We'll now wait until all 3 nodes have the HTLC as just sent fully
-	// locked in.
+	// At this point, all 3 nodes should now have an active channel with
+	// the created HTLC pending on all of them.
 	var predErr error
 	nodes := []*lntest.HarnessNode{net.Alice, net.Bob, carol}
 	err = lntest.WaitPredicate(func() bool {
-		predErr = assertActiveHtlcs(nodes, carolInvoice.RHash)
+		predErr = assertActiveHtlcs(nodes, payHash[:])
 		if predErr != nil {
 			return false
 		}
@@ -72,8 +80,13 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 		return true
 	}, time.Second*15)
 	if err != nil {
-		t.Fatalf("htlc mismatch: %v", err)
+		t.Fatalf("htlc mismatch: %v", predErr)
 	}
+
+	// Wait for carol to mark invoice as accepted. There is a small gap to
+	// bridge between adding the htlc to the channel and executing the exit
+	// hop logic.
+	waitForInvoiceAccepted(t, carol, payHash)
 
 	// Next, Alice decides that she wants to exit the channel, so she'll
 	// immediately force close the channel by broadcast her commitment
@@ -100,6 +113,26 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 	_, err = waitForTxInMempool(net.Miner.Node, minerMempoolTimeout)
 	if err != nil {
 		t.Fatalf("unable to find sweeping tx in mempool: %v", err)
+	}
+
+	// Suspend bob, so Carol is forced to go on chain.
+	restartBob, err := net.SuspendNode(net.Bob)
+	if err != nil {
+		t.Fatalf("unable to suspend bob: %v", err)
+	}
+
+	// Settle invoice. This will just mark the invoice as settled, as there
+	// is no link anymore to remove the htlc from the commitment tx. For
+	// this test, it is important to actually settle and not leave the
+	// invoice in the accepted state, because without a known preimage, the
+	// channel arbitrator won't go to chain.
+	ctx, cancel = context.WithTimeout(ctxb, defaultTimeout)
+	defer cancel()
+	_, err = carol.SettleInvoice(ctx, &invoicesrpc.SettleInvoiceMsg{
+		Preimage: preimage[:],
+	})
+	if err != nil {
+		t.Fatalf("settle invoice: %v", err)
 	}
 
 	// We'll now mine enough blocks so Carol decides that she needs to go
@@ -143,6 +176,11 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 			len(block.Transactions))
 	}
 	assertTxInBlock(t, block, commitHash)
+
+	// Restart bob again.
+	if err := restartBob(); err != nil {
+		t.Fatalf("unable to restart bob: %v", err)
+	}
 
 	// After the force close transacion is mined, Carol should broadcast
 	// her second level HTLC transacion. Bob will broadcast a sweep tx to

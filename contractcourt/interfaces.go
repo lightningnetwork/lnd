@@ -21,6 +21,7 @@ type Registry interface {
 	// htlc should be resolved. If the htlc cannot be resolved immediately,
 	// the resolution is sent on the passed in hodlChan later.
 	NotifyExitHopHtlc(payHash lntypes.Hash, paidAmount lnwire.MilliSatoshi,
+		expiry uint32, currentHeight int32,
 		hodlChan chan<- interface{}) (*invoices.HodlEvent, error)
 
 	// HodlUnsubscribeAll unsubscribes from all hodl events.

@@ -2,6 +2,7 @@ package invoices
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -27,12 +28,64 @@ var (
 	DebugHash = DebugPre.Hash()
 )
 
+// HtlcCancelReason defines reasons for which htlcs can be canceled.
+type HtlcCancelReason uint8
+
+const (
+	// CancelInvoiceUnknown is returned if the preimage is unknown.
+	CancelInvoiceUnknown HtlcCancelReason = iota
+
+	// CancelExpiryTooSoon is returned when the timelock of the htlc
+	// does not satisfy the invoice cltv expiry requirement.
+	CancelExpiryTooSoon
+
+	// CancelInvoiceCanceled is returned when the invoice is already
+	// canceled and can't be paid to anymore.
+	CancelInvoiceCanceled
+
+	// CancelAmountTooLow is returned when the amount paid is too low.
+	CancelAmountTooLow
+)
+
+// String returns a human readable identifier for the cancel reason.
+func (r HtlcCancelReason) String() string {
+	switch r {
+	case CancelInvoiceUnknown:
+		return "InvoiceUnknown"
+	case CancelExpiryTooSoon:
+		return "ExpiryTooSoon"
+	case CancelInvoiceCanceled:
+		return "InvoiceCanceled"
+	case CancelAmountTooLow:
+		return "CancelAmountTooLow"
+	default:
+		return "Unknown"
+	}
+}
+
+var (
+	// ErrInvoiceExpiryTooSoon is returned when an invoice is attempted to be
+	// accepted or settled with not enough blocks remaining.
+	ErrInvoiceExpiryTooSoon = errors.New("invoice expiry too soon")
+
+	// ErrInvoiceAmountTooLow is returned  when an invoice is attempted to be
+	// accepted or settled with an amount that is too low.
+	ErrInvoiceAmountTooLow = errors.New("paid amount less than invoice amount")
+)
+
 // HodlEvent describes how an htlc should be resolved. If HodlEvent.Preimage is
 // set, the event indicates a settle event. If Preimage is nil, it is a cancel
 // event.
 type HodlEvent struct {
+	// Preimage is the htlc preimage. Its value is nil in case of a cancel.
 	Preimage *lntypes.Preimage
-	Hash     lntypes.Hash
+
+	// Hash is the htlc hash.
+	Hash lntypes.Hash
+
+	// CancelReason specifies the reason why invoice registry decided to
+	// cancel the htlc.
+	CancelReason HtlcCancelReason
 }
 
 // InvoiceRegistry is a central registry of all the outstanding invoices
@@ -70,6 +123,13 @@ type InvoiceRegistry struct {
 	// is used to unsubscribe from all hashes efficiently.
 	hodlReverseSubscriptions map[chan<- interface{}]map[lntypes.Hash]struct{}
 
+	// finalCltvRejectDelta defines the number of blocks before the expiry
+	// of the htlc where we no longer settle it as an exit hop and instead
+	// cancel it back. Normally this value should be lower than the cltv
+	// expiry of any invoice we create and the code effectuating this should
+	// not be hit.
+	finalCltvRejectDelta int32
+
 	wg   sync.WaitGroup
 	quit chan struct{}
 }
@@ -79,7 +139,7 @@ type InvoiceRegistry struct {
 // layer. The in-memory layer is in place such that debug invoices can be added
 // which are volatile yet available system wide within the daemon.
 func NewRegistry(cdb *channeldb.DB, decodeFinalCltvExpiry func(invoice string) (
-	uint32, error)) *InvoiceRegistry {
+	uint32, error), finalCltvRejectDelta int32) *InvoiceRegistry {
 
 	return &InvoiceRegistry{
 		cdb:                       cdb,
@@ -93,6 +153,7 @@ func NewRegistry(cdb *channeldb.DB, decodeFinalCltvExpiry func(invoice string) (
 		hodlSubscriptions:         make(map[lntypes.Hash]map[chan<- interface{}]struct{}),
 		hodlReverseSubscriptions:  make(map[chan<- interface{}]map[lntypes.Hash]struct{}),
 		decodeFinalCltvExpiry:     decodeFinalCltvExpiry,
+		finalCltvRejectDelta:      finalCltvRejectDelta,
 		quit:                      make(chan struct{}),
 	}
 }
@@ -460,6 +521,35 @@ func (i *InvoiceRegistry) LookupInvoice(rHash lntypes.Hash) (channeldb.Invoice, 
 	return invoice, expiry, nil
 }
 
+// checkHtlcParameters is a callback used inside invoice db transactions to
+// atomically check-and-update an invoice.
+func (i *InvoiceRegistry) checkHtlcParameters(invoice *channeldb.Invoice,
+	amtPaid lnwire.MilliSatoshi, htlcExpiry uint32, currentHeight int32) error {
+
+	expiry, err := i.decodeFinalCltvExpiry(string(invoice.PaymentRequest))
+	if err != nil {
+		return err
+	}
+
+	if htlcExpiry < uint32(currentHeight+i.finalCltvRejectDelta) {
+		return ErrInvoiceExpiryTooSoon
+	}
+
+	if htlcExpiry < uint32(currentHeight)+expiry {
+		return ErrInvoiceExpiryTooSoon
+	}
+
+	// If an invoice amount is specified, check that enough is paid. This
+	// check is only performed for open invoices. Once a sufficiently large
+	// payment has been made and the invoice is in the accepted or settled
+	// state, any amount will be accepted on top of that.
+	if invoice.Terms.Value > 0 && amtPaid < invoice.Terms.Value {
+		return ErrInvoiceAmountTooLow
+	}
+
+	return nil
+}
+
 // NotifyExitHopHtlc attempts to mark an invoice as settled. If the invoice is a
 // debug invoice, then this method is a noop as debug invoices are never fully
 // settled. The return value describes how the htlc should be resolved.
@@ -472,48 +562,96 @@ func (i *InvoiceRegistry) LookupInvoice(rHash lntypes.Hash) (channeldb.Invoice, 
 // the channel is either buffered or received on from another goroutine to
 // prevent deadlock.
 func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
-	amtPaid lnwire.MilliSatoshi, hodlChan chan<- interface{}) (
-	*HodlEvent, error) {
+	amtPaid lnwire.MilliSatoshi, expiry uint32, currentHeight int32,
+	hodlChan chan<- interface{}) (*HodlEvent, error) {
 
 	i.Lock()
 	defer i.Unlock()
 
-	log.Debugf("Invoice(%x): htlc accepted", rHash[:])
-
-	createEvent := func(preimage *lntypes.Preimage) *HodlEvent {
-		return &HodlEvent{
-			Hash:     rHash,
-			Preimage: preimage,
-		}
+	debugLog := func(s string) {
+		log.Debugf("Invoice(%x): %v, amt=%v, expiry=%v",
+			rHash[:], s, amtPaid, expiry)
 	}
-
 	// First check the in-memory debug invoice index to see if this is an
 	// existing invoice added for debugging.
 	if invoice, ok := i.debugInvoices[rHash]; ok {
+		debugLog("payment to debug invoice accepted")
+
 		// Debug invoices are never fully settled, so we just settle the
 		// htlc in this case.
-		return createEvent(&invoice.Terms.PaymentPreimage), nil
+		return &HodlEvent{
+			Hash:     rHash,
+			Preimage: &invoice.Terms.PaymentPreimage,
+		}, nil
 	}
 
 	// If this isn't a debug invoice, then we'll attempt to settle an
 	// invoice matching this rHash on disk (if one exists).
-	invoice, err := i.cdb.AcceptOrSettleInvoice(rHash, amtPaid)
+	invoice, err := i.cdb.AcceptOrSettleInvoice(
+		rHash, amtPaid,
+		func(inv *channeldb.Invoice) error {
+			return i.checkHtlcParameters(
+				inv, amtPaid, expiry, currentHeight,
+			)
+		},
+	)
 	switch err {
 
 	// If invoice is already settled, settle htlc. This means we accept more
 	// payments to the same invoice hash.
+	//
+	// NOTE: Though our recovery and forwarding logic is predominately
+	// batched, settling invoices happens iteratively. We may reject one of
+	// two payments for the same rhash at first, but then restart and reject
+	// both after seeing that the invoice has been settled. Without any
+	// record of which one settles first, it is ambiguous as to which one
+	// actually settled the invoice. Thus, by accepting all payments, we
+	// eliminate the race condition that can lead to this inconsistency.
+	//
+	// TODO(conner): track ownership of settlements to properly recover from
+	// failures? or add batch invoice settlement
 	case channeldb.ErrInvoiceAlreadySettled:
-		return createEvent(&invoice.Terms.PaymentPreimage), nil
+		debugLog("accepting duplicate payment to settled invoice")
+
+		return &HodlEvent{
+			Hash:     rHash,
+			Preimage: &invoice.Terms.PaymentPreimage,
+		}, nil
 
 	// If invoice is already canceled, cancel htlc.
 	case channeldb.ErrInvoiceAlreadyCanceled:
-		return createEvent(nil), nil
+		debugLog("invoice already canceled")
+
+		return &HodlEvent{
+			Hash:         rHash,
+			CancelReason: CancelInvoiceCanceled,
+		}, nil
 
 	// If invoice is already accepted, add this htlc to the list of
 	// subscribers.
 	case channeldb.ErrInvoiceAlreadyAccepted:
+		debugLog("accepting duplicate payment to accepted invoice")
+
 		i.hodlSubscribe(hodlChan, rHash)
 		return nil, nil
+
+	// If there are not enough blocks left, cancel the htlc.
+	case ErrInvoiceExpiryTooSoon:
+		debugLog("expiry too soon")
+
+		return &HodlEvent{
+			Hash:         rHash,
+			CancelReason: CancelExpiryTooSoon,
+		}, nil
+
+		// If there are not enough blocks left, cancel the htlc.
+	case ErrInvoiceAmountTooLow:
+		debugLog("amount too low")
+
+		return &HodlEvent{
+			Hash:         rHash,
+			CancelReason: CancelAmountTooLow,
+		}, nil
 
 	// If this call settled the invoice, settle the htlc. Otherwise
 	// subscribe for a future hodl event.
@@ -521,10 +659,15 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 		i.notifyClients(rHash, invoice, invoice.Terms.State)
 		switch invoice.Terms.State {
 		case channeldb.ContractSettled:
-			log.Debugf("Invoice(%x): settled", rHash[:])
+			debugLog("settled")
 
-			return createEvent(&invoice.Terms.PaymentPreimage), nil
+			return &HodlEvent{
+				Hash:     rHash,
+				Preimage: &invoice.Terms.PaymentPreimage,
+			}, nil
 		case channeldb.ContractAccepted:
+			debugLog("accepted")
+
 			// Subscribe to updates to this invoice.
 			i.hodlSubscribe(hodlChan, rHash)
 			return nil, nil
@@ -534,6 +677,8 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 		}
 
 	default:
+		debugLog(err.Error())
+
 		return nil, err
 	}
 }
@@ -584,7 +729,8 @@ func (i *InvoiceRegistry) CancelInvoice(payHash lntypes.Hash) error {
 
 	log.Debugf("Invoice(%v): canceled", payHash)
 	i.notifyHodlSubscribers(HodlEvent{
-		Hash: payHash,
+		Hash:         payHash,
+		CancelReason: CancelInvoiceCanceled,
 	})
 	i.notifyClients(payHash, invoice, channeldb.ContractCanceled)
 

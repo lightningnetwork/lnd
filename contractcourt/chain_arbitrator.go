@@ -12,7 +12,6 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
-	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/sweep"
@@ -146,7 +145,7 @@ type ChainArbitratorConfig struct {
 
 	// Registry is the invoice database that is used by resolvers to lookup
 	// preimages and settle invoices.
-	Registry *invoices.InvoiceRegistry
+	Registry Registry
 
 	// NotifyClosedChannel is a function closure that the ChainArbitrator
 	// will use to notify the ChannelNotifier about a newly closed channel.

@@ -16,6 +16,8 @@ import (
 	"sync"
 	"syscall"
 
+	"github.com/lightningnetwork/lnd/lntypes"
+
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/golang/protobuf/jsonpb"
@@ -2113,6 +2115,75 @@ func retrieveFeeLimit(ctx *cli.Context) (*lnrpc.FeeLimit, error) {
 	return nil, nil
 }
 
+func confirmPayReqProbed(payReq *lnrpc.PayReq, amt int64, route *lnrpc.Route,
+	currentHeight int32, aliases map[string]string) error {
+	// If the amount was not included in the invoice, then we let
+	// the payee specify the amount of satoshis they wish to send.
+	reqAmt := payReq.GetNumSatoshis()
+	if reqAmt == 0 {
+		if amt == 0 {
+			return fmt.Errorf("amount must be specified when " +
+				"paying a zero amount invoice")
+		}
+		reqAmt = amt
+	}
+
+	var hops strings.Builder
+	for _, hop := range route.Hops {
+		hops.WriteString("-> ")
+		alias, ok := aliases[hop.PubKey]
+		if !ok {
+			alias = hop.PubKey[:6]
+		}
+		hops.WriteString(alias)
+		if hop.FeeMsat != 0 {
+			hops.WriteString(
+				fmt.Sprintf(
+					" (fee %v) ",
+					msatToText(hop.FeeMsat),
+				),
+			)
+		}
+	}
+
+	delta := int32(route.TotalTimeLock) - currentHeight
+
+	fmt.Printf("Description: %v\n", payReq.GetDescription())
+	fmt.Printf("Amount (in satoshis): %v\n", reqAmt)
+	fmt.Printf("Destination: %v\n", payReq.GetDestination())
+	fmt.Printf("Route:\n")
+	fmt.Printf("   Fee:       %v\n", msatToText(route.TotalFeesMsat))
+	fmt.Printf("   Time lock: %v (%v blocks, ~%v)\n",
+		route.TotalTimeLock, delta, durationToText(delta))
+	fmt.Printf("   Hops:      %v\n", hops.String())
+
+	fmt.Println()
+	confirm := promptForConfirmation("Confirm payment (yes/no): ")
+	if !confirm {
+		return fmt.Errorf("payment not confirmed")
+	}
+
+	return nil
+}
+
+func msatToText(msat int64) string {
+	if msat < 1000 {
+		return "< 1"
+	}
+	return strconv.FormatInt(msat/1000, 10)
+}
+
+func durationToText(blocks int32) string {
+	switch {
+	case blocks <= 9:
+		return fmt.Sprintf("%v mins", blocks*10)
+	case blocks <= 48*6:
+		return fmt.Sprintf("%v hours", blocks/6)
+	default:
+		return fmt.Sprintf("%v days", blocks/(6*24))
+	}
+}
+
 func confirmPayReq(ctx *cli.Context, client lnrpc.LightningClient, payReq string) error {
 	ctxb := context.Background()
 
@@ -2362,6 +2433,41 @@ func payInvoice(ctx *cli.Context) error {
 		return fmt.Errorf("pay_req argument missing")
 	}
 
+	decodeResp, err := client.DecodePayReq(context.Background(),
+		&lnrpc.PayReqString{
+			PayReq: payReq,
+		},
+	)
+	if err != nil {
+		return err
+	}
+
+	hash, err := lntypes.MakeHashFromStr(decodeResp.PaymentHash)
+	if err != nil {
+		return err
+	}
+
+	info, err := client.GetInfo(context.Background(), &lnrpc.GetInfoRequest{})
+	if err != nil {
+		return err
+	}
+
+	graph, err := client.DescribeGraph(context.Background(),
+		&lnrpc.ChannelGraphRequest{})
+	if err != nil {
+		return err
+	}
+
+	aliases := make(map[string]string)
+	for _, node := range graph.Nodes {
+		alias := node.Alias
+		if alias != "" {
+			alias = alias + "-"
+		}
+		alias = alias + node.PubKey[:6]
+		aliases[node.PubKey] = alias
+	}
+
 	feeLimit, err := retrieveFeeLimit(ctx)
 	if err != nil {
 		return err
@@ -2370,35 +2476,62 @@ func payInvoice(ctx *cli.Context) error {
 	probe := ctx.Bool("probe")
 	estimateFee := ctx.Bool("estimatefee")
 
-	var mode lnrpc.PaymentMode
-	switch {
-	case !probe && !estimateFee:
-		mode = lnrpc.PaymentMode_PAY_DIRECT
-	case probe && !estimateFee:
-		mode = lnrpc.PaymentMode_PAY_PROBE
-	case !probe && estimateFee:
-		mode = lnrpc.PaymentMode_PROBE_ONLY
-	default:
-		return errors.New("cannot use probe and estimatefee flags at the same time")
-	}
-
 	req := &lnrpc.SendRequest{
 		PaymentRequest: payReq,
 		Amt:            ctx.Int64("amt"),
 		FeeLimit:       feeLimit,
 		OutgoingChanId: ctx.Uint64("outgoing_chan_id"),
 		CltvLimit:      uint32(ctx.Int(cltvLimitFlag.Name)),
-		Mode:           mode,
 	}
 
-	if !ctx.Bool("force") && mode != lnrpc.PaymentMode_PROBE_ONLY {
-		err = confirmPayReq(ctx, client, payReq)
+	switch {
+	case !probe && !estimateFee:
+		req.Mode = lnrpc.PaymentMode_PAY_DIRECT
+
+		if !ctx.Bool("force") {
+			err = confirmPayReq(ctx, client, payReq)
+			if err != nil {
+				return err
+			}
+		}
+
+		return sendPaymentRequest(client, req)
+
+	case probe && !estimateFee:
+		req.Mode = lnrpc.PaymentMode_PROBE_ONLY
+
+		resp, err := client.SendPaymentSync(context.Background(), req)
 		if err != nil {
 			return err
 		}
+
+		if resp.PaymentError != "" {
+			return errors.New(resp.PaymentError)
+		}
+
+		err = confirmPayReqProbed(
+			decodeResp, ctx.Int64("amt"), resp.PaymentRoute,
+			int32(info.BlockHeight), aliases,
+		)
+		if err != nil {
+			return err
+		}
+
+		req := &lnrpc.SendToRouteRequest{
+			PaymentHash: hash[:],
+			Routes:      []*lnrpc.Route{resp.PaymentRoute},
+		}
+
+		return sendToRouteRequest(ctx, req)
+
+	case !probe && estimateFee:
+		req.Mode = lnrpc.PaymentMode_PROBE_ONLY
+
+		return sendPaymentRequest(client, req)
+	default:
+		return errors.New("cannot use probe and estimatefee flags at the same time")
 	}
 
-	return sendPaymentRequest(client, req)
 }
 
 var sendToRouteCommand = cli.Command{

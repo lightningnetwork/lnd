@@ -1122,7 +1122,30 @@ func (c *ChannelArbitrator) checkChainActions(height uint32,
 		// know the pre-image and it's close to timing out. We need to
 		// ensure that we claim the funds that our rightfully ours
 		// on-chain.
-		if _, ok := c.cfg.PreimageDB.LookupPreimage(htlc.RHash); !ok {
+		//
+		// Start by checking the preimage cache for preimages of
+		// forwarded HTLCs.
+		_, preimageAvailable := c.cfg.PreimageDB.LookupPreimage(
+			htlc.RHash,
+		)
+
+		// Then check if we have an invoice that can be settled by this
+		// HTLC.
+		//
+		// TODO: Check that there are still more blocks remaining than
+		// the invoice cltv delta. We don't want to go to chain only to
+		// have the incoming contest resolver decide that we don't want
+		// to settle this invoice.
+		invoice, _, err := c.cfg.Registry.LookupInvoice(htlc.RHash)
+		if err == nil {
+			if invoice.Terms.PaymentPreimage !=
+				channeldb.UnknownPreimage {
+
+				preimageAvailable = true
+			}
+		}
+
+		if !preimageAvailable {
 			continue
 		}
 

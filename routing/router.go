@@ -2256,9 +2256,21 @@ func (r *ChannelRouter) IsStaleEdgePolicy(chanID lnwire.ShortChannelID,
 
 	}
 
-	// If we know of the edge as a zombie, then we'll check the timestamp of
-	// this message to determine whether it's fresh.
+	// If we know of the edge as a zombie, then we'll make some additional
+	// checks to determine if the new policy is fresh.
 	if isZombie {
+		// When running with AssumeChannelValid, we also prune channels
+		// if both of their edges are disabled. We'll mark the new
+		// policy as stale if it remains disabled.
+		if r.cfg.AssumeChannelValid {
+			isDisabled := flags&lnwire.ChanUpdateDisabled ==
+				lnwire.ChanUpdateDisabled
+			if isDisabled {
+				return true
+			}
+		}
+
+		// Otherwise, we'll fall back to our usual ChannelPruneExpiry.
 		return time.Since(timestamp) > r.cfg.ChannelPruneExpiry
 	}
 

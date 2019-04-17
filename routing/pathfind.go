@@ -693,11 +693,16 @@ func findPath(g *graphParams, r *RestrictParams, source, target Vertex,
 			edgeBandwidth, ok := g.bandwidthHints[edgeInfo.ChannelID]
 			if !ok {
 				// If we don't have a hint for this edge, then
-				// we'll just use the known Capacity as the
-				// available bandwidth.
-				edgeBandwidth = lnwire.NewMSatFromSatoshis(
-					edgeInfo.Capacity,
-				)
+				// we'll just use the known Capacity/MaxHTLC as
+				// the available bandwidth. It's possible for
+				// the capacity to be unknown when operating
+				// under a light client.
+				edgeBandwidth = inEdge.MaxHTLC
+				if edgeBandwidth == 0 {
+					edgeBandwidth = lnwire.NewMSatFromSatoshis(
+						edgeInfo.Capacity,
+					)
+				}
 			}
 
 			// Before we can process the edge, we'll need to fetch

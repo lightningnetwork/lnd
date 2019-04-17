@@ -17,6 +17,7 @@ import (
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -253,10 +254,13 @@ type fundingConfig struct {
 	// announcement from the backing Lightning Network node.
 	CurrentNodeAnnouncement func() (lnwire.NodeAnnouncement, error)
 
-	// SendAnnouncement is used by the FundingManager to send
-	// announcement messages to the Gossiper to possibly broadcast
-	// to the greater network.
-	SendAnnouncement func(msg lnwire.Message) chan error
+	// SendAnnouncement is used by the FundingManager to send announcement
+	// messages to the Gossiper to possibly broadcast to the greater
+	// network. A set of optional message fields can be provided to populate
+	// any information within the graph that is not included in the gossip
+	// message.
+	SendAnnouncement func(msg lnwire.Message,
+		optionalFields ...discovery.OptionalMsgField) chan error
 
 	// NotifyWhenOnline allows the FundingManager to register with a
 	// subsystem that will notify it when the peer comes online. This is
@@ -2140,7 +2144,10 @@ func (f *fundingManager) addToRouterGraph(completeChan *channeldb.OpenChannel,
 
 	// Send ChannelAnnouncement and ChannelUpdate to the gossiper to add
 	// to the Router's topology.
-	errChan := f.cfg.SendAnnouncement(ann.chanAnn)
+	errChan := f.cfg.SendAnnouncement(
+		ann.chanAnn, discovery.ChannelCapacity(completeChan.Capacity),
+		discovery.ChannelPoint(completeChan.FundingOutpoint),
+	)
 	select {
 	case err := <-errChan:
 		if err != nil {

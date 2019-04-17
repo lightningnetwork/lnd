@@ -1013,7 +1013,6 @@ func (r *ChannelRouter) assertNodeAnnFreshness(node Vertex,
 // state of the draft due to either being out of date, invalid, or redundant,
 // then error is returned.
 func (r *ChannelRouter) processUpdate(msg interface{}) error {
-
 	switch msg := msg.(type) {
 	case *channeldb.LightningNode:
 		// Before we add the node to the database, we'll check to see
@@ -1060,11 +1059,26 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 				"chan_id=%v", msg.ChannelID)
 		}
 
+		// If AssumeChannelValid is present, then we are unable to
+		// perform any of the expensive checks below, so we'll
+		// short-circuit our path straight to adding the edge to our
+		// graph.
+		if r.cfg.AssumeChannelValid {
+			if err := r.cfg.Graph.AddChannelEdge(msg); err != nil {
+				return fmt.Errorf("unable to add edge: %v", err)
+			}
+			log.Infof("New channel discovered! Link "+
+				"connects %x and %x with ChannelID(%v)",
+				msg.NodeKey1Bytes, msg.NodeKey2Bytes,
+				msg.ChannelID)
+			break
+		}
+
 		// Before we can add the channel to the channel graph, we need
 		// to obtain the full funding outpoint that's encoded within
 		// the channel ID.
 		channelID := lnwire.NewShortChanIDFromInt(msg.ChannelID)
-		fundingPoint, fundingTxOut, err := r.fetchChanPoint(&channelID)
+		fundingPoint, _, err := r.fetchChanPoint(&channelID)
 		if err != nil {
 			r.rejectMtx.Lock()
 			r.rejectCache[msg.ChannelID] = struct{}{}
@@ -1088,28 +1102,20 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 			return err
 		}
 
-		var chanUtxo *wire.TxOut
-		if r.cfg.AssumeChannelValid {
-			// If AssumeChannelValid is present, we'll just use the
-			// txout returned from fetchChanPoint.
-			chanUtxo = fundingTxOut
-		} else {
-			// Now that we have the funding outpoint of the channel,
-			// ensure that it hasn't yet been spent. If so, then
-			// this channel has been closed so we'll ignore it.
-			chanUtxo, err = r.cfg.Chain.GetUtxo(
-				fundingPoint, fundingPkScript,
-				channelID.BlockHeight,
-			)
-			if err != nil {
-				r.rejectMtx.Lock()
-				r.rejectCache[msg.ChannelID] = struct{}{}
-				r.rejectMtx.Unlock()
+		// Now that we have the funding outpoint of the channel, ensure
+		// that it hasn't yet been spent. If so, then this channel has
+		// been closed so we'll ignore it.
+		chanUtxo, err := r.cfg.Chain.GetUtxo(
+			fundingPoint, fundingPkScript, channelID.BlockHeight,
+		)
+		if err != nil {
+			r.rejectMtx.Lock()
+			r.rejectCache[msg.ChannelID] = struct{}{}
+			r.rejectMtx.Unlock()
 
-				return errors.Errorf("unable to fetch utxo "+
-					"for chan_id=%v, chan_point=%v: %v",
-					msg.ChannelID, fundingPoint, err)
-			}
+			return fmt.Errorf("unable to fetch utxo "+
+				"for chan_id=%v, chan_point=%v: %v",
+				msg.ChannelID, fundingPoint, err)
 		}
 
 		// By checking the equality of witness pkscripts we checks that
@@ -1137,23 +1143,21 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 			fundingPoint, msg.ChannelID, msg.Capacity)
 
 		// As a new edge has been added to the channel graph, we'll
-		// update the current UTXO filter, if AssumeChannelValid is not
-		// present, within our active FilteredChainView so we are
-		// notified if/when this channel is closed.
-		if !r.cfg.AssumeChannelValid {
-			filterUpdate := []channeldb.EdgePoint{
-				{
-					FundingPkScript: fundingPkScript,
-					OutPoint:        *fundingPoint,
-				},
-			}
-			err = r.cfg.ChainView.UpdateFilter(
-				filterUpdate, atomic.LoadUint32(&r.bestHeight),
-			)
-			if err != nil {
-				return errors.Errorf("unable to update chain "+
-					"view: %v", err)
-			}
+		// update the current UTXO filter within our active
+		// FilteredChainView so we are notified if/when this channel is
+		// closed.
+		filterUpdate := []channeldb.EdgePoint{
+			{
+				FundingPkScript: fundingPkScript,
+				OutPoint:        *fundingPoint,
+			},
+		}
+		err = r.cfg.ChainView.UpdateFilter(
+			filterUpdate, atomic.LoadUint32(&r.bestHeight),
+		)
+		if err != nil {
+			return errors.Errorf("unable to update chain "+
+				"view: %v", err)
 		}
 
 	case *channeldb.ChannelEdgePolicy:

@@ -305,6 +305,7 @@ type testChannelPolicy struct {
 	FeeBaseMsat lnwire.MilliSatoshi
 	FeeRate     lnwire.MilliSatoshi
 	LastUpdate  time.Time
+	Disabled    bool
 }
 
 type testChannelEnd struct {
@@ -322,6 +323,7 @@ func defaultTestChannelEnd(alias string, capacity btcutil.Amount) *testChannelEn
 			FeeBaseMsat: lnwire.MilliSatoshi(1000),
 			FeeRate:     lnwire.MilliSatoshi(1),
 			LastUpdate:  testTime,
+			Disabled:    false,
 		},
 	}
 }
@@ -496,12 +498,16 @@ func createTestGraphFromChannels(testChannels []*testChannel) (*testGraphInstanc
 		if testChannel.Node1.testChannelPolicy != nil {
 			var msgFlags lnwire.ChanUpdateMsgFlags
 			if testChannel.Node1.MaxHTLC != 0 {
-				msgFlags = 1
+				msgFlags |= lnwire.ChanUpdateOptionMaxHtlc
+			}
+			var channelFlags lnwire.ChanUpdateChanFlags
+			if testChannel.Node1.Disabled {
+				channelFlags |= lnwire.ChanUpdateDisabled
 			}
 			edgePolicy := &channeldb.ChannelEdgePolicy{
 				SigBytes:                  testSig.Serialize(),
 				MessageFlags:              msgFlags,
-				ChannelFlags:              0,
+				ChannelFlags:              channelFlags,
 				ChannelID:                 channelID,
 				LastUpdate:                testChannel.Node1.LastUpdate,
 				TimeLockDelta:             testChannel.Node1.Expiry,
@@ -518,12 +524,16 @@ func createTestGraphFromChannels(testChannels []*testChannel) (*testGraphInstanc
 		if testChannel.Node2.testChannelPolicy != nil {
 			var msgFlags lnwire.ChanUpdateMsgFlags
 			if testChannel.Node2.MaxHTLC != 0 {
-				msgFlags = 1
+				msgFlags |= lnwire.ChanUpdateOptionMaxHtlc
+			}
+			channelFlags := lnwire.ChanUpdateDirection
+			if testChannel.Node2.Disabled {
+				channelFlags |= lnwire.ChanUpdateDisabled
 			}
 			edgePolicy := &channeldb.ChannelEdgePolicy{
 				SigBytes:                  testSig.Serialize(),
 				MessageFlags:              msgFlags,
-				ChannelFlags:              lnwire.ChanUpdateDirection,
+				ChannelFlags:              channelFlags,
 				ChannelID:                 channelID,
 				LastUpdate:                testChannel.Node2.LastUpdate,
 				TimeLockDelta:             testChannel.Node2.Expiry,

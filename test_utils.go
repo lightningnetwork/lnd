@@ -392,6 +392,9 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
+	if err = chanStatusMgr.Start(); err != nil {
+		return nil, nil, nil, nil, err
+	}
 	s.chanStatusMgr = chanStatusMgr
 
 	alicePeer := &peer{

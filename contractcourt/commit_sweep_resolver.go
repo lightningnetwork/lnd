@@ -116,7 +116,7 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 				log.Errorf("%T(%v): unable to sweep input: %v",
 					c, c.chanPoint, sweepResult.Err)
 
-				return nil, err
+				return nil, sweepResult.Err
 			}
 
 			log.Infof("ChannelPoint(%v) commit tx is fully resolved by "+

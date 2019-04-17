@@ -1,7 +1,6 @@
 package routing
 
 import (
-	"bytes"
 	"encoding/binary"
 	"fmt"
 	"math"
@@ -40,27 +39,10 @@ const (
 	RiskFactorBillionths = 15
 )
 
-// HopHint is a routing hint that contains the minimum information of a channel
-// required for an intermediate hop in a route to forward the payment to the
-// next. This should be ideally used for private channels, since they are not
-// publicly advertised to the network for routing.
-type HopHint struct {
-	// NodeID is the public key of the node at the start of the channel.
-	NodeID *btcec.PublicKey
-
-	// ChannelID is the unique identifier of the channel.
-	ChannelID uint64
-
-	// FeeBaseMSat is the base fee of the channel in millisatoshis.
-	FeeBaseMSat uint32
-
-	// FeeProportionalMillionths is the fee rate, in millionths of a
-	// satoshi, for every satoshi sent through the channel.
-	FeeProportionalMillionths uint32
-
-	// CLTVExpiryDelta is the time-lock delta of the channel.
-	CLTVExpiryDelta uint16
-}
+// pathFinder defines the interface of a path finding algorithm.
+type pathFinder = func(g *graphParams, r *RestrictParams,
+	source, target Vertex, amt lnwire.MilliSatoshi) (
+	[]*channeldb.ChannelEdgePolicy, error)
 
 // Hop represents an intermediate or final node of the route. This naming
 // is in line with the definition given in BOLT #4: Onion Routing Protocol.
@@ -210,7 +192,7 @@ func (r *Route) ToHopPayloads() []sphinx.HopData {
 //
 // NOTE: The passed slice of ChannelHops MUST be sorted in forward order: from
 // the source to the target node of the path finding attempt.
-func newRoute(amtToSend, feeLimit lnwire.MilliSatoshi, sourceVertex Vertex,
+func newRoute(amtToSend lnwire.MilliSatoshi, sourceVertex Vertex,
 	pathEdges []*channeldb.ChannelEdgePolicy, currentHeight uint32,
 	finalCLTVDelta uint16) (*Route, error) {
 
@@ -310,13 +292,6 @@ func newRoute(amtToSend, feeLimit lnwire.MilliSatoshi, sourceVertex Vertex,
 		return nil, err
 	}
 
-	// Invalidate this route if its total fees exceed our fee limit.
-	if newRoute.TotalFees > feeLimit {
-		err := fmt.Sprintf("total route fees exceeded fee "+
-			"limit of %v", feeLimit)
-		return nil, newErrf(ErrFeeLimitExceeded, err)
-	}
-
 	return newRoute, nil
 }
 
@@ -405,24 +380,29 @@ type graphParams struct {
 	bandwidthHints map[uint64]lnwire.MilliSatoshi
 }
 
-// restrictParams wraps the set of restrictions passed to findPath that the
+// RestrictParams wraps the set of restrictions passed to findPath that the
 // found path must adhere to.
-type restrictParams struct {
-	// ignoredNodes is an optional set of nodes that should be ignored if
+type RestrictParams struct {
+	// IgnoredNodes is an optional set of nodes that should be ignored if
 	// encountered during path finding.
-	ignoredNodes map[Vertex]struct{}
+	IgnoredNodes map[Vertex]struct{}
 
-	// ignoredEdges is an optional set of edges that should be ignored if
+	// IgnoredEdges is an optional set of edges that should be ignored if
 	// encountered during path finding.
-	ignoredEdges map[edgeLocator]struct{}
+	IgnoredEdges map[EdgeLocator]struct{}
 
-	// feeLimit is a maximum fee amount allowed to be used on the path from
+	// FeeLimit is a maximum fee amount allowed to be used on the path from
 	// the source to the target.
-	feeLimit lnwire.MilliSatoshi
+	FeeLimit lnwire.MilliSatoshi
 
-	// outgoingChannelID is the channel that needs to be taken to the first
+	// OutgoingChannelID is the channel that needs to be taken to the first
 	// hop. If nil, any channel may be used.
-	outgoingChannelID *uint64
+	OutgoingChannelID *uint64
+
+	// CltvLimit is the maximum time lock of the route excluding the final
+	// ctlv. After path finding is complete, the caller needs to increase
+	// all cltv expiry heights with the required final cltv delta.
+	CltvLimit *uint32
 }
 
 // findPath attempts to find a path from the source node within the
@@ -436,8 +416,7 @@ type restrictParams struct {
 // destination node back to source. This is to properly accumulate fees
 // that need to be paid along the path and accurately check the amount
 // to forward at every node against the available bandwidth.
-func findPath(g *graphParams, r *restrictParams,
-	sourceNode *channeldb.LightningNode, target *btcec.PublicKey,
+func findPath(g *graphParams, r *RestrictParams, source, target Vertex,
 	amt lnwire.MilliSatoshi) ([]*channeldb.ChannelEdgePolicy, error) {
 
 	var err error
@@ -498,27 +477,34 @@ func findPath(g *graphParams, r *restrictParams,
 		}
 	}
 
-	sourceVertex := Vertex(sourceNode.PubKeyBytes)
-
 	// We can't always assume that the end destination is publicly
 	// advertised to the network and included in the graph.ForEachNode call
 	// above, so we'll manually include the target node. The target node
 	// charges no fee. Distance is set to 0, because this is the starting
 	// point of the graph traversal. We are searching backwards to get the
 	// fees first time right and correctly match channel bandwidth.
-	targetVertex := NewVertex(target)
-	targetNode := &channeldb.LightningNode{PubKeyBytes: targetVertex}
-	distance[targetVertex] = nodeWithDist{
+	targetNode := &channeldb.LightningNode{PubKeyBytes: target}
+	distance[target] = nodeWithDist{
 		dist:            0,
 		node:            targetNode,
 		amountToReceive: amt,
 		fee:             0,
+		incomingCltv:    0,
 	}
 
 	// We'll use this map as a series of "next" hop pointers. So to get
 	// from `Vertex` to the target node, we'll take the edge that it's
 	// mapped to within `next`.
 	next := make(map[Vertex]*channeldb.ChannelEdgePolicy)
+
+	ignoredEdges := r.IgnoredEdges
+	if ignoredEdges == nil {
+		ignoredEdges = make(map[EdgeLocator]struct{})
+	}
+	ignoredNodes := r.IgnoredNodes
+	if ignoredNodes == nil {
+		ignoredNodes = make(map[Vertex]struct{})
+	}
 
 	// processEdge is a helper closure that will be used to make sure edges
 	// satisfy our specific requirements.
@@ -532,7 +518,7 @@ func findPath(g *graphParams, r *restrictParams,
 		// skip it.
 		// TODO(halseth): also ignore disable flags for non-local
 		// channels if bandwidth hint is set?
-		isSourceChan := fromVertex == sourceVertex
+		isSourceChan := fromVertex == source
 
 		edgeFlags := edge.ChannelFlags
 		isDisabled := edgeFlags&lnwire.ChanUpdateDisabled != 0
@@ -543,20 +529,20 @@ func findPath(g *graphParams, r *restrictParams,
 
 		// If we have an outgoing channel restriction and this is not
 		// the specified channel, skip it.
-		if isSourceChan && r.outgoingChannelID != nil &&
-			*r.outgoingChannelID != edge.ChannelID {
+		if isSourceChan && r.OutgoingChannelID != nil &&
+			*r.OutgoingChannelID != edge.ChannelID {
 
 			return
 		}
 
 		// If this vertex or edge has been black listed, then we'll
 		// skip exploring this edge.
-		if _, ok := r.ignoredNodes[fromVertex]; ok {
+		if _, ok := ignoredNodes[fromVertex]; ok {
 			return
 		}
 
 		locator := newEdgeLocator(edge)
-		if _, ok := r.ignoredEdges[*locator]; ok {
+		if _, ok := ignoredEdges[*locator]; ok {
 			return
 		}
 
@@ -576,6 +562,13 @@ func findPath(g *graphParams, r *restrictParams,
 			return
 		}
 
+		// If this edge was constructed from a hop hint, we won't have access to
+		// its max HTLC. Therefore, only consider discarding this edge here if
+		// the field is set.
+		if edge.MaxHTLC != 0 && edge.MaxHTLC < amountToSend {
+			return
+		}
+
 		// Compute fee that fromNode is charging. It is based on the
 		// amount that needs to be sent to the next node in the route.
 		//
@@ -588,9 +581,17 @@ func findPath(g *graphParams, r *restrictParams,
 		// node, no additional timelock is required.
 		var fee lnwire.MilliSatoshi
 		var timeLockDelta uint16
-		if fromVertex != sourceVertex {
+		if fromVertex != source {
 			fee = computeFee(amountToSend, edge)
 			timeLockDelta = edge.TimeLockDelta
+		}
+
+		incomingCltv := toNodeDist.incomingCltv +
+			uint32(timeLockDelta)
+
+		// Check that we have cltv limit and that we are within it.
+		if r.CltvLimit != nil && incomingCltv > *r.CltvLimit {
+			return
 		}
 
 		// amountToReceive is the amount that the node that is added to
@@ -603,7 +604,7 @@ func findPath(g *graphParams, r *restrictParams,
 		// Check if accumulated fees would exceed fee limit when this
 		// node would be added to the path.
 		totalFee := amountToReceive - amt
-		if totalFee > r.feeLimit {
+		if totalFee > r.FeeLimit {
 			return
 		}
 
@@ -624,14 +625,11 @@ func findPath(g *graphParams, r *restrictParams,
 			return
 		}
 
-		// If the edge has no time lock delta, the payment will always
-		// fail, so return.
-		//
-		// TODO(joostjager): Is this really true? Can't it be that
-		// nodes take this risk in exchange for a extraordinary high
-		// fee?
+		// Every edge should have a positive time lock delta. If we
+		// encounter a zero delta, log a warning line.
 		if edge.TimeLockDelta == 0 {
-			return
+			log.Warnf("Channel %v has zero cltv delta",
+				edge.ChannelID)
 		}
 
 		// All conditions are met and this new tentative distance is
@@ -643,6 +641,7 @@ func findPath(g *graphParams, r *restrictParams,
 			node:            fromNode,
 			amountToReceive: amountToReceive,
 			fee:             fee,
+			incomingCltv:    incomingCltv,
 		}
 
 		next[fromVertex] = edge
@@ -657,7 +656,7 @@ func findPath(g *graphParams, r *restrictParams,
 
 	// To start, our target node will the sole item within our distance
 	// heap.
-	heap.Push(&nodeHeap, distance[targetVertex])
+	heap.Push(&nodeHeap, distance[target])
 
 	for nodeHeap.Len() != 0 {
 		// Fetch the node within the smallest distance from our source
@@ -668,7 +667,7 @@ func findPath(g *graphParams, r *restrictParams,
 		// If we've reached our source (or we don't have any incoming
 		// edges), then we're done here and can exit the graph
 		// traversal early.
-		if bytes.Equal(bestNode.PubKeyBytes[:], sourceVertex[:]) {
+		if bestNode.PubKeyBytes == source {
 			break
 		}
 
@@ -735,7 +734,7 @@ func findPath(g *graphParams, r *restrictParams,
 
 	// If the source node isn't found in the next hop map, then a path
 	// doesn't exist, so we terminate in an error.
-	if _, ok := next[sourceVertex]; !ok {
+	if _, ok := next[source]; !ok {
 		return nil, newErrf(ErrNoPathFound, "unable to find a path to "+
 			"destination")
 	}
@@ -743,8 +742,8 @@ func findPath(g *graphParams, r *restrictParams,
 	// Use the nextHop map to unravel the forward path from source to
 	// target.
 	pathEdges := make([]*channeldb.ChannelEdgePolicy, 0, len(next))
-	currentNode := sourceVertex
-	for currentNode != targetVertex { // TODO(roasbeef): assumes no cycles
+	currentNode := source
+	for currentNode != target { // TODO(roasbeef): assumes no cycles
 		// Determine the next hop forward using the next map.
 		nextNode := next[currentNode]
 
@@ -780,12 +779,10 @@ func findPath(g *graphParams, r *restrictParams,
 // algorithm, rather than attempting to use an unmodified path finding
 // algorithm in a block box manner.
 func findPaths(tx *bbolt.Tx, graph *channeldb.ChannelGraph,
-	source *channeldb.LightningNode, target *btcec.PublicKey,
-	amt lnwire.MilliSatoshi, feeLimit lnwire.MilliSatoshi, numPaths uint32,
-	bandwidthHints map[uint64]lnwire.MilliSatoshi) ([][]*channeldb.ChannelEdgePolicy, error) {
-
-	ignoredEdges := make(map[edgeLocator]struct{})
-	ignoredVertexes := make(map[Vertex]struct{})
+	source, target Vertex, amt lnwire.MilliSatoshi,
+	restrictions *RestrictParams, numPaths uint32,
+	bandwidthHints map[uint64]lnwire.MilliSatoshi) (
+	[][]*channeldb.ChannelEdgePolicy, error) {
 
 	// TODO(roasbeef): modifying ordering within heap to eliminate final
 	// sorting step?
@@ -803,12 +800,7 @@ func findPaths(tx *bbolt.Tx, graph *channeldb.ChannelGraph,
 			graph:          graph,
 			bandwidthHints: bandwidthHints,
 		},
-		&restrictParams{
-			ignoredNodes: ignoredVertexes,
-			ignoredEdges: ignoredEdges,
-			feeLimit:     feeLimit,
-		},
-		source, target, amt,
+		restrictions, source, target, amt,
 	)
 	if err != nil {
 		log.Errorf("Unable to find path: %v", err)
@@ -820,7 +812,7 @@ func findPaths(tx *bbolt.Tx, graph *channeldb.ChannelGraph,
 	// function properly.
 	firstPath := make([]*channeldb.ChannelEdgePolicy, 0, len(startingPath)+1)
 	firstPath = append(firstPath, &channeldb.ChannelEdgePolicy{
-		Node: source,
+		Node: &channeldb.LightningNode{PubKeyBytes: source},
 	})
 	firstPath = append(firstPath, startingPath...)
 
@@ -839,8 +831,15 @@ func findPaths(tx *bbolt.Tx, graph *channeldb.ChannelGraph,
 			// we'll exclude from the next path finding attempt.
 			// These are required to ensure the paths are unique
 			// and loopless.
-			ignoredEdges = make(map[edgeLocator]struct{})
-			ignoredVertexes = make(map[Vertex]struct{})
+			ignoredEdges := make(map[EdgeLocator]struct{})
+			ignoredVertexes := make(map[Vertex]struct{})
+
+			for e := range restrictions.IgnoredEdges {
+				ignoredEdges[e] = struct{}{}
+			}
+			for n := range restrictions.IgnoredNodes {
+				ignoredVertexes[n] = struct{}{}
+			}
 
 			// Our spur node is the i-th node in the prior shortest
 			// path, and our root path will be all nodes in the
@@ -881,17 +880,27 @@ func findPaths(tx *bbolt.Tx, graph *channeldb.ChannelGraph,
 			// the Vertexes (other than the spur path) within the
 			// root path removed, we'll attempt to find another
 			// shortest path from the spur node to the destination.
+			//
+			// TODO: Fee limit passed to spur path finding isn't
+			// correct, because it doesn't take into account the
+			// fees already paid on the root path.
+			//
+			// TODO: Outgoing channel restriction isn't obeyed for
+			// spur paths.
+			spurRestrictions := &RestrictParams{
+				IgnoredEdges: ignoredEdges,
+				IgnoredNodes: ignoredVertexes,
+				FeeLimit:     restrictions.FeeLimit,
+			}
+
 			spurPath, err := findPath(
 				&graphParams{
 					tx:             tx,
 					graph:          graph,
 					bandwidthHints: bandwidthHints,
 				},
-				&restrictParams{
-					ignoredNodes: ignoredVertexes,
-					ignoredEdges: ignoredEdges,
-					feeLimit:     feeLimit,
-				}, spurNode, target, amt,
+				spurRestrictions, spurNode.PubKeyBytes,
+				target, amt,
 			)
 
 			// If we weren't able to find a path, we'll continue to

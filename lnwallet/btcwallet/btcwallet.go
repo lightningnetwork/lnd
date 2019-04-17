@@ -17,6 +17,8 @@ import (
 	"github.com/btcsuite/btcwallet/chain"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	base "github.com/btcsuite/btcwallet/wallet"
+	"github.com/btcsuite/btcwallet/wallet/txauthor"
+	"github.com/btcsuite/btcwallet/wallet/txrules"
 	"github.com/btcsuite/btcwallet/walletdb"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -254,6 +256,29 @@ func (b *BtcWallet) NewAddress(t lnwallet.AddressType, change bool) (btcutil.Add
 	return b.wallet.NewAddress(defaultAccount, keyScope)
 }
 
+// LastUnusedAddress returns the last *unused* address known by the wallet. An
+// address is unused if it hasn't received any payments. This can be useful in
+// UIs in order to continually show the "freshest" address without having to
+// worry about "address inflation" caused by continual refreshing. Similar to
+// NewAddress it can derive a specified address type, and also optionally a
+// change address.
+func (b *BtcWallet) LastUnusedAddress(addrType lnwallet.AddressType) (
+	btcutil.Address, error) {
+
+	var keyScope waddrmgr.KeyScope
+
+	switch addrType {
+	case lnwallet.WitnessPubKey:
+		keyScope = waddrmgr.KeyScopeBIP0084
+	case lnwallet.NestedWitnessPubKey:
+		keyScope = waddrmgr.KeyScopeBIP0049Plus
+	default:
+		return nil, fmt.Errorf("unknown address type")
+	}
+
+	return b.wallet.CurrentAddress(defaultAccount, keyScope)
+}
+
 // IsOurAddress checks if the passed address belongs to this wallet
 //
 // This is a part of the WalletController interface.
@@ -274,7 +299,43 @@ func (b *BtcWallet) SendOutputs(outputs []*wire.TxOut,
 	// SendOutputs.
 	feeSatPerKB := btcutil.Amount(feeRate.FeePerKVByte())
 
+	// Sanity check outputs.
+	if len(outputs) < 1 {
+		return nil, lnwallet.ErrNoOutputs
+	}
 	return b.wallet.SendOutputs(outputs, defaultAccount, 1, feeSatPerKB)
+}
+
+// CreateSimpleTx creates a Bitcoin transaction paying to the specified
+// outputs. The transaction is not broadcasted to the network, but a new change
+// address might be created in the wallet database. In the case the wallet has
+// insufficient funds, or the outputs are non-standard, an error should be
+// returned. This method also takes the target fee expressed in sat/kw that
+// should be used when crafting the transaction.
+//
+// NOTE: The dryRun argument can be set true to create a tx that doesn't alter
+// the database. A tx created with this set to true SHOULD NOT be broadcasted.
+//
+// This is a part of the WalletController interface.
+func (b *BtcWallet) CreateSimpleTx(outputs []*wire.TxOut,
+	feeRate lnwallet.SatPerKWeight, dryRun bool) (*txauthor.AuthoredTx, error) {
+
+	// The fee rate is passed in using units of sat/kw, so we'll convert
+	// this to sat/KB as the CreateSimpleTx method requires this unit.
+	feeSatPerKB := btcutil.Amount(feeRate.FeePerKVByte())
+
+	// Sanity check outputs.
+	if len(outputs) < 1 {
+		return nil, lnwallet.ErrNoOutputs
+	}
+	for _, output := range outputs {
+		err := txrules.CheckOutput(output, feeSatPerKB)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return b.wallet.CreateSimpleTx(defaultAccount, outputs, 1, feeSatPerKB, dryRun)
 }
 
 // LockOutpoint marks an outpoint as locked meaning it will no longer be deemed
@@ -361,28 +422,13 @@ func (b *BtcWallet) ListUnspentWitness(minConfs, maxConfs int32) (
 
 // PublishTransaction performs cursory validation (dust checks, etc), then
 // finally broadcasts the passed transaction to the Bitcoin network. If
-// publishing the transaction fails, an error describing the reason is
-// returned (currently ErrDoubleSpend). If the transaction is already
-// published to the network (either in the mempool or chain) no error
-// will be returned.
+// publishing the transaction fails, an error describing the reason is returned
+// (currently ErrDoubleSpend). If the transaction is already published to the
+// network (either in the mempool or chain) no error will be returned.
 func (b *BtcWallet) PublishTransaction(tx *wire.MsgTx) error {
 	if err := b.wallet.PublishTransaction(tx); err != nil {
 		switch b.chain.(type) {
 		case *chain.RPCClient:
-			if strings.Contains(err.Error(), "already have") {
-				// Transaction was already in the mempool, do
-				// not treat as an error. We do this to mimic
-				// the behaviour of bitcoind, which will not
-				// return an error if a transaction in the
-				// mempool is sent again using the
-				// sendrawtransaction RPC call.
-				return nil
-			}
-			if strings.Contains(err.Error(), "already exists") {
-				// Transaction was already mined, we don't
-				// consider this an error.
-				return nil
-			}
 			if strings.Contains(err.Error(), "already spent") {
 				// Output was already spent.
 				return lnwallet.ErrDoubleSpend
@@ -398,19 +444,6 @@ func (b *BtcWallet) PublishTransaction(tx *wire.MsgTx) error {
 			}
 
 		case *chain.BitcoindClient:
-			if strings.Contains(err.Error(), "txn-already-in-mempool") {
-				// Transaction in mempool, treat as non-error.
-				return nil
-			}
-			if strings.Contains(err.Error(), "txn-already-known") {
-				// Transaction in mempool, treat as non-error.
-				return nil
-			}
-			if strings.Contains(err.Error(), "already in block") {
-				// Transaction was already mined, we don't
-				// consider this an error.
-				return nil
-			}
 			if strings.Contains(err.Error(), "txn-mempool-conflict") {
 				// Output was spent by other transaction
 				// already in the mempool.
@@ -427,16 +460,6 @@ func (b *BtcWallet) PublishTransaction(tx *wire.MsgTx) error {
 			}
 
 		case *chain.NeutrinoClient:
-			if strings.Contains(err.Error(), "already have") {
-				// Transaction was already in the mempool, do
-				// not treat as an error.
-				return nil
-			}
-			if strings.Contains(err.Error(), "already exists") {
-				// Transaction was already mined, we don't
-				// consider this an error.
-				return nil
-			}
 			if strings.Contains(err.Error(), "already spent") {
 				// Output was already spent.
 				return lnwallet.ErrDoubleSpend

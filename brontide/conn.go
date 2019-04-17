@@ -104,11 +104,32 @@ func Dial(localPriv *btcec.PrivateKey, netAddr *lnwire.NetAddress,
 	return b, nil
 }
 
-// ReadNextMessage uses the connection in a message-oriented instructing it to
-// read the next _full_ message with the brontide stream. This function will
-// block until the read succeeds.
+// ReadNextMessage uses the connection in a message-oriented manner, instructing
+// it to read the next _full_ message with the brontide stream. This function
+// will block until the read of the header and body succeeds.
+//
+// NOTE: This method SHOULD NOT be used in the case that the connection may be
+// adversarial and induce long delays. If the caller needs to set read deadlines
+// appropriately, it is preferred that they use the split ReadNextHeader and
+// ReadNextBody methods so that the deadlines can be set appropriately on each.
 func (c *Conn) ReadNextMessage() ([]byte, error) {
 	return c.noise.ReadMessage(c.conn)
+}
+
+// ReadNextHeader uses the connection to read the next header from the brontide
+// stream. This function will block until the read of the header succeeds and
+// return the packet length (including MAC overhead) that is expected from the
+// subsequent call to ReadNextBody.
+func (c *Conn) ReadNextHeader() (uint32, error) {
+	return c.noise.ReadHeader(c.conn)
+}
+
+// ReadNextBody uses the connection to read the next message body from the
+// brontide stream. This function will block until the read of the body succeeds
+// and return the decrypted payload. The provided buffer MUST be the packet
+// length returned by the preceding call to ReadNextHeader.
+func (c *Conn) ReadNextBody(buf []byte) ([]byte, error) {
+	return c.noise.ReadBody(c.conn, buf)
 }
 
 // Read reads data from the connection.  Read can be made to time out and

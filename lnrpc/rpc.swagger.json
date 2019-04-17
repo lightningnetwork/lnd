@@ -180,6 +180,117 @@
         ]
       }
     },
+    "/v1/channels/backup": {
+      "get": {
+        "summary": "*\nExportAllChannelBackups returns static channel backups for all existing\nchannels known to lnd. A set of regular singular static channel backups for\neach channel are returned. Additionally, a multi-channel backup is returned\nas well, which contains a single encrypted blob containing the backups of\neach channel.",
+        "operationId": "ExportAllChannelBackups",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/lnrpcChanBackupSnapshot"
+            }
+          }
+        },
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
+    "/v1/channels/backup/restore": {
+      "post": {
+        "summary": "* lncli: `restorechanbackup`\nRestoreChannelBackups accepts a set of singular channel backups, or a\nsingle encrypted multi-chan backup and attempts to recover any funds\nremaining within the channel. If we are able to unpack the backup, then the\nnew channel will be shown under listchannels, as well as pending channels.",
+        "operationId": "RestoreChannelBackups",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/lnrpcRestoreBackupResponse"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/lnrpcRestoreChanBackupRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
+    "/v1/channels/backup/verify": {
+      "post": {
+        "summary": "*\nVerifyChanBackup allows a caller to verify the integrity of a channel backup\nsnapshot. This method will accept either a packed Single or a packed Multi.\nSpecifying both will result in an error.",
+        "operationId": "VerifyChanBackup",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/lnrpcVerifyChanBackupResponse"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/lnrpcChanBackupSnapshot"
+            }
+          }
+        ],
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
+    "/v1/channels/backup/{chan_point.funding_txid_str}/{chan_point.output_index}": {
+      "get": {
+        "summary": "* lncli: `exportchanbackup`\nExportChannelBackup attempts to return an encrypted static channel backup\nfor the target channel identified by it channel point. The backup is\nencrypted with a key generated from the aezeed seed of the user. The\nreturned backup can either be restored using the RestoreChannelBackup\nmethod once lnd is running, or via the InitWallet and UnlockWallet methods\nfrom the WalletUnlocker service.",
+        "operationId": "ExportChannelBackup",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/lnrpcChannelBackup"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "chan_point.funding_txid_str",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "chan_point.output_index",
+            "in": "path",
+            "required": true,
+            "type": "integer",
+            "format": "int64"
+          },
+          {
+            "name": "chan_point.funding_txid_bytes",
+            "description": "/ Txid of the funding transaction.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          }
+        ],
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
     "/v1/channels/closed": {
       "get": {
         "summary": "* lncli: `closedchannels`\nClosedChannels returns a description of all the closed channels that \nthis node was a participant in.",
@@ -564,7 +675,7 @@
           },
           {
             "name": "num_routes",
-            "description": "/ The max number of routes to return.",
+            "description": "*\nDeprecated. The max number of routes to return. In the future, QueryRoutes\nwill only return a single route.",
             "in": "query",
             "required": false,
             "type": "integer",
@@ -593,6 +704,24 @@
             "required": false,
             "type": "string",
             "format": "int64"
+          },
+          {
+            "name": "ignored_nodes",
+            "description": "*\nA list of nodes to ignore during path finding.",
+            "in": "query",
+            "required": false,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "byte"
+            }
+          },
+          {
+            "name": "source_pub_key",
+            "description": "*\nThe source node where the request route should originated from. If empty,\nself is assumed.",
+            "in": "query",
+            "required": false,
+            "type": "string"
           }
         ],
         "tags": [
@@ -793,7 +922,9 @@
             "type": "string",
             "enum": [
               "WITNESS_PUBKEY_HASH",
-              "NESTED_PUBKEY_HASH"
+              "NESTED_PUBKEY_HASH",
+              "UNUSED_WITNESS_PUBKEY_HASH",
+              "UNUSED_NESTED_PUBKEY_HASH"
             ],
             "default": "WITNESS_PUBKEY_HASH"
           }
@@ -956,7 +1087,7 @@
     },
     "/v1/switch": {
       "post": {
-        "summary": "* lncli: `fwdinghistory`\nForwardingHistory allows the caller to query the htlcswitch for a record of\nall HTLC's forwarded within the target time range, and integer offset\nwithin that time range. If no time-range is specified, then the first chunk\nof the past 24 hrs of forwarding history are returned.",
+        "summary": "* lncli: `fwdinghistory`\nForwardingHistory allows the caller to query the htlcswitch for a record of\nall HTLCs forwarded within the target time range, and integer offset\nwithin that time range. If no time-range is specified, then the first chunk\nof the past 24 hrs of forwarding history are returned.",
         "description": "A list of forwarding events are returned. The size of each forwarding event\nis 40 bytes, and the max message size able to be returned in gRPC is 4 MiB.\nAs a result each message can only contain 50k entries.  Each response has\nthe index offset of the last entry. The index offset can be provided to the\nrequest to allow the caller to skip a series of records.",
         "operationId": "ForwardingHistory",
         "responses": {
@@ -1017,6 +1148,33 @@
             "schema": {
               "$ref": "#/definitions/lnrpcSendCoinsRequest"
             }
+          }
+        ],
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
+    "/v1/transactions/fee": {
+      "get": {
+        "summary": "* lncli: `estimatefee`\nEstimateFee asks the chain backend to estimate the fee rate and total fees\nfor a transaction that pays to multiple specified outputs.",
+        "operationId": "EstimateFee",
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/lnrpcEstimateFeeResponse"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "target_conf",
+            "description": "/ The target number of blocks that this transaction should be confirmed by.",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
           }
         ],
         "tags": [
@@ -1142,9 +1300,20 @@
       "enum": [
         "OPEN",
         "SETTLED",
-        "CANCELED"
+        "CANCELED",
+        "ACCEPTED"
       ],
       "default": "OPEN"
+    },
+    "PeerSyncType": {
+      "type": "string",
+      "enum": [
+        "UNKNOWN_SYNC",
+        "ACTIVE_SYNC",
+        "PASSIVE_SYNC"
+      ],
+      "default": "UNKNOWN_SYNC",
+      "description": " - UNKNOWN_SYNC: *\nDenotes that we cannot determine the peer's current sync type.\n - ACTIVE_SYNC: *\nDenotes that we are actively receiving new graph updates from the peer.\n - PASSIVE_SYNC: *\nDenotes that we are not receiving new graph updates from the peer."
     },
     "PendingChannelsResponseClosedChannel": {
       "type": "object",
@@ -1289,7 +1458,9 @@
       "type": "string",
       "enum": [
         "WITNESS_PUBKEY_HASH",
-        "NESTED_PUBKEY_HASH"
+        "NESTED_PUBKEY_HASH",
+        "UNUSED_WITNESS_PUBKEY_HASH",
+        "UNUSED_NESTED_PUBKEY_HASH"
       ],
       "default": "WITNESS_PUBKEY_HASH",
       "description": "- `p2wkh`: Pay to witness key hash (`WITNESS_PUBKEY_HASH` = 0)\n- `np2wkh`: Pay to nested witness key hash (`NESTED_PUBKEY_HASH` = 1)",
@@ -1305,6 +1476,19 @@
         "network": {
           "type": "string",
           "title": "/ The network the node is on (eg regtest, testnet, mainnet)"
+        }
+      }
+    },
+    "lnrpcChanBackupSnapshot": {
+      "type": "object",
+      "properties": {
+        "single_chan_backups": {
+          "$ref": "#/definitions/lnrpcChannelBackups",
+          "description": "*\nThe set of new channels that have been added since the last channel backup\nsnapshot was requested."
+        },
+        "multi_chan_backup": {
+          "$ref": "#/definitions/lnrpcMultiChanBackup",
+          "description": "*\nA multi-channel backup that covers all open channels currently known to\nlnd."
         }
       }
     },
@@ -1407,7 +1591,7 @@
         "csv_delay": {
           "type": "integer",
           "format": "int64",
-          "description": "*\nThe CSV delay expressed in relative blocks. If the channel is force\nclosed, we'll need to wait for this many blocks before we can regain our\nfunds."
+          "description": "*\nThe CSV delay expressed in relative blocks. If the channel is force closed,\nwe will need to wait for this many blocks before we can regain our funds."
         },
         "private": {
           "type": "boolean",
@@ -1418,6 +1602,36 @@
           "type": "boolean",
           "format": "boolean",
           "description": "/ True if we were the ones that created the channel."
+        },
+        "chan_status_flags": {
+          "type": "string",
+          "description": "/ A set of flags showing the current state of the cahnnel."
+        }
+      }
+    },
+    "lnrpcChannelBackup": {
+      "type": "object",
+      "properties": {
+        "chan_point": {
+          "$ref": "#/definitions/lnrpcChannelPoint",
+          "description": "*\nIdentifies the channel that this backup belongs to."
+        },
+        "chan_backup": {
+          "type": "string",
+          "format": "byte",
+          "description": "*\nIs an encrypted single-chan backup. this can be passed to\nRestoreChannelBackups, or the WalletUnlocker Innit and Unlock methods in\norder to trigger the recovery protocol."
+        }
+      }
+    },
+    "lnrpcChannelBackups": {
+      "type": "object",
+      "properties": {
+        "chan_backups": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcChannelBackup"
+          },
+          "description": "*\nA set of single-chan static channel backups."
         }
       }
     },
@@ -1723,6 +1937,21 @@
     },
     "lnrpcDisconnectPeerResponse": {
       "type": "object"
+    },
+    "lnrpcEstimateFeeResponse": {
+      "type": "object",
+      "properties": {
+        "fee_sat": {
+          "type": "string",
+          "format": "int64",
+          "description": "/ The total fee in satoshis."
+        },
+        "feerate_sat_per_byte": {
+          "type": "string",
+          "format": "int64",
+          "description": "/ The fee rate in satoshi/byte."
+        }
+      }
     },
     "lnrpcFeeLimit": {
       "type": "object",
@@ -2074,7 +2303,11 @@
         "recovery_window": {
           "type": "integer",
           "format": "int32",
-          "description": "*\nrecovery_window is an optional argument specifying the address lookahead\nwhen restoring a wallet seed. The recovery window applies to each\ninvdividual branch of the BIP44 derivation paths. Supplying a recovery\nwindow of zero indicates that no addresses should be recovered, such after\nthe first initialization of the wallet."
+          "description": "*\nrecovery_window is an optional argument specifying the address lookahead\nwhen restoring a wallet seed. The recovery window applies to each\nindividual branch of the BIP44 derivation paths. Supplying a recovery\nwindow of zero indicates that no addresses should be recovered, such after\nthe first initialization of the wallet."
+        },
+        "channel_backups": {
+          "$ref": "#/definitions/lnrpcChanBackupSnapshot",
+          "description": "*\nchannel_backups is an optional argument that allows clients to recover the\nsettled funds within a set of channels. This should be populated if the\nuser was unable to close out all channels and sweep funds before partial or\ntotal data loss occurred. If specified, then after on-chain recovery of\nfunds, lnd begin to carry out the data loss recovery protocol in order to\nrecover the funds in each channel from a remote force closed transaction."
         }
       }
     },
@@ -2297,6 +2530,23 @@
         }
       }
     },
+    "lnrpcMultiChanBackup": {
+      "type": "object",
+      "properties": {
+        "chan_points": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcChannelPoint"
+          },
+          "description": "*\nIs the set of all channels that are included in this multi-channel backup."
+        },
+        "multi_chan_backup": {
+          "type": "string",
+          "format": "byte",
+          "description": "*\nA single encrypted blob containing all the static channel backups of the\nchannel listed above. This can be stored as a single file or blob, and\nsafely be replaced with any prior/future versions."
+        }
+      }
+    },
     "lnrpcNetworkInfo": {
       "type": "object",
       "properties": {
@@ -2333,6 +2583,10 @@
           "format": "int64"
         },
         "max_channel_size": {
+          "type": "string",
+          "format": "int64"
+        },
+        "median_channel_size_sat": {
           "type": "string",
           "format": "int64"
         }
@@ -2612,6 +2866,10 @@
           "type": "string",
           "format": "int64",
           "title": "/ Ping time to this peer"
+        },
+        "sync_type": {
+          "$ref": "#/definitions/PeerSyncType",
+          "description": "The type of sync we are currently performing with this peer."
         }
       }
     },
@@ -2743,6 +3001,21 @@
         }
       }
     },
+    "lnrpcRestoreBackupResponse": {
+      "type": "object"
+    },
+    "lnrpcRestoreChanBackupRequest": {
+      "type": "object",
+      "properties": {
+        "chan_backups": {
+          "$ref": "#/definitions/lnrpcChannelBackups"
+        },
+        "multi_chan_backup": {
+          "type": "string",
+          "format": "byte"
+        }
+      }
+    },
     "lnrpcRoute": {
       "type": "object",
       "properties": {
@@ -2815,6 +3088,10 @@
         "disabled": {
           "type": "boolean",
           "format": "boolean"
+        },
+        "max_htlc_msat": {
+          "type": "string",
+          "format": "uint64"
         }
       }
     },
@@ -2908,6 +3185,11 @@
           "type": "string",
           "format": "uint64",
           "description": "*\nThe channel id of the channel that must be taken to the first hop. If zero,\nany channel may be used."
+        },
+        "cltv_limit": {
+          "type": "integer",
+          "format": "int64",
+          "description": "* \nAn optional maximum total time lock for the route. If zero, there is no\nmaximum enforced."
         }
       }
     },
@@ -3046,6 +3328,10 @@
           "type": "integer",
           "format": "int32",
           "description": "*\nrecovery_window is an optional argument specifying the address lookahead\nwhen restoring a wallet seed. The recovery window applies to each\ninvdividual branch of the BIP44 derivation paths. Supplying a recovery\nwindow of zero indicates that no addresses should be recovered, such after\nthe first initialization of the wallet."
+        },
+        "channel_backups": {
+          "$ref": "#/definitions/lnrpcChanBackupSnapshot",
+          "description": "*\nchannel_backups is an optional argument that allows clients to recover the\nsettled funds within a set of channels. This should be populated if the\nuser was unable to close out all channels and sweep funds before partial or\ntotal data loss occurred. If specified, then after on-chain recovery of\nfunds, lnd begin to carry out the data loss recovery protocol in order to\nrecover the funds in each channel from a remote force closed transaction."
         }
       }
     },
@@ -3082,6 +3368,9 @@
           "title": "/ The number of confirmations for the Utxo"
         }
       }
+    },
+    "lnrpcVerifyChanBackupResponse": {
+      "type": "object"
     },
     "lnrpcVerifyMessageRequest": {
       "type": "object",

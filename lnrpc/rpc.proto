@@ -145,11 +145,21 @@ message InitWalletRequest {
     /**
     recovery_window is an optional argument specifying the address lookahead
     when restoring a wallet seed. The recovery window applies to each
-    invdividual branch of the BIP44 derivation paths. Supplying a recovery
+    individual branch of the BIP44 derivation paths. Supplying a recovery
     window of zero indicates that no addresses should be recovered, such after
     the first initialization of the wallet.
     */
     int32 recovery_window = 4;
+
+    /**
+    channel_backups is an optional argument that allows clients to recover the
+    settled funds within a set of channels. This should be populated if the
+    user was unable to close out all channels and sweep funds before partial or
+    total data loss occurred. If specified, then after on-chain recovery of
+    funds, lnd begin to carry out the data loss recovery protocol in order to
+    recover the funds in each channel from a remote force closed transaction.
+    */
+    ChanBackupSnapshot channel_backups = 5;
 }
 message InitWalletResponse {
 }
@@ -170,6 +180,16 @@ message UnlockWalletRequest {
     the first initialization of the wallet.
     */
     int32 recovery_window = 2;
+
+    /**
+    channel_backups is an optional argument that allows clients to recover the
+    settled funds within a set of channels. This should be populated if the
+    user was unable to close out all channels and sweep funds before partial or
+    total data loss occurred. If specified, then after on-chain recovery of
+    funds, lnd begin to carry out the data loss recovery protocol in order to
+    recover the funds in each channel from a remote force closed transaction.
+    */
+    ChanBackupSnapshot channel_backups = 3;
 }
 message UnlockWalletResponse {}
 
@@ -217,6 +237,16 @@ service Lightning {
     rpc GetTransactions (GetTransactionsRequest) returns (TransactionDetails) {
         option (google.api.http) = {
             get: "/v1/transactions"
+        };
+    }
+
+    /** lncli: `estimatefee`
+    EstimateFee asks the chain backend to estimate the fee rate and total fees
+    for a transaction that pays to multiple specified outputs.
+    */
+    rpc EstimateFee (EstimateFeeRequest) returns (EstimateFeeResponse) {
+        option (google.api.http) = {
+            get: "/v1/transactions/fee"
         };
     }
 
@@ -658,7 +688,7 @@ service Lightning {
 
     /** lncli: `fwdinghistory`
     ForwardingHistory allows the caller to query the htlcswitch for a record of
-    all HTLC's forwarded within the target time range, and integer offset
+    all HTLCs forwarded within the target time range, and integer offset
     within that time range. If no time-range is specified, then the first chunk
     of the past 24 hrs of forwarding history are returned.
 
@@ -673,6 +703,70 @@ service Lightning {
             post: "/v1/switch"
             body: "*"
         };
+    };
+
+    /** lncli: `exportchanbackup`
+    ExportChannelBackup attempts to return an encrypted static channel backup
+    for the target channel identified by it channel point. The backup is
+    encrypted with a key generated from the aezeed seed of the user. The
+    returned backup can either be restored using the RestoreChannelBackup
+    method once lnd is running, or via the InitWallet and UnlockWallet methods
+    from the WalletUnlocker service.
+    */
+    rpc ExportChannelBackup(ExportChannelBackupRequest) returns (ChannelBackup) {
+        option (google.api.http) = {
+            get: "/v1/channels/backup/{chan_point.funding_txid_str}/{chan_point.output_index}"
+        };
+    };
+
+    /**
+    ExportAllChannelBackups returns static channel backups for all existing
+    channels known to lnd. A set of regular singular static channel backups for
+    each channel are returned. Additionally, a multi-channel backup is returned
+    as well, which contains a single encrypted blob containing the backups of
+    each channel.
+    */
+    rpc ExportAllChannelBackups(ChanBackupExportRequest) returns (ChanBackupSnapshot) {
+        option (google.api.http) = {
+            get: "/v1/channels/backup"
+        };
+    };
+
+    /**
+    VerifyChanBackup allows a caller to verify the integrity of a channel backup
+    snapshot. This method will accept either a packed Single or a packed Multi.
+    Specifying both will result in an error.
+    */
+    rpc VerifyChanBackup(ChanBackupSnapshot) returns (VerifyChanBackupResponse) {
+        option (google.api.http) = {
+            post: "/v1/channels/backup/verify"
+            body: "*"
+        };
+    };
+
+    /** lncli: `restorechanbackup`
+    RestoreChannelBackups accepts a set of singular channel backups, or a
+    single encrypted multi-chan backup and attempts to recover any funds
+    remaining within the channel. If we are able to unpack the backup, then the
+    new channel will be shown under listchannels, as well as pending channels.
+    */
+    rpc RestoreChannelBackups(RestoreChanBackupRequest) returns (RestoreBackupResponse)  {
+        option (google.api.http) = {
+            post: "/v1/channels/backup/restore"
+            body: "*"
+        };
+    };
+
+    /**
+    SubscribeChannelBackups allows a client to sub-subscribe to the most up to
+    date information concerning the state of all channel backups. Each time a
+    new channel is added, we return the new set of channels, along with a
+    multi-chan backup containing the backup info for all channels. Each time a
+    channel is closed, we send a new update, which contains new new chan back
+    ups, but the updated set of encrypted multi-chan backups with the closed
+    channel(s) removed.
+    */
+    rpc SubscribeChannelBackups(ChannelBackupSubscription) returns (stream ChanBackupSnapshot) {
     };
 }
 
@@ -780,7 +874,14 @@ message SendRequest {
     any channel may be used.
     */
     uint64 outgoing_chan_id = 9;
+
+    /** 
+    An optional maximum total time lock for the route. If zero, there is no
+    maximum enforced.
+    */
+    uint32 cltv_limit = 10;
 }
+
 message SendResponse {
     string payment_error = 1 [json_name = "payment_error"];
     bytes payment_preimage = 2 [json_name = "payment_preimage"];
@@ -837,6 +938,22 @@ message LightningAddress {
 
     /// The network location of the lightning node, e.g. `69.69.69.69:1337` or `localhost:10011`
     string host = 2 [json_name = "host"];
+}
+
+message EstimateFeeRequest {
+    /// The map from addresses to amounts for the transaction.
+    map<string, int64> AddrToAmount = 1;
+
+    /// The target number of blocks that this transaction should be confirmed by.
+    int32 target_conf = 2;
+}
+
+message EstimateFeeResponse {
+    /// The total fee in satoshis.
+    int64 fee_sat = 1 [json_name = "fee_sat"];
+
+    /// The fee rate in satoshi/byte.
+    int64 feerate_sat_per_byte = 2 [json_name = "feerate_sat_per_byte"];
 }
 
 message SendManyRequest {
@@ -900,6 +1017,8 @@ message ListUnspentResponse {
 enum AddressType {
         WITNESS_PUBKEY_HASH = 0;
         NESTED_PUBKEY_HASH = 1;
+        UNUSED_WITNESS_PUBKEY_HASH = 2;
+        UNUSED_NESTED_PUBKEY_HASH = 3;
 }
 
 message NewAddressRequest {
@@ -1032,9 +1151,8 @@ message Channel {
     repeated HTLC pending_htlcs = 15 [json_name = "pending_htlcs"];
 
     /**
-    The CSV delay expressed in relative blocks. If the channel is force
-    closed, we'll need to wait for this many blocks before we can regain our
-    funds.
+    The CSV delay expressed in relative blocks. If the channel is force closed,
+    we will need to wait for this many blocks before we can regain our funds.
     */
     uint32 csv_delay = 16 [json_name = "csv_delay"];
 
@@ -1043,6 +1161,9 @@ message Channel {
 
     /// True if we were the ones that created the channel.
     bool initiator = 18 [json_name = "initiator"];
+
+    /// A set of flags showing the current state of the cahnnel.
+    string chan_status_flags = 19 [json_name = "chan_status_flags"];
 }
 
 
@@ -1135,6 +1256,26 @@ message Peer {
 
     /// Ping time to this peer
     int64 ping_time = 9 [json_name = "ping_time"];
+
+    enum SyncType {
+        /**
+        Denotes that we cannot determine the peer's current sync type.
+        */
+        UNKNOWN_SYNC = 0;
+
+        /**
+        Denotes that we are actively receiving new graph updates from the peer.
+        */
+        ACTIVE_SYNC = 1;
+
+        /**
+        Denotes that we are not receiving new graph updates from the peer.
+        */
+        PASSIVE_SYNC = 2;
+    }
+
+    // The type of sync we are currently performing with this peer.
+    SyncType sync_type = 10 [json_name = "sync_type"];
 }
 
 message ListPeersRequest {
@@ -1465,8 +1606,11 @@ message QueryRoutesRequest {
     /// The amount to send expressed in satoshis
     int64 amt = 2;
 
-    /// The max number of routes to return.
-    int32 num_routes = 3;
+    /**
+    Deprecated. The max number of routes to return. In the future, QueryRoutes
+    will only return a single route.
+    */
+    int32 num_routes = 3 [deprecated = true]; 
 
     /// An optional CLTV delta from the current height that should be used for the timelock of the final hop
     int32 final_cltv_delta = 4;
@@ -1478,7 +1622,37 @@ message QueryRoutesRequest {
     send the payment.
     */
     FeeLimit fee_limit = 5;
+
+    /**
+    A list of nodes to ignore during path finding.
+    */
+    repeated bytes ignored_nodes = 6;
+
+    /**
+    A list of edges to ignore during path finding.
+    */
+    repeated EdgeLocator ignored_edges = 7;
+
+    /**
+    The source node where the request route should originated from. If empty,
+    self is assumed.
+    */
+    string source_pub_key = 8;
 }
+
+message EdgeLocator {
+    /// The short channel id of this edge.
+    uint64 channel_id = 1;
+
+    /**
+    The direction of this edge. If direction_reverse is false, the direction
+    of this edge is from the channel endpoint with the lexicographically smaller
+    pub key to the endpoint with the larger pub key. If direction_reverse is
+    is true, the edge goes the other way.
+    */
+    bool direction_reverse = 2;
+}
+
 message QueryRoutesResponse {
     repeated Route routes = 1 [json_name = "routes"];
 }
@@ -1597,6 +1771,7 @@ message RoutingPolicy {
     int64 fee_base_msat = 3 [json_name = "fee_base_msat"];
     int64 fee_rate_milli_msat = 4 [json_name = "fee_rate_milli_msat"];
     bool disabled = 5 [json_name = "disabled"];
+    uint64 max_htlc_msat = 6 [json_name = "max_htlc_msat"];
 }
 
 /**
@@ -1669,6 +1844,7 @@ message NetworkInfo {
     double avg_channel_size = 7 [json_name = "avg_channel_size"];
     int64 min_channel_size = 8 [json_name = "min_channel_size"];
     int64 max_channel_size = 9 [json_name = "max_channel_size"];
+    int64 median_channel_size_sat = 10 [json_name = "median_channel_size_sat"];
 
     // TODO(roasbeef): fee rate info, expiry
     //  * also additional RPC for tracking fee info once in
@@ -1856,6 +2032,7 @@ message Invoice {
         OPEN = 0;
         SETTLED = 1;
         CANCELED = 2;
+        ACCEPTED = 3;
     }
 
     /**
@@ -2118,4 +2295,73 @@ message ForwardingHistoryResponse {
 
    /// The index of the last time in the set of returned forwarding events. Can be used to seek further, pagination style.
    uint32 last_offset_index = 2 [json_name = "last_offset_index"];
+}
+
+message ExportChannelBackupRequest {
+    /// The target chanenl point to obtain a back up for.
+    ChannelPoint chan_point = 1;
+}
+
+message ChannelBackup {
+    /**
+    Identifies the channel that this backup belongs to.
+    */
+    ChannelPoint chan_point = 1 [ json_name = "chan_point" ];
+
+    /**
+    Is an encrypted single-chan backup. this can be passed to
+    RestoreChannelBackups, or the WalletUnlocker Innit and Unlock methods in
+    order to trigger the recovery protocol.
+    */
+    bytes chan_backup = 2 [ json_name = "chan_backup" ];
+}
+
+message MultiChanBackup {
+    /**
+    Is the set of all channels that are included in this multi-channel backup.
+    */
+    repeated ChannelPoint chan_points = 1 [ json_name = "chan_points" ];
+
+    /**
+    A single encrypted blob containing all the static channel backups of the
+    channel listed above. This can be stored as a single file or blob, and
+    safely be replaced with any prior/future versions.
+    */
+    bytes multi_chan_backup = 2 [ json_name = "multi_chan_backup" ];
+}
+
+message ChanBackupExportRequest {}
+message ChanBackupSnapshot  {
+    /**
+    The set of new channels that have been added since the last channel backup
+    snapshot was requested.
+    */
+    ChannelBackups single_chan_backups = 1 [ json_name = "single_chan_backups" ];
+
+    /**
+    A multi-channel backup that covers all open channels currently known to
+    lnd.
+    */
+    MultiChanBackup multi_chan_backup  = 2 [ json_name = "multi_chan_backup" ];
+}
+
+message ChannelBackups {
+    /**
+    A set of single-chan static channel backups.
+    */
+    repeated ChannelBackup chan_backups = 1 [ json_name = "chan_backups" ];
+}
+
+message RestoreChanBackupRequest {
+    oneof backup {
+        ChannelBackups chan_backups = 1 [ json_name = "chan_backups" ];
+
+        bytes multi_chan_backup = 2 [ json_name = "multi_chan_backup" ];
+    }
+}
+message RestoreBackupResponse {}
+
+message ChannelBackupSubscription {}
+
+message VerifyChanBackupResponse {
 }

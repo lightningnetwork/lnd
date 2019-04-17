@@ -16,15 +16,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
-const (
-	// broadcastRedeemMultiplier is the additional factor that we'll scale
-	// the normal broadcastDelta by when deciding whether or not to
-	// broadcast a commitment to claim an HTLC on-chain. We use a scaled
-	// value, as when redeeming we want to ensure that we have enough time
-	// to redeem the HTLC, well before it times out.
-	broadcastRedeemMultiplier = 2
-)
-
 var (
 	// errAlreadyForceClosed is an error returned when we attempt to force
 	// close a channel that's already in the process of doing so.
@@ -1101,31 +1092,32 @@ func (c *ChannelArbitrator) checkChainActions(height uint32,
 		"height=%v", c.cfg.ChanPoint, height)
 
 	actionMap := make(ChainActionMap)
-	redeemCutoff := c.cfg.BroadcastDelta * broadcastRedeemMultiplier
 
 	// First, we'll make an initial pass over the set of incoming and
 	// outgoing HTLC's to decide if we need to go on chain at all.
 	haveChainActions := false
 	for _, htlc := range c.activeHTLCs.outgoingHTLCs {
-		// If any of our HTLC's triggered an on-chain action, then we
-		// can break early.
-		if haveChainActions {
-			break
-		}
-
 		// We'll need to go on-chain for an outgoing HTLC if it was
 		// never resolved downstream, and it's "close" to timing out.
-		haveChainActions = haveChainActions || c.shouldGoOnChain(
-			htlc.RefundTimeout, c.cfg.BroadcastDelta, height,
+		toChain := c.shouldGoOnChain(
+			htlc.RefundTimeout, c.cfg.OutgoingBroadcastDelta,
+			height,
 		)
-	}
-	for _, htlc := range c.activeHTLCs.incomingHTLCs {
-		// If any of our HTLC's triggered an on-chain action, then we
-		// can break early.
-		if haveChainActions {
-			break
+
+		if toChain {
+			log.Debugf("ChannelArbitrator(%v): go to chain for "+
+				"outgoing htlc %x: timeout=%v, "+
+				"blocks_until_expiry=%v, broadcast_delta=%v",
+				c.cfg.ChanPoint, htlc.RHash[:],
+				htlc.RefundTimeout, htlc.RefundTimeout-height,
+				c.cfg.OutgoingBroadcastDelta,
+			)
 		}
 
+		haveChainActions = haveChainActions || toChain
+	}
+
+	for _, htlc := range c.activeHTLCs.incomingHTLCs {
 		// We'll need to go on-chain to pull an incoming HTLC iff we
 		// know the pre-image and it's close to timing out. We need to
 		// ensure that we claim the funds that our rightfully ours
@@ -1133,9 +1125,23 @@ func (c *ChannelArbitrator) checkChainActions(height uint32,
 		if _, ok := c.cfg.PreimageDB.LookupPreimage(htlc.RHash); !ok {
 			continue
 		}
-		haveChainActions = haveChainActions || c.shouldGoOnChain(
-			htlc.RefundTimeout, redeemCutoff, height,
+
+		toChain := c.shouldGoOnChain(
+			htlc.RefundTimeout, c.cfg.IncomingBroadcastDelta,
+			height,
 		)
+
+		if toChain {
+			log.Debugf("ChannelArbitrator(%v): go to chain for "+
+				"incoming htlc %x: timeout=%v, "+
+				"blocks_until_expiry=%v, broadcast_delta=%v",
+				c.cfg.ChanPoint, htlc.RHash[:],
+				htlc.RefundTimeout, htlc.RefundTimeout-height,
+				c.cfg.IncomingBroadcastDelta,
+			)
+		}
+
+		haveChainActions = haveChainActions || toChain
 	}
 
 	// If we don't have any actions to make, then we'll return an empty
@@ -1172,7 +1178,8 @@ func (c *ChannelArbitrator) checkChainActions(height uint32,
 		// until the HTLC times out to see if we can also redeem it
 		// on-chain.
 		case !c.shouldGoOnChain(
-			htlc.RefundTimeout, c.cfg.BroadcastDelta, height,
+			htlc.RefundTimeout, c.cfg.OutgoingBroadcastDelta,
+			height,
 		):
 			// TODO(roasbeef): also need to be able to query
 			// circuit map to see if HTLC hasn't been fully

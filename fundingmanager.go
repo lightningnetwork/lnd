@@ -508,7 +508,7 @@ func (f *fundingManager) Start() error {
 			channel.IsInitiator {
 
 			err := f.cfg.PublishTransaction(channel.FundingTxn)
-			if err != nil && err != lnwallet.ErrDoubleSpend {
+			if err != nil {
 				fndgLog.Errorf("Unable to rebroadcast funding "+
 					"tx for ChannelPoint(%v): %v",
 					channel.FundingOutpoint, err)

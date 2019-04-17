@@ -12,10 +12,17 @@ import (
 // Peer is an interface which represents the remote lightning node inside our
 // system.
 type Peer interface {
-	// SendMessage sends a variadic number of message to remote peer. The
-	// first argument denotes if the method should block until the message
-	// has been sent to the remote peer.
-	SendMessage(sync bool, msg ...lnwire.Message) error
+	// SendMessage sends a variadic number of high-priority message to
+	// remote peer.  The first argument denotes if the method should block
+	// until the messages have been sent to the remote peer or an error is
+	// returned, otherwise it returns immediately after queuing.
+	SendMessage(sync bool, msgs ...lnwire.Message) error
+
+	// SendMessageLazy sends a variadic number of low-priority message to
+	// remote peer. The first argument denotes if the method should block
+	// until the messages have been sent to the remote peer or an error is
+	// returned, otherwise it returns immediately after queueing.
+	SendMessageLazy(sync bool, msgs ...lnwire.Message) error
 
 	// AddNewChannel adds a new channel to the peer. The channel should fail
 	// to be added if the cancel channel is closed.

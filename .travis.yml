@@ -8,7 +8,7 @@ cache:
     - $GOPATH/src/gopkg.in/alecthomas
 
 go:
-  - "1.11.x"
+  - "1.12.x"
 
 env:
   global:

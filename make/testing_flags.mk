@@ -33,7 +33,7 @@ endif
 ifneq ($(timeout),)
 TEST_FLAGS += -test.timeout=$(timeout)
 else
-TEST_FLAGS += -test.timeout=20m
+TEST_FLAGS += -test.timeout=30m
 endif
 
 # UNIT_TARGTED is undefined iff a specific package and/or unit test case is
@@ -54,5 +54,5 @@ endif
 
 
 # Construct the integration test command with the added build flags.
-ITEST_TAGS := $(DEV_TAGS) rpctest chainrpc walletrpc signrpc invoicesrpc autopilotrpc
+ITEST_TAGS := $(DEV_TAGS) rpctest chainrpc walletrpc signrpc invoicesrpc autopilotrpc routerrpc
 ITEST := rm output*.log; date; $(GOTEST) -tags="$(ITEST_TAGS)" $(TEST_FLAGS) -logoutput

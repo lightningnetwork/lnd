@@ -107,7 +107,12 @@ func (c *CfFilteredChainView) Start() error {
 
 	// Finally, we'll create our rescan struct, start it, and launch all
 	// the goroutines we need to operate this FilteredChainView instance.
-	c.chainView = c.p2pNode.NewRescan(rescanOptions...)
+	c.chainView = neutrino.NewRescan(
+		&neutrino.RescanChainSource{
+			ChainService: c.p2pNode,
+		},
+		rescanOptions...,
+	)
 	c.rescanErrChan = c.chainView.Start()
 
 	c.blockQueue.Start()

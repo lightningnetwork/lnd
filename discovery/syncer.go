@@ -13,18 +13,51 @@ import (
 	"golang.org/x/time/rate"
 )
 
-// syncerState is an enum that represents the current state of the
-// gossipSyncer.  As the syncer is a state machine, we'll gate our actions
-// based off of the current state and the next incoming message.
+// SyncerType encapsulates the different types of syncing mechanisms for a
+// gossip syncer.
+type SyncerType uint8
+
+const (
+	// ActiveSync denotes that a gossip syncer should exercise its default
+	// behavior. This includes reconciling the set of missing graph updates
+	// with the remote peer _and_ receiving new updates from them.
+	ActiveSync SyncerType = iota
+
+	// PassiveSync denotes that a gossip syncer:
+	//
+	//   1. Should not attempt to query the remote peer for graph updates.
+	//   2. Should respond to queries from the remote peer.
+	//   3. Should not receive new updates from the remote peer.
+	//
+	// They are started in a chansSynced state in order to accomplish their
+	// responsibilities above.
+	PassiveSync
+)
+
+// String returns a human readable string describing the target SyncerType.
+func (t SyncerType) String() string {
+	switch t {
+	case ActiveSync:
+		return "ActiveSync"
+	case PassiveSync:
+		return "PassiveSync"
+	default:
+		return fmt.Sprintf("unknown sync type %d", t)
+	}
+}
+
+// syncerState is an enum that represents the current state of the GossipSyncer.
+// As the syncer is a state machine, we'll gate our actions based off of the
+// current state and the next incoming message.
 type syncerState uint32
 
 const (
-	// syncingChans is the default state of the gossipSyncer. We start in
+	// syncingChans is the default state of the GossipSyncer. We start in
 	// this state when a new peer first connects and we don't yet know if
 	// we're fully synchronized.
 	syncingChans syncerState = iota
 
-	// waitingQueryRangeReply is the second main phase of the gossipSyncer.
+	// waitingQueryRangeReply is the second main phase of the GossipSyncer.
 	// We enter this state after we send out our first QueryChannelRange
 	// reply. We'll stay in this state until the remote party sends us a
 	// ReplyShortChanIDsEnd message that indicates they've responded to our
@@ -33,36 +66,25 @@ const (
 	// chan ID's to us.
 	waitingQueryRangeReply
 
-	// queryNewChannels is the third main phase of the gossipSyncer.  In
+	// queryNewChannels is the third main phase of the GossipSyncer.  In
 	// this phase we'll send out all of our QueryShortChanIDs messages in
 	// response to the new channels that we don't yet know about.
 	queryNewChannels
 
-	// waitingQueryChanReply is the fourth main phase of the gossipSyncer.
+	// waitingQueryChanReply is the fourth main phase of the GossipSyncer.
 	// We enter this phase once we've sent off a query chink to the remote
 	// peer.  We'll stay in this phase until we receive a
 	// ReplyShortChanIDsEnd message which indicates that the remote party
 	// has responded to all of our requests.
 	waitingQueryChanReply
 
-	// chansSynced is the terminal stage of the gossipSyncer. Once we enter
+	// chansSynced is the terminal stage of the GossipSyncer. Once we enter
 	// this phase, we'll send out our update horizon, which filters out the
 	// set of channel updates that we're interested in. In this state,
 	// we'll be able to accept any outgoing messages from the
 	// AuthenticatedGossiper, and decide if we should forward them to our
 	// target peer based on its update horizon.
 	chansSynced
-)
-
-const (
-	// DefaultMaxUndelayedQueryReplies specifies how many gossip queries we
-	// will respond to immediately before starting to delay responses.
-	DefaultMaxUndelayedQueryReplies = 10
-
-	// DefaultDelayedQueryReplyInterval is the length of time we will wait
-	// before responding to gossip queries after replying to
-	// maxUndelayedQueryReplies queries.
-	DefaultDelayedQueryReplyInterval = 5 * time.Second
 )
 
 // String returns a human readable string describing the target syncerState.
@@ -88,6 +110,30 @@ func (s syncerState) String() string {
 	}
 }
 
+const (
+	// DefaultMaxUndelayedQueryReplies specifies how many gossip queries we
+	// will respond to immediately before starting to delay responses.
+	DefaultMaxUndelayedQueryReplies = 10
+
+	// DefaultDelayedQueryReplyInterval is the length of time we will wait
+	// before responding to gossip queries after replying to
+	// maxUndelayedQueryReplies queries.
+	DefaultDelayedQueryReplyInterval = 5 * time.Second
+
+	// chanRangeQueryBuffer is the number of blocks back that we'll go when
+	// asking the remote peer for their any channels they know of beyond
+	// our highest known channel ID.
+	chanRangeQueryBuffer = 144
+
+	// syncTransitionTimeout is the default timeout in which we'll wait up
+	// to when attempting to perform a sync transition.
+	syncTransitionTimeout = 5 * time.Second
+
+	// requestBatchSize is the maximum number of channels we will query the
+	// remote peer for in a QueryShortChanIDs message.
+	requestBatchSize = 500
+)
+
 var (
 	// encodingTypeToChunkSize maps an encoding type, to the max number of
 	// short chan ID's using the encoding type that we can fit into a
@@ -98,20 +144,32 @@ var (
 
 	// ErrGossipSyncerExiting signals that the syncer has been killed.
 	ErrGossipSyncerExiting = errors.New("gossip syncer exiting")
+
+	// ErrSyncTransitionTimeout is an error returned when we've timed out
+	// attempting to perform a sync transition.
+	ErrSyncTransitionTimeout = errors.New("timed out attempting to " +
+		"transition sync type")
+
+	// zeroTimestamp is the timestamp we'll use when we want to indicate to
+	// peers that we do not want to receive any new graph updates.
+	zeroTimestamp time.Time
 )
 
-const (
-	// chanRangeQueryBuffer is the number of blocks back that we'll go when
-	// asking the remote peer for their any channels they know of beyond
-	// our highest known channel ID.
-	chanRangeQueryBuffer = 144
-)
+// syncTransitionReq encapsulates a request for a gossip syncer sync transition.
+type syncTransitionReq struct {
+	newSyncType SyncerType
+	errChan     chan error
+}
 
-// gossipSyncerCfg is a struct that packages all the information a gossipSyncer
+// gossipSyncerCfg is a struct that packages all the information a GossipSyncer
 // needs to carry out its duties.
 type gossipSyncerCfg struct {
 	// chainHash is the chain that this syncer is responsible for.
 	chainHash chainhash.Hash
+
+	// peerPub is the public key of the peer we're syncing with, serialized
+	// in compressed format.
+	peerPub [33]byte
 
 	// syncChanUpdates is a bool that indicates if we should request a
 	// continual channel update stream or not.
@@ -129,6 +187,10 @@ type gossipSyncerCfg struct {
 	// encoding type that we can fit into a single message safely.
 	chunkSize int32
 
+	// batchSize is the max number of channels the syncer will query from
+	// the remote node in a single QueryShortChanIDs request.
+	batchSize int32
+
 	// sendToPeer is a function closure that should send the set of
 	// targeted messages to the peer we've been assigned to sync the graph
 	// state from.
@@ -144,18 +206,27 @@ type gossipSyncerCfg struct {
 	delayedQueryReplyInterval time.Duration
 }
 
-// gossipSyncer is a struct that handles synchronizing the channel graph state
-// with a remote peer. The gossipSyncer implements a state machine that will
+// GossipSyncer is a struct that handles synchronizing the channel graph state
+// with a remote peer. The GossipSyncer implements a state machine that will
 // progressively ensure we're synchronized with the channel state of the remote
 // node. Once both nodes have been synchronized, we'll use an update filter to
 // filter out which messages should be sent to a remote peer based on their
 // update horizon. If the update horizon isn't specified, then we won't send
 // them any channel updates at all.
-//
-// TODO(roasbeef): modify to only sync from one peer at a time?
-type gossipSyncer struct {
-	started uint32
-	stopped uint32
+type GossipSyncer struct {
+	started sync.Once
+	stopped sync.Once
+
+	// state is the current state of the GossipSyncer.
+	//
+	// NOTE: This variable MUST be used atomically.
+	state uint32
+
+	// syncType denotes the SyncerType the gossip syncer is currently
+	// exercising.
+	//
+	// NOTE: This variable MUST be used atomically.
+	syncType uint32
 
 	// remoteUpdateHorizon is the update horizon of the remote peer. We'll
 	// use this to properly filter out any messages.
@@ -165,10 +236,25 @@ type gossipSyncer struct {
 	// determine if we've already sent out our update.
 	localUpdateHorizon *lnwire.GossipTimestampRange
 
-	// state is the current state of the gossipSyncer.
-	//
-	// NOTE: This variable MUST be used atomically.
-	state uint32
+	// syncTransitions is a channel through which new sync type transition
+	// requests will be sent through. These requests should only be handled
+	// when the gossip syncer is in a chansSynced state to ensure its state
+	// machine behaves as expected.
+	syncTransitionReqs chan *syncTransitionReq
+
+	// historicalSyncReqs is a channel that serves as a signal for the
+	// gossip syncer to perform a historical sync. Theese can only be done
+	// once the gossip syncer is in a chansSynced state to ensure its state
+	// machine behaves as expected.
+	historicalSyncReqs chan struct{}
+
+	// genHistoricalChanRangeQuery when true signals to the gossip syncer
+	// that it should request the remote peer for all of its known channel
+	// IDs starting from the genesis block of the chain. This can only
+	// happen if the gossip syncer receives a request to attempt a
+	// historical sync. It can be unset if the syncer ever transitions from
+	// PassiveSync to ActiveSync.
+	genHistoricalChanRangeQuery bool
 
 	// gossipMsgs is a channel that all messages from the target peer will
 	// be sent over.
@@ -183,10 +269,6 @@ type gossipSyncer struct {
 	// state.
 	newChansToQuery []lnwire.ShortChannelID
 
-	// peerPub is the public key of the peer we're syncing with, serialized
-	// in compressed format.
-	peerPub [33]byte
-
 	cfg gossipSyncerCfg
 
 	// rateLimiter dictates the frequency with which we will reply to gossip
@@ -195,15 +277,19 @@ type gossipSyncer struct {
 	// number of queries.
 	rateLimiter *rate.Limiter
 
+	// syncedSignal is a channel that, if set, will be closed when the
+	// GossipSyncer reaches its terminal chansSynced state.
+	syncedSignal chan struct{}
+
 	sync.Mutex
 
 	quit chan struct{}
 	wg   sync.WaitGroup
 }
 
-// newGossiperSyncer returns a new instance of the gossipSyncer populated using
+// newGossipSyncer returns a new instance of the GossipSyncer populated using
 // the passed config.
-func newGossiperSyncer(cfg gossipSyncerCfg) *gossipSyncer {
+func newGossipSyncer(cfg gossipSyncerCfg) *GossipSyncer {
 	// If no parameter was specified for max undelayed query replies, set it
 	// to the default of 5 queries.
 	if cfg.maxUndelayedQueryReplies <= 0 {
@@ -225,57 +311,48 @@ func newGossiperSyncer(cfg gossipSyncerCfg) *gossipSyncer {
 		interval, cfg.maxUndelayedQueryReplies,
 	)
 
-	return &gossipSyncer{
-		cfg:         cfg,
-		rateLimiter: rateLimiter,
-		gossipMsgs:  make(chan lnwire.Message, 100),
-		quit:        make(chan struct{}),
+	return &GossipSyncer{
+		cfg:                cfg,
+		rateLimiter:        rateLimiter,
+		syncTransitionReqs: make(chan *syncTransitionReq),
+		historicalSyncReqs: make(chan struct{}),
+		gossipMsgs:         make(chan lnwire.Message, 100),
+		quit:               make(chan struct{}),
 	}
 }
 
-// Start starts the gossipSyncer and any goroutines that it needs to carry out
+// Start starts the GossipSyncer and any goroutines that it needs to carry out
 // its duties.
-func (g *gossipSyncer) Start() error {
-	if !atomic.CompareAndSwapUint32(&g.started, 0, 1) {
-		return nil
-	}
+func (g *GossipSyncer) Start() {
+	g.started.Do(func() {
+		log.Debugf("Starting GossipSyncer(%x)", g.cfg.peerPub[:])
 
-	log.Debugf("Starting gossipSyncer(%x)", g.peerPub[:])
-
-	g.wg.Add(1)
-	go g.channelGraphSyncer()
-
-	return nil
+		g.wg.Add(1)
+		go g.channelGraphSyncer()
+	})
 }
 
-// Stop signals the gossipSyncer for a graceful exit, then waits until it has
+// Stop signals the GossipSyncer for a graceful exit, then waits until it has
 // exited.
-func (g *gossipSyncer) Stop() error {
-	if !atomic.CompareAndSwapUint32(&g.stopped, 0, 1) {
-		return nil
-	}
-
-	close(g.quit)
-
-	g.wg.Wait()
-
-	return nil
+func (g *GossipSyncer) Stop() {
+	g.stopped.Do(func() {
+		close(g.quit)
+		g.wg.Wait()
+	})
 }
 
 // channelGraphSyncer is the main goroutine responsible for ensuring that we
 // properly channel graph state with the remote peer, and also that we only
 // send them messages which actually pass their defined update horizon.
-func (g *gossipSyncer) channelGraphSyncer() {
+func (g *GossipSyncer) channelGraphSyncer() {
 	defer g.wg.Done()
 
-	// TODO(roasbeef): also add ability to force transition back to syncing
-	// chans
-	//  * needed if we want to sync chan state very few blocks?
-
 	for {
-		state := atomic.LoadUint32(&g.state)
-		log.Debugf("gossipSyncer(%x): state=%v", g.peerPub[:],
-			syncerState(state))
+		state := g.syncState()
+		syncType := g.SyncType()
+
+		log.Debugf("GossipSyncer(%x): state=%v, type=%v",
+			g.cfg.peerPub[:], state, syncType)
 
 		switch syncerState(state) {
 		// When we're in this state, we're trying to synchronize our
@@ -286,7 +363,9 @@ func (g *gossipSyncer) channelGraphSyncer() {
 		case syncingChans:
 			// If we're in this state, then we'll send the remote
 			// peer our opening QueryChannelRange message.
-			queryRangeMsg, err := g.genChanRangeQuery()
+			queryRangeMsg, err := g.genChanRangeQuery(
+				g.genHistoricalChanRangeQuery,
+			)
 			if err != nil {
 				log.Errorf("unable to gen chan range "+
 					"query: %v", err)
@@ -302,7 +381,7 @@ func (g *gossipSyncer) channelGraphSyncer() {
 
 			// With the message sent successfully, we'll transition
 			// into the next state where we wait for their reply.
-			atomic.StoreUint32(&g.state, uint32(waitingQueryRangeReply))
+			g.setSyncState(waitingQueryRangeReply)
 
 		// In this state, we've sent out our initial channel range
 		// query and are waiting for the final response from the remote
@@ -359,13 +438,13 @@ func (g *gossipSyncer) channelGraphSyncer() {
 			// If this wasn't our last query, then we'll need to
 			// transition to our waiting state.
 			if !done {
-				atomic.StoreUint32(&g.state, uint32(waitingQueryChanReply))
+				g.setSyncState(waitingQueryChanReply)
 				continue
 			}
 
 			// If we're fully synchronized, then we can transition
 			// to our terminal state.
-			atomic.StoreUint32(&g.state, uint32(chansSynced))
+			g.setSyncState(chansSynced)
 
 		// In this state, we've just sent off a new query for channels
 		// that we don't yet know of. We'll remain in this state until
@@ -382,7 +461,7 @@ func (g *gossipSyncer) channelGraphSyncer() {
 				// state to send of the remaining query chunks.
 				_, ok := msg.(*lnwire.ReplyShortChanIDsEnd)
 				if ok {
-					atomic.StoreUint32(&g.state, uint32(queryNewChannels))
+					g.setSyncState(queryNewChannels)
 					continue
 				}
 
@@ -401,35 +480,30 @@ func (g *gossipSyncer) channelGraphSyncer() {
 		// This is our final terminal state where we'll only reply to
 		// any further queries by the remote peer.
 		case chansSynced:
+			g.Lock()
+			if g.syncedSignal != nil {
+				close(g.syncedSignal)
+				g.syncedSignal = nil
+			}
+			g.Unlock()
+
 			// If we haven't yet sent out our update horizon, and
 			// we want to receive real-time channel updates, we'll
 			// do so now.
-			if g.localUpdateHorizon == nil && g.cfg.syncChanUpdates {
-				// TODO(roasbeef): query DB for most recent
-				// update?
-
-				// We'll give an hours room in our update
-				// horizon to ensure we don't miss any newer
-				// items.
-				updateHorizon := time.Now().Add(-time.Hour * 1)
-				log.Infof("gossipSyncer(%x): applying "+
-					"gossipFilter(start=%v)", g.peerPub[:],
-					updateHorizon)
-
-				g.localUpdateHorizon = &lnwire.GossipTimestampRange{
-					ChainHash:      g.cfg.chainHash,
-					FirstTimestamp: uint32(updateHorizon.Unix()),
-					TimestampRange: math.MaxUint32,
-				}
-				err := g.cfg.sendToPeer(g.localUpdateHorizon)
+			if g.localUpdateHorizon == nil && syncType == ActiveSync {
+				err := g.sendGossipTimestampRange(
+					time.Now(), math.MaxUint32,
+				)
 				if err != nil {
-					log.Errorf("unable to send update "+
-						"horizon: %v", err)
+					log.Errorf("Unable to send update "+
+						"horizon to %x: %v",
+						g.cfg.peerPub, err)
 				}
 			}
 
 			// With our horizon set, we'll simply reply to any new
-			// message and exit if needed.
+			// messages or process any state transitions and exit if
+			// needed.
 			select {
 			case msg := <-g.gossipMsgs:
 				err := g.replyPeerQueries(msg)
@@ -438,11 +512,48 @@ func (g *gossipSyncer) channelGraphSyncer() {
 						"query: %v", err)
 				}
 
+			case req := <-g.syncTransitionReqs:
+				req.errChan <- g.handleSyncTransition(req)
+
+			case <-g.historicalSyncReqs:
+				g.handleHistoricalSync()
+
 			case <-g.quit:
 				return
 			}
 		}
 	}
+}
+
+// sendGossipTimestampRange constructs and sets a GossipTimestampRange for the
+// syncer and sends it to the remote peer.
+func (g *GossipSyncer) sendGossipTimestampRange(firstTimestamp time.Time,
+	timestampRange uint32) error {
+
+	endTimestamp := firstTimestamp.Add(
+		time.Duration(timestampRange) * time.Second,
+	)
+
+	log.Infof("GossipSyncer(%x): applying gossipFilter(start=%v, end=%v)",
+		g.cfg.peerPub[:], firstTimestamp, endTimestamp)
+
+	localUpdateHorizon := &lnwire.GossipTimestampRange{
+		ChainHash:      g.cfg.chainHash,
+		FirstTimestamp: uint32(firstTimestamp.Unix()),
+		TimestampRange: timestampRange,
+	}
+
+	if err := g.cfg.sendToPeer(localUpdateHorizon); err != nil {
+		return err
+	}
+
+	if firstTimestamp == zeroTimestamp && timestampRange == 0 {
+		g.localUpdateHorizon = nil
+	} else {
+		g.localUpdateHorizon = localUpdateHorizon
+	}
+
+	return nil
 }
 
 // synchronizeChanIDs is called by the channelGraphSyncer when we need to query
@@ -451,13 +562,13 @@ func (g *gossipSyncer) channelGraphSyncer() {
 // been queried for with a response received. We'll chunk our requests as
 // required to ensure they fit into a single message. We may re-renter this
 // state in the case that chunking is required.
-func (g *gossipSyncer) synchronizeChanIDs() (bool, error) {
+func (g *GossipSyncer) synchronizeChanIDs() (bool, error) {
 	// If we're in this state yet there are no more new channels to query
 	// for, then we'll transition to our final synced state and return true
 	// to signal that we're fully synchronized.
 	if len(g.newChansToQuery) == 0 {
-		log.Infof("gossipSyncer(%x): no more chans to query",
-			g.peerPub[:])
+		log.Infof("GossipSyncer(%x): no more chans to query",
+			g.cfg.peerPub[:])
 		return true, nil
 	}
 
@@ -467,7 +578,7 @@ func (g *gossipSyncer) synchronizeChanIDs() (bool, error) {
 
 	// If the number of channels to query for is less than the chunk size,
 	// then we can issue a single query.
-	if int32(len(g.newChansToQuery)) < g.cfg.chunkSize {
+	if int32(len(g.newChansToQuery)) < g.cfg.batchSize {
 		queryChunk = g.newChansToQuery
 		g.newChansToQuery = nil
 
@@ -475,12 +586,12 @@ func (g *gossipSyncer) synchronizeChanIDs() (bool, error) {
 		// Otherwise, we'll need to only query for the next chunk.
 		// We'll slice into our query chunk, then slide down our main
 		// pointer down by the chunk size.
-		queryChunk = g.newChansToQuery[:g.cfg.chunkSize]
-		g.newChansToQuery = g.newChansToQuery[g.cfg.chunkSize:]
+		queryChunk = g.newChansToQuery[:g.cfg.batchSize]
+		g.newChansToQuery = g.newChansToQuery[g.cfg.batchSize:]
 	}
 
-	log.Infof("gossipSyncer(%x): querying for %v new channels",
-		g.peerPub[:], len(queryChunk))
+	log.Infof("GossipSyncer(%x): querying for %v new channels",
+		g.cfg.peerPub[:], len(queryChunk))
 
 	// With our chunk obtained, we'll send over our next query, then return
 	// false indicating that we're net yet fully synced.
@@ -493,16 +604,16 @@ func (g *gossipSyncer) synchronizeChanIDs() (bool, error) {
 	return false, err
 }
 
-// processChanRangeReply is called each time the gossipSyncer receives a new
+// processChanRangeReply is called each time the GossipSyncer receives a new
 // reply to the initial range query to discover new channels that it didn't
 // previously know of.
-func (g *gossipSyncer) processChanRangeReply(msg *lnwire.ReplyChannelRange) error {
+func (g *GossipSyncer) processChanRangeReply(msg *lnwire.ReplyChannelRange) error {
 	g.bufferedChanRangeReplies = append(
 		g.bufferedChanRangeReplies, msg.ShortChanIDs...,
 	)
 
-	log.Infof("gossipSyncer(%x): buffering chan range reply of size=%v",
-		g.peerPub[:], len(msg.ShortChanIDs))
+	log.Infof("GossipSyncer(%x): buffering chan range reply of size=%v",
+		g.cfg.peerPub[:], len(msg.ShortChanIDs))
 
 	// If this isn't the last response, then we can exit as we've already
 	// buffered the latest portion of the streaming reply.
@@ -510,8 +621,8 @@ func (g *gossipSyncer) processChanRangeReply(msg *lnwire.ReplyChannelRange) erro
 		return nil
 	}
 
-	log.Infof("gossipSyncer(%x): filtering through %v chans", g.peerPub[:],
-		len(g.bufferedChanRangeReplies))
+	log.Infof("GossipSyncer(%x): filtering through %v chans",
+		g.cfg.peerPub[:], len(g.bufferedChanRangeReplies))
 
 	// Otherwise, this is the final response, so we'll now check to see
 	// which channels they know of that we don't.
@@ -530,28 +641,31 @@ func (g *gossipSyncer) processChanRangeReply(msg *lnwire.ReplyChannelRange) erro
 	// If there aren't any channels that we don't know of, then we can
 	// switch straight to our terminal state.
 	if len(newChans) == 0 {
-		log.Infof("gossipSyncer(%x): remote peer has no new chans",
-			g.peerPub[:])
+		log.Infof("GossipSyncer(%x): remote peer has no new chans",
+			g.cfg.peerPub[:])
 
-		atomic.StoreUint32(&g.state, uint32(chansSynced))
+		g.setSyncState(chansSynced)
 		return nil
 	}
 
 	// Otherwise, we'll set the set of channels that we need to query for
 	// the next state, and also transition our state.
 	g.newChansToQuery = newChans
-	atomic.StoreUint32(&g.state, uint32(queryNewChannels))
+	g.setSyncState(queryNewChannels)
 
-	log.Infof("gossipSyncer(%x): starting query for %v new chans",
-		g.peerPub[:], len(newChans))
+	log.Infof("GossipSyncer(%x): starting query for %v new chans",
+		g.cfg.peerPub[:], len(newChans))
 
 	return nil
 }
 
 // genChanRangeQuery generates the initial message we'll send to the remote
 // party when we're kicking off the channel graph synchronization upon
-// connection.
-func (g *gossipSyncer) genChanRangeQuery() (*lnwire.QueryChannelRange, error) {
+// connection. The historicalQuery boolean can be used to generate a query from
+// the genesis block of the chain.
+func (g *GossipSyncer) genChanRangeQuery(
+	historicalQuery bool) (*lnwire.QueryChannelRange, error) {
+
 	// First, we'll query our channel graph time series for its highest
 	// known channel ID.
 	newestChan, err := g.cfg.channelSeries.HighestChanID(g.cfg.chainHash)
@@ -559,23 +673,23 @@ func (g *gossipSyncer) genChanRangeQuery() (*lnwire.QueryChannelRange, error) {
 		return nil, err
 	}
 
-	// Once we have the chan ID of the newest, we'll obtain the block
-	// height of the channel, then subtract our default horizon to ensure
-	// we don't miss any channels. By default, we go back 1 day from the
-	// newest channel.
+	// Once we have the chan ID of the newest, we'll obtain the block height
+	// of the channel, then subtract our default horizon to ensure we don't
+	// miss any channels. By default, we go back 1 day from the newest
+	// channel, unless we're attempting a historical sync, where we'll
+	// actually start from the genesis block instead.
 	var startHeight uint32
 	switch {
-	case newestChan.BlockHeight <= chanRangeQueryBuffer:
+	case historicalQuery:
 		fallthrough
-	case newestChan.BlockHeight == 0:
+	case newestChan.BlockHeight <= chanRangeQueryBuffer:
 		startHeight = 0
-
 	default:
 		startHeight = uint32(newestChan.BlockHeight - chanRangeQueryBuffer)
 	}
 
-	log.Infof("gossipSyncer(%x): requesting new chans from height=%v "+
-		"and %v blocks after", g.peerPub[:], startHeight,
+	log.Infof("GossipSyncer(%x): requesting new chans from height=%v "+
+		"and %v blocks after", g.cfg.peerPub[:], startHeight,
 		math.MaxUint32-startHeight)
 
 	// Finally, we'll craft the channel range query, using our starting
@@ -590,7 +704,7 @@ func (g *gossipSyncer) genChanRangeQuery() (*lnwire.QueryChannelRange, error) {
 
 // replyPeerQueries is called in response to any query by the remote peer.
 // We'll examine our state and send back our best response.
-func (g *gossipSyncer) replyPeerQueries(msg lnwire.Message) error {
+func (g *GossipSyncer) replyPeerQueries(msg lnwire.Message) error {
 	reservation := g.rateLimiter.Reserve()
 	delay := reservation.Delay()
 
@@ -598,8 +712,8 @@ func (g *gossipSyncer) replyPeerQueries(msg lnwire.Message) error {
 	// responses back to the remote peer. This can help prevent DOS attacks
 	// where the remote peer spams us endlessly.
 	if delay > 0 {
-		log.Infof("gossipSyncer(%x): rate limiting gossip replies, "+
-			"responding in %s", g.peerPub[:], delay)
+		log.Infof("GossipSyncer(%x): rate limiting gossip replies, "+
+			"responding in %s", g.cfg.peerPub[:], delay)
 
 		select {
 		case <-time.After(delay):
@@ -630,9 +744,9 @@ func (g *gossipSyncer) replyPeerQueries(msg lnwire.Message) error {
 // meet the channel range, then chunk our responses to the remote node. We also
 // ensure that our final fragment carries the "complete" bit to indicate the
 // end of our streaming response.
-func (g *gossipSyncer) replyChanRangeQuery(query *lnwire.QueryChannelRange) error {
-	log.Infof("gossipSyncer(%x): filtering chan range: start_height=%v, "+
-		"num_blocks=%v", g.peerPub[:], query.FirstBlockHeight,
+func (g *GossipSyncer) replyChanRangeQuery(query *lnwire.QueryChannelRange) error {
+	log.Infof("GossipSyncer(%x): filtering chan range: start_height=%v, "+
+		"num_blocks=%v", g.cfg.peerPub[:], query.FirstBlockHeight,
 		query.NumBlocks)
 
 	// Next, we'll consult the time series to obtain the set of known
@@ -666,16 +780,16 @@ func (g *gossipSyncer) replyChanRangeQuery(query *lnwire.QueryChannelRange) erro
 		if isFinalChunk {
 			channelChunk = channelRange[numChansSent:]
 
-			log.Infof("gossipSyncer(%x): sending final chan "+
-				"range chunk, size=%v", g.peerPub[:], len(channelChunk))
-
+			log.Infof("GossipSyncer(%x): sending final chan "+
+				"range chunk, size=%v", g.cfg.peerPub[:],
+				len(channelChunk))
 		} else {
 			// Otherwise, we'll only send off a fragment exactly
 			// sized to the proper chunk size.
 			channelChunk = channelRange[numChansSent : numChansSent+g.cfg.chunkSize]
 
-			log.Infof("gossipSyncer(%x): sending range chunk of "+
-				"size=%v", g.peerPub[:], len(channelChunk))
+			log.Infof("GossipSyncer(%x): sending range chunk of "+
+				"size=%v", g.cfg.peerPub[:], len(channelChunk))
 		}
 
 		// With our chunk assembled, we'll now send to the remote peer
@@ -707,7 +821,7 @@ func (g *gossipSyncer) replyChanRangeQuery(query *lnwire.QueryChannelRange) erro
 // node for information concerning a set of short channel ID's. Our response
 // will be sent in a streaming chunked manner to ensure that we remain below
 // the current transport level message size.
-func (g *gossipSyncer) replyShortChanIDs(query *lnwire.QueryShortChanIDs) error {
+func (g *GossipSyncer) replyShortChanIDs(query *lnwire.QueryShortChanIDs) error {
 	// Before responding, we'll check to ensure that the remote peer is
 	// querying for the same chain that we're on. If not, we'll send back a
 	// response with a complete value of zero to indicate we're on a
@@ -724,13 +838,13 @@ func (g *gossipSyncer) replyShortChanIDs(query *lnwire.QueryShortChanIDs) error 
 	}
 
 	if len(query.ShortChanIDs) == 0 {
-		log.Infof("gossipSyncer(%x): ignoring query for blank short chan ID's",
-			g.peerPub[:])
+		log.Infof("GossipSyncer(%x): ignoring query for blank short chan ID's",
+			g.cfg.peerPub[:])
 		return nil
 	}
 
-	log.Infof("gossipSyncer(%x): fetching chan anns for %v chans",
-		g.peerPub[:], len(query.ShortChanIDs))
+	log.Infof("GossipSyncer(%x): fetching chan anns for %v chans",
+		g.cfg.peerPub[:], len(query.ShortChanIDs))
 
 	// Now that we know we're on the same chain, we'll query the channel
 	// time series for the set of messages that we know of which satisfies
@@ -766,7 +880,7 @@ func (g *gossipSyncer) replyShortChanIDs(query *lnwire.QueryShortChanIDs) error 
 // ApplyGossipFilter applies a gossiper filter sent by the remote node to the
 // state machine. Once applied, we'll ensure that we don't forward any messages
 // to the peer that aren't within the time range of the filter.
-func (g *gossipSyncer) ApplyGossipFilter(filter *lnwire.GossipTimestampRange) error {
+func (g *GossipSyncer) ApplyGossipFilter(filter *lnwire.GossipTimestampRange) error {
 	g.Lock()
 
 	g.remoteUpdateHorizon = filter
@@ -787,8 +901,8 @@ func (g *gossipSyncer) ApplyGossipFilter(filter *lnwire.GossipTimestampRange) er
 		return err
 	}
 
-	log.Infof("gossipSyncer(%x): applying new update horizon: start=%v, "+
-		"end=%v, backlog_size=%v", g.peerPub[:], startTime, endTime,
+	log.Infof("GossipSyncer(%x): applying new update horizon: start=%v, "+
+		"end=%v, backlog_size=%v", g.cfg.peerPub[:], startTime, endTime,
 		len(newUpdatestoSend))
 
 	// If we don't have any to send, then we can return early.
@@ -813,17 +927,19 @@ func (g *gossipSyncer) ApplyGossipFilter(filter *lnwire.GossipTimestampRange) er
 // FilterGossipMsgs takes a set of gossip messages, and only send it to a peer
 // iff the message is within the bounds of their set gossip filter. If the peer
 // doesn't have a gossip filter set, then no messages will be forwarded.
-func (g *gossipSyncer) FilterGossipMsgs(msgs ...msgWithSenders) {
+func (g *GossipSyncer) FilterGossipMsgs(msgs ...msgWithSenders) {
 	// If the peer doesn't have an update horizon set, then we won't send
 	// it any new update messages.
 	if g.remoteUpdateHorizon == nil {
 		return
 	}
 
-	// If we've been signalled to exit, or are exiting, then we'll stop
+	// If we've been signaled to exit, or are exiting, then we'll stop
 	// short.
-	if atomic.LoadUint32(&g.stopped) == 1 {
+	select {
+	case <-g.quit:
 		return
+	default:
 	}
 
 	// TODO(roasbeef): need to ensure that peer still online...send msg to
@@ -858,7 +974,8 @@ func (g *gossipSyncer) FilterGossipMsgs(msgs ...msgWithSenders) {
 
 	passesFilter := func(timeStamp uint32) bool {
 		t := time.Unix(int64(timeStamp), 0)
-		return t.After(startTime) && t.Before(endTime)
+		return t.Equal(startTime) ||
+			(t.After(startTime) && t.Before(endTime))
 	}
 
 	msgsToSend := make([]lnwire.Message, 0, len(msgs))
@@ -866,7 +983,7 @@ func (g *gossipSyncer) FilterGossipMsgs(msgs ...msgWithSenders) {
 		// If the target peer is the peer that sent us this message,
 		// then we'll exit early as we don't need to filter this
 		// message.
-		if _, ok := msg.senders[g.peerPub]; ok {
+		if _, ok := msg.senders[g.cfg.peerPub]; ok {
 			continue
 		}
 
@@ -920,8 +1037,8 @@ func (g *gossipSyncer) FilterGossipMsgs(msgs ...msgWithSenders) {
 		}
 	}
 
-	log.Tracef("gossipSyncer(%x): filtered gossip msgs: set=%v, sent=%v",
-		g.peerPub[:], len(msgs), len(msgsToSend))
+	log.Tracef("GossipSyncer(%x): filtered gossip msgs: set=%v, sent=%v",
+		g.cfg.peerPub[:], len(msgs), len(msgsToSend))
 
 	if len(msgsToSend) == 0 {
 		return
@@ -932,7 +1049,7 @@ func (g *gossipSyncer) FilterGossipMsgs(msgs ...msgWithSenders) {
 
 // ProcessQueryMsg is used by outside callers to pass new channel time series
 // queries to the internal processing goroutine.
-func (g *gossipSyncer) ProcessQueryMsg(msg lnwire.Message, peerQuit <-chan struct{}) {
+func (g *GossipSyncer) ProcessQueryMsg(msg lnwire.Message, peerQuit <-chan struct{}) {
 	select {
 	case g.gossipMsgs <- msg:
 	case <-peerQuit:
@@ -940,7 +1057,149 @@ func (g *gossipSyncer) ProcessQueryMsg(msg lnwire.Message, peerQuit <-chan struc
 	}
 }
 
-// SyncerState returns the current syncerState of the target gossipSyncer.
-func (g *gossipSyncer) SyncState() syncerState {
+// setSyncState sets the gossip syncer's state to the given state.
+func (g *GossipSyncer) setSyncState(state syncerState) {
+	atomic.StoreUint32(&g.state, uint32(state))
+}
+
+// syncState returns the current syncerState of the target GossipSyncer.
+func (g *GossipSyncer) syncState() syncerState {
 	return syncerState(atomic.LoadUint32(&g.state))
+}
+
+// ResetSyncedSignal returns a channel that will be closed in order to serve as
+// a signal for when the GossipSyncer has reached its chansSynced state.
+func (g *GossipSyncer) ResetSyncedSignal() chan struct{} {
+	g.Lock()
+	defer g.Unlock()
+
+	syncedSignal := make(chan struct{})
+
+	syncState := syncerState(atomic.LoadUint32(&g.state))
+	if syncState == chansSynced {
+		close(syncedSignal)
+		return syncedSignal
+	}
+
+	g.syncedSignal = syncedSignal
+	return g.syncedSignal
+}
+
+// ProcessSyncTransition sends a request to the gossip syncer to transition its
+// sync type to a new one.
+//
+// NOTE: This can only be done once the gossip syncer has reached its final
+// chansSynced state.
+func (g *GossipSyncer) ProcessSyncTransition(newSyncType SyncerType) error {
+	errChan := make(chan error, 1)
+	select {
+	case g.syncTransitionReqs <- &syncTransitionReq{
+		newSyncType: newSyncType,
+		errChan:     errChan,
+	}:
+	case <-time.After(syncTransitionTimeout):
+		return ErrSyncTransitionTimeout
+	case <-g.quit:
+		return ErrGossipSyncerExiting
+	}
+
+	select {
+	case err := <-errChan:
+		return err
+	case <-g.quit:
+		return ErrGossipSyncerExiting
+	}
+}
+
+// handleSyncTransition handles a new sync type transition request.
+//
+// NOTE: The gossip syncer might have another sync state as a result of this
+// transition.
+func (g *GossipSyncer) handleSyncTransition(req *syncTransitionReq) error {
+	// Return early from any NOP sync transitions.
+	syncType := g.SyncType()
+	if syncType == req.newSyncType {
+		return nil
+	}
+
+	log.Debugf("GossipSyncer(%x): transitioning from %v to %v",
+		g.cfg.peerPub, syncType, req.newSyncType)
+
+	var (
+		firstTimestamp time.Time
+		timestampRange uint32
+		newState       syncerState
+	)
+
+	switch req.newSyncType {
+	// If an active sync has been requested, then we should resume receiving
+	// new graph updates from the remote peer.
+	case ActiveSync:
+		firstTimestamp = time.Now()
+		timestampRange = math.MaxUint32
+		newState = syncingChans
+
+		// We'll set genHistoricalChanRangeQuery to false since in order
+		// to not perform another historical sync if we previously have.
+		g.genHistoricalChanRangeQuery = false
+
+	// If a PassiveSync transition has been requested, then we should no
+	// longer receive any new updates from the remote peer. We can do this
+	// by setting our update horizon to a range in the past ensuring no
+	// graph updates match the timestamp range.
+	case PassiveSync:
+		firstTimestamp = zeroTimestamp
+		timestampRange = 0
+		newState = chansSynced
+
+	default:
+		return fmt.Errorf("unhandled sync transition %v",
+			req.newSyncType)
+	}
+
+	err := g.sendGossipTimestampRange(firstTimestamp, timestampRange)
+	if err != nil {
+		return fmt.Errorf("unable to send local update horizon: %v", err)
+	}
+
+	g.setSyncState(newState)
+	g.setSyncType(req.newSyncType)
+
+	return nil
+}
+
+// setSyncType sets the gossip syncer's sync type to the given type.
+func (g *GossipSyncer) setSyncType(syncType SyncerType) {
+	atomic.StoreUint32(&g.syncType, uint32(syncType))
+}
+
+// SyncType returns the current SyncerType of the target GossipSyncer.
+func (g *GossipSyncer) SyncType() SyncerType {
+	return SyncerType(atomic.LoadUint32(&g.syncType))
+}
+
+// historicalSync sends a request to the gossip syncer to perofmr a historical
+// sync.
+//
+// NOTE: This can only be done once the gossip syncer has reached its final
+// chansSynced state.
+func (g *GossipSyncer) historicalSync() error {
+	select {
+	case g.historicalSyncReqs <- struct{}{}:
+		return nil
+	case <-time.After(syncTransitionTimeout):
+		return ErrSyncTransitionTimeout
+	case <-g.quit:
+		return ErrGossiperShuttingDown
+	}
+}
+
+// handleHistoricalSync handles a request to the gossip syncer to perform a
+// historical sync.
+func (g *GossipSyncer) handleHistoricalSync() {
+	// We'll go back to our initial syncingChans state in order to request
+	// the remote peer to give us all of the channel IDs they know of
+	// starting from the genesis block.
+	g.genHistoricalChanRangeQuery = true
+	g.setSyncState(syncingChans)
 }

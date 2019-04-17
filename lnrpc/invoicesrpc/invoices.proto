@@ -23,10 +23,79 @@ service Invoices {
     fail.
     */
     rpc CancelInvoice(CancelInvoiceMsg) returns (CancelInvoiceResp);
+
+    /**
+    AddHoldInvoice creates a hold invoice. It ties the invoice to the hash
+    supplied in the request.
+    */
+    rpc AddHoldInvoice(AddHoldInvoiceRequest) returns (AddHoldInvoiceResp);
+ 
+    /**
+    SettleInvoice settles an accepted invoice. If the invoice is already
+    settled, this call will succeed.
+    */
+    rpc SettleInvoice(SettleInvoiceMsg) returns (SettleInvoiceResp);
 }
 
 message CancelInvoiceMsg {
-    /// Hash corresponding to the invoice to cancel.
+    /// Hash corresponding to the (hold) invoice to cancel.
     bytes payment_hash = 1;
 } 
 message CancelInvoiceResp {}
+
+message AddHoldInvoiceRequest {
+    /**
+    An optional memo to attach along with the invoice. Used for record keeping
+    purposes for the invoice's creator, and will also be set in the description
+    field of the encoded payment request if the description_hash field is not
+    being used.
+    */
+    string memo = 1 [json_name = "memo"];
+
+    /// The hash of the preimage
+    bytes hash = 2 [json_name = "hash"];
+
+    /// The value of this invoice in satoshis
+    int64 value = 3 [json_name = "value"];
+
+    /**
+    Hash (SHA-256) of a description of the payment. Used if the description of
+    payment (memo) is too long to naturally fit within the description field
+    of an encoded payment request.
+    */
+    bytes description_hash = 4 [json_name = "description_hash"];
+
+    /// Payment request expiry time in seconds. Default is 3600 (1 hour).
+    int64 expiry = 5 [json_name = "expiry"];
+
+    /// Fallback on-chain address.
+    string fallback_addr = 6 [json_name = "fallback_addr"];
+
+    /// Delta to use for the time-lock of the CLTV extended to the final hop.
+    uint64 cltv_expiry = 7 [json_name = "cltv_expiry"];
+
+    /**
+    Route hints that can each be individually used to assist in reaching the
+    invoice's destination.
+    */
+    repeated lnrpc.RouteHint route_hints = 8 [json_name = "route_hints"];
+
+    /// Whether this invoice should include routing hints for private channels.
+    bool private = 9 [json_name = "private"];
+}
+
+message AddHoldInvoiceResp {
+    /**
+    A bare-bones invoice for a payment within the Lightning Network.  With the
+    details of the invoice, the sender has all the data necessary to send a
+    payment to the recipient.
+    */
+    string payment_request = 1 [json_name = "payment_request"];
+}
+
+message SettleInvoiceMsg {
+    /// Externally discovered pre-image that should be used to settle the hold invoice.
+    bytes preimage = 1;
+} 
+
+message SettleInvoiceResp {}

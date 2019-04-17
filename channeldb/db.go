@@ -7,7 +7,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"sync"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec"
@@ -104,27 +103,29 @@ var (
 	byteOrder = binary.BigEndian
 )
 
-var bufPool = &sync.Pool{
-	New: func() interface{} { return new(bytes.Buffer) },
-}
-
 // DB is the primary datastore for the lnd daemon. The database stores
 // information related to nodes, routing data, open/closed channels, fee
 // schedules, and reputation data.
 type DB struct {
 	*bbolt.DB
 	dbPath string
+	graph  *ChannelGraph
 }
 
 // Open opens an existing channeldb. Any necessary schemas migrations due to
 // updates will take place as necessary.
-func Open(dbPath string) (*DB, error) {
+func Open(dbPath string, modifiers ...OptionModifier) (*DB, error) {
 	path := filepath.Join(dbPath, dbName)
 
 	if !fileExists(path) {
 		if err := createChannelDB(dbPath); err != nil {
 			return nil, err
 		}
+	}
+
+	opts := DefaultOptions()
+	for _, modifier := range modifiers {
+		modifier(&opts)
 	}
 
 	bdb, err := bbolt.Open(path, dbFilePermission, nil)
@@ -136,6 +137,9 @@ func Open(dbPath string) (*DB, error) {
 		DB:     bdb,
 		dbPath: dbPath,
 	}
+	chanDB.graph = newChannelGraph(
+		chanDB, opts.RejectCacheSize, opts.ChannelCacheSize,
+	)
 
 	// Synchronize the version of database and apply migrations if needed.
 	if err := chanDB.syncVersions(dbVersions); err != nil {
@@ -266,6 +270,9 @@ func createChannelDB(dbPath string) error {
 			return err
 		}
 		if _, err := edges.CreateBucket(channelPointBucket); err != nil {
+			return err
+		}
+		if _, err := edges.CreateBucket(zombieBucket); err != nil {
 			return err
 		}
 
@@ -897,11 +904,22 @@ type ChannelShell struct {
 // well. This method is idempotent, so repeated calls with the same set of
 // channel shells won't modify the database after the initial call.
 func (d *DB) RestoreChannelShells(channelShells ...*ChannelShell) error {
-	chanGraph := ChannelGraph{d}
+	chanGraph := d.ChannelGraph()
 
-	return d.Update(func(tx *bbolt.Tx) error {
+	// TODO(conner): find way to do this w/o accessing internal members?
+	chanGraph.cacheMu.Lock()
+	defer chanGraph.cacheMu.Unlock()
+
+	var chansRestored []uint64
+	err := d.Update(func(tx *bbolt.Tx) error {
 		for _, channelShell := range channelShells {
 			channel := channelShell.Chan
+
+			// When we make a channel, we mark that the channel has
+			// been restored, this will signal to other sub-systems
+			// to not attempt to use the channel as if it was a
+			// regular one.
+			channel.chanStatus |= ChanStatusRestored
 
 			// First, we'll attempt to create a new open channel
 			// and link node for this channel. If the channel
@@ -927,6 +945,7 @@ func (d *DB) RestoreChannelShells(channelShells ...*ChannelShell) error {
 				ChannelID:    channel.ShortChannelID.ToUint64(),
 				ChainHash:    channel.ChainHash,
 				ChannelPoint: channel.FundingOutpoint,
+				Capacity:     channel.Capacity,
 			}
 
 			nodes := tx.Bucket(nodeBucket)
@@ -955,7 +974,7 @@ func (d *DB) RestoreChannelShells(channelShells ...*ChannelShell) error {
 			// With the edge info shell constructed, we'll now add
 			// it to the graph.
 			err = chanGraph.addChannelEdge(tx, &edgeInfo)
-			if err != nil {
+			if err != nil && err != ErrEdgeAlreadyExist {
 				return err
 			}
 
@@ -973,14 +992,26 @@ func (d *DB) RestoreChannelShells(channelShells ...*ChannelShell) error {
 				chanEdge.ChannelFlags |= lnwire.ChanUpdateDirection
 			}
 
-			err = updateEdgePolicy(tx, &chanEdge)
+			_, err = updateEdgePolicy(tx, &chanEdge)
 			if err != nil {
 				return err
 			}
+
+			chansRestored = append(chansRestored, edgeInfo.ChannelID)
 		}
 
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+
+	for _, chanid := range chansRestored {
+		chanGraph.rejectCache.remove(chanid)
+		chanGraph.chanCache.remove(chanid)
+	}
+
+	return nil
 }
 
 // AddrsForNode consults the graph and channel database for all addresses known
@@ -1008,7 +1039,9 @@ func (d *DB) AddrsForNode(nodePub *btcec.PublicKey) ([]net.Addr, error) {
 		}
 		compressedPubKey := nodePub.SerializeCompressed()
 		graphNode, err = fetchLightningNode(nodes, compressedPubKey)
-		if err != nil {
+		if err != nil && err != ErrGraphNodeNotFound {
+			// If the node isn't found, then that's OK, as we still
+			// have the link node data.
 			return err
 		}
 
@@ -1100,7 +1133,7 @@ func (d *DB) syncVersions(versions []version) error {
 
 // ChannelGraph returns a new instance of the directed channel graph.
 func (d *DB) ChannelGraph() *ChannelGraph {
-	return &ChannelGraph{d}
+	return d.graph
 }
 
 func getLatestDBVersion(versions []version) uint32 {

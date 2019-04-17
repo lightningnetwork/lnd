@@ -11,6 +11,8 @@ import (
 	"google.golang.org/grpc"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 
+	"github.com/btcsuite/btcutil"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
 )
@@ -43,7 +45,15 @@ var (
 			Entity: "invoices",
 			Action: "read",
 		}},
+		"/invoicesrpc.Invoices/SettleInvoice": {{
+			Entity: "invoices",
+			Action: "write",
+		}},
 		"/invoicesrpc.Invoices/CancelInvoice": {{
+			Entity: "invoices",
+			Action: "write",
+		}},
+		"/invoicesrpc.Invoices/AddHoldInvoice": {{
 			Entity: "invoices",
 			Action: "write",
 		}},
@@ -163,12 +173,12 @@ func (s *Server) RegisterWithRootServer(grpcServer *grpc.Server) error {
 func (s *Server) SubscribeSingleInvoice(req *lnrpc.PaymentHash,
 	updateStream Invoices_SubscribeSingleInvoiceServer) error {
 
-	hash, err := lntypes.NewHash(req.RHash)
+	hash, err := lntypes.MakeHash(req.RHash)
 	if err != nil {
 		return err
 	}
 
-	invoiceClient := s.cfg.InvoiceRegistry.SubscribeSingleInvoice(*hash)
+	invoiceClient := s.cfg.InvoiceRegistry.SubscribeSingleInvoice(hash)
 	defer invoiceClient.Cancel()
 
 	for {
@@ -191,18 +201,36 @@ func (s *Server) SubscribeSingleInvoice(req *lnrpc.PaymentHash,
 	}
 }
 
+// SettleInvoice settles an accepted invoice. If the invoice is already settled,
+// this call will succeed.
+func (s *Server) SettleInvoice(ctx context.Context,
+	in *SettleInvoiceMsg) (*SettleInvoiceResp, error) {
+
+	preimage, err := lntypes.MakePreimage(in.Preimage)
+	if err != nil {
+		return nil, err
+	}
+
+	err = s.cfg.InvoiceRegistry.SettleHodlInvoice(preimage)
+	if err != nil && err != channeldb.ErrInvoiceAlreadySettled {
+		return nil, err
+	}
+
+	return &SettleInvoiceResp{}, nil
+}
+
 // CancelInvoice cancels a currently open invoice. If the invoice is already
 // canceled, this call will succeed. If the invoice is already settled, it will
 // fail.
 func (s *Server) CancelInvoice(ctx context.Context,
 	in *CancelInvoiceMsg) (*CancelInvoiceResp, error) {
 
-	paymentHash, err := lntypes.NewHash(in.PaymentHash)
+	paymentHash, err := lntypes.MakeHash(in.PaymentHash)
 	if err != nil {
 		return nil, err
 	}
 
-	err = s.cfg.InvoiceRegistry.CancelInvoice(*paymentHash)
+	err = s.cfg.InvoiceRegistry.CancelInvoice(paymentHash)
 	if err != nil {
 		return nil, err
 	}
@@ -210,4 +238,46 @@ func (s *Server) CancelInvoice(ctx context.Context,
 	log.Infof("Canceled invoice %v", paymentHash)
 
 	return &CancelInvoiceResp{}, nil
+}
+
+// AddHoldInvoice attempts to add a new hold invoice to the invoice database.
+// Any duplicated invoices are rejected, therefore all invoices *must* have a
+// unique payment hash.
+func (s *Server) AddHoldInvoice(ctx context.Context,
+	invoice *AddHoldInvoiceRequest) (*AddHoldInvoiceResp, error) {
+
+	addInvoiceCfg := &AddInvoiceConfig{
+		AddInvoice:        s.cfg.InvoiceRegistry.AddInvoice,
+		IsChannelActive:   s.cfg.IsChannelActive,
+		ChainParams:       s.cfg.ChainParams,
+		NodeSigner:        s.cfg.NodeSigner,
+		MaxPaymentMSat:    s.cfg.MaxPaymentMSat,
+		DefaultCLTVExpiry: s.cfg.DefaultCLTVExpiry,
+		ChanDB:            s.cfg.ChanDB,
+	}
+
+	hash, err := lntypes.MakeHash(invoice.Hash)
+	if err != nil {
+		return nil, err
+	}
+
+	addInvoiceData := &AddInvoiceData{
+		Memo:            invoice.Memo,
+		Hash:            &hash,
+		Value:           btcutil.Amount(invoice.Value),
+		DescriptionHash: invoice.DescriptionHash,
+		Expiry:          invoice.Expiry,
+		FallbackAddr:    invoice.FallbackAddr,
+		CltvExpiry:      invoice.CltvExpiry,
+		Private:         invoice.Private,
+	}
+
+	_, dbInvoice, err := AddInvoice(ctx, addInvoiceCfg, addInvoiceData)
+	if err != nil {
+		return nil, err
+	}
+
+	return &AddHoldInvoiceResp{
+		PaymentRequest: string(dbInvoice.PaymentRequest),
+	}, nil
 }

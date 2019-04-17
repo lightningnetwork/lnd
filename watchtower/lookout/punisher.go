@@ -2,7 +2,6 @@ package lookout
 
 import (
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightningnetwork/lnd/lnwallet"
 )
 
 // PunisherConfig houses the resources required by the Punisher.
@@ -44,7 +43,7 @@ func (p *BreachPunisher) Punish(desc *JusticeDescriptor, quit <-chan struct{}) e
 		desc.SessionInfo.ID, justiceTxn.TxHash())
 
 	err = p.cfg.PublishTx(justiceTxn)
-	if err != nil && err != lnwallet.ErrDoubleSpend {
+	if err != nil {
 		log.Errorf("Unable to publish justice txn for client=%s"+
 			"with breach-txid=%s: %v",
 			desc.SessionInfo.ID, desc.BreachedCommitTx.TxHash(), err)

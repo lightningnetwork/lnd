@@ -52,8 +52,7 @@ Compiles, tests, and installs `lnd` and `lncli`. Equivalent to
 
 `btcd`
 ------
-Ensures that [`github.com/Masterminds/glide`][glide] is installed, and
-that the [`github.com/btcsuite/btcd`][btcd] repository is checked out
+Ensures that the [`github.com/btcsuite/btcd`][btcd] repository is checked out
 locally. Lastly, installs the version of 
 [`github.com/btcsuite/btcd`][btcd] specified in `Gopkg.toml`
 
@@ -134,7 +133,7 @@ Compiles the `lnrpc` proto files.
 `scratch`
 ---------
 Compiles all dependencies and builds the `./lnd` and `./lncli` binaries.
-Equivalent to [`lint`](#lint) [`dep`](#dep) [`btcd`](#btcd)
+Equivalent to [`lint`](#lint) [`btcd`](#btcd)
 [`unit-race`](#unit-race).
 
 `unit`
@@ -176,7 +175,5 @@ Arguments:
 Related: [`unit`](#unit)
 
 [btcd]: https://github.com/btcsuite/btcd (github.com/btcsuite/btcd")
-[glide]: https://github.com/Masterminds/glide (github.com/Masterminds/glide)
 [gometalinter]: https://gopkg.in/alecthomas/gometalinter.v1 (gopkg.in/alecthomas/gometalinter.v1)
-[dep]: https://github.com/golang/dep/cmd/dep (github.com/golang/dep/cmd/dep)
 [goveralls]: https://github.com/mattn/goveralls (github.com/mattn/goveralls)

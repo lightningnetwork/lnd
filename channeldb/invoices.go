@@ -2,7 +2,6 @@ package channeldb
 
 import (
 	"bytes"
-	"crypto/sha256"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -16,6 +15,10 @@ import (
 )
 
 var (
+	// UnknownPreimage is an all-zeroes preimage that indicates that the
+	// preimage for this invoice is not yet known.
+	UnknownPreimage lntypes.Preimage
+
 	// invoiceBucket is the name of the bucket within the database that
 	// stores all data related to invoices no matter their final state.
 	// Within the invoice bucket, each invoice is keyed by its invoice ID
@@ -66,6 +69,13 @@ var (
 	// ErrInvoiceAlreadyCanceled is returned when the invoice is already
 	// canceled.
 	ErrInvoiceAlreadyCanceled = errors.New("invoice already canceled")
+
+	// ErrInvoiceAlreadyAccepted is returned when the invoice is already
+	// accepted.
+	ErrInvoiceAlreadyAccepted = errors.New("invoice already accepted")
+
+	// ErrInvoiceStillOpen is returned when the invoice is still open.
+	ErrInvoiceStillOpen = errors.New("invoice still open")
 )
 
 const (
@@ -97,6 +107,10 @@ const (
 
 	// ContractCanceled means the invoice has been canceled.
 	ContractCanceled ContractState = 2
+
+	// ContractAccepted means the HTLC has been accepted but not settled
+	// yet.
+	ContractAccepted ContractState = 3
 )
 
 // String returns a human readable identifier for the ContractState type.
@@ -108,6 +122,8 @@ func (c ContractState) String() string {
 		return "Settled"
 	case ContractCanceled:
 		return "Canceled"
+	case ContractAccepted:
+		return "Accepted"
 	}
 
 	return "Unknown"
@@ -213,11 +229,14 @@ func validateInvoice(i *Invoice) error {
 	return nil
 }
 
-// AddInvoice inserts the targeted invoice into the database. If the invoice
-// has *any* payment hashes which already exists within the database, then the
+// AddInvoice inserts the targeted invoice into the database. If the invoice has
+// *any* payment hashes which already exists within the database, then the
 // insertion will be aborted and rejected due to the strict policy banning any
-// duplicate payment hashes.
-func (d *DB) AddInvoice(newInvoice *Invoice) (uint64, error) {
+// duplicate payment hashes. A side effect of this function is that it sets
+// AddIndex on newInvoice.
+func (d *DB) AddInvoice(newInvoice *Invoice, paymentHash lntypes.Hash) (
+	uint64, error) {
+
 	if err := validateInvoice(newInvoice); err != nil {
 		return 0, err
 	}
@@ -244,9 +263,6 @@ func (d *DB) AddInvoice(newInvoice *Invoice) (uint64, error) {
 
 		// Ensure that an invoice an identical payment hash doesn't
 		// already exist within the index.
-		paymentHash := sha256.Sum256(
-			newInvoice.Terms.PaymentPreimage[:],
-		)
 		if invoiceIndex.Get(paymentHash[:]) != nil {
 			return ErrDuplicateInvoice
 		}
@@ -268,6 +284,7 @@ func (d *DB) AddInvoice(newInvoice *Invoice) (uint64, error) {
 
 		newIndex, err := putInvoice(
 			invoices, invoiceIndex, addIndex, newInvoice, invoiceNum,
+			paymentHash,
 		)
 		if err != nil {
 			return err
@@ -607,11 +624,14 @@ func (d *DB) QueryInvoices(q InvoiceQuery) (InvoiceSlice, error) {
 	return resp, nil
 }
 
-// SettleInvoice attempts to mark an invoice corresponding to the passed
-// payment hash as fully settled. If an invoice matching the passed payment
-// hash doesn't existing within the database, then the action will fail with a
-// "not found" error.
-func (d *DB) SettleInvoice(paymentHash [32]byte,
+// AcceptOrSettleInvoice attempts to mark an invoice corresponding to the passed
+// payment hash as settled. If an invoice matching the passed payment hash
+// doesn't existing within the database, then the action will fail with a "not
+// found" error.
+//
+// When the preimage for the invoice is unknown (hold invoice), the invoice is
+// marked as accepted.
+func (d *DB) AcceptOrSettleInvoice(paymentHash [32]byte,
 	amtPaid lnwire.MilliSatoshi) (*Invoice, error) {
 
 	var settledInvoice *Invoice
@@ -640,7 +660,7 @@ func (d *DB) SettleInvoice(paymentHash [32]byte,
 			return ErrInvoiceNotFound
 		}
 
-		settledInvoice, err = settleInvoice(
+		settledInvoice, err = acceptOrSettleInvoice(
 			invoices, settleIndex, invoiceNum, amtPaid,
 		)
 
@@ -648,6 +668,46 @@ func (d *DB) SettleInvoice(paymentHash [32]byte,
 	})
 
 	return settledInvoice, err
+}
+
+// SettleHoldInvoice sets the preimage of a hodl invoice and marks the invoice
+// as settled.
+func (d *DB) SettleHoldInvoice(preimage lntypes.Preimage) (*Invoice, error) {
+	var updatedInvoice *Invoice
+	hash := preimage.Hash()
+	err := d.Update(func(tx *bbolt.Tx) error {
+		invoices, err := tx.CreateBucketIfNotExists(invoiceBucket)
+		if err != nil {
+			return err
+		}
+		invoiceIndex, err := invoices.CreateBucketIfNotExists(
+			invoiceIndexBucket,
+		)
+		if err != nil {
+			return err
+		}
+		settleIndex, err := invoices.CreateBucketIfNotExists(
+			settleIndexBucket,
+		)
+		if err != nil {
+			return err
+		}
+
+		// Check the invoice index to see if an invoice paying to this
+		// hash exists within the DB.
+		invoiceNum := invoiceIndex.Get(hash[:])
+		if invoiceNum == nil {
+			return ErrInvoiceNotFound
+		}
+
+		updatedInvoice, err = settleHoldInvoice(
+			invoices, settleIndex, invoiceNum, preimage,
+		)
+
+		return err
+	})
+
+	return updatedInvoice, err
 }
 
 // CancelInvoice attempts to cancel the invoice corresponding to the passed
@@ -743,7 +803,8 @@ func (d *DB) InvoicesSettledSince(sinceSettleIndex uint64) ([]Invoice, error) {
 }
 
 func putInvoice(invoices, invoiceIndex, addIndex *bbolt.Bucket,
-	i *Invoice, invoiceNum uint32) (uint64, error) {
+	i *Invoice, invoiceNum uint32, paymentHash lntypes.Hash) (
+	uint64, error) {
 
 	// Create the invoice key which is just the big-endian representation
 	// of the invoice number.
@@ -762,7 +823,6 @@ func putInvoice(invoices, invoiceIndex, addIndex *bbolt.Bucket,
 	// Add the payment hash to the invoice index. This will let us quickly
 	// identify if we can settle an incoming payment, and also to possibly
 	// allow a single invoice to have multiple payment installations.
-	paymentHash := sha256.Sum256(i.Terms.PaymentPreimage[:])
 	err := invoiceIndex.Put(paymentHash[:], invoiceKey[:])
 	if err != nil {
 		return 0, err
@@ -928,7 +988,7 @@ func deserializeInvoice(r io.Reader) (Invoice, error) {
 	return invoice, nil
 }
 
-func settleInvoice(invoices, settleIndex *bbolt.Bucket, invoiceNum []byte,
+func acceptOrSettleInvoice(invoices, settleIndex *bbolt.Bucket, invoiceNum []byte,
 	amtPaid lnwire.MilliSatoshi) (*Invoice, error) {
 
 	invoice, err := fetchInvoice(invoiceNum, invoices)
@@ -936,31 +996,89 @@ func settleInvoice(invoices, settleIndex *bbolt.Bucket, invoiceNum []byte,
 		return nil, err
 	}
 
-	switch invoice.Terms.State {
-	case ContractSettled:
+	state := invoice.Terms.State
+
+	switch {
+	case state == ContractAccepted:
+		return &invoice, ErrInvoiceAlreadyAccepted
+	case state == ContractSettled:
 		return &invoice, ErrInvoiceAlreadySettled
-	case ContractCanceled:
+	case state == ContractCanceled:
 		return &invoice, ErrInvoiceAlreadyCanceled
 	}
+
+	holdInvoice := invoice.Terms.PaymentPreimage == UnknownPreimage
+	if holdInvoice {
+		invoice.Terms.State = ContractAccepted
+	} else {
+		err := setSettleFields(settleIndex, invoiceNum, &invoice)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	invoice.AmtPaid = amtPaid
+
+	var buf bytes.Buffer
+	if err := serializeInvoice(&buf, &invoice); err != nil {
+		return nil, err
+	}
+
+	if err := invoices.Put(invoiceNum[:], buf.Bytes()); err != nil {
+		return nil, err
+	}
+
+	return &invoice, nil
+}
+
+func setSettleFields(settleIndex *bbolt.Bucket, invoiceNum []byte,
+	invoice *Invoice) error {
 
 	// Now that we know the invoice hasn't already been settled, we'll
 	// update the settle index so we can place this settle event in the
 	// proper location within our time series.
 	nextSettleSeqNo, err := settleIndex.NextSequence()
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	var seqNoBytes [8]byte
 	byteOrder.PutUint64(seqNoBytes[:], nextSettleSeqNo)
 	if err := settleIndex.Put(seqNoBytes[:], invoiceNum); err != nil {
-		return nil, err
+		return err
 	}
 
-	invoice.AmtPaid = amtPaid
 	invoice.Terms.State = ContractSettled
 	invoice.SettleDate = time.Now()
 	invoice.SettleIndex = nextSettleSeqNo
+
+	return nil
+}
+
+func settleHoldInvoice(invoices, settleIndex *bbolt.Bucket,
+	invoiceNum []byte, preimage lntypes.Preimage) (*Invoice,
+	error) {
+
+	invoice, err := fetchInvoice(invoiceNum, invoices)
+	if err != nil {
+		return nil, err
+	}
+
+	switch invoice.Terms.State {
+	case ContractOpen:
+		return &invoice, ErrInvoiceStillOpen
+	case ContractCanceled:
+		return &invoice, ErrInvoiceAlreadyCanceled
+	case ContractSettled:
+		return &invoice, ErrInvoiceAlreadySettled
+	}
+
+	invoice.Terms.PaymentPreimage = preimage
+
+	err = setSettleFields(settleIndex, invoiceNum, &invoice)
+	if err != nil {
+		return nil, err
+	}
 
 	var buf bytes.Buffer
 	if err := serializeInvoice(&buf, &invoice); err != nil {
@@ -990,6 +1108,9 @@ func cancelInvoice(invoices *bbolt.Bucket, invoiceNum []byte) (
 	}
 
 	invoice.Terms.State = ContractCanceled
+
+	// Set AmtPaid back to 0, in case the invoice was already accepted.
+	invoice.AmtPaid = 0
 
 	var buf bytes.Buffer
 	if err := serializeInvoice(&buf, &invoice); err != nil {

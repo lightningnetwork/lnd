@@ -180,7 +180,9 @@ func (s *Server) QueryScores(ctx context.Context, in *QueryScoresRequest) (
 	}
 
 	// Query the heuristics.
-	heuristicScores, err := s.manager.QueryHeuristics(nodes)
+	heuristicScores, err := s.manager.QueryHeuristics(
+		nodes, !in.IgnoreLocalState,
+	)
 	if err != nil {
 		return nil, err
 	}

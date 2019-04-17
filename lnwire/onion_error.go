@@ -409,6 +409,11 @@ func (f FailFinalExpiryTooSoon) Error() string {
 	return f.Code().String()
 }
 
+// NewFinalExpiryTooSoon creates new instance of the FailFinalExpiryTooSoon.
+func NewFinalExpiryTooSoon() *FailFinalExpiryTooSoon {
+	return &FailFinalExpiryTooSoon{}
+}
+
 // FailInvalidOnionVersion is returned if the onion version byte is unknown.
 //
 // NOTE: May be returned only by intermediate nodes.

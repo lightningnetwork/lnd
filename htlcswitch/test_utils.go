@@ -520,20 +520,19 @@ func getChanID(msg lnwire.Message) (lnwire.ChannelID, error) {
 	return chanID, nil
 }
 
-// generatePayment generates the htlc add request by given path blob and
+// generateHoldPayment generates the htlc add request by given path blob and
 // invoice which should be added by destination peer.
-func generatePayment(invoiceAmt, htlcAmt lnwire.MilliSatoshi, timelock uint32,
-	blob [lnwire.OnionPacketSize]byte) (*channeldb.Invoice, *lnwire.UpdateAddHTLC, error) {
+func generatePaymentWithPreimage(invoiceAmt, htlcAmt lnwire.MilliSatoshi,
+	timelock uint32, blob [lnwire.OnionPacketSize]byte,
+	preimage, rhash [32]byte) (*channeldb.Invoice, *lnwire.UpdateAddHTLC,
+	error) {
 
-	var preimage [sha256.Size]byte
-	r, err := generateRandomBytes(sha256.Size)
-	if err != nil {
-		return nil, nil, err
-	}
-	copy(preimage[:], r)
-
-	rhash := fastsha256.Sum256(preimage[:])
-
+	// Create the db invoice. Normally the payment requests needs to be set,
+	// because it is decoded in InvoiceRegistry to obtain the cltv expiry.
+	// But because the mock registry used in tests is mocking the decode
+	// step and always returning the value of testInvoiceCltvExpiry, we
+	// don't need to bother here with creating and signing a payment
+	// request.
 	invoice := &channeldb.Invoice{
 		CreationDate: time.Now(),
 		Terms: channeldb.ContractTerm{
@@ -550,6 +549,24 @@ func generatePayment(invoiceAmt, htlcAmt lnwire.MilliSatoshi, timelock uint32,
 	}
 
 	return invoice, htlc, nil
+}
+
+// generatePayment generates the htlc add request by given path blob and
+// invoice which should be added by destination peer.
+func generatePayment(invoiceAmt, htlcAmt lnwire.MilliSatoshi, timelock uint32,
+	blob [lnwire.OnionPacketSize]byte) (*channeldb.Invoice, *lnwire.UpdateAddHTLC, error) {
+
+	var preimage [sha256.Size]byte
+	r, err := generateRandomBytes(sha256.Size)
+	if err != nil {
+		return nil, nil, err
+	}
+	copy(preimage[:], r)
+
+	rhash := fastsha256.Sum256(preimage[:])
+	return generatePaymentWithPreimage(
+		invoiceAmt, htlcAmt, timelock, blob, preimage, rhash,
+	)
 }
 
 // generateRoute generates the path blob by given array of peers.
@@ -591,8 +608,6 @@ type threeHopNetwork struct {
 func generateHops(payAmt lnwire.MilliSatoshi, startingHeight uint32,
 	path ...*channelLink) (lnwire.MilliSatoshi, uint32, []ForwardingInfo) {
 
-	lastHop := path[len(path)-1]
-
 	totalTimelock := startingHeight
 	runningAmt := payAmt
 
@@ -609,7 +624,7 @@ func generateHops(payAmt lnwire.MilliSatoshi, startingHeight uint32,
 		// If this is the last, hop, then the time lock will be their
 		// specified delta policy plus our starting height.
 		if i == len(path)-1 {
-			totalTimelock += lastHop.cfg.FwrdingPolicy.TimeLockDelta
+			totalTimelock += testInvoiceCltvExpiry
 			timeLock = totalTimelock
 		} else {
 			// Otherwise, the outgoing time lock should be the
@@ -742,7 +757,8 @@ func preparePayment(sendingPeer, receivingPeer lnpeer.Peer,
 	}
 
 	// Check who is last in the route and add invoice to server registry.
-	if err := receiver.registry.AddInvoice(*invoice); err != nil {
+	hash := invoice.Terms.PaymentPreimage.Hash()
+	if err := receiver.registry.AddInvoice(*invoice, hash); err != nil {
 		return nil, nil, err
 	}
 
@@ -971,15 +987,12 @@ type hopNetwork struct {
 	feeEstimator *mockFeeEstimator
 	globalPolicy ForwardingPolicy
 	obfuscator   ErrorEncrypter
-	pCache       *mockPreimageCache
 
 	defaultDelta uint32
 }
 
 func newHopNetwork() *hopNetwork {
 	defaultDelta := uint32(6)
-
-	pCache := newMockPreimageCache()
 
 	globalPolicy := ForwardingPolicy{
 		MinHTLC:       lnwire.NewMSatFromSatoshis(5),
@@ -997,7 +1010,6 @@ func newHopNetwork() *hopNetwork {
 		feeEstimator: feeEstimator,
 		globalPolicy: globalPolicy,
 		obfuscator:   obfuscator,
-		pCache:       pCache,
 		defaultDelta: defaultDelta,
 	}
 }
@@ -1028,18 +1040,20 @@ func (h *hopNetwork) createChannelLink(server, peer *mockServer,
 			FetchLastChannelUpdate: mockGetChanUpdateMessage,
 			Registry:               server.registry,
 			FeeEstimator:           h.feeEstimator,
-			PreimageCache:          h.pCache,
+			PreimageCache:          server.pCache,
 			UpdateContractSignals: func(*contractcourt.ContractSignals) error {
 				return nil
 			},
-			ChainEvents:         &contractcourt.ChainEventSubscription{},
-			SyncStates:          true,
-			BatchSize:           10,
-			BatchTicker:         ticker.NewForce(batchTimeout),
-			FwdPkgGCTicker:      ticker.NewForce(fwdPkgTimeout),
-			MinFeeUpdateTimeout: minFeeUpdateTimeout,
-			MaxFeeUpdateTimeout: maxFeeUpdateTimeout,
-			OnChannelFailure:    func(lnwire.ChannelID, lnwire.ShortChannelID, LinkFailureError) {},
+			ChainEvents:             &contractcourt.ChainEventSubscription{},
+			SyncStates:              true,
+			BatchSize:               10,
+			BatchTicker:             ticker.NewForce(batchTimeout),
+			FwdPkgGCTicker:          ticker.NewForce(fwdPkgTimeout),
+			MinFeeUpdateTimeout:     minFeeUpdateTimeout,
+			MaxFeeUpdateTimeout:     maxFeeUpdateTimeout,
+			OnChannelFailure:        func(lnwire.ChannelID, lnwire.ShortChannelID, LinkFailureError) {},
+			FinalCltvRejectDelta:    3,
+			OutgoingCltvRejectDelta: 3,
 		},
 		channel,
 	)
@@ -1136,7 +1150,7 @@ func newTwoHopNetwork(t testing.TB,
 	}
 }
 
-// start starts the three hop network alice,bob,carol servers.
+// start starts the two hop network alice,bob servers.
 func (n *twoHopNetwork) start() error {
 	if err := n.aliceServer.Start(); err != nil {
 		return err
@@ -1165,4 +1179,49 @@ func (n *twoHopNetwork) stop() {
 	for i := 0; i < 2; i++ {
 		<-done
 	}
+}
+
+func (n *twoHopNetwork) makeHoldPayment(sendingPeer, receivingPeer lnpeer.Peer,
+	firstHop lnwire.ShortChannelID, hops []ForwardingInfo,
+	invoiceAmt, htlcAmt lnwire.MilliSatoshi,
+	timelock uint32, preimage lntypes.Preimage) chan error {
+
+	paymentErr := make(chan error, 1)
+
+	sender := sendingPeer.(*mockServer)
+	receiver := receivingPeer.(*mockServer)
+
+	// Generate route convert it to blob, and return next destination for
+	// htlc add request.
+	blob, err := generateRoute(hops...)
+	if err != nil {
+		paymentErr <- err
+		return paymentErr
+	}
+
+	rhash := preimage.Hash()
+
+	// Generate payment: invoice and htlc.
+	invoice, htlc, err := generatePaymentWithPreimage(invoiceAmt, htlcAmt, timelock, blob,
+		channeldb.UnknownPreimage, rhash)
+	if err != nil {
+		paymentErr <- err
+		return paymentErr
+	}
+
+	// Check who is last in the route and add invoice to server registry.
+	if err := receiver.registry.AddInvoice(*invoice, rhash); err != nil {
+		paymentErr <- err
+		return paymentErr
+	}
+
+	// Send payment and expose err channel.
+	go func() {
+		_, err := sender.htlcSwitch.SendHTLC(
+			firstHop, htlc, newMockDeobfuscator(),
+		)
+		paymentErr <- err
+	}()
+
+	return paymentErr
 }

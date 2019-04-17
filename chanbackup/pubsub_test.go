@@ -131,17 +131,23 @@ func TestSubSwapperIdempotentStartStop(t *testing.T) {
 
 	keyRing := &mockKeyRing{}
 
-	var (
-		swapper      mockSwapper
-		chanNotifier mockChannelNotifier
-	)
+	var chanNotifier mockChannelNotifier
 
-	subSwapper, err := NewSubSwapper(nil, &chanNotifier, keyRing, &swapper)
+	swapper := newMockSwapper()
+	subSwapper, err := NewSubSwapper(nil, &chanNotifier, keyRing, swapper)
 	if err != nil {
 		t.Fatalf("unable to init subSwapper: %v", err)
 	}
 
-	subSwapper.Start()
+	if err := subSwapper.Start(); err != nil {
+		t.Fatalf("unable to start swapper: %v", err)
+	}
+
+	// The swapper should write the initial channel state as soon as it's
+	// active.
+	backupSet := make(map[wire.OutPoint]Single)
+	assertExpectedBackupSwap(t, swapper, subSwapper, keyRing, backupSet)
+
 	subSwapper.Start()
 
 	subSwapper.Stop()
@@ -187,6 +193,10 @@ func TestSubSwapperUpdater(t *testing.T) {
 		t.Fatalf("unable to start sub swapper: %v", err)
 	}
 	defer subSwapper.Stop()
+
+	// The swapper should write the initial channel state as soon as it's
+	// active.
+	assertExpectedBackupSwap(t, swapper, subSwapper, keyRing, backupSet)
 
 	// Now that the sub-swapper is active, we'll notify to add a brand new
 	// channel to the channel state.

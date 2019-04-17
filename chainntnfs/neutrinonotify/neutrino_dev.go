@@ -55,7 +55,12 @@ func (n *NeutrinoNotifier) UnsafeStart(bestHeight int32,
 
 	// Finally, we'll create our rescan struct, start it, and launch all
 	// the goroutines we need to operate this ChainNotifier instance.
-	n.chainView = n.p2pNode.NewRescan(rescanOptions...)
+	n.chainView = neutrino.NewRescan(
+		&neutrino.RescanChainSource{
+			ChainService: n.p2pNode,
+		},
+		rescanOptions...,
+	)
 	n.rescanErr = n.chainView.Start()
 
 	n.chainUpdates.Start()

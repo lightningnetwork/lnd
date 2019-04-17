@@ -70,6 +70,33 @@ func (db *MockDB) InsertSessionInfo(info *SessionInfo) error {
 	return nil
 }
 
+func (db *MockDB) DeleteSession(target SessionID) error {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+
+	// Fail if the session doesn't exit.
+	if _, ok := db.sessions[target]; !ok {
+		return ErrSessionNotFound
+	}
+
+	// Remove the target session.
+	delete(db.sessions, target)
+
+	// Remove the state updates for any blobs stored under the target
+	// session identifier.
+	for hint, sessionUpdates := range db.blobs {
+		delete(sessionUpdates, target)
+
+		//If this was the last state update, we can also remove the hint
+		//that would map to an empty set.
+		if len(sessionUpdates) == 0 {
+			delete(db.blobs, hint)
+		}
+	}
+
+	return nil
+}
+
 func (db *MockDB) GetLookoutTip() (*chainntnfs.BlockEpoch, error) {
 	db.mu.Lock()
 	defer db.mu.Unlock()

@@ -24,27 +24,8 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
-const (
-	// DefaultCSV is the CSV delay (remotedelay) we will start our test
-	// nodes with.
-	DefaultCSV = 4
-
-	// MinerMempoolTimeout is the max time we will wait for a transaction
-	// to propagate to the mining node's mempool.
-	MinerMempoolTimeout = time.Second * 30
-
-	// ChannelOpenTimeout is the max time we will wait before a channel to
-	// be considered opened.
-	ChannelOpenTimeout = time.Second * 30
-
-	// ChannelCloseTimeout is the max time we will wait before a channel is
-	// considered closed.
-	ChannelCloseTimeout = time.Second * 30
-
-	// DefaultTimeout is a timeout that will be used for various wait
-	// scenarios where no custom timeout value is defined.
-	DefaultTimeout = time.Second * 30
-)
+// DefaultCSV is the CSV delay (remotedelay) we will start our test nodes with.
+const DefaultCSV = 4
 
 // NetworkHarness is an integration testing harness for the lightning network.
 // The harness by default is created with two active nodes on the network:
@@ -267,7 +248,7 @@ func (n *NetworkHarness) TearDownAll() error {
 // current instance of the network harness. The created node is running, but
 // not yet connected to other nodes within the network.
 func (n *NetworkHarness) NewNode(name string, extraArgs []string) (*HarnessNode, error) {
-	return n.newNode(name, extraArgs, false)
+	return n.newNode(name, extraArgs, false, nil)
 }
 
 // NewNodeWithSeed fully initializes a new HarnessNode after creating a fresh
@@ -277,7 +258,7 @@ func (n *NetworkHarness) NewNode(name string, extraArgs []string) (*HarnessNode,
 func (n *NetworkHarness) NewNodeWithSeed(name string, extraArgs []string,
 	password []byte) (*HarnessNode, []string, error) {
 
-	node, err := n.newNode(name, extraArgs, true)
+	node, err := n.newNode(name, extraArgs, true, password)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -320,14 +301,15 @@ func (n *NetworkHarness) NewNodeWithSeed(name string, extraArgs []string,
 }
 
 // RestoreNodeWithSeed fully initializes a HarnessNode using a chosen mnemonic,
-// password, and recovery window. After providing the initialization request to
-// unlock the node, this method will finish initializing the LightningClient
-// such that the HarnessNode can be used for regular rpc operations.
+// password, recovery window, and optionally a set of static channel backups.
+// After providing the initialization request to unlock the node, this method
+// will finish initializing the LightningClient such that the HarnessNode can
+// be used for regular rpc operations.
 func (n *NetworkHarness) RestoreNodeWithSeed(name string, extraArgs []string,
-	password []byte, mnemonic []string,
-	recoveryWindow int32) (*HarnessNode, error) {
+	password []byte, mnemonic []string, recoveryWindow int32,
+	chanBackups *lnrpc.ChanBackupSnapshot) (*HarnessNode, error) {
 
-	node, err := n.newNode(name, extraArgs, true)
+	node, err := n.newNode(name, extraArgs, true, password)
 	if err != nil {
 		return nil, err
 	}
@@ -337,6 +319,7 @@ func (n *NetworkHarness) RestoreNodeWithSeed(name string, extraArgs []string,
 		CipherSeedMnemonic: mnemonic,
 		AezeedPassphrase:   password,
 		RecoveryWindow:     recoveryWindow,
+		ChannelBackups:     chanBackups,
 	}
 
 	err = node.Init(context.Background(), initReq)
@@ -356,10 +339,12 @@ func (n *NetworkHarness) RestoreNodeWithSeed(name string, extraArgs []string,
 // can be used immediately. Otherwise, the node will require an additional
 // initialization phase where the wallet is either created or restored.
 func (n *NetworkHarness) newNode(name string, extraArgs []string,
-	hasSeed bool) (*HarnessNode, error) {
+	hasSeed bool, password []byte) (*HarnessNode, error) {
+
 	node, err := newNode(nodeConfig{
 		Name:       name,
 		HasSeed:    hasSeed,
+		Password:   password,
 		BackendCfg: n.BackendCfg,
 		NetParams:  n.netParams,
 		ExtraArgs:  extraArgs,
@@ -592,8 +577,12 @@ func (n *NetworkHarness) DisconnectNodes(ctx context.Context, a, b *HarnessNode)
 //
 // This method can be useful when testing edge cases such as a node broadcast
 // and invalidated prior state, or persistent state recovery, simulating node
-// crashes, etc.
-func (n *NetworkHarness) RestartNode(node *HarnessNode, callback func() error) error {
+// crashes, etc. Additionally, each time the node is restarted, the caller can
+// pass a set of SCBs to pass in via the Unlock method allowing them to restore
+// channels during restart.
+func (n *NetworkHarness) RestartNode(node *HarnessNode, callback func() error,
+	chanBackups ...*lnrpc.ChanBackupSnapshot) error {
+
 	if err := node.stop(); err != nil {
 		return err
 	}
@@ -604,7 +593,27 @@ func (n *NetworkHarness) RestartNode(node *HarnessNode, callback func() error) e
 		}
 	}
 
-	return node.start(n.lndErrorChan)
+	if err := node.start(n.lndErrorChan); err != nil {
+		return err
+	}
+
+	// If the node doesn't have a password set, then we can exit here as we
+	// don't need to unlock it.
+	if len(node.cfg.Password) == 0 {
+		return nil
+	}
+
+	// Otherwise, we'll unlock the wallet, then complete the final steps
+	// for the node initialization process.
+	unlockReq := &lnrpc.UnlockWalletRequest{
+		WalletPassword: node.cfg.Password,
+	}
+	if len(chanBackups) != 0 {
+		unlockReq.ChannelBackups = chanBackups[0]
+		unlockReq.RecoveryWindow = 1000
+	}
+
+	return node.Unlock(context.Background(), unlockReq)
 }
 
 // SuspendNode stops the given node and returns a callback that can be used to

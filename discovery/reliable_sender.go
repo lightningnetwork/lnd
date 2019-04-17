@@ -181,9 +181,19 @@ out:
 		// ignored for now since the peer is currently offline. Once
 		// they reconnect, the messages will be sent since they should
 		// have been persisted to disk.
-		case <-peerMgr.msgs:
+		case msg := <-peerMgr.msgs:
+			// Retrieve the short channel ID for which this message
+			// applies for logging purposes. The error can be
+			// ignored as the store can only contain messages which
+			// have a ShortChannelID field.
+			shortChanID, _ := msgShortChanID(msg)
+			log.Debugf("Received request to send %v message for "+
+				"channel=%v while peer=%x is offline",
+				msg.MsgType(), shortChanID, peerPubKey)
+
 		case peer = <-peerChan:
 			break out
+
 		case <-s.quit:
 			return
 		}
@@ -214,6 +224,14 @@ out:
 		// for logging purposes. The error can be ignored as the store
 		// can only contain messages which have a ShortChannelID field.
 		shortChanID, _ := msgShortChanID(msg)
+
+		// Ensure the peer is still online right before sending the
+		// message.
+		select {
+		case <-offlineChan:
+			goto waitUntilOnline
+		default:
+		}
 
 		if err := peer.SendMessage(false, msg); err != nil {
 			log.Errorf("Unable to send %v message for channel=%v "+

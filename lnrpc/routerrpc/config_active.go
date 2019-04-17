@@ -40,4 +40,8 @@ type Config struct {
 	//
 	// TODO(roasbeef): assumes router handles saving payment state
 	Router *routing.ChannelRouter
+
+	// RouterBackend contains shared logic between this sub server and the
+	// main rpc server.
+	RouterBackend *RouterBackend
 }

@@ -416,6 +416,14 @@ func WriteElement(w io.Writer, element interface{}) error {
 			return err
 		}
 
+	case bool:
+		var b [1]byte
+		if e {
+			b[0] = 1
+		}
+		if _, err := w.Write(b[:]); err != nil {
+			return err
+		}
 	default:
 		return fmt.Errorf("Unknown type in WriteElement: %T", e)
 	}
@@ -440,6 +448,16 @@ func WriteElements(w io.Writer, elements ...interface{}) error {
 func ReadElement(r io.Reader, element interface{}) error {
 	var err error
 	switch e := element.(type) {
+	case *bool:
+		var b [1]byte
+		if _, err := io.ReadFull(r, b[:]); err != nil {
+			return err
+		}
+
+		if b[0] == 1 {
+			*e = true
+		}
+
 	case *NodeAlias:
 		var a [32]byte
 		if _, err := io.ReadFull(r, a[:]); err != nil {

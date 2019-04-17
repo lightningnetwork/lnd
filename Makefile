@@ -82,7 +82,9 @@ $(GOACC_BIN):
 
 btcd:
 	@$(call print, "Installing btcd.")
-	GO111MODULE=on go get -v github.com/btcsuite/btcd/@$(BTCD_COMMIT)
+	GO111MODULE=on go get -v $(BTCD_PKG)@$(BTCD_COMMIT)
+	$(GOINSTALL) $(BTCD_PKG)
+	$(GOINSTALL) $(BTCD_PKG)/cmd/btcctl
 
 # ============
 # INSTALLATION
@@ -151,8 +153,7 @@ flakehunter: build-itest
 
 flake-unit:
 	@$(call print, "Flake hunting unit tests.")
-	GOTRACEBACK=all $(UNIT) -count=1
-	while [ $$? -eq 0 ]; do /bin/sh -c "GOTRACEBACK=all $(UNIT) -count=1"; done
+	while [ $$? -eq 0 ]; do GOTRACEBACK=all $(UNIT) -count=1; done
 
 # =========
 # UTILITIES

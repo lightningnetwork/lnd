@@ -8,8 +8,7 @@
 <img src="logo.png">
 
 The Lightning Network Daemon (`lnd`) - is a complete implementation of a
-[Lightning Network](https://lightning.network) node and currently deployed on
-`testnet3` - the Bitcoin Test Network.  `lnd` has several pluggable back-end
+[Lightning Network](https://lightning.network) node.  `lnd` has several pluggable back-end
 chain services including [`btcd`](https://github.com/btcsuite/btcd) (a
 full-node), [`bitcoind`](https://github.com/bitcoin/bitcoin), and
 [`neutrino`](https://github.com/lightninglabs/neutrino) (a new experimental light client). The project's codebase uses the

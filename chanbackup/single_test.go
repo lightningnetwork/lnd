@@ -42,6 +42,10 @@ func assertSingleEqual(t *testing.T, a, b Single) {
 		t.Fatalf("versions don't match: %v vs %v", a.Version,
 			b.Version)
 	}
+	if a.IsInitiator != b.IsInitiator {
+		t.Fatalf("initiators don't match: %v vs %v", a.IsInitiator,
+			b.IsInitiator)
+	}
 	if a.ChainHash != b.ChainHash {
 		t.Fatalf("chainhash doesn't match: %v vs %v", a.ChainHash,
 			b.ChainHash)
@@ -54,24 +58,29 @@ func assertSingleEqual(t *testing.T, a, b Single) {
 		t.Fatalf("chan id doesn't match: %v vs %v",
 			a.ShortChannelID, b.ShortChannelID)
 	}
+	if a.Capacity != b.Capacity {
+		t.Fatalf("capacity doesn't match: %v vs %v",
+			a.Capacity, b.Capacity)
+	}
 	if !a.RemoteNodePub.IsEqual(b.RemoteNodePub) {
 		t.Fatalf("node pubs don't match %x vs %x",
 			a.RemoteNodePub.SerializeCompressed(),
 			b.RemoteNodePub.SerializeCompressed())
 	}
-	if a.CsvDelay != b.CsvDelay {
-		t.Fatalf("csv delay doesn't match: %v vs %v", a.CsvDelay,
-			b.CsvDelay)
+	if !reflect.DeepEqual(a.LocalChanCfg, b.LocalChanCfg) {
+		t.Fatalf("local chan config doesn't match: %v vs %v",
+			spew.Sdump(a.LocalChanCfg),
+			spew.Sdump(b.LocalChanCfg))
 	}
-	if !reflect.DeepEqual(a.PaymentBasePoint, b.PaymentBasePoint) {
-		t.Fatalf("base point doesn't match: %v vs %v",
-			spew.Sdump(a.PaymentBasePoint),
-			spew.Sdump(b.PaymentBasePoint))
+	if !reflect.DeepEqual(a.RemoteChanCfg, b.RemoteChanCfg) {
+		t.Fatalf("remote chan config doesn't match: %v vs %v",
+			spew.Sdump(a.RemoteChanCfg),
+			spew.Sdump(b.RemoteChanCfg))
 	}
 	if !reflect.DeepEqual(a.ShaChainRootDesc, b.ShaChainRootDesc) {
 		t.Fatalf("sha chain point doesn't match: %v vs %v",
-			spew.Sdump(a.PaymentBasePoint),
-			spew.Sdump(b.PaymentBasePoint))
+			spew.Sdump(a.ShaChainRootDesc),
+			spew.Sdump(b.ShaChainRootDesc))
 	}
 
 	if len(a.Addresses) != len(b.Addresses) {
@@ -110,8 +119,14 @@ func genRandomOpenChannelShell() (*channeldb.OpenChannel, error) {
 
 	shaChainProducer := shachain.NewRevocationProducer(shaChainRoot)
 
+	var isInitiator bool
+	if rand.Int63()%2 == 0 {
+		isInitiator = true
+	}
+
 	return &channeldb.OpenChannel{
 		ChainHash:       chainHash,
+		IsInitiator:     isInitiator,
 		FundingOutpoint: chanPoint,
 		ShortChannelID: lnwire.NewShortChanIDFromInt(
 			uint64(rand.Int63()),
@@ -121,11 +136,55 @@ func genRandomOpenChannelShell() (*channeldb.OpenChannel, error) {
 			ChannelConstraints: channeldb.ChannelConstraints{
 				CsvDelay: uint16(rand.Int63()),
 			},
+			MultiSigKey: keychain.KeyDescriptor{
+				KeyLocator: keychain.KeyLocator{
+					Family: keychain.KeyFamily(rand.Int63()),
+					Index:  uint32(rand.Int63()),
+				},
+			},
+			RevocationBasePoint: keychain.KeyDescriptor{
+				KeyLocator: keychain.KeyLocator{
+					Family: keychain.KeyFamily(rand.Int63()),
+					Index:  uint32(rand.Int63()),
+				},
+			},
 			PaymentBasePoint: keychain.KeyDescriptor{
 				KeyLocator: keychain.KeyLocator{
 					Family: keychain.KeyFamily(rand.Int63()),
 					Index:  uint32(rand.Int63()),
 				},
+			},
+			DelayBasePoint: keychain.KeyDescriptor{
+				KeyLocator: keychain.KeyLocator{
+					Family: keychain.KeyFamily(rand.Int63()),
+					Index:  uint32(rand.Int63()),
+				},
+			},
+			HtlcBasePoint: keychain.KeyDescriptor{
+				KeyLocator: keychain.KeyLocator{
+					Family: keychain.KeyFamily(rand.Int63()),
+					Index:  uint32(rand.Int63()),
+				},
+			},
+		},
+		RemoteChanCfg: channeldb.ChannelConfig{
+			ChannelConstraints: channeldb.ChannelConstraints{
+				CsvDelay: uint16(rand.Int63()),
+			},
+			MultiSigKey: keychain.KeyDescriptor{
+				PubKey: pub,
+			},
+			RevocationBasePoint: keychain.KeyDescriptor{
+				PubKey: pub,
+			},
+			PaymentBasePoint: keychain.KeyDescriptor{
+				PubKey: pub,
+			},
+			DelayBasePoint: keychain.KeyDescriptor{
+				PubKey: pub,
+			},
+			HtlcBasePoint: keychain.KeyDescriptor{
+				PubKey: pub,
 			},
 		},
 		RevocationProducer: shaChainProducer,

@@ -35,6 +35,11 @@ func (p *mockPeer) SendMessage(_ bool, msgs ...lnwire.Message) error {
 
 	return nil
 }
+
+func (p *mockPeer) SendMessageLazy(sync bool, msgs ...lnwire.Message) error {
+	return p.SendMessage(sync, msgs...)
+}
+
 func (p *mockPeer) AddNewChannel(_ *channeldb.OpenChannel, _ <-chan struct{}) error {
 	return nil
 }

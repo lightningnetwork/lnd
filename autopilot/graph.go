@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"math/big"
 	"net"
+	"sort"
 	"sync/atomic"
 	"time"
 
@@ -500,4 +501,23 @@ func (m memNode) ForEachChannel(cb func(ChannelEdge) error) error {
 	}
 
 	return nil
+}
+
+// Median returns the median value in the slice of Amounts.
+func Median(vals []btcutil.Amount) btcutil.Amount {
+	sort.Slice(vals, func(i, j int) bool {
+		return vals[i] < vals[j]
+	})
+
+	num := len(vals)
+	switch {
+	case num == 0:
+		return 0
+
+	case num%2 == 0:
+		return (vals[num/2-1] + vals[num/2]) / 2
+
+	default:
+		return vals[num/2]
+	}
 }

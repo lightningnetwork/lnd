@@ -27,12 +27,14 @@ type paymentSession struct {
 	// source of policy related routing failures during this payment attempt.
 	// We'll use this map to prune out channels when the first error may not
 	// require pruning, but any subsequent ones do.
-	errFailedPolicyChans map[edgeLocator]struct{}
+	errFailedPolicyChans map[EdgeLocator]struct{}
 
 	mc *missionControl
 
 	haveRoutes     bool
 	preBuiltRoutes []*Route
+
+	pathFinder pathFinder
 }
 
 // ReportVertexFailure adds a vertex to the graph prune view after a client
@@ -61,7 +63,7 @@ func (p *paymentSession) ReportVertexFailure(v Vertex) {
 // retrying an edge after its pruning has expired.
 //
 // TODO(roasbeef): also add value attempted to send and capacity of channel
-func (p *paymentSession) ReportEdgeFailure(e *edgeLocator) {
+func (p *paymentSession) ReportEdgeFailure(e *EdgeLocator) {
 	log.Debugf("Reporting edge %v failure to Mission Control", e)
 
 	// First, we'll add the failed edge to our local prune view snapshot.
@@ -82,7 +84,7 @@ func (p *paymentSession) ReportEdgeFailure(e *edgeLocator) {
 // pruned. This is to prevent nodes from keeping us busy by continuously sending
 // new channel updates.
 func (p *paymentSession) ReportEdgePolicyFailure(
-	errSource Vertex, failedEdge *edgeLocator) {
+	errSource Vertex, failedEdge *EdgeLocator) {
 
 	// Check to see if we've already reported a policy related failure for
 	// this channel. If so, then we'll prune out the vertex.
@@ -136,24 +138,36 @@ func (p *paymentSession) RequestRoute(payment *LightningPayment,
 		"edges, %v vertexes", len(pruneView.edges),
 		len(pruneView.vertexes))
 
+	// If a route cltv limit was specified, we need to subtract the final
+	// delta before passing it into path finding. The optimal path is
+	// independent of the final cltv delta and the path finding algorithm is
+	// unaware of this value.
+	var cltvLimit *uint32
+	if payment.CltvLimit != nil {
+		limit := *payment.CltvLimit - uint32(finalCltvDelta)
+		cltvLimit = &limit
+	}
+
 	// TODO(roasbeef): sync logic amongst dist sys
 
 	// Taking into account this prune view, we'll attempt to locate a path
 	// to our destination, respecting the recommendations from
 	// missionControl.
-	path, err := findPath(
+	path, err := p.pathFinder(
 		&graphParams{
 			graph:           p.mc.graph,
 			additionalEdges: p.additionalEdges,
 			bandwidthHints:  p.bandwidthHints,
 		},
-		&restrictParams{
-			ignoredNodes:      pruneView.vertexes,
-			ignoredEdges:      pruneView.edges,
-			feeLimit:          payment.FeeLimit,
-			outgoingChannelID: payment.OutgoingChannelID,
+		&RestrictParams{
+			IgnoredNodes:      pruneView.vertexes,
+			IgnoredEdges:      pruneView.edges,
+			FeeLimit:          payment.FeeLimit,
+			OutgoingChannelID: payment.OutgoingChannelID,
+			CltvLimit:         cltvLimit,
 		},
-		p.mc.selfNode, payment.Target, payment.Amount,
+		p.mc.selfNode.PubKeyBytes, payment.Target,
+		payment.Amount,
 	)
 	if err != nil {
 		return nil, err
@@ -163,8 +177,7 @@ func (p *paymentSession) RequestRoute(payment *LightningPayment,
 	// a route by applying the time-lock and fee requirements.
 	sourceVertex := Vertex(p.mc.selfNode.PubKeyBytes)
 	route, err := newRoute(
-		payment.Amount, payment.FeeLimit, sourceVertex, path, height,
-		finalCltvDelta,
+		payment.Amount, sourceVertex, path, height, finalCltvDelta,
 	)
 	if err != nil {
 		// TODO(roasbeef): return which edge/vertex didn't work

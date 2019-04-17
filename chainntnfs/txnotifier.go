@@ -517,7 +517,8 @@ func (n *TxNotifier) RegisterConf(ntfn *ConfNtfn) (*HistoricalConfDispatch,
 	if err == nil {
 		if hint > startHeight {
 			Log.Debugf("Using height hint %d retrieved from cache "+
-				"for %v", hint, ntfn.ConfRequest)
+				"for %v instead of %d", hint, ntfn.ConfRequest,
+				startHeight)
 			startHeight = hint
 		}
 	} else if err != ErrConfirmHintNotFound {
@@ -527,6 +528,9 @@ func (n *TxNotifier) RegisterConf(ntfn *ConfNtfn) (*HistoricalConfDispatch,
 
 	n.Lock()
 	defer n.Unlock()
+
+	Log.Infof("New confirmation subscription: conf_id=%d, %v, "+
+		"height_hint=%d", ntfn.ConfID, ntfn.ConfRequest, startHeight)
 
 	confSet, ok := n.confNotifications[ntfn.ConfRequest]
 	if !ok {
@@ -840,7 +844,8 @@ func (n *TxNotifier) RegisterSpend(ntfn *SpendNtfn) (*HistoricalSpendDispatch,
 	if err == nil {
 		if hint > startHeight {
 			Log.Debugf("Using height hint %d retrieved from cache "+
-				"for %v", startHeight, ntfn.SpendRequest)
+				"for %v instead of %d", hint, ntfn.SpendRequest,
+				startHeight)
 			startHeight = hint
 		}
 	} else if err != ErrSpendHintNotFound {
@@ -852,7 +857,7 @@ func (n *TxNotifier) RegisterSpend(ntfn *SpendNtfn) (*HistoricalSpendDispatch,
 	defer n.Unlock()
 
 	Log.Infof("New spend subscription: spend_id=%d, %v, height_hint=%d",
-		ntfn.SpendID, ntfn.SpendRequest, ntfn.HeightHint)
+		ntfn.SpendID, ntfn.SpendRequest, startHeight)
 
 	// Keep track of the notification request so that we can properly
 	// dispatch a spend notification later on.

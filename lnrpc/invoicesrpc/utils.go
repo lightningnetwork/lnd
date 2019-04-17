@@ -7,7 +7,6 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnrpc"
-	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/zpay32"
 )
 
@@ -61,16 +60,17 @@ func CreateRPCInvoice(invoice *channeldb.Invoice,
 		state = lnrpc.Invoice_SETTLED
 	case channeldb.ContractCanceled:
 		state = lnrpc.Invoice_CANCELED
+	case channeldb.ContractAccepted:
+		state = lnrpc.Invoice_ACCEPTED
 	default:
 		return nil, fmt.Errorf("unknown invoice state %v",
 			invoice.Terms.State)
 	}
 
-	return &lnrpc.Invoice{
+	rpcInvoice := &lnrpc.Invoice{
 		Memo:            string(invoice.Memo[:]),
 		Receipt:         invoice.Receipt[:],
 		RHash:           decoded.PaymentHash[:],
-		RPreimage:       preimage[:],
 		Value:           int64(satAmt),
 		CreationDate:    invoice.CreationDate.Unix(),
 		SettleDate:      settleDate,
@@ -88,12 +88,18 @@ func CreateRPCInvoice(invoice *channeldb.Invoice,
 		AmtPaidMsat:     int64(invoice.AmtPaid),
 		AmtPaid:         int64(invoice.AmtPaid),
 		State:           state,
-	}, nil
+	}
+
+	if preimage != channeldb.UnknownPreimage {
+		rpcInvoice.RPreimage = preimage[:]
+	}
+
+	return rpcInvoice, nil
 }
 
 // CreateRPCRouteHints takes in the decoded form of an invoice's route hints
 // and converts them into the lnrpc type.
-func CreateRPCRouteHints(routeHints [][]routing.HopHint) []*lnrpc.RouteHint {
+func CreateRPCRouteHints(routeHints [][]zpay32.HopHint) []*lnrpc.RouteHint {
 	var res []*lnrpc.RouteHint
 
 	for _, route := range routeHints {

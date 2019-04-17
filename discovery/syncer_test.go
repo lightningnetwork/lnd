@@ -13,7 +13,9 @@ import (
 )
 
 const (
-	defaultEncoding = lnwire.EncodingSortedPlain
+	defaultEncoding   = lnwire.EncodingSortedPlain
+	latestKnownHeight = 1337
+	startHeight       = latestKnownHeight - chanRangeQueryBuffer
 )
 
 var (
@@ -116,21 +118,21 @@ var _ ChannelGraphTimeSeries = (*mockChannelGraphTimeSeries)(nil)
 
 func newTestSyncer(hID lnwire.ShortChannelID,
 	encodingType lnwire.ShortChanIDEncoding, chunkSize int32,
-) (chan []lnwire.Message, *gossipSyncer, *mockChannelGraphTimeSeries) {
+) (chan []lnwire.Message, *GossipSyncer, *mockChannelGraphTimeSeries) {
 
 	msgChan := make(chan []lnwire.Message, 20)
 	cfg := gossipSyncerCfg{
-		syncChanUpdates: true,
-		channelSeries:   newMockChannelGraphTimeSeries(hID),
-		encodingType:    encodingType,
-		chunkSize:       chunkSize,
+		channelSeries: newMockChannelGraphTimeSeries(hID),
+		encodingType:  encodingType,
+		chunkSize:     chunkSize,
+		batchSize:     chunkSize,
 		sendToPeer: func(msgs ...lnwire.Message) error {
 			msgChan <- msgs
 			return nil
 		},
 		delayedQueryReplyInterval: 2 * time.Second,
 	}
-	syncer := newGossiperSyncer(cfg)
+	syncer := newGossipSyncer(cfg)
 
 	return msgChan, syncer, cfg.channelSeries.(*mockChannelGraphTimeSeries)
 }
@@ -140,7 +142,7 @@ func newTestSyncer(hID lnwire.ShortChannelID,
 func TestGossipSyncerFilterGossipMsgsNoHorizon(t *testing.T) {
 	t.Parallel()
 
-	// First, we'll create a gossipSyncer instance with a canned sendToPeer
+	// First, we'll create a GossipSyncer instance with a canned sendToPeer
 	// message to allow us to intercept their potential sends.
 	msgChan, syncer, _ := newTestSyncer(
 		lnwire.NewShortChanIDFromInt(10), defaultEncoding,
@@ -185,7 +187,7 @@ func unixStamp(a int64) uint32 {
 func TestGossipSyncerFilterGossipMsgsAllInMemory(t *testing.T) {
 	t.Parallel()
 
-	// First, we'll create a gossipSyncer instance with a canned sendToPeer
+	// First, we'll create a GossipSyncer instance with a canned sendToPeer
 	// message to allow us to intercept their potential sends.
 	msgChan, syncer, chanSeries := newTestSyncer(
 		lnwire.NewShortChanIDFromInt(10), defaultEncoding,
@@ -315,7 +317,7 @@ func TestGossipSyncerFilterGossipMsgsAllInMemory(t *testing.T) {
 func TestGossipSyncerApplyGossipFilter(t *testing.T) {
 	t.Parallel()
 
-	// First, we'll create a gossipSyncer instance with a canned sendToPeer
+	// First, we'll create a GossipSyncer instance with a canned sendToPeer
 	// message to allow us to intercept their potential sends.
 	msgChan, syncer, chanSeries := newTestSyncer(
 		lnwire.NewShortChanIDFromInt(10), defaultEncoding,
@@ -413,7 +415,7 @@ func TestGossipSyncerApplyGossipFilter(t *testing.T) {
 func TestGossipSyncerReplyShortChanIDsWrongChainHash(t *testing.T) {
 	t.Parallel()
 
-	// First, we'll create a gossipSyncer instance with a canned sendToPeer
+	// First, we'll create a GossipSyncer instance with a canned sendToPeer
 	// message to allow us to intercept their potential sends.
 	msgChan, syncer, _ := newTestSyncer(
 		lnwire.NewShortChanIDFromInt(10), defaultEncoding,
@@ -464,7 +466,7 @@ func TestGossipSyncerReplyShortChanIDsWrongChainHash(t *testing.T) {
 func TestGossipSyncerReplyShortChanIDs(t *testing.T) {
 	t.Parallel()
 
-	// First, we'll create a gossipSyncer instance with a canned sendToPeer
+	// First, we'll create a GossipSyncer instance with a canned sendToPeer
 	// message to allow us to intercept their potential sends.
 	msgChan, syncer, chanSeries := newTestSyncer(
 		lnwire.NewShortChanIDFromInt(10), defaultEncoding,
@@ -718,7 +720,7 @@ func TestGossipSyncerReplyChanRangeQueryNoNewChans(t *testing.T) {
 func TestGossipSyncerGenChanRangeQuery(t *testing.T) {
 	t.Parallel()
 
-	// First, we'll create a gossipSyncer instance with a canned sendToPeer
+	// First, we'll create a GossipSyncer instance with a canned sendToPeer
 	// message to allow us to intercept their potential sends.
 	const startingHeight = 200
 	_, syncer, _ := newTestSyncer(
@@ -729,7 +731,7 @@ func TestGossipSyncerGenChanRangeQuery(t *testing.T) {
 	// If we now ask the syncer to generate an initial range query, it
 	// should return a start height that's back chanRangeQueryBuffer
 	// blocks.
-	rangeQuery, err := syncer.genChanRangeQuery()
+	rangeQuery, err := syncer.genChanRangeQuery(false)
 	if err != nil {
 		t.Fatalf("unable to resp: %v", err)
 	}
@@ -742,7 +744,22 @@ func TestGossipSyncerGenChanRangeQuery(t *testing.T) {
 	}
 	if rangeQuery.NumBlocks != math.MaxUint32-firstHeight {
 		t.Fatalf("wrong num blocks: expected %v, got %v",
-			rangeQuery.NumBlocks, math.MaxUint32-firstHeight)
+			math.MaxUint32-firstHeight, rangeQuery.NumBlocks)
+	}
+
+	// Generating a historical range query should result in a start height
+	// of 0.
+	rangeQuery, err = syncer.genChanRangeQuery(true)
+	if err != nil {
+		t.Fatalf("unable to resp: %v", err)
+	}
+	if rangeQuery.FirstBlockHeight != 0 {
+		t.Fatalf("incorrect chan range query: expected %v, %v", 0,
+			rangeQuery.FirstBlockHeight)
+	}
+	if rangeQuery.NumBlocks != math.MaxUint32 {
+		t.Fatalf("wrong num blocks: expected %v, got %v",
+			math.MaxUint32, rangeQuery.NumBlocks)
 	}
 }
 
@@ -753,7 +770,7 @@ func TestGossipSyncerGenChanRangeQuery(t *testing.T) {
 func TestGossipSyncerProcessChanRangeReply(t *testing.T) {
 	t.Parallel()
 
-	// First, we'll create a gossipSyncer instance with a canned sendToPeer
+	// First, we'll create a GossipSyncer instance with a canned sendToPeer
 	// message to allow us to intercept their potential sends.
 	_, syncer, chanSeries := newTestSyncer(
 		lnwire.NewShortChanIDFromInt(10), defaultEncoding, defaultChunkSize,
@@ -827,7 +844,7 @@ func TestGossipSyncerProcessChanRangeReply(t *testing.T) {
 		t.Fatalf("unable to process reply: %v", err)
 	}
 
-	if syncer.SyncState() != queryNewChannels {
+	if syncer.syncState() != queryNewChannels {
 		t.Fatalf("wrong state: expected %v instead got %v",
 			queryNewChannels, syncer.state)
 	}
@@ -860,7 +877,7 @@ func TestGossipSyncerProcessChanRangeReply(t *testing.T) {
 		t.Fatalf("unable to process reply: %v", err)
 	}
 
-	if syncer.SyncState() != chansSynced {
+	if syncer.syncState() != chansSynced {
 		t.Fatalf("wrong state: expected %v instead got %v",
 			chansSynced, syncer.state)
 	}
@@ -878,7 +895,7 @@ func TestGossipSyncerSynchronizeChanIDs(t *testing.T) {
 	// queries: two full chunks, and one lingering chunk.
 	const chunkSize = 2
 
-	// First, we'll create a gossipSyncer instance with a canned sendToPeer
+	// First, we'll create a GossipSyncer instance with a canned sendToPeer
 	// message to allow us to intercept their potential sends.
 	msgChan, syncer, _ := newTestSyncer(
 		lnwire.NewShortChanIDFromInt(10), defaultEncoding, chunkSize,
@@ -997,7 +1014,7 @@ func TestGossipSyncerDelayDOS(t *testing.T) {
 	const numDelayedQueries = 2
 	const delayTolerance = time.Millisecond * 200
 
-	// First, we'll create two gossipSyncer instances with a canned
+	// First, we'll create two GossipSyncer instances with a canned
 	// sendToPeer message to allow us to intercept their potential sends.
 	startHeight := lnwire.ShortChannelID{
 		BlockHeight: 1144,
@@ -1390,7 +1407,7 @@ func TestGossipSyncerRoutineSync(t *testing.T) {
 	// queries: two full chunks, and one lingering chunk.
 	const chunkSize = 2
 
-	// First, we'll create two gossipSyncer instances with a canned
+	// First, we'll create two GossipSyncer instances with a canned
 	// sendToPeer message to allow us to intercept their potential sends.
 	startHeight := lnwire.ShortChannelID{
 		BlockHeight: 1144,
@@ -1730,7 +1747,7 @@ func TestGossipSyncerAlreadySynced(t *testing.T) {
 	// queries: two full chunks, and one lingering chunk.
 	const chunkSize = 2
 
-	// First, we'll create two gossipSyncer instances with a canned
+	// First, we'll create two GossipSyncer instances with a canned
 	// sendToPeer message to allow us to intercept their potential sends.
 	startHeight := lnwire.ShortChannelID{
 		BlockHeight: 1144,
@@ -1939,5 +1956,238 @@ func TestGossipSyncerAlreadySynced(t *testing.T) {
 
 			}
 		}
+	}
+}
+
+// TestGossipSyncerSyncTransitions ensures that the gossip syncer properly
+// carries out its duties when accepting a new sync transition request.
+func TestGossipSyncerSyncTransitions(t *testing.T) {
+	t.Parallel()
+
+	assertMsgSent := func(t *testing.T, msgChan chan []lnwire.Message,
+		msg lnwire.Message) {
+
+		t.Helper()
+
+		var msgSent lnwire.Message
+		select {
+		case msgs := <-msgChan:
+			if len(msgs) != 1 {
+				t.Fatal("expected to send a single message at "+
+					"a time, got %d", len(msgs))
+			}
+			msgSent = msgs[0]
+		case <-time.After(time.Second):
+			t.Fatalf("expected to send %T message", msg)
+		}
+
+		if !reflect.DeepEqual(msgSent, msg) {
+			t.Fatalf("expected to send message: %v\ngot: %v",
+				spew.Sdump(msg), spew.Sdump(msgSent))
+		}
+	}
+
+	tests := []struct {
+		name          string
+		entrySyncType SyncerType
+		finalSyncType SyncerType
+		assert        func(t *testing.T, msgChan chan []lnwire.Message,
+			syncer *GossipSyncer)
+	}{
+		{
+			name:          "active to passive",
+			entrySyncType: ActiveSync,
+			finalSyncType: PassiveSync,
+			assert: func(t *testing.T, msgChan chan []lnwire.Message,
+				g *GossipSyncer) {
+
+				// When transitioning from active to passive, we
+				// should expect to see a new local update
+				// horizon sent to the remote peer indicating
+				// that it would not like to receive any future
+				// updates.
+				assertMsgSent(t, msgChan, &lnwire.GossipTimestampRange{
+					FirstTimestamp: uint32(zeroTimestamp.Unix()),
+					TimestampRange: 0,
+				})
+
+				syncState := g.syncState()
+				if syncState != chansSynced {
+					t.Fatalf("expected syncerState %v, "+
+						"got %v", chansSynced,
+						syncState)
+				}
+			},
+		},
+		{
+			name:          "passive to active",
+			entrySyncType: PassiveSync,
+			finalSyncType: ActiveSync,
+			assert: func(t *testing.T, msgChan chan []lnwire.Message,
+				g *GossipSyncer) {
+
+				// When transitioning from historical to active,
+				// we should expect to see a new local update
+				// horizon sent to the remote peer indicating
+				// that it would like to receive any future
+				// updates.
+				firstTimestamp := uint32(time.Now().Unix())
+				assertMsgSent(t, msgChan, &lnwire.GossipTimestampRange{
+					FirstTimestamp: firstTimestamp,
+					TimestampRange: math.MaxUint32,
+				})
+
+				// The local update horizon should be followed
+				// by a QueryChannelRange message sent to the
+				// remote peer requesting all channels it
+				// knows of from the highest height the syncer
+				// knows of.
+				assertMsgSent(t, msgChan, &lnwire.QueryChannelRange{
+					FirstBlockHeight: startHeight,
+					NumBlocks:        math.MaxUint32 - startHeight,
+				})
+
+				syncState := g.syncState()
+				if syncState != waitingQueryRangeReply {
+					t.Fatalf("expected syncerState %v, "+
+						"got %v", waitingQueryRangeReply,
+						syncState)
+				}
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			// We'll start each test by creating our syncer. We'll
+			// initialize it with a state of chansSynced, as that's
+			// the only time when it can process sync transitions.
+			msgChan, syncer, _ := newTestSyncer(
+				lnwire.ShortChannelID{
+					BlockHeight: latestKnownHeight,
+				},
+				defaultEncoding, defaultChunkSize,
+			)
+			syncer.setSyncState(chansSynced)
+
+			// We'll set the initial syncType to what the test
+			// demands.
+			syncer.setSyncType(test.entrySyncType)
+
+			// We'll then start the syncer in order to process the
+			// request.
+			syncer.Start()
+			defer syncer.Stop()
+
+			syncer.ProcessSyncTransition(test.finalSyncType)
+
+			// The syncer should now have the expected final
+			// SyncerType that the test expects.
+			syncType := syncer.SyncType()
+			if syncType != test.finalSyncType {
+				t.Fatalf("expected syncType %v, got %v",
+					test.finalSyncType, syncType)
+			}
+
+			// Finally, we'll run a set of assertions for each test
+			// to ensure the syncer performed its expected duties
+			// after processing its sync transition.
+			test.assert(t, msgChan, syncer)
+		})
+	}
+}
+
+// TestGossipSyncerHistoricalSync tests that a gossip syncer can perform a
+// historical sync with the remote peer.
+func TestGossipSyncerHistoricalSync(t *testing.T) {
+	t.Parallel()
+
+	// We'll create a new gossip syncer and manually override its state to
+	// chansSynced. This is necessary as the syncer can only process
+	// historical sync requests in this state.
+	msgChan, syncer, _ := newTestSyncer(
+		lnwire.ShortChannelID{BlockHeight: latestKnownHeight},
+		defaultEncoding, defaultChunkSize,
+	)
+	syncer.setSyncType(PassiveSync)
+	syncer.setSyncState(chansSynced)
+
+	syncer.Start()
+	defer syncer.Stop()
+
+	syncer.historicalSync()
+
+	// We should expect to see a single lnwire.QueryChannelRange message be
+	// sent to the remote peer with a FirstBlockHeight of 0.
+	expectedMsg := &lnwire.QueryChannelRange{
+		FirstBlockHeight: 0,
+		NumBlocks:        math.MaxUint32,
+	}
+
+	select {
+	case msgs := <-msgChan:
+		if len(msgs) != 1 {
+			t.Fatalf("expected to send a single "+
+				"lnwire.QueryChannelRange message, got %d",
+				len(msgs))
+		}
+		if !reflect.DeepEqual(msgs[0], expectedMsg) {
+			t.Fatalf("expected to send message: %v\ngot: %v",
+				spew.Sdump(expectedMsg), spew.Sdump(msgs[0]))
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("expected to send a lnwire.QueryChannelRange message")
+	}
+}
+
+// TestGossipSyncerSyncedSignal ensures that we receive a signal when a gossip
+// syncer reaches its terminal chansSynced state.
+func TestGossipSyncerSyncedSignal(t *testing.T) {
+	t.Parallel()
+
+	// We'll create a new gossip syncer and manually override its state to
+	// chansSynced.
+	_, syncer, _ := newTestSyncer(
+		lnwire.NewShortChanIDFromInt(10), defaultEncoding,
+		defaultChunkSize,
+	)
+	syncer.setSyncState(chansSynced)
+
+	// We'll go ahead and request a signal to be notified of when it reaches
+	// this state.
+	signalChan := syncer.ResetSyncedSignal()
+
+	// Starting the gossip syncer should cause the signal to be delivered.
+	syncer.Start()
+
+	select {
+	case <-signalChan:
+	case <-time.After(time.Second):
+		t.Fatal("expected to receive chansSynced signal")
+	}
+
+	syncer.Stop()
+
+	// We'll try this again, but this time we'll request the signal after
+	// the syncer is active and has already reached its chansSynced state.
+	_, syncer, _ = newTestSyncer(
+		lnwire.NewShortChanIDFromInt(10), defaultEncoding,
+		defaultChunkSize,
+	)
+
+	syncer.setSyncState(chansSynced)
+
+	syncer.Start()
+	defer syncer.Stop()
+
+	signalChan = syncer.ResetSyncedSignal()
+
+	// The signal should be delivered immediately.
+	select {
+	case <-signalChan:
+	case <-time.After(time.Second):
+		t.Fatal("expected to receive chansSynced signal")
 	}
 }

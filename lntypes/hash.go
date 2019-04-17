@@ -17,33 +17,33 @@ func (hash Hash) String() string {
 	return hex.EncodeToString(hash[:])
 }
 
-// NewHash returns a new Hash from a byte slice.  An error is returned if
+// MakeHash returns a new Hash from a byte slice.  An error is returned if
 // the number of bytes passed in is not HashSize.
-func NewHash(newHash []byte) (*Hash, error) {
+func MakeHash(newHash []byte) (Hash, error) {
 	nhlen := len(newHash)
 	if nhlen != HashSize {
-		return nil, fmt.Errorf("invalid hash length of %v, want %v",
+		return Hash{}, fmt.Errorf("invalid hash length of %v, want %v",
 			nhlen, HashSize)
 	}
 
 	var hash Hash
 	copy(hash[:], newHash)
 
-	return &hash, nil
+	return hash, nil
 }
 
-// NewHashFromStr creates a Hash from a hex hash string.
-func NewHashFromStr(newHash string) (*Hash, error) {
+// MakeHashFromStr creates a Hash from a hex hash string.
+func MakeHashFromStr(newHash string) (Hash, error) {
 	// Return error if hash string is of incorrect length.
 	if len(newHash) != HashSize*2 {
-		return nil, fmt.Errorf("invalid hash string length of %v, "+
+		return Hash{}, fmt.Errorf("invalid hash string length of %v, "+
 			"want %v", len(newHash), HashSize*2)
 	}
 
 	hash, err := hex.DecodeString(newHash)
 	if err != nil {
-		return nil, err
+		return Hash{}, err
 	}
 
-	return NewHash(hash)
+	return MakeHash(hash)
 }

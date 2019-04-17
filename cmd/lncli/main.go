@@ -257,6 +257,7 @@ func main() {
 		unlockCommand,
 		changePasswordCommand,
 		newAddressCommand,
+		estimateFeeCommand,
 		sendManyCommand,
 		sendCoinsCommand,
 		listUnspentCommand,
@@ -294,6 +295,9 @@ func main() {
 		feeReportCommand,
 		updateChannelPolicyCommand,
 		forwardingHistoryCommand,
+		exportChanBackupCommand,
+		verifyChanBackupCommand,
+		restoreChanBackupCommand,
 	}
 
 	// Add any extra autopilot commands determined by build flags.

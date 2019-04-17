@@ -310,7 +310,7 @@ The `Faucet` node address can be found at the [Faucet Lightning Community webpag
 $ docker-compose up -d "alice"; docker exec -i -t "alice" bash
 
 # Connect "Alice" to the "Faucet" node:
-alice$ lncli --network=simnet connect <faucet_identity_address>@<faucet_host>
+alice$ lncli --network=testnet connect <faucet_identity_address>@<faucet_host>
 ```
 
 After a connection is achieved, the `Faucet` node should create the channel

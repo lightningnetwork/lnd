@@ -130,6 +130,7 @@ type neutrinoConfig struct {
 	MaxPeers     int           `long:"maxpeers" description:"Max number of inbound and outbound peers"`
 	BanDuration  time.Duration `long:"banduration" description:"How long to ban misbehaving peers.  Valid time units are {s, m, h}.  Minimum 1 second"`
 	BanThreshold uint32        `long:"banthreshold" description:"Maximum allowed ban score before disconnecting and banning misbehaving peers."`
+	FeeURL       string        `long:"feeurl" description:"Optional URL for fee estimation. If a URL is not specified, static fees will be used for estimation."`
 }
 
 type btcdConfig struct {

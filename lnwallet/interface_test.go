@@ -2646,8 +2646,6 @@ func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 
 		aliceWalletController lnwallet.WalletController
 		bobWalletController   lnwallet.WalletController
-
-		feeEstimator lnwallet.FeeEstimator
 	)
 
 	tempTestDirAlice, err := ioutil.TempDir("", "lnwallet")
@@ -2668,12 +2666,6 @@ func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 		var aliceClient, bobClient chain.Interface
 		switch backEnd {
 		case "btcd":
-			feeEstimator, err = lnwallet.NewBtcdFeeEstimator(
-				rpcConfig, 250)
-			if err != nil {
-				t.Fatalf("unable to create btcd fee estimator: %v",
-					err)
-			}
 			aliceClient, err = chain.NewRPCClient(netParams,
 				rpcConfig.Host, rpcConfig.User, rpcConfig.Pass,
 				rpcConfig.Certificates, false, 20)
@@ -2688,8 +2680,6 @@ func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 			}
 
 		case "neutrino":
-			feeEstimator = lnwallet.NewStaticFeeEstimator(62500, 0)
-
 			// Set some package-level variable to speed up
 			// operation for tests.
 			neutrino.BanDuration = time.Millisecond * 100
@@ -2751,12 +2741,6 @@ func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 			)
 
 		case "bitcoind":
-			feeEstimator, err = lnwallet.NewBitcoindFeeEstimator(
-				rpcConfig, 250)
-			if err != nil {
-				t.Fatalf("unable to create bitcoind fee estimator: %v",
-					err)
-			}
 			// Start a bitcoind instance.
 			tempBitcoindDir, err := ioutil.TempDir("", "bitcoind")
 			if err != nil {
@@ -2819,13 +2803,12 @@ func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 		aliceSeedBytes := aliceSeed.Sum(nil)
 
 		aliceWalletConfig := &btcwallet.Config{
-			PrivatePass:  []byte("alice-pass"),
-			HdSeed:       aliceSeedBytes,
-			DataDir:      tempTestDirAlice,
-			NetParams:    netParams,
-			ChainSource:  aliceClient,
-			FeeEstimator: feeEstimator,
-			CoinType:     keychain.CoinTypeTestnet,
+			PrivatePass: []byte("alice-pass"),
+			HdSeed:      aliceSeedBytes,
+			DataDir:     tempTestDirAlice,
+			NetParams:   netParams,
+			ChainSource: aliceClient,
+			CoinType:    keychain.CoinTypeTestnet,
 		}
 		aliceWalletController, err = walletDriver.New(aliceWalletConfig)
 		if err != nil {
@@ -2843,13 +2826,12 @@ func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 		bobSeedBytes := bobSeed.Sum(nil)
 
 		bobWalletConfig := &btcwallet.Config{
-			PrivatePass:  []byte("bob-pass"),
-			HdSeed:       bobSeedBytes,
-			DataDir:      tempTestDirBob,
-			NetParams:    netParams,
-			ChainSource:  bobClient,
-			FeeEstimator: feeEstimator,
-			CoinType:     keychain.CoinTypeTestnet,
+			PrivatePass: []byte("bob-pass"),
+			HdSeed:      bobSeedBytes,
+			DataDir:     tempTestDirBob,
+			NetParams:   netParams,
+			ChainSource: bobClient,
+			CoinType:    keychain.CoinTypeTestnet,
 		}
 		bobWalletController, err = walletDriver.New(bobWalletConfig)
 		if err != nil {

@@ -200,8 +200,7 @@ type Config struct {
 
 	// AssumeChannelValid toggles whether or not the router will check for
 	// spentness of channel outpoints. For neutrino, this saves long rescans
-	// from blocking initial usage of the wallet. This should only be
-	// enabled on testnet.
+	// from blocking initial usage of the daemon.
 	AssumeChannelValid bool
 }
 
@@ -381,26 +380,15 @@ func (r *ChannelRouter) Start() error {
 
 	log.Tracef("Channel Router starting")
 
-	// First, we'll start the chain view instance (if it isn't already
-	// started).
-	if err := r.cfg.ChainView.Start(); err != nil {
-		return err
-	}
-
-	// Once the instance is active, we'll fetch the channel we'll receive
-	// notifications over.
-	r.newBlocks = r.cfg.ChainView.FilteredBlocks()
-	r.staleBlocks = r.cfg.ChainView.DisconnectedBlocks()
-
 	bestHash, bestHeight, err := r.cfg.Chain.GetBestBlock()
 	if err != nil {
 		return err
 	}
 
+	// If the graph has never been pruned, or hasn't fully been created yet,
+	// then we don't treat this as an explicit error.
 	if _, _, err := r.cfg.Graph.PruneTip(); err != nil {
 		switch {
-		// If the graph has never been pruned, or hasn't fully been
-		// created yet, then we don't treat this as an explicit error.
 		case err == channeldb.ErrGraphNeverPruned:
 			fallthrough
 		case err == channeldb.ErrGraphNotFound:
@@ -418,37 +406,61 @@ func (r *ChannelRouter) Start() error {
 		}
 	}
 
-	// Before we perform our manual block pruning, we'll construct and
-	// apply a fresh chain filter to the active FilteredChainView instance.
-	// We do this before, as otherwise we may miss on-chain events as the
-	// filter hasn't properly been applied.
-	channelView, err := r.cfg.Graph.ChannelView()
-	if err != nil && err != channeldb.ErrGraphNoEdgesFound {
-		return err
-	}
-
-	log.Infof("Filtering chain using %v channels active", len(channelView))
-	if len(channelView) != 0 {
-		err = r.cfg.ChainView.UpdateFilter(
-			channelView, uint32(bestHeight),
-		)
-		if err != nil {
+	// If AssumeChannelValid is present, then we won't rely on pruning
+	// channels from the graph based on their spentness, but whether they
+	// are considered zombies or not.
+	if r.cfg.AssumeChannelValid {
+		if err := r.pruneZombieChans(); err != nil {
 			return err
 		}
-	}
+	} else {
+		// Otherwise, we'll use our filtered chain view to prune
+		// channels as soon as they are detected as spent on-chain.
+		if err := r.cfg.ChainView.Start(); err != nil {
+			return err
+		}
 
-	// Before we begin normal operation of the router, we first need to
-	// synchronize the channel graph to the latest state of the UTXO set.
-	if err := r.syncGraphWithChain(); err != nil {
-		return err
-	}
+		// Once the instance is active, we'll fetch the channel we'll
+		// receive notifications over.
+		r.newBlocks = r.cfg.ChainView.FilteredBlocks()
+		r.staleBlocks = r.cfg.ChainView.DisconnectedBlocks()
 
-	// Finally, before we proceed, we'll prune any unconnected nodes from
-	// the graph in order to ensure we maintain a tight graph of "useful"
-	// nodes.
-	err = r.cfg.Graph.PruneGraphNodes()
-	if err != nil && err != channeldb.ErrGraphNodesNotFound {
-		return err
+		// Before we perform our manual block pruning, we'll construct
+		// and apply a fresh chain filter to the active
+		// FilteredChainView instance.  We do this before, as otherwise
+		// we may miss on-chain events as the filter hasn't properly
+		// been applied.
+		channelView, err := r.cfg.Graph.ChannelView()
+		if err != nil && err != channeldb.ErrGraphNoEdgesFound {
+			return err
+		}
+
+		log.Infof("Filtering chain using %v channels active",
+			len(channelView))
+
+		if len(channelView) != 0 {
+			err = r.cfg.ChainView.UpdateFilter(
+				channelView, uint32(bestHeight),
+			)
+			if err != nil {
+				return err
+			}
+		}
+
+		// Before we begin normal operation of the router, we first need
+		// to synchronize the channel graph to the latest state of the
+		// UTXO set.
+		if err := r.syncGraphWithChain(); err != nil {
+			return err
+		}
+
+		// Finally, before we proceed, we'll prune any unconnected nodes
+		// from the graph in order to ensure we maintain a tight graph
+		// of "useful" nodes.
+		err = r.cfg.Graph.PruneGraphNodes()
+		if err != nil && err != channeldb.ErrGraphNodesNotFound {
+			return err
+		}
 	}
 
 	r.wg.Add(1)
@@ -465,10 +477,14 @@ func (r *ChannelRouter) Stop() error {
 		return nil
 	}
 
-	log.Infof("Channel Router shutting down")
+	log.Tracef("Channel Router shutting down")
 
-	if err := r.cfg.ChainView.Stop(); err != nil {
-		return err
+	// Our filtered chain view could've only been started if
+	// AssumeChannelValid isn't present.
+	if !r.cfg.AssumeChannelValid {
+		if err := r.cfg.ChainView.Stop(); err != nil {
+			return err
+		}
 	}
 
 	close(r.quit)
@@ -562,9 +578,9 @@ func (r *ChannelRouter) syncGraphWithChain() error {
 	log.Infof("Syncing channel graph from height=%v (hash=%v) to height=%v "+
 		"(hash=%v)", pruneHeight, pruneHash, bestHeight, bestHash)
 
-	// If we're not yet caught up, then we'll walk forward in the chain in
-	// the chain pruning the channel graph with each new block in the chain
-	// that hasn't yet been consumed by the channel graph.
+	// If we're not yet caught up, then we'll walk forward in the chain
+	// pruning the channel graph with each new block that hasn't yet been
+	// consumed by the channel graph.
 	var numChansClosed uint32
 	for nextHeight := pruneHeight + 1; nextHeight <= uint32(bestHeight); nextHeight++ {
 		// Using the next height, request a manual block pruning from
@@ -1121,21 +1137,23 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 			fundingPoint, msg.ChannelID, msg.Capacity)
 
 		// As a new edge has been added to the channel graph, we'll
-		// update the current UTXO filter within our active
-		// FilteredChainView so we are notified if/when this channel is
-		// closed.
-		filterUpdate := []channeldb.EdgePoint{
-			{
-				FundingPkScript: fundingPkScript,
-				OutPoint:        *fundingPoint,
-			},
-		}
-		err = r.cfg.ChainView.UpdateFilter(
-			filterUpdate, atomic.LoadUint32(&r.bestHeight),
-		)
-		if err != nil {
-			return errors.Errorf("unable to update chain "+
-				"view: %v", err)
+		// update the current UTXO filter, if AssumeChannelValid is not
+		// present, within our active FilteredChainView so we are
+		// notified if/when this channel is closed.
+		if !r.cfg.AssumeChannelValid {
+			filterUpdate := []channeldb.EdgePoint{
+				{
+					FundingPkScript: fundingPkScript,
+					OutPoint:        *fundingPoint,
+				},
+			}
+			err = r.cfg.ChainView.UpdateFilter(
+				filterUpdate, atomic.LoadUint32(&r.bestHeight),
+			)
+			if err != nil {
+				return errors.Errorf("unable to update chain "+
+					"view: %v", err)
+			}
 		}
 
 	case *channeldb.ChannelEdgePolicy:

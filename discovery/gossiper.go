@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -34,12 +35,49 @@ var (
 	ErrGossipSyncerNotFound = errors.New("gossip syncer not found")
 )
 
+// optionalMsgFields is a set of optional message fields that external callers
+// can provide that serve useful when processing a specific network
+// announcement.
+type optionalMsgFields struct {
+	capacity     *btcutil.Amount
+	channelPoint *wire.OutPoint
+}
+
+// apply applies the optional fields within the functional options.
+func (f *optionalMsgFields) apply(optionalMsgFields ...OptionalMsgField) {
+	for _, optionalMsgField := range optionalMsgFields {
+		optionalMsgField(f)
+	}
+}
+
+// OptionalMsgField is a functional option parameter that can be used to provide
+// external information that is not included within a network message but serves
+// useful when processing it.
+type OptionalMsgField func(*optionalMsgFields)
+
+// ChannelCapacity is an optional field that lets the gossiper know of the
+// capacity of a channel.
+func ChannelCapacity(capacity btcutil.Amount) OptionalMsgField {
+	return func(f *optionalMsgFields) {
+		f.capacity = &capacity
+	}
+}
+
+// ChannelPoint is an optional field that lets the gossiper know of the outpoint
+// of a channel.
+func ChannelPoint(op wire.OutPoint) OptionalMsgField {
+	return func(f *optionalMsgFields) {
+		f.channelPoint = &op
+	}
+}
+
 // networkMsg couples a routing related wire message with the peer that
 // originally sent it.
 type networkMsg struct {
-	peer   lnpeer.Peer
-	source *btcec.PublicKey
-	msg    lnwire.Message
+	peer              lnpeer.Peer
+	source            *btcec.PublicKey
+	msg               lnwire.Message
+	optionalMsgFields *optionalMsgFields
 
 	isRemote bool
 
@@ -572,13 +610,17 @@ func (d *AuthenticatedGossiper) ProcessRemoteAnnouncement(msg lnwire.Message,
 // entire channel announcement and update messages will be re-constructed and
 // broadcast to the rest of the network.
 func (d *AuthenticatedGossiper) ProcessLocalAnnouncement(msg lnwire.Message,
-	source *btcec.PublicKey) chan error {
+	source *btcec.PublicKey, optionalFields ...OptionalMsgField) chan error {
+
+	optionalMsgFields := &optionalMsgFields{}
+	optionalMsgFields.apply(optionalFields...)
 
 	nMsg := &networkMsg{
-		msg:      msg,
-		isRemote: false,
-		source:   source,
-		err:      make(chan error, 1),
+		msg:               msg,
+		optionalMsgFields: optionalMsgFields,
+		isRemote:          false,
+		source:            source,
+		err:               make(chan error, 1),
 	}
 
 	select {
@@ -1603,6 +1645,17 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 			AuthProof:        proof,
 			Features:         featureBuf.Bytes(),
 			ExtraOpaqueData:  msg.ExtraOpaqueData,
+		}
+
+		// If there were any optional message fields provided, we'll
+		// include them in its serialized disk representation now.
+		if nMsg.optionalMsgFields != nil {
+			if nMsg.optionalMsgFields.capacity != nil {
+				edge.Capacity = *nMsg.optionalMsgFields.capacity
+			}
+			if nMsg.optionalMsgFields.channelPoint != nil {
+				edge.ChannelPoint = *nMsg.optionalMsgFields.channelPoint
+			}
 		}
 
 		// We will add the edge to the channel router. If the nodes

@@ -146,9 +146,6 @@ func (r *mockGraphSource) AddEdge(info *channeldb.ChannelEdgeInfo) error {
 		return errors.New("info already exist")
 	}
 
-	// Usually, the capacity is fetched in the router from the funding txout.
-	// Since the mockGraphSource can't access the txout, assign a default value.
-	info.Capacity = maxBtcFundingAmount
 	r.infos[info.ChannelID] = *info
 	return nil
 }
@@ -3267,17 +3264,20 @@ func TestSendChannelUpdateReliably(t *testing.T) {
 }
 
 func sendLocalMsg(t *testing.T, ctx *testCtx, msg lnwire.Message,
-	localPub *btcec.PublicKey) {
+	localPub *btcec.PublicKey, optionalMsgFields ...OptionalMsgField) {
 
 	t.Helper()
 
+	var err error
 	select {
-	case err := <-ctx.gossiper.ProcessLocalAnnouncement(msg, localPub):
-		if err != nil {
-			t.Fatalf("unable to process channel msg: %v", err)
-		}
+	case err = <-ctx.gossiper.ProcessLocalAnnouncement(
+		msg, localPub, optionalMsgFields...,
+	):
 	case <-time.After(2 * time.Second):
 		t.Fatal("did not process local announcement")
+	}
+	if err != nil {
+		t.Fatalf("unable to process channel msg: %v", err)
 	}
 }
 
@@ -3480,6 +3480,61 @@ out:
 			return
 		}
 	}
+}
+
+// TestProcessChannelAnnouncementOptionalMsgFields ensures that the gossiper can
+// properly handled optional message fields provided by the caller when
+// processing a channel announcement.
+func TestProcessChannelAnnouncementOptionalMsgFields(t *testing.T) {
+	t.Parallel()
+
+	// We'll start by creating our test context and a set of test channel
+	// announcements.
+	ctx, cleanup, err := createTestCtx(0)
+	if err != nil {
+		t.Fatalf("unable to create test context: %v", err)
+	}
+	defer cleanup()
+
+	chanAnn1 := createAnnouncementWithoutProof(100)
+	chanAnn2 := createAnnouncementWithoutProof(101)
+	localKey := nodeKeyPriv1.PubKey()
+
+	// assertOptionalMsgFields is a helper closure that ensures the optional
+	// message fields were set as intended.
+	assertOptionalMsgFields := func(chanID lnwire.ShortChannelID,
+		capacity btcutil.Amount, channelPoint wire.OutPoint) {
+
+		t.Helper()
+
+		edge, _, _, err := ctx.router.GetChannelByID(chanID)
+		if err != nil {
+			t.Fatalf("unable to get channel by id: %v", err)
+		}
+		if edge.Capacity != capacity {
+			t.Fatalf("expected capacity %v, got %v", capacity,
+				edge.Capacity)
+		}
+		if edge.ChannelPoint != channelPoint {
+			t.Fatalf("expected channel point %v, got %v",
+				channelPoint, edge.ChannelPoint)
+		}
+	}
+
+	// We'll process the first announcement without any optional fields. We
+	// should see the channel's capacity and outpoint have a zero value.
+	sendLocalMsg(t, ctx, chanAnn1, localKey)
+	assertOptionalMsgFields(chanAnn1.ShortChannelID, 0, wire.OutPoint{})
+
+	// Providing the capacity and channel point as optional fields should
+	// propagate them all the way down to the router.
+	capacity := btcutil.Amount(1000)
+	channelPoint := wire.OutPoint{Index: 1}
+	sendLocalMsg(
+		t, ctx, chanAnn2, localKey, ChannelCapacity(capacity),
+		ChannelPoint(channelPoint),
+	)
+	assertOptionalMsgFields(chanAnn2.ShortChannelID, capacity, channelPoint)
 }
 
 func assertMessage(t *testing.T, expected, got lnwire.Message) {

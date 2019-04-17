@@ -1994,6 +1994,109 @@ func TestRouterChansClosedOfflinePruneGraph(t *testing.T) {
 	}
 }
 
+// TestPruneChannelGraphStaleEdges ensures that we properly prune stale edges
+// from the channel graph.
+func TestPruneChannelGraphStaleEdges(t *testing.T) {
+	t.Parallel()
+
+	freshTimestamp := time.Now()
+	staleTimestamp := time.Time{}
+
+	// We'll create the following test graph so that only the last channel
+	// is pruned.
+	testChannels := []*testChannel{
+		// No edges.
+		{
+			Node1:     &testChannelEnd{Alias: "a"},
+			Node2:     &testChannelEnd{Alias: "b"},
+			Capacity:  100000,
+			ChannelID: 1,
+		},
+
+		// Only one edge with a stale timestamp.
+		{
+			Node1: &testChannelEnd{
+				Alias: "a",
+				testChannelPolicy: &testChannelPolicy{
+					LastUpdate: staleTimestamp,
+				},
+			},
+			Node2:     &testChannelEnd{Alias: "b"},
+			Capacity:  100000,
+			ChannelID: 2,
+		},
+
+		// Only one edge with a fresh timestamp.
+		{
+			Node1: &testChannelEnd{
+				Alias: "a",
+				testChannelPolicy: &testChannelPolicy{
+					LastUpdate: freshTimestamp,
+				},
+			},
+			Node2:     &testChannelEnd{Alias: "b"},
+			Capacity:  100000,
+			ChannelID: 3,
+		},
+
+		// One edge fresh, one edge stale.
+		{
+			Node1: &testChannelEnd{
+				Alias: "c",
+				testChannelPolicy: &testChannelPolicy{
+					LastUpdate: freshTimestamp,
+				},
+			},
+			Node2: &testChannelEnd{
+				Alias: "d",
+				testChannelPolicy: &testChannelPolicy{
+					LastUpdate: staleTimestamp,
+				},
+			},
+			Capacity:  100000,
+			ChannelID: 4,
+		},
+
+		// Both edges fresh.
+		symmetricTestChannel("g", "h", 100000, &testChannelPolicy{
+			LastUpdate: freshTimestamp,
+		}, 5),
+
+		// Both edges stale, only one pruned.
+		symmetricTestChannel("e", "f", 100000, &testChannelPolicy{
+			LastUpdate: staleTimestamp,
+		}, 6),
+	}
+
+	// We'll create our test graph and router backed with these test
+	// channels we've created.
+	testGraph, err := createTestGraphFromChannels(testChannels)
+	if err != nil {
+		t.Fatalf("unable to create test graph: %v", err)
+	}
+	defer testGraph.cleanUp()
+
+	const startingHeight = 100
+	ctx, cleanUp, err := createTestCtxFromGraphInstance(
+		startingHeight, testGraph,
+	)
+	if err != nil {
+		t.Fatalf("unable to create test context: %v", err)
+	}
+	defer cleanUp()
+
+	// All of the channels should exist before pruning them.
+	assertChannelsPruned(t, ctx.graph, testChannels)
+
+	// Proceed to prune the channels - only the last one should be pruned.
+	if err := ctx.router.pruneZombieChans(); err != nil {
+		t.Fatalf("unable to prune zombie channels: %v", err)
+	}
+
+	prunedChannel := testChannels[len(testChannels)-1].ChannelID
+	assertChannelsPruned(t, ctx.graph, testChannels, prunedChannel)
+}
+
 // TestFindPathFeeWeighting tests that the findPath method will properly prefer
 // routes with lower fees over routes with lower time lock values. This is
 // meant to exercise the fact that the internal findPath method ranks edges
@@ -2295,5 +2398,46 @@ func TestEmptyRoutesGenerateSphinxPacket(t *testing.T) {
 	_, _, err := generateSphinxPacket(emptyRoute, testHash[:])
 	if err != ErrNoRouteHopsProvided {
 		t.Fatalf("expected empty hops error: instead got: %v", err)
+	}
+}
+
+// assertChannelsPruned ensures that only the given channels are pruned from the
+// graph out of the set of all channels.
+func assertChannelsPruned(t *testing.T, graph *channeldb.ChannelGraph,
+	channels []*testChannel, prunedChanIDs ...uint64) {
+
+	t.Helper()
+
+	pruned := make(map[uint64]struct{}, len(channels))
+	for _, chanID := range prunedChanIDs {
+		pruned[chanID] = struct{}{}
+	}
+
+	for _, channel := range channels {
+		_, shouldPrune := pruned[channel.ChannelID]
+		_, _, exists, isZombie, err := graph.HasChannelEdge(
+			channel.ChannelID,
+		)
+		if err != nil {
+			t.Fatalf("unable to determine existence of "+
+				"channel=%v in the graph: %v",
+				channel.ChannelID, err)
+		}
+		if !shouldPrune && !exists {
+			t.Fatalf("expected channel=%v to exist within "+
+				"the graph", channel.ChannelID)
+		}
+		if shouldPrune && exists {
+			t.Fatalf("expected channel=%v to not exist "+
+				"within the graph", channel.ChannelID)
+		}
+		if !shouldPrune && isZombie {
+			t.Fatalf("expected channel=%v to not be marked "+
+				"as zombie", channel.ChannelID)
+		}
+		if shouldPrune && !isZombie {
+			t.Fatalf("expected channel=%v to be marked as "+
+				"zombie", channel.ChannelID)
+		}
 	}
 }

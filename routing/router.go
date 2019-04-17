@@ -638,7 +638,7 @@ func (r *ChannelRouter) pruneZombieChans() error {
 		// If *both* edges haven't been updated for a period of
 		// chanExpiry, then we'll mark the channel itself as eligible
 		// for graph pruning.
-		e1Zombie, e2Zombie := true, true
+		var e1Zombie, e2Zombie bool
 		if e1 != nil {
 			e1Zombie = time.Since(e1.LastUpdate) >= chanExpiry
 			if e1Zombie {

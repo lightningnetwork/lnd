@@ -727,6 +727,13 @@ func (r *ChannelRouter) pruneZombieChans() error {
 		}
 	}
 
+	// With the channels pruned, we'll also attempt to prune any nodes that
+	// were a part of them.
+	err = r.cfg.Graph.PruneGraphNodes()
+	if err != nil && err != channeldb.ErrGraphNodesNotFound {
+		return fmt.Errorf("unable to prune graph nodes: %v", err)
+	}
+
 	return nil
 }
 

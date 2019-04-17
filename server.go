@@ -880,9 +880,11 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		CurrentNodeAnnouncement: func() (lnwire.NodeAnnouncement, error) {
 			return s.genNodeAnnouncement(true)
 		},
-		SendAnnouncement: func(msg lnwire.Message) chan error {
+		SendAnnouncement: func(msg lnwire.Message,
+			optionalFields ...discovery.OptionalMsgField) chan error {
+
 			return s.authGossiper.ProcessLocalAnnouncement(
-				msg, privKey.PubKey(),
+				msg, privKey.PubKey(), optionalFields...,
 			)
 		},
 		NotifyWhenOnline: s.NotifyWhenOnline,

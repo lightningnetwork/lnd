@@ -56,6 +56,12 @@ type topologyClientUpdate struct {
 // nodes appearing, node updating their attributes, new channels, channels
 // closing, and updates in the routing policies of a channel's directed edges.
 func (r *ChannelRouter) SubscribeTopology() (*TopologyClient, error) {
+	// If the router is not yet started, return an error to avoid a
+	// deadlock waiting for it to handle the subscription request.
+	if atomic.LoadUint32(&r.started) == 0 {
+		return nil, fmt.Errorf("router not started")
+	}
+
 	// We'll first atomically obtain the next ID for this client from the
 	// incrementing client ID counter.
 	clientID := atomic.AddUint64(&r.ntfnClientCounter, 1)

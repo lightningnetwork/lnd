@@ -634,7 +634,7 @@ func (r *ChannelRouter) syncGraphWithChain() error {
 // usually signals that a channel has been closed on-chain. We do this
 // periodically to keep a healthy, lively routing table.
 func (r *ChannelRouter) pruneZombieChans() error {
-	var chansToPrune []wire.OutPoint
+	var chansToPrune []uint64
 	chanExpiry := r.cfg.ChannelPruneExpiry
 
 	log.Infof("Examining channel graph for zombie channels")
@@ -660,17 +660,17 @@ func (r *ChannelRouter) pruneZombieChans() error {
 		if e1 != nil {
 			e1Zombie = time.Since(e1.LastUpdate) >= chanExpiry
 			if e1Zombie {
-				log.Tracef("Edge #1 of ChannelPoint(%v) "+
-					"last update: %v",
-					info.ChannelPoint, e1.LastUpdate)
+				log.Tracef("Edge #1 of ChannelID(%v) last "+
+					"update: %v", info.ChannelID,
+					e1.LastUpdate)
 			}
 		}
 		if e2 != nil {
 			e2Zombie = time.Since(e2.LastUpdate) >= chanExpiry
 			if e2Zombie {
-				log.Tracef("Edge #2 of ChannelPoint(%v) "+
-					"last update: %v",
-					info.ChannelPoint, e2.LastUpdate)
+				log.Tracef("Edge #2 of ChannelID(%v) last "+
+					"update: %v", info.ChannelID,
+					e2.LastUpdate)
 			}
 		}
 
@@ -705,11 +705,11 @@ func (r *ChannelRouter) pruneZombieChans() error {
 			return nil
 		}
 
-		log.Debugf("ChannelPoint(%v) is a zombie, collecting to prune",
-			info.ChannelPoint)
+		log.Debugf("ChannelID(%v) is a zombie, collecting to prune",
+			info.ChannelID)
 
 		// TODO(roasbeef): add ability to delete single directional edge
-		chansToPrune = append(chansToPrune, info.ChannelPoint)
+		chansToPrune = append(chansToPrune, info.ChannelID)
 
 		// As we're detecting this as a zombie channel, we'll add this
 		// to the set of recently rejected items so we don't re-accept
@@ -732,15 +732,11 @@ func (r *ChannelRouter) pruneZombieChans() error {
 
 	// With the set of zombie-like channels obtained, we'll do another pass
 	// to delete them from the channel graph.
-	for _, chanToPrune := range chansToPrune {
-		log.Tracef("Pruning zombie channel with ChannelPoint(%v)",
-			chanToPrune)
-
-		err := r.cfg.Graph.DeleteChannelEdge(&chanToPrune)
-		if err != nil {
-			return fmt.Errorf("unable to prune zombie with "+
-				"ChannelPoint(%v): %v", chanToPrune, err)
-		}
+	for _, chanID := range chansToPrune {
+		log.Tracef("Pruning zombie channel with ChannelID(%v)", chanID)
+	}
+	if err := r.cfg.Graph.DeleteChannelEdges(chansToPrune...); err != nil {
+		return fmt.Errorf("unable to delete zombie channels: %v", err)
 	}
 
 	// With the channels pruned, we'll also attempt to prune any nodes that

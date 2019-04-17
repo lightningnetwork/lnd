@@ -2728,6 +2728,12 @@ func (c *ChannelEdgePolicy) Signature() (*btcec.Signature, error) {
 	return sig, nil
 }
 
+// IsDisabled determines whether the edge has the disabled bit set.
+func (c *ChannelEdgePolicy) IsDisabled() bool {
+	return c.ChannelFlags&lnwire.ChanUpdateDisabled ==
+		lnwire.ChanUpdateDisabled
+}
+
 // FetchChannelEdgesByOutpoint attempts to lookup the two directed edges for
 // the channel identified by the funding outpoint. If the channel can't be
 // found, then ErrEdgeNotFound is returned. A struct which houses the general

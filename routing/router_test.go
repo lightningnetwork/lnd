@@ -2097,6 +2097,124 @@ func TestPruneChannelGraphStaleEdges(t *testing.T) {
 	assertChannelsPruned(t, ctx.graph, testChannels, prunedChannel)
 }
 
+// TestPruneChannelGraphDoubleDisabled test that we can properly prune channels
+// with both edges disabled from our channel graph.
+func TestPruneChannelGraphDoubleDisabled(t *testing.T) {
+	t.Parallel()
+
+	// We'll create the following test graph so that only the last channel
+	// is pruned. We'll use a fresh timestamp to ensure they're not pruned
+	// according to that heuristic.
+	timestamp := time.Now()
+	testChannels := []*testChannel{
+		// No edges.
+		{
+			Node1:     &testChannelEnd{Alias: "a"},
+			Node2:     &testChannelEnd{Alias: "b"},
+			Capacity:  100000,
+			ChannelID: 1,
+		},
+
+		// Only one edge disabled.
+		{
+			Node1: &testChannelEnd{
+				Alias: "a",
+				testChannelPolicy: &testChannelPolicy{
+					LastUpdate: timestamp,
+					Disabled:   true,
+				},
+			},
+			Node2:     &testChannelEnd{Alias: "b"},
+			Capacity:  100000,
+			ChannelID: 2,
+		},
+
+		// Only one edge enabled.
+		{
+			Node1: &testChannelEnd{
+				Alias: "a",
+				testChannelPolicy: &testChannelPolicy{
+					LastUpdate: timestamp,
+					Disabled:   false,
+				},
+			},
+			Node2:     &testChannelEnd{Alias: "b"},
+			Capacity:  100000,
+			ChannelID: 3,
+		},
+
+		// One edge disabled, one edge enabled.
+		{
+			Node1: &testChannelEnd{
+				Alias: "a",
+				testChannelPolicy: &testChannelPolicy{
+					LastUpdate: timestamp,
+					Disabled:   true,
+				},
+			},
+			Node2: &testChannelEnd{
+				Alias: "b",
+				testChannelPolicy: &testChannelPolicy{
+					LastUpdate: timestamp,
+					Disabled:   false,
+				},
+			},
+			Capacity:  100000,
+			ChannelID: 1,
+		},
+
+		// Both edges enabled.
+		symmetricTestChannel("c", "d", 100000, &testChannelPolicy{
+			LastUpdate: timestamp,
+			Disabled:   false,
+		}, 2),
+
+		// Both edges disabled, only one pruned.
+		symmetricTestChannel("e", "f", 100000, &testChannelPolicy{
+			LastUpdate: timestamp,
+			Disabled:   true,
+		}, 3),
+	}
+
+	// We'll create our test graph and router backed with these test
+	// channels we've created.
+	testGraph, err := createTestGraphFromChannels(testChannels)
+	if err != nil {
+		t.Fatalf("unable to create test graph: %v", err)
+	}
+	defer testGraph.cleanUp()
+
+	const startingHeight = 100
+	ctx, cleanUp, err := createTestCtxFromGraphInstance(
+		startingHeight, testGraph,
+	)
+	if err != nil {
+		t.Fatalf("unable to create test context: %v", err)
+	}
+	defer cleanUp()
+
+	// All the channels should exist within the graph before pruning them.
+	assertChannelsPruned(t, ctx.graph, testChannels)
+
+	// If we attempt to prune them without AssumeChannelValid being set,
+	// none should be pruned.
+	if err := ctx.router.pruneZombieChans(); err != nil {
+		t.Fatalf("unable to prune zombie channels: %v", err)
+	}
+
+	assertChannelsPruned(t, ctx.graph, testChannels)
+
+	// Now that AssumeChannelValid is set, we'll prune the graph again and
+	// the last channel should be the only one pruned.
+	ctx.router.cfg.AssumeChannelValid = true
+	if err := ctx.router.pruneZombieChans(); err != nil {
+		t.Fatalf("unable to prune zombie channels: %v", err)
+	}
+
+	prunedChannel := testChannels[len(testChannels)-1].ChannelID
+	assertChannelsPruned(t, ctx.graph, testChannels, prunedChannel)
+}
+
 // TestFindPathFeeWeighting tests that the findPath method will properly prefer
 // routes with lower fees over routes with lower time lock values. This is
 // meant to exercise the fact that the internal findPath method ranks edges

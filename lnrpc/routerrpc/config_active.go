@@ -5,10 +5,9 @@ package routerrpc
 import (
 	"time"
 
-	"github.com/lightningnetwork/lnd/lnwire"
-
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcutil"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/routing"
 )
@@ -44,12 +43,6 @@ type Config struct {
 	// NetworkDir is the main network directory wherein the router rpc
 	// server will find the macaroon named DefaultRouterMacFilename.
 	NetworkDir string
-
-	// ActiveNetParams are the network parameters of the primary network
-	// that the route is operating on. This is necessary so we can ensure
-	// that we receive payment requests that send to destinations on our
-	// network.
-	ActiveNetParams *chaincfg.Params
 
 	// MacService is the main macaroon service that we'll use to handle
 	// authentication for the Router rpc server.

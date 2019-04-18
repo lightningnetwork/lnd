@@ -45,7 +45,7 @@ func TestRequestRoute(t *testing.T) {
 
 	payment := &LightningPayment{
 		CltvLimit:      &cltvLimit,
-		FinalCLTVDelta: &finalCltvDelta,
+		FinalCLTVDelta: finalCltvDelta,
 	}
 
 	route, err := session.RequestRoute(payment, height, finalCltvDelta)

@@ -474,7 +474,8 @@ func newRPCServer(s *server, macService *macaroons.Service,
 
 			return info.NodeKey1Bytes, info.NodeKey2Bytes, nil
 		},
-		FindRoute: s.chanRouter.FindRoute,
+		FindRoute:       s.chanRouter.FindRoute,
+		ActiveNetParams: activeNetParams.Params,
 	}
 
 	var (
@@ -2735,18 +2736,6 @@ func (r *rpcServer) SubscribeChannelEvents(req *lnrpc.ChannelEventSubscription,
 	}
 }
 
-// validatePayReqExpiry checks if the passed payment request has expired. In
-// the case it has expired, an error will be returned.
-func validatePayReqExpiry(payReq *zpay32.Invoice) error {
-	expiry := payReq.Expiry()
-	validUntil := payReq.Timestamp.Add(expiry)
-	if time.Now().After(validUntil) {
-		return fmt.Errorf("invoice expired. Valid until %v", validUntil)
-	}
-
-	return nil
-}
-
 // paymentStream enables different types of payment streams, such as:
 // lnrpc.Lightning_SendPaymentServer and lnrpc.Lightning_SendToRouteServer to
 // execute sendPayment. We use this struct as a sort of bridge to enable code
@@ -2928,7 +2917,7 @@ func extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPaymentIntent, error
 		}
 
 		// Next, we'll ensure that this payreq hasn't already expired.
-		err = validatePayReqExpiry(payReq)
+		err = routerrpc.ValidatePayReqExpiry(payReq)
 		if err != nil {
 			return payIntent, err
 		}

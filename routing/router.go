@@ -1560,10 +1560,8 @@ type LightningPayment struct {
 
 	// FinalCLTVDelta is the CTLV expiry delta to use for the _final_ hop
 	// in the route. This means that the final hop will have a CLTV delta
-	// of at least: currentHeight + FinalCLTVDelta. If this value is
-	// unspecified, then a default value of DefaultFinalCLTVDelta will be
-	// used.
-	FinalCLTVDelta *uint16
+	// of at least: currentHeight + FinalCLTVDelta.
+	FinalCLTVDelta int16
 
 	// PayAttemptTimeout is a timeout value that we'll use to determine
 	// when we should should abandon the payment attempt after consecutive
@@ -1700,13 +1698,6 @@ func (r *ChannelRouter) sendPayment(
 		return [32]byte{}, nil, err
 	}
 
-	var finalCLTVDelta uint16
-	if payment.FinalCLTVDelta == nil {
-		finalCLTVDelta = zpay32.DefaultFinalCLTVDelta
-	} else {
-		finalCLTVDelta = *payment.FinalCLTVDelta
-	}
-
 	var payAttemptTimeout time.Duration
 	if payment.PayAttemptTimeout == time.Duration(0) {
 		payAttemptTimeout = defaultPayAttemptTimeout
@@ -1724,7 +1715,7 @@ func (r *ChannelRouter) sendPayment(
 		paySession:     paySession,
 		timeoutChan:    timeoutChan,
 		currentHeight:  currentHeight,
-		finalCLTVDelta: finalCLTVDelta,
+		finalCLTVDelta: uint16(payment.FinalCLTVDelta),
 		attempt:        existingAttempt,
 		circuit:        nil,
 		lastError:      nil,

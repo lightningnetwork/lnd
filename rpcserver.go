@@ -2995,7 +2995,11 @@ func extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPaymentIntent, error
 		rpcPayReq.FeeLimit, payIntent.msat,
 	)
 
-	payIntent.cltvDelta = uint16(rpcPayReq.FinalCltvDelta)
+	if rpcPayReq.FinalCltvDelta != 0 {
+		payIntent.cltvDelta = uint16(rpcPayReq.FinalCltvDelta)
+	} else {
+		payIntent.cltvDelta = zpay32.DefaultFinalCLTVDelta
+	}
 
 	// If the user is manually specifying payment details, then the payment
 	// hash may be encoded as a string.
@@ -3066,17 +3070,12 @@ func (r *rpcServer) dispatchPaymentIntent(
 		payment := &routing.LightningPayment{
 			Target:            payIntent.dest,
 			Amount:            payIntent.msat,
+			FinalCLTVDelta:    int16(payIntent.cltvDelta),
 			FeeLimit:          payIntent.feeLimit,
 			CltvLimit:         payIntent.cltvLimit,
 			PaymentHash:       payIntent.rHash,
 			RouteHints:        payIntent.routeHints,
 			OutgoingChannelID: payIntent.outgoingChannelID,
-		}
-
-		// If the final CLTV value was specified, then we'll use that
-		// rather than the default.
-		if payIntent.cltvDelta != 0 {
-			payment.FinalCLTVDelta = &payIntent.cltvDelta
 		}
 
 		preImage, route, routerErr = r.server.chanRouter.SendPayment(

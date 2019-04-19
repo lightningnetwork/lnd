@@ -107,6 +107,14 @@ type ChannelLink interface {
 		incomingTimeout, outgoingTimeout uint32,
 		heightNow uint32) lnwire.FailureMessage
 
+	// HtlcSatifiesPolicyLocal should return a nil error if the passed HTLC
+	// details satisfy the current channel policy.  Otherwise, a valid
+	// protocol failure message should be returned in order to signal the
+	// violation. This call is intended to be used for locally initiated
+	// payments for which there is no corresponding incoming htlc.
+	HtlcSatifiesPolicyLocal(payHash [32]byte, amt lnwire.MilliSatoshi,
+		timeout uint32, heightNow uint32) lnwire.FailureMessage
+
 	// Bandwidth returns the amount of milli-satoshis which current link
 	// might pass through channel link. The value returned from this method
 	// represents the up to date available flow through the channel. This

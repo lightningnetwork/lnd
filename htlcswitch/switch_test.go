@@ -1363,6 +1363,21 @@ func TestSkipIneligibleLinksMultiHopForward(t *testing.T) {
 func TestSkipIneligibleLinksLocalForward(t *testing.T) {
 	t.Parallel()
 
+	testSkipLinkLocalForward(t, false, nil)
+}
+
+// TestSkipPolicyUnsatisfiedLinkLocalForward ensures that the switch will not
+// attempt to send locally initiated HTLCs that would violate the channel policy
+// down a link.
+func TestSkipPolicyUnsatisfiedLinkLocalForward(t *testing.T) {
+	t.Parallel()
+
+	testSkipLinkLocalForward(t, true, lnwire.NewTemporaryChannelFailure(nil))
+}
+
+func testSkipLinkLocalForward(t *testing.T, eligible bool,
+	policyResult lnwire.FailureMessage) {
+
 	// We'll create a single link for this test, marking it as being unable
 	// to forward form the get go.
 	alicePeer, err := newMockServer(t, "alice", testStartingHeight, nil, 6)
@@ -1382,8 +1397,9 @@ func TestSkipIneligibleLinksLocalForward(t *testing.T) {
 	chanID1, _, aliceChanID, _ := genIDs()
 
 	aliceChannelLink := newMockChannelLink(
-		s, chanID1, aliceChanID, alicePeer, false,
+		s, chanID1, aliceChanID, alicePeer, eligible,
 	)
+	aliceChannelLink.htlcSatifiesPolicyLocalResult = policyResult
 	if err := s.AddLink(aliceChannelLink); err != nil {
 		t.Fatalf("unable to add alice link: %v", err)
 	}

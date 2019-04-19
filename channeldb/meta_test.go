@@ -62,7 +62,7 @@ func applyMigration(t *testing.T, beforeMigration, afterMigration func(d *DB),
 	err = cdb.syncVersions(versions)
 }
 
-// TestVersionFetchPut checks the propernces of fetch/put methods
+// TestVersionFetchPut checks the properness of fetch/put methods
 // and also initialization of meta data in case if don't have any in
 // database.
 func TestVersionFetchPut(t *testing.T) {

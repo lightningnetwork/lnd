@@ -290,7 +290,7 @@ func (t *backupTask) craftSessionPayload(
 
 	// Finally, compute the breach hint, taken as the first half of the
 	// breach transactions txid. Once the tower sees the breach transaction
-	// on the network, it can use the full txid to decyrpt the blob.
+	// on the network, it can use the full txid to decrypt the blob.
 	hint = wtdb.NewBreachHintFromHash(&breachKey)
 
 	return hint, encBlob, nil

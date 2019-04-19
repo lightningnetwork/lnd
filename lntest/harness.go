@@ -756,7 +756,7 @@ type OpenChannelParams struct {
 	// channel is opened.
 	PushAmt btcutil.Amount
 
-	// Private is a boolan indicating whether the opened channel should be
+	// Private is a boolean indicating whether the opened channel should be
 	// private.
 	Private bool
 

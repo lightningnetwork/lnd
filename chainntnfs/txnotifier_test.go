@@ -248,7 +248,7 @@ func TestTxNotifierFutureConfDispatch(t *testing.T) {
 		t.Fatal("Expected confirmation update for tx1")
 	}
 
-	// A confirmation notification for this tranaction should be dispatched,
+	// A confirmation notification for this transaction should be dispatched,
 	// as it only required one confirmation.
 	select {
 	case txConf := <-ntfn1.Event.Confirmed:
@@ -1076,7 +1076,7 @@ func TestTxNotifierCancelConf(t *testing.T) {
 		t.Fatalf("expected to receive confirmation notification")
 	}
 
-	// The second one, however, should not have. The event's Confrimed
+	// The second one, however, should not have. The event's Confirmed
 	// channel must have also been closed to indicate the caller that the
 	// TxNotifier can no longer fulfill their canceled request.
 	select {
@@ -1927,7 +1927,7 @@ func TestTxNotifierSpendHintCache(t *testing.T) {
 		op2Height      = 203
 	)
 
-	// Intiialize our TxNotifier instance backed by a height hint cache.
+	// Initialize our TxNotifier instance backed by a height hint cache.
 	hintCache := newMockHintCache()
 	n := chainntnfs.NewTxNotifier(
 		startingHeight, chainntnfs.ReorgSafetyLimit, hintCache,

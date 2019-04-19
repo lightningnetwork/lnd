@@ -17,7 +17,7 @@ const (
 )
 
 // tempDecayedLogPath creates a new temporary database path to back a single
-// deccayed log instance.
+// decayed log instance.
 func tempDecayedLogPath(t *testing.T) string {
 	dir, err := ioutil.TempDir("", "decayedlog")
 	if err != nil {

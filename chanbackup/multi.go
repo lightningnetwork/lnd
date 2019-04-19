@@ -62,7 +62,7 @@ func (m Multi) PackToWriter(w io.Writer, keyRing keychain.KeyRing) error {
 
 	var multiBackupBuffer bytes.Buffer
 
-	// First, we'll write out the version of this multi channel baackup.
+	// First, we'll write out the version of this multi channel backup.
 	err := lnwire.WriteElements(&multiBackupBuffer, byte(m.Version))
 	if err != nil {
 		return err

@@ -175,7 +175,7 @@ message UnlockWalletRequest {
     /**
     recovery_window is an optional argument specifying the address lookahead
     when restoring a wallet seed. The recovery window applies to each
-    invdividual branch of the BIP44 derivation paths. Supplying a recovery
+    individual branch of the BIP44 derivation paths. Supplying a recovery
     window of zero indicates that no addresses should be recovered, such after
     the first initialization of the wallet.
     */
@@ -621,7 +621,7 @@ service Lightning {
     /** lncli: `queryroutes`
     QueryRoutes attempts to query the daemon's Channel Router for a possible
     route to a target destination capable of carrying a specific amount of
-    satoshis. The retuned route contains the full details required to craft and
+    satoshis. The returned route contains the full details required to craft and
     send an HTLC, also including the necessary information that should be
     present within the Sphinx packet encapsulated within the HTLC.
     */
@@ -1162,7 +1162,7 @@ message Channel {
     /// True if we were the ones that created the channel.
     bool initiator = 18 [json_name = "initiator"];
 
-    /// A set of flags showing the current state of the cahnnel.
+    /// A set of flags showing the current state of the channel.
     string chan_status_flags = 19 [json_name = "chan_status_flags"];
 }
 
@@ -2298,7 +2298,7 @@ message ForwardingHistoryResponse {
 }
 
 message ExportChannelBackupRequest {
-    /// The target chanenl point to obtain a back up for.
+    /// The target channel point to obtain a back up for.
     ChannelPoint chan_point = 1;
 }
 

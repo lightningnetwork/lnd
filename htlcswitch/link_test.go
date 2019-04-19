@@ -2523,7 +2523,7 @@ func genAddsAndCircuits(numHtlcs int, htlc *lnwire.UpdateAddHTLC) (
 
 // TestChannelLinkTrimCircuitsPending checks that the switch and link properly
 // trim circuits if there are open circuits corresponding to ADDs on a pending
-// commmitment transaction.
+// commitment transaction.
 func TestChannelLinkTrimCircuitsPending(t *testing.T) {
 	t.Parallel()
 
@@ -3470,7 +3470,7 @@ func TestChannelRetransmission(t *testing.T) {
 }
 
 // TestShouldAdjustCommitFee tests the shouldAdjustCommitFee pivot function to
-// ensure that ie behaves properly. We should only update the fee if it
+// ensure that it behaves properly. We should only update the fee if it
 // deviates from our current fee by more 10% or more.
 func TestShouldAdjustCommitFee(t *testing.T) {
 	tests := []struct {
@@ -4533,7 +4533,7 @@ func TestChannelLinkNoMoreUpdates(t *testing.T) {
 	htlc1 := generateHtlc(t, coreLink, bobChannel, 0)
 	htlc2 := generateHtlc(t, coreLink, bobChannel, 1)
 
-	// We now play out the following scanario:
+	// We now play out the following scenario:
 	//
 	// (1) Alice receives htlc1 from Bob.
 	// (2) Bob sends signature covering htlc1.
@@ -4794,7 +4794,7 @@ func testChannelLinkBatchPreimageWrite(t *testing.T, disconnect bool) {
 	// Assert that no preimages exist for these htlcs in Alice's cache.
 	checkHasPreimages(t, coreLink, htlcs, false)
 
-	// Force alice's link to sign a commitment covering the htlcs sent thus
+	// Force Alice's link to sign a commitment covering the htlcs sent thus
 	// far.
 	select {
 	case batchTicker <- time.Now():
@@ -5248,7 +5248,7 @@ func TestChannelLinkFail(t *testing.T) {
 			func(c *channelLink) {
 			},
 			func(t *testing.T, c *channelLink, _ *lnwallet.LightningChannel) {
-				// Recevive an htlc settle for an htlc that was
+				// Receive an htlc settle for an htlc that was
 				// never added.
 				htlcSettle := &lnwire.UpdateFulfillHTLC{
 					ID:              0,

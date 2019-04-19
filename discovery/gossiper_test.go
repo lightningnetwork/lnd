@@ -1608,7 +1608,7 @@ func TestSignatureAnnouncementFullProofWhenRemoteProof(t *testing.T) {
 	remotePeer := &mockPeer{remoteKey, sentToPeer, ctx.gossiper.quit}
 
 	// Override NotifyWhenOnline to return the remote peer which we expect
-	// meesages to be sent to.
+	// messages to be sent to.
 	ctx.gossiper.reliableSender.cfg.NotifyWhenOnline = func(peer *btcec.PublicKey,
 		peerChan chan<- lnpeer.Peer) {
 
@@ -2441,7 +2441,7 @@ func TestReceiveRemoteChannelUpdateFirst(t *testing.T) {
 	remotePeer := &mockPeer{remoteKey, sentMsgs, ctx.gossiper.quit}
 
 	// Override NotifyWhenOnline to return the remote peer which we expect
-	// meesages to be sent to.
+	// messages to be sent to.
 	ctx.gossiper.reliableSender.cfg.NotifyWhenOnline = func(peer *btcec.PublicKey,
 		peerChan chan<- lnpeer.Peer) {
 
@@ -2797,7 +2797,7 @@ func TestNodeAnnouncementNoChannels(t *testing.T) {
 	}
 
 	// Now add the node's channel to the graph by processing the channel
-	// announement and channel update.
+	// announcement and channel update.
 	select {
 	case err = <-ctx.gossiper.ProcessRemoteAnnouncement(batch.remoteChanAnn,
 		remotePeer):
@@ -2838,7 +2838,7 @@ func TestNodeAnnouncementNoChannels(t *testing.T) {
 		}
 	}
 
-	// Processing the same node announement again should be ignored, as it
+	// Processing the same node announcement again should be ignored, as it
 	// is stale.
 	select {
 	case err = <-ctx.gossiper.ProcessRemoteAnnouncement(batch.nodeAnn2,

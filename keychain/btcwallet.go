@@ -34,14 +34,14 @@ var (
 	}
 
 	// waddrmgrNamespaceKey is the namespace key that the waddrmgr state is
-	// stored within the top-level waleltdb buckets of btcwallet.
+	// stored within the top-level walletdb buckets of btcwallet.
 	waddrmgrNamespaceKey = []byte("waddrmgr")
 )
 
 // BtcWalletKeyRing is an implementation of both the KeyRing and SecretKeyRing
 // interfaces backed by btcwallet's internal root waddrmgr. Internally, we'll
 // be using a ScopedKeyManager to do all of our derivations, using the key
-// scope and scope addr scehma defined above. Re-using the existing key scope
+// scope and scope addr schema defined above. Re-using the existing key scope
 // construction means that all key derivation will be protected under the root
 // seed of the wallet, making each derived key fully deterministic.
 type BtcWalletKeyRing struct {

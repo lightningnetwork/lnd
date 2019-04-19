@@ -20,7 +20,7 @@ type preimageSubscriber struct {
 
 // preimageBeacon is an implementation of the contractcourt.WitnessBeacon
 // interface, and the lnwallet.PreimageCache interface. This implementation is
-// concerned with a single witness type: sha256 hahsh preimages.
+// concerned with a single witness type: sha256 hash preimages.
 type preimageBeacon struct {
 	sync.RWMutex
 

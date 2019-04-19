@@ -4,7 +4,7 @@ import "io"
 
 // Error is a generic error message that can be sent to a client if a request
 // fails outside of prescribed protocol errors. Typically this would be followed
-// by the server disconnecting the client, and so can be useful to transfering
+// by the server disconnecting the client, and so can be useful to transferring
 // the exact reason.
 type Error struct {
 	// Code specifies the error code encountered by the server.

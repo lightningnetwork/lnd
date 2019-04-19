@@ -81,7 +81,7 @@ const (
 	NestedWitnessKeyHash WitnessType = 11
 )
 
-// Stirng returns a human readable version of the target WitnessType.
+// String returns a human readable version of the target WitnessType.
 func (wt WitnessType) String() string {
 	switch wt {
 	case CommitmentTimeLock:

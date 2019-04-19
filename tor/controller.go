@@ -319,7 +319,7 @@ func computeHMAC256(key, message []byte) []byte {
 }
 
 // supportsV3 is a helper function that parses the current version of the Tor
-// server and determines whether it supports creationg v3 onion services through
+// server and determines whether it supports creating v3 onion services through
 // Tor's control port. The version string should be of the format:
 //	major.minor.revision.build
 func supportsV3(version string) error {
@@ -414,7 +414,7 @@ const (
 	V3
 )
 
-// AddOnionConfig houses all of the required paramaters in order to succesfully
+// AddOnionConfig houses all of the required parameters in order to successfully
 // create a new onion service or restore an existing one.
 type AddOnionConfig struct {
 	// Type denotes the type of the onion service that should be created.

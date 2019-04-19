@@ -931,7 +931,7 @@ func TestAgentSkipPendingConns(t *testing.T) {
 		t.Fatalf("select wasn't queried in time")
 	}
 
-	// Respond with an emtpty score set.
+	// Respond with an empty score set.
 	select {
 	case testCtx.heuristic.nodeScoresResps <- map[NodeID]*NodeScore{}:
 	case <-time.After(time.Second * 10):

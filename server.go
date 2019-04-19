@@ -846,7 +846,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		Store:              newRetributionStore(chanDB),
 	})
 
-	// Select the configuration and furnding parameters for Bitcoin or
+	// Select the configuration and funding parameters for Bitcoin or
 	// Litecoin, depending on the primary registered chain.
 	primaryChain := registeredChains.PrimaryChain()
 	chainCfg := cfg.Bitcoin
@@ -1708,7 +1708,7 @@ func (s *server) initialPeerBootstrap(ignore map[autopilot.NodeID]struct{},
 	}
 }
 
-// initTorController initiliazes the Tor controller backed by lnd and
+// initTorController initializes the Tor controller backed by lnd and
 // automatically sets up a v2 onion service in order to listen for inbound
 // connections over Tor.
 func (s *server) initTorController() error {
@@ -2464,7 +2464,7 @@ const UnassignedConnID uint64 = 0
 // Afterwards, each connection request removed from the connmgr. The caller can
 // optionally specify a connection ID to ignore, which prevents us from
 // canceling a successful request. All persistent connreqs for the provided
-// pubkey are discarded after the operationjw.
+// pubkey are discarded after the operation.
 func (s *server) cancelConnReqs(pubStr string, skip *uint64) {
 	// First, cancel any lingering persistent retry attempts, which will
 	// prevent retries for any with backoffs that are still maturing.

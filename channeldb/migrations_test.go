@@ -425,7 +425,7 @@ func TestMigrateOptionalChannelCloseSummaryFields(t *testing.T) {
 					return errors.New("unable to find bucket")
 				}
 
-				// Get the serialized verision from the DB and
+				// Get the serialized version from the DB and
 				// make sure it matches what we expected.
 				dbSummary = closedChanBucket.Get(chanID)
 				if !bytes.Equal(dbSummary, newSerialization) {

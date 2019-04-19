@@ -218,7 +218,7 @@ func testBlobJusticeKitEncryptDecrypt(t *testing.T, test descriptorTest) {
 }
 
 // TestJusticeKitRemoteWitnessConstruction tests that a JusticeKit returns the
-// proper to-remote witnes script and to-remote witness stack. This should be
+// proper to-remote witness script and to-remote witness stack. This should be
 // equivalent to p2wkh spend.
 func TestJusticeKitRemoteWitnessConstruction(t *testing.T) {
 	// Generate the to-remote pubkey.

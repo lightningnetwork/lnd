@@ -207,7 +207,7 @@ func (r ConfRequest) MatchesTx(tx *wire.MsgTx) bool {
 }
 
 // ConfNtfn represents a notifier client's request to receive a notification
-// once the target transaction/ouput script gets sufficient confirmations. The
+// once the target transaction/output script gets sufficient confirmations. The
 // client is asynchronously notified via the ConfirmationEvent channels.
 type ConfNtfn struct {
 	// ConfID uniquely identifies the confirmation notification request for
@@ -350,7 +350,7 @@ func (r SpendRequest) MatchesTx(tx *wire.MsgTx) (bool, uint32, error) {
 // outpoint/output script has been spent on-chain. The client is asynchronously
 // notified via the SpendEvent channels.
 type SpendNtfn struct {
-	// SpendID uniquely identies the spend notification request for the
+	// SpendID uniquely identifies the spend notification request for the
 	// specified outpoint/output script.
 	SpendID uint64
 
@@ -368,7 +368,7 @@ type SpendNtfn struct {
 	// an entry for it.
 	HeightHint uint32
 
-	// dispatched signals whether a spend notification has been disptached
+	// dispatched signals whether a spend notification has been dispatched
 	// to the client.
 	dispatched bool
 }
@@ -461,7 +461,7 @@ type TxNotifier struct {
 // NewTxNotifier creates a TxNotifier. The current height of the blockchain is
 // accepted as a parameter. The different hint caches (confirm and spend) are
 // used as an optimization in order to retrieve a better starting point when
-// dispatching a recan for a historical event in the chain.
+// dispatching a rescan for a historical event in the chain.
 func NewTxNotifier(startHeight uint32, reorgSafetyLimit uint32,
 	confirmHintCache ConfirmHintCache,
 	spendHintCache SpendHintCache) *TxNotifier {
@@ -1713,7 +1713,7 @@ func (n *TxNotifier) dispatchConfReorg(ntfn *ConfNtfn,
 }
 
 // dispatchSpendReorg dispatches a reorg notification to the client if a spend
-// notiification was already delivered.
+// notification was already delivered.
 //
 // NOTE: This must be called with the TxNotifier's lock held.
 func (n *TxNotifier) dispatchSpendReorg(ntfn *SpendNtfn) error {

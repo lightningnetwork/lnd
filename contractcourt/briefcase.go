@@ -84,7 +84,7 @@ type ArbitratorLog interface {
 
 	// LogChainActions stores a set of chain actions which are derived from
 	// our set of active contracts, and the on-chain state. We'll write
-	// this et of cations when: we decide to go on-chain to resolve a
+	// this set of cations when: we decide to go on-chain to resolve a
 	// contract, or we detect that the remote party has gone on-chain.
 	LogChainActions(ChainActionMap) error
 
@@ -274,7 +274,7 @@ var (
 	// chain resolutions.
 	errNoResolutions = fmt.Errorf("no contract resolutions exist")
 
-	// errNoActions is retuned when the log doesn't contain any stored
+	// errNoActions is returned when the log doesn't contain any stored
 	// chain actions.
 	errNoActions = fmt.Errorf("no chain actions exist")
 )
@@ -574,7 +574,7 @@ func (b *boltArbitratorLog) ResolveContract(res ContractResolver) error {
 }
 
 // LogContractResolutions stores a set of chain actions which are derived from
-// our set of active contracts, and the on-chain state. We'll write this et of
+// our set of active contracts, and the on-chain state. We'll write this set of
 // cations when: we decide to go on-chain to resolve a contract, or we detect
 // that the remote party has gone on-chain.
 //
@@ -721,7 +721,7 @@ func (b *boltArbitratorLog) FetchContractResolutions() (*ContractResolutions, er
 }
 
 // LogChainActions stores a set of chain actions which are derived from our set
-// of active contracts, and the on-chain state. We'll write this et of cations
+// of active contracts, and the on-chain state. We'll write this set of cations
 // when: we decide to go on-chain to resolve a contract, or we detect that the
 // remote party has gone on-chain.
 //

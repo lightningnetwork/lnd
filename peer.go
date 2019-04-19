@@ -1051,7 +1051,7 @@ out:
 
 			// If the NodeAnnouncement has an invalid alias, then
 			// we'll log that error above and continue so we can
-			// continue to read messges from the peer.
+			// continue to read messages from the peer.
 			case *lnwire.ErrInvalidNodeAlias:
 				idleTimer.Reset(idleTimeout)
 				continue
@@ -1700,7 +1700,7 @@ func (p *peer) ChannelSnapshots() []*channeldb.ChannelSnapshot {
 	snapshots := make([]*channeldb.ChannelSnapshot, 0, len(p.activeChannels))
 	for _, activeChan := range p.activeChannels {
 		// We'll only return a snapshot for channels that are
-		// *immedately* available for routing payments over.
+		// *immediately* available for routing payments over.
 		if activeChan.RemoteNextRevocation() == nil {
 			continue
 		}
@@ -1959,7 +1959,7 @@ out:
 			// Since this channel will never fire again during the
 			// lifecycle of the peer, we nil the channel to mark it
 			// eligible for garbage collection, and make this
-			// explicity ineligible to receive in future calls to
+			// explicitly ineligible to receive in future calls to
 			// select. This also shaves a few CPU cycles since the
 			// select will ignore this case entirely.
 			reenableTimeout = nil

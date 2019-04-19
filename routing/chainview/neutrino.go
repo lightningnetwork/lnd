@@ -24,7 +24,7 @@ type CfFilteredChainView struct {
 	stopped int32 // To be used atomically.
 
 	// p2pNode is a pointer to the running GCS-filter supported Bitcoin
-	// light clientl
+	// light client
 	p2pNode *neutrino.ChainService
 
 	// chainView is the active rescan which only watches our specified

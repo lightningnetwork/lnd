@@ -6,7 +6,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 )
 
-// changeBit is a functio that function that flips a bit of the hash at a
+// changeBit is a function that flips a bit of the hash at a
 // particular bit-index. You should be aware that the bit flipping in this
 // function a bit strange, example:
 // hash: [0b00000000, 0b00000000,  ... 0b00000000]

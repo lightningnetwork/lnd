@@ -17,7 +17,7 @@ import (
 const (
 	// subServerName is the name of the sub rpc server. We'll use this name
 	// to register ourselves, and we also require that the main
-	// SubServerConfigDispatcher instance recognize tt as the name of our
+	// SubServerConfigDispatcher instance recognize it as the name of our
 	// RPC service.
 	subServerName = "AutopilotRPC"
 )
@@ -158,7 +158,7 @@ func (s *Server) ModifyStatus(ctx context.Context,
 }
 
 // QueryScores queries all available autopilot heuristics, in addition to any
-// active combination of these heruristics, for the scores they would give to
+// active combination of these heuristics, for the scores they would give to
 // the given nodes.
 //
 // NOTE: Part of the AutopilotServer interface.

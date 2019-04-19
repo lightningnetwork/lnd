@@ -143,7 +143,7 @@ func testMultiConfirmationNotification(miner *rpctest.Harness,
 		t.Fatalf("unable to generate single block: %v", err)
 	}
 
-	// TODO(roasbeef): reduce all timeouts after neutrino sync tightended
+	// TODO(roasbeef): reduce all timeouts after neutrino sync tightened
 	// up
 
 	select {

@@ -334,7 +334,7 @@ func TestChannelArbitratorRemoteForceClose(t *testing.T) {
 		t, log.newStates, StateContractClosed, StateFullyResolved,
 	)
 
-	// It should alos mark the channel as resolved.
+	// It should also mark the channel as resolved.
 	select {
 	case <-resolved:
 		// Expected.
@@ -980,7 +980,7 @@ func TestChannelArbitratorCommitFailure(t *testing.T) {
 
 	testCases := []struct {
 
-		// closeType is the type of channel close we want ot test.
+		// closeType is the type of channel close we want to test.
 		closeType channeldb.ClosureType
 
 		// sendEvent is a function that will send the event

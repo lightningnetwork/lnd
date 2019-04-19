@@ -52,7 +52,7 @@ type sessionQueueConfig struct {
 	// SendMessage encodes, encrypts, and writes a message to the given peer.
 	SendMessage func(wtserver.Peer, wtwire.Message) error
 
-	// ReadMessage receives, decypts, and decodes a message from the given
+	// ReadMessage receives, decrypts, and decodes a message from the given
 	// peer.
 	ReadMessage func(wtserver.Peer) (wtwire.Message, error)
 
@@ -107,7 +107,7 @@ type sessionQueue struct {
 	shutdown  chan struct{}
 }
 
-// newSessionQueue intiializes a fresh sessionQueue.
+// newSessionQueue initializes a fresh sessionQueue.
 func newSessionQueue(cfg *sessionQueueConfig) *sessionQueue {
 	localInit := wtwire.NewInitMessage(
 		lnwire.NewRawFeatureVector(wtwire.WtSessionsRequired),

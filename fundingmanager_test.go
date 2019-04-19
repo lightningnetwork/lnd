@@ -818,7 +818,7 @@ func assertAddedToRouterGraph(t *testing.T, alice, bob *testNode,
 	assertDatabaseState(t, bob, fundingOutPoint, addedToRouterGraph)
 }
 
-// assertChannelAnnouncements checks that alice and bob both sends the expected
+// assertChannelAnnouncements checks that Alice and Bob both sends the expected
 // announcements (ChannelAnnouncement, ChannelUpdate) after the funding tx has
 // confirmed. The last arguments can be set if we expect the nodes to advertise
 // custom min_htlc values as part of their ChannelUpdate. We expect Alice to
@@ -2147,7 +2147,7 @@ func TestFundingManagerPrivateRestart(t *testing.T) {
 }
 
 // TestFundingManagerCustomChannelParameters checks that custom requirements we
-// specify during the channel funding flow is preserved correcly on both sides.
+// specify during the channel funding flow is preserved correctly on both sides.
 func TestFundingManagerCustomChannelParameters(t *testing.T) {
 	alice, bob := setupFundingManagers(t, defaultMaxPendingChannels)
 	defer tearDownFundingManagers(t, alice, bob)
@@ -2289,7 +2289,7 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 		t.Fatalf("unable to find ctx: %v", err)
 	}
 
-	// Alice's CSV delay should be 4 since Bob sent the fedault value, and
+	// Alice's CSV delay should be 4 since Bob sent the default value, and
 	// Bob's should be 67 since Alice sent the custom value.
 	if err := assertDelay(resCtx, 4, csvDelay); err != nil {
 		t.Fatal(err)

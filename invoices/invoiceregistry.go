@@ -634,7 +634,7 @@ type InvoiceSubscription struct {
 	// StartingInvoiceIndex field.
 	NewInvoices chan *channeldb.Invoice
 
-	// SettledInvoices is a channel that we'll use to send all setted
+	// SettledInvoices is a channel that we'll use to send all settled
 	// invoices with an invoices index greater than the specified
 	// StartingInvoiceIndex field.
 	SettledInvoices chan *channeldb.Invoice

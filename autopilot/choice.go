@@ -11,7 +11,7 @@ import (
 var ErrNoPositive = errors.New("no positive weights left")
 
 // weightedChoice draws a random index from the slice of weights, with a
-// probability propotional to the weight at the given index.
+// probability proportional to the weight at the given index.
 func weightedChoice(w []float64) (int, error) {
 	// Calculate the sum of weights.
 	var sum float64
@@ -25,7 +25,7 @@ func weightedChoice(w []float64) (int, error) {
 
 	// Pick a random number in the range [0.0, 1.0) and multiply it with
 	// the sum of weights. Then we'll iterate the weights until the number
-	// goes below 0. This means that each index is picked with a probablity
+	// goes below 0. This means that each index is picked with a probability
 	// equal to their normalized score.
 	//
 	// Example:

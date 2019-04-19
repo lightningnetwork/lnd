@@ -28,7 +28,7 @@ const (
 	maxCommitPointPollTimeout = 10 * time.Minute
 )
 
-// LocalUnilateralCloseInfo encapsulates all the informnation we need to act
+// LocalUnilateralCloseInfo encapsulates all the information we need to act
 // on a local force close that gets confirmed.
 type LocalUnilateralCloseInfo struct {
 	*chainntnfs.SpendDetail
@@ -36,7 +36,7 @@ type LocalUnilateralCloseInfo struct {
 	*channeldb.ChannelCloseSummary
 }
 
-// CooperativeCloseInfo encapsulates all the informnation we need to act
+// CooperativeCloseInfo encapsulates all the information we need to act
 // on a cooperative close that gets confirmed.
 type CooperativeCloseInfo struct {
 	*channeldb.ChannelCloseSummary
@@ -107,7 +107,7 @@ type chainWatcherConfig struct {
 	isOurAddr func(btcutil.Address) bool
 
 	// extractStateNumHint extracts the encoded state hint using the passed
-	// obfuscater. This is used by the chain watcher to identify which
+	// obfuscator. This is used by the chain watcher to identify which
 	// state was broadcast and confirmed on-chain.
 	extractStateNumHint func(*wire.MsgTx, [lnwallet.StateHintSize]byte) uint64
 }
@@ -353,7 +353,7 @@ func (c *chainWatcher) closeObserver(spendNtfn *chainntnfs.SpendEvent) {
 
 		// Next, we'll check to see if this is a cooperative channel
 		// closure or not. This is characterized by having an input
-		// sequence number that's finalized.  This won't happen with
+		// sequence number that's finalized. This won't happen with
 		// regular commitment transactions due to the state hint
 		// encoding scheme.
 		if commitTxBroadcast.TxIn[0].Sequence == wire.MaxTxInSequenceNum {

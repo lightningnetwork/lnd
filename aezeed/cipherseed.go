@@ -184,7 +184,7 @@ type CipherSeed struct {
 func New(internalVersion uint8, entropy *[EntropySize]byte,
 	now time.Time) (*CipherSeed, error) {
 
-	// TODO(roasbeef): pass randomness source? to make fully determinsitc?
+	// TODO(roasbeef): pass randomness source? to make fully deterministic?
 
 	// If a set of entropy wasn't provided, then we'll read a set of bytes
 	// from the CSPRNG of our operating platform.
@@ -548,7 +548,7 @@ func (m *Mnemonic) ChangePass(oldPass, newPass []byte) (Mnemonic, error) {
 		return newmnemonic, err
 	}
 
-	// If the deciperhing was successful, then we'll now re-encipher using
+	// If the deciphering was successful, then we'll now re-encipher using
 	// the new user provided passphrase.
 	return cipherSeed.ToMnemonic(newPass)
 }

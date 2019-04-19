@@ -864,7 +864,7 @@ func (d *DB) pruneLinkNode(tx *bbolt.Tx, remotePub *btcec.PublicKey) error {
 	return d.deleteLinkNode(tx, remotePub)
 }
 
-// PruneLinkNodes attempts to prune all link nodes found within the databse with
+// PruneLinkNodes attempts to prune all link nodes found within the database with
 // whom we no longer have any open channels with.
 func (d *DB) PruneLinkNodes() error {
 	return d.Update(func(tx *bbolt.Tx) error {

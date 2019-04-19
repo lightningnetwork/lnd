@@ -305,7 +305,7 @@ type ChannelRouter struct {
 	// UpdateFilter.
 	newBlocks <-chan *chainview.FilteredBlock
 
-	// staleBlocks is a channel in which blocks disconnected fromt the end
+	// staleBlocks is a channel in which blocks disconnected from the end
 	// of our currently known best chain are sent over.
 	staleBlocks <-chan *chainview.FilteredBlock
 
@@ -696,7 +696,7 @@ func (r *ChannelRouter) pruneZombieChans() error {
 	log.Infof("Pruning %v Zombie Channels", len(chansToPrune))
 
 	// With the set zombie-like channels obtained, we'll do another pass to
-	// delete al zombie channels from the channel graph.
+	// delete all zombie channels from the channel graph.
 	for _, chanToPrune := range chansToPrune {
 		log.Tracef("Pruning zombie chan ChannelPoint(%v)", chanToPrune)
 
@@ -2278,7 +2278,7 @@ func (r *ChannelRouter) IsKnownEdge(chanID lnwire.ShortChannelID) bool {
 	return exists || isZombie
 }
 
-// IsStaleEdgePolicy returns true if the graph soruce has a channel edge for
+// IsStaleEdgePolicy returns true if the graph source has a channel edge for
 // the passed channel ID (and flags) that have a more recent timestamp.
 //
 // NOTE: This method is part of the ChannelGraphSource interface.

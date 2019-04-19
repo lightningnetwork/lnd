@@ -718,7 +718,7 @@ func testOnchainFundRecovery(net *lntest.NetworkHarness, t *harnessTest) {
 			t.Fatalf("unable to restore node: %v", err)
 		}
 
-		// Query carol for her current wallet balance, and also that we
+		// Query Carol for her current wallet balance, and also that we
 		// gain the expected number of UTXOs.
 		var (
 			currBalance  int64
@@ -1301,7 +1301,7 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to create new nodes: %v", err)
 	}
 
-	// Clean up carol's node when the test finishes.
+	// Clean up Carol's node when the test finishes.
 	defer shutdownAndAssert(net, t, carol)
 
 	carolSub := subscribeGraphNotifications(t, ctxb, carol)
@@ -2101,7 +2101,7 @@ func testChannelFundingPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to create new node: %v", err)
 	}
 
-	// Clean up carol's node when the test finishes.
+	// Clean up Carol's node when the test finishes.
 	defer shutdownAndAssert(net, t, carol)
 
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
@@ -2240,7 +2240,7 @@ func testChannelBalance(net *lntest.NetworkHarness, t *harnessTest) {
 		}
 	}
 
-	// Before beginning, make sure alice and bob are connected.
+	// Before beginning, make sure Alice and Bob are connected.
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	if err := net.EnsureConnected(ctxt, net.Alice, net.Bob); err != nil {
 		t.Fatalf("unable to connect alice and bob: %v", err)
@@ -2290,7 +2290,7 @@ func testChannelUnsettledBalance(net *lntest.NetworkHarness, t *harnessTest) {
 	const chanAmt = btcutil.Amount(1000000)
 	ctxb := context.Background()
 
-	// Create carol in hodl mode.
+	// Create Carol in hodl mode.
 	carol, err := net.NewNode("Carol", []string{
 		"--debughtlc",
 		"--hodl.exit-settle",
@@ -3464,7 +3464,7 @@ func testSphinxReplayPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 	time.Sleep(time.Millisecond * 200)
 	assertAmountSent(0)
 
-	// With the first payment sent, restart dave to make sure he is
+	// With the first payment sent, restart Dave to make sure he is
 	// persisting the information required to detect replayed sphinx
 	// packets.
 	if err := net.RestartNode(dave, nil); err != nil {
@@ -3925,7 +3925,7 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// As preliminary setup, we'll create two new nodes: Carol and Dave,
-	// such that we now have a 4 ndoe, 3 channel topology. Dave will make
+	// such that we now have a 4 node, 3 channel topology. Dave will make
 	// a channel with Alice, and Carol with Dave. After this setup, the
 	// network topology should now look like:
 	//     Carol -> Dave -> Alice -> Bob
@@ -4082,7 +4082,7 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	// transaction, in channel Carol->David->Alice->Bob, order is Bob,
 	// Alice, David, Carol.
 
-	// The final node bob expects to get paid five times 1000 sat.
+	// The final node Bob expects to get paid five times 1000 sat.
 	expectedAmountPaidAtoB := int64(5 * 1000)
 
 	assertAmountPaid(t, "Alice(local) => Bob(remote)", net.Bob,
@@ -4625,7 +4625,7 @@ func testSendToRouteErrorPropagation(net *lntest.NetworkHarness, t *harnessTest)
 }
 
 // testUnannouncedChannels checks unannounced channels are not returned by
-// describeGraph RPC request unless explicity asked for.
+// describeGraph RPC request unless explicitly asked for.
 func testUnannouncedChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxb := context.Background()
 
@@ -6328,7 +6328,7 @@ func testFailingChannel(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 }
 
-// testGarbageCollectLinkNodes tests that we properly garbase collect link nodes
+// testGarbageCollectLinkNodes tests that we properly garbage collect link nodes
 // from the database and the set of persistent connections within the server.
 func testGarbageCollectLinkNodes(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxb := context.Background()
@@ -7203,7 +7203,7 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 			"timeout: %v", err)
 	}
 
-	// Ensure that carol's balance starts with the amount we pushed to her.
+	// Ensure that Carol's balance starts with the amount we pushed to her.
 	checkCarolBalance(pushAmt)
 
 	// Send payments from Dave to Carol using 3 of Carol's payment hashes
@@ -7250,7 +7250,7 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 	// broadcast this soon to be revoked state.
 	carolStateNumPreCopy := carolChan.NumUpdates
 
-	// Ensure that carol's balance still reflects the original amount we
+	// Ensure that Carol's balance still reflects the original amount we
 	// pushed to her, minus the HTLCs she just sent to Dave.
 	checkCarolBalance(pushAmt - 3*paymentAmt)
 
@@ -7284,7 +7284,7 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 		t.Fatalf("unable to send payments: %v", err)
 	}
 
-	// Ensure that carol's balance still shows the amount we originally
+	// Ensure that Carol's balance still shows the amount we originally
 	// pushed to her (minus the HTLCs she sent to Bob), and that at least
 	// one more update has occurred.
 	time.Sleep(500 * time.Millisecond)
@@ -7443,7 +7443,7 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 	}
 
 	// isSecondLevelSpend checks that the passed secondLevelTxid is a
-	// potentitial second level spend spending from the commit tx.
+	// potential second level spend spending from the commit tx.
 	isSecondLevelSpend := func(commitTxid, secondLevelTxid *chainhash.Hash) bool {
 		secondLevel, err := net.Miner.Node.GetRawTransaction(
 			secondLevelTxid)
@@ -7715,7 +7715,7 @@ func testDataLossProtection(net *lntest.NetworkHarness, t *harnessTest) {
 		// node that Carol will pay to in order to advance the state of
 		// the channel.
 		// TODO(halseth): have dangling HTLCs on the commitment, able to
-		// retrive funds?
+		// retrieve funds?
 		payReqs, _, _, err := createPayReqs(
 			node, paymentAmt, numInvoices,
 		)
@@ -8091,7 +8091,7 @@ out:
 	}
 
 	// With the channels, open we can now start to test our multi-hop error
-	// scenarios. First, we'll generate an invoice from carol that we'll
+	// scenarios. First, we'll generate an invoice from Carol that we'll
 	// use to test some error cases.
 	const payAmt = 10000
 	invoiceReq := &lnrpc.Invoice{
@@ -8179,7 +8179,7 @@ out:
 			"instead failed due to: %v", resp.PaymentError)
 	}
 
-	// We'll also ensure that the encoded error includes the invlaid HTLC
+	// We'll also ensure that the encoded error includes the invalid HTLC
 	// amount.
 	if !strings.Contains(resp.PaymentError, htlcAmt.String()) {
 		t.Fatalf("error didn't include expected payment amt of %v: "+
@@ -8202,7 +8202,7 @@ out:
 	}
 
 	// To do so, we'll push most of the funds in the channel over to
-	// Alice's side, leaving on 10k satoshis of available balance for bob.
+	// Alice's side, leaving on 10k satoshis of available balance for Bob.
 	// There's a max payment amount, so we'll have to do this
 	// incrementally.
 	chanReserve := int64(chanAmt / 100)
@@ -8417,7 +8417,7 @@ func testGraphTopologyNotifications(net *lntest.NetworkHarness, t *harnessTest) 
 		// Ensure that a new update for both created edges is properly
 		// dispatched to our registered client.
 		case graphUpdate := <-graphSub.updateChan:
-			// Process all channel updates prsented in this update
+			// Process all channel updates presented in this update
 			// message.
 			for _, chanUpdate := range graphUpdate.ChannelUpdates {
 				switch chanUpdate.AdvertisingNode {
@@ -8713,7 +8713,7 @@ func testNodeSignVerify(net *lntest.NetworkHarness, t *harnessTest) {
 	chanAmt := maxBtcFundingAmount
 	pushAmt := btcutil.Amount(100000)
 
-	// Create a channel between alice and bob.
+	// Create a channel between Alice and Bob.
 	ctxt, _ := context.WithTimeout(ctxb, channelOpenTimeout)
 	aliceBobCh := openChannelAndAssert(
 		ctxt, t, net, net.Alice, net.Bob,
@@ -8725,7 +8725,7 @@ func testNodeSignVerify(net *lntest.NetworkHarness, t *harnessTest) {
 
 	aliceMsg := []byte("alice msg")
 
-	// alice signs "alice msg" and sends her signature to bob.
+	// Alice signs "alice msg" and sends her signature to Bob.
 	sigReq := &lnrpc.SignMessageRequest{Msg: aliceMsg}
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	sigResp, err := net.Alice.SignMessage(ctxt, sigReq)
@@ -8734,7 +8734,7 @@ func testNodeSignVerify(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 	aliceSig := sigResp.Signature
 
-	// bob verifying alice's signature should succeed since alice and bob are
+	// Bob verifying Alice's signature should succeed since Alice and Bob are
 	// connected.
 	verifyReq := &lnrpc.VerifyMessageRequest{Msg: aliceMsg, Signature: aliceSig}
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
@@ -8749,7 +8749,7 @@ func testNodeSignVerify(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("alice's signature doesn't contain alice's pubkey.")
 	}
 
-	// carol is a new node that is unconnected to alice or bob.
+	// Carol is a new node that is unconnected to Alice or Bob.
 	carol, err := net.NewNode("Carol", nil)
 	if err != nil {
 		t.Fatalf("unable to create new node: %v", err)
@@ -8758,7 +8758,7 @@ func testNodeSignVerify(net *lntest.NetworkHarness, t *harnessTest) {
 
 	carolMsg := []byte("carol msg")
 
-	// carol signs "carol msg" and sends her signature to bob.
+	// Carol signs "carol msg" and sends her signature to Bob.
 	sigReq = &lnrpc.SignMessageRequest{Msg: carolMsg}
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	sigResp, err = carol.SignMessage(ctxt, sigReq)
@@ -8767,7 +8767,7 @@ func testNodeSignVerify(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 	carolSig := sigResp.Signature
 
-	// bob verifying carol's signature should fail since they are not connected.
+	// Bob verifying Carol's signature should fail since they are not connected.
 	verifyReq = &lnrpc.VerifyMessageRequest{Msg: carolMsg, Signature: carolSig}
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	verifyResp, err = net.Bob.VerifyMessage(ctxt, verifyReq)
@@ -8781,7 +8781,7 @@ func testNodeSignVerify(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("carol's signature doesn't contain her pubkey")
 	}
 
-	// Close the channel between alice and bob.
+	// Close the channel between Alice and Bob.
 	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
 	closeChannelAndAssert(ctxt, t, net, net.Alice, aliceBobCh, false)
 }
@@ -9301,8 +9301,8 @@ func createThreeHopHodlNetwork(t *harnessTest,
 		t.Fatalf("bob didn't report channel: %v", err)
 	}
 
-	// Next, we'll create a new node "carol" and have Bob connect to her.
-	// In this test, we'll make carol always hold onto the HTLC, this way
+	// Next, we'll create a new node "Carol" and have Bob connect to her.
+	// In this test, we'll make Carol always hold onto the HTLC, this way
 	// it'll force Bob to go to chain to resolve the HTLC.
 	carol, err := net.NewNode("Carol", []string{"--debughtlc", "--hodl.exit-settle"})
 	if err != nil {
@@ -9354,7 +9354,7 @@ func testMultiHopHtlcLocalTimeout(net *lntest.NetworkHarness, t *harnessTest) {
 	// self.
 	aliceChanPoint, bobChanPoint, carol := createThreeHopHodlNetwork(t, net)
 
-	// Clean up carol's node when the test finishes.
+	// Clean up Carol's node when the test finishes.
 	defer shutdownAndAssert(net, t, carol)
 
 	time.Sleep(time.Second * 1)
@@ -9376,7 +9376,7 @@ func testMultiHopHtlcLocalTimeout(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to create payment stream for alice: %v", err)
 	}
 
-	// We'll create two random payment hashes unknown to carol, then send
+	// We'll create two random payment hashes unknown to Carol, then send
 	// each of them by manually specifying the HTLC details.
 	carolPubKey := carol.PubKey[:]
 	dustPayHash := makeFakePayHash(t)
@@ -9593,7 +9593,7 @@ func testMultiHopReceiverChainClaim(net *lntest.NetworkHarness, t *harnessTest) 
 	// self.
 	aliceChanPoint, bobChanPoint, carol := createThreeHopHodlNetwork(t, net)
 
-	// Clean up carol's node when the test finishes.
+	// Clean up Carol's node when the test finishes.
 	defer shutdownAndAssert(net, t, carol)
 
 	// With the network active, we'll now add a new invoice at Carol's end.
@@ -9643,7 +9643,7 @@ func testMultiHopReceiverChainClaim(net *lntest.NetworkHarness, t *harnessTest) 
 		t.Fatalf("htlc mismatch: %v", predErr)
 	}
 
-	// Now we'll mine enough blocks to prompt carol to actually go to the
+	// Now we'll mine enough blocks to prompt Carol to actually go to the
 	// chain in order to sweep her HTLC since the value is high enough.
 	// TODO(roasbeef): modify once go to chain policy changes
 	numBlocks := uint32(
@@ -9723,7 +9723,7 @@ func testMultiHopReceiverChainClaim(net *lntest.NetworkHarness, t *harnessTest) 
 
 	time.Sleep(time.Second * 4)
 
-	// TODO(roasbeef): assert bob pending state as well
+	// TODO(roasbeef): assert Bob pending state as well
 
 	// Carol's pending channel report should now show two outputs under
 	// limbo: her commitment output, as well as the second-layer claim
@@ -9744,7 +9744,7 @@ func testMultiHopReceiverChainClaim(net *lntest.NetworkHarness, t *harnessTest) 
 			"has: %v", forceCloseChan.LimboBalance)
 	}
 
-	// The pending HTLC carol has should also now be in stage 2.
+	// The pending HTLC Carol has should also now be in stage 2.
 	if len(forceCloseChan.PendingHtlcs) != 1 {
 		t.Fatalf("carol should have pending htlc but doesn't")
 	}
@@ -9825,7 +9825,7 @@ func testMultiHopReceiverChainClaim(net *lntest.NetworkHarness, t *harnessTest) 
 	}
 
 	// We'll close out the channel between Alice and Bob, then shutdown
-	// carol to conclude the test.
+	// Carol to conclude the test.
 	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
 	closeChannelAndAssert(ctxt, t, net, net.Alice, aliceChanPoint, false)
 }
@@ -9844,7 +9844,7 @@ func testMultiHopLocalForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 	// self.
 	aliceChanPoint, bobChanPoint, carol := createThreeHopHodlNetwork(t, net)
 
-	// Clean up carol's node when the test finishes.
+	// Clean up Carol's node when the test finishes.
 	defer shutdownAndAssert(net, t, carol)
 
 	// With our channels set up, we'll then send a single HTLC from Alice
@@ -9996,7 +9996,7 @@ func testMultiHopLocalForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 	assertTxInBlock(t, block, timeoutTx)
 
 	// With the second layer timeout transaction confirmed, Bob should have
-	// cancelled backwards the HTLC that carol sent.
+	// cancelled backwards the HTLC that Carol sent.
 	nodes = []*lntest.HarnessNode{net.Alice}
 	err = lntest.WaitPredicate(func() bool {
 		predErr = assertNumActiveHtlcs(nodes, 0)
@@ -10105,7 +10105,7 @@ func testMultiHopRemoteForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 	// self.
 	aliceChanPoint, bobChanPoint, carol := createThreeHopHodlNetwork(t, net)
 
-	// Clean up carol's node when the test finishes.
+	// Clean up Carol's node when the test finishes.
 	defer shutdownAndAssert(net, t, carol)
 
 	// With our channels set up, we'll then send a single HTLC from Alice
@@ -10322,7 +10322,7 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest)
 	// self.
 	aliceChanPoint, bobChanPoint, carol := createThreeHopHodlNetwork(t, net)
 
-	// Clean up carol's node when the test finishes.
+	// Clean up Carol's node when the test finishes.
 	defer shutdownAndAssert(net, t, carol)
 
 	// With the network active, we'll now add a new invoice at Carol's end.
@@ -10424,8 +10424,8 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest)
 	}
 	assertTxInBlock(t, block, commitHash)
 
-	// After the force close transacion is mined, Carol should broadcast
-	// her second level HTLC transacion. Bob will broadcast a sweep tx to
+	// After the force close transaction is mined, Carol should broadcast
+	// her second level HTLC transaction. Bob will broadcast a sweep tx to
 	// sweep his output in the channel with Carol. He can do this
 	// immediately, as the output is not timelocked since Carol was the one
 	// force closing.
@@ -10660,7 +10660,7 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 	// self.
 	aliceChanPoint, bobChanPoint, carol := createThreeHopHodlNetwork(t, net)
 
-	// Clean up carol's node when the test finishes.
+	// Clean up Carol's node when the test finishes.
 	defer shutdownAndAssert(net, t, carol)
 
 	// With the network active, we'll now add a new invoice at Carol's end.
@@ -10777,8 +10777,8 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 	}
 	assertTxInBlock(t, block, commitHash)
 
-	// After the force close transacion is mined, Carol should broadcast
-	// her second level HTLC transacion. Bob will broadcast a sweep tx to
+	// After the force close transaction is mined, Carol should broadcast
+	// her second level HTLC transaction. Bob will broadcast a sweep tx to
 	// sweep his output in the channel with Carol. He can do this
 	// immediately, as the output is not timelocked since Carol was the one
 	// force closing.
@@ -10965,7 +10965,7 @@ func testSwitchCircuitPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// As preliminary setup, we'll create two new nodes: Carol and Dave,
-	// such that we now have a 4 ndoe, 3 channel topology. Dave will make
+	// such that we now have a 4 node, 3 channel topology. Dave will make
 	// a channel with Alice, and Carol with Dave. After this setup, the
 	// network topology should now look like:
 	//     Carol -> Dave -> Alice -> Bob
@@ -11152,7 +11152,7 @@ func testSwitchCircuitPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("htlc mismatch: %v", predErr)
 	}
 
-	// Now restart carol without hodl mode, to settle back the outstanding
+	// Now restart Carol without hodl mode, to settle back the outstanding
 	// payments.
 	carol.SetExtraArgs(nil)
 	if err := net.RestartNode(carol, nil); err != nil {
@@ -11288,7 +11288,7 @@ func testSwitchOfflineDelivery(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// As preliminary setup, we'll create two new nodes: Carol and Dave,
-	// such that we now have a 4 ndoe, 3 channel topology. Dave will make
+	// such that we now have a 4 node, 3 channel topology. Dave will make
 	// a channel with Alice, and Carol with Dave. After this setup, the
 	// network topology should now look like:
 	//     Carol -> Dave -> Alice -> Bob
@@ -11469,7 +11469,7 @@ func testSwitchOfflineDelivery(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to disconnect alice from dave: %v", err)
 	}
 
-	// Now restart carol without hodl mode, to settle back the outstanding
+	// Now restart Carol without hodl mode, to settle back the outstanding
 	// payments.
 	carol.SetExtraArgs(nil)
 	if err := net.RestartNode(carol, nil); err != nil {
@@ -11618,7 +11618,7 @@ func testSwitchOfflineDeliveryPersistence(net *lntest.NetworkHarness, t *harness
 	}
 
 	// As preliminary setup, we'll create two new nodes: Carol and Dave,
-	// such that we now have a 4 ndoe, 3 channel topology. Dave will make
+	// such that we now have a 4 node, 3 channel topology. Dave will make
 	// a channel with Alice, and Carol with Dave. After this setup, the
 	// network topology should now look like:
 	//     Carol -> Dave -> Alice -> Bob
@@ -11772,7 +11772,7 @@ func testSwitchOfflineDeliveryPersistence(net *lntest.NetworkHarness, t *harness
 		t.Fatalf("unable to shutdown alice: %v", err)
 	}
 
-	// Now restart carol without hodl mode, to settle back the outstanding
+	// Now restart Carol without hodl mode, to settle back the outstanding
 	// payments.
 	carol.SetExtraArgs(nil)
 	if err := net.RestartNode(carol, nil); err != nil {
@@ -11787,7 +11787,7 @@ func testSwitchOfflineDeliveryPersistence(net *lntest.NetworkHarness, t *harness
 		t.Fatalf("unable to reconnect dave and carol: %v", err)
 	}
 
-	// Wait for Carol to report no outstanding htlcs, and also for Dav to
+	// Wait for Carol to report no outstanding htlcs, and also for Dave to
 	// receive all the settles from Carol.
 	carolNode := []*lntest.HarnessNode{carol}
 	err = lntest.WaitPredicate(func() bool {
@@ -11806,7 +11806,7 @@ func testSwitchOfflineDeliveryPersistence(net *lntest.NetworkHarness, t *harness
 		t.Fatalf("htlc mismatch: %v", predErr)
 	}
 
-	// Finally, restart dave who received the settles, but was unable to
+	// Finally, restart Dave who received the settles, but was unable to
 	// deliver them to Alice since they were disconnected.
 	if err := net.RestartNode(dave, nil); err != nil {
 		t.Fatalf("unable to restart dave: %v", err)
@@ -11955,7 +11955,7 @@ func testSwitchOfflineDeliveryOutgoingOffline(
 	}
 
 	// As preliminary setup, we'll create two new nodes: Carol and Dave,
-	// such that we now have a 4 ndoe, 3 channel topology. Dave will make
+	// such that we now have a 4 node, 3 channel topology. Dave will make
 	// a channel with Alice, and Carol with Dave. After this setup, the
 	// network topology should now look like:
 	//     Carol -> Dave -> Alice -> Bob
@@ -12099,14 +12099,14 @@ func testSwitchOfflineDeliveryOutgoingOffline(
 		t.Fatalf("htlc mismatch: %v", predErr)
 	}
 
-	// Disconnect the two intermediaries, Alice and Dave, so that when carol
+	// Disconnect the two intermediaries, Alice and Dave, so that when Carol
 	// restarts, the response will be held by Dave.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	if err := net.StopNode(net.Alice); err != nil {
 		t.Fatalf("unable to shutdown alice: %v", err)
 	}
 
-	// Now restart carol without hodl mode, to settle back the outstanding
+	// Now restart Carol without hodl mode, to settle back the outstanding
 	// payments.
 	carol.SetExtraArgs(nil)
 	if err := net.RestartNode(carol, nil); err != nil {
@@ -12134,15 +12134,15 @@ func testSwitchOfflineDeliveryOutgoingOffline(
 
 	// Now check that the total amount was transferred from Dave to Carol.
 	// The amount transferred should be exactly equal to the invoice total
-	// payment amount, 5k satsohis.
+	// payment amount, 5k satoshis.
 	const amountPaid = int64(5000)
 	assertAmountPaid(t, "Dave(local) => Carol(remote)", carol,
 		carolFundPoint, int64(0), amountPaid)
 	assertAmountPaid(t, "Dave(local) => Carol(remote)", dave,
 		carolFundPoint, amountPaid, int64(0))
 
-	// Shutdown carol and leave her offline for the rest of the test. This
-	// is critical, as we wish to see if Dave can propragate settles even if
+	// Shutdown Carol and leave her offline for the rest of the test. This
+	// is critical, as we wish to see if Dave can propagate settles even if
 	// the outgoing link is never revived.
 	shutdownAndAssert(net, t, carol)
 
@@ -12748,7 +12748,7 @@ func testSendUpdateDisableChannel(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to send coins to eve: %v", err)
 	}
 
-	// Connect Eve to Carol and Bob, and open a channel to carol.
+	// Connect Eve to Carol and Bob, and open a channel to Carol.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	if err := net.ConnectNodes(ctxt, eve, carol); err != nil {
 		t.Fatalf("unable to connect alice to carol: %v", err)
@@ -13023,7 +13023,7 @@ func testAbandonChannel(net *lntest.NetworkHarness, t *harnessTest) {
 func testSweepAllCoins(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxb := context.Background()
 
-	// First, we'll make a new node, ainz who'll we'll use to test wallet
+	// First, we'll make a new node, Ainz who'll we'll use to test wallet
 	// sweeping.
 	ainz, err := net.NewNode("Ainz", nil)
 	if err != nil {
@@ -13044,7 +13044,7 @@ func testSweepAllCoins(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to send coins to eve: %v", err)
 	}
 
-	// With the two coins above mined, we'll now instruct ainz to sweep all
+	// With the two coins above mined, we'll now instruct Ainz to sweep all
 	// the coins to an external address not under its control.
 	// We will first attempt to send the coins to addresses that are not
 	// compatible with the current network. This is to test that the wallet
@@ -13653,7 +13653,7 @@ func testChanRestoreScenario(t *harnessTest, net *lntest.NetworkHarness,
 		t.Fatalf("node didn't connect after recovery: %v", err)
 	}
 
-	// TODO(roasbeef): move dave restarts?
+	// TODO(roasbeef): move Dave restarts?
 
 	// Now we'll assert that both sides properly execute the DLP protocol.
 	// We grab their balances now to ensure that they're made whole at the
@@ -13756,7 +13756,7 @@ func testChannelBackupRestore(net *lntest.NetworkHarness, t *harnessTest) {
 				mnemonic []string) (nodeRestorer, error) {
 
 				// Read the entire Multi backup stored within
-				// this node's chaannels.backup file.
+				// this node's channels.backup file.
 				multi, err := ioutil.ReadFile(backupFilePath)
 				if err != nil {
 					return nil, err
@@ -14003,40 +14003,40 @@ var testsCases = []*testCase{
 		test: testBidirectionalAsyncPayments,
 	},
 	{
-		// bob: outgoing our commit timeout
-		// carol: incoming their commit watch and see timeout
+		// Bob: outgoing our commit timeout
+		// Carol: incoming their commit watch and see timeout
 		name: "test multi-hop htlc local force close immediate expiry",
 		test: testMultiHopHtlcLocalTimeout,
 	},
 	{
-		// bob: outgoing watch and see, they sweep on chain
-		// carol: incoming our commit, know preimage
+		// Bob: outgoing watch and see, they sweep on chain
+		// Carol: incoming our commit, know preimage
 		name: "test multi-hop htlc receiver chain claim",
 		test: testMultiHopReceiverChainClaim,
 	},
 	{
-		// bob: outgoing our commit watch and see timeout
-		// carol: incoming their commit watch and see timeout
+		// Bob: outgoing our commit watch and see timeout
+		// Carol: incoming their commit watch and see timeout
 		name: "test multi-hop local force close on-chain htlc timeout",
 		test: testMultiHopLocalForceCloseOnChainHtlcTimeout,
 	},
 	{
-		// bob: outgoing their commit watch and see timeout
-		// carol: incoming our commit watch and see timeout
+		// Bob: outgoing their commit watch and see timeout
+		// Carol: incoming our commit watch and see timeout
 		name: "test multi-hop remote force close on-chain htlc timeout",
 		test: testMultiHopRemoteForceCloseOnChainHtlcTimeout,
 	},
 	{
-		// bob: outgoing our commit watch and see, they sweep on chain
-		// bob: incoming our commit watch and learn preimage
-		// carol: incoming their commit know preimage
+		// Bob: outgoing our commit watch and see, they sweep on chain
+		// Bob: incoming our commit watch and learn preimage
+		// Carol: incoming their commit know preimage
 		name: "test multi-hop htlc local chain claim",
 		test: testMultiHopHtlcLocalChainClaim,
 	},
 	{
-		// bob: outgoing their commit watch and see, they sweep on chain
-		// bob: incoming their commit watch and learn preimage
-		// carol: incoming our commit know preimage
+		// Bob: outgoing their commit watch and see, they sweep on chain
+		// Bob: incoming their commit watch and learn preimage
+		// Carol: incoming our commit know preimage
 		name: "test multi-hop htlc remote chain claim",
 		test: testMultiHopHtlcRemoteChainClaim,
 	},

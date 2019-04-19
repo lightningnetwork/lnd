@@ -924,7 +924,7 @@ restartCheck:
 	}
 
 	// If in failure mode on only on first pass, restart the database and
-	// rexecute the test.
+	// re-execute the test.
 	if failing && !isRestart {
 		frs.Restart()
 		isRestart = true
@@ -945,7 +945,7 @@ func initBreachedState(t *testing.T) (*breachArbiter,
 		t.Fatalf("unable to create test channels: %v", err)
 	}
 
-	// Instantiate a breach arbiter to handle the breach of alice's channel.
+	// Instantiate a breach arbiter to handle the breach of Alice's channel.
 	contractBreaches := make(chan *ContractBreachEvent)
 
 	brar, cleanUpArb, err := createTestArbiter(

@@ -1042,7 +1042,7 @@ func TestGossipSyncerDelayDOS(t *testing.T) {
 	numQueryResponses := numUndelayedQueries + numDelayedQueries
 
 	// The total number of responses must include the initial reply each
-	// syner will make to QueryChannelRange.
+	// syncer will make to QueryChannelRange.
 	numTotalQueries := 1 + numQueryResponses
 
 	// The total number of channels each syncer needs to request must be

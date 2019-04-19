@@ -524,7 +524,7 @@ func (b *breachArbiter) exactRetribution(confChan *chainntnfs.ConfirmationEvent,
 
 	// We may have to wait for some of the HTLC outputs to be spent to the
 	// second level before broadcasting the justice tx. We'll store the
-	// SpendEvents between each attempt to not re-register uneccessarily.
+	// SpendEvents between each attempt to not re-register unnecessarily.
 	spendNtfns := make(map[wire.OutPoint]*chainntnfs.SpendEvent)
 
 	finalTx, err := b.cfg.Store.GetFinalizedTxn(&breachInfo.chanPoint)
@@ -1441,7 +1441,7 @@ func (ret *retributionInfo) Encode(w io.Writer) error {
 	return nil
 }
 
-// Dencode deserializes a retribution from the passed byte stream.
+// Decode deserializes a retribution from the passed byte stream.
 func (ret *retributionInfo) Decode(r io.Reader) error {
 	var scratch [32]byte
 

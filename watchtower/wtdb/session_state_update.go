@@ -18,6 +18,6 @@ type SessionStateUpdate struct {
 
 	// EncryptedBlob is a ciphertext containing the sweep information for
 	// exacting justice if the commitment transaction matching the breach
-	// hint is braodcast.
+	// hint is broadcast.
 	EncryptedBlob []byte
 }

@@ -297,7 +297,7 @@ func (m *Manager) queryHeuristics(nodes map[NodeID]struct{}, localState bool) (
 	HeuristicScores, error) {
 
 	// If we want to take the local state into action when querying the
-	// heuristics, we fetch it. If not we'll just pass an emply slice to
+	// heuristics, we fetch it. If not we'll just pass an empty slice to
 	// the heuristic.
 	var totalChans []Channel
 	var err error

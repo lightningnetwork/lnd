@@ -215,7 +215,7 @@ type Switch struct {
 
 	paymentSequencer Sequencer
 
-	// control provides verification of sending htlc mesages
+	// control provides verification of sending htlc messages
 	control ControlTower
 
 	// circuits is storage for payment circuits which are used to
@@ -735,7 +735,7 @@ func (s *Switch) route(packet *htlcPacket) error {
 // routeAsync sends a packet through the htlc switch, using the provided err
 // chan to propagate errors back to the caller. The link's quit channel is
 // provided so that the send can be canceled if either the link or the switch
-// receive a shutdown requuest. This method does not wait for a response from
+// receive a shutdown request. This method does not wait for a response from
 // the htlcForwarder before returning.
 func (s *Switch) routeAsync(packet *htlcPacket, errChan chan error,
 	linkQuit chan struct{}) error {
@@ -1221,7 +1221,7 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 }
 
 // failAddPacket encrypts a fail packet back to an add packet's source.
-// The ciphertext will be derived from the failure message proivded by context.
+// The ciphertext will be derived from the failure message provided by context.
 // This method returns the failErr if all other steps complete successfully.
 func (s *Switch) failAddPacket(packet *htlcPacket,
 	failure lnwire.FailureMessage, failErr error) error {

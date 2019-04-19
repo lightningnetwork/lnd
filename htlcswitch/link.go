@@ -2135,36 +2135,6 @@ func (l *channelLink) HtlcSatifiesPolicy(payHash [32]byte,
 		return failure
 	}
 
-	// Next, using the amount of the incoming HTLC, we'll calculate the
-	// expected fee this incoming HTLC must carry in order to satisfy the
-	// constraints of the outgoing link.
-	expectedFee := ExpectedFee(policy, amtToForward)
-
-	// If the actual fee is less than our expected fee, then we'll reject
-	// this HTLC as it didn't provide a sufficient amount of fees, or the
-	// values have been tampered with, or the send used incorrect/dated
-	// information to construct the forwarding information for this hop. In
-	// any case, we'll cancel this HTLC.
-	actualFee := incomingHtlcAmt - amtToForward
-	if incomingHtlcAmt < amtToForward || actualFee < expectedFee {
-		l.errorf("outgoing htlc(%x) has insufficient fee: expected %v, "+
-			"got %v", payHash[:], int64(expectedFee), int64(actualFee))
-
-		// As part of the returned error, we'll send our latest routing
-		// policy so the sending node obtains the most up to date data.
-		var failure lnwire.FailureMessage
-		update, err := l.cfg.FetchLastChannelUpdate(l.ShortChanID())
-		if err != nil {
-			failure = &lnwire.FailTemporaryNodeFailure{}
-		} else {
-			failure = lnwire.NewFeeInsufficient(
-				amtToForward, *update,
-			)
-		}
-
-		return failure
-	}
-
 	// We want to avoid offering an HTLC which will expire in the near
 	// future, so we'll reject an HTLC if the outgoing expiration time is
 	// too close to the current height.
@@ -2193,6 +2163,36 @@ func (l *channelLink) HtlcSatifiesPolicy(payHash [32]byte,
 			outgoingTimeout-heightNow, maxCltvExpiry)
 
 		return &lnwire.FailExpiryTooFar{}
+	}
+
+	// Next, using the amount of the incoming HTLC, we'll calculate the
+	// expected fee this incoming HTLC must carry in order to satisfy the
+	// constraints of the outgoing link.
+	expectedFee := ExpectedFee(policy, amtToForward)
+
+	// If the actual fee is less than our expected fee, then we'll reject
+	// this HTLC as it didn't provide a sufficient amount of fees, or the
+	// values have been tampered with, or the send used incorrect/dated
+	// information to construct the forwarding information for this hop. In
+	// any case, we'll cancel this HTLC.
+	actualFee := incomingHtlcAmt - amtToForward
+	if incomingHtlcAmt < amtToForward || actualFee < expectedFee {
+		l.errorf("outgoing htlc(%x) has insufficient fee: expected %v, "+
+			"got %v", payHash[:], int64(expectedFee), int64(actualFee))
+
+		// As part of the returned error, we'll send our latest routing
+		// policy so the sending node obtains the most up to date data.
+		var failure lnwire.FailureMessage
+		update, err := l.cfg.FetchLastChannelUpdate(l.ShortChanID())
+		if err != nil {
+			failure = &lnwire.FailTemporaryNodeFailure{}
+		} else {
+			failure = lnwire.NewFeeInsufficient(
+				amtToForward, *update,
+			)
+		}
+
+		return failure
 	}
 
 	// Finally, we'll ensure that the time-lock on the outgoing HTLC meets

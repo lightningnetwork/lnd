@@ -306,7 +306,7 @@ func NewDNSSeedBootstrapper(seeds [][2]string, net tor.Net) NetworkPeerBootstrap
 
 // fallBackSRVLookup attempts to manually query for SRV records we need to
 // properly bootstrap. We do this by querying the special record at the "soa."
-// sub-domain of supporting DNS servers. The retuned IP address will be the IP
+// sub-domain of supporting DNS servers. The returned IP address will be the IP
 // address of the authoritative DNS server. Once we have this IP address, we'll
 // connect manually over TCP to request the SRV record. This is necessary as
 // the records we return are currently too large for a class of resolvers,

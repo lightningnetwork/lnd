@@ -264,7 +264,7 @@ type PaymentDescriptor struct {
 	// the circuit map.
 	ClosedCircuitKey *channeldb.CircuitKey
 
-	// localOutputIndex is the output index of this HTLc output in the
+	// localOutputIndex is the output index of this HTLC output in the
 	// commitment transaction of the local node.
 	//
 	// NOTE: If the output is dust from the PoV of the local commitment
@@ -1814,7 +1814,7 @@ func (lc *LightningChannel) restoreStateLogs(
 		}
 
 		// At this point the restored update's logIndex must be equal
-		// to the update log, otherwise somthing is horribly wrong.
+		// to the update log, otherwise something is horribly wrong.
 		if payDesc.LogIndex != lc.localUpdateLog.logIndex {
 			panic(fmt.Sprintf("log index mismatch: "+
 				"%v vs %v", payDesc.LogIndex,
@@ -2543,7 +2543,7 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 
 		// We check if the parent entry is not found at this point. We
 		// have seen this happening a few times and panic with some
-		// addtitional info to figure out why.
+		// additional info to figure out why.
 		// TODO(halseth): remove when bug is fixed.
 		if addEntry == nil {
 			panic(fmt.Sprintf("unable to find parent entry %d "+
@@ -2588,7 +2588,7 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 
 		// We check if the parent entry is not found at this point. We
 		// have seen this happening a few times and panic with some
-		// addtitional info to figure out why.
+		// additional info to figure out why.
 		// TODO(halseth): remove when bug is fixed.
 		if addEntry == nil {
 			panic(fmt.Sprintf("unable to find parent entry %d "+
@@ -3784,7 +3784,7 @@ func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
 		}
 
 		// Now that we know the total value of added HTLCs, we check
-		// that this satisfy the MaxPendingAmont contraint.
+		// that this satisfy the MaxPendingAmont constraint.
 		if amtInFlight > constraints.MaxPendingAmount {
 			return ErrMaxPendingAmount
 		}
@@ -4125,7 +4125,7 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSig lnwire.Sig,
 	}
 
 	// As an optimization, we'll generate a series of jobs for the worker
-	// pool to verify each of the HTLc signatures presented. Once
+	// pool to verify each of the HTLC signatures presented. Once
 	// generated, we'll submit these jobs to the worker pool.
 	verifyJobs, err := genHtlcSigValidationJobs(
 		localCommitmentView, keyRing, htlcSigs, lc.localChanCfg,
@@ -5299,7 +5299,7 @@ type OutgoingHtlcResolution struct {
 // goes broadcasts a commitment transaction with live HTLC's.
 type HtlcResolutions struct {
 	// IncomingHTLCs contains a set of structs that can be used to sweep
-	// all the incoming HTL'C that we know the preimage to.
+	// all the incoming HTLC's that we know the preimage to.
 	IncomingHTLCs []IncomingHtlcResolution
 
 	// OutgoingHTLCs contains a set of structs that contains all the info
@@ -5690,7 +5690,7 @@ type LocalForceCloseSummary struct {
 	CommitResolution *CommitOutputResolution
 
 	// HtlcResolutions contains all the data required to sweep any outgoing
-	// HTLC's and incoming HTLc's we know the preimage to. For each of these
+	// HTLC's and incoming HTLC's we know the preimage to. For each of these
 	// HTLC's, we'll need to go to the second level to sweep them fully.
 	HtlcResolutions *HtlcResolutions
 

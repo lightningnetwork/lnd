@@ -3177,7 +3177,7 @@ func (r *rpcServer) sendPayment(stream *paymentStream) error {
 	}()
 
 	// TODO(joostjager): Callers expect result to come in in the same order
-	// as the request were sent, but this is far from guarantueed in the
+	// as the request were sent, but this is far from guaranteed in the
 	// code below.
 	go func() {
 		for {
@@ -3887,7 +3887,7 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 
 // QueryRoutes attempts to query the daemons' Channel Router for a possible
 // route to a target destination capable of carrying a specific amount of
-// satoshis within the route's flow. The retuned route contains the full
+// satoshis within the route's flow. The returned route contains the full
 // details required to craft and send an HTLC, also including the necessary
 // information that should be present within the Sphinx packet encapsulated
 // within the HTLC.

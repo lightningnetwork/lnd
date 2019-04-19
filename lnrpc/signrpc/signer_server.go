@@ -251,7 +251,7 @@ func (s *Server) SignOutputRaw(ctx context.Context, in *SignReq) (*SignResp, err
 		// If a witness script isn't passed, then we can't proceed, as
 		// in the p2wsh case, we can't properly generate the sighash.
 		if len(signDesc.WitnessScript) == 0 {
-			// TODO(roasbeef): if regualr p2wkh, then at times
+			// TODO(roasbeef): if regular p2wkh, then at times
 			// internally we allow script to go by
 			return nil, fmt.Errorf("witness script MUST be " +
 				"specified")

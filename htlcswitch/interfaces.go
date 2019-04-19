@@ -14,7 +14,7 @@ import (
 // which may search, lookup and settle invoices.
 type InvoiceDatabase interface {
 	// LookupInvoice attempts to look up an invoice according to its 32
-	// byte payment hash. This method should also reutrn the min final CLTV
+	// byte payment hash. This method should also return the min final CLTV
 	// delta for this invoice. We'll use this to ensure that the HTLC
 	// extended to us gives us enough time to settle as we prescribe.
 	LookupInvoice(lntypes.Hash) (channeldb.Invoice, uint32, error)
@@ -100,7 +100,7 @@ type ChannelLink interface {
 	UpdateForwardingPolicy(ForwardingPolicy)
 
 	// HtlcSatifiesPolicy should return a nil error if the passed HTLC
-	// details satisfy the current forwarding policy fo the target link.
+	// details satisfy the current forwarding policy for the target link.
 	// Otherwise, a valid protocol failure message should be returned in
 	// order to signal to the source of the HTLC, the policy consistency
 	// issue.

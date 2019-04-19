@@ -286,11 +286,11 @@ var (
 	// chain resolutions.
 	errNoResolutions = fmt.Errorf("no contract resolutions exist")
 
-	// errNoActions is retuned when the log doesn't contain any stored
+	// errNoActions is returned when the log doesn't contain any stored
 	// chain actions.
 	errNoActions = fmt.Errorf("no chain actions exist")
 
-	// errNoCommitSet is return when the log doesn't contained a CommitSet.
+	// errNoCommitSet is returned when the log doesn't contained a CommitSet.
 	// This can happen if the channel hasn't closed yet, or a client is
 	// running an older version that didn't yet write this state.
 	errNoCommitSet = fmt.Errorf("no commit set exists")
@@ -591,7 +591,7 @@ func (b *boltArbitratorLog) ResolveContract(res ContractResolver) error {
 }
 
 // LogContractResolutions stores a set of chain actions which are derived from
-// our set of active contracts, and the on-chain state. We'll write this et of
+// our set of active contracts, and the on-chain state. We'll write this set of
 // cations when: we decide to go on-chain to resolve a contract, or we detect
 // that the remote party has gone on-chain.
 //

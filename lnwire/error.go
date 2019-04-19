@@ -48,7 +48,7 @@ func (e ErrorCode) String() string {
 	}
 }
 
-// Error returns the human redable version of the target ErrorCode.
+// Error returns the human readable version of the target ErrorCode.
 //
 // Satisfies the Error interface.
 func (e ErrorCode) Error() string {

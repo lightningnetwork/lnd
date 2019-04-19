@@ -1247,7 +1247,7 @@ func (g *GossipSyncer) SyncType() SyncerType {
 	return SyncerType(atomic.LoadUint32(&g.syncType))
 }
 
-// historicalSync sends a request to the gossip syncer to perofmr a historical
+// historicalSync sends a request to the gossip syncer to perform a historical
 // sync.
 //
 // NOTE: This can only be done once the gossip syncer has reached its final

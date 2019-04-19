@@ -226,7 +226,7 @@ func (b *BtcdFeeEstimator) Start() error {
 	minRelayFeePerKw := SatPerKVByte(relayFee).FeePerKWeight()
 
 	// By default, we'll use the backend node's minimum relay fee as the
-	// minimum fee rate we'll propose for transacations. However, if this
+	// minimum fee rate we'll propose for transactions. However, if this
 	// happens to be lower than our fee floor, we'll enforce that instead.
 	b.minFeePerKW = minRelayFeePerKw
 	if b.minFeePerKW < FeePerKwFloor {
@@ -389,7 +389,7 @@ func (b *BitcoindFeeEstimator) Start() error {
 	minRelayFeePerKw := SatPerKVByte(relayFee).FeePerKWeight()
 
 	// By default, we'll use the backend node's minimum relay fee as the
-	// minimum fee rate we'll propose for transacations. However, if this
+	// minimum fee rate we'll propose for transactions. However, if this
 	// happens to be lower than our fee floor, we'll enforce that instead.
 	b.minFeePerKW = minRelayFeePerKw
 	if b.minFeePerKW < FeePerKwFloor {

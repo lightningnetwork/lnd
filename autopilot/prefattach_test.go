@@ -457,7 +457,7 @@ func TestPrefAttachmentSelectSkipNodes(t *testing.T) {
 					"instead %v were", len(scores))
 			}
 
-			// THey should all have a score, and a maxChanSize
+			// They should all have a score, and a maxChanSize
 			// channel size recommendation.
 			for _, candidate := range scores {
 				if candidate.Score == 0 {

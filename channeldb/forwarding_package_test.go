@@ -309,7 +309,7 @@ func TestPackagerOnlyAdds(t *testing.T) {
 	for i := range adds {
 		// We should still have one package on disk. Since the forwarding
 		// decision has been written, it will minimally be in FwdStateProcessed.
-		// However not allf of the HTLCs have been acked, so should not
+		// However not all of the HTLCs have been acked, so should not
 		// have advanced further.
 		fwdPkgs = loadFwdPkgs(t, db, packager)
 		if len(fwdPkgs) != 1 {
@@ -516,7 +516,7 @@ func TestPackagerAddsThenSettleFails(t *testing.T) {
 	for i := range adds {
 		// We should still have one package on disk. Since the forwarding
 		// decision has been written, it will minimally be in FwdStateProcessed.
-		// However not allf of the HTLCs have been acked, so should not
+		// However not all of the HTLCs have been acked, so should not
 		// have advanced further.
 		fwdPkgs = loadFwdPkgs(t, db, packager)
 		if len(fwdPkgs) != 1 {
@@ -542,7 +542,7 @@ func TestPackagerAddsThenSettleFails(t *testing.T) {
 	for i := range settleFails {
 		// We should still have one package on disk. Since the
 		// forwarding decision has been written, it will minimally be in
-		// FwdStateProcessed.  However not allf of the HTLCs have been
+		// FwdStateProcessed. However not all of the HTLCs have been
 		// acked, so should not have advanced further.
 		fwdPkgs = loadFwdPkgs(t, db, packager)
 		if len(fwdPkgs) != 1 {
@@ -652,7 +652,7 @@ func TestPackagerSettleFailsThenAdds(t *testing.T) {
 	for i := range settleFails {
 		// We should still have one package on disk. Since the
 		// forwarding decision has been written, it will minimally be in
-		// FwdStateProcessed.  However none all of the add HTLCs have
+		// FwdStateProcessed. However none all of the add HTLCs have
 		// been acked, so should not have advanced further.
 		fwdPkgs = loadFwdPkgs(t, db, packager)
 		if len(fwdPkgs) != 1 {

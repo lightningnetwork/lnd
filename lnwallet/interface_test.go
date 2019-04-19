@@ -1729,7 +1729,7 @@ func testPublishTransaction(r *rpctest.Harness,
 	// Create another transaction that spends the same output,
 	// but has a higher fee. We expect also this tx to be
 	// rejected, since the sequence number of tx3 is set to Max,
-	// indicating it is not replacable.
+	// indicating it is not replaceable.
 	pubKey3, err := alice.DeriveNextKey(
 		keychain.KeyFamilyMultiSig,
 	)

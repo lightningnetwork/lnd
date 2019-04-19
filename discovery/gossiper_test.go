@@ -2803,7 +2803,7 @@ func TestNodeAnnouncementNoChannels(t *testing.T) {
 	}
 
 	// Now add the node's channel to the graph by processing the channel
-	// announement and channel update.
+	// announcement and channel update.
 	select {
 	case err = <-ctx.gossiper.ProcessRemoteAnnouncement(batch.remoteChanAnn,
 		remotePeer):
@@ -2844,7 +2844,7 @@ func TestNodeAnnouncementNoChannels(t *testing.T) {
 		}
 	}
 
-	// Processing the same node announement again should be ignored, as it
+	// Processing the same node announcement again should be ignored, as it
 	// is stale.
 	select {
 	case err = <-ctx.gossiper.ProcessRemoteAnnouncement(batch.nodeAnn2,

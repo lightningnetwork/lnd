@@ -35,7 +35,7 @@ var grpc = require('grpc');
 var fs = require("fs");
 
 // Due to updated ECDSA generated tls.cert we need to let gprc know that
-// we need to use that cipher suite otherwise there will be a handhsake
+// we need to use that cipher suite otherwise there will be a handshake
 // error when we communicate with the lnd rpc server.
 process.env.GRPC_SSL_CIPHER_SUITES = 'HIGH+ECDSA'
 
@@ -216,7 +216,7 @@ var sslCreds = grpc.credentials.createSsl(lndCert);
 // such that every call is properly encrypted and authenticated
 var credentials = grpc.credentials.combineChannelCredentials(sslCreds, macaroonCreds);
 
-// Pass the crendentials when creating a channel
+// Pass the credentials when creating a channel
 var lnrpcDescriptor = grpc.load("rpc.proto");
 var lnrpc = lnrpcDescriptor.lnrpc;
 var client = new lnrpc.Lightning('some.address:10009', credentials);

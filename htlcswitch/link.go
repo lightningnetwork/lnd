@@ -2158,7 +2158,7 @@ func (l *channelLink) UpdateForwardingPolicy(newPolicy ForwardingPolicy) {
 }
 
 // HtlcSatifiesPolicy should return a nil error if the passed HTLC details
-// satisfy the current forwarding policy fo the target link.  Otherwise, a
+// satisfy the current forwarding policy for the target link.  Otherwise, a
 // valid protocol failure message should be returned in order to signal to the
 // source of the HTLC, the policy consistency issue.
 //

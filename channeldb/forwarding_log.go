@@ -170,7 +170,7 @@ type ForwardingEventQuery struct {
 
 // ForwardingLogTimeSlice is the response to a forwarding query. It includes
 // the original query, the set  events that match the query, and an integer
-// which represents the offset index of the last item in the set of retuned
+// which represents the offset index of the last item in the set of returned
 // events. This integer allows callers to resume their query using this offset
 // in the event that the query's response exceeds the max number of returnable
 // events.

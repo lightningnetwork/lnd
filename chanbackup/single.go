@@ -21,8 +21,8 @@ import (
 type SingleBackupVersion byte
 
 const (
-	// DefaultSingleVersion is the defautl version of the single channel
-	// backup. The seralized version of this static channel backup is
+	// DefaultSingleVersion is the default version of the single channel
+	// backup. The serialized version of this static channel backup is
 	// simply: version || SCB. Where SCB is the known format of the
 	// version.
 	DefaultSingleVersion = 0

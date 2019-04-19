@@ -202,7 +202,7 @@ func TestSettleInvoice(t *testing.T) {
 		t.Fatal("expected cancelation of a settled invoice to fail")
 	}
 
-	// As this is a direct sette, we expect nothing on the hodl chan.
+	// As this is a direct settle, we expect nothing on the hodl chan.
 	select {
 	case <-hodlChan:
 		t.Fatal("unexpected event")

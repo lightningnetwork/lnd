@@ -50,7 +50,7 @@ type txUpdate struct {
 // notifications. Multiple concurrent clients are supported. All notifications
 // are achieved via non-blocking sends on client channels.
 type BtcdNotifier struct {
-	confClientCounter  uint64 // To be used aotmically.
+	confClientCounter  uint64 // To be used atomically.
 	spendClientCounter uint64 // To be used atomically.
 	epochClientCounter uint64 // To be used atomically.
 

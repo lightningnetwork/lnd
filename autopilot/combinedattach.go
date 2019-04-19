@@ -61,7 +61,7 @@ func (c *WeightedCombAttachment) Name() string {
 // maps the NodeID to an attachment directive containing a score and a channel
 // size.
 //
-// The scores is determined by quering the set of sub-heuristics, then
+// The scores is determined by querying the set of sub-heuristics, then
 // combining these scores into a final score according to the active
 // configuration.
 //
@@ -90,7 +90,7 @@ func (c *WeightedCombAttachment) NodeScores(g ChannelGraph, chans []Channel,
 	}
 
 	// We combine the scores given by the sub-heuristics by using the
-	// heruistics' given weight factor.
+	// heuristics' given weight factor.
 	scores := make(map[NodeID]*NodeScore)
 	for nID := range nodes {
 		score := &NodeScore{

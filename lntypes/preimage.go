@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-// PreimageSize of array used to store preimagees.
+// PreimageSize of array used to store preimages.
 const PreimageSize = 32
 
 // Preimage is used in several of the lightning messages and common structures.

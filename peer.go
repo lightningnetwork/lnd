@@ -1042,7 +1042,7 @@ out:
 
 			// If the NodeAnnouncement has an invalid alias, then
 			// we'll log that error above and continue so we can
-			// continue to read messges from the peer.
+			// continue to read messages from the peer.
 			case *lnwire.ErrInvalidNodeAlias:
 				idleTimer.Reset(idleTimeout)
 				continue
@@ -1696,7 +1696,7 @@ func (p *peer) ChannelSnapshots() []*channeldb.ChannelSnapshot {
 	snapshots := make([]*channeldb.ChannelSnapshot, 0, len(p.activeChannels))
 	for _, activeChan := range p.activeChannels {
 		// We'll only return a snapshot for channels that are
-		// *immedately* available for routing payments over.
+		// *immediately* available for routing payments over.
 		if activeChan.RemoteNextRevocation() == nil {
 			continue
 		}

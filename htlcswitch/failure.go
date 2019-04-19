@@ -51,7 +51,7 @@ type ErrorDecrypter interface {
 type EncrypterType byte
 
 const (
-	// EncrypterTypeNone signals that no error encyrpter is present, this
+	// EncrypterTypeNone signals that no error encrypter is present, this
 	// can happen if the htlc is originates in the switch.
 	EncrypterTypeNone EncrypterType = 0
 

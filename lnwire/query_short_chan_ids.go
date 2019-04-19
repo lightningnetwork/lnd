@@ -40,7 +40,7 @@ const (
 // allows us to also further bound our memory usage.
 var zlibDecodeMtx sync.Mutex
 
-// ErrUnknownShortChanIDEncoding is a parametrized error that indicates that we
+// ErrUnknownShortChanIDEncoding is a parameterized error that indicates that we
 // came across an unknown short channel ID encoding, and therefore were unable
 // to continue parsing.
 func ErrUnknownShortChanIDEncoding(encoding ShortChanIDEncoding) error {

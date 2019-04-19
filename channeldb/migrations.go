@@ -257,7 +257,7 @@ func migrateInvoiceTimeSeries(tx *bbolt.Tx) error {
 
 // migrateInvoiceTimeSeriesOutgoingPayments is a follow up to the
 // migrateInvoiceTimeSeries migration. As at the time of writing, the
-// OutgoingPayment struct embeddeds an instance of the Invoice struct. As a
+// OutgoingPayment struct embeds an instance of the Invoice struct. As a
 // result, we also need to migrate the internal invoice to the new format.
 func migrateInvoiceTimeSeriesOutgoingPayments(tx *bbolt.Tx) error {
 	payBucket := tx.Bucket(paymentBucket)

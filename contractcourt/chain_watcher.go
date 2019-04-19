@@ -161,7 +161,7 @@ type chainWatcherConfig struct {
 	isOurAddr func(btcutil.Address) bool
 
 	// extractStateNumHint extracts the encoded state hint using the passed
-	// obfuscater. This is used by the chain watcher to identify which
+	// obfuscator. This is used by the chain watcher to identify which
 	// state was broadcast and confirmed on-chain.
 	extractStateNumHint func(*wire.MsgTx, [lnwallet.StateHintSize]byte) uint64
 }
@@ -506,7 +506,7 @@ func (c *chainWatcher) closeObserver(spendNtfn *chainntnfs.SpendEvent) {
 
 		// Next, we'll check to see if this is a cooperative channel
 		// closure or not. This is characterized by having an input
-		// sequence number that's finalized.  This won't happen with
+		// sequence number that's finalized. This won't happen with
 		// regular commitment transactions due to the state hint
 		// encoding scheme.
 		if commitTxBroadcast.TxIn[0].Sequence == wire.MaxTxInSequenceNum {

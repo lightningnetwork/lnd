@@ -3,11 +3,8 @@ package contractcourt
 import (
 	"bytes"
 	"crypto/sha256"
-	"math"
-	"math/rand"
-	"reflect"
+	"fmt"
 	"testing"
-	"testing/quick"
 	"time"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -254,7 +251,7 @@ func TestChainWatcherDataLossProtect(t *testing.T) {
 	// was broadcast, while numUpdates is the actual number of updates
 	// we'll execute. Both of these will be random 8-bit values generated
 	// by testing/quick.
-	dlpScenario := func(testCase dlpTestCase) bool {
+	dlpScenario := func(t *testing.T, testCase dlpTestCase) bool {
 		// First, we'll create two channels which already have
 		// established a commitment contract between themselves.
 		aliceChannel, bobChannel, cleanUp, err := lnwallet.CreateTestChannels()
@@ -369,43 +366,49 @@ func TestChainWatcherDataLossProtect(t *testing.T) {
 		}
 	}
 
-	// For our first scenario, we'll ensure that if we're on state 1, and
-	// the remote party broadcasts state 2 and we don't have a pending
-	// commit for them, then we'll properly detect this as a DLP scenario.
-	if !dlpScenario(dlpTestCase{
-		BroadcastStateNum: 2,
-		NumUpdates:        1,
-	}) {
-		t.Fatalf("DLP test case failed at state 1!")
-	}
-
-	// For the remainder of the tests, we'll perform 10 iterations with
-	// random values. We limit this number as set up of each test can take
-	// time, and also it doing up to 255 state transitions may cause the
-	// test to hang for a long time.
-	//
-	// TODO(roasbeef): speed up execution
-	err := quick.Check(dlpScenario, &quick.Config{
-		MaxCount: 10,
-		Values: func(v []reflect.Value, rand *rand.Rand) {
-			// stateNum will be the random number of state updates
-			// we execute during the scenario.
-			stateNum := uint8(rand.Int31())
-
-			// From this state number, we'll draw a random number
-			// between the state and 255, ensuring that it' at
-			// least one state beyond the target stateNum.
-			broadcastRange := rand.Int31n(int32(math.MaxUint8 - stateNum))
-			broadcastNum := uint8(stateNum + 1 + uint8(broadcastRange))
-
-			testCase := dlpTestCase{
-				BroadcastStateNum: broadcastNum,
-				NumUpdates:        stateNum,
-			}
-			v[0] = reflect.ValueOf(testCase)
+	testCases := []dlpTestCase{
+		// For our first scenario, we'll ensure that if we're on state 1,
+		// and the remote party broadcasts state 2 and we don't have a
+		// pending commit for them, then we'll properly detect this as a
+		// DLP scenario.
+		{
+			BroadcastStateNum: 2,
+			NumUpdates:        1,
 		},
-	})
-	if err != nil {
-		t.Fatalf("DLP test case failed: %v", err)
+
+		// We've completed a single update, but the remote party broadcasts
+		// a state that's 5 states byeond our best known state. We've lost
+		// data, but only partially, so we should enter a DLP secnario.
+		{
+			BroadcastStateNum: 6,
+			NumUpdates:        1,
+		},
+
+		// Similar to the case above, but we've done more than one
+		// update.
+		{
+			BroadcastStateNum: 6,
+			NumUpdates:        3,
+		},
+
+		// We've done zero updates, but our channel peer broadcasts a
+		// state beyond our knowledge.
+		{
+			BroadcastStateNum: 10,
+			NumUpdates:        0,
+		},
+	}
+	for _, testCase := range testCases {
+		testName := fmt.Sprintf("num_updates=%v,broadcast_state_num=%v",
+			testCase.NumUpdates, testCase.BroadcastStateNum)
+
+		testCase := testCase
+		t.Run(testName, func(t *testing.T) {
+			t.Parallel()
+
+			if !dlpScenario(t, testCase) {
+				t.Fatalf("test %v failed", testName)
+			}
+		})
 	}
 }

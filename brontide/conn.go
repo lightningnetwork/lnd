@@ -166,7 +166,11 @@ func (c *Conn) Write(b []byte) (n int, err error) {
 	// If the message doesn't require any chunking, then we can go ahead
 	// with a single write.
 	if len(b) <= math.MaxUint16 {
-		return len(b), c.noise.WriteMessage(c.conn, b)
+		err = c.noise.WriteMessage(b)
+		if err != nil {
+			return 0, err
+		}
+		return c.noise.Flush(c.conn)
 	}
 
 	// If we need to split the message into fragments, then we'll write
@@ -185,11 +189,15 @@ func (c *Conn) Write(b []byte) (n int, err error) {
 		// Slice off the next chunk to be written based on our running
 		// counter and next chunk size.
 		chunk := b[bytesWritten : bytesWritten+chunkSize]
-		if err := c.noise.WriteMessage(c.conn, chunk); err != nil {
+		if err := c.noise.WriteMessage(chunk); err != nil {
 			return bytesWritten, err
 		}
 
-		bytesWritten += len(chunk)
+		n, err := c.noise.Flush(c.conn)
+		bytesWritten += n
+		if err != nil {
+			return bytesWritten, err
+		}
 	}
 
 	return bytesWritten, nil

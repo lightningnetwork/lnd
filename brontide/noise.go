@@ -48,6 +48,10 @@ var (
 	ErrMaxMessageLengthExceeded = errors.New("the generated payload exceeds " +
 		"the max allowed message length of (2^16)-1")
 
+	// ErrMessageNotFlushed signals that the connection cannot accept a new
+	// message because the prior message has not been fully flushed.
+	ErrMessageNotFlushed = errors.New("prior message not flushed")
+
 	// lightningPrologue is the noise prologue that is used to initialize
 	// the brontide noise handshake.
 	lightningPrologue = []byte("lightning")
@@ -692,16 +696,25 @@ func (b *Machine) split() {
 	}
 }
 
-// WriteMessage writes the next message p to the passed io.Writer. The
-// ciphertext of the message is prepended with an encrypt+auth'd length which
-// must be used as the AD to the AEAD construction when being decrypted by the
-// other side.
-func (b *Machine) WriteMessage(w io.Writer, p []byte) error {
+// WriteMessage encrypts and buffers the next message p. The ciphertext of the
+// message is prepended with an encrypt+auth'd length which must be used as the
+// AD to the AEAD construction when being decrypted by the other side.
+//
+// NOTE: This DOES NOT write the message to the wire, it should be followed by a
+// call to Flush to ensure the message is written.
+func (b *Machine) WriteMessage(p []byte) error {
 	// The total length of each message payload including the MAC size
 	// payload exceed the largest number encodable within a 16-bit unsigned
 	// integer.
 	if len(p) > math.MaxUint16 {
 		return ErrMaxMessageLengthExceeded
+	}
+
+	// If a prior message was written but it hasn't been fully flushed,
+	// return an error as we only support buffering of one message at a
+	// time.
+	if len(b.nextHeaderSend) > 0 || len(b.nextBodySend) > 0 {
+		return ErrMessageNotFlushed
 	}
 
 	// The full length of the packet is only the packet length, and does
@@ -711,18 +724,13 @@ func (b *Machine) WriteMessage(w io.Writer, p []byte) error {
 	var pktLen [2]byte
 	binary.BigEndian.PutUint16(pktLen[:], fullLength)
 
-	// First, write out the encrypted+MAC'd length prefix for the packet.
-	cipherLen := b.sendCipher.Encrypt(nil, nil, pktLen[:])
-	if _, err := w.Write(cipherLen); err != nil {
-		return err
-	}
+	// First, generate the encrypted+MAC'd length prefix for the packet.
+	b.nextHeaderSend = b.sendCipher.Encrypt(nil, nil, pktLen[:])
 
-	// Finally, write out the encrypted packet itself. We only write out a
-	// single packet, as any fragmentation should have taken place at a
-	// higher level.
-	cipherText := b.sendCipher.Encrypt(nil, nil, p)
-	_, err := w.Write(cipherText)
-	return err
+	// Finally, generate the encrypted packet itself.
+	b.nextBodySend = b.sendCipher.Encrypt(nil, nil, p)
+
+	return nil
 }
 
 // Flush attempts to write a message buffered using WriteMessage to the provided

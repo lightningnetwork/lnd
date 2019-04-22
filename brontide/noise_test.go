@@ -220,11 +220,9 @@ func TestMaxPayloadLength(t *testing.T) {
 	// payload length.
 	payloadToReject := make([]byte, math.MaxUint16+1)
 
-	var buf bytes.Buffer
-
 	// A write of the payload generated above to the state machine should
 	// be rejected as it's over the max payload length.
-	err := b.WriteMessage(&buf, payloadToReject)
+	err := b.WriteMessage(payloadToReject)
 	if err != ErrMaxMessageLengthExceeded {
 		t.Fatalf("payload is over the max allowed length, the write " +
 			"should have been rejected")
@@ -233,7 +231,7 @@ func TestMaxPayloadLength(t *testing.T) {
 	// Generate another payload which should be accepted as a valid
 	// payload.
 	payloadToAccept := make([]byte, math.MaxUint16-1)
-	if err := b.WriteMessage(&buf, payloadToAccept); err != nil {
+	if err := b.WriteMessage(payloadToAccept); err != nil {
 		t.Fatalf("write for payload was rejected, should have been " +
 			"accepted")
 	}
@@ -243,7 +241,7 @@ func TestMaxPayloadLength(t *testing.T) {
 	payloadToReject = make([]byte, math.MaxUint16+1)
 
 	// This payload should be rejected.
-	err = b.WriteMessage(&buf, payloadToReject)
+	err = b.WriteMessage(payloadToReject)
 	if err != ErrMaxMessageLengthExceeded {
 		t.Fatalf("payload is over the max allowed length, the write " +
 			"should have been rejected")
@@ -502,9 +500,13 @@ func TestBolt0008TestVectors(t *testing.T) {
 	var buf bytes.Buffer
 
 	for i := 0; i < 1002; i++ {
-		err = initiator.WriteMessage(&buf, payload)
+		err = initiator.WriteMessage(payload)
 		if err != nil {
 			t.Fatalf("could not write message %s", payload)
+		}
+		_, err = initiator.Flush(&buf)
+		if err != nil {
+			t.Fatalf("could not flush message: %v", err)
 		}
 		if val, ok := transportMessageVectors[i]; ok {
 			binaryVal, err := hex.DecodeString(val)

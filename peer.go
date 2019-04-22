@@ -1468,6 +1468,17 @@ out:
 	for {
 		select {
 		case outMsg := <-p.sendQueue:
+			// If we're about to send a ping message, then log the
+			// exact time in which we send the message so we can
+			// use the delay as a rough estimate of latency to the
+			// remote peer.
+			if _, ok := outMsg.msg.(*lnwire.Ping); ok {
+				// TODO(roasbeef): do this before the write?
+				// possibly account for processing within func?
+				now := time.Now().UnixNano()
+				atomic.StoreInt64(&p.pingLastSend, now)
+			}
+
 			// Record the time at which we first attempt to send the
 			// message.
 			startTime := time.Now()
@@ -1489,17 +1500,6 @@ out:
 					exitErr = ErrPeerExiting
 					break out
 				}
-			}
-
-			// If we're about to send a ping message, then log the
-			// exact time in which we send the message so we can
-			// use the delay as a rough estimate of latency to the
-			// remote peer.
-			if _, ok := outMsg.msg.(*lnwire.Ping); ok {
-				// TODO(roasbeef): do this before the write?
-				// possibly account for processing within func?
-				now := time.Now().UnixNano()
-				atomic.StoreInt64(&p.pingLastSend, now)
 			}
 
 			// Write out the message to the socket. If a timeout

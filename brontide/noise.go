@@ -31,6 +31,10 @@ const (
 	// length of a message payload.
 	lengthHeaderSize = 2
 
+	// encHeaderSize is the number of bytes required to hold an encrypted
+	// header and it's MAC.
+	encHeaderSize = lengthHeaderSize + macSize
+
 	// keyRotationInterval is the number of messages sent on a single
 	// cipher stream before the keys are rotated forwards.
 	keyRotationInterval = 1000
@@ -370,7 +374,7 @@ type Machine struct {
 	// nextCipherHeader is a static buffer that we'll use to read in the
 	// next ciphertext header from the wire. The header is a 2 byte length
 	// (of the next ciphertext), followed by a 16 byte MAC.
-	nextCipherHeader [lengthHeaderSize + macSize]byte
+	nextCipherHeader [encHeaderSize]byte
 
 	// nextHeaderSend holds a reference to the remaining header bytes to
 	// write out for a pending message. This allows us to tolerate timeout

@@ -1493,11 +1493,6 @@ func (p *peer) writeHandler() {
 
 	var exitErr error
 
-	const (
-		minRetryDelay = 5 * time.Second
-		maxRetryDelay = time.Minute
-	)
-
 out:
 	for {
 		select {
@@ -1517,49 +1512,16 @@ out:
 			// message.
 			startTime := time.Now()
 
-			// Initialize a retry delay of zero, which will be
-			// increased if we encounter a write timeout on the
-			// send.
-			var retryDelay time.Duration
-		retryWithDelay:
-			if retryDelay > 0 {
-				select {
-				case <-time.After(retryDelay):
-				case <-p.quit:
-					// Inform synchronous writes that the
-					// peer is exiting.
-					if outMsg.errChan != nil {
-						outMsg.errChan <- ErrPeerExiting
-					}
-					exitErr = ErrPeerExiting
-					break out
-				}
-			}
-
+		retry:
 			// Write out the message to the socket. If a timeout
 			// error is encountered, we will catch this and retry
 			// after backing off in case the remote peer is just
 			// slow to process messages from the wire.
 			err := p.writeMessage(outMsg.msg)
 			if nerr, ok := err.(net.Error); ok && nerr.Timeout() {
-				// Increase the retry delay in the event of a
-				// timeout error, this prevents us from
-				// disconnecting if the remote party is slow to
-				// pull messages off the wire. We back off
-				// exponentially up to our max delay to prevent
-				// blocking the write pool.
-				if retryDelay == 0 {
-					retryDelay = minRetryDelay
-				} else {
-					retryDelay *= 2
-					if retryDelay > maxRetryDelay {
-						retryDelay = maxRetryDelay
-					}
-				}
-
 				peerLog.Debugf("Write timeout detected for "+
-					"peer %s, retrying after %v, "+
-					"first attempted %v ago", p, retryDelay,
+					"peer %s, first write for message "+
+					"attempted %v ago", p,
 					time.Since(startTime))
 
 				// If we received a timeout error, this implies
@@ -1571,7 +1533,7 @@ out:
 				// reserializing or reencrypting it.
 				outMsg.msg = nil
 
-				goto retryWithDelay
+				goto retry
 			}
 
 			// The write succeeded, reset the idle timer to prevent

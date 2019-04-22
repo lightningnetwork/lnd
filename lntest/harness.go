@@ -809,7 +809,7 @@ func (n *NetworkHarness) OpenChannel(ctx context.Context,
 			"alice and bob: %v", err)
 	}
 
-	chanOpen := make(chan struct{})
+	chanPending := make(chan *lnrpc.PendingUpdate)
 	errChan := make(chan error)
 	go func() {
 		// Consume the "channel pending" update. This waits until the node
@@ -820,22 +820,38 @@ func (n *NetworkHarness) OpenChannel(ctx context.Context,
 			errChan <- err
 			return
 		}
-		if _, ok := resp.Update.(*lnrpc.OpenStatusUpdate_ChanPending); !ok {
+		pendingResp, ok := resp.Update.(*lnrpc.OpenStatusUpdate_ChanPending)
+		if !ok {
 			errChan <- fmt.Errorf("expected channel pending update, "+
 				"instead got %v", resp)
 			return
 		}
 
-		close(chanOpen)
+		chanPending <- pendingResp.ChanPending
 	}()
 
 	select {
 	case <-ctx.Done():
 		return nil, fmt.Errorf("timeout reached before chan pending "+
 			"update sent: %v", err)
+
 	case err := <-errChan:
 		return nil, err
-	case <-chanOpen:
+
+	case pendingChan := <-chanPending:
+		// Add the channel to both nodes once we've successfully
+		// broadcast the funding transaction so that they can determine
+		// how many announcements they should expect to receive for it.
+		var hash chainhash.Hash
+		copy(hash[:], pendingChan.Txid)
+		op := wire.OutPoint{
+			Hash:  hash,
+			Index: pendingChan.OutputIndex,
+		}
+
+		srcNode.addOwnChannel(op)
+		destNode.addOwnChannel(op)
+
 		return respStream, nil
 	}
 }
@@ -894,9 +910,24 @@ func (n *NetworkHarness) OpenPendingChannel(ctx context.Context,
 	case <-ctx.Done():
 		return nil, fmt.Errorf("timeout reached before chan pending " +
 			"update sent")
+
 	case err := <-errChan:
 		return nil, err
+
 	case pendingChan := <-chanPending:
+		// Add the channel to both nodes once we've successfully
+		// broadcast the funding transaction so that they can determine
+		// how many announcements they should expect to receive for it.
+		var hash chainhash.Hash
+		copy(hash[:], pendingChan.Txid)
+		op := wire.OutPoint{
+			Hash:  hash,
+			Index: pendingChan.OutputIndex,
+		}
+
+		srcNode.addOwnChannel(op)
+		destNode.addOwnChannel(op)
+
 		return pendingChan, nil
 	}
 }

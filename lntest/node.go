@@ -234,6 +234,15 @@ type HarnessNode struct {
 	closedChans  map[wire.OutPoint]struct{}
 	closeClients map[wire.OutPoint][]chan struct{}
 
+	// ownChans keeps track of the channels that have been opened and belong
+	// to this node. Their only purpose is to determine how many
+	// announcements to expect when waiting for the channel to be broadcast
+	// to the network.
+	//
+	// NOTE: These are currently not removed when the channel is closed.
+	ownChans   map[wire.OutPoint]struct{}
+	ownChansMu sync.Mutex
+
 	quit chan struct{}
 	wg   sync.WaitGroup
 
@@ -274,9 +283,9 @@ func newNode(cfg nodeConfig) (*HarnessNode, error) {
 		chanWatchRequests: make(chan *chanWatchRequest),
 		openChans:         make(map[wire.OutPoint]int),
 		openClients:       make(map[wire.OutPoint][]chan struct{}),
-
-		closedChans:  make(map[wire.OutPoint]struct{}),
-		closeClients: make(map[wire.OutPoint][]chan struct{}),
+		closedChans:       make(map[wire.OutPoint]struct{}),
+		closeClients:      make(map[wire.OutPoint][]chan struct{}),
+		ownChans:          make(map[wire.OutPoint]struct{}),
 	}, nil
 }
 
@@ -672,9 +681,7 @@ func (hn *HarnessNode) shutdown() error {
 // channel has either been added or closed.
 type chanWatchRequest struct {
 	chanPoint wire.OutPoint
-
-	chanOpen bool
-
+	chanOpen  bool
 	eventChan chan struct{}
 }
 
@@ -761,19 +768,45 @@ func (hn *HarnessNode) lightningNetworkWatcher() {
 				}
 				hn.openChans[op]++
 
-				// For this new channel, if the number of edges
-				// seen is less than two, then the channel
-				// hasn't been fully announced yet.
-				if numEdges := hn.openChans[op]; numEdges < 2 {
+				// If the update is for own of our channels,
+				// we'll ensure we only process the graph update
+				// if it was advertised by the remote party.
+				isOwnChan := hn.isOwnChannel(op)
+				if isOwnChan && newChan.AdvertisingNode == hn.PubKeyStr {
 					continue
 				}
 
-				// Otherwise, we'll notify all the registered
-				// clients and remove the dispatched clients.
+				// If the channel belongs to us, we should only
+				// expect to see one channel update to consider
+				// it fully announced, that of the remote party.
+				// Otherwise, we'll expect to see updates for
+				// both sides.
+				allDispatched := true
+				numEdges := hn.openChans[op]
 				for _, eventChan := range hn.openClients[op] {
+					if isOwnChan && numEdges < 1 || numEdges < 2 {
+						allDispatched = false
+						continue
+					}
+
+					// We'll avoid dispatching a
+					// notification to the client if we
+					// previously did to prevent a panic.
+					select {
+					case <-eventChan:
+						continue
+					default:
+					}
+
 					close(eventChan)
 				}
-				delete(hn.openClients, op)
+
+				// We'll only remove the open clients for this
+				// channel once all of the requests have been
+				// fulfilled.
+				if allDispatched {
+					delete(hn.openClients, op)
+				}
 			}
 
 			// For each channel closed, we'll mark that we've
@@ -807,8 +840,11 @@ func (hn *HarnessNode) lightningNetworkWatcher() {
 			if watchRequest.chanOpen {
 				// If this is an open request, then it can be
 				// dispatched if the number of edges seen for
-				// the channel is at least two.
-				if numEdges := hn.openChans[targetChan]; numEdges >= 2 {
+				// the channel is at least one for our own
+				// channels, or two otherwise.
+				numEdges := hn.openChans[targetChan]
+				isOwnChan := hn.isOwnChannel(targetChan)
+				if numEdges >= 2 || isOwnChan && numEdges >= 1 {
 					close(watchRequest.eventChan)
 					continue
 				}
@@ -989,6 +1025,23 @@ func (hn *HarnessNode) WaitForBalance(expectedBalance btcutil.Amount, confirmed 
 	}
 
 	return nil
+}
+
+// addOwnChannel adds the given channel outpoint to the list of the node's own
+// channels.
+func (hn *HarnessNode) addOwnChannel(op wire.OutPoint) {
+	hn.ownChansMu.Lock()
+	defer hn.ownChansMu.Unlock()
+	hn.ownChans[op] = struct{}{}
+}
+
+// isOwnChannel determines whether the given channel outpoint is for a channel
+// in which the node is a participant of.
+func (hn *HarnessNode) isOwnChannel(op wire.OutPoint) bool {
+	hn.ownChansMu.Lock()
+	defer hn.ownChansMu.Unlock()
+	_, ok := hn.ownChans[op]
+	return ok
 }
 
 // fileExists reports whether the named file or directory exists.

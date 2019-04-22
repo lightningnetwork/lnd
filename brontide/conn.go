@@ -203,6 +203,29 @@ func (c *Conn) Write(b []byte) (n int, err error) {
 	return bytesWritten, nil
 }
 
+// WriteMessage encrypts and buffers the next message p for the connection. The
+// ciphertext of the message is prepended with an encrypt+auth'd length which
+// must be used as the AD to the AEAD construction when being decrypted by the
+// other side.
+//
+// NOTE: This DOES NOT write the message to the wire, it should be followed by a
+// call to Flush to ensure the message is written.
+func (c *Conn) WriteMessage(b []byte) error {
+	return c.noise.WriteMessage(b)
+}
+
+// Flush attempts to write a message buffered using WriteMessage to the
+// underlying connection. If no buffered message exists, this will result in a
+// NOP. Otherwise, it will continue to write the remaining bytes, picking up
+// where the byte stream left off in the event of a partial write. The number of
+// bytes returned reflects the number of plaintext bytes in the payload, and
+// does not account for the overhead of the header or MACs.
+//
+// NOTE: It is safe to call this method again iff a timeout error is returned.
+func (c *Conn) Flush() (int, error) {
+	return c.noise.Flush(c.conn)
+}
+
 // Close closes the connection.  Any blocked Read or Write operations will be
 // unblocked and return errors.
 //

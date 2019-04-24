@@ -122,6 +122,13 @@ func (s *Server) handleCreateSession(peer Peer, id *wtdb.SessionID,
 func (s *Server) replyCreateSession(peer Peer, id *wtdb.SessionID,
 	code wtwire.ErrorCode, lastApplied uint16, data []byte) error {
 
+	if s.cfg.NoAckCreateSession {
+		return &connFailure{
+			ID:   *id,
+			Code: code,
+		}
+	}
+
 	msg := &wtwire.CreateSessionReply{
 		Code:        code,
 		LastApplied: lastApplied,

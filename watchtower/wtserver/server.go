@@ -56,6 +56,10 @@ type Config struct {
 	// ChainHash identifies the network that the server is watching.
 	ChainHash chainhash.Hash
 
+	// NoAckCreateSession causes the server to not reply to create session
+	// requests, this should only be used for testing.
+	NoAckCreateSession bool
+
 	// NoAckUpdates causes the server to not acknowledge state updates, this
 	// should only be used for testing.
 	NoAckUpdates bool

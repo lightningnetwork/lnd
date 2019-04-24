@@ -90,6 +90,12 @@ const (
 	// a payment, or self stored on disk in a single file containing all
 	// the static channel backups.
 	KeyFamilyStaticBackup KeyFamily = 7
+
+	// KeyFamilyTowerSession is the family of keys that will be used to
+	// derive session keys when negotiating sessions with watchtowers. The
+	// session keys are limited to the lifetime of the session and are used
+	// to increase privacy in the watchtower protocol.
+	KeyFamilyTowerSession KeyFamily = 8
 )
 
 // KeyLocator is a two-tuple that can be used to derive *any* key that has ever

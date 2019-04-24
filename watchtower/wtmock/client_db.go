@@ -106,6 +106,21 @@ func (m *ClientDB) CreateClientSession(session *wtdb.ClientSession) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	// Ensure that a session key index has been reserved for this tower.
+	keyIndex, ok := m.indexes[session.TowerID]
+	if !ok {
+		return wtdb.ErrNoReservedKeyIndex
+	}
+
+	// Ensure that the session's index matches the reserved index.
+	if keyIndex != session.KeyIndex {
+		return wtdb.ErrIncorrectKeyIndex
+	}
+
+	// Remove the key index reservation for this tower. Once committed, this
+	// permits us to create another session with this tower.
+	delete(m.indexes, session.TowerID)
+
 	m.activeSessions[session.ID] = &wtdb.ClientSession{
 		TowerID:          session.TowerID,
 		KeyIndex:         session.KeyIndex,

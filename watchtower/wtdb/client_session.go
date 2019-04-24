@@ -29,6 +29,15 @@ var (
 	// LastApplied value greater than any allocated sequence number.
 	ErrUnallocatedLastApplied = errors.New("tower echoed last appiled " +
 		"greater than allocated seqnum")
+
+	// ErrNoReservedKeyIndex signals that a client session could not be
+	// created because no session key index was reserved.
+	ErrNoReservedKeyIndex = errors.New("key index not reserved")
+
+	// ErrIncorrectKeyIndex signals that the client session could not be
+	// created because session key index differs from the reserved key
+	// index.
+	ErrIncorrectKeyIndex = errors.New("incorrect key index")
 )
 
 // ClientSession encapsulates a SessionInfo returned from a successful

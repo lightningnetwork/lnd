@@ -52,6 +52,6 @@ func (s *Server) replyDeleteSession(peer Peer, id *wtdb.SessionID,
 	// disconnect the client.
 	return &connFailure{
 		ID:   *id,
-		Code: uint16(code),
+		Code: code,
 	}
 }

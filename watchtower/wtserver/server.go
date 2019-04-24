@@ -283,12 +283,12 @@ func (s *Server) handleClient(peer Peer) {
 // error code.
 type connFailure struct {
 	ID   wtdb.SessionID
-	Code uint16
+	Code wtwire.ErrorCode
 }
 
 // Error displays the SessionID and Code that caused the connection failure.
 func (f *connFailure) Error() string {
-	return fmt.Sprintf("connection with %s failed with code=%v",
+	return fmt.Sprintf("connection with %s failed with code=%s",
 		f.ID, f.Code,
 	)
 }

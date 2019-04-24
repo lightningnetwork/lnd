@@ -40,6 +40,15 @@ func (s *Server) handleCreateSession(peer Peer, id *wtdb.SessionID,
 		)
 	}
 
+	// Ensure that the requested blob type is supported by our tower.
+	if !blob.IsSupportedType(req.BlobType) {
+		log.Debugf("Rejecting CreateSession from %s, unsupported blob "+
+			"type %s", id, req.BlobType)
+		return s.replyCreateSession(
+			peer, id, wtwire.CreateSessionCodeRejectBlobType, nil,
+		)
+	}
+
 	// Now that we've established that this session does not exist in the
 	// database, retrieve the sweep address that will be given to the
 	// client. This address is to be included by the client when signing
@@ -60,15 +69,6 @@ func (s *Server) handleCreateSession(peer Peer, id *wtdb.SessionID,
 		log.Errorf("unable to generate reward script for %s", id)
 		return s.replyCreateSession(
 			peer, id, wtwire.CodeTemporaryFailure, nil,
-		)
-	}
-
-	// Ensure that the requested blob type is supported by our tower.
-	if !blob.IsSupportedType(req.BlobType) {
-		log.Debugf("Rejecting CreateSession from %s, unsupported blob "+
-			"type %s", id, req.BlobType)
-		return s.replyCreateSession(
-			peer, id, wtwire.CreateSessionCodeRejectBlobType, nil,
 		)
 	}
 

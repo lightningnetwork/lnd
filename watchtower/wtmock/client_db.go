@@ -104,7 +104,7 @@ func (m *ClientDB) CreateClientSession(session *wtdb.ClientSession) error {
 
 	m.activeSessions[session.ID] = &wtdb.ClientSession{
 		TowerID:          session.TowerID,
-		SessionKeyDesc:   session.SessionKeyDesc,
+		KeyIndex:         session.KeyIndex,
 		SessionPrivKey:   session.SessionPrivKey,
 		ID:               session.ID,
 		Policy:           session.Policy,

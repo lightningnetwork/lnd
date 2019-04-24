@@ -42,6 +42,10 @@ type NegotiatorConfig struct {
 	// negotiated sessions.
 	DB DB
 
+	// SecretKeyRing allows the client to derive new session private keys
+	// when attempting to negotiate session with a tower.
+	SecretKeyRing SecretKeyRing
+
 	// Candidates is an abstract set of tower candidates that the negotiator
 	// will traverse serially when attempting to negotiate a new session.
 	Candidates TowerCandidateIterator
@@ -255,12 +259,23 @@ retryWithBackoff:
 			goto retryWithBackoff
 		}
 
+		towerPub := tower.IdentityKey.SerializeCompressed()
 		log.Debugf("Attempting session negotiation with tower=%x",
-			tower.IdentityKey.SerializeCompressed())
+			towerPub)
+
+		// Before proceeding, we will reserve a session key index to use
+		// with this specific tower. If one is already reserved, the
+		// existing index will be returned.
+		keyIndex, err := n.cfg.DB.NextSessionKeyIndex(tower.ID)
+		if err != nil {
+			log.Debugf("Unable to reserve session key index "+
+				"for tower=%x: %v", towerPub, err)
+			continue
+		}
 
 		// We'll now attempt the CreateSession dance with the tower to
 		// get a new session, trying all addresses if necessary.
-		err = n.createSession(tower)
+		err = n.createSession(tower, keyIndex)
 		if err != nil {
 			log.Debugf("Session negotiation with tower=%x "+
 				"failed, trying again -- reason: %v",
@@ -277,22 +292,21 @@ retryWithBackoff:
 // its stored addresses. This method returns after the first successful
 // negotiation, or after all addresses have failed with ErrFailedNegotiation. If
 // the tower has no addresses, ErrNoTowerAddrs is returned.
-func (n *sessionNegotiator) createSession(tower *wtdb.Tower) error {
+func (n *sessionNegotiator) createSession(tower *wtdb.Tower,
+	keyIndex uint32) error {
+
 	// If the tower has no addresses, there's nothing we can do.
 	if len(tower.Addresses) == 0 {
 		return ErrNoTowerAddrs
 	}
 
-	// TODO(conner): create with hdkey at random index
-	sessionPrivKey, err := btcec.NewPrivateKey(btcec.S256())
+	sessionPriv, err := DeriveSessionKey(n.cfg.SecretKeyRing, keyIndex)
 	if err != nil {
 		return err
 	}
 
-	// TODO(conner): write towerAddr+privkey
-
 	for _, lnAddr := range tower.LNAddrs() {
-		err = n.tryAddress(sessionPrivKey, tower, lnAddr)
+		err = n.tryAddress(sessionPriv, keyIndex, tower, lnAddr)
 		switch {
 		case err == ErrPermanentTowerFailure:
 			// TODO(conner): report to iterator? can then be reset
@@ -318,7 +332,7 @@ func (n *sessionNegotiator) createSession(tower *wtdb.Tower) error {
 // returns true if all steps succeed and the new session has been persisted, and
 // fails otherwise.
 func (n *sessionNegotiator) tryAddress(privKey *btcec.PrivateKey,
-	tower *wtdb.Tower, lnAddr *lnwire.NetAddress) error {
+	keyIndex uint32, tower *wtdb.Tower, lnAddr *lnwire.NetAddress) error {
 
 	// Connect to the tower address using our generated session key.
 	conn, err := n.cfg.Dial(privKey, lnAddr)
@@ -394,7 +408,8 @@ func (n *sessionNegotiator) tryAddress(privKey *btcec.PrivateKey,
 		clientSession := &wtdb.ClientSession{
 			TowerID:        tower.ID,
 			Tower:          tower,
-			SessionPrivKey: privKey, // remove after using HD keys
+			KeyIndex:       keyIndex,
+			SessionPrivKey: privKey,
 			ID:             sessionID,
 			Policy:         n.cfg.Policy,
 			SeqNum:         0,

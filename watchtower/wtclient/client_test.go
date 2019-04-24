@@ -430,10 +430,11 @@ func newHarness(t *testing.T, cfg harnessCfg) *testHarness {
 		Dial: func(string, string) (net.Conn, error) {
 			return nil, nil
 		},
-		DB:           clientDB,
-		AuthDial:     mockNet.AuthDial,
-		PrivateTower: towerAddr,
-		Policy:       cfg.policy,
+		DB:            clientDB,
+		AuthDial:      mockNet.AuthDial,
+		SecretKeyRing: wtmock.NewSecretKeyRing(),
+		PrivateTower:  towerAddr,
+		Policy:        cfg.policy,
 		NewAddress: func() ([]byte, error) {
 			return addrScript, nil
 		},

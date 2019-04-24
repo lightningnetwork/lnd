@@ -110,7 +110,7 @@ func (m *ClientDB) CreateClientSession(session *wtdb.ClientSession) error {
 		Policy:           session.Policy,
 		SeqNum:           session.SeqNum,
 		TowerLastApplied: session.TowerLastApplied,
-		RewardPkScript:   session.RewardPkScript,
+		RewardPkScript:   cloneBytes(session.RewardPkScript),
 		CommittedUpdates: make(map[uint16]*wtdb.CommittedUpdate),
 		AckedUpdates:     make(map[uint16]wtdb.BackupID),
 	}
@@ -228,7 +228,12 @@ func (m *ClientDB) AddChanPkScript(chanID lnwire.ChannelID, pkScript []byte) err
 }
 
 func cloneBytes(b []byte) []byte {
+	if b == nil {
+		return nil
+	}
+
 	bb := make([]byte, len(b))
 	copy(bb, b)
+
 	return bb
 }

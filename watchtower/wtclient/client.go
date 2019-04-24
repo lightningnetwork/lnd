@@ -356,9 +356,6 @@ func (c *TowerClient) ForceQuit() {
 	c.forced.Do(func() {
 		log.Infof("Force quitting watchtower client")
 
-		// Cancel log message from stop.
-		close(c.forceQuit)
-
 		// 1. Shutdown the backup queue, which will prevent any further
 		// updates from being accepted. In practice, the links should be
 		// shutdown before the client has been stopped, so all updates
@@ -369,6 +366,7 @@ func (c *TowerClient) ForceQuit() {
 		// dispatcher to exit. The backup queue will signal it's
 		// completion to the dispatcher, which releases the wait group
 		// after all tasks have been assigned to session queues.
+		close(c.forceQuit)
 		c.wg.Wait()
 
 		// 3. Since all valid tasks have been assigned to session
@@ -512,6 +510,9 @@ func (c *TowerClient) backupDispatcher() {
 
 			case <-c.statTicker.C:
 				log.Infof("Client stats: %s", c.stats)
+
+			case <-c.forceQuit:
+				return
 			}
 
 		// No active session queue but have additional sessions.

@@ -379,10 +379,11 @@ type testHarness struct {
 }
 
 type harnessCfg struct {
-	localBalance    lnwire.MilliSatoshi
-	remoteBalance   lnwire.MilliSatoshi
-	policy          wtpolicy.Policy
-	noRegisterChan0 bool
+	localBalance       lnwire.MilliSatoshi
+	remoteBalance      lnwire.MilliSatoshi
+	policy             wtpolicy.Policy
+	noRegisterChan0    bool
+	noAckCreateSession bool
 }
 
 func newHarness(t *testing.T, cfg harnessCfg) *testHarness {
@@ -414,6 +415,7 @@ func newHarness(t *testing.T, cfg harnessCfg) *testHarness {
 		NewAddress: func() (btcutil.Address, error) {
 			return addr, nil
 		},
+		NoAckCreateSession: cfg.noAckCreateSession,
 	}
 
 	server, err := wtserver.New(serverCfg)
@@ -726,6 +728,36 @@ func (h *testHarness) waitServerUpdates(hints []wtdb.BreachHint,
 				h.t.Fatalf("breach hints not received, only "+
 					"got %d/%d", len(matches), len(hints))
 			}
+		}
+	}
+}
+
+// assertUpdatesForPolicy queries the server db for matches using the provided
+// breach hints, then asserts that each match has a session with the expected
+// policy.
+func (h *testHarness) assertUpdatesForPolicy(hints []wtdb.BreachHint,
+	expPolicy wtpolicy.Policy) {
+
+	// Query for matches on the provided hints.
+	matches, err := h.serverDB.QueryMatches(hints)
+	if err != nil {
+		h.t.Fatalf("unable to query for matches: %v", err)
+	}
+
+	// Assert that the number of matches is exactly the number of provided
+	// hints.
+	if len(matches) != len(hints) {
+		h.t.Fatalf("expected: %d matches, got: %d", len(hints),
+			len(matches))
+	}
+
+	// Assert that all of the matches correspond to a session with the
+	// expected policy.
+	for _, match := range matches {
+		matchPolicy := match.SessionInfo.Policy
+		if expPolicy != matchPolicy {
+			h.t.Fatalf("expected session to have policy: %v, "+
+				"got: %v", expPolicy, matchPolicy)
 		}
 	}
 }
@@ -1097,6 +1129,119 @@ var clientTests = []clientTest{
 			// Wait for all of the updates to be populated in the
 			// server's database.
 			h.waitServerUpdates(hints, 10*time.Second)
+		},
+	},
+	{
+		name: "create session no ack",
+		cfg: harnessCfg{
+			localBalance:  localBalance,
+			remoteBalance: remoteBalance,
+			policy: wtpolicy.Policy{
+				BlobType:     blob.TypeDefault,
+				MaxUpdates:   5,
+				SweepFeeRate: 1,
+			},
+			noAckCreateSession: true,
+		},
+		fn: func(h *testHarness) {
+			const (
+				chanID     = 0
+				numUpdates = 3
+			)
+
+			// Generate the retributions that will be backed up.
+			hints := h.advanceChannelN(chanID, numUpdates)
+
+			// Now, queue the retributions for backup.
+			h.backupStates(chanID, 0, numUpdates, nil)
+
+			// Since the client is unable to create a session, the
+			// server should have no updates.
+			h.waitServerUpdates(nil, time.Second)
+
+			// Force quit the client since it has queued backups.
+			h.client.ForceQuit()
+
+			// Restart the server and allow it to ack session
+			// creation.
+			h.server.Stop()
+			h.serverCfg.NoAckCreateSession = false
+			h.startServer()
+			defer h.server.Stop()
+
+			// Restart the client with the same policy, which will
+			// immediately try to overwrite the old session with an
+			// identical one.
+			h.startClient()
+			defer h.client.ForceQuit()
+
+			// Now, queue the retributions for backup.
+			h.backupStates(chanID, 0, numUpdates, nil)
+
+			// Wait for all of the updates to be populated in the
+			// server's database.
+			h.waitServerUpdates(hints, 5*time.Second)
+
+			// Assert that the server has updates for the clients
+			// most recent policy.
+			h.assertUpdatesForPolicy(hints, h.clientCfg.Policy)
+		},
+	},
+	{
+		name: "create session no ack change policy",
+		cfg: harnessCfg{
+			localBalance:  localBalance,
+			remoteBalance: remoteBalance,
+			policy: wtpolicy.Policy{
+				BlobType:     blob.TypeDefault,
+				MaxUpdates:   5,
+				SweepFeeRate: 1,
+			},
+			noAckCreateSession: true,
+		},
+		fn: func(h *testHarness) {
+			const (
+				chanID     = 0
+				numUpdates = 3
+			)
+
+			// Generate the retributions that will be backed up.
+			hints := h.advanceChannelN(chanID, numUpdates)
+
+			// Now, queue the retributions for backup.
+			h.backupStates(chanID, 0, numUpdates, nil)
+
+			// Since the client is unable to create a session, the
+			// server should have no updates.
+			h.waitServerUpdates(nil, time.Second)
+
+			// Force quit the client since it has queued backups.
+			h.client.ForceQuit()
+
+			// Restart the server and allow it to ack session
+			// creation.
+			h.server.Stop()
+			h.serverCfg.NoAckCreateSession = false
+			h.startServer()
+			defer h.server.Stop()
+
+			// Restart the client with a new policy, which will
+			// immediately try to overwrite the prior session with
+			// the old policy.
+			h.clientCfg.Policy.SweepFeeRate = 2
+			h.startClient()
+			defer h.client.ForceQuit()
+
+			// Now, queue the retributions for backup.
+			h.backupStates(chanID, 0, numUpdates, nil)
+
+			// Wait for all of the updates to be populated in the
+			// server's database.
+			h.waitServerUpdates(hints, 5*time.Second)
+
+			// Assert that the server has updates for the clients
+			// most recent policy.
+			h.assertUpdatesForPolicy(hints, h.clientCfg.Policy)
 		},
 	},
 }

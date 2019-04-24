@@ -5,6 +5,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/lightningnetwork/lnd/brontide"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/watchtower/wtdb"
 	"github.com/lightningnetwork/lnd/watchtower/wtserver"
@@ -76,4 +77,12 @@ func AuthDial(localPriv *btcec.PrivateKey, netAddr *lnwire.NetAddress,
 	dialer func(string, string) (net.Conn, error)) (wtserver.Peer, error) {
 
 	return brontide.Dial(localPriv, netAddr, dialer)
+}
+
+// SecretKeyRing abstracts the ability to derive HD private keys given a
+// description of the derivation path.
+type SecretKeyRing interface {
+	// DerivePrivKey derives the private key from the root seed using a
+	// key descriptor specifying the key's derivation path.
+	DerivePrivKey(loc keychain.KeyDescriptor) (*btcec.PrivateKey, error)
 }

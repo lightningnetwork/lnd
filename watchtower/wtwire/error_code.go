@@ -46,6 +46,8 @@ func (c ErrorCode) String() string {
 		return "StateUpdateCodeMaxUpdatesExceeded"
 	case StateUpdateCodeSeqNumOutOfOrder:
 		return "StateUpdateCodeSeqNumOutOfOrder"
+	case DeleteSessionCodeNotFound:
+		return "DeleteSessionCodeNotFound"
 	default:
 		return fmt.Sprintf("UnknownErrorCode: %d", c)
 	}

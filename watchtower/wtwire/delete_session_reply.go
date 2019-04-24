@@ -12,8 +12,6 @@ const (
 	// client side, or that the tower had already deleted the session in a
 	// prior request that the client may not have received.
 	DeleteSessionCodeNotFound DeleteSessionCode = 80
-
-	// TODO(conner): add String method after wtclient is merged
 )
 
 // DeleteSessionReply is a message sent in response to a client's DeleteSession

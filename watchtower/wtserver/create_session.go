@@ -21,11 +21,15 @@ func (s *Server) handleCreateSession(peer Peer, id *wtdb.SessionID,
 	existingInfo, err := s.cfg.DB.GetSessionInfo(id)
 	switch {
 
+	// We already have a session, though it is currently unused. We'll allow
+	// the client to recommit the session if it wanted to change the policy.
+	case err == nil && existingInfo.LastApplied == 0:
+
 	// We already have a session corresponding to this session id, return an
 	// error signaling that it already exists in our database. We return the
 	// reward address to the client in case they were not able to process
 	// our reply earlier.
-	case err == nil:
+	case err == nil && existingInfo.LastApplied > 0:
 		log.Debugf("Already have session for %s", id)
 		return s.replyCreateSession(
 			peer, id, wtwire.CreateSessionCodeAlreadyExists,

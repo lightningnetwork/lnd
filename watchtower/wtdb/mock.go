@@ -61,7 +61,8 @@ func (db *MockDB) InsertSessionInfo(info *SessionInfo) error {
 	db.mu.Lock()
 	defer db.mu.Unlock()
 
-	if _, ok := db.sessions[info.ID]; ok {
+	dbInfo, ok := db.sessions[info.ID]
+	if ok && dbInfo.LastApplied > 0 {
 		return ErrSessionAlreadyExists
 	}
 

@@ -54,22 +54,27 @@ func (s *Server) handleCreateSession(peer Peer, id *wtdb.SessionID,
 	// client. This address is to be included by the client when signing
 	// sweep transactions destined for this tower, if its negotiated output
 	// is not dust.
-	rewardAddress, err := s.cfg.NewAddress()
-	if err != nil {
-		log.Errorf("unable to generate reward addr for %s", id)
-		return s.replyCreateSession(
-			peer, id, wtwire.CodeTemporaryFailure, nil,
-		)
-	}
+	var rewardScript []byte
+	if req.BlobType.Has(blob.FlagReward) {
+		rewardAddress, err := s.cfg.NewAddress()
+		if err != nil {
+			log.Errorf("Unable to generate reward addr for %s: %v",
+				id, err)
+			return s.replyCreateSession(
+				peer, id, wtwire.CodeTemporaryFailure, nil,
+			)
+		}
 
-	// Construct the pkscript the client should pay to when signing justice
-	// transactions for this session.
-	rewardScript, err := txscript.PayToAddrScript(rewardAddress)
-	if err != nil {
-		log.Errorf("unable to generate reward script for %s", id)
-		return s.replyCreateSession(
-			peer, id, wtwire.CodeTemporaryFailure, nil,
-		)
+		// Construct the pkscript the client should pay to when signing
+		// justice transactions for this session.
+		rewardScript, err = txscript.PayToAddrScript(rewardAddress)
+		if err != nil {
+			log.Errorf("Unable to generate reward script for "+
+				"%s: %v", id, err)
+			return s.replyCreateSession(
+				peer, id, wtwire.CodeTemporaryFailure, nil,
+			)
+		}
 	}
 
 	// TODO(conner): create invoice for upfront payment

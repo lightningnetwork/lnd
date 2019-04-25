@@ -7984,16 +7984,25 @@ func testDataLossProtection(net *lntest.NetworkHarness, t *harnessTest) {
 	mineBlocks(t, net, 1, 1)
 	assertNodeNumChannels(t, dave, 0)
 
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	daveBalResp, err := dave.WalletBalance(ctxt, balReq)
-	if err != nil {
-		t.Fatalf("unable to get dave's balance: %v", err)
-	}
+	err = lntest.WaitNoError(func() error {
+		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+		daveBalResp, err := dave.WalletBalance(ctxt, balReq)
+		if err != nil {
+			return fmt.Errorf("unable to get dave's balance: %v",
+				err)
+		}
 
-	daveBalance := daveBalResp.ConfirmedBalance
-	if daveBalance <= daveStartingBalance {
-		t.Fatalf("expected dave to have balance above %d, intead had %v",
-			daveStartingBalance, daveBalance)
+		daveBalance := daveBalResp.ConfirmedBalance
+		if daveBalance <= daveStartingBalance {
+			return fmt.Errorf("expected dave to have balance "+
+				"above %d, intead had %v", daveStartingBalance,
+				daveBalance)
+		}
+
+		return nil
+	}, time.Second*15)
+	if err != nil {
+		t.Fatalf("%v", err)
 	}
 }
 

@@ -4321,7 +4321,7 @@ func receiveHtlcAliceToBob(t *testing.T, aliceMsgs <-chan lnwire.Message,
 	var msg lnwire.Message
 	select {
 	case msg = <-aliceMsgs:
-	case <-time.After(15 * time.Second):
+	case <-time.After(3 * time.Second):
 		t.Fatalf("did not received htlc from alice")
 	}
 
@@ -4398,7 +4398,7 @@ func receiveCommitSigAliceToBob(t *testing.T, aliceMsgs chan lnwire.Message,
 	var msg lnwire.Message
 	select {
 	case msg = <-aliceMsgs:
-	case <-time.After(15 * time.Second):
+	case <-time.After(3 * time.Second):
 		t.Fatalf("did not receive message")
 	}
 
@@ -4443,7 +4443,7 @@ func receiveSettleAliceToBob(t *testing.T, aliceMsgs chan lnwire.Message,
 	var msg lnwire.Message
 	select {
 	case msg = <-aliceMsgs:
-	case <-time.After(15 * time.Second):
+	case <-time.After(5 * time.Second):
 		t.Fatalf("did not receive message")
 	}
 
@@ -4726,6 +4726,57 @@ func TestChannelLinkWaitForRevocation(t *testing.T) {
 		t.Fatalf("did not expect message from Alice")
 	case <-time.After(50 * time.Millisecond):
 	}
+}
+
+func TestChannelLinkEmptySig(t *testing.T) {
+	t.Parallel()
+
+	const chanAmt = btcutil.SatoshiPerBitcoin * 5
+	const chanReserve = btcutil.SatoshiPerBitcoin * 1
+	aliceLink, bobChannel, batchTicker, start, cleanUp, _, err :=
+		newSingleLinkTestHarness(chanAmt, chanReserve)
+	if err != nil {
+		t.Fatalf("unable to create link: %v", err)
+	}
+	defer cleanUp()
+
+	if err := start(); err != nil {
+		t.Fatalf("unable to start test harness: %v", err)
+	}
+
+	var (
+		coreLink  = aliceLink.(*channelLink)
+		aliceMsgs = coreLink.cfg.Peer.(*mockPeer).sentMsgs
+	)
+
+	htlc, _ := generateHtlcAndInvoice(t, 0)
+
+	// First, send an Add from Alice to Bob.
+	sendHtlcAliceToBob(t, aliceLink, 0, htlc)
+	receiveHtlcAliceToBob(t, aliceMsgs, bobChannel)
+
+	// Tick the batch ticker to trigger a commitsig from Alice->Bob.
+	select {
+	case batchTicker <- time.Now():
+	case <-time.After(5 * time.Second):
+		t.Fatalf("could not force commit sig")
+	}
+
+	// Receive a CommitSig from Alice covering the Add from above.
+	receiveCommitSigAliceToBob(t, aliceMsgs, aliceLink, bobChannel, 1)
+
+	// Make Bob send a CommitSig. Since he hasn't acked the Add yet, it
+	// will be empty.
+	sendCommitSigBobToAlice(t, aliceLink, bobChannel, 0)
+
+	// Wait for RevokeAndAck Alice->Bob.
+	receiveRevAndAckAliceToBob(t, aliceMsgs, aliceLink, bobChannel)
+
+	// Send RevokeAndAck Bob->Alice.
+	sendRevAndAckBobToAlice(t, aliceLink, bobChannel)
+
+	// THIS SHOULD NOT HAPPEN! No new updates to sign.
+	receiveCommitSigAliceToBob(t, aliceMsgs, aliceLink, bobChannel, 1)
 }
 
 // TestChannelLinkBatchPreimageWrite asserts that a link will batch preimage

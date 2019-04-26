@@ -2,7 +2,7 @@
 // Copyright (c) 2015-2016 The Decred developers
 // Copyright (C) 2015-2017 The Lightning Network Developers
 
-package main
+package lnd
 
 import (
 	"bytes"
@@ -18,13 +18,15 @@ import (
 	"math/big"
 	"net"
 	"net/http"
-	_ "net/http/pprof"
 	"os"
 	"path/filepath"
 	"runtime/pprof"
 	"strings"
 	"sync"
 	"time"
+
+	// Blank import to set up profiling HTTP handlers.
+	_ "net/http/pprof"
 
 	"gopkg.in/macaroon-bakery.v2/bakery"
 
@@ -36,7 +38,6 @@ import (
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcwallet/wallet"
 	proxy "github.com/grpc-ecosystem/grpc-gateway/runtime"
-	flags "github.com/jessevdk/go-flags"
 	"github.com/lightninglabs/neutrino"
 
 	"github.com/lightningnetwork/lnd/autopilot"
@@ -89,10 +90,10 @@ var (
 	}
 )
 
-// lndMain is the true entry point for lnd. This function is required since
-// defers created in the top-level scope of a main method aren't executed if
-// os.Exit() is called.
-func lndMain() error {
+// Main is the true entry point for lnd. This function is required since defers
+// created in the top-level scope of a main method aren't executed if os.Exit()
+// is called.
+func Main() error {
 	// Load the configuration, and parse any command line options. This
 	// function will also set up logging properly.
 	loadedConfig, err := loadConfig()
@@ -466,18 +467,6 @@ func getTLSConfig(cfg *config) (*tls.Config, *credentials.TransportCredentials,
 	}
 
 	return tlsCfg, &restCreds, restProxyDest, nil
-}
-
-func main() {
-	// Call the "real" main in a nested manner so the defers will properly
-	// be executed in the case of a graceful shutdown.
-	if err := lndMain(); err != nil {
-		if e, ok := err.(*flags.Error); ok && e.Type == flags.ErrHelp {
-		} else {
-			fmt.Fprintln(os.Stderr, err)
-		}
-		os.Exit(1)
-	}
 }
 
 // fileExists reports whether the named file or directory exists.

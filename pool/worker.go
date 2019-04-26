@@ -13,7 +13,7 @@ var ErrWorkerPoolExiting = errors.New("worker pool exiting")
 // DefaultWorkerTimeout is the default duration after which a worker goroutine
 // will exit to free up resources after having received no newly submitted
 // tasks.
-const DefaultWorkerTimeout = 5 * time.Second
+const DefaultWorkerTimeout = 90 * time.Second
 
 type (
 	// WorkerState is an interface used by the Worker to abstract the

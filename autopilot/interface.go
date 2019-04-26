@@ -9,6 +9,11 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
+// DefaultConfTarget is the default confirmation target for autopilot channels.
+// TODO(halseth): possibly make dynamic, going aggressive->lax as more channels
+// are opened.
+const DefaultConfTarget = 3
+
 // Node node is an interface which represents n abstract vertex within the
 // channel graph. All nodes should have at least a single edge to/from them
 // within the graph.

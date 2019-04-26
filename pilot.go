@@ -84,7 +84,9 @@ func (c *chanController) OpenChannel(target *btcec.PublicKey,
 
 	// With the connection established, we'll now establish our connection
 	// to the target peer, waiting for the first update before we exit.
-	feePerKw, err := c.server.cc.feeEstimator.EstimateFeePerKW(3)
+	feePerKw, err := c.server.cc.feeEstimator.EstimateFeePerKW(
+		autopilot.DefaultConfTarget,
+	)
 	if err != nil {
 		return err
 	}

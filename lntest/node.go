@@ -494,6 +494,43 @@ func (hn *HarnessNode) initLightningClient(conn *grpc.ClientConn) error {
 		return err
 	}
 
+	// Due to a race condition between the ChannelRouter starting and us
+	// making the subscription request, it's possible for our graph
+	// subscription to fail. To ensure we don't start listening for updates
+	// until then, we'll create a dummy subscription to ensure we can do so
+	// successfully before proceeding. We use a dummy subscription in order
+	// to not consume an update from the real one.
+	err = WaitNoError(func() error {
+		req := &lnrpc.GraphTopologySubscription{}
+		ctx, cancelFunc := context.WithCancel(context.Background())
+		topologyClient, err := hn.SubscribeChannelGraph(ctx, req)
+		if err != nil {
+			return err
+		}
+
+		// We'll wait to receive an error back within a one second
+		// timeout. This is needed since creating the client's stream is
+		// independent of the graph subscription being created. The
+		// stream is closed from the server's side upon an error.
+		errChan := make(chan error, 1)
+		go func() {
+			if _, err := topologyClient.Recv(); err != nil {
+				errChan <- err
+			}
+		}()
+
+		select {
+		case err = <-errChan:
+		case <-time.After(time.Second):
+		}
+
+		cancelFunc()
+		return err
+	}, DefaultTimeout)
+	if err != nil {
+		return err
+	}
+
 	// Launch the watcher that will hook into graph related topology change
 	// from the PoV of this node.
 	hn.wg.Add(1)

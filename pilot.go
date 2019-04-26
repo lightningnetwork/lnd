@@ -14,6 +14,11 @@ import (
 	"github.com/lightningnetwork/lnd/tor"
 )
 
+// targetConf is the confirmation target for autopilot channels.
+// TODO(halseth): make configurable? possibly dynamic, going aggressive->lax as
+// more channels are opened.
+const targetConf = 3
+
 // validateAtplConfig is a helper method that makes sure the passed
 // configuration is sane. Currently it checks that the heuristic configuration
 // makes sense. In case the config is valid, it will return a list of
@@ -84,7 +89,7 @@ func (c *chanController) OpenChannel(target *btcec.PublicKey,
 
 	// With the connection established, we'll now establish our connection
 	// to the target peer, waiting for the first update before we exit.
-	feePerKw, err := c.server.cc.feeEstimator.EstimateFeePerKW(3)
+	feePerKw, err := c.server.cc.feeEstimator.EstimateFeePerKW(targetConf)
 	if err != nil {
 		return err
 	}

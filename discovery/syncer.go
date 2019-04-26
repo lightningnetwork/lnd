@@ -18,16 +18,23 @@ import (
 type SyncerType uint8
 
 const (
-	// ActiveSync denotes that a gossip syncer should exercise its default
-	// behavior. This includes reconciling the set of missing graph updates
-	// with the remote peer _and_ receiving new updates from them.
+	// ActiveSync denotes that a gossip syncer:
+	//
+	// 1. Should not attempt to synchronize with the remote peer for
+	//    missing channels.
+	// 2. Should respond to queries from the remote peer.
+	// 3. Should receive new updates from the remote peer.
+	//
+	// They are started in a chansSynced state in order to accomplish their
+	// responsibilities above.
 	ActiveSync SyncerType = iota
 
 	// PassiveSync denotes that a gossip syncer:
 	//
-	//   1. Should not attempt to query the remote peer for graph updates.
-	//   2. Should respond to queries from the remote peer.
-	//   3. Should not receive new updates from the remote peer.
+	// 1. Should not attempt to synchronize with the remote peer for
+	//    missing channels.
+	// 2. Should respond to queries from the remote peer.
+	// 3. Should not receive new updates from the remote peer.
 	//
 	// They are started in a chansSynced state in order to accomplish their
 	// responsibilities above.
@@ -161,6 +168,14 @@ type syncTransitionReq struct {
 	errChan     chan error
 }
 
+// historicalSyncReq encapsulates a request for a gossip syncer to perform a
+// historical sync.
+type historicalSyncReq struct {
+	// doneChan is a channel that serves as a signal and is closed to ensure
+	// the historical sync is attempted by the time we return to the caller.
+	doneChan chan struct{}
+}
+
 // gossipSyncerCfg is a struct that packages all the information a GossipSyncer
 // needs to carry out its duties.
 type gossipSyncerCfg struct {
@@ -246,7 +261,7 @@ type GossipSyncer struct {
 	// gossip syncer to perform a historical sync. Theese can only be done
 	// once the gossip syncer is in a chansSynced state to ensure its state
 	// machine behaves as expected.
-	historicalSyncReqs chan struct{}
+	historicalSyncReqs chan *historicalSyncReq
 
 	// genHistoricalChanRangeQuery when true signals to the gossip syncer
 	// that it should request the remote peer for all of its known channel
@@ -315,7 +330,7 @@ func newGossipSyncer(cfg gossipSyncerCfg) *GossipSyncer {
 		cfg:                cfg,
 		rateLimiter:        rateLimiter,
 		syncTransitionReqs: make(chan *syncTransitionReq),
-		historicalSyncReqs: make(chan struct{}),
+		historicalSyncReqs: make(chan *historicalSyncReq),
 		gossipMsgs:         make(chan lnwire.Message, 100),
 		quit:               make(chan struct{}),
 	}
@@ -515,8 +530,8 @@ func (g *GossipSyncer) channelGraphSyncer() {
 			case req := <-g.syncTransitionReqs:
 				req.errChan <- g.handleSyncTransition(req)
 
-			case <-g.historicalSyncReqs:
-				g.handleHistoricalSync()
+			case req := <-g.historicalSyncReqs:
+				g.handleHistoricalSync(req)
 
 			case <-g.quit:
 				return
@@ -1128,7 +1143,6 @@ func (g *GossipSyncer) handleSyncTransition(req *syncTransitionReq) error {
 	var (
 		firstTimestamp time.Time
 		timestampRange uint32
-		newState       syncerState
 	)
 
 	switch req.newSyncType {
@@ -1137,11 +1151,6 @@ func (g *GossipSyncer) handleSyncTransition(req *syncTransitionReq) error {
 	case ActiveSync:
 		firstTimestamp = time.Now()
 		timestampRange = math.MaxUint32
-		newState = syncingChans
-
-		// We'll set genHistoricalChanRangeQuery to false since in order
-		// to not perform another historical sync if we previously have.
-		g.genHistoricalChanRangeQuery = false
 
 	// If a PassiveSync transition has been requested, then we should no
 	// longer receive any new updates from the remote peer. We can do this
@@ -1150,7 +1159,6 @@ func (g *GossipSyncer) handleSyncTransition(req *syncTransitionReq) error {
 	case PassiveSync:
 		firstTimestamp = zeroTimestamp
 		timestampRange = 0
-		newState = chansSynced
 
 	default:
 		return fmt.Errorf("unhandled sync transition %v",
@@ -1162,7 +1170,6 @@ func (g *GossipSyncer) handleSyncTransition(req *syncTransitionReq) error {
 		return fmt.Errorf("unable to send local update horizon: %v", err)
 	}
 
-	g.setSyncState(newState)
 	g.setSyncType(req.newSyncType)
 
 	return nil
@@ -1184,11 +1191,21 @@ func (g *GossipSyncer) SyncType() SyncerType {
 // NOTE: This can only be done once the gossip syncer has reached its final
 // chansSynced state.
 func (g *GossipSyncer) historicalSync() error {
+	done := make(chan struct{})
+
 	select {
-	case g.historicalSyncReqs <- struct{}{}:
-		return nil
+	case g.historicalSyncReqs <- &historicalSyncReq{
+		doneChan: done,
+	}:
 	case <-time.After(syncTransitionTimeout):
 		return ErrSyncTransitionTimeout
+	case <-g.quit:
+		return ErrGossiperShuttingDown
+	}
+
+	select {
+	case <-done:
+		return nil
 	case <-g.quit:
 		return ErrGossiperShuttingDown
 	}
@@ -1196,10 +1213,11 @@ func (g *GossipSyncer) historicalSync() error {
 
 // handleHistoricalSync handles a request to the gossip syncer to perform a
 // historical sync.
-func (g *GossipSyncer) handleHistoricalSync() {
+func (g *GossipSyncer) handleHistoricalSync(req *historicalSyncReq) {
 	// We'll go back to our initial syncingChans state in order to request
 	// the remote peer to give us all of the channel IDs they know of
 	// starting from the genesis block.
 	g.genHistoricalChanRangeQuery = true
 	g.setSyncState(syncingChans)
+	close(req.doneChan)
 }

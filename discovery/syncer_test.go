@@ -2014,8 +2014,7 @@ func TestGossipSyncerSyncTransitions(t *testing.T) {
 				syncState := g.syncState()
 				if syncState != chansSynced {
 					t.Fatalf("expected syncerState %v, "+
-						"got %v", chansSynced,
-						syncState)
+						"got %v", chansSynced, syncState)
 				}
 			},
 		},
@@ -2037,21 +2036,10 @@ func TestGossipSyncerSyncTransitions(t *testing.T) {
 					TimestampRange: math.MaxUint32,
 				})
 
-				// The local update horizon should be followed
-				// by a QueryChannelRange message sent to the
-				// remote peer requesting all channels it
-				// knows of from the highest height the syncer
-				// knows of.
-				assertMsgSent(t, msgChan, &lnwire.QueryChannelRange{
-					FirstBlockHeight: startHeight,
-					NumBlocks:        math.MaxUint32 - startHeight,
-				})
-
 				syncState := g.syncState()
-				if syncState != waitingQueryRangeReply {
+				if syncState != chansSynced {
 					t.Fatalf("expected syncerState %v, "+
-						"got %v", waitingQueryRangeReply,
-						syncState)
+						"got %v", chansSynced, syncState)
 				}
 			},
 		},

@@ -203,4 +203,8 @@ type ChannelController interface {
 	// splice out mechanism. The removed funds from the channel should be
 	// returned to an output under the control of the backing wallet.
 	SpliceOut(chanPoint *wire.OutPoint, amt btcutil.Amount) (*Channel, error)
+
+	// FeeEstimate returns the total estimated fee needed for the autopilot
+	// to open channels of the given sizes.
+	FeeEstimate(chanSize []btcutil.Amount) (btcutil.Amount, error)
 }

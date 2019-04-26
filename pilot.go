@@ -3,6 +3,7 @@ package lnd
 import (
 	"errors"
 	"fmt"
+	"math"
 	"net"
 
 	"github.com/btcsuite/btcd/btcec"
@@ -10,6 +11,8 @@ import (
 	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/autopilot"
+	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tor"
 )
@@ -132,6 +135,74 @@ func (c *chanController) SpliceIn(chanPoint *wire.OutPoint,
 func (c *chanController) SpliceOut(chanPoint *wire.OutPoint,
 	amt btcutil.Amount) (*autopilot.Channel, error) {
 	return nil, nil
+}
+
+// FeeEstimate returns the total estimated fee needed for the autopilot to open
+// channels of the given sizes. Since we currently open each channel in a
+// separate tx, the combined fee estimate will just be the sum of the
+// individual ones.
+func (c *chanController) FeeEstimate(chanSizes []btcutil.Amount) (
+	btcutil.Amount, error) {
+
+	// Find all unlocked unspent witness outputs that satisfy the minimum
+	// number of confirmations required.
+	coins, err := c.server.cc.wallet.ListUnspentWitness(
+		c.minConfs, math.MaxInt32,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	// Since we currently open each channel in a separate tx, the combined
+	// fee estimate will just be the sum of the individual ones. We attempt
+	// to mimic the coin selection done in the wallet. This won't be
+	// totally accurate (coins can be selected differently when the
+	// channels are actually being opened), but this is just an estimate
+	// soooo ¯\_(ツ)_/¯
+	var totalWeight int64
+	currentCoin := 0
+	for _, amt := range chanSizes {
+		var weightEstimate input.TxWeightEstimator
+
+		// Channel funding multisig output is P2WSH.
+		weightEstimate.AddP2WSHOutput()
+
+		// Change output is a P2WKH output.
+		weightEstimate.AddP2WKHOutput()
+
+		satSelected := btcutil.Amount(0)
+		for currentCoin < len(coins) {
+			coin := coins[currentCoin]
+			currentCoin++
+
+			switch coin.AddressType {
+			case lnwallet.WitnessPubKey:
+				weightEstimate.AddP2WKHInput()
+			case lnwallet.NestedWitnessPubKey:
+				weightEstimate.AddNestedP2WKHInput()
+			default:
+				return 0, fmt.Errorf("unsupported address: %v",
+					coin.AddressType)
+			}
+
+			satSelected += coin.Value
+			if satSelected >= amt {
+				// We have enough inputs for this channel.
+				break
+			}
+		}
+
+		totalWeight += int64(weightEstimate.Weight())
+	}
+
+	// Return the total fee required to pay for all the channel openings.
+	feePerKw, err := c.server.cc.feeEstimator.EstimateFeePerKW(targetConf)
+	if err != nil {
+		return 0, err
+	}
+
+	totalFee := feePerKw.FeeForWeight(totalWeight)
+	return totalFee, nil
 }
 
 // A compile time assertion to ensure chanController meets the

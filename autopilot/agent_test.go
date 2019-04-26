@@ -122,6 +122,7 @@ type openChanIntent struct {
 type mockChanController struct {
 	openChanSignals chan openChanIntent
 	private         bool
+	feeEstimate     btcutil.Amount
 }
 
 func (m *mockChanController) OpenChannel(target *btcec.PublicKey,
@@ -146,6 +147,11 @@ func (m *mockChanController) SpliceIn(chanPoint *wire.OutPoint,
 func (m *mockChanController) SpliceOut(chanPoint *wire.OutPoint,
 	amt btcutil.Amount) (*Channel, error) {
 	return nil, nil
+}
+
+func (m *mockChanController) FeeEstimate(chanSize []btcutil.Amount) (
+	btcutil.Amount, error) {
+	return m.feeEstimate, nil
 }
 
 var _ ChannelController = (*mockChanController)(nil)
@@ -349,6 +355,11 @@ func (m *mockFailingChanController) SpliceIn(chanPoint *wire.OutPoint,
 func (m *mockFailingChanController) SpliceOut(chanPoint *wire.OutPoint,
 	amt btcutil.Amount) (*Channel, error) {
 	return nil, nil
+}
+
+func (m *mockFailingChanController) FeeEstimate(chanSize []btcutil.Amount) (
+	btcutil.Amount, error) {
+	return 0, nil
 }
 
 var _ ChannelController = (*mockFailingChanController)(nil)

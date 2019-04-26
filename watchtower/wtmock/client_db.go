@@ -22,6 +22,9 @@ type ClientDB struct {
 	activeSessions map[wtdb.SessionID]*wtdb.ClientSession
 	towerIndex     map[towerPK]uint64
 	towers         map[uint64]*wtdb.Tower
+
+	nextIndex uint32
+	indexes   map[uint64]uint32
 }
 
 // NewClientDB initializes a new mock ClientDB.
@@ -31,6 +34,7 @@ func NewClientDB() *ClientDB {
 		activeSessions: make(map[wtdb.SessionID]*wtdb.ClientSession),
 		towerIndex:     make(map[towerPK]uint64),
 		towers:         make(map[uint64]*wtdb.Tower),
+		indexes:        make(map[uint64]uint32),
 	}
 }
 
@@ -64,6 +68,18 @@ func (m *ClientDB) CreateTower(lnAddr *lnwire.NetAddress) (*wtdb.Tower, error) {
 	return tower, nil
 }
 
+// LoadTower retrieves a tower by its tower ID.
+func (m *ClientDB) LoadTower(towerID uint64) (*wtdb.Tower, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if tower, ok := m.towers[towerID]; ok {
+		return tower, nil
+	}
+
+	return nil, wtdb.ErrTowerNotFound
+}
+
 // MarkBackupIneligible records that particular commit height is ineligible for
 // backup. This allows the client to track which updates it should not attempt
 // to retry after startup.
@@ -90,21 +106,55 @@ func (m *ClientDB) CreateClientSession(session *wtdb.ClientSession) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	// Ensure that a session key index has been reserved for this tower.
+	keyIndex, ok := m.indexes[session.TowerID]
+	if !ok {
+		return wtdb.ErrNoReservedKeyIndex
+	}
+
+	// Ensure that the session's index matches the reserved index.
+	if keyIndex != session.KeyIndex {
+		return wtdb.ErrIncorrectKeyIndex
+	}
+
+	// Remove the key index reservation for this tower. Once committed, this
+	// permits us to create another session with this tower.
+	delete(m.indexes, session.TowerID)
+
 	m.activeSessions[session.ID] = &wtdb.ClientSession{
 		TowerID:          session.TowerID,
-		Tower:            session.Tower,
-		SessionKeyDesc:   session.SessionKeyDesc,
-		SessionPrivKey:   session.SessionPrivKey,
+		KeyIndex:         session.KeyIndex,
 		ID:               session.ID,
 		Policy:           session.Policy,
 		SeqNum:           session.SeqNum,
 		TowerLastApplied: session.TowerLastApplied,
-		RewardPkScript:   session.RewardPkScript,
+		RewardPkScript:   cloneBytes(session.RewardPkScript),
 		CommittedUpdates: make(map[uint16]*wtdb.CommittedUpdate),
 		AckedUpdates:     make(map[uint16]wtdb.BackupID),
 	}
 
 	return nil
+}
+
+// NextSessionKeyIndex reserves a new session key derivation index for a
+// particular tower id. The index is reserved for that tower until
+// CreateClientSession is invoked for that tower and index, at which point a new
+// index for that tower can be reserved. Multiple calls to this method before
+// CreateClientSession is invoked should return the same index.
+func (m *ClientDB) NextSessionKeyIndex(towerID uint64) (uint32, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if index, ok := m.indexes[towerID]; ok {
+		return index, nil
+	}
+
+	index := m.nextIndex
+	m.indexes[towerID] = index
+
+	m.nextIndex++
+
+	return index, nil
 }
 
 // CommitUpdate persists the CommittedUpdate provided in the slot for (session,
@@ -217,7 +267,12 @@ func (m *ClientDB) AddChanPkScript(chanID lnwire.ChannelID, pkScript []byte) err
 }
 
 func cloneBytes(b []byte) []byte {
+	if b == nil {
+		return nil
+	}
+
 	bb := make([]byte, len(b))
 	copy(bb, b)
+
 	return bb
 }

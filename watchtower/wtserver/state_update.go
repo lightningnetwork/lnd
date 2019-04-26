@@ -117,7 +117,7 @@ func (s *Server) handleStateUpdate(peer Peer, id *wtdb.SessionID,
 	if s.cfg.NoAckUpdates {
 		return &connFailure{
 			ID:   *id,
-			Code: uint16(failCode),
+			Code: failCode,
 		}
 	}
 
@@ -152,6 +152,6 @@ func (s *Server) replyStateUpdate(peer Peer, id *wtdb.SessionID,
 	// disconnect the client.
 	return &connFailure{
 		ID:   *id,
-		Code: uint16(code),
+		Code: code,
 	}
 }

@@ -21,45 +21,26 @@ func (s *Server) handleCreateSession(peer Peer, id *wtdb.SessionID,
 	existingInfo, err := s.cfg.DB.GetSessionInfo(id)
 	switch {
 
+	// We already have a session, though it is currently unused. We'll allow
+	// the client to recommit the session if it wanted to change the policy.
+	case err == nil && existingInfo.LastApplied == 0:
+
 	// We already have a session corresponding to this session id, return an
 	// error signaling that it already exists in our database. We return the
 	// reward address to the client in case they were not able to process
 	// our reply earlier.
-	case err == nil:
+	case err == nil && existingInfo.LastApplied > 0:
 		log.Debugf("Already have session for %s", id)
 		return s.replyCreateSession(
 			peer, id, wtwire.CreateSessionCodeAlreadyExists,
-			existingInfo.RewardAddress,
+			existingInfo.LastApplied, existingInfo.RewardAddress,
 		)
 
 	// Some other database error occurred, return a temporary failure.
 	case err != wtdb.ErrSessionNotFound:
 		log.Errorf("unable to load session info for %s", id)
 		return s.replyCreateSession(
-			peer, id, wtwire.CodeTemporaryFailure, nil,
-		)
-	}
-
-	// Now that we've established that this session does not exist in the
-	// database, retrieve the sweep address that will be given to the
-	// client. This address is to be included by the client when signing
-	// sweep transactions destined for this tower, if its negotiated output
-	// is not dust.
-	rewardAddress, err := s.cfg.NewAddress()
-	if err != nil {
-		log.Errorf("unable to generate reward addr for %s", id)
-		return s.replyCreateSession(
-			peer, id, wtwire.CodeTemporaryFailure, nil,
-		)
-	}
-
-	// Construct the pkscript the client should pay to when signing justice
-	// transactions for this session.
-	rewardScript, err := txscript.PayToAddrScript(rewardAddress)
-	if err != nil {
-		log.Errorf("unable to generate reward script for %s", id)
-		return s.replyCreateSession(
-			peer, id, wtwire.CodeTemporaryFailure, nil,
+			peer, id, wtwire.CodeTemporaryFailure, 0, nil,
 		)
 	}
 
@@ -68,8 +49,37 @@ func (s *Server) handleCreateSession(peer Peer, id *wtdb.SessionID,
 		log.Debugf("Rejecting CreateSession from %s, unsupported blob "+
 			"type %s", id, req.BlobType)
 		return s.replyCreateSession(
-			peer, id, wtwire.CreateSessionCodeRejectBlobType, nil,
+			peer, id, wtwire.CreateSessionCodeRejectBlobType, 0,
+			nil,
 		)
+	}
+
+	// Now that we've established that this session does not exist in the
+	// database, retrieve the sweep address that will be given to the
+	// client. This address is to be included by the client when signing
+	// sweep transactions destined for this tower, if its negotiated output
+	// is not dust.
+	var rewardScript []byte
+	if req.BlobType.Has(blob.FlagReward) {
+		rewardAddress, err := s.cfg.NewAddress()
+		if err != nil {
+			log.Errorf("Unable to generate reward addr for %s: %v",
+				id, err)
+			return s.replyCreateSession(
+				peer, id, wtwire.CodeTemporaryFailure, 0, nil,
+			)
+		}
+
+		// Construct the pkscript the client should pay to when signing
+		// justice transactions for this session.
+		rewardScript, err = txscript.PayToAddrScript(rewardAddress)
+		if err != nil {
+			log.Errorf("Unable to generate reward script for "+
+				"%s: %v", id, err)
+			return s.replyCreateSession(
+				peer, id, wtwire.CodeTemporaryFailure, 0, nil,
+			)
+		}
 	}
 
 	// TODO(conner): create invoice for upfront payment
@@ -94,14 +104,14 @@ func (s *Server) handleCreateSession(peer Peer, id *wtdb.SessionID,
 	if err != nil {
 		log.Errorf("unable to create session for %s", id)
 		return s.replyCreateSession(
-			peer, id, wtwire.CodeTemporaryFailure, nil,
+			peer, id, wtwire.CodeTemporaryFailure, 0, nil,
 		)
 	}
 
 	log.Infof("Accepted session for %s", id)
 
 	return s.replyCreateSession(
-		peer, id, wtwire.CodeOK, rewardScript,
+		peer, id, wtwire.CodeOK, 0, rewardScript,
 	)
 }
 
@@ -110,11 +120,19 @@ func (s *Server) handleCreateSession(peer Peer, id *wtdb.SessionID,
 // Otherwise, this method returns a connection error to ensure we don't continue
 // communication with the client.
 func (s *Server) replyCreateSession(peer Peer, id *wtdb.SessionID,
-	code wtwire.ErrorCode, data []byte) error {
+	code wtwire.ErrorCode, lastApplied uint16, data []byte) error {
+
+	if s.cfg.NoAckCreateSession {
+		return &connFailure{
+			ID:   *id,
+			Code: code,
+		}
+	}
 
 	msg := &wtwire.CreateSessionReply{
-		Code: code,
-		Data: data,
+		Code:        code,
+		LastApplied: lastApplied,
+		Data:        data,
 	}
 
 	err := s.sendMessage(peer, msg)
@@ -131,6 +149,6 @@ func (s *Server) replyCreateSession(peer Peer, id *wtdb.SessionID,
 	// disconnect the client.
 	return &connFailure{
 		ID:   *id,
-		Code: uint16(code),
+		Code: code,
 	}
 }

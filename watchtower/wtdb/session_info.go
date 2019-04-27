@@ -2,6 +2,7 @@ package wtdb
 
 import (
 	"errors"
+	"io"
 
 	"github.com/lightningnetwork/lnd/watchtower/wtpolicy"
 )
@@ -57,6 +58,28 @@ type SessionInfo struct {
 	RewardAddress []byte
 
 	// TODO(conner): store client metrics, DOS score, etc
+}
+
+// Encode serializes the session info to the given io.Writer.
+func (s *SessionInfo) Encode(w io.Writer) error {
+	return WriteElements(w,
+		s.ID,
+		s.Policy,
+		s.LastApplied,
+		s.ClientLastApplied,
+		s.RewardAddress,
+	)
+}
+
+// Decode deserializes the session infor from the given io.Reader.
+func (s *SessionInfo) Decode(r io.Reader) error {
+	return ReadElements(r,
+		&s.ID,
+		&s.Policy,
+		&s.LastApplied,
+		&s.ClientLastApplied,
+		&s.RewardAddress,
+	)
 }
 
 // AcceptUpdateSequence validates that a state update's sequence number and last

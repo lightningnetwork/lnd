@@ -151,6 +151,10 @@ func newTestSyncer(hID lnwire.ShortChannelID,
 			msgChan <- msgs
 			return nil
 		},
+		sendToPeerSync: func(msgs ...lnwire.Message) error {
+			msgChan <- msgs
+			return nil
+		},
 		delayedQueryReplyInterval: 2 * time.Second,
 	}
 	syncer := newGossipSyncer(cfg)
@@ -540,30 +544,37 @@ func TestGossipSyncerReplyShortChanIDs(t *testing.T) {
 		t.Fatalf("unable to query for chan IDs: %v", err)
 	}
 
-	select {
-	case <-time.After(time.Second * 15):
-		t.Fatalf("no msgs received")
+	for i := 0; i < len(queryReply)+1; i++ {
+		select {
+		case <-time.After(time.Second * 15):
+			t.Fatalf("no msgs received")
 
-		// We should get back exactly 4 messages. The first 3 are the same
-		// messages we sent above, and the query end message.
-	case msgs := <-msgChan:
-		if len(msgs) != 4 {
-			t.Fatalf("wrong messages: expected %v, got %v",
-				4, len(msgs))
-		}
+		// We should get back exactly 4 messages. The first 3 are the
+		// same messages we sent above, and the query end message.
+		case msgs := <-msgChan:
+			if len(msgs) != 1 {
+				t.Fatalf("wrong number of messages: "+
+					"expected %v, got %v", 1, len(msgs))
+			}
 
-		if !reflect.DeepEqual(queryReply, msgs[:3]) {
-			t.Fatalf("wrong set of messages: expected %v, got %v",
-				spew.Sdump(queryReply), spew.Sdump(msgs[:3]))
-		}
+			isQueryReply := i < len(queryReply)
+			finalMsg, ok := msgs[0].(*lnwire.ReplyShortChanIDsEnd)
 
-		finalMsg, ok := msgs[3].(*lnwire.ReplyShortChanIDsEnd)
-		if !ok {
-			t.Fatalf("expected lnwire.ReplyShortChanIDsEnd "+
-				"instead got %T", msgs[3])
-		}
-		if finalMsg.Complete != 1 {
-			t.Fatalf("complete wasn't set")
+			switch {
+			case isQueryReply &&
+				!reflect.DeepEqual(queryReply[i], msgs[0]):
+
+				t.Fatalf("wrong message: expected %v, got %v",
+					spew.Sdump(queryReply[i]),
+					spew.Sdump(msgs[0]))
+
+			case !isQueryReply && !ok:
+				t.Fatalf("expected lnwire.ReplyShortChanIDsEnd"+
+					" instead got %T", msgs[3])
+
+			case !isQueryReply && finalMsg.Complete != 1:
+				t.Fatalf("complete wasn't set")
+			}
 		}
 	}
 }

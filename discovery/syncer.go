@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"golang.org/x/time/rate"
 )
@@ -206,10 +207,15 @@ type gossipSyncerCfg struct {
 	// the remote node in a single QueryShortChanIDs request.
 	batchSize int32
 
-	// sendToPeer is a function closure that should send the set of
-	// targeted messages to the peer we've been assigned to sync the graph
-	// state from.
+	// sendToPeer sends a variadic number of messages to the remote peer.
+	// This method should not block while waiting for sends to be written
+	// to the wire.
 	sendToPeer func(...lnwire.Message) error
+
+	// sendToPeerSync sends a variadic number of messages to the remote
+	// peer, blocking until all messages have been sent successfully or a
+	// write error is encountered.
+	sendToPeerSync func(...lnwire.Message) error
 
 	// maxUndelayedQueryReplies specifies how many gossip queries we will
 	// respond to immediately before starting to delay responses.
@@ -565,6 +571,9 @@ func (g *GossipSyncer) replyHandler() {
 			case err == ErrGossipSyncerExiting:
 				return
 
+			case err == lnpeer.ErrPeerExiting:
+				return
+
 			case err != nil:
 				log.Errorf("Unable to reply to peer "+
 					"query: %v", err)
@@ -854,7 +863,7 @@ func (g *GossipSyncer) replyChanRangeQuery(query *lnwire.QueryChannelRange) erro
 		if isFinalChunk {
 			replyChunk.Complete = 1
 		}
-		if err := g.cfg.sendToPeer(&replyChunk); err != nil {
+		if err := g.cfg.sendToPeerSync(&replyChunk); err != nil {
 			return err
 		}
 
@@ -882,7 +891,7 @@ func (g *GossipSyncer) replyShortChanIDs(query *lnwire.QueryShortChanIDs) error 
 			"chain=%v, we're on chain=%v", g.cfg.chainHash,
 			query.ChainHash)
 
-		return g.cfg.sendToPeer(&lnwire.ReplyShortChanIDsEnd{
+		return g.cfg.sendToPeerSync(&lnwire.ReplyShortChanIDsEnd{
 			ChainHash: query.ChainHash,
 			Complete:  0,
 		})
@@ -909,23 +918,22 @@ func (g *GossipSyncer) replyShortChanIDs(query *lnwire.QueryShortChanIDs) error 
 			query.ShortChanIDs[0].ToUint64(), err)
 	}
 
-	// If we didn't find any messages related to those channel ID's, then
-	// we'll send over a reply marking the end of our response, and exit
-	// early.
-	if len(replyMsgs) == 0 {
-		return g.cfg.sendToPeer(&lnwire.ReplyShortChanIDsEnd{
-			ChainHash: query.ChainHash,
-			Complete:  1,
-		})
+	// Reply with any messages related to those channel ID's, we'll write
+	// each one individually and synchronously to throttle the sends and
+	// perform buffering of responses in the syncer as opposed to the peer.
+	for _, msg := range replyMsgs {
+		err := g.cfg.sendToPeerSync(msg)
+		if err != nil {
+			return err
+		}
 	}
 
-	// Otherwise, we'll send over our set of messages responding to the
-	// query, with the ending message appended to it.
-	replyMsgs = append(replyMsgs, &lnwire.ReplyShortChanIDsEnd{
+	// Regardless of whether we had any messages to reply with, send over
+	// the sentinel message to signal that the stream has terminated.
+	return g.cfg.sendToPeerSync(&lnwire.ReplyShortChanIDsEnd{
 		ChainHash: query.ChainHash,
 		Complete:  1,
 	})
-	return g.cfg.sendToPeer(replyMsgs...)
 }
 
 // ApplyGossipFilter applies a gossiper filter sent by the remote node to the
@@ -966,9 +974,19 @@ func (g *GossipSyncer) ApplyGossipFilter(filter *lnwire.GossipTimestampRange) er
 	go func() {
 		defer g.wg.Done()
 
-		if err := g.cfg.sendToPeer(newUpdatestoSend...); err != nil {
-			log.Errorf("unable to send messages for peer catch "+
-				"up: %v", err)
+		for _, msg := range newUpdatestoSend {
+			err := g.cfg.sendToPeerSync(msg)
+			switch {
+			case err == ErrGossipSyncerExiting:
+				return
+
+			case err == lnpeer.ErrPeerExiting:
+				return
+
+			case err != nil:
+				log.Errorf("Unable to send message for "+
+					"peer catch up: %v", err)
+			}
 		}
 	}()
 

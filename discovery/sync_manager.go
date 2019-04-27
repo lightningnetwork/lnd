@@ -386,6 +386,9 @@ func (m *SyncManager) createGossipSyncer(peer lnpeer.Peer) *GossipSyncer {
 		sendToPeer: func(msgs ...lnwire.Message) error {
 			return peer.SendMessageLazy(false, msgs...)
 		},
+		sendToPeerSync: func(msgs ...lnwire.Message) error {
+			return peer.SendMessageLazy(true, msgs...)
+		},
 	})
 
 	// Gossip syncers are initialized by default in a PassiveSync type

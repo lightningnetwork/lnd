@@ -51,6 +51,12 @@ type UnknownElementType struct {
 	element interface{}
 }
 
+// NewUnknownElementType creates a new UnknownElementType error from the passed
+// method name and element.
+func NewUnknownElementType(method string, el interface{}) UnknownElementType {
+	return UnknownElementType{method: method, element: el}
+}
+
 // Error returns the name of the method that encountered the error, as well as
 // the type that was unsupported.
 func (e UnknownElementType) Error() string {

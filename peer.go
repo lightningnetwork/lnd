@@ -1403,16 +1403,58 @@ func (p *peer) logWireMessage(msg lnwire.Message, read bool) {
 	}))
 }
 
-// writeMessage writes the target lnwire.Message to the remote peer.
+// writeMessage writes and flushes the target lnwire.Message to the remote peer.
+// If the passed message is nil, this method will only try to flush an existing
+// message buffered on the connection. It is safe to recall this method with a
+// nil message iff a timeout error is returned. This will continue to flush the
+// pending message to the wire.
 func (p *peer) writeMessage(msg lnwire.Message) error {
 	// Simply exit if we're shutting down.
 	if atomic.LoadInt32(&p.disconnect) != 0 {
 		return ErrPeerExiting
 	}
 
-	p.logWireMessage(msg, false)
+	// Only log the message on the first attempt.
+	if msg != nil {
+		p.logWireMessage(msg, false)
+	}
 
-	var n int
+	noiseConn, ok := p.conn.(*brontide.Conn)
+	if !ok {
+		return fmt.Errorf("brontide.Conn required to write messages")
+	}
+
+	flushMsg := func() error {
+		// Ensure the write deadline is set before we attempt to send
+		// the message.
+		writeDeadline := time.Now().Add(writeMessageTimeout)
+		err := noiseConn.SetWriteDeadline(writeDeadline)
+		if err != nil {
+			return err
+		}
+
+		// Flush the pending message to the wire. If an error is
+		// encountered, e.g. write timeout, the number of bytes written
+		// so far will be returned.
+		n, err := noiseConn.Flush()
+
+		// Record the number of bytes written on the wire, if any.
+		if n > 0 {
+			atomic.AddUint64(&p.bytesSent, uint64(n))
+		}
+
+		return err
+	}
+
+	// If the current message has already been serialized, encrypted, and
+	// buffered on the underlying connection we will skip straight to
+	// flushing it to the wire.
+	if msg == nil {
+		return flushMsg()
+	}
+
+	// Otherwise, this is a new message. We'll acquire a write buffer to
+	// serialize the message and buffer the ciphertext on the connection.
 	err := p.writePool.Submit(func(buf *bytes.Buffer) error {
 		// Using a buffer allocated by the write pool, encode the
 		// message directly into the buffer.
@@ -1421,25 +1463,17 @@ func (p *peer) writeMessage(msg lnwire.Message) error {
 			return writeErr
 		}
 
-		// Ensure the write deadline is set before we attempt to send
-		// the message.
-		writeDeadline := time.Now().Add(writeMessageTimeout)
-		writeErr = p.conn.SetWriteDeadline(writeDeadline)
-		if writeErr != nil {
-			return writeErr
-		}
-
-		// Finally, write the message itself in a single swoop.
-		n, writeErr = p.conn.Write(buf.Bytes())
-		return writeErr
+		// Finally, write the message itself in a single swoop. This
+		// will buffer the ciphertext on the underlying connection. We
+		// will defer flushing the message until the write pool has been
+		// released.
+		return noiseConn.WriteMessage(buf.Bytes())
 	})
-
-	// Record the number of bytes written on the wire, if any.
-	if n > 0 {
-		atomic.AddUint64(&p.bytesSent, uint64(n))
+	if err != nil {
+		return err
 	}
 
-	return err
+	return flushMsg()
 }
 
 // writeHandler is a goroutine dedicated to reading messages off of an incoming
@@ -1459,38 +1493,10 @@ func (p *peer) writeHandler() {
 
 	var exitErr error
 
-	const (
-		minRetryDelay = 5 * time.Second
-		maxRetryDelay = time.Minute
-	)
-
 out:
 	for {
 		select {
 		case outMsg := <-p.sendQueue:
-			// Record the time at which we first attempt to send the
-			// message.
-			startTime := time.Now()
-
-			// Initialize a retry delay of zero, which will be
-			// increased if we encounter a write timeout on the
-			// send.
-			var retryDelay time.Duration
-		retryWithDelay:
-			if retryDelay > 0 {
-				select {
-				case <-time.After(retryDelay):
-				case <-p.quit:
-					// Inform synchronous writes that the
-					// peer is exiting.
-					if outMsg.errChan != nil {
-						outMsg.errChan <- ErrPeerExiting
-					}
-					exitErr = ErrPeerExiting
-					break out
-				}
-			}
-
 			// If we're about to send a ping message, then log the
 			// exact time in which we send the message so we can
 			// use the delay as a rough estimate of latency to the
@@ -1502,33 +1508,32 @@ out:
 				atomic.StoreInt64(&p.pingLastSend, now)
 			}
 
+			// Record the time at which we first attempt to send the
+			// message.
+			startTime := time.Now()
+
+		retry:
 			// Write out the message to the socket. If a timeout
 			// error is encountered, we will catch this and retry
 			// after backing off in case the remote peer is just
 			// slow to process messages from the wire.
 			err := p.writeMessage(outMsg.msg)
 			if nerr, ok := err.(net.Error); ok && nerr.Timeout() {
-				// Increase the retry delay in the event of a
-				// timeout error, this prevents us from
-				// disconnecting if the remote party is slow to
-				// pull messages off the wire. We back off
-				// exponentially up to our max delay to prevent
-				// blocking the write pool.
-				if retryDelay == 0 {
-					retryDelay = minRetryDelay
-				} else {
-					retryDelay *= 2
-					if retryDelay > maxRetryDelay {
-						retryDelay = maxRetryDelay
-					}
-				}
-
 				peerLog.Debugf("Write timeout detected for "+
-					"peer %s, retrying after %v, "+
-					"first attempted %v ago", p, retryDelay,
+					"peer %s, first write for message "+
+					"attempted %v ago", p,
 					time.Since(startTime))
 
-				goto retryWithDelay
+				// If we received a timeout error, this implies
+				// that the message was buffered on the
+				// connection successfully and that a flush was
+				// attempted. We'll set the message to nil so
+				// that on a subsequent pass we only try to
+				// flush the buffered message, and forgo
+				// reserializing or reencrypting it.
+				outMsg.msg = nil
+
+				goto retry
 			}
 
 			// The write succeeded, reset the idle timer to prevent

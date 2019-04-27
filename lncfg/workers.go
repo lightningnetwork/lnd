@@ -9,7 +9,7 @@ const (
 
 	// DefaultWriteWorkers is the default maximum number of concurrent
 	// workers used by the daemon's write pool.
-	DefaultWriteWorkers = 100
+	DefaultWriteWorkers = 8
 
 	// DefaultSigWorkers is the default maximum number of concurrent workers
 	// used by the daemon's sig pool.
@@ -20,13 +20,13 @@ const (
 // pools.
 type Workers struct {
 	// Read is the maximum number of concurrent read pool workers.
-	Read int `long:"read" description:"Maximum number of concurrent read pool workers."`
+	Read int `long:"read" description:"Maximum number of concurrent read pool workers. This number should be proportional to the number of peers."`
 
 	// Write is the maximum number of concurrent write pool workers.
-	Write int `long:"write" description:"Maximum number of concurrent write pool workers."`
+	Write int `long:"write" description:"Maximum number of concurrent write pool workers. This number should be proportional to the number of CPUs on the host. "`
 
 	// Sig is the maximum number of concurrent sig pool workers.
-	Sig int `long:"sig" description:"Maximum number of concurrent sig pool workers."`
+	Sig int `long:"sig" description:"Maximum number of concurrent sig pool workers. This number should be proportional to the number of CPUs on the host."`
 }
 
 // Validate checks the Workers configuration to ensure that the input values are

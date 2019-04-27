@@ -369,7 +369,7 @@ type testHarness struct {
 	clientDB  *wtmock.ClientDB
 	clientCfg *wtclient.Config
 	client    wtclient.Client
-	serverDB  *wtdb.MockDB
+	serverDB  *wtmock.TowerDB
 	serverCfg *wtserver.Config
 	server    *wtserver.Server
 	net       *mockNet
@@ -406,7 +406,7 @@ func newHarness(t *testing.T, cfg harnessCfg) *testHarness {
 	}
 
 	const timeout = 200 * time.Millisecond
-	serverDB := wtdb.NewMockDB()
+	serverDB := wtmock.NewTowerDB()
 
 	serverCfg := &wtserver.Config{
 		DB:           serverDB,

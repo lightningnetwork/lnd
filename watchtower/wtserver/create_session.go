@@ -102,7 +102,7 @@ func (s *Server) handleCreateSession(peer Peer, id *wtdb.SessionID,
 	// successful, the session will now be ready for use.
 	err = s.cfg.DB.InsertSessionInfo(&info)
 	if err != nil {
-		log.Errorf("unable to create session for %s", id)
+		log.Errorf("Unable to create session for %s: %v", id, err)
 		return s.replyCreateSession(
 			peer, id, wtwire.CodeTemporaryFailure, 0, nil,
 		)

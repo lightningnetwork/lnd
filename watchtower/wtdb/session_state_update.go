@@ -1,5 +1,7 @@
 package wtdb
 
+import "io"
+
 // SessionStateUpdate holds a state update sent by a client along with its
 // SessionID.
 type SessionStateUpdate struct {
@@ -20,4 +22,26 @@ type SessionStateUpdate struct {
 	// exacting justice if the commitment transaction matching the breach
 	// hint is braodcast.
 	EncryptedBlob []byte
+}
+
+// Encode serializes the state update into the provided io.Writer.
+func (u *SessionStateUpdate) Encode(w io.Writer) error {
+	return WriteElements(w,
+		u.ID,
+		u.SeqNum,
+		u.LastApplied,
+		u.Hint,
+		u.EncryptedBlob,
+	)
+}
+
+// Decode deserializes the target state update from the provided io.Reader.
+func (u *SessionStateUpdate) Decode(r io.Reader) error {
+	return ReadElements(r,
+		&u.ID,
+		&u.SeqNum,
+		&u.LastApplied,
+		&u.Hint,
+		&u.EncryptedBlob,
+	)
 }

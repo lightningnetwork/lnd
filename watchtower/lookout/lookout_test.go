@@ -15,6 +15,7 @@ import (
 	"github.com/lightningnetwork/lnd/watchtower/blob"
 	"github.com/lightningnetwork/lnd/watchtower/lookout"
 	"github.com/lightningnetwork/lnd/watchtower/wtdb"
+	"github.com/lightningnetwork/lnd/watchtower/wtmock"
 	"github.com/lightningnetwork/lnd/watchtower/wtpolicy"
 )
 
@@ -66,7 +67,7 @@ func makeAddrSlice(size int) []byte {
 }
 
 func TestLookoutBreachMatching(t *testing.T) {
-	db := wtdb.NewMockDB()
+	db := wtmock.NewTowerDB()
 
 	// Initialize an mock backend to feed the lookout blocks.
 	backend := lookout.NewMockBackend()

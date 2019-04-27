@@ -1070,8 +1070,10 @@ func TestGossipSyncerDelayDOS(t *testing.T) {
 	numUndelayedQueries := syncer1.cfg.maxUndelayedQueryReplies
 
 	// We will send enough queries to exhaust the undelayed responses, and
-	// then send two more queries which should be delayed.
-	numQueryResponses := numUndelayedQueries + numDelayedQueries
+	// then send two more queries which should be delayed. An additional one
+	// is subtracted from the total since undelayed message will be consumed
+	// by the initial QueryChannelRange.
+	numQueryResponses := numUndelayedQueries + numDelayedQueries - 1
 
 	// The total number of responses must include the initial reply each
 	// syncer will make to QueryChannelRange.
@@ -1081,10 +1083,11 @@ func TestGossipSyncerDelayDOS(t *testing.T) {
 	// scaled by the chunk size being used.
 	numTotalChans := numQueryResponses * chunkSize
 
-	// Although both nodes are at the same height, they'll have a
-	// completely disjoint set of chan ID's that they know of.
+	// Construct enough channels so that all of the queries will have enough
+	// channels. Since syncer1 won't know of any channels, their sets are
+	// inherently disjoint.
 	var syncer2Chans []lnwire.ShortChannelID
-	for i := numTotalChans; i < numTotalChans+numTotalChans; i++ {
+	for i := 0; i < numTotalChans; i++ {
 		syncer2Chans = append(
 			syncer2Chans, lnwire.NewShortChanIDFromInt(uint64(i)),
 		)

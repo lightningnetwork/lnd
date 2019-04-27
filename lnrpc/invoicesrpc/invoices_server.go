@@ -168,9 +168,9 @@ func (s *Server) RegisterWithRootServer(grpcServer *grpc.Server) error {
 	return nil
 }
 
-// SubscribeInvoices returns a uni-directional stream (server -> client) for
-// notifying the client of invoice state changes.
-func (s *Server) SubscribeSingleInvoice(req *lnrpc.PaymentHash,
+// SubscribeSingleInvoice returns a uni-directional stream (server -> client)
+// for notifying the client of state changes for a specified invoice.
+func (s *Server) SubscribeSingleInvoice(req *SubscribeSingleInvoiceRequest,
 	updateStream Invoices_SubscribeSingleInvoiceServer) error {
 
 	hash, err := lntypes.MakeHash(req.RHash)

@@ -15,7 +15,7 @@ service Invoices {
     to notify the client of state transitions of the specified invoice.
     Initially the current invoice state is always sent out.
     */
-    rpc SubscribeSingleInvoice (lnrpc.PaymentHash) returns (stream lnrpc.Invoice);
+    rpc SubscribeSingleInvoice (SubscribeSingleInvoiceRequest) returns (stream lnrpc.Invoice);
 
     /**
     CancelInvoice cancels a currently open invoice. If the invoice is already 
@@ -99,3 +99,10 @@ message SettleInvoiceMsg {
 } 
 
 message SettleInvoiceResp {}
+
+message SubscribeSingleInvoiceRequest {
+    reserved 1;
+
+    /// Hash corresponding to the (hold) invoice to subscribe to.
+    bytes r_hash = 2 [json_name = "r_hash"];
+}

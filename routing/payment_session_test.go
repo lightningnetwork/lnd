@@ -5,6 +5,7 @@ import (
 
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing/route"
 )
 
 func TestRequestRoute(t *testing.T) {
@@ -13,7 +14,7 @@ func TestRequestRoute(t *testing.T) {
 	)
 
 	findPath := func(g *graphParams, r *RestrictParams,
-		source, target Vertex, amt lnwire.MilliSatoshi) (
+		source, target route.Vertex, amt lnwire.MilliSatoshi) (
 		[]*channeldb.ChannelEdgePolicy, error) {
 
 		// We expect find path to receive a cltv limit excluding the

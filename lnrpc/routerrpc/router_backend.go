@@ -9,6 +9,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
+	"github.com/lightningnetwork/lnd/routing/route"
 	context "golang.org/x/net/context"
 )
 
@@ -19,7 +20,7 @@ type RouterBackend struct {
 	MaxPaymentMSat lnwire.MilliSatoshi
 
 	// SelfNode is the vertex of the node sending the payment.
-	SelfNode routing.Vertex
+	SelfNode route.Vertex
 
 	// FetchChannelCapacity is a closure that we'll use the fetch the total
 	// capacity of a channel to populate in responses.
@@ -27,10 +28,10 @@ type RouterBackend struct {
 
 	// FindRoutes is a closure that abstracts away how we locate/query for
 	// routes.
-	FindRoutes func(source, target routing.Vertex,
+	FindRoutes func(source, target route.Vertex,
 		amt lnwire.MilliSatoshi, restrictions *routing.RestrictParams,
 		numPaths uint32, finalExpiry ...uint16) (
-		[]*routing.Route, error)
+		[]*route.Route, error)
 }
 
 // QueryRoutes attempts to query the daemons' Channel Router for a possible
@@ -45,18 +46,18 @@ type RouterBackend struct {
 func (r *RouterBackend) QueryRoutes(ctx context.Context,
 	in *lnrpc.QueryRoutesRequest) (*lnrpc.QueryRoutesResponse, error) {
 
-	parsePubKey := func(key string) (routing.Vertex, error) {
+	parsePubKey := func(key string) (route.Vertex, error) {
 		pubKeyBytes, err := hex.DecodeString(key)
 		if err != nil {
-			return routing.Vertex{}, err
+			return route.Vertex{}, err
 		}
 
 		if len(pubKeyBytes) != 33 {
-			return routing.Vertex{},
+			return route.Vertex{},
 				errors.New("invalid key length")
 		}
 
-		var v routing.Vertex
+		var v route.Vertex
 		copy(v[:], pubKeyBytes)
 
 		return v, nil
@@ -69,7 +70,7 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 		return nil, err
 	}
 
-	var sourcePubKey routing.Vertex
+	var sourcePubKey route.Vertex
 	if in.SourcePubKey != "" {
 		var err error
 		sourcePubKey, err = parsePubKey(in.SourcePubKey)
@@ -94,12 +95,12 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 	// Unmarshall restrictions from request.
 	feeLimit := calculateFeeLimit(in.FeeLimit, amtMSat)
 
-	ignoredNodes := make(map[routing.Vertex]struct{})
+	ignoredNodes := make(map[route.Vertex]struct{})
 	for _, ignorePubKey := range in.IgnoredNodes {
 		if len(ignorePubKey) != 33 {
 			return nil, fmt.Errorf("invalid ignore node pubkey")
 		}
-		var ignoreVertex routing.Vertex
+		var ignoreVertex route.Vertex
 		copy(ignoreVertex[:], ignorePubKey)
 		ignoredNodes[ignoreVertex] = struct{}{}
 	}
@@ -131,7 +132,7 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 	// can carry `in.Amt` satoshis _including_ the total fee required on
 	// the route.
 	var (
-		routes  []*routing.Route
+		routes  []*route.Route
 		findErr error
 	)
 
@@ -195,7 +196,7 @@ func calculateFeeLimit(feeLimit *lnrpc.FeeLimit,
 }
 
 // MarshallRoute marshalls an internal route to an rpc route struct.
-func (r *RouterBackend) MarshallRoute(route *routing.Route) *lnrpc.Route {
+func (r *RouterBackend) MarshallRoute(route *route.Route) *lnrpc.Route {
 	resp := &lnrpc.Route{
 		TotalTimeLock: route.TotalTimeLock,
 		TotalFees:     int64(route.TotalFees.ToSatoshis()),

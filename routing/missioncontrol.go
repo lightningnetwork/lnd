@@ -8,6 +8,7 @@ import (
 	"github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/zpay32"
 )
 
@@ -53,7 +54,7 @@ type missionControl struct {
 	// the time that it was added to the prune view. Vertexes are added to
 	// this map if a caller reports to missionControl a failure localized
 	// to that particular vertex.
-	failedVertexes map[Vertex]time.Time
+	failedVertexes map[route.Vertex]time.Time
 
 	graph *channeldb.ChannelGraph
 
@@ -77,7 +78,7 @@ func newMissionControl(g *channeldb.ChannelGraph, selfNode *channeldb.LightningN
 
 	return &missionControl{
 		failedEdges:    make(map[EdgeLocator]time.Time),
-		failedVertexes: make(map[Vertex]time.Time),
+		failedVertexes: make(map[route.Vertex]time.Time),
 		selfNode:       selfNode,
 		queryBandwidth: qb,
 		graph:          g,
@@ -92,7 +93,7 @@ func newMissionControl(g *channeldb.ChannelGraph, selfNode *channeldb.LightningN
 type graphPruneView struct {
 	edges map[EdgeLocator]struct{}
 
-	vertexes map[Vertex]struct{}
+	vertexes map[route.Vertex]struct{}
 }
 
 // GraphPruneView returns a new graphPruneView instance which is to be
@@ -110,7 +111,7 @@ func (m *missionControl) GraphPruneView() graphPruneView {
 	// For each of the vertexes that have been added to the prune view, if
 	// it is now "stale", then we'll ignore it and avoid adding it to the
 	// view we'll return.
-	vertexes := make(map[Vertex]struct{})
+	vertexes := make(map[route.Vertex]struct{})
 	for vertex, pruneTime := range m.failedVertexes {
 		if now.Sub(pruneTime) >= vertexDecay {
 			log.Tracef("Pruning decayed failure report for vertex %v "+
@@ -154,11 +155,11 @@ func (m *missionControl) GraphPruneView() graphPruneView {
 // in order to populate additional edges to explore when finding a path to the
 // payment's destination.
 func (m *missionControl) NewPaymentSession(routeHints [][]zpay32.HopHint,
-	target Vertex) (*paymentSession, error) {
+	target route.Vertex) (*paymentSession, error) {
 
 	viewSnapshot := m.GraphPruneView()
 
-	edges := make(map[Vertex][]*channeldb.ChannelEdgePolicy)
+	edges := make(map[route.Vertex][]*channeldb.ChannelEdgePolicy)
 
 	// Traverse through all of the available hop hints and include them in
 	// our edges map, indexed by the public key of the channel's starting
@@ -200,7 +201,7 @@ func (m *missionControl) NewPaymentSession(routeHints [][]zpay32.HopHint,
 				TimeLockDelta: hopHint.CLTVExpiryDelta,
 			}
 
-			v := NewVertex(hopHint.NodeID)
+			v := route.NewVertex(hopHint.NodeID)
 			edges[v] = append(edges[v], edge)
 		}
 	}
@@ -234,7 +235,7 @@ func (m *missionControl) NewPaymentSession(routeHints [][]zpay32.HopHint,
 // skip all path finding, and will instead utilize a set of pre-built routes.
 // This constructor allows callers to specify their own routes which can be
 // used for things like channel rebalancing, and swaps.
-func (m *missionControl) NewPaymentSessionFromRoutes(routes []*Route) *paymentSession {
+func (m *missionControl) NewPaymentSessionFromRoutes(routes []*route.Route) *paymentSession {
 	return &paymentSession{
 		pruneViewSnapshot:    m.GraphPruneView(),
 		haveRoutes:           true,
@@ -285,6 +286,6 @@ func generateBandwidthHints(sourceNode *channeldb.LightningNode,
 func (m *missionControl) ResetHistory() {
 	m.Lock()
 	m.failedEdges = make(map[EdgeLocator]time.Time)
-	m.failedVertexes = make(map[Vertex]time.Time)
+	m.failedVertexes = make(map[route.Vertex]time.Time)
 	m.Unlock()
 }

@@ -256,10 +256,15 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 			rpcPort -= 2
 			bitcoindHost = fmt.Sprintf("%v:%d",
 				bitcoindMode.RPCHost, rpcPort)
-			if cfg.Bitcoin.Active && cfg.Bitcoin.RegTest {
+			if (cfg.Bitcoin.Active && cfg.Bitcoin.RegTest) ||
+				(cfg.Litecoin.Active && cfg.Litecoin.RegTest) {
 				conn, err := net.Dial("tcp", bitcoindHost)
 				if err != nil || conn == nil {
-					rpcPort = 18443
+					if cfg.Bitcoin.Active && cfg.Bitcoin.RegTest {
+						rpcPort = 18443
+					} else if cfg.Litecoin.Active && cfg.Litecoin.RegTest {
+						rpcPort = 19443
+					}
 					bitcoindHost = fmt.Sprintf("%v:%d",
 						bitcoindMode.RPCHost,
 						rpcPort)
@@ -320,7 +325,7 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 			if err := cc.feeEstimator.Start(); err != nil {
 				return nil, err
 			}
-		} else if cfg.Litecoin.Active {
+		} else if cfg.Litecoin.Active && !cfg.Litecoin.RegTest {
 			ltndLog.Infof("Initializing litecoind backed fee estimator")
 
 			// Finally, we'll re-initialize the fee estimator, as

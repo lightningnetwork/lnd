@@ -78,8 +78,17 @@ var litecoinMainNetParams = litecoinNetParams{
 	CoinType: keychain.CoinTypeLitecoin,
 }
 
-// regTestNetParams contains parameters specific to a local regtest network.
-var regTestNetParams = bitcoinNetParams{
+// litecoinRegTestNetParams contains parameters specific to a local litecoin
+// regtest network.
+var litecoinRegTestNetParams = litecoinNetParams{
+	Params:   &litecoinCfg.RegressionNetParams,
+	rpcPort:  "18334",
+	CoinType: keychain.CoinTypeTestnet,
+}
+
+// bitcoinRegTestNetParams contains parameters specific to a local bitcoin
+// regtest network.
+var bitcoinRegTestNetParams = bitcoinNetParams{
 	Params:   &bitcoinCfg.RegressionNetParams,
 	rpcPort:  "18334",
 	CoinType: keychain.CoinTypeTestnet,

@@ -32,9 +32,6 @@ import (
 
 var (
 	numNodes int32
-
-	// ErrPeerExiting signals that the peer received a disconnect request.
-	ErrPeerExiting = fmt.Errorf("peer exiting")
 )
 
 const (
@@ -1411,7 +1408,7 @@ func (p *peer) logWireMessage(msg lnwire.Message, read bool) {
 func (p *peer) writeMessage(msg lnwire.Message) error {
 	// Simply exit if we're shutting down.
 	if atomic.LoadInt32(&p.disconnect) != 0 {
-		return ErrPeerExiting
+		return lnpeer.ErrPeerExiting
 	}
 
 	// Only log the message on the first attempt.
@@ -1559,7 +1556,7 @@ out:
 			}
 
 		case <-p.quit:
-			exitErr = ErrPeerExiting
+			exitErr = lnpeer.ErrPeerExiting
 			break out
 		}
 	}
@@ -1691,7 +1688,7 @@ func (p *peer) queue(priority bool, msg lnwire.Message, errChan chan error) {
 	case <-p.quit:
 		peerLog.Tracef("Peer shutting down, could not enqueue msg.")
 		if errChan != nil {
-			errChan <- ErrPeerExiting
+			errChan <- lnpeer.ErrPeerExiting
 		}
 	}
 }
@@ -2504,7 +2501,7 @@ func (p *peer) sendMessage(sync, priority bool, msgs ...lnwire.Message) error {
 		case err := <-errChan:
 			return err
 		case <-p.quit:
-			return ErrPeerExiting
+			return lnpeer.ErrPeerExiting
 		}
 	}
 
@@ -2550,7 +2547,7 @@ func (p *peer) AddNewChannel(channel *channeldb.OpenChannel,
 	case <-cancel:
 		return errors.New("canceled adding new channel")
 	case <-p.quit:
-		return ErrPeerExiting
+		return lnpeer.ErrPeerExiting
 	}
 
 	// We pause here to wait for the peer to recognize the new channel
@@ -2559,7 +2556,7 @@ func (p *peer) AddNewChannel(channel *channeldb.OpenChannel,
 	case err := <-errChan:
 		return err
 	case <-p.quit:
-		return ErrPeerExiting
+		return lnpeer.ErrPeerExiting
 	}
 }
 

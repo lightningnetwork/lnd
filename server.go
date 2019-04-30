@@ -686,6 +686,8 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		RotateTicker:         ticker.New(discovery.DefaultSyncerRotationInterval),
 		HistoricalSyncTicker: ticker.New(cfg.HistoricalSyncInterval),
 		NumActiveSyncers:     cfg.NumGraphSyncPeers,
+		MinimumBatchSize:     10,
+		SubBatchDelay:        time.Second * 5,
 	},
 		s.identityPriv.PubKey(),
 	)

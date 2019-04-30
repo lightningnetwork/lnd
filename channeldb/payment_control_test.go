@@ -14,6 +14,7 @@ import (
 	"github.com/coreos/bbolt"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/routing/route"
 )
 
 func initDB() (*DB, error) {
@@ -131,8 +132,13 @@ func TestPaymentControlSwitchFail(t *testing.T) {
 	)
 
 	// Verifies that status was changed to StatusSucceeded.
-	if err := pControl.Success(info.PaymentHash, preimg); err != nil {
+	var route *route.Route
+	route, err = pControl.Success(info.PaymentHash, preimg)
+	if err != nil {
 		t.Fatalf("error shouldn't have been received, got: %v", err)
+	}
+	if !reflect.DeepEqual(*route, attempt.Route) {
+		t.Fatalf("unexpected route returned")
 	}
 
 	assertPaymentStatus(t, db, info.PaymentHash, StatusSucceeded)
@@ -204,7 +210,7 @@ func TestPaymentControlSwitchDoubleSend(t *testing.T) {
 	}
 
 	// After settling, the error should be ErrAlreadyPaid.
-	if err := pControl.Success(info.PaymentHash, preimg); err != nil {
+	if _, err := pControl.Success(info.PaymentHash, preimg); err != nil {
 		t.Fatalf("error shouldn't have been received, got: %v", err)
 	}
 	assertPaymentStatus(t, db, info.PaymentHash, StatusSucceeded)
@@ -234,7 +240,7 @@ func TestPaymentControlSuccessesWithoutInFlight(t *testing.T) {
 	}
 
 	// Attempt to complete the payment should fail.
-	err = pControl.Success(info.PaymentHash, preimg)
+	_, err = pControl.Success(info.PaymentHash, preimg)
 	if err != ErrPaymentNotInitiated {
 		t.Fatalf("expected ErrPaymentNotInitiated, got %v", err)
 	}
@@ -337,7 +343,7 @@ func TestPaymentControlDeleteNonInFligt(t *testing.T) {
 			)
 		} else if p.success {
 			// Verifies that status was changed to StatusSucceeded.
-			err := pControl.Success(info.PaymentHash, preimg)
+			_, err := pControl.Success(info.PaymentHash, preimg)
 			if err != nil {
 				t.Fatalf("error shouldn't have been received, got: %v", err)
 			}

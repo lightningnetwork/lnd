@@ -2,6 +2,7 @@ package sphinx
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/hex"
 	"reflect"
 	"testing"
@@ -28,7 +29,7 @@ func TestOnionFailure(t *testing.T) {
 	// able to receive the error not only from last hop.
 	errorPath := paymentPath[:len(paymentPath)-1]
 
-	failureData := []byte("some kek-error data")
+	failureData := bytes.Repeat([]byte{'A'}, onionErrorLength-sha256.Size)
 	sharedSecrets := generateSharedSecrets(paymentPath, sessionKey)
 
 	// Emulate creation of the obfuscator on node where error have occurred.

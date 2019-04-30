@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -284,4 +285,10 @@ func (m *mockControlTower) FetchInFlightPayments() (
 	}
 
 	return fl, nil
+}
+
+func (m *mockControlTower) SubscribePayment(paymentHash lntypes.Hash) (
+	bool, chan PaymentResult, error) {
+
+	return false, nil, errors.New("not implemented")
 }

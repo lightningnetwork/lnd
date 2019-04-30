@@ -54,6 +54,11 @@ func (s SatPerKVByte) FeePerKWeight() SatPerKWeight {
 	return SatPerKWeight(s / blockchain.WitnessScaleFactor)
 }
 
+// String returns a human-readable string of the fee rate.
+func (s SatPerKVByte) String() string {
+	return fmt.Sprintf("%v sat/kb", int64(s))
+}
+
 // SatPerKWeight represents a fee rate in sat/kw.
 type SatPerKWeight btcutil.Amount
 
@@ -67,6 +72,11 @@ func (s SatPerKWeight) FeeForWeight(wu int64) btcutil.Amount {
 // FeePerKVByte converts the current fee rate from sat/kw to sat/kb.
 func (s SatPerKWeight) FeePerKVByte() SatPerKVByte {
 	return SatPerKVByte(s * blockchain.WitnessScaleFactor)
+}
+
+// String returns a human-readable string of the fee rate.
+func (s SatPerKWeight) String() string {
+	return fmt.Sprintf("%v sat/kw", int64(s))
 }
 
 // FeeEstimator provides the ability to estimate on-chain transaction fees for

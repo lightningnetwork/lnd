@@ -5,10 +5,16 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/lightningnetwork/lnd/input"
-
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/sweep"
+)
+
+const (
+	// commitOutputConfTarget is the default confirmation target we'll use
+	// for sweeps of commit outputs that belong to us.
+	commitOutputConfTarget = 6
 )
 
 // commitSweepResolver is a resolver that will attempt to sweep the commitment
@@ -98,7 +104,8 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 		// sweeper.
 		log.Infof("%T(%v): sweeping commit output", c, c.chanPoint)
 
-		resultChan, err := c.Sweeper.SweepInput(&inp)
+		feePref := sweep.FeePreference{ConfTarget: commitOutputConfTarget}
+		resultChan, err := c.Sweeper.SweepInput(&inp, feePref)
 		if err != nil {
 			log.Errorf("%T(%v): unable to sweep input: %v",
 				c, c.chanPoint, err)

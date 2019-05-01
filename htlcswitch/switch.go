@@ -1155,13 +1155,12 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 		fail, isFail := htlc.(*lnwire.UpdateFailHTLC)
 		if isFail && !packet.hasSource {
 			switch {
+			// No message to encrypt, locally sourced payment.
 			case circuit.ErrorEncrypter == nil:
-				// No message to encrypt, locally sourced
-				// payment.
 
+			// If this is a resolution message, then we'll need to
+			// encrypt it as it's actually internally sourced.
 			case packet.isResolution:
-				// If this is a resolution message, then we'll need to encrypt
-				// it as it's actually internally sourced.
 				var err error
 				// TODO(roasbeef): don't need to pass actually?
 				failure := &lnwire.FailPermanentChannelFailure{}
@@ -1174,6 +1173,25 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 					log.Error(err)
 				}
 
+			// Alternatively, if the remote party send us an
+			// UpdateFailMalformedHTLC, then we'll need to convert
+			// this into a proper well formatted onion error as
+			// there's no HMAC currently.
+			case packet.convertedError:
+				log.Infof("Converting malformed HTLC error "+
+					"for circuit for Circuit(%x: "+
+					"(%s, %d) <-> (%s, %d))", packet.circuit.PaymentHash,
+					packet.incomingChanID, packet.incomingHTLCID,
+					packet.outgoingChanID, packet.outgoingHTLCID)
+
+				fail.Reason = circuit.ErrorEncrypter.EncryptMalformedError(
+					fail.Reason,
+				)
+				if err != nil {
+					err = fmt.Errorf("unable to obfuscate "+
+						"error: %v", err)
+					log.Error(err)
+				}
 			default:
 				// Otherwise, it's a forwarded error, so we'll perform a
 				// wrapper encryption as normal.

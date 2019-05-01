@@ -61,6 +61,14 @@ type htlcPacket struct {
 	// encrypted with any shared secret.
 	localFailure bool
 
+	// convertedError is set to true if this is an HTLC fail that was
+	// created using an UpdateFailMalformedHTLC from the remote party. If
+	// this is true, then when forwarding this failure packet, we'll need
+	// to wrap it as if we were the first hop if it's a multi-hop HTLC. If
+	// it's a direct HTLC, then we'll decode the error as no encryption has
+	// taken place.
+	convertedError bool
+
 	// hasSource is set to true if the incomingChanID and incomingHTLCID
 	// fields of a forwarded fail packet are already set and do not need to
 	// be looked up in the circuit map.

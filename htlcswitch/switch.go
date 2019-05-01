@@ -939,7 +939,7 @@ func (s *Switch) parseFailedPayment(payment *pendingPayment, pkt *htlcPacket,
 	// The payment never cleared the link, so we don't need to
 	// decrypt the error, simply decode it them report back to the
 	// user.
-	case pkt.localFailure:
+	case pkt.localFailure || pkt.convertedError:
 		var userErr string
 		r := bytes.NewReader(htlc.Reason)
 		failureMsg, err := lnwire.DecodeFailure(r, 0)

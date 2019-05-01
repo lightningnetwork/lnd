@@ -95,6 +95,10 @@ const (
 	FailureReasonNoRoute FailureReason = 1
 
 	// TODO(halseth): cancel state.
+
+	// TODO(joostjager): Add failure reasons for:
+	// UnknownPaymentHash, FinalInvalidAmt, FinalInvalidCltv
+	// LocalLiquidityInsufficient, RemoteCapacityInsufficient.
 )
 
 // String returns a human readable FailureReason

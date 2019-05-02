@@ -596,6 +596,7 @@ func (a *Agent) openChans(availableFunds btcutil.Amount, numChans uint32,
 	}
 
 	chanCandidates := make(map[NodeID]*AttachmentDirective)
+	var chanSizes []btcutil.Amount
 	for nID := range scores {
 		// Add addresses to the candidates.
 		addrs := addresses[nID]
@@ -606,22 +607,52 @@ func (a *Agent) openChans(availableFunds btcutil.Amount, numChans uint32,
 			continue
 		}
 
-		// Track the available funds we have left.
-		if availableFunds < chanSize {
-			chanSize = availableFunds
+		for {
+			// Get the fee estimated we need to open this channel
+			// in addition to the already selected ones.
+			feeEstimate, err := a.cfg.ChanController.FeeEstimate(
+				append(chanSizes, chanSize),
+			)
+			if err != nil {
+				return err
+			}
+
+			// Give us some wiggle room.
+			feeEstimate *= 3
+
+			// If we have enough balance to cover the fee, we can
+			// break.
+			if chanSize+feeEstimate <= availableFunds {
+				break
+			}
+
+			// Otherwise we need to decrease our channels size and
+			// get another estimate. We fetch another estimate
+			// since a lower channel size potentially lets us use
+			// less inputs and get away with a smaller fee.
+			chanSize = availableFunds - feeEstimate
+			log.Debugf("Resizing channel size to %v - %v = %v "+
+				"to account for fees", availableFunds,
+				feeEstimate, chanSize)
 		}
-		availableFunds -= chanSize
 
 		// If we run out of funds, we can break early.
 		if chanSize < a.cfg.Constraints.MinChanSize() {
 			break
 		}
 
+		// Track the available funds we have left.
+		availableFunds -= chanSize
+
 		chanCandidates[nID] = &AttachmentDirective{
 			NodeID:  nID,
 			ChanAmt: chanSize,
 			Addrs:   addrs,
 		}
+
+		// We track the size of channels we intend to open, to make fee
+		// estimation as we go.
+		chanSizes = append(chanSizes, chanSize)
 	}
 
 	if len(chanCandidates) == 0 {

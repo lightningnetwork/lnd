@@ -5635,6 +5635,42 @@ func (lc *LightningChannel) ReceiveFailHTLC(htlcIndex uint64, reason []byte,
 	return nil
 }
 
+func (lc *LightningChannel) ReceiveMalformedFailHTLC(htlcIndex uint64, reason []byte,
+) error {
+
+	lc.Lock()
+	defer lc.Unlock()
+
+	htlc := lc.localUpdateLog.lookupHtlc(htlcIndex)
+	if htlc == nil {
+		return ErrUnknownHtlcIndex{lc.ShortChanID(), htlcIndex}
+	}
+
+	// Now that we know the HTLC exists, we'll ensure that they haven't
+	// already attempted to fail the HTLC.
+	if lc.localUpdateLog.htlcHasModification(htlcIndex) {
+		return ErrHtlcIndexAlreadyFailed(htlcIndex)
+	}
+
+	pd := &PaymentDescriptor{
+		Amount:      htlc.Amount,
+		RHash:       htlc.RHash,
+		ParentIndex: htlc.HtlcIndex,
+		LogIndex:    lc.remoteUpdateLog.logIndex,
+		EntryType:   MalformedFail,
+		FailReason:  reason,
+	}
+
+	lc.remoteUpdateLog.appendUpdate(pd)
+
+	// With the fail added to the remote log, we'll now mark the HTLC as
+	// modified to prevent ourselves from accidentally attempting a
+	// duplicate fail.
+	lc.localUpdateLog.markHtlcModified(htlcIndex)
+
+	return nil
+}
+
 // ChannelPoint returns the outpoint of the original funding transaction which
 // created this active channel. This outpoint is used throughout various
 // subsystems to uniquely identify an open channel.

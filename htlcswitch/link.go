@@ -1842,7 +1842,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// If remote side have been unable to parse the onion blob we
 		// have sent to it, than we should transform the malformed HTLC
 		// message to the usual HTLC fail message.
-		err := l.channel.ReceiveFailHTLC(msg.ID, b.Bytes())
+		err := l.channel.ReceiveMalformedFailHTLC(msg.ID, b.Bytes())
 		if err != nil {
 			l.fail(LinkFailureError{code: ErrInvalidUpdate},
 				"unable to handle upstream fail HTLC: %v", err)
@@ -2829,17 +2829,41 @@ func (l *channelLink) processRemoteSettleFails(fwdPkg *channeldb.FwdPkg,
 
 			l.log.Debugf("Failed to send %s", pd.Amount)
 
-			// If the failure message lacks an HMAC (but includes
-			// the 4 bytes for encoding the message and padding
-			// lengths, then this means that we received it as an
-			// UpdateFailMalformedHTLC. As a result, we'll signal
-			// that we need to convert this error within the switch
-			// to an actual error, by encrypting it as if we were
-			// the originating hop.
-			convertedErrorSize := lnwire.FailureMessageLength + 4
-			if len(pd.FailReason) == convertedErrorSize {
-				failPacket.convertedError = true
+			// Add the packet to the batch to be forwarded, and
+			// notify the overflow queue that a spare spot has been
+			// freed up within the commitment state.
+			switchPackets = append(switchPackets, failPacket)
+
+		// A malformed failure message for a previously forwarded HTLC
+		// has been received. As a result a new slot will be freed up in
+		// our commitment state, so we'll forward this to the switch so
+		// the backwards undo can continue.
+		case lnwallet.MalformedFail:
+			// If hodl.SettleIncoming is requested, we will not
+			// forward the FAIL to the switch and will not signal a
+			// free slot on the commitment transaction.
+			if l.cfg.HodlMask.Active(hodl.FailIncoming) {
+				l.log.Warnf(hodl.FailIncoming.Warning())
+				continue
 			}
+
+			// Fetch the reason the HTLC was canceled so we can
+			// continue to propagate it. This failure originated
+			// from another node, so the linkFailure field is not
+			// set on the packet.
+			failPacket := &htlcPacket{
+				outgoingChanID: l.ShortChanID(),
+				outgoingHTLCID: pd.ParentIndex,
+				destRef:        pd.DestRef,
+				htlc: &lnwire.UpdateFailHTLC{
+					Reason: lnwire.OpaqueReason(
+						pd.FailReason,
+					),
+				},
+				convertedError: true,
+			}
+
+			l.log.Debugf("Failed to send %s", pd.Amount)
 
 			// Add the packet to the batch to be forwarded, and
 			// notify the overflow queue that a spare spot has been

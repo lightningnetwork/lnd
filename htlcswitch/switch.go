@@ -2221,6 +2221,33 @@ func (s *Switch) reforwardSettleFails(fwdPkgs []*channeldb.FwdPkg) {
 				// notify the overflow queue that a spare spot has been
 				// freed up within the commitment state.
 				switchPackets = append(switchPackets, failPacket)
+
+			// A malformed failure message for a previously forwarded HTLC
+			// has been received. As a result a new slot will be freed up in
+			// our commitment state, so we'll forward this to the switch so
+			// the backwards undo can continue.
+			case lnwallet.MalformedFail:
+				// Fetch the reason the HTLC was canceled so
+				// we can continue to propagate it. This
+				// failure originated from another node, so
+				// the linkFailure field is not set on this
+				// packet.
+				failPacket := &htlcPacket{
+					outgoingChanID: fwdPkg.Source,
+					outgoingHTLCID: pd.ParentIndex,
+					destRef:        pd.DestRef,
+					htlc: &lnwire.UpdateFailHTLC{
+						Reason: lnwire.OpaqueReason(
+							pd.FailReason,
+						),
+					},
+					convertedError: true,
+				}
+
+				// Add the packet to the batch to be forwarded, and
+				// notify the overflow queue that a spare spot has been
+				// freed up within the commitment state.
+				switchPackets = append(switchPackets, failPacket)
 			}
 		}
 

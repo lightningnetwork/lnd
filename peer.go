@@ -1707,7 +1707,8 @@ out:
 		case <-pongTimeoutChan:
 			err := fmt.Errorf(
 				"timeout of %s reached while waiting"+
-					"for pong message from peer %s", pongTimeout, p,
+					"for pong message from peer %s",
+				pongTimeout, p,
 			)
 			p.Disconnect(err)
 			break out

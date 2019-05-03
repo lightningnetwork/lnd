@@ -87,6 +87,13 @@ type ErrorEncrypter interface {
 	// slightly, in that it computes a proper MAC over the error.
 	EncryptFirstHop(lnwire.FailureMessage) (lnwire.OpaqueReason, error)
 
+	// EncryptMalformedError is similar to EncryptFirstHop (it adds the
+	// MAC), but it accepts an opaque failure reason rather than a failure
+	// message. This method is used when we receive an
+	// UpdateFailMalformedHTLC from the remote peer and then need to
+	// convert that into a proper error from only the raw bytes.
+	EncryptMalformedError(lnwire.OpaqueReason) lnwire.OpaqueReason
+
 	// IntermediateEncrypt wraps an already encrypted opaque reason error
 	// in an additional layer of onion encryption. This process repeats
 	// until the error arrives at the source of the payment.
@@ -151,6 +158,17 @@ func (s *SphinxErrorEncrypter) EncryptFirstHop(failure lnwire.FailureMessage) (l
 	// We pass a true as the first parameter to indicate that a MAC should
 	// be added.
 	return s.EncryptError(true, b.Bytes()), nil
+}
+
+// EncryptMalformedError is similar to EncryptFirstHop (it adds the MAC), but
+// it accepts an opaque failure reason rather than a failure message. This
+// method is used when we receive an UpdateFailMalformedHTLC from the remote
+// peer and then need to convert that into an proper error from only the raw
+// bytes.
+//
+// NOTE: Part of the ErrorEncrypter interface.
+func (s *SphinxErrorEncrypter) EncryptMalformedError(reason lnwire.OpaqueReason) lnwire.OpaqueReason {
+	return s.EncryptError(true, reason)
 }
 
 // IntermediateEncrypt wraps an already encrypted opaque reason error in an

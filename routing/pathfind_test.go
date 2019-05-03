@@ -807,19 +807,22 @@ func testBasicGraphPathFindingCase(t *testing.T, graphInstance *testGraphInstanc
 	// Next, we'll assert that the "next hop" field in each route payload
 	// properly points to the channel ID that the HTLC should be forwarded
 	// along.
-	hopPayloads := route.ToHopPayloads()
-	if len(hopPayloads) != expectedHopCount {
+	sphinxPath, err := route.ToSphinxPath()
+	if err != nil {
+		t.Fatalf("unable to make sphinx path: %v", err)
+	}
+	if sphinxPath.TrueRouteLength() != expectedHopCount {
 		t.Fatalf("incorrect number of hop payloads: expected %v, got %v",
-			expectedHopCount, len(hopPayloads))
+			expectedHopCount, sphinxPath.TrueRouteLength())
 	}
 
 	// Hops should point to the next hop
 	for i := 0; i < len(expectedHops)-1; i++ {
 		var expectedHop [8]byte
 		binary.BigEndian.PutUint64(expectedHop[:], route.Hops[i+1].ChannelID)
-		if !bytes.Equal(hopPayloads[i].NextAddress[:], expectedHop[:]) {
+		if !bytes.Equal(sphinxPath[i].HopData.NextAddress[:], expectedHop[:]) {
 			t.Fatalf("first hop has incorrect next hop: expected %x, got %x",
-				expectedHop[:], hopPayloads[i].NextAddress)
+				expectedHop[:], sphinxPath[i].HopData.NextAddress)
 		}
 	}
 
@@ -827,9 +830,9 @@ func testBasicGraphPathFindingCase(t *testing.T, graphInstance *testGraphInstanc
 	// to indicate it's the exit hop.
 	var exitHop [8]byte
 	lastHopIndex := len(expectedHops) - 1
-	if !bytes.Equal(hopPayloads[lastHopIndex].NextAddress[:], exitHop[:]) {
+	if !bytes.Equal(sphinxPath[lastHopIndex].HopData.NextAddress[:], exitHop[:]) {
 		t.Fatalf("first hop has incorrect next hop: expected %x, got %x",
-			exitHop[:], hopPayloads[lastHopIndex].NextAddress)
+			exitHop[:], sphinxPath[lastHopIndex].HopData.NextAddress)
 	}
 
 	var expectedTotalFee lnwire.MilliSatoshi

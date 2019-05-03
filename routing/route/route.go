@@ -104,40 +104,6 @@ func (r *Route) HopFee(hopIndex int) lnwire.MilliSatoshi {
 	return incomingAmt - r.Hops[hopIndex].AmtToForward
 }
 
-// ToHopPayloads converts a complete route into the series of per-hop payloads
-// that is to be encoded within each HTLC using an opaque Sphinx packet.
-func (r *Route) ToHopPayloads() []sphinx.HopData {
-	hopPayloads := make([]sphinx.HopData, len(r.Hops))
-
-	// For each hop encoded within the route, we'll convert the hop struct
-	// to the matching per-hop payload struct as used by the sphinx
-	// package.
-	for i, hop := range r.Hops {
-		hopPayloads[i] = sphinx.HopData{
-			// TODO(roasbeef): properly set realm, make sphinx type
-			// an enum actually?
-			Realm:         0,
-			ForwardAmount: uint64(hop.AmtToForward),
-			OutgoingCltv:  hop.OutgoingTimeLock,
-		}
-
-		// As a base case, the next hop is set to all zeroes in order
-		// to indicate that the "last hop" as no further hops after it.
-		nextHop := uint64(0)
-
-		// If we aren't on the last hop, then we set the "next address"
-		// field to be the channel that directly follows it.
-		if i != len(r.Hops)-1 {
-			nextHop = r.Hops[i+1].ChannelID
-		}
-
-		binary.BigEndian.PutUint64(hopPayloads[i].NextAddress[:],
-			nextHop)
-	}
-
-	return hopPayloads
-}
-
 // NewRouteFromHops creates a new Route structure from the minimally required
 // information to perform the payment. It infers fee amounts and populates the
 // node, chan and prev/next hop maps.
@@ -162,4 +128,50 @@ func NewRouteFromHops(amtToSend lnwire.MilliSatoshi, timeLock uint32,
 	}
 
 	return route, nil
+}
+
+// ToSphinxPath converts a complete route into a sphinx PaymentPath that
+// contains the per-hop paylods used to encoding the HTLC routing data for each
+// hop in the route.
+func (r *Route) ToSphinxPath() (*sphinx.PaymentPath, error) {
+	var path sphinx.PaymentPath
+
+	// For each hop encoded within the route, we'll convert the hop struct
+	// to an OnionHop with matching per-hop payload within the path as used
+	// by the sphinx package.
+	for i, hop := range r.Hops {
+		pub, err := btcec.ParsePubKey(
+			hop.PubKeyBytes[:], btcec.S256(),
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		path[i] = sphinx.OnionHop{
+			NodePub: *pub,
+			HopData: sphinx.HopData{
+				// TODO(roasbeef): properly set realm, make
+				// sphinx type an enum actually?
+				Realm:         [1]byte{0},
+				ForwardAmount: uint64(hop.AmtToForward),
+				OutgoingCltv:  hop.OutgoingTimeLock,
+			},
+		}
+
+		// As a base case, the next hop is set to all zeroes in order
+		// to indicate that the "last hop" as no further hops after it.
+		nextHop := uint64(0)
+
+		// If we aren't on the last hop, then we set the "next address"
+		// field to be the channel that directly follows it.
+		if i != len(r.Hops)-1 {
+			nextHop = r.Hops[i+1].ChannelID
+		}
+
+		binary.BigEndian.PutUint64(
+			path[i].HopData.NextAddress[:], nextHop,
+		)
+	}
+
+	return &path, nil
 }

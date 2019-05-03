@@ -3522,13 +3522,10 @@ func testSphinxReplayPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Construct the response we expect after sending a duplicate packet
 	// that fails due to sphinx replay detection.
-	replayErr := fmt.Sprintf("unable to route payment to destination: "+
-		"TemporaryChannelFailure: unable to de-obfuscate onion failure, "+
-		"htlc with hash(%x): unable to retrieve onion failure",
-		invoiceResp.RHash)
-
-	if resp.PaymentError != replayErr {
-		t.Fatalf("received payment error: %v", resp.PaymentError)
+	replayErr := "TemporaryChannelFailure"
+	if !strings.Contains(resp.PaymentError, replayErr) {
+		t.Fatalf("received payment error: %v, expected %v",
+			resp.PaymentError, replayErr)
 	}
 
 	// Since the payment failed, the balance should still be left

@@ -588,3 +588,55 @@ func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 		t.Fatalf("closing tx not broadcast")
 	}
 }
+
+func TestPeerPingPong(t *testing.T) {
+	t.Parallel()
+
+	notifier := &mockNotfier{
+		confChannel: make(chan *chainntnfs.TxConfirmation),
+	}
+	broadcastTxChan := make(chan *wire.MsgTx)
+
+	responder, _, _, cleanUp, err := createTestPeer(notifier, broadcastTxChan)
+	if err != nil {
+		t.Fatalf("unable to create test peer: %v", err)
+	}
+	defer cleanUp()
+
+	// Start pingHandler to process internal ping/pong notifications.
+	responder.wg.Add(1)
+	go responder.pingHandler(time.Second/2, time.Second/4)
+
+	// Expect pingHandler to send out a ping message.
+	select {
+	case outMsg := <-responder.outgoingQueue:
+		msg := outMsg.msg
+		_, ok := msg.(*lnwire.Ping)
+		if !ok {
+			t.Fatalf("expected Ping, got %T", msg)
+		}
+	case <-time.After(time.Second * 5):
+		t.Fatalf("peer did not send out a ping message")
+	}
+
+	// Test peer stays connected through a normal ping-pong exchange.
+	// Simulate writeHandler and readHandler sending a ping and receiving
+	// a pong, respectively; wait to see if peer quits.
+	responder.pingPong <- lnwire.MsgPing // unbuffered
+	responder.pingPong <- lnwire.MsgPong // unbuffered
+	select {
+	case <-responder.quit:
+		t.Fatal("peer quit")
+	case <-time.After(2 * time.Second):
+		// OK
+	}
+
+	// Test peer is disconnected if we don't receive a pong response.
+	responder.pingPong <- lnwire.MsgPing // unbuffered
+	select {
+	case <-responder.quit:
+		// OK
+	case <-time.After(time.Second * 5):
+		t.Fatalf("expecting peer to disconnect, but didn't")
+	}
+}

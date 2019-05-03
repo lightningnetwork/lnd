@@ -418,6 +418,9 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 
 		queueQuit: make(chan struct{}),
 		quit:      make(chan struct{}),
+		pingPong:  make(chan lnwire.MessageType),
+
+		pubKeyBytes: [33]byte{},
 	}
 
 	chanID := lnwire.NewChanIDFromOutPoint(channelAlice.ChannelPoint())

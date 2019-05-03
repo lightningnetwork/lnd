@@ -38,6 +38,10 @@ const (
 	// pingInterval is the interval at which ping messages are sent.
 	pingInterval = 1 * time.Minute
 
+	// pongTimeout is the timeout used when waiting for a pong message in
+	// response to a ping. It must be smaller than pingInterval.
+	pongTimeout = pingInterval / 2
+
 	// idleTimeout is the duration of inactivity before we time out a peer.
 	idleTimeout = 5 * time.Minute
 
@@ -226,6 +230,10 @@ type peer struct {
 	// buffer allocation from the peer life cycle.
 	writePool *pool.Write
 
+	// pingPong is a channel that gets written to whenever we successfully
+	// send out a ping message to the peer, or when we receive a pong.
+	pingPong chan lnwire.MessageType
+
 	readPool *pool.Read
 
 	queueQuit chan struct{}
@@ -281,6 +289,7 @@ func newPeer(conn net.Conn, connReq *connmgr.ConnReq, server *server,
 
 		queueQuit: make(chan struct{}),
 		quit:      make(chan struct{}),
+		pingPong:  make(chan lnwire.MessageType, 1),
 	}
 	copy(p.pubKeyBytes[:], nodePub.SerializeCompressed())
 
@@ -375,7 +384,7 @@ func (p *peer) Start() error {
 	go p.writeHandler()
 	go p.readHandler()
 	go p.channelManager()
-	go p.pingHandler()
+	go p.pingHandler(pingInterval, pongTimeout)
 
 	return nil
 }
@@ -645,13 +654,20 @@ func (p *peer) Disconnect(reason error) {
 	peerLog.Infof("Disconnecting %s, reason: %v", p, reason)
 
 	// Ensure that the TCP connection is properly closed before continuing.
-	p.conn.Close()
+	// Connection may be nil in tests.
+	if p.conn != nil {
+		p.conn.Close()
+	}
 
 	close(p.quit)
 }
 
 // String returns the string representation of this peer.
 func (p *peer) String() string {
+	if p.conn == nil {
+		// Connection may be nil in tests.
+		return fmt.Sprintf("%x", p.pubKeyBytes)
+	}
 	return fmt.Sprintf("%x@%s", p.pubKeyBytes, p.conn.RemoteAddr())
 }
 
@@ -1075,6 +1091,13 @@ out:
 			pingSendTime := atomic.LoadInt64(&p.pingLastSend)
 			delay := (time.Now().UnixNano() - pingSendTime) / 1000
 			atomic.StoreInt64(&p.pingTime, delay)
+
+			// Notify pingHandler we've received a pong message.
+			select {
+			case p.pingPong <- lnwire.MsgPong:
+			default:
+				// pingPong may be full if its readers exited.
+			}
 
 		case *lnwire.Ping:
 			pongBytes := make([]byte, msg.NumPongBytes)
@@ -1555,6 +1578,16 @@ out:
 				break out
 			}
 
+			// Notify pingHandler of outgoing ping messages.
+			if _, ok := outMsg.msg.(*lnwire.Ping); ok {
+				select {
+				case p.pingPong <- lnwire.MsgPing:
+				default:
+					// pingPong may be full if its readers
+					// exited.
+				}
+			}
+
 		case <-p.quit:
 			exitErr = lnpeer.ErrPeerExiting
 			break out
@@ -1639,8 +1672,11 @@ func (p *peer) queueHandler() {
 // remote peer in order to keep the connection alive and/or determine if the
 // connection is still active.
 //
+// pingInterval is the frequency for sending out ping messages to the peer.
+// pongTimeout is the max time to wait for a corresponding pong response.
+//
 // NOTE: This method MUST be run as a goroutine.
-func (p *peer) pingHandler() {
+func (p *peer) pingHandler(pingInterval, pongTimeout time.Duration) {
 	defer p.wg.Done()
 
 	pingTicker := time.NewTicker(pingInterval)
@@ -1649,11 +1685,33 @@ func (p *peer) pingHandler() {
 	// TODO(roasbeef): make dynamic in order to create fake cover traffic
 	const numPingBytes = 16
 
+	// pongTimeoutChan is used as an optional timeout channel.
+	var pongTimeoutChan <-chan time.Time
+
 out:
 	for {
 		select {
 		case <-pingTicker.C:
 			p.queueMsg(lnwire.NewPing(numPingBytes), nil)
+
+		case msgType := <-p.pingPong:
+			// Start the clock on outgoing ping,
+			// stop it on incoming pong.
+			switch msgType {
+			case lnwire.MsgPing:
+				pongTimeoutChan = time.After(pongTimeout)
+			case lnwire.MsgPong:
+				pongTimeoutChan = nil
+			}
+
+		case <-pongTimeoutChan:
+			err := fmt.Errorf(
+				"timeout of %s reached while waiting"+
+					"for pong message from peer %s", pongTimeout, p,
+			)
+			p.Disconnect(err)
+			break out
+
 		case <-p.quit:
 			break out
 		}

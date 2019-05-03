@@ -799,6 +799,23 @@ func (s *Switch) handleLocalDispatch(pkt *htlcPacket) error {
 			}
 		}
 
+		// Ensure that the htlc satisfies the outgoing channel policy.
+		currentHeight := atomic.LoadUint32(&s.bestHeight)
+		htlcErr := link.HtlcSatifiesPolicyLocal(
+			htlc.PaymentHash,
+			htlc.Amount,
+			htlc.Expiry, currentHeight,
+		)
+		if htlcErr != nil {
+			log.Errorf("Link %v policy for local forward not "+
+				"satisfied", pkt.outgoingChanID)
+
+			return &ForwardingError{
+				ErrorSource:    s.cfg.SelfKey,
+				FailureMessage: htlcErr,
+			}
+		}
+
 		if link.Bandwidth() < htlc.Amount {
 			err := fmt.Errorf("Link %v has insufficient capacity: "+
 				"need %v, has %v", pkt.outgoingChanID,

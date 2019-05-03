@@ -9466,7 +9466,8 @@ func testMultiHopHtlcLocalTimeout(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// We'll now mine enough blocks to trigger Bob's broadcast of his
 	// commitment transaction due to the fact that the HTLC is about to
-	// timeout.
+	// timeout. With the default outgoing broadcast delta of zero, this will
+	// be the same height as the htlc expiry height.
 	numBlocks := uint32(finalCltvDelta - defaultOutgoingBroadcastDelta)
 	if _, err := net.Miner.Node.Generate(numBlocks); err != nil {
 		t.Fatalf("unable to generate blocks: %v", err)
@@ -9503,8 +9504,9 @@ func testMultiHopHtlcLocalTimeout(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("htlc mismatch: %v", predErr)
 	}
 
-	// We'll mine defaultCSV blocks in order to generate the sweep transaction
-	// of Bob's funding output.
+	// We'll mine defaultCSV blocks in order to generate the sweep
+	// transaction of Bob's funding output. This will also bring us to the
+	// maturity height of the htlc tx output.
 	if _, err := net.Miner.Node.Generate(defaultCSV); err != nil {
 		t.Fatalf("unable to generate blocks: %v", err)
 	}
@@ -9512,15 +9514,6 @@ func testMultiHopHtlcLocalTimeout(net *lntest.NetworkHarness, t *harnessTest) {
 	_, err = waitForTxInMempool(net.Miner.Node, minerMempoolTimeout)
 	if err != nil {
 		t.Fatalf("unable to find bob's funding output sweep tx: %v", err)
-	}
-
-	// We'll now mine the remaining blocks to cause the HTLC itself to
-	// timeout.
-	_, err = net.Miner.Node.Generate(
-		defaultOutgoingBroadcastDelta - defaultCSV,
-	)
-	if err != nil {
-		t.Fatalf("unable to generate blocks: %v", err)
 	}
 
 	// The second layer HTLC timeout transaction should now have been

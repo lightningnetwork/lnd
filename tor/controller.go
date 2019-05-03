@@ -325,7 +325,6 @@ func computeHMAC256(key, message []byte) []byte {
 func supportsV3(version string) error {
 	// We'll split the minimum Tor version that's supported and the given
 	// version in order to individually compare each number.
-	requiredParts := strings.Split(MinTorVersion, ".")
 	parts := strings.Split(version, ".")
 	if len(parts) != 4 {
 		return errors.New("version string is not of the format " +
@@ -338,22 +337,19 @@ func supportsV3(version string) error {
 	build := strings.Split(parts[len(parts)-1], "-")
 	parts[len(parts)-1] = build[0]
 
-	// Convert them each number from its string representation to integers
-	// and check that they respect the minimum version.
-	for i := range parts {
-		n, err := strconv.Atoi(parts[i])
-		if err != nil {
+	// Ensure that each part of the version string corresponds to a number.
+	for _, part := range parts {
+		if _, err := strconv.Atoi(part); err != nil {
 			return err
 		}
-		requiredN, err := strconv.Atoi(requiredParts[i])
-		if err != nil {
-			return err
-		}
+	}
 
-		if n < requiredN {
-			return fmt.Errorf("version %v below minimum version "+
-				"supported %v", version, MinTorVersion)
-		}
+	// Once we've determined we have a proper version string of the format
+	// major.minor.revision.build, we can just do a string comparison to
+	// determine if it satisfies the minimum version supported.
+	if version < MinTorVersion {
+		return fmt.Errorf("version %v below minimum version supported "+
+			"%v", version, MinTorVersion)
 	}
 
 	return nil

@@ -915,7 +915,7 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 	}
 
 	// If the destination address parses to a valid pubkey, we assume the user
-	// accidently tried to send funds to a bare pubkey address. This check is
+	// accidentally tried to send funds to a bare pubkey address. This check is
 	// here to prevent unintended transfers.
 	decodedAddr, _ := hex.DecodeString(in.Addr)
 	_, err = btcec.ParsePubKey(decodedAddr, btcec.S256())

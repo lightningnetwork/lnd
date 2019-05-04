@@ -29,7 +29,7 @@ var (
 	ErrFailedNegotiation = errors.New("session negotiation unsuccessful")
 
 	// ErrUnregisteredChannel signals that the client was unable to backup a
-	// revoked state becuase the channel had not been previously registered
+	// revoked state because the channel had not been previously registered
 	// with the client.
 	ErrUnregisteredChannel = errors.New("channel is not registered")
 )

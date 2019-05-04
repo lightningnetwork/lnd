@@ -804,7 +804,7 @@ func (u *utxoNursery) sweepMatureOutputs(classHeight uint32,
 
 	for _, output := range kgtnOutputs {
 		// Create local copy to prevent pointer to loop variable to be
-		// passed in with disastruous consequences.
+		// passed in with disastrous consequences.
 		local := output
 
 		resultChan, err := u.cfg.SweepInput(&local)

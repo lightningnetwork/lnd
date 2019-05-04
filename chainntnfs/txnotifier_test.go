@@ -1076,7 +1076,7 @@ func TestTxNotifierCancelConf(t *testing.T) {
 		t.Fatalf("expected to receive confirmation notification")
 	}
 
-	// The second one, however, should not have. The event's Confrimed
+	// The second one, however, should not have. The event's Confirmed
 	// channel must have also been closed to indicate the caller that the
 	// TxNotifier can no longer fulfill their canceled request.
 	select {

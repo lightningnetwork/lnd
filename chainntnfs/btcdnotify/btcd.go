@@ -909,7 +909,7 @@ func (b *BtcdNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 	// In order to ensure that we don't block the caller on what may be a
 	// long rescan, we'll launch a new goroutine to handle the async result
 	// of the rescan. We purposefully prevent from adding this goroutine to
-	// the WaitGroup as we cannnot wait for a quit signal due to the
+	// the WaitGroup as we cannot wait for a quit signal due to the
 	// asyncResult channel not being exposed.
 	//
 	// TODO(wilmer): add retry logic if rescan fails?

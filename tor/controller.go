@@ -414,7 +414,7 @@ const (
 	V3
 )
 
-// AddOnionConfig houses all of the required paramaters in order to succesfully
+// AddOnionConfig houses all of the required parameters in order to successfully
 // create a new onion service or restore an existing one.
 type AddOnionConfig struct {
 	// Type denotes the type of the onion service that should be created.

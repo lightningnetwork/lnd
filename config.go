@@ -647,10 +647,6 @@ func loadConfig() (*config, error) {
 			numNets++
 			ltcParams = litecoinTestNetParams
 		}
-		if cfg.Litecoin.SimNet {
-			numNets++
-			ltcParams = litecoinSimNetParams
-		}
 		if cfg.Litecoin.RegTest {
 			numNets++
 			ltcParams = litecoinRegTestNetParams

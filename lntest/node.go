@@ -27,6 +27,7 @@ import (
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/chanbackup"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
 )
 
@@ -240,11 +241,14 @@ type HarnessNode struct {
 	lnrpc.LightningClient
 
 	lnrpc.WalletUnlockerClient
+
+	invoicesrpc.InvoicesClient
 }
 
 // Assert *HarnessNode implements the lnrpc.LightningClient interface.
 var _ lnrpc.LightningClient = (*HarnessNode)(nil)
 var _ lnrpc.WalletUnlockerClient = (*HarnessNode)(nil)
+var _ invoicesrpc.InvoicesClient = (*HarnessNode)(nil)
 
 // newNode creates a new test lightning node instance from the passed config.
 func newNode(cfg nodeConfig) (*HarnessNode, error) {
@@ -487,6 +491,7 @@ func (hn *HarnessNode) initLightningClient(conn *grpc.ClientConn) error {
 	// Construct the LightningClient that will allow us to use the
 	// HarnessNode directly for normal rpc operations.
 	hn.LightningClient = lnrpc.NewLightningClient(conn)
+	hn.InvoicesClient = invoicesrpc.NewInvoicesClient(conn)
 
 	// Set the harness node's pubkey to what the node claims in GetInfo.
 	err := hn.FetchNodeInfo()

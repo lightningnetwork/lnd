@@ -1786,6 +1786,17 @@ func (r *ChannelRouter) processSendError(paySession *paymentSession,
 	}
 
 	errSource := fErr.ErrorSource
+
+	// It can be that no error source is available. In that case we report
+	// the route to mission control and continue path finding.
+	if errSource == nil {
+		log.Tracef("Unknown failure source reported when sending htlc")
+
+		paySession.ReportRouteFailure(rt)
+
+		return false
+	}
+
 	errVertex := route.NewVertex(errSource)
 
 	log.Tracef("node=%x reported failure when sending htlc", errVertex)

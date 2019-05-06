@@ -2,6 +2,8 @@ package routing
 
 import (
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -76,6 +78,35 @@ func (p *paymentSession) ReportEdgeFailure(e *EdgeLocator) {
 	p.mc.Lock()
 	p.mc.failedEdges[*e] = time.Now()
 	p.mc.Unlock()
+}
+
+// ReportRouteFailure reports a failing route for which no error source is
+// available. The source can be any node along the route. Therefore we prune all
+// edges along the route to at least make sure that the offending node is
+// included. This is too agressive and not ideal, but we are limited by the
+// information that we receive. However compared to pruning just our outgoing
+// channel, it does increase are chance of eventually finding a successful
+// route.
+func (p *paymentSession) ReportRouteFailure(rt *route.Route) {
+	log.Debugf("Reporting route %v failure to Mission Control",
+		RouteChannelsString(rt))
+
+	fromNode := rt.SourcePubKey
+	for _, hop := range rt.Hops {
+		toNode := hop.PubKeyBytes
+
+		locator := newEdgeLocatorByPubkeys(
+			hop.ChannelID,
+			&fromNode,
+			&toNode,
+		)
+
+		p.ReportEdgeFailure(
+			locator,
+		)
+
+		fromNode = toNode
+	}
 }
 
 // ReportChannelPolicyFailure handles a failure message that relates to a
@@ -187,4 +218,15 @@ func (p *paymentSession) RequestRoute(payment *LightningPayment,
 	}
 
 	return route, err
+}
+
+// RouteChannelsString returns a string describing the channels in the route.
+func RouteChannelsString(rt *route.Route) string {
+	var b strings.Builder
+	b.WriteString(strconv.FormatUint(rt.Hops[0].ChannelID, 10))
+	for _, h := range rt.Hops[1:] {
+		b.WriteString(",")
+		b.WriteString(strconv.FormatUint(h.ChannelID, 10))
+	}
+	return b.String()
 }

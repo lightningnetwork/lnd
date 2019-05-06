@@ -997,9 +997,8 @@ func (s *Switch) parseFailedPayment(payment *pendingPayment, pkt *htlcPacket,
 		userErr := fmt.Sprintf("error decryptor for payment " +
 			"could not be located, likely due to restart")
 		failure = &ForwardingError{
-			ErrorSource:    s.cfg.SelfKey,
-			ExtraMsg:       userErr,
-			FailureMessage: lnwire.NewTemporaryChannelFailure(nil),
+			ErrorSource: nil,
+			ExtraMsg:    userErr,
 		}
 
 	// A regular multi-hop payment error that we'll need to
@@ -1015,9 +1014,8 @@ func (s *Switch) parseFailedPayment(payment *pendingPayment, pkt *htlcPacket,
 				pkt.circuit.PaymentHash[:], err)
 			log.Error(userErr)
 			failure = &ForwardingError{
-				ErrorSource:    s.cfg.SelfKey,
-				ExtraMsg:       userErr,
-				FailureMessage: lnwire.NewTemporaryChannelFailure(nil),
+				ErrorSource: nil,
+				ExtraMsg:    userErr,
 			}
 		}
 	}

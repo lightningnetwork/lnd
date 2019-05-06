@@ -2125,3 +2125,101 @@ func TestUpdateFailMalformedHTLCErrorConversion(t *testing.T) {
 		assertPaymentFailure(t)
 	})
 }
+
+// TestInvalidFailure tests that the switch returns no error source and no
+// failure message when the onion error is invalid.
+func TestInvalidFailure(t *testing.T) {
+	t.Parallel()
+
+	alicePeer, err := newMockServer(t, "alice", testStartingHeight, nil, 6)
+	if err != nil {
+		t.Fatalf("unable to create alice server: %v", err)
+	}
+
+	s, err := initSwitchWithDB(testStartingHeight, nil)
+	if err != nil {
+		t.Fatalf("unable to init switch: %v", err)
+	}
+	if err := s.Start(); err != nil {
+		t.Fatalf("unable to start switch: %v", err)
+	}
+	defer s.Stop()
+
+	chanID1, _, aliceChanID, _ := genIDs()
+
+	aliceChannelLink := newMockChannelLink(
+		s, chanID1, aliceChanID, alicePeer, true,
+	)
+	if err := s.AddLink(aliceChannelLink); err != nil {
+		t.Fatalf("unable to add link: %v", err)
+	}
+
+	// Create request which should be forwarder from alice channel link
+	// to bob channel link.
+	preimage, err := genPreimage()
+	if err != nil {
+		t.Fatalf("unable to generate preimage: %v", err)
+	}
+	rhash := fastsha256.Sum256(preimage[:])
+	update := &lnwire.UpdateAddHTLC{
+		PaymentHash: rhash,
+		Amount:      1,
+	}
+
+	// Handle the request and checks that bob channel link received it.
+	errChan := make(chan error)
+	go func() {
+		_, err := s.SendHTLC(
+			aliceChannelLink.ShortChanID(), update,
+			newMockDeobfuscator())
+		errChan <- err
+	}()
+
+	select {
+	case packet := <-aliceChannelLink.packets:
+		if err := aliceChannelLink.completeCircuit(packet); err != nil {
+			t.Fatalf("unable to complete payment circuit: %v", err)
+		}
+
+	case err := <-errChan:
+		if err != ErrPaymentInFlight {
+			t.Fatalf("unable to send payment: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("request was not propagated to destination")
+	}
+
+	packet := &htlcPacket{
+		outgoingChanID: aliceChannelLink.ShortChanID(),
+		outgoingHTLCID: 0,
+		amount:         1,
+		htlc: &lnwire.UpdateFailHTLC{
+			Reason: []byte{1, 2, 3},
+		},
+	}
+
+	if err := s.forward(packet); err != nil {
+		t.Fatalf("can't forward htlc packet: %v", err)
+	}
+
+	select {
+	case err := <-errChan:
+		fErr, ok := err.(*ForwardingError)
+		if !ok {
+			t.Fatal("expected ForwardingError")
+		}
+		if fErr.ErrorSource != nil {
+			t.Fatal("expected no error source")
+		}
+		if fErr.FailureMessage != nil {
+			t.Fatal("expected no failure message")
+		}
+
+	case <-time.After(time.Second):
+		t.Fatal("err wasn't received")
+	}
+
+	if s.numPendingPayments() != 0 {
+		t.Fatal("wrong amount of pending payments")
+	}
+}

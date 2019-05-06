@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"strings"
 	"testing"
 	"time"
 
@@ -1825,9 +1824,13 @@ func TestSwitchSendPayment(t *testing.T) {
 
 	select {
 	case err := <-errChan:
-		if !strings.Contains(err.Error(), lnwire.CodeUnknownPaymentHash.String()) {
-			t.Fatalf("expected %v got %v", err,
-				lnwire.CodeUnknownPaymentHash)
+		fErr, ok := err.(*ForwardingError)
+		if !ok {
+			t.Fatal("expected ForwardingError")
+		}
+
+		if _, ok := fErr.FailureMessage.(*lnwire.FailUnknownPaymentHash); !ok {
+			t.Fatalf("expected UnknownPaymentHash got %v", fErr)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("err wasn't received")

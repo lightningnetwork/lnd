@@ -2502,6 +2502,8 @@ func (p *peer) sendMessage(sync, priority bool, msgs ...lnwire.Message) error {
 			return err
 		case <-p.quit:
 			return lnpeer.ErrPeerExiting
+		case <-p.server.quit:
+			return lnpeer.ErrPeerExiting
 		}
 	}
 

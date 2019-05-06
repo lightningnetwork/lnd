@@ -6,7 +6,7 @@ import (
 	"io"
 
 	"github.com/btcsuite/btcd/btcec"
-	"github.com/lightningnetwork/lightning-onion"
+	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -30,10 +30,10 @@ type ForwardingError struct {
 // returned.
 func (f *ForwardingError) Error() string {
 	if f.ExtraMsg == "" {
-		return f.FailureMessage.Error()
+		return fmt.Sprintf("%v", f.FailureMessage)
 	}
 
-	return fmt.Sprintf("%v: %v", f.FailureMessage.Error(), f.ExtraMsg)
+	return fmt.Sprintf("%v: %v", f.FailureMessage, f.ExtraMsg)
 }
 
 // ErrorDecrypter is an interface that is used to decrypt the onion encrypted

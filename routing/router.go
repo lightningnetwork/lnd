@@ -584,6 +584,15 @@ func (r *ChannelRouter) syncGraphWithChain() error {
 	// consumed by the channel graph.
 	var numChansClosed uint32
 	for nextHeight := pruneHeight + 1; nextHeight <= uint32(bestHeight); nextHeight++ {
+		// Break out of the rescan early if a shutdown has been
+		// requested, otherwise long rescans will block the daemon from
+		// shutting down promptly.
+		select {
+		case <-r.quit:
+			return ErrRouterShuttingDown
+		default:
+		}
+
 		// Using the next height, request a manual block pruning from
 		// the chainview for the particular block hash.
 		nextHash, err := r.cfg.Chain.GetBlockHash(int64(nextHeight))

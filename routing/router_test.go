@@ -23,10 +23,6 @@ import (
 	"github.com/lightningnetwork/lnd/zpay32"
 )
 
-// defaultNumRoutes is the default value for the maximum number of routes to
-// be returned by FindRoutes
-const defaultNumRoutes = 10
-
 type testCtx struct {
 	router *ChannelRouter
 
@@ -165,60 +161,6 @@ func createTestCtxFromFile(startingHeight uint32, testGraph string) (*testCtx, f
 	return createTestCtxFromGraphInstance(startingHeight, graphInstance)
 }
 
-// TestFindRoutesFeeSorting asserts that routes found by the FindRoutes method
-// within the channel router are properly returned in a sorted order, with the
-// lowest fee route coming first.
-func TestFindRoutesFeeSorting(t *testing.T) {
-	t.Parallel()
-
-	const startingBlockHeight = 101
-	ctx, cleanUp, err := createTestCtxFromFile(startingBlockHeight, basicGraphFilePath)
-	if err != nil {
-		t.Fatalf("unable to create router: %v", err)
-	}
-	defer cleanUp()
-
-	// In this test we'd like to ensure proper integration of the various
-	// functions that are involved in path finding, and also route
-	// selection.
-
-	// Execute a query for all possible routes between roasbeef and luo ji.
-	paymentAmt := lnwire.NewMSatFromSatoshis(100)
-	target := ctx.aliases["luoji"]
-	routes, err := ctx.router.FindRoutes(
-		ctx.router.selfNode.PubKeyBytes,
-		target, paymentAmt, noRestrictions, defaultNumRoutes,
-		zpay32.DefaultFinalCLTVDelta,
-	)
-	if err != nil {
-		t.Fatalf("unable to find any routes: %v", err)
-	}
-
-	// Exactly, two such paths should be found.
-	if len(routes) != 2 {
-		t.Fatalf("2 routes should've been selected, instead %v were: %v",
-			len(routes), spew.Sdump(routes))
-	}
-
-	// We shouldn't pay a fee for the fist route, but the second route
-	// should have a fee intact.
-	if routes[0].TotalFees != 0 {
-		t.Fatalf("incorrect fees for first route, expected 0 got: %v",
-			routes[0].TotalFees)
-	}
-	if routes[1].TotalFees == 0 {
-		t.Fatalf("total fees not set in second route: %v",
-			spew.Sdump(routes[0]))
-	}
-
-	// The paths should properly be ranked according to their total fee
-	// rate.
-	if routes[0].TotalFees > routes[1].TotalFees {
-		t.Fatalf("routes not ranked by total fee: %v",
-			spew.Sdump(routes))
-	}
-}
-
 // TestFindRoutesWithFeeLimit asserts that routes found by the FindRoutes method
 // within the channel router contain a total fee less than or equal to the fee
 // limit.
@@ -247,24 +189,20 @@ func TestFindRoutesWithFeeLimit(t *testing.T) {
 		FeeLimit: lnwire.NewMSatFromSatoshis(10),
 	}
 
-	routes, err := ctx.router.FindRoutes(
+	route, err := ctx.router.FindRoute(
 		ctx.router.selfNode.PubKeyBytes,
-		target, paymentAmt, restrictions, defaultNumRoutes,
+		target, paymentAmt, restrictions,
 		zpay32.DefaultFinalCLTVDelta,
 	)
 	if err != nil {
 		t.Fatalf("unable to find any routes: %v", err)
 	}
 
-	if len(routes) != 1 {
-		t.Fatalf("expected 1 route, got %d", len(routes))
+	if route.TotalFees > restrictions.FeeLimit {
+		t.Fatalf("route exceeded fee limit: %v", spew.Sdump(route))
 	}
 
-	if routes[0].TotalFees > restrictions.FeeLimit {
-		t.Fatalf("route exceeded fee limit: %v", spew.Sdump(routes[0]))
-	}
-
-	hops := routes[0].Hops
+	hops := route.Hops
 	if len(hops) != 2 {
 		t.Fatalf("expected 2 hops, got %d", len(hops))
 	}
@@ -1339,21 +1277,18 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 		t.Fatalf("unable to update edge policy: %v", err)
 	}
 
-	// We should now be able to find two routes to node 2.
+	// We should now be able to find a route to node 2.
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
 	targetNode := priv2.PubKey()
 	var targetPubKeyBytes route.Vertex
 	copy(targetPubKeyBytes[:], targetNode.SerializeCompressed())
-	routes, err := ctx.router.FindRoutes(
+	_, err = ctx.router.FindRoute(
 		ctx.router.selfNode.PubKeyBytes,
-		targetPubKeyBytes, paymentAmt, noRestrictions, defaultNumRoutes,
+		targetPubKeyBytes, paymentAmt, noRestrictions,
 		zpay32.DefaultFinalCLTVDelta,
 	)
 	if err != nil {
 		t.Fatalf("unable to find any routes: %v", err)
-	}
-	if len(routes) != 2 {
-		t.Fatalf("expected to find 2 route, found: %v", len(routes))
 	}
 
 	// Now check that we can update the node info for the partial node
@@ -1388,18 +1323,15 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 		t.Fatalf("could not add node: %v", err)
 	}
 
-	// Should still be able to find the routes, and the info should be
+	// Should still be able to find the route, and the info should be
 	// updated.
-	routes, err = ctx.router.FindRoutes(
+	_, err = ctx.router.FindRoute(
 		ctx.router.selfNode.PubKeyBytes,
-		targetPubKeyBytes, paymentAmt, noRestrictions, defaultNumRoutes,
+		targetPubKeyBytes, paymentAmt, noRestrictions,
 		zpay32.DefaultFinalCLTVDelta,
 	)
 	if err != nil {
 		t.Fatalf("unable to find any routes: %v", err)
-	}
-	if len(routes) != 2 {
-		t.Fatalf("expected to find 2 route, found: %v", len(routes))
 	}
 
 	copy1, err := ctx.graph.FetchLightningNode(priv1.PubKey())

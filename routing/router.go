@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"runtime"
-	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -1312,72 +1311,12 @@ type routingMsg struct {
 	err chan error
 }
 
-// pathsToFeeSortedRoutes takes a set of paths, and returns a corresponding set
-// of routes. A route differs from a path in that it has full time-lock and
-// fee information attached. The set of routes returned may be less than the
-// initial set of paths as it's possible we drop a route if it can't handle the
-// total payment flow after fees are calculated.
-func pathsToFeeSortedRoutes(source route.Vertex, paths [][]*channeldb.ChannelEdgePolicy,
-	finalCLTVDelta uint16, amt lnwire.MilliSatoshi,
-	currentHeight uint32) ([]*route.Route, error) {
-
-	validRoutes := make([]*route.Route, 0, len(paths))
-	for _, path := range paths {
-		// Attempt to make the path into a route. We snip off the first
-		// hop in the path as it contains a "self-hop" that is inserted
-		// by our KSP algorithm.
-		route, err := newRoute(
-			amt, source, path[1:], currentHeight, finalCLTVDelta,
-		)
-		if err != nil {
-			// TODO(roasbeef): report straw breaking edge?
-			continue
-		}
-
-		// If the path as enough total flow to support the computed
-		// route, then we'll add it to our set of valid routes.
-		validRoutes = append(validRoutes, route)
-	}
-
-	// If all our perspective routes were eliminating during the transition
-	// from path to route, then we'll return an error to the caller
-	if len(validRoutes) == 0 {
-		return nil, newErr(ErrNoPathFound, "unable to find a path to "+
-			"destination")
-	}
-
-	// Finally, we'll sort the set of validate routes to optimize for
-	// lowest total fees, using the required time-lock within the route as
-	// a tie-breaker.
-	sort.Slice(validRoutes, func(i, j int) bool {
-		// To make this decision we first check if the total fees
-		// required for both routes are equal. If so, then we'll let
-		// the total time lock be the tie breaker. Otherwise, we'll put
-		// the route with the lowest total fees first.
-		if validRoutes[i].TotalFees == validRoutes[j].TotalFees {
-			timeLockI := validRoutes[i].TotalTimeLock
-			timeLockJ := validRoutes[j].TotalTimeLock
-			return timeLockI < timeLockJ
-		}
-
-		return validRoutes[i].TotalFees < validRoutes[j].TotalFees
-	})
-
-	return validRoutes, nil
-}
-
-// FindRoutes attempts to query the ChannelRouter for a bounded number
-// available paths to a particular target destination which is able to send
-// `amt` after factoring in channel capacities and cumulative fees along each
-// route.  To `numPaths eligible paths, we use a modified version of
-// Yen's algorithm which itself uses a modified version of Dijkstra's algorithm
-// within its inner loop.  Once we have a set of candidate routes, we calculate
-// the required fee and time lock values running backwards along the route. The
-// route that will be ranked the highest is the one with the lowest cumulative
-// fee along the route.
-func (r *ChannelRouter) FindRoutes(source, target route.Vertex,
-	amt lnwire.MilliSatoshi, restrictions *RestrictParams, numPaths uint32,
-	finalExpiry ...uint16) ([]*route.Route, error) {
+// FindRoute attempts to query the ChannelRouter for the optimum path to a
+// particular target destination to which it is able to send `amt` after
+// factoring in channel capacities and cumulative fees along the route.
+func (r *ChannelRouter) FindRoute(source, target route.Vertex,
+	amt lnwire.MilliSatoshi, restrictions *RestrictParams,
+	finalExpiry ...uint16) (*route.Route, error) {
 
 	var finalCLTVDelta uint16
 	if len(finalExpiry) == 0 {
@@ -1388,11 +1327,6 @@ func (r *ChannelRouter) FindRoutes(source, target route.Vertex,
 
 	log.Debugf("Searching for path to %x, sending %v", target, amt)
 
-	// If we don't have a set of routes cached, we'll query the graph for a
-	// set of potential routes to the destination node that can support our
-	// payment amount. If no such routes can be found then an error will be
-	// returned.
-
 	// We can short circuit the routing by opportunistically checking to
 	// see if the target vertex event exists in the current graph.
 	if _, exists, err := r.cfg.Graph.HasLightningNode(target); err != nil {
@@ -1402,16 +1336,8 @@ func (r *ChannelRouter) FindRoutes(source, target route.Vertex,
 		return nil, newErrf(ErrTargetNotInNetwork, "target not found")
 	}
 
-	// We'll also fetch the current block height so we can properly
-	// calculate the required HTLC time locks within the route.
-	_, currentHeight, err := r.cfg.Chain.GetBestBlock()
-	if err != nil {
-		return nil, err
-	}
-
-	// Before we open the db transaction below, we'll attempt to obtain a
-	// set of bandwidth hints that can help us eliminate certain routes
-	// early on in the path finding process.
+	// We'll attempt to obtain a set of bandwidth hints that can help us
+	// eliminate certain routes early on in the path finding process.
 	bandwidthHints, err := generateBandwidthHints(
 		r.selfNode, r.cfg.QueryBandwidth,
 	)
@@ -1419,47 +1345,38 @@ func (r *ChannelRouter) FindRoutes(source, target route.Vertex,
 		return nil, err
 	}
 
-	tx, err := r.cfg.Graph.Database().Begin(false)
-	if err != nil {
-		tx.Rollback()
-		return nil, err
-	}
-
-	// Now that we know the destination is reachable within the graph,
-	// we'll execute our KSP algorithm to find the k-shortest paths from
-	// our source to the destination.
-	shortestPaths, err := findPaths(
-		tx, r.cfg.Graph, source, target, amt, restrictions,
-		numPaths, bandwidthHints,
+	// Now that we know the destination is reachable within the graph, we'll
+	// execute our path finding algorithm.
+	path, err := findPath(
+		&graphParams{
+			graph:          r.cfg.Graph,
+			bandwidthHints: bandwidthHints,
+		},
+		restrictions, source, target, amt,
 	)
+
+	// We'll fetch the current block height so we can properly calculate the
+	// required HTLC time locks within the route.
+	_, currentHeight, err := r.cfg.Chain.GetBestBlock()
 	if err != nil {
-		tx.Rollback()
 		return nil, err
 	}
 
-	tx.Rollback()
-
-	// Now that we have a set of paths, we'll need to turn them into
-	// *routes* by computing the required time-lock and fee information for
-	// each path. During this process, some paths may be discarded if they
-	// aren't able to support the total satoshis flow once fees have been
-	// factored in.
-	sourceVertex := route.Vertex(r.selfNode.PubKeyBytes)
-	validRoutes, err := pathsToFeeSortedRoutes(
-		sourceVertex, shortestPaths, finalCLTVDelta, amt,
-		uint32(currentHeight),
+	// Create the route with absolute time lock values.
+	route, err := newRoute(
+		amt, source, path, uint32(currentHeight), finalCLTVDelta,
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	go log.Tracef("Obtained %v paths sending %v to %x: %v", len(validRoutes),
+	go log.Tracef("Obtained path to send %v to %x: %v",
 		amt, target, newLogClosure(func() string {
-			return spew.Sdump(validRoutes)
+			return spew.Sdump(route)
 		}),
 	)
 
-	return validRoutes, nil
+	return route, nil
 }
 
 // generateSphinxPacket generates then encodes a sphinx packet which encodes

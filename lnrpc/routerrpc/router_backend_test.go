@@ -42,7 +42,6 @@ func TestQueryRoutes(t *testing.T) {
 	request := &lnrpc.QueryRoutesRequest{
 		PubKey:         destKey,
 		Amt:            100000,
-		NumRoutes:      1,
 		FinalCltvDelta: 100,
 		FeeLimit: &lnrpc.FeeLimit{
 			Limit: &lnrpc.FeeLimit_Fixed{
@@ -58,17 +57,12 @@ func TestQueryRoutes(t *testing.T) {
 
 	rt := &route.Route{}
 
-	findRoutes := func(source, target route.Vertex,
+	findRoute := func(source, target route.Vertex,
 		amt lnwire.MilliSatoshi, restrictions *routing.RestrictParams,
-		numPaths uint32, finalExpiry ...uint16) (
-		[]*route.Route, error) {
+		finalExpiry ...uint16) (*route.Route, error) {
 
 		if int64(amt) != request.Amt*1000 {
 			t.Fatal("unexpected amount")
-		}
-
-		if numPaths != 1 {
-			t.Fatal("unexpected number of routes")
 		}
 
 		if source != sourceKey {
@@ -101,14 +95,12 @@ func TestQueryRoutes(t *testing.T) {
 			t.Fatal("unexpected ignored node")
 		}
 
-		return []*route.Route{
-			rt,
-		}, nil
+		return rt, nil
 	}
 
 	backend := &RouterBackend{
 		MaxPaymentMSat: lnwire.NewMSatFromSatoshis(1000000),
-		FindRoutes:     findRoutes,
+		FindRoute:      findRoute,
 		SelfNode:       route.Vertex{1, 2, 3},
 		FetchChannelCapacity: func(chanID uint64) (
 			btcutil.Amount, error) {

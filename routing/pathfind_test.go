@@ -948,63 +948,6 @@ func TestPathFindingWithAdditionalEdges(t *testing.T) {
 	assertExpectedPath(t, graph.aliasMap, path, "songoku", "doge")
 }
 
-func TestKShortestPathFinding(t *testing.T) {
-	t.Parallel()
-
-	graph, err := parseTestGraph(basicGraphFilePath)
-	if err != nil {
-		t.Fatalf("unable to create graph: %v", err)
-	}
-	defer graph.cleanUp()
-
-	sourceNode, err := graph.graph.SourceNode()
-	if err != nil {
-		t.Fatalf("unable to fetch source node: %v", err)
-	}
-
-	// In this test we'd like to ensure that our algorithm to find the
-	// k-shortest paths from a given source node to any destination node
-	// works as expected.
-
-	// In our basic_graph.json, there exist two paths from roasbeef to luo
-	// ji. Our algorithm should properly find both paths, and also rank
-	// them in order of their total "distance".
-
-	paymentAmt := lnwire.NewMSatFromSatoshis(100)
-	target := graph.aliasMap["luoji"]
-	restrictions := &RestrictParams{
-		FeeLimit: noFeeLimit,
-	}
-	paths, err := findPaths(
-		nil, graph.graph, sourceNode.PubKeyBytes, target, paymentAmt,
-		restrictions, 100, nil,
-	)
-	if err != nil {
-		t.Fatalf("unable to find paths between roasbeef and "+
-			"luo ji: %v", err)
-	}
-
-	// The algorithm should have found two paths from roasbeef to luo ji.
-	if len(paths) != 2 {
-		t.Fatalf("two path shouldn't been found, instead %v were",
-			len(paths))
-	}
-
-	// Additionally, the total hop length of the first path returned should
-	// be _less_ than that of the second path returned.
-	if len(paths[0]) > len(paths[1]) {
-		t.Fatalf("paths found not ordered properly")
-	}
-
-	// The first route should be a direct route to luo ji.
-	assertExpectedPath(t, graph.aliasMap, paths[0], "roasbeef", "luoji")
-
-	// The second route should be a route to luo ji via satoshi.
-	assertExpectedPath(
-		t, graph.aliasMap, paths[1], "roasbeef", "satoshi", "luoji",
-	)
-}
-
 // TestNewRoute tests whether the construction of hop payloads by newRoute
 // is executed correctly.
 func TestNewRoute(t *testing.T) {
@@ -1732,45 +1675,38 @@ func TestPathFindSpecExample(t *testing.T) {
 	// Query for a route of 4,999,999 mSAT to carol.
 	carol := ctx.aliases["C"]
 	const amt lnwire.MilliSatoshi = 4999999
-	routes, err := ctx.router.FindRoutes(
-		bobNode.PubKeyBytes, carol, amt, noRestrictions, 100,
+	route, err := ctx.router.FindRoute(
+		bobNode.PubKeyBytes, carol, amt, noRestrictions,
 	)
 	if err != nil {
 		t.Fatalf("unable to find route: %v", err)
 	}
 
-	// We should come back with _exactly_ two routes.
-	if len(routes) != 2 {
-		t.Fatalf("expected %v routes, instead have: %v", 2,
-			len(routes))
-	}
-
-	// Now we'll examine the first route returned for correctness.
+	// Now we'll examine the route returned for correctness.
 	//
 	// It should be sending the exact payment amount as there are no
 	// additional hops.
-	firstRoute := routes[0]
-	if firstRoute.TotalAmount != amt {
+	if route.TotalAmount != amt {
 		t.Fatalf("wrong total amount: got %v, expected %v",
-			firstRoute.TotalAmount, amt)
+			route.TotalAmount, amt)
 	}
-	if firstRoute.Hops[0].AmtToForward != amt {
+	if route.Hops[0].AmtToForward != amt {
 		t.Fatalf("wrong forward amount: got %v, expected %v",
-			firstRoute.Hops[0].AmtToForward, amt)
+			route.Hops[0].AmtToForward, amt)
 	}
 
-	fee := firstRoute.HopFee(0)
+	fee := route.HopFee(0)
 	if fee != 0 {
 		t.Fatalf("wrong hop fee: got %v, expected %v", fee, 0)
 	}
 
 	// The CLTV expiry should be the current height plus 9 (the expiry for
 	// the B -> C channel.
-	if firstRoute.TotalTimeLock !=
+	if route.TotalTimeLock !=
 		startingHeight+zpay32.DefaultFinalCLTVDelta {
 
 		t.Fatalf("wrong total time lock: got %v, expecting %v",
-			firstRoute.TotalTimeLock,
+			route.TotalTimeLock,
 			startingHeight+zpay32.DefaultFinalCLTVDelta)
 	}
 
@@ -1798,48 +1734,38 @@ func TestPathFindSpecExample(t *testing.T) {
 	}
 
 	// We'll now request a route from A -> B -> C.
-	routes, err = ctx.router.FindRoutes(
-		source.PubKeyBytes, carol, amt, noRestrictions, 100,
+	route, err = ctx.router.FindRoute(
+		source.PubKeyBytes, carol, amt, noRestrictions,
 	)
 	if err != nil {
 		t.Fatalf("unable to find routes: %v", err)
 	}
 
-	// We should come back with _exactly_ two routes.
-	if len(routes) != 2 {
-		t.Fatalf("expected %v routes, instead have: %v", 2,
-			len(routes))
-	}
-
-	// Both routes should be two hops.
-	if len(routes[0].Hops) != 2 {
+	// The route should be two hops.
+	if len(route.Hops) != 2 {
 		t.Fatalf("route should be %v hops, is instead %v", 2,
-			len(routes[0].Hops))
-	}
-	if len(routes[1].Hops) != 2 {
-		t.Fatalf("route should be %v hops, is instead %v", 2,
-			len(routes[1].Hops))
+			len(route.Hops))
 	}
 
 	// The total amount should factor in a fee of 10199 and also use a CLTV
 	// delta total of 29 (20 + 9),
 	expectedAmt := lnwire.MilliSatoshi(5010198)
-	if routes[0].TotalAmount != expectedAmt {
+	if route.TotalAmount != expectedAmt {
 		t.Fatalf("wrong amount: got %v, expected %v",
-			routes[0].TotalAmount, expectedAmt)
+			route.TotalAmount, expectedAmt)
 	}
-	if routes[0].TotalTimeLock != startingHeight+29 {
+	if route.TotalTimeLock != startingHeight+29 {
 		t.Fatalf("wrong total time lock: got %v, expecting %v",
-			routes[0].TotalTimeLock, startingHeight+29)
+			route.TotalTimeLock, startingHeight+29)
 	}
 
-	// Ensure that the hops of the first route are properly crafted.
+	// Ensure that the hops of the route are properly crafted.
 	//
 	// After taking the fee, Bob should be forwarding the remainder which
 	// is the exact payment to Bob.
-	if routes[0].Hops[0].AmtToForward != amt {
+	if route.Hops[0].AmtToForward != amt {
 		t.Fatalf("wrong forward amount: got %v, expected %v",
-			routes[0].Hops[0].AmtToForward, amt)
+			route.Hops[0].AmtToForward, amt)
 	}
 
 	// We shouldn't pay any fee for the first, hop, but the fee for the
@@ -1850,70 +1776,31 @@ func TestPathFindSpecExample(t *testing.T) {
 	//
 	//  * 200 + 4999999 * 2000 / 1000000 = 10199
 
-	fee = routes[0].HopFee(0)
+	fee = route.HopFee(0)
 	if fee != 10199 {
 		t.Fatalf("wrong hop fee: got %v, expected %v", fee, 10199)
 	}
 
 	// While for the final hop, as there's no additional hop afterwards, we
 	// pay no fee.
-	fee = routes[0].HopFee(1)
+	fee = route.HopFee(1)
 	if fee != 0 {
 		t.Fatalf("wrong hop fee: got %v, expected %v", fee, 0)
 	}
 
 	// The outgoing CLTV value itself should be the current height plus 30
 	// to meet Carol's requirements.
-	if routes[0].Hops[0].OutgoingTimeLock !=
+	if route.Hops[0].OutgoingTimeLock !=
 		startingHeight+zpay32.DefaultFinalCLTVDelta {
 
 		t.Fatalf("wrong total time lock: got %v, expecting %v",
-			routes[0].Hops[0].OutgoingTimeLock,
+			route.Hops[0].OutgoingTimeLock,
 			startingHeight+zpay32.DefaultFinalCLTVDelta)
 	}
 
 	// For B -> C, we assert that the final hop also has the proper
 	// parameters.
-	lastHop := routes[0].Hops[1]
-	if lastHop.AmtToForward != amt {
-		t.Fatalf("wrong forward amount: got %v, expected %v",
-			lastHop.AmtToForward, amt)
-	}
-	if lastHop.OutgoingTimeLock !=
-		startingHeight+zpay32.DefaultFinalCLTVDelta {
-
-		t.Fatalf("wrong total time lock: got %v, expecting %v",
-			lastHop.OutgoingTimeLock,
-			startingHeight+zpay32.DefaultFinalCLTVDelta)
-	}
-
-	// We'll also make similar assertions for the second route from A to C
-	// via D.
-	secondRoute := routes[1]
-	expectedAmt = 5020398
-	if secondRoute.TotalAmount != expectedAmt {
-		t.Fatalf("wrong amount: got %v, expected %v",
-			secondRoute.TotalAmount, expectedAmt)
-	}
-	expectedTimeLock := startingHeight + daveFinalCLTV + zpay32.DefaultFinalCLTVDelta
-	if secondRoute.TotalTimeLock != uint32(expectedTimeLock) {
-		t.Fatalf("wrong total time lock: got %v, expecting %v",
-			secondRoute.TotalTimeLock, expectedTimeLock)
-	}
-	onionPayload := secondRoute.Hops[0]
-	if onionPayload.AmtToForward != amt {
-		t.Fatalf("wrong forward amount: got %v, expected %v",
-			onionPayload.AmtToForward, amt)
-	}
-	expectedTimeLock = startingHeight + zpay32.DefaultFinalCLTVDelta
-	if onionPayload.OutgoingTimeLock != uint32(expectedTimeLock) {
-		t.Fatalf("wrong outgoing time lock: got %v, expecting %v",
-			onionPayload.OutgoingTimeLock,
-			expectedTimeLock)
-	}
-
-	// The B -> C hop should also be identical as the prior cases.
-	lastHop = secondRoute.Hops[1]
+	lastHop := route.Hops[1]
 	if lastHop.AmtToForward != amt {
 		t.Fatalf("wrong forward amount: got %v, expected %v",
 			lastHop.AmtToForward, amt)

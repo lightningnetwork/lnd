@@ -2978,11 +2978,6 @@ var queryRoutesCommand = cli.Command{
 				"maximum fee allowed when sending the payment",
 		},
 		cli.Int64Flag{
-			Name:  "num_max_routes",
-			Usage: "the max number of routes to be returned",
-			Value: 10,
-		},
-		cli.Int64Flag{
 			Name: "final_cltv_delta",
 			Usage: "(optional) number of blocks the last hop has to reveal " +
 				"the preimage",
@@ -3035,7 +3030,6 @@ func queryRoutes(ctx *cli.Context) error {
 		PubKey:         dest,
 		Amt:            amt,
 		FeeLimit:       feeLimit,
-		NumRoutes:      int32(ctx.Int("num_max_routes")),
 		FinalCltvDelta: int32(ctx.Int("final_cltv_delta")),
 	}
 

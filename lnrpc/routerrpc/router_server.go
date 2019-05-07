@@ -247,22 +247,18 @@ func (s *Server) EstimateRouteFee(ctx context.Context,
 
 	// Finally, we'll query for a route to the destination that can carry
 	// that target amount, we'll only request a single route.
-	routes, err := s.cfg.Router.FindRoutes(
+	route, err := s.cfg.Router.FindRoute(
 		s.cfg.RouterBackend.SelfNode, destNode, amtMsat,
 		&routing.RestrictParams{
 			FeeLimit: feeLimit,
-		}, 1,
+		},
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	if len(routes) == 0 {
-		return nil, fmt.Errorf("unable to find route to dest: %v", err)
-	}
-
 	return &RouteFeeResponse{
-		RoutingFeeMsat: int64(routes[0].TotalFees),
-		TimeLockDelay:  int64(routes[0].TotalTimeLock),
+		RoutingFeeMsat: int64(route.TotalFees),
+		TimeLockDelay:  int64(route.TotalTimeLock),
 	}, nil
 }

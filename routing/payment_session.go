@@ -91,7 +91,7 @@ func (p *paymentSession) ReportEdgePolicyFailure(
 	// this channel. If so, then we'll prune out the vertex.
 	_, ok := p.errFailedPolicyChans[*failedEdge]
 	if ok {
-		// TODO(joostjager): is this aggresive pruning still necessary?
+		// TODO(joostjager): is this aggressive pruning still necessary?
 		// Just pruning edges may also work unless there is a huge
 		// number of failing channels from that node?
 		p.ReportVertexFailure(errSource)

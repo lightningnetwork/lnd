@@ -1961,7 +1961,7 @@ out:
 			// Since this channel will never fire again during the
 			// lifecycle of the peer, we nil the channel to mark it
 			// eligible for garbage collection, and make this
-			// explicity ineligible to receive in future calls to
+			// explicitly ineligible to receive in future calls to
 			// select. This also shaves a few CPU cycles since the
 			// select will ignore this case entirely.
 			reenableTimeout = nil

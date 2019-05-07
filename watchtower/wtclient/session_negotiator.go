@@ -80,7 +80,7 @@ type NegotiatorConfig struct {
 
 	// MaxBackoff defines the maximum backoff applied by the session
 	// negotiator after all tower candidates have been exhausted and
-	// reattempting negotation with the same set of candidates. If the
+	// reattempting negotiation with the same set of candidates. If the
 	// exponential backoff produces a timeout greater than this value, the
 	// backoff duration will be clamped to MaxBackoff.
 	MaxBackoff time.Duration
@@ -218,7 +218,7 @@ func (n *sessionNegotiator) negotiationDispatcher() {
 // and attempting to negotiate a new session until a successful negotiation
 // occurs. If the candidate iterator becomes exhausted because none were
 // successful, this method will back off exponentially up to the configured max
-// backoff. This method will continue trying until a negotiation is succesful
+// backoff. This method will continue trying until a negotiation is successful
 // before returning the negotiated session to the dispatcher via the succeed
 // channel.
 //

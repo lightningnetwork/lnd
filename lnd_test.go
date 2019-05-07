@@ -4661,7 +4661,7 @@ func testSendToRouteErrorPropagation(net *lntest.NetworkHarness, t *harnessTest)
 }
 
 // testUnannouncedChannels checks unannounced channels are not returned by
-// describeGraph RPC request unless explicity asked for.
+// describeGraph RPC request unless explicitly asked for.
 func testUnannouncedChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxb := context.Background()
 
@@ -7967,7 +7967,7 @@ func testDataLossProtection(net *lntest.NetworkHarness, t *harnessTest) {
 	// the channel, but it will already be closed. Carol should resend the
 	// information Dave needs to sweep his funds.
 	if err := restartDave(); err != nil {
-		t.Fatalf("unabel to restart Eve: %v", err)
+		t.Fatalf("unable to restart Eve: %v", err)
 	}
 
 	// Dave should sweep his funds.

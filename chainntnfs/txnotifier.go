@@ -207,7 +207,7 @@ func (r ConfRequest) MatchesTx(tx *wire.MsgTx) bool {
 }
 
 // ConfNtfn represents a notifier client's request to receive a notification
-// once the target transaction/ouput script gets sufficient confirmations. The
+// once the target transaction/output script gets sufficient confirmations. The
 // client is asynchronously notified via the ConfirmationEvent channels.
 type ConfNtfn struct {
 	// ConfID uniquely identifies the confirmation notification request for

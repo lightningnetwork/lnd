@@ -17,7 +17,7 @@ type Write struct {
 }
 
 // NewWrite creates a Write pool, using an underlying Writebuffer pool to
-// recycle buffer.Write objects accross the lifetime of the Write pool's
+// recycle buffer.Write objects across the lifetime of the Write pool's
 // workers.
 func NewWrite(writeBufferPool *WriteBuffer, numWorkers int,
 	workerTimeout time.Duration) *Write {

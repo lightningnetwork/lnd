@@ -125,7 +125,7 @@ type Config struct {
 	// until MaxBackoff.
 	MinBackoff time.Duration
 
-	// MaxBackoff defines the maximum backoff applied to conenctions with
+	// MaxBackoff defines the maximum backoff applied to connections with
 	// watchtowers. If the exponential backoff produces a timeout greater
 	// than this value, the backoff will be clamped to MaxBackoff.
 	MaxBackoff time.Duration

@@ -25,7 +25,9 @@ func testMultiHopReceiverChainClaim(net *lntest.NetworkHarness, t *harnessTest) 
 	// First, we'll create a three hop network: Alice -> Bob -> Carol, with
 	// Carol refusing to actually settle or directly cancel any HTLC's
 	// self.
-	aliceChanPoint, bobChanPoint, carol := createThreeHopHodlNetwork(t, net)
+	aliceChanPoint, bobChanPoint, carol := createThreeHopNetwork(
+		t, net, true,
+	)
 
 	// Clean up carol's node when the test finishes.
 	defer shutdownAndAssert(net, t, carol)

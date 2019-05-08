@@ -9315,8 +9315,10 @@ func assertSpendingTxInMempool(t *harnessTest, miner *rpcclient.Client,
 	}
 }
 
-func createThreeHopHodlNetwork(t *harnessTest,
-	net *lntest.NetworkHarness) (*lnrpc.ChannelPoint, *lnrpc.ChannelPoint, *lntest.HarnessNode) {
+func createThreeHopNetwork(t *harnessTest, net *lntest.NetworkHarness,
+	carolHodl bool) (*lnrpc.ChannelPoint, *lnrpc.ChannelPoint,
+	*lntest.HarnessNode) {
+
 	ctxb := context.Background()
 
 	// We'll start the test by creating a channel between Alice and Bob,
@@ -9342,10 +9344,14 @@ func createThreeHopHodlNetwork(t *harnessTest,
 		t.Fatalf("bob didn't report channel: %v", err)
 	}
 
-	// Next, we'll create a new node "carol" and have Bob connect to her.
-	// In this test, we'll make carol always hold onto the HTLC, this way
-	// it'll force Bob to go to chain to resolve the HTLC.
-	carol, err := net.NewNode("Carol", []string{"--debughtlc", "--hodl.exit-settle"})
+	// Next, we'll create a new node "carol" and have Bob connect to her. If
+	// the carolHodl flag is set, we'll make carol always hold onto the
+	// HTLC, this way it'll force Bob to go to chain to resolve the HTLC.
+	carolFlags := []string{"--debughtlc"}
+	if carolHodl {
+		carolFlags = append(carolFlags, "--hodl.exit-settle")
+	}
+	carol, err := net.NewNode("Carol", carolFlags)
 	if err != nil {
 		t.Fatalf("unable to create new node: %v", err)
 	}
@@ -9393,7 +9399,8 @@ func testMultiHopHtlcLocalTimeout(net *lntest.NetworkHarness, t *harnessTest) {
 	// First, we'll create a three hop network: Alice -> Bob -> Carol, with
 	// Carol refusing to actually settle or directly cancel any HTLC's
 	// self.
-	aliceChanPoint, bobChanPoint, carol := createThreeHopHodlNetwork(t, net)
+	aliceChanPoint, bobChanPoint, carol :=
+		createThreeHopNetwork(t, net, true)
 
 	// Clean up carol's node when the test finishes.
 	defer shutdownAndAssert(net, t, carol)
@@ -9626,7 +9633,8 @@ func testMultiHopLocalForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 	// First, we'll create a three hop network: Alice -> Bob -> Carol, with
 	// Carol refusing to actually settle or directly cancel any HTLC's
 	// self.
-	aliceChanPoint, bobChanPoint, carol := createThreeHopHodlNetwork(t, net)
+	aliceChanPoint, bobChanPoint, carol :=
+		createThreeHopNetwork(t, net, true)
 
 	// Clean up carol's node when the test finishes.
 	defer shutdownAndAssert(net, t, carol)
@@ -9887,7 +9895,8 @@ func testMultiHopRemoteForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 	// First, we'll create a three hop network: Alice -> Bob -> Carol, with
 	// Carol refusing to actually settle or directly cancel any HTLC's
 	// self.
-	aliceChanPoint, bobChanPoint, carol := createThreeHopHodlNetwork(t, net)
+	aliceChanPoint, bobChanPoint, carol :=
+		createThreeHopNetwork(t, net, true)
 
 	// Clean up carol's node when the test finishes.
 	defer shutdownAndAssert(net, t, carol)

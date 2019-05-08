@@ -8,6 +8,7 @@ import (
 
 	"github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing/route"
 )
 
 var (
@@ -327,4 +328,85 @@ func deserializeOutgoingPayment(r io.Reader) (*OutgoingPayment, error) {
 	}
 
 	return p, nil
+}
+
+func serializeHop(w io.Writer, h *route.Hop) error {
+	if err := WriteElements(w,
+		h.PubKeyBytes[:], h.ChannelID, h.OutgoingTimeLock,
+		h.AmtToForward,
+	); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func deserializeHop(r io.Reader) (*route.Hop, error) {
+	h := &route.Hop{}
+
+	var pub []byte
+	if err := ReadElements(r, &pub); err != nil {
+		return nil, err
+	}
+	copy(h.PubKeyBytes[:], pub)
+
+	if err := ReadElements(r,
+		&h.ChannelID, &h.OutgoingTimeLock, &h.AmtToForward,
+	); err != nil {
+		return nil, err
+	}
+
+	return h, nil
+}
+
+func serializeRoute(w io.Writer, r route.Route) error {
+	if err := WriteElements(w,
+		r.TotalTimeLock, r.TotalFees, r.TotalAmount, r.SourcePubKey[:],
+	); err != nil {
+		return err
+	}
+
+	if err := WriteElements(w, uint32(len(r.Hops))); err != nil {
+		return err
+	}
+
+	for _, h := range r.Hops {
+		if err := serializeHop(w, h); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func deserializeRoute(r io.Reader) (route.Route, error) {
+	rt := route.Route{}
+	if err := ReadElements(r,
+		&rt.TotalTimeLock, &rt.TotalFees, &rt.TotalAmount,
+	); err != nil {
+		return rt, err
+	}
+
+	var pub []byte
+	if err := ReadElements(r, &pub); err != nil {
+		return rt, err
+	}
+	copy(rt.SourcePubKey[:], pub)
+
+	var numHops uint32
+	if err := ReadElements(r, &numHops); err != nil {
+		return rt, err
+	}
+
+	var hops []*route.Hop
+	for i := uint32(0); i < numHops; i++ {
+		hop, err := deserializeHop(r)
+		if err != nil {
+			return rt, err
+		}
+		hops = append(hops, hop)
+	}
+	rt.Hops = hops
+
+	return rt, nil
 }

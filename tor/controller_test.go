@@ -29,6 +29,10 @@ func TestParseTorVersion(t *testing.T) {
 			valid:   true,
 		},
 		{
+			version: "0.4.0.5",
+			valid:   true,
+		},
+		{
 			version: "1.3.3.6",
 			valid:   true,
 		},
@@ -54,6 +58,10 @@ func TestParseTorVersion(t *testing.T) {
 		},
 		{
 			version: "0.1.3.6",
+			valid:   false,
+		},
+		{
+			version: "0.0.6.3",
 			valid:   false,
 		},
 	}

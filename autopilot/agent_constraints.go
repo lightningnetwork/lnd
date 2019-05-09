@@ -8,7 +8,7 @@ import (
 // limits it will need to stay inside when opening channels.
 type AgentConstraints interface {
 	// ChannelBudget should, given the passed parameters, return whether
-	// more channels can be be opened while still staying withing the set
+	// more channels can be be opened while still staying within the set
 	// constraints. If the constraints allow us to open more channels, then
 	// the first return value will represent the amount of additional funds
 	// available towards creating channels. The second return value is the
@@ -75,7 +75,7 @@ func NewConstraints(minChanSize, maxChanSize btcutil.Amount, chanLimit,
 }
 
 // ChannelBudget should, given the passed parameters, return whether more
-// channels can be be opened while still staying withing the set constraints.
+// channels can be be opened while still staying within the set constraints.
 // If the constraints allow us to open more channels, then the first return
 // value will represent the amount of additional funds available towards
 // creating channels. The second return value is the exact *number* of

@@ -1363,6 +1363,21 @@ func TestSkipIneligibleLinksMultiHopForward(t *testing.T) {
 func TestSkipIneligibleLinksLocalForward(t *testing.T) {
 	t.Parallel()
 
+	testSkipLinkLocalForward(t, false, nil)
+}
+
+// TestSkipPolicyUnsatisfiedLinkLocalForward ensures that the switch will not
+// attempt to send locally initiated HTLCs that would violate the channel policy
+// down a link.
+func TestSkipPolicyUnsatisfiedLinkLocalForward(t *testing.T) {
+	t.Parallel()
+
+	testSkipLinkLocalForward(t, true, lnwire.NewTemporaryChannelFailure(nil))
+}
+
+func testSkipLinkLocalForward(t *testing.T, eligible bool,
+	policyResult lnwire.FailureMessage) {
+
 	// We'll create a single link for this test, marking it as being unable
 	// to forward form the get go.
 	alicePeer, err := newMockServer(t, "alice", testStartingHeight, nil, 6)
@@ -1382,8 +1397,9 @@ func TestSkipIneligibleLinksLocalForward(t *testing.T) {
 	chanID1, _, aliceChanID, _ := genIDs()
 
 	aliceChannelLink := newMockChannelLink(
-		s, chanID1, aliceChanID, alicePeer, false,
+		s, chanID1, aliceChanID, alicePeer, eligible,
 	)
+	aliceChannelLink.htlcSatifiesPolicyLocalResult = policyResult
 	if err := s.AddLink(aliceChannelLink); err != nil {
 		t.Fatalf("unable to add alice link: %v", err)
 	}
@@ -2032,4 +2048,77 @@ func TestMultiHopPaymentForwardingEvents(t *testing.T) {
 				event.AmtOut, finalAmt)
 		}
 	}
+}
+
+// TestUpdateFailMalformedHTLCErrorConversion tests that we're able to properly
+// convert malformed HTLC errors that originate at the direct link, as well as
+// during multi-hop HTLC forwarding.
+func TestUpdateFailMalformedHTLCErrorConversion(t *testing.T) {
+	t.Parallel()
+
+	// First, we'll create our traditional three hop network.
+	channels, cleanUp, _, err := createClusterChannels(
+		btcutil.SatoshiPerBitcoin*3, btcutil.SatoshiPerBitcoin*5,
+	)
+	if err != nil {
+		t.Fatalf("unable to create channel: %v", err)
+	}
+	defer cleanUp()
+
+	n := newThreeHopNetwork(
+		t, channels.aliceToBob, channels.bobToAlice,
+		channels.bobToCarol, channels.carolToBob, testStartingHeight,
+	)
+	if err := n.start(); err != nil {
+		t.Fatalf("unable to start three hop network: %v", err)
+	}
+
+	assertPaymentFailure := func(t *testing.T) {
+		// With the decoder modified, we'll now attempt to send a
+		// payment from Alice to carol.
+		finalAmt := lnwire.NewMSatFromSatoshis(100000)
+		htlcAmt, totalTimelock, hops := generateHops(
+			finalAmt, testStartingHeight, n.firstBobChannelLink,
+			n.carolChannelLink,
+		)
+		firstHop := n.firstBobChannelLink.ShortChanID()
+		_, err = makePayment(
+			n.aliceServer, n.carolServer, firstHop, hops, finalAmt,
+			htlcAmt, totalTimelock,
+		).Wait(30 * time.Second)
+
+		// The payment should fail as Carol is unable to decode the
+		// onion blob sent to her.
+		if err == nil {
+			t.Fatalf("unable to send payment: %v", err)
+		}
+
+		fwdingErr := err.(*ForwardingError)
+		failureMsg := fwdingErr.FailureMessage
+		if _, ok := failureMsg.(*lnwire.FailTemporaryChannelFailure); !ok {
+			t.Fatalf("expected temp chan failure instead got: %v",
+				fwdingErr.FailureMessage)
+		}
+	}
+
+	t.Run("multi-hop error conversion", func(t *testing.T) {
+		// Now that we have our network up, we'll modify the hop
+		// iterator for the Bob <-> Carol channel to fail to decode in
+		// order to simulate either a replay attack or an issue
+		// decoding the onion.
+		n.carolOnionDecoder.decodeFail = true
+
+		assertPaymentFailure(t)
+	})
+
+	t.Run("direct channel error conversion", func(t *testing.T) {
+		// Similar to the above test case, we'll now make the Alice <->
+		// Bob link always fail to decode an onion. This differs from
+		// the above test case in that there's no encryption on the
+		// error at all since Alice will directly receive a
+		// UpdateFailMalformedHTLC message.
+		n.bobOnionDecoder.decodeFail = true
+
+		assertPaymentFailure(t)
+	})
 }

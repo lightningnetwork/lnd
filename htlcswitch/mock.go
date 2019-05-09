@@ -368,7 +368,10 @@ func (o *mockObfuscator) EncryptFirstHop(failure lnwire.FailureMessage) (
 
 func (o *mockObfuscator) IntermediateEncrypt(reason lnwire.OpaqueReason) lnwire.OpaqueReason {
 	return reason
+}
 
+func (o *mockObfuscator) EncryptMalformedError(reason lnwire.OpaqueReason) lnwire.OpaqueReason {
+	return reason
 }
 
 // mockDeobfuscator mock implementation of the failure deobfuscator which
@@ -400,6 +403,8 @@ type mockIteratorDecoder struct {
 	mu sync.RWMutex
 
 	responses map[[32]byte][]DecodeHopIteratorResponse
+
+	decodeFail bool
 }
 
 func newMockIteratorDecoder() *mockIteratorDecoder {
@@ -450,6 +455,10 @@ func (p *mockIteratorDecoder) DecodeHopIterators(id []byte,
 		iterator, failcode := p.DecodeHopIterator(
 			req.OnionReader, req.RHash, req.IncomingCltv,
 		)
+
+		if p.decodeFail {
+			failcode = lnwire.CodeTemporaryChannelFailure
+		}
 
 		resp := DecodeHopIteratorResponse{
 			HopIterator: iterator,
@@ -612,6 +621,8 @@ type mockChannelLink struct {
 	eligible bool
 
 	htlcID uint64
+
+	htlcSatifiesPolicyLocalResult lnwire.FailureMessage
 }
 
 // completeCircuit is a helper method for adding the finalized payment circuit
@@ -675,6 +686,13 @@ func (f *mockChannelLink) HtlcSatifiesPolicy([32]byte, lnwire.MilliSatoshi,
 	return nil
 }
 
+func (f *mockChannelLink) HtlcSatifiesPolicyLocal(payHash [32]byte,
+	amt lnwire.MilliSatoshi, timeout uint32,
+	heightNow uint32) lnwire.FailureMessage {
+
+	return f.htlcSatifiesPolicyLocalResult
+}
+
 func (f *mockChannelLink) Stats() (uint64, lnwire.MilliSatoshi, lnwire.MilliSatoshi) {
 	return 0, 0, 0
 }
@@ -728,7 +746,7 @@ func newDB() (*channeldb.DB, func(), error) {
 	return cdb, cleanUp, nil
 }
 
-const testInvoiceCltvExpiry = 4
+const testInvoiceCltvExpiry = 6
 
 type mockInvoiceRegistry struct {
 	settleChan chan lntypes.Hash

@@ -274,7 +274,7 @@ type GossipSyncer struct {
 	syncTransitionReqs chan *syncTransitionReq
 
 	// historicalSyncReqs is a channel that serves as a signal for the
-	// gossip syncer to perform a historical sync. Theese can only be done
+	// gossip syncer to perform a historical sync. These can only be done
 	// once the gossip syncer is in a chansSynced state to ensure its state
 	// machine behaves as expected.
 	historicalSyncReqs chan *historicalSyncReq

@@ -333,7 +333,7 @@ var listUnspentCommand = cli.Command{
 				"to be MaxInt32, otherwise max_confs remains " +
 				"zero. An error is returned if the value is " +
 				"true and both min_confs and max_confs are " +
-				"non-zero. (defualt: false)",
+				"non-zero. (default: false)",
 		},
 	},
 	Action: actionDecorator(listUnspent),

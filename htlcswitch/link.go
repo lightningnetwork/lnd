@@ -2093,46 +2093,12 @@ func (l *channelLink) HtlcSatifiesPolicy(payHash [32]byte,
 	policy := l.cfg.FwrdingPolicy
 	l.RUnlock()
 
-	// As our first sanity check, we'll ensure that the passed HTLC isn't
-	// too small for the next hop. If so, then we'll cancel the HTLC
-	// directly.
-	if amtToForward < policy.MinHTLC {
-		l.errorf("outgoing htlc(%x) is too small: min_htlc=%v, "+
-			"htlc_value=%v", payHash[:], policy.MinHTLC,
-			amtToForward)
-
-		// As part of the returned error, we'll send our latest routing
-		// policy so the sending node obtains the most up to date data.
-		var failure lnwire.FailureMessage
-		update, err := l.cfg.FetchLastChannelUpdate(l.ShortChanID())
-		if err != nil {
-			failure = &lnwire.FailTemporaryNodeFailure{}
-		} else {
-			failure = lnwire.NewAmountBelowMinimum(
-				amtToForward, *update,
-			)
-		}
-
-		return failure
-	}
-
-	// Next, ensure that the passed HTLC isn't too large. If so, we'll cancel
-	// the HTLC directly.
-	if policy.MaxHTLC != 0 && amtToForward > policy.MaxHTLC {
-		l.errorf("outgoing htlc(%x) is too large: max_htlc=%v, "+
-			"htlc_value=%v", payHash[:], policy.MaxHTLC, amtToForward)
-
-		// As part of the returned error, we'll send our latest routing policy
-		// so the sending node obtains the most up-to-date data.
-		var failure lnwire.FailureMessage
-		update, err := l.cfg.FetchLastChannelUpdate(l.ShortChanID())
-		if err != nil {
-			failure = &lnwire.FailTemporaryNodeFailure{}
-		} else {
-			failure = lnwire.NewTemporaryChannelFailure(update)
-		}
-
-		return failure
+	// First check whether the outgoing htlc satisfies the channel policy.
+	err := l.htlcSatifiesPolicyOutgoing(
+		policy, payHash, amtToForward, outgoingTimeout, heightNow,
+	)
+	if err != nil {
+		return err
 	}
 
 	// Next, using the amount of the incoming HTLC, we'll calculate the
@@ -2165,36 +2131,6 @@ func (l *channelLink) HtlcSatifiesPolicy(payHash [32]byte,
 		return failure
 	}
 
-	// We want to avoid offering an HTLC which will expire in the near
-	// future, so we'll reject an HTLC if the outgoing expiration time is
-	// too close to the current height.
-	if outgoingTimeout <= heightNow+l.cfg.OutgoingCltvRejectDelta {
-		l.errorf("htlc(%x) has an expiry that's too soon: "+
-			"outgoing_expiry=%v, best_height=%v", payHash[:],
-			outgoingTimeout, heightNow)
-
-		var failure lnwire.FailureMessage
-		update, err := l.cfg.FetchLastChannelUpdate(
-			l.ShortChanID(),
-		)
-		if err != nil {
-			failure = lnwire.NewTemporaryChannelFailure(update)
-		} else {
-			failure = lnwire.NewExpiryTooSoon(*update)
-		}
-
-		return failure
-	}
-
-	// Check absolute max delta.
-	if outgoingTimeout > maxCltvExpiry+heightNow {
-		l.errorf("outgoing htlc(%x) has a time lock too far in the "+
-			"future: got %v, but maximum is %v", payHash[:],
-			outgoingTimeout-heightNow, maxCltvExpiry)
-
-		return &lnwire.FailExpiryTooFar{}
-	}
-
 	// Finally, we'll ensure that the time-lock on the outgoing HTLC meets
 	// the following constraint: the incoming time-lock minus our time-lock
 	// delta should equal the outgoing time lock. Otherwise, whether the
@@ -2220,6 +2156,105 @@ func (l *channelLink) HtlcSatifiesPolicy(payHash [32]byte,
 		}
 
 		return failure
+	}
+
+	return nil
+}
+
+// HtlcSatifiesPolicyLocal should return a nil error if the passed HTLC details
+// satisfy the current channel policy.  Otherwise, a valid protocol failure
+// message should be returned in order to signal the violation. This call is
+// intended to be used for locally initiated payments for which there is no
+// corresponding incoming htlc.
+func (l *channelLink) HtlcSatifiesPolicyLocal(payHash [32]byte,
+	amt lnwire.MilliSatoshi, timeout uint32,
+	heightNow uint32) lnwire.FailureMessage {
+
+	l.RLock()
+	policy := l.cfg.FwrdingPolicy
+	l.RUnlock()
+
+	return l.htlcSatifiesPolicyOutgoing(
+		policy, payHash, amt, timeout, heightNow,
+	)
+}
+
+// htlcSatifiesPolicyOutgoing checks whether the given htlc parameters satisfy
+// the channel's amount and time lock constraints.
+func (l *channelLink) htlcSatifiesPolicyOutgoing(policy ForwardingPolicy,
+	payHash [32]byte, amt lnwire.MilliSatoshi, timeout uint32,
+	heightNow uint32) lnwire.FailureMessage {
+
+	// As our first sanity check, we'll ensure that the passed HTLC isn't
+	// too small for the next hop. If so, then we'll cancel the HTLC
+	// directly.
+	if amt < policy.MinHTLC {
+		l.errorf("outgoing htlc(%x) is too small: min_htlc=%v, "+
+			"htlc_value=%v", payHash[:], policy.MinHTLC,
+			amt)
+
+		// As part of the returned error, we'll send our latest routing
+		// policy so the sending node obtains the most up to date data.
+		var failure lnwire.FailureMessage
+		update, err := l.cfg.FetchLastChannelUpdate(l.ShortChanID())
+		if err != nil {
+			failure = &lnwire.FailTemporaryNodeFailure{}
+		} else {
+			failure = lnwire.NewAmountBelowMinimum(
+				amt, *update,
+			)
+		}
+
+		return failure
+	}
+
+	// Next, ensure that the passed HTLC isn't too large. If so, we'll cancel
+	// the HTLC directly.
+	if policy.MaxHTLC != 0 && amt > policy.MaxHTLC {
+		l.errorf("outgoing htlc(%x) is too large: max_htlc=%v, "+
+			"htlc_value=%v", payHash[:], policy.MaxHTLC, amt)
+
+		// As part of the returned error, we'll send our latest routing policy
+		// so the sending node obtains the most up-to-date data.
+		var failure lnwire.FailureMessage
+		update, err := l.cfg.FetchLastChannelUpdate(l.ShortChanID())
+		if err != nil {
+			failure = &lnwire.FailTemporaryNodeFailure{}
+		} else {
+			failure = lnwire.NewTemporaryChannelFailure(update)
+		}
+
+		return failure
+	}
+
+	// We want to avoid offering an HTLC which will expire in the near
+	// future, so we'll reject an HTLC if the outgoing expiration time is
+	// too close to the current height.
+	if timeout <= heightNow+l.cfg.OutgoingCltvRejectDelta {
+		l.errorf("htlc(%x) has an expiry that's too soon: "+
+			"outgoing_expiry=%v, best_height=%v", payHash[:],
+			timeout, heightNow)
+
+		var failure lnwire.FailureMessage
+		update, err := l.cfg.FetchLastChannelUpdate(
+			l.ShortChanID(),
+		)
+		if err != nil {
+			failure = lnwire.NewTemporaryChannelFailure(update)
+		} else {
+			failure = lnwire.NewExpiryTooSoon(*update)
+		}
+
+		return failure
+	}
+
+	// Check absolute max delta.
+	if timeout > maxCltvExpiry+heightNow {
+		l.errorf("outgoing htlc(%x) has a time lock too far in the "+
+			"future: got %v, but maximum is %v", payHash[:],
+			timeout-heightNow, maxCltvExpiry)
+
+		return &lnwire.FailExpiryTooFar{}
 	}
 
 	return nil
@@ -2369,8 +2404,22 @@ func (l *channelLink) processRemoteSettleFails(fwdPkg *channeldb.FwdPkg,
 				outgoingHTLCID: pd.ParentIndex,
 				destRef:        pd.DestRef,
 				htlc: &lnwire.UpdateFailHTLC{
-					Reason: lnwire.OpaqueReason(pd.FailReason),
+					Reason: lnwire.OpaqueReason(
+						pd.FailReason,
+					),
 				},
+			}
+
+			// If the failure message lacks an HMAC (but includes
+			// the 4 bytes for encoding the message and padding
+			// lengths, then this means that we received it as an
+			// UpdateFailMalformedHTLC. As a result, we'll signal
+			// that we need to convert this error within the switch
+			// to an actual error, by encrypting it as if we were
+			// the originating hop.
+			convertedErrorSize := lnwire.FailureMessageLength + 4
+			if len(pd.FailReason) == convertedErrorSize {
+				failPacket.convertedError = true
 			}
 
 			// Add the packet to the batch to be forwarded, and

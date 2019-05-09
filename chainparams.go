@@ -105,6 +105,34 @@ func applyLitecoinParams(params *bitcoinNetParams, litecoinParams *litecoinNetPa
 	params.CoinbaseMaturity = litecoinParams.CoinbaseMaturity
 
 	copy(params.GenesisHash[:], litecoinParams.GenesisHash[:])
+	copy(params.GenesisBlock.Header.MerkleRoot[:],
+		litecoinParams.GenesisBlock.Header.MerkleRoot[:])
+	params.GenesisBlock.Header.Version =
+		litecoinParams.GenesisBlock.Header.Version
+	params.GenesisBlock.Header.Timestamp =
+		litecoinParams.GenesisBlock.Header.Timestamp
+	params.GenesisBlock.Header.Bits =
+		litecoinParams.GenesisBlock.Header.Bits
+	params.GenesisBlock.Header.Nonce =
+		litecoinParams.GenesisBlock.Header.Nonce
+	params.GenesisBlock.Transactions[0].Version =
+		litecoinParams.GenesisBlock.Transactions[0].Version
+	params.GenesisBlock.Transactions[0].LockTime =
+		litecoinParams.GenesisBlock.Transactions[0].LockTime
+	params.GenesisBlock.Transactions[0].TxIn[0].Sequence =
+		litecoinParams.GenesisBlock.Transactions[0].TxIn[0].Sequence
+	params.GenesisBlock.Transactions[0].TxIn[0].PreviousOutPoint.Index =
+		litecoinParams.GenesisBlock.Transactions[0].TxIn[0].PreviousOutPoint.Index
+	copy(params.GenesisBlock.Transactions[0].TxIn[0].SignatureScript[:],
+		litecoinParams.GenesisBlock.Transactions[0].TxIn[0].SignatureScript[:])
+	copy(params.GenesisBlock.Transactions[0].TxOut[0].PkScript[:],
+		litecoinParams.GenesisBlock.Transactions[0].TxOut[0].PkScript[:])
+	params.GenesisBlock.Transactions[0].TxOut[0].Value =
+		litecoinParams.GenesisBlock.Transactions[0].TxOut[0].Value
+	params.GenesisBlock.Transactions[0].TxIn[0].PreviousOutPoint.Hash =
+		chainhash.Hash{}
+	params.PowLimitBits = litecoinParams.PowLimitBits
+	params.PowLimit = litecoinParams.PowLimit
 
 	// Address encoding magics
 	params.PubKeyHashAddrID = litecoinParams.PubKeyHashAddrID

@@ -589,15 +589,18 @@ func generateRoute(hops ...ForwardingInfo) ([lnwire.OnionPacketSize]byte, error)
 
 // threeHopNetwork is used for managing the created cluster of 3 hops.
 type threeHopNetwork struct {
-	aliceServer      *mockServer
-	aliceChannelLink *channelLink
+	aliceServer       *mockServer
+	aliceChannelLink  *channelLink
+	aliceOnionDecoder *mockIteratorDecoder
 
 	bobServer            *mockServer
 	firstBobChannelLink  *channelLink
 	secondBobChannelLink *channelLink
+	bobOnionDecoder      *mockIteratorDecoder
 
-	carolServer      *mockServer
-	carolChannelLink *channelLink
+	carolServer       *mockServer
+	carolChannelLink  *channelLink
+	carolOnionDecoder *mockIteratorDecoder
 
 	hopNetwork
 }
@@ -948,15 +951,18 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 	}
 
 	return &threeHopNetwork{
-		aliceServer:      aliceServer,
-		aliceChannelLink: aliceChannelLink.(*channelLink),
+		aliceServer:       aliceServer,
+		aliceChannelLink:  aliceChannelLink.(*channelLink),
+		aliceOnionDecoder: aliceDecoder,
 
 		bobServer:            bobServer,
 		firstBobChannelLink:  firstBobChannelLink.(*channelLink),
 		secondBobChannelLink: secondBobChannelLink.(*channelLink),
+		bobOnionDecoder:      bobDecoder,
 
-		carolServer:      carolServer,
-		carolChannelLink: carolChannelLink.(*channelLink),
+		carolServer:       carolServer,
+		carolChannelLink:  carolChannelLink.(*channelLink),
+		carolOnionDecoder: carolDecoder,
 
 		hopNetwork: *hopNetwork,
 	}
@@ -1052,7 +1058,7 @@ func (h *hopNetwork) createChannelLink(server, peer *mockServer,
 			MinFeeUpdateTimeout:     minFeeUpdateTimeout,
 			MaxFeeUpdateTimeout:     maxFeeUpdateTimeout,
 			OnChannelFailure:        func(lnwire.ChannelID, lnwire.ShortChannelID, LinkFailureError) {},
-			FinalCltvRejectDelta:    3,
+			FinalCltvRejectDelta:    5,
 			OutgoingCltvRejectDelta: 3,
 		},
 		channel,

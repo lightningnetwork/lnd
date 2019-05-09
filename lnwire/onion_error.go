@@ -26,9 +26,9 @@ type FailureMessage interface {
 	Error() string
 }
 
-// failureMessageLength is the size of the failure message plus the size of
+// FailureMessageLength is the size of the failure message plus the size of
 // padding. The FailureMessage message should always be EXACTLY this size.
-const failureMessageLength = 256
+const FailureMessageLength = 256
 
 const (
 	// FlagBadOnion error flag describes an unparsable, encrypted by
@@ -1101,7 +1101,7 @@ func DecodeFailure(r io.Reader, pver uint32) (FailureMessage, error) {
 	if err := ReadElement(r, &failureLength); err != nil {
 		return nil, fmt.Errorf("unable to read error len: %v", err)
 	}
-	if failureLength > failureMessageLength {
+	if failureLength > FailureMessageLength {
 		return nil, fmt.Errorf("failure message is too "+
 			"long: %v", failureLength)
 	}
@@ -1170,14 +1170,14 @@ func EncodeFailure(w io.Writer, failure FailureMessage, pver uint32) error {
 	// The combined size of this message must be below the max allowed
 	// failure message length.
 	failureMessage := failureMessageBuffer.Bytes()
-	if len(failureMessage) > failureMessageLength {
+	if len(failureMessage) > FailureMessageLength {
 		return fmt.Errorf("failure message exceed max "+
 			"available size: %v", len(failureMessage))
 	}
 
 	// Finally, we'll add some padding in order to ensure that all failure
 	// messages are fixed size.
-	pad := make([]byte, failureMessageLength-len(failureMessage))
+	pad := make([]byte, FailureMessageLength-len(failureMessage))
 
 	return WriteElements(w,
 		uint16(len(failureMessage)),

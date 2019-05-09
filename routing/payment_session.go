@@ -30,7 +30,7 @@ type paymentSession struct {
 	// require pruning, but any subsequent ones do.
 	errFailedPolicyChans map[EdgeLocator]struct{}
 
-	mc *missionControl
+	mc *MissionControl
 
 	haveRoutes     bool
 	preBuiltRoutes []*route.Route

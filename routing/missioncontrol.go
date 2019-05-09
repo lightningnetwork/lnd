@@ -31,7 +31,7 @@ const (
 	edgeDecay = time.Duration(time.Second * 5)
 )
 
-// missionControl contains state which summarizes the past attempts of HTLC
+// MissionControl contains state which summarizes the past attempts of HTLC
 // routing by external callers when sending payments throughout the network.
 // missionControl remembers the outcome of these past routing attempts (success
 // and failure), and is able to provide hints/guidance to future HTLC routing
@@ -43,7 +43,7 @@ const (
 // to the view. Later sending attempts will then query the view for all the
 // vertexes/edges that should be ignored. Items in the view decay after a set
 // period of time, allowing the view to be dynamic w.r.t network changes.
-type missionControl struct {
+type MissionControl struct {
 	// failedEdges maps a short channel ID to be pruned, to the time that
 	// it was added to the prune view. Edges are added to this map if a
 	// caller reports to missionControl a failure localized to that edge
@@ -70,13 +70,13 @@ type missionControl struct {
 	// TODO(roasbeef): also add favorable metrics for nodes
 }
 
-// newMissionControl returns a new instance of missionControl.
+// NewMissionControl returns a new instance of missionControl.
 //
 // TODO(roasbeef): persist memory
-func newMissionControl(g *channeldb.ChannelGraph, selfNode *channeldb.LightningNode,
-	qb func(*channeldb.ChannelEdgeInfo) lnwire.MilliSatoshi) *missionControl {
+func NewMissionControl(g *channeldb.ChannelGraph, selfNode *channeldb.LightningNode,
+	qb func(*channeldb.ChannelEdgeInfo) lnwire.MilliSatoshi) *MissionControl {
 
-	return &missionControl{
+	return &MissionControl{
 		failedEdges:    make(map[EdgeLocator]time.Time),
 		failedVertexes: make(map[route.Vertex]time.Time),
 		selfNode:       selfNode,
@@ -101,7 +101,7 @@ type graphPruneView struct {
 // prune view, it is to be ignored as a goroutine has had issues routing
 // through it successfully. Within this method the main view of the
 // missionControl is garbage collected as entries are detected to be "stale".
-func (m *missionControl) GraphPruneView() graphPruneView {
+func (m *MissionControl) graphPruneView() graphPruneView {
 	// First, we'll grab the current time, this value will be used to
 	// determine if an entry is stale or not.
 	now := time.Now()
@@ -154,10 +154,10 @@ func (m *missionControl) GraphPruneView() graphPruneView {
 // view from Mission Control. An optional set of routing hints can be provided
 // in order to populate additional edges to explore when finding a path to the
 // payment's destination.
-func (m *missionControl) NewPaymentSession(routeHints [][]zpay32.HopHint,
+func (m *MissionControl) newPaymentSession(routeHints [][]zpay32.HopHint,
 	target route.Vertex) (*paymentSession, error) {
 
-	viewSnapshot := m.GraphPruneView()
+	viewSnapshot := m.graphPruneView()
 
 	edges := make(map[route.Vertex][]*channeldb.ChannelEdgePolicy)
 
@@ -231,13 +231,15 @@ func (m *missionControl) NewPaymentSession(routeHints [][]zpay32.HopHint,
 	}, nil
 }
 
-// NewPaymentSessionFromRoutes creates a new paymentSession instance that will
+// newPaymentSessionFromRoutes creates a new paymentSession instance that will
 // skip all path finding, and will instead utilize a set of pre-built routes.
 // This constructor allows callers to specify their own routes which can be
 // used for things like channel rebalancing, and swaps.
-func (m *missionControl) NewPaymentSessionFromRoutes(routes []*route.Route) *paymentSession {
+func (m *MissionControl) newPaymentSessionFromRoutes(
+	routes []*route.Route) *paymentSession {
+		
 	return &paymentSession{
-		pruneViewSnapshot:    m.GraphPruneView(),
+		pruneViewSnapshot:    m.graphPruneView(),
 		haveRoutes:           true,
 		preBuiltRoutes:       routes,
 		errFailedPolicyChans: make(map[EdgeLocator]struct{}),
@@ -283,7 +285,7 @@ func generateBandwidthHints(sourceNode *channeldb.LightningNode,
 
 // ResetHistory resets the history of missionControl returning it to a state as
 // if no payment attempts have been made.
-func (m *missionControl) ResetHistory() {
+func (m *MissionControl) ResetHistory() {
 	m.Lock()
 	m.failedEdges = make(map[EdgeLocator]time.Time)
 	m.failedVertexes = make(map[route.Vertex]time.Time)

@@ -8,8 +8,33 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing/route"
+)
+
+var (
+	priv, _ = btcec.NewPrivateKey(btcec.S256())
+	pub     = priv.PubKey()
+
+	testHop = &route.Hop{
+		PubKeyBytes:      route.NewVertex(pub),
+		ChannelID:        12345,
+		OutgoingTimeLock: 111,
+		AmtToForward:     555,
+	}
+
+	testRoute = route.Route{
+		TotalTimeLock: 123,
+		TotalFees:     999,
+		TotalAmount:   1234567,
+		SourcePubKey:  route.NewVertex(pub),
+		Hops: []*route.Hop{
+			testHop,
+			testHop,
+		},
+	}
 )
 
 func makeFakePayment() *OutgoingPayment {
@@ -250,4 +275,25 @@ func TestPaymentStatusWorkflow(t *testing.T) {
 			)
 		}
 	}
+}
+
+func TestRouteSerialization(t *testing.T) {
+	t.Parallel()
+
+	var b bytes.Buffer
+	if err := serializeRoute(&b, testRoute); err != nil {
+		t.Fatal(err)
+	}
+
+	r := bytes.NewReader(b.Bytes())
+	route2, err := deserializeRoute(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !reflect.DeepEqual(testRoute, route2) {
+		t.Fatalf("routes not equal: \n%v vs \n%v",
+			spew.Sdump(testRoute), spew.Sdump(route2))
+	}
+
 }

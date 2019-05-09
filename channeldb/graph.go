@@ -1982,7 +1982,6 @@ func (l *LightningNode) PubKey() (*btcec.PublicKey, error) {
 		return nil, err
 	}
 	l.pubKey = key
-	l.pubKey.Curve = nil
 
 	return key, nil
 }

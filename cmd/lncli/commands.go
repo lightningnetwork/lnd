@@ -2708,9 +2708,12 @@ var forwardingHistoryCommand = cli.Command{
 	Query the HTLC switch's internal forwarding log for all completed
 	payment circuits (HTLCs) over a particular time range (--start_time and
 	--end_time). The start and end times are meant to be expressed in
-	seconds since the Unix epoch. If --start_time isn't provided,
-	then 24 hours ago is used.  If --end_time isn't provided,
-	then the current time is used.
+	seconds since the Unix epoch.
+	Alternatively negative time ranges can be used, e.g. "-3d". Supports
+	s(seconds), m(minutes), h(ours), d(ays), w(eeks), M(onths), y(ears).
+	Month equals 30.44 days, year equals 365.25 days.
+	If --start_time isn't provided, then 24 hours ago is used. If
+	--end_time isn't provided, then the current time is used.
 
 	The max number of events returned is 50k. The default number is 100,
 	callers can use the --max_events param to modify this value.
@@ -2720,15 +2723,15 @@ var forwardingHistoryCommand = cli.Command{
 	entry. Using this callers can manually paginate within a time slice.
 	`,
 	Flags: []cli.Flag{
-		cli.Int64Flag{
+		cli.StringFlag{
 			Name: "start_time",
-			Usage: "the starting time for the query, expressed in " +
-				"seconds since the unix epoch",
+			Usage: "the starting time for the query " +
+				`as unix timestamp or relative e.g. "-1w"`,
 		},
-		cli.Int64Flag{
+		cli.StringFlag{
 			Name: "end_time",
-			Usage: "the end time for the query, expressed in " +
-				"seconds since the unix epoch",
+			Usage: "the end time for the query " +
+				`as unix timestamp or relative e.g. "-1w"`,
 		},
 		cli.Int64Flag{
 			Name:  "index_offset",
@@ -2753,30 +2756,33 @@ func forwardingHistory(ctx *cli.Context) error {
 		err                    error
 	)
 	args := ctx.Args()
+	now := time.Now()
 
 	switch {
 	case ctx.IsSet("start_time"):
-		startTime = ctx.Uint64("start_time")
+		startTime, err = parseTime(ctx.String("start_time"), now)
 	case args.Present():
-		startTime, err = strconv.ParseUint(args.First(), 10, 64)
-		if err != nil {
-			return fmt.Errorf("unable to decode start_time %v", err)
-		}
+		startTime, err = parseTime(args.First(), now)
 		args = args.Tail()
 	default:
 		now := time.Now()
 		startTime = uint64(now.Add(-time.Hour * 24).Unix())
 	}
+	if err != nil {
+		return fmt.Errorf("unable to decode start_time: %v", err)
+	}
 
 	switch {
 	case ctx.IsSet("end_time"):
-		endTime = ctx.Uint64("end_time")
+		endTime, err = parseTime(ctx.String("end_time"), now)
 	case args.Present():
-		endTime, err = strconv.ParseUint(args.First(), 10, 64)
-		if err != nil {
-			return fmt.Errorf("unable to decode end_time: %v", err)
-		}
+		endTime, err = parseTime(args.First(), now)
 		args = args.Tail()
+	default:
+		endTime = uint64(now.Unix())
+	}
+	if err != nil {
+		return fmt.Errorf("unable to decode end_time: %v", err)
 	}
 
 	switch {

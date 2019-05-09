@@ -707,9 +707,12 @@ func loadConfig() (*config, error) {
 					"credentials for litecoind: %v", err)
 				return nil, err
 			}
+		case "neutrino":
+			// No need to get RPC parameters.
+
 		default:
-			str := "%s: only ltcd and litecoind mode supported for " +
-				"litecoin at this time"
+			str := "%s: only ltcd, litecoind, and neutrino mode " +
+				"supported for litecoin at this time"
 			return nil, fmt.Errorf(str, funcName)
 		}
 

@@ -70,6 +70,46 @@ type nodeHistory struct {
 	channelLastFail map[uint64]time.Time
 }
 
+// MissionControlSnapshot contains a snapshot of the current state of mission
+// control.
+type MissionControlSnapshot struct {
+
+	// Nodes contains the per node information of this snapshot.
+	Nodes []*MissionControlNodeSnapshot
+}
+
+// MissionControlNodeSnapshot contains a snapshot of the current node state in
+// mission control.
+type MissionControlNodeSnapshot struct {
+	// Node pubkey.
+	Node route.Vertex
+
+	// Lastfail is the time of last failure, if any.
+	LastFail *time.Time
+
+	// Channels is a list of channels for which specific information is
+	// logged.
+	Channels []*MissionControlChannelSnapshot
+
+	// OtherChanSuccessProb is the success probability for channels not in
+	// the Channels slice.
+	OtherChanSuccessProb float64
+}
+
+// MissionControlChannelSnapshot contains a snapshot of the current channel
+// state in mission control.
+type MissionControlChannelSnapshot struct {
+
+	// ChannelID is the short channel id of the snapshot.
+	ChannelID uint64
+
+	// Lastfail is the time of last failure.
+	LastFail time.Time
+
+	// SuccessProb is the success probability estimation for this channel.
+	SuccessProb float64
+}
+
 // NewMissionControl returns a new instance of missionControl.
 //
 // TODO(roasbeef): persist memory
@@ -324,4 +364,52 @@ func (m *MissionControl) reportEdgeFailure(failedEdge edge) {
 
 	history := m.createHistoryIfNotExists(failedEdge.from)
 	history.channelLastFail[failedEdge.channel] = now
+}
+
+// GetHistorySnapshot takes a snapshot from the current mission control state
+// and actual probability estimates.
+func (m *MissionControl) GetHistorySnapshot() *MissionControlSnapshot {
+	m.Lock()
+	defer m.Unlock()
+
+	log.Debugf("Requesting history snapshot from mission control: "+
+		"node_count=%v", len(m.history))
+
+	nodes := make([]*MissionControlNodeSnapshot, 0, len(m.history))
+
+	for v, h := range m.history {
+		channelSnapshot := make([]*MissionControlChannelSnapshot,
+			0, len(h.channelLastFail))
+
+		for id, lastFail := range h.channelLastFail {
+			prob := m.getEdgeProbabilityForNode(h, id)
+
+			channelSnapshot = append(channelSnapshot,
+				&MissionControlChannelSnapshot{
+					ChannelID:   id,
+					LastFail:    lastFail,
+					SuccessProb: prob,
+				},
+			)
+		}
+
+		otherProb := m.getEdgeProbabilityForNode(h, 0)
+
+		nodes = append(nodes,
+			&MissionControlNodeSnapshot{
+				Node:                 v,
+				LastFail:             h.lastFail,
+				OtherChanSuccessProb: otherProb,
+				Channels:             channelSnapshot,
+			},
+		)
+	}
+
+	snapshot := MissionControlSnapshot{
+		Nodes: nodes,
+	}
+
+	log.Debugf("History snapshot created")
+
+	return &snapshot
 }

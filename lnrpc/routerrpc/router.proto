@@ -85,6 +85,40 @@ message RouteFeeResponse {
     int64 time_lock_delay = 2;
 }
 
+message QueryMissionControlRequest {}
+
+/// QueryMissionControlResponse contains mission control state per node.
+message QueryMissionControlResponse {
+    repeated NodeHistory nodes = 1;
+}
+
+/// NodeHistory contains the mission control state for a particular node.
+message NodeHistory {
+    /// Node pubkey
+    bytes pubkey = 1;
+
+    /// Time stamp of last failure. Set to zero if no failure happened yet.
+    int64 last_fail = 2;
+
+    /// Estimation of success probability for channels not in the channel array.
+    float other_chan_success_prob = 3;
+
+    /// Historical information of particular channels.
+    repeated ChannelHistory channels = 4;
+}
+
+/// NodeHistory contains the mission control state for a particular channel.
+message ChannelHistory {
+    /// Short channel id
+    uint64 channel_id = 1;
+    
+    /// Time stamp of last failure.
+    int64 last_fail = 2;
+
+    /// Estimation of success probability for this channel.
+    float success_prob = 3;
+}
+
 service Router {
     /**
     SendPayment attempts to route a payment described by the passed
@@ -100,4 +134,10 @@ service Router {
     may cost to send an HTLC to the target end destination.
     */
     rpc EstimateRouteFee(RouteFeeRequest) returns (RouteFeeResponse);
+
+    /**
+    QueryMissionControl exposes the internal mission control state to callers.
+    It is a development feature.
+    */
+    rpc QueryMissionControl(QueryMissionControlRequest) returns (QueryMissionControlResponse);
 }

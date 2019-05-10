@@ -34,17 +34,25 @@ var (
 	macaroonOps = []bakery.Op{
 		{
 			Entity: "offchain",
+			Action: "read",
+		},
+		{
+			Entity: "offchain",
 			Action: "write",
 		},
 	}
 
 	// macPermissions maps RPC calls to the permissions they require.
 	macPermissions = map[string][]bakery.Op{
-		"/routerpc.Router/SendPayment": {{
+		"/routerrpc.Router/SendPayment": {{
 			Entity: "offchain",
 			Action: "write",
 		}},
-		"/routerpc.Router/EstimateRouteFee": {{
+		"/routerrpc.Router/EstimateRouteFee": {{
+			Entity: "offchain",
+			Action: "read",
+		}},
+		"/routerrpc.Router/QueryMissionControl": {{
 			Entity: "offchain",
 			Action: "read",
 		}},
@@ -261,4 +269,44 @@ func (s *Server) EstimateRouteFee(ctx context.Context,
 		RoutingFeeMsat: int64(route.TotalFees),
 		TimeLockDelay:  int64(route.TotalTimeLock),
 	}, nil
+}
+
+// QueryMissionControl exposes the internal mission control state to callers. It
+// is a development feature.
+func (s *Server) QueryMissionControl(ctx context.Context,
+	req *QueryMissionControlRequest) (*QueryMissionControlResponse, error) {
+
+	snapshot := s.cfg.RouterBackend.MissionControl.GetHistorySnapshot()
+
+	rpcNodes := make([]*NodeHistory, len(snapshot.Nodes))
+	for i, node := range snapshot.Nodes {
+		channels := make([]*ChannelHistory, len(node.Channels))
+		for j, channel := range node.Channels {
+			channels[j] = &ChannelHistory{
+				ChannelId:   channel.ChannelID,
+				LastFail:    channel.LastFail.Unix(),
+				SuccessProb: float32(channel.SuccessProb),
+			}
+		}
+
+		var lastFail int64
+		if node.LastFail != nil {
+			lastFail = node.LastFail.Unix()
+		}
+
+		rpcNode := NodeHistory{
+			Pubkey:               node.Node[:],
+			LastFail:             lastFail,
+			OtherChanSuccessProb: float32(node.OtherChanSuccessProb),
+			Channels:             channels,
+		}
+
+		rpcNodes[i] = &rpcNode
+	}
+
+	response := QueryMissionControlResponse{
+		Nodes: rpcNodes,
+	}
+
+	return &response, nil
 }

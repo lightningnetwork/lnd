@@ -249,6 +249,43 @@ message ResetMissionControlRequest{}
 
 message ResetMissionControlResponse{}
 
+message QueryMissionControlRequest {}
+
+/// QueryMissionControlResponse contains mission control state per node.
+message QueryMissionControlResponse {
+    repeated NodeHistory nodes = 1;
+}
+
+/// NodeHistory contains the mission control state for a particular node.
+message NodeHistory {
+    /// Node pubkey
+    bytes pubkey = 1 [json_name = "pubkey"];
+
+    /// Time stamp of last failure. Set to zero if no failure happened yet.
+    int64 last_fail_time = 2 [json_name = "last_fail_time"];
+
+    /// Estimation of success probability for channels not in the channel array.
+    float other_chan_success_prob = 3 [json_name = "other_chan_success_prob"];
+
+    /// Historical information of particular channels.
+    repeated ChannelHistory channels = 4 [json_name = "channels"];
+}
+
+/// NodeHistory contains the mission control state for a particular channel.
+message ChannelHistory {
+    /// Short channel id
+    uint64 channel_id = 1 [json_name = "channel_id"];
+    
+    /// Time stamp of last failure.
+    int64 last_fail_time = 2 [json_name = "last_fail_time"];
+
+    /// Minimum penalization amount.
+    int64 min_penalize_amt_sat = 3 [json_name = "min_penalize_amt_sat"];
+
+    /// Estimation of success probability for this channel.
+    float success_prob = 4 [json_name = "success_prob"];
+}
+
 service Router {
     /**
     SendPayment attempts to route a payment described by the passed
@@ -277,4 +314,10 @@ service Router {
     slate.
     */
     rpc ResetMissionControl(ResetMissionControlRequest) returns (ResetMissionControlResponse);
+    
+    /**
+    QueryMissionControl exposes the internal mission control state to callers.
+    It is a development feature.
+    */
+    rpc QueryMissionControl(QueryMissionControlRequest) returns (QueryMissionControlResponse);
 }

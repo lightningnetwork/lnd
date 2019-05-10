@@ -59,6 +59,10 @@ var (
 			Entity: "offchain",
 			Action: "read",
 		}},
+		"/routerrpc.Router/QueryMissionControl": {{
+			Entity: "offchain",
+			Action: "read",
+		}},
 		"/routerrpc.Router/ResetMissionControl": {{
 			Entity: "offchain",
 			Action: "write",
@@ -452,4 +456,47 @@ func (s *Server) ResetMissionControl(ctx context.Context,
 	s.cfg.RouterBackend.MissionControl.ResetHistory()
 
 	return &ResetMissionControlResponse{}, nil
+}
+
+// QueryMissionControl exposes the internal mission control state to callers. It
+// is a development feature.
+func (s *Server) QueryMissionControl(ctx context.Context,
+	req *QueryMissionControlRequest) (*QueryMissionControlResponse, error) {
+
+	snapshot := s.cfg.RouterBackend.MissionControl.GetHistorySnapshot()
+
+	rpcNodes := make([]*NodeHistory, len(snapshot.Nodes))
+	for i, node := range snapshot.Nodes {
+		channels := make([]*ChannelHistory, len(node.Channels))
+		for j, channel := range node.Channels {
+			channels[j] = &ChannelHistory{
+				ChannelId:    channel.ChannelID,
+				LastFailTime: channel.LastFail.Unix(),
+				MinPenalizeAmtSat: int64(
+					channel.MinPenalizeAmt.ToSatoshis(),
+				),
+				SuccessProb: float32(channel.SuccessProb),
+			}
+		}
+
+		var lastFail int64
+		if node.LastFail != nil {
+			lastFail = node.LastFail.Unix()
+		}
+
+		rpcNodes[i] = &NodeHistory{
+			Pubkey:       node.Node[:],
+			LastFailTime: lastFail,
+			OtherChanSuccessProb: float32(
+				node.OtherChanSuccessProb,
+			),
+			Channels: channels,
+		}
+	}
+
+	response := QueryMissionControlResponse{
+		Nodes: rpcNodes,
+	}
+
+	return &response, nil
 }

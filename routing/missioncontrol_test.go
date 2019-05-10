@@ -64,4 +64,14 @@ func TestMissionControl(t *testing.T) {
 	// to zero.
 	mc.reportVertexFailure(testNode)
 	expectP(1000, 0)
+
+	// Check whether history snapshot looks sane.
+	history := mc.GetHistorySnapshot()
+	if len(history.Nodes) != 1 {
+		t.Fatal("unexpected number of nodes")
+	}
+
+	if len(history.Nodes[0].Channels) != 1 {
+		t.Fatal("unexpected number of channels")
+	}
 }

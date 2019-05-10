@@ -303,6 +303,7 @@ func main() {
 	// Add any extra autopilot commands determined by build flags.
 	app.Commands = append(app.Commands, autopilotCommands()...)
 	app.Commands = append(app.Commands, invoicesCommands()...)
+	app.Commands = append(app.Commands, routerCommands()...)
 
 	if err := app.Run(os.Args); err != nil {
 		fatal(err)

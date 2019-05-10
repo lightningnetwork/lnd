@@ -36,6 +36,8 @@ type RouterBackend struct {
 	FindRoute func(source, target route.Vertex,
 		amt lnwire.MilliSatoshi, restrictions *routing.RestrictParams,
 		finalExpiry ...uint16) (*route.Route, error)
+
+	MissionControl *routing.MissionControl
 }
 
 // QueryRoutes attempts to query the daemons' Channel Router for a possible

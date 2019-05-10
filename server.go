@@ -187,6 +187,8 @@ type server struct {
 
 	breachArbiter *breachArbiter
 
+	missionControl *routing.MissionControl
+
 	chanRouter *routing.ChannelRouter
 
 	authGossiper *discovery.AuthenticatedGossiper
@@ -646,7 +648,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		return link.Bandwidth()
 	}
 
-	missionControl := routing.NewMissionControl(
+	s.missionControl = routing.NewMissionControl(
 		chanGraph, selfNode, queryBandwidth,
 	)
 
@@ -656,7 +658,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		ChainView:          cc.chainView,
 		Payer:              s.htlcSwitch,
 		Control:            channeldb.NewPaymentControl(chanDB),
-		MissionControl:     missionControl,
+		MissionControl:     s.missionControl,
 		ChannelPruneExpiry: routing.DefaultChannelPruneExpiry,
 		GraphPruneInterval: time.Duration(time.Hour),
 		QueryBandwidth:     queryBandwidth,

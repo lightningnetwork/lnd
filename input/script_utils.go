@@ -315,7 +315,7 @@ func SenderHtlcSpendRedeem(signer Signer, signDesc *SignDescriptor,
 		return nil, err
 	}
 
-	// The stack require to spend this output is simply the signature
+	// The stack required to spend this output is simply the signature
 	// generated above under the receiver's public key, and the payment
 	// pre-image.
 	witnessStack := wire.TxWitness(make([][]byte, 3))
@@ -340,7 +340,7 @@ func SenderHtlcSpendTimeout(receiverSig []byte, signer Signer,
 
 	// We place a zero as the first item of the evaluated witness stack in
 	// order to force Script execution to the HTLC timeout clause. The
-	// second zero is require to consume the extra pop due to a bug in the
+	// second zero is required to consume the extra pop due to a bug in the
 	// original OP_CHECKMULTISIG.
 	witnessStack := wire.TxWitness(make([][]byte, 5))
 	witnessStack[0] = nil
@@ -832,7 +832,7 @@ func CommitScriptToSelf(csvTimeout uint32, selfKey, revokeKey *btcec.PublicKey) 
 // transaction paying to the "other" party. The constructed output is a normal
 // p2wkh output spendable immediately, requiring no contestation period.
 func CommitScriptUnencumbered(key *btcec.PublicKey) ([]byte, error) {
-	// This script goes to the "other" party, and it spendable immediately.
+	// This script goes to the "other" party, and is spendable immediately.
 	builder := txscript.NewScriptBuilder()
 	builder.AddOp(txscript.OP_0)
 	builder.AddData(btcutil.Hash160(key.SerializeCompressed()))
@@ -961,8 +961,8 @@ func SingleTweakBytes(commitPoint, basePoint *btcec.PublicKey) []byte {
 //            := G*(k + sha256(commitPoint || basePoint))
 //
 // Therefore, if a party possess the value k, the private key of the base
-// point, then they are able to derive the private key by computing: compute
-// the proper private key for the revokeKey by computing:
+// point, then they are able to derive the proper private key for the
+// revokeKey by computing:
 //
 //   revokePriv := k + sha256(commitPoint || basePoint) mod N
 //

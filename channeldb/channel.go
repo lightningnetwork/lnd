@@ -400,7 +400,7 @@ type OpenChannel struct {
 	ChainHash chainhash.Hash
 
 	// FundingOutpoint is the outpoint of the final funding transaction.
-	// This value uniquely and globally identities the channel within the
+	// This value uniquely and globally identifies the channel within the
 	// target blockchain as specified by the chain hash parameter.
 	FundingOutpoint wire.OutPoint
 
@@ -1049,8 +1049,8 @@ func (c *OpenChannel) UpdateCommitment(newCommitment *ChannelCommitment) error {
 			return fmt.Errorf("unable to store chan info: %v", err)
 		}
 
-		// With the proper bucket fetched, we'll now write toe latest
-		// commitment state to dis for the target party.
+		// With the proper bucket fetched, we'll now write the latest
+		// commitment state to disk for the target party.
 		err = putChanCommitment(
 			chanBucket, newCommitment, true,
 		)
@@ -1459,7 +1459,7 @@ func (c *OpenChannel) AppendRemoteCommitChain(diff *CommitDiff) error {
 	defer c.Unlock()
 
 	// If this is a restored channel, then we want to avoid mutating the
-	// state as all, as it's impossible to do so in a protocol compliant
+	// state at all, as it's impossible to do so in a protocol compliant
 	// manner.
 	if c.hasChanStatus(ChanStatusRestored) {
 		return ErrNoRestoredChannelMutation
@@ -1600,7 +1600,7 @@ func (c *OpenChannel) AdvanceCommitChainTail(fwdPkg *FwdPkg) error {
 	defer c.Unlock()
 
 	// If this is a restored channel, then we want to avoid mutating the
-	// state as all, as it's impossible to do so in a protocol compliant
+	// state at all, as it's impossible to do so in a protocol compliant
 	// manner.
 	if c.hasChanStatus(ChanStatusRestored) {
 		return ErrNoRestoredChannelMutation
@@ -1841,10 +1841,10 @@ func (c *OpenChannel) RevocationLogTail() (*ChannelCommitment, error) {
 }
 
 // CommitmentHeight returns the current commitment height. The commitment
-// height represents the number of updates to the commitment state to data.
+// height represents the number of updates to the commitment state to date.
 // This value is always monotonically increasing. This method is provided in
 // order to allow multiple instances of a particular open channel to obtain a
-// consistent view of the number of channel updates to data.
+// consistent view of the number of channel updates to date.
 func (c *OpenChannel) CommitmentHeight() (uint64, error) {
 	c.RLock()
 	defer c.RUnlock()
@@ -2005,13 +2005,13 @@ type ChannelCloseSummary struct {
 	// confirmed, but not yet been fully resolved. In the case of a channel
 	// that has been cooperatively closed, it will go straight into the
 	// fully resolved state as soon as the closing transaction has been
-	// confirmed. However, for channel that have been force closed, they'll
+	// confirmed. However, for channels that have been force closed, they'll
 	// stay marked as "pending" until _all_ the pending funds have been
 	// swept.
 	IsPending bool
 
 	// RemoteCurrentRevocation is the current revocation for their
-	// commitment transaction. However, since this the derived public key,
+	// commitment transaction. However, since this is the derived public key,
 	// we don't yet have the private key so we aren't yet able to verify
 	// that it's actually in the hash chain.
 	RemoteCurrentRevocation *btcec.PublicKey

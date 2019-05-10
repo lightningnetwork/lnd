@@ -985,7 +985,12 @@ var closeAllChannelsCommand = cli.Command{
 	By default, one is prompted for confirmation every time an inactive
 	channel is requested to be closed. To avoid this, one can set the
 	--force flag, which will only prompt for confirmation once for all
-	inactive channels and proceed to close them.`,
+	inactive channels and proceed to close them.
+
+	In the case of cooperative closures, one can manually set the fee to
+	be used for the closing transactions via either the --conf_target or
+	--sat_per_byte arguments. This will be the starting value used during
+	fee negotiation. This is optional.`,
 	Flags: []cli.Flag{
 		cli.BoolFlag{
 			Name:  "inactive_only",
@@ -995,6 +1000,18 @@ var closeAllChannelsCommand = cli.Command{
 			Name: "force",
 			Usage: "ask for confirmation once before attempting " +
 				"to close existing channels",
+		},
+		cli.Int64Flag{
+			Name: "conf_target",
+			Usage: "(optional) the number of blocks that the " +
+				"closing transactions *should* confirm in, will be " +
+				"used for fee estimation",
+		},
+		cli.Int64Flag{
+			Name: "sat_per_byte",
+			Usage: "(optional) a manual fee expressed in " +
+				"sat/byte that should be used when crafting " +
+				"the closing transactions",
 		},
 	},
 	Action: actionDecorator(closeAllChannels),
@@ -1130,7 +1147,9 @@ func closeAllChannels(ctx *cli.Context) error {
 					},
 					OutputIndex: uint32(index),
 				},
-				Force: !channel.GetActive(),
+				Force:      !channel.GetActive(),
+				TargetConf: int32(ctx.Int64("conf_target")),
+				SatPerByte: ctx.Int64("sat_per_byte"),
 			}
 
 			txidChan := make(chan string, 1)

@@ -674,14 +674,6 @@
             "format": "int64"
           },
           {
-            "name": "num_routes",
-            "description": "*\nDeprecated. The max number of routes to return. In the future, QueryRoutes\nwill only return a single route.",
-            "in": "query",
-            "required": false,
-            "type": "integer",
-            "format": "int32"
-          },
-          {
             "name": "final_cltv_delta",
             "description": "/ An optional CLTV delta from the current height that should be used for the timelock of the final hop.",
             "in": "query",

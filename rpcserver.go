@@ -462,7 +462,7 @@ func newRPCServer(s *server, macService *macaroons.Service,
 			}
 			return info.Capacity, nil
 		},
-		FindRoutes: s.chanRouter.FindRoutes,
+		FindRoute: s.chanRouter.FindRoute,
 	}
 
 	var (

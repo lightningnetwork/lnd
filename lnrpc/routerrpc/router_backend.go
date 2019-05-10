@@ -28,10 +28,9 @@ type RouterBackend struct {
 
 	// FindRoutes is a closure that abstracts away how we locate/query for
 	// routes.
-	FindRoutes func(source, target route.Vertex,
+	FindRoute func(source, target route.Vertex,
 		amt lnwire.MilliSatoshi, restrictions *routing.RestrictParams,
-		numPaths uint32, finalExpiry ...uint16) (
-		[]*route.Route, error)
+		finalExpiry ...uint16) (*route.Route, error)
 }
 
 // QueryRoutes attempts to query the daemons' Channel Router for a possible
@@ -122,53 +121,35 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 		IgnoredEdges: ignoredEdges,
 	}
 
-	// numRoutes will default to 10 if not specified explicitly.
-	numRoutesIn := uint32(in.NumRoutes)
-	if numRoutesIn == 0 {
-		numRoutesIn = 10
-	}
-
 	// Query the channel router for a possible path to the destination that
 	// can carry `in.Amt` satoshis _including_ the total fee required on
 	// the route.
 	var (
-		routes  []*route.Route
+		route   *route.Route
 		findErr error
 	)
 
 	if in.FinalCltvDelta == 0 {
-		routes, findErr = r.FindRoutes(
+		route, findErr = r.FindRoute(
 			sourcePubKey, targetPubKey, amtMSat, restrictions,
-			numRoutesIn,
 		)
 	} else {
-		routes, findErr = r.FindRoutes(
+		route, findErr = r.FindRoute(
 			sourcePubKey, targetPubKey, amtMSat, restrictions,
-			numRoutesIn, uint16(in.FinalCltvDelta),
+			uint16(in.FinalCltvDelta),
 		)
 	}
 	if findErr != nil {
 		return nil, findErr
 	}
 
-	// As the number of returned routes can be less than the number of
-	// requested routes, we'll clamp down the length of the response to the
-	// minimum of the two.
-	numRoutes := uint32(len(routes))
-	if numRoutesIn < numRoutes {
-		numRoutes = numRoutesIn
-	}
-
 	// For each valid route, we'll convert the result into the format
 	// required by the RPC system.
+
+	rpcRoute := r.MarshallRoute(route)
+
 	routeResp := &lnrpc.QueryRoutesResponse{
-		Routes: make([]*lnrpc.Route, 0, in.NumRoutes),
-	}
-	for i := uint32(0); i < numRoutes; i++ {
-		routeResp.Routes = append(
-			routeResp.Routes,
-			r.MarshallRoute(routes[i]),
-		)
+		Routes: []*lnrpc.Route{rpcRoute},
 	}
 
 	return routeResp, nil

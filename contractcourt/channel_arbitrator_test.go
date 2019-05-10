@@ -124,12 +124,14 @@ func (b *mockArbitratorLog) WipeHistory() error {
 
 type mockChainIO struct{}
 
+var _ lnwallet.BlockChainIO = (*mockChainIO)(nil)
+
 func (*mockChainIO) GetBestBlock() (*chainhash.Hash, int32, error) {
 	return nil, 0, nil
 }
 
 func (*mockChainIO) GetUtxo(op *wire.OutPoint, _ []byte,
-	heightHint uint32) (*wire.TxOut, error) {
+	heightHint uint32, _ <-chan struct{}) (*wire.TxOut, error) {
 	return nil, nil
 }
 

@@ -38,7 +38,7 @@ func (b *BtcWallet) GetBestBlock() (*chainhash.Hash, int32, error) {
 //
 // This method is a part of the lnwallet.BlockChainIO interface.
 func (b *BtcWallet) GetUtxo(op *wire.OutPoint, pkScript []byte,
-	heightHint uint32) (*wire.TxOut, error) {
+	heightHint uint32, cancel <-chan struct{}) (*wire.TxOut, error) {
 
 	switch backend := b.chain.(type) {
 
@@ -51,6 +51,7 @@ func (b *BtcWallet) GetUtxo(op *wire.OutPoint, pkScript []byte,
 			neutrino.StartBlock(&waddrmgr.BlockStamp{
 				Height: int32(heightHint),
 			}),
+			neutrino.QuitChan(cancel),
 		)
 		if err != nil {
 			return nil, err

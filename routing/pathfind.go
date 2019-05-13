@@ -46,6 +46,10 @@ var (
 	// off potentially better routes against their probability of
 	// succeeding.
 	DefaultPaymentAttemptPenalty = lnwire.NewMSatFromSatoshis(100)
+
+	// DefaultMinProbability is the default minimum probability for routes
+	// returned from findPath.
+	DefaultMinProbability = float64(0.01)
 )
 
 // edgePolicyWithSource is a helper struct to keep track of the source node
@@ -258,6 +262,10 @@ type RestrictParams struct {
 	// off potentially better routes against their probability of
 	// succeeding.
 	PaymentAttemptPenalty lnwire.MilliSatoshi
+
+	// MinProbability defines the minimum success probability of the
+	// returned route.
+	MinProbability float64
 }
 
 // findPath attempts to find a path from the source node within the
@@ -464,6 +472,13 @@ func findPath(g *graphParams, r *RestrictParams, source, target route.Vertex,
 		// by multiplying the probabilities. Both this edge and the rest
 		// of the route must succeed.
 		probability := toNodeDist.probability * edgeProbability
+
+		// If the probability is below the specified lower bound, we can
+		// abandon this direction. Adding further nodes can only lower
+		// the probability more.
+		if probability < r.MinProbability {
+			return
+		}
 
 		// By adding fromNode in the route, there will be an extra
 		// weight composed of the fee that this node will charge and

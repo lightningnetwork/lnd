@@ -2025,9 +2025,10 @@ func TestProbabilityRouting(t *testing.T) {
 	t.Parallel()
 
 	testCases := []struct {
-		name          string
-		p10, p11, p20 float64
-		expectedChan  uint64
+		name           string
+		p10, p11, p20  float64
+		minProbability float64
+		expectedChan   uint64
 	}{
 		// Test two variations with probabilities that should multiply
 		// to the same total route probability. In both cases the three
@@ -2039,12 +2040,14 @@ func TestProbabilityRouting(t *testing.T) {
 		{
 			name: "three hop 1",
 			p10:  0.8, p11: 0.5, p20: 0.7,
-			expectedChan: 10,
+			minProbability: 0.1,
+			expectedChan:   10,
 		},
 		{
 			name: "three hop 2",
 			p10:  0.5, p11: 0.8, p20: 0.7,
-			expectedChan: 10,
+			minProbability: 0.1,
+			expectedChan:   10,
 		},
 
 		// If the probability of the two hop route is increased, its
@@ -2055,20 +2058,42 @@ func TestProbabilityRouting(t *testing.T) {
 		{
 			name: "two hop higher cost",
 			p10:  0.5, p11: 0.8, p20: 0.85,
-			expectedChan: 20,
+			minProbability: 0.1,
+			expectedChan:   20,
+		},
+
+		// If the same probabilities are used with a probability lower bound of
+		// 0.5, we expect the three hop route with probability 0.4 to be
+		// excluded and the two hop route to be picked.
+		{
+			name: "probability limit",
+			p10:  0.8, p11: 0.5, p20: 0.7,
+			minProbability: 0.5,
+			expectedChan:   20,
+		},
+
+		// With a probability limit above the probability of both routes, we
+		// expect no route to be returned. This expectation is signaled by using
+		// expected channel 0.
+		{
+			name: "probability limit no routes",
+			p10:  0.8, p11: 0.5, p20: 0.7,
+			minProbability: 0.8,
+			expectedChan:   0,
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			testProbabilityRouting(
-				t, tc.p10, tc.p11, tc.p20, tc.expectedChan,
+				t, tc.p10, tc.p11, tc.p20,
+				tc.minProbability, tc.expectedChan,
 			)
 		})
 	}
 }
 
-func testProbabilityRouting(t *testing.T, p10, p11, p20 float64,
+func testProbabilityRouting(t *testing.T, p10, p11, p20, minProbability float64,
 	expectedChan uint64) {
 
 	t.Parallel()
@@ -2079,7 +2104,6 @@ func testProbabilityRouting(t *testing.T, p10, p11, p20 float64,
 	testChannels := []*testChannel{
 		symmetricTestChannel("roasbeef", "a1", 100000, &testChannelPolicy{}),
 		symmetricTestChannel("roasbeef", "b", 100000, &testChannelPolicy{}),
-		symmetricTestChannel("roasbeef", "c", 100000, &testChannelPolicy{}),
 		symmetricTestChannel("a1", "a2", 100000, &testChannelPolicy{
 			Expiry:      144,
 			FeeBaseMsat: lnwire.NewMSatFromSatoshis(5),
@@ -2135,9 +2159,16 @@ func testProbabilityRouting(t *testing.T, p10, p11, p20 float64,
 			FeeLimit:              noFeeLimit,
 			ProbabilitySource:     probabilitySource,
 			PaymentAttemptPenalty: lnwire.NewMSatFromSatoshis(10),
+			MinProbability:        minProbability,
 		},
 		sourceVertex, target, paymentAmt,
 	)
+	if expectedChan == 0 {
+		if err == nil || !IsError(err, ErrNoPathFound) {
+			t.Fatalf("expected no path found, but got %v", err)
+		}
+		return
+	}
 	if err != nil {
 		t.Fatal(err)
 	}

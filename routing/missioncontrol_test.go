@@ -70,7 +70,7 @@ func TestMissionControl(t *testing.T) {
 	ctx.expectP(1000, 0.8)
 
 	// Expect probability to be zero after reporting the edge as failed.
-	ctx.mc.reportEdgeFailure(testEdge, 1000, false)
+	ctx.mc.reportEdgeFailure(testTime, testEdge, 1000, false)
 	ctx.expectP(1000, 0)
 
 	// As we reported with a min penalization amt, a lower amt than reported
@@ -83,7 +83,7 @@ func TestMissionControl(t *testing.T) {
 
 	// Edge fails again, this time without a min penalization amt. The edge
 	// should be penalized regardless of amount.
-	ctx.mc.reportEdgeFailure(testEdge, 0, false)
+	ctx.mc.reportEdgeFailure(ctx.now, testEdge, 0, false)
 	ctx.expectP(1000, 0)
 	ctx.expectP(500, 0)
 
@@ -93,7 +93,7 @@ func TestMissionControl(t *testing.T) {
 
 	// A node level failure should bring probability of every channel back
 	// to zero.
-	ctx.mc.reportVertexFailure(testNode)
+	ctx.mc.reportVertexFailure(ctx.now, testNode)
 	ctx.expectP(1000, 0)
 
 	// Check whether history snapshot looks sane.
@@ -114,11 +114,15 @@ func TestMissionControlChannelUpdate(t *testing.T) {
 
 	// Report a policy related failure. Because it is the first, we don't
 	// expect a penalty.
-	ctx.mc.reportEdgeFailure(edge{channel: mcTestEdge.ChannelID}, 0, true)
+	ctx.mc.reportEdgeFailure(
+		ctx.now, edge{channel: mcTestEdge.ChannelID}, 0, true,
+	)
 	ctx.expectP(0, 0.8)
 
 	// Report another failure for the same channel. We expect it to be
 	// pruned.
-	ctx.mc.reportEdgeFailure(edge{channel: mcTestEdge.ChannelID}, 0, true)
+	ctx.mc.reportEdgeFailure(
+		ctx.now, edge{channel: mcTestEdge.ChannelID}, 0, true,
+	)
 	ctx.expectP(0, 0)
 }

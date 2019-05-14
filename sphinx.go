@@ -5,7 +5,6 @@ import (
 	"crypto/ecdsa"
 	"crypto/hmac"
 	"crypto/sha256"
-	"encoding/binary"
 	"io"
 	"math/big"
 
@@ -124,66 +123,6 @@ type OnionPacket struct {
 	HeaderMAC [HMACSize]byte
 }
 
-// HopData is the information destined for individual hops. It is a fixed size
-// 64 bytes, prefixed with a 1 byte realm that indicates how to interpret it.
-// For now we simply assume it's the bitcoin realm (0x00) and hence the format
-// is fixed. The last 32 bytes are always the HMAC to be passed to the next
-// hop, or zero if this is the packet is not to be forwarded, since this is the
-// last hop.
-type HopData struct {
-	// Realm denotes the "real" of target chain of the next hop. For
-	// bitcoin, this value will be 0x00.
-	Realm [RealmByteSize]byte
-
-	// NextAddress is the address of the next hop that this packet should
-	// be forward to.
-	NextAddress [AddressSize]byte
-
-	// ForwardAmount is the HTLC amount that the next hop should forward.
-	// This value should take into account the fee require by this
-	// particular hop, and the cumulative fee for the entire route.
-	ForwardAmount uint64
-
-	// OutgoingCltv is the value of the outgoing absolute time-lock that
-	// should be included in the HTLC forwarded.
-	OutgoingCltv uint32
-
-	// ExtraBytes is the set of unused bytes within the onion payload. This
-	// extra set of bytes can be utilized by higher level applications to
-	// package additional data within the per-hop payload, or signal that a
-	// portion of the remaining set of hops are to be consumed as Extra
-	// Onion Blobs.
-	//
-	// TODO(roasbeef): rename to padding bytes?
-	ExtraBytes [NumPaddingBytes]byte
-
-	// HMAC is an HMAC computed over the entire per-hop payload that also
-	// includes the higher-level (optional) associated data bytes.
-	HMAC [HMACSize]byte
-}
-
-// Encode writes the serialized version of the target HopData into the passed
-// io.Writer.
-func (hd *HopData) Encode(w io.Writer) error {
-	if _, err := w.Write(hd.NextAddress[:]); err != nil {
-		return err
-	}
-
-	if err := binary.Write(w, binary.BigEndian, hd.ForwardAmount); err != nil {
-		return err
-	}
-
-	if err := binary.Write(w, binary.BigEndian, hd.OutgoingCltv); err != nil {
-		return err
-	}
-
-	if _, err := w.Write(hd.ExtraBytes[:]); err != nil {
-		return err
-	}
-
-	return nil
-}
-
 // generateSharedSecrets by the given nodes pubkeys, generates the shared
 // secrets.
 func generateSharedSecrets(paymentPath []*btcec.PublicKey,
@@ -276,7 +215,6 @@ func NewOnionPacket(paymentPath *PaymentPath, sessionKey *btcec.PrivateKey,
 	var (
 		mixHeader     [routingInfoSize]byte
 		nextHmac      [HMACSize]byte
-		hopDataBuf    bytes.Buffer
 		hopPayloadBuf bytes.Buffer
 	)
 
@@ -293,7 +231,6 @@ func NewOnionPacket(paymentPath *PaymentPath, sessionKey *btcec.PrivateKey,
 		// last hop to recognize that it is the destination for a
 		// particular payment.
 		paymentPath[i].HopPayload.HMAC = nextHmac
-		paymentPath[i].HopData.HMAC = nextHmac
 
 		// Next, using the key dedicated for our stream cipher, we'll
 		// generate enough bytes to obfuscate this layer of the onion
@@ -306,19 +243,7 @@ func NewOnionPacket(paymentPath *PaymentPath, sessionKey *btcec.PrivateKey,
 		numFrames := paymentPath[i].HopPayload.NumFrames()
 		rightShift(mixHeader[:], numFrames*FrameSize)
 
-		// With the mix header right-shifted, we'll encode the current
-		// hop data into a buffer we'll re-use during the packet
-		// construction.
-		err := paymentPath[i].HopData.Encode(&hopDataBuf)
-		if err != nil {
-			return nil, err
-		}
-
-		paymentPath[i].HopPayload.Payload = append(
-			hopDataBuf.Bytes(), paymentPath[i].HopPayload.Payload...,
-		)
-
-		err = paymentPath[i].HopPayload.Encode(&hopPayloadBuf)
+		err := paymentPath[i].HopPayload.Encode(&hopPayloadBuf)
 		if err != nil {
 			return nil, err
 		}

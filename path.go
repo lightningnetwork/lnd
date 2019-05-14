@@ -21,6 +21,82 @@ const (
 	NumFramesShift = 4
 )
 
+// HopData is the information destined for individual hops. It is a fixed size
+// 64 bytes, prefixed with a 1 byte realm that indicates how to interpret it.
+// For now we simply assume it's the bitcoin realm (0x00) and hence the format
+// is fixed. The last 32 bytes are always the HMAC to be passed to the next
+// hop, or zero if this is the packet is not to be forwarded, since this is the
+// last hop.
+type HopData struct {
+	// NextAddress is the address of the next hop that this packet should
+	// be forward to.
+	NextAddress [AddressSize]byte
+
+	// ForwardAmount is the HTLC amount that the next hop should forward.
+	// This value should take into account the fee require by this
+	// particular hop, and the cumulative fee for the entire route.
+	ForwardAmount uint64
+
+	// OutgoingCltv is the value of the outgoing absolute time-lock that
+	// should be included in the HTLC forwarded.
+	OutgoingCltv uint32
+
+	// ExtraBytes is the set of unused bytes within the onion payload. This
+	// extra set of bytes can be utilized by higher level applications to
+	// package additional data within the per-hop payload, or signal that a
+	// portion of the remaining set of hops are to be consumed as Extra
+	// Onion Blobs.
+	//
+	// TODO(roasbeef): rename to padding bytes?
+	ExtraBytes [NumPaddingBytes]byte
+}
+
+// Encode writes the serialized version of the target HopData into the passed
+// io.Writer.
+func (hd *HopData) Encode(w io.Writer) error {
+	if _, err := w.Write(hd.NextAddress[:]); err != nil {
+		return err
+	}
+
+	if err := binary.Write(w, binary.BigEndian, hd.ForwardAmount); err != nil {
+		return err
+	}
+
+	if err := binary.Write(w, binary.BigEndian, hd.OutgoingCltv); err != nil {
+		return err
+	}
+
+	if _, err := w.Write(hd.ExtraBytes[:]); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// Decodes populates the target HopData with the contents of a serialized
+// HopData packed into the passed io.Reader.
+func (hd *HopData) Decode(r io.Reader) error {
+	if _, err := io.ReadFull(r, hd.NextAddress[:]); err != nil {
+		return err
+	}
+
+	err := binary.Read(r, binary.BigEndian, &hd.ForwardAmount)
+	if err != nil {
+		return err
+	}
+
+	err = binary.Read(r, binary.BigEndian, &hd.OutgoingCltv)
+	if err != nil {
+		return err
+	}
+
+	if _, err := io.ReadFull(r, hd.ExtraBytes[:]); err != nil {
+		return err
+	}
+
+	return err
+}
+
 // HopPayload is a slice of bytes and associated payload-type that are destined
 // for a specific hop in the PaymentPath. The payload itself is treated as an
 // opaque datafield by the onion router, while the Realm is modified to

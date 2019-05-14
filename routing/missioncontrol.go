@@ -512,3 +512,222 @@ func (m *MissionControl) GetHistorySnapshot() *MissionControlSnapshot {
 
 	return &snapshot
 }
+
+// reportPaymentOutcome reports a failed payment to mission control as input for
+// future probability estimates. It returns a bool indicating whether this error
+// is a final error and no further payment attempts need to be made.
+func (m *MissionControl) reportPaymentOutcome(rt *route.Route,
+	errorSourceIndex int, failure lnwire.FailureMessage) bool {
+
+	// TODO: Improve error attribution. Depending on the failure type,
+	// either the incoming or the outgoing channel should be penalized. Also
+	// the position of the node in the route is relevant (first after
+	// source, last before destination).
+	errorSource := rt.GetNodePubkeyByIndex(errorSourceIndex)
+	failedEdge, failedAmt := getFailedEdge(rt, errorSourceIndex)
+
+	switch failure.(type) {
+
+	// If the end destination didn't know the payment
+	// hash or we sent the wrong payment amount to the
+	// destination, then we'll terminate immediately.
+	case *lnwire.FailUnknownPaymentHash:
+		return true
+
+	// If we sent the wrong amount to the destination, then
+	// we'll exit early.
+	case *lnwire.FailIncorrectPaymentAmount:
+		return true
+
+	// If the time-lock that was extended to the final node
+	// was incorrect, then we can't proceed.
+	case *lnwire.FailFinalIncorrectCltvExpiry:
+		return true
+
+	// If we crafted an invalid onion payload for the final
+	// node, then we'll exit early.
+	case *lnwire.FailFinalIncorrectHtlcAmount:
+		return true
+
+	// Similarly, if the HTLC expiry that we extended to
+	// the final hop expires too soon, then will fail the
+	// payment.
+	//
+	// TODO(roasbeef): can happen to to race condition, try
+	// again with recent block height
+	case *lnwire.FailFinalExpiryTooSoon:
+		return true
+
+	// If we erroneously attempted to cross a chain border,
+	// then we'll cancel the payment.
+	case *lnwire.FailInvalidRealm:
+		return true
+
+	// If we get a notice that the expiry was too soon for
+	// an intermediate node, then we'll prune out the node
+	// that sent us this error, as it doesn't now what the
+	// correct block height is.
+	case *lnwire.FailExpiryTooSoon:
+		m.reportVertexFailure(errorSource)
+		return false
+
+	// If we hit an instance of onion payload corruption or
+	// an invalid version, then we'll exit early as this
+	// shouldn't happen in the typical case.
+	case *lnwire.FailInvalidOnionVersion:
+		return true
+	case *lnwire.FailInvalidOnionHmac:
+		return true
+	case *lnwire.FailInvalidOnionKey:
+		return true
+
+	// If we get a failure due to violating the minimum amount, we'll apply
+	// the new minimum amount and retry routing.
+	//
+	// A node sending a policy failures with an embedded channel update may
+	// get a second chance.
+	//
+	// TODO: Check update for nilness.
+	case *lnwire.FailAmountBelowMinimum:
+		m.reportEdgeFailure(failedEdge, 0, true)
+		return false
+
+	// If we get a failure due to a fee, we'll apply the
+	// new fee update, and retry our attempt using the
+	// newly updated fees.
+	case *lnwire.FailFeeInsufficient:
+		m.reportEdgeFailure(failedEdge, 0, true)
+		return false
+
+	// If we get the failure for an intermediate node that
+	// disagrees with our time lock values, then we'll
+	// apply the new delta value and try it once more.
+	case *lnwire.FailIncorrectCltvExpiry:
+		m.reportEdgeFailure(failedEdge, 0, true)
+		return false
+
+	// The outgoing channel that this node was meant to
+	// forward one is currently disabled, so we'll apply
+	// the update and continue.
+	case *lnwire.FailChannelDisabled:
+		m.reportEdgeFailure(failedEdge, 0, false)
+		return false
+
+	// It's likely that the outgoing channel didn't have
+	// sufficient capacity, so we'll prune this edge for
+	// now, and continue onwards with our path finding.
+	case *lnwire.FailTemporaryChannelFailure:
+		m.reportEdgeFailure(failedEdge, failedAmt, false)
+		return false
+
+	// If the send fail due to a node not having the
+	// required features, then we'll note this error and
+	// continue.
+	case *lnwire.FailRequiredNodeFeatureMissing:
+		m.reportVertexFailure(errorSource)
+		return false
+
+	// If the send fail due to a node not having the
+	// required features, then we'll note this error and
+	// continue.
+	case *lnwire.FailRequiredChannelFeatureMissing:
+		m.reportVertexFailure(errorSource)
+		return false
+
+	// If the next hop in the route wasn't known or
+	// offline, we'll only the channel which we attempted
+	// to route over. This is conservative, and it can
+	// handle faulty channels between nodes properly.
+	// Additionally, this guards against routing nodes
+	// returning errors in order to attempt to black list
+	// another node.
+	case *lnwire.FailUnknownNextPeer:
+		m.reportEdgeFailure(failedEdge, 0, false)
+		return false
+
+	// If the node wasn't able to forward for which ever
+	// reason, then we'll note this and continue with the
+	// routes.
+	case *lnwire.FailTemporaryNodeFailure:
+		m.reportVertexFailure(errorSource)
+		return false
+
+	case *lnwire.FailPermanentNodeFailure:
+		m.reportVertexFailure(errorSource)
+		return false
+
+	// If we crafted a route that contains a too long time
+	// lock for an intermediate node, we'll prune the node.
+	// As there currently is no way of knowing that node's
+	// maximum acceptable cltv, we cannot take this
+	// constraint into account during routing.
+	//
+	// TODO(joostjager): Record the rejected cltv and use
+	// that as a hint during future path finding through
+	// that node.
+	case *lnwire.FailExpiryTooFar:
+		m.reportVertexFailure(errorSource)
+		return false
+
+	// If we get a permanent channel or node failure, then
+	// we'll prune the channel in both directions and
+	// continue with the rest of the routes.
+	case *lnwire.FailPermanentChannelFailure:
+		m.reportEdgeFailure(failedEdge, 0, false)
+		m.reportEdgeFailure(
+			edge{
+				from:    failedEdge.to,
+				to:      failedEdge.from,
+				channel: failedEdge.channel,
+			}, 0, false,
+		)
+		return false
+
+	default:
+		return true
+	}
+
+}
+
+// getEdgeByIndex returns a structure describing the edge specified by index.
+// Index zero is the first edge of the route.
+func getEdgeByIndex(rt *route.Route, index int) (edge, lnwire.MilliSatoshi) {
+	var (
+		fromNode route.Vertex
+		amt      lnwire.MilliSatoshi
+	)
+
+	if index == 0 {
+		fromNode = rt.SourcePubKey
+		amt = rt.TotalAmount
+	} else {
+		fromNode = rt.Hops[index-1].PubKeyBytes
+		amt = rt.Hops[index-1].AmtToForward
+	}
+
+	return edge{
+		from:    fromNode,
+		to:      rt.Hops[index].PubKeyBytes,
+		channel: rt.Hops[index].ChannelID,
+	}, amt
+}
+
+// getFailedEdge tries to locate the failing channel given a route and the index
+// of the node that sent the error.
+func getFailedEdge(route *route.Route, errIdx int) (edge, lnwire.MilliSatoshi) {
+	// Determine if we have a failure from the final hop. In that case we
+	// return the incoming channel.
+	//
+	// TODO(joostjager): In this case, certain types of errors are not
+	// expected. For example FailUnknownNextPeer. This could be a reason to
+	// prune the node?
+	if errIdx == len(route.Hops) {
+		return getEdgeByIndex(route, errIdx-1)
+	}
+
+	// As this error indicates that the target channel was unable to
+	// carry this HTLC (for w/e reason), we'll return the _outgoing_
+	// channel that the source of the error was meant to pass the
+	// HTLC along to.
+	return getEdgeByIndex(route, errIdx)
+}

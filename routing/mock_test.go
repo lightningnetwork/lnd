@@ -91,10 +91,10 @@ func (m *mockPaymentSessionSource) NewPaymentSessionEmpty() PaymentSession {
 	return &mockPaymentSession{}
 }
 
-func (m *mockPaymentSessionSource) reportVertexFailure(v route.Vertex) {}
+func (m *mockPaymentSessionSource) reportPaymentOutcome(rt *route.Route,
+	errorSourceIndex int, failure lnwire.FailureMessage) bool {
 
-func (m *mockPaymentSessionSource) reportEdgeFailure(failedEdge edge,
-	minPenalizeAmt lnwire.MilliSatoshi, allowSecondChance bool) {
+	return false
 }
 
 type mockPaymentSession struct {

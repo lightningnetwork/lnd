@@ -346,7 +346,7 @@ func (p *paymentLifecycle) handleSendError(sendErr error) error {
 		finalOutcome = true
 	} else {
 		finalOutcome = p.router.processSendError(
-			p.paySession, &p.attempt.Route, fErr,
+			&p.attempt.Route, fErr,
 		)
 
 		// Save the forwarding error so it can be returned if this turns

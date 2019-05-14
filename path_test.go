@@ -34,9 +34,10 @@ func TestHopPayloadSizes(t *testing.T) {
 				"%d, actual %d", tt.expected, actual)
 		}
 
-		hp.CalculateRealm()
-		if hp.Realm[0] != tt.realm {
-			t.Errorf("Updated realm did not match our expectation: expected %q, actual %q", tt.realm, hp.Realm)
+		if hp.payloadRealm() != tt.realm {
+			t.Errorf("payload realm did not match our "+
+				"expectation: expected %q, actual %q", tt.realm,
+				hp.Realm())
 		}
 	}
 }

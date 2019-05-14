@@ -160,6 +160,19 @@ func NewHopPayload(realm byte, hopData *HopData, eob []byte) (HopPayload, error)
 func (hp *HopPayload) Realm() byte {
 	return hp.realm[0] & RealmMaskBytes
 }
+
+// payloadRealm returns the realm that will be used within the raw packed hop
+// payload. This differs from the Realm method above in that it uses space to
+// encode the packet type and number of frames. The final encoding uses the
+// first 4 bits of the realm to encode the number of frames used, and the
+// latter 4 bits to encode the real realm type.
+func (hp *HopPayload) payloadRealm() byte {
+	maskedRealm := hp.realm[0] & 0x0F
+	numFrames := hp.NumFrames()
+
+	return maskedRealm | (byte(numFrames-1) << NumFramesShift)
+}
+
 // NumFrames returns the total number of frames it'll take to pack the target
 // HopPayload into a Sphinx packet.
 func (hp *HopPayload) NumFrames() int {
@@ -177,34 +190,29 @@ func (hp *HopPayload) NumFrames() int {
 	return 2 + int(math.Ceil(float64(remainder)/65))
 }
 
-// CalculateRealm computes the proper realm encoding in place. The final
-// encoding uses the first 4 bits of the realm to encode the number of frames
-// used, and the latter 4 bits to encode the real realm type.
-func (hp *HopPayload) CalculateRealm() {
-	maskedRealm := hp.Realm[0] & 0x0F
-	numFrames := hp.NumFrames()
+// packRealm writes out the proper realm encoding in place to the target
+// io.Writer.
+func (hp *HopPayload) packRealm(w io.Writer) error {
+	realm := hp.payloadRealm()
+	if _, err := w.Write([]byte{realm}); err != nil {
+		return err
+	}
 
-	hp.Realm[0] = maskedRealm | (byte(numFrames-1) << NumFramesShift)
+	return nil
 }
 
 // Encode encodes the hop payload into the passed writer.
 func (hp *HopPayload) Encode(w io.Writer) error {
 	// We'll need to add enough padding bytes to position the HMAC at the
 	// end of the payload
-	padding := hp.NumFrames()*65 - len(hp.Payload) - 1 - 32
+	padding := hp.NumFrames()*FrameSize - len(hp.Payload) - 1 - HMACSize
 	if padding < 0 {
 		return fmt.Errorf("cannot have negative padding: %v", padding)
 	}
 
-	// Before we write the realm out, we need to calculate the current
-	// realm based on the "true" realm as well as the number of frames it
-	// takes to compute the hop payload.
-	hp.CalculateRealm()
-
-	if _, err := w.Write(hp.Realm[:]); err != nil {
+	if err := hp.packRealm(w); err != nil {
 		return err
 	}
-
 	if _, err := w.Write(hp.Payload); err != nil {
 		return err
 	}
@@ -228,11 +236,11 @@ func (hp *HopPayload) Encode(w io.Writer) error {
 // Decode unpacks an encoded HopPayload from the passed reader into the target
 // HopPayload.
 func (hp *HopPayload) Decode(r io.Reader) error {
-	if _, err := io.ReadFull(r, hp.Realm[:]); err != nil {
+	if _, err := io.ReadFull(r, hp.realm[:]); err != nil {
 		return err
 	}
 
-	numFrames := int(hp.Realm[0]>>NumFramesShift) + 1
+	numFrames := int(hp.realm[0]>>NumFramesShift) + 1
 	numBytes := (numFrames * FrameSize) - 32 - 1
 
 	hp.Payload = make([]byte, numBytes)

@@ -2,6 +2,7 @@ package route
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -198,4 +199,30 @@ func (r *Route) String() string {
 		r.TotalAmount-r.TotalFees(), r.TotalFees(), r.TotalTimeLock,
 		b.String(),
 	)
+}
+
+// GetNodeIndex returns the index of the given pubkey in the route. The source
+// node is index zero.
+func (r *Route) GetNodeIndex(pubkey Vertex) (int, error) {
+	if pubkey == r.SourcePubKey {
+		return 0, nil
+	}
+
+	for i, hop := range r.Hops {
+		if pubkey == hop.PubKeyBytes {
+			return i + 1, nil
+		}
+	}
+
+	return 0, errors.New("cannot find error source node in route")
+}
+
+// GetNodePubkeyByIndex gets the pubkey of the specified node in the route. The
+// source node is returned when index is zero.
+func (r *Route) GetNodePubkeyByIndex(index int) Vertex {
+	if index == 0 {
+		return r.SourcePubKey
+	}
+
+	return r.Hops[index-1].PubKeyBytes
 }

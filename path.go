@@ -99,18 +99,67 @@ func (hd *HopData) Decode(r io.Reader) error {
 
 // HopPayload is a slice of bytes and associated payload-type that are destined
 // for a specific hop in the PaymentPath. The payload itself is treated as an
-// opaque datafield by the onion router, while the Realm is modified to
+// opaque data field by the onion router, while the Realm is modified to
 // indicate how many hops are to be read by the processing node. The 4 MSB in
 // the realm indicate how many additional hops are to be processed to collect
 // the entire payload.
 type HopPayload struct {
-	Realm [1]byte
+	// realm denotes the "real" of target chain of the next hop. For
+	// bitcoin, this value will be 0x00.
+	realm [RealmByteSize]byte
 
+	// Payload is the raw bytes of the per-hop payload for this hop.
+	// Depending on the realm, this pay be the regular legacy hop data, or
+	// a set of opaque blobs to be parsed by higher layers.
 	Payload []byte
 
+	// HMAC is an HMAC computed over the entire per-hop payload that also
+	// includes the higher-level (optional) associated data bytes.
 	HMAC [HMACSize]byte
 }
 
+// NewHopPayload creates a new hop payload given an optional set of forwarding
+// instructions for a hop, and a set of optional opaque extra onion bytes to
+// drop off at the target hop. If both values are not specified, then an error
+// is returned.
+func NewHopPayload(realm byte, hopData *HopData, eob []byte) (HopPayload, error) {
+
+	var (
+		h HopPayload
+		b bytes.Buffer
+	)
+
+	// We can't proceed if neither the hop data or the EOB has been
+	// specified by the caller.
+	if hopData == nil && len(eob) == 0 {
+		return h, fmt.Errorf("either hop data or eob must " +
+			"be specified")
+	}
+
+	// If the hop data is specified, then we'll write that now, as it
+	// should proceed the EOB portion of the payload.
+	if hopData != nil {
+		if err := hopData.Encode(&b); err != nil {
+			return h, nil
+		}
+	}
+
+	// Finally, we'll write out the EOB portion to the same buffer to
+	// ensure it comes after mandatory hop payload.
+	if _, err := b.Write(eob); err != nil {
+		return h, nil
+	}
+
+	h.realm = [RealmByteSize]byte{realm}
+	h.Payload = b.Bytes()
+
+	return h, nil
+}
+
+// Realm returns the context specific representation of the realm for a hop.
+func (hp *HopPayload) Realm() byte {
+	return hp.realm[0] & RealmMaskBytes
+}
 // NumFrames returns the total number of frames it'll take to pack the target
 // HopPayload into a Sphinx packet.
 func (hp *HopPayload) NumFrames() int {

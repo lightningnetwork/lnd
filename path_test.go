@@ -21,14 +21,17 @@ func TestHopPayloadSizes(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		hp := HopPayload{
-			Realm:   [1]byte{1},
-			Payload: bytes.Repeat([]byte{0x00}, tt.size),
+		hp, err := NewHopPayload(
+			1, nil, bytes.Repeat([]byte{0x00}, tt.size),
+		)
+		if err != nil {
+			t.Fatalf("unable to make hop payload: %v", err)
 		}
 
 		actual := hp.NumFrames()
 		if actual != tt.expected {
-			t.Errorf("Wrong number of hops returned: expected %d, actual %d", tt.expected, actual)
+			t.Errorf("wrong number of hops returned: expected "+
+				"%d, actual %d", tt.expected, actual)
 		}
 
 		hp.CalculateRealm()

@@ -59,11 +59,20 @@ func parseOnionSpec(spec OnionSpec) (*sphinx.PaymentPath, *btcec.PrivateKey, err
 
 		path[i].NodePub = *pubkey
 
-		path[i].HopPayload.Realm[0] = byte(hop.Realm)
-		path[i].HopPayload.Payload, err = hex.DecodeString(hop.Payload)
+		payload, err := hex.DecodeString(hop.Payload)
 		if err != nil {
-			log.Fatalf("%s is not a valid hex payload %s", hop.Payload, err)
+			log.Fatalf("%s is not a valid hex payload %s",
+				hop.Payload, err)
 		}
+
+		hopPayload, err := sphinx.NewHopPayload(
+			byte(hop.Realm), nil, payload,
+		)
+		if err != nil {
+			log.Fatalf("unable to make payload: %v", err)
+		}
+
+		path[i].HopPayload = hopPayload
 
 		fmt.Fprintf(os.Stderr, "Node %d pubkey %x\n", i, pubkey.SerializeCompressed())
 	}

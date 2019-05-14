@@ -120,23 +120,31 @@ func newTestVarSizeRoute(numHops int, extraPayloadSize []int) ([]*Router, *Payme
 
 		copy(hopData.NextAddress[:], bytes.Repeat([]byte{byte(i)}, 8))
 
+		var extraData []byte
+
+		// If we were told to increase the payload with some extra data
+		// do it now.
+		if extraPayloadSize[i] > 0 {
+			extraData = bytes.Repeat([]byte{'A'}, extraPayloadSize[i])
+		}
+
+		hopPayload, err := NewHopPayload(0, &hopData, extraData)
+		if err != nil {
+			return nil, nil, nil, nil, fmt.Errorf("unable to "+
+				"create new hop payload: %v", err)
+		}
+
 		route[i] = OnionHop{
-			NodePub: *nodes[i].onionKey.PubKey(),
-			HopData: hopData,
+			NodePub:    *nodes[i].onionKey.PubKey(),
+			HopPayload: hopPayload,
 		}
 	}
 
-	// If we were told to increase the payload with some extra data do it
-	// now:
 	for i := 0; i < route.TrueRouteLength(); i++ {
-		if extraPayloadSize[i] > 0 {
-			extra := bytes.Repeat([]byte{'A'}, extraPayloadSize[i])
-			route[i].HopPayload.Payload = append(route[i].HopPayload.Payload, extra...)
-		}
 	}
 
 	// Generate a forwarding message to route to the final node via the
-	// generated intermdiates nodes above.  Destination should be Hash160,
+	// generated intermediate nodes above.  Destination should be Hash160,
 	// adding padding so parsing still works.
 	sessionKey, _ := btcec.PrivKeyFromBytes(
 		btcec.S256(), bytes.Repeat([]byte{'A'}, 32),
@@ -172,18 +180,22 @@ func TestBolt4Packet(t *testing.T) {
 		}
 
 		hopData := HopData{
-			Realm:         [1]byte{0x00},
 			ForwardAmount: uint64(i),
 			OutgoingCltv:  uint32(i),
 		}
 		copy(hopData.NextAddress[:], bytes.Repeat([]byte{byte(i)}, 8))
 		hopsData = append(hopsData, hopData)
 
+		hopPayload, err := NewHopPayload(0, &hopData, nil)
+		if err != nil {
+			t.Fatalf("unable to make hop payload: %v", err)
+		}
+
 		pubKey.Curve = nil
 
 		route[i] = OnionHop{
-			NodePub: *pubKey,
-			HopData: hopData,
+			NodePub:    *pubKey,
+			HopPayload: hopPayload,
 		}
 	}
 
@@ -548,7 +560,7 @@ func TestMultiFrameEncodeDecode(t *testing.T) {
 				t.Logf("Processing at hop: %v \n", i)
 				onionPacket, err := hop.ProcessOnionPacket(fwdMsg, nil, uint32(i)+1)
 				if err != nil {
-					t.Fatalf("Node %v was unable to process the "+
+					t.Fatalf("node %v was unable to process the "+
 						"forwarding message: %v", i, err)
 				}
 

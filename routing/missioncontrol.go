@@ -18,6 +18,10 @@ const (
 	// half-life duration defines after how much time a penalized node or
 	// channel is back at 50% probability.
 	DefaultPenaltyHalfLife = time.Hour
+
+	// minSecondChanceInterval is the minimum time required between
+	// second-chance failures.
+	minSecondChanceInterval = time.Minute
 )
 
 // MissionControl contains state which summarizes the past attempts of HTLC
@@ -33,6 +37,8 @@ type MissionControl struct {
 	history map[route.Vertex]*nodeHistory
 
 	graph *channeldb.ChannelGraph
+
+	secondChanceChannels map[uint64]struct{}
 
 	selfNode *channeldb.LightningNode
 
@@ -157,12 +163,13 @@ func NewMissionControl(g *channeldb.ChannelGraph, selfNode *channeldb.LightningN
 		cfg.MinRouteProbability, cfg.AprioriHopProbability)
 
 	return &MissionControl{
-		history:        make(map[route.Vertex]*nodeHistory),
-		selfNode:       selfNode,
-		queryBandwidth: qb,
-		graph:          g,
-		now:            time.Now,
-		cfg:            cfg,
+		history:              make(map[route.Vertex]*nodeHistory),
+		secondChanceChannels: make(map[uint64]struct{}),
+		selfNode:             selfNode,
+		queryBandwidth:       qb,
+		graph:                g,
+		now:                  time.Now,
+		cfg:                  cfg,
 	}
 }
 
@@ -236,11 +243,10 @@ func (m *MissionControl) NewPaymentSession(routeHints [][]zpay32.HopHint,
 	}
 
 	return &paymentSession{
-		additionalEdges:      edges,
-		bandwidthHints:       bandwidthHints,
-		errFailedPolicyChans: make(map[nodeChannel]struct{}),
-		mc:                   m,
-		pathFinder:           findPath,
+		additionalEdges: edges,
+		bandwidthHints:  bandwidthHints,
+		mc:              m,
+		pathFinder:      findPath,
 	}, nil
 }
 
@@ -248,9 +254,8 @@ func (m *MissionControl) NewPaymentSession(routeHints [][]zpay32.HopHint,
 // used for failure reporting to missioncontrol.
 func (m *MissionControl) NewPaymentSessionForRoute(preBuiltRoute *route.Route) PaymentSession {
 	return &paymentSession{
-		errFailedPolicyChans: make(map[nodeChannel]struct{}),
-		mc:                   m,
-		preBuiltRoute:        preBuiltRoute,
+		mc:            m,
+		preBuiltRoute: preBuiltRoute,
 	}
 }
 
@@ -259,10 +264,9 @@ func (m *MissionControl) NewPaymentSessionForRoute(preBuiltRoute *route.Route) P
 // missioncontrol for resumed payment we don't want to make more attempts for.
 func (m *MissionControl) NewPaymentSessionEmpty() PaymentSession {
 	return &paymentSession{
-		errFailedPolicyChans: make(map[nodeChannel]struct{}),
-		mc:                   m,
-		preBuiltRoute:        &route.Route{},
-		preBuiltRouteTried:   true,
+		mc:                 m,
+		preBuiltRoute:      &route.Route{},
+		preBuiltRouteTried: true,
 	}
 }
 
@@ -404,14 +408,18 @@ func (m *MissionControl) reportVertexFailure(v route.Vertex) {
 	history.lastFail = &now
 }
 
-// reportEdgeFailure reports a channel level failure.
+// reportEdgeFailure reports a channel level failure. The validUpdateAttached
+// parameter should indicate whether the attached update - if any - was valid.
 //
 // TODO(roasbeef): also add value attempted to send and capacity of channel
 func (m *MissionControl) reportEdgeFailure(failedEdge edge,
-	minPenalizeAmt lnwire.MilliSatoshi) {
+	minPenalizeAmt lnwire.MilliSatoshi, allowSecondChance bool) {
 
-	log.Debugf("Reporting channel %v failure to Mission Control",
-		failedEdge.channel)
+	channelID := failedEdge.channel
+
+	log.Debugf("Reporting failure to Mission Control: "+
+		"chan=%v, allowSecondChance=%v", channelID,
+		allowSecondChance)
 
 	now := m.now()
 
@@ -419,10 +427,38 @@ func (m *MissionControl) reportEdgeFailure(failedEdge edge,
 	defer m.Unlock()
 
 	history := m.createHistoryIfNotExists(failedEdge.from)
-	history.channelLastFail[failedEdge.channel] = &channelHistory{
+
+	_, secondChanceGiven := m.secondChanceChannels[channelID]
+
+	// If the channel hasn't already be given a second chance and we allow a
+	// second chance, it may get one.
+	if allowSecondChance && !secondChanceGiven {
+		// If channel has no history yet or the previous failure is long
+		// enough ago, allow a second chance.
+		channelHistory, ok := history.channelLastFail[channelID]
+		if !ok || now.Sub(channelHistory.lastFail) >
+			minSecondChanceInterval {
+
+			m.secondChanceChannels[channelID] = struct{}{}
+
+			log.Debugf("Second chance granted for chan=%v",
+				channelID)
+
+			return
+		}
+
+		// Otherwise penalize the channel, because we don't allow
+		// channel updates that are that frequent. This is to prevent
+		// nodes from keeping us busy by continuously sending new
+		// channel updates.
+	}
+
+	history.channelLastFail[channelID] = &channelHistory{
 		lastFail:       now,
 		minPenalizeAmt: minPenalizeAmt,
 	}
+
+	delete(m.secondChanceChannels, channelID)
 }
 
 // GetHistorySnapshot takes a snapshot from the current mission control state

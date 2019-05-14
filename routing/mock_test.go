@@ -91,6 +91,12 @@ func (m *mockPaymentSessionSource) NewPaymentSessionEmpty() PaymentSession {
 	return &mockPaymentSession{}
 }
 
+func (m *mockPaymentSessionSource) reportVertexFailure(v route.Vertex) {}
+
+func (m *mockPaymentSessionSource) reportEdgeFailure(failedEdge edge,
+	minPenalizeAmt lnwire.MilliSatoshi, allowSecondChance bool) {
+}
+
 type mockPaymentSession struct {
 	routes []*route.Route
 }
@@ -109,12 +115,6 @@ func (m *mockPaymentSession) RequestRoute(payment *LightningPayment,
 
 	return r, nil
 }
-
-func (m *mockPaymentSession) ReportVertexFailure(v route.Vertex) {}
-
-func (m *mockPaymentSession) ReportEdgeFailure(failedEdge edge, minPenalizeAmt lnwire.MilliSatoshi) {}
-
-func (m *mockPaymentSession) ReportEdgePolicyFailure(failedEdge edge) {}
 
 type mockPayer struct {
 	sendResult       chan error

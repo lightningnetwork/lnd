@@ -257,39 +257,30 @@ func (hp *HopPayload) Decode(r io.Reader) error {
 
 // HopData attempts to extract a set of forwarding instructions from the target
 // HopPayload. If the realm isn't what we expect, then an error is returned.
-func (hp *HopPayload) HopData() (*HopData, error) {
+// This method also returns the left over EOB that remain after the hop data
+// has been parsed. Callers may want to map this blob into something more
+// concrete.
+func (hp *HopPayload) HopData() (*HopData, []byte, error) {
 	// If this isn't the "base" realm, then we can't extract the expected
 	// hop payload structure from the payload.
-	if hp.Realm[0]&RealmMaskBytes != 0x00 {
-		return nil, fmt.Errorf("payload is not a HopData payload, "+
-			"realm=%d", hp.Realm[0])
+	if hp.Realm() != 0x00 {
+		return nil, nil, fmt.Errorf("payload is not a HopData "+
+			"payload, realm=%d", hp.Realm())
 	}
 
 	// Now that we know the payload has the structure we expect, we'll
 	// decode the payload into the HopData.
-	hd := HopData{
-		Realm: [1]byte{hp.Realm[0] & RealmMaskBytes},
-		HMAC:  hp.HMAC,
+	var hd HopData
+	payloadReader := bytes.NewBuffer(hp.Payload)
+	if err := hd.Decode(payloadReader); err != nil {
+		return &hd, nil, nil
 	}
 
-	r := bytes.NewBuffer(hp.Payload)
-	if _, err := io.ReadFull(r, hd.NextAddress[:]); err != nil {
-		return nil, err
-	}
+	// What's left over in the buffer that wasn't parsed as part of the
+	// forwarding instructions is our lingering EOB.
+	eob := payloadReader.Bytes()
 
-	if err := binary.Read(r, binary.BigEndian, &hd.ForwardAmount); err != nil {
-		return nil, err
-	}
-
-	if err := binary.Read(r, binary.BigEndian, &hd.OutgoingCltv); err != nil {
-		return nil, err
-	}
-
-	if _, err := io.ReadFull(r, hd.ExtraBytes[:]); err != nil {
-		return nil, err
-	}
-
-	return &hd, nil
+	return &hd, eob, nil
 }
 
 // NumMaxHops is the maximum path length. This should be set to an estimate of
@@ -317,10 +308,6 @@ type OnionHop struct {
 	// hop, it'll decrypt the routing information, and hand off the
 	// internal packet to the next hop.
 	NodePub btcec.PublicKey
-
-	// HopData are the plaintext routing instructions that should be
-	// delivered to this hop.
-	HopData HopData
 
 	// HopPayload is the opaque payload provided to this node. If the
 	// HopData above is specified, then it'll be packed into this payload.

@@ -113,11 +113,9 @@ func newTestVarSizeRoute(numHops int, extraPayloadSize []int) ([]*Router, *Payme
 	)
 	for i := 0; i < len(nodes); i++ {
 		hopData := HopData{
-			Realm:         [1]byte{0x00},
 			ForwardAmount: uint64(i),
 			OutgoingCltv:  uint32(i),
 		}
-
 		copy(hopData.NextAddress[:], bytes.Repeat([]byte{byte(i)}, 8))
 
 		var extraData []byte
@@ -157,7 +155,13 @@ func newTestVarSizeRoute(numHops int, extraPayloadSize []int) ([]*Router, *Payme
 
 	var hopsData []HopData
 	for i := 0; i < len(nodes); i++ {
-		hopsData = append(hopsData, route[i].HopData)
+		hopData, _, err := route[i].HopPayload.HopData()
+		if err != nil {
+			return nil, nil, nil, nil, fmt.Errorf("unable to "+
+				"gen hop data: %v", err)
+		}
+
+		hopsData = append(hopsData, *hopData)
 	}
 
 	return nodes, &route, &hopsData, fwdMsg, nil
@@ -564,22 +568,22 @@ func TestMultiFrameEncodeDecode(t *testing.T) {
 						"forwarding message: %v", i, err)
 				}
 
-				// Check that the framecount matches what we expect
-				frameCount := onionPacket.RawPayload.NumFrames()
+				// Check that the frame count matches what we expect
+				frameCount := onionPacket.rawPayload.NumFrames()
 				if tt.expectedFrames[i] != frameCount {
-					t.Fatalf("Incorrect number of payload frames: expected %d, got %d",
-						tt.expectedFrames[i],
-						frameCount,
+					t.Fatalf("incorrect number of payload "+
+						"frames: expected %d, got %d",
+						tt.expectedFrames[i], frameCount,
 					)
 				}
 
 				// Check that the payload contents are identical
 				expected := path[i].HopPayload
 				if !bytes.Equal(path[i].HopPayload.Payload, expected.Payload) {
-					t.Fatalf("Processing error, hop-payload parsed incorrectly."+
-						" expected %x, got %x",
+					t.Fatalf("processing error, hop-payload "+
+						"parsed incorrectly.  expected %x, got %x",
 						expected.Payload,
-						onionPacket.RawPayload.Payload)
+						onionPacket.rawPayload.Payload)
 				}
 
 				fwdMsg = onionPacket.NextPacket

@@ -443,10 +443,10 @@ type ProcessedPacket struct {
 	// MoreHops.
 	ForwardingInstructions *HopData
 
-	// RawPayload is the raw (plaintext) payload that was passed to the
-	// processing node in the onion packet. It provides accessors to get
-	// the parsed and interpreted data.
-	RawPayload HopPayload
+	// ExtraOnionBlob is the raw EOB payload unpacked by this hop. This is
+	// the portion of the payload _without_ the prefixed forwarding
+	// instructions.
+	ExtraOnionBlob []byte
 
 	// NextPacket is the onion packet that should be forwarded to the next
 	// hop as denoted by the ForwardingInstructions field.
@@ -454,6 +454,8 @@ type ProcessedPacket struct {
 	// NOTE: This field will only be populated iff the above Action is
 	// MoreHops.
 	NextPacket *OnionPacket
+
+	rawPayload HopPayload
 }
 
 // Router is an onion router within the Sphinx network. The router is capable
@@ -649,7 +651,7 @@ func processOnionPacket(onionPkt *OnionPacket, sharedSecret *Hash256,
 		action = ExitNode
 	}
 
-	hopData, err := outerHopPayload.HopData()
+	hopData, eob, err := outerHopPayload.HopData()
 	if err != nil {
 		return nil, err
 	}
@@ -660,8 +662,9 @@ func processOnionPacket(onionPkt *OnionPacket, sharedSecret *Hash256,
 	return &ProcessedPacket{
 		Action:                 action,
 		ForwardingInstructions: hopData,
-		RawPayload:             *outerHopPayload,
+		ExtraOnionBlob:         eob,
 		NextPacket:             innerPkt,
+		rawPayload:             *outerHopPayload,
 	}, nil
 }
 

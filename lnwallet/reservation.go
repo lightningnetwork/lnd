@@ -427,7 +427,7 @@ func (r *ChannelReservation) OurSignatures() ([]*input.Script, []byte) {
 // https://github.com/bitcoin/bips/blob/master/bip-0069.mediawiki.
 // Additionally, verification is performed in order to ensure that the
 // counterparty supplied a valid signature to our version of the commitment
-// transaction.  Once this method returns, caller's should broadcast the
+// transaction.  Once this method returns, callers should broadcast the
 // created funding transaction, then call .WaitForChannelOpen() which will
 // block until the funding transaction obtains the configured number of
 // confirmations. Once the method unblocks, a LightningChannel instance is

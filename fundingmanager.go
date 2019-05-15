@@ -241,7 +241,7 @@ type fundingConfig struct {
 	// so that the channel creation process can be completed.
 	Notifier chainntnfs.ChainNotifier
 
-	// SignMessage signs an arbitrary method with a given public key. The
+	// SignMessage signs an arbitrary message with a given public key. The
 	// actual digest signed is the double sha-256 of the message. In the
 	// case that the private key corresponding to the passed public key
 	// cannot be located, then an error is returned.
@@ -346,7 +346,7 @@ type fundingConfig struct {
 // fundingManager acts as an orchestrator/bridge between the wallet's
 // 'ChannelReservation' workflow, and the wire protocol's funding initiation
 // messages. Any requests to initiate the funding workflow for a channel,
-// either kicked-off locally or remotely handled by the funding manager.
+// either kicked-off locally or remotely are handled by the funding manager.
 // Once a channel's funding workflow has been completed, any local callers, the
 // local peer, and possibly the remote peer are notified of the completion of
 // the channel workflow. Additionally, any temporary or permanent access
@@ -1083,7 +1083,7 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 
 	// As we're the responder, we get to specify the number of confirmations
 	// that we require before both of us consider the channel open. We'll
-	// use out mapping to derive the proper number of confirmations based on
+	// use our mapping to derive the proper number of confirmations based on
 	// the amount of the channel, and also if any funds are being pushed to
 	// us.
 	numConfsReq := f.cfg.NumRequiredConfs(msg.FundingAmount, msg.PushAmount)
@@ -1644,7 +1644,7 @@ func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
 
 	// Now that we have a finalized reservation for this funding flow,
 	// we'll send the to be active channel to the ChainArbitrator so it can
-	// watch for any on-chin actions before the channel has fully
+	// watch for any on-chain actions before the channel has fully
 	// confirmed.
 	if err := f.cfg.WatchNewChannel(completeChan, peerKey); err != nil {
 		fndgLog.Errorf("Unable to send new ChannelPoint(%v) for "+
@@ -2407,8 +2407,8 @@ func (f *fundingManager) handleFundingLocked(fmsg *fundingLockedMsg) {
 		f.localDiscoveryMtx.Unlock()
 	}
 
-	// First, we'll attempt to locate the channel who's funding workflow is
-	// being finalized by this message. We got to the database rather than
+	// First, we'll attempt to locate the channel whose funding workflow is
+	// being finalized by this message. We go to the database rather than
 	// our reservation map as we may have restarted, mid funding flow.
 	chanID := fmsg.msg.ChanID
 	channel, err := f.cfg.FindChannel(chanID)
@@ -2437,7 +2437,7 @@ func (f *fundingManager) handleFundingLocked(fmsg *fundingLockedMsg) {
 	}
 
 	// Launch a defer so we _ensure_ that the channel barrier is properly
-	// closed even if the target peer is not longer online at this point.
+	// closed even if the target peer is no longer online at this point.
 	defer func() {
 		// Close the active channel barrier signalling the readHandler
 		// that commitment related modifications to this channel can
@@ -2644,7 +2644,7 @@ func (f *fundingManager) announceChannel(localIDKey, remoteIDKey, localFundingKe
 	}
 
 	// We only send the channel proof announcement and the node announcement
-	// because addToRouterGraph previously send the ChannelAnnouncement and
+	// because addToRouterGraph previously sent the ChannelAnnouncement and
 	// the ChannelUpdate announcement messages. The channel proof and node
 	// announcements are broadcast to the greater network.
 	errChan := f.cfg.SendAnnouncement(ann.chanProof)

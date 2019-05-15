@@ -55,8 +55,6 @@ func TestQueryRoutes(t *testing.T) {
 		}},
 	}
 
-	rt := &route.Route{}
-
 	findRoute := func(source, target route.Vertex,
 		amt lnwire.MilliSatoshi, restrictions *routing.RestrictParams,
 		finalExpiry ...uint16) (*route.Route, error) {
@@ -95,7 +93,8 @@ func TestQueryRoutes(t *testing.T) {
 			t.Fatal("unexpected ignored node")
 		}
 
-		return rt, nil
+		hops := []*route.Hop{&route.Hop{}}
+		return route.NewRouteFromHops(amt, 144, source, hops)
 	}
 
 	backend := &RouterBackend{

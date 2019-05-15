@@ -27,7 +27,6 @@ var (
 
 	testRoute = route.Route{
 		TotalTimeLock: 123,
-		TotalFees:     999,
 		TotalAmount:   1234567,
 		SourcePubKey:  route.NewVertex(pub),
 		Hops: []*route.Hop{

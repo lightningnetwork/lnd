@@ -361,7 +361,7 @@ func deserializeHop(r io.Reader) (*route.Hop, error) {
 
 func serializeRoute(w io.Writer, r route.Route) error {
 	if err := WriteElements(w,
-		r.TotalTimeLock, r.TotalFees, r.TotalAmount, r.SourcePubKey[:],
+		r.TotalTimeLock, r.TotalAmount, r.SourcePubKey[:],
 	); err != nil {
 		return err
 	}
@@ -382,7 +382,7 @@ func serializeRoute(w io.Writer, r route.Route) error {
 func deserializeRoute(r io.Reader) (route.Route, error) {
 	rt := route.Route{}
 	if err := ReadElements(r,
-		&rt.TotalTimeLock, &rt.TotalFees, &rt.TotalAmount,
+		&rt.TotalTimeLock, &rt.TotalAmount,
 	); err != nil {
 		return rt, err
 	}

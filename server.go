@@ -644,10 +644,13 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 	//
 	// TODO(joostjager): When we are further in the process of moving to sub
 	// servers, the mission control instance itself can be moved there too.
-	s.missionControl = routing.NewMissionControl(
-		chanGraph, selfNode, queryBandwidth,
+	s.missionControl, err = routing.NewMissionControl(
+		chanDB.DB, chanGraph, selfNode, queryBandwidth,
 		routerrpc.GetMissionControlConfig(cfg.SubRPCServers.RouterRPC),
 	)
+	if err != nil {
+		return nil, fmt.Errorf("can't create mission control: %v", err)
+	}
 
 	s.chanRouter, err = routing.New(routing.Config{
 		Graph:              chanGraph,

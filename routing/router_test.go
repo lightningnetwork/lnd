@@ -90,7 +90,8 @@ func createTestCtxFromGraphInstance(startingHeight uint32, graphInstance *testGr
 		return nil, nil, err
 	}
 
-	mc := NewMissionControl(
+	mc, err := NewMissionControl(
+		graphInstance.graph.Database().DB,
 		graphInstance.graph, selfNode,
 		func(e *channeldb.ChannelEdgeInfo) lnwire.MilliSatoshi {
 			return lnwire.NewMSatFromSatoshis(e.Capacity)
@@ -102,6 +103,10 @@ func createTestCtxFromGraphInstance(startingHeight uint32, graphInstance *testGr
 			AprioriHopProbability: 0.9,
 		},
 	)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	router, err := New(Config{
 		Graph:              graphInstance.graph,
 		Chain:              chain,

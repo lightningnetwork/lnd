@@ -50,6 +50,8 @@ type MissionControl struct {
 
 	cfg *MissionControlConfig
 
+	store *bboltMissionControlStore
+
 	sync.Mutex
 
 	// TODO(roasbeef): further counters, if vertex continually unavailable,
@@ -160,10 +162,10 @@ type paymentReport struct {
 // NewMissionControl returns a new instance of missionControl.
 //
 // TODO(roasbeef): persist memory
-func NewMissionControl(g *channeldb.ChannelGraph,
+func NewMissionControl(db *bbolt.DB, g *channeldb.ChannelGraph,
 	selfNode *channeldb.LightningNode,
 	qb func(*channeldb.ChannelEdgeInfo) lnwire.MilliSatoshi,
-	cfg *MissionControlConfig) *MissionControl {
+	cfg *MissionControlConfig) (*MissionControl, error) {
 
 	log.Debugf("Instantiating mission control with config: "+
 		"PenaltyHalfLife=%v, PaymentAttemptPenalty=%v, "+
@@ -172,7 +174,9 @@ func NewMissionControl(g *channeldb.ChannelGraph,
 		int64(cfg.PaymentAttemptPenalty.ToSatoshis()),
 		cfg.MinRouteProbability, cfg.AprioriHopProbability)
 
-	return &MissionControl{
+	store := newMissionControlStore(db)
+
+	mc := &MissionControl{
 		history:              make(map[route.Vertex]*nodeHistory),
 		secondChanceChannels: make(map[uint64]struct{}),
 		selfNode:             selfNode,
@@ -180,7 +184,28 @@ func NewMissionControl(g *channeldb.ChannelGraph,
 		graph:                g,
 		now:                  time.Now,
 		cfg:                  cfg,
+		store:                store,
 	}
+
+	if err := mc.init(); err != nil {
+		return nil, err
+	}
+
+	return mc, nil
+}
+
+// init initializes mission control with historical data.
+func (m *MissionControl) init() error {
+	reports, err := m.store.Fetch()
+	if err != nil {
+		return err
+	}
+
+	for _, report := range reports {
+		m.processPaymentOutcome(report)
+	}
+
+	return nil
 }
 
 // NewPaymentSession creates a new payment session backed by the latest prune
@@ -317,13 +342,19 @@ func generateBandwidthHints(sourceNode *channeldb.LightningNode,
 
 // ResetHistory resets the history of MissionControl returning it to a state as
 // if no payment attempts have been made.
-func (m *MissionControl) ResetHistory() {
+func (m *MissionControl) ResetHistory() error {
 	m.Lock()
 	defer m.Unlock()
+
+	if err := m.store.Clear(); err != nil {
+		return err
+	}
 
 	m.history = make(map[route.Vertex]*nodeHistory)
 
 	log.Debugf("Mission control history cleared")
+
+	return nil
 }
 
 // getEdgeProbability is expected to return the success probability of a payment
@@ -532,6 +563,11 @@ func (m *MissionControl) reportPaymentOutcome(rt *route.Route,
 		route:            rt,
 		errorSourceIndex: errorSourceIndex,
 		failure:          failure,
+	}
+
+	err := m.store.Add(report)
+	if err != nil {
+		return false, err
 	}
 
 	return m.processPaymentOutcome(report), nil

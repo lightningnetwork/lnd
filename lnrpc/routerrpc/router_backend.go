@@ -26,6 +26,11 @@ type RouterBackend struct {
 	// capacity of a channel to populate in responses.
 	FetchChannelCapacity func(chanID uint64) (btcutil.Amount, error)
 
+	// FetchChannelEndpoints returns the pubkeys of both endpoints of the
+	// given channel id.
+	FetchChannelEndpoints func(chanID uint64) (route.Vertex,
+		route.Vertex, error)
+
 	// FindRoutes is a closure that abstracts away how we locate/query for
 	// routes.
 	FindRoute func(source, target route.Vertex,
@@ -217,4 +222,102 @@ func (r *RouterBackend) MarshallRoute(route *route.Route) *lnrpc.Route {
 	}
 
 	return resp
+}
+
+// UnmarshallHopByChannelLookup unmarshalls an rpc hop for which the pub key is
+// not known. This function will query the channel graph with channel id to
+// retrieve both endpoints and determine the hop pubkey using the previous hop
+// pubkey. If the channel is unknown, an error is returned.
+func (r *RouterBackend) UnmarshallHopByChannelLookup(hop *lnrpc.Hop,
+	prevPubKeyBytes [33]byte) (*route.Hop, error) {
+
+	// Discard edge policies, because they may be nil.
+	node1, node2, err := r.FetchChannelEndpoints(hop.ChanId)
+	if err != nil {
+		return nil, err
+	}
+
+	var pubKeyBytes [33]byte
+	switch {
+	case prevPubKeyBytes == node1:
+		pubKeyBytes = node2
+	case prevPubKeyBytes == node2:
+		pubKeyBytes = node1
+	default:
+		return nil, fmt.Errorf("channel edge does not match expected node")
+	}
+
+	return &route.Hop{
+		OutgoingTimeLock: hop.Expiry,
+		AmtToForward:     lnwire.MilliSatoshi(hop.AmtToForwardMsat),
+		PubKeyBytes:      pubKeyBytes,
+		ChannelID:        hop.ChanId,
+	}, nil
+}
+
+// UnmarshallKnownPubkeyHop unmarshalls an rpc hop that contains the hop pubkey.
+// The channel graph doesn't need to be queried because all information required
+// for sending the payment is present.
+func UnmarshallKnownPubkeyHop(hop *lnrpc.Hop) (*route.Hop, error) {
+	pubKey, err := hex.DecodeString(hop.PubKey)
+	if err != nil {
+		return nil, fmt.Errorf("cannot decode pubkey %s", hop.PubKey)
+	}
+
+	var pubKeyBytes [33]byte
+	copy(pubKeyBytes[:], pubKey)
+
+	return &route.Hop{
+		OutgoingTimeLock: hop.Expiry,
+		AmtToForward:     lnwire.MilliSatoshi(hop.AmtToForwardMsat),
+		PubKeyBytes:      pubKeyBytes,
+		ChannelID:        hop.ChanId,
+	}, nil
+}
+
+// UnmarshallHop unmarshalls an rpc hop that may or may not contain a node
+// pubkey.
+func (r *RouterBackend) UnmarshallHop(hop *lnrpc.Hop,
+	prevNodePubKey [33]byte) (*route.Hop, error) {
+
+	if hop.PubKey == "" {
+		// If no pub key is given of the hop, the local channel
+		// graph needs to be queried to complete the information
+		// necessary for routing.
+		return r.UnmarshallHopByChannelLookup(hop, prevNodePubKey)
+	}
+
+	return UnmarshallKnownPubkeyHop(hop)
+}
+
+// UnmarshallRoute unmarshalls an rpc route. For hops that don't specify a
+// pubkey, the channel graph is queried.
+func (r *RouterBackend) UnmarshallRoute(rpcroute *lnrpc.Route) (
+	*route.Route, error) {
+
+	prevNodePubKey := r.SelfNode
+
+	hops := make([]*route.Hop, len(rpcroute.Hops))
+	for i, hop := range rpcroute.Hops {
+		routeHop, err := r.UnmarshallHop(hop, prevNodePubKey)
+		if err != nil {
+			return nil, err
+		}
+
+		hops[i] = routeHop
+
+		prevNodePubKey = routeHop.PubKeyBytes
+	}
+
+	route, err := route.NewRouteFromHops(
+		lnwire.MilliSatoshi(rpcroute.TotalAmtMsat),
+		rpcroute.TotalTimeLock,
+		r.SelfNode,
+		hops,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return route, nil
 }

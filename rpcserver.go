@@ -462,6 +462,21 @@ func newRPCServer(s *server, macService *macaroons.Service,
 			}
 			return info.Capacity, nil
 		},
+		FetchChannelEndpoints: func(chanID uint64) (route.Vertex,
+			route.Vertex, error) {
+
+			info, _, _, err := graph.FetchChannelEdgesByID(
+				chanID,
+			)
+			if err != nil {
+				return route.Vertex{}, route.Vertex{},
+					fmt.Errorf("unable to fetch channel "+
+						"edges by channel ID %d: %v",
+						chanID, err)
+			}
+
+			return info.NodeKey1Bytes, info.NodeKey2Bytes, nil
+		},
 		FindRoute: s.chanRouter.FindRoute,
 	}
 
@@ -2771,7 +2786,7 @@ type paymentStream struct {
 // lnrpc.SendToRouteRequest can be passed to sendPayment.
 type rpcPaymentRequest struct {
 	*lnrpc.SendRequest
-	routes []*route.Route
+	route *route.Route
 }
 
 // calculateFeeLimit returns the fee limit in millisatoshis. If a percentage
@@ -2837,9 +2852,7 @@ func (r *rpcServer) SendToRoute(stream lnrpc.Lightning_SendToRouteServer) error 
 				return nil, err
 			}
 
-			graph := r.server.chanDB.ChannelGraph()
-
-			return unmarshallSendToRouteRequest(req, graph)
+			return r.unmarshallSendToRouteRequest(req)
 		},
 		send: func(r *lnrpc.SendResponse) error {
 			// Calling stream.Send concurrently is not safe.
@@ -2851,32 +2864,16 @@ func (r *rpcServer) SendToRoute(stream lnrpc.Lightning_SendToRouteServer) error 
 }
 
 // unmarshallSendToRouteRequest unmarshalls an rpc sendtoroute request
-func unmarshallSendToRouteRequest(req *lnrpc.SendToRouteRequest,
-	graph *channeldb.ChannelGraph) (*rpcPaymentRequest, error) {
+func (r *rpcServer) unmarshallSendToRouteRequest(
+	req *lnrpc.SendToRouteRequest) (*rpcPaymentRequest, error) {
 
-	switch {
-	case len(req.Routes) == 0 && req.Route == nil:
-		return nil, fmt.Errorf("unable to send, no routes provided")
-	case len(req.Routes) > 0 && req.Route != nil:
-		return nil, fmt.Errorf("cannot use both route and routes field")
+	if req.Route == nil {
+		return nil, fmt.Errorf("unable to send, no route provided")
 	}
 
-	var routes []*route.Route
-	if len(req.Routes) > 0 {
-		routes = make([]*route.Route, len(req.Routes))
-		for i, rpcroute := range req.Routes {
-			route, err := unmarshallRoute(rpcroute, graph)
-			if err != nil {
-				return nil, err
-			}
-			routes[i] = route
-		}
-	} else {
-		rt, err := unmarshallRoute(req.Route, graph)
-		if err != nil {
-			return nil, err
-		}
-		routes = []*route.Route{rt}
+	route, err := r.routerBackend.UnmarshallRoute(req.Route)
+	if err != nil {
+		return nil, err
 	}
 
 	return &rpcPaymentRequest{
@@ -2884,7 +2881,7 @@ func unmarshallSendToRouteRequest(req *lnrpc.SendToRouteRequest,
 			PaymentHash:       req.PaymentHash,
 			PaymentHashString: req.PaymentHashString,
 		},
-		routes: routes,
+		route: route,
 	}, nil
 }
 
@@ -2903,7 +2900,7 @@ type rpcPaymentIntent struct {
 	routeHints        [][]zpay32.HopHint
 	outgoingChannelID *uint64
 
-	routes []*route.Route
+	route *route.Route
 }
 
 // extractPaymentIntent attempts to parse the complete details required to
@@ -2914,7 +2911,7 @@ func extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPaymentIntent, error
 	payIntent := rpcPaymentIntent{}
 
 	// If a route was specified, then we can use that directly.
-	if len(rpcPayReq.routes) != 0 {
+	if rpcPayReq.route != nil {
 		// If the user is using the REST interface, then they'll be
 		// passing the payment hash as a hex encoded string.
 		if rpcPayReq.PaymentHashString != "" {
@@ -2930,7 +2927,7 @@ func extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPaymentIntent, error
 			copy(payIntent.rHash[:], rpcPayReq.PaymentHash)
 		}
 
-		payIntent.routes = rpcPayReq.routes
+		payIntent.route = rpcPayReq.route
 		return payIntent, nil
 	}
 
@@ -3089,7 +3086,7 @@ func (r *rpcServer) dispatchPaymentIntent(
 
 	// If a route was specified, then we'll pass the route directly to the
 	// router, otherwise we'll create a payment session to execute it.
-	if len(payIntent.routes) == 0 {
+	if payIntent.route == nil {
 		payment := &routing.LightningPayment{
 			Target:            payIntent.dest,
 			Amount:            payIntent.msat,
@@ -3110,13 +3107,11 @@ func (r *rpcServer) dispatchPaymentIntent(
 			payment,
 		)
 	} else {
-		payment := &routing.LightningPayment{
-			PaymentHash: payIntent.rHash,
-		}
-
-		preImage, route, routerErr = r.server.chanRouter.SendToRoute(
-			payIntent.routes, payment,
+		preImage, routerErr = r.server.chanRouter.SendToRoute(
+			payIntent.rHash, payIntent.route,
 		)
+
+		route = payIntent.route
 	}
 
 	// If the route failed, then we'll return a nil save err, but a non-nil
@@ -3127,14 +3122,8 @@ func (r *rpcServer) dispatchPaymentIntent(
 		}, nil
 	}
 
-	// If a route was used to complete this payment, then we'll need to
-	// compute the final amount sent
-	var amt lnwire.MilliSatoshi
-	if len(payIntent.routes) > 0 {
-		amt = route.TotalAmount - route.TotalFees
-	} else {
-		amt = payIntent.msat
-	}
+	// Calculate amount paid to receiver.
+	amt := route.TotalAmount - route.TotalFees
 
 	// Save the completed payment to the database for record keeping
 	// purposes.
@@ -3328,13 +3317,11 @@ func (r *rpcServer) SendPaymentSync(ctx context.Context,
 func (r *rpcServer) SendToRouteSync(ctx context.Context,
 	req *lnrpc.SendToRouteRequest) (*lnrpc.SendResponse, error) {
 
-	if len(req.Routes) == 0 {
+	if req.Route == nil {
 		return nil, fmt.Errorf("unable to send, no routes provided")
 	}
 
-	graph := r.server.chanDB.ChannelGraph()
-
-	paymentRequest, err := unmarshallSendToRouteRequest(req, graph)
+	paymentRequest, err := r.unmarshallSendToRouteRequest(req)
 	if err != nil {
 		return nil, err
 	}
@@ -3881,112 +3868,6 @@ func (r *rpcServer) QueryRoutes(ctx context.Context,
 	in *lnrpc.QueryRoutesRequest) (*lnrpc.QueryRoutesResponse, error) {
 
 	return r.routerBackend.QueryRoutes(ctx, in)
-}
-
-// unmarshallHopByChannelLookup unmarshalls an rpc hop for which the pub key is
-// not known. This function will query the channel graph with channel id to
-// retrieve both endpoints and determine the hop pubkey using the previous hop
-// pubkey. If the channel is unknown, an error is returned.
-func unmarshallHopByChannelLookup(graph *channeldb.ChannelGraph, hop *lnrpc.Hop,
-	prevPubKeyBytes [33]byte) (*route.Hop, error) {
-
-	// Discard edge policies, because they may be nil.
-	edgeInfo, _, _, err := graph.FetchChannelEdgesByID(hop.ChanId)
-	if err != nil {
-		return nil, fmt.Errorf("unable to fetch channel edges by "+
-			"channel ID %d: %v", hop.ChanId, err)
-	}
-
-	var pubKeyBytes [33]byte
-	switch {
-	case prevPubKeyBytes == edgeInfo.NodeKey1Bytes:
-		pubKeyBytes = edgeInfo.NodeKey2Bytes
-	case prevPubKeyBytes == edgeInfo.NodeKey2Bytes:
-		pubKeyBytes = edgeInfo.NodeKey1Bytes
-	default:
-		return nil, fmt.Errorf("channel edge does not match expected node")
-	}
-
-	return &route.Hop{
-		OutgoingTimeLock: hop.Expiry,
-		AmtToForward:     lnwire.MilliSatoshi(hop.AmtToForwardMsat),
-		PubKeyBytes:      pubKeyBytes,
-		ChannelID:        edgeInfo.ChannelID,
-	}, nil
-}
-
-// unmarshallKnownPubkeyHop unmarshalls an rpc hop that contains the hop pubkey.
-// The channel graph doesn't need to be queried because all information required
-// for sending the payment is present.
-func unmarshallKnownPubkeyHop(hop *lnrpc.Hop) (*route.Hop, error) {
-	pubKey, err := hex.DecodeString(hop.PubKey)
-	if err != nil {
-		return nil, fmt.Errorf("cannot decode pubkey %s", hop.PubKey)
-	}
-
-	var pubKeyBytes [33]byte
-	copy(pubKeyBytes[:], pubKey)
-
-	return &route.Hop{
-		OutgoingTimeLock: hop.Expiry,
-		AmtToForward:     lnwire.MilliSatoshi(hop.AmtToForwardMsat),
-		PubKeyBytes:      pubKeyBytes,
-		ChannelID:        hop.ChanId,
-	}, nil
-}
-
-// unmarshallHop unmarshalls an rpc hop that may or may not contain a node
-// pubkey.
-func unmarshallHop(graph *channeldb.ChannelGraph, hop *lnrpc.Hop,
-	prevNodePubKey [33]byte) (*route.Hop, error) {
-
-	if hop.PubKey == "" {
-		// If no pub key is given of the hop, the local channel
-		// graph needs to be queried to complete the information
-		// necessary for routing.
-		return unmarshallHopByChannelLookup(graph, hop, prevNodePubKey)
-	}
-
-	return unmarshallKnownPubkeyHop(hop)
-}
-
-// unmarshallRoute unmarshalls an rpc route. For hops that don't specify a
-// pubkey, the channel graph is queried.
-func unmarshallRoute(rpcroute *lnrpc.Route,
-	graph *channeldb.ChannelGraph) (*route.Route, error) {
-
-	sourceNode, err := graph.SourceNode()
-	if err != nil {
-		return nil, fmt.Errorf("unable to fetch source node from graph "+
-			"while unmarshaling route. %v", err)
-	}
-
-	prevNodePubKey := sourceNode.PubKeyBytes
-
-	hops := make([]*route.Hop, len(rpcroute.Hops))
-	for i, hop := range rpcroute.Hops {
-		routeHop, err := unmarshallHop(graph,
-			hop, prevNodePubKey)
-		if err != nil {
-			return nil, err
-		}
-
-		hops[i] = routeHop
-
-		prevNodePubKey = routeHop.PubKeyBytes
-	}
-
-	route, err := route.NewRouteFromHops(
-		lnwire.MilliSatoshi(rpcroute.TotalAmtMsat),
-		rpcroute.TotalTimeLock,
-		sourceNode.PubKeyBytes,
-		hops,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	return route, nil
 }
 
 // GetNetworkInfo returns some basic stats about the known channel graph from

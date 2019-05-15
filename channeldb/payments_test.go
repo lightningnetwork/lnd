@@ -203,12 +203,12 @@ func TestRouteSerialization(t *testing.T) {
 	t.Parallel()
 
 	var b bytes.Buffer
-	if err := serializeRoute(&b, testRoute); err != nil {
+	if err := SerializeRoute(&b, testRoute); err != nil {
 		t.Fatal(err)
 	}
 
 	r := bytes.NewReader(b.Bytes())
-	route2, err := deserializeRoute(r)
+	route2, err := DeserializeRoute(r)
 	if err != nil {
 		t.Fatal(err)
 	}

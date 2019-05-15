@@ -3,13 +3,12 @@
 
 package chainrpc
 
-import proto "github.com/golang/protobuf/proto"
-import fmt "fmt"
-import math "math"
-
 import (
-	context "golang.org/x/net/context"
+	context "context"
+	fmt "fmt"
+	proto "github.com/golang/protobuf/proto"
 	grpc "google.golang.org/grpc"
+	math "math"
 )
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -21,28 +20,28 @@ var _ = math.Inf
 // is compatible with the proto package it is being compiled against.
 // A compilation error at this line likely means your copy of the
 // proto package needs to be updated.
-const _ = proto.ProtoPackageIsVersion2 // please upgrade the proto package
+const _ = proto.ProtoPackageIsVersion3 // please upgrade the proto package
 
 type ConfRequest struct {
 	//
-	// The transaction hash for which we should request a confirmation notification
-	// for. If set to a hash of all zeros, then the confirmation notification will
-	// be requested for the script instead.
+	//The transaction hash for which we should request a confirmation notification
+	//for. If set to a hash of all zeros, then the confirmation notification will
+	//be requested for the script instead.
 	Txid []byte `protobuf:"bytes,1,opt,name=txid,proto3" json:"txid,omitempty"`
 	//
-	// An output script within a transaction with the hash above which will be used
-	// by light clients to match block filters. If the transaction hash is set to a
-	// hash of all zeros, then a confirmation notification will be requested for
-	// this script instead.
+	//An output script within a transaction with the hash above which will be used
+	//by light clients to match block filters. If the transaction hash is set to a
+	//hash of all zeros, then a confirmation notification will be requested for
+	//this script instead.
 	Script []byte `protobuf:"bytes,2,opt,name=script,proto3" json:"script,omitempty"`
 	//
-	// The number of desired confirmations the transaction/output script should
-	// reach before dispatching a confirmation notification.
+	//The number of desired confirmations the transaction/output script should
+	//reach before dispatching a confirmation notification.
 	NumConfs uint32 `protobuf:"varint,3,opt,name=num_confs,json=numConfs,proto3" json:"num_confs,omitempty"`
 	//
-	// The earliest height in the chain for which the transaction/output script
-	// could have been included in a block. This should in most cases be set to the
-	// broadcast height of the transaction/output script.
+	//The earliest height in the chain for which the transaction/output script
+	//could have been included in a block. This should in most cases be set to the
+	//broadcast height of the transaction/output script.
 	HeightHint           uint32   `protobuf:"varint,4,opt,name=height_hint,json=heightHint,proto3" json:"height_hint,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -53,16 +52,17 @@ func (m *ConfRequest) Reset()         { *m = ConfRequest{} }
 func (m *ConfRequest) String() string { return proto.CompactTextString(m) }
 func (*ConfRequest) ProtoMessage()    {}
 func (*ConfRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_chainnotifier_7f5a7ad17988064c, []int{0}
+	return fileDescriptor_b10e6f8a1c9d2638, []int{0}
 }
+
 func (m *ConfRequest) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_ConfRequest.Unmarshal(m, b)
 }
 func (m *ConfRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_ConfRequest.Marshal(b, m, deterministic)
 }
-func (dst *ConfRequest) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_ConfRequest.Merge(dst, src)
+func (m *ConfRequest) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_ConfRequest.Merge(m, src)
 }
 func (m *ConfRequest) XXX_Size() int {
 	return xxx_messageInfo_ConfRequest.Size(m)
@@ -119,16 +119,17 @@ func (m *ConfDetails) Reset()         { *m = ConfDetails{} }
 func (m *ConfDetails) String() string { return proto.CompactTextString(m) }
 func (*ConfDetails) ProtoMessage()    {}
 func (*ConfDetails) Descriptor() ([]byte, []int) {
-	return fileDescriptor_chainnotifier_7f5a7ad17988064c, []int{1}
+	return fileDescriptor_b10e6f8a1c9d2638, []int{1}
 }
+
 func (m *ConfDetails) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_ConfDetails.Unmarshal(m, b)
 }
 func (m *ConfDetails) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_ConfDetails.Marshal(b, m, deterministic)
 }
-func (dst *ConfDetails) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_ConfDetails.Merge(dst, src)
+func (m *ConfDetails) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_ConfDetails.Merge(m, src)
 }
 func (m *ConfDetails) XXX_Size() int {
 	return xxx_messageInfo_ConfDetails.Size(m)
@@ -177,16 +178,17 @@ func (m *Reorg) Reset()         { *m = Reorg{} }
 func (m *Reorg) String() string { return proto.CompactTextString(m) }
 func (*Reorg) ProtoMessage()    {}
 func (*Reorg) Descriptor() ([]byte, []int) {
-	return fileDescriptor_chainnotifier_7f5a7ad17988064c, []int{2}
+	return fileDescriptor_b10e6f8a1c9d2638, []int{2}
 }
+
 func (m *Reorg) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_Reorg.Unmarshal(m, b)
 }
 func (m *Reorg) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_Reorg.Marshal(b, m, deterministic)
 }
-func (dst *Reorg) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_Reorg.Merge(dst, src)
+func (m *Reorg) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Reorg.Merge(m, src)
 }
 func (m *Reorg) XXX_Size() int {
 	return xxx_messageInfo_Reorg.Size(m)
@@ -211,16 +213,17 @@ func (m *ConfEvent) Reset()         { *m = ConfEvent{} }
 func (m *ConfEvent) String() string { return proto.CompactTextString(m) }
 func (*ConfEvent) ProtoMessage()    {}
 func (*ConfEvent) Descriptor() ([]byte, []int) {
-	return fileDescriptor_chainnotifier_7f5a7ad17988064c, []int{3}
+	return fileDescriptor_b10e6f8a1c9d2638, []int{3}
 }
+
 func (m *ConfEvent) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_ConfEvent.Unmarshal(m, b)
 }
 func (m *ConfEvent) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_ConfEvent.Marshal(b, m, deterministic)
 }
-func (dst *ConfEvent) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_ConfEvent.Merge(dst, src)
+func (m *ConfEvent) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_ConfEvent.Merge(m, src)
 }
 func (m *ConfEvent) XXX_Size() int {
 	return xxx_messageInfo_ConfEvent.Size(m)
@@ -268,78 +271,12 @@ func (m *ConfEvent) GetReorg() *Reorg {
 	return nil
 }
 
-// XXX_OneofFuncs is for the internal use of the proto package.
-func (*ConfEvent) XXX_OneofFuncs() (func(msg proto.Message, b *proto.Buffer) error, func(msg proto.Message, tag, wire int, b *proto.Buffer) (bool, error), func(msg proto.Message) (n int), []interface{}) {
-	return _ConfEvent_OneofMarshaler, _ConfEvent_OneofUnmarshaler, _ConfEvent_OneofSizer, []interface{}{
+// XXX_OneofWrappers is for the internal use of the proto package.
+func (*ConfEvent) XXX_OneofWrappers() []interface{} {
+	return []interface{}{
 		(*ConfEvent_Conf)(nil),
 		(*ConfEvent_Reorg)(nil),
 	}
-}
-
-func _ConfEvent_OneofMarshaler(msg proto.Message, b *proto.Buffer) error {
-	m := msg.(*ConfEvent)
-	// event
-	switch x := m.Event.(type) {
-	case *ConfEvent_Conf:
-		b.EncodeVarint(1<<3 | proto.WireBytes)
-		if err := b.EncodeMessage(x.Conf); err != nil {
-			return err
-		}
-	case *ConfEvent_Reorg:
-		b.EncodeVarint(2<<3 | proto.WireBytes)
-		if err := b.EncodeMessage(x.Reorg); err != nil {
-			return err
-		}
-	case nil:
-	default:
-		return fmt.Errorf("ConfEvent.Event has unexpected type %T", x)
-	}
-	return nil
-}
-
-func _ConfEvent_OneofUnmarshaler(msg proto.Message, tag, wire int, b *proto.Buffer) (bool, error) {
-	m := msg.(*ConfEvent)
-	switch tag {
-	case 1: // event.conf
-		if wire != proto.WireBytes {
-			return true, proto.ErrInternalBadWireType
-		}
-		msg := new(ConfDetails)
-		err := b.DecodeMessage(msg)
-		m.Event = &ConfEvent_Conf{msg}
-		return true, err
-	case 2: // event.reorg
-		if wire != proto.WireBytes {
-			return true, proto.ErrInternalBadWireType
-		}
-		msg := new(Reorg)
-		err := b.DecodeMessage(msg)
-		m.Event = &ConfEvent_Reorg{msg}
-		return true, err
-	default:
-		return false, nil
-	}
-}
-
-func _ConfEvent_OneofSizer(msg proto.Message) (n int) {
-	m := msg.(*ConfEvent)
-	// event
-	switch x := m.Event.(type) {
-	case *ConfEvent_Conf:
-		s := proto.Size(x.Conf)
-		n += 1 // tag and wire
-		n += proto.SizeVarint(uint64(s))
-		n += s
-	case *ConfEvent_Reorg:
-		s := proto.Size(x.Reorg)
-		n += 1 // tag and wire
-		n += proto.SizeVarint(uint64(s))
-		n += s
-	case nil:
-	default:
-		panic(fmt.Sprintf("proto: unexpected type %T in oneof", x))
-	}
-	return n
 }
 
 type Outpoint struct {
@@ -356,16 +293,17 @@ func (m *Outpoint) Reset()         { *m = Outpoint{} }
 func (m *Outpoint) String() string { return proto.CompactTextString(m) }
 func (*Outpoint) ProtoMessage()    {}
 func (*Outpoint) Descriptor() ([]byte, []int) {
-	return fileDescriptor_chainnotifier_7f5a7ad17988064c, []int{4}
+	return fileDescriptor_b10e6f8a1c9d2638, []int{4}
 }
+
 func (m *Outpoint) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_Outpoint.Unmarshal(m, b)
 }
 func (m *Outpoint) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_Outpoint.Marshal(b, m, deterministic)
 }
-func (dst *Outpoint) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_Outpoint.Merge(dst, src)
+func (m *Outpoint) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Outpoint.Merge(m, src)
 }
 func (m *Outpoint) XXX_Size() int {
 	return xxx_messageInfo_Outpoint.Size(m)
@@ -392,19 +330,19 @@ func (m *Outpoint) GetIndex() uint32 {
 
 type SpendRequest struct {
 	//
-	// The outpoint for which we should request a spend notification for. If set to
-	// a zero outpoint, then the spend notification will be requested for the
-	// script instead.
+	//The outpoint for which we should request a spend notification for. If set to
+	//a zero outpoint, then the spend notification will be requested for the
+	//script instead.
 	Outpoint *Outpoint `protobuf:"bytes,1,opt,name=outpoint,proto3" json:"outpoint,omitempty"`
 	//
-	// The output script for the outpoint above. This will be used by light clients
-	// to match block filters. If the outpoint is set to a zero outpoint, then a
-	// spend notification will be requested for this script instead.
+	//The output script for the outpoint above. This will be used by light clients
+	//to match block filters. If the outpoint is set to a zero outpoint, then a
+	//spend notification will be requested for this script instead.
 	Script []byte `protobuf:"bytes,2,opt,name=script,proto3" json:"script,omitempty"`
 	//
-	// The earliest height in the chain for which the outpoint/output script could
-	// have been spent. This should in most cases be set to the broadcast height of
-	// the outpoint/output script.
+	//The earliest height in the chain for which the outpoint/output script could
+	//have been spent. This should in most cases be set to the broadcast height of
+	//the outpoint/output script.
 	HeightHint           uint32   `protobuf:"varint,3,opt,name=height_hint,json=heightHint,proto3" json:"height_hint,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -415,16 +353,17 @@ func (m *SpendRequest) Reset()         { *m = SpendRequest{} }
 func (m *SpendRequest) String() string { return proto.CompactTextString(m) }
 func (*SpendRequest) ProtoMessage()    {}
 func (*SpendRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_chainnotifier_7f5a7ad17988064c, []int{5}
+	return fileDescriptor_b10e6f8a1c9d2638, []int{5}
 }
+
 func (m *SpendRequest) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_SpendRequest.Unmarshal(m, b)
 }
 func (m *SpendRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_SpendRequest.Marshal(b, m, deterministic)
 }
-func (dst *SpendRequest) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_SpendRequest.Merge(dst, src)
+func (m *SpendRequest) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_SpendRequest.Merge(m, src)
 }
 func (m *SpendRequest) XXX_Size() int {
 	return xxx_messageInfo_SpendRequest.Size(m)
@@ -476,16 +415,17 @@ func (m *SpendDetails) Reset()         { *m = SpendDetails{} }
 func (m *SpendDetails) String() string { return proto.CompactTextString(m) }
 func (*SpendDetails) ProtoMessage()    {}
 func (*SpendDetails) Descriptor() ([]byte, []int) {
-	return fileDescriptor_chainnotifier_7f5a7ad17988064c, []int{6}
+	return fileDescriptor_b10e6f8a1c9d2638, []int{6}
 }
+
 func (m *SpendDetails) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_SpendDetails.Unmarshal(m, b)
 }
 func (m *SpendDetails) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_SpendDetails.Marshal(b, m, deterministic)
 }
-func (dst *SpendDetails) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_SpendDetails.Merge(dst, src)
+func (m *SpendDetails) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_SpendDetails.Merge(m, src)
 }
 func (m *SpendDetails) XXX_Size() int {
 	return xxx_messageInfo_SpendDetails.Size(m)
@@ -545,16 +485,17 @@ func (m *SpendEvent) Reset()         { *m = SpendEvent{} }
 func (m *SpendEvent) String() string { return proto.CompactTextString(m) }
 func (*SpendEvent) ProtoMessage()    {}
 func (*SpendEvent) Descriptor() ([]byte, []int) {
-	return fileDescriptor_chainnotifier_7f5a7ad17988064c, []int{7}
+	return fileDescriptor_b10e6f8a1c9d2638, []int{7}
 }
+
 func (m *SpendEvent) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_SpendEvent.Unmarshal(m, b)
 }
 func (m *SpendEvent) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_SpendEvent.Marshal(b, m, deterministic)
 }
-func (dst *SpendEvent) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_SpendEvent.Merge(dst, src)
+func (m *SpendEvent) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_SpendEvent.Merge(m, src)
 }
 func (m *SpendEvent) XXX_Size() int {
 	return xxx_messageInfo_SpendEvent.Size(m)
@@ -602,78 +543,12 @@ func (m *SpendEvent) GetReorg() *Reorg {
 	return nil
 }
 
-// XXX_OneofFuncs is for the internal use of the proto package.
-func (*SpendEvent) XXX_OneofFuncs() (func(msg proto.Message, b *proto.Buffer) error, func(msg proto.Message, tag, wire int, b *proto.Buffer) (bool, error), func(msg proto.Message) (n int), []interface{}) {
-	return _SpendEvent_OneofMarshaler, _SpendEvent_OneofUnmarshaler, _SpendEvent_OneofSizer, []interface{}{
+// XXX_OneofWrappers is for the internal use of the proto package.
+func (*SpendEvent) XXX_OneofWrappers() []interface{} {
+	return []interface{}{
 		(*SpendEvent_Spend)(nil),
 		(*SpendEvent_Reorg)(nil),
 	}
-}
-
-func _SpendEvent_OneofMarshaler(msg proto.Message, b *proto.Buffer) error {
-	m := msg.(*SpendEvent)
-	// event
-	switch x := m.Event.(type) {
-	case *SpendEvent_Spend:
-		b.EncodeVarint(1<<3 | proto.WireBytes)
-		if err := b.EncodeMessage(x.Spend); err != nil {
-			return err
-		}
-	case *SpendEvent_Reorg:
-		b.EncodeVarint(2<<3 | proto.WireBytes)
-		if err := b.EncodeMessage(x.Reorg); err != nil {
-			return err
-		}
-	case nil:
-	default:
-		return fmt.Errorf("SpendEvent.Event has unexpected type %T", x)
-	}
-	return nil
-}
-
-func _SpendEvent_OneofUnmarshaler(msg proto.Message, tag, wire int, b *proto.Buffer) (bool, error) {
-	m := msg.(*SpendEvent)
-	switch tag {
-	case 1: // event.spend
-		if wire != proto.WireBytes {
-			return true, proto.ErrInternalBadWireType
-		}
-		msg := new(SpendDetails)
-		err := b.DecodeMessage(msg)
-		m.Event = &SpendEvent_Spend{msg}
-		return true, err
-	case 2: // event.reorg
-		if wire != proto.WireBytes {
-			return true, proto.ErrInternalBadWireType
-		}
-		msg := new(Reorg)
-		err := b.DecodeMessage(msg)
-		m.Event = &SpendEvent_Reorg{msg}
-		return true, err
-	default:
-		return false, nil
-	}
-}
-
-func _SpendEvent_OneofSizer(msg proto.Message) (n int) {
-	m := msg.(*SpendEvent)
-	// event
-	switch x := m.Event.(type) {
-	case *SpendEvent_Spend:
-		s := proto.Size(x.Spend)
-		n += 1 // tag and wire
-		n += proto.SizeVarint(uint64(s))
-		n += s
-	case *SpendEvent_Reorg:
-		s := proto.Size(x.Reorg)
-		n += 1 // tag and wire
-		n += proto.SizeVarint(uint64(s))
-		n += s
-	case nil:
-	default:
-		panic(fmt.Sprintf("proto: unexpected type %T in oneof", x))
-	}
-	return n
 }
 
 type BlockEpoch struct {
@@ -690,16 +565,17 @@ func (m *BlockEpoch) Reset()         { *m = BlockEpoch{} }
 func (m *BlockEpoch) String() string { return proto.CompactTextString(m) }
 func (*BlockEpoch) ProtoMessage()    {}
 func (*BlockEpoch) Descriptor() ([]byte, []int) {
-	return fileDescriptor_chainnotifier_7f5a7ad17988064c, []int{8}
+	return fileDescriptor_b10e6f8a1c9d2638, []int{8}
 }
+
 func (m *BlockEpoch) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_BlockEpoch.Unmarshal(m, b)
 }
 func (m *BlockEpoch) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	return xxx_messageInfo_BlockEpoch.Marshal(b, m, deterministic)
 }
-func (dst *BlockEpoch) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_BlockEpoch.Merge(dst, src)
+func (m *BlockEpoch) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_BlockEpoch.Merge(m, src)
 }
 func (m *BlockEpoch) XXX_Size() int {
 	return xxx_messageInfo_BlockEpoch.Size(m)
@@ -736,6 +612,48 @@ func init() {
 	proto.RegisterType((*BlockEpoch)(nil), "chainrpc.BlockEpoch")
 }
 
+func init() { proto.RegisterFile("chainrpc/chainnotifier.proto", fileDescriptor_b10e6f8a1c9d2638) }
+
+var fileDescriptor_b10e6f8a1c9d2638 = []byte{
+	// 574 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x9c, 0x54, 0x4f, 0x6f, 0x13, 0x3f,
+	0x10, 0xed, 0xb6, 0xdd, 0xfc, 0x99, 0x24, 0xbf, 0xb4, 0xfe, 0xa5, 0x51, 0x5a, 0x40, 0x94, 0x3d,
+	0xd0, 0x48, 0x48, 0x21, 0x0a, 0x1c, 0xb8, 0x21, 0x35, 0x14, 0x25, 0x97, 0x22, 0x6d, 0x7b, 0x5f,
+	0x6d, 0x37, 0x4e, 0xd6, 0xd0, 0xd8, 0x8b, 0xed, 0x90, 0xbd, 0xf2, 0x69, 0xf9, 0x12, 0x1c, 0x90,
+	0x67, 0xed, 0x4d, 0x1a, 0x8a, 0x84, 0xb8, 0x79, 0x66, 0xde, 0x3e, 0xbf, 0xf1, 0x7b, 0x09, 0x3c,
+	0x4d, 0xd2, 0x98, 0x71, 0x99, 0x25, 0xaf, 0xf1, 0xc0, 0x85, 0x66, 0x73, 0x46, 0xe5, 0x20, 0x93,
+	0x42, 0x0b, 0x52, 0x73, 0xd3, 0x60, 0x0d, 0x8d, 0xb1, 0xe0, 0xf3, 0x90, 0x7e, 0x5d, 0x51, 0xa5,
+	0x09, 0x81, 0x43, 0x9d, 0xb3, 0x59, 0xcf, 0x3b, 0xf7, 0xfa, 0xcd, 0x10, 0xcf, 0xa4, 0x0b, 0x15,
+	0x95, 0x48, 0x96, 0xe9, 0xde, 0x3e, 0x76, 0x6d, 0x45, 0x9e, 0x40, 0x9d, 0xaf, 0x96, 0x51, 0x22,
+	0xf8, 0x5c, 0xf5, 0x0e, 0xce, 0xbd, 0x7e, 0x2b, 0xac, 0xf1, 0xd5, 0xd2, 0xd0, 0x29, 0xf2, 0x1c,
+	0x1a, 0x29, 0x65, 0x8b, 0x54, 0x47, 0x29, 0xe3, 0xba, 0x77, 0x88, 0x63, 0x28, 0x5a, 0x13, 0xc6,
+	0x75, 0xf0, 0xdd, 0x2b, 0x6e, 0xfe, 0x40, 0x75, 0xcc, 0xee, 0x15, 0x39, 0x81, 0x8a, 0x8c, 0xd7,
+	0x91, 0xce, 0xed, 0xdd, 0xbe, 0x8c, 0xd7, 0xb7, 0x39, 0x79, 0x06, 0x70, 0x77, 0x2f, 0x92, 0x2f,
+	0x51, 0x1a, 0xab, 0xd4, 0x0a, 0xa8, 0x63, 0x67, 0x12, 0xab, 0x94, 0xbc, 0x80, 0xa6, 0x1d, 0x23,
+	0xb3, 0x95, 0xd1, 0x28, 0x00, 0xd8, 0x22, 0xa7, 0x50, 0xd3, 0x79, 0xc4, 0xf8, 0x8c, 0xe6, 0x56,
+	0x46, 0x55, 0xe7, 0x53, 0x53, 0x06, 0x55, 0xf0, 0x43, 0x2a, 0xe4, 0x22, 0xf8, 0x0c, 0x75, 0xa3,
+	0xe5, 0xea, 0x1b, 0xe5, 0x9a, 0xbc, 0x82, 0x43, 0xb3, 0x13, 0xea, 0x68, 0x8c, 0x4e, 0x06, 0xee,
+	0xad, 0x06, 0x5b, 0x72, 0x27, 0x7b, 0x21, 0x82, 0xc8, 0x05, 0xf8, 0xd2, 0x50, 0xa0, 0xb4, 0xc6,
+	0xa8, 0xbd, 0x41, 0x23, 0xf3, 0x64, 0x2f, 0x2c, 0xe6, 0x97, 0x55, 0xf0, 0xa9, 0xa1, 0x0f, 0xde,
+	0x42, 0xed, 0xd3, 0x4a, 0x67, 0x82, 0x71, 0x7c, 0x6e, 0xdc, 0xcb, 0x3e, 0xb7, 0x39, 0x93, 0x0e,
+	0xf8, 0x85, 0xd8, 0x7d, 0x14, 0x5b, 0x14, 0xc1, 0x1a, 0x9a, 0x37, 0x19, 0xe5, 0x33, 0x67, 0xd4,
+	0x00, 0x6a, 0xc2, 0xb2, 0x58, 0xa1, 0x64, 0x73, 0xb5, 0xe3, 0x0f, 0x4b, 0xcc, 0x1f, 0x4d, 0xdc,
+	0xf1, 0xe9, 0xe0, 0x37, 0x9f, 0x7e, 0x7a, 0xf6, 0x66, 0x67, 0xd4, 0x7b, 0x38, 0x56, 0xa6, 0x66,
+	0x7c, 0x11, 0xfd, 0x85, 0x84, 0x23, 0x07, 0x2e, 0x97, 0x7e, 0x09, 0x6d, 0xe3, 0x74, 0x49, 0xa2,
+	0x73, 0xab, 0xa9, 0x25, 0xe3, 0xf5, 0x8d, 0xed, 0xde, 0xe6, 0xa4, 0x0f, 0x47, 0x5b, 0x98, 0x22,
+	0x00, 0x07, 0x08, 0xfc, 0x4f, 0x95, 0x28, 0x4c, 0xc1, 0x10, 0x3a, 0x25, 0x92, 0xf1, 0x6c, 0xa5,
+	0x1f, 0xd8, 0x4d, 0xdc, 0x6c, 0x6a, 0x46, 0xe8, 0x3c, 0xb9, 0x80, 0x76, 0xf9, 0x85, 0x8d, 0x8e,
+	0x8f, 0xe0, 0x92, 0xba, 0x48, 0x4f, 0xc0, 0x01, 0x50, 0x52, 0x11, 0x8d, 0x01, 0xf8, 0x38, 0xb7,
+	0xfb, 0x76, 0x37, 0xfb, 0x6e, 0x3f, 0x91, 0x31, 0x1d, 0x61, 0xff, 0x90, 0x8e, 0x77, 0x00, 0x97,
+	0x26, 0xbc, 0x57, 0x99, 0x48, 0xd2, 0x47, 0xf3, 0xd1, 0x85, 0x8a, 0x55, 0x5c, 0x04, 0xc4, 0x56,
+	0xa3, 0x1f, 0x1e, 0xb4, 0xc6, 0x86, 0xfe, 0xda, 0xfe, 0xd6, 0xc9, 0x14, 0x4e, 0x43, 0xba, 0x60,
+	0x4a, 0x53, 0x69, 0xa2, 0xcb, 0xe4, 0x32, 0xd6, 0x4c, 0x70, 0x75, 0xad, 0xe7, 0x9c, 0xec, 0xe4,
+	0xda, 0xe6, 0xea, 0xec, 0xff, 0x87, 0x6d, 0x5c, 0x7b, 0xe8, 0x91, 0x31, 0x1c, 0x3b, 0x2a, 0xdc,
+	0x14, 0x29, 0x76, 0xd7, 0x77, 0x1c, 0x9d, 0x9d, 0xbe, 0x23, 0xf9, 0x08, 0x5d, 0x47, 0xb2, 0xd9,
+	0x11, 0x99, 0xb6, 0xbe, 0xd8, 0x4c, 0xce, 0x1e, 0xed, 0x0e, 0xbd, 0xbb, 0x0a, 0xfe, 0x89, 0xbd,
+	0xf9, 0x15, 0x00, 0x00, 0xff, 0xff, 0x65, 0xe6, 0xc2, 0xe4, 0xe4, 0x04, 0x00, 0x00,
+}
+
 // Reference imports to suppress errors if they are not otherwise used.
 var _ context.Context
 var _ grpc.ClientConn
@@ -749,32 +667,32 @@ const _ = grpc.SupportPackageIsVersion4
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://godoc.org/google.golang.org/grpc#ClientConn.NewStream.
 type ChainNotifierClient interface {
 	//
-	// RegisterConfirmationsNtfn is a synchronous response-streaming RPC that
-	// registers an intent for a client to be notified once a confirmation request
-	// has reached its required number of confirmations on-chain.
+	//RegisterConfirmationsNtfn is a synchronous response-streaming RPC that
+	//registers an intent for a client to be notified once a confirmation request
+	//has reached its required number of confirmations on-chain.
 	//
-	// A client can specify whether the confirmation request should be for a
-	// particular transaction by its hash or for an output script by specifying a
-	// zero hash.
+	//A client can specify whether the confirmation request should be for a
+	//particular transaction by its hash or for an output script by specifying a
+	//zero hash.
 	RegisterConfirmationsNtfn(ctx context.Context, in *ConfRequest, opts ...grpc.CallOption) (ChainNotifier_RegisterConfirmationsNtfnClient, error)
 	//
-	// RegisterSpendNtfn is a synchronous response-streaming RPC that registers an
-	// intent for a client to be notification once a spend request has been spent
-	// by a transaction that has confirmed on-chain.
+	//RegisterSpendNtfn is a synchronous response-streaming RPC that registers an
+	//intent for a client to be notification once a spend request has been spent
+	//by a transaction that has confirmed on-chain.
 	//
-	// A client can specify whether the spend request should be for a particular
-	// outpoint  or for an output script by specifying a zero outpoint.
+	//A client can specify whether the spend request should be for a particular
+	//outpoint  or for an output script by specifying a zero outpoint.
 	RegisterSpendNtfn(ctx context.Context, in *SpendRequest, opts ...grpc.CallOption) (ChainNotifier_RegisterSpendNtfnClient, error)
 	//
-	// RegisterBlockEpochNtfn is a synchronous response-streaming RPC that
-	// registers an intent for a client to be notified of blocks in the chain. The
-	// stream will return a hash and height tuple of a block for each new/stale
-	// block in the chain. It is the client's responsibility to determine whether
-	// the tuple returned is for a new or stale block in the chain.
+	//RegisterBlockEpochNtfn is a synchronous response-streaming RPC that
+	//registers an intent for a client to be notified of blocks in the chain. The
+	//stream will return a hash and height tuple of a block for each new/stale
+	//block in the chain. It is the client's responsibility to determine whether
+	//the tuple returned is for a new or stale block in the chain.
 	//
-	// A client can also request a historical backlog of blocks from a particular
-	// point. This allows clients to be idempotent by ensuring that they do not
-	// missing processing a single block within the chain.
+	//A client can also request a historical backlog of blocks from a particular
+	//point. This allows clients to be idempotent by ensuring that they do not
+	//missing processing a single block within the chain.
 	RegisterBlockEpochNtfn(ctx context.Context, in *BlockEpoch, opts ...grpc.CallOption) (ChainNotifier_RegisterBlockEpochNtfnClient, error)
 }
 
@@ -885,32 +803,32 @@ func (x *chainNotifierRegisterBlockEpochNtfnClient) Recv() (*BlockEpoch, error) 
 // ChainNotifierServer is the server API for ChainNotifier service.
 type ChainNotifierServer interface {
 	//
-	// RegisterConfirmationsNtfn is a synchronous response-streaming RPC that
-	// registers an intent for a client to be notified once a confirmation request
-	// has reached its required number of confirmations on-chain.
+	//RegisterConfirmationsNtfn is a synchronous response-streaming RPC that
+	//registers an intent for a client to be notified once a confirmation request
+	//has reached its required number of confirmations on-chain.
 	//
-	// A client can specify whether the confirmation request should be for a
-	// particular transaction by its hash or for an output script by specifying a
-	// zero hash.
+	//A client can specify whether the confirmation request should be for a
+	//particular transaction by its hash or for an output script by specifying a
+	//zero hash.
 	RegisterConfirmationsNtfn(*ConfRequest, ChainNotifier_RegisterConfirmationsNtfnServer) error
 	//
-	// RegisterSpendNtfn is a synchronous response-streaming RPC that registers an
-	// intent for a client to be notification once a spend request has been spent
-	// by a transaction that has confirmed on-chain.
+	//RegisterSpendNtfn is a synchronous response-streaming RPC that registers an
+	//intent for a client to be notification once a spend request has been spent
+	//by a transaction that has confirmed on-chain.
 	//
-	// A client can specify whether the spend request should be for a particular
-	// outpoint  or for an output script by specifying a zero outpoint.
+	//A client can specify whether the spend request should be for a particular
+	//outpoint  or for an output script by specifying a zero outpoint.
 	RegisterSpendNtfn(*SpendRequest, ChainNotifier_RegisterSpendNtfnServer) error
 	//
-	// RegisterBlockEpochNtfn is a synchronous response-streaming RPC that
-	// registers an intent for a client to be notified of blocks in the chain. The
-	// stream will return a hash and height tuple of a block for each new/stale
-	// block in the chain. It is the client's responsibility to determine whether
-	// the tuple returned is for a new or stale block in the chain.
+	//RegisterBlockEpochNtfn is a synchronous response-streaming RPC that
+	//registers an intent for a client to be notified of blocks in the chain. The
+	//stream will return a hash and height tuple of a block for each new/stale
+	//block in the chain. It is the client's responsibility to determine whether
+	//the tuple returned is for a new or stale block in the chain.
 	//
-	// A client can also request a historical backlog of blocks from a particular
-	// point. This allows clients to be idempotent by ensuring that they do not
-	// missing processing a single block within the chain.
+	//A client can also request a historical backlog of blocks from a particular
+	//point. This allows clients to be idempotent by ensuring that they do not
+	//missing processing a single block within the chain.
 	RegisterBlockEpochNtfn(*BlockEpoch, ChainNotifier_RegisterBlockEpochNtfnServer) error
 }
 
@@ -1003,48 +921,4 @@ var _ChainNotifier_serviceDesc = grpc.ServiceDesc{
 		},
 	},
 	Metadata: "chainrpc/chainnotifier.proto",
-}
-
-func init() {
-	proto.RegisterFile("chainrpc/chainnotifier.proto", fileDescriptor_chainnotifier_7f5a7ad17988064c)
-}
-
-var fileDescriptor_chainnotifier_7f5a7ad17988064c = []byte{
-	// 574 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x9c, 0x54, 0x4f, 0x6f, 0x13, 0x3f,
-	0x10, 0xed, 0xb6, 0xdd, 0xfc, 0x99, 0x24, 0xbf, 0xb4, 0xfe, 0xa5, 0x51, 0x5a, 0x40, 0x94, 0x3d,
-	0xd0, 0x48, 0x48, 0x21, 0x0a, 0x1c, 0xb8, 0x21, 0x35, 0x14, 0x25, 0x97, 0x22, 0x6d, 0x7b, 0x5f,
-	0x6d, 0x37, 0x4e, 0xd6, 0xd0, 0xd8, 0x8b, 0xed, 0x90, 0xbd, 0xf2, 0x69, 0xf9, 0x12, 0x1c, 0x90,
-	0x67, 0xed, 0x4d, 0x1a, 0x8a, 0x84, 0xb8, 0x79, 0x66, 0xde, 0x3e, 0xbf, 0xf1, 0x7b, 0x09, 0x3c,
-	0x4d, 0xd2, 0x98, 0x71, 0x99, 0x25, 0xaf, 0xf1, 0xc0, 0x85, 0x66, 0x73, 0x46, 0xe5, 0x20, 0x93,
-	0x42, 0x0b, 0x52, 0x73, 0xd3, 0x60, 0x0d, 0x8d, 0xb1, 0xe0, 0xf3, 0x90, 0x7e, 0x5d, 0x51, 0xa5,
-	0x09, 0x81, 0x43, 0x9d, 0xb3, 0x59, 0xcf, 0x3b, 0xf7, 0xfa, 0xcd, 0x10, 0xcf, 0xa4, 0x0b, 0x15,
-	0x95, 0x48, 0x96, 0xe9, 0xde, 0x3e, 0x76, 0x6d, 0x45, 0x9e, 0x40, 0x9d, 0xaf, 0x96, 0x51, 0x22,
-	0xf8, 0x5c, 0xf5, 0x0e, 0xce, 0xbd, 0x7e, 0x2b, 0xac, 0xf1, 0xd5, 0xd2, 0xd0, 0x29, 0xf2, 0x1c,
-	0x1a, 0x29, 0x65, 0x8b, 0x54, 0x47, 0x29, 0xe3, 0xba, 0x77, 0x88, 0x63, 0x28, 0x5a, 0x13, 0xc6,
-	0x75, 0xf0, 0xdd, 0x2b, 0x6e, 0xfe, 0x40, 0x75, 0xcc, 0xee, 0x15, 0x39, 0x81, 0x8a, 0x8c, 0xd7,
-	0x91, 0xce, 0xed, 0xdd, 0xbe, 0x8c, 0xd7, 0xb7, 0x39, 0x79, 0x06, 0x70, 0x77, 0x2f, 0x92, 0x2f,
-	0x51, 0x1a, 0xab, 0xd4, 0x0a, 0xa8, 0x63, 0x67, 0x12, 0xab, 0x94, 0xbc, 0x80, 0xa6, 0x1d, 0x23,
-	0xb3, 0x95, 0xd1, 0x28, 0x00, 0xd8, 0x22, 0xa7, 0x50, 0xd3, 0x79, 0xc4, 0xf8, 0x8c, 0xe6, 0x56,
-	0x46, 0x55, 0xe7, 0x53, 0x53, 0x06, 0x55, 0xf0, 0x43, 0x2a, 0xe4, 0x22, 0xf8, 0x0c, 0x75, 0xa3,
-	0xe5, 0xea, 0x1b, 0xe5, 0x9a, 0xbc, 0x82, 0x43, 0xb3, 0x13, 0xea, 0x68, 0x8c, 0x4e, 0x06, 0xee,
-	0xad, 0x06, 0x5b, 0x72, 0x27, 0x7b, 0x21, 0x82, 0xc8, 0x05, 0xf8, 0xd2, 0x50, 0xa0, 0xb4, 0xc6,
-	0xa8, 0xbd, 0x41, 0x23, 0xf3, 0x64, 0x2f, 0x2c, 0xe6, 0x97, 0x55, 0xf0, 0xa9, 0xa1, 0x0f, 0xde,
-	0x42, 0xed, 0xd3, 0x4a, 0x67, 0x82, 0x71, 0x7c, 0x6e, 0xdc, 0xcb, 0x3e, 0xb7, 0x39, 0x93, 0x0e,
-	0xf8, 0x85, 0xd8, 0x7d, 0x14, 0x5b, 0x14, 0xc1, 0x1a, 0x9a, 0x37, 0x19, 0xe5, 0x33, 0x67, 0xd4,
-	0x00, 0x6a, 0xc2, 0xb2, 0x58, 0xa1, 0x64, 0x73, 0xb5, 0xe3, 0x0f, 0x4b, 0xcc, 0x1f, 0x4d, 0xdc,
-	0xf1, 0xe9, 0xe0, 0x37, 0x9f, 0x7e, 0x7a, 0xf6, 0x66, 0x67, 0xd4, 0x7b, 0x38, 0x56, 0xa6, 0x66,
-	0x7c, 0x11, 0xfd, 0x85, 0x84, 0x23, 0x07, 0x2e, 0x97, 0x7e, 0x09, 0x6d, 0xe3, 0x74, 0x49, 0xa2,
-	0x73, 0xab, 0xa9, 0x25, 0xe3, 0xf5, 0x8d, 0xed, 0xde, 0xe6, 0xa4, 0x0f, 0x47, 0x5b, 0x98, 0x22,
-	0x00, 0x07, 0x08, 0xfc, 0x4f, 0x95, 0x28, 0x4c, 0xc1, 0x10, 0x3a, 0x25, 0x92, 0xf1, 0x6c, 0xa5,
-	0x1f, 0xd8, 0x4d, 0xdc, 0x6c, 0x6a, 0x46, 0xe8, 0x3c, 0xb9, 0x80, 0x76, 0xf9, 0x85, 0x8d, 0x8e,
-	0x8f, 0xe0, 0x92, 0xba, 0x48, 0x4f, 0xc0, 0x01, 0x50, 0x52, 0x11, 0x8d, 0x01, 0xf8, 0x38, 0xb7,
-	0xfb, 0x76, 0x37, 0xfb, 0x6e, 0x3f, 0x91, 0x31, 0x1d, 0x61, 0xff, 0x90, 0x8e, 0x77, 0x00, 0x97,
-	0x26, 0xbc, 0x57, 0x99, 0x48, 0xd2, 0x47, 0xf3, 0xd1, 0x85, 0x8a, 0x55, 0x5c, 0x04, 0xc4, 0x56,
-	0xa3, 0x1f, 0x1e, 0xb4, 0xc6, 0x86, 0xfe, 0xda, 0xfe, 0xd6, 0xc9, 0x14, 0x4e, 0x43, 0xba, 0x60,
-	0x4a, 0x53, 0x69, 0xa2, 0xcb, 0xe4, 0x32, 0xd6, 0x4c, 0x70, 0x75, 0xad, 0xe7, 0x9c, 0xec, 0xe4,
-	0xda, 0xe6, 0xea, 0xec, 0xff, 0x87, 0x6d, 0x5c, 0x7b, 0xe8, 0x91, 0x31, 0x1c, 0x3b, 0x2a, 0xdc,
-	0x14, 0x29, 0x76, 0xd7, 0x77, 0x1c, 0x9d, 0x9d, 0xbe, 0x23, 0xf9, 0x08, 0x5d, 0x47, 0xb2, 0xd9,
-	0x11, 0x99, 0xb6, 0xbe, 0xd8, 0x4c, 0xce, 0x1e, 0xed, 0x0e, 0xbd, 0xbb, 0x0a, 0xfe, 0x89, 0xbd,
-	0xf9, 0x15, 0x00, 0x00, 0xff, 0xff, 0x65, 0xe6, 0xc2, 0xe4, 0xe4, 0x04, 0x00, 0x00,
 }

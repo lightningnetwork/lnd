@@ -34,10 +34,17 @@ import (
 )
 
 const (
-	defaultBitcoinMinHTLCMSat   = lnwire.MilliSatoshi(1000)
-	defaultBitcoinBaseFeeMSat   = lnwire.MilliSatoshi(1000)
-	defaultBitcoinFeeRate       = lnwire.MilliSatoshi(1)
-	defaultBitcoinTimeLockDelta = 40
+	defaultBitcoinMinHTLCMSat = lnwire.MilliSatoshi(1000)
+
+	// DefaultBitcoinBaseFeeMSat is the default forwarding base fee.
+	DefaultBitcoinBaseFeeMSat = lnwire.MilliSatoshi(1000)
+
+	// DefaultBitcoinFeeRate is the default forwarding fee rate.
+	DefaultBitcoinFeeRate = lnwire.MilliSatoshi(1)
+
+	// DefaultBitcoinTimeLockDelta is the default forwarding time lock
+	// delta.
+	DefaultBitcoinTimeLockDelta = 40
 
 	defaultLitecoinMinHTLCMSat   = lnwire.MilliSatoshi(1000)
 	defaultLitecoinBaseFeeMSat   = lnwire.MilliSatoshi(1000)

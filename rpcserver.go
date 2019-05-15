@@ -69,10 +69,10 @@ const (
 var (
 	zeroHash [32]byte
 
-	// maxPaymentMSat is the maximum allowed payment currently permitted as
+	// MaxPaymentMSat is the maximum allowed payment currently permitted as
 	// defined in BOLT-002. This value depends on which chain is active.
 	// It is set to the value under the Bitcoin chain as default.
-	maxPaymentMSat = maxBtcPaymentMSat
+	MaxPaymentMSat = maxBtcPaymentMSat
 
 	defaultAccount uint32 = waddrmgr.DefaultAccountNum
 
@@ -450,7 +450,7 @@ func newRPCServer(s *server, macService *macaroons.Service,
 	}
 	graph := s.chanDB.ChannelGraph()
 	routerBackend := &routerrpc.RouterBackend{
-		MaxPaymentMSat: maxPaymentMSat,
+		MaxPaymentMSat: MaxPaymentMSat,
 		SelfNode:       selfNode.PubKeyBytes,
 		FetchChannelCapacity: func(chanID uint64) (btcutil.Amount,
 			error) {
@@ -1356,9 +1356,9 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 	// Ensure that the user doesn't exceed the current soft-limit for
 	// channel size. If the funding amount is above the soft-limit, then
 	// we'll reject the request.
-	if localFundingAmt > maxFundingAmount {
+	if localFundingAmt > MaxFundingAmount {
 		return fmt.Errorf("funding amount is too large, the max "+
-			"channel size is: %v", maxFundingAmount)
+			"channel size is: %v", MaxFundingAmount)
 	}
 
 	// Restrict the size of the channel we'll actually open. At a later
@@ -1458,7 +1458,7 @@ out:
 			switch update := fundingUpdate.Update.(type) {
 			case *lnrpc.OpenStatusUpdate_ChanOpen:
 				chanPoint := update.ChanOpen.ChannelPoint
-				txid, err := getChanPointFundingTxid(chanPoint)
+				txid, err := GetChanPointFundingTxid(chanPoint)
 				if err != nil {
 					return err
 				}
@@ -1609,9 +1609,9 @@ func (r *rpcServer) OpenChannelSync(ctx context.Context,
 	}
 }
 
-// getChanPointFundingTxid returns the given channel point's funding txid in
+// GetChanPointFundingTxid returns the given channel point's funding txid in
 // raw bytes.
-func getChanPointFundingTxid(chanPoint *lnrpc.ChannelPoint) (*chainhash.Hash, error) {
+func GetChanPointFundingTxid(chanPoint *lnrpc.ChannelPoint) (*chainhash.Hash, error) {
 	var txid []byte
 
 	// A channel point's funding txid can be get/set as a byte slice or a
@@ -1646,7 +1646,7 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 
 	force := in.Force
 	index := in.ChannelPoint.OutputIndex
-	txid, err := getChanPointFundingTxid(in.GetChannelPoint())
+	txid, err := GetChanPointFundingTxid(in.GetChannelPoint())
 	if err != nil {
 		rpcsLog.Errorf("[closechannel] unable to get funding txid: %v", err)
 		return err
@@ -1854,7 +1854,7 @@ func (r *rpcServer) AbandonChannel(ctx context.Context,
 
 	// We'll parse out the arguments to we can obtain the chanPoint of the
 	// target channel.
-	txid, err := getChanPointFundingTxid(in.GetChannelPoint())
+	txid, err := GetChanPointFundingTxid(in.GetChannelPoint())
 	if err != nil {
 		return nil, err
 	}
@@ -3025,12 +3025,12 @@ func extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPaymentIntent, error
 	// Currently, within the bootstrap phase of the network, we limit the
 	// largest payment size allotted to (2^32) - 1 mSAT or 4.29 million
 	// satoshis.
-	if payIntent.msat > maxPaymentMSat {
+	if payIntent.msat > MaxPaymentMSat {
 		// In this case, we'll send an error to the caller, but
 		// continue our loop for the next payment.
 		return payIntent, fmt.Errorf("payment of %v is too large, "+
 			"max payment allowed is %v", payIntent.msat,
-			maxPaymentMSat)
+			MaxPaymentMSat)
 
 	}
 
@@ -3350,7 +3350,7 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		IsChannelActive:   r.server.htlcSwitch.HasActiveLink,
 		ChainParams:       activeNetParams.Params,
 		NodeSigner:        r.server.nodeSigner,
-		MaxPaymentMSat:    maxPaymentMSat,
+		MaxPaymentMSat:    MaxPaymentMSat,
 		DefaultCLTVExpiry: defaultDelta,
 		ChanDB:            r.server.chanDB,
 	}
@@ -4417,7 +4417,7 @@ func (r *rpcServer) UpdateChannelPolicy(ctx context.Context,
 	// Otherwise, we're targeting an individual channel by its channel
 	// point.
 	case *lnrpc.PolicyUpdateRequest_ChanPoint:
-		txid, err := getChanPointFundingTxid(scope.ChanPoint)
+		txid, err := GetChanPointFundingTxid(scope.ChanPoint)
 		if err != nil {
 			return nil, err
 		}
@@ -4598,7 +4598,7 @@ func (r *rpcServer) ExportChannelBackup(ctx context.Context,
 
 	// First, we'll convert the lnrpc channel point into a wire.OutPoint
 	// that we can manipulate.
-	txid, err := getChanPointFundingTxid(in.ChanPoint)
+	txid, err := GetChanPointFundingTxid(in.ChanPoint)
 	if err != nil {
 		return nil, err
 	}

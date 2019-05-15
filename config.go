@@ -34,23 +34,27 @@ import (
 )
 
 const (
-	defaultConfigFilename           = "lnd.conf"
-	defaultDataDirname              = "data"
-	defaultChainSubDirname          = "chain"
-	defaultGraphSubDirname          = "graph"
-	defaultTLSCertFilename          = "tls.cert"
-	defaultTLSKeyFilename           = "tls.key"
-	defaultAdminMacFilename         = "admin.macaroon"
-	defaultReadMacFilename          = "readonly.macaroon"
-	defaultInvoiceMacFilename       = "invoice.macaroon"
-	defaultLogLevel                 = "info"
-	defaultLogDirname               = "logs"
-	defaultLogFilename              = "lnd.log"
-	defaultRPCPort                  = 10009
-	defaultRESTPort                 = 8080
-	defaultPeerPort                 = 9735
-	defaultRPCHost                  = "localhost"
-	defaultMaxPendingChannels       = 1
+	defaultConfigFilename     = "lnd.conf"
+	defaultDataDirname        = "data"
+	defaultChainSubDirname    = "chain"
+	defaultGraphSubDirname    = "graph"
+	defaultTLSCertFilename    = "tls.cert"
+	defaultTLSKeyFilename     = "tls.key"
+	defaultAdminMacFilename   = "admin.macaroon"
+	defaultReadMacFilename    = "readonly.macaroon"
+	defaultInvoiceMacFilename = "invoice.macaroon"
+	defaultLogLevel           = "info"
+	defaultLogDirname         = "logs"
+	defaultLogFilename        = "lnd.log"
+	defaultRPCPort            = 10009
+	defaultRESTPort           = 8080
+	defaultPeerPort           = 9735
+	defaultRPCHost            = "localhost"
+
+	// DefaultMaxPendingChannels is the default maximum number of incoming
+	// pending channels permitted per peer.
+	DefaultMaxPendingChannels = 1
+
 	defaultNoSeedBackup             = false
 	defaultTrickleDelay             = 90 * 1000
 	defaultChanStatusSampleInterval = time.Minute
@@ -68,14 +72,14 @@ const (
 	defaultTorV2PrivateKeyFilename = "v2_onion_private_key"
 	defaultTorV3PrivateKeyFilename = "v3_onion_private_key"
 
-	// defaultIncomingBroadcastDelta defines the number of blocks before the
+	// DefaultIncomingBroadcastDelta defines the number of blocks before the
 	// expiry of an incoming htlc at which we force close the channel. We
 	// only go to chain if we also have the preimage to actually pull in the
 	// htlc. BOLT #2 suggests 7 blocks. We use a few more for extra safety.
 	// Within this window we need to get our sweep or 2nd level success tx
 	// confirmed, because after that the remote party is also able to claim
 	// the htlc using the timeout path.
-	defaultIncomingBroadcastDelta = 10
+	DefaultIncomingBroadcastDelta = 10
 
 	// defaultFinalCltvRejectDelta defines the number of blocks before the
 	// expiry of an incoming exit hop htlc at which we cancel it back
@@ -90,9 +94,9 @@ const (
 	// window, we may still force close the channel. There is currently no
 	// way to reject an UpdateAddHtlc of which we already know that it will
 	// push us in the broadcast window.
-	defaultFinalCltvRejectDelta = defaultIncomingBroadcastDelta + 3
+	defaultFinalCltvRejectDelta = DefaultIncomingBroadcastDelta + 3
 
-	// defaultOutgoingBroadcastDelta defines the number of blocks before the
+	// DefaultOutgoingBroadcastDelta defines the number of blocks before the
 	// expiry of an outgoing htlc at which we force close the channel. We
 	// are not in a hurry to force close, because there is nothing to claim
 	// for us. We do need to time the htlc out, because there may be an
@@ -100,7 +104,7 @@ const (
 	// a value of -1 here, but we allow one block less to prevent potential
 	// confusion around the negative value. It means we force close the
 	// channel at exactly the htlc expiry height.
-	defaultOutgoingBroadcastDelta = 0
+	DefaultOutgoingBroadcastDelta = 0
 
 	// defaultOutgoingCltvRejectDelta defines the number of blocks before
 	// the expiry of an outgoing htlc at which we don't want to offer it to
@@ -111,7 +115,7 @@ const (
 	// value of 0. We pad it a bit, to prevent a slow round trip to the next
 	// peer and a block arriving during that round trip to trigger force
 	// closure.
-	defaultOutgoingCltvRejectDelta = defaultOutgoingBroadcastDelta + 3
+	defaultOutgoingCltvRejectDelta = DefaultOutgoingBroadcastDelta + 3
 
 	// minTimeLockDelta is the minimum timelock we require for incoming
 	// HTLCs on our channels.
@@ -330,9 +334,9 @@ func loadConfig() (*config, error) {
 		MaxLogFileSize: defaultMaxLogFileSize,
 		Bitcoin: &chainConfig{
 			MinHTLC:       defaultBitcoinMinHTLCMSat,
-			BaseFee:       defaultBitcoinBaseFeeMSat,
-			FeeRate:       defaultBitcoinFeeRate,
-			TimeLockDelta: defaultBitcoinTimeLockDelta,
+			BaseFee:       DefaultBitcoinBaseFeeMSat,
+			FeeRate:       DefaultBitcoinFeeRate,
+			TimeLockDelta: DefaultBitcoinTimeLockDelta,
 			Node:          "btcd",
 		},
 		BtcdMode: &btcdConfig{
@@ -360,7 +364,7 @@ func loadConfig() (*config, error) {
 			Dir:     defaultLitecoindDir,
 			RPCHost: defaultRPCHost,
 		},
-		MaxPendingChannels: defaultMaxPendingChannels,
+		MaxPendingChannels: DefaultMaxPendingChannels,
 		NoSeedBackup:       defaultNoSeedBackup,
 		MinBackoff:         defaultMinBackoff,
 		MaxBackoff:         defaultMaxBackoff,
@@ -371,7 +375,7 @@ func loadConfig() (*config, error) {
 			MaxChannels:    5,
 			Allocation:     0.6,
 			MinChannelSize: int64(minChanFundingSize),
-			MaxChannelSize: int64(maxFundingAmount),
+			MaxChannelSize: int64(MaxFundingAmount),
 			Heuristic: map[string]float64{
 				"preferential": 1.0,
 			},
@@ -535,8 +539,8 @@ func loadConfig() (*config, error) {
 	if cfg.Autopilot.MinChannelSize < int64(minChanFundingSize) {
 		cfg.Autopilot.MinChannelSize = int64(minChanFundingSize)
 	}
-	if cfg.Autopilot.MaxChannelSize > int64(maxFundingAmount) {
-		cfg.Autopilot.MaxChannelSize = int64(maxFundingAmount)
+	if cfg.Autopilot.MaxChannelSize > int64(MaxFundingAmount) {
+		cfg.Autopilot.MaxChannelSize = int64(MaxFundingAmount)
 	}
 
 	if _, err := validateAtplCfg(cfg.Autopilot); err != nil {
@@ -720,8 +724,8 @@ func loadConfig() (*config, error) {
 		// Finally we'll register the litecoin chain as our current
 		// primary chain.
 		registeredChains.RegisterPrimaryChain(litecoinChain)
-		maxFundingAmount = maxLtcFundingAmount
-		maxPaymentMSat = maxLtcPaymentMSat
+		MaxFundingAmount = maxLtcFundingAmount
+		MaxPaymentMSat = maxLtcPaymentMSat
 
 	case cfg.Bitcoin.Active:
 		// Multiple networks can't be selected simultaneously.  Count
@@ -855,8 +859,8 @@ func loadConfig() (*config, error) {
 	if cfg.Autopilot.MinChannelSize < int64(minChanFundingSize) {
 		cfg.Autopilot.MinChannelSize = int64(minChanFundingSize)
 	}
-	if cfg.Autopilot.MaxChannelSize > int64(maxFundingAmount) {
-		cfg.Autopilot.MaxChannelSize = int64(maxFundingAmount)
+	if cfg.Autopilot.MaxChannelSize > int64(MaxFundingAmount) {
+		cfg.Autopilot.MaxChannelSize = int64(MaxFundingAmount)
 	}
 
 	// Validate profile port number.

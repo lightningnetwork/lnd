@@ -65,4 +65,4 @@ else
 ITEST_TAGS += btcd
 endif
 
-ITEST := rm output*.log; date; $(GOTEST) -tags="$(ITEST_TAGS)" $(TEST_FLAGS) -logoutput
+ITEST := rm output*.log; date; $(GOTEST) ./lntest/itest -tags="$(ITEST_TAGS)" $(TEST_FLAGS) -logoutput

@@ -1,6 +1,6 @@
 // +build rpctest
 
-package lnd
+package itest
 
 import (
 	"context"
@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lntest"
@@ -114,7 +115,7 @@ func testMultiHopReceiverChainClaim(net *lntest.NetworkHarness, t *harnessTest) 
 	// chain in order to sweep her HTLC since the value is high enough.
 	// TODO(roasbeef): modify once go to chain policy changes
 	numBlocks := uint32(
-		invoiceReq.CltvExpiry - defaultIncomingBroadcastDelta,
+		invoiceReq.CltvExpiry - lnd.DefaultIncomingBroadcastDelta,
 	)
 	if _, err := net.Miner.Node.Generate(numBlocks); err != nil {
 		t.Fatalf("unable to generate blocks")
@@ -127,7 +128,7 @@ func testMultiHopReceiverChainClaim(net *lntest.NetworkHarness, t *harnessTest) 
 		t.Fatalf("expected transaction not found in mempool: %v", err)
 	}
 
-	bobFundingTxid, err := getChanPointFundingTxid(bobChanPoint)
+	bobFundingTxid, err := lnd.GetChanPointFundingTxid(bobChanPoint)
 	if err != nil {
 		t.Fatalf("unable to get txid: %v", err)
 	}

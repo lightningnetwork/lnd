@@ -1,6 +1,6 @@
 // +build rpctest
 
-package lnd
+package itest
 
 import (
 	"context"
@@ -9,6 +9,7 @@ import (
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lntest"
@@ -125,7 +126,7 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest)
 	// We'll now mine enough blocks so Carol decides that she needs to go
 	// on-chain to claim the HTLC as Bob has been inactive.
 	numBlocks := uint32(invoiceReq.CltvExpiry -
-		defaultIncomingBroadcastDelta)
+		lnd.DefaultIncomingBroadcastDelta)
 
 	if _, err := net.Miner.Node.Generate(numBlocks); err != nil {
 		t.Fatalf("unable to generate blocks")
@@ -136,7 +137,7 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest)
 	if err != nil {
 		t.Fatalf("transactions not found in mempool: %v", err)
 	}
-	bobFundingTxid, err := getChanPointFundingTxid(bobChanPoint)
+	bobFundingTxid, err := lnd.GetChanPointFundingTxid(bobChanPoint)
 	if err != nil {
 		t.Fatalf("unable to get txid: %v", err)
 	}

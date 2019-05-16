@@ -196,10 +196,6 @@ type peer struct {
 	// remote node.
 	localFeatures *lnwire.RawFeatureVector
 
-	// finalCltvRejectDelta defines the number of blocks before the expiry
-	// of the htlc where we no longer settle it as an exit hop.
-	finalCltvRejectDelta uint32
-
 	// outgoingCltvRejectDelta defines the number of blocks before expiry of
 	// an htlc where we don't offer an htlc anymore.
 	outgoingCltvRejectDelta uint32
@@ -242,7 +238,7 @@ func newPeer(conn net.Conn, connReq *connmgr.ConnReq, server *server,
 	addr *lnwire.NetAddress, inbound bool,
 	localFeatures *lnwire.RawFeatureVector,
 	chanActiveTimeout time.Duration,
-	finalCltvRejectDelta, outgoingCltvRejectDelta uint32) (
+	outgoingCltvRejectDelta uint32) (
 	*peer, error) {
 
 	nodePub := addr.IdentityKey
@@ -258,7 +254,6 @@ func newPeer(conn net.Conn, connReq *connmgr.ConnReq, server *server,
 
 		localFeatures: localFeatures,
 
-		finalCltvRejectDelta:    finalCltvRejectDelta,
 		outgoingCltvRejectDelta: outgoingCltvRejectDelta,
 
 		sendQueue:     make(chan outgoingMsg),
@@ -429,8 +424,7 @@ func (p *peer) QuitSignal() <-chan struct{} {
 func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 	for _, dbChan := range chans {
 		lnChan, err := lnwallet.NewLightningChannel(
-			p.server.cc.signer, p.server.witnessBeacon, dbChan,
-			p.server.sigPool,
+			p.server.cc.signer, dbChan, p.server.sigPool,
 		)
 		if err != nil {
 			return err
@@ -599,7 +593,6 @@ func (p *peer) addLink(chanPoint *wire.OutPoint,
 		UnsafeReplay:            cfg.UnsafeReplay,
 		MinFeeUpdateTimeout:     htlcswitch.DefaultMinLinkFeeUpdateTimeout,
 		MaxFeeUpdateTimeout:     htlcswitch.DefaultMaxLinkFeeUpdateTimeout,
-		FinalCltvRejectDelta:    p.finalCltvRejectDelta,
 		OutgoingCltvRejectDelta: p.outgoingCltvRejectDelta,
 	}
 
@@ -1789,8 +1782,7 @@ out:
 			// set of active channels, so we can look it up later
 			// easily according to its channel ID.
 			lnChan, err := lnwallet.NewLightningChannel(
-				p.server.cc.signer, p.server.witnessBeacon,
-				newChan, p.server.sigPool,
+				p.server.cc.signer, newChan, p.server.sigPool,
 			)
 			if err != nil {
 				p.activeChanMtx.Unlock()

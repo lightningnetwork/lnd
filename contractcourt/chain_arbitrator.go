@@ -12,7 +12,6 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
-	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/sweep"
@@ -146,7 +145,7 @@ type ChainArbitratorConfig struct {
 
 	// Registry is the invoice database that is used by resolvers to lookup
 	// preimages and settle invoices.
-	Registry *invoices.InvoiceRegistry
+	Registry Registry
 
 	// NotifyClosedChannel is a function closure that the ChainArbitrator
 	// will use to notify the ChannelNotifier about a newly closed channel.
@@ -259,7 +258,7 @@ func newActiveChannelArbitrator(channel *channeldb.OpenChannel,
 			// Finally, we'll force close the channel completing
 			// the force close workflow.
 			chanMachine, err := lnwallet.NewLightningChannel(
-				c.cfg.Signer, c.cfg.PreimageDB, channel, nil,
+				c.cfg.Signer, channel, nil,
 			)
 			if err != nil {
 				return nil, err
@@ -375,7 +374,6 @@ func (c *ChainArbitrator) Start() error {
 			chainWatcherConfig{
 				chanState: channel,
 				notifier:  c.cfg.Notifier,
-				pCache:    c.cfg.PreimageDB,
 				signer:    c.cfg.Signer,
 				isOurAddr: c.cfg.IsOurAddress,
 				contractBreach: func(retInfo *lnwallet.BreachRetribution) error {
@@ -709,7 +707,6 @@ func (c *ChainArbitrator) WatchNewChannel(newChan *channeldb.OpenChannel) error 
 		chainWatcherConfig{
 			chanState: newChan,
 			notifier:  c.cfg.Notifier,
-			pCache:    c.cfg.PreimageDB,
 			signer:    c.cfg.Signer,
 			isOurAddr: c.cfg.IsOurAddress,
 			contractBreach: func(retInfo *lnwallet.BreachRetribution) error {

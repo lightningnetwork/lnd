@@ -29,8 +29,16 @@ func (m *mockSigner) ComputeInputScript(tx *wire.MsgTx,
 
 type mockWitnessBeacon struct {
 	preImageUpdates chan lntypes.Preimage
+	newPreimages    chan []lntypes.Preimage
+	lookupPreimage  map[lntypes.Hash]lntypes.Preimage
+}
 
-	newPreimages chan []lntypes.Preimage
+func newMockWitnessBeacon() *mockWitnessBeacon {
+	return &mockWitnessBeacon{
+		preImageUpdates: make(chan lntypes.Preimage, 1),
+		newPreimages:    make(chan []lntypes.Preimage),
+		lookupPreimage:  make(map[lntypes.Hash]lntypes.Preimage),
+	}
 }
 
 func (m *mockWitnessBeacon) SubscribeUpdates() *WitnessSubscription {
@@ -41,7 +49,11 @@ func (m *mockWitnessBeacon) SubscribeUpdates() *WitnessSubscription {
 }
 
 func (m *mockWitnessBeacon) LookupPreimage(payhash lntypes.Hash) (lntypes.Preimage, bool) {
-	return lntypes.Preimage{}, false
+	preimage, ok := m.lookupPreimage[payhash]
+	if !ok {
+		return lntypes.Preimage{}, false
+	}
+	return preimage, true
 }
 
 func (m *mockWitnessBeacon) AddPreimages(preimages ...lntypes.Preimage) error {
@@ -190,10 +202,7 @@ func TestHtlcTimeoutResolver(t *testing.T) {
 		spendChan: make(chan *chainntnfs.SpendDetail),
 		confChan:  make(chan *chainntnfs.TxConfirmation),
 	}
-	witnessBeacon := &mockWitnessBeacon{
-		preImageUpdates: make(chan lntypes.Preimage, 1),
-		newPreimages:    make(chan []lntypes.Preimage),
-	}
+	witnessBeacon := newMockWitnessBeacon()
 
 	for _, testCase := range testCases {
 		t.Logf("Running test case: %v", testCase.name)

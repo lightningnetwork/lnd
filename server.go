@@ -342,7 +342,10 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		readPool:       readPool,
 		chansToRestore: chansToRestore,
 
-		invoices: invoices.NewRegistry(chanDB, decodeFinalCltvExpiry),
+		invoices: invoices.NewRegistry(
+			chanDB, decodeFinalCltvExpiry,
+			defaultFinalCltvRejectDelta,
+		),
 
 		channelNotifier: channelnotifier.New(chanDB),
 
@@ -374,7 +377,6 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 	}
 
 	s.witnessBeacon = &preimageBeacon{
-		invoices:    s.invoices,
 		wCache:      chanDB.NewWitnessCache(),
 		subscribers: make(map[uint64]*preimageSubscriber),
 	}
@@ -2557,7 +2559,6 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 	p, err := newPeer(
 		conn, connReq, s, peerAddr, inbound, localFeatures,
 		cfg.ChanEnableTimeout,
-		defaultFinalCltvRejectDelta,
 		defaultOutgoingCltvRejectDelta,
 	)
 	if err != nil {

@@ -7,7 +7,6 @@ import (
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -78,9 +77,11 @@ func (h *htlcSuccessResolver) ResolverKey() []byte {
 }
 
 // Resolve attempts to resolve an unresolved incoming HTLC that we know the
-// preimage to. If the HTLC is on the commitment of the remote party, then
-// we'll simply sweep it directly. Otherwise, we'll hand this off to the utxo
-// nursery to do its duty.
+// preimage to. If the HTLC is on the commitment of the remote party, then we'll
+// simply sweep it directly. Otherwise, we'll hand this off to the utxo nursery
+// to do its duty. There is no need to make a call to the invoice registry
+// anymore. Every HTLC has already passed through the incoming contest resolver
+// and in there the invoice was already marked as settled.
 //
 // TODO(roasbeef): create multi to batch
 //
@@ -177,19 +178,6 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 			return nil, fmt.Errorf("quitting")
 		}
 
-		// With the HTLC claimed, we can attempt to settle its
-		// corresponding invoice if we were the original destination. As
-		// the htlc is already settled at this point, we don't need to
-		// read on the hodl channel.
-		hodlChan := make(chan interface{}, 1)
-		_, err = h.Registry.NotifyExitHopHtlc(
-			h.payHash, h.htlcAmt, hodlChan,
-		)
-		if err != nil && err != channeldb.ErrInvoiceNotFound {
-			log.Errorf("Unable to settle invoice with payment "+
-				"hash %x: %v", h.payHash, err)
-		}
-
 		// Once the transaction has received a sufficient number of
 		// confirmations, we'll mark ourselves as fully resolved and exit.
 		h.resolved = true
@@ -253,17 +241,6 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 
 	case <-h.Quit:
 		return nil, fmt.Errorf("quitting")
-	}
-
-	// With the HTLC claimed, we can attempt to settle its corresponding
-	// invoice if we were the original destination. As the htlc is already
-	// settled at this point, we don't need to read on the hodl
-	// channel.
-	hodlChan := make(chan interface{}, 1)
-	_, err = h.Registry.NotifyExitHopHtlc(h.payHash, h.htlcAmt, hodlChan)
-	if err != nil && err != channeldb.ErrInvoiceNotFound {
-		log.Errorf("Unable to settle invoice with payment "+
-			"hash %x: %v", h.payHash, err)
 	}
 
 	h.resolved = true

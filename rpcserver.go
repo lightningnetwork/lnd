@@ -1917,7 +1917,7 @@ func (r *rpcServer) fetchActiveChannel(chanPoint wire.OutPoint) (
 	// we create a fully populated channel state machine which
 	// uses the db channel as backing storage.
 	return lnwallet.NewLightningChannel(
-		r.server.cc.wallet.Cfg.Signer, nil, dbChan, nil,
+		r.server.cc.wallet.Cfg.Signer, dbChan, nil,
 	)
 }
 

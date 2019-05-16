@@ -543,7 +543,7 @@ func getChanID(msg lnwire.Message) (lnwire.ChannelID, error) {
 func generatePaymentWithPreimage(invoiceAmt, htlcAmt lnwire.MilliSatoshi,
 	timelock uint32, blob [lnwire.OnionPacketSize]byte,
 	preimage, rhash [32]byte) (*channeldb.Invoice, *lnwire.UpdateAddHTLC,
-	error) {
+	uint64, error) {
 
 	// Create the db invoice. Normally the payment requests needs to be set,
 	// because it is decoded in InvoiceRegistry to obtain the cltv expiry.
@@ -566,18 +566,25 @@ func generatePaymentWithPreimage(invoiceAmt, htlcAmt lnwire.MilliSatoshi,
 		OnionBlob:   blob,
 	}
 
-	return invoice, htlc, nil
+	pid, err := generateRandomBytes(8)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	paymentID := binary.BigEndian.Uint64(pid)
+
+	return invoice, htlc, paymentID, nil
 }
 
 // generatePayment generates the htlc add request by given path blob and
 // invoice which should be added by destination peer.
 func generatePayment(invoiceAmt, htlcAmt lnwire.MilliSatoshi, timelock uint32,
-	blob [lnwire.OnionPacketSize]byte) (*channeldb.Invoice, *lnwire.UpdateAddHTLC, error) {
+	blob [lnwire.OnionPacketSize]byte) (*channeldb.Invoice,
+	*lnwire.UpdateAddHTLC, uint64, error) {
 
 	var preimage [sha256.Size]byte
 	r, err := generateRandomBytes(sha256.Size)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, 0, err
 	}
 	copy(preimage[:], r)
 
@@ -772,7 +779,9 @@ func preparePayment(sendingPeer, receivingPeer lnpeer.Peer,
 	}
 
 	// Generate payment: invoice and htlc.
-	invoice, htlc, err := generatePayment(invoiceAmt, htlcAmt, timelock, blob)
+	invoice, htlc, pid, err := generatePayment(
+		invoiceAmt, htlcAmt, timelock, blob,
+	)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -786,7 +795,7 @@ func preparePayment(sendingPeer, receivingPeer lnpeer.Peer,
 	// Send payment and expose err channel.
 	return invoice, func() error {
 		_, err := sender.htlcSwitch.SendHTLC(
-			firstHop, htlc, newMockDeobfuscator(),
+			firstHop, pid, htlc, newMockDeobfuscator(),
 		)
 		return err
 	}, nil
@@ -1235,8 +1244,10 @@ func (n *twoHopNetwork) makeHoldPayment(sendingPeer, receivingPeer lnpeer.Peer,
 	rhash := preimage.Hash()
 
 	// Generate payment: invoice and htlc.
-	invoice, htlc, err := generatePaymentWithPreimage(invoiceAmt, htlcAmt, timelock, blob,
-		channeldb.UnknownPreimage, rhash)
+	invoice, htlc, pid, err := generatePaymentWithPreimage(
+		invoiceAmt, htlcAmt, timelock, blob,
+		channeldb.UnknownPreimage, rhash,
+	)
 	if err != nil {
 		paymentErr <- err
 		return paymentErr
@@ -1251,7 +1262,7 @@ func (n *twoHopNetwork) makeHoldPayment(sendingPeer, receivingPeer lnpeer.Peer,
 	// Send payment and expose err channel.
 	go func() {
 		_, err := sender.htlcSwitch.SendHTLC(
-			firstHop, htlc, newMockDeobfuscator(),
+			firstHop, pid, htlc, newMockDeobfuscator(),
 		)
 		paymentErr <- err
 	}()

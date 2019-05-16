@@ -6,6 +6,7 @@ import (
 	"image/color"
 	"math/rand"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -22,6 +23,8 @@ import (
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/zpay32"
 )
+
+var uniquePaymentID uint64 = 1 // to be used atomically
 
 type testCtx struct {
 	router *ChannelRouter
@@ -89,6 +92,10 @@ func createTestCtxFromGraphInstance(startingHeight uint32, graphInstance *testGr
 		GraphPruneInterval: time.Hour * 2,
 		QueryBandwidth: func(e *channeldb.ChannelEdgeInfo) lnwire.MilliSatoshi {
 			return lnwire.NewMSatFromSatoshis(e.Capacity)
+		},
+		NextPaymentID: func() (uint64, error) {
+			next := atomic.AddUint64(&uniquePaymentID, 1)
+			return next, nil
 		},
 	})
 	if err != nil {

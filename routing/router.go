@@ -134,6 +134,7 @@ type PaymentAttemptDispatcher interface {
 	// denoted by its public key. A non-nil error is to be returned if the
 	// payment was unsuccessful.
 	SendHTLC(firstHop lnwire.ShortChannelID,
+		paymentID uint64,
 		htlcAdd *lnwire.UpdateAddHTLC,
 		deobfuscator htlcswitch.ErrorDecrypter) ([sha256.Size]byte, error)
 }
@@ -207,6 +208,12 @@ type Config struct {
 	// date knowledge of the available bandwidth of the link should be
 	// returned.
 	QueryBandwidth func(edge *channeldb.ChannelEdgeInfo) lnwire.MilliSatoshi
+
+	// NextPaymentID is a method that guarantees to return a new, unique ID
+	// each time it is called. This is used by the router to generate a
+	// unique payment ID for each payment it attempts to send, such that
+	// the switch can properly handle the HTLC.
+	NextPaymentID func() (uint64, error)
 
 	// AssumeChannelValid toggles whether or not the router will check for
 	// spentness of channel outpoints. For neutrino, this saves long rescans
@@ -1715,8 +1722,15 @@ func (r *ChannelRouter) sendToSwitch(route *route.Route, paymentHash [32]byte) (
 		OnionErrorDecrypter: sphinx.NewOnionErrorDecrypter(circuit),
 	}
 
+	// We generate a new, unique payment ID that we will use for
+	// this HTLC.
+	paymentID, err := r.cfg.NextPaymentID()
+	if err != nil {
+		return [32]byte{}, err
+	}
+
 	return r.cfg.Payer.SendHTLC(
-		firstHop, htlcAdd, errorDecryptor,
+		firstHop, paymentID, htlcAdd, errorDecryptor,
 	)
 }
 

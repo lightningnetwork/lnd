@@ -14,6 +14,7 @@ type mockPaymentAttemptDispatcher struct {
 var _ PaymentAttemptDispatcher = (*mockPaymentAttemptDispatcher)(nil)
 
 func (m *mockPaymentAttemptDispatcher) SendHTLC(firstHop lnwire.ShortChannelID,
+	_ uint64,
 	_ *lnwire.UpdateAddHTLC,
 	_ htlcswitch.ErrorDecrypter) ([sha256.Size]byte, error) {
 

@@ -213,8 +213,6 @@ type Switch struct {
 	pendingPayments map[uint64]*pendingPayment
 	pendingMutex    sync.RWMutex
 
-	paymentSequencer Sequencer
-
 	// control provides verification of sending htlc mesages
 	control ControlTower
 
@@ -293,16 +291,10 @@ func New(cfg Config, currentHeight uint32) (*Switch, error) {
 		return nil, err
 	}
 
-	sequencer, err := NewPersistentSequencer(cfg.DB)
-	if err != nil {
-		return nil, err
-	}
-
 	return &Switch{
 		bestHeight:        currentHeight,
 		cfg:               &cfg,
 		circuits:          circuitMap,
-		paymentSequencer:  sequencer,
 		control:           NewPaymentControl(false, cfg.DB),
 		linkIndex:         make(map[lnwire.ChannelID]ChannelLink),
 		mailOrchestrator:  newMailOrchestrator(),
@@ -354,8 +346,9 @@ func (s *Switch) ProcessContractResolution(msg contractcourt.ResolutionMsg) erro
 }
 
 // SendHTLC is used by other subsystems which aren't belong to htlc switch
-// package in order to send the htlc update.
-func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID,
+// package in order to send the htlc update. The paymentID used MUST be unique
+// for this HTLC, otherwise the switch might reject it.
+func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID, paymentID uint64,
 	htlc *lnwire.UpdateAddHTLC,
 	deobfuscator ErrorDecrypter) ([sha256.Size]byte, error) {
 
@@ -374,11 +367,6 @@ func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID,
 		paymentHash:  htlc.PaymentHash,
 		amount:       htlc.Amount,
 		deobfuscator: deobfuscator,
-	}
-
-	paymentID, err := s.paymentSequencer.NextID()
-	if err != nil {
-		return zeroPreimage, err
 	}
 
 	s.pendingMutex.Lock()
@@ -407,6 +395,7 @@ func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID,
 	// Returns channels so that other subsystem might wait/skip the
 	// waiting of handling of payment.
 	var preimage [sha256.Size]byte
+	var err error
 
 	select {
 	case e := <-payment.err:

@@ -1670,24 +1670,6 @@ func (r *ChannelRouter) sendPaymentAttempt(paySession *paymentSession,
 		}),
 	)
 
-	preimage, err := r.sendToSwitch(route, paymentHash)
-	if err == nil {
-		return preimage, true, nil
-	}
-
-	log.Errorf("Attempt to send payment %x failed: %v",
-		paymentHash, err)
-
-	finalOutcome := r.processSendError(paySession, route, err)
-
-	return [32]byte{}, finalOutcome, err
-}
-
-// sendToSwitch sends a payment along the specified route and returns the
-// obtained preimage.
-func (r *ChannelRouter) sendToSwitch(route *route.Route, paymentHash [32]byte) (
-	[32]byte, error) {
-
 	// Generate the raw encoded sphinx packet to be included along
 	// with the htlcAdd message that we send directly to the
 	// switch.
@@ -1695,7 +1677,7 @@ func (r *ChannelRouter) sendToSwitch(route *route.Route, paymentHash [32]byte) (
 		route, paymentHash[:],
 	)
 	if err != nil {
-		return [32]byte{}, err
+		return [32]byte{}, true, err
 	}
 
 	// Craft an HTLC packet to send to the layer 2 switch. The
@@ -1726,12 +1708,22 @@ func (r *ChannelRouter) sendToSwitch(route *route.Route, paymentHash [32]byte) (
 	// this HTLC.
 	paymentID, err := r.cfg.NextPaymentID()
 	if err != nil {
-		return [32]byte{}, err
+		return [32]byte{}, true, err
 	}
 
-	return r.cfg.Payer.SendHTLC(
+	preimage, err := r.cfg.Payer.SendHTLC(
 		firstHop, paymentID, htlcAdd, errorDecryptor,
 	)
+	if err == nil {
+		return preimage, true, nil
+	}
+
+	log.Errorf("Attempt to send payment %x failed: %v",
+		paymentHash, err)
+
+	finalOutcome := r.processSendError(paySession, route, err)
+
+	return [32]byte{}, finalOutcome, err
 }
 
 // processSendError analyzes the error for the payment attempt received from the

@@ -1417,7 +1417,7 @@ func testSkipLinkLocalForward(t *testing.T, eligible bool,
 	// We'll attempt to send out a new HTLC that has Alice as the first
 	// outgoing link. This should fail as Alice isn't yet able to forward
 	// any active HTLC's.
-	_, err = s.SendHTLC(aliceChannelLink.ShortChanID(), 0, addMsg, nil)
+	err = s.SendHTLC(aliceChannelLink.ShortChanID(), 0, addMsg, nil)
 	if err == nil {
 		t.Fatalf("local forward should fail due to inactive link")
 	}
@@ -1738,14 +1738,39 @@ func TestSwitchSendPayment(t *testing.T) {
 		PaymentHash: rhash,
 		Amount:      1,
 	}
+	paymentID := uint64(123)
+
+	// First check that the switch will correctly respond that this payment
+	// ID is unknown.
+	_, err = s.GetPaymentResult(paymentID)
+	if err != ErrPaymentIDNotFound {
+		t.Fatalf("expected ErrPaymentIDNotFound, got %v", err)
+	}
 
 	// Handle the request and checks that bob channel link received it.
 	errChan := make(chan error)
 	go func() {
-		_, err := s.SendHTLC(
-			aliceChannelLink.ShortChanID(), 0, update,
+		err := s.SendHTLC(
+			aliceChannelLink.ShortChanID(), paymentID, update,
 			newMockDeobfuscator())
-		errChan <- err
+		if err != nil {
+			errChan <- err
+			return
+		}
+
+		resultChan, err := s.GetPaymentResult(paymentID)
+		if err != nil {
+			errChan <- err
+			return
+		}
+
+		result := <-resultChan
+		if result.Error != nil {
+			errChan <- result.Error
+			return
+		}
+
+		errChan <- nil
 	}()
 
 	select {

@@ -975,7 +975,8 @@ func TestGiveUp(t *testing.T) {
 }
 
 // TestDifferentFeePreferences ensures that the sweeper can have different
-// transactions for different fee preferences.
+// transactions for different fee preferences. These transactions should be
+// broadcast from highest to lowest fee rate.
 func TestDifferentFeePreferences(t *testing.T) {
 	ctx := createSweeperTestContext(t)
 
@@ -1009,27 +1010,25 @@ func TestDifferentFeePreferences(t *testing.T) {
 	}
 
 	// Start the sweeper's batch ticker, which should cause the sweep
-	// transactions to be broadcast.
+	// transactions to be broadcast in order of high to low fee preference.
 	ctx.tick()
 
-	ctx.receiveTx()
-	ctx.receiveTx()
+	// The first transaction broadcast should be the one spending the higher
+	// fee rate inputs.
+	sweepTx1 := ctx.receiveTx()
+	assertTxSweepsInputs(t, &sweepTx1, input1, input2)
+
+	// The second should be the one spending the lower fee rate inputs.
+	sweepTx2 := ctx.receiveTx()
+	assertTxSweepsInputs(t, &sweepTx2, input3)
 
 	// With the transactions broadcast, we'll mine a block to so that the
 	// result is delivered to each respective client.
 	ctx.backend.mine()
-
-	// We should expect to see a single transaction that sweeps the high fee
-	// preference inputs.
-	sweepTx1 := receiveSpendTx(t, resultChan1)
-	assertTxSweepsInputs(t, sweepTx1, input1, input2)
-	sweepTx2 := receiveSpendTx(t, resultChan2)
-	assertTxSweepsInputs(t, sweepTx2, input1, input2)
-
-	// We should expect to see a distinct transaction that sweeps the low
-	// fee preference inputs.
-	sweepTx3 := receiveSpendTx(t, resultChan3)
-	assertTxSweepsInputs(t, sweepTx3, input3)
+	resultChans := []chan Result{resultChan1, resultChan2, resultChan3}
+	for _, resultChan := range resultChans {
+		ctx.expectResult(resultChan, nil)
+	}
 
 	ctx.finish(1)
 }

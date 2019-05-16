@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -488,8 +489,17 @@ func (s *UtxoSweeper) collector(blockEpochs <-chan *chainntnfs.BlockEpoch,
 			s.timer = nil
 
 			// We'll attempt to cluster all of our inputs with
-			// similar fee rates.
-			for _, cluster := range s.clusterBySweepFeeRate() {
+			// similar fee rates. Before attempting to sweep them,
+			// we'll sort them in descending fee rate order. We do
+			// this to ensure any inputs which have had their fee
+			// rate bumped are broadcast first in order enforce the
+			// RBF policy.
+			inputClusters := s.clusterBySweepFeeRate()
+			sort.Slice(inputClusters, func(i, j int) bool {
+				return inputClusters[i].sweepFeeRate >
+					inputClusters[j].sweepFeeRate
+			})
+			for _, cluster := range inputClusters {
 				// Examine pending inputs and try to construct
 				// lists of inputs.
 				inputLists, err := s.getInputLists(

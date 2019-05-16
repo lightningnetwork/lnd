@@ -17,6 +17,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/ticker"
@@ -67,7 +68,7 @@ var (
 // updates to be received whether the payment has been rejected or proceed
 // successfully.
 type pendingPayment struct {
-	paymentHash lnwallet.PaymentHash
+	paymentHash lntypes.Hash
 	amount      lnwire.MilliSatoshi
 
 	preimage chan [sha256.Size]byte
@@ -913,7 +914,13 @@ func (s *Switch) handleLocalResponse(pkt *htlcPacket) {
 			return
 		}
 
-		paymentErr = s.parseFailedPayment(payment, pkt, htlc)
+		// The error reason will be unencypted in case this a local
+		// failure or a converted error.
+		unencrypted := pkt.localFailure || pkt.convertedError
+		paymentErr = s.parseFailedPayment(
+			payment, pkt.incomingHTLCID, payment.paymentHash,
+			unencrypted, pkt.isResolution, htlc,
+		)
 
 	default:
 		log.Warnf("Received unknown response type: %T", pkt.htlc)
@@ -931,11 +938,13 @@ func (s *Switch) handleLocalResponse(pkt *htlcPacket) {
 
 // parseFailedPayment determines the appropriate failure message to return to
 // a user initiated payment. The three cases handled are:
-// 1) A local failure, which should already plaintext.
-// 2) A resolution from the chain arbitrator,
-// 3) A failure from the remote party, which will need to be decrypted using the
-//      payment deobfuscator.
-func (s *Switch) parseFailedPayment(payment *pendingPayment, pkt *htlcPacket,
+// 1) An unencrypted failure, which should already plaintext.
+// 2) A resolution from the chain arbitrator, which possibly has no failure
+//    reason attached.
+// 3) A failure from the remote party, which will need to be decrypted using
+//    the payment deobfuscator.
+func (s *Switch) parseFailedPayment(payment *pendingPayment, paymentID uint64,
+	paymentHash lntypes.Hash, unencrypted, isResolution bool,
 	htlc *lnwire.UpdateFailHTLC) *ForwardingError {
 
 	var failure *ForwardingError
@@ -945,14 +954,14 @@ func (s *Switch) parseFailedPayment(payment *pendingPayment, pkt *htlcPacket,
 	// The payment never cleared the link, so we don't need to
 	// decrypt the error, simply decode it them report back to the
 	// user.
-	case pkt.localFailure || pkt.convertedError:
+	case unencrypted:
 		var userErr string
 		r := bytes.NewReader(htlc.Reason)
 		failureMsg, err := lnwire.DecodeFailure(r, 0)
 		if err != nil {
-			userErr = fmt.Sprintf("unable to decode onion failure, "+
-				"htlc with hash(%x): %v",
-				pkt.circuit.PaymentHash[:], err)
+			userErr = fmt.Sprintf("unable to decode onion "+
+				"failure (hash=%v, pid=%d): %v",
+				paymentHash, paymentID, err)
 			log.Error(userErr)
 
 			// As this didn't even clear the link, we don't need to
@@ -970,9 +979,10 @@ func (s *Switch) parseFailedPayment(payment *pendingPayment, pkt *htlcPacket,
 	// the first hop. In this case, we'll report a permanent
 	// channel failure as this means us, or the remote party had to
 	// go on chain.
-	case pkt.isResolution && htlc.Reason == nil:
-		userErr := fmt.Sprintf("payment was resolved " +
-			"on-chain, then cancelled back")
+	case isResolution && htlc.Reason == nil:
+		userErr := fmt.Sprintf("payment was resolved "+
+			"on-chain, then cancelled back (hash=%v, pid=%d)",
+			paymentHash, paymentID)
 		failure = &ForwardingError{
 			ErrorSource:    s.cfg.SelfKey,
 			ExtraMsg:       userErr,
@@ -999,9 +1009,9 @@ func (s *Switch) parseFailedPayment(payment *pendingPayment, pkt *htlcPacket,
 		// error. If we're unable to then we'll bail early.
 		failure, err = payment.deobfuscator.DecryptError(htlc.Reason)
 		if err != nil {
-			userErr := fmt.Sprintf("unable to de-obfuscate onion "+
-				"failure, htlc with hash(%x): %v",
-				pkt.circuit.PaymentHash[:], err)
+			userErr := fmt.Sprintf("unable to de-obfuscate "+
+				"onion failure (hash=%v, pid=%d): %v",
+				paymentHash, paymentID, err)
 			log.Error(userErr)
 			failure = &ForwardingError{
 				ErrorSource:    s.cfg.SelfKey,

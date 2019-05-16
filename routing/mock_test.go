@@ -14,8 +14,7 @@ var _ PaymentAttemptDispatcher = (*mockPaymentAttemptDispatcher)(nil)
 
 func (m *mockPaymentAttemptDispatcher) SendHTLC(firstHop lnwire.ShortChannelID,
 	pid uint64,
-	_ *lnwire.UpdateAddHTLC,
-	_ htlcswitch.ErrorDecrypter) error {
+	_ *lnwire.UpdateAddHTLC) error {
 
 	if m.onPayment == nil {
 		return nil
@@ -44,8 +43,8 @@ func (m *mockPaymentAttemptDispatcher) SendHTLC(firstHop lnwire.ShortChannelID,
 	return nil
 }
 
-func (m *mockPaymentAttemptDispatcher) GetPaymentResult(paymentID uint64) (
-	<-chan *htlcswitch.PaymentResult, error) {
+func (m *mockPaymentAttemptDispatcher) GetPaymentResult(paymentID uint64,
+	_ htlcswitch.ErrorDecrypter) (<-chan *htlcswitch.PaymentResult, error) {
 
 	c := make(chan *htlcswitch.PaymentResult, 1)
 	res, ok := m.results[paymentID]

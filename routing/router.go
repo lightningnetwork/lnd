@@ -134,15 +134,16 @@ type PaymentAttemptDispatcher interface {
 	// payment was unsuccessful.
 	SendHTLC(firstHop lnwire.ShortChannelID,
 		paymentID uint64,
-		htlcAdd *lnwire.UpdateAddHTLC,
-		deobfuscator htlcswitch.ErrorDecrypter) error
+		htlcAdd *lnwire.UpdateAddHTLC) error
 
 	// GetPaymentResult returns the the result of the payment attempt with
 	// the given paymentID. The method returns a channel where the payment
-	// result will be sent when available, or an error is encountered. If
-	// the paymentID is unknown, htlcswitch.ErrPaymentIDNotFound will be
-	// returned.
-	GetPaymentResult(paymentID uint64) (
+	// result will be sent when available, or an error is encountered
+	// during forwarding. When a result is received on the channel, the
+	// HTLC is guaranteed to no longer be in flight. The switch shutting
+	// down is signaled by closing the channel. If the paymentID is
+	// unknown, ErrPaymentIDNotFound will be returned.
+	GetPaymentResult(paymentID uint64, deobfuscator htlcswitch.ErrorDecrypter) (
 		<-chan *htlcswitch.PaymentResult, error)
 }
 
@@ -1710,13 +1711,6 @@ func (r *ChannelRouter) sendPaymentAttempt(paySession *paymentSession,
 		route.Hops[0].ChannelID,
 	)
 
-	// Using the created circuit, initialize the error decrypter so we can
-	// parse+decode any failures incurred by this payment within the
-	// switch.
-	errorDecryptor := &htlcswitch.SphinxErrorDecrypter{
-		OnionErrorDecrypter: sphinx.NewOnionErrorDecrypter(circuit),
-	}
-
 	// We generate a new, unique payment ID that we will use for
 	// this HTLC.
 	paymentID, err := r.cfg.NextPaymentID()
@@ -1725,7 +1719,7 @@ func (r *ChannelRouter) sendPaymentAttempt(paySession *paymentSession,
 	}
 
 	err = r.cfg.Payer.SendHTLC(
-		firstHop, paymentID, htlcAdd, errorDecryptor,
+		firstHop, paymentID, htlcAdd,
 	)
 	if err != nil {
 		log.Errorf("Failed sending attempt %d for payment %x to "+
@@ -1740,18 +1734,34 @@ func (r *ChannelRouter) sendPaymentAttempt(paySession *paymentSession,
 		return [32]byte{}, finalOutcome, err
 	}
 
+	// Using the created circuit, initialize the error decrypter so we can
+	// parse+decode any failures incurred by this payment within the
+	// switch.
+	errorDecryptor := &htlcswitch.SphinxErrorDecrypter{
+		OnionErrorDecrypter: sphinx.NewOnionErrorDecrypter(circuit),
+	}
+
 	// Now ask the switch to return the result of the payment when
 	// available.
-	resultChan, err := r.cfg.Payer.GetPaymentResult(paymentID)
+	resultChan, err := r.cfg.Payer.GetPaymentResult(
+		paymentID, errorDecryptor,
+	)
 	if err != nil {
 		log.Errorf("Failed getting result for paymentID %d "+
 			"from switch: %v", paymentID, err)
 		return [32]byte{}, true, err
 	}
 
-	var result *htlcswitch.PaymentResult
+	var (
+		result *htlcswitch.PaymentResult
+		ok     bool
+	)
 	select {
-	case result = <-resultChan:
+	case result, ok = <-resultChan:
+		if !ok {
+			return [32]byte{}, true, htlcswitch.ErrSwitchExiting
+		}
+
 	case <-r.quit:
 		return [32]byte{}, true, ErrRouterShuttingDown
 	}

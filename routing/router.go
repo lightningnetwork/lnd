@@ -126,6 +126,18 @@ type ChannelGraphSource interface {
 		e1, e2 *channeldb.ChannelEdgePolicy) error) error
 }
 
+// PaymentAttemptDispatcher is used by the router to send payment attempts onto
+// the network, and receive their results.
+type PaymentAttemptDispatcher interface {
+	// SendHTLC is a function that directs a link-layer switch to
+	// forward a fully encoded payment to the first hop in the route
+	// denoted by its public key. A non-nil error is to be returned if the
+	// payment was unsuccessful.
+	SendHTLC(firstHop lnwire.ShortChannelID,
+		htlcAdd *lnwire.UpdateAddHTLC,
+		deobfuscator htlcswitch.ErrorDecrypter) ([sha256.Size]byte, error)
+}
+
 // FeeSchema is the set fee configuration for a Lightning Node on the network.
 // Using the coefficients described within the schema, the required fee to
 // forward outgoing payments can be derived.
@@ -173,13 +185,10 @@ type Config struct {
 	// we need in order to properly maintain the channel graph.
 	ChainView chainview.FilteredChainView
 
-	// SendToSwitch is a function that directs a link-layer switch to
-	// forward a fully encoded payment to the first hop in the route
-	// denoted by its public key. A non-nil error is to be returned if the
-	// payment was unsuccessful.
-	SendToSwitch func(firstHop lnwire.ShortChannelID,
-		htlcAdd *lnwire.UpdateAddHTLC,
-		circuit *sphinx.Circuit) ([sha256.Size]byte, error)
+	// Payer is an instance of a PaymentAttemptDispatcher and is used by
+	// the router to send payment attempts onto the network, and receive
+	// their results.
+	Payer PaymentAttemptDispatcher
 
 	// ChannelPruneExpiry is the duration used to determine if a channel
 	// should be pruned or not. If the delta between now and when the
@@ -1698,8 +1707,16 @@ func (r *ChannelRouter) sendToSwitch(route *route.Route, paymentHash [32]byte) (
 	firstHop := lnwire.NewShortChanIDFromInt(
 		route.Hops[0].ChannelID,
 	)
-	return r.cfg.SendToSwitch(
-		firstHop, htlcAdd, circuit,
+
+	// Using the created circuit, initialize the error decrypter so we can
+	// parse+decode any failures incurred by this payment within the
+	// switch.
+	errorDecryptor := &htlcswitch.SphinxErrorDecrypter{
+		OnionErrorDecrypter: sphinx.NewOnionErrorDecrypter(circuit),
+	}
+
+	return r.cfg.Payer.SendHTLC(
+		firstHop, htlcAdd, errorDecryptor,
 	)
 }
 

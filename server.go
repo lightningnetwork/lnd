@@ -610,24 +610,10 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 	s.currentNodeAnn = nodeAnn
 
 	s.chanRouter, err = routing.New(routing.Config{
-		Graph:     chanGraph,
-		Chain:     cc.chainIO,
-		ChainView: cc.chainView,
-		SendToSwitch: func(firstHop lnwire.ShortChannelID,
-			htlcAdd *lnwire.UpdateAddHTLC,
-			circuit *sphinx.Circuit) ([32]byte, error) {
-
-			// Using the created circuit, initialize the error
-			// decrypter so we can parse+decode any failures
-			// incurred by this payment within the switch.
-			errorDecryptor := &htlcswitch.SphinxErrorDecrypter{
-				OnionErrorDecrypter: sphinx.NewOnionErrorDecrypter(circuit),
-			}
-
-			return s.htlcSwitch.SendHTLC(
-				firstHop, htlcAdd, errorDecryptor,
-			)
-		},
+		Graph:              chanGraph,
+		Chain:              cc.chainIO,
+		ChainView:          cc.chainView,
+		Payer:              s.htlcSwitch,
 		ChannelPruneExpiry: routing.DefaultChannelPruneExpiry,
 		GraphPruneInterval: time.Duration(time.Hour),
 		QueryBandwidth: func(edge *channeldb.ChannelEdgeInfo) lnwire.MilliSatoshi {

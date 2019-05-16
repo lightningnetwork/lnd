@@ -1748,16 +1748,6 @@ func TestSwitchSendPayment(t *testing.T) {
 		errChan <- err
 	}()
 
-	go func() {
-		// Send the payment with the same payment hash and same
-		// amount and check that it will be propagated successfully
-		_, err := s.SendHTLC(
-			aliceChannelLink.ShortChanID(), 0, update,
-			newMockDeobfuscator(),
-		)
-		errChan <- err
-	}()
-
 	select {
 	case packet := <-aliceChannelLink.packets:
 		if err := aliceChannelLink.completeCircuit(packet); err != nil {
@@ -1765,27 +1755,11 @@ func TestSwitchSendPayment(t *testing.T) {
 		}
 
 	case err := <-errChan:
-		if err != ErrPaymentInFlight {
+		if err != nil {
 			t.Fatalf("unable to send payment: %v", err)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("request was not propagated to destination")
-	}
-
-	select {
-	case packet := <-aliceChannelLink.packets:
-		if err := aliceChannelLink.completeCircuit(packet); err != nil {
-			t.Fatalf("unable to complete payment circuit: %v", err)
-		}
-
-	case err := <-errChan:
-		t.Fatalf("unable to send payment: %v", err)
-	case <-time.After(time.Second):
-		t.Fatal("request was not propagated to destination")
-	}
-
-	if s.numPendingPayments() != 1 {
-		t.Fatal("wrong amount of pending payments")
 	}
 
 	if s.circuits.NumOpen() != 1 {

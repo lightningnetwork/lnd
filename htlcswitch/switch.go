@@ -348,7 +348,8 @@ func (s *Switch) ProcessContractResolution(msg contractcourt.ResolutionMsg) erro
 
 // SendHTLC is used by other subsystems which aren't belong to htlc switch
 // package in order to send the htlc update. The paymentID used MUST be unique
-// for this HTLC, otherwise the switch might reject it.
+// for this HTLC, and MUST be used only once, otherwise the switch might reject
+// it.
 func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID, paymentID uint64,
 	htlc *lnwire.UpdateAddHTLC,
 	deobfuscator ErrorDecrypter) ([sha256.Size]byte, error) {

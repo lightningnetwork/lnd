@@ -880,53 +880,21 @@ func (s *Switch) handleLocalResponse(pkt *htlcPacket) {
 	// has been restarted since sending the payment.
 	payment := s.findPayment(pkt.incomingHTLCID)
 
-	var result *PaymentResult
+	// The error reason will be unencypted in case this a local
+	// failure or a converted error.
+	unencrypted := pkt.localFailure || pkt.convertedError
+	n := &networkResult{
+		msg:          pkt.htlc,
+		unencrypted:  unencrypted,
+		isResolution: pkt.isResolution,
+	}
 
-	switch htlc := pkt.htlc.(type) {
-
-	// We've received a settle update which means we can finalize the user
-	// payment and return successful response.
-	case *lnwire.UpdateFulfillHTLC:
-		// Persistently mark that a payment to this payment hash
-		// succeeded. This will prevent us from ever making another
-		// payment to this hash.
-		err := s.control.Success(pkt.circuit.PaymentHash)
-		if err != nil && err != ErrPaymentAlreadyCompleted {
-			log.Warnf("Unable to mark completed payment %x: %v",
-				pkt.circuit.PaymentHash, err)
-			return
-		}
-
-		result = &PaymentResult{
-			Preimage: htlc.PaymentPreimage,
-		}
-
-	// We've received a fail update which means we can finalize the user
-	// payment and return fail response.
-	case *lnwire.UpdateFailHTLC:
-		// Persistently mark that a payment to this payment hash failed.
-		// This will permit us to make another attempt at a successful
-		// payment.
-		err := s.control.Fail(pkt.circuit.PaymentHash)
-		if err != nil && err != ErrPaymentAlreadyCompleted {
-			log.Warnf("Unable to ground payment %x: %v",
-				pkt.circuit.PaymentHash, err)
-			return
-		}
-
-		// The error reason will be unencypted in case this a local
-		// failure or a converted error.
-		unencrypted := pkt.localFailure || pkt.convertedError
-		paymentErr := s.parseFailedPayment(
-			payment, pkt.incomingHTLCID, payment.paymentHash,
-			unencrypted, pkt.isResolution, htlc,
-		)
-		result = &PaymentResult{
-			Error: paymentErr,
-		}
-
-	default:
-		log.Warnf("Received unknown response type: %T", pkt.htlc)
+	result, err := s.extractResult(
+		payment, n, pkt.incomingHTLCID,
+		pkt.circuit.PaymentHash,
+	)
+	if err != nil {
+		log.Errorf("Unable to extract result: %v", err)
 		return
 	}
 
@@ -934,6 +902,55 @@ func (s *Switch) handleLocalResponse(pkt *htlcPacket) {
 	// waiting for a response.
 	if payment != nil {
 		payment.resultChan <- result
+	}
+}
+
+// extractResult uses the given deobfuscator to extract the payment result from
+// the given network message.
+func (s *Switch) extractResult(payment *pendingPayment, n *networkResult,
+	paymentID uint64, paymentHash lntypes.Hash) (*PaymentResult, error) {
+
+	switch htlc := n.msg.(type) {
+
+	// We've received a settle update which means we can finalize the user
+	// payment and return successful response.
+	case *lnwire.UpdateFulfillHTLC:
+		// Persistently mark that a payment to this payment hash
+		// succeeded. This will prevent us from ever making another
+		// payment to this hash.
+		err := s.control.Success(paymentHash)
+		if err != nil && err != ErrPaymentAlreadyCompleted {
+			return nil, fmt.Errorf("Unable to mark completed "+
+				"payment %x: %v", paymentHash, err)
+		}
+
+		return &PaymentResult{
+			Preimage: htlc.PaymentPreimage,
+		}, nil
+
+	// We've received a fail update which means we can finalize the
+	// user payment and return fail response.
+	case *lnwire.UpdateFailHTLC:
+		// Persistently mark that a payment to this payment hash
+		// failed. This will permit us to make another attempt at a
+		// successful payment.
+		err := s.control.Fail(paymentHash)
+		if err != nil && err != ErrPaymentAlreadyCompleted {
+			return nil, fmt.Errorf("Unable to ground payment "+
+				"%x: %v", paymentHash, err)
+		}
+		paymentErr := s.parseFailedPayment(
+			payment, paymentID, payment.paymentHash, n.unencrypted,
+			n.isResolution, htlc,
+		)
+
+		return &PaymentResult{
+			Error: paymentErr,
+		}, nil
+
+	default:
+		return nil, fmt.Errorf("Received unknown response type: %T",
+			htlc)
 	}
 }
 

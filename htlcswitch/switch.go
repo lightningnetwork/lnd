@@ -2206,15 +2206,6 @@ func (s *Switch) CircuitModifier() CircuitModifier {
 	return s.circuits
 }
 
-// numPendingPayments is helper function which returns the overall number of
-// pending user payments.
-func (s *Switch) numPendingPayments() int {
-	s.pendingMutex.RLock()
-	defer s.pendingMutex.RUnlock()
-
-	return len(s.pendingPayments)
-}
-
 // commitCircuits persistently adds a circuit to the switch's circuit map.
 func (s *Switch) commitCircuits(circuits ...*PaymentCircuit) (
 	*CircuitFwdActions, error) {

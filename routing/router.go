@@ -1404,12 +1404,22 @@ func (r *ChannelRouter) FindRoute(source, target route.Vertex,
 	return route, nil
 }
 
+// generateNewSessionKey generates a new ephemeral private key to be used for a
+// payment attempt.
+func generateNewSessionKey() (*btcec.PrivateKey, error) {
+	// Generate a new random session key to ensure that we don't trigger
+	// any replay.
+	//
+	// TODO(roasbeef): add more sources of randomness?
+	return btcec.NewPrivateKey(btcec.S256())
+}
+
 // generateSphinxPacket generates then encodes a sphinx packet which encodes
 // the onion route specified by the passed layer 3 route. The blob returned
 // from this function can immediately be included within an HTLC add packet to
 // be sent to the first hop within the route.
-func generateSphinxPacket(rt *route.Route, paymentHash []byte) ([]byte,
-	*sphinx.Circuit, error) {
+func generateSphinxPacket(rt *route.Route, paymentHash []byte,
+	sessionKey *btcec.PrivateKey) ([]byte, *sphinx.Circuit, error) {
 
 	// As a sanity check, we'll ensure that the set of hops has been
 	// properly filled in, otherwise, we won't actually be able to
@@ -1432,15 +1442,6 @@ func generateSphinxPacket(rt *route.Route, paymentHash []byte) ([]byte,
 			return spew.Sdump(sphinxPath[:sphinxPath.TrueRouteLength()])
 		}),
 	)
-
-	// Generate a new random session key to ensure that we don't trigger
-	// any replay.
-	//
-	// TODO(roasbeef): add more sources of randomness?
-	sessionKey, err := btcec.NewPrivateKey(btcec.S256())
-	if err != nil {
-		return nil, nil, err
-	}
 
 	// Next generate the onion routing packet which allows us to perform
 	// privacy preserving source routing across the network.
@@ -1677,11 +1678,16 @@ func (r *ChannelRouter) sendPaymentAttempt(paySession *paymentSession,
 		}),
 	)
 
+	// Generate a new key to be used for this attempt.
+	sessionKey, err := generateNewSessionKey()
+	if err != nil {
+		return [32]byte{}, true, err
+	}
 	// Generate the raw encoded sphinx packet to be included along
 	// with the htlcAdd message that we send directly to the
 	// switch.
 	onionBlob, circuit, err := generateSphinxPacket(
-		route, paymentHash[:],
+		route, paymentHash[:], sessionKey,
 	)
 	if err != nil {
 		return [32]byte{}, true, err

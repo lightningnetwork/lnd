@@ -574,6 +574,7 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 		log.Debugf("Invoice(%x): %v, amt=%v, expiry=%v",
 			rHash[:], s, amtPaid, expiry)
 	}
+
 	// First check the in-memory debug invoice index to see if this is an
 	// existing invoice added for debugging.
 	if invoice, ok := i.debugInvoices[rHash]; ok {
@@ -585,6 +586,46 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 			Hash:     rHash,
 			Preimage: &invoice.Terms.PaymentPreimage,
 		}, nil
+	}
+
+	// If any EOB data was provided, then we'll attempt to decode the TLV
+	// information included, as it may modify when/how we settle the HTLC.
+	if len(packetEOB) != 0 {
+		log.Infof("TLV packet other: %x", packetEOB)
+
+		// Atm, the only TLV field that we care about is the one that
+		// denotes a pre-image has been sent to us in the encrypted EOB, so
+		// we'll attempt to parse that out.
+		var (
+			preImage      [32]byte
+			blankPreImage [32]byte
+		)
+		tlvStream := tlv.NewStream(
+			wtwire.WriteElement, wtwire.ReadElement,
+			tlv.MakePrimitiveRecord(PreimageTLV, &preImage),
+		)
+		err := tlvStream.Decode(
+			bytes.NewReader(packetEOB), tlv.ParseModeRetain,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		// If something was acutally specified for this tag, then we'll
+		// check to see if it matches up with the payment hash.
+		paymentSecret := lntypes.Preimage(preImage)
+		if preImage != blankPreImage && paymentSecret.Matches(rHash) {
+
+			debugLog("settled")
+
+			// TODO(roasbeef): record settled spontaneous payment
+			// in DB
+
+			return &HodlEvent{
+				Hash:     rHash,
+				Preimage: &paymentSecret,
+			}, nil
+		}
 	}
 
 	// If this isn't a debug invoice, then we'll attempt to settle an

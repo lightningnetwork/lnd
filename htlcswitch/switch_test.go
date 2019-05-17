@@ -1417,7 +1417,7 @@ func testSkipLinkLocalForward(t *testing.T, eligible bool,
 	// We'll attempt to send out a new HTLC that has Alice as the first
 	// outgoing link. This should fail as Alice isn't yet able to forward
 	// any active HTLC's.
-	_, err = s.SendHTLC(aliceChannelLink.ShortChanID(), addMsg, nil)
+	err = s.SendHTLC(aliceChannelLink.ShortChanID(), 0, addMsg)
 	if err == nil {
 		t.Fatalf("local forward should fail due to inactive link")
 	}
@@ -1738,24 +1738,47 @@ func TestSwitchSendPayment(t *testing.T) {
 		PaymentHash: rhash,
 		Amount:      1,
 	}
+	paymentID := uint64(123)
+
+	// First check that the switch will correctly respond that this payment
+	// ID is unknown.
+	_, err = s.GetPaymentResult(
+		paymentID, newMockDeobfuscator(),
+	)
+	if err != ErrPaymentIDNotFound {
+		t.Fatalf("expected ErrPaymentIDNotFound, got %v", err)
+	}
 
 	// Handle the request and checks that bob channel link received it.
 	errChan := make(chan error)
 	go func() {
-		_, err := s.SendHTLC(
-			aliceChannelLink.ShortChanID(), update,
-			newMockDeobfuscator())
-		errChan <- err
-	}()
-
-	go func() {
-		// Send the payment with the same payment hash and same
-		// amount and check that it will be propagated successfully
-		_, err := s.SendHTLC(
-			aliceChannelLink.ShortChanID(), update,
-			newMockDeobfuscator(),
+		err := s.SendHTLC(
+			aliceChannelLink.ShortChanID(), paymentID, update,
 		)
-		errChan <- err
+		if err != nil {
+			errChan <- err
+			return
+		}
+
+		resultChan, err := s.GetPaymentResult(
+			paymentID, newMockDeobfuscator(),
+		)
+		if err != nil {
+			errChan <- err
+			return
+		}
+
+		result, ok := <-resultChan
+		if !ok {
+			errChan <- fmt.Errorf("shutting down")
+		}
+
+		if result.Error != nil {
+			errChan <- result.Error
+			return
+		}
+
+		errChan <- nil
 	}()
 
 	select {
@@ -1765,27 +1788,11 @@ func TestSwitchSendPayment(t *testing.T) {
 		}
 
 	case err := <-errChan:
-		if err != ErrPaymentInFlight {
+		if err != nil {
 			t.Fatalf("unable to send payment: %v", err)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("request was not propagated to destination")
-	}
-
-	select {
-	case packet := <-aliceChannelLink.packets:
-		if err := aliceChannelLink.completeCircuit(packet); err != nil {
-			t.Fatalf("unable to complete payment circuit: %v", err)
-		}
-
-	case err := <-errChan:
-		t.Fatalf("unable to send payment: %v", err)
-	case <-time.After(time.Second):
-		t.Fatal("request was not propagated to destination")
-	}
-
-	if s.numPendingPayments() != 1 {
-		t.Fatal("wrong amount of pending payments")
 	}
 
 	if s.circuits.NumOpen() != 1 {
@@ -1823,10 +1830,6 @@ func TestSwitchSendPayment(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("err wasn't received")
-	}
-
-	if s.numPendingPayments() != 0 {
-		t.Fatal("wrong amount of pending payments")
 	}
 }
 

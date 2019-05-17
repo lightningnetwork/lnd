@@ -2,7 +2,6 @@ package routing
 
 import (
 	"bytes"
-	"crypto/sha256"
 	"fmt"
 	"runtime"
 	"sync"
@@ -126,6 +125,28 @@ type ChannelGraphSource interface {
 		e1, e2 *channeldb.ChannelEdgePolicy) error) error
 }
 
+// PaymentAttemptDispatcher is used by the router to send payment attempts onto
+// the network, and receive their results.
+type PaymentAttemptDispatcher interface {
+	// SendHTLC is a function that directs a link-layer switch to
+	// forward a fully encoded payment to the first hop in the route
+	// denoted by its public key. A non-nil error is to be returned if the
+	// payment was unsuccessful.
+	SendHTLC(firstHop lnwire.ShortChannelID,
+		paymentID uint64,
+		htlcAdd *lnwire.UpdateAddHTLC) error
+
+	// GetPaymentResult returns the the result of the payment attempt with
+	// the given paymentID. The method returns a channel where the payment
+	// result will be sent when available, or an error is encountered
+	// during forwarding. When a result is received on the channel, the
+	// HTLC is guaranteed to no longer be in flight. The switch shutting
+	// down is signaled by closing the channel. If the paymentID is
+	// unknown, ErrPaymentIDNotFound will be returned.
+	GetPaymentResult(paymentID uint64, deobfuscator htlcswitch.ErrorDecrypter) (
+		<-chan *htlcswitch.PaymentResult, error)
+}
+
 // FeeSchema is the set fee configuration for a Lightning Node on the network.
 // Using the coefficients described within the schema, the required fee to
 // forward outgoing payments can be derived.
@@ -173,13 +194,10 @@ type Config struct {
 	// we need in order to properly maintain the channel graph.
 	ChainView chainview.FilteredChainView
 
-	// SendToSwitch is a function that directs a link-layer switch to
-	// forward a fully encoded payment to the first hop in the route
-	// denoted by its public key. A non-nil error is to be returned if the
-	// payment was unsuccessful.
-	SendToSwitch func(firstHop lnwire.ShortChannelID,
-		htlcAdd *lnwire.UpdateAddHTLC,
-		circuit *sphinx.Circuit) ([sha256.Size]byte, error)
+	// Payer is an instance of a PaymentAttemptDispatcher and is used by
+	// the router to send payment attempts onto the network, and receive
+	// their results.
+	Payer PaymentAttemptDispatcher
 
 	// ChannelPruneExpiry is the duration used to determine if a channel
 	// should be pruned or not. If the delta between now and when the
@@ -198,6 +216,12 @@ type Config struct {
 	// date knowledge of the available bandwidth of the link should be
 	// returned.
 	QueryBandwidth func(edge *channeldb.ChannelEdgeInfo) lnwire.MilliSatoshi
+
+	// NextPaymentID is a method that guarantees to return a new, unique ID
+	// each time it is called. This is used by the router to generate a
+	// unique payment ID for each payment it attempts to send, such that
+	// the switch can properly handle the HTLC.
+	NextPaymentID func() (uint64, error)
 
 	// AssumeChannelValid toggles whether or not the router will check for
 	// spentness of channel outpoints. For neutrino, this saves long rescans
@@ -1381,12 +1405,22 @@ func (r *ChannelRouter) FindRoute(source, target route.Vertex,
 	return route, nil
 }
 
+// generateNewSessionKey generates a new ephemeral private key to be used for a
+// payment attempt.
+func generateNewSessionKey() (*btcec.PrivateKey, error) {
+	// Generate a new random session key to ensure that we don't trigger
+	// any replay.
+	//
+	// TODO(roasbeef): add more sources of randomness?
+	return btcec.NewPrivateKey(btcec.S256())
+}
+
 // generateSphinxPacket generates then encodes a sphinx packet which encodes
 // the onion route specified by the passed layer 3 route. The blob returned
 // from this function can immediately be included within an HTLC add packet to
 // be sent to the first hop within the route.
-func generateSphinxPacket(rt *route.Route, paymentHash []byte) ([]byte,
-	*sphinx.Circuit, error) {
+func generateSphinxPacket(rt *route.Route, paymentHash []byte,
+	sessionKey *btcec.PrivateKey) ([]byte, *sphinx.Circuit, error) {
 
 	// As a sanity check, we'll ensure that the set of hops has been
 	// properly filled in, otherwise, we won't actually be able to
@@ -1409,15 +1443,6 @@ func generateSphinxPacket(rt *route.Route, paymentHash []byte) ([]byte,
 			return spew.Sdump(sphinxPath[:sphinxPath.TrueRouteLength()])
 		}),
 	)
-
-	// Generate a new random session key to ensure that we don't trigger
-	// any replay.
-	//
-	// TODO(roasbeef): add more sources of randomness?
-	sessionKey, err := btcec.NewPrivateKey(btcec.S256())
-	if err != nil {
-		return nil, nil, err
-	}
 
 	// Next generate the onion routing packet which allows us to perform
 	// privacy preserving source routing across the network.
@@ -1654,32 +1679,19 @@ func (r *ChannelRouter) sendPaymentAttempt(paySession *paymentSession,
 		}),
 	)
 
-	preimage, err := r.sendToSwitch(route, paymentHash)
-	if err == nil {
-		return preimage, true, nil
+	// Generate a new key to be used for this attempt.
+	sessionKey, err := generateNewSessionKey()
+	if err != nil {
+		return [32]byte{}, true, err
 	}
-
-	log.Errorf("Attempt to send payment %x failed: %v",
-		paymentHash, err)
-
-	finalOutcome := r.processSendError(paySession, route, err)
-
-	return [32]byte{}, finalOutcome, err
-}
-
-// sendToSwitch sends a payment along the specified route and returns the
-// obtained preimage.
-func (r *ChannelRouter) sendToSwitch(route *route.Route, paymentHash [32]byte) (
-	[32]byte, error) {
-
 	// Generate the raw encoded sphinx packet to be included along
 	// with the htlcAdd message that we send directly to the
 	// switch.
 	onionBlob, circuit, err := generateSphinxPacket(
-		route, paymentHash[:],
+		route, paymentHash[:], sessionKey,
 	)
 	if err != nil {
-		return [32]byte{}, err
+		return [32]byte{}, true, err
 	}
 
 	// Craft an HTLC packet to send to the layer 2 switch. The
@@ -1698,9 +1710,74 @@ func (r *ChannelRouter) sendToSwitch(route *route.Route, paymentHash [32]byte) (
 	firstHop := lnwire.NewShortChanIDFromInt(
 		route.Hops[0].ChannelID,
 	)
-	return r.cfg.SendToSwitch(
-		firstHop, htlcAdd, circuit,
+
+	// We generate a new, unique payment ID that we will use for
+	// this HTLC.
+	paymentID, err := r.cfg.NextPaymentID()
+	if err != nil {
+		return [32]byte{}, true, err
+	}
+
+	err = r.cfg.Payer.SendHTLC(
+		firstHop, paymentID, htlcAdd,
 	)
+	if err != nil {
+		log.Errorf("Failed sending attempt %d for payment %x to "+
+			"switch: %v", paymentID, paymentHash, err)
+
+		// We must inspect the error to know whether it was critical or
+		// not, to decide whether we should continue trying.
+		finalOutcome := r.processSendError(
+			paySession, route, err,
+		)
+
+		return [32]byte{}, finalOutcome, err
+	}
+
+	// Using the created circuit, initialize the error decrypter so we can
+	// parse+decode any failures incurred by this payment within the
+	// switch.
+	errorDecryptor := &htlcswitch.SphinxErrorDecrypter{
+		OnionErrorDecrypter: sphinx.NewOnionErrorDecrypter(circuit),
+	}
+
+	// Now ask the switch to return the result of the payment when
+	// available.
+	resultChan, err := r.cfg.Payer.GetPaymentResult(
+		paymentID, errorDecryptor,
+	)
+	if err != nil {
+		log.Errorf("Failed getting result for paymentID %d "+
+			"from switch: %v", paymentID, err)
+		return [32]byte{}, true, err
+	}
+
+	var (
+		result *htlcswitch.PaymentResult
+		ok     bool
+	)
+	select {
+	case result, ok = <-resultChan:
+		if !ok {
+			return [32]byte{}, true, htlcswitch.ErrSwitchExiting
+		}
+
+	case <-r.quit:
+		return [32]byte{}, true, ErrRouterShuttingDown
+	}
+
+	if result.Error != nil {
+		log.Errorf("Attempt to send payment %x failed: %v",
+			paymentHash, result.Error)
+
+		finalOutcome := r.processSendError(
+			paySession, route, result.Error,
+		)
+
+		return [32]byte{}, finalOutcome, result.Error
+	}
+
+	return result.Preimage, true, nil
 }
 
 // processSendError analyzes the error for the payment attempt received from the

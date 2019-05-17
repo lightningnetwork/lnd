@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
@@ -71,6 +72,10 @@ var (
 			Action: "write",
 		}},
 		"/walletrpc.WalletKit/EstimateFee": {{
+			Entity: "onchain",
+			Action: "read",
+		}},
+		"/walletrpc.WalletKit/PendingSweeps": {{
 			Entity: "onchain",
 			Action: "read",
 		}},
@@ -329,5 +334,78 @@ func (w *WalletKit) EstimateFee(ctx context.Context,
 
 	return &EstimateFeeResponse{
 		SatPerKw: int64(satPerKw),
+	}, nil
+}
+
+// PendingSweeps returns lists of on-chain outputs that lnd is currently
+// attempting to sweep within its central batching engine. Outputs with similar
+// fee rates are batched together in order to sweep them within a single
+// transaction. The fee rate of each sweeping transaction is determined by
+// taking the average fee rate of all the outputs it's trying to sweep.
+func (w *WalletKit) PendingSweeps(ctx context.Context,
+	in *PendingSweepsRequest) (*PendingSweepsResponse, error) {
+
+	// Retrieve all of the outputs the UtxoSweeper is currently trying to
+	// sweep.
+	pendingInputs, err := w.cfg.Sweeper.PendingInputs()
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert them into their respective RPC format.
+	rpcPendingSweeps := make([]*PendingSweep, 0, len(pendingInputs))
+	for _, pendingInput := range pendingInputs {
+		var witnessType WitnessType
+		switch pendingInput.WitnessType {
+		case input.CommitmentTimeLock:
+			witnessType = WitnessType_COMMITMENT_TIME_LOCK
+		case input.CommitmentNoDelay:
+			witnessType = WitnessType_COMMITMENT_NO_DELAY
+		case input.CommitmentRevoke:
+			witnessType = WitnessType_COMMITMENT_REVOKE
+		case input.HtlcOfferedRevoke:
+			witnessType = WitnessType_HTLC_OFFERED_REVOKE
+		case input.HtlcAcceptedRevoke:
+			witnessType = WitnessType_HTLC_ACCEPTED_REVOKE
+		case input.HtlcOfferedTimeoutSecondLevel:
+			witnessType = WitnessType_HTLC_OFFERED_TIMEOUT_SECOND_LEVEL
+		case input.HtlcAcceptedSuccessSecondLevel:
+			witnessType = WitnessType_HTLC_ACCEPTED_SUCCESS_SECOND_LEVEL
+		case input.HtlcOfferedRemoteTimeout:
+			witnessType = WitnessType_HTLC_OFFERED_REMOTE_TIMEOUT
+		case input.HtlcAcceptedRemoteSuccess:
+			witnessType = WitnessType_HTLC_ACCEPTED_REMOTE_SUCCESS
+		case input.HtlcSecondLevelRevoke:
+			witnessType = WitnessType_HTLC_SECOND_LEVEL_REVOKE
+		case input.WitnessKeyHash:
+			witnessType = WitnessType_WITNESS_KEY_HASH
+		case input.NestedWitnessKeyHash:
+			witnessType = WitnessType_NESTED_WITNESS_KEY_HASH
+		default:
+			log.Warnf("Unhandled witness type %v for input %v",
+				pendingInput.WitnessType, pendingInput.OutPoint)
+		}
+
+		op := &lnrpc.OutPoint{
+			TxidBytes:   pendingInput.OutPoint.Hash[:],
+			OutputIndex: pendingInput.OutPoint.Index,
+		}
+		amountSat := uint32(pendingInput.Amount)
+		satPerByte := uint32(pendingInput.LastFeeRate.FeePerKVByte() / 1000)
+		broadcastAttempts := uint32(pendingInput.BroadcastAttempts)
+		nextBroadcastHeight := uint32(pendingInput.NextBroadcastHeight)
+
+		rpcPendingSweeps = append(rpcPendingSweeps, &PendingSweep{
+			Outpoint:            op,
+			WitnessType:         witnessType,
+			AmountSat:           amountSat,
+			SatPerByte:          satPerByte,
+			BroadcastAttempts:   broadcastAttempts,
+			NextBroadcastHeight: nextBroadcastHeight,
+		})
+	}
+
+	return &PendingSweepsResponse{
+		PendingSweeps: rpcPendingSweeps,
 	}, nil
 }

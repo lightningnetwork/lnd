@@ -1,5 +1,6 @@
 syntax = "proto3";
 
+import "rpc.proto";
 import "signrpc/signer.proto";
 
 package walletrpc;
@@ -81,6 +82,127 @@ message EstimateFeeResponse {
     int64 sat_per_kw = 1;
 }
 
+enum WitnessType {
+    UNKNOWN_WITNESS = 0;
+
+    /*
+    A witness that allows us to spend the output of a commitment transaction
+    after a relative lock-time lockout.
+    */
+    COMMITMENT_TIME_LOCK = 1;
+
+    /*
+    A witness that allows us to spend a settled no-delay output immediately on a
+    counterparty's commitment transaction.
+    */
+    COMMITMENT_NO_DELAY = 2;
+
+    /*
+    A witness that allows us to sweep the settled output of a malicious
+    counterparty's who broadcasts a revoked commitment transaction.
+    */
+    COMMITMENT_REVOKE = 3;
+
+    /*
+    A witness that allows us to sweep an HTLC which we offered to the remote
+    party in the case that they broadcast a revoked commitment state.
+    */
+    HTLC_OFFERED_REVOKE = 4;
+
+    /*
+    A witness that allows us to sweep an HTLC output sent to us in the case that
+    the remote party broadcasts a revoked commitment state.
+    */
+    HTLC_ACCEPTED_REVOKE = 5;
+
+    /*
+    A witness that allows us to sweep an HTLC output that we extended to a
+    party, but was never fulfilled.  This HTLC output isn't directly on the
+    commitment transaction, but is the result of a confirmed second-level HTLC
+    transaction. As a result, we can only spend this after a CSV delay.
+    */
+    HTLC_OFFERED_TIMEOUT_SECOND_LEVEL = 6;
+
+    /*
+    A witness that allows us to sweep an HTLC output that was offered to us, and
+    for which we have a payment preimage. This HTLC output isn't directly on our
+    commitment transaction, but is the result of confirmed second-level HTLC
+    transaction. As a result, we can only spend this after a CSV delay.
+    */
+    HTLC_ACCEPTED_SUCCESS_SECOND_LEVEL = 7;
+
+    /*
+    A witness that allows us to sweep an HTLC that we offered to the remote
+    party which lies in the commitment transaction of the remote party. We can
+    spend this output after the absolute CLTV timeout of the HTLC as passed.
+    */
+    HTLC_OFFERED_REMOTE_TIMEOUT = 8;
+
+    /*
+    A witness that allows us to sweep an HTLC that was offered to us by the
+    remote party. We use this witness in the case that the remote party goes to
+    chain, and we know the pre-image to the HTLC. We can sweep this without any
+    additional timeout.
+    */
+    HTLC_ACCEPTED_REMOTE_SUCCESS = 9;
+
+    /*
+    A witness that allows us to sweep an HTLC from the remote party's commitment
+    transaction in the case that the broadcast a revoked commitment, but then
+    also immediately attempt to go to the second level to claim the HTLC.
+    */
+    HTLC_SECOND_LEVEL_REVOKE = 10;
+
+    /*
+    A witness type that allows us to spend a regular p2wkh output that's sent to
+    an output which is under complete control of the backing wallet.
+    */
+    WITNESS_KEY_HASH = 11;
+
+    /*
+    A witness type that allows us to sweep an output that sends to a nested P2SH
+    script that pays to a key solely under our control.
+    */
+    NESTED_WITNESS_KEY_HASH = 12;
+}
+
+message PendingSweep {
+    // The outpoint of the output we're attempting to sweep.
+    lnrpc.OutPoint outpoint = 1 [json_name = "outpoint"];
+
+    // The witness type of the output we're attempting to sweep.
+    WitnessType witness_type = 2 [json_name = "witness_type"];
+
+    // The value of the output we're attempting to sweep.
+    uint32 amount_sat = 3 [json_name = "amount_sat"];
+
+    /*
+    The fee rate we'll use to sweep the output. The fee rate is only determined
+    once a sweeping transaction for the output is created, so it's possible for
+    this to be 0 before this.
+    */
+    uint32 sat_per_byte = 4 [json_name = "sat_per_byte"];
+
+    // The number of broadcast attempts we've made to sweep the output.
+    uint32 broadcast_attempts = 5 [json_name = "broadcast_attempts"];
+
+    /*
+    The next height of the chain at which we'll attempt to broadcast the
+    sweep transaction of the output.
+    */
+    uint32 next_broadcast_height = 6 [json_name = "next_broadcast_height"];
+}
+
+message PendingSweepsRequest {
+}
+
+message PendingSweepsResponse {
+    /*
+    The set of outputs currently being swept by lnd's central batching engine.
+    */
+    repeated PendingSweep pending_sweeps = 1 [json_name = "pending_sweeps"];
+}
+
 service WalletKit {
     /**
     DeriveNextKey attempts to derive the *next* key within the key family
@@ -121,4 +243,16 @@ service WalletKit {
     achieve the confirmation target.
     */
     rpc EstimateFee(EstimateFeeRequest) returns (EstimateFeeResponse);
+
+    /*
+    PendingSweeps returns lists of on-chain outputs that lnd is currently
+    attempting to sweep within its central batching engine. Outputs with similar
+    fee rates are batched together in order to sweep them within a single
+    transaction.
+
+    NOTE: Some of the fields within PendingSweepsRequest are not guaranteed to
+    remain supported. This is an advanced API that depends on the internals of
+    the UtxoSweeper, so things may change.
+    */
+    rpc PendingSweeps(PendingSweepsRequest) returns (PendingSweepsResponse);
 }

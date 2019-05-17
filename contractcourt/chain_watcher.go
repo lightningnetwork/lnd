@@ -54,7 +54,7 @@ type RemoteUnilateralCloseInfo struct {
 	*lnwallet.UnilateralCloseSummary
 
 	// CommitSet is the set of known valid commitments at the time the
-	// remote party's commitemnt hit the chain.
+	// remote party's commitment hit the chain.
 	CommitSet CommitSet
 }
 

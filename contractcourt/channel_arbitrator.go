@@ -646,10 +646,20 @@ func (c *ChannelArbitrator) stateStep(
 		// As a new block has been connected to the end of the main
 		// chain, we'll check to see if we need to make any on-chain
 		// claims on behalf of the channel contract that we're
-		// arbitrating for.
-		chainActions, err := c.checkChainActions(triggerHeight, trigger)
+		// arbitrating for. If a commitment has confirmed, then we'll
+		// use the set snapshot from the chain, otherwise we'll use our
+		// current set.
+		var htlcs map[HtlcSetKey]htlcSet
+		if confCommitSet != nil {
+			htlcs = confCommitSet.toActiveHTLCSets()
+		} else {
+			htlcs = c.activeHTLCs
+		}
+		chainActions, err := c.checkLocalChainActions(
+			triggerHeight, trigger, htlcs, false,
+		)
 		if err != nil {
-			return StateError, closeTx, err
+			return StateDefault, nil, err
 		}
 
 		// If there are no actions to be made, then we'll remain in the
@@ -1105,15 +1115,15 @@ func (c *ChannelArbitrator) shouldGoOnChain(htlcExpiry, broadcastDelta,
 	return currentHeight >= broadcastCutOff
 }
 
-// checkChainActions is called for each new block connected to the end of the
-// main chain. Given the new block height, this new method will examine all
+// checkCommitChainActions is called for each new block connected to the end of
+// the main chain. Given the new block height, this new method will examine all
 // active HTLC's, and determine if we need to go on-chain to claim any of them.
 // A map of action -> []htlc is returned, detailing what action (if any) should
 // be performed for each HTLC. For timed out HTLC's, once the commitment has
 // been sufficiently confirmed, the HTLC's should be canceled backwards. For
 // redeemed HTLC's, we should send the pre-image back to the incoming link.
-func (c *ChannelArbitrator) checkChainActions(height uint32,
-	trigger transitionTrigger) (ChainActionMap, error) {
+func (c *ChannelArbitrator) checkCommitChainActions(height uint32,
+	trigger transitionTrigger, htlcs htlcSet) (ChainActionMap, error) {
 
 	// TODO(roasbeef): would need to lock channel? channel totem?
 	//  * race condition if adding and we broadcast, etc
@@ -1127,8 +1137,7 @@ func (c *ChannelArbitrator) checkChainActions(height uint32,
 	// First, we'll make an initial pass over the set of incoming and
 	// outgoing HTLC's to decide if we need to go on chain at all.
 	haveChainActions := false
-	localHTLCs := c.activeHTLCs[LocalHtlcSet]
-	for _, htlc := range localHTLCs.outgoingHTLCs {
+	for _, htlc := range htlcs.outgoingHTLCs {
 		// We'll need to go on-chain for an outgoing HTLC if it was
 		// never resolved downstream, and it's "close" to timing out.
 		toChain := c.shouldGoOnChain(
@@ -1149,7 +1158,7 @@ func (c *ChannelArbitrator) checkChainActions(height uint32,
 		haveChainActions = haveChainActions || toChain
 	}
 
-	for _, htlc := range localHTLCs.incomingHTLCs {
+	for _, htlc := range htlcs.incomingHTLCs {
 		// We'll need to go on-chain to pull an incoming HTLC iff we
 		// know the pre-image and it's close to timing out. We need to
 		// ensure that we claim the funds that our rightfully ours
@@ -1195,7 +1204,7 @@ func (c *ChannelArbitrator) checkChainActions(height uint32,
 	// active outgoing HTLC's to see if we either need to: sweep them after
 	// a timeout (then cancel backwards), cancel them backwards
 	// immediately, or watch them as they're still active contracts.
-	for _, htlc := range localHTLCs.outgoingHTLCs {
+	for _, htlc := range htlcs.outgoingHTLCs {
 		switch {
 		// If the HTLC is dust, then we can cancel it backwards
 		// immediately as there's no matching contract to arbitrate
@@ -1250,7 +1259,7 @@ func (c *ChannelArbitrator) checkChainActions(height uint32,
 	// observe the output on-chain if we don't In this last, case we'll
 	// either learn of it eventually from the outgoing HTLC, or the sender
 	// will timeout the HTLC.
-	for _, htlc := range localHTLCs.incomingHTLCs {
+	for _, htlc := range htlcs.incomingHTLCs {
 		log.Tracef("ChannelArbitrator(%v): watching chain to decide "+
 			"action for incoming htlc=%x", c.cfg.ChanPoint,
 			htlc.RHash[:])
@@ -1296,6 +1305,118 @@ func (c *ChannelArbitrator) isPreimageAvailable(hash lntypes.Hash) (bool,
 		channeldb.UnknownPreimage
 
 	return preimageAvailable, nil
+}
+
+// checkLocalChainActions is similar to checkCommitChainActions, but it also
+// examines the set of HTLCs on the remote party's commitment. This allows us
+// to ensure we're able to satisfy the HTLC timeout constraints for incoming vs
+// outgoing HTLCs.
+func (c *ChannelArbitrator) checkLocalChainActions(
+	height uint32, trigger transitionTrigger,
+	activeHTLCs map[HtlcSetKey]htlcSet,
+	commitsConfirmed bool) (ChainActionMap, error) {
+
+	// First, we'll check our local chain actions as normal. This will only
+	// examine HTLCs on our local commitment (timeout or settle).
+	localCommitActions, err := c.checkCommitChainActions(
+		height, trigger, activeHTLCs[LocalHtlcSet],
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// Next, we'll examine the remote commitment (and maybe a dangling one)
+	// to see if the set difference of our HTLCs is non-empty. If so, then
+	// we may need to cancel back some HTLCs if we decide go to chain.
+	remoteDanglingActions := c.checkRemoteDanglingActions(
+		height, activeHTLCs, commitsConfirmed,
+	)
+
+	// Finally, we'll merge the two set of chain actions.
+	localActions := make(ChainActionMap)
+	for chainAction, htlcs := range localCommitActions {
+		localActions[chainAction] = append(
+			localActions[chainAction], htlcs...,
+		)
+	}
+	for chainAction, htlcs := range remoteDanglingActions {
+		localActions[chainAction] = append(
+			localActions[chainAction], htlcs...,
+		)
+	}
+
+	return localActions, nil
+}
+
+// checkRemoteChainActions examines the set of remote commitments for any HTLCs
+// that are close to timing out. If we find any, then we'll return a set of
+// chain actions for HTLCs that are on our commitment, but not theirs to cancel
+// immediately.
+func (c *ChannelArbitrator) checkRemoteDanglingActions(
+	height uint32, activeHTLCs map[HtlcSetKey]htlcSet,
+	commitsConfirmed bool) ChainActionMap {
+
+	var (
+		pendingRemoteHTLCs []channeldb.HTLC
+		localHTLCs         = make(map[uint64]struct{})
+		remoteHTLCs        = make(map[uint64]channeldb.HTLC)
+		actionMap          = make(ChainActionMap)
+	)
+
+	// First, we'll construct two sets of the outgoing HTLCs: those on our
+	// local commitment, and those that are on the remote commitment(s).
+	for htlcSetKey, htlcs := range activeHTLCs {
+		if htlcSetKey.IsRemote {
+			for _, htlc := range htlcs.outgoingHTLCs {
+				remoteHTLCs[htlc.HtlcIndex] = htlc
+			}
+		} else {
+			for _, htlc := range htlcs.outgoingHTLCs {
+				localHTLCs[htlc.HtlcIndex] = struct{}{}
+			}
+		}
+	}
+
+	// With both sets constructed, we'll now compute the set difference of
+	// our two sets of HTLCs. This'll give us the HTLCs that exist on the
+	// remote commitment transaction, but not on ours.
+	for htlcIndex, htlc := range remoteHTLCs {
+		if _, ok := localHTLCs[htlcIndex]; ok {
+			continue
+		}
+
+		pendingRemoteHTLCs = append(pendingRemoteHTLCs, htlc)
+	}
+
+	// Finally, we'll examine all the pending remote HTLCs for those that
+	// have expired. If we find any, then we'll recommend that they be
+	// failed now so we can free up the incoming HTLC.
+	for _, htlc := range pendingRemoteHTLCs {
+		// We'll now check if we need to go to chain in order to cancel
+		// the incoming HTLC.
+		goToChain := c.shouldGoOnChain(
+			htlc.RefundTimeout, c.cfg.OutgoingBroadcastDelta,
+			height,
+		)
+
+		// If we don't need to go to chain, and no commitments have
+		// been confirmed, then we can move on. Otherwise, if
+		// commitments have been confirmed, then we need to cancel back
+		// *all* of the pending remote HTLCS.
+		if !goToChain && !commitsConfirmed {
+			continue
+		}
+
+		log.Tracef("ChannelArbitrator(%v): immediately "+
+			"htlc=%x about to timeout on remote commitment",
+			c.cfg.ChanPoint, htlc.RHash[:])
+
+		actionMap[HtlcFailNowAction] = append(
+			actionMap[HtlcFailNowAction], htlc,
+		)
+	}
+
+	return actionMap
 }
 
 // prepContractResolutions is called either int he case that we decide we need

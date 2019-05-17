@@ -132,8 +132,9 @@ func NewRouteFromHops(amtToSend lnwire.MilliSatoshi, timeLock uint32,
 
 // ToSphinxPath converts a complete route into a sphinx PaymentPath that
 // contains the per-hop paylods used to encoding the HTLC routing data for each
-// hop in the route.
-func (r *Route) ToSphinxPath() (*sphinx.PaymentPath, error) {
+// hop in the route. This method also accepts an optional EOB payload for the
+// final hop.
+func (r *Route) ToSphinxPath(destEOB []byte) (*sphinx.PaymentPath, error) {
 	var path sphinx.PaymentPath
 
 	// For each hop encoded within the route, we'll convert the hop struct
@@ -147,15 +148,9 @@ func (r *Route) ToSphinxPath() (*sphinx.PaymentPath, error) {
 			return nil, err
 		}
 
-		path[i] = sphinx.OnionHop{
-			NodePub: *pub,
-			HopData: sphinx.HopData{
-				// TODO(roasbeef): properly set realm, make
-				// sphinx type an enum actually?
-				Realm:         [1]byte{0},
-				ForwardAmount: uint64(hop.AmtToForward),
-				OutgoingCltv:  hop.OutgoingTimeLock,
-			},
+		hopData := sphinx.HopData{
+			ForwardAmount: uint64(hop.AmtToForward),
+			OutgoingCltv:  hop.OutgoingTimeLock,
 		}
 
 		// As a base case, the next hop is set to all zeroes in order
@@ -169,8 +164,18 @@ func (r *Route) ToSphinxPath() (*sphinx.PaymentPath, error) {
 		}
 
 		binary.BigEndian.PutUint64(
-			path[i].HopData.NextAddress[:], nextHop,
+			hopData.NextAddress[:], nextHop,
 		)
+
+		payload, err := sphinx.NewHopPayload(0, &hopData, destEOB)
+		if err != nil {
+			return nil, err
+		}
+
+		path[i] = sphinx.OnionHop{
+			NodePub:    *pub,
+			HopPayload: payload,
+		}
 	}
 
 	return &path, nil

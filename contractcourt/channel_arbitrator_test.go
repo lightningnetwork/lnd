@@ -1244,3 +1244,231 @@ func TestChannelArbitratorAlreadyForceClosed(t *testing.T) {
 		t.Fatal("expected to receive error response")
 	}
 }
+
+// TestChannelArbitratorDanglingCommitForceClose tests that if there're HTLCs
+// on the remote party's commitment, but not ours, and they're about to time
+// out, then we'll go on chain so we can cancel back the HTLCs on the incoming
+// commitment.
+func TestChannelArbitratorDanglingCommitForceClose(t *testing.T) {
+	t.Parallel()
+
+	type testCase struct {
+		htlcExpired       bool
+		remotePendingHTLC bool
+		confCommit        HtlcSetKey
+	}
+	var testCases []testCase
+
+	testOptions := []bool{true, false}
+	confOptions := []HtlcSetKey{
+		LocalHtlcSet, RemoteHtlcSet, RemotePendingHtlcSet,
+	}
+	for _, htlcExpired := range testOptions {
+		for _, remotePendingHTLC := range testOptions {
+			for _, commitConf := range confOptions {
+				switch {
+				// If the HTLC is on the remote commitment, and
+				// that one confirms, then there's no special
+				// behavior, we should play all the HTLCs on
+				// that remote commitment as normal.
+				case !remotePendingHTLC && commitConf == RemoteHtlcSet:
+					fallthrough
+
+				// If the HTLC is on the remote pending, and
+				// that confirms, then we don't have any
+				// special actions.
+				case remotePendingHTLC && commitConf == RemotePendingHtlcSet:
+					continue
+				}
+
+				testCases = append(testCases, testCase{
+					htlcExpired:       htlcExpired,
+					remotePendingHTLC: remotePendingHTLC,
+					confCommit:        commitConf,
+				})
+			}
+		}
+	}
+
+	fmt.Println(len(testCases))
+
+	for _, testCase := range testCases {
+		testCase := testCase
+		testName := fmt.Sprintf("testCase: htlcExpired=%v,"+
+			"remotePendingHTLC=%v,remotePendingCommitConf=%v",
+			testCase.htlcExpired, testCase.remotePendingHTLC,
+			testCase.confCommit)
+
+		t.Run(testName, func(t *testing.T) {
+			t.Parallel()
+
+			arbLog := &mockArbitratorLog{
+				state:     StateDefault,
+				newStates: make(chan ArbitratorState, 5),
+				resolvers: make(map[ContractResolver]struct{}),
+			}
+
+			chanArb, _, resolutions, blockEpochs, err := createTestChannelArbitrator(
+				arbLog,
+			)
+			if err != nil {
+				t.Fatalf("unable to create ChannelArbitrator: %v", err)
+			}
+			if err := chanArb.Start(); err != nil {
+				t.Fatalf("unable to start ChannelArbitrator: %v", err)
+			}
+			defer chanArb.Stop()
+
+			// Now that our channel arb has started, we'll set up
+			// its contract signals channel so we can send it
+			// various HTLC updates for this test.
+			htlcUpdates := make(chan *ContractUpdate)
+			signals := &ContractSignals{
+				HtlcUpdates: htlcUpdates,
+				ShortChanID: lnwire.ShortChannelID{},
+			}
+			chanArb.UpdateContractSignals(signals)
+
+			htlcKey := RemoteHtlcSet
+			if testCase.remotePendingHTLC {
+				htlcKey = RemotePendingHtlcSet
+			}
+
+			// Next, we'll send it a new HTLC that is set to expire
+			// in 10 blocks, this HTLC will only appear on the
+			// commitment transaction of the _remote_ party.
+			htlcIndex := uint64(99)
+			htlcExpiry := uint32(10)
+			danglingHTLC := channeldb.HTLC{
+				Incoming:      false,
+				Amt:           10000,
+				HtlcIndex:     htlcIndex,
+				RefundTimeout: htlcExpiry,
+			}
+			htlcUpdates <- &ContractUpdate{
+				HtlcKey: htlcKey,
+				Htlcs:   []channeldb.HTLC{danglingHTLC},
+			}
+
+			// At this point, we now have a split commitment state
+			// from the PoV of the channel arb. There's now an HTLC
+			// that only exists on the commitment transaction of
+			// the remote party.
+			errChan := make(chan error, 1)
+			respChan := make(chan *wire.MsgTx, 1)
+			switch {
+			// If we want an HTLC expiration trigger, then We'll
+			// now mine a block (height 5), which is 5 blocks away
+			// (our grace delta) from the expiry of that HTLC.
+			case testCase.htlcExpired:
+				blockEpochs <- &chainntnfs.BlockEpoch{Height: 5}
+
+			// Otherwise, we'll just trigger a regular force close
+			// request.
+			case !testCase.htlcExpired:
+				chanArb.forceCloseReqs <- &forceCloseReq{
+					errResp: errChan,
+					closeTx: respChan,
+				}
+
+			}
+
+			// At this point, the resolver should now have
+			// determined that it needs to go to chain in order to
+			// block off the redemption path so it can cancel the
+			// incoming HTLC.
+			assertStateTransitions(
+				t, arbLog.newStates, StateBroadcastCommit,
+				StateCommitmentBroadcasted,
+			)
+
+			// Next we'll craft a fake commitment transaction to
+			// send to signal that the channel has closed out on
+			// chain.
+			closeTx := &wire.MsgTx{
+				TxIn: []*wire.TxIn{
+					{
+						PreviousOutPoint: wire.OutPoint{},
+						Witness: [][]byte{
+							{0x9},
+						},
+					},
+				},
+			}
+
+			// We'll now signal to the channel arb that the HTLC
+			// has fully closed on chain. Our local commit set
+			// shows now HTLC on our commitment, but one on the
+			// remote commitment. This should result in the HTLC
+			// being canalled back. Also note that there're no HTLC
+			// resolutions sent since we have none on our
+			// commitment transaction.
+			uniCloseInfo := &LocalUnilateralCloseInfo{
+				SpendDetail: &chainntnfs.SpendDetail{},
+				LocalForceCloseSummary: &lnwallet.LocalForceCloseSummary{
+					CloseTx:         closeTx,
+					HtlcResolutions: &lnwallet.HtlcResolutions{},
+				},
+				ChannelCloseSummary: &channeldb.ChannelCloseSummary{},
+				CommitSet: CommitSet{
+					ConfCommitKey: &testCase.confCommit,
+					HtlcSets:      make(map[HtlcSetKey][]channeldb.HTLC),
+				},
+			}
+
+			// If the HTLC was meant to expire, then we'll mark the
+			// closing transaction at the proper expiry height
+			// since our comparison "need to timeout" comparison is
+			// based on the confirmation height.
+			if testCase.htlcExpired {
+				uniCloseInfo.SpendDetail.SpendingHeight = 5
+			}
+
+			// Depending on if we're testing the remote pending
+			// commitment or not, we'll populate either a fake
+			// dangling remote commitment, or a regular locked in
+			// one.
+			htlcs := []channeldb.HTLC{danglingHTLC}
+			if testCase.remotePendingHTLC {
+				uniCloseInfo.CommitSet.HtlcSets[RemotePendingHtlcSet] = htlcs
+			} else {
+				uniCloseInfo.CommitSet.HtlcSets[RemoteHtlcSet] = htlcs
+			}
+
+			chanArb.cfg.ChainEvents.LocalUnilateralClosure <- uniCloseInfo
+
+			// The channel arb should now transition to waiting
+			// until the HTLCs have been fully resolved.
+			assertStateTransitions(
+				t, arbLog.newStates, StateContractClosed,
+				StateWaitingFullResolution,
+			)
+
+			// Now that we've sent this signal, we should have that
+			// HTLC be cancelled back immediately.
+			select {
+			case msgs := <-resolutions:
+				if len(msgs) != 1 {
+					t.Fatalf("expected 1 message, "+
+						"instead got %v", len(msgs))
+				}
+
+				if msgs[0].HtlcIndex != htlcIndex {
+					t.Fatalf("wrong htlc index: expected %v, got %v",
+						htlcIndex, msgs[0].HtlcIndex)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatalf("resolution msgs not sent")
+			}
+
+			// There's no contract to send a fully resolve message,
+			// so instead, we'll mine another block which'll cause
+			// it to re-examine its state and realize there're no
+			// more HTLCs.
+			blockEpochs <- &chainntnfs.BlockEpoch{Height: 6}
+			assertStateTransitions(
+				t, arbLog.newStates, StateFullyResolved,
+			)
+		})
+	}
+}

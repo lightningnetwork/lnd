@@ -693,9 +693,6 @@ func (c *ChannelArbitrator) stateStep(
 			newLogClosure(func() string {
 				return spew.Sdump(chainActions)
 			}))
-		if err := c.log.LogChainActions(chainActions); err != nil {
-			return StateError, closeTx, err
-		}
 
 		// Depending on the type of trigger, we'll either "tunnel"
 		// through to a farther state, or just proceed linearly to the
@@ -838,11 +835,6 @@ func (c *ChannelArbitrator) stateStep(
 	case StateContractClosed:
 		// First, we'll fetch our chain actions, and both sets of
 		// resolutions so we can process them.
-		_, err := c.log.FetchChainActions()
-		if err != nil {
-			log.Errorf("unable to fetch chain actions: %v", err)
-			return StateError, closeTx, err
-		}
 		contractResolutions, err := c.log.FetchContractResolutions()
 		if err != nil {
 			log.Errorf("unable to fetch contract resolutions: %v",

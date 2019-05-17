@@ -438,18 +438,24 @@ func (c *ChannelArbitrator) relaunchResolvers() error {
 	commitHash := contractResolutions.CommitHash
 
 	// Reconstruct the htlc outpoints and data from the chain action log.
-	// The purpose of the constructed htlc map is to supplement to resolvers
-	// restored from database with extra data. Ideally this data is stored
-	// as part of the resolver in the log. This is a workaround to prevent a
-	// db migration.
+	// The purpose of the constructed htlc map is to supplement to
+	// resolvers restored from database with extra data. Ideally this data
+	// is stored as part of the resolver in the log. This is a workaround
+	// to prevent a db migration. We use all available htlc sets here in
+	// order to ensure we have complete coverage.
 	htlcMap := make(map[wire.OutPoint]*channeldb.HTLC)
-	chainActions, err := c.log.FetchChainActions()
-	if err != nil {
-		log.Errorf("unable to fetch chain actions: %v", err)
-		return err
-	}
-	for _, htlcs := range chainActions {
-		for _, htlc := range htlcs {
+	for _, htlcs := range c.activeHTLCs {
+		for _, htlc := range htlcs.incomingHTLCs {
+			htlc := htlc
+			outpoint := wire.OutPoint{
+				Hash:  commitHash,
+				Index: uint32(htlc.OutputIndex),
+			}
+			htlcMap[outpoint] = &htlc
+		}
+
+		for _, htlc := range htlcs.outgoingHTLCs {
+			htlc := htlc
 			outpoint := wire.OutPoint{
 				Hash:  commitHash,
 				Index: uint32(htlc.OutputIndex),

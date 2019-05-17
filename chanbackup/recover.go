@@ -42,7 +42,7 @@ type PeerConnector interface {
 func Recover(backups []Single, restorer ChannelRestorer,
 	peerConnector PeerConnector) error {
 
-	for _, backup := range backups {
+	for i, backup := range backups {
 		log.Infof("Restoring ChannelPoint(%v) to disk: ",
 			backup.FundingOutpoint)
 
@@ -55,7 +55,7 @@ func Recover(backups []Single, restorer ChannelRestorer,
 			"restore ChannelPoint(%v)",
 			backup.RemoteNodePub.SerializeCompressed(),
 			newLogClosure(func() string {
-				return spew.Sdump(backup.Addresses)
+				return spew.Sdump(backups[i].Addresses)
 			}), backup.FundingOutpoint)
 
 		err = peerConnector.ConnectPeer(

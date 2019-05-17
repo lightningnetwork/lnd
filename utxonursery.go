@@ -455,9 +455,11 @@ func (u *utxoNursery) IncubateOutputs(chanPoint wire.OutPoint,
 	// We'll examine all the baby outputs just inserted into the database,
 	// if the output has already expired, then we'll *immediately* sweep
 	// it. This may happen if the caller raced a block to call this method.
-	for _, babyOutput := range babyOutputs {
+	for i, babyOutput := range babyOutputs {
 		if uint32(bestHeight) >= babyOutput.expiry {
-			err = u.sweepCribOutput(babyOutput.expiry, &babyOutput)
+			err = u.sweepCribOutput(
+				babyOutput.expiry, &babyOutputs[i],
+			)
 			if err != nil {
 				return err
 			}
@@ -468,9 +470,9 @@ func (u *utxoNursery) IncubateOutputs(chanPoint wire.OutPoint,
 	// confirmation notification that will transition it to the
 	// kindergarten bucket.
 	if len(kidOutputs) != 0 {
-		for _, kidOutput := range kidOutputs {
+		for i := range kidOutputs {
 			err := u.registerPreschoolConf(
-				&kidOutput, broadcastHeight,
+				&kidOutputs[i], broadcastHeight,
 			)
 			if err != nil {
 				return err

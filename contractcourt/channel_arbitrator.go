@@ -161,14 +161,14 @@ type ContractReport struct {
 // htlcSet represents the set of active HTLCs on a given commitment
 // transaction.
 type htlcSet struct {
-	// incomingHTLCs is a map of all incoming HTLCs on our commitment
-	// transaction. We may potentially go onchain to claim the funds sent
-	// to us within this set.
+	// incomingHTLCs is a map of all incoming HTLCs on the target
+	// commitment transaction. We may potentially go onchain to claim the
+	// funds sent to us within this set.
 	incomingHTLCs map[uint64]channeldb.HTLC
 
-	// outgoingHTLCs is a map of all outgoing HTLCs on our commitment
-	// transaction. We may potentially go onchain to reclaim the funds that
-	// are currently in limbo.
+	// outgoingHTLCs is a map of all outgoing HTLCs on the target
+	// commitment transaction. We may potentially go onchain to reclaim the
+	// funds that are currently in limbo.
 	outgoingHTLCs map[uint64]channeldb.HTLC
 }
 
@@ -191,6 +191,30 @@ func newHtlcSet(htlcs []channeldb.HTLC) htlcSet {
 	}
 }
 
+// HtlcSetKey is a two-tuple that uniquely identifies a set of HTLCs on a
+// commitment transaction.
+type HtlcSetKey struct {
+	// IsRemote denotes if the HTLCs are on the remote commitment
+	// transaction.
+	IsRemote bool
+
+	// IsPending denotes if the commitment transaction that HTLCS are on
+	// are pending (the higher of two unrevoked commitments).
+	IsPending bool
+}
+
+var (
+	// LocalHtlcSet is the HtlcSetKey used for local commitments.
+	LocalHtlcSet = HtlcSetKey{IsRemote: false, IsPending: false}
+
+	// RemoteHtlcSet is the HtlcSetKey used for remote commitments.
+	RemoteHtlcSet = HtlcSetKey{IsRemote: true, IsPending: false}
+
+	// RemotePendingHtlcSet is the HtlcSetKey used for dangling remote
+	// commitment transactions.
+	RemotePendingHtlcSet = HtlcSetKey{IsRemote: true, IsPending: true}
+)
+
 // ChannelArbitrator is the on-chain arbitrator for a particular channel. The
 // struct will keep in sync with the current set of HTLCs on the commitment
 // transaction. The job of the attendant is to go on-chain to either settle or
@@ -207,9 +231,9 @@ type ChannelArbitrator struct {
 	// its next action, and the state of any unresolved contracts.
 	log ArbitratorLog
 
-	// activeHTLCs is the set of active incoming/outgoing HTLC's on the
-	// commitment transaction.
-	activeHTLCs htlcSet
+	// activeHTLCs is the set of active incoming/outgoing HTLC's on all
+	// currently valid commitment transactions.
+	activeHTLCs map[HtlcSetKey]htlcSet
 
 	// cfg contains all the functionality that the ChannelArbitrator requires
 	// to do its duty.
@@ -222,7 +246,7 @@ type ChannelArbitrator struct {
 	// htlcUpdates is a channel that is sent upon with new updates from the
 	// active channel. Each time a new commitment state is accepted, the
 	// set of HTLC's on the new state should be sent across this channel.
-	htlcUpdates <-chan []channeldb.HTLC
+	htlcUpdates <-chan *ContractUpdate
 
 	// activeResolvers is a slice of any active resolvers. This is used to
 	// be able to signal them for shutdown in the case that we shutdown.
@@ -252,15 +276,15 @@ type ChannelArbitrator struct {
 // NewChannelArbitrator returns a new instance of a ChannelArbitrator backed by
 // the passed config struct.
 func NewChannelArbitrator(cfg ChannelArbitratorConfig,
-	startingHTLCs []channeldb.HTLC, log ArbitratorLog) *ChannelArbitrator {
+	htlcSets map[HtlcSetKey]htlcSet, log ArbitratorLog) *ChannelArbitrator {
 
 	return &ChannelArbitrator{
 		log:              log,
 		signalUpdates:    make(chan *signalUpdateMsg),
-		htlcUpdates:      make(<-chan []channeldb.HTLC),
+		htlcUpdates:      make(<-chan *ContractUpdate),
 		resolutionSignal: make(chan struct{}),
 		forceCloseReqs:   make(chan *forceCloseReq),
-		activeHTLCs:      newHtlcSet(startingHTLCs),
+		activeHTLCs:      htlcSets,
 		cfg:              cfg,
 		quit:             make(chan struct{}),
 	}
@@ -335,7 +359,9 @@ func (c *ChannelArbitrator) Start() error {
 	// We'll now attempt to advance our state forward based on the current
 	// on-chain state, and our set of active contracts.
 	startingState := c.state
-	nextState, _, err := c.advanceState(triggerHeight, trigger)
+	nextState, _, err := c.advanceState(
+		triggerHeight, trigger, nil,
+	)
 	if err != nil {
 		switch err {
 
@@ -600,8 +626,9 @@ func (t transitionTrigger) String() string {
 // the appropriate state transition if necessary. The next state we transition
 // to is returned, Additionally, if the next transition results in a commitment
 // broadcast, the commitment transaction itself is returned.
-func (c *ChannelArbitrator) stateStep(triggerHeight uint32,
-	trigger transitionTrigger) (ArbitratorState, *wire.MsgTx, error) {
+func (c *ChannelArbitrator) stateStep(
+	triggerHeight uint32, trigger transitionTrigger,
+	confCommitSet *CommitSet) (ArbitratorState, *wire.MsgTx, error) {
 
 	var (
 		nextState ArbitratorState
@@ -932,8 +959,9 @@ func (c *ChannelArbitrator) launchResolvers(resolvers []ContractResolver) {
 // redundant transition, meaning that the state transition is a noop. The final
 // param is a callback that allows the caller to execute an arbitrary action
 // after each state transition.
-func (c *ChannelArbitrator) advanceState(triggerHeight uint32,
-	trigger transitionTrigger) (ArbitratorState, *wire.MsgTx, error) {
+func (c *ChannelArbitrator) advanceState(
+	triggerHeight uint32, trigger transitionTrigger,
+	confCommitSet *CommitSet) (ArbitratorState, *wire.MsgTx, error) {
 
 	var (
 		priorState   ArbitratorState
@@ -949,7 +977,7 @@ func (c *ChannelArbitrator) advanceState(triggerHeight uint32,
 			priorState)
 
 		nextState, closeTx, err := c.stateStep(
-			triggerHeight, trigger,
+			triggerHeight, trigger, confCommitSet,
 		)
 		if err != nil {
 			log.Errorf("ChannelArbitrator(%v): unable to advance "+
@@ -1099,7 +1127,8 @@ func (c *ChannelArbitrator) checkChainActions(height uint32,
 	// First, we'll make an initial pass over the set of incoming and
 	// outgoing HTLC's to decide if we need to go on chain at all.
 	haveChainActions := false
-	for _, htlc := range c.activeHTLCs.outgoingHTLCs {
+	localHTLCs := c.activeHTLCs[LocalHtlcSet]
+	for _, htlc := range localHTLCs.outgoingHTLCs {
 		// We'll need to go on-chain for an outgoing HTLC if it was
 		// never resolved downstream, and it's "close" to timing out.
 		toChain := c.shouldGoOnChain(
@@ -1120,7 +1149,7 @@ func (c *ChannelArbitrator) checkChainActions(height uint32,
 		haveChainActions = haveChainActions || toChain
 	}
 
-	for _, htlc := range c.activeHTLCs.incomingHTLCs {
+	for _, htlc := range localHTLCs.incomingHTLCs {
 		// We'll need to go on-chain to pull an incoming HTLC iff we
 		// know the pre-image and it's close to timing out. We need to
 		// ensure that we claim the funds that our rightfully ours
@@ -1166,7 +1195,7 @@ func (c *ChannelArbitrator) checkChainActions(height uint32,
 	// active outgoing HTLC's to see if we either need to: sweep them after
 	// a timeout (then cancel backwards), cancel them backwards
 	// immediately, or watch them as they're still active contracts.
-	for _, htlc := range c.activeHTLCs.outgoingHTLCs {
+	for _, htlc := range localHTLCs.outgoingHTLCs {
 		switch {
 		// If the HTLC is dust, then we can cancel it backwards
 		// immediately as there's no matching contract to arbitrate
@@ -1221,7 +1250,7 @@ func (c *ChannelArbitrator) checkChainActions(height uint32,
 	// observe the output on-chain if we don't In this last, case we'll
 	// either learn of it eventually from the outgoing HTLC, or the sender
 	// will timeout the HTLC.
-	for _, htlc := range c.activeHTLCs.incomingHTLCs {
+	for _, htlc := range localHTLCs.incomingHTLCs {
 		log.Tracef("ChannelArbitrator(%v): watching chain to decide "+
 			"action for incoming htlc=%x", c.cfg.ChanPoint,
 			htlc.RHash[:])
@@ -1671,7 +1700,7 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 			// Now that a new block has arrived, we'll attempt to
 			// advance our state forward.
 			nextState, _, err := c.advanceState(
-				uint32(bestHeight), chainTrigger,
+				uint32(bestHeight), chainTrigger, nil,
 			)
 			if err != nil {
 				log.Errorf("unable to advance state: %v", err)
@@ -1703,16 +1732,19 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 		// A new set of HTLC's has been added or removed from the
 		// commitment transaction. So we'll update our activeHTLCs map
 		// accordingly.
-		case newStateHTLCs := <-c.htlcUpdates:
-			// We'll wipe out our old set of HTLC's and instead
-			// monitor only the HTLC's that are still active on the
-			// current commitment state.
-			c.activeHTLCs = newHtlcSet(newStateHTLCs)
+		case htlcUpdate := <-c.htlcUpdates:
+			// We'll wipe out our old set of HTLC's for each
+			// htlcSetKey type included in this update in order to
+			// only monitor the HTLCs that are still active on this
+			// target commitment.
+			c.activeHTLCs[htlcUpdate.HtlcKey] = newHtlcSet(
+				htlcUpdate.Htlcs,
+			)
 
-			log.Tracef("ChannelArbitrator(%v): fresh set of "+
-				"htlcs=%v", c.cfg.ChanPoint,
+			log.Tracef("ChannelArbitrator(%v): fresh set of htlcs=%v",
+				c.cfg.ChanPoint,
 				newLogClosure(func() string {
-					return spew.Sdump(c.activeHTLCs)
+					return spew.Sdump(htlcUpdate)
 				}),
 			)
 
@@ -1734,7 +1766,7 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 			// We'll now advance our state machine until it reaches
 			// a terminal state, and the channel is marked resolved.
 			_, _, err = c.advanceState(
-				closeInfo.CloseHeight, coopCloseTrigger,
+				closeInfo.CloseHeight, coopCloseTrigger, nil,
 			)
 			if err != nil {
 				log.Errorf("unable to advance state: %v", err)
@@ -1794,7 +1826,7 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 			// a terminal state.
 			_, _, err = c.advanceState(
 				uint32(closeInfo.SpendingHeight),
-				localCloseTrigger,
+				localCloseTrigger, &closeInfo.CommitSet,
 			)
 			if err != nil {
 				log.Errorf("unable to advance state: %v", err)
@@ -1804,7 +1836,6 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 		// We'll examine our state to determine if we need to act at
 		// all.
 		case uniClosure := <-c.cfg.ChainEvents.RemoteUnilateralClosure:
-
 			log.Infof("ChannelArbitrator(%v): remote party has "+
 				"closed channel out on-chain", c.cfg.ChanPoint)
 
@@ -1816,12 +1847,6 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 				CommitResolution: uniClosure.CommitResolution,
 				HtlcResolutions:  *uniClosure.HtlcResolutions,
 			}
-
-			// As we're now acting upon an event triggered by the
-			// broadcast of the remote commitment transaction,
-			// we'll swap out our active HTLC set with the set
-			// present on their commitment.
-			c.activeHTLCs = newHtlcSet(uniClosure.RemoteCommit.Htlcs)
 
 			// When processing a unilateral close event, we'll
 			// transition to the ContractClosed state. We'll log
@@ -1856,7 +1881,7 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 			// a terminal state.
 			_, _, err = c.advanceState(
 				uint32(uniClosure.SpendingHeight),
-				remoteCloseTrigger,
+				remoteCloseTrigger, &uniClosure.CommitSet,
 			)
 			if err != nil {
 				log.Errorf("unable to advance state: %v", err)
@@ -1870,7 +1895,7 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 				"fully resolved!", c.cfg.ChanPoint)
 
 			nextState, _, err := c.advanceState(
-				uint32(bestHeight), chainTrigger,
+				uint32(bestHeight), chainTrigger, nil,
 			)
 			if err != nil {
 				log.Errorf("unable to advance state: %v", err)
@@ -1904,7 +1929,7 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 			}
 
 			nextState, closeTx, err := c.advanceState(
-				uint32(bestHeight), userTrigger,
+				uint32(bestHeight), userTrigger, nil,
 			)
 			if err != nil {
 				log.Errorf("unable to advance state: %v", err)

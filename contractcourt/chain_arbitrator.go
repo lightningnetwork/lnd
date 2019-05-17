@@ -296,8 +296,25 @@ func newActiveChannelArbitrator(channel *channeldb.OpenChannel,
 		return c.resolveContract(chanPoint, chanLog)
 	}
 
+	// Finally, we'll need to construct a series of htlc Sets based on all
+	// currently known valid commitments.
+	htlcSets := make(map[HtlcSetKey]htlcSet)
+	htlcSets[LocalHtlcSet] = newHtlcSet(channel.LocalCommitment.Htlcs)
+	htlcSets[RemoteHtlcSet] = newHtlcSet(channel.RemoteCommitment.Htlcs)
+
+	pendingRemoteCommitment, err := channel.RemoteCommitChainTip()
+	if err != nil && err != channeldb.ErrNoPendingCommit {
+		blockEpoch.Cancel()
+		return nil, err
+	}
+	if pendingRemoteCommitment != nil {
+		htlcSets[RemotePendingHtlcSet] = newHtlcSet(
+			pendingRemoteCommitment.Commitment.Htlcs,
+		)
+	}
+
 	return NewChannelArbitrator(
-		arbCfg, channel.LocalCommitment.Htlcs, chanLog,
+		arbCfg, htlcSets, chanLog,
 	), nil
 }
 
@@ -557,15 +574,27 @@ func (c *ChainArbitrator) Stop() error {
 	return nil
 }
 
+// ContractUpdate is a message packages the latest set of active HTLCs on a
+// commitment, and also identifies which commitment received a new set of
+// HTLCs.
+type ContractUpdate struct {
+	// HtlcKey identifies which commitment the HTLCs below are present on.
+	HtlcKey HtlcSetKey
+
+	// Htlcs are the of active HTLCs on the commitment identified by the
+	// above HtlcKey.
+	Htlcs []channeldb.HTLC
+}
+
 // ContractSignals wraps the two signals that affect the state of a channel
 // being watched by an arbitrator. The two signals we care about are: the
 // channel has a new set of HTLC's, and the remote party has just broadcast
 // their version of the commitment transaction.
 type ContractSignals struct {
-	// HtlcUpdates is a channel that once we new commitment updates takes
-	// place, the later set of HTLC's on the commitment transaction should
-	// be sent over.
-	HtlcUpdates chan []channeldb.HTLC
+	// HtlcUpdates is a channel that the link will use to update the
+	// designated channel arbitrator when the set of HTLCs on any valid
+	// commitment changes.
+	HtlcUpdates chan *ContractUpdate
 
 	// ShortChanID is the up to date short channel ID for a contract. This
 	// can change either if when the contract was added it didn't yet have

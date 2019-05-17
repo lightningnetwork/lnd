@@ -3035,8 +3035,10 @@ func (lc *LightningChannel) createCommitDiff(
 // The first return parameter is the signature for the commitment transaction
 // itself, while the second parameter is a slice of all HTLC signatures (if
 // any). The HTLC signatures are sorted according to the BIP 69 order of the
-// HTLC's on the commitment transaction.
-func (lc *LightningChannel) SignNextCommitment() (lnwire.Sig, []lnwire.Sig, error) {
+// HTLC's on the commitment transaction. Finally, the new set of pending HTLCs
+// for the remote party's commitment are also returned.
+func (lc *LightningChannel) SignNextCommitment() (lnwire.Sig, []lnwire.Sig, []channeldb.HTLC, error) {
+
 	lc.Lock()
 	defer lc.Unlock()
 
@@ -3052,7 +3054,7 @@ func (lc *LightningChannel) SignNextCommitment() (lnwire.Sig, []lnwire.Sig, erro
 	commitPoint := lc.channelState.RemoteNextRevocation
 	if lc.remoteCommitChain.hasUnackedCommitment() || commitPoint == nil {
 
-		return sig, htlcSigs, ErrNoWindow
+		return sig, htlcSigs, nil, ErrNoWindow
 	}
 
 	// Determine the last update on the remote log that has been locked in.
@@ -3067,7 +3069,7 @@ func (lc *LightningChannel) SignNextCommitment() (lnwire.Sig, []lnwire.Sig, erro
 		remoteACKedIndex, lc.localUpdateLog.logIndex, true, nil,
 	)
 	if err != nil {
-		return sig, htlcSigs, err
+		return sig, htlcSigs, nil, err
 	}
 
 	// Grab the next commitment point for the remote party. This will be
@@ -3089,7 +3091,7 @@ func (lc *LightningChannel) SignNextCommitment() (lnwire.Sig, []lnwire.Sig, erro
 		remoteACKedIndex, remoteHtlcIndex, keyRing,
 	)
 	if err != nil {
-		return sig, htlcSigs, err
+		return sig, htlcSigs, nil, err
 	}
 
 	walletLog.Tracef("ChannelPoint(%v): extending remote chain to height %v, "+
@@ -3114,7 +3116,7 @@ func (lc *LightningChannel) SignNextCommitment() (lnwire.Sig, []lnwire.Sig, erro
 		lc.localChanCfg, lc.remoteChanCfg, newCommitView,
 	)
 	if err != nil {
-		return sig, htlcSigs, err
+		return sig, htlcSigs, nil, err
 	}
 	lc.sigPool.SubmitSignBatch(sigBatch)
 
@@ -3125,12 +3127,12 @@ func (lc *LightningChannel) SignNextCommitment() (lnwire.Sig, []lnwire.Sig, erro
 	rawSig, err := lc.Signer.SignOutputRaw(newCommitView.txn, lc.signDesc)
 	if err != nil {
 		close(cancelChan)
-		return sig, htlcSigs, err
+		return sig, htlcSigs, nil, err
 	}
 	sig, err = lnwire.NewSigFromRawSignature(rawSig)
 	if err != nil {
 		close(cancelChan)
-		return sig, htlcSigs, err
+		return sig, htlcSigs, nil, err
 	}
 
 	// We'll need to send over the signatures to the remote party in the
@@ -3150,7 +3152,7 @@ func (lc *LightningChannel) SignNextCommitment() (lnwire.Sig, []lnwire.Sig, erro
 		// jobs.
 		if jobResp.Err != nil {
 			close(cancelChan)
-			return sig, htlcSigs, err
+			return sig, htlcSigs, nil, err
 		}
 
 		htlcSigs = append(htlcSigs, jobResp.Sig)
@@ -3161,11 +3163,11 @@ func (lc *LightningChannel) SignNextCommitment() (lnwire.Sig, []lnwire.Sig, erro
 	// can retransmit it if necessary.
 	commitDiff, err := lc.createCommitDiff(newCommitView, sig, htlcSigs)
 	if err != nil {
-		return sig, htlcSigs, err
+		return sig, htlcSigs, nil, err
 	}
 	err = lc.channelState.AppendRemoteCommitChain(commitDiff)
 	if err != nil {
-		return sig, htlcSigs, err
+		return sig, htlcSigs, nil, err
 	}
 
 	// TODO(roasbeef): check that one eclair bug
@@ -3176,7 +3178,7 @@ func (lc *LightningChannel) SignNextCommitment() (lnwire.Sig, []lnwire.Sig, erro
 	// latest commitment update.
 	lc.remoteCommitChain.addCommitment(newCommitView)
 
-	return sig, htlcSigs, nil
+	return sig, htlcSigs, commitDiff.Commitment.Htlcs, nil
 }
 
 // ProcessChanSyncMsg processes a ChannelReestablish message sent by the remote
@@ -3352,7 +3354,7 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 		// revocation, but also initiate a state transition to re-sync
 		// them.
 		if !lc.FullySynced() {
-			commitSig, htlcSigs, err := lc.SignNextCommitment()
+			commitSig, htlcSigs, _, err := lc.SignNextCommitment()
 			switch {
 
 			// If we signed this state, then we'll accumulate
@@ -4277,8 +4279,11 @@ func (lc *LightningChannel) RevokeCurrentCommitment() (*lnwire.RevokeAndAck, []c
 //      revocation.
 //   3. The PaymentDescriptor of any Settle/Fail HTLCs that were locked in by
 //      this revocation.
+//   4. The set of HTLCs present on the current valid commitment transaction
+//      for the remote party.
 func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
-	*channeldb.FwdPkg, []*PaymentDescriptor, []*PaymentDescriptor, error) {
+	*channeldb.FwdPkg, []*PaymentDescriptor, []*PaymentDescriptor,
+	[]channeldb.HTLC, error) {
 
 	lc.Lock()
 	defer lc.Unlock()
@@ -4287,10 +4292,10 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 	store := lc.channelState.RevocationStore
 	revocation, err := chainhash.NewHash(revMsg.Revocation[:])
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	if err := store.AddNextEntry(revocation); err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 
 	// Verify that if we use the commitment point computed based off of the
@@ -4299,7 +4304,7 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 	currentCommitPoint := lc.channelState.RemoteCurrentRevocation
 	derivedCommitPoint := input.ComputeCommitmentPoint(revMsg.Revocation[:])
 	if !derivedCommitPoint.IsEqual(currentCommitPoint) {
-		return nil, nil, nil, fmt.Errorf("revocation key mismatch")
+		return nil, nil, nil, nil, fmt.Errorf("revocation key mismatch")
 	}
 
 	// Now that we've verified that the prior commitment has been properly
@@ -4470,7 +4475,7 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 	// commitment chain.
 	err = lc.channelState.AdvanceCommitChainTail(fwdPkg)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 
 	// Since they revoked the current lowest height in their commitment
@@ -4485,7 +4490,9 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 		remoteChainTail,
 	)
 
-	return fwdPkg, addsToForward, settleFailsToForward, nil
+	remoteHTLCs := lc.channelState.RemoteCommitment.Htlcs
+
+	return fwdPkg, addsToForward, settleFailsToForward, remoteHTLCs, nil
 }
 
 // LoadFwdPkgs loads any pending log updates from disk and returns the payment

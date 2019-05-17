@@ -152,7 +152,7 @@ func createTestChannelArbitrator(log ArbitratorLog) (*ChannelArbitrator,
 	chanPoint := wire.OutPoint{}
 	shortChanID := lnwire.ShortChannelID{}
 	chanEvents := &ChainEventSubscription{
-		RemoteUnilateralClosure: make(chan *lnwallet.UnilateralCloseSummary, 1),
+		RemoteUnilateralClosure: make(chan *RemoteUnilateralCloseInfo, 1),
 		LocalUnilateralClosure:  make(chan *LocalUnilateralCloseInfo, 1),
 		CooperativeClosure:      make(chan *CooperativeCloseInfo, 1),
 		ContractBreach:          make(chan *lnwallet.BreachRetribution, 1),
@@ -328,7 +328,13 @@ func TestChannelArbitratorRemoteForceClose(t *testing.T) {
 		SpendDetail:     commitSpend,
 		HtlcResolutions: &lnwallet.HtlcResolutions{},
 	}
-	chanArb.cfg.ChainEvents.RemoteUnilateralClosure <- uniClose
+	chanArb.cfg.ChainEvents.RemoteUnilateralClosure <- &RemoteUnilateralCloseInfo{
+		UnilateralCloseSummary: uniClose,
+		CommitSet: CommitSet{
+			ConfCommitKey: &RemoteHtlcSet,
+			HtlcSets:      make(map[HtlcSetKey][]channeldb.HTLC),
+		},
+	}
 
 	// It should transition StateDefault -> StateContractClosed ->
 	// StateFullyResolved.
@@ -430,12 +436,12 @@ func TestChannelArbitratorLocalForceClose(t *testing.T) {
 
 	// Now notify about the local force close getting confirmed.
 	chanArb.cfg.ChainEvents.LocalUnilateralClosure <- &LocalUnilateralCloseInfo{
-		&chainntnfs.SpendDetail{},
-		&lnwallet.LocalForceCloseSummary{
+		SpendDetail: &chainntnfs.SpendDetail{},
+		LocalForceCloseSummary: &lnwallet.LocalForceCloseSummary{
 			CloseTx:         &wire.MsgTx{},
 			HtlcResolutions: &lnwallet.HtlcResolutions{},
 		},
-		&channeldb.ChannelCloseSummary{},
+		ChannelCloseSummary: &channeldb.ChannelCloseSummary{},
 	}
 
 	// It should transition StateContractClosed -> StateFullyResolved.
@@ -483,7 +489,7 @@ func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
 	defer chanArb.Stop()
 
 	// Create htlcUpdates channel.
-	htlcUpdates := make(chan []channeldb.HTLC)
+	htlcUpdates := make(chan *ContractUpdate)
 
 	signals := &ContractSignals{
 		HtlcUpdates: htlcUpdates,
@@ -492,14 +498,16 @@ func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
 	chanArb.UpdateContractSignals(signals)
 
 	// Add HTLC to channel arbitrator.
+	htlcIndex := uint64(99)
 	htlc := channeldb.HTLC{
 		Incoming:  false,
 		Amt:       10000,
-		HtlcIndex: 0,
+		HtlcIndex: htlcIndex,
 	}
 
-	htlcUpdates <- []channeldb.HTLC{
-		htlc,
+	htlcUpdates <- &ContractUpdate{
+		HtlcKey: LocalHtlcSet,
+		Htlcs:   []channeldb.HTLC{htlc},
 	}
 
 	errChan := make(chan error, 1)
@@ -572,8 +580,8 @@ func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
 	}
 
 	chanArb.cfg.ChainEvents.LocalUnilateralClosure <- &LocalUnilateralCloseInfo{
-		&chainntnfs.SpendDetail{},
-		&lnwallet.LocalForceCloseSummary{
+		SpendDetail: &chainntnfs.SpendDetail{},
+		LocalForceCloseSummary: &lnwallet.LocalForceCloseSummary{
 			CloseTx: closeTx,
 			HtlcResolutions: &lnwallet.HtlcResolutions{
 				OutgoingHTLCs: []lnwallet.OutgoingHtlcResolution{
@@ -581,7 +589,13 @@ func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
 				},
 			},
 		},
-		&channeldb.ChannelCloseSummary{},
+		ChannelCloseSummary: &channeldb.ChannelCloseSummary{},
+		CommitSet: CommitSet{
+			ConfCommitKey: &LocalHtlcSet,
+			HtlcSets: map[HtlcSetKey][]channeldb.HTLC{
+				LocalHtlcSet: {htlc},
+			},
+		},
 	}
 
 	assertStateTransitions(
@@ -627,7 +641,6 @@ func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
 
 	// At this point channel should be marked as resolved.
 	assertStateTransitions(t, arbLog.newStates, StateFullyResolved)
-
 	select {
 	case <-resolved:
 	case <-time.After(5 * time.Second):
@@ -726,7 +739,9 @@ func TestChannelArbitratorLocalForceCloseRemoteConfirmed(t *testing.T) {
 		SpendDetail:     commitSpend,
 		HtlcResolutions: &lnwallet.HtlcResolutions{},
 	}
-	chanArb.cfg.ChainEvents.RemoteUnilateralClosure <- uniClose
+	chanArb.cfg.ChainEvents.RemoteUnilateralClosure <- &RemoteUnilateralCloseInfo{
+		UnilateralCloseSummary: uniClose,
+	}
 
 	// It should transition StateContractClosed -> StateFullyResolved.
 	assertStateTransitions(t, log.newStates, StateContractClosed,
@@ -832,7 +847,9 @@ func TestChannelArbitratorLocalForceDoubleSpend(t *testing.T) {
 		SpendDetail:     commitSpend,
 		HtlcResolutions: &lnwallet.HtlcResolutions{},
 	}
-	chanArb.cfg.ChainEvents.RemoteUnilateralClosure <- uniClose
+	chanArb.cfg.ChainEvents.RemoteUnilateralClosure <- &RemoteUnilateralCloseInfo{
+		UnilateralCloseSummary: uniClose,
+	}
 
 	// It should transition StateContractClosed -> StateFullyResolved.
 	assertStateTransitions(t, log.newStates, StateContractClosed,
@@ -878,7 +895,9 @@ func TestChannelArbitratorPersistence(t *testing.T) {
 		SpendDetail:     commitSpend,
 		HtlcResolutions: &lnwallet.HtlcResolutions{},
 	}
-	chanArb.cfg.ChainEvents.RemoteUnilateralClosure <- uniClose
+	chanArb.cfg.ChainEvents.RemoteUnilateralClosure <- &RemoteUnilateralCloseInfo{
+		UnilateralCloseSummary: uniClose,
+	}
 
 	// Since writing the resolutions fail, the arbitrator should not
 	// advance to the next state.
@@ -909,7 +928,9 @@ func TestChannelArbitratorPersistence(t *testing.T) {
 	}
 
 	// Send a new remote force close event.
-	chanArb.cfg.ChainEvents.RemoteUnilateralClosure <- uniClose
+	chanArb.cfg.ChainEvents.RemoteUnilateralClosure <- &RemoteUnilateralCloseInfo{
+		UnilateralCloseSummary: uniClose,
+	}
 
 	// Since closing the channel failed, the arbitrator should stay in the
 	// default state.
@@ -934,7 +955,9 @@ func TestChannelArbitratorPersistence(t *testing.T) {
 
 	// Now make fetching the resolutions fail.
 	log.failFetch = fmt.Errorf("intentional fetch failure")
-	chanArb.cfg.ChainEvents.RemoteUnilateralClosure <- uniClose
+	chanArb.cfg.ChainEvents.RemoteUnilateralClosure <- &RemoteUnilateralCloseInfo{
+		UnilateralCloseSummary: uniClose,
+	}
 
 	// Since logging the resolutions and closing the channel now succeeds,
 	// it should advance to StateContractClosed.
@@ -1015,7 +1038,9 @@ func TestChannelArbitratorCommitFailure(t *testing.T) {
 					SpendDetail:     commitSpend,
 					HtlcResolutions: &lnwallet.HtlcResolutions{},
 				}
-				chanArb.cfg.ChainEvents.RemoteUnilateralClosure <- uniClose
+				chanArb.cfg.ChainEvents.RemoteUnilateralClosure <- &RemoteUnilateralCloseInfo{
+					UnilateralCloseSummary: uniClose,
+				}
 			},
 			expectedStates: []ArbitratorState{StateContractClosed, StateFullyResolved},
 		},
@@ -1023,12 +1048,12 @@ func TestChannelArbitratorCommitFailure(t *testing.T) {
 			closeType: channeldb.LocalForceClose,
 			sendEvent: func(chanArb *ChannelArbitrator) {
 				chanArb.cfg.ChainEvents.LocalUnilateralClosure <- &LocalUnilateralCloseInfo{
-					&chainntnfs.SpendDetail{},
-					&lnwallet.LocalForceCloseSummary{
+					SpendDetail: &chainntnfs.SpendDetail{},
+					LocalForceCloseSummary: &lnwallet.LocalForceCloseSummary{
 						CloseTx:         &wire.MsgTx{},
 						HtlcResolutions: &lnwallet.HtlcResolutions{},
 					},
-					&channeldb.ChannelCloseSummary{},
+					ChannelCloseSummary: &channeldb.ChannelCloseSummary{},
 				}
 			},
 			expectedStates: []ArbitratorState{StateContractClosed, StateFullyResolved},
@@ -1192,8 +1217,8 @@ func TestChannelArbitratorAlreadyForceClosed(t *testing.T) {
 	case <-chanArb.quit:
 	}
 
-	// Finally, we should ensure that we are not able to do so by seeing the
-	// expected errAlreadyForceClosed error.
+	// Finally, we should ensure that we are not able to do so by seeing
+	// the expected errAlreadyForceClosed error.
 	select {
 	case err = <-errChan:
 		if err != errAlreadyForceClosed {

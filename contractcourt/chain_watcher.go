@@ -30,18 +30,75 @@ const (
 	maxCommitPointPollTimeout = 10 * time.Minute
 )
 
-// LocalUnilateralCloseInfo encapsulates all the informnation we need to act
-// on a local force close that gets confirmed.
+// LocalUnilateralCloseInfo encapsulates all the information we need to act on
+// a local force close that gets confirmed.
 type LocalUnilateralCloseInfo struct {
 	*chainntnfs.SpendDetail
 	*lnwallet.LocalForceCloseSummary
 	*channeldb.ChannelCloseSummary
+
+	// CommitSet is the set of known valid commitments at the time the
+	// remote party's commitment hit the chain.
+	CommitSet CommitSet
 }
 
-// CooperativeCloseInfo encapsulates all the informnation we need to act
-// on a cooperative close that gets confirmed.
+// CooperativeCloseInfo encapsulates all the information we need to act on a
+// cooperative close that gets confirmed.
 type CooperativeCloseInfo struct {
 	*channeldb.ChannelCloseSummary
+}
+
+// RemoteUnilateralCloseInfo wraps the normal UnilateralCloseSummary to couple
+// the CommitSet at the time of channel closure.
+type RemoteUnilateralCloseInfo struct {
+	*lnwallet.UnilateralCloseSummary
+
+	// CommitSet is the set of known valid commitments at the time the
+	// remote party's commitemnt hit the chain.
+	CommitSet CommitSet
+}
+
+// CommitSet is a collection of the set of known valid commitments at a given
+// instant. If ConfCommitKey is set, then the commitment identified by the
+// HtlcSetKey has hit the chain. This struct will be used to examine all live
+// HTLCs to determine if any additional actions need to be made based on the
+// remote party's commitments.
+type CommitSet struct {
+	// ConfCommitKey if non-nil, identifies the commitment that was
+	// confirmed in the chain.
+	ConfCommitKey *HtlcSetKey
+
+	// HtlcSets stores the set of all known active HTLC for each active
+	// commitment at the time of channel closure.
+	HtlcSets map[HtlcSetKey][]channeldb.HTLC
+}
+
+// IsEmpty returns true if there are no HTLCs at all within all commitments
+// that are a part of this commitment diff.
+func (c *CommitSet) IsEmpty() bool {
+	if c == nil {
+		return true
+	}
+
+	for _, htlcs := range c.HtlcSets {
+		if len(htlcs) != 0 {
+			return false
+		}
+	}
+
+	return true
+}
+
+// toActiveHTLCSets returns the set of all active HTLCs across all commitment
+// transactions.
+func (c *CommitSet) toActiveHTLCSets() map[HtlcSetKey]htlcSet {
+	htlcSets := make(map[HtlcSetKey]htlcSet)
+
+	for htlcSetKey, htlcs := range c.HtlcSets {
+		htlcSets[htlcSetKey] = newHtlcSet(htlcs)
+	}
+
+	return htlcSets
 }
 
 // ChainEventSubscription is a struct that houses a subscription to be notified
@@ -55,7 +112,7 @@ type ChainEventSubscription struct {
 
 	// RemoteUnilateralClosure is a channel that will be sent upon in the
 	// event that the remote party's commitment transaction is confirmed.
-	RemoteUnilateralClosure chan *lnwallet.UnilateralCloseSummary
+	RemoteUnilateralClosure chan *RemoteUnilateralCloseInfo
 
 	// LocalUnilateralClosure is a channel that will be sent upon in the
 	// event that our commitment transaction is confirmed.
@@ -249,7 +306,7 @@ func (c *chainWatcher) SubscribeChannelEvents() *ChainEventSubscription {
 
 	sub := &ChainEventSubscription{
 		ChanPoint:               c.cfg.chanState.FundingOutpoint,
-		RemoteUnilateralClosure: make(chan *lnwallet.UnilateralCloseSummary, 1),
+		RemoteUnilateralClosure: make(chan *RemoteUnilateralCloseInfo, 1),
 		LocalUnilateralClosure:  make(chan *LocalUnilateralCloseInfo, 1),
 		CooperativeClosure:      make(chan *CooperativeCloseInfo, 1),
 		ContractBreach:          make(chan *lnwallet.BreachRetribution, 1),
@@ -373,6 +430,30 @@ func (c *chainWatcher) closeObserver(spendNtfn *chainntnfs.SpendEvent) {
 			return
 		}
 
+		// Fetch the current known commit height for the remote party,
+		// and their pending commitment chain tip if it exist.
+		remoteStateNum := remoteCommit.CommitHeight
+		remoteChainTip, err := c.cfg.chanState.RemoteCommitChainTip()
+		if err != nil && err != channeldb.ErrNoPendingCommit {
+			log.Errorf("unable to obtain chain tip for "+
+				"ChannelPoint(%v): %v",
+				c.cfg.chanState.FundingOutpoint, err)
+			return
+		}
+
+		// Now that we have all the possible valid commitments, we'll
+		// make the CommitSet the ChannelArbitrator will need it in
+		// order to carry out its duty.
+		commitSet := CommitSet{
+			HtlcSets: make(map[HtlcSetKey][]channeldb.HTLC),
+		}
+		commitSet.HtlcSets[LocalHtlcSet] = localCommit.Htlcs
+		commitSet.HtlcSets[RemoteHtlcSet] = remoteCommit.Htlcs
+		if remoteChainTip != nil {
+			htlcs := remoteChainTip.Commitment.Htlcs
+			commitSet.HtlcSets[RemotePendingHtlcSet] = htlcs
+		}
+
 		// We'll not retrieve the latest sate of the revocation store
 		// so we can populate the information within the channel state
 		// object that we have.
@@ -411,8 +492,10 @@ func (c *chainWatcher) closeObserver(spendNtfn *chainntnfs.SpendEvent) {
 		// as we don't have any further processing we need to do (we
 		// can't cheat ourselves :p).
 		if isOurCommit {
+			commitSet.ConfCommitKey = &LocalHtlcSet
+
 			if err := c.dispatchLocalForceClose(
-				commitSpend, *localCommit,
+				commitSpend, *localCommit, commitSet,
 			); err != nil {
 				log.Errorf("unable to handle local"+
 					"close for chan_point=%v: %v",
@@ -439,17 +522,6 @@ func (c *chainWatcher) closeObserver(spendNtfn *chainntnfs.SpendEvent) {
 		log.Warnf("Unprompted commitment broadcast for "+
 			"ChannelPoint(%v) ", c.cfg.chanState.FundingOutpoint)
 
-		// Fetch the current known commit height for the remote party,
-		// and their pending commitment chain tip if it exist.
-		remoteStateNum := remoteCommit.CommitHeight
-		remoteChainTip, err := c.cfg.chanState.RemoteCommitChainTip()
-		if err != nil && err != channeldb.ErrNoPendingCommit {
-			log.Errorf("unable to obtain chain tip for "+
-				"ChannelPoint(%v): %v",
-				c.cfg.chanState.FundingOutpoint, err)
-			return
-		}
-
 		// If this channel has been recovered, then we'll modify our
 		// behavior as it isn't possible for us to close out the
 		// channel off-chain ourselves. It can only be the remote party
@@ -465,9 +537,10 @@ func (c *chainWatcher) closeObserver(spendNtfn *chainntnfs.SpendEvent) {
 		// we'll trigger the unilateral close signal so subscribers can
 		// clean up the state as necessary.
 		case broadcastStateNum == remoteStateNum && !isRecoveredChan:
+			commitSet.ConfCommitKey = &RemoteHtlcSet
 
 			err := c.dispatchRemoteForceClose(
-				commitSpend, *remoteCommit,
+				commitSpend, *remoteCommit, commitSet,
 				c.cfg.chanState.RemoteCurrentRevocation,
 			)
 			if err != nil {
@@ -484,8 +557,10 @@ func (c *chainWatcher) closeObserver(spendNtfn *chainntnfs.SpendEvent) {
 		case broadcastStateNum == remoteStateNum+1 &&
 			remoteChainTip != nil && !isRecoveredChan:
 
+			commitSet.ConfCommitKey = &RemotePendingHtlcSet
+
 			err := c.dispatchRemoteForceClose(
-				commitSpend, remoteChainTip.Commitment,
+				commitSpend, *remoteCommit, commitSet,
 				c.cfg.chanState.RemoteNextRevocation,
 			)
 			if err != nil {
@@ -553,14 +628,15 @@ func (c *chainWatcher) closeObserver(spendNtfn *chainntnfs.SpendEvent) {
 				c.cfg.chanState.FundingOutpoint)
 
 			// Since we don't have the commitment stored for this
-			// state, we'll just pass an empty commitment. Note
-			// that this means we won't be able to recover any HTLC
-			// funds.
+			// state, we'll just pass an empty commitment within
+			// the commitment set. Note that this means we won't be
+			// able to recover any HTLC funds.
 			//
 			// TODO(halseth): can we try to recover some HTLCs?
+			commitSet.ConfCommitKey = &RemoteHtlcSet
 			err = c.dispatchRemoteForceClose(
 				commitSpend, channeldb.ChannelCommitment{},
-				commitPoint,
+				commitSet, commitPoint,
 			)
 			if err != nil {
 				log.Errorf("unable to handle remote "+
@@ -691,7 +767,7 @@ func (c *chainWatcher) dispatchCooperativeClose(commitSpend *chainntnfs.SpendDet
 // dispatchLocalForceClose processes a unilateral close by us being confirmed.
 func (c *chainWatcher) dispatchLocalForceClose(
 	commitSpend *chainntnfs.SpendDetail,
-	localCommit channeldb.ChannelCommitment) error {
+	localCommit channeldb.ChannelCommitment, commitSet CommitSet) error {
 
 	log.Infof("Local unilateral close of ChannelPoint(%v) "+
 		"detected", c.cfg.chanState.FundingOutpoint)
@@ -749,7 +825,10 @@ func (c *chainWatcher) dispatchLocalForceClose(
 	// With the event processed, we'll now notify all subscribers of the
 	// event.
 	closeInfo := &LocalUnilateralCloseInfo{
-		commitSpend, forceClose, closeSummary,
+		SpendDetail:            commitSpend,
+		LocalForceCloseSummary: forceClose,
+		ChannelCloseSummary:    closeSummary,
+		CommitSet:              commitSet,
 	}
 	c.Lock()
 	for _, sub := range c.clientSubscriptions {
@@ -781,7 +860,7 @@ func (c *chainWatcher) dispatchLocalForceClose(
 func (c *chainWatcher) dispatchRemoteForceClose(
 	commitSpend *chainntnfs.SpendDetail,
 	remoteCommit channeldb.ChannelCommitment,
-	commitPoint *btcec.PublicKey) error {
+	commitSet CommitSet, commitPoint *btcec.PublicKey) error {
 
 	log.Infof("Unilateral close of ChannelPoint(%v) "+
 		"detected", c.cfg.chanState.FundingOutpoint)
@@ -802,7 +881,10 @@ func (c *chainWatcher) dispatchRemoteForceClose(
 	c.Lock()
 	for _, sub := range c.clientSubscriptions {
 		select {
-		case sub.RemoteUnilateralClosure <- uniClose:
+		case sub.RemoteUnilateralClosure <- &RemoteUnilateralCloseInfo{
+			UnilateralCloseSummary: uniClose,
+			CommitSet:              commitSet,
+		}:
 		case <-c.quit:
 			c.Unlock()
 			return fmt.Errorf("exiting")

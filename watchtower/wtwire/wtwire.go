@@ -93,6 +93,11 @@ func WriteElement(w io.Writer, element interface{}) error {
 			return err
 		}
 
+	case *[32]byte:
+		if _, err := w.Write(e[:]); err != nil {
+			return err
+		}
+
 	case [33]byte:
 		if _, err := w.Write(e[:]); err != nil {
 			return err

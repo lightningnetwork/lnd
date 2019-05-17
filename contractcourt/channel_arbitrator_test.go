@@ -108,16 +108,6 @@ func (b *mockArbitratorLog) FetchContractResolutions() (*ContractResolutions, er
 	return b.resolutions, nil
 }
 
-func (b *mockArbitratorLog) LogChainActions(actions ChainActionMap) error {
-	b.chainActions = actions
-	return nil
-}
-
-func (b *mockArbitratorLog) FetchChainActions() (ChainActionMap, error) {
-	actionsMap := b.chainActions
-	return actionsMap, nil
-}
-
 func (b *mockArbitratorLog) WipeHistory() error {
 	return nil
 }
@@ -144,8 +134,11 @@ func (*mockChainIO) GetBlock(blockHash *chainhash.Hash) (*wire.MsgBlock, error) 
 }
 
 func createTestChannelArbitrator(log ArbitratorLog) (*ChannelArbitrator,
-	chan struct{}, error) {
+	chan struct{}, chan []ResolutionMsg, chan *chainntnfs.BlockEpoch, error) {
+
+	blockEpochs := make(chan *chainntnfs.BlockEpoch)
 	blockEpoch := &chainntnfs.BlockEpochEvent{
+		Epochs: blockEpochs,
 		Cancel: func() {},
 	}
 
@@ -158,13 +151,16 @@ func createTestChannelArbitrator(log ArbitratorLog) (*ChannelArbitrator,
 		ContractBreach:          make(chan *lnwallet.BreachRetribution, 1),
 	}
 
+	resolutionChan := make(chan []ResolutionMsg, 1)
+
 	chainIO := &mockChainIO{}
 	chainArbCfg := ChainArbitratorConfig{
 		ChainIO: chainIO,
 		PublishTx: func(*wire.MsgTx) error {
 			return nil
 		},
-		DeliverResolutionMsg: func(...ResolutionMsg) error {
+		DeliverResolutionMsg: func(msgs ...ResolutionMsg) error {
+			resolutionChan <- msgs
 			return nil
 		},
 		OutgoingBroadcastDelta: 5,
@@ -213,7 +209,9 @@ func createTestChannelArbitrator(log ArbitratorLog) (*ChannelArbitrator,
 		ChainEvents:           chanEvents,
 	}
 
-	return NewChannelArbitrator(arbCfg, nil, log), resolvedChan, nil
+	htlcSets := make(map[HtlcSetKey]htlcSet)
+	return NewChannelArbitrator(arbCfg, htlcSets, log), resolvedChan,
+		resolutionChan, blockEpochs, nil
 }
 
 // assertState checks that the ChannelArbitrator is in the state we expect it
@@ -233,7 +231,7 @@ func TestChannelArbitratorCooperativeClose(t *testing.T) {
 		newStates: make(chan ArbitratorState, 5),
 	}
 
-	chanArb, resolved, err := createTestChannelArbitrator(log)
+	chanArb, resolved, _, _, err := createTestChannelArbitrator(log)
 	if err != nil {
 		t.Fatalf("unable to create ChannelArbitrator: %v", err)
 	}
@@ -306,7 +304,7 @@ func TestChannelArbitratorRemoteForceClose(t *testing.T) {
 		newStates: make(chan ArbitratorState, 5),
 	}
 
-	chanArb, resolved, err := createTestChannelArbitrator(log)
+	chanArb, resolved, _, _, err := createTestChannelArbitrator(log)
 	if err != nil {
 		t.Fatalf("unable to create ChannelArbitrator: %v", err)
 	}
@@ -360,7 +358,7 @@ func TestChannelArbitratorLocalForceClose(t *testing.T) {
 		newStates: make(chan ArbitratorState, 5),
 	}
 
-	chanArb, resolved, err := createTestChannelArbitrator(log)
+	chanArb, resolved, _, _, err := createTestChannelArbitrator(log)
 	if err != nil {
 		t.Fatalf("unable to create ChannelArbitrator: %v", err)
 	}
@@ -467,7 +465,9 @@ func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
 		resolvers: make(map[ContractResolver]struct{}),
 	}
 
-	chanArb, resolved, err := createTestChannelArbitrator(arbLog)
+	chanArb, resolved, resolutions, _, err := createTestChannelArbitrator(
+		arbLog,
+	)
 	if err != nil {
 		t.Fatalf("unable to create ChannelArbitrator: %v", err)
 	}
@@ -627,6 +627,22 @@ func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
 	// spent.
 	notifier.spendChan <- &chainntnfs.SpendDetail{SpendingTx: closeTx}
 
+	// Finally, we should also receive a resolution message instructing the
+	// switch to cancel back the HTLC.
+	select {
+	case msgs := <-resolutions:
+		if len(msgs) != 1 {
+			t.Fatalf("expected 1 message, instead got %v", len(msgs))
+		}
+
+		if msgs[0].HtlcIndex != htlcIndex {
+			t.Fatalf("wrong htlc index: expected %v, got %v",
+				htlcIndex, msgs[0].HtlcIndex)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatalf("resolution msgs not sent")
+	}
+
 	// As this is our own commitment transaction, the HTLC will go through
 	// to the second level. Channel arbitrator should still not be marked
 	// as resolved.
@@ -657,7 +673,7 @@ func TestChannelArbitratorLocalForceCloseRemoteConfirmed(t *testing.T) {
 		newStates: make(chan ArbitratorState, 5),
 	}
 
-	chanArb, resolved, err := createTestChannelArbitrator(log)
+	chanArb, resolved, _, _, err := createTestChannelArbitrator(log)
 	if err != nil {
 		t.Fatalf("unable to create ChannelArbitrator: %v", err)
 	}
@@ -766,7 +782,7 @@ func TestChannelArbitratorLocalForceDoubleSpend(t *testing.T) {
 		newStates: make(chan ArbitratorState, 5),
 	}
 
-	chanArb, resolved, err := createTestChannelArbitrator(log)
+	chanArb, resolved, _, _, err := createTestChannelArbitrator(log)
 	if err != nil {
 		t.Fatalf("unable to create ChannelArbitrator: %v", err)
 	}
@@ -874,7 +890,7 @@ func TestChannelArbitratorPersistence(t *testing.T) {
 		failLog:   true,
 	}
 
-	chanArb, resolved, err := createTestChannelArbitrator(log)
+	chanArb, resolved, _, _, err := createTestChannelArbitrator(log)
 	if err != nil {
 		t.Fatalf("unable to create ChannelArbitrator: %v", err)
 	}
@@ -908,7 +924,7 @@ func TestChannelArbitratorPersistence(t *testing.T) {
 	chanArb.Stop()
 
 	// Create a new arbitrator with the same log.
-	chanArb, resolved, err = createTestChannelArbitrator(log)
+	chanArb, resolved, _, _, err = createTestChannelArbitrator(log)
 	if err != nil {
 		t.Fatalf("unable to create ChannelArbitrator: %v", err)
 	}
@@ -941,7 +957,7 @@ func TestChannelArbitratorPersistence(t *testing.T) {
 	chanArb.Stop()
 
 	// Create yet another arbitrator with the same log.
-	chanArb, resolved, err = createTestChannelArbitrator(log)
+	chanArb, resolved, _, _, err = createTestChannelArbitrator(log)
 	if err != nil {
 		t.Fatalf("unable to create ChannelArbitrator: %v", err)
 	}
@@ -975,7 +991,7 @@ func TestChannelArbitratorPersistence(t *testing.T) {
 
 	// Create a new arbitrator, and now make fetching resolutions succeed.
 	log.failFetch = nil
-	chanArb, resolved, err = createTestChannelArbitrator(log)
+	chanArb, resolved, _, _, err = createTestChannelArbitrator(log)
 	if err != nil {
 		t.Fatalf("unable to create ChannelArbitrator: %v", err)
 	}
@@ -1071,7 +1087,7 @@ func TestChannelArbitratorCommitFailure(t *testing.T) {
 			failCommitState: test.expectedStates[0],
 		}
 
-		chanArb, resolved, err := createTestChannelArbitrator(log)
+		chanArb, resolved, _, _, err := createTestChannelArbitrator(log)
 		if err != nil {
 			t.Fatalf("unable to create ChannelArbitrator: %v", err)
 		}
@@ -1111,7 +1127,7 @@ func TestChannelArbitratorCommitFailure(t *testing.T) {
 
 		// Start the arbitrator again, with IsPendingClose reporting
 		// the channel closed in the database.
-		chanArb, resolved, err = createTestChannelArbitrator(log)
+		chanArb, resolved, _, _, err = createTestChannelArbitrator(log)
 		if err != nil {
 			t.Fatalf("unable to create ChannelArbitrator: %v", err)
 		}
@@ -1157,7 +1173,7 @@ func TestChannelArbitratorEmptyResolutions(t *testing.T) {
 		failFetch: errNoResolutions,
 	}
 
-	chanArb, _, err := createTestChannelArbitrator(log)
+	chanArb, _, _, _, err := createTestChannelArbitrator(log)
 	if err != nil {
 		t.Fatalf("unable to create ChannelArbitrator: %v", err)
 	}
@@ -1195,7 +1211,7 @@ func TestChannelArbitratorAlreadyForceClosed(t *testing.T) {
 	log := &mockArbitratorLog{
 		state: StateCommitmentBroadcasted,
 	}
-	chanArb, _, err := createTestChannelArbitrator(log)
+	chanArb, _, _, _, err := createTestChannelArbitrator(log)
 	if err != nil {
 		t.Fatalf("unable to create ChannelArbitrator: %v", err)
 	}

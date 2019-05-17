@@ -14,6 +14,8 @@ import (
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/queue"
+	"github.com/lightningnetwork/lnd/tlv"
+	"github.com/lightningnetwork/lnd/watchtower/wtwire"
 )
 
 var (
@@ -563,7 +565,7 @@ func (i *InvoiceRegistry) checkHtlcParameters(invoice *channeldb.Invoice,
 // prevent deadlock.
 func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 	amtPaid lnwire.MilliSatoshi, expiry uint32, currentHeight int32,
-	hodlChan chan<- interface{}) (*HodlEvent, error) {
+	hodlChan chan<- interface{}, packetEOB []byte) (*HodlEvent, error) {
 
 	i.Lock()
 	defer i.Unlock()

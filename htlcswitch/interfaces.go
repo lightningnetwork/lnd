@@ -25,7 +25,8 @@ type InvoiceDatabase interface {
 	// the resolution is sent on the passed in hodlChan later.
 	NotifyExitHopHtlc(payHash lntypes.Hash, paidAmount lnwire.MilliSatoshi,
 		expiry uint32, currentHeight int32,
-		hodlChan chan<- interface{}) (*invoices.HodlEvent, error)
+		hodlChan chan<- interface{},
+		packetEOB []byte) (*invoices.HodlEvent, error)
 
 	// CancelInvoice attempts to cancel the invoice corresponding to the
 	// passed payment hash.

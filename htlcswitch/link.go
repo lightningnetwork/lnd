@@ -2738,8 +2738,8 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 // processExitHop handles an htlc for which this link is the exit hop. It
 // returns a boolean indicating whether the commitment tx needs an update.
 func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
-	obfuscator ErrorEncrypter, fwdInfo ForwardingInfo, heightNow uint32) (
-	bool, error) {
+	obfuscator ErrorEncrypter, fwdInfo ForwardingInfo, heightNow uint32,
+	packetEOB []byte) (bool, error) {
 
 	// If hodl.ExitSettle is requested, we will not validate the final hop's
 	// ADD, nor will we settle the corresponding invoice or respond with the
@@ -2784,7 +2784,6 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 	// after this, this code will be re-executed after restart. We will
 	// receive back a resolution event.
 	invoiceHash := lntypes.Hash(pd.RHash)
-
 	event, err := l.cfg.Registry.NotifyExitHopHtlc(
 		invoiceHash, pd.Amount, pd.Timeout, int32(heightNow),
 		l.hodlQueue.ChanIn(), packetEOB,

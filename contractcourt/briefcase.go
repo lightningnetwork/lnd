@@ -9,7 +9,6 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/coreos/bbolt"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
 )
@@ -81,17 +80,6 @@ type ArbitratorLog interface {
 	// FetchContractResolutions fetches the set of previously stored
 	// contract resolutions from persistent storage.
 	FetchContractResolutions() (*ContractResolutions, error)
-
-	// LogChainActions stores a set of chain actions which are derived from
-	// our set of active contracts, and the on-chain state. We'll write
-	// this et of cations when: we decide to go on-chain to resolve a
-	// contract, or we detect that the remote party has gone on-chain.
-	LogChainActions(ChainActionMap) error
-
-	// FetchChainActions attempts to fetch the set of previously stored
-	// chain actions. We'll use this upon restart to properly advance our
-	// state machine forward.
-	FetchChainActions() (ChainActionMap, error)
 
 	// WipeHistory is to be called ONLY once *all* contracts have been
 	// fully resolved, and the channel closure if finalized. This method
@@ -720,88 +708,6 @@ func (b *boltArbitratorLog) FetchContractResolutions() (*ContractResolutions, er
 	return c, err
 }
 
-// LogChainActions stores a set of chain actions which are derived from our set
-// of active contracts, and the on-chain state. We'll write this et of cations
-// when: we decide to go on-chain to resolve a contract, or we detect that the
-// remote party has gone on-chain.
-//
-// NOTE: Part of the ContractResolver interface.
-func (b *boltArbitratorLog) LogChainActions(actions ChainActionMap) error {
-	return b.db.Batch(func(tx *bbolt.Tx) error {
-		scopeBucket, err := tx.CreateBucketIfNotExists(b.scopeKey[:])
-		if err != nil {
-			return err
-		}
-
-		actionsBucket, err := scopeBucket.CreateBucketIfNotExists(
-			actionsBucketKey,
-		)
-		if err != nil {
-			return err
-		}
-
-		for chainAction, htlcs := range actions {
-			var htlcBuf bytes.Buffer
-			err := channeldb.SerializeHtlcs(&htlcBuf, htlcs...)
-			if err != nil {
-				return err
-			}
-
-			actionKey := []byte{byte(chainAction)}
-			err = actionsBucket.Put(actionKey, htlcBuf.Bytes())
-			if err != nil {
-				return err
-			}
-		}
-
-		return nil
-	})
-}
-
-// FetchChainActions attempts to fetch the set of previously stored chain
-// actions. We'll use this upon restart to properly advance our state machine
-// forward.
-//
-// NOTE: Part of the ContractResolver interface.
-func (b *boltArbitratorLog) FetchChainActions() (ChainActionMap, error) {
-	actionsMap := make(ChainActionMap)
-
-	err := b.db.View(func(tx *bbolt.Tx) error {
-		scopeBucket := tx.Bucket(b.scopeKey[:])
-		if scopeBucket == nil {
-			return errScopeBucketNoExist
-		}
-
-		actionsBucket := scopeBucket.Bucket(actionsBucketKey)
-		if actionsBucket == nil {
-			return errNoActions
-		}
-
-		return actionsBucket.ForEach(func(action, htlcBytes []byte) error {
-			if htlcBytes == nil {
-				return nil
-			}
-
-			chainAction := ChainAction(action[0])
-
-			htlcReader := bytes.NewReader(htlcBytes)
-			htlcs, err := channeldb.DeserializeHtlcs(htlcReader)
-			if err != nil {
-				return err
-			}
-
-			actionsMap[chainAction] = htlcs
-
-			return nil
-		})
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return actionsMap, nil
-}
-
 // WipeHistory is to be called ONLY once *all* contracts have been fully
 // resolved, and the channel closure if finalized. This method will delete all
 // on-disk state within the persistent log.
@@ -835,7 +741,6 @@ func (b *boltArbitratorLog) WipeHistory() error {
 			return err
 		}
 		if err := scopeBucket.DeleteBucket(contractsBucketKey); err != nil {
-			fmt.Println("nah")
 			return err
 		}
 

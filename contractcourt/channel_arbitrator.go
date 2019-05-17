@@ -215,6 +215,20 @@ var (
 	RemotePendingHtlcSet = HtlcSetKey{IsRemote: true, IsPending: true}
 )
 
+// String returns a human readable string describing the target HtlcSetKey.
+func (h HtlcSetKey) String() string {
+	switch h {
+	case LocalHtlcSet:
+		return "LocalHtlcSet"
+	case RemoteHtlcSet:
+		return "RemoteHtlcSet"
+	case RemotePendingHtlcSet:
+		return "RemotePendingHtlcSet"
+	default:
+		return "unknown HtlcSetKey"
+	}
+}
+
 // ChannelArbitrator is the on-chain arbitrator for a particular channel. The
 // struct will keep in sync with the current set of HTLCs on the commitment
 // transaction. The job of the attendant is to go on-chain to either settle or
@@ -824,7 +838,7 @@ func (c *ChannelArbitrator) stateStep(
 	case StateContractClosed:
 		// First, we'll fetch our chain actions, and both sets of
 		// resolutions so we can process them.
-		chainActions, err := c.log.FetchChainActions()
+		_, err := c.log.FetchChainActions()
 		if err != nil {
 			log.Errorf("unable to fetch chain actions: %v", err)
 			return StateError, closeTx, err
@@ -836,10 +850,10 @@ func (c *ChannelArbitrator) stateStep(
 			return StateError, closeTx, err
 		}
 
-		// If the resolution is empty, then we're done here. We don't
-		// need to launch any resolvers, and can go straight to our
-		// final state.
-		if contractResolutions.IsEmpty() {
+		// If the resolution is empty, and we have no HTLCs at all to
+		// tend to, then we're done here. We don't need to launch any
+		// resolvers, and can go straight to our final state.
+		if contractResolutions.IsEmpty() && confCommitSet.IsEmpty() {
 			log.Infof("ChannelArbitrator(%v): contract "+
 				"resolutions empty, marking channel as fully resolved!",
 				c.cfg.ChanPoint)
@@ -872,7 +886,8 @@ func (c *ChannelArbitrator) stateStep(
 		// actions, wen create the structures we need to resolve all
 		// outstanding contracts.
 		htlcResolvers, pktsToSend, err := c.prepContractResolutions(
-			chainActions, contractResolutions, triggerHeight,
+			contractResolutions, triggerHeight, trigger,
+			confCommitSet,
 		)
 		if err != nil {
 			log.Errorf("ChannelArbitrator(%v): unable to "+
@@ -1088,6 +1103,13 @@ func (c ChainAction) String() string {
 // be acted upon for a given action type. The channel
 type ChainActionMap map[ChainAction][]channeldb.HTLC
 
+// Merge merges the passed chain actions with the target chain action map.
+func (c ChainActionMap) Merge(actions ChainActionMap) {
+	for chainAction, htlcs := range actions {
+		c[chainAction] = append(c[chainAction], htlcs...)
+	}
+}
+
 // shouldGoOnChain takes into account the absolute timeout of the HTLC, if the
 // confirmation delta that we need is close, and returns a bool indicating if
 // we should go on chain to claim.  We do this rather than waiting up until the
@@ -1192,7 +1214,7 @@ func (c *ChannelArbitrator) checkCommitChainActions(height uint32,
 
 	// If we don't have any actions to make, then we'll return an empty
 	// action map. We only do this if this was a chain trigger though, as
-	// if we're going to broadcast the commitment (or the remote party) did
+	// if we're going to broadcast the commitment (or the remote party did)
 	// we're *forced* to act on each HTLC.
 	if !haveChainActions && trigger == chainTrigger {
 		log.Tracef("ChannelArbitrator(%v): no actions to take at "+
@@ -1333,25 +1355,15 @@ func (c *ChannelArbitrator) checkLocalChainActions(
 	)
 
 	// Finally, we'll merge the two set of chain actions.
-	localActions := make(ChainActionMap)
-	for chainAction, htlcs := range localCommitActions {
-		localActions[chainAction] = append(
-			localActions[chainAction], htlcs...,
-		)
-	}
-	for chainAction, htlcs := range remoteDanglingActions {
-		localActions[chainAction] = append(
-			localActions[chainAction], htlcs...,
-		)
-	}
+	localCommitActions.Merge(remoteDanglingActions)
 
-	return localActions, nil
+	return localCommitActions, nil
 }
 
-// checkRemoteChainActions examines the set of remote commitments for any HTLCs
-// that are close to timing out. If we find any, then we'll return a set of
-// chain actions for HTLCs that are on our commitment, but not theirs to cancel
-// immediately.
+// checkRemoteDanglingActions examines the set of remote commitments for any
+// HTLCs that are close to timing out. If we find any, then we'll return a set
+// of chain actions for HTLCs that are on our commitment, but not theirs to
+// cancel immediately.
 func (c *ChannelArbitrator) checkRemoteDanglingActions(
 	height uint32, activeHTLCs map[HtlcSetKey]htlcSet,
 	commitsConfirmed bool) ChainActionMap {
@@ -1407,13 +1419,93 @@ func (c *ChannelArbitrator) checkRemoteDanglingActions(
 			continue
 		}
 
-		log.Tracef("ChannelArbitrator(%v): immediately "+
-			"htlc=%x about to timeout on remote commitment",
+		log.Tracef("ChannelArbitrator(%v): immediately failing "+
+			"htlc=%x from remote commitment",
 			c.cfg.ChanPoint, htlc.RHash[:])
 
 		actionMap[HtlcFailNowAction] = append(
 			actionMap[HtlcFailNowAction], htlc,
 		)
+	}
+
+	return actionMap
+}
+
+// checkRemoteChainActions examines the two possible remote commitment chains
+// and returns the set of chain actions we need to carry out if the remote
+// commitment (non pending) confirms. The pendingConf indicates if the pending
+// remote commitment confirmed. This is similar to checkCommitChainActions, but
+// we'll immediately fail any HTLCs on the pending remote commit, but not the
+// remote commit (or the other way around).
+func (c *ChannelArbitrator) checkRemoteChainActions(
+	height uint32, trigger transitionTrigger,
+	activeHTLCs map[HtlcSetKey]htlcSet,
+	pendingConf bool) (ChainActionMap, error) {
+
+	// First, we'll examine all the normal chain actions on the remote
+	// commitment that confirmed.
+	confHTLCs := activeHTLCs[RemoteHtlcSet]
+	if pendingConf {
+		confHTLCs = activeHTLCs[RemotePendingHtlcSet]
+	}
+	remoteCommitActions, err := c.checkCommitChainActions(
+		height, trigger, confHTLCs,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// With this actions computed, we'll now check the diff of the HTLCs on
+	// the commitments, and cancel back any that are on the pending but not
+	// the non-pending.
+	remoteDiffActions := c.checkRemoteDiffActions(
+		height, activeHTLCs, pendingConf,
+	)
+
+	// Finally, we'll merge all the chain actions and the final set of
+	// chain actions.
+	remoteCommitActions.Merge(remoteDiffActions)
+	return remoteCommitActions, nil
+}
+
+// checkRemoteDiffActions checks the set difference of the HTLCs on the remote
+// confirmed commit and remote dangling commit for HTLCS that we need to cancel
+// back. If we find any HTLCs on the remote pending but not the remote, then
+// we'll mark them to be failed immediately.
+func (c *ChannelArbitrator) checkRemoteDiffActions(height uint32,
+	activeHTLCs map[HtlcSetKey]htlcSet,
+	pendingConf bool) ChainActionMap {
+
+	// First, we'll partition the HTLCs into those that are present on the
+	// confirmed commitment, and those on the dangling commitment.
+	confHTLCs := activeHTLCs[RemoteHtlcSet]
+	danglingHTLCs := activeHTLCs[RemotePendingHtlcSet]
+	if pendingConf {
+		confHTLCs = activeHTLCs[RemotePendingHtlcSet]
+		danglingHTLCs = activeHTLCs[RemoteHtlcSet]
+	}
+
+	// Next, we'll create a set of all the HTLCs confirmed commitment.
+	remoteHtlcs := make(map[uint64]struct{})
+	for _, htlc := range confHTLCs.outgoingHTLCs {
+		remoteHtlcs[htlc.HtlcIndex] = struct{}{}
+	}
+
+	// With the remote HTLCs assembled, we'll mark any HTLCs only on the
+	// remote dangling commitment to be failed asap.
+	actionMap := make(ChainActionMap)
+	for _, htlc := range danglingHTLCs.outgoingHTLCs {
+		if _, ok := remoteHtlcs[htlc.HtlcIndex]; ok {
+			continue
+		}
+
+		actionMap[HtlcFailNowAction] = append(
+			actionMap[HtlcFailNowAction], htlc,
+		)
+
+		log.Tracef("ChannelArbitrator(%v): immediately failing "+
+			"htlc=%x from remote commitment",
+			c.cfg.ChanPoint, htlc.RHash[:])
 	}
 
 	return actionMap
@@ -1425,9 +1517,47 @@ func (c *ChannelArbitrator) checkRemoteDanglingActions(
 // resolvers that will resolve the contracts on-chain if needed, and also a set
 // of packets to send to the htlcswitch in order to ensure all incoming HTLC's
 // are properly resolved.
-func (c *ChannelArbitrator) prepContractResolutions(htlcActions ChainActionMap,
+func (c *ChannelArbitrator) prepContractResolutions(
 	contractResolutions *ContractResolutions, height uint32,
-) ([]ContractResolver, []ResolutionMsg, error) {
+	trigger transitionTrigger,
+	confCommitSet *CommitSet) ([]ContractResolver, []ResolutionMsg, error) {
+
+	htlcSets := confCommitSet.toActiveHTLCSets()
+
+	// First, we'll reconstruct a fresh set of chain actions as the set of
+	// actions we need to act on may differ based on if it was our
+	// commitment, or they're commitment that hit the chain.
+	var (
+		htlcActions ChainActionMap
+		err         error
+	)
+	switch *confCommitSet.ConfCommitKey {
+
+	// If the local commitment transaction confirmed, then we'll examine
+	// that as well as their commitments to the set of chain actions.
+	case LocalHtlcSet:
+		htlcActions, err = c.checkLocalChainActions(
+			height, trigger, htlcSets, true,
+		)
+
+	// If the remote commitment confirmed, then we'll grab all the chain
+	// actions for the remote commit, and check the pending commit for any
+	// HTLCS we need to handle immediately (dust).
+	case RemoteHtlcSet:
+		htlcActions, err = c.checkRemoteChainActions(
+			height, trigger, htlcSets, false,
+		)
+
+	// Otherwise, the remote pending commitment confirmed, so we'll examine
+	// the HTLCs on that unrevoked dangling commitment.
+	case RemotePendingHtlcSet:
+		htlcActions, err = c.checkRemoteChainActions(
+			height, trigger, htlcSets, true,
+		)
+	}
+	if err != nil {
+		return nil, nil, err
+	}
 
 	// There may be a class of HTLC's which we can fail back immediately,
 	// for those we'll prepare a slice of packets to add to our outbox. Any

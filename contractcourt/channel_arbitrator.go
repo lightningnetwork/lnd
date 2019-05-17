@@ -895,11 +895,14 @@ func (c *ChannelArbitrator) stateStep(
 
 		// With the commitment broadcast, we'll then send over all
 		// messages we can send immediately.
-		err = c.cfg.DeliverResolutionMsg(pktsToSend...)
-		if err != nil {
-			// TODO(roasbeef): make sure packet sends are idempotent
-			log.Errorf("unable to send pkts: %v", err)
-			return StateError, closeTx, err
+		if len(pktsToSend) != 0 {
+			err := c.cfg.DeliverResolutionMsg(pktsToSend...)
+			if err != nil {
+				// TODO(roasbeef): make sure packet sends are
+				// idempotent
+				log.Errorf("unable to send pkts: %v", err)
+				return StateError, closeTx, err
+			}
 		}
 
 		log.Debugf("ChannelArbitrator(%v): inserting %v contract "+

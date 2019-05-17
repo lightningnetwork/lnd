@@ -230,10 +230,10 @@ func (s *SubSwapper) backupUpdater() {
 
 			// For all closed channels, we'll remove the prior
 			// backup state.
-			for _, closedChan := range chanUpdate.ClosedChans {
+			for i, closedChan := range chanUpdate.ClosedChans {
 				log.Debugf("Removing channel %v from backup "+
 					"state", newLogClosure(func() string {
-					return closedChan.String()
+					return chanUpdate.ClosedChans[i].String()
 				}))
 
 				delete(s.backupState, closedChan)

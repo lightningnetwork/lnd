@@ -49,9 +49,9 @@ const (
 	maxLtcRemoteDelay uint16 = 8064
 
 	// maxWaitNumBlocksFundingConf is the maximum number of blocks to wait
-	// for the funding transaction to be confirmed before forgetting about
-	// the channel. 288 blocks is ~48 hrs
-	maxWaitNumBlocksFundingConf = 288
+	// for the funding transaction to be confirmed before forgetting
+	// channels that aren't initiated by us. 2016 blocks is ~2 weeks.
+	maxWaitNumBlocksFundingConf = 2016
 
 	// minChanFundingSize is the smallest channel that we'll allow to be
 	// created over the RPC interface.

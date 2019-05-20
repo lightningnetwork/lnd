@@ -69,11 +69,6 @@ type Route struct {
 	// the payment preimage to complete the payment.
 	TotalTimeLock uint32
 
-	// TotalFees is the sum of the fees paid at each hop within the final
-	// route. In the case of a one-hop payment, this value will be zero as
-	// we don't need to pay a fee to ourself.
-	TotalFees lnwire.MilliSatoshi
-
 	// TotalAmount is the total amount of funds required to complete a
 	// payment over this route. This value includes the cumulative fees at
 	// each hop. As a result, the HTLC extended to the first-hop in the
@@ -104,6 +99,13 @@ func (r *Route) HopFee(hopIndex int) lnwire.MilliSatoshi {
 	return incomingAmt - r.Hops[hopIndex].AmtToForward
 }
 
+// TotalFees is the sum of the fees paid at each hop within the final route. In
+// the case of a one-hop payment, this value will be zero as we don't need to
+// pay a fee to ourself.
+func (r *Route) TotalFees() lnwire.MilliSatoshi {
+	return r.TotalAmount - r.Hops[len(r.Hops)-1].AmtToForward
+}
+
 // NewRouteFromHops creates a new Route structure from the minimally required
 // information to perform the payment. It infers fee amounts and populates the
 // node, chan and prev/next hop maps.
@@ -124,7 +126,6 @@ func NewRouteFromHops(amtToSend lnwire.MilliSatoshi, timeLock uint32,
 		Hops:          hops,
 		TotalTimeLock: timeLock,
 		TotalAmount:   amtToSend,
-		TotalFees:     amtToSend - hops[len(hops)-1].AmtToForward,
 	}
 
 	return route, nil

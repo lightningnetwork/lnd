@@ -198,7 +198,7 @@ func TestFindRoutesWithFeeLimit(t *testing.T) {
 		t.Fatalf("unable to find any routes: %v", err)
 	}
 
-	if route.TotalFees > restrictions.FeeLimit {
+	if route.TotalFees() > restrictions.FeeLimit {
 		t.Fatalf("route exceeded fee limit: %v", spew.Sdump(route))
 	}
 

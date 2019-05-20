@@ -185,8 +185,8 @@ func calculateFeeLimit(feeLimit *lnrpc.FeeLimit,
 func (r *RouterBackend) MarshallRoute(route *route.Route) *lnrpc.Route {
 	resp := &lnrpc.Route{
 		TotalTimeLock: route.TotalTimeLock,
-		TotalFees:     int64(route.TotalFees.ToSatoshis()),
-		TotalFeesMsat: int64(route.TotalFees),
+		TotalFees:     int64(route.TotalFees().ToSatoshis()),
+		TotalFeesMsat: int64(route.TotalFees()),
 		TotalAmt:      int64(route.TotalAmount.ToSatoshis()),
 		TotalAmtMsat:  int64(route.TotalAmount),
 		Hops:          make([]*lnrpc.Hop, len(route.Hops)),

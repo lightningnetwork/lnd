@@ -2753,7 +2753,7 @@ func (r *rpcServer) savePayment(route *route.Route,
 			CreationDate: time.Now(),
 		},
 		Path:           paymentPath,
-		Fee:            route.TotalFees,
+		Fee:            route.TotalFees(),
 		TimeLockLength: route.TotalTimeLock,
 	}
 	copy(payment.PaymentPreimage[:], preImage)
@@ -3123,7 +3123,7 @@ func (r *rpcServer) dispatchPaymentIntent(
 	}
 
 	// Calculate amount paid to receiver.
-	amt := route.TotalAmount - route.TotalFees
+	amt := route.TotalAmount - route.TotalFees()
 
 	// Save the completed payment to the database for record keeping
 	// purposes.

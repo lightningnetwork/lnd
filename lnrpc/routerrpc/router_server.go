@@ -269,7 +269,7 @@ func (s *Server) EstimateRouteFee(ctx context.Context,
 	}
 
 	return &RouteFeeResponse{
-		RoutingFeeMsat: int64(route.TotalFees),
+		RoutingFeeMsat: int64(route.TotalFees()),
 		TimeLockDelay:  int64(route.TotalTimeLock),
 	}, nil
 }

@@ -649,7 +649,7 @@
     },
     "/v1/graph/routes/{pub_key}/{amt}": {
       "get": {
-        "summary": "* lncli: `queryroutes`\nQueryRoutes attempts to query the daemon's Channel Router for a possible\nroute to a target destination capable of carrying a specific amount of\nsatoshis. The retuned route contains the full details required to craft and\nsend an HTLC, also including the necessary information that should be\npresent within the Sphinx packet encapsulated within the HTLC.",
+        "summary": "* lncli: `queryroutes`\nQueryRoutes attempts to query the daemon's Channel Router for a possible\nroute to a target destination capable of carrying a specific amount of\nsatoshis. The returned route contains the full details required to craft and\nsend an HTLC, also including the necessary information that should be\npresent within the Sphinx packet encapsulated within the HTLC.",
         "operationId": "QueryRoutes",
         "responses": {
           "200": {
@@ -1339,7 +1339,7 @@
         "maturity_height": {
           "type": "integer",
           "format": "int64",
-          "title": "/ The height at which funds can be sweeped into the wallet"
+          "title": "/ The height at which funds can be swept into the wallet"
         },
         "blocks_til_maturity": {
           "type": "integer",
@@ -1597,7 +1597,7 @@
         },
         "chan_status_flags": {
           "type": "string",
-          "description": "/ A set of flags showing the current state of the cahnnel."
+          "description": "/ A set of flags showing the current state of the channel."
         }
       }
     },
@@ -1611,7 +1611,7 @@
         "chan_backup": {
           "type": "string",
           "format": "byte",
-          "description": "*\nIs an encrypted single-chan backup. this can be passed to\nRestoreChannelBackups, or the WalletUnlocker Innit and Unlock methods in\norder to trigger the recovery protocol."
+          "description": "*\nIs an encrypted single-chan backup. this can be passed to\nRestoreChannelBackups, or the WalletUnlocker Init and Unlock methods in\norder to trigger the recovery protocol."
         }
       }
     },
@@ -3019,7 +3019,7 @@
         "total_fees": {
           "type": "string",
           "format": "int64",
-          "description": "*\nThe sum of the fees paid at each hop within the final route.  In the case\nof a one-hop payment, this value will be zero as we don't need to pay a fee\nit ourself."
+          "description": "*\nThe sum of the fees paid at each hop within the final route.  In the case\nof a one-hop payment, this value will be zero as we don't need to pay a fee\nto ourselves."
         },
         "total_amt": {
           "type": "string",
@@ -3312,7 +3312,7 @@
         "recovery_window": {
           "type": "integer",
           "format": "int32",
-          "description": "*\nrecovery_window is an optional argument specifying the address lookahead\nwhen restoring a wallet seed. The recovery window applies to each\ninvdividual branch of the BIP44 derivation paths. Supplying a recovery\nwindow of zero indicates that no addresses should be recovered, such after\nthe first initialization of the wallet."
+          "description": "*\nrecovery_window is an optional argument specifying the address lookahead\nwhen restoring a wallet seed. The recovery window applies to each\nindividual branch of the BIP44 derivation paths. Supplying a recovery\nwindow of zero indicates that no addresses should be recovered, such after\nthe first initialization of the wallet."
         },
         "channel_backups": {
           "$ref": "#/definitions/lnrpcChanBackupSnapshot",

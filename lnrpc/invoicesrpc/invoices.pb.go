@@ -37,7 +37,7 @@ func (m *CancelInvoiceMsg) Reset()         { *m = CancelInvoiceMsg{} }
 func (m *CancelInvoiceMsg) String() string { return proto.CompactTextString(m) }
 func (*CancelInvoiceMsg) ProtoMessage()    {}
 func (*CancelInvoiceMsg) Descriptor() ([]byte, []int) {
-	return fileDescriptor_invoices_b95f8bc86c534ce9, []int{0}
+	return fileDescriptor_invoices_bb85468a9582e4cb, []int{0}
 }
 func (m *CancelInvoiceMsg) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_CancelInvoiceMsg.Unmarshal(m, b)
@@ -74,7 +74,7 @@ func (m *CancelInvoiceResp) Reset()         { *m = CancelInvoiceResp{} }
 func (m *CancelInvoiceResp) String() string { return proto.CompactTextString(m) }
 func (*CancelInvoiceResp) ProtoMessage()    {}
 func (*CancelInvoiceResp) Descriptor() ([]byte, []int) {
-	return fileDescriptor_invoices_b95f8bc86c534ce9, []int{1}
+	return fileDescriptor_invoices_bb85468a9582e4cb, []int{1}
 }
 func (m *CancelInvoiceResp) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_CancelInvoiceResp.Unmarshal(m, b)
@@ -131,7 +131,7 @@ func (m *AddHoldInvoiceRequest) Reset()         { *m = AddHoldInvoiceRequest{} }
 func (m *AddHoldInvoiceRequest) String() string { return proto.CompactTextString(m) }
 func (*AddHoldInvoiceRequest) ProtoMessage()    {}
 func (*AddHoldInvoiceRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_invoices_b95f8bc86c534ce9, []int{2}
+	return fileDescriptor_invoices_bb85468a9582e4cb, []int{2}
 }
 func (m *AddHoldInvoiceRequest) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_AddHoldInvoiceRequest.Unmarshal(m, b)
@@ -229,7 +229,7 @@ func (m *AddHoldInvoiceResp) Reset()         { *m = AddHoldInvoiceResp{} }
 func (m *AddHoldInvoiceResp) String() string { return proto.CompactTextString(m) }
 func (*AddHoldInvoiceResp) ProtoMessage()    {}
 func (*AddHoldInvoiceResp) Descriptor() ([]byte, []int) {
-	return fileDescriptor_invoices_b95f8bc86c534ce9, []int{3}
+	return fileDescriptor_invoices_bb85468a9582e4cb, []int{3}
 }
 func (m *AddHoldInvoiceResp) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_AddHoldInvoiceResp.Unmarshal(m, b)
@@ -268,7 +268,7 @@ func (m *SettleInvoiceMsg) Reset()         { *m = SettleInvoiceMsg{} }
 func (m *SettleInvoiceMsg) String() string { return proto.CompactTextString(m) }
 func (*SettleInvoiceMsg) ProtoMessage()    {}
 func (*SettleInvoiceMsg) Descriptor() ([]byte, []int) {
-	return fileDescriptor_invoices_b95f8bc86c534ce9, []int{4}
+	return fileDescriptor_invoices_bb85468a9582e4cb, []int{4}
 }
 func (m *SettleInvoiceMsg) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_SettleInvoiceMsg.Unmarshal(m, b)
@@ -305,7 +305,7 @@ func (m *SettleInvoiceResp) Reset()         { *m = SettleInvoiceResp{} }
 func (m *SettleInvoiceResp) String() string { return proto.CompactTextString(m) }
 func (*SettleInvoiceResp) ProtoMessage()    {}
 func (*SettleInvoiceResp) Descriptor() ([]byte, []int) {
-	return fileDescriptor_invoices_b95f8bc86c534ce9, []int{5}
+	return fileDescriptor_invoices_bb85468a9582e4cb, []int{5}
 }
 func (m *SettleInvoiceResp) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_SettleInvoiceResp.Unmarshal(m, b)
@@ -337,7 +337,7 @@ func (m *SubscribeSingleInvoiceRequest) Reset()         { *m = SubscribeSingleIn
 func (m *SubscribeSingleInvoiceRequest) String() string { return proto.CompactTextString(m) }
 func (*SubscribeSingleInvoiceRequest) ProtoMessage()    {}
 func (*SubscribeSingleInvoiceRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_invoices_b95f8bc86c534ce9, []int{6}
+	return fileDescriptor_invoices_bb85468a9582e4cb, []int{6}
 }
 func (m *SubscribeSingleInvoiceRequest) XXX_Unmarshal(b []byte) error {
 	return xxx_messageInfo_SubscribeSingleInvoiceRequest.Unmarshal(m, b)
@@ -602,10 +602,10 @@ var _Invoices_serviceDesc = grpc.ServiceDesc{
 }
 
 func init() {
-	proto.RegisterFile("invoicesrpc/invoices.proto", fileDescriptor_invoices_b95f8bc86c534ce9)
+	proto.RegisterFile("invoicesrpc/invoices.proto", fileDescriptor_invoices_bb85468a9582e4cb)
 }
 
-var fileDescriptor_invoices_b95f8bc86c534ce9 = []byte{
+var fileDescriptor_invoices_bb85468a9582e4cb = []byte{
 	// 509 bytes of a gzipped FileDescriptorProto
 	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x7c, 0x53, 0x41, 0x6f, 0xd3, 0x4c,
 	0x10, 0x95, 0x93, 0x34, 0x4d, 0x26, 0x6d, 0xbf, 0x7c, 0x0b, 0x44, 0x96, 0x45, 0xc1, 0x58, 0x1c,

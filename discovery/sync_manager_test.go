@@ -219,6 +219,41 @@ func TestSyncManagerInitialHistoricalSync(t *testing.T) {
 	assertNoMsgSent(t, extraPeer)
 }
 
+// TestSyncManagerHistoricalSyncOnReconnect tests that the sync manager will
+// re-trigger a historical sync when a new peer connects after a historical
+// sync has completed, but we have lost all peers.
+func TestSyncManagerHistoricalSyncOnReconnect(t *testing.T) {
+	t.Parallel()
+
+	syncMgr := newTestSyncManager(2)
+	syncMgr.Start()
+	defer syncMgr.Stop()
+
+	// We should expect to see a QueryChannelRange message with a
+	// FirstBlockHeight of the genesis block, signaling that an initial
+	// historical sync is being attempted.
+	peer := randPeer(t, syncMgr.quit)
+	syncMgr.InitSyncState(peer)
+	s := assertSyncerExistence(t, syncMgr, peer)
+	assertTransitionToChansSynced(t, s, peer)
+	assertActiveGossipTimestampRange(t, peer)
+	assertSyncerStatus(t, s, chansSynced, ActiveSync)
+
+	// Now that the historical sync is completed, we prune the syncer,
+	// simulating all peers having disconnected.
+	syncMgr.PruneSyncState(peer.PubKey())
+
+	// If a new peer now connects, then another historical sync should
+	// be attempted. This is to ensure we get an up-to-date graph if we
+	// haven't had any peers for a time.
+	nextPeer := randPeer(t, syncMgr.quit)
+	syncMgr.InitSyncState(nextPeer)
+	s1 := assertSyncerExistence(t, syncMgr, nextPeer)
+	assertTransitionToChansSynced(t, s1, nextPeer)
+	assertActiveGossipTimestampRange(t, nextPeer)
+	assertSyncerStatus(t, s1, chansSynced, ActiveSync)
+}
+
 // TestSyncManagerForceHistoricalSync ensures that we can perform routine
 // historical syncs whenever the HistoricalSyncTicker fires.
 func TestSyncManagerForceHistoricalSync(t *testing.T) {

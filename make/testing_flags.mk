@@ -1,12 +1,14 @@
 DEV_TAGS = dev
 LOG_TAGS =
 TEST_FLAGS =
+COVER_PKG = $$(go list ./... | grep -v lnrpc)
 
 # If specific package is being unit tested, construct the full name of the
 # subpackage.
 ifneq ($(pkg),)
 UNITPKG := $(PKG)/$(pkg)
 UNIT_TARGETED = yes
+COVER_PKG = $(PKG)/$(pkg)
 endif
 
 # If a specific unit test case is being target, construct test.run filter.

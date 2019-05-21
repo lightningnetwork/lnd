@@ -619,15 +619,6 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 	}
 
 	queryBandwidth := func(edge *channeldb.ChannelEdgeInfo) lnwire.MilliSatoshi {
-		// If we aren't on either side of this edge, then we'll
-		// just thread through the capacity of the edge as we
-		// know it.
-		if !bytes.Equal(edge.NodeKey1Bytes[:], selfNode.PubKeyBytes[:]) &&
-			!bytes.Equal(edge.NodeKey2Bytes[:], selfNode.PubKeyBytes[:]) {
-
-			return lnwire.NewMSatFromSatoshis(edge.Capacity)
-		}
-
 		cid := lnwire.NewChanIDFromOutPoint(&edge.ChannelPoint)
 		link, err := s.htlcSwitch.GetLink(cid)
 		if err != nil {

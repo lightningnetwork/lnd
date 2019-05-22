@@ -14,14 +14,10 @@ import (
 )
 
 const (
-	// defaultPenaltyHalfLife is the default half-life duration. The
+	// DefaultPenaltyHalfLife is the default half-life duration. The
 	// half-life duration defines after how much time a penalized node or
 	// channel is back at 50% probability.
-	defaultPenaltyHalfLife = time.Hour
-
-	// aprioriHopProbability is the assumed success probability of a hop in
-	// a route when no other information is available.
-	aprioriHopProbability = 1
+	DefaultPenaltyHalfLife = time.Hour
 )
 
 // MissionControl contains state which summarizes the past attempts of HTLC
@@ -46,9 +42,7 @@ type MissionControl struct {
 	// external function to enable deterministic unit tests.
 	now func() time.Time
 
-	// penaltyHalfLife defines after how much time a penalized node or
-	// channel is back at 50% probability.
-	penaltyHalfLife time.Duration
+	cfg *MissionControlConfig
 
 	sync.Mutex
 
@@ -61,6 +55,28 @@ type MissionControl struct {
 // A compile time assertion to ensure MissionControl meets the
 // PaymentSessionSource interface.
 var _ PaymentSessionSource = (*MissionControl)(nil)
+
+// MissionControlConfig defines parameters that control mission control
+// behaviour.
+type MissionControlConfig struct {
+	// PenaltyHalfLife defines after how much time a penalized node or
+	// channel is back at 50% probability.
+	PenaltyHalfLife time.Duration
+
+	// PaymentAttemptPenalty is the virtual cost in path finding weight
+	// units of executing a payment attempt that fails. It is used to trade
+	// off potentially better routes against their probability of
+	// succeeding.
+	PaymentAttemptPenalty lnwire.MilliSatoshi
+
+	// MinProbability defines the minimum success probability of the
+	// returned route.
+	MinRouteProbability float64
+
+	// AprioriHopProbability is the assumed success probability of a hop in
+	// a route when no other information is available.
+	AprioriHopProbability float64
+}
 
 // nodeHistory contains a summary of payment attempt outcomes involving a
 // particular node.
@@ -130,15 +146,23 @@ type MissionControlChannelSnapshot struct {
 //
 // TODO(roasbeef): persist memory
 func NewMissionControl(g *channeldb.ChannelGraph, selfNode *channeldb.LightningNode,
-	qb func(*channeldb.ChannelEdgeInfo) lnwire.MilliSatoshi) *MissionControl {
+	qb func(*channeldb.ChannelEdgeInfo) lnwire.MilliSatoshi,
+	cfg *MissionControlConfig) *MissionControl {
+
+	log.Debugf("Instantiating mission control with config: "+
+		"PenaltyHalfLife=%v, PaymentAttemptPenalty=%v, "+
+		"MinRouteProbability=%v, AprioriHopProbability=%v",
+		cfg.PenaltyHalfLife,
+		int64(cfg.PaymentAttemptPenalty.ToSatoshis()),
+		cfg.MinRouteProbability, cfg.AprioriHopProbability)
 
 	return &MissionControl{
-		history:         make(map[route.Vertex]*nodeHistory),
-		selfNode:        selfNode,
-		queryBandwidth:  qb,
-		graph:           g,
-		now:             time.Now,
-		penaltyHalfLife: defaultPenaltyHalfLife,
+		history:        make(map[route.Vertex]*nodeHistory),
+		selfNode:       selfNode,
+		queryBandwidth: qb,
+		graph:          g,
+		now:            time.Now,
+		cfg:            cfg,
 	}
 }
 
@@ -302,7 +326,7 @@ func (m *MissionControl) getEdgeProbability(fromNode route.Vertex,
 	// adjust this probability.
 	nodeHistory, ok := m.history[fromNode]
 	if !ok {
-		return aprioriHopProbability
+		return m.cfg.AprioriHopProbability
 	}
 
 	return m.getEdgeProbabilityForNode(nodeHistory, edge.ChannelID, amt)
@@ -337,7 +361,7 @@ func (m *MissionControl) getEdgeProbabilityForNode(nodeHistory *nodeHistory,
 	}
 
 	if lastFailure == nil {
-		return aprioriHopProbability
+		return m.cfg.AprioriHopProbability
 	}
 
 	timeSinceLastFailure := m.now().Sub(*lastFailure)
@@ -346,8 +370,8 @@ func (m *MissionControl) getEdgeProbabilityForNode(nodeHistory *nodeHistory,
 	// the probability down to zero when a failure occurs. From there it
 	// recovers asymptotically back to the a priori probability. The rate at
 	// which this happens is controlled by the penaltyHalfLife parameter.
-	exp := -timeSinceLastFailure.Hours() / m.penaltyHalfLife.Hours()
-	probability := aprioriHopProbability * (1 - math.Pow(2, exp))
+	exp := -timeSinceLastFailure.Hours() / m.cfg.PenaltyHalfLife.Hours()
+	probability := m.cfg.AprioriHopProbability * (1 - math.Pow(2, exp))
 
 	return probability
 }

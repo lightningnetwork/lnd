@@ -27,6 +27,7 @@ import (
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/htlcswitch/hodl"
 	"github.com/lightningnetwork/lnd/lncfg"
+	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
@@ -369,7 +370,8 @@ func loadConfig() (*config, error) {
 		MinBackoff:         defaultMinBackoff,
 		MaxBackoff:         defaultMaxBackoff,
 		SubRPCServers: &subRPCServerConfigs{
-			SignRPC: &signrpc.Config{},
+			SignRPC:   &signrpc.Config{},
+			RouterRPC: routerrpc.DefaultConfig(),
 		},
 		Autopilot: &autoPilotConfig{
 			MaxChannels:    5,

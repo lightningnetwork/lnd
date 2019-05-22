@@ -35,6 +35,7 @@ func TestRequestRoute(t *testing.T) {
 	session := &paymentSession{
 		mc: &MissionControl{
 			selfNode: &channeldb.LightningNode{},
+			cfg:      &MissionControlConfig{},
 		},
 		pathFinder: findPath,
 	}

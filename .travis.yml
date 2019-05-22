@@ -2,6 +2,7 @@ language: go
 cache:
   directories:
     - ~/bitcoin/bitcoin-0.17.1/bin
+    - ~/protocdl/protoc
     - $GOCACHE
     - $GOPATH/pkg/mod
     - $GOPATH/src/github.com/btcsuite
@@ -22,8 +23,9 @@ env:
 sudo: required
 
 script:
-  - export GO111MODULE=on
+  - GO111MODULE=off bash ./scripts/install_travis_proto.sh
   - bash ./scripts/install_bitcoind.sh
+  - export GO111MODULE=on
 
   # Run unit tests with race condition detector.
   - 'if [ "$RACE" = true ]; then make travis-race ; fi'

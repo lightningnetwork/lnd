@@ -41,8 +41,6 @@ XARGS := xargs -L 1
 
 include make/testing_flags.mk
 
-DEV_TAGS := $(if ${tags},$(DEV_TAGS) ${tags},$(DEV_TAGS))
-
 LINT = $(LINT_BIN) \
 	--disable-all \
 	--enable=gofmt \

@@ -95,6 +95,12 @@ func createTestCtxFromGraphInstance(startingHeight uint32, graphInstance *testGr
 		func(e *channeldb.ChannelEdgeInfo) lnwire.MilliSatoshi {
 			return lnwire.NewMSatFromSatoshis(e.Capacity)
 		},
+		&MissionControlConfig{
+			MinRouteProbability:   0.01,
+			PaymentAttemptPenalty: 100,
+			PenaltyHalfLife:       time.Hour,
+			AprioriHopProbability: 0.9,
+		},
 	)
 	router, err := New(Config{
 		Graph:              graphInstance.graph,

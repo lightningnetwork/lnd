@@ -38,6 +38,7 @@ import (
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/nat"
@@ -639,8 +640,13 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		return link.Bandwidth()
 	}
 
+	// Instantiate mission control with config from the sub server.
+	//
+	// TODO(joostjager): When we are further in the process of moving to sub
+	// servers, the mission control instance itself can be moved there too.
 	s.missionControl = routing.NewMissionControl(
 		chanGraph, selfNode, queryBandwidth,
+		routerrpc.GetMissionControlConfig(cfg.SubRPCServers.RouterRPC),
 	)
 
 	s.chanRouter, err = routing.New(routing.Config{

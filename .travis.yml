@@ -2,11 +2,15 @@ language: go
 cache:
   directories:
     - ~/bitcoin/bitcoin-0.17.1/bin
+    - ~/protocdl/protoc/bin
     - $GOCACHE
     - $GOPATH/pkg/mod
     - $GOPATH/src/github.com/btcsuite
     - $GOPATH/src/github.com/golang
     - $GOPATH/src/gopkg.in/alecthomas
+    - $GOPATH/src/github.com/golang/protobuf
+    - $GOPATH/src/google.golang.org/genproto
+    - $GOPATH/src/github.com/grpc-ecosystem/grpc-gateway
 
 go:
   - "1.12.x"
@@ -22,8 +26,9 @@ env:
 sudo: required
 
 script:
-  - export GO111MODULE=on
+  - GO111MODULE=off bash ./scripts/install_travis_proto.sh
   - bash ./scripts/install_bitcoind.sh
+  - export GO111MODULE=on
 
   # Run unit tests with race condition detector.
   - 'if [ "$RACE" = true ]; then make travis-race ; fi'

@@ -137,11 +137,11 @@ goveralls: $(GOVERALLS_BIN)
 	$(GOVERALLS_BIN) -coverprofile=coverage.txt -service=travis-ci
 
 
-travis-race: lint btcd unit-race
+travis-race: lint rpc-check btcd unit-race
 
-travis-cover: lint btcd unit-cover goveralls
+travis-cover: lint rpc-check btcd unit-cover goveralls
 
-travis-itest: lint itest
+travis-itest: lint rpc-check itest
 
 # =============
 # FLAKE HUNTING
@@ -179,6 +179,10 @@ rpc:
 	@$(call print, "Compiling protos.")
 	cd ./lnrpc; ./gen_protos.sh
 
+rpc-check: rpc
+	@$(call print, "Verifying protos.")
+	if test -n "$$(git describe --dirty | grep dirty)"; then echo "Protos not compiled with v1.2.0"; exit 1; fi
+
 clean:
 	@$(call print, "Cleaning source.$(NC)")
 	$(RM) ./lnd-debug ./lncli-debug
@@ -208,4 +212,5 @@ clean:
 	lint \
 	list \
 	rpc \
+	rpc-check \
 	clean

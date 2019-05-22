@@ -1,6 +1,7 @@
 language: go
 cache:
   directories:
+    - ~/bitcoin/bitcoin-0.17.1/bin
     - $GOCACHE
     - $GOPATH/pkg/mod
     - $GOPATH/src/github.com/btcsuite
@@ -19,14 +20,10 @@ env:
     - COVER=true 
 
 sudo: required
-install:
-  - sudo add-apt-repository -y ppa:bitcoin/bitcoin -y
-  - sudo apt-get update -q
-  - sudo apt-get install bitcoind -y
-  - export PATH=$PATH:$PWD/linux-amd64/
 
 script:
   - export GO111MODULE=on
+  - bash ./scripts/install_bitcoind.sh
 
   # Run unit tests with race condition detector.
   - 'if [ "$RACE" = true ]; then make travis-race ; fi'

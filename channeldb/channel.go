@@ -444,6 +444,10 @@ type OpenChannel struct {
 	// Capacity is the total capacity of this channel.
 	Capacity btcutil.Amount
 
+	// LocalFundedAmt is the amount the local node funded into the target
+	// channel.
+	LocalFundedAmt btcutil.Amount
+
 	// TotalMSatSent is the total number of milli-satoshis we've sent
 	// within this channel.
 	TotalMSatSent lnwire.MilliSatoshi

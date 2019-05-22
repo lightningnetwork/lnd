@@ -2320,6 +2320,10 @@ type ChannelEdgeInfo struct {
 	// the value output in the outpoint that created this channel.
 	Capacity btcutil.Amount
 
+	// LocalFundedAmt is the amount the local node funded into the target
+	// channel.
+	LocalFundedAmt btcutil.Amount
+
 	// ExtraOpaqueData is the set of data that was appended to this
 	// message, some of which we may not actually know how to iterate or
 	// parse. By holding onto this data, we ensure that we're able to

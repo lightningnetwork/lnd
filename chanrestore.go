@@ -89,6 +89,7 @@ func (c *chanDBRestorer) openChannelShell(backup chanbackup.Single) (
 			ChainHash:               backup.ChainHash,
 			IsInitiator:             backup.IsInitiator,
 			Capacity:                backup.Capacity,
+			LocalFundedAmt:          backup.LocalFundedAmt,
 			FundingOutpoint:         backup.FundingOutpoint,
 			ShortChannelID:          backup.ShortChannelID,
 			IdentityPub:             backup.RemoteNodePub,

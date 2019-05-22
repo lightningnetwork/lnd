@@ -269,6 +269,10 @@ type ChannelEdgeUpdate struct {
 	// Capacity is the capacity of the newly created channel.
 	Capacity btcutil.Amount
 
+	// LocalFundedAmt is the amount the local node funded into the target
+	// channel.
+	LocalFundedAmt btcutil.Amount
+
 	// MinHTLC is the minimum HTLC amount that this channel will forward.
 	MinHTLC lnwire.MilliSatoshi
 
@@ -367,6 +371,7 @@ func addToTopologyChange(graph *channeldb.ChannelGraph, update *TopologyChange,
 			ChanPoint:       edgeInfo.ChannelPoint,
 			TimeLockDelta:   m.TimeLockDelta,
 			Capacity:        edgeInfo.Capacity,
+			LocalFundedAmt:  edgeInfo.LocalFundedAmt,
 			MinHTLC:         m.MinHTLC,
 			MaxHTLC:         m.MaxHTLC,
 			BaseFee:         m.FeeBaseMSat,

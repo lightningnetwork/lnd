@@ -75,6 +75,10 @@ type Single struct {
 	// Capacity is the size of the original channel.
 	Capacity btcutil.Amount
 
+	// LocalFundedAmt is the amount the local node funded into the target
+	// channel.
+	LocalFundedAmt btcutil.Amount
+
 	// LocalChanCfg is our local channel configuration. It contains all the
 	// information we need to re-derive the keys we used within the
 	// channel. Most importantly, it allows to derive the base public

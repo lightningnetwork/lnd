@@ -942,10 +942,11 @@ func (d *DB) RestoreChannelShells(channelShells ...*ChannelShell) error {
 			// router that it should try and prune these values as
 			// we can detect them
 			edgeInfo := ChannelEdgeInfo{
-				ChannelID:    channel.ShortChannelID.ToUint64(),
-				ChainHash:    channel.ChainHash,
-				ChannelPoint: channel.FundingOutpoint,
-				Capacity:     channel.Capacity,
+				ChannelID:      channel.ShortChannelID.ToUint64(),
+				ChainHash:      channel.ChainHash,
+				ChannelPoint:   channel.FundingOutpoint,
+				Capacity:       channel.Capacity,
+				LocalFundedAmt: channel.LocalFundedAmt,
 			}
 
 			nodes := tx.Bucket(nodeBucket)

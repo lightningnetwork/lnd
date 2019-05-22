@@ -208,9 +208,10 @@ func (m *Manager) StartAgent() error {
 						edgeUpdate.ChanID,
 					)
 					edge := Channel{
-						ChanID:   chanID,
-						Capacity: edgeUpdate.Capacity,
-						Node:     chanNode,
+						ChanID:         chanID,
+						Capacity:       edgeUpdate.Capacity,
+						LocalFundedAmt: edgeUpdate.LocalFundedAmt,
+						Node:           chanNode,
 					}
 					pilot.OnChannelOpen(edge)
 				}

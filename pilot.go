@@ -253,8 +253,9 @@ func initAutoPilot(svr *server, cfg *autoPilotConfig) (*autopilot.ManagerCfg, er
 				len(activeChannels))
 			for i, channel := range activeChannels {
 				chanState[i] = autopilot.Channel{
-					ChanID:   channel.ShortChanID(),
-					Capacity: channel.Capacity,
+					ChanID:         channel.ShortChanID(),
+					Capacity:       channel.Capacity,
+					LocalFundedAmt: channel.LocalFundedAmt,
 					Node: autopilot.NewNodeID(
 						channel.IdentityPub),
 				}

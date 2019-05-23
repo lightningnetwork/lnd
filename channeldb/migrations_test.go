@@ -46,9 +46,9 @@ func TestPaymentStatusesMigration(t *testing.T) {
 		}
 
 		// We should receive default status if we have any in database.
-		if paymentStatus != StatusGrounded {
+		if paymentStatus != StatusUnknown {
 			t.Fatalf("wrong payment status: expected %v, got %v",
-				StatusGrounded.String(), paymentStatus.String())
+				StatusUnknown.String(), paymentStatus.String())
 		}
 
 		// Lastly, we'll add a locally-sourced circuit and
@@ -146,9 +146,9 @@ func TestPaymentStatusesMigration(t *testing.T) {
 			t.Fatalf("unable to fetch payment status: %v", err)
 		}
 
-		if paymentStatus != StatusCompleted {
+		if paymentStatus != StatusSucceeded {
 			t.Fatalf("wrong payment status: expected %v, got %v",
-				StatusCompleted.String(), paymentStatus.String())
+				StatusSucceeded.String(), paymentStatus.String())
 		}
 
 		inFlightHash := [32]byte{
@@ -184,9 +184,9 @@ func TestPaymentStatusesMigration(t *testing.T) {
 			t.Fatalf("unable to fetch payment status: %v", err)
 		}
 
-		if paymentStatus != StatusGrounded {
+		if paymentStatus != StatusUnknown {
 			t.Fatalf("wrong payment status: expected %v, got %v",
-				StatusGrounded.String(), paymentStatus.String())
+				StatusUnknown.String(), paymentStatus.String())
 		}
 	}
 
@@ -640,7 +640,7 @@ func TestOutgoingPaymentsMigration(t *testing.T) {
 
 		for i, p := range sentPayments {
 			// The payment status should be Completed.
-			if p.Status != StatusCompleted {
+			if p.Status != StatusSucceeded {
 				t.Fatalf("expected Completed, got %v", p.Status)
 			}
 

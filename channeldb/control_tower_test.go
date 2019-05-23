@@ -130,12 +130,12 @@ func TestPaymentControlSwitchFail(t *testing.T) {
 		nil,
 	)
 
-	// Verifies that status was changed to StatusCompleted.
+	// Verifies that status was changed to StatusSucceeded.
 	if err := pControl.Success(info.PaymentHash, preimg); err != nil {
 		t.Fatalf("error shouldn't have been received, got: %v", err)
 	}
 
-	assertPaymentStatus(t, db, info.PaymentHash, StatusCompleted)
+	assertPaymentStatus(t, db, info.PaymentHash, StatusSucceeded)
 	assertPaymentInfo(t, db, info.PaymentHash, info, attempt, preimg, nil)
 
 	// Attempt a final payment, which should now fail since the prior
@@ -207,7 +207,7 @@ func TestPaymentControlSwitchDoubleSend(t *testing.T) {
 	if err := pControl.Success(info.PaymentHash, preimg); err != nil {
 		t.Fatalf("error shouldn't have been received, got: %v", err)
 	}
-	assertPaymentStatus(t, db, info.PaymentHash, StatusCompleted)
+	assertPaymentStatus(t, db, info.PaymentHash, StatusSucceeded)
 	assertPaymentInfo(t, db, info.PaymentHash, info, attempt, preimg, nil)
 
 	err = pControl.InitPayment(info.PaymentHash, info)
@@ -239,7 +239,7 @@ func TestPaymentControlSuccessesWithoutInFlight(t *testing.T) {
 		t.Fatalf("expected ErrPaymentNotInitiated, got %v", err)
 	}
 
-	assertPaymentStatus(t, db, info.PaymentHash, StatusGrounded)
+	assertPaymentStatus(t, db, info.PaymentHash, StatusUnknown)
 	assertPaymentInfo(
 		t, db, info.PaymentHash, nil, nil, lntypes.Preimage{},
 		nil,
@@ -269,7 +269,7 @@ func TestPaymentControlFailsWithoutInFlight(t *testing.T) {
 		t.Fatalf("expected ErrPaymentNotInitiated, got %v", err)
 	}
 
-	assertPaymentStatus(t, db, info.PaymentHash, StatusGrounded)
+	assertPaymentStatus(t, db, info.PaymentHash, StatusUnknown)
 	assertPaymentInfo(
 		t, db, info.PaymentHash, nil, nil, lntypes.Preimage{}, nil,
 	)
@@ -280,7 +280,7 @@ func assertPaymentStatus(t *testing.T, db *DB,
 
 	t.Helper()
 
-	var paymentStatus = StatusGrounded
+	var paymentStatus = StatusUnknown
 	err := db.View(func(tx *bbolt.Tx) error {
 		payments := tx.Bucket(paymentsRootBucket)
 		if payments == nil {

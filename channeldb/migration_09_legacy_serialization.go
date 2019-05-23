@@ -132,18 +132,18 @@ func (db *DB) fetchAllPayments() ([]*outgoingPayment, error) {
 }
 
 // fetchPaymentStatus returns the payment status for outgoing payment.
-// If status of the payment isn't found, it will default to "StatusGrounded".
+// If status of the payment isn't found, it will default to "StatusUnknown".
 //
 // NOTE: Deprecated. Kept around for migration purposes.
 func (db *DB) fetchPaymentStatus(paymentHash [32]byte) (PaymentStatus, error) {
-	var paymentStatus = StatusGrounded
+	var paymentStatus = StatusUnknown
 	err := db.View(func(tx *bbolt.Tx) error {
 		var err error
 		paymentStatus, err = fetchPaymentStatusTx(tx, paymentHash)
 		return err
 	})
 	if err != nil {
-		return StatusGrounded, err
+		return StatusUnknown, err
 	}
 
 	return paymentStatus, nil
@@ -151,13 +151,13 @@ func (db *DB) fetchPaymentStatus(paymentHash [32]byte) (PaymentStatus, error) {
 
 // fetchPaymentStatusTx is a helper method that returns the payment status for
 // outgoing payment.  If status of the payment isn't found, it will default to
-// "StatusGrounded". It accepts the boltdb transactions such that this method
+// "StatusUnknown". It accepts the boltdb transactions such that this method
 // can be composed into other atomic operations.
 //
 // NOTE: Deprecated. Kept around for migration purposes.
 func fetchPaymentStatusTx(tx *bbolt.Tx, paymentHash [32]byte) (PaymentStatus, error) {
 	// The default status for all payments that aren't recorded in database.
-	var paymentStatus = StatusGrounded
+	var paymentStatus = StatusUnknown
 
 	bucket := tx.Bucket(paymentStatusBucket)
 	if bucket == nil {

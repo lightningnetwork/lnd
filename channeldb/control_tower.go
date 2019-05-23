@@ -22,9 +22,9 @@ var (
 	// switch.
 	ErrPaymentNotInitiated = errors.New("payment isn't initiated")
 
-	// ErrPaymentAlreadyCompleted is returned in the event we attempt to
-	// recomplete a completed payment.
-	ErrPaymentAlreadyCompleted = errors.New("payment is already completed")
+	// ErrPaymentAlreadySucceeded is returned in the event we attempt to
+	// change the status of a payment already succeeded.
+	ErrPaymentAlreadySucceeded = errors.New("payment is already succeeded")
 
 	// ErrPaymentAlreadyFailed is returned in the event we attempt to
 	// re-fail a failed payment.
@@ -42,14 +42,14 @@ var (
 // ControlTower interface provides access to driving the state transitions.
 type ControlTower interface {
 	// InitPayment atomically moves the payment into the InFlight state.
-	// This method checks that no completed payment exist for this payment
+	// This method checks that no suceeded payment exist for this payment
 	// hash.
 	InitPayment(lntypes.Hash, *PaymentCreationInfo) error
 
 	// RegisterAttempt atomically records the provided PaymentAttemptInfo.
 	RegisterAttempt(lntypes.Hash, *PaymentAttemptInfo) error
 
-	// Success transitions a payment into the Completed state. After
+	// Success transitions a payment into the Succeeded state. After
 	// invoking this method, InitPayment should always return an error to
 	// prevent us from making duplicate payments to the same payment hash.
 	// The provided preimage is atomically saved to the DB for record
@@ -113,7 +113,7 @@ func (p *paymentControl) InitPayment(paymentHash lntypes.Hash,
 
 		// This is a new payment that is being initialized for the
 		// first time.
-		case StatusGrounded:
+		case StatusUnknown:
 
 		// We already have an InFlight payment on the network. We will
 		// disallow any new payments.
@@ -121,9 +121,9 @@ func (p *paymentControl) InitPayment(paymentHash lntypes.Hash,
 			takeoffErr = ErrPaymentInFlight
 			return nil
 
-		// We've already completed a payment to this payment hash,
+		// We've already succeeded a payment to this payment hash,
 		// forbid the switch from sending another.
-		case StatusCompleted:
+		case StatusSucceeded:
 			takeoffErr = ErrAlreadyPaid
 			return nil
 
@@ -217,7 +217,7 @@ func (p *paymentControl) RegisterAttempt(paymentHash lntypes.Hash,
 	return updateErr
 }
 
-// Success transitions a payment into the Completed state. After invoking this
+// Success transitions a payment into the Succeeded state. After invoking this
 // method, InitPayment should always return an error to prevent us from making
 // duplicate payments to the same payment hash. The provided preimage is
 // atomically saved to the DB for record keeping.
@@ -248,7 +248,7 @@ func (p *paymentControl) Success(paymentHash lntypes.Hash,
 			return err
 		}
 
-		return bucket.Put(paymentStatusKey, StatusCompleted.Bytes())
+		return bucket.Put(paymentStatusKey, StatusSucceeded.Bytes())
 	})
 	if err != nil {
 		return err
@@ -332,11 +332,11 @@ func nextPaymentSequence(tx *bbolt.Tx) ([]byte, error) {
 }
 
 // fetchPaymentStatus fetches the payment status from the bucket.  If the
-// status isn't found, it will default to "StatusGrounded".
+// status isn't found, it will default to "StatusUnknown".
 func fetchPaymentStatus(bucket *bbolt.Bucket) PaymentStatus {
 	// The default status for all payments that aren't recorded in
 	// database.
-	var paymentStatus = StatusGrounded
+	var paymentStatus = StatusUnknown
 
 	paymentStatusBytes := bucket.Get(paymentStatusKey)
 	if paymentStatusBytes != nil {
@@ -360,12 +360,12 @@ func ensureInFlight(bucket *bbolt.Bucket) error {
 
 	// Our records show the payment as unknown, meaning it never
 	// should have left the switch.
-	case paymentStatus == StatusGrounded:
+	case paymentStatus == StatusUnknown:
 		return ErrPaymentNotInitiated
 
 	// The payment succeeded previously.
-	case paymentStatus == StatusCompleted:
-		return ErrPaymentAlreadyCompleted
+	case paymentStatus == StatusSucceeded:
+		return ErrPaymentAlreadySucceeded
 
 	// The payment was already failed.
 	case paymentStatus == StatusFailed:

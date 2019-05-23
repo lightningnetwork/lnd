@@ -105,17 +105,17 @@ const (
 type PaymentStatus byte
 
 const (
-	// StatusGrounded is the status where a payment has never been
-	// initiated.
-	StatusGrounded PaymentStatus = 0
+	// StatusUnknown is the status where a payment has never been initiated
+	// and hence is unknown.
+	StatusUnknown PaymentStatus = 0
 
 	// StatusInFlight is the status where a payment has been initiated, but
 	// a response has not been received.
 	StatusInFlight PaymentStatus = 1
 
-	// StatusCompleted is the status where a payment has been initiated and
+	// StatusSucceeded is the status where a payment has been initiated and
 	// the payment was completed successfully.
-	StatusCompleted PaymentStatus = 2
+	StatusSucceeded PaymentStatus = 2
 
 	// StatusFailed is the status where a payment has been initiated and a
 	// failure result has come back.
@@ -134,7 +134,7 @@ func (ps *PaymentStatus) FromBytes(status []byte) error {
 	}
 
 	switch PaymentStatus(status[0]) {
-	case StatusGrounded, StatusInFlight, StatusCompleted, StatusFailed:
+	case StatusUnknown, StatusInFlight, StatusSucceeded, StatusFailed:
 		*ps = PaymentStatus(status[0])
 	default:
 		return errors.New("unknown payment status")
@@ -146,12 +146,12 @@ func (ps *PaymentStatus) FromBytes(status []byte) error {
 // String returns readable representation of payment status.
 func (ps PaymentStatus) String() string {
 	switch ps {
-	case StatusGrounded:
-		return "Grounded"
+	case StatusUnknown:
+		return "Unknown"
 	case StatusInFlight:
 		return "In Flight"
-	case StatusCompleted:
-		return "Completed"
+	case StatusSucceeded:
+		return "Succeeded"
 	case StatusFailed:
 		return "Failed"
 	default:

@@ -33,7 +33,7 @@ func TestRequestRoute(t *testing.T) {
 	}
 
 	session := &paymentSession{
-		mc: &missionControl{
+		mc: &MissionControl{
 			selfNode: &channeldb.LightningNode{},
 		},
 		pruneViewSnapshot: graphPruneView{},

@@ -349,7 +349,7 @@ type ChannelRouter struct {
 	// Each run will then take into account this set of pruned
 	// vertexes/edges to reduce route failure and pass on graph information
 	// gained to the next execution.
-	missionControl *missionControl
+	missionControl *MissionControl
 
 	// channelEdgeMtx is a mutex we use to make sure we process only one
 	// ChannelEdgePolicy at a time for a given channelID, to ensure
@@ -392,7 +392,7 @@ func New(cfg Config) (*ChannelRouter, error) {
 		quit:              make(chan struct{}),
 	}
 
-	r.missionControl = newMissionControl(
+	r.missionControl = NewMissionControl(
 		cfg.Graph, selfNode, cfg.QueryBandwidth,
 	)
 

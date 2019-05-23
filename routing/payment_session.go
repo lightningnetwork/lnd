@@ -11,7 +11,7 @@ import (
 
 // paymentSession is used during an HTLC routings session to prune the local
 // chain view in response to failures, and also report those failures back to
-// missionControl. The snapshot copied for this session will only ever grow,
+// MissionControl. The snapshot copied for this session will only ever grow,
 // and will now be pruned after a decay like the main view within mission
 // control. We do this as we want to avoid the case where we continually try a
 // bad edge or route multiple times in a session. This can lead to an infinite
@@ -30,7 +30,7 @@ type paymentSession struct {
 	// require pruning, but any subsequent ones do.
 	errFailedPolicyChans map[EdgeLocator]struct{}
 
-	mc *missionControl
+	mc *MissionControl
 
 	preBuiltRoute      *route.Route
 	preBuiltRouteTried bool
@@ -151,7 +151,7 @@ func (p *paymentSession) RequestRoute(payment *LightningPayment,
 
 	// Taking into account this prune view, we'll attempt to locate a path
 	// to our destination, respecting the recommendations from
-	// missionControl.
+	// MissionControl.
 	path, err := p.pathFinder(
 		&graphParams{
 			graph:           p.mc.graph,

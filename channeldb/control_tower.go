@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"fmt"
 
 	"github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -59,6 +60,9 @@ type ControlTower interface {
 	// this method, InitPayment should return nil on its next call for this
 	// payment hash, allowing the switch to make a subsequent payment.
 	Fail(lntypes.Hash) error
+
+	// FetchInFlightPayments returns all payments with status InFlight.
+	FetchInFlightPayments() ([]*InFlightPayment, error)
 }
 
 // paymentControl is persistent implementation of ControlTower to restrict
@@ -357,4 +361,77 @@ func ensureInFlight(bucket *bbolt.Bucket) error {
 	default:
 		return ErrUnknownPaymentStatus
 	}
+}
+
+// InFlightPayment is a wrapper around a payment that has status InFlight.
+type InFlightPayment struct {
+	// Info is the PaymentCreationInfo of the in-flight payment.
+	Info *PaymentCreationInfo
+
+	// Attempt contains information about the last payment attempt that was
+	// made to this payment hash.
+	//
+	// NOTE: Might be nil.
+	Attempt *PaymentAttemptInfo
+}
+
+// FetchInFlightPayments returns all payments with status InFlight.
+func (p *paymentControl) FetchInFlightPayments() ([]*InFlightPayment, error) {
+	var inFlights []*InFlightPayment
+	err := p.db.View(func(tx *bbolt.Tx) error {
+		payments := tx.Bucket(paymentsRootBucket)
+		if payments == nil {
+			return nil
+		}
+
+		return payments.ForEach(func(k, _ []byte) error {
+			bucket := payments.Bucket(k)
+			if bucket == nil {
+				return fmt.Errorf("non bucket element")
+			}
+
+			// If the status is not InFlight, we can return early.
+			paymentStatus := fetchPaymentStatus(bucket)
+			if paymentStatus != StatusInFlight {
+				return nil
+			}
+
+			var (
+				inFlight = &InFlightPayment{}
+				err      error
+			)
+
+			// Get the CreationInfo.
+			b := bucket.Get(paymentCreationInfoKey)
+			if b == nil {
+				return fmt.Errorf("unable to find creation " +
+					"info for inflight payment")
+			}
+
+			r := bytes.NewReader(b)
+			inFlight.Info, err = deserializePaymentCreationInfo(r)
+			if err != nil {
+				return err
+			}
+
+			// Now get the attempt info, which may or may not be
+			// available.
+			attempt := bucket.Get(paymentAttemptInfoKey)
+			if attempt != nil {
+				r = bytes.NewReader(attempt)
+				inFlight.Attempt, err = deserializePaymentAttemptInfo(r)
+				if err != nil {
+					return err
+				}
+			}
+
+			inFlights = append(inFlights, inFlight)
+			return nil
+		})
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return inFlights, nil
 }

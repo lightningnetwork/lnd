@@ -25,7 +25,6 @@ install_protoc () {
 
 
 install_protobuf () {
-        rm -rf $GOPATH/src/github.com/golang/protobuf
         if [ ! -d $GOPATH/src/github.com/golang/protobuf ]
         then
                 git clone https://github.com/golang/protobuf $GOPATH/src/github.com/golang/protobuf
@@ -38,7 +37,6 @@ install_protobuf () {
         
 
 install_genproto () {
-        rm -rf $GOPATH/src/google.golang.org/genproto
         if [ ! -d $GOPATH/src/google.golang.org/genproto ]
         then
                 git clone https://github.com/google/go-genproto $GOPATH/src/google.golang.org/genproto
@@ -49,7 +47,6 @@ install_genproto () {
 }
 
 install_grpc_ecosystem () {
-        rm -rf $GOPATH/src/github.com/grpc-ecosystem/grpc-gateway
         if [ ! -d $GOPATH/src/github.com/grpc-ecosystem/grpc-gateway ]
         then
                 git clone https://github.com/grpc-ecosystem/grpc-gateway $GOPATH/src/github.com/grpc-ecosystem/grpc-gateway

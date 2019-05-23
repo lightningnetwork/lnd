@@ -1513,6 +1513,7 @@ type LightningPayment struct {
 	// when we should should abandon the payment attempt after consecutive
 	// payment failure. This prevents us from attempting to send a payment
 	// indefinitely.
+	// TODO(halseth): make wallclock time to allow resume after startup.
 	PayAttemptTimeout time.Duration
 
 	// RouteHints represents the different routing hints that can be used to
@@ -1617,6 +1618,8 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 
 	timeoutChan := time.After(payAttemptTimeout)
 
+	paymentHash := payment.PaymentHash
+
 	// We'll continue until either our payment succeeds, or we encounter a
 	// critical error during path finding.
 	var lastError error
@@ -1657,131 +1660,124 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 			return [32]byte{}, nil, err
 		}
 
-		// Send payment attempt. It will return a final boolean
-		// indicating if more attempts are needed.
-		preimage, final, err := r.sendPaymentAttempt(
-			paySession, route, payment.PaymentHash,
+		log.Tracef("Attempting to send payment %x, using route: %v",
+			paymentHash, newLogClosure(func() string {
+				return spew.Sdump(route)
+			}),
 		)
-		if final {
-			return preimage, route, err
+
+		// Generate a new key to be used for this attempt.
+		sessionKey, err := generateNewSessionKey()
+		if err != nil {
+			return [32]byte{}, nil, err
 		}
 
-		lastError = err
-	}
-}
-
-// sendPaymentAttempt tries to send the payment via the specified route. If
-// successful, it returns the obtained preimage. If an error occurs, the last
-// bool parameter indicates whether this is a final outcome or more attempts
-// should be made.
-func (r *ChannelRouter) sendPaymentAttempt(paySession *paymentSession,
-	route *route.Route, paymentHash [32]byte) ([32]byte, bool, error) {
-
-	log.Tracef("Attempting to send payment %x, using route: %v",
-		paymentHash, newLogClosure(func() string {
-			return spew.Sdump(route)
-		}),
-	)
-
-	// Generate a new key to be used for this attempt.
-	sessionKey, err := generateNewSessionKey()
-	if err != nil {
-		return [32]byte{}, true, err
-	}
-	// Generate the raw encoded sphinx packet to be included along
-	// with the htlcAdd message that we send directly to the
-	// switch.
-	onionBlob, circuit, err := generateSphinxPacket(
-		route, paymentHash[:], sessionKey,
-	)
-	if err != nil {
-		return [32]byte{}, true, err
-	}
-
-	// Craft an HTLC packet to send to the layer 2 switch. The
-	// metadata within this packet will be used to route the
-	// payment through the network, starting with the first-hop.
-	htlcAdd := &lnwire.UpdateAddHTLC{
-		Amount:      route.TotalAmount,
-		Expiry:      route.TotalTimeLock,
-		PaymentHash: paymentHash,
-	}
-	copy(htlcAdd.OnionBlob[:], onionBlob)
-
-	// Attempt to send this payment through the network to complete
-	// the payment. If this attempt fails, then we'll continue on
-	// to the next available route.
-	firstHop := lnwire.NewShortChanIDFromInt(
-		route.Hops[0].ChannelID,
-	)
-
-	// We generate a new, unique payment ID that we will use for
-	// this HTLC.
-	paymentID, err := r.cfg.NextPaymentID()
-	if err != nil {
-		return [32]byte{}, true, err
-	}
-
-	err = r.cfg.Payer.SendHTLC(
-		firstHop, paymentID, htlcAdd,
-	)
-	if err != nil {
-		log.Errorf("Failed sending attempt %d for payment %x to "+
-			"switch: %v", paymentID, paymentHash, err)
-
-		// We must inspect the error to know whether it was critical or
-		// not, to decide whether we should continue trying.
-		finalOutcome := r.processSendError(
-			paySession, route, err,
+		// Generate the raw encoded sphinx packet to be included along
+		// with the htlcAdd message that we send directly to the
+		// switch.
+		onionBlob, circuit, err := generateSphinxPacket(
+			route, paymentHash[:], sessionKey,
 		)
-
-		return [32]byte{}, finalOutcome, err
-	}
-
-	// Using the created circuit, initialize the error decrypter so we can
-	// parse+decode any failures incurred by this payment within the
-	// switch.
-	errorDecryptor := &htlcswitch.SphinxErrorDecrypter{
-		OnionErrorDecrypter: sphinx.NewOnionErrorDecrypter(circuit),
-	}
-
-	// Now ask the switch to return the result of the payment when
-	// available.
-	resultChan, err := r.cfg.Payer.GetPaymentResult(
-		paymentID, errorDecryptor,
-	)
-	if err != nil {
-		log.Errorf("Failed getting result for paymentID %d "+
-			"from switch: %v", paymentID, err)
-		return [32]byte{}, true, err
-	}
-
-	var (
-		result *htlcswitch.PaymentResult
-		ok     bool
-	)
-	select {
-	case result, ok = <-resultChan:
-		if !ok {
-			return [32]byte{}, true, htlcswitch.ErrSwitchExiting
+		if err != nil {
+			return [32]byte{}, nil, err
 		}
 
-	case <-r.quit:
-		return [32]byte{}, true, ErrRouterShuttingDown
-	}
+		// Craft an HTLC packet to send to the layer 2 switch. The
+		// metadata within this packet will be used to route the
+		// payment through the network, starting with the first-hop.
+		htlcAdd := &lnwire.UpdateAddHTLC{
+			Amount:      route.TotalAmount,
+			Expiry:      route.TotalTimeLock,
+			PaymentHash: paymentHash,
+		}
+		copy(htlcAdd.OnionBlob[:], onionBlob)
 
-	if result.Error != nil {
-		log.Errorf("Attempt to send payment %x failed: %v",
-			paymentHash, result.Error)
-
-		finalOutcome := r.processSendError(
-			paySession, route, result.Error,
+		// Attempt to send this payment through the network to complete
+		// the payment. If this attempt fails, then we'll continue on
+		// to the next available route.
+		firstHop := lnwire.NewShortChanIDFromInt(
+			route.Hops[0].ChannelID,
 		)
 
-		return [32]byte{}, finalOutcome, result.Error
+		// We generate a new, unique payment ID that we will use for
+		// this HTLC.
+		paymentID, err := r.cfg.NextPaymentID()
+		if err != nil {
+			return [32]byte{}, nil, err
+		}
+
+		err = r.cfg.Payer.SendHTLC(
+			firstHop, paymentID, htlcAdd,
+		)
+		if err != nil {
+			log.Errorf("Failed sending attempt %d for payment "+
+				"%x to switch: %v", paymentID, paymentHash, err)
+
+			// We must inspect the error to know whether it was
+			// critical or not, to decide whether we should
+			// continue trying.
+			finalOutcome := r.processSendError(
+				paySession, route, err,
+			)
+			if finalOutcome {
+				return [32]byte{}, nil, err
+			}
+
+			lastError = err
+			continue
+		}
+
+		// Using the created circuit, initialize the error decrypter so we can
+		// parse+decode any failures incurred by this payment within the
+		// switch.
+		errorDecryptor := &htlcswitch.SphinxErrorDecrypter{
+			OnionErrorDecrypter: sphinx.NewOnionErrorDecrypter(circuit),
+		}
+
+		// Now ask the switch to return the result of the payment when
+		// available.
+		resultChan, err := r.cfg.Payer.GetPaymentResult(
+			paymentID, errorDecryptor,
+		)
+		if err != nil {
+			log.Errorf("Failed getting result for paymentID %d "+
+				"from switch: %v", paymentID, err)
+			return [32]byte{}, nil, err
+		}
+
+		var (
+			result *htlcswitch.PaymentResult
+			ok     bool
+		)
+		select {
+		case result, ok = <-resultChan:
+			if !ok {
+				return [32]byte{}, nil, htlcswitch.ErrSwitchExiting
+			}
+
+		case <-r.quit:
+			return [32]byte{}, nil, ErrRouterShuttingDown
+		}
+
+		if result.Error != nil {
+			log.Errorf("Attempt to send payment %x failed: %v",
+				paymentHash, result.Error)
+
+			finalOutcome := r.processSendError(
+				paySession, route, result.Error,
+			)
+
+			if finalOutcome {
+				return [32]byte{}, nil, result.Error
+			}
+
+			lastError = result.Error
+			continue
+		}
+
+		return result.Preimage, route, nil
 	}
 
-	return result.Preimage, true, nil
 }
 
 // processSendError analyzes the error for the payment attempt received from the

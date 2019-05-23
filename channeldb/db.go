@@ -96,6 +96,13 @@ var (
 			number:    8,
 			migration: migrateGossipMessageStoreKeys,
 		},
+		{
+			// The DB version where the payments and payment
+			// statuses are moved to being stored in a combined
+			// bucket.
+			number:    9,
+			migration: migrateOutgoingPayments,
+		},
 	}
 
 	// Big endian is the preferred byte order, due to cursor scans over

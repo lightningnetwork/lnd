@@ -149,11 +149,11 @@ $ unzip protoc-3.4.0-osx-x86_64.zip -d protoc
 $ export PATH=$PWD/protoc/bin:$PATH
 ```
 
-2. Install `golang/protobuf` at commit `aa810b61a9c79d51363740d207bb46cf8e620ed5` (v1.2.0).
+2. Install `golang/protobuf` at commit `b5d812f8a3706043e23a9cd5babf2e5423744d30` (v1.3.1).
 ```bash
 $ git clone https://github.com/golang/protobuf $GOPATH/src/github.com/golang/protobuf
 $ cd $GOPATH/src/github.com/golang/protobuf
-$ git reset --hard aa810b61a9c79d51363740d207bb46cf8e620ed5
+$ git reset --hard v1.3.1
 $ make
 ```
 

@@ -5,8 +5,11 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
+	"time"
 
+	"github.com/btcsuite/btcd/btcec"
 	"github.com/coreos/bbolt"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
@@ -16,11 +19,65 @@ var (
 	// database that stores all data related to payments. Within this
 	// bucket, each payment hash its own sub-bucket keyed by its payment
 	// hash.
+	//
+	// Bucket hierarchy:
+	//
+	// root-bucket
+	//      |
+	//      |-- <paymenthash>
+	//      |        |--sequence-key: <sequence number>
+	//      |        |--creation-info-key: <creation info>
+	//      |        |--attempt-info-key: <attempt info>
+	//      |        |--settle-info-key: <settle info>
+	//      |        |--fail-info-key: <fail info>
+	//      |        |
+	//      |        |--duplicate-bucket (only for old, completed payments)
+	//      |                 |
+	//      |                 |-- <seq-num>
+	//      |                 |       |--sequence-key: <sequence number>
+	//      |                 |       |--creation-info-key: <creation info>
+	//      |                 |       |--attempt-info-key: <attempt info>
+	//      |                 |       |--settle-info-key: <settle info>
+	//      |                 |       |--fail-info-key: <fail info>
+	//      |                 |
+	//      |                 |-- <seq-num>
+	//      |                 |       |
+	//      |                ...     ...
+	//      |
+	//      |-- <paymenthash>
+	//      |        |
+	//      |       ...
+	//     ...
+	//
 	paymentsRootBucket = []byte("payments-root-bucket")
 
 	// paymentStatusKey is a key used in the payment's sub-bucket to store
 	// the status of the payment.
 	paymentStatusKey = []byte("payment-status-key")
+
+	// paymentDublicateBucket is the name of a optional sub-bucket within
+	// the payment hash bucket, that is used to hold duplicate payments to
+	// a payment hash. This is needed to support information from earlier
+	// versions of lnd, where it was possible to pay to a payment hash more
+	// than once.
+	paymentDuplicateBucket = []byte("payment-duplicate-bucket")
+
+	// paymentSequenceKey is a key used in the payment's sub-bucket to
+	// store the sequence number of the payment.
+	paymentSequenceKey = []byte("payment-sequence-key")
+
+	// paymentCreationInfoKey is a key used in the payment's sub-bucket to
+	// store the creation info of the payment.
+	paymentCreationInfoKey = []byte("payment-creation-info")
+
+	// paymentAttemptInfoKey is a key used in the payment's sub-bucket to
+	// store the info about the latest attempt that was done for the
+	// payment in question.
+	paymentAttemptInfoKey = []byte("payment-attempt-info")
+
+	// paymentSettleInfoKey is a key used in the payment's sub-bucket to
+	// store the settle info of the payment.
+	paymentSettleInfoKey = []byte("payment-settle-info")
 
 	// paymentBucket is the name of the bucket within the database that
 	// stores all data related to payments.
@@ -91,6 +148,8 @@ func (ps PaymentStatus) String() string {
 // OutgoingPayment represents a successful payment between the daemon and a
 // remote node. Details such as the total fee paid, and the time of the payment
 // are stored.
+//
+// NOTE: Deprecated. Kept around for migration purposes.
 type OutgoingPayment struct {
 	Invoice
 
@@ -113,6 +172,8 @@ type OutgoingPayment struct {
 
 // AddPayment saves a successful payment to the database. It is assumed that
 // all payment are sent using unique payment hashes.
+//
+// NOTE: Deprecated. Kept around for migration purposes.
 func (db *DB) AddPayment(payment *OutgoingPayment) error {
 	// Validate the field of the inner voice within the outgoing payment,
 	// these must also adhere to the same constraints as regular invoices.
@@ -152,6 +213,8 @@ func (db *DB) AddPayment(payment *OutgoingPayment) error {
 }
 
 // FetchAllPayments returns all outgoing payments in DB.
+//
+// NOTE: Deprecated. Kept around for migration purposes.
 func (db *DB) FetchAllPayments() ([]*OutgoingPayment, error) {
 	var payments []*OutgoingPayment
 
@@ -186,6 +249,8 @@ func (db *DB) FetchAllPayments() ([]*OutgoingPayment, error) {
 }
 
 // DeleteAllPayments deletes all payments from DB.
+//
+// NOTE: Deprecated. Kept around for migration purposes.
 func (db *DB) DeleteAllPayments() error {
 	return db.Update(func(tx *bbolt.Tx) error {
 		err := tx.DeleteBucket(paymentBucket)
@@ -200,6 +265,8 @@ func (db *DB) DeleteAllPayments() error {
 
 // FetchPaymentStatus returns the payment status for outgoing payment.
 // If status of the payment isn't found, it will default to "StatusGrounded".
+//
+// NOTE: Deprecated. Kept around for migration purposes.
 func (db *DB) FetchPaymentStatus(paymentHash [32]byte) (PaymentStatus, error) {
 	var paymentStatus = StatusGrounded
 	err := db.View(func(tx *bbolt.Tx) error {
@@ -218,6 +285,8 @@ func (db *DB) FetchPaymentStatus(paymentHash [32]byte) (PaymentStatus, error) {
 // outgoing payment.  If status of the payment isn't found, it will default to
 // "StatusGrounded". It accepts the boltdb transactions such that this method
 // can be composed into other atomic operations.
+//
+// NOTE: Deprecated. Kept around for migration purposes.
 func FetchPaymentStatusTx(tx *bbolt.Tx, paymentHash [32]byte) (PaymentStatus, error) {
 	// The default status for all payments that aren't recorded in database.
 	var paymentStatus = StatusGrounded
@@ -315,6 +384,127 @@ func deserializeOutgoingPayment(r io.Reader) (*OutgoingPayment, error) {
 	}
 
 	return p, nil
+}
+
+// PaymentCreationInfo is the information necessary to have ready when
+// initiating a payment, moving it into state InFlight.
+type PaymentCreationInfo struct {
+	// PaymentHash is the hash this payment is paying to.
+	PaymentHash lntypes.Hash
+
+	// Value is the amount we are paying.
+	Value lnwire.MilliSatoshi
+
+	// CreatingDate is the time when this payment was initiated.
+	CreationDate time.Time
+
+	// PaymentRequest is the full payment request, if any.
+	PaymentRequest []byte
+}
+
+// PaymentAttemptInfo contains information about a specific payment attempt for
+// a given payment. This information is used by the router to handle any errors
+// coming back after an attempt is made, and to query the switch about the
+// status of a payment. For settled payment this will be the information for
+// the succeeding payment attempt.
+type PaymentAttemptInfo struct {
+	// PaymentID is the unique ID used for this attempt.
+	PaymentID uint64
+
+	// SessionKey is the ephemeral key used for this payment attempt.
+	SessionKey *btcec.PrivateKey
+
+	// Route is the route attempted to send the HTLC.
+	Route route.Route
+}
+
+func serializePaymentCreationInfo(w io.Writer, c *PaymentCreationInfo) error {
+	var scratch [8]byte
+
+	if _, err := w.Write(c.PaymentHash[:]); err != nil {
+		return err
+	}
+
+	byteOrder.PutUint64(scratch[:], uint64(c.Value))
+	if _, err := w.Write(scratch[:]); err != nil {
+		return err
+	}
+
+	byteOrder.PutUint64(scratch[:], uint64(c.CreationDate.Unix()))
+	if _, err := w.Write(scratch[:]); err != nil {
+		return err
+	}
+
+	byteOrder.PutUint32(scratch[:4], uint32(len(c.PaymentRequest)))
+	if _, err := w.Write(scratch[:4]); err != nil {
+		return err
+	}
+
+	if _, err := w.Write(c.PaymentRequest[:]); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func deserializePaymentCreationInfo(r io.Reader) (*PaymentCreationInfo, error) {
+	var scratch [8]byte
+
+	c := &PaymentCreationInfo{}
+
+	if _, err := io.ReadFull(r, c.PaymentHash[:]); err != nil {
+		return nil, err
+	}
+
+	if _, err := io.ReadFull(r, scratch[:]); err != nil {
+		return nil, err
+	}
+	c.Value = lnwire.MilliSatoshi(byteOrder.Uint64(scratch[:]))
+
+	if _, err := io.ReadFull(r, scratch[:]); err != nil {
+		return nil, err
+	}
+	c.CreationDate = time.Unix(int64(byteOrder.Uint64(scratch[:])), 0)
+
+	if _, err := io.ReadFull(r, scratch[:4]); err != nil {
+		return nil, err
+	}
+
+	reqLen := uint32(byteOrder.Uint32(scratch[:4]))
+	payReq := make([]byte, reqLen)
+	if reqLen > 0 {
+		if _, err := io.ReadFull(r, payReq[:]); err != nil {
+			return nil, err
+		}
+	}
+	c.PaymentRequest = payReq
+
+	return c, nil
+}
+
+func serializePaymentAttemptInfo(w io.Writer, a *PaymentAttemptInfo) error {
+	if err := WriteElements(w, a.PaymentID, a.SessionKey); err != nil {
+		return err
+	}
+
+	if err := serializeRoute(w, a.Route); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func deserializePaymentAttemptInfo(r io.Reader) (*PaymentAttemptInfo, error) {
+	a := &PaymentAttemptInfo{}
+	err := ReadElements(r, &a.PaymentID, &a.SessionKey)
+	if err != nil {
+		return nil, err
+	}
+	a.Route, err = deserializeRoute(r)
+	if err != nil {
+		return nil, err
+	}
+	return a, nil
 }
 
 func serializeHop(w io.Writer, h *route.Hop) error {

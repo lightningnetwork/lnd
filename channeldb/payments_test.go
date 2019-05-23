@@ -10,6 +10,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
@@ -62,6 +63,27 @@ func makeFakePayment() *OutgoingPayment {
 	}
 	copy(fakePayment.PaymentPreimage[:], rev[:])
 	return fakePayment
+}
+
+func makeFakeInfo() (*PaymentCreationInfo, *PaymentAttemptInfo) {
+	var preimg lntypes.Preimage
+	copy(preimg[:], rev[:])
+
+	c := &PaymentCreationInfo{
+		PaymentHash: preimg.Hash(),
+		Value:       1000,
+		// Use single second precision to avoid false positive test
+		// failures due to the monotonic time component.
+		CreationDate:   time.Unix(time.Now().Unix(), 0),
+		PaymentRequest: []byte(""),
+	}
+
+	a := &PaymentAttemptInfo{
+		PaymentID:  44,
+		SessionKey: priv,
+		Route:      testRoute,
+	}
+	return c, a
 }
 
 func makeFakePaymentHash() [32]byte {
@@ -133,28 +155,45 @@ func makeRandomFakePayment() (*OutgoingPayment, error) {
 	return fakePayment, nil
 }
 
-func TestOutgoingPaymentSerialization(t *testing.T) {
+func TestSentPaymentSerialization(t *testing.T) {
 	t.Parallel()
 
-	fakePayment := makeFakePayment()
+	c, s := makeFakeInfo()
 
 	var b bytes.Buffer
-	if err := serializeOutgoingPayment(&b, fakePayment); err != nil {
-		t.Fatalf("unable to serialize outgoing payment: %v", err)
+	if err := serializePaymentCreationInfo(&b, c); err != nil {
+		t.Fatalf("unable to serialize creation info: %v", err)
 	}
 
-	newPayment, err := deserializeOutgoingPayment(&b)
+	newCreationInfo, err := deserializePaymentCreationInfo(&b)
 	if err != nil {
-		t.Fatalf("unable to deserialize outgoing payment: %v", err)
+		t.Fatalf("unable to deserialize creation info: %v", err)
 	}
 
-	if !reflect.DeepEqual(fakePayment, newPayment) {
+	if !reflect.DeepEqual(c, newCreationInfo) {
 		t.Fatalf("Payments do not match after "+
 			"serialization/deserialization %v vs %v",
-			spew.Sdump(fakePayment),
-			spew.Sdump(newPayment),
+			spew.Sdump(c), spew.Sdump(newCreationInfo),
 		)
 	}
+
+	b.Reset()
+	if err := serializePaymentAttemptInfo(&b, s); err != nil {
+		t.Fatalf("unable to serialize info: %v", err)
+	}
+
+	newAttemptInfo, err := deserializePaymentAttemptInfo(&b)
+	if err != nil {
+		t.Fatalf("unable to deserialize info: %v", err)
+	}
+
+	if !reflect.DeepEqual(s, newAttemptInfo) {
+		t.Fatalf("Payments do not match after "+
+			"serialization/deserialization %v vs %v",
+			spew.Sdump(s), spew.Sdump(newAttemptInfo),
+		)
+	}
+
 }
 
 func TestOutgoingPaymentWorkflow(t *testing.T) {

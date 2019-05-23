@@ -148,6 +148,12 @@ func WriteElement(w io.Writer, element interface{}) error {
 			return err
 		}
 
+	case *btcec.PrivateKey:
+		b := e.Serialize()
+		if _, err := w.Write(b); err != nil {
+			return err
+		}
+
 	case *btcec.PublicKey:
 		b := e.SerializeCompressed()
 		if _, err := w.Write(b); err != nil {
@@ -319,6 +325,15 @@ func ReadElement(r io.Reader, element interface{}) error {
 		}
 
 		*e = lnwire.MilliSatoshi(a)
+
+	case **btcec.PrivateKey:
+		var b [btcec.PrivKeyBytesLen]byte
+		if _, err := io.ReadFull(r, b[:]); err != nil {
+			return err
+		}
+
+		priv, _ := btcec.PrivKeyFromBytes(btcec.S256(), b[:])
+		*e = priv
 
 	case **btcec.PublicKey:
 		var b [btcec.PubKeyBytesLenCompressed]byte

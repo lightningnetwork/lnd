@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	"github.com/coreos/bbolt"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -81,13 +82,13 @@ func NewPaymentControl(strict bool, db *DB) ControlTower {
 func (p *paymentControl) ClearForTakeoff(htlc *lnwire.UpdateAddHTLC) error {
 	var takeoffErr error
 	err := p.db.Batch(func(tx *bbolt.Tx) error {
-		// Retrieve current status of payment from local database.
-		paymentStatus, err := FetchPaymentStatusTx(
-			tx, htlc.PaymentHash,
-		)
+		bucket, err := fetchPaymentBucket(tx, htlc.PaymentHash)
 		if err != nil {
 			return err
 		}
+
+		// Get the existing status of this payment, if any.
+		paymentStatus := fetchPaymentStatus(bucket)
 
 		// Reset the takeoff error, to avoid carrying over an error
 		// from a previous execution of the batched db transaction.
@@ -98,11 +99,9 @@ func (p *paymentControl) ClearForTakeoff(htlc *lnwire.UpdateAddHTLC) error {
 		case StatusGrounded:
 			// It is safe to reattempt a payment if we know that we
 			// haven't left one in flight. Since this one is
-			// grounded, Transition the payment status to InFlight
-			// to prevent others.
-			return UpdatePaymentStatusTx(
-				tx, htlc.PaymentHash, StatusInFlight,
-			)
+			// grounded or failed, transition the payment status
+			// to InFlight to prevent others.
+			return bucket.Put(paymentStatusKey, StatusInFlight.Bytes())
 
 		case StatusInFlight:
 			// We already have an InFlight payment on the network. We will
@@ -133,12 +132,13 @@ func (p *paymentControl) ClearForTakeoff(htlc *lnwire.UpdateAddHTLC) error {
 func (p *paymentControl) Success(paymentHash [32]byte) error {
 	var updateErr error
 	err := p.db.Batch(func(tx *bbolt.Tx) error {
-		paymentStatus, err := FetchPaymentStatusTx(
-			tx, paymentHash,
-		)
+		bucket, err := fetchPaymentBucket(tx, paymentHash)
 		if err != nil {
 			return err
 		}
+
+		// Get the existing status, if any.
+		paymentStatus := fetchPaymentStatus(bucket)
 
 		// Reset the update error, to avoid carrying over an error
 		// from a previous execution of the batched db transaction.
@@ -162,9 +162,7 @@ func (p *paymentControl) Success(paymentHash [32]byte) error {
 			// A successful response was received for an InFlight
 			// payment, mark it as completed to prevent sending to
 			// this payment hash again.
-			return UpdatePaymentStatusTx(
-				tx, paymentHash, StatusCompleted,
-			)
+			return bucket.Put(paymentStatusKey, StatusCompleted.Bytes())
 
 		case paymentStatus == StatusCompleted:
 			// The payment was completed previously, alert the
@@ -190,12 +188,12 @@ func (p *paymentControl) Success(paymentHash [32]byte) error {
 func (p *paymentControl) Fail(paymentHash [32]byte) error {
 	var updateErr error
 	err := p.db.Batch(func(tx *bbolt.Tx) error {
-		paymentStatus, err := FetchPaymentStatusTx(
-			tx, paymentHash,
-		)
+		bucket, err := fetchPaymentBucket(tx, paymentHash)
 		if err != nil {
 			return err
 		}
+
+		paymentStatus := fetchPaymentStatus(bucket)
 
 		// Reset the update error, to avoid carrying over an error
 		// from a previous execution of the batched db transaction.
@@ -217,11 +215,9 @@ func (p *paymentControl) Fail(paymentHash [32]byte) error {
 
 		case paymentStatus == StatusInFlight:
 			// A failed response was received for an InFlight
-			// payment, mark it as Grounded again to allow
-			// subsequent attempts.
-			return UpdatePaymentStatusTx(
-				tx, paymentHash, StatusGrounded,
-			)
+			// payment, mark it as Failed to allow subsequent
+			// attempts.
+			return bucket.Put(paymentStatusKey, StatusGrounded.Bytes())
 
 		case paymentStatus == StatusCompleted:
 			// The payment was completed previously, and we are now
@@ -241,4 +237,32 @@ func (p *paymentControl) Fail(paymentHash [32]byte) error {
 	}
 
 	return updateErr
+}
+
+// fetchPaymentBucket fetches or creates the sub-bucket assigned to this
+// payment hash.
+func fetchPaymentBucket(tx *bbolt.Tx, paymentHash lntypes.Hash) (
+	*bbolt.Bucket, error) {
+
+	payments, err := tx.CreateBucketIfNotExists(paymentsRootBucket)
+	if err != nil {
+		return nil, err
+	}
+
+	return payments.CreateBucketIfNotExists(paymentHash[:])
+}
+
+// fetchPaymentStatus fetches the payment status from the bucket.  If the
+// status isn't found, it will default to "StatusGrounded".
+func fetchPaymentStatus(bucket *bbolt.Bucket) PaymentStatus {
+	// The default status for all payments that aren't recorded in
+	// database.
+	var paymentStatus = StatusGrounded
+
+	paymentStatusBytes := bucket.Get(paymentStatusKey)
+	if paymentStatusBytes != nil {
+		paymentStatus.FromBytes(paymentStatusBytes)
+	}
+
+	return paymentStatus
 }

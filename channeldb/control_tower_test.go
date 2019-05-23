@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/btcsuite/fastsha256"
+	"github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -363,13 +364,28 @@ func assertPaymentStatus(t *testing.T, db *DB,
 
 	t.Helper()
 
-	pStatus, err := db.FetchPaymentStatus(hash)
+	var paymentStatus = StatusGrounded
+	err := db.View(func(tx *bbolt.Tx) error {
+		payments := tx.Bucket(paymentsRootBucket)
+		if payments == nil {
+			return nil
+		}
+
+		bucket := payments.Bucket(hash[:])
+		if bucket == nil {
+			return nil
+		}
+
+		// Get the existing status of this payment, if any.
+		paymentStatus = fetchPaymentStatus(bucket)
+		return nil
+	})
 	if err != nil {
 		t.Fatalf("unable to fetch payment status: %v", err)
 	}
 
-	if pStatus != expStatus {
+	if paymentStatus != expStatus {
 		t.Fatalf("payment status mismatch: expected %v, got %v",
-			expStatus, pStatus)
+			expStatus, paymentStatus)
 	}
 }

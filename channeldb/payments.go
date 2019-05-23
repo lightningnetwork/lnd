@@ -12,6 +12,16 @@ import (
 )
 
 var (
+	// paymentsRootBucket is the name of the top-level bucket within the
+	// database that stores all data related to payments. Within this
+	// bucket, each payment hash its own sub-bucket keyed by its payment
+	// hash.
+	paymentsRootBucket = []byte("payments-root-bucket")
+
+	// paymentStatusKey is a key used in the payment's sub-bucket to store
+	// the status of the payment.
+	paymentStatusKey = []byte("payment-status-key")
+
 	// paymentBucket is the name of the bucket within the database that
 	// stores all data related to payments.
 	//
@@ -186,29 +196,6 @@ func (db *DB) DeleteAllPayments() error {
 		_, err = tx.CreateBucket(paymentBucket)
 		return err
 	})
-}
-
-// UpdatePaymentStatus sets the payment status for outgoing/finished payments in
-// local database.
-func (db *DB) UpdatePaymentStatus(paymentHash [32]byte, status PaymentStatus) error {
-	return db.Batch(func(tx *bbolt.Tx) error {
-		return UpdatePaymentStatusTx(tx, paymentHash, status)
-	})
-}
-
-// UpdatePaymentStatusTx is a helper method that sets the payment status for
-// outgoing/finished payments in the local database. This method accepts a
-// boltdb transaction such that the operation can be composed into other
-// database transactions.
-func UpdatePaymentStatusTx(tx *bbolt.Tx,
-	paymentHash [32]byte, status PaymentStatus) error {
-
-	paymentStatuses, err := tx.CreateBucketIfNotExists(paymentStatusBucket)
-	if err != nil {
-		return err
-	}
-
-	return paymentStatuses.Put(paymentHash[:], status.Bytes())
 }
 
 // FetchPaymentStatus returns the payment status for outgoing payment.

@@ -228,54 +228,6 @@ func TestOutgoingPaymentWorkflow(t *testing.T) {
 	}
 }
 
-func TestPaymentStatusWorkflow(t *testing.T) {
-	t.Parallel()
-
-	db, cleanUp, err := makeTestDB()
-	defer cleanUp()
-	if err != nil {
-		t.Fatalf("unable to make test db: %v", err)
-	}
-
-	testCases := []struct {
-		paymentHash [32]byte
-		status      PaymentStatus
-	}{
-		{
-			paymentHash: makeFakePaymentHash(),
-			status:      StatusGrounded,
-		},
-		{
-			paymentHash: makeFakePaymentHash(),
-			status:      StatusInFlight,
-		},
-		{
-			paymentHash: makeFakePaymentHash(),
-			status:      StatusCompleted,
-		},
-	}
-
-	for _, testCase := range testCases {
-		err := db.UpdatePaymentStatus(testCase.paymentHash, testCase.status)
-		if err != nil {
-			t.Fatalf("unable to put payment in DB: %v", err)
-		}
-
-		status, err := db.FetchPaymentStatus(testCase.paymentHash)
-		if err != nil {
-			t.Fatalf("unable to fetch payments from DB: %v", err)
-		}
-
-		if status != testCase.status {
-			t.Fatalf("Wrong payments status after reading from DB."+
-				"Got %v, want %v",
-				spew.Sdump(status),
-				spew.Sdump(testCase.status),
-			)
-		}
-	}
-}
-
 func TestRouteSerialization(t *testing.T) {
 	t.Parallel()
 

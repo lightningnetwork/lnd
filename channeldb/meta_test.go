@@ -20,6 +20,16 @@ func applyMigration(t *testing.T, beforeMigration, afterMigration func(d *DB),
 		t.Fatal(err)
 	}
 
+	// Create a test node that will be our source node.
+	testNode, err := createTestVertex(cdb)
+	if err != nil {
+		t.Fatal(err)
+	}
+	graph := cdb.ChannelGraph()
+	if err := graph.SetSourceNode(testNode); err != nil {
+		t.Fatal(err)
+	}
+
 	// beforeMigration usually used for populating the database
 	// with test data.
 	beforeMigration(cdb)

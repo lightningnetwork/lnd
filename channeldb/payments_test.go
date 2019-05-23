@@ -124,7 +124,10 @@ func makeRandomFakePayment() (*OutgoingPayment, error) {
 		return nil, err
 	}
 
-	fakeInvoice.PaymentRequest = []byte("")
+	fakeInvoice.PaymentRequest, err = randomBytes(1, 50)
+	if err != nil {
+		return nil, err
+	}
 
 	preImg, err := randomBytes(32, 33)
 	if err != nil {

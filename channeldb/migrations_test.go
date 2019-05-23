@@ -564,3 +564,162 @@ func TestMigrateGossipMessageStoreKeys(t *testing.T) {
 		migrateGossipMessageStoreKeys, false,
 	)
 }
+
+// TestOutgoingPaymentsMigration checks that OutgoingPayments are migrated to a
+// new bucket structure after the migration.
+func TestOutgoingPaymentsMigration(t *testing.T) {
+	t.Parallel()
+
+	const numPayments = 4
+	var oldPayments []*OutgoingPayment
+
+	// Add fake payments to test database, verifying that it was created.
+	beforeMigrationFunc := func(d *DB) {
+		for i := 0; i < numPayments; i++ {
+			var p *OutgoingPayment
+			var err error
+
+			// We fill the database with random payments. For the
+			// very last one we'll use a duplicate of the first, to
+			// ensure we are able to handle migration from a
+			// database that has copies.
+			if i < numPayments-1 {
+				p, err = makeRandomFakePayment()
+				if err != nil {
+					t.Fatalf("unable to create payment: %v",
+						err)
+				}
+			} else {
+				p = oldPayments[0]
+			}
+
+			if err := d.AddPayment(p); err != nil {
+				t.Fatalf("unable to add payment: %v", err)
+			}
+
+			oldPayments = append(oldPayments, p)
+		}
+
+		payments, err := d.FetchAllPayments()
+		if err != nil {
+			t.Fatalf("unable to fetch payments: %v", err)
+		}
+
+		if len(payments) != numPayments {
+			t.Fatalf("wrong qty of paymets: expected %d got %v",
+				numPayments, len(payments))
+		}
+	}
+
+	// Verify that all payments were migrated.
+	afterMigrationFunc := func(d *DB) {
+		meta, err := d.FetchMeta(nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if meta.DbVersionNumber != 1 {
+			t.Fatal("migration 'paymentStatusesMigration' wasn't applied")
+		}
+
+		sentPayments, err := d.FetchPayments()
+		if err != nil {
+			t.Fatalf("unable to fetch sent payments: %v", err)
+		}
+
+		if len(sentPayments) != numPayments {
+			t.Fatalf("expected %d payments, got %d", numPayments,
+				len(sentPayments))
+		}
+
+		graph := d.ChannelGraph()
+		sourceNode, err := graph.SourceNode()
+		if err != nil {
+			t.Fatalf("unable to fetch source node: %v", err)
+		}
+
+		for i, p := range sentPayments {
+			// The payment status should be Completed.
+			if p.Status != StatusCompleted {
+				t.Fatalf("expected Completed, got %v", p.Status)
+			}
+
+			// Check that the sequence number is preserved. They
+			// start counting at 1.
+			if p.sequenceNum != uint64(i+1) {
+				t.Fatalf("expected seqnum %d, got %d", i,
+					p.sequenceNum)
+			}
+
+			// Order of payments should be be preserved.
+			old := oldPayments[i]
+
+			// Check the individial fields.
+			if p.Info.Value != old.Terms.Value {
+				t.Fatalf("value mismatch")
+			}
+
+			if p.Info.CreationDate != old.CreationDate {
+				t.Fatalf("date mismatch")
+			}
+
+			if !bytes.Equal(p.Info.PaymentRequest, old.PaymentRequest) {
+				t.Fatalf("payreq mismatch")
+			}
+
+			if *p.PaymentPreimage != old.PaymentPreimage {
+				t.Fatalf("preimage mismatch")
+			}
+
+			if p.Attempt.Route.TotalFees() != old.Fee {
+				t.Fatalf("Fee mismatch")
+			}
+
+			if p.Attempt.Route.TotalAmount != old.Fee+old.Terms.Value {
+				t.Fatalf("Total amount mismatch")
+			}
+
+			if p.Attempt.Route.TotalTimeLock != old.TimeLockLength {
+				t.Fatalf("timelock mismatch")
+			}
+
+			if p.Attempt.Route.SourcePubKey != sourceNode.PubKeyBytes {
+				t.Fatalf("source mismatch: %x vs %x",
+					p.Attempt.Route.SourcePubKey[:],
+					sourceNode.PubKeyBytes[:])
+			}
+
+			for i, hop := range old.Path {
+				if hop != p.Attempt.Route.Hops[i].PubKeyBytes {
+					t.Fatalf("path mismatch")
+				}
+			}
+		}
+
+		// Finally, check that the payment sequence number is updated
+		// to reflect the migrated payments.
+		err = d.View(func(tx *bbolt.Tx) error {
+			payments := tx.Bucket(paymentsRootBucket)
+			if payments == nil {
+				return fmt.Errorf("payments bucket not found")
+			}
+
+			seq := payments.Sequence()
+			if seq != numPayments {
+				return fmt.Errorf("expected sequence to be "+
+					"%d, got %d", numPayments, seq)
+			}
+
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	applyMigration(t,
+		beforeMigrationFunc,
+		afterMigrationFunc,
+		migrateOutgoingPayments,
+		false)
+}

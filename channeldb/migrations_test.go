@@ -26,11 +26,11 @@ func TestPaymentStatusesMigration(t *testing.T) {
 	// Add fake payment to test database, verifying that it was created,
 	// that we have only one payment, and its status is not "Completed".
 	beforeMigrationFunc := func(d *DB) {
-		if err := d.AddPayment(fakePayment); err != nil {
+		if err := d.addPayment(fakePayment); err != nil {
 			t.Fatalf("unable to add payment: %v", err)
 		}
 
-		payments, err := d.FetchAllPayments()
+		payments, err := d.fetchAllPayments()
 		if err != nil {
 			t.Fatalf("unable to fetch payments: %v", err)
 		}
@@ -40,7 +40,7 @@ func TestPaymentStatusesMigration(t *testing.T) {
 				len(payments))
 		}
 
-		paymentStatus, err := d.FetchPaymentStatus(paymentHash)
+		paymentStatus, err := d.fetchPaymentStatus(paymentHash)
 		if err != nil {
 			t.Fatalf("unable to fetch payment status: %v", err)
 		}
@@ -141,7 +141,7 @@ func TestPaymentStatusesMigration(t *testing.T) {
 		}
 
 		// Check that our completed payments were migrated.
-		paymentStatus, err := d.FetchPaymentStatus(paymentHash)
+		paymentStatus, err := d.fetchPaymentStatus(paymentHash)
 		if err != nil {
 			t.Fatalf("unable to fetch payment status: %v", err)
 		}
@@ -160,7 +160,7 @@ func TestPaymentStatusesMigration(t *testing.T) {
 
 		// Check that the locally sourced payment was transitioned to
 		// InFlight.
-		paymentStatus, err = d.FetchPaymentStatus(inFlightHash)
+		paymentStatus, err = d.fetchPaymentStatus(inFlightHash)
 		if err != nil {
 			t.Fatalf("unable to fetch payment status: %v", err)
 		}
@@ -179,7 +179,7 @@ func TestPaymentStatusesMigration(t *testing.T) {
 
 		// Check that non-locally sourced payments remain in the default
 		// Grounded state.
-		paymentStatus, err = d.FetchPaymentStatus(groundedHash)
+		paymentStatus, err = d.fetchPaymentStatus(groundedHash)
 		if err != nil {
 			t.Fatalf("unable to fetch payment status: %v", err)
 		}
@@ -571,12 +571,12 @@ func TestOutgoingPaymentsMigration(t *testing.T) {
 	t.Parallel()
 
 	const numPayments = 4
-	var oldPayments []*OutgoingPayment
+	var oldPayments []*outgoingPayment
 
 	// Add fake payments to test database, verifying that it was created.
 	beforeMigrationFunc := func(d *DB) {
 		for i := 0; i < numPayments; i++ {
-			var p *OutgoingPayment
+			var p *outgoingPayment
 			var err error
 
 			// We fill the database with random payments. For the
@@ -593,14 +593,14 @@ func TestOutgoingPaymentsMigration(t *testing.T) {
 				p = oldPayments[0]
 			}
 
-			if err := d.AddPayment(p); err != nil {
+			if err := d.addPayment(p); err != nil {
 				t.Fatalf("unable to add payment: %v", err)
 			}
 
 			oldPayments = append(oldPayments, p)
 		}
 
-		payments, err := d.FetchAllPayments()
+		payments, err := d.fetchAllPayments()
 		if err != nil {
 			t.Fatalf("unable to fetch payments: %v", err)
 		}

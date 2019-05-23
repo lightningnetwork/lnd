@@ -50,6 +50,7 @@ func (c *testCtx) RestartRouter() error {
 		Chain:              c.chain,
 		ChainView:          c.chainView,
 		Payer:              &mockPaymentAttemptDispatcher{},
+		Control:            makeMockControlTower(),
 		ChannelPruneExpiry: time.Hour * 24,
 		GraphPruneInterval: time.Hour * 2,
 	})
@@ -88,6 +89,7 @@ func createTestCtxFromGraphInstance(startingHeight uint32, graphInstance *testGr
 		Chain:              chain,
 		ChainView:          chainView,
 		Payer:              &mockPaymentAttemptDispatcher{},
+		Control:            makeMockControlTower(),
 		ChannelPruneExpiry: time.Hour * 24,
 		GraphPruneInterval: time.Hour * 2,
 		QueryBandwidth: func(e *channeldb.ChannelEdgeInfo) lnwire.MilliSatoshi {
@@ -1528,6 +1530,7 @@ func TestWakeUpOnStaleBranch(t *testing.T) {
 		Chain:              ctx.chain,
 		ChainView:          ctx.chainView,
 		Payer:              &mockPaymentAttemptDispatcher{},
+		Control:            makeMockControlTower(),
 		ChannelPruneExpiry: time.Hour * 24,
 		GraphPruneInterval: time.Hour * 2,
 	})
@@ -2489,4 +2492,31 @@ func assertChannelsPruned(t *testing.T, graph *channeldb.ChannelGraph,
 				"zombie", channel.ChannelID)
 		}
 	}
+}
+
+type mockControlTower struct{}
+
+var _ channeldb.ControlTower = (*mockControlTower)(nil)
+
+func makeMockControlTower() *mockControlTower {
+	return &mockControlTower{}
+}
+
+func (m *mockControlTower) InitPayment(lntypes.Hash,
+	*channeldb.PaymentCreationInfo) error {
+	return nil
+}
+
+func (m *mockControlTower) RegisterAttempt(lntypes.Hash,
+	*channeldb.PaymentAttemptInfo) error {
+	return nil
+}
+
+func (m *mockControlTower) Success(paymentHash lntypes.Hash,
+	preimg lntypes.Preimage) error {
+	return nil
+}
+
+func (m *mockControlTower) Fail(paymentHash lntypes.Hash) error {
+	return nil
 }

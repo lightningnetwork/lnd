@@ -199,6 +199,10 @@ type Config struct {
 	// their results.
 	Payer PaymentAttemptDispatcher
 
+	// Control keeps track of the status of ongoing payments, ensuring we
+	// can properly resume them across restarts.
+	Control channeldb.ControlTower
+
 	// ChannelPruneExpiry is the duration used to determine if a channel
 	// should be pruned or not. If the delta between now and when the
 	// channel was last updated is greater than ChannelPruneExpiry, then
@@ -1551,7 +1555,23 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *route
 		return [32]byte{}, nil, err
 	}
 
-	return r.sendPayment(payment, paySession)
+	// Record this payment hash with the ControlTower, ensuring it is not
+	// already in-flight.
+	info := &channeldb.PaymentCreationInfo{
+		PaymentHash:    payment.PaymentHash,
+		Value:          payment.Amount,
+		CreationDate:   time.Now(),
+		PaymentRequest: nil,
+	}
+
+	err = r.cfg.Control.InitPayment(payment.PaymentHash, info)
+	if err != nil {
+		return [32]byte{}, nil, err
+	}
+
+	// Since this is the first time this payment is being made, we pass nil
+	// for the existing attempt.
+	return r.sendPayment(nil, payment, paySession)
 }
 
 // SendToRoute attempts to send a payment with the given hash through the
@@ -1569,8 +1589,23 @@ func (r *ChannelRouter) SendToRoute(hash lntypes.Hash, route *route.Route) (
 		PaymentHash: hash,
 	}
 
-	preimage, _, err := r.sendPayment(payment, paySession)
+	// Record this payment hash with the ControlTower, ensuring it is not
+	// already in-flight.
+	info := &channeldb.PaymentCreationInfo{
+		PaymentHash:    payment.PaymentHash,
+		Value:          payment.Amount,
+		CreationDate:   time.Now(),
+		PaymentRequest: nil,
+	}
 
+	err := r.cfg.Control.InitPayment(payment.PaymentHash, info)
+	if err != nil {
+		return [32]byte{}, err
+	}
+
+	// Since this is the first time this payment is being made, we pass nil
+	// for the existing attempt.
+	preimage, _, err := r.sendPayment(nil, payment, paySession)
 	return preimage, err
 }
 
@@ -1581,8 +1616,19 @@ func (r *ChannelRouter) SendToRoute(hash lntypes.Hash, route *route.Route) (
 // will be returned which describes the path the successful payment traversed
 // within the network to reach the destination. Additionally, the payment
 // preimage will also be returned.
-func (r *ChannelRouter) sendPayment(payment *LightningPayment,
-	paySession *paymentSession) ([32]byte, *route.Route, error) {
+//
+// The existing attempt argument should be set to nil if this is a payment that
+// haven't had any payment attempt sent to the switch yet. If it has had an
+// attempt already, it should be passed such that the result can be retrieved.
+//
+// This method relies on the ControlTower's internal payment state machine to
+// carry out its execution. After restarts it is safe, and assumed, that the
+// router will call this method for every payment still in-flight according to
+// the ControlTower.
+func (r *ChannelRouter) sendPayment(
+	existingAttempt *channeldb.PaymentAttemptInfo,
+	payment *LightningPayment, paySession *paymentSession) (
+	[32]byte, *route.Route, error) {
 
 	log.Tracef("Dispatching route for lightning payment: %v",
 		newLogClosure(func() string {
@@ -1627,6 +1673,7 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 		timeoutChan:    timeoutChan,
 		currentHeight:  currentHeight,
 		finalCLTVDelta: finalCLTVDelta,
+		attempt:        existingAttempt,
 		circuit:        nil,
 		lastError:      nil,
 	}

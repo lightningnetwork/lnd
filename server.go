@@ -621,6 +621,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		Chain:              cc.chainIO,
 		ChainView:          cc.chainView,
 		Payer:              s.htlcSwitch,
+		Control:            channeldb.NewPaymentControl(chanDB),
 		ChannelPruneExpiry: routing.DefaultChannelPruneExpiry,
 		GraphPruneInterval: time.Duration(time.Hour),
 		QueryBandwidth: func(edge *channeldb.ChannelEdgeInfo) lnwire.MilliSatoshi {

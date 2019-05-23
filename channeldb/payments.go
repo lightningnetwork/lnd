@@ -573,6 +573,48 @@ func fetchPayment(bucket *bbolt.Bucket) (*Payment, error) {
 	return p, nil
 }
 
+// DeletePayments deletes all completed and failed payments from the DB.
+func (db *DB) DeletePayments() error {
+	return db.Update(func(tx *bbolt.Tx) error {
+		payments := tx.Bucket(paymentsRootBucket)
+		if payments == nil {
+			return nil
+		}
+
+		var deleteBuckets [][]byte
+		err := payments.ForEach(func(k, _ []byte) error {
+			bucket := payments.Bucket(k)
+			if bucket == nil {
+				// We only expect sub-buckets to be found in
+				// this top-level bucket.
+				return fmt.Errorf("non bucket element in " +
+					"payments bucket")
+			}
+
+			// If the status is InFlight, we cannot safely delete
+			// the payment information, so we return early.
+			paymentStatus := fetchPaymentStatus(bucket)
+			if paymentStatus == StatusInFlight {
+				return nil
+			}
+
+			deleteBuckets = append(deleteBuckets, k)
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+
+		for _, k := range deleteBuckets {
+			if err := payments.DeleteBucket(k); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+}
+
 func serializePaymentCreationInfo(w io.Writer, c *PaymentCreationInfo) error {
 	var scratch [8]byte
 

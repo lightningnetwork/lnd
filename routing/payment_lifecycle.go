@@ -147,6 +147,15 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 		log.Debugf("Payment %x succeeded with pid=%v",
 			p.payment.PaymentHash, p.attempt.PaymentID)
 
+		// In case of success we atomically store the db payment and
+		// move the payment to the success state.
+		err = p.router.cfg.Control.Success(p.payment.PaymentHash, result.Preimage)
+		if err != nil {
+			log.Errorf("Unable to succeed payment "+
+				"attempt: %v", err)
+			return [32]byte{}, nil, err
+		}
+
 		// Terminal state, return the preimage and the route
 		// taken.
 		return result.Preimage, &p.attempt.Route, nil
@@ -165,6 +174,15 @@ func (p *paymentLifecycle) createNewPaymentAttempt() (lnwire.ShortChannelID,
 	// attempt short.
 	select {
 	case <-p.timeoutChan:
+		// Mark the payment as failed because of the
+		// timeout.
+		err := p.router.cfg.Control.Fail(
+			p.payment.PaymentHash,
+		)
+		if err != nil {
+			return lnwire.ShortChannelID{}, nil, err
+		}
+
 		errStr := fmt.Sprintf("payment attempt not completed " +
 			"before timeout")
 
@@ -186,6 +204,16 @@ func (p *paymentLifecycle) createNewPaymentAttempt() (lnwire.ShortChannelID,
 		p.payment, uint32(p.currentHeight), p.finalCLTVDelta,
 	)
 	if err != nil {
+		// If we're unable to successfully make a payment using
+		// any of the routes we've found, then mark the payment
+		// as permanently failed.
+		saveErr := p.router.cfg.Control.Fail(
+			p.payment.PaymentHash,
+		)
+		if saveErr != nil {
+			return lnwire.ShortChannelID{}, nil, saveErr
+		}
+
 		// If there was an error already recorded for this
 		// payment, we'll return that.
 		if p.lastError != nil {
@@ -250,6 +278,17 @@ func (p *paymentLifecycle) createNewPaymentAttempt() (lnwire.ShortChannelID,
 		Route:      *route,
 	}
 
+	// Before sending this HTLC to the switch, we checkpoint the
+	// fresh paymentID and route to the DB. This lets us know on
+	// startup the ID of the payment that we attempted to send,
+	// such that we can query the Switch for its whereabouts. The
+	// route is needed to handle the result when it eventually
+	// comes back.
+	err = p.router.cfg.Control.RegisterAttempt(p.payment.PaymentHash, p.attempt)
+	if err != nil {
+		return lnwire.ShortChannelID{}, nil, err
+	}
+
 	return firstHop, htlcAdd, nil
 }
 
@@ -294,6 +333,16 @@ func (p *paymentLifecycle) handleSendError(sendErr error) error {
 	if finalOutcome {
 		log.Errorf("Payment %x failed with final outcome: %v",
 			p.payment.PaymentHash, sendErr)
+
+		// Mark the payment failed with no route.
+		// TODO(halseth): make payment codes for the actual reason we
+		// don't continue path finding.
+		err := p.router.cfg.Control.Fail(
+			p.payment.PaymentHash,
+		)
+		if err != nil {
+			return err
+		}
 
 		// Terminal state, return the error we encountered.
 		return sendErr

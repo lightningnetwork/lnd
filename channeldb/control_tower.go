@@ -92,19 +92,19 @@ func (p *paymentControl) InitPayment(paymentHash lntypes.Hash,
 	}
 	infoBytes := b.Bytes()
 
-	var takeoffErr error
+	var updateErr error
 	err := p.db.Batch(func(tx *bbolt.Tx) error {
-		bucket, err := fetchPaymentBucket(tx, paymentHash)
+		// Reset the update error, to avoid carrying over an error
+		// from a previous execution of the batched db transaction.
+		updateErr = nil
+
+		bucket, err := createPaymentBucket(tx, paymentHash)
 		if err != nil {
 			return err
 		}
 
 		// Get the existing status of this payment, if any.
 		paymentStatus := fetchPaymentStatus(bucket)
-
-		// Reset the takeoff error, to avoid carrying over an error
-		// from a previous execution of the batched db transaction.
-		takeoffErr = nil
 
 		switch paymentStatus {
 
@@ -118,17 +118,17 @@ func (p *paymentControl) InitPayment(paymentHash lntypes.Hash,
 		// We already have an InFlight payment on the network. We will
 		// disallow any new payments.
 		case StatusInFlight:
-			takeoffErr = ErrPaymentInFlight
+			updateErr = ErrPaymentInFlight
 			return nil
 
 		// We've already succeeded a payment to this payment hash,
 		// forbid the switch from sending another.
 		case StatusSucceeded:
-			takeoffErr = ErrAlreadyPaid
+			updateErr = ErrAlreadyPaid
 			return nil
 
 		default:
-			takeoffErr = ErrUnknownPaymentStatus
+			updateErr = ErrUnknownPaymentStatus
 			return nil
 		}
 
@@ -168,7 +168,7 @@ func (p *paymentControl) InitPayment(paymentHash lntypes.Hash,
 		return nil
 	}
 
-	return takeoffErr
+	return updateErr
 }
 
 // RegisterAttempt atomically records the provided PaymentAttemptInfo to the
@@ -190,7 +190,10 @@ func (p *paymentControl) RegisterAttempt(paymentHash lntypes.Hash,
 		updateErr = nil
 
 		bucket, err := fetchPaymentBucket(tx, paymentHash)
-		if err != nil {
+		if err == ErrPaymentNotInitiated {
+			updateErr = ErrPaymentNotInitiated
+			return nil
+		} else if err != nil {
 			return err
 		}
 
@@ -225,7 +228,10 @@ func (p *paymentControl) Success(paymentHash lntypes.Hash,
 		updateErr = nil
 
 		bucket, err := fetchPaymentBucket(tx, paymentHash)
-		if err != nil {
+		if err == ErrPaymentNotInitiated {
+			updateErr = ErrPaymentNotInitiated
+			return nil
+		} else if err != nil {
 			return err
 		}
 
@@ -261,7 +267,10 @@ func (p *paymentControl) Fail(paymentHash lntypes.Hash,
 		updateErr = nil
 
 		bucket, err := fetchPaymentBucket(tx, paymentHash)
-		if err != nil {
+		if err == ErrPaymentNotInitiated {
+			updateErr = ErrPaymentNotInitiated
+			return nil
+		} else if err != nil {
 			return err
 		}
 
@@ -282,9 +291,9 @@ func (p *paymentControl) Fail(paymentHash lntypes.Hash,
 	return updateErr
 }
 
-// fetchPaymentBucket fetches or creates the sub-bucket assigned to this
+// createPaymentBucket creates or fetches the sub-bucket assigned to this
 // payment hash.
-func fetchPaymentBucket(tx *bbolt.Tx, paymentHash lntypes.Hash) (
+func createPaymentBucket(tx *bbolt.Tx, paymentHash lntypes.Hash) (
 	*bbolt.Bucket, error) {
 
 	payments, err := tx.CreateBucketIfNotExists(paymentsRootBucket)
@@ -293,6 +302,25 @@ func fetchPaymentBucket(tx *bbolt.Tx, paymentHash lntypes.Hash) (
 	}
 
 	return payments.CreateBucketIfNotExists(paymentHash[:])
+}
+
+// fetchPaymentBucket fetches the sub-bucket assigned to this payment hash. If
+// the bucket does not exist, it returns ErrPaymentNotInitiated.
+func fetchPaymentBucket(tx *bbolt.Tx, paymentHash lntypes.Hash) (
+	*bbolt.Bucket, error) {
+
+	payments := tx.Bucket(paymentsRootBucket)
+	if payments == nil {
+		return nil, ErrPaymentNotInitiated
+	}
+
+	bucket := payments.Bucket(paymentHash[:])
+	if bucket == nil {
+		return nil, ErrPaymentNotInitiated
+	}
+
+	return bucket, nil
+
 }
 
 // nextPaymentSequence returns the next sequence number to store for a new

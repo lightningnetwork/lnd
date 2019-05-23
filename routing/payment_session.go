@@ -9,6 +9,36 @@ import (
 	"github.com/lightningnetwork/lnd/routing/route"
 )
 
+// PaymentSession is used during SendPayment attempts to provide routes to
+// attempt. It also defines methods to give the PaymentSession additional
+// information learned during the previous attempts.
+type PaymentSession interface {
+	// RequestRoute returns the next route to attempt for routing the
+	// specified HTLC payment to the target node.
+	RequestRoute(payment *LightningPayment,
+		height uint32, finalCltvDelta uint16) (*route.Route, error)
+
+	// ReportVertexFailure reports to the PaymentSession that the passsed
+	// vertex failed to route the previous payment attempt. The
+	// PaymentSession will use this information to produce a better next
+	// route.
+	ReportVertexFailure(v route.Vertex)
+
+	// ReportEdgeFailure reports to the PaymentSession that the passed
+	// channel failed to route the previous payment attempt. The
+	// PaymentSession will use this information to produce a better next
+	// route.
+	ReportEdgeFailure(e *EdgeLocator)
+
+	// ReportEdgePolicyFailure reports to the PaymentSession that we
+	// received a failure message that relates to a channel policy. For
+	// these types of failures, the PaymentSession can decide whether to to
+	// keep the edge included in the next attempted route. The
+	// PaymentSession will use this information to produce a better next
+	// route.
+	ReportEdgePolicyFailure(errSource route.Vertex, failedEdge *EdgeLocator)
+}
+
 // paymentSession is used during an HTLC routings session to prune the local
 // chain view in response to failures, and also report those failures back to
 // MissionControl. The snapshot copied for this session will only ever grow,
@@ -38,11 +68,17 @@ type paymentSession struct {
 	pathFinder pathFinder
 }
 
+// A compile time assertion to ensure paymentSession meets the PaymentSession
+// interface.
+var _ PaymentSession = (*paymentSession)(nil)
+
 // ReportVertexFailure adds a vertex to the graph prune view after a client
 // reports a routing failure localized to the vertex. The time the vertex was
 // added is noted, as it'll be pruned from the shared view after a period of
 // vertexDecay. However, the vertex will remain pruned for the *local* session.
 // This ensures we don't retry this vertex during the payment attempt.
+//
+// NOTE: Part of the PaymentSession interface.
 func (p *paymentSession) ReportVertexFailure(v route.Vertex) {
 	log.Debugf("Reporting vertex %v failure to Mission Control", v)
 
@@ -57,13 +93,15 @@ func (p *paymentSession) ReportVertexFailure(v route.Vertex) {
 	p.mc.Unlock()
 }
 
-// ReportChannelFailure adds a channel to the graph prune view. The time the
+// ReportEdgeFailure adds a channel to the graph prune view. The time the
 // channel was added is noted, as it'll be pruned from the global view after a
 // period of edgeDecay. However, the edge will remain pruned for the duration
 // of the *local* session. This ensures that we don't flap by continually
 // retrying an edge after its pruning has expired.
 //
 // TODO(roasbeef): also add value attempted to send and capacity of channel
+//
+// NOTE: Part of the PaymentSession interface.
 func (p *paymentSession) ReportEdgeFailure(e *EdgeLocator) {
 	log.Debugf("Reporting edge %v failure to Mission Control", e)
 
@@ -78,12 +116,14 @@ func (p *paymentSession) ReportEdgeFailure(e *EdgeLocator) {
 	p.mc.Unlock()
 }
 
-// ReportChannelPolicyFailure handles a failure message that relates to a
+// ReportEdgePolicyFailure handles a failure message that relates to a
 // channel policy. For these types of failures, the policy is updated and we
 // want to keep it included during path finding. This function does mark the
 // edge as 'policy failed once'. The next time it fails, the whole node will be
 // pruned. This is to prevent nodes from keeping us busy by continuously sending
 // new channel updates.
+//
+// NOTE: Part of the PaymentSession interface.
 func (p *paymentSession) ReportEdgePolicyFailure(
 	errSource route.Vertex, failedEdge *EdgeLocator) {
 
@@ -111,6 +151,7 @@ func (p *paymentSession) ReportEdgePolicyFailure(
 // will be explored, which feeds into the recommendations made for routing.
 //
 // NOTE: This function is safe for concurrent access.
+// NOTE: Part of the PaymentSession interface.
 func (p *paymentSession) RequestRoute(payment *LightningPayment,
 	height uint32, finalCltvDelta uint16) (*route.Route, error) {
 

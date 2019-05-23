@@ -1661,7 +1661,7 @@ func (r *ChannelRouter) SendToRoute(hash lntypes.Hash, route *route.Route) (
 // the ControlTower.
 func (r *ChannelRouter) sendPayment(
 	existingAttempt *channeldb.PaymentAttemptInfo,
-	payment *LightningPayment, paySession *paymentSession) (
+	payment *LightningPayment, paySession PaymentSession) (
 	[32]byte, *route.Route, error) {
 
 	log.Tracef("Dispatching route for lightning payment: %v",
@@ -1721,7 +1721,7 @@ func (r *ChannelRouter) sendPayment(
 // error type, this error is either the final outcome of the payment or we need
 // to continue with an alternative route. This is indicated by the boolean
 // return value.
-func (r *ChannelRouter) processSendError(paySession *paymentSession,
+func (r *ChannelRouter) processSendError(paySession PaymentSession,
 	rt *route.Route, err error) bool {
 
 	fErr, ok := err.(*htlcswitch.ForwardingError)

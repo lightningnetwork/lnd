@@ -155,7 +155,7 @@ func (m *MissionControl) graphPruneView() graphPruneView {
 // in order to populate additional edges to explore when finding a path to the
 // payment's destination.
 func (m *MissionControl) NewPaymentSession(routeHints [][]zpay32.HopHint,
-	target route.Vertex) (*paymentSession, error) {
+	target route.Vertex) (PaymentSession, error) {
 
 	viewSnapshot := m.graphPruneView()
 
@@ -233,7 +233,7 @@ func (m *MissionControl) NewPaymentSession(routeHints [][]zpay32.HopHint,
 
 // NewPaymentSessionForRoute creates a new paymentSession instance that is just
 // used for failure reporting to missioncontrol.
-func (m *MissionControl) NewPaymentSessionForRoute(preBuiltRoute *route.Route) *paymentSession {
+func (m *MissionControl) NewPaymentSessionForRoute(preBuiltRoute *route.Route) PaymentSession {
 	return &paymentSession{
 		pruneViewSnapshot:    m.graphPruneView(),
 		errFailedPolicyChans: make(map[EdgeLocator]struct{}),
@@ -245,7 +245,7 @@ func (m *MissionControl) NewPaymentSessionForRoute(preBuiltRoute *route.Route) *
 // NewPaymentSessionEmpty creates a new paymentSession instance that is empty,
 // and will be exhausted immediately. Used for failure reporting to
 // missioncontrol for resumed payment we don't want to make more attempts for.
-func (m *MissionControl) NewPaymentSessionEmpty() *paymentSession {
+func (m *MissionControl) NewPaymentSessionEmpty() PaymentSession {
 	return &paymentSession{
 		pruneViewSnapshot:    m.graphPruneView(),
 		errFailedPolicyChans: make(map[EdgeLocator]struct{}),

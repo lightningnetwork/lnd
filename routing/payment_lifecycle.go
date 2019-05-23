@@ -17,7 +17,7 @@ import (
 type paymentLifecycle struct {
 	router         *ChannelRouter
 	payment        *LightningPayment
-	paySession     *paymentSession
+	paySession     PaymentSession
 	timeoutChan    <-chan time.Time
 	currentHeight  int32
 	finalCLTVDelta uint16

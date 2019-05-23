@@ -2002,6 +2002,7 @@ func (r *rpcServer) GetInfo(ctx context.Context,
 		Chains:              activeChains,
 		Uris:                uris,
 		Alias:               nodeAnn.Alias.String(),
+		Color:               routing.EncodeHexColor(nodeAnn.RGBColor),
 		BestHeaderTimestamp: int64(bestHeaderTimestamp),
 		Version:             build.Version(),
 	}, nil
@@ -3677,13 +3678,12 @@ func (r *rpcServer) DescribeGraph(ctx context.Context,
 			nodeAddrs = append(nodeAddrs, nodeAddr)
 		}
 
-		nodeColor := fmt.Sprintf("#%02x%02x%02x", node.Color.R, node.Color.G, node.Color.B)
 		resp.Nodes = append(resp.Nodes, &lnrpc.LightningNode{
 			LastUpdate: uint32(node.LastUpdate.Unix()),
 			PubKey:     hex.EncodeToString(node.PubKeyBytes[:]),
 			Addresses:  nodeAddrs,
 			Alias:      node.Alias,
-			Color:      nodeColor,
+			Color:      routing.EncodeHexColor(node.Color),
 		})
 
 		return nil
@@ -3841,14 +3841,13 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 	}
 	// TODO(roasbeef): list channels as well?
 
-	nodeColor := fmt.Sprintf("#%02x%02x%02x", node.Color.R, node.Color.G, node.Color.B)
 	return &lnrpc.NodeInfo{
 		Node: &lnrpc.LightningNode{
 			LastUpdate: uint32(node.LastUpdate.Unix()),
 			PubKey:     in.PubKey,
 			Addresses:  nodeAddrs,
 			Alias:      node.Alias,
-			Color:      nodeColor,
+			Color:      routing.EncodeHexColor(node.Color),
 		},
 		NumChannels:   numChannels,
 		TotalCapacity: int64(totalCapacity),
@@ -4078,6 +4077,7 @@ func marshallTopologyChange(topChange *routing.TopologyChange) *lnrpc.GraphTopol
 			IdentityKey:    encodeKey(nodeUpdate.IdentityKey),
 			GlobalFeatures: nodeUpdate.GlobalFeatures,
 			Alias:          nodeUpdate.Alias,
+			Color:          nodeUpdate.Color,
 		}
 	}
 

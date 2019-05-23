@@ -2,6 +2,7 @@ package routing
 
 import (
 	"fmt"
+	"image/color"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -246,6 +247,9 @@ type NetworkNodeUpdate struct {
 
 	// Alias is the alias or nick name of the node.
 	Alias string
+
+	// Color is the node's color in hex code format.
+	Color string
 }
 
 // ChannelEdgeUpdate is an update for a new channel within the ChannelGraph.
@@ -321,6 +325,7 @@ func addToTopologyChange(graph *channeldb.ChannelGraph, update *TopologyChange,
 			Addresses:   m.Addresses,
 			IdentityKey: pubKey,
 			Alias:       m.Alias,
+			Color:       EncodeHexColor(m.Color),
 		}
 		nodeUpdate.IdentityKey.Curve = nil
 
@@ -387,4 +392,9 @@ func addToTopologyChange(graph *channeldb.ChannelGraph, update *TopologyChange,
 		return fmt.Errorf("Unable to add to topology change, "+
 			"unknown message type %T", msg)
 	}
+}
+
+// EncodeHexColor takes a color and returns it in hex code format.
+func EncodeHexColor(color color.RGBA) string {
+	return fmt.Sprintf("#%02x%02x%02x", color.R, color.G, color.B)
 }

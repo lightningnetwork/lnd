@@ -1840,6 +1840,7 @@ func getInfo(ctx *cli.Context) error {
 		Version             string   `json:"version"`
 		IdentityPubkey      string   `json:"identity_pubkey"`
 		Alias               string   `json:"alias"`
+		Color               string   `json:"color"`
 		NumPendingChannels  uint32   `json:"num_pending_channels"`
 		NumActiveChannels   uint32   `json:"num_active_channels"`
 		NumInactiveChannels uint32   `json:"num_inactive_channels"`
@@ -1855,6 +1856,7 @@ func getInfo(ctx *cli.Context) error {
 		Version:             resp.Version,
 		IdentityPubkey:      resp.IdentityPubkey,
 		Alias:               resp.Alias,
+		Color:               resp.Color,
 		NumPendingChannels:  resp.NumPendingChannels,
 		NumActiveChannels:   resp.NumActiveChannels,
 		NumInactiveChannels: resp.NumInactiveChannels,

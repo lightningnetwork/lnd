@@ -1658,7 +1658,23 @@ func (r *ChannelRouter) SendToRoute(hash lntypes.Hash, route *route.Route) (
 	// Since this is the first time this payment is being made, we pass nil
 	// for the existing attempt.
 	preimage, _, err := r.sendPayment(nil, payment, paySession)
-	return preimage, err
+	if err != nil {
+		// SendToRoute should return a structured error. In case the
+		// provided route fails, payment lifecycle will return a
+		// noRouteError with the structured error embedded.
+		if noRouteError, ok := err.(errNoRoute); ok {
+			if noRouteError.lastError == nil {
+				return lntypes.Preimage{},
+					errors.New("failure message missing")
+			}
+
+			return lntypes.Preimage{}, noRouteError.lastError
+		}
+
+		return lntypes.Preimage{}, err
+	}
+
+	return preimage, nil
 }
 
 // sendPayment attempts to send a payment as described within the passed
@@ -1740,12 +1756,7 @@ func (r *ChannelRouter) sendPayment(
 // to continue with an alternative route. This is indicated by the boolean
 // return value.
 func (r *ChannelRouter) processSendError(paySession PaymentSession,
-	rt *route.Route, err error) bool {
-
-	fErr, ok := err.(*htlcswitch.ForwardingError)
-	if !ok {
-		return true
-	}
+	rt *route.Route, fErr *htlcswitch.ForwardingError) bool {
 
 	errSource := fErr.ErrorSource
 	errVertex := route.NewVertex(errSource)

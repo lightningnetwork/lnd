@@ -24,6 +24,10 @@ var (
 	// recomplete a completed payment.
 	ErrPaymentAlreadyCompleted = errors.New("payment is already completed")
 
+	// ErrPaymentAlreadyFailed is returned in the event we attempt to
+	// re-fail a failed payment.
+	ErrPaymentAlreadyFailed = errors.New("payment has already failed")
+
 	// ErrUnknownPaymentStatus is returned when we do not recognize the
 	// existing state of a payment.
 	ErrUnknownPaymentStatus = errors.New("unknown payment status")
@@ -86,6 +90,10 @@ func (p *paymentControl) ClearForTakeoff(htlc *lnwire.UpdateAddHTLC) error {
 
 		switch paymentStatus {
 
+		// We allow retrying failed payments.
+		case StatusFailed:
+			fallthrough
+
 		// It is safe to reattempt a payment if we know that we haven't
 		// left one in flight. Since this one is grounded or failed,
 		// transition the payment status to InFlight to prevent others.
@@ -121,41 +129,22 @@ func (p *paymentControl) ClearForTakeoff(htlc *lnwire.UpdateAddHTLC) error {
 func (p *paymentControl) Success(paymentHash [32]byte) error {
 	var updateErr error
 	err := p.db.Batch(func(tx *bbolt.Tx) error {
+		// Reset the update error, to avoid carrying over an error
+		// from a previous execution of the batched db transaction.
+		updateErr = nil
+
 		bucket, err := fetchPaymentBucket(tx, paymentHash)
 		if err != nil {
 			return err
 		}
 
-		// Get the existing status, if any.
-		paymentStatus := fetchPaymentStatus(bucket)
-
-		// Reset the update error, to avoid carrying over an error
-		// from a previous execution of the batched db transaction.
-		updateErr = nil
-
-		switch {
-
-		// Our records show the payment as still being grounded,
-		// meaning it never should have left the switch.
-		case paymentStatus == StatusGrounded:
-			updateErr = ErrPaymentNotInitiated
-
-		// A successful response was received for an InFlight payment,
-		// mark it as completed to prevent sending to this payment hash
-		// again.
-		case paymentStatus == StatusInFlight:
-			return bucket.Put(paymentStatusKey, StatusCompleted.Bytes())
-
-		// The payment was completed previously, alert the caller that
-		// this may be a duplicate call.
-		case paymentStatus == StatusCompleted:
-			updateErr = ErrPaymentAlreadyCompleted
-
-		default:
-			updateErr = ErrUnknownPaymentStatus
+		// We can only mark in-flight payments as succeeded.
+		if err := ensureInFlight(bucket); err != nil {
+			updateErr = err
+			return nil
 		}
 
-		return nil
+		return bucket.Put(paymentStatusKey, StatusCompleted.Bytes())
 	})
 	if err != nil {
 		return err
@@ -170,40 +159,22 @@ func (p *paymentControl) Success(paymentHash [32]byte) error {
 func (p *paymentControl) Fail(paymentHash [32]byte) error {
 	var updateErr error
 	err := p.db.Batch(func(tx *bbolt.Tx) error {
+		// Reset the update error, to avoid carrying over an error
+		// from a previous execution of the batched db transaction.
+		updateErr = nil
+
 		bucket, err := fetchPaymentBucket(tx, paymentHash)
 		if err != nil {
 			return err
 		}
 
-		paymentStatus := fetchPaymentStatus(bucket)
-
-		// Reset the update error, to avoid carrying over an error
-		// from a previous execution of the batched db transaction.
-		updateErr = nil
-
-		switch {
-
-		// Our records show the payment as still being grounded,
-		// meaning it never should have left the switch.
-		case paymentStatus == StatusGrounded:
-			updateErr = ErrPaymentNotInitiated
-
-		// A failed response was received for an InFlight payment, mark
-		// it as Failed to allow subsequent attempts.
-		case paymentStatus == StatusInFlight:
-			return bucket.Put(paymentStatusKey, StatusGrounded.Bytes())
-
-		// The payment was completed previously, and we are now
-		// reporting that it has failed. Leave the status as completed,
-		// but alert the user that something is wrong.
-		case paymentStatus == StatusCompleted:
-			updateErr = ErrPaymentAlreadyCompleted
-
-		default:
-			updateErr = ErrUnknownPaymentStatus
+		// We can only mark in-flight payments as failed.
+		if err := ensureInFlight(bucket); err != nil {
+			updateErr = err
+			return nil
 		}
 
-		return nil
+		return bucket.Put(paymentStatusKey, StatusGrounded.Bytes())
 	})
 	if err != nil {
 		return err
@@ -238,4 +209,34 @@ func fetchPaymentStatus(bucket *bbolt.Bucket) PaymentStatus {
 	}
 
 	return paymentStatus
+}
+
+// ensureInFlight checks whether the payment found in the given bucket has
+// status InFlight, and returns an error otherwise. This should be used to
+// ensure we only mark in-flight payments as succeeded or failed.
+func ensureInFlight(bucket *bbolt.Bucket) error {
+	paymentStatus := fetchPaymentStatus(bucket)
+
+	switch {
+
+	// The payment was indeed InFlight, return.
+	case paymentStatus == StatusInFlight:
+		return nil
+
+	// Our records show the payment as unknown, meaning it never
+	// should have left the switch.
+	case paymentStatus == StatusGrounded:
+		return ErrPaymentNotInitiated
+
+	// The payment succeeded previously.
+	case paymentStatus == StatusCompleted:
+		return ErrPaymentAlreadyCompleted
+
+	// The payment was already failed.
+	case paymentStatus == StatusFailed:
+		return ErrPaymentAlreadyFailed
+
+	default:
+		return ErrUnknownPaymentStatus
+	}
 }

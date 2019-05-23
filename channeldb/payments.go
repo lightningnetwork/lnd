@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
+	"sort"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec"
@@ -416,6 +418,152 @@ type PaymentAttemptInfo struct {
 
 	// Route is the route attempted to send the HTLC.
 	Route route.Route
+}
+
+// Payment is a wrapper around a payment's PaymentCreationInfo,
+// PaymentAttemptInfo, and preimage. All payments will have the
+// PaymentCreationInfo set, the PaymentAttemptInfo will be set only if at least
+// one payment attempt has been made, while only completed payments will have a
+// non-zero payment preimage.
+type Payment struct {
+	// sequenceNum is a unique identifier used to sort the payments in
+	// order of creation.
+	sequenceNum uint64
+
+	// Status is the current PaymentStatus of this payment.
+	Status PaymentStatus
+
+	// Info holds all static information about this payment, and is
+	// populated when the payment is initiated.
+	Info *PaymentCreationInfo
+
+	// Attempt is the information about the last payment attempt made.
+	//
+	// NOTE: Can be nil if no attempt is yet made.
+	Attempt *PaymentAttemptInfo
+
+	// PaymentPreimage is the preimage of a successful payment. This serves
+	// as a proof of payment. It will only be non-nil for settled payments.
+	//
+	// NOTE: Can be nil if payment is not settled.
+	PaymentPreimage *lntypes.Preimage
+}
+
+// FetchPayments returns all sent payments found in the DB.
+func (db *DB) FetchPayments() ([]*Payment, error) {
+	var payments []*Payment
+
+	err := db.View(func(tx *bbolt.Tx) error {
+		paymentsBucket := tx.Bucket(paymentsRootBucket)
+		if paymentsBucket == nil {
+			return nil
+		}
+
+		return paymentsBucket.ForEach(func(k, v []byte) error {
+			bucket := paymentsBucket.Bucket(k)
+			if bucket == nil {
+				// We only expect sub-buckets to be found in
+				// this top-level bucket.
+				return fmt.Errorf("non bucket element in " +
+					"payments bucket")
+			}
+
+			p, err := fetchPayment(bucket)
+			if err != nil {
+				return err
+			}
+
+			payments = append(payments, p)
+
+			// For older versions of lnd, duplicate payments to a
+			// payment has was possible. These will be found in a
+			// sub-bucket indexed by their sequence number if
+			// available.
+			dup := bucket.Bucket(paymentDuplicateBucket)
+			if dup == nil {
+				return nil
+			}
+
+			return dup.ForEach(func(k, v []byte) error {
+				subBucket := dup.Bucket(k)
+				if subBucket == nil {
+					// We one bucket for each duplicate to
+					// be found.
+					return fmt.Errorf("non bucket element" +
+						"in duplicate bucket")
+				}
+
+				p, err := fetchPayment(subBucket)
+				if err != nil {
+					return err
+				}
+
+				payments = append(payments, p)
+				return nil
+			})
+		})
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// Before returning, sort the payments by their sequence number.
+	sort.Slice(payments, func(i, j int) bool {
+		return payments[i].sequenceNum < payments[j].sequenceNum
+	})
+
+	return payments, nil
+}
+
+func fetchPayment(bucket *bbolt.Bucket) (*Payment, error) {
+	var (
+		err error
+		p   = &Payment{}
+	)
+
+	seqBytes := bucket.Get(paymentSequenceKey)
+	if seqBytes == nil {
+		return nil, fmt.Errorf("sequence number not found")
+	}
+
+	p.sequenceNum = binary.BigEndian.Uint64(seqBytes)
+
+	// Get the payment status.
+	p.Status = fetchPaymentStatus(bucket)
+
+	// Get the PaymentCreationInfo.
+	b := bucket.Get(paymentCreationInfoKey)
+	if b == nil {
+		return nil, fmt.Errorf("creation info not found")
+	}
+
+	r := bytes.NewReader(b)
+	p.Info, err = deserializePaymentCreationInfo(r)
+	if err != nil {
+		return nil, err
+
+	}
+
+	// Get the PaymentAttemptInfo. This can be unset.
+	b = bucket.Get(paymentAttemptInfoKey)
+	if b != nil {
+		r = bytes.NewReader(b)
+		p.Attempt, err = deserializePaymentAttemptInfo(r)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// Get the payment preimage. This is only found for
+	// completed payments.
+	b = bucket.Get(paymentSettleInfoKey)
+	if b != nil {
+		var preimg lntypes.Preimage
+		copy(preimg[:], b[:])
+		p.PaymentPreimage = &preimg
+	}
+
+	return p, nil
 }
 
 func serializePaymentCreationInfo(w io.Writer, c *PaymentCreationInfo) error {

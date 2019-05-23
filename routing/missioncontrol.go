@@ -70,6 +70,10 @@ type MissionControl struct {
 	// TODO(roasbeef): also add favorable metrics for nodes
 }
 
+// A compile time assertion to ensure MissionControl meets the
+// PaymentSessionSource interface.
+var _ PaymentSessionSource = (*MissionControl)(nil)
+
 // NewMissionControl returns a new instance of MissionControl.
 //
 // TODO(roasbeef): persist memory

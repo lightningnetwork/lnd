@@ -147,6 +147,28 @@ type PaymentAttemptDispatcher interface {
 		<-chan *htlcswitch.PaymentResult, error)
 }
 
+// PaymentSessionSource is an interface that defines a source for the router to
+// retrive new payment sessions.
+type PaymentSessionSource interface {
+	// NewPaymentSession creates a new payment session that will produce
+	// routes to the given target. An optional set of routing hints can be
+	// provided in order to populate additional edges to explore when
+	// finding a path to the payment's destination.
+	NewPaymentSession(routeHints [][]zpay32.HopHint,
+		target route.Vertex) (PaymentSession, error)
+
+	// NewPaymentSessionForRoute creates a new paymentSession instance that
+	// is just used for failure reporting to missioncontrol, and will only
+	// attempt the given route.
+	NewPaymentSessionForRoute(preBuiltRoute *route.Route) PaymentSession
+
+	// NewPaymentSessionEmpty creates a new paymentSession instance that is
+	// empty, and will be exhausted immediately. Used for failure reporting
+	// to missioncontrol for resumed payment we don't want to make more
+	// attempts for.
+	NewPaymentSessionEmpty() PaymentSession
+}
+
 // FeeSchema is the set fee configuration for a Lightning Node on the network.
 // Using the coefficients described within the schema, the required fee to
 // forward outgoing payments can be derived.
@@ -202,6 +224,15 @@ type Config struct {
 	// Control keeps track of the status of ongoing payments, ensuring we
 	// can properly resume them across restarts.
 	Control channeldb.ControlTower
+
+	// MissionControl is a shared memory of sorts that executions of
+	// payment path finding use in order to remember which vertexes/edges
+	// were pruned from prior attempts. During SendPayment execution,
+	// errors sent by nodes are mapped into a vertex or edge to be pruned.
+	// Each run will then take into account this set of pruned
+	// vertexes/edges to reduce route failure and pass on graph information
+	// gained to the next execution.
+	MissionControl PaymentSessionSource
 
 	// ChannelPruneExpiry is the duration used to determine if a channel
 	// should be pruned or not. If the delta between now and when the
@@ -342,15 +373,6 @@ type ChannelRouter struct {
 	// existing client.
 	ntfnClientUpdates chan *topologyClientUpdate
 
-	// missionControl is a shared memory of sorts that executions of
-	// payment path finding use in order to remember which vertexes/edges
-	// were pruned from prior attempts. During SendPayment execution,
-	// errors sent by nodes are mapped into a vertex or edge to be pruned.
-	// Each run will then take into account this set of pruned
-	// vertexes/edges to reduce route failure and pass on graph information
-	// gained to the next execution.
-	missionControl *MissionControl
-
 	// channelEdgeMtx is a mutex we use to make sure we process only one
 	// ChannelEdgePolicy at a time for a given channelID, to ensure
 	// consistency between the various database accesses.
@@ -391,10 +413,6 @@ func New(cfg Config) (*ChannelRouter, error) {
 		rejectCache:       make(map[uint64]struct{}),
 		quit:              make(chan struct{}),
 	}
-
-	r.missionControl = NewMissionControl(
-		cfg.Graph, selfNode, cfg.QueryBandwidth,
-	)
 
 	return r, nil
 }
@@ -508,7 +526,7 @@ func (r *ChannelRouter) Start() error {
 			// We create a dummy, empty payment session such that
 			// we won't make another payment attempt when the
 			// result for the in-flight attempt is received.
-			paySession := r.missionControl.NewPaymentSessionEmpty()
+			paySession := r.cfg.MissionControl.NewPaymentSessionEmpty()
 
 			lPayment := &LightningPayment{
 				PaymentHash: payment.Info.PaymentHash,
@@ -1582,7 +1600,7 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *route
 	// Before starting the HTLC routing attempt, we'll create a fresh
 	// payment session which will report our errors back to mission
 	// control.
-	paySession, err := r.missionControl.NewPaymentSession(
+	paySession, err := r.cfg.MissionControl.NewPaymentSession(
 		payment.RouteHints, payment.Target,
 	)
 	if err != nil {
@@ -1615,7 +1633,7 @@ func (r *ChannelRouter) SendToRoute(hash lntypes.Hash, route *route.Route) (
 	lntypes.Preimage, error) {
 
 	// Create a payment session for just this route.
-	paySession := r.missionControl.NewPaymentSessionForRoute(route)
+	paySession := r.cfg.MissionControl.NewPaymentSessionForRoute(route)
 
 	// Create a (mostly) dummy payment, as the created payment session is
 	// not going to do path finding.

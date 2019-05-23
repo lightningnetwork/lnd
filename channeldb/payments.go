@@ -53,10 +53,6 @@ var (
 	//
 	paymentsRootBucket = []byte("payments-root-bucket")
 
-	// paymentStatusKey is a key used in the payment's sub-bucket to store
-	// the status of the payment.
-	paymentStatusKey = []byte("payment-status-key")
-
 	// paymentDublicateBucket is the name of a optional sub-bucket within
 	// the payment hash bucket, that is used to hold duplicate payments to
 	// a payment hash. This is needed to support information from earlier

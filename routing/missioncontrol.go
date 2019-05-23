@@ -242,6 +242,19 @@ func (m *missionControl) NewPaymentSessionForRoute(preBuiltRoute *route.Route) *
 	}
 }
 
+// NewPaymentSessionEmpty creates a new paymentSession instance that is empty,
+// and will be exhausted immediately. Used for failure reporting to
+// missioncontrol for resumed payment we don't want to make more attempts for.
+func (m *missionControl) NewPaymentSessionEmpty() *paymentSession {
+	return &paymentSession{
+		pruneViewSnapshot:    m.GraphPruneView(),
+		errFailedPolicyChans: make(map[EdgeLocator]struct{}),
+		mc:                   m,
+		preBuiltRoute:        &route.Route{},
+		preBuiltRouteTried:   true,
+	}
+}
+
 // generateBandwidthHints is a helper function that's utilized the main
 // findPath function in order to obtain hints from the lower layer w.r.t to the
 // available bandwidth of edges on the network. Currently, we'll only obtain

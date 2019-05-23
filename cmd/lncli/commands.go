@@ -1588,23 +1588,27 @@ mnemonicCheck:
 	// We'll also check to see if they provided any static channel backups,
 	// if so, then we'll also tack these onto the final innit wallet
 	// request.
-	var chanBackups *lnrpc.ChanBackupSnapshot
 	backups, err := parseChanBackups(ctx)
 	if err != nil {
 		return fmt.Errorf("unable to parse chan "+
 			"backups: %v", err)
 	}
 
+	var chanBackups *lnrpc.ChanBackupSnapshot
 	if backups != nil {
 		switch {
 		case backups.GetChanBackups() != nil:
 			singleBackup := backups.GetChanBackups()
-			chanBackups.SingleChanBackups = singleBackup
+			chanBackups = &lnrpc.ChanBackupSnapshot{
+				SingleChanBackups: singleBackup,
+			}
 
 		case backups.GetMultiChanBackup() != nil:
 			multiBackup := backups.GetMultiChanBackup()
-			chanBackups.MultiChanBackup = &lnrpc.MultiChanBackup{
-				MultiChanBackup: multiBackup,
+			chanBackups = &lnrpc.ChanBackupSnapshot{
+				MultiChanBackup: &lnrpc.MultiChanBackup{
+					MultiChanBackup: multiBackup,
+				},
 			}
 		}
 	}

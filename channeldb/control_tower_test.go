@@ -49,41 +49,22 @@ func genHtlc() (*lnwire.UpdateAddHTLC, error) {
 	return htlc, nil
 }
 
-type paymentControlTestCase func(*testing.T, bool)
+type paymentControlTestCase func(*testing.T)
 
 var paymentControlTests = []struct {
 	name     string
-	strict   bool
 	testcase paymentControlTestCase
 }{
 	{
-		name:     "fail-strict",
-		strict:   true,
+		name:     "fail",
 		testcase: testPaymentControlSwitchFail,
 	},
 	{
-		name:     "double-send-strict",
-		strict:   true,
+		name:     "double-send",
 		testcase: testPaymentControlSwitchDoubleSend,
 	},
 	{
-		name:     "double-pay-strict",
-		strict:   true,
-		testcase: testPaymentControlSwitchDoublePay,
-	},
-	{
-		name:     "fail-not-strict",
-		strict:   false,
-		testcase: testPaymentControlSwitchFail,
-	},
-	{
-		name:     "double-send-not-strict",
-		strict:   false,
-		testcase: testPaymentControlSwitchDoubleSend,
-	},
-	{
-		name:     "double-pay-not-strict",
-		strict:   false,
+		name:     "double-pay",
 		testcase: testPaymentControlSwitchDoublePay,
 	},
 }
@@ -96,7 +77,7 @@ var paymentControlTests = []struct {
 func TestPaymentControls(t *testing.T) {
 	for _, test := range paymentControlTests {
 		t.Run(test.name, func(t *testing.T) {
-			test.testcase(t, test.strict)
+			test.testcase(t)
 		})
 	}
 }
@@ -104,7 +85,7 @@ func TestPaymentControls(t *testing.T) {
 // testPaymentControlSwitchFail checks that payment status returns to Grounded
 // status after failing, and that ClearForTakeoff allows another HTLC for the
 // same payment hash.
-func testPaymentControlSwitchFail(t *testing.T, strict bool) {
+func testPaymentControlSwitchFail(t *testing.T) {
 	t.Parallel()
 
 	db, err := initDB()
@@ -112,7 +93,7 @@ func testPaymentControlSwitchFail(t *testing.T, strict bool) {
 		t.Fatalf("unable to init db: %v", err)
 	}
 
-	pControl := NewPaymentControl(strict, db)
+	pControl := NewPaymentControl(db)
 
 	htlc, err := genHtlc()
 	if err != nil {
@@ -158,7 +139,7 @@ func testPaymentControlSwitchFail(t *testing.T, strict bool) {
 
 // testPaymentControlSwitchDoubleSend checks the ability of payment control to
 // prevent double sending of htlc message, when message is in StatusInFlight.
-func testPaymentControlSwitchDoubleSend(t *testing.T, strict bool) {
+func testPaymentControlSwitchDoubleSend(t *testing.T) {
 	t.Parallel()
 
 	db, err := initDB()
@@ -166,7 +147,7 @@ func testPaymentControlSwitchDoubleSend(t *testing.T, strict bool) {
 		t.Fatalf("unable to init db: %v", err)
 	}
 
-	pControl := NewPaymentControl(strict, db)
+	pControl := NewPaymentControl(db)
 
 	htlc, err := genHtlc()
 	if err != nil {
@@ -192,7 +173,7 @@ func testPaymentControlSwitchDoubleSend(t *testing.T, strict bool) {
 
 // TestPaymentControlSwitchDoublePay checks the ability of payment control to
 // prevent double payment.
-func testPaymentControlSwitchDoublePay(t *testing.T, strict bool) {
+func testPaymentControlSwitchDoublePay(t *testing.T) {
 	t.Parallel()
 
 	db, err := initDB()
@@ -200,7 +181,7 @@ func testPaymentControlSwitchDoublePay(t *testing.T, strict bool) {
 		t.Fatalf("unable to init db: %v", err)
 	}
 
-	pControl := NewPaymentControl(strict, db)
+	pControl := NewPaymentControl(db)
 
 	htlc, err := genHtlc()
 	if err != nil {
@@ -229,86 +210,6 @@ func testPaymentControlSwitchDoublePay(t *testing.T, strict bool) {
 	}
 }
 
-// TestPaymentControlNonStrictSuccessesWithoutInFlight checks that a non-strict
-// payment control will allow calls to Success when no payment is in flight. This
-// is necessary to gracefully handle the case in which the switch already sent
-// out a payment for a particular payment hash in a prior db version that didn't
-// have payment statuses.
-func TestPaymentControlNonStrictSuccessesWithoutInFlight(t *testing.T) {
-	t.Parallel()
-
-	db, err := initDB()
-	if err != nil {
-		t.Fatalf("unable to init db: %v", err)
-	}
-
-	pControl := NewPaymentControl(false, db)
-
-	htlc, err := genHtlc()
-	if err != nil {
-		t.Fatalf("unable to generate htlc message: %v", err)
-	}
-
-	if err := pControl.Success(htlc.PaymentHash); err != nil {
-		t.Fatalf("unable to mark payment hash success: %v", err)
-	}
-
-	assertPaymentStatus(t, db, htlc.PaymentHash, StatusCompleted)
-
-	err = pControl.Success(htlc.PaymentHash)
-	if err != ErrPaymentAlreadyCompleted {
-		t.Fatalf("unable to remark payment hash failed: %v", err)
-	}
-}
-
-// TestPaymentControlNonStrictFailsWithoutInFlight checks that a non-strict
-// payment control will allow calls to Fail when no payment is in flight. This
-// is necessary to gracefully handle the case in which the switch already sent
-// out a payment for a particular payment hash in a prior db version that didn't
-// have payment statuses.
-func TestPaymentControlNonStrictFailsWithoutInFlight(t *testing.T) {
-	t.Parallel()
-
-	db, err := initDB()
-	if err != nil {
-		t.Fatalf("unable to init db: %v", err)
-	}
-
-	pControl := NewPaymentControl(false, db)
-
-	htlc, err := genHtlc()
-	if err != nil {
-		t.Fatalf("unable to generate htlc message: %v", err)
-	}
-
-	if err := pControl.Fail(htlc.PaymentHash); err != nil {
-		t.Fatalf("unable to mark payment hash failed: %v", err)
-	}
-
-	assertPaymentStatus(t, db, htlc.PaymentHash, StatusGrounded)
-
-	err = pControl.Fail(htlc.PaymentHash)
-	if err != nil {
-		t.Fatalf("unable to remark payment hash failed: %v", err)
-	}
-
-	assertPaymentStatus(t, db, htlc.PaymentHash, StatusGrounded)
-
-	err = pControl.Success(htlc.PaymentHash)
-	if err != nil {
-		t.Fatalf("unable to remark payment hash success: %v", err)
-	}
-
-	assertPaymentStatus(t, db, htlc.PaymentHash, StatusCompleted)
-
-	err = pControl.Fail(htlc.PaymentHash)
-	if err != ErrPaymentAlreadyCompleted {
-		t.Fatalf("unable to remark payment hash failed: %v", err)
-	}
-
-	assertPaymentStatus(t, db, htlc.PaymentHash, StatusCompleted)
-}
-
 // TestPaymentControlStrictSuccessesWithoutInFlight checks that a strict payment
 // control will disallow calls to Success when no payment is in flight.
 func TestPaymentControlStrictSuccessesWithoutInFlight(t *testing.T) {
@@ -319,7 +220,7 @@ func TestPaymentControlStrictSuccessesWithoutInFlight(t *testing.T) {
 		t.Fatalf("unable to init db: %v", err)
 	}
 
-	pControl := NewPaymentControl(true, db)
+	pControl := NewPaymentControl(db)
 
 	htlc, err := genHtlc()
 	if err != nil {
@@ -344,7 +245,7 @@ func TestPaymentControlStrictFailsWithoutInFlight(t *testing.T) {
 		t.Fatalf("unable to init db: %v", err)
 	}
 
-	pControl := NewPaymentControl(true, db)
+	pControl := NewPaymentControl(db)
 
 	htlc, err := genHtlc()
 	if err != nil {

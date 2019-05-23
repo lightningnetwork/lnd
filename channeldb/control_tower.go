@@ -57,23 +57,13 @@ type ControlTower interface {
 // paymentControl is persistent implementation of ControlTower to restrict
 // double payment sending.
 type paymentControl struct {
-	strict bool
-
 	db *DB
 }
 
-// NewPaymentControl creates a new instance of the paymentControl. The strict
-// flag indicates whether the controller should require "strict" state
-// transitions, which would be otherwise intolerant to older databases that may
-// already have duplicate payments to the same payment hash. It should be
-// enabled only after sufficient checks have been made to ensure the db does not
-// contain such payments. In the meantime, non-strict mode enforces a superset
-// of the state transitions that prevent additional payments to a given payment
-// hash from being added.
-func NewPaymentControl(strict bool, db *DB) ControlTower {
+// NewPaymentControl creates a new instance of the paymentControl.
+func NewPaymentControl(db *DB) ControlTower {
 	return &paymentControl{
-		strict: strict,
-		db:     db,
+		db: db,
 	}
 }
 
@@ -96,21 +86,20 @@ func (p *paymentControl) ClearForTakeoff(htlc *lnwire.UpdateAddHTLC) error {
 
 		switch paymentStatus {
 
+		// It is safe to reattempt a payment if we know that we haven't
+		// left one in flight. Since this one is grounded or failed,
+		// transition the payment status to InFlight to prevent others.
 		case StatusGrounded:
-			// It is safe to reattempt a payment if we know that we
-			// haven't left one in flight. Since this one is
-			// grounded or failed, transition the payment status
-			// to InFlight to prevent others.
 			return bucket.Put(paymentStatusKey, StatusInFlight.Bytes())
 
+		// We already have an InFlight payment on the network. We will
+		// disallow any more payment until a response is received.
 		case StatusInFlight:
-			// We already have an InFlight payment on the network. We will
-			// disallow any more payment until a response is received.
 			takeoffErr = ErrPaymentInFlight
 
+		// We've already completed a payment to this payment hash,
+		// forbid the switch from sending another.
 		case StatusCompleted:
-			// We've already completed a payment to this payment hash,
-			// forbid the switch from sending another.
 			takeoffErr = ErrAlreadyPaid
 
 		default:
@@ -146,27 +135,20 @@ func (p *paymentControl) Success(paymentHash [32]byte) error {
 
 		switch {
 
-		case paymentStatus == StatusGrounded && p.strict:
-			// Our records show the payment as still being grounded,
-			// meaning it never should have left the switch.
+		// Our records show the payment as still being grounded,
+		// meaning it never should have left the switch.
+		case paymentStatus == StatusGrounded:
 			updateErr = ErrPaymentNotInitiated
 
-		case paymentStatus == StatusGrounded && !p.strict:
-			// Though our records show the payment as still being
-			// grounded, meaning it never should have left the
-			// switch, we permit this transition in non-strict mode
-			// to handle inconsistent db states.
-			fallthrough
-
+		// A successful response was received for an InFlight payment,
+		// mark it as completed to prevent sending to this payment hash
+		// again.
 		case paymentStatus == StatusInFlight:
-			// A successful response was received for an InFlight
-			// payment, mark it as completed to prevent sending to
-			// this payment hash again.
 			return bucket.Put(paymentStatusKey, StatusCompleted.Bytes())
 
+		// The payment was completed previously, alert the caller that
+		// this may be a duplicate call.
 		case paymentStatus == StatusCompleted:
-			// The payment was completed previously, alert the
-			// caller that this may be a duplicate call.
 			updateErr = ErrPaymentAlreadyCompleted
 
 		default:
@@ -201,29 +183,20 @@ func (p *paymentControl) Fail(paymentHash [32]byte) error {
 
 		switch {
 
-		case paymentStatus == StatusGrounded && p.strict:
-			// Our records show the payment as still being grounded,
-			// meaning it never should have left the switch.
+		// Our records show the payment as still being grounded,
+		// meaning it never should have left the switch.
+		case paymentStatus == StatusGrounded:
 			updateErr = ErrPaymentNotInitiated
 
-		case paymentStatus == StatusGrounded && !p.strict:
-			// Though our records show the payment as still being
-			// grounded, meaning it never should have left the
-			// switch, we permit this transition in non-strict mode
-			// to handle inconsistent db states.
-			fallthrough
-
+		// A failed response was received for an InFlight payment, mark
+		// it as Failed to allow subsequent attempts.
 		case paymentStatus == StatusInFlight:
-			// A failed response was received for an InFlight
-			// payment, mark it as Failed to allow subsequent
-			// attempts.
 			return bucket.Put(paymentStatusKey, StatusGrounded.Bytes())
 
+		// The payment was completed previously, and we are now
+		// reporting that it has failed. Leave the status as completed,
+		// but alert the user that something is wrong.
 		case paymentStatus == StatusCompleted:
-			// The payment was completed previously, and we are now
-			// reporting that it has failed. Leave the status as
-			// completed, but alert the user that something is
-			// wrong.
 			updateErr = ErrPaymentAlreadyCompleted
 
 		default:

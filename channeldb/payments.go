@@ -81,6 +81,10 @@ var (
 	// store the settle info of the payment.
 	paymentSettleInfoKey = []byte("payment-settle-info")
 
+	// paymentFailInfoKey is a key used in the payment's sub-bucket to
+	// store information about the reason a payment failed.
+	paymentFailInfoKey = []byte("payment-fail-info")
+
 	// paymentBucket is the name of the bucket within the database that
 	// stores all data related to payments.
 	//
@@ -92,6 +96,21 @@ var (
 	// paymentStatusBucket is the name of the bucket within the database that
 	// stores the status of a payment indexed by the payment's preimage.
 	paymentStatusBucket = []byte("payment-status")
+)
+
+// FailureReason encodes the reason a payment ultimately failed.
+type FailureReason byte
+
+const (
+	// FailureReasonTimeout indicates that the payment did timeout before a
+	// successful payment attempt was made.
+	FailureReasonTimeout FailureReason = 0
+
+	// FailureReasonNoRoute indicates no successful route to the
+	// destination was found during path finding.
+	FailureReasonNoRoute FailureReason = 1
+
+	// TODO(halseth): cancel state.
 )
 
 // PaymentStatus represent current status of payment
@@ -113,8 +132,6 @@ const (
 	// StatusFailed is the status where a payment has been initiated and a
 	// failure result has come back.
 	StatusFailed PaymentStatus = 3
-
-	// TODO(halseth): timeout/cancel state?
 )
 
 // Bytes returns status as slice of bytes.
@@ -454,6 +471,12 @@ type Payment struct {
 	//
 	// NOTE: Can be nil if payment is not settled.
 	PaymentPreimage *lntypes.Preimage
+
+	// Failure is a failure reason code indicating the reason the payment
+	// failed. It is only non-nil for failed payments.
+	//
+	// NOTE: Can be nil if payment is not failed.
+	Failure *FailureReason
 }
 
 // FetchPayments returns all sent payments found in the DB.
@@ -568,6 +591,13 @@ func fetchPayment(bucket *bbolt.Bucket) (*Payment, error) {
 		var preimg lntypes.Preimage
 		copy(preimg[:], b[:])
 		p.PaymentPreimage = &preimg
+	}
+
+	// Get failure reason if available.
+	b = bucket.Get(paymentFailInfoKey)
+	if b != nil {
+		reason := FailureReason(b[0])
+		p.Failure = &reason
 	}
 
 	return p, nil

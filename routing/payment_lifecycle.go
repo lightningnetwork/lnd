@@ -177,7 +177,7 @@ func (p *paymentLifecycle) createNewPaymentAttempt() (lnwire.ShortChannelID,
 		// Mark the payment as failed because of the
 		// timeout.
 		err := p.router.cfg.Control.Fail(
-			p.payment.PaymentHash,
+			p.payment.PaymentHash, channeldb.FailureReasonTimeout,
 		)
 		if err != nil {
 			return lnwire.ShortChannelID{}, nil, err
@@ -208,7 +208,7 @@ func (p *paymentLifecycle) createNewPaymentAttempt() (lnwire.ShortChannelID,
 		// any of the routes we've found, then mark the payment
 		// as permanently failed.
 		saveErr := p.router.cfg.Control.Fail(
-			p.payment.PaymentHash,
+			p.payment.PaymentHash, channeldb.FailureReasonNoRoute,
 		)
 		if saveErr != nil {
 			return lnwire.ShortChannelID{}, nil, saveErr
@@ -338,7 +338,7 @@ func (p *paymentLifecycle) handleSendError(sendErr error) error {
 		// TODO(halseth): make payment codes for the actual reason we
 		// don't continue path finding.
 		err := p.router.cfg.Control.Fail(
-			p.payment.PaymentHash,
+			p.payment.PaymentHash, channeldb.FailureReasonNoRoute,
 		)
 		if err != nil {
 			return err

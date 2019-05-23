@@ -88,10 +88,13 @@ func TestPaymentControlSwitchFail(t *testing.T) {
 	assertPaymentStatus(t, db, info.PaymentHash, StatusInFlight)
 	assertPaymentInfo(
 		t, db, info.PaymentHash, info, nil, lntypes.Preimage{},
+		nil,
 	)
 
 	// Fail the payment, which should moved it to Failed.
-	if err := pControl.Fail(info.PaymentHash); err != nil {
+	failReason := FailureReasonNoRoute
+	err = pControl.Fail(info.PaymentHash, failReason)
+	if err != nil {
 		t.Fatalf("unable to fail payment hash: %v", err)
 	}
 
@@ -99,6 +102,7 @@ func TestPaymentControlSwitchFail(t *testing.T) {
 	assertPaymentStatus(t, db, info.PaymentHash, StatusFailed)
 	assertPaymentInfo(
 		t, db, info.PaymentHash, info, nil, lntypes.Preimage{},
+		&failReason,
 	)
 
 	// Sends the htlc again, which should succeed since the prior payment
@@ -111,6 +115,7 @@ func TestPaymentControlSwitchFail(t *testing.T) {
 	assertPaymentStatus(t, db, info.PaymentHash, StatusInFlight)
 	assertPaymentInfo(
 		t, db, info.PaymentHash, info, nil, lntypes.Preimage{},
+		nil,
 	)
 
 	// Record a new attempt.
@@ -122,6 +127,7 @@ func TestPaymentControlSwitchFail(t *testing.T) {
 	assertPaymentStatus(t, db, info.PaymentHash, StatusInFlight)
 	assertPaymentInfo(
 		t, db, info.PaymentHash, info, attempt, lntypes.Preimage{},
+		nil,
 	)
 
 	// Verifies that status was changed to StatusCompleted.
@@ -130,7 +136,7 @@ func TestPaymentControlSwitchFail(t *testing.T) {
 	}
 
 	assertPaymentStatus(t, db, info.PaymentHash, StatusCompleted)
-	assertPaymentInfo(t, db, info.PaymentHash, info, attempt, preimg)
+	assertPaymentInfo(t, db, info.PaymentHash, info, attempt, preimg, nil)
 
 	// Attempt a final payment, which should now fail since the prior
 	// payment succeed.
@@ -167,6 +173,7 @@ func TestPaymentControlSwitchDoubleSend(t *testing.T) {
 	assertPaymentStatus(t, db, info.PaymentHash, StatusInFlight)
 	assertPaymentInfo(
 		t, db, info.PaymentHash, info, nil, lntypes.Preimage{},
+		nil,
 	)
 
 	// Try to initiate double sending of htlc message with the same
@@ -186,6 +193,7 @@ func TestPaymentControlSwitchDoubleSend(t *testing.T) {
 	assertPaymentStatus(t, db, info.PaymentHash, StatusInFlight)
 	assertPaymentInfo(
 		t, db, info.PaymentHash, info, attempt, lntypes.Preimage{},
+		nil,
 	)
 
 	// Sends base htlc message which initiate StatusInFlight.
@@ -200,7 +208,7 @@ func TestPaymentControlSwitchDoubleSend(t *testing.T) {
 		t.Fatalf("error shouldn't have been received, got: %v", err)
 	}
 	assertPaymentStatus(t, db, info.PaymentHash, StatusCompleted)
-	assertPaymentInfo(t, db, info.PaymentHash, info, attempt, preimg)
+	assertPaymentInfo(t, db, info.PaymentHash, info, attempt, preimg, nil)
 
 	err = pControl.InitPayment(info.PaymentHash, info)
 	if err != ErrAlreadyPaid {
@@ -232,7 +240,10 @@ func TestPaymentControlSuccessesWithoutInFlight(t *testing.T) {
 	}
 
 	assertPaymentStatus(t, db, info.PaymentHash, StatusGrounded)
-	assertPaymentInfo(t, db, info.PaymentHash, nil, nil, lntypes.Preimage{})
+	assertPaymentInfo(
+		t, db, info.PaymentHash, nil, nil, lntypes.Preimage{},
+		nil,
+	)
 }
 
 // TestPaymentControlFailsWithoutInFlight checks that a strict payment
@@ -253,13 +264,15 @@ func TestPaymentControlFailsWithoutInFlight(t *testing.T) {
 	}
 
 	// Calling Fail should return an error.
-	err = pControl.Fail(info.PaymentHash)
+	err = pControl.Fail(info.PaymentHash, FailureReasonNoRoute)
 	if err != ErrPaymentNotInitiated {
 		t.Fatalf("expected ErrPaymentNotInitiated, got %v", err)
 	}
 
 	assertPaymentStatus(t, db, info.PaymentHash, StatusGrounded)
-	assertPaymentInfo(t, db, info.PaymentHash, nil, nil, lntypes.Preimage{})
+	assertPaymentInfo(
+		t, db, info.PaymentHash, nil, nil, lntypes.Preimage{}, nil,
+	)
 }
 
 func assertPaymentStatus(t *testing.T, db *DB,
@@ -364,8 +377,29 @@ func checkSettleInfo(bucket *bbolt.Bucket, preimg lntypes.Preimage) error {
 	return nil
 }
 
+func checkFailInfo(bucket *bbolt.Bucket, failReason *FailureReason) error {
+	b := bucket.Get(paymentFailInfoKey)
+	switch {
+	case b == nil && failReason == nil:
+		return nil
+	case b == nil:
+		return fmt.Errorf("expected fail info not found")
+	case failReason == nil:
+		return fmt.Errorf("unexpected fail info found")
+	}
+
+	failReason2 := FailureReason(b[0])
+	if *failReason != failReason2 {
+		return fmt.Errorf("Failure infos don't match: %v vs %v",
+			*failReason, failReason2)
+	}
+
+	return nil
+}
+
 func assertPaymentInfo(t *testing.T, db *DB, hash lntypes.Hash,
-	c *PaymentCreationInfo, a *PaymentAttemptInfo, s lntypes.Preimage) {
+	c *PaymentCreationInfo, a *PaymentAttemptInfo, s lntypes.Preimage,
+	f *FailureReason) {
 
 	t.Helper()
 
@@ -396,6 +430,10 @@ func assertPaymentInfo(t *testing.T, db *DB, hash lntypes.Hash,
 		}
 
 		if err := checkSettleInfo(bucket, s); err != nil {
+			return err
+		}
+
+		if err := checkFailInfo(bucket, f); err != nil {
 			return err
 		}
 		return nil

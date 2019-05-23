@@ -56,10 +56,11 @@ type ControlTower interface {
 	// keeping.
 	Success(lntypes.Hash, lntypes.Preimage) error
 
-	// Fail transitions a payment into the Failed state. After invoking
-	// this method, InitPayment should return nil on its next call for this
-	// payment hash, allowing the switch to make a subsequent payment.
-	Fail(lntypes.Hash) error
+	// Fail transitions a payment into the Failed state, and records the
+	// reason the payment failed. After invoking this method, InitPayment
+	// should return nil on its next call for this payment hash, allowing
+	// the switch to make a subsequent payment.
+	Fail(lntypes.Hash, FailureReason) error
 
 	// FetchInFlightPayments returns all payments with status InFlight.
 	FetchInFlightPayments() ([]*InFlightPayment, error)
@@ -165,7 +166,9 @@ func (p *paymentControl) InitPayment(paymentHash lntypes.Hash,
 			return err
 		}
 
-		return nil
+		// Also delete any lingering failure info now that we are
+		// re-attempting.
+		return bucket.Delete(paymentFailInfoKey)
 	})
 	if err != nil {
 		return nil
@@ -255,10 +258,13 @@ func (p *paymentControl) Success(paymentHash lntypes.Hash,
 
 }
 
-// Fail transitions a payment into the Failed state. After invoking this
-// method, InitPayment should return nil on its next call for this payment
-// hash, allowing the switch to make a subsequent payment.
-func (p *paymentControl) Fail(paymentHash lntypes.Hash) error {
+// Fail transitions a payment into the Failed state, and records the reason the
+// payment failed. After invoking this method, InitPayment should return nil on
+// its next call for this payment hash, allowing the switch to make a
+// subsequent payment.
+func (p *paymentControl) Fail(paymentHash lntypes.Hash,
+	reason FailureReason) error {
+
 	var updateErr error
 	err := p.db.Batch(func(tx *bbolt.Tx) error {
 		// Reset the update error, to avoid carrying over an error
@@ -274,6 +280,13 @@ func (p *paymentControl) Fail(paymentHash lntypes.Hash) error {
 		if err := ensureInFlight(bucket); err != nil {
 			updateErr = err
 			return nil
+		}
+
+		// Put the failure reason in the bucket for record keeping.
+		v := []byte{byte(reason)}
+		err = bucket.Put(paymentFailInfoKey, v)
+		if err != nil {
+			return err
 		}
 
 		// A failed response was received for an InFlight payment, mark

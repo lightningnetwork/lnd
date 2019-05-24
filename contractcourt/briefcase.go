@@ -9,6 +9,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/coreos/bbolt"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
 )
@@ -80,6 +81,24 @@ type ArbitratorLog interface {
 	// FetchContractResolutions fetches the set of previously stored
 	// contract resolutions from persistent storage.
 	FetchContractResolutions() (*ContractResolutions, error)
+
+	// InsertConfirmedCommitSet stores the known set of active HTLCs at the
+	// time channel closure. We'll use this to reconstruct our set of chain
+	// actions anew based on the confirmed and pending commitment state.
+	InsertConfirmedCommitSet(c *CommitSet) error
+
+	// FetchConfirmedCommitSet fetches the known confirmed active HTLC set
+	// from the database.
+	FetchConfirmedCommitSet() (*CommitSet, error)
+
+	// FetchChainActions attempts to fetch the set of previously stored
+	// chain actions. We'll use this upon restart to properly advance our
+	// state machine forward.
+	//
+	// NOTE: This method only exists in order to be able to serve nodes had
+	// channels in the process of closing before the CommitSet struct was
+	// introduced.
+	FetchChainActions() (ChainActionMap, error)
 
 	// WipeHistory is to be called ONLY once *all* contracts have been
 	// fully resolved, and the channel closure if finalized. This method
@@ -247,6 +266,11 @@ var (
 	// actionsBucketKey is the key under the logScope that we'll use to
 	// store all chain actions once they're determined.
 	actionsBucketKey = []byte("chain-actions")
+
+	// commitSetKey is the primary key under the logScope that we'll use to
+	// store the confirmed active HTLC sets once we learn that a channel
+	// has closed out on chain.
+	commitSetKey = []byte("commit-set")
 )
 
 var (
@@ -265,6 +289,11 @@ var (
 	// errNoActions is retuned when the log doesn't contain any stored
 	// chain actions.
 	errNoActions = fmt.Errorf("no chain actions exist")
+
+	// errNoCommitSet is return when the log doesn't contained a CommitSet.
+	// This can happen if the channel hasn't closed yet, or a client is
+	// running an older version that didn't yet write this state.
+	errNoCommitSet = fmt.Errorf("no commit set exists")
 )
 
 // boltArbitratorLog is an implementation of the ArbitratorLog interface backed
@@ -708,6 +737,103 @@ func (b *boltArbitratorLog) FetchContractResolutions() (*ContractResolutions, er
 	return c, err
 }
 
+// FetchChainActions attempts to fetch the set of previously stored chain
+// actions. We'll use this upon restart to properly advance our state machine
+// forward.
+//
+// NOTE: Part of the ContractResolver interface.
+func (b *boltArbitratorLog) FetchChainActions() (ChainActionMap, error) {
+	actionsMap := make(ChainActionMap)
+
+	err := b.db.View(func(tx *bbolt.Tx) error {
+		scopeBucket := tx.Bucket(b.scopeKey[:])
+		if scopeBucket == nil {
+			return errScopeBucketNoExist
+		}
+
+		actionsBucket := scopeBucket.Bucket(actionsBucketKey)
+		if actionsBucket == nil {
+			return errNoActions
+		}
+
+		return actionsBucket.ForEach(func(action, htlcBytes []byte) error {
+			if htlcBytes == nil {
+				return nil
+			}
+
+			chainAction := ChainAction(action[0])
+
+			htlcReader := bytes.NewReader(htlcBytes)
+			htlcs, err := channeldb.DeserializeHtlcs(htlcReader)
+			if err != nil {
+				return err
+			}
+
+			actionsMap[chainAction] = htlcs
+
+			return nil
+		})
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return actionsMap, nil
+}
+
+// InsertConfirmedCommitSet stores the known set of active HTLCs at the time
+// channel closure. We'll use this to reconstruct our set of chain actions anew
+// based on the confirmed and pending commitment state.
+//
+// NOTE: Part of the ContractResolver interface.
+func (b *boltArbitratorLog) InsertConfirmedCommitSet(c *CommitSet) error {
+	return b.db.Update(func(tx *bbolt.Tx) error {
+		scopeBucket, err := tx.CreateBucketIfNotExists(b.scopeKey[:])
+		if err != nil {
+			return err
+		}
+
+		var b bytes.Buffer
+		if err := encodeCommitSet(&b, c); err != nil {
+			return err
+		}
+
+		return scopeBucket.Put(commitSetKey, b.Bytes())
+	})
+}
+
+// FetchConfirmedCommitSet fetches the known confirmed active HTLC set from the
+// database.
+//
+// NOTE: Part of the ContractResolver interface.
+func (b *boltArbitratorLog) FetchConfirmedCommitSet() (*CommitSet, error) {
+	var c *CommitSet
+	err := b.db.View(func(tx *bbolt.Tx) error {
+		scopeBucket := tx.Bucket(b.scopeKey[:])
+		if scopeBucket == nil {
+			return errScopeBucketNoExist
+		}
+
+		commitSetBytes := scopeBucket.Get(commitSetKey)
+		if commitSetBytes == nil {
+			return errNoCommitSet
+		}
+
+		commitSet, err := decodeCommitSet(bytes.NewReader(commitSetBytes))
+		if err != nil {
+			return err
+		}
+
+		c = commitSet
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return c, nil
+}
+
 // WipeHistory is to be called ONLY once *all* contracts have been fully
 // resolved, and the channel closure if finalized. This method will delete all
 // on-disk state within the persistent log.
@@ -956,4 +1082,77 @@ func decodeCommitResolution(r io.Reader,
 	}
 
 	return binary.Read(r, endian, &c.MaturityDelay)
+}
+
+func encodeHtlcSetKey(w io.Writer, h *HtlcSetKey) error {
+	err := binary.Write(w, endian, h.IsRemote)
+	if err != nil {
+		return err
+	}
+	return binary.Write(w, endian, h.IsPending)
+}
+
+func encodeCommitSet(w io.Writer, c *CommitSet) error {
+	if err := encodeHtlcSetKey(w, c.ConfCommitKey); err != nil {
+		return err
+	}
+
+	numSets := uint8(len(c.HtlcSets))
+	if err := binary.Write(w, endian, numSets); err != nil {
+		return err
+	}
+
+	for htlcSetKey, htlcs := range c.HtlcSets {
+		htlcSetKey := htlcSetKey
+		if err := encodeHtlcSetKey(w, &htlcSetKey); err != nil {
+			return err
+		}
+
+		if err := channeldb.SerializeHtlcs(w, htlcs...); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func decodeHtlcSetKey(r io.Reader, h *HtlcSetKey) error {
+	err := binary.Read(r, endian, &h.IsRemote)
+	if err != nil {
+		return err
+	}
+
+	return binary.Read(r, endian, &h.IsPending)
+}
+
+func decodeCommitSet(r io.Reader) (*CommitSet, error) {
+	c := &CommitSet{
+		ConfCommitKey: &HtlcSetKey{},
+		HtlcSets:      make(map[HtlcSetKey][]channeldb.HTLC),
+	}
+
+	if err := decodeHtlcSetKey(r, c.ConfCommitKey); err != nil {
+		return nil, err
+	}
+
+	var numSets uint8
+	if err := binary.Read(r, endian, &numSets); err != nil {
+		return nil, err
+	}
+
+	for i := uint8(0); i < numSets; i++ {
+		var htlcSetKey HtlcSetKey
+		if err := decodeHtlcSetKey(r, &htlcSetKey); err != nil {
+			return nil, err
+		}
+
+		htlcs, err := channeldb.DeserializeHtlcs(r)
+		if err != nil {
+			return nil, err
+		}
+
+		c.HtlcSets[htlcSetKey] = htlcs
+	}
+
+	return c, nil
 }

@@ -15,6 +15,8 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/coreos/bbolt"
+	"github.com/davecgh/go-spew/spew"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
 )
@@ -670,6 +672,62 @@ func TestScopeIsolation(t *testing.T) {
 		t.Fatalf("state mismatch: expected %v, got %v",
 			StateContractClosed, log2State)
 	}
+}
+
+// TestCommitSetStorage tests that we're able to properly read/write active
+// commitment sets.
+func TestCommitSetStorage(t *testing.T) {
+	t.Parallel()
+
+	testLog, cleanUp, err := newTestBoltArbLog(
+		testChainHash, testChanPoint1,
+	)
+	if err != nil {
+		t.Fatalf("unable to create test log: %v", err)
+	}
+	defer cleanUp()
+
+	activeHTLCs := []channeldb.HTLC{
+		{
+			Amt:       1000,
+			OnionBlob: make([]byte, 0),
+			Signature: make([]byte, 0),
+		},
+	}
+
+	confTypes := []HtlcSetKey{
+		LocalHtlcSet, RemoteHtlcSet, RemotePendingHtlcSet,
+	}
+	for _, pendingRemote := range []bool{true, false} {
+		for _, confType := range confTypes {
+			commitSet := &CommitSet{
+				ConfCommitKey: &confType,
+				HtlcSets:      make(map[HtlcSetKey][]channeldb.HTLC),
+			}
+			commitSet.HtlcSets[LocalHtlcSet] = activeHTLCs
+			commitSet.HtlcSets[RemoteHtlcSet] = activeHTLCs
+
+			if pendingRemote {
+				commitSet.HtlcSets[RemotePendingHtlcSet] = activeHTLCs
+			}
+
+			err := testLog.InsertConfirmedCommitSet(commitSet)
+			if err != nil {
+				t.Fatalf("unable to write commit set: %v", err)
+			}
+
+			diskCommitSet, err := testLog.FetchConfirmedCommitSet()
+			if err != nil {
+				t.Fatalf("unable to read commit set: %v", err)
+			}
+
+			if !reflect.DeepEqual(commitSet, diskCommitSet) {
+				t.Fatalf("commit set mismatch: expected %v, got %v",
+					spew.Sdump(commitSet), spew.Sdump(diskCommitSet))
+			}
+		}
+	}
+
 }
 
 func init() {

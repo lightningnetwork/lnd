@@ -215,7 +215,7 @@ func (q *sessionQueue) AcceptTask(task *backupTask) (reserveStatus, bool) {
 	//
 	// TODO(conner): queue backups and retry with different session params.
 	case reserveAvailable:
-		err := task.bindSession(q.cfg.ClientSession)
+		err := task.bindSession(&q.cfg.ClientSession.ClientSessionBody)
 		if err != nil {
 			q.queueCond.L.Unlock()
 			log.Debugf("SessionQueue %s rejected backup chanid=%s "+

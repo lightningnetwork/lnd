@@ -126,8 +126,7 @@ func (t *backupTask) inputs() map[wire.OutPoint]input.Input {
 // SessionInfo's policy. If no error is returned, the task has been bound to the
 // session and can be queued to upload to the tower. Otherwise, the bind failed
 // and should be rescheduled with a different session.
-func (t *backupTask) bindSession(session *wtdb.ClientSession) error {
-
+func (t *backupTask) bindSession(session *wtdb.ClientSessionBody) error {
 	// First we'll begin by deriving a weight estimate for the justice
 	// transaction. The final weight can be different depending on whether
 	// the watchtower is taking a reward.

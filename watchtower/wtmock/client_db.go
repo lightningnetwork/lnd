@@ -122,13 +122,15 @@ func (m *ClientDB) CreateClientSession(session *wtdb.ClientSession) error {
 	delete(m.indexes, session.TowerID)
 
 	m.activeSessions[session.ID] = &wtdb.ClientSession{
-		TowerID:          session.TowerID,
-		KeyIndex:         session.KeyIndex,
-		ID:               session.ID,
-		Policy:           session.Policy,
-		SeqNum:           session.SeqNum,
-		TowerLastApplied: session.TowerLastApplied,
-		RewardPkScript:   cloneBytes(session.RewardPkScript),
+		ID: session.ID,
+		ClientSessionBody: wtdb.ClientSessionBody{
+			SeqNum:           session.SeqNum,
+			TowerLastApplied: session.TowerLastApplied,
+			TowerID:          session.TowerID,
+			KeyIndex:         session.KeyIndex,
+			Policy:           session.Policy,
+			RewardPkScript:   cloneBytes(session.RewardPkScript),
+		},
 		CommittedUpdates: make([]wtdb.CommittedUpdate, 0),
 		AckedUpdates:     make(map[uint16]wtdb.BackupID),
 	}

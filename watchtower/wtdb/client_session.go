@@ -46,8 +46,48 @@ var (
 type ClientSession struct {
 	// ID is the client's public key used when authenticating with the
 	// tower.
+	//
+	// NOTE: This value is not serialized with the body of the struct, it
+	// should be set and recovered as the ClientSession's key.
 	ID SessionID
 
+	ClientSessionBody
+
+	// CommittedUpdates is a sorted list of unacked updates. These updates
+	// can be resent after a restart if the updates failed to send or
+	// receive an acknowledgment.
+	//
+	// NOTE: This list is serialized in it's own bucket, separate from the
+	// body of the ClientSession. The representation on disk is a key value
+	// map from sequence number to CommittedUpdateBody to allow efficient
+	// insertion and retrieval.
+	CommittedUpdates []CommittedUpdate
+
+	// AckedUpdates is a map from sequence number to backup id to record
+	// which revoked states were uploaded via this session.
+	//
+	// NOTE: This map is serialized in it's own bucket, separate from the
+	// body of the ClientSession.
+	AckedUpdates map[uint16]BackupID
+
+	// Tower holds the pubkey and address of the watchtower.
+	//
+	// NOTE: This value is not serialized. It is recovered by looking up the
+	// tower with TowerID.
+	Tower *Tower
+
+	// SessionPrivKey is the ephemeral secret key used to connect to the
+	// watchtower.
+	//
+	// NOTE: This value is not serialized. It is derived using the KeyIndex
+	// on startup to avoid storing private keys on disk.
+	SessionPrivKey *btcec.PrivateKey
+}
+
+// ClientSessionBody represents the primary components of a ClientSession that
+// are serialized together within the database. The CommittedUpdates and
+// AckedUpdates are serialized in buckets separate from the body.
+type ClientSessionBody struct {
 	// SeqNum is the next unallocated sequence number that can be sent to
 	// the tower.
 	SeqNum uint16
@@ -59,24 +99,11 @@ type ClientSession struct {
 	// Tower with which the session is negotiated.
 	TowerID TowerID
 
-	// Tower holds the pubkey and address of the watchtower.
-	//
-	// NOTE: This value is not serialized. It is recovered by looking up the
-	// tower with TowerID.
-	Tower *Tower
-
 	// KeyIndex is the index of key locator used to derive the client's
 	// session key so that it can authenticate with the tower to update its
 	// session. In order to rederive the private key, the key locator should
 	// use the keychain.KeyFamilyTowerSession key family.
 	KeyIndex uint32
-
-	// SessionPrivKey is the ephemeral secret key used to connect to the
-	// watchtower.
-	//
-	// NOTE: This value is not serialized. It is derived using the KeyIndex
-	// on startup to avoid storing private keys on disk.
-	SessionPrivKey *btcec.PrivateKey
 
 	// Policy holds the negotiated session parameters.
 	Policy wtpolicy.Policy
@@ -86,14 +113,7 @@ type ClientSession struct {
 	// specifies a reward output.
 	RewardPkScript []byte
 
-	// CommittedUpdates is a sorted list of unacked updates. These updates
-	// can be resent after a restart if the updates failed to send or
-	// receive an acknowledgment.
-	CommittedUpdates []CommittedUpdate
 
-	// AckedUpdates is a map from sequence number to backup id to record
-	// which revoked states were uploaded via this session.
-	AckedUpdates map[uint16]BackupID
 }
 
 // BackupID identifies a particular revoked, remote commitment by channel id and

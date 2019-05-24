@@ -186,10 +186,6 @@ func (m *SyncManager) syncerHandler() {
 	defer m.cfg.HistoricalSyncTicker.Stop()
 
 	var (
-		// attemptInitialHistoricalSync determines whether we should
-		// attempt an initial historical sync when a new peer connects.
-		attemptInitialHistoricalSync = true
-
 		// initialHistoricalSyncCompleted serves as a barrier when
 		// initializing new active GossipSyncers. If false, the initial
 		// historical sync has not completed, so we'll defer
@@ -225,17 +221,33 @@ func (m *SyncManager) syncerHandler() {
 
 			s := m.createGossipSyncer(newSyncer.peer)
 
+			// attemptHistoricalSync determines whether we should
+			// attempt an initial historical sync when a new peer
+			// connects.
+			attemptHistoricalSync := false
+
 			m.syncersMu.Lock()
 			switch {
+			// Regardless of whether the initial historical sync
+			// has completed, we'll re-trigger a historical sync if
+			// we no longer have any syncers. This might be
+			// necessary if we lost all our peers at one point, and
+			// now we finally have one again.
+			case len(m.activeSyncers) == 0 &&
+				len(m.inactiveSyncers) == 0:
+
+				attemptHistoricalSync = true
+				fallthrough
+
 			// If we've exceeded our total number of active syncers,
 			// we'll initialize this GossipSyncer as passive.
 			case len(m.activeSyncers) >= m.cfg.NumActiveSyncers:
 				fallthrough
 
-			// Otherwise, it should be initialized as active. If the
-			// initial historical sync has yet to complete, then
-			// we'll declare is as passive and attempt to transition
-			// it when the initial historical sync completes.
+			// If the initial historical sync has yet to complete,
+			// then we'll declare is as passive and attempt to
+			// transition it when the initial historical sync
+			// completes.
 			case !initialHistoricalSyncCompleted:
 				s.setSyncType(PassiveSync)
 				m.inactiveSyncers[s.cfg.peerPub] = s
@@ -258,9 +270,10 @@ func (m *SyncManager) syncerHandler() {
 			// We'll force a historical sync with the first peer we
 			// connect to, to ensure we get as much of the graph as
 			// possible.
-			if !attemptInitialHistoricalSync {
+			if !attemptHistoricalSync {
 				continue
 			}
+			initialHistoricalSyncCompleted = false
 
 			log.Debugf("Attempting initial historical sync with "+
 				"GossipSyncer(%x)", s.cfg.peerPub)
@@ -277,7 +290,6 @@ func (m *SyncManager) syncerHandler() {
 			// keep track of the corresponding syncer to properly
 			// handle disconnects. We'll also use a signal to know
 			// when the historical sync completed.
-			attemptInitialHistoricalSync = false
 			initialHistoricalSyncer = s
 			initialHistoricalSyncSignal = s.ResetSyncedSignal()
 
@@ -311,7 +323,6 @@ func (m *SyncManager) syncerHandler() {
 			if s == nil {
 				log.Debug("No eligible replacement found " +
 					"for initial historical sync")
-				attemptInitialHistoricalSync = true
 				continue
 			}
 

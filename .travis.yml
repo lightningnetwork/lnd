@@ -17,6 +17,7 @@ env:
   matrix:
     - RACE=true
     - ITEST=true
+    - NEUTRINO_ITEST=true
     - COVER=true 
 
 sudo: required
@@ -28,8 +29,11 @@ script:
   # Run unit tests with race condition detector.
   - 'if [ "$RACE" = true ]; then make travis-race ; fi'
 
-  # Run integration tests.
+  # Run btcd integration tests.
   - 'if [ "$ITEST" = true ]; then make travis-itest; fi'
+
+  # Run neutrino integration tests.
+  - 'if [ "$NEUTRINO_ITEST" = true ]; then make travis-itest backend=neutrino; fi'
 
   # Run unit tests and generate coverage report.
   - 'if [ "$COVER" = true ]; then make travis-cover; fi'

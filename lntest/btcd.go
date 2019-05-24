@@ -59,6 +59,11 @@ func (b BtcdBackendConfig) DisconnectMiner() error {
 	return b.harness.Node.Node(btcjson.NRemove, b.minerAddr, &perm)
 }
 
+// Name returns the name of the backend type.
+func (b BtcdBackendConfig) Name() string {
+	return "btcd"
+}
+
 // NewBackend starts a new rpctest.Harness and returns a BtcdBackendConfig for
 // that node. miner should be set to the P2P address of the miner to connect
 // to.

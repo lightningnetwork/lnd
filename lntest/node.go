@@ -104,6 +104,9 @@ type BackendConfig interface {
 
 	// DisconnectMiner is called to bitconneeeect the miner.
 	DisconnectMiner() error
+
+	// Name returns the name of the backend type.
+	Name() string
 }
 
 type nodeConfig struct {

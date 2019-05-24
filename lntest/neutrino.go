@@ -29,6 +29,11 @@ func (b NeutrinoBackendConfig) DisconnectMiner() error {
 	return fmt.Errorf("unimplemented")
 }
 
+// Name returns the name of the backend type.
+func (b NeutrinoBackendConfig) Name() string {
+	return "neutrino"
+}
+
 // NewBackend starts and returns a NeutrinoBackendConfig for the node.
 func NewBackend(miner string) (*NeutrinoBackendConfig, func(), error) {
 	bd := &NeutrinoBackendConfig{

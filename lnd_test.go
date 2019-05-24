@@ -68,6 +68,12 @@ func newHarnessTest(t *testing.T) *harnessTest {
 	return &harnessTest{t, nil}
 }
 
+// Skipf calls the underlying testing.T's Skip method, causing the current test
+// to be skipped.
+func (h *harnessTest) Skipf(format string, args ...interface{}) {
+	h.t.Skipf(format, args...)
+}
+
 // Fatalf causes the current active test case to fail with a fatal error. All
 // integration tests should mark test failures solely with this method due to
 // the error stack traces it produces.

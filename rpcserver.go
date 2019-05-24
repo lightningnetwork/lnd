@@ -3820,12 +3820,25 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 	var (
 		numChannels   uint32
 		totalCapacity btcutil.Amount
+		channels      []*lnrpc.ChannelEdge
 	)
+
 	if err := node.ForEachChannel(nil, func(_ *bbolt.Tx, edge *channeldb.ChannelEdgeInfo,
-		_, _ *channeldb.ChannelEdgePolicy) error {
+		c1, c2 *channeldb.ChannelEdgePolicy) error {
 
 		numChannels++
 		totalCapacity += edge.Capacity
+
+		// Do not include unannounced channels - private channels or public
+		// channels whose authentication proof were not confirmed yet.
+		if edge.AuthProof == nil {
+			return nil
+		}
+
+		// Convert the database's edge format into the network/RPC edge format.
+		channelEdge := marshalDbEdge(edge, c1, c2)
+		channels = append(channels, channelEdge)
+
 		return nil
 	}); err != nil {
 		return nil, err
@@ -3839,7 +3852,6 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 		}
 		nodeAddrs = append(nodeAddrs, nodeAddr)
 	}
-	// TODO(roasbeef): list channels as well?
 
 	return &lnrpc.NodeInfo{
 		Node: &lnrpc.LightningNode{
@@ -3851,6 +3863,7 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 		},
 		NumChannels:   numChannels,
 		TotalCapacity: int64(totalCapacity),
+		Channels:      channels,
 	}, nil
 }
 

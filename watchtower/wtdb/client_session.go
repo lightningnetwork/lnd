@@ -39,6 +39,12 @@ var (
 	// created because session key index differs from the reserved key
 	// index.
 	ErrIncorrectKeyIndex = errors.New("incorrect key index")
+
+	// ErrClientSessionAlreadyExists signals an attempt to reinsert
+	// a client session that has already been created.
+	ErrClientSessionAlreadyExists = errors.New(
+		"client session already exists",
+	)
 )
 
 // ClientSession encapsulates a SessionInfo returned from a successful

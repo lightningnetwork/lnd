@@ -65,7 +65,7 @@ func (m *ClientDB) CreateTower(lnAddr *lnwire.NetAddress) (*wtdb.Tower, error) {
 	m.towerIndex[towerPubKey] = towerID
 	m.towers[towerID] = tower
 
-	return tower, nil
+	return copyTower(tower), nil
 }
 
 // LoadTower retrieves a tower by its tower ID.
@@ -74,7 +74,7 @@ func (m *ClientDB) LoadTower(towerID wtdb.TowerID) (*wtdb.Tower, error) {
 	defer m.mu.Unlock()
 
 	if tower, ok := m.towers[towerID]; ok {
-		return tower, nil
+		return copyTower(tower), nil
 	}
 
 	return nil, wtdb.ErrTowerNotFound
@@ -105,6 +105,11 @@ func (m *ClientDB) ListClientSessions() (map[wtdb.SessionID]*wtdb.ClientSession,
 func (m *ClientDB) CreateClientSession(session *wtdb.ClientSession) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	// Ensure that we aren't overwriting an existing session.
+	if _, ok := m.activeSessions[session.ID]; ok {
+		return wtdb.ErrClientSessionAlreadyExists
+	}
 
 	// Ensure that a session key index has been reserved for this tower.
 	keyIndex, ok := m.indexes[session.TowerID]
@@ -151,10 +156,9 @@ func (m *ClientDB) NextSessionKeyIndex(towerID wtdb.TowerID) (uint32, error) {
 		return index, nil
 	}
 
+	m.nextIndex++
 	index := m.nextIndex
 	m.indexes[towerID] = index
-
-	m.nextIndex++
 
 	return index, nil
 }
@@ -285,4 +289,15 @@ func cloneBytes(b []byte) []byte {
 	copy(bb, b)
 
 	return bb
+}
+
+func copyTower(tower *wtdb.Tower) *wtdb.Tower {
+	t := &wtdb.Tower{
+		ID:          tower.ID,
+		IdentityKey: tower.IdentityKey,
+		Addresses:   make([]net.Addr, len(tower.Addresses)),
+	}
+	copy(t.Addresses, tower.Addresses)
+
+	return t
 }

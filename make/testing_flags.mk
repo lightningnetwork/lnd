@@ -55,4 +55,12 @@ endif
 
 # Construct the integration test command with the added build flags.
 ITEST_TAGS := $(DEV_TAGS) rpctest chainrpc walletrpc signrpc invoicesrpc autopilotrpc routerrpc
+
+# Default to btcd backend if not set.
+ifneq ($(backend),)
+ITEST_TAGS += ${backend}
+else
+ITEST_TAGS += btcd
+endif
+
 ITEST := rm output*.log; date; $(GOTEST) -tags="$(ITEST_TAGS)" $(TEST_FLAGS) -logoutput

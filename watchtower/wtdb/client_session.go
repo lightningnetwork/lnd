@@ -2,6 +2,7 @@ package wtdb
 
 import (
 	"errors"
+	"io"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -112,8 +113,38 @@ type ClientSessionBody struct {
 	// deposited to if a sweep transaction confirms and the sessions
 	// specifies a reward output.
 	RewardPkScript []byte
+}
 
+// Encode writes a ClientSessionBody to the passed io.Writer.
+func (s *ClientSessionBody) Encode(w io.Writer) error {
+	return WriteElements(w,
+		s.SeqNum,
+		s.TowerLastApplied,
+		uint64(s.TowerID),
+		s.KeyIndex,
+		s.Policy,
+		s.RewardPkScript,
+	)
+}
 
+// Decode reads a ClientSessionBody from the passed io.Reader.
+func (s *ClientSessionBody) Decode(r io.Reader) error {
+	var towerID uint64
+	err := ReadElements(r,
+		&s.SeqNum,
+		&s.TowerLastApplied,
+		&towerID,
+		&s.KeyIndex,
+		&s.Policy,
+		&s.RewardPkScript,
+	)
+	if err != nil {
+		return err
+	}
+
+	s.TowerID = TowerID(towerID)
+
+	return nil
 }
 
 // BackupID identifies a particular revoked, remote commitment by channel id and
@@ -124,6 +155,22 @@ type BackupID struct {
 
 	// CommitHeight is the commitment height of the revoked commitment.
 	CommitHeight uint64
+}
+
+// Encode writes the BackupID from the passed io.Writer.
+func (b *BackupID) Encode(w io.Writer) error {
+	return WriteElements(w,
+		b.ChanID,
+		b.CommitHeight,
+	)
+}
+
+// Decode reads a BackupID from the passed io.Reader.
+func (b *BackupID) Decode(r io.Reader) error {
+	return ReadElements(r,
+		&b.ChanID,
+		&b.CommitHeight,
+	)
 }
 
 // CommittedUpdate holds a state update sent by a client along with its
@@ -151,4 +198,30 @@ type CommittedUpdateBody struct {
 	// exacting justice if the commitment transaction matching the breach
 	// hint is broadcast.
 	EncryptedBlob []byte
+}
+
+// Encode writes the CommittedUpdateBody to the passed io.Writer.
+func (u *CommittedUpdateBody) Encode(w io.Writer) error {
+	err := u.BackupID.Encode(w)
+	if err != nil {
+		return err
+	}
+
+	return WriteElements(w,
+		u.Hint,
+		u.EncryptedBlob,
+	)
+}
+
+// Decode reads a CommittedUpdateBody from the passed io.Reader.
+func (u *CommittedUpdateBody) Decode(r io.Reader) error {
+	err := u.BackupID.Decode(r)
+	if err != nil {
+		return err
+	}
+
+	return ReadElements(r,
+		&u.Hint,
+		&u.EncryptedBlob,
+	)
 }

@@ -2601,6 +2601,12 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 		// attempt was successfully forwarded.
 		sendToSwitchSuccess = "SendToSwitch:success"
 
+		// sendToSwitchResultFailure is a step where we expect the
+		// router to send the payment attempt to the switch, and we
+		// will respond with a forwarding error. This can happen when
+		// forwarding fail on our local links.
+		sendToSwitchResultFailure = "SendToSwitch:failure"
+
 		// getPaymentResultSuccess is a test step where we expect the
 		// router to call the GetPaymentResult method, and we will
 		// respond with a successful payment result.
@@ -2665,6 +2671,28 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 
 				// Make the first sent attempt fail.
 				getPaymentResultFailure,
+
+				// The router should retry.
+				routerRegisterAttempt,
+				sendToSwitchSuccess,
+
+				// Make the second sent attempt succeed.
+				getPaymentResultSuccess,
+				routerSuccess,
+				paymentSuccess,
+			},
+			routes: []*route.Route{rt, rt},
+		},
+		{
+			// A payment flow with a forwarding failure first time
+			// sending to the switch, but that succeeds on the
+			// second attempt.
+			steps: []string{
+				routerInitPayment,
+				routerRegisterAttempt,
+
+				// Make the first sent attempt fail.
+				sendToSwitchResultFailure,
 
 				// The router should retry.
 				routerRegisterAttempt,
@@ -2978,6 +3006,18 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 			case sendToSwitchSuccess:
 				select {
 				case sendResult <- nil:
+				case <-time.After(1 * time.Second):
+					t.Fatalf("unable to send result")
+				}
+
+			// In this step we expect the SendToSwitch method to be
+			// called, and we respond with a forwarding error
+			case sendToSwitchResultFailure:
+				select {
+				case sendResult <- &htlcswitch.ForwardingError{
+					ErrorSource:    errSource,
+					FailureMessage: &lnwire.FailTemporaryChannelFailure{},
+				}:
 				case <-time.After(1 * time.Second):
 					t.Fatalf("unable to send result")
 				}

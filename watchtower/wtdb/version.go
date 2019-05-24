@@ -21,6 +21,11 @@ type version struct {
 // migrations must be applied.
 var towerDBVersions = []version{}
 
+// clientDBVersions stores all versions and migrations of the client database.
+// This list will be used when opening the database to determine if any
+// migrations must be applied.
+var clientDBVersions = []version{}
+
 // getLatestDBVersion returns the last known database version.
 func getLatestDBVersion(versions []version) uint32 {
 	return uint32(len(versions))

@@ -1,50 +1,11 @@
 package wtdb
 
 import (
-	"errors"
 	"io"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/watchtower/wtpolicy"
-)
-
-var (
-	// ErrClientSessionNotFound signals that the requested client session
-	// was not found in the database.
-	ErrClientSessionNotFound = errors.New("client session not found")
-
-	// ErrUpdateAlreadyCommitted signals that the chosen sequence number has
-	// already been committed to an update with a different breach hint.
-	ErrUpdateAlreadyCommitted = errors.New("update already committed")
-
-	// ErrCommitUnorderedUpdate signals the client tried to commit a
-	// sequence number other than the next unallocated sequence number.
-	ErrCommitUnorderedUpdate = errors.New("update seqnum not monotonic")
-
-	// ErrCommittedUpdateNotFound signals that the tower tried to ACK a
-	// sequence number that has not yet been allocated by the client.
-	ErrCommittedUpdateNotFound = errors.New("committed update not found")
-
-	// ErrUnallocatedLastApplied signals that the tower tried to provide a
-	// LastApplied value greater than any allocated sequence number.
-	ErrUnallocatedLastApplied = errors.New("tower echoed last appiled " +
-		"greater than allocated seqnum")
-
-	// ErrNoReservedKeyIndex signals that a client session could not be
-	// created because no session key index was reserved.
-	ErrNoReservedKeyIndex = errors.New("key index not reserved")
-
-	// ErrIncorrectKeyIndex signals that the client session could not be
-	// created because session key index differs from the reserved key
-	// index.
-	ErrIncorrectKeyIndex = errors.New("incorrect key index")
-
-	// ErrClientSessionAlreadyExists signals an attempt to reinsert
-	// a client session that has already been created.
-	ErrClientSessionAlreadyExists = errors.New(
-		"client session already exists",
-	)
 )
 
 // ClientSession encapsulates a SessionInfo returned from a successful

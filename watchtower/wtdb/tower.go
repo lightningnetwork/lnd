@@ -1,18 +1,11 @@
 package wtdb
 
 import (
-	"errors"
 	"io"
 	"net"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/lightningnetwork/lnd/lnwire"
-)
-
-var (
-	// ErrTowerNotFound signals that the target tower was not found in the
-	// database.
-	ErrTowerNotFound = errors.New("tower not found")
 )
 
 // TowerID is a unique 64-bit identifier allocated to each unique watchtower.

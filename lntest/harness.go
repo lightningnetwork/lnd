@@ -1314,6 +1314,12 @@ func (n *NetworkHarness) sendCoins(ctx context.Context, amt btcutil.Amount,
 	// Now, wait for ListUnspent to show the unconfirmed transaction
 	// containing the correct pkscript.
 	err = WaitNoError(func() error {
+		// Since neutrino doesn't support unconfirmed outputs, skip
+		// this check.
+		if target.cfg.BackendCfg.Name() == "neutrino" {
+			return nil
+		}
+
 		req := &lnrpc.ListUnspentRequest{}
 		resp, err := target.ListUnspent(ctx, req)
 		if err != nil {

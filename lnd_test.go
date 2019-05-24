@@ -972,8 +972,8 @@ func testBasicChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, false)
 }
 
-// testUnconfirmedChannelFunding tests that unconfirmed outputs that pay to us
-// can be used to fund channels.
+// testUnconfirmedChannelFunding tests that our unconfirmed change outputs can
+// be used to fund channels.
 func testUnconfirmedChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxb := context.Background()
 
@@ -989,11 +989,32 @@ func testUnconfirmedChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 	defer shutdownAndAssert(net, t, carol)
 
-	// We'll send her some funds that should not confirm.
+	// We'll send her some confirmed funds.
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	err = net.SendCoinsUnconfirmed(ctxt, 2*chanAmt, carol)
+	err = net.SendCoins(ctxt, 2*chanAmt, carol)
 	if err != nil {
 		t.Fatalf("unable to send coins to carol: %v", err)
+	}
+
+	// Now let Carol send some funds to herself, making a unconfirmed
+	// change output.
+	addrReq := &lnrpc.NewAddressRequest{
+		Type: lnrpc.AddressType_WITNESS_PUBKEY_HASH,
+	}
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	resp, err := carol.NewAddress(ctxt, addrReq)
+	if err != nil {
+		t.Fatalf("unable to get new address: %v", err)
+	}
+
+	sendReq := &lnrpc.SendCoinsRequest{
+		Addr:   resp.Address,
+		Amount: int64(chanAmt) / 5,
+	}
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	_, err = carol.SendCoins(ctxt, sendReq)
+	if err != nil {
+		t.Fatalf("unable to send coins: %v", err)
 	}
 
 	// Make sure the unconfirmed tx is seen in the mempool.

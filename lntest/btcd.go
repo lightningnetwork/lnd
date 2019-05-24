@@ -1,3 +1,5 @@
+// +build btcd
+
 package lntest
 
 import (
@@ -57,10 +59,10 @@ func (b BtcdBackendConfig) DisconnectMiner() error {
 	return b.harness.Node.Node(btcjson.NRemove, b.minerAddr, &perm)
 }
 
-// NewBtcdBackend starts a new rpctest.Harness and returns a BtcdBackendConfig
-// for that node. miner should be set to the P2P address of the miner to
-// connect to.
-func NewBtcdBackend(miner string) (*BtcdBackendConfig, func(), error) {
+// NewBackend starts a new rpctest.Harness and returns a BtcdBackendConfig for
+// that node. miner should be set to the P2P address of the miner to connect
+// to.
+func NewBackend(miner string) (*BtcdBackendConfig, func(), error) {
 	args := []string{
 		"--rejectnonstd",
 		"--txindex",

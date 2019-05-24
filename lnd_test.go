@@ -719,7 +719,7 @@ func getChanInfo(ctx context.Context, node *lntest.HarnessNode) (
 	}
 	if len(channelInfo.Channels) != 1 {
 		return nil, fmt.Errorf("node should only have a single "+
-			"channel, instead he has %v", len(channelInfo.Channels))
+			"channel, instead it has %v", len(channelInfo.Channels))
 	}
 
 	return channelInfo.Channels[0], nil

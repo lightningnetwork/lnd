@@ -191,6 +191,13 @@ message ChannelUpdate {
     uint32 timestamp = 4;
 
     /**
+    The bitfield that describes whether optional fields are present in this
+    update. Currently, the least-significant bit must be set to 1 if the
+    optional field MaxHtlc is present.
+    */
+    uint32 message_flags = 10;
+
+    /**
     The bitfield that describes additional meta-data concerning how the
     update is to be interpreted. Currently, the least-significant bit must be
     set to 0 if the creating node corresponds to the first node in the
@@ -223,6 +230,20 @@ message ChannelUpdate {
     The fee rate that will be charged per millionth of a satoshi.
     */
     uint32 fee_rate = 9;
+    
+    /**
+    The maximum HTLC value which will be accepted.
+    */
+    uint64 htlc_maximum_msat = 11;
+    
+    /**
+    The set of data that was appended to this message, some of which we may
+    not actually know how to iterate or parse. By holding onto this data, we
+    ensure that we're able to properly validate the set of signatures that
+    cover these new fields, and ensure we're able to make upgrades to the
+    network in a forwards compatible manner.
+    */
+    bytes extra_opaque_data = 12;
 }
 
 service Router {

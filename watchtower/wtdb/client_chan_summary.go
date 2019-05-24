@@ -1,9 +1,16 @@
 package wtdb
 
 import (
+	"errors"
 	"io"
 
 	"github.com/lightningnetwork/lnd/lnwire"
+)
+
+var (
+	// ErrChannelAlreadyRegistered signals a duplicate attempt to
+	// register a channel with the client database.
+	ErrChannelAlreadyRegistered = errors.New("channel already registered")
 )
 
 // ChannelSummaries is a map for a given channel id to it's ClientChanSummary.

@@ -1,7 +1,6 @@
 package wtmock
 
 import (
-	"fmt"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -18,7 +17,7 @@ type ClientDB struct {
 	nextTowerID uint64 // to be used atomically
 
 	mu             sync.Mutex
-	sweepPkScripts map[lnwire.ChannelID][]byte
+	summaries      map[lnwire.ChannelID]wtdb.ClientChanSummary
 	activeSessions map[wtdb.SessionID]*wtdb.ClientSession
 	towerIndex     map[towerPK]wtdb.TowerID
 	towers         map[wtdb.TowerID]*wtdb.Tower
@@ -30,7 +29,7 @@ type ClientDB struct {
 // NewClientDB initializes a new mock ClientDB.
 func NewClientDB() *ClientDB {
 	return &ClientDB{
-		sweepPkScripts: make(map[lnwire.ChannelID][]byte),
+		summaries:      make(map[lnwire.ChannelID]wtdb.ClientChanSummary),
 		activeSessions: make(map[wtdb.SessionID]*wtdb.ClientSession),
 		towerIndex:     make(map[towerPK]wtdb.TowerID),
 		towers:         make(map[wtdb.TowerID]*wtdb.Tower),
@@ -252,30 +251,40 @@ func (m *ClientDB) AckUpdate(id *wtdb.SessionID, seqNum, lastApplied uint16) err
 	return wtdb.ErrCommittedUpdateNotFound
 }
 
-// FetchChanPkScripts returns the set of sweep pkscripts known for all channels.
-// This allows the client to cache them in memory on startup.
-func (m *ClientDB) FetchChanPkScripts() (map[lnwire.ChannelID][]byte, error) {
+// FetchChanSummaries loads a mapping from all registered channels to their
+// channel summaries.
+func (m *ClientDB) FetchChanSummaries() (wtdb.ChannelSummaries, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	sweepPkScripts := make(map[lnwire.ChannelID][]byte)
-	for chanID, pkScript := range m.sweepPkScripts {
-		sweepPkScripts[chanID] = cloneBytes(pkScript)
+	summaries := make(map[lnwire.ChannelID]wtdb.ClientChanSummary)
+	for chanID, summary := range m.summaries {
+		summaries[chanID] = wtdb.ClientChanSummary{
+			SweepPkScript: cloneBytes(summary.SweepPkScript),
+		}
 	}
 
-	return sweepPkScripts, nil
+	return summaries, nil
 }
 
-// AddChanPkScript sets a pkscript or sweeping funds from the channel or chanID.
-func (m *ClientDB) AddChanPkScript(chanID lnwire.ChannelID, pkScript []byte) error {
+// RegisterChannel registers a channel for use within the client database. For
+// now, all that is stored in the channel summary is the sweep pkscript that
+// we'd like any tower sweeps to pay into. In the future, this will be extended
+// to contain more info to allow the client efficiently request historical
+// states to be backed up under the client's active policy.
+func (m *ClientDB) RegisterChannel(chanID lnwire.ChannelID,
+	sweepPkScript []byte) error {
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if _, ok := m.sweepPkScripts[chanID]; ok {
-		return fmt.Errorf("pkscript for %x already exists", pkScript)
+	if _, ok := m.summaries[chanID]; ok {
+		return wtdb.ErrChannelAlreadyRegistered
 	}
 
-	m.sweepPkScripts[chanID] = cloneBytes(pkScript)
+	m.summaries[chanID] = wtdb.ClientChanSummary{
+		SweepPkScript: cloneBytes(sweepPkScript),
+	}
 
 	return nil
 }

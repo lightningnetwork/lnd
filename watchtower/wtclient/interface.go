@@ -41,14 +41,17 @@ type DB interface {
 	// still be able to accept state updates.
 	ListClientSessions() (map[wtdb.SessionID]*wtdb.ClientSession, error)
 
-	// FetchChanPkScripts returns a map of all sweep pkscripts for
-	// registered channels. This is used on startup to cache the sweep
-	// pkscripts of registered channels in memory.
-	FetchChanPkScripts() (map[lnwire.ChannelID][]byte, error)
+	// FetchChanSummaries loads a mapping from all registered channels to
+	// their channel summaries.
+	FetchChanSummaries() (wtdb.ChannelSummaries, error)
 
-	// AddChanPkScript inserts a newly generated sweep pkscript for the
-	// given channel.
-	AddChanPkScript(lnwire.ChannelID, []byte) error
+	// RegisterChannel registers a channel for use within the client
+	// database. For now, all that is stored in the channel summary is the
+	// sweep pkscript that we'd like any tower sweeps to pay into. In the
+	// future, this will be extended to contain more info to allow the
+	// client efficiently request historical states to be backed up under
+	// the client's active policy.
+	RegisterChannel(lnwire.ChannelID, []byte) error
 
 	// MarkBackupIneligible records that the state identified by the
 	// (channel id, commit height) tuple was ineligible for being backed up

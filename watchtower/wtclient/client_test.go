@@ -605,6 +605,8 @@ func (h *testHarness) backupStates(id, from, to uint64, expErr error) {
 // backupStates instructs the channel identified by id to send a backup for
 // state i.
 func (h *testHarness) backupState(id, i uint64, expErr error) {
+	h.t.Helper()
+
 	_, retribution := h.channel(id).getState(i)
 
 	chanID := chanIDFromInt(id)

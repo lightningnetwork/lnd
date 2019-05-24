@@ -150,8 +150,8 @@ type TowerClient struct {
 	sessionQueue *sessionQueue
 	prevTask     *backupTask
 
-	sweepPkScriptMu sync.RWMutex
-	sweepPkScripts  map[lnwire.ChannelID][]byte
+	summaryMu sync.RWMutex
+	summaries wtdb.ChannelSummaries
 
 	statTicker *time.Ticker
 	stats      clientStats
@@ -245,7 +245,7 @@ func New(config *Config) (*TowerClient, error) {
 
 	// Finally, load the sweep pkscripts that have been generated for all
 	// previously registered channels.
-	c.sweepPkScripts, err = c.cfg.DB.FetchChanPkScripts()
+	c.summaries, err = c.cfg.DB.FetchChanSummaries()
 	if err != nil {
 		return nil, err
 	}
@@ -388,12 +388,12 @@ func (c *TowerClient) ForceQuit() {
 // within the client. This should be called during link startup to ensure that
 // the client is able to support the link during operation.
 func (c *TowerClient) RegisterChannel(chanID lnwire.ChannelID) error {
-	c.sweepPkScriptMu.Lock()
-	defer c.sweepPkScriptMu.Unlock()
+	c.summaryMu.Lock()
+	defer c.summaryMu.Unlock()
 
 	// If a pkscript for this channel already exists, the channel has been
 	// previously registered.
-	if _, ok := c.sweepPkScripts[chanID]; ok {
+	if _, ok := c.summaries[chanID]; ok {
 		return nil
 	}
 
@@ -406,14 +406,16 @@ func (c *TowerClient) RegisterChannel(chanID lnwire.ChannelID) error {
 
 	// Persist the sweep pkscript so that restarts will not introduce
 	// address inflation when the channel is reregistered after a restart.
-	err = c.cfg.DB.AddChanPkScript(chanID, pkScript)
+	err = c.cfg.DB.RegisterChannel(chanID, pkScript)
 	if err != nil {
 		return err
 	}
 
 	// Finally, cache the pkscript in our in-memory cache to avoid db
 	// lookups for the remainder of the daemon's execution.
-	c.sweepPkScripts[chanID] = pkScript
+	c.summaries[chanID] = wtdb.ClientChanSummary{
+		SweepPkScript: pkScript,
+	}
 
 	return nil
 }
@@ -429,14 +431,14 @@ func (c *TowerClient) BackupState(chanID *lnwire.ChannelID,
 	breachInfo *lnwallet.BreachRetribution) error {
 
 	// Retrieve the cached sweep pkscript used for this channel.
-	c.sweepPkScriptMu.RLock()
-	sweepPkScript, ok := c.sweepPkScripts[*chanID]
-	c.sweepPkScriptMu.RUnlock()
+	c.summaryMu.RLock()
+	summary, ok := c.summaries[*chanID]
+	c.summaryMu.RUnlock()
 	if !ok {
 		return ErrUnregisteredChannel
 	}
 
-	task := newBackupTask(chanID, breachInfo, sweepPkScript)
+	task := newBackupTask(chanID, breachInfo, summary.SweepPkScript)
 
 	return c.pipeline.QueueBackupTask(task)
 }

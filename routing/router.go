@@ -40,11 +40,6 @@ const (
 )
 
 var (
-	// ErrNoRouteHopsProvided is returned when a caller attempts to
-	// construct a new sphinx packet, but provides an empty set of hops for
-	// each route.
-	ErrNoRouteHopsProvided = fmt.Errorf("empty route hops provided")
-
 	// ErrRouterShuttingDown is returned if the router is in the process of
 	// shutting down.
 	ErrRouterShuttingDown = fmt.Errorf("router shutting down")
@@ -1436,6 +1431,9 @@ func (r *ChannelRouter) FindRoute(source, target route.Vertex,
 		},
 		restrictions, source, target, amt,
 	)
+	if err != nil {
+		return nil, err
+	}
 
 	// We'll fetch the current block height so we can properly calculate the
 	// required HTLC time locks within the route.

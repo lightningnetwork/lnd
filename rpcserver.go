@@ -2099,6 +2099,8 @@ func (r *rpcServer) WalletBalance(ctx context.Context,
 	}
 
 	// Get confirmed balance, from txs that have >= 1 confirmations.
+	// TODO(halseth): get both unconfirmed and confirmed balance in one
+	// call, as this is racy.
 	confirmedBal, err := r.server.cc.wallet.ConfirmedBalance(1)
 	if err != nil {
 		return nil, err
@@ -2107,7 +2109,8 @@ func (r *rpcServer) WalletBalance(ctx context.Context,
 	// Get unconfirmed balance, from txs with 0 confirmations.
 	unconfirmedBal := totalBal - confirmedBal
 
-	rpcsLog.Debugf("[walletbalance] Total balance=%v", totalBal)
+	rpcsLog.Debugf("[walletbalance] Total balance=%v (confirmed=%v, "+
+		"unconfirmed=%v)", totalBal, confirmedBal, unconfirmedBal)
 
 	return &lnrpc.WalletBalanceResponse{
 		TotalBalance:       int64(totalBal),

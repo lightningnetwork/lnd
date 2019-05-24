@@ -61,7 +61,7 @@ type DB interface {
 	// hasn't been ACK'd by the tower. The sequence number of the update
 	// should be exactly one greater than the existing entry, and less that
 	// or equal to the session's MaxUpdates.
-	CommitUpdate(id *wtdb.SessionID, seqNum uint16,
+	CommitUpdate(id *wtdb.SessionID,
 		update *wtdb.CommittedUpdate) (uint16, error)
 
 	// AckUpdate records an acknowledgment from the watchtower that the

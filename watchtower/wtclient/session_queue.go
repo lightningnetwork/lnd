@@ -3,7 +3,6 @@ package wtclient
 import (
 	"container/list"
 	"fmt"
-	"sort"
 	"sync"
 	"time"
 
@@ -133,7 +132,11 @@ func newSessionQueue(cfg *sessionQueueConfig) *sessionQueue {
 	}
 	sq.queueCond = sync.NewCond(&sq.queueMtx)
 
-	sq.restoreCommittedUpdates()
+	// The database should return them in sorted order, and session queue's
+	// sequence number will be equal to that of the last committed update.
+	for _, update := range sq.cfg.ClientSession.CommittedUpdates {
+		sq.commitQueue.PushBack(update)
+	}
 
 	return sq
 }
@@ -235,45 +238,6 @@ func (q *sessionQueue) AcceptTask(task *backupTask) (reserveStatus, bool) {
 	q.queueCond.Signal()
 
 	return newStatus, true
-}
-
-// updateWithSeqNum stores a CommittedUpdate with its assigned sequence number.
-// This allows committed updates to be sorted after a restart, and added to the
-// commitQueue in the proper order for delivery.
-type updateWithSeqNum struct {
-	seqNum uint16
-	update *wtdb.CommittedUpdate
-}
-
-// restoreCommittedUpdates processes any CommittedUpdates loaded on startup by
-// sorting them in ascending order of sequence numbers and adding them to the
-// commitQueue. These will be sent before any pending updates are processed.
-func (q *sessionQueue) restoreCommittedUpdates() {
-	committedUpdates := q.cfg.ClientSession.CommittedUpdates
-
-	// Construct and unordered slice of all committed updates with their
-	// assigned sequence numbers.
-	sortedUpdates := make([]updateWithSeqNum, 0, len(committedUpdates))
-	for seqNum, update := range committedUpdates {
-		sortedUpdates = append(sortedUpdates, updateWithSeqNum{
-			seqNum: seqNum,
-			update: update,
-		})
-	}
-
-	// Sort the resulting slice by increasing sequence number.
-	sort.Slice(sortedUpdates, func(i, j int) bool {
-		return sortedUpdates[i].seqNum < sortedUpdates[j].seqNum
-	})
-
-	// Finally, add the sorted, committed updates to he commitQueue. These
-	// updates will be prioritized before any new tasks are assigned to the
-	// sessionQueue. The queue will begin uploading any tasks in the
-	// commitQueue as soon as it is started, e.g. during client
-	// initialization when detecting that this session has unacked updates.
-	for _, update := range sortedUpdates {
-		q.commitQueue.PushBack(update)
-	}
 }
 
 // sessionManager is the primary event loop for the sessionQueue, and is
@@ -396,7 +360,7 @@ func (q *sessionQueue) drainBackups() {
 func (q *sessionQueue) nextStateUpdate() (*wtwire.StateUpdate, bool, error) {
 	var (
 		seqNum    uint16
-		update    *wtdb.CommittedUpdate
+		update    wtdb.CommittedUpdate
 		isLast    bool
 		isPending bool
 	)
@@ -407,10 +371,9 @@ func (q *sessionQueue) nextStateUpdate() (*wtwire.StateUpdate, bool, error) {
 	// If the commit queue is non-empty, parse the next committed update.
 	case q.commitQueue.Len() > 0:
 		next := q.commitQueue.Front()
-		updateWithSeq := next.Value.(updateWithSeqNum)
 
-		seqNum = updateWithSeq.seqNum
-		update = updateWithSeq.update
+		update = next.Value.(wtdb.CommittedUpdate)
+		seqNum = update.SeqNum
 
 		// If this is the last item in the commit queue and no items
 		// exist in the pending queue, we will use the IsComplete flag
@@ -449,10 +412,13 @@ func (q *sessionQueue) nextStateUpdate() (*wtwire.StateUpdate, bool, error) {
 		}
 		// TODO(conner): special case other obscure errors
 
-		update = &wtdb.CommittedUpdate{
-			BackupID:      task.id,
-			Hint:          hint,
-			EncryptedBlob: encBlob,
+		update = wtdb.CommittedUpdate{
+			SeqNum: seqNum,
+			CommittedUpdateBody: wtdb.CommittedUpdateBody{
+				BackupID:      task.id,
+				Hint:          hint,
+				EncryptedBlob: encBlob,
+			},
 		}
 
 		log.Debugf("Committing state update for session=%s seqnum=%d",
@@ -470,7 +436,7 @@ func (q *sessionQueue) nextStateUpdate() (*wtwire.StateUpdate, bool, error) {
 	// we send the next time. This step ensures that if we reliably send the
 	// same update for a given sequence number, to prevent us from thinking
 	// we backed up a state when we instead backed up another.
-	lastApplied, err := q.cfg.DB.CommitUpdate(q.ID(), seqNum, update)
+	lastApplied, err := q.cfg.DB.CommitUpdate(q.ID(), &update)
 	if err != nil {
 		// TODO(conner): mark failed/reschedule
 		return nil, false, fmt.Errorf("unable to commit state update "+
@@ -478,7 +444,7 @@ func (q *sessionQueue) nextStateUpdate() (*wtwire.StateUpdate, bool, error) {
 	}
 
 	stateUpdate := &wtwire.StateUpdate{
-		SeqNum:        seqNum,
+		SeqNum:        update.SeqNum,
 		LastApplied:   lastApplied,
 		Hint:          update.Hint,
 		EncryptedBlob: update.EncryptedBlob,

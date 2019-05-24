@@ -129,7 +129,7 @@ func (m *ClientDB) CreateClientSession(session *wtdb.ClientSession) error {
 		SeqNum:           session.SeqNum,
 		TowerLastApplied: session.TowerLastApplied,
 		RewardPkScript:   cloneBytes(session.RewardPkScript),
-		CommittedUpdates: make(map[uint16]*wtdb.CommittedUpdate),
+		CommittedUpdates: make([]wtdb.CommittedUpdate, 0),
 		AckedUpdates:     make(map[uint16]wtdb.BackupID),
 	}
 
@@ -159,7 +159,7 @@ func (m *ClientDB) NextSessionKeyIndex(towerID wtdb.TowerID) (uint32, error) {
 
 // CommitUpdate persists the CommittedUpdate provided in the slot for (session,
 // seqNum). This allows the client to retransmit this update on startup.
-func (m *ClientDB) CommitUpdate(id *wtdb.SessionID, seqNum uint16,
+func (m *ClientDB) CommitUpdate(id *wtdb.SessionID,
 	update *wtdb.CommittedUpdate) (uint16, error) {
 
 	m.mu.Lock()
@@ -172,25 +172,26 @@ func (m *ClientDB) CommitUpdate(id *wtdb.SessionID, seqNum uint16,
 	}
 
 	// Check if an update has already been committed for this state.
-	dbUpdate, ok := session.CommittedUpdates[seqNum]
-	if ok {
-		// If the breach hint matches, we'll just return the last
-		// applied value so the client can retransmit.
-		if dbUpdate.Hint == update.Hint {
-			return session.TowerLastApplied, nil
-		}
+	for _, dbUpdate := range session.CommittedUpdates {
+		if dbUpdate.SeqNum == update.SeqNum {
+			// If the breach hint matches, we'll just return the
+			// last applied value so the client can retransmit.
+			if dbUpdate.Hint == update.Hint {
+				return session.TowerLastApplied, nil
+			}
 
-		// Otherwise, fail since the breach hint doesn't match.
-		return 0, wtdb.ErrUpdateAlreadyCommitted
+			// Otherwise, fail since the breach hint doesn't match.
+			return 0, wtdb.ErrUpdateAlreadyCommitted
+		}
 	}
 
 	// Sequence number must increment.
-	if seqNum != session.SeqNum+1 {
+	if update.SeqNum != session.SeqNum+1 {
 		return 0, wtdb.ErrCommitUnorderedUpdate
 	}
 
 	// Save the update and increment the sequence number.
-	session.CommittedUpdates[seqNum] = update
+	session.CommittedUpdates = append(session.CommittedUpdates, *update)
 	session.SeqNum++
 
 	return session.TowerLastApplied, nil
@@ -209,13 +210,6 @@ func (m *ClientDB) AckUpdate(id *wtdb.SessionID, seqNum, lastApplied uint16) err
 		return wtdb.ErrClientSessionNotFound
 	}
 
-	// Retrieve the committed update, failing if none is found. We should
-	// only receive acks for state updates that we send.
-	update, ok := session.CommittedUpdates[seqNum]
-	if !ok {
-		return wtdb.ErrCommittedUpdateNotFound
-	}
-
 	// Ensure the returned last applied value does not exceed the highest
 	// allocated sequence number.
 	if lastApplied > session.SeqNum {
@@ -228,14 +222,28 @@ func (m *ClientDB) AckUpdate(id *wtdb.SessionID, seqNum, lastApplied uint16) err
 		return wtdb.ErrLastAppliedReversion
 	}
 
-	// Finally, remove the committed update from disk and mark the update as
-	// acked. The tower last applied value is also recorded to send along
-	// with the next update.
-	delete(session.CommittedUpdates, seqNum)
-	session.AckedUpdates[seqNum] = update.BackupID
-	session.TowerLastApplied = lastApplied
+	// Retrieve the committed update, failing if none is found. We should
+	// only receive acks for state updates that we send.
+	updates := session.CommittedUpdates
+	for i, update := range updates {
+		if update.SeqNum != seqNum {
+			continue
+		}
 
-	return nil
+		// Remove the committed update from disk and mark the update as
+		// acked. The tower last applied value is also recorded to send
+		// along with the next update.
+		copy(updates[:i], updates[i+1:])
+		updates[len(updates)-1] = wtdb.CommittedUpdate{}
+		session.CommittedUpdates = updates[:len(updates)-1]
+
+		session.AckedUpdates[seqNum] = update.BackupID
+		session.TowerLastApplied = lastApplied
+
+		return nil
+	}
+
+	return wtdb.ErrCommittedUpdateNotFound
 }
 
 // FetchChanPkScripts returns the set of sweep pkscripts known for all channels.

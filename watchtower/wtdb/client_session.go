@@ -86,10 +86,10 @@ type ClientSession struct {
 	// specifies a reward output.
 	RewardPkScript []byte
 
-	// CommittedUpdates is a map from allocated sequence numbers to unacked
-	// updates. These updates can be resent after a restart if the update
-	// failed to send or receive an acknowledgment.
-	CommittedUpdates map[uint16]*CommittedUpdate
+	// CommittedUpdates is a sorted list of unacked updates. These updates
+	// can be resent after a restart if the updates failed to send or
+	// receive an acknowledgment.
+	CommittedUpdates []CommittedUpdate
 
 	// AckedUpdates is a map from sequence number to backup id to record
 	// which revoked states were uploaded via this session.
@@ -107,8 +107,21 @@ type BackupID struct {
 }
 
 // CommittedUpdate holds a state update sent by a client along with its
-// SessionID.
+// allocated sequence number and the exact remote commitment the encrypted
+// justice transaction can rectify.
 type CommittedUpdate struct {
+	// SeqNum is the unique sequence number allocated by the session to this
+	// update.
+	SeqNum uint16
+
+	CommittedUpdateBody
+}
+
+// CommittedUpdateBody represents the primary components of a CommittedUpdate.
+// On disk, this is stored under the sequence number, which acts as its key.
+type CommittedUpdateBody struct {
+	// BackupID identifies the breached commitment that the encrypted blob
+	// can spend from.
 	BackupID BackupID
 
 	// Hint is the 16-byte prefix of the revoked commitment transaction ID.

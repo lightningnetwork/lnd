@@ -57,7 +57,7 @@ type ClientSession struct {
 
 	// TowerID is the unique, db-assigned identifier that references the
 	// Tower with which the session is negotiated.
-	TowerID uint64
+	TowerID TowerID
 
 	// Tower holds the pubkey and address of the watchtower.
 	//

@@ -15,12 +15,31 @@ var (
 	ErrTowerNotFound = errors.New("tower not found")
 )
 
+// TowerID is a unique 64-bit identifier allocated to each unique watchtower.
+// This allows the client to conserve on-disk space by not needing to always
+// reference towers by their pubkey.
+type TowerID uint64
+
+// TowerIDFromBytes constructs a TowerID from the provided byte slice. The
+// argument must have at least 8 bytes, and should contain the TowerID in
+// big-endian byte order.
+func TowerIDFromBytes(towerIDBytes []byte) TowerID {
+	return TowerID(byteOrder.Uint64(towerIDBytes))
+}
+
+// Bytes encodes a TowerID into an 8-byte slice in big-endian byte order.
+func (id TowerID) Bytes() []byte {
+	var buf [8]byte
+	byteOrder.PutUint64(buf[:], uint64(id))
+	return buf[:]
+}
+
 // Tower holds the necessary components required to connect to a remote tower.
 // Communication is handled by brontide, and requires both a public key and an
 // address.
 type Tower struct {
 	// ID is a unique ID for this record assigned by the database.
-	ID uint64
+	ID TowerID
 
 	// IdentityKey is the public key of the remote node, used to
 	// authenticate the brontide transport.

@@ -21,7 +21,7 @@ type DB interface {
 	CreateTower(*lnwire.NetAddress) (*wtdb.Tower, error)
 
 	// LoadTower retrieves a tower by its tower ID.
-	LoadTower(uint64) (*wtdb.Tower, error)
+	LoadTower(wtdb.TowerID) (*wtdb.Tower, error)
 
 	// NextSessionKeyIndex reserves a new session key derivation index for a
 	// particular tower id. The index is reserved for that tower until
@@ -29,7 +29,7 @@ type DB interface {
 	// point a new index for that tower can be reserved. Multiple calls to
 	// this method before CreateClientSession is invoked should return the
 	// same index.
-	NextSessionKeyIndex(uint64) (uint32, error)
+	NextSessionKeyIndex(wtdb.TowerID) (uint32, error)
 
 	// CreateClientSession saves a newly negotiated client session to the
 	// client's database. This enables the session to be used across

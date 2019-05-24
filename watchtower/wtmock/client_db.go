@@ -20,11 +20,11 @@ type ClientDB struct {
 	mu             sync.Mutex
 	sweepPkScripts map[lnwire.ChannelID][]byte
 	activeSessions map[wtdb.SessionID]*wtdb.ClientSession
-	towerIndex     map[towerPK]uint64
-	towers         map[uint64]*wtdb.Tower
+	towerIndex     map[towerPK]wtdb.TowerID
+	towers         map[wtdb.TowerID]*wtdb.Tower
 
 	nextIndex uint32
-	indexes   map[uint64]uint32
+	indexes   map[wtdb.TowerID]uint32
 }
 
 // NewClientDB initializes a new mock ClientDB.
@@ -32,9 +32,9 @@ func NewClientDB() *ClientDB {
 	return &ClientDB{
 		sweepPkScripts: make(map[lnwire.ChannelID][]byte),
 		activeSessions: make(map[wtdb.SessionID]*wtdb.ClientSession),
-		towerIndex:     make(map[towerPK]uint64),
-		towers:         make(map[uint64]*wtdb.Tower),
-		indexes:        make(map[uint64]uint32),
+		towerIndex:     make(map[towerPK]wtdb.TowerID),
+		towers:         make(map[wtdb.TowerID]*wtdb.Tower),
+		indexes:        make(map[wtdb.TowerID]uint32),
 	}
 }
 
@@ -54,9 +54,9 @@ func (m *ClientDB) CreateTower(lnAddr *lnwire.NetAddress) (*wtdb.Tower, error) {
 		tower = m.towers[towerID]
 		tower.AddAddress(lnAddr.Address)
 	} else {
-		towerID = atomic.AddUint64(&m.nextTowerID, 1)
+		towerID = wtdb.TowerID(atomic.AddUint64(&m.nextTowerID, 1))
 		tower = &wtdb.Tower{
-			ID:          towerID,
+			ID:          wtdb.TowerID(towerID),
 			IdentityKey: lnAddr.IdentityKey,
 			Addresses:   []net.Addr{lnAddr.Address},
 		}
@@ -69,7 +69,7 @@ func (m *ClientDB) CreateTower(lnAddr *lnwire.NetAddress) (*wtdb.Tower, error) {
 }
 
 // LoadTower retrieves a tower by its tower ID.
-func (m *ClientDB) LoadTower(towerID uint64) (*wtdb.Tower, error) {
+func (m *ClientDB) LoadTower(towerID wtdb.TowerID) (*wtdb.Tower, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -141,7 +141,7 @@ func (m *ClientDB) CreateClientSession(session *wtdb.ClientSession) error {
 // CreateClientSession is invoked for that tower and index, at which point a new
 // index for that tower can be reserved. Multiple calls to this method before
 // CreateClientSession is invoked should return the same index.
-func (m *ClientDB) NextSessionKeyIndex(towerID uint64) (uint32, error) {
+func (m *ClientDB) NextSessionKeyIndex(towerID wtdb.TowerID) (uint32, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 

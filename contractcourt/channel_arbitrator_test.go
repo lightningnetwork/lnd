@@ -26,6 +26,8 @@ type mockArbitratorLog struct {
 	chainActions    ChainActionMap
 	resolvers       map[ContractResolver]struct{}
 
+	commitSet *CommitSet
+
 	sync.Mutex
 }
 
@@ -106,6 +108,19 @@ func (b *mockArbitratorLog) FetchContractResolutions() (*ContractResolutions, er
 	}
 
 	return b.resolutions, nil
+}
+
+func (b *mockArbitratorLog) FetchChainActions() (ChainActionMap, error) {
+	return nil, nil
+}
+
+func (b *mockArbitratorLog) InsertConfirmedCommitSet(c *CommitSet) error {
+	b.commitSet = c
+	return nil
+}
+
+func (b *mockArbitratorLog) FetchConfirmedCommitSet() (*CommitSet, error) {
+	return b.commitSet, nil
 }
 
 func (b *mockArbitratorLog) WipeHistory() error {
@@ -1289,8 +1304,6 @@ func TestChannelArbitratorDanglingCommitForceClose(t *testing.T) {
 			}
 		}
 	}
-
-	fmt.Println(len(testCases))
 
 	for _, testCase := range testCases {
 		testCase := testCase

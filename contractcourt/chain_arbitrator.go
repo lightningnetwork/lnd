@@ -463,7 +463,7 @@ func (c *ChainArbitrator) Start() error {
 
 		// We can also leave off the set of HTLC's here as since the
 		// channel is already in the process of being full resolved, no
-		// new HTLC's we be added.
+		// new HTLC's will be added.
 		c.activeChannels[chanPoint] = NewChannelArbitrator(
 			arbCfg, nil, chanLog,
 		)

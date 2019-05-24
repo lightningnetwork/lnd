@@ -3,6 +3,7 @@ package contractcourt
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 
@@ -370,11 +371,21 @@ func (c *ChannelArbitrator) Start() error {
 		}
 	}
 
+	// Next we'll fetch our confirmed commitment set. This will only exist
+	// if the channel has been closed out on chain for modern nodes. For
+	// older nodes, this won't be found at all, and will rely on the
+	// existing written chain actions. Additionally, if this channel hasn't
+	// logged any actions in the log, then this field won't be present.
+	commitSet, err := c.log.FetchConfirmedCommitSet()
+	if err != nil && err != errNoCommitSet && err != errScopeBucketNoExist {
+		return err
+	}
+
 	// We'll now attempt to advance our state forward based on the current
 	// on-chain state, and our set of active contracts.
 	startingState := c.state
 	nextState, _, err := c.advanceState(
-		triggerHeight, trigger, nil,
+		triggerHeight, trigger, commitSet,
 	)
 	if err != nil {
 		switch err {
@@ -1512,6 +1523,52 @@ func (c *ChannelArbitrator) checkRemoteDiffActions(height uint32,
 	return actionMap
 }
 
+// constructChainActions returns the set of actions that should be taken for
+// confirmed HTLCs at the specified height. Our actions will depend on the set
+// of HTLCs that were active across all channels at the time of channel
+// closure.
+func (c *ChannelArbitrator) constructChainActions(confCommitSet *CommitSet,
+	height uint32, trigger transitionTrigger) (ChainActionMap, error) {
+
+	// If we've reached this point and have not confirmed commitment set,
+	// then this is an older node that had a pending close channel before
+	// the CommitSet was introduced. In this case, we'll just return the
+	// existing ChainActionMap they had on disk.
+	if confCommitSet == nil {
+		return c.log.FetchChainActions()
+	}
+
+	// Otherwise we have the full commitment set written to disk, and can
+	// proceed as normal.
+	htlcSets := confCommitSet.toActiveHTLCSets()
+	switch *confCommitSet.ConfCommitKey {
+
+	// If the local commitment transaction confirmed, then we'll examine
+	// that as well as their commitments to the set of chain actions.
+	case LocalHtlcSet:
+		return c.checkLocalChainActions(
+			height, trigger, htlcSets, true,
+		)
+
+	// If the remote commitment confirmed, then we'll grab all the chain
+	// actions for the remote commit, and check the pending commit for any
+	// HTLCS we need to handle immediately (dust).
+	case RemoteHtlcSet:
+		return c.checkRemoteChainActions(
+			height, trigger, htlcSets, false,
+		)
+
+	// Otherwise, the remote pending commitment confirmed, so we'll examine
+	// the HTLCs on that unrevoked dangling commitment.
+	case RemotePendingHtlcSet:
+		return c.checkRemoteChainActions(
+			height, trigger, htlcSets, true,
+		)
+	}
+
+	return nil, fmt.Errorf("unable to locate chain actions")
+}
+
 // prepContractResolutions is called either int he case that we decide we need
 // to go to chain, or the remote party goes to chain. Given a set of actions we
 // need to take for each HTLC, this method will return a set of contract
@@ -1523,39 +1580,12 @@ func (c *ChannelArbitrator) prepContractResolutions(
 	trigger transitionTrigger,
 	confCommitSet *CommitSet) ([]ContractResolver, []ResolutionMsg, error) {
 
-	htlcSets := confCommitSet.toActiveHTLCSets()
-
 	// First, we'll reconstruct a fresh set of chain actions as the set of
 	// actions we need to act on may differ based on if it was our
 	// commitment, or they're commitment that hit the chain.
-	var (
-		htlcActions ChainActionMap
-		err         error
+	htlcActions, err := c.constructChainActions(
+		confCommitSet, height, trigger,
 	)
-	switch *confCommitSet.ConfCommitKey {
-
-	// If the local commitment transaction confirmed, then we'll examine
-	// that as well as their commitments to the set of chain actions.
-	case LocalHtlcSet:
-		htlcActions, err = c.checkLocalChainActions(
-			height, trigger, htlcSets, true,
-		)
-
-	// If the remote commitment confirmed, then we'll grab all the chain
-	// actions for the remote commit, and check the pending commit for any
-	// HTLCS we need to handle immediately (dust).
-	case RemoteHtlcSet:
-		htlcActions, err = c.checkRemoteChainActions(
-			height, trigger, htlcSets, false,
-		)
-
-	// Otherwise, the remote pending commitment confirmed, so we'll examine
-	// the HTLCs on that unrevoked dangling commitment.
-	case RemotePendingHtlcSet:
-		htlcActions, err = c.checkRemoteChainActions(
-			height, trigger, htlcSets, true,
-		)
-	}
 	if err != nil {
 		return nil, nil, err
 	}
@@ -2047,11 +2077,20 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 			// When processing a unilateral close event, we'll
 			// transition to the ContractClosed state. We'll log
 			// out the set of resolutions such that they are
-			// available to fetch in that state.
+			// available to fetch in that state, we'll also write
+			// the commit set so we can reconstruct our chain
+			// actions on restart.
 			err := c.log.LogContractResolutions(contractRes)
 			if err != nil {
 				log.Errorf("unable to write resolutions: %v",
 					err)
+				return
+			}
+			err = c.log.InsertConfirmedCommitSet(
+				&closeInfo.CommitSet,
+			)
+			if err != nil {
+				log.Errorf("unable to write commit set: %v", err)
 				return
 			}
 
@@ -2103,11 +2142,20 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 			// When processing a unilateral close event, we'll
 			// transition to the ContractClosed state. We'll log
 			// out the set of resolutions such that they are
-			// available to fetch in that state.
+			// available to fetch in that state, we'll also write
+			// the commit set so we can reconstruct our chain
+			// actions on restart.
 			err := c.log.LogContractResolutions(contractRes)
 			if err != nil {
 				log.Errorf("unable to write resolutions: %v",
 					err)
+				return
+			}
+			err = c.log.InsertConfirmedCommitSet(
+				&uniClosure.CommitSet,
+			)
+			if err != nil {
+				log.Errorf("unable to write commit set: %v", err)
 				return
 			}
 

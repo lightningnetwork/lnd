@@ -1787,6 +1787,13 @@ func assertMinerBlockHeightDelta(t *harnessTest,
 // channel where the funding tx gets reorged out, the channel will no
 // longer be present in the node's routing table.
 func testOpenChannelAfterReorg(net *lntest.NetworkHarness, t *harnessTest) {
+	// Skip test for neutrino, as we cannot disconnect the miner at will.
+	// TODO(halseth): remove when either can disconnect at will, or restart
+	// node with connection to new miner.
+	if net.BackendCfg.Name() == "neutrino" {
+		t.Skipf("skipping reorg test for neutrino backend")
+	}
+
 	var (
 		ctxb = context.Background()
 		temp = "temp"

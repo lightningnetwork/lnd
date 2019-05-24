@@ -1763,7 +1763,6 @@ func testOpenChannelAfterReorg(net *lntest.NetworkHarness, t *harnessTest) {
 	var (
 		ctxb = context.Background()
 		temp = "temp"
-		perm = "perm"
 	)
 
 	// Set up a new miner that we can use to cause a reorg.
@@ -1901,9 +1900,7 @@ func testOpenChannelAfterReorg(net *lntest.NetworkHarness, t *harnessTest) {
 	// Now we disconnect Alice's chain backend from the original miner, and
 	// connect the two miners together. Since the temporary miner knows
 	// about a longer chain, both miners should sync to that chain.
-	err = net.Miner.Node.Node(
-		btcjson.NRemove, net.BackendCfg.P2PAddr(), &perm,
-	)
+	err = net.BackendCfg.DisconnectMiner()
 	if err != nil {
 		t.Fatalf("unable to remove node: %v", err)
 	}
@@ -1934,9 +1931,7 @@ func testOpenChannelAfterReorg(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to remove node: %v", err)
 	}
 
-	err = net.Miner.Node.Node(
-		btcjson.NConnect, net.BackendCfg.P2PAddr(), &perm,
-	)
+	err = net.BackendCfg.ConnectMiner()
 	if err != nil {
 		t.Fatalf("unable to remove node: %v", err)
 	}
@@ -13316,13 +13311,6 @@ var testsCases = []*testCase{
 func TestLightningNetworkDaemon(t *testing.T) {
 	ht := newHarnessTest(t)
 
-	// Start a btcd chain backend.
-	chainBackend, cleanUp, err := lntest.NewBtcdBackend()
-	if err != nil {
-		ht.Fatalf("unable to start btcd: %v", err)
-	}
-	defer cleanUp()
-
 	// Declare the network harness here to gain access to its
 	// 'OnTxAccepted' call back.
 	var lndHarness *lntest.NetworkHarness
@@ -13343,7 +13331,6 @@ func TestLightningNetworkDaemon(t *testing.T) {
 		"--debuglevel=debug",
 		"--logdir=" + minerLogDir,
 		"--trickleinterval=100ms",
-		"--connect=" + chainBackend.P2PAddr(),
 	}
 	handlers := &rpcclient.NotificationHandlers{
 		OnTxAccepted: func(hash *chainhash.Hash, amt btcutil.Amount) {
@@ -13372,6 +13359,13 @@ func TestLightningNetworkDaemon(t *testing.T) {
 				minerLogDir, err)
 		}
 	}()
+
+	// Start a btcd chain backend.
+	chainBackend, cleanUp, err := lntest.NewBtcdBackend(miner.P2PAddress())
+	if err != nil {
+		ht.Fatalf("unable to start btcd: %v", err)
+	}
+	defer cleanUp()
 
 	if err := miner.SetUp(true, 50); err != nil {
 		ht.Fatalf("unable to set up mining node: %v", err)

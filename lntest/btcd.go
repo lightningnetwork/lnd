@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/btcsuite/btcd/btcjson"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/integration/rpctest"
 	"github.com/btcsuite/btcd/rpcclient"
@@ -13,14 +14,23 @@ import (
 // logDir is the name of the temporary log directory.
 const logDir = "./.backendlogs"
 
+// perm is used to signal we want to establish a permanent connection using the
+// btcd Node API.
+//
+// NOTE: Cannot be const, since the node API expects a reference.
+var perm = "perm"
+
 // BtcdBackendConfig is an implementation of the BackendConfig interface
 // backed by a btcd node.
 type BtcdBackendConfig struct {
 	// rpcConfig houses the connection config to the backing btcd instance.
 	rpcConfig rpcclient.ConnConfig
 
-	// p2pAddress is the p2p address of the btcd instance.
-	p2pAddress string
+	// harness is the backing btcd instance.
+	harness *rpctest.Harness
+
+	// minerAddr is the p2p address of the miner to connect to.
+	minerAddr string
 }
 
 // GenArgs returns the arguments needed to be passed to LND at startup for
@@ -37,21 +47,27 @@ func (b BtcdBackendConfig) GenArgs() []string {
 	return args
 }
 
-// P2PAddr returns the address of this node to be used when connection over the
-// Bitcoin P2P network.
-func (b BtcdBackendConfig) P2PAddr() string {
-	return b.p2pAddress
+// ConnectMiner is called to establish a connection to the test miner.
+func (b BtcdBackendConfig) ConnectMiner() error {
+	return b.harness.Node.Node(btcjson.NConnect, b.minerAddr, &perm)
+}
+
+// DisconnectMiner is called to disconnect the miner.
+func (b BtcdBackendConfig) DisconnectMiner() error {
+	return b.harness.Node.Node(btcjson.NRemove, b.minerAddr, &perm)
 }
 
 // NewBtcdBackend starts a new rpctest.Harness and returns a BtcdBackendConfig
-// for that node.
-func NewBtcdBackend() (*BtcdBackendConfig, func(), error) {
+// for that node. miner should be set to the P2P address of the miner to
+// connect to.
+func NewBtcdBackend(miner string) (*BtcdBackendConfig, func(), error) {
 	args := []string{
 		"--rejectnonstd",
 		"--txindex",
 		"--trickleinterval=100ms",
 		"--debuglevel=debug",
 		"--logdir=" + logDir,
+		"--connect=" + miner,
 	}
 	netParams := &chaincfg.SimNetParams
 	chainBackend, err := rpctest.New(netParams, nil, args)
@@ -64,8 +80,9 @@ func NewBtcdBackend() (*BtcdBackendConfig, func(), error) {
 	}
 
 	bd := &BtcdBackendConfig{
-		rpcConfig:  chainBackend.RPCConfig(),
-		p2pAddress: chainBackend.P2PAddress(),
+		rpcConfig: chainBackend.RPCConfig(),
+		harness:   chainBackend,
+		minerAddr: miner,
 	}
 
 	cleanUp := func() {

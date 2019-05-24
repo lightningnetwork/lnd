@@ -1,0 +1,40 @@
+// +build neutrino
+
+package lntest
+
+import "fmt"
+
+// NeutrinoBackendConfig is an implementation of the BackendConfig interface
+// backed by a neutrino node.
+type NeutrinoBackendConfig struct {
+	minerAddr string
+}
+
+// GenArgs returns the arguments needed to be passed to LND at startup for
+// using this node as a chain backend.
+func (b NeutrinoBackendConfig) GenArgs() []string {
+	var args []string
+	args = append(args, "--bitcoin.node=neutrino")
+	args = append(args, "--neutrino.connect="+b.minerAddr)
+	return args
+}
+
+// ConnectMiner is called to establish a connection to the test miner.
+func (b NeutrinoBackendConfig) ConnectMiner() error {
+	return fmt.Errorf("unimplemented")
+}
+
+// DisconnectMiner is called to disconnect the miner.
+func (b NeutrinoBackendConfig) DisconnectMiner() error {
+	return fmt.Errorf("unimplemented")
+}
+
+// NewBackend starts and returns a NeutrinoBackendConfig for the node.
+func NewBackend(miner string) (*NeutrinoBackendConfig, func(), error) {
+	bd := &NeutrinoBackendConfig{
+		minerAddr: miner,
+	}
+
+	cleanUp := func() {}
+	return bd, cleanUp, nil
+}

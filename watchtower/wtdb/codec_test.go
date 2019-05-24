@@ -153,6 +153,8 @@ func TestCodec(tt *testing.T) {
 			obj2 = &wtdb.BackupID{}
 		case *wtdb.Tower:
 			obj2 = &wtdb.Tower{}
+		case *wtdb.ClientChanSummary:
+			obj2 = &wtdb.ClientChanSummary{}
 		default:
 			t.Fatalf("unknown type: %T", obj)
 			return false
@@ -235,6 +237,12 @@ func TestCodec(tt *testing.T) {
 		{
 			name: "Tower",
 			scenario: func(obj wtdb.Tower) bool {
+				return mainScenario(&obj)
+			},
+		},
+		{
+			name: "ClientChanSummary",
+			scenario: func(obj wtdb.ClientChanSummary) bool {
 				return mainScenario(&obj)
 			},
 		},

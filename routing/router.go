@@ -1440,7 +1440,11 @@ func generateSphinxPacket(rt *route.Route, paymentHash []byte,
 
 	log.Tracef("Constructed per-hop payloads for payment_hash=%x: %v",
 		paymentHash[:], newLogClosure(func() string {
-			return spew.Sdump(sphinxPath[:sphinxPath.TrueRouteLength()])
+			path := sphinxPath[:sphinxPath.TrueRouteLength()]
+			for i := range path {
+				path[i].NodePub.Curve = nil
+			}
+			return spew.Sdump(path)
 		}),
 	)
 

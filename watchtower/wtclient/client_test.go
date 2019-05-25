@@ -605,6 +605,8 @@ func (h *testHarness) backupStates(id, from, to uint64, expErr error) {
 // backupStates instructs the channel identified by id to send a backup for
 // state i.
 func (h *testHarness) backupState(id, i uint64, expErr error) {
+	h.t.Helper()
+
 	_, retribution := h.channel(id).getState(i)
 
 	chanID := chanIDFromInt(id)
@@ -1242,6 +1244,55 @@ var clientTests = []clientTest{
 			// Assert that the server has updates for the clients
 			// most recent policy.
 			h.assertUpdatesForPolicy(hints, h.clientCfg.Policy)
+		},
+	},
+	{
+		// Asserts that the client will deduplicate backups presented by
+		// a channel both in memory and after a restart. The client
+		// should only accept backups with a commit height greater than
+		// any processed already processed for a given policy.
+		name: "dedup backups",
+		cfg: harnessCfg{
+			localBalance:  localBalance,
+			remoteBalance: remoteBalance,
+			policy: wtpolicy.Policy{
+				BlobType:     blob.TypeDefault,
+				MaxUpdates:   5,
+				SweepFeeRate: 1,
+			},
+		},
+		fn: func(h *testHarness) {
+			const (
+				numUpdates = 10
+				chanID     = 0
+			)
+
+			// Generate the retributions that will be backed up.
+			hints := h.advanceChannelN(chanID, numUpdates)
+
+			// Queue the first half of the retributions twice, the
+			// second batch should be entirely deduped by the
+			// client's in-memory tracking.
+			h.backupStates(chanID, 0, numUpdates/2, nil)
+			h.backupStates(chanID, 0, numUpdates/2, nil)
+
+			// Wait for the first half of the updates to be
+			// populated in the server's database.
+			h.waitServerUpdates(hints[:len(hints)/2], 5*time.Second)
+
+			// Restart the client, so we can ensure the deduping is
+			// maintained across restarts.
+			h.client.Stop()
+			h.startClient()
+			defer h.client.ForceQuit()
+
+			// Try to back up the full range of retributions. Only
+			// the second half should actually be sent.
+			h.backupStates(chanID, 0, numUpdates, nil)
+
+			// Wait for all of the updates to be populated in the
+			// server's database.
+			h.waitServerUpdates(hints, 5*time.Second)
 		},
 	},
 }

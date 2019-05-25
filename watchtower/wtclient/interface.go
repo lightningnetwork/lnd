@@ -21,7 +21,7 @@ type DB interface {
 	CreateTower(*lnwire.NetAddress) (*wtdb.Tower, error)
 
 	// LoadTower retrieves a tower by its tower ID.
-	LoadTower(uint64) (*wtdb.Tower, error)
+	LoadTower(wtdb.TowerID) (*wtdb.Tower, error)
 
 	// NextSessionKeyIndex reserves a new session key derivation index for a
 	// particular tower id. The index is reserved for that tower until
@@ -29,7 +29,7 @@ type DB interface {
 	// point a new index for that tower can be reserved. Multiple calls to
 	// this method before CreateClientSession is invoked should return the
 	// same index.
-	NextSessionKeyIndex(uint64) (uint32, error)
+	NextSessionKeyIndex(wtdb.TowerID) (uint32, error)
 
 	// CreateClientSession saves a newly negotiated client session to the
 	// client's database. This enables the session to be used across
@@ -41,14 +41,17 @@ type DB interface {
 	// still be able to accept state updates.
 	ListClientSessions() (map[wtdb.SessionID]*wtdb.ClientSession, error)
 
-	// FetchChanPkScripts returns a map of all sweep pkscripts for
-	// registered channels. This is used on startup to cache the sweep
-	// pkscripts of registered channels in memory.
-	FetchChanPkScripts() (map[lnwire.ChannelID][]byte, error)
+	// FetchChanSummaries loads a mapping from all registered channels to
+	// their channel summaries.
+	FetchChanSummaries() (wtdb.ChannelSummaries, error)
 
-	// AddChanPkScript inserts a newly generated sweep pkscript for the
-	// given channel.
-	AddChanPkScript(lnwire.ChannelID, []byte) error
+	// RegisterChannel registers a channel for use within the client
+	// database. For now, all that is stored in the channel summary is the
+	// sweep pkscript that we'd like any tower sweeps to pay into. In the
+	// future, this will be extended to contain more info to allow the
+	// client efficiently request historical states to be backed up under
+	// the client's active policy.
+	RegisterChannel(lnwire.ChannelID, []byte) error
 
 	// MarkBackupIneligible records that the state identified by the
 	// (channel id, commit height) tuple was ineligible for being backed up
@@ -61,7 +64,7 @@ type DB interface {
 	// hasn't been ACK'd by the tower. The sequence number of the update
 	// should be exactly one greater than the existing entry, and less that
 	// or equal to the session's MaxUpdates.
-	CommitUpdate(id *wtdb.SessionID, seqNum uint16,
+	CommitUpdate(id *wtdb.SessionID,
 		update *wtdb.CommittedUpdate) (uint16, error)
 
 	// AckUpdate records an acknowledgment from the watchtower that the

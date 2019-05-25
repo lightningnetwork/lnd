@@ -2,23 +2,16 @@ package wtdb
 
 import (
 	"bytes"
-	"encoding/binary"
 	"errors"
-	"os"
-	"path/filepath"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lnd/chainntnfs"
-	"github.com/lightningnetwork/lnd/channeldb"
 )
 
 const (
-	// dbName is the filename of tower database.
-	dbName = "watchtower.db"
-
-	// dbFilePermission requests read+write access to the db file.
-	dbFilePermission = 0600
+	// towerDBName is the filename of tower database.
+	towerDBName = "watchtower.db"
 )
 
 var (
@@ -49,26 +42,9 @@ var (
 	// epoch from the lookoutTipBkt.
 	lookoutTipKey = []byte("lookout-tip")
 
-	// metadataBkt stores all the meta information concerning the state of
-	// the database.
-	metadataBkt = []byte("metadata-bucket")
-
-	// dbVersionKey is a static key used to retrieve the database version
-	// number from the metadataBkt.
-	dbVersionKey = []byte("version")
-
-	// ErrUninitializedDB signals that top-level buckets for the database
-	// have not been initialized.
-	ErrUninitializedDB = errors.New("tower db not initialized")
-
-	// ErrNoDBVersion signals that the database contains no version info.
-	ErrNoDBVersion = errors.New("tower db has no version")
-
 	// ErrNoSessionHintIndex signals that an active session does not have an
 	// initialized index for tracking its own state updates.
 	ErrNoSessionHintIndex = errors.New("session hint index missing")
-
-	byteOrder = binary.BigEndian
 )
 
 // TowerDB is single database providing a persistent storage engine for the
@@ -86,42 +62,9 @@ type TowerDB struct {
 // with a version number higher that the latest version will fail to prevent
 // accidental reversion.
 func OpenTowerDB(dbPath string) (*TowerDB, error) {
-	path := filepath.Join(dbPath, dbName)
-
-	// If the database file doesn't exist, this indicates we much initialize
-	// a fresh database with the latest version.
-	firstInit := !fileExists(path)
-	if firstInit {
-		// Ensure all parent directories are initialized.
-		err := os.MkdirAll(dbPath, 0700)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	bdb, err := bbolt.Open(path, dbFilePermission, nil)
+	bdb, firstInit, err := createDBIfNotExist(dbPath, towerDBName)
 	if err != nil {
 		return nil, err
-	}
-
-	// If the file existed previously, we'll now check to see that the
-	// metadata bucket is properly initialized. It could be the case that
-	// the database was created, but we failed to actually populate any
-	// metadata. If the metadata bucket does not actually exist, we'll
-	// set firstInit to true so that we can treat is initialize the bucket.
-	if !firstInit {
-		var metadataExists bool
-		err = bdb.View(func(tx *bbolt.Tx) error {
-			metadataExists = tx.Bucket(metadataBkt) != nil
-			return nil
-		})
-		if err != nil {
-			return nil, err
-		}
-
-		if !metadataExists {
-			firstInit = true
-		}
 	}
 
 	towerDB := &TowerDB{
@@ -129,24 +72,10 @@ func OpenTowerDB(dbPath string) (*TowerDB, error) {
 		dbPath: dbPath,
 	}
 
-	if firstInit {
-		// If the database has not yet been created, we'll initialize
-		// the database version with the latest known version.
-		err = towerDB.db.Update(func(tx *bbolt.Tx) error {
-			return initDBVersion(tx, getLatestDBVersion(dbVersions))
-		})
-		if err != nil {
-			bdb.Close()
-			return nil, err
-		}
-	} else {
-		// Otherwise, ensure that any migrations are applied to ensure
-		// the data is in the format expected by the latest version.
-		err = towerDB.syncVersions(dbVersions)
-		if err != nil {
-			bdb.Close()
-			return nil, err
-		}
+	err = initOrSyncVersions(towerDB, firstInit, towerDBVersions)
+	if err != nil {
+		bdb.Close()
+		return nil, err
 	}
 
 	// Now that the database version fully consistent with our latest known
@@ -161,17 +90,6 @@ func OpenTowerDB(dbPath string) (*TowerDB, error) {
 	}
 
 	return towerDB, nil
-}
-
-// fileExists returns true if the file exists, and false otherwise.
-func fileExists(path string) bool {
-	if _, err := os.Stat(path); err != nil {
-		if os.IsNotExist(err) {
-			return false
-		}
-	}
-
-	return true
 }
 
 // initTowerDBBuckets creates all top-level buckets required to handle database
@@ -194,53 +112,16 @@ func initTowerDBBuckets(tx *bbolt.Tx) error {
 	return nil
 }
 
-// syncVersions ensures the database version is consistent with the highest
-// known database version, applying any migrations that have not been made. If
-// the highest known version number is lower than the database's version, this
-// method will fail to prevent accidental reversions.
-func (t *TowerDB) syncVersions(versions []version) error {
-	curVersion, err := t.Version()
-	if err != nil {
-		return err
-	}
-
-	latestVersion := getLatestDBVersion(versions)
-	switch {
-
-	// Current version is higher than any known version, fail to prevent
-	// reversion.
-	case curVersion > latestVersion:
-		return channeldb.ErrDBReversion
-
-	// Current version matches highest known version, nothing to do.
-	case curVersion == latestVersion:
-		return nil
-	}
-
-	// Otherwise, apply any migrations in order to bring the database
-	// version up to the highest known version.
-	updates := getMigrations(versions, curVersion)
-	return t.db.Update(func(tx *bbolt.Tx) error {
-		for _, update := range updates {
-			if update.migration == nil {
-				continue
-			}
-
-			log.Infof("Applying migration #%d", update.number)
-
-			err := update.migration(tx)
-			if err != nil {
-				log.Errorf("Unable to apply migration #%d: %v",
-					err)
-				return err
-			}
-		}
-
-		return putDBVersion(tx, latestVersion)
-	})
+// bdb returns the backing bbolt.DB instance.
+//
+// NOTE: Part of the versionedDB interface.
+func (t *TowerDB) bdb() *bbolt.DB {
+	return t.db
 }
 
 // Version returns the database's current version number.
+//
+// NOTE: Part of the versionedDB interface.
 func (t *TowerDB) Version() (uint32, error) {
 	var version uint32
 	err := t.db.View(func(tx *bbolt.Tx) error {

@@ -150,8 +150,9 @@ type TowerClient struct {
 	sessionQueue *sessionQueue
 	prevTask     *backupTask
 
-	sweepPkScriptMu sync.RWMutex
-	sweepPkScripts  map[lnwire.ChannelID][]byte
+	backupMu          sync.Mutex
+	summaries         wtdb.ChannelSummaries
+	chanCommitHeights map[lnwire.ChannelID]uint64
 
 	statTicker *time.Ticker
 	stats      clientStats
@@ -243,14 +244,56 @@ func New(config *Config) (*TowerClient, error) {
 		s.SessionPrivKey = sessionPriv
 	}
 
+	// Reconstruct the highest commit height processed for each channel
+	// under the client's current policy.
+	c.buildHighestCommitHeights()
+
 	// Finally, load the sweep pkscripts that have been generated for all
 	// previously registered channels.
-	c.sweepPkScripts, err = c.cfg.DB.FetchChanPkScripts()
+	c.summaries, err = c.cfg.DB.FetchChanSummaries()
 	if err != nil {
 		return nil, err
 	}
 
 	return c, nil
+}
+
+// buildHighestCommitHeights inspects the full set of candidate client sessions
+// loaded from disk, and determines the highest known commit height for each
+// channel. This allows the client to reject backups that it has already
+// processed for it's active policy.
+func (c *TowerClient) buildHighestCommitHeights() {
+	chanCommitHeights := make(map[lnwire.ChannelID]uint64)
+	for _, s := range c.candidateSessions {
+		// We only want to consider accepted updates that have been
+		// accepted under an identical policy to the client's current
+		// policy.
+		if s.Policy != c.cfg.Policy {
+			continue
+		}
+
+		// Take the highest commit height found in the session's
+		// committed updates.
+		for _, committedUpdate := range s.CommittedUpdates {
+			bid := committedUpdate.BackupID
+
+			height, ok := chanCommitHeights[bid.ChanID]
+			if !ok || bid.CommitHeight > height {
+				chanCommitHeights[bid.ChanID] = bid.CommitHeight
+			}
+		}
+
+		// Take the heights commit height found in the session's acked
+		// updates.
+		for _, bid := range s.AckedUpdates {
+			height, ok := chanCommitHeights[bid.ChanID]
+			if !ok || bid.CommitHeight > height {
+				chanCommitHeights[bid.ChanID] = bid.CommitHeight
+			}
+		}
+	}
+
+	c.chanCommitHeights = chanCommitHeights
 }
 
 // Start initializes the watchtower client by loading or negotiating an active
@@ -388,12 +431,12 @@ func (c *TowerClient) ForceQuit() {
 // within the client. This should be called during link startup to ensure that
 // the client is able to support the link during operation.
 func (c *TowerClient) RegisterChannel(chanID lnwire.ChannelID) error {
-	c.sweepPkScriptMu.Lock()
-	defer c.sweepPkScriptMu.Unlock()
+	c.backupMu.Lock()
+	defer c.backupMu.Unlock()
 
 	// If a pkscript for this channel already exists, the channel has been
 	// previously registered.
-	if _, ok := c.sweepPkScripts[chanID]; ok {
+	if _, ok := c.summaries[chanID]; ok {
 		return nil
 	}
 
@@ -406,14 +449,16 @@ func (c *TowerClient) RegisterChannel(chanID lnwire.ChannelID) error {
 
 	// Persist the sweep pkscript so that restarts will not introduce
 	// address inflation when the channel is reregistered after a restart.
-	err = c.cfg.DB.AddChanPkScript(chanID, pkScript)
+	err = c.cfg.DB.RegisterChannel(chanID, pkScript)
 	if err != nil {
 		return err
 	}
 
 	// Finally, cache the pkscript in our in-memory cache to avoid db
 	// lookups for the remainder of the daemon's execution.
-	c.sweepPkScripts[chanID] = pkScript
+	c.summaries[chanID] = wtdb.ClientChanSummary{
+		SweepPkScript: pkScript,
+	}
 
 	return nil
 }
@@ -429,14 +474,29 @@ func (c *TowerClient) BackupState(chanID *lnwire.ChannelID,
 	breachInfo *lnwallet.BreachRetribution) error {
 
 	// Retrieve the cached sweep pkscript used for this channel.
-	c.sweepPkScriptMu.RLock()
-	sweepPkScript, ok := c.sweepPkScripts[*chanID]
-	c.sweepPkScriptMu.RUnlock()
+	c.backupMu.Lock()
+	summary, ok := c.summaries[*chanID]
 	if !ok {
+		c.backupMu.Unlock()
 		return ErrUnregisteredChannel
 	}
 
-	task := newBackupTask(chanID, breachInfo, sweepPkScript)
+	// Ignore backups that have already been presented to the client.
+	height, ok := c.chanCommitHeights[*chanID]
+	if ok && breachInfo.RevokedStateNum <= height {
+		c.backupMu.Unlock()
+		log.Debugf("Ignoring duplicate backup for chanid=%v at height=%d",
+			chanID, breachInfo.RevokedStateNum)
+		return nil
+	}
+
+	// This backup has a higher commit height than any known backup for this
+	// channel. We'll update our tip so that we won't accept it again if the
+	// link flaps.
+	c.chanCommitHeights[*chanID] = breachInfo.RevokedStateNum
+	c.backupMu.Unlock()
+
+	task := newBackupTask(chanID, breachInfo, summary.SweepPkScript)
 
 	return c.pipeline.QueueBackupTask(task)
 }

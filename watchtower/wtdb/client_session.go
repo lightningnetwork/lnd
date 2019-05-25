@@ -8,6 +8,16 @@ import (
 	"github.com/lightningnetwork/lnd/watchtower/wtpolicy"
 )
 
+// CSessionStatus is a bit-field representing the possible statuses of
+// ClientSessions.
+type CSessionStatus uint8
+
+const (
+	// CSessionActive indicates that the ClientSession is active and can be
+	// used for backups.
+	CSessionActive CSessionStatus = 0
+)
+
 // ClientSession encapsulates a SessionInfo returned from a successful
 // session negotiation, and also records the tower and ephemeral secret used for
 // communicating with the tower.
@@ -76,6 +86,9 @@ type ClientSessionBody struct {
 	// Policy holds the negotiated session parameters.
 	Policy wtpolicy.Policy
 
+	// Status indicates the current state of the ClientSession.
+	Status CSessionStatus
+
 	// RewardPkScript is the pkscript that the tower's reward will be
 	// deposited to if a sweep transaction confirms and the sessions
 	// specifies a reward output.
@@ -89,6 +102,7 @@ func (s *ClientSessionBody) Encode(w io.Writer) error {
 		s.TowerLastApplied,
 		uint64(s.TowerID),
 		s.KeyIndex,
+		uint8(s.Status),
 		s.Policy,
 		s.RewardPkScript,
 	)
@@ -96,12 +110,16 @@ func (s *ClientSessionBody) Encode(w io.Writer) error {
 
 // Decode reads a ClientSessionBody from the passed io.Reader.
 func (s *ClientSessionBody) Decode(r io.Reader) error {
-	var towerID uint64
+	var (
+		towerID uint64
+		status  uint8
+	)
 	err := ReadElements(r,
 		&s.SeqNum,
 		&s.TowerLastApplied,
 		&towerID,
 		&s.KeyIndex,
+		&status,
 		&s.Policy,
 		&s.RewardPkScript,
 	)
@@ -110,6 +128,7 @@ func (s *ClientSessionBody) Decode(r io.Reader) error {
 	}
 
 	s.TowerID = TowerID(towerID)
+	s.Status = CSessionStatus(status)
 
 	return nil
 }

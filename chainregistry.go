@@ -19,6 +19,7 @@ import (
 	"github.com/btcsuite/btcwallet/wallet"
 	"github.com/btcsuite/btcwallet/walletdb"
 	"github.com/lightninglabs/neutrino"
+	"github.com/lightninglabs/neutrino/headerfs"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/chainntnfs/bitcoindnotify"
 	"github.com/lightningnetwork/lnd/chainntnfs/btcdnotify"
@@ -705,6 +706,13 @@ func initNeutrinoBackend(chainDir string) (*neutrino.ChainService, func(), error
 			"database: %v", err)
 	}
 
+	headerStateAssertion, err := parseHeaderStateAssertion(
+		cfg.NeutrinoMode.AssertFilterHeader,
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	// With the database open, we can now create an instance of the
 	// neutrino light client. We pass in relevant configuration parameters
 	// required.
@@ -735,6 +743,7 @@ func initNeutrinoBackend(chainDir string) (*neutrino.ChainService, func(), error
 
 			return ips, nil
 		},
+		AssertFilterHeader: headerStateAssertion,
 	}
 
 	neutrino.MaxPeers = 8
@@ -757,4 +766,33 @@ func initNeutrinoBackend(chainDir string) (*neutrino.ChainService, func(), error
 	}
 
 	return neutrinoCS, cleanUp, nil
+}
+
+// parseHeaderStateAssertion parses the user-specified neutrino header state
+// into a headerfs.FilterHeader.
+func parseHeaderStateAssertion(state string) (*headerfs.FilterHeader, error) {
+	if len(state) == 0 {
+		return nil, nil
+	}
+
+	split := strings.Split(state, ":")
+	if len(split) != 2 {
+		return nil, fmt.Errorf("header state assertion %v in "+
+			"unexpected format, expected format height:hash", state)
+	}
+
+	height, err := strconv.ParseUint(split[0], 10, 32)
+	if err != nil {
+		return nil, fmt.Errorf("invalid filter header height: %v", err)
+	}
+
+	hash, err := chainhash.NewHashFromStr(split[1])
+	if err != nil {
+		return nil, fmt.Errorf("invalid filter header hash: %v", err)
+	}
+
+	return &headerfs.FilterHeader{
+		Height:     uint32(height),
+		FilterHash: *hash,
+	}, nil
 }

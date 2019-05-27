@@ -16,6 +16,10 @@ type mockFeeEstimator struct {
 
 	blocksToFee map[uint32]lnwallet.SatPerKWeight
 
+	// A closure that when set is used instead of the
+	// mockFeeEstimator.EstimateFeePerKW method.
+	estimateFeePerKW func(numBlocks uint32) (lnwallet.SatPerKWeight, error)
+
 	lock sync.Mutex
 }
 
@@ -44,6 +48,10 @@ func (e *mockFeeEstimator) EstimateFeePerKW(numBlocks uint32) (
 
 	e.lock.Lock()
 	defer e.lock.Unlock()
+
+	if e.estimateFeePerKW != nil {
+		return e.estimateFeePerKW(numBlocks)
+	}
 
 	if fee, ok := e.blocksToFee[numBlocks]; ok {
 		return fee, nil

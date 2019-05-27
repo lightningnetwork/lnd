@@ -320,7 +320,7 @@ type channelLink struct {
 
 	// htlcUpdates is a channel that we'll use to update outside
 	// sub-systems with the latest set of active HTLC's on our channel.
-	htlcUpdates chan []channeldb.HTLC
+	htlcUpdates chan *contractcourt.ContractUpdate
 
 	// logCommitTimer is a timer which is sent upon if we go an interval
 	// without receiving/sending a commitment update. It's role is to
@@ -372,7 +372,7 @@ func NewChannelLink(cfg ChannelLinkConfig,
 		// TODO(roasbeef): just do reserve here?
 		logCommitTimer: time.NewTimer(300 * time.Millisecond),
 		overflowQueue:  newPacketQueue(input.MaxHTLCNumber / 2),
-		htlcUpdates:    make(chan []channeldb.HTLC),
+		htlcUpdates:    make(chan *contractcourt.ContractUpdate),
 		hodlMap:        make(map[lntypes.Hash][]hodlHtlc),
 		hodlQueue:      queue.NewConcurrentQueue(10),
 		quit:           make(chan struct{}),
@@ -1721,7 +1721,10 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// of HTLC's on our commitment, so we'll send them over our
 		// HTLC update channel so any callers can be notified.
 		select {
-		case l.htlcUpdates <- currentHtlcs:
+		case l.htlcUpdates <- &contractcourt.ContractUpdate{
+			HtlcKey: contractcourt.LocalHtlcSet,
+			Htlcs:   currentHtlcs,
+		}:
 		case <-l.quit:
 			return
 		}
@@ -1761,11 +1764,25 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// We've received a revocation from the remote chain, if valid,
 		// this moves the remote chain forward, and expands our
 		// revocation window.
-		fwdPkg, adds, settleFails, err := l.channel.ReceiveRevocation(msg)
+		fwdPkg, adds, settleFails, remoteHTLCs, err := l.channel.ReceiveRevocation(
+			msg,
+		)
 		if err != nil {
 			// TODO(halseth): force close?
 			l.fail(LinkFailureError{code: ErrInvalidRevocation},
 				"unable to accept revocation: %v", err)
+			return
+		}
+
+		// The remote party now has a new primary commitment, so we'll
+		// update the contract court to be aware of this new set (the
+		// prior old remote pending).
+		select {
+		case l.htlcUpdates <- &contractcourt.ContractUpdate{
+			HtlcKey: contractcourt.RemoteHtlcSet,
+			Htlcs:   remoteHTLCs,
+		}:
+		case <-l.quit:
 			return
 		}
 
@@ -1894,7 +1911,7 @@ func (l *channelLink) updateCommitTx() error {
 		return nil
 	}
 
-	theirCommitSig, htlcSigs, err := l.channel.SignNextCommitment()
+	theirCommitSig, htlcSigs, pendingHTLCs, err := l.channel.SignNextCommitment()
 	if err == lnwallet.ErrNoWindow {
 		l.tracef("revocation window exhausted, unable to send: %v, "+
 			"dangling_opens=%v, dangling_closes%v",
@@ -1908,6 +1925,18 @@ func (l *channelLink) updateCommitTx() error {
 		return nil
 	} else if err != nil {
 		return err
+	}
+
+	// The remote party now has a new pending commitment, so we'll update
+	// the contract court to be aware of this new set (the prior old remote
+	// pending).
+	select {
+	case l.htlcUpdates <- &contractcourt.ContractUpdate{
+		HtlcKey: contractcourt.RemotePendingHtlcSet,
+		Htlcs:   pendingHTLCs,
+	}:
+	case <-l.quit:
+		return nil
 	}
 
 	if err := l.ackDownStreamPackets(); err != nil {

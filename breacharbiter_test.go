@@ -1946,7 +1946,7 @@ func createHTLC(data int, amount lnwire.MilliSatoshi) (*lnwire.UpdateAddHTLC, [3
 // pending updates.
 // TODO(conner) remove code duplication
 func forceStateTransition(chanA, chanB *lnwallet.LightningChannel) error {
-	aliceSig, aliceHtlcSigs, err := chanA.SignNextCommitment()
+	aliceSig, aliceHtlcSigs, _, err := chanA.SignNextCommitment()
 	if err != nil {
 		return err
 	}
@@ -1958,12 +1958,13 @@ func forceStateTransition(chanA, chanB *lnwallet.LightningChannel) error {
 	if err != nil {
 		return err
 	}
-	bobSig, bobHtlcSigs, err := chanB.SignNextCommitment()
+	bobSig, bobHtlcSigs, _, err := chanB.SignNextCommitment()
 	if err != nil {
 		return err
 	}
 
-	if _, _, _, err := chanA.ReceiveRevocation(bobRevocation); err != nil {
+	_, _, _, _, err = chanA.ReceiveRevocation(bobRevocation)
+	if err != nil {
 		return err
 	}
 	if err := chanA.ReceiveNewCommitment(bobSig, bobHtlcSigs); err != nil {
@@ -1974,7 +1975,8 @@ func forceStateTransition(chanA, chanB *lnwallet.LightningChannel) error {
 	if err != nil {
 		return err
 	}
-	if _, _, _, err := chanB.ReceiveRevocation(aliceRevocation); err != nil {
+	_, _, _, _, err = chanB.ReceiveRevocation(aliceRevocation)
+	if err != nil {
 		return err
 	}
 

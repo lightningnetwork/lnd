@@ -19,7 +19,6 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
-	"github.com/lightningnetwork/lnd/lnwire"
 )
 
 var (
@@ -565,133 +564,6 @@ func TestContractResolutionsStorage(t *testing.T) {
 	}
 }
 
-// TestChainActionStorage tests that were able to properly store a set of chain
-// actions, and then retrieve the same set of chain actions from disk.
-func TestChainActionStorage(t *testing.T) {
-	t.Parallel()
-
-	// First, we'll create a test instance of the ArbitratorLog
-	// implementation backed by boltdb.
-	testLog, cleanUp, err := newTestBoltArbLog(
-		testChainHash, testChanPoint2,
-	)
-	if err != nil {
-		t.Fatalf("unable to create test log: %v", err)
-	}
-	defer cleanUp()
-
-	chainActions := ChainActionMap{
-		NoAction: []channeldb.HTLC{
-			{
-				RHash:         testPreimage,
-				Amt:           lnwire.MilliSatoshi(prand.Uint64()),
-				RefundTimeout: prand.Uint32(),
-				OutputIndex:   int32(prand.Uint32()),
-				Incoming:      true,
-				HtlcIndex:     prand.Uint64(),
-				LogIndex:      prand.Uint64(),
-				OnionBlob:     make([]byte, 0),
-				Signature:     make([]byte, 0),
-			},
-		},
-		HtlcTimeoutAction: []channeldb.HTLC{
-			{
-				RHash:         testPreimage,
-				Amt:           lnwire.MilliSatoshi(prand.Uint64()),
-				RefundTimeout: prand.Uint32(),
-				OutputIndex:   int32(prand.Uint32()),
-				Incoming:      true,
-				HtlcIndex:     prand.Uint64(),
-				LogIndex:      prand.Uint64(),
-				OnionBlob:     make([]byte, 0),
-				Signature:     make([]byte, 0),
-			},
-		},
-		HtlcClaimAction: []channeldb.HTLC{
-			{
-				RHash:         testPreimage,
-				Amt:           lnwire.MilliSatoshi(prand.Uint64()),
-				RefundTimeout: prand.Uint32(),
-				OutputIndex:   int32(prand.Uint32()),
-				Incoming:      true,
-				HtlcIndex:     prand.Uint64(),
-				LogIndex:      prand.Uint64(),
-				OnionBlob:     make([]byte, 0),
-				Signature:     make([]byte, 0),
-			},
-		},
-		HtlcFailNowAction: []channeldb.HTLC{
-			{
-				RHash:         testPreimage,
-				Amt:           lnwire.MilliSatoshi(prand.Uint64()),
-				RefundTimeout: prand.Uint32(),
-				OutputIndex:   int32(prand.Uint32()),
-				Incoming:      true,
-				HtlcIndex:     prand.Uint64(),
-				LogIndex:      prand.Uint64(),
-				OnionBlob:     make([]byte, 0),
-				Signature:     make([]byte, 0),
-			},
-		},
-		HtlcOutgoingWatchAction: []channeldb.HTLC{
-			{
-				RHash:         testPreimage,
-				Amt:           lnwire.MilliSatoshi(prand.Uint64()),
-				RefundTimeout: prand.Uint32(),
-				OutputIndex:   int32(prand.Uint32()),
-				Incoming:      true,
-				HtlcIndex:     prand.Uint64(),
-				LogIndex:      prand.Uint64(),
-				OnionBlob:     make([]byte, 0),
-				Signature:     make([]byte, 0),
-			},
-		},
-		HtlcIncomingWatchAction: []channeldb.HTLC{
-			{
-				RHash:         testPreimage,
-				Amt:           lnwire.MilliSatoshi(prand.Uint64()),
-				RefundTimeout: prand.Uint32(),
-				OutputIndex:   int32(prand.Uint32()),
-				Incoming:      true,
-				HtlcIndex:     prand.Uint64(),
-				LogIndex:      prand.Uint64(),
-				OnionBlob:     make([]byte, 0),
-				Signature:     make([]byte, 0),
-			},
-		},
-	}
-
-	// With our set of test chain actions constructed, we'll now insert
-	// them into the database, retrieve them, then assert equality with the
-	// set of chain actions create above.
-	if err := testLog.LogChainActions(chainActions); err != nil {
-		t.Fatalf("unable to write chain actions: %v", err)
-	}
-	diskActions, err := testLog.FetchChainActions()
-	if err != nil {
-		t.Fatalf("unable to read chain actions: %v", err)
-	}
-
-	for k, contracts := range chainActions {
-		diskContracts := diskActions[k]
-		if !reflect.DeepEqual(contracts, diskContracts) {
-			t.Fatalf("chain action mismatch: expected %v, got %v",
-				spew.Sdump(contracts), spew.Sdump(diskContracts))
-		}
-	}
-
-	// We'll now delete the state, then attempt to retrieve the set of
-	// chain actions, no resolutions should be found.
-	if err := testLog.WipeHistory(); err != nil {
-		t.Fatalf("unable to wipe log: %v", err)
-	}
-	actions, err := testLog.FetchChainActions()
-	if len(actions) != 0 {
-		t.Fatalf("expected no chain actions, instead found: %v",
-			len(actions))
-	}
-}
-
 // TestStateMutation tests that we're able to properly mutate the state of the
 // log, then retrieve that same mutated state from disk.
 func TestStateMutation(t *testing.T) {
@@ -800,6 +672,62 @@ func TestScopeIsolation(t *testing.T) {
 		t.Fatalf("state mismatch: expected %v, got %v",
 			StateContractClosed, log2State)
 	}
+}
+
+// TestCommitSetStorage tests that we're able to properly read/write active
+// commitment sets.
+func TestCommitSetStorage(t *testing.T) {
+	t.Parallel()
+
+	testLog, cleanUp, err := newTestBoltArbLog(
+		testChainHash, testChanPoint1,
+	)
+	if err != nil {
+		t.Fatalf("unable to create test log: %v", err)
+	}
+	defer cleanUp()
+
+	activeHTLCs := []channeldb.HTLC{
+		{
+			Amt:       1000,
+			OnionBlob: make([]byte, 0),
+			Signature: make([]byte, 0),
+		},
+	}
+
+	confTypes := []HtlcSetKey{
+		LocalHtlcSet, RemoteHtlcSet, RemotePendingHtlcSet,
+	}
+	for _, pendingRemote := range []bool{true, false} {
+		for _, confType := range confTypes {
+			commitSet := &CommitSet{
+				ConfCommitKey: &confType,
+				HtlcSets:      make(map[HtlcSetKey][]channeldb.HTLC),
+			}
+			commitSet.HtlcSets[LocalHtlcSet] = activeHTLCs
+			commitSet.HtlcSets[RemoteHtlcSet] = activeHTLCs
+
+			if pendingRemote {
+				commitSet.HtlcSets[RemotePendingHtlcSet] = activeHTLCs
+			}
+
+			err := testLog.InsertConfirmedCommitSet(commitSet)
+			if err != nil {
+				t.Fatalf("unable to write commit set: %v", err)
+			}
+
+			diskCommitSet, err := testLog.FetchConfirmedCommitSet()
+			if err != nil {
+				t.Fatalf("unable to read commit set: %v", err)
+			}
+
+			if !reflect.DeepEqual(commitSet, diskCommitSet) {
+				t.Fatalf("commit set mismatch: expected %v, got %v",
+					spew.Sdump(commitSet), spew.Sdump(diskCommitSet))
+			}
+		}
+	}
+
 }
 
 func init() {

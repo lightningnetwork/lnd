@@ -68,6 +68,12 @@ func newHarnessTest(t *testing.T) *harnessTest {
 	return &harnessTest{t, nil}
 }
 
+// Skipf calls the underlying testing.T's Skip method, causing the current test
+// to be skipped.
+func (h *harnessTest) Skipf(format string, args ...interface{}) {
+	h.t.Skipf(format, args...)
+}
+
 // Fatalf causes the current active test case to fail with a fatal error. All
 // integration tests should mark test failures solely with this method due to
 // the error stack traces it produces.
@@ -713,7 +719,7 @@ func getChanInfo(ctx context.Context, node *lntest.HarnessNode) (
 	}
 	if len(channelInfo.Channels) != 1 {
 		return nil, fmt.Errorf("node should only have a single "+
-			"channel, instead he has %v", len(channelInfo.Channels))
+			"channel, instead it has %v", len(channelInfo.Channels))
 	}
 
 	return channelInfo.Channels[0], nil
@@ -972,8 +978,8 @@ func testBasicChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, false)
 }
 
-// testUnconfirmedChannelFunding tests that unconfirmed outputs that pay to us
-// can be used to fund channels.
+// testUnconfirmedChannelFunding tests that our unconfirmed change outputs can
+// be used to fund channels.
 func testUnconfirmedChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxb := context.Background()
 
@@ -989,11 +995,32 @@ func testUnconfirmedChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 	defer shutdownAndAssert(net, t, carol)
 
-	// We'll send her some funds that should not confirm.
+	// We'll send her some confirmed funds.
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	err = net.SendCoinsUnconfirmed(ctxt, 2*chanAmt, carol)
+	err = net.SendCoins(ctxt, 2*chanAmt, carol)
 	if err != nil {
 		t.Fatalf("unable to send coins to carol: %v", err)
+	}
+
+	// Now let Carol send some funds to herself, making a unconfirmed
+	// change output.
+	addrReq := &lnrpc.NewAddressRequest{
+		Type: lnrpc.AddressType_WITNESS_PUBKEY_HASH,
+	}
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	resp, err := carol.NewAddress(ctxt, addrReq)
+	if err != nil {
+		t.Fatalf("unable to get new address: %v", err)
+	}
+
+	sendReq := &lnrpc.SendCoinsRequest{
+		Addr:   resp.Address,
+		Amount: int64(chanAmt) / 5,
+	}
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	_, err = carol.SendCoins(ctxt, sendReq)
+	if err != nil {
+		t.Fatalf("unable to send coins: %v", err)
 	}
 
 	// Make sure the unconfirmed tx is seen in the mempool.
@@ -1760,10 +1787,16 @@ func assertMinerBlockHeightDelta(t *harnessTest,
 // channel where the funding tx gets reorged out, the channel will no
 // longer be present in the node's routing table.
 func testOpenChannelAfterReorg(net *lntest.NetworkHarness, t *harnessTest) {
+	// Skip test for neutrino, as we cannot disconnect the miner at will.
+	// TODO(halseth): remove when either can disconnect at will, or restart
+	// node with connection to new miner.
+	if net.BackendCfg.Name() == "neutrino" {
+		t.Skipf("skipping reorg test for neutrino backend")
+	}
+
 	var (
 		ctxb = context.Background()
 		temp = "temp"
-		perm = "perm"
 	)
 
 	// Set up a new miner that we can use to cause a reorg.
@@ -1901,9 +1934,7 @@ func testOpenChannelAfterReorg(net *lntest.NetworkHarness, t *harnessTest) {
 	// Now we disconnect Alice's chain backend from the original miner, and
 	// connect the two miners together. Since the temporary miner knows
 	// about a longer chain, both miners should sync to that chain.
-	err = net.Miner.Node.Node(
-		btcjson.NRemove, net.BackendCfg.P2PAddr(), &perm,
-	)
+	err = net.BackendCfg.DisconnectMiner()
 	if err != nil {
 		t.Fatalf("unable to remove node: %v", err)
 	}
@@ -1934,9 +1965,7 @@ func testOpenChannelAfterReorg(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to remove node: %v", err)
 	}
 
-	err = net.Miner.Node.Node(
-		btcjson.NConnect, net.BackendCfg.P2PAddr(), &perm,
-	)
+	err = net.BackendCfg.ConnectMiner()
 	if err != nil {
 		t.Fatalf("unable to remove node: %v", err)
 	}
@@ -13316,13 +13345,6 @@ var testsCases = []*testCase{
 func TestLightningNetworkDaemon(t *testing.T) {
 	ht := newHarnessTest(t)
 
-	// Start a btcd chain backend.
-	chainBackend, cleanUp, err := lntest.NewBtcdBackend()
-	if err != nil {
-		ht.Fatalf("unable to start btcd: %v", err)
-	}
-	defer cleanUp()
-
 	// Declare the network harness here to gain access to its
 	// 'OnTxAccepted' call back.
 	var lndHarness *lntest.NetworkHarness
@@ -13343,7 +13365,6 @@ func TestLightningNetworkDaemon(t *testing.T) {
 		"--debuglevel=debug",
 		"--logdir=" + minerLogDir,
 		"--trickleinterval=100ms",
-		"--connect=" + chainBackend.P2PAddr(),
 	}
 	handlers := &rpcclient.NotificationHandlers{
 		OnTxAccepted: func(hash *chainhash.Hash, amt btcutil.Amount) {
@@ -13372,6 +13393,13 @@ func TestLightningNetworkDaemon(t *testing.T) {
 				minerLogDir, err)
 		}
 	}()
+
+	// Start a chain backend.
+	chainBackend, cleanUp, err := lntest.NewBackend(miner.P2PAddress())
+	if err != nil {
+		ht.Fatalf("unable to start backend: %v", err)
+	}
+	defer cleanUp()
 
 	if err := miner.SetUp(true, 50); err != nil {
 		ht.Fatalf("unable to set up mining node: %v", err)

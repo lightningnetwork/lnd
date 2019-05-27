@@ -99,9 +99,14 @@ type BackendConfig interface {
 	// for using this node as a chain backend.
 	GenArgs() []string
 
-	// P2PAddr returns the address of this node to be used when connection
-	// over the Bitcoin P2P network.
-	P2PAddr() string
+	// ConnectMiner is called to establish a connection to the test miner.
+	ConnectMiner() error
+
+	// DisconnectMiner is called to bitconneeeect the miner.
+	DisconnectMiner() error
+
+	// Name returns the name of the backend type.
+	Name() string
 }
 
 type nodeConfig struct {

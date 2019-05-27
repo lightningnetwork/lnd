@@ -1,7 +1,7 @@
 language: go
 cache:
   directories:
-    - ~/bitcoin/bitcoin-0.17.1/bin
+    - ~/bitcoin/bitcoin-0.18.0/bin
     - $GOCACHE
     - $GOPATH/pkg/mod
     - $GOPATH/src/github.com/btcsuite

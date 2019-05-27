@@ -93,7 +93,7 @@ func TestQueryRoutes(t *testing.T) {
 			t.Fatal("unexpected ignored node")
 		}
 
-		hops := []*route.Hop{&route.Hop{}}
+		hops := []*route.Hop{{}}
 		return route.NewRouteFromHops(amt, 144, source, hops)
 	}
 

@@ -113,6 +113,13 @@ func (b *MultiFile) UpdateAndSwap(newBackup PackedMulti) error {
 	log.Infof("Swapping old multi backup file from %v to %v",
 		b.tempFileName, b.fileName)
 
+	// Before we rename the swap (atomic name swap), we'll make
+	// sure to close the current file as some OSes don't support
+	// renaming a file that's already open (Windows).
+	if err := b.tempFile.Close(); err != nil {
+		return fmt.Errorf("unable to close file: %v", err)
+	}
+
 	// Finally, we'll attempt to atomically rename the temporary file to
 	// the main back up file. If this succeeds, then we'll only have a
 	// single file on disk once this method exits.

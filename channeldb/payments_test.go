@@ -10,6 +10,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
@@ -36,7 +37,7 @@ var (
 	}
 )
 
-func makeFakePayment() *OutgoingPayment {
+func makeFakePayment() *outgoingPayment {
 	fakeInvoice := &Invoice{
 		// Use single second precision to avoid false positive test
 		// failures due to the monotonic time component.
@@ -54,7 +55,7 @@ func makeFakePayment() *OutgoingPayment {
 		copy(fakePath[i][:], bytes.Repeat([]byte{byte(i)}, 33))
 	}
 
-	fakePayment := &OutgoingPayment{
+	fakePayment := &outgoingPayment{
 		Invoice:        *fakeInvoice,
 		Fee:            101,
 		Path:           fakePath,
@@ -62,6 +63,27 @@ func makeFakePayment() *OutgoingPayment {
 	}
 	copy(fakePayment.PaymentPreimage[:], rev[:])
 	return fakePayment
+}
+
+func makeFakeInfo() (*PaymentCreationInfo, *PaymentAttemptInfo) {
+	var preimg lntypes.Preimage
+	copy(preimg[:], rev[:])
+
+	c := &PaymentCreationInfo{
+		PaymentHash: preimg.Hash(),
+		Value:       1000,
+		// Use single second precision to avoid false positive test
+		// failures due to the monotonic time component.
+		CreationDate:   time.Unix(time.Now().Unix(), 0),
+		PaymentRequest: []byte(""),
+	}
+
+	a := &PaymentAttemptInfo{
+		PaymentID:  44,
+		SessionKey: priv,
+		Route:      testRoute,
+	}
+	return c, a
 }
 
 func makeFakePaymentHash() [32]byte {
@@ -84,7 +106,7 @@ func randomBytes(minLen, maxLen int) ([]byte, error) {
 	return randBuf, nil
 }
 
-func makeRandomFakePayment() (*OutgoingPayment, error) {
+func makeRandomFakePayment() (*outgoingPayment, error) {
 	var err error
 	fakeInvoice := &Invoice{
 		// Use single second precision to avoid false positive test
@@ -102,7 +124,10 @@ func makeRandomFakePayment() (*OutgoingPayment, error) {
 		return nil, err
 	}
 
-	fakeInvoice.PaymentRequest = []byte("")
+	fakeInvoice.PaymentRequest, err = randomBytes(1, 50)
+	if err != nil {
+		return nil, err
+	}
 
 	preImg, err := randomBytes(32, 33)
 	if err != nil {
@@ -122,7 +147,7 @@ func makeRandomFakePayment() (*OutgoingPayment, error) {
 		copy(fakePath[i][:], b)
 	}
 
-	fakePayment := &OutgoingPayment{
+	fakePayment := &outgoingPayment{
 		Invoice:        *fakeInvoice,
 		Fee:            lnwire.MilliSatoshi(rand.Intn(1001)),
 		Path:           fakePath,
@@ -133,147 +158,45 @@ func makeRandomFakePayment() (*OutgoingPayment, error) {
 	return fakePayment, nil
 }
 
-func TestOutgoingPaymentSerialization(t *testing.T) {
+func TestSentPaymentSerialization(t *testing.T) {
 	t.Parallel()
 
-	fakePayment := makeFakePayment()
+	c, s := makeFakeInfo()
 
 	var b bytes.Buffer
-	if err := serializeOutgoingPayment(&b, fakePayment); err != nil {
-		t.Fatalf("unable to serialize outgoing payment: %v", err)
+	if err := serializePaymentCreationInfo(&b, c); err != nil {
+		t.Fatalf("unable to serialize creation info: %v", err)
 	}
 
-	newPayment, err := deserializeOutgoingPayment(&b)
+	newCreationInfo, err := deserializePaymentCreationInfo(&b)
 	if err != nil {
-		t.Fatalf("unable to deserialize outgoing payment: %v", err)
+		t.Fatalf("unable to deserialize creation info: %v", err)
 	}
 
-	if !reflect.DeepEqual(fakePayment, newPayment) {
+	if !reflect.DeepEqual(c, newCreationInfo) {
 		t.Fatalf("Payments do not match after "+
 			"serialization/deserialization %v vs %v",
-			spew.Sdump(fakePayment),
-			spew.Sdump(newPayment),
-		)
-	}
-}
-
-func TestOutgoingPaymentWorkflow(t *testing.T) {
-	t.Parallel()
-
-	db, cleanUp, err := makeTestDB()
-	defer cleanUp()
-	if err != nil {
-		t.Fatalf("unable to make test db: %v", err)
-	}
-
-	fakePayment := makeFakePayment()
-	if err = db.AddPayment(fakePayment); err != nil {
-		t.Fatalf("unable to put payment in DB: %v", err)
-	}
-
-	payments, err := db.FetchAllPayments()
-	if err != nil {
-		t.Fatalf("unable to fetch payments from DB: %v", err)
-	}
-
-	expectedPayments := []*OutgoingPayment{fakePayment}
-	if !reflect.DeepEqual(payments, expectedPayments) {
-		t.Fatalf("Wrong payments after reading from DB."+
-			"Got %v, want %v",
-			spew.Sdump(payments),
-			spew.Sdump(expectedPayments),
+			spew.Sdump(c), spew.Sdump(newCreationInfo),
 		)
 	}
 
-	// Make some random payments
-	for i := 0; i < 5; i++ {
-		randomPayment, err := makeRandomFakePayment()
-		if err != nil {
-			t.Fatalf("Internal error in tests: %v", err)
-		}
-
-		if err = db.AddPayment(randomPayment); err != nil {
-			t.Fatalf("unable to put payment in DB: %v", err)
-		}
-
-		expectedPayments = append(expectedPayments, randomPayment)
+	b.Reset()
+	if err := serializePaymentAttemptInfo(&b, s); err != nil {
+		t.Fatalf("unable to serialize info: %v", err)
 	}
 
-	payments, err = db.FetchAllPayments()
+	newAttemptInfo, err := deserializePaymentAttemptInfo(&b)
 	if err != nil {
-		t.Fatalf("Can't get payments from DB: %v", err)
+		t.Fatalf("unable to deserialize info: %v", err)
 	}
 
-	if !reflect.DeepEqual(payments, expectedPayments) {
-		t.Fatalf("Wrong payments after reading from DB."+
-			"Got %v, want %v",
-			spew.Sdump(payments),
-			spew.Sdump(expectedPayments),
+	if !reflect.DeepEqual(s, newAttemptInfo) {
+		t.Fatalf("Payments do not match after "+
+			"serialization/deserialization %v vs %v",
+			spew.Sdump(s), spew.Sdump(newAttemptInfo),
 		)
 	}
 
-	// Delete all payments.
-	if err = db.DeleteAllPayments(); err != nil {
-		t.Fatalf("unable to delete payments from DB: %v", err)
-	}
-
-	// Check that there is no payments after deletion
-	paymentsAfterDeletion, err := db.FetchAllPayments()
-	if err != nil {
-		t.Fatalf("Can't get payments after deletion: %v", err)
-	}
-	if len(paymentsAfterDeletion) != 0 {
-		t.Fatalf("After deletion DB has %v payments, want %v",
-			len(paymentsAfterDeletion), 0)
-	}
-}
-
-func TestPaymentStatusWorkflow(t *testing.T) {
-	t.Parallel()
-
-	db, cleanUp, err := makeTestDB()
-	defer cleanUp()
-	if err != nil {
-		t.Fatalf("unable to make test db: %v", err)
-	}
-
-	testCases := []struct {
-		paymentHash [32]byte
-		status      PaymentStatus
-	}{
-		{
-			paymentHash: makeFakePaymentHash(),
-			status:      StatusGrounded,
-		},
-		{
-			paymentHash: makeFakePaymentHash(),
-			status:      StatusInFlight,
-		},
-		{
-			paymentHash: makeFakePaymentHash(),
-			status:      StatusCompleted,
-		},
-	}
-
-	for _, testCase := range testCases {
-		err := db.UpdatePaymentStatus(testCase.paymentHash, testCase.status)
-		if err != nil {
-			t.Fatalf("unable to put payment in DB: %v", err)
-		}
-
-		status, err := db.FetchPaymentStatus(testCase.paymentHash)
-		if err != nil {
-			t.Fatalf("unable to fetch payments from DB: %v", err)
-		}
-
-		if status != testCase.status {
-			t.Fatalf("Wrong payments status after reading from DB."+
-				"Got %v, want %v",
-				spew.Sdump(status),
-				spew.Sdump(testCase.status),
-			)
-		}
-	}
 }
 
 func TestRouteSerialization(t *testing.T) {

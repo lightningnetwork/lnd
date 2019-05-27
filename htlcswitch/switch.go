@@ -208,9 +208,6 @@ type Switch struct {
 	pendingPayments map[uint64]*pendingPayment
 	pendingMutex    sync.RWMutex
 
-	// control provides verification of sending htlc mesages
-	control ControlTower
-
 	// circuits is storage for payment circuits which are used to
 	// forward the settle/fail htlc updates back to the add htlc initiator.
 	circuits CircuitMap
@@ -290,7 +287,6 @@ func New(cfg Config, currentHeight uint32) (*Switch, error) {
 		bestHeight:        currentHeight,
 		cfg:               &cfg,
 		circuits:          circuitMap,
-		control:           NewPaymentControl(false, cfg.DB),
 		linkIndex:         make(map[lnwire.ChannelID]ChannelLink),
 		mailOrchestrator:  newMailOrchestrator(),
 		forwardingIndex:   make(map[lnwire.ShortChannelID]ChannelLink),
@@ -402,13 +398,6 @@ func (s *Switch) GetPaymentResult(paymentID uint64,
 func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID, paymentID uint64,
 	htlc *lnwire.UpdateAddHTLC) error {
 
-	// Before sending, double check that we don't already have 1) an
-	// in-flight payment to this payment hash, or 2) a complete payment for
-	// the same hash.
-	if err := s.control.ClearForTakeoff(htlc); err != nil {
-		return err
-	}
-
 	// Create payment and add to the map of payment in order later to be
 	// able to retrieve it and return response to the user.
 	payment := &pendingPayment{
@@ -439,10 +428,6 @@ func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID, paymentID uint64,
 
 	if err := s.forward(packet); err != nil {
 		s.removePendingPayment(paymentID)
-		if err := s.control.Fail(htlc.PaymentHash); err != nil {
-			return err
-		}
-
 		return err
 	}
 
@@ -939,15 +924,6 @@ func (s *Switch) extractResult(deobfuscator ErrorDecrypter, n *networkResult,
 	// We've received a settle update which means we can finalize the user
 	// payment and return successful response.
 	case *lnwire.UpdateFulfillHTLC:
-		// Persistently mark that a payment to this payment hash
-		// succeeded. This will prevent us from ever making another
-		// payment to this hash.
-		err := s.control.Success(paymentHash)
-		if err != nil && err != ErrPaymentAlreadyCompleted {
-			return nil, fmt.Errorf("Unable to mark completed "+
-				"payment %x: %v", paymentHash, err)
-		}
-
 		return &PaymentResult{
 			Preimage: htlc.PaymentPreimage,
 		}, nil
@@ -955,14 +931,6 @@ func (s *Switch) extractResult(deobfuscator ErrorDecrypter, n *networkResult,
 	// We've received a fail update which means we can finalize the
 	// user payment and return fail response.
 	case *lnwire.UpdateFailHTLC:
-		// Persistently mark that a payment to this payment hash
-		// failed. This will permit us to make another attempt at a
-		// successful payment.
-		err := s.control.Fail(paymentHash)
-		if err != nil && err != ErrPaymentAlreadyCompleted {
-			return nil, fmt.Errorf("Unable to ground payment "+
-				"%x: %v", paymentHash, err)
-		}
 		paymentErr := s.parseFailedPayment(
 			deobfuscator, paymentID, paymentHash, n.unencrypted,
 			n.isResolution, htlc,

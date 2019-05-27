@@ -147,6 +147,28 @@ type PaymentAttemptDispatcher interface {
 		<-chan *htlcswitch.PaymentResult, error)
 }
 
+// PaymentSessionSource is an interface that defines a source for the router to
+// retrive new payment sessions.
+type PaymentSessionSource interface {
+	// NewPaymentSession creates a new payment session that will produce
+	// routes to the given target. An optional set of routing hints can be
+	// provided in order to populate additional edges to explore when
+	// finding a path to the payment's destination.
+	NewPaymentSession(routeHints [][]zpay32.HopHint,
+		target route.Vertex) (PaymentSession, error)
+
+	// NewPaymentSessionForRoute creates a new paymentSession instance that
+	// is just used for failure reporting to missioncontrol, and will only
+	// attempt the given route.
+	NewPaymentSessionForRoute(preBuiltRoute *route.Route) PaymentSession
+
+	// NewPaymentSessionEmpty creates a new paymentSession instance that is
+	// empty, and will be exhausted immediately. Used for failure reporting
+	// to missioncontrol for resumed payment we don't want to make more
+	// attempts for.
+	NewPaymentSessionEmpty() PaymentSession
+}
+
 // FeeSchema is the set fee configuration for a Lightning Node on the network.
 // Using the coefficients described within the schema, the required fee to
 // forward outgoing payments can be derived.
@@ -198,6 +220,19 @@ type Config struct {
 	// the router to send payment attempts onto the network, and receive
 	// their results.
 	Payer PaymentAttemptDispatcher
+
+	// Control keeps track of the status of ongoing payments, ensuring we
+	// can properly resume them across restarts.
+	Control channeldb.ControlTower
+
+	// MissionControl is a shared memory of sorts that executions of
+	// payment path finding use in order to remember which vertexes/edges
+	// were pruned from prior attempts. During SendPayment execution,
+	// errors sent by nodes are mapped into a vertex or edge to be pruned.
+	// Each run will then take into account this set of pruned
+	// vertexes/edges to reduce route failure and pass on graph information
+	// gained to the next execution.
+	MissionControl PaymentSessionSource
 
 	// ChannelPruneExpiry is the duration used to determine if a channel
 	// should be pruned or not. If the delta between now and when the
@@ -338,15 +373,6 @@ type ChannelRouter struct {
 	// existing client.
 	ntfnClientUpdates chan *topologyClientUpdate
 
-	// missionControl is a shared memory of sorts that executions of
-	// payment path finding use in order to remember which vertexes/edges
-	// were pruned from prior attempts. During SendPayment execution,
-	// errors sent by nodes are mapped into a vertex or edge to be pruned.
-	// Each run will then take into account this set of pruned
-	// vertexes/edges to reduce route failure and pass on graph information
-	// gained to the next execution.
-	missionControl *missionControl
-
 	// channelEdgeMtx is a mutex we use to make sure we process only one
 	// ChannelEdgePolicy at a time for a given channelID, to ensure
 	// consistency between the various database accesses.
@@ -387,10 +413,6 @@ func New(cfg Config) (*ChannelRouter, error) {
 		rejectCache:       make(map[uint64]struct{}),
 		quit:              make(chan struct{}),
 	}
-
-	r.missionControl = newMissionControl(
-		cfg.Graph, selfNode, cfg.QueryBandwidth,
-	)
 
 	return r, nil
 }
@@ -486,6 +508,40 @@ func (r *ChannelRouter) Start() error {
 		if err != nil && err != channeldb.ErrGraphNodesNotFound {
 			return err
 		}
+	}
+
+	// If any payments are still in flight, we resume, to make sure their
+	// results are properly handled.
+	payments, err := r.cfg.Control.FetchInFlightPayments()
+	if err != nil {
+		return err
+	}
+
+	for _, payment := range payments {
+		log.Infof("Resuming payment with hash %v", payment.Info.PaymentHash)
+		r.wg.Add(1)
+		go func(payment *channeldb.InFlightPayment) {
+			defer r.wg.Done()
+
+			// We create a dummy, empty payment session such that
+			// we won't make another payment attempt when the
+			// result for the in-flight attempt is received.
+			paySession := r.cfg.MissionControl.NewPaymentSessionEmpty()
+
+			lPayment := &LightningPayment{
+				PaymentHash: payment.Info.PaymentHash,
+			}
+
+			_, _, err = r.sendPayment(payment.Attempt, lPayment, paySession)
+			if err != nil {
+				log.Errorf("Resuming payment with hash %v "+
+					"failed: %v.", payment.Info.PaymentHash, err)
+				return
+			}
+
+			log.Infof("Resumed payment with hash %v completed.",
+				payment.Info.PaymentHash)
+		}(payment)
 	}
 
 	r.wg.Add(1)
@@ -1513,6 +1569,7 @@ type LightningPayment struct {
 	// when we should should abandon the payment attempt after consecutive
 	// payment failure. This prevents us from attempting to send a payment
 	// indefinitely.
+	// TODO(halseth): make wallclock time to allow resume after startup.
 	PayAttemptTimeout time.Duration
 
 	// RouteHints represents the different routing hints that can be used to
@@ -1543,14 +1600,30 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *route
 	// Before starting the HTLC routing attempt, we'll create a fresh
 	// payment session which will report our errors back to mission
 	// control.
-	paySession, err := r.missionControl.NewPaymentSession(
+	paySession, err := r.cfg.MissionControl.NewPaymentSession(
 		payment.RouteHints, payment.Target,
 	)
 	if err != nil {
 		return [32]byte{}, nil, err
 	}
 
-	return r.sendPayment(payment, paySession)
+	// Record this payment hash with the ControlTower, ensuring it is not
+	// already in-flight.
+	info := &channeldb.PaymentCreationInfo{
+		PaymentHash:    payment.PaymentHash,
+		Value:          payment.Amount,
+		CreationDate:   time.Now(),
+		PaymentRequest: nil,
+	}
+
+	err = r.cfg.Control.InitPayment(payment.PaymentHash, info)
+	if err != nil {
+		return [32]byte{}, nil, err
+	}
+
+	// Since this is the first time this payment is being made, we pass nil
+	// for the existing attempt.
+	return r.sendPayment(nil, payment, paySession)
 }
 
 // SendToRoute attempts to send a payment with the given hash through the
@@ -1560,7 +1633,7 @@ func (r *ChannelRouter) SendToRoute(hash lntypes.Hash, route *route.Route) (
 	lntypes.Preimage, error) {
 
 	// Create a payment session for just this route.
-	paySession := r.missionControl.NewPaymentSessionForRoute(route)
+	paySession := r.cfg.MissionControl.NewPaymentSessionForRoute(route)
 
 	// Create a (mostly) dummy payment, as the created payment session is
 	// not going to do path finding.
@@ -1568,8 +1641,23 @@ func (r *ChannelRouter) SendToRoute(hash lntypes.Hash, route *route.Route) (
 		PaymentHash: hash,
 	}
 
-	preimage, _, err := r.sendPayment(payment, paySession)
+	// Record this payment hash with the ControlTower, ensuring it is not
+	// already in-flight.
+	info := &channeldb.PaymentCreationInfo{
+		PaymentHash:    payment.PaymentHash,
+		Value:          payment.Amount,
+		CreationDate:   time.Now(),
+		PaymentRequest: nil,
+	}
 
+	err := r.cfg.Control.InitPayment(payment.PaymentHash, info)
+	if err != nil {
+		return [32]byte{}, err
+	}
+
+	// Since this is the first time this payment is being made, we pass nil
+	// for the existing attempt.
+	preimage, _, err := r.sendPayment(nil, payment, paySession)
 	return preimage, err
 }
 
@@ -1580,8 +1668,19 @@ func (r *ChannelRouter) SendToRoute(hash lntypes.Hash, route *route.Route) (
 // will be returned which describes the path the successful payment traversed
 // within the network to reach the destination. Additionally, the payment
 // preimage will also be returned.
-func (r *ChannelRouter) sendPayment(payment *LightningPayment,
-	paySession *paymentSession) ([32]byte, *route.Route, error) {
+//
+// The existing attempt argument should be set to nil if this is a payment that
+// haven't had any payment attempt sent to the switch yet. If it has had an
+// attempt already, it should be passed such that the result can be retrieved.
+//
+// This method relies on the ControlTower's internal payment state machine to
+// carry out its execution. After restarts it is safe, and assumed, that the
+// router will call this method for every payment still in-flight according to
+// the ControlTower.
+func (r *ChannelRouter) sendPayment(
+	existingAttempt *channeldb.PaymentAttemptInfo,
+	payment *LightningPayment, paySession PaymentSession) (
+	[32]byte, *route.Route, error) {
 
 	log.Tracef("Dispatching route for lightning payment: %v",
 		newLogClosure(func() string {
@@ -1617,171 +1716,22 @@ func (r *ChannelRouter) sendPayment(payment *LightningPayment,
 
 	timeoutChan := time.After(payAttemptTimeout)
 
-	// We'll continue until either our payment succeeds, or we encounter a
-	// critical error during path finding.
-	var lastError error
-	for {
-		// Before we attempt this next payment, we'll check to see if
-		// either we've gone past the payment attempt timeout, or the
-		// router is exiting. In either case, we'll stop this payment
-		// attempt short.
-		select {
-		case <-timeoutChan:
-			errStr := fmt.Sprintf("payment attempt not completed "+
-				"before timeout of %v", payAttemptTimeout)
-
-			return [32]byte{}, nil, newErr(
-				ErrPaymentAttemptTimeout, errStr,
-			)
-
-		case <-r.quit:
-			return [32]byte{}, nil, ErrRouterShuttingDown
-
-		default:
-			// Fall through if we haven't hit our time limit, or
-			// are expiring.
-		}
-
-		route, err := paySession.RequestRoute(
-			payment, uint32(currentHeight), finalCLTVDelta,
-		)
-		if err != nil {
-			// If we're unable to successfully make a payment using
-			// any of the routes we've found, then return an error.
-			if lastError != nil {
-				return [32]byte{}, nil, fmt.Errorf("unable to "+
-					"route payment to destination: %v",
-					lastError)
-			}
-
-			return [32]byte{}, nil, err
-		}
-
-		// Send payment attempt. It will return a final boolean
-		// indicating if more attempts are needed.
-		preimage, final, err := r.sendPaymentAttempt(
-			paySession, route, payment.PaymentHash,
-		)
-		if final {
-			return preimage, route, err
-		}
-
-		lastError = err
-	}
-}
-
-// sendPaymentAttempt tries to send the payment via the specified route. If
-// successful, it returns the obtained preimage. If an error occurs, the last
-// bool parameter indicates whether this is a final outcome or more attempts
-// should be made.
-func (r *ChannelRouter) sendPaymentAttempt(paySession *paymentSession,
-	route *route.Route, paymentHash [32]byte) ([32]byte, bool, error) {
-
-	log.Tracef("Attempting to send payment %x, using route: %v",
-		paymentHash, newLogClosure(func() string {
-			return spew.Sdump(route)
-		}),
-	)
-
-	// Generate a new key to be used for this attempt.
-	sessionKey, err := generateNewSessionKey()
-	if err != nil {
-		return [32]byte{}, true, err
-	}
-	// Generate the raw encoded sphinx packet to be included along
-	// with the htlcAdd message that we send directly to the
-	// switch.
-	onionBlob, circuit, err := generateSphinxPacket(
-		route, paymentHash[:], sessionKey,
-	)
-	if err != nil {
-		return [32]byte{}, true, err
+	// Now set up a paymentLifecycle struct with these params, such that we
+	// can resume the payment from the current state.
+	p := &paymentLifecycle{
+		router:         r,
+		payment:        payment,
+		paySession:     paySession,
+		timeoutChan:    timeoutChan,
+		currentHeight:  currentHeight,
+		finalCLTVDelta: finalCLTVDelta,
+		attempt:        existingAttempt,
+		circuit:        nil,
+		lastError:      nil,
 	}
 
-	// Craft an HTLC packet to send to the layer 2 switch. The
-	// metadata within this packet will be used to route the
-	// payment through the network, starting with the first-hop.
-	htlcAdd := &lnwire.UpdateAddHTLC{
-		Amount:      route.TotalAmount,
-		Expiry:      route.TotalTimeLock,
-		PaymentHash: paymentHash,
-	}
-	copy(htlcAdd.OnionBlob[:], onionBlob)
+	return p.resumePayment()
 
-	// Attempt to send this payment through the network to complete
-	// the payment. If this attempt fails, then we'll continue on
-	// to the next available route.
-	firstHop := lnwire.NewShortChanIDFromInt(
-		route.Hops[0].ChannelID,
-	)
-
-	// We generate a new, unique payment ID that we will use for
-	// this HTLC.
-	paymentID, err := r.cfg.NextPaymentID()
-	if err != nil {
-		return [32]byte{}, true, err
-	}
-
-	err = r.cfg.Payer.SendHTLC(
-		firstHop, paymentID, htlcAdd,
-	)
-	if err != nil {
-		log.Errorf("Failed sending attempt %d for payment %x to "+
-			"switch: %v", paymentID, paymentHash, err)
-
-		// We must inspect the error to know whether it was critical or
-		// not, to decide whether we should continue trying.
-		finalOutcome := r.processSendError(
-			paySession, route, err,
-		)
-
-		return [32]byte{}, finalOutcome, err
-	}
-
-	// Using the created circuit, initialize the error decrypter so we can
-	// parse+decode any failures incurred by this payment within the
-	// switch.
-	errorDecryptor := &htlcswitch.SphinxErrorDecrypter{
-		OnionErrorDecrypter: sphinx.NewOnionErrorDecrypter(circuit),
-	}
-
-	// Now ask the switch to return the result of the payment when
-	// available.
-	resultChan, err := r.cfg.Payer.GetPaymentResult(
-		paymentID, errorDecryptor,
-	)
-	if err != nil {
-		log.Errorf("Failed getting result for paymentID %d "+
-			"from switch: %v", paymentID, err)
-		return [32]byte{}, true, err
-	}
-
-	var (
-		result *htlcswitch.PaymentResult
-		ok     bool
-	)
-	select {
-	case result, ok = <-resultChan:
-		if !ok {
-			return [32]byte{}, true, htlcswitch.ErrSwitchExiting
-		}
-
-	case <-r.quit:
-		return [32]byte{}, true, ErrRouterShuttingDown
-	}
-
-	if result.Error != nil {
-		log.Errorf("Attempt to send payment %x failed: %v",
-			paymentHash, result.Error)
-
-		finalOutcome := r.processSendError(
-			paySession, route, result.Error,
-		)
-
-		return [32]byte{}, finalOutcome, result.Error
-	}
-
-	return result.Preimage, true, nil
 }
 
 // processSendError analyzes the error for the payment attempt received from the
@@ -1789,7 +1739,7 @@ func (r *ChannelRouter) sendPaymentAttempt(paySession *paymentSession,
 // error type, this error is either the final outcome of the payment or we need
 // to continue with an alternative route. This is indicated by the boolean
 // return value.
-func (r *ChannelRouter) processSendError(paySession *paymentSession,
+func (r *ChannelRouter) processSendError(paySession PaymentSession,
 	rt *route.Route, err error) bool {
 
 	fErr, ok := err.(*htlcswitch.ForwardingError)

@@ -1606,6 +1606,45 @@ type LightningPayment struct {
 func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte,
 	*route.Route, error) {
 
+	paySession, err := r.preparePayment(payment)
+	if err != nil {
+		return [32]byte{}, nil, err
+	}
+
+	// Since this is the first time this payment is being made, we pass nil
+	// for the existing attempt.
+	return r.sendPayment(nil, payment, paySession)
+}
+
+// SendPaymentAsync is the non-blocking version of SendPayment. The payment
+// result needs to be retrieved via the control tower.
+func (r *ChannelRouter) SendPaymentAsync(payment *LightningPayment) error {
+	paySession, err := r.preparePayment(payment)
+	if err != nil {
+		return err
+	}
+
+	// Since this is the first time this payment is being made, we pass nil
+	// for the existing attempt.
+	r.wg.Add(1)
+	go func() {
+		defer r.wg.Done()
+
+		_, _, err := r.sendPayment(nil, payment, paySession)
+		if err != nil {
+			log.Errorf("Payment with hash %x failed: %v",
+				payment.PaymentHash, err)
+		}
+	}()
+
+	return nil
+}
+
+// preparePayment creates the payment session and registers the payment with the
+// control tower.
+func (r *ChannelRouter) preparePayment(payment *LightningPayment) (
+	PaymentSession, error) {
+
 	// Before starting the HTLC routing attempt, we'll create a fresh
 	// payment session which will report our errors back to mission
 	// control.
@@ -1613,7 +1652,7 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte,
 		payment.RouteHints, payment.Target,
 	)
 	if err != nil {
-		return [32]byte{}, nil, err
+		return nil, err
 	}
 
 	// Record this payment hash with the ControlTower, ensuring it is not
@@ -1627,12 +1666,10 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte,
 
 	err = r.cfg.Control.InitPayment(payment.PaymentHash, info)
 	if err != nil {
-		return [32]byte{}, nil, err
+		return nil, err
 	}
 
-	// Since this is the first time this payment is being made, we pass nil
-	// for the existing attempt.
-	return r.sendPayment(nil, payment, paySession)
+	return paySession, nil
 }
 
 // SendToRoute attempts to send a payment with the given hash through the

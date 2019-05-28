@@ -8,6 +8,9 @@ import (
 // HashSize of array used to store hashes.
 const HashSize = 32
 
+// ZeroHash is a predefined hash containing all zeroes.
+var ZeroHash Hash
+
 // Hash is used in several of the lightning messages and common structures. It
 // typically represents a payment hash.
 type Hash [HashSize]byte

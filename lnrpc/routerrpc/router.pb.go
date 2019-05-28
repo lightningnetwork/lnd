@@ -566,41 +566,47 @@ func (m *Failure) GetFlags() uint32 {
 }
 
 type ChannelUpdate struct {
-	// Signature is used to validate the announced data and prove the
-	// ownership of node id.
+	//*
+	//The signature that validates the announced data and proves the ownership
+	//of node id.
 	Signature []byte `protobuf:"bytes,1,opt,name=signature,proto3" json:"signature,omitempty"`
-	// ChainHash denotes the target chain that this channel was opened
-	// within. This value should be the genesis hash of the target chain.
-	// Along with the short channel ID, this uniquely identifies the
-	// channel globally in a blockchain.
+	//*
+	//The target chain that this channel was opened within. This value
+	//should be the genesis hash of the target chain. Along with the short
+	//channel ID, this uniquely identifies the channel globally in a
+	//blockchain.
 	ChainHash []byte `protobuf:"bytes,2,opt,name=chain_hash,json=chainHash,proto3" json:"chain_hash,omitempty"`
-	// ShortChannelID is the unique description of the funding transaction.
+	//*
+	//The unique description of the funding transaction.
 	ChanId uint64 `protobuf:"varint,3,opt,name=chan_id,json=chanId,proto3" json:"chan_id,omitempty"`
-	// Timestamp allows ordering in the case of multiple announcements.  We
-	// should ignore the message if timestamp is not greater than
-	// the last-received.
+	//*
+	//A timestamp that allows ordering in the case of multiple announcements.
+	//We should ignore the message if timestamp is not greater than the
+	//last-received.
 	Timestamp uint32 `protobuf:"varint,4,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
-	// Flags is a bitfield that describes additional meta-data concerning
-	// how the update is to be interpreted. Currently, the
-	// least-significant bit must be set to 0 if the creating node
-	// corresponds to the first node in the previously sent channel
-	// announcement and 1 otherwise. If the second bit is set, then the
-	// channel is set to be disabled.
+	//*
+	//The bitfield that describes additional meta-data concerning how the
+	//update is to be interpreted. Currently, the least-significant bit must be
+	//set to 0 if the creating node corresponds to the first node in the
+	//previously sent channel announcement and 1 otherwise. If the second bit
+	//is set, then the channel is set to be disabled.
 	ChannelFlags uint32 `protobuf:"varint,5,opt,name=channel_flags,json=channelFlags,proto3" json:"channel_flags,omitempty"`
-	// TimeLockDelta is the minimum number of blocks this node requires to
-	// be added to the expiry of HTLCs. This is a security parameter
-	// determined by the node operator. This value represents the required
-	// gap between the time locks of the incoming and outgoing HTLC's set
-	// to this node.
+	//*
+	//The minimum number of blocks this node requires to be added to the expiry
+	//of HTLCs. This is a security parameter determined by the node operator.
+	//This value represents the required gap between the time locks of the
+	//incoming and outgoing HTLC's set to this node.
 	TimeLockDelta uint32 `protobuf:"varint,6,opt,name=time_lock_delta,json=timeLockDelta,proto3" json:"time_lock_delta,omitempty"`
-	// HtlcMinimumMsat is the minimum HTLC value which will be accepted.
+	//*
+	//The minimum HTLC value which will be accepted.
 	HtlcMinimumMsat uint64 `protobuf:"varint,7,opt,name=htlc_minimum_msat,json=htlcMinimumMsat,proto3" json:"htlc_minimum_msat,omitempty"`
-	// BaseFee is the base fee that must be used for incoming HTLC's to
-	// this particular channel. This value will be tacked onto the required
-	// for a payment independent of the size of the payment.
+	//*
+	//The base fee that must be used for incoming HTLC's to this particular
+	//channel. This value will be tacked onto the required for a payment
+	//independent of the size of the payment.
 	BaseFee uint32 `protobuf:"varint,8,opt,name=base_fee,json=baseFee,proto3" json:"base_fee,omitempty"`
-	// FeeRate is the fee rate that will be charged per millionth of a
-	// satoshi.
+	//*
+	//The fee rate that will be charged per millionth of a satoshi.
 	FeeRate              uint32   `protobuf:"varint,9,opt,name=fee_rate,json=feeRate,proto3" json:"fee_rate,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`

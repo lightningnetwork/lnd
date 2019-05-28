@@ -164,50 +164,65 @@ message Failure {
 
 
 message ChannelUpdate {
-	// Signature is used to validate the announced data and prove the
-	// ownership of node id.
-	bytes signature = 1;
+    /**
+    The signature that validates the announced data and proves the ownership
+    of node id.
+    */
+    bytes signature = 1;
 
-	// ChainHash denotes the target chain that this channel was opened
-	// within. This value should be the genesis hash of the target chain.
-	// Along with the short channel ID, this uniquely identifies the
-	// channel globally in a blockchain.
-	bytes chain_hash = 2;
+    /**
+    The target chain that this channel was opened within. This value
+    should be the genesis hash of the target chain. Along with the short
+    channel ID, this uniquely identifies the channel globally in a
+    blockchain.
+    */
+    bytes chain_hash = 2;
 
-	// ShortChannelID is the unique description of the funding transaction.
-	uint64 chan_id = 3;
+    /**
+    The unique description of the funding transaction.
+    */
+    uint64 chan_id = 3;
 
-	// Timestamp allows ordering in the case of multiple announcements.  We
-	// should ignore the message if timestamp is not greater than
-	// the last-received.
-	uint32 timestamp = 4;
+    /**
+    A timestamp that allows ordering in the case of multiple announcements.
+    We should ignore the message if timestamp is not greater than the
+    last-received.
+    */
+    uint32 timestamp = 4;
 
-	// Flags is a bitfield that describes additional meta-data concerning
-	// how the update is to be interpreted. Currently, the
-	// least-significant bit must be set to 0 if the creating node
-	// corresponds to the first node in the previously sent channel
-	// announcement and 1 otherwise. If the second bit is set, then the
-	// channel is set to be disabled.
-	uint32 channel_flags = 5;
+    /**
+    The bitfield that describes additional meta-data concerning how the
+    update is to be interpreted. Currently, the least-significant bit must be
+    set to 0 if the creating node corresponds to the first node in the
+    previously sent channel announcement and 1 otherwise. If the second bit
+    is set, then the channel is set to be disabled.
+    */
+    uint32 channel_flags = 5;
 
-	// TimeLockDelta is the minimum number of blocks this node requires to
-	// be added to the expiry of HTLCs. This is a security parameter
-	// determined by the node operator. This value represents the required
-	// gap between the time locks of the incoming and outgoing HTLC's set
-	// to this node.
-	uint32 time_lock_delta = 6;
+    /**
+    The minimum number of blocks this node requires to be added to the expiry
+    of HTLCs. This is a security parameter determined by the node operator.
+    This value represents the required gap between the time locks of the
+    incoming and outgoing HTLC's set to this node.
+    */
+    uint32 time_lock_delta = 6;
 
-	// HtlcMinimumMsat is the minimum HTLC value which will be accepted.
-	uint64 htlc_minimum_msat = 7;
+    /**
+    The minimum HTLC value which will be accepted.
+    */
+    uint64 htlc_minimum_msat = 7;
 
-	// BaseFee is the base fee that must be used for incoming HTLC's to
-	// this particular channel. This value will be tacked onto the required
-	// for a payment independent of the size of the payment.
-	uint32 base_fee = 8;
+    /**
+    The base fee that must be used for incoming HTLC's to this particular
+    channel. This value will be tacked onto the required for a payment
+    independent of the size of the payment.
+    */
+    uint32 base_fee = 8;
 
-	// FeeRate is the fee rate that will be charged per millionth of a
-	// satoshi.
-	uint32 fee_rate = 9;
+    /**
+    The fee rate that will be charged per millionth of a satoshi.
+    */
+    uint32 fee_rate = 9;
 }
 
 service Router {

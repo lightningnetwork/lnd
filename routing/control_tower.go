@@ -44,7 +44,7 @@ type ControlTower interface {
 	// SubscribePayment subscribes to updates for the payment with the given
 	// hash. It returns a boolean indicating whether the payment is still in
 	// flight and a channel that provides the final outcome of the payment.
-	SubscribePayment(paymentHash lntypes.Hash) (bool, chan PaymentResult,
+	SubscribePayment(paymentHash lntypes.Hash) (chan PaymentResult,
 		error)
 }
 
@@ -171,7 +171,7 @@ func (p *controlTower) FetchInFlightPayments() ([]*channeldb.InFlightPayment, er
 // It returns a boolean indicating whether the payment is still in flight and a
 // channel that provides the final outcome of the payment.
 func (p *controlTower) SubscribePayment(paymentHash lntypes.Hash) (
-	bool, chan PaymentResult, error) {
+	chan PaymentResult, error) {
 
 	// Create a channel with buffer size 1. For every payment there will be
 	// exactly one event sent.
@@ -184,7 +184,7 @@ func (p *controlTower) SubscribePayment(paymentHash lntypes.Hash) (
 
 	payment, err := p.db.FetchPayment(paymentHash)
 	if err != nil {
-		return false, nil, err
+		return nil, err
 	}
 
 	var event PaymentResult
@@ -201,7 +201,7 @@ func (p *controlTower) SubscribePayment(paymentHash lntypes.Hash) (
 		subscribers = append(subscribers, c)
 		p.subscribers[paymentHash] = subscribers
 
-		return true, c, nil
+		return c, nil
 
 	// Payment already succeeded. It is not necessary to register as
 	// a subscriber, because we can send the result on the channel
@@ -219,14 +219,14 @@ func (p *controlTower) SubscribePayment(paymentHash lntypes.Hash) (
 		event.FailureReason = *payment.Failure
 
 	default:
-		return false, nil, errors.New("unknown payment status")
+		return nil, errors.New("unknown payment status")
 	}
 
 	// Write immediate result to the channel.
 	c <- event
 	close(c)
 
-	return false, c, nil
+	return c, nil
 }
 
 // notifyFinalEvent sends a final payment event to all subscribers of this

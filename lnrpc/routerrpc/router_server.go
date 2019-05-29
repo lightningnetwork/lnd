@@ -410,37 +410,26 @@ func marshallChannelUpdate(update *lnwire.ChannelUpdate) *ChannelUpdate {
 
 // LookupPayments returns a stream of payment state updates. The stream is
 // closed when the payment completes.
-func (s *Server) LookupPayment(request *LookupPaymentRequest,
-	stream Router_LookupPaymentServer) error {
+func (s *Server) LookupPayment(ctx context.Context,
+	request *LookupPaymentRequest) (*PaymentStatus, error) {
 
 	paymentHash, err := lntypes.MakeHash(request.PaymentHash)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	log.Debugf("LookupPayment called for payment %v", paymentHash)
 
 	// Subscribe to the outcome of this payment.
-	inFlight, events, err := s.cfg.RouterBackend.Tower.SubscribePayment(
+	events, err := s.cfg.RouterBackend.Tower.SubscribePayment(
 		paymentHash,
 	)
 	switch err {
 	case nil:
 	case channeldb.ErrPaymentNotInitiated:
-		return status.Error(codes.NotFound, err.Error())
+		return nil, status.Error(codes.NotFound, err.Error())
 	default:
-		return err
-	}
-
-	// If it is in flight, send a state update to the client. LookupPayment
-	// is expected to always send the current payment state immediately.
-	if inFlight {
-		err = stream.Send(&PaymentStatus{
-			State: PaymentState_IN_FLIGHT,
-		})
-		if err != nil {
-			return err
-		}
+		return nil, err
 	}
 
 	// Wait for the outcome of the payment. For payments that have already
@@ -466,20 +455,12 @@ func (s *Server) LookupPayment(request *LookupPaymentRequest,
 				status.State = PaymentState_FAILED_NO_ROUTE
 
 			default:
-				return errors.New("unknown failure reason")
+				return nil, errors.New("unknown failure reason")
 			}
 		}
 
-		// Send event to the client.
-		err = stream.Send(&status)
-		if err != nil {
-			return err
-		}
-
-	case <-stream.Context().Done():
-		log.Debugf("LookupPayment %v canceled", paymentHash)
-		return stream.Context().Err()
+		return &status, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
 	}
-
-	return nil
 }

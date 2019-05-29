@@ -271,7 +271,7 @@ service Router {
     payment hash. A first update will always be send over the stream
     immediately. If the payment is not known, it will report state UNKNOWN.
     */
-    rpc LookupPayment(LookupPaymentRequest) returns (stream PaymentStatus);
+    rpc LookupPayment(LookupPaymentRequest) returns (PaymentStatus);
 
 
     /**

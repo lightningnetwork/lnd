@@ -372,6 +372,12 @@ func assertTxFeeRate(t *testing.T, tx *wire.MsgTx,
 func TestSuccess(t *testing.T) {
 	ctx := createSweeperTestContext(t)
 
+	// Sweeping an input without a fee preference should result in an error.
+	_, err := ctx.sweeper.SweepInput( spendableInputs[0], FeePreference{})
+	if err != ErrNoFeePreference {
+		t.Fatalf("expected ErrNoFeePreference, got %v", err)
+	}
+
 	resultChan, err := ctx.sweeper.SweepInput(
 		spendableInputs[0], defaultFeePref,
 	)

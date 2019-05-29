@@ -46,6 +46,10 @@ var (
 	// for the configured max number of attempts.
 	ErrTooManyAttempts = errors.New("sweep failed after max attempts")
 
+	// ErrNoFeePreference is returned when we attempt to satisfy a sweep
+	// request from a client whom did not specify a fee preference.
+	ErrNoFeePreference = errors.New("no fee preference specified")
+
 	// ErrSweeperShuttingDown is an error returned when a client attempts to
 	// make a request to the UtxoSweeper, but it is unable to handle it as
 	// it is/has already been stoppepd.
@@ -393,6 +397,12 @@ func (s *UtxoSweeper) SweepInput(input input.Input,
 // ensures that the fee rate respects the bounds of the UtxoSweeper.
 func (s *UtxoSweeper) feeRateForPreference(
 	feePreference FeePreference) (lnwallet.SatPerKWeight, error) {
+
+	// Ensure a type of fee preference is specified to prevent using a
+	// default below.
+	if feePreference.FeeRate == 0 && feePreference.ConfTarget == 0 {
+		return 0, ErrNoFeePreference
+	}
 
 	feeRate, err := DetermineFeePerKw(s.cfg.FeeEstimator, feePreference)
 	if err != nil {

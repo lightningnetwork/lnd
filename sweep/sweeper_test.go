@@ -1013,14 +1013,13 @@ func TestDifferentFeePreferences(t *testing.T) {
 	// with the higher fee preference, and the last with the lower. We do
 	// this to ensure the sweeper can broadcast distinct transactions for
 	// each sweep with a different fee preference.
-	lowFeePref := FeePreference{
-		ConfTarget: 12,
-	}
-	ctx.estimator.blocksToFee[lowFeePref.ConfTarget] = 5000
-	highFeePref := FeePreference{
-		ConfTarget: 6,
-	}
-	ctx.estimator.blocksToFee[highFeePref.ConfTarget] = 10000
+	lowFeePref := FeePreference{ConfTarget: 12}
+	lowFeeRate := lnwallet.SatPerKWeight(5000)
+	ctx.estimator.blocksToFee[lowFeePref.ConfTarget] = lowFeeRate
+
+	highFeePref := FeePreference{ConfTarget: 6}
+	highFeeRate := lnwallet.SatPerKWeight(10000)
+	ctx.estimator.blocksToFee[highFeePref.ConfTarget] = highFeeRate
 
 	input1 := spendableInputs[0]
 	resultChan1, err := ctx.sweeper.SweepInput(input1, highFeePref)
@@ -1045,11 +1044,11 @@ func TestDifferentFeePreferences(t *testing.T) {
 	// The first transaction broadcast should be the one spending the higher
 	// fee rate inputs.
 	sweepTx1 := ctx.receiveTx()
-	assertTxSweepsInputs(t, &sweepTx1, input1, input2)
+	assertTxFeeRate(t, &sweepTx1, highFeeRate, input1, input2)
 
 	// The second should be the one spending the lower fee rate inputs.
 	sweepTx2 := ctx.receiveTx()
-	assertTxSweepsInputs(t, &sweepTx2, input3)
+	assertTxFeeRate(t, &sweepTx2, lowFeeRate, input3)
 
 	// With the transactions broadcast, we'll mine a block to so that the
 	// result is delivered to each respective client.

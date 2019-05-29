@@ -1586,6 +1586,10 @@ type LightningPayment struct {
 	// hop. If nil, any channel may be used.
 	OutgoingChannelID *uint64
 
+	// PaymentRequest is an optional payment request that this payment is
+	// attempting to complete.
+	PaymentRequest []byte
+
 	// TODO(roasbeef): add e2e message?
 }
 
@@ -1613,7 +1617,7 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *route
 		PaymentHash:    payment.PaymentHash,
 		Value:          payment.Amount,
 		CreationDate:   time.Now(),
-		PaymentRequest: nil,
+		PaymentRequest: payment.PaymentRequest,
 	}
 
 	err = r.cfg.Control.InitPayment(payment.PaymentHash, info)

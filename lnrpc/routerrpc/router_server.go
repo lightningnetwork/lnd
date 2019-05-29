@@ -185,7 +185,7 @@ func (s *Server) RegisterWithRootServer(grpcServer *grpc.Server) error {
 // PaymentRequest, then an error will be returned. Otherwise, the payment
 // pre-image, along with the final route will be returned.
 func (s *Server) SendPayment(ctx context.Context,
-	req *SendPaymentRequest) (*SendPaymentResponse, error) {
+	req *SendPaymentRequest) (*PaymentStatus, error) {
 
 	payment, err := s.cfg.RouterBackend.extractIntentFromSendRequest(req)
 	if err != nil {
@@ -204,7 +204,7 @@ func (s *Server) SendPayment(ctx context.Context,
 		return nil, err
 	}
 
-	return &SendPaymentResponse{}, nil
+	return s.waitForPayment(ctx, payment.PaymentHash)
 }
 
 // EstimateRouteFee allows callers to obtain a lower bound w.r.t how much it
@@ -420,8 +420,16 @@ func (s *Server) LookupPayment(ctx context.Context,
 
 	log.Debugf("LookupPayment called for payment %v", paymentHash)
 
+	return s.waitForPayment(ctx, paymentHash)
+}
+
+// waitForPayment waits for the result of the payment to be available and
+// returns it as an rpc type.
+func (s *Server) waitForPayment(ctx context.Context, paymentHash lntypes.Hash) (
+	*PaymentStatus, error) {
+
 	// Subscribe to the outcome of this payment.
-	events, err := s.cfg.RouterBackend.Tower.SubscribePayment(
+	resultChan, err := s.cfg.RouterBackend.Tower.SubscribePayment(
 		paymentHash,
 	)
 	switch err {
@@ -435,18 +443,18 @@ func (s *Server) LookupPayment(ctx context.Context,
 	// Wait for the outcome of the payment. For payments that have already
 	// completed, the event should already be waiting on the channel.
 	select {
-	case event := <-events:
+	case result := <-resultChan:
 		// Marshall event to rpc type.
 		var status PaymentStatus
 
-		if event.Success {
+		if result.Success {
 			status.State = PaymentState_SUCCEEDED
-			status.Preimage = event.Preimage[:]
+			status.Preimage = result.Preimage[:]
 			status.Route = s.cfg.RouterBackend.MarshallRoute(
-				event.Route,
+				result.Route,
 			)
 		} else {
-			switch event.FailureReason {
+			switch result.FailureReason {
 
 			case channeldb.FailureReasonTimeout:
 				status.State = PaymentState_FAILED_TIMEOUT

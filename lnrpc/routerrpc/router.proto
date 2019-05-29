@@ -264,7 +264,7 @@ service Router {
     same hash in flight. Further status information can be obtained through a
     LookupPayment stream.
     */
-    rpc SendPayment(SendPaymentRequest) returns (SendPaymentResponse);
+    rpc SendPayment(SendPaymentRequest) returns (PaymentStatus);
 
     /**
     LookupPayment returns an update stream for the payment identified by the

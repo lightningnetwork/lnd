@@ -2266,7 +2266,6 @@ func sendPaymentRequest(ctx *cli.Context,
 	req.TimeoutSeconds = 60
 
 	amt := req.Amt
-	hash := hex.EncodeToString(req.PaymentHash)
 	if req.PaymentRequest != "" {
 		req := &lnrpc.PayReqString{PayReq: req.PaymentRequest}
 		resp, err := client.DecodePayReq(context.Background(), req)
@@ -2278,8 +2277,6 @@ func sendPaymentRequest(ctx *cli.Context,
 		if invoiceAmt != 0 {
 			amt = invoiceAmt
 		}
-
-		hash = resp.PaymentHash
 
 		if !ctx.Bool("force") {
 			err := confirmPayReq(resp, amt)
@@ -2295,13 +2292,12 @@ func sendPaymentRequest(ctx *cli.Context,
 	}
 	req.FeeLimit = feeLimit
 
-	_, err = routerClient.SendPayment(context.Background(), req)
+	resp, err := routerClient.SendPayment(context.Background(), req)
 	if err != nil {
 		return err
 	}
 
-	fmt.Printf("Payment in flight, track status by running:\n")
-	fmt.Printf("lncli lookuppayment %v\n", hash)
+	printPaymentOutcome(resp)
 
 	return nil
 }
@@ -2334,27 +2330,22 @@ func lookupPayment(ctx *cli.Context) error {
 		PaymentHash: hash,
 	}
 
-	stream, err := client.LookupPayment(context.Background(), req)
+	status, err := client.LookupPayment(context.Background(), req)
 	if err != nil {
 		return err
 	}
 
-	for {
-		status, err := stream.Recv()
-		if err != nil {
-			return err
-		}
+	printPaymentOutcome(status)
 
-		fmt.Printf("State: %v\n", status.State)
-		if status.State == routerrpc.PaymentState_SUCCEEDED {
-			fmt.Printf("Preimage: %x\n", status.Preimage)
-			fmt.Printf("Route:\n")
-			printJSON(status.Route)
-		}
+	return nil
+}
 
-		if status.State != routerrpc.PaymentState_IN_FLIGHT {
-			return nil
-		}
+func printPaymentOutcome(status *routerrpc.PaymentStatus) {
+	fmt.Printf("State: %v\n", status.State)
+	if status.State == routerrpc.PaymentState_SUCCEEDED {
+		fmt.Printf("Preimage: %x\n", status.Preimage)
+		fmt.Printf("Route:\n")
+		printJSON(status.Route)
 	}
 }
 

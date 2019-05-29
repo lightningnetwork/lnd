@@ -2341,8 +2341,8 @@ func trackPayment(ctx *cli.Context) error {
 }
 
 func printPaymentOutcome(status *routerrpc.PaymentResponse) {
-	fmt.Printf("State: %v\n", status.State)
-	if status.State == routerrpc.PaymentOutcome_SUCCEEDED {
+	fmt.Printf("State: %v\n", status.Outcome)
+	if status.Outcome == routerrpc.PaymentOutcome_SUCCEEDED {
 		fmt.Printf("Preimage: %x\n", status.Preimage)
 		fmt.Printf("Route:\n")
 		printJSON(status.Route)

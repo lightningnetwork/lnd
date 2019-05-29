@@ -89,7 +89,7 @@ enum PaymentOutcome {
 
 message PaymentResponse {
     /// Current state the payment is in.
-    PaymentOutcome state = 1;
+    PaymentOutcome outcome = 1;
 
     /**
     The pre-image of the payment when state is SUCCEEDED.

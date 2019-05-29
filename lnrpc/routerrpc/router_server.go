@@ -444,7 +444,7 @@ func (s *Server) waitForPayment(ctx context.Context, paymentHash lntypes.Hash) (
 		var response PaymentResponse
 
 		if result.Success {
-			response.State = PaymentOutcome_SUCCEEDED
+			response.Outcome = PaymentOutcome_SUCCEEDED
 			response.Preimage = result.Preimage[:]
 			response.Route = s.cfg.RouterBackend.MarshallRoute(
 				result.Route,
@@ -453,10 +453,10 @@ func (s *Server) waitForPayment(ctx context.Context, paymentHash lntypes.Hash) (
 			switch result.FailureReason {
 
 			case channeldb.FailureReasonTimeout:
-				response.State = PaymentOutcome_FAILED_TIMEOUT
+				response.Outcome = PaymentOutcome_FAILED_TIMEOUT
 
 			case channeldb.FailureReasonNoRoute:
-				response.State = PaymentOutcome_FAILED_NO_ROUTE
+				response.Outcome = PaymentOutcome_FAILED_NO_ROUTE
 
 			default:
 				return nil, errors.New("unknown failure reason")

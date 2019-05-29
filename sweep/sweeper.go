@@ -22,7 +22,7 @@ const (
 	// DefaultMaxFeeRate is the default maximum fee rate allowed within the
 	// UtxoSweeper. The current value is equivalent to a fee rate of 10,000
 	// sat/vbyte.
-	DefaultMaxFeeRate lnwallet.SatPerKWeight = 250 * 1e4
+	DefaultMaxFeeRate = lnwallet.FeePerKwFloor * 1e4
 
 	// DefaultFeeRateBucketSize is the default size of fee rate buckets
 	// we'll use when clustering inputs into buckets with similar fee rates
@@ -137,6 +137,21 @@ type PendingInput struct {
 	NextBroadcastHeight uint32
 }
 
+// bumpFeeReq is an internal message we'll use to represent an external caller's
+// intent to bump the fee rate of a given input.
+type bumpFeeReq struct {
+	input         wire.OutPoint
+	feePreference FeePreference
+	responseChan  chan *bumpFeeResp
+}
+
+// bumpFeeResp is an internal message we'll use to hand off the response of a
+// bumpFeeReq from the UtxoSweeper's main event loop back to the caller.
+type bumpFeeResp struct {
+	resultChan chan Result
+	err        error
+}
+
 // UtxoSweeper is responsible for sweeping outputs back into the wallet
 type UtxoSweeper struct {
 	started uint32 // To be used atomically.
@@ -151,6 +166,10 @@ type UtxoSweeper struct {
 	// callers in order to retrieve the set of pending inputs the
 	// UtxoSweeper is attempting to sweep.
 	pendingSweepsReqs chan *pendingSweepsReq
+
+	// bumpFeeReqs is a channel that will be sent requests by external
+	// callers who wish to bump the fee rate of a given input.
+	bumpFeeReqs chan *bumpFeeReq
 
 	// pendingInputs is the total set of inputs the UtxoSweeper has been
 	// requested to sweep.
@@ -261,6 +280,7 @@ func New(cfg *UtxoSweeperConfig) *UtxoSweeper {
 		cfg:               cfg,
 		newInputs:         make(chan *sweepInputMessage),
 		spendChan:         make(chan *chainntnfs.SpendDetail),
+		bumpFeeReqs:       make(chan *bumpFeeReq),
 		pendingSweepsReqs: make(chan *pendingSweepsReq),
 		quit:              make(chan struct{}),
 		pendingInputs:     make(pendingInputs),
@@ -355,7 +375,10 @@ func (s *UtxoSweeper) Stop() error {
 
 // SweepInput sweeps inputs back into the wallet. The inputs will be batched and
 // swept after the batch time window ends. A custom fee preference can be
-// provided, otherwise the UtxoSweeper's default will be used.
+// provided to determine what fee rate should be used for the input. Note that
+// the input may not always be swept with this exact value, as its possible for
+// it to be batched under the same transaction with other similar fee rate
+// inputs.
 //
 // NOTE: Extreme care needs to be taken that input isn't changed externally.
 // Because it is an interface and we don't know what is exactly behind it, we
@@ -541,6 +564,15 @@ func (s *UtxoSweeper) collector(blockEpochs <-chan *chainntnfs.BlockEpoch,
 		// the inputs we're currently attempting to sweep.
 		case req := <-s.pendingSweepsReqs:
 			req.respChan <- s.handlePendingSweepsReq(req)
+
+		// A new external request has been received to bump the fee rate
+		// of a given input.
+		case req := <-s.bumpFeeReqs:
+			resultChan, err := s.handleBumpFeeReq(req, bestHeight)
+			req.responseChan <- &bumpFeeResp{
+				resultChan: resultChan,
+				err:        err,
+			}
 
 		// The timer expires and we are going to (re)sweep.
 		case <-s.timer:
@@ -987,6 +1019,92 @@ func (s *UtxoSweeper) handlePendingSweepsReq(
 	}
 
 	return pendingInputs
+}
+
+// BumpFee allows bumping the fee of an input being swept by the UtxoSweeper
+// according to the provided fee preference. The new fee preference will be used
+// for a new sweep transaction of the input that will act as a replacement
+// transaction (RBF) of the original sweeping transaction, if any.
+//
+// NOTE: This currently doesn't do any fee rate validation to ensure that a bump
+// is actually successful. The responsibility of doing so should be handled by
+// the caller.
+func (s *UtxoSweeper) BumpFee(input wire.OutPoint,
+	feePreference FeePreference) (chan Result, error) {
+
+	// Ensure the client provided a sane fee preference.
+	if _, err := s.feeRateForPreference(feePreference); err != nil {
+		return nil, err
+	}
+
+	responseChan := make(chan *bumpFeeResp, 1)
+	select {
+	case s.bumpFeeReqs <- &bumpFeeReq{
+		input:         input,
+		feePreference: feePreference,
+		responseChan:  responseChan,
+	}:
+	case <-s.quit:
+		return nil, ErrSweeperShuttingDown
+	}
+
+	select {
+	case response := <-responseChan:
+		return response.resultChan, response.err
+	case <-s.quit:
+		return nil, ErrSweeperShuttingDown
+	}
+}
+
+// handleBumpFeeReq handles a bump fee request by simply updating the inputs fee
+// preference. Currently, no validation is done on the new fee preference to
+// ensure it will properly create a replacement transaction.
+//
+// TODO(wilmer):
+//   * Validate fee preference to ensure we'll create a valid replacement
+//     transaction to allow the new fee rate to propagate throughout the
+//     network.
+//   * Ensure we don't combine this input with any other unconfirmed inputs that
+//     did not exist in the original sweep transaction, resulting in an invalid
+//     replacement transaction.
+func (s *UtxoSweeper) handleBumpFeeReq(req *bumpFeeReq,
+	bestHeight int32) (chan Result, error) {
+
+	// If the UtxoSweeper is already trying to sweep this input, then we can
+	// simply just increase its fee rate. This will allow the input to be
+	// batched with others which also have a similar fee rate, creating a
+	// higher fee rate transaction that replaces the original input's
+	// sweeping transaction.
+	pendingInput, ok := s.pendingInputs[req.input]
+	if !ok {
+		return nil, lnwallet.ErrNotMine
+	}
+
+	log.Debugf("Updating fee preference for %v from %v to %v", req.input,
+		pendingInput.feePreference, req.feePreference)
+
+	pendingInput.feePreference = req.feePreference
+
+	// We'll reset the input's publish height to the current so that a new
+	// transaction can be created that replaces the transaction currently
+	// spending the input. We only do this for inputs that have been
+	// broadcast at least once to ensure we don't spend an input before its
+	// maturity height.
+	//
+	// NOTE: The UtxoSweeper is not yet offered time-locked inputs, so the
+	// check for broadcast attempts is redundant at the moment.
+	if pendingInput.publishAttempts > 0 {
+		pendingInput.minPublishHeight = bestHeight
+	}
+
+	if err := s.scheduleSweep(bestHeight); err != nil {
+		log.Errorf("Unable to schedule sweep: %v", err)
+	}
+
+	resultChan := make(chan Result, 1)
+	pendingInput.listeners = append(pendingInput.listeners, resultChan)
+
+	return resultChan, nil
 }
 
 // CreateSweepTx accepts a list of inputs and signs and generates a txn that

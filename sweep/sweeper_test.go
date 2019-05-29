@@ -373,7 +373,7 @@ func TestSuccess(t *testing.T) {
 	ctx := createSweeperTestContext(t)
 
 	// Sweeping an input without a fee preference should result in an error.
-	_, err := ctx.sweeper.SweepInput( spendableInputs[0], FeePreference{})
+	_, err := ctx.sweeper.SweepInput(spendableInputs[0], FeePreference{})
 	if err != ErrNoFeePreference {
 		t.Fatalf("expected ErrNoFeePreference, got %v", err)
 	}
@@ -1125,6 +1125,67 @@ func TestPendingInputs(t *testing.T) {
 	ctx.backend.mine()
 	ctx.expectResult(resultChan3, nil)
 	ctx.assertPendingInputs()
+
+	ctx.finish(1)
+}
+
+// TestBumpFeeRBF ensures that the UtxoSweeper can properly handle a fee bump
+// request for an input it is currently attempting to sweep. When sweeping the
+// input with the higher fee rate, a replacement transaction is created.
+func TestBumpFeeRBF(t *testing.T) {
+	ctx := createSweeperTestContext(t)
+
+	lowFeePref := FeePreference{ConfTarget: 144}
+	lowFeeRate := lnwallet.FeePerKwFloor
+	ctx.estimator.blocksToFee[lowFeePref.ConfTarget] = lowFeeRate
+
+	// We'll first try to bump the fee of an output currently unknown to the
+	// UtxoSweeper. Doing so should result in a lnwallet.ErrNotMine error.
+	bumpResult, err := ctx.sweeper.BumpFee(wire.OutPoint{}, lowFeePref)
+	if err != lnwallet.ErrNotMine {
+		t.Fatalf("expected error lnwallet.ErrNotMine, got \"%v\"", err)
+	}
+
+	// We'll then attempt to sweep an input, which we'll use to bump its fee
+	// later on.
+	input := createTestInput(
+		btcutil.SatoshiPerBitcoin, input.CommitmentTimeLock,
+	)
+	sweepResult, err := ctx.sweeper.SweepInput(&input, lowFeePref)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Ensure that a transaction is broadcast with the lower fee preference.
+	ctx.tick()
+	lowFeeTx := ctx.receiveTx()
+	assertTxFeeRate(t, &lowFeeTx, lowFeeRate, &input)
+
+	// We'll then attempt to bump its fee rate.
+	highFeePref := FeePreference{ConfTarget: 6}
+	highFeeRate := DefaultMaxFeeRate
+	ctx.estimator.blocksToFee[highFeePref.ConfTarget] = highFeeRate
+
+	// We should expect to see an error if a fee preference isn't provided.
+	_, err = ctx.sweeper.BumpFee(*input.OutPoint(), FeePreference{})
+	if err != ErrNoFeePreference {
+		t.Fatalf("expected ErrNoFeePreference, got %v", err)
+	}
+
+	bumpResult, err = ctx.sweeper.BumpFee(*input.OutPoint(), highFeePref)
+	if err != nil {
+		t.Fatalf("unable to bump input's fee: %v", err)
+	}
+
+	// A higher fee rate transaction should be immediately broadcast.
+	ctx.tick()
+	highFeeTx := ctx.receiveTx()
+	assertTxFeeRate(t, &highFeeTx, highFeeRate, &input)
+
+	// We'll finish our test by mining the sweep transaction.
+	ctx.backend.mine()
+	ctx.expectResult(sweepResult, nil)
+	ctx.expectResult(bumpResult, nil)
 
 	ctx.finish(1)
 }

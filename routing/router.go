@@ -218,7 +218,7 @@ type Config struct {
 
 	// Control keeps track of the status of ongoing payments, ensuring we
 	// can properly resume them across restarts.
-	Control channeldb.ControlTower
+	Control ControlTower
 
 	// MissionControl is a shared memory of sorts that executions of
 	// payment path finding use in order to remember which vertexes/edges

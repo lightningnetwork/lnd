@@ -35,46 +35,14 @@ var (
 	ErrUnknownPaymentStatus = errors.New("unknown payment status")
 )
 
-// ControlTower tracks all outgoing payments made, whose primary purpose is to
-// prevent duplicate payments to the same payment hash. In production, a
-// persistent implementation is preferred so that tracking can survive across
-// restarts. Payments are transitioned through various payment states, and the
-// ControlTower interface provides access to driving the state transitions.
-type ControlTower interface {
-	// InitPayment atomically moves the payment into the InFlight state.
-	// This method checks that no suceeded payment exist for this payment
-	// hash.
-	InitPayment(lntypes.Hash, *PaymentCreationInfo) error
-
-	// RegisterAttempt atomically records the provided PaymentAttemptInfo.
-	RegisterAttempt(lntypes.Hash, *PaymentAttemptInfo) error
-
-	// Success transitions a payment into the Succeeded state. After
-	// invoking this method, InitPayment should always return an error to
-	// prevent us from making duplicate payments to the same payment hash.
-	// The provided preimage is atomically saved to the DB for record
-	// keeping.
-	Success(lntypes.Hash, lntypes.Preimage) error
-
-	// Fail transitions a payment into the Failed state, and records the
-	// reason the payment failed. After invoking this method, InitPayment
-	// should return nil on its next call for this payment hash, allowing
-	// the switch to make a subsequent payment.
-	Fail(lntypes.Hash, FailureReason) error
-
-	// FetchInFlightPayments returns all payments with status InFlight.
-	FetchInFlightPayments() ([]*InFlightPayment, error)
-}
-
-// paymentControl is persistent implementation of ControlTower to restrict
-// double payment sending.
-type paymentControl struct {
+// PaymentControl implements persistence for payments and payment attempts.
+type PaymentControl struct {
 	db *DB
 }
 
-// NewPaymentControl creates a new instance of the paymentControl.
-func NewPaymentControl(db *DB) ControlTower {
-	return &paymentControl{
+// NewPaymentControl creates a new instance of the PaymentControl.
+func NewPaymentControl(db *DB) *PaymentControl {
+	return &PaymentControl{
 		db: db,
 	}
 }
@@ -83,7 +51,7 @@ func NewPaymentControl(db *DB) ControlTower {
 // making sure it does not already exist as an in-flight payment. Then this
 // method returns successfully, the payment is guranteeed to be in the InFlight
 // state.
-func (p *paymentControl) InitPayment(paymentHash lntypes.Hash,
+func (p *PaymentControl) InitPayment(paymentHash lntypes.Hash,
 	info *PaymentCreationInfo) error {
 
 	var b bytes.Buffer
@@ -173,7 +141,7 @@ func (p *paymentControl) InitPayment(paymentHash lntypes.Hash,
 
 // RegisterAttempt atomically records the provided PaymentAttemptInfo to the
 // DB.
-func (p *paymentControl) RegisterAttempt(paymentHash lntypes.Hash,
+func (p *PaymentControl) RegisterAttempt(paymentHash lntypes.Hash,
 	attempt *PaymentAttemptInfo) error {
 
 	// Serialize the information before opening the db transaction.
@@ -218,7 +186,7 @@ func (p *paymentControl) RegisterAttempt(paymentHash lntypes.Hash,
 // method, InitPayment should always return an error to prevent us from making
 // duplicate payments to the same payment hash. The provided preimage is
 // atomically saved to the DB for record keeping.
-func (p *paymentControl) Success(paymentHash lntypes.Hash,
+func (p *PaymentControl) Success(paymentHash lntypes.Hash,
 	preimage lntypes.Preimage) error {
 
 	var updateErr error
@@ -257,7 +225,7 @@ func (p *paymentControl) Success(paymentHash lntypes.Hash,
 // payment failed. After invoking this method, InitPayment should return nil on
 // its next call for this payment hash, allowing the switch to make a
 // subsequent payment.
-func (p *paymentControl) Fail(paymentHash lntypes.Hash,
+func (p *PaymentControl) Fail(paymentHash lntypes.Hash,
 	reason FailureReason) error {
 
 	var updateErr error
@@ -402,7 +370,7 @@ type InFlightPayment struct {
 }
 
 // FetchInFlightPayments returns all payments with status InFlight.
-func (p *paymentControl) FetchInFlightPayments() ([]*InFlightPayment, error) {
+func (p *PaymentControl) FetchInFlightPayments() ([]*InFlightPayment, error) {
 	var inFlights []*InFlightPayment
 	err := p.db.View(func(tx *bbolt.Tx) error {
 		payments := tx.Bucket(paymentsRootBucket)

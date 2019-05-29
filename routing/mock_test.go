@@ -182,7 +182,7 @@ type mockControlTower struct {
 	sync.Mutex
 }
 
-var _ channeldb.ControlTower = (*mockControlTower)(nil)
+var _ ControlTower = (*mockControlTower)(nil)
 
 func makeMockControlTower() *mockControlTower {
 	return &mockControlTower{

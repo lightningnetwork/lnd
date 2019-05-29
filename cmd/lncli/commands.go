@@ -2340,9 +2340,9 @@ func lookupPayment(ctx *cli.Context) error {
 	return nil
 }
 
-func printPaymentOutcome(status *routerrpc.PaymentStatus) {
+func printPaymentOutcome(status *routerrpc.PaymentResponse) {
 	fmt.Printf("State: %v\n", status.State)
-	if status.State == routerrpc.PaymentState_SUCCEEDED {
+	if status.State == routerrpc.PaymentOutcome_SUCCEEDED {
 		fmt.Printf("Preimage: %x\n", status.Preimage)
 		fmt.Printf("Route:\n")
 		printJSON(status.Route)

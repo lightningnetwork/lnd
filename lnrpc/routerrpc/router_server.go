@@ -185,7 +185,7 @@ func (s *Server) RegisterWithRootServer(grpcServer *grpc.Server) error {
 // PaymentRequest, then an error will be returned. Otherwise, the payment
 // pre-image, along with the final route will be returned.
 func (s *Server) SendPayment(ctx context.Context,
-	req *SendPaymentRequest) (*PaymentStatus, error) {
+	req *SendPaymentRequest) (*PaymentResponse, error) {
 
 	payment, err := s.cfg.RouterBackend.extractIntentFromSendRequest(req)
 	if err != nil {
@@ -411,7 +411,7 @@ func marshallChannelUpdate(update *lnwire.ChannelUpdate) *ChannelUpdate {
 // LookupPayments returns a stream of payment state updates. The stream is
 // closed when the payment completes.
 func (s *Server) LookupPayment(ctx context.Context,
-	request *LookupPaymentRequest) (*PaymentStatus, error) {
+	request *LookupPaymentRequest) (*PaymentResponse, error) {
 
 	paymentHash, err := lntypes.MakeHash(request.PaymentHash)
 	if err != nil {
@@ -426,7 +426,7 @@ func (s *Server) LookupPayment(ctx context.Context,
 // waitForPayment waits for the result of the payment to be available and
 // returns it as an rpc type.
 func (s *Server) waitForPayment(ctx context.Context, paymentHash lntypes.Hash) (
-	*PaymentStatus, error) {
+	*PaymentResponse, error) {
 
 	// Subscribe to the outcome of this payment.
 	resultChan, err := s.cfg.RouterBackend.Tower.SubscribePayment(
@@ -445,29 +445,29 @@ func (s *Server) waitForPayment(ctx context.Context, paymentHash lntypes.Hash) (
 	select {
 	case result := <-resultChan:
 		// Marshall event to rpc type.
-		var status PaymentStatus
+		var response PaymentResponse
 
 		if result.Success {
-			status.State = PaymentState_SUCCEEDED
-			status.Preimage = result.Preimage[:]
-			status.Route = s.cfg.RouterBackend.MarshallRoute(
+			response.State = PaymentOutcome_SUCCEEDED
+			response.Preimage = result.Preimage[:]
+			response.Route = s.cfg.RouterBackend.MarshallRoute(
 				result.Route,
 			)
 		} else {
 			switch result.FailureReason {
 
 			case channeldb.FailureReasonTimeout:
-				status.State = PaymentState_FAILED_TIMEOUT
+				response.State = PaymentOutcome_FAILED_TIMEOUT
 
 			case channeldb.FailureReasonNoRoute:
-				status.State = PaymentState_FAILED_NO_ROUTE
+				response.State = PaymentOutcome_FAILED_NO_ROUTE
 
 			default:
 				return nil, errors.New("unknown failure reason")
 			}
 		}
 
-		return &status, nil
+		return &response, nil
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}

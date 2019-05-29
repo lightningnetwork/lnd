@@ -56,7 +56,7 @@ var (
 			Entity: "offchain",
 			Action: "write",
 		}},
-		"/routerrpc.Router/LookupPayment": {{
+		"/routerrpc.Router/TrackPayment": {{
 			Entity: "offchain",
 			Action: "read",
 		}},
@@ -192,10 +192,6 @@ func (s *Server) SendPayment(ctx context.Context,
 		return nil, err
 	}
 
-	// Launch the payment in a goroutine. It is no problem that we discard
-	// the error, because errors will also be recorded by control tower and
-	// available through LookupPayment. Exception to this are internal
-	// errors, but those should not happen.
 	err = s.cfg.Router.SendPaymentAsync(payment)
 	if err != nil {
 		log.Debugf("SendPayment async result for hash %x: %v",
@@ -408,10 +404,10 @@ func marshallChannelUpdate(update *lnwire.ChannelUpdate) *ChannelUpdate {
 	}
 }
 
-// LookupPayments returns a stream of payment state updates. The stream is
-// closed when the payment completes.
-func (s *Server) LookupPayment(ctx context.Context,
-	request *LookupPaymentRequest) (*PaymentResponse, error) {
+// TrackPayment picks up a pending payment, waits for the outcome and returns
+// it.
+func (s *Server) TrackPayment(ctx context.Context,
+	request *TrackPaymentRequest) (*PaymentResponse, error) {
 
 	paymentHash, err := lntypes.MakeHash(request.PaymentHash)
 	if err != nil {

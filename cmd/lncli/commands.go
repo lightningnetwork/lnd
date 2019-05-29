@@ -2302,14 +2302,14 @@ func sendPaymentRequest(ctx *cli.Context,
 	return nil
 }
 
-var lookupPaymentCommand = cli.Command{
-	Name:      "lookuppayment",
+var trackPaymentCommand = cli.Command{
+	Name:      "trackpayment",
 	Category:  "Payments",
 	ArgsUsage: "hash",
-	Action:    actionDecorator(lookupPayment),
+	Action:    actionDecorator(trackPayment),
 }
 
-func lookupPayment(ctx *cli.Context) error {
+func trackPayment(ctx *cli.Context) error {
 	args := ctx.Args()
 
 	conn := getClientConn(ctx, false)
@@ -2326,11 +2326,11 @@ func lookupPayment(ctx *cli.Context) error {
 		return err
 	}
 
-	req := &routerrpc.LookupPaymentRequest{
+	req := &routerrpc.TrackPaymentRequest{
 		PaymentHash: hash,
 	}
 
-	status, err := client.LookupPayment(context.Background(), req)
+	status, err := client.TrackPayment(context.Background(), req)
 	if err != nil {
 		return err
 	}

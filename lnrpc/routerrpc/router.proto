@@ -63,7 +63,7 @@ message SendPaymentRequest {
 message SendPaymentResponse {
 }
 
-message LookupPaymentRequest {
+message TrackPaymentRequest {
     /// The hash of the payment to look up.
     bytes payment_hash = 1;
 }
@@ -254,19 +254,18 @@ message ChannelUpdate {
 service Router {
     /**
     SendPayment attempts to route a payment described by the passed
-    PaymentRequest to the final destination. The call returns immediately after
-    it has been assured that there is not already a different payment for the
-    same hash in flight. Further status information can be obtained through a
-    LookupPayment stream.
+    PaymentRequest to the final destination. When the rpc connection is lost
+    before the payment completes, its status can be picked up through
+    TrackPayment. If the payment is already in flight, an error will be
+    returned.
     */
     rpc SendPayment(SendPaymentRequest) returns (PaymentResponse);
 
     /**
-    LookupPayment returns an update stream for the payment identified by the
-    payment hash. A first update will always be send over the stream
-    immediately. If the payment is not known, it will report state UNKNOWN.
+    TrackPayment blocks until the provided payment completes and returns the
+    outcome. If the payment is not known, it will return an error.
     */
-    rpc LookupPayment(LookupPaymentRequest) returns (PaymentResponse);
+    rpc TrackPayment(TrackPaymentRequest) returns (PaymentResponse);
 
 
     /**

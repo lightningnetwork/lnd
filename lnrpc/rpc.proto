@@ -2152,6 +2152,9 @@ message Payment {
 
     /// The value of the payment in milli-satoshis
     int64 value_msat = 8 [json_name = "value_msat"];
+
+    /// The optional payment request being fulfilled.
+    string payment_request = 9 [json_name = "payment_request"];
 }
 
 message ListPaymentsRequest {

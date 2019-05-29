@@ -203,6 +203,23 @@ message PendingSweepsResponse {
     repeated PendingSweep pending_sweeps = 1 [json_name = "pending_sweeps"];
 }
 
+message BumpFeeRequest {
+    // The input we're attempting to bump the fee of.
+    lnrpc.OutPoint outpoint = 1 [json_name = "outpoint"];
+
+    // The target number of blocks that the input should be spent within.
+    uint32 target_conf = 2 [json_name = "target_conf"];
+
+    /*
+    The fee rate, expressed in sat/byte, that should be used to spend the input
+    with.
+    */
+    uint32 sat_per_byte = 3 [json_name = "sat_per_byte"];
+}
+
+message BumpFeeResponse {
+}
+
 service WalletKit {
     /**
     DeriveNextKey attempts to derive the *next* key within the key family
@@ -255,4 +272,33 @@ service WalletKit {
     the UtxoSweeper, so things may change.
     */
     rpc PendingSweeps(PendingSweepsRequest) returns (PendingSweepsResponse);
+
+    /*
+    Bump the fee of an arbitrary input within a transaction. This RPC takes a
+    different approach than bitcoind's bumpfee command. lnd has a central
+    batching engine in which inputs with similar fee rates are batched together
+    to save on transaction fees. Due to this, we cannot rely on bumping the fee
+    on a specific transaction, since transactions can change at any point with
+    the addition of new inputs. The list of inputs that currently exist within
+    lnd's central batching engine can be retrieved through the PendingSweeps
+    RPC.
+
+    When bumping the fee of an input that currently exists within lnd's central
+    batching engine, a higher fee transaction will be created that replaces the
+    lower fee transaction through the Replace-By-Fee (RBF) policy. If it
+
+    This RPC also serves useful when wanting to perform a Child-Pays-For-Parent
+    (CPFP), where the child transaction pays for its parent's fee. This can be
+    done by specifying an outpoint within the low fee transaction that is under
+    the control of the wallet.
+
+    The fee preference can be expressed either as a specific fee rate or a delta
+    of blocks in which the output should be swept on-chain within. If a fee
+    preference is not explicitly specified, then an error is returned.
+
+    Note that this RPC currently doesn't perform any validation checks on the
+    fee preference being provided. For now, the responsibility of ensuring that
+    the new fee preference is sufficient is delegated to the user.
+    */
+    rpc BumpFee(BumpFeeRequest) returns (BumpFeeResponse);
 }

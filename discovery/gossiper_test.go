@@ -752,6 +752,8 @@ func createTestCtx(startHeight uint32) (*testCtx, func(), error) {
 		HistoricalSyncTicker: ticker.NewForce(DefaultHistoricalSyncInterval),
 		NumActiveSyncers:     3,
 		AnnSigner:            &mockSigner{nodeKeyPriv1},
+		SubBatchDelay:        time.Second * 5,
+		MinimumBatchSize:     10,
 	}, nodeKeyPub1)
 
 	if err := gossiper.Start(); err != nil {
@@ -1493,6 +1495,8 @@ func TestSignatureAnnouncementRetryAtStartup(t *testing.T) {
 		RotateTicker:         ticker.NewForce(DefaultSyncerRotationInterval),
 		HistoricalSyncTicker: ticker.NewForce(DefaultHistoricalSyncInterval),
 		NumActiveSyncers:     3,
+		MinimumBatchSize:     10,
+		SubBatchDelay:        time.Second * 5,
 	}, ctx.gossiper.selfKey)
 	if err != nil {
 		t.Fatalf("unable to recreate gossiper: %v", err)
@@ -3542,5 +3546,100 @@ func assertMessage(t *testing.T, expected, got lnwire.Message) {
 	if !reflect.DeepEqual(expected, got) {
 		t.Fatalf("expected: %v\ngot: %v", spew.Sdump(expected),
 			spew.Sdump(got))
+	}
+}
+
+// TestSplitAnnouncementsCorrectSubBatches checks that we split a given
+// sizes of announcement list into the correct number of batches.
+func TestSplitAnnouncementsCorrectSubBatches(t *testing.T) {
+	t.Parallel()
+
+	const subBatchSize = 10
+
+	announcementBatchSizes := []int{2, 5, 20, 45, 80, 100, 1005}
+	expectedNumberMiniBatches := []int{1, 1, 2, 5, 8, 10, 101}
+
+	lengthAnnouncementBatchSizes := len(announcementBatchSizes)
+	lengthExpectedNumberMiniBatches := len(expectedNumberMiniBatches)
+
+	if lengthAnnouncementBatchSizes != lengthExpectedNumberMiniBatches {
+		t.Fatal("Length of announcementBatchSizes and " +
+			"expectedNumberMiniBatches should be equal")
+	}
+
+	for testIndex := range announcementBatchSizes {
+		var batchSize = announcementBatchSizes[testIndex]
+		announcementBatch := make([]msgWithSenders, batchSize)
+
+		splitAnnouncementBatch := splitAnnouncementBatches(
+			subBatchSize, announcementBatch,
+		)
+
+		lengthMiniBatches := len(splitAnnouncementBatch)
+
+		if lengthMiniBatches != expectedNumberMiniBatches[testIndex] {
+			t.Fatalf("Expecting %d mini batches, actual %d",
+				expectedNumberMiniBatches[testIndex], lengthMiniBatches)
+		}
+	}
+}
+
+func assertCorrectSubBatchSize(t *testing.T, expectedSubBatchSize,
+	actualSubBatchSize int) {
+
+	t.Helper()
+
+	if actualSubBatchSize != expectedSubBatchSize {
+		t.Fatalf("Expecting subBatch size of %d, actual %d",
+			expectedSubBatchSize, actualSubBatchSize)
+	}
+}
+
+// TestCalculateCorrectSubBatchSize checks that we check the correct
+// sub batch size for each of the input vectors of batch sizes.
+func TestCalculateCorrectSubBatchSizes(t *testing.T) {
+	t.Parallel()
+
+	const minimumSubBatchSize = 10
+	const batchDelay = time.Duration(100)
+	const subBatchDelay = time.Duration(10)
+
+	batchSizes := []int{2, 200, 250, 305, 352, 10010, 1000001}
+	expectedSubBatchSize := []int{10, 20, 25, 31, 36, 1001, 100001}
+
+	for testIndex := range batchSizes {
+		batchSize := batchSizes[testIndex]
+		expectedBatchSize := expectedSubBatchSize[testIndex]
+
+		actualSubBatchSize := calculateSubBatchSize(
+			batchDelay, subBatchDelay, minimumSubBatchSize, batchSize,
+		)
+
+		assertCorrectSubBatchSize(t, expectedBatchSize, actualSubBatchSize)
+	}
+}
+
+// TestCalculateCorrectSubBatchSizesDifferentDelay checks that we check the
+// correct sub batch size for each of different delay.
+func TestCalculateCorrectSubBatchSizesDifferentDelay(t *testing.T) {
+	t.Parallel()
+
+	const batchSize = 100
+	const minimumSubBatchSize = 10
+
+	batchDelays := []time.Duration{100, 50, 20, 25, 5, 0}
+	const subBatchDelay = 10
+
+	expectedSubBatchSize := []int{10, 20, 50, 40, 100, 100}
+
+	for testIndex := range batchDelays {
+		batchDelay := batchDelays[testIndex]
+		expectedBatchSize := expectedSubBatchSize[testIndex]
+
+		actualSubBatchSize := calculateSubBatchSize(
+			batchDelay, subBatchDelay, minimumSubBatchSize, batchSize,
+		)
+
+		assertCorrectSubBatchSize(t, expectedBatchSize, actualSubBatchSize)
 	}
 }

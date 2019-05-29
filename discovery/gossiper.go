@@ -205,6 +205,14 @@ type Config struct {
 	// activeSyncer due to the current one not completing its state machine
 	// within the timeout.
 	ActiveSyncerTimeoutTicker ticker.Ticker
+
+	// MinimumBatchSize is minimum size of a sub batch of announcement
+	// messages.
+	MinimumBatchSize int
+
+	// SubBatchDelay is the delay between sending sub batches of
+	// gossip messages.
+	SubBatchDelay time.Duration
 }
 
 // AuthenticatedGossiper is a subsystem which is responsible for receiving
@@ -881,6 +889,71 @@ func (d *deDupedAnnouncements) Emit() []msgWithSenders {
 	return msgs
 }
 
+// calculateSubBatchSize is a helper function that calculates the size to break
+// down the batchSize into.
+func calculateSubBatchSize(totalDelay, subBatchDelay time.Duration,
+	minimumBatchSize, batchSize int) int {
+	if subBatchDelay > totalDelay {
+		return batchSize
+	}
+
+	subBatchSize := (int(batchSize)*int(subBatchDelay) + int(totalDelay) - 1) /
+		int(totalDelay)
+
+	if subBatchSize < minimumBatchSize {
+		return minimumBatchSize
+	}
+
+	return subBatchSize
+}
+
+// splitAnnouncementBatches takes an exiting list of announcements and
+// decomposes it into sub batches controlled by the `subBatchSize`.
+func splitAnnouncementBatches(subBatchSize int,
+	announcementBatch []msgWithSenders) [][]msgWithSenders {
+	var splitAnnouncementBatch [][]msgWithSenders
+
+	for subBatchSize < len(announcementBatch) {
+		// For slicing with minimal allocation
+		// https://github.com/golang/go/wiki/SliceTricks
+		announcementBatch, splitAnnouncementBatch =
+			announcementBatch[subBatchSize:],
+			append(splitAnnouncementBatch,
+				announcementBatch[0:subBatchSize:subBatchSize])
+	}
+	splitAnnouncementBatch = append(splitAnnouncementBatch, announcementBatch)
+
+	return splitAnnouncementBatch
+}
+
+// sendBatch broadcasts a list of announcements to our peers.
+func (d *AuthenticatedGossiper) sendBatch(announcementBatch []msgWithSenders) {
+	syncerPeers := d.syncMgr.GossipSyncers()
+
+	// We'll first attempt to filter out this new message
+	// for all peers that have active gossip syncers
+	// active.
+	for _, syncer := range syncerPeers {
+		syncer.FilterGossipMsgs(announcementBatch...)
+	}
+
+	for _, msgChunk := range announcementBatch {
+		// With the syncers taken care of, we'll merge
+		// the sender map with the set of syncers, so
+		// we don't send out duplicate messages.
+		msgChunk.mergeSyncerMap(syncerPeers)
+
+		err := d.cfg.Broadcast(
+			msgChunk.senders, msgChunk.msg,
+		)
+		if err != nil {
+			log.Errorf("Unable to send batch "+
+				"announcements: %v", err)
+			continue
+		}
+	}
+}
+
 // networkHandler is the primary goroutine that drives this service. The roles
 // of this goroutine includes answering queries related to the state of the
 // network, syncing up newly connected peers, and also periodically
@@ -1072,39 +1145,33 @@ func (d *AuthenticatedGossiper) networkHandler() {
 				continue
 			}
 
-			// For the set of peers that have an active gossip
-			// syncers, we'll collect their pubkeys so we can avoid
-			// sending them the full message blast below.
-			syncerPeers := d.syncMgr.GossipSyncers()
-
-			log.Infof("Broadcasting batch of %v new announcements",
-				len(announcementBatch))
-
-			// We'll first attempt to filter out this new message
-			// for all peers that have active gossip syncers
-			// active.
-			for _, syncer := range syncerPeers {
-				syncer.FilterGossipMsgs(announcementBatch...)
-			}
-
 			// Next, If we have new things to announce then
 			// broadcast them to all our immediately connected
 			// peers.
-			for _, msgChunk := range announcementBatch {
-				// With the syncers taken care of, we'll merge
-				// the sender map with the set of syncers, so
-				// we don't send out duplicate messages.
-				msgChunk.mergeSyncerMap(syncerPeers)
+			subBatchSize := calculateSubBatchSize(
+				d.cfg.TrickleDelay, d.cfg.SubBatchDelay, d.cfg.MinimumBatchSize,
+				len(announcementBatch),
+			)
 
-				err := d.cfg.Broadcast(
-					msgChunk.senders, msgChunk.msg,
-				)
-				if err != nil {
-					log.Errorf("unable to send batch "+
-						"announcements: %v", err)
-					continue
+			splitAnnouncementBatch := splitAnnouncementBatches(
+				subBatchSize, announcementBatch,
+			)
+
+			d.wg.Add(1)
+			go func() {
+				defer d.wg.Done()
+				log.Infof("Broadcasting %v new announcements in %d sub batches",
+					len(announcementBatch), len(splitAnnouncementBatch))
+
+				for _, announcementBatch := range splitAnnouncementBatch {
+					d.sendBatch(announcementBatch)
+					select {
+					case <-time.After(d.cfg.SubBatchDelay):
+					case <-d.quit:
+						return
+					}
 				}
-			}
+			}()
 
 		// The retransmission timer has ticked which indicates that we
 		// should check if we need to prune or re-broadcast any of our

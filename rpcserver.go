@@ -2875,6 +2875,7 @@ type rpcPaymentIntent struct {
 	cltvDelta         uint16
 	routeHints        [][]zpay32.HopHint
 	outgoingChannelID *uint64
+	payReq            []byte
 
 	route *route.Route
 }
@@ -2963,6 +2964,7 @@ func extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPaymentIntent, error
 		copy(payIntent.dest[:], destKey)
 		payIntent.cltvDelta = uint16(payReq.MinFinalCLTVExpiry())
 		payIntent.routeHints = payReq.RouteHints
+		payIntent.payReq = []byte(rpcPayReq.PaymentRequest)
 
 		return payIntent, nil
 	}
@@ -3071,6 +3073,7 @@ func (r *rpcServer) dispatchPaymentIntent(
 			PaymentHash:       payIntent.rHash,
 			RouteHints:        payIntent.routeHints,
 			OutgoingChannelID: payIntent.outgoingChannelID,
+			PaymentRequest:    payIntent.payReq,
 		}
 
 		// If the final CLTV value was specified, then we'll use that
@@ -4149,6 +4152,7 @@ func (r *rpcServer) ListPayments(ctx context.Context,
 			Path:            path,
 			Fee:             int64(route.TotalFees().ToSatoshis()),
 			PaymentPreimage: hex.EncodeToString(preimage[:]),
+			PaymentRequest:  string(payment.Info.PaymentRequest),
 		}
 	}
 

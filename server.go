@@ -762,8 +762,8 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 
 	s.chainArb = contractcourt.NewChainArbitrator(contractcourt.ChainArbitratorConfig{
 		ChainHash:              *activeNetParams.GenesisHash,
-		IncomingBroadcastDelta: defaultIncomingBroadcastDelta,
-		OutgoingBroadcastDelta: defaultOutgoingBroadcastDelta,
+		IncomingBroadcastDelta: DefaultIncomingBroadcastDelta,
+		OutgoingBroadcastDelta: DefaultOutgoingBroadcastDelta,
 		NewSweepAddr: func() ([]byte, error) {
 			return newSweepPkScript(cc.wallet)
 		},
@@ -941,7 +941,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 			minConf := uint64(3)
 			maxConf := uint64(6)
 			maxChannelSize := uint64(
-				lnwire.NewMSatFromSatoshis(maxFundingAmount))
+				lnwire.NewMSatFromSatoshis(MaxFundingAmount))
 			stake := lnwire.NewMSatFromSatoshis(chanAmt) + pushAmt
 			conf := maxConf * uint64(stake) / maxChannelSize
 			if conf < minConf {
@@ -957,7 +957,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 			// remote have to claim funds in case of a unilateral
 			// close) linearly from minRemoteDelay blocks
 			// for small channels, to maxRemoteDelay blocks
-			// for channels of size maxFundingAmount.
+			// for channels of size MaxFundingAmount.
 			// TODO(halseth): Litecoin parameter for LTC.
 
 			// In case the user has explicitly specified
@@ -970,7 +970,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 
 			// If not we scale according to channel size.
 			delay := uint16(btcutil.Amount(maxRemoteDelay) *
-				chanAmt / maxFundingAmount)
+				chanAmt / MaxFundingAmount)
 			if delay < minRemoteDelay {
 				delay = minRemoteDelay
 			}

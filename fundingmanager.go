@@ -57,21 +57,21 @@ const (
 	// created over the RPC interface.
 	minChanFundingSize = btcutil.Amount(20000)
 
-	// maxBtcFundingAmount is a soft-limit of the maximum channel size
+	// MaxBtcFundingAmount is a soft-limit of the maximum channel size
 	// currently accepted on the Bitcoin chain within the Lightning
 	// Protocol. This limit is defined in BOLT-0002, and serves as an
 	// initial precautionary limit while implementations are battle tested
 	// in the real world.
-	maxBtcFundingAmount = btcutil.Amount(1<<24) - 1
+	MaxBtcFundingAmount = btcutil.Amount(1<<24) - 1
 
 	// maxLtcFundingAmount is a soft-limit of the maximum channel size
 	// currently accepted on the Litecoin chain within the Lightning
 	// Protocol.
-	maxLtcFundingAmount = maxBtcFundingAmount * btcToLtcConversionRate
+	maxLtcFundingAmount = MaxBtcFundingAmount * btcToLtcConversionRate
 )
 
 var (
-	// maxFundingAmount is a soft-limit of the maximum channel size
+	// MaxFundingAmount is a soft-limit of the maximum channel size
 	// currently accepted within the Lightning Protocol. This limit is
 	// defined in BOLT-0002, and serves as an initial precautionary limit
 	// while implementations are battle tested in the real world.
@@ -80,7 +80,7 @@ var (
 	// to the value under the Bitcoin chain as default.
 	//
 	// TODO(roasbeef): add command line param to modify
-	maxFundingAmount = maxBtcFundingAmount
+	MaxFundingAmount = MaxBtcFundingAmount
 
 	// ErrFundingManagerShuttingDown is an error returned when attempting to
 	// process a funding request/message but the funding manager has already
@@ -1023,7 +1023,7 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 
 	// We'll reject any request to create a channel that's above the
 	// current soft-limit for channel size.
-	if msg.FundingAmount > maxFundingAmount {
+	if msg.FundingAmount > MaxFundingAmount {
 		f.failFundingFlow(
 			fmsg.peer, fmsg.msg.PendingChannelID,
 			lnwire.ErrChanTooLarge,

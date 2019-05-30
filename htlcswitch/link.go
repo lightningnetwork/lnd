@@ -1608,13 +1608,22 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			return
 		}
 
-		// TODO(roasbeef): pipeline to switch
+		settlePacket := &htlcPacket{
+			outgoingChanID: l.ShortChanID(),
+			outgoingHTLCID: idx,
+			htlc: &lnwire.UpdateFulfillHTLC{
+				PaymentPreimage: pre,
+			},
+		}
 
 		// Add the newly discovered preimage to our growing list of
 		// uncommitted preimage. These will be written to the witness
 		// cache just before accepting the next commitment signature
 		// from the remote peer.
 		l.uncommittedPreimages = append(l.uncommittedPreimages, pre)
+
+		// Pipeline this settle, send it to the switch.
+		go l.forwardBatch(settlePacket)
 
 	case *lnwire.UpdateFailMalformedHTLC:
 		// Convert the failure type encoded within the HTLC fail

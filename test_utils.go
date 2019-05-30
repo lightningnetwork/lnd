@@ -365,6 +365,8 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 			htlcswitch.DefaultFwdEventInterval),
 		LogEventTicker: ticker.New(
 			htlcswitch.DefaultLogInterval),
+		AckEventTicker: ticker.New(
+			htlcswitch.DefaultAckInterval),
 	}, uint32(currentHeight))
 	if err != nil {
 		return nil, nil, nil, nil, err

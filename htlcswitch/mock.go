@@ -175,6 +175,7 @@ func initSwitchWithDB(startingHeight uint32, db *channeldb.DB) (*Switch, error) 
 		Notifier:              &mockNotifier{},
 		FwdEventTicker:        ticker.NewForce(DefaultFwdEventInterval),
 		LogEventTicker:        ticker.NewForce(DefaultLogInterval),
+		AckEventTicker:        ticker.NewForce(DefaultAckInterval),
 		NotifyActiveChannel:   func(wire.OutPoint) {},
 		NotifyInactiveChannel: func(wire.OutPoint) {},
 	}

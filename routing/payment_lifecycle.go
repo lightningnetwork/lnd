@@ -12,6 +12,20 @@ import (
 	"github.com/lightningnetwork/lnd/routing/route"
 )
 
+// errNoRoute is returned when all routes from the payment session have been
+// attempted.
+type errNoRoute struct {
+	// lastError is the error encountered during the last payment attempt,
+	// if at least one attempt has been made.
+	lastError *htlcswitch.ForwardingError
+}
+
+// Error returns a string representation of the error.
+func (e errNoRoute) Error() string {
+	return fmt.Sprintf("unable to route payment to destination: %v",
+		e.lastError)
+}
+
 // paymentLifecycle holds all information about the current state of a payment
 // needed to resume if from any point.
 type paymentLifecycle struct {
@@ -23,7 +37,7 @@ type paymentLifecycle struct {
 	finalCLTVDelta uint16
 	attempt        *channeldb.PaymentAttemptInfo
 	circuit        *sphinx.Circuit
-	lastError      error
+	lastError      *htlcswitch.ForwardingError
 }
 
 // resumePayment resumes the paymentLifecycle from the current state.
@@ -218,10 +232,8 @@ func (p *paymentLifecycle) createNewPaymentAttempt() (lnwire.ShortChannelID,
 		// payment, we'll return that.
 		if p.lastError != nil {
 			return lnwire.ShortChannelID{}, nil,
-				fmt.Errorf("unable to route payment to "+
-					"destination: %v", p.lastError)
+				errNoRoute{lastError: p.lastError}
 		}
-
 		// Terminal state, return.
 		return lnwire.ShortChannelID{}, nil, err
 	}
@@ -326,9 +338,21 @@ func (p *paymentLifecycle) sendPaymentAttempt(firstHop lnwire.ShortChannelID,
 // handleSendError inspects the given error from the Switch and determines
 // whether we should make another payment attempt.
 func (p *paymentLifecycle) handleSendError(sendErr error) error {
-	finalOutcome := p.router.processSendError(
-		p.paySession, &p.attempt.Route, sendErr,
-	)
+	var finalOutcome bool
+
+	// If an internal, non-forwarding error occurred, we can stop trying.
+	fErr, ok := sendErr.(*htlcswitch.ForwardingError)
+	if !ok {
+		finalOutcome = true
+	} else {
+		finalOutcome = p.router.processSendError(
+			p.paySession, &p.attempt.Route, fErr,
+		)
+
+		// Save the forwarding error so it can be returned if this turns
+		// out to be the last attempt.
+		p.lastError = fErr
+	}
 
 	if finalOutcome {
 		log.Errorf("Payment %x failed with final outcome: %v",
@@ -348,7 +372,5 @@ func (p *paymentLifecycle) handleSendError(sendErr error) error {
 		return sendErr
 	}
 
-	// We get ready to make another payment attempt.
-	p.lastError = sendErr
 	return nil
 }

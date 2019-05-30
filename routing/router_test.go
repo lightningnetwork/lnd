@@ -3136,3 +3136,107 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 		}
 	}
 }
+
+// TestSendToRouteStructuredError asserts that SendToRoute returns a structured
+// error.
+func TestSendToRouteStructuredError(t *testing.T) {
+	t.Parallel()
+
+	// Setup a three node network.
+	chanCapSat := btcutil.Amount(100000)
+	testChannels := []*testChannel{
+		symmetricTestChannel("a", "b", chanCapSat, &testChannelPolicy{
+			Expiry:  144,
+			FeeRate: 400,
+			MinHTLC: 1,
+			MaxHTLC: lnwire.NewMSatFromSatoshis(chanCapSat),
+		}, 1),
+		symmetricTestChannel("b", "c", chanCapSat, &testChannelPolicy{
+			Expiry:  144,
+			FeeRate: 400,
+			MinHTLC: 1,
+			MaxHTLC: lnwire.NewMSatFromSatoshis(chanCapSat),
+		}, 2),
+	}
+
+	testGraph, err := createTestGraphFromChannels(testChannels)
+	if err != nil {
+		t.Fatalf("unable to create graph: %v", err)
+	}
+	defer testGraph.cleanUp()
+
+	const startingBlockHeight = 101
+
+	ctx, cleanUp, err := createTestCtxFromGraphInstance(
+		startingBlockHeight, testGraph,
+	)
+	if err != nil {
+		t.Fatalf("unable to create router: %v", err)
+	}
+	defer cleanUp()
+
+	// Setup a route from source a to destination c. The route will be used
+	// in a call to SendToRoute. SendToRoute also applies channel updates,
+	// but it saves us from including RequestRoute in the test scope too.
+	hop1 := ctx.aliases["b"]
+	hop2 := ctx.aliases["c"]
+
+	hops := []*route.Hop{
+		{
+			ChannelID:   1,
+			PubKeyBytes: hop1,
+		},
+		{
+			ChannelID:   2,
+			PubKeyBytes: hop2,
+		},
+	}
+
+	rt, err := route.NewRouteFromHops(
+		lnwire.MilliSatoshi(10000), 100,
+		ctx.aliases["a"], hops,
+	)
+	if err != nil {
+		t.Fatalf("unable to create route: %v", err)
+	}
+
+	// We'll modify the SendToSwitch method so that it simulates a failed
+	// payment with an error originating from the first hop of the route.
+	// The unsigned channel update is attached to the failure message.
+	ctx.router.cfg.Payer.(*mockPaymentAttemptDispatcher).setPaymentResult(
+		func(firstHop lnwire.ShortChannelID) ([32]byte, error) {
+
+			v := ctx.aliases["b"]
+			source, err := btcec.ParsePubKey(
+				v[:], btcec.S256(),
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			return [32]byte{}, &htlcswitch.ForwardingError{
+				ErrorSource: source,
+				FailureMessage: &lnwire.FailFeeInsufficient{
+					Update: lnwire.ChannelUpdate{},
+				},
+			}
+		})
+
+	// The payment parameter is mostly redundant in SendToRoute. Can be left
+	// empty for this test.
+	var payment lntypes.Hash
+
+	// Send off the payment request to the router. The specified route
+	// should be attempted and the channel update should be received by
+	// router and ignored because it is missing a valid signature.
+	_, err = ctx.router.SendToRoute(payment, rt)
+
+	fErr, ok := err.(*htlcswitch.ForwardingError)
+	if !ok {
+		t.Fatalf("expected forwarding error")
+	}
+
+	if _, ok := fErr.FailureMessage.(*lnwire.FailFeeInsufficient); !ok {
+		t.Fatalf("expected fee insufficient error")
+	}
+}

@@ -2120,21 +2120,20 @@ func (s *server) BroadcastMessage(skips map[route.Vertex]struct{},
 // particular peer comes online. The peer itself is sent across the peerChan.
 //
 // NOTE: This function is safe for concurrent access.
-func (s *server) NotifyWhenOnline(peerKey *btcec.PublicKey,
+func (s *server) NotifyWhenOnline(peerKey [33]byte,
 	peerChan chan<- lnpeer.Peer) {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	// Compute the target peer's identifier.
-	pubStr := string(peerKey.SerializeCompressed())
+	pubStr := string(peerKey[:])
 
 	// Check if peer is connected.
 	peer, ok := s.peersByPub[pubStr]
 	if ok {
 		// Connected, can return early.
-		srvrLog.Debugf("Notifying that peer %x is online",
-			peerKey.SerializeCompressed())
+		srvrLog.Debugf("Notifying that peer %x is online", peerKey)
 
 		select {
 		case peerChan <- peer:

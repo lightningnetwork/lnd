@@ -3,7 +3,6 @@ package discovery
 import (
 	"sync"
 
-	"github.com/btcsuite/btcd/btcec"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
@@ -16,9 +15,7 @@ type reliableSenderCfg struct {
 	// retry sending a peer message.
 	//
 	// NOTE: The peerChan channel must be buffered.
-	//
-	// TODO(wilmer): use [33]byte to avoid unnecessary serializations.
-	NotifyWhenOnline func(peer *btcec.PublicKey, peerChan chan<- lnpeer.Peer)
+	NotifyWhenOnline func(peerPubKey [33]byte, peerChan chan<- lnpeer.Peer)
 
 	// NotifyWhenOffline is a function that allows the gossiper to be
 	// notified when a certain peer disconnects, allowing it to request a
@@ -164,13 +161,12 @@ func (s *reliableSender) peerHandler(peerMgr peerManager, peerPubKey [33]byte) {
 
 	// We'll start by requesting a notification for when the peer
 	// reconnects.
-	pubKey, _ := btcec.ParsePubKey(peerPubKey[:], btcec.S256())
 	peerChan := make(chan lnpeer.Peer, 1)
 
 waitUntilOnline:
 	log.Debugf("Requesting online notification for peer=%x", peerPubKey)
 
-	s.cfg.NotifyWhenOnline(pubKey, peerChan)
+	s.cfg.NotifyWhenOnline(peerPubKey, peerChan)
 
 	var peer lnpeer.Peer
 out:

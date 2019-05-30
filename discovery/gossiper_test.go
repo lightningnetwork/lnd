@@ -734,9 +734,11 @@ func createTestCtx(startHeight uint32) (*testCtx, func(), error) {
 
 			return nil
 		},
-		NotifyWhenOnline: func(target *btcec.PublicKey,
+		NotifyWhenOnline: func(target [33]byte,
 			peerChan chan<- lnpeer.Peer) {
-			peerChan <- &mockPeer{target, nil, nil}
+
+			pk, _ := btcec.ParsePubKey(target[:], btcec.S256())
+			peerChan <- &mockPeer{pk, nil, nil}
 		},
 		NotifyWhenOffline: func(_ [33]byte) <-chan struct{} {
 			c := make(chan struct{})
@@ -981,11 +983,13 @@ func TestSignatureAnnouncementLocalFirst(t *testing.T) {
 	// Set up a channel that we can use to inspect the messages sent
 	// directly from the gossiper.
 	sentMsgs := make(chan lnwire.Message, 10)
-	ctx.gossiper.reliableSender.cfg.NotifyWhenOnline = func(target *btcec.PublicKey,
+	ctx.gossiper.reliableSender.cfg.NotifyWhenOnline = func(target [33]byte,
 		peerChan chan<- lnpeer.Peer) {
 
+		pk, _ := btcec.ParsePubKey(target[:], btcec.S256())
+
 		select {
-		case peerChan <- &mockPeer{target, sentMsgs, ctx.gossiper.quit}:
+		case peerChan <- &mockPeer{pk, sentMsgs, ctx.gossiper.quit}:
 		case <-ctx.gossiper.quit:
 		}
 	}
@@ -1178,11 +1182,13 @@ func TestOrphanSignatureAnnouncement(t *testing.T) {
 	// Set up a channel that we can use to inspect the messages sent
 	// directly from the gossiper.
 	sentMsgs := make(chan lnwire.Message, 10)
-	ctx.gossiper.reliableSender.cfg.NotifyWhenOnline = func(target *btcec.PublicKey,
+	ctx.gossiper.reliableSender.cfg.NotifyWhenOnline = func(target [33]byte,
 		peerChan chan<- lnpeer.Peer) {
 
+		pk, _ := btcec.ParsePubKey(target[:], btcec.S256())
+
 		select {
-		case peerChan <- &mockPeer{target, sentMsgs, ctx.gossiper.quit}:
+		case peerChan <- &mockPeer{pk, sentMsgs, ctx.gossiper.quit}:
 		case <-ctx.gossiper.quit:
 		}
 	}
@@ -1403,7 +1409,7 @@ func TestSignatureAnnouncementRetryAtStartup(t *testing.T) {
 	// channel through which it gets sent to control exactly when to
 	// dispatch it.
 	notifyPeers := make(chan chan<- lnpeer.Peer, 1)
-	ctx.gossiper.reliableSender.cfg.NotifyWhenOnline = func(peer *btcec.PublicKey,
+	ctx.gossiper.reliableSender.cfg.NotifyWhenOnline = func(peer [33]byte,
 		connectedChan chan<- lnpeer.Peer) {
 		notifyPeers <- connectedChan
 	}
@@ -1609,7 +1615,7 @@ func TestSignatureAnnouncementFullProofWhenRemoteProof(t *testing.T) {
 
 	// Override NotifyWhenOnline to return the remote peer which we expect
 	// meesages to be sent to.
-	ctx.gossiper.reliableSender.cfg.NotifyWhenOnline = func(peer *btcec.PublicKey,
+	ctx.gossiper.reliableSender.cfg.NotifyWhenOnline = func(peer [33]byte,
 		peerChan chan<- lnpeer.Peer) {
 
 		peerChan <- remotePeer
@@ -2442,7 +2448,7 @@ func TestReceiveRemoteChannelUpdateFirst(t *testing.T) {
 
 	// Override NotifyWhenOnline to return the remote peer which we expect
 	// meesages to be sent to.
-	ctx.gossiper.reliableSender.cfg.NotifyWhenOnline = func(peer *btcec.PublicKey,
+	ctx.gossiper.reliableSender.cfg.NotifyWhenOnline = func(peer [33]byte,
 		peerChan chan<- lnpeer.Peer) {
 
 		peerChan <- remotePeer
@@ -2983,7 +2989,7 @@ func TestSendChannelUpdateReliably(t *testing.T) {
 	// NotifyWhenOffline to instead give us access to the channel that will
 	// receive the notification.
 	notifyOnline := make(chan chan<- lnpeer.Peer, 1)
-	ctx.gossiper.reliableSender.cfg.NotifyWhenOnline = func(_ *btcec.PublicKey,
+	ctx.gossiper.reliableSender.cfg.NotifyWhenOnline = func(_ [33]byte,
 		peerChan chan<- lnpeer.Peer) {
 
 		notifyOnline <- peerChan
@@ -3360,13 +3366,13 @@ func TestPropagateChanPolicyUpdate(t *testing.T) {
 	// pubkey, and hand it our mock peer above.
 	notifyErr := make(chan error, 1)
 	ctx.gossiper.reliableSender.cfg.NotifyWhenOnline = func(
-		targetPub *btcec.PublicKey, peerChan chan<- lnpeer.Peer) {
+		targetPub [33]byte, peerChan chan<- lnpeer.Peer) {
 
-		if !targetPub.IsEqual(remoteKey) {
+		if !bytes.Equal(targetPub[:], remoteKey.SerializeCompressed()) {
 			notifyErr <- fmt.Errorf("reliableSender attempted to send the "+
 				"message to the wrong peer: expected %x got %x",
 				remoteKey.SerializeCompressed(),
-				targetPub.SerializeCompressed())
+				targetPub)
 		}
 
 		peerChan <- remotePeer

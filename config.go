@@ -313,6 +313,8 @@ type config struct {
 	Workers *lncfg.Workers `group:"workers" namespace:"workers"`
 
 	Caches *lncfg.Caches `group:"caches" namespace:"caches"`
+
+	Prometheus lncfg.Prometheus `group:"prometheus" namespace:"prometheus"`
 }
 
 // loadConfig initializes and parses the config using a config file and command
@@ -407,6 +409,7 @@ func loadConfig() (*config, error) {
 			RejectCacheSize:  channeldb.DefaultRejectCacheSize,
 			ChannelCacheSize: channeldb.DefaultChannelCacheSize,
 		},
+		Prometheus: lncfg.DefaultPrometheus(),
 	}
 
 	// Pre-parse the command line options to pick up an alternative config

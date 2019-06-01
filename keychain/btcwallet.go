@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/btcsuite/btcwallet/wallet"
 	"github.com/btcsuite/btcwallet/walletdb"
@@ -234,6 +235,56 @@ func (b *BtcWalletKeyRing) DeriveKey(keyLoc KeyLocator) (KeyDescriptor, error) {
 		keyDesc.KeyLocator = keyLoc
 		keyDesc.PubKey = addr.(waddrmgr.ManagedPubKeyAddress).PubKey()
 
+		return nil
+	})
+	if err != nil {
+		return keyDesc, err
+	}
+
+	return keyDesc, nil
+}
+
+// KeyForAddress attempts to extract the raw public key and HD path
+// a given witness address, assuming it is of type witness pubkey
+// hash (nested or not), i.e. is an in wallet funds address.
+//
+// NOTE: This is part of the keychain.KeyRing interface.
+func (b *BtcWalletKeyRing) KeyForAddress(addr btcutil.Address) (
+	KeyDescriptor, error) {
+	var (
+		keyDesc KeyDescriptor
+		keyLoc  KeyLocator
+	)
+
+	db := b.wallet.Database()
+	err := walletdb.View(db, func(tx walletdb.ReadTx) error {
+		addrmgrNs := tx.ReadBucket(waddrmgrNamespaceKey)
+		managedAddr, err := b.wallet.Manager.Address(addrmgrNs, addr)
+		if err != nil {
+			return err
+		}
+		managedPubKeyAddr, ok := managedAddr.(waddrmgr.ManagedPubKeyAddress)
+		if !ok {
+			return fmt.Errorf("Address is not managed by this wallet")
+		}
+		_, pathInfo, owned := managedPubKeyAddr.DerivationInfo()
+		if !owned {
+			return fmt.Errorf("Address has no HD derivation in this wallet")
+		}
+
+		// Although the caller was requesting a pubkey, we'll populate a
+		// KeyLocator struct with the default account of the on-chain
+		// btcwallet and the index of the key we've looked up in the
+		// database, for completeness.
+		keyLoc = KeyLocator{
+			Family: KeyFamily(pathInfo.Account),
+			Index:  pathInfo.Index,
+		}
+		keyDesc.KeyLocator = keyLoc
+
+		// We also populate the raw public key for this address - this is
+		// the information that the caller was requesting.
+		keyDesc.PubKey = managedPubKeyAddr.PubKey()
 		return nil
 	})
 	if err != nil {

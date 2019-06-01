@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
@@ -60,6 +61,10 @@ var (
 		}},
 		"/walletrpc.WalletKit/NextAddr": {{
 			Entity: "address",
+			Action: "read",
+		}},
+		"/walletrpc.WalletKit/KeyForAddress": {{
+			Entity: "onchain",
 			Action: "read",
 		}},
 		"/walletrpc.WalletKit/PublishTransaction": {{
@@ -218,6 +223,33 @@ func (w *WalletKit) DeriveKey(ctx context.Context,
 		},
 		RawKeyBytes: keyDesc.PubKey.SerializeCompressed(),
 	}, nil
+}
+
+// KeyForAddress attempts to extract a KeyDescriptor, containing
+// a public key, for a given Bitcoin address passed as argument;
+// this will fail with an error unless the address is owned by the
+// wallet.
+func (w *WalletKit) KeyForAddress(ctx context.Context,
+	req *KeyForAddressRequest) (*signrpc.KeyDescriptor, error) {
+
+	addr, err := btcutil.DecodeAddress(req.AddrIn, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	keyDesc, err := w.cfg.KeyRing.KeyForAddress(addr)
+	if err != nil {
+		return nil, err
+	}
+
+	keyLoc := &signrpc.KeyLocator{
+		KeyFamily: int32(keyDesc.KeyLocator.Family),
+		KeyIndex:  int32(keyDesc.KeyLocator.Index),
+	}
+
+	return &signrpc.KeyDescriptor{
+		RawKeyBytes: keyDesc.PubKey.SerializeCompressed(),
+		KeyLoc:      keyLoc}, nil
 }
 
 // NextAddr returns the next unused address within the wallet.

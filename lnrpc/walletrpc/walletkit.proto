@@ -21,6 +21,12 @@ message KeyReq {
     int32 key_family = 2;
 }
 
+message KeyForAddressRequest {
+	/** Provide a bech32 encoded in-wallet address
+	*/
+	string addr_in = 1;
+}
+
 message AddrRequest{
     // No fields, as we always give out a p2wkh address.
 }
@@ -99,6 +105,12 @@ service WalletKit {
     NextAddr returns the next unused address within the wallet.
     */
     rpc NextAddr(AddrRequest) returns (AddrResponse);
+
+	/**
+	KeyForAddress returns a KeyDescriptor containing the pubkey
+	corresponding to a given address, assuming it is owned by the wallet.
+	*/
+	rpc KeyForAddress(KeyForAddressRequest) returns (signrpc.KeyDescriptor);
 
     /**
     PublishTransaction attempts to publish the passed transaction to the

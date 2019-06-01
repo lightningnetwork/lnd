@@ -14660,6 +14660,7 @@ var testsCases = []*testCase{
 		name: "cpfp",
 		test: testCPFP,
 	},
+	{
 		name: "channel timeout recovery",
 		test: testChannelRecovery,
 	},

@@ -2831,6 +2831,10 @@
           "type": "string",
           "format": "int64",
           "title": "/ The value of the payment in milli-satoshis"
+        },
+        "payment_request": {
+          "type": "string",
+          "description": "/ The optional payment request being fulfilled."
         }
       }
     },

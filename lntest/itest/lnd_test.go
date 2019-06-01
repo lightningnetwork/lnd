@@ -3826,10 +3826,17 @@ func testListPayments(net *lntest.NetworkHarness, t *harnessTest) {
 			p.PaymentHash, correctRHash)
 	}
 
-	// Finally, as we made a single-hop direct payment, there should have
-	// been no fee applied.
+	// As we made a single-hop direct payment, there should have been no fee
+	// applied.
 	if p.Fee != 0 {
 		t.Fatalf("incorrect Fee, got %v, want %v", p.Fee, 0)
+	}
+
+	// Finally, verify that the payment request returned by the rpc matches
+	// the invoice that we paid.
+	if p.PaymentRequest != invoiceResp.PaymentRequest {
+		t.Fatalf("incorrect payreq, got: %v, want: %v",
+			p.PaymentRequest, invoiceResp.PaymentRequest)
 	}
 
 	// Delete all payments from Alice. DB should have no payments.
@@ -4354,6 +4361,26 @@ func testSingleHopSendToRoute(net *lntest.NetworkHarness, t *harnessTest) {
 		}
 		if resp.PaymentError != "" {
 			t.Fatalf("received payment error: %v", resp.PaymentError)
+		}
+	}
+
+	req := &lnrpc.ListPaymentsRequest{}
+	ctxt, _ = context.WithTimeout(ctxt, defaultTimeout)
+	paymentsResp, err := net.Alice.ListPayments(ctxt, req)
+	if err != nil {
+		t.Fatalf("error when obtaining Alice payments: %v", err)
+	}
+	if len(paymentsResp.Payments) != 5 {
+		t.Fatalf("incorrect number of payments, got %v, want %v",
+			len(paymentsResp.Payments), 5)
+	}
+
+	// Verify that the ListPayments displays the payment without an invoice
+	// since the payment was completed with SendToRoute.
+	for _, p := range paymentsResp.Payments {
+		if p.PaymentRequest != "" {
+			t.Fatalf("incorrect payreq, want: \"\", got: %v",
+				p.PaymentRequest)
 		}
 	}
 

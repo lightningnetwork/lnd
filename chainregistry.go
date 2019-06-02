@@ -486,15 +486,16 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 	// Create, and start the lnwallet, which handles the core payment
 	// channel logic, and exposes control via proxy state machines.
 	walletCfg := lnwallet.Config{
-		Database:           chanDB,
-		Notifier:           cc.chainNotifier,
-		WalletController:   wc,
-		Signer:             cc.signer,
-		FeeEstimator:       cc.feeEstimator,
-		SecretKeyRing:      keyRing,
-		ChainIO:            cc.chainIO,
-		DefaultConstraints: channelConstraints,
-		NetParams:          *activeNetParams.Params,
+		Database:                 chanDB,
+		Notifier:                 cc.chainNotifier,
+		WalletController:         wc,
+		Signer:                   cc.signer,
+		FeeEstimator:             cc.feeEstimator,
+		SecretKeyRing:            keyRing,
+		ChainIO:                  cc.chainIO,
+		DefaultConstraints:       channelConstraints,
+		NetParams:                *activeNetParams.Params,
+		MaxRecoveryTxFeeIncrease: cfg.MaxRecoveryTxFeeIncrease,
 	}
 	lnWallet, err := lnwallet.NewLightningWallet(walletCfg)
 	if err != nil {

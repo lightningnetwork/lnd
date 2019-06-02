@@ -350,6 +350,7 @@ func (n *NetworkHarness) newNode(name string, extraArgs []string,
 		BackendCfg: n.BackendCfg,
 		NetParams:  n.netParams,
 		ExtraArgs:  extraArgs,
+		RecoveryTx: true,
 	})
 	if err != nil {
 		return nil, err

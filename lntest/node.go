@@ -139,6 +139,8 @@ type nodeConfig struct {
 	HasSeed  bool
 	Password []byte
 
+	RecoveryTx bool
+
 	P2PPort     int
 	RPCPort     int
 	RESTPort    int
@@ -207,6 +209,10 @@ func (cfg nodeConfig) genArgs() []string {
 	args = append(args, fmt.Sprintf("--invoicemacaroonpath=%v", cfg.InvoiceMacPath))
 	args = append(args, fmt.Sprintf("--trickledelay=%v", trickleDelay))
 	args = append(args, fmt.Sprintf("--profile=%d", cfg.ProfilePort))
+
+	if cfg.RecoveryTx {
+		args = append(args, "--recoverfundingtx")
+	}
 
 	if !cfg.HasSeed {
 		args = append(args, "--noseedbackup")

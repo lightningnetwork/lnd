@@ -55,4 +55,8 @@ type Config struct {
 	// NetParams is the set of parameters that tells the wallet which chain
 	// it will be operating on.
 	NetParams chaincfg.Params
+
+	// MaxRecoveryTxFeeIncrease is the maximum fee increase used for recovery
+	// tx as part of the recovery of the fundingTx workflow
+	MaxRecoveryTxFeeIncrease float64
 }

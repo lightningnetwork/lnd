@@ -1094,6 +1094,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 		RejectPush:             cfg.RejectPush,
 		NotifyOpenChannelEvent: s.channelNotifier.NotifyOpenChannelEvent,
 		OpenChannelPredicate:   chanPredicate,
+		RecoverFundingTx:       cfg.RecoverFundingTx,
 	})
 	if err != nil {
 		return nil, err

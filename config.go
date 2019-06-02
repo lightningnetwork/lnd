@@ -126,6 +126,9 @@ const (
 
 	defaultAlias = ""
 	defaultColor = "#3399FF"
+
+	defaultRecoveryFundingTx        = false
+	defaultMaxRecoveryTxFeeIncrease = 3.0
 )
 
 var (
@@ -321,6 +324,10 @@ type config struct {
 
 	MaxChannelFeeAllocation float64 `long:"max-channel-fee-allocation" description:"The maximum percentage of total funds that can be allocated to a channel's commitment fee. This only applies for the initiator of the channel. Valid values are within [0.1, 1]."`
 
+	RecoverFundingTx bool `long:"recoverfundingtx" description:"If true, lnd will attempt to recovery funding tx if we initiated the channel. Warning: This will spend from a change output and has no guarantees of working. It is likely the channel will have to be force closed after recovery as the remote peer will have likely dropped the channel"`
+
+	MaxRecoveryTxFeeIncrease float64 `long:"maxRecoveryTxFeeIncrease" description:"If recoverfundingtx is enabled, MaxRecoveryTxFeeIncrease sets the maximum fee increase of the amount used in the fundingTx"`
+
 	net tor.Net
 
 	Routing *routing.Conf `group:"routing" namespace:"routing"`
@@ -438,6 +445,8 @@ func loadConfig() (*config, error) {
 		},
 		MaxOutgoingCltvExpiry:   htlcswitch.DefaultMaxOutgoingCltvExpiry,
 		MaxChannelFeeAllocation: htlcswitch.DefaultMaxLinkFeeAllocation,
+		RecoverFundingTx:         defaultRecoveryFundingTx,
+		MaxRecoveryTxFeeIncrease: defaultMaxRecoveryTxFeeIncrease,
 	}
 
 	// Pre-parse the command line options to pick up an alternative config

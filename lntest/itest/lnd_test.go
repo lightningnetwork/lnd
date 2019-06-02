@@ -57,6 +57,30 @@ const (
 	channelCloseTimeout = lntest.ChannelCloseTimeout
 )
 
+type PendingState int
+
+const (
+	PendingOpen PendingState = iota
+	PendingClosed
+	PendingForcedClosed
+	WaitingClosed
+)
+
+func (state PendingState) String() string {
+	switch state {
+	case PendingOpen:
+		return "open"
+	case PendingClosed:
+		return "closed"
+	case PendingForcedClosed:
+		return "forced closed"
+	case WaitingClosed:
+		return "waiting closed"
+	default:
+		return fmt.Sprintf("%d", int(state))
+	}
+}
+
 // harnessTest wraps a regular testing.T providing enhanced error detection
 // and propagation. All error will be augmented with a full stack-trace in
 // order to aid in debugging. Additionally, any panics caused by active
@@ -743,6 +767,45 @@ const (
 	AddrTypeWitnessPubkeyHash = lnrpc.AddressType_WITNESS_PUBKEY_HASH
 	AddrTypeNestedPubkeyHash  = lnrpc.AddressType_NESTED_PUBKEY_HASH
 )
+
+// assertCorrectNumberPendingChannels checks number of pending channels is what
+// we expect for two parties. To do so we perform two PendingChannelRequests
+// and then check that the count for our expected pending state is correct.
+func assertCorrectNumberPendingChannels(t *harnessTest, ctx context.Context,
+	aliceNode, bobNode *lntest.HarnessNode, aliceQuantity, bobQuantity int,
+	pendingState PendingState) {
+	ctxt, _ := context.WithTimeout(ctx, defaultTimeout)
+
+	pendingChannelRequest := &lnrpc.PendingChannelsRequest{}
+
+	pendingChanResp, err := aliceNode.PendingChannels(ctxt,
+		pendingChannelRequest,
+	)
+	if err != nil {
+		t.Fatalf("unable to query for pending channels: %v", err)
+	}
+
+	err = checkCorrectPendingChannelResponse(pendingChanResp, aliceQuantity,
+		pendingState,
+	)
+
+	if err != nil {
+		t.Fatalf("error from checkCorrectPendingChannelResponse: %v", err)
+	}
+
+	pendingChanResp, err = bobNode.PendingChannels(ctxt, pendingChannelRequest)
+	if err != nil {
+		t.Fatalf("unable to query for pending channels: %v", err)
+	}
+
+	err = checkCorrectPendingChannelResponse(pendingChanResp, bobQuantity,
+		pendingState,
+	)
+
+	if err != nil {
+		t.Fatalf("error from checkCorrectPendingChannelResponse: %v", err)
+	}
+}
 
 // testOnchainFundRecovery checks lnd's ability to rescan for onchain outputs
 // when providing a valid aezeed that owns outputs on the chain. This test
@@ -2690,31 +2753,28 @@ func checkPendingChannelNumHtlcs(
 	return nil
 }
 
-// checkNumForceClosedChannels checks that a pending channel response has the
-// expected number of force closed channels.
-func checkNumForceClosedChannels(pendingChanResp *lnrpc.PendingChannelsResponse,
-	expectedNumChans int) error {
+// checkCorrectPendingChannelResponse checks that for a given
+// PendingChannelsResponse, that we have the expected number of channels for a
+// given pending state.
+func checkCorrectPendingChannelResponse(pendingChanResp *lnrpc.PendingChannelsResponse,
+	expectedNumberChannels int, pendingState PendingState) error {
 
-	if len(pendingChanResp.PendingForceClosingChannels) != expectedNumChans {
-		return fmt.Errorf("expected to find %d force closed channels, "+
-			"got %d", expectedNumChans,
-			len(pendingChanResp.PendingForceClosingChannels))
+	var actual int
+	switch pendingState {
+	case PendingOpen:
+		actual = len(pendingChanResp.PendingOpenChannels)
+	case PendingClosed:
+		actual = len(pendingChanResp.PendingClosingChannels)
+	case PendingForcedClosed:
+		actual = len(pendingChanResp.PendingForceClosingChannels)
+	case WaitingClosed:
+		actual = len(pendingChanResp.WaitingCloseChannels)
 	}
 
-	return nil
-}
-
-// checkNumWaitingCloseChannels checks that a pending channel response has the
-// expected number of channels waiting for closing tx to confirm.
-func checkNumWaitingCloseChannels(pendingChanResp *lnrpc.PendingChannelsResponse,
-	expectedNumChans int) error {
-
-	if len(pendingChanResp.WaitingCloseChannels) != expectedNumChans {
-		return fmt.Errorf("expected to find %d channels waiting "+
-			"closure, got %d", expectedNumChans,
-			len(pendingChanResp.WaitingCloseChannels))
+	if actual != expectedNumberChannels {
+		return fmt.Errorf("expected to find %d channels waiting in pending state: %v "+
+			"got %d", expectedNumberChannels, pendingState, actual)
 	}
-
 	return nil
 }
 
@@ -2911,7 +2971,7 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 	if err != nil {
 		t.Fatalf("unable to query for pending channels: %v", err)
 	}
-	err = checkNumWaitingCloseChannels(pendingChanResp, 1)
+	err = checkCorrectPendingChannelResponse(pendingChanResp, 1, WaitingClosed)
 	if err != nil {
 		t.Fatalf(err.Error())
 	}
@@ -2971,7 +3031,9 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 			return false
 		}
 
-		predErr = checkNumForceClosedChannels(pendingChanResp, 1)
+		predErr = checkCorrectPendingChannelResponse(pendingChanResp, 1,
+			PendingForcedClosed,
+		)
 		if predErr != nil {
 			return false
 		}
@@ -3054,7 +3116,9 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 				"channels: %v", err)
 		}
 
-		err = checkNumForceClosedChannels(pendingChanResp, 1)
+		err = checkCorrectPendingChannelResponse(pendingChanResp, 1,
+			PendingForcedClosed,
+		)
 		if err != nil {
 			return err
 		}
@@ -3161,7 +3225,9 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 			return false
 		}
 
-		err = checkNumForceClosedChannels(pendingChanResp, 1)
+		err = checkCorrectPendingChannelResponse(pendingChanResp, 1,
+			PendingForcedClosed,
+		)
 		if err != nil {
 			predErr = err
 			return false
@@ -3231,7 +3297,9 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 				"channels: %v", err)
 		}
 
-		err = checkNumForceClosedChannels(pendingChanResp, 1)
+		err = checkCorrectPendingChannelResponse(pendingChanResp, 1,
+			PendingForcedClosed,
+		)
 		if err != nil {
 			return err
 		}
@@ -3359,7 +3427,9 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 				"channels: %v", err)
 			return false
 		}
-		err = checkNumForceClosedChannels(pendingChanResp, 1)
+		err = checkCorrectPendingChannelResponse(pendingChanResp, 1,
+			PendingForcedClosed,
+		)
 		if err != nil {
 			predErr = err
 			return false
@@ -3460,7 +3530,9 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 				"channels: %v", err)
 			return false
 		}
-		err = checkNumForceClosedChannels(pendingChanResp, 1)
+		err = checkCorrectPendingChannelResponse(pendingChanResp, 1,
+			PendingForcedClosed,
+		)
 		if err != nil {
 			predErr = err
 			return false
@@ -3510,7 +3582,9 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 			return false
 		}
 
-		predErr = checkNumForceClosedChannels(pendingChanResp, 0)
+		predErr = checkCorrectPendingChannelResponse(pendingChanResp, 0,
+			PendingForcedClosed,
+		)
 		if predErr != nil {
 			return false
 		}
@@ -6815,7 +6889,9 @@ func testGarbageCollectLinkNodes(net *lntest.NetworkHarness, t *harnessTest) {
 			return false
 		}
 
-		predErr = checkNumForceClosedChannels(pendingChanResp, 0)
+		predErr = checkCorrectPendingChannelResponse(pendingChanResp, 0,
+			PendingForcedClosed,
+		)
 		if predErr != nil {
 			return false
 		}
@@ -6830,7 +6906,9 @@ func testGarbageCollectLinkNodes(net *lntest.NetworkHarness, t *harnessTest) {
 			return false
 		}
 
-		predErr = checkNumForceClosedChannels(pendingChanResp, 0)
+		predErr = checkCorrectPendingChannelResponse(pendingChanResp, 0,
+			PendingForcedClosed,
+		)
 		if predErr != nil {
 			return false
 		}
@@ -8136,7 +8214,7 @@ func testRevokedCloseRetributionAltruistWatchtower(net *lntest.NetworkHarness,
 		t.Fatalf("%v", predErr)
 	}
 
-	assertNumPendingChannels(t, dave, 0, 0)
+	assertNumberPendingClosedChannels(t, dave, 0, 0)
 
 	err = wait.Predicate(func() bool {
 		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
@@ -8164,9 +8242,9 @@ func testRevokedCloseRetributionAltruistWatchtower(net *lntest.NetworkHarness,
 	assertNodeNumChannels(t, dave, 0)
 }
 
-// assertNumPendingChannels checks that a PendingChannels response from the
-// node reports the expected number of pending channels.
-func assertNumPendingChannels(t *harnessTest, node *lntest.HarnessNode,
+// assertNumberPendingClosedChannels checks the number of pending channels
+// in waiting close and force closed state matches our expectation
+func assertNumberPendingClosedChannels(t *harnessTest, node *lntest.HarnessNode,
 	expWaitingClose, expPendingForceClose int) {
 	ctxb := context.Background()
 
@@ -8181,16 +8259,18 @@ func assertNumPendingChannels(t *harnessTest, node *lntest.HarnessNode,
 				"channels: %v", err)
 			return false
 		}
-		n := len(pendingChanResp.WaitingCloseChannels)
-		if n != expWaitingClose {
-			predErr = fmt.Errorf("Expected to find %d channels "+
-				"waiting close, found %d", expWaitingClose, n)
+
+		predErr = checkCorrectPendingChannelResponse(pendingChanResp,
+			expWaitingClose, WaitingClosed,
+		)
+		if predErr != nil {
 			return false
 		}
-		n = len(pendingChanResp.PendingForceClosingChannels)
-		if n != expPendingForceClose {
-			predErr = fmt.Errorf("expected to find %d channel "+
-				"pending force close, found %d", expPendingForceClose, n)
+
+		predErr = checkCorrectPendingChannelResponse(pendingChanResp,
+			expPendingForceClose, PendingForcedClosed,
+		)
+		if predErr != nil {
 			return false
 		}
 		return true
@@ -8222,12 +8302,12 @@ func assertDLPExecuted(net *lntest.NetworkHarness, t *harnessTest,
 
 	// Channel should be in the state "waiting close" for Carol since she
 	// broadcasted the force close tx.
-	assertNumPendingChannels(t, carol, 1, 0)
+	assertNumberPendingClosedChannels(t, carol, 1, 0)
 
 	// Dave should also consider the channel "waiting close", as he noticed
 	// the channel was out of sync, and is now waiting for a force close to
 	// hit the chain.
-	assertNumPendingChannels(t, dave, 1, 0)
+	assertNumberPendingClosedChannels(t, dave, 1, 0)
 
 	// Restart Dave to make sure he is able to sweep the funds after
 	// shutdown.
@@ -8249,18 +8329,18 @@ func assertDLPExecuted(net *lntest.NetworkHarness, t *harnessTest,
 
 	// Dave should consider the channel pending force close (since he is
 	// waiting for his sweep to confirm).
-	assertNumPendingChannels(t, dave, 0, 1)
+	assertNumberPendingClosedChannels(t, dave, 0, 1)
 
 	// Carol is considering it "pending force close", as we must wait
 	// before she can sweep her outputs.
-	assertNumPendingChannels(t, carol, 0, 1)
+	assertNumberPendingClosedChannels(t, carol, 0, 1)
 
 	// Mine the sweep tx.
 	block = mineBlocks(t, net, 1, 1)[0]
 	assertTxInBlock(t, block, daveSweep)
 
 	// Now Dave should consider the channel fully closed.
-	assertNumPendingChannels(t, dave, 0, 0)
+	assertNumberPendingClosedChannels(t, dave, 0, 0)
 
 	// We query Dave's balance to make sure it increased after the channel
 	// closed. This checks that he was able to sweep the funds he had in
@@ -8290,7 +8370,7 @@ func assertDLPExecuted(net *lntest.NetworkHarness, t *harnessTest,
 	assertTxInBlock(t, block, carolSweep)
 
 	// Now the channel should be fully closed also from Carol's POV.
-	assertNumPendingChannels(t, carol, 0, 0)
+	assertNumberPendingClosedChannels(t, carol, 0, 0)
 
 	// Make sure Carol got her balance back.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
@@ -8570,7 +8650,7 @@ func testDataLossProtection(net *lntest.NetworkHarness, t *harnessTest) {
 	assertTxInBlock(t, block, carolSweep)
 
 	// Now the channel should be fully closed also from Carol's POV.
-	assertNumPendingChannels(t, carol, 0, 0)
+	assertNumberPendingClosedChannels(t, carol, 0, 0)
 
 	// Make sure Carol got her balance back.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
@@ -14539,6 +14619,9 @@ var testsCases = []*testCase{
 	{
 		name: "cpfp",
 		test: testCPFP,
+	},
+		name: "channel timeout recovery",
+		test: testChannelRecovery,
 	},
 }
 

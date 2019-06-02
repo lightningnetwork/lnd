@@ -1864,6 +1864,41 @@ func makeFundingScript(channel *channeldb.OpenChannel) ([]byte, error) {
 	return input.WitnessScriptHash(multiSigScript)
 }
 
+// waitForTxConfirmed will block until the given tx has the required number of
+// confirmations.
+func (f *fundingManager) waitForTxConfirmed(txid chainhash.Hash,
+	fundingScript []byte, broadcastHeight,
+	numConfs uint32) (*chainntnfs.TxConfirmation, error) {
+
+	var confDetails *chainntnfs.TxConfirmation
+
+	confNtfn, err := f.cfg.Notifier.RegisterConfirmationsNtfn(
+		&txid, fundingScript, numConfs, broadcastHeight,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to register for the confirmation of tx:"+
+			" %v due to error %v", txid, err)
+	}
+
+	fndgLog.Infof("Waiting for funding tx (%v) to reach %v confirmations",
+		txid, numConfs)
+
+	// Wait until the specified number of confirmations has been reached,
+	// we get a cancel signal, or the wallet signals a shutdown.
+	select {
+	case conf, ok := <-confNtfn.Confirmed:
+		if !ok {
+			return nil, fmt.Errorf("confNtfn.Confirmed not ok")
+		}
+		confDetails = conf
+
+	case <-f.quit:
+		return nil, fmt.Errorf("fundingManager shutting down, stopping funding")
+	}
+
+	return confDetails, nil
+}
+
 // waitForFundingConfirmation handles the final stages of the channel funding
 // process once the funding transaction has been broadcast. The primary
 // function of waitForFundingConfirmation is to wait for blockchain
@@ -1891,46 +1926,12 @@ func (f *fundingManager) waitForFundingConfirmation(
 		return
 	}
 	numConfs := uint32(completeChan.NumConfsRequired)
-	confNtfn, err := f.cfg.Notifier.RegisterConfirmationsNtfn(
-		&txid, fundingScript, numConfs,
-		completeChan.FundingBroadcastHeight,
+	confDetails, err := f.waitForTxConfirmed(txid, fundingScript,
+		completeChan.FundingBroadcastHeight, numConfs,
 	)
+
 	if err != nil {
-		fndgLog.Errorf("Unable to register for confirmation of "+
-			"ChannelPoint(%v): %v", completeChan.FundingOutpoint,
-			err)
-		return
-	}
-
-	fndgLog.Infof("Waiting for funding tx (%v) to reach %v confirmations",
-		txid, numConfs)
-
-	var confDetails *chainntnfs.TxConfirmation
-	var ok bool
-
-	// Wait until the specified number of confirmations has been reached,
-	// we get a cancel signal, or the wallet signals a shutdown.
-	select {
-	case confDetails, ok = <-confNtfn.Confirmed:
-		// fallthrough
-
-	case <-cancelChan:
-		fndgLog.Warnf("canceled waiting for funding confirmation, "+
-			"stopping funding flow for ChannelPoint(%v)",
-			completeChan.FundingOutpoint)
-		return
-
-	case <-f.quit:
-		fndgLog.Warnf("fundingManager shutting down, stopping funding "+
-			"flow for ChannelPoint(%v)",
-			completeChan.FundingOutpoint)
-		return
-	}
-
-	if !ok {
-		fndgLog.Warnf("ChainNotifier shutting down, cannot complete "+
-			"funding flow for ChannelPoint(%v)",
-			completeChan.FundingOutpoint)
+		fndgLog.Errorf("error waiting for fundingTx confirmation %v", err)
 		return
 	}
 

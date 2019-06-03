@@ -1447,6 +1447,10 @@ func (r *ChannelRouter) FindRoute(source, target route.Vertex,
 		finalCLTVDelta = finalExpiry[0]
 	}
 
+	// Add BlockPadding to the finalCltvDelta so that the receiving node
+	// does not reject the HTLC if a block is mined while its in-flight.
+	finalCLTVDelta += BlockPadding
+
 	log.Debugf("Searching for path to %x, sending %v", target, amt)
 
 	// We can short circuit the routing by opportunistically checking to

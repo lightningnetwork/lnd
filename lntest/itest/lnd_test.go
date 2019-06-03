@@ -38,6 +38,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 )
@@ -2733,8 +2734,8 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 	var (
 		startHeight           = uint32(curHeight)
 		commCsvMaturityHeight = startHeight + 1 + defaultCSV
-		htlcExpiryHeight      = startHeight + defaultCLTV
-		htlcCsvMaturityHeight = startHeight + defaultCLTV + 1 + defaultCSV
+		htlcExpiryHeight      = startHeight + defaultCLTV + uint32(routing.BlockPadding)
+		htlcCsvMaturityHeight = startHeight + defaultCLTV + uint32(routing.BlockPadding) + 1 + defaultCSV
 	)
 
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
@@ -3055,8 +3056,8 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 	// output spending from the commitment txn, so we must deduct the number
 	// of blocks we have generated since adding it to the nursery, and take
 	// an additional block off so that we end up one block shy of the expiry
-	// height.
-	cltvHeightDelta := defaultCLTV - defaultCSV - 2 - 1
+	// height, and add the block padding.
+	cltvHeightDelta := uint32(routing.BlockPadding) + defaultCLTV - defaultCSV - 2 - 1
 
 	// Advance the blockchain until just before the CLTV expires, nothing
 	// exciting should have happened during this time.
@@ -9951,7 +9952,7 @@ func testMultiHopHtlcLocalTimeout(net *lntest.NetworkHarness, t *harnessTest) {
 	// commitment transaction due to the fact that the HTLC is about to
 	// timeout. With the default outgoing broadcast delta of zero, this will
 	// be the same height as the htlc expiry height.
-	numBlocks := uint32(finalCltvDelta - lnd.DefaultOutgoingBroadcastDelta)
+	numBlocks := uint32(routing.BlockPadding + finalCltvDelta - lnd.DefaultOutgoingBroadcastDelta)
 	if _, err := net.Miner.Node.Generate(numBlocks); err != nil {
 		t.Fatalf("unable to generate blocks: %v", err)
 	}
@@ -10217,7 +10218,8 @@ func testMultiHopLocalForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 
 	// We'll now mine enough blocks for the HTLC to expire. After this, Bob
 	// should hand off the now expired HTLC output to the utxo nursery.
-	if _, err := net.Miner.Node.Generate(finalCltvDelta - defaultCSV - 1); err != nil {
+	numBlocks := uint32(finalCltvDelta + routing.BlockPadding - defaultCSV - 1)
+	if _, err := net.Miner.Node.Generate(numBlocks); err != nil {
 		t.Fatalf("unable to generate blocks: %v", err)
 	}
 
@@ -10470,7 +10472,8 @@ func testMultiHopRemoteForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 	// Next, we'll mine enough blocks for the HTLC to expire. At this
 	// point, Bob should hand off the output to his internal utxo nursery,
 	// which will broadcast a sweep transaction.
-	if _, err := net.Miner.Node.Generate(finalCltvDelta - 1); err != nil {
+	numBlocks := finalCltvDelta + uint32(routing.BlockPadding) - 1
+	if _, err := net.Miner.Node.Generate(numBlocks); err != nil {
 		t.Fatalf("unable to generate blocks: %v", err)
 	}
 

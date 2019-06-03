@@ -1661,6 +1661,8 @@ func TestPathFindSpecExample(t *testing.T) {
 		bobFinalCLTV   = 20
 		carolFinalCLTV = 30
 		daveFinalCLTV  = 40
+
+		noPadding = true
 	)
 
 	// We'll first exercise the scenario of a direct payment from Bob to
@@ -1707,8 +1709,8 @@ func TestPathFindSpecExample(t *testing.T) {
 		t.Fatalf("wrong hop fee: got %v, expected %v", fee, 0)
 	}
 
-	// The CLTV expiry should be the current height plus 9 (the expiry for
-	// the B -> C channel.
+	// The CLTV expiry should be the current height plus 9 (the expiry for the
+	// B -> C channel).
 	if route.TotalTimeLock !=
 		startingHeight+zpay32.DefaultFinalCLTVDelta {
 
@@ -1755,7 +1757,7 @@ func TestPathFindSpecExample(t *testing.T) {
 	}
 
 	// The total amount should factor in a fee of 10199 and also use a CLTV
-	// delta total of 29 (20 + 9),
+	// delta total of 29.
 	expectedAmt := lnwire.MilliSatoshi(5010198)
 	if route.TotalAmount != expectedAmt {
 		t.Fatalf("wrong amount: got %v, expected %v",

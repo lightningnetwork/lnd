@@ -15,6 +15,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/routing"
 )
 
 // testMultiHopReceiverChainClaim tests that in the multi-hop setting, if the
@@ -115,8 +116,8 @@ func testMultiHopReceiverChainClaim(net *lntest.NetworkHarness, t *harnessTest) 
 	// chain in order to sweep her HTLC since the value is high enough.
 	// TODO(roasbeef): modify once go to chain policy changes
 	numBlocks := uint32(
-		invoiceReq.CltvExpiry - lnd.DefaultIncomingBroadcastDelta,
-	)
+		invoiceReq.CltvExpiry-lnd.DefaultIncomingBroadcastDelta,
+	) + uint32(routing.BlockPadding)
 	if _, err := net.Miner.Node.Generate(numBlocks); err != nil {
 		t.Fatalf("unable to generate blocks")
 	}

@@ -9,7 +9,7 @@ import (
 )
 
 // BlockPadding is used to increment the finalCltvDelta value for the last hop
-// to prevent an HTLC being failed if a block is mined while it's in-flight.
+// to prevent an HTLC being failed if some blocks are mined while it's in-flight.
 const BlockPadding uint16 = 3
 
 // PaymentSession is used during SendPayment attempts to provide routes to
@@ -70,7 +70,7 @@ func (p *paymentSession) RequestRoute(payment *LightningPayment,
 	}
 
 	// Add BlockPadding to the finalCltvDelta so that the receiving node
-	// does not reject the HTLC if a block is mined while its in-flight.
+	// does not reject the HTLC if some blocks are mined while it's in-flight.
 	finalCltvDelta += BlockPadding
 
 	// If a route cltv limit was specified, we need to subtract the final

@@ -148,10 +148,20 @@ type MissionControlChannelSnapshot struct {
 	SuccessProb float64
 }
 
+// paymentReport consists of all relevant data of a payment to feed into mission
+// control.
+type paymentReport struct {
+	timestamp        time.Time
+	route            *route.Route
+	errorSourceIndex int
+	failure          lnwire.FailureMessage
+}
+
 // NewMissionControl returns a new instance of missionControl.
 //
 // TODO(roasbeef): persist memory
-func NewMissionControl(g *channeldb.ChannelGraph, selfNode *channeldb.LightningNode,
+func NewMissionControl(g *channeldb.ChannelGraph,
+	selfNode *channeldb.LightningNode,
 	qb func(*channeldb.ChannelEdgeInfo) lnwire.MilliSatoshi,
 	cfg *MissionControlConfig) *MissionControl {
 
@@ -513,30 +523,33 @@ func (m *MissionControl) GetHistorySnapshot() *MissionControlSnapshot {
 // future probability estimates. It returns a bool indicating whether this error
 // is a final error and no further payment attempts need to be made.
 func (m *MissionControl) reportPaymentOutcome(rt *route.Route,
-	errorSourceIndex int, failure lnwire.FailureMessage) bool {
+	errorSourceIndex int, failure lnwire.FailureMessage) (bool, error) {
 
 	timestamp := m.now()
 
-	return m.processPaymentOutcome(
-		timestamp, rt, errorSourceIndex, failure,
-	)
+	report := &paymentReport{
+		timestamp:        timestamp,
+		route:            rt,
+		errorSourceIndex: errorSourceIndex,
+		failure:          failure,
+	}
+
+	return m.processPaymentOutcome(report), nil
 }
 
 // processPaymentOutcome processes a failed payment as input for future
 // probability estimates. It returns a bool indicating whether this error is a
 // final error and no further payment attempts need to be made.
-func (m *MissionControl) processPaymentOutcome(timestamp time.Time,
-	rt *route.Route, errorSourceIndex int,
-	failure lnwire.FailureMessage) bool {
+func (m *MissionControl) processPaymentOutcome(rp *paymentReport) bool {
 
 	// TODO: Improve error attribution. Depending on the failure type,
 	// either the incoming or the outgoing channel should be penalized. Also
 	// the position of the node in the route is relevant (first after
 	// source, last before destination).
-	errorSource := rt.GetNodePubkeyByIndex(errorSourceIndex)
-	failedEdge, failedAmt := getFailedEdge(rt, errorSourceIndex)
+	errorSource := rp.route.GetNodePubkeyByIndex(rp.errorSourceIndex)
+	failedEdge, failedAmt := getFailedEdge(rp.route, rp.errorSourceIndex)
 
-	switch failure.(type) {
+	switch rp.failure.(type) {
 
 	// If the end destination didn't know the payment
 	// hash or we sent the wrong payment amount to the
@@ -578,7 +591,7 @@ func (m *MissionControl) processPaymentOutcome(timestamp time.Time,
 	// that sent us this error, as it doesn't now what the
 	// correct block height is.
 	case *lnwire.FailExpiryTooSoon:
-		m.reportVertexFailure(timestamp, errorSource)
+		m.reportVertexFailure(rp.timestamp, errorSource)
 		return false
 
 	// If we hit an instance of onion payload corruption or
@@ -599,49 +612,49 @@ func (m *MissionControl) processPaymentOutcome(timestamp time.Time,
 	//
 	// TODO: Check update for nilness.
 	case *lnwire.FailAmountBelowMinimum:
-		m.reportEdgeFailure(timestamp, failedEdge, 0, true)
+		m.reportEdgeFailure(rp.timestamp, failedEdge, 0, true)
 		return false
 
 	// If we get a failure due to a fee, we'll apply the
 	// new fee update, and retry our attempt using the
 	// newly updated fees.
 	case *lnwire.FailFeeInsufficient:
-		m.reportEdgeFailure(timestamp, failedEdge, 0, true)
+		m.reportEdgeFailure(rp.timestamp, failedEdge, 0, true)
 		return false
 
 	// If we get the failure for an intermediate node that
 	// disagrees with our time lock values, then we'll
 	// apply the new delta value and try it once more.
 	case *lnwire.FailIncorrectCltvExpiry:
-		m.reportEdgeFailure(timestamp, failedEdge, 0, true)
+		m.reportEdgeFailure(rp.timestamp, failedEdge, 0, true)
 		return false
 
 	// The outgoing channel that this node was meant to
 	// forward one is currently disabled, so we'll apply
 	// the update and continue.
 	case *lnwire.FailChannelDisabled:
-		m.reportEdgeFailure(timestamp, failedEdge, 0, false)
+		m.reportEdgeFailure(rp.timestamp, failedEdge, 0, false)
 		return false
 
 	// It's likely that the outgoing channel didn't have
 	// sufficient capacity, so we'll prune this edge for
 	// now, and continue onwards with our path finding.
 	case *lnwire.FailTemporaryChannelFailure:
-		m.reportEdgeFailure(timestamp, failedEdge, failedAmt, false)
+		m.reportEdgeFailure(rp.timestamp, failedEdge, failedAmt, false)
 		return false
 
 	// If the send fail due to a node not having the
 	// required features, then we'll note this error and
 	// continue.
 	case *lnwire.FailRequiredNodeFeatureMissing:
-		m.reportVertexFailure(timestamp, errorSource)
+		m.reportVertexFailure(rp.timestamp, errorSource)
 		return false
 
 	// If the send fail due to a node not having the
 	// required features, then we'll note this error and
 	// continue.
 	case *lnwire.FailRequiredChannelFeatureMissing:
-		m.reportVertexFailure(timestamp, errorSource)
+		m.reportVertexFailure(rp.timestamp, errorSource)
 		return false
 
 	// If the next hop in the route wasn't known or
@@ -652,18 +665,18 @@ func (m *MissionControl) processPaymentOutcome(timestamp time.Time,
 	// returning errors in order to attempt to black list
 	// another node.
 	case *lnwire.FailUnknownNextPeer:
-		m.reportEdgeFailure(timestamp, failedEdge, 0, false)
+		m.reportEdgeFailure(rp.timestamp, failedEdge, 0, false)
 		return false
 
 	// If the node wasn't able to forward for which ever
 	// reason, then we'll note this and continue with the
 	// routes.
 	case *lnwire.FailTemporaryNodeFailure:
-		m.reportVertexFailure(timestamp, errorSource)
+		m.reportVertexFailure(rp.timestamp, errorSource)
 		return false
 
 	case *lnwire.FailPermanentNodeFailure:
-		m.reportVertexFailure(timestamp, errorSource)
+		m.reportVertexFailure(rp.timestamp, errorSource)
 		return false
 
 	// If we crafted a route that contains a too long time
@@ -676,16 +689,16 @@ func (m *MissionControl) processPaymentOutcome(timestamp time.Time,
 	// that as a hint during future path finding through
 	// that node.
 	case *lnwire.FailExpiryTooFar:
-		m.reportVertexFailure(timestamp, errorSource)
+		m.reportVertexFailure(rp.timestamp, errorSource)
 		return false
 
 	// If we get a permanent channel or node failure, then
 	// we'll prune the channel in both directions and
 	// continue with the rest of the routes.
 	case *lnwire.FailPermanentChannelFailure:
-		m.reportEdgeFailure(timestamp, failedEdge, 0, false)
+		m.reportEdgeFailure(rp.timestamp, failedEdge, 0, false)
 		m.reportEdgeFailure(
-			timestamp,
+			rp.timestamp,
 			edge{
 				from:    failedEdge.to,
 				to:      failedEdge.from,

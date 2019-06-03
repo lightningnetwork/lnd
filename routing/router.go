@@ -166,8 +166,8 @@ type PaymentSessionSource interface {
 	// reportPaymentOutcome reports a failed payment to mission control as input for
 	// future probability estimates. It returns a bool indicating whether this error
 	// is a final error and no further payment attempts need to be made.
-	reportPaymentOutcome(rt *route.Route,
-		errorSourceIndex int, failure lnwire.FailureMessage) bool
+	reportPaymentOutcome(rt *route.Route, errorSourceIndex int,
+		failure lnwire.FailureMessage) (bool, error)
 }
 
 // FeeSchema is the set fee configuration for a Lightning Node on the network.
@@ -1796,9 +1796,15 @@ func (r *ChannelRouter) processSendError(rt *route.Route,
 	}
 
 	// Report outcome to mission control.
-	return r.cfg.MissionControl.reportPaymentOutcome(
+	finalOutcome, err := r.cfg.MissionControl.reportPaymentOutcome(
 		rt, errorSourceIdx, fErr.FailureMessage,
 	)
+	if err != nil {
+		log.Errorf("error reporting outcome: %v", err)
+		return true
+	}
+
+	return finalOutcome
 }
 
 // extractChannelUpdate examines the error and extracts the channel update.

@@ -13733,6 +13733,10 @@ var testsCases = []*testCase{
 		name: "hold invoice sender persistence",
 		test: testHoldInvoicePersistence,
 	},
+	{
+		name: "cpfp",
+		test: testCPFP,
+	},
 }
 
 // TestLightningNetworkDaemon performs a series of integration tests amongst a

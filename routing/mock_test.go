@@ -92,9 +92,9 @@ func (m *mockPaymentSessionSource) NewPaymentSessionEmpty() PaymentSession {
 }
 
 func (m *mockPaymentSessionSource) reportPaymentOutcome(rt *route.Route,
-	errorSourceIndex int, failure lnwire.FailureMessage) bool {
+	errorSourceIndex int, failure lnwire.FailureMessage) (bool, error) {
 
-	return false
+	return false, nil
 }
 
 type mockPaymentSession struct {

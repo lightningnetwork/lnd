@@ -4,22 +4,39 @@ import (
 	"testing"
 	"time"
 
+	"github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
 
 var (
-	mcTestNode = route.Vertex{}
-	mcTestEdge = EdgeLocator{
-		ChannelID: 123,
+	mcTestRoute = &route.Route{
+		SourcePubKey: route.Vertex{10},
+		Hops: []*route.Hop{
+			{
+				ChannelID:    1,
+				PubKeyBytes:  route.Vertex{11},
+				AmtToForward: 1000,
+			},
+			{
+				ChannelID:   2,
+				PubKeyBytes: route.Vertex{12},
+			},
+		},
 	}
+
 	mcTestTime = time.Date(2018, time.January, 9, 14, 00, 00, 0, time.UTC)
+	mcTestNode = mcTestRoute.Hops[0].PubKeyBytes
+	mcTestEdge = EdgeLocator{ChannelID: 2}
 )
 
 type mcTestContext struct {
 	t   *testing.T
 	mc  *MissionControl
 	now time.Time
+
+	db     *bbolt.DB
+	dbPath string
 }
 
 func createMcTestContext(t *testing.T) *mcTestContext {
@@ -42,14 +59,27 @@ func createMcTestContext(t *testing.T) *mcTestContext {
 }
 
 // Assert that mission control returns a probability for an edge.
-func (ctx *mcTestContext) expectP(amt lnwire.MilliSatoshi,
-	expected float64) {
+func (ctx *mcTestContext) expectP(amt lnwire.MilliSatoshi, expected float64) {
 
 	ctx.t.Helper()
 
 	p := ctx.mc.getEdgeProbability(mcTestNode, mcTestEdge, amt)
 	if p != expected {
-		ctx.t.Fatalf("unexpected probability %v", p)
+		ctx.t.Fatalf("expected probability %v but got %v", expected, p)
+	}
+}
+
+// reportFailure reports a failure by using a test route.
+func (ctx *mcTestContext) reportFailure(t time.Time,
+	amt lnwire.MilliSatoshi, failure lnwire.FailureMessage) {
+
+	mcTestRoute.Hops[0].AmtToForward = amt
+
+	_, err := ctx.mc.reportPaymentOutcome(
+		mcTestRoute, 1, failure,
+	)
+	if err != nil {
+		ctx.t.Fatal(err)
 	}
 }
 
@@ -61,16 +91,14 @@ func TestMissionControl(t *testing.T) {
 
 	testTime := time.Date(2018, time.January, 9, 14, 00, 00, 0, time.UTC)
 
-	testNode := route.Vertex{}
-	testEdge := edge{
-		channel: 123,
-	}
-
 	// Initial probability is expected to be 1.
 	ctx.expectP(1000, 0.8)
 
 	// Expect probability to be zero after reporting the edge as failed.
-	ctx.mc.reportEdgeFailure(testTime, testEdge, 1000, false)
+	ctx.reportFailure(
+		testTime, 1000,
+		lnwire.NewTemporaryChannelFailure(nil),
+	)
 	ctx.expectP(1000, 0)
 
 	// As we reported with a min penalization amt, a lower amt than reported
@@ -83,7 +111,10 @@ func TestMissionControl(t *testing.T) {
 
 	// Edge fails again, this time without a min penalization amt. The edge
 	// should be penalized regardless of amount.
-	ctx.mc.reportEdgeFailure(ctx.now, testEdge, 0, false)
+	ctx.reportFailure(
+		ctx.now, 0,
+		lnwire.NewTemporaryChannelFailure(nil),
+	)
 	ctx.expectP(1000, 0)
 	ctx.expectP(500, 0)
 
@@ -93,7 +124,10 @@ func TestMissionControl(t *testing.T) {
 
 	// A node level failure should bring probability of every channel back
 	// to zero.
-	ctx.mc.reportVertexFailure(ctx.now, testNode)
+	ctx.reportFailure(
+		ctx.now, 0,
+		lnwire.NewExpiryTooSoon(lnwire.ChannelUpdate{}),
+	)
 	ctx.expectP(1000, 0)
 
 	// Check whether history snapshot looks sane.
@@ -114,15 +148,17 @@ func TestMissionControlChannelUpdate(t *testing.T) {
 
 	// Report a policy related failure. Because it is the first, we don't
 	// expect a penalty.
-	ctx.mc.reportEdgeFailure(
-		ctx.now, edge{channel: mcTestEdge.ChannelID}, 0, true,
+	ctx.reportFailure(
+		ctx.now, 0,
+		lnwire.NewFeeInsufficient(0, lnwire.ChannelUpdate{}),
 	)
 	ctx.expectP(0, 0.8)
 
 	// Report another failure for the same channel. We expect it to be
 	// pruned.
-	ctx.mc.reportEdgeFailure(
-		ctx.now, edge{channel: mcTestEdge.ChannelID}, 0, true,
+	ctx.reportFailure(
+		ctx.now, 0,
+		lnwire.NewFeeInsufficient(0, lnwire.ChannelUpdate{}),
 	)
 	ctx.expectP(0, 0)
 }

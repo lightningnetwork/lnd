@@ -132,11 +132,21 @@ func createSuccessResult(rt *route.Route,
 }
 
 // createFailResult creates a failed result to send to subscribers.
-func createFailedResult(reason channeldb.FailureReason) *PaymentResult {
-	return &PaymentResult{
+func createFailedResult(rt *route.Route,
+	reason channeldb.FailureReason) *PaymentResult {
+
+	result := &PaymentResult{
 		Success:       false,
 		FailureReason: reason,
 	}
+
+	// In case of incorrect payment details, set the route. This can be used
+	// for probing and to extract a fee estimate from the route.
+	if reason == channeldb.FailureReasonIncorrectPaymentDetails {
+		result.Route = rt
+	}
+
+	return result
 }
 
 // Fail transitions a payment into the Failed state, and records the reason the
@@ -146,14 +156,14 @@ func createFailedResult(reason channeldb.FailureReason) *PaymentResult {
 func (p *controlTower) Fail(paymentHash lntypes.Hash,
 	reason channeldb.FailureReason) error {
 
-	err := p.db.Fail(paymentHash, reason)
+	route, err := p.db.Fail(paymentHash, reason)
 	if err != nil {
 		return err
 	}
 
 	// Notify subscribers of fail event.
 	p.notifyFinalEvent(
-		paymentHash, createFailedResult(reason),
+		paymentHash, createFailedResult(route, reason),
 	)
 
 	return nil
@@ -211,7 +221,13 @@ func (p *controlTower) SubscribePayment(paymentHash lntypes.Hash) (
 	// subscriber, because we can send the result on the channel
 	// immediately.
 	case channeldb.StatusFailed:
-		event = *createFailedResult(*payment.Failure)
+		var route *route.Route
+		if payment.Attempt != nil {
+			route = &payment.Attempt.Route
+		}
+		event = *createFailedResult(
+			route, *payment.Failure,
+		)
 
 	default:
 		return false, nil, errors.New("unknown payment status")

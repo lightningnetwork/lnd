@@ -499,8 +499,10 @@ func (s *Server) TrackPayment(request *TrackPaymentRequest,
 func (s *Server) trackPayment(paymentHash lntypes.Hash,
 	stream Router_TrackPaymentServer) error {
 
+	router := s.cfg.RouterBackend
+
 	// Subscribe to the outcome of this payment.
-	inFlight, resultChan, err := s.cfg.RouterBackend.Tower.SubscribePayment(
+	inFlight, resultChan, err := router.Tower.SubscribePayment(
 		paymentHash,
 	)
 	switch {
@@ -535,7 +537,7 @@ func (s *Server) trackPayment(paymentHash lntypes.Hash,
 
 			status.State = PaymentState_SUCCEEDED
 			status.Preimage = result.Preimage[:]
-			status.Route = s.cfg.RouterBackend.MarshallRoute(
+			status.Route = router.MarshallRoute(
 				result.Route,
 			)
 		} else {
@@ -546,6 +548,11 @@ func (s *Server) trackPayment(paymentHash lntypes.Hash,
 				return err
 			}
 			status.State = state
+			if result.Route != nil {
+				status.Route = router.MarshallRoute(
+					result.Route,
+				)
+			}
 		}
 
 		// Send event to the client.

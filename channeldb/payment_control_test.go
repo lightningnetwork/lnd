@@ -94,7 +94,7 @@ func TestPaymentControlSwitchFail(t *testing.T) {
 
 	// Fail the payment, which should moved it to Failed.
 	failReason := FailureReasonNoRoute
-	err = pControl.Fail(info.PaymentHash, failReason)
+	_, err = pControl.Fail(info.PaymentHash, failReason)
 	if err != nil {
 		t.Fatalf("unable to fail payment hash: %v", err)
 	}
@@ -270,7 +270,7 @@ func TestPaymentControlFailsWithoutInFlight(t *testing.T) {
 	}
 
 	// Calling Fail should return an error.
-	err = pControl.Fail(info.PaymentHash, FailureReasonNoRoute)
+	_, err = pControl.Fail(info.PaymentHash, FailureReasonNoRoute)
 	if err != ErrPaymentNotInitiated {
 		t.Fatalf("expected ErrPaymentNotInitiated, got %v", err)
 	}
@@ -330,7 +330,7 @@ func TestPaymentControlDeleteNonInFligt(t *testing.T) {
 		if p.failed {
 			// Fail the payment, which should moved it to Failed.
 			failReason := FailureReasonNoRoute
-			err = pControl.Fail(info.PaymentHash, failReason)
+			_, err = pControl.Fail(info.PaymentHash, failReason)
 			if err != nil {
 				t.Fatalf("unable to fail payment hash: %v", err)
 			}

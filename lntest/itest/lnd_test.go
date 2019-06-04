@@ -184,28 +184,19 @@ func rpcPointToWirePoint(t *harnessTest, chanPoint *lnrpc.ChannelPoint) wire.Out
 // This can be used for simulating when a transaciton is not picked up by
 // any miners.
 func mineEmptyBlocks(t *harnessTest, net *lntest.NetworkHarness,
-	numberOfBlocks int) []*wire.MsgBlock {
-
-	blocks := make([]*wire.MsgBlock, numberOfBlocks)
+	numberOfBlocks int) {
 
 	blockTime := time.Time{}
 	var emptyTransactionList []*btcutil.Tx
 	defaultBlockVersion := int32(-1)
 
 	for i := 0; i < numberOfBlocks; i++ {
-
-		block, err := net.Miner.GenerateAndSubmitBlock(emptyTransactionList,
+		_, err := net.Miner.GenerateAndSubmitBlock(emptyTransactionList,
 			defaultBlockVersion, blockTime)
-
 		if err != nil {
 			t.Fatalf("unable to generate blocks: %v", err)
 		}
-
-		blocks = append(blocks, block.MsgBlock())
-
 	}
-
-	return blocks
 }
 
 // mineBlocks mine 'num' of blocks and check that blocks are present in

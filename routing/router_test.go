@@ -3175,27 +3175,31 @@ func TestSendToRouteStructuredError(t *testing.T) {
 	}
 	defer cleanUp()
 
+	// Set up an init channel for the control tower, such that we can make
+	// sure the payment is initiated correctly.
+	init := make(chan initArgs, 1)
+	ctx.router.cfg.Control.(*mockControlTower).init = init
+
 	// Setup a route from source a to destination c. The route will be used
 	// in a call to SendToRoute. SendToRoute also applies channel updates,
 	// but it saves us from including RequestRoute in the test scope too.
+	const payAmt = lnwire.MilliSatoshi(10000)
 	hop1 := ctx.aliases["b"]
 	hop2 := ctx.aliases["c"]
-
 	hops := []*route.Hop{
 		{
-			ChannelID:   1,
-			PubKeyBytes: hop1,
+			ChannelID:    1,
+			PubKeyBytes:  hop1,
+			AmtToForward: payAmt,
 		},
 		{
-			ChannelID:   2,
-			PubKeyBytes: hop2,
+			ChannelID:    2,
+			PubKeyBytes:  hop2,
+			AmtToForward: payAmt,
 		},
 	}
 
-	rt, err := route.NewRouteFromHops(
-		lnwire.MilliSatoshi(10000), 100,
-		ctx.aliases["a"], hops,
-	)
+	rt, err := route.NewRouteFromHops(payAmt, 100, ctx.aliases["a"], hops)
 	if err != nil {
 		t.Fatalf("unable to create route: %v", err)
 	}
@@ -3238,5 +3242,15 @@ func TestSendToRouteStructuredError(t *testing.T) {
 
 	if _, ok := fErr.FailureMessage.(*lnwire.FailFeeInsufficient); !ok {
 		t.Fatalf("expected fee insufficient error")
+	}
+
+	// Check that the correct values were used when initiating the payment.
+	select {
+	case initVal := <-init:
+		if initVal.c.Value != payAmt {
+			t.Fatalf("expected %v, got %v", payAmt, initVal.c.Value)
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatalf("initPayment not called")
 	}
 }

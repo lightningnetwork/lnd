@@ -740,58 +740,69 @@ func (n *NeutrinoNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 	}
 
 	// With the filter updated, we'll dispatch our historical rescan to
-	// ensure we detect the spend if it happened in the past. We'll ensure
-	// that neutrino is caught up to the starting height before we attempt
-	// to fetch the UTXO from the chain. If we're behind, then we may miss a
-	// notification dispatch.
-	for {
-		n.bestBlockMtx.RLock()
-		currentHeight := uint32(n.bestBlock.Height)
-		n.bestBlockMtx.RUnlock()
+	// ensure we detect the spend if it happened in the past.
+	n.wg.Add(1)
+	go func() {
+		defer n.wg.Done()
 
-		if currentHeight >= historicalDispatch.StartHeight {
-			break
+		// We'll ensure that neutrino is caught up to the starting
+		// height before we attempt to fetch the UTXO from the chain.
+		// If we're behind, then we may miss a notification dispatch.
+		for {
+			n.bestBlockMtx.RLock()
+			currentHeight := uint32(n.bestBlock.Height)
+			n.bestBlockMtx.RUnlock()
+
+			if currentHeight >= historicalDispatch.StartHeight {
+				break
+			}
+
+			select {
+			case <-time.After(time.Millisecond * 200):
+			case <-n.quit:
+				return
+			}
 		}
 
-		time.Sleep(time.Millisecond * 200)
-	}
-
-	spendReport, err := n.p2pNode.GetUtxo(
-		neutrino.WatchInputs(inputToWatch),
-		neutrino.StartBlock(&waddrmgr.BlockStamp{
-			Height: int32(historicalDispatch.StartHeight),
-		}),
-		neutrino.EndBlock(&waddrmgr.BlockStamp{
-			Height: int32(historicalDispatch.EndHeight),
-		}),
-		neutrino.QuitChan(n.quit),
-	)
-	if err != nil && !strings.Contains(err.Error(), "not found") {
-		return nil, err
-	}
-
-	// If a spend report was returned, and the transaction is present, then
-	// this means that the output is already spent.
-	var spendDetails *chainntnfs.SpendDetail
-	if spendReport != nil && spendReport.SpendingTx != nil {
-		spendingTxHash := spendReport.SpendingTx.TxHash()
-		spendDetails = &chainntnfs.SpendDetail{
-			SpentOutPoint:     &spendRequest.OutPoint,
-			SpenderTxHash:     &spendingTxHash,
-			SpendingTx:        spendReport.SpendingTx,
-			SpenderInputIndex: spendReport.SpendingInputIndex,
-			SpendingHeight:    int32(spendReport.SpendingTxHeight),
+		spendReport, err := n.p2pNode.GetUtxo(
+			neutrino.WatchInputs(inputToWatch),
+			neutrino.StartBlock(&waddrmgr.BlockStamp{
+				Height: int32(historicalDispatch.StartHeight),
+			}),
+			neutrino.EndBlock(&waddrmgr.BlockStamp{
+				Height: int32(historicalDispatch.EndHeight),
+			}),
+			neutrino.QuitChan(n.quit),
+		)
+		if err != nil && !strings.Contains(err.Error(), "not found") {
+			chainntnfs.Log.Errorf("Failed getting UTXO: %v", err)
+			return
 		}
-	}
 
-	// Finally, no matter whether the rescan found a spend in the past or
-	// not, we'll mark our historical rescan as complete to ensure the
-	// outpoint's spend hint gets updated upon connected/disconnected
-	// blocks.
-	err = n.txNotifier.UpdateSpendDetails(spendRequest, spendDetails)
-	if err != nil {
-		return nil, err
-	}
+		// If a spend report was returned, and the transaction is present, then
+		// this means that the output is already spent.
+		var spendDetails *chainntnfs.SpendDetail
+		if spendReport != nil && spendReport.SpendingTx != nil {
+			spendingTxHash := spendReport.SpendingTx.TxHash()
+			spendDetails = &chainntnfs.SpendDetail{
+				SpentOutPoint:     &spendRequest.OutPoint,
+				SpenderTxHash:     &spendingTxHash,
+				SpendingTx:        spendReport.SpendingTx,
+				SpenderInputIndex: spendReport.SpendingInputIndex,
+				SpendingHeight:    int32(spendReport.SpendingTxHeight),
+			}
+		}
+
+		// Finally, no matter whether the rescan found a spend in the past or
+		// not, we'll mark our historical rescan as complete to ensure the
+		// outpoint's spend hint gets updated upon connected/disconnected
+		// blocks.
+		err = n.txNotifier.UpdateSpendDetails(spendRequest, spendDetails)
+		if err != nil {
+			chainntnfs.Log.Errorf("Failed to update spend details: %v", err)
+			return
+		}
+	}()
 
 	return ntfn.Event, nil
 }

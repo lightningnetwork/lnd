@@ -86,6 +86,17 @@ enum PaymentState {
     routes to the destination at all.
     */
     FAILED_NO_ROUTE = 3;
+
+    /**
+    A non-recoverable error has occured.
+    */
+    FAILED_ERROR = 4;
+
+    /**
+    Payment details incorrect (unknown hash, invalid amt or
+    invalid final cltv delta)
+    */
+    FAILED_INCORRECT_PAYMENT_DETAILS = 5;
 }
 
 

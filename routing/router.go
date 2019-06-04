@@ -1637,24 +1637,29 @@ func (r *ChannelRouter) SendToRoute(hash lntypes.Hash, route *route.Route) (
 	// Create a payment session for just this route.
 	paySession := r.cfg.MissionControl.NewPaymentSessionForRoute(route)
 
-	// Create a (mostly) dummy payment, as the created payment session is
-	// not going to do path finding.
-	payment := &LightningPayment{
-		PaymentHash: hash,
-	}
+	// Calculate amount paid to receiver.
+	amt := route.TotalAmount - route.TotalFees()
 
 	// Record this payment hash with the ControlTower, ensuring it is not
 	// already in-flight.
 	info := &channeldb.PaymentCreationInfo{
-		PaymentHash:    payment.PaymentHash,
-		Value:          payment.Amount,
+		PaymentHash:    hash,
+		Value:          amt,
 		CreationDate:   time.Now(),
 		PaymentRequest: nil,
 	}
 
-	err := r.cfg.Control.InitPayment(payment.PaymentHash, info)
+	err := r.cfg.Control.InitPayment(hash, info)
 	if err != nil {
 		return [32]byte{}, err
+	}
+
+	// Create a (mostly) dummy payment, as the created payment session is
+	// not going to do path finding.
+	// TODO(halseth): sendPayment doesn't relly need LightningPayment, make
+	// it take just needed fields instead.
+	payment := &LightningPayment{
+		PaymentHash: hash,
 	}
 
 	// Since this is the first time this payment is being made, we pass nil

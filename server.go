@@ -38,6 +38,7 @@ import (
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/nat"
@@ -186,6 +187,8 @@ type server struct {
 	witnessBeacon contractcourt.WitnessBeacon
 
 	breachArbiter *breachArbiter
+
+	missionControl *routing.MissionControl
 
 	chanRouter *routing.ChannelRouter
 
@@ -617,15 +620,6 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 	}
 
 	queryBandwidth := func(edge *channeldb.ChannelEdgeInfo) lnwire.MilliSatoshi {
-		// If we aren't on either side of this edge, then we'll
-		// just thread through the capacity of the edge as we
-		// know it.
-		if !bytes.Equal(edge.NodeKey1Bytes[:], selfNode.PubKeyBytes[:]) &&
-			!bytes.Equal(edge.NodeKey2Bytes[:], selfNode.PubKeyBytes[:]) {
-
-			return lnwire.NewMSatFromSatoshis(edge.Capacity)
-		}
-
 		cid := lnwire.NewChanIDFromOutPoint(&edge.ChannelPoint)
 		link, err := s.htlcSwitch.GetLink(cid)
 		if err != nil {
@@ -646,8 +640,13 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		return link.Bandwidth()
 	}
 
-	missionControl := routing.NewMissionControl(
+	// Instantiate mission control with config from the sub server.
+	//
+	// TODO(joostjager): When we are further in the process of moving to sub
+	// servers, the mission control instance itself can be moved there too.
+	s.missionControl = routing.NewMissionControl(
 		chanGraph, selfNode, queryBandwidth,
+		routerrpc.GetMissionControlConfig(cfg.SubRPCServers.RouterRPC),
 	)
 
 	s.chanRouter, err = routing.New(routing.Config{
@@ -656,7 +655,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		ChainView:          cc.chainView,
 		Payer:              s.htlcSwitch,
 		Control:            channeldb.NewPaymentControl(chanDB),
-		MissionControl:     missionControl,
+		MissionControl:     s.missionControl,
 		ChannelPruneExpiry: routing.DefaultChannelPruneExpiry,
 		GraphPruneInterval: time.Duration(time.Hour),
 		QueryBandwidth:     queryBandwidth,

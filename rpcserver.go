@@ -476,7 +476,8 @@ func newRPCServer(s *server, macService *macaroons.Service,
 
 			return info.NodeKey1Bytes, info.NodeKey2Bytes, nil
 		},
-		FindRoute: s.chanRouter.FindRoute,
+		FindRoute:      s.chanRouter.FindRoute,
+		MissionControl: s.missionControl,
 	}
 
 	var (

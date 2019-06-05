@@ -36,6 +36,8 @@ type RouterBackend struct {
 	FindRoute func(source, target route.Vertex,
 		amt lnwire.MilliSatoshi, restrictions *routing.RestrictParams,
 		finalExpiry ...uint16) (*route.Route, error)
+
+	MissionControl *routing.MissionControl
 }
 
 // QueryRoutes attempts to query the daemons' Channel Router for a possible
@@ -121,9 +123,22 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 	}
 
 	restrictions := &routing.RestrictParams{
-		FeeLimit:     feeLimit,
-		IgnoredNodes: ignoredNodes,
-		IgnoredEdges: ignoredEdges,
+		FeeLimit: feeLimit,
+		ProbabilitySource: func(node route.Vertex,
+			edge routing.EdgeLocator,
+			amt lnwire.MilliSatoshi) float64 {
+
+			if _, ok := ignoredNodes[node]; ok {
+				return 0
+			}
+
+			if _, ok := ignoredEdges[edge]; ok {
+				return 0
+			}
+
+			return 1
+		},
+		PaymentAttemptPenalty: routing.DefaultPaymentAttemptPenalty,
 	}
 
 	// Query the channel router for a possible path to the destination that

@@ -95,6 +95,12 @@ func createTestCtxFromGraphInstance(startingHeight uint32, graphInstance *testGr
 		func(e *channeldb.ChannelEdgeInfo) lnwire.MilliSatoshi {
 			return lnwire.NewMSatFromSatoshis(e.Capacity)
 		},
+		&MissionControlConfig{
+			MinRouteProbability:   0.01,
+			PaymentAttemptPenalty: 100,
+			PenaltyHalfLife:       time.Hour,
+			AprioriHopProbability: 0.9,
+		},
 	)
 	router, err := New(Config{
 		Graph:              graphInstance.graph,
@@ -201,7 +207,8 @@ func TestFindRoutesWithFeeLimit(t *testing.T) {
 	target := ctx.aliases["sophon"]
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
 	restrictions := &RestrictParams{
-		FeeLimit: lnwire.NewMSatFromSatoshis(10),
+		FeeLimit:          lnwire.NewMSatFromSatoshis(10),
+		ProbabilitySource: noProbabilitySource,
 	}
 
 	route, err := ctx.router.FindRoute(
@@ -2198,9 +2205,7 @@ func TestFindPathFeeWeighting(t *testing.T) {
 		&graphParams{
 			graph: ctx.graph,
 		},
-		&RestrictParams{
-			FeeLimit: noFeeLimit,
-		},
+		noRestrictions,
 		sourceNode.PubKeyBytes, target, amt,
 	)
 	if err != nil {

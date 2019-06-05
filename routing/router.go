@@ -319,6 +319,13 @@ func (e *EdgeLocator) String() string {
 	return fmt.Sprintf("%v:%v", e.ChannelID, e.Direction)
 }
 
+// edge is a combination of a channel and the node pubkeys of both of its
+// endpoints.
+type edge struct {
+	from, to route.Vertex
+	channel  uint64
+}
+
 // ChannelRouter is the layer 3 router within the Lightning stack. Below the
 // ChannelRouter is the HtlcSwitch, and below that is the Bitcoin blockchain
 // itself. The primary role of the ChannelRouter is to respond to queries for
@@ -1598,7 +1605,9 @@ type LightningPayment struct {
 // will be returned which describes the path the successful payment traversed
 // within the network to reach the destination. Additionally, the payment
 // preimage will also be returned.
-func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte, *route.Route, error) {
+func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte,
+	*route.Route, error) {
+
 	// Before starting the HTLC routing attempt, we'll create a fresh
 	// payment session which will report our errors back to mission
 	// control.
@@ -1772,7 +1781,9 @@ func (r *ChannelRouter) processSendError(paySession PaymentSession,
 
 	// Always determine chan id ourselves, because a channel
 	// update with id may not be available.
-	failedEdge, err := getFailedEdge(rt, route.Vertex(errVertex))
+	failedEdge, failedAmt, err := getFailedEdge(
+		rt, route.Vertex(errVertex),
+	)
 	if err != nil {
 		return true
 	}
@@ -1804,13 +1815,11 @@ func (r *ChannelRouter) processSendError(paySession PaymentSession,
 		// update to fail?
 		if !updateOk {
 			paySession.ReportEdgeFailure(
-				failedEdge,
+				failedEdge, 0,
 			)
 		}
 
-		paySession.ReportEdgePolicyFailure(
-			route.NewVertex(errSource), failedEdge,
-		)
+		paySession.ReportEdgePolicyFailure(failedEdge)
 	}
 
 	switch onionErr := fErr.FailureMessage.(type) {
@@ -1901,7 +1910,7 @@ func (r *ChannelRouter) processSendError(paySession PaymentSession,
 	// the update and continue.
 	case *lnwire.FailChannelDisabled:
 		r.applyChannelUpdate(&onionErr.Update, errSource)
-		paySession.ReportEdgeFailure(failedEdge)
+		paySession.ReportEdgeFailure(failedEdge, 0)
 		return false
 
 	// It's likely that the outgoing channel didn't have
@@ -1909,7 +1918,7 @@ func (r *ChannelRouter) processSendError(paySession PaymentSession,
 	// now, and continue onwards with our path finding.
 	case *lnwire.FailTemporaryChannelFailure:
 		r.applyChannelUpdate(onionErr.Update, errSource)
-		paySession.ReportEdgeFailure(failedEdge)
+		paySession.ReportEdgeFailure(failedEdge, failedAmt)
 		return false
 
 	// If the send fail due to a node not having the
@@ -1934,7 +1943,7 @@ func (r *ChannelRouter) processSendError(paySession PaymentSession,
 	// returning errors in order to attempt to black list
 	// another node.
 	case *lnwire.FailUnknownNextPeer:
-		paySession.ReportEdgeFailure(failedEdge)
+		paySession.ReportEdgeFailure(failedEdge, 0)
 		return false
 
 	// If the node wasn't able to forward for which ever
@@ -1965,14 +1974,12 @@ func (r *ChannelRouter) processSendError(paySession PaymentSession,
 	// we'll prune the channel in both directions and
 	// continue with the rest of the routes.
 	case *lnwire.FailPermanentChannelFailure:
-		paySession.ReportEdgeFailure(&EdgeLocator{
-			ChannelID: failedEdge.ChannelID,
-			Direction: 0,
-		})
-		paySession.ReportEdgeFailure(&EdgeLocator{
-			ChannelID: failedEdge.ChannelID,
-			Direction: 1,
-		})
+		paySession.ReportEdgeFailure(failedEdge, 0)
+		paySession.ReportEdgeFailure(edge{
+			from:    failedEdge.to,
+			to:      failedEdge.from,
+			channel: failedEdge.channel,
+		}, 0)
 		return false
 
 	default:
@@ -1982,12 +1989,14 @@ func (r *ChannelRouter) processSendError(paySession PaymentSession,
 
 // getFailedEdge tries to locate the failing channel given a route and the
 // pubkey of the node that sent the error. It will assume that the error is
-// associated with the outgoing channel of the error node.
-func getFailedEdge(route *route.Route, errSource route.Vertex) (
-	*EdgeLocator, error) {
+// associated with the outgoing channel of the error node. As a second result,
+// it returns the amount sent over the edge.
+func getFailedEdge(route *route.Route, errSource route.Vertex) (edge,
+	lnwire.MilliSatoshi, error) {
 
 	hopCount := len(route.Hops)
 	fromNode := route.SourcePubKey
+	amt := route.TotalAmount
 	for i, hop := range route.Hops {
 		toNode := hop.PubKeyBytes
 
@@ -2006,17 +2015,18 @@ func getFailedEdge(route *route.Route, errSource route.Vertex) (
 		// If the errSource is the final hop, we assume that the failing
 		// channel is the incoming channel.
 		if errSource == fromNode || finalHopFailing {
-			return newEdgeLocatorByPubkeys(
-				hop.ChannelID,
-				&fromNode,
-				&toNode,
-			), nil
+			return edge{
+				from:    fromNode,
+				to:      toNode,
+				channel: hop.ChannelID,
+			}, amt, nil
 		}
 
 		fromNode = toNode
+		amt = hop.AmtToForward
 	}
 
-	return nil, fmt.Errorf("cannot find error source node in route")
+	return edge{}, 0, fmt.Errorf("cannot find error source node in route")
 }
 
 // applyChannelUpdate validates a channel update and if valid, applies it to the

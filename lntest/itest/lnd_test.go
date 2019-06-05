@@ -32,6 +32,7 @@ import (
 	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/chanbackup"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"golang.org/x/net/context"
@@ -8382,8 +8383,14 @@ out:
 	// failed payment.
 	shutdownAndAssert(net, t, carol)
 
-	// TODO(roasbeef): mission control
-	time.Sleep(time.Second * 5)
+	// Reset mission control to forget the temporary channel failure above.
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	_, err = net.Alice.RouterClient.ResetMissionControl(
+		ctxt, &routerrpc.ResetMissionControlRequest{},
+	)
+	if err != nil {
+		t.Fatalf("unable to reset mission control: %v", err)
+	}
 
 	sendReq = &lnrpc.SendRequest{
 		PaymentRequest: carolInvoice.PaymentRequest,

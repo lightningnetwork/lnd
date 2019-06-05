@@ -28,6 +28,7 @@ import (
 	"github.com/lightningnetwork/lnd/chanbackup"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
 )
 
@@ -248,6 +249,10 @@ type HarnessNode struct {
 	lnrpc.WalletUnlockerClient
 
 	invoicesrpc.InvoicesClient
+
+	// RouterClient cannot be embedded, because a name collision would occur
+	// on the main rpc SendPayment.
+	RouterClient routerrpc.RouterClient
 }
 
 // Assert *HarnessNode implements the lnrpc.LightningClient interface.
@@ -497,6 +502,7 @@ func (hn *HarnessNode) initLightningClient(conn *grpc.ClientConn) error {
 	// HarnessNode directly for normal rpc operations.
 	hn.LightningClient = lnrpc.NewLightningClient(conn)
 	hn.InvoicesClient = invoicesrpc.NewInvoicesClient(conn)
+	hn.RouterClient = routerrpc.NewRouterClient(conn)
 
 	// Set the harness node's pubkey to what the node claims in GetInfo.
 	err := hn.FetchNodeInfo()

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -182,7 +183,7 @@ type mockControlTower struct {
 	sync.Mutex
 }
 
-var _ channeldb.ControlTower = (*mockControlTower)(nil)
+var _ ControlTower = (*mockControlTower)(nil)
 
 func makeMockControlTower() *mockControlTower {
 	return &mockControlTower{
@@ -283,4 +284,10 @@ func (m *mockControlTower) FetchInFlightPayments() (
 	}
 
 	return fl, nil
+}
+
+func (m *mockControlTower) SubscribePayment(paymentHash lntypes.Hash) (
+	bool, chan PaymentResult, error) {
+
+	return false, nil, errors.New("not implemented")
 }

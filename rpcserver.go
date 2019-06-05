@@ -67,8 +67,6 @@ const (
 )
 
 var (
-	zeroHash [32]byte
-
 	// MaxPaymentMSat is the maximum allowed payment currently permitted as
 	// defined in BOLT-002. This value depends on which chain is active.
 	// It is set to the value under the Bitcoin chain as default.
@@ -476,8 +474,10 @@ func newRPCServer(s *server, macService *macaroons.Service,
 
 			return info.NodeKey1Bytes, info.NodeKey2Bytes, nil
 		},
-		FindRoute:      s.chanRouter.FindRoute,
-		MissionControl: s.missionControl,
+		FindRoute:       s.chanRouter.FindRoute,
+		MissionControl:  s.missionControl,
+		ActiveNetParams: activeNetParams.Params,
+		Tower:           s.controlTower,
 	}
 
 	var (
@@ -2738,18 +2738,6 @@ func (r *rpcServer) SubscribeChannelEvents(req *lnrpc.ChannelEventSubscription,
 	}
 }
 
-// validatePayReqExpiry checks if the passed payment request has expired. In
-// the case it has expired, an error will be returned.
-func validatePayReqExpiry(payReq *zpay32.Invoice) error {
-	expiry := payReq.Expiry()
-	validUntil := payReq.Timestamp.Add(expiry)
-	if time.Now().After(validUntil) {
-		return fmt.Errorf("invoice expired. Valid until %v", validUntil)
-	}
-
-	return nil
-}
-
 // paymentStream enables different types of payment streams, such as:
 // lnrpc.Lightning_SendPaymentServer and lnrpc.Lightning_SendToRouteServer to
 // execute sendPayment. We use this struct as a sort of bridge to enable code
@@ -2932,7 +2920,7 @@ func extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPaymentIntent, error
 		}
 
 		// Next, we'll ensure that this payreq hasn't already expired.
-		err = validatePayReqExpiry(payReq)
+		err = routerrpc.ValidatePayReqExpiry(payReq)
 		if err != nil {
 			return payIntent, err
 		}
@@ -3000,7 +2988,11 @@ func extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPaymentIntent, error
 		rpcPayReq.FeeLimit, payIntent.msat,
 	)
 
-	payIntent.cltvDelta = uint16(rpcPayReq.FinalCltvDelta)
+	if rpcPayReq.FinalCltvDelta != 0 {
+		payIntent.cltvDelta = uint16(rpcPayReq.FinalCltvDelta)
+	} else {
+		payIntent.cltvDelta = zpay32.DefaultFinalCLTVDelta
+	}
 
 	// If the user is manually specifying payment details, then the payment
 	// hash may be encoded as a string.
@@ -3018,7 +3010,9 @@ func extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPaymentIntent, error
 	// If we're in debug HTLC mode, then all outgoing HTLCs will pay to the
 	// same debug rHash. Otherwise, we pay to the rHash specified within
 	// the RPC request.
-	case cfg.DebugHTLC && bytes.Equal(payIntent.rHash[:], zeroHash[:]):
+	case cfg.DebugHTLC &&
+		bytes.Equal(payIntent.rHash[:], lntypes.ZeroHash[:]):
+
 		copy(payIntent.rHash[:], invoices.DebugHash[:])
 
 	default:
@@ -3069,18 +3063,13 @@ func (r *rpcServer) dispatchPaymentIntent(
 		payment := &routing.LightningPayment{
 			Target:            payIntent.dest,
 			Amount:            payIntent.msat,
+			FinalCLTVDelta:    payIntent.cltvDelta,
 			FeeLimit:          payIntent.feeLimit,
 			CltvLimit:         payIntent.cltvLimit,
 			PaymentHash:       payIntent.rHash,
 			RouteHints:        payIntent.routeHints,
 			OutgoingChannelID: payIntent.outgoingChannelID,
 			PaymentRequest:    payIntent.payReq,
-		}
-
-		// If the final CLTV value was specified, then we'll use that
-		// rather than the default.
-		if payIntent.cltvDelta != 0 {
-			payment.FinalCLTVDelta = &payIntent.cltvDelta
 		}
 
 		preImage, route, routerErr = r.server.chanRouter.SendPayment(

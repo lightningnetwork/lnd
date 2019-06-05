@@ -192,6 +192,8 @@ type server struct {
 
 	chanRouter *routing.ChannelRouter
 
+	controlTower routing.ControlTower
+
 	authGossiper *discovery.AuthenticatedGossiper
 
 	utxoNursery *utxoNursery
@@ -649,12 +651,16 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		routerrpc.GetMissionControlConfig(cfg.SubRPCServers.RouterRPC),
 	)
 
+	paymentControl := channeldb.NewPaymentControl(chanDB)
+
+	s.controlTower = routing.NewControlTower(paymentControl)
+
 	s.chanRouter, err = routing.New(routing.Config{
 		Graph:              chanGraph,
 		Chain:              cc.chainIO,
 		ChainView:          cc.chainView,
 		Payer:              s.htlcSwitch,
-		Control:            channeldb.NewPaymentControl(chanDB),
+		Control:            s.controlTower,
 		MissionControl:     s.missionControl,
 		ChannelPruneExpiry: routing.DefaultChannelPruneExpiry,
 		GraphPruneInterval: time.Duration(time.Hour),

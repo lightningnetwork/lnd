@@ -218,7 +218,7 @@ type Config struct {
 
 	// Control keeps track of the status of ongoing payments, ensuring we
 	// can properly resume them across restarts.
-	Control channeldb.ControlTower
+	Control ControlTower
 
 	// MissionControl is a shared memory of sorts that executions of
 	// payment path finding use in order to remember which vertexes/edges
@@ -1565,10 +1565,8 @@ type LightningPayment struct {
 
 	// FinalCLTVDelta is the CTLV expiry delta to use for the _final_ hop
 	// in the route. This means that the final hop will have a CLTV delta
-	// of at least: currentHeight + FinalCLTVDelta. If this value is
-	// unspecified, then a default value of DefaultFinalCLTVDelta will be
-	// used.
-	FinalCLTVDelta *uint16
+	// of at least: currentHeight + FinalCLTVDelta.
+	FinalCLTVDelta uint16
 
 	// PayAttemptTimeout is a timeout value that we'll use to determine
 	// when we should should abandon the payment attempt after consecutive
@@ -1608,6 +1606,45 @@ type LightningPayment struct {
 func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte,
 	*route.Route, error) {
 
+	paySession, err := r.preparePayment(payment)
+	if err != nil {
+		return [32]byte{}, nil, err
+	}
+
+	// Since this is the first time this payment is being made, we pass nil
+	// for the existing attempt.
+	return r.sendPayment(nil, payment, paySession)
+}
+
+// SendPaymentAsync is the non-blocking version of SendPayment. The payment
+// result needs to be retrieved via the control tower.
+func (r *ChannelRouter) SendPaymentAsync(payment *LightningPayment) error {
+	paySession, err := r.preparePayment(payment)
+	if err != nil {
+		return err
+	}
+
+	// Since this is the first time this payment is being made, we pass nil
+	// for the existing attempt.
+	r.wg.Add(1)
+	go func() {
+		defer r.wg.Done()
+
+		_, _, err := r.sendPayment(nil, payment, paySession)
+		if err != nil {
+			log.Errorf("Payment with hash %x failed: %v",
+				payment.PaymentHash, err)
+		}
+	}()
+
+	return nil
+}
+
+// preparePayment creates the payment session and registers the payment with the
+// control tower.
+func (r *ChannelRouter) preparePayment(payment *LightningPayment) (
+	PaymentSession, error) {
+
 	// Before starting the HTLC routing attempt, we'll create a fresh
 	// payment session which will report our errors back to mission
 	// control.
@@ -1615,7 +1652,7 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte,
 		payment.RouteHints, payment.Target,
 	)
 	if err != nil {
-		return [32]byte{}, nil, err
+		return nil, err
 	}
 
 	// Record this payment hash with the ControlTower, ensuring it is not
@@ -1629,12 +1666,10 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte,
 
 	err = r.cfg.Control.InitPayment(payment.PaymentHash, info)
 	if err != nil {
-		return [32]byte{}, nil, err
+		return nil, err
 	}
 
-	// Since this is the first time this payment is being made, we pass nil
-	// for the existing attempt.
-	return r.sendPayment(nil, payment, paySession)
+	return paySession, nil
 }
 
 // SendToRoute attempts to send a payment with the given hash through the
@@ -1732,13 +1767,6 @@ func (r *ChannelRouter) sendPayment(
 		return [32]byte{}, nil, err
 	}
 
-	var finalCLTVDelta uint16
-	if payment.FinalCLTVDelta == nil {
-		finalCLTVDelta = zpay32.DefaultFinalCLTVDelta
-	} else {
-		finalCLTVDelta = *payment.FinalCLTVDelta
-	}
-
 	var payAttemptTimeout time.Duration
 	if payment.PayAttemptTimeout == time.Duration(0) {
 		payAttemptTimeout = defaultPayAttemptTimeout
@@ -1756,7 +1784,7 @@ func (r *ChannelRouter) sendPayment(
 		paySession:     paySession,
 		timeoutChan:    timeoutChan,
 		currentHeight:  currentHeight,
-		finalCLTVDelta: finalCLTVDelta,
+		finalCLTVDelta: uint16(payment.FinalCLTVDelta),
 		attempt:        existingAttempt,
 		circuit:        nil,
 		lastError:      nil,

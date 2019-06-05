@@ -191,9 +191,6 @@ func (s *subRPCServerConfigs) PopulateDependencies(cc *chainControl,
 			subCfgValue.FieldByName("NetworkDir").Set(
 				reflect.ValueOf(networkDir),
 			)
-			subCfgValue.FieldByName("ActiveNetParams").Set(
-				reflect.ValueOf(activeNetParams),
-			)
 			subCfgValue.FieldByName("MacService").Set(
 				reflect.ValueOf(macService),
 			)

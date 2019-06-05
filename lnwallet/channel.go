@@ -2411,7 +2411,13 @@ func (lc *LightningChannel) createCommitmentTx(c *commitment,
 	// We'll now add all the HTLC outputs to the commitment transaction.
 	// Each output includes an off-chain 2-of-2 covenant clause, so we'll
 	// need the objective local/remote keys for this particular commitment
-	// as well.
+	// as well. For any non-dust HTLCs that are manifested on the commitment
+	// transaction, we'll also record its CLTV which is required to sort the
+	// commitment transaction below. The slice is initially sized to the
+	// number of existing outputs, since any outputs already added are
+	// commitment outputs and should correspond to zero values for the
+	// purposes of sorting.
+	cltvs := make([]uint32, len(commitTx.TxOut))
 	for _, htlc := range filteredHTLCView.ourUpdates {
 		if htlcIsDust(false, c.isOurs, c.feePerKw,
 			htlc.Amount.ToSatoshis(), c.dustLimit) {
@@ -2422,6 +2428,7 @@ func (lc *LightningChannel) createCommitmentTx(c *commitment,
 		if err != nil {
 			return err
 		}
+		cltvs = append(cltvs, htlc.Timeout)
 	}
 	for _, htlc := range filteredHTLCView.theirUpdates {
 		if htlcIsDust(true, c.isOurs, c.feePerKw,
@@ -2433,6 +2440,7 @@ func (lc *LightningChannel) createCommitmentTx(c *commitment,
 		if err != nil {
 			return err
 		}
+		cltvs = append(cltvs, htlc.Timeout)
 	}
 
 	// Set the state hint of the commitment transaction to facilitate
@@ -2446,7 +2454,7 @@ func (lc *LightningChannel) createCommitmentTx(c *commitment,
 	// Sort the transactions according to the agreed upon canonical
 	// ordering. This lets us skip sending the entire transaction over,
 	// instead we'll just send signatures.
-	txsort.InPlaceSort(commitTx)
+	InPlaceCommitSort(commitTx, cltvs)
 
 	// Next, we'll ensure that we don't accidentally create a commitment
 	// transaction which would be invalid by consensus.

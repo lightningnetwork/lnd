@@ -9,7 +9,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
-	"sync/atomic"
+	"sync"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
@@ -81,8 +81,8 @@ func fileExists(name string) bool {
 // to lnd, even backed by multiple distinct lnd across independent failure
 // domains.
 type Server struct {
-	started uint32
-	stopped uint32
+	started sync.Once
+	stopped sync.Once
 
 	cfg Config
 
@@ -146,10 +146,7 @@ var _ lnrpc.SubServer = (*Server)(nil)
 //
 // NOTE: This is part of the lnrpc.SubServer interface.
 func (s *Server) Start() error {
-	if !atomic.CompareAndSwapUint32(&s.started, 0, 1) {
-		return nil
-	}
-
+	s.started.Do(func() {})
 	return nil
 }
 
@@ -157,12 +154,9 @@ func (s *Server) Start() error {
 //
 // NOTE: This is part of the lnrpc.SubServer interface.
 func (s *Server) Stop() error {
-	if !atomic.CompareAndSwapUint32(&s.stopped, 0, 1) {
-		return nil
-	}
-
-	close(s.quit)
-
+	s.stopped.Do(func() {
+		close(s.quit)
+	})
 	return nil
 }
 

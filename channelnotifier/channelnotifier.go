@@ -1,7 +1,7 @@
 package channelnotifier
 
 import (
-	"sync/atomic"
+	"sync"
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -12,8 +12,8 @@ import (
 // events pipe through. It takes subscriptions for its events, and whenever
 // it receives a new event it notifies its subscribers over the proper channel.
 type ChannelNotifier struct {
-	started uint32
-	stopped uint32
+	started sync.Once
+	stopped sync.Once
 
 	ntfnServer *subscribe.Server
 
@@ -57,26 +57,19 @@ func New(chanDB *channeldb.DB) *ChannelNotifier {
 
 // Start starts the ChannelNotifier and all goroutines it needs to carry out its task.
 func (c *ChannelNotifier) Start() error {
-	if !atomic.CompareAndSwapUint32(&c.started, 0, 1) {
-		return nil
-	}
-
-	log.Tracef("ChannelNotifier %v starting", c)
-
-	if err := c.ntfnServer.Start(); err != nil {
-		return err
-	}
-
-	return nil
+	var err error
+	c.started.Do(func() {
+		log.Tracef("ChannelNotifier %v starting", c)
+		err = c.ntfnServer.Start()
+	})
+	return err
 }
 
 // Stop signals the notifier for a graceful shutdown.
 func (c *ChannelNotifier) Stop() {
-	if !atomic.CompareAndSwapUint32(&c.stopped, 0, 1) {
-		return
-	}
-
-	c.ntfnServer.Stop()
+	c.stopped.Do(func() {
+		c.ntfnServer.Stop()
+	})
 }
 
 // SubscribeChannelEvents returns a subscribe.Client that will receive updates

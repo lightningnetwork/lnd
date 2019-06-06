@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightningnetwork/lnd/lnrpc"
 )
 
@@ -11,7 +12,9 @@ type OutPoint string
 
 // NewOutPointFromProto formats the lnrpc.OutPoint into an OutPoint for display.
 func NewOutPointFromProto(op *lnrpc.OutPoint) OutPoint {
-	return OutPoint(fmt.Sprintf("%s:%d", op.TxidStr, op.OutputIndex))
+	var hash chainhash.Hash
+	copy(hash[:], op.TxidBytes)
+	return OutPoint(fmt.Sprintf("%v:%d", hash, op.OutputIndex))
 }
 
 // Utxo displays information about an unspent output, including its address,

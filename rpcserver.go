@@ -491,7 +491,7 @@ func newRPCServer(s *server, macService *macaroons.Service,
 	err = subServerCgs.PopulateDependencies(
 		s.cc, networkDir, macService, atpl, invoiceRegistry,
 		s.htlcSwitch, activeNetParams.Params, s.chanRouter,
-		routerBackend, s.nodeSigner, s.chanDB,
+		routerBackend, s.nodeSigner, s.chanDB, s.sweeper,
 	)
 	if err != nil {
 		return nil, err

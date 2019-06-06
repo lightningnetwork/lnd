@@ -46,6 +46,11 @@ var (
 	// for the configured max number of attempts.
 	ErrTooManyAttempts = errors.New("sweep failed after max attempts")
 
+	// ErrSweeperShuttingDown is an error returned when a client attempts to
+	// make a request to the UtxoSweeper, but it is unable to handle it as
+	// it is/has already been stoppepd.
+	ErrSweeperShuttingDown = errors.New("utxo sweeper shutting down")
+
 	// DefaultMaxSweepAttempts specifies the default maximum number of times
 	// an input is included in a publish attempt before giving up and
 	// returning an error to the caller.
@@ -80,6 +85,10 @@ type pendingInput struct {
 	// map it into a fee rate whenever we attempt to cluster inputs for a
 	// sweep.
 	feePreference FeePreference
+
+	// lastFeeRate is the most recent fee rate used for this input within a
+	// transaction broadcast to the network.
+	lastFeeRate lnwallet.SatPerKWeight
 }
 
 // pendingInputs is a type alias for a set of pending inputs.
@@ -92,6 +101,38 @@ type inputCluster struct {
 	inputs       pendingInputs
 }
 
+// pendingSweepsReq is an internal message we'll use to represent an external
+// caller's intent to retrieve all of the pending inputs the UtxoSweeper is
+// attempting to sweep.
+type pendingSweepsReq struct {
+	respChan chan map[wire.OutPoint]*PendingInput
+}
+
+// PendingInput contains information about an input that is currently being
+// swept by the UtxoSweeper.
+type PendingInput struct {
+	// OutPoint is the identify outpoint of the input being swept.
+	OutPoint wire.OutPoint
+
+	// WitnessType is the witness type of the input being swept.
+	WitnessType input.WitnessType
+
+	// Amount is the amount of the input being swept.
+	Amount btcutil.Amount
+
+	// LastFeeRate is the most recent fee rate used for the input being
+	// swept within a transaction broadcast to the network.
+	LastFeeRate lnwallet.SatPerKWeight
+
+	// BroadcastAttempts is the number of attempts we've made to sweept the
+	// input.
+	BroadcastAttempts int
+
+	// NextBroadcastHeight is the next height of the chain at which we'll
+	// attempt to broadcast a transaction sweeping the input.
+	NextBroadcastHeight uint32
+}
+
 // UtxoSweeper is responsible for sweeping outputs back into the wallet
 type UtxoSweeper struct {
 	started uint32 // To be used atomically.
@@ -101,6 +142,11 @@ type UtxoSweeper struct {
 
 	newInputs chan *sweepInputMessage
 	spendChan chan *chainntnfs.SpendDetail
+
+	// pendingSweepsReq is a channel that will be sent requests by external
+	// callers in order to retrieve the set of pending inputs the
+	// UtxoSweeper is attempting to sweep.
+	pendingSweepsReqs chan *pendingSweepsReq
 
 	// pendingInputs is the total set of inputs the UtxoSweeper has been
 	// requested to sweep.
@@ -208,11 +254,12 @@ type sweepInputMessage struct {
 // New returns a new Sweeper instance.
 func New(cfg *UtxoSweeperConfig) *UtxoSweeper {
 	return &UtxoSweeper{
-		cfg:           cfg,
-		newInputs:     make(chan *sweepInputMessage),
-		spendChan:     make(chan *chainntnfs.SpendDetail),
-		quit:          make(chan struct{}),
-		pendingInputs: make(pendingInputs),
+		cfg:               cfg,
+		newInputs:         make(chan *sweepInputMessage),
+		spendChan:         make(chan *chainntnfs.SpendDetail),
+		pendingSweepsReqs: make(chan *pendingSweepsReq),
+		quit:              make(chan struct{}),
+		pendingInputs:     make(pendingInputs),
 	}
 }
 
@@ -336,7 +383,7 @@ func (s *UtxoSweeper) SweepInput(input input.Input,
 	select {
 	case s.newInputs <- sweeperInput:
 	case <-s.quit:
-		return nil, fmt.Errorf("sweeper shutting down")
+		return nil, ErrSweeperShuttingDown
 	}
 
 	return sweeperInput.resultChan, nil
@@ -480,6 +527,11 @@ func (s *UtxoSweeper) collector(blockEpochs <-chan *chainntnfs.BlockEpoch,
 				log.Errorf("schedule sweep: %v", err)
 			}
 
+		// A new external request has been received to retrieve all of
+		// the inputs we're currently attempting to sweep.
+		case req := <-s.pendingSweepsReqs:
+			req.respChan <- s.handlePendingSweepsReq(req)
+
 		// The timer expires and we are going to (re)sweep.
 		case <-s.timer:
 			log.Debugf("Sweep timer expired")
@@ -580,6 +632,8 @@ func (s *UtxoSweeper) clusterBySweepFeeRate() []inputCluster {
 			inputs = make(pendingInputs)
 			bucketInputs[bucket] = inputs
 		}
+
+		input.lastFeeRate = feeRate
 		inputs[op] = input
 		inputFeeRates[op] = feeRate
 	}
@@ -878,6 +932,51 @@ func (s *UtxoSweeper) waitForSpend(outpoint wire.OutPoint,
 	}()
 
 	return spendEvent.Cancel, nil
+}
+
+// PendingInputs returns the set of inputs that the UtxoSweeper is currently
+// attempting to sweep.
+func (s *UtxoSweeper) PendingInputs() (map[wire.OutPoint]*PendingInput, error) {
+	respChan := make(chan map[wire.OutPoint]*PendingInput, 1)
+	select {
+	case s.pendingSweepsReqs <- &pendingSweepsReq{
+		respChan: respChan,
+	}:
+	case <-s.quit:
+		return nil, ErrSweeperShuttingDown
+	}
+
+	select {
+	case pendingSweeps := <-respChan:
+		return pendingSweeps, nil
+	case <-s.quit:
+		return nil, ErrSweeperShuttingDown
+	}
+}
+
+// handlePendingSweepsReq handles a request to retrieve all pending inputs the
+// UtxoSweeper is attempting to sweep.
+func (s *UtxoSweeper) handlePendingSweepsReq(
+	req *pendingSweepsReq) map[wire.OutPoint]*PendingInput {
+
+	pendingInputs := make(map[wire.OutPoint]*PendingInput, len(s.pendingInputs))
+	for _, pendingInput := range s.pendingInputs {
+		// Only the exported fields are set, as we expect the response
+		// to only be consumed externally.
+		op := *pendingInput.input.OutPoint()
+		pendingInputs[op] = &PendingInput{
+			OutPoint:    op,
+			WitnessType: pendingInput.input.WitnessType(),
+			Amount: btcutil.Amount(
+				pendingInput.input.SignDesc().Output.Value,
+			),
+			LastFeeRate:         pendingInput.lastFeeRate,
+			BroadcastAttempts:   pendingInput.publishAttempts,
+			NextBroadcastHeight: uint32(pendingInput.minPublishHeight),
+		}
+	}
+
+	return pendingInputs
 }
 
 // CreateSweepTx accepts a list of inputs and signs and generates a txn that

@@ -263,6 +263,29 @@ func (ctx *sweeperTestContext) expectResult(c chan Result, expected error) {
 	}
 }
 
+func (ctx *sweeperTestContext) assertPendingInputs(inputs ...input.Input) {
+	ctx.t.Helper()
+
+	inputSet := make(map[wire.OutPoint]struct{}, len(inputs))
+	for _, input := range inputs {
+		inputSet[*input.OutPoint()] = struct{}{}
+	}
+
+	pendingInputs, err := ctx.sweeper.PendingInputs()
+	if err != nil {
+		ctx.t.Fatal(err)
+	}
+	if len(pendingInputs) != len(inputSet) {
+		ctx.t.Fatalf("expected %d pending inputs, got %d",
+			len(inputSet), len(pendingInputs))
+	}
+	for input := range pendingInputs {
+		if _, ok := inputSet[input]; !ok {
+			ctx.t.Fatalf("found unexpected input %v", input)
+		}
+	}
+}
+
 // receiveSpendTx receives the transaction sent through the given resultChan.
 func receiveSpendTx(t *testing.T, resultChan chan Result) *wire.MsgTx {
 	t.Helper()
@@ -1029,6 +1052,74 @@ func TestDifferentFeePreferences(t *testing.T) {
 	for _, resultChan := range resultChans {
 		ctx.expectResult(resultChan, nil)
 	}
+
+	ctx.finish(1)
+}
+
+// TestPendingInputs ensures that the sweeper correctly determines the inputs
+// pending to be swept.
+func TestPendingInputs(t *testing.T) {
+	ctx := createSweeperTestContext(t)
+
+	// Throughout this test, we'll be attempting to sweep three inputs, two
+	// with the higher fee preference, and the last with the lower. We do
+	// this to ensure the sweeper can return all pending inputs, even those
+	// with different fee preferences.
+	const (
+		lowFeeRate  = 5000
+		highFeeRate = 10000
+	)
+
+	lowFeePref := FeePreference{
+		ConfTarget: 12,
+	}
+	ctx.estimator.blocksToFee[lowFeePref.ConfTarget] = lowFeeRate
+
+	highFeePref := FeePreference{
+		ConfTarget: 6,
+	}
+	ctx.estimator.blocksToFee[highFeePref.ConfTarget] = highFeeRate
+
+	input1 := spendableInputs[0]
+	resultChan1, err := ctx.sweeper.SweepInput(input1, highFeePref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input2 := spendableInputs[1]
+	if _, err := ctx.sweeper.SweepInput(input2, highFeePref); err != nil {
+		t.Fatal(err)
+	}
+	input3 := spendableInputs[2]
+	resultChan3, err := ctx.sweeper.SweepInput(input3, lowFeePref)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// We should expect to see all inputs pending.
+	ctx.assertPendingInputs(input1, input2, input3)
+
+	// We should expect to see both sweep transactions broadcast. The higher
+	// fee rate sweep should be broadcast first. We'll remove the lower fee
+	// rate sweep to ensure we can detect pending inputs after a sweep.
+	// Once the higher fee rate sweep confirms, we should no longer see
+	// those inputs pending.
+	ctx.tick()
+	ctx.receiveTx()
+	lowFeeRateTx := ctx.receiveTx()
+	ctx.backend.deleteUnconfirmed(lowFeeRateTx.TxHash())
+	ctx.backend.mine()
+	ctx.expectResult(resultChan1, nil)
+	ctx.assertPendingInputs(input3)
+
+	// We'll then trigger a new block to rebroadcast the lower fee rate
+	// sweep. Once again we'll ensure those inputs are no longer pending
+	// once the sweep transaction confirms.
+	ctx.backend.notifier.NotifyEpoch(101)
+	ctx.tick()
+	ctx.receiveTx()
+	ctx.backend.mine()
+	ctx.expectResult(resultChan3, nil)
+	ctx.assertPendingInputs()
 
 	ctx.finish(1)
 }

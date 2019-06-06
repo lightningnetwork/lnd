@@ -18,6 +18,7 @@ import (
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/netann"
 	"github.com/lightningnetwork/lnd/routing"
+	"github.com/lightningnetwork/lnd/sweep"
 )
 
 // subRPCServerConfigs is special sub-config in the main configuration that
@@ -72,7 +73,8 @@ func (s *subRPCServerConfigs) PopulateDependencies(cc *chainControl,
 	chanRouter *routing.ChannelRouter,
 	routerBackend *routerrpc.RouterBackend,
 	nodeSigner *netann.NodeSigner,
-	chanDB *channeldb.DB) error {
+	chanDB *channeldb.DB,
+	sweeper *sweep.UtxoSweeper) error {
 
 	// First, we'll use reflect to obtain a version of the config struct
 	// that allows us to programmatically inspect its fields.
@@ -128,6 +130,9 @@ func (s *subRPCServerConfigs) PopulateDependencies(cc *chainControl,
 			)
 			subCfgValue.FieldByName("KeyRing").Set(
 				reflect.ValueOf(cc.keyRing),
+			)
+			subCfgValue.FieldByName("Sweeper").Set(
+				reflect.ValueOf(sweeper),
 			)
 
 		case *autopilotrpc.Config:

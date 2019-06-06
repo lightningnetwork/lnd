@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net"
 	"sync"
-	"sync/atomic"
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -79,8 +78,8 @@ type ChannelNotifier interface {
 //
 // TODO(roasbeef): better name lol
 type SubSwapper struct {
-	started uint32
-	stopped uint32
+	started sync.Once
+	stopped sync.Once
 
 	// backupState are the set of SCBs for all open channels we know of.
 	backupState map[wire.OutPoint]Single
@@ -135,29 +134,23 @@ func NewSubSwapper(startingChans []Single, chanNotifier ChannelNotifier,
 
 // Start starts the chanbackup.SubSwapper.
 func (s *SubSwapper) Start() error {
-	if !atomic.CompareAndSwapUint32(&s.started, 0, 1) {
-		return nil
-	}
+	s.started.Do(func() {
+		log.Infof("Starting chanbackup.SubSwapper")
 
-	log.Infof("Starting chanbackup.SubSwapper")
-
-	s.wg.Add(1)
-	go s.backupUpdater()
-
+		s.wg.Add(1)
+		go s.backupUpdater()
+	})
 	return nil
 }
 
 // Stop signals the SubSwapper to being a graceful shutdown.
 func (s *SubSwapper) Stop() error {
-	if !atomic.CompareAndSwapUint32(&s.stopped, 0, 1) {
-		return nil
-	}
+	s.stopped.Do(func() {
+		log.Infof("Stopping chanbackup.SubSwapper")
 
-	log.Infof("Stopping chanbackup.SubSwapper")
-
-	close(s.quit)
-	s.wg.Wait()
-
+		close(s.quit)
+		s.wg.Wait()
+	})
 	return nil
 }
 

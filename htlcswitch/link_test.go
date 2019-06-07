@@ -3909,8 +3909,8 @@ func TestChannelLinkAcceptDuplicatePayment(t *testing.T) {
 	err = n.aliceServer.htlcSwitch.SendHTLC(
 		n.firstBobChannelLink.ShortChanID(), pid, htlc,
 	)
-	if err != ErrPaymentIDAlreadyExists {
-		t.Fatalf("ErrPaymentIDAlreadyExists should have been "+
+	if err != ErrDuplicateAdd {
+		t.Fatalf("ErrDuplicateAdd should have been "+
 			"received got: %v", err)
 	}
 

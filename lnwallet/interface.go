@@ -100,6 +100,9 @@ type TransactionDetail struct {
 
 	// DestAddresses are the destinations for a transaction
 	DestAddresses []btcutil.Address
+
+	// RawTx returns the raw serialized transaction.
+	RawTx []byte
 }
 
 // TransactionSubscription is an interface which describes an object capable of

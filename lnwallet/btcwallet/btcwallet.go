@@ -512,8 +512,9 @@ func minedTransactionsToDetails(
 
 		var destAddresses []btcutil.Address
 		for _, txOut := range wireTx.TxOut {
-			_, outAddresses, _, err :=
-				txscript.ExtractPkScriptAddrs(txOut.PkScript, chainParams)
+			_, outAddresses, _, err := txscript.ExtractPkScriptAddrs(
+				txOut.PkScript, chainParams,
+			)
 			if err != nil {
 				return nil, err
 			}
@@ -529,6 +530,7 @@ func minedTransactionsToDetails(
 			Timestamp:        block.Timestamp,
 			TotalFees:        int64(tx.Fee),
 			DestAddresses:    destAddresses,
+			RawTx:            tx.Transaction,
 		}
 
 		balanceDelta, err := extractBalanceDelta(tx, wireTx)
@@ -597,7 +599,9 @@ func (b *BtcWallet) ListTransactionDetails() ([]*lnwallet.TransactionDetail, err
 	// TransactionDetail which re-packages the data returned by the base
 	// wallet.
 	for _, blockPackage := range txns.MinedTransactions {
-		details, err := minedTransactionsToDetails(currentHeight, blockPackage, b.netParams)
+		details, err := minedTransactionsToDetails(
+			currentHeight, blockPackage, b.netParams,
+		)
 		if err != nil {
 			return nil, err
 		}

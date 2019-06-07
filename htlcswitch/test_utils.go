@@ -801,7 +801,7 @@ func preparePayment(sendingPeer, receivingPeer lnpeer.Peer,
 			return err
 		}
 		resultChan, err := sender.htlcSwitch.GetPaymentResult(
-			pid, newMockDeobfuscator(),
+			pid, hash, newMockDeobfuscator(),
 		)
 		if err != nil {
 			return err
@@ -1289,7 +1289,7 @@ func (n *twoHopNetwork) makeHoldPayment(sendingPeer, receivingPeer lnpeer.Peer,
 		}
 
 		resultChan, err := sender.htlcSwitch.GetPaymentResult(
-			pid, newMockDeobfuscator(),
+			pid, rhash, newMockDeobfuscator(),
 		)
 		if err != nil {
 			paymentErr <- err

@@ -1118,7 +1118,7 @@ func TestChannelLinkMultiHopUnknownPaymentHash(t *testing.T) {
 	}
 
 	resultChan, err := n.aliceServer.htlcSwitch.GetPaymentResult(
-		pid, newMockDeobfuscator(),
+		pid, htlc.PaymentHash, newMockDeobfuscator(),
 	)
 	if err != nil {
 		t.Fatalf("unable to get payment result: %v", err)
@@ -3898,7 +3898,7 @@ func TestChannelLinkAcceptDuplicatePayment(t *testing.T) {
 	}
 
 	resultChan, err := n.aliceServer.htlcSwitch.GetPaymentResult(
-		pid, newMockDeobfuscator(),
+		pid, htlc.PaymentHash, newMockDeobfuscator(),
 	)
 	if err != nil {
 		t.Fatalf("unable to get payment result: %v", err)

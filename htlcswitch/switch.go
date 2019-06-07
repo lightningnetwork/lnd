@@ -342,7 +342,7 @@ func (s *Switch) ProcessContractResolution(msg contractcourt.ResolutionMsg) erro
 // result is received on the channel, the HTLC is guaranteed to no longer be in
 // flight. The switch shutting down is signaled by closing the channel. If the
 // paymentID is unknown, ErrPaymentIDNotFound will be returned.
-func (s *Switch) GetPaymentResult(paymentID uint64,
+func (s *Switch) GetPaymentResult(paymentID uint64, paymentHash lntypes.Hash,
 	deobfuscator ErrorDecrypter) (<-chan *PaymentResult, error) {
 
 	s.pendingMutex.Lock()
@@ -375,7 +375,7 @@ func (s *Switch) GetPaymentResult(paymentID uint64,
 
 		// Extract the result and pass it to the result channel.
 		result, err := s.extractResult(
-			deobfuscator, n, paymentID, payment.paymentHash,
+			deobfuscator, n, paymentID, paymentHash,
 		)
 		if err != nil {
 			e := fmt.Errorf("Unable to extract result: %v", err)

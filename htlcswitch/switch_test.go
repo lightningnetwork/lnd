@@ -1743,7 +1743,7 @@ func TestSwitchSendPayment(t *testing.T) {
 	// First check that the switch will correctly respond that this payment
 	// ID is unknown.
 	_, err = s.GetPaymentResult(
-		paymentID, newMockDeobfuscator(),
+		paymentID, rhash, newMockDeobfuscator(),
 	)
 	if err != ErrPaymentIDNotFound {
 		t.Fatalf("expected ErrPaymentIDNotFound, got %v", err)
@@ -1761,7 +1761,7 @@ func TestSwitchSendPayment(t *testing.T) {
 		}
 
 		resultChan, err := s.GetPaymentResult(
-			paymentID, newMockDeobfuscator(),
+			paymentID, rhash, newMockDeobfuscator(),
 		)
 		if err != nil {
 			errChan <- err

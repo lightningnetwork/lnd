@@ -95,7 +95,7 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 		// Now ask the switch to return the result of the payment when
 		// available.
 		resultChan, err := p.router.cfg.Payer.GetPaymentResult(
-			p.attempt.PaymentID, errorDecryptor,
+			p.attempt.PaymentID, p.payment.PaymentHash, errorDecryptor,
 		)
 		switch {
 

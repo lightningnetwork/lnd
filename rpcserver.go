@@ -3598,6 +3598,7 @@ func (r *rpcServer) GetTransactions(ctx context.Context,
 			TimeStamp:        tx.Timestamp,
 			TotalFees:        tx.TotalFees,
 			DestAddresses:    destAddresses,
+			RawTxHex:         hex.EncodeToString(tx.RawTx),
 		}
 	}
 

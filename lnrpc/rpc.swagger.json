@@ -3306,6 +3306,10 @@
             "type": "string"
           },
           "title": "/ Addresses that received funds for this transaction"
+        },
+        "raw_tx_hex": {
+          "type": "string",
+          "description": "/ The raw transaction hex."
         }
       }
     },

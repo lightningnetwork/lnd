@@ -202,13 +202,53 @@ func New(config *Config) (*TowerClient, error) {
 	candidates := newTowerListIterator(tower)
 	targetTowerIDs := candidates.TowerIDs()
 
+	// Next, load all active sessions from the db into the client. We will
+	// use any of these session if their policies match the current policy
+	// of the client, otherwise they will be ignored and new sessions will
+	// be requested.
+	sessions, err := cfg.DB.ListClientSessions()
+	if err != nil {
+		return nil, err
+	}
+
+	// Reload any towers from disk using the tower IDs contained in each
+	// candidate session. We will also rederive any session keys needed to
+	// be able to communicate with the towers and authenticate session
+	// requests. This prevents us from having to store the private keys on
+	// disk.
+	for _, s := range sessions {
+		tower, err := cfg.DB.LoadTower(s.TowerID)
+		if err != nil {
+			return nil, err
+		}
+
+		sessionPriv, err := DeriveSessionKey(
+			cfg.SecretKeyRing, s.KeyIndex,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		s.Tower = tower
+		s.SessionPrivKey = sessionPriv
+	}
+
+	// Load the sweep pkscripts that have been generated for all previously
+	// registered channels.
+	chanSummaries, err := cfg.DB.FetchChanSummaries()
+	if err != nil {
+		return nil, err
+	}
+
 	c := &TowerClient{
-		cfg:            cfg,
-		pipeline:       newTaskPipeline(),
-		activeSessions: make(sessionQueueSet),
-		targetTowerIDs: targetTowerIDs,
-		statTicker:     time.NewTicker(DefaultStatInterval),
-		forceQuit:      make(chan struct{}),
+		cfg:               cfg,
+		pipeline:          newTaskPipeline(),
+		candidateSessions: sessions,
+		activeSessions:    make(sessionQueueSet),
+		targetTowerIDs:    targetTowerIDs,
+		summaries:         chanSummaries,
+		statTicker:        time.NewTicker(DefaultStatInterval),
+		forceQuit:         make(chan struct{}),
 	}
 	c.negotiator = newSessionNegotiator(&NegotiatorConfig{
 		DB:            cfg.DB,
@@ -223,47 +263,9 @@ func New(config *Config) (*TowerClient, error) {
 		MaxBackoff:    cfg.MaxBackoff,
 	})
 
-	// Next, load all active sessions from the db into the client. We will
-	// use any of these session if their policies match the current policy
-	// of the client, otherwise they will be ignored and new sessions will
-	// be requested.
-	c.candidateSessions, err = c.cfg.DB.ListClientSessions()
-	if err != nil {
-		return nil, err
-	}
-
-	// Reload any towers from disk using the tower IDs contained in each
-	// candidate session. We will also rederive any session keys needed to
-	// be able to communicate with the towers and authenticate session
-	// requests. This prevents us from having to store the private keys on
-	// disk.
-	for _, s := range c.candidateSessions {
-		tower, err := c.cfg.DB.LoadTower(s.TowerID)
-		if err != nil {
-			return nil, err
-		}
-
-		sessionPriv, err := DeriveSessionKey(
-			c.cfg.SecretKeyRing, s.KeyIndex,
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		s.Tower = tower
-		s.SessionPrivKey = sessionPriv
-	}
-
 	// Reconstruct the highest commit height processed for each channel
 	// under the client's current policy.
 	c.buildHighestCommitHeights()
-
-	// Finally, load the sweep pkscripts that have been generated for all
-	// previously registered channels.
-	c.summaries, err = c.cfg.DB.FetchChanSummaries()
-	if err != nil {
-		return nil, err
-	}
 
 	return c, nil
 }

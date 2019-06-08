@@ -1,10 +1,15 @@
 package wtclient
 
-import "fmt"
+import (
+	"fmt"
+	"sync"
+)
 
 // ClientStats is a collection of in-memory statistics of the actions the client
 // has performed since its creation.
 type ClientStats struct {
+	mu sync.Mutex
+
 	// NumTasksReceived is the total number of backups that are pending to
 	// be acknowledged by all active and exhausted watchtower sessions.
 	NumTasksReceived int
@@ -29,12 +34,16 @@ type ClientStats struct {
 // taskReceived increments the number to backup requests the client has received
 // from active channels.
 func (s *ClientStats) taskReceived() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.NumTasksReceived++
 }
 
 // taskAccepted increments the number of tasks that have been assigned to active
 // session queues, and are awaiting upload to a tower.
 func (s *ClientStats) taskAccepted() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.NumTasksAccepted++
 }
 
@@ -43,25 +52,46 @@ func (s *ClientStats) taskAccepted() {
 // typically this means that the balance created dust outputs, so it may not be
 // worth backing up at all.
 func (s *ClientStats) taskIneligible() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.NumTasksIneligible++
 }
 
 // sessionAcquired increments the number of sessions that have been successfully
 // negotiated by the client during this execution.
 func (s *ClientStats) sessionAcquired() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.NumSessionsAcquired++
 }
 
 // sessionExhausted increments the number of session that have become full as a
 // result of accepting backup tasks.
 func (s *ClientStats) sessionExhausted() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.NumSessionsExhausted++
 }
 
 // String returns a human readable summary of the client's metrics.
-func (s ClientStats) String() string {
+func (s *ClientStats) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return fmt.Sprintf("tasks(received=%d accepted=%d ineligible=%d) "+
 		"sessions(acquired=%d exhausted=%d)", s.NumTasksReceived,
 		s.NumTasksAccepted, s.NumTasksIneligible, s.NumSessionsAcquired,
 		s.NumSessionsExhausted)
+}
+
+// Copy returns a copy of the current stats.
+func (s *ClientStats) Copy() ClientStats {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return ClientStats{
+		NumTasksReceived:     s.NumTasksReceived,
+		NumTasksAccepted:     s.NumTasksAccepted,
+		NumTasksIneligible:   s.NumTasksIneligible,
+		NumSessionsAcquired:  s.NumSessionsAcquired,
+		NumSessionsExhausted: s.NumSessionsExhausted,
+	}
 }

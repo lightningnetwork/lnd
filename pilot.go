@@ -71,9 +71,10 @@ func validateAtplCfg(cfg *autoPilotConfig) ([]*autopilot.WeightedHeuristic,
 // chanController is an implementation of the autopilot.ChannelController
 // interface that's backed by a running lnd instance.
 type chanController struct {
-	server   *server
-	private  bool
-	minConfs int32
+	server     *server
+	private    bool
+	minConfs   int32
+	confTarget uint32
 }
 
 // OpenChannel opens a channel to a target peer, with a capacity of the
@@ -85,7 +86,7 @@ func (c *chanController) OpenChannel(target *btcec.PublicKey,
 	// With the connection established, we'll now establish our connection
 	// to the target peer, waiting for the first update before we exit.
 	feePerKw, err := c.server.cc.feeEstimator.EstimateFeePerKW(
-		autopilot.DefaultConfTarget,
+		c.confTarget,
 	)
 	if err != nil {
 		return err
@@ -169,9 +170,10 @@ func initAutoPilot(svr *server, cfg *autoPilotConfig) (*autopilot.ManagerCfg, er
 		Self:      self,
 		Heuristic: weightedAttachment,
 		ChanController: &chanController{
-			server:   svr,
-			private:  cfg.Private,
-			minConfs: cfg.MinConfs,
+			server:     svr,
+			private:    cfg.Private,
+			minConfs:   cfg.MinConfs,
+			confTarget: cfg.ConfTarget,
 		},
 		WalletBalance: func() (btcutil.Amount, error) {
 			return svr.cc.wallet.ConfirmedBalance(cfg.MinConfs)

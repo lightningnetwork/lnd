@@ -21,6 +21,7 @@ import (
 
 	"github.com/btcsuite/btcutil"
 	flags "github.com/jessevdk/go-flags"
+	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/chanbackup"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -205,6 +206,7 @@ type autoPilotConfig struct {
 	MaxChannelSize int64              `long:"maxchansize" description:"The largest channel that the autopilot agent should create"`
 	Private        bool               `long:"private" description:"Whether the channels created by the autopilot agent should be private or not. Private channels won't be announced to the network."`
 	MinConfs       int32              `long:"minconfs" description:"The minimum number of confirmations each of your inputs in funding transactions created by the autopilot agent must have."`
+	ConfTarget     uint32             `long:"conftarget" description:"The confirmation target (in blocks) for channels opened by autopilot."`
 }
 
 type torConfig struct {
@@ -379,6 +381,7 @@ func loadConfig() (*config, error) {
 			Allocation:     0.6,
 			MinChannelSize: int64(minChanFundingSize),
 			MaxChannelSize: int64(MaxFundingAmount),
+			ConfTarget:     autopilot.DefaultConfTarget,
 			Heuristic: map[string]float64{
 				"preferential": 1.0,
 			},
@@ -532,6 +535,12 @@ func loadConfig() (*config, error) {
 	}
 	if cfg.Autopilot.MinConfs < 0 {
 		str := "%s: autopilot.minconfs must be non-negative"
+		err := fmt.Errorf(str, funcName)
+		fmt.Fprintln(os.Stderr, err)
+		return nil, err
+	}
+	if cfg.Autopilot.ConfTarget < 1 {
+		str := "%s: autopilot.conftarget must be positive"
 		err := fmt.Errorf(str, funcName)
 		fmt.Fprintln(os.Stderr, err)
 		return nil, err

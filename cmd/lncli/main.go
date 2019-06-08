@@ -306,6 +306,7 @@ func main() {
 	app.Commands = append(app.Commands, routerCommands()...)
 	app.Commands = append(app.Commands, walletCommands()...)
 	app.Commands = append(app.Commands, watchtowerCommands()...)
+	app.Commands = append(app.Commands, wtclientCommands()...)
 
 	if err := app.Run(os.Args); err != nil {
 		fatal(err)

@@ -62,6 +62,19 @@ func (t *Tower) AddAddress(addr net.Addr) {
 	t.Addresses = append([]net.Addr{addr}, t.Addresses...)
 }
 
+// RemoveAddress removes the given address from the tower's in-memory list of
+// addresses. If the address doesn't exist, then this will act as a NOP.
+func (t *Tower) RemoveAddress(addr net.Addr) {
+	addrStr := addr.String()
+	for i, address := range t.Addresses {
+		if address.String() != addrStr {
+			continue
+		}
+		t.Addresses = append(t.Addresses[:i], t.Addresses[i+1:]...)
+		return
+	}
+}
+
 // LNAddrs generates a list of lnwire.NetAddress from a Tower instance's
 // addresses. This can be used to have a client try multiple addresses for the
 // same Tower.

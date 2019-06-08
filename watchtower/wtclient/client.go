@@ -217,7 +217,7 @@ func New(config *Config) (*TowerClient, error) {
 	// requests. This prevents us from having to store the private keys on
 	// disk.
 	for _, s := range sessions {
-		tower, err := cfg.DB.LoadTower(s.TowerID)
+		tower, err := cfg.DB.LoadTowerByID(s.TowerID)
 		if err != nil {
 			return nil, err
 		}

@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/btcsuite/btcd/btcec"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/watchtower/blob"
 	"github.com/lightningnetwork/lnd/watchtower/wtclient"
@@ -89,13 +90,81 @@ func (h *clientDBHarness) createTower(lnAddr *lnwire.NetAddress,
 		h.t.Fatalf("tower id should never be 0")
 	}
 
+	for _, session := range h.listSessions(&tower.ID) {
+		if session.Status != wtdb.CSessionActive {
+			h.t.Fatalf("expected status for session %v to be %v, "+
+				"got %v", session.ID, wtdb.CSessionActive,
+				session.Status)
+		}
+	}
+
 	return tower
 }
 
-func (h *clientDBHarness) loadTower(id wtdb.TowerID, expErr error) *wtdb.Tower {
+func (h *clientDBHarness) removeTower(pubKey *btcec.PublicKey, addr net.Addr,
+	hasSessions bool, expErr error) {
+
 	h.t.Helper()
 
-	tower, err := h.db.LoadTower(id)
+	if err := h.db.RemoveTower(pubKey, addr); err != expErr {
+		h.t.Fatalf("expected remove tower error: %v, got %v", expErr, err)
+	}
+	if expErr != nil {
+		return
+	}
+
+	if addr != nil {
+		tower, err := h.db.LoadTower(pubKey)
+		if err != nil {
+			h.t.Fatalf("expected tower %x to still exist",
+				pubKey.SerializeCompressed())
+		}
+
+		removedAddr := addr.String()
+		for _, towerAddr := range tower.Addresses {
+			if towerAddr.String() == removedAddr {
+				h.t.Fatalf("address %v not removed for tower %x",
+					removedAddr, pubKey.SerializeCompressed())
+			}
+		}
+	} else {
+		tower, err := h.db.LoadTower(pubKey)
+		if hasSessions && err != nil {
+			h.t.Fatalf("expected tower %x with sessions to still "+
+				"exist", pubKey.SerializeCompressed())
+		}
+		if !hasSessions && err == nil {
+			h.t.Fatalf("expected tower %x with no sessions to not "+
+				"exist", pubKey.SerializeCompressed())
+		}
+		if !hasSessions {
+			return
+		}
+		for _, session := range h.listSessions(&tower.ID) {
+			if session.Status != wtdb.CSessionInactive {
+				h.t.Fatalf("expected status for session %v to "+
+					"be %v, got %v", session.ID,
+					wtdb.CSessionInactive, session.Status)
+			}
+		}
+	}
+}
+
+func (h *clientDBHarness) loadTower(pubKey *btcec.PublicKey, expErr error) *wtdb.Tower {
+	h.t.Helper()
+
+	tower, err := h.db.LoadTower(pubKey)
+	if err != expErr {
+		h.t.Fatalf("expected load tower error: %v, got: %v", expErr, err)
+	}
+
+	return tower
+}
+
+func (h *clientDBHarness) loadTowerByID(id wtdb.TowerID, expErr error) *wtdb.Tower {
+	h.t.Helper()
+
+	tower, err := h.db.LoadTowerByID(id)
 	if err != expErr {
 		h.t.Fatalf("expected load tower error: %v, got: %v", expErr, err)
 	}
@@ -268,7 +337,7 @@ func testFilterClientSessions(h *clientDBHarness) {
 // known addresses for the tower.
 func testCreateTower(h *clientDBHarness) {
 	// Test that loading a tower with an arbitrary tower id fails.
-	h.loadTower(20, wtdb.ErrTowerNotFound)
+	h.loadTowerByID(20, wtdb.ErrTowerNotFound)
 
 	pk, err := randPubKey()
 	if err != nil {
@@ -286,7 +355,12 @@ func testCreateTower(h *clientDBHarness) {
 
 	// Load the tower from the database and assert that it matches the tower
 	// we created.
-	tower2 := h.loadTower(tower.ID, nil)
+	tower2 := h.loadTowerByID(tower.ID, nil)
+	if !reflect.DeepEqual(tower, tower2) {
+		h.t.Fatalf("loaded tower mismatch, want: %v, got: %v",
+			tower, tower2)
+	}
+	tower2 = h.loadTower(pk, err)
 	if !reflect.DeepEqual(tower, tower2) {
 		h.t.Fatalf("loaded tower mismatch, want: %v, got: %v",
 			tower, tower2)
@@ -317,7 +391,12 @@ func testCreateTower(h *clientDBHarness) {
 
 	// Load the tower from the database, and assert that it matches the
 	// tower returned from creation.
-	towerNewAddr2 := h.loadTower(tower.ID, nil)
+	towerNewAddr2 := h.loadTowerByID(tower.ID, nil)
+	if !reflect.DeepEqual(towerNewAddr, towerNewAddr2) {
+		h.t.Fatalf("loaded tower mismatch, want: %v, got: %v",
+			towerNewAddr, towerNewAddr2)
+	}
+	towerNewAddr2 = h.loadTower(pk, nil)
 	if !reflect.DeepEqual(towerNewAddr, towerNewAddr2) {
 		h.t.Fatalf("loaded tower mismatch, want: %v, got: %v",
 			towerNewAddr, towerNewAddr2)
@@ -333,6 +412,82 @@ func testCreateTower(h *clientDBHarness) {
 	if !reflect.DeepEqual(tower.Addresses, towerNewAddr.Addresses[1:]) {
 		h.t.Fatalf("new address should be prepended")
 	}
+}
+
+// testRemoveTower asserts the behavior of removing Tower objects as a whole and
+// removing addresses from Tower objects within the database.
+func testRemoveTower(h *clientDBHarness) {
+	// Generate a random public key we'll use for our tower.
+	pk, err := randPubKey()
+	if err != nil {
+		h.t.Fatalf("unable to generate pubkey: %v", err)
+	}
+
+	// Removing a tower that does not exist within the database should
+	// result in a NOP.
+	h.removeTower(pk, nil, false, nil)
+
+	// We'll create a tower with two addresses.
+	addr1 := &net.TCPAddr{IP: []byte{0x01, 0x00, 0x00, 0x00}, Port: 9911}
+	addr2 := &net.TCPAddr{IP: []byte{0x02, 0x00, 0x00, 0x00}, Port: 9911}
+	h.createTower(&lnwire.NetAddress{
+		IdentityKey: pk,
+		Address:     addr1,
+	}, nil)
+	h.createTower(&lnwire.NetAddress{
+		IdentityKey: pk,
+		Address:     addr2,
+	}, nil)
+
+	// We'll then remove the second address. We should now only see the
+	// first.
+	h.removeTower(pk, addr2, false, nil)
+
+	// We'll then remove the first address. We should now see that the tower
+	// has no addresses left.
+	h.removeTower(pk, addr1, false, nil)
+
+	// Removing the tower as a whole from the database should succeed since
+	// there aren't any active sessions for it.
+	h.removeTower(pk, nil, false, nil)
+
+	// We'll then recreate the tower, but this time we'll create a session
+	// for it.
+	tower := h.createTower(&lnwire.NetAddress{
+		IdentityKey: pk,
+		Address:     addr1,
+	}, nil)
+
+	session := &wtdb.ClientSession{
+		ClientSessionBody: wtdb.ClientSessionBody{
+			TowerID: tower.ID,
+			Policy: wtpolicy.Policy{
+				MaxUpdates: 100,
+			},
+			RewardPkScript: []byte{0x01, 0x02, 0x03},
+			KeyIndex:       h.nextKeyIndex(tower.ID, nil),
+		},
+		ID: wtdb.SessionID([33]byte{0x01}),
+	}
+	h.insertSession(session, nil)
+	update := randCommittedUpdate(h.t, 1)
+	h.commitUpdate(&session.ID, update, nil)
+
+	// We should not be able to fully remove it from the database since
+	// there's a session and it has unacked updates.
+	h.removeTower(pk, nil, true, wtdb.ErrTowerUnackedUpdates)
+
+	// Removing the tower after all sessions no longer have unacked updates
+	// should result in the sessions becoming inactive.
+	h.ackUpdate(&session.ID, 1, 1, nil)
+	h.removeTower(pk, nil, true, nil)
+
+	// Creating the tower again should mark all of the sessions active once
+	// again.
+	h.createTower(&lnwire.NetAddress{
+		IdentityKey: pk,
+		Address:     addr1,
+	}, nil)
 }
 
 // testChanSummaries tests the process of a registering a channel and its
@@ -672,6 +827,10 @@ func TestClientDB(t *testing.T) {
 		{
 			name: "create tower",
 			run:  testCreateTower,
+		},
+		{
+			name: "remove tower",
+			run:  testRemoveTower,
 		},
 		{
 			name: "chan summaries",

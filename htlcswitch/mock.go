@@ -163,7 +163,10 @@ func initSwitchWithDB(startingHeight uint32, db *channeldb.DB) (*Switch, error) 
 		}
 	}
 
+	priv, _ := btcec.NewPrivateKey(btcec.S256())
+	pubkey := priv.PubKey()
 	cfg := Config{
+		SelfKey:        pubkey,
 		DB:             db,
 		SwitchPackager: channeldb.NewSwitchPackager(),
 		FwdingLog: &mockForwardingLog{
@@ -390,7 +393,11 @@ func (o *mockDeobfuscator) DecryptError(reason lnwire.OpaqueReason) (*Forwarding
 		return nil, err
 	}
 
+	priv, _ := btcec.NewPrivateKey(btcec.S256())
+	pubkey := priv.PubKey()
+
 	return &ForwardingError{
+		ErrorSource:    pubkey,
 		FailureMessage: failure,
 	}, nil
 }
@@ -908,4 +915,59 @@ func (m *mockNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint, _ []byte,
 	return &chainntnfs.SpendEvent{
 		Spend: make(chan *chainntnfs.SpendDetail),
 	}, nil
+}
+
+type mockCircuitMap struct {
+	lookup chan *PaymentCircuit
+}
+
+var _ CircuitMap = (*mockCircuitMap)(nil)
+
+func (m *mockCircuitMap) OpenCircuits(...Keystone) error {
+	return nil
+}
+
+func (m *mockCircuitMap) TrimOpenCircuits(chanID lnwire.ShortChannelID,
+	start uint64) error {
+	return nil
+}
+
+func (m *mockCircuitMap) DeleteCircuits(inKeys ...CircuitKey) error {
+	return nil
+}
+
+func (m *mockCircuitMap) CommitCircuits(
+	circuit ...*PaymentCircuit) (*CircuitFwdActions, error) {
+
+	return nil, nil
+}
+
+func (m *mockCircuitMap) CloseCircuit(outKey CircuitKey) (*PaymentCircuit,
+	error) {
+	return nil, nil
+}
+
+func (m *mockCircuitMap) FailCircuit(inKey CircuitKey) (*PaymentCircuit,
+	error) {
+	return nil, nil
+}
+
+func (m *mockCircuitMap) LookupCircuit(inKey CircuitKey) *PaymentCircuit {
+	return <-m.lookup
+}
+
+func (m *mockCircuitMap) LookupOpenCircuit(outKey CircuitKey) *PaymentCircuit {
+	return nil
+}
+
+func (m *mockCircuitMap) LookupByPaymentHash(hash [32]byte) []*PaymentCircuit {
+	return nil
+}
+
+func (m *mockCircuitMap) NumPending() int {
+	return 0
+}
+
+func (m *mockCircuitMap) NumOpen() int {
+	return 0
 }

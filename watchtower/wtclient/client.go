@@ -206,7 +206,7 @@ func New(config *Config) (*TowerClient, error) {
 	// use any of these session if their policies match the current policy
 	// of the client, otherwise they will be ignored and new sessions will
 	// be requested.
-	sessions, err := cfg.DB.ListClientSessions()
+	sessions, err := cfg.DB.ListClientSessions(nil)
 	if err != nil {
 		return nil, err
 	}

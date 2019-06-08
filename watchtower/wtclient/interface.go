@@ -38,8 +38,10 @@ type DB interface {
 
 	// ListClientSessions returns all sessions that have not yet been
 	// exhausted. This is used on startup to find any sessions which may
-	// still be able to accept state updates.
-	ListClientSessions() (map[wtdb.SessionID]*wtdb.ClientSession, error)
+	// still be able to accept state updates. An optional tower ID can be
+	// used to filter out any client sessions in the response that do not
+	// correspond to this tower.
+	ListClientSessions(*wtdb.TowerID) (map[wtdb.SessionID]*wtdb.ClientSession, error)
 
 	// FetchChanSummaries loads a mapping from all registered channels to
 	// their channel summaries.

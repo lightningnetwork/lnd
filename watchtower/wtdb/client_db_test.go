@@ -48,10 +48,10 @@ func (h *clientDBHarness) insertSession(session *wtdb.ClientSession, expErr erro
 	}
 }
 
-func (h *clientDBHarness) listSessions() map[wtdb.SessionID]*wtdb.ClientSession {
+func (h *clientDBHarness) listSessions(id *wtdb.TowerID) map[wtdb.SessionID]*wtdb.ClientSession {
 	h.t.Helper()
 
-	sessions, err := h.db.ListClientSessions()
+	sessions, err := h.db.ListClientSessions(id)
 	if err != nil {
 		h.t.Fatalf("unable to list client sessions: %v", err)
 	}
@@ -172,7 +172,7 @@ func testCreateClientSession(h *clientDBHarness) {
 
 	// First, assert that this session is not already present in the
 	// database.
-	if _, ok := h.listSessions()[session.ID]; ok {
+	if _, ok := h.listSessions(nil)[session.ID]; ok {
 		h.t.Fatalf("session for id %x should not exist yet", session.ID)
 	}
 
@@ -202,7 +202,7 @@ func testCreateClientSession(h *clientDBHarness) {
 	h.insertSession(session, nil)
 
 	// Verify that the session now exists in the database.
-	if _, ok := h.listSessions()[session.ID]; !ok {
+	if _, ok := h.listSessions(nil)[session.ID]; !ok {
 		h.t.Fatalf("session for id %x should exist now", session.ID)
 	}
 
@@ -215,6 +215,51 @@ func testCreateClientSession(h *clientDBHarness) {
 	keyIndex3 := h.nextKeyIndex(session.TowerID, nil)
 	if keyIndex == keyIndex3 {
 		h.t.Fatalf("key index still reserved after creating session")
+	}
+}
+
+// testFilterClientSessions asserts that we can correctly filter client sessions
+// for a specific tower.
+func testFilterClientSessions(h *clientDBHarness) {
+	// We'll create three client sessions, the first two belonging to one
+	// tower, and the last belonging to another one.
+	const numSessions = 3
+	towerSessions := make(map[wtdb.TowerID][]wtdb.SessionID)
+	for i := 0; i < numSessions; i++ {
+		towerID := wtdb.TowerID(1)
+		if i == numSessions-1 {
+			towerID = wtdb.TowerID(2)
+		}
+		keyIndex := h.nextKeyIndex(towerID, nil)
+		sessionID := wtdb.SessionID([33]byte{byte(i)})
+		h.insertSession(&wtdb.ClientSession{
+			ClientSessionBody: wtdb.ClientSessionBody{
+				TowerID: towerID,
+				Policy: wtpolicy.Policy{
+					MaxUpdates: 100,
+				},
+				RewardPkScript: []byte{0x01, 0x02, 0x03},
+				KeyIndex:       keyIndex,
+			},
+			ID: sessionID,
+		}, nil)
+		towerSessions[towerID] = append(towerSessions[towerID], sessionID)
+	}
+
+	// We should see the expected sessions for each tower when filtering
+	// them.
+	for towerID, expectedSessions := range towerSessions {
+		sessions := h.listSessions(&towerID)
+		if len(sessions) != len(expectedSessions) {
+			h.t.Fatalf("expected %v sessions for tower %v, got %v",
+				len(expectedSessions), towerID, len(sessions))
+		}
+		for _, expectedSession := range expectedSessions {
+			if _, ok := sessions[expectedSession]; !ok {
+				h.t.Fatalf("expected session %v for tower %v",
+					expectedSession, towerID)
+			}
+		}
 	}
 }
 
@@ -357,7 +402,7 @@ func testCommitUpdate(h *clientDBHarness) {
 	// Assert that the committed update appears in the client session's
 	// CommittedUpdates map when loaded from disk and that there are no
 	// AckedUpdates.
-	dbSession := h.listSessions()[session.ID]
+	dbSession := h.listSessions(nil)[session.ID]
 	checkCommittedUpdates(h.t, dbSession, []wtdb.CommittedUpdate{
 		*update1,
 	})
@@ -374,7 +419,7 @@ func testCommitUpdate(h *clientDBHarness) {
 	}
 
 	// Assert that the loaded ClientSession is the same as before.
-	dbSession = h.listSessions()[session.ID]
+	dbSession = h.listSessions(nil)[session.ID]
 	checkCommittedUpdates(h.t, dbSession, []wtdb.CommittedUpdate{
 		*update1,
 	})
@@ -396,7 +441,7 @@ func testCommitUpdate(h *clientDBHarness) {
 
 	// Check that both updates now appear as committed on the ClientSession
 	// loaded from disk.
-	dbSession = h.listSessions()[session.ID]
+	dbSession = h.listSessions(nil)[session.ID]
 	checkCommittedUpdates(h.t, dbSession, []wtdb.CommittedUpdate{
 		*update1,
 		*update2,
@@ -410,7 +455,7 @@ func testCommitUpdate(h *clientDBHarness) {
 	h.commitUpdate(&session.ID, update4, wtdb.ErrCommitUnorderedUpdate)
 
 	// Assert that the ClientSession loaded from disk remains unchanged.
-	dbSession = h.listSessions()[session.ID]
+	dbSession = h.listSessions(nil)[session.ID]
 	checkCommittedUpdates(h.t, dbSession, []wtdb.CommittedUpdate{
 		*update1,
 		*update2,
@@ -467,7 +512,7 @@ func testAckUpdate(h *clientDBHarness) {
 
 	// Assert that the ClientSession loaded from disk has one update in it's
 	// AckedUpdates map, and that the committed update has been removed.
-	dbSession := h.listSessions()[session.ID]
+	dbSession := h.listSessions(nil)[session.ID]
 	checkCommittedUpdates(h.t, dbSession, nil)
 	checkAckedUpdates(h.t, dbSession, map[uint16]wtdb.BackupID{
 		1: update1.BackupID,
@@ -487,7 +532,7 @@ func testAckUpdate(h *clientDBHarness) {
 	h.ackUpdate(&session.ID, 2, 2, nil)
 
 	// Assert that both updates exist as AckedUpdates when loaded from disk.
-	dbSession = h.listSessions()[session.ID]
+	dbSession = h.listSessions(nil)[session.ID]
 	checkCommittedUpdates(h.t, dbSession, nil)
 	checkAckedUpdates(h.t, dbSession, map[uint16]wtdb.BackupID{
 		1: update1.BackupID,
@@ -619,6 +664,10 @@ func TestClientDB(t *testing.T) {
 		{
 			name: "create client session",
 			run:  testCreateClientSession,
+		},
+		{
+			name: "filter client sessions",
+			run:  testFilterClientSessions,
 		},
 		{
 			name: "create tower",

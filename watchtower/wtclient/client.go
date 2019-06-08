@@ -161,7 +161,7 @@ type TowerClient struct {
 	chanCommitHeights map[lnwire.ChannelID]uint64
 
 	statTicker *time.Ticker
-	stats      clientStats
+	stats      ClientStats
 
 	wg        sync.WaitGroup
 	forceQuit chan struct{}

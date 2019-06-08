@@ -7677,7 +7677,7 @@ func testRevokedCloseRetributionAltruistWatchtower(net *lntest.NetworkHarness,
 	defer shutdownAndAssert(net, t, willy)
 
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	willyInfo, err := willy.WatchtowerClient.GetInfo(
+	willyInfo, err := willy.Watchtower.GetInfo(
 		ctxt, &watchtowerrpc.GetInfoRequest{},
 	)
 	if err != nil {

@@ -145,9 +145,6 @@ func newSessionQueue(cfg *sessionQueueConfig) *sessionQueue {
 // backups.
 func (q *sessionQueue) Start() {
 	q.started.Do(func() {
-		// TODO(conner): load prior committed state updates from disk an
-		// populate in queue.
-
 		go q.sessionManager()
 	})
 }

@@ -2072,6 +2072,12 @@ message Invoice {
     The state the invoice is in.
     */
     InvoiceState state = 21 [json_name = "state"];
+
+    /**
+    Whether this invoice should be allowed if value is bigger than inbound
+    bandwidth.
+    */
+    bool check_inbound_bandwidth = 22 [json_name = "check_inbound_bandwidth"];
 }
 
 message AddInvoiceResponse {

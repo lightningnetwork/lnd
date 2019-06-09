@@ -3400,14 +3400,15 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 	}
 
 	addInvoiceData := &invoicesrpc.AddInvoiceData{
-		Memo:            invoice.Memo,
-		Receipt:         invoice.Receipt,
-		Value:           btcutil.Amount(invoice.Value),
-		DescriptionHash: invoice.DescriptionHash,
-		Expiry:          invoice.Expiry,
-		FallbackAddr:    invoice.FallbackAddr,
-		CltvExpiry:      invoice.CltvExpiry,
-		Private:         invoice.Private,
+		Memo:                  invoice.Memo,
+		Receipt:               invoice.Receipt,
+		Value:                 btcutil.Amount(invoice.Value),
+		DescriptionHash:       invoice.DescriptionHash,
+		Expiry:                invoice.Expiry,
+		FallbackAddr:          invoice.FallbackAddr,
+		CltvExpiry:            invoice.CltvExpiry,
+		Private:               invoice.Private,
+		CheckInboundBandwidth: invoice.CheckInboundBandwidth,
 	}
 
 	if invoice.RPreimage != nil {

@@ -2471,6 +2471,11 @@
         "state": {
           "$ref": "#/definitions/InvoiceInvoiceState",
           "description": "*\nThe state the invoice is in."
+        },
+        "check_inbound_bandwidth": {
+          "type": "boolean",
+          "format": "boolean",
+          "description": "*\nWhether this invoice should be allowed if value is bigger than inbound\nbandwidth."
         }
       }
     },

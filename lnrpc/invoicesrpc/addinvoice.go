@@ -91,6 +91,10 @@ type AddInvoiceData struct {
 	// Whether this invoice should include routing hints for private
 	// channels.
 	Private bool
+
+	// Whether this invoice should be allowed if value is bigger than inbound
+	// bandwidth.
+	CheckInboundBandwidth bool
 }
 
 // AddInvoice attempts to add a new invoice to the invoice database. Any
@@ -178,6 +182,33 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 			"payment allowed is %v", invoice.Value,
 			cfg.MaxPaymentMSat.ToSatoshis(),
 		)
+	}
+
+	// Check if any open channel has enough inbound bandwidth to receive an
+	// invoice of the specified amount
+	if invoice.CheckInboundBandwidth {
+		inboundBandwidth := false
+
+		openChannels, err := cfg.ChanDB.FetchAllOpenChannels()
+		if err != nil {
+			return nil, nil, fmt.Errorf("could not fetch all open channels")
+		}
+		for _, c := range openChannels {
+			localCommitment, _, err := c.LatestCommitments()
+			if err != nil {
+				return nil, nil, fmt.Errorf("could not get latest "+
+					"commitments for channel %v", c.ShortChanID())
+			}
+			if localCommitment.RemoteBalance >= amtMSat {
+				inboundBandwidth = true
+				break
+			}
+		}
+
+		if !inboundBandwidth {
+			return nil, nil, fmt.Errorf("inbound bandwidth not sufficient "+
+				"to receive a payment of %v", invoice.Value)
+		}
 	}
 
 	// We also create an encoded payment request which allows the

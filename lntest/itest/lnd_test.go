@@ -812,7 +812,7 @@ func assertCorrectNumberPendingChannels(t *harnessTest, ctx context.Context,
 	)
 
 	if err != nil {
-		t.Fatalf("error from checkCorrectPendingChannelResponse: %v", err)
+		t.Fatalf("error from checkCorrectPendingChannelResponse for alice: %v", err)
 	}
 
 	pendingChanResp, err = bobNode.PendingChannels(ctxt, pendingChannelRequest)

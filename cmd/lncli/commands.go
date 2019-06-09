@@ -2584,6 +2584,11 @@ var addInvoiceCommand = cli.Command{
 				"private channels in order to assist the " +
 				"payer in reaching you",
 		},
+		cli.BoolTFlag{
+			Name: "check_inbound_bandwidth",
+			Usage: "don't allow invoice creation if node doesn't have " +
+				"enough inbound capacity",
+		},
 	},
 	Action: actionDecorator(addInvoice),
 }
@@ -2635,14 +2640,15 @@ func addInvoice(ctx *cli.Context) error {
 	}
 
 	invoice := &lnrpc.Invoice{
-		Memo:            ctx.String("memo"),
-		Receipt:         receipt,
-		RPreimage:       preimage,
-		Value:           amt,
-		DescriptionHash: descHash,
-		FallbackAddr:    ctx.String("fallback_addr"),
-		Expiry:          ctx.Int64("expiry"),
-		Private:         ctx.Bool("private"),
+		Memo:                  ctx.String("memo"),
+		Receipt:               receipt,
+		RPreimage:             preimage,
+		Value:                 amt,
+		DescriptionHash:       descHash,
+		FallbackAddr:          ctx.String("fallback_addr"),
+		Expiry:                ctx.Int64("expiry"),
+		Private:               ctx.Bool("private"),
+		CheckInboundBandwidth: ctx.Bool("check_inbound_bandwidth"),
 	}
 
 	resp, err := client.AddInvoice(context.Background(), invoice)

@@ -1003,17 +1003,6 @@ func acceptOrSettleInvoice(invoices, settleIndex *bbolt.Bucket,
 		return nil, err
 	}
 
-	state := invoice.Terms.State
-
-	switch {
-	case state == ContractAccepted:
-		return &invoice, ErrInvoiceAlreadyAccepted
-	case state == ContractSettled:
-		return &invoice, ErrInvoiceAlreadySettled
-	case state == ContractCanceled:
-		return &invoice, ErrInvoiceAlreadyCanceled
-	}
-
 	// If the invoice is still open, check the htlc parameters.
 	if err := checkHtlcParameters(&invoice); err != nil {
 		return &invoice, err

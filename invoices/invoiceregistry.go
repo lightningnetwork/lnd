@@ -526,6 +526,15 @@ func (i *InvoiceRegistry) LookupInvoice(rHash lntypes.Hash) (channeldb.Invoice, 
 func (i *InvoiceRegistry) checkHtlcParameters(invoice *channeldb.Invoice,
 	amtPaid lnwire.MilliSatoshi, htlcExpiry uint32, currentHeight int32) error {
 
+	switch invoice.Terms.State {
+	case channeldb.ContractAccepted:
+		return channeldb.ErrInvoiceAlreadyAccepted
+	case channeldb.ContractSettled:
+		return channeldb.ErrInvoiceAlreadySettled
+	case channeldb.ContractCanceled:
+		return channeldb.ErrInvoiceAlreadyCanceled
+	}
+
 	expiry, err := i.decodeFinalCltvExpiry(string(invoice.PaymentRequest))
 	if err != nil {
 		return err

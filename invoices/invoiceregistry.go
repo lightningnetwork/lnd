@@ -526,15 +526,30 @@ func (i *InvoiceRegistry) LookupInvoice(rHash lntypes.Hash) (channeldb.Invoice, 
 func (i *InvoiceRegistry) checkHtlcParameters(invoice *channeldb.Invoice,
 	amtPaid lnwire.MilliSatoshi, htlcExpiry uint32, currentHeight int32) error {
 
+	// If the invoice is already canceled, there is no further checking to
+	// do.
+	if invoice.Terms.State == channeldb.ContractCanceled {
+		return channeldb.ErrInvoiceAlreadyCanceled
+	}
+
+	// If a payment has already been made, we only accept more payments if
+	// the amount is the exact same. This prevents probing with small
+	// amounts on settled invoices to find out the receiver node.
+	if invoice.AmtPaid != 0 && amtPaid != invoice.AmtPaid {
+		return ErrInvoiceAmountTooLow
+	}
+
+	// Return early in case the invoice was already accepted or settled. We
+	// don't want to check the expiry again, because it may be that we are
+	// just restarting.
 	switch invoice.Terms.State {
 	case channeldb.ContractAccepted:
 		return channeldb.ErrInvoiceAlreadyAccepted
 	case channeldb.ContractSettled:
 		return channeldb.ErrInvoiceAlreadySettled
-	case channeldb.ContractCanceled:
-		return channeldb.ErrInvoiceAlreadyCanceled
 	}
 
+	// The invoice is still open. Check the expiry.
 	expiry, err := i.decodeFinalCltvExpiry(string(invoice.PaymentRequest))
 	if err != nil {
 		return err
@@ -548,10 +563,7 @@ func (i *InvoiceRegistry) checkHtlcParameters(invoice *channeldb.Invoice,
 		return ErrInvoiceExpiryTooSoon
 	}
 
-	// If an invoice amount is specified, check that enough is paid. This
-	// check is only performed for open invoices. Once a sufficiently large
-	// payment has been made and the invoice is in the accepted or settled
-	// state, any amount will be accepted on top of that.
+	// If an invoice amount is specified, check that enough is paid.
 	if invoice.Terms.Value > 0 && amtPaid < invoice.Terms.Value {
 		return ErrInvoiceAmountTooLow
 	}

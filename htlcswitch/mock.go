@@ -163,10 +163,7 @@ func initSwitchWithDB(startingHeight uint32, db *channeldb.DB) (*Switch, error) 
 		}
 	}
 
-	priv, _ := btcec.NewPrivateKey(btcec.S256())
-	pubkey := priv.PubKey()
 	cfg := Config{
-		SelfKey:        pubkey,
 		DB:             db,
 		SwitchPackager: channeldb.NewSwitchPackager(),
 		FwdingLog: &mockForwardingLog{
@@ -393,12 +390,9 @@ func (o *mockDeobfuscator) DecryptError(reason lnwire.OpaqueReason) (*Forwarding
 		return nil, err
 	}
 
-	priv, _ := btcec.NewPrivateKey(btcec.S256())
-	pubkey := priv.PubKey()
-
 	return &ForwardingError{
-		ErrorSource:    pubkey,
-		FailureMessage: failure,
+		FailureSourceIdx: 1,
+		FailureMessage:   failure,
 	}, nil
 }
 

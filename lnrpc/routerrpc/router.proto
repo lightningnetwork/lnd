@@ -183,11 +183,7 @@ message Failure {
     /// Failure code as defined in the Lightning spec
     FailureCode code = 1;
 
-    /**
-    The node pubkey of the intermediate or final node that generated the failure
-    message.
-    **/
-    bytes failure_source_pubkey = 2;
+    reserved 2;
 
     /// An optional channel update message.
     ChannelUpdate channel_update = 3;
@@ -203,6 +199,12 @@ message Failure {
 
     /// A failure type-dependent flags value.
     uint32 flags = 7;
+
+    /**
+    The position in the path of the intermediate or final node that generated
+    the failure message. Position zero is the sender node.
+    **/
+    uint32 failure_source_index = 8;
 }
 
 

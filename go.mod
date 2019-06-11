@@ -30,7 +30,7 @@ require (
 	github.com/juju/version v0.0.0-20180108022336-b64dbd566305 // indirect
 	github.com/kkdai/bstream v0.0.0-20181106074824-b3251f7901ec
 	github.com/lightninglabs/neutrino v0.0.0-20190629001446-52dd89dd1aaa
-	github.com/lightningnetwork/lightning-onion v0.0.0-20190430041606-751fb4dd8b72
+	github.com/lightningnetwork/lightning-onion v0.0.0-20190703000913-ecc936dc56c9
 	github.com/lightningnetwork/lnd/queue v1.0.1
 	github.com/lightningnetwork/lnd/ticker v1.0.0
 	github.com/ltcsuite/ltcd v0.0.0-20190101042124-f37f8bf35796

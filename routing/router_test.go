@@ -265,8 +265,6 @@ func TestSendPaymentRouteFailureFallback(t *testing.T) {
 	var preImage [32]byte
 	copy(preImage[:], bytes.Repeat([]byte{9}, 32))
 
-	sourceNode := ctx.router.selfNode
-
 	// We'll modify the SendToSwitch method that's been set within the
 	// router's configuration to ignore the path that has luo ji as the
 	// first hop. This should force the router to instead take the
@@ -276,12 +274,8 @@ func TestSendPaymentRouteFailureFallback(t *testing.T) {
 
 			roasbeefLuoji := lnwire.NewShortChanIDFromInt(689530843)
 			if firstHop == roasbeefLuoji {
-				pub, err := sourceNode.PubKey()
-				if err != nil {
-					return preImage, err
-				}
 				return [32]byte{}, &htlcswitch.ForwardingError{
-					ErrorSource: pub,
+					FailureSourceIdx: 0,
 					// TODO(roasbeef): temp node failure should be?
 					FailureMessage: &lnwire.FailTemporaryChannelFailure{},
 				}
@@ -410,17 +404,8 @@ func TestChannelUpdateValidation(t *testing.T) {
 	// The unsigned channel update is attached to the failure message.
 	ctx.router.cfg.Payer.(*mockPaymentAttemptDispatcher).setPaymentResult(
 		func(firstHop lnwire.ShortChannelID) ([32]byte, error) {
-
-			v := ctx.aliases["b"]
-			source, err := btcec.ParsePubKey(
-				v[:], btcec.S256(),
-			)
-			if err != nil {
-				t.Fatal(err)
-			}
-
 			return [32]byte{}, &htlcswitch.ForwardingError{
-				ErrorSource: source,
+				FailureSourceIdx: 1,
 				FailureMessage: &lnwire.FailFeeInsufficient{
 					Update: errChanUpdate,
 				},
@@ -533,9 +518,6 @@ func TestSendPaymentErrorRepeatedFeeInsufficient(t *testing.T) {
 		FeeRate:         uint32(edgeUpdateToFail.FeeProportionalMillionths),
 	}
 
-	// The error will be returned by Son Goku.
-	sourceNode := ctx.aliases["songoku"]
-
 	// We'll now modify the SendToSwitch method to return an error for the
 	// outgoing channel to Son goku. This will be a fee related error, so
 	// it should only cause the edge to be pruned after the second attempt.
@@ -544,15 +526,8 @@ func TestSendPaymentErrorRepeatedFeeInsufficient(t *testing.T) {
 
 			roasbeefSongoku := lnwire.NewShortChanIDFromInt(chanID)
 			if firstHop == roasbeefSongoku {
-				sourceKey, err := btcec.ParsePubKey(
-					sourceNode[:], btcec.S256(),
-				)
-				if err != nil {
-					t.Fatal(err)
-				}
-
 				return [32]byte{}, &htlcswitch.ForwardingError{
-					ErrorSource: sourceKey,
+					FailureSourceIdx: 1,
 
 					// Within our error, we'll add a channel update
 					// which is meant to reflect he new fee
@@ -647,9 +622,6 @@ func TestSendPaymentErrorNonFinalTimeLockErrors(t *testing.T) {
 		FeeRate:         uint32(edgeUpdateToFail.FeeProportionalMillionths),
 	}
 
-	// The error will be returned by Son Goku.
-	sourceNode := ctx.aliases["songoku"]
-
 	// We'll now modify the SendToSwitch method to return an error for the
 	// outgoing channel to son goku. Since this is a time lock related
 	// error, we should fail the payment flow all together, as Goku is the
@@ -658,15 +630,8 @@ func TestSendPaymentErrorNonFinalTimeLockErrors(t *testing.T) {
 		func(firstHop lnwire.ShortChannelID) ([32]byte, error) {
 
 			if firstHop == roasbeefSongoku {
-				sourceKey, err := btcec.ParsePubKey(
-					sourceNode[:], btcec.S256(),
-				)
-				if err != nil {
-					t.Fatal(err)
-				}
-
 				return [32]byte{}, &htlcswitch.ForwardingError{
-					ErrorSource: sourceKey,
+					FailureSourceIdx: 1,
 					FailureMessage: &lnwire.FailExpiryTooSoon{
 						Update: errChanUpdate,
 					},
@@ -719,15 +684,8 @@ func TestSendPaymentErrorNonFinalTimeLockErrors(t *testing.T) {
 		func(firstHop lnwire.ShortChannelID) ([32]byte, error) {
 
 			if firstHop == roasbeefSongoku {
-				sourceKey, err := btcec.ParsePubKey(
-					sourceNode[:], btcec.S256(),
-				)
-				if err != nil {
-					t.Fatal(err)
-				}
-
 				return [32]byte{}, &htlcswitch.ForwardingError{
-					ErrorSource: sourceKey,
+					FailureSourceIdx: 1,
 					FailureMessage: &lnwire.FailIncorrectCltvExpiry{
 						Update: errChanUpdate,
 					},
@@ -776,16 +734,6 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 	var preImage [32]byte
 	copy(preImage[:], bytes.Repeat([]byte{9}, 32))
 
-	sourceNode, err := ctx.graph.SourceNode()
-	if err != nil {
-		t.Fatalf("unable to fetch source node: %v", err)
-	}
-
-	sourcePub, err := sourceNode.PubKey()
-	if err != nil {
-		t.Fatalf("unable to fetch source node pub: %v", err)
-	}
-
 	roasbeefLuoji := lnwire.NewShortChanIDFromInt(689530843)
 
 	// First, we'll modify the SendToSwitch method to return an error
@@ -802,7 +750,7 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 				// outgoing link to simulate the channel from luo ji to
 				// roasbeef not having enough capacity.
 				return [32]byte{}, &htlcswitch.ForwardingError{
-					ErrorSource:    sourcePub,
+					FailureSourceIdx: 0,
 					FailureMessage: &lnwire.FailTemporaryChannelFailure{},
 				}
 			}
@@ -812,16 +760,8 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 			// prune out the rest of the routes.
 			roasbeefSatoshi := lnwire.NewShortChanIDFromInt(2340213491)
 			if firstHop == roasbeefSatoshi {
-				vertex := ctx.aliases["satoshi"]
-				key, err := btcec.ParsePubKey(
-					vertex[:], btcec.S256(),
-				)
-				if err != nil {
-					t.Fatal(err)
-				}
-
 				return [32]byte{}, &htlcswitch.ForwardingError{
-					ErrorSource:    key,
+					FailureSourceIdx: 1,
 					FailureMessage: &lnwire.FailUnknownNextPeer{},
 				}
 			}
@@ -854,7 +794,7 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 
 			if firstHop == roasbeefLuoji {
 				return [32]byte{}, &htlcswitch.ForwardingError{
-					ErrorSource:    sourcePub,
+					FailureSourceIdx: 0,
 					FailureMessage: &lnwire.FailUnknownNextPeer{},
 				}
 			}
@@ -900,7 +840,7 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 				// outgoing link to simulate the channel from luo ji to
 				// roasbeef not having enough capacity.
 				return [32]byte{}, &htlcswitch.ForwardingError{
-					ErrorSource:    sourcePub,
+					FailureSourceIdx: 0,
 					FailureMessage: &lnwire.FailTemporaryChannelFailure{},
 				}
 			}
@@ -2948,11 +2888,6 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 			PaymentHash: payHash,
 		}
 
-		errSource, err := btcec.ParsePubKey(hop1[:], btcec.S256())
-		if err != nil {
-			t.Fatalf("unable to fetch source node pub: %v", err)
-		}
-
 		copy(preImage[:], bytes.Repeat([]byte{9}, 32))
 
 		router.cfg.MissionControl = &mockPaymentSessionSource{
@@ -3030,7 +2965,7 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 			case sendToSwitchResultFailure:
 				select {
 				case sendResult <- &htlcswitch.ForwardingError{
-					ErrorSource:    errSource,
+					FailureSourceIdx: 1,
 					FailureMessage: &lnwire.FailTemporaryChannelFailure{},
 				}:
 				case <-time.After(1 * time.Second):
@@ -3056,7 +2991,7 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 				select {
 				case getPaymentResult <- &htlcswitch.PaymentResult{
 					Error: &htlcswitch.ForwardingError{
-						ErrorSource:    errSource,
+						FailureSourceIdx: 1,
 						FailureMessage: &lnwire.FailTemporaryChannelFailure{},
 					},
 				}:
@@ -3224,17 +3159,8 @@ func TestSendToRouteStructuredError(t *testing.T) {
 	// The unsigned channel update is attached to the failure message.
 	ctx.router.cfg.Payer.(*mockPaymentAttemptDispatcher).setPaymentResult(
 		func(firstHop lnwire.ShortChannelID) ([32]byte, error) {
-
-			v := ctx.aliases["b"]
-			source, err := btcec.ParsePubKey(
-				v[:], btcec.S256(),
-			)
-			if err != nil {
-				t.Fatal(err)
-			}
-
 			return [32]byte{}, &htlcswitch.ForwardingError{
-				ErrorSource: source,
+				FailureSourceIdx: 1,
 				FailureMessage: &lnwire.FailFeeInsufficient{
 					Update: lnwire.ChannelUpdate{},
 				},

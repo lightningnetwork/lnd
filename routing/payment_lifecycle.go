@@ -182,10 +182,10 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 func (p *paymentLifecycle) createNewPaymentAttempt() (lnwire.ShortChannelID,
 	*lnwire.UpdateAddHTLC, error) {
 
-	// Before we attempt this next payment, we'll check to see if
-	// either we've gone past the payment attempt timeout, or the
-	// router is exiting. In either case, we'll stop this payment
-	// attempt short.
+	// Before we attempt this next payment, we'll check to see if either
+	// we've gone past the payment attempt timeout, or the router is
+	// exiting. In either case, we'll stop this payment attempt short. If a
+	// timeout is not applicable, timeoutChan will be nil.
 	select {
 	case <-p.timeoutChan:
 		// Mark the payment as failed because of the

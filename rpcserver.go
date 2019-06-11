@@ -3070,6 +3070,7 @@ func (r *rpcServer) dispatchPaymentIntent(
 			RouteHints:        payIntent.routeHints,
 			OutgoingChannelID: payIntent.outgoingChannelID,
 			PaymentRequest:    payIntent.payReq,
+			PayAttemptTimeout: routing.DefaultPayAttemptTimeout,
 		}
 
 		preImage, route, routerErr = r.server.chanRouter.SendPayment(

@@ -29,10 +29,10 @@ import (
 )
 
 const (
-	// defaultPayAttemptTimeout is a duration that we'll use to determine
-	// if we should give up on a payment attempt. This will be used if a
-	// value isn't specified in the LightningNode struct.
-	defaultPayAttemptTimeout = time.Duration(time.Second * 60)
+	// DefaultPayAttemptTimeout is the default payment attempt timeout. The
+	// payment attempt timeout defines the duration after which we stop
+	// trying more routes for a payment.
+	DefaultPayAttemptTimeout = time.Duration(time.Second * 60)
 
 	// DefaultChannelPruneExpiry is the default duration used to determine
 	// if a channel should be pruned or not.
@@ -525,6 +525,9 @@ func (r *ChannelRouter) Start() error {
 			// We create a dummy, empty payment session such that
 			// we won't make another payment attempt when the
 			// result for the in-flight attempt is received.
+			//
+			// PayAttemptTime doesn't need to be set, as there is
+			// only a single attempt.
 			paySession := r.cfg.MissionControl.NewPaymentSessionEmpty()
 
 			lPayment := &LightningPayment{
@@ -1532,7 +1535,8 @@ type LightningPayment struct {
 	// PayAttemptTimeout is a timeout value that we'll use to determine
 	// when we should should abandon the payment attempt after consecutive
 	// payment failure. This prevents us from attempting to send a payment
-	// indefinitely.
+	// indefinitely. A zero value means the payment will never time out.
+	//
 	// TODO(halseth): make wallclock time to allow resume after startup.
 	PayAttemptTimeout time.Duration
 
@@ -1661,8 +1665,11 @@ func (r *ChannelRouter) SendToRoute(hash lntypes.Hash, route *route.Route) (
 
 	// Create a (mostly) dummy payment, as the created payment session is
 	// not going to do path finding.
-	// TODO(halseth): sendPayment doesn't relly need LightningPayment, make
+	// TODO(halseth): sendPayment doesn't really need LightningPayment, make
 	// it take just needed fields instead.
+	//
+	// PayAttemptTime doesn't need to be set, as there is only a single
+	// attempt.
 	payment := &LightningPayment{
 		PaymentHash: hash,
 	}
@@ -1728,27 +1735,24 @@ func (r *ChannelRouter) sendPayment(
 		return [32]byte{}, nil, err
 	}
 
-	var payAttemptTimeout time.Duration
-	if payment.PayAttemptTimeout == time.Duration(0) {
-		payAttemptTimeout = defaultPayAttemptTimeout
-	} else {
-		payAttemptTimeout = payment.PayAttemptTimeout
-	}
-
-	timeoutChan := time.After(payAttemptTimeout)
-
 	// Now set up a paymentLifecycle struct with these params, such that we
 	// can resume the payment from the current state.
 	p := &paymentLifecycle{
 		router:         r,
 		payment:        payment,
 		paySession:     paySession,
-		timeoutChan:    timeoutChan,
 		currentHeight:  currentHeight,
 		finalCLTVDelta: uint16(payment.FinalCLTVDelta),
 		attempt:        existingAttempt,
 		circuit:        nil,
 		lastError:      nil,
+	}
+
+	// If a timeout is specified, create a timeout channel. If no timeout is
+	// specified, the channel is left nil and will never abort the payment
+	// loop.
+	if payment.PayAttemptTimeout != 0 {
+		p.timeoutChan = time.After(payment.PayAttemptTimeout)
 	}
 
 	return p.resumePayment()

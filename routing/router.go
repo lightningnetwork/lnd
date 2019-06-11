@@ -1815,19 +1815,39 @@ func (r *ChannelRouter) processSendError(paySession PaymentSession,
 	rt *route.Route, fErr *htlcswitch.ForwardingError) (
 	bool, channeldb.FailureReason) {
 
-	errSource := fErr.ErrorSource
-	errVertex := route.NewVertex(errSource)
+	var (
+		failureSourceIdx = fErr.FailureSourceIdx
 
-	log.Tracef("node=%x reported failure when sending htlc", errVertex)
+		failureVertex route.Vertex
+		failureSource *btcec.PublicKey
+		err           error
+	)
+
+	// For any non-self failure, look up the source pub key in the hops
+	// slice. Otherwise return the self node pubkey.
+	if failureSourceIdx > 0 {
+		failureVertex = rt.Hops[failureSourceIdx-1].PubKeyBytes
+		failureSource, err = btcec.ParsePubKey(failureVertex[:], btcec.S256())
+		if err != nil {
+			log.Errorf("Cannot parse pubkey %v: %v",
+				failureVertex, err)
+
+			return true, channeldb.FailureReasonError
+		}
+	} else {
+		failureVertex = r.selfNode.PubKeyBytes
+		failureSource, err = r.selfNode.PubKey()
+		if err != nil {
+			log.Errorf("Cannot parse self pubkey: %v", err)
+			return true, channeldb.FailureReasonError
+		}
+	}
+	log.Tracef("Node %x (index %v) reported failure when sending htlc",
+		failureVertex, failureSourceIdx)
 
 	// Always determine chan id ourselves, because a channel
 	// update with id may not be available.
-	failedEdge, failedAmt, err := getFailedEdge(
-		rt, route.Vertex(errVertex),
-	)
-	if err != nil {
-		return true, channeldb.FailureReasonError
-	}
+	failedEdge, failedAmt := getFailedEdge(rt, failureSourceIdx)
 
 	// processChannelUpdateAndRetry is a closure that
 	// handles a failure message containing a channel
@@ -1919,8 +1939,8 @@ func (r *ChannelRouter) processSendError(paySession PaymentSession,
 	// that sent us this error, as it doesn't now what the
 	// correct block height is.
 	case *lnwire.FailExpiryTooSoon:
-		r.applyChannelUpdate(&onionErr.Update, errSource)
-		paySession.ReportVertexFailure(errVertex)
+		r.applyChannelUpdate(&onionErr.Update, failureSource)
+		paySession.ReportVertexFailure(failureVertex)
 		return false, 0
 
 	// If we hit an instance of onion payload corruption or an invalid
@@ -1941,7 +1961,7 @@ func (r *ChannelRouter) processSendError(paySession PaymentSession,
 	// routing.
 	case *lnwire.FailAmountBelowMinimum:
 		processChannelUpdateAndRetry(
-			&onionErr.Update, errSource,
+			&onionErr.Update, failureSource,
 		)
 		return false, 0
 
@@ -1950,7 +1970,7 @@ func (r *ChannelRouter) processSendError(paySession PaymentSession,
 	// newly updated fees.
 	case *lnwire.FailFeeInsufficient:
 		processChannelUpdateAndRetry(
-			&onionErr.Update, errSource,
+			&onionErr.Update, failureSource,
 		)
 		return false, 0
 
@@ -1959,7 +1979,7 @@ func (r *ChannelRouter) processSendError(paySession PaymentSession,
 	// apply the new delta value and try it once more.
 	case *lnwire.FailIncorrectCltvExpiry:
 		processChannelUpdateAndRetry(
-			&onionErr.Update, errSource,
+			&onionErr.Update, failureSource,
 		)
 		return false, 0
 
@@ -1967,7 +1987,7 @@ func (r *ChannelRouter) processSendError(paySession PaymentSession,
 	// forward one is currently disabled, so we'll apply
 	// the update and continue.
 	case *lnwire.FailChannelDisabled:
-		r.applyChannelUpdate(&onionErr.Update, errSource)
+		r.applyChannelUpdate(&onionErr.Update, failureSource)
 		paySession.ReportEdgeFailure(failedEdge, 0)
 		return false, 0
 
@@ -1975,7 +1995,7 @@ func (r *ChannelRouter) processSendError(paySession PaymentSession,
 	// sufficient capacity, so we'll prune this edge for
 	// now, and continue onwards with our path finding.
 	case *lnwire.FailTemporaryChannelFailure:
-		r.applyChannelUpdate(onionErr.Update, errSource)
+		r.applyChannelUpdate(onionErr.Update, failureSource)
 		paySession.ReportEdgeFailure(failedEdge, failedAmt)
 		return false, 0
 
@@ -1983,14 +2003,14 @@ func (r *ChannelRouter) processSendError(paySession PaymentSession,
 	// required features, then we'll note this error and
 	// continue.
 	case *lnwire.FailRequiredNodeFeatureMissing:
-		paySession.ReportVertexFailure(errVertex)
+		paySession.ReportVertexFailure(failureVertex)
 		return false, 0
 
 	// If the send fail due to a node not having the
 	// required features, then we'll note this error and
 	// continue.
 	case *lnwire.FailRequiredChannelFeatureMissing:
-		paySession.ReportVertexFailure(errVertex)
+		paySession.ReportVertexFailure(failureVertex)
 		return false, 0
 
 	// If the next hop in the route wasn't known or
@@ -2008,11 +2028,11 @@ func (r *ChannelRouter) processSendError(paySession PaymentSession,
 	// reason, then we'll note this and continue with the
 	// routes.
 	case *lnwire.FailTemporaryNodeFailure:
-		paySession.ReportVertexFailure(errVertex)
+		paySession.ReportVertexFailure(failureVertex)
 		return false, 0
 
 	case *lnwire.FailPermanentNodeFailure:
-		paySession.ReportVertexFailure(errVertex)
+		paySession.ReportVertexFailure(failureVertex)
 		return false, 0
 
 	// If we crafted a route that contains a too long time
@@ -2025,7 +2045,7 @@ func (r *ChannelRouter) processSendError(paySession PaymentSession,
 	// that as a hint during future path finding through
 	// that node.
 	case *lnwire.FailExpiryTooFar:
-		paySession.ReportVertexFailure(errVertex)
+		paySession.ReportVertexFailure(failureVertex)
 		return false, 0
 
 	// If we get a permanent channel or node failure, then
@@ -2046,45 +2066,43 @@ func (r *ChannelRouter) processSendError(paySession PaymentSession,
 }
 
 // getFailedEdge tries to locate the failing channel given a route and the
-// pubkey of the node that sent the error. It will assume that the error is
-// associated with the outgoing channel of the error node. As a second result,
+// pubkey of the node that sent the failure. It will assume that the failure is
+// associated with the outgoing channel of the failing node. As a second result,
 // it returns the amount sent over the edge.
-func getFailedEdge(route *route.Route, errSource route.Vertex) (edge,
-	lnwire.MilliSatoshi, error) {
+func getFailedEdge(route *route.Route, failureSource int) (edge,
+	lnwire.MilliSatoshi) {
 
-	hopCount := len(route.Hops)
-	fromNode := route.SourcePubKey
-	amt := route.TotalAmount
-	for i, hop := range route.Hops {
-		toNode := hop.PubKeyBytes
-
-		// Determine if we have a failure from the final hop.
-		//
-		// TODO(joostjager): In this case, certain types of errors are
-		// not expected. For example FailUnknownNextPeer. This could be
-		// a reason to prune the node?
-		finalHopFailing := i == hopCount-1 && errSource == toNode
-
-		// As this error indicates that the target channel was unable to
-		// carry this HTLC (for w/e reason), we'll return the _outgoing_
-		// channel that the source of the error was meant to pass the
-		// HTLC along to.
-		//
-		// If the errSource is the final hop, we assume that the failing
-		// channel is the incoming channel.
-		if errSource == fromNode || finalHopFailing {
-			return edge{
-				from:    fromNode,
-				to:      toNode,
-				channel: hop.ChannelID,
-			}, amt, nil
-		}
-
-		fromNode = toNode
-		amt = hop.AmtToForward
+	// Determine if we have a failure from the final hop. If it is, we
+	// assume that the failing channel is the incoming channel. In this
+	// function the outgoing channel of the hop indicated by failureSource
+	// is returned, where index zero is the self node. By decrementing
+	// failureSource by one, the outgoing channel of the penultimate hop is
+	// returned, which is the same as the incoming channel of the final
+	// node.
+	//
+	// TODO(joostjager): In this case, certain types of failures are not
+	// expected. For example FailUnknownNextPeer. This could be a reason to
+	// prune the node?
+	if failureSource == len(route.Hops) {
+		failureSource--
 	}
 
-	return edge{}, 0, fmt.Errorf("cannot find error source node in route")
+	// As this failure indicates that the target channel was unable to carry
+	// this HTLC (for w/e reason), we'll return the _outgoing_ channel that
+	// the source of the failure was meant to pass the HTLC along to.
+	if failureSource == 0 {
+		return edge{
+			from:    route.SourcePubKey,
+			to:      route.Hops[0].PubKeyBytes,
+			channel: route.Hops[0].ChannelID,
+		}, route.TotalAmount
+	}
+
+	return edge{
+		from:    route.Hops[failureSource-1].PubKeyBytes,
+		to:      route.Hops[failureSource].PubKeyBytes,
+		channel: route.Hops[failureSource].ChannelID,
+	}, route.Hops[failureSource-1].AmtToForward
 }
 
 // applyChannelUpdate validates a channel update and if valid, applies it to the

@@ -399,7 +399,7 @@ func marshallError(sendError error) (*Failure, error) {
 		return nil, errors.New("unknown wire error")
 	}
 
-	response.FailureSourcePubkey = fErr.ErrorSource.SerializeCompressed()
+	response.FailureSourceIndex = uint32(fErr.FailureSourceIdx)
 
 	return response, nil
 }

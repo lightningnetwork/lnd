@@ -409,8 +409,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 	}
 
 	s.htlcSwitch, err = htlcswitch.New(htlcswitch.Config{
-		DB:      chanDB,
-		SelfKey: s.identityPriv.PubKey(),
+		DB: chanDB,
 		LocalChannelClose: func(pubKey []byte,
 			request *htlcswitch.ChanClose) {
 

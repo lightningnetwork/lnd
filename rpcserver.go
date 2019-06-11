@@ -4131,7 +4131,7 @@ func marshallTopologyChange(topChange *routing.TopologyChange) *lnrpc.GraphTopol
 
 // ListPayments returns a list of all outgoing payments.
 func (r *rpcServer) ListPayments(ctx context.Context,
-	_ *lnrpc.ListPaymentsRequest) (*lnrpc.ListPaymentsResponse, error) {
+	req *lnrpc.ListPaymentsRequest) (*lnrpc.ListPaymentsResponse, error) {
 
 	rpcsLog.Debugf("[ListPayments]")
 
@@ -4140,10 +4140,15 @@ func (r *rpcServer) ListPayments(ctx context.Context,
 		return nil, err
 	}
 
-	paymentsResp := &lnrpc.ListPaymentsResponse{
-		Payments: make([]*lnrpc.Payment, len(payments)),
-	}
-	for i, payment := range payments {
+	paymentsResp := &lnrpc.ListPaymentsResponse{}
+	for _, payment := range payments {
+		// To keep compatibility with the old API, we only return
+		// non-suceeded payments if requested.
+		if payment.Status != channeldb.StatusSucceeded &&
+			!req.NonSucceeded {
+			continue
+		}
+
 		// If a payment attempt has been made we can fetch the route.
 		// Otherwise we'll just populate the RPC response with an empty
 		// one.
@@ -4165,8 +4170,13 @@ func (r *rpcServer) ListPayments(ctx context.Context,
 		msatValue := int64(payment.Info.Value)
 		satValue := int64(payment.Info.Value.ToSatoshis())
 
+		status, err := convertPaymentStatus(payment.Status)
+		if err != nil {
+			return nil, err
+		}
+
 		paymentHash := payment.Info.PaymentHash
-		paymentsResp.Payments[i] = &lnrpc.Payment{
+		paymentsResp.Payments = append(paymentsResp.Payments, &lnrpc.Payment{
 			PaymentHash:     hex.EncodeToString(paymentHash[:]),
 			Value:           satValue,
 			ValueMsat:       msatValue,
@@ -4176,10 +4186,34 @@ func (r *rpcServer) ListPayments(ctx context.Context,
 			Fee:             int64(route.TotalFees().ToSatoshis()),
 			PaymentPreimage: hex.EncodeToString(preimage[:]),
 			PaymentRequest:  string(payment.Info.PaymentRequest),
-		}
+			Status:          status,
+		})
 	}
 
 	return paymentsResp, nil
+}
+
+// convertPaymentStatus converts a channeldb.PaymentStatus to the type expected
+// by the RPC.
+func convertPaymentStatus(dbStatus channeldb.PaymentStatus) (
+	lnrpc.Payment_PaymentStatus, error) {
+
+	switch dbStatus {
+	case channeldb.StatusUnknown:
+		return lnrpc.Payment_UNKNOWN, nil
+
+	case channeldb.StatusInFlight:
+		return lnrpc.Payment_IN_FLIGHT, nil
+
+	case channeldb.StatusSucceeded:
+		return lnrpc.Payment_SUCCEEDED, nil
+
+	case channeldb.StatusFailed:
+		return lnrpc.Payment_FAILED, nil
+
+	default:
+		return 0, fmt.Errorf("unhandled payment status %v", dbStatus)
+	}
 }
 
 // DeleteAllPayments deletes all outgoing payments from DB.

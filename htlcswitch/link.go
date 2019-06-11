@@ -1204,29 +1204,15 @@ func (l *channelLink) processHodlEvent(hodlEvent invoices.HodlEvent,
 			)
 		}
 	} else {
-		l.debugf("Received hodl cancel event for %v, reason=%v",
-			hash, hodlEvent.CancelReason)
+		l.debugf("Received hodl cancel event for %v", hash)
 
 		hodlAction = func(htlc hodlHtlc) error {
-			var failure lnwire.FailureMessage
-			switch hodlEvent.CancelReason {
-
-			case invoices.CancelAmountTooLow:
-				fallthrough
-			case invoices.CancelInvoiceUnknown:
-				fallthrough
-			case invoices.CancelInvoiceCanceled:
-				failure = lnwire.NewFailIncorrectDetails(
-					htlc.pd.Amount,
-				)
-
-			case invoices.CancelExpiryTooSoon:
-				failure = &lnwire.FailFinalExpiryTooSoon{}
-
-			default:
-				return fmt.Errorf("unknown cancel reason: %v",
-					hodlEvent.CancelReason)
-			}
+			// In case of a cancel, always return
+			// incorrect_or_unknown_payment_details in order to
+			// avoid leaking info.
+			failure := lnwire.NewFailIncorrectDetails(
+				htlc.pd.Amount,
+			)
 
 			l.sendHTLCError(
 				htlc.pd.HtlcIndex, failure, htlc.obfuscator,

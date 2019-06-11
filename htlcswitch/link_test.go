@@ -1413,10 +1413,10 @@ func TestChannelLinkExpiryTooSoonExitNode(t *testing.T) {
 	}
 
 	switch ferr.FailureMessage.(type) {
-	case *lnwire.FailFinalExpiryTooSoon:
+	case *lnwire.FailIncorrectDetails:
 	default:
-		t.Fatalf("incorrect error, expected final time lock too "+
-			"early, instead have: %v", err)
+		t.Fatalf("expected incorrect_or_unknown_payment_details, "+
+			"instead have: %v", err)
 	}
 }
 

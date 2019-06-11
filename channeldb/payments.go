@@ -677,7 +677,7 @@ func fetchPaymentWithSequenceNumber(tx kvdb.RTx, paymentHash lntypes.Hash,
 }
 
 // DeletePayments deletes all completed and failed payments from the DB.
-func (db *DB) DeletePayments() error {
+func (db *DB) DeletePayments(failedOnly bool) error {
 	return kvdb.Update(db, func(tx kvdb.RwTx) error {
 		payments := tx.ReadWriteBucket(paymentsRootBucket)
 		if payments == nil {
@@ -712,6 +712,12 @@ func (db *DB) DeletePayments() error {
 			// If the status is InFlight, we cannot safely delete
 			// the payment information, so we return early.
 			if paymentStatus == StatusInFlight {
+				return nil
+			}
+
+			// If we requested to only delete failed payments, we
+			// can return if this one is not.
+			if failedOnly && paymentStatus != StatusFailed {
 				return nil
 			}
 

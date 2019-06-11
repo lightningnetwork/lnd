@@ -388,6 +388,8 @@ func TestPaymentControlDeleteNonInFligt(t *testing.T) {
 		},
 	}
 
+	var numSuccess, numInflight int
+
 	for _, p := range payments {
 		info, attempt, preimg, err := genInfo()
 		if err != nil {
@@ -454,11 +456,15 @@ func TestPaymentControlDeleteNonInFligt(t *testing.T) {
 			assertPaymentInfo(
 				t, pControl, info.PaymentHash, info, nil, htlc,
 			)
+
+			numSuccess++
 		} else {
 			assertPaymentStatus(t, pControl, info.PaymentHash, StatusInFlight)
 			assertPaymentInfo(
 				t, pControl, info.PaymentHash, info, nil, htlc,
 			)
+
+			numInflight++
 		}
 
 		// If the payment is intended to have a duplicate payment, we
@@ -469,27 +475,66 @@ func TestPaymentControlDeleteNonInFligt(t *testing.T) {
 				uint64(duplicateSeqNr), preimg,
 			)
 			duplicateSeqNr++
+			numSuccess++
 		}
 	}
 
-	// Delete payments.
-	if err := db.DeletePayments(); err != nil {
+	// Delete all failed payments.
+	if err := db.DeletePayments(true); err != nil {
 		t.Fatal(err)
 	}
 
-	// This should leave the in-flight payment.
+	// This should leave the succeeded and in-flight payments.
 	dbPayments, err := db.FetchPayments()
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if len(dbPayments) != 1 {
-		t.Fatalf("expected one payment, got %d", len(dbPayments))
+	if len(dbPayments) != numSuccess+numInflight {
+		t.Fatalf("expected %d payments, got %d",
+			numSuccess+numInflight, len(dbPayments))
 	}
 
-	status := dbPayments[0].Status
-	if status != StatusInFlight {
-		t.Fatalf("expected in-fligth status, got %v", status)
+	var s, i int
+	for _, p := range dbPayments {
+		fmt.Println("fetch payment has status", p.Status)
+		switch p.Status {
+		case StatusSucceeded:
+			s++
+		case StatusInFlight:
+			i++
+		}
+	}
+
+	if s != numSuccess {
+		t.Fatalf("expected %d succeeded payments , got %d",
+			numSuccess, s)
+	}
+	if i != numInflight {
+		t.Fatalf("expected %d in-flight payments, got %d",
+			numInflight, i)
+	}
+
+	// Now delete all payments except in-flight.
+	if err := db.DeletePayments(false); err != nil {
+		t.Fatal(err)
+	}
+
+	// This should leave the in-flight payment.
+	dbPayments, err = db.FetchPayments()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(dbPayments) != numInflight {
+		t.Fatalf("expected %d payments, got %d", numInflight,
+			len(dbPayments))
+	}
+
+	for _, p := range dbPayments {
+		if p.Status != StatusInFlight {
+			t.Fatalf("expected in-fligth status, got %v", p.Status)
+		}
 	}
 
 	// Finally, check that we only have a single index left in the payment

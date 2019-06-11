@@ -17,16 +17,16 @@ import (
 type AddressType uint8
 
 const (
+	// UnknownAddressType represents an output with an unknown or non-standard
+	// script.
+	UnknownAddressType AddressType = iota
+
 	// WitnessPubKey represents a p2wkh address.
-	WitnessPubKey AddressType = iota
+	WitnessPubKey
 
 	// NestedWitnessPubKey represents a p2sh output which is itself a
 	// nested p2wkh output.
 	NestedWitnessPubKey
-
-	// UnknownAddressType represents an output with an unknown or non-standard
-	// script.
-	UnknownAddressType
 )
 
 var (

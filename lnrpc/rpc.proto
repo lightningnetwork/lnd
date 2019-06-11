@@ -2158,9 +2158,21 @@ message Payment {
 
     /// The optional payment request being fulfilled.
     string payment_request = 9 [json_name = "payment_request"];
+
+    enum PaymentStatus {
+        UNKNOWN = 0;
+        IN_FLIGHT = 1;
+        SUCCEEDED = 2;
+        FAILED = 3;
+    }
+
+    // The status of the payment.
+    PaymentStatus status = 10 [json_name = "status"];
 }
 
 message ListPaymentsRequest {
+    /// Set to also return payments that are not (yet) succeeded.
+    bool non_succeeded = 1;
 }
 
 message ListPaymentsResponse {

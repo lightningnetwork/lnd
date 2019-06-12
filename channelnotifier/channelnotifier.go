@@ -59,7 +59,7 @@ func New(chanDB *channeldb.DB) *ChannelNotifier {
 func (c *ChannelNotifier) Start() error {
 	var err error
 	c.started.Do(func() {
-		log.Tracef("ChannelNotifier %v starting", c)
+		log.Trace("ChannelNotifier starting")
 		err = c.ntfnServer.Start()
 	})
 	return err

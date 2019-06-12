@@ -55,29 +55,29 @@ type FailCode uint16
 // The currently defined onion failure types within this current version of the
 // Lightning protocol.
 const (
-	CodeNone                          FailCode = 0
-	CodeInvalidRealm                           = FlagBadOnion | 1
-	CodeTemporaryNodeFailure                   = FlagNode | 2
-	CodePermanentNodeFailure                   = FlagPerm | FlagNode | 2
-	CodeRequiredNodeFeatureMissing             = FlagPerm | FlagNode | 3
-	CodeInvalidOnionVersion                    = FlagBadOnion | FlagPerm | 4
-	CodeInvalidOnionHmac                       = FlagBadOnion | FlagPerm | 5
-	CodeInvalidOnionKey                        = FlagBadOnion | FlagPerm | 6
-	CodeTemporaryChannelFailure                = FlagUpdate | 7
-	CodePermanentChannelFailure                = FlagPerm | 8
-	CodeRequiredChannelFeatureMissing          = FlagPerm | 9
-	CodeUnknownNextPeer                        = FlagPerm | 10
-	CodeAmountBelowMinimum                     = FlagUpdate | 11
-	CodeFeeInsufficient                        = FlagUpdate | 12
-	CodeIncorrectCltvExpiry                    = FlagUpdate | 13
-	CodeExpiryTooSoon                          = FlagUpdate | 14
-	CodeChannelDisabled                        = FlagUpdate | 20
-	CodeUnknownPaymentHash                     = FlagPerm | 15
-	CodeIncorrectPaymentAmount                 = FlagPerm | 16
-	CodeFinalExpiryTooSoon            FailCode = 17
-	CodeFinalIncorrectCltvExpiry      FailCode = 18
-	CodeFinalIncorrectHtlcAmount      FailCode = 19
-	CodeExpiryTooFar                  FailCode = 21
+	CodeNone                             FailCode = 0
+	CodeInvalidRealm                              = FlagBadOnion | 1
+	CodeTemporaryNodeFailure                      = FlagNode | 2
+	CodePermanentNodeFailure                      = FlagPerm | FlagNode | 2
+	CodeRequiredNodeFeatureMissing                = FlagPerm | FlagNode | 3
+	CodeInvalidOnionVersion                       = FlagBadOnion | FlagPerm | 4
+	CodeInvalidOnionHmac                          = FlagBadOnion | FlagPerm | 5
+	CodeInvalidOnionKey                           = FlagBadOnion | FlagPerm | 6
+	CodeTemporaryChannelFailure                   = FlagUpdate | 7
+	CodePermanentChannelFailure                   = FlagPerm | 8
+	CodeRequiredChannelFeatureMissing             = FlagPerm | 9
+	CodeUnknownNextPeer                           = FlagPerm | 10
+	CodeAmountBelowMinimum                        = FlagUpdate | 11
+	CodeFeeInsufficient                           = FlagUpdate | 12
+	CodeIncorrectCltvExpiry                       = FlagUpdate | 13
+	CodeExpiryTooSoon                             = FlagUpdate | 14
+	CodeChannelDisabled                           = FlagUpdate | 20
+	CodeIncorrectOrUnknownPaymentDetails          = FlagPerm | 15
+	CodeIncorrectPaymentAmount                    = FlagPerm | 16
+	CodeFinalExpiryTooSoon               FailCode = 17
+	CodeFinalIncorrectCltvExpiry         FailCode = 18
+	CodeFinalIncorrectHtlcAmount         FailCode = 19
+	CodeExpiryTooFar                     FailCode = 21
 )
 
 // String returns the string representation of the failure code.
@@ -134,8 +134,8 @@ func (c FailCode) String() string {
 	case CodeChannelDisabled:
 		return "ChannelDisabled"
 
-	case CodeUnknownPaymentHash:
-		return "UnknownPaymentHash"
+	case CodeIncorrectOrUnknownPaymentDetails:
+		return "IncorrectOrUnknownPaymentDetails"
 
 	case CodeFinalExpiryTooSoon:
 		return "FinalExpiryTooSoon"
@@ -317,7 +317,7 @@ func (f *FailIncorrectPaymentAmount) Error() string {
 	return f.Code().String()
 }
 
-// FailUnknownPaymentHash is returned for two reasons:
+// FailIncorrectDetails is returned for two reasons:
 //
 // 1) if the payment hash has already been paid, the final node MAY treat the
 // payment hash as unknown, or may succeed in accepting the HTLC. If the
@@ -330,42 +330,44 @@ func (f *FailIncorrectPaymentAmount) Error() string {
 // gross overpayment.
 //
 // NOTE: May only be returned by the final node in the path.
-type FailUnknownPaymentHash struct {
+type FailIncorrectDetails struct {
 	// amount is the value of the extended HTLC.
 	amount MilliSatoshi
 }
 
-// NewFailUnknownPaymentHash makes a new instance of the FailUnknownPaymentHash
+// NewFailIncorrectDetails makes a new instance of the FailIncorrectDetails
 // error bound to the specified HTLC amount.
-func NewFailUnknownPaymentHash(amt MilliSatoshi) *FailUnknownPaymentHash {
-	return &FailUnknownPaymentHash{
+func NewFailIncorrectDetails(amt MilliSatoshi) *FailIncorrectDetails {
+	return &FailIncorrectDetails{
 		amount: amt,
 	}
 }
 
 // Amount is the value of the extended HTLC.
-func (f *FailUnknownPaymentHash) Amount() MilliSatoshi {
+func (f *FailIncorrectDetails) Amount() MilliSatoshi {
 	return f.amount
 }
 
 // Code returns the failure unique code.
 //
 // NOTE: Part of the FailureMessage interface.
-func (f *FailUnknownPaymentHash) Code() FailCode {
-	return CodeUnknownPaymentHash
+func (f *FailIncorrectDetails) Code() FailCode {
+	return CodeIncorrectOrUnknownPaymentDetails
 }
 
 // Returns a human readable string describing the target FailureMessage.
 //
 // NOTE: Implements the error interface.
-func (f *FailUnknownPaymentHash) Error() string {
-	return fmt.Sprintf("UnknownPaymentHash(amt=%v)", f.amount)
+func (f *FailIncorrectDetails) Error() string {
+	return fmt.Sprintf(
+		"%v(amt=%v)", CodeIncorrectOrUnknownPaymentDetails, f.amount,
+	)
 }
 
 // Decode decodes the failure from bytes stream.
 //
 // NOTE: Part of the Serializable interface.
-func (f *FailUnknownPaymentHash) Decode(r io.Reader, pver uint32) error {
+func (f *FailIncorrectDetails) Decode(r io.Reader, pver uint32) error {
 	err := ReadElement(r, &f.amount)
 	switch {
 	// This is an optional tack on that was added later in the protocol. As
@@ -385,7 +387,7 @@ func (f *FailUnknownPaymentHash) Decode(r io.Reader, pver uint32) error {
 // Encode writes the failure in bytes stream.
 //
 // NOTE: Part of the Serializable interface.
-func (f *FailUnknownPaymentHash) Encode(w io.Writer, pver uint32) error {
+func (f *FailIncorrectDetails) Encode(w io.Writer, pver uint32) error {
 	return WriteElement(w, f.amount)
 }
 
@@ -1228,8 +1230,8 @@ func makeEmptyOnionError(code FailCode) (FailureMessage, error) {
 	case CodeUnknownNextPeer:
 		return &FailUnknownNextPeer{}, nil
 
-	case CodeUnknownPaymentHash:
-		return &FailUnknownPaymentHash{}, nil
+	case CodeIncorrectOrUnknownPaymentDetails:
+		return &FailIncorrectDetails{}, nil
 
 	case CodeIncorrectPaymentAmount:
 		return &FailIncorrectPaymentAmount{}, nil

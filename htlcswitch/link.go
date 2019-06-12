@@ -1216,7 +1216,7 @@ func (l *channelLink) processHodlEvent(hodlEvent invoices.HodlEvent,
 			case invoices.CancelInvoiceUnknown:
 				fallthrough
 			case invoices.CancelInvoiceCanceled:
-				failure = lnwire.NewFailUnknownPaymentHash(
+				failure = lnwire.NewFailIncorrectDetails(
 					htlc.pd.Amount,
 				)
 
@@ -2843,7 +2843,7 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 			"value: expected %v, got %v", pd.RHash,
 			pd.Amount, fwdInfo.AmountToForward)
 
-		failure := lnwire.NewFailUnknownPaymentHash(pd.Amount)
+		failure := lnwire.NewFailIncorrectDetails(pd.Amount)
 		l.sendHTLCError(pd.HtlcIndex, failure, obfuscator, pd.SourceRef)
 
 		return true, nil
@@ -2878,7 +2878,7 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 
 	// Cancel htlc if we don't have an invoice for it.
 	case channeldb.ErrInvoiceNotFound:
-		failure := lnwire.NewFailUnknownPaymentHash(pd.Amount)
+		failure := lnwire.NewFailIncorrectDetails(pd.Amount)
 		l.sendHTLCError(pd.HtlcIndex, failure, obfuscator, pd.SourceRef)
 
 		return true, nil

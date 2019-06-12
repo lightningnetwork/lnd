@@ -527,7 +527,7 @@ func (m *MissionControl) applyPaymentResult(result *paymentResult) (
 	// If the end destination didn't know the payment
 	// hash or we sent the wrong payment amount to the
 	// destination, then we'll terminate immediately.
-	case *lnwire.FailUnknownPaymentHash:
+	case *lnwire.FailIncorrectDetails:
 		// TODO(joostjager): Check onionErr.Amount() whether it matches
 		// what we expect. (Will it ever not match, because if not
 		// final_incorrect_htlc_amount would be returned?)

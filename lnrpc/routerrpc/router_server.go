@@ -322,8 +322,8 @@ func marshallError(sendError error) (*Failure, error) {
 
 	switch onionErr := fErr.FailureMessage.(type) {
 
-	case *lnwire.FailUnknownPaymentHash:
-		response.Code = Failure_UNKNOWN_PAYMENT_HASH
+	case *lnwire.FailIncorrectDetails:
+		response.Code = Failure_INCORRECT_OR_UNKNOWN_PAYMENT_DETAILS
 
 	case *lnwire.FailIncorrectPaymentAmount:
 		response.Code = Failure_INCORRECT_PAYMENT_AMOUNT

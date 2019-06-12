@@ -623,7 +623,7 @@ func TestExitNodeAmountPayloadMismatch(t *testing.T) {
 	if err == nil {
 		t.Fatalf("payment should have failed but didn't")
 	}
-	assertFailureCode(t, err, lnwire.CodeUnknownPaymentHash)
+	assertFailureCode(t, err, lnwire.CodeIncorrectOrUnknownPaymentDetails)
 }
 
 // TestLinkForwardTimelockPolicyMismatch tests that if a node is an
@@ -1130,7 +1130,9 @@ func TestChannelLinkMultiHopUnknownPaymentHash(t *testing.T) {
 		t.Fatalf("no result arrive")
 	}
 
-	assertFailureCode(t, result.Error, lnwire.CodeUnknownPaymentHash)
+	assertFailureCode(
+		t, result.Error, lnwire.CodeIncorrectOrUnknownPaymentDetails,
+	)
 
 	// Wait for Alice to receive the revocation.
 	time.Sleep(100 * time.Millisecond)
@@ -5668,7 +5670,7 @@ func TestChannelLinkCanceledInvoice(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected ForwardingError, but got %v", err)
 	}
-	_, ok = fErr.FailureMessage.(*lnwire.FailUnknownPaymentHash)
+	_, ok = fErr.FailureMessage.(*lnwire.FailIncorrectDetails)
 	if !ok {
 		t.Fatalf("expected unknown payment hash, but got %v", err)
 	}
@@ -5837,7 +5839,7 @@ func TestChannelLinkHoldInvoiceCancel(t *testing.T) {
 
 	// Wait for payment to succeed.
 	err = <-ctx.errChan
-	assertFailureCode(t, err, lnwire.CodeUnknownPaymentHash)
+	assertFailureCode(t, err, lnwire.CodeIncorrectOrUnknownPaymentDetails)
 }
 
 // TestChannelLinkHoldInvoiceRestart asserts hodl htlcs are held after blocks

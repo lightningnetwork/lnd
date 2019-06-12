@@ -36,7 +36,7 @@ var onionFailures = []FailureMessage{
 	&FailIncorrectPaymentAmount{},
 	&FailFinalExpiryTooSoon{},
 
-	NewFailUnknownPaymentHash(99),
+	NewFailIncorrectDetails(99),
 	NewInvalidOnionVersion(testOnionHash),
 	NewInvalidOnionHmac(testOnionHash),
 	NewInvalidOnionKey(testOnionHash),
@@ -168,16 +168,16 @@ func TestWriteOnionErrorChanUpdate(t *testing.T) {
 	}
 }
 
-// TestFailUnknownPaymentHashOptionalAmount tests that we're able to decode an
-// UnknownPaymentHash error that doesn't have the optional amount. This ensures
-// we're able to decode FailUnknownPaymentHash messages from older nodes.
-func TestFailUnknownPaymentHashOptionalAmount(t *testing.T) {
+// TestFailIncorrectDetailsOptionalAmount tests that we're able to decode an
+// FailIncorrectDetails error that doesn't have the optional amount. This
+// ensures we're able to decode FailIncorrectDetails messages from older nodes.
+func TestFailIncorrectDetailsOptionalAmount(t *testing.T) {
 	t.Parallel()
 
 	// Creation an error that is a non-pointer will allow us to skip the
 	// type assertion for the Serializable interface. As a result, the
 	// amount body won't be written.
-	onionError := &FailUnknownPaymentHash{}
+	onionError := &FailIncorrectDetails{}
 
 	var b bytes.Buffer
 	if err := EncodeFailure(&b, onionError, 0); err != nil {

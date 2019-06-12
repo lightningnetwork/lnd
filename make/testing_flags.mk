@@ -54,15 +54,12 @@ UNIT := $(GOLIST) | $(XARGS) env $(GOTEST) -tags="$(DEV_TAGS) $(LOG_TAGS)" $(TES
 UNIT_RACE := $(UNIT) -race
 endif
 
+# Default to btcd backend if not set.
+ifeq ($(backend),)
+backend = btcd
+endif
 
 # Construct the integration test command with the added build flags.
-ITEST_TAGS := $(DEV_TAGS) rpctest chainrpc walletrpc signrpc invoicesrpc autopilotrpc routerrpc watchtowerrpc
-
-# Default to btcd backend if not set.
-ifneq ($(backend),)
-ITEST_TAGS += ${backend}
-else
-ITEST_TAGS += btcd
-endif
+ITEST_TAGS := $(DEV_TAGS) rpctest chainrpc walletrpc signrpc invoicesrpc autopilotrpc routerrpc watchtowerrpc $(backend)
 
 ITEST := rm lntest/itest/output*.log; date; $(GOTEST) ./lntest/itest -tags="$(ITEST_TAGS)" $(TEST_FLAGS) -logoutput

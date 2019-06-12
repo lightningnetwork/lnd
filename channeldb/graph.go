@@ -118,6 +118,18 @@ var (
 	// edge's participants.
 	zombieBucket = []byte("zombie-index")
 
+	// disabledEdgePolicyBucket is a sub-bucket of the main edgeBucket bucket
+	// responsible for maintaining an index of disabled edge policies. Each
+	// entry exists within the bucket as follows:
+	//
+	// maps: <chanID><direction> -> []byte{}
+	//
+	// The chanID represents the channel ID of the edge and the direction is
+	// one byte representing the direction of the edge. The main purpose of
+	// this index is to allow pruning disabled channels in a fast way without
+	// the need to iterate all over the graph.
+	disabledEdgePolicyBucket = []byte("disabled-edge-policy-index")
+
 	// graphMetaBucket is a top-level bucket which stores various meta-deta
 	// related to the on-disk channel graph. Data stored in this bucket
 	// includes the block to which the graph has been synced to, the total
@@ -256,6 +268,46 @@ func (c *ChannelGraph) ForEachNodeChannel(tx *bbolt.Tx, nodePub []byte,
 	db := c.db
 
 	return nodeTraversal(tx, nodePub, db, cb)
+}
+
+// DisabledChannelIDs returns the channel ids of disabled channels.
+// A channel is disabled when two of the associated ChanelEdgePolicies
+// have their disabled bit on.
+func (c *ChannelGraph) DisabledChannelIDs() ([]uint64, error) {
+	var disabledChanIDs []uint64
+	chanEdgeFound := make(map[uint64]struct{})
+
+	err := c.db.View(func(tx *bbolt.Tx) error {
+		edges := tx.Bucket(edgeBucket)
+		if edges == nil {
+			return ErrGraphNoEdgesFound
+		}
+
+		disabledEdgePolicyIndex := edges.Bucket(disabledEdgePolicyBucket)
+		if disabledEdgePolicyIndex == nil {
+			return nil
+		}
+
+		// We iterate over all disabled policies and we add each channel that
+		// has more than one disabled policy to disabledChanIDs array.
+		return disabledEdgePolicyIndex.ForEach(func(k, v []byte) error {
+			chanID := byteOrder.Uint64(k[:8])
+			_, edgeFound := chanEdgeFound[chanID]
+			if edgeFound {
+				delete(chanEdgeFound, chanID)
+				disabledChanIDs = append(disabledChanIDs, chanID)
+				return nil
+			}
+
+			chanEdgeFound[chanID] = struct{}{}
+			return nil
+		})
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return disabledChanIDs, nil
 }
 
 // ForEachNode iterates through all the stored vertices/nodes in the graph,
@@ -1821,6 +1873,11 @@ func delChannelEdge(edges, edgeIndex, chanIndex, zombieIndex,
 			return err
 		}
 	}
+
+	// As part of deleting the edge we also remove all disabled entries
+	// from the edgePolicyDisabledIndex bucket. We do that for both directions.
+	updateEdgePolicyDisabledIndex(edges, cid, false, false)
+	updateEdgePolicyDisabledIndex(edges, cid, true, false)
 
 	// With the edge data deleted, we can purge the information from the two
 	// edge indexes.
@@ -3647,7 +3704,45 @@ func putChanEdgePolicy(edges, nodes *bbolt.Bucket, edge *ChannelEdgePolicy,
 		return err
 	}
 
+	updateEdgePolicyDisabledIndex(
+		edges, edge.ChannelID,
+		edge.ChannelFlags&lnwire.ChanUpdateDirection > 0,
+		edge.IsDisabled(),
+	)
+
 	return edges.Put(edgeKey[:], b.Bytes()[:])
+}
+
+// updateEdgePolicyDisabledIndex is used to update the disabledEdgePolicyIndex
+// bucket by either add a new disabled ChannelEdgePolicy or remove an existing
+// one.
+// The direction represents the direction of the edge and disabled is used for
+// deciding whether to remove or add an entry to the bucket.
+// In general a channel is disabled if two entries for the same chanID exist
+// in this bucket.
+// Maintaining the bucket this way allows a fast retrieval of disabled
+// channels, for example when prune is needed.
+func updateEdgePolicyDisabledIndex(edges *bbolt.Bucket, chanID uint64,
+	direction bool, disabled bool) error {
+
+	var disabledEdgeKey [8 + 1]byte
+	byteOrder.PutUint64(disabledEdgeKey[0:], chanID)
+	if direction {
+		disabledEdgeKey[8] = 1
+	}
+
+	disabledEdgePolicyIndex, err := edges.CreateBucketIfNotExists(
+		disabledEdgePolicyBucket,
+	)
+	if err != nil {
+		return err
+	}
+
+	if disabled {
+		return disabledEdgePolicyIndex.Put(disabledEdgeKey[:], []byte{})
+	}
+
+	return disabledEdgePolicyIndex.Delete(disabledEdgeKey[:])
 }
 
 // putChanEdgePolicyUnknown marks the edge policy as unknown

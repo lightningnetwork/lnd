@@ -1,5 +1,3 @@
-// +build rpctest
-
 package itest
 
 import (

@@ -1,4 +1,4 @@
-// +build btcd
+// +build !neutrino
 
 package lntest
 

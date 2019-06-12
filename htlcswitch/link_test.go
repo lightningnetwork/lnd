@@ -623,7 +623,7 @@ func TestExitNodeAmountPayloadMismatch(t *testing.T) {
 	if err == nil {
 		t.Fatalf("payment should have failed but didn't")
 	}
-	assertFailureCode(t, err, lnwire.CodeIncorrectOrUnknownPaymentDetails)
+	assertFailureCode(t, err, lnwire.CodeFinalIncorrectHtlcAmount)
 }
 
 // TestLinkForwardTimelockPolicyMismatch tests that if a node is an

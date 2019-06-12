@@ -2843,7 +2843,7 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 			"value: expected %v, got %v", pd.RHash,
 			pd.Amount, fwdInfo.AmountToForward)
 
-		failure := lnwire.NewFailIncorrectDetails(pd.Amount)
+		failure := lnwire.NewFinalIncorrectHtlcAmount(pd.Amount)
 		l.sendHTLCError(pd.HtlcIndex, failure, obfuscator, pd.SourceRef)
 
 		return true, nil

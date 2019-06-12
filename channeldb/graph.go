@@ -1061,6 +1061,9 @@ func (c *ChannelGraph) DisconnectBlockAtHeight(height uint32) ([]*ChannelEdgeInf
 
 		// Scan from chanIDStart to chanIDEnd, deleting every
 		// found edge.
+		// NOTE: we must delete the edges after the cursor loop, since
+		// modifying the bucket while traversing is not safe.
+		var keys [][]byte
 		cursor := edgeIndex.Cursor()
 		for k, v := cursor.Seek(chanIDStart[:]); k != nil &&
 			bytes.Compare(k, chanIDEnd[:]) <= 0; k, v = cursor.Next() {
@@ -1070,6 +1073,12 @@ func (c *ChannelGraph) DisconnectBlockAtHeight(height uint32) ([]*ChannelEdgeInf
 			if err != nil {
 				return err
 			}
+
+			keys = append(keys, k)
+			removedChans = append(removedChans, &edgeInfo)
+		}
+
+		for _, k := range keys {
 			err = delChannelEdge(
 				edges, edgeIndex, chanIndex, zombieIndex, nodes,
 				k, false,
@@ -1077,8 +1086,6 @@ func (c *ChannelGraph) DisconnectBlockAtHeight(height uint32) ([]*ChannelEdgeInf
 			if err != nil && err != ErrEdgeNotFound {
 				return err
 			}
-
-			removedChans = append(removedChans, &edgeInfo)
 		}
 
 		// Delete all the entries in the prune log having a height
@@ -1099,10 +1106,18 @@ func (c *ChannelGraph) DisconnectBlockAtHeight(height uint32) ([]*ChannelEdgeInf
 		var pruneKeyEnd [4]byte
 		byteOrder.PutUint32(pruneKeyEnd[:], math.MaxUint32)
 
+		// To avoid modifying the bucket while traversing, we delete
+		// the keys in a second loop.
+		var pruneKeys [][]byte
 		pruneCursor := pruneBucket.Cursor()
 		for k, _ := pruneCursor.Seek(pruneKeyStart[:]); k != nil &&
 			bytes.Compare(k, pruneKeyEnd[:]) <= 0; k, _ = pruneCursor.Next() {
-			if err := pruneCursor.Delete(); err != nil {
+
+			pruneKeys = append(pruneKeys, k)
+		}
+
+		for _, k := range pruneKeys {
+			if err := pruneBucket.Delete(k); err != nil {
 				return err
 			}
 		}

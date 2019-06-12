@@ -2087,10 +2087,6 @@ func (c *OpenChannel) CloseChannel(summary *ChannelCloseSummary) error {
 		// information stored within the revocation log.
 		logBucket := chanBucket.Bucket(revocationLogBucket)
 		if logBucket != nil {
-			err := wipeChannelLogEntries(logBucket)
-			if err != nil {
-				return err
-			}
 			err = chanBucket.DeleteBucket(revocationLogBucket)
 			if err != nil {
 				return err
@@ -2712,17 +2708,4 @@ func fetchChannelLogEntry(log *bbolt.Bucket,
 
 	commitReader := bytes.NewReader(commitBytes)
 	return deserializeChanCommit(commitReader)
-}
-
-func wipeChannelLogEntries(log *bbolt.Bucket) error {
-	// TODO(roasbeef): comment
-
-	logCursor := log.Cursor()
-	for k, _ := logCursor.First(); k != nil; k, _ = logCursor.Next() {
-		if err := logCursor.Delete(); err != nil {
-			return err
-		}
-	}
-
-	return nil
 }

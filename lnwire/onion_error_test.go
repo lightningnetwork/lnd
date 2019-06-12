@@ -37,7 +37,7 @@ var onionFailures = []FailureMessage{
 	&FailIncorrectPaymentAmount{},
 	&FailFinalExpiryTooSoon{},
 
-	NewFailIncorrectDetails(99),
+	NewFailIncorrectDetails(99, 100),
 	NewInvalidOnionVersion(testOnionHash),
 	NewInvalidOnionHmac(testOnionHash),
 	NewInvalidOnionKey(testOnionHash),
@@ -196,6 +196,9 @@ func TestFailIncorrectDetailsOptionalAmount(t *testing.T) {
 	if invalidDetailsErr.amount != 0 {
 		t.Fatalf("expected amount to be zero")
 	}
+	if invalidDetailsErr.height != 0 {
+		t.Fatalf("height incorrect")
+	}
 }
 
 type mockFailIncorrectDetailsNoAmt struct {
@@ -215,4 +218,58 @@ func (f *mockFailIncorrectDetailsNoAmt) Decode(r io.Reader, pver uint32) error {
 
 func (f *mockFailIncorrectDetailsNoAmt) Encode(w io.Writer, pver uint32) error {
 	return nil
+}
+
+// TestFailIncorrectDetailsOptionalHeight tests that we're able to decode an
+// FailIncorrectDetails error that doesn't have the optional height. This
+// ensures we're able to decode FailIncorrectDetails messages from older nodes.
+func TestFailIncorrectDetailsOptionalHeight(t *testing.T) {
+	t.Parallel()
+
+	onionError := &mockFailIncorrectDetailsNoHeight{
+		amount: uint64(123),
+	}
+
+	var b bytes.Buffer
+	if err := EncodeFailure(&b, onionError, 0); err != nil {
+		t.Fatalf("unable to encode failure: %v", err)
+	}
+
+	onionError2, err := DecodeFailure(bytes.NewReader(b.Bytes()), 0)
+	if err != nil {
+		t.Fatalf("unable to decode error: %v", err)
+	}
+
+	invalidDetailsErr, ok := onionError2.(*FailIncorrectDetails)
+	if !ok {
+		t.Fatalf("expected FailIncorrectDetails, but got %T",
+			onionError2)
+	}
+
+	if invalidDetailsErr.amount != 123 {
+		t.Fatalf("amount incorrect")
+	}
+	if invalidDetailsErr.height != 0 {
+		t.Fatalf("height incorrect")
+	}
+}
+
+type mockFailIncorrectDetailsNoHeight struct {
+	amount uint64
+}
+
+func (f *mockFailIncorrectDetailsNoHeight) Code() FailCode {
+	return CodeIncorrectOrUnknownPaymentDetails
+}
+
+func (f *mockFailIncorrectDetailsNoHeight) Error() string {
+	return ""
+}
+
+func (f *mockFailIncorrectDetailsNoHeight) Decode(r io.Reader, pver uint32) error {
+	return nil
+}
+
+func (f *mockFailIncorrectDetailsNoHeight) Encode(w io.Writer, pver uint32) error {
+	return WriteElement(w, f.amount)
 }

@@ -61,7 +61,7 @@ func TestMissionControlStore(t *testing.T) {
 
 	result1 := paymentResult{
 		route:            &testRoute,
-		failure:          lnwire.NewFailIncorrectDetails(100),
+		failure:          lnwire.NewFailIncorrectDetails(100, 1000),
 		failureSourceIdx: &failureSourceIdx,
 		id:               99,
 		timeReply:        testTime,

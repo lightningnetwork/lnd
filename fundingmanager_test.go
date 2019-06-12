@@ -3,6 +3,7 @@
 package lnd
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -384,7 +385,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		addr:            addr,
 	}
 
-	f.cfg.NotifyWhenOnline = func(peer *btcec.PublicKey,
+	f.cfg.NotifyWhenOnline = func(peer [33]byte,
 		connectedChan chan<- lnpeer.Peer) {
 
 		connectedChan <- testNode
@@ -431,7 +432,7 @@ func recreateAliceFundingManager(t *testing.T, alice *testNode) {
 		CurrentNodeAnnouncement: func() (lnwire.NodeAnnouncement, error) {
 			return lnwire.NodeAnnouncement{}, nil
 		},
-		NotifyWhenOnline: func(peer *btcec.PublicKey,
+		NotifyWhenOnline: func(peer [33]byte,
 			connectedChan chan<- lnpeer.Peer) {
 
 			connectedChan <- alice.remotePeer
@@ -1126,7 +1127,7 @@ func TestFundingManagerRestartBehavior(t *testing.T) {
 	bob.sendMessage = func(msg lnwire.Message) error {
 		return fmt.Errorf("intentional error in SendToPeer")
 	}
-	alice.fundingMgr.cfg.NotifyWhenOnline = func(peer *btcec.PublicKey,
+	alice.fundingMgr.cfg.NotifyWhenOnline = func(peer [33]byte,
 		con chan<- lnpeer.Peer) {
 		// Intentionally empty.
 	}
@@ -1261,9 +1262,9 @@ func TestFundingManagerOfflinePeer(t *testing.T) {
 	bob.sendMessage = func(msg lnwire.Message) error {
 		return fmt.Errorf("intentional error in SendToPeer")
 	}
-	peerChan := make(chan *btcec.PublicKey, 1)
+	peerChan := make(chan [33]byte, 1)
 	conChan := make(chan chan<- lnpeer.Peer, 1)
-	alice.fundingMgr.cfg.NotifyWhenOnline = func(peer *btcec.PublicKey,
+	alice.fundingMgr.cfg.NotifyWhenOnline = func(peer [33]byte,
 		connected chan<- lnpeer.Peer) {
 
 		peerChan <- peer
@@ -1303,7 +1304,7 @@ func TestFundingManagerOfflinePeer(t *testing.T) {
 
 	// Alice should be waiting for the server to notify when Bob comes back
 	// online.
-	var peer *btcec.PublicKey
+	var peer [33]byte
 	var con chan<- lnpeer.Peer
 	select {
 	case peer = <-peerChan:
@@ -1319,7 +1320,7 @@ func TestFundingManagerOfflinePeer(t *testing.T) {
 		t.Fatalf("alice did not register connectedChan with server")
 	}
 
-	if !peer.IsEqual(bobPubKey) {
+	if !bytes.Equal(peer[:], bobPubKey.SerializeCompressed()) {
 		t.Fatalf("expected to receive Bob's pubkey (%v), instead got %v",
 			bobPubKey, peer)
 	}

@@ -140,9 +140,7 @@ type Config struct {
 	// retry sending a peer message.
 	//
 	// NOTE: The peerChan channel must be buffered.
-	//
-	// TODO(wilmer): use [33]byte to avoid unnecessary serializations.
-	NotifyWhenOnline func(peer *btcec.PublicKey, peerChan chan<- lnpeer.Peer)
+	NotifyWhenOnline func(peerPubKey [33]byte, peerChan chan<- lnpeer.Peer)
 
 	// NotifyWhenOffline is a function that allows the gossiper to be
 	// notified when a certain peer disconnects, allowing it to request a

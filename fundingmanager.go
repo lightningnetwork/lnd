@@ -267,7 +267,7 @@ type fundingConfig struct {
 	// delivered after the funding transaction is confirmed.
 	//
 	// NOTE: The peerChan channel must be buffered.
-	NotifyWhenOnline func(peer *btcec.PublicKey, peerChan chan<- lnpeer.Peer)
+	NotifyWhenOnline func(peer [33]byte, peerChan chan<- lnpeer.Peer)
 
 	// FindChannel queries the database for the channel with the given
 	// channel ID.
@@ -565,7 +565,11 @@ func (f *fundingManager) start() error {
 				// we'll attempt to retrieve the remote peer
 				// to complete the rest of the funding flow.
 				peerChan := make(chan lnpeer.Peer, 1)
-				f.cfg.NotifyWhenOnline(ch.IdentityPub, peerChan)
+
+				var peerKey [33]byte
+				copy(peerKey[:], ch.IdentityPub.SerializeCompressed())
+
+				f.cfg.NotifyWhenOnline(peerKey, peerChan)
 
 				var peer lnpeer.Peer
 				select {
@@ -637,7 +641,11 @@ func (f *fundingManager) start() error {
 				defer f.wg.Done()
 
 				peerChan := make(chan lnpeer.Peer, 1)
-				f.cfg.NotifyWhenOnline(dbChan.IdentityPub, peerChan)
+
+				var peerKey [33]byte
+				copy(peerKey[:], dbChan.IdentityPub.SerializeCompressed())
+
+				f.cfg.NotifyWhenOnline(peerKey, peerChan)
 
 				var peer lnpeer.Peer
 				select {
@@ -2046,7 +2054,9 @@ func (f *fundingManager) sendFundingLocked(peer lnpeer.Peer,
 	shortChanID *lnwire.ShortChannelID) error {
 
 	chanID := lnwire.NewChanIDFromOutPoint(&completeChan.FundingOutpoint)
-	peerKey := completeChan.IdentityPub
+
+	var peerKey [33]byte
+	copy(peerKey[:], completeChan.IdentityPub.SerializeCompressed())
 
 	// Next, we'll send over the funding locked message which marks that we
 	// consider the channel open by presenting the remote party with our
@@ -2071,7 +2081,7 @@ func (f *fundingManager) sendFundingLocked(peer lnpeer.Peer,
 	// down.
 	for {
 		fndgLog.Debugf("Sending FundingLocked for ChannelID(%v) to "+
-			"peer %x", chanID, peerKey.SerializeCompressed())
+			"peer %x", chanID, peerKey)
 
 		if err := peer.SendMessage(false, fundingLockedMsg); err == nil {
 			// Sending succeeded, we can break out and continue the
@@ -2080,17 +2090,16 @@ func (f *fundingManager) sendFundingLocked(peer lnpeer.Peer,
 		}
 
 		fndgLog.Warnf("Unable to send fundingLocked to peer %x: %v. "+
-			"Will retry when online", peerKey.SerializeCompressed(),
-			err)
+			"Will retry when online", peerKey, err)
 
 		connected := make(chan lnpeer.Peer, 1)
-		f.cfg.NotifyWhenOnline(completeChan.IdentityPub, connected)
+		f.cfg.NotifyWhenOnline(peerKey, connected)
 
 		select {
 		case <-connected:
 			fndgLog.Infof("Peer(%x) came back online, will retry "+
 				"sending FundingLocked for ChannelID(%v)",
-				peerKey.SerializeCompressed(), chanID)
+				peerKey, chanID)
 
 			// Retry sending.
 		case <-f.quit:
@@ -2219,7 +2228,11 @@ func (f *fundingManager) annAfterSixConfs(completeChan *channeldb.OpenChannel,
 			shortChanID.ToUint64())
 
 		peerChan := make(chan lnpeer.Peer, 1)
-		f.cfg.NotifyWhenOnline(completeChan.IdentityPub, peerChan)
+
+		var peerKey [33]byte
+		copy(peerKey[:], completeChan.IdentityPub.SerializeCompressed())
+
+		f.cfg.NotifyWhenOnline(peerKey, peerChan)
 
 		var peer lnpeer.Peer
 		select {

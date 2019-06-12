@@ -18,9 +18,13 @@ func newTestReliableSender(t *testing.T) *reliableSender {
 	t.Helper()
 
 	cfg := &reliableSenderCfg{
-		NotifyWhenOnline: func(pubKey *btcec.PublicKey,
+		NotifyWhenOnline: func(pubKey [33]byte,
 			peerChan chan<- lnpeer.Peer) {
-			peerChan <- &mockPeer{pk: pubKey}
+			pk, err := btcec.ParsePubKey(pubKey[:], btcec.S256())
+			if err != nil {
+				t.Fatalf("unable to parse pubkey: %v", err)
+			}
+			peerChan <- &mockPeer{pk: pk}
 		},
 		NotifyWhenOffline: func(_ [33]byte) <-chan struct{} {
 			c := make(chan struct{}, 1)
@@ -78,7 +82,7 @@ func TestReliableSenderFlow(t *testing.T) {
 	notifyOnline := make(chan chan<- lnpeer.Peer, 2)
 	notifyOffline := make(chan chan struct{}, 1)
 
-	reliableSender.cfg.NotifyWhenOnline = func(_ *btcec.PublicKey,
+	reliableSender.cfg.NotifyWhenOnline = func(_ [33]byte,
 		peerChan chan<- lnpeer.Peer) {
 		notifyOnline <- peerChan
 	}
@@ -194,7 +198,7 @@ func TestReliableSenderStaleMessages(t *testing.T) {
 	// Override NotifyWhenOnline to provide the notification channel so that
 	// we can control when notifications get dispatched.
 	notifyOnline := make(chan chan<- lnpeer.Peer, 1)
-	reliableSender.cfg.NotifyWhenOnline = func(_ *btcec.PublicKey,
+	reliableSender.cfg.NotifyWhenOnline = func(_ [33]byte,
 		peerChan chan<- lnpeer.Peer) {
 		notifyOnline <- peerChan
 	}

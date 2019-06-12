@@ -28,6 +28,7 @@ import (
 	"github.com/btcsuite/btcwallet/wallet/txauthor"
 	"github.com/coreos/bbolt"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/grpc-ecosystem/go-grpc-middleware"
 	proxy "github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/build"
@@ -45,6 +46,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/macaroons"
+	"github.com/lightningnetwork/lnd/monitoring"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/signal"
 	"github.com/lightningnetwork/lnd/sweep"
@@ -531,19 +533,36 @@ func newRPCServer(s *server, macService *macaroons.Service,
 	}
 
 	// If macaroons aren't disabled (a non-nil service), then we'll set up
-	// our set of interceptors which will allow us handle the macaroon
-	// authentication in a single location .
+	// our set of interceptors which will allow us to handle the macaroon
+	// authentication in a single location.
+	macUnaryInterceptors := []grpc.UnaryServerInterceptor{}
+	macStrmInterceptors := []grpc.StreamServerInterceptor{}
 	if macService != nil {
-		unaryInterceptor := grpc.UnaryInterceptor(
-			macService.UnaryServerInterceptor(permissions),
-		)
-		streamInterceptor := grpc.StreamInterceptor(
-			macService.StreamServerInterceptor(permissions),
-		)
+		unaryInterceptor := macService.UnaryServerInterceptor(permissions)
+		macUnaryInterceptors = append(macUnaryInterceptors, unaryInterceptor)
 
-		serverOpts = append(serverOpts,
-			unaryInterceptor, streamInterceptor,
+		strmInterceptor := macService.StreamServerInterceptor(permissions)
+		macStrmInterceptors = append(macStrmInterceptors, strmInterceptor)
+	}
+
+	// Get interceptors for Prometheus to gather gRPC performance metrics.
+	// If monitoring is disabled, GetPromInterceptors() will return empty
+	// slices.
+	promUnaryInterceptors, promStrmInterceptors := monitoring.GetPromInterceptors()
+
+	// Concatenate the slices of unary and stream interceptors respectively.
+	unaryInterceptors := append(macUnaryInterceptors, promUnaryInterceptors...)
+	strmInterceptors := append(macStrmInterceptors, promStrmInterceptors...)
+
+	// If any interceptors have been set up, add them to the server options.
+	if len(unaryInterceptors) != 0 && len(strmInterceptors) != 0 {
+		chainedUnary := grpc_middleware.WithUnaryServerChain(
+			unaryInterceptors...,
 		)
+		chainedStream := grpc_middleware.WithStreamServerChain(
+			strmInterceptors...,
+		)
+		serverOpts = append(serverOpts, chainedUnary, chainedStream)
 	}
 
 	// Finally, with all the pre-set up complete,  we can create the main
@@ -614,6 +633,16 @@ func (r *rpcServer) Start() error {
 			rpcsLog.Infof("RPC server listening on %s", lis.Addr())
 			r.grpcServer.Serve(lis)
 		}()
+	}
+
+	// If Prometheus monitoring is enabled, start the Prometheus exporter.
+	if cfg.Prometheus.Enabled() {
+		err := monitoring.ExportPrometheusMetrics(
+			r.grpcServer, cfg.Prometheus,
+		)
+		if err != nil {
+			return err
+		}
 	}
 
 	// Finally, start the REST proxy for our gRPC server above. We'll ensure

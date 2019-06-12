@@ -28,6 +28,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/monitoring"
 	"github.com/lightningnetwork/lnd/netann"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/signal"
@@ -85,6 +86,7 @@ var (
 	irpcLog = build.NewSubLogger("IRPC", backendLog.Logger)
 	chnfLog = build.NewSubLogger("CHNF", backendLog.Logger)
 	chbuLog = build.NewSubLogger("CHBU", backendLog.Logger)
+	promLog = build.NewSubLogger("PROM", backendLog.Logger)
 )
 
 // Initialize package-global logger variables.
@@ -112,6 +114,7 @@ func init() {
 	invoicesrpc.UseLogger(irpcLog)
 	channelnotifier.UseLogger(chnfLog)
 	chanbackup.UseLogger(chbuLog)
+	monitoring.UseLogger(promLog)
 
 	addSubLogger(routerrpc.Subsystem, routerrpc.UseLogger)
 }
@@ -155,6 +158,7 @@ var subsystemLoggers = map[string]btclog.Logger{
 	"IRPC": irpcLog,
 	"CHNF": chnfLog,
 	"CHBU": chbuLog,
+	"PROM": promLog,
 }
 
 // initLogRotator initializes the logging rotator to write logs to logFile and

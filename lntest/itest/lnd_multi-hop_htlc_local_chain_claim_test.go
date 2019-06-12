@@ -393,6 +393,16 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest)
 	if err != nil {
 		t.Fatalf(predErr.Error())
 	}
+
+	// Finally, check that the Alice's payment is correctly marked
+	// succeeded.
+	ctxt, _ = context.WithTimeout(ctxt, defaultTimeout)
+	err = checkPaymentStatus(
+		ctxt, net.Alice, preimage, lnrpc.Payment_SUCCEEDED,
+	)
+	if err != nil {
+		t.Fatalf(err.Error())
+	}
 }
 
 // waitForInvoiceAccepted waits until the specified invoice moved to the
@@ -420,4 +430,58 @@ func waitForInvoiceAccepted(t *harnessTest, node *lntest.HarnessNode,
 			break
 		}
 	}
+}
+
+// checkPaymentStatus asserts that the given node list a payment with the given
+// preimage has the expected status.
+func checkPaymentStatus(ctxt context.Context, node *lntest.HarnessNode,
+	preimage lntypes.Preimage, status lnrpc.Payment_PaymentStatus) error {
+
+	req := &lnrpc.ListPaymentsRequest{
+		IncludeIncomplete: true,
+	}
+	paymentsResp, err := node.ListPayments(ctxt, req)
+	if err != nil {
+		return fmt.Errorf("error when obtaining Alice payments: %v",
+			err)
+	}
+
+	payHash := preimage.Hash()
+	var found bool
+	for _, p := range paymentsResp.Payments {
+		if p.PaymentHash != payHash.String() {
+			continue
+		}
+
+		found = true
+		if p.Status != status {
+			return fmt.Errorf("expected payment status "+
+				"%v, got %v", status, p.Status)
+		}
+
+		switch status {
+
+		// If this expected status is SUCCEEDED, we expect the final preimage.
+		case lnrpc.Payment_SUCCEEDED:
+			if p.PaymentPreimage != preimage.String() {
+				return fmt.Errorf("preimage doesn't match: %v vs %v",
+					p.PaymentPreimage, preimage.String())
+			}
+
+		// Otherwise we expect an all-zero preimage.
+		default:
+			if p.PaymentPreimage != (lntypes.Preimage{}).String() {
+				return fmt.Errorf("expected zero preimage, got %v",
+					p.PaymentPreimage)
+			}
+		}
+
+	}
+
+	if !found {
+		return fmt.Errorf("payment with payment hash %v not found "+
+			"in response", payHash)
+	}
+
+	return nil
 }

@@ -146,6 +146,11 @@ func migrateInvoiceTimeSeries(tx *bbolt.Tx) error {
 	// Now that we have all the buckets we need, we'll run through each
 	// invoice in the database, and update it to reflect the new format
 	// expected post migration.
+	// NOTE: we store the converted invoices and put them back into the
+	// database after the loop, since modifying the bucket within the
+	// ForEach loop is not safe.
+	var invoicesKeys [][]byte
+	var invoicesValues [][]byte
 	err = invoices.ForEach(func(invoiceNum, invoiceBytes []byte) error {
 		// If this is a sub bucket, then we'll skip it.
 		if invoiceBytes == nil {
@@ -226,10 +231,23 @@ func migrateInvoiceTimeSeries(tx *bbolt.Tx) error {
 			return err
 		}
 
-		return invoices.Put(invoiceNum, b.Bytes())
+		// Save the key and value pending update for after the ForEach
+		// is done.
+		invoicesKeys = append(invoicesKeys, invoiceNum)
+		invoicesValues = append(invoicesValues, b.Bytes())
+		return nil
 	})
 	if err != nil {
 		return err
+	}
+
+	// Now put the converted invoices into the DB.
+	for i := range invoicesKeys {
+		key := invoicesKeys[i]
+		value := invoicesValues[i]
+		if err := invoices.Put(key, value); err != nil {
+			return err
+		}
 	}
 
 	log.Infof("Migration to invoice time series index complete!")
@@ -249,6 +267,10 @@ func migrateInvoiceTimeSeriesOutgoingPayments(tx *bbolt.Tx) error {
 
 	log.Infof("Migrating invoice database to new outgoing payment format")
 
+	// We store the keys and values we want to modify since it is not safe
+	// to modify them directly within the ForEach loop.
+	var paymentKeys [][]byte
+	var paymentValues [][]byte
 	err := payBucket.ForEach(func(payID, paymentBytes []byte) error {
 		log.Tracef("Migrating payment %x", payID[:])
 
@@ -290,15 +312,23 @@ func migrateInvoiceTimeSeriesOutgoingPayments(tx *bbolt.Tx) error {
 		}
 
 		// Now that we know the modifications was successful, we'll
-		// write it back to disk in the new format.
-		if err := payBucket.Put(payID, paymentCopy); err != nil {
-			return err
-		}
-
+		// store it to our slice of keys and values, and write it back
+		// to disk in the new format after the ForEach loop is over.
+		paymentKeys = append(paymentKeys, payID)
+		paymentValues = append(paymentValues, paymentCopy)
 		return nil
 	})
 	if err != nil {
 		return err
+	}
+
+	// Finally store the updated payments to the bucket.
+	for i := range paymentKeys {
+		key := paymentKeys[i]
+		value := paymentValues[i]
+		if err := payBucket.Put(key, value); err != nil {
+			return err
+		}
 	}
 
 	log.Infof("Migration to outgoing payment invoices complete!")
@@ -587,6 +617,12 @@ func migrateOptionalChannelCloseSummaryFields(tx *bbolt.Tx) error {
 	}
 
 	log.Info("Migrating to new closed channel format...")
+
+	// We store the converted keys and values and put them back into the
+	// database after the loop, since modifying the bucket within the
+	// ForEach loop is not safe.
+	var closedChansKeys [][]byte
+	var closedChansValues [][]byte
 	err := closedChanBucket.ForEach(func(chanID, summary []byte) error {
 		r := bytes.NewReader(summary)
 
@@ -603,10 +639,24 @@ func migrateOptionalChannelCloseSummaryFields(tx *bbolt.Tx) error {
 			return err
 		}
 
-		return closedChanBucket.Put(chanID, b.Bytes())
+		// Now that we know the modifications was successful, we'll
+		// Store the key and value to our slices, and write it back to
+		// disk in the new format after the ForEach loop is over.
+		closedChansKeys = append(closedChansKeys, chanID)
+		closedChansValues = append(closedChansValues, b.Bytes())
+		return nil
 	})
 	if err != nil {
 		return fmt.Errorf("unable to update closed channels: %v", err)
+	}
+
+	// Now put the new format back into the DB.
+	for i := range closedChansKeys {
+		key := closedChansKeys[i]
+		value := closedChansValues[i]
+		if err := closedChanBucket.Put(key, value); err != nil {
+			return err
+		}
 	}
 
 	log.Info("Migration to new closed channel format complete!")

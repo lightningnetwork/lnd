@@ -195,6 +195,13 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest)
 		}
 	}
 
+	// At this point we suspend Alice to make sure she'll handle the
+	// on-chain settle after a restart.
+	restartAlice, err := net.SuspendNode(net.Alice)
+	if err != nil {
+		t.Fatalf("unable to suspend alice: %v", err)
+	}
+
 	// Mine a block to confirm the two transactions (+ the coinbase).
 	block = mineBlocks(t, net, 1, 2)[0]
 	if len(block.Transactions) != 3 {
@@ -284,6 +291,12 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest)
 	// of Carol's.
 	bobSecondLevelCSV := uint32(defaultCSV)
 	carolSecondLevelCSV--
+
+	// Now that the preimage from Bob has hit the chain, restart Alice to
+	// ensure she'll pick it up.
+	if err := restartAlice(); err != nil {
+		t.Fatalf("unable to restart alice: %v", err)
+	}
 
 	// If we then mine 3 additional blocks, Carol's second level tx should
 	// mature, and she can pull the funds from it with a sweep tx.

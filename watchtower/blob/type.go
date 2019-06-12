@@ -45,9 +45,15 @@ func (f Flag) String() string {
 // of the blob itself.
 type Type uint16
 
-// TypeDefault sweeps only commitment outputs to a sweep address controlled by
-// the user, and does not give the tower a reward.
-const TypeDefault = Type(FlagCommitOutputs)
+const (
+	// TypeAltruistCommit sweeps only commitment outputs to a sweep address
+	// controlled by the user, and does not give the tower a reward.
+	TypeAltruistCommit = Type(FlagCommitOutputs)
+
+	// TypeRewardCommit sweeps only commitment outputs to a sweep address
+	// controlled by the user, and pays a negotiated reward to the tower.
+	TypeRewardCommit = Type(FlagCommitOutputs | FlagReward)
+)
 
 // Has returns true if the Type has the passed flag enabled.
 func (t Type) Has(flag Flag) bool {
@@ -114,8 +120,8 @@ func (t Type) String() string {
 // supportedTypes is the set of all configurations known to be supported by the
 // package.
 var supportedTypes = map[Type]struct{}{
-	FlagCommitOutputs.Type():                {},
-	(FlagCommitOutputs | FlagReward).Type(): {},
+	TypeAltruistCommit: {},
+	TypeRewardCommit:   {},
 }
 
 // IsSupportedType returns true if the given type is supported by the package.

@@ -56,15 +56,11 @@ type descriptorTest struct {
 	decErr               error
 }
 
-var rewardAndCommitType = blob.TypeFromFlags(
-	blob.FlagReward, blob.FlagCommitOutputs,
-)
-
 var descriptorTests = []descriptorTest{
 	{
 		name:             "to-local only",
-		encVersion:       blob.TypeDefault,
-		decVersion:       blob.TypeDefault,
+		encVersion:       blob.TypeAltruistCommit,
+		decVersion:       blob.TypeAltruistCommit,
 		sweepAddr:        makeAddr(22),
 		revPubKey:        makePubKey(0),
 		delayPubKey:      makePubKey(1),
@@ -73,8 +69,8 @@ var descriptorTests = []descriptorTest{
 	},
 	{
 		name:                 "to-local and p2wkh",
-		encVersion:           rewardAndCommitType,
-		decVersion:           rewardAndCommitType,
+		encVersion:           blob.TypeRewardCommit,
+		decVersion:           blob.TypeRewardCommit,
 		sweepAddr:            makeAddr(22),
 		revPubKey:            makePubKey(0),
 		delayPubKey:          makePubKey(1),
@@ -87,7 +83,7 @@ var descriptorTests = []descriptorTest{
 	{
 		name:             "unknown encrypt version",
 		encVersion:       0,
-		decVersion:       blob.TypeDefault,
+		decVersion:       blob.TypeAltruistCommit,
 		sweepAddr:        makeAddr(34),
 		revPubKey:        makePubKey(0),
 		delayPubKey:      makePubKey(1),
@@ -97,7 +93,7 @@ var descriptorTests = []descriptorTest{
 	},
 	{
 		name:             "unknown decrypt version",
-		encVersion:       blob.TypeDefault,
+		encVersion:       blob.TypeAltruistCommit,
 		decVersion:       0,
 		sweepAddr:        makeAddr(34),
 		revPubKey:        makePubKey(0),
@@ -108,8 +104,8 @@ var descriptorTests = []descriptorTest{
 	},
 	{
 		name:             "sweep addr length zero",
-		encVersion:       blob.TypeDefault,
-		decVersion:       blob.TypeDefault,
+		encVersion:       blob.TypeAltruistCommit,
+		decVersion:       blob.TypeAltruistCommit,
 		sweepAddr:        makeAddr(0),
 		revPubKey:        makePubKey(0),
 		delayPubKey:      makePubKey(1),
@@ -118,8 +114,8 @@ var descriptorTests = []descriptorTest{
 	},
 	{
 		name:             "sweep addr max size",
-		encVersion:       blob.TypeDefault,
-		decVersion:       blob.TypeDefault,
+		encVersion:       blob.TypeAltruistCommit,
+		decVersion:       blob.TypeAltruistCommit,
 		sweepAddr:        makeAddr(blob.MaxSweepAddrSize),
 		revPubKey:        makePubKey(0),
 		delayPubKey:      makePubKey(1),
@@ -128,8 +124,8 @@ var descriptorTests = []descriptorTest{
 	},
 	{
 		name:             "sweep addr too long",
-		encVersion:       blob.TypeDefault,
-		decVersion:       blob.TypeDefault,
+		encVersion:       blob.TypeAltruistCommit,
+		decVersion:       blob.TypeAltruistCommit,
 		sweepAddr:        makeAddr(blob.MaxSweepAddrSize + 1),
 		revPubKey:        makePubKey(0),
 		delayPubKey:      makePubKey(1),

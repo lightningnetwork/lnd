@@ -50,7 +50,7 @@ var (
 func DefaultPolicy() Policy {
 	return Policy{
 		TxPolicy: TxPolicy{
-			BlobType:   blob.TypeDefault,
+			BlobType:   blob.TypeAltruistCommit,
 			RewardRate: DefaultRewardRate,
 			SweepFeeRate: lnwallet.SatPerKWeight(
 				DefaultSweepFeeRate,

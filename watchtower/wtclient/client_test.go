@@ -786,7 +786,7 @@ var clientTests = []clientTest{
 			remoteBalance: remoteBalance,
 			policy: wtpolicy.Policy{
 				TxPolicy: wtpolicy.TxPolicy{
-					BlobType:     blob.TypeDefault,
+					BlobType:     blob.TypeAltruistCommit,
 					SweepFeeRate: 1,
 				},
 				MaxUpdates: 20000,
@@ -820,7 +820,7 @@ var clientTests = []clientTest{
 			remoteBalance: remoteBalance,
 			policy: wtpolicy.Policy{
 				TxPolicy: wtpolicy.TxPolicy{
-					BlobType:     blob.TypeDefault,
+					BlobType:     blob.TypeAltruistCommit,
 					SweepFeeRate: 1,
 				},
 				MaxUpdates: 20000,
@@ -855,7 +855,7 @@ var clientTests = []clientTest{
 			remoteBalance: remoteBalance,
 			policy: wtpolicy.Policy{
 				TxPolicy: wtpolicy.TxPolicy{
-					BlobType:     blob.TypeDefault,
+					BlobType:     blob.TypeAltruistCommit,
 					SweepFeeRate: 1,
 				},
 				MaxUpdates: 5,
@@ -891,7 +891,7 @@ var clientTests = []clientTest{
 			remoteBalance: remoteBalance,
 			policy: wtpolicy.Policy{
 				TxPolicy: wtpolicy.TxPolicy{
-					BlobType:     blob.TypeDefault,
+					BlobType:     blob.TypeAltruistCommit,
 					SweepFeeRate: 1000000, // high sweep fee creates dust
 				},
 				MaxUpdates: 20000,
@@ -922,7 +922,7 @@ var clientTests = []clientTest{
 			remoteBalance: remoteBalance,
 			policy: wtpolicy.Policy{
 				TxPolicy: wtpolicy.TxPolicy{
-					BlobType:     blob.TypeDefault,
+					BlobType:     blob.TypeAltruistCommit,
 					SweepFeeRate: 1,
 				},
 				MaxUpdates: 20000,
@@ -1004,7 +1004,7 @@ var clientTests = []clientTest{
 			remoteBalance: remoteBalance,
 			policy: wtpolicy.Policy{
 				TxPolicy: wtpolicy.TxPolicy{
-					BlobType:     blob.TypeDefault,
+					BlobType:     blob.TypeAltruistCommit,
 					SweepFeeRate: 1,
 				},
 				MaxUpdates: 5,
@@ -1062,7 +1062,7 @@ var clientTests = []clientTest{
 			remoteBalance: 20000001, // ensure (% amt != 0)
 			policy: wtpolicy.Policy{
 				TxPolicy: wtpolicy.TxPolicy{
-					BlobType:     blob.TypeDefault,
+					BlobType:     blob.TypeAltruistCommit,
 					SweepFeeRate: 1,
 				},
 				MaxUpdates: 1000,
@@ -1106,7 +1106,7 @@ var clientTests = []clientTest{
 			remoteBalance: remoteBalance,
 			policy: wtpolicy.Policy{
 				TxPolicy: wtpolicy.TxPolicy{
-					BlobType:     blob.TypeDefault,
+					BlobType:     blob.TypeAltruistCommit,
 					SweepFeeRate: 1,
 				},
 				MaxUpdates: 5,
@@ -1156,7 +1156,7 @@ var clientTests = []clientTest{
 			remoteBalance: remoteBalance,
 			policy: wtpolicy.Policy{
 				TxPolicy: wtpolicy.TxPolicy{
-					BlobType:     blob.TypeDefault,
+					BlobType:     blob.TypeAltruistCommit,
 					SweepFeeRate: 1,
 				},
 				MaxUpdates: 5,
@@ -1214,7 +1214,7 @@ var clientTests = []clientTest{
 			remoteBalance: remoteBalance,
 			policy: wtpolicy.Policy{
 				TxPolicy: wtpolicy.TxPolicy{
-					BlobType:     blob.TypeDefault,
+					BlobType:     blob.TypeAltruistCommit,
 					SweepFeeRate: 1,
 				},
 				MaxUpdates: 5,
@@ -1278,7 +1278,7 @@ var clientTests = []clientTest{
 			remoteBalance: remoteBalance,
 			policy: wtpolicy.Policy{
 				TxPolicy: wtpolicy.TxPolicy{
-					BlobType:     blob.TypeDefault,
+					BlobType:     blob.TypeAltruistCommit,
 					SweepFeeRate: 1,
 				},
 				MaxUpdates: 10,
@@ -1338,7 +1338,7 @@ var clientTests = []clientTest{
 			remoteBalance: remoteBalance,
 			policy: wtpolicy.Policy{
 				TxPolicy: wtpolicy.TxPolicy{
-					BlobType:     blob.TypeDefault,
+					BlobType:     blob.TypeAltruistCommit,
 					SweepFeeRate: 1,
 				},
 				MaxUpdates: 5,

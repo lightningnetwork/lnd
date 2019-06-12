@@ -853,20 +853,9 @@ func (b *boltArbitratorLog) WipeHistory() error {
 		}
 
 		// Next, we'll delete any lingering contract state within the
-		// contracts bucket, and the bucket itself once we're done
-		// clearing it out.
-		contractBucket, err := scopeBucket.CreateBucketIfNotExists(
-			contractsBucketKey,
-		)
-		if err != nil {
-			return err
-		}
-		if err := contractBucket.ForEach(func(resKey, _ []byte) error {
-			return contractBucket.Delete(resKey)
-		}); err != nil {
-			return err
-		}
-		if err := scopeBucket.DeleteBucket(contractsBucketKey); err != nil {
+		// contracts bucket by removing the bucket itself.
+		err = scopeBucket.DeleteBucket(contractsBucketKey)
+		if err != nil && err != bbolt.ErrBucketNotFound {
 			return err
 		}
 
@@ -876,20 +865,10 @@ func (b *boltArbitratorLog) WipeHistory() error {
 			return err
 		}
 
-		// Before we delta the enclosing bucket itself, we'll delta any
-		// chain actions that are still stored.
-		actionsBucket, err := scopeBucket.CreateBucketIfNotExists(
-			actionsBucketKey,
-		)
-		if err != nil {
-			return err
-		}
-		if err := actionsBucket.ForEach(func(resKey, _ []byte) error {
-			return actionsBucket.Delete(resKey)
-		}); err != nil {
-			return err
-		}
-		if err := scopeBucket.DeleteBucket(actionsBucketKey); err != nil {
+		// We'll delete any chain actions that are still stored by
+		// removing the enclosing bucket.
+		err = scopeBucket.DeleteBucket(actionsBucketKey)
+		if err != nil && err != bbolt.ErrBucketNotFound {
 			return err
 		}
 

@@ -814,6 +814,9 @@ message Transaction {
 
     /// Addresses that received funds for this transaction
     repeated string dest_addresses = 8 [ json_name = "dest_addresses" ];
+
+    /// The raw transaction hex.
+    string raw_tx_hex = 9 [ json_name = "raw_tx_hex" ];
 }
 message GetTransactionsRequest {
 }

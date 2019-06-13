@@ -13282,7 +13282,7 @@ func testHoldInvoicePersistence(net *lntest.NetworkHarness, t *harnessTest) {
 	// preimage, indicating they are not yet settled.
 	err = lntest.WaitNoError(func() error {
 		req := &lnrpc.ListPaymentsRequest{
-			NonSucceeded: true,
+			IncludeIncomplete: true,
 		}
 		ctxt, _ = context.WithTimeout(ctxt, defaultTimeout)
 		paymentsResp, err := net.Alice.ListPayments(ctxt, req)
@@ -13461,7 +13461,7 @@ func testHoldInvoicePersistence(net *lntest.NetworkHarness, t *harnessTest) {
 	// Check that Alice's invoices to be shown as settled and failed
 	// accordingly, and preimages matching up.
 	req := &lnrpc.ListPaymentsRequest{
-		NonSucceeded: true,
+		IncludeIncomplete: true,
 	}
 	ctxt, _ = context.WithTimeout(ctxt, defaultTimeout)
 	paymentsResp, err := net.Alice.ListPayments(ctxt, req)

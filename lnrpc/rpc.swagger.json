@@ -938,6 +938,16 @@
             }
           }
         },
+        "parameters": [
+          {
+            "name": "non_succeeded",
+            "description": "/ Set to also return payments that are not (yet) succeeded.",
+            "in": "query",
+            "required": false,
+            "type": "boolean",
+            "format": "boolean"
+          }
+        ],
         "tags": [
           "Lightning"
         ]
@@ -1296,6 +1306,16 @@
         "ACCEPTED"
       ],
       "default": "OPEN"
+    },
+    "PaymentPaymentStatus": {
+      "type": "string",
+      "enum": [
+        "UNKNOWN",
+        "IN_FLIGHT",
+        "SUCCEEDED",
+        "FAILED"
+      ],
+      "default": "UNKNOWN"
     },
     "PeerSyncType": {
       "type": "string",
@@ -2835,6 +2855,10 @@
         "payment_request": {
           "type": "string",
           "description": "/ The optional payment request being fulfilled."
+        },
+        "status": {
+          "$ref": "#/definitions/PaymentPaymentStatus",
+          "description": "The status of the payment."
         }
       }
     },

@@ -550,6 +550,7 @@ func minedTransactionsToDetails(
 func unminedTransactionsToDetail(
 	summary base.TransactionSummary,
 ) (*lnwallet.TransactionDetail, error) {
+
 	wireTx := &wire.MsgTx{}
 	txReader := bytes.NewReader(summary.Transaction)
 
@@ -561,6 +562,7 @@ func unminedTransactionsToDetail(
 		Hash:      *summary.Hash,
 		TotalFees: int64(summary.Fee),
 		Timestamp: summary.Timestamp,
+		RawTx:     summary.Transaction,
 	}
 
 	balanceDelta, err := extractBalanceDelta(summary, wireTx)
@@ -738,8 +740,8 @@ func (b *BtcWallet) SubscribeTransactions() (lnwallet.TransactionSubscription, e
 	return txClient, nil
 }
 
-// IsSynced returns a boolean indicating if from the PoV of the wallet,
-// it has fully synced to the current best block in the main chain.
+// IsSynced returns a boolean indicating if from the PoV of the wallet, it has
+// fully synced to the current best block in the main chain.
 //
 // This is a part of the WalletController interface.
 func (b *BtcWallet) IsSynced() (bool, int64, error) {

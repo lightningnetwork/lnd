@@ -2839,14 +2839,22 @@ var listPaymentsCommand = cli.Command{
 	Name:     "listpayments",
 	Category: "Payments",
 	Usage:    "List all outgoing payments.",
-	Action:   actionDecorator(listPayments),
+	Flags: []cli.Flag{
+		cli.BoolFlag{
+			Name:  "include_incomplete",
+			Usage: "if set to true, payments still in flight (or failed) will be returned as well",
+		},
+	},
+	Action: actionDecorator(listPayments),
 }
 
 func listPayments(ctx *cli.Context) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
-	req := &lnrpc.ListPaymentsRequest{}
+	req := &lnrpc.ListPaymentsRequest{
+		IncludeIncomplete: ctx.Bool("include_incomplete"),
+	}
 
 	payments, err := client.ListPayments(context.Background(), req)
 	if err != nil {

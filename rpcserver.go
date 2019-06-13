@@ -4145,7 +4145,7 @@ func (r *rpcServer) ListPayments(ctx context.Context,
 		// To keep compatibility with the old API, we only return
 		// non-suceeded payments if requested.
 		if payment.Status != channeldb.StatusSucceeded &&
-			!req.NonSucceeded {
+			!req.IncludeIncomplete {
 			continue
 		}
 

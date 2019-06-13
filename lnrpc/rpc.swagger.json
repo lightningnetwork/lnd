@@ -940,8 +940,8 @@
         },
         "parameters": [
           {
-            "name": "non_succeeded",
-            "description": "/ Set to also return payments that are not (yet) succeeded.",
+            "name": "include_incomplete",
+            "description": "*\nIf true, then return payments that have not yet fully completed. This means\nthat pending payments, as well as failed payments will show up if this\nfield is set to True.",
             "in": "query",
             "required": false,
             "type": "boolean",

@@ -2171,8 +2171,12 @@ message Payment {
 }
 
 message ListPaymentsRequest {
-    /// Set to also return payments that are not (yet) succeeded.
-    bool non_succeeded = 1;
+    /**
+    If true, then return payments that have not yet fully completed. This means
+    that pending payments, as well as failed payments will show up if this
+    field is set to True.
+    */
+    bool include_incomplete = 1;
 }
 
 message ListPaymentsResponse {

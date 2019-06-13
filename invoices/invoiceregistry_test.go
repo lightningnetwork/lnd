@@ -148,21 +148,43 @@ func TestSettleInvoice(t *testing.T) {
 		t.Fatal("no update received")
 	}
 
-	// Try to settle again.
-	_, err = registry.NotifyExitHopHtlc(
+	// Try to settle again. We need this idempotent behaviour after a
+	// restart.
+	event, err := registry.NotifyExitHopHtlc(
 		hash, amtPaid, testInvoiceExpiry, testCurrentHeight, hodlChan,
 	)
 	if err != nil {
-		t.Fatal("expected duplicate settle to succeed")
+		t.Fatalf("unexpected NotifyExitHopHtlc error: %v", err)
+	}
+	if event.Preimage == nil {
+		t.Fatal("expected settle event")
 	}
 
-	// Try to settle again with a different amount.
-	_, err = registry.NotifyExitHopHtlc(
+	// Try to settle again with a higher amount. This should result in a
+	// cancel event because after a restart the amount should still be the
+	// same. New HTLCs with a different amount should be rejected.
+	event, err = registry.NotifyExitHopHtlc(
 		hash, amtPaid+600, testInvoiceExpiry, testCurrentHeight,
 		hodlChan,
 	)
 	if err != nil {
-		t.Fatal("expected duplicate settle to succeed")
+		t.Fatalf("unexpected NotifyExitHopHtlc error: %v", err)
+	}
+	if event.Preimage != nil {
+		t.Fatal("expected cancel event")
+	}
+
+	// Try to settle again with a lower amount. This should show the same
+	// behaviour as settling with a higher amount.
+	event, err = registry.NotifyExitHopHtlc(
+		hash, amtPaid-600, testInvoiceExpiry, testCurrentHeight,
+		hodlChan,
+	)
+	if err != nil {
+		t.Fatalf("unexpected NotifyExitHopHtlc error: %v", err)
+	}
+	if event.Preimage != nil {
+		t.Fatal("expected cancel event")
 	}
 
 	// Check that settled amount remains unchanged.

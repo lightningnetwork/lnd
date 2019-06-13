@@ -662,5 +662,9 @@ func TestQueryInvoices(t *testing.T) {
 }
 
 func checkHtlcParameters(invoice *Invoice) error {
+	if invoice.Terms.State == ContractSettled {
+		return ErrInvoiceAlreadySettled
+	}
+
 	return nil
 }

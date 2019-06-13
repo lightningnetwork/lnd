@@ -467,7 +467,7 @@ func (a *Agent) controller() {
 		// announcements have been updated. We will consider opening
 		// channels to these nodes if we haven't stabilized.
 		case <-a.nodeUpdates:
-			log.Infof("Node updates received, assessing " +
+			log.Debugf("Node updates received, assessing " +
 				"need for more channels")
 
 		// The agent has been signalled to exit, so we'll bail out

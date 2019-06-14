@@ -229,10 +229,14 @@ type ChannelLinkConfig struct {
 	// receiving node is persistent.
 	UnsafeReplay bool
 
-	// MinFeeUpdateTimeout and MaxFeeUpdateTimeout represent the timeout
-	// interval bounds in which a link will propose to update its commitment
-	// fee rate. A random timeout will be selected between these values.
+	// MinFeeUpdateTimeout represents the minimum interval in which a link
+	// will propose to update its commitment fee rate. A random timeout will
+	// be selected between this and MaxFeeUpdateTimeout.
 	MinFeeUpdateTimeout time.Duration
+
+	// MaxFeeUpdateTimeout represents the maximum interval in which a link
+	// will propose to update its commitment fee rate. A random timeout will
+	// be selected between this and MinFeeUpdateTimeout.
 	MaxFeeUpdateTimeout time.Duration
 
 	// OutgoingCltvRejectDelta defines the number of blocks before expiry of

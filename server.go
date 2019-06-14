@@ -1069,6 +1069,10 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 			policy.SweepFeeRate = sweepRateSatPerByte.FeePerKWeight()
 		}
 
+		if err := policy.Validate(); err != nil {
+			return nil, err
+		}
+
 		s.towerClient, err = wtclient.New(&wtclient.Config{
 			Signer:         cc.wallet.Cfg.Signer,
 			NewAddress:     newSweepPkScriptGen(cc.wallet),

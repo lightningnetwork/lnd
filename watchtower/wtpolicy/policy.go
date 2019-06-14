@@ -27,7 +27,11 @@ const (
 
 	// DefaultSweepFeeRate specifies the fee rate used to construct justice
 	// transactions. The value is expressed in satoshis per kilo-weight.
-	DefaultSweepFeeRate = 3000
+	DefaultSweepFeeRate = lnwallet.SatPerKWeight(12000)
+
+	// MinSweepFeeRate is the minimum sweep fee rate a client may use in its
+	// policy, the current value is 4 sat/kw.
+	MinSweepFeeRate = lnwallet.SatPerKWeight(4000)
 )
 
 var (
@@ -43,6 +47,17 @@ var (
 	// ErrCreatesDust signals that the session's policy would create a dust
 	// output for the victim.
 	ErrCreatesDust = errors.New("justice transaction creates dust at fee rate")
+
+	// ErrAltruistReward signals that the policy is invalid because it
+	// contains a non-zero RewardBase or RewardRate on an altruist policy.
+	ErrAltruistReward = errors.New("altruist policy has reward params")
+
+	// ErrNoMaxUpdates signals that the policy specified zero MaxUpdates.
+	ErrNoMaxUpdates = errors.New("max updates must be positive")
+
+	// ErrSweepFeeRateTooLow signals that the policy's fee rate is too low
+	// to get into the mempool during low congestion.
+	ErrSweepFeeRateTooLow = errors.New("sweep fee rate too low")
 )
 
 // DefaultPolicy returns a Policy containing the default parameters that can be
@@ -50,11 +65,8 @@ var (
 func DefaultPolicy() Policy {
 	return Policy{
 		TxPolicy: TxPolicy{
-			BlobType:   blob.TypeAltruistCommit,
-			RewardRate: DefaultRewardRate,
-			SweepFeeRate: lnwallet.SatPerKWeight(
-				DefaultSweepFeeRate,
-			),
+			BlobType:     blob.TypeAltruistCommit,
+			SweepFeeRate: DefaultSweepFeeRate,
 		},
 		MaxUpdates: DefaultMaxUpdates,
 	}
@@ -105,6 +117,31 @@ func (p Policy) String() string {
 	return fmt.Sprintf("(blob-type=%b max-updates=%d reward-rate=%d "+
 		"sweep-fee-rate=%d)", p.BlobType, p.MaxUpdates, p.RewardRate,
 		p.SweepFeeRate)
+}
+
+// Validate ensures that the policy satisfies some minimal correctness
+// constraints.
+func (p Policy) Validate() error {
+	// RewardBase and RewardRate should not be set if the policy doesn't
+	// have a reward.
+	if !p.BlobType.Has(blob.FlagReward) &&
+		(p.RewardBase != 0 || p.RewardRate != 0) {
+
+		return ErrAltruistReward
+	}
+
+	// MaxUpdates must be positive.
+	if p.MaxUpdates == 0 {
+		return ErrNoMaxUpdates
+	}
+
+	// SweepFeeRate must be sane enough to get in the mempool during low
+	// congestion.
+	if p.SweepFeeRate < MinSweepFeeRate {
+		return ErrSweepFeeRateTooLow
+	}
+
+	return nil
 }
 
 // ComputeAltruistOutput computes the lone output value of a justice transaction

@@ -51,6 +51,7 @@ import (
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/signal"
 	"github.com/lightningnetwork/lnd/walletunlocker"
+	"github.com/lightningnetwork/lnd/watchtower/wtdb"
 )
 
 const (
@@ -313,11 +314,23 @@ func Main() error {
 			"is proxying over Tor as well", cfg.Tor.StreamIsolation)
 	}
 
+	// If the watchtower client should be active, open the client database.
+	// This is done here so that Close always executes when lndMain returns.
+	var towerClientDB *wtdb.ClientDB
+	if cfg.WtClient.IsActive() {
+		var err error
+		towerClientDB, err = wtdb.OpenClientDB(graphDir)
+		if err != nil {
+			ltndLog.Errorf("Unable to open watchtower client db: %v", err)
+		}
+		defer towerClientDB.Close()
+	}
+
 	// Set up the core server which will listen for incoming peer
 	// connections.
 	server, err := newServer(
-		cfg.Listeners, chanDB, activeChainControl, idPrivKey,
-		walletInitParams.ChansToRestore,
+		cfg.Listeners, chanDB, towerClientDB, activeChainControl,
+		idPrivKey, walletInitParams.ChansToRestore,
 	)
 	if err != nil {
 		srvrLog.Errorf("unable to create server: %v\n", err)

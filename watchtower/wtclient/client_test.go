@@ -787,7 +787,7 @@ var clientTests = []clientTest{
 			policy: wtpolicy.Policy{
 				TxPolicy: wtpolicy.TxPolicy{
 					BlobType:     blob.TypeAltruistCommit,
-					SweepFeeRate: 1,
+					SweepFeeRate: wtpolicy.DefaultSweepFeeRate,
 				},
 				MaxUpdates: 20000,
 			},
@@ -821,7 +821,7 @@ var clientTests = []clientTest{
 			policy: wtpolicy.Policy{
 				TxPolicy: wtpolicy.TxPolicy{
 					BlobType:     blob.TypeAltruistCommit,
-					SweepFeeRate: 1,
+					SweepFeeRate: wtpolicy.DefaultSweepFeeRate,
 				},
 				MaxUpdates: 20000,
 			},
@@ -856,7 +856,7 @@ var clientTests = []clientTest{
 			policy: wtpolicy.Policy{
 				TxPolicy: wtpolicy.TxPolicy{
 					BlobType:     blob.TypeAltruistCommit,
-					SweepFeeRate: 1,
+					SweepFeeRate: wtpolicy.DefaultSweepFeeRate,
 				},
 				MaxUpdates: 5,
 			},
@@ -923,7 +923,7 @@ var clientTests = []clientTest{
 			policy: wtpolicy.Policy{
 				TxPolicy: wtpolicy.TxPolicy{
 					BlobType:     blob.TypeAltruistCommit,
-					SweepFeeRate: 1,
+					SweepFeeRate: wtpolicy.DefaultSweepFeeRate,
 				},
 				MaxUpdates: 20000,
 			},
@@ -1005,7 +1005,7 @@ var clientTests = []clientTest{
 			policy: wtpolicy.Policy{
 				TxPolicy: wtpolicy.TxPolicy{
 					BlobType:     blob.TypeAltruistCommit,
-					SweepFeeRate: 1,
+					SweepFeeRate: wtpolicy.DefaultSweepFeeRate,
 				},
 				MaxUpdates: 5,
 			},
@@ -1063,7 +1063,7 @@ var clientTests = []clientTest{
 			policy: wtpolicy.Policy{
 				TxPolicy: wtpolicy.TxPolicy{
 					BlobType:     blob.TypeAltruistCommit,
-					SweepFeeRate: 1,
+					SweepFeeRate: wtpolicy.DefaultSweepFeeRate,
 				},
 				MaxUpdates: 1000,
 			},
@@ -1107,7 +1107,7 @@ var clientTests = []clientTest{
 			policy: wtpolicy.Policy{
 				TxPolicy: wtpolicy.TxPolicy{
 					BlobType:     blob.TypeAltruistCommit,
-					SweepFeeRate: 1,
+					SweepFeeRate: wtpolicy.DefaultSweepFeeRate,
 				},
 				MaxUpdates: 5,
 			},
@@ -1157,7 +1157,7 @@ var clientTests = []clientTest{
 			policy: wtpolicy.Policy{
 				TxPolicy: wtpolicy.TxPolicy{
 					BlobType:     blob.TypeAltruistCommit,
-					SweepFeeRate: 1,
+					SweepFeeRate: wtpolicy.DefaultSweepFeeRate,
 				},
 				MaxUpdates: 5,
 			},
@@ -1215,7 +1215,7 @@ var clientTests = []clientTest{
 			policy: wtpolicy.Policy{
 				TxPolicy: wtpolicy.TxPolicy{
 					BlobType:     blob.TypeAltruistCommit,
-					SweepFeeRate: 1,
+					SweepFeeRate: wtpolicy.DefaultSweepFeeRate,
 				},
 				MaxUpdates: 5,
 			},
@@ -1250,7 +1250,7 @@ var clientTests = []clientTest{
 			// Restart the client with a new policy, which will
 			// immediately try to overwrite the prior session with
 			// the old policy.
-			h.clientCfg.Policy.SweepFeeRate = 2
+			h.clientCfg.Policy.SweepFeeRate *= 2
 			h.startClient()
 			defer h.client.ForceQuit()
 
@@ -1279,7 +1279,7 @@ var clientTests = []clientTest{
 			policy: wtpolicy.Policy{
 				TxPolicy: wtpolicy.TxPolicy{
 					BlobType:     blob.TypeAltruistCommit,
-					SweepFeeRate: 1,
+					SweepFeeRate: wtpolicy.DefaultSweepFeeRate,
 				},
 				MaxUpdates: 10,
 			},
@@ -1339,7 +1339,7 @@ var clientTests = []clientTest{
 			policy: wtpolicy.Policy{
 				TxPolicy: wtpolicy.TxPolicy{
 					BlobType:     blob.TypeAltruistCommit,
-					SweepFeeRate: 1,
+					SweepFeeRate: wtpolicy.DefaultSweepFeeRate,
 				},
 				MaxUpdates: 5,
 			},

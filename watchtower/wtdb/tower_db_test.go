@@ -186,7 +186,8 @@ func testMultipleMatches(h *towerDBHarness) {
 			ID: id,
 			Policy: wtpolicy.Policy{
 				TxPolicy: wtpolicy.TxPolicy{
-					BlobType: blob.TypeAltruistCommit,
+					BlobType:     blob.TypeAltruistCommit,
+					SweepFeeRate: wtpolicy.DefaultSweepFeeRate,
 				},
 				MaxUpdates: 3,
 			},
@@ -281,7 +282,8 @@ func testDeleteSession(h *towerDBHarness) {
 		ID: *id0,
 		Policy: wtpolicy.Policy{
 			TxPolicy: wtpolicy.TxPolicy{
-				BlobType: blob.TypeAltruistCommit,
+				BlobType:     blob.TypeAltruistCommit,
+				SweepFeeRate: wtpolicy.DefaultSweepFeeRate,
 			},
 			MaxUpdates: 3,
 		},
@@ -302,7 +304,8 @@ func testDeleteSession(h *towerDBHarness) {
 		ID: *id1,
 		Policy: wtpolicy.Policy{
 			TxPolicy: wtpolicy.TxPolicy{
-				BlobType: blob.TypeAltruistCommit,
+				BlobType:     blob.TypeAltruistCommit,
+				SweepFeeRate: wtpolicy.DefaultSweepFeeRate,
 			},
 			MaxUpdates: 3,
 		},
@@ -445,7 +448,8 @@ var stateUpdateExhaustSession = stateUpdateTest{
 		ID: *id(0),
 		Policy: wtpolicy.Policy{
 			TxPolicy: wtpolicy.TxPolicy{
-				BlobType: blob.TypeAltruistCommit,
+				BlobType:     blob.TypeAltruistCommit,
+				SweepFeeRate: wtpolicy.DefaultSweepFeeRate,
 			},
 			MaxUpdates: 3,
 		},
@@ -467,7 +471,8 @@ var stateUpdateSeqNumEqualLastApplied = stateUpdateTest{
 		ID: *id(0),
 		Policy: wtpolicy.Policy{
 			TxPolicy: wtpolicy.TxPolicy{
-				BlobType: blob.TypeAltruistCommit,
+				BlobType:     blob.TypeAltruistCommit,
+				SweepFeeRate: wtpolicy.DefaultSweepFeeRate,
 			},
 			MaxUpdates: 3,
 		},
@@ -489,7 +494,8 @@ var stateUpdateSeqNumLTLastApplied = stateUpdateTest{
 		ID: *id(0),
 		Policy: wtpolicy.Policy{
 			TxPolicy: wtpolicy.TxPolicy{
-				BlobType: blob.TypeAltruistCommit,
+				BlobType:     blob.TypeAltruistCommit,
+				SweepFeeRate: wtpolicy.DefaultSweepFeeRate,
 			},
 			MaxUpdates: 3,
 		},
@@ -510,7 +516,8 @@ var stateUpdateSeqNumZeroInvalid = stateUpdateTest{
 		ID: *id(0),
 		Policy: wtpolicy.Policy{
 			TxPolicy: wtpolicy.TxPolicy{
-				BlobType: blob.TypeAltruistCommit,
+				BlobType:     blob.TypeAltruistCommit,
+				SweepFeeRate: wtpolicy.DefaultSweepFeeRate,
 			},
 			MaxUpdates: 3,
 		},
@@ -529,7 +536,8 @@ var stateUpdateSkipSeqNum = stateUpdateTest{
 		ID: *id(0),
 		Policy: wtpolicy.Policy{
 			TxPolicy: wtpolicy.TxPolicy{
-				BlobType: blob.TypeAltruistCommit,
+				BlobType:     blob.TypeAltruistCommit,
+				SweepFeeRate: wtpolicy.DefaultSweepFeeRate,
 			},
 			MaxUpdates: 3,
 		},
@@ -548,7 +556,8 @@ var stateUpdateRevertSeqNum = stateUpdateTest{
 		ID: *id(0),
 		Policy: wtpolicy.Policy{
 			TxPolicy: wtpolicy.TxPolicy{
-				BlobType: blob.TypeAltruistCommit,
+				BlobType:     blob.TypeAltruistCommit,
+				SweepFeeRate: wtpolicy.DefaultSweepFeeRate,
 			},
 			MaxUpdates: 3,
 		},
@@ -569,7 +578,8 @@ var stateUpdateRevertLastApplied = stateUpdateTest{
 		ID: *id(0),
 		Policy: wtpolicy.Policy{
 			TxPolicy: wtpolicy.TxPolicy{
-				BlobType: blob.TypeAltruistCommit,
+				BlobType:     blob.TypeAltruistCommit,
+				SweepFeeRate: wtpolicy.DefaultSweepFeeRate,
 			},
 			MaxUpdates: 3,
 		},
@@ -591,7 +601,8 @@ var stateUpdateInvalidBlobSize = stateUpdateTest{
 		ID: *id(0),
 		Policy: wtpolicy.Policy{
 			TxPolicy: wtpolicy.TxPolicy{
-				BlobType: blob.TypeAltruistCommit,
+				BlobType:     blob.TypeAltruistCommit,
+				SweepFeeRate: wtpolicy.DefaultSweepFeeRate,
 			},
 			MaxUpdates: 3,
 		},

@@ -29,3 +29,42 @@ func NewBreachHintFromHash(hash *chainhash.Hash) BreachHint {
 func (h BreachHint) String() string {
 	return hex.EncodeToString(h[:])
 }
+
+// BreachKey is computed as SHA256(txid || txid), which produces the key for
+// decrypting a client's encrypted blobs.
+type BreachKey [KeySize]byte
+
+// NewBreachKeyFromHash creates a breach key from a transaction ID.
+func NewBreachKeyFromHash(hash *chainhash.Hash) BreachKey {
+	h := sha256.New()
+	h.Write(hash[:])
+	h.Write(hash[:])
+
+	var key BreachKey
+	copy(key[:], h.Sum(nil))
+	return key
+}
+
+// String returns a hex encoding of the breach key.
+func (k BreachKey) String() string {
+	return hex.EncodeToString(k[:])
+}
+
+// NewBreachHintAndKeyFromHash derives a BreachHint and BreachKey from a given
+// txid in a single pass. The hint and key are computed as:
+//    hint = SHA256(txid)
+//    key = SHA256(txid || txid)
+func NewBreachHintAndKeyFromHash(hash *chainhash.Hash) (BreachHint, BreachKey) {
+	var (
+		hint BreachHint
+		key  BreachKey
+	)
+
+	h := sha256.New()
+	h.Write(hash[:])
+	copy(hint[:], h.Sum(nil))
+	h.Write(hash[:])
+	copy(key[:], h.Sum(nil))
+
+	return hint, key
+}

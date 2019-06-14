@@ -46,6 +46,10 @@ var (
 	// ErrNoSessionHintIndex signals that an active session does not have an
 	// initialized index for tracking its own state updates.
 	ErrNoSessionHintIndex = errors.New("session hint index missing")
+
+	// ErrInvalidBlobSize indicates that the encrypted blob provided by the
+	// client is not valid according to the blob type of the session.
+	ErrInvalidBlobSize = errors.New("invalid blob size")
 )
 
 // TowerDB is single database providing a persistent storage engine for the
@@ -231,6 +235,13 @@ func (t *TowerDB) InsertStateUpdate(update *SessionStateUpdate) (uint16, error) 
 		session, err := getSession(sessions, update.ID[:])
 		if err != nil {
 			return err
+		}
+
+		// Assert that the blob is the correct size for the session's
+		// blob type.
+		expBlobSize := blob.Size(session.Policy.BlobType)
+		if len(update.EncryptedBlob) != expBlobSize {
+			return ErrInvalidBlobSize
 		}
 
 		// Validate the update against the current state of the session.

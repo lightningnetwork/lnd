@@ -586,6 +586,30 @@ var stateUpdateRevertLastApplied = stateUpdateTest{
 	},
 }
 
+var stateUpdateInvalidBlobSize = stateUpdateTest{
+	session: &wtdb.SessionInfo{
+		ID: *id(0),
+		Policy: wtpolicy.Policy{
+			TxPolicy: wtpolicy.TxPolicy{
+				BlobType: blob.TypeAltruistCommit,
+			},
+			MaxUpdates: 3,
+		},
+		RewardAddress: []byte{},
+	},
+	updates: []*wtdb.SessionStateUpdate{
+		{
+			ID:            *id(0),
+			SeqNum:        1,
+			LastApplied:   0,
+			EncryptedBlob: []byte{0x01, 0x02, 0x03}, // too $hort
+		},
+	},
+	updateErrs: []error{
+		wtdb.ErrInvalidBlobSize,
+	},
+}
+
 func TestTowerDB(t *testing.T) {
 	dbs := []struct {
 		name string
@@ -702,6 +726,10 @@ func TestTowerDB(t *testing.T) {
 		{
 			name: "state update revert last applied",
 			run:  runStateUpdateTest(stateUpdateRevertLastApplied),
+		},
+		{
+			name: "invalid blob size",
+			run:  runStateUpdateTest(stateUpdateInvalidBlobSize),
 		},
 		{
 			name: "multiple breach matches",

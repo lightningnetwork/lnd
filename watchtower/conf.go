@@ -2,8 +2,6 @@ package watchtower
 
 import (
 	"time"
-
-	"github.com/lightningnetwork/lnd/lncfg"
 )
 
 // Conf specifies the watchtower options that can be configured from the command
@@ -24,7 +22,9 @@ type Conf struct {
 // Apply completes the passed Config struct by applying any parsed Conf options.
 // If the corresponding values parsed by Conf are already set in the Config,
 // those fields will be not be modified.
-func (c *Conf) Apply(cfg *Config) (*Config, error) {
+func (c *Conf) Apply(cfg *Config,
+	normalizer AddressNormalizer) (*Config, error) {
+
 	// Set the Config's listening addresses if they are empty.
 	if cfg.ListenAddrs == nil {
 		// Without a network, we will be unable to resolve the listening
@@ -43,7 +43,7 @@ func (c *Conf) Apply(cfg *Config) (*Config, error) {
 		// Normalize the raw listening addresses so that they can be
 		// used by the brontide listener.
 		var err error
-		cfg.ListenAddrs, err = lncfg.NormalizeAddresses(
+		cfg.ListenAddrs, err = normalizer(
 			c.RawListeners, DefaultPeerPortStr,
 			cfg.Net.ResolveTCPAddr,
 		)

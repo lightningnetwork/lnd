@@ -163,13 +163,13 @@ func TestLookoutBreachMatching(t *testing.T) {
 	// Add both state updates to the tower's database.
 	txBlob1 := &wtdb.SessionStateUpdate{
 		ID:            makeArray33(1),
-		Hint:          wtdb.NewBreachHintFromHash(&hash1),
+		Hint:          blob.NewBreachHintFromHash(&hash1),
 		EncryptedBlob: encBlob1,
 		SeqNum:        1,
 	}
 	txBlob2 := &wtdb.SessionStateUpdate{
 		ID:            makeArray33(2),
-		Hint:          wtdb.NewBreachHintFromHash(&hash2),
+		Hint:          blob.NewBreachHintFromHash(&hash2),
 		EncryptedBlob: encBlob2,
 		SeqNum:        1,
 	}

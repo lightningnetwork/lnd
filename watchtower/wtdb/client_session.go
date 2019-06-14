@@ -5,6 +5,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/watchtower/blob"
 	"github.com/lightningnetwork/lnd/watchtower/wtpolicy"
 )
 
@@ -178,7 +179,7 @@ type CommittedUpdateBody struct {
 	BackupID BackupID
 
 	// Hint is the 16-byte prefix of the revoked commitment transaction ID.
-	Hint BreachHint
+	Hint blob.BreachHint
 
 	// EncryptedBlob is a ciphertext containing the sweep information for
 	// exacting justice if the commitment transaction matching the breach

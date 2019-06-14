@@ -576,17 +576,17 @@ func (h *testHarness) registerChannel(id uint64) {
 // advanceChannelN calls advanceState on the channel identified by id the number
 // of provided times and returns the breach hints corresponding to the new
 // states.
-func (h *testHarness) advanceChannelN(id uint64, n int) []wtdb.BreachHint {
+func (h *testHarness) advanceChannelN(id uint64, n int) []blob.BreachHint {
 	h.t.Helper()
 
 	channel := h.channel(id)
 
-	var hints []wtdb.BreachHint
+	var hints []blob.BreachHint
 	for i := uint64(0); i < uint64(n); i++ {
 		channel.advanceState(h.t)
 		commitTx, _ := h.channel(id).getState(i)
 		breachTxID := commitTx.TxHash()
-		hints = append(hints, wtdb.NewBreachHintFromHash(&breachTxID))
+		hints = append(hints, blob.NewBreachHintFromHash(&breachTxID))
 	}
 
 	return hints
@@ -621,18 +621,18 @@ func (h *testHarness) backupState(id, i uint64, expErr error) {
 // party for each state in from-to times and returns the breach hints for states
 // [from, to).
 func (h *testHarness) sendPayments(id, from, to uint64,
-	amt lnwire.MilliSatoshi) []wtdb.BreachHint {
+	amt lnwire.MilliSatoshi) []blob.BreachHint {
 
 	h.t.Helper()
 
 	channel := h.channel(id)
 
-	var hints []wtdb.BreachHint
+	var hints []blob.BreachHint
 	for i := from; i < to; i++ {
 		h.channel(id).sendPayment(h.t, amt)
 		commitTx, _ := channel.getState(i)
 		breachTxID := commitTx.TxHash()
-		hints = append(hints, wtdb.NewBreachHintFromHash(&breachTxID))
+		hints = append(hints, blob.NewBreachHintFromHash(&breachTxID))
 	}
 
 	return hints
@@ -642,18 +642,18 @@ func (h *testHarness) sendPayments(id, from, to uint64,
 // remote party for each state in from-to times and returns the breach hints for
 // states [from, to).
 func (h *testHarness) recvPayments(id, from, to uint64,
-	amt lnwire.MilliSatoshi) []wtdb.BreachHint {
+	amt lnwire.MilliSatoshi) []blob.BreachHint {
 
 	h.t.Helper()
 
 	channel := h.channel(id)
 
-	var hints []wtdb.BreachHint
+	var hints []blob.BreachHint
 	for i := from; i < to; i++ {
 		channel.receivePayment(h.t, amt)
 		commitTx, _ := channel.getState(i)
 		breachTxID := commitTx.TxHash()
-		hints = append(hints, wtdb.NewBreachHintFromHash(&breachTxID))
+		hints = append(hints, blob.NewBreachHintFromHash(&breachTxID))
 	}
 
 	return hints
@@ -662,7 +662,7 @@ func (h *testHarness) recvPayments(id, from, to uint64,
 // waitServerUpdates blocks until the breach hints provided all appear in the
 // watchtower's database or the timeout expires. This is used to test that the
 // client in fact sends the updates to the server, even if it is offline.
-func (h *testHarness) waitServerUpdates(hints []wtdb.BreachHint,
+func (h *testHarness) waitServerUpdates(hints []blob.BreachHint,
 	timeout time.Duration) {
 
 	h.t.Helper()
@@ -671,7 +671,7 @@ func (h *testHarness) waitServerUpdates(hints []wtdb.BreachHint,
 	// assert that no updates appear.
 	wantUpdates := len(hints) > 0
 
-	hintSet := make(map[wtdb.BreachHint]struct{})
+	hintSet := make(map[blob.BreachHint]struct{})
 	for _, hint := range hints {
 		hintSet[hint] = struct{}{}
 	}
@@ -737,7 +737,7 @@ func (h *testHarness) waitServerUpdates(hints []wtdb.BreachHint,
 // assertUpdatesForPolicy queries the server db for matches using the provided
 // breach hints, then asserts that each match has a session with the expected
 // policy.
-func (h *testHarness) assertUpdatesForPolicy(hints []wtdb.BreachHint,
+func (h *testHarness) assertUpdatesForPolicy(hints []blob.BreachHint,
 	expPolicy wtpolicy.Policy) {
 
 	// Query for matches on the provided hints.
@@ -1113,7 +1113,7 @@ var clientTests = []clientTest{
 
 			// Generate the retributions for all 10 channels and
 			// collect the breach hints.
-			var hints []wtdb.BreachHint
+			var hints []blob.BreachHint
 			for id := uint64(0); id < 10; id++ {
 				chanHints := h.advanceChannelN(id, numUpdates)
 				hints = append(hints, chanHints...)

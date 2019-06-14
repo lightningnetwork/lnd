@@ -173,9 +173,9 @@ func (t *backupTask) bindSession(session *wtdb.ClientSessionBody) error {
 // required pieces from signatures, witness scripts, etc are then packaged into
 // a JusticeKit and encrypted using the breach transaction's key.
 func (t *backupTask) craftSessionPayload(
-	signer input.Signer) (wtdb.BreachHint, []byte, error) {
+	signer input.Signer) (blob.BreachHint, []byte, error) {
 
-	var hint wtdb.BreachHint
+	var hint blob.BreachHint
 
 	// First, copy over the sweep pkscript, the pubkeys used to derive the
 	// to-local script, and the remote CSV delay.
@@ -290,7 +290,7 @@ func (t *backupTask) craftSessionPayload(
 	// Finally, compute the breach hint, taken as the first half of the
 	// breach transactions txid. Once the tower sees the breach transaction
 	// on the network, it can use the full txid to decyrpt the blob.
-	hint = wtdb.NewBreachHintFromHash(&breachKey)
+	hint = blob.NewBreachHintFromHash(&breachKey)
 
 	return hint, encBlob, nil
 }

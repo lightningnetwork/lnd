@@ -1,4 +1,4 @@
-package wtdb
+package blob
 
 import (
 	"encoding/hex"

@@ -1,6 +1,10 @@
 package wtdb
 
-import "io"
+import (
+	"io"
+
+	"github.com/lightningnetwork/lnd/watchtower/blob"
+)
 
 // SessionStateUpdate holds a state update sent by a client along with its
 // SessionID.
@@ -16,7 +20,7 @@ type SessionStateUpdate struct {
 	LastApplied uint16
 
 	// Hint is the 16-byte prefix of the revoked commitment transaction.
-	Hint BreachHint
+	Hint blob.BreachHint
 
 	// EncryptedBlob is a ciphertext containing the sweep information for
 	// exacting justice if the commitment transaction matching the breach

@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/watchtower"
+	"github.com/lightningnetwork/lnd/watchtower/blob"
 	"github.com/lightningnetwork/lnd/watchtower/wtdb"
 	"github.com/lightningnetwork/lnd/watchtower/wtmock"
 	"github.com/lightningnetwork/lnd/watchtower/wtpolicy"
@@ -97,10 +98,10 @@ func (h *towerDBHarness) deleteSession(id wtdb.SessionID, expErr error) {
 
 // queryMatches queries that database for the passed breach hint, returning all
 // matches found.
-func (h *towerDBHarness) queryMatches(hint wtdb.BreachHint) []wtdb.Match {
+func (h *towerDBHarness) queryMatches(hint blob.BreachHint) []wtdb.Match {
 	h.t.Helper()
 
-	matches, err := h.db.QueryMatches([]wtdb.BreachHint{hint})
+	matches, err := h.db.QueryMatches([]blob.BreachHint{hint})
 	if err != nil {
 		h.t.Fatalf("unable to query matches: %v", err)
 	}
@@ -111,7 +112,7 @@ func (h *towerDBHarness) queryMatches(hint wtdb.BreachHint) []wtdb.Match {
 // hasUpdate queries the database for the passed breach hint, asserting that
 // only one match is present and that the hints indeed match. If successful, the
 // match is returned.
-func (h *towerDBHarness) hasUpdate(hint wtdb.BreachHint) wtdb.Match {
+func (h *towerDBHarness) hasUpdate(hint blob.BreachHint) wtdb.Match {
 	h.t.Helper()
 
 	matches := h.queryMatches(hint)
@@ -169,7 +170,7 @@ func testMultipleMatches(h *towerDBHarness) {
 	const numUpdates = 3
 
 	// Create a new session and send updates with all the same hint.
-	var hint wtdb.BreachHint
+	var hint blob.BreachHint
 	for i := 0; i < numUpdates; i++ {
 		id := *id(i)
 		session := &wtdb.SessionInfo{
@@ -291,7 +292,7 @@ func testDeleteSession(h *towerDBHarness) {
 	h.insertSession(session1, nil)
 
 	// Create and insert updates for both sessions that have the same hint.
-	var hint wtdb.BreachHint
+	var hint blob.BreachHint
 	update0 := &wtdb.SessionStateUpdate{
 		ID:            *id0,
 		Hint:          hint,
@@ -705,7 +706,7 @@ func updateFromInt(id *wtdb.SessionID, i int,
 	lastApplied uint16) *wtdb.SessionStateUpdate {
 
 	// Ensure the hint is unique.
-	var hint wtdb.BreachHint
+	var hint blob.BreachHint
 	copy(hint[:4], id[:4])
 	binary.BigEndian.PutUint16(hint[4:6], uint16(i))
 

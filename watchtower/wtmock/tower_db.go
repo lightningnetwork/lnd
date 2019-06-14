@@ -4,6 +4,7 @@ import (
 	"sync"
 
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/watchtower/blob"
 	"github.com/lightningnetwork/lnd/watchtower/wtdb"
 )
 
@@ -12,14 +13,14 @@ type TowerDB struct {
 	mu        sync.Mutex
 	lastEpoch *chainntnfs.BlockEpoch
 	sessions  map[wtdb.SessionID]*wtdb.SessionInfo
-	blobs     map[wtdb.BreachHint]map[wtdb.SessionID]*wtdb.SessionStateUpdate
+	blobs     map[blob.BreachHint]map[wtdb.SessionID]*wtdb.SessionStateUpdate
 }
 
 // NewTowerDB initializes a fresh mock TowerDB.
 func NewTowerDB() *TowerDB {
 	return &TowerDB{
 		sessions: make(map[wtdb.SessionID]*wtdb.SessionInfo),
-		blobs:    make(map[wtdb.BreachHint]map[wtdb.SessionID]*wtdb.SessionStateUpdate),
+		blobs:    make(map[blob.BreachHint]map[wtdb.SessionID]*wtdb.SessionStateUpdate),
 	}
 }
 
@@ -113,7 +114,7 @@ func (db *TowerDB) DeleteSession(target wtdb.SessionID) error {
 // passed breachHints. More than one Match will be returned for a given hint if
 // they exist in the database.
 func (db *TowerDB) QueryMatches(
-	breachHints []wtdb.BreachHint) ([]wtdb.Match, error) {
+	breachHints []blob.BreachHint) ([]wtdb.Match, error) {
 
 	db.mu.Lock()
 	defer db.mu.Unlock()

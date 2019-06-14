@@ -516,7 +516,7 @@ func testBackupTask(t *testing.T, test backupTaskTest) {
 
 	// Verify that the breach hint matches the breach txid's prefix.
 	breachTxID := test.breachInfo.BreachTransaction.TxHash()
-	expHint := wtdb.NewBreachHintFromHash(&breachTxID)
+	expHint := blob.NewBreachHintFromHash(&breachTxID)
 	if hint != expHint {
 		t.Fatalf("breach hint mismatch, want: %x, got: %v",
 			expHint, hint)

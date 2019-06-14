@@ -305,6 +305,16 @@ func (hn *HarnessNode) Name() string {
 	return hn.cfg.Name
 }
 
+// TLSCertStr returns the path where the TLS certificate is stored.
+func (hn *HarnessNode) TLSCertStr() string {
+	return hn.cfg.TLSCertPath
+}
+
+// TLSKeyStr returns the path where the TLS key is stored.
+func (hn *HarnessNode) TLSKeyStr() string {
+	return hn.cfg.TLSKeyPath
+}
+
 // ChanBackupPath returns the fielpath to the on-disk channels.backup file for
 // this node.
 func (hn *HarnessNode) ChanBackupPath() string {

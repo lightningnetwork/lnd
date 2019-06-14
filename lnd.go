@@ -437,13 +437,39 @@ func getTLSConfig(cfg *config) (*tls.Config, *credentials.TransportCredentials,
 		}
 	}
 
-	cert, err := tls.LoadX509KeyPair(cfg.TLSCertPath, cfg.TLSKeyPath)
+	certData, err := tls.LoadX509KeyPair(cfg.TLSCertPath, cfg.TLSKeyPath)
 	if err != nil {
 		return nil, nil, "", err
 	}
 
+	cert, err := x509.ParseCertificate(certData.Certificate[0])
+	if err != nil {
+		return nil, nil, "", err
+	}
+
+	// If the certificate expired, delete it and the TLS key and generate a new pair
+	if time.Now().After(cert.NotAfter) {
+		ltndLog.Info("TLS certificate is expired, generating a new one")
+
+		err := os.Remove(cfg.TLSCertPath)
+		if err != nil {
+			return nil, nil, "", err
+		}
+
+		err = os.Remove(cfg.TLSKeyPath)
+		if err != nil {
+			return nil, nil, "", err
+		}
+
+		err = genCertPair(cfg.TLSCertPath, cfg.TLSKeyPath)
+		if err != nil {
+			return nil, nil, "", err
+		}
+
+	}
+
 	tlsCfg := &tls.Config{
-		Certificates: []tls.Certificate{cert},
+		Certificates: []tls.Certificate{certData},
 		CipherSuites: tlsCipherSuites,
 		MinVersion:   tls.VersionTLS12,
 	}

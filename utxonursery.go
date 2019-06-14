@@ -8,7 +8,6 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
@@ -1229,19 +1228,6 @@ func (u *utxoNursery) closeAndRemoveIfMature(chanPoint *wire.OutPoint) error {
 	utxnLog.Infof("Removed channel %v from nursery store", chanPoint)
 
 	return nil
-}
-
-// newSweepPkScript creates a new public key script which should be used to
-// sweep any time-locked, or contested channel funds into the wallet.
-// Specifically, the script generated is a version 0, pay-to-witness-pubkey-hash
-// (p2wkh) output.
-func newSweepPkScript(wallet lnwallet.WalletController) ([]byte, error) {
-	sweepAddr, err := wallet.NewAddress(lnwallet.WitnessPubKey, false)
-	if err != nil {
-		return nil, err
-	}
-
-	return txscript.PayToAddrScript(sweepAddr)
 }
 
 // babyOutput represents a two-stage CSV locked output, and is used to track

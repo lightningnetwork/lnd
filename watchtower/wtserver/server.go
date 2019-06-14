@@ -63,6 +63,10 @@ type Config struct {
 	// NoAckUpdates causes the server to not acknowledge state updates, this
 	// should only be used for testing.
 	NoAckUpdates bool
+
+	// DisableReward causes the server to reject any session creation
+	// attempts that request rewards.
+	DisableReward bool
 }
 
 // Server houses the state required to handle watchtower peers. It's primary job

@@ -626,9 +626,7 @@ func (c *TowerClient) backupDispatcher() {
 					return
 				}
 
-				log.Debugf("Processing backup task chanid=%s "+
-					"commit-height=%d", task.id.ChanID,
-					task.id.CommitHeight)
+				log.Debugf("Processing %v", task.id)
 
 				c.stats.taskReceived()
 				c.processTask(task)
@@ -659,8 +657,8 @@ func (c *TowerClient) processTask(task *backupTask) {
 // sessionQueue will be removed if accepting the task left the sessionQueue in
 // an exhausted state.
 func (c *TowerClient) taskAccepted(task *backupTask, newStatus reserveStatus) {
-	log.Infof("Backup chanid=%s commit-height=%d accepted successfully",
-		task.id.ChanID, task.id.CommitHeight)
+	log.Infof("Queued %v successfully for session %v",
+		task.id, c.sessionQueue.ID())
 
 	c.stats.taskAccepted()
 
@@ -701,16 +699,14 @@ func (c *TowerClient) taskRejected(task *backupTask, curStatus reserveStatus) {
 	case reserveAvailable:
 		c.stats.taskIneligible()
 
-		log.Infof("Backup chanid=%s commit-height=%d is ineligible",
-			task.id.ChanID, task.id.CommitHeight)
+		log.Infof("Ignoring ineligible %v", task.id)
 
 		err := c.cfg.DB.MarkBackupIneligible(
 			task.id.ChanID, task.id.CommitHeight,
 		)
 		if err != nil {
-			log.Errorf("Unable to mark task chanid=%s "+
-				"commit-height=%d ineligible: %v",
-				task.id.ChanID, task.id.CommitHeight, err)
+			log.Errorf("Unable to mark %v ineligible: %v",
+				task.id, err)
 
 			// It is safe to not handle this error, even if we could
 			// not persist the result. At worst, this task may be
@@ -729,10 +725,8 @@ func (c *TowerClient) taskRejected(task *backupTask, curStatus reserveStatus) {
 	case reserveExhausted:
 		c.stats.sessionExhausted()
 
-		log.Debugf("Session %s exhausted, backup chanid=%s "+
-			"commit-height=%d queued for next session",
-			c.sessionQueue.ID(), task.id.ChanID,
-			task.id.CommitHeight)
+		log.Debugf("Session %v exhausted, %s queued for next session",
+			c.sessionQueue.ID(), task.id)
 
 		// Cache the task that we pulled off, so that we can process it
 		// once a new session queue is available.

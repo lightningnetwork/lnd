@@ -1,10 +1,12 @@
 package wtdb
 
 import (
+	"fmt"
 	"io"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/watchtower/blob"
 	"github.com/lightningnetwork/lnd/watchtower/wtpolicy"
 )
 
@@ -159,6 +161,11 @@ func (b *BackupID) Decode(r io.Reader) error {
 	)
 }
 
+// String returns a human-readable encoding of a BackupID.
+func (b *BackupID) String() string {
+	return fmt.Sprintf("backup(%x, %d)", b.ChanID, b.CommitHeight)
+}
+
 // CommittedUpdate holds a state update sent by a client along with its
 // allocated sequence number and the exact remote commitment the encrypted
 // justice transaction can rectify.
@@ -178,7 +185,7 @@ type CommittedUpdateBody struct {
 	BackupID BackupID
 
 	// Hint is the 16-byte prefix of the revoked commitment transaction ID.
-	Hint BreachHint
+	Hint blob.BreachHint
 
 	// EncryptedBlob is a ciphertext containing the sweep information for
 	// exacting justice if the commitment transaction matching the breach

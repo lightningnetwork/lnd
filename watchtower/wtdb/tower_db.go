@@ -7,6 +7,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/watchtower/blob"
 )
 
 const (
@@ -45,6 +46,10 @@ var (
 	// ErrNoSessionHintIndex signals that an active session does not have an
 	// initialized index for tracking its own state updates.
 	ErrNoSessionHintIndex = errors.New("session hint index missing")
+
+	// ErrInvalidBlobSize indicates that the encrypted blob provided by the
+	// client is not valid according to the blob type of the session.
+	ErrInvalidBlobSize = errors.New("invalid blob size")
 )
 
 // TowerDB is single database providing a persistent storage engine for the
@@ -188,6 +193,12 @@ func (t *TowerDB) InsertSessionInfo(session *SessionInfo) error {
 			return ErrSessionAlreadyExists
 		}
 
+		// Perform a quick sanity check on the session policy before
+		// accepting.
+		if err := session.Policy.Validate(); err != nil {
+			return err
+		}
+
 		err = putSession(sessions, session)
 		if err != nil {
 			return err
@@ -230,6 +241,13 @@ func (t *TowerDB) InsertStateUpdate(update *SessionStateUpdate) (uint16, error) 
 		session, err := getSession(sessions, update.ID[:])
 		if err != nil {
 			return err
+		}
+
+		// Assert that the blob is the correct size for the session's
+		// blob type.
+		expBlobSize := blob.Size(session.Policy.BlobType)
+		if len(update.EncryptedBlob) != expBlobSize {
+			return ErrInvalidBlobSize
 		}
 
 		// Validate the update against the current state of the session.
@@ -369,7 +387,7 @@ func (t *TowerDB) DeleteSession(target SessionID) error {
 // QueryMatches searches against all known state updates for any that match the
 // passed breachHints. More than one Match will be returned for a given hint if
 // they exist in the database.
-func (t *TowerDB) QueryMatches(breachHints []BreachHint) ([]Match, error) {
+func (t *TowerDB) QueryMatches(breachHints []blob.BreachHint) ([]Match, error) {
 	var matches []Match
 	err := t.db.View(func(tx *bbolt.Tx) error {
 		sessions := tx.Bucket(sessionsBkt)
@@ -534,20 +552,20 @@ func removeSessionHintBkt(updateIndex *bbolt.Bucket, id *SessionID) error {
 // If the index for the session has not been initialized, this method returns
 // ErrNoSessionHintIndex.
 func getHintsForSession(updateIndex *bbolt.Bucket,
-	id *SessionID) ([]BreachHint, error) {
+	id *SessionID) ([]blob.BreachHint, error) {
 
 	sessionHints := updateIndex.Bucket(id[:])
 	if sessionHints == nil {
 		return nil, ErrNoSessionHintIndex
 	}
 
-	var hints []BreachHint
+	var hints []blob.BreachHint
 	err := sessionHints.ForEach(func(k, _ []byte) error {
-		if len(k) != BreachHintSize {
+		if len(k) != blob.BreachHintSize {
 			return nil
 		}
 
-		var hint BreachHint
+		var hint blob.BreachHint
 		copy(hint[:], k)
 		hints = append(hints, hint)
 		return nil
@@ -565,7 +583,7 @@ func getHintsForSession(updateIndex *bbolt.Bucket,
 // for the session has not been initialized, this method returns
 // ErrNoSessionHintIndex.
 func putHintForSession(updateIndex *bbolt.Bucket, id *SessionID,
-	hint BreachHint) error {
+	hint blob.BreachHint) error {
 
 	sessionHints := updateIndex.Bucket(id[:])
 	if sessionHints == nil {

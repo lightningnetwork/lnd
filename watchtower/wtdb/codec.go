@@ -36,7 +36,7 @@ func ReadElement(r io.Reader, element interface{}) error {
 			return err
 		}
 
-	case *BreachHint:
+	case *blob.BreachHint:
 		if _, err := io.ReadFull(r, e[:]); err != nil {
 			return err
 		}
@@ -94,7 +94,7 @@ func WriteElement(w io.Writer, element interface{}) error {
 			return err
 		}
 
-	case BreachHint:
+	case blob.BreachHint:
 		if _, err := w.Write(e[:]); err != nil {
 			return err
 		}

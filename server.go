@@ -20,6 +20,7 @@ import (
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/connmgr"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/coreos/bbolt"
@@ -50,6 +51,9 @@ import (
 	"github.com/lightningnetwork/lnd/ticker"
 	"github.com/lightningnetwork/lnd/tor"
 	"github.com/lightningnetwork/lnd/walletunlocker"
+	"github.com/lightningnetwork/lnd/watchtower/wtclient"
+	"github.com/lightningnetwork/lnd/watchtower/wtdb"
+	"github.com/lightningnetwork/lnd/watchtower/wtpolicy"
 	"github.com/lightningnetwork/lnd/zpay32"
 )
 
@@ -204,6 +208,8 @@ type server struct {
 
 	sphinx *htlcswitch.OnionProcessor
 
+	towerClient wtclient.Client
+
 	connMgr *connmgr.ConnManager
 
 	sigPool *lnwallet.SigPool
@@ -282,7 +288,8 @@ func noiseDial(idPriv *btcec.PrivateKey) func(net.Addr) (net.Conn, error) {
 
 // newServer creates a new instance of the server which is to listen using the
 // passed listener address.
-func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
+func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
+	towerClientDB *wtdb.ClientDB, cc *chainControl,
 	privKey *btcec.PrivateKey,
 	chansToRestore walletunlocker.ChannelsToRecover) (*server, error) {
 
@@ -723,10 +730,8 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 	}
 
 	s.sweeper = sweep.New(&sweep.UtxoSweeperConfig{
-		FeeEstimator: cc.feeEstimator,
-		GenSweepScript: func() ([]byte, error) {
-			return newSweepPkScript(cc.wallet)
-		},
+		FeeEstimator:       cc.feeEstimator,
+		GenSweepScript:     newSweepPkScriptGen(cc.wallet),
 		Signer:             cc.wallet.Cfg.Signer,
 		PublishTransaction: cc.wallet.PublishTransaction,
 		NewBatchTimer: func() <-chan time.Time {
@@ -769,10 +774,8 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		ChainHash:              *activeNetParams.GenesisHash,
 		IncomingBroadcastDelta: DefaultIncomingBroadcastDelta,
 		OutgoingBroadcastDelta: DefaultOutgoingBroadcastDelta,
-		NewSweepAddr: func() ([]byte, error) {
-			return newSweepPkScript(cc.wallet)
-		},
-		PublishTx: cc.wallet.PublishTransaction,
+		NewSweepAddr:           newSweepPkScriptGen(cc.wallet),
+		PublishTx:              cc.wallet.PublishTransaction,
 		DeliverResolutionMsg: func(msgs ...contractcourt.ResolutionMsg) error {
 			for _, msg := range msgs {
 				err := s.htlcSwitch.ProcessContractResolution(msg)
@@ -845,12 +848,10 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 	}, chanDB)
 
 	s.breachArbiter = newBreachArbiter(&BreachConfig{
-		CloseLink: closeLink,
-		DB:        chanDB,
-		Estimator: s.cc.feeEstimator,
-		GenSweepScript: func() ([]byte, error) {
-			return newSweepPkScript(cc.wallet)
-		},
+		CloseLink:          closeLink,
+		DB:                 chanDB,
+		Estimator:          s.cc.feeEstimator,
+		GenSweepScript:     newSweepPkScriptGen(cc.wallet),
 		Notifier:           cc.chainNotifier,
 		PublishTransaction: cc.wallet.PublishTransaction,
 		ContractBreaches:   contractBreaches,
@@ -1056,6 +1057,41 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		return nil, err
 	}
 
+	if cfg.WtClient.IsActive() {
+		policy := wtpolicy.DefaultPolicy()
+
+		if cfg.WtClient.SweepFeeRate != 0 {
+			// We expose the sweep fee rate in sat/byte, but the
+			// tower protocol operations on sat/kw.
+			sweepRateSatPerByte := lnwallet.SatPerKVByte(
+				1000 * cfg.WtClient.SweepFeeRate,
+			)
+			policy.SweepFeeRate = sweepRateSatPerByte.FeePerKWeight()
+		}
+
+		if err := policy.Validate(); err != nil {
+			return nil, err
+		}
+
+		s.towerClient, err = wtclient.New(&wtclient.Config{
+			Signer:         cc.wallet.Cfg.Signer,
+			NewAddress:     newSweepPkScriptGen(cc.wallet),
+			SecretKeyRing:  s.cc.keyRing,
+			Dial:           cfg.net.Dial,
+			AuthDial:       wtclient.AuthDial,
+			DB:             towerClientDB,
+			Policy:         wtpolicy.DefaultPolicy(),
+			PrivateTower:   cfg.WtClient.PrivateTowers[0],
+			ChainHash:      *activeNetParams.GenesisHash,
+			MinBackoff:     10 * time.Second,
+			MaxBackoff:     5 * time.Minute,
+			ForceQuitDelay: wtclient.DefaultForceQuitDelay,
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	// Create the connection manager which will be responsible for
 	// maintaining persistent outbound connections and also accepting new
 	// incoming connections
@@ -1127,6 +1163,12 @@ func (s *server) Start() error {
 		if err := s.sphinx.Start(); err != nil {
 			startErr = err
 			return
+		}
+		if s.towerClient != nil {
+			if err := s.towerClient.Start(); err != nil {
+				startErr = err
+				return
+			}
 		}
 		if err := s.htlcSwitch.Start(); err != nil {
 			startErr = err
@@ -1288,6 +1330,14 @@ func (s *server) Stop() error {
 		// peerTerminationWatchers signal completion to each peer.
 		for _, peer := range s.Peers() {
 			s.DisconnectPeer(peer.addr.IdentityKey)
+		}
+
+		// Now that all connections have been torn down, stop the tower
+		// client which will reliably flush all queued states to the
+		// tower. If this is halted for any reason, the force quit timer
+		// will kick in and abort to allow this method to return.
+		if s.towerClient != nil {
+			s.towerClient.Stop()
 		}
 
 		// Wait for all lingering goroutines to quit.
@@ -3178,5 +3228,22 @@ func (s *server) applyChannelUpdate(update *lnwire.ChannelUpdate) error {
 		return err
 	case <-s.quit:
 		return ErrServerShuttingDown
+	}
+}
+
+// newSweepPkScriptGen creates closure that generates a new public key script
+// which should be used to sweep any funds into the on-chain wallet.
+// Specifically, the script generated is a version 0, pay-to-witness-pubkey-hash
+// (p2wkh) output.
+func newSweepPkScriptGen(
+	wallet lnwallet.WalletController) func() ([]byte, error) {
+
+	return func() ([]byte, error) {
+		sweepAddr, err := wallet.NewAddress(lnwallet.WitnessPubKey, false)
+		if err != nil {
+			return nil, err
+		}
+
+		return txscript.PayToAddrScript(sweepAddr)
 	}
 }

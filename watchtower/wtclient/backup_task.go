@@ -173,9 +173,9 @@ func (t *backupTask) bindSession(session *wtdb.ClientSessionBody) error {
 // required pieces from signatures, witness scripts, etc are then packaged into
 // a JusticeKit and encrypted using the breach transaction's key.
 func (t *backupTask) craftSessionPayload(
-	signer input.Signer) (wtdb.BreachHint, []byte, error) {
+	signer input.Signer) (blob.BreachHint, []byte, error) {
 
-	var hint wtdb.BreachHint
+	var hint blob.BreachHint
 
 	// First, copy over the sweep pkscript, the pubkeys used to derive the
 	// to-local script, and the remote CSV delay.
@@ -276,21 +276,18 @@ func (t *backupTask) craftSessionPayload(
 		}
 	}
 
-	// Compute the breach hint from the breach transaction id's prefix.
-	breachKey := t.breachInfo.BreachTransaction.TxHash()
+	breachTxID := t.breachInfo.BreachTransaction.TxHash()
+
+	// Compute the breach key as SHA256(txid).
+	hint, key := blob.NewBreachHintAndKeyFromHash(&breachTxID)
 
 	// Then, we'll encrypt the computed justice kit using the full breach
 	// transaction id, which will allow the tower to recover the contents
 	// after the transaction is seen in the chain or mempool.
-	encBlob, err := justiceKit.Encrypt(breachKey[:], t.blobType)
+	encBlob, err := justiceKit.Encrypt(key, t.blobType)
 	if err != nil {
 		return hint, nil, err
 	}
-
-	// Finally, compute the breach hint, taken as the first half of the
-	// breach transactions txid. Once the tower sees the breach transaction
-	// on the network, it can use the full txid to decyrpt the blob.
-	hint = wtdb.NewBreachHintFromHash(&breachKey)
 
 	return hint, encBlob, nil
 }

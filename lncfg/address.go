@@ -18,12 +18,14 @@ var (
 	loopBackAddrs = []string{"localhost", "127.0.0.1", "[::1]"}
 )
 
-type tcpResolver = func(network, addr string) (*net.TCPAddr, error)
+// TCPResolver is a function signature that resolves an address on a given
+// network.
+type TCPResolver = func(network, addr string) (*net.TCPAddr, error)
 
 // NormalizeAddresses returns a new slice with all the passed addresses
 // normalized with the given default port and all duplicates removed.
 func NormalizeAddresses(addrs []string, defaultPort string,
-	tcpResolver tcpResolver) ([]net.Addr, error) {
+	tcpResolver TCPResolver) ([]net.Addr, error) {
 
 	result := make([]net.Addr, 0, len(addrs))
 	seen := map[string]struct{}{}
@@ -120,7 +122,7 @@ func IsUnix(addr net.Addr) bool {
 // connections. We accept a custom function to resolve any TCP addresses so
 // that caller is able control exactly how resolution is performed.
 func ParseAddressString(strAddress string, defaultPort string,
-	tcpResolver tcpResolver) (net.Addr, error) {
+	tcpResolver TCPResolver) (net.Addr, error) {
 
 	var parsedNetwork, parsedAddr string
 
@@ -188,9 +190,9 @@ func ParseAddressString(strAddress string, defaultPort string,
 // 33-byte, compressed public key that lies on the secp256k1 curve. The <addr>
 // may be any address supported by ParseAddressString. If no port is specified,
 // the defaultPort will be used. Any tcp addresses that need resolving will be
-// resolved using the custom tcpResolver.
+// resolved using the custom TCPResolver.
 func ParseLNAddressString(strAddress string, defaultPort string,
-	tcpResolver tcpResolver) (*lnwire.NetAddress, error) {
+	tcpResolver TCPResolver) (*lnwire.NetAddress, error) {
 
 	// Split the address string around the @ sign.
 	parts := strings.Split(strAddress, "@")

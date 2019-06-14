@@ -54,6 +54,17 @@ func (s *Server) handleCreateSession(peer Peer, id *wtdb.SessionID,
 		)
 	}
 
+	// If the request asks for a reward session and the tower has them
+	// disabled, we will reject the request.
+	if s.cfg.DisableReward && req.BlobType.Has(blob.FlagReward) {
+		log.Debugf("Rejecting CreateSession from %s, reward "+
+			"sessions disabled", id)
+		return s.replyCreateSession(
+			peer, id, wtwire.CreateSessionCodeRejectBlobType, 0,
+			nil,
+		)
+	}
+
 	// Now that we've established that this session does not exist in the
 	// database, retrieve the sweep address that will be given to the
 	// client. This address is to be included by the client when signing
@@ -89,11 +100,13 @@ func (s *Server) handleCreateSession(peer Peer, id *wtdb.SessionID,
 	info := wtdb.SessionInfo{
 		ID: *id,
 		Policy: wtpolicy.Policy{
-			BlobType:     req.BlobType,
-			MaxUpdates:   req.MaxUpdates,
-			RewardBase:   req.RewardBase,
-			RewardRate:   req.RewardRate,
-			SweepFeeRate: req.SweepFeeRate,
+			TxPolicy: wtpolicy.TxPolicy{
+				BlobType:     req.BlobType,
+				RewardBase:   req.RewardBase,
+				RewardRate:   req.RewardRate,
+				SweepFeeRate: req.SweepFeeRate,
+			},
+			MaxUpdates: req.MaxUpdates,
 		},
 		RewardAddress: rewardScript,
 	}

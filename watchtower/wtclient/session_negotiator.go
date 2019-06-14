@@ -112,7 +112,7 @@ var _ SessionNegotiator = (*sessionNegotiator)(nil)
 // newSessionNegotiator initializes a fresh sessionNegotiator instance.
 func newSessionNegotiator(cfg *NegotiatorConfig) *sessionNegotiator {
 	localInit := wtwire.NewInitMessage(
-		lnwire.NewRawFeatureVector(wtwire.WtSessionsRequired),
+		lnwire.NewRawFeatureVector(wtwire.AltruistSessionsRequired),
 		cfg.ChainHash,
 	)
 

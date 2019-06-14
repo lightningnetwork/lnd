@@ -96,7 +96,10 @@ func TestLookoutBreachMatching(t *testing.T) {
 	sessionInfo1 := &wtdb.SessionInfo{
 		ID: makeArray33(1),
 		Policy: wtpolicy.Policy{
-			BlobType:   rewardAndCommitType,
+			TxPolicy: wtpolicy.TxPolicy{
+				BlobType:     rewardAndCommitType,
+				SweepFeeRate: wtpolicy.DefaultSweepFeeRate,
+			},
 			MaxUpdates: 10,
 		},
 		RewardAddress: makeAddrSlice(22),
@@ -104,7 +107,10 @@ func TestLookoutBreachMatching(t *testing.T) {
 	sessionInfo2 := &wtdb.SessionInfo{
 		ID: makeArray33(2),
 		Policy: wtpolicy.Policy{
-			BlobType:   rewardAndCommitType,
+			TxPolicy: wtpolicy.TxPolicy{
+				BlobType:     rewardAndCommitType,
+				SweepFeeRate: wtpolicy.DefaultSweepFeeRate,
+			},
 			MaxUpdates: 10,
 		},
 		RewardAddress: makeAddrSlice(22),
@@ -148,14 +154,17 @@ func TestLookoutBreachMatching(t *testing.T) {
 		CommitToLocalSig: makeArray64(2),
 	}
 
-	// Encrypt the first justice kit under the txid of the first txn.
-	encBlob1, err := blob1.Encrypt(hash1[:], blob.FlagCommitOutputs.Type())
+	key1 := blob.NewBreachKeyFromHash(&hash1)
+	key2 := blob.NewBreachKeyFromHash(&hash2)
+
+	// Encrypt the first justice kit under breach key one.
+	encBlob1, err := blob1.Encrypt(key1, blob.FlagCommitOutputs.Type())
 	if err != nil {
 		t.Fatalf("unable to encrypt sweep detail 1: %v", err)
 	}
 
-	// Encrypt the second justice kit under the txid of the second txn.
-	encBlob2, err := blob2.Encrypt(hash2[:], blob.FlagCommitOutputs.Type())
+	// Encrypt the second justice kit under breach key two.
+	encBlob2, err := blob2.Encrypt(key2, blob.FlagCommitOutputs.Type())
 	if err != nil {
 		t.Fatalf("unable to encrypt sweep detail 2: %v", err)
 	}
@@ -163,13 +172,13 @@ func TestLookoutBreachMatching(t *testing.T) {
 	// Add both state updates to the tower's database.
 	txBlob1 := &wtdb.SessionStateUpdate{
 		ID:            makeArray33(1),
-		Hint:          wtdb.NewBreachHintFromHash(&hash1),
+		Hint:          blob.NewBreachHintFromHash(&hash1),
 		EncryptedBlob: encBlob1,
 		SeqNum:        1,
 	}
 	txBlob2 := &wtdb.SessionStateUpdate{
 		ID:            makeArray33(2),
-		Hint:          wtdb.NewBreachHintFromHash(&hash2),
+		Hint:          blob.NewBreachHintFromHash(&hash2),
 		EncryptedBlob: encBlob2,
 		SeqNum:        1,
 	}

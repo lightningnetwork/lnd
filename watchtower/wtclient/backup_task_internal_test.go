@@ -207,9 +207,11 @@ func genTaskTest(
 		expRewardScript:  rewardScript,
 		session: &wtdb.ClientSessionBody{
 			Policy: wtpolicy.Policy{
-				BlobType:     blobType,
-				SweepFeeRate: sweepFeeRate,
-				RewardRate:   10000,
+				TxPolicy: wtpolicy.TxPolicy{
+					BlobType:     blobType,
+					SweepFeeRate: sweepFeeRate,
+					RewardRate:   10000,
+				},
 			},
 			RewardPkScript: rewardScript,
 		},
@@ -516,7 +518,7 @@ func testBackupTask(t *testing.T, test backupTaskTest) {
 
 	// Verify that the breach hint matches the breach txid's prefix.
 	breachTxID := test.breachInfo.BreachTransaction.TxHash()
-	expHint := wtdb.NewBreachHintFromHash(&breachTxID)
+	expHint := blob.NewBreachHintFromHash(&breachTxID)
 	if hint != expHint {
 		t.Fatalf("breach hint mismatch, want: %x, got: %v",
 			expHint, hint)
@@ -524,7 +526,8 @@ func testBackupTask(t *testing.T, test backupTaskTest) {
 
 	// Decrypt the return blob to obtain the JusticeKit containing its
 	// contents.
-	jKit, err := blob.Decrypt(breachTxID[:], encBlob, policy.BlobType)
+	key := blob.NewBreachKeyFromHash(&breachTxID)
+	jKit, err := blob.Decrypt(key, encBlob, policy.BlobType)
 	if err != nil {
 		t.Fatalf("unable to decrypt blob: %v", err)
 	}

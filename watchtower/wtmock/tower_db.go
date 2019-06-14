@@ -4,6 +4,7 @@ import (
 	"sync"
 
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/watchtower/blob"
 	"github.com/lightningnetwork/lnd/watchtower/wtdb"
 )
 
@@ -12,14 +13,14 @@ type TowerDB struct {
 	mu        sync.Mutex
 	lastEpoch *chainntnfs.BlockEpoch
 	sessions  map[wtdb.SessionID]*wtdb.SessionInfo
-	blobs     map[wtdb.BreachHint]map[wtdb.SessionID]*wtdb.SessionStateUpdate
+	blobs     map[blob.BreachHint]map[wtdb.SessionID]*wtdb.SessionStateUpdate
 }
 
 // NewTowerDB initializes a fresh mock TowerDB.
 func NewTowerDB() *TowerDB {
 	return &TowerDB{
 		sessions: make(map[wtdb.SessionID]*wtdb.SessionInfo),
-		blobs:    make(map[wtdb.BreachHint]map[wtdb.SessionID]*wtdb.SessionStateUpdate),
+		blobs:    make(map[blob.BreachHint]map[wtdb.SessionID]*wtdb.SessionStateUpdate),
 	}
 }
 
@@ -34,6 +35,11 @@ func (db *TowerDB) InsertStateUpdate(update *wtdb.SessionStateUpdate) (uint16, e
 	info, ok := db.sessions[update.ID]
 	if !ok {
 		return 0, wtdb.ErrSessionNotFound
+	}
+
+	// Assert that the blob is the correct size for the session's blob type.
+	if len(update.EncryptedBlob) != blob.Size(info.Policy.BlobType) {
+		return 0, wtdb.ErrInvalidBlobSize
 	}
 
 	err := info.AcceptUpdateSequence(update.SeqNum, update.LastApplied)
@@ -75,6 +81,11 @@ func (db *TowerDB) InsertSessionInfo(info *wtdb.SessionInfo) error {
 		return wtdb.ErrSessionAlreadyExists
 	}
 
+	// Perform a quick sanity check on the session policy before accepting.
+	if err := info.Policy.Validate(); err != nil {
+		return err
+	}
+
 	db.sessions[info.ID] = info
 
 	return nil
@@ -113,7 +124,7 @@ func (db *TowerDB) DeleteSession(target wtdb.SessionID) error {
 // passed breachHints. More than one Match will be returned for a given hint if
 // they exist in the database.
 func (db *TowerDB) QueryMatches(
-	breachHints []wtdb.BreachHint) ([]wtdb.Match, error) {
+	breachHints []blob.BreachHint) ([]wtdb.Match, error) {
 
 	db.mu.Lock()
 	defer db.mu.Unlock()

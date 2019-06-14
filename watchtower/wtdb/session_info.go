@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io"
 
+	"github.com/lightningnetwork/lnd/watchtower/blob"
 	"github.com/lightningnetwork/lnd/watchtower/wtpolicy"
 )
 
@@ -134,7 +135,7 @@ type Match struct {
 	SeqNum uint16
 
 	// Hint is the breach hint that triggered the match.
-	Hint BreachHint
+	Hint blob.BreachHint
 
 	// EncryptedBlob is the encrypted payload containing the justice kit
 	// uploaded by the client.

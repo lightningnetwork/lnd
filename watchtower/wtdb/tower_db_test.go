@@ -1,6 +1,7 @@
 package wtdb_test
 
 import (
+	"bytes"
 	"encoding/binary"
 	"io/ioutil"
 	"os"
@@ -10,9 +11,14 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/watchtower"
+	"github.com/lightningnetwork/lnd/watchtower/blob"
 	"github.com/lightningnetwork/lnd/watchtower/wtdb"
 	"github.com/lightningnetwork/lnd/watchtower/wtmock"
 	"github.com/lightningnetwork/lnd/watchtower/wtpolicy"
+)
+
+var (
+	testBlob = make([]byte, blob.Size(blob.TypeAltruistCommit))
 )
 
 // dbInit is a closure used to initialize a watchtower.DB instance and its
@@ -97,10 +103,10 @@ func (h *towerDBHarness) deleteSession(id wtdb.SessionID, expErr error) {
 
 // queryMatches queries that database for the passed breach hint, returning all
 // matches found.
-func (h *towerDBHarness) queryMatches(hint wtdb.BreachHint) []wtdb.Match {
+func (h *towerDBHarness) queryMatches(hint blob.BreachHint) []wtdb.Match {
 	h.t.Helper()
 
-	matches, err := h.db.QueryMatches([]wtdb.BreachHint{hint})
+	matches, err := h.db.QueryMatches([]blob.BreachHint{hint})
 	if err != nil {
 		h.t.Fatalf("unable to query matches: %v", err)
 	}
@@ -111,7 +117,7 @@ func (h *towerDBHarness) queryMatches(hint wtdb.BreachHint) []wtdb.Match {
 // hasUpdate queries the database for the passed breach hint, asserting that
 // only one match is present and that the hints indeed match. If successful, the
 // match is returned.
-func (h *towerDBHarness) hasUpdate(hint wtdb.BreachHint) wtdb.Match {
+func (h *towerDBHarness) hasUpdate(hint blob.BreachHint) wtdb.Match {
 	h.t.Helper()
 
 	matches := h.queryMatches(hint)
@@ -136,11 +142,21 @@ func testInsertSession(h *towerDBHarness) {
 	session := &wtdb.SessionInfo{
 		ID: id,
 		Policy: wtpolicy.Policy{
+			TxPolicy: wtpolicy.TxPolicy{
+				BlobType: blob.TypeAltruistCommit,
+			},
 			MaxUpdates: 100,
 		},
 		RewardAddress: []byte{0x01, 0x02, 0x03},
 	}
 
+	// Try to insert the session, which should fail since the policy doesn't
+	// meet the current sanity checks.
+	h.insertSession(session, wtpolicy.ErrSweepFeeRateTooLow)
+
+	// Now assign a sane sweep fee rate to the policy, inserting should
+	// succeed.
+	session.Policy.SweepFeeRate = wtpolicy.DefaultSweepFeeRate
 	h.insertSession(session, nil)
 
 	session2 := h.getSession(&id, nil)
@@ -154,8 +170,9 @@ func testInsertSession(h *towerDBHarness) {
 
 	// Insert a state update to fully commit the session parameters.
 	update := &wtdb.SessionStateUpdate{
-		ID:     id,
-		SeqNum: 1,
+		ID:            id,
+		SeqNum:        1,
+		EncryptedBlob: testBlob,
 	}
 	h.insertUpdate(update, nil)
 
@@ -169,12 +186,16 @@ func testMultipleMatches(h *towerDBHarness) {
 	const numUpdates = 3
 
 	// Create a new session and send updates with all the same hint.
-	var hint wtdb.BreachHint
+	var hint blob.BreachHint
 	for i := 0; i < numUpdates; i++ {
 		id := *id(i)
 		session := &wtdb.SessionInfo{
 			ID: id,
 			Policy: wtpolicy.Policy{
+				TxPolicy: wtpolicy.TxPolicy{
+					BlobType:     blob.TypeAltruistCommit,
+					SweepFeeRate: wtpolicy.DefaultSweepFeeRate,
+				},
 				MaxUpdates: 3,
 			},
 			RewardAddress: []byte{},
@@ -182,9 +203,10 @@ func testMultipleMatches(h *towerDBHarness) {
 		h.insertSession(session, nil)
 
 		update := &wtdb.SessionStateUpdate{
-			ID:     id,
-			SeqNum: 1,
-			Hint:   hint, // Use same hint to cause multiple matches
+			ID:            id,
+			SeqNum:        1,
+			Hint:          hint, // Use same hint to cause multiple matches
+			EncryptedBlob: testBlob,
 		}
 		h.insertUpdate(update, nil)
 	}
@@ -266,6 +288,10 @@ func testDeleteSession(h *towerDBHarness) {
 	session0 := &wtdb.SessionInfo{
 		ID: *id0,
 		Policy: wtpolicy.Policy{
+			TxPolicy: wtpolicy.TxPolicy{
+				BlobType:     blob.TypeAltruistCommit,
+				SweepFeeRate: wtpolicy.DefaultSweepFeeRate,
+			},
 			MaxUpdates: 3,
 		},
 		RewardAddress: []byte{},
@@ -284,6 +310,10 @@ func testDeleteSession(h *towerDBHarness) {
 	session1 := &wtdb.SessionInfo{
 		ID: *id1,
 		Policy: wtpolicy.Policy{
+			TxPolicy: wtpolicy.TxPolicy{
+				BlobType:     blob.TypeAltruistCommit,
+				SweepFeeRate: wtpolicy.DefaultSweepFeeRate,
+			},
 			MaxUpdates: 3,
 		},
 		RewardAddress: []byte{},
@@ -291,18 +321,18 @@ func testDeleteSession(h *towerDBHarness) {
 	h.insertSession(session1, nil)
 
 	// Create and insert updates for both sessions that have the same hint.
-	var hint wtdb.BreachHint
+	var hint blob.BreachHint
 	update0 := &wtdb.SessionStateUpdate{
 		ID:            *id0,
 		Hint:          hint,
 		SeqNum:        1,
-		EncryptedBlob: []byte{},
+		EncryptedBlob: testBlob,
 	}
 	update1 := &wtdb.SessionStateUpdate{
 		ID:            *id1,
 		Hint:          hint,
 		SeqNum:        1,
-		EncryptedBlob: []byte{},
+		EncryptedBlob: testBlob,
 	}
 
 	// Insert both updates should succeed.
@@ -413,7 +443,7 @@ func runStateUpdateTest(test stateUpdateTest) func(*towerDBHarness) {
 var stateUpdateNoSession = stateUpdateTest{
 	session: nil,
 	updates: []*wtdb.SessionStateUpdate{
-		{ID: *id(0), SeqNum: 1, LastApplied: 0},
+		updateFromInt(id(0), 1, 0),
 	},
 	updateErrs: []error{
 		wtdb.ErrSessionNotFound,
@@ -424,6 +454,10 @@ var stateUpdateExhaustSession = stateUpdateTest{
 	session: &wtdb.SessionInfo{
 		ID: *id(0),
 		Policy: wtpolicy.Policy{
+			TxPolicy: wtpolicy.TxPolicy{
+				BlobType:     blob.TypeAltruistCommit,
+				SweepFeeRate: wtpolicy.DefaultSweepFeeRate,
+			},
 			MaxUpdates: 3,
 		},
 		RewardAddress: []byte{},
@@ -443,6 +477,10 @@ var stateUpdateSeqNumEqualLastApplied = stateUpdateTest{
 	session: &wtdb.SessionInfo{
 		ID: *id(0),
 		Policy: wtpolicy.Policy{
+			TxPolicy: wtpolicy.TxPolicy{
+				BlobType:     blob.TypeAltruistCommit,
+				SweepFeeRate: wtpolicy.DefaultSweepFeeRate,
+			},
 			MaxUpdates: 3,
 		},
 		RewardAddress: []byte{},
@@ -462,6 +500,10 @@ var stateUpdateSeqNumLTLastApplied = stateUpdateTest{
 	session: &wtdb.SessionInfo{
 		ID: *id(0),
 		Policy: wtpolicy.Policy{
+			TxPolicy: wtpolicy.TxPolicy{
+				BlobType:     blob.TypeAltruistCommit,
+				SweepFeeRate: wtpolicy.DefaultSweepFeeRate,
+			},
 			MaxUpdates: 3,
 		},
 		RewardAddress: []byte{},
@@ -480,6 +522,10 @@ var stateUpdateSeqNumZeroInvalid = stateUpdateTest{
 	session: &wtdb.SessionInfo{
 		ID: *id(0),
 		Policy: wtpolicy.Policy{
+			TxPolicy: wtpolicy.TxPolicy{
+				BlobType:     blob.TypeAltruistCommit,
+				SweepFeeRate: wtpolicy.DefaultSweepFeeRate,
+			},
 			MaxUpdates: 3,
 		},
 		RewardAddress: []byte{},
@@ -496,6 +542,10 @@ var stateUpdateSkipSeqNum = stateUpdateTest{
 	session: &wtdb.SessionInfo{
 		ID: *id(0),
 		Policy: wtpolicy.Policy{
+			TxPolicy: wtpolicy.TxPolicy{
+				BlobType:     blob.TypeAltruistCommit,
+				SweepFeeRate: wtpolicy.DefaultSweepFeeRate,
+			},
 			MaxUpdates: 3,
 		},
 		RewardAddress: []byte{},
@@ -512,6 +562,10 @@ var stateUpdateRevertSeqNum = stateUpdateTest{
 	session: &wtdb.SessionInfo{
 		ID: *id(0),
 		Policy: wtpolicy.Policy{
+			TxPolicy: wtpolicy.TxPolicy{
+				BlobType:     blob.TypeAltruistCommit,
+				SweepFeeRate: wtpolicy.DefaultSweepFeeRate,
+			},
 			MaxUpdates: 3,
 		},
 		RewardAddress: []byte{},
@@ -530,6 +584,10 @@ var stateUpdateRevertLastApplied = stateUpdateTest{
 	session: &wtdb.SessionInfo{
 		ID: *id(0),
 		Policy: wtpolicy.Policy{
+			TxPolicy: wtpolicy.TxPolicy{
+				BlobType:     blob.TypeAltruistCommit,
+				SweepFeeRate: wtpolicy.DefaultSweepFeeRate,
+			},
 			MaxUpdates: 3,
 		},
 		RewardAddress: []byte{},
@@ -542,6 +600,31 @@ var stateUpdateRevertLastApplied = stateUpdateTest{
 	},
 	updateErrs: []error{
 		nil, nil, nil, wtdb.ErrLastAppliedReversion,
+	},
+}
+
+var stateUpdateInvalidBlobSize = stateUpdateTest{
+	session: &wtdb.SessionInfo{
+		ID: *id(0),
+		Policy: wtpolicy.Policy{
+			TxPolicy: wtpolicy.TxPolicy{
+				BlobType:     blob.TypeAltruistCommit,
+				SweepFeeRate: wtpolicy.DefaultSweepFeeRate,
+			},
+			MaxUpdates: 3,
+		},
+		RewardAddress: []byte{},
+	},
+	updates: []*wtdb.SessionStateUpdate{
+		{
+			ID:            *id(0),
+			SeqNum:        1,
+			LastApplied:   0,
+			EncryptedBlob: []byte{0x01, 0x02, 0x03}, // too $hort
+		},
+	},
+	updateErrs: []error{
+		wtdb.ErrInvalidBlobSize,
 	},
 }
 
@@ -663,6 +746,10 @@ func TestTowerDB(t *testing.T) {
 			run:  runStateUpdateTest(stateUpdateRevertLastApplied),
 		},
 		{
+			name: "invalid blob size",
+			run:  runStateUpdateTest(stateUpdateInvalidBlobSize),
+		},
+		{
 			name: "multiple breach matches",
 			run:  testMultipleMatches,
 		},
@@ -705,16 +792,18 @@ func updateFromInt(id *wtdb.SessionID, i int,
 	lastApplied uint16) *wtdb.SessionStateUpdate {
 
 	// Ensure the hint is unique.
-	var hint wtdb.BreachHint
+	var hint blob.BreachHint
 	copy(hint[:4], id[:4])
 	binary.BigEndian.PutUint16(hint[4:6], uint16(i))
+
+	blobSize := blob.Size(blob.TypeAltruistCommit)
 
 	return &wtdb.SessionStateUpdate{
 		ID:            *id,
 		Hint:          hint,
 		SeqNum:        uint16(i),
 		LastApplied:   lastApplied,
-		EncryptedBlob: []byte{byte(i)},
+		EncryptedBlob: bytes.Repeat([]byte{byte(i)}, blobSize),
 	}
 }
 

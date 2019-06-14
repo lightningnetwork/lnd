@@ -664,7 +664,7 @@ func randCommittedUpdate(t *testing.T, seqNum uint16) *wtdb.CommittedUpdate {
 		t.Fatalf("unable to generate chan id: %v", err)
 	}
 
-	var hint wtdb.BreachHint
+	var hint blob.BreachHint
 	if _, err := io.ReadFull(crand.Reader, hint[:]); err != nil {
 		t.Fatalf("unable to generate breach hint: %v", err)
 	}

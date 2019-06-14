@@ -32,6 +32,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/tor"
+	"github.com/lightningnetwork/lnd/watchtower"
 )
 
 const (
@@ -315,6 +316,8 @@ type config struct {
 	Caches *lncfg.Caches `group:"caches" namespace:"caches"`
 
 	Prometheus lncfg.Prometheus `group:"prometheus" namespace:"prometheus"`
+
+	WtClient *lncfg.WtClient `group:"wtclient" namespace:"wtclient"`
 }
 
 // loadConfig initializes and parses the config using a config file and command
@@ -1051,13 +1054,25 @@ func loadConfig() (*config, error) {
 			"minbackoff")
 	}
 
-	// Validate the subconfigs for workers and caches.
+	// Validate the subconfigs for workers, caches, and the tower client.
 	err = lncfg.Validate(
 		cfg.Workers,
 		cfg.Caches,
+		cfg.WtClient,
 	)
 	if err != nil {
 		return nil, err
+	}
+
+	// If the user provided private watchtower addresses, parse them to
+	// obtain the LN addresses.
+	if cfg.WtClient.IsActive() {
+		err := cfg.WtClient.ParsePrivateTowers(
+			watchtower.DefaultPeerPort, cfg.net.ResolveTCPAddr,
+		)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// Finally, ensure that the user's color is correctly formatted,

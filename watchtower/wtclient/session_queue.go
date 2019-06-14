@@ -109,7 +109,7 @@ type sessionQueue struct {
 // newSessionQueue intiializes a fresh sessionQueue.
 func newSessionQueue(cfg *sessionQueueConfig) *sessionQueue {
 	localInit := wtwire.NewInitMessage(
-		lnwire.NewRawFeatureVector(wtwire.WtSessionsRequired),
+		lnwire.NewRawFeatureVector(wtwire.AltruistSessionsRequired),
 		cfg.ChainHash,
 	)
 

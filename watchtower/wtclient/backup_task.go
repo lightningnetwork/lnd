@@ -276,21 +276,18 @@ func (t *backupTask) craftSessionPayload(
 		}
 	}
 
-	// Compute the breach hint from the breach transaction id's prefix.
-	breachKey := t.breachInfo.BreachTransaction.TxHash()
+	breachTxID := t.breachInfo.BreachTransaction.TxHash()
+
+	// Compute the breach key as SHA256(txid).
+	hint, key := blob.NewBreachHintAndKeyFromHash(&breachTxID)
 
 	// Then, we'll encrypt the computed justice kit using the full breach
 	// transaction id, which will allow the tower to recover the contents
 	// after the transaction is seen in the chain or mempool.
-	encBlob, err := justiceKit.Encrypt(breachKey[:], t.blobType)
+	encBlob, err := justiceKit.Encrypt(key, t.blobType)
 	if err != nil {
 		return hint, nil, err
 	}
-
-	// Finally, compute the breach hint, taken as the first half of the
-	// breach transactions txid. Once the tower sees the breach transaction
-	// on the network, it can use the full txid to decyrpt the blob.
-	hint = blob.NewBreachHintFromHash(&breachKey)
 
 	return hint, encBlob, nil
 }

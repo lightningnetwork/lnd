@@ -165,8 +165,8 @@ func testBlobJusticeKitEncryptDecrypt(t *testing.T, test descriptorTest) {
 	// Generate a random encryption key for the blob. The key is
 	// sized at 32 byte, as in practice we will be using the remote
 	// party's commitment txid as the key.
-	key := make([]byte, blob.KeySize)
-	_, err := io.ReadFull(rand.Reader, key)
+	var key blob.BreachKey
+	_, err := rand.Read(key[:])
 	if err != nil {
 		t.Fatalf("unable to generate blob encryption key: %v", err)
 	}

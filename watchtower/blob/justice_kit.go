@@ -75,11 +75,6 @@ var (
 		"ciphertext is too small for chacha20poly1305",
 	)
 
-	// ErrKeySize signals that the provided key is improperly sized.
-	ErrKeySize = fmt.Errorf(
-		"chacha20poly1305 key size must be %d bytes", KeySize,
-	)
-
 	// ErrNoCommitToRemoteOutput is returned when trying to retrieve the
 	// commit to-remote output from the blob, though none exists.
 	ErrNoCommitToRemoteOutput = errors.New(
@@ -223,12 +218,7 @@ func (b *JusticeKit) CommitToRemoteWitnessStack() ([][]byte, error) {
 //
 // NOTE: It is the caller's responsibility to ensure that this method is only
 // called once for a given (nonce, key) pair.
-func (b *JusticeKit) Encrypt(key []byte, blobType Type) ([]byte, error) {
-	// Fail if the nonce is not 32-bytes.
-	if len(key) != KeySize {
-		return nil, ErrKeySize
-	}
-
+func (b *JusticeKit) Encrypt(key BreachKey, blobType Type) ([]byte, error) {
 	// Encode the plaintext using the provided version, to obtain the
 	// plaintext bytes.
 	var ptxtBuf bytes.Buffer
@@ -238,7 +228,7 @@ func (b *JusticeKit) Encrypt(key []byte, blobType Type) ([]byte, error) {
 	}
 
 	// Create a new chacha20poly1305 cipher, using a 32-byte key.
-	cipher, err := chacha20poly1305.NewX(key)
+	cipher, err := chacha20poly1305.NewX(key[:])
 	if err != nil {
 		return nil, err
 	}
@@ -264,21 +254,17 @@ func (b *JusticeKit) Encrypt(key []byte, blobType Type) ([]byte, error) {
 // Decrypt unenciphers a blob of justice by decrypting the ciphertext using
 // chacha20poly1305 with the chosen (nonce, key) pair. The internal plaintext is
 // then deserialized using the given encoding version.
-func Decrypt(key, ciphertext []byte, blobType Type) (*JusticeKit, error) {
-	switch {
+func Decrypt(key BreachKey, ciphertext []byte,
+	blobType Type) (*JusticeKit, error) {
 
 	// Fail if the blob's overall length is less than required for the nonce
 	// and expansion factor.
-	case len(ciphertext) < NonceSize+CiphertextExpansion:
+	if len(ciphertext) < NonceSize+CiphertextExpansion {
 		return nil, ErrCiphertextTooSmall
-
-	// Fail if the key is not 32-bytes.
-	case len(key) != KeySize:
-		return nil, ErrKeySize
 	}
 
 	// Create a new chacha20poly1305 cipher, using a 32-byte key.
-	cipher, err := chacha20poly1305.NewX(key)
+	cipher, err := chacha20poly1305.NewX(key[:])
 	if err != nil {
 		return nil, err
 	}

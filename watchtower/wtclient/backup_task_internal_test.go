@@ -524,7 +524,8 @@ func testBackupTask(t *testing.T, test backupTaskTest) {
 
 	// Decrypt the return blob to obtain the JusticeKit containing its
 	// contents.
-	jKit, err := blob.Decrypt(breachTxID[:], encBlob, policy.BlobType)
+	key := blob.NewBreachKeyFromHash(&breachTxID)
+	jKit, err := blob.Decrypt(key, encBlob, policy.BlobType)
 	if err != nil {
 		t.Fatalf("unable to decrypt blob: %v", err)
 	}

@@ -202,13 +202,16 @@ func (l *Lookout) processEpoch(epoch *chainntnfs.BlockEpoch,
 
 		// The decryption key for the state update should be the full
 		// txid of the breaching commitment transaction.
-		commitTxID := commitTx.TxHash()
+		// The decryption key for the state update should be computed as
+		//   key = SHA256(txid).
+		breachTxID := commitTx.TxHash()
+		breachKey := blob.NewBreachKeyFromHash(&breachTxID)
 
 		// Now, decrypt the blob of justice that we received in the
 		// state update. This will contain all information required to
 		// sweep the breached commitment outputs.
 		justiceKit, err := blob.Decrypt(
-			commitTxID[:], match.EncryptedBlob,
+			breachKey, match.EncryptedBlob,
 			match.SessionInfo.Policy.BlobType,
 		)
 		if err != nil {

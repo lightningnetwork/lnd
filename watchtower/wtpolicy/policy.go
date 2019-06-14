@@ -49,27 +49,27 @@ var (
 // used by clients or servers.
 func DefaultPolicy() Policy {
 	return Policy{
-		BlobType:   blob.TypeDefault,
+		TxPolicy: TxPolicy{
+			BlobType:   blob.TypeDefault,
+			RewardRate: DefaultRewardRate,
+			SweepFeeRate: lnwallet.SatPerKWeight(
+				DefaultSweepFeeRate,
+			),
+		},
 		MaxUpdates: DefaultMaxUpdates,
-		RewardRate: DefaultRewardRate,
-		SweepFeeRate: lnwallet.SatPerKWeight(
-			DefaultSweepFeeRate,
-		),
 	}
 }
 
-// Policy defines the negotiated parameters for a session between a client and
-// server. The parameters specify the format of encrypted blobs sent to the
-// tower, the reward schedule for the tower, and the number of encrypted blobs a
-// client can send in one session.
-type Policy struct {
+// TxPolicy defines the negotiate parameters that determine the form of the
+// justice transaction for a given breached state. Thus, for any given revoked
+// state, an identical key will result in an identical justice transaction
+// (barring signatures). The parameters specify the format of encrypted blobs
+// sent to the tower, the reward schedule for the tower, and the number of
+// encrypted blobs a client can send in one session.
+type TxPolicy struct {
 	// BlobType specifies the blob format that must be used by all updates sent
 	// under the session key used to negotiate this session.
 	BlobType blob.Type
-
-	// MaxUpdates is the maximum number of updates the watchtower will honor
-	// for this session.
-	MaxUpdates uint16
 
 	// RewardBase is the fixed amount allocated to the tower when the
 	// policy's blob type specifies a reward for the tower. This is taken
@@ -86,6 +86,18 @@ type Policy struct {
 	// for this session must use this value during construction, and the
 	// signatures must implicitly commit to the resulting output values.
 	SweepFeeRate lnwallet.SatPerKWeight
+}
+
+// Policy defines the negotiated parameters for a session between a client and
+// server. In addition to the TxPolicy that governs the shape of the justice
+// transaction, the Policy also includes features which only affect the
+// operation of the session.
+type Policy struct {
+	TxPolicy
+
+	// MaxUpdates is the maximum number of updates the watchtower will honor
+	// for this session.
+	MaxUpdates uint16
 }
 
 // String returns a human-readable description of the current policy.

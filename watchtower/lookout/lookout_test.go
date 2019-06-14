@@ -96,7 +96,9 @@ func TestLookoutBreachMatching(t *testing.T) {
 	sessionInfo1 := &wtdb.SessionInfo{
 		ID: makeArray33(1),
 		Policy: wtpolicy.Policy{
-			BlobType:   rewardAndCommitType,
+			TxPolicy: wtpolicy.TxPolicy{
+				BlobType: rewardAndCommitType,
+			},
 			MaxUpdates: 10,
 		},
 		RewardAddress: makeAddrSlice(22),
@@ -104,7 +106,9 @@ func TestLookoutBreachMatching(t *testing.T) {
 	sessionInfo2 := &wtdb.SessionInfo{
 		ID: makeArray33(2),
 		Policy: wtpolicy.Policy{
-			BlobType:   rewardAndCommitType,
+			TxPolicy: wtpolicy.TxPolicy{
+				BlobType: rewardAndCommitType,
+			},
 			MaxUpdates: 10,
 		},
 		RewardAddress: makeAddrSlice(22),

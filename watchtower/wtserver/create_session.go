@@ -89,11 +89,13 @@ func (s *Server) handleCreateSession(peer Peer, id *wtdb.SessionID,
 	info := wtdb.SessionInfo{
 		ID: *id,
 		Policy: wtpolicy.Policy{
-			BlobType:     req.BlobType,
-			MaxUpdates:   req.MaxUpdates,
-			RewardBase:   req.RewardBase,
-			RewardRate:   req.RewardRate,
-			SweepFeeRate: req.SweepFeeRate,
+			TxPolicy: wtpolicy.TxPolicy{
+				BlobType:     req.BlobType,
+				RewardBase:   req.RewardBase,
+				RewardRate:   req.RewardRate,
+				SweepFeeRate: req.SweepFeeRate,
+			},
+			MaxUpdates: req.MaxUpdates,
 		},
 		RewardAddress: rewardScript,
 	}

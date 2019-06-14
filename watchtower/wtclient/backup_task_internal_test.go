@@ -207,9 +207,11 @@ func genTaskTest(
 		expRewardScript:  rewardScript,
 		session: &wtdb.ClientSessionBody{
 			Policy: wtpolicy.Policy{
-				BlobType:     blobType,
-				SweepFeeRate: sweepFeeRate,
-				RewardRate:   10000,
+				TxPolicy: wtpolicy.TxPolicy{
+					BlobType:     blobType,
+					SweepFeeRate: sweepFeeRate,
+					RewardRate:   10000,
+				},
 			},
 			RewardPkScript: rewardScript,
 		},

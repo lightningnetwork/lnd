@@ -156,9 +156,11 @@ func testJusticeDescriptor(t *testing.T, blobType blob.Type) {
 	// parameters that should be used in constructing the justice
 	// transaction.
 	policy := wtpolicy.Policy{
-		BlobType:     blobType,
-		SweepFeeRate: 2000,
-		RewardRate:   900000,
+		TxPolicy: wtpolicy.TxPolicy{
+			BlobType:     blobType,
+			SweepFeeRate: 2000,
+			RewardRate:   900000,
+		},
 	}
 	sessionInfo := &wtdb.SessionInfo{
 		Policy:        policy,

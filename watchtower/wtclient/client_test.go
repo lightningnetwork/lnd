@@ -785,9 +785,11 @@ var clientTests = []clientTest{
 			localBalance:  localBalance,
 			remoteBalance: remoteBalance,
 			policy: wtpolicy.Policy{
-				BlobType:     blob.TypeDefault,
-				MaxUpdates:   20000,
-				SweepFeeRate: 1,
+				TxPolicy: wtpolicy.TxPolicy{
+					BlobType:     blob.TypeDefault,
+					SweepFeeRate: 1,
+				},
+				MaxUpdates: 20000,
 			},
 			noRegisterChan0: true,
 		},
@@ -817,9 +819,11 @@ var clientTests = []clientTest{
 			localBalance:  localBalance,
 			remoteBalance: remoteBalance,
 			policy: wtpolicy.Policy{
-				BlobType:     blob.TypeDefault,
-				MaxUpdates:   20000,
-				SweepFeeRate: 1,
+				TxPolicy: wtpolicy.TxPolicy{
+					BlobType:     blob.TypeDefault,
+					SweepFeeRate: 1,
+				},
+				MaxUpdates: 20000,
 			},
 		},
 		fn: func(h *testHarness) {
@@ -850,9 +854,11 @@ var clientTests = []clientTest{
 			localBalance:  localBalance,
 			remoteBalance: remoteBalance,
 			policy: wtpolicy.Policy{
-				BlobType:     blob.TypeDefault,
-				MaxUpdates:   5,
-				SweepFeeRate: 1,
+				TxPolicy: wtpolicy.TxPolicy{
+					BlobType:     blob.TypeDefault,
+					SweepFeeRate: 1,
+				},
+				MaxUpdates: 5,
 			},
 		},
 		fn: func(h *testHarness) {
@@ -884,9 +890,11 @@ var clientTests = []clientTest{
 			localBalance:  localBalance,
 			remoteBalance: remoteBalance,
 			policy: wtpolicy.Policy{
-				BlobType:     blob.TypeDefault,
-				MaxUpdates:   20000,
-				SweepFeeRate: 1000000, // high sweep fee creates dust
+				TxPolicy: wtpolicy.TxPolicy{
+					BlobType:     blob.TypeDefault,
+					SweepFeeRate: 1000000, // high sweep fee creates dust
+				},
+				MaxUpdates: 20000,
 			},
 		},
 		fn: func(h *testHarness) {
@@ -913,9 +921,11 @@ var clientTests = []clientTest{
 			localBalance:  localBalance,
 			remoteBalance: remoteBalance,
 			policy: wtpolicy.Policy{
-				BlobType:     blob.TypeDefault,
-				MaxUpdates:   20000,
-				SweepFeeRate: 1,
+				TxPolicy: wtpolicy.TxPolicy{
+					BlobType:     blob.TypeDefault,
+					SweepFeeRate: 1,
+				},
+				MaxUpdates: 20000,
 			},
 		},
 		fn: func(h *testHarness) {
@@ -993,9 +1003,11 @@ var clientTests = []clientTest{
 			localBalance:  localBalance,
 			remoteBalance: remoteBalance,
 			policy: wtpolicy.Policy{
-				BlobType:     blob.TypeDefault,
-				MaxUpdates:   5,
-				SweepFeeRate: 1,
+				TxPolicy: wtpolicy.TxPolicy{
+					BlobType:     blob.TypeDefault,
+					SweepFeeRate: 1,
+				},
+				MaxUpdates: 5,
 			},
 		},
 		fn: func(h *testHarness) {
@@ -1049,9 +1061,11 @@ var clientTests = []clientTest{
 			localBalance:  10000001, // ensure (% amt != 0)
 			remoteBalance: 20000001, // ensure (% amt != 0)
 			policy: wtpolicy.Policy{
-				BlobType:     blob.TypeDefault,
-				MaxUpdates:   1000,
-				SweepFeeRate: 1,
+				TxPolicy: wtpolicy.TxPolicy{
+					BlobType:     blob.TypeDefault,
+					SweepFeeRate: 1,
+				},
+				MaxUpdates: 1000,
 			},
 		},
 		fn: func(h *testHarness) {
@@ -1091,9 +1105,11 @@ var clientTests = []clientTest{
 			localBalance:  localBalance,
 			remoteBalance: remoteBalance,
 			policy: wtpolicy.Policy{
-				BlobType:     blob.TypeDefault,
-				MaxUpdates:   5,
-				SweepFeeRate: 1,
+				TxPolicy: wtpolicy.TxPolicy{
+					BlobType:     blob.TypeDefault,
+					SweepFeeRate: 1,
+				},
+				MaxUpdates: 5,
 			},
 		},
 		fn: func(h *testHarness) {
@@ -1139,9 +1155,11 @@ var clientTests = []clientTest{
 			localBalance:  localBalance,
 			remoteBalance: remoteBalance,
 			policy: wtpolicy.Policy{
-				BlobType:     blob.TypeDefault,
-				MaxUpdates:   5,
-				SweepFeeRate: 1,
+				TxPolicy: wtpolicy.TxPolicy{
+					BlobType:     blob.TypeDefault,
+					SweepFeeRate: 1,
+				},
+				MaxUpdates: 5,
 			},
 			noAckCreateSession: true,
 		},
@@ -1195,9 +1213,11 @@ var clientTests = []clientTest{
 			localBalance:  localBalance,
 			remoteBalance: remoteBalance,
 			policy: wtpolicy.Policy{
-				BlobType:     blob.TypeDefault,
-				MaxUpdates:   5,
-				SweepFeeRate: 1,
+				TxPolicy: wtpolicy.TxPolicy{
+					BlobType:     blob.TypeDefault,
+					SweepFeeRate: 1,
+				},
+				MaxUpdates: 5,
 			},
 			noAckCreateSession: true,
 		},
@@ -1256,9 +1276,11 @@ var clientTests = []clientTest{
 			localBalance:  localBalance,
 			remoteBalance: remoteBalance,
 			policy: wtpolicy.Policy{
-				BlobType:     blob.TypeDefault,
-				MaxUpdates:   5,
-				SweepFeeRate: 1,
+				TxPolicy: wtpolicy.TxPolicy{
+					BlobType:     blob.TypeDefault,
+					SweepFeeRate: 1,
+				},
+				MaxUpdates: 5,
 			},
 		},
 		fn: func(h *testHarness) {

@@ -240,6 +240,11 @@ type ChannelLinkConfig struct {
 	// the outgoing broadcast delta, because in any case we don't want to
 	// risk offering an htlc that triggers channel closure.
 	OutgoingCltvRejectDelta uint32
+
+	// TowerClient is an optional engine that manages the signing,
+	// encrypting, and uploading of justice transactions to the daemon's
+	// configured set of watchtowers.
+	TowerClient TowerClient
 }
 
 // channelLink is the service which drives a channel's commitment update
@@ -395,6 +400,15 @@ func (l *channelLink) Start() error {
 	}
 
 	log.Infof("ChannelLink(%v) is starting", l)
+
+	// If the config supplied watchtower client, ensure the channel is
+	// registered before trying to use it during operation.
+	if l.cfg.TowerClient != nil {
+		err := l.cfg.TowerClient.RegisterChannel(l.ChanID())
+		if err != nil {
+			return err
+		}
+	}
 
 	l.mailBox.ResetMessages()
 	l.overflowQueue.Start()
@@ -1784,6 +1798,28 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		}:
 		case <-l.quit:
 			return
+		}
+
+		// If we have a tower client, we'll proceed in backing up the
+		// state that was just revoked.
+		if l.cfg.TowerClient != nil {
+			state := l.channel.State()
+			breachInfo, err := lnwallet.NewBreachRetribution(
+				state, state.RemoteCommitment.CommitHeight-1, 0,
+			)
+			if err != nil {
+				l.fail(LinkFailureError{code: ErrInternalError},
+					"failed to load breach info: %v", err)
+				return
+			}
+
+			chanID := l.ChanID()
+			err = l.cfg.TowerClient.BackupState(&chanID, breachInfo)
+			if err != nil {
+				l.fail(LinkFailureError{code: ErrInternalError},
+					"unable to queue breach backup: %v", err)
+				return
+			}
 		}
 
 		l.processRemoteSettleFails(fwdPkg, settleFails)

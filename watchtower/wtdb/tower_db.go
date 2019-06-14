@@ -193,6 +193,12 @@ func (t *TowerDB) InsertSessionInfo(session *SessionInfo) error {
 			return ErrSessionAlreadyExists
 		}
 
+		// Perform a quick sanity check on the session policy before
+		// accepting.
+		if err := session.Policy.Validate(); err != nil {
+			return err
+		}
+
 		err = putSession(sessions, session)
 		if err != nil {
 			return err

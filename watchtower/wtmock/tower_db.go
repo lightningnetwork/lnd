@@ -81,6 +81,11 @@ func (db *TowerDB) InsertSessionInfo(info *wtdb.SessionInfo) error {
 		return wtdb.ErrSessionAlreadyExists
 	}
 
+	// Perform a quick sanity check on the session policy before accepting.
+	if err := info.Policy.Validate(); err != nil {
+		return err
+	}
+
 	db.sessions[info.ID] = info
 
 	return nil

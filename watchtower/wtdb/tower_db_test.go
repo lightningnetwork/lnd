@@ -150,6 +150,13 @@ func testInsertSession(h *towerDBHarness) {
 		RewardAddress: []byte{0x01, 0x02, 0x03},
 	}
 
+	// Try to insert the session, which should fail since the policy doesn't
+	// meet the current sanity checks.
+	h.insertSession(session, wtpolicy.ErrSweepFeeRateTooLow)
+
+	// Now assign a sane sweep fee rate to the policy, inserting should
+	// succeed.
+	session.Policy.SweepFeeRate = wtpolicy.DefaultSweepFeeRate
 	h.insertSession(session, nil)
 
 	session2 := h.getSession(&id, nil)

@@ -566,6 +566,7 @@ func (c *TowerClient) backupDispatcher() {
 			// Wait until we receive the newly negotiated session.
 			// All backups sent in the meantime are queued in the
 			// revoke queue, as we cannot process them.
+		awaitSession:
 			select {
 			case session := <-c.negotiator.NewSessions():
 				log.Infof("Acquired new session with id=%s",
@@ -575,6 +576,12 @@ func (c *TowerClient) backupDispatcher() {
 
 			case <-c.statTicker.C:
 				log.Infof("Client stats: %s", c.stats)
+
+				// Instead of looping, we'll jump back into the
+				// select case and await the delivery of the
+				// session to prevent us from re-requesting
+				// additional sessions.
+				goto awaitSession
 
 			case <-c.forceQuit:
 				return

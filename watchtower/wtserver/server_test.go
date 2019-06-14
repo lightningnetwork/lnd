@@ -27,6 +27,8 @@ var (
 	addrScript, _ = txscript.PayToAddrScript(addr)
 
 	testnetChainHash = *chaincfg.TestNet3Params.GenesisHash
+
+	testBlob = make([]byte, blob.Size(blob.TypeAltruistCommit))
 )
 
 // randPubKey generates a new secp keypair, and returns the public key.
@@ -300,8 +302,9 @@ func testServerCreateSession(t *testing.T, i int, test createSessionTestCase) {
 		peer = wtmock.NewMockPeer(localPub, peerPub, nil, 0)
 		connect(t, s, peer, test.initMsg, timeoutDuration)
 		update := &wtwire.StateUpdate{
-			SeqNum:     1,
-			IsComplete: 1,
+			SeqNum:        1,
+			IsComplete:    1,
+			EncryptedBlob: testBlob,
 		}
 		sendMsg(t, update, peer, timeoutDuration)
 
@@ -323,8 +326,8 @@ func testServerCreateSession(t *testing.T, i int, test createSessionTestCase) {
 	// Ensure that the server's reply matches our expected response for a
 	// duplicate send.
 	if !reflect.DeepEqual(reply, test.expDupReply) {
-		t.Fatalf("[test %d] expected reply %v, got %d",
-			i, test.expReply, reply)
+		t.Fatalf("[test %d] expected reply %v, got %v",
+			i, test.expDupReply, reply)
 	}
 
 	// Finally, check that the server tore down the connection.
@@ -355,10 +358,10 @@ var stateUpdateTests = []stateUpdateTestCase{
 			SweepFeeRate: 1,
 		},
 		updates: []*wtwire.StateUpdate{
-			{SeqNum: 1, LastApplied: 0},
-			{SeqNum: 2, LastApplied: 1},
-			{SeqNum: 3, LastApplied: 2},
-			{SeqNum: 3, LastApplied: 3},
+			{SeqNum: 1, LastApplied: 0, EncryptedBlob: testBlob},
+			{SeqNum: 2, LastApplied: 1, EncryptedBlob: testBlob},
+			{SeqNum: 3, LastApplied: 2, EncryptedBlob: testBlob},
+			{SeqNum: 3, LastApplied: 3, EncryptedBlob: testBlob},
 		},
 		replies: []*wtwire.StateUpdateReply{
 			{Code: wtwire.CodeOK, LastApplied: 1},
@@ -385,7 +388,7 @@ var stateUpdateTests = []stateUpdateTestCase{
 			SweepFeeRate: 1,
 		},
 		updates: []*wtwire.StateUpdate{
-			{SeqNum: 2, LastApplied: 0},
+			{SeqNum: 2, LastApplied: 0, EncryptedBlob: testBlob},
 		},
 		replies: []*wtwire.StateUpdateReply{
 			{
@@ -409,9 +412,9 @@ var stateUpdateTests = []stateUpdateTestCase{
 			SweepFeeRate: 1,
 		},
 		updates: []*wtwire.StateUpdate{
-			{SeqNum: 1, LastApplied: 0},
-			{SeqNum: 2, LastApplied: 0},
-			{SeqNum: 1, LastApplied: 0},
+			{SeqNum: 1, LastApplied: 0, EncryptedBlob: testBlob},
+			{SeqNum: 2, LastApplied: 0, EncryptedBlob: testBlob},
+			{SeqNum: 1, LastApplied: 0, EncryptedBlob: testBlob},
 		},
 		replies: []*wtwire.StateUpdateReply{
 			{Code: wtwire.CodeOK, LastApplied: 1},
@@ -437,10 +440,10 @@ var stateUpdateTests = []stateUpdateTestCase{
 			SweepFeeRate: 1,
 		},
 		updates: []*wtwire.StateUpdate{
-			{SeqNum: 1, LastApplied: 0},
-			{SeqNum: 2, LastApplied: 1},
-			{SeqNum: 3, LastApplied: 2},
-			{SeqNum: 4, LastApplied: 1},
+			{SeqNum: 1, LastApplied: 0, EncryptedBlob: testBlob},
+			{SeqNum: 2, LastApplied: 1, EncryptedBlob: testBlob},
+			{SeqNum: 3, LastApplied: 2, EncryptedBlob: testBlob},
+			{SeqNum: 4, LastApplied: 1, EncryptedBlob: testBlob},
 		},
 		replies: []*wtwire.StateUpdateReply{
 			{Code: wtwire.CodeOK, LastApplied: 1},
@@ -465,11 +468,11 @@ var stateUpdateTests = []stateUpdateTestCase{
 			SweepFeeRate: 1,
 		},
 		updates: []*wtwire.StateUpdate{
-			{SeqNum: 1, LastApplied: 0},
-			{SeqNum: 2, LastApplied: 1},
+			{SeqNum: 1, LastApplied: 0, EncryptedBlob: testBlob},
+			{SeqNum: 2, LastApplied: 1, EncryptedBlob: testBlob},
 			nil, // Wait for read timeout to drop conn, then reconnect.
-			{SeqNum: 3, LastApplied: 2},
-			{SeqNum: 4, LastApplied: 3},
+			{SeqNum: 3, LastApplied: 2, EncryptedBlob: testBlob},
+			{SeqNum: 4, LastApplied: 3, EncryptedBlob: testBlob},
 		},
 		replies: []*wtwire.StateUpdateReply{
 			{Code: wtwire.CodeOK, LastApplied: 1},
@@ -495,11 +498,11 @@ var stateUpdateTests = []stateUpdateTestCase{
 			SweepFeeRate: 1,
 		},
 		updates: []*wtwire.StateUpdate{
-			{SeqNum: 1, LastApplied: 0},
-			{SeqNum: 2, LastApplied: 0},
+			{SeqNum: 1, LastApplied: 0, EncryptedBlob: testBlob},
+			{SeqNum: 2, LastApplied: 0, EncryptedBlob: testBlob},
 			nil, // Wait for read timeout to drop conn, then reconnect.
-			{SeqNum: 3, LastApplied: 0},
-			{SeqNum: 4, LastApplied: 3},
+			{SeqNum: 3, LastApplied: 0, EncryptedBlob: testBlob},
+			{SeqNum: 4, LastApplied: 3, EncryptedBlob: testBlob},
 		},
 		replies: []*wtwire.StateUpdateReply{
 			{Code: wtwire.CodeOK, LastApplied: 1},
@@ -525,12 +528,12 @@ var stateUpdateTests = []stateUpdateTestCase{
 			SweepFeeRate: 1,
 		},
 		updates: []*wtwire.StateUpdate{
-			{SeqNum: 1, LastApplied: 0},
-			{SeqNum: 2, LastApplied: 0},
+			{SeqNum: 1, LastApplied: 0, EncryptedBlob: testBlob},
+			{SeqNum: 2, LastApplied: 0, EncryptedBlob: testBlob},
 			nil, // Wait for read timeout to drop conn, then reconnect.
-			{SeqNum: 2, LastApplied: 0},
-			{SeqNum: 3, LastApplied: 0},
-			{SeqNum: 4, LastApplied: 3},
+			{SeqNum: 2, LastApplied: 0, EncryptedBlob: testBlob},
+			{SeqNum: 3, LastApplied: 0, EncryptedBlob: testBlob},
+			{SeqNum: 4, LastApplied: 3, EncryptedBlob: testBlob},
 		},
 		replies: []*wtwire.StateUpdateReply{
 			{Code: wtwire.CodeOK, LastApplied: 1},
@@ -556,10 +559,10 @@ var stateUpdateTests = []stateUpdateTestCase{
 			SweepFeeRate: 1,
 		},
 		updates: []*wtwire.StateUpdate{
-			{SeqNum: 1, LastApplied: 0},
-			{SeqNum: 2, LastApplied: 1},
-			{SeqNum: 3, LastApplied: 2},
-			{SeqNum: 4, LastApplied: 3},
+			{SeqNum: 1, LastApplied: 0, EncryptedBlob: testBlob},
+			{SeqNum: 2, LastApplied: 1, EncryptedBlob: testBlob},
+			{SeqNum: 3, LastApplied: 2, EncryptedBlob: testBlob},
+			{SeqNum: 4, LastApplied: 3, EncryptedBlob: testBlob},
 		},
 		replies: []*wtwire.StateUpdateReply{
 			{Code: wtwire.CodeOK, LastApplied: 1},
@@ -586,7 +589,7 @@ var stateUpdateTests = []stateUpdateTestCase{
 			SweepFeeRate: 1,
 		},
 		updates: []*wtwire.StateUpdate{
-			{SeqNum: 0, LastApplied: 0},
+			{SeqNum: 0, LastApplied: 0, EncryptedBlob: testBlob},
 		},
 		replies: []*wtwire.StateUpdateReply{
 			{

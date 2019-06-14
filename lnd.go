@@ -36,6 +36,7 @@ import (
 	"google.golang.org/grpc/credentials"
 
 	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcwallet/wallet"
 	proxy "github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/lightninglabs/neutrino"
@@ -51,6 +52,7 @@ import (
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/signal"
 	"github.com/lightningnetwork/lnd/walletunlocker"
+	"github.com/lightningnetwork/lnd/watchtower"
 	"github.com/lightningnetwork/lnd/watchtower/wtdb"
 )
 
@@ -326,6 +328,48 @@ func Main() error {
 		defer towerClientDB.Close()
 	}
 
+	var tower *watchtower.Standalone
+	if cfg.Watchtower.Active {
+		// Segment the watchtower directory by chain and network.
+		towerDBDir := filepath.Join(
+			cfg.Watchtower.TowerDir,
+			registeredChains.PrimaryChain().String(),
+			normalizeNetwork(activeNetParams.Name),
+		)
+
+		towerDB, err := wtdb.OpenTowerDB(towerDBDir)
+		if err != nil {
+			ltndLog.Errorf("Unable to open watchtower db: %v", err)
+			return err
+		}
+		defer towerDB.Close()
+
+		wtConfig, err := cfg.Watchtower.Apply(&watchtower.Config{
+			BlockFetcher:   activeChainControl.chainIO,
+			DB:             towerDB,
+			EpochRegistrar: activeChainControl.chainNotifier,
+			Net:            cfg.net,
+			NewAddress: func() (btcutil.Address, error) {
+				return activeChainControl.wallet.NewAddress(
+					lnwallet.WitnessPubKey, false,
+				)
+			},
+			NodePrivKey: idPrivKey,
+			PublishTx:   activeChainControl.wallet.PublishTransaction,
+			ChainHash:   *activeNetParams.GenesisHash,
+		}, lncfg.NormalizeAddresses)
+		if err != nil {
+			ltndLog.Errorf("Unable to configure watchtower: %v", err)
+			return err
+		}
+
+		tower, err = watchtower.New(wtConfig)
+		if err != nil {
+			ltndLog.Errorf("Unable to create watchtower: %v", err)
+			return err
+		}
+	}
+
 	// Set up the core server which will listen for incoming peer
 	// connections.
 	server, err := newServer(
@@ -429,6 +473,14 @@ func Main() error {
 				err)
 			return err
 		}
+	}
+
+	if cfg.Watchtower.Active {
+		if err := tower.Start(); err != nil {
+			ltndLog.Errorf("Unable to start watchtower: %v", err)
+			return err
+		}
+		defer tower.Stop()
 	}
 
 	// Wait for shutdown signal from either a graceful server stop or from

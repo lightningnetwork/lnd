@@ -34,6 +34,7 @@ import (
 	"github.com/lightningnetwork/lnd/signal"
 	"github.com/lightningnetwork/lnd/sweep"
 	"github.com/lightningnetwork/lnd/watchtower"
+	"github.com/lightningnetwork/lnd/watchtower/wtclient"
 )
 
 // Loggers per subsystem.  A single backend logger is created and all subsystem
@@ -87,6 +88,7 @@ var (
 	chnfLog = build.NewSubLogger("CHNF", backendLog.Logger)
 	chbuLog = build.NewSubLogger("CHBU", backendLog.Logger)
 	promLog = build.NewSubLogger("PROM", backendLog.Logger)
+	wtclLog = build.NewSubLogger("WTCL", backendLog.Logger)
 )
 
 // Initialize package-global logger variables.
@@ -115,6 +117,7 @@ func init() {
 	channelnotifier.UseLogger(chnfLog)
 	chanbackup.UseLogger(chbuLog)
 	monitoring.UseLogger(promLog)
+	wtclient.UseLogger(wtclLog)
 
 	addSubLogger(routerrpc.Subsystem, routerrpc.UseLogger)
 }
@@ -159,6 +162,7 @@ var subsystemLoggers = map[string]btclog.Logger{
 	"CHNF": chnfLog,
 	"CHBU": chbuLog,
 	"PROM": promLog,
+	"WTCL": wtclLog,
 }
 
 // initLogRotator initializes the logging rotator to write logs to logFile and

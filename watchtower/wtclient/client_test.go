@@ -1267,6 +1267,67 @@ var clientTests = []clientTest{
 		},
 	},
 	{
+		// Asserts that the client will not request a new session if
+		// already has an existing session with the same TxPolicy. This
+		// permits the client to continue using policies that differ in
+		// operational parameters, but don't manifest in different
+		// justice transactions.
+		name: "create session change policy same txpolicy",
+		cfg: harnessCfg{
+			localBalance:  localBalance,
+			remoteBalance: remoteBalance,
+			policy: wtpolicy.Policy{
+				TxPolicy: wtpolicy.TxPolicy{
+					BlobType:     blob.TypeDefault,
+					SweepFeeRate: 1,
+				},
+				MaxUpdates: 10,
+			},
+		},
+		fn: func(h *testHarness) {
+			const (
+				chanID     = 0
+				numUpdates = 6
+			)
+
+			// Generate the retributions that will be backed up.
+			hints := h.advanceChannelN(chanID, numUpdates)
+
+			// Now, queue the first half of the retributions.
+			h.backupStates(chanID, 0, numUpdates/2, nil)
+
+			// Wait for the server to collect the first half.
+			h.waitServerUpdates(hints[:numUpdates/2], time.Second)
+
+			// Stop the client, which should have no more backups.
+			h.client.Stop()
+
+			// Record the policy that the first half was stored
+			// under. We'll expect the second half to also be stored
+			// under the original policy, since we are only adjusting
+			// the MaxUpdates. The client should detect that the
+			// two policies have equivalent TxPolicies and continue
+			// using the first.
+			expPolicy := h.clientCfg.Policy
+
+			// Restart the client with a new policy.
+			h.clientCfg.Policy.MaxUpdates = 20
+			h.startClient()
+			defer h.client.ForceQuit()
+
+			// Now, queue the second half of the retributions.
+			h.backupStates(chanID, numUpdates/2, numUpdates, nil)
+
+			// Wait for all of the updates to be populated in the
+			// server's database.
+			h.waitServerUpdates(hints, 5*time.Second)
+
+			// Assert that the server has updates for the client's
+			// original policy.
+			h.assertUpdatesForPolicy(hints, expPolicy)
+		},
+	},
+	{
 		// Asserts that the client will deduplicate backups presented by
 		// a channel both in memory and after a restart. The client
 		// should only accept backups with a commit height greater than

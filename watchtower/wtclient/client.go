@@ -519,9 +519,10 @@ func (c *TowerClient) nextSessionQueue() *sessionQueue {
 		delete(c.candidateSessions, id)
 
 		// Skip any sessions with policies that don't match the current
-		// configuration. These can be used again if the client changes
-		// their configuration back.
-		if sessionInfo.Policy != c.cfg.Policy {
+		// TxPolicy, as they would result in different justice
+		// transactions from what is requested. These can be used again
+		// if the client changes their configuration and restarting.
+		if sessionInfo.Policy.TxPolicy != c.cfg.Policy.TxPolicy {
 			continue
 		}
 

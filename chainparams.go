@@ -134,6 +134,15 @@ func applyLitecoinParams(params *bitcoinNetParams, litecoinParams *litecoinNetPa
 	params.PowLimitBits = litecoinParams.PowLimitBits
 	params.PowLimit = litecoinParams.PowLimit
 
+	dnsSeeds := make([]chaincfg.DNSSeed, len(litecoinParams.DNSSeeds))
+	for i := 0; i < len(litecoinParams.DNSSeeds); i++ {
+		dnsSeeds[i] = chaincfg.DNSSeed{
+			Host:         litecoinParams.DNSSeeds[i].Host,
+			HasFiltering: litecoinParams.DNSSeeds[i].HasFiltering,
+		}
+	}
+	params.DNSSeeds = dnsSeeds
+
 	// Address encoding magics
 	params.PubKeyHashAddrID = litecoinParams.PubKeyHashAddrID
 	params.ScriptHashAddrID = litecoinParams.ScriptHashAddrID

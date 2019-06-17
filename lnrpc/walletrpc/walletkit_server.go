@@ -420,6 +420,10 @@ func (w *WalletKit) PendingSweeps(ctx context.Context,
 // unmarshallOutPoint converts an outpoint from its lnrpc type to its canonical
 // type.
 func unmarshallOutPoint(op *lnrpc.OutPoint) (*wire.OutPoint, error) {
+	if op == nil {
+		return nil, fmt.Errorf("empty outpoint provided")
+	}
+
 	var hash chainhash.Hash
 	switch {
 	case len(op.TxidBytes) == 0 && len(op.TxidStr) == 0:

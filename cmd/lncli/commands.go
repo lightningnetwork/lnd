@@ -2925,6 +2925,11 @@ var getNodeInfoCommand = cli.Command{
 			Usage: "the 33-byte hex-encoded compressed public of the target " +
 				"node",
 		},
+		cli.BoolFlag{
+			Name: "include_channels",
+			Usage: "if true, will return all known channels " +
+				"associated with the node",
+		},
 	},
 	Action: actionDecorator(getNodeInfo),
 }
@@ -2947,7 +2952,8 @@ func getNodeInfo(ctx *cli.Context) error {
 	}
 
 	req := &lnrpc.NodeInfoRequest{
-		PubKey: pubKey,
+		PubKey:          pubKey,
+		IncludeChannels: ctx.Bool("include_channels"),
 	}
 
 	nodeInfo, err := client.GetNodeInfo(ctxb, req)

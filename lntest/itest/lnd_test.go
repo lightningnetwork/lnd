@@ -8742,8 +8742,8 @@ out:
 
 	// Reset mission control to forget the temporary channel failure above.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	_, err = net.Alice.RouterClient.ResetMissionControl(
-		ctxt, &routerrpc.ResetMissionControlRequest{},
+	_, err = net.Alice.RouterClient.ResetReputations(
+		ctxt, &routerrpc.ResetReputationsRequest{},
 	)
 	if err != nil {
 		t.Fatalf("unable to reset mission control: %v", err)

@@ -288,18 +288,18 @@ message ChannelUpdate {
     */
     bytes extra_opaque_data = 12;
 }
-message ResetMissionControlRequest{}
+message ResetReputationsRequest{}
 
-message ResetMissionControlResponse{}
+message ResetReputationsResponse{}
 
-message QueryMissionControlRequest {}
+message QueryReputationsRequest {}
 
-/// QueryMissionControlResponse contains mission control state per node.
-message QueryMissionControlResponse {
+/// QueryReputationsResponse contains reputation data per node.
+message QueryReputationsResponse {
     repeated NodeHistory nodes = 1;
 }
 
-/// NodeHistory contains the mission control state for a particular node.
+/// NodeHistory contains the reputation data for a particular node.
 message NodeHistory {
     /// Node pubkey
     bytes pubkey = 1 [json_name = "pubkey"];
@@ -314,7 +314,7 @@ message NodeHistory {
     repeated ChannelHistory channels = 4 [json_name = "channels"];
 }
 
-/// NodeHistory contains the mission control state for a particular channel.
+/// NodeHistory contains the reputation data for a particular channel.
 message ChannelHistory {
     /// Short channel id
     uint64 channel_id = 1 [json_name = "channel_id"];
@@ -358,14 +358,13 @@ service Router {
     rpc SendToRoute(SendToRouteRequest) returns (SendToRouteResponse);
 
     /**
-    ResetMissionControl clears all mission control state and starts with a clean
-    slate.
+    ResetReputations clears all reputation data and starts with a clean slate.
     */
-    rpc ResetMissionControl(ResetMissionControlRequest) returns (ResetMissionControlResponse);
+    rpc ResetReputations(ResetReputationsRequest) returns (ResetReputationsResponse);
     
     /**
-    QueryMissionControl exposes the internal mission control state to callers.
-    It is a development feature.
+    QueryReputations exposes the internally collected reputation data to
+    callers. It is a development feature.
     */
-    rpc QueryMissionControl(QueryMissionControlRequest) returns (QueryMissionControlResponse);
+    rpc QueryReputations(QueryReputationsRequest) returns (QueryReputationsResponse);
 }

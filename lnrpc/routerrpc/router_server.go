@@ -64,11 +64,11 @@ var (
 			Entity: "offchain",
 			Action: "read",
 		}},
-		"/routerrpc.Router/QueryMissionControl": {{
+		"/routerrpc.Router/QueryReputations": {{
 			Entity: "offchain",
 			Action: "read",
 		}},
-		"/routerrpc.Router/ResetMissionControl": {{
+		"/routerrpc.Router/ResetReputations": {{
 			Entity: "offchain",
 			Action: "write",
 		}},
@@ -427,20 +427,19 @@ func marshallChannelUpdate(update *lnwire.ChannelUpdate) *ChannelUpdate {
 	}
 }
 
-// ResetMissionControl clears all mission control state and starts with a clean
-// slate.
-func (s *Server) ResetMissionControl(ctx context.Context,
-	req *ResetMissionControlRequest) (*ResetMissionControlResponse, error) {
+// ResetReputations clears all reputation data and starts with a clean slate.
+func (s *Server) ResetReputations(ctx context.Context,
+	req *ResetReputationsRequest) (*ResetReputationsResponse, error) {
 
 	s.cfg.RouterBackend.MissionControl.ResetHistory()
 
-	return &ResetMissionControlResponse{}, nil
+	return &ResetReputationsResponse{}, nil
 }
 
-// QueryMissionControl exposes the internal mission control state to callers. It
-// is a development feature.
-func (s *Server) QueryMissionControl(ctx context.Context,
-	req *QueryMissionControlRequest) (*QueryMissionControlResponse, error) {
+// QueryReputations exposes the internal reputation data to callers. It is a
+// development feature.
+func (s *Server) QueryReputations(ctx context.Context,
+	req *QueryReputationsRequest) (*QueryReputationsResponse, error) {
 
 	snapshot := s.cfg.RouterBackend.MissionControl.GetHistorySnapshot()
 
@@ -473,7 +472,7 @@ func (s *Server) QueryMissionControl(ctx context.Context,
 		}
 	}
 
-	response := QueryMissionControlResponse{
+	response := QueryReputationsResponse{
 		Nodes: rpcNodes,
 	}
 

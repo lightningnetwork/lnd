@@ -11,21 +11,22 @@ import (
 	"github.com/urfave/cli"
 )
 
-var queryMissionControlCommand = cli.Command{
-	Name:     "querymc",
+var queryReputationsCommand = cli.Command{
+	Name:     "queryreputations",
 	Category: "Payments",
-	Action:   actionDecorator(queryMissionControl),
+	Usage:    "Query the reputation data that has been collected.",
+	Action:   actionDecorator(queryReputations),
 }
 
-func queryMissionControl(ctx *cli.Context) error {
+func queryReputations(ctx *cli.Context) error {
 	conn := getClientConn(ctx, false)
 	defer conn.Close()
 
 	client := routerrpc.NewRouterClient(conn)
 
-	req := &routerrpc.QueryMissionControlRequest{}
+	req := &routerrpc.QueryReputationsRequest{}
 	rpcCtx := context.Background()
-	snapshot, err := client.QueryMissionControl(rpcCtx, req)
+	snapshot, err := client.QueryReputations(rpcCtx, req)
 	if err != nil {
 		return err
 	}

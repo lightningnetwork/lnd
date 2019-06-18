@@ -58,7 +58,7 @@ type paymentSession struct {
 	// require pruning, but any subsequent ones do.
 	errFailedPolicyChans map[nodeChannel]struct{}
 
-	mc *MissionControl
+	sessionSource *SessionSource
 
 	preBuiltRoute      *route.Route
 	preBuiltRouteTried bool
@@ -78,7 +78,7 @@ var _ PaymentSession = (*paymentSession)(nil)
 //
 // NOTE: Part of the PaymentSession interface.
 func (p *paymentSession) ReportVertexFailure(v route.Vertex) {
-	p.mc.reportVertexFailure(v)
+	p.sessionSource.MissionControl.ReportVertexFailure(v)
 }
 
 // ReportEdgeFailure adds a channel to the graph prune view. The time the
@@ -93,7 +93,9 @@ func (p *paymentSession) ReportVertexFailure(v route.Vertex) {
 func (p *paymentSession) ReportEdgeFailure(failedEdge edge,
 	minPenalizeAmt lnwire.MilliSatoshi) {
 
-	p.mc.reportEdgeFailure(failedEdge, minPenalizeAmt)
+	p.sessionSource.MissionControl.ReportEdgeFailure(
+		failedEdge, minPenalizeAmt,
+	)
 }
 
 // ReportEdgePolicyFailure handles a failure message that relates to a
@@ -169,21 +171,24 @@ func (p *paymentSession) RequestRoute(payment *LightningPayment,
 	// Taking into account this prune view, we'll attempt to locate a path
 	// to our destination, respecting the recommendations from
 	// MissionControl.
+	ss := p.sessionSource
+
+	restrictions := &RestrictParams{
+		ProbabilitySource:     ss.MissionControl.GetEdgeProbability,
+		FeeLimit:              payment.FeeLimit,
+		OutgoingChannelID:     payment.OutgoingChannelID,
+		CltvLimit:             cltvLimit,
+		PaymentAttemptPenalty: ss.PaymentAttemptPenalty,
+		MinProbability:        ss.MinRouteProbability,
+	}
+
 	path, err := p.pathFinder(
 		&graphParams{
-			graph:           p.mc.graph,
+			graph:           ss.Graph,
 			additionalEdges: p.additionalEdges,
 			bandwidthHints:  p.bandwidthHints,
 		},
-		&RestrictParams{
-			ProbabilitySource:     p.mc.getEdgeProbability,
-			FeeLimit:              payment.FeeLimit,
-			OutgoingChannelID:     payment.OutgoingChannelID,
-			CltvLimit:             cltvLimit,
-			PaymentAttemptPenalty: p.mc.cfg.PaymentAttemptPenalty,
-			MinProbability:        p.mc.cfg.MinRouteProbability,
-		},
-		p.mc.selfNode.PubKeyBytes, payment.Target,
+		restrictions, ss.SelfNode.PubKeyBytes, payment.Target,
 		payment.Amount,
 	)
 	if err != nil {
@@ -192,7 +197,7 @@ func (p *paymentSession) RequestRoute(payment *LightningPayment,
 
 	// With the next candidate path found, we'll attempt to turn this into
 	// a route by applying the time-lock and fee requirements.
-	sourceVertex := route.Vertex(p.mc.selfNode.PubKeyBytes)
+	sourceVertex := route.Vertex(ss.SelfNode.PubKeyBytes)
 	route, err := newRoute(
 		payment.Amount, sourceVertex, path, height, finalCltvDelta,
 	)

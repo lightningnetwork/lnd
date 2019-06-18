@@ -652,10 +652,28 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 	//
 	// TODO(joostjager): When we are further in the process of moving to sub
 	// servers, the mission control instance itself can be moved there too.
+	routingConfig := routerrpc.GetRoutingConfig(cfg.SubRPCServers.RouterRPC)
+
 	s.missionControl = routing.NewMissionControl(
-		chanGraph, selfNode, queryBandwidth,
-		routerrpc.GetMissionControlConfig(cfg.SubRPCServers.RouterRPC),
+		&routing.MissionControlConfig{
+			AprioriHopProbability: routingConfig.AprioriHopProbability,
+			PenaltyHalfLife:       routingConfig.PenaltyHalfLife,
+		},
 	)
+
+	srvrLog.Debugf("Instantiating payment session source with config: "+
+		"PaymentAttemptPenalty=%v, MinRouteProbability=%v",
+		int64(routingConfig.PaymentAttemptPenalty.ToSatoshis()),
+		routingConfig.MinRouteProbability)
+
+	paymentSessionSource := &routing.SessionSource{
+		Graph:                 chanGraph,
+		MissionControl:        s.missionControl,
+		QueryBandwidth:        queryBandwidth,
+		SelfNode:              selfNode,
+		PaymentAttemptPenalty: routingConfig.PaymentAttemptPenalty,
+		MinRouteProbability:   routingConfig.MinRouteProbability,
+	}
 
 	paymentControl := channeldb.NewPaymentControl(chanDB)
 
@@ -668,6 +686,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 		Payer:              s.htlcSwitch,
 		Control:            s.controlTower,
 		MissionControl:     s.missionControl,
+		SessionSource:      paymentSessionSource,
 		ChannelPruneExpiry: routing.DefaultChannelPruneExpiry,
 		GraphPruneInterval: time.Duration(time.Hour),
 		QueryBandwidth:     queryBandwidth,

@@ -29,7 +29,7 @@ func createMcTestContext(t *testing.T) *mcTestContext {
 	}
 
 	mc := NewMissionControl(
-		nil, nil, nil, &MissionControlConfig{
+		&MissionControlConfig{
 			PenaltyHalfLife:       30 * time.Minute,
 			AprioriHopProbability: 0.8,
 		},
@@ -47,7 +47,7 @@ func (ctx *mcTestContext) expectP(amt lnwire.MilliSatoshi,
 
 	ctx.t.Helper()
 
-	p := ctx.mc.getEdgeProbability(mcTestNode, mcTestEdge, amt)
+	p := ctx.mc.GetEdgeProbability(mcTestNode, mcTestEdge, amt)
 	if p != expected {
 		ctx.t.Fatalf("unexpected probability %v", p)
 	}
@@ -70,7 +70,7 @@ func TestMissionControl(t *testing.T) {
 	ctx.expectP(1000, 0.8)
 
 	// Expect probability to be zero after reporting the edge as failed.
-	ctx.mc.reportEdgeFailure(testEdge, 1000)
+	ctx.mc.ReportEdgeFailure(testEdge, 1000)
 	ctx.expectP(1000, 0)
 
 	// As we reported with a min penalization amt, a lower amt than reported
@@ -83,7 +83,7 @@ func TestMissionControl(t *testing.T) {
 
 	// Edge fails again, this time without a min penalization amt. The edge
 	// should be penalized regardless of amount.
-	ctx.mc.reportEdgeFailure(testEdge, 0)
+	ctx.mc.ReportEdgeFailure(testEdge, 0)
 	ctx.expectP(1000, 0)
 	ctx.expectP(500, 0)
 
@@ -93,7 +93,7 @@ func TestMissionControl(t *testing.T) {
 
 	// A node level failure should bring probability of every channel back
 	// to zero.
-	ctx.mc.reportVertexFailure(testNode)
+	ctx.mc.ReportVertexFailure(testNode)
 	ctx.expectP(1000, 0)
 
 	// Check whether history snapshot looks sane.

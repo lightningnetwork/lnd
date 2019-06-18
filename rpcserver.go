@@ -4493,15 +4493,17 @@ func (r *rpcServer) UpdateChannelPolicy(ctx context.Context,
 		return nil, fmt.Errorf("unknown scope: %v", scope)
 	}
 
-	// As a sanity check, we'll ensure that the passed fee rate is below
-	// 1e-6, or the lowest allowed fee rate, and that the passed timelock
-	// is large enough.
-	if req.FeeRate < minFeeRate {
+	switch {
+	// As a sanity check, if the fee isn't zero, we'll ensure that the
+	// passed fee rate is below 1e-6, or the lowest allowed non-zero fee
+	// rate expressible within the protocol.
+	case req.FeeRate != 0 && req.FeeRate < minFeeRate:
 		return nil, fmt.Errorf("fee rate of %v is too small, min fee "+
 			"rate is %v", req.FeeRate, minFeeRate)
-	}
 
-	if req.TimeLockDelta < minTimeLockDelta {
+	// We'll also ensure that the user isn't setting a CLTV delta that
+	// won't give outgoing HTLCs enough time to fully resolve if needed.
+	case req.TimeLockDelta < minTimeLockDelta:
 		return nil, fmt.Errorf("time lock delta of %v is too small, "+
 			"minimum supported is %v", req.TimeLockDelta,
 			minTimeLockDelta)

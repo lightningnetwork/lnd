@@ -2363,8 +2363,9 @@ func payInvoice(ctx *cli.Context) error {
 }
 
 var sendToRouteCommand = cli.Command{
-	Name:  "sendtoroute",
-	Usage: "send a payment over a predefined route",
+	Name:     "sendtoroute",
+	Category: "Payments",
+	Usage:    "Send a payment over a predefined route.",
 	Description: `
 	Send a payment over Lightning using a specific route. One must specify
 	a list of routes to attempt and the payment hash. This command can even

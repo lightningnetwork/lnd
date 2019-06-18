@@ -58,6 +58,11 @@ message SendPaymentRequest {
     maximum enforced.
     */
     int32 cltv_limit = 9;
+
+    /**
+    Optional route hints to reach the destination through private channels.
+    */
+    repeated lnrpc.RouteHint route_hints = 10 [json_name = "route_hints"];
 }
 
 message TrackPaymentRequest {

@@ -2382,28 +2382,38 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 		}
 
 		// We'll also send along the node announcements for each channel
-		// participant if we know of them.
+		// participant if we know of them. To ensure our node
+		// announcement propagates to our channel counterparty, we'll
+		// set the source for each announcement to the node it belongs
+		// to, otherwise we won't send it since the source gets skipped.
+		// This isn't necessary for channel updates and announcement
+		// signatures since we send those directly to our channel
+		// counterparty through the gossiper's reliable sender.
 		node1Ann, err := d.fetchNodeAnn(chanInfo.NodeKey1Bytes)
 		if err != nil {
 			log.Debugf("Unable to fetch node announcement for "+
 				"%x: %v", chanInfo.NodeKey1Bytes, err)
 		} else {
-			announcements = append(announcements, networkMsg{
-				peer:   nMsg.peer,
-				source: nMsg.source,
-				msg:    node1Ann,
-			})
+			if nodeKey1, err := chanInfo.NodeKey1(); err == nil {
+				announcements = append(announcements, networkMsg{
+					peer:   nMsg.peer,
+					source: nodeKey1,
+					msg:    node1Ann,
+				})
+			}
 		}
 		node2Ann, err := d.fetchNodeAnn(chanInfo.NodeKey2Bytes)
 		if err != nil {
 			log.Debugf("Unable to fetch node announcement for "+
 				"%x: %v", chanInfo.NodeKey2Bytes, err)
 		} else {
-			announcements = append(announcements, networkMsg{
-				peer:   nMsg.peer,
-				source: nMsg.source,
-				msg:    node2Ann,
-			})
+			if nodeKey2, err := chanInfo.NodeKey2(); err == nil {
+				announcements = append(announcements, networkMsg{
+					peer:   nMsg.peer,
+					source: nodeKey2,
+					msg:    node2Ann,
+				})
+			}
 		}
 
 		nMsg.err <- nil

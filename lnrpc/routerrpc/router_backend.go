@@ -167,7 +167,13 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 				return 0
 			}
 
-			return 1
+			if !in.UseMissionControl {
+				return 1
+			}
+
+			return r.MissionControl.GetEdgeProbability(
+				node, edge, amt,
+			)
 		},
 	}
 

@@ -1651,6 +1651,12 @@ message QueryRoutesRequest {
     self is assumed.
     */
     string source_pub_key = 8;
+
+    /**
+    If set to true, edge probabilities from mission control will be used to get
+    the optimal route.
+    */
+    bool use_mission_control = 9;
 }
 
 message EdgeLocator {

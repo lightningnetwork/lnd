@@ -3815,21 +3815,27 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 		channels      []*lnrpc.ChannelEdge
 	)
 
-	if err := node.ForEachChannel(nil, func(_ *bbolt.Tx, edge *channeldb.ChannelEdgeInfo,
+	if err := node.ForEachChannel(nil, func(_ *bbolt.Tx,
+		edge *channeldb.ChannelEdgeInfo,
 		c1, c2 *channeldb.ChannelEdgePolicy) error {
 
 		numChannels++
 		totalCapacity += edge.Capacity
 
-		// Do not include unannounced channels - private channels or public
-		// channels whose authentication proof were not confirmed yet.
-		if edge.AuthProof == nil {
-			return nil
-		}
+		// Only populate the node's channels if the user requested them.
+		if in.IncludeChannels {
+			// Do not include unannounced channels - private
+			// channels or public channels whose authentication
+			// proof were not confirmed yet.
+			if edge.AuthProof == nil {
+				return nil
+			}
 
-		// Convert the database's edge format into the network/RPC edge format.
-		channelEdge := marshalDbEdge(edge, c1, c2)
-		channels = append(channels, channelEdge)
+			// Convert the database's edge format into the
+			// network/RPC edge format.
+			channelEdge := marshalDbEdge(edge, c1, c2)
+			channels = append(channels, channelEdge)
+		}
 
 		return nil
 	}); err != nil {

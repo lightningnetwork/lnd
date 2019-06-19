@@ -640,6 +640,14 @@
             "in": "path",
             "required": true,
             "type": "string"
+          },
+          {
+            "name": "include_channels",
+            "description": "/ If true, will include all known channels associated with the node.",
+            "in": "query",
+            "required": false,
+            "type": "boolean",
+            "format": "boolean"
           }
         ],
         "tags": [

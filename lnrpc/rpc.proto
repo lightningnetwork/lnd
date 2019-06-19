@@ -1726,6 +1726,9 @@ message Route {
 message NodeInfoRequest {
     /// The 33-byte hex-encoded compressed public of the target node 
     string pub_key = 1;
+
+    /// If true, will include all known channels associated with the node.
+    bool include_channels = 2;
 }
 
 message NodeInfo {

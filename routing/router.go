@@ -2076,8 +2076,10 @@ func (r *ChannelRouter) processSendError(paySession PaymentSession,
 		}, 0)
 		return false, 0
 
+	// Any other failure or an empty failure will get the node pruned.
 	default:
-		return true, channeldb.FailureReasonError
+		paySession.ReportVertexFailure(failureVertex)
+		return false, 0
 	}
 }
 

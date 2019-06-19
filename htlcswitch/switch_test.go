@@ -2241,3 +2241,107 @@ func TestSwitchGetPaymentResult(t *testing.T) {
 		t.Fatalf("result not received")
 	}
 }
+
+// TestInvalidFailure tests that the switch returns an unreadable failure error
+// if the failure cannot be decrypted.
+func TestInvalidFailure(t *testing.T) {
+	t.Parallel()
+
+	alicePeer, err := newMockServer(t, "alice", testStartingHeight, nil, 6)
+	if err != nil {
+		t.Fatalf("unable to create alice server: %v", err)
+	}
+
+	s, err := initSwitchWithDB(testStartingHeight, nil)
+	if err != nil {
+		t.Fatalf("unable to init switch: %v", err)
+	}
+	if err := s.Start(); err != nil {
+		t.Fatalf("unable to start switch: %v", err)
+	}
+	defer s.Stop()
+
+	chanID1, _, aliceChanID, _ := genIDs()
+
+	// Set up a mock channel link.
+	aliceChannelLink := newMockChannelLink(
+		s, chanID1, aliceChanID, alicePeer, true,
+	)
+	if err := s.AddLink(aliceChannelLink); err != nil {
+		t.Fatalf("unable to add link: %v", err)
+	}
+
+	// Create a request which should be forwarded to the mock channel link.
+	preimage, err := genPreimage()
+	if err != nil {
+		t.Fatalf("unable to generate preimage: %v", err)
+	}
+	rhash := fastsha256.Sum256(preimage[:])
+	update := &lnwire.UpdateAddHTLC{
+		PaymentHash: rhash,
+		Amount:      1,
+	}
+
+	paymentID := uint64(123)
+
+	// Send the request.
+	err = s.SendHTLC(
+		aliceChannelLink.ShortChanID(), paymentID, update,
+	)
+	if err != nil {
+		t.Fatalf("unable to send payment: %v", err)
+	}
+
+	// Catch the packet and complete the circuit so that the switch is ready
+	// for a response.
+	select {
+	case packet := <-aliceChannelLink.packets:
+		if err := aliceChannelLink.completeCircuit(packet); err != nil {
+			t.Fatalf("unable to complete payment circuit: %v", err)
+		}
+
+	case <-time.After(time.Second):
+		t.Fatal("request was not propagated to destination")
+	}
+
+	// Send response packet with an unreadable failure message to the
+	// switch. The reason failed is not relevant, because we mock the
+	// decryption.
+	packet := &htlcPacket{
+		outgoingChanID: aliceChannelLink.ShortChanID(),
+		outgoingHTLCID: 0,
+		amount:         1,
+		htlc: &lnwire.UpdateFailHTLC{
+			Reason: []byte{1, 2, 3},
+		},
+	}
+
+	if err := s.forward(packet); err != nil {
+		t.Fatalf("can't forward htlc packet: %v", err)
+	}
+
+	// Get payment result from switch. We expect an unreadable failure
+	// message error.
+	deobfuscator := SphinxErrorDecrypter{
+		Decrypt: func(encryptedData []byte) (int, []byte, error) {
+			return 0, nil, ErrUnreadableFailureMessage
+		},
+	}
+
+	resultChan, err := s.GetPaymentResult(
+		paymentID, rhash, &deobfuscator,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case result := <-resultChan:
+		if result.Error != ErrUnreadableFailureMessage {
+			t.Fatal("expected unreadable failure message")
+		}
+
+	case <-time.After(time.Second):
+		t.Fatal("err wasn't received")
+	}
+}

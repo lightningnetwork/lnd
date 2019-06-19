@@ -17,7 +17,7 @@ import (
 type errNoRoute struct {
 	// lastError is the error encountered during the last payment attempt,
 	// if at least one attempt has been made.
-	lastError *htlcswitch.ForwardingError
+	lastError error
 }
 
 // Error returns a string representation of the error.
@@ -37,7 +37,7 @@ type paymentLifecycle struct {
 	finalCLTVDelta uint16
 	attempt        *channeldb.PaymentAttemptInfo
 	circuit        *sphinx.Circuit
-	lastError      *htlcswitch.ForwardingError
+	lastError      error
 }
 
 // resumePayment resumes the paymentLifecycle from the current state.
@@ -341,22 +341,9 @@ func (p *paymentLifecycle) sendPaymentAttempt(firstHop lnwire.ShortChannelID,
 // handleSendError inspects the given error from the Switch and determines
 // whether we should make another payment attempt.
 func (p *paymentLifecycle) handleSendError(sendErr error) error {
-	var finalOutcome bool
-
-	// If an internal, non-forwarding error occurred, we can stop trying.
-	fErr, ok := sendErr.(*htlcswitch.ForwardingError)
-	if !ok {
-		finalOutcome = true
-	} else {
-		finalOutcome = p.router.processSendError(
-			p.paySession, &p.attempt.Route, fErr,
-		)
-
-		// Save the forwarding error so it can be returned if this turns
-		// out to be the last attempt.
-		p.lastError = fErr
-	}
-
+	finalOutcome := p.router.processSendError(
+		p.paySession, &p.attempt.Route, sendErr,
+	)
 	if finalOutcome {
 		log.Errorf("Payment %x failed with final outcome: %v",
 			p.payment.PaymentHash, sendErr)
@@ -374,6 +361,10 @@ func (p *paymentLifecycle) handleSendError(sendErr error) error {
 		// Terminal state, return the error we encountered.
 		return sendErr
 	}
+
+	// Save the forwarding error so it can be returned if this turns
+	// out to be the last attempt.
+	p.lastError = sendErr
 
 	return nil
 }

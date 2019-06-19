@@ -178,6 +178,12 @@ message Failure {
         TEMPORARY_NODE_FAILURE = 19;
         PERMANENT_NODE_FAILURE = 20;
         PERMANENT_CHANNEL_FAILURE = 21;
+
+        /**
+        An unreadable failure result is returned if the received failure message
+        cannot be decrypted. In that case the error source is unknown.
+        */
+        UNREADABLE_FAILURE = 999;
     }
 
     /// Failure code as defined in the Lightning spec

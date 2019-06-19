@@ -2425,6 +2425,95 @@ func TestEmptyRoutesGenerateSphinxPacket(t *testing.T) {
 	}
 }
 
+// TestUnknownErrorSource tests that if the source of an error is unknown, all
+// edges along the route will be pruned.
+func TestUnknownErrorSource(t *testing.T) {
+	t.Parallel()
+
+	// Setup a network. It contains two paths to c: a->b->c and an
+	// alternative a->d->c.
+	chanCapSat := btcutil.Amount(100000)
+	testChannels := []*testChannel{
+		symmetricTestChannel("a", "b", chanCapSat, &testChannelPolicy{
+			Expiry:  144,
+			FeeRate: 400,
+			MinHTLC: 1,
+			MaxHTLC: lnwire.NewMSatFromSatoshis(chanCapSat),
+		}, 1),
+		symmetricTestChannel("b", "c", chanCapSat, &testChannelPolicy{
+			Expiry:  144,
+			FeeRate: 400,
+			MinHTLC: 1,
+			MaxHTLC: lnwire.NewMSatFromSatoshis(chanCapSat),
+		}, 3),
+		symmetricTestChannel("a", "d", chanCapSat, &testChannelPolicy{
+			Expiry:      144,
+			FeeRate:     400,
+			FeeBaseMsat: 100000,
+			MinHTLC:     1,
+			MaxHTLC:     lnwire.NewMSatFromSatoshis(chanCapSat),
+		}, 2),
+		symmetricTestChannel("d", "c", chanCapSat, &testChannelPolicy{
+			Expiry:      144,
+			FeeRate:     400,
+			FeeBaseMsat: 100000,
+			MinHTLC:     1,
+			MaxHTLC:     lnwire.NewMSatFromSatoshis(chanCapSat),
+		}, 4),
+	}
+
+	testGraph, err := createTestGraphFromChannels(testChannels, "a")
+	defer testGraph.cleanUp()
+	if err != nil {
+		t.Fatalf("unable to create graph: %v", err)
+	}
+
+	const startingBlockHeight = 101
+
+	ctx, cleanUp, err := createTestCtxFromGraphInstance(startingBlockHeight,
+		testGraph)
+
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to create router: %v", err)
+	}
+
+	// Create a payment to node c.
+	payment := LightningPayment{
+		Target:      ctx.aliases["c"],
+		Amount:      lnwire.NewMSatFromSatoshis(1000),
+		FeeLimit:    noFeeLimit,
+		PaymentHash: lntypes.Hash{},
+	}
+
+	// We'll modify the SendToSwitch method so that it simulates hop b as a
+	// node that returns an unparsable failure if approached via the a->b
+	// channel.
+	ctx.router.cfg.Payer.(*mockPaymentAttemptDispatcher).setPaymentResult(
+		func(firstHop lnwire.ShortChannelID) ([32]byte, error) {
+
+			// If channel a->b is used, return an error without
+			// source and message. The sender won't know the origin
+			// of the error.
+			if firstHop.ToUint64() == 1 {
+				return [32]byte{},
+					htlcswitch.ErrUnreadableFailureMessage
+			}
+
+			// Otherwise the payment succeeds.
+			return lntypes.Preimage{}, nil
+		})
+
+	// Send off the payment request to the router. The expectation is that
+	// the route a->b->c is tried first. An unreadable faiure is returned
+	// which should pruning the channel a->b. We expect the payment to
+	// succeed via a->d.
+	_, _, err = ctx.router.SendPayment(&payment)
+	if err != nil {
+		t.Fatalf("expected payment to succeed, but got: %v", err)
+	}
+}
+
 // assertChannelsPruned ensures that only the given channels are pruned from the
 // graph out of the set of all channels.
 func assertChannelsPruned(t *testing.T, graph *channeldb.ChannelGraph,

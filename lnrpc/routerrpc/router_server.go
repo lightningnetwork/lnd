@@ -310,6 +310,11 @@ func (s *Server) SendToRoute(ctx context.Context,
 func marshallError(sendError error) (*Failure, error) {
 	response := &Failure{}
 
+	if sendError == htlcswitch.ErrUnreadableFailureMessage {
+		response.Code = Failure_UNREADABLE_FAILURE
+		return response, nil
+	}
+
 	fErr, ok := sendError.(*htlcswitch.ForwardingError)
 	if !ok {
 		return nil, sendError

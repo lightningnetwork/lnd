@@ -330,7 +330,14 @@ func (b *BtcWallet) CreateSimpleTx(outputs []*wire.TxOut,
 		return nil, lnwallet.ErrNoOutputs
 	}
 	for _, output := range outputs {
-		err := txrules.CheckOutput(output, feeSatPerKB)
+		// When checking an output for things like dusty-ness, we'll
+		// use the default mempool relay fee rather than the target
+		// effective fee rate to ensure accuracy. Otherwise, we may
+		// mistakenly mark small-ish, but not quite dust output as
+		// dust.
+		err := txrules.CheckOutput(
+			output, txrules.DefaultRelayFeePerKb,
+		)
 		if err != nil {
 			return nil, err
 		}

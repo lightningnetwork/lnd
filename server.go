@@ -1298,7 +1298,7 @@ func (s *server) Start() error {
 // NOTE: This function is safe for concurrent access.
 func (s *server) Stop() error {
 	s.stop.Do(func() {
-		atomic.LoadInt32(&s.stopping)
+		atomic.StoreInt32(&s.stopping, 1)
 
 		close(s.quit)
 

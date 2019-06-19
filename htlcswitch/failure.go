@@ -244,10 +244,21 @@ func (s *SphinxErrorEncrypter) Reextract(
 // ErrorEncrypter interface.
 var _ ErrorEncrypter = (*SphinxErrorEncrypter)(nil)
 
+// OnionErrorDecrypter is the interface that provides onion level error
+// decryption.
+type OnionErrorDecrypter interface {
+	// DecryptError attempts to decrypt the passed encrypted error response.
+	// The onion failure is encrypted in backward manner, starting from the
+	// node where error have occurred. As a result, in order to decrypt the
+	// error we need get all shared secret and apply decryption in the
+	// reverse order.
+	DecryptError(encryptedData []byte) (*sphinx.DecryptedError, error)
+}
+
 // SphinxErrorDecrypter wraps the sphinx data SphinxErrorDecrypter and maps the
 // returned errors to concrete lnwire.FailureMessage instances.
 type SphinxErrorDecrypter struct {
-	*sphinx.OnionErrorDecrypter
+	OnionErrorDecrypter
 }
 
 // DecryptError peels off each layer of onion encryption from the first hop, to
@@ -255,7 +266,8 @@ type SphinxErrorDecrypter struct {
 // along with the source of the error.
 //
 // NOTE: Part of the ErrorDecrypter interface.
-func (s *SphinxErrorDecrypter) DecryptError(reason lnwire.OpaqueReason) (*ForwardingError, error) {
+func (s *SphinxErrorDecrypter) DecryptError(reason lnwire.OpaqueReason) (
+	*ForwardingError, error) {
 
 	failure, err := s.OnionErrorDecrypter.DecryptError(reason)
 	if err != nil {

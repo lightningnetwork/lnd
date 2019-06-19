@@ -14,6 +14,7 @@ import (
 var queryMissionControlCommand = cli.Command{
 	Name:     "querymc",
 	Category: "Payments",
+	Usage:    "Query the internal mission control state.",
 	Action:   actionDecorator(queryMissionControl),
 }
 

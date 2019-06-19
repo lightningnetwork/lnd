@@ -1812,8 +1812,24 @@ func (r *ChannelRouter) sendPayment(
 // to continue with an alternative route. This is indicated by the boolean
 // return value.
 func (r *ChannelRouter) processSendError(paySession PaymentSession,
-	rt *route.Route, fErr *htlcswitch.ForwardingError) (
-	bool, channeldb.FailureReason) {
+	rt *route.Route, sendErr error) (bool, channeldb.FailureReason) {
+
+	// If the failure message could not be decrypted, attribute the failure
+	// to our own outgoing channel.
+	//
+	// TODO(joostager): Penalize all channels in the route.
+	if sendErr == htlcswitch.ErrUnreadableFailureMessage {
+		sendErr = &htlcswitch.ForwardingError{
+			FailureSourceIdx: 0,
+			FailureMessage:   lnwire.NewTemporaryChannelFailure(nil),
+		}
+	}
+
+	// If an internal, non-forwarding error occurred, we can stop trying.
+	fErr, ok := sendErr.(*htlcswitch.ForwardingError)
+	if !ok {
+		return true, channeldb.FailureReasonError
+	}
 
 	var (
 		failureSourceIdx = fErr.FailureSourceIdx

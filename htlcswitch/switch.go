@@ -58,6 +58,10 @@ var (
 	// active links in the switch for a specific destination.
 	ErrNoLinksFound = errors.New("no channel links found")
 
+	// ErrUnreadableFailureMessage is returned when the failure message
+	// cannot be decrypted.
+	ErrUnreadableFailureMessage = errors.New("unreadable failure message")
+
 	// zeroPreimage is the empty preimage which is returned when we have
 	// some errors.
 	zeroPreimage [sha256.Size]byte
@@ -936,9 +940,7 @@ func (s *Switch) extractResult(deobfuscator ErrorDecrypter, n *networkResult,
 //    the payment deobfuscator.
 func (s *Switch) parseFailedPayment(deobfuscator ErrorDecrypter,
 	paymentID uint64, paymentHash lntypes.Hash, unencrypted,
-	isResolution bool, htlc *lnwire.UpdateFailHTLC) *ForwardingError {
-
-	var failure *ForwardingError
+	isResolution bool, htlc *lnwire.UpdateFailHTLC) error {
 
 	switch {
 
@@ -960,7 +962,8 @@ func (s *Switch) parseFailedPayment(deobfuscator ErrorDecrypter,
 			// router.
 			failureMsg = lnwire.NewTemporaryChannelFailure(nil)
 		}
-		failure = &ForwardingError{
+
+		return &ForwardingError{
 			FailureSourceIdx: 0,
 			ExtraMsg:         userErr,
 			FailureMessage:   failureMsg,
@@ -974,7 +977,8 @@ func (s *Switch) parseFailedPayment(deobfuscator ErrorDecrypter,
 		userErr := fmt.Sprintf("payment was resolved "+
 			"on-chain, then cancelled back (hash=%v, pid=%d)",
 			paymentHash, paymentID)
-		failure = &ForwardingError{
+
+		return &ForwardingError{
 			FailureSourceIdx: 0,
 			ExtraMsg:         userErr,
 			FailureMessage:   lnwire.FailPermanentChannelFailure{},
@@ -983,24 +987,19 @@ func (s *Switch) parseFailedPayment(deobfuscator ErrorDecrypter,
 	// A regular multi-hop payment error that we'll need to
 	// decrypt.
 	default:
-		var err error
 		// We'll attempt to fully decrypt the onion encrypted
 		// error. If we're unable to then we'll bail early.
-		failure, err = deobfuscator.DecryptError(htlc.Reason)
+		failure, err := deobfuscator.DecryptError(htlc.Reason)
 		if err != nil {
-			userErr := fmt.Sprintf("unable to de-obfuscate "+
-				"onion failure (hash=%v, pid=%d): %v",
+			log.Errorf("unable to de-obfuscate onion failure "+
+				"(hash=%v, pid=%d): %v",
 				paymentHash, paymentID, err)
-			log.Error(userErr)
-			failure = &ForwardingError{
-				FailureSourceIdx: 0,
-				ExtraMsg:         userErr,
-				FailureMessage:   lnwire.NewTemporaryChannelFailure(nil),
-			}
-		}
-	}
 
-	return failure
+			return ErrUnreadableFailureMessage
+		}
+
+		return failure
+	}
 }
 
 // handlePacketForward is used in cases when we need forward the htlc update

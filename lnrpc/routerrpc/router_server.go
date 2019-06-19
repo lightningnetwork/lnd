@@ -399,9 +399,8 @@ func marshallError(sendError error) (*Failure, error) {
 
 	case *lnwire.FailPermanentChannelFailure:
 		response.Code = Failure_PERMANENT_CHANNEL_FAILURE
-
 	default:
-		return nil, errors.New("unknown wire error")
+		response.Code = Failure_UNKNOWN_FAILURE
 	}
 
 	response.FailureSourceIndex = uint32(fErr.FailureSourceIdx)

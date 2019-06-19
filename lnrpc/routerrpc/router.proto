@@ -180,6 +180,11 @@ message Failure {
         PERMANENT_CHANNEL_FAILURE = 21;
 
         /**
+        The error source is known, but the failure itself couldn't be decoded.
+        */
+        UNKNOWN_FAILURE = 998;
+
+        /**
         An unreadable failure result is returned if the received failure message
         cannot be decrypted. In that case the error source is unknown.
         */

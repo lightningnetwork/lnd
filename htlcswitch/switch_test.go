@@ -2323,8 +2323,8 @@ func TestInvalidFailure(t *testing.T) {
 	// Get payment result from switch. We expect an unreadable failure
 	// message error.
 	deobfuscator := SphinxErrorDecrypter{
-		Decrypt: func(encryptedData []byte) (int, []byte, error) {
-			return 0, nil, ErrUnreadableFailureMessage
+		OnionErrorDecrypter: &mockOnionErrorDecryptor{
+			err: ErrUnreadableFailureMessage,
 		},
 	}
 
@@ -2339,6 +2339,39 @@ func TestInvalidFailure(t *testing.T) {
 	case result := <-resultChan:
 		if result.Error != ErrUnreadableFailureMessage {
 			t.Fatal("expected unreadable failure message")
+		}
+
+	case <-time.After(time.Second):
+		t.Fatal("err wasn't received")
+	}
+
+	// Modify the decryption to simulate that decryption went alright, but
+	// the failure cannot be decoded.
+	deobfuscator = SphinxErrorDecrypter{
+		OnionErrorDecrypter: &mockOnionErrorDecryptor{
+			sourceIdx: 2,
+			message:   []byte{200},
+		},
+	}
+
+	resultChan, err = s.GetPaymentResult(
+		paymentID, rhash, &deobfuscator,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case result := <-resultChan:
+		fErr, ok := result.Error.(*ForwardingError)
+		if !ok {
+			t.Fatal("expected ForwardingError")
+		}
+		if fErr.FailureSourceIdx != 2 {
+			t.Fatal("unexpected error source index")
+		}
+		if fErr.FailureMessage != nil {
+			t.Fatal("expected empty failure message")
 		}
 
 	case <-time.After(time.Second):

@@ -751,7 +751,7 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 				// roasbeef not having enough capacity.
 				return [32]byte{}, &htlcswitch.ForwardingError{
 					FailureSourceIdx: 0,
-					FailureMessage: &lnwire.FailTemporaryChannelFailure{},
+					FailureMessage:   &lnwire.FailTemporaryChannelFailure{},
 				}
 			}
 
@@ -762,7 +762,7 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 			if firstHop == roasbeefSatoshi {
 				return [32]byte{}, &htlcswitch.ForwardingError{
 					FailureSourceIdx: 1,
-					FailureMessage: &lnwire.FailUnknownNextPeer{},
+					FailureMessage:   &lnwire.FailUnknownNextPeer{},
 				}
 			}
 
@@ -795,7 +795,7 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 			if firstHop == roasbeefLuoji {
 				return [32]byte{}, &htlcswitch.ForwardingError{
 					FailureSourceIdx: 0,
-					FailureMessage: &lnwire.FailUnknownNextPeer{},
+					FailureMessage:   &lnwire.FailUnknownNextPeer{},
 				}
 			}
 
@@ -841,7 +841,7 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 				// roasbeef not having enough capacity.
 				return [32]byte{}, &htlcswitch.ForwardingError{
 					FailureSourceIdx: 0,
-					FailureMessage: &lnwire.FailTemporaryChannelFailure{},
+					FailureMessage:   &lnwire.FailTemporaryChannelFailure{},
 				}
 			}
 			return preImage, nil
@@ -2512,6 +2512,31 @@ func TestUnknownErrorSource(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected payment to succeed, but got: %v", err)
 	}
+
+	// Next we modify payment result to return an unknown failure.
+	ctx.router.cfg.Payer.(*mockPaymentAttemptDispatcher).setPaymentResult(
+		func(firstHop lnwire.ShortChannelID) ([32]byte, error) {
+
+			// If channel a->b is used, simulate that the failure
+			// couldn't be decoded (FailureMessage is nil).
+			if firstHop.ToUint64() == 2 {
+				return [32]byte{},
+					&htlcswitch.ForwardingError{
+						FailureSourceIdx: 1,
+					}
+			}
+
+			// Otherwise the payment succeeds.
+			return lntypes.Preimage{}, nil
+		})
+
+	// Send off the payment request to the router. We expect the payment to
+	// fail because both routes have been pruned.
+	payment.PaymentHash = lntypes.Hash{1}
+	_, _, err = ctx.router.SendPayment(&payment)
+	if err == nil {
+		t.Fatalf("expected payment to fail")
+	}
 }
 
 // assertChannelsPruned ensures that only the given channels are pruned from the
@@ -3055,7 +3080,7 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 				select {
 				case sendResult <- &htlcswitch.ForwardingError{
 					FailureSourceIdx: 1,
-					FailureMessage: &lnwire.FailTemporaryChannelFailure{},
+					FailureMessage:   &lnwire.FailTemporaryChannelFailure{},
 				}:
 				case <-time.After(1 * time.Second):
 					t.Fatalf("unable to send result")
@@ -3081,7 +3106,7 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 				case getPaymentResult <- &htlcswitch.PaymentResult{
 					Error: &htlcswitch.ForwardingError{
 						FailureSourceIdx: 1,
-						FailureMessage: &lnwire.FailTemporaryChannelFailure{},
+						FailureMessage:   &lnwire.FailTemporaryChannelFailure{},
 					},
 				}:
 				case <-time.After(1 * time.Second):

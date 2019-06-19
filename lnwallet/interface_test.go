@@ -2246,7 +2246,7 @@ func testCreateSimpleTx(r *rpctest.Harness, w *lnwallet.LightningWallet,
 		},
 
 		{
-			outVals: []int64{1e3},
+			outVals: []int64{200},
 			feeRate: 2500,
 			valid:   false, // Dust output.
 		},
@@ -2279,7 +2279,7 @@ func testCreateSimpleTx(r *rpctest.Harness, w *lnwallet.LightningWallet,
 		},
 	}
 
-	for _, test := range testCases {
+	for i, test := range testCases {
 		feeRate := test.feeRate
 
 		// Grab some fresh addresses from the miner that we will send
@@ -2308,10 +2308,15 @@ func testCreateSimpleTx(r *rpctest.Harness, w *lnwallet.LightningWallet,
 		createTx, createErr := w.CreateSimpleTx(
 			outputs, feeRate, true,
 		)
-		if test.valid == (createErr != nil) {
+		switch {
+		case test.valid && createErr != nil:
 			fmt.Println(spew.Sdump(createTx.Tx))
 			t.Fatalf("got unexpected error when creating tx: %v",
 				createErr)
+
+		case !test.valid && createErr == nil:
+			t.Fatalf("test #%v should have failed on tx "+
+				"creation", i)
 		}
 
 		// Also send to these outputs. This should result in a tx
@@ -2319,9 +2324,13 @@ func testCreateSimpleTx(r *rpctest.Harness, w *lnwallet.LightningWallet,
 		// only difference is that the dry run tx is not signed, and
 		// that the change output position might be different.
 		tx, sendErr := w.SendOutputs(outputs, feeRate)
-		if test.valid == (sendErr != nil) {
+		switch {
+		case test.valid && sendErr != nil:
 			t.Fatalf("got unexpected error when sending tx: %v",
 				sendErr)
+
+		case !test.valid && sendErr == nil:
+			t.Fatalf("test #%v should fail for tx sending", i)
 		}
 
 		// We expected either both to not fail, or both to fail with

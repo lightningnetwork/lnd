@@ -300,7 +300,7 @@ func findPath(g *graphParams, r *RestrictParams, source, target route.Vertex,
 	// First we'll initialize an empty heap which'll help us to quickly
 	// locate the next edge we should visit next during our graph
 	// traversal.
-	var nodeHeap distanceHeap
+	nodeHeap := newDistanceHeap()
 
 	// For each node in the graph, we create an entry in the distance map
 	// for the node set with a distance of "infinity". graph.ForEachNode
@@ -527,9 +527,10 @@ func findPath(g *graphParams, r *RestrictParams, source, target route.Vertex,
 
 		next[fromVertex] = edge
 
-		// Add this new node to our heap as we'd like to further
-		// explore backwards through this edge.
-		heap.Push(&nodeHeap, distance[fromVertex])
+		// Either push distance[fromVertex] onto the heap if the node
+		// represented by fromVertex is not already on the heap OR adjust
+		// its position within the heap via heap.Fix.
+		nodeHeap.PushOrFix(distance[fromVertex])
 	}
 
 	// TODO(roasbeef): also add path caching

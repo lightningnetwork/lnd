@@ -1505,9 +1505,11 @@ func generateSphinxPacket(rt *route.Route, paymentHash []byte,
 
 	log.Tracef("Constructed per-hop payloads for payment_hash=%x: %v",
 		paymentHash[:], newLogClosure(func() string {
-			path := sphinxPath[:sphinxPath.TrueRouteLength()]
+			path := make([]sphinx.OnionHop, sphinxPath.TrueRouteLength())
 			for i := range path {
-				path[i].NodePub.Curve = nil
+				hopCopy := sphinxPath[i]
+				hopCopy.NodePub.Curve = nil
+				path[i] = hopCopy
 			}
 			return spew.Sdump(path)
 		}),
@@ -1531,10 +1533,14 @@ func generateSphinxPacket(rt *route.Route, paymentHash []byte,
 
 	log.Tracef("Generated sphinx packet: %v",
 		newLogClosure(func() string {
-			// We unset the internal curve here in order to keep
-			// the logs from getting noisy.
-			sphinxPacket.EphemeralKey.Curve = nil
-			return spew.Sdump(sphinxPacket)
+			// We make a copy of the ephemeral key and unset the
+			// internal curve here in order to keep the logs from
+			// getting noisy.
+			key := *sphinxPacket.EphemeralKey
+			key.Curve = nil
+			packetCopy := *sphinxPacket
+			packetCopy.EphemeralKey = &key
+			return spew.Sdump(packetCopy)
 		}),
 	)
 
@@ -1759,12 +1765,21 @@ func (r *ChannelRouter) sendPayment(
 
 	log.Tracef("Dispatching route for lightning payment: %v",
 		newLogClosure(func() string {
+			// Make a copy of the payment with a nilled Curve
+			// before spewing.
+			var routeHints [][]zpay32.HopHint
 			for _, routeHint := range payment.RouteHints {
+				var hopHints []zpay32.HopHint
 				for _, hopHint := range routeHint {
-					hopHint.NodeID.Curve = nil
+					h := hopHint.Copy()
+					h.NodeID.Curve = nil
+					hopHints = append(hopHints, h)
 				}
+				routeHints = append(routeHints, hopHints)
 			}
-			return spew.Sdump(payment)
+			p := *payment
+			p.RouteHints = routeHints
+			return spew.Sdump(p)
 		}),
 	)
 

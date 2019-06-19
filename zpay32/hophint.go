@@ -29,3 +29,15 @@ type HopHint struct {
 	// CLTVExpiryDelta is the time-lock delta of the channel.
 	CLTVExpiryDelta uint16
 }
+
+// Copy returns a deep copy of the hop hint.
+func (h HopHint) Copy() HopHint {
+	nodeID := *h.NodeID
+	return HopHint{
+		NodeID:                    &nodeID,
+		ChannelID:                 h.ChannelID,
+		FeeBaseMSat:               h.FeeBaseMSat,
+		FeeProportionalMillionths: h.FeeProportionalMillionths,
+		CLTVExpiryDelta:           h.CLTVExpiryDelta,
+	}
+}

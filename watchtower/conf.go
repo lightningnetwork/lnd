@@ -1,6 +1,7 @@
 package watchtower
 
 import (
+	"strconv"
 	"time"
 )
 
@@ -36,7 +37,7 @@ func (c *Conf) Apply(cfg *Config,
 		// If no addresses are specified by the Config, we will resort
 		// to the default peer port.
 		if len(c.RawListeners) == 0 {
-			addr := DefaultPeerPortStr
+			addr := DefaultListenAddr
 			c.RawListeners = append(c.RawListeners, addr)
 		}
 
@@ -44,7 +45,7 @@ func (c *Conf) Apply(cfg *Config,
 		// used by the brontide listener.
 		var err error
 		cfg.ListenAddrs, err = normalizer(
-			c.RawListeners, DefaultPeerPortStr,
+			c.RawListeners, strconv.Itoa(DefaultPeerPort),
 			cfg.Net.ResolveTCPAddr,
 		)
 		if err != nil {

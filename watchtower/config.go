@@ -28,8 +28,9 @@ const (
 )
 
 var (
-	// DefaultPeerPortStr is the default server port as a string.
-	DefaultPeerPortStr = fmt.Sprintf(":%d", DefaultPeerPort)
+	// DefaultListenAddr is the default watchtower address listening on all
+	// interfaces.
+	DefaultListenAddr = fmt.Sprintf(":%d", DefaultPeerPort)
 )
 
 // Config defines the resources and parameters used to configure a Watchtower.

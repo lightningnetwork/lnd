@@ -28,7 +28,7 @@ const (
 
 	// DefaultStatInterval specifies the default interval between logging
 	// metrics about the client's operation.
-	DefaultStatInterval = 30 * time.Second
+	DefaultStatInterval = time.Minute
 
 	// DefaultForceQuitDelay specifies the default duration after which the
 	// client should abandon any pending updates or session negotiations

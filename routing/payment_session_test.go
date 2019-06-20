@@ -14,8 +14,9 @@ func TestRequestRoute(t *testing.T) {
 	)
 
 	findPath := func(g *graphParams, r *RestrictParams,
-		source, target route.Vertex, amt lnwire.MilliSatoshi) (
-		[]*channeldb.ChannelEdgePolicy, error) {
+		cfg *PathFindingConfig, source, target route.Vertex,
+		amt lnwire.MilliSatoshi) ([]*channeldb.ChannelEdgePolicy,
+		error) {
 
 		// We expect find path to receive a cltv limit excluding the
 		// final cltv delta.

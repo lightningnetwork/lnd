@@ -153,7 +153,6 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 
 			return 1
 		},
-		PaymentAttemptPenalty: routing.DefaultPaymentAttemptPenalty,
 	}
 
 	// Query the channel router for a possible path to the destination that

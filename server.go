@@ -666,13 +666,17 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 		int64(routingConfig.PaymentAttemptPenalty.ToSatoshis()),
 		routingConfig.MinRouteProbability)
 
-	paymentSessionSource := &routing.SessionSource{
-		Graph:                 chanGraph,
-		MissionControl:        s.missionControl,
-		QueryBandwidth:        queryBandwidth,
-		SelfNode:              selfNode,
+	pathFindingConfig := routing.PathFindingConfig{
 		PaymentAttemptPenalty: routingConfig.PaymentAttemptPenalty,
-		MinRouteProbability:   routingConfig.MinRouteProbability,
+		MinProbability:        routingConfig.MinRouteProbability,
+	}
+
+	paymentSessionSource := &routing.SessionSource{
+		Graph:             chanGraph,
+		MissionControl:    s.missionControl,
+		QueryBandwidth:    queryBandwidth,
+		SelfNode:          selfNode,
+		PathFindingConfig: pathFindingConfig,
 	}
 
 	paymentControl := channeldb.NewPaymentControl(chanDB)
@@ -692,6 +696,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 		QueryBandwidth:     queryBandwidth,
 		AssumeChannelValid: cfg.Routing.UseAssumeChannelValid(),
 		NextPaymentID:      sequencer.NextID,
+		PathFindingConfig:  pathFindingConfig,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("can't create router: %v", err)

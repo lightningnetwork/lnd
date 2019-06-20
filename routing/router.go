@@ -287,6 +287,9 @@ type Config struct {
 	// spentness of channel outpoints. For neutrino, this saves long rescans
 	// from blocking initial usage of the daemon.
 	AssumeChannelValid bool
+
+	// PathFindingConfig defines global path finding parameters.
+	PathFindingConfig PathFindingConfig
 }
 
 // routeTuple is an entry within the ChannelRouter's route cache. We cache
@@ -1455,7 +1458,8 @@ func (r *ChannelRouter) FindRoute(source, target route.Vertex,
 			graph:          r.cfg.Graph,
 			bandwidthHints: bandwidthHints,
 		},
-		restrictions, source, target, amt,
+		restrictions, &r.cfg.PathFindingConfig,
+		source, target, amt,
 	)
 	if err != nil {
 		return nil, err

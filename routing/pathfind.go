@@ -37,8 +37,8 @@ const (
 
 // pathFinder defines the interface of a path finding algorithm.
 type pathFinder = func(g *graphParams, r *RestrictParams,
-	source, target route.Vertex, amt lnwire.MilliSatoshi) (
-	[]*channeldb.ChannelEdgePolicy, error)
+	cfg *PathFindingConfig, source, target route.Vertex,
+	amt lnwire.MilliSatoshi) ([]*channeldb.ChannelEdgePolicy, error)
 
 var (
 	// DefaultPaymentAttemptPenalty is the virtual cost in path finding weight
@@ -261,7 +261,11 @@ type RestrictParams struct {
 	// ctlv. After path finding is complete, the caller needs to increase
 	// all cltv expiry heights with the required final cltv delta.
 	CltvLimit *uint32
+}
 
+// PathFindingConfig defines global parameters that control the trade-off in
+// path finding between fees and probabiity.
+type PathFindingConfig struct {
 	// PaymentAttemptPenalty is the virtual cost in path finding weight
 	// units of executing a payment attempt that fails. It is used to trade
 	// off potentially better routes against their probability of
@@ -284,8 +288,9 @@ type RestrictParams struct {
 // destination node back to source. This is to properly accumulate fees
 // that need to be paid along the path and accurately check the amount
 // to forward at every node against the available bandwidth.
-func findPath(g *graphParams, r *RestrictParams, source, target route.Vertex,
-	amt lnwire.MilliSatoshi) ([]*channeldb.ChannelEdgePolicy, error) {
+func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
+	source, target route.Vertex, amt lnwire.MilliSatoshi) (
+	[]*channeldb.ChannelEdgePolicy, error) {
 
 	var err error
 	tx := g.tx
@@ -476,7 +481,7 @@ func findPath(g *graphParams, r *RestrictParams, source, target route.Vertex,
 		// If the probability is below the specified lower bound, we can
 		// abandon this direction. Adding further nodes can only lower
 		// the probability more.
-		if probability < r.MinProbability {
+		if probability < cfg.MinProbability {
 			return
 		}
 
@@ -494,7 +499,8 @@ func findPath(g *graphParams, r *RestrictParams, source, target route.Vertex,
 		// Add an extra factor to the weight to take into account the
 		// probability.
 		tempDist := getProbabilityBasedDist(
-			tempWeight, probability, int64(r.PaymentAttemptPenalty),
+			tempWeight, probability,
+			int64(cfg.PaymentAttemptPenalty),
 		)
 
 		// If the current best route is better than this candidate

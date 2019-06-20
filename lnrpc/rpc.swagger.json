@@ -293,7 +293,7 @@
     },
     "/v1/channels/closed": {
       "get": {
-        "summary": "* lncli: `closedchannels`\nClosedChannels returns a description of all the closed channels that \nthis node was a participant in.",
+        "summary": "* lncli: `closedchannels`\nClosedChannels returns a description of all the closed channels that\nthis node was a participant in.",
         "operationId": "ClosedChannels",
         "responses": {
           "200": {

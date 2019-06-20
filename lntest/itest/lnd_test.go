@@ -42,6 +42,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/watchtowerrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -7620,6 +7621,7 @@ func testRevokedCloseRetributionAltruistWatchtower(net *lntest.NetworkHarness,
 		chanAmt     = lnd.MaxBtcFundingAmount
 		paymentAmt  = 10000
 		numInvoices = 6
+		externalIP  = "1.2.3.4"
 	)
 
 	// Since we'd like to test some multi-hop failure scenarios, we'll
@@ -7635,28 +7637,57 @@ func testRevokedCloseRetributionAltruistWatchtower(net *lntest.NetworkHarness,
 	// Willy the watchtower will protect Dave from Carol's breach. He will
 	// remain online in order to punish Carol on Dave's behalf, since the
 	// breach will happen while Dave is offline.
-	willy, err := net.NewNode("Willy", []string{"--watchtower.active"})
+	willy, err := net.NewNode("Willy", []string{
+		"--watchtower.active",
+		"--watchtower.externalip=" + externalIP,
+	})
 	if err != nil {
 		t.Fatalf("unable to create new nodes: %v", err)
 	}
 	defer shutdownAndAssert(net, t, willy)
 
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	willyInfo, err := willy.GetInfo(ctxt, &lnrpc.GetInfoRequest{})
+	willyInfo, err := willy.WatchtowerClient.GetInfo(
+		ctxt, &watchtowerrpc.GetInfoRequest{},
+	)
 	if err != nil {
 		t.Fatalf("unable to getinfo from willy: %v", err)
 	}
 
-	willyAddr := willyInfo.Uris[0]
-	parts := strings.Split(willyAddr, ":")
-	willyTowerAddr := parts[0]
+	// Assert that Willy has one listener and it is 0.0.0.0:9911 or
+	// [::]:9911. Since no listener is explicitly specified, one of these
+	// should be the default depending on whether the host supports IPv6 or
+	// not.
+	if len(willyInfo.Listeners) != 1 {
+		t.Fatalf("Willy should have 1 listener, has %d",
+			len(willyInfo.Listeners))
+	}
+	listener := willyInfo.Listeners[0]
+	if listener != "0.0.0.0:9911" && listener != "[::]:9911" {
+		t.Fatalf("expected listener on 0.0.0.0:9911 or [::]:9911, "+
+			"got %v", listener)
+	}
+
+	// Assert the Willy's URIs properly display the chosen external IP.
+	if len(willyInfo.Uris) != 1 {
+		t.Fatalf("Willy should have 1 uri, has %d",
+			len(willyInfo.Uris))
+	}
+	if !strings.Contains(willyInfo.Uris[0], externalIP) {
+		t.Fatalf("expected uri with %v, got %v",
+			externalIP, willyInfo.Uris[0])
+	}
+
+	// Construct a URI from listening port and public key, since aren't
+	// actually connecting remotely.
+	willyTowerURI := fmt.Sprintf("%x@%s", willyInfo.Pubkey, listener)
 
 	// Dave will be the breached party. We set --nolisten to ensure Carol
 	// won't be able to connect to him and trigger the channel data
 	// protection logic automatically.
 	dave, err := net.NewNode("Dave", []string{
 		"--nolisten",
-		"--wtclient.private-tower-uris=" + willyTowerAddr,
+		"--wtclient.private-tower-uris=" + willyTowerURI,
 	})
 	if err != nil {
 		t.Fatalf("unable to create new node: %v", err)

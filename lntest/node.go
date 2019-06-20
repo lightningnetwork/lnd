@@ -25,6 +25,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/watchtowerrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
@@ -250,10 +251,11 @@ type HarnessNode struct {
 
 	invoicesrpc.InvoicesClient
 
-	// RouterClient and WalletKitClient cannot be embedded, because a name
-	// collision would occur with LightningClient.
-	RouterClient    routerrpc.RouterClient
-	WalletKitClient walletrpc.WalletKitClient
+	// RouterClient, WalletKitClient, WatchtowerClient cannot be embedded,
+	// because a name collision would occur with LightningClient.
+	RouterClient     routerrpc.RouterClient
+	WalletKitClient  walletrpc.WalletKitClient
+	WatchtowerClient watchtowerrpc.WatchtowerClient
 }
 
 // Assert *HarnessNode implements the lnrpc.LightningClient interface.
@@ -515,6 +517,7 @@ func (hn *HarnessNode) initLightningClient(conn *grpc.ClientConn) error {
 	hn.InvoicesClient = invoicesrpc.NewInvoicesClient(conn)
 	hn.RouterClient = routerrpc.NewRouterClient(conn)
 	hn.WalletKitClient = walletrpc.NewWalletKitClient(conn)
+	hn.WatchtowerClient = watchtowerrpc.NewWatchtowerClient(conn)
 
 	// Set the harness node's pubkey to what the node claims in GetInfo.
 	err := hn.FetchNodeInfo()
@@ -717,6 +720,7 @@ func (hn *HarnessNode) stop() error {
 	hn.processExit = nil
 	hn.LightningClient = nil
 	hn.WalletUnlockerClient = nil
+	hn.WatchtowerClient = nil
 	return nil
 }
 

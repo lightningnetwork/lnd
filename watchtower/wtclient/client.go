@@ -738,7 +738,7 @@ func (c *TowerClient) taskRejected(task *backupTask, curStatus reserveStatus) {
 	case reserveExhausted:
 		c.stats.sessionExhausted()
 
-		log.Debugf("Session %v exhausted, %s queued for next session",
+		log.Debugf("Session %v exhausted, %v queued for next session",
 			c.sessionQueue.ID(), task.id)
 
 		// Cache the task that we pulled off, so that we can process it

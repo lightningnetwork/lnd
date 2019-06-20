@@ -199,7 +199,7 @@ func (q *sessionQueue) AcceptTask(task *backupTask) (reserveStatus, bool) {
 
 	numPending := uint32(q.pendingQueue.Len())
 	maxUpdates := q.cfg.ClientSession.Policy.MaxUpdates
-	log.Debugf("SessionQueue(%x) deciding to accept %v seqnum=%d "+
+	log.Debugf("SessionQueue(%s) deciding to accept %v seqnum=%d "+
 		"pending=%d max-updates=%d",
 		q.ID(), task.id, q.seqNum, numPending, maxUpdates)
 

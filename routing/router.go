@@ -42,7 +42,7 @@ const (
 	// defaultStatInterval governs how often the router will log non-empty
 	// stats related to processing new channels, updates, or node
 	// announcements.
-	defaultStatInterval = 30 * time.Second
+	defaultStatInterval = time.Minute
 )
 
 var (

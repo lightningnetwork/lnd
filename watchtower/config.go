@@ -74,8 +74,12 @@ type Config struct {
 	// have stronger guarantees wrt. returned error types.
 	PublishTx func(*wire.MsgTx) error
 
-	// ListenAddrs specifies which address to which clients may connect.
+	// ListenAddrs specifies the listening addresses of the tower.
 	ListenAddrs []net.Addr
+
+	// ExternalIPs specifies the addresses to which clients may connect to
+	// the tower.
+	ExternalIPs []net.Addr
 
 	// ReadTimeout specifies how long a client may go without sending a
 	// message.

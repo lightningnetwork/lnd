@@ -4,6 +4,7 @@ import (
 	"net"
 	"sync/atomic"
 
+	"github.com/btcsuite/btcd/btcec"
 	"github.com/lightningnetwork/lnd/brontide"
 	"github.com/lightningnetwork/lnd/watchtower/lookout"
 	"github.com/lightningnetwork/lnd/watchtower/wtserver"
@@ -19,6 +20,9 @@ type Standalone struct {
 	stopped uint32 // to be used atomically
 
 	cfg *Config
+
+	// listeners is a reference to the wtserver's listeners.
+	listeners []net.Listener
 
 	// server is the client endpoint, used for negotiating sessions and
 	// uploading state updates.
@@ -92,9 +96,10 @@ func New(cfg *Config) (*Standalone, error) {
 	}
 
 	return &Standalone{
-		cfg:     cfg,
-		server:  server,
-		lookout: lookout,
+		cfg:       cfg,
+		listeners: listeners,
+		server:    server,
+		lookout:   lookout,
 	}, nil
 }
 
@@ -135,4 +140,38 @@ func (w *Standalone) Stop() error {
 	log.Infof("Watchtower stopped successfully")
 
 	return nil
+}
+
+// PubKey returns the public key for the watchtower used to authentication and
+// encrypt traffic with clients.
+//
+// NOTE: Part of the watchtowerrpc.WatchtowerBackend interface.
+func (w *Standalone) PubKey() *btcec.PublicKey {
+	return w.cfg.NodePrivKey.PubKey()
+}
+
+// ListeningAddrs returns the listening addresses where the watchtower server
+// can accept client connections.
+//
+// NOTE: Part of the watchtowerrpc.WatchtowerBackend interface.
+func (w *Standalone) ListeningAddrs() []net.Addr {
+	addrs := make([]net.Addr, 0, len(w.listeners))
+	for _, listener := range w.listeners {
+		addrs = append(addrs, listener.Addr())
+	}
+
+	return addrs
+}
+
+// ExternalIPs returns the addresses where the watchtower can be reached by
+// clients externally.
+//
+// NOTE: Part of the watchtowerrpc.WatchtowerBackend interface.
+func (w *Standalone) ExternalIPs() []net.Addr {
+	addrs := make([]net.Addr, 0, len(w.cfg.ExternalIPs))
+	for _, addr := range w.cfg.ExternalIPs {
+		addrs = append(addrs, addr)
+	}
+
+	return addrs
 }

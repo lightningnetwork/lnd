@@ -96,6 +96,13 @@ const (
 	// session keys are limited to the lifetime of the session and are used
 	// to increase privacy in the watchtower protocol.
 	KeyFamilyTowerSession KeyFamily = 8
+
+	// KeyFamilyTowerID is the family of keys used to derive the public key
+	// of a watchtower. This made distinct from the node key to offer a form
+	// of rudimentary whitelisting, i.e. via knowledge of the pubkey,
+	// preventing others from having full access to the tower just as a
+	// result of knowing the node key.
+	KeyFamilyTowerID KeyFamily = 9
 )
 
 // KeyLocator is a two-tuple that can be used to derive *any* key that has ever

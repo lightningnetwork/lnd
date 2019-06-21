@@ -3127,6 +3127,8 @@ func (r *rpcServer) dispatchPaymentIntent(
 	// If the route failed, then we'll return a nil save err, but a non-nil
 	// routing err.
 	if routerErr != nil {
+		rpcsLog.Warnf("Unable to send payment: %v", routerErr)
+
 		return &paymentIntentResponse{
 			Err: routerErr,
 		}, nil

@@ -218,6 +218,9 @@ func (p *paymentLifecycle) createNewPaymentAttempt() (lnwire.ShortChannelID,
 		p.payment, uint32(p.currentHeight), p.finalCLTVDelta,
 	)
 	if err != nil {
+		log.Warnf("Failed to find route for payment %x: %v",
+			p.payment.PaymentHash, err)
+
 		// If we're unable to successfully make a payment using
 		// any of the routes we've found, then mark the payment
 		// as permanently failed.

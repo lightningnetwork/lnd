@@ -18,6 +18,10 @@ type TowerCandidateIterator interface {
 	// to return results in any particular order.  If no more candidates are
 	// available, ErrTowerCandidatesExhausted is returned.
 	Next() (*wtdb.Tower, error)
+
+	// TowerIDs returns the set of tower IDs contained in the iterator,
+	// which can be used to filter candidate sessions for the active tower.
+	TowerIDs() map[wtdb.TowerID]struct{}
 }
 
 // towerListIterator is a linked-list backed TowerCandidateIterator.
@@ -56,6 +60,17 @@ func (t *towerListIterator) Reset() error {
 	t.nextCandidate = t.candidates.Front()
 
 	return nil
+}
+
+// TowerIDs returns the set of tower IDs contained in the iterator, which can be
+// used to filter candidate sessions for the active tower.
+func (t *towerListIterator) TowerIDs() map[wtdb.TowerID]struct{} {
+	ids := make(map[wtdb.TowerID]struct{})
+	for e := t.candidates.Front(); e != nil; e = e.Next() {
+		tower := e.Value.(*wtdb.Tower)
+		ids[tower.ID] = struct{}{}
+	}
+	return ids
 }
 
 // Next returns the next candidate tower. This iterator will always return

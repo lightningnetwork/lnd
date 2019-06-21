@@ -746,9 +746,14 @@ func migrateGossipMessageStoreKeys(tx *bbolt.Tx) error {
 // payments) we delete those statuses, so only Completed payments remain in the
 // new bucket structure.
 func migrateOutgoingPayments(tx *bbolt.Tx) error {
-	oldPayments, err := tx.CreateBucketIfNotExists(paymentBucket)
-	if err != nil {
-		return err
+	log.Infof("Migrating outgoing payments to new bucket structure")
+
+	oldPayments := tx.Bucket(paymentBucket)
+
+	// Return early if there are no payments to migrate.
+	if oldPayments == nil {
+		log.Infof("No outgoing payments found, nothing to migrate.")
+		return nil
 	}
 
 	newPayments, err := tx.CreateBucket(paymentsRootBucket)
@@ -756,20 +761,22 @@ func migrateOutgoingPayments(tx *bbolt.Tx) error {
 		return err
 	}
 
-	// Get the source pubkey.
-	nodes := tx.Bucket(nodeBucket)
-	if nodes == nil {
-		return ErrGraphNotFound
-	}
+	// Helper method to get the source pubkey. We define it such that we
+	// only attempt to fetch it if needed.
+	sourcePub := func() ([33]byte, error) {
+		var pub [33]byte
+		nodes := tx.Bucket(nodeBucket)
+		if nodes == nil {
+			return pub, ErrGraphNotFound
+		}
 
-	selfPub := nodes.Get(sourceKey)
-	if selfPub == nil {
-		return ErrSourceNodeNotSet
+		selfPub := nodes.Get(sourceKey)
+		if selfPub == nil {
+			return pub, ErrSourceNodeNotSet
+		}
+		copy(pub[:], selfPub[:])
+		return pub, nil
 	}
-	var sourcePubKey [33]byte
-	copy(sourcePubKey[:], selfPub[:])
-
-	log.Infof("Migrating outgoing payments to new bucket structure")
 
 	err = oldPayments.ForEach(func(k, v []byte) error {
 		// Ignores if it is sub-bucket.
@@ -797,6 +804,11 @@ func migrateOutgoingPayments(tx *bbolt.Tx) error {
 
 		var infoBuf bytes.Buffer
 		if err := serializePaymentCreationInfo(&infoBuf, c); err != nil {
+			return err
+		}
+
+		sourcePubKey, err := sourcePub()
+		if err != nil {
 			return err
 		}
 

@@ -8102,7 +8102,7 @@ func assertDLPExecuted(net *lntest.NetworkHarness, t *harnessTest,
 		return nil
 	}, time.Second*15)
 	if err != nil {
-		t.Fatalf("carol didn't fully sweep on chain: %v", err)
+		t.Fatalf("dave didn't fully sweep on chain: %v", err)
 	}
 
 	// After the Carol's output matures, she should also reclaim her funds.
@@ -8138,7 +8138,7 @@ func assertDLPExecuted(net *lntest.NetworkHarness, t *harnessTest,
 		return nil
 	}, time.Second*15)
 	if err != nil {
-		t.Fatalf("dave didn't fully sweep on chain: %v", err)
+		t.Fatalf("carol didn't fully sweep on chain: %v", err)
 	}
 
 	assertNodeNumChannels(t, dave, 0)
@@ -13284,12 +13284,14 @@ func testChanRestoreScenario(t *harnessTest, net *lntest.NetworkHarness,
 		t.Fatalf("unable to get carol's balance: %v", err)
 	}
 	carolStartingBalance := carolBalResp.ConfirmedBalance
+	fmt.Println("carol starting balance: ", carolStartingBalance)
 
 	daveBalance, err := dave.WalletBalance(ctxt, balReq)
 	if err != nil {
 		t.Fatalf("unable to get carol's balance: %v", err)
 	}
 	daveStartingBalance := daveBalance.ConfirmedBalance
+	fmt.Println("dave starting balance: ", daveStartingBalance)
 
 	// At this point, we'll now execute the restore method to give us the
 	// new node we should attempt our assertions against.
@@ -14031,7 +14033,7 @@ type testCase struct {
 }
 
 var testsCases = []*testCase{
-	{
+	/*{
 		name: "sweep coins",
 		test: testSweepAllCoins,
 	},
@@ -14259,7 +14261,7 @@ var testsCases = []*testCase{
 	{
 		name: "streaming channel backup update",
 		test: testChannelBackupUpdates,
-	},
+	},*/
 	{
 		name: "export channel backup",
 		test: testExportChannelBackup,
@@ -14268,7 +14270,7 @@ var testsCases = []*testCase{
 		name: "channel backup restore",
 		test: testChannelBackupRestore,
 	},
-	{
+	/*{
 		name: "hold invoice sender persistence",
 		test: testHoldInvoicePersistence,
 	},
@@ -14279,7 +14281,7 @@ var testsCases = []*testCase{
 	{
 		name: "automatic certificate regeneration",
 		test: testTLSAutoRegeneration,
-	},
+	},*/
 }
 
 // TestLightningNetworkDaemon performs a series of integration tests amongst a

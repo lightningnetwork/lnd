@@ -1161,6 +1161,14 @@ message Channel {
 
     /// A set of flags showing the current state of the channel.
     string chan_status_flags = 19 [json_name = "chan_status_flags"];
+
+    /// The minimum satoshis this node is required to reserve in its balance.
+    int64 local_chan_reserve_sat = 20 [json_name = "local_chan_reserve_sat"];
+
+    /**
+    The minimum satoshis the other node is required to reserve in its balance.
+    */
+    int64 remote_chan_reserve_sat = 21 [json_name = "remote_chan_reserve_sat"];
 }
 
 
@@ -1468,6 +1476,15 @@ message PendingChannelsResponse {
 
         int64 local_balance = 4 [ json_name = "local_balance" ];
         int64 remote_balance = 5 [ json_name = "remote_balance" ];
+       
+        /// The minimum satoshis this node is required to reserve in its balance.
+        int64 local_chan_reserve_sat = 6 [json_name = "local_chan_reserve_sat"];
+
+        /**
+        The minimum satoshis the other node is required to reserve in its
+        balance.
+        */
+        int64 remote_chan_reserve_sat = 7 [json_name = "remote_chan_reserve_sat"];
     }
 
     message PendingOpenChannel {

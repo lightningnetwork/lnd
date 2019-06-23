@@ -1407,6 +1407,16 @@
         "remote_balance": {
           "type": "string",
           "format": "int64"
+        },
+        "local_chan_reserve_sat": {
+          "type": "string",
+          "format": "int64",
+          "description": "/ The minimum satoshis this node is required to reserve in its balance."
+        },
+        "remote_chan_reserve_sat": {
+          "type": "string",
+          "format": "int64",
+          "description": "*\nThe minimum satoshis the other node is required to reserve in its\nbalance."
         }
       }
     },
@@ -1626,6 +1636,16 @@
         "chan_status_flags": {
           "type": "string",
           "description": "/ A set of flags showing the current state of the channel."
+        },
+        "local_chan_reserve_sat": {
+          "type": "string",
+          "format": "int64",
+          "description": "/ The minimum satoshis this node is required to reserve in its balance."
+        },
+        "remote_chan_reserve_sat": {
+          "type": "string",
+          "format": "int64",
+          "description": "*\nThe minimum satoshis the other node is required to reserve in its balance."
         }
       }
     },

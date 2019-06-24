@@ -133,40 +133,6 @@ func NewMissionControl(cfg *MissionControlConfig) *MissionControl {
 	}
 }
 
-// generateBandwidthHints is a helper function that's utilized the main
-// findPath function in order to obtain hints from the lower layer w.r.t to the
-// available bandwidth of edges on the network. Currently, we'll only obtain
-// bandwidth hints for the edges we directly have open ourselves. Obtaining
-// these hints allows us to reduce the number of extraneous attempts as we can
-// skip channels that are inactive, or just don't have enough bandwidth to
-// carry the payment.
-func generateBandwidthHints(sourceNode *channeldb.LightningNode,
-	queryBandwidth func(*channeldb.ChannelEdgeInfo) lnwire.MilliSatoshi) (map[uint64]lnwire.MilliSatoshi, error) {
-
-	// First, we'll collect the set of outbound edges from the target
-	// source node.
-	var localChans []*channeldb.ChannelEdgeInfo
-	err := sourceNode.ForEachChannel(nil, func(tx *bbolt.Tx,
-		edgeInfo *channeldb.ChannelEdgeInfo,
-		_, _ *channeldb.ChannelEdgePolicy) error {
-
-		localChans = append(localChans, edgeInfo)
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	// Now that we have all of our outbound edges, we'll populate the set
-	// of bandwidth hints, querying the lower switch layer for the most up
-	// to date values.
-	bandwidthHints := make(map[uint64]lnwire.MilliSatoshi)
-	for _, localChan := range localChans {
-		bandwidthHints[localChan.ChannelID] = queryBandwidth(localChan)
-	}
-
-	return bandwidthHints, nil
-}
 
 // ResetHistory resets the history of MissionControl returning it to a state as
 // if no payment attempts have been made.

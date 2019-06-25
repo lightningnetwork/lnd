@@ -14,6 +14,14 @@ var (
 		{1, 0}, {1, 1}, {1, 2}, {1, 3}, {1, 4},
 	}
 
+	routeOneHop = route.Route{
+		SourcePubKey: hops[0],
+		TotalAmount:  100,
+		Hops: []*route.Hop{
+			{PubKeyBytes: hops[1], AmtToForward: 99},
+		},
+	}
+
 	routeTwoHop = route.Route{
 		SourcePubKey: hops[0],
 		TotalAmount:  100,
@@ -35,6 +43,10 @@ var (
 	}
 )
 
+func getTestPair(from, to int) DirectedNodePair {
+	return NewDirectedNodePair(hops[from], hops[to])
+}
+
 type resultTestCase struct {
 	name          string
 	route         *route.Route
@@ -55,7 +67,7 @@ var resultTestCases = []resultTestCase{
 
 		expectedResult: &interpretedResult{
 			pairResults: map[DirectedNodePair]lnwire.MilliSatoshi{
-				NewDirectedNodePair(hops[1], hops[2]): 99,
+				getTestPair(1, 2): 99,
 			},
 		},
 	},
@@ -68,7 +80,40 @@ var resultTestCases = []resultTestCase{
 		failure:       lnwire.NewExpiryTooSoon(lnwire.ChannelUpdate{}),
 
 		expectedResult: &interpretedResult{
-			nodeFailure: &hops[3],
+			pairResults: map[DirectedNodePair]lnwire.MilliSatoshi{
+				getTestPair(0, 1): 0,
+				getTestPair(1, 0): 0,
+				getTestPair(1, 2): 0,
+				getTestPair(2, 1): 0,
+				getTestPair(2, 3): 0,
+				getTestPair(3, 2): 0,
+			},
+		},
+	},
+
+	// Tests a malformed htlc from a direct peer.
+	{
+		name:          "fail malformed htlc from direct peer",
+		route:         &routeTwoHop,
+		failureSrcIdx: 0,
+		failure:       lnwire.NewInvalidOnionKey(nil),
+
+		expectedResult: &interpretedResult{
+			nodeFailure: &hops[1],
+		},
+	},
+
+	// Tests a malformed htlc from a direct peer that is also the final
+	// destination.
+	{
+		name:          "fail malformed htlc from direct final peer",
+		route:         &routeOneHop,
+		failureSrcIdx: 0,
+		failure:       lnwire.NewInvalidOnionKey(nil),
+
+		expectedResult: &interpretedResult{
+			finalFailureReason: &reasonError,
+			nodeFailure:        &hops[1],
 		},
 	},
 }

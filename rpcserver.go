@@ -168,9 +168,12 @@ var (
 			Action: "write",
 		},
 	}
+)
 
-	// permissions maps RPC calls to the permissions they require.
-	permissions = map[string][]bakery.Op{
+// mainRPCServerPermissions returns a mapping of the main RPC server calls to
+// the permissions they require.
+func mainRPCServerPermissions() map[string][]bakery.Op {
+	return map[string][]bakery.Op{
 		"/lnrpc.Lightning/SendCoins": {{
 			Entity: "onchain",
 			Action: "write",
@@ -381,7 +384,7 @@ var (
 			Action: "read",
 		}},
 	}
-)
+}
 
 // rpcServer is a gRPC, RPC front end to the lnd daemon.
 // TODO(roasbeef): pagination support for the list-style calls
@@ -520,6 +523,7 @@ func newRPCServer(s *server, macService *macaroons.Service,
 	// Next, we need to merge the set of sub server macaroon permissions
 	// with the main RPC server permissions so we can unite them under a
 	// single set of interceptors.
+	permissions := mainRPCServerPermissions()
 	for _, subServerPerm := range subServerPerms {
 		for method, ops := range subServerPerm {
 			// For each new method:ops combo, we also ensure that

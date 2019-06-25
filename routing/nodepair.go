@@ -16,3 +16,8 @@ func NewDirectedNodePair(from, to route.Vertex) DirectedNodePair {
 		To:   to,
 	}
 }
+
+// Reverse reverses the pair direction.
+func (d DirectedNodePair) Reverse() DirectedNodePair {
+	return DirectedNodePair{From: d.To, To: d.From}
+}

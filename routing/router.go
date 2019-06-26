@@ -179,7 +179,7 @@ type MissionController interface {
 	// whether this error is a final error and no further payment attempts
 	// need to be made.
 	ReportPaymentFail(rt *route.Route,
-		failureSourceIdx int, failure lnwire.FailureMessage) (bool,
+		failureSourceIdx *int, failure lnwire.FailureMessage) (bool,
 		channeldb.FailureReason)
 
 	// GetEdgeProbability is expected to return the success probability of a
@@ -1893,21 +1893,16 @@ func (r *ChannelRouter) tryApplyChannelUpdate(rt *route.Route,
 // error type, this error is either the final outcome of the payment or we need
 // to continue with an alternative route. This is indicated by the boolean
 // return value.
-func (r *ChannelRouter) processSendError(rt *route.Route, sendErr error) (
-	bool, channeldb.FailureReason) {
+func (r *ChannelRouter) processSendError(rt *route.Route, sendErr error) (bool,
+	channeldb.FailureReason) {
 
-	// If the failure message could not be decrypted, attribute the failure
-	// to our own outgoing channel.
-	//
-	// TODO(joostager): Penalize all channels in the route.
 	if sendErr == htlcswitch.ErrUnreadableFailureMessage {
-		sendErr = &htlcswitch.ForwardingError{
-			FailureSourceIdx: 0,
-			FailureMessage:   lnwire.NewTemporaryChannelFailure(nil),
-		}
-	}
+		log.Tracef("Unreadable failure when sending htlc")
 
-	// If an internal, non-forwarding error occurred, we can stop trying.
+		return r.cfg.MissionControl.ReportPaymentFail(rt, nil, nil)
+	}
+	// If an internal, non-forwarding error occurred, we can stop
+	// trying.
 	fErr, ok := sendErr.(*htlcswitch.ForwardingError)
 	if !ok {
 		return true, channeldb.FailureReasonError
@@ -1927,8 +1922,11 @@ func (r *ChannelRouter) processSendError(rt *route.Route, sendErr error) (
 		}
 	}
 
+	log.Tracef("Node=%v reported failure when sending htlc",
+		failureSourceIdx)
+
 	return r.cfg.MissionControl.ReportPaymentFail(
-		rt, failureSourceIdx, failureMessage,
+		rt, &failureSourceIdx, failureMessage,
 	)
 }
 

@@ -78,7 +78,7 @@ func (ctx *mcTestContext) reportFailure(t time.Time,
 
 	errorSourceIdx := 1
 	ctx.mc.ReportPaymentFail(
-		mcTestRoute, errorSourceIdx, failure,
+		mcTestRoute, &errorSourceIdx, failure,
 	)
 }
 

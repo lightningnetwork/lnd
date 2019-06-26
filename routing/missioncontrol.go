@@ -390,29 +390,40 @@ func (m *MissionControl) GetHistorySnapshot() *MissionControlSnapshot {
 }
 
 // ReportPaymentFail reports a failed payment to mission control as input for
-// future probability estimates. It returns a bool indicating whether this error
-// is a final error and no further payment attempts need to be made.
+// future probability estimates. The failureSourceIdx argument indicates the
+// failure source. If it is nil, the failure source is unknown. This function
+// returns a bool indicating whether this error is a final error. If it is
+// final, a failure reason is returned and no further payment attempts need to
+// be made.
 func (m *MissionControl) ReportPaymentFail(rt *route.Route,
-	failureSourceIdx int, failure lnwire.FailureMessage) (bool,
+	failureSourceIdx *int, failure lnwire.FailureMessage) (bool,
 	channeldb.FailureReason) {
 
-	var (
-		failureVertex route.Vertex
-	)
+	var failureSourceIdxInt int
+	if failureSourceIdx == nil {
+		// If the failure message could not be decrypted, attribute the
+		// failure to our own outgoing channel.
+		//
+		// TODO(joostager): Penalize all channels in the route.
+		failureSourceIdxInt = 0
+		failure = lnwire.NewTemporaryChannelFailure(nil)
+	} else {
+		failureSourceIdxInt = *failureSourceIdx
+	}
 
-	// For any non-self failure, look up the source pub key in the hops
-	// slice. Otherwise return the self node pubkey.
-	if failureSourceIdx > 0 {
-		failureVertex = rt.Hops[failureSourceIdx-1].PubKeyBytes
+	var failureVertex route.Vertex
+
+	if failureSourceIdxInt > 0 {
+		failureVertex = rt.Hops[failureSourceIdxInt-1].PubKeyBytes
 	} else {
 		failureVertex = rt.SourcePubKey
 	}
 	log.Tracef("Node %x (index %v) reported failure when sending htlc",
 		failureVertex, failureSourceIdx)
 
-	// Always determine chan id ourselves, because a channel
-	// update with id may not be available.
-	failedEdge, failedAmt := getFailedEdge(rt, failureSourceIdx)
+	// Always determine chan id ourselves, because a channel update with id
+	// may not be available.
+	failedEdge, failedAmt := getFailedEdge(rt, failureSourceIdxInt)
 
 	switch failure.(type) {
 

@@ -16,27 +16,6 @@ type PaymentSession interface {
 	// specified HTLC payment to the target node.
 	RequestRoute(payment *LightningPayment,
 		height uint32, finalCltvDelta uint16) (*route.Route, error)
-
-	// ReportVertexFailure reports to the PaymentSession that the passsed
-	// vertex failed to route the previous payment attempt. The
-	// PaymentSession will use this information to produce a better next
-	// route.
-	ReportVertexFailure(v route.Vertex)
-
-	// ReportEdgeFailure reports to the PaymentSession that the passed edge
-	// failed to route the previous payment attempt. A minimum penalization
-	// amount is included to attenuate the failure. This is set to a
-	// non-zero value for channel balance failures. The PaymentSession will
-	// use this information to produce a better next route.
-	ReportEdgeFailure(failedEdge edge, minPenalizeAmt lnwire.MilliSatoshi)
-
-	// ReportEdgePolicyFailure reports to the PaymentSession that we
-	// received a failure message that relates to a channel policy. For
-	// these types of failures, the PaymentSession can decide whether to to
-	// keep the edge included in the next attempted route. The
-	// PaymentSession will use this information to produce a better next
-	// route.
-	ReportEdgePolicyFailure(failedEdge edge)
 }
 
 // paymentSession is used during an HTLC routings session to prune the local
@@ -58,52 +37,6 @@ type paymentSession struct {
 	preBuiltRouteTried bool
 
 	pathFinder pathFinder
-}
-
-// A compile time assertion to ensure paymentSession meets the PaymentSession
-// interface.
-var _ PaymentSession = (*paymentSession)(nil)
-
-// ReportVertexFailure adds a vertex to the graph prune view after a client
-// reports a routing failure localized to the vertex. The time the vertex was
-// added is noted, as it'll be pruned from the shared view after a period of
-// vertexDecay. However, the vertex will remain pruned for the *local* session.
-// This ensures we don't retry this vertex during the payment attempt.
-//
-// NOTE: Part of the PaymentSession interface.
-func (p *paymentSession) ReportVertexFailure(v route.Vertex) {
-	p.sessionSource.MissionControl.ReportVertexFailure(v)
-}
-
-// ReportEdgeFailure adds a channel to the graph prune view. The time the
-// channel was added is noted, as it'll be pruned from the global view after a
-// period of edgeDecay. However, the edge will remain pruned for the duration
-// of the *local* session. This ensures that we don't flap by continually
-// retrying an edge after its pruning has expired.
-//
-// TODO(roasbeef): also add value attempted to send and capacity of channel
-//
-// NOTE: Part of the PaymentSession interface.
-func (p *paymentSession) ReportEdgeFailure(failedEdge edge,
-	minPenalizeAmt lnwire.MilliSatoshi) {
-
-	p.sessionSource.MissionControl.ReportEdgeFailure(
-		failedEdge, minPenalizeAmt,
-	)
-}
-
-// ReportEdgePolicyFailure handles a failure message that relates to a
-// channel policy. For these types of failures, the policy is updated and we
-// want to keep it included during path finding. This function does mark the
-// edge as 'policy failed once'. The next time it fails, the whole node will be
-// pruned. This is to prevent nodes from keeping us busy by continuously sending
-// new channel updates.
-//
-// NOTE: Part of the PaymentSession interface.
-//
-// TODO(joostjager): Move this logic into global mission control.
-func (p *paymentSession) ReportEdgePolicyFailure(failedEdge edge) {
-	p.sessionSource.MissionControl.ReportEdgePolicyFailure(failedEdge)
 }
 
 // RequestRoute returns a route which is likely to be capable for successfully

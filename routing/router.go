@@ -1875,8 +1875,8 @@ func (r *ChannelRouter) tryApplyChannelUpdate(rt *route.Route,
 // error type, this error is either the final outcome of the payment or we need
 // to continue with an alternative route. This is indicated by the boolean
 // return value.
-func (r *ChannelRouter) processSendError(paySession PaymentSession,
-	rt *route.Route, sendErr error) (bool, channeldb.FailureReason) {
+func (r *ChannelRouter) processSendError(rt *route.Route, sendErr error) (
+	bool, channeldb.FailureReason) {
 
 	// If the failure message could not be decrypted, attribute the failure
 	// to our own outgoing channel.
@@ -1981,7 +1981,7 @@ func (r *ChannelRouter) processSendError(paySession PaymentSession,
 	// that sent us this error, as it doesn't now what the
 	// correct block height is.
 	case *lnwire.FailExpiryTooSoon:
-		paySession.ReportVertexFailure(failureVertex)
+		r.cfg.MissionControl.ReportVertexFailure(failureVertex)
 		return false, 0
 
 	// If we hit an instance of onion payload corruption or an invalid
@@ -2001,49 +2001,49 @@ func (r *ChannelRouter) processSendError(paySession PaymentSession,
 	// amount, we'll apply the new minimum amount and retry
 	// routing.
 	case *lnwire.FailAmountBelowMinimum:
-		paySession.ReportEdgePolicyFailure(failedEdge)
+		r.cfg.MissionControl.ReportEdgePolicyFailure(failedEdge)
 		return false, 0
 
 	// If we get a failure due to a fee, we'll apply the
 	// new fee update, and retry our attempt using the
 	// newly updated fees.
 	case *lnwire.FailFeeInsufficient:
-		paySession.ReportEdgePolicyFailure(failedEdge)
+		r.cfg.MissionControl.ReportEdgePolicyFailure(failedEdge)
 		return false, 0
 
 	// If we get the failure for an intermediate node that
 	// disagrees with our time lock values, then we'll
 	// apply the new delta value and try it once more.
 	case *lnwire.FailIncorrectCltvExpiry:
-		paySession.ReportEdgePolicyFailure(failedEdge)
+		r.cfg.MissionControl.ReportEdgePolicyFailure(failedEdge)
 		return false, 0
 
 	// The outgoing channel that this node was meant to
 	// forward one is currently disabled, so we'll apply
 	// the update and continue.
 	case *lnwire.FailChannelDisabled:
-		paySession.ReportEdgeFailure(failedEdge, 0)
+		r.cfg.MissionControl.ReportEdgeFailure(failedEdge, 0)
 		return false, 0
 
 	// It's likely that the outgoing channel didn't have
 	// sufficient capacity, so we'll prune this edge for
 	// now, and continue onwards with our path finding.
 	case *lnwire.FailTemporaryChannelFailure:
-		paySession.ReportEdgeFailure(failedEdge, failedAmt)
+		r.cfg.MissionControl.ReportEdgeFailure(failedEdge, failedAmt)
 		return false, 0
 
 	// If the send fail due to a node not having the
 	// required features, then we'll note this error and
 	// continue.
 	case *lnwire.FailRequiredNodeFeatureMissing:
-		paySession.ReportVertexFailure(failureVertex)
+		r.cfg.MissionControl.ReportVertexFailure(failureVertex)
 		return false, 0
 
 	// If the send fail due to a node not having the
 	// required features, then we'll note this error and
 	// continue.
 	case *lnwire.FailRequiredChannelFeatureMissing:
-		paySession.ReportVertexFailure(failureVertex)
+		r.cfg.MissionControl.ReportVertexFailure(failureVertex)
 		return false, 0
 
 	// If the next hop in the route wasn't known or
@@ -2054,18 +2054,18 @@ func (r *ChannelRouter) processSendError(paySession PaymentSession,
 	// returning errors in order to attempt to black list
 	// another node.
 	case *lnwire.FailUnknownNextPeer:
-		paySession.ReportEdgeFailure(failedEdge, 0)
+		r.cfg.MissionControl.ReportEdgeFailure(failedEdge, 0)
 		return false, 0
 
 	// If the node wasn't able to forward for which ever
 	// reason, then we'll note this and continue with the
 	// routes.
 	case *lnwire.FailTemporaryNodeFailure:
-		paySession.ReportVertexFailure(failureVertex)
+		r.cfg.MissionControl.ReportVertexFailure(failureVertex)
 		return false, 0
 
 	case *lnwire.FailPermanentNodeFailure:
-		paySession.ReportVertexFailure(failureVertex)
+		r.cfg.MissionControl.ReportVertexFailure(failureVertex)
 		return false, 0
 
 	// If we crafted a route that contains a too long time
@@ -2078,15 +2078,15 @@ func (r *ChannelRouter) processSendError(paySession PaymentSession,
 	// that as a hint during future path finding through
 	// that node.
 	case *lnwire.FailExpiryTooFar:
-		paySession.ReportVertexFailure(failureVertex)
+		r.cfg.MissionControl.ReportVertexFailure(failureVertex)
 		return false, 0
 
 	// If we get a permanent channel or node failure, then
 	// we'll prune the channel in both directions and
 	// continue with the rest of the routes.
 	case *lnwire.FailPermanentChannelFailure:
-		paySession.ReportEdgeFailure(failedEdge, 0)
-		paySession.ReportEdgeFailure(edge{
+		r.cfg.MissionControl.ReportEdgeFailure(failedEdge, 0)
+		r.cfg.MissionControl.ReportEdgeFailure(edge{
 			from:    failedEdge.to,
 			to:      failedEdge.from,
 			channel: failedEdge.channel,
@@ -2095,7 +2095,7 @@ func (r *ChannelRouter) processSendError(paySession PaymentSession,
 
 	// Any other failure or an empty failure will get the node pruned.
 	default:
-		paySession.ReportVertexFailure(failureVertex)
+		r.cfg.MissionControl.ReportVertexFailure(failureVertex)
 		return false, 0
 	}
 }

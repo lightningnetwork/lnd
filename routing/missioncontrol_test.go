@@ -106,3 +106,25 @@ func TestMissionControl(t *testing.T) {
 		t.Fatal("unexpected number of channels")
 	}
 }
+
+// TestMissionControlChannelUpdate tests that the first channel update is not
+// penalizing the channel yet.
+func TestMissionControlChannelUpdate(t *testing.T) {
+	ctx := createMcTestContext(t)
+
+	testEdge := edge{
+		channel: 123,
+	}
+
+	// Report a policy related failure. Because it is the first, we don't
+	// expect a penalty.
+	ctx.mc.ReportEdgePolicyFailure(testEdge)
+
+	ctx.expectP(0, 0.8)
+
+	// Report another failure for the same channel. We expect it to be
+	// pruned.
+	ctx.mc.ReportEdgePolicyFailure(testEdge)
+
+	ctx.expectP(0, 0)
+}

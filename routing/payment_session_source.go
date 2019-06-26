@@ -119,11 +119,10 @@ func (m *SessionSource) NewPaymentSession(routeHints [][]zpay32.HopHint,
 	}
 
 	return &paymentSession{
-		additionalEdges:      edges,
-		bandwidthHints:       bandwidthHints,
-		errFailedPolicyChans: make(map[nodeChannel]struct{}),
-		sessionSource:        m,
-		pathFinder:           findPath,
+		additionalEdges: edges,
+		bandwidthHints:  bandwidthHints,
+		sessionSource:   m,
+		pathFinder:      findPath,
 	}, nil
 }
 
@@ -131,9 +130,8 @@ func (m *SessionSource) NewPaymentSession(routeHints [][]zpay32.HopHint,
 // used for failure reporting to missioncontrol.
 func (m *SessionSource) NewPaymentSessionForRoute(preBuiltRoute *route.Route) PaymentSession {
 	return &paymentSession{
-		errFailedPolicyChans: make(map[nodeChannel]struct{}),
-		sessionSource:        m,
-		preBuiltRoute:        preBuiltRoute,
+		sessionSource: m,
+		preBuiltRoute: preBuiltRoute,
 	}
 }
 
@@ -142,9 +140,8 @@ func (m *SessionSource) NewPaymentSessionForRoute(preBuiltRoute *route.Route) Pa
 // missioncontrol for resumed payment we don't want to make more attempts for.
 func (m *SessionSource) NewPaymentSessionEmpty() PaymentSession {
 	return &paymentSession{
-		errFailedPolicyChans: make(map[nodeChannel]struct{}),
-		sessionSource:        m,
-		preBuiltRoute:        &route.Route{},
-		preBuiltRouteTried:   true,
+		sessionSource:      m,
+		preBuiltRoute:      &route.Route{},
+		preBuiltRouteTried: true,
 	}
 }

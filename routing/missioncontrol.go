@@ -5,8 +5,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/coreos/bbolt"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
@@ -16,6 +14,30 @@ const (
 	// half-life duration defines after how much time a penalized node or
 	// channel is back at 50% probability.
 	DefaultPenaltyHalfLife = time.Hour
+
+	// minSecondChanceInterval is the minimum time required between
+	// second-chance failures.
+	//
+	// If nodes return a channel policy related failure, they may get a
+	// second chance to forward the payment. It could be that the channel
+	// policy that we are aware of is not up to date. This is especially
+	// important in case of mobile apps that are mostly offline.
+	//
+	// However, we don't want to give nodes the option to endlessly return
+	// new channel updates so that we are kept busy trying to route through
+	// that node until the payment loop times out.
+	//
+	// Therefore we only grant a second chance to a node if the previous
+	// second chance is sufficiently long ago. This is what
+	// minSecondChanceInterval defines. If a second policy failure comes in
+	// within that interval, we will apply a penalty.
+	//
+	// Second chances granted are tracked on the level of node pairs. This
+	// means that if a node has multiple channels to the same peer, they
+	// will only get a single second chance to route to that peer again.
+	// Nodes forward non-strict, so it isn't necessary to apply a less
+	// restrictive channel level tracking scheme here.
+	minSecondChanceInterval = time.Minute
 )
 
 // MissionControl contains state which summarizes the past attempts of HTLC
@@ -29,6 +51,10 @@ const (
 // into the path finding process for subsequent payment attempts.
 type MissionControl struct {
 	history map[route.Vertex]*nodeHistory
+
+	// lastSecondChance tracks the last time a second chance was granted for
+	// a directed node pair.
+	lastSecondChance map[DirectedNodePair]time.Time
 
 	// now is expected to return the current time. It is supplied as an
 	// external function to enable deterministic unit tests.
@@ -127,12 +153,12 @@ func NewMissionControl(cfg *MissionControlConfig) *MissionControl {
 		cfg.PenaltyHalfLife, cfg.AprioriHopProbability)
 
 	return &MissionControl{
-		history: make(map[route.Vertex]*nodeHistory),
-		now:     time.Now,
-		cfg:     cfg,
+		history:          make(map[route.Vertex]*nodeHistory),
+		lastSecondChance: make(map[DirectedNodePair]time.Time),
+		now:              time.Now,
+		cfg:              cfg,
 	}
 }
-
 
 // ResetHistory resets the history of MissionControl returning it to a state as
 // if no payment attempts have been made.
@@ -141,6 +167,7 @@ func (m *MissionControl) ResetHistory() {
 	defer m.Unlock()
 
 	m.history = make(map[route.Vertex]*nodeHistory)
+	m.lastSecondChance = make(map[DirectedNodePair]time.Time)
 
 	log.Debugf("Mission control history cleared")
 }
@@ -209,6 +236,37 @@ func (m *MissionControl) getEdgeProbabilityForNode(nodeHistory *nodeHistory,
 	return probability
 }
 
+// requestSecondChance checks whether the node fromNode can have a second chance
+// at providing a channel update for its channel with toNode.
+func (m *MissionControl) requestSecondChance(timestamp time.Time,
+	fromNode, toNode route.Vertex) bool {
+
+	// Look up previous second chance time.
+	pair := DirectedNodePair{
+		From: fromNode,
+		To:   toNode,
+	}
+	lastSecondChance, ok := m.lastSecondChance[pair]
+
+	// If the channel hasn't already be given a second chance or its last
+	// second chance was long ago, we give it another chance.
+	if !ok || timestamp.Sub(lastSecondChance) > minSecondChanceInterval {
+		m.lastSecondChance[pair] = timestamp
+
+		log.Debugf("Second chance granted for %v->%v", fromNode, toNode)
+
+		return true
+	}
+
+	// Otherwise penalize the channel, because we don't allow channel
+	// updates that are that frequent. This is to prevent nodes from keeping
+	// us busy by continuously sending new channel updates.
+	log.Debugf("Second chance denied for %v->%v, remaining interval: %v",
+		fromNode, toNode, timestamp.Sub(lastSecondChance))
+
+	return false
+}
+
 // createHistoryIfNotExists returns the history for the given node. If the node
 // is yet unknown, it will create an empty history structure.
 func (m *MissionControl) createHistoryIfNotExists(vertex route.Vertex) *nodeHistory {
@@ -234,6 +292,26 @@ func (m *MissionControl) ReportVertexFailure(v route.Vertex) {
 	defer m.Unlock()
 
 	history := m.createHistoryIfNotExists(v)
+	history.lastFail = &now
+}
+
+// ReportEdgePolicyFailure reports a policy related failure.
+func (m *MissionControl) ReportEdgePolicyFailure(failedEdge edge) {
+	now := m.now()
+
+	m.Lock()
+	defer m.Unlock()
+
+	// We may have an out of date graph. Therefore we don't always penalize
+	// immediately. If some time has passed since the last policy failure,
+	// we grant the node a second chance at forwarding the payment.
+	if m.requestSecondChance(
+		now, failedEdge.from, failedEdge.to,
+	) {
+		return
+	}
+
+	history := m.createHistoryIfNotExists(failedEdge.from)
 	history.lastFail = &now
 }
 

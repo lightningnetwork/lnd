@@ -52,12 +52,6 @@ type paymentSession struct {
 
 	bandwidthHints map[uint64]lnwire.MilliSatoshi
 
-	// errFailedFeeChans is a map of the short channel IDs that were the
-	// source of policy related routing failures during this payment attempt.
-	// We'll use this map to prune out channels when the first error may not
-	// require pruning, but any subsequent ones do.
-	errFailedPolicyChans map[nodeChannel]struct{}
-
 	sessionSource *SessionSource
 
 	preBuiltRoute      *route.Route
@@ -109,25 +103,7 @@ func (p *paymentSession) ReportEdgeFailure(failedEdge edge,
 //
 // TODO(joostjager): Move this logic into global mission control.
 func (p *paymentSession) ReportEdgePolicyFailure(failedEdge edge) {
-	key := nodeChannel{
-		node:    failedEdge.from,
-		channel: failedEdge.channel,
-	}
-
-	// Check to see if we've already reported a policy related failure for
-	// this channel. If so, then we'll prune out the vertex.
-	_, ok := p.errFailedPolicyChans[key]
-	if ok {
-		// TODO(joostjager): is this aggressive pruning still necessary?
-		// Just pruning edges may also work unless there is a huge
-		// number of failing channels from that node?
-		p.ReportVertexFailure(key.node)
-
-		return
-	}
-
-	// Finally, we'll record a policy failure from this node and move on.
-	p.errFailedPolicyChans[key] = struct{}{}
+	p.sessionSource.MissionControl.ReportEdgePolicyFailure(failedEdge)
 }
 
 // RequestRoute returns a route which is likely to be capable for successfully

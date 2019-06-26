@@ -98,6 +98,13 @@ type mockMissionControl struct {
 
 var _ MissionController = (*mockMissionControl)(nil)
 
+func (m *mockMissionControl) ReportPaymentFail(rt *route.Route,
+	failureSourceIdx int, failure lnwire.FailureMessage) (bool,
+	channeldb.FailureReason) {
+
+	return false, 0
+}
+
 func (m *mockMissionControl) ReportEdgeFailure(failedEdge edge,
 	minPenalizeAmt lnwire.MilliSatoshi) {
 }

@@ -1,9 +1,12 @@
 package routing
 
 import (
+	"io/ioutil"
+	"os"
 	"testing"
 	"time"
 
+	"github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
@@ -37,6 +40,10 @@ type mcTestContext struct {
 	t   *testing.T
 	mc  *MissionControl
 	now time.Time
+
+	db     *bbolt.DB
+	dbPath string
+
 	pid uint64
 }
 
@@ -46,17 +53,44 @@ func createMcTestContext(t *testing.T) *mcTestContext {
 		now: mcTestTime,
 	}
 
-	mc := NewMissionControl(
+	file, err := ioutil.TempFile("", "*.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx.dbPath = file.Name()
+
+	ctx.db, err = bbolt.Open(ctx.dbPath, 0600, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx.restartMc()
+
+	return ctx
+}
+
+// restartMc creates a new instances of mission control on the same database.
+func (ctx *mcTestContext) restartMc() {
+	mc, err := NewMissionControl(
+		ctx.db,
 		&MissionControlConfig{
 			PenaltyHalfLife:       30 * time.Minute,
 			AprioriHopProbability: 0.8,
 		},
 	)
+	if err != nil {
+		ctx.t.Fatal(err)
+	}
 
 	mc.now = func() time.Time { return ctx.now }
 	ctx.mc = mc
+}
 
-	return ctx
+// cleanup closes the database and removes the temp file.
+func (ctx *mcTestContext) cleanup() {
+	ctx.db.Close()
+	os.Remove(ctx.dbPath)
 }
 
 // Assert that mission control returns a probability for an edge.
@@ -86,6 +120,7 @@ func (ctx *mcTestContext) reportFailure(t time.Time,
 // TestMissionControl tests mission control probability estimation.
 func TestMissionControl(t *testing.T) {
 	ctx := createMcTestContext(t)
+	defer ctx.cleanup()
 
 	ctx.now = testTime
 
@@ -122,6 +157,10 @@ func TestMissionControl(t *testing.T) {
 	ctx.now = testTime.Add(60 * time.Minute)
 	ctx.expectP(1000, 0.4)
 
+	// Restart mission control to test persistence.
+	ctx.restartMc()
+	ctx.expectP(1000, 0.4)
+
 	// A node level failure should bring probability of every channel back
 	// to zero.
 	ctx.reportFailure(
@@ -145,6 +184,7 @@ func TestMissionControl(t *testing.T) {
 // penalizing the channel yet.
 func TestMissionControlChannelUpdate(t *testing.T) {
 	ctx := createMcTestContext(t)
+	defer ctx.cleanup()
 
 	// Report a policy related failure. Because it is the first, we don't
 	// expect a penalty.

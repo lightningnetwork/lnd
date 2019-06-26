@@ -49,6 +49,7 @@ func DefaultConfig() *Config {
 		PenaltyHalfLife:       routing.DefaultPenaltyHalfLife,
 		AttemptCost: routing.DefaultPaymentAttemptPenalty.
 			ToSatoshis(),
+		MaxMcHistory: routing.DefaultMaxMcHistory,
 	}
 
 	return &Config{
@@ -63,5 +64,6 @@ func GetRoutingConfig(cfg *Config) *RoutingConfig {
 		MinRouteProbability:   cfg.MinRouteProbability,
 		AttemptCost:           cfg.AttemptCost,
 		PenaltyHalfLife:       cfg.PenaltyHalfLife,
+		MaxMcHistory:          cfg.MaxMcHistory,
 	}
 }

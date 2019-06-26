@@ -22,5 +22,6 @@ func GetRoutingConfig(cfg *Config) *RoutingConfig {
 		AttemptCost: routing.DefaultPaymentAttemptPenalty.
 			ToSatoshis(),
 		PenaltyHalfLife: routing.DefaultPenaltyHalfLife,
+		MaxMcHistory:    routing.DefaultMaxMcHistory,
 	}
 }

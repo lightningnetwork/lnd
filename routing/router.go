@@ -180,7 +180,7 @@ type MissionController interface {
 	// need to be made.
 	ReportPaymentFail(paymentID uint64, rt *route.Route,
 		failureSourceIdx *int, failure lnwire.FailureMessage) (bool,
-		channeldb.FailureReason)
+		channeldb.FailureReason, error)
 
 	// GetEdgeProbability is expected to return the success probability of a
 	// payment from fromNode along edge.
@@ -1896,12 +1896,27 @@ func (r *ChannelRouter) tryApplyChannelUpdate(rt *route.Route,
 func (r *ChannelRouter) processSendError(paymentID uint64, rt *route.Route,
 	sendErr error) (bool, channeldb.FailureReason) {
 
+	reportFail := func(srcIdx *int, msg lnwire.FailureMessage) (bool,
+		channeldb.FailureReason) {
+
+		// Report outcome to mission control.
+		final, reason, err := r.cfg.MissionControl.ReportPaymentFail(
+			paymentID, rt, srcIdx, msg,
+		)
+		if err != nil {
+			log.Errorf("Error reporting payment result to mc: %v",
+				err)
+
+			return true, channeldb.FailureReasonError
+		}
+
+		return final, reason
+	}
+
 	if sendErr == htlcswitch.ErrUnreadableFailureMessage {
 		log.Tracef("Unreadable failure when sending htlc")
 
-		return r.cfg.MissionControl.ReportPaymentFail(
-			paymentID, rt, nil, nil,
-		)
+		return reportFail(nil, nil)
 	}
 	// If an internal, non-forwarding error occurred, we can stop
 	// trying.
@@ -1927,9 +1942,7 @@ func (r *ChannelRouter) processSendError(paymentID uint64, rt *route.Route,
 	log.Tracef("Node=%v reported failure when sending htlc",
 		failureSourceIdx)
 
-	return r.cfg.MissionControl.ReportPaymentFail(
-		paymentID, rt, &failureSourceIdx, failureMessage,
-	)
+	return reportFail(&failureSourceIdx, failureMessage)
 }
 
 // extractChannelUpdate examines the error and extracts the channel update.

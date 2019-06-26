@@ -436,7 +436,10 @@ func marshallChannelUpdate(update *lnwire.ChannelUpdate) *ChannelUpdate {
 func (s *Server) ResetMissionControl(ctx context.Context,
 	req *ResetMissionControlRequest) (*ResetMissionControlResponse, error) {
 
-	s.cfg.RouterBackend.MissionControl.ResetHistory()
+	err := s.cfg.RouterBackend.MissionControl.ResetHistory()
+	if err != nil {
+		return nil, err
+	}
 
 	return &ResetMissionControlResponse{}, nil
 }

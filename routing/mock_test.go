@@ -100,9 +100,9 @@ var _ MissionController = (*mockMissionControl)(nil)
 
 func (m *mockMissionControl) ReportPaymentFail(paymentID uint64,
 	rt *route.Route, failureSourceIdx *int, failure lnwire.FailureMessage) (
-	bool, channeldb.FailureReason) {
+	bool, channeldb.FailureReason, error) {
 
-	return false, 0
+	return false, 0, nil
 }
 
 func (m *mockMissionControl) ReportEdgeFailure(failedEdge edge,

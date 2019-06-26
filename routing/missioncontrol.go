@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -39,6 +40,9 @@ const (
 	// Nodes forward non-strict, so it isn't necessary to apply a less
 	// restrictive channel level tracking scheme here.
 	minSecondChanceInterval = time.Minute
+
+	// DefaultMaxMcHistory is the default maximum history size.
+	DefaultMaxMcHistory = 1000
 )
 
 // MissionControl contains state which summarizes the past attempts of HTLC
@@ -63,6 +67,8 @@ type MissionControl struct {
 
 	cfg *MissionControlConfig
 
+	store *missionControlStore
+
 	sync.Mutex
 
 	// TODO(roasbeef): further counters, if vertex continually unavailable,
@@ -81,6 +87,10 @@ type MissionControlConfig struct {
 	// AprioriHopProbability is the assumed success probability of a hop in
 	// a route when no other information is available.
 	AprioriHopProbability float64
+
+	// MaxMcHistory defines the maximum number of payment results that are
+	// held on disk.
+	MaxMcHistory int
 }
 
 // nodeHistory contains a summary of payment attempt outcomes involving a
@@ -159,29 +169,70 @@ type paymentResult struct {
 }
 
 // NewMissionControl returns a new instance of missionControl.
-func NewMissionControl(cfg *MissionControlConfig) *MissionControl {
+func NewMissionControl(db *bbolt.DB, cfg *MissionControlConfig) (
+	*MissionControl, error) {
+
 	log.Debugf("Instantiating mission control with config: "+
 		"PenaltyHalfLife=%v, AprioriHopProbability=%v",
 		cfg.PenaltyHalfLife, cfg.AprioriHopProbability)
 
-	return &MissionControl{
+	store, err := newMissionControlStore(db, cfg.MaxMcHistory)
+	if err != nil {
+		return nil, err
+	}
+
+	mc := &MissionControl{
 		history:          make(map[route.Vertex]*nodeHistory),
 		lastSecondChance: make(map[DirectedNodePair]time.Time),
 		now:              time.Now,
 		cfg:              cfg,
+		store:            store,
 	}
+
+	if err := mc.init(); err != nil {
+		return nil, err
+	}
+
+	return mc, nil
+}
+
+// init initializes mission control with historical data.
+func (m *MissionControl) init() error {
+	log.Debugf("Mission control state reconstruction started")
+
+	start := time.Now()
+
+	results, err := m.store.fetchAll()
+	if err != nil {
+		return err
+	}
+
+	for _, result := range results {
+		m.applyPaymentResult(result)
+	}
+
+	log.Debugf("Mission control state reconstruction finished: "+
+		"n=%v, time=%v", len(results), time.Now().Sub(start))
+
+	return nil
 }
 
 // ResetHistory resets the history of MissionControl returning it to a state as
 // if no payment attempts have been made.
-func (m *MissionControl) ResetHistory() {
+func (m *MissionControl) ResetHistory() error {
 	m.Lock()
 	defer m.Unlock()
+
+	if err := m.store.clear(); err != nil {
+		return err
+	}
 
 	m.history = make(map[route.Vertex]*nodeHistory)
 	m.lastSecondChance = make(map[DirectedNodePair]time.Time)
 
 	log.Debugf("Mission control history cleared")
+
+	return nil
 }
 
 // GetEdgeProbability is expected to return the success probability of a payment
@@ -406,7 +457,7 @@ func (m *MissionControl) GetHistorySnapshot() *MissionControlSnapshot {
 // be made.
 func (m *MissionControl) ReportPaymentFail(paymentID uint64, rt *route.Route,
 	failureSourceIdx *int, failure lnwire.FailureMessage) (bool,
-	channeldb.FailureReason) {
+	channeldb.FailureReason, error) {
 
 	timestamp := m.now()
 
@@ -421,8 +472,15 @@ func (m *MissionControl) ReportPaymentFail(paymentID uint64, rt *route.Route,
 		route:            rt,
 	}
 
+	// Store complete result in database.
+	if err := m.store.AddResult(result); err != nil {
+		return false, 0, err
+	}
+
 	// Apply result to update mission control state.
-	return m.applyPaymentResult(result)
+	final, reason := m.applyPaymentResult(result)
+
+	return final, reason, nil
 }
 
 // applyPaymentResult applies a payment result as input for future probability

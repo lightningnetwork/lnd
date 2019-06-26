@@ -147,7 +147,9 @@ func (m *mockMissionControl) GetEdgeProbability(fromNode route.Vertex,
 	return testMissionControlProb
 }
 
-func (m *mockMissionControl) ResetHistory() {}
+func (m *mockMissionControl) ResetHistory() error {
+	return nil
+}
 
 func (m *mockMissionControl) GetHistorySnapshot() *routing.MissionControlSnapshot {
 	return nil

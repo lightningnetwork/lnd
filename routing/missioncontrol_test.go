@@ -37,6 +37,7 @@ type mcTestContext struct {
 	t   *testing.T
 	mc  *MissionControl
 	now time.Time
+	pid uint64
 }
 
 func createMcTestContext(t *testing.T) *mcTestContext {
@@ -78,7 +79,7 @@ func (ctx *mcTestContext) reportFailure(t time.Time,
 
 	errorSourceIdx := 1
 	ctx.mc.ReportPaymentFail(
-		mcTestRoute, &errorSourceIdx, failure,
+		ctx.pid, mcTestRoute, &errorSourceIdx, failure,
 	)
 }
 

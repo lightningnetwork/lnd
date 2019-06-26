@@ -98,9 +98,9 @@ type mockMissionControl struct {
 
 var _ MissionController = (*mockMissionControl)(nil)
 
-func (m *mockMissionControl) ReportPaymentFail(rt *route.Route,
-	failureSourceIdx *int, failure lnwire.FailureMessage) (bool,
-	channeldb.FailureReason) {
+func (m *mockMissionControl) ReportPaymentFail(paymentID uint64,
+	rt *route.Route, failureSourceIdx *int, failure lnwire.FailureMessage) (
+	bool, channeldb.FailureReason) {
 
 	return false, 0
 }

@@ -395,7 +395,7 @@ func (m *MissionControl) GetHistorySnapshot() *MissionControlSnapshot {
 // returns a bool indicating whether this error is a final error. If it is
 // final, a failure reason is returned and no further payment attempts need to
 // be made.
-func (m *MissionControl) ReportPaymentFail(rt *route.Route,
+func (m *MissionControl) ReportPaymentFail(paymentID uint64, rt *route.Route,
 	failureSourceIdx *int, failure lnwire.FailureMessage) (bool,
 	channeldb.FailureReason) {
 

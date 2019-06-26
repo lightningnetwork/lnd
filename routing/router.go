@@ -178,7 +178,7 @@ type MissionController interface {
 	// input for future probability estimates. It returns a bool indicating
 	// whether this error is a final error and no further payment attempts
 	// need to be made.
-	ReportPaymentFail(rt *route.Route,
+	ReportPaymentFail(paymentID uint64, rt *route.Route,
 		failureSourceIdx *int, failure lnwire.FailureMessage) (bool,
 		channeldb.FailureReason)
 
@@ -1893,13 +1893,15 @@ func (r *ChannelRouter) tryApplyChannelUpdate(rt *route.Route,
 // error type, this error is either the final outcome of the payment or we need
 // to continue with an alternative route. This is indicated by the boolean
 // return value.
-func (r *ChannelRouter) processSendError(rt *route.Route, sendErr error) (bool,
-	channeldb.FailureReason) {
+func (r *ChannelRouter) processSendError(paymentID uint64, rt *route.Route,
+	sendErr error) (bool, channeldb.FailureReason) {
 
 	if sendErr == htlcswitch.ErrUnreadableFailureMessage {
 		log.Tracef("Unreadable failure when sending htlc")
 
-		return r.cfg.MissionControl.ReportPaymentFail(rt, nil, nil)
+		return r.cfg.MissionControl.ReportPaymentFail(
+			paymentID, rt, nil, nil,
+		)
 	}
 	// If an internal, non-forwarding error occurred, we can stop
 	// trying.
@@ -1926,7 +1928,7 @@ func (r *ChannelRouter) processSendError(rt *route.Route, sendErr error) (bool,
 		failureSourceIdx)
 
 	return r.cfg.MissionControl.ReportPaymentFail(
-		rt, &failureSourceIdx, failureMessage,
+		paymentID, rt, &failureSourceIdx, failureMessage,
 	)
 }
 

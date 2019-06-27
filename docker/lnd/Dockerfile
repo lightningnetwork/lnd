@@ -15,7 +15,7 @@ RUN apk add --no-cache --update alpine-sdk \
     make \
 &&  cd /go/src/github.com/lightningnetwork/lnd \
 &&  make \
-&&  make install tags="signrpc walletrpc chainrpc invoicesrpc"
+&&  make install tags="signrpc walletrpc chainrpc invoicesrpc routerrpc"
 
 # Start a new, final image to reduce size.
 FROM alpine as final

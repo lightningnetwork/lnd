@@ -680,7 +680,7 @@ func (r *ChannelRouter) syncGraphWithChain() error {
 	// If we're not yet caught up, then we'll walk forward in the chain
 	// pruning the channel graph with each new block that hasn't yet been
 	// consumed by the channel graph.
-	var numChansClosed uint32
+	var spentOutputs []*wire.OutPoint
 	for nextHeight := pruneHeight + 1; nextHeight <= uint32(bestHeight); nextHeight++ {
 		// Break out of the rescan early if a shutdown has been
 		// requested, otherwise long rescans will block the daemon from
@@ -705,33 +705,25 @@ func (r *ChannelRouter) syncGraphWithChain() error {
 		// We're only interested in all prior outputs that have been
 		// spent in the block, so collate all the referenced previous
 		// outpoints within each tx and input.
-		var spentOutputs []*wire.OutPoint
 		for _, tx := range filterBlock.Transactions {
 			for _, txIn := range tx.TxIn {
 				spentOutputs = append(spentOutputs,
 					&txIn.PreviousOutPoint)
 			}
 		}
+	}
 
-		// With the spent outputs gathered, attempt to prune the
-		// channel graph, also passing in the hash+height of the block
-		// being pruned so the prune tip can be updated.
-		closedChans, err := r.cfg.Graph.PruneGraph(spentOutputs,
-			nextHash,
-			nextHeight)
-		if err != nil {
-			return err
-		}
-
-		numClosed := uint32(len(closedChans))
-		log.Infof("Block %v (height=%v) closed %v channels",
-			nextHash, nextHeight, numClosed)
-
-		numChansClosed += numClosed
+	// With the spent outputs gathered, attempt to prune the channel graph,
+	// also passing in the best hash+height so the prune tip can be updated.
+	closedChans, err := r.cfg.Graph.PruneGraph(
+		spentOutputs, bestHash, uint32(bestHeight),
+	)
+	if err != nil {
+		return err
 	}
 
 	log.Infof("Graph pruning complete: %v channels were closed since "+
-		"height %v", numChansClosed, pruneHeight)
+		"height %v", len(closedChans), pruneHeight)
 	return nil
 }
 

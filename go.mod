@@ -29,7 +29,7 @@ require (
 	github.com/juju/utils v0.0.0-20180820210520-bf9cc5bdd62d // indirect
 	github.com/juju/version v0.0.0-20180108022336-b64dbd566305 // indirect
 	github.com/kkdai/bstream v0.0.0-20181106074824-b3251f7901ec
-	github.com/lightninglabs/neutrino v0.0.0-20190620074315-32af2fbd0d2b
+	github.com/lightninglabs/neutrino v0.0.0-20190618213123-236efa5a0fc6
 	github.com/lightningnetwork/lightning-onion v0.0.0-20190430041606-751fb4dd8b72
 	github.com/lightningnetwork/lnd/queue v1.0.1
 	github.com/lightningnetwork/lnd/ticker v1.0.0
@@ -53,3 +53,7 @@ require (
 replace github.com/lightningnetwork/lnd/ticker => ./ticker
 
 replace github.com/lightningnetwork/lnd/queue => ./queue
+
+replace github.com/btcsuite/btcwallet => github.com/wpaulino/btcwallet v0.0.0-20190627224042-12a24008ebe2
+
+replace github.com/lightninglabs/neutrino => github.com/wpaulino/neutrino v0.0.0-20190628211914-9cef486ae11b

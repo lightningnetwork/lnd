@@ -13302,6 +13302,10 @@ func testChanRestoreScenario(t *harnessTest, net *lntest.NetworkHarness,
 	}
 	daveStartingBalance := daveBalance.ConfirmedBalance
 
+	if err := net.RestartNode(dave, nil); err != nil {
+		t.Fatalf("unable to restart dave: %v", err)
+	}
+
 	// At this point, we'll now execute the restore method to give us the
 	// new node we should attempt our assertions against.
 	backupFilePath := dave.ChanBackupPath()

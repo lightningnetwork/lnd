@@ -8029,9 +8029,38 @@ func assertDLPExecuted(net *lntest.NetworkHarness, t *harnessTest,
 	carol *lntest.HarnessNode, carolStartingBalance int64,
 	dave *lntest.HarnessNode, daveStartingBalance int64) {
 
+	ctxb := context.Background()
+	err := lntest.WaitNoError(func() error {
+		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
+		balReq := &lnrpc.WalletBalanceRequest{}
+		daveBalResp, err := dave.WalletBalance(ctxt, balReq)
+		if err != nil {
+			return fmt.Errorf("unable to get dave's balance: %v", err)
+		}
+		daveBalance := daveBalResp.ConfirmedBalance
+		if daveBalance != daveStartingBalance {
+			return fmt.Errorf("expected dave to have balance %d, "+
+				"instead had %v", daveStartingBalance, daveBalance)
+		}
+		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+		carolBalResp, err := carol.WalletBalance(ctxt, balReq)
+		if err != nil {
+			return fmt.Errorf("unable to get carol's balance: %v", err)
+		}
+		carolBalance := carolBalResp.ConfirmedBalance
+		if carolBalance != carolStartingBalance {
+			return fmt.Errorf("expected carol to have balance %d, "+
+				"instead had %v", carolStartingBalance,
+				carolBalance)
+		}
+		return nil
+	}, defaultTimeout)
+	if err != nil {
+		t.Fatalf(err.Error())
+	}
+
 	// Upon reconnection, the nodes should detect that Dave is out of sync.
 	// Carol should force close the channel using her latest commitment.
-	ctxb := context.Background()
 	forceClose, err := waitForTxInMempool(
 		net.Miner.Node, minerMempoolTimeout,
 	)

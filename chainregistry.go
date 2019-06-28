@@ -576,6 +576,9 @@ var (
 				"nodes.lightning.directory",
 				"soa.nodes.lightning.directory",
 			},
+			{
+				"lseed.bitcoinstats.com",
+			},
 		},
 
 		bitcoinTestnetGenesis: {

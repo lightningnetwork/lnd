@@ -445,7 +445,10 @@ func (s *Server) QueryMissionControl(ctx context.Context,
 	snapshot := s.cfg.RouterBackend.MissionControl.GetHistorySnapshot()
 
 	rpcNodes := make([]*NodeHistory, len(snapshot.Nodes))
-	for i, node := range snapshot.Nodes {
+	for i, n := range snapshot.Nodes {
+		// Copy node struct to prevent loop variable binding bugs.
+		node := n
+
 		channels := make([]*ChannelHistory, len(node.Channels))
 		for j, channel := range node.Channels {
 			channels[j] = &ChannelHistory{

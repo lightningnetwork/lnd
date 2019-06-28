@@ -660,10 +660,27 @@ func testTxConfirmedBeforeNtfnRegistration(miner *rpctest.Harness,
 		t.Fatalf("unable to register ntfn: %v", err)
 	}
 
+	// We'll also register for a confirmation notification with the pkscript
+	// of a different transaction. This notification shouldn't fire since we
+	// match on both txid and pkscript.
+	var ntfn4 *chainntnfs.ConfirmationEvent
+	ntfn4, err = notifier.RegisterConfirmationsNtfn(
+		txid3, pkScript2, 1, uint32(currentHeight-1),
+	)
+	if err != nil {
+		t.Fatalf("unable to register ntfn: %v", err)
+	}
+
 	select {
 	case <-ntfn3.Confirmed:
 	case <-time.After(10 * time.Second):
 		t.Fatalf("confirmation notification never received")
+	}
+
+	select {
+	case <-ntfn4.Confirmed:
+		t.Fatalf("confirmation notification received")
+	case <-time.After(5 * time.Second):
 	}
 
 	time.Sleep(1 * time.Second)

@@ -1,8 +1,11 @@
 package chainntnfs
 
 import (
+	"bytes"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/btcsuite/btcd/btcjson"
@@ -582,4 +585,112 @@ func getMissedBlocks(chainConn ChainConn, startingHeight,
 	}
 
 	return missedBlocks, nil
+}
+
+// TxIndexConn abstracts an RPC backend with txindex enabled.
+type TxIndexConn interface {
+	// GetRawTransactionVerbose returns the transaction identified by the
+	// passed chain hash, and returns additional information such as the
+	// block that the transaction confirmed.
+	GetRawTransactionVerbose(*chainhash.Hash) (*btcjson.TxRawResult, error)
+
+	// GetBlockVerbose returns the block identified by the chain hash along
+	// with additional information such as the block's height in the chain.
+	GetBlockVerbose(*chainhash.Hash) (*btcjson.GetBlockVerboseResult, error)
+}
+
+// ConfDetailsFromTxIndex looks up whether a transaction is already included in
+// a block in the active chain by using the backend node's transaction index.
+// If the transaction is found its TxConfStatus is returned. If it was found in
+// the mempool this will be TxFoundMempool, if it is found in a block this will
+// be TxFoundIndex. Otherwise TxNotFoundIndex is returned. If the tx is found
+// in a block its confirmation details are also returned.
+func ConfDetailsFromTxIndex(chainConn TxIndexConn, r ConfRequest,
+	txNotFoundErr string) (*TxConfirmation, TxConfStatus, error) {
+
+	// If the transaction has some or all of its confirmations required,
+	// then we may be able to dispatch it immediately.
+	rawTxRes, err := chainConn.GetRawTransactionVerbose(&r.TxID)
+	if err != nil {
+		// If the transaction lookup was successful, but it wasn't found
+		// within the index itself, then we can exit early. We'll also
+		// need to look at the error message returned as the error code
+		// is used for multiple errors.
+		jsonErr, ok := err.(*btcjson.RPCError)
+		if ok && jsonErr.Code == btcjson.ErrRPCNoTxInfo &&
+			strings.Contains(jsonErr.Message, txNotFoundErr) {
+
+			return nil, TxNotFoundIndex, nil
+		}
+
+		return nil, TxNotFoundIndex,
+			fmt.Errorf("unable to query for txid %v: %v",
+				r.TxID, err)
+	}
+
+	// Deserialize the hex-encoded transaction to include it in the
+	// confirmation details.
+	rawTx, err := hex.DecodeString(rawTxRes.Hex)
+	if err != nil {
+		return nil, TxNotFoundIndex,
+			fmt.Errorf("unable to deserialize tx %v: %v",
+				r.TxID, err)
+	}
+	var tx wire.MsgTx
+	if err := tx.Deserialize(bytes.NewReader(rawTx)); err != nil {
+		return nil, TxNotFoundIndex,
+			fmt.Errorf("unable to deserialize tx %v: %v",
+				r.TxID, err)
+	}
+
+	// Ensure the transaction matches our confirmation request in terms of
+	// txid and pkscript.
+	if !r.MatchesTx(&tx) {
+		return nil, TxNotFoundIndex,
+			fmt.Errorf("unable to locate tx %v", r.TxID)
+	}
+
+	// Make sure we actually retrieved a transaction that is included in a
+	// block. If not, the transaction must be unconfirmed (in the mempool),
+	// and we'll return TxFoundMempool together with a nil TxConfirmation.
+	if rawTxRes.BlockHash == "" {
+		return nil, TxFoundMempool, nil
+	}
+
+	// As we need to fully populate the returned TxConfirmation struct,
+	// grab the block in which the transaction was confirmed so we can
+	// locate its exact index within the block.
+	blockHash, err := chainhash.NewHashFromStr(rawTxRes.BlockHash)
+	if err != nil {
+		return nil, TxNotFoundIndex,
+			fmt.Errorf("unable to get block hash %v for "+
+				"historical dispatch: %v", rawTxRes.BlockHash, err)
+	}
+	block, err := chainConn.GetBlockVerbose(blockHash)
+	if err != nil {
+		return nil, TxNotFoundIndex,
+			fmt.Errorf("unable to get block with hash %v for "+
+				"historical dispatch: %v", blockHash, err)
+	}
+
+	// If the block was obtained, locate the transaction's index within the
+	// block so we can give the subscriber full confirmation details.
+	txidStr := r.TxID.String()
+	for txIndex, txHash := range block.Tx {
+		if txHash != txidStr {
+			continue
+		}
+
+		return &TxConfirmation{
+			Tx:          &tx,
+			BlockHash:   blockHash,
+			BlockHeight: uint32(block.Height),
+			TxIndex:     uint32(txIndex),
+		}, TxFoundIndex, nil
+	}
+
+	// We return an error because we should have found the transaction
+	// within the block, but didn't.
+	return nil, TxNotFoundIndex, fmt.Errorf("unable to locate "+
+		"tx %v in block %v", r.TxID, blockHash)
 }

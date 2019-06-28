@@ -457,7 +457,7 @@ func (b *BitcoindNotifier) historicalConfDetails(confRequest chainntnfs.ConfRequ
 	// txindex.
 	txNotFoundErr := "No such mempool or blockchain transaction"
 	txConf, txStatus, err := chainntnfs.ConfDetailsFromTxIndex(
-		b.chainConn, &confRequest.TxID, txNotFoundErr,
+		b.chainConn, confRequest, txNotFoundErr,
 	)
 
 	// We'll then check the status of the transaction lookup returned to

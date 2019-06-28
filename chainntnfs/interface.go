@@ -605,12 +605,12 @@ type TxIndexConn interface {
 // the mempool this will be TxFoundMempool, if it is found in a block this will
 // be TxFoundIndex. Otherwise TxNotFoundIndex is returned. If the tx is found
 // in a block its confirmation details are also returned.
-func ConfDetailsFromTxIndex(chainConn TxIndexConn, txid *chainhash.Hash,
+func ConfDetailsFromTxIndex(chainConn TxIndexConn, r ConfRequest,
 	txNotFoundErr string) (*TxConfirmation, TxConfStatus, error) {
 
 	// If the transaction has some or all of its confirmations required,
 	// then we may be able to dispatch it immediately.
-	rawTxRes, err := chainConn.GetRawTransactionVerbose(txid)
+	rawTxRes, err := chainConn.GetRawTransactionVerbose(&r.TxID)
 	if err != nil {
 		// If the transaction lookup was successful, but it wasn't found
 		// within the index itself, then we can exit early. We'll also
@@ -624,7 +624,8 @@ func ConfDetailsFromTxIndex(chainConn TxIndexConn, txid *chainhash.Hash,
 		}
 
 		return nil, TxNotFoundIndex,
-			fmt.Errorf("unable to query for txid %v: %v", txid, err)
+			fmt.Errorf("unable to query for txid %v: %v",
+				r.TxID, err)
 	}
 
 	// Make sure we actually retrieved a transaction that is included in a
@@ -652,7 +653,7 @@ func ConfDetailsFromTxIndex(chainConn TxIndexConn, txid *chainhash.Hash,
 
 	// If the block was obtained, locate the transaction's index within the
 	// block so we can give the subscriber full confirmation details.
-	txidStr := txid.String()
+	txidStr := r.TxID.String()
 	for txIndex, txHash := range block.Tx {
 		if txHash != txidStr {
 			continue
@@ -684,5 +685,5 @@ func ConfDetailsFromTxIndex(chainConn TxIndexConn, txid *chainhash.Hash,
 	// We return an error because we should have found the transaction
 	// within the block, but didn't.
 	return nil, TxNotFoundIndex, fmt.Errorf("unable to locate "+
-		"tx %v in block %v", txid, blockHash)
+		"tx %v in block %v", r.TxID, blockHash)
 }

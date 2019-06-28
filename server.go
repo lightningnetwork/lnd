@@ -1719,7 +1719,6 @@ func (s *server) peerBootstrapper(numTargetPeers uint32,
 func (s *server) initialPeerBootstrap(ignore map[autopilot.NodeID]struct{},
 	numTargetPeers uint32, bootstrappers []discovery.NetworkPeerBootstrapper) {
 
-	var wg sync.WaitGroup
 
 	for {
 		// Check if the server has been requested to shut down in order
@@ -1752,6 +1751,7 @@ func (s *server) initialPeerBootstrap(ignore map[autopilot.NodeID]struct{},
 
 		// Then, we'll attempt to establish a connection to the
 		// different peer addresses retrieved by our bootstrappers.
+		var wg sync.WaitGroup
 		for _, bootstrapAddr := range bootstrapAddrs {
 			wg.Add(1)
 			go func(addr *lnwire.NetAddress) {

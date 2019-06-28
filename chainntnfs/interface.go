@@ -628,6 +628,28 @@ func ConfDetailsFromTxIndex(chainConn TxIndexConn, r ConfRequest,
 				r.TxID, err)
 	}
 
+	// Deserialize the hex-encoded transaction to include it in the
+	// confirmation details.
+	rawTx, err := hex.DecodeString(rawTxRes.Hex)
+	if err != nil {
+		return nil, TxNotFoundIndex,
+			fmt.Errorf("unable to deserialize tx %v: %v",
+				r.TxID, err)
+	}
+	var tx wire.MsgTx
+	if err := tx.Deserialize(bytes.NewReader(rawTx)); err != nil {
+		return nil, TxNotFoundIndex,
+			fmt.Errorf("unable to deserialize tx %v: %v",
+				r.TxID, err)
+	}
+
+	// Ensure the transaction matches our confirmation request in terms of
+	// txid and pkscript.
+	if !r.MatchesTx(&tx) {
+		return nil, TxNotFoundIndex,
+			fmt.Errorf("unable to locate tx %v", r.TxID)
+	}
+
 	// Make sure we actually retrieved a transaction that is included in a
 	// block. If not, the transaction must be unconfirmed (in the mempool),
 	// and we'll return TxFoundMempool together with a nil TxConfirmation.
@@ -657,21 +679,6 @@ func ConfDetailsFromTxIndex(chainConn TxIndexConn, r ConfRequest,
 	for txIndex, txHash := range block.Tx {
 		if txHash != txidStr {
 			continue
-		}
-
-		// Deserialize the hex-encoded transaction to include it in the
-		// confirmation details.
-		rawTx, err := hex.DecodeString(rawTxRes.Hex)
-		if err != nil {
-			return nil, TxNotFoundIndex,
-				fmt.Errorf("unable to deserialize tx %v: %v",
-					txHash, err)
-		}
-		var tx wire.MsgTx
-		if err := tx.Deserialize(bytes.NewReader(rawTx)); err != nil {
-			return nil, TxNotFoundIndex,
-				fmt.Errorf("unable to deserialize tx %v: %v",
-					txHash, err)
 		}
 
 		return &TxConfirmation{

@@ -1676,6 +1676,12 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 		return fmt.Errorf("must specify channel point in close channel")
 	}
 
+	// If force closing a channel, the fee set in the commitment transaction
+	// is used.
+	if in.Force && (in.SatPerByte != 0 || in.TargetConf != 0) {
+		return fmt.Errorf("force closing a channel uses a pre-defined fee")
+	}
+
 	force := in.Force
 	index := in.ChannelPoint.OutputIndex
 	txid, err := GetChanPointFundingTxid(in.GetChannelPoint())

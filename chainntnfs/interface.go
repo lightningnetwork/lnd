@@ -662,13 +662,13 @@ func ConfDetailsFromTxIndex(chainConn TxIndexConn, txid *chainhash.Hash,
 		// confirmation details.
 		rawTx, err := hex.DecodeString(rawTxRes.Hex)
 		if err != nil {
-			return nil, TxFoundIndex,
+			return nil, TxNotFoundIndex,
 				fmt.Errorf("unable to deserialize tx %v: %v",
 					txHash, err)
 		}
 		var tx wire.MsgTx
 		if err := tx.Deserialize(bytes.NewReader(rawTx)); err != nil {
-			return nil, TxFoundIndex,
+			return nil, TxNotFoundIndex,
 				fmt.Errorf("unable to deserialize tx %v: %v",
 					txHash, err)
 		}

@@ -192,18 +192,22 @@ func (r ConfRequest) ConfHintKey() ([]byte, error) {
 // the outputs of the transaction to determine if it matches. Otherwise, we'll
 // match on the txid.
 func (r ConfRequest) MatchesTx(tx *wire.MsgTx) bool {
-	if r.TxID != ZeroHash {
-		return r.TxID == tx.TxHash()
-	}
-
-	pkScript := r.PkScript.Script()
-	for _, txOut := range tx.TxOut {
-		if bytes.Equal(txOut.PkScript, pkScript) {
-			return true
+	scriptMatches := func() bool {
+		pkScript := r.PkScript.Script()
+		for _, txOut := range tx.TxOut {
+			if bytes.Equal(txOut.PkScript, pkScript) {
+				return true
+			}
 		}
+
+		return false
 	}
 
-	return false
+	if r.TxID != ZeroHash {
+		return r.TxID == tx.TxHash() && scriptMatches()
+	}
+
+	return scriptMatches()
 }
 
 // ConfNtfn represents a notifier client's request to receive a notification

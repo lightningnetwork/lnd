@@ -1600,7 +1600,6 @@ func (s *server) peerBootstrapper(numTargetPeers uint32,
 	//
 	// We'll use a 15 second backoff, and double the time every time an
 	// epoch fails up to a ceiling.
-	const backOffCeiling = time.Minute * 5
 	backOff := time.Second * 15
 
 	// We'll create a new ticker to wake us up every 15 seconds so we can
@@ -1643,8 +1642,8 @@ func (s *server) peerBootstrapper(numTargetPeers uint32,
 				sampleTicker.Stop()
 
 				backOff *= 2
-				if backOff > backOffCeiling {
-					backOff = backOffCeiling
+				if backOff > bootstrapBackOffCeiling {
+					backOff = bootstrapBackOffCeiling
 				}
 
 				srvrLog.Debugf("Backing off peer bootstrapper to "+
@@ -1713,15 +1712,27 @@ func (s *server) peerBootstrapper(numTargetPeers uint32,
 	}
 }
 
+// bootstrapBackOffCeiling is the maximum amount of time we'll wait between
+// failed attempts to locate a set of bootstrap peers. We'll slowly double our
+// query back off each time we encounter a failure.
+const bootstrapBackOffCeiling = time.Minute * 5
+
 // initialPeerBootstrap attempts to continuously connect to peers on startup
 // until the target number of peers has been reached. This ensures that nodes
 // receive an up to date network view as soon as possible.
 func (s *server) initialPeerBootstrap(ignore map[autopilot.NodeID]struct{},
 	numTargetPeers uint32, bootstrappers []discovery.NetworkPeerBootstrapper) {
 
-	var wg sync.WaitGroup
+	// We'll start off by waiting 2 seconds between failed attempts, then
+	// double each time we fail until we hit the bootstrapBackOffCeiling.
+	var delaySignal <-chan time.Time
+	delayTime := time.Second * 2
 
-	for {
+	// As want to be more aggressive, we'll use a lower back off celling
+	// then the main peer bootstrap logic.
+	backOffCeiling := bootstrapBackOffCeiling / 5
+
+	for attempts := 0; ; attempts++ {
 		// Check if the server has been requested to shut down in order
 		// to prevent blocking.
 		if s.Stopped() {
@@ -1738,8 +1749,31 @@ func (s *server) initialPeerBootstrap(ignore map[autopilot.NodeID]struct{},
 			return
 		}
 
-		// Otherwise, we'll request for the remaining number of peers in
-		// order to reach our target.
+		if attempts > 0 {
+			srvrLog.Debugf("Waiting %v before trying to locate "+
+				"bootstrap peers (attempt #%v)", delayTime,
+				attempts)
+
+			// We've completed at least one iterating and haven't
+			// finished, so we'll start to insert a delay period
+			// between each attempt.
+			delaySignal = time.After(delayTime)
+			select {
+			case <-delaySignal:
+			case <-s.quit:
+				return
+			}
+
+			// After our delay, we'll double the time we wait up to
+			// the max back off period.
+			delayTime *= 2
+			if delayTime > backOffCeiling {
+				delayTime = backOffCeiling
+			}
+		}
+
+		// Otherwise, we'll request for the remaining number of peers
+		// in order to reach our target.
 		peersNeeded := numTargetPeers - numActivePeers
 		bootstrapAddrs, err := discovery.MultiSourceBootstrap(
 			ignore, peersNeeded, bootstrappers...,
@@ -1752,6 +1786,7 @@ func (s *server) initialPeerBootstrap(ignore map[autopilot.NodeID]struct{},
 
 		// Then, we'll attempt to establish a connection to the
 		// different peer addresses retrieved by our bootstrappers.
+		var wg sync.WaitGroup
 		for _, bootstrapAddr := range bootstrapAddrs {
 			wg.Add(1)
 			go func(addr *lnwire.NetAddress) {

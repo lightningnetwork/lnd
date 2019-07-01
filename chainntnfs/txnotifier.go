@@ -148,9 +148,13 @@ type ConfRequest struct {
 // dispatch the confirmation notification on the script.
 func NewConfRequest(txid *chainhash.Hash, pkScript []byte) (ConfRequest, error) {
 	var r ConfRequest
-	outputScript, err := txscript.ParsePkScript(pkScript)
-	if err != nil {
-		return r, err
+
+	if len(pkScript) > 0 {
+		outputScript, err := txscript.ParsePkScript(pkScript)
+		if err != nil {
+			return r, err
+		}
+		r.PkScript = outputScript
 	}
 
 	// We'll only set a txid for which we'll dispatch a confirmation
@@ -159,7 +163,6 @@ func NewConfRequest(txid *chainhash.Hash, pkScript []byte) (ConfRequest, error) 
 	if txid != nil {
 		r.TxID = *txid
 	}
-	r.PkScript = outputScript
 
 	return r, nil
 }

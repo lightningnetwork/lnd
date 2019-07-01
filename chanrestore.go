@@ -41,7 +41,7 @@ func (c *chanDBRestorer) openChannelShell(backup chanbackup.Single) (
 	// shachain...
 	privKey, err := c.secretKeys.DerivePrivKey(backup.ShaChainRootDesc)
 	if err != nil {
-		return nil, nil
+		return nil, fmt.Errorf("unable to derive shachain root key: %v", err)
 	}
 	revRoot, err := chainhash.NewHash(privKey.Serialize())
 	if err != nil {

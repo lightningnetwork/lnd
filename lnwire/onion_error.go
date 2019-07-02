@@ -1113,10 +1113,16 @@ func DecodeFailure(r io.Reader, pver uint32) (FailureMessage, error) {
 
 	dataReader := bytes.NewReader(failureData)
 
+	return DecodeFailureMessage(dataReader, pver)
+}
+
+// DecodeFailureMessage decodes just the failure message, ignoring any padding
+// that may be present at the end.
+func DecodeFailureMessage(r io.Reader, pver uint32) (FailureMessage, error) {
 	// Once we have the failure data, we can obtain the failure code from
 	// the first two bytes of the buffer.
 	var codeBytes [2]byte
-	if _, err := io.ReadFull(dataReader, codeBytes[:]); err != nil {
+	if _, err := io.ReadFull(r, codeBytes[:]); err != nil {
 		return nil, fmt.Errorf("unable to read failure code: %v", err)
 	}
 	failCode := FailCode(binary.BigEndian.Uint16(codeBytes[:]))
@@ -1132,10 +1138,9 @@ func DecodeFailure(r io.Reader, pver uint32) (FailureMessage, error) {
 	// well.
 	switch f := failure.(type) {
 	case Serializable:
-		if err := f.Decode(dataReader, pver); err != nil {
+		if err := f.Decode(r, pver); err != nil {
 			return nil, fmt.Errorf("unable to decode error "+
-				"update (type=%T, len_bytes=%v, bytes=%x): %v",
-				failure, failureLength, failureData[:], err)
+				"update (type=%T): %v", failure, err)
 		}
 	}
 
@@ -1147,24 +1152,9 @@ func DecodeFailure(r io.Reader, pver uint32) (FailureMessage, error) {
 func EncodeFailure(w io.Writer, failure FailureMessage, pver uint32) error {
 	var failureMessageBuffer bytes.Buffer
 
-	// First, we'll write out the error code itself into the failure
-	// buffer.
-	var codeBytes [2]byte
-	code := uint16(failure.Code())
-	binary.BigEndian.PutUint16(codeBytes[:], code)
-	_, err := failureMessageBuffer.Write(codeBytes[:])
+	err := EncodeFailureMessage(&failureMessageBuffer, failure, pver)
 	if err != nil {
 		return err
-	}
-
-	// Next, some message have an additional message payload, if this is
-	// one of those types, then we'll also encode the error payload as
-	// well.
-	switch failure := failure.(type) {
-	case Serializable:
-		if err := failure.Encode(&failureMessageBuffer, pver); err != nil {
-			return err
-		}
 	}
 
 	// The combined size of this message must be below the max allowed
@@ -1185,6 +1175,32 @@ func EncodeFailure(w io.Writer, failure FailureMessage, pver uint32) error {
 		uint16(len(pad)),
 		pad,
 	)
+}
+
+// EncodeFailureMessage encodes just the failure message without adding a length
+// and padding the message for the onion protocol.
+func EncodeFailureMessage(w io.Writer, failure FailureMessage, pver uint32) error {
+	// First, we'll write out the error code itself into the failure
+	// buffer.
+	var codeBytes [2]byte
+	code := uint16(failure.Code())
+	binary.BigEndian.PutUint16(codeBytes[:], code)
+	_, err := w.Write(codeBytes[:])
+	if err != nil {
+		return err
+	}
+
+	// Next, some message have an additional message payload, if this is
+	// one of those types, then we'll also encode the error payload as
+	// well.
+	switch failure := failure.(type) {
+	case Serializable:
+		if err := failure.Encode(w, pver); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // makeEmptyOnionError creates a new empty onion error  of the proper concrete

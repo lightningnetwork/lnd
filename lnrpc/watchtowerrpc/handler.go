@@ -124,7 +124,7 @@ func (c *Handler) GetInfo(ctx context.Context,
 // isActive returns nil if the tower backend is initialized, and the Handler can
 // proccess RPC requests.
 func (c *Handler) isActive() error {
-	if c.cfg.Tower != nil {
+	if c.cfg.Active {
 		return nil
 	}
 	return ErrTowerNotActive

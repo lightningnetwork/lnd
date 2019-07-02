@@ -163,7 +163,7 @@ func (b *BackupID) Decode(r io.Reader) error {
 
 // String returns a human-readable encoding of a BackupID.
 func (b BackupID) String() string {
-	return fmt.Sprintf("backup(%x, %d)", b.ChanID, b.CommitHeight)
+	return fmt.Sprintf("backup(%v, %d)", b.ChanID, b.CommitHeight)
 }
 
 // CommittedUpdate holds a state update sent by a client along with its

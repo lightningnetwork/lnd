@@ -1058,8 +1058,8 @@ var clientTests = []clientTest{
 		// less expensive than one that sweeps both.
 		name: "send and recv",
 		cfg: harnessCfg{
-			localBalance:  10000001, // ensure (% amt != 0)
-			remoteBalance: 20000001, // ensure (% amt != 0)
+			localBalance:  100000001, // ensure (% amt != 0)
+			remoteBalance: 200000001, // ensure (% amt != 0)
 			policy: wtpolicy.Policy{
 				TxPolicy: wtpolicy.TxPolicy{
 					BlobType:     blob.TypeAltruistCommit,
@@ -1071,7 +1071,7 @@ var clientTests = []clientTest{
 		fn: func(h *testHarness) {
 			var (
 				capacity   = h.cfg.localBalance + h.cfg.remoteBalance
-				paymentAmt = lnwire.MilliSatoshi(200000)
+				paymentAmt = lnwire.MilliSatoshi(2000000)
 				numSends   = uint64(h.cfg.localBalance / paymentAmt)
 				numRecvs   = uint64(capacity / paymentAmt)
 				numUpdates = numSends + numRecvs // 200 updates

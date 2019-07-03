@@ -15,10 +15,7 @@ env:
   global:
     - GOCACHE=$HOME/.go-build
   matrix:
-    - RACE=true
     - ITEST=true
-    - NEUTRINO_ITEST=true
-    - COVER=true 
 
 sudo: required
 

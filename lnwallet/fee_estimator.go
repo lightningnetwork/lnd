@@ -711,12 +711,12 @@ func (w *WebAPIFeeEstimator) updateFeeEstimates() {
 	// overloaded, we can exit early and use our default fee.
 	netTransport := &http.Transport{
 		Dial: (&net.Dialer{
-			Timeout: 5 * time.Second,
+			Timeout: 1 * time.Second,
 		}).Dial,
-		TLSHandshakeTimeout: 5 * time.Second,
+		TLSHandshakeTimeout: 1 * time.Second,
 	}
 	netClient := &http.Client{
-		Timeout:   time.Second * 10,
+		Timeout:   time.Second * 5,
 		Transport: netTransport,
 	}
 

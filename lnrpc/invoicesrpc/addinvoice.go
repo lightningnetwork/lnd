@@ -184,7 +184,7 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 		)
 	}
 
-	// Check if any open channel has enough inbound bandwidth to receive an
+	// Check if any active channel has enough inbound bandwidth to receive an
 	// invoice of the specified amount
 	if invoice.CheckInboundBandwidth {
 		inboundBandwidth := false
@@ -193,11 +193,16 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 		if err != nil {
 			return nil, nil, fmt.Errorf("could not fetch all open channels")
 		}
-		for _, c := range openChannels {
-			localCommitment, _, err := c.LatestCommitments()
+		for _, channel := range openChannels {
+			// skip if channel is not in a usable state
+			if !channel.HasChanStatus(channeldb.ChanStatusDefault) {
+				continue
+			}
+
+			localCommitment, _, err := channel.LatestCommitments()
 			if err != nil {
 				return nil, nil, fmt.Errorf("could not get latest "+
-					"commitments for channel %v", c.ShortChanID())
+					"commitments for channel %v", channel.ShortChanID())
 			}
 			if localCommitment.RemoteBalance >= amtMSat {
 				inboundBandwidth = true

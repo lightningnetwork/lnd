@@ -22,6 +22,22 @@ const (
 // the output of a SHA256 hash.
 type Hash256 [sha256.Size]byte
 
+// DecryptedError contains the decrypted error message and its sender.
+type DecryptedError struct {
+	// Sender is the node that sent the error. Note that a node may occur in
+	// the path multiple times. If that is the case, the sender pubkey does
+	// not tell the caller on which visit the error occurred.
+	Sender *btcec.PublicKey
+
+	// SenderIdx is the position of the error sending node in the path.
+	// Index zero is the self node. SenderIdx allows to distinguish between
+	// errors from nodes that occur in the path multiple times.
+	SenderIdx int
+
+	// Message is the decrypted error message.
+	Message []byte
+}
+
 // zeroHMAC is the special HMAC value that allows the final node to determine
 // if it is the payment destination or not.
 var zeroHMAC [HMACSize]byte
@@ -171,11 +187,15 @@ const onionErrorLength = 2 + 2 + 256 + sha256.Size
 // DecryptError attempts to decrypt the passed encrypted error response. The
 // onion failure is encrypted in backward manner, starting from the node where
 // error have occurred. As a result, in order to decrypt the error we need get
-// all shared secret and apply decryption in the reverse order.
-func (o *OnionErrorDecrypter) DecryptError(encryptedData []byte) (*btcec.PublicKey, []byte, error) {
+// all shared secret and apply decryption in the reverse order. A structure is
+// returned that contains the decrypted error message and information on the
+// sender.
+func (o *OnionErrorDecrypter) DecryptError(encryptedData []byte) (
+	*DecryptedError, error) {
+
 	// Ensure the error message length is as expected.
 	if len(encryptedData) != onionErrorLength {
-		return nil, nil, fmt.Errorf("invalid error length: "+
+		return nil, fmt.Errorf("invalid error length: "+
 			"expected %v got %v", onionErrorLength,
 			len(encryptedData))
 	}
@@ -186,7 +206,7 @@ func (o *OnionErrorDecrypter) DecryptError(encryptedData []byte) (*btcec.PublicK
 	)
 
 	var (
-		sender      *btcec.PublicKey
+		sender      int
 		msg         []byte
 		dummySecret Hash256
 	)
@@ -202,7 +222,7 @@ func (o *OnionErrorDecrypter) DecryptError(encryptedData []byte) (*btcec.PublicK
 		// secret to continue decryption attempts to fill out the rest
 		// of the loop. Otherwise, we'll use the next shared secret in
 		// line.
-		if sender != nil || i > len(sharedSecrets)-1 {
+		if sender != 0 || i > len(sharedSecrets)-1 {
 			sharedSecret = dummySecret
 		} else {
 			sharedSecret = sharedSecrets[i]
@@ -226,19 +246,23 @@ func (o *OnionErrorDecrypter) DecryptError(encryptedData []byte) (*btcec.PublicK
 		// If the MAC matches up, then we've found the sender of the
 		// error and have also obtained the fully decrypted message.
 		realMac := h.Sum(nil)
-		if hmac.Equal(realMac, expectedMac) && sender == nil {
-			sender = o.circuit.PaymentPath[i]
+		if hmac.Equal(realMac, expectedMac) && sender == 0 {
+			sender = i + 1
 			msg = data
 		}
 	}
 
-	// If the sender pointer is still nil, then we haven't found the
-	// sender, meaning we've failed to decrypt.
-	if sender == nil {
-		return nil, nil, errors.New("unable to retrieve onion failure")
+	// If the sender index is still zero, then we haven't found the sender,
+	// meaning we've failed to decrypt.
+	if sender == 0 {
+		return nil, errors.New("unable to retrieve onion failure")
 	}
 
-	return sender, msg, nil
+	return &DecryptedError{
+		SenderIdx: sender,
+		Sender:    o.circuit.PaymentPath[sender-1],
+		Message:   msg,
+	}, nil
 }
 
 // EncryptError is used to make data obfuscation using the generated shared

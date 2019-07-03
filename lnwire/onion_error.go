@@ -162,14 +162,14 @@ type FailInvalidRealm struct{}
 // Returns a human readable string describing the target FailureMessage.
 //
 // NOTE: Implements the error interface.
-func (f FailInvalidRealm) Error() string {
+func (f *FailInvalidRealm) Error() string {
 	return f.Code().String()
 }
 
 // Code returns the failure unique code.
 //
 // NOTE: Part of the FailureMessage interface.
-func (f FailInvalidRealm) Code() FailCode {
+func (f *FailInvalidRealm) Code() FailCode {
 	return CodeInvalidRealm
 }
 
@@ -181,14 +181,14 @@ type FailTemporaryNodeFailure struct{}
 
 // Code returns the failure unique code.
 // NOTE: Part of the FailureMessage interface.
-func (f FailTemporaryNodeFailure) Code() FailCode {
+func (f *FailTemporaryNodeFailure) Code() FailCode {
 	return CodeTemporaryNodeFailure
 }
 
 // Returns a human readable string describing the target FailureMessage.
 //
 // NOTE: Implements the error interface.
-func (f FailTemporaryNodeFailure) Error() string {
+func (f *FailTemporaryNodeFailure) Error() string {
 	return f.Code().String()
 }
 
@@ -201,14 +201,14 @@ type FailPermanentNodeFailure struct{}
 // Code returns the failure unique code.
 //
 // NOTE: Part of the FailureMessage interface.
-func (f FailPermanentNodeFailure) Code() FailCode {
+func (f *FailPermanentNodeFailure) Code() FailCode {
 	return CodePermanentNodeFailure
 }
 
 // Returns a human readable string describing the target FailureMessage.
 //
 // NOTE: Implements the error interface.
-func (f FailPermanentNodeFailure) Error() string {
+func (f *FailPermanentNodeFailure) Error() string {
 	return f.Code().String()
 }
 
@@ -222,14 +222,14 @@ type FailRequiredNodeFeatureMissing struct{}
 // Code returns the failure unique code.
 //
 // NOTE: Part of the FailureMessage interface.
-func (f FailRequiredNodeFeatureMissing) Code() FailCode {
+func (f *FailRequiredNodeFeatureMissing) Code() FailCode {
 	return CodeRequiredNodeFeatureMissing
 }
 
 // Returns a human readable string describing the target FailureMessage.
 //
 // NOTE: Implements the error interface.
-func (f FailRequiredNodeFeatureMissing) Error() string {
+func (f *FailRequiredNodeFeatureMissing) Error() string {
 	return f.Code().String()
 }
 
@@ -242,14 +242,14 @@ type FailPermanentChannelFailure struct{}
 // Code returns the failure unique code.
 //
 // NOTE: Part of the FailureMessage interface.
-func (f FailPermanentChannelFailure) Code() FailCode {
+func (f *FailPermanentChannelFailure) Code() FailCode {
 	return CodePermanentChannelFailure
 }
 
 // Returns a human readable string describing the target FailureMessage.
 //
 // NOTE: Implements the error interface.
-func (f FailPermanentChannelFailure) Error() string {
+func (f *FailPermanentChannelFailure) Error() string {
 	return f.Code().String()
 }
 
@@ -263,14 +263,14 @@ type FailRequiredChannelFeatureMissing struct{}
 // Code returns the failure unique code.
 //
 // NOTE: Part of the FailureMessage interface.
-func (f FailRequiredChannelFeatureMissing) Code() FailCode {
+func (f *FailRequiredChannelFeatureMissing) Code() FailCode {
 	return CodeRequiredChannelFeatureMissing
 }
 
 // Returns a human readable string describing the target FailureMessage.
 //
 // NOTE: Implements the error interface.
-func (f FailRequiredChannelFeatureMissing) Error() string {
+func (f *FailRequiredChannelFeatureMissing) Error() string {
 	return f.Code().String()
 }
 
@@ -283,14 +283,14 @@ type FailUnknownNextPeer struct{}
 // Code returns the failure unique code.
 //
 // NOTE: Part of the FailureMessage interface.
-func (f FailUnknownNextPeer) Code() FailCode {
+func (f *FailUnknownNextPeer) Code() FailCode {
 	return CodeUnknownNextPeer
 }
 
 // Returns a human readable string describing the target FailureMessage.
 //
 // NOTE: Implements the error interface.
-func (f FailUnknownNextPeer) Error() string {
+func (f *FailUnknownNextPeer) Error() string {
 	return f.Code().String()
 }
 
@@ -306,14 +306,14 @@ type FailIncorrectPaymentAmount struct{}
 // Code returns the failure unique code.
 //
 // NOTE: Part of the FailureMessage interface.
-func (f FailIncorrectPaymentAmount) Code() FailCode {
+func (f *FailIncorrectPaymentAmount) Code() FailCode {
 	return CodeIncorrectPaymentAmount
 }
 
 // Returns a human readable string describing the target FailureMessage.
 //
 // NOTE: Implements the error interface.
-func (f FailIncorrectPaymentAmount) Error() string {
+func (f *FailIncorrectPaymentAmount) Error() string {
 	return f.Code().String()
 }
 
@@ -344,21 +344,21 @@ func NewFailUnknownPaymentHash(amt MilliSatoshi) *FailUnknownPaymentHash {
 }
 
 // Amount is the value of the extended HTLC.
-func (f FailUnknownPaymentHash) Amount() MilliSatoshi {
+func (f *FailUnknownPaymentHash) Amount() MilliSatoshi {
 	return f.amount
 }
 
 // Code returns the failure unique code.
 //
 // NOTE: Part of the FailureMessage interface.
-func (f FailUnknownPaymentHash) Code() FailCode {
+func (f *FailUnknownPaymentHash) Code() FailCode {
 	return CodeUnknownPaymentHash
 }
 
 // Returns a human readable string describing the target FailureMessage.
 //
 // NOTE: Implements the error interface.
-func (f FailUnknownPaymentHash) Error() string {
+func (f *FailUnknownPaymentHash) Error() string {
 	return fmt.Sprintf("UnknownPaymentHash(amt=%v)", f.amount)
 }
 
@@ -398,14 +398,14 @@ type FailFinalExpiryTooSoon struct{}
 // Code returns the failure unique code.
 //
 // NOTE: Part of the FailureMessage interface.
-func (f FailFinalExpiryTooSoon) Code() FailCode {
+func (f *FailFinalExpiryTooSoon) Code() FailCode {
 	return CodeFinalExpiryTooSoon
 }
 
 // Returns a human readable string describing the target FailureMessage.
 //
 // NOTE: Implements the error interface.
-func (f FailFinalExpiryTooSoon) Error() string {
+func (f *FailFinalExpiryTooSoon) Error() string {
 	return f.Code().String()
 }
 
@@ -425,7 +425,7 @@ type FailInvalidOnionVersion struct {
 // Returns a human readable string describing the target FailureMessage.
 //
 // NOTE: Implements the error interface.
-func (f FailInvalidOnionVersion) Error() string {
+func (f *FailInvalidOnionVersion) Error() string {
 	return fmt.Sprintf("InvalidOnionVersion(onion_sha=%x)", f.OnionSHA256[:])
 }
 
@@ -492,7 +492,7 @@ func (f *FailInvalidOnionHmac) Encode(w io.Writer, pver uint32) error {
 // Returns a human readable string describing the target FailureMessage.
 //
 // NOTE: Implements the error interface.
-func (f FailInvalidOnionHmac) Error() string {
+func (f *FailInvalidOnionHmac) Error() string {
 	return fmt.Sprintf("InvalidOnionHMAC(onion_sha=%x)", f.OnionSHA256[:])
 }
 
@@ -534,7 +534,7 @@ func (f *FailInvalidOnionKey) Encode(w io.Writer, pver uint32) error {
 // Returns a human readable string describing the target FailureMessage.
 //
 // NOTE: Implements the error interface.
-func (f FailInvalidOnionKey) Error() string {
+func (f *FailInvalidOnionKey) Error() string {
 	return fmt.Sprintf("InvalidOnionKey(onion_sha=%x)", f.OnionSHA256[:])
 }
 
@@ -604,7 +604,7 @@ func (f *FailTemporaryChannelFailure) Code() FailCode {
 // Returns a human readable string describing the target FailureMessage.
 //
 // NOTE: Implements the error interface.
-func (f FailTemporaryChannelFailure) Error() string {
+func (f *FailTemporaryChannelFailure) Error() string {
 	if f.Update == nil {
 		return f.Code().String()
 	}
@@ -688,7 +688,7 @@ func (f *FailAmountBelowMinimum) Code() FailCode {
 // Returns a human readable string describing the target FailureMessage.
 //
 // NOTE: Implements the error interface.
-func (f FailAmountBelowMinimum) Error() string {
+func (f *FailAmountBelowMinimum) Error() string {
 	return fmt.Sprintf("AmountBelowMinimum(amt=%v, update=%v", f.HtlcMsat,
 		spew.Sdump(f.Update))
 }
@@ -756,7 +756,7 @@ func (f *FailFeeInsufficient) Code() FailCode {
 // Returns a human readable string describing the target FailureMessage.
 //
 // NOTE: Implements the error interface.
-func (f FailFeeInsufficient) Error() string {
+func (f *FailFeeInsufficient) Error() string {
 	return fmt.Sprintf("FeeInsufficient(htlc_amt==%v, update=%v", f.HtlcMsat,
 		spew.Sdump(f.Update))
 }
@@ -945,7 +945,7 @@ func (f *FailChannelDisabled) Code() FailCode {
 // Returns a human readable string describing the target FailureMessage.
 //
 // NOTE: Implements the error interface.
-func (f FailChannelDisabled) Error() string {
+func (f *FailChannelDisabled) Error() string {
 	return fmt.Sprintf("ChannelDisabled(flags=%v, update=%v", f.Flags,
 		spew.Sdump(f.Update))
 }
@@ -993,7 +993,7 @@ type FailFinalIncorrectCltvExpiry struct {
 // Returns a human readable string describing the target FailureMessage.
 //
 // NOTE: Implements the error interface.
-func (f FailFinalIncorrectCltvExpiry) Error() string {
+func (f *FailFinalIncorrectCltvExpiry) Error() string {
 	return fmt.Sprintf("FinalIncorrectCltvExpiry(expiry=%v)", f.CltvExpiry)
 }
 
@@ -1038,7 +1038,7 @@ type FailFinalIncorrectHtlcAmount struct {
 // Returns a human readable string describing the target FailureMessage.
 //
 // NOTE: Implements the error interface.
-func (f FailFinalIncorrectHtlcAmount) Error() string {
+func (f *FailFinalIncorrectHtlcAmount) Error() string {
 	return fmt.Sprintf("FinalIncorrectHtlcAmount(amt=%v)",
 		f.IncomingHTLCAmount)
 }
@@ -1081,14 +1081,14 @@ type FailExpiryTooFar struct{}
 // Code returns the failure unique code.
 //
 // NOTE: Part of the FailureMessage interface.
-func (f FailExpiryTooFar) Code() FailCode {
+func (f *FailExpiryTooFar) Code() FailCode {
 	return CodeExpiryTooFar
 }
 
 // Returns a human readable string describing the target FailureMessage.
 //
 // NOTE: Implements the error interface.
-func (f FailExpiryTooFar) Error() string {
+func (f *FailExpiryTooFar) Error() string {
 	return f.Code().String()
 }
 

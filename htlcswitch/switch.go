@@ -981,7 +981,7 @@ func (s *Switch) parseFailedPayment(deobfuscator ErrorDecrypter,
 		return &ForwardingError{
 			FailureSourceIdx: 0,
 			ExtraMsg:         userErr,
-			FailureMessage:   lnwire.FailPermanentChannelFailure{},
+			FailureMessage:   &lnwire.FailPermanentChannelFailure{},
 		}
 
 	// A regular multi-hop payment error that we'll need to

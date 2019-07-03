@@ -1214,7 +1214,7 @@ func (l *channelLink) processHodlEvent(hodlEvent invoices.HodlEvent,
 				)
 
 			case invoices.CancelExpiryTooSoon:
-				failure = lnwire.FailFinalExpiryTooSoon{}
+				failure = &lnwire.FailFinalExpiryTooSoon{}
 
 			default:
 				return fmt.Errorf("unknown cancel reason: %v",

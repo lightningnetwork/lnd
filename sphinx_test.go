@@ -3,7 +3,9 @@ package sphinx
 import (
 	"bytes"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"reflect"
 	"testing"
 
@@ -87,11 +89,6 @@ var (
 )
 
 func newTestRoute(numHops int) ([]*Router, *PaymentPath, *[]HopData, *OnionPacket, error) {
-	extraPayloadSize := make([]int, numHops)
-	return newTestVarSizeRoute(numHops, extraPayloadSize)
-}
-
-func newTestVarSizeRoute(numHops int, extraPayloadSize []int) ([]*Router, *PaymentPath, *[]HopData, *OnionPacket, error) {
 	nodes := make([]*Router, numHops)
 
 	// Create numHops random sphinx nodes.
@@ -118,14 +115,6 @@ func newTestVarSizeRoute(numHops int, extraPayloadSize []int) ([]*Router, *Payme
 		}
 		copy(hopData.NextAddress[:], bytes.Repeat([]byte{byte(i)}, 8))
 
-		var extraData []byte
-
-		// If we were told to increase the payload with some extra data
-		// do it now.
-		if extraPayloadSize[i] > 0 {
-			extraData = bytes.Repeat([]byte{'A'}, extraPayloadSize[i])
-		}
-
 		hopPayload, err := NewHopPayload(&hopData, nil)
 		if err != nil {
 			return nil, nil, nil, nil, fmt.Errorf("unable to "+
@@ -136,9 +125,6 @@ func newTestVarSizeRoute(numHops int, extraPayloadSize []int) ([]*Router, *Payme
 			NodePub:    *nodes[i].onionKey.PubKey(),
 			HopPayload: hopPayload,
 		}
-	}
-
-	for i := 0; i < route.TrueRouteLength(); i++ {
 	}
 
 	// Generate a forwarding message to route to the final node via the
@@ -533,61 +519,258 @@ func TestSphinxEncodeDecode(t *testing.T) {
 	}
 }
 
-// Create an onion with 5 hops, and the 3rd hop
-func TestMultiFrameEncodeDecode(t *testing.T) {
+func newEOBRoute(numHops uint32,
+	eobMapping map[int]HopPayload) (*OnionPacket, []*Router, error) {
 
-	var payloadtests = []struct {
-		extraPayload   []int
-		expectedFrames []int
-	}{
-		{[]int{0, 0, 0, 0, 0}, []int{1, 1, 1, 1, 1}},
-		{[]int{60, 0, 0, 0, 0}, []int{2, 1, 1, 1, 1}},
-		{[]int{0, 0, 0, 0, 60}, []int{1, 1, 1, 1, 2}},
-		{[]int{0, 0, 0, 0, 130}, []int{1, 1, 1, 1, 3}},
-		{[]int{0, 0, 60, 0, 0}, []int{1, 1, 2, 1, 1}},
+	nodes := make([]*Router, numHops)
+
+	if uint32(len(eobMapping)) != numHops {
+		return nil, nil, fmt.Errorf("must provide payload " +
+			"mapping for all hops")
 	}
 
-	for _, tt := range payloadtests {
-		t.Run(fmt.Sprintf("%v", tt), func(t *testing.T) {
-			nodes, path, _, fwdMsg, err := newTestVarSizeRoute(5, tt.extraPayload)
+	// First, we'll assemble a set of routers that will consume all the
+	// hops we create in this path.
+	for i := 0; i < len(nodes); i++ {
+		privKey, err := btcec.NewPrivateKey(btcec.S256())
+		if err != nil {
+			return nil, nil, fmt.Errorf("Unable to generate "+
+				"random key for sphinx node: %v", err)
+		}
+
+		nodes[i] = NewRouter(
+			privKey, &chaincfg.MainNetParams, NewMemoryReplayLog(),
+		)
+	}
+
+	// Next we'll gather all the pubkeys in the path, checking our eob
+	// mapping to see which hops need an extra payload.
+	var (
+		route PaymentPath
+	)
+	for i := 0; i < len(nodes); i++ {
+		route[i] = OnionHop{
+			NodePub:    *nodes[i].onionKey.PubKey(),
+			HopPayload: eobMapping[i],
+		}
+	}
+
+	// Generate a forwarding message to route to the final node via the
+	// generated intermdiates nodes above.  Destination should be Hash160,
+	// adding padding so parsing still works.
+	sessionKey, _ := btcec.PrivKeyFromBytes(
+		btcec.S256(), bytes.Repeat([]byte{'A'}, 32),
+	)
+	fwdMsg, err := NewOnionPacket(&route, sessionKey, nil)
+	if err != nil {
+		return nil, nil, fmt.Errorf("unable to create forwarding "+
+			"message: %#v", err)
+	}
+
+	return fwdMsg, nodes, nil
+}
+
+func mustNewHopPayload(hopData *HopData, eob []byte) HopPayload {
+	payload, err := NewHopPayload(hopData, eob)
+	if err != nil {
+		panic(err)
+	}
+
+	return payload
+}
+
+// TestSphinxHopVariableSizedPayloads tests that we're able to fully decode an
+// EOB payload that was targeted at the final hop in a route, and also when
+// intermediate nodes have EOB data encoded as well. Additionally, we test that
+// we're able to mix the legacy and current format within the same route.
+func TestSphinxHopVariableSizedPayloads(t *testing.T) {
+	t.Parallel()
+
+	var testCases = []struct {
+		numNodes   uint32
+		eobMapping map[int]HopPayload
+	}{
+		// A single hop route with a payload going to the last hop in
+		// the route. The payload is enough to fit into what would be
+		// the normal frame type, but it's a TLV hop.
+		{
+			numNodes: 1,
+			eobMapping: map[int]HopPayload{
+				0: HopPayload{
+					Type:    PayloadTLV,
+					Payload: bytes.Repeat([]byte("a"), HopDataSize-HMACSize),
+				},
+			},
+		},
+
+		// A single hop route where the payload to the final node needs
+		// to shift more than a single frame.
+		{
+			numNodes: 1,
+			eobMapping: map[int]HopPayload{
+				0: HopPayload{
+					Type:    PayloadTLV,
+					Payload: bytes.Repeat([]byte("a"), HopDataSize*3),
+				},
+			},
+		},
+
+		// A two hop route, so one going over 3 nodes, with the sender
+		// encrypting a payload to the final node. The payload of the
+		// final node will require more shifts than normal to parse the
+		// data The first hop is a legacy hop containing the usual
+		// amount of data.
+		{
+			numNodes: 2,
+			eobMapping: map[int]HopPayload{
+				0: mustNewHopPayload(&HopData{
+					Realm:         [1]byte{0x00},
+					ForwardAmount: 2,
+					OutgoingCltv:  3,
+					NextAddress:   [8]byte{1, 1, 1, 1, 1, 1, 1, 1},
+				}, nil),
+				1: HopPayload{
+					Type:    PayloadTLV,
+					Payload: bytes.Repeat([]byte("a"), HopDataSize*2),
+				},
+			},
+		},
+
+		// A 3 hop route (4 nodes) with all but the middle node
+		// receiving a TLV payload. Each of the TLV hops will use a
+		// distinct amount of data in each hop.
+		{
+			numNodes: 3,
+			eobMapping: map[int]HopPayload{
+				0: HopPayload{
+					Type:    PayloadTLV,
+					Payload: bytes.Repeat([]byte("a"), 100),
+				},
+				1: mustNewHopPayload(&HopData{
+					Realm:         [1]byte{0x00},
+					ForwardAmount: 22,
+					OutgoingCltv:  9,
+					NextAddress:   [8]byte{1, 1, 1, 1, 1, 1, 1, 1},
+				}, nil),
+				2: HopPayload{
+					Type:    PayloadTLV,
+					Payload: bytes.Repeat([]byte("a"), 256),
+				},
+			},
+		},
+
+		// A 3 hop route (4 nodes), each hop is a TLV hop and will use
+		// a distinct amount of data for each of their hops.
+		{
+			numNodes: 3,
+			eobMapping: map[int]HopPayload{
+				0: HopPayload{
+					Type:    PayloadTLV,
+					Payload: bytes.Repeat([]byte("a"), 200),
+				},
+				1: HopPayload{
+					Type:    PayloadTLV,
+					Payload: bytes.Repeat([]byte("a"), 256),
+				},
+				2: HopPayload{
+					Type:    PayloadTLV,
+					Payload: bytes.Repeat([]byte("a"), 150),
+				},
+			},
+		},
+	}
+
+	for testCaseNum, testCase := range testCases {
+		nextPkt, routers, err := newEOBRoute(
+			testCase.numNodes, testCase.eobMapping,
+		)
+		if err != nil {
+			t.Fatalf("#%v: unable to create eob "+
+				"route: %v", testCase, err)
+		}
+
+		// We'll now walk thru manually each actual hop within the
+		// route. We use the size of the routers rather than the number
+		// of hops here as virtual EOB hops may have been inserted into
+		// the route.
+		for i := 0; i < len(routers); i++ {
+			// Start each node's ReplayLog and defer shutdown
+			routers[i].log.Start()
+			defer routers[i].log.Stop()
+
+			currentHop := routers[i]
+
+			// Ensure that this hop is able to properly process
+			// this onion packet. If additional EOB hops were
+			// added, then it should be able to properly decrypt
+			// all the layers and pass them on to the next node
+			// properly.
+			processedPacket, err := currentHop.ProcessOnionPacket(
+				nextPkt, nil, uint32(i),
+			)
 			if err != nil {
-				t.Fatalf("unable to create random onion packet: %v", err)
+				t.Fatalf("#%v: unable to process packet at "+
+					"hop #%v: %v", testCaseNum, i, err)
 			}
 
-			for i := 0; i < len(nodes); i++ {
-				// Start each node's ReplayLog and defer shutdown
-				nodes[i].log.Start()
-				defer nodes[i].log.Stop()
-
-				hop := nodes[i]
-
-				t.Logf("Processing at hop: %v \n", i)
-				onionPacket, err := hop.ProcessOnionPacket(fwdMsg, nil, uint32(i)+1)
-				if err != nil {
-					t.Fatalf("node %v was unable to process the "+
-						"forwarding message: %v", i, err)
-				}
-
-				// Check that the frame count matches what we expect
-				frameCount := onionPacket.rawPayload.NumFrames()
-				if tt.expectedFrames[i] != frameCount {
-					t.Fatalf("incorrect number of payload "+
-						"frames: expected %d, got %d",
-						tt.expectedFrames[i], frameCount,
-					)
-				}
-
-				// Check that the payload contents are identical
-				expected := path[i].HopPayload
-				if !bytes.Equal(path[i].HopPayload.Payload, expected.Payload) {
-					t.Fatalf("processing error, hop-payload "+
-						"parsed incorrectly.  expected %x, got %x",
-						expected.Payload,
-						onionPacket.rawPayload.Payload)
-				}
-
-				fwdMsg = onionPacket.NextPacket
+			// If this hop is expected to have EOB data, then we'll
+			// check now to ensure the bytes were properly
+			// recovered on the other end.
+			eobData := testCase.eobMapping[i]
+			if !reflect.DeepEqual(eobData.Payload,
+				processedPacket.Payload.Payload) {
+				t.Fatalf("#%v (hop %v): eob mismatch: expected "+
+					"%v, got %v", testCaseNum, i,
+					spew.Sdump(eobData.Payload),
+					spew.Sdump(processedPacket.Payload.Payload))
 			}
-		})
+
+			if eobData.Type != processedPacket.Payload.Type {
+				t.Fatalf("mismatched types: expected %v "+
+					"got %v", eobData.Type,
+					processedPacket.Payload.Type)
+			}
+
+			// If this is the last node (but not necessarily hop
+			// due to EOB expansion), then it should recognize that
+			// it's the exit node.
+			if i == len(routers)-1 {
+				if processedPacket.Action != ExitNode {
+					t.Fatalf("#%v: Processing error, "+
+						"node %v is the last hop in "+
+						"the path, yet it doesn't "+
+						"recognize so", testCaseNum, i)
+				}
+				continue
+			}
+
+			// If this isn't the last node in the path, then the
+			// returned action should indicate that there are more
+			// hops to go.
+			if processedPacket.Action != MoreHops {
+				t.Fatalf("#%v: Processing error, node %v is "+
+					"not the final hop, yet thinks it is.",
+					testCaseNum, i)
+			}
+
+			// The next hop should have been parsed as node[i+1],
+			// but only if this was a legacy hop.
+			if processedPacket.ForwardingInstructions != nil {
+				parsedNextHop := processedPacket.ForwardingInstructions.NextAddress[:]
+
+				expected := bytes.Repeat([]byte{byte(1)}, AddressSize)
+				if !bytes.Equal(parsedNextHop, expected) {
+					t.Fatalf("#%v: Processing error, next hop parsed "+
+						"incorrectly. next hop should be %v, "+
+						"was instead parsed as %v", testCaseNum,
+						hex.EncodeToString(expected),
+						hex.EncodeToString(parsedNextHop))
+				}
+			}
+
+			nextPkt = processedPacket.NextPacket
+		}
+	}
+}
 	}
 }

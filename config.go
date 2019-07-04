@@ -33,7 +33,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/tor"
-	"github.com/lightningnetwork/lnd/watchtower"
 )
 
 const (
@@ -1089,17 +1088,6 @@ func loadConfig() (*config, error) {
 	)
 	if err != nil {
 		return nil, err
-	}
-
-	// If the user provided private watchtower addresses, parse them to
-	// obtain the LN addresses.
-	if cfg.WtClient.IsActive() {
-		err := cfg.WtClient.ParsePrivateTowers(
-			watchtower.DefaultPeerPort, cfg.net.ResolveTCPAddr,
-		)
-		if err != nil {
-			return nil, err
-		}
 	}
 
 	// Finally, ensure that the user's color is correctly formatted,

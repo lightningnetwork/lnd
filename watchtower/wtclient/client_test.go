@@ -26,7 +26,11 @@ import (
 	"github.com/lightningnetwork/lnd/watchtower/wtserver"
 )
 
-const csvDelay uint32 = 144
+const (
+	csvDelay uint32 = 144
+
+	towerAddrStr = "18.28.243.2:9911"
+)
 
 var (
 	revPrivBytes = []byte{
@@ -387,7 +391,6 @@ type harnessCfg struct {
 }
 
 func newHarness(t *testing.T, cfg harnessCfg) *testHarness {
-	towerAddrStr := "18.28.243.2:9911"
 	towerTCPAddr, err := net.ResolveTCPAddr("tcp", towerAddrStr)
 	if err != nil {
 		t.Fatalf("Unable to resolve tower TCP addr: %v", err)
@@ -412,6 +415,7 @@ func newHarness(t *testing.T, cfg harnessCfg) *testHarness {
 		DB:           serverDB,
 		ReadTimeout:  timeout,
 		WriteTimeout: timeout,
+		NodePrivKey:  privKey,
 		NewAddress: func() (btcutil.Address, error) {
 			return addr, nil
 		},
@@ -435,7 +439,6 @@ func newHarness(t *testing.T, cfg harnessCfg) *testHarness {
 		DB:            clientDB,
 		AuthDial:      mockNet.AuthDial,
 		SecretKeyRing: wtmock.NewSecretKeyRing(),
-		PrivateTower:  towerAddr,
 		Policy:        cfg.policy,
 		NewAddress: func() ([]byte, error) {
 			return addrScript, nil
@@ -457,6 +460,10 @@ func newHarness(t *testing.T, cfg harnessCfg) *testHarness {
 	if err = client.Start(); err != nil {
 		server.Stop()
 		t.Fatalf("Unable to start wtclient: %v", err)
+	}
+	if err := client.AddTower(towerAddr); err != nil {
+		server.Stop()
+		t.Fatalf("Unable to add tower to wtclient: %v", err)
 	}
 
 	h := &testHarness{
@@ -505,13 +512,24 @@ func (h *testHarness) startServer() {
 func (h *testHarness) startClient() {
 	h.t.Helper()
 
-	var err error
+	towerTCPAddr, err := net.ResolveTCPAddr("tcp", towerAddrStr)
+	if err != nil {
+		h.t.Fatalf("Unable to resolve tower TCP addr: %v", err)
+	}
+	towerAddr := &lnwire.NetAddress{
+		IdentityKey: h.serverCfg.NodePrivKey.PubKey(),
+		Address:     towerTCPAddr,
+	}
+
 	h.client, err = wtclient.New(h.clientCfg)
 	if err != nil {
 		h.t.Fatalf("unable to create wtclient: %v", err)
 	}
 	if err := h.client.Start(); err != nil {
 		h.t.Fatalf("unable to start wtclient: %v", err)
+	}
+	if err := h.client.AddTower(towerAddr); err != nil {
+		h.t.Fatalf("unable to add tower to wtclient: %v", err)
 	}
 }
 

@@ -340,7 +340,7 @@ func Main() error {
 	// If the watchtower client should be active, open the client database.
 	// This is done here so that Close always executes when lndMain returns.
 	var towerClientDB *wtdb.ClientDB
-	if cfg.WtClient.IsActive() {
+	if cfg.WtClient.Active {
 		var err error
 		towerClientDB, err = wtdb.OpenClientDB(graphDir)
 		if err != nil {

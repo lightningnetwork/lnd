@@ -772,5 +772,143 @@ func TestSphinxHopVariableSizedPayloads(t *testing.T) {
 		}
 	}
 }
+
+// testFileName is the name of the multi-frame onion test file.
+const testFileName = "testdata/onion-test-multi-frame.json"
+
+type jsonHop struct {
+	Type string `json:"type"`
+
+	Pubkey string `json:"pubkey"`
+
+	Payload string `json:"payload"`
+}
+
+type payloadTestCase struct {
+	SessionKey string `json:"session_key"`
+
+	AssociatedData string `json:"associated_data"`
+
+	Hops []jsonHop `json:"hops"`
+}
+
+type jsonTestCase struct {
+	Comment string `json:"comment"`
+
+	Generate payloadTestCase `json:"generate"`
+
+	Onion string `json:"onion"`
+
+	Decode []string `json:"decode"`
+}
+
+// jsonTypeToPayloadType maps the JSON payload type to our concrete PayloadType
+// type.
+func jsonTypeToPayloadType(jsonType string) PayloadType {
+	switch jsonType {
+	case "raw":
+		fallthrough
+	case "tlv":
+		return PayloadTLV
+
+	case "legacy":
+		return PayloadLegacy
+
+	default:
+		panic(fmt.Sprintf("unknown payload type: %v", jsonType))
+	}
+}
+
+// TestVariablePayloadOnion tests that if we construct a packet that contains a
+// mix of the old and new payload format, that we match the version that's
+// included in the spec.
+func TestVariablePayloadOnion(t *testing.T) {
+	t.Parallel()
+
+	// First, we'll read out the raw JSOn file at the target location.
+	jsonBytes, err := ioutil.ReadFile(testFileName)
+	if err != nil {
+		t.Fatalf("unable to read json file: %v", err)
+	}
+
+	// Once we have the raw file, we'll unpack it into our jsonTestCase
+	// struct defined above.
+	testCase := &jsonTestCase{}
+	if err := json.Unmarshal(jsonBytes, testCase); err != nil {
+		t.Fatalf("unable to parse spec json file: %v", err)
+	}
+
+	// Next, we'll populate a new OnionHop using the information included
+	// in this test case.
+	var route PaymentPath
+	for i, hop := range testCase.Generate.Hops {
+		pubKeyBytes, err := hex.DecodeString(hop.Pubkey)
+		if err != nil {
+			t.Fatalf("unable to decode pubkey: %v", err)
+		}
+		pubKey, err := btcec.ParsePubKey(pubKeyBytes, btcec.S256())
+		if err != nil {
+			t.Fatalf("unable to parse BOLT 4 pubkey #%d: %v", i, err)
+		}
+
+		payload, err := hex.DecodeString(hop.Payload)
+		if err != nil {
+			t.Fatalf("unable to decode payload: %v", err)
+		}
+
+		payloadType := jsonTypeToPayloadType(hop.Type)
+		route[i] = OnionHop{
+			NodePub: *pubKey,
+			HopPayload: HopPayload{
+				Type:    payloadType,
+				Payload: payload,
+			},
+		}
+
+		if payloadType == PayloadLegacy {
+			route[i].HopPayload.Payload = append(
+				[]byte{0x00}, route[i].HopPayload.Payload...,
+			)
+
+			route[i].HopPayload.Payload = append(
+				route[i].HopPayload.Payload,
+				bytes.Repeat([]byte{0x00}, NumPaddingBytes)...,
+			)
+		}
+	}
+
+	finalPacket, err := hex.DecodeString(testCase.Onion)
+	if err != nil {
+		t.Fatalf("unable to decode packet: %v", err)
+	}
+
+	sessionKeyBytes, err := hex.DecodeString(testCase.Generate.SessionKey)
+	if err != nil {
+		t.Fatalf("unable to generate session key: %v", err)
+	}
+
+	associatedData, err := hex.DecodeString(testCase.Generate.AssociatedData)
+	if err != nil {
+		t.Fatalf("unable to decode AD: %v", err)
+	}
+
+	// With all the required data assembled, we'll craft a new packet.
+	sessionKey, _ := btcec.PrivKeyFromBytes(btcec.S256(), sessionKeyBytes)
+	pkt, err := NewOnionPacket(&route, sessionKey, associatedData)
+	if err != nil {
+		t.Fatalf("unable to construct onion packet: %v", err)
+	}
+
+	var b bytes.Buffer
+	if err := pkt.Encode(&b); err != nil {
+		t.Fatalf("unable to decode onion packet: %v", err)
+	}
+
+	// Finally, we expect that our packet matches the packet included in
+	// the spec's test vectors.
+	if bytes.Compare(b.Bytes(), finalPacket) != 0 {
+		t.Fatalf("final packet does not match expected BOLT 4 packet, "+
+			"want: %s, got %s", hex.EncodeToString(finalPacket),
+			hex.EncodeToString(b.Bytes()))
 	}
 }

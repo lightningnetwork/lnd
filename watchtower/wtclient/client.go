@@ -273,40 +273,53 @@ func New(config *Config) (*TowerClient, error) {
 		return nil, err
 	}
 
-	log.Infof("Using private watchtower %s, offering policy %s",
-		cfg.PrivateTower, cfg.Policy)
-
-	candidateTowers := newTowerListIterator(tower)
-
-	// Next, load all active sessions from the db into the client. We will
-	// use any of these session if their policies match the current policy
-	// of the client, otherwise they will be ignored and new sessions will
-	// be requested.
+	// Next, load all candidate sessions and towers from the database into
+	// the client. We will use any of these session if their policies match
+	// the current policy of the client, otherwise they will be ignored and
+	// new sessions will be requested.
 	sessions, err := cfg.DB.ListClientSessions(nil)
 	if err != nil {
 		return nil, err
 	}
 
-	// Reload any towers from disk using the tower IDs contained in each
-	// candidate session. We will also rederive any session keys needed to
-	// be able to communicate with the towers and authenticate session
-	// requests. This prevents us from having to store the private keys on
-	// disk.
+	candidateSessions := make(map[wtdb.SessionID]*wtdb.ClientSession)
+	sessionTowers := make(map[wtdb.TowerID]*wtdb.Tower)
 	for _, s := range sessions {
-		tower, err := cfg.DB.LoadTowerByID(s.TowerID)
-		if err != nil {
-			return nil, err
+		// Candidate sessions must be in an active state.
+		if s.Status != wtdb.CSessionActive {
+			continue
 		}
 
-		sessionPriv, err := DeriveSessionKey(
-			cfg.SecretKeyRing, s.KeyIndex,
-		)
-		if err != nil {
-			return nil, err
+		// Reload the tower from disk using the tower ID contained in
+		// each candidate session. We will also rederive any session
+		// keys needed to be able to communicate with the towers and
+		// authenticate session requests. This prevents us from having
+		// to store the private keys on disk.
+		tower, ok := sessionTowers[s.TowerID]
+		if !ok {
+			var err error
+			tower, err = cfg.DB.LoadTowerByID(s.TowerID)
+			if err != nil {
+				return nil, err
+			}
 		}
-
 		s.Tower = tower
-		s.SessionPrivKey = sessionPriv
+
+		sessionKey, err := DeriveSessionKey(cfg.SecretKeyRing, s.KeyIndex)
+		if err != nil {
+			return nil, err
+		}
+		s.SessionPrivKey = sessionKey
+
+		candidateSessions[s.ID] = s
+		sessionTowers[tower.ID] = tower
+	}
+
+	var candidateTowers []*wtdb.Tower
+	for _, tower := range sessionTowers {
+		log.Infof("Using private watchtower %s, offering policy %s",
+			tower, cfg.Policy)
+		candidateTowers = append(candidateTowers, tower)
 	}
 
 	// Load the sweep pkscripts that have been generated for all previously
@@ -319,8 +332,8 @@ func New(config *Config) (*TowerClient, error) {
 	c := &TowerClient{
 		cfg:               cfg,
 		pipeline:          newTaskPipeline(),
-		candidateTowers:   candidateTowers,
-		candidateSessions: sessions,
+		candidateTowers:   newTowerListIterator(candidateTowers...),
+		candidateSessions: candidateSessions,
 		activeSessions:    make(sessionQueueSet),
 		summaries:         chanSummaries,
 		statTicker:        time.NewTicker(DefaultStatInterval),
@@ -609,12 +622,6 @@ func (c *TowerClient) nextSessionQueue() *sessionQueue {
 		// transactions from what is requested. These can be used again
 		// if the client changes their configuration and restarting.
 		if sessionInfo.Policy.TxPolicy != c.cfg.Policy.TxPolicy {
-			continue
-		}
-
-		// Skip any sessions that are still active, but are not for the
-		// users currently configured tower.
-		if !c.candidateTowers.IsActive(sessionInfo.TowerID) {
 			continue
 		}
 

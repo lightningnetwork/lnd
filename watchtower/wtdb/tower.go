@@ -1,6 +1,8 @@
 package wtdb
 
 import (
+	"encoding/hex"
+	"fmt"
 	"io"
 	"net"
 
@@ -90,6 +92,15 @@ func (t *Tower) LNAddrs() []*lnwire.NetAddress {
 	}
 
 	return addrs
+}
+
+// String returns a user-friendly identifier of the tower.
+func (t *Tower) String() string {
+	pubKey := hex.EncodeToString(t.IdentityKey.SerializeCompressed())
+	if len(t.Addresses) == 0 {
+		return pubKey
+	}
+	return fmt.Sprintf("%v@%v", pubKey, t.Addresses[0])
 }
 
 // Encode writes the Tower to the passed io.Writer. The TowerID is not

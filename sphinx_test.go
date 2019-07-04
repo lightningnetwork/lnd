@@ -126,7 +126,7 @@ func newTestVarSizeRoute(numHops int, extraPayloadSize []int) ([]*Router, *Payme
 			extraData = bytes.Repeat([]byte{'A'}, extraPayloadSize[i])
 		}
 
-		hopPayload, err := NewHopPayload(0, &hopData, extraData)
+		hopPayload, err := NewHopPayload(&hopData, nil)
 		if err != nil {
 			return nil, nil, nil, nil, fmt.Errorf("unable to "+
 				"create new hop payload: %v", err)
@@ -155,7 +155,7 @@ func newTestVarSizeRoute(numHops int, extraPayloadSize []int) ([]*Router, *Payme
 
 	var hopsData []HopData
 	for i := 0; i < len(nodes); i++ {
-		hopData, _, err := route[i].HopPayload.HopData()
+		hopData, err := route[i].HopPayload.HopData()
 		if err != nil {
 			return nil, nil, nil, nil, fmt.Errorf("unable to "+
 				"gen hop data: %v", err)
@@ -190,7 +190,7 @@ func TestBolt4Packet(t *testing.T) {
 		copy(hopData.NextAddress[:], bytes.Repeat([]byte{byte(i)}, 8))
 		hopsData = append(hopsData, hopData)
 
-		hopPayload, err := NewHopPayload(0, &hopData, nil)
+		hopPayload, err := NewHopPayload(&hopData, nil)
 		if err != nil {
 			t.Fatalf("unable to make hop payload: %v", err)
 		}

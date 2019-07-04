@@ -33,7 +33,7 @@ func BenchmarkPathPacketConstruction(b *testing.B) {
 		}
 		copy(hopData.NextAddress[:], bytes.Repeat([]byte{byte(i)}, 8))
 
-		hopPayload, err := NewHopPayload(0, &hopData, nil)
+		hopPayload, err := NewHopPayload(&hopData, nil)
 		if err != nil {
 			b.Fatalf("unable to create new hop payload: %v", err)
 		}

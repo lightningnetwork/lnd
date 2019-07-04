@@ -1,24 +1,14 @@
 package sphinx
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/binary"
 	"fmt"
 	"io"
-	"math"
 
 	"github.com/btcsuite/btcd/btcec"
-)
-
-const (
-	// RealmMaskBytes is the mask to apply the realm in order to pack or
-	// decode the 4 LSB of the realm field.
-	RealmMaskBytes = 0x0f
-
-	// NumFramesShift is the number of bytes to shift the encoding of the
-	// number of frames by in order to pack/unpack them into the 4 MSB bits
-	// of the realm field.
-	NumFramesShift = 4
+	"github.com/btcsuite/btcd/wire"
 )
 
 // HopData is the information destined for individual hops. It is a fixed size
@@ -28,6 +18,10 @@ const (
 // hop, or zero if this is the packet is not to be forwarded, since this is the
 // last hop.
 type HopData struct {
+	// Realm denotes the "real" of target chain of the next hop. For
+	// bitcoin, this value will be 0x00.
+	Realm [RealmByteSize]byte
+
 	// NextAddress is the address of the next hop that this packet should
 	// be forward to.
 	NextAddress [AddressSize]byte
@@ -54,6 +48,10 @@ type HopData struct {
 // Encode writes the serialized version of the target HopData into the passed
 // io.Writer.
 func (hd *HopData) Encode(w io.Writer) error {
+	if _, err := w.Write(hd.Realm[:]); err != nil {
+		return err
+	}
+
 	if _, err := w.Write(hd.NextAddress[:]); err != nil {
 		return err
 	}
@@ -76,6 +74,10 @@ func (hd *HopData) Encode(w io.Writer) error {
 // Decodes populates the target HopData with the contents of a serialized
 // HopData packed into the passed io.Reader.
 func (hd *HopData) Decode(r io.Reader) error {
+	if _, err := io.ReadFull(r, hd.Realm[:]); err != nil {
+		return err
+	}
+
 	if _, err := io.ReadFull(r, hd.NextAddress[:]); err != nil {
 		return err
 	}
@@ -90,23 +92,34 @@ func (hd *HopData) Decode(r io.Reader) error {
 		return err
 	}
 
-	if _, err := io.ReadFull(r, hd.ExtraBytes[:]); err != nil {
-		return err
-	}
-
+	_, err = io.ReadFull(r, hd.ExtraBytes[:])
 	return err
 }
 
+// PayloadType denotes the type of the payload included in the onion packet.
+// Serialization of a raw HopPayload will depend on the payload type, as some
+// include a varint length prefix, while others just encode the raw payload.
+type PayloadType uint8
+
+const (
+	// PayloadLegacy is the legacy payload type. It includes a fixed 32
+	// bytes, 12 of which are padding, and uses a "zero length" (the old
+	// realm) prefix.
+	PayloadLegacy PayloadType = iota
+
+	// PayloadTLV is the new modern TLV based format. This payload includes
+	// a set of opaque bytes with a varint length prefix. The varint used
+	// is the same CompactInt as used in the Bitcoin protocol.
+	PayloadTLV
+)
+
 // HopPayload is a slice of bytes and associated payload-type that are destined
 // for a specific hop in the PaymentPath. The payload itself is treated as an
-// opaque data field by the onion router, while the Realm is modified to
-// indicate how many hops are to be read by the processing node. The 4 MSB in
-// the realm indicate how many additional hops are to be processed to collect
-// the entire payload.
+// opaque data field by the onion router. The included Type field informs the
+// serialization/deserialziation of the raw payload.
 type HopPayload struct {
-	// realm denotes the "real" of target chain of the next hop. For
-	// bitcoin, this value will be 0x00.
-	realm [RealmByteSize]byte
+	// Type is the type of the payload.
+	Type PayloadType
 
 	// Payload is the raw bytes of the per-hop payload for this hop.
 	// Depending on the realm, this pay be the regular legacy hop data, or
@@ -122,8 +135,7 @@ type HopPayload struct {
 // instructions for a hop, and a set of optional opaque extra onion bytes to
 // drop off at the target hop. If both values are not specified, then an error
 // is returned.
-func NewHopPayload(realm byte, hopData *HopData, eob []byte) (HopPayload, error) {
-
+func NewHopPayload(hopData *HopData, eob []byte) (HopPayload, error) {
 	var (
 		h HopPayload
 		b bytes.Buffer
@@ -131,9 +143,14 @@ func NewHopPayload(realm byte, hopData *HopData, eob []byte) (HopPayload, error)
 
 	// We can't proceed if neither the hop data or the EOB has been
 	// specified by the caller.
-	if hopData == nil && len(eob) == 0 {
+	switch {
+	case hopData == nil && len(eob) == 0:
 		return h, fmt.Errorf("either hop data or eob must " +
 			"be specified")
+
+	case hopData != nil && len(eob) > 0:
+		return h, fmt.Errorf("cannot provide both hop data AND an eob")
+
 	}
 
 	// If the hop data is specified, then we'll write that now, as it
@@ -142,90 +159,67 @@ func NewHopPayload(realm byte, hopData *HopData, eob []byte) (HopPayload, error)
 		if err := hopData.Encode(&b); err != nil {
 			return h, nil
 		}
+
+		// We'll also mark that this particular hop will be using the
+		// legacy format as the modern format packs the existing hop
+		// data information into the EOB space as a TLV stream.
+		h.Type = PayloadLegacy
+	} else {
+		// Otherwise, we'll write out the raw EOB which contains a set
+		// of opaque bytes that the recipient can decode to make a
+		// forwarding decision.
+		if _, err := b.Write(eob); err != nil {
+			return h, nil
+		}
+
+		h.Type = PayloadTLV
 	}
 
-	// Finally, we'll write out the EOB portion to the same buffer to
-	// ensure it comes after mandatory hop payload.
-	if _, err := b.Write(eob); err != nil {
-		return h, nil
-	}
-
-	h.realm = [RealmByteSize]byte{realm}
 	h.Payload = b.Bytes()
 
 	return h, nil
 }
 
-// Realm returns the context specific representation of the realm for a hop.
-func (hp *HopPayload) Realm() byte {
-	return hp.realm[0] & RealmMaskBytes
-}
+// NumBytes returns the number of bytes it will take to serialize the full
+// payload. Depending on the payload type, this may include some additional
+// signalling bytes.
+func (hp *HopPayload) NumBytes() int {
+	// The base size is the size of the raw payload, and the size of the
+	// HMAC.
+	size := len(hp.Payload) + HMACSize
 
-// payloadRealm returns the realm that will be used within the raw packed hop
-// payload. This differs from the Realm method above in that it uses space to
-// encode the packet type and number of frames. The final encoding uses the
-// first 4 bits of the realm to encode the number of frames used, and the
-// latter 4 bits to encode the real realm type.
-func (hp *HopPayload) payloadRealm() byte {
-	maskedRealm := hp.realm[0] & 0x0F
-	numFrames := hp.NumFrames()
-
-	return maskedRealm | (byte(numFrames-1) << NumFramesShift)
-}
-
-// NumFrames returns the total number of frames it'll take to pack the target
-// HopPayload into a Sphinx packet.
-func (hp *HopPayload) NumFrames() int {
-	// If it all fits in the legacy payload size, don't use any additional
-	// frames.
-	if len(hp.Payload) <= 32 {
-		return 1
+	// If this is the new TLV format, then we'll also accumulate the number
+	// of bytes that it would take to encode the size of the payload.
+	if hp.Type == PayloadTLV {
+		payloadSize := len(hp.Payload)
+		size += int(wire.VarIntSerializeSize(uint64(payloadSize)))
 	}
 
-	// Otherwise we'll need at least one additional frame: subtract the 64
-	// bytes we can stuff into payload and hmac of the first, and the 33
-	// bytes we can pack into the payload of the second, then divide the
-	// remainder by 65.
-	remainder := len(hp.Payload) - 64 - 33
-	return 2 + int(math.Ceil(float64(remainder)/65))
-}
-
-// packRealm writes out the proper realm encoding in place to the target
-// io.Writer.
-func (hp *HopPayload) packRealm(w io.Writer) error {
-	realm := hp.payloadRealm()
-	if _, err := w.Write([]byte{realm}); err != nil {
-		return err
-	}
-
-	return nil
+	return size
 }
 
 // Encode encodes the hop payload into the passed writer.
 func (hp *HopPayload) Encode(w io.Writer) error {
-	// We'll need to add enough padding bytes to position the HMAC at the
-	// end of the payload
-	padding := hp.NumFrames()*FrameSize - len(hp.Payload) - 1 - HMACSize
-	if padding < 0 {
-		return fmt.Errorf("cannot have negative padding: %v", padding)
-	}
+	switch hp.Type {
 
-	if err := hp.packRealm(w); err != nil {
-		return err
-	}
-	if _, err := w.Write(hp.Payload); err != nil {
-		return err
-	}
+	// For the legacy payload, we don't need to add any additional bytes as
+	// our realm byte serves as our zero prefix byte.
+	case PayloadLegacy:
+		break
 
-	// If we need to pad out the frame at all, then we'll do so now before
-	// we write out the HMAC.
-	if padding > 0 {
-		_, err := w.Write(bytes.Repeat([]byte{0x00}, padding))
+	// For the TLV payload, we'll first prepend the length of the payload
+	// as a var-int.
+	case PayloadTLV:
+		err := wire.WriteVarInt(w, 0, uint64(len(hp.Payload)))
 		if err != nil {
 			return err
 		}
 	}
 
+	// Finally, we'll write out the raw payload, then the HMAC in series.
+	if _, err := w.Write(hp.Payload); err != nil {
+		return err
+	}
 	if _, err := w.Write(hp.HMAC[:]); err != nil {
 		return err
 	}
@@ -236,19 +230,48 @@ func (hp *HopPayload) Encode(w io.Writer) error {
 // Decode unpacks an encoded HopPayload from the passed reader into the target
 // HopPayload.
 func (hp *HopPayload) Decode(r io.Reader) error {
-	if _, err := io.ReadFull(r, hp.realm[:]); err != nil {
+	bufReader := bufio.NewReader(r)
+
+	// In order to properly parse the payload, we'll need to check the
+	// first byte. We'll use a bufio reader to peek at it without consuming
+	// it from the buffer.
+	peekByte, err := bufReader.Peek(1)
+	if err != nil {
 		return err
 	}
 
-	numFrames := int(hp.realm[0]>>NumFramesShift) + 1
-	numBytes := (numFrames * FrameSize) - 32 - 1
+	var payloadSize uint32
 
-	hp.Payload = make([]byte, numBytes)
-	if _, err := io.ReadFull(r, hp.Payload[:]); err != nil {
-		return err
+	switch int(peekByte[0]) {
+	// If the first byte is a zero (the realm), then this is the normal
+	// payload.
+	case 0x00:
+		// Our size is just the payload, without the HMAC. This means
+		// that this is the legacy payload type.
+		payloadSize = HopDataSize - HMACSize
+		hp.Type = PayloadLegacy
+
+	default:
+		// Otherwise, this is the new TLV based payload type, so we'll
+		// extract the payload length encoded as a var-int.
+		varInt, err := wire.ReadVarInt(bufReader, 0)
+		if err != nil {
+			return err
+		}
+
+		payloadSize = uint32(varInt)
+		hp.Type = PayloadTLV
 	}
 
-	if _, err := io.ReadFull(r, hp.HMAC[:]); err != nil {
+	// Now that we know the payload size, we'll create a  new buffer to
+	// read it out in full.
+	//
+	// TODO(roasbeef): can avoid all these copies
+	hp.Payload = make([]byte, payloadSize)
+	if _, err := io.ReadFull(bufReader, hp.Payload[:]); err != nil {
+		return err
+	}
+	if _, err := io.ReadFull(bufReader, hp.HMAC[:]); err != nil {
 		return err
 	}
 
@@ -260,31 +283,29 @@ func (hp *HopPayload) Decode(r io.Reader) error {
 // This method also returns the left over EOB that remain after the hop data
 // has been parsed. Callers may want to map this blob into something more
 // concrete.
-func (hp *HopPayload) HopData() (*HopData, []byte, error) {
+func (hp *HopPayload) HopData() (*HopData, error) {
+	payloadReader := bytes.NewBuffer(hp.Payload)
+
 	// If this isn't the "base" realm, then we can't extract the expected
 	// hop payload structure from the payload.
-	if hp.Realm() != 0x00 {
-		return nil, nil, fmt.Errorf("payload is not a HopData "+
-			"payload, realm=%d", hp.Realm())
+	if hp.Type != PayloadLegacy {
+		return nil, nil
 	}
 
 	// Now that we know the payload has the structure we expect, we'll
 	// decode the payload into the HopData.
 	var hd HopData
-	payloadReader := bytes.NewBuffer(hp.Payload)
 	if err := hd.Decode(payloadReader); err != nil {
-		return &hd, nil, nil
+		return nil, err
 	}
 
-	// What's left over in the buffer that wasn't parsed as part of the
-	// forwarding instructions is our lingering EOB.
-	eob := payloadReader.Bytes()
-
-	return &hd, eob, nil
+	return &hd, nil
 }
 
 // NumMaxHops is the maximum path length. This should be set to an estimate of
 // the upper limit of the diameter of the node graph.
+//
+// TODO(roasbeef): adjust due to var-payloads?
 const NumMaxHops = 20
 
 // PaymentPath represents a series of hops within the Lightning Network
@@ -352,17 +373,17 @@ func (p *PaymentPath) TrueRouteLength() int {
 	return routeLength
 }
 
-// TotalFrames returns the total numebr of frames that it'll take to create a
-// Sphinx packet from the target PaymentPath.
-func (p *PaymentPath) TotalFrames() int {
-	var frameCount int
+// TotalPayloadSize returns the sum of the size of each payload in the "true"
+// route.
+func (p *PaymentPath) TotalPayloadSize() int {
+	var totalSize int
 	for _, hop := range p {
 		if hop.IsEmpty() {
-			break
+			continue
 		}
 
-		frameCount += hop.HopPayload.NumFrames()
+		totalSize += hop.HopPayload.NumBytes()
 	}
 
-	return frameCount
+	return totalSize
 }

@@ -43,24 +43,12 @@ const (
 	HopDataSize = (RealmByteSize + AddressSize + AmtForwardSize +
 		OutgoingCLTVSize + NumPaddingBytes + HMACSize)
 
-	// FramSize is the size of a frame in the packet. A frame is a region
-	// of contiguous memory in the onion that can be used to store a
-	// payload in. Each hop may use a discrete number of frames for its
-	// payload. There are two parts of the payload that are fixed: a) the
-	// first byte in the first frame is the realm-byte, which tells us how
-	// many frames the current payload uses and how the payload should be
-	// parsed, and b) the last 32 bytes of the last frame are the HMAC that
-	// should be passed to the next hop, or 0 in case of the last hop.
-	// Bytes between these two points can be freely used to store the
-	// actual payload.
-	FrameSize = 65
-
 	// MaxPayloadSize is the maximum size a payload for a single hop can
 	// be. This is the worst case scenario of a single hop, consuming all
 	// 20 frames. We need to know this in order to generate a sufficiently
 	// long stream of pseudo-random bytes when encrypting/decrypting the
 	// payload.
-	MaxPayloadSize = NumMaxHops * FrameSize
+	MaxPayloadSize = NumMaxHops * HopDataSize
 
 	// sharedSecretSize is the size in bytes of the shared secrets.
 	sharedSecretSize = 32
@@ -70,14 +58,14 @@ const (
 	// each hop of the route, the first pair in cleartext and the following
 	// pairs increasingly obfuscated. In case fewer than numMaxHops are
 	// used, then the remainder is padded with null-bytes, also obfuscated.
-	routingInfoSize = NumMaxHops * FrameSize
+	routingInfoSize = NumMaxHops * HopDataSize
 
 	// numStreamBytes is the number of bytes produced by our CSPRG for the
 	// key stream implementing our stream cipher to encrypt/decrypt the mix
-	// header. The maxPayloadSize bytes at the end are used to
+	// header. The MaxPayloadSize bytes at the end are used to
 	// encrypt/decrypt the fillers when processing the packet of generating
 	// the HMACs when creating the packet.
-	numStreamBytes = routingInfoSize + MaxPayloadSize
+	numStreamBytes = routingInfoSize * 2
 
 	// keyLen is the length of the keys used to generate cipher streams and
 	// encrypt payloads. Since we use SHA256 to generate the keys, the
@@ -237,13 +225,15 @@ func NewOnionPacket(paymentPath *PaymentPath, sessionKey *btcec.PrivateKey,
 		// packet.
 		streamBytes := generateCipherStream(rhoKey, routingInfoSize)
 
+		payload := paymentPath[i].HopPayload
+
 		// Before we assemble the packet, we'll shift the current
 		// mix-header to the right in order to make room for this next
 		// per-hop data.
-		numFrames := paymentPath[i].HopPayload.NumFrames()
-		rightShift(mixHeader[:], numFrames*FrameSize)
+		shiftSize := payload.NumBytes()
+		rightShift(mixHeader[:], shiftSize)
 
-		err := paymentPath[i].HopPayload.Encode(&hopPayloadBuf)
+		err := payload.Encode(&hopPayloadBuf)
 		if err != nil {
 			return nil, err
 		}
@@ -307,26 +297,27 @@ func generateHeaderPadding(key string, path *PaymentPath, sharedSecrets []Hash25
 
 	// We have to generate a filler that matches all but the last hop (the
 	// last hop won't generate an HMAC)
-	fillerFrames := path.TotalFrames() - path[numHops-1].HopPayload.NumFrames()
-	filler := make([]byte, fillerFrames*FrameSize)
+	fillerSize := path.TotalPayloadSize() - path[numHops-1].HopPayload.NumBytes()
+	filler := make([]byte, fillerSize)
 
 	for i := 0; i < numHops-1; i++ {
-		// Sum up how many frames were used by prior hops
+		// Sum up how many frames were used by prior hops.
 		fillerStart := routingInfoSize
 		for _, p := range path[:i] {
-			fillerStart = fillerStart - (p.HopPayload.NumFrames() * FrameSize)
+			fillerStart -= p.HopPayload.NumBytes()
 		}
 
 		// The filler is the part dangling off of the end of the
 		// routingInfo, so offset it from there, and use the current
 		// hop's frame count as its size.
-		fillerEnd := routingInfoSize + (path[i].HopPayload.NumFrames() * FrameSize)
+		fillerEnd := routingInfoSize + path[i].HopPayload.NumBytes()
 
 		streamKey := generateKey(key, &sharedSecrets[i])
 		streamBytes := generateCipherStream(streamKey, numStreamBytes)
 
 		xor(filler, filler, streamBytes[fillerStart:fillerEnd])
 	}
+
 	return filler
 }
 
@@ -443,10 +434,11 @@ type ProcessedPacket struct {
 	// MoreHops.
 	ForwardingInstructions *HopData
 
-	// ExtraOnionBlob is the raw EOB payload unpacked by this hop. This is
-	// the portion of the payload _without_ the prefixed forwarding
-	// instructions.
-	ExtraOnionBlob []byte
+	// Payload is the raw payload as extracted from the packet. If the
+	// ForwardingInstructions field above is nil, then this is a modern TLV
+	// payload. As a result, the caller should parse the contents to obtain
+	// the new set of forwarding instructions.
+	Payload HopPayload
 
 	// NextPacket is the onion packet that should be forwarded to the next
 	// hop as denoted by the ForwardingInstructions field.
@@ -454,8 +446,6 @@ type ProcessedPacket struct {
 	// NOTE: This field will only be populated iff the above Action is
 	// MoreHops.
 	NextPacket *OnionPacket
-
-	rawPayload HopPayload
 }
 
 // Router is an onion router within the Sphinx network. The router is capable
@@ -586,8 +576,7 @@ func unwrapPacket(onionPkt *OnionPacket, sharedSecret *Hash256,
 	// layer off the routing info revealing the routing information for the
 	// next hop.
 	streamBytes := generateCipherStream(
-		generateKey("rho", sharedSecret),
-		numStreamBytes,
+		generateKey("rho", sharedSecret), numStreamBytes,
 	)
 	zeroBytes := bytes.Repeat([]byte{0}, MaxPayloadSize)
 	headerWithPadding := append(routeInfo[:], zeroBytes...)
@@ -611,7 +600,7 @@ func unwrapPacket(onionPkt *OnionPacket, sharedSecret *Hash256,
 	// With the necessary items extracted, we'll copy of the onion packet
 	// for the next node, snipping off our per-hop data.
 	var nextMixHeader [routingInfoSize]byte
-	copy(nextMixHeader[:], hopInfo[hopPayload.NumFrames()*FrameSize:])
+	copy(nextMixHeader[:], hopInfo[hopPayload.NumBytes():])
 	innerPkt := &OnionPacket{
 		Version:      onionPkt.Version,
 		EphemeralKey: nextDHKey,
@@ -651,7 +640,7 @@ func processOnionPacket(onionPkt *OnionPacket, sharedSecret *Hash256,
 		action = ExitNode
 	}
 
-	hopData, eob, err := outerHopPayload.HopData()
+	hopData, err := outerHopPayload.HopData()
 	if err != nil {
 		return nil, err
 	}
@@ -662,9 +651,8 @@ func processOnionPacket(onionPkt *OnionPacket, sharedSecret *Hash256,
 	return &ProcessedPacket{
 		Action:                 action,
 		ForwardingInstructions: hopData,
-		ExtraOnionBlob:         eob,
+		Payload:                *outerHopPayload,
 		NextPacket:             innerPkt,
-		rawPayload:             *outerHopPayload,
 	}, nil
 }
 

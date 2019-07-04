@@ -1824,14 +1824,8 @@ func TestSwitchSendPayment(t *testing.T) {
 
 	select {
 	case err := <-errChan:
-		fErr, ok := err.(*ForwardingError)
-		if !ok {
-			t.Fatal("expected ForwardingError")
-		}
+		assertFailureCode(t, err, lnwire.CodeUnknownPaymentHash)
 
-		if _, ok := fErr.FailureMessage.(*lnwire.FailUnknownPaymentHash); !ok {
-			t.Fatalf("expected UnknownPaymentHash got %v", fErr)
-		}
 	case <-time.After(time.Second):
 		t.Fatal("err wasn't received")
 	}

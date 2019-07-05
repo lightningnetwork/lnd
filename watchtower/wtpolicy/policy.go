@@ -27,11 +27,11 @@ const (
 
 	// DefaultSweepFeeRate specifies the fee rate used to construct justice
 	// transactions. The value is expressed in satoshis per kilo-weight.
-	DefaultSweepFeeRate = lnwallet.SatPerKWeight(40000)
+	DefaultSweepFeeRate = lnwallet.SatPerKWeight(2500)
 
 	// MinSweepFeeRate is the minimum sweep fee rate a client may use in its
-	// policy, the current value is 4 sat/kw.
-	MinSweepFeeRate = lnwallet.SatPerKWeight(4000)
+	// policy, the current value is 4 sat/vbyte.
+	MinSweepFeeRate = lnwallet.SatPerKWeight(1000)
 )
 
 var (

@@ -2147,8 +2147,8 @@ message Payment {
     /// The path this payment took
     repeated string path = 4 [ json_name = "path" ];
 
-    /// The fee paid for this payment in satoshis
-    int64 fee = 5 [json_name = "fee"];
+    /// Deprecated, use fee_sat or fee_msat.
+    int64 fee = 5 [json_name = "fee", deprecated = true];
 
     /// The payment preimage
     string payment_preimage = 6 [json_name = "payment_preimage"];
@@ -2171,6 +2171,12 @@ message Payment {
 
     // The status of the payment.
     PaymentStatus status = 10 [json_name = "status"];
+
+    ///  The fee paid for this payment in satoshis
+    int64 fee_sat = 11 [json_name = "fee_sat"];
+
+    ///  The fee paid for this payment in milli-satoshis
+    int64 fee_msat = 12 [json_name = "fee_msat"];
 }
 
 message ListPaymentsRequest {

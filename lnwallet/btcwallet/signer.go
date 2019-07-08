@@ -83,42 +83,49 @@ func (b *BtcWallet) fetchOutputAddr(script []byte) (waddrmgr.ManagedAddress, err
 	return nil, lnwallet.ErrNotMine
 }
 
+// deriveKeyByLocator attempts to derive a key stored in the wallet given a
+// valid key locator.
+func (b *BtcWallet) deriveKeyByLocator(keyLoc keychain.KeyLocator) (*btcec.PrivateKey, error) {
+	// We'll assume the special lightning key scope in this case.
+	scopedMgr, err := b.wallet.Manager.FetchScopedKeyManager(
+		b.chainKeyScope,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	var key *btcec.PrivateKey
+	err = walletdb.View(b.db, func(tx walletdb.ReadTx) error {
+		addrmgrNs := tx.ReadBucket(waddrmgrNamespaceKey)
+
+		path := waddrmgr.DerivationPath{
+			Account: uint32(keyLoc.Family),
+			Branch:  0,
+			Index:   uint32(keyLoc.Index),
+		}
+		addr, err := scopedMgr.DeriveFromKeyPath(addrmgrNs, path)
+		if err != nil {
+			return err
+		}
+
+		key, err = addr.(waddrmgr.ManagedPubKeyAddress).PrivKey()
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return key, nil
+}
+
 // fetchPrivKey attempts to retrieve the raw private key corresponding to the
 // passed public key if populated, or the key descriptor path (if non-empty).
 func (b *BtcWallet) fetchPrivKey(keyDesc *keychain.KeyDescriptor) (*btcec.PrivateKey, error) {
 	// If the key locator within the descriptor *isn't* empty, then we can
 	// directly derive the keys raw.
-	if !keyDesc.KeyLocator.IsEmpty() {
-		// We'll assume the special lightning key scope in this case.
-		scopedMgr, err := b.wallet.Manager.FetchScopedKeyManager(
-			b.chainKeyScope,
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		var key *btcec.PrivateKey
-		err = walletdb.View(b.db, func(tx walletdb.ReadTx) error {
-			addrmgrNs := tx.ReadBucket(waddrmgrNamespaceKey)
-
-			path := waddrmgr.DerivationPath{
-				Account: uint32(keyDesc.Family),
-				Branch:  0,
-				Index:   uint32(keyDesc.Index),
-			}
-			addr, err := scopedMgr.DeriveFromKeyPath(addrmgrNs, path)
-			if err != nil {
-				return err
-			}
-
-			key, err = addr.(waddrmgr.ManagedPubKeyAddress).PrivKey()
-			return err
-		})
-		if err != nil {
-			return nil, err
-		}
-
-		return key, nil
+	emptyLocator := keyDesc.KeyLocator.IsEmpty()
+	if !emptyLocator {
+		return b.deriveKeyByLocator(keyDesc.KeyLocator)
 	}
 
 	hash160 := btcutil.Hash160(keyDesc.PubKey.SerializeCompressed())
@@ -127,7 +134,24 @@ func (b *BtcWallet) fetchPrivKey(keyDesc *keychain.KeyDescriptor) (*btcec.Privat
 		return nil, err
 	}
 
-	return b.wallet.PrivKeyForAddress(addr)
+	// Otherwise, we'll attempt to derive the key based on the address.
+	// This will only work if we've already derived this address in the
+	// past, since the wallet relies on a mapping of addr -> key.
+	key, err := b.wallet.PrivKeyForAddress(addr)
+	switch {
+	// If we didn't find this key in the wallet, then there's a chance that
+	// this is actually an "empty" key locator. The legacy KeyLocator
+	// format failed to properly distinguish an empty key locator from the
+	// very first in the index (0, 0).IsEmpty() == true.
+	case waddrmgr.IsError(err, waddrmgr.ErrAddressNotFound) && emptyLocator:
+		return b.deriveKeyByLocator(keyDesc.KeyLocator)
+
+	case err != nil:
+		return nil, err
+
+	default:
+		return key, nil
+	}
 }
 
 // maybeTweakPrivKey examines the single and double tweak parameters on the

@@ -90,7 +90,8 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest)
 
 	// At this point, Bob decides that he wants to exit the channel
 	// immediately, so he force closes his commitment transaction.
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
+	ctxt, cancel = context.WithTimeout(ctxb, channelCloseTimeout)
+	defer cancel()
 	bobForceClose := closeChannelAndAssert(ctxt, t, net, net.Bob,
 		aliceChanPoint, true)
 
@@ -228,7 +229,8 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest)
 	// transaction, and should have sent it to the nursery for incubation.
 	pendingChansRequest := &lnrpc.PendingChannelsRequest{}
 	err = lntest.WaitPredicate(func() bool {
-		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+		ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
+		defer cancel()
 		pendingChanResp, err := net.Bob.PendingChannels(
 			ctxt, pendingChansRequest,
 		)
@@ -320,7 +322,8 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest)
 	assertTxInBlock(t, block, bobSweep)
 
 	err = lntest.WaitPredicate(func() bool {
-		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+		ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
+		defer cancel()
 		pendingChanResp, err := net.Bob.PendingChannels(
 			ctxt, pendingChansRequest,
 		)
@@ -335,7 +338,8 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest)
 			return false
 		}
 		req := &lnrpc.ListChannelsRequest{}
-		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+		ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
+		defer cancel()
 		chanInfo, err := net.Bob.ListChannels(ctxt, req)
 		if err != nil {
 			predErr = fmt.Errorf("unable to query for open "+
@@ -356,7 +360,8 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest)
 
 	// Also Carol should have no channels left (open nor pending).
 	err = lntest.WaitPredicate(func() bool {
-		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+		ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
+		defer cancel()
 		pendingChanResp, err := carol.PendingChannels(
 			ctxt, pendingChansRequest,
 		)
@@ -372,7 +377,8 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest)
 		}
 
 		req := &lnrpc.ListChannelsRequest{}
-		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+		ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
+		defer cancel()
 		chanInfo, err := carol.ListChannels(ctxt, req)
 		if err != nil {
 			predErr = fmt.Errorf("unable to query for open "+

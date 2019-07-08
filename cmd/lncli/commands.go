@@ -3873,7 +3873,7 @@ var restoreChanBackupCommand = cli.Command{
 		"backup",
 	ArgsUsage: "[--single_backup] [--multi_backup] [--multi_file=",
 	Description: `
-	Allows a suer to restore a Static Channel Backup (SCB) that was
+	Allows a user to restore a Static Channel Backup (SCB) that was
 	obtained either via the exportchanbackup command, or from lnd's
 	automatically manged channels.backup file. This command should be used
 	if a user is attempting to restore a channel due to data loss on a

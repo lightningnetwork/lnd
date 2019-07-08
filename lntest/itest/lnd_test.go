@@ -271,7 +271,7 @@ func closeChannelAndAssert(ctx context.Context, t *harnessTest,
 	// updates before initiating the channel closure.
 	var graphSub *graphSubscription
 	if expectDisable {
-		sub := subscribeGraphNotifications(t, ctx, node)
+		sub := subscribeGraphNotifications(ctx, t, node)
 		graphSub = &sub
 		defer close(graphSub.quit)
 	}
@@ -1310,9 +1310,9 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 	// Launch notification clients for all nodes, such that we can
 	// get notified when they discover new channels and updates in the
 	// graph.
-	aliceSub := subscribeGraphNotifications(t, ctxb, net.Alice)
+	aliceSub := subscribeGraphNotifications(ctxb, t, net.Alice)
 	defer close(aliceSub.quit)
-	bobSub := subscribeGraphNotifications(t, ctxb, net.Bob)
+	bobSub := subscribeGraphNotifications(ctxb, t, net.Bob)
 	defer close(bobSub.quit)
 
 	chanAmt := lnd.MaxBtcFundingAmount
@@ -1381,7 +1381,7 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 	// Clean up carol's node when the test finishes.
 	defer shutdownAndAssert(net, t, carol)
 
-	carolSub := subscribeGraphNotifications(t, ctxb, carol)
+	carolSub := subscribeGraphNotifications(ctxb, t, carol)
 	defer close(carolSub.quit)
 
 	graphSubs = append(graphSubs, carolSub)
@@ -3969,7 +3969,7 @@ func updateChannelPolicy(t *harnessTest, node *lntest.HarnessNode,
 
 	// Wait for listener node to receive the channel update from node.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	graphSub := subscribeGraphNotifications(t, ctxt, listenerNode)
+	graphSub := subscribeGraphNotifications(ctxt, t, listenerNode)
 	defer close(graphSub.quit)
 
 	waitForChannelUpdate(
@@ -7094,13 +7094,13 @@ func testRevokedCloseRetributionZeroValueRemoteOutput(net *lntest.NetworkHarness
 	// feel the wrath of Dave's retribution.
 	var (
 		closeUpdates lnrpc.Lightning_CloseChannelClient
-		closeTxId    *chainhash.Hash
+		closeTxID    *chainhash.Hash
 		closeErr     error
-		force        bool = true
+		force        = true
 	)
 	err = lntest.WaitPredicate(func() bool {
 		ctxt, _ := context.WithTimeout(ctxb, channelCloseTimeout)
-		closeUpdates, closeTxId, closeErr = net.CloseChannel(
+		closeUpdates, closeTxID, closeErr = net.CloseChannel(
 			ctxt, carol, chanPoint, force,
 		)
 		return closeErr == nil
@@ -7116,9 +7116,9 @@ func testRevokedCloseRetributionZeroValueRemoteOutput(net *lntest.NetworkHarness
 		t.Fatalf("unable to find Carol's force close tx in mempool: %v",
 			err)
 	}
-	if *txid != *closeTxId {
+	if *txid != *closeTxID {
 		t.Fatalf("expected closeTx(%v) in mempool, instead found %v",
-			closeTxId, txid)
+			closeTxID, txid)
 	}
 
 	// Finally, generate a single block, wait for the final close status
@@ -7424,7 +7424,7 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 	// feel the wrath of Dave's retribution.
 	force := true
 	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeUpdates, closeTxId, err := net.CloseChannel(ctxt, carol,
+	closeUpdates, closeTxID, err := net.CloseChannel(ctxt, carol,
 		chanPoint, force)
 	if err != nil {
 		t.Fatalf("unable to close channel: %v", err)
@@ -7437,9 +7437,9 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 		t.Fatalf("unable to find Carol's force close tx in mempool: %v",
 			err)
 	}
-	if *txid != *closeTxId {
+	if *txid != *closeTxID {
 		t.Fatalf("expected closeTx(%v) in mempool, instead found %v",
-			closeTxId, txid)
+			closeTxID, txid)
 	}
 	time.Sleep(200 * time.Millisecond)
 
@@ -7462,9 +7462,9 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 	if err != nil {
 		t.Fatalf("error while waiting for channel close: %v", err)
 	}
-	if *breachTXID != *closeTxId {
+	if *breachTXID != *closeTxID {
 		t.Fatalf("expected breach ID(%v) to be equal to close ID (%v)",
-			breachTXID, closeTxId)
+			breachTXID, closeTxID)
 	}
 	assertTxInBlock(t, block, breachTXID)
 
@@ -7819,7 +7819,7 @@ func testRevokedCloseRetributionAltruistWatchtower(net *lntest.NetworkHarness,
 	// broadcasting his current channel state. This is actually the
 	// commitment transaction of a prior *revoked* state, so he'll soon
 	// feel the wrath of Dave's retribution.
-	closeUpdates, closeTxId, err := net.CloseChannel(
+	closeUpdates, closeTxID, err := net.CloseChannel(
 		ctxb, carol, chanPoint, true,
 	)
 	if err != nil {
@@ -7833,9 +7833,9 @@ func testRevokedCloseRetributionAltruistWatchtower(net *lntest.NetworkHarness,
 		t.Fatalf("unable to find Carol's force close tx in mempool: %v",
 			err)
 	}
-	if *txid != *closeTxId {
+	if *txid != *closeTxID {
 		t.Fatalf("expected closeTx(%v) in mempool, instead found %v",
-			closeTxId, txid)
+			closeTxID, txid)
 	}
 
 	// Finally, generate a single block, wait for the final close status
@@ -8820,7 +8820,7 @@ type graphSubscription struct {
 
 // subscribeGraphNotifications subscribes to channel graph updates and launches
 // a goroutine that forwards these to the returned channel.
-func subscribeGraphNotifications(t *harnessTest, ctxb context.Context,
+func subscribeGraphNotifications(ctxb context.Context, t *harnessTest,
 	node *lntest.HarnessNode) graphSubscription {
 
 	// We'll first start by establishing a notification client which will
@@ -8885,7 +8885,7 @@ func testGraphTopologyNotifications(net *lntest.NetworkHarness, t *harnessTest) 
 
 	// Let Alice subscribe to graph notifications.
 	graphSub := subscribeGraphNotifications(
-		t, ctxb, net.Alice,
+		ctxb, t, net.Alice,
 	)
 	defer close(graphSub.quit)
 
@@ -9109,7 +9109,7 @@ out:
 func testNodeAnnouncement(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxb := context.Background()
 
-	aliceSub := subscribeGraphNotifications(t, ctxb, net.Alice)
+	aliceSub := subscribeGraphNotifications(ctxb, t, net.Alice)
 	defer close(aliceSub.quit)
 
 	advertisedAddrs := []string{
@@ -12170,7 +12170,7 @@ func testRouteFeeCutoff(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Wait for Alice to receive the channel update from Carol.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	aliceSub := subscribeGraphNotifications(t, ctxt, net.Alice)
+	aliceSub := subscribeGraphNotifications(ctxt, t, net.Alice)
 	defer close(aliceSub.quit)
 
 	waitForChannelUpdate(
@@ -12399,7 +12399,7 @@ func testSendUpdateDisableChannel(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to connect bob to dave: %v", err)
 	}
 
-	daveSub := subscribeGraphNotifications(t, ctxb, dave)
+	daveSub := subscribeGraphNotifications(ctxb, t, dave)
 	defer close(daveSub.quit)
 
 	// We should expect to see a channel update with the default routing

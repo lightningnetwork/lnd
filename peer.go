@@ -1474,6 +1474,8 @@ func (p *peer) writeMessage(msg lnwire.Message) error {
 //
 // NOTE: This method MUST be run as a goroutine.
 func (p *peer) writeHandler() {
+	defer p.wg.Done()
+
 	// We'll stop the timer after a new messages is sent, and also reset it
 	// after we process the next message.
 	idleTimer := time.AfterFunc(idleTimeout, func() {
@@ -1554,8 +1556,6 @@ out:
 			break out
 		}
 	}
-
-	p.wg.Done()
 
 	p.Disconnect(exitErr)
 

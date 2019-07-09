@@ -177,6 +177,8 @@ type blockNtfn struct {
 // notificationDispatcher is the primary goroutine which handles client
 // notification registrations, as well as notification dispatches.
 func (b *BitcoindNotifier) notificationDispatcher() {
+	defer b.wg.Done()
+
 out:
 	for {
 		select {
@@ -431,7 +433,6 @@ out:
 			break out
 		}
 	}
-	b.wg.Done()
 }
 
 // historicalConfDetails looks up whether a confirmation request (txid/output

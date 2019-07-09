@@ -2844,7 +2844,7 @@
         "fee": {
           "type": "string",
           "format": "int64",
-          "title": "/ The fee paid for this payment in satoshis"
+          "description": "/ Deprecated, use fee_sat or fee_msat."
         },
         "payment_preimage": {
           "type": "string",
@@ -2867,6 +2867,16 @@
         "status": {
           "$ref": "#/definitions/PaymentPaymentStatus",
           "description": "The status of the payment."
+        },
+        "fee_sat": {
+          "type": "string",
+          "format": "int64",
+          "title": "/  The fee paid for this payment in satoshis"
+        },
+        "fee_msat": {
+          "type": "string",
+          "format": "int64",
+          "title": "/  The fee paid for this payment in milli-satoshis"
         }
       }
     },

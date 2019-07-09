@@ -93,6 +93,18 @@ var (
 	}
 )
 
+// ListenerCfg is a wrapper around custom listeners that can be passed to lnd
+// when calling its main method.
+type ListenerCfg struct {
+	// WalletUnlocker can be set to the listener to use for the wallet
+	// unlocker. If nil a regular network listener will be created.
+	WalletUnlocker net.Listener
+
+	// RPCListener can be set to the listener to use for the RPC server. If
+	// nil a regular network listener will be created.
+	RPCListener net.Listener
+}
+
 // rpcListeners is a function type used for closures that fetches a set of RPC
 // listeners for the current configuration, and the GRPC server options to use
 // with these listeners. If no custom listeners are present, this should return
@@ -103,7 +115,7 @@ type rpcListeners func() ([]net.Listener, func(), []grpc.ServerOption, error)
 // Main is the true entry point for lnd. This function is required since defers
 // created in the top-level scope of a main method aren't executed if os.Exit()
 // is called.
-func Main() error {
+func Main(lisCfg ListenerCfg) error {
 	// Load the configuration, and parse any command line options. This
 	// function will also set up logging properly.
 	loadedConfig, err := loadConfig()
@@ -280,6 +292,17 @@ func Main() error {
 	walletUnlockerListeners := func() ([]net.Listener, func(),
 		[]grpc.ServerOption, error) {
 
+		// If we have chosen to start with a dedicated listener for the
+		// wallet unlocker, we return it directly, and empty server
+		// options to deactivate TLS.
+		// TODO(halseth): any point in adding TLS support for custom
+		// listeners?
+		if lisCfg.WalletUnlocker != nil {
+			return []net.Listener{lisCfg.WalletUnlocker}, func() {},
+				[]grpc.ServerOption{}, nil
+		}
+
+		// Otherwise we'll return the regular listeners.
 		return getListeners()
 	}
 
@@ -505,6 +528,17 @@ func Main() error {
 	rpcListeners := func() ([]net.Listener, func(), []grpc.ServerOption,
 		error) {
 
+		// If we have chosen to start with a dedicated listener for the
+		// rpc server, we return it directly, and empty server options
+		// to deactivate TLS.
+		// TODO(halseth): any point in adding TLS support for custom
+		// listeners?
+		if lisCfg.RPCListener != nil {
+			return []net.Listener{lisCfg.RPCListener}, func() {},
+				[]grpc.ServerOption{}, nil
+		}
+
+		// Otherwise we'll return the regular listeners.
 		return getListeners()
 	}
 

@@ -679,11 +679,30 @@ func (r *rpcServer) Start() error {
 
 		go func() {
 			rpcsLog.Infof("gRPC proxy started at %s", lis.Addr())
-			http.Serve(lis, mux)
+			http.Serve(lis, allowCORS(mux))
 		}()
 	}
 
 	return nil
+}
+
+// allowCORS allows Cross Origin Resoruce Sharing from any origin.
+func allowCORS(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+
+		// Set necessary headers for preflight requests
+		if r.Method == "OPTIONS" &&
+			r.Header.Get("Access-Control-Request-Method") != "" {
+			w.Header().Set("Access-Control-Allow-Headers",
+				"Content-Type, Accept, grpc-metadata-macaroon")
+			w.Header().Set("Access-Control-Allow-Methods",
+				"GET, POST")
+			return
+		}
+
+		h.ServeHTTP(w, r)
+	})
 }
 
 // Stop signals any active goroutines for a graceful closure.

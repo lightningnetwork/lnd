@@ -114,14 +114,39 @@ func (p *controlTower) Success(paymentHash lntypes.Hash,
 
 	// Notify subscribers of success event.
 	p.notifyFinalEvent(
-		paymentHash, PaymentResult{
-			Success:  true,
-			Preimage: preimage,
-			Route:    route,
-		},
+		paymentHash, createSuccessResult(route, preimage),
 	)
 
 	return nil
+}
+
+// createSuccessResult creates a success result to send to subscribers.
+func createSuccessResult(rt *route.Route,
+	preimage lntypes.Preimage) *PaymentResult {
+
+	return &PaymentResult{
+		Success:  true,
+		Preimage: preimage,
+		Route:    rt,
+	}
+}
+
+// createFailResult creates a failed result to send to subscribers.
+func createFailedResult(rt *route.Route,
+	reason channeldb.FailureReason) *PaymentResult {
+
+	result := &PaymentResult{
+		Success:       false,
+		FailureReason: reason,
+	}
+
+	// In case of incorrect payment details, set the route. This can be used
+	// for probing and to extract a fee estimate from the route.
+	if reason == channeldb.FailureReasonIncorrectPaymentDetails {
+		result.Route = rt
+	}
+
+	return result
 }
 
 // Fail transitions a payment into the Failed state, and records the reason the
@@ -131,17 +156,14 @@ func (p *controlTower) Success(paymentHash lntypes.Hash,
 func (p *controlTower) Fail(paymentHash lntypes.Hash,
 	reason channeldb.FailureReason) error {
 
-	err := p.db.Fail(paymentHash, reason)
+	route, err := p.db.Fail(paymentHash, reason)
 	if err != nil {
 		return err
 	}
 
 	// Notify subscribers of fail event.
 	p.notifyFinalEvent(
-		paymentHash, PaymentResult{
-			Success:       false,
-			FailureReason: reason,
-		},
+		paymentHash, createFailedResult(route, reason),
 	)
 
 	return nil
@@ -191,16 +213,21 @@ func (p *controlTower) SubscribePayment(paymentHash lntypes.Hash) (
 	// a subscriber, because we can send the result on the channel
 	// immediately.
 	case channeldb.StatusSucceeded:
-		event.Success = true
-		event.Preimage = *payment.PaymentPreimage
-		event.Route = &payment.Attempt.Route
+		event = *createSuccessResult(
+			&payment.Attempt.Route, *payment.PaymentPreimage,
+		)
 
 	// Payment already failed. It is not necessary to register as a
 	// subscriber, because we can send the result on the channel
 	// immediately.
 	case channeldb.StatusFailed:
-		event.Success = false
-		event.FailureReason = *payment.Failure
+		var route *route.Route
+		if payment.Attempt != nil {
+			route = &payment.Attempt.Route
+		}
+		event = *createFailedResult(
+			route, *payment.Failure,
+		)
 
 	default:
 		return false, nil, errors.New("unknown payment status")
@@ -216,7 +243,7 @@ func (p *controlTower) SubscribePayment(paymentHash lntypes.Hash) (
 // notifyFinalEvent sends a final payment event to all subscribers of this
 // payment. The channel will be closed after this.
 func (p *controlTower) notifyFinalEvent(paymentHash lntypes.Hash,
-	event PaymentResult) {
+	event *PaymentResult) {
 
 	// Get all subscribers for this hash. As there is only a single outcome,
 	// the subscriber list can be cleared.
@@ -232,7 +259,7 @@ func (p *controlTower) notifyFinalEvent(paymentHash lntypes.Hash,
 	// Notify all subscribers of the event. The subscriber channel is
 	// buffered, so it cannot block here.
 	for _, subscriber := range list {
-		subscriber <- event
+		subscriber <- *event
 		close(subscriber)
 	}
 }

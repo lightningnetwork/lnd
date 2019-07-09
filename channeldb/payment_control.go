@@ -246,9 +246,12 @@ func (p *PaymentControl) Success(paymentHash lntypes.Hash,
 // its next call for this payment hash, allowing the switch to make a
 // subsequent payment.
 func (p *PaymentControl) Fail(paymentHash lntypes.Hash,
-	reason FailureReason) error {
+	reason FailureReason) (*route.Route, error) {
 
-	var updateErr error
+	var (
+		updateErr error
+		route     *route.Route
+	)
 	err := p.db.Batch(func(tx *bbolt.Tx) error {
 		// Reset the update error, to avoid carrying over an error
 		// from a previous execution of the batched db transaction.
@@ -270,13 +273,27 @@ func (p *PaymentControl) Fail(paymentHash lntypes.Hash,
 
 		// Put the failure reason in the bucket for record keeping.
 		v := []byte{byte(reason)}
-		return bucket.Put(paymentFailInfoKey, v)
+		err = bucket.Put(paymentFailInfoKey, v)
+		if err != nil {
+			return err
+		}
+
+		// Retrieve attempt info for the notification, if available.
+		attempt, err := fetchPaymentAttempt(bucket)
+		if err != nil && err != errNoAttemptInfo {
+			return err
+		}
+		if err != errNoAttemptInfo {
+			route = &attempt.Route
+		}
+
+		return nil
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	return updateErr
+	return route, updateErr
 }
 
 // FetchPayment returns information about a payment from the database.

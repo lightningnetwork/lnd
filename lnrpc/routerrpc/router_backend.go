@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec"
+
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -382,6 +384,15 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 	payIntent.PayAttemptTimeout = time.Second *
 		time.Duration(rpcPayReq.TimeoutSeconds)
 
+	// Route hints.
+	routeHints, err := unmarshallRouteHints(
+		rpcPayReq.RouteHints,
+	)
+	if err != nil {
+		return nil, err
+	}
+	payIntent.RouteHints = routeHints
+
 	// If the payment request field isn't blank, then the details of the
 	// invoice are encoded entirely within the encoded payReq.  So we'll
 	// attempt to decode it, populating the payment accordingly.
@@ -443,7 +454,9 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 		copy(payIntent.Target[:], destKey)
 
 		payIntent.FinalCLTVDelta = uint16(payReq.MinFinalCLTVExpiry())
-		payIntent.RouteHints = payReq.RouteHints
+		payIntent.RouteHints = append(
+			payIntent.RouteHints, payReq.RouteHints...,
+		)
 	} else {
 		// Otherwise, If the payment request field was not specified
 		// (and a custom route wasn't specified), construct the payment
@@ -491,6 +504,50 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 	}
 
 	return payIntent, nil
+}
+
+// unmarshallRouteHints unmarshalls a list of route hints.
+func unmarshallRouteHints(rpcRouteHints []*lnrpc.RouteHint) (
+	[][]zpay32.HopHint, error) {
+
+	routeHints := make([][]zpay32.HopHint, 0, len(rpcRouteHints))
+	for _, rpcRouteHint := range rpcRouteHints {
+		routeHint := make(
+			[]zpay32.HopHint, 0, len(rpcRouteHint.HopHints),
+		)
+		for _, rpcHint := range rpcRouteHint.HopHints {
+			hint, err := unmarshallHopHint(rpcHint)
+			if err != nil {
+				return nil, err
+			}
+
+			routeHint = append(routeHint, hint)
+		}
+		routeHints = append(routeHints, routeHint)
+	}
+
+	return routeHints, nil
+}
+
+// unmarshallHopHint unmarshalls a single hop hint.
+func unmarshallHopHint(rpcHint *lnrpc.HopHint) (zpay32.HopHint, error) {
+	pubBytes, err := hex.DecodeString(rpcHint.NodeId)
+	if err != nil {
+		return zpay32.HopHint{}, err
+	}
+
+	pubkey, err := btcec.ParsePubKey(pubBytes, btcec.S256())
+	if err != nil {
+		return zpay32.HopHint{}, err
+	}
+
+	return zpay32.HopHint{
+		NodeID:                    pubkey,
+		ChannelID:                 rpcHint.ChanId,
+		FeeBaseMSat:               rpcHint.FeeBaseMsat,
+		FeeProportionalMillionths: rpcHint.FeeProportionalMillionths,
+		CLTVExpiryDelta:           uint16(rpcHint.CltvExpiryDelta),
+	}, nil
 }
 
 // ValidatePayReqExpiry checks if the passed payment request has expired. In

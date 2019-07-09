@@ -502,8 +502,10 @@ func (s *Server) TrackPayment(request *TrackPaymentRequest,
 func (s *Server) trackPayment(paymentHash lntypes.Hash,
 	stream Router_TrackPaymentServer) error {
 
+	router := s.cfg.RouterBackend
+
 	// Subscribe to the outcome of this payment.
-	inFlight, resultChan, err := s.cfg.RouterBackend.Tower.SubscribePayment(
+	inFlight, resultChan, err := router.Tower.SubscribePayment(
 		paymentHash,
 	)
 	switch {
@@ -538,20 +540,21 @@ func (s *Server) trackPayment(paymentHash lntypes.Hash,
 
 			status.State = PaymentState_SUCCEEDED
 			status.Preimage = result.Preimage[:]
-			status.Route = s.cfg.RouterBackend.MarshallRoute(
+			status.Route = router.MarshallRoute(
 				result.Route,
 			)
 		} else {
-			switch result.FailureReason {
-
-			case channeldb.FailureReasonTimeout:
-				status.State = PaymentState_FAILED_TIMEOUT
-
-			case channeldb.FailureReasonNoRoute:
-				status.State = PaymentState_FAILED_NO_ROUTE
-
-			default:
-				return errors.New("unknown failure reason")
+			state, err := marshallFailureReason(
+				result.FailureReason,
+			)
+			if err != nil {
+				return err
+			}
+			status.State = state
+			if result.Route != nil {
+				status.Route = router.MarshallRoute(
+					result.Route,
+				)
 			}
 		}
 
@@ -567,4 +570,27 @@ func (s *Server) trackPayment(paymentHash lntypes.Hash,
 	}
 
 	return nil
+}
+
+// marshallFailureReason marshalls the failure reason to the corresponding rpc
+// type.
+func marshallFailureReason(reason channeldb.FailureReason) (
+	PaymentState, error) {
+
+	switch reason {
+
+	case channeldb.FailureReasonTimeout:
+		return PaymentState_FAILED_TIMEOUT, nil
+
+	case channeldb.FailureReasonNoRoute:
+		return PaymentState_FAILED_NO_ROUTE, nil
+
+	case channeldb.FailureReasonError:
+		return PaymentState_FAILED_ERROR, nil
+
+	case channeldb.FailureReasonIncorrectPaymentDetails:
+		return PaymentState_FAILED_INCORRECT_PAYMENT_DETAILS, nil
+	}
+
+	return 0, errors.New("unknown failure reason")
 }

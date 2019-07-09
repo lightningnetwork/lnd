@@ -58,6 +58,11 @@ message SendPaymentRequest {
     maximum enforced.
     */
     int32 cltv_limit = 9;
+
+    /**
+    Optional route hints to reach the destination through private channels.
+    */
+    repeated lnrpc.RouteHint route_hints = 10 [json_name = "route_hints"];
 }
 
 message TrackPaymentRequest {
@@ -86,6 +91,17 @@ enum PaymentState {
     routes to the destination at all.
     */
     FAILED_NO_ROUTE = 3;
+
+    /**
+    A non-recoverable error has occured.
+    */
+    FAILED_ERROR = 4;
+
+    /**
+    Payment details incorrect (unknown hash, invalid amt or
+    invalid final cltv delta)
+    */
+    FAILED_INCORRECT_PAYMENT_DETAILS = 5;
 }
 
 

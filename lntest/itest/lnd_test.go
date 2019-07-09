@@ -13834,7 +13834,7 @@ func testHoldInvoicePersistence(net *lntest.NetworkHarness, t *harnessTest) {
 						status.State)
 				}
 			} else {
-				if status.State != routerrpc.PaymentState_FAILED_NO_ROUTE {
+				if status.State != routerrpc.PaymentState_FAILED_INCORRECT_PAYMENT_DETAILS {
 					t.Fatalf("state not failed: %v",
 						status.State)
 				}

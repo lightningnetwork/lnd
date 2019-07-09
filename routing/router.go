@@ -1812,7 +1812,8 @@ func (r *ChannelRouter) sendPayment(
 // to continue with an alternative route. This is indicated by the boolean
 // return value.
 func (r *ChannelRouter) processSendError(paySession PaymentSession,
-	rt *route.Route, fErr *htlcswitch.ForwardingError) bool {
+	rt *route.Route, fErr *htlcswitch.ForwardingError) (
+	bool, channeldb.FailureReason) {
 
 	errSource := fErr.ErrorSource
 	errVertex := route.NewVertex(errSource)
@@ -1825,7 +1826,7 @@ func (r *ChannelRouter) processSendError(paySession PaymentSession,
 		rt, route.Vertex(errVertex),
 	)
 	if err != nil {
-		return true
+		return true, channeldb.FailureReasonError
 	}
 
 	// processChannelUpdateAndRetry is a closure that
@@ -1868,22 +1869,33 @@ func (r *ChannelRouter) processSendError(paySession PaymentSession,
 	// hash or we sent the wrong payment amount to the
 	// destination, then we'll terminate immediately.
 	case *lnwire.FailUnknownPaymentHash:
-		return true
+		// TODO(joostjager): Check onionErr.Amount() whether it matches
+		// what we expect. (Will it ever not match, because if not
+		// final_incorrect_htlc_amount would be returned?)
+
+		return true, channeldb.FailureReasonIncorrectPaymentDetails
 
 	// If we sent the wrong amount to the destination, then
 	// we'll exit early.
 	case *lnwire.FailIncorrectPaymentAmount:
-		return true
+		return true, channeldb.FailureReasonIncorrectPaymentDetails
 
 	// If the time-lock that was extended to the final node
 	// was incorrect, then we can't proceed.
 	case *lnwire.FailFinalIncorrectCltvExpiry:
-		return true
+		// TODO(joostjager): Take into account that second last hop may
+		// have deliberately handed out an htlc that expires too soon.
+		// In that case we should continue routing.
+		return true, channeldb.FailureReasonError
 
 	// If we crafted an invalid onion payload for the final
 	// node, then we'll exit early.
 	case *lnwire.FailFinalIncorrectHtlcAmount:
-		return true
+		// TODO(joostjager): Take into account that second last hop may
+		// have deliberately handed out an htlc with a too low value. In
+		// that case we should continue routing.
+
+		return true, channeldb.FailureReasonError
 
 	// Similarly, if the HTLC expiry that we extended to
 	// the final hop expires too soon, then will fail the
@@ -1892,12 +1904,15 @@ func (r *ChannelRouter) processSendError(paySession PaymentSession,
 	// TODO(roasbeef): can happen to to race condition, try
 	// again with recent block height
 	case *lnwire.FailFinalExpiryTooSoon:
-		return true
+		// TODO(joostjager): Take into account that any hop may have
+		// delayed. Ideally we should continue routing. Knowing the
+		// delaying node at this point would help.
+		return true, channeldb.FailureReasonIncorrectPaymentDetails
 
 	// If we erroneously attempted to cross a chain border,
 	// then we'll cancel the payment.
 	case *lnwire.FailInvalidRealm:
-		return true
+		return true, channeldb.FailureReasonError
 
 	// If we get a notice that the expiry was too soon for
 	// an intermediate node, then we'll prune out the node
@@ -1906,17 +1921,20 @@ func (r *ChannelRouter) processSendError(paySession PaymentSession,
 	case *lnwire.FailExpiryTooSoon:
 		r.applyChannelUpdate(&onionErr.Update, errSource)
 		paySession.ReportVertexFailure(errVertex)
-		return false
+		return false, 0
 
-	// If we hit an instance of onion payload corruption or
-	// an invalid version, then we'll exit early as this
-	// shouldn't happen in the typical case.
+	// If we hit an instance of onion payload corruption or an invalid
+	// version, then we'll exit early as this shouldn't happen in the
+	// typical case.
+	//
+	// TODO(joostjager): Take into account that the previous hop may have
+	// tampered with the onion. Routing should continue using other paths.
 	case *lnwire.FailInvalidOnionVersion:
-		return true
+		return true, channeldb.FailureReasonError
 	case *lnwire.FailInvalidOnionHmac:
-		return true
+		return true, channeldb.FailureReasonError
 	case *lnwire.FailInvalidOnionKey:
-		return true
+		return true, channeldb.FailureReasonError
 
 	// If we get a failure due to violating the minimum
 	// amount, we'll apply the new minimum amount and retry
@@ -1925,7 +1943,7 @@ func (r *ChannelRouter) processSendError(paySession PaymentSession,
 		processChannelUpdateAndRetry(
 			&onionErr.Update, errSource,
 		)
-		return false
+		return false, 0
 
 	// If we get a failure due to a fee, we'll apply the
 	// new fee update, and retry our attempt using the
@@ -1934,7 +1952,7 @@ func (r *ChannelRouter) processSendError(paySession PaymentSession,
 		processChannelUpdateAndRetry(
 			&onionErr.Update, errSource,
 		)
-		return false
+		return false, 0
 
 	// If we get the failure for an intermediate node that
 	// disagrees with our time lock values, then we'll
@@ -1943,7 +1961,7 @@ func (r *ChannelRouter) processSendError(paySession PaymentSession,
 		processChannelUpdateAndRetry(
 			&onionErr.Update, errSource,
 		)
-		return false
+		return false, 0
 
 	// The outgoing channel that this node was meant to
 	// forward one is currently disabled, so we'll apply
@@ -1951,7 +1969,7 @@ func (r *ChannelRouter) processSendError(paySession PaymentSession,
 	case *lnwire.FailChannelDisabled:
 		r.applyChannelUpdate(&onionErr.Update, errSource)
 		paySession.ReportEdgeFailure(failedEdge, 0)
-		return false
+		return false, 0
 
 	// It's likely that the outgoing channel didn't have
 	// sufficient capacity, so we'll prune this edge for
@@ -1959,21 +1977,21 @@ func (r *ChannelRouter) processSendError(paySession PaymentSession,
 	case *lnwire.FailTemporaryChannelFailure:
 		r.applyChannelUpdate(onionErr.Update, errSource)
 		paySession.ReportEdgeFailure(failedEdge, failedAmt)
-		return false
+		return false, 0
 
 	// If the send fail due to a node not having the
 	// required features, then we'll note this error and
 	// continue.
 	case *lnwire.FailRequiredNodeFeatureMissing:
 		paySession.ReportVertexFailure(errVertex)
-		return false
+		return false, 0
 
 	// If the send fail due to a node not having the
 	// required features, then we'll note this error and
 	// continue.
 	case *lnwire.FailRequiredChannelFeatureMissing:
 		paySession.ReportVertexFailure(errVertex)
-		return false
+		return false, 0
 
 	// If the next hop in the route wasn't known or
 	// offline, we'll only the channel which we attempted
@@ -1984,18 +2002,18 @@ func (r *ChannelRouter) processSendError(paySession PaymentSession,
 	// another node.
 	case *lnwire.FailUnknownNextPeer:
 		paySession.ReportEdgeFailure(failedEdge, 0)
-		return false
+		return false, 0
 
 	// If the node wasn't able to forward for which ever
 	// reason, then we'll note this and continue with the
 	// routes.
 	case *lnwire.FailTemporaryNodeFailure:
 		paySession.ReportVertexFailure(errVertex)
-		return false
+		return false, 0
 
 	case *lnwire.FailPermanentNodeFailure:
 		paySession.ReportVertexFailure(errVertex)
-		return false
+		return false, 0
 
 	// If we crafted a route that contains a too long time
 	// lock for an intermediate node, we'll prune the node.
@@ -2008,7 +2026,7 @@ func (r *ChannelRouter) processSendError(paySession PaymentSession,
 	// that node.
 	case *lnwire.FailExpiryTooFar:
 		paySession.ReportVertexFailure(errVertex)
-		return false
+		return false, 0
 
 	// If we get a permanent channel or node failure, then
 	// we'll prune the channel in both directions and
@@ -2020,10 +2038,10 @@ func (r *ChannelRouter) processSendError(paySession PaymentSession,
 			to:      failedEdge.from,
 			channel: failedEdge.channel,
 		}, 0)
-		return false
+		return false, 0
 
 	default:
-		return true
+		return true, channeldb.FailureReasonError
 	}
 }
 

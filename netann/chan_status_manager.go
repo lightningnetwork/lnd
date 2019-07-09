@@ -3,7 +3,6 @@ package netann
 import (
 	"errors"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec"
@@ -85,8 +84,8 @@ type ChanStatusConfig struct {
 // passively. The ChanStatusManager state machine is designed to reduce the
 // likelihood of spamming the network with updates for flapping peers.
 type ChanStatusManager struct {
-	started uint32 // to be used atomically
-	stopped uint32 // to be used atomically
+	started sync.Once
+	stopped sync.Once
 
 	cfg *ChanStatusConfig
 
@@ -155,10 +154,14 @@ func NewChanStatusManager(cfg *ChanStatusConfig) (*ChanStatusManager, error) {
 
 // Start safely starts the ChanStatusManager.
 func (m *ChanStatusManager) Start() error {
-	if !atomic.CompareAndSwapUint32(&m.started, 0, 1) {
-		return nil
-	}
+	var err error
+	m.started.Do(func() {
+		err = m.start()
+	})
+	return err
+}
 
+func (m *ChanStatusManager) start() error {
 	channels, err := m.fetchChannels()
 	if err != nil {
 		return err
@@ -192,13 +195,10 @@ func (m *ChanStatusManager) Start() error {
 
 // Stop safely shuts down the ChanStatusManager.
 func (m *ChanStatusManager) Stop() error {
-	if !atomic.CompareAndSwapUint32(&m.stopped, 0, 1) {
-		return nil
-	}
-
-	close(m.quit)
-	m.wg.Wait()
-
+	m.stopped.Do(func() {
+		close(m.quit)
+		m.wg.Wait()
+	})
 	return nil
 }
 

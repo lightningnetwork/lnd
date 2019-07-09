@@ -3,7 +3,6 @@ package lnwallet
 import (
 	"fmt"
 	"sync"
-	"sync/atomic"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/wire"
@@ -125,8 +124,8 @@ type SignJobResp struct {
 // to sign or verify) can be sent to the pool of workers which will
 // asynchronously perform the specified job.
 type SigPool struct {
-	started uint32 // To be used atomically.
-	stopped uint32 // To be used atomically.
+	started sync.Once
+	stopped sync.Once
 
 	signer input.Signer
 
@@ -155,28 +154,22 @@ func NewSigPool(numWorkers int, signer input.Signer) *SigPool {
 // Start starts of all goroutines that the sigPool sig pool needs to
 // carry out its duties.
 func (s *SigPool) Start() error {
-	if !atomic.CompareAndSwapUint32(&s.started, 0, 1) {
-		return nil
-	}
-
-	for i := 0; i < s.numWorkers; i++ {
-		s.wg.Add(1)
-		go s.poolWorker()
-	}
-
+	s.started.Do(func() {
+		for i := 0; i < s.numWorkers; i++ {
+			s.wg.Add(1)
+			go s.poolWorker()
+		}
+	})
 	return nil
 }
 
 // Stop signals any active workers carrying out jobs to exit so the sigPool can
 // gracefully shutdown.
 func (s *SigPool) Stop() error {
-	if !atomic.CompareAndSwapUint32(&s.stopped, 0, 1) {
-		return nil
-	}
-
-	close(s.quit)
-	s.wg.Wait()
-
+	s.stopped.Do(func() {
+		close(s.quit)
+		s.wg.Wait()
+	})
 	return nil
 }
 

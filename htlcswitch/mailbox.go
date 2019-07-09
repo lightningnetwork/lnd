@@ -4,7 +4,6 @@ import (
 	"container/list"
 	"errors"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -60,8 +59,8 @@ type MailBox interface {
 // memoryMailBox is an implementation of the MailBox struct backed by purely
 // in-memory queues.
 type memoryMailBox struct {
-	started uint32 // To be used atomically.
-	stopped uint32 // To be used atomically.
+	started sync.Once
+	stopped sync.Once
 
 	wireMessages *list.List
 	wireHead     *list.Element
@@ -123,14 +122,11 @@ const (
 //
 // NOTE: This method is part of the MailBox interface.
 func (m *memoryMailBox) Start() error {
-	if !atomic.CompareAndSwapUint32(&m.started, 0, 1) {
-		return nil
-	}
-
-	m.wg.Add(2)
-	go m.mailCourier(wireCourier)
-	go m.mailCourier(pktCourier)
-
+	m.started.Do(func() {
+		m.wg.Add(2)
+		go m.mailCourier(wireCourier)
+		go m.mailCourier(pktCourier)
+	})
 	return nil
 }
 
@@ -214,15 +210,12 @@ func (m *memoryMailBox) HasPacket(inKey CircuitKey) bool {
 //
 // NOTE: This method is part of the MailBox interface.
 func (m *memoryMailBox) Stop() error {
-	if !atomic.CompareAndSwapUint32(&m.stopped, 0, 1) {
-		return nil
-	}
+	m.stopped.Do(func() {
+		close(m.quit)
 
-	close(m.quit)
-
-	m.wireCond.Signal()
-	m.pktCond.Signal()
-
+		m.wireCond.Signal()
+		m.pktCond.Signal()
+	})
 	return nil
 }
 

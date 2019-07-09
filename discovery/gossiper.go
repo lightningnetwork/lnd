@@ -223,9 +223,9 @@ type Config struct {
 // will be rejected by this struct.
 type AuthenticatedGossiper struct {
 	// Parameters which are needed to properly handle the start and stop of
-	// the service. To be used atomically.
-	started uint32
-	stopped uint32
+	// the service.
+	started sync.Once
+	stopped sync.Once
 
 	// bestHeight is the height of the block at the tip of the main chain
 	// as we know it. To be used atomically.
@@ -466,10 +466,14 @@ func (d *AuthenticatedGossiper) PropagateChanPolicyUpdate(
 // Start spawns network messages handler goroutine and registers on new block
 // notifications in order to properly handle the premature announcements.
 func (d *AuthenticatedGossiper) Start() error {
-	if !atomic.CompareAndSwapUint32(&d.started, 0, 1) {
-		return nil
-	}
+	var err error
+	d.started.Do(func() {
+		err = d.start()
+	})
+	return err
+}
 
+func (d *AuthenticatedGossiper) start() error {
 	log.Info("Authenticated Gossiper is starting")
 
 	// First we register for new notifications of newly discovered blocks.
@@ -504,10 +508,10 @@ func (d *AuthenticatedGossiper) Start() error {
 
 // Stop signals any active goroutines for a graceful closure.
 func (d *AuthenticatedGossiper) Stop() {
-	if !atomic.CompareAndSwapUint32(&d.stopped, 0, 1) {
-		return
-	}
+	d.stopped.Do(d.stop)
+}
 
+func (d *AuthenticatedGossiper) stop() {
 	log.Info("Authenticated Gossiper is stopping")
 
 	d.blockEpochs.Cancel()

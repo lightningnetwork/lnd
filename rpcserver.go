@@ -4610,14 +4610,19 @@ func (r *rpcServer) ForwardingHistory(ctx context.Context,
 		numEvents uint32
 	)
 
-	// If the start and end time were not set, then we'll just return the
-	// records over the past 24 hours.
-	if req.StartTime == 0 && req.EndTime == 0 {
+	// If the start time wasn't specified, we'll default to 24 hours ago.
+	if req.StartTime == 0 {
 		now := time.Now()
 		startTime = now.Add(-time.Hour * 24)
-		endTime = now
 	} else {
 		startTime = time.Unix(int64(req.StartTime), 0)
+	}
+
+	// If the end time wasn't specified, assume a default end time of now.
+	if req.EndTime == 0 {
+		now := time.Now()
+		endTime = now
+	} else {
 		endTime = time.Unix(int64(req.EndTime), 0)
 	}
 
@@ -4628,7 +4633,7 @@ func (r *rpcServer) ForwardingHistory(ctx context.Context,
 		numEvents = 100
 	}
 
-	// Next, we'll map the proto request into a format the is understood by
+	// Next, we'll map the proto request into a format that is understood by
 	// the forwarding log.
 	eventQuery := channeldb.ForwardingEventQuery{
 		StartTime:    startTime,

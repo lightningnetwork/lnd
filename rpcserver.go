@@ -3576,6 +3576,10 @@ func (r *rpcServer) SubscribeTransactions(req *lnrpc.GetTransactionsRequest,
 	for {
 		select {
 		case tx := <-txClient.ConfirmedTransactions():
+			destAddresses := make([]string, 0, len(tx.DestAddresses))
+			for _, destAddress := range tx.DestAddresses {
+				destAddresses = append(destAddresses, destAddress.EncodeAddress())
+			}
 			detail := &lnrpc.Transaction{
 				TxHash:           tx.Hash.String(),
 				Amount:           int64(tx.Value),
@@ -3583,6 +3587,7 @@ func (r *rpcServer) SubscribeTransactions(req *lnrpc.GetTransactionsRequest,
 				BlockHash:        tx.BlockHash.String(),
 				TimeStamp:        tx.Timestamp,
 				TotalFees:        tx.TotalFees,
+				DestAddresses:    destAddresses,
 				RawTxHex:         hex.EncodeToString(tx.RawTx),
 			}
 			if err := updateStream.Send(detail); err != nil {
@@ -3590,12 +3595,17 @@ func (r *rpcServer) SubscribeTransactions(req *lnrpc.GetTransactionsRequest,
 			}
 
 		case tx := <-txClient.UnconfirmedTransactions():
+			var destAddresses []string
+			for _, destAddress := range tx.DestAddresses {
+				destAddresses = append(destAddresses, destAddress.EncodeAddress())
+			}
 			detail := &lnrpc.Transaction{
-				TxHash:    tx.Hash.String(),
-				Amount:    int64(tx.Value),
-				TimeStamp: tx.Timestamp,
-				TotalFees: tx.TotalFees,
-				RawTxHex:  hex.EncodeToString(tx.RawTx),
+				TxHash:        tx.Hash.String(),
+				Amount:        int64(tx.Value),
+				TimeStamp:     tx.Timestamp,
+				TotalFees:     tx.TotalFees,
+				DestAddresses: destAddresses,
+				RawTxHex:      hex.EncodeToString(tx.RawTx),
 			}
 			if err := updateStream.Send(detail); err != nil {
 				return err

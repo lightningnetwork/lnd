@@ -1899,7 +1899,7 @@ func TestPruneChannelGraphStaleEdges(t *testing.T) {
 	t.Parallel()
 
 	freshTimestamp := time.Now()
-	staleTimestamp := time.Time{}
+	staleTimestamp := time.Unix(0, 0)
 
 	// We'll create the following test graph so that only the last channel
 	// is pruned.

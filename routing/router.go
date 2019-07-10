@@ -734,7 +734,7 @@ func (r *ChannelRouter) syncGraphWithChain() error {
 // usually signals that a channel has been closed on-chain. We do this
 // periodically to keep a healthy, lively routing table.
 func (r *ChannelRouter) pruneZombieChans() error {
-	var chansToPrune []uint64
+	chansToPrune := make(map[uint64]struct{})
 	chanExpiry := r.cfg.ChannelPruneExpiry
 
 	log.Infof("Examining channel graph for zombie channels")
@@ -743,6 +743,11 @@ func (r *ChannelRouter) pruneZombieChans() error {
 	// collection due to being zombies.
 	filterPruneChans := func(info *channeldb.ChannelEdgeInfo,
 		e1, e2 *channeldb.ChannelEdgePolicy) error {
+
+		// Exit early in case this channel is already marked to be pruned
+		if _, markedToPrune := chansToPrune[info.ChannelID]; markedToPrune {
+			return nil
+		}
 
 		// We'll ensure that we don't attempt to prune our *own*
 		// channels from the graph, as in any case this should be
@@ -809,25 +814,47 @@ func (r *ChannelRouter) pruneZombieChans() error {
 			info.ChannelID)
 
 		// TODO(roasbeef): add ability to delete single directional edge
-		chansToPrune = append(chansToPrune, info.ChannelID)
+		chansToPrune[info.ChannelID] = struct{}{}
 
 		return nil
 	}
 
-	err := r.cfg.Graph.ForEachChannel(filterPruneChans)
+	startTime := time.Unix(0, 0)
+	endTime := time.Now().Add(-1 * chanExpiry)
+	oldEdges, err := r.cfg.Graph.ChanUpdatesInHorizon(startTime, endTime)
 	if err != nil {
-		return fmt.Errorf("unable to filter local zombie channels: "+
-			"%v", err)
+		return fmt.Errorf("unable to filter local zombie "+
+			"chans: %v", err)
+	}
+
+	disabledChanIDs, err := r.cfg.Graph.DisabledChannelIDs()
+	if err != nil {
+		return fmt.Errorf("unable to filter local zombie "+
+			"chans: %v", err)
+	}
+
+	disabledEdges, err := r.cfg.Graph.FetchChanInfos(disabledChanIDs)
+	if err != nil {
+		return fmt.Errorf("unable to filter local zombie "+
+			"chans: %v", err)
+	}
+
+	edgesToFilter := append(oldEdges, disabledEdges...)
+
+	for _, u := range edgesToFilter {
+		filterPruneChans(u.Info, u.Policy1, u.Policy2)
 	}
 
 	log.Infof("Pruning %v zombie channels", len(chansToPrune))
 
 	// With the set of zombie-like channels obtained, we'll do another pass
 	// to delete them from the channel graph.
-	for _, chanID := range chansToPrune {
+	var toPrune []uint64
+	for chanID := range chansToPrune {
+		toPrune = append(toPrune, chanID)
 		log.Tracef("Pruning zombie channel with ChannelID(%v)", chanID)
 	}
-	if err := r.cfg.Graph.DeleteChannelEdges(chansToPrune...); err != nil {
+	if err := r.cfg.Graph.DeleteChannelEdges(toPrune...); err != nil {
 		return fmt.Errorf("unable to delete zombie channels: %v", err)
 	}
 

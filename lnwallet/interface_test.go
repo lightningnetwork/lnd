@@ -1181,9 +1181,11 @@ func testListTransactionDetails(miner *rpctest.Harness,
 
 	// Next create a transaction paying to an output which isn't under the
 	// wallet's control.
-	b := txscript.NewScriptBuilder()
-	b.AddOp(txscript.OP_0)
-	outputScript, err := b.Script()
+	minerAddr, err := miner.NewAddress()
+	if err != nil {
+		t.Fatalf("unable to generate address: %v", err)
+	}
+	outputScript, err := txscript.PayToAddrScript(minerAddr)
 	if err != nil {
 		t.Fatalf("unable to make output script: %v", err)
 	}
@@ -1226,6 +1228,20 @@ func testListTransactionDetails(miner *rpctest.Harness,
 		if txDetail.NumConfirmations != 0 {
 			t.Fatalf("num confs incorrect, got %v expected %v",
 				txDetail.NumConfirmations, 0)
+		}
+
+		// We test that each txDetail has destination addresses. This ensures
+		// that even when we have 0 confirmation transactions, the destination
+		// addresses are returned.
+		var match bool
+		for _, addr := range txDetail.DestAddresses {
+			if addr.String() == minerAddr.String() {
+				match = true
+				break
+			}
+		}
+		if !match {
+			t.Fatalf("minerAddr: %v should have been a dest addr", minerAddr)
 		}
 	}
 	if !mempoolTxFound {

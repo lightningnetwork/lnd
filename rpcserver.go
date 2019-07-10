@@ -2232,11 +2232,13 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 
 		resp.PendingOpenChannels[i] = &lnrpc.PendingChannelsResponse_PendingOpenChannel{
 			Channel: &lnrpc.PendingChannelsResponse_PendingChannel{
-				RemoteNodePub: hex.EncodeToString(pub),
-				ChannelPoint:  pendingChan.FundingOutpoint.String(),
-				Capacity:      int64(pendingChan.Capacity),
-				LocalBalance:  int64(localCommitment.LocalBalance.ToSatoshis()),
-				RemoteBalance: int64(localCommitment.RemoteBalance.ToSatoshis()),
+				RemoteNodePub:        hex.EncodeToString(pub),
+				ChannelPoint:         pendingChan.FundingOutpoint.String(),
+				Capacity:             int64(pendingChan.Capacity),
+				LocalBalance:         int64(localCommitment.LocalBalance.ToSatoshis()),
+				RemoteBalance:        int64(localCommitment.RemoteBalance.ToSatoshis()),
+				LocalChanReserveSat:  int64(pendingChan.LocalChanCfg.ChanReserve),
+				RemoteChanReserveSat: int64(pendingChan.RemoteChanCfg.ChanReserve),
 			},
 			CommitWeight: commitWeight,
 			CommitFee:    int64(localCommitment.CommitFee),
@@ -2647,6 +2649,8 @@ func createRPCOpenChannel(r *rpcServer, graph *channeldb.ChannelGraph,
 		CsvDelay:              uint32(dbChannel.LocalChanCfg.CsvDelay),
 		Initiator:             dbChannel.IsInitiator,
 		ChanStatusFlags:       dbChannel.ChanStatus().String(),
+		LocalChanReserveSat:   int64(dbChannel.LocalChanCfg.ChanReserve),
+		RemoteChanReserveSat:  int64(dbChannel.RemoteChanCfg.ChanReserve),
 	}
 
 	for i, htlc := range localCommit.Htlcs {

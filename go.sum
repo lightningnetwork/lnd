@@ -1,6 +1,4 @@
 cloud.google.com/go v0.26.0/go.mod h1:aQUYkXzVsufM+DwF1aE+0xfcU+56JwCaLick0ClmMTw=
-git.schwanenlied.me/yawning/bsaes.git v0.0.0-20180720073208-c0276d75487e h1:F2x1bq7RaNCIuqYpswggh1+c1JmwdnkHNC9wy1KDip0=
-git.schwanenlied.me/yawning/bsaes.git v0.0.0-20180720073208-c0276d75487e/go.mod h1:BWqTsj8PgcPriQJGl7el20J/7TuT1d/hSyFDXMEpoEo=
 github.com/NebulousLabs/fastrand v0.0.0-20180208210444-3cf7173006a0 h1:g/ETZwHx5wN2fqKWS3gCUrEU7dLko+DvVs3hakQCfyE=
 github.com/NebulousLabs/fastrand v0.0.0-20180208210444-3cf7173006a0/go.mod h1:Bdzq+51GR4/0DIhaICZEOm+OHvXGwwB2trKZ8B4Y6eQ=
 github.com/NebulousLabs/go-upnp v0.0.0-20180202185039-29b680b06c82 h1:MG93+PZYs9PyEsj/n5/haQu2gK0h4tUtSy9ejtMwWa0=
@@ -8,6 +6,8 @@ github.com/NebulousLabs/go-upnp v0.0.0-20180202185039-29b680b06c82/go.mod h1:Gbu
 github.com/OneOfOne/xxhash v1.2.2/go.mod h1:HSdplMjZKSmBqAxg5vPj2TmRDmfkzw+cTzAElWljhcU=
 github.com/Yawning/aez v0.0.0-20180114000226-4dad034d9db2 h1:2be4ykKKov3M1yISM2E8gnGXZ/N2SsPawfnGiXxaYEU=
 github.com/Yawning/aez v0.0.0-20180114000226-4dad034d9db2/go.mod h1:9pIqrY6SXNL8vjRQE5Hd/OL5GyK/9MrGUWs87z/eFfk=
+github.com/Yawning/bsaes v0.0.0-20180720073208-c0276d75487e h1:n88VxLC80RPVHbFG/kq7ItMizCVRPCyLj63UMqxLkOw=
+github.com/Yawning/bsaes v0.0.0-20180720073208-c0276d75487e/go.mod h1:3JAJz+vEO82SkYEkAa2lRPkQC7lslUY24HX3929i2Ec=
 github.com/aead/chacha20 v0.0.0-20180709150244-8b13a72661da h1:KjTM2ks9d14ZYCvmHS9iAKVt9AyzRSqNU1qabPih5BY=
 github.com/aead/chacha20 v0.0.0-20180709150244-8b13a72661da/go.mod h1:eHEWzANqSiWQsof+nXEI9bUVUyV6F53Fp89EuCh2EAA=
 github.com/aead/siphash v1.0.1 h1:FwHfE/T45KPKYuuSAKyyvE+oPWcaQ+CUmFW0bPlM+kg=

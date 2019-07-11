@@ -9,7 +9,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/coreos/bbolt"
@@ -58,6 +57,10 @@ var (
 	// ErrNoLinksFound is an error returned when we attempt to retrieve the
 	// active links in the switch for a specific destination.
 	ErrNoLinksFound = errors.New("no channel links found")
+
+	// ErrUnreadableFailureMessage is returned when the failure message
+	// cannot be decrypted.
+	ErrUnreadableFailureMessage = errors.New("unreadable failure message")
 
 	// zeroPreimage is the empty preimage which is returned when we have
 	// some errors.
@@ -112,11 +115,6 @@ type ChanClose struct {
 // Config defines the configuration for the service. ALL elements within the
 // configuration MUST be non-nil for the service to carry out its duties.
 type Config struct {
-	// SelfKey is the key of the backing Lightning node. This key is used
-	// to properly craft failure messages, such that the Layer 3 router can
-	// properly route around link./vertex failures.
-	SelfKey *btcec.PublicKey
-
 	// FwdingLog is an interface that will be used by the switch to log
 	// forwarding events. A forwarding event happens each time a payment
 	// circuit is successfully completed. So when we forward an HTLC, and a
@@ -776,8 +774,8 @@ func (s *Switch) handleLocalDispatch(pkt *htlcPacket) error {
 		if err != nil {
 			log.Errorf("Link %v not found", pkt.outgoingChanID)
 			return &ForwardingError{
-				ErrorSource:    s.cfg.SelfKey,
-				FailureMessage: &lnwire.FailUnknownNextPeer{},
+				FailureSourceIdx: 0,
+				FailureMessage:   &lnwire.FailUnknownNextPeer{},
 			}
 		}
 
@@ -790,9 +788,9 @@ func (s *Switch) handleLocalDispatch(pkt *htlcPacket) error {
 			// will be returned back to the router.
 			htlcErr := lnwire.NewTemporaryChannelFailure(nil)
 			return &ForwardingError{
-				ErrorSource:    s.cfg.SelfKey,
-				ExtraMsg:       err.Error(),
-				FailureMessage: htlcErr,
+				FailureSourceIdx: 0,
+				ExtraMsg:         err.Error(),
+				FailureMessage:   htlcErr,
 			}
 		}
 
@@ -808,8 +806,8 @@ func (s *Switch) handleLocalDispatch(pkt *htlcPacket) error {
 				"satisfied", pkt.outgoingChanID)
 
 			return &ForwardingError{
-				ErrorSource:    s.cfg.SelfKey,
-				FailureMessage: htlcErr,
+				FailureSourceIdx: 0,
+				FailureMessage:   htlcErr,
 			}
 		}
 
@@ -823,9 +821,9 @@ func (s *Switch) handleLocalDispatch(pkt *htlcPacket) error {
 			// will be returned back to the router.
 			htlcErr := lnwire.NewTemporaryChannelFailure(nil)
 			return &ForwardingError{
-				ErrorSource:    s.cfg.SelfKey,
-				ExtraMsg:       err.Error(),
-				FailureMessage: htlcErr,
+				FailureSourceIdx: 0,
+				ExtraMsg:         err.Error(),
+				FailureMessage:   htlcErr,
 			}
 		}
 
@@ -942,9 +940,7 @@ func (s *Switch) extractResult(deobfuscator ErrorDecrypter, n *networkResult,
 //    the payment deobfuscator.
 func (s *Switch) parseFailedPayment(deobfuscator ErrorDecrypter,
 	paymentID uint64, paymentHash lntypes.Hash, unencrypted,
-	isResolution bool, htlc *lnwire.UpdateFailHTLC) *ForwardingError {
-
-	var failure *ForwardingError
+	isResolution bool, htlc *lnwire.UpdateFailHTLC) error {
 
 	switch {
 
@@ -966,10 +962,11 @@ func (s *Switch) parseFailedPayment(deobfuscator ErrorDecrypter,
 			// router.
 			failureMsg = lnwire.NewTemporaryChannelFailure(nil)
 		}
-		failure = &ForwardingError{
-			ErrorSource:    s.cfg.SelfKey,
-			ExtraMsg:       userErr,
-			FailureMessage: failureMsg,
+
+		return &ForwardingError{
+			FailureSourceIdx: 0,
+			ExtraMsg:         userErr,
+			FailureMessage:   failureMsg,
 		}
 
 	// A payment had to be timed out on chain before it got past
@@ -980,33 +977,29 @@ func (s *Switch) parseFailedPayment(deobfuscator ErrorDecrypter,
 		userErr := fmt.Sprintf("payment was resolved "+
 			"on-chain, then cancelled back (hash=%v, pid=%d)",
 			paymentHash, paymentID)
-		failure = &ForwardingError{
-			ErrorSource:    s.cfg.SelfKey,
-			ExtraMsg:       userErr,
-			FailureMessage: lnwire.FailPermanentChannelFailure{},
+
+		return &ForwardingError{
+			FailureSourceIdx: 0,
+			ExtraMsg:         userErr,
+			FailureMessage:   &lnwire.FailPermanentChannelFailure{},
 		}
 
 	// A regular multi-hop payment error that we'll need to
 	// decrypt.
 	default:
-		var err error
 		// We'll attempt to fully decrypt the onion encrypted
 		// error. If we're unable to then we'll bail early.
-		failure, err = deobfuscator.DecryptError(htlc.Reason)
+		failure, err := deobfuscator.DecryptError(htlc.Reason)
 		if err != nil {
-			userErr := fmt.Sprintf("unable to de-obfuscate "+
-				"onion failure (hash=%v, pid=%d): %v",
+			log.Errorf("unable to de-obfuscate onion failure "+
+				"(hash=%v, pid=%d): %v",
 				paymentHash, paymentID, err)
-			log.Error(userErr)
-			failure = &ForwardingError{
-				ErrorSource:    s.cfg.SelfKey,
-				ExtraMsg:       userErr,
-				FailureMessage: lnwire.NewTemporaryChannelFailure(nil),
-			}
-		}
-	}
 
-	return failure
+			return ErrUnreadableFailureMessage
+		}
+
+		return failure
+	}
 }
 
 // handlePacketForward is used in cases when we need forward the htlc update

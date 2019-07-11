@@ -177,7 +177,7 @@ func TestFailUnknownPaymentHashOptionalAmount(t *testing.T) {
 	// Creation an error that is a non-pointer will allow us to skip the
 	// type assertion for the Serializable interface. As a result, the
 	// amount body won't be written.
-	onionError := FailUnknownPaymentHash{}
+	onionError := &FailUnknownPaymentHash{}
 
 	var b bytes.Buffer
 	if err := EncodeFailure(&b, onionError, 0); err != nil {
@@ -189,7 +189,7 @@ func TestFailUnknownPaymentHashOptionalAmount(t *testing.T) {
 		t.Fatalf("unable to decode error: %v", err)
 	}
 
-	if !reflect.DeepEqual(onionError, onionError) {
+	if !reflect.DeepEqual(onionError, onionError2) {
 		t.Fatalf("expected %v, got %v", spew.Sdump(onionError),
 			spew.Sdump(onionError2))
 	}

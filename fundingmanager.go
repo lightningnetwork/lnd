@@ -337,6 +337,14 @@ type fundingConfig struct {
 	// due to fees.
 	MinChanSize btcutil.Amount
 
+	// MaxPendingChannels is the maximum number of pending channels we
+	// allow for each peer.
+	MaxPendingChannels int
+
+	// RejectPush is set true if the fundingmanager should reject any
+	// incoming channels having a non-zero push amount.
+	RejectPush bool
+
 	// NotifyOpenChannelEvent informs the ChannelNotifier when channels
 	// transition from pending open to open.
 	NotifyOpenChannelEvent func(wire.OutPoint)
@@ -1012,7 +1020,7 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 
 	// TODO(roasbeef): modify to only accept a _single_ pending channel per
 	// block unless white listed
-	if numPending >= cfg.MaxPendingChannels {
+	if numPending >= f.cfg.MaxPendingChannels {
 		f.failFundingFlow(
 			fmsg.peer, fmsg.msg.PendingChannelID,
 			lnwire.ErrMaxPendingChannels,
@@ -1057,7 +1065,7 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 
 	// If request specifies non-zero push amount and 'rejectpush' is set,
 	// signal an error.
-	if cfg.RejectPush && msg.PushAmount > 0 {
+	if f.cfg.RejectPush && msg.PushAmount > 0 {
 		f.failFundingFlow(
 			fmsg.peer, fmsg.msg.PendingChannelID,
 			lnwallet.ErrNonZeroPushAmount())

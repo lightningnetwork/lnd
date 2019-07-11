@@ -69,12 +69,13 @@ type InitFundingReserveMsg struct {
 	// workflow.
 	NodeAddr net.Addr
 
-	// FundingAmount is the amount of funds requested for this channel.
-	FundingAmount btcutil.Amount
+	// LocalFundingAmt is the amount of funds requested from us for this
+	// channel.
+	LocalFundingAmt btcutil.Amount
 
-	// Capacity is the total capacity of the channel which includes the
-	// amount of funds the remote party contributes (if any).
-	Capacity btcutil.Amount
+	// RemoteFundingAmnt is the amount of funds the remote will contribute
+	// to this channel.
+	RemoteFundingAmt btcutil.Amount
 
 	// CommitFeePerKw is the starting accepted satoshis/Kw fee for the set
 	// of initial commitment transactions. In order to ensure timely
@@ -431,7 +432,7 @@ func (l *LightningWallet) InitChannelReservation(
 // validate a funding reservation request.
 func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg) {
 	// It isn't possible to create a channel with zero funds committed.
-	if req.FundingAmount+req.Capacity == 0 {
+	if req.LocalFundingAmt+req.RemoteFundingAmt == 0 {
 		err := ErrZeroCapacity()
 		req.err <- err
 		req.resp <- nil
@@ -449,9 +450,12 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 		return
 	}
 
+	capacity := req.LocalFundingAmt + req.RemoteFundingAmt
+	localFundingAmt := req.LocalFundingAmt
+
 	id := atomic.AddUint64(&l.nextFundingID, 1)
 	reservation, err := NewChannelReservation(
-		req.Capacity, req.FundingAmount, req.CommitFeePerKw, l, id,
+		capacity, localFundingAmt, req.CommitFeePerKw, l, id,
 		req.PushMSat, l.Cfg.NetParams.GenesisHash, req.Flags,
 	)
 	if err != nil {
@@ -470,11 +474,11 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 	// If we're on the receiving end of a single funder channel then we
 	// don't need to perform any coin selection. Otherwise, attempt to
 	// obtain enough coins to meet the required funding amount.
-	if req.FundingAmount != 0 {
+	if req.LocalFundingAmt != 0 {
 		// Coin selection is done on the basis of sat/kw, so we'll use
 		// the fee rate passed in to perform coin selection.
 		err := l.selectCoinsAndChange(
-			req.FundingFeePerKw, req.FundingAmount, req.MinConfs,
+			req.FundingFeePerKw, req.LocalFundingAmt, req.MinConfs,
 			reservation.ourContribution,
 		)
 		if err != nil {

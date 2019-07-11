@@ -14,6 +14,10 @@ type NeutrinoBackendConfig struct {
 	minerAddr string
 }
 
+// A compile time assertion to ensure NeutrinoBackendConfig meets the
+// BackendConfig interface.
+var _ BackendConfig = (*NeutrinoBackendConfig)(nil)
+
 // GenArgs returns the arguments needed to be passed to LND at startup for
 // using this node as a chain backend.
 func (b NeutrinoBackendConfig) GenArgs() []string {

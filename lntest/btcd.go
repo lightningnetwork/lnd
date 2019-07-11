@@ -35,6 +35,10 @@ type BtcdBackendConfig struct {
 	minerAddr string
 }
 
+// A compile time assertion to ensure BtcdBackendConfig meets the BackendConfig
+// interface.
+var _ BackendConfig = (*BtcdBackendConfig)(nil)
+
 // GenArgs returns the arguments needed to be passed to LND at startup for
 // using this node as a chain backend.
 func (b BtcdBackendConfig) GenArgs() []string {

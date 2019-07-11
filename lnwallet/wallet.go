@@ -482,110 +482,21 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 		req.PushMSat, l.Cfg.NetParams.GenesisHash, req.Flags,
 	)
 	if err != nil {
+		selected.unlockCoins()
 		req.err <- err
 		req.resp <- nil
 		return
 	}
 
-	// Grab the mutex on the ChannelReservation to ensure thread-safety
-	reservation.Lock()
-	defer reservation.Unlock()
-
-	if selected != nil {
-		reservation.ourContribution.Inputs = selected.coins
-		reservation.ourContribution.ChangeOutputs = selected.change
-	}
-
-	reservation.nodeAddr = req.NodeAddr
-	reservation.partialState.IdentityPub = req.NodeID
-
-	// Next, we'll grab a series of keys from the wallet which will be used
-	// for the duration of the channel. The keys include: our multi-sig
-	// key, the base revocation key, the base htlc key,the base payment
-	// key, and the delayed payment key.
-	//
-	// TODO(roasbeef): "salt" each key as well?
-	reservation.ourContribution.MultiSigKey, err = l.DeriveNextKey(
-		keychain.KeyFamilyMultiSig,
+	err = l.initOurContribution(
+		reservation, selected, req.NodeAddr, req.NodeID,
 	)
 	if err != nil {
+		selected.unlockCoins()
 		req.err <- err
 		req.resp <- nil
 		return
 	}
-	reservation.ourContribution.RevocationBasePoint, err = l.DeriveNextKey(
-		keychain.KeyFamilyRevocationBase,
-	)
-	if err != nil {
-		req.err <- err
-		req.resp <- nil
-		return
-	}
-	reservation.ourContribution.HtlcBasePoint, err = l.DeriveNextKey(
-		keychain.KeyFamilyHtlcBase,
-	)
-	if err != nil {
-		req.err <- err
-		req.resp <- nil
-		return
-	}
-	reservation.ourContribution.PaymentBasePoint, err = l.DeriveNextKey(
-		keychain.KeyFamilyPaymentBase,
-	)
-	if err != nil {
-		req.err <- err
-		req.resp <- nil
-		return
-	}
-	reservation.ourContribution.DelayBasePoint, err = l.DeriveNextKey(
-		keychain.KeyFamilyDelayBase,
-	)
-	if err != nil {
-		req.err <- err
-		req.resp <- nil
-		return
-	}
-
-	// With the above keys created, we'll also need to initialization our
-	// initial revocation tree state.
-	nextRevocationKeyDesc, err := l.DeriveNextKey(
-		keychain.KeyFamilyRevocationRoot,
-	)
-	if err != nil {
-		req.err <- err
-		req.resp <- nil
-		return
-	}
-	revocationRoot, err := l.DerivePrivKey(nextRevocationKeyDesc)
-	if err != nil {
-		req.err <- err
-		req.resp <- nil
-		return
-	}
-
-	// Once we have the root, we can then generate our shachain producer
-	// and from that generate the per-commitment point.
-	revRoot, err := chainhash.NewHash(revocationRoot.Serialize())
-	if err != nil {
-		req.err <- err
-		req.resp <- nil
-		return
-	}
-	producer := shachain.NewRevocationProducer(*revRoot)
-	firstPreimage, err := producer.AtIndex(0)
-	if err != nil {
-		req.err <- err
-		req.resp <- nil
-		return
-	}
-	reservation.ourContribution.FirstCommitmentPoint = input.ComputeCommitmentPoint(
-		firstPreimage[:],
-	)
-
-	reservation.partialState.RevocationProducer = producer
-	reservation.ourContribution.ChannelConstraints = l.Cfg.DefaultConstraints
-
-	// TODO(roasbeef): turn above into: initContribution()
 
 	// Create a limbo and record entry for this newly pending funding
 	// request.
@@ -598,6 +509,96 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 	// completed, or cancelled.
 	req.resp <- reservation
 	req.err <- nil
+}
+
+// initOurContribution initializes the given ChannelReservation with our coins
+// and change reserved for the channel, and derives the keys to use for this
+// channel.
+func (l *LightningWallet) initOurContribution(reservation *ChannelReservation,
+	selected *coinSelection, nodeAddr net.Addr, nodeID *btcec.PublicKey) error {
+
+	// Grab the mutex on the ChannelReservation to ensure thread-safety
+	reservation.Lock()
+	defer reservation.Unlock()
+
+	if selected != nil {
+		reservation.ourContribution.Inputs = selected.coins
+		reservation.ourContribution.ChangeOutputs = selected.change
+	}
+
+	reservation.nodeAddr = nodeAddr
+	reservation.partialState.IdentityPub = nodeID
+
+	// Next, we'll grab a series of keys from the wallet which will be used
+	// for the duration of the channel. The keys include: our multi-sig
+	// key, the base revocation key, the base htlc key,the base payment
+	// key, and the delayed payment key.
+	//
+	// TODO(roasbeef): "salt" each key as well?
+	var err error
+	reservation.ourContribution.MultiSigKey, err = l.DeriveNextKey(
+		keychain.KeyFamilyMultiSig,
+	)
+	if err != nil {
+		return err
+	}
+	reservation.ourContribution.RevocationBasePoint, err = l.DeriveNextKey(
+		keychain.KeyFamilyRevocationBase,
+	)
+	if err != nil {
+		return err
+	}
+	reservation.ourContribution.HtlcBasePoint, err = l.DeriveNextKey(
+		keychain.KeyFamilyHtlcBase,
+	)
+	if err != nil {
+		return err
+	}
+	reservation.ourContribution.PaymentBasePoint, err = l.DeriveNextKey(
+		keychain.KeyFamilyPaymentBase,
+	)
+	if err != nil {
+		return err
+	}
+	reservation.ourContribution.DelayBasePoint, err = l.DeriveNextKey(
+		keychain.KeyFamilyDelayBase,
+	)
+	if err != nil {
+		return err
+	}
+
+	// With the above keys created, we'll also need to initialization our
+	// initial revocation tree state.
+	nextRevocationKeyDesc, err := l.DeriveNextKey(
+		keychain.KeyFamilyRevocationRoot,
+	)
+	if err != nil {
+		return err
+	}
+	revocationRoot, err := l.DerivePrivKey(nextRevocationKeyDesc)
+	if err != nil {
+		return err
+	}
+
+	// Once we have the root, we can then generate our shachain producer
+	// and from that generate the per-commitment point.
+	revRoot, err := chainhash.NewHash(revocationRoot.Serialize())
+	if err != nil {
+		return err
+	}
+	producer := shachain.NewRevocationProducer(*revRoot)
+	firstPreimage, err := producer.AtIndex(0)
+	if err != nil {
+		return err
+	}
+	reservation.ourContribution.FirstCommitmentPoint = input.ComputeCommitmentPoint(
+		firstPreimage[:],
+	)
+
+	reservation.partialState.RevocationProducer = producer
+	reservation.ourContribution.ChannelConstraints = l.Cfg.DefaultConstraints
+
+	return nil
 }
 
 // handleFundingReserveCancel cancels an existing channel reservation. As part

@@ -69,6 +69,13 @@ type InitFundingReserveMsg struct {
 	// workflow.
 	NodeAddr net.Addr
 
+	// SubtractFees should be set if we intend to spend exactly
+	// LocalFundingAmt when opening the channel, subtracting the fees from
+	// the funding output. This can be used for instance to use all our
+	// remaining funds to open the channel, since it will take fees into
+	// account.
+	SubtractFees bool
+
 	// LocalFundingAmt is the amount of funds requested from us for this
 	// channel.
 	LocalFundingAmt btcutil.Amount
@@ -450,7 +457,6 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 		return
 	}
 
-	capacity := req.LocalFundingAmt + req.RemoteFundingAmt
 	localFundingAmt := req.LocalFundingAmt
 
 	var (
@@ -468,13 +474,20 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 		var err error
 		selected, err = l.selectCoinsAndChange(
 			req.FundingFeePerKw, req.LocalFundingAmt, req.MinConfs,
+			req.SubtractFees,
 		)
 		if err != nil {
 			req.err <- err
 			req.resp <- nil
 			return
 		}
+
+		localFundingAmt = selected.fundingAmt
 	}
+
+	// The total channel capacity will be the size of the funding output we
+	// created plus the remote contribution.
+	capacity := localFundingAmt + req.RemoteFundingAmt
 
 	id := atomic.AddUint64(&l.nextFundingID, 1)
 	reservation, err := NewChannelReservation(
@@ -1289,6 +1302,7 @@ func (l *LightningWallet) WithCoinSelectLock(f func() error) error {
 type coinSelection struct {
 	coins       []*wire.TxIn
 	change      []*wire.TxOut
+	fundingAmt  btcutil.Amount
 	unlockCoins func()
 }
 
@@ -1296,10 +1310,12 @@ type coinSelection struct {
 // outputs which sum to at least 'amt' amount of satoshis. If necessary,
 // a change address will also be generated. If coin selection is
 // successful/possible, then the selected coins and change outputs are
-// returned. This method locks the selected outputs, and a function closure to
-// unlock them in case of an error is returned.
+// returned, and the value of the resulting funding output. This method locks
+// the selected outputs, and a function closure to unlock them in case of an
+// error is returned.
 func (l *LightningWallet) selectCoinsAndChange(feeRate SatPerKWeight,
-	amt btcutil.Amount, minConfs int32) (*coinSelection, error) {
+	amt btcutil.Amount, minConfs int32, subtractFees bool) (
+	*coinSelection, error) {
 
 	// We hold the coin select mutex while querying for outputs, and
 	// performing coin selection in order to avoid inadvertent double
@@ -1317,12 +1333,36 @@ func (l *LightningWallet) selectCoinsAndChange(feeRate SatPerKWeight,
 		return nil, err
 	}
 
+	var (
+		selectedCoins []*Utxo
+		fundingAmt    btcutil.Amount
+		changeAmt     btcutil.Amount
+	)
+
 	// Perform coin selection over our available, unlocked unspent outputs
 	// in order to find enough coins to meet the funding amount
 	// requirements.
-	selectedCoins, changeAmt, err := coinSelect(feeRate, amt, coins)
-	if err != nil {
-		return nil, err
+	switch {
+	// In case this request want the fees subtracted from the local amount,
+	// we'll call the specialized method for that. This ensures that we
+	// won't deduct more that the specified balance from our wallet.
+	case subtractFees:
+		dustLimit := l.Cfg.DefaultConstraints.DustLimit
+		selectedCoins, fundingAmt, changeAmt, err = coinSelectSubtractFees(
+			feeRate, amt, dustLimit, coins,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+	// Ótherwise do a normal coin selection where we target a given funding
+	// amount.
+	default:
+		fundingAmt = amt
+		selectedCoins, changeAmt, err = coinSelect(feeRate, amt, coins)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// Record any change output(s) generated as a result of the coin
@@ -1374,6 +1414,7 @@ func (l *LightningWallet) selectCoinsAndChange(feeRate SatPerKWeight,
 	return &coinSelection{
 		coins:       inputs,
 		change:      changeOutputs,
+		fundingAmt:  fundingAmt,
 		unlockCoins: unlock,
 	}, nil
 }

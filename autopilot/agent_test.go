@@ -1259,34 +1259,40 @@ func TestAgentChannelSizeAllocation(t *testing.T) {
 	waitForNumChans := func(expChans int) {
 		t.Helper()
 
+		var (
+			numChans int
+			balance  btcutil.Amount
+		)
+
 	Loop:
 		for {
 			select {
 			case arg := <-testCtx.constraints.moreChanArgs:
+				numChans = len(arg.chans)
+				balance = arg.balance
+
 				// As long as the number of existing channels
 				// is below our expected number of channels,
-				// we'll keep responding with "no more
-				// channels".
-				if len(arg.chans) != expChans {
-					select {
-					case testCtx.constraints.moreChansResps <- moreChansResp{0, 0}:
-					case <-time.After(time.Second * 3):
-						t.Fatalf("heuristic wasn't " +
-							"queried in time")
-					}
-					continue
+				// and the balance is not what we expect, we'll
+				// keep responding with "no more channels".
+				if numChans == expChans &&
+					balance == testCtx.walletBalance {
+					break Loop
 				}
 
-				if arg.balance != testCtx.walletBalance {
-					t.Fatalf("expectd agent to have %v "+
-						"balance, had %v",
-						testCtx.walletBalance,
-						arg.balance)
+				select {
+				case testCtx.constraints.moreChansResps <- moreChansResp{0, 0}:
+				case <-time.After(time.Second * 3):
+					t.Fatalf("heuristic wasn't queried " +
+						"in time")
 				}
-				break Loop
 
 			case <-time.After(time.Second * 3):
-				t.Fatalf("heuristic wasn't queried in time")
+				t.Fatalf("did not receive expected "+
+					"channels(%d) and balance(%d), "+
+					"instead got %d and %d", expChans,
+					testCtx.walletBalance, numChans,
+					balance)
 			}
 		}
 	}

@@ -178,3 +178,173 @@ func TestCoinSelect(t *testing.T) {
 		})
 	}
 }
+
+// TestCoinSelectSubtractFees tests that we pick coins adding up to the
+// expected amount when creating a funding transaction, and that a change
+// output is created only when necessary.
+func TestCoinSelectSubtractFees(t *testing.T) {
+	t.Parallel()
+
+	const feeRate = SatPerKWeight(100)
+	const dustLimit = btcutil.Amount(1000)
+	const dust = btcutil.Amount(100)
+
+	type testCase struct {
+		name       string
+		spendValue btcutil.Amount
+		coins      []*Utxo
+
+		expectedInput      []btcutil.Amount
+		expectedFundingAmt btcutil.Amount
+		expectedChange     btcutil.Amount
+		expectErr          bool
+	}
+
+	testCases := []testCase{
+		{
+			// We have 1.0 BTC available, spend them all. This
+			// should lead to a funding TX with one output, the
+			// rest goes to fees.
+			name: "spend all",
+			coins: []*Utxo{
+				{
+					AddressType: WitnessPubKey,
+					Value:       1 * btcutil.SatoshiPerBitcoin,
+				},
+			},
+			spendValue: 1 * btcutil.SatoshiPerBitcoin,
+
+			// The one and only input will be selected.
+			expectedInput: []btcutil.Amount{
+				1 * btcutil.SatoshiPerBitcoin,
+			},
+			expectedFundingAmt: 1*btcutil.SatoshiPerBitcoin - fundingFee(feeRate, 1, false),
+			expectedChange:     0,
+		},
+		{
+			// The total funds available is below the dust limit
+			// after paying fees.
+			name: "dust output",
+			coins: []*Utxo{
+				{
+					AddressType: WitnessPubKey,
+					Value:       fundingFee(feeRate, 1, false) + dust,
+				},
+			},
+			spendValue: fundingFee(feeRate, 1, false) + dust,
+
+			expectErr: true,
+		},
+		{
+			// After subtracting fees, the resulting change output
+			// is below the dust limit. The remainder should go
+			// towards the funding output.
+			name: "dust change",
+			coins: []*Utxo{
+				{
+					AddressType: WitnessPubKey,
+					Value:       1 * btcutil.SatoshiPerBitcoin,
+				},
+			},
+			spendValue: 1*btcutil.SatoshiPerBitcoin - dust,
+
+			expectedInput: []btcutil.Amount{
+				1 * btcutil.SatoshiPerBitcoin,
+			},
+			expectedFundingAmt: 1*btcutil.SatoshiPerBitcoin - fundingFee(feeRate, 1, false),
+			expectedChange:     0,
+		},
+		{
+			// We got just enough funds to create an output above the dust limit.
+			name: "output right above dustlimit",
+			coins: []*Utxo{
+				{
+					AddressType: WitnessPubKey,
+					Value:       fundingFee(feeRate, 1, false) + dustLimit + 1,
+				},
+			},
+			spendValue: fundingFee(feeRate, 1, false) + dustLimit + 1,
+
+			expectedInput: []btcutil.Amount{
+				fundingFee(feeRate, 1, false) + dustLimit + 1,
+			},
+			expectedFundingAmt: dustLimit + 1,
+			expectedChange:     0,
+		},
+		{
+			// Amount left is below dust limit after paying fee for
+			// a change output, resulting in a no-change tx.
+			name: "no amount to pay fee for change",
+			coins: []*Utxo{
+				{
+					AddressType: WitnessPubKey,
+					Value:       fundingFee(feeRate, 1, false) + 2*(dustLimit+1),
+				},
+			},
+			spendValue: fundingFee(feeRate, 1, false) + dustLimit + 1,
+
+			expectedInput: []btcutil.Amount{
+				fundingFee(feeRate, 1, false) + 2*(dustLimit+1),
+			},
+			expectedFundingAmt: 2 * (dustLimit + 1),
+			expectedChange:     0,
+		},
+		{
+			// If more than 20% of funds goes to fees, it should fail.
+			name: "high fee",
+			coins: []*Utxo{
+				{
+					AddressType: WitnessPubKey,
+					Value:       5 * fundingFee(feeRate, 1, false),
+				},
+			},
+			spendValue: 5 * fundingFee(feeRate, 1, false),
+
+			expectErr: true,
+		},
+	}
+
+	for _, test := range testCases {
+		t.Run(test.name, func(t *testing.T) {
+			selected, localFundingAmt, changeAmt, err := coinSelectSubtractFees(
+				feeRate, test.spendValue, dustLimit, test.coins,
+			)
+			if !test.expectErr && err != nil {
+				t.Fatalf(err.Error())
+			}
+
+			if test.expectErr && err == nil {
+				t.Fatalf("expected error")
+			}
+
+			// If we got an expected error, there is nothing more to test.
+			if test.expectErr {
+				return
+			}
+
+			// Check that the selected inputs match what we expect.
+			if len(selected) != len(test.expectedInput) {
+				t.Fatalf("expected %v inputs, got %v",
+					len(test.expectedInput), len(selected))
+			}
+
+			for i, coin := range selected {
+				if coin.Value != test.expectedInput[i] {
+					t.Fatalf("expected input %v to have value %v, "+
+						"had %v", i, test.expectedInput[i],
+						coin.Value)
+				}
+			}
+
+			// Assert we got the expected change amount.
+			if localFundingAmt != test.expectedFundingAmt {
+				t.Fatalf("expected %v local funding amt, got %v",
+					test.expectedFundingAmt, localFundingAmt)
+			}
+			if changeAmt != test.expectedChange {
+				t.Fatalf("expected %v change amt, got %v",
+					test.expectedChange, changeAmt)
+			}
+		})
+	}
+}

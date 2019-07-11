@@ -1794,6 +1794,7 @@ message RoutingPolicy {
     int64 fee_rate_milli_msat = 4 [json_name = "fee_rate_milli_msat"];
     bool disabled = 5 [json_name = "disabled"];
     uint64 max_htlc_msat = 6 [json_name = "max_htlc_msat"];
+    uint32 last_update = 7 [json_name = "last_update"];
 }
 
 /**
@@ -1813,7 +1814,7 @@ message ChannelEdge {
     uint64 channel_id = 1 [json_name = "channel_id"];
     string chan_point = 2 [json_name = "chan_point"];
 
-    uint32 last_update = 3 [json_name = "last_update"];
+    uint32 last_update = 3 [json_name = "last_update", deprecated = true];
 
     string node1_pub = 4 [json_name = "node1_pub"];
     string node2_pub = 5 [json_name = "node2_pub"];

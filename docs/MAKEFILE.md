@@ -114,7 +114,7 @@ Installs the version of [`github.com/btcsuite/btcd`][btcd] specified in
 integration test suite.
 
 Arguments:
-- `icase=<itestcase>`
+- `icase=<itestcase>` (the snake_case version of the testcase name field in the testCases slice (i.e. sweep_coins), not the test func name)
 - `timeout=<timeout>`
 
 `lint`

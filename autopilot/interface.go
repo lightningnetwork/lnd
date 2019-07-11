@@ -188,10 +188,11 @@ func init() {
 // open a channel within the graph to a target peer, close targeted channels,
 // or add/remove funds from existing channels via a splice in/out mechanisms.
 type ChannelController interface {
-	// OpenChannel opens a channel to a target peer, with a capacity of the
-	// specified amount. This function should un-block immediately after
-	// the funding transaction that marks the channel open has been
-	// broadcast.
+	// OpenChannel opens a channel to a target peer, using at most amt
+	// funds. This means that the resulting channel capacity might be
+	// slightly less to account for fees. This function should un-block
+	// immediately after the funding transaction that marks the channel
+	// open has been broadcast.
 	OpenChannel(target *btcec.PublicKey, amt btcutil.Amount) error
 
 	// CloseChannel attempts to close out the target channel.

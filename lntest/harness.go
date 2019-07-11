@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"net/http"
 	"os"
 	"strings"
 	"sync"
@@ -646,6 +647,65 @@ func (n *NetworkHarness) ShutdownNode(node *HarnessNode) error {
 // started up again.
 func (n *NetworkHarness) StopNode(node *HarnessNode) error {
 	return node.stop()
+}
+
+// SaveProfilesPages hits profiles pages of all active nodes and writes it to
+// disk using a similar naming scheme as to the regular set of logs.
+func (n *NetworkHarness) SaveProfilesPages() {
+	// Only write gorutine dumps if flag is active.
+	if !(*goroutineDump) {
+		return
+	}
+
+	for _, node := range n.activeNodes {
+		if err := saveProfilesPage(node); err != nil {
+			fmt.Println(err)
+		}
+	}
+}
+
+// saveProfilesPage saves the profiles page for the given node to file.
+func saveProfilesPage(node *HarnessNode) error {
+	resp, err := http.Get(
+		fmt.Sprintf(
+			"http://localhost:%d/debug/pprof/goroutine?debug=1",
+			node.cfg.ProfilePort,
+		),
+	)
+	if err != nil {
+		return fmt.Errorf("Failed to get profile page "+
+			"(node_id=%d, name=%s): %v\n",
+			node.NodeID, node.cfg.Name, err)
+	}
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("Failed to read profile page "+
+			"(node_id=%d, name=%s): %v\n",
+			node.NodeID, node.cfg.Name, err)
+	}
+
+	fileName := fmt.Sprintf(
+		"pprof-%d-%s-%s.log", node.NodeID, node.cfg.Name,
+		hex.EncodeToString(node.PubKey[:logPubKeyBytes]),
+	)
+
+	logFile, err := os.Create(fileName)
+	if err != nil {
+		return fmt.Errorf("Failed to create file for profile page "+
+			"(node_id=%d, name=%s): %v\n",
+			node.NodeID, node.cfg.Name, err)
+	}
+	defer logFile.Close()
+
+	_, err = logFile.Write(body)
+	if err != nil {
+		return fmt.Errorf("Failed to save profile page "+
+			"(node_id=%d, name=%s): %v\n",
+			node.NodeID, node.cfg.Name, err)
+	}
+	return nil
 }
 
 // TODO(roasbeef): add a WithChannel higher-order function?

@@ -515,6 +515,13 @@ func (r *ChannelReservation) FundingOutpoint() *wire.OutPoint {
 	return &r.partialState.FundingOutpoint
 }
 
+// Capacity returns the channel capacity for this reservation.
+func (r *ChannelReservation) Capacity() btcutil.Amount {
+	r.RLock()
+	defer r.RUnlock()
+	return r.partialState.Capacity
+}
+
 // Cancel abandons this channel reservation. This method should be called in
 // the scenario that communications with the counterparty break down. Upon
 // cancellation, all resources previously reserved for this pending payment

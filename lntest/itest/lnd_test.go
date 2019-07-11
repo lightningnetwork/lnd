@@ -45,7 +45,7 @@ import (
 )
 
 var (
-	harnessNetParams = &chaincfg.SimNetParams
+	harnessNetParams = &chaincfg.RegressionNetParams
 )
 
 const (
@@ -14415,7 +14415,9 @@ func TestLightningNetworkDaemon(t *testing.T) {
 	}()
 
 	// Start a chain backend.
-	chainBackend, cleanUp, err := lntest.NewBackend(miner.P2PAddress())
+	chainBackend, cleanUp, err := lntest.NewBackend(
+		miner.P2PAddress(), harnessNetParams,
+	)
 	if err != nil {
 		ht.Fatalf("unable to start backend: %v", err)
 	}
@@ -14454,7 +14456,7 @@ func TestLightningNetworkDaemon(t *testing.T) {
 
 	// Next mine enough blocks in order for segwit and the CSV package
 	// soft-fork to activate on SimNet.
-	numBlocks := chaincfg.SimNetParams.MinerConfirmationWindow * 2
+	numBlocks := harnessNetParams.MinerConfirmationWindow * 2
 	if _, err := miner.Node.Generate(numBlocks); err != nil {
 		ht.Fatalf("unable to generate blocks: %v", err)
 	}

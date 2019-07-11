@@ -2,7 +2,11 @@
 
 package lntest
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/btcsuite/btcd/chaincfg"
+)
 
 // NeutrinoBackendConfig is an implementation of the BackendConfig interface
 // backed by a neutrino node.
@@ -35,7 +39,9 @@ func (b NeutrinoBackendConfig) Name() string {
 }
 
 // NewBackend starts and returns a NeutrinoBackendConfig for the node.
-func NewBackend(miner string) (*NeutrinoBackendConfig, func(), error) {
+func NewBackend(miner string, _ *chaincfg.Params) (
+	*NeutrinoBackendConfig, func(), error) {
+
 	bd := &NeutrinoBackendConfig{
 		minerAddr: miner,
 	}

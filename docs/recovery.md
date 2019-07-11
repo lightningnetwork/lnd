@@ -283,7 +283,7 @@ the same format.
 Using the gRPC interace directly, [a new call:
 `SubscribeChannelBackups`](https://api.lightning.community/#subscribechannelbackups).
 This call allows users to receive a new notification each time the underlying
-SCB state changes. This can be used to implement implement more complex backup
+SCB state changes. This can be used to implement more complex backup
 schemes, compared to the file system notification based approach.
 
 ### Recovering Using SCBs

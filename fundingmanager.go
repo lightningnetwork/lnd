@@ -2742,8 +2742,7 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 	var (
 		peerKey        = msg.peer.IdentityKey()
 		localAmt       = msg.localFundingAmt
-		remoteAmt      = msg.remoteFundingAmt
-		capacity       = localAmt + remoteAmt
+		capacity       = localAmt
 		minHtlc        = msg.minHtlc
 		remoteCsvDelay = msg.remoteCsvDelay
 	)

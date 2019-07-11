@@ -1428,6 +1428,8 @@ func coinSelect(feeRate SatPerKWeight, amt btcutil.Amount,
 		//
 		// TODO: Handle wallets that generate non-witness change
 		// addresses.
+		// TODO(halseth): make coinSelect not estimate change output
+		// for dust change.
 		weightEstimate.AddP2WKHOutput()
 
 		// The difference between the selected amount and the amount

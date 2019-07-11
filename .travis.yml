@@ -18,6 +18,7 @@ env:
     - RACE=true
     - ITEST=true
     - NEUTRINO_ITEST=true
+    - BITCOIND_ITEST=true
     - COVER=true 
 
 sudo: required
@@ -34,6 +35,9 @@ script:
 
   # Run neutrino integration tests.
   - 'if [ "$NEUTRINO_ITEST" = true ]; then make travis-itest backend=neutrino; fi'
+
+  # Run bitcoind integration tests.
+  - 'if [ "$BITCOIND_ITEST" = true ]; then make travis-itest backend=bitcoind; fi'
 
   # Run unit tests and generate coverage report.
   - 'if [ "$COVER" = true ]; then make travis-cover; fi'

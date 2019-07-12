@@ -268,7 +268,7 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 		for _, channel := range openChannels {
 			// We'll restrict the number of individual route hints
 			// to 20 to avoid creating overly large invoices.
-			if numHints > 20 {
+			if numHints >= 20 {
 				break
 			}
 

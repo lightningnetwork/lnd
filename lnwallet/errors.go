@@ -137,8 +137,8 @@ func ErrNumConfsTooLarge(numConfs, maxNumConfs uint32) error {
 // configured value for the min channel size we'll accept.
 func ErrChanTooSmall(chanSize, minChanSize btcutil.Amount) ReservationError {
 	return ReservationError{
-		fmt.Errorf("chan size of %v is below min chan size of %v",
-			chanSize, minChanSize),
+		fmt.Errorf("Your %v channel is below the %v minimum size "+
+			"set on the connecting node", chanSize, minChanSize),
 	}
 }
 

@@ -19,7 +19,8 @@ func GetRoutingConfig(cfg *Config) *RoutingConfig {
 	return &RoutingConfig{
 		AprioriHopProbability: routing.DefaultAprioriHopProbability,
 		MinRouteProbability:   routing.DefaultMinRouteProbability,
-		PaymentAttemptPenalty: routing.DefaultPaymentAttemptPenalty,
-		PenaltyHalfLife:       routing.DefaultPenaltyHalfLife,
+		AttemptCost: routing.DefaultPaymentAttemptPenalty.
+			ToSatoshis(),
+		PenaltyHalfLife: routing.DefaultPenaltyHalfLife,
 	}
 }

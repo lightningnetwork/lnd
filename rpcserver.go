@@ -697,7 +697,7 @@ func allowCORS(h http.Handler) http.Handler {
 			w.Header().Set("Access-Control-Allow-Headers",
 				"Content-Type, Accept, grpc-metadata-macaroon")
 			w.Header().Set("Access-Control-Allow-Methods",
-				"GET, POST")
+				"GET, POST, DELETE")
 			return
 		}
 

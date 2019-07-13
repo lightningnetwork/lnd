@@ -1,8 +1,11 @@
 package routing
 
 import (
+	"container/heap"
+
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing/route"
 )
 
 // nodeWithDist is a helper struct that couples the distance from the current
@@ -12,9 +15,9 @@ type nodeWithDist struct {
 	// current context.
 	dist int64
 
-	// node is the vertex itself. This pointer can be used to explore all
-	// the outgoing edges (channels) emanating from a node.
-	node *channeldb.LightningNode
+	// node is the vertex itself. This can be used to explore all the
+	// outgoing edges (channels) emanating from a node.
+	node route.Vertex
 
 	// amountToReceive is the amount that should be received by this node.
 	// Either as final payment to the final node or as an intermediate
@@ -39,6 +42,21 @@ type nodeWithDist struct {
 // algorithm to keep track of the "closest" node to our source node.
 type distanceHeap struct {
 	nodes []nodeWithDist
+
+	// pubkeyIndices maps public keys of nodes to their respective index in
+	// the heap. This is used as a way to avoid db lookups by using heap.Fix
+	// instead of having duplicate entries on the heap.
+	pubkeyIndices map[route.Vertex]int
+}
+
+// newDistanceHeap initializes a new distance heap. This is required because
+// we must initialize the pubkeyIndices map for path-finding optimizations.
+func newDistanceHeap() distanceHeap {
+	distHeap := distanceHeap{
+		pubkeyIndices: make(map[route.Vertex]int),
+	}
+
+	return distHeap
 }
 
 // Len returns the number of nodes in the priority queue.
@@ -59,13 +77,17 @@ func (d *distanceHeap) Less(i, j int) bool {
 // NOTE: This is part of the heap.Interface implementation.
 func (d *distanceHeap) Swap(i, j int) {
 	d.nodes[i], d.nodes[j] = d.nodes[j], d.nodes[i]
+	d.pubkeyIndices[d.nodes[i].node] = i
+	d.pubkeyIndices[d.nodes[j].node] = j
 }
 
 // Push pushes the passed item onto the priority queue.
 //
 // NOTE: This is part of the heap.Interface implementation.
 func (d *distanceHeap) Push(x interface{}) {
-	d.nodes = append(d.nodes, x.(nodeWithDist))
+	n := x.(nodeWithDist)
+	d.nodes = append(d.nodes, n)
+	d.pubkeyIndices[n.node] = len(d.nodes) - 1
 }
 
 // Pop removes the highest priority item (according to Less) from the priority
@@ -76,7 +98,27 @@ func (d *distanceHeap) Pop() interface{} {
 	n := len(d.nodes)
 	x := d.nodes[n-1]
 	d.nodes = d.nodes[0 : n-1]
+	delete(d.pubkeyIndices, x.node)
 	return x
+}
+
+// PushOrFix attempts to adjust the position of a given node in the heap.
+// If the vertex already exists in the heap, then we must call heap.Fix to
+// modify its position and reorder the heap. If the vertex does not already
+// exist in the heap, then it is pushed onto the heap. Otherwise, we will end
+// up performing more db lookups on the same node in the pathfinding algorithm.
+func (d *distanceHeap) PushOrFix(dist nodeWithDist) {
+	index, ok := d.pubkeyIndices[dist.node]
+	if !ok {
+		heap.Push(d, dist)
+		return
+	}
+
+	// Change the value at the specified index.
+	d.nodes[index] = dist
+
+	// Call heap.Fix to reorder the heap.
+	heap.Fix(d, index)
 }
 
 // path represents an ordered set of edges which forms an available path from a

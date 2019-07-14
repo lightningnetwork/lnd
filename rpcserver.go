@@ -696,26 +696,26 @@ func checkCors(h http.Handler) http.Handler {
 		origin := r.Header.Get("Origin")
 
 		// Skip CORS check if request did not send origin
-		if origin == "" {
-			return
-		}
+		if origin != "" {
+			// Check if all origins are allowed or requested origin is in list
+			for _, allowedOrigin := range cfg.RestCORS {
+				if allowedOrigin == "*" || origin == allowedOrigin {
+					// Only set ACAO header for requested origin
+					w.Header().Set("Access-Control-Allow-Origin", origin)
 
-		// Check if all origins are allowed or if requested origin matches list
-		for _, allowedOrigin := range cfg.RestCORS {
-			if allowedOrigin == "*" || origin == allowedOrigin {
-				// Only set ACAO header for requested origin
-				w.Header().Set("Access-Control-Allow-Origin", origin)
+					// Set necessary headers for preflight requests
+					if r.Method == "OPTIONS" &&
+						r.Header.Get("Access-Control-Request-Method") != "" {
+						w.Header().Set("Access-Control-Allow-Headers",
+							"Content-Type, Accept, grpc-metadata-macaroon")
+						w.Header().Set("Access-Control-Allow-Methods",
+							"GET, POST, DELETE")
 
-				// Set necessary headers for preflight requests
-				if r.Method == "OPTIONS" &&
-					r.Header.Get("Access-Control-Request-Method") != "" {
-					w.Header().Set("Access-Control-Allow-Headers",
-						"Content-Type, Accept, grpc-metadata-macaroon")
-					w.Header().Set("Access-Control-Allow-Methods",
-						"GET, POST, DELETE")
-					return
+						// Nothing else needs to be served for OPTIONS
+						return
+					}
+					break
 				}
-				break
 			}
 		}
 

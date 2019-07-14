@@ -254,6 +254,7 @@ type config struct {
 	RawRESTListeners []string `long:"restlisten" description:"Add an interface/port/socket to listen for REST connections"`
 	RawListeners     []string `long:"listen" description:"Add an interface/port to listen for peer connections"`
 	RawExternalIPs   []string `long:"externalip" description:"Add an ip:port to the list of local addresses we claim to listen on to peers. If a port is not specified, the default (9735) will be used regardless of other parameters"`
+	RestCORS   		 []string `long:"restcors" description:"Add an ip:port/hostname to allow cross origin access from. To allow all origins, set as \"*\"."`
 	RPCListeners     []net.Addr
 	RESTListeners    []net.Addr
 	Listeners        []net.Addr

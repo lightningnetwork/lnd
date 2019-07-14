@@ -880,7 +880,14 @@ func waitForWalletPassword(grpcEndpoints, restEndpoints []net.Addr,
 		return nil, err
 	}
 
-	srv := &http.Server{Handler: allowCORS(mux)}
+	// Check for CORS configurations before starting REST proxy
+	var srv *http.Server
+
+	if len(cfg.RestCORS) == 0 {
+		srv = &http.Server{Handler: mux}
+	} else {
+		srv = &http.Server{Handler: checkCors(mux)}
+	}
 
 	for _, restEndpoint := range restEndpoints {
 		lis, err := lncfg.TLSListenOnAddress(restEndpoint, tlsConf)

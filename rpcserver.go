@@ -679,26 +679,44 @@ func (r *rpcServer) Start() error {
 
 		go func() {
 			rpcsLog.Infof("gRPC proxy started at %s", lis.Addr())
-			http.Serve(lis, allowCORS(mux))
+			if len(cfg.RestCORS) == 0 {
+				http.Serve(lis, mux)
+			} else {
+				http.Serve(lis, checkCors(mux))
+			}
 		}()
 	}
 
 	return nil
 }
 
-// allowCORS allows Cross Origin Resoruce Sharing from any origin.
-func allowCORS(h http.Handler) http.Handler {
+// checkCors allows Cross Origin Resoruce Sharing from configured origins.
+func checkCors(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		origin := r.Header.Get("Origin")
 
-		// Set necessary headers for preflight requests
-		if r.Method == "OPTIONS" &&
-			r.Header.Get("Access-Control-Request-Method") != "" {
-			w.Header().Set("Access-Control-Allow-Headers",
-				"Content-Type, Accept, grpc-metadata-macaroon")
-			w.Header().Set("Access-Control-Allow-Methods",
-				"GET, POST, DELETE")
+		// Skip CORS check if request did not send origin
+		if origin == "" {
 			return
+		}
+
+		// Check if all origins are allowed or if requested origin matches list
+		for _, allowedOrigin := range cfg.RestCORS {
+			if allowedOrigin == "*" || origin == allowedOrigin {
+				// Only set ACAO header for requested origin
+				w.Header().Set("Access-Control-Allow-Origin", origin)
+
+				// Set necessary headers for preflight requests
+				if r.Method == "OPTIONS" &&
+					r.Header.Get("Access-Control-Request-Method") != "" {
+					w.Header().Set("Access-Control-Allow-Headers",
+						"Content-Type, Accept, grpc-metadata-macaroon")
+					w.Header().Set("Access-Control-Allow-Methods",
+						"GET, POST, DELETE")
+					return
+				}
+				break
+			}
 		}
 
 		h.ServeHTTP(w, r)

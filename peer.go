@@ -396,16 +396,6 @@ func (p *peer) initGossipSync() {
 		// bootstrapper to ensure we can find and connect to non-channel
 		// peers.
 		p.server.authGossiper.InitSyncState(p)
-
-	// If the remote peer has the initial sync feature bit set, then we'll
-	// being the synchronization protocol to exchange authenticated channel
-	// graph edges/vertexes, but only if they don't know of the new gossip
-	// queries.
-	case p.remoteLocalFeatures.HasFeature(lnwire.InitialRoutingSync):
-		srvrLog.Infof("Requesting full table sync with %x",
-			p.pubKeyBytes[:])
-
-		go p.server.authGossiper.SynchronizeNode(p)
 	}
 }
 

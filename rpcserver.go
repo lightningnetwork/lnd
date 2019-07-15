@@ -3999,6 +3999,12 @@ func (r *rpcServer) GetNetworkInfo(ctx context.Context,
 		return nil, err
 	}
 
+	// Query the graph for the current number of zombie channels.
+	numZombies, err := graph.NumZombies()
+	if err != nil {
+		return nil, err
+	}
+
 	// Find the median.
 	medianChanSize = autopilot.Median(allChans)
 
@@ -4022,6 +4028,7 @@ func (r *rpcServer) GetNetworkInfo(ctx context.Context,
 		MinChannelSize:       int64(minChannelSize),
 		MaxChannelSize:       int64(maxChannelSize),
 		MedianChannelSizeSat: int64(medianChanSize),
+		NumZombieChans:       numZombies,
 	}
 
 	// Similarly, if we don't have any channels, then we'll also set the

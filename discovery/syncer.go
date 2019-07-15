@@ -941,54 +941,9 @@ func (g *GossipSyncer) replyShortChanIDs(query *lnwire.QueryShortChanIDs) error 
 // to the peer that aren't within the time range of the filter.
 func (g *GossipSyncer) ApplyGossipFilter(filter *lnwire.GossipTimestampRange) error {
 	g.Lock()
+	defer g.Unlock()
 
 	g.remoteUpdateHorizon = filter
-
-	startTime := time.Unix(int64(g.remoteUpdateHorizon.FirstTimestamp), 0)
-	endTime := startTime.Add(
-		time.Duration(g.remoteUpdateHorizon.TimestampRange) * time.Second,
-	)
-
-	g.Unlock()
-
-	// Now that the remote peer has applied their filter, we'll query the
-	// database for all the messages that are beyond this filter.
-	newUpdatestoSend, err := g.cfg.channelSeries.UpdatesInHorizon(
-		g.cfg.chainHash, startTime, endTime,
-	)
-	if err != nil {
-		return err
-	}
-
-	log.Infof("GossipSyncer(%x): applying new update horizon: start=%v, "+
-		"end=%v, backlog_size=%v", g.cfg.peerPub[:], startTime, endTime,
-		len(newUpdatestoSend))
-
-	// If we don't have any to send, then we can return early.
-	if len(newUpdatestoSend) == 0 {
-		return nil
-	}
-
-	// We'll conclude by launching a goroutine to send out any updates.
-	g.wg.Add(1)
-	go func() {
-		defer g.wg.Done()
-
-		for _, msg := range newUpdatestoSend {
-			err := g.cfg.sendToPeerSync(msg)
-			switch {
-			case err == ErrGossipSyncerExiting:
-				return
-
-			case err == lnpeer.ErrPeerExiting:
-				return
-
-			case err != nil:
-				log.Errorf("Unable to send message for "+
-					"peer catch up: %v", err)
-			}
-		}
-	}()
 
 	return nil
 }

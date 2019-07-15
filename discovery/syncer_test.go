@@ -378,10 +378,7 @@ func TestGossipSyncerApplyGossipFilter(t *testing.T) {
 	}()
 
 	// We'll now attempt to apply the gossip filter for the remote peer.
-	err := syncer.ApplyGossipFilter(remoteHorizon)
-	if err != nil {
-		t.Fatalf("unable to apply filter: %v", err)
-	}
+	syncer.ApplyGossipFilter(remoteHorizon)
 
 	// Ensure that the syncer's remote horizon was properly updated.
 	if !reflect.DeepEqual(syncer.remoteUpdateHorizon, remoteHorizon) {
@@ -394,7 +391,7 @@ func TestGossipSyncerApplyGossipFilter(t *testing.T) {
 
 	// Assert that no query was made as a result of applying the gossip
 	// filter.
-	err = <-errChan
+	err := <-errChan
 	if err != nil {
 		t.Fatalf(err.Error())
 	}

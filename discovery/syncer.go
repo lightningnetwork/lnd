@@ -939,13 +939,11 @@ func (g *GossipSyncer) replyShortChanIDs(query *lnwire.QueryShortChanIDs) error 
 // ApplyGossipFilter applies a gossiper filter sent by the remote node to the
 // state machine. Once applied, we'll ensure that we don't forward any messages
 // to the peer that aren't within the time range of the filter.
-func (g *GossipSyncer) ApplyGossipFilter(filter *lnwire.GossipTimestampRange) error {
+func (g *GossipSyncer) ApplyGossipFilter(filter *lnwire.GossipTimestampRange) {
 	g.Lock()
 	defer g.Unlock()
 
 	g.remoteUpdateHorizon = filter
-
-	return nil
 }
 
 // FilterGossipMsgs takes a set of gossip messages, and only send it to a peer

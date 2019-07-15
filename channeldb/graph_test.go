@@ -2847,6 +2847,22 @@ func TestEdgePolicyMissingMaxHtcl(t *testing.T) {
 	assertEdgeInfoEqual(t, dbEdgeInfo, edgeInfo)
 }
 
+// assertNumZombies queries the provided ChannelGraph for NumZombies, and
+// asserts that the returned number is equal to expZombies.
+func assertNumZombies(t *testing.T, graph *ChannelGraph, expZombies uint64) {
+	t.Helper()
+
+	numZombies, err := graph.NumZombies()
+	if err != nil {
+		t.Fatalf("unable to query number of zombies: %v", err)
+	}
+
+	if numZombies != expZombies {
+		t.Fatalf("expected %d zombies, found %d",
+			expZombies, numZombies)
+	}
+}
+
 // TestGraphZombieIndex ensures that we can mark edges correctly as zombie/live.
 func TestGraphZombieIndex(t *testing.T) {
 	t.Parallel()
@@ -2885,6 +2901,7 @@ func TestGraphZombieIndex(t *testing.T) {
 	if isZombie {
 		t.Fatal("expected edge to not be marked as zombie")
 	}
+	assertNumZombies(t, graph, 0)
 
 	// If we delete the edge and mark it as a zombie, then we should expect
 	// to see it within the index.
@@ -2904,6 +2921,7 @@ func TestGraphZombieIndex(t *testing.T) {
 		t.Fatalf("expected pubKey2 %x, got %x", node2.PubKeyBytes,
 			pubKey2)
 	}
+	assertNumZombies(t, graph, 1)
 
 	// Similarly, if we mark the same edge as live, we should no longer see
 	// it within the index.
@@ -2914,6 +2932,7 @@ func TestGraphZombieIndex(t *testing.T) {
 	if isZombie {
 		t.Fatal("expected edge to not be marked as zombie")
 	}
+	assertNumZombies(t, graph, 0)
 }
 
 // compareNodes is used to compare two LightningNodes while excluding the

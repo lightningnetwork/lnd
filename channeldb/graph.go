@@ -3195,6 +3195,31 @@ func isZombieEdge(zombieIndex *bbolt.Bucket,
 	return true, pubKey1, pubKey2
 }
 
+// NumZombies returns the current number of zombie channels in the graph.
+func (c *ChannelGraph) NumZombies() (uint64, error) {
+	var numZombies uint64
+	err := c.db.View(func(tx *bbolt.Tx) error {
+		edges := tx.Bucket(edgeBucket)
+		if edges == nil {
+			return nil
+		}
+		zombieIndex := edges.Bucket(zombieBucket)
+		if zombieIndex == nil {
+			return nil
+		}
+
+		return zombieIndex.ForEach(func(_, _ []byte) error {
+			numZombies++
+			return nil
+		})
+	})
+	if err != nil {
+		return 0, err
+	}
+
+	return numZombies, nil
+}
+
 func putLightningNode(nodeBucket *bbolt.Bucket, aliasBucket *bbolt.Bucket,
 	updateIndex *bbolt.Bucket, node *LightningNode) error {
 

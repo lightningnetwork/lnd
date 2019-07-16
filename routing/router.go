@@ -739,6 +739,12 @@ func (r *ChannelRouter) pruneZombieChans() error {
 
 	log.Infof("Examining channel graph for zombie channels")
 
+	// A helper method to detect if the channel belongs to this node
+	isSelfChannelEdge := func(info *channeldb.ChannelEdgeInfo) bool {
+		return info.NodeKey1Bytes == r.selfNode.PubKeyBytes ||
+			info.NodeKey2Bytes == r.selfNode.PubKeyBytes
+	}
+
 	// First, we'll collect all the channels which are eligible for garbage
 	// collection due to being zombies.
 	filterPruneChans := func(info *channeldb.ChannelEdgeInfo,
@@ -752,9 +758,7 @@ func (r *ChannelRouter) pruneZombieChans() error {
 		// We'll ensure that we don't attempt to prune our *own*
 		// channels from the graph, as in any case this should be
 		// re-advertised by the sub-system above us.
-		if info.NodeKey1Bytes == r.selfNode.PubKeyBytes ||
-			info.NodeKey2Bytes == r.selfNode.PubKeyBytes {
-
+		if isSelfChannelEdge(info) {
 			return nil
 		}
 
@@ -779,34 +783,9 @@ func (r *ChannelRouter) pruneZombieChans() error {
 			}
 		}
 
-		isZombieChan := e1Zombie && e2Zombie
-
-		// If AssumeChannelValid is present and we've determined the
-		// channel is not a zombie, we'll look at the disabled bit for
-		// both edges. If they're both disabled, then we can interpret
-		// this as the channel being closed and can prune it from our
-		// graph.
-		if r.cfg.AssumeChannelValid && !isZombieChan {
-			var e1Disabled, e2Disabled bool
-			if e1 != nil {
-				e1Disabled = e1.IsDisabled()
-				log.Tracef("Edge #1 of ChannelID(%v) "+
-					"disabled=%v", info.ChannelID,
-					e1Disabled)
-			}
-			if e2 != nil {
-				e2Disabled = e2.IsDisabled()
-				log.Tracef("Edge #2 of ChannelID(%v) "+
-					"disabled=%v", info.ChannelID,
-					e2Disabled)
-			}
-
-			isZombieChan = e1Disabled && e2Disabled
-		}
-
 		// If the channel is not considered zombie, we can move on to
 		// the next.
-		if !isZombieChan {
+		if !e1Zombie || !e2Zombie {
 			return nil
 		}
 
@@ -819,29 +798,39 @@ func (r *ChannelRouter) pruneZombieChans() error {
 		return nil
 	}
 
+	// If AssumeChannelValid is present we'll look at the disabled bit for both
+	// edges. If they're both disabled, then we can interpret this as the
+	// channel being closed and can prune it from our graph.
+	if r.cfg.AssumeChannelValid {
+		disabledChanIDs, err := r.cfg.Graph.DisabledChannelIDs()
+		if err != nil {
+			return fmt.Errorf("unable to get disabled channels ids "+
+				"chans: %v", err)
+		}
+
+		disabledEdges, err := r.cfg.Graph.FetchChanInfos(disabledChanIDs)
+		if err != nil {
+			return fmt.Errorf("unable to fetch disabled channels edges "+
+				"chans: %v", err)
+		}
+
+		// Ensuring we won't prune our own channel from the graph.
+		for _, disabledEdge := range disabledEdges {
+			if !isSelfChannelEdge(disabledEdge.Info) {
+				chansToPrune[disabledEdge.Info.ChannelID] = struct{}{}
+			}
+		}
+	}
+
 	startTime := time.Unix(0, 0)
 	endTime := time.Now().Add(-1 * chanExpiry)
 	oldEdges, err := r.cfg.Graph.ChanUpdatesInHorizon(startTime, endTime)
 	if err != nil {
-		return fmt.Errorf("unable to filter local zombie "+
+		return fmt.Errorf("unable to fetch expired channel updates "+
 			"chans: %v", err)
 	}
 
-	disabledChanIDs, err := r.cfg.Graph.DisabledChannelIDs()
-	if err != nil {
-		return fmt.Errorf("unable to filter local zombie "+
-			"chans: %v", err)
-	}
-
-	disabledEdges, err := r.cfg.Graph.FetchChanInfos(disabledChanIDs)
-	if err != nil {
-		return fmt.Errorf("unable to filter local zombie "+
-			"chans: %v", err)
-	}
-
-	edgesToFilter := append(oldEdges, disabledEdges...)
-
-	for _, u := range edgesToFilter {
+	for _, u := range oldEdges {
 		filterPruneChans(u.Info, u.Policy1, u.Policy2)
 	}
 
@@ -849,7 +838,7 @@ func (r *ChannelRouter) pruneZombieChans() error {
 
 	// With the set of zombie-like channels obtained, we'll do another pass
 	// to delete them from the channel graph.
-	var toPrune []uint64
+	toPrune := make([]uint64, 0, len(chansToPrune))
 	for chanID := range chansToPrune {
 		toPrune = append(toPrune, chanID)
 		log.Tracef("Pruning zombie channel with ChannelID(%v)", chanID)

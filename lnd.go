@@ -203,10 +203,10 @@ func Main() error {
 		neutrinoBackend, neutrinoCleanUp, err := initNeutrinoBackend(
 			mainChain.ChainDir,
 		)
-		defer neutrinoCleanUp()
 		if err != nil {
 			return err
 		}
+		defer neutrinoCleanUp()
 		neutrinoCS = neutrinoBackend
 	}
 

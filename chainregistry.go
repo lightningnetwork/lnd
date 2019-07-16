@@ -713,6 +713,7 @@ func initNeutrinoBackend(chainDir string) (*neutrino.ChainService, func(), error
 		cfg.NeutrinoMode.AssertFilterHeader,
 	)
 	if err != nil {
+		db.Close()
 		return nil, nil, err
 	}
 
@@ -754,6 +755,7 @@ func initNeutrinoBackend(chainDir string) (*neutrino.ChainService, func(), error
 
 	neutrinoCS, err := neutrino.NewChainService(config)
 	if err != nil {
+		db.Close()
 		return nil, nil, fmt.Errorf("unable to create neutrino light "+
 			"client: %v", err)
 	}

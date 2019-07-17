@@ -690,31 +690,27 @@ func (r *rpcServer) Start() error {
 	return nil
 }
 
-// checkCors allows Cross Origin Resoruce Sharing from configured origins.
+// checkCors allows Cross Origin Resource Sharing from configured origins.
 func checkCors(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
 
 		// Skip CORS check if request did not send origin.
 		if origin != "" {
-			// Check if all origins are allowed or requested origin is in list.
+			// Check if origin is allowed.
 			for _, allowedOrigin := range cfg.RestCORS {
-				if allowedOrigin == "*" || origin == allowedOrigin {
-					// Only set ACAO header for requested origin.
-					w.Header().Set("Access-Control-Allow-Origin", origin)
+				if allowedOrigin == "*" ||
+					origin == allowedOrigin {
 
-					// Set necessary headers for preflight requests.
-					if r.Method == "OPTIONS" &&
-						r.Header.Get("Access-Control-Request-Method") != "" {
+					// Only set ACAO for requested origin.
+					acaoStr := "Access-Control-Allow-Origin"
+					w.Header().Set(acaoStr, origin)
 
-						w.Header().Set("Access-Control-Allow-Headers",
-							"Content-Type, Accept, grpc-metadata-macaroon")
-						w.Header().Set("Access-Control-Allow-Methods",
-							"GET, POST, DELETE")
-
-						// Nothing else needs to be served for OPTIONS.
+					// Preflights only need headers back.
+					if checkPreflight(w, r) {
 						return
 					}
+
 					break
 				}
 			}
@@ -722,6 +718,23 @@ func checkCors(h http.Handler) http.Handler {
 
 		h.ServeHTTP(w, r)
 	})
+}
+
+// checkPreflight will check if the request is an appropriate preflight
+// request and add additional access control headers if so.
+func checkPreflight(w http.ResponseWriter, r *http.Request) bool {
+	if r.Method == "OPTIONS" &&
+		r.Header.Get("Access-Control-Request-Method") != "" {
+
+		w.Header().Set("Access-Control-Allow-Headers",
+			"Content-Type, Accept, grpc-metadata-macaroon")
+		w.Header().Set("Access-Control-Allow-Methods",
+			"GET, POST, DELETE")
+
+		return true
+	}
+
+	return false
 }
 
 // Stop signals any active goroutines for a graceful closure.

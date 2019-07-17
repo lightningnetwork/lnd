@@ -1869,6 +1869,9 @@ message NetworkInfo {
     int64 max_channel_size = 9 [json_name = "max_channel_size"];
     int64 median_channel_size_sat = 10 [json_name = "median_channel_size_sat"];
 
+    // The number of edges marked as zombies.
+    uint64 num_zombie_chans = 11 [json_name = "num_zombie_chans"];
+
     // TODO(roasbeef): fee rate info, expiry
     //  * also additional RPC for tracking fee info once in
 }

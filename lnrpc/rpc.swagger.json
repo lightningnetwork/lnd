@@ -2633,6 +2633,11 @@
         "median_channel_size_sat": {
           "type": "string",
           "format": "int64"
+        },
+        "num_zombie_chans": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The number of edges marked as zombies."
         }
       }
     },

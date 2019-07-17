@@ -510,10 +510,13 @@ func (m *Mnemonic) Decipher(pass []byte) ([DecipheredCipherSeedSize]byte, error)
 	// Before we attempt to map the mnemonic back to the original
 	// ciphertext, we'll ensure that all the word are actually a part of
 	// the current default word list.
-	for _, word := range m {
+	for i, word := range m {
 		if !strings.Contains(englishWordList, word) {
 			emptySeed := [DecipheredCipherSeedSize]byte{}
-			return emptySeed, ErrUnknownMnenomicWord{word}
+			return emptySeed, ErrUnknownMnenomicWord{
+				Word:  word,
+				Index: uint8(i),
+			}
 		}
 	}
 

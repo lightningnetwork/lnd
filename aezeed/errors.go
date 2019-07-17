@@ -21,10 +21,16 @@ var (
 // ErrUnknownMnenomicWord is returned when attempting to decipher and
 // enciphered mnemonic, but a word encountered isn't a member of our word list.
 type ErrUnknownMnenomicWord struct {
-	word string
+	// Word is the unknown word in the mnemonic phrase.
+	Word string
+
+	// Index is the index (starting from zero) within the slice of strings
+	// that makes up the mnemonic that points to the incorrect word.
+	Index uint8
 }
 
 // Error returns a human readable string describing the error.
 func (e ErrUnknownMnenomicWord) Error() string {
-	return fmt.Sprintf("word %v isn't a part of default word list", e.word)
+	return fmt.Sprintf("word %v isn't a part of default word list "+
+		"(index=%v)", e.Word, e.Index)
 }

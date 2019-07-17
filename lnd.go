@@ -880,7 +880,7 @@ func waitForWalletPassword(grpcEndpoints, restEndpoints []net.Addr,
 		return nil, err
 	}
 
-	// Check for CORS configurations before starting REST proxy
+	// Check for CORS configurations before starting REST proxy.
 	var srv *http.Server
 
 	if len(cfg.RestCORS) == 0 {

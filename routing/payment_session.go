@@ -16,27 +16,6 @@ type PaymentSession interface {
 	// specified HTLC payment to the target node.
 	RequestRoute(payment *LightningPayment,
 		height uint32, finalCltvDelta uint16) (*route.Route, error)
-
-	// ReportVertexFailure reports to the PaymentSession that the passsed
-	// vertex failed to route the previous payment attempt. The
-	// PaymentSession will use this information to produce a better next
-	// route.
-	ReportVertexFailure(v route.Vertex)
-
-	// ReportEdgeFailure reports to the PaymentSession that the passed edge
-	// failed to route the previous payment attempt. A minimum penalization
-	// amount is included to attenuate the failure. This is set to a
-	// non-zero value for channel balance failures. The PaymentSession will
-	// use this information to produce a better next route.
-	ReportEdgeFailure(failedEdge edge, minPenalizeAmt lnwire.MilliSatoshi)
-
-	// ReportEdgePolicyFailure reports to the PaymentSession that we
-	// received a failure message that relates to a channel policy. For
-	// these types of failures, the PaymentSession can decide whether to to
-	// keep the edge included in the next attempted route. The
-	// PaymentSession will use this information to produce a better next
-	// route.
-	ReportEdgePolicyFailure(failedEdge edge)
 }
 
 // paymentSession is used during an HTLC routings session to prune the local
@@ -52,80 +31,12 @@ type paymentSession struct {
 
 	bandwidthHints map[uint64]lnwire.MilliSatoshi
 
-	// errFailedFeeChans is a map of the short channel IDs that were the
-	// source of policy related routing failures during this payment attempt.
-	// We'll use this map to prune out channels when the first error may not
-	// require pruning, but any subsequent ones do.
-	errFailedPolicyChans map[nodeChannel]struct{}
-
-	mc *MissionControl
+	sessionSource *SessionSource
 
 	preBuiltRoute      *route.Route
 	preBuiltRouteTried bool
 
 	pathFinder pathFinder
-}
-
-// A compile time assertion to ensure paymentSession meets the PaymentSession
-// interface.
-var _ PaymentSession = (*paymentSession)(nil)
-
-// ReportVertexFailure adds a vertex to the graph prune view after a client
-// reports a routing failure localized to the vertex. The time the vertex was
-// added is noted, as it'll be pruned from the shared view after a period of
-// vertexDecay. However, the vertex will remain pruned for the *local* session.
-// This ensures we don't retry this vertex during the payment attempt.
-//
-// NOTE: Part of the PaymentSession interface.
-func (p *paymentSession) ReportVertexFailure(v route.Vertex) {
-	p.mc.reportVertexFailure(v)
-}
-
-// ReportEdgeFailure adds a channel to the graph prune view. The time the
-// channel was added is noted, as it'll be pruned from the global view after a
-// period of edgeDecay. However, the edge will remain pruned for the duration
-// of the *local* session. This ensures that we don't flap by continually
-// retrying an edge after its pruning has expired.
-//
-// TODO(roasbeef): also add value attempted to send and capacity of channel
-//
-// NOTE: Part of the PaymentSession interface.
-func (p *paymentSession) ReportEdgeFailure(failedEdge edge,
-	minPenalizeAmt lnwire.MilliSatoshi) {
-
-	p.mc.reportEdgeFailure(failedEdge, minPenalizeAmt)
-}
-
-// ReportEdgePolicyFailure handles a failure message that relates to a
-// channel policy. For these types of failures, the policy is updated and we
-// want to keep it included during path finding. This function does mark the
-// edge as 'policy failed once'. The next time it fails, the whole node will be
-// pruned. This is to prevent nodes from keeping us busy by continuously sending
-// new channel updates.
-//
-// NOTE: Part of the PaymentSession interface.
-//
-// TODO(joostjager): Move this logic into global mission control.
-func (p *paymentSession) ReportEdgePolicyFailure(failedEdge edge) {
-	key := nodeChannel{
-		node:    failedEdge.from,
-		channel: failedEdge.channel,
-	}
-
-	// Check to see if we've already reported a policy related failure for
-	// this channel. If so, then we'll prune out the vertex.
-	_, ok := p.errFailedPolicyChans[key]
-	if ok {
-		// TODO(joostjager): is this aggressive pruning still necessary?
-		// Just pruning edges may also work unless there is a huge
-		// number of failing channels from that node?
-		p.ReportVertexFailure(key.node)
-
-		return
-	}
-
-	// Finally, we'll record a policy failure from this node and move on.
-	p.errFailedPolicyChans[key] = struct{}{}
 }
 
 // RequestRoute returns a route which is likely to be capable for successfully
@@ -169,21 +80,24 @@ func (p *paymentSession) RequestRoute(payment *LightningPayment,
 	// Taking into account this prune view, we'll attempt to locate a path
 	// to our destination, respecting the recommendations from
 	// MissionControl.
+	ss := p.sessionSource
+
+	restrictions := &RestrictParams{
+		ProbabilitySource:     ss.MissionControl.GetEdgeProbability,
+		FeeLimit:              payment.FeeLimit,
+		OutgoingChannelID:     payment.OutgoingChannelID,
+		CltvLimit:             cltvLimit,
+		PaymentAttemptPenalty: ss.PaymentAttemptPenalty,
+		MinProbability:        ss.MinRouteProbability,
+	}
+
 	path, err := p.pathFinder(
 		&graphParams{
-			graph:           p.mc.graph,
+			graph:           ss.Graph,
 			additionalEdges: p.additionalEdges,
 			bandwidthHints:  p.bandwidthHints,
 		},
-		&RestrictParams{
-			ProbabilitySource:     p.mc.getEdgeProbability,
-			FeeLimit:              payment.FeeLimit,
-			OutgoingChannelID:     payment.OutgoingChannelID,
-			CltvLimit:             cltvLimit,
-			PaymentAttemptPenalty: p.mc.cfg.PaymentAttemptPenalty,
-			MinProbability:        p.mc.cfg.MinRouteProbability,
-		},
-		p.mc.selfNode.PubKeyBytes, payment.Target,
+		restrictions, ss.SelfNode.PubKeyBytes, payment.Target,
 		payment.Amount,
 	)
 	if err != nil {
@@ -192,7 +106,7 @@ func (p *paymentSession) RequestRoute(payment *LightningPayment,
 
 	// With the next candidate path found, we'll attempt to turn this into
 	// a route by applying the time-lock and fee requirements.
-	sourceVertex := route.Vertex(p.mc.selfNode.PubKeyBytes)
+	sourceVertex := route.Vertex(ss.SelfNode.PubKeyBytes)
 	route, err := newRoute(
 		payment.Amount, sourceVertex, path, height, finalCltvDelta,
 	)

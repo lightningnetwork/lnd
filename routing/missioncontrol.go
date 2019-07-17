@@ -5,12 +5,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
-	"github.com/coreos/bbolt"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
-	"github.com/lightningnetwork/lnd/zpay32"
 )
 
 const (
@@ -18,6 +14,30 @@ const (
 	// half-life duration defines after how much time a penalized node or
 	// channel is back at 50% probability.
 	DefaultPenaltyHalfLife = time.Hour
+
+	// minSecondChanceInterval is the minimum time required between
+	// second-chance failures.
+	//
+	// If nodes return a channel policy related failure, they may get a
+	// second chance to forward the payment. It could be that the channel
+	// policy that we are aware of is not up to date. This is especially
+	// important in case of mobile apps that are mostly offline.
+	//
+	// However, we don't want to give nodes the option to endlessly return
+	// new channel updates so that we are kept busy trying to route through
+	// that node until the payment loop times out.
+	//
+	// Therefore we only grant a second chance to a node if the previous
+	// second chance is sufficiently long ago. This is what
+	// minSecondChanceInterval defines. If a second policy failure comes in
+	// within that interval, we will apply a penalty.
+	//
+	// Second chances granted are tracked on the level of node pairs. This
+	// means that if a node has multiple channels to the same peer, they
+	// will only get a single second chance to route to that peer again.
+	// Nodes forward non-strict, so it isn't necessary to apply a less
+	// restrictive channel level tracking scheme here.
+	minSecondChanceInterval = time.Minute
 )
 
 // MissionControl contains state which summarizes the past attempts of HTLC
@@ -32,11 +52,9 @@ const (
 type MissionControl struct {
 	history map[route.Vertex]*nodeHistory
 
-	graph *channeldb.ChannelGraph
-
-	selfNode *channeldb.LightningNode
-
-	queryBandwidth func(*channeldb.ChannelEdgeInfo) lnwire.MilliSatoshi
+	// lastSecondChance tracks the last time a second chance was granted for
+	// a directed node pair.
+	lastSecondChance map[DirectedNodePair]time.Time
 
 	// now is expected to return the current time. It is supplied as an
 	// external function to enable deterministic unit tests.
@@ -52,26 +70,12 @@ type MissionControl struct {
 	// TODO(roasbeef): also add favorable metrics for nodes
 }
 
-// A compile time assertion to ensure MissionControl meets the
-// PaymentSessionSource interface.
-var _ PaymentSessionSource = (*MissionControl)(nil)
-
 // MissionControlConfig defines parameters that control mission control
 // behaviour.
 type MissionControlConfig struct {
 	// PenaltyHalfLife defines after how much time a penalized node or
 	// channel is back at 50% probability.
 	PenaltyHalfLife time.Duration
-
-	// PaymentAttemptPenalty is the virtual cost in path finding weight
-	// units of executing a payment attempt that fails. It is used to trade
-	// off potentially better routes against their probability of
-	// succeeding.
-	PaymentAttemptPenalty lnwire.MilliSatoshi
-
-	// MinProbability defines the minimum success probability of the
-	// returned route.
-	MinRouteProbability float64
 
 	// AprioriHopProbability is the assumed success probability of a hop in
 	// a route when no other information is available.
@@ -143,162 +147,17 @@ type MissionControlChannelSnapshot struct {
 }
 
 // NewMissionControl returns a new instance of missionControl.
-//
-// TODO(roasbeef): persist memory
-func NewMissionControl(g *channeldb.ChannelGraph, selfNode *channeldb.LightningNode,
-	qb func(*channeldb.ChannelEdgeInfo) lnwire.MilliSatoshi,
-	cfg *MissionControlConfig) *MissionControl {
-
+func NewMissionControl(cfg *MissionControlConfig) *MissionControl {
 	log.Debugf("Instantiating mission control with config: "+
-		"PenaltyHalfLife=%v, PaymentAttemptPenalty=%v, "+
-		"MinRouteProbability=%v, AprioriHopProbability=%v",
-		cfg.PenaltyHalfLife,
-		int64(cfg.PaymentAttemptPenalty.ToSatoshis()),
-		cfg.MinRouteProbability, cfg.AprioriHopProbability)
+		"PenaltyHalfLife=%v, AprioriHopProbability=%v",
+		cfg.PenaltyHalfLife, cfg.AprioriHopProbability)
 
 	return &MissionControl{
-		history:        make(map[route.Vertex]*nodeHistory),
-		selfNode:       selfNode,
-		queryBandwidth: qb,
-		graph:          g,
-		now:            time.Now,
-		cfg:            cfg,
+		history:          make(map[route.Vertex]*nodeHistory),
+		lastSecondChance: make(map[DirectedNodePair]time.Time),
+		now:              time.Now,
+		cfg:              cfg,
 	}
-}
-
-// NewPaymentSession creates a new payment session backed by the latest prune
-// view from Mission Control. An optional set of routing hints can be provided
-// in order to populate additional edges to explore when finding a path to the
-// payment's destination.
-func (m *MissionControl) NewPaymentSession(routeHints [][]zpay32.HopHint,
-	target route.Vertex) (PaymentSession, error) {
-
-	edges := make(map[route.Vertex][]*channeldb.ChannelEdgePolicy)
-
-	// Traverse through all of the available hop hints and include them in
-	// our edges map, indexed by the public key of the channel's starting
-	// node.
-	for _, routeHint := range routeHints {
-		// If multiple hop hints are provided within a single route
-		// hint, we'll assume they must be chained together and sorted
-		// in forward order in order to reach the target successfully.
-		for i, hopHint := range routeHint {
-			// In order to determine the end node of this hint,
-			// we'll need to look at the next hint's start node. If
-			// we've reached the end of the hints list, we can
-			// assume we've reached the destination.
-			endNode := &channeldb.LightningNode{}
-			if i != len(routeHint)-1 {
-				endNode.AddPubKey(routeHint[i+1].NodeID)
-			} else {
-				targetPubKey, err := btcec.ParsePubKey(
-					target[:], btcec.S256(),
-				)
-				if err != nil {
-					return nil, err
-				}
-				endNode.AddPubKey(targetPubKey)
-			}
-
-			// Finally, create the channel edge from the hop hint
-			// and add it to list of edges corresponding to the node
-			// at the start of the channel.
-			edge := &channeldb.ChannelEdgePolicy{
-				Node:      endNode,
-				ChannelID: hopHint.ChannelID,
-				FeeBaseMSat: lnwire.MilliSatoshi(
-					hopHint.FeeBaseMSat,
-				),
-				FeeProportionalMillionths: lnwire.MilliSatoshi(
-					hopHint.FeeProportionalMillionths,
-				),
-				TimeLockDelta: hopHint.CLTVExpiryDelta,
-			}
-
-			v := route.NewVertex(hopHint.NodeID)
-			edges[v] = append(edges[v], edge)
-		}
-	}
-
-	// We'll also obtain a set of bandwidthHints from the lower layer for
-	// each of our outbound channels. This will allow the path finding to
-	// skip any links that aren't active or just don't have enough
-	// bandwidth to carry the payment.
-	sourceNode, err := m.graph.SourceNode()
-	if err != nil {
-		return nil, err
-	}
-	bandwidthHints, err := generateBandwidthHints(
-		sourceNode, m.queryBandwidth,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	return &paymentSession{
-		additionalEdges:      edges,
-		bandwidthHints:       bandwidthHints,
-		errFailedPolicyChans: make(map[nodeChannel]struct{}),
-		mc:                   m,
-		pathFinder:           findPath,
-	}, nil
-}
-
-// NewPaymentSessionForRoute creates a new paymentSession instance that is just
-// used for failure reporting to missioncontrol.
-func (m *MissionControl) NewPaymentSessionForRoute(preBuiltRoute *route.Route) PaymentSession {
-	return &paymentSession{
-		errFailedPolicyChans: make(map[nodeChannel]struct{}),
-		mc:                   m,
-		preBuiltRoute:        preBuiltRoute,
-	}
-}
-
-// NewPaymentSessionEmpty creates a new paymentSession instance that is empty,
-// and will be exhausted immediately. Used for failure reporting to
-// missioncontrol for resumed payment we don't want to make more attempts for.
-func (m *MissionControl) NewPaymentSessionEmpty() PaymentSession {
-	return &paymentSession{
-		errFailedPolicyChans: make(map[nodeChannel]struct{}),
-		mc:                   m,
-		preBuiltRoute:        &route.Route{},
-		preBuiltRouteTried:   true,
-	}
-}
-
-// generateBandwidthHints is a helper function that's utilized the main
-// findPath function in order to obtain hints from the lower layer w.r.t to the
-// available bandwidth of edges on the network. Currently, we'll only obtain
-// bandwidth hints for the edges we directly have open ourselves. Obtaining
-// these hints allows us to reduce the number of extraneous attempts as we can
-// skip channels that are inactive, or just don't have enough bandwidth to
-// carry the payment.
-func generateBandwidthHints(sourceNode *channeldb.LightningNode,
-	queryBandwidth func(*channeldb.ChannelEdgeInfo) lnwire.MilliSatoshi) (map[uint64]lnwire.MilliSatoshi, error) {
-
-	// First, we'll collect the set of outbound edges from the target
-	// source node.
-	var localChans []*channeldb.ChannelEdgeInfo
-	err := sourceNode.ForEachChannel(nil, func(tx *bbolt.Tx,
-		edgeInfo *channeldb.ChannelEdgeInfo,
-		_, _ *channeldb.ChannelEdgePolicy) error {
-
-		localChans = append(localChans, edgeInfo)
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	// Now that we have all of our outbound edges, we'll populate the set
-	// of bandwidth hints, querying the lower switch layer for the most up
-	// to date values.
-	bandwidthHints := make(map[uint64]lnwire.MilliSatoshi)
-	for _, localChan := range localChans {
-		bandwidthHints[localChan.ChannelID] = queryBandwidth(localChan)
-	}
-
-	return bandwidthHints, nil
 }
 
 // ResetHistory resets the history of MissionControl returning it to a state as
@@ -308,13 +167,14 @@ func (m *MissionControl) ResetHistory() {
 	defer m.Unlock()
 
 	m.history = make(map[route.Vertex]*nodeHistory)
+	m.lastSecondChance = make(map[DirectedNodePair]time.Time)
 
 	log.Debugf("Mission control history cleared")
 }
 
-// getEdgeProbability is expected to return the success probability of a payment
+// GetEdgeProbability is expected to return the success probability of a payment
 // from fromNode along edge.
-func (m *MissionControl) getEdgeProbability(fromNode route.Vertex,
+func (m *MissionControl) GetEdgeProbability(fromNode route.Vertex,
 	edge EdgeLocator, amt lnwire.MilliSatoshi) float64 {
 
 	m.Lock()
@@ -376,6 +236,37 @@ func (m *MissionControl) getEdgeProbabilityForNode(nodeHistory *nodeHistory,
 	return probability
 }
 
+// requestSecondChance checks whether the node fromNode can have a second chance
+// at providing a channel update for its channel with toNode.
+func (m *MissionControl) requestSecondChance(timestamp time.Time,
+	fromNode, toNode route.Vertex) bool {
+
+	// Look up previous second chance time.
+	pair := DirectedNodePair{
+		From: fromNode,
+		To:   toNode,
+	}
+	lastSecondChance, ok := m.lastSecondChance[pair]
+
+	// If the channel hasn't already be given a second chance or its last
+	// second chance was long ago, we give it another chance.
+	if !ok || timestamp.Sub(lastSecondChance) > minSecondChanceInterval {
+		m.lastSecondChance[pair] = timestamp
+
+		log.Debugf("Second chance granted for %v->%v", fromNode, toNode)
+
+		return true
+	}
+
+	// Otherwise penalize the channel, because we don't allow channel
+	// updates that are that frequent. This is to prevent nodes from keeping
+	// us busy by continuously sending new channel updates.
+	log.Debugf("Second chance denied for %v->%v, remaining interval: %v",
+		fromNode, toNode, timestamp.Sub(lastSecondChance))
+
+	return false
+}
+
 // createHistoryIfNotExists returns the history for the given node. If the node
 // is yet unknown, it will create an empty history structure.
 func (m *MissionControl) createHistoryIfNotExists(vertex route.Vertex) *nodeHistory {
@@ -391,8 +282,8 @@ func (m *MissionControl) createHistoryIfNotExists(vertex route.Vertex) *nodeHist
 	return node
 }
 
-// reportVertexFailure reports a node level failure.
-func (m *MissionControl) reportVertexFailure(v route.Vertex) {
+// ReportVertexFailure reports a node level failure.
+func (m *MissionControl) ReportVertexFailure(v route.Vertex) {
 	log.Debugf("Reporting vertex %v failure to Mission Control", v)
 
 	now := m.now()
@@ -404,10 +295,30 @@ func (m *MissionControl) reportVertexFailure(v route.Vertex) {
 	history.lastFail = &now
 }
 
-// reportEdgeFailure reports a channel level failure.
+// ReportEdgePolicyFailure reports a policy related failure.
+func (m *MissionControl) ReportEdgePolicyFailure(failedEdge edge) {
+	now := m.now()
+
+	m.Lock()
+	defer m.Unlock()
+
+	// We may have an out of date graph. Therefore we don't always penalize
+	// immediately. If some time has passed since the last policy failure,
+	// we grant the node a second chance at forwarding the payment.
+	if m.requestSecondChance(
+		now, failedEdge.from, failedEdge.to,
+	) {
+		return
+	}
+
+	history := m.createHistoryIfNotExists(failedEdge.from)
+	history.lastFail = &now
+}
+
+// ReportEdgeFailure reports a channel level failure.
 //
 // TODO(roasbeef): also add value attempted to send and capacity of channel
-func (m *MissionControl) reportEdgeFailure(failedEdge edge,
+func (m *MissionControl) ReportEdgeFailure(failedEdge edge,
 	minPenalizeAmt lnwire.MilliSatoshi) {
 
 	log.Debugf("Reporting channel %v failure to Mission Control",

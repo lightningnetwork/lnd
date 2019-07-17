@@ -91,17 +91,23 @@ func createTestCtxFromGraphInstance(startingHeight uint32, graphInstance *testGr
 	}
 
 	mc := NewMissionControl(
-		graphInstance.graph, selfNode,
-		func(e *channeldb.ChannelEdgeInfo) lnwire.MilliSatoshi {
-			return lnwire.NewMSatFromSatoshis(e.Capacity)
-		},
 		&MissionControlConfig{
-			MinRouteProbability:   0.01,
-			PaymentAttemptPenalty: 100,
 			PenaltyHalfLife:       time.Hour,
 			AprioriHopProbability: 0.9,
 		},
 	)
+
+	sessionSource := &SessionSource{
+		Graph:    graphInstance.graph,
+		SelfNode: selfNode,
+		QueryBandwidth: func(e *channeldb.ChannelEdgeInfo) lnwire.MilliSatoshi {
+			return lnwire.NewMSatFromSatoshis(e.Capacity)
+		},
+		MinRouteProbability:   0.01,
+		PaymentAttemptPenalty: 100,
+		MissionControl:        mc,
+	}
+
 	router, err := New(Config{
 		Graph:              graphInstance.graph,
 		Chain:              chain,
@@ -109,6 +115,7 @@ func createTestCtxFromGraphInstance(startingHeight uint32, graphInstance *testGr
 		Payer:              &mockPaymentAttemptDispatcher{},
 		Control:            makeMockControlTower(),
 		MissionControl:     mc,
+		SessionSource:      sessionSource,
 		ChannelPruneExpiry: time.Hour * 24,
 		GraphPruneInterval: time.Hour * 2,
 		QueryBandwidth: func(e *channeldb.ChannelEdgeInfo) lnwire.MilliSatoshi {
@@ -2940,7 +2947,7 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 			Chain:              chain,
 			ChainView:          chainView,
 			Control:            control,
-			MissionControl:     &mockPaymentSessionSource{},
+			SessionSource:      &mockPaymentSessionSource{},
 			Payer:              payer,
 			ChannelPruneExpiry: time.Hour * 24,
 			GraphPruneInterval: time.Hour * 2,
@@ -3004,9 +3011,11 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 
 		copy(preImage[:], bytes.Repeat([]byte{9}, 32))
 
-		router.cfg.MissionControl = &mockPaymentSessionSource{
+		router.cfg.SessionSource = &mockPaymentSessionSource{
 			routes: test.routes,
 		}
+
+		router.cfg.MissionControl = &mockMissionControl{}
 
 		// Send the payment. Since this is new payment hash, the
 		// information should be registered with the ControlTower.

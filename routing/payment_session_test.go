@@ -32,12 +32,16 @@ func TestRequestRoute(t *testing.T) {
 		return path, nil
 	}
 
-	session := &paymentSession{
-		mc: &MissionControl{
-			selfNode: &channeldb.LightningNode{},
-			cfg:      &MissionControlConfig{},
+	sessionSource := &SessionSource{
+		SelfNode: &channeldb.LightningNode{},
+		MissionControl: &MissionControl{
+			cfg: &MissionControlConfig{},
 		},
-		pathFinder: findPath,
+	}
+
+	session := &paymentSession{
+		sessionSource: sessionSource,
+		pathFinder:    findPath,
 	}
 
 	cltvLimit := uint32(30)

@@ -227,10 +227,11 @@ func TestFindRoutesWithFeeLimit(t *testing.T) {
 		FeeLimit:          lnwire.NewMSatFromSatoshis(10),
 		ProbabilitySource: noProbabilitySource,
 	}
+	noPadding := false
 
 	route, err := ctx.router.FindRoute(
 		ctx.router.selfNode.PubKeyBytes,
-		target, paymentAmt, restrictions,
+		target, paymentAmt, restrictions, noPadding,
 		zpay32.DefaultFinalCLTVDelta,
 	)
 	if err != nil {
@@ -1076,6 +1077,8 @@ func TestIgnoreChannelEdgePolicyForUnknownChannel(t *testing.T) {
 func TestAddEdgeUnknownVertexes(t *testing.T) {
 	t.Parallel()
 
+	const noPadding = false
+
 	const startingBlockHeight = 101
 	ctx, cleanUp, err := createTestCtxFromFile(startingBlockHeight,
 		basicGraphFilePath)
@@ -1269,7 +1272,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	copy(targetPubKeyBytes[:], targetNode.SerializeCompressed())
 	_, err = ctx.router.FindRoute(
 		ctx.router.selfNode.PubKeyBytes,
-		targetPubKeyBytes, paymentAmt, noRestrictions,
+		targetPubKeyBytes, paymentAmt, noRestrictions, noPadding,
 		zpay32.DefaultFinalCLTVDelta,
 	)
 	if err != nil {
@@ -1312,7 +1315,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	// updated.
 	_, err = ctx.router.FindRoute(
 		ctx.router.selfNode.PubKeyBytes,
-		targetPubKeyBytes, paymentAmt, noRestrictions,
+		targetPubKeyBytes, paymentAmt, noRestrictions, noPadding,
 		zpay32.DefaultFinalCLTVDelta,
 	)
 	if err != nil {

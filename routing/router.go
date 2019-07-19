@@ -1437,7 +1437,7 @@ type routingMsg struct {
 // particular target destination to which it is able to send `amt` after
 // factoring in channel capacities and cumulative fees along the route.
 func (r *ChannelRouter) FindRoute(source, target route.Vertex,
-	amt lnwire.MilliSatoshi, restrictions *RestrictParams,
+	amt lnwire.MilliSatoshi, restrictions *RestrictParams, noPadding bool,
 	finalExpiry ...uint16) (*route.Route, error) {
 
 	var finalCLTVDelta uint16
@@ -1448,8 +1448,11 @@ func (r *ChannelRouter) FindRoute(source, target route.Vertex,
 	}
 
 	// Add BlockPadding to the finalCltvDelta so that the receiving node
-	// does not reject the HTLC if a block is mined while its in-flight.
-	finalCLTVDelta += BlockPadding
+	// does not reject the HTLC if a block is mined while its in-flight. If the
+	// noPadding option is set in the call, then don't add padding.
+	if !noPadding {
+		finalCLTVDelta += BlockPadding
+	}
 
 	log.Debugf("Searching for path to %x, sending %v", target, amt)
 

@@ -74,7 +74,7 @@ func testQueryRoutes(t *testing.T, useMissionControl bool) {
 
 	findRoute := func(source, target route.Vertex,
 		amt lnwire.MilliSatoshi, restrictions *routing.RestrictParams,
-		finalExpiry ...uint16) (*route.Route, error) {
+		noPadding bool, finalExpiry ...uint16) (*route.Route, error) {
 
 		if int64(amt) != request.Amt*1000 {
 			t.Fatal("unexpected amount")

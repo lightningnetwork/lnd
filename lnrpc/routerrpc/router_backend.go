@@ -40,7 +40,7 @@ type RouterBackend struct {
 	// routes.
 	FindRoute func(source, target route.Vertex,
 		amt lnwire.MilliSatoshi, restrictions *routing.RestrictParams,
-		finalExpiry ...uint16) (*route.Route, error)
+		noPadding bool, finalExpiry ...uint16) (*route.Route, error)
 
 	MissionControl MissionControl
 
@@ -177,6 +177,8 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 		},
 	}
 
+	noPadding := in.NoPadding
+
 	// Query the channel router for a possible path to the destination that
 	// can carry `in.Amt` satoshis _including_ the total fee required on
 	// the route.
@@ -187,11 +189,11 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 
 	if in.FinalCltvDelta == 0 {
 		route, findErr = r.FindRoute(
-			sourcePubKey, targetPubKey, amtMSat, restrictions,
+			sourcePubKey, targetPubKey, amtMSat, restrictions, noPadding,
 		)
 	} else {
 		route, findErr = r.FindRoute(
-			sourcePubKey, targetPubKey, amtMSat, restrictions,
+			sourcePubKey, targetPubKey, amtMSat, restrictions, noPadding,
 			uint16(in.FinalCltvDelta),
 		)
 	}

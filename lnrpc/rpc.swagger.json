@@ -730,6 +730,14 @@
             "required": false,
             "type": "boolean",
             "format": "boolean"
+          },
+          {
+            "name": "no_padding",
+            "description": "*\nIf no_padding = true, then no block padding will be added to the returned\nroute.",
+            "in": "query",
+            "required": false,
+            "type": "boolean",
+            "format": "boolean"
           }
         ],
         "tags": [

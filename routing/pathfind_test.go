@@ -1685,7 +1685,7 @@ func TestPathFindSpecExample(t *testing.T) {
 	carol := ctx.aliases["C"]
 	const amt lnwire.MilliSatoshi = 4999999
 	route, err := ctx.router.FindRoute(
-		bobNode.PubKeyBytes, carol, amt, noRestrictions,
+		bobNode.PubKeyBytes, carol, amt, noRestrictions, noPadding,
 	)
 	if err != nil {
 		t.Fatalf("unable to find route: %v", err)
@@ -1744,7 +1744,7 @@ func TestPathFindSpecExample(t *testing.T) {
 
 	// We'll now request a route from A -> B -> C.
 	route, err = ctx.router.FindRoute(
-		source.PubKeyBytes, carol, amt, noRestrictions,
+		source.PubKeyBytes, carol, amt, noRestrictions, noPadding,
 	)
 	if err != nil {
 		t.Fatalf("unable to find routes: %v", err)

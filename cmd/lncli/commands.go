@@ -3001,6 +3001,10 @@ var queryRoutesCommand = cli.Command{
 			Name:  "use_mc",
 			Usage: "use mission control probabilities",
 		},
+		cli.BoolFlag{
+			Name:  "no_padding",
+			Usage: "if true, omit block padding in the returned route",
+		},
 	},
 	Action: actionDecorator(queryRoutes),
 }
@@ -3051,6 +3055,7 @@ func queryRoutes(ctx *cli.Context) error {
 		FeeLimit:          feeLimit,
 		FinalCltvDelta:    int32(ctx.Int("final_cltv_delta")),
 		UseMissionControl: ctx.Bool("use_mc"),
+		NoPadding:         ctx.Bool("no_padding"),
 	}
 
 	route, err := client.QueryRoutes(ctxb, req)

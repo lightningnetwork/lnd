@@ -1657,6 +1657,12 @@ message QueryRoutesRequest {
     the optimal route.
     */
     bool use_mission_control = 9;
+
+    /**
+    If no_padding = true, then no block padding will be added to the returned
+    route.
+    */
+    bool no_padding = 10;
 }
 
 message EdgeLocator {

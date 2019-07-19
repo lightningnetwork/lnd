@@ -243,13 +243,16 @@ func (s *Server) EstimateRouteFee(ctx context.Context,
 	// TODO: Change this into behaviour that makes more sense.
 	feeLimit := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
 
+	// Add block padding
+	noPadding := false
+
 	// Finally, we'll query for a route to the destination that can carry
 	// that target amount, we'll only request a single route.
 	route, err := s.cfg.Router.FindRoute(
 		s.cfg.RouterBackend.SelfNode, destNode, amtMsat,
 		&routing.RestrictParams{
 			FeeLimit: feeLimit,
-		},
+		}, noPadding,
 	)
 	if err != nil {
 		return nil, err

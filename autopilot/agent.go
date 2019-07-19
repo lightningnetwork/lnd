@@ -584,6 +584,7 @@ func (a *Agent) openChans(availableFunds btcutil.Amount, numChans uint32,
 
 	// Use the heuristic to calculate a score for each node in the
 	// graph.
+	log.Debugf("Scoring %d nodes for chan_size=%v", len(nodes), chanSize)
 	scores, err := a.cfg.Heuristic.NodeScores(
 		a.cfg.Graph, totalChans, chanSize, nodes,
 	)

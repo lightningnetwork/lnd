@@ -69,12 +69,20 @@ type InitFundingReserveMsg struct {
 	// workflow.
 	NodeAddr net.Addr
 
-	// FundingAmount is the amount of funds requested for this channel.
-	FundingAmount btcutil.Amount
+	// SubtractFees should be set if we intend to spend exactly
+	// LocalFundingAmt when opening the channel, subtracting the fees from
+	// the funding output. This can be used for instance to use all our
+	// remaining funds to open the channel, since it will take fees into
+	// account.
+	SubtractFees bool
 
-	// Capacity is the total capacity of the channel which includes the
-	// amount of funds the remote party contributes (if any).
-	Capacity btcutil.Amount
+	// LocalFundingAmt is the amount of funds requested from us for this
+	// channel.
+	LocalFundingAmt btcutil.Amount
+
+	// RemoteFundingAmnt is the amount of funds the remote will contribute
+	// to this channel.
+	RemoteFundingAmt btcutil.Amount
 
 	// CommitFeePerKw is the starting accepted satoshis/Kw fee for the set
 	// of initial commitment transactions. In order to ensure timely
@@ -431,7 +439,7 @@ func (l *LightningWallet) InitChannelReservation(
 // validate a funding reservation request.
 func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg) {
 	// It isn't possible to create a channel with zero funds committed.
-	if req.FundingAmount+req.Capacity == 0 {
+	if req.LocalFundingAmt+req.RemoteFundingAmt == 0 {
 		err := ErrZeroCapacity()
 		req.err <- err
 		req.resp <- nil
@@ -449,128 +457,59 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 		return
 	}
 
-	id := atomic.AddUint64(&l.nextFundingID, 1)
-	reservation, err := NewChannelReservation(
-		req.Capacity, req.FundingAmount, req.CommitFeePerKw, l, id,
-		req.PushMSat, l.Cfg.NetParams.GenesisHash, req.Flags,
+	localFundingAmt := req.LocalFundingAmt
+
+	var (
+		selected *coinSelection
+		err      error
 	)
-	if err != nil {
-		req.err <- err
-		req.resp <- nil
-		return
-	}
-
-	// Grab the mutex on the ChannelReservation to ensure thread-safety
-	reservation.Lock()
-	defer reservation.Unlock()
-
-	reservation.nodeAddr = req.NodeAddr
-	reservation.partialState.IdentityPub = req.NodeID
 
 	// If we're on the receiving end of a single funder channel then we
-	// don't need to perform any coin selection. Otherwise, attempt to
-	// obtain enough coins to meet the required funding amount.
-	if req.FundingAmount != 0 {
+	// don't need to perform any coin selection, and the remote contributes
+	// all funds. Otherwise, attempt to obtain enough coins to meet the
+	// required funding amount.
+	if req.LocalFundingAmt != 0 {
 		// Coin selection is done on the basis of sat/kw, so we'll use
 		// the fee rate passed in to perform coin selection.
-		err := l.selectCoinsAndChange(
-			req.FundingFeePerKw, req.FundingAmount, req.MinConfs,
-			reservation.ourContribution,
+		var err error
+		selected, err = l.selectCoinsAndChange(
+			req.FundingFeePerKw, req.LocalFundingAmt, req.MinConfs,
+			req.SubtractFees,
 		)
 		if err != nil {
 			req.err <- err
 			req.resp <- nil
 			return
 		}
+
+		localFundingAmt = selected.fundingAmt
 	}
 
-	// Next, we'll grab a series of keys from the wallet which will be used
-	// for the duration of the channel. The keys include: our multi-sig
-	// key, the base revocation key, the base htlc key,the base payment
-	// key, and the delayed payment key.
-	//
-	// TODO(roasbeef): "salt" each key as well?
-	reservation.ourContribution.MultiSigKey, err = l.DeriveNextKey(
-		keychain.KeyFamilyMultiSig,
+	// The total channel capacity will be the size of the funding output we
+	// created plus the remote contribution.
+	capacity := localFundingAmt + req.RemoteFundingAmt
+
+	id := atomic.AddUint64(&l.nextFundingID, 1)
+	reservation, err := NewChannelReservation(
+		capacity, localFundingAmt, req.CommitFeePerKw, l, id,
+		req.PushMSat, l.Cfg.NetParams.GenesisHash, req.Flags,
 	)
 	if err != nil {
-		req.err <- err
-		req.resp <- nil
-		return
-	}
-	reservation.ourContribution.RevocationBasePoint, err = l.DeriveNextKey(
-		keychain.KeyFamilyRevocationBase,
-	)
-	if err != nil {
-		req.err <- err
-		req.resp <- nil
-		return
-	}
-	reservation.ourContribution.HtlcBasePoint, err = l.DeriveNextKey(
-		keychain.KeyFamilyHtlcBase,
-	)
-	if err != nil {
-		req.err <- err
-		req.resp <- nil
-		return
-	}
-	reservation.ourContribution.PaymentBasePoint, err = l.DeriveNextKey(
-		keychain.KeyFamilyPaymentBase,
-	)
-	if err != nil {
-		req.err <- err
-		req.resp <- nil
-		return
-	}
-	reservation.ourContribution.DelayBasePoint, err = l.DeriveNextKey(
-		keychain.KeyFamilyDelayBase,
-	)
-	if err != nil {
+		selected.unlockCoins()
 		req.err <- err
 		req.resp <- nil
 		return
 	}
 
-	// With the above keys created, we'll also need to initialization our
-	// initial revocation tree state.
-	nextRevocationKeyDesc, err := l.DeriveNextKey(
-		keychain.KeyFamilyRevocationRoot,
+	err = l.initOurContribution(
+		reservation, selected, req.NodeAddr, req.NodeID,
 	)
 	if err != nil {
+		selected.unlockCoins()
 		req.err <- err
 		req.resp <- nil
 		return
 	}
-	revocationRoot, err := l.DerivePrivKey(nextRevocationKeyDesc)
-	if err != nil {
-		req.err <- err
-		req.resp <- nil
-		return
-	}
-
-	// Once we have the root, we can then generate our shachain producer
-	// and from that generate the per-commitment point.
-	revRoot, err := chainhash.NewHash(revocationRoot.Serialize())
-	if err != nil {
-		req.err <- err
-		req.resp <- nil
-		return
-	}
-	producer := shachain.NewRevocationProducer(*revRoot)
-	firstPreimage, err := producer.AtIndex(0)
-	if err != nil {
-		req.err <- err
-		req.resp <- nil
-		return
-	}
-	reservation.ourContribution.FirstCommitmentPoint = input.ComputeCommitmentPoint(
-		firstPreimage[:],
-	)
-
-	reservation.partialState.RevocationProducer = producer
-	reservation.ourContribution.ChannelConstraints = l.Cfg.DefaultConstraints
-
-	// TODO(roasbeef): turn above into: initContribution()
 
 	// Create a limbo and record entry for this newly pending funding
 	// request.
@@ -583,6 +522,96 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 	// completed, or cancelled.
 	req.resp <- reservation
 	req.err <- nil
+}
+
+// initOurContribution initializes the given ChannelReservation with our coins
+// and change reserved for the channel, and derives the keys to use for this
+// channel.
+func (l *LightningWallet) initOurContribution(reservation *ChannelReservation,
+	selected *coinSelection, nodeAddr net.Addr, nodeID *btcec.PublicKey) error {
+
+	// Grab the mutex on the ChannelReservation to ensure thread-safety
+	reservation.Lock()
+	defer reservation.Unlock()
+
+	if selected != nil {
+		reservation.ourContribution.Inputs = selected.coins
+		reservation.ourContribution.ChangeOutputs = selected.change
+	}
+
+	reservation.nodeAddr = nodeAddr
+	reservation.partialState.IdentityPub = nodeID
+
+	// Next, we'll grab a series of keys from the wallet which will be used
+	// for the duration of the channel. The keys include: our multi-sig
+	// key, the base revocation key, the base htlc key,the base payment
+	// key, and the delayed payment key.
+	//
+	// TODO(roasbeef): "salt" each key as well?
+	var err error
+	reservation.ourContribution.MultiSigKey, err = l.DeriveNextKey(
+		keychain.KeyFamilyMultiSig,
+	)
+	if err != nil {
+		return err
+	}
+	reservation.ourContribution.RevocationBasePoint, err = l.DeriveNextKey(
+		keychain.KeyFamilyRevocationBase,
+	)
+	if err != nil {
+		return err
+	}
+	reservation.ourContribution.HtlcBasePoint, err = l.DeriveNextKey(
+		keychain.KeyFamilyHtlcBase,
+	)
+	if err != nil {
+		return err
+	}
+	reservation.ourContribution.PaymentBasePoint, err = l.DeriveNextKey(
+		keychain.KeyFamilyPaymentBase,
+	)
+	if err != nil {
+		return err
+	}
+	reservation.ourContribution.DelayBasePoint, err = l.DeriveNextKey(
+		keychain.KeyFamilyDelayBase,
+	)
+	if err != nil {
+		return err
+	}
+
+	// With the above keys created, we'll also need to initialization our
+	// initial revocation tree state.
+	nextRevocationKeyDesc, err := l.DeriveNextKey(
+		keychain.KeyFamilyRevocationRoot,
+	)
+	if err != nil {
+		return err
+	}
+	revocationRoot, err := l.DerivePrivKey(nextRevocationKeyDesc)
+	if err != nil {
+		return err
+	}
+
+	// Once we have the root, we can then generate our shachain producer
+	// and from that generate the per-commitment point.
+	revRoot, err := chainhash.NewHash(revocationRoot.Serialize())
+	if err != nil {
+		return err
+	}
+	producer := shachain.NewRevocationProducer(*revRoot)
+	firstPreimage, err := producer.AtIndex(0)
+	if err != nil {
+		return err
+	}
+	reservation.ourContribution.FirstCommitmentPoint = input.ComputeCommitmentPoint(
+		firstPreimage[:],
+	)
+
+	reservation.partialState.RevocationProducer = producer
+	reservation.ourContribution.ChannelConstraints = l.Cfg.DefaultConstraints
+
+	return nil
 }
 
 // handleFundingReserveCancel cancels an existing channel reservation. As part
@@ -1269,14 +1298,24 @@ func (l *LightningWallet) WithCoinSelectLock(f func() error) error {
 	return f()
 }
 
+// coinSelection holds the result from selectCoinsAndChange.
+type coinSelection struct {
+	coins       []*wire.TxIn
+	change      []*wire.TxOut
+	fundingAmt  btcutil.Amount
+	unlockCoins func()
+}
+
 // selectCoinsAndChange performs coin selection in order to obtain witness
-// outputs which sum to at least 'numCoins' amount of satoshis. If coin
-// selection is successful/possible, then the selected coins are available
-// within the passed contribution's inputs. If necessary, a change address will
-// also be generated.
+// outputs which sum to at least 'amt' amount of satoshis. If necessary,
+// a change address will also be generated. If coin selection is
+// successful/possible, then the selected coins and change outputs are
+// returned, and the value of the resulting funding output. This method locks
+// the selected outputs, and a function closure to unlock them in case of an
+// error is returned.
 func (l *LightningWallet) selectCoinsAndChange(feeRate SatPerKWeight,
-	amt btcutil.Amount, minConfs int32,
-	contribution *ChannelContribution) error {
+	amt btcutil.Amount, minConfs int32, subtractFees bool) (
+	*coinSelection, error) {
 
 	// We hold the coin select mutex while querying for outputs, and
 	// performing coin selection in order to avoid inadvertent double
@@ -1291,21 +1330,66 @@ func (l *LightningWallet) selectCoinsAndChange(feeRate SatPerKWeight,
 	// number of confirmations required.
 	coins, err := l.ListUnspentWitness(minConfs, math.MaxInt32)
 	if err != nil {
-		return err
+		return nil, err
 	}
+
+	var (
+		selectedCoins []*Utxo
+		fundingAmt    btcutil.Amount
+		changeAmt     btcutil.Amount
+	)
 
 	// Perform coin selection over our available, unlocked unspent outputs
 	// in order to find enough coins to meet the funding amount
 	// requirements.
-	selectedCoins, changeAmt, err := coinSelect(feeRate, amt, coins)
-	if err != nil {
-		return err
+	switch {
+	// In case this request want the fees subtracted from the local amount,
+	// we'll call the specialized method for that. This ensures that we
+	// won't deduct more that the specified balance from our wallet.
+	case subtractFees:
+		dustLimit := l.Cfg.DefaultConstraints.DustLimit
+		selectedCoins, fundingAmt, changeAmt, err = coinSelectSubtractFees(
+			feeRate, amt, dustLimit, coins,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+	// Ótherwise do a normal coin selection where we target a given funding
+	// amount.
+	default:
+		fundingAmt = amt
+		selectedCoins, changeAmt, err = coinSelect(feeRate, amt, coins)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// Record any change output(s) generated as a result of the coin
+	// selection, but only if the addition of the output won't lead to the
+	// creation of dust.
+	var changeOutputs []*wire.TxOut
+	if changeAmt != 0 && changeAmt > DefaultDustLimit() {
+		changeAddr, err := l.NewAddress(WitnessPubKey, true)
+		if err != nil {
+			return nil, err
+		}
+		changeScript, err := txscript.PayToAddrScript(changeAddr)
+		if err != nil {
+			return nil, err
+		}
+
+		changeOutputs = make([]*wire.TxOut, 1)
+		changeOutputs[0] = &wire.TxOut{
+			Value:    int64(changeAmt),
+			PkScript: changeScript,
+		}
 	}
 
 	// Lock the selected coins. These coins are now "reserved", this
 	// prevents concurrent funding requests from referring to and this
 	// double-spending the same set of coins.
-	contribution.Inputs = make([]*wire.TxIn, len(selectedCoins))
+	inputs := make([]*wire.TxIn, len(selectedCoins))
 	for i, coin := range selectedCoins {
 		outpoint := &coin.OutPoint
 		l.lockedOutPoints[*outpoint] = struct{}{}
@@ -1313,30 +1397,26 @@ func (l *LightningWallet) selectCoinsAndChange(feeRate SatPerKWeight,
 
 		// Empty sig script, we'll actually sign if this reservation is
 		// queued up to be completed (the other side accepts).
-		contribution.Inputs[i] = wire.NewTxIn(outpoint, nil, nil)
+		inputs[i] = wire.NewTxIn(outpoint, nil, nil)
 	}
 
-	// Record any change output(s) generated as a result of the coin
-	// selection, but only if the addition of the output won't lead to the
-	// creation of dust.
-	if changeAmt != 0 && changeAmt > DefaultDustLimit() {
-		changeAddr, err := l.NewAddress(WitnessPubKey, true)
-		if err != nil {
-			return err
-		}
-		changeScript, err := txscript.PayToAddrScript(changeAddr)
-		if err != nil {
-			return err
-		}
+	unlock := func() {
+		l.coinSelectMtx.Lock()
+		defer l.coinSelectMtx.Unlock()
 
-		contribution.ChangeOutputs = make([]*wire.TxOut, 1)
-		contribution.ChangeOutputs[0] = &wire.TxOut{
-			Value:    int64(changeAmt),
-			PkScript: changeScript,
+		for _, coin := range selectedCoins {
+			outpoint := &coin.OutPoint
+			delete(l.lockedOutPoints, *outpoint)
+			l.UnlockOutpoint(*outpoint)
 		}
 	}
 
-	return nil
+	return &coinSelection{
+		coins:       inputs,
+		change:      changeOutputs,
+		fundingAmt:  fundingAmt,
+		unlockCoins: unlock,
+	}, nil
 }
 
 // DeriveStateHintObfuscator derives the bytes to be used for obfuscating the
@@ -1416,7 +1496,7 @@ func coinSelect(feeRate SatPerKWeight, amt btcutil.Amount,
 			case NestedWitnessPubKey:
 				weightEstimate.AddNestedP2WKHInput()
 			default:
-				return nil, 0, fmt.Errorf("Unsupported address type: %v",
+				return nil, 0, fmt.Errorf("unsupported address type: %v",
 					utxo.AddressType)
 			}
 		}
@@ -1428,6 +1508,8 @@ func coinSelect(feeRate SatPerKWeight, amt btcutil.Amount,
 		//
 		// TODO: Handle wallets that generate non-witness change
 		// addresses.
+		// TODO(halseth): make coinSelect not estimate change output
+		// for dust change.
 		weightEstimate.AddP2WKHOutput()
 
 		// The difference between the selected amount and the amount
@@ -1452,4 +1534,96 @@ func coinSelect(feeRate SatPerKWeight, amt btcutil.Amount,
 
 		return selectedUtxos, changeAmt, nil
 	}
+}
+
+// coinSelectSubtractFees attempts to select coins such that we'll spend up to
+// amt in total after fees, adhering to the specified fee rate. The selected
+// coins, the final output and change values are returned.
+func coinSelectSubtractFees(feeRate SatPerKWeight, amt,
+	dustLimit btcutil.Amount, coins []*Utxo) ([]*Utxo, btcutil.Amount,
+	btcutil.Amount, error) {
+
+	// First perform an initial round of coin selection to estimate
+	// the required fee.
+	totalSat, selectedUtxos, err := selectInputs(amt, coins)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+
+	var weightEstimate input.TxWeightEstimator
+	for _, utxo := range selectedUtxos {
+		switch utxo.AddressType {
+		case WitnessPubKey:
+			weightEstimate.AddP2WKHInput()
+		case NestedWitnessPubKey:
+			weightEstimate.AddNestedP2WKHInput()
+		default:
+			return nil, 0, 0, fmt.Errorf("unsupported "+
+				"address type: %v", utxo.AddressType)
+		}
+	}
+
+	// Channel funding multisig output is P2WSH.
+	weightEstimate.AddP2WSHOutput()
+
+	// At this point we've got two possibilities, either create a
+	// change output, or not. We'll first try without creating a
+	// change output.
+	//
+	// Estimate the fee required for a transaction without a change
+	// output.
+	totalWeight := int64(weightEstimate.Weight())
+	requiredFee := feeRate.FeeForWeight(totalWeight)
+
+	// For a transaction without a change output, we'll let everything go
+	// to our multi-sig output after subtracting fees.
+	outputAmt := totalSat - requiredFee
+	changeAmt := btcutil.Amount(0)
+
+	// If the the output is too small after subtracting the fee, the coin
+	// selection cannot be performed with an amount this small.
+	if outputAmt <= dustLimit {
+		return nil, 0, 0, fmt.Errorf("output amount(%v) after "+
+			"subtracting fees(%v) below dust limit(%v)", outputAmt,
+			requiredFee, dustLimit)
+	}
+
+	// We were able to create a transaction with no change from the
+	// selected inputs. We'll remember the resulting values for
+	// now, while we try to add a change output. Assume that change output
+	// is a P2WKH output.
+	weightEstimate.AddP2WKHOutput()
+
+	// Now that we have added the change output, redo the fee
+	// estimate.
+	totalWeight = int64(weightEstimate.Weight())
+	requiredFee = feeRate.FeeForWeight(totalWeight)
+
+	// For a transaction with a change output, everything we don't spend
+	// will go to change.
+	newChange := totalSat - amt
+	newOutput := amt - requiredFee
+
+	// If adding a change output leads to both outputs being above
+	// the dust limit, we'll add the change output. Otherwise we'll
+	// go with the no change tx we originally found.
+	if newChange > dustLimit && newOutput > dustLimit {
+		outputAmt = newOutput
+		changeAmt = newChange
+	}
+
+	// Sanity check the resulting output values to make sure we
+	// don't burn a great part to fees.
+	totalOut := outputAmt + changeAmt
+	fee := totalSat - totalOut
+
+	// Fail if more than 20% goes to fees.
+	// TODO(halseth): smarter fee limit. Make configurable or dynamic wrt
+	// total funding size?
+	if fee > totalOut/5 {
+		return nil, 0, 0, fmt.Errorf("fee %v on total output"+
+			"value %v", fee, totalOut)
+	}
+
+	return selectedUtxos, outputAmt, changeAmt, nil
 }

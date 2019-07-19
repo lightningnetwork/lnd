@@ -1196,7 +1196,7 @@ func TestAgentChannelSizeAllocation(t *testing.T) {
 	t.Parallel()
 
 	// Total number of nodes in our mock graph.
-	const numNodes = 10
+	const numNodes = 20
 
 	testCtx, cleanup := setup(t, nil)
 	defer cleanup()
@@ -1240,6 +1240,8 @@ func TestAgentChannelSizeAllocation(t *testing.T) {
 		numNewChannels, nodeScores,
 	)
 
+	// We expect the autopilot to have allocated all funds towards
+	// channels.
 	expectedAllocation := testCtx.constraints.MaxChanSize() * btcutil.Amount(numNewChannels)
 	nodes := checkChannelOpens(
 		t, testCtx, expectedAllocation, numNewChannels,
@@ -1259,34 +1261,40 @@ func TestAgentChannelSizeAllocation(t *testing.T) {
 	waitForNumChans := func(expChans int) {
 		t.Helper()
 
+		var (
+			numChans int
+			balance  btcutil.Amount
+		)
+
 	Loop:
 		for {
 			select {
 			case arg := <-testCtx.constraints.moreChanArgs:
+				numChans = len(arg.chans)
+				balance = arg.balance
+
 				// As long as the number of existing channels
 				// is below our expected number of channels,
-				// we'll keep responding with "no more
-				// channels".
-				if len(arg.chans) != expChans {
-					select {
-					case testCtx.constraints.moreChansResps <- moreChansResp{0, 0}:
-					case <-time.After(time.Second * 3):
-						t.Fatalf("heuristic wasn't " +
-							"queried in time")
-					}
-					continue
+				// and the balance is not what we expect, we'll
+				// keep responding with "no more channels".
+				if numChans == expChans &&
+					balance == testCtx.walletBalance {
+					break Loop
 				}
 
-				if arg.balance != testCtx.walletBalance {
-					t.Fatalf("expectd agent to have %v "+
-						"balance, had %v",
-						testCtx.walletBalance,
-						arg.balance)
+				select {
+				case testCtx.constraints.moreChansResps <- moreChansResp{0, 0}:
+				case <-time.After(time.Second * 3):
+					t.Fatalf("heuristic wasn't queried " +
+						"in time")
 				}
-				break Loop
 
 			case <-time.After(time.Second * 3):
-				t.Fatalf("heuristic wasn't queried in time")
+				t.Fatalf("did not receive expected "+
+					"channels(%d) and balance(%d), "+
+					"instead got %d and %d", expChans,
+					testCtx.walletBalance, numChans,
+					balance)
 			}
 		}
 	}
@@ -1308,5 +1316,30 @@ func TestAgentChannelSizeAllocation(t *testing.T) {
 
 	// To stay within the budget, we expect the autopilot to open 2
 	// channels.
-	checkChannelOpens(t, testCtx, channelBudget, 2)
+	expectedAllocation = channelBudget
+	nodes = checkChannelOpens(t, testCtx, expectedAllocation, 2)
+	numExistingChannels = 7
+
+	for _, node := range nodes {
+		delete(nodeScores, node)
+	}
+
+	waitForNumChans(numExistingChannels)
+
+	// Finally check that we make maximum channels if we are well within
+	// our budget.
+	channelBudget = btcutil.SatoshiPerBitcoin * 5
+	numNewChannels = 2
+	respondWithScores(
+		t, testCtx, channelBudget, numExistingChannels,
+		numNewChannels, nodeScores,
+	)
+
+	// We now expect the autopilot to open 2 channels, and since it has
+	// more than enough balance within the budget, they should both be of
+	// maximum size.
+	expectedAllocation = testCtx.constraints.MaxChanSize() *
+		btcutil.Amount(numNewChannels)
+
+	checkChannelOpens(t, testCtx, expectedAllocation, numNewChannels)
 }

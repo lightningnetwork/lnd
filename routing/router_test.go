@@ -90,11 +90,18 @@ func createTestCtxFromGraphInstance(startingHeight uint32, graphInstance *testGr
 		return nil, nil, err
 	}
 
+	pathFindingConfig := &PathFindingConfig{
+		MinProbability:        0.01,
+		PaymentAttemptPenalty: 100,
+	}
+
+	mcConfig := &MissionControlConfig{
+		PenaltyHalfLife:       time.Hour,
+		AprioriHopProbability: 0.9,
+	}
+
 	mc := NewMissionControl(
-		&MissionControlConfig{
-			PenaltyHalfLife:       time.Hour,
-			AprioriHopProbability: 0.9,
-		},
+		mcConfig,
 	)
 
 	sessionSource := &SessionSource{
@@ -103,9 +110,11 @@ func createTestCtxFromGraphInstance(startingHeight uint32, graphInstance *testGr
 		QueryBandwidth: func(e *channeldb.ChannelEdgeInfo) lnwire.MilliSatoshi {
 			return lnwire.NewMSatFromSatoshis(e.Capacity)
 		},
-		MinRouteProbability:   0.01,
-		PaymentAttemptPenalty: 100,
-		MissionControl:        mc,
+		PathFindingConfig: PathFindingConfig{
+			MinProbability:        0.01,
+			PaymentAttemptPenalty: 100,
+		},
+		MissionControl: mc,
 	}
 
 	router, err := New(Config{
@@ -125,6 +134,7 @@ func createTestCtxFromGraphInstance(startingHeight uint32, graphInstance *testGr
 			next := atomic.AddUint64(&uniquePaymentID, 1)
 			return next, nil
 		},
+		PathFindingConfig: *pathFindingConfig,
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to create router %v", err)
@@ -2163,6 +2173,7 @@ func TestFindPathFeeWeighting(t *testing.T) {
 			graph: ctx.graph,
 		},
 		noRestrictions,
+		testPathFindingConfig,
 		sourceNode.PubKeyBytes, target, amt,
 	)
 	if err != nil {

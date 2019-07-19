@@ -55,6 +55,8 @@ var (
 		FeeLimit:          noFeeLimit,
 		ProbabilitySource: noProbabilitySource,
 	}
+
+	testPathFindingConfig = &PathFindingConfig{}
 )
 
 var (
@@ -650,6 +652,7 @@ func TestFindLowestFeePath(t *testing.T) {
 			graph: testGraphInstance.graph,
 		},
 		noRestrictions,
+		testPathFindingConfig,
 		sourceNode.PubKeyBytes, target, paymentAmt,
 	)
 	if err != nil {
@@ -791,6 +794,7 @@ func testBasicGraphPathFindingCase(t *testing.T, graphInstance *testGraphInstanc
 			FeeLimit:          test.feeLimit,
 			ProbabilitySource: noProbabilitySource,
 		},
+		testPathFindingConfig,
 		sourceNode.PubKeyBytes, target, paymentAmt,
 	)
 	if test.expectFailureNoPath {
@@ -957,7 +961,7 @@ func TestPathFindingWithAdditionalEdges(t *testing.T) {
 			graph:           graph.graph,
 			additionalEdges: additionalEdges,
 		},
-		noRestrictions,
+		noRestrictions, testPathFindingConfig,
 		sourceNode.PubKeyBytes, doge.PubKeyBytes, paymentAmt,
 	)
 	if err != nil {
@@ -1211,7 +1215,7 @@ func TestNewRoutePathTooLong(t *testing.T) {
 		&graphParams{
 			graph: graph.graph,
 		},
-		noRestrictions,
+		noRestrictions, testPathFindingConfig,
 		sourceNode.PubKeyBytes, target, paymentAmt,
 	)
 	if err != nil {
@@ -1225,7 +1229,7 @@ func TestNewRoutePathTooLong(t *testing.T) {
 		&graphParams{
 			graph: graph.graph,
 		},
-		noRestrictions,
+		noRestrictions, testPathFindingConfig,
 		sourceNode.PubKeyBytes, target, paymentAmt,
 	)
 	if err == nil {
@@ -1265,7 +1269,7 @@ func TestPathNotAvailable(t *testing.T) {
 		&graphParams{
 			graph: graph.graph,
 		},
-		noRestrictions,
+		noRestrictions, testPathFindingConfig,
 		sourceNode.PubKeyBytes, unknownNode, 100,
 	)
 	if !IsError(err, ErrNoPathFound) {
@@ -1302,7 +1306,7 @@ func TestPathInsufficientCapacity(t *testing.T) {
 		&graphParams{
 			graph: graph.graph,
 		},
-		noRestrictions,
+		noRestrictions, testPathFindingConfig,
 		sourceNode.PubKeyBytes, target, payAmt,
 	)
 	if !IsError(err, ErrNoPathFound) {
@@ -1335,7 +1339,7 @@ func TestRouteFailMinHTLC(t *testing.T) {
 		&graphParams{
 			graph: graph.graph,
 		},
-		noRestrictions,
+		noRestrictions, testPathFindingConfig,
 		sourceNode.PubKeyBytes, target, payAmt,
 	)
 	if !IsError(err, ErrNoPathFound) {
@@ -1393,7 +1397,7 @@ func TestRouteFailMaxHTLC(t *testing.T) {
 		&graphParams{
 			graph: graph.graph,
 		},
-		noRestrictions,
+		noRestrictions, testPathFindingConfig,
 		sourceNode.PubKeyBytes, target, payAmt,
 	)
 	if err != nil {
@@ -1415,7 +1419,7 @@ func TestRouteFailMaxHTLC(t *testing.T) {
 		&graphParams{
 			graph: graph.graph,
 		},
-		noRestrictions,
+		noRestrictions, testPathFindingConfig,
 		sourceNode.PubKeyBytes, target, payAmt,
 	)
 	if !IsError(err, ErrNoPathFound) {
@@ -1450,7 +1454,7 @@ func TestRouteFailDisabledEdge(t *testing.T) {
 		&graphParams{
 			graph: graph.graph,
 		},
-		noRestrictions,
+		noRestrictions, testPathFindingConfig,
 		sourceNode.PubKeyBytes, target, payAmt,
 	)
 	if err != nil {
@@ -1478,7 +1482,7 @@ func TestRouteFailDisabledEdge(t *testing.T) {
 		&graphParams{
 			graph: graph.graph,
 		},
-		noRestrictions,
+		noRestrictions, testPathFindingConfig,
 		sourceNode.PubKeyBytes, target, payAmt,
 	)
 	if err != nil {
@@ -1503,7 +1507,7 @@ func TestRouteFailDisabledEdge(t *testing.T) {
 		&graphParams{
 			graph: graph.graph,
 		},
-		noRestrictions,
+		noRestrictions, testPathFindingConfig,
 		sourceNode.PubKeyBytes, target, payAmt,
 	)
 	if !IsError(err, ErrNoPathFound) {
@@ -1537,7 +1541,7 @@ func TestPathSourceEdgesBandwidth(t *testing.T) {
 		&graphParams{
 			graph: graph.graph,
 		},
-		noRestrictions,
+		noRestrictions, testPathFindingConfig,
 		sourceNode.PubKeyBytes, target, payAmt,
 	)
 	if err != nil {
@@ -1561,7 +1565,7 @@ func TestPathSourceEdgesBandwidth(t *testing.T) {
 			graph:          graph.graph,
 			bandwidthHints: bandwidths,
 		},
-		noRestrictions,
+		noRestrictions, testPathFindingConfig,
 		sourceNode.PubKeyBytes, target, payAmt,
 	)
 	if !IsError(err, ErrNoPathFound) {
@@ -1579,7 +1583,7 @@ func TestPathSourceEdgesBandwidth(t *testing.T) {
 			graph:          graph.graph,
 			bandwidthHints: bandwidths,
 		},
-		noRestrictions,
+		noRestrictions, testPathFindingConfig,
 		sourceNode.PubKeyBytes, target, payAmt,
 	)
 	if err != nil {
@@ -1610,7 +1614,7 @@ func TestPathSourceEdgesBandwidth(t *testing.T) {
 			graph:          graph.graph,
 			bandwidthHints: bandwidths,
 		},
-		noRestrictions,
+		noRestrictions, testPathFindingConfig,
 		sourceNode.PubKeyBytes, target, payAmt,
 	)
 	if err != nil {
@@ -1903,6 +1907,7 @@ func TestRestrictOutgoingChannel(t *testing.T) {
 			OutgoingChannelID: &outgoingChannelID,
 			ProbabilitySource: noProbabilitySource,
 		},
+		testPathFindingConfig,
 		sourceVertex, target, paymentAmt,
 	)
 	if err != nil {
@@ -1998,6 +2003,7 @@ func testCltvLimit(t *testing.T, limit uint32, expectedChannel uint64) {
 			CltvLimit:         cltvLimit,
 			ProbabilitySource: noProbabilitySource,
 		},
+		testPathFindingConfig,
 		sourceVertex, target, paymentAmt,
 	)
 	if expectedChannel == 0 {
@@ -2174,8 +2180,10 @@ func testProbabilityRouting(t *testing.T, p10, p11, p20, minProbability float64,
 			graph: testGraphInstance.graph,
 		},
 		&RestrictParams{
-			FeeLimit:              noFeeLimit,
-			ProbabilitySource:     probabilitySource,
+			FeeLimit:          noFeeLimit,
+			ProbabilitySource: probabilitySource,
+		},
+		&PathFindingConfig{
 			PaymentAttemptPenalty: lnwire.NewMSatFromSatoshis(10),
 			MinProbability:        minProbability,
 		},

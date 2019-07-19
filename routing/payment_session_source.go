@@ -38,15 +38,9 @@ type SessionSource struct {
 	// execution.
 	MissionControl MissionController
 
-	// PaymentAttemptPenalty is the virtual cost in path finding weight
-	// units of executing a payment attempt that fails. It is used to trade
-	// off potentially better routes against their probability of
-	// succeeding.
-	PaymentAttemptPenalty lnwire.MilliSatoshi
-
-	// MinProbability defines the minimum success probability of the
-	// returned route.
-	MinRouteProbability float64
+	// PathFindingConfig defines global parameters that control the
+	// trade-off in path finding between fees and probabiity.
+	PathFindingConfig PathFindingConfig
 }
 
 // NewPaymentSession creates a new payment session backed by the latest prune

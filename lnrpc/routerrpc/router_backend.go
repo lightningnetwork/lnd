@@ -42,7 +42,7 @@ type RouterBackend struct {
 		amt lnwire.MilliSatoshi, restrictions *routing.RestrictParams,
 		finalExpiry ...uint16) (*route.Route, error)
 
-	MissionControl *routing.MissionControl
+	MissionControl MissionControl
 
 	// ActiveNetParams are the network parameters of the primary network
 	// that the route is operating on. This is necessary so we can ensure
@@ -53,6 +53,22 @@ type RouterBackend struct {
 	// Tower is the ControlTower instance that is used to track pending
 	// payments.
 	Tower routing.ControlTower
+}
+
+// MissionControl defines the mission control dependencies of routerrpc.
+type MissionControl interface {
+	// GetEdgeProbability is expected to return the success probability of a payment
+	// from fromNode along edge.
+	GetEdgeProbability(fromNode route.Vertex,
+		edge routing.EdgeLocator, amt lnwire.MilliSatoshi) float64
+
+	// ResetHistory resets the history of MissionControl returning it to a state as
+	// if no payment attempts have been made.
+	ResetHistory()
+
+	// GetHistorySnapshot takes a snapshot from the current mission control state
+	// and actual probability estimates.
+	GetHistorySnapshot() *routing.MissionControlSnapshot
 }
 
 // QueryRoutes attempts to query the daemons' Channel Router for a possible
@@ -151,9 +167,14 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 				return 0
 			}
 
-			return 1
+			if !in.UseMissionControl {
+				return 1
+			}
+
+			return r.MissionControl.GetEdgeProbability(
+				node, edge, amt,
+			)
 		},
-		PaymentAttemptPenalty: routing.DefaultPaymentAttemptPenalty,
 	}
 
 	// Query the channel router for a possible path to the destination that

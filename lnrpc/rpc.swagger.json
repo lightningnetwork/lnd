@@ -722,6 +722,14 @@
             "in": "query",
             "required": false,
             "type": "string"
+          },
+          {
+            "name": "use_mission_control",
+            "description": "*\nIf set to true, edge probabilities from mission control will be used to get\nthe optimal route.",
+            "in": "query",
+            "required": false,
+            "type": "boolean",
+            "format": "boolean"
           }
         ],
         "tags": [

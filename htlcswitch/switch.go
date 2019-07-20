@@ -30,6 +30,10 @@ const (
 	// DefaultLogInterval is the duration between attempts to log statistics
 	// about forwarding events.
 	DefaultLogInterval = 10 * time.Second
+
+	// DefaultAckInterval is the duration between attempts to ack any settle
+	// fails in a forwarding package.
+	DefaultAckInterval = 15 * time.Second
 )
 
 var (
@@ -159,6 +163,10 @@ type Config struct {
 	// aggregate stats about it's forwarding during the last interval.
 	LogEventTicker ticker.Ticker
 
+	// AckEventTicker is a signal instructing the htlcswitch to ack any settle
+	// fails in forwarding packages.
+	AckEventTicker ticker.Ticker
+
 	// NotifyActiveChannel and NotifyInactiveChannel allow the link to tell
 	// the ChannelNotifier when channels become active and inactive.
 	NotifyActiveChannel   func(wire.OutPoint)
@@ -259,6 +267,11 @@ type Switch struct {
 	// active ChainNotifier instance. This will be used to retrieve the
 	// lastest height of the chain.
 	blockEpochStream *chainntnfs.BlockEpochEvent
+
+	// pendingSettleFails is the set of settle/fail entries that we need to
+	// ack in the forwarding package of the outgoing link. This was added to
+	// make pipelining settles more efficient.
+	pendingSettleFails []channeldb.SettleFailRef
 }
 
 // New creates the new instance of htlc switch.
@@ -1347,11 +1360,10 @@ func (s *Switch) closeCircuit(pkt *htlcPacket) (*PaymentCircuit, error) {
 			pkt.outgoingHTLCID)
 		log.Error(err)
 
-		// TODO(conner): ack settle/fail
 		if pkt.destRef != nil {
-			if err := s.ackSettleFail(*pkt.destRef); err != nil {
-				return nil, err
-			}
+			// Add this SettleFailRef to the set of pending settle/fail entries
+			// awaiting acknowledgement.
+			s.pendingSettleFails = append(s.pendingSettleFails, *pkt.destRef)
 		}
 
 		return nil, err
@@ -1366,9 +1378,9 @@ func (s *Switch) closeCircuit(pkt *htlcPacket) (*PaymentCircuit, error) {
 // forwarding package of the outgoing link for a payment circuit. We do this if
 // we're the originator of the payment, so the link stops attempting to
 // re-broadcast.
-func (s *Switch) ackSettleFail(settleFailRef channeldb.SettleFailRef) error {
+func (s *Switch) ackSettleFail(settleFailRefs ...channeldb.SettleFailRef) error {
 	return s.cfg.DB.Batch(func(tx *bbolt.Tx) error {
-		return s.cfg.SwitchPackager.AckSettleFails(tx, settleFailRef)
+		return s.cfg.SwitchPackager.AckSettleFails(tx, settleFailRefs...)
 	})
 }
 
@@ -1533,8 +1545,17 @@ func (s *Switch) htlcForwarder() {
 	s.cfg.FwdEventTicker.Resume()
 	defer s.cfg.FwdEventTicker.Stop()
 
+	defer s.cfg.AckEventTicker.Stop()
+
 out:
 	for {
+
+		// If the set of pending settle/fail entries is non-zero,
+		// reinstate the ack ticker so we can batch ack them.
+		if len(s.pendingSettleFails) > 0 {
+			s.cfg.AckEventTicker.Resume()
+		}
+
 		select {
 		case blockEpoch, ok := <-s.blockEpochStream.Epochs:
 			if !ok {
@@ -1696,6 +1717,31 @@ out:
 			totalNumUpdates += diffNumUpdates
 			totalSatSent += diffSatSent
 			totalSatRecv += diffSatRecv
+
+		// The ack ticker has fired so if we have any settle/fail entries
+		// for a forwarding package to ack, we will do so here in a batch
+		// db call.
+		case <-s.cfg.AckEventTicker.Ticks():
+			// If the current set is empty, pause the ticker.
+			if len(s.pendingSettleFails) == 0 {
+				s.cfg.AckEventTicker.Pause()
+				continue
+			}
+
+			// Batch ack the settle/fail entries.
+			if err := s.ackSettleFail(s.pendingSettleFails...); err != nil {
+				log.Errorf("Unable to ack batch of settle/fails: %v", err)
+				continue
+			}
+
+			log.Tracef("Acked %d settle fails: %v", len(s.pendingSettleFails),
+				newLogClosure(func() string {
+					return spew.Sdump(s.pendingSettleFails)
+				}))
+
+			// Reset the pendingSettleFails buffer while keeping acquired
+			// memory.
+			s.pendingSettleFails = s.pendingSettleFails[:0]
 
 		case <-s.quit:
 			return

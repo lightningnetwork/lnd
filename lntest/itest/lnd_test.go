@@ -9409,22 +9409,30 @@ func testAsyncPayments(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Next query for Bob's and Alice's channel states, in order to confirm
 	// that all payment have been successful transmitted.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	aliceChan, err := getChanInfo(ctxt, net.Alice)
-	if len(aliceChan.PendingHtlcs) != 0 {
-		t.Fatalf("alice's pending htlcs is incorrect, got %v, "+
-			"expected %v", len(aliceChan.PendingHtlcs), 0)
-	}
+
+	// Wait for the revocation to be received so alice no longer has pending
+	// htlcs listed and has correct balances. This is needed due to the fact
+	// that we now pipeline the settles.
+	err = lntest.WaitPredicate(func() bool {
+		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+		aliceChan, err := getChanInfo(ctxt, net.Alice)
+		if err != nil {
+			return false
+		}
+		if len(aliceChan.PendingHtlcs) != 0 {
+			return false
+		}
+		if aliceChan.RemoteBalance != bobAmt {
+			return false
+		}
+		if aliceChan.LocalBalance != aliceAmt {
+			return false
+		}
+
+		return true
+	}, time.Second*5)
 	if err != nil {
-		t.Fatalf("unable to get bob's channel info: %v", err)
-	}
-	if aliceChan.RemoteBalance != bobAmt {
-		t.Fatalf("alice's remote balance is incorrect, got %v, "+
-			"expected %v", aliceChan.RemoteBalance, bobAmt)
-	}
-	if aliceChan.LocalBalance != aliceAmt {
-		t.Fatalf("alice's local balance is incorrect, got %v, "+
-			"expected %v", aliceChan.LocalBalance, aliceAmt)
+		t.Fatalf("failed to assert alice's pending htlcs and/or remote/local balance")
 	}
 
 	// Wait for Bob to receive revocation from Alice.

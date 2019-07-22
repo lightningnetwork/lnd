@@ -1,0 +1,18 @@
+run:
+  # timeout for analysis
+  deadline: 4m
+
+linters-settings:
+  govet:
+    # Don't report about shadowed variables
+    check-shadowing: false
+  gofmt:
+    # simplify code: gofmt with `-s` option, true by default
+    simplify: true
+
+linters:
+  disable-all: true
+  enable:
+    - gofmt
+    - golint
+    - govet

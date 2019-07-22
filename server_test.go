@@ -71,7 +71,6 @@ func TestTLSAutoRegeneration(t *testing.T) {
 	keyPath := tempDirPath + "/tls.key"
 
 	certDerBytes, keyBytes := genExpiredCertPair(t, tempDirPath)
-
 	expiredCert, err := x509.ParseCertificate(certDerBytes)
 	if err != nil {
 		t.Fatalf("failed to parse certificate: %v", err)
@@ -106,7 +105,6 @@ func TestTLSAutoRegeneration(t *testing.T) {
 	}
 	err = ioutil.WriteFile(tempDirPath+"/tls.key", keyBuf.Bytes(), 0600)
 	if err != nil {
-		os.Remove(tempDirPath + "tls.cert")
 		t.Fatalf("failed to write key file: %v", err)
 	}
 
@@ -116,7 +114,7 @@ func TestTLSAutoRegeneration(t *testing.T) {
 
 	// Now let's run getTLSConfig. If it works properly, it should delete
 	// the cert and create a new one.
-	_, _, _, err = getTLSConfig(certPath, keyPath, rpcListeners)
+	_, _, _, err = getTLSConfig(certPath, keyPath, nil, nil, rpcListeners)
 	if err != nil {
 		t.Fatalf("couldn't retrieve TLS config")
 	}
@@ -185,7 +183,8 @@ func genExpiredCertPair(t *testing.T, certDirPath string) ([]byte, []byte) {
 	}
 
 	certDerBytes, err := x509.CreateCertificate(
-		rand.Reader, &template, &template, &priv.PublicKey, priv)
+		rand.Reader, &template, &template, &priv.PublicKey, priv,
+	)
 	if err != nil {
 		t.Fatalf("failed to create certificate: %v", err)
 	}

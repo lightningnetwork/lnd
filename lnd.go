@@ -468,11 +468,13 @@ func Main() error {
 	}
 	defer rpcServer.Stop()
 
-	// If we're not in simnet mode, We'll wait until we're fully synced to
-	// continue the start up of the remainder of the daemon. This ensures
-	// that we don't accept any possibly invalid state transitions, or
+	// If we're not in regtest or simnet mode, We'll wait until we're fully
+	// synced to continue the start up of the remainder of the daemon. This
+	// ensures that we don't accept any possibly invalid state transitions, or
 	// accept channels with spent funds.
-	if !(cfg.Bitcoin.SimNet || cfg.Litecoin.SimNet) {
+	if !(cfg.Bitcoin.RegTest || cfg.Bitcoin.SimNet ||
+		cfg.Litecoin.RegTest || cfg.Litecoin.SimNet) {
+
 		_, bestHeight, err := activeChainControl.chainIO.GetBestBlock()
 		if err != nil {
 			err := fmt.Errorf("Unable to determine chain tip: %v",

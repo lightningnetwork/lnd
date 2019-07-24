@@ -22,7 +22,7 @@ func ReadElement(r io.Reader, element interface{}) error {
 		return nil
 
 	// Fail if error is not UnknownElementType.
-	case err != nil:
+	default:
 		if _, ok := err.(UnknownElementType); !ok {
 			return err
 		}
@@ -80,7 +80,7 @@ func WriteElement(w io.Writer, element interface{}) error {
 		return nil
 
 	// Fail if error is not UnknownElementType.
-	case err != nil:
+	default:
 		if _, ok := err.(UnknownElementType); !ok {
 			return err
 		}

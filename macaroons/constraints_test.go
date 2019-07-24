@@ -11,14 +11,14 @@ import (
 
 var (
 	testRootKey                 = []byte("dummyRootKey")
-	testId                      = []byte("dummyId")
+	testID                      = []byte("dummyId")
 	testLocation                = "lnd"
 	testVersion                 = macaroon.LatestVersion
 	expectedTimeCaveatSubstring = "time-before " + string(time.Now().Year())
 )
 
 func createDummyMacaroon(t *testing.T) *macaroon.Macaroon {
-	dummyMacaroon, err := macaroon.New(testRootKey, testId,
+	dummyMacaroon, err := macaroon.New(testRootKey, testID,
 		testLocation, testVersion)
 	if err != nil {
 		t.Fatalf("Error creating initial macaroon: %v", err)

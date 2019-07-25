@@ -391,6 +391,7 @@ func loadConfig() (*config, error) {
 			Allocation:     0.6,
 			MinChannelSize: int64(minChanFundingSize),
 			MaxChannelSize: int64(MaxFundingAmount),
+			MinConfs:       1,
 			ConfTarget:     autopilot.DefaultConfTarget,
 			Heuristic: map[string]float64{
 				"preferential": 1.0,

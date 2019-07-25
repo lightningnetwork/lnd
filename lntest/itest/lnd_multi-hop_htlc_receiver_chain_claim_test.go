@@ -114,9 +114,9 @@ func testMultiHopReceiverChainClaim(net *lntest.NetworkHarness, t *harnessTest) 
 	// Now we'll mine enough blocks to prompt carol to actually go to the
 	// chain in order to sweep her HTLC since the value is high enough.
 	// TODO(roasbeef): modify once go to chain policy changes
-	numBlocks := uint32(
+	numBlocks := padCLTV(uint32(
 		invoiceReq.CltvExpiry - lnd.DefaultIncomingBroadcastDelta,
-	)
+	))
 	if _, err := net.Miner.Node.Generate(numBlocks); err != nil {
 		t.Fatalf("unable to generate blocks")
 	}

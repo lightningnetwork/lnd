@@ -125,8 +125,8 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest)
 
 	// We'll now mine enough blocks so Carol decides that she needs to go
 	// on-chain to claim the HTLC as Bob has been inactive.
-	numBlocks := uint32(invoiceReq.CltvExpiry -
-		lnd.DefaultIncomingBroadcastDelta)
+	numBlocks := padCLTV(uint32(invoiceReq.CltvExpiry -
+		lnd.DefaultIncomingBroadcastDelta))
 
 	if _, err := net.Miner.Node.Generate(numBlocks); err != nil {
 		t.Fatalf("unable to generate blocks")

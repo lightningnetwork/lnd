@@ -93,15 +93,12 @@ var (
 	}
 )
 
-// Main is the true entry point for lnd. This function is required since defers
-// created in the top-level scope of a main method aren't executed if os.Exit()
-// is called.
-func Main() error {
+func InitDaemon() (*chainControl, error) {
 	// Load the configuration, and parse any command line options. This
 	// function will also set up logging properly.
 	loadedConfig, err := loadConfig()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	cfg = loadedConfig
 	defer func() {
@@ -153,7 +150,7 @@ func Main() error {
 			err := fmt.Errorf("Unable to create CPU profile: %v",
 				err)
 			ltndLog.Error(err)
-			return err
+			return nil, err
 		}
 		pprof.StartCPUProfile(f)
 		defer f.Close()
@@ -175,7 +172,7 @@ func Main() error {
 	if err != nil {
 		err := fmt.Errorf("Unable to open channeldb: %v", err)
 		ltndLog.Error(err)
-		return err
+		return nil, err
 	}
 	defer chanDB.Close()
 
@@ -191,7 +188,7 @@ func Main() error {
 	if err != nil {
 		err := fmt.Errorf("Unable to load TLS credentials: %v", err)
 		ltndLog.Error(err)
-		return err
+		return nil, err
 	}
 
 	serverCreds := credentials.NewTLS(tlsCfg)
@@ -215,7 +212,7 @@ func Main() error {
 			err := fmt.Errorf("Unable to initialize neutrino "+
 				"backend: %v", err)
 			ltndLog.Error(err)
-			return err
+			return nil, err
 		}
 		defer neutrinoCleanUp()
 		neutrinoCS = neutrinoBackend
@@ -244,7 +241,7 @@ func Main() error {
 			err := fmt.Errorf("Unable to set up wallet password "+
 				"listeners: %v", err)
 			ltndLog.Error(err)
-			return err
+			return nil, err
 		}
 
 		walletInitParams = *params
@@ -268,7 +265,7 @@ func Main() error {
 			err := fmt.Errorf("Unable to set up macaroon "+
 				"authentication: %v", err)
 			ltndLog.Error(err)
-			return err
+			return nil, err
 		}
 		defer macaroonService.Close()
 
@@ -277,7 +274,7 @@ func Main() error {
 		if err != nil {
 			err := fmt.Errorf("Unable to unlock macaroons: %v", err)
 			ltndLog.Error(err)
-			return err
+			return nil, err
 		}
 
 		// Create macaroon files for lncli to use if they don't exist.
@@ -292,7 +289,7 @@ func Main() error {
 				err := fmt.Errorf("Unable to create macaroons "+
 					"%v", err)
 				ltndLog.Error(err)
-				return err
+				return nil, err
 			}
 		}
 	}
@@ -308,7 +305,7 @@ func Main() error {
 	if err != nil {
 		err := fmt.Errorf("Unable to create chain control: %v", err)
 		ltndLog.Error(err)
-		return err
+		return nil, err
 	}
 
 	// Finally before we start the server, we'll register the "holy
@@ -327,7 +324,7 @@ func Main() error {
 	if err != nil {
 		err := fmt.Errorf("Unable to derive node private key: %v", err)
 		ltndLog.Error(err)
-		return err
+		return nil, err
 	}
 	idPrivKey.Curve = btcec.S256()
 
@@ -347,7 +344,7 @@ func Main() error {
 			err := fmt.Errorf("Unable to open watchtower client "+
 				"database: %v", err)
 			ltndLog.Error(err)
-			return err
+			return nil, err
 		}
 		defer towerClientDB.Close()
 	}
@@ -366,7 +363,7 @@ func Main() error {
 			err := fmt.Errorf("Unable to open watchtower "+
 				"database: %v", err)
 			ltndLog.Error(err)
-			return err
+			return nil, err
 		}
 		defer towerDB.Close()
 
@@ -382,7 +379,7 @@ func Main() error {
 			err := fmt.Errorf("Unable to derive watchtower "+
 				"private key: %v", err)
 			ltndLog.Error(err)
-			return err
+			return nil, err
 		}
 
 		wtConfig, err := cfg.Watchtower.Apply(&watchtower.Config{
@@ -402,15 +399,14 @@ func Main() error {
 		if err != nil {
 			err := fmt.Errorf("Unable to configure watchtower: %v",
 				err)
-			ltndLog.Error(err)
-			return err
+			return nil, err
 		}
 
 		tower, err = watchtower.New(wtConfig)
 		if err != nil {
 			err := fmt.Errorf("Unable to create watchtower: %v", err)
 			ltndLog.Error(err)
-			return err
+			return nil, err
 		}
 	}
 
@@ -423,7 +419,7 @@ func Main() error {
 	if err != nil {
 		err := fmt.Errorf("Unable to create server: %v", err)
 		ltndLog.Error(err)
-		return err
+		return nil, err
 	}
 
 	// Set up an autopilot manager from the current config. This will be
@@ -433,19 +429,19 @@ func Main() error {
 	if err != nil {
 		err := fmt.Errorf("Unable to initialize autopilot: %v", err)
 		ltndLog.Error(err)
-		return err
+		return nil, err
 	}
 
 	atplManager, err := autopilot.NewManager(atplCfg)
 	if err != nil {
 		err := fmt.Errorf("Unable to create autopilot manager: %v", err)
 		ltndLog.Error(err)
-		return err
+		return nil, err
 	}
 	if err := atplManager.Start(); err != nil {
 		err := fmt.Errorf("Unable to start autopilot manager: %v", err)
 		ltndLog.Error(err)
-		return err
+		return nil, err
 	}
 	defer atplManager.Stop()
 
@@ -459,12 +455,12 @@ func Main() error {
 	if err != nil {
 		err := fmt.Errorf("Unable to create RPC server: %v", err)
 		ltndLog.Error(err)
-		return err
+		return nil, err
 	}
 	if err := rpcServer.Start(); err != nil {
 		err := fmt.Errorf("Unable to start RPC server: %v", err)
 		ltndLog.Error(err)
-		return err
+		return nil, err
 	}
 	defer rpcServer.Stop()
 
@@ -480,7 +476,7 @@ func Main() error {
 			err := fmt.Errorf("Unable to determine chain tip: %v",
 				err)
 			ltndLog.Error(err)
-			return err
+			return nil, err
 		}
 
 		ltndLog.Infof("Waiting for chain backend to finish sync, "+
@@ -488,7 +484,7 @@ func Main() error {
 
 		for {
 			if !signal.Alive() {
-				return nil
+				return nil, err
 			}
 
 			synced, _, err := activeChainControl.wallet.IsSynced()
@@ -496,7 +492,7 @@ func Main() error {
 				err := fmt.Errorf("Unable to determine if "+
 					"wallet is synced: %v", err)
 				ltndLog.Error(err)
-				return err
+				return nil, err
 			}
 
 			if synced {
@@ -511,7 +507,7 @@ func Main() error {
 			err := fmt.Errorf("Unable to determine chain tip: %v",
 				err)
 			ltndLog.Error(err)
-			return err
+			return nil, err
 		}
 
 		ltndLog.Infof("Chain backend is fully synced (end_height=%v)!",
@@ -523,7 +519,7 @@ func Main() error {
 	if err := server.Start(); err != nil {
 		err := fmt.Errorf("Unable to start server: %v", err)
 		ltndLog.Error(err)
-		return err
+		return nil, err
 	}
 	defer server.Stop()
 
@@ -535,7 +531,7 @@ func Main() error {
 			err := fmt.Errorf("Unable to start autopilot agent: %v",
 				err)
 			ltndLog.Error(err)
-			return err
+			return nil, err
 		}
 	}
 
@@ -543,13 +539,22 @@ func Main() error {
 		if err := tower.Start(); err != nil {
 			err := fmt.Errorf("Unable to start watchtower: %v", err)
 			ltndLog.Error(err)
-			return err
+			return nil, err
 		}
 		defer tower.Stop()
 	}
+	return activeChainControl, nil
+}
 
+// Main is the true entry point for lnd. This function is required since defers
+// created in the top-level scope of a main method aren't executed if os.Exit()
+// is called.
+func Main() error {
+	if _, err := InitDaemon(); err != nil {
+		return err
+	}
 	// Wait for shutdown signal from either a graceful server stop or from
-	// the interrupt handler.
+	// the interrupt handler.https://github.com/jacohend/lnd.git
 	<-signal.ShutdownChannel()
 	return nil
 }

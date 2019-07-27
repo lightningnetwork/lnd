@@ -93,6 +93,9 @@ var (
 	}
 )
 
+// InitDaemon initializes all services. Called from Main.
+// Can also be used by other packages to gain Chain access
+// while running LND
 func InitDaemon() (*chainControl, error) {
 	// Load the configuration, and parse any command line options. This
 	// function will also set up logging properly.

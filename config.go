@@ -26,6 +26,7 @@ import (
 	"github.com/lightningnetwork/lnd/chanbackup"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/discovery"
+	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/htlcswitch/hodl"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
@@ -312,6 +313,8 @@ type config struct {
 
 	StaggerInitialReconnect bool `long:"stagger-initial-reconnect" description:"If true, will apply a randomized staggering between 0s and 30s when reconnecting to persistent peers on startup. The first 10 reconnections will be attempted instantly, regardless of the flag's value"`
 
+	MaxOutgoingCltvExpiry uint32 `long:"max-cltv-expiry" description:"The maximum number of blocks funds could be locked up for when forwarding payments."`
+
 	net tor.Net
 
 	Routing *routing.Conf `group:"routing" namespace:"routing"`
@@ -425,6 +428,7 @@ func loadConfig() (*config, error) {
 		Watchtower: &lncfg.Watchtower{
 			TowerDir: defaultTowerDir,
 		},
+		MaxOutgoingCltvExpiry: htlcswitch.DefaultMaxOutgoingCltvExpiry,
 	}
 
 	// Pre-parse the command line options to pick up an alternative config

@@ -1689,9 +1689,10 @@ func newSingleLinkTestHarness(chanAmt, chanReserve btcutil.Amount) (
 		FwdPkgGCTicker: ticker.NewForce(15 * time.Second),
 		// Make the BatchSize and Min/MaxFeeUpdateTimeout large enough
 		// to not trigger commit updates automatically during tests.
-		BatchSize:           10000,
-		MinFeeUpdateTimeout: 30 * time.Minute,
-		MaxFeeUpdateTimeout: 40 * time.Minute,
+		BatchSize:             10000,
+		MinFeeUpdateTimeout:   30 * time.Minute,
+		MaxFeeUpdateTimeout:   40 * time.Minute,
+		MaxOutgoingCltvExpiry: DefaultMaxOutgoingCltvExpiry,
 	}
 
 	const startingHeight = 100
@@ -4238,8 +4239,9 @@ func (h *persistentLinkHarness) restartLink(
 		MinFeeUpdateTimeout: 30 * time.Minute,
 		MaxFeeUpdateTimeout: 40 * time.Minute,
 		// Set any hodl flags requested for the new link.
-		HodlMask:  hodl.MaskFromFlags(hodlFlags...),
-		DebugHTLC: len(hodlFlags) > 0,
+		HodlMask:              hodl.MaskFromFlags(hodlFlags...),
+		DebugHTLC:             len(hodlFlags) > 0,
+		MaxOutgoingCltvExpiry: DefaultMaxOutgoingCltvExpiry,
 	}
 
 	const startingHeight = 100
@@ -5559,6 +5561,7 @@ func TestHtlcSatisfyPolicy(t *testing.T) {
 				BaseFee:       10,
 			},
 			FetchLastChannelUpdate: fetchLastChannelUpdate,
+			MaxOutgoingCltvExpiry:  DefaultMaxOutgoingCltvExpiry,
 		},
 	}
 

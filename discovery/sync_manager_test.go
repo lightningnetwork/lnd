@@ -185,6 +185,13 @@ func TestSyncManagerInitialHistoricalSync(t *testing.T) {
 	t.Parallel()
 
 	syncMgr := newTestSyncManager(0)
+
+	// The graph should not be considered as synced since the sync manager
+	// has yet to start.
+	if syncMgr.IsGraphSynced() {
+		t.Fatal("expected graph to not be considered as synced")
+	}
+
 	syncMgr.Start()
 	defer syncMgr.Stop()
 
@@ -198,6 +205,12 @@ func TestSyncManagerInitialHistoricalSync(t *testing.T) {
 		NumBlocks:        math.MaxUint32,
 	})
 
+	// The graph should not be considered as synced since the initial
+	// historical sync has not finished.
+	if syncMgr.IsGraphSynced() {
+		t.Fatal("expected graph to not be considered as synced")
+	}
+
 	// If an additional peer connects, then another historical sync should
 	// not be attempted.
 	finalHistoricalPeer := randPeer(t, syncMgr.quit)
@@ -208,7 +221,14 @@ func TestSyncManagerInitialHistoricalSync(t *testing.T) {
 	// If we disconnect the peer performing the initial historical sync, a
 	// new one should be chosen.
 	syncMgr.PruneSyncState(peer.PubKey())
+
+	// Complete the initial historical sync by transitionining the syncer to
+	// its final chansSynced state. The graph should be considered as synced
+	// after the fact.
 	assertTransitionToChansSynced(t, finalHistoricalSyncer, finalHistoricalPeer)
+	if !syncMgr.IsGraphSynced() {
+		t.Fatal("expected graph to be considered as synced")
+	}
 
 	// Once the initial historical sync has succeeded, another one should
 	// not be attempted by disconnecting the peer who performed it.

@@ -35,9 +35,9 @@ type subRPCServerConfigs struct {
 	SignRPC *signrpc.Config `group:"signrpc" namespace:"signrpc"`
 
 	// WalletKitRPC is a sub-RPC server that exposes functionality allowing
-	// a client to send transactions through a wallet, publish them, and
+	// a client to send transactions through a Wallet, publish them, and
 	// also requests keys and addresses under control of the backing
-	// wallet.
+	// Wallet.
 	WalletKitRPC *walletrpc.Config `group:"walletrpc" namespace:"walletrpc"`
 
 	// AutopilotRPC is a sub-RPC server that exposes methods on the running
@@ -117,7 +117,7 @@ func (s *subRPCServerConfigs) PopulateDependencies(cc *chainControl,
 				reflect.ValueOf(networkDir),
 			)
 			subCfgValue.FieldByName("Signer").Set(
-				reflect.ValueOf(cc.signer),
+				reflect.ValueOf(cc.Signer),
 			)
 
 		case *walletrpc.Config:
@@ -130,13 +130,13 @@ func (s *subRPCServerConfigs) PopulateDependencies(cc *chainControl,
 				reflect.ValueOf(macService),
 			)
 			subCfgValue.FieldByName("FeeEstimator").Set(
-				reflect.ValueOf(cc.feeEstimator),
+				reflect.ValueOf(cc.FeeEstimator),
 			)
 			subCfgValue.FieldByName("Wallet").Set(
-				reflect.ValueOf(cc.wallet),
+				reflect.ValueOf(cc.Wallet),
 			)
 			subCfgValue.FieldByName("KeyRing").Set(
-				reflect.ValueOf(cc.keyRing),
+				reflect.ValueOf(cc.KeyRing),
 			)
 			subCfgValue.FieldByName("Sweeper").Set(
 				reflect.ValueOf(sweeper),
@@ -159,7 +159,7 @@ func (s *subRPCServerConfigs) PopulateDependencies(cc *chainControl,
 				reflect.ValueOf(macService),
 			)
 			subCfgValue.FieldByName("ChainNotifier").Set(
-				reflect.ValueOf(cc.chainNotifier),
+				reflect.ValueOf(cc.ChainNotifier),
 			)
 
 		case *invoicesrpc.Config:

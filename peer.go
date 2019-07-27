@@ -414,7 +414,7 @@ func (p *peer) QuitSignal() <-chan struct{} {
 func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 	for _, dbChan := range chans {
 		lnChan, err := lnwallet.NewLightningChannel(
-			p.server.cc.signer, dbChan, p.server.sigPool,
+			p.server.cc.Signer, dbChan, p.server.sigPool,
 		)
 		if err != nil {
 			return err
@@ -448,7 +448,7 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 			continue
 		}
 
-		_, currentHeight, err := p.server.cc.chainIO.GetBestBlock()
+		_, currentHeight, err := p.server.cc.ChainIO.GetBestBlock()
 		if err != nil {
 			return err
 		}
@@ -494,7 +494,7 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 			peerLog.Warnf("Unable to find our forwarding policy "+
 				"for channel %v, using default values",
 				chanPoint)
-			forwardingPolicy = &p.server.cc.routingPolicy
+			forwardingPolicy = &p.server.cc.RoutingPolicy
 		}
 
 		peerLog.Tracef("Using link policy of: %v",
@@ -567,7 +567,7 @@ func (p *peer) addLink(chanPoint *wire.OutPoint,
 		Circuits:               p.server.htlcSwitch.CircuitModifier(),
 		ForwardPackets:         p.server.htlcSwitch.ForwardPackets,
 		FwrdingPolicy:          *forwardingPolicy,
-		FeeEstimator:           p.server.cc.feeEstimator,
+		FeeEstimator:           p.server.cc.FeeEstimator,
 		PreimageCache:          p.server.witnessBeacon,
 		ChainEvents:            chainEvents,
 		UpdateContractSignals: func(signals *contractcourt.ContractSignals) error {
@@ -1701,7 +1701,7 @@ func (p *peer) ChannelSnapshots() []*channeldb.ChannelSnapshot {
 // genDeliveryScript returns a new script to be used to send our funds to in
 // the case of a cooperative channel close negotiation.
 func (p *peer) genDeliveryScript() ([]byte, error) {
-	deliveryAddr, err := p.server.cc.wallet.NewAddress(
+	deliveryAddr, err := p.server.cc.Wallet.NewAddress(
 		lnwallet.WitnessPubKey, false,
 	)
 	if err != nil {
@@ -1773,7 +1773,7 @@ out:
 			// set of active channels, so we can look it up later
 			// easily according to its channel ID.
 			lnChan, err := lnwallet.NewLightningChannel(
-				p.server.cc.signer, newChan, p.server.sigPool,
+				p.server.cc.Signer, newChan, p.server.sigPool,
 			)
 			if err != nil {
 				p.activeChanMtx.Unlock()
@@ -1796,7 +1796,7 @@ out:
 			// necessary items it needs to function.
 			//
 			// TODO(roasbeef): panic on below?
-			_, currentHeight, err := p.server.cc.chainIO.GetBestBlock()
+			_, currentHeight, err := p.server.cc.ChainIO.GetBestBlock()
 			if err != nil {
 				err := fmt.Errorf("unable to get best "+
 					"block: %v", err)
@@ -1824,7 +1824,7 @@ out:
 			// at initial channel creation. Note that the maximum HTLC value
 			// defaults to the cap on the total value of outstanding HTLCs.
 			fwdMinHtlc := lnChan.FwdMinHtlc()
-			defaultPolicy := p.server.cc.routingPolicy
+			defaultPolicy := p.server.cc.RoutingPolicy
 			forwardingPolicy := &htlcswitch.ForwardingPolicy{
 				MinHTLC:       fwdMinHtlc,
 				MaxHTLC:       newChan.LocalChanCfg.MaxPendingAmount,
@@ -2046,14 +2046,14 @@ func (p *peer) fetchActiveChanCloser(chanID lnwire.ChannelID) (*channelCloser, e
 		// In order to begin fee negotiations, we'll first compute our
 		// target ideal fee-per-kw. We'll set this to a lax value, as
 		// we weren't the ones that initiated the channel closure.
-		feePerKw, err := p.server.cc.feeEstimator.EstimateFeePerKW(6)
+		feePerKw, err := p.server.cc.FeeEstimator.EstimateFeePerKW(6)
 		if err != nil {
 			peerLog.Errorf("unable to query fee estimator: %v", err)
 
 			return nil, fmt.Errorf("unable to estimate fee")
 		}
 
-		_, startingHeight, err := p.server.cc.chainIO.GetBestBlock()
+		_, startingHeight, err := p.server.cc.ChainIO.GetBestBlock()
 		if err != nil {
 			peerLog.Errorf("unable to obtain best block: %v", err)
 			return nil, fmt.Errorf("cannot obtain best block")
@@ -2063,7 +2063,7 @@ func (p *peer) fetchActiveChanCloser(chanID lnwire.ChannelID) (*channelCloser, e
 			chanCloseCfg{
 				channel:           channel,
 				unregisterChannel: p.server.htlcSwitch.RemoveLink,
-				broadcastTx:       p.server.cc.wallet.PublishTransaction,
+				broadcastTx:       p.server.cc.Wallet.PublishTransaction,
 				disableChannel:    p.server.chanStatusMgr.RequestDisable,
 				quit:              p.quit,
 			},
@@ -2112,7 +2112,7 @@ func (p *peer) handleLocalCloseReq(req *htlcswitch.ChanClose) {
 
 		// Next, we'll create a new channel closer state machine to
 		// handle the close negotiation.
-		_, startingHeight, err := p.server.cc.chainIO.GetBestBlock()
+		_, startingHeight, err := p.server.cc.ChainIO.GetBestBlock()
 		if err != nil {
 			peerLog.Errorf(err.Error())
 			req.Err <- err
@@ -2123,7 +2123,7 @@ func (p *peer) handleLocalCloseReq(req *htlcswitch.ChanClose) {
 			chanCloseCfg{
 				channel:           channel,
 				unregisterChannel: p.server.htlcSwitch.RemoveLink,
-				broadcastTx:       p.server.cc.wallet.PublishTransaction,
+				broadcastTx:       p.server.cc.Wallet.PublishTransaction,
 				disableChannel:    p.server.chanStatusMgr.RequestDisable,
 				quit:              p.quit,
 			},
@@ -2255,7 +2255,7 @@ func (p *peer) finalizeChanClosure(chanCloser *channelCloser) {
 	// Next, we'll launch a goroutine which will request to be notified by
 	// the ChainNotifier once the closure transaction obtains a single
 	// confirmation.
-	notifier := p.server.cc.chainNotifier
+	notifier := p.server.cc.ChainNotifier
 
 	// If any error happens during waitForChanToClose, forward it to
 	// closeReq. If this channel closure is not locally initiated, closeReq

@@ -199,7 +199,7 @@ func InitDaemon() (*chainControl, error) {
 
 	restDialOpts := []grpc.DialOption{grpc.WithTransportCredentials(*restCreds)}
 
-	// Before starting the wallet, we'll create and start our Neutrino
+	// Before starting the Wallet, we'll create and start our Neutrino
 	// light client instance, if enabled, in order to allow it to sync
 	// while the rest of the daemon continues startup.
 	mainChain := cfg.Bitcoin
@@ -228,20 +228,20 @@ func InitDaemon() (*chainControl, error) {
 	)
 
 	// If the user didn't request a seed, then we'll manually assume a
-	// wallet birthday of now, as otherwise the seed would've specified
+	// Wallet birthday of now, as otherwise the seed would've specified
 	// this information.
 	walletInitParams.Birthday = time.Now()
 
 	// We wait until the user provides a password over RPC. In case lnd is
 	// started with the --noseedbackup flag, we use the default password
-	// for wallet encryption.
+	// for Wallet encryption.
 	if !cfg.NoSeedBackup {
 		params, err := waitForWalletPassword(
 			cfg.RPCListeners, cfg.RESTListeners, serverOpts,
 			restDialOpts, restProxyDest, tlsCfg,
 		)
 		if err != nil {
-			err := fmt.Errorf("Unable to set up wallet password "+
+			err := fmt.Errorf("Unable to set up Wallet password "+
 				"listeners: %v", err)
 			ltndLog.Error(err)
 			return nil, err
@@ -318,7 +318,7 @@ func InitDaemon() (*chainControl, error) {
 	registeredChains.RegisterChain(primaryChain, activeChainControl)
 
 	// TODO(roasbeef): add rotation
-	idPrivKey, err := activeChainControl.wallet.DerivePrivKey(keychain.KeyDescriptor{
+	idPrivKey, err := activeChainControl.Wallet.DerivePrivKey(keychain.KeyDescriptor{
 		KeyLocator: keychain.KeyLocator{
 			Family: keychain.KeyFamilyNodeKey,
 			Index:  0,
@@ -370,7 +370,7 @@ func InitDaemon() (*chainControl, error) {
 		}
 		defer towerDB.Close()
 
-		towerPrivKey, err := activeChainControl.wallet.DerivePrivKey(
+		towerPrivKey, err := activeChainControl.Wallet.DerivePrivKey(
 			keychain.KeyDescriptor{
 				KeyLocator: keychain.KeyLocator{
 					Family: keychain.KeyFamilyTowerID,
@@ -386,17 +386,17 @@ func InitDaemon() (*chainControl, error) {
 		}
 
 		wtConfig, err := cfg.Watchtower.Apply(&watchtower.Config{
-			BlockFetcher:   activeChainControl.chainIO,
+			BlockFetcher:   activeChainControl.ChainIO,
 			DB:             towerDB,
-			EpochRegistrar: activeChainControl.chainNotifier,
+			EpochRegistrar: activeChainControl.ChainNotifier,
 			Net:            cfg.net,
 			NewAddress: func() (btcutil.Address, error) {
-				return activeChainControl.wallet.NewAddress(
+				return activeChainControl.Wallet.NewAddress(
 					lnwallet.WitnessPubKey, false,
 				)
 			},
 			NodePrivKey: towerPrivKey,
-			PublishTx:   activeChainControl.wallet.PublishTransaction,
+			PublishTx:   activeChainControl.Wallet.PublishTransaction,
 			ChainHash:   *activeNetParams.GenesisHash,
 		}, lncfg.NormalizeAddresses)
 		if err != nil {
@@ -474,7 +474,7 @@ func InitDaemon() (*chainControl, error) {
 	if !(cfg.Bitcoin.RegTest || cfg.Bitcoin.SimNet ||
 		cfg.Litecoin.RegTest || cfg.Litecoin.SimNet) {
 
-		_, bestHeight, err := activeChainControl.chainIO.GetBestBlock()
+		_, bestHeight, err := activeChainControl.ChainIO.GetBestBlock()
 		if err != nil {
 			err := fmt.Errorf("Unable to determine chain tip: %v",
 				err)
@@ -490,10 +490,10 @@ func InitDaemon() (*chainControl, error) {
 				return nil, err
 			}
 
-			synced, _, err := activeChainControl.wallet.IsSynced()
+			synced, _, err := activeChainControl.Wallet.IsSynced()
 			if err != nil {
 				err := fmt.Errorf("Unable to determine if "+
-					"wallet is synced: %v", err)
+					"Wallet is synced: %v", err)
 				ltndLog.Error(err)
 				return nil, err
 			}
@@ -505,7 +505,7 @@ func InitDaemon() (*chainControl, error) {
 			time.Sleep(time.Second * 1)
 		}
 
-		_, bestHeight, err = activeChainControl.chainIO.GetBestBlock()
+		_, bestHeight, err = activeChainControl.ChainIO.GetBestBlock()
 		if err != nil {
 			err := fmt.Errorf("Unable to determine chain tip: %v",
 				err)
@@ -852,12 +852,12 @@ func genMacaroons(ctx context.Context, svc *macaroons.Service,
 }
 
 // WalletUnlockParams holds the variables used to parameterize the unlocking of
-// lnd's wallet after it has already been created.
+// lnd's Wallet after it has already been created.
 type WalletUnlockParams struct {
-	// Password is the public and private wallet passphrase.
+	// Password is the public and private Wallet passphrase.
 	Password []byte
 
-	// Birthday specifies the approximate time that this wallet was created.
+	// Birthday specifies the approximate time that this Wallet was created.
 	// This is used to bound any rescans on startup.
 	Birthday time.Time
 
@@ -893,10 +893,10 @@ func waitForWalletPassword(grpcEndpoints, restEndpoints []net.Addr,
 		chainConfig = cfg.Litecoin
 	}
 
-	// The macaroon files are passed to the wallet unlocker since they are
-	// also encrypted with the wallet's password. These files will be
+	// The macaroon files are passed to the Wallet unlocker since they are
+	// also encrypted with the Wallet's password. These files will be
 	// deleted within it and recreated when successfully changing the
-	// wallet's password.
+	// Wallet's password.
 	macaroonFiles := []string{
 		filepath.Join(networkDir, macaroons.DBFilename),
 		cfg.AdminMacPath, cfg.ReadMacPath, cfg.InvoiceMacPath,
@@ -976,19 +976,19 @@ func waitForWalletPassword(grpcEndpoints, restEndpoints []net.Addr,
 	wg.Wait()
 
 	// Wait for user to provide the password.
-	ltndLog.Infof("Waiting for wallet encryption password. Use `lncli " +
-		"create` to create a wallet, `lncli unlock` to unlock an " +
-		"existing wallet, or `lncli changepassword` to change the " +
-		"password of an existing wallet and unlock it.")
+	ltndLog.Infof("Waiting for Wallet encryption password. Use `lncli " +
+		"create` to create a Wallet, `lncli unlock` to unlock an " +
+		"existing Wallet, or `lncli changepassword` to change the " +
+		"password of an existing Wallet and unlock it.")
 
 	// We currently don't distinguish between getting a password to be used
-	// for creation or unlocking, as a new wallet db will be created if
+	// for creation or unlocking, as a new Wallet db will be created if
 	// none exists when creating the chain control.
 	select {
 
-	// The wallet is being created for the first time, we'll check to see
+	// The Wallet is being created for the first time, we'll check to see
 	// if the user provided any entropy for seed creation. If so, then
-	// we'll create the wallet early to load the seed.
+	// we'll create the Wallet early to load the seed.
 	case initMsg := <-pwService.InitMsgs:
 		password := initMsg.Passphrase
 		cipherSeed := initMsg.WalletSeed
@@ -1012,18 +1012,18 @@ func waitForWalletPassword(grpcEndpoints, restEndpoints []net.Addr,
 			activeNetParams.Params, netDir, uint32(recoveryWindow),
 		)
 
-		// With the seed, we can now use the wallet loader to create
-		// the wallet, then pass it back to avoid unlocking it again.
+		// With the seed, we can now use the Wallet loader to create
+		// the Wallet, then pass it back to avoid unlocking it again.
 		birthday := cipherSeed.BirthdayTime()
 		newWallet, err := loader.CreateNewWallet(
 			password, password, cipherSeed.Entropy[:], birthday,
 		)
 		if err != nil {
-			// Don't leave the file open in case the new wallet
+			// Don't leave the file open in case the new Wallet
 			// could not be created for whatever reason.
 			if err := loader.UnloadWallet(); err != nil {
 				ltndLog.Errorf("Could not unload new "+
-					"wallet: %v", err)
+					"Wallet: %v", err)
 			}
 			return nil, err
 		}
@@ -1036,7 +1036,7 @@ func waitForWalletPassword(grpcEndpoints, restEndpoints []net.Addr,
 			ChansToRestore: initMsg.ChanBackups,
 		}, nil
 
-	// The wallet has already been created in the past, and is simply being
+	// The Wallet has already been created in the past, and is simply being
 	// unlocked. So we'll just return these passphrases.
 	case unlockMsg := <-pwService.UnlockMsgs:
 		return &WalletUnlockParams{

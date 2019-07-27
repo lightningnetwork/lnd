@@ -350,14 +350,14 @@ type fundingConfig struct {
 	NotifyOpenChannelEvent func(wire.OutPoint)
 }
 
-// fundingManager acts as an orchestrator/bridge between the wallet's
+// fundingManager acts as an orchestrator/bridge between the Wallet's
 // 'ChannelReservation' workflow, and the wire protocol's funding initiation
 // messages. Any requests to initiate the funding workflow for a channel,
 // either kicked-off locally or remotely are handled by the funding manager.
 // Once a channel's funding workflow has been completed, any local callers, the
 // local peer, and possibly the remote peer are notified of the completion of
 // the channel workflow. Additionally, any temporary or permanent access
-// controls between the wallet and remote peers are enforced via the funding
+// controls between the Wallet and remote peers are enforced via the funding
 // manager.
 type fundingManager struct {
 	started sync.Once
@@ -897,7 +897,7 @@ func (f *fundingManager) failFundingFlow(peer lnpeer.Peer, tempChanID [32]byte,
 }
 
 // reservationCoordinator is the primary goroutine tasked with progressing the
-// funding workflow between the wallet, and any outside peers or local callers.
+// funding workflow between the Wallet, and any outside peers or local callers.
 //
 // NOTE: This MUST be run as a goroutine.
 func (f *fundingManager) reservationCoordinator() {
@@ -981,7 +981,7 @@ func (f *fundingManager) processFundingOpen(msg *lnwire.OpenChannel,
 	}
 }
 
-// handleFundingOpen creates an initial 'ChannelReservation' within the wallet,
+// handleFundingOpen creates an initial 'ChannelReservation' within the Wallet,
 // then responds to the source peer with an accept channel message progressing
 // the funding workflow.
 //
@@ -1034,7 +1034,7 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 	isSynced, _, err := f.cfg.Wallet.IsSynced()
 	if err != nil || !isSynced {
 		if err != nil {
-			fndgLog.Errorf("unable to query wallet: %v", err)
+			fndgLog.Errorf("unable to query Wallet: %v", err)
 		}
 		f.failFundingFlow(
 			fmsg.peer, fmsg.msg.PendingChannelID,
@@ -1077,7 +1077,7 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 		msg.CsvDelay, msg.PendingChannelID,
 		fmsg.peer.IdentityKey().SerializeCompressed())
 
-	// Attempt to initialize a reservation within the wallet. If the wallet
+	// Attempt to initialize a reservation within the Wallet. If the Wallet
 	// has insufficient resources to create the channel, then the
 	// reservation attempt may be rejected. Note that since we're on the
 	// responding side of a single funder workflow, we don't commit any
@@ -1928,7 +1928,7 @@ func (f *fundingManager) waitForFundingConfirmation(
 	var ok bool
 
 	// Wait until the specified number of confirmations has been reached,
-	// we get a cancel signal, or the wallet signals a shutdown.
+	// we get a cancel signal, or the Wallet signals a shutdown.
 	select {
 	case confDetails, ok = <-confNtfn.Confirmed:
 		// fallthrough
@@ -2317,7 +2317,7 @@ func (f *fundingManager) annAfterSixConfs(completeChan *channeldb.OpenChannel,
 				completeChan.FundingOutpoint, err)
 		}
 
-		// Wait until 6 confirmations has been reached or the wallet
+		// Wait until 6 confirmations has been reached or the Wallet
 		// signals a shutdown.
 		select {
 		case _, ok := <-confNtfn.Confirmed:
@@ -2755,7 +2755,7 @@ func (f *fundingManager) initFundingWorkflow(peer lnpeer.Peer, req *openChanReq)
 }
 
 // handleInitFundingMsg creates a channel reservation within the daemon's
-// wallet, then sends a funding request to the remote peer kicking off the
+// Wallet, then sends a funding request to the remote peer kicking off the
 // funding workflow.
 func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 	var (
@@ -2798,8 +2798,8 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 		channelFlags = lnwire.FFAnnounceChannel
 	}
 
-	// Initialize a funding reservation with the local wallet. If the
-	// wallet doesn't have enough funds to commit to this channel, then the
+	// Initialize a funding reservation with the local Wallet. If the
+	// Wallet doesn't have enough funds to commit to this channel, then the
 	// request will fail, and be aborted.
 	req := &lnwallet.InitFundingReserveMsg{
 		ChainHash:        &msg.chainHash,
@@ -2822,7 +2822,7 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 	}
 
 	// Now that we have successfully reserved funds for this channel in the
-	// wallet, we can fetch the final channel capacity. This is done at
+	// Wallet, we can fetch the final channel capacity. This is done at
 	// this point since the final capacity might change in case of
 	// SubtractFees=true.
 	capacity := reservation.Capacity()

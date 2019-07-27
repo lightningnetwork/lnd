@@ -110,25 +110,25 @@ func (c chainCode) String() string {
 // particular chain together. A single chainControl instance will exist for all
 // the chains lnd is currently active on.
 type chainControl struct {
-	chainIO lnwallet.BlockChainIO
+	ChainIO lnwallet.BlockChainIO
 
-	feeEstimator lnwallet.FeeEstimator
+	FeeEstimator lnwallet.FeeEstimator
 
-	signer input.Signer
+	Signer input.Signer
 
-	keyRing keychain.SecretKeyRing
+	KeyRing keychain.SecretKeyRing
 
-	wc lnwallet.WalletController
+	Wc lnwallet.WalletController
 
-	msgSigner lnwallet.MessageSigner
+	MsgSigner lnwallet.MessageSigner
 
-	chainNotifier chainntnfs.ChainNotifier
+	ChainNotifier chainntnfs.ChainNotifier
 
-	chainView chainview.FilteredChainView
+	ChainView chainview.FilteredChainView
 
-	wallet *lnwallet.LightningWallet
+	Wallet *lnwallet.LightningWallet
 
-	routingPolicy htlcswitch.ForwardingPolicy
+	RoutingPolicy htlcswitch.ForwardingPolicy
 }
 
 // newChainControlFromConfig attempts to create a chainControl instance
@@ -155,23 +155,23 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 
 	switch registeredChains.PrimaryChain() {
 	case bitcoinChain:
-		cc.routingPolicy = htlcswitch.ForwardingPolicy{
+		cc.RoutingPolicy = htlcswitch.ForwardingPolicy{
 			MinHTLC:       cfg.Bitcoin.MinHTLC,
 			BaseFee:       cfg.Bitcoin.BaseFee,
 			FeeRate:       cfg.Bitcoin.FeeRate,
 			TimeLockDelta: cfg.Bitcoin.TimeLockDelta,
 		}
-		cc.feeEstimator = lnwallet.NewStaticFeeEstimator(
+		cc.FeeEstimator = lnwallet.NewStaticFeeEstimator(
 			defaultBitcoinStaticFeePerKW, 0,
 		)
 	case litecoinChain:
-		cc.routingPolicy = htlcswitch.ForwardingPolicy{
+		cc.RoutingPolicy = htlcswitch.ForwardingPolicy{
 			MinHTLC:       cfg.Litecoin.MinHTLC,
 			BaseFee:       cfg.Litecoin.BaseFee,
 			FeeRate:       cfg.Litecoin.FeeRate,
 			TimeLockDelta: cfg.Litecoin.TimeLockDelta,
 		}
-		cc.feeEstimator = lnwallet.NewStaticFeeEstimator(
+		cc.FeeEstimator = lnwallet.NewStaticFeeEstimator(
 			defaultLitecoinStaticFeePerKW, 0,
 		)
 	default:
@@ -205,12 +205,12 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 	switch homeChainConfig.Node {
 	case "neutrino":
 		// We'll create ChainNotifier and FilteredChainView instances,
-		// along with the wallet's ChainSource, which are all backed by
+		// along with the Wallet's ChainSource, which are all backed by
 		// the neutrino light client.
-		cc.chainNotifier = neutrinonotify.New(
+		cc.ChainNotifier = neutrinonotify.New(
 			neutrinoCS, hintCache, hintCache,
 		)
-		cc.chainView, err = chainview.NewCfFilteredChainView(neutrinoCS)
+		cc.ChainView, err = chainview.NewCfFilteredChainView(neutrinoCS)
 		if err != nil {
 			return nil, err
 		}
@@ -229,7 +229,7 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 			if err := estimator.Start(); err != nil {
 				return nil, err
 			}
-			cc.feeEstimator = estimator
+			cc.FeeEstimator = estimator
 		}
 
 		walletConfig.ChainSource = chain.NewNeutrinoClient(
@@ -299,10 +299,10 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 				"%v", err)
 		}
 
-		cc.chainNotifier = bitcoindnotify.New(
+		cc.ChainNotifier = bitcoindnotify.New(
 			bitcoindConn, activeNetParams.Params, hintCache, hintCache,
 		)
-		cc.chainView = chainview.NewBitcoindFilteredChainView(bitcoindConn)
+		cc.ChainView = chainview.NewBitcoindFilteredChainView(bitcoindConn)
 		walletConfig.ChainSource = bitcoindConn.NewBitcoindClient()
 
 		// If we're not in regtest mode, then we'll attempt to use a
@@ -324,13 +324,13 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 			// use live fee estimates, rather than a statically
 			// coded value.
 			fallBackFeeRate := lnwallet.SatPerKVByte(25 * 1000)
-			cc.feeEstimator, err = lnwallet.NewBitcoindFeeEstimator(
+			cc.FeeEstimator, err = lnwallet.NewBitcoindFeeEstimator(
 				*rpcConfig, fallBackFeeRate.FeePerKWeight(),
 			)
 			if err != nil {
 				return nil, err
 			}
-			if err := cc.feeEstimator.Start(); err != nil {
+			if err := cc.FeeEstimator.Start(); err != nil {
 				return nil, err
 			}
 		} else if cfg.Litecoin.Active && !cfg.Litecoin.RegTest {
@@ -341,13 +341,13 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 			// use live fee estimates, rather than a statically
 			// coded value.
 			fallBackFeeRate := lnwallet.SatPerKVByte(25 * 1000)
-			cc.feeEstimator, err = lnwallet.NewBitcoindFeeEstimator(
+			cc.FeeEstimator, err = lnwallet.NewBitcoindFeeEstimator(
 				*rpcConfig, fallBackFeeRate.FeePerKWeight(),
 			)
 			if err != nil {
 				return nil, err
 			}
-			if err := cc.feeEstimator.Start(); err != nil {
+			if err := cc.FeeEstimator.Start(); err != nil {
 				return nil, err
 			}
 		}
@@ -409,7 +409,7 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 			DisableConnectOnNew:  true,
 			DisableAutoReconnect: false,
 		}
-		cc.chainNotifier, err = btcdnotify.New(
+		cc.ChainNotifier, err = btcdnotify.New(
 			rpcConfig, activeNetParams.Params, hintCache, hintCache,
 		)
 		if err != nil {
@@ -418,14 +418,14 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 
 		// Finally, we'll create an instance of the default chain view to be
 		// used within the routing layer.
-		cc.chainView, err = chainview.NewBtcdFilteredChainView(*rpcConfig)
+		cc.ChainView, err = chainview.NewBtcdFilteredChainView(*rpcConfig)
 		if err != nil {
 			srvrLog.Errorf("unable to create chain view: %v", err)
 			return nil, err
 		}
 
 		// Create a special websockets rpc client for btcd which will be used
-		// by the wallet for notifications, calls, etc.
+		// by the Wallet for notifications, calls, etc.
 		chainRPC, err := chain.NewRPCClient(activeNetParams.Params, btcdHost,
 			btcdUser, btcdPass, rpcCert, false, 20)
 		if err != nil {
@@ -446,13 +446,13 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 			// live fee estimates, rather than a statically coded
 			// value.
 			fallBackFeeRate := lnwallet.SatPerKVByte(25 * 1000)
-			cc.feeEstimator, err = lnwallet.NewBtcdFeeEstimator(
+			cc.FeeEstimator, err = lnwallet.NewBtcdFeeEstimator(
 				*rpcConfig, fallBackFeeRate.FeePerKWeight(),
 			)
 			if err != nil {
 				return nil, err
 			}
-			if err := cc.feeEstimator.Start(); err != nil {
+			if err := cc.FeeEstimator.Start(); err != nil {
 				return nil, err
 			}
 		}
@@ -463,14 +463,14 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 
 	wc, err := btcwallet.New(*walletConfig)
 	if err != nil {
-		fmt.Printf("unable to create wallet controller: %v\n", err)
+		fmt.Printf("unable to create Wallet controller: %v\n", err)
 		return nil, err
 	}
 
-	cc.msgSigner = wc
-	cc.signer = wc
-	cc.chainIO = wc
-	cc.wc = wc
+	cc.MsgSigner = wc
+	cc.Signer = wc
+	cc.ChainIO = wc
+	cc.Wc = wc
 
 	// Select the default channel constraints for the primary chain.
 	channelConstraints := defaultBtcChannelConstraints
@@ -481,34 +481,34 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 	keyRing := keychain.NewBtcWalletKeyRing(
 		wc.InternalWallet(), activeNetParams.CoinType,
 	)
-	cc.keyRing = keyRing
+	cc.KeyRing = keyRing
 
 	// Create, and start the lnwallet, which handles the core payment
 	// channel logic, and exposes control via proxy state machines.
 	walletCfg := lnwallet.Config{
 		Database:           chanDB,
-		Notifier:           cc.chainNotifier,
+		Notifier:           cc.ChainNotifier,
 		WalletController:   wc,
-		Signer:             cc.signer,
-		FeeEstimator:       cc.feeEstimator,
+		Signer:             cc.Signer,
+		FeeEstimator:       cc.FeeEstimator,
 		SecretKeyRing:      keyRing,
-		ChainIO:            cc.chainIO,
+		ChainIO:            cc.ChainIO,
 		DefaultConstraints: channelConstraints,
 		NetParams:          *activeNetParams.Params,
 	}
 	lnWallet, err := lnwallet.NewLightningWallet(walletCfg)
 	if err != nil {
-		fmt.Printf("unable to create wallet: %v\n", err)
+		fmt.Printf("unable to create Wallet: %v\n", err)
 		return nil, err
 	}
 	if err := lnWallet.Startup(); err != nil {
-		fmt.Printf("unable to start wallet: %v\n", err)
+		fmt.Printf("unable to start Wallet: %v\n", err)
 		return nil, err
 	}
 
 	ltndLog.Info("LightningWallet opened")
 
-	cc.wallet = lnWallet
+	cc.Wallet = lnWallet
 
 	return cc, nil
 }

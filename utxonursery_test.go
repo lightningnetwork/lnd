@@ -793,7 +793,7 @@ func testNurseryOutgoingHtlcSuccessOnLocal(t *testing.T,
 	// Notify arrival of block where second level HTLC unlocks.
 	ctx.notifyEpoch(128)
 
-	// Check final sweep into wallet.
+	// Check final sweep into Wallet.
 	testSweepHtlc(t, ctx)
 
 	ctx.finish()
@@ -833,7 +833,7 @@ func testNurseryOutgoingHtlcSuccessOnRemote(t *testing.T,
 	// Notify arrival of block where HTLC CLTV expires.
 	ctx.notifyEpoch(125)
 
-	// Check final sweep into wallet.
+	// Check final sweep into Wallet.
 	testSweepHtlc(t, ctx)
 
 	ctx.finish()
@@ -883,7 +883,7 @@ func testNurseryCommitSuccessOnLocal(t *testing.T,
 	// Notify arrival of block where commit output CSV expires.
 	ctx.notifyEpoch(126)
 
-	// Check final sweep into wallet.
+	// Check final sweep into Wallet.
 	testSweep(t, ctx, func() {
 		// Check limbo balance after sweep publication
 		assertNurseryReport(t, ctx.nursery, 0, 0, 10000)

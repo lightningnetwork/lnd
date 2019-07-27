@@ -59,7 +59,7 @@ func (m *mockSigner) SignOutputRaw(tx *wire.MsgTx,
 func (m *mockSigner) ComputeInputScript(tx *wire.MsgTx,
 	signDesc *input.SignDescriptor) (*input.Script, error) {
 
-	// TODO(roasbeef): expose tweaked signer from lnwallet so don't need to
+	// TODO(roasbeef): expose tweaked Signer from lnwallet so don't need to
 	// duplicate this code?
 
 	privKey := m.key
@@ -234,7 +234,7 @@ type mockWalletController struct {
 	utxos                 []*lnwallet.Utxo
 }
 
-// BackEnd returns "mock" to signify a mock wallet controller.
+// BackEnd returns "mock" to signify a mock Wallet controller.
 func (*mockWalletController) BackEnd() string {
 	return "mock"
 }
@@ -281,7 +281,7 @@ func (*mockWalletController) CreateSimpleTx(outputs []*wire.TxOut,
 	return nil, nil
 }
 
-// ListUnspentWitness is called by the wallet when doing coin selection. We just
+// ListUnspentWitness is called by the Wallet when doing coin selection. We just
 // need one unspent for the funding transaction.
 func (m *mockWalletController) ListUnspentWitness(minconfirms,
 	maxconfirms int32) ([]*lnwallet.Utxo, error) {

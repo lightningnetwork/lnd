@@ -1104,7 +1104,7 @@ func loadConfig() (*config, error) {
 
 	// Finally, ensure that the user's color is correctly formatted,
 	// otherwise the server will not be able to start after the unlocking
-	// the wallet.
+	// the Wallet.
 	_, err = parseHexColor(cfg.Color)
 	if err != nil {
 		return nil, fmt.Errorf("Unable to parse node color: %v", err)

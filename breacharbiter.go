@@ -99,7 +99,7 @@ type BreachConfig struct {
 
 	// Signer is used by the breach arbiter to generate sweep transactions,
 	// which move coins from previously open channels back to the user's
-	// wallet.
+	// Wallet.
 	Signer input.Signer
 
 	// Store is a persistent resource that maintains information regarding
@@ -249,7 +249,7 @@ func (b *breachArbiter) IsBreached(chanPoint *wire.OutPoint) (bool, error) {
 // contractcourt on the ContractBreaches channel. If a channel breach is
 // detected, then the contractObserver will execute the retribution logic
 // required to sweep ALL outputs from a contested channel into the daemon's
-// wallet.
+// Wallet.
 //
 // NOTE: This MUST be run as a goroutine.
 func (b *breachArbiter) contractObserver() {
@@ -493,7 +493,7 @@ func (b *breachArbiter) waitForSpendEvent(breachInfo *retributionInfo,
 // exactRetribution is a goroutine which is executed once a contract breach has
 // been detected by a breachObserver. This function is responsible for
 // punishing a counterparty for violating the channel contract by sweeping ALL
-// the lingering funds within the channel into the daemon's wallet.
+// the lingering funds within the channel into the daemon's Wallet.
 //
 // NOTE: This MUST be run as a goroutine.
 func (b *breachArbiter) exactRetribution(confChan *chainntnfs.ConfirmationEvent,
@@ -760,7 +760,7 @@ func (b *breachArbiter) handleBreachHandoff(breachEvent *ContractBreachEvent) {
 		return
 	}
 
-	// Using the breach information provided by the wallet and the
+	// Using the breach information provided by the Wallet and the
 	// channel snapshot, construct the retribution information that
 	// will be persisted to disk.
 	retInfo := newRetributionInfo(&chanPoint, breachInfo)
@@ -914,7 +914,7 @@ var _ input.Input = (*breachedOutput)(nil)
 // funds within a channel whose contract has been breached by the prior
 // counterparty. This struct is used to create the justice transaction which
 // spends all outputs of the commitment transaction into an output controlled
-// by the wallet.
+// by the Wallet.
 type retributionInfo struct {
 	commitHash   chainhash.Hash
 	chanPoint    wire.OutPoint
@@ -927,7 +927,7 @@ type retributionInfo struct {
 // newRetributionInfo constructs a retributionInfo containing all the
 // information required by the breach arbiter to recover funds from breached
 // channels.  The information is primarily populated using the BreachRetribution
-// delivered by the wallet when it detects a channel breach.
+// delivered by the Wallet when it detects a channel breach.
 func newRetributionInfo(chanPoint *wire.OutPoint,
 	breachInfo *lnwallet.BreachRetribution) *retributionInfo {
 
@@ -937,7 +937,7 @@ func newRetributionInfo(chanPoint *wire.OutPoint,
 	// Initialize a slice to hold the outputs we will attempt to sweep. The
 	// maximum capacity of the slice is set to 2+nHtlcs to handle the case
 	// where the local, remote, and all HTLCs are not dust outputs.  All
-	// HTLC outputs provided by the wallet are guaranteed to be non-dust,
+	// HTLC outputs provided by the Wallet are guaranteed to be non-dust,
 	// though the commitment outputs are conditionally added depending on
 	// the nil-ness of their sign descriptors.
 	breachedOutputs := make([]breachedOutput, 0, nHtlcs+2)
@@ -979,7 +979,7 @@ func newRetributionInfo(chanPoint *wire.OutPoint,
 
 	// Lastly, for each of the breached HTLC outputs, record each as a
 	// breached output with the appropriate witness type based on its
-	// directionality. All HTLC outputs provided by the wallet are assumed
+	// directionality. All HTLC outputs provided by the Wallet are assumed
 	// to be non-dust.
 	for i, breachedHtlc := range breachInfo.HtlcRetributions {
 		// Using the breachedHtlc's incoming flag, determine the
@@ -1084,7 +1084,7 @@ func (b *breachArbiter) createJusticeTx(
 func (b *breachArbiter) sweepSpendableOutputsTxn(txWeight int64,
 	inputs ...input.Input) (*wire.MsgTx, error) {
 
-	// First, we obtain a new public key script from the wallet which we'll
+	// First, we obtain a new public key script from the Wallet which we'll
 	// sweep the funds to.
 	// TODO(roasbeef): possibly create many outputs to minimize change in
 	// the future?
@@ -1100,7 +1100,7 @@ func (b *breachArbiter) sweepSpendableOutputsTxn(txWeight int64,
 	}
 
 	// We'll actually attempt to target inclusion within the next two
-	// blocks as we'd like to sweep these funds back into our wallet ASAP.
+	// blocks as we'd like to sweep these funds back into our Wallet ASAP.
 	feePerKw, err := b.cfg.Estimator.EstimateFeePerKW(2)
 	if err != nil {
 		return nil, err

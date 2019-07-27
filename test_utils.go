@@ -329,10 +329,10 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 		},
 	}
 	cc := &chainControl{
-		feeEstimator:  estimator,
-		chainIO:       chainIO,
-		chainNotifier: notifier,
-		wallet:        wallet,
+		FeeEstimator:  estimator,
+		ChainIO:       chainIO,
+		ChainNotifier: notifier,
+		Wallet:        wallet,
 	}
 
 	breachArbiter := &breachArbiter{}
@@ -352,7 +352,7 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 		chainArb:      chainArb,
 	}
 
-	_, currentHeight, err := s.cc.chainIO.GetBestBlock()
+	_, currentHeight, err := s.cc.ChainIO.GetBestBlock()
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}

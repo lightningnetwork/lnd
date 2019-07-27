@@ -82,7 +82,7 @@ import (
 type NurseryStore interface {
 	// Incubate registers a set of CSV delayed outputs (incoming HTLC's on
 	// our commitment transaction, or a commitment output), and a slice of
-	// outgoing htlc outputs to be swept back into the user's wallet. The
+	// outgoing htlc outputs to be swept back into the user's Wallet. The
 	// event is persisted to disk, such that the nursery can resume the
 	// incubation process after a potential crash.
 	Incubate([]kidOutput, []babyOutput) error
@@ -178,7 +178,7 @@ var (
 	// either from the commitment transaction, or a stage-one htlc
 	// transaction, whose maturity height has solidified. Outputs marked in
 	// this state are in their final stage of incubation within the nursery,
-	// and will be swept into the wallet after waiting out the relative
+	// and will be swept into the Wallet after waiting out the relative
 	// timelock.
 	kndrPrefix = []byte("kndr")
 
@@ -842,7 +842,7 @@ func (ns *nurseryStore) RemoveChannel(chanPoint *wire.OutPoint) error {
 // Helper Methods
 
 // enterCrib accepts a new htlc output that the nursery will incubate through
-// its two-stage process of sweeping funds back to the user's wallet. These
+// its two-stage process of sweeping funds back to the user's Wallet. These
 // outputs are persisted in the nursery store in the crib state, and will be
 // revisited after the first-stage output's CLTV has expired.
 func (ns *nurseryStore) enterCrib(tx *bbolt.Tx, baby *babyOutput) error {

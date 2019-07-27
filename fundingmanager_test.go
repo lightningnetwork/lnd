@@ -278,7 +278,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		estimator,
 	)
 	if err != nil {
-		t.Fatalf("unable to create test ln wallet: %v", err)
+		t.Fatalf("unable to create test ln Wallet: %v", err)
 	}
 
 	var chanIDSeed [32]byte
@@ -2814,12 +2814,12 @@ func TestFundingManagerMaxConfs(t *testing.T) {
 }
 
 // TestFundingManagerFundAll tests that we can initiate a funding request to
-// use the funds remaining in the wallet. This should produce a funding tx with
+// use the funds remaining in the Wallet. This should produce a funding tx with
 // no change output.
 func TestFundingManagerFundAll(t *testing.T) {
 	t.Parallel()
 
-	// We set up our mock wallet to control a list of UTXOs that sum to
+	// We set up our mock Wallet to control a list of UTXOs that sum to
 	// less than the max channel size.
 	allCoins := []*lnwallet.Utxo{
 		{
@@ -2851,7 +2851,7 @@ func TestFundingManagerFundAll(t *testing.T) {
 		change   bool
 	}{
 		{
-			// We will spend all the funds in the wallet, and
+			// We will spend all the funds in the Wallet, and
 			// expects no change output.
 			spendAmt: btcutil.Amount(
 				0.11 * btcutil.SatoshiPerBitcoin,
@@ -2859,7 +2859,7 @@ func TestFundingManagerFundAll(t *testing.T) {
 			change: false,
 		},
 		{
-			// We spend a little less than the funds in the wallet,
+			// We spend a little less than the funds in the Wallet,
 			// so a change output should be created.
 			spendAmt: btcutil.Amount(
 				0.10 * btcutil.SatoshiPerBitcoin,
@@ -2896,7 +2896,7 @@ func TestFundingManagerFundAll(t *testing.T) {
 				len(fundingTx.TxOut))
 		}
 
-		// Inputs should be all funds in the wallet.
+		// Inputs should be all funds in the Wallet.
 		if len(fundingTx.TxIn) != len(allCoins) {
 			t.Fatalf("Had %d inputs, expected %d",
 				len(fundingTx.TxIn), len(allCoins))

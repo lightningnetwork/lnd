@@ -52,7 +52,7 @@ import (
 //  - CRIB (babyOutput) outputs are two-stage htlc outputs that are initially
 //    locked using a CLTV delay, followed by a CSV delay. The first stage of a
 //    crib output requires broadcasting a presigned htlc timeout txn generated
-//    by the wallet after an absolute expiry height. Since the timeout txns are
+//    by the Wallet after an absolute expiry height. Since the timeout txns are
 //    predetermined, they cannot be batched after-the-fact, meaning that all
 //    CRIB outputs are broadcast and confirmed independently. After the first
 //    stage is complete, a CRIB output is moved to the KNDR state, which will
@@ -72,7 +72,7 @@ import (
 //    using a single txn.
 //
 //  - GRAD (kidOutput) outputs are KNDR outputs that have successfully been
-//    swept into the user's wallet. A channel is considered mature once all of
+//    swept into the user's Wallet. A channel is considered mature once all of
 //    its outputs, including two-stage htlcs, have entered the GRAD state,
 //    indicating that it safe to mark the channel as fully closed.
 //
@@ -200,17 +200,17 @@ type NurseryConfig struct {
 	// maintained about the utxo nursery's incubating outputs.
 	Store NurseryStore
 
-	// Sweep sweeps an input back to the wallet.
+	// Sweep sweeps an input back to the Wallet.
 	SweepInput func(input.Input, sweep.FeePreference) (chan sweep.Result, error)
 }
 
 // utxoNursery is a system dedicated to incubating time-locked outputs created
 // by the broadcast of a commitment transaction either by us, or the remote
 // peer. The nursery accepts outputs and "incubates" them until they've reached
-// maturity, then sweep the outputs into the source wallet. An output is
+// maturity, then sweep the outputs into the source Wallet. An output is
 // considered mature after the relative time-lock within the pkScript has
 // passed. As outputs reach their maturity age, they're swept in batches into
-// the source wallet, returning the outputs so they can be used within future
+// the source Wallet, returning the outputs so they can be used within future
 // channels, or regular Bitcoin transactions.
 type utxoNursery struct {
 	started uint32 // To be used atomically.
@@ -328,7 +328,7 @@ func (u *utxoNursery) Stop() error {
 // IncubateOutputs sends a request to the utxoNursery to incubate a set of
 // outputs from an existing commitment transaction. Outputs need to incubate if
 // they're CLTV absolute time locked, or if they're CSV relative time locked.
-// Once all outputs reach maturity, they'll be swept back into the wallet.
+// Once all outputs reach maturity, they'll be swept back into the Wallet.
 func (u *utxoNursery) IncubateOutputs(chanPoint wire.OutPoint,
 	commitResolution *lnwallet.CommitOutputResolution,
 	outgoingHtlcs []lnwallet.OutgoingHtlcResolution,
@@ -586,7 +586,7 @@ func (u *utxoNursery) NurseryReport(
 
 			case bytes.HasPrefix(k, gradPrefix):
 				// Graduate outputs are those whose funds have
-				// been swept back into the wallet. Each output
+				// been swept back into the Wallet. Each output
 				// will contribute towards the recovered
 				// balance.
 				switch kid.WitnessType() {
@@ -801,8 +801,8 @@ func (u *utxoNursery) graduateClass(classHeight uint32) error {
 
 // sweepMatureOutputs generates and broadcasts the transaction that transfers
 // control of funds from a prior channel commitment transaction to the user's
-// wallet. The outputs swept were previously time locked (either absolute or
-// relative), but are not mature enough to sweep into the wallet.
+// Wallet. The outputs swept were previously time locked (either absolute or
+// relative), but are not mature enough to sweep into the Wallet.
 func (u *utxoNursery) sweepMatureOutputs(classHeight uint32,
 	kgtnOutputs []kidOutput) error {
 
@@ -1069,7 +1069,7 @@ type contractMaturityReport struct {
 	limboBalance btcutil.Amount
 
 	// recoveredBalance is the total value that has been successfully swept
-	// back to the user's wallet.
+	// back to the user's Wallet.
 	recoveredBalance btcutil.Amount
 
 	// maturityHeight is the absolute block height that this output will
@@ -1083,10 +1083,10 @@ type contractMaturityReport struct {
 // htlcMaturityReport provides a summary of a single htlc output, and is
 // embedded as party of the overarching contractMaturityReport
 type htlcMaturityReport struct {
-	// outpoint is the final output that will be swept back to the wallet.
+	// outpoint is the final output that will be swept back to the Wallet.
 	outpoint wire.OutPoint
 
-	// amount is the final value that will be swept in back to the wallet.
+	// amount is the final value that will be swept in back to the Wallet.
 	amount btcutil.Amount
 
 	// maturityHeight is the absolute block height that this output will
@@ -1311,7 +1311,7 @@ func (bo *babyOutput) Decode(r io.Reader) error {
 }
 
 // kidOutput represents an output that's waiting for a required blockheight
-// before its funds will be available to be moved into the user's wallet.  The
+// before its funds will be available to be moved into the user's Wallet.  The
 // struct includes a WitnessGenerator closure which will be used to generate
 // the witness required to sweep the output once it's mature.
 //

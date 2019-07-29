@@ -2029,6 +2029,8 @@ func (r *rpcServer) GetInfo(ctx context.Context,
 		uris[i] = fmt.Sprintf("%s@%s", encodedIDPub, addr.String())
 	}
 
+	isGraphSynced := r.server.authGossiper.SyncManager().IsGraphSynced()
+
 	// TODO(roasbeef): add synced height n stuff
 	return &lnrpc.GetInfoResponse{
 		IdentityPubkey:      encodedIDPub,
@@ -2046,6 +2048,7 @@ func (r *rpcServer) GetInfo(ctx context.Context,
 		Color:               routing.EncodeHexColor(nodeAnn.RGBColor),
 		BestHeaderTimestamp: int64(bestHeaderTimestamp),
 		Version:             build.Version(),
+		SyncedToGraph:       isGraphSynced,
 	}, nil
 }
 

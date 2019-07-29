@@ -2218,6 +2218,11 @@
         "color": {
           "type": "string",
           "title": "/ The color of the current node in hex code format"
+        },
+        "synced_to_graph": {
+          "type": "boolean",
+          "format": "boolean",
+          "description": "Whether we consider ourselves synced with the public channel graph."
         }
       }
     },

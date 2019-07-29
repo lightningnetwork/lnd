@@ -9543,6 +9543,17 @@ func testBidirectionalAsyncPayments(net *lntest.NetworkHarness, t *harnessTest) 
 			"timeout: %v", err)
 	}
 
+	// Reset mission control to prevent previous payment results from
+	// interfering with this test. A new channel has been opened, but
+	// mission control operates on node pairs.
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	_, err = net.Alice.RouterClient.ResetMissionControl(
+		ctxt, &routerrpc.ResetMissionControlRequest{},
+	)
+	if err != nil {
+		t.Fatalf("unable to reset mc for alice: %v", err)
+	}
+
 	// Open up a payment streams to Alice and to Bob, that we'll use to
 	// send payment between nodes.
 	ctx, cancel := context.WithTimeout(ctxb, lntest.AsyncBenchmarkTimeout)

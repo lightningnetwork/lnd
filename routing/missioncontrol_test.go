@@ -12,10 +12,6 @@ import (
 )
 
 var (
-	mcTestEdge = EdgeLocator{
-		ChannelID: 2,
-	}
-
 	mcTestRoute = &route.Route{
 		SourcePubKey: route.Vertex{10},
 		Hops: []*route.Hop{
@@ -94,14 +90,13 @@ func (ctx *mcTestContext) cleanup() {
 }
 
 // Assert that mission control returns a probability for an edge.
-func (ctx *mcTestContext) expectP(amt lnwire.MilliSatoshi,
-	expected float64) {
+func (ctx *mcTestContext) expectP(amt lnwire.MilliSatoshi, expected float64) {
 
 	ctx.t.Helper()
 
-	p := ctx.mc.GetEdgeProbability(mcTestNode1, mcTestEdge, amt)
+	p := ctx.mc.GetEdgeProbability(mcTestNode1, mcTestNode2, amt)
 	if p != expected {
-		ctx.t.Fatalf("unexpected probability %v", p)
+		ctx.t.Fatalf("expected probability %v but got %v", expected, p)
 	}
 }
 
@@ -175,7 +170,7 @@ func TestMissionControl(t *testing.T) {
 		t.Fatal("unexpected number of nodes")
 	}
 
-	if len(history.Nodes[0].Channels) != 1 {
+	if len(history.Pairs) != 1 {
 		t.Fatal("unexpected number of channels")
 	}
 }
@@ -184,7 +179,6 @@ func TestMissionControl(t *testing.T) {
 // penalizing the channel yet.
 func TestMissionControlChannelUpdate(t *testing.T) {
 	ctx := createMcTestContext(t)
-	defer ctx.cleanup()
 
 	// Report a policy related failure. Because it is the first, we don't
 	// expect a penalty.

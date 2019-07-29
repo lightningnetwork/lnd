@@ -1,6 +1,8 @@
 package routing
 
 import (
+	"fmt"
+
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -12,17 +14,36 @@ var (
 	reasonIncorrectDetails = channeldb.FailureReasonIncorrectPaymentDetails
 )
 
+// pairResult contains the result of the interpretation of a payment attempt for
+// a specific node pair.
+type pairResult struct {
+	// minPenalizeAmt is the minimum amount for which a penalty should be
+	// applied based on this result. Only applies to fail results.
+	minPenalizeAmt lnwire.MilliSatoshi
+
+	// success indicates whether the payment attempt was successful through
+	// this pair.
+	success bool
+}
+
+// String returns the human-readable representation of a pair result.
+func (p pairResult) String() string {
+	if p.success {
+		return "success"
+	}
+
+	return fmt.Sprintf("failed (minPenalizeAmt=%v)", p.minPenalizeAmt)
+}
+
 // interpretedResult contains the result of the interpretation of a payment
-// outcome.
+// attempt.
 type interpretedResult struct {
 	// nodeFailure points to a node pubkey if all channels of that node are
 	// responsible for the result.
 	nodeFailure *route.Vertex
 
-	// pairResults contains a map of node pairs that could be responsible
-	// for the failure. The map values are the minimum amounts for which a
-	// future penalty should be applied.
-	pairResults map[DirectedNodePair]lnwire.MilliSatoshi
+	// pairResults contains a map of node pairs for which we have a result.
+	pairResults map[DirectedNodePair]pairResult
 
 	// finalFailureReason is set to a non-nil value if it makes no more
 	// sense to start another payment attempt. It will contain the reason
@@ -37,16 +58,26 @@ type interpretedResult struct {
 
 // interpretResult interprets a payment outcome and returns an object that
 // contains information required to update mission control.
-func interpretResult(rt *route.Route, failureSrcIdx *int,
+func interpretResult(rt *route.Route, success bool, failureSrcIdx *int,
 	failure lnwire.FailureMessage) *interpretedResult {
 
 	i := &interpretedResult{
-		pairResults: make(map[DirectedNodePair]lnwire.MilliSatoshi),
+		pairResults: make(map[DirectedNodePair]pairResult),
 	}
 
-	i.processFail(rt, failureSrcIdx, failure)
-
+	if success {
+		i.processSuccess(rt)
+	} else {
+		i.processFail(rt, failureSrcIdx, failure)
+	}
 	return i
+}
+
+// processSuccess processes a successful payment attempt.
+func (i *interpretedResult) processSuccess(route *route.Route) {
+	// For successes, all nodes must have acted in the right way. Therefore
+	// we mark all of them with a success result.
+	i.successPairRange(route, 0, len(route.Hops)-1)
 }
 
 // processFail processes a failed payment attempt.
@@ -141,9 +172,19 @@ func (i *interpretedResult) processPaymentOutcomeFinal(
 		// from its predecessor.
 		i.failPair(route, n-1)
 
+		// The other hops relayed corectly, so assign those pairs a
+		// success result.
+		if n > 2 {
+			i.successPairRange(route, 0, n-2)
+		}
+
 	// We are using wrong payment hash or amount, fail the payment.
 	case *lnwire.FailIncorrectPaymentAmount,
 		*lnwire.FailIncorrectDetails:
+
+		// Assign all pairs a success result, as the payment reached the
+		// destination correctly.
+		i.successPairRange(route, 0, n-1)
 
 		i.finalFailureReason = &reasonIncorrectDetails
 
@@ -162,6 +203,12 @@ func (i *interpretedResult) processPaymentOutcomeFinal(
 		// final hop. They indicate that something is wrong at the
 		// recipient, so we do apply a penalty.
 		i.failNode(route, n)
+
+		// Other channels in the route forwarded correctly.
+		if n > 2 {
+			i.successPairRange(route, 0, n-2)
+		}
+
 		i.finalFailureReason = &reasonError
 	}
 }
@@ -182,6 +229,10 @@ func (i *interpretedResult) processPaymentOutcomeIntermediate(
 		i.failPairBalance(
 			route, errorSourceIdx,
 		)
+
+		// All nodes up to the failing pair must have forwarded
+		// successfully.
+		i.successPairRange(route, 0, errorSourceIdx-1)
 	}
 
 	reportIncoming := func() {
@@ -197,6 +248,12 @@ func (i *interpretedResult) processPaymentOutcomeIntermediate(
 		i.failPair(
 			route, errorSourceIdx-1,
 		)
+
+		// All nodes up to the failing pair must have forwarded
+		// successfully.
+		if errorSourceIdx > 2 {
+			i.successPairRange(route, 0, errorSourceIdx-2)
+		}
 	}
 
 	reportAll := func() {
@@ -330,8 +387,8 @@ func (i *interpretedResult) failPair(
 	pair, _ := getPair(rt, idx)
 
 	// Report pair in both directions without a minimum penalization amount.
-	i.pairResults[pair] = 0
-	i.pairResults[pair.Reverse()] = 0
+	i.pairResults[pair] = pairResult{}
+	i.pairResults[pair.Reverse()] = pairResult{}
 }
 
 // failPairBalance marks a pair as failed with a minimum penalization amount.
@@ -340,7 +397,23 @@ func (i *interpretedResult) failPairBalance(
 
 	pair, amt := getPair(rt, channelIdx)
 
-	i.pairResults[pair] = amt
+	i.pairResults[pair] = pairResult{
+		minPenalizeAmt: amt,
+	}
+}
+
+// successPairRange marks the node pairs from node fromIdx to node toIdx as
+// succeeded.
+func (i *interpretedResult) successPairRange(
+	rt *route.Route, fromIdx, toIdx int) {
+
+	for idx := fromIdx; idx <= toIdx; idx++ {
+		pair, _ := getPair(rt, idx)
+
+		i.pairResults[pair] = pairResult{
+			success: true,
+		}
+	}
 }
 
 // getPair returns a node pair from the route and the amount passed between that

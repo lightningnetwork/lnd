@@ -114,6 +114,16 @@ func (ctx *mcTestContext) reportFailure(amt lnwire.MilliSatoshi,
 	)
 }
 
+// reportSuccess reports a success by using a test route.
+func (ctx *mcTestContext) reportSuccess() {
+	err := ctx.mc.ReportPaymentSuccess(ctx.pid, mcTestRoute)
+	if err != nil {
+		ctx.t.Fatal(err)
+	}
+
+	ctx.pid++
+}
+
 // TestMissionControl tests mission control probability estimation.
 func TestMissionControl(t *testing.T) {
 	ctx := createMcTestContext(t)
@@ -164,9 +174,12 @@ func TestMissionControl(t *testing.T) {
 			len(history.Nodes))
 	}
 
-	if len(history.Pairs) != 1 {
-		t.Fatal("unexpected number of channels")
+	if len(history.Pairs) != 2 {
+		t.Fatalf("expected 2 pairs, but got %v", len(history.Pairs))
 	}
+
+	// Test reporting a success.
+	ctx.reportSuccess()
 }
 
 // TestMissionControlChannelUpdate tests that the first channel update is not

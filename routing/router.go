@@ -183,6 +183,10 @@ type MissionController interface {
 		failureSourceIdx *int, failure lnwire.FailureMessage) (
 		*channeldb.FailureReason, error)
 
+	// ReportPaymentSuccess reports a successful payment to mission control as input
+	// for future probability estimates.
+	ReportPaymentSuccess(paymentID uint64, rt *route.Route) error
+
 	// GetProbability is expected to return the success probability of a
 	// payment from fromNode along edge.
 	GetProbability(fromNode, toNode route.Vertex,

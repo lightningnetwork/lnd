@@ -50,6 +50,7 @@ func getTestPair(from, to int) DirectedNodePair {
 type resultTestCase struct {
 	name          string
 	route         *route.Route
+	success       bool
 	failureSrcIdx int
 	failure       lnwire.FailureMessage
 
@@ -66,8 +67,13 @@ var resultTestCases = []resultTestCase{
 		failure:       lnwire.NewTemporaryChannelFailure(nil),
 
 		expectedResult: &interpretedResult{
-			pairResults: map[DirectedNodePair]lnwire.MilliSatoshi{
-				getTestPair(1, 2): 99,
+			pairResults: map[DirectedNodePair]pairResult{
+				getTestPair(0, 1): {
+					success: true,
+				},
+				getTestPair(1, 2): {
+					minPenalizeAmt: 99,
+				},
 			},
 		},
 	},
@@ -80,13 +86,67 @@ var resultTestCases = []resultTestCase{
 		failure:       lnwire.NewExpiryTooSoon(lnwire.ChannelUpdate{}),
 
 		expectedResult: &interpretedResult{
-			pairResults: map[DirectedNodePair]lnwire.MilliSatoshi{
-				getTestPair(0, 1): 0,
-				getTestPair(1, 0): 0,
-				getTestPair(1, 2): 0,
-				getTestPair(2, 1): 0,
-				getTestPair(2, 3): 0,
-				getTestPair(3, 2): 0,
+			pairResults: map[DirectedNodePair]pairResult{
+				getTestPair(0, 1): {},
+				getTestPair(1, 0): {},
+				getTestPair(1, 2): {},
+				getTestPair(2, 1): {},
+				getTestPair(2, 3): {},
+				getTestPair(3, 2): {},
+			},
+		},
+	},
+
+	// Tests an incorrect payment details result. This should be a final
+	// failure, but mark all pairs along the route as successful.
+	{
+		name:          "fail incorrect details",
+		route:         &routeTwoHop,
+		failureSrcIdx: 2,
+		failure:       lnwire.NewFailIncorrectDetails(97),
+
+		expectedResult: &interpretedResult{
+			pairResults: map[DirectedNodePair]pairResult{
+				getTestPair(0, 1): {
+					success: true,
+				},
+				getTestPair(1, 2): {
+					success: true,
+				},
+			},
+			finalFailureReason: &reasonIncorrectDetails,
+		},
+	},
+
+	// Tests a successful direct payment.
+	{
+		name:    "success direct",
+		route:   &routeOneHop,
+		success: true,
+
+		expectedResult: &interpretedResult{
+			pairResults: map[DirectedNodePair]pairResult{
+				getTestPair(0, 1): {
+					success: true,
+				},
+			},
+		},
+	},
+
+	// Tests a successful two hop payment.
+	{
+		name:    "success",
+		route:   &routeTwoHop,
+		success: true,
+
+		expectedResult: &interpretedResult{
+			pairResults: map[DirectedNodePair]pairResult{
+				getTestPair(0, 1): {
+					success: true,
+				},
+				getTestPair(1, 2): {
+					success: true,
+				},
 			},
 		},
 	},
@@ -121,13 +181,13 @@ var resultTestCases = []resultTestCase{
 // TestResultInterpretation executes a list of test cases that test the result
 // interpretation logic.
 func TestResultInterpretation(t *testing.T) {
-	emptyResults := make(map[DirectedNodePair]lnwire.MilliSatoshi)
+	emptyResults := make(map[DirectedNodePair]pairResult)
 
 	for _, testCase := range resultTestCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			i := interpretResult(
-				testCase.route, &testCase.failureSrcIdx,
-				testCase.failure,
+				testCase.route, testCase.success,
+				&testCase.failureSrcIdx, testCase.failure,
 			)
 
 			expected := testCase.expectedResult

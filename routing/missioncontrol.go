@@ -43,6 +43,10 @@ const (
 
 	// DefaultMaxMcHistory is the default maximum history size.
 	DefaultMaxMcHistory = 1000
+
+	// prevSuccessProbability is the assumed probability for node pairs that
+	// successfully relayed the previous attempt.
+	prevSuccessProbability = 1.0
 )
 
 // MissionControl contains state which summarizes the past attempts of HTLC
@@ -56,7 +60,7 @@ const (
 // into the path finding process for subsequent payment attempts.
 type MissionControl struct {
 	// lastPairFailure tracks the last payment failure per node pair.
-	lastPairFailure map[DirectedNodePair]pairFailure
+	lastPairFailure map[DirectedNodePair]timedPairResult
 
 	// lastNodeFailure tracks the last node level failure per node.
 	lastNodeFailure map[route.Vertex]time.Time
@@ -97,14 +101,12 @@ type MissionControlConfig struct {
 	MaxMcHistory int
 }
 
-// pairFailure describes a payment failure for a node pair.
-type pairFailure struct {
-	// timestamp is the time when this failure result was obtained.
+// timedPairResult describes a timestamped pair result.
+type timedPairResult struct {
+	// timestamp is the time when this result was obtained.
 	timestamp time.Time
 
-	// minPenalizeAmt is the minimum amount for which to take this failure
-	// into account.
-	minPenalizeAmt lnwire.MilliSatoshi
+	pairResult
 }
 
 // MissionControlSnapshot contains a snapshot of the current state of mission
@@ -138,8 +140,8 @@ type MissionControlPairSnapshot struct {
 	// Pair is the node pair of which the state is described.
 	Pair DirectedNodePair
 
-	// LastFail is the time of last failure.
-	LastFail time.Time
+	// Timestamp is the time of last result.
+	Timestamp time.Time
 
 	// MinPenalizeAmt is the minimum amount for which the channel will be
 	// penalized.
@@ -147,6 +149,10 @@ type MissionControlPairSnapshot struct {
 
 	// SuccessProb is the success probability estimation for this channel.
 	SuccessProb float64
+
+	// LastAttemptSuccessful indicates whether the last payment attempt
+	// through this pair was successful.
+	LastAttemptSuccessful bool
 }
 
 // paymentResult is the information that becomes available when a payment
@@ -174,7 +180,7 @@ func NewMissionControl(db *bbolt.DB, cfg *MissionControlConfig) (
 	}
 
 	mc := &MissionControl{
-		lastPairFailure:  make(map[DirectedNodePair]pairFailure),
+		lastPairFailure:  make(map[DirectedNodePair]timedPairResult),
 		lastNodeFailure:  make(map[route.Vertex]time.Time),
 		lastSecondChance: make(map[DirectedNodePair]time.Time),
 		now:              time.Now,
@@ -220,7 +226,7 @@ func (m *MissionControl) ResetHistory() error {
 		return err
 	}
 
-	m.lastPairFailure = make(map[DirectedNodePair]pairFailure)
+	m.lastPairFailure = make(map[DirectedNodePair]timedPairResult)
 	m.lastNodeFailure = make(map[route.Vertex]time.Time)
 	m.lastSecondChance = make(map[DirectedNodePair]time.Time)
 
@@ -274,6 +280,10 @@ func (m *MissionControl) getEdgeProbabilityForNode(fromNode,
 	// If there is none or it happened before the last node level failure,
 	// the node level failure is the most recent and thus returned.
 	if lastPairResultExists && lastPairResult.timestamp.After(lastFail) {
+		if lastPairResult.success {
+			return prevSuccessProbability
+		}
+
 		if amt >= lastPairResult.minPenalizeAmt {
 			lastFail = lastPairResult.timestamp
 		}
@@ -346,7 +356,7 @@ func (m *MissionControl) GetHistorySnapshot() *MissionControlSnapshot {
 		pair := MissionControlPairSnapshot{
 			Pair:           v,
 			MinPenalizeAmt: h.minPenalizeAmt,
-			LastFail:       h.timestamp,
+			Timestamp:      h.timestamp,
 			SuccessProb:    prob,
 		}
 
@@ -373,7 +383,6 @@ func (m *MissionControl) ReportPaymentFail(paymentID uint64, rt *route.Route,
 
 	timestamp := m.now()
 
-	// TODO(joostjager): Use actual payment initiation time for timeFwd.
 	result := &paymentResult{
 		success:          false,
 		timeFwd:          timestamp,
@@ -383,6 +392,31 @@ func (m *MissionControl) ReportPaymentFail(paymentID uint64, rt *route.Route,
 		failure:          failure,
 		route:            rt,
 	}
+
+	return m.processPaymentResult(result)
+}
+
+// ReportPaymentSuccess reports a successful payment to mission control as input
+// for future probability estimates.
+func (m *MissionControl) ReportPaymentSuccess(paymentID uint64,
+	rt *route.Route) error {
+
+	timestamp := m.now()
+
+	result := &paymentResult{
+		timeFwd:   timestamp,
+		timeReply: timestamp,
+		id:        paymentID,
+		success:   true,
+		route:     rt,
+	}
+
+	_, _, err := m.processPaymentResult(result)
+	return err
+}
+
+func (m *MissionControl) processPaymentResult(result *paymentResult) (bool,
+	channeldb.FailureReason, error) {
 
 	// Store complete result in database.
 	if err := m.store.AddResult(result); err != nil {
@@ -403,7 +437,7 @@ func (m *MissionControl) applyPaymentResult(result *paymentResult) (
 
 	// Interpret result.
 	i := newInterpretedResult(
-		result.route, result.failureSourceIdx,
+		result.route, result.success, result.failureSourceIdx,
 		result.failure,
 	)
 
@@ -429,13 +463,19 @@ func (m *MissionControl) applyPaymentResult(result *paymentResult) (
 		m.lastNodeFailure[node] = result.timeReply
 	}
 
-	for pair, minPenalizeAmt := range i.pairResults {
-		log.Debugf("Reporting pair failure to Mission Control: "+
-			"pair=%v, minPenalizeAmt=%v", pair, minPenalizeAmt)
+	for pair, pairResult := range i.pairResults {
+		if pairResult.success {
+			log.Debugf("Reporting pair success to Mission "+
+				"Control: pair=%v", pair)
+		} else {
+			log.Debugf("Reporting pair failure to Mission "+
+				"Control: pair=%v, minPenalizeAmt=%v",
+				pair, pairResult.minPenalizeAmt)
+		}
 
-		m.lastPairFailure[pair] = pairFailure{
-			minPenalizeAmt: minPenalizeAmt,
-			timestamp:      result.timeReply,
+		m.lastPairFailure[pair] = timedPairResult{
+			timestamp:  result.timeReply,
+			pairResult: pairResult,
 		}
 	}
 

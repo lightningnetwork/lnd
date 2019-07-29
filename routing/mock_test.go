@@ -105,13 +105,11 @@ func (m *mockMissionControl) ReportPaymentFail(paymentID uint64,
 	return false, 0, nil
 }
 
-func (m *mockMissionControl) ReportEdgeFailure(failedEdge edge,
-	minPenalizeAmt lnwire.MilliSatoshi) {
+func (m *mockMissionControl) ReportPaymentSuccess(paymentID uint64,
+	rt *route.Route) error {
+
+	return nil
 }
-
-func (m *mockMissionControl) ReportEdgePolicyFailure(failedEdge edge) {}
-
-func (m *mockMissionControl) ReportVertexFailure(v route.Vertex) {}
 
 func (m *mockMissionControl) GetEdgeProbability(fromNode, toNode route.Vertex,
 	amt lnwire.MilliSatoshi) float64 {

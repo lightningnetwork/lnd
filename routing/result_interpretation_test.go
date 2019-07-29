@@ -45,10 +45,30 @@ var (
 	}
 )
 
+func TestResultInterpretationSuccess(t *testing.T) {
+	i := newInterpretedResult(&routeTwoHop, true, nil, nil)
+
+	if len(i.pairResults) != 1 {
+		t.Fatal("expected one pair result")
+	}
+
+	if !i.pairResults[NewDirectedNodePair(hops[0], hops[1])].success {
+		t.Fatal("wrong pair result")
+	}
+}
+
+func TestResultInterpretationSuccessDirect(t *testing.T) {
+	i := newInterpretedResult(&routeOneHop, true, nil, nil)
+
+	if len(i.pairResults) != 0 {
+		t.Fatal("expected no results")
+	}
+}
+
 func TestResultInterpretationFail(t *testing.T) {
 	failureSrcIdx := 1
 	i := newInterpretedResult(
-		&routeTwoHop, &failureSrcIdx,
+		&routeTwoHop, false, &failureSrcIdx,
 		lnwire.NewTemporaryChannelFailure(nil),
 	)
 
@@ -56,7 +76,9 @@ func TestResultInterpretationFail(t *testing.T) {
 		t.Fatal("expected one pair result")
 	}
 
-	if i.pairResults[NewDirectedNodePair(hops[0], hops[1])] != 100 {
+	if i.pairResults[NewDirectedNodePair(hops[0], hops[1])].
+		minPenalizeAmt != 100 {
+
 		t.Fatal("wrong pair result")
 	}
 
@@ -68,7 +90,7 @@ func TestResultInterpretationFail(t *testing.T) {
 func TestResultInterpretationFailExpiryTooSoon(t *testing.T) {
 	failureSrcIdx := 3
 	i := newInterpretedResult(
-		&routeFourHop, &failureSrcIdx,
+		&routeFourHop, false, &failureSrcIdx,
 		lnwire.NewExpiryTooSoon(lnwire.ChannelUpdate{}),
 	)
 
@@ -77,11 +99,15 @@ func TestResultInterpretationFailExpiryTooSoon(t *testing.T) {
 			len(i.pairResults))
 	}
 
-	if i.pairResults[NewDirectedNodePair(hops[0], hops[1])] != 0 {
+	if i.pairResults[NewDirectedNodePair(hops[0], hops[1])].
+		minPenalizeAmt != 0 {
+
 		t.Fatal("wrong pair result")
 	}
 
-	if i.pairResults[NewDirectedNodePair(hops[1], hops[2])] != 0 {
+	if i.pairResults[NewDirectedNodePair(hops[1], hops[2])].
+		minPenalizeAmt != 0 {
+
 		t.Fatal("wrong pair result")
 	}
 

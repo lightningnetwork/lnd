@@ -182,6 +182,8 @@ type MissionController interface {
 		failureSourceIdx *int, failure lnwire.FailureMessage) (bool,
 		channeldb.FailureReason, error)
 
+	ReportPaymentSuccess(paymentID uint64, rt *route.Route) error
+
 	// GetEdgeProbability is expected to return the success probability of a
 	// payment from fromNode along edge.
 	GetEdgeProbability(fromNode, toNode route.Vertex,

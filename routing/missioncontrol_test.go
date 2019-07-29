@@ -112,6 +112,16 @@ func (ctx *mcTestContext) reportFailure(t time.Time,
 	)
 }
 
+// reportSuccess reports a success by using a test route.
+func (ctx *mcTestContext) reportSuccess(t time.Time) {
+	err := ctx.mc.ReportPaymentSuccess(ctx.pid, mcTestRoute)
+	if err != nil {
+		ctx.t.Fatal(err)
+	}
+
+	ctx.pid++
+}
+
 // TestMissionControl tests mission control probability estimation.
 func TestMissionControl(t *testing.T) {
 	ctx := createMcTestContext(t)
@@ -173,6 +183,16 @@ func TestMissionControl(t *testing.T) {
 	if len(history.Pairs) != 1 {
 		t.Fatal("unexpected number of channels")
 	}
+
+	// Test reporting an unknown failure.
+	ctx.reportFailure(
+		ctx.now, 0, nil,
+	)
+
+	// Test reporting a success.
+	ctx.reportSuccess(
+		ctx.now,
+	)
 }
 
 // TestMissionControlChannelUpdate tests that the first channel update is not

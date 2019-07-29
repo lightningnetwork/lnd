@@ -39,7 +39,7 @@ func queryMissionControl(ctx *cli.Context) error {
 
 	type displayPairHistory struct {
 		NodeFrom, NodeTo  string
-		LastFailTime      int64
+		Timestamp         int64
 		SuccessProb       float32
 		MinPenalizeAmtSat int64
 	}
@@ -66,7 +66,7 @@ func queryMissionControl(ctx *cli.Context) error {
 			displayPairHistory{
 				NodeFrom:          hex.EncodeToString(n.NodeFrom),
 				NodeTo:            hex.EncodeToString(n.NodeTo),
-				LastFailTime:      n.LastFailTime,
+				Timestamp:         n.Timestamp,
 				SuccessProb:       n.SuccessProb,
 				MinPenalizeAmtSat: n.MinPenalizeAmtSat,
 			},

@@ -10,25 +10,49 @@ import (
 	"github.com/lightningnetwork/lnd/routing/route"
 )
 
+type pairResult struct {
+	// minPenalizeAmt is the amount that was sent across the channel.
+	minPenalizeAmt lnwire.MilliSatoshi
+
+	// success indicates whether the payment attempt was successful through
+	// this pair.
+	success bool
+}
+
+func (p pairResult) String() string {
+	if p.success {
+		return "success"
+	}
+
+	return fmt.Sprintf("failed (minPenalizeAmt=%v)", p.minPenalizeAmt)
+}
+
 type interpretedResult struct {
 	nodeFailures  map[route.Vertex]struct{}
-	pairResults   map[DirectedNodePair]lnwire.MilliSatoshi
+	pairResults   map[DirectedNodePair]pairResult
 	finalFailure  bool
 	failureReason channeldb.FailureReason
 	policyFailure *DirectedNodePair
 }
 
-func newInterpretedResult(rt *route.Route, failureSrcIdx *int,
+func newInterpretedResult(rt *route.Route, success bool, failureSrcIdx *int,
 	failure lnwire.FailureMessage) *interpretedResult {
 
 	i := &interpretedResult{
 		nodeFailures: make(map[route.Vertex]struct{}),
-		pairResults:  make(map[DirectedNodePair]lnwire.MilliSatoshi),
+		pairResults:  make(map[DirectedNodePair]pairResult),
 	}
 
-	i.processFail(rt, failureSrcIdx, failure)
-
+	if success {
+		i.processSuccess(rt)
+	} else {
+		i.processFail(rt, failureSrcIdx, failure)
+	}
 	return i
+}
+
+func (i *interpretedResult) processSuccess(route *route.Route) {
+	i.successPairRange(route, 1, len(route.Hops)-1)
 }
 
 func (i *interpretedResult) processFail(
@@ -105,9 +129,19 @@ func (i *interpretedResult) processPaymentOutcomeFinal(
 		// Otherwise penalize the last channel of the route and retry.
 		i.failPair(route, n-1)
 
+		// The other hops relayed corectly, so assign those pairs a
+		// success result.
+		if n > 2 {
+			i.successPairRange(route, 1, n-2)
+		}
+
 	// We are using wrong payment hash or amount, fail the payment.
 	case *lnwire.FailIncorrectPaymentAmount,
 		*lnwire.FailUnknownPaymentHash:
+
+		// Assign all pairs a success result, as the payment reached the
+		// destination correctly.
+		i.successPairRange(route, 1, n-1)
 
 		i.setFailure(
 			true, channeldb.FailureReasonIncorrectPaymentDetails,
@@ -131,6 +165,11 @@ func (i *interpretedResult) processPaymentOutcomeFinal(
 		// recipient, so we do apply a penalty.
 		i.failNode(route, n-1)
 
+		// Other channels in the route forwarded correctly.
+		if n > 2 {
+			i.successPairRange(route, 1, n-2)
+		}
+
 		i.setFailure(true, channeldb.FailureReasonError)
 	}
 }
@@ -151,6 +190,10 @@ func (i *interpretedResult) processPaymentOutcomeIntermediate(
 		i.failPairBalance(
 			route, errorSourceIdx,
 		)
+
+		if errorSourceIdx > 1 {
+			i.successPairRange(route, 1, errorSourceIdx-1)
+		}
 	}
 
 	reportIncoming := func() {
@@ -166,6 +209,10 @@ func (i *interpretedResult) processPaymentOutcomeIntermediate(
 		i.failPair(
 			route, errorSourceIdx-1,
 		)
+
+		if errorSourceIdx > 2 {
+			i.successPairRange(route, 1, errorSourceIdx-2)
+		}
 	}
 
 	reportAll := func() {
@@ -282,8 +329,8 @@ func (i *interpretedResult) failPair(
 	pair, _ := getPair(rt, channelIdx)
 
 	// Report pair in both directions without a minimum penalization amount.
-	i.pairResults[pair] = 0
-	i.pairResults[pair.Reverse()] = 0
+	i.pairResults[pair] = pairResult{}
+	i.pairResults[pair.Reverse()] = pairResult{}
 }
 
 func (i *interpretedResult) failPairBalance(
@@ -291,7 +338,21 @@ func (i *interpretedResult) failPairBalance(
 
 	pair, amt := getPair(rt, channelIdx)
 
-	i.pairResults[pair] = amt
+	i.pairResults[pair] = pairResult{
+		minPenalizeAmt: amt,
+	}
+}
+
+func (i *interpretedResult) successPairRange(
+	rt *route.Route, fromIdx, toIdx int) {
+
+	for idx := fromIdx; idx <= toIdx; idx++ {
+		pair, _ := getPair(rt, idx)
+
+		i.pairResults[pair] = pairResult{
+			success: true,
+		}
+	}
 }
 
 func (i interpretedResult) String() string {
@@ -315,7 +376,7 @@ func (i interpretedResult) String() string {
 			first = false
 		}
 		b.WriteString(fmt.Sprintf(
-			"(%x-%x,%v)", p.From[:6], p.To[:6], r.ToSatoshis(),
+			"(%x-%x,%v)", p.From[:6], p.To[:6], r,
 		))
 	}
 

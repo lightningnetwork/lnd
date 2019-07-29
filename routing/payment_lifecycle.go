@@ -161,6 +161,15 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 		log.Debugf("Payment %x succeeded with pid=%v",
 			p.payment.PaymentHash, p.attempt.PaymentID)
 
+		// Report success to mission control.
+		err = p.router.cfg.MissionControl.ReportPaymentSuccess(
+			p.attempt.PaymentID, &p.attempt.Route,
+		)
+		if err != nil {
+			log.Errorf("Error reporting payment success to mc: %v",
+				err)
+		}
+
 		// In case of success we atomically store the db payment and
 		// move the payment to the success state.
 		err = p.router.cfg.Control.Success(p.payment.PaymentHash, result.Preimage)

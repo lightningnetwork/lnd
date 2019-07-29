@@ -31,6 +31,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/monitoring"
 	"github.com/lightningnetwork/lnd/netann"
+	"github.com/lightningnetwork/lnd/peernotifier"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/signal"
 	"github.com/lightningnetwork/lnd/sweep"
@@ -90,6 +91,7 @@ var (
 	chbuLog = build.NewSubLogger("CHBU", backendLog.Logger)
 	promLog = build.NewSubLogger("PROM", backendLog.Logger)
 	wtclLog = build.NewSubLogger("WTCL", backendLog.Logger)
+	prnfLog = build.NewSubLogger("PRNF", backendLog.Logger)
 )
 
 // Initialize package-global logger variables.
@@ -119,6 +121,7 @@ func init() {
 	chanbackup.UseLogger(chbuLog)
 	monitoring.UseLogger(promLog)
 	wtclient.UseLogger(wtclLog)
+	peernotifier.UseLogger(prnfLog)
 
 	addSubLogger(routerrpc.Subsystem, routerrpc.UseLogger)
 	addSubLogger(wtclientrpc.Subsystem, wtclientrpc.UseLogger)
@@ -165,6 +168,7 @@ var subsystemLoggers = map[string]btclog.Logger{
 	"CHBU": chbuLog,
 	"PROM": promLog,
 	"WTCL": wtclLog,
+	"PRNF": prnfLog,
 }
 
 // initLogRotator initializes the logging rotator to write logs to logFile and

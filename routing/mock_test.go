@@ -113,7 +113,7 @@ func (m *mockMissionControl) ReportEdgePolicyFailure(failedEdge edge) {}
 
 func (m *mockMissionControl) ReportVertexFailure(v route.Vertex) {}
 
-func (m *mockMissionControl) GetEdgeProbability(fromNode route.Vertex, edge EdgeLocator,
+func (m *mockMissionControl) GetEdgeProbability(fromNode, toNode route.Vertex,
 	amt lnwire.MilliSatoshi) float64 {
 
 	return 0
@@ -137,12 +137,6 @@ func (m *mockPaymentSession) RequestRoute(payment *LightningPayment,
 
 	return r, nil
 }
-
-func (m *mockPaymentSession) ReportVertexFailure(v route.Vertex) {}
-
-func (m *mockPaymentSession) ReportEdgeFailure(failedEdge edge, minPenalizeAmt lnwire.MilliSatoshi) {}
-
-func (m *mockPaymentSession) ReportEdgePolicyFailure(failedEdge edge) {}
 
 type mockPayer struct {
 	sendResult       chan error

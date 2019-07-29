@@ -184,7 +184,7 @@ type MissionController interface {
 
 	// GetEdgeProbability is expected to return the success probability of a
 	// payment from fromNode along edge.
-	GetEdgeProbability(fromNode route.Vertex, edge EdgeLocator,
+	GetEdgeProbability(fromNode, toNode route.Vertex,
 		amt lnwire.MilliSatoshi) float64
 }
 

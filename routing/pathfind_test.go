@@ -77,7 +77,7 @@ var (
 
 // noProbabilitySource is used in testing to return the same probability 1 for
 // all edges.
-func noProbabilitySource(route.Vertex, EdgeLocator, lnwire.MilliSatoshi) float64 {
+func noProbabilitySource(route.Vertex, route.Vertex, lnwire.MilliSatoshi) float64 {
 	return 1
 }
 
@@ -2156,6 +2156,8 @@ func testProbabilityRouting(t *testing.T, p10, p11, p20, minProbability float64,
 	}
 	defer testGraphInstance.cleanUp()
 
+	alias := testGraphInstance.aliasMap
+
 	sourceNode, err := testGraphInstance.graph.SourceNode()
 	if err != nil {
 		t.Fatalf("unable to fetch source node: %v", err)
@@ -2166,19 +2168,19 @@ func testProbabilityRouting(t *testing.T, p10, p11, p20, minProbability float64,
 	target := testGraphInstance.aliasMap["target"]
 
 	// Configure a probability source with the test parameters.
-	probabilitySource := func(node route.Vertex, edge EdgeLocator,
+	probabilitySource := func(fromNode, toNode route.Vertex,
 		amt lnwire.MilliSatoshi) float64 {
 
 		if amt == 0 {
 			t.Fatal("expected non-zero amount")
 		}
 
-		switch edge.ChannelID {
-		case 10:
+		switch {
+		case fromNode == alias["a1"] && toNode == alias["a2"]:
 			return p10
-		case 11:
+		case fromNode == alias["a2"] && toNode == alias["target"]:
 			return p11
-		case 20:
+		case fromNode == alias["b"] && toNode == alias["target"]:
 			return p20
 		default:
 			return 1

@@ -2960,6 +2960,7 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 			ChainView:          chainView,
 			Control:            control,
 			SessionSource:      &mockPaymentSessionSource{},
+			MissionControl:     &mockMissionControl{},
 			Payer:              payer,
 			ChannelPruneExpiry: time.Hour * 24,
 			GraphPruneInterval: time.Hour * 2,

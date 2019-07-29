@@ -451,40 +451,43 @@ func (s *Server) QueryMissionControl(ctx context.Context,
 
 	snapshot := s.cfg.RouterBackend.MissionControl.GetHistorySnapshot()
 
-	rpcNodes := make([]*NodeHistory, len(snapshot.Nodes))
-	for i, n := range snapshot.Nodes {
+	rpcNodes := make([]*NodeHistory, 0, len(snapshot.Nodes))
+	for _, n := range snapshot.Nodes {
 		// Copy node struct to prevent loop variable binding bugs.
 		node := n
 
-		channels := make([]*ChannelHistory, len(node.Channels))
-		for j, channel := range node.Channels {
-			channels[j] = &ChannelHistory{
-				ChannelId:    channel.ChannelID,
-				LastFailTime: channel.LastFail.Unix(),
-				MinPenalizeAmtSat: int64(
-					channel.MinPenalizeAmt.ToSatoshis(),
-				),
-				SuccessProb: float32(channel.SuccessProb),
-			}
-		}
-
-		var lastFail int64
-		if node.LastFail != nil {
-			lastFail = node.LastFail.Unix()
-		}
-
-		rpcNodes[i] = &NodeHistory{
+		rpcNode := NodeHistory{
 			Pubkey:       node.Node[:],
-			LastFailTime: lastFail,
-			OtherChanSuccessProb: float32(
-				node.OtherChanSuccessProb,
+			LastFailTime: node.LastFail.Unix(),
+			OtherSuccessProb: float32(
+				node.OtherSuccessProb,
 			),
-			Channels: channels,
 		}
+
+		rpcNodes = append(rpcNodes, &rpcNode)
+	}
+
+	rpcPairs := make([]*PairHistory, 0, len(snapshot.Pairs))
+	for _, p := range snapshot.Pairs {
+		// Prevent binding to loop variable
+		pair := p
+
+		rpcPair := PairHistory{
+			NodeFrom:     pair.Pair.From[:],
+			NodeTo:       pair.Pair.To[:],
+			LastFailTime: pair.LastFail.Unix(),
+			MinPenalizeAmtSat: int64(
+				pair.MinPenalizeAmt.ToSatoshis(),
+			),
+			SuccessProb: float32(pair.SuccessProb),
+		}
+
+		rpcPairs = append(rpcPairs, &rpcPair)
 	}
 
 	response := QueryMissionControlResponse{
 		Nodes: rpcNodes,
+		Pairs: rpcPairs,
 	}
 
 	return &response, nil

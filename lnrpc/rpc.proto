@@ -389,7 +389,7 @@ service Lightning {
         };
     }
 
-    /** lncli: `subscribechannelevents`
+    /**
     SubscribeChannelEvents creates a uni-directional stream from the server to
     the client in which any updates relevant to the state of the channels are
     sent over. Events include new active channels, inactive channels, and closed

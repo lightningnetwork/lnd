@@ -63,7 +63,14 @@ func createDBIfNotExist(dbPath, name string) (*bbolt.DB, bool, error) {
 		}
 	}
 
-	bdb, err := bbolt.Open(path, dbFilePermission, nil)
+	// Specify bbolt freelist options to reduce heap pressure in case the
+	// freelist grows to be very large.
+	options := &bbolt.Options{
+		NoFreelistSync: true,
+		FreelistType:   bbolt.FreelistMapType,
+	}
+
+	bdb, err := bbolt.Open(path, dbFilePermission, options)
 	if err != nil {
 		return nil, false, err
 	}

@@ -10,7 +10,7 @@ require (
 	github.com/btcsuite/btcutil v0.0.0-20190425235716-9e5f4b9a998d
 	github.com/btcsuite/btcwallet v0.0.0-20190712034938-7a3a3e82cbb6
 	github.com/btcsuite/fastsha256 v0.0.0-20160815193821-637e65642941
-	github.com/coreos/bbolt v1.3.2
+	github.com/coreos/bbolt v1.3.3
 	github.com/davecgh/go-spew v1.1.1
 	github.com/go-errors/errors v1.0.1
 	github.com/golang/protobuf v1.3.1

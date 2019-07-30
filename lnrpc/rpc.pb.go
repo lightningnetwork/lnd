@@ -9482,7 +9482,7 @@ type LightningClient interface {
 	//ListChannels returns a description of all the open channels that this node
 	//is a participant in.
 	ListChannels(ctx context.Context, in *ListChannelsRequest, opts ...grpc.CallOption) (*ListChannelsResponse, error)
-	//* lncli: `subscribechannelevents`
+	//*
 	//SubscribeChannelEvents creates a uni-directional stream from the server to
 	//the client in which any updates relevant to the state of the channels are
 	//sent over. Events include new active channels, inactive channels, and closed
@@ -10433,7 +10433,7 @@ type LightningServer interface {
 	//ListChannels returns a description of all the open channels that this node
 	//is a participant in.
 	ListChannels(context.Context, *ListChannelsRequest) (*ListChannelsResponse, error)
-	//* lncli: `subscribechannelevents`
+	//*
 	//SubscribeChannelEvents creates a uni-directional stream from the server to
 	//the client in which any updates relevant to the state of the channels are
 	//sent over. Events include new active channels, inactive channels, and closed

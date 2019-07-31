@@ -103,6 +103,13 @@ var (
 			number:    9,
 			migration: migrateOutgoingPayments,
 		},
+		{
+			// The DB version where we started to store legacy
+			// payload information for all routes, as well as the
+			// optional TLV records.
+			number:    10,
+			migration: migrateRouteSerialization,
+		},
 	}
 
 	// Big endian is the preferred byte order, due to cursor scans over

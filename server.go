@@ -312,6 +312,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 	}
 
 	globalFeatures := lnwire.NewRawFeatureVector()
+	globalFeatures.Set(lnwire.TLVOnionPayloadOptional)
 
 	var serializedPubKey [33]byte
 	copy(serializedPubKey[:], privKey.PubKey().SerializeCompressed())

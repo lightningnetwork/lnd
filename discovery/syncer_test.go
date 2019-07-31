@@ -1,8 +1,10 @@
 package discovery
 
 import (
+	"errors"
 	"math"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 
@@ -333,6 +335,66 @@ func TestGossipSyncerFilterGossipMsgsAllInMemory(t *testing.T) {
 			t.Fatalf("expected 3 messages instead got %v "+
 				"messages: %v", len(msgs), spew.Sdump(msgs))
 		}
+	}
+}
+
+// TestGossipSyncerApplyNoHistoricalGossipFilter tests that once a gossip filter
+// is applied for the remote peer, then we don't send the peer all known
+// messages which are within their desired time horizon.
+func TestGossipSyncerApplyNoHistoricalGossipFilter(t *testing.T) {
+	t.Parallel()
+
+	// First, we'll create a GossipSyncer instance with a canned sendToPeer
+	// message to allow us to intercept their potential sends.
+	_, syncer, chanSeries := newTestSyncer(
+		lnwire.NewShortChanIDFromInt(10), defaultEncoding,
+		defaultChunkSize,
+	)
+	syncer.cfg.ignoreHistoricalFilters = true
+
+	// We'll apply this gossip horizon for the remote peer.
+	remoteHorizon := &lnwire.GossipTimestampRange{
+		FirstTimestamp: unixStamp(25000),
+		TimestampRange: uint32(1000),
+	}
+
+	// After applying the gossip filter, the chan series should not be
+	// queried using the updated horizon.
+	errChan := make(chan error, 1)
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		select {
+		// No query received, success.
+		case <-time.After(3 * time.Second):
+			errChan <- nil
+
+		// Unexpected query received.
+		case <-chanSeries.horizonReq:
+			errChan <- errors.New("chan series should not have been " +
+				"queried")
+		}
+	}()
+
+	// We'll now attempt to apply the gossip filter for the remote peer.
+	syncer.ApplyGossipFilter(remoteHorizon)
+
+	// Ensure that the syncer's remote horizon was properly updated.
+	if !reflect.DeepEqual(syncer.remoteUpdateHorizon, remoteHorizon) {
+		t.Fatalf("expected remote horizon: %v, got: %v",
+			remoteHorizon, syncer.remoteUpdateHorizon)
+	}
+
+	// Wait for the query check to finish.
+	wg.Wait()
+
+	// Assert that no query was made as a result of applying the gossip
+	// filter.
+	err := <-errChan
+	if err != nil {
+		t.Fatalf(err.Error())
 	}
 }
 

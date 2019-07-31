@@ -16,13 +16,15 @@ var (
 		SourcePubKey: route.Vertex{10},
 		Hops: []*route.Hop{
 			{
-				ChannelID:    1,
-				PubKeyBytes:  route.Vertex{11},
-				AmtToForward: 1000,
+				ChannelID:     1,
+				PubKeyBytes:   route.Vertex{11},
+				AmtToForward:  1000,
+				LegacyPayload: true,
 			},
 			{
-				ChannelID:   2,
-				PubKeyBytes: route.Vertex{12},
+				ChannelID:     2,
+				PubKeyBytes:   route.Vertex{12},
+				LegacyPayload: true,
 			},
 		},
 	}
@@ -167,7 +169,8 @@ func TestMissionControl(t *testing.T) {
 	// Check whether history snapshot looks sane.
 	history := ctx.mc.GetHistorySnapshot()
 	if len(history.Nodes) != 1 {
-		t.Fatal("unexpected number of nodes")
+		t.Fatalf("unexpected number of nodes: expected 1 got %v",
+			len(history.Nodes))
 	}
 
 	if len(history.Pairs) != 1 {

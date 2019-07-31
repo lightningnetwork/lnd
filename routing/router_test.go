@@ -231,7 +231,7 @@ func TestFindRoutesWithFeeLimit(t *testing.T) {
 
 	route, err := ctx.router.FindRoute(
 		ctx.router.selfNode.PubKeyBytes,
-		target, paymentAmt, restrictions,
+		target, paymentAmt, restrictions, nil,
 		zpay32.DefaultFinalCLTVDelta,
 	)
 	if err != nil {
@@ -390,12 +390,14 @@ func TestChannelUpdateValidation(t *testing.T) {
 
 	hops := []*route.Hop{
 		{
-			ChannelID:   1,
-			PubKeyBytes: hop1,
+			ChannelID:     1,
+			PubKeyBytes:   hop1,
+			LegacyPayload: true,
 		},
 		{
-			ChannelID:   2,
-			PubKeyBytes: hop2,
+			ChannelID:     2,
+			PubKeyBytes:   hop2,
+			LegacyPayload: true,
 		},
 	}
 
@@ -1074,8 +1076,9 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	t.Parallel()
 
 	const startingBlockHeight = 101
-	ctx, cleanUp, err := createTestCtxFromFile(startingBlockHeight,
-		basicGraphFilePath)
+	ctx, cleanUp, err := createTestCtxFromFile(
+		startingBlockHeight, basicGraphFilePath,
+	)
 	if err != nil {
 		t.Fatalf("unable to create router: %v", err)
 	}
@@ -1108,7 +1111,8 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	fundingTx, _, chanID, err := createChannelEdge(ctx,
 		bitcoinKey1.SerializeCompressed(),
 		bitcoinKey2.SerializeCompressed(),
-		10000, 500)
+		10000, 500,
+	)
 	if err != nil {
 		t.Fatalf("unable to create channel edge: %v", err)
 	}
@@ -1266,7 +1270,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	copy(targetPubKeyBytes[:], targetNode.SerializeCompressed())
 	_, err = ctx.router.FindRoute(
 		ctx.router.selfNode.PubKeyBytes,
-		targetPubKeyBytes, paymentAmt, noRestrictions,
+		targetPubKeyBytes, paymentAmt, noRestrictions, nil,
 		zpay32.DefaultFinalCLTVDelta,
 	)
 	if err != nil {
@@ -1309,7 +1313,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	// updated.
 	_, err = ctx.router.FindRoute(
 		ctx.router.selfNode.PubKeyBytes,
-		targetPubKeyBytes, paymentAmt, noRestrictions,
+		targetPubKeyBytes, paymentAmt, noRestrictions, nil,
 		zpay32.DefaultFinalCLTVDelta,
 	)
 	if err != nil {
@@ -2632,12 +2636,14 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 	hop2 := testGraph.aliasMap["c"]
 	hops := []*route.Hop{
 		{
-			ChannelID:   1,
-			PubKeyBytes: hop1,
+			ChannelID:     1,
+			PubKeyBytes:   hop1,
+			LegacyPayload: true,
 		},
 		{
-			ChannelID:   2,
-			PubKeyBytes: hop2,
+			ChannelID:     2,
+			PubKeyBytes:   hop2,
+			LegacyPayload: true,
 		},
 	}
 
@@ -3270,14 +3276,16 @@ func TestSendToRouteStructuredError(t *testing.T) {
 	hop2 := ctx.aliases["c"]
 	hops := []*route.Hop{
 		{
-			ChannelID:    1,
-			PubKeyBytes:  hop1,
-			AmtToForward: payAmt,
+			ChannelID:     1,
+			PubKeyBytes:   hop1,
+			AmtToForward:  payAmt,
+			LegacyPayload: true,
 		},
 		{
-			ChannelID:    2,
-			PubKeyBytes:  hop2,
-			AmtToForward: payAmt,
+			ChannelID:     2,
+			PubKeyBytes:   hop2,
+			AmtToForward:  payAmt,
+			LegacyPayload: true,
 		},
 	}
 

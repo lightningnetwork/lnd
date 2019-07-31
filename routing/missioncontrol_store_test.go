@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/lnwire"
 
 	"github.com/coreos/bbolt"
@@ -50,7 +51,8 @@ func TestMissionControlStore(t *testing.T) {
 		SourcePubKey: route.Vertex{1},
 		Hops: []*route.Hop{
 			{
-				PubKeyBytes: route.Vertex{2},
+				PubKeyBytes:   route.Vertex{2},
+				LegacyPayload: true,
 			},
 		},
 	}
@@ -99,10 +101,12 @@ func TestMissionControlStore(t *testing.T) {
 
 	// Check that results are stored in chronological order.
 	if !reflect.DeepEqual(&result1, results[0]) {
-		t.Fatal()
+		t.Fatalf("the results differ: %v vs %v", spew.Sdump(&result1),
+			spew.Sdump(results[0]))
 	}
 	if !reflect.DeepEqual(&result2, results[1]) {
-		t.Fatal()
+		t.Fatalf("the results differ: %v vs %v", spew.Sdump(&result2),
+			spew.Sdump(results[1]))
 	}
 
 	// Recreate store to test pruning.
@@ -132,9 +136,11 @@ func TestMissionControlStore(t *testing.T) {
 	}
 
 	if !reflect.DeepEqual(&result2, results[0]) {
-		t.Fatal()
+		t.Fatalf("the results differ: %v vs %v", spew.Sdump(&result2),
+			spew.Sdump(results[0]))
 	}
 	if !reflect.DeepEqual(&result3, results[1]) {
-		t.Fatal()
+		t.Fatalf("the results differ: %v vs %v", spew.Sdump(&result3),
+			spew.Sdump(results[1]))
 	}
 }

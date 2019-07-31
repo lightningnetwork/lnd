@@ -26,7 +26,11 @@ func TestRequestRoute(t *testing.T) {
 
 		path := []*channeldb.ChannelEdgePolicy{
 			{
-				Node: &channeldb.LightningNode{},
+				Node: &channeldb.LightningNode{
+					Features: lnwire.NewFeatureVector(
+						nil, nil,
+					),
+				},
 			},
 		}
 

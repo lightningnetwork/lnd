@@ -142,6 +142,7 @@ func TestControlTowerSubscribeSuccess(t *testing.T) {
 		if result.Preimage != preimg {
 			t.Fatal("unexpected preimage")
 		}
+
 		if !reflect.DeepEqual(result.Route, &attempt.Route) {
 			t.Fatal("unexpected route")
 		}

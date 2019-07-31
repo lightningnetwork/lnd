@@ -1,6 +1,8 @@
 package wtdb
 
 import (
+	"encoding/hex"
+	"fmt"
 	"io"
 	"net"
 
@@ -62,6 +64,19 @@ func (t *Tower) AddAddress(addr net.Addr) {
 	t.Addresses = append([]net.Addr{addr}, t.Addresses...)
 }
 
+// RemoveAddress removes the given address from the tower's in-memory list of
+// addresses. If the address doesn't exist, then this will act as a NOP.
+func (t *Tower) RemoveAddress(addr net.Addr) {
+	addrStr := addr.String()
+	for i, address := range t.Addresses {
+		if address.String() != addrStr {
+			continue
+		}
+		t.Addresses = append(t.Addresses[:i], t.Addresses[i+1:]...)
+		return
+	}
+}
+
 // LNAddrs generates a list of lnwire.NetAddress from a Tower instance's
 // addresses. This can be used to have a client try multiple addresses for the
 // same Tower.
@@ -77,6 +92,15 @@ func (t *Tower) LNAddrs() []*lnwire.NetAddress {
 	}
 
 	return addrs
+}
+
+// String returns a user-friendly identifier of the tower.
+func (t *Tower) String() string {
+	pubKey := hex.EncodeToString(t.IdentityKey.SerializeCompressed())
+	if len(t.Addresses) == 0 {
+		return pubKey
+	}
+	return fmt.Sprintf("%v@%v", pubKey, t.Addresses[0])
 }
 
 // Encode writes the Tower to the passed io.Writer. The TowerID is not

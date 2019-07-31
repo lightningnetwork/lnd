@@ -35,6 +35,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/watchtowerrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/wtclientrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -7677,7 +7678,7 @@ func testRevokedCloseRetributionAltruistWatchtower(net *lntest.NetworkHarness,
 	defer shutdownAndAssert(net, t, willy)
 
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	willyInfo, err := willy.WatchtowerClient.GetInfo(
+	willyInfo, err := willy.Watchtower.GetInfo(
 		ctxt, &watchtowerrpc.GetInfoRequest{},
 	)
 	if err != nil {
@@ -7708,21 +7709,26 @@ func testRevokedCloseRetributionAltruistWatchtower(net *lntest.NetworkHarness,
 			externalIP, willyInfo.Uris[0])
 	}
 
-	// Construct a URI from listening port and public key, since aren't
-	// actually connecting remotely.
-	willyTowerURI := fmt.Sprintf("%x@%s", willyInfo.Pubkey, listener)
-
 	// Dave will be the breached party. We set --nolisten to ensure Carol
 	// won't be able to connect to him and trigger the channel data
 	// protection logic automatically.
 	dave, err := net.NewNode("Dave", []string{
 		"--nolisten",
-		"--wtclient.private-tower-uris=" + willyTowerURI,
+		"--wtclient.active",
 	})
 	if err != nil {
 		t.Fatalf("unable to create new node: %v", err)
 	}
 	defer shutdownAndAssert(net, t, dave)
+
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	addTowerReq := &wtclientrpc.AddTowerRequest{
+		Pubkey:  willyInfo.Pubkey,
+		Address: listener,
+	}
+	if _, err := dave.WatchtowerClient.AddTower(ctxt, addTowerReq); err != nil {
+		t.Fatalf("unable to add willy's watchtower: %v", err)
+	}
 
 	// We must let Dave have an open channel before she can send a node
 	// announcement, so we open a channel with Carol,

@@ -5,6 +5,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/btcsuite/btcd/btcec"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/watchtower/wtdb"
 )
@@ -37,9 +38,11 @@ func NewClientDB() *ClientDB {
 	}
 }
 
-// CreateTower initializes a database entry with the given lightning address. If
-// the tower exists, the address is append to the list of all addresses used to
-// that tower previously.
+// CreateTower initialize an address record used to communicate with a
+// watchtower. Each Tower is assigned a unique ID, that is used to amortize
+// storage costs of the public key when used by multiple sessions. If the tower
+// already exists, the address is appended to the list of all addresses used to
+// that tower previously and its corresponding sessions are marked as active.
 func (m *ClientDB) CreateTower(lnAddr *lnwire.NetAddress) (*wtdb.Tower, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -52,6 +55,15 @@ func (m *ClientDB) CreateTower(lnAddr *lnwire.NetAddress) (*wtdb.Tower, error) {
 	if ok {
 		tower = m.towers[towerID]
 		tower.AddAddress(lnAddr.Address)
+
+		towerSessions, err := m.listClientSessions(&towerID)
+		if err != nil {
+			return nil, err
+		}
+		for id, session := range towerSessions {
+			session.Status = wtdb.CSessionActive
+			m.activeSessions[id] = session
+		}
 	} else {
 		towerID = wtdb.TowerID(atomic.AddUint64(&m.nextTowerID, 1))
 		tower = &wtdb.Tower{
@@ -67,8 +79,83 @@ func (m *ClientDB) CreateTower(lnAddr *lnwire.NetAddress) (*wtdb.Tower, error) {
 	return copyTower(tower), nil
 }
 
-// LoadTower retrieves a tower by its tower ID.
-func (m *ClientDB) LoadTower(towerID wtdb.TowerID) (*wtdb.Tower, error) {
+// RemoveTower modifies a tower's record within the database. If an address is
+// provided, then _only_ the address record should be removed from the tower's
+// persisted state. Otherwise, we'll attempt to mark the tower as inactive by
+// marking all of its sessions inactive. If any of its sessions has unacked
+// updates, then ErrTowerUnackedUpdates is returned. If the tower doesn't have
+// any sessions at all, it'll be completely removed from the database.
+//
+// NOTE: An error is not returned if the tower doesn't exist.
+func (m *ClientDB) RemoveTower(pubKey *btcec.PublicKey, addr net.Addr) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	tower, err := m.loadTower(pubKey)
+	if err == wtdb.ErrTowerNotFound {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+
+	if addr != nil {
+		tower.RemoveAddress(addr)
+		m.towers[tower.ID] = tower
+		return nil
+	}
+
+	towerSessions, err := m.listClientSessions(&tower.ID)
+	if err != nil {
+		return err
+	}
+	if len(towerSessions) == 0 {
+		var towerPK towerPK
+		copy(towerPK[:], pubKey.SerializeCompressed())
+		delete(m.towerIndex, towerPK)
+		delete(m.towers, tower.ID)
+		return nil
+	}
+
+	for id, session := range towerSessions {
+		if len(session.CommittedUpdates) > 0 {
+			return wtdb.ErrTowerUnackedUpdates
+		}
+		session.Status = wtdb.CSessionInactive
+		m.activeSessions[id] = session
+	}
+
+	return nil
+}
+
+// LoadTower retrieves a tower by its public key.
+func (m *ClientDB) LoadTower(pubKey *btcec.PublicKey) (*wtdb.Tower, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.loadTower(pubKey)
+}
+
+// loadTower retrieves a tower by its public key.
+//
+// NOTE: This method requires the database's lock to be acquired.
+func (m *ClientDB) loadTower(pubKey *btcec.PublicKey) (*wtdb.Tower, error) {
+	var towerPK towerPK
+	copy(towerPK[:], pubKey.SerializeCompressed())
+
+	towerID, ok := m.towerIndex[towerPK]
+	if !ok {
+		return nil, wtdb.ErrTowerNotFound
+	}
+	tower, ok := m.towers[towerID]
+	if !ok {
+		return nil, wtdb.ErrTowerNotFound
+	}
+
+	return copyTower(tower), nil
+}
+
+// LoadTowerByID retrieves a tower by its tower ID.
+func (m *ClientDB) LoadTowerByID(towerID wtdb.TowerID) (*wtdb.Tower, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -79,6 +166,19 @@ func (m *ClientDB) LoadTower(towerID wtdb.TowerID) (*wtdb.Tower, error) {
 	return nil, wtdb.ErrTowerNotFound
 }
 
+// ListTowers retrieves the list of towers available within the database.
+func (m *ClientDB) ListTowers() ([]*wtdb.Tower, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	towers := make([]*wtdb.Tower, 0, len(m.towers))
+	for _, tower := range m.towers {
+		towers = append(towers, copyTower(tower))
+	}
+
+	return towers, nil
+}
+
 // MarkBackupIneligible records that particular commit height is ineligible for
 // backup. This allows the client to track which updates it should not attempt
 // to retry after startup.
@@ -86,13 +186,28 @@ func (m *ClientDB) MarkBackupIneligible(chanID lnwire.ChannelID, commitHeight ui
 	return nil
 }
 
-// ListClientSessions returns the set of all client sessions known to the db.
-func (m *ClientDB) ListClientSessions() (map[wtdb.SessionID]*wtdb.ClientSession, error) {
+// ListClientSessions returns the set of all client sessions known to the db. An
+// optional tower ID can be used to filter out any client sessions in the
+// response that do not correspond to this tower.
+func (m *ClientDB) ListClientSessions(
+	tower *wtdb.TowerID) (map[wtdb.SessionID]*wtdb.ClientSession, error) {
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	return m.listClientSessions(tower)
+}
+
+// listClientSessions returns the set of all client sessions known to the db. An
+// optional tower ID can be used to filter out any client sessions in the
+// response that do not correspond to this tower.
+func (m *ClientDB) listClientSessions(
+	tower *wtdb.TowerID) (map[wtdb.SessionID]*wtdb.ClientSession, error) {
 
 	sessions := make(map[wtdb.SessionID]*wtdb.ClientSession)
 	for _, session := range m.activeSessions {
+		if tower != nil && *tower != session.TowerID {
+			continue
+		}
 		sessions[session.ID] = session
 	}
 

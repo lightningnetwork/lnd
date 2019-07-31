@@ -17,11 +17,31 @@ type DB interface {
 	// CreateTower initialize an address record used to communicate with a
 	// watchtower. Each Tower is assigned a unique ID, that is used to
 	// amortize storage costs of the public key when used by multiple
-	// sessions.
+	// sessions. If the tower already exists, the address is appended to the
+	// list of all addresses used to that tower previously and its
+	// corresponding sessions are marked as active.
 	CreateTower(*lnwire.NetAddress) (*wtdb.Tower, error)
 
-	// LoadTower retrieves a tower by its tower ID.
-	LoadTower(wtdb.TowerID) (*wtdb.Tower, error)
+	// RemoveTower modifies a tower's record within the database. If an
+	// address is provided, then _only_ the address record should be removed
+	// from the tower's persisted state. Otherwise, we'll attempt to mark
+	// the tower as inactive by marking all of its sessions inactive. If any
+	// of its sessions has unacked updates, then ErrTowerUnackedUpdates is
+	// returned. If the tower doesn't have any sessions at all, it'll be
+	// completely removed from the database.
+	//
+	// NOTE: An error is not returned if the tower doesn't exist.
+	RemoveTower(*btcec.PublicKey, net.Addr) error
+
+	// LoadTower retrieves a tower by its public key.
+	LoadTower(*btcec.PublicKey) (*wtdb.Tower, error)
+
+	// LoadTowerByID retrieves a tower by its tower ID.
+	LoadTowerByID(wtdb.TowerID) (*wtdb.Tower, error)
+
+	// ListTowers retrieves the list of towers available within the
+	// database.
+	ListTowers() ([]*wtdb.Tower, error)
 
 	// NextSessionKeyIndex reserves a new session key derivation index for a
 	// particular tower id. The index is reserved for that tower until
@@ -38,8 +58,10 @@ type DB interface {
 
 	// ListClientSessions returns all sessions that have not yet been
 	// exhausted. This is used on startup to find any sessions which may
-	// still be able to accept state updates.
-	ListClientSessions() (map[wtdb.SessionID]*wtdb.ClientSession, error)
+	// still be able to accept state updates. An optional tower ID can be
+	// used to filter out any client sessions in the response that do not
+	// correspond to this tower.
+	ListClientSessions(*wtdb.TowerID) (map[wtdb.SessionID]*wtdb.ClientSession, error)
 
 	// FetchChanSummaries loads a mapping from all registered channels to
 	// their channel summaries.

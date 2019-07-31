@@ -7,6 +7,7 @@ import (
 	"math"
 	"net"
 
+	"github.com/btcsuite/btcd/btcec"
 	"github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
@@ -54,6 +55,11 @@ var (
 	// ErrTowerNotFound signals that the target tower was not found in the
 	// database.
 	ErrTowerNotFound = errors.New("tower not found")
+
+	// ErrTowerUnackedUpdates is an error returned when we attempt to mark a
+	// tower's sessions as inactive, but one of its sessions has unacked
+	// updates.
+	ErrTowerUnackedUpdates = errors.New("tower has unacked updates")
 
 	// ErrCorruptClientSession signals that the client session's on-disk
 	// structure deviates from what is expected.
@@ -199,9 +205,11 @@ func (c *ClientDB) Close() error {
 	return c.db.Close()
 }
 
-// CreateTower initializes a database entry with the given lightning address. If
-// the tower exists, the address is append to the list of all addresses used to
-// that tower previously.
+// CreateTower initialize an address record used to communicate with a
+// watchtower. Each Tower is assigned a unique ID, that is used to amortize
+// storage costs of the public key when used by multiple sessions. If the tower
+// already exists, the address is appended to the list of all addresses used to
+// that tower previously and its corresponding sessions are marked as active.
 func (c *ClientDB) CreateTower(lnAddr *lnwire.NetAddress) (*Tower, error) {
 	var towerPubKey [33]byte
 	copy(towerPubKey[:], lnAddr.IdentityKey.SerializeCompressed())
@@ -233,6 +241,32 @@ func (c *ClientDB) CreateTower(lnAddr *lnwire.NetAddress) (*Tower, error) {
 			// address is a duplicate, this will result in no
 			// change.
 			tower.AddAddress(lnAddr.Address)
+
+			// If there are any client sessions that correspond to
+			// this tower, we'll mark them as active to ensure we
+			// load them upon restarts.
+			//
+			// TODO(wilmer): with an index of tower -> sessions we
+			// can avoid the linear lookup.
+			sessions := tx.Bucket(cSessionBkt)
+			if sessions == nil {
+				return ErrUninitializedDB
+			}
+			towerID := TowerIDFromBytes(towerIDBytes)
+			towerSessions, err := listClientSessions(
+				sessions, &towerID,
+			)
+			if err != nil {
+				return err
+			}
+			for _, session := range towerSessions {
+				err := markSessionStatus(
+					sessions, session, CSessionActive,
+				)
+				if err != nil {
+					return err
+				}
+			}
 		} else {
 			// No such tower exists, create a new tower id for our
 			// new tower. The error is unhandled since NextSequence
@@ -265,8 +299,89 @@ func (c *ClientDB) CreateTower(lnAddr *lnwire.NetAddress) (*Tower, error) {
 	return tower, nil
 }
 
-// LoadTower retrieves a tower by its tower ID.
-func (c *ClientDB) LoadTower(towerID TowerID) (*Tower, error) {
+// RemoveTower modifies a tower's record within the database. If an address is
+// provided, then _only_ the address record should be removed from the tower's
+// persisted state. Otherwise, we'll attempt to mark the tower as inactive by
+// marking all of its sessions inactive. If any of its sessions has unacked
+// updates, then ErrTowerUnackedUpdates is returned. If the tower doesn't have
+// any sessions at all, it'll be completely removed from the database.
+//
+// NOTE: An error is not returned if the tower doesn't exist.
+func (c *ClientDB) RemoveTower(pubKey *btcec.PublicKey, addr net.Addr) error {
+	return c.db.Update(func(tx *bbolt.Tx) error {
+		towers := tx.Bucket(cTowerBkt)
+		if towers == nil {
+			return ErrUninitializedDB
+		}
+		towerIndex := tx.Bucket(cTowerIndexBkt)
+		if towerIndex == nil {
+			return ErrUninitializedDB
+		}
+
+		// Don't return an error if the watchtower doesn't exist to act
+		// as a NOP.
+		pubKeyBytes := pubKey.SerializeCompressed()
+		towerIDBytes := towerIndex.Get(pubKeyBytes)
+		if towerIDBytes == nil {
+			return nil
+		}
+
+		// If an address is provided, then we should _only_ remove the
+		// address record from the database.
+		if addr != nil {
+			tower, err := getTower(towers, towerIDBytes)
+			if err != nil {
+				return err
+			}
+			tower.RemoveAddress(addr)
+			return putTower(towers, tower)
+		}
+
+		// Otherwise, we should attempt to mark the tower's sessions as
+		// inactive.
+		//
+		// TODO(wilmer): with an index of tower -> sessions we can avoid
+		// the linear lookup.
+		sessions := tx.Bucket(cSessionBkt)
+		if sessions == nil {
+			return ErrUninitializedDB
+		}
+		towerID := TowerIDFromBytes(towerIDBytes)
+		towerSessions, err := listClientSessions(sessions, &towerID)
+		if err != nil {
+			return err
+		}
+
+		// If it doesn't have any, we can completely remove it from the
+		// database.
+		if len(towerSessions) == 0 {
+			if err := towerIndex.Delete(pubKeyBytes); err != nil {
+				return err
+			}
+			return towers.Delete(towerIDBytes)
+		}
+
+		// We'll mark its sessions as inactive as long as they don't
+		// have any pending updates to ensure we don't load them upon
+		// restarts.
+		for _, session := range towerSessions {
+			if len(session.CommittedUpdates) > 0 {
+				return ErrTowerUnackedUpdates
+			}
+			err := markSessionStatus(
+				sessions, session, CSessionInactive,
+			)
+			if err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+}
+
+// LoadTowerByID retrieves a tower by its tower ID.
+func (c *ClientDB) LoadTowerByID(towerID TowerID) (*Tower, error) {
 	var tower *Tower
 	err := c.db.View(func(tx *bbolt.Tx) error {
 		towers := tx.Bucket(cTowerBkt)
@@ -283,6 +398,60 @@ func (c *ClientDB) LoadTower(towerID TowerID) (*Tower, error) {
 	}
 
 	return tower, nil
+}
+
+// LoadTower retrieves a tower by its public key.
+func (c *ClientDB) LoadTower(pubKey *btcec.PublicKey) (*Tower, error) {
+	var tower *Tower
+	err := c.db.View(func(tx *bbolt.Tx) error {
+		towers := tx.Bucket(cTowerBkt)
+		if towers == nil {
+			return ErrUninitializedDB
+		}
+		towerIndex := tx.Bucket(cTowerIndexBkt)
+		if towerIndex == nil {
+			return ErrUninitializedDB
+		}
+
+		towerIDBytes := towerIndex.Get(pubKey.SerializeCompressed())
+		if towerIDBytes == nil {
+			return ErrTowerNotFound
+		}
+
+		var err error
+		tower, err = getTower(towers, towerIDBytes)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return tower, nil
+}
+
+// ListTowers retrieves the list of towers available within the database.
+func (c *ClientDB) ListTowers() ([]*Tower, error) {
+	var towers []*Tower
+	err := c.db.View(func(tx *bbolt.Tx) error {
+		towerBucket := tx.Bucket(cTowerBkt)
+		if towerBucket == nil {
+			return ErrUninitializedDB
+		}
+
+		return towerBucket.ForEach(func(towerIDBytes, _ []byte) error {
+			tower, err := getTower(towerBucket, towerIDBytes)
+			if err != nil {
+				return err
+			}
+			towers = append(towers, tower)
+			return nil
+		})
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return towers, nil
 }
 
 // NextSessionKeyIndex reserves a new session key derivation index for a
@@ -384,29 +553,53 @@ func (c *ClientDB) CreateClientSession(session *ClientSession) error {
 	})
 }
 
-// ListClientSessions returns the set of all client sessions known to the db.
-func (c *ClientDB) ListClientSessions() (map[SessionID]*ClientSession, error) {
-	clientSessions := make(map[SessionID]*ClientSession)
+// ListClientSessions returns the set of all client sessions known to the db. An
+// optional tower ID can be used to filter out any client sessions in the
+// response that do not correspond to this tower.
+func (c *ClientDB) ListClientSessions(id *TowerID) (map[SessionID]*ClientSession, error) {
+	var clientSessions map[SessionID]*ClientSession
 	err := c.db.View(func(tx *bbolt.Tx) error {
 		sessions := tx.Bucket(cSessionBkt)
 		if sessions == nil {
 			return ErrUninitializedDB
 		}
+		var err error
+		clientSessions, err = listClientSessions(sessions, id)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
 
-		return sessions.ForEach(func(k, _ []byte) error {
-			// We'll load the full client session since the client
-			// will need the CommittedUpdates and AckedUpdates on
-			// startup to resume committed updates and compute the
-			// highest known commit height for each channel.
-			session, err := getClientSession(sessions, k)
-			if err != nil {
-				return err
-			}
+	return clientSessions, nil
+}
 
-			clientSessions[session.ID] = session
+// listClientSessions returns the set of all client sessions known to the db. An
+// optional tower ID can be used to filter out any client sessions in the
+// response that do not correspond to this tower.
+func listClientSessions(sessions *bbolt.Bucket,
+	id *TowerID) (map[SessionID]*ClientSession, error) {
 
+	clientSessions := make(map[SessionID]*ClientSession)
+	err := sessions.ForEach(func(k, _ []byte) error {
+		// We'll load the full client session since the client will need
+		// the CommittedUpdates and AckedUpdates on startup to resume
+		// committed updates and compute the highest known commit height
+		// for each channel.
+		session, err := getClientSession(sessions, k)
+		if err != nil {
+			return err
+		}
+
+		// Filter out any sessions that don't correspond to the given
+		// tower if one was set.
+		if id != nil && session.TowerID != *id {
 			return nil
-		})
+		}
+
+		clientSessions[session.ID] = session
+
+		return nil
 	})
 	if err != nil {
 		return nil, err
@@ -845,6 +1038,15 @@ func putClientSessionBody(sessions *bbolt.Bucket,
 	}
 
 	return sessionBkt.Put(cSessionBody, b.Bytes())
+}
+
+// markSessionStatus updates the persisted state of the session to the new
+// status.
+func markSessionStatus(sessions *bbolt.Bucket, session *ClientSession,
+	status CSessionStatus) error {
+
+	session.Status = status
+	return putClientSessionBody(sessions, session)
 }
 
 // getChanSummary loads a ClientChanSummary for the passed chanID.

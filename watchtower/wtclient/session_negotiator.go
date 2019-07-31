@@ -240,9 +240,6 @@ retryWithBackoff:
 		}
 	}
 
-	// Before attempting a bout of session negotiation, reset the candidate
-	// iterator to ensure the results are fresh.
-	n.cfg.Candidates.Reset()
 	for {
 		select {
 		case <-n.quit:
@@ -266,6 +263,13 @@ retryWithBackoff:
 
 			log.Debugf("Unable to get new tower candidate, "+
 				"retrying after %v -- reason: %v", backoff, err)
+
+			// Only reset the iterator once we've exhausted all
+			// candidates. Doing so allows us to load balance
+			// sessions better amongst all of the tower candidates.
+			if err == ErrTowerCandidatesExhausted {
+				n.cfg.Candidates.Reset()
+			}
 
 			goto retryWithBackoff
 		}

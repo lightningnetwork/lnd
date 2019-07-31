@@ -2,6 +2,7 @@ package wtclient
 
 import (
 	"container/list"
+	"net"
 	"sync"
 
 	"github.com/lightningnetwork/lnd/watchtower/wtdb"
@@ -10,6 +11,20 @@ import (
 // TowerCandidateIterator provides an abstraction for iterating through possible
 // watchtower addresses when attempting to create a new session.
 type TowerCandidateIterator interface {
+	// AddCandidate adds a new candidate tower to the iterator. If the
+	// candidate already exists, then any new addresses are added to it.
+	AddCandidate(*wtdb.Tower)
+
+	// RemoveCandidate removes an existing candidate tower from the
+	// iterator. An optional address can be provided to indicate a stale
+	// tower address to remove it. If it isn't provided, then the tower is
+	// completely removed from the iterator.
+	RemoveCandidate(wtdb.TowerID, net.Addr)
+
+	// IsActive determines whether a given tower is exists within the
+	// iterator.
+	IsActive(wtdb.TowerID) bool
+
 	// Reset clears any internal iterator state, making previously taken
 	// candidates available as long as they remain in the set.
 	Reset() error
@@ -18,17 +33,14 @@ type TowerCandidateIterator interface {
 	// to return results in any particular order.  If no more candidates are
 	// available, ErrTowerCandidatesExhausted is returned.
 	Next() (*wtdb.Tower, error)
-
-	// TowerIDs returns the set of tower IDs contained in the iterator,
-	// which can be used to filter candidate sessions for the active tower.
-	TowerIDs() map[wtdb.TowerID]struct{}
 }
 
 // towerListIterator is a linked-list backed TowerCandidateIterator.
 type towerListIterator struct {
 	mu            sync.Mutex
-	candidates    *list.List
+	queue         *list.List
 	nextCandidate *list.Element
+	candidates    map[wtdb.TowerID]*wtdb.Tower
 }
 
 // Compile-time constraint to ensure *towerListIterator implements the
@@ -39,11 +51,13 @@ var _ TowerCandidateIterator = (*towerListIterator)(nil)
 // of lnwire.NetAddresses.
 func newTowerListIterator(candidates ...*wtdb.Tower) *towerListIterator {
 	iter := &towerListIterator{
-		candidates: list.New(),
+		queue:      list.New(),
+		candidates: make(map[wtdb.TowerID]*wtdb.Tower),
 	}
 
 	for _, candidate := range candidates {
-		iter.candidates.PushBack(candidate)
+		iter.queue.PushBack(candidate.ID)
+		iter.candidates[candidate.ID] = candidate
 	}
 	iter.Reset()
 
@@ -57,20 +71,9 @@ func (t *towerListIterator) Reset() error {
 	defer t.mu.Unlock()
 
 	// Reset the next candidate to the front of the linked-list.
-	t.nextCandidate = t.candidates.Front()
+	t.nextCandidate = t.queue.Front()
 
 	return nil
-}
-
-// TowerIDs returns the set of tower IDs contained in the iterator, which can be
-// used to filter candidate sessions for the active tower.
-func (t *towerListIterator) TowerIDs() map[wtdb.TowerID]struct{} {
-	ids := make(map[wtdb.TowerID]struct{})
-	for e := t.candidates.Front(); e != nil; e = e.Next() {
-		tower := e.Value.(*wtdb.Tower)
-		ids[tower.ID] = struct{}{}
-	}
-	return ids
 }
 
 // Next returns the next candidate tower. This iterator will always return
@@ -80,18 +83,76 @@ func (t *towerListIterator) Next() (*wtdb.Tower, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	// If the next candidate is nil, we've exhausted the list.
-	if t.nextCandidate == nil {
-		return nil, ErrTowerCandidatesExhausted
+	for t.nextCandidate != nil {
+		// Propose the tower at the front of the list.
+		towerID := t.nextCandidate.Value.(wtdb.TowerID)
+
+		// Check whether this tower is still considered a candidate. If
+		// it's not, we'll proceed to the next.
+		tower, ok := t.candidates[towerID]
+		if !ok {
+			nextCandidate := t.nextCandidate.Next()
+			t.queue.Remove(t.nextCandidate)
+			t.nextCandidate = nextCandidate
+			continue
+		}
+
+		// Set the next candidate to the subsequent element.
+		t.nextCandidate = t.nextCandidate.Next()
+		return tower, nil
 	}
 
-	// Propose the tower at the front of the list.
-	tower := t.nextCandidate.Value.(*wtdb.Tower)
+	return nil, ErrTowerCandidatesExhausted
+}
 
-	// Set the next candidate to the subsequent element.
-	t.nextCandidate = t.nextCandidate.Next()
+// AddCandidate adds a new candidate tower to the iterator. If the candidate
+// already exists, then any new addresses are added to it.
+func (t *towerListIterator) AddCandidate(candidate *wtdb.Tower) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 
-	return tower, nil
+	if tower, ok := t.candidates[candidate.ID]; !ok {
+		t.queue.PushBack(candidate.ID)
+		t.candidates[candidate.ID] = candidate
+
+		// If we've reached the end of our queue, then this candidate
+		// will become the next.
+		if t.nextCandidate == nil {
+			t.nextCandidate = t.queue.Back()
+		}
+	} else {
+		for _, addr := range candidate.Addresses {
+			tower.AddAddress(addr)
+		}
+	}
+}
+
+// RemoveCandidate removes an existing candidate tower from the iterator. An
+// optional address can be provided to indicate a stale tower address to remove
+// it. If it isn't provided, then the tower is completely removed from the
+// iterator.
+func (t *towerListIterator) RemoveCandidate(candidate wtdb.TowerID, addr net.Addr) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	tower, ok := t.candidates[candidate]
+	if !ok {
+		return
+	}
+	if addr != nil {
+		tower.RemoveAddress(addr)
+	} else {
+		delete(t.candidates, candidate)
+	}
+}
+
+// IsActive determines whether a given tower is exists within the iterator.
+func (t *towerListIterator) IsActive(tower wtdb.TowerID) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	_, ok := t.candidates[tower]
+	return ok
 }
 
 // TODO(conner): implement graph-backed candidate iterator for public towers.

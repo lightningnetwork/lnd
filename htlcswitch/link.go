@@ -48,6 +48,12 @@ const (
 	// DefaultMaxLinkFeeUpdateTimeout represents the maximum interval in
 	// which a link should propose to update its commitment fee rate.
 	DefaultMaxLinkFeeUpdateTimeout = 60 * time.Minute
+
+	// chanReetablishTimeout represents the maximum duration we will wait
+	// for the remote peer to send us a channel reestablish message. This
+	// value is chosen to be high enough to account for peers which may be
+	// slow to write messages, e.g. under heavy contention during a restart.
+	chanReetablishTimeout = 3 * time.Minute
 )
 
 // ForwardingPolicy describes the set of constraints that a given ChannelLink
@@ -611,7 +617,7 @@ func (l *channelLink) syncChanStates() error {
 	// Next, we'll wait to receive the ChanSync message with a timeout
 	// period. The first message sent MUST be the ChanSync message,
 	// otherwise, we'll terminate the connection.
-	chanSyncDeadline := time.After(time.Second * 30)
+	chanSyncDeadline := time.After(chanReetablishTimeout)
 	select {
 	case msg := <-l.upstream:
 		remoteChanSyncMsg, ok := msg.(*lnwire.ChannelReestablish)

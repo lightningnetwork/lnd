@@ -57,6 +57,20 @@ func (f *Record) Size() uint64 {
 	return f.sizeFunc()
 }
 
+// Type returns the type of the underlying TLV record.
+func (f *Record) Type() Type {
+	return f.typ
+}
+
+// Encode writes out the TLV record to the passed writer. This is useful when a
+// caller wants to obtain the raw encoding of a *single* TLV record, outside
+// the context of the Stream struct.
+func (f *Record) Encode(w io.Writer) error {
+	var b [8]byte
+
+	return f.encoder(w, f.value, &b)
+}
+
 // MakePrimitiveRecord creates a record for common types.
 func MakePrimitiveRecord(typ Type, val interface{}) Record {
 	var (

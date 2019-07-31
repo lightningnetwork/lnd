@@ -14,6 +14,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/lightningnetwork/lnd/zpay32"
 	context "golang.org/x/net/context"
 )
@@ -40,6 +41,7 @@ type RouterBackend struct {
 	// routes.
 	FindRoute func(source, target route.Vertex,
 		amt lnwire.MilliSatoshi, restrictions *routing.RestrictParams,
+		destTlvRecords []tlv.Record,
 		finalExpiry ...uint16) (*route.Route, error)
 
 	MissionControl MissionControl
@@ -188,6 +190,15 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 				fromNode, toNode, amt,
 			)
 		},
+		DestPayloadTLV: len(in.DestTlv) != 0,
+	}
+
+	// If we have any TLV records destined for the final hop, then we'll
+	// attempt to decode them now into a form that the router can more
+	// easily manipulate.
+	destTlvRecords, err := tlv.MapToRecords(in.DestTlv)
+	if err != nil {
+		return nil, err
 	}
 
 	// Query the channel router for a possible path to the destination that
@@ -201,11 +212,12 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 	if in.FinalCltvDelta == 0 {
 		route, findErr = r.FindRoute(
 			sourcePubKey, targetPubKey, amtMSat, restrictions,
+			destTlvRecords,
 		)
 	} else {
 		route, findErr = r.FindRoute(
 			sourcePubKey, targetPubKey, amtMSat, restrictions,
-			uint16(in.FinalCltvDelta),
+			destTlvRecords, uint16(in.FinalCltvDelta),
 		)
 	}
 	if findErr != nil {
@@ -214,8 +226,10 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 
 	// For each valid route, we'll convert the result into the format
 	// required by the RPC system.
-
-	rpcRoute := r.MarshallRoute(route)
+	rpcRoute, err := r.MarshallRoute(route)
+	if err != nil {
+		return nil, err
+	}
 
 	routeResp := &lnrpc.QueryRoutesResponse{
 		Routes: []*lnrpc.Route{rpcRoute},
@@ -266,7 +280,7 @@ func calculateFeeLimit(feeLimit *lnrpc.FeeLimit,
 }
 
 // MarshallRoute marshalls an internal route to an rpc route struct.
-func (r *RouterBackend) MarshallRoute(route *route.Route) *lnrpc.Route {
+func (r *RouterBackend) MarshallRoute(route *route.Route) (*lnrpc.Route, error) {
 	resp := &lnrpc.Route{
 		TotalTimeLock: route.TotalTimeLock,
 		TotalFees:     int64(route.TotalFees().ToSatoshis()),
@@ -290,6 +304,11 @@ func (r *RouterBackend) MarshallRoute(route *route.Route) *lnrpc.Route {
 			chanCapacity = incomingAmt.ToSatoshis()
 		}
 
+		tlvMap, err := tlv.RecordsToMap(hop.TLVRecords)
+		if err != nil {
+			return nil, err
+		}
+
 		resp.Hops[i] = &lnrpc.Hop{
 			ChanId:           hop.ChannelID,
 			ChanCapacity:     int64(chanCapacity),
@@ -301,11 +320,13 @@ func (r *RouterBackend) MarshallRoute(route *route.Route) *lnrpc.Route {
 			PubKey: hex.EncodeToString(
 				hop.PubKeyBytes[:],
 			),
+			TlvRecords: tlvMap,
+			TlvPayload: !hop.LegacyPayload,
 		}
 		incomingAmt = hop.AmtToForward
 	}
 
-	return resp
+	return resp, nil
 }
 
 // UnmarshallHopByChannelLookup unmarshalls an rpc hop for which the pub key is
@@ -331,11 +352,18 @@ func (r *RouterBackend) UnmarshallHopByChannelLookup(hop *lnrpc.Hop,
 		return nil, fmt.Errorf("channel edge does not match expected node")
 	}
 
+	tlvRecords, err := tlv.MapToRecords(hop.TlvRecords)
+	if err != nil {
+		return nil, err
+	}
+
 	return &route.Hop{
 		OutgoingTimeLock: hop.Expiry,
 		AmtToForward:     lnwire.MilliSatoshi(hop.AmtToForwardMsat),
 		PubKeyBytes:      pubKeyBytes,
 		ChannelID:        hop.ChanId,
+		TLVRecords:       tlvRecords,
+		LegacyPayload:    !hop.TlvPayload,
 	}, nil
 }
 
@@ -351,11 +379,21 @@ func UnmarshallKnownPubkeyHop(hop *lnrpc.Hop) (*route.Hop, error) {
 	var pubKeyBytes [33]byte
 	copy(pubKeyBytes[:], pubKey)
 
+	var tlvRecords []tlv.Record
+	if hop.TlvRecords != nil {
+		tlvRecords, err = tlv.MapToRecords(hop.TlvRecords)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	return &route.Hop{
 		OutgoingTimeLock: hop.Expiry,
 		AmtToForward:     lnwire.MilliSatoshi(hop.AmtToForwardMsat),
 		PubKeyBytes:      pubKeyBytes,
 		ChannelID:        hop.ChanId,
+		TLVRecords:       tlvRecords,
+		LegacyPayload:    !hop.TlvPayload,
 	}, nil
 }
 
@@ -433,6 +471,16 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 	// Set payment attempt timeout.
 	if rpcPayReq.TimeoutSeconds == 0 {
 		return nil, errors.New("timeout_seconds must be specified")
+	}
+
+	if len(rpcPayReq.DestTlv) != 0 {
+		var err error
+		payIntent.FinalDestRecords, err = tlv.MapToRecords(
+			rpcPayReq.DestTlv,
+		)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	payIntent.PayAttemptTimeout = time.Second *

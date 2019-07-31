@@ -63,6 +63,13 @@ message SendPaymentRequest {
     Optional route hints to reach the destination through private channels.
     */
     repeated lnrpc.RouteHint route_hints = 10 [json_name = "route_hints"];
+
+    /** 
+    An optional field that can be used to pass an arbitrary set of TLV records
+    to a peer which understands the new records. This can be used to pass
+    application specific data during the payment attempt.
+    */
+    map<uint64, bytes> dest_tlv = 11;
 }
 
 message TrackPaymentRequest {

@@ -883,6 +883,13 @@ message SendRequest {
     maximum enforced.
     */
     uint32 cltv_limit = 10;
+
+    /** 
+    An optional field that can be used to pass an arbitrary set of TLV records
+    to a peer which understands the new records. This can be used to pass
+    application specific data during the payment attempt.
+    */
+    map<uint64, bytes> dest_tlv = 11;
 }
 
 message SendResponse {
@@ -1665,6 +1672,14 @@ message QueryRoutesRequest {
     A list of directed node pairs that will be ignored during path finding.
     */
     repeated NodePair ignored_pairs = 10;
+
+    /** 
+    An optional field that can be used to pass an arbitrary set of TLV records
+    to a peer which understands the new records. This can be used to pass
+    application specific data during the payment attempt. If the destination
+    does not support the specified recrods, and error will be returned.
+    */
+    map<uint64, bytes> dest_tlv = 11;
 }
 
 message NodePair {
@@ -1711,6 +1726,20 @@ message Hop {
     can be executed without relying on a copy of the channel graph.
     */
     string pub_key = 8 [json_name = "pub_key"];
+
+    /** 
+    If set to true, then this hop will be encoded using the new variable length
+    TLV format. Note that if any custom tlv_records below are specified, then
+    this field MUST be set to true for them to be encoded properly.
+    */
+    bool tlv_payload = 9 [json_name = "tlv_payload"];
+
+    /**
+    An optional set of key-value TLV records. This is useful within the context
+    of the SendToRoute call as it allows callers to specify arbitrary K-V pairs
+    to drop off at each hop within the onion.
+    */
+    map<uint64, bytes> tlv_records = 10 [json_name = "tlv_records"];
 }
 
 /**

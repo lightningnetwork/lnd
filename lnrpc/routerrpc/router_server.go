@@ -249,7 +249,7 @@ func (s *Server) EstimateRouteFee(ctx context.Context,
 		s.cfg.RouterBackend.SelfNode, destNode, amtMsat,
 		&routing.RestrictParams{
 			FeeLimit: feeLimit,
-		},
+		}, nil,
 	)
 	if err != nil {
 		return nil, err
@@ -550,9 +550,12 @@ func (s *Server) trackPayment(paymentHash lntypes.Hash,
 
 			status.State = PaymentState_SUCCEEDED
 			status.Preimage = result.Preimage[:]
-			status.Route = router.MarshallRoute(
+			status.Route, err = router.MarshallRoute(
 				result.Route,
 			)
+			if err != nil {
+				return err
+			}
 		} else {
 			state, err := marshallFailureReason(
 				result.FailureReason,
@@ -562,9 +565,12 @@ func (s *Server) trackPayment(paymentHash lntypes.Hash,
 			}
 			status.State = state
 			if result.Route != nil {
-				status.Route = router.MarshallRoute(
+				status.Route, err = router.MarshallRoute(
 					result.Route,
 				)
+				if err != nil {
+					return err
+				}
 			}
 		}
 

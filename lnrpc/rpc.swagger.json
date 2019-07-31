@@ -2305,6 +2305,19 @@
         "pub_key": {
           "type": "string",
           "description": "*\nAn optional public key of the hop. If the public key is given, the payment\ncan be executed without relying on a copy of the channel graph."
+        },
+        "tlv_payload": {
+          "type": "boolean",
+          "format": "boolean",
+          "description": "* \nIf set to true, then this hop will be encoded using the new variable length\nTLV format. Note that if any custom tlv_records below are specified, then\nthis field MUST be set to true for them to be encoded properly."
+        },
+        "tlv_records": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "*\nAn optional set of key-value TLV records. This is useful within the context\nof the SendToRoute call as it allows callers to specify arbitrary K-V pairs\nto drop off at each hop within the onion."
         }
       }
     },
@@ -3286,6 +3299,14 @@
           "type": "integer",
           "format": "int64",
           "description": "* \nAn optional maximum total time lock for the route. If zero, there is no\nmaximum enforced."
+        },
+        "dest_tlv": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "* \nAn optional field that can be used to pass an arbitrary set of TLV records\nto a peer which understands the new records. This can be used to pass\napplication specific data during the payment attempt."
         }
       }
     },

@@ -275,10 +275,14 @@ func newMockHopIterator(hops ...ForwardingInfo) HopIterator {
 	return &mockHopIterator{hops: hops}
 }
 
-func (r *mockHopIterator) ForwardingInstructions() ForwardingInfo {
+func (r *mockHopIterator) ForwardingInstructions() (ForwardingInfo, error) {
 	h := r.hops[0]
 	r.hops = r.hops[1:]
-	return h
+	return h, nil
+}
+
+func (r *mockHopIterator) ExtraOnionBlob() []byte {
+	return nil
 }
 
 func (r *mockHopIterator) ExtractErrorEncrypter(
@@ -789,10 +793,10 @@ func (i *mockInvoiceRegistry) SettleHodlInvoice(preimage lntypes.Preimage) error
 
 func (i *mockInvoiceRegistry) NotifyExitHopHtlc(rhash lntypes.Hash,
 	amt lnwire.MilliSatoshi, expiry uint32, currentHeight int32,
-	hodlChan chan<- interface{}) (*invoices.HodlEvent, error) {
+	hodlChan chan<- interface{}, eob []byte) (*invoices.HodlEvent, error) {
 
 	event, err := i.registry.NotifyExitHopHtlc(
-		rhash, amt, expiry, currentHeight, hodlChan,
+		rhash, amt, expiry, currentHeight, hodlChan, eob,
 	)
 	if err != nil {
 		return nil, err

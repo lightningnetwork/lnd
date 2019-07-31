@@ -166,7 +166,7 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 	// identical to HTLC resolution in the link.
 	event, err := h.Registry.NotifyExitHopHtlc(
 		h.payHash, h.htlcAmt, h.htlcExpiry, currentHeight,
-		hodlChan,
+		hodlChan, nil,
 	)
 	switch err {
 	case channeldb.ErrInvoiceNotFound:

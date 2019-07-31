@@ -23,10 +23,13 @@ type InvoiceDatabase interface {
 	// invoice is a debug invoice, then this method is a noop as debug
 	// invoices are never fully settled. The return value describes how the
 	// htlc should be resolved. If the htlc cannot be resolved immediately,
-	// the resolution is sent on the passed in hodlChan later.
+	// the resolution is sent on the passed in hodlChan later. The eob
+	// field passes the entire onion hop payload into the invoice registry
+	// for decoding purposes.
 	NotifyExitHopHtlc(payHash lntypes.Hash, paidAmount lnwire.MilliSatoshi,
 		expiry uint32, currentHeight int32,
-		hodlChan chan<- interface{}) (*invoices.HodlEvent, error)
+		hodlChan chan<- interface{},
+		eob []byte) (*invoices.HodlEvent, error)
 
 	// CancelInvoice attempts to cancel the invoice corresponding to the
 	// passed payment hash.

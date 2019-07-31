@@ -489,7 +489,7 @@ func (i *InvoiceRegistry) checkHtlcParameters(invoice *channeldb.Invoice,
 // prevent deadlock.
 func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 	amtPaid lnwire.MilliSatoshi, expiry uint32, currentHeight int32,
-	hodlChan chan<- interface{}) (*HodlEvent, error) {
+	hodlChan chan<- interface{}, eob []byte) (*HodlEvent, error) {
 
 	i.Lock()
 	defer i.Unlock()

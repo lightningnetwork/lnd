@@ -2627,8 +2627,9 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 			// If we're unable to process the onion blob than we
 			// should send the malformed htlc error to payment
 			// sender.
-			l.sendMalformedHTLCError(pd.HtlcIndex, failureCode,
-				onionBlob[:], pd.SourceRef)
+			l.sendMalformedHTLCError(
+				pd.HtlcIndex, failureCode, onionBlob[:], pd.SourceRef,
+			)
 			needUpdate = true
 
 			log.Errorf("unable to decode onion "+
@@ -2638,11 +2639,29 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 
 		heightNow := l.cfg.Switch.BestHeight()
 
-		fwdInfo := chanIterator.ForwardingInstructions()
+		fwdInfo, err := chanIterator.ForwardingInstructions()
+		if err != nil {
+			// If we're unable to process the onion payload, or we
+			// we received malformed TLV stream, then we should
+			// send an error back to the caller so the HTLC can be
+			// cancelled.
+			l.sendHTLCError(
+				pd.HtlcIndex,
+				lnwire.NewInvalidOnionVersion(onionBlob[:]),
+				obfuscator, pd.SourceRef,
+			)
+			needUpdate = true
+
+			log.Errorf("Unable to decode forwarding "+
+				"instructions: %v", err)
+			continue
+		}
+
 		switch fwdInfo.NextHop {
 		case exitHop:
 			updated, err := l.processExitHop(
 				pd, obfuscator, fwdInfo, heightNow,
+				chanIterator.ExtraOnionBlob(),
 			)
 			if err != nil {
 				l.fail(LinkFailureError{code: ErrInternalError},
@@ -2814,8 +2833,8 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 // processExitHop handles an htlc for which this link is the exit hop. It
 // returns a boolean indicating whether the commitment tx needs an update.
 func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
-	obfuscator ErrorEncrypter, fwdInfo ForwardingInfo, heightNow uint32) (
-	bool, error) {
+	obfuscator ErrorEncrypter, fwdInfo ForwardingInfo,
+	heightNow uint32, eob []byte) (bool, error) {
 
 	// If hodl.ExitSettle is requested, we will not validate the final hop's
 	// ADD, nor will we settle the corresponding invoice or respond with the
@@ -2861,7 +2880,7 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 
 	event, err := l.cfg.Registry.NotifyExitHopHtlc(
 		invoiceHash, pd.Amount, pd.Timeout, int32(heightNow),
-		l.hodlQueue.ChanIn(),
+		l.hodlQueue.ChanIn(), eob,
 	)
 
 	switch err {

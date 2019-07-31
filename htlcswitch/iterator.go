@@ -1,12 +1,15 @@
 package htlcswitch
 
 import (
+	"bytes"
 	"encoding/binary"
+	"fmt"
 	"io"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 // NetworkHop indicates the blockchain network that is intended to be the next
@@ -85,7 +88,10 @@ type HopIterator interface {
 	// Additionally, the information encoded within the returned
 	// ForwardingInfo is to be used by each hop to authenticate the
 	// information given to it by the prior hop.
-	ForwardingInstructions() ForwardingInfo
+	ForwardingInstructions() (ForwardingInfo, error)
+
+	// ExtraOnionBlob returns the additional EOB data (if available).
+	ExtraOnionBlob() []byte
 
 	// EncodeNextHop encodes the onion packet destined for the next hop
 	// into the passed io.Writer.
@@ -139,24 +145,79 @@ func (r *sphinxHopIterator) EncodeNextHop(w io.Writer) error {
 // hop to authenticate the information given to it by the prior hop.
 //
 // NOTE: Part of the HopIterator interface.
-func (r *sphinxHopIterator) ForwardingInstructions() ForwardingInfo {
-	fwdInst := r.processedPacket.ForwardingInstructions
+func (r *sphinxHopIterator) ForwardingInstructions() (ForwardingInfo, error) {
+	var (
+		nextHop lnwire.ShortChannelID
+		amt     uint64
+		cltv    uint32
+	)
 
-	var nextHop lnwire.ShortChannelID
-	switch r.processedPacket.Action {
-	case sphinx.ExitNode:
-		nextHop = exitHop
-	case sphinx.MoreHops:
-		s := binary.BigEndian.Uint64(fwdInst.NextAddress[:])
-		nextHop = lnwire.NewShortChanIDFromInt(s)
+	switch r.processedPacket.Payload.Type {
+	// If this is the legacy payload, then we'll extract the information
+	// directly from the pre-populated ForwardingInstructions field.
+	case sphinx.PayloadLegacy:
+		fwdInst := r.processedPacket.ForwardingInstructions
+
+		switch r.processedPacket.Action {
+		case sphinx.ExitNode:
+			nextHop = exitHop
+		case sphinx.MoreHops:
+			s := binary.BigEndian.Uint64(fwdInst.NextAddress[:])
+			nextHop = lnwire.NewShortChanIDFromInt(s)
+		}
+
+		amt = fwdInst.ForwardAmount
+		cltv = fwdInst.OutgoingCltv
+
+	// Otherwise, if this is the TLV payload, then we'll make a new stream
+	// to decode only what we need to make routing decisions.
+	case sphinx.PayloadTLV:
+		var cid uint64
+
+		tlvStream, err := tlv.NewStream(
+			tlv.MakeDynamicRecord(
+				tlv.AmtOnionType, &amt, nil,
+				tlv.ETUint64, tlv.DTUint64,
+			),
+			tlv.MakeDynamicRecord(
+				tlv.LockTimeOnionType, &cltv, nil,
+				tlv.ETUint32, tlv.DTUint32,
+			),
+			tlv.MakePrimitiveRecord(tlv.NextHopOnionType, &cid),
+		)
+		if err != nil {
+			return ForwardingInfo{}, err
+		}
+
+		err = tlvStream.Decode(bytes.NewReader(
+			r.processedPacket.Payload.Payload,
+		))
+		if err != nil {
+			return ForwardingInfo{}, err
+		}
+
+		nextHop = lnwire.NewShortChanIDFromInt(cid)
+
+	default:
+		return ForwardingInfo{}, fmt.Errorf("unknown sphinx payload "+
+			"type: %v", r.processedPacket.Payload.Type)
 	}
 
 	return ForwardingInfo{
 		Network:         BitcoinHop,
 		NextHop:         nextHop,
-		AmountToForward: lnwire.MilliSatoshi(fwdInst.ForwardAmount),
-		OutgoingCTLV:    fwdInst.OutgoingCltv,
+		AmountToForward: lnwire.MilliSatoshi(amt),
+		OutgoingCTLV:    cltv,
+	}, nil
+}
+
+// ExtraOnionBlob returns the additional EOB data (if available).
+func (r *sphinxHopIterator) ExtraOnionBlob() []byte {
+	if r.processedPacket.Payload.Type == sphinx.PayloadLegacy {
+		return nil
 	}
+
+	return r.processedPacket.Payload.Payload
 }
 
 // ExtractErrorEncrypter decodes and returns the ErrorEncrypter for this hop,

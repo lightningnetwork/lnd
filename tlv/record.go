@@ -1,6 +1,7 @@
 package tlv
 
 import (
+	"fmt"
 	"io"
 
 	"github.com/btcsuite/btcd/btcec"
@@ -126,7 +127,7 @@ func MakePrimitiveRecord(typ Type, val interface{}) Record {
 		decoder = DVarBytes
 
 	default:
-		panic("unknown primitive type")
+		panic(fmt.Sprintf("unknown primitive type: %T", val))
 	}
 
 	return Record{

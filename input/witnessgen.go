@@ -79,6 +79,11 @@ const (
 	// output that sends to a nested P2SH script that pays to a key solely
 	// under our control. The witness generated needs to include the
 	NestedWitnessKeyHash WitnessType = 11
+
+	// CommitSpendNoDelayTweakless is similar to the CommitSpendNoDelay
+	// type, but it omits the tweak that randomizes the key we need to
+	// spend with a channel peer supplied set of randomness.
+	CommitSpendNoDelayTweakless = 12
 )
 
 // Stirng returns a human readable version of the target WitnessType.
@@ -89,6 +94,9 @@ func (wt WitnessType) String() string {
 
 	case CommitmentNoDelay:
 		return "CommitmentNoDelay"
+
+	case CommitSpendNoDelayTweakless:
+		return "CommitmentNoDelayTweakless"
 
 	case CommitmentRevoke:
 		return "CommitmentRevoke"
@@ -153,7 +161,17 @@ func (wt WitnessType) GenWitnessFunc(signer Signer,
 			}, nil
 
 		case CommitmentNoDelay:
-			witness, err := CommitSpendNoDelay(signer, desc, tx)
+			witness, err := CommitSpendNoDelay(signer, desc, tx, false)
+			if err != nil {
+				return nil, err
+			}
+
+			return &Script{
+				Witness: witness,
+			}, nil
+
+		case CommitSpendNoDelayTweakless:
+			witness, err := CommitSpendNoDelay(signer, desc, tx, true)
 			if err != nil {
 				return nil, err
 			}

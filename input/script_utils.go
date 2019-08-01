@@ -902,13 +902,15 @@ func CommitSpendRevoke(signer Signer, signDesc *SignDescriptor,
 }
 
 // CommitSpendNoDelay constructs a valid witness allowing a node to spend their
-// settled no-delay output on the counterparty's commitment transaction.
+// settled no-delay output on the counterparty's commitment transaction. If the
+// tweakless field is true, then we'll omit the set where we tweak the pubkey
+// with a random set of bytes, and use it directly in the witness stack.
 //
 // NOTE: The passed SignDescriptor should include the raw (untweaked) public
 // key of the receiver and also the proper single tweak value based on the
 // current commitment point.
 func CommitSpendNoDelay(signer Signer, signDesc *SignDescriptor,
-	sweepTx *wire.MsgTx) (wire.TxWitness, error) {
+	sweepTx *wire.MsgTx, tweakless bool) (wire.TxWitness, error) {
 
 	if signDesc.KeyDesc.PubKey == nil {
 		return nil, fmt.Errorf("cannot generate witness with nil " +
@@ -923,14 +925,25 @@ func CommitSpendNoDelay(signer Signer, signDesc *SignDescriptor,
 	}
 
 	// Finally, we'll manually craft the witness. The witness here is the
-	// exact same as a regular p2wkh witness, but we'll need to ensure that
-	// we use the tweaked public key as the last item in the witness stack
-	// which was originally used to created the pkScript we're spending.
+	// exact same as a regular p2wkh witness, depending on the value of the
+	// tweakless bool.
 	witness := make([][]byte, 2)
 	witness[0] = append(sweepSig, byte(signDesc.HashType))
-	witness[1] = TweakPubKeyWithTweak(
-		signDesc.KeyDesc.PubKey, signDesc.SingleTweak,
-	).SerializeCompressed()
+
+	switch tweakless {
+	// If we're tweaking the key, then we use the tweaked public key as the
+	// last item in the witness stack which was originally used to created
+	// the pkScript we're spending.
+	case false:
+		witness[1] = TweakPubKeyWithTweak(
+			signDesc.KeyDesc.PubKey, signDesc.SingleTweak,
+		).SerializeCompressed()
+
+	// Otherwise, we can just use the raw pubkey, since there's no random
+	// value to be combined.
+	case true:
+		witness[1] = signDesc.KeyDesc.PubKey.SerializeCompressed()
+	}
 
 	return witness, nil
 }

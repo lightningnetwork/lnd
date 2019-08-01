@@ -89,12 +89,23 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 	isLocalCommitTx := c.commitResolution.MaturityDelay != 0
 
 	if !isLocalCommitTx {
+		// There're two types of commitments, those that have tweaks
+		// for the remote key (us in this case), and those that don't.
+		// We'll rely on the presence of the commitment tweak to to
+		// discern which type of commitment this is.
+		var witnessType input.WitnessType
+		if c.commitResolution.SelfOutputSignDesc.SingleTweak == nil {
+			witnessType = input.CommitSpendNoDelayTweakless
+		} else {
+			witnessType = input.CommitmentNoDelay
+		}
+
 		// We'll craft an input with all the information required for
 		// the sweeper to create a fully valid sweeping transaction to
 		// recover these coins.
 		inp := input.MakeBaseInput(
 			&c.commitResolution.SelfOutPoint,
-			input.CommitmentNoDelay,
+			witnessType,
 			&c.commitResolution.SelfOutputSignDesc,
 			c.broadcastHeight,
 		)

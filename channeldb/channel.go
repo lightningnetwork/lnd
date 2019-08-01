@@ -869,6 +869,14 @@ func (c *OpenChannel) ChanSyncMsg() (*lnwire.ChannelReestablish, error) {
 	// allowing us to sweep our funds.
 	if c.hasChanStatus(ChanStatusRestored) {
 		currentCommitSecret[0] ^= 1
+
+		// If this is a tweakless channel, then we'll purposefully send
+		// a next local height taht's invalid to trigger a force close
+		// on their end. We do this as tweakless channels don't require
+		// that the commitment point is valid, only that it's present.
+		if c.ChanType.IsTweakless() {
+			nextLocalCommitHeight = 0
+		}
 	}
 
 	return &lnwire.ChannelReestablish{

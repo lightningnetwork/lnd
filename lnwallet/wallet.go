@@ -655,12 +655,17 @@ func (l *LightningWallet) handleFundingCancelRequest(req *fundingReserveCancelMs
 func CreateCommitmentTxns(localBalance, remoteBalance btcutil.Amount,
 	ourChanCfg, theirChanCfg *channeldb.ChannelConfig,
 	localCommitPoint, remoteCommitPoint *btcec.PublicKey,
-	fundingTxIn wire.TxIn) (*wire.MsgTx, *wire.MsgTx, error) {
+	fundingTxIn wire.TxIn,
+	tweaklessCommit bool) (*wire.MsgTx, *wire.MsgTx, error) {
 
-	localCommitmentKeys := deriveCommitmentKeys(localCommitPoint, true,
-		ourChanCfg, theirChanCfg)
-	remoteCommitmentKeys := deriveCommitmentKeys(remoteCommitPoint, false,
-		ourChanCfg, theirChanCfg)
+	localCommitmentKeys := deriveCommitmentKeys(
+		localCommitPoint, true, tweaklessCommit, ourChanCfg,
+		theirChanCfg,
+	)
+	remoteCommitmentKeys := deriveCommitmentKeys(
+		remoteCommitPoint, false, tweaklessCommit, ourChanCfg,
+		theirChanCfg,
+	)
 
 	ourCommitTx, err := CreateCommitTx(fundingTxIn, localCommitmentKeys,
 		uint32(ourChanCfg.CsvDelay), localBalance, remoteBalance,
@@ -827,11 +832,13 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	// With the funding tx complete, create both commitment transactions.
 	localBalance := pendingReservation.partialState.LocalCommitment.LocalBalance.ToSatoshis()
 	remoteBalance := pendingReservation.partialState.LocalCommitment.RemoteBalance.ToSatoshis()
+	tweaklessCommits := pendingReservation.partialState.ChanType.IsTweakless()
 	ourCommitTx, theirCommitTx, err := CreateCommitmentTxns(
 		localBalance, remoteBalance, ourContribution.ChannelConfig,
 		theirContribution.ChannelConfig,
 		ourContribution.FirstCommitmentPoint,
 		theirContribution.FirstCommitmentPoint, fundingTxIn,
+		tweaklessCommits,
 	)
 	if err != nil {
 		req.err <- err
@@ -1151,13 +1158,14 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 	// remote node's commitment transactions.
 	localBalance := pendingReservation.partialState.LocalCommitment.LocalBalance.ToSatoshis()
 	remoteBalance := pendingReservation.partialState.LocalCommitment.RemoteBalance.ToSatoshis()
+	tweaklessCommits := pendingReservation.partialState.ChanType.IsTweakless()
 	ourCommitTx, theirCommitTx, err := CreateCommitmentTxns(
 		localBalance, remoteBalance,
 		pendingReservation.ourContribution.ChannelConfig,
 		pendingReservation.theirContribution.ChannelConfig,
 		pendingReservation.ourContribution.FirstCommitmentPoint,
 		pendingReservation.theirContribution.FirstCommitmentPoint,
-		*fundingTxIn,
+		*fundingTxIn, tweaklessCommits,
 	)
 	if err != nil {
 		req.err <- err

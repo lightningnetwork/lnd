@@ -130,7 +130,8 @@ type ChannelReservation struct {
 func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 	commitFeePerKw SatPerKWeight, wallet *LightningWallet,
 	id uint64, pushMSat lnwire.MilliSatoshi, chainHash *chainhash.Hash,
-	flags lnwire.FundingFlag) (*ChannelReservation, error) {
+	flags lnwire.FundingFlag,
+	tweaklessCommit bool) (*ChannelReservation, error) {
 
 	var (
 		ourBalance   lnwire.MilliSatoshi
@@ -140,7 +141,7 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 
 	commitFee := commitFeePerKw.FeeForWeight(input.CommitWeight)
 	localFundingMSat := lnwire.NewMSatFromSatoshis(localFundingAmt)
-	// TODO(halseth): make method take remote funding amount direcly
+	// TODO(halseth): make method take remote funding amount directly
 	// instead of inferring it from capacity and local amt.
 	capacityMSat := lnwire.NewMSatFromSatoshis(capacity)
 	feeMSat := lnwire.NewMSatFromSatoshis(commitFee)
@@ -213,7 +214,11 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 	// non-zero push amt (there's no pushing for dual funder), then this is
 	// a single-funder channel.
 	if ourBalance == 0 || theirBalance == 0 || pushMSat != 0 {
-		chanType = channeldb.SingleFunder
+		if tweaklessCommit {
+			chanType = channeldb.SingleFunderTweakless
+		} else {
+			chanType = channeldb.SingleFunder
+		}
 	} else {
 		// Otherwise, this is a dual funder channel, and no side is
 		// technically the "initiator"

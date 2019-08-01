@@ -90,6 +90,11 @@ var (
 			0x2e, 0x9c, 0x51, 0x0f, 0x8e, 0xf5, 0x2b, 0xd0, 0x21,
 			0xa9, 0xa1, 0xf4, 0x80, 0x9d, 0x3b, 0x4d,
 		},
+		{0x02, 0xce, 0x0b, 0x14, 0xfb, 0x84, 0x2b, 0x1b,
+			0x2e, 0x9c, 0x51, 0x0f, 0x8e, 0xf5, 0x2b, 0xd0, 0x21,
+			0xa5, 0x49, 0xfd, 0xd6, 0x75, 0xc9, 0x80, 0x75, 0xf1,
+			0xa3, 0xa1, 0xf4, 0x80, 0x9d, 0x3b, 0x4d,
+		},
 	}
 
 	breachedOutputs = []breachedOutput{
@@ -1754,9 +1759,10 @@ func createInitChannels(revocationWindow int) (*lnwallet.LightningChannel, *lnwa
 	}
 	aliceCommitPoint := input.ComputeCommitmentPoint(aliceFirstRevoke[:])
 
-	aliceCommitTx, bobCommitTx, err := lnwallet.CreateCommitmentTxns(channelBal,
-		channelBal, &aliceCfg, &bobCfg, aliceCommitPoint, bobCommitPoint,
-		*fundingTxIn)
+	aliceCommitTx, bobCommitTx, err := lnwallet.CreateCommitmentTxns(
+		channelBal, channelBal, &aliceCfg, &bobCfg, aliceCommitPoint,
+		bobCommitPoint, *fundingTxIn, true,
+	)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -1822,7 +1828,7 @@ func createInitChannels(revocationWindow int) (*lnwallet.LightningChannel, *lnwa
 		IdentityPub:             aliceKeyPub,
 		FundingOutpoint:         *prevOut,
 		ShortChannelID:          shortChanID,
-		ChanType:                channeldb.SingleFunder,
+		ChanType:                channeldb.SingleFunderTweakless,
 		IsInitiator:             true,
 		Capacity:                channelCapacity,
 		RemoteCurrentRevocation: bobCommitPoint,
@@ -1840,7 +1846,7 @@ func createInitChannels(revocationWindow int) (*lnwallet.LightningChannel, *lnwa
 		IdentityPub:             bobKeyPub,
 		FundingOutpoint:         *prevOut,
 		ShortChannelID:          shortChanID,
-		ChanType:                channeldb.SingleFunder,
+		ChanType:                channeldb.SingleFunderTweakless,
 		IsInitiator:             false,
 		Capacity:                channelCapacity,
 		RemoteCurrentRevocation: aliceCommitPoint,

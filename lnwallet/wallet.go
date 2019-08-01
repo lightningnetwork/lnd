@@ -106,6 +106,10 @@ type InitFundingReserveMsg struct {
 	// output selected to fund the channel should satisfy.
 	MinConfs int32
 
+	// Tweakless indicates if the channel should use the new tweakless
+	// commitment format or not.
+	Tweakless bool
+
 	// err is a channel in which all errors will be sent across. Will be
 	// nil if this initial set is successful.
 	//
@@ -489,6 +493,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 	reservation, err := NewChannelReservation(
 		capacity, localFundingAmt, req.CommitFeePerKw, l, id,
 		req.PushMSat, l.Cfg.NetParams.GenesisHash, req.Flags,
+		req.Tweakless,
 	)
 	if err != nil {
 		selected.unlockCoins()
@@ -849,7 +854,7 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	// obfuscator then use it to encode the current state number within
 	// both commitment transactions.
 	var stateObfuscator [StateHintSize]byte
-	if chanState.ChanType == channeldb.SingleFunder {
+	if chanState.ChanType.IsSingleFunder() {
 		stateObfuscator = DeriveStateHintObfuscator(
 			ourContribution.PaymentBasePoint.PubKey,
 			theirContribution.PaymentBasePoint.PubKey,

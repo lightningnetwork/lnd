@@ -34,7 +34,7 @@ func TestChainArbitratorRepublishCommitment(t *testing.T) {
 	const numChans = 10
 	var channels []*channeldb.OpenChannel
 	for i := 0; i < numChans; i++ {
-		lChannel, _, cleanup, err := lnwallet.CreateTestChannels()
+		lChannel, _, cleanup, err := lnwallet.CreateTestChannels(true)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -381,7 +381,21 @@ func (m *SyncManager) syncerHandler() {
 		// Our HistoricalSyncTicker has ticked, so we'll randomly select
 		// a peer and force a historical sync with them.
 		case <-m.cfg.HistoricalSyncTicker.Ticks():
-			m.forceHistoricalSync()
+			s := m.forceHistoricalSync()
+
+			// If we've already performed our initial historical
+			// sync, then we have nothing left to do.
+			if m.IsGraphSynced() {
+				continue
+			}
+
+			// Otherwise, we'll track the peer we've performed a
+			// historical sync with in order to handle the case
+			// where our previous historical sync peer did not
+			// respond to our queries and we haven't ingested as
+			// much of the graph as we should.
+			initialHistoricalSyncer = s
+			initialHistoricalSyncSignal = s.ResetSyncedSignal()
 
 		case <-m.quit:
 			return

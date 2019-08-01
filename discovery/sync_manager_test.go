@@ -309,6 +309,58 @@ func TestSyncManagerForceHistoricalSync(t *testing.T) {
 	})
 }
 
+// TestSyncManagerGraphSyncedAfterHistoricalSyncReplacement ensures that the
+// sync manager properly marks the graph as synced given that our initial
+// historical sync has stalled, but a replacement has fully completed.
+func TestSyncManagerGraphSyncedAfterHistoricalSyncReplacement(t *testing.T) {
+	t.Parallel()
+
+	syncMgr := newTestSyncManager(0)
+	syncMgr.Start()
+	defer syncMgr.Stop()
+
+	// We should expect to see a QueryChannelRange message with a
+	// FirstBlockHeight of the genesis block, signaling that an initial
+	// historical sync is being attempted.
+	peer := randPeer(t, syncMgr.quit)
+	syncMgr.InitSyncState(peer)
+	assertMsgSent(t, peer, &lnwire.QueryChannelRange{
+		FirstBlockHeight: 0,
+		NumBlocks:        math.MaxUint32,
+	})
+
+	// The graph should not be considered as synced since the initial
+	// historical sync has not finished.
+	if syncMgr.IsGraphSynced() {
+		t.Fatal("expected graph to not be considered as synced")
+	}
+
+	// If an additional peer connects, then another historical sync should
+	// not be attempted.
+	finalHistoricalPeer := randPeer(t, syncMgr.quit)
+	syncMgr.InitSyncState(finalHistoricalPeer)
+	finalHistoricalSyncer := assertSyncerExistence(t, syncMgr, finalHistoricalPeer)
+	assertNoMsgSent(t, finalHistoricalPeer)
+
+	// To simulate that our initial historical sync has stalled, we'll force
+	// a historical sync with the new peer to ensure it is replaced.
+	syncMgr.cfg.HistoricalSyncTicker.(*ticker.Force).Force <- time.Time{}
+
+	// The graph should still not be considered as synced since the
+	// replacement historical sync has not finished.
+	if syncMgr.IsGraphSynced() {
+		t.Fatal("expected graph to not be considered as synced")
+	}
+
+	// Complete the replacement historical sync by transitioning the syncer
+	// to its final chansSynced state. The graph should be considered as
+	// synced after the fact.
+	assertTransitionToChansSynced(t, finalHistoricalSyncer, finalHistoricalPeer)
+	if !syncMgr.IsGraphSynced() {
+		t.Fatal("expected graph to be considered as synced")
+	}
+}
+
 // TestSyncManagerWaitUntilInitialHistoricalSync ensures that no GossipSyncers
 // are initialized as ActiveSync until the initial historical sync has been
 // completed. Once it does, the pending GossipSyncers should be transitioned to

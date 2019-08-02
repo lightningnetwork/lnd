@@ -5,6 +5,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/coreos/bbolt"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
@@ -38,6 +40,9 @@ const (
 	// Nodes forward non-strict, so it isn't necessary to apply a less
 	// restrictive channel level tracking scheme here.
 	minSecondChanceInterval = time.Minute
+
+	// DefaultMaxMcHistory is the default maximum history size.
+	DefaultMaxMcHistory = 1000
 )
 
 // MissionControl contains state which summarizes the past attempts of HTLC
@@ -62,6 +67,8 @@ type MissionControl struct {
 
 	cfg *MissionControlConfig
 
+	store *missionControlStore
+
 	sync.Mutex
 
 	// TODO(roasbeef): further counters, if vertex continually unavailable,
@@ -80,6 +87,10 @@ type MissionControlConfig struct {
 	// AprioriHopProbability is the assumed success probability of a hop in
 	// a route when no other information is available.
 	AprioriHopProbability float64
+
+	// MaxMcHistory defines the maximum number of payment results that are
+	// held on disk.
+	MaxMcHistory int
 }
 
 // nodeHistory contains a summary of payment attempt outcomes involving a
@@ -146,30 +157,82 @@ type MissionControlChannelSnapshot struct {
 	SuccessProb float64
 }
 
+// paymentResult is the information that becomes available when a payment
+// attempt completes.
+type paymentResult struct {
+	id                 uint64
+	timeFwd, timeReply time.Time
+	route              *route.Route
+	success            bool
+	failureSourceIdx   *int
+	failure            lnwire.FailureMessage
+}
+
 // NewMissionControl returns a new instance of missionControl.
-func NewMissionControl(cfg *MissionControlConfig) *MissionControl {
+func NewMissionControl(db *bbolt.DB, cfg *MissionControlConfig) (
+	*MissionControl, error) {
+
 	log.Debugf("Instantiating mission control with config: "+
 		"PenaltyHalfLife=%v, AprioriHopProbability=%v",
 		cfg.PenaltyHalfLife, cfg.AprioriHopProbability)
 
-	return &MissionControl{
+	store, err := newMissionControlStore(db, cfg.MaxMcHistory)
+	if err != nil {
+		return nil, err
+	}
+
+	mc := &MissionControl{
 		history:          make(map[route.Vertex]*nodeHistory),
 		lastSecondChance: make(map[DirectedNodePair]time.Time),
 		now:              time.Now,
 		cfg:              cfg,
+		store:            store,
 	}
+
+	if err := mc.init(); err != nil {
+		return nil, err
+	}
+
+	return mc, nil
+}
+
+// init initializes mission control with historical data.
+func (m *MissionControl) init() error {
+	log.Debugf("Mission control state reconstruction started")
+
+	start := time.Now()
+
+	results, err := m.store.fetchAll()
+	if err != nil {
+		return err
+	}
+
+	for _, result := range results {
+		m.applyPaymentResult(result)
+	}
+
+	log.Debugf("Mission control state reconstruction finished: "+
+		"n=%v, time=%v", len(results), time.Now().Sub(start))
+
+	return nil
 }
 
 // ResetHistory resets the history of MissionControl returning it to a state as
 // if no payment attempts have been made.
-func (m *MissionControl) ResetHistory() {
+func (m *MissionControl) ResetHistory() error {
 	m.Lock()
 	defer m.Unlock()
+
+	if err := m.store.clear(); err != nil {
+		return err
+	}
 
 	m.history = make(map[route.Vertex]*nodeHistory)
 	m.lastSecondChance = make(map[DirectedNodePair]time.Time)
 
 	log.Debugf("Mission control history cleared")
+
+	return nil
 }
 
 // GetEdgeProbability is expected to return the success probability of a payment
@@ -282,22 +345,22 @@ func (m *MissionControl) createHistoryIfNotExists(vertex route.Vertex) *nodeHist
 	return node
 }
 
-// ReportVertexFailure reports a node level failure.
-func (m *MissionControl) ReportVertexFailure(v route.Vertex) {
-	log.Debugf("Reporting vertex %v failure to Mission Control", v)
+// reportVertexFailure reports a node level failure.
+func (m *MissionControl) reportVertexFailure(timestamp time.Time,
+	v route.Vertex) {
 
-	now := m.now()
+	log.Debugf("Reporting vertex %v failure to Mission Control", v)
 
 	m.Lock()
 	defer m.Unlock()
 
 	history := m.createHistoryIfNotExists(v)
-	history.lastFail = &now
+	history.lastFail = &timestamp
 }
 
-// ReportEdgePolicyFailure reports a policy related failure.
-func (m *MissionControl) ReportEdgePolicyFailure(failedEdge edge) {
-	now := m.now()
+// reportEdgePolicyFailure reports a policy related failure.
+func (m *MissionControl) reportEdgePolicyFailure(timestamp time.Time,
+	failedEdge edge) {
 
 	m.Lock()
 	defer m.Unlock()
@@ -306,32 +369,30 @@ func (m *MissionControl) ReportEdgePolicyFailure(failedEdge edge) {
 	// immediately. If some time has passed since the last policy failure,
 	// we grant the node a second chance at forwarding the payment.
 	if m.requestSecondChance(
-		now, failedEdge.from, failedEdge.to,
+		timestamp, failedEdge.from, failedEdge.to,
 	) {
 		return
 	}
 
 	history := m.createHistoryIfNotExists(failedEdge.from)
-	history.lastFail = &now
+	history.lastFail = &timestamp
 }
 
-// ReportEdgeFailure reports a channel level failure.
+// reportEdgeFailure reports a channel level failure.
 //
 // TODO(roasbeef): also add value attempted to send and capacity of channel
-func (m *MissionControl) ReportEdgeFailure(failedEdge edge,
+func (m *MissionControl) reportEdgeFailure(timestamp time.Time, failedEdge edge,
 	minPenalizeAmt lnwire.MilliSatoshi) {
 
 	log.Debugf("Reporting channel %v failure to Mission Control",
 		failedEdge.channel)
-
-	now := m.now()
 
 	m.Lock()
 	defer m.Unlock()
 
 	history := m.createHistoryIfNotExists(failedEdge.from)
 	history.channelLastFail[failedEdge.channel] = &channelHistory{
-		lastFail:       now,
+		lastFail:       timestamp,
 		minPenalizeAmt: minPenalizeAmt,
 	}
 }
@@ -386,4 +447,287 @@ func (m *MissionControl) GetHistorySnapshot() *MissionControlSnapshot {
 	}
 
 	return &snapshot
+}
+
+// ReportPaymentFail reports a failed payment to mission control as input for
+// future probability estimates. The failureSourceIdx argument indicates the
+// failure source. If it is nil, the failure source is unknown. This function
+// returns a bool indicating whether this error is a final error. If it is
+// final, a failure reason is returned and no further payment attempts need to
+// be made.
+func (m *MissionControl) ReportPaymentFail(paymentID uint64, rt *route.Route,
+	failureSourceIdx *int, failure lnwire.FailureMessage) (bool,
+	channeldb.FailureReason, error) {
+
+	timestamp := m.now()
+
+	// TODO(joostjager): Use actual payment initiation time for timeFwd.
+	result := &paymentResult{
+		success:          false,
+		timeFwd:          timestamp,
+		timeReply:        timestamp,
+		id:               paymentID,
+		failureSourceIdx: failureSourceIdx,
+		failure:          failure,
+		route:            rt,
+	}
+
+	// Store complete result in database.
+	if err := m.store.AddResult(result); err != nil {
+		return false, 0, err
+	}
+
+	// Apply result to update mission control state.
+	final, reason := m.applyPaymentResult(result)
+
+	return final, reason, nil
+}
+
+// applyPaymentResult applies a payment result as input for future probability
+// estimates. It returns a bool indicating whether this error is a final error
+// and no further payment attempts need to be made.
+func (m *MissionControl) applyPaymentResult(result *paymentResult) (
+	bool, channeldb.FailureReason) {
+
+	var (
+		failureSourceIdxInt int
+		failure             lnwire.FailureMessage
+	)
+
+	if result.failureSourceIdx == nil {
+		// If the failure message could not be decrypted, attribute the
+		// failure to our own outgoing channel.
+		//
+		// TODO(joostager): Penalize all channels in the route.
+		failureSourceIdxInt = 0
+		failure = lnwire.NewTemporaryChannelFailure(nil)
+	} else {
+		failureSourceIdxInt = *result.failureSourceIdx
+		failure = result.failure
+	}
+
+	var failureVertex route.Vertex
+
+	if failureSourceIdxInt > 0 {
+		failureVertex = result.route.Hops[failureSourceIdxInt-1].PubKeyBytes
+	} else {
+		failureVertex = result.route.SourcePubKey
+	}
+	log.Tracef("Node %x (index %v) reported failure when sending htlc",
+		failureVertex, result.failureSourceIdx)
+
+	// Always determine chan id ourselves, because a channel update with id
+	// may not be available.
+	failedEdge, failedAmt := getFailedEdge(
+		result.route, failureSourceIdxInt,
+	)
+
+	switch failure.(type) {
+
+	// If the end destination didn't know the payment
+	// hash or we sent the wrong payment amount to the
+	// destination, then we'll terminate immediately.
+	case *lnwire.FailUnknownPaymentHash:
+		// TODO(joostjager): Check onionErr.Amount() whether it matches
+		// what we expect. (Will it ever not match, because if not
+		// final_incorrect_htlc_amount would be returned?)
+
+		return true, channeldb.FailureReasonIncorrectPaymentDetails
+
+	// If we sent the wrong amount to the destination, then
+	// we'll exit early.
+	case *lnwire.FailIncorrectPaymentAmount:
+		return true, channeldb.FailureReasonIncorrectPaymentDetails
+
+	// If the time-lock that was extended to the final node
+	// was incorrect, then we can't proceed.
+	case *lnwire.FailFinalIncorrectCltvExpiry:
+		// TODO(joostjager): Take into account that second last hop may
+		// have deliberately handed out an htlc that expires too soon.
+		// In that case we should continue routing.
+		return true, channeldb.FailureReasonError
+
+	// If we crafted an invalid onion payload for the final
+	// node, then we'll exit early.
+	case *lnwire.FailFinalIncorrectHtlcAmount:
+		// TODO(joostjager): Take into account that second last hop may
+		// have deliberately handed out an htlc with a too low value. In
+		// that case we should continue routing.
+
+		return true, channeldb.FailureReasonError
+
+	// Similarly, if the HTLC expiry that we extended to
+	// the final hop expires too soon, then will fail the
+	// payment.
+	//
+	// TODO(roasbeef): can happen to to race condition, try
+	// again with recent block height
+	case *lnwire.FailFinalExpiryTooSoon:
+		// TODO(joostjager): Take into account that any hop may have
+		// delayed. Ideally we should continue routing. Knowing the
+		// delaying node at this point would help.
+		return true, channeldb.FailureReasonIncorrectPaymentDetails
+
+	// If we erroneously attempted to cross a chain border,
+	// then we'll cancel the payment.
+	case *lnwire.FailInvalidRealm:
+		return true, channeldb.FailureReasonError
+
+	// If we get a notice that the expiry was too soon for
+	// an intermediate node, then we'll prune out the node
+	// that sent us this error, as it doesn't now what the
+	// correct block height is.
+	case *lnwire.FailExpiryTooSoon:
+		m.reportVertexFailure(result.timeReply, failureVertex)
+		return false, 0
+
+	// If we hit an instance of onion payload corruption or an invalid
+	// version, then we'll exit early as this shouldn't happen in the
+	// typical case.
+	//
+	// TODO(joostjager): Take into account that the previous hop may have
+	// tampered with the onion. Routing should continue using other paths.
+	case *lnwire.FailInvalidOnionVersion:
+		return true, channeldb.FailureReasonError
+	case *lnwire.FailInvalidOnionHmac:
+		return true, channeldb.FailureReasonError
+	case *lnwire.FailInvalidOnionKey:
+		return true, channeldb.FailureReasonError
+
+	// If we get a failure due to violating the minimum
+	// amount, we'll apply the new minimum amount and retry
+	// routing.
+	case *lnwire.FailAmountBelowMinimum:
+		m.reportEdgePolicyFailure(result.timeReply, failedEdge)
+		return false, 0
+
+	// If we get a failure due to a fee, we'll apply the
+	// new fee update, and retry our attempt using the
+	// newly updated fees.
+	case *lnwire.FailFeeInsufficient:
+		m.reportEdgePolicyFailure(result.timeReply, failedEdge)
+		return false, 0
+
+	// If we get the failure for an intermediate node that
+	// disagrees with our time lock values, then we'll
+	// apply the new delta value and try it once more.
+	case *lnwire.FailIncorrectCltvExpiry:
+		m.reportEdgePolicyFailure(result.timeReply, failedEdge)
+		return false, 0
+
+	// The outgoing channel that this node was meant to
+	// forward one is currently disabled, so we'll apply
+	// the update and continue.
+	case *lnwire.FailChannelDisabled:
+		m.reportEdgeFailure(result.timeReply, failedEdge, 0)
+		return false, 0
+
+	// It's likely that the outgoing channel didn't have
+	// sufficient capacity, so we'll prune this edge for
+	// now, and continue onwards with our path finding.
+	case *lnwire.FailTemporaryChannelFailure:
+		m.reportEdgeFailure(result.timeReply, failedEdge, failedAmt)
+		return false, 0
+
+	// If the send fail due to a node not having the
+	// required features, then we'll note this error and
+	// continue.
+	case *lnwire.FailRequiredNodeFeatureMissing:
+		m.reportVertexFailure(result.timeReply, failureVertex)
+		return false, 0
+
+	// If the send fail due to a node not having the
+	// required features, then we'll note this error and
+	// continue.
+	case *lnwire.FailRequiredChannelFeatureMissing:
+		m.reportVertexFailure(result.timeReply, failureVertex)
+		return false, 0
+
+	// If the next hop in the route wasn't known or
+	// offline, we'll only the channel which we attempted
+	// to route over. This is conservative, and it can
+	// handle faulty channels between nodes properly.
+	// Additionally, this guards against routing nodes
+	// returning errors in order to attempt to black list
+	// another node.
+	case *lnwire.FailUnknownNextPeer:
+		m.reportEdgeFailure(result.timeReply, failedEdge, 0)
+		return false, 0
+
+	// If the node wasn't able to forward for which ever
+	// reason, then we'll note this and continue with the
+	// routes.
+	case *lnwire.FailTemporaryNodeFailure:
+		m.reportVertexFailure(result.timeReply, failureVertex)
+		return false, 0
+
+	case *lnwire.FailPermanentNodeFailure:
+		m.reportVertexFailure(result.timeReply, failureVertex)
+		return false, 0
+
+	// If we crafted a route that contains a too long time
+	// lock for an intermediate node, we'll prune the node.
+	// As there currently is no way of knowing that node's
+	// maximum acceptable cltv, we cannot take this
+	// constraint into account during routing.
+	//
+	// TODO(joostjager): Record the rejected cltv and use
+	// that as a hint during future path finding through
+	// that node.
+	case *lnwire.FailExpiryTooFar:
+		m.reportVertexFailure(result.timeReply, failureVertex)
+		return false, 0
+
+	// If we get a permanent channel or node failure, then
+	// we'll prune the channel in both directions and
+	// continue with the rest of the routes.
+	case *lnwire.FailPermanentChannelFailure:
+		m.reportEdgeFailure(result.timeReply, failedEdge, 0)
+		m.reportEdgeFailure(result.timeReply, edge{
+			from:    failedEdge.to,
+			to:      failedEdge.from,
+			channel: failedEdge.channel,
+		}, 0)
+		return false, 0
+
+	// Any other failure or an empty failure will get the node pruned.
+	default:
+		m.reportVertexFailure(result.timeReply, failureVertex)
+		return false, 0
+	}
+}
+
+// getFailedEdge tries to locate the failing channel given a route and the
+// pubkey of the node that sent the failure. It will assume that the failure is
+// associated with the outgoing channel of the failing node. As a second result,
+// it returns the amount sent over the edge.
+func getFailedEdge(route *route.Route, failureSource int) (edge,
+	lnwire.MilliSatoshi) {
+
+	// Determine if we have a failure from the final hop. If it is, we
+	// assume that the failing channel is the incoming channel.
+	//
+	// TODO(joostjager): In this case, certain types of failures are not
+	// expected. For example FailUnknownNextPeer. This could be a reason to
+	// prune the node?
+	if failureSource == len(route.Hops) {
+		failureSource--
+	}
+
+	// As this failure indicates that the target channel was unable to carry
+	// this HTLC (for w/e reason), we'll return the _outgoing_ channel that
+	// the source of the failure was meant to pass the HTLC along to.
+	if failureSource == 0 {
+		return edge{
+			from:    route.SourcePubKey,
+			to:      route.Hops[0].PubKeyBytes,
+			channel: route.Hops[0].ChannelID,
+		}, route.TotalAmount
+	}
+
+	return edge{
+		from:    route.Hops[failureSource-1].PubKeyBytes,
+		to:      route.Hops[failureSource].PubKeyBytes,
+		channel: route.Hops[failureSource].ChannelID,
+	}, route.Hops[failureSource-1].AmtToForward
 }

@@ -30,16 +30,18 @@ func init() {
 }
 
 const (
-	// maxCltvExpiry is the maximum outgoing time lock that the node accepts
-	// for forwarded payments. The value is relative to the current block
-	// height. The reason to have a maximum is to prevent funds getting
-	// locked up unreasonably long. Otherwise, an attacker willing to lock
-	// its own funds too, could force the funds of this node to be locked up
-	// for an indefinite (max int32) number of blocks.
+	// DefaultMaxOutgoingCltvExpiry is the maximum outgoing time lock that
+	// the node accepts for forwarded payments. The value is relative to the
+	// current block height. The reason to have a maximum is to prevent
+	// funds getting locked up unreasonably long. Otherwise, an attacker
+	// willing to lock its own funds too, could force the funds of this node
+	// to be locked up for an indefinite (max int32) number of blocks.
 	//
-	// The value 5000 is based on the maximum number of hops (20), the
-	// default cltv delta (144) and some extra margin.
-	maxCltvExpiry = 5000
+	// The value 1008 corresponds to on average one week worth of blocks and
+	// is based on the maximum number of hops (20), the default cltv delta
+	// (40) and some extra margin to account for the other lightning
+	// implementations.
+	DefaultMaxOutgoingCltvExpiry = 1008
 
 	// DefaultMinLinkFeeUpdateTimeout represents the minimum interval in
 	// which a link should propose to update its commitment fee rate.
@@ -249,6 +251,11 @@ type ChannelLinkConfig struct {
 	// encrypting, and uploading of justice transactions to the daemon's
 	// configured set of watchtowers.
 	TowerClient TowerClient
+
+	// MaxCltvExpiry is the maximum outgoing timelock that the link should
+	// accept for a forwarded HTLC. The value is relative to the current
+	// block height.
+	MaxOutgoingCltvExpiry uint32
 }
 
 // channelLink is the service which drives a channel's commitment update
@@ -2337,10 +2344,10 @@ func (l *channelLink) htlcSatifiesPolicyOutgoing(policy ForwardingPolicy,
 	}
 
 	// Check absolute max delta.
-	if timeout > maxCltvExpiry+heightNow {
+	if timeout > l.cfg.MaxOutgoingCltvExpiry+heightNow {
 		l.errorf("outgoing htlc(%x) has a time lock too far in the "+
 			"future: got %v, but maximum is %v", payHash[:],
-			timeout-heightNow, maxCltvExpiry)
+			timeout-heightNow, l.cfg.MaxOutgoingCltvExpiry)
 
 		return &lnwire.FailExpiryTooFar{}
 	}

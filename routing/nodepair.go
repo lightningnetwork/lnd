@@ -1,6 +1,8 @@
 package routing
 
 import (
+	"bytes"
+
 	"github.com/lightningnetwork/lnd/routing/route"
 )
 
@@ -9,15 +11,24 @@ type DirectedNodePair struct {
 	From, To route.Vertex
 }
 
-// NewDirectedNodePair instantiates a new DirectedNodePair struct.
-func NewDirectedNodePair(from, to route.Vertex) DirectedNodePair {
-	return DirectedNodePair{
-		From: from,
-		To:   to,
-	}
+// NodePair stores an undirected pair of nodes.
+type NodePair struct {
+	A, B route.Vertex
 }
 
-// Reverse reverses the pair direction.
-func (d DirectedNodePair) Reverse() DirectedNodePair {
-	return DirectedNodePair{From: d.To, To: d.From}
+// newNodePair instantiates a new nodePair struct. It makes sure that node a is
+// the node with the lower pubkey. A second return parameters indicates whether
+// the given node ordering is reversed or not.
+func newNodePair(a, b route.Vertex) NodePair {
+	if bytes.Compare(a[:], b[:]) == 1 {
+		return NodePair{
+			A: b,
+			B: a,
+		}
+	}
+
+	return NodePair{
+		A: a,
+		B: b,
+	}
 }

@@ -58,7 +58,7 @@ type RouterBackend struct {
 // MissionControl defines the mission control dependencies of routerrpc.
 type MissionControl interface {
 	// GetEdgeProbability is expected to return the success probability of a payment
-	// from fromNode to toNode.
+	// from fromNode along edge.
 	GetEdgeProbability(fromNode, toNode route.Vertex,
 		amt lnwire.MilliSatoshi) float64
 
@@ -144,12 +144,17 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 
 	ignoredEdges := make(map[routing.DirectedNodePair]struct{})
 	for _, ignoredEdge := range in.IgnoredEdges {
-		pair, err := r.rpcEdgeToPair(ignoredEdge)
+		a, b, err := r.FetchChannelEndpoints(ignoredEdge.ChannelId)
 		if err != nil {
-			log.Warnf("Ignore channel %v skipped: %v",
-				ignoredEdge.ChannelId, err)
-
+			log.Warnf("Channel %v unknown", ignoredEdge.ChannelId)
 			continue
+		}
+
+		var pair routing.DirectedNodePair
+		if ignoredEdge.DirectionReverse {
+			pair.From, pair.To = b, a
+		} else {
+			pair.From, pair.To = a, b
 		}
 		ignoredEdges[pair] = struct{}{}
 	}
@@ -213,26 +218,6 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 	}
 
 	return routeResp, nil
-}
-
-// rpcEdgeToPair looks up the provided channel and returns the channel endpoints
-// as a directed pair.
-func (r *RouterBackend) rpcEdgeToPair(e *lnrpc.EdgeLocator) (
-	routing.DirectedNodePair, error) {
-
-	a, b, err := r.FetchChannelEndpoints(e.ChannelId)
-	if err != nil {
-		return routing.DirectedNodePair{}, err
-	}
-
-	var pair routing.DirectedNodePair
-	if e.DirectionReverse {
-		pair.From, pair.To = b, a
-	} else {
-		pair.From, pair.To = a, b
-	}
-
-	return pair, nil
 }
 
 // calculateFeeLimit returns the fee limit in millisatoshis. If a percentage

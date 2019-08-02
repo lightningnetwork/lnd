@@ -32,16 +32,17 @@ func queryMissionControl(ctx *cli.Context) error {
 	}
 
 	type displayNodeHistory struct {
-		Pubkey           string
-		LastFailTime     int64
-		OtherSuccessProb float32
+		Pubkey               string
+		LastFailTime         int64
+		OtherChanSuccessProb float32
 	}
 
 	type displayPairHistory struct {
-		NodeFrom, NodeTo  string
-		Timestamp         int64
-		SuccessProb       float32
-		MinPenalizeAmtSat int64
+		NodeA, NodeB string
+		Timestamp    int64
+		SuccessProb  float32
+		Amt          int64
+		Result       string
 	}
 
 	displayResp := struct {
@@ -53,9 +54,9 @@ func queryMissionControl(ctx *cli.Context) error {
 		displayResp.Nodes = append(
 			displayResp.Nodes,
 			displayNodeHistory{
-				Pubkey:           hex.EncodeToString(n.Pubkey),
-				LastFailTime:     n.LastFailTime,
-				OtherSuccessProb: n.OtherSuccessProb,
+				Pubkey:               hex.EncodeToString(n.Pubkey),
+				LastFailTime:         n.LastFailTime,
+				OtherChanSuccessProb: n.OtherChanSuccessProb,
 			},
 		)
 	}
@@ -64,11 +65,12 @@ func queryMissionControl(ctx *cli.Context) error {
 		displayResp.Pairs = append(
 			displayResp.Pairs,
 			displayPairHistory{
-				NodeFrom:          hex.EncodeToString(n.NodeFrom),
-				NodeTo:            hex.EncodeToString(n.NodeTo),
-				Timestamp:         n.Timestamp,
-				SuccessProb:       n.SuccessProb,
-				MinPenalizeAmtSat: n.MinPenalizeAmtSat,
+				NodeA:       hex.EncodeToString(n.NodeA),
+				NodeB:       hex.EncodeToString(n.NodeB),
+				Timestamp:   n.Timestamp,
+				SuccessProb: n.SuccessProb,
+				Amt:         n.Amt,
+				Result:      n.Result.String(),
 			},
 		)
 	}

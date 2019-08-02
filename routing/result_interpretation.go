@@ -10,26 +10,46 @@ import (
 	"github.com/lightningnetwork/lnd/routing/route"
 )
 
-type pairResult struct {
-	// minPenalizeAmt is the amount that was sent across the channel.
-	minPenalizeAmt lnwire.MilliSatoshi
+type ChannelResultType byte
 
-	// success indicates whether the payment attempt was successful through
-	// this pair.
-	success bool
+const (
+	ChannelResultSuccess ChannelResultType = iota
+
+	ChannelResultFail
+
+	ChannelResultFailBalance
+)
+
+type pairResult struct {
+	// amount is the amount that was sent across the channel.
+	amount lnwire.MilliSatoshi
+
+	// resultType is the type of channel result that collected from the
+	// payment attempt.
+	resultType ChannelResultType
+}
+
+func (r ChannelResultType) String() string {
+	switch r {
+	case ChannelResultFail:
+		return "Fail"
+	case ChannelResultFailBalance:
+		return "FailBalance"
+	case ChannelResultSuccess:
+		return "Success"
+	default:
+		return "Unknown"
+	}
 }
 
 func (p pairResult) String() string {
-	if p.success {
-		return "success"
-	}
-
-	return fmt.Sprintf("failed (minPenalizeAmt=%v)", p.minPenalizeAmt)
+	return fmt.Sprintf("amt=%v, type=%v",
+		p.amount, p.resultType)
 }
 
 type interpretedResult struct {
 	nodeFailures  map[route.Vertex]struct{}
-	pairResults   map[DirectedNodePair]pairResult
+	pairResults   map[NodePair]pairResult
 	finalFailure  bool
 	failureReason channeldb.FailureReason
 	policyFailure *DirectedNodePair
@@ -40,7 +60,7 @@ func newInterpretedResult(rt *route.Route, success bool, failureSrcIdx *int,
 
 	i := &interpretedResult{
 		nodeFailures: make(map[route.Vertex]struct{}),
-		pairResults:  make(map[DirectedNodePair]pairResult),
+		pairResults:  make(map[NodePair]pairResult),
 	}
 
 	if success {
@@ -52,7 +72,9 @@ func newInterpretedResult(rt *route.Route, success bool, failureSrcIdx *int,
 }
 
 func (i *interpretedResult) processSuccess(route *route.Route) {
-	i.successPairRange(route, 1, len(route.Hops)-1)
+	i.reportChannelRangeResult(
+		route, 1, len(route.Hops)-1, ChannelResultSuccess,
+	)
 }
 
 func (i *interpretedResult) processFail(
@@ -127,12 +149,16 @@ func (i *interpretedResult) processPaymentOutcomeFinal(
 		}
 
 		// Otherwise penalize the last channel of the route and retry.
-		i.failPair(route, n-1)
+		i.reportChannelResult(
+			route, n-1, ChannelResultFail,
+		)
 
 		// The other hops relayed corectly, so assign those pairs a
 		// success result.
 		if n > 2 {
-			i.successPairRange(route, 1, n-2)
+			i.reportChannelRangeResult(
+				route, 1, n-2, ChannelResultSuccess,
+			)
 		}
 
 	// We are using wrong payment hash or amount, fail the payment.
@@ -141,7 +167,7 @@ func (i *interpretedResult) processPaymentOutcomeFinal(
 
 		// Assign all pairs a success result, as the payment reached the
 		// destination correctly.
-		i.successPairRange(route, 1, n-1)
+		i.reportChannelRangeResult(route, 1, n-1, ChannelResultSuccess)
 
 		i.setFailure(
 			true, channeldb.FailureReasonIncorrectPaymentDetails,
@@ -167,7 +193,9 @@ func (i *interpretedResult) processPaymentOutcomeFinal(
 
 		// Other channels in the route forwarded correctly.
 		if n > 2 {
-			i.successPairRange(route, 1, n-2)
+			i.reportChannelRangeResult(
+				route, 1, n-2, ChannelResultSuccess,
+			)
 		}
 
 		i.setFailure(true, channeldb.FailureReasonError)
@@ -180,19 +208,15 @@ func (i *interpretedResult) processPaymentOutcomeIntermediate(
 	route *route.Route, errorSourceIdx int,
 	failure lnwire.FailureMessage) {
 
-	reportOutgoing := func() {
-		i.failPair(
-			route, errorSourceIdx,
-		)
-	}
-
-	reportOutgoingBalance := func() {
-		i.failPairBalance(
-			route, errorSourceIdx,
+	reportOutgoing := func(t ChannelResultType) {
+		i.reportChannelResult(
+			route, errorSourceIdx, t,
 		)
 
 		if errorSourceIdx > 1 {
-			i.successPairRange(route, 1, errorSourceIdx-1)
+			i.reportChannelRangeResult(
+				route, 1, errorSourceIdx-1, ChannelResultSuccess,
+			)
 		}
 	}
 
@@ -206,12 +230,14 @@ func (i *interpretedResult) processPaymentOutcomeIntermediate(
 		}
 
 		// Otherwise report the incoming channel.
-		i.failPair(
-			route, errorSourceIdx-1,
+		i.reportChannelResult(
+			route, errorSourceIdx-1, ChannelResultFail,
 		)
 
 		if errorSourceIdx > 2 {
-			i.successPairRange(route, 1, errorSourceIdx-2)
+			i.reportChannelRangeResult(
+				route, 1, errorSourceIdx-2, ChannelResultSuccess,
+			)
 		}
 	}
 
@@ -225,8 +251,8 @@ func (i *interpretedResult) processPaymentOutcomeIntermediate(
 		}
 
 		// Otherwise report all channels up to the error source.
-		i.failPairRange(
-			route, 1, errorSourceIdx-1,
+		i.reportChannelRangeResult(
+			route, 1, errorSourceIdx-1, ChannelResultFail,
 		)
 	}
 
@@ -239,7 +265,7 @@ func (i *interpretedResult) processPaymentOutcomeIntermediate(
 		*lnwire.FailInvalidOnionHmac,
 		*lnwire.FailInvalidOnionKey:
 
-		reportOutgoing()
+		reportOutgoing(ChannelResultFail)
 
 	// If the next hop in the route wasn't known or offline, we'll only
 	// penalize the channel which we attempted to route over. This is
@@ -247,13 +273,13 @@ func (i *interpretedResult) processPaymentOutcomeIntermediate(
 	// properly. Additionally, this guards against routing nodes returning
 	// errors in order to attempt to black list another node.
 	case *lnwire.FailUnknownNextPeer:
-		reportOutgoing()
+		reportOutgoing(ChannelResultFail)
 
 	// If we get a permanent channel or node failure, then
 	// we'll prune the channel in both directions and
 	// continue with the rest of the routes.
 	case *lnwire.FailPermanentChannelFailure:
-		reportOutgoing()
+		reportOutgoing(ChannelResultFail)
 
 	// If we get a failure due to violating the channel policy, we request a
 	// second chance because our graph may be out of date. An attached
@@ -279,7 +305,7 @@ func (i *interpretedResult) processPaymentOutcomeIntermediate(
 	// But we penalize only in a single direction and only for amounts
 	// greater than the attempted amount.
 	case *lnwire.FailTemporaryChannelFailure:
-		reportOutgoingBalance()
+		reportOutgoing(ChannelResultFailBalance)
 
 	// If FailExpiryTooSoon is received, there must have been some delay
 	// along the path. We can't know which node is causing the delay, so we
@@ -297,6 +323,7 @@ func (i *interpretedResult) processPaymentOutcomeIntermediate(
 // processPaymentOutcomeUnknown processes a payment outcome for which no failure
 // message or source is available.
 func (i *interpretedResult) processPaymentOutcomeUnknown(route *route.Route) {
+
 	n := len(route.Hops)
 
 	// If this is a direct payment, the destination must be at fault.
@@ -310,48 +337,47 @@ func (i *interpretedResult) processPaymentOutcomeUnknown(route *route.Route) {
 
 	// Penalize all channels in the route to make sure the responsible node
 	// is at least hit too. Start at one to not penalize our own channel.
-	i.failPairRange(route, 1, n-1)
+	i.reportChannelRangeResult(route, 1, n-1, ChannelResultFail)
 }
 
-func (i *interpretedResult) failPairRange(
-	rt *route.Route, fromIdx, toIdx int) {
+func (i *interpretedResult) reportChannelRangeResult(
+	rt *route.Route, fromIdx, toIdx int,
+	resultType ChannelResultType) {
 
 	// Start at one because we don't penalize our own channels.
 	for idx := fromIdx; idx <= toIdx; idx++ {
-		i.failPair(rt, idx)
+		i.reportChannelResult(rt, idx, resultType)
 	}
 }
 
 // reportChannelFailure reports a bidirectional failure of a channel.
-func (i *interpretedResult) failPair(
-	rt *route.Route, channelIdx int) {
+func (i *interpretedResult) reportChannelResult(
+	rt *route.Route, channelIdx int,
+	resultType ChannelResultType) {
 
-	pair, _ := getPair(rt, channelIdx)
+	channelID := rt.Hops[channelIdx].ChannelID
+	log.Debugf("Reporting channel failure to Mission Control: "+
+		"chan=%v", channelID)
 
-	// Report pair in both directions without a minimum penalization amount.
-	i.pairResults[pair] = pairResult{}
-	i.pairResults[pair.Reverse()] = pairResult{}
-}
+	nodeB := rt.Hops[channelIdx].PubKeyBytes
+	var (
+		nodeA route.Vertex
+		amt   lnwire.MilliSatoshi
+	)
 
-func (i *interpretedResult) failPairBalance(
-	rt *route.Route, channelIdx int) {
+	if channelIdx == 0 {
+		nodeA = rt.SourcePubKey
+		amt = rt.TotalAmount
+	} else {
+		nodeA = rt.Hops[channelIdx-1].PubKeyBytes
+		amt = rt.Hops[channelIdx-1].AmtToForward
+	}
 
-	pair, amt := getPair(rt, channelIdx)
+	pair := newNodePair(nodeA, nodeB)
 
 	i.pairResults[pair] = pairResult{
-		minPenalizeAmt: amt,
-	}
-}
-
-func (i *interpretedResult) successPairRange(
-	rt *route.Route, fromIdx, toIdx int) {
-
-	for idx := fromIdx; idx <= toIdx; idx++ {
-		pair, _ := getPair(rt, idx)
-
-		i.pairResults[pair] = pairResult{
-			success: true,
-		}
+		amount:     amt,
+		resultType: resultType,
 	}
 }
 
@@ -376,33 +402,11 @@ func (i interpretedResult) String() string {
 			first = false
 		}
 		b.WriteString(fmt.Sprintf(
-			"(%x-%x,%v)", p.From[:6], p.To[:6], r,
+			"(%x-%x,%v,%v)",
+			p.A[:6], p.B[:6],
+			r.amount.ToSatoshis(), r.resultType,
 		))
 	}
 
 	return b.String()
-}
-
-// getPair returns a node pair from the route and the amount passed between that
-// pair.
-func getPair(rt *route.Route, channelIdx int) (DirectedNodePair,
-	lnwire.MilliSatoshi) {
-
-	nodeTo := rt.Hops[channelIdx].PubKeyBytes
-	var (
-		nodeFrom route.Vertex
-		amt      lnwire.MilliSatoshi
-	)
-
-	if channelIdx == 0 {
-		nodeFrom = rt.SourcePubKey
-		amt = rt.TotalAmount
-	} else {
-		nodeFrom = rt.Hops[channelIdx-1].PubKeyBytes
-		amt = rt.Hops[channelIdx-1].AmtToForward
-	}
-
-	pair := NewDirectedNodePair(nodeFrom, nodeTo)
-
-	return pair, amt
 }

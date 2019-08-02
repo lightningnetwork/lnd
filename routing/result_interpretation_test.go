@@ -22,7 +22,7 @@ var (
 
 	routeTwoHop = route.Route{
 		Hops: []*route.Hop{
-			&route.Hop{PubKeyBytes: hops[0], AmtToForward: 100},
+			&route.Hop{PubKeyBytes: hops[0]},
 			&route.Hop{PubKeyBytes: hops[1]},
 		},
 	}
@@ -52,7 +52,9 @@ func TestResultInterpretationSuccess(t *testing.T) {
 		t.Fatal("expected one pair result")
 	}
 
-	if !i.pairResults[NewDirectedNodePair(hops[0], hops[1])].success {
+	if i.pairResults[newNodePair(hops[0], hops[1])].resultType !=
+		ChannelResultSuccess {
+
 		t.Fatal("wrong pair result")
 	}
 }
@@ -76,8 +78,8 @@ func TestResultInterpretationFail(t *testing.T) {
 		t.Fatal("expected one pair result")
 	}
 
-	if i.pairResults[NewDirectedNodePair(hops[0], hops[1])].
-		minPenalizeAmt != 100 {
+	if i.pairResults[newNodePair(hops[0], hops[1])].resultType !=
+		ChannelResultFailBalance {
 
 		t.Fatal("wrong pair result")
 	}
@@ -94,19 +96,18 @@ func TestResultInterpretationFailExpiryTooSoon(t *testing.T) {
 		lnwire.NewExpiryTooSoon(lnwire.ChannelUpdate{}),
 	)
 
-	if len(i.pairResults) != 4 {
-		t.Fatalf("expected 4 pair results, but got %v",
-			len(i.pairResults))
+	if len(i.pairResults) != 2 {
+		t.Fatal("expected two pair results")
 	}
 
-	if i.pairResults[NewDirectedNodePair(hops[0], hops[1])].
-		minPenalizeAmt != 0 {
+	if i.pairResults[newNodePair(hops[0], hops[1])].resultType !=
+		ChannelResultFail {
 
 		t.Fatal("wrong pair result")
 	}
 
-	if i.pairResults[NewDirectedNodePair(hops[1], hops[2])].
-		minPenalizeAmt != 0 {
+	if i.pairResults[newNodePair(hops[1], hops[2])].resultType !=
+		ChannelResultFail {
 
 		t.Fatal("wrong pair result")
 	}

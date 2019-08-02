@@ -90,15 +90,17 @@ func (b *missionControlStore) fetchAll() ([]*paymentResult, error) {
 
 	err := b.db.View(func(tx *bbolt.Tx) error {
 		resultBucket := tx.Bucket(resultsKey)
-		results = make([]*paymentResult, 0)
+		results = make([]*paymentResult, resultBucket.Stats().KeyN)
 
+		i := 0
 		return resultBucket.ForEach(func(k, v []byte) error {
 			result, err := deserializeResult(k, v)
 			if err != nil {
 				return err
 			}
 
-			results = append(results, result)
+			results[i] = result
+			i++
 
 			return nil
 		})

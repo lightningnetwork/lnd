@@ -459,8 +459,8 @@ func (s *Server) QueryMissionControl(ctx context.Context,
 		rpcNode := NodeHistory{
 			Pubkey:       node.Node[:],
 			LastFailTime: node.LastFail.Unix(),
-			OtherSuccessProb: float32(
-				node.OtherSuccessProb,
+			OtherChanSuccessProb: float32(
+				node.OtherChanSuccessProb,
 			),
 		}
 
@@ -472,15 +472,27 @@ func (s *Server) QueryMissionControl(ctx context.Context,
 		// Prevent binding to loop variable
 		pair := p
 
+		var result PairResult
+		switch pair.ResultType {
+		case routing.ChannelResultFail:
+			result = PairResult_FAIL
+		case routing.ChannelResultFailBalance:
+			result = PairResult_FAIL_BALANCE
+		case routing.ChannelResultSuccess:
+			result = PairResult_SUCCESS
+		default:
+			return nil, errors.New("unknown result")
+		}
+
 		rpcPair := PairHistory{
-			NodeFrom:  pair.Pair.From[:],
-			NodeTo:    pair.Pair.To[:],
+			NodeA:     pair.NodeA[:],
+			NodeB:     pair.NodeB[:],
 			Timestamp: pair.Timestamp.Unix(),
-			MinPenalizeAmtSat: int64(
-				pair.MinPenalizeAmt.ToSatoshis(),
+			Amt: int64(
+				pair.Amount.ToSatoshis(),
 			),
-			SuccessProb:           float32(pair.SuccessProb),
-			LastAttemptSuccessful: pair.LastAttemptSuccessful,
+			SuccessProb: float32(pair.SuccessProb),
+			Result:      result,
 		}
 
 		rpcPairs = append(rpcPairs, &rpcPair)

@@ -82,6 +82,12 @@ type SyncManagerCfg struct {
 	// SyncManager when it should attempt a historical sync with a gossip
 	// sync peer.
 	HistoricalSyncTicker ticker.Ticker
+
+	// IgnoreHistoricalFilters will prevent syncers from replying with
+	// historical data when the remote peer sets a gossip_timestamp_range.
+	// This prevents ranges with old start times from causing us to dump the
+	// graph on connect.
+	IgnoreHistoricalFilters bool
 }
 
 // SyncManager is a subsystem of the gossiper that manages the gossip syncers
@@ -400,6 +406,7 @@ func (m *SyncManager) createGossipSyncer(peer lnpeer.Peer) *GossipSyncer {
 		sendToPeerSync: func(msgs ...lnwire.Message) error {
 			return peer.SendMessageLazy(true, msgs...)
 		},
+		ignoreHistoricalFilters: m.cfg.IgnoreHistoricalFilters,
 	})
 
 	// Gossip syncers are initialized by default in a PassiveSync type

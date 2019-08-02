@@ -211,6 +211,12 @@ type Config struct {
 	// SubBatchDelay is the delay between sending sub batches of
 	// gossip messages.
 	SubBatchDelay time.Duration
+
+	// IgnoreHistoricalFilters will prevent syncers from replying with
+	// historical data when the remote peer sets a gossip_timestamp_range.
+	// This prevents ranges with old start times from causing us to dump the
+	// graph on connect.
+	IgnoreHistoricalFilters bool
 }
 
 // AuthenticatedGossiper is a subsystem which is responsible for receiving
@@ -313,11 +319,12 @@ func New(cfg Config, selfKey *btcec.PublicKey) *AuthenticatedGossiper {
 		channelMtx:              multimutex.NewMutex(),
 		recentRejects:           make(map[uint64]struct{}),
 		syncMgr: newSyncManager(&SyncManagerCfg{
-			ChainHash:            cfg.ChainHash,
-			ChanSeries:           cfg.ChanSeries,
-			RotateTicker:         cfg.RotateTicker,
-			HistoricalSyncTicker: cfg.HistoricalSyncTicker,
-			NumActiveSyncers:     cfg.NumActiveSyncers,
+			ChainHash:               cfg.ChainHash,
+			ChanSeries:              cfg.ChanSeries,
+			RotateTicker:            cfg.RotateTicker,
+			HistoricalSyncTicker:    cfg.HistoricalSyncTicker,
+			NumActiveSyncers:        cfg.NumActiveSyncers,
+			IgnoreHistoricalFilters: cfg.IgnoreHistoricalFilters,
 		}),
 	}
 

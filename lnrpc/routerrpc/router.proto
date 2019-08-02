@@ -350,10 +350,10 @@ message NodeHistory {
 /// PairHistory contains the mission control state for a particular node pair.
 message PairHistory {
     /// The lexicographically smaller node pubkey of the pair.
-    bytes node_from = 1 [json_name="node_from"];
+    bytes node_a = 1 [json_name="node_a"];
     
     /// The lexicographically larger node pubkey of the pair.
-    bytes node_to = 2 [json_name="node_to"];
+    bytes node_b = 2 [json_name="node_b"];
     
     /// Time stamp of last failure.
     int64 last_fail_time = 3 [json_name = "last_fail_time"];

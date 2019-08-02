@@ -473,8 +473,8 @@ func (s *Server) QueryMissionControl(ctx context.Context,
 		pair := p
 
 		rpcPair := PairHistory{
-			NodeFrom:     pair.Pair.From[:],
-			NodeTo:       pair.Pair.To[:],
+			NodeA:        pair.NodeA[:],
+			NodeB:        pair.NodeB[:],
 			LastFailTime: pair.LastFail.Unix(),
 			MinPenalizeAmtSat: int64(
 				pair.MinPenalizeAmt.ToSatoshis(),

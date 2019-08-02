@@ -56,7 +56,7 @@ const (
 // into the path finding process for subsequent payment attempts.
 type MissionControl struct {
 	// lastPairResult tracks the last payment outcome per node pair.
-	lastPairResult map[DirectedNodePair]pairHistory
+	lastPairResult map[NodePair]pairHistory
 
 	// lastNodeFailure tracks the last node level failure per node.
 	lastNodeFailure map[route.Vertex]time.Time
@@ -115,7 +115,7 @@ type MissionControlSnapshot struct {
 
 	// Pairs is a list of channels for which specific information is
 	// logged.
-	Pairs []MissionControlPairSnapshot
+	Pairs []MissionControlChannelSnapshot
 }
 
 // MissionControlNodeSnapshot contains a snapshot of the current node state in
@@ -132,11 +132,14 @@ type MissionControlNodeSnapshot struct {
 	OtherSuccessProb float64
 }
 
-// MissionControlPairSnapshot contains a snapshot of the current node pair
+// MissionControlChannelSnapshot contains a snapshot of the current channel
 // state in mission control.
-type MissionControlPairSnapshot struct {
-	// Pair is the node pair of which the state is described.
-	Pair DirectedNodePair
+type MissionControlChannelSnapshot struct {
+	// NodeA is the lexicographically smaller pubkey of the nodes
+	NodeA route.Vertex
+
+	// NodeB is the lexicographically greater pubkey of the nodes
+	NodeB route.Vertex
 
 	// LastFail is the time of last failure.
 	LastFail time.Time
@@ -174,7 +177,7 @@ func NewMissionControl(db *bbolt.DB, cfg *MissionControlConfig) (
 	}
 
 	mc := &MissionControl{
-		lastPairResult:   make(map[DirectedNodePair]pairHistory),
+		lastPairResult:   make(map[NodePair]pairHistory),
 		lastNodeFailure:  make(map[route.Vertex]time.Time),
 		lastSecondChance: make(map[DirectedNodePair]time.Time),
 		now:              time.Now,
@@ -220,7 +223,7 @@ func (m *MissionControl) ResetHistory() error {
 		return err
 	}
 
-	m.lastPairResult = make(map[DirectedNodePair]pairHistory)
+	m.lastPairResult = make(map[NodePair]pairHistory)
 	m.lastNodeFailure = make(map[route.Vertex]time.Time)
 	m.lastSecondChance = make(map[DirectedNodePair]time.Time)
 
@@ -268,7 +271,7 @@ func (m *MissionControl) getEdgeProbabilityForNode(fromNode,
 	lastFail := m.lastNodeFailure[fromNode]
 
 	// Retrieve the last pair outcome.
-	pair := NewDirectedNodePair(fromNode, toNode)
+	pair := newNodePair(fromNode, toNode)
 	lastPairResult, lastPairResultExists := m.lastPairResult[pair]
 
 	// If there is none or it happened before the last node level failure,
@@ -356,7 +359,7 @@ func (m *MissionControl) reportEdgeFailure(timestamp time.Time, failedEdge edge,
 	m.Lock()
 	defer m.Unlock()
 
-	pair := NewDirectedNodePair(failedEdge.from, failedEdge.to)
+	pair := newNodePair(failedEdge.from, failedEdge.to)
 	m.lastPairResult[pair] = pairHistory{
 		minPenalizeAmt: minPenalizeAmt,
 		timestamp:      timestamp,
@@ -383,17 +386,18 @@ func (m *MissionControl) GetHistorySnapshot() *MissionControlSnapshot {
 		})
 	}
 
-	pairs := make([]MissionControlPairSnapshot, 0, len(m.lastPairResult))
+	pairs := make([]MissionControlChannelSnapshot, 0, len(m.lastPairResult))
 
 	for v, h := range m.lastPairResult {
 		// Show probability assuming amount meets min
 		// penalization amount.
 		prob := m.getEdgeProbabilityForNode(
-			v.From, v.To, h.minPenalizeAmt,
+			v.A, v.B, h.minPenalizeAmt,
 		)
 
-		pair := MissionControlPairSnapshot{
-			Pair:           v,
+		pair := MissionControlChannelSnapshot{
+			NodeA:          v.A,
+			NodeB:          v.B,
 			MinPenalizeAmt: h.minPenalizeAmt,
 			LastFail:       h.timestamp,
 			SuccessProb:    prob,

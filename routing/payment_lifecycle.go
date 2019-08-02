@@ -83,6 +83,20 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 				return [32]byte{}, nil, err
 			}
 			p.circuit = c
+
+			// Report payment initiation to mission control. Mission
+			// control is not persisting this event and relies on it
+			// to be resupplied after restart.
+			//
+			// TODO(joostjager): Store payment attempt initiation
+			// time in payment control and pass in here.
+			err = p.router.cfg.MissionControl.ReportPaymentInitiate(
+				p.attempt.PaymentID, &p.attempt.Route,
+			)
+			if err != nil {
+				log.Errorf("Error reporting resumed payment "+
+					"initiate to mc: %v", err)
+			}
 		}
 
 		// Using the created circuit, initialize the error decrypter so we can
@@ -163,7 +177,7 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 
 		// Report success to mission control.
 		err = p.router.cfg.MissionControl.ReportPaymentSuccess(
-			p.attempt.PaymentID, &p.attempt.Route,
+			p.attempt.PaymentID,
 		)
 		if err != nil {
 			log.Errorf("Error reporting payment success to mc: %v",
@@ -327,11 +341,18 @@ func (p *paymentLifecycle) sendPaymentAttempt(firstHop lnwire.ShortChannelID,
 		}),
 	)
 
+	err := p.router.cfg.MissionControl.ReportPaymentInitiate(
+		p.attempt.PaymentID, &p.attempt.Route,
+	)
+	if err != nil {
+		log.Errorf("Error reporting payment initiate to mc: %v", err)
+	}
+
 	// Send it to the Switch. When this method returns we assume
 	// the Switch successfully has persisted the payment attempt,
 	// such that we can resume waiting for the result after a
 	// restart.
-	err := p.router.cfg.Payer.SendHTLC(
+	err = p.router.cfg.Payer.SendHTLC(
 		firstHop, p.attempt.PaymentID, htlcAdd,
 	)
 	if err != nil {

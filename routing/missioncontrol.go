@@ -1,6 +1,7 @@
 package routing
 
 import (
+	"fmt"
 	"math"
 	"sync"
 	"time"
@@ -68,6 +69,10 @@ type MissionControl struct {
 	// lastSecondChance tracks the last time a second chance was granted for
 	// a directed node pair.
 	lastSecondChance map[DirectedNodePair]time.Time
+
+	// paymentAttempts stores the payment initiation data. This data is
+	// combined with the result when it comes in.
+	paymentAttempts map[uint64]*paymentInitiate
 
 	// now is expected to return the current time. It is supplied as an
 	// external function to enable deterministic unit tests.
@@ -155,6 +160,13 @@ type MissionControlPairSnapshot struct {
 	LastAttemptSuccessful bool
 }
 
+// paymentInitiate contains information that is available when a payment attempt
+// is initiated.
+type paymentInitiate struct {
+	timestamp time.Time
+	route     *route.Route
+}
+
 // paymentResult is the information that becomes available when a payment
 // attempt completes.
 type paymentResult struct {
@@ -183,6 +195,7 @@ func NewMissionControl(db *bbolt.DB, cfg *MissionControlConfig) (
 		lastPairFailure:  make(map[DirectedNodePair]timedPairResult),
 		lastNodeFailure:  make(map[route.Vertex]time.Time),
 		lastSecondChance: make(map[DirectedNodePair]time.Time),
+		paymentAttempts:  make(map[uint64]*paymentInitiate),
 		now:              time.Now,
 		cfg:              cfg,
 		store:            store,
@@ -371,13 +384,38 @@ func (m *MissionControl) GetHistorySnapshot() *MissionControlSnapshot {
 	return &snapshot
 }
 
+// ReportPaymentInitiate reports a payment attempt initiation to mission
+// control.
+func (m *MissionControl) ReportPaymentInitiate(paymentID uint64,
+	rt *route.Route) error {
+
+	timestamp := m.now()
+
+	initiate := paymentInitiate{
+		route:     rt,
+		timestamp: timestamp,
+	}
+
+	m.Lock()
+	defer m.Unlock()
+
+	if _, exists := m.paymentAttempts[paymentID]; exists {
+		return fmt.Errorf("payment attempt %v already exists",
+			paymentID)
+	}
+
+	m.paymentAttempts[paymentID] = &initiate
+
+	return nil
+}
+
 // ReportPaymentFail reports a failed payment to mission control as input for
 // future probability estimates. The failureSourceIdx argument indicates the
 // failure source. If it is nil, the failure source is unknown. This function
 // returns a bool indicating whether this error is a final error. If it is
 // final, a failure reason is returned and no further payment attempts need to
 // be made.
-func (m *MissionControl) ReportPaymentFail(paymentID uint64, rt *route.Route,
+func (m *MissionControl) ReportPaymentFail(paymentID uint64,
 	failureSourceIdx *int, failure lnwire.FailureMessage) (bool,
 	channeldb.FailureReason, error) {
 
@@ -385,12 +423,10 @@ func (m *MissionControl) ReportPaymentFail(paymentID uint64, rt *route.Route,
 
 	result := &paymentResult{
 		success:          false,
-		timeFwd:          timestamp,
 		timeReply:        timestamp,
 		id:               paymentID,
 		failureSourceIdx: failureSourceIdx,
 		failure:          failure,
-		route:            rt,
 	}
 
 	return m.processPaymentResult(result)
@@ -398,17 +434,13 @@ func (m *MissionControl) ReportPaymentFail(paymentID uint64, rt *route.Route,
 
 // ReportPaymentSuccess reports a successful payment to mission control as input
 // for future probability estimates.
-func (m *MissionControl) ReportPaymentSuccess(paymentID uint64,
-	rt *route.Route) error {
-
+func (m *MissionControl) ReportPaymentSuccess(paymentID uint64) error {
 	timestamp := m.now()
 
 	result := &paymentResult{
-		timeFwd:   timestamp,
 		timeReply: timestamp,
 		id:        paymentID,
 		success:   true,
-		route:     rt,
 	}
 
 	_, _, err := m.processPaymentResult(result)
@@ -417,6 +449,17 @@ func (m *MissionControl) ReportPaymentSuccess(paymentID uint64,
 
 func (m *MissionControl) processPaymentResult(result *paymentResult) (bool,
 	channeldb.FailureReason, error) {
+
+	// Retrieve payment initiation data.
+	initiate, ok := m.paymentAttempts[result.id]
+	if !ok {
+		return false, 0, fmt.Errorf("initiate not found for payment %v",
+			result.id)
+	}
+
+	// Supplement with initiation data.
+	result.route = initiate.route
+	result.timeFwd = initiate.timestamp
 
 	// Store complete result in database.
 	if err := m.store.AddResult(result); err != nil {

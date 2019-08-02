@@ -178,11 +178,16 @@ type MissionController interface {
 	// input for future probability estimates. It returns a bool indicating
 	// whether this error is a final error and no further payment attempts
 	// need to be made.
-	ReportPaymentFail(paymentID uint64, rt *route.Route,
+	ReportPaymentFail(paymentID uint64,
 		failureSourceIdx *int, failure lnwire.FailureMessage) (bool,
 		channeldb.FailureReason, error)
 
-	ReportPaymentSuccess(paymentID uint64, rt *route.Route) error
+	// ReportPaymentSuccess reports a successful payment to mission control
+	// as input for future probability estimates.
+	ReportPaymentSuccess(paymentID uint64) error
+
+	// ReportPaymentAttempt reports a payment attempt to mission control.
+	ReportPaymentInitiate(paymentID uint64, rt *route.Route) error
 
 	// GetEdgeProbability is expected to return the success probability of a
 	// payment from fromNode along edge.
@@ -1903,7 +1908,7 @@ func (r *ChannelRouter) processSendError(paymentID uint64, rt *route.Route,
 
 		// Report outcome to mission control.
 		final, reason, err := r.cfg.MissionControl.ReportPaymentFail(
-			paymentID, rt, srcIdx, msg,
+			paymentID, srcIdx, msg,
 		)
 		if err != nil {
 			log.Errorf("Error reporting payment result to mc: %v",

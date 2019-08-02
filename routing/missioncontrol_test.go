@@ -106,15 +106,30 @@ func (ctx *mcTestContext) reportFailure(t time.Time,
 
 	mcTestRoute.Hops[0].AmtToForward = amt
 
+	err := ctx.mc.ReportPaymentInitiate(ctx.pid, mcTestRoute)
+	if err != nil {
+		ctx.t.Fatal(err)
+	}
+
 	errorSourceIdx := 1
-	ctx.mc.ReportPaymentFail(
-		ctx.pid, mcTestRoute, &errorSourceIdx, failure,
+	_, _, err = ctx.mc.ReportPaymentFail(
+		ctx.pid, &errorSourceIdx, failure,
 	)
+	if err != nil {
+		ctx.t.Fatal(err)
+	}
+
+	ctx.pid++
 }
 
 // reportSuccess reports a success by using a test route.
 func (ctx *mcTestContext) reportSuccess(t time.Time) {
-	err := ctx.mc.ReportPaymentSuccess(ctx.pid, mcTestRoute)
+	err := ctx.mc.ReportPaymentInitiate(ctx.pid, mcTestRoute)
+	if err != nil {
+		ctx.t.Fatal(err)
+	}
+
+	err = ctx.mc.ReportPaymentSuccess(ctx.pid)
 	if err != nil {
 		ctx.t.Fatal(err)
 	}

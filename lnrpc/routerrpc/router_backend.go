@@ -62,12 +62,12 @@ type MissionControl interface {
 	GetEdgeProbability(fromNode route.Vertex,
 		edge routing.EdgeLocator, amt lnwire.MilliSatoshi) float64
 
-	// ResetHistory resets the history of MissionControl returning it to a state as
-	// if no payment attempts have been made.
+	// ResetHistory resets the history of MissionControl returning it to a
+	// state as if no payment attempts have been made.
 	ResetHistory() error
 
-	// GetHistorySnapshot takes a snapshot from the current mission control state
-	// and actual probability estimates.
+	// GetHistorySnapshot takes a snapshot from the current mission control
+	// state and actual probability estimates.
 	GetHistorySnapshot() *routing.MissionControlSnapshot
 }
 

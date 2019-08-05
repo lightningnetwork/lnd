@@ -179,8 +179,8 @@ type MissionController interface {
 	// whether this error is a final error and no further payment attempts
 	// need to be made.
 	ReportPaymentFail(paymentID uint64, rt *route.Route,
-		failureSourceIdx *int, failure lnwire.FailureMessage) (bool,
-		channeldb.FailureReason, error)
+		failureSourceIdx *int, failure lnwire.FailureMessage) (
+		*channeldb.FailureReason, error)
 
 	// GetProbability is expected to return the success probability of a
 	// payment from fromNode along edge.
@@ -1887,23 +1887,25 @@ func (r *ChannelRouter) tryApplyChannelUpdate(rt *route.Route,
 // to continue with an alternative route. This is indicated by the boolean
 // return value.
 func (r *ChannelRouter) processSendError(paymentID uint64, rt *route.Route,
-	sendErr error) (bool, channeldb.FailureReason) {
+	sendErr error) *channeldb.FailureReason {
 
-	reportFail := func(srcIdx *int, msg lnwire.FailureMessage) (bool,
-		channeldb.FailureReason) {
+	internalErrorReason := channeldb.FailureReasonError
+
+	reportFail := func(srcIdx *int,
+		msg lnwire.FailureMessage) *channeldb.FailureReason {
 
 		// Report outcome to mission control.
-		final, reason, err := r.cfg.MissionControl.ReportPaymentFail(
+		reason, err := r.cfg.MissionControl.ReportPaymentFail(
 			paymentID, rt, srcIdx, msg,
 		)
 		if err != nil {
 			log.Errorf("Error reporting payment result to mc: %v",
 				err)
 
-			return true, channeldb.FailureReasonError
+			return &internalErrorReason
 		}
 
-		return final, reason
+		return reason
 	}
 
 	if sendErr == htlcswitch.ErrUnreadableFailureMessage {
@@ -1915,7 +1917,7 @@ func (r *ChannelRouter) processSendError(paymentID uint64, rt *route.Route,
 	// trying.
 	fErr, ok := sendErr.(*htlcswitch.ForwardingError)
 	if !ok {
-		return true, channeldb.FailureReasonError
+		return &internalErrorReason
 	}
 
 	failureMessage := fErr.FailureMessage
@@ -1928,7 +1930,7 @@ func (r *ChannelRouter) processSendError(paymentID uint64, rt *route.Route,
 			rt, failureSourceIdx, failureMessage,
 		)
 		if err != nil {
-			return true, channeldb.FailureReasonError
+			return &internalErrorReason
 		}
 	}
 

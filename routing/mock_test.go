@@ -98,11 +98,11 @@ type mockMissionControl struct {
 
 var _ MissionController = (*mockMissionControl)(nil)
 
-func (m *mockMissionControl) ReportPaymentFail(paymentID uint64,
-	rt *route.Route, failureSourceIdx *int, failure lnwire.FailureMessage) (
-	bool, channeldb.FailureReason, error) {
+func (m *mockMissionControl) ReportPaymentFail(paymentID uint64, rt *route.Route,
+	failureSourceIdx *int, failure lnwire.FailureMessage) (
+	*channeldb.FailureReason, error) {
 
-	return false, 0, nil
+	return nil, nil
 }
 
 func (m *mockMissionControl) GetProbability(fromNode, toNode route.Vertex,

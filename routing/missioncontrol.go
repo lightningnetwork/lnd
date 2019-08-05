@@ -420,12 +420,11 @@ func (m *MissionControl) GetHistorySnapshot() *MissionControlSnapshot {
 // ReportPaymentFail reports a failed payment to mission control as input for
 // future probability estimates. The failureSourceIdx argument indicates the
 // failure source. If it is nil, the failure source is unknown. This function
-// returns a bool indicating whether this error is a final error. If it is
-// final, a failure reason is returned and no further payment attempts need to
-// be made.
+// returns a reason if this failure is a final failure. In that case no further
+// payment attempts need to be made.
 func (m *MissionControl) ReportPaymentFail(paymentID uint64, rt *route.Route,
-	failureSourceIdx *int, failure lnwire.FailureMessage) (bool,
-	channeldb.FailureReason, error) {
+	failureSourceIdx *int, failure lnwire.FailureMessage) (
+	*channeldb.FailureReason, error) {
 
 	timestamp := m.now()
 
@@ -442,13 +441,18 @@ func (m *MissionControl) ReportPaymentFail(paymentID uint64, rt *route.Route,
 
 	// Store complete result in database.
 	if err := m.store.AddResult(result); err != nil {
-		return false, 0, err
+		return nil, err
 	}
 
 	// Apply result to update mission control state.
 	final, reason := m.applyPaymentResult(result)
 
-	return final, reason, nil
+	// Convert final bool and reason to nillable reason.
+	if final {
+		return &reason, nil
+	}
+
+	return nil, nil
 }
 
 // applyPaymentResult applies a payment result as input for future probability

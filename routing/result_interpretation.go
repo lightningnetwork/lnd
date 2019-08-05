@@ -7,6 +7,11 @@ import (
 	"github.com/lightningnetwork/lnd/routing/route"
 )
 
+// Instantiate variables to allow taking a reference from the failure reason.
+var (
+	reasonError = channeldb.FailureReasonError
+)
+
 // interpretedResult contains the result of the interpretation of a payment
 // outcome.
 type interpretedResult struct {
@@ -52,21 +57,14 @@ func (i *interpretedResult) processFail(
 	rt *route.Route, errSourceIdx *int,
 	failure lnwire.FailureMessage) (bool, channeldb.FailureReason) {
 
-	var failureSourceIdxInt int
-
 	if errSourceIdx == nil {
-		// If the failure message could not be decrypted, attribute the
-		// failure to our own outgoing channel.
-		//
-		// TODO(joostager): Penalize all channels in the route.
-		failureSourceIdxInt = 0
-		failure = lnwire.NewTemporaryChannelFailure(nil)
-	} else {
-		failureSourceIdxInt = *errSourceIdx
+		i.processPaymentOutcomeUnknown(rt)
+		return false, 0
 	}
 
 	var failureVertex route.Vertex
 
+	failureSourceIdxInt := *errSourceIdx
 	if failureSourceIdxInt > 0 {
 		failureVertex = rt.Hops[failureSourceIdxInt-1].PubKeyBytes
 	} else {
@@ -239,6 +237,74 @@ func (i *interpretedResult) processFail(
 		i.nodeFailure = &failureVertex
 		return false, 0
 	}
+}
+
+// processPaymentOutcomeUnknown processes a payment outcome for which no failure
+// message or source is available.
+func (i *interpretedResult) processPaymentOutcomeUnknown(route *route.Route) {
+	n := len(route.Hops)
+
+	// If this is a direct payment, the destination must be at fault.
+	if n == 1 {
+		i.failNode(route, n)
+		i.finalFailureReason = &reasonError
+		return
+	}
+
+	// Otherwise penalize all channels in the route to make sure the
+	// responsible node is at least hit too. We even penalize the connection
+	// to our own peer, because that peer could also be responsible.
+	i.failPairRange(route, 0, n-1)
+}
+
+// failNode marks the node indicated by idx in the route as failed. This
+// function intentionally panics when the self node is failed.
+func (i *interpretedResult) failNode(rt *route.Route, idx int) {
+	i.nodeFailure = &rt.Hops[idx-1].PubKeyBytes
+}
+
+// failPairRange marks the node pairs from node fromIdx to node toIdx as failed.
+func (i *interpretedResult) failPairRange(
+	rt *route.Route, fromIdx, toIdx int) {
+
+	for idx := fromIdx; idx <= toIdx; idx++ {
+		i.failPair(rt, idx)
+	}
+}
+
+// failPair marks a pair as failed in both directions.
+func (i *interpretedResult) failPair(
+	rt *route.Route, idx int) {
+
+	pair, _ := getPair(rt, idx)
+
+	// Report pair in both directions without a minimum penalization amount.
+	i.pairResults[pair] = 0
+	i.pairResults[pair.Reverse()] = 0
+}
+
+// getPair returns a node pair from the route and the amount passed between that
+// pair.
+func getPair(rt *route.Route, channelIdx int) (DirectedNodePair,
+	lnwire.MilliSatoshi) {
+
+	nodeTo := rt.Hops[channelIdx].PubKeyBytes
+	var (
+		nodeFrom route.Vertex
+		amt      lnwire.MilliSatoshi
+	)
+
+	if channelIdx == 0 {
+		nodeFrom = rt.SourcePubKey
+		amt = rt.TotalAmount
+	} else {
+		nodeFrom = rt.Hops[channelIdx-1].PubKeyBytes
+		amt = rt.Hops[channelIdx-1].AmtToForward
+	}
+
+	pair := NewDirectedNodePair(nodeFrom, nodeTo)
+
+	return pair, amt
 }
 
 // getFailedPair tries to locate the failing pair given a route and the pubkey

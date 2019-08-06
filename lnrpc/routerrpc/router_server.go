@@ -280,7 +280,9 @@ func (s *Server) SendToRoute(ctx context.Context,
 		return nil, err
 	}
 
-	preimage, err := s.cfg.Router.SendToRoute(hash, route)
+	preimage, err := s.cfg.Router.SendToRoute(
+		hash, route, req.FinalCltvDelta,
+	)
 
 	// In the success case, return the preimage.
 	if err == nil {

@@ -431,7 +431,7 @@ func TestChannelUpdateValidation(t *testing.T) {
 	// Send off the payment request to the router. The specified route
 	// should be attempted and the channel update should be received by
 	// router and ignored because it is missing a valid signature.
-	_, err = ctx.router.SendToRoute(payment, rt)
+	_, err = ctx.router.SendToRoute(payment, rt, 0)
 	if err == nil {
 		t.Fatalf("expected route to fail with channel update")
 	}
@@ -464,7 +464,7 @@ func TestChannelUpdateValidation(t *testing.T) {
 	}
 
 	// Retry the payment using the same route as before.
-	_, err = ctx.router.SendToRoute(payment, rt)
+	_, err = ctx.router.SendToRoute(payment, rt, 0)
 	if err == nil {
 		t.Fatalf("expected route to fail with channel update")
 	}
@@ -3309,7 +3309,7 @@ func TestSendToRouteStructuredError(t *testing.T) {
 	// Send off the payment request to the router. The specified route
 	// should be attempted and the channel update should be received by
 	// router and ignored because it is missing a valid signature.
-	_, err = ctx.router.SendToRoute(payment, rt)
+	_, err = ctx.router.SendToRoute(payment, rt, 0)
 
 	fErr, ok := err.(*htlcswitch.ForwardingError)
 	if !ok {

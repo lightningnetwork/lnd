@@ -58,8 +58,8 @@ type interpretedResult struct {
 
 // interpretResult interprets a payment outcome and returns an object that
 // contains information required to update mission control.
-func interpretResult(rt *route.Route, success bool, failureSrcIdx *int,
-	failure lnwire.FailureMessage) *interpretedResult {
+func interpretResult(rt *route.Route, finalCltvDelta uint32, success bool,
+	failureSrcIdx *int, failure lnwire.FailureMessage) *interpretedResult {
 
 	i := &interpretedResult{
 		pairResults: make(map[DirectedNodePair]pairResult),
@@ -68,7 +68,7 @@ func interpretResult(rt *route.Route, success bool, failureSrcIdx *int,
 	if success {
 		i.processSuccess(rt)
 	} else {
-		i.processFail(rt, failureSrcIdx, failure)
+		i.processFail(rt, finalCltvDelta, failureSrcIdx, failure)
 	}
 	return i
 }
@@ -82,7 +82,7 @@ func (i *interpretedResult) processSuccess(route *route.Route) {
 
 // processFail processes a failed payment attempt.
 func (i *interpretedResult) processFail(
-	rt *route.Route, errSourceIdx *int,
+	rt *route.Route, finalCltvDelta uint32, errSourceIdx *int,
 	failure lnwire.FailureMessage) {
 
 	if errSourceIdx == nil {
@@ -99,7 +99,7 @@ func (i *interpretedResult) processFail(
 	// A failure from the final hop was received.
 	case len(rt.Hops):
 		i.processPaymentOutcomeFinal(
-			rt, failure,
+			rt, finalCltvDelta, failure,
 		)
 
 	// An intermediate hop failed. Interpret the outcome, update reputation
@@ -142,7 +142,8 @@ func (i *interpretedResult) processPaymentOutcomeSelf(
 
 // processPaymentOutcomeFinal handles failures sent by the final hop.
 func (i *interpretedResult) processPaymentOutcomeFinal(
-	route *route.Route, failure lnwire.FailureMessage) {
+	route *route.Route, finalCltvDelta uint32,
+	failure lnwire.FailureMessage) {
 
 	n := len(route.Hops)
 
@@ -151,7 +152,7 @@ func (i *interpretedResult) processPaymentOutcomeFinal(
 	// incorrect htlc, we want to retry via another route. Invalid onion
 	// failures are not expected, because the final node wouldn't be able to
 	// encrypt that failure.
-	switch failure.(type) {
+	switch msg := failure.(type) {
 
 	// Expiry or amount of the HTLC doesn't match the onion, try another
 	// route.
@@ -178,14 +179,29 @@ func (i *interpretedResult) processPaymentOutcomeFinal(
 			i.successPairRange(route, 0, n-2)
 		}
 
+	// We used the wrong amount, fail the payment. This is a legacy failure
+	// that we still need to handle.
+	case *lnwire.FailIncorrectPaymentAmount:
+		// Assign all pairs a success result, as the payment reached the
+		// destination correctly.
+		i.successPairRange(route, 0, n-1)
+		i.finalFailureReason = &reasonIncorrectDetails
+
 	// We are using wrong payment hash or amount, fail the payment.
-	case *lnwire.FailIncorrectPaymentAmount,
-		*lnwire.FailIncorrectDetails:
+	case *lnwire.FailIncorrectDetails:
+		// If the htlc reached the receiver with not enough blocks left,
+		// there must have been a delay on the path.
+		finalExpiry := route.Hops[len(route.Hops)-1].OutgoingTimeLock
+		if msg.Height()+finalCltvDelta > finalExpiry {
+			// As we don't know which node is to blame, we penalize
+			// all pairs along the route and retry.
+			i.failPairRange(route, 0, n-1)
+			return
+		}
 
 		// Assign all pairs a success result, as the payment reached the
 		// destination correctly.
 		i.successPairRange(route, 0, n-1)
-
 		i.finalFailureReason = &reasonIncorrectDetails
 
 	// The HTLC that was extended to the final hop expires too soon. Fail

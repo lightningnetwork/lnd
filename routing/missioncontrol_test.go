@@ -29,9 +29,10 @@ var (
 		},
 	}
 
-	mcTestTime  = time.Date(2018, time.January, 9, 14, 00, 00, 0, time.UTC)
-	mcTestNode1 = mcTestRoute.Hops[0].PubKeyBytes
-	mcTestNode2 = mcTestRoute.Hops[1].PubKeyBytes
+	mcTestTime       = time.Date(2018, time.January, 9, 14, 00, 00, 0, time.UTC)
+	mcTestNode1      = mcTestRoute.Hops[0].PubKeyBytes
+	mcTestNode2      = mcTestRoute.Hops[1].PubKeyBytes
+	mcFinalCltvDelta = uint32(40)
 )
 
 type mcTestContext struct {
@@ -110,7 +111,8 @@ func (ctx *mcTestContext) reportFailure(amt lnwire.MilliSatoshi,
 
 	errorSourceIdx := 1
 	ctx.mc.ReportPaymentFail(
-		ctx.pid, mcTestRoute, &errorSourceIdx, failure,
+		ctx.pid, mcTestRoute, mcFinalCltvDelta,
+		&errorSourceIdx, failure,
 	)
 }
 

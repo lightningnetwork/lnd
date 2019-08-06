@@ -352,7 +352,8 @@ func (p *paymentLifecycle) sendPaymentAttempt(firstHop lnwire.ShortChannelID,
 func (p *paymentLifecycle) handleSendError(sendErr error) error {
 
 	reason := p.router.processSendError(
-		p.attempt.PaymentID, &p.attempt.Route, sendErr,
+		p.attempt.PaymentID, &p.attempt.Route, uint32(p.finalCLTVDelta),
+		sendErr,
 	)
 	if reason == nil {
 		// Save the forwarding error so it can be returned if

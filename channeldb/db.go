@@ -49,6 +49,12 @@ var (
 			number:    11,
 			migration: migrateInvoices,
 		},
+		{
+			// The DB version where final cltv deltas are stored in
+			// mission control.
+			number:    12,
+			migration: migrateMcFinalCltv,
+		},
 	}
 
 	// Big endian is the preferred byte order, due to cursor scans over

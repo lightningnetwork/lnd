@@ -3411,6 +3411,11 @@
         "route": {
           "$ref": "#/definitions/lnrpcRoute",
           "description": "/ Route that should be used to attempt to complete the payment."
+        },
+        "final_cltv_delta": {
+          "type": "integer",
+          "format": "int32",
+          "description": "*\nThe final cltv delta requirement for the payment request. This field is only\nrequired to properly update mission control in case the payment fails with\nincorrect_or_unknown_payment_details. Matching the final cltv delta with\nthe expiry height of the final htlc and the returned acceptance height in\nthe failure message, allows discerning an incorrect final expiry delta from\nan unexpected delay along the route. Only in the latter case, mission\ncontrol will apply a penalty to the intermediary nodes."
         }
       }
     },

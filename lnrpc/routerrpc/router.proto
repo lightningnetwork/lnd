@@ -161,6 +161,17 @@ message SendToRouteRequest {
 
     /// Route that should be used to attempt to complete the payment.
     lnrpc.Route route = 2;
+
+    /**
+    The final cltv delta requirement for the payment request. This field is only
+    required to properly update mission control in case the payment fails with
+    incorrect_or_unknown_payment_details. Matching the final cltv delta with
+    the expiry height of the final htlc and the returned acceptance height in
+    the failure message, allows discerning an incorrect final expiry delta from
+    an unexpected delay along the route. Only in the latter case, mission
+    control will apply a penalty to the intermediary nodes.
+    **/
+    int32 final_cltv_delta = 3;
 }
 
 message SendToRouteResponse {

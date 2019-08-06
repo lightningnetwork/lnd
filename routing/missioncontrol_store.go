@@ -128,7 +128,7 @@ func serializeResult(rp *paymentResult) ([]byte, []byte, error) {
 		&b,
 		uint64(rp.timeFwd.UnixNano()),
 		uint64(rp.timeReply.UnixNano()),
-		rp.success, dbFailureSourceIdx,
+		rp.success, rp.finalCltvDelta, dbFailureSourceIdx,
 	)
 	if err != nil {
 		return nil, nil, err
@@ -174,7 +174,8 @@ func deserializeResult(k, v []byte) (*paymentResult, error) {
 	)
 
 	err := channeldb.ReadElements(
-		r, &timeFwd, &timeReply, &result.success, &dbFailureSourceIdx,
+		r, &timeFwd, &timeReply, &result.success, &result.finalCltvDelta,
+		&dbFailureSourceIdx,
 	)
 	if err != nil {
 		return nil, err

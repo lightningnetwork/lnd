@@ -9,6 +9,10 @@ import (
 	"github.com/lightningnetwork/lnd/routing/route"
 )
 
+const (
+	testFinalCltvLock = 1000
+)
+
 var (
 	hops = []route.Vertex{
 		{1, 0}, {1, 1}, {1, 2}, {1, 3}, {1, 4},
@@ -27,7 +31,11 @@ var (
 		TotalAmount:  100,
 		Hops: []*route.Hop{
 			{PubKeyBytes: hops[1], AmtToForward: 99},
-			{PubKeyBytes: hops[2], AmtToForward: 97},
+			{
+				PubKeyBytes:      hops[2],
+				AmtToForward:     97,
+				OutgoingTimeLock: testFinalCltvLock,
+			},
 		},
 	}
 
@@ -48,11 +56,12 @@ func getTestPair(from, to int) DirectedNodePair {
 }
 
 type resultTestCase struct {
-	name          string
-	route         *route.Route
-	success       bool
-	failureSrcIdx int
-	failure       lnwire.FailureMessage
+	name           string
+	route          *route.Route
+	success        bool
+	failureSrcIdx  int
+	failure        lnwire.FailureMessage
+	finalCltvDelta uint32
 
 	expectedResult *interpretedResult
 }
@@ -103,18 +112,61 @@ var resultTestCases = []resultTestCase{
 		name:          "fail incorrect details",
 		route:         &routeTwoHop,
 		failureSrcIdx: 2,
-		failure:       lnwire.NewFailIncorrectDetails(97, 0),
+		failure: lnwire.NewFailIncorrectDetails(
+			97, testFinalCltvLock-40,
+		),
+		finalCltvDelta: 40,
 
 		expectedResult: &interpretedResult{
 			pairResults: map[DirectedNodePair]pairResult{
-				getTestPair(0, 1): {
-					success: true,
-				},
-				getTestPair(1, 2): {
-					success: true,
-				},
+				getTestPair(0, 1): {success: true},
+				getTestPair(1, 2): {success: true},
 			},
 			finalFailureReason: &reasonIncorrectDetails,
+		},
+	},
+
+	// Tests an incorrect payment details result coming from an older node
+	// that doesn't include the accept height (left to the default value of
+	// zero). This should be a final failure, but mark all pairs along the
+	// route as successful.
+	{
+		name:          "fail incorrect details legacy",
+		route:         &routeTwoHop,
+		failureSrcIdx: 2,
+		failure: lnwire.NewFailIncorrectDetails(
+			97, 0,
+		),
+		finalCltvDelta: 40,
+
+		expectedResult: &interpretedResult{
+			pairResults: map[DirectedNodePair]pairResult{
+				getTestPair(0, 1): {success: true},
+				getTestPair(1, 2): {success: true},
+			},
+			finalFailureReason: &reasonIncorrectDetails,
+		},
+	},
+
+	// Tests an incorrect payment details result. This should be a non-final
+	// payment, because the htlc arrived at the receiver too late because of
+	// a delay en route.
+	{
+		name:          "fail incorrect details late htlc",
+		route:         &routeTwoHop,
+		failureSrcIdx: 2,
+		failure: lnwire.NewFailIncorrectDetails(
+			97, testFinalCltvLock-39,
+		),
+		finalCltvDelta: 40,
+
+		expectedResult: &interpretedResult{
+			pairResults: map[DirectedNodePair]pairResult{
+				getTestPair(0, 1): {},
+				getTestPair(1, 0): {},
+				getTestPair(1, 2): {},
+				getTestPair(2, 1): {},
+			},
 		},
 	},
 
@@ -184,10 +236,13 @@ func TestResultInterpretation(t *testing.T) {
 	emptyResults := make(map[DirectedNodePair]pairResult)
 
 	for _, testCase := range resultTestCases {
+
+		// nolint:scopelint
 		t.Run(testCase.name, func(t *testing.T) {
 			i := interpretResult(
-				testCase.route, testCase.success,
-				&testCase.failureSrcIdx, testCase.failure,
+				testCase.route, testCase.finalCltvDelta,
+				testCase.success, &testCase.failureSrcIdx,
+				testCase.failure,
 			)
 
 			expected := testCase.expectedResult

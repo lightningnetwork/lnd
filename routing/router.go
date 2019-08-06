@@ -180,8 +180,8 @@ type MissionController interface {
 	// whether this error is a final error and no further payment attempts
 	// need to be made.
 	ReportPaymentFail(paymentID uint64, rt *route.Route,
-		failureSourceIdx *int, failure lnwire.FailureMessage) (
-		*channeldb.FailureReason, error)
+		finalCltvDelta uint32, failureSourceIdx *int,
+		failure lnwire.FailureMessage) (*channeldb.FailureReason, error)
 
 	// ReportPaymentSuccess reports a successful payment to mission control as input
 	// for future probability estimates.
@@ -1681,8 +1681,8 @@ func (r *ChannelRouter) preparePayment(payment *LightningPayment) (
 // SendToRoute attempts to send a payment with the given hash through the
 // provided route. This function is blocking and will return the obtained
 // preimage if the payment is successful or the full error in case of a failure.
-func (r *ChannelRouter) SendToRoute(hash lntypes.Hash, route *route.Route) (
-	lntypes.Preimage, error) {
+func (r *ChannelRouter) SendToRoute(hash lntypes.Hash, route *route.Route,
+	finalCltvDelta int32) (lntypes.Preimage, error) {
 
 	// Create a payment session for just this route.
 	paySession := r.cfg.SessionSource.NewPaymentSessionForRoute(route)
@@ -1712,7 +1712,8 @@ func (r *ChannelRouter) SendToRoute(hash lntypes.Hash, route *route.Route) (
 	// PayAttemptTime doesn't need to be set, as there is only a single
 	// attempt.
 	payment := &LightningPayment{
-		PaymentHash: hash,
+		PaymentHash:    hash,
+		FinalCLTVDelta: uint16(finalCltvDelta),
 	}
 
 	// Since this is the first time this payment is being made, we pass nil
@@ -1856,7 +1857,7 @@ func (r *ChannelRouter) tryApplyChannelUpdate(rt *route.Route,
 // to continue with an alternative route. This is indicated by the boolean
 // return value.
 func (r *ChannelRouter) processSendError(paymentID uint64, rt *route.Route,
-	sendErr error) *channeldb.FailureReason {
+	finalCltvDelta uint32, sendErr error) *channeldb.FailureReason {
 
 	internalErrorReason := channeldb.FailureReasonError
 
@@ -1865,7 +1866,7 @@ func (r *ChannelRouter) processSendError(paymentID uint64, rt *route.Route,
 
 		// Report outcome to mission control.
 		reason, err := r.cfg.MissionControl.ReportPaymentFail(
-			paymentID, rt, srcIdx, msg,
+			paymentID, rt, finalCltvDelta, srcIdx, msg,
 		)
 		if err != nil {
 			log.Errorf("Error reporting payment result to mc: %v",

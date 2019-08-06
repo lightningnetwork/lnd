@@ -2906,6 +2906,7 @@ func (r *rpcServer) unmarshallSendToRouteRequest(
 		SendRequest: &lnrpc.SendRequest{
 			PaymentHash:       req.PaymentHash,
 			PaymentHashString: req.PaymentHashString,
+			FinalCltvDelta:    req.FinalCltvDelta,
 		},
 		route: route,
 	}, nil
@@ -3145,6 +3146,7 @@ func (r *rpcServer) dispatchPaymentIntent(
 	} else {
 		preImage, routerErr = r.server.chanRouter.SendToRoute(
 			payIntent.rHash, payIntent.route,
+			int32(payIntent.cltvDelta),
 		)
 
 		route = payIntent.route

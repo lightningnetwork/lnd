@@ -66,6 +66,7 @@ func TestMissionControlStore(t *testing.T) {
 		id:               99,
 		timeReply:        testTime,
 		timeFwd:          testTime.Add(-time.Minute),
+		finalCltvDelta:   40,
 	}
 
 	result2 := result1

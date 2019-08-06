@@ -164,6 +164,7 @@ type paymentResult struct {
 	success            bool
 	failureSourceIdx   *int
 	failure            lnwire.FailureMessage
+	finalCltvDelta     uint32
 }
 
 // NewMissionControl returns a new instance of missionControl.
@@ -385,8 +386,8 @@ func (m *MissionControl) GetHistorySnapshot() *MissionControlSnapshot {
 // returns a reason if this failure is a final failure. In that case no further
 // payment attempts need to be made.
 func (m *MissionControl) ReportPaymentFail(paymentID uint64, rt *route.Route,
-	failureSourceIdx *int, failure lnwire.FailureMessage) (
-	*channeldb.FailureReason, error) {
+	finalCltvDelta uint32, failureSourceIdx *int,
+	failure lnwire.FailureMessage) (*channeldb.FailureReason, error) {
 
 	timestamp := m.now()
 
@@ -398,6 +399,7 @@ func (m *MissionControl) ReportPaymentFail(paymentID uint64, rt *route.Route,
 		failureSourceIdx: failureSourceIdx,
 		failure:          failure,
 		route:            rt,
+		finalCltvDelta:   finalCltvDelta,
 	}
 
 	return m.processPaymentResult(result)
@@ -446,8 +448,8 @@ func (m *MissionControl) applyPaymentResult(
 
 	// Interpret result.
 	i := interpretResult(
-		result.route, result.success, result.failureSourceIdx,
-		result.failure,
+		result.route, result.finalCltvDelta, result.success,
+		result.failureSourceIdx, result.failure,
 	)
 
 	// Update mission control state using the interpretation.

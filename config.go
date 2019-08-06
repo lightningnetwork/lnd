@@ -328,6 +328,8 @@ type config struct {
 	WtClient *lncfg.WtClient `group:"wtclient" namespace:"wtclient"`
 
 	Watchtower *lncfg.Watchtower `group:"watchtower" namespace:"watchtower"`
+
+	LegacyProtocol *lncfg.LegacyProtocol `group:"legacyprotocol" namespace:"legacyprotocol"`
 }
 
 // loadConfig initializes and parses the config using a config file and command

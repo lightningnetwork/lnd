@@ -312,7 +312,12 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 	}
 
 	globalFeatures := lnwire.NewRawFeatureVector()
-	globalFeatures.Set(lnwire.TLVOnionPayloadOptional)
+
+	// Only if we're not being forced to use the legacy onion format, will
+	// we signal our knowledge of the new TLV onion format.
+	if !cfg.LegacyProtocol.LegacyOnion() {
+		globalFeatures.Set(lnwire.TLVOnionPayloadOptional)
+	}
 
 	var serializedPubKey [33]byte
 	copy(serializedPubKey[:], privKey.PubKey().SerializeCompressed())

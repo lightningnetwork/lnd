@@ -74,6 +74,15 @@ func EUint8(w io.Writer, val interface{}, buf *[8]byte) error {
 	return ErrTypeForEncoding{val, "uint8"}
 }
 
+// EUint8T encodes a uint8 val to the provided io.Writer. This method is exposed
+// so that encodings for custom uint8-like types can be created without
+// incurring an extra heap allocation.
+func EUint8T(w io.Writer, val uint8, buf *[8]byte) error {
+	buf[0] = val
+	_, err := w.Write(buf[:1])
+	return err
+}
+
 // EUint16 is an Encoder for uint16 values. An error is returned if val is not a
 // *uint16.
 func EUint16(w io.Writer, val interface{}, buf *[8]byte) error {
@@ -83,6 +92,15 @@ func EUint16(w io.Writer, val interface{}, buf *[8]byte) error {
 		return err
 	}
 	return ErrTypeForEncoding{val, "uint16"}
+}
+
+// EUint16T encodes a uint16 val to the provided io.Writer. This method is
+// exposed so that encodings for custom uint16-like types can be created without
+// incurring an extra heap allocation.
+func EUint16T(w io.Writer, val uint16, buf *[8]byte) error {
+	byteOrder.PutUint16(buf[:2], val)
+	_, err := w.Write(buf[:2])
+	return err
 }
 
 // EUint32 is an Encoder for uint32 values. An error is returned if val is not a
@@ -96,6 +114,15 @@ func EUint32(w io.Writer, val interface{}, buf *[8]byte) error {
 	return ErrTypeForEncoding{val, "uint32"}
 }
 
+// EUint32T encodes a uint32 val to the provided io.Writer. This method is
+// exposed so that encodings for custom uint32-like types can be created without
+// incurring an extra heap allocation.
+func EUint32T(w io.Writer, val uint32, buf *[8]byte) error {
+	byteOrder.PutUint32(buf[:4], val)
+	_, err := w.Write(buf[:4])
+	return err
+}
+
 // EUint64 is an Encoder for uint64 values. An error is returned if val is not a
 // *uint64.
 func EUint64(w io.Writer, val interface{}, buf *[8]byte) error {
@@ -105,6 +132,15 @@ func EUint64(w io.Writer, val interface{}, buf *[8]byte) error {
 		return err
 	}
 	return ErrTypeForEncoding{val, "uint64"}
+}
+
+// EUint64T encodes a uint64 val to the provided io.Writer. This method is
+// exposed so that encodings for custom uint64-like types can be created without
+// incurring an extra heap allocation.
+func EUint64T(w io.Writer, val uint64, buf *[8]byte) error {
+	byteOrder.PutUint64(buf[:], val)
+	_, err := w.Write(buf[:])
+	return err
 }
 
 // DUint8 is a Decoder for uint8 values. An error is returned if val is not a

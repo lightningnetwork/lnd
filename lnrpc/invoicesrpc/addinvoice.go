@@ -187,30 +187,14 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 	// Check if any active channel has enough inbound bandwidth to receive an
 	// invoice of the specified amount
 	if invoice.CheckInboundBandwidth {
-		inboundBandwidth := false
-
 		openChannels, err := cfg.ChanDB.FetchAllOpenChannels()
 		if err != nil {
 			return nil, nil, fmt.Errorf("could not fetch all open channels")
 		}
-		for _, channel := range openChannels {
-			// skip if channel is not in a usable state
-			if !channel.HasChanStatus(channeldb.ChanStatusDefault) {
-				continue
-			}
 
-			localCommitment, _, err := channel.LatestCommitments()
-			if err != nil {
-				return nil, nil, fmt.Errorf("could not get latest "+
-					"commitments for channel %v", channel.ShortChanID())
-			}
-			if localCommitment.RemoteBalance >= amtMSat {
-				inboundBandwidth = true
-				break
-			}
-		}
-
-		if !inboundBandwidth {
+		if ok, err := checkInboundBandwidth(openChannels, amtMSat); err != nil {
+			return nil, nil, err
+		} else if !ok {
 			return nil, nil, fmt.Errorf("inbound bandwidth not sufficient "+
 				"to receive a payment of %v", invoice.Value)
 		}
@@ -449,4 +433,30 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 	}
 
 	return &paymentHash, newInvoice, nil
+}
+
+// checkInboundBandwidth checks the remote balance of all the provided channels
+// and returns true if any of them is bigger than the specified amount.
+func checkInboundBandwidth(chans []*channeldb.OpenChannel,
+	amt lnwire.MilliSatoshi) (bool, error) {
+	inboundBandwidth := false
+
+	for _, channel := range chans {
+		// skip if channel is not in a usable state
+		if !channel.HasChanStatus(channeldb.ChanStatusDefault) {
+			continue
+		}
+
+		localCommitment, _, err := channel.LatestCommitments()
+		if err != nil {
+			return false, fmt.Errorf("could not get latest "+
+				"commitments for channel %v", channel.ShortChanID())
+		}
+		if localCommitment.RemoteBalance >= amt {
+			inboundBandwidth = true
+			break
+		}
+	}
+
+	return inboundBandwidth, nil
 }

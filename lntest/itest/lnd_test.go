@@ -5403,87 +5403,6 @@ func testInvoiceRoutingHints(net *lntest.NetworkHarness, t *harnessTest) {
 	cleanupForceClose(t, net, net.Alice, chanPointEve)
 }
 
-// testInvoiceCheckInboundBandwidth tests that creating a new invoice in a node
-// without sufficient inbound bandwidth fails when the check for it is enabled.
-//
-// The scenario in which there is enough bandwidth is also tested.
-func testInvoiceCheckInboundBandwidth(net *lntest.NetworkHarness,
-	t *harnessTest) {
-
-	// We are going to set up a channel between Alice and Bob for a total
-	// capacity of 100000 on Alice's side. Bob will then create an invoice for
-	// a higher value (150000) using the option to check if inbound bandwidth
-	// is sufficient. Therefore adding the invoice will fail. Bob will then try
-	// with a value of 50000 and it will succeed.
-	const (
-		chanAmt           = btcutil.Amount(100000)
-		invoiceAmtFail    = btcutil.Amount(150000)
-		invoiceAmtSucceed = btcutil.Amount(50000)
-	)
-
-	// Alice creates a channel with Bob with a total capacity of 100000 sats.
-	ctxb := context.Background()
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	chanPoint := openChannelAndAssert(
-		ctxt, t, net, net.Alice, net.Bob,
-		lntest.OpenChannelParams{
-			Amt: chanAmt,
-		},
-	)
-
-	// We wait until the channel is confirmed and considered open for both
-	// participants.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err := net.Alice.WaitForNetworkChannelOpen(ctxt, chanPoint)
-	if err != nil {
-		t.Fatalf("alice didn't report channel: %v", err)
-	}
-	err = net.Bob.WaitForNetworkChannelOpen(ctxt, chanPoint)
-	if err != nil {
-		t.Fatalf("bob didn't report channel: %v", err)
-	}
-
-	// Bob creates an invoice with a value of 150000 using the
-	// CheckInboundBandwidth option. We expect this to fail and return the
-	// expected error.
-	invoice := &lnrpc.Invoice{
-		Memo:                  "testing",
-		Value:                 int64(invoiceAmtFail),
-		CheckInboundBandwidth: true,
-	}
-
-	ctxb = context.Background()
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-
-	if _, err := net.Bob.AddInvoice(ctxt, invoice); err == nil {
-		t.Fatalf("adding invoice should have failed")
-
-	} else if !strings.Contains(err.Error(), "inbound bandwidth not "+
-		"sufficient to receive a payment of") {
-
-		t.Fatalf("error does not match: %v", err)
-	}
-
-	// Bob creates an invoice with a value of 50000 using the
-	// CheckInboundBandwidth option. We expect this to succeed.
-	invoice = &lnrpc.Invoice{
-		Memo:                  "testing",
-		Value:                 int64(invoiceAmtSucceed),
-		CheckInboundBandwidth: true,
-	}
-
-	ctxb = context.Background()
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-
-	if _, err := net.Bob.AddInvoice(ctxt, invoice); err != nil {
-		t.Fatalf("adding invoice should have succeeded")
-	}
-
-	// We then close the channel between Alice and Bob.
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, false)
-}
-
 // testMultiHopOverPrivateChannels tests that private channels can be used as
 // intermediate hops in a route for payments.
 func testMultiHopOverPrivateChannels(net *lntest.NetworkHarness, t *harnessTest) {
@@ -14106,10 +14025,6 @@ var testsCases = []*testCase{
 	{
 		name: "invoice routing hints",
 		test: testInvoiceRoutingHints,
-	},
-	{
-		name: "invoice check inbound bandwidth",
-		test: testInvoiceCheckInboundBandwidth,
 	},
 	{
 		name: "multi-hop payments over private channels",

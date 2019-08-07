@@ -807,6 +807,12 @@ func (f *fundingManager) advanceFundingState(channel *channeldb.OpenChannel,
 			// Channel not in fundingManager's opening database,
 			// meaning it was successfully announced to the
 			// network.
+			// TODO(halseth): could do graph consistency check
+			// here, and re-add the edge if missing.
+			fndgLog.Debugf("ChannlPoint(%v) with chanID=%v not "+
+				"found in opening database, assuming already "+
+				"announced to the network",
+				channel.FundingOutpoint, pendingChanID)
 			return
 		} else if err != nil {
 			fndgLog.Errorf("Unable to query database for "+

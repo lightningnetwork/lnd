@@ -12760,6 +12760,10 @@ func testSendUpdateDisableChannel(net *lntest.NetworkHarness, t *harnessTest) {
 		},
 	)
 	mineBlocks(t, net, 1, 1)
+
+	// And finally, clean up the force closed channel by mining the
+	// sweeping transaction.
+	cleanupForceClose(t, net, net.Alice, chanPointAliceCarol)
 }
 
 // testAbandonChannel abandones a channel and asserts that it is no

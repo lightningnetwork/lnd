@@ -560,6 +560,15 @@ func newRPCServer(s *server, macService *macaroons.Service,
 	unaryInterceptors := append(macUnaryInterceptors, promUnaryInterceptors...)
 	strmInterceptors := append(macStrmInterceptors, promStrmInterceptors...)
 
+	// We'll also add our logging interceptors as well, so we can
+	// automatically log all errors that happen during RPC calls.
+	unaryInterceptors = append(
+		unaryInterceptors, errorLogUnaryServerInterceptor(rpcsLog),
+	)
+	strmInterceptors = append(
+		strmInterceptors, errorLogStreamServerInterceptor(rpcsLog),
+	)
+
 	// If any interceptors have been set up, add them to the server options.
 	if len(unaryInterceptors) != 0 && len(strmInterceptors) != 0 {
 		chainedUnary := grpc_middleware.WithUnaryServerChain(

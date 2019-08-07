@@ -55,3 +55,5 @@ replace github.com/lightningnetwork/lnd/ticker => ./ticker
 replace github.com/lightningnetwork/lnd/queue => ./queue
 
 replace git.schwanenlied.me/yawning/bsaes.git => github.com/Yawning/bsaes v0.0.0-20180720073208-c0276d75487e
+
+replace github.com/lightninglabs/neutrino => github.com/wpaulino/neutrino v0.0.0-20190807003308-0d09f2aa28c0

@@ -11,19 +11,36 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
+// VertexSize is the size of the array to store a vertex.
+const VertexSize = 33
+
 // ErrNoRouteHopsProvided is returned when a caller attempts to construct a new
 // sphinx packet, but provides an empty set of hops for each route.
 var ErrNoRouteHopsProvided = fmt.Errorf("empty route hops provided")
 
 // Vertex is a simple alias for the serialization of a compressed Bitcoin
 // public key.
-type Vertex [33]byte
+type Vertex [VertexSize]byte
 
 // NewVertex returns a new Vertex given a public key.
 func NewVertex(pub *btcec.PublicKey) Vertex {
 	var v Vertex
 	copy(v[:], pub.SerializeCompressed())
 	return v
+}
+
+// NewVertexFromBytes returns a new Vertex based on a serialized pubkey in a
+// byte slice.
+func NewVertexFromBytes(b []byte) (Vertex, error) {
+	vertexLen := len(b)
+	if vertexLen != VertexSize {
+		return Vertex{}, fmt.Errorf("invalid vertex length of %v, "+
+			"want %v", vertexLen, VertexSize)
+	}
+
+	var v Vertex
+	copy(v[:], b)
+	return v, nil
 }
 
 // String returns a human readable version of the Vertex which is the

@@ -89,15 +89,7 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 			return route.Vertex{}, err
 		}
 
-		if len(pubKeyBytes) != 33 {
-			return route.Vertex{},
-				errors.New("invalid key length")
-		}
-
-		var v route.Vertex
-		copy(v[:], pubKeyBytes)
-
-		return v, nil
+		return route.NewVertexFromBytes(pubKeyBytes)
 	}
 
 	// Parse the hex-encoded source and target public keys into full public
@@ -134,11 +126,10 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 
 	ignoredNodes := make(map[route.Vertex]struct{})
 	for _, ignorePubKey := range in.IgnoredNodes {
-		if len(ignorePubKey) != 33 {
-			return nil, fmt.Errorf("invalid ignore node pubkey")
+		ignoreVertex, err := route.NewVertexFromBytes(ignorePubKey)
+		if err != nil {
+			return nil, err
 		}
-		var ignoreVertex route.Vertex
-		copy(ignoreVertex[:], ignorePubKey)
 		ignoredNodes[ignoreVertex] = struct{}{}
 	}
 
@@ -484,12 +475,11 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 		// from the other fields.
 
 		// Payment destination.
-		if len(rpcPayReq.Dest) != 33 {
-			return nil, errors.New("invalid key length")
-
+		target, err := route.NewVertexFromBytes(rpcPayReq.Dest)
+		if err != nil {
+			return nil, err
 		}
-		pubBytes := rpcPayReq.Dest
-		copy(payIntent.Target[:], pubBytes)
+		payIntent.Target = target
 
 		// Final payment CLTV delta.
 		if rpcPayReq.FinalCltvDelta != 0 {

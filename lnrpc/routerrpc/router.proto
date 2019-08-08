@@ -183,12 +183,11 @@ message SendToRouteResponse {
 }
 
 message Failure {
+    /**
+    Failure codes as defined in BOLT #4. Note: numbers don't match the
+    specification.
+    */
     enum FailureCode {
-        /**
-        The numbers assigned in this enumeration match the failure codes as
-        defined in BOLT #4. Because protobuf 3 requires enums to start with 0,
-        a RESERVED value is added.
-        */
         RESERVED = 0;
 
         INCORRECT_OR_UNKNOWN_PAYMENT_DETAILS = 1;

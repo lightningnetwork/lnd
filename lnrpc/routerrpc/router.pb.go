@@ -74,13 +74,12 @@ func (PaymentState) EnumDescriptor() ([]byte, []int) {
 	return fileDescriptor_7a0613f69d37b0a5, []int{0}
 }
 
+//*
+//Failure codes as defined in BOLT #4. Note: numbers don't match the
+//specification.
 type Failure_FailureCode int32
 
 const (
-	//*
-	//The numbers assigned in this enumeration match the failure codes as
-	//defined in BOLT #4. Because protobuf 3 requires enums to start with 0,
-	//a RESERVED value is added.
 	Failure_RESERVED                             Failure_FailureCode = 0
 	Failure_INCORRECT_OR_UNKNOWN_PAYMENT_DETAILS Failure_FailureCode = 1
 	Failure_INCORRECT_PAYMENT_AMOUNT             Failure_FailureCode = 2

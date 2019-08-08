@@ -44,7 +44,7 @@ func ETUint16(w io.Writer, val interface{}, buf *[8]byte) error {
 // be resurrected. An error is returned if val is not a *uint16.
 func DTUint16(r io.Reader, val interface{}, buf *[8]byte, l uint64) error {
 	if t, ok := val.(*uint16); ok && l <= 2 {
-		_, err := io.ReadFull(r, buf[2-l:])
+		_, err := io.ReadFull(r, buf[2-l:2])
 		if err != nil {
 			return err
 		}
@@ -96,7 +96,7 @@ func ETUint32(w io.Writer, val interface{}, buf *[8]byte) error {
 // be resurrected. An error is returned if val is not a *uint32.
 func DTUint32(r io.Reader, val interface{}, buf *[8]byte, l uint64) error {
 	if t, ok := val.(*uint32); ok && l <= 4 {
-		_, err := io.ReadFull(r, buf[4-l:])
+		_, err := io.ReadFull(r, buf[4-l:4])
 		if err != nil {
 			return err
 		}

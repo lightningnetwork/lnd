@@ -437,10 +437,10 @@ func (i *InvoiceRegistry) checkHtlcParameters(invoice *channeldb.Invoice,
 		return channeldb.ErrInvoiceAlreadyCanceled
 	}
 
-	// If a payment has already been made, we only accept more payments if
-	// the amount is the exact same. This prevents probing with small
-	// amounts on settled invoices to find out the receiver node.
-	if invoice.AmtPaid != 0 && amtPaid != invoice.AmtPaid {
+	// If an invoice amount is specified, check that enough is paid. Also
+	// check this for duplicate payments if the invoice is already settled
+	// or accepted.
+	if invoice.Terms.Value > 0 && amtPaid < invoice.Terms.Value {
 		return ErrInvoiceAmountTooLow
 	}
 
@@ -466,11 +466,6 @@ func (i *InvoiceRegistry) checkHtlcParameters(invoice *channeldb.Invoice,
 
 	if htlcExpiry < uint32(currentHeight)+expiry {
 		return ErrInvoiceExpiryTooSoon
-	}
-
-	// If an invoice amount is specified, check that enough is paid.
-	if invoice.Terms.Value > 0 && amtPaid < invoice.Terms.Value {
-		return ErrInvoiceAmountTooLow
 	}
 
 	return nil

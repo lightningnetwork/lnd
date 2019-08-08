@@ -165,9 +165,9 @@ func TestSettleInvoice(t *testing.T) {
 		t.Fatal("expected settle event")
 	}
 
-	// Try to settle again with a higher amount. This should result in a
-	// cancel event because after a restart the amount should still be the
-	// same. New HTLCs with a different amount should be rejected.
+	// Try to settle again with a higher amount. This payment should also be
+	// accepted, to prevent any change in behaviour for a paid invoice that
+	// may open up a probe vector.
 	event, err = registry.NotifyExitHopHtlc(
 		hash, amtPaid+600, testHtlcExpiry, testCurrentHeight,
 		hodlChan, nil,
@@ -175,12 +175,12 @@ func TestSettleInvoice(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected NotifyExitHopHtlc error: %v", err)
 	}
-	if event.Preimage != nil {
-		t.Fatal("expected cancel event")
+	if event.Preimage == nil {
+		t.Fatal("expected settle event")
 	}
 
-	// Try to settle again with a lower amount. This should show the same
-	// behaviour as settling with a higher amount.
+	// Try to settle again with a lower amount. This should fail just as it
+	// would have failed if it were the first payment.
 	event, err = registry.NotifyExitHopHtlc(
 		hash, amtPaid-600, testHtlcExpiry, testCurrentHeight,
 		hodlChan, nil,

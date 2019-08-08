@@ -5,7 +5,6 @@ import (
 	"crypto/ecdsa"
 	"crypto/hmac"
 	"crypto/sha256"
-	"encoding/binary"
 	"io"
 	"math/big"
 
@@ -44,6 +43,13 @@ const (
 	HopDataSize = (RealmByteSize + AddressSize + AmtForwardSize +
 		OutgoingCLTVSize + NumPaddingBytes + HMACSize)
 
+	// MaxPayloadSize is the maximum size a payload for a single hop can
+	// be. This is the worst case scenario of a single hop, consuming all
+	// 20 frames. We need to know this in order to generate a sufficiently
+	// long stream of pseudo-random bytes when encrypting/decrypting the
+	// payload.
+	MaxPayloadSize = NumMaxHops * HopDataSize
+
 	// sharedSecretSize is the size in bytes of the shared secrets.
 	sharedSecretSize = 32
 
@@ -56,9 +62,10 @@ const (
 
 	// numStreamBytes is the number of bytes produced by our CSPRG for the
 	// key stream implementing our stream cipher to encrypt/decrypt the mix
-	// header. The last hopDataSize bytes are only used in order to
-	// generate/check the MAC over the header.
-	numStreamBytes = routingInfoSize + HopDataSize
+	// header. The MaxPayloadSize bytes at the end are used to
+	// encrypt/decrypt the fillers when processing the packet of generating
+	// the HMACs when creating the packet.
+	numStreamBytes = routingInfoSize * 2
 
 	// keyLen is the length of the keys used to generate cipher streams and
 	// encrypt payloads. Since we use SHA256 to generate the keys, the
@@ -102,104 +109,6 @@ type OnionPacket struct {
 	// associated data lets each hop authenticate higher-level data that is
 	// critical for the forwarding of this HTLC.
 	HeaderMAC [HMACSize]byte
-}
-
-// HopData is the information destined for individual hops. It is a fixed size
-// 64 bytes, prefixed with a 1 byte realm that indicates how to interpret it.
-// For now we simply assume it's the bitcoin realm (0x00) and hence the format
-// is fixed. The last 32 bytes are always the HMAC to be passed to the next
-// hop, or zero if this is the packet is not to be forwarded, since this is the
-// last hop.
-type HopData struct {
-	// Realm denotes the "real" of target chain of the next hop. For
-	// bitcoin, this value will be 0x00.
-	Realm [RealmByteSize]byte
-
-	// NextAddress is the address of the next hop that this packet should
-	// be forward to.
-	NextAddress [AddressSize]byte
-
-	// ForwardAmount is the HTLC amount that the next hop should forward.
-	// This value should take into account the fee require by this
-	// particular hop, and the cumulative fee for the entire route.
-	ForwardAmount uint64
-
-	// OutgoingCltv is the value of the outgoing absolute time-lock that
-	// should be included in the HTLC forwarded.
-	OutgoingCltv uint32
-
-	// ExtraBytes is the set of unused bytes within the onion payload. This
-	// extra set of bytes can be utilized by higher level applications to
-	// package additional data within the per-hop payload, or signal that a
-	// portion of the remaining set of hops are to be consumed as Extra
-	// Onion Blobs.
-	//
-	// TODO(roasbeef): rename to padding bytes?
-	ExtraBytes [NumPaddingBytes]byte
-
-	// HMAC is an HMAC computed over the entire per-hop payload that also
-	// includes the higher-level (optional) associated data bytes.
-	HMAC [HMACSize]byte
-}
-
-// Encode writes the serialized version of the target HopData into the passed
-// io.Writer.
-func (hd *HopData) Encode(w io.Writer) error {
-	if _, err := w.Write(hd.Realm[:]); err != nil {
-		return err
-	}
-
-	if _, err := w.Write(hd.NextAddress[:]); err != nil {
-		return err
-	}
-
-	if err := binary.Write(w, binary.BigEndian, hd.ForwardAmount); err != nil {
-		return err
-	}
-
-	if err := binary.Write(w, binary.BigEndian, hd.OutgoingCltv); err != nil {
-		return err
-	}
-
-	if _, err := w.Write(hd.ExtraBytes[:]); err != nil {
-		return err
-	}
-
-	if _, err := w.Write(hd.HMAC[:]); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// Decode deserializes the encoded HopData contained int he passed io.Reader
-// instance to the target empty HopData instance.
-func (hd *HopData) Decode(r io.Reader) error {
-	if _, err := io.ReadFull(r, hd.Realm[:]); err != nil {
-		return err
-	}
-
-	if _, err := io.ReadFull(r, hd.NextAddress[:]); err != nil {
-		return err
-	}
-
-	if err := binary.Read(r, binary.BigEndian, &hd.ForwardAmount); err != nil {
-		return err
-	}
-
-	if err := binary.Read(r, binary.BigEndian, &hd.OutgoingCltv); err != nil {
-		return err
-	}
-
-	if _, err := io.ReadFull(r, hd.ExtraBytes[:]); err != nil {
-		return err
-	}
-
-	if _, err := io.ReadFull(r, hd.HMAC[:]); err != nil {
-		return err
-	}
-
-	return nil
 }
 
 // generateSharedSecrets by the given nodes pubkeys, generates the shared
@@ -287,16 +196,14 @@ func NewOnionPacket(paymentPath *PaymentPath, sessionKey *btcec.PrivateKey,
 	)
 
 	// Generate the padding, called "filler strings" in the paper.
-	filler := generateHeaderPadding(
-		"rho", numHops, HopDataSize, hopSharedSecrets,
-	)
+	filler := generateHeaderPadding("rho", paymentPath, hopSharedSecrets)
 
 	// Allocate zero'd out byte slices to store the final mix header packet
 	// and the hmac for each hop.
 	var (
-		mixHeader  [routingInfoSize]byte
-		nextHmac   [HMACSize]byte
-		hopDataBuf bytes.Buffer
+		mixHeader     [routingInfoSize]byte
+		nextHmac      [HMACSize]byte
+		hopPayloadBuf bytes.Buffer
 	)
 
 	// Now we compute the routing information for each hop, along with a
@@ -311,31 +218,32 @@ func NewOnionPacket(paymentPath *PaymentPath, sessionKey *btcec.PrivateKey,
 		// The HMAC for the final hop is simply zeroes. This allows the
 		// last hop to recognize that it is the destination for a
 		// particular payment.
-		paymentPath[i].HopData.HMAC = nextHmac
+		paymentPath[i].HopPayload.HMAC = nextHmac
 
 		// Next, using the key dedicated for our stream cipher, we'll
 		// generate enough bytes to obfuscate this layer of the onion
 		// packet.
-		streamBytes := generateCipherStream(rhoKey, numStreamBytes)
+		streamBytes := generateCipherStream(rhoKey, routingInfoSize)
+
+		payload := paymentPath[i].HopPayload
 
 		// Before we assemble the packet, we'll shift the current
-		// mix-header to the write in order to make room for this next
+		// mix-header to the right in order to make room for this next
 		// per-hop data.
-		rightShift(mixHeader[:], HopDataSize)
+		shiftSize := payload.NumBytes()
+		rightShift(mixHeader[:], shiftSize)
 
-		// With the mix header right-shifted, we'll encode the current
-		// hop data into a buffer we'll re-use during the packet
-		// construction.
-		err := paymentPath[i].HopData.Encode(&hopDataBuf)
+		err := payload.Encode(&hopPayloadBuf)
 		if err != nil {
 			return nil, err
 		}
-		copy(mixHeader[:], hopDataBuf.Bytes())
+
+		copy(mixHeader[:], hopPayloadBuf.Bytes())
 
 		// Once the packet for this hop has been assembled, we'll
 		// re-encrypt the packet by XOR'ing with a stream of bytes
 		// generated using our shared secret.
-		xor(mixHeader[:], mixHeader[:], streamBytes[:routingInfoSize])
+		xor(mixHeader[:], mixHeader[:], streamBytes[:])
 
 		// If this is the "last" hop, then we'll override the tail of
 		// the hop data.
@@ -350,7 +258,7 @@ func NewOnionPacket(paymentPath *PaymentPath, sessionKey *btcec.PrivateKey,
 		packet := append(mixHeader[:], assocData...)
 		nextHmac = calcMac(muKey, packet)
 
-		hopDataBuf.Reset()
+		hopPayloadBuf.Reset()
 	}
 
 	return &OnionPacket{
@@ -375,26 +283,41 @@ func rightShift(slice []byte, num int) {
 
 // generateHeaderPadding derives the bytes for padding the mix header to ensure
 // it remains fixed sized throughout route transit. At each step, we add
-// 'hopSize' padding of zeroes, concatenate it to the previous filler, then
-// decrypt it (XOR) with the secret key of the current hop. When encrypting the
-// mix header we essentially do the reverse of this operation: we "encrypt" the
-// padding, and drop 'hopSize' number of zeroes. As nodes process the mix
-// header they add the padding ('hopSize') in order to check the MAC and
-// decrypt the next routing information eventually leaving only the original
-// "filler" bytes produced by this function at the last hop. Using this
-// methodology, the size of the field stays constant at each hop.
-func generateHeaderPadding(key string, numHops int, hopSize int,
-	sharedSecrets []Hash256) []byte {
+// 'frameSize*frames' padding of zeroes, concatenate it to the previous filler,
+// then decrypt it (XOR) with the secret key of the current hop. When
+// encrypting the mix header we essentially do the reverse of this operation:
+// we "encrypt" the padding, and drop 'frameSize*frames' number of zeroes. As
+// nodes process the mix header they add the padding ('frameSize*frames') in
+// order to check the MAC and decrypt the next routing information eventually
+// leaving only the original "filler" bytes produced by this function at the
+// last hop.  Using this methodology, the size of the field stays constant at
+// each hop.
+func generateHeaderPadding(key string, path *PaymentPath, sharedSecrets []Hash256) []byte {
+	numHops := path.TrueRouteLength()
 
-	filler := make([]byte, (numHops-1)*hopSize)
-	for i := 1; i < numHops; i++ {
-		totalFillerSize := ((NumMaxHops - i) + 1) * hopSize
+	// We have to generate a filler that matches all but the last hop (the
+	// last hop won't generate an HMAC)
+	fillerSize := path.TotalPayloadSize() - path[numHops-1].HopPayload.NumBytes()
+	filler := make([]byte, fillerSize)
 
-		streamKey := generateKey(key, &sharedSecrets[i-1])
+	for i := 0; i < numHops-1; i++ {
+		// Sum up how many frames were used by prior hops.
+		fillerStart := routingInfoSize
+		for _, p := range path[:i] {
+			fillerStart -= p.HopPayload.NumBytes()
+		}
+
+		// The filler is the part dangling off of the end of the
+		// routingInfo, so offset it from there, and use the current
+		// hop's frame count as its size.
+		fillerEnd := routingInfoSize + path[i].HopPayload.NumBytes()
+
+		streamKey := generateKey(key, &sharedSecrets[i])
 		streamBytes := generateCipherStream(streamKey, numStreamBytes)
 
-		xor(filler, filler, streamBytes[totalFillerSize:totalFillerSize+i*hopSize])
+		xor(filler, filler, streamBytes[fillerStart:fillerEnd])
 	}
+
 	return filler
 }
 
@@ -509,7 +432,13 @@ type ProcessedPacket struct {
 	//
 	// NOTE: This field will only be populated iff the above Action is
 	// MoreHops.
-	ForwardingInstructions HopData
+	ForwardingInstructions *HopData
+
+	// Payload is the raw payload as extracted from the packet. If the
+	// ForwardingInstructions field above is nil, then this is a modern TLV
+	// payload. As a result, the caller should parse the contents to obtain
+	// the new set of forwarding instructions.
+	Payload HopPayload
 
 	// NextPacket is the onion packet that should be forwarded to the next
 	// hop as denoted by the ForwardingInstructions field.
@@ -628,7 +557,7 @@ func (r *Router) ReconstructOnionPacket(onionPkt *OnionPacket,
 // packet. This function returns the next inner onion packet layer, along with
 // the hop data extracted from the outer onion packet.
 func unwrapPacket(onionPkt *OnionPacket, sharedSecret *Hash256,
-	assocData []byte) (*OnionPacket, *HopData, error) {
+	assocData []byte) (*OnionPacket, *HopPayload, error) {
 
 	dhKey := onionPkt.EphemeralKey
 	routeInfo := onionPkt.RoutingInfo
@@ -647,10 +576,9 @@ func unwrapPacket(onionPkt *OnionPacket, sharedSecret *Hash256,
 	// layer off the routing info revealing the routing information for the
 	// next hop.
 	streamBytes := generateCipherStream(
-		generateKey("rho", sharedSecret),
-		numStreamBytes,
+		generateKey("rho", sharedSecret), numStreamBytes,
 	)
-	zeroBytes := bytes.Repeat([]byte{0}, HopDataSize)
+	zeroBytes := bytes.Repeat([]byte{0}, MaxPayloadSize)
 	headerWithPadding := append(routeInfo[:], zeroBytes...)
 
 	var hopInfo [numStreamBytes]byte
@@ -662,25 +590,25 @@ func unwrapPacket(onionPkt *OnionPacket, sharedSecret *Hash256,
 	nextDHKey := blindGroupElement(dhKey, blindingFactor[:])
 
 	// With the MAC checked, and the payload decrypted, we can now parse
-	// out the per-hop data so we can derive the specified forwarding
+	// out the payload so we can derive the specified forwarding
 	// instructions.
-	var hopData HopData
-	if err := hopData.Decode(bytes.NewReader(hopInfo[:])); err != nil {
+	var hopPayload HopPayload
+	if err := hopPayload.Decode(bytes.NewReader(hopInfo[:])); err != nil {
 		return nil, nil, err
 	}
 
 	// With the necessary items extracted, we'll copy of the onion packet
 	// for the next node, snipping off our per-hop data.
 	var nextMixHeader [routingInfoSize]byte
-	copy(nextMixHeader[:], hopInfo[HopDataSize:])
+	copy(nextMixHeader[:], hopInfo[hopPayload.NumBytes():])
 	innerPkt := &OnionPacket{
 		Version:      onionPkt.Version,
 		EphemeralKey: nextDHKey,
 		RoutingInfo:  nextMixHeader,
-		HeaderMAC:    hopData.HMAC,
+		HeaderMAC:    hopPayload.HMAC,
 	}
 
-	return innerPkt, &hopData, nil
+	return innerPkt, &hopPayload, nil
 }
 
 // processOnionPacket performs the primary key derivation and handling of onion
@@ -697,7 +625,7 @@ func processOnionPacket(onionPkt *OnionPacket, sharedSecret *Hash256,
 	// mix header is the one that we'll want to pass onto the next hop so
 	// they can properly check the HMAC and unwrap a layer for their
 	// handoff hop.
-	innerPkt, outerHopData, err := unwrapPacket(
+	innerPkt, outerHopPayload, err := unwrapPacket(
 		onionPkt, sharedSecret, assocData,
 	)
 	if err != nil {
@@ -708,8 +636,13 @@ func processOnionPacket(onionPkt *OnionPacket, sharedSecret *Hash256,
 	// However if the uncovered 'nextMac' is all zeroes, then this
 	// indicates that we're the final hop in the route.
 	var action ProcessCode = MoreHops
-	if bytes.Compare(zeroHMAC[:], outerHopData.HMAC[:]) == 0 {
+	if bytes.Compare(zeroHMAC[:], outerHopPayload.HMAC[:]) == 0 {
 		action = ExitNode
+	}
+
+	hopData, err := outerHopPayload.HopData()
+	if err != nil {
+		return nil, err
 	}
 
 	// Finally, we'll return a fully processed packet with the outer most
@@ -717,7 +650,8 @@ func processOnionPacket(onionPkt *OnionPacket, sharedSecret *Hash256,
 	// inner most onion packet that we unwrapped.
 	return &ProcessedPacket{
 		Action:                 action,
-		ForwardingInstructions: *outerHopData,
+		ForwardingInstructions: hopData,
+		Payload:                *outerHopPayload,
 		NextPacket:             innerPkt,
 	}, nil
 }

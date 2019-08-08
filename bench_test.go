@@ -28,15 +28,19 @@ func BenchmarkPathPacketConstruction(b *testing.B) {
 		}
 
 		hopData := HopData{
-			Realm:         [1]byte{0x00},
 			ForwardAmount: uint64(i),
 			OutgoingCltv:  uint32(i),
 		}
 		copy(hopData.NextAddress[:], bytes.Repeat([]byte{byte(i)}, 8))
 
+		hopPayload, err := NewHopPayload(&hopData, nil)
+		if err != nil {
+			b.Fatalf("unable to create new hop payload: %v", err)
+		}
+
 		route[i] = OnionHop{
-			NodePub: *privKey.PubKey(),
-			HopData: hopData,
+			NodePub:    *privKey.PubKey(),
+			HopPayload: hopPayload,
 		}
 	}
 

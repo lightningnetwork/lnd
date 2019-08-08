@@ -15,6 +15,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chanacceptor"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/htlcswitch"
@@ -338,6 +339,11 @@ type fundingConfig struct {
 	// NotifyOpenChannelEvent informs the ChannelNotifier when channels
 	// transition from pending open to open.
 	NotifyOpenChannelEvent func(wire.OutPoint)
+
+	// OpenChannelPredicate is a predicate on the lnwire.OpenChannel message
+	// and on the requesting node's public key that returns a bool which tells
+	// the funding manager whether or not to accept the channel.
+	OpenChannelPredicate chanacceptor.ChannelAcceptor
 }
 
 // fundingManager acts as an orchestrator/bridge between the wallet's
@@ -1057,7 +1063,23 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 	if f.cfg.RejectPush && msg.PushAmount > 0 {
 		f.failFundingFlow(
 			fmsg.peer, fmsg.msg.PendingChannelID,
-			lnwallet.ErrNonZeroPushAmount())
+			lnwallet.ErrNonZeroPushAmount(),
+		)
+		return
+	}
+
+	// Send the OpenChannel request to the ChannelAcceptor to determine whether
+	// this node will accept the channel.
+	chanReq := &chanacceptor.ChannelAcceptRequest{
+		Node:        fmsg.peer.IdentityKey(),
+		OpenChanMsg: fmsg.msg,
+	}
+
+	if !f.cfg.OpenChannelPredicate.Accept(chanReq) {
+		f.failFundingFlow(
+			fmsg.peer, fmsg.msg.PendingChannelID,
+			fmt.Errorf("open channel request rejected"),
+		)
 		return
 	}
 

@@ -28,6 +28,7 @@ import (
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/brontide"
+	"github.com/lightningnetwork/lnd/chanacceptor"
 	"github.com/lightningnetwork/lnd/chanbackup"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channelnotifier"
@@ -297,7 +298,8 @@ func noiseDial(idPriv *btcec.PrivateKey) func(net.Addr) (net.Conn, error) {
 func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 	towerClientDB *wtdb.ClientDB, cc *chainControl,
 	privKey *btcec.PrivateKey,
-	chansToRestore walletunlocker.ChannelsToRecover) (*server, error) {
+	chansToRestore walletunlocker.ChannelsToRecover,
+	chanPredicate chanacceptor.ChannelAcceptor) (*server, error) {
 
 	var err error
 
@@ -908,6 +910,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 	if _, err := rand.Read(chanIDSeed[:]); err != nil {
 		return nil, err
 	}
+
 	s.fundingMgr, err = newFundingManager(fundingConfig{
 		IDKey:              privKey.PubKey(),
 		Wallet:             cc.wallet,
@@ -1069,6 +1072,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 		MaxPendingChannels:     cfg.MaxPendingChannels,
 		RejectPush:             cfg.RejectPush,
 		NotifyOpenChannelEvent: s.channelNotifier.NotifyOpenChannelEvent,
+		OpenChannelPredicate:   chanPredicate,
 	})
 	if err != nil {
 		return nil, err

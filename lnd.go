@@ -496,7 +496,7 @@ func Main(lisCfg ListenerCfg) error {
 	// connections.
 	server, err := newServer(
 		cfg.Listeners, chanDB, towerClientDB, activeChainControl,
-		idPrivKey, walletInitParams.ChansToRestore,
+		idPrivKey, walletInitParams.ChansToRestore, chainedAcceptor,
 	)
 	if err != nil {
 		err := fmt.Errorf("Unable to create server: %v", err)

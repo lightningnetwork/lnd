@@ -5051,3 +5051,8 @@ func (r *rpcServer) SubscribeChannelBackups(req *lnrpc.ChannelBackupSubscription
 		}
 	}
 }
+
+// ChannelAcceptor method stub.
+func (r *rpcServer) ChannelAcceptor(stream lnrpc.Lightning_ChannelAcceptorServer) error {
+	return nil
+}

@@ -430,6 +430,15 @@ service Lightning {
     */
     rpc OpenChannel (OpenChannelRequest) returns (stream OpenStatusUpdate);
 
+    /**
+    ChannelAcceptor dispatches a bi-directional streaming RPC in which
+    OpenChannel requests are sent to the client and the client responds with
+    a boolean that tells LND whether or not to accept the channel. This allows
+    node operators to specify their own criteria for accepting inbound channels
+    through a single persistent connection.
+    */
+    rpc ChannelAcceptor (stream ChannelAcceptResponse) returns (stream ChannelAcceptRequest);
+
     /** lncli: `closechannel`
     CloseChannel attempts to close an active channel identified by its channel
     outpoint (ChannelPoint). The actions of this method can additionally be
@@ -910,6 +919,58 @@ message SendToRouteRequest {
 
     /// Route that should be used to attempt to complete the payment.
     Route route = 4;
+}
+
+message ChannelAcceptRequest {
+    /// The pubkey of the node that wishes to open an inbound channel.
+    bytes node_pubkey = 1;
+
+    /// The hash of the genesis block that the proposed channel resides in.
+    bytes chain_hash = 2;
+
+    /// The pending channel id.
+    bytes pending_chan_id = 3;
+
+    /// The funding amount in satoshis that initiator wishes to use in the channel.
+    uint64 funding_amt = 4;
+
+    /// The push amount of the proposed channel in millisatoshis.
+    uint64 push_amt = 5;
+
+    /// The dust limit of the initiator's commitment tx.
+    uint64 dust_limit = 6;
+
+    /// The maximum amount of coins in millisatoshis that can be pending in this channel.
+    uint64 max_value_in_flight = 7;
+
+    /// The minimum amount of satoshis the initiator requires us to have at all times.
+    uint64 channel_reserve = 8;
+
+    /// The smallest HTLC in millisatoshis that the initiator will accept.
+    uint64 min_htlc = 9;
+
+    /// The initial fee rate that the initiator suggests for both commitment transactions.
+    uint64 fee_per_kw = 10;
+
+    /**
+    The number of blocks to use for the relative time lock in the pay-to-self output
+    of both commitment transactions.
+    */
+    uint32 csv_delay = 11;
+
+    /// The total number of incoming HTLC's that the initiator will accept.
+    uint32 max_accepted_htlcs = 12;
+
+    /// A bit-field which the initiator uses to specify proposed channel behavior.
+    uint32 channel_flags = 13;
+}
+
+message ChannelAcceptResponse {
+    /// Whether or not the client accepts the channel.
+    bool accept = 1;
+
+    /// The pending channel id to which this response applies.
+    bytes pending_chan_id = 2;
 }
 
 message ChannelPoint {

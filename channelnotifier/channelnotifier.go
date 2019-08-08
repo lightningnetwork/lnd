@@ -73,7 +73,11 @@ func (c *ChannelNotifier) Stop() {
 }
 
 // SubscribeChannelEvents returns a subscribe.Client that will receive updates
-// any time the Server is made aware of a new event.
+// any time the Server is made aware of a new event. The subscription provides
+// channel events from the point of subscription onwards.
+//
+// TODO(carlaKC): update  to allow subscriptions to specify a block height from
+// which we would like to subscribe to events.
 func (c *ChannelNotifier) SubscribeChannelEvents() (*subscribe.Client, error) {
 	return c.ntfnServer.Subscribe()
 }

@@ -30,6 +30,7 @@ import (
 	"github.com/lightningnetwork/lnd/brontide"
 	"github.com/lightningnetwork/lnd/chanacceptor"
 	"github.com/lightningnetwork/lnd/chanbackup"
+	"github.com/lightningnetwork/lnd/chanfitness"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channelnotifier"
 	"github.com/lightningnetwork/lnd/contractcourt"
@@ -242,6 +243,10 @@ type server struct {
 	// backups are consistent at all times. It interacts with the
 	// channelNotifier to be notified of newly opened and closed channels.
 	chanSubSwapper *chanbackup.SubSwapper
+
+	// chanEventStore tracks the behaviour of channels and their remote peers to
+	// provide insights into their health and performance.
+	chanEventStore *chanfitness.ChannelEventStore
 
 	quit chan struct{}
 
@@ -1113,6 +1118,13 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 	// to peer online and offline events.
 	s.peerNotifier = peernotifier.New()
 
+	// Create a channel event store which monitors all open channels.
+	s.chanEventStore = chanfitness.NewChannelEventStore(&chanfitness.Config{
+		SubscribeChannelEvents: s.channelNotifier.SubscribeChannelEvents,
+		SubscribePeerEvents:    s.peerNotifier.SubscribePeerEvents,
+		GetOpenChannels:        s.chanDB.FetchAllOpenChannels,
+	})
+
 	if cfg.WtClient.Active {
 		policy := wtpolicy.DefaultPolicy()
 
@@ -1270,6 +1282,11 @@ func (s *server) Start() error {
 			return
 		}
 
+		if err := s.chanEventStore.Start(); err != nil {
+			startErr = err
+			return
+		}
+
 		// Before we start the connMgr, we'll check to see if we have
 		// any backups to recover. We do this now as we want to ensure
 		// that have all the information we need to handle channel
@@ -1385,6 +1402,7 @@ func (s *server) Stop() error {
 		s.invoices.Stop()
 		s.fundingMgr.Stop()
 		s.chanSubSwapper.Stop()
+		s.chanEventStore.Stop()
 
 		// Disconnect from each active peers to ensure that
 		// peerTerminationWatchers signal completion to each peer.

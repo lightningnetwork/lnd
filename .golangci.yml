@@ -55,6 +55,9 @@ linters:
   # the linter.
   - prealloc
 
+  # Init functions are used by loggers throughout the codebase.
+  - gochecknoinits
+
 issues:
   # Only show newly introduced problems.
   new-from-rev: 01f696afce2f9c0d4ed854edefa3846891d01d8a

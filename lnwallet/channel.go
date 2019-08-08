@@ -2066,6 +2066,12 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 			},
 			HashType: txscript.SigHashAll,
 		}
+
+		// If this is a tweakless commitment, then we can safely blank
+		// out the SingleTweak value as it isn't needed.
+		if tweaklessCommit {
+			localSignDesc.SingleTweak = nil
+		}
 	}
 
 	// Similarly, if the remote balance exceeds the remote party's dust

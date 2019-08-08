@@ -3,13 +3,13 @@ ESCPKG := github.com\/lightningnetwork\/lnd
 
 BTCD_PKG := github.com/btcsuite/btcd
 GOVERALLS_PKG := github.com/mattn/goveralls
-LINT_PKG := gopkg.in/alecthomas/gometalinter.v2
+LINT_PKG := github.com/golangci/golangci-lint/cmd/golangci-lint
 GOACC_PKG := github.com/ory/go-acc
 
 GO_BIN := ${GOPATH}/bin
 BTCD_BIN := $(GO_BIN)/btcd
 GOVERALLS_BIN := $(GO_BIN)/goveralls
-LINT_BIN := $(GO_BIN)/gometalinter.v2
+LINT_BIN := $(GO_BIN)/golangci-lint
 GOACC_BIN := $(GO_BIN)/go-acc
 
 BTCD_DIR :=${GOPATH}/src/$(BTCD_PKG)
@@ -32,7 +32,6 @@ GOTEST := GO111MODULE=on go test -v
 GOFILES_NOVENDOR = $(shell find . -type f -name '*.go' -not -path "./vendor/*")
 GOLIST := go list $(PKG)/... | grep -v '/vendor/'
 GOLISTCOVER := $(shell go list -f '{{.ImportPath}}' ./... | sed -e 's/^$(ESCPKG)/./')
-GOLISTLINT := $(shell go list -f '{{.Dir}}' ./... | grep -v 'lnrpc')
 
 RM := rm -f
 CP := cp
@@ -43,15 +42,7 @@ include make/testing_flags.mk
 
 DEV_TAGS := $(if ${tags},$(DEV_TAGS) ${tags},$(DEV_TAGS))
 
-LINT = $(LINT_BIN) \
-	--disable-all \
-	--enable=gofmt \
-	--enable=vet \
-	--enable=golint \
-	--line-length=72 \
-	--deadline=4m $(GOLISTLINT) 2>&1 | \
-	grep -v 'ALL_CAPS\|OP_' 2>&1 | \
-	tee /dev/stderr
+LINT = $(LINT_BIN) run
 
 GREEN := "\\033[0;32m"
 NC := "\\033[0m"
@@ -72,7 +63,7 @@ $(GOVERALLS_BIN):
 	go get -u $(GOVERALLS_PKG)
 
 $(LINT_BIN):
-	@$(call print, "Fetching gometalinter.v2")
+	@$(call print, "Fetching linter")
 	GO111MODULE=off go get -u $(LINT_PKG)
 
 $(GOACC_BIN):
@@ -166,8 +157,7 @@ fmt:
 
 lint: $(LINT_BIN)
 	@$(call print, "Linting source.")
-	GO111MODULE=off $(LINT_BIN) --install 1> /dev/null
-	test -z "$$($(LINT))"
+	$(LINT)
 
 list:
 	@$(call print, "Listing commands.")

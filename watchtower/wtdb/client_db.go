@@ -665,7 +665,7 @@ func (c *ClientDB) RegisterChannel(chanID lnwire.ChannelID,
 		case err == ErrChannelNotRegistered:
 
 		// Unexpected error.
-		case err != nil:
+		default:
 			return err
 		}
 

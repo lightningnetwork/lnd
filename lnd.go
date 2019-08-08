@@ -197,7 +197,15 @@ func Main() error {
 	serverCreds := credentials.NewTLS(tlsCfg)
 	serverOpts := []grpc.ServerOption{grpc.Creds(serverCreds)}
 
-	restDialOpts := []grpc.DialOption{grpc.WithTransportCredentials(*restCreds)}
+	// For our REST dial options, we'll still use TLS, but also increase
+	// the max message size that we'll decode to allow clients to hit
+	// endpoints which return more data such as the DescribeGraph call.
+	restDialOpts := []grpc.DialOption{
+		grpc.WithTransportCredentials(*restCreds),
+		grpc.WithDefaultCallOptions(
+			grpc.MaxCallRecvMsgSize(1 * 1024 * 1024 * 50),
+		),
+	}
 
 	// Before starting the wallet, we'll create and start our Neutrino
 	// light client instance, if enabled, in order to allow it to sync

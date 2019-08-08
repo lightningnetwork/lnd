@@ -27,6 +27,9 @@ type htlcIncomingContestResolver struct {
 	// successfully.
 	htlcExpiry uint32
 
+	// circuitKey describes the incoming htlc that is being resolved.
+	circuitKey channeldb.CircuitKey
+
 	// htlcSuccessResolver is the inner resolver that may be utilized if we
 	// learn of the preimage.
 	htlcSuccessResolver
@@ -166,7 +169,7 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 	// identical to HTLC resolution in the link.
 	event, err := h.Registry.NotifyExitHopHtlc(
 		h.payHash, h.htlcAmt, h.htlcExpiry, currentHeight,
-		hodlChan, nil,
+		h.circuitKey, hodlChan, nil,
 	)
 	switch err {
 	case channeldb.ErrInvoiceNotFound:

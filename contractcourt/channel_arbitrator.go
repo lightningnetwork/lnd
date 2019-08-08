@@ -498,9 +498,7 @@ func (c *ChannelArbitrator) supplementResolver(resolver ContractResolver,
 		return c.supplementSuccessResolver(r, htlcMap)
 
 	case *htlcIncomingContestResolver:
-		return c.supplementSuccessResolver(
-			&r.htlcSuccessResolver, htlcMap,
-		)
+		return c.supplementIncomingContestResolver(r, htlcMap)
 
 	case *htlcTimeoutResolver:
 		return c.supplementTimeoutResolver(r, htlcMap)
@@ -509,6 +507,30 @@ func (c *ChannelArbitrator) supplementResolver(resolver ContractResolver,
 		return c.supplementTimeoutResolver(
 			&r.htlcTimeoutResolver, htlcMap,
 		)
+	}
+
+	return nil
+}
+
+// supplementSuccessResolver takes a htlcIncomingContestResolver as it is
+// restored from the log and fills in missing data from the htlcMap.
+func (c *ChannelArbitrator) supplementIncomingContestResolver(
+	r *htlcIncomingContestResolver,
+	htlcMap map[wire.OutPoint]*channeldb.HTLC) error {
+
+	res := r.htlcResolution
+	htlcPoint := res.HtlcPoint()
+	htlc, ok := htlcMap[htlcPoint]
+	if !ok {
+		return errors.New(
+			"htlc for incoming contest resolver unavailable",
+		)
+	}
+
+	r.htlcAmt = htlc.Amt
+	r.circuitKey = channeldb.CircuitKey{
+		ChanID: c.cfg.ShortChanID,
+		HtlcID: htlc.HtlcIndex,
 	}
 
 	return nil

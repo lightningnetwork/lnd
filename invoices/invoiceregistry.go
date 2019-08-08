@@ -484,14 +484,15 @@ func (i *InvoiceRegistry) checkHtlcParameters(invoice *channeldb.Invoice,
 // prevent deadlock.
 func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 	amtPaid lnwire.MilliSatoshi, expiry uint32, currentHeight int32,
-	hodlChan chan<- interface{}, eob []byte) (*HodlEvent, error) {
+	circuitKey channeldb.CircuitKey, hodlChan chan<- interface{},
+	eob []byte) (*HodlEvent, error) {
 
 	i.Lock()
 	defer i.Unlock()
 
 	debugLog := func(s string) {
-		log.Debugf("Invoice(%x): %v, amt=%v, expiry=%v",
-			rHash[:], s, amtPaid, expiry)
+		log.Debugf("Invoice(%x): %v, amt=%v, expiry=%v, circuit=%v",
+			rHash[:], s, amtPaid, expiry, circuitKey)
 	}
 
 	// If this isn't a debug invoice, then we'll attempt to settle an

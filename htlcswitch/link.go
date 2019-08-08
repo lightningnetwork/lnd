@@ -2878,9 +2878,14 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 	// receive back a resolution event.
 	invoiceHash := lntypes.Hash(pd.RHash)
 
+	circuitKey := channeldb.CircuitKey{
+		ChanID: l.ShortChanID(),
+		HtlcID: pd.HtlcIndex,
+	}
+
 	event, err := l.cfg.Registry.NotifyExitHopHtlc(
 		invoiceHash, pd.Amount, pd.Timeout, int32(heightNow),
-		l.hodlQueue.ChanIn(), eob,
+		circuitKey, l.hodlQueue.ChanIn(), eob,
 	)
 
 	switch err {

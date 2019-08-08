@@ -43,6 +43,7 @@ import (
 
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/build"
+	"github.com/lightningnetwork/lnd/chanacceptor"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lncfg"
@@ -488,6 +489,9 @@ func Main(lisCfg ListenerCfg) error {
 		}
 	}
 
+	// Initialize the ChainedAcceptor.
+	chainedAcceptor := chanacceptor.NewChainedAcceptor()
+
 	// Set up the core server which will listen for incoming peer
 	// connections.
 	server, err := newServer(
@@ -547,7 +551,7 @@ func Main(lisCfg ListenerCfg) error {
 	rpcServer, err := newRPCServer(
 		server, macaroonService, cfg.SubRPCServers, restDialOpts,
 		restProxyDest, atplManager, server.invoices, tower, tlsCfg,
-		rpcListeners,
+		rpcListeners, chainedAcceptor,
 	)
 	if err != nil {
 		err := fmt.Errorf("Unable to create RPC server: %v", err)

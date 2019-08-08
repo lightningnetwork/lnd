@@ -479,7 +479,7 @@ func (c *ChannelArbitrator) relaunchResolvers() error {
 		"resolvers", c.cfg.ChanPoint, len(unresolvedContracts))
 
 	for _, resolver := range unresolvedContracts {
-		supplementResolver(resolver, htlcMap)
+		c.supplementResolver(resolver, htlcMap)
 	}
 
 	c.launchResolvers(unresolvedContracts)
@@ -489,24 +489,24 @@ func (c *ChannelArbitrator) relaunchResolvers() error {
 
 // supplementResolver takes a resolver as it is restored from the log and fills
 // in missing data from the htlcMap.
-func supplementResolver(resolver ContractResolver,
+func (c *ChannelArbitrator) supplementResolver(resolver ContractResolver,
 	htlcMap map[wire.OutPoint]*channeldb.HTLC) error {
 
 	switch r := resolver.(type) {
 
 	case *htlcSuccessResolver:
-		return supplementSuccessResolver(r, htlcMap)
+		return c.supplementSuccessResolver(r, htlcMap)
 
 	case *htlcIncomingContestResolver:
-		return supplementSuccessResolver(
+		return c.supplementSuccessResolver(
 			&r.htlcSuccessResolver, htlcMap,
 		)
 
 	case *htlcTimeoutResolver:
-		return supplementTimeoutResolver(r, htlcMap)
+		return c.supplementTimeoutResolver(r, htlcMap)
 
 	case *htlcOutgoingContestResolver:
-		return supplementTimeoutResolver(
+		return c.supplementTimeoutResolver(
 			&r.htlcTimeoutResolver, htlcMap,
 		)
 	}
@@ -516,7 +516,7 @@ func supplementResolver(resolver ContractResolver,
 
 // supplementSuccessResolver takes a htlcSuccessResolver as it is restored from
 // the log and fills in missing data from the htlcMap.
-func supplementSuccessResolver(r *htlcSuccessResolver,
+func (c *ChannelArbitrator) supplementSuccessResolver(r *htlcSuccessResolver,
 	htlcMap map[wire.OutPoint]*channeldb.HTLC) error {
 
 	res := r.htlcResolution
@@ -533,7 +533,7 @@ func supplementSuccessResolver(r *htlcSuccessResolver,
 
 // supplementTimeoutResolver takes a htlcSuccessResolver as it is restored from
 // the log and fills in missing data from the htlcMap.
-func supplementTimeoutResolver(r *htlcTimeoutResolver,
+func (c *ChannelArbitrator) supplementTimeoutResolver(r *htlcTimeoutResolver,
 	htlcMap map[wire.OutPoint]*channeldb.HTLC) error {
 
 	res := r.htlcResolution

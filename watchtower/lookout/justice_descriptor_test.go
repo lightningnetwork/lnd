@@ -254,7 +254,7 @@ func testJusticeDescriptor(t *testing.T, blobType blob.Type) {
 	// DER-encoded signature under the to-remote pubkey. The sighash flag is
 	// also present, so we trim it.
 	toRemoteWitness, err := input.CommitSpendNoDelay(
-		signer, toRemoteSignDesc, justiceTxn,
+		signer, toRemoteSignDesc, justiceTxn, false,
 	)
 	if err != nil {
 		t.Fatalf("unable to sign to-remote input: %v", err)

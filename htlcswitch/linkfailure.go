@@ -34,6 +34,11 @@ const (
 	// ErrInvalidRevocation indicates that the remote peer send us an
 	// invalid revocation message.
 	ErrInvalidRevocation
+
+	// ErrRecoveryError the channel was unable to be resumed, we need the
+	// remote party to force close the channel out on chain now as a
+	// result.
+	ErrRecoveryError
 )
 
 // LinkFailureError encapsulates an error that will make us fail the current
@@ -74,6 +79,8 @@ func (e LinkFailureError) Error() string {
 		return "invalid commitment"
 	case ErrInvalidRevocation:
 		return "invalid revocation"
+	case ErrRecoveryError:
+		return "unable to resume channel, recovery required"
 	default:
 		return "unknown error"
 	}

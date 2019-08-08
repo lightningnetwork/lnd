@@ -177,7 +177,7 @@ func fetchPaymentStatusTx(tx *bbolt.Tx, paymentHash [32]byte) (PaymentStatus, er
 func serializeOutgoingPayment(w io.Writer, p *outgoingPayment) error {
 	var scratch [8]byte
 
-	if err := serializeInvoice(w, &p.Invoice); err != nil {
+	if err := serializeInvoiceLegacy(w, &p.Invoice); err != nil {
 		return err
 	}
 
@@ -218,7 +218,7 @@ func deserializeOutgoingPayment(r io.Reader) (*outgoingPayment, error) {
 
 	p := &outgoingPayment{}
 
-	inv, err := deserializeInvoice(r)
+	inv, err := deserializeInvoiceLegacy(r)
 	if err != nil {
 		return nil, err
 	}

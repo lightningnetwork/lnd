@@ -110,6 +110,11 @@ var (
 			number:    10,
 			migration: migrateRouteSerialization,
 		},
+		{
+			// Add invoice htlc and cltv delta fields.
+			number:    11,
+			migration: migrateInvoices,
+		},
 	}
 
 	// Big endian is the preferred byte order, due to cursor scans over

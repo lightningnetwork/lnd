@@ -226,13 +226,7 @@ func (i *InvoiceRegistry) dispatchToSingleClients(event *invoiceEvent) {
 			continue
 		}
 
-		select {
-		case client.ntfnQueue.ChanIn() <- &invoiceEvent{
-			invoice: event.invoice,
-		}:
-		case <-i.quit:
-			return
-		}
+		client.notify(event)
 	}
 }
 

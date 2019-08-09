@@ -1,7 +1,7 @@
 DEV_TAGS = dev
 LOG_TAGS =
 TEST_FLAGS =
-COVER_PKG = $$(go list ./... | grep -v lnrpc)
+COVER_PKG = $$(go list -deps ./... | grep '$(PKG)' | grep -v lnrpc)
 
 # If specific package is being unit tested, construct the full name of the
 # subpackage.

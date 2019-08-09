@@ -409,22 +409,23 @@ func (i *InvoiceRegistry) LookupInvoice(rHash lntypes.Hash) (channeldb.Invoice,
 	return i.cdb.LookupInvoice(rHash)
 }
 
-// checkHtlcParameters is a callback used inside invoice db transactions to
+// updateInvoice is a callback used inside invoice db transactions to
 // atomically check-and-update an invoice.
-func (i *InvoiceRegistry) checkHtlcParameters(invoice *channeldb.Invoice,
-	amtPaid lnwire.MilliSatoshi, htlcExpiry uint32, currentHeight int32) error {
+func (i *InvoiceRegistry) updateInvoice(invoice *channeldb.Invoice,
+	amtPaid lnwire.MilliSatoshi, htlcExpiry uint32, currentHeight int32) (
+	*channeldb.InvoiceUpdateDesc, error) {
 
 	// If the invoice is already canceled, there is no further checking to
 	// do.
 	if invoice.Terms.State == channeldb.ContractCanceled {
-		return channeldb.ErrInvoiceAlreadyCanceled
+		return nil, channeldb.ErrInvoiceAlreadyCanceled
 	}
 
 	// If an invoice amount is specified, check that enough is paid. Also
 	// check this for duplicate payments if the invoice is already settled
 	// or accepted.
 	if invoice.Terms.Value > 0 && amtPaid < invoice.Terms.Value {
-		return ErrInvoiceAmountTooLow
+		return nil, ErrInvoiceAmountTooLow
 	}
 
 	// Return early in case the invoice was already accepted or settled. We
@@ -432,20 +433,32 @@ func (i *InvoiceRegistry) checkHtlcParameters(invoice *channeldb.Invoice,
 	// just restarting.
 	switch invoice.Terms.State {
 	case channeldb.ContractAccepted:
-		return channeldb.ErrInvoiceAlreadyAccepted
+		return nil, channeldb.ErrInvoiceAlreadyAccepted
 	case channeldb.ContractSettled:
-		return channeldb.ErrInvoiceAlreadySettled
+		return nil, channeldb.ErrInvoiceAlreadySettled
 	}
 
 	if htlcExpiry < uint32(currentHeight+i.finalCltvRejectDelta) {
-		return ErrInvoiceExpiryTooSoon
+		return nil, ErrInvoiceExpiryTooSoon
 	}
 
 	if htlcExpiry < uint32(currentHeight+invoice.FinalCltvDelta) {
-		return ErrInvoiceExpiryTooSoon
+		return nil, ErrInvoiceExpiryTooSoon
 	}
 
-	return nil
+	update := channeldb.InvoiceUpdateDesc{
+		AmtPaid: amtPaid,
+	}
+
+	// Check to see if we can settle or this is an hold invoice and we need
+	// to wait for the preimage.
+	holdInvoice := invoice.Terms.PaymentPreimage == channeldb.UnknownPreimage
+	if holdInvoice {
+		update.State = channeldb.ContractAccepted
+	} else {
+		update.State = channeldb.ContractSettled
+	}
+	return &update, nil
 }
 
 // NotifyExitHopHtlc attempts to mark an invoice as settled. If the invoice is a
@@ -474,10 +487,12 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 
 	// If this isn't a debug invoice, then we'll attempt to settle an
 	// invoice matching this rHash on disk (if one exists).
-	invoice, err := i.cdb.AcceptOrSettleInvoice(
-		rHash, amtPaid,
-		func(inv *channeldb.Invoice) error {
-			return i.checkHtlcParameters(
+	invoice, err := i.cdb.UpdateInvoice(
+		rHash,
+		func(inv *channeldb.Invoice) (*channeldb.InvoiceUpdateDesc,
+			error) {
+
+			return i.updateInvoice(
 				inv, amtPaid, expiry, currentHeight,
 			)
 		},

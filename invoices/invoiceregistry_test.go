@@ -71,7 +71,10 @@ func TestSettleInvoice(t *testing.T) {
 	defer allSubscriptions.Cancel()
 
 	// Subscribe to the not yet existing invoice.
-	subscription := registry.SubscribeSingleInvoice(hash)
+	subscription, err := registry.SubscribeSingleInvoice(hash)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer subscription.Cancel()
 
 	if subscription.hash != hash {
@@ -225,7 +228,10 @@ func TestCancelInvoice(t *testing.T) {
 	}
 
 	// Subscribe to the not yet existing invoice.
-	subscription := registry.SubscribeSingleInvoice(hash)
+	subscription, err := registry.SubscribeSingleInvoice(hash)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer subscription.Cancel()
 
 	if subscription.hash != hash {
@@ -329,7 +335,10 @@ func TestHoldInvoice(t *testing.T) {
 	defer allSubscriptions.Cancel()
 
 	// Subscribe to the not yet existing invoice.
-	subscription := registry.SubscribeSingleInvoice(hash)
+	subscription, err := registry.SubscribeSingleInvoice(hash)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer subscription.Cancel()
 
 	if subscription.hash != hash {

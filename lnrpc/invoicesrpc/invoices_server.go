@@ -178,7 +178,10 @@ func (s *Server) SubscribeSingleInvoice(req *SubscribeSingleInvoiceRequest,
 		return err
 	}
 
-	invoiceClient := s.cfg.InvoiceRegistry.SubscribeSingleInvoice(hash)
+	invoiceClient, err := s.cfg.InvoiceRegistry.SubscribeSingleInvoice(hash)
+	if err != nil {
+		return err
+	}
 	defer invoiceClient.Cancel()
 
 	for {

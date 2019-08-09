@@ -139,7 +139,6 @@ func (i *InvoiceRegistry) Stop() {
 // Only two event types are currently supported: newly created invoices, and
 // instance where invoices are settled.
 type invoiceEvent struct {
-	state   channeldb.ContractState
 	hash    lntypes.Hash
 	invoice *channeldb.Invoice
 }
@@ -204,8 +203,9 @@ func (i *InvoiceRegistry) invoiceEventNotifier() {
 		case event := <-i.invoiceEvents:
 			// For backwards compatibility, do not notify all
 			// invoice subscribers of cancel and accept events.
-			if event.state != channeldb.ContractCanceled &&
-				event.state != channeldb.ContractAccepted {
+			state := event.invoice.Terms.State
+			if state != channeldb.ContractCanceled &&
+				state != channeldb.ContractAccepted {
 
 				i.dispatchToClients(event)
 			}
@@ -228,7 +228,6 @@ func (i *InvoiceRegistry) dispatchToSingleClients(event *invoiceEvent) {
 
 		select {
 		case client.ntfnQueue.ChanIn() <- &invoiceEvent{
-			state:   event.state,
 			invoice: event.invoice,
 		}:
 		case <-i.quit:
@@ -250,23 +249,24 @@ func (i *InvoiceRegistry) dispatchToClients(event *invoiceEvent) {
 		// ensure we don't duplicate any events.
 
 		// TODO(joostjager): Refactor switches.
+		state := event.invoice.Terms.State
 		switch {
 		// If we've already sent this settle event to
 		// the client, then we can skip this.
-		case event.state == channeldb.ContractSettled &&
+		case state == channeldb.ContractSettled &&
 			client.settleIndex >= invoice.SettleIndex:
 			continue
 
 		// Similarly, if we've already sent this add to
 		// the client then we can skip this one.
-		case event.state == channeldb.ContractOpen &&
+		case state == channeldb.ContractOpen &&
 			client.addIndex >= invoice.AddIndex:
 			continue
 
 		// These two states should never happen, but we
 		// log them just in case so we can detect this
 		// instance.
-		case event.state == channeldb.ContractOpen &&
+		case state == channeldb.ContractOpen &&
 			client.addIndex+1 != invoice.AddIndex:
 			log.Warnf("client=%v for invoice "+
 				"notifications missed an update, "+
@@ -274,7 +274,7 @@ func (i *InvoiceRegistry) dispatchToClients(event *invoiceEvent) {
 				clientID, client.addIndex,
 				invoice.AddIndex)
 
-		case event.state == channeldb.ContractSettled &&
+		case state == channeldb.ContractSettled &&
 			client.settleIndex+1 != invoice.SettleIndex:
 			log.Warnf("client=%v for invoice "+
 				"notifications missed an update, "+
@@ -285,7 +285,6 @@ func (i *InvoiceRegistry) dispatchToClients(event *invoiceEvent) {
 
 		select {
 		case client.ntfnQueue.ChanIn() <- &invoiceEvent{
-			state:   event.state,
 			invoice: invoice,
 		}:
 		case <-i.quit:
@@ -296,13 +295,14 @@ func (i *InvoiceRegistry) dispatchToClients(event *invoiceEvent) {
 		// the latest add/settle index it has. We'll use this to ensure
 		// we don't send a notification twice, which can happen if a new
 		// event is added while we're catching up a new client.
-		switch event.state {
+		switch event.invoice.Terms.State {
 		case channeldb.ContractSettled:
 			client.settleIndex = invoice.SettleIndex
 		case channeldb.ContractOpen:
 			client.addIndex = invoice.AddIndex
 		default:
-			log.Errorf("unexpected invoice state: %v", event.state)
+			log.Errorf("unexpected invoice state: %v",
+				event.invoice.Terms.State)
 		}
 	}
 }
@@ -333,7 +333,6 @@ func (i *InvoiceRegistry) deliverBacklogEvents(client *InvoiceSubscription) erro
 
 		select {
 		case client.ntfnQueue.ChanIn() <- &invoiceEvent{
-			state:   channeldb.ContractOpen,
 			invoice: &addEvent,
 		}:
 		case <-i.quit:
@@ -348,7 +347,6 @@ func (i *InvoiceRegistry) deliverBacklogEvents(client *InvoiceSubscription) erro
 
 		select {
 		case client.ntfnQueue.ChanIn() <- &invoiceEvent{
-			state:   channeldb.ContractSettled,
 			invoice: &settleEvent,
 		}:
 		case <-i.quit:
@@ -381,7 +379,6 @@ func (i *InvoiceRegistry) deliverSingleBacklogEvents(
 	err = client.notify(&invoiceEvent{
 		hash:    client.hash,
 		invoice: &invoice,
-		state:   invoice.Terms.State,
 	})
 	if err != nil {
 		return err
@@ -722,7 +719,6 @@ func (i *InvoiceRegistry) notifyClients(hash lntypes.Hash,
 	state channeldb.ContractState) {
 
 	event := &invoiceEvent{
-		state:   state,
 		invoice: invoice,
 		hash:    hash,
 	}
@@ -859,14 +855,15 @@ func (i *InvoiceRegistry) SubscribeNotifications(addIndex, settleIndex uint64) *
 				invoiceEvent := ntfn.(*invoiceEvent)
 
 				var targetChan chan *channeldb.Invoice
-				switch invoiceEvent.state {
+				state := invoiceEvent.invoice.Terms.State
+				switch state {
 				case channeldb.ContractOpen:
 					targetChan = client.NewInvoices
 				case channeldb.ContractSettled:
 					targetChan = client.SettledInvoices
 				default:
 					log.Errorf("unknown invoice "+
-						"state: %v", invoiceEvent.state)
+						"state: %v", state)
 
 					continue
 				}

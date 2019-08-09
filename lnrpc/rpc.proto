@@ -2117,6 +2117,42 @@ message Invoice {
     The state the invoice is in.
     */
     InvoiceState state = 21 [json_name = "state"];
+
+    /// List of HTLCs paying to this invoice [EXPERIMENTAL].
+    repeated InvoiceHTLC htlcs = 22 [json_name = "htlcs"];
+}
+
+enum InvoiceHTLCState {
+    ACCEPTED = 0;
+    SETTLED = 1;
+    CANCELLED = 2;
+}
+
+/// Details of an HTLC that paid to an invoice
+message InvoiceHTLC {
+    /// Short channel id over which the htlc was received.
+    uint64 chan_id = 1 [json_name = "chan_id"];
+
+    /// Index identifying the htlc on the channel.
+    uint64 htlc_index = 2 [json_name = "htlc_index"];
+
+    /// The amount of the htlc in msat.
+    uint64 amt_msat = 3 [json_name = "amt_msat"];
+
+    /// Block height at which this htlc was accepted.
+    int32 accept_height = 4 [json_name = "accept_height"];
+
+    /// Time at which this htlc was accepted.
+    int64 accept_time = 5 [json_name = "accept_time"];
+
+    /// Time at which this htlc was settled or cancelled.
+    int64 resolve_time = 6 [json_name = "resolve_time"];
+    
+    /// Block height at which this htlc expires.
+    int32 expiry_height = 7 [json_name = "expiry_height"];
+
+    /// Current state the htlc is in.
+    InvoiceHTLCState state = 8 [json_name = "state"];
 }
 
 message AddInvoiceResponse {

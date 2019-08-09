@@ -2489,8 +2489,69 @@
         "state": {
           "$ref": "#/definitions/InvoiceInvoiceState",
           "description": "*\nThe state the invoice is in."
+        },
+        "htlcs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcInvoiceHTLC"
+          },
+          "description": "/ List of HTLCs paying to this invoice [EXPERIMENTAL]."
         }
       }
+    },
+    "lnrpcInvoiceHTLC": {
+      "type": "object",
+      "properties": {
+        "chan_id": {
+          "type": "string",
+          "format": "uint64",
+          "description": "/ Short channel id over which the htlc was received."
+        },
+        "htlc_index": {
+          "type": "string",
+          "format": "uint64",
+          "description": "/ Index identifying the htlc on the channel."
+        },
+        "amt_msat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "/ The amount of the htlc in msat."
+        },
+        "accept_height": {
+          "type": "integer",
+          "format": "int32",
+          "description": "/ Block height at which this htlc was accepted."
+        },
+        "accept_time": {
+          "type": "string",
+          "format": "int64",
+          "description": "/ Time at which this htlc was accepted."
+        },
+        "resolve_time": {
+          "type": "string",
+          "format": "int64",
+          "description": "/ Time at which this htlc was settled or cancelled."
+        },
+        "expiry_height": {
+          "type": "integer",
+          "format": "int32",
+          "description": "/ Block height at which this htlc expires."
+        },
+        "state": {
+          "$ref": "#/definitions/lnrpcInvoiceHTLCState",
+          "description": "/ Current state the htlc is in."
+        }
+      },
+      "title": "/ Details of an HTLC that paid to an invoice"
+    },
+    "lnrpcInvoiceHTLCState": {
+      "type": "string",
+      "enum": [
+        "ACCEPTED",
+        "SETTLED",
+        "CANCELLED"
+      ],
+      "default": "ACCEPTED"
     },
     "lnrpcLightningAddress": {
       "type": "object",

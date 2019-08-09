@@ -60,6 +60,38 @@ func CreateRPCInvoice(invoice *channeldb.Invoice,
 			invoice.Terms.State)
 	}
 
+	rpcHtlcs := make([]*lnrpc.InvoiceHTLC, 0, len(invoice.Htlcs))
+	for key, htlc := range invoice.Htlcs {
+		var state lnrpc.InvoiceHTLCState
+		switch htlc.State {
+		case channeldb.HtlcStateAccepted:
+			state = lnrpc.InvoiceHTLCState_ACCEPTED
+		case channeldb.HtlcStateSettled:
+			state = lnrpc.InvoiceHTLCState_SETTLED
+		case channeldb.HtlcStateCancelled:
+			state = lnrpc.InvoiceHTLCState_CANCELLED
+		default:
+			return nil, fmt.Errorf("unknown state %v", htlc.State)
+		}
+
+		rpcHtlc := lnrpc.InvoiceHTLC{
+			ChanId:       key.ChanID.ToUint64(),
+			HtlcIndex:    key.HtlcID,
+			AcceptHeight: int32(htlc.AcceptHeight),
+			AcceptTime:   htlc.AcceptTime.Unix(),
+			ExpiryHeight: int32(htlc.Expiry),
+			AmtMsat:      uint64(htlc.Amt),
+			State:        state,
+		}
+
+		// Only report resolved times if htlc is resolved.
+		if htlc.State != channeldb.HtlcStateAccepted {
+			rpcHtlc.ResolveTime = htlc.ResolveTime.Unix()
+		}
+
+		rpcHtlcs = append(rpcHtlcs, &rpcHtlc)
+	}
+
 	rpcInvoice := &lnrpc.Invoice{
 		Memo:            string(invoice.Memo[:]),
 		Receipt:         invoice.Receipt[:],
@@ -81,6 +113,7 @@ func CreateRPCInvoice(invoice *channeldb.Invoice,
 		AmtPaidMsat:     int64(invoice.AmtPaid),
 		AmtPaid:         int64(invoice.AmtPaid),
 		State:           state,
+		Htlcs:           rpcHtlcs,
 	}
 
 	if preimage != channeldb.UnknownPreimage {

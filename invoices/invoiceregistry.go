@@ -634,7 +634,24 @@ func (i *InvoiceRegistry) CancelInvoice(payHash lntypes.Hash) error {
 
 	log.Debugf("Invoice(%v): canceling invoice", payHash)
 
-	invoice, err := i.cdb.CancelInvoice(payHash)
+	updateInvoice := func(invoice *channeldb.Invoice) (
+		*channeldb.InvoiceUpdateDesc, error) {
+
+		switch invoice.Terms.State {
+		case channeldb.ContractSettled:
+			return nil, channeldb.ErrInvoiceAlreadySettled
+		case channeldb.ContractCanceled:
+			return nil, channeldb.ErrInvoiceAlreadyCanceled
+		}
+
+		// Move invoice to the canceled state.
+		return &channeldb.InvoiceUpdateDesc{
+			AmtPaid: 0,
+			State:   channeldb.ContractCanceled,
+		}, nil
+	}
+
+	invoice, err := i.cdb.UpdateInvoice(payHash, updateInvoice)
 
 	// Implement idempotency by returning success if the invoice was already
 	// canceled.

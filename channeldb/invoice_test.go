@@ -10,26 +10,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
-var (
-	testCircuitKey = CircuitKey{
-		ChanID: lnwire.ShortChannelID{
-			BlockHeight: 1, TxIndex: 2, TxPosition: 3,
-		},
-		HtlcID: 4,
-	}
-
-	testHtlcs = map[CircuitKey]*InvoiceHTLC{
-		testCircuitKey: {
-			State:        HtlcStateCancelled,
-			AcceptTime:   time.Unix(1, 0),
-			AcceptHeight: 100,
-			ResolveTime:  time.Unix(2, 0),
-			Amt:          5200,
-			Expiry:       150,
-		},
-	}
-)
-
 func randInvoice(value lnwire.MilliSatoshi) (*Invoice, error) {
 	var pre [32]byte
 	if _, err := rand.Read(pre[:]); err != nil {
@@ -44,9 +24,8 @@ func randInvoice(value lnwire.MilliSatoshi) (*Invoice, error) {
 			PaymentPreimage: pre,
 			Value:           value,
 		},
-		Htlcs:          testHtlcs,
-		FinalCltvDelta: 50,
-		Expiry:         4000,
+		Htlcs:  map[CircuitKey]*InvoiceHTLC{},
+		Expiry: 4000,
 	}
 	i.Memo = []byte("memo")
 	i.Receipt = []byte("receipt")
@@ -82,7 +61,7 @@ func TestInvoiceWorkflow(t *testing.T) {
 		// Use single second precision to avoid false positive test
 		// failures due to the monotonic time component.
 		CreationDate: time.Unix(time.Now().Unix(), 0),
-		Htlcs:        testHtlcs,
+		Htlcs:        map[CircuitKey]*InvoiceHTLC{},
 	}
 	fakeInvoice.Memo = []byte("memo")
 	fakeInvoice.Receipt = []byte("receipt")
@@ -383,6 +362,14 @@ func TestDuplicateSettleInvoice(t *testing.T) {
 	invoice.Terms.State = ContractSettled
 	invoice.AmtPaid = amt
 	invoice.SettleDate = dbInvoice.SettleDate
+	invoice.Htlcs = map[CircuitKey]*InvoiceHTLC{
+		{}: {
+			Amt:         amt,
+			AcceptTime:  time.Unix(1, 0),
+			ResolveTime: time.Unix(1, 0),
+			State:       HtlcStateSettled,
+		},
+	}
 
 	// We should get back the exact same invoice that we just inserted.
 	if !reflect.DeepEqual(dbInvoice, invoice) {
@@ -695,7 +682,11 @@ func getUpdateInvoice(amt lnwire.MilliSatoshi) InvoiceUpdateCallback {
 		update := &InvoiceUpdateDesc{
 			Preimage: invoice.Terms.PaymentPreimage,
 			State:    ContractSettled,
-			AmtPaid:  amt,
+			Htlcs: map[CircuitKey]*HtlcAcceptDesc{
+				{}: {
+					Amt: amt,
+				},
+			},
 		}
 
 		return update, nil

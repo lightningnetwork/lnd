@@ -1745,9 +1745,15 @@ func (c *ChannelArbitrator) prepContractResolutions(
 					continue
 				}
 
+				circuitKey := channeldb.CircuitKey{
+					HtlcID: htlc.HtlcIndex,
+					ChanID: c.cfg.ShortChanID,
+				}
+
 				resKit.Quit = make(chan struct{})
 				resolver := &htlcIncomingContestResolver{
 					htlcExpiry: htlc.RefundTimeout,
+					circuitKey: circuitKey,
 					htlcSuccessResolver: htlcSuccessResolver{
 						htlcResolution:  resolution,
 						broadcastHeight: height,

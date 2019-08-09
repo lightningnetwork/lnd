@@ -276,14 +276,28 @@ type InvoiceHTLC struct {
 	State HtlcState
 }
 
+// HtlcAcceptDesc describes the details of a newly accepted htlc.
+type HtlcAcceptDesc struct {
+	// AcceptHeight is the block height at which this htlc was accepted.
+	AcceptHeight int32
+
+	// Amt is the amount that is carried by this htlc.
+	Amt lnwire.MilliSatoshi
+
+	// Expiry is the expiry height of this htlc.
+	Expiry uint32
+}
+
 // InvoiceUpdateDesc describes the changes that should be applied to the
 // invoice.
 type InvoiceUpdateDesc struct {
 	// State is the new state that this invoice should progress to.
 	State ContractState
 
-	// AmtPaid is the updated amount that has been paid to this invoice.
-	AmtPaid lnwire.MilliSatoshi
+	// Htlcs describes the changes that need to be made to the invoice htlcs
+	// in the database. Htlc map entries with their value set should be
+	// added. If the map value is nil, the htlc should be cancelled.
+	Htlcs map[CircuitKey]*HtlcAcceptDesc
 
 	// Preimage must be set to the preimage when state is settled.
 	Preimage lntypes.Preimage
@@ -1196,9 +1210,52 @@ func (d *DB) updateInvoice(hash lntypes.Hash, invoices, settleIndex *bbolt.Bucke
 		return &invoice, err
 	}
 
-	// Update invoice state and amount.
+	// Update invoice state.
 	invoice.Terms.State = update.State
-	invoice.AmtPaid = update.AmtPaid
+
+	now := d.now()
+
+	// Update htlc set.
+	for key, htlcUpdate := range update.Htlcs {
+		htlc, ok := invoice.Htlcs[key]
+
+		// No update means the htlc needs to be cancelled.
+		if htlcUpdate == nil {
+			if !ok {
+				return nil, fmt.Errorf("unknown htlc %v", key)
+			}
+			if htlc.State == HtlcStateSettled {
+				return nil, fmt.Errorf("cannot cancel a " +
+					"settled htlc")
+			}
+
+			htlc.State = HtlcStateCancelled
+			htlc.ResolveTime = now
+			invoice.AmtPaid -= htlc.Amt
+
+			continue
+		}
+
+		// Add new htlc paying to the invoice.
+		if ok {
+			return nil, fmt.Errorf("htlc %v already exists", key)
+		}
+		htlc = &InvoiceHTLC{
+			Amt:          htlcUpdate.Amt,
+			Expiry:       htlcUpdate.Expiry,
+			AcceptHeight: uint32(htlcUpdate.AcceptHeight),
+			AcceptTime:   now,
+		}
+		if preUpdateState == ContractSettled {
+			htlc.State = HtlcStateSettled
+			htlc.ResolveTime = now
+		} else {
+			htlc.State = HtlcStateAccepted
+		}
+
+		invoice.Htlcs[key] = htlc
+		invoice.AmtPaid += htlc.Amt
+	}
 
 	// If invoice moved to the settled state, update settle index and settle
 	// time.
@@ -1210,9 +1267,17 @@ func (d *DB) updateInvoice(hash lntypes.Hash, invoices, settleIndex *bbolt.Bucke
 		}
 		invoice.Terms.PaymentPreimage = update.Preimage
 
-		err := setSettleFields(
-			settleIndex, invoiceNum, &invoice, d.now(),
-		)
+		// Settle all accepted htlcs.
+		for _, htlc := range invoice.Htlcs {
+			if htlc.State != HtlcStateAccepted {
+				continue
+			}
+
+			htlc.State = HtlcStateSettled
+			htlc.ResolveTime = now
+		}
+
+		err := setSettleFields(settleIndex, invoiceNum, &invoice, now)
 		if err != nil {
 			return nil, err
 		}

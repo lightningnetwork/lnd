@@ -199,13 +199,14 @@ func TestSettleInvoice(t *testing.T) {
 		t.Fatal("expected cancel event")
 	}
 
-	// Check that settled amount remains unchanged.
+	// Check that settled amount is equal to the sum of values of the htlcs
+	// 0 and 1.
 	inv, err := registry.LookupInvoice(hash)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if inv.AmtPaid != amtPaid {
-		t.Fatal("expected amount to be unchanged")
+	if inv.AmtPaid != amtPaid+amtPaid+600 {
+		t.Fatal("amount incorrect")
 	}
 
 	// Try to cancel.
@@ -426,8 +427,7 @@ func TestHoldInvoice(t *testing.T) {
 	}
 
 	// Test a new htlc coming in that doesn't meet the final cltv delta
-	// requirement. It should be rejected, but because invoice registry
-	// doesn't track individual htlcs it is accepted.
+	// requirement. It should be rejected.
 	event, err = registry.NotifyExitHopHtlc(
 		hash, amtPaid, 1, testCurrentHeight,
 		getCircuitKey(1), hodlChan, nil,
@@ -435,8 +435,8 @@ func TestHoldInvoice(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected settle to succeed but got %v", err)
 	}
-	if event != nil {
-		t.Fatalf("expected htlc to be held")
+	if event == nil || event.Preimage != nil {
+		t.Fatalf("expected htlc to be cancelled")
 	}
 
 	// We expect the accepted state to be sent to the single invoice

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/binary"
+	"io"
 	"reflect"
 	"testing"
 
@@ -174,10 +175,7 @@ func TestWriteOnionErrorChanUpdate(t *testing.T) {
 func TestFailIncorrectDetailsOptionalAmount(t *testing.T) {
 	t.Parallel()
 
-	// Creation an error that is a non-pointer will allow us to skip the
-	// type assertion for the Serializable interface. As a result, the
-	// amount body won't be written.
-	onionError := &FailIncorrectDetails{}
+	onionError := &mockFailIncorrectDetailsNoAmt{}
 
 	var b bytes.Buffer
 	if err := EncodeFailure(&b, onionError, 0); err != nil {
@@ -189,8 +187,32 @@ func TestFailIncorrectDetailsOptionalAmount(t *testing.T) {
 		t.Fatalf("unable to decode error: %v", err)
 	}
 
-	if !reflect.DeepEqual(onionError, onionError2) {
-		t.Fatalf("expected %v, got %v", spew.Sdump(onionError),
-			spew.Sdump(onionError2))
+	invalidDetailsErr, ok := onionError2.(*FailIncorrectDetails)
+	if !ok {
+		t.Fatalf("expected FailIncorrectDetails, but got %T",
+			onionError2)
 	}
+
+	if invalidDetailsErr.amount != 0 {
+		t.Fatalf("expected amount to be zero")
+	}
+}
+
+type mockFailIncorrectDetailsNoAmt struct {
+}
+
+func (f *mockFailIncorrectDetailsNoAmt) Code() FailCode {
+	return CodeIncorrectOrUnknownPaymentDetails
+}
+
+func (f *mockFailIncorrectDetailsNoAmt) Error() string {
+	return ""
+}
+
+func (f *mockFailIncorrectDetailsNoAmt) Decode(r io.Reader, pver uint32) error {
+	return nil
+}
+
+func (f *mockFailIncorrectDetailsNoAmt) Encode(w io.Writer, pver uint32) error {
+	return nil
 }

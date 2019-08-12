@@ -524,7 +524,8 @@ func (i *InvoiceRegistry) LookupInvoice(rHash lntypes.Hash) (channeldb.Invoice, 
 // checkHtlcParameters is a callback used inside invoice db transactions to
 // atomically check-and-update an invoice.
 func (i *InvoiceRegistry) checkHtlcParameters(invoice *channeldb.Invoice,
-	amtPaid lnwire.MilliSatoshi, htlcExpiry uint32, currentHeight int32) error {
+	amtPaid lnwire.MilliSatoshi, htlcExpiry uint32,
+	lockedInHeight int32) error {
 
 	// If the invoice is already canceled, there is no further checking to
 	// do.
@@ -539,6 +540,21 @@ func (i *InvoiceRegistry) checkHtlcParameters(invoice *channeldb.Invoice,
 		return ErrInvoiceAmountTooLow
 	}
 
+	// Check the expiry. This is safe across restarts, because we use the
+	// locked-in height persisted in the forwarding package.
+	expiry, err := i.decodeFinalCltvExpiry(string(invoice.PaymentRequest))
+	if err != nil {
+		return err
+	}
+
+	if htlcExpiry < uint32(lockedInHeight+i.finalCltvRejectDelta) {
+		return ErrInvoiceExpiryTooSoon
+	}
+
+	if htlcExpiry < uint32(lockedInHeight)+expiry {
+		return ErrInvoiceExpiryTooSoon
+	}
+
 	// Return early in case the invoice was already accepted or settled. We
 	// don't want to check the expiry again, because it may be that we are
 	// just restarting.
@@ -547,20 +563,6 @@ func (i *InvoiceRegistry) checkHtlcParameters(invoice *channeldb.Invoice,
 		return channeldb.ErrInvoiceAlreadyAccepted
 	case channeldb.ContractSettled:
 		return channeldb.ErrInvoiceAlreadySettled
-	}
-
-	// The invoice is still open. Check the expiry.
-	expiry, err := i.decodeFinalCltvExpiry(string(invoice.PaymentRequest))
-	if err != nil {
-		return err
-	}
-
-	if htlcExpiry < uint32(currentHeight+i.finalCltvRejectDelta) {
-		return ErrInvoiceExpiryTooSoon
-	}
-
-	if htlcExpiry < uint32(currentHeight)+expiry {
-		return ErrInvoiceExpiryTooSoon
 	}
 
 	return nil

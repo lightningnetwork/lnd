@@ -49,6 +49,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/monitoring"
+	"github.com/lightningnetwork/lnd/peernotifier"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -2283,6 +2284,51 @@ func (r *rpcServer) ListPeers(ctx context.Context,
 	rpcsLog.Debugf("[listpeers] yielded %v peers", serverPeers)
 
 	return resp, nil
+}
+
+// SubscribePeerEvents returns a uni-directional stream (server -> client)
+// for notifying the client of peer online and offline events.
+func (r *rpcServer) SubscribePeerEvents(req *lnrpc.PeerEventSubscription,
+	eventStream lnrpc.Lightning_SubscribePeerEventsServer) error {
+
+	peerEventSub, err := r.server.peerNotifier.SubscribePeerEvents()
+	if err != nil {
+		return err
+	}
+	defer peerEventSub.Cancel()
+
+	for {
+		select {
+		// A new update has been sent by the peer notifier, we'll
+		// marshal it into the form expected by the gRPC client, then
+		// send it off to the client.
+		case e := <-peerEventSub.Updates():
+			var event *lnrpc.PeerEvent
+
+			switch peerEvent := e.(type) {
+			case peernotifier.PeerOfflineEvent:
+				event = &lnrpc.PeerEvent{
+					PubKey: hex.EncodeToString(peerEvent.PubKey[:]),
+					Type:   lnrpc.PeerEvent_PEER_OFFLINE,
+				}
+
+			case peernotifier.PeerOnlineEvent:
+				event = &lnrpc.PeerEvent{
+					PubKey: hex.EncodeToString(peerEvent.PubKey[:]),
+					Type:   lnrpc.PeerEvent_PEER_ONLINE,
+				}
+
+			default:
+				return fmt.Errorf("unexpected peer event: %v", event)
+			}
+
+			if err := eventStream.Send(event); err != nil {
+				return err
+			}
+		case <-r.quit:
+			return nil
+		}
+	}
 }
 
 // WalletBalance returns total unspent outputs(confirmed and unconfirmed), all

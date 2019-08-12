@@ -1783,7 +1783,9 @@ func handleStateUpdate(link *channelLink,
 	if !ok {
 		return fmt.Errorf("expected RevokeAndAck got %T", msg)
 	}
-	_, _, _, _, err = remoteChannel.ReceiveRevocation(revoke)
+	_, _, _, _, err = remoteChannel.ReceiveRevocation(
+		revoke, channeldb.LockedInTime{},
+	)
 	if err != nil {
 		return fmt.Errorf("unable to receive "+
 			"revocation: %v", err)
@@ -1837,7 +1839,9 @@ func updateState(batchTick chan time.Time, link *channelLink,
 		return fmt.Errorf("expected RevokeAndAck got %T",
 			msg)
 	}
-	_, _, _, _, err = remoteChannel.ReceiveRevocation(revoke)
+	_, _, _, _, err = remoteChannel.ReceiveRevocation(
+		revoke, channeldb.LockedInTime{},
+	)
 	if err != nil {
 		return fmt.Errorf("unable to receive "+
 			"revocation: %v", err)
@@ -4438,7 +4442,9 @@ func receiveRevAndAckAliceToBob(t *testing.T, aliceMsgs chan lnwire.Message,
 		t.Fatalf("expected RevokeAndAck, got %T", msg)
 	}
 
-	_, _, _, _, err := bobChannel.ReceiveRevocation(rev)
+	_, _, _, _, err := bobChannel.ReceiveRevocation(
+		rev, channeldb.LockedInTime{},
+	)
 	if err != nil {
 		t.Fatalf("bob failed receiving revocation: %v", err)
 	}

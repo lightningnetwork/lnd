@@ -205,7 +205,9 @@ func TestPackagerEmptyFwdPkg(t *testing.T) {
 	}
 
 	// Next, create and write a new forwarding package with no htlcs.
-	fwdPkg := channeldb.NewFwdPkg(shortChanID, 0, nil, nil)
+	fwdPkg := channeldb.NewFwdPkg(
+		shortChanID, 0, channeldb.TestLockedInTime, nil, nil,
+	)
 
 	if err := db.Update(func(tx *bbolt.Tx) error {
 		return packager.AddFwdPkg(tx, fwdPkg)
@@ -275,7 +277,9 @@ func TestPackagerOnlyAdds(t *testing.T) {
 
 	// Next, create and write a new forwarding package that only has add
 	// htlcs.
-	fwdPkg := channeldb.NewFwdPkg(shortChanID, 0, adds, nil)
+	fwdPkg := channeldb.NewFwdPkg(
+		shortChanID, 0, channeldb.TestLockedInTime, adds, nil,
+	)
 
 	nAdds := len(adds)
 
@@ -377,7 +381,9 @@ func TestPackagerOnlySettleFails(t *testing.T) {
 
 	// Next, create and write a new forwarding package that only has add
 	// htlcs.
-	fwdPkg := channeldb.NewFwdPkg(shortChanID, 0, nil, settleFails)
+	fwdPkg := channeldb.NewFwdPkg(
+		shortChanID, 0, channeldb.TestLockedInTime, nil, settleFails,
+	)
 
 	nSettleFails := len(settleFails)
 
@@ -481,7 +487,9 @@ func TestPackagerAddsThenSettleFails(t *testing.T) {
 
 	// Next, create and write a new forwarding package that only has add
 	// htlcs.
-	fwdPkg := channeldb.NewFwdPkg(shortChanID, 0, adds, settleFails)
+	fwdPkg := channeldb.NewFwdPkg(
+		shortChanID, 0, channeldb.TestLockedInTime, adds, settleFails,
+	)
 
 	nAdds := len(adds)
 	nSettleFails := len(settleFails)
@@ -614,7 +622,9 @@ func TestPackagerSettleFailsThenAdds(t *testing.T) {
 
 	// Next, create and write a new forwarding package that has both add
 	// and settle/fail htlcs.
-	fwdPkg := channeldb.NewFwdPkg(shortChanID, 0, adds, settleFails)
+	fwdPkg := channeldb.NewFwdPkg(
+		shortChanID, 0, channeldb.TestLockedInTime, adds, settleFails,
+	)
 
 	nAdds := len(adds)
 	nSettleFails := len(settleFails)

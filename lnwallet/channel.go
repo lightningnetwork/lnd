@@ -4289,9 +4289,9 @@ func (lc *LightningChannel) RevokeCurrentCommitment() (*lnwire.RevokeAndAck, []c
 //      this revocation.
 //   4. The set of HTLCs present on the current valid commitment transaction
 //      for the remote party.
-func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
-	*channeldb.FwdPkg, []*PaymentDescriptor, []*PaymentDescriptor,
-	[]channeldb.HTLC, error) {
+func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck,
+	time channeldb.LockedInTime) (*channeldb.FwdPkg, []*PaymentDescriptor,
+	[]*PaymentDescriptor, []channeldb.HTLC, error) {
 
 	lc.Lock()
 	defer lc.Unlock()
@@ -4473,7 +4473,8 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 	// type, construct a forwarding package using the height that the remote
 	// commitment chain will be extended after persisting the revocation.
 	fwdPkg := channeldb.NewFwdPkg(
-		source, remoteChainTail, addUpdates, settleFailUpdates,
+		source, remoteChainTail, time, addUpdates,
+		settleFailUpdates,
 	)
 
 	// At this point, the revocation has been accepted, and we've rotated

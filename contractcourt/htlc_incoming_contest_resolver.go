@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/invoices"
@@ -164,8 +165,15 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 	// on-chain. If this HTLC indeed pays to an existing invoice, the
 	// invoice registry will tell us what to do with the HTLC. This is
 	// identical to HTLC resolution in the link.
+	//
+	// TODO(joostjager): Set this to the original accepted height. Read the
+	// fwd pkg?
+	lockedInTime := channeldb.LockedInTime{
+		BlockHeight: currentHeight,
+		Timestamp:   time.Now(),
+	}
 	event, err := h.Registry.NotifyExitHopHtlc(
-		h.payHash, h.htlcAmt, h.htlcExpiry, currentHeight,
+		h.payHash, h.htlcAmt, h.htlcExpiry, lockedInTime,
 		hodlChan,
 	)
 	switch err {

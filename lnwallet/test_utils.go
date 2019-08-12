@@ -513,9 +513,13 @@ func ForceStateTransition(chanA, chanB *LightningChannel) error {
 		return err
 	}
 
-	if _, _, _, _, err := chanA.ReceiveRevocation(bobRevocation); err != nil {
+	_, _, _, _, err = chanA.ReceiveRevocation(
+		bobRevocation, channeldb.LockedInTime{},
+	)
+	if err != nil {
 		return err
 	}
+
 	if err := chanA.ReceiveNewCommitment(bobSig, bobHtlcSigs); err != nil {
 		return err
 	}
@@ -524,7 +528,10 @@ func ForceStateTransition(chanA, chanB *LightningChannel) error {
 	if err != nil {
 		return err
 	}
-	if _, _, _, _, err := chanB.ReceiveRevocation(aliceRevocation); err != nil {
+	_, _, _, _, err = chanB.ReceiveRevocation(
+		aliceRevocation, channeldb.LockedInTime{},
+	)
+	if err != nil {
 		return err
 	}
 

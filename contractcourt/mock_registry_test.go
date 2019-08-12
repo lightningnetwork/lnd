@@ -8,11 +8,11 @@ import (
 )
 
 type notifyExitHopData struct {
-	payHash       lntypes.Hash
-	paidAmount    lnwire.MilliSatoshi
-	hodlChan      chan<- interface{}
-	expiry        uint32
-	currentHeight int32
+	payHash      lntypes.Hash
+	paidAmount   lnwire.MilliSatoshi
+	hodlChan     chan<- interface{}
+	expiry       uint32
+	lockedInTime channeldb.LockedInTime
 }
 
 type mockRegistry struct {
@@ -22,15 +22,16 @@ type mockRegistry struct {
 }
 
 func (r *mockRegistry) NotifyExitHopHtlc(payHash lntypes.Hash,
-	paidAmount lnwire.MilliSatoshi, expiry uint32, currentHeight int32,
-	hodlChan chan<- interface{}) (*invoices.HodlEvent, error) {
+	paidAmount lnwire.MilliSatoshi, expiry uint32,
+	lockedInTime channeldb.LockedInTime, hodlChan chan<- interface{}) (
+	*invoices.HodlEvent, error) {
 
 	r.notifyChan <- notifyExitHopData{
-		hodlChan:      hodlChan,
-		payHash:       payHash,
-		paidAmount:    paidAmount,
-		expiry:        expiry,
-		currentHeight: currentHeight,
+		hodlChan:     hodlChan,
+		payHash:      payHash,
+		paidAmount:   paidAmount,
+		expiry:       expiry,
+		lockedInTime: lockedInTime,
 	}
 
 	return r.notifyEvent, r.notifyErr

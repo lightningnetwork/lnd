@@ -578,15 +578,16 @@ func (i *InvoiceRegistry) checkHtlcParameters(invoice *channeldb.Invoice,
 // the channel is either buffered or received on from another goroutine to
 // prevent deadlock.
 func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
-	amtPaid lnwire.MilliSatoshi, expiry uint32, currentHeight int32,
-	hodlChan chan<- interface{}) (*HodlEvent, error) {
+	amtPaid lnwire.MilliSatoshi, expiry uint32,
+	lockedInTime channeldb.LockedInTime, hodlChan chan<- interface{}) (
+	*HodlEvent, error) {
 
 	i.Lock()
 	defer i.Unlock()
 
 	debugLog := func(s string) {
-		log.Debugf("Invoice(%x): %v, amt=%v, expiry=%v",
-			rHash[:], s, amtPaid, expiry)
+		log.Debugf("Invoice(%x): %v, amt=%v, expiry=%v, lockedIn=%v",
+			rHash[:], s, amtPaid, expiry, lockedInTime)
 	}
 	// First check the in-memory debug invoice index to see if this is an
 	// existing invoice added for debugging.
@@ -607,7 +608,7 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 		rHash, amtPaid,
 		func(inv *channeldb.Invoice) error {
 			return i.checkHtlcParameters(
-				inv, amtPaid, expiry, currentHeight,
+				inv, amtPaid, expiry, lockedInTime.BlockHeight,
 			)
 		},
 	)

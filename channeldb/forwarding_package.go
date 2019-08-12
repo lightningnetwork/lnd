@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -65,6 +66,10 @@ var (
 	// which Settles/Fails in have been received and processed by the link
 	// that originally received the Add.
 	settleFailFilterKey = []byte("settle-fail-filter-key")
+
+	// lockedInTimeKey is a key used to store the time at which a forwarding
+	// package was locked in.
+	lockedInTimeKey = []byte("locked-in-time")
 )
 
 // PkgFilter is used to compactly represent a particular subset of the Adds in a
@@ -179,6 +184,23 @@ func (f *PkgFilter) Decode(r io.Reader) error {
 	return err
 }
 
+// LockedInTime stores the time and height at which a fwd package was locked in
+type LockedInTime struct {
+	// BlockHeight is the block chain height at which this package was
+	// locked in.
+	BlockHeight int32
+
+	// Timestamp is the time at which this package was locked in. This field
+	// is stored as a preparation for multi-path payments (MPP). For MPP,
+	// htlcs are released after a (wall clock) timeout.
+	Timestamp time.Time
+}
+
+// String returns the locked-in time in a human-readable representation.
+func (l LockedInTime) String() string {
+	return fmt.Sprintf("(height=%v, time=%v)", l.BlockHeight, l.Timestamp)
+}
+
 // FwdPkg records all adds, settles, and fails that were locked in as a result
 // of the remote peer sending us a revocation. Each package is identified by
 // the short chanid and remote commitment height corresponding to the revocation
@@ -199,6 +221,9 @@ type FwdPkg struct {
 	// Height is the height of the remote commitment chain that locked in
 	// this forwarding package.
 	Height uint64
+
+	// LockedInTime stores the time and height at which a fwd package was locked in
+	LockedInTime LockedInTime
 
 	// State signals the persistent condition of the package and directs how
 	// to reprocess the package in the event of failures.
@@ -232,6 +257,7 @@ type FwdPkg struct {
 // NewFwdPkg initializes a new forwarding package in FwdStateLockedIn. This
 // should be used to create a package at the time we receive a revocation.
 func NewFwdPkg(source lnwire.ShortChannelID, height uint64,
+	lockedInTime LockedInTime,
 	addUpdates, settleFailUpdates []LogUpdate) *FwdPkg {
 
 	nAddUpdates := uint16(len(addUpdates))
@@ -246,6 +272,7 @@ func NewFwdPkg(source lnwire.ShortChannelID, height uint64,
 		AckFilter:        NewPkgFilter(nAddUpdates),
 		SettleFails:      settleFailUpdates,
 		SettleFailFilter: NewPkgFilter(nSettleFailUpdates),
+		LockedInTime:     lockedInTime,
 	}
 }
 
@@ -438,6 +465,13 @@ func (*ChannelPackager) AddFwdPkg(tx *bbolt.Tx, fwdPkg *FwdPkg) error {
 		return err
 	}
 
+	// Persist the locked-in time of the forwarding package for replay after
+	// restart.
+	err = putLockedInTime(heightBkt, fwdPkg.LockedInTime)
+	if err != nil {
+		return err
+	}
+
 	// Write ADD updates we received at this commit height.
 	addBkt, err := heightBkt.CreateBucketIfNotExists(addBucketKey)
 	if err != nil {
@@ -482,6 +516,42 @@ func (*ChannelPackager) AddFwdPkg(tx *bbolt.Tx, fwdPkg *FwdPkg) error {
 	}
 
 	return heightBkt.Put(settleFailFilterKey, settleFailFilterBuf.Bytes())
+}
+
+// putLockedInTime writes a locked-in time to the provided bucket.
+func putLockedInTime(bkt *bbolt.Bucket, lockedInTime LockedInTime) error {
+	var b bytes.Buffer
+
+	err := WriteElements(
+		&b,
+		lockedInTime.BlockHeight, lockedInTime.Timestamp.UnixNano(),
+	)
+	if err != nil {
+		return err
+	}
+
+	return bkt.Put(lockedInTimeKey, b.Bytes())
+}
+
+// loadLockedInTime loads the locked-in time from the provided bucket.
+func loadLockedInTime(bkt *bbolt.Bucket) (LockedInTime, error) {
+	v := bkt.Get(lockedInTimeKey)
+
+	if v == nil {
+		return LockedInTime{}, ErrCorruptedFwdPkg
+	}
+
+	r := bytes.NewReader(v)
+	lockedInTime := LockedInTime{}
+	var unixNano int64
+	err := ReadElements(r, &lockedInTime.BlockHeight, &unixNano)
+	if err != nil {
+		return LockedInTime{}, err
+	}
+	lockedInTime.Timestamp = time.Unix(0, unixNano)
+
+	return lockedInTime, nil
+
 }
 
 // putLogUpdate writes an htlc to the provided `bkt`, using `index` as the key.
@@ -558,6 +628,11 @@ func loadFwdPkg(fwdPkgBkt *bbolt.Bucket, source lnwire.ShortChannelID,
 		return nil, ErrCorruptedFwdPkg
 	}
 
+	lockedInTime, err := loadLockedInTime(heightBkt)
+	if err != nil {
+		return nil, err
+	}
+
 	// Load ADDs from disk.
 	addBkt := heightBkt.Bucket(addBucketKey)
 	if addBkt == nil {
@@ -611,6 +686,7 @@ func loadFwdPkg(fwdPkgBkt *bbolt.Bucket, source lnwire.ShortChannelID,
 		Source:           source,
 		State:            FwdStateLockedIn,
 		Height:           height,
+		LockedInTime:     lockedInTime,
 		Adds:             adds,
 		AckFilter:        ackFilter,
 		SettleFails:      failSettles,

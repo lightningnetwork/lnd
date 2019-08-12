@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"runtime"
 	"testing"
+	"time"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg"
@@ -84,6 +85,11 @@ var (
 	privKey, pubKey = btcec.PrivKeyFromBytes(btcec.S256(), key[:])
 
 	wireSig, _ = lnwire.NewSigFromSignature(testSig)
+
+	TestLockedInTime = LockedInTime{
+		BlockHeight: 1,
+		Timestamp:   time.Unix(1, 0),
+	}
 )
 
 // makeTestDB creates a new instance of the ChannelDB for testing purposes. A
@@ -535,7 +541,7 @@ func TestChannelStateTransition(t *testing.T) {
 	channel.RemoteNextRevocation = newPriv.PubKey()
 
 	fwdPkg := NewFwdPkg(channel.ShortChanID(), oldRemoteCommit.CommitHeight,
-		diskCommitDiff.LogUpdates, nil)
+		TestLockedInTime, diskCommitDiff.LogUpdates, nil)
 
 	err = channel.AdvanceCommitChainTail(fwdPkg)
 	if err != nil {
@@ -583,7 +589,8 @@ func TestChannelStateTransition(t *testing.T) {
 		t.Fatalf("unable to add to commit chain: %v", err)
 	}
 
-	fwdPkg = NewFwdPkg(channel.ShortChanID(), oldRemoteCommit.CommitHeight, nil, nil)
+	fwdPkg = NewFwdPkg(channel.ShortChanID(), oldRemoteCommit.CommitHeight,
+		TestLockedInTime, nil, nil)
 
 	err = channel.AdvanceCommitChainTail(fwdPkg)
 	if err != nil {

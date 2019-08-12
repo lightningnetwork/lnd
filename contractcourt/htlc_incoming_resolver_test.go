@@ -101,7 +101,7 @@ func TestHtlcIncomingResolverExitSettle(t *testing.T) {
 	if data.expiry != testHtlcExpiry {
 		t.Fatal("incorrect expiry")
 	}
-	if data.currentHeight != testInitialBlockHeight {
+	if data.lockedInTime.BlockHeight != testInitialBlockHeight {
 		t.Fatal("incorrect block height")
 	}
 

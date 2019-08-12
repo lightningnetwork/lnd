@@ -27,7 +27,10 @@ var (
 
 	testFinalCltvRejectDelta = int32(4)
 
-	testCurrentHeight = int32(1)
+	testLockedInTime = channeldb.LockedInTime{
+		BlockHeight: 1,
+		Timestamp:   time.Unix(1, 0),
+	}
 )
 
 func decodeExpiry(payReq string) (uint32, error) {
@@ -118,7 +121,7 @@ func TestSettleInvoice(t *testing.T) {
 	// Settle invoice with a slightly higher amount.
 	amtPaid := lnwire.MilliSatoshi(100500)
 	_, err = registry.NotifyExitHopHtlc(
-		hash, amtPaid, testHtlcExpiry, 0, hodlChan,
+		hash, amtPaid, testHtlcExpiry, testLockedInTime, hodlChan,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -153,7 +156,7 @@ func TestSettleInvoice(t *testing.T) {
 	// Try to settle again. We need this idempotent behaviour after a
 	// restart.
 	event, err := registry.NotifyExitHopHtlc(
-		hash, amtPaid, testHtlcExpiry, testCurrentHeight, hodlChan,
+		hash, amtPaid, testHtlcExpiry, testLockedInTime, hodlChan,
 	)
 	if err != nil {
 		t.Fatalf("unexpected NotifyExitHopHtlc error: %v", err)
@@ -166,7 +169,7 @@ func TestSettleInvoice(t *testing.T) {
 	// accepted, to prevent any change in behaviour for a paid invoice that
 	// may open up a probe vector.
 	event, err = registry.NotifyExitHopHtlc(
-		hash, amtPaid+600, testHtlcExpiry, testCurrentHeight,
+		hash, amtPaid+600, testHtlcExpiry, testLockedInTime,
 		hodlChan,
 	)
 	if err != nil {
@@ -179,7 +182,7 @@ func TestSettleInvoice(t *testing.T) {
 	// Try to settle again with a lower amount. This should fail just as it
 	// would have failed if it were the first payment.
 	event, err = registry.NotifyExitHopHtlc(
-		hash, amtPaid-600, testHtlcExpiry, testCurrentHeight,
+		hash, amtPaid-600, testHtlcExpiry, testLockedInTime,
 		hodlChan,
 	)
 	if err != nil {
@@ -300,7 +303,7 @@ func TestCancelInvoice(t *testing.T) {
 	// succeed.
 	hodlChan := make(chan interface{})
 	event, err := registry.NotifyExitHopHtlc(
-		hash, amt, testHtlcExpiry, testCurrentHeight, hodlChan,
+		hash, amt, testHtlcExpiry, testLockedInTime, hodlChan,
 	)
 	if err != nil {
 		t.Fatal("expected settlement of a canceled invoice to succeed")
@@ -373,7 +376,7 @@ func TestHoldInvoice(t *testing.T) {
 	// NotifyExitHopHtlc without a preimage present in the invoice registry
 	// should be possible.
 	event, err := registry.NotifyExitHopHtlc(
-		hash, amtPaid, testHtlcExpiry, testCurrentHeight, hodlChan,
+		hash, amtPaid, testHtlcExpiry, testLockedInTime, hodlChan,
 	)
 	if err != nil {
 		t.Fatalf("expected settle to succeed but got %v", err)
@@ -384,7 +387,7 @@ func TestHoldInvoice(t *testing.T) {
 
 	// Test idempotency.
 	event, err = registry.NotifyExitHopHtlc(
-		hash, amtPaid, testHtlcExpiry, testCurrentHeight, hodlChan,
+		hash, amtPaid, testHtlcExpiry, testLockedInTime, hodlChan,
 	)
 	if err != nil {
 		t.Fatalf("expected settle to succeed but got %v", err)
@@ -480,7 +483,7 @@ func TestUnknownInvoice(t *testing.T) {
 	hodlChan := make(chan interface{})
 	amt := lnwire.MilliSatoshi(100000)
 	_, err := registry.NotifyExitHopHtlc(
-		hash, amt, testHtlcExpiry, testCurrentHeight, hodlChan,
+		hash, amt, testHtlcExpiry, testLockedInTime, hodlChan,
 	)
 	if err != channeldb.ErrInvoiceNotFound {
 		t.Fatal("expected invoice not found error")

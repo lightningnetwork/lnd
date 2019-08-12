@@ -103,6 +103,11 @@ var (
 			number:    9,
 			migration: migrateOutgoingPayments,
 		},
+		{
+			// Adds locked-in time to forwarding packages.
+			number:    10,
+			migration: migrateLockedInTime,
+		},
 	}
 
 	// Big endian is the preferred byte order, due to cursor scans over

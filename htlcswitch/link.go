@@ -1798,8 +1798,15 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// We've received a revocation from the remote chain, if valid,
 		// this moves the remote chain forward, and expands our
 		// revocation window.
+		heightNow := int32(l.cfg.Switch.BestHeight())
+
+		lockedInTime := channeldb.LockedInTime{
+			BlockHeight: heightNow,
+			Timestamp:   time.Now(),
+		}
+
 		fwdPkg, adds, settleFails, remoteHTLCs, err := l.channel.ReceiveRevocation(
-			msg,
+			msg, lockedInTime,
 		)
 		if err != nil {
 			// TODO(halseth): force close?
@@ -2540,7 +2547,7 @@ func (l *channelLink) processRemoteSettleFails(fwdPkg *channeldb.FwdPkg,
 func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 	lockedInHtlcs []*lnwallet.PaymentDescriptor) bool {
 
-	l.tracef("processing %d remote adds for height %d",
+	l.infof("processing %d remote adds for height %d",
 		len(lockedInHtlcs), fwdPkg.Height)
 
 	decodeReqs := make([]DecodeHopIteratorRequest, 0, len(lockedInHtlcs))
@@ -2643,13 +2650,11 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 			continue
 		}
 
-		heightNow := l.cfg.Switch.BestHeight()
-
 		fwdInfo := chanIterator.ForwardingInstructions()
 		switch fwdInfo.NextHop {
 		case exitHop:
 			updated, err := l.processExitHop(
-				pd, obfuscator, fwdInfo, heightNow,
+				pd, fwdPkg.LockedInTime, obfuscator, fwdInfo,
 			)
 			if err != nil {
 				l.fail(LinkFailureError{code: ErrInternalError},
@@ -2822,8 +2827,8 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 // processExitHop handles an htlc for which this link is the exit hop. It
 // returns a boolean indicating whether the commitment tx needs an update.
 func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
-	obfuscator ErrorEncrypter, fwdInfo ForwardingInfo, heightNow uint32) (
-	bool, error) {
+	lockedInTime channeldb.LockedInTime, obfuscator ErrorEncrypter,
+	fwdInfo ForwardingInfo) (bool, error) {
 
 	// If hodl.ExitSettle is requested, we will not validate the final hop's
 	// ADD, nor will we settle the corresponding invoice or respond with the
@@ -2870,7 +2875,7 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 	invoiceHash := lntypes.Hash(pd.RHash)
 
 	event, err := l.cfg.Registry.NotifyExitHopHtlc(
-		invoiceHash, pd.Amount, pd.Timeout, int32(heightNow),
+		invoiceHash, pd.Amount, pd.Timeout, lockedInTime,
 		l.hodlQueue.ChanIn(),
 	)
 

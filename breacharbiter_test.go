@@ -1963,7 +1963,9 @@ func forceStateTransition(chanA, chanB *lnwallet.LightningChannel) error {
 		return err
 	}
 
-	_, _, _, _, err = chanA.ReceiveRevocation(bobRevocation)
+	_, _, _, _, err = chanA.ReceiveRevocation(
+		bobRevocation, channeldb.LockedInTime{},
+	)
 	if err != nil {
 		return err
 	}
@@ -1975,7 +1977,9 @@ func forceStateTransition(chanA, chanB *lnwallet.LightningChannel) error {
 	if err != nil {
 		return err
 	}
-	_, _, _, _, err = chanB.ReceiveRevocation(aliceRevocation)
+	_, _, _, _, err = chanB.ReceiveRevocation(
+		aliceRevocation, channeldb.LockedInTime{},
+	)
 	if err != nil {
 		return err
 	}

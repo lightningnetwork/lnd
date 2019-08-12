@@ -131,7 +131,9 @@ func TestSimpleAddSettleWorkflow(t *testing.T) {
 	// Alice then processes this revocation, sending her own revocation for
 	// her prior commitment transaction. Alice shouldn't have any HTLCs to
 	// forward since she's sending an outgoing HTLC.
-	fwdPkg, _, _, _, err := aliceChannel.ReceiveRevocation(bobRevocation)
+	fwdPkg, _, _, _, err := aliceChannel.ReceiveRevocation(
+		bobRevocation, channeldb.LockedInTime{},
+	)
 	if err != nil {
 		t.Fatalf("alice unable to process bob's revocation: %v", err)
 	}
@@ -162,7 +164,9 @@ func TestSimpleAddSettleWorkflow(t *testing.T) {
 	// is fully locked in within both commitment transactions. Bob should
 	// also be able to forward an HTLC now that the HTLC has been locked
 	// into both commitment transactions.
-	fwdPkg, _, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
+	fwdPkg, _, _, _, err = bobChannel.ReceiveRevocation(
+		aliceRevocation, channeldb.LockedInTime{},
+	)
 	if err != nil {
 		t.Fatalf("bob unable to process alice's revocation: %v", err)
 	}
@@ -257,7 +261,9 @@ func TestSimpleAddSettleWorkflow(t *testing.T) {
 		t.Fatalf("alice unable to sign new commitment: %v", err)
 	}
 
-	fwdPkg, _, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation2)
+	fwdPkg, _, _, _, err = bobChannel.ReceiveRevocation(
+		aliceRevocation2, channeldb.LockedInTime{},
+	)
 	if err != nil {
 		t.Fatalf("bob unable to process alice's revocation: %v", err)
 	}
@@ -279,7 +285,9 @@ func TestSimpleAddSettleWorkflow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("bob unable to revoke commitment: %v", err)
 	}
-	fwdPkg, _, _, _, err = aliceChannel.ReceiveRevocation(bobRevocation2)
+	fwdPkg, _, _, _, err = aliceChannel.ReceiveRevocation(
+		bobRevocation2, channeldb.LockedInTime{},
+	)
 	if err != nil {
 		t.Fatalf("alice unable to process bob's revocation: %v", err)
 	}
@@ -2165,7 +2173,9 @@ func TestUpdateFeeSenderCommits(t *testing.T) {
 	// Alice receives the revocation of the old one, and can now assume
 	// that Bob's received everything up to the signature she sent,
 	// including the HTLC and fee update.
-	_, _, _, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
+	_, _, _, _, err = aliceChannel.ReceiveRevocation(
+		bobRevocation, channeldb.LockedInTime{},
+	)
 	if err != nil {
 		t.Fatalf("alice unable to process bob's revocation: %v", err)
 	}
@@ -2193,7 +2203,9 @@ func TestUpdateFeeSenderCommits(t *testing.T) {
 	}
 
 	// Bob receives revocation from Alice.
-	_, _, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
+	_, _, _, _, err = bobChannel.ReceiveRevocation(
+		aliceRevocation, channeldb.LockedInTime{},
+	)
 	if err != nil {
 		t.Fatalf("bob unable to process alice's revocation: %v", err)
 	}
@@ -2262,7 +2274,9 @@ func TestUpdateFeeReceiverCommits(t *testing.T) {
 	}
 
 	// Bob receives the revocation of the old commitment
-	_, _, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
+	_, _, _, _, err = bobChannel.ReceiveRevocation(
+		aliceRevocation, channeldb.LockedInTime{},
+	)
 	if err != nil {
 		t.Fatalf("alice unable to process bob's revocation: %v", err)
 	}
@@ -2307,7 +2321,9 @@ func TestUpdateFeeReceiverCommits(t *testing.T) {
 
 	// Alice receives revocation from Bob, and can now be sure that Bob
 	// received the two updates, and they are considered locked in.
-	_, _, _, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
+	_, _, _, _, err = aliceChannel.ReceiveRevocation(
+		bobRevocation, channeldb.LockedInTime{},
+	)
 	if err != nil {
 		t.Fatalf("bob unable to process alice's revocation: %v", err)
 	}
@@ -2335,7 +2351,9 @@ func TestUpdateFeeReceiverCommits(t *testing.T) {
 	}
 
 	// Bob receives revocation from Alice.
-	_, _, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
+	_, _, _, _, err = bobChannel.ReceiveRevocation(
+		aliceRevocation, channeldb.LockedInTime{},
+	)
 	if err != nil {
 		t.Fatalf("bob unable to process alice's revocation: %v", err)
 	}
@@ -2450,7 +2468,9 @@ func TestUpdateFeeMultipleUpdates(t *testing.T) {
 	// Alice receives the revocation of the old one, and can now assume that
 	// Bob's received everything up to the signature she sent, including the
 	// HTLC and fee update.
-	_, _, _, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
+	_, _, _, _, err = aliceChannel.ReceiveRevocation(
+		bobRevocation, channeldb.LockedInTime{},
+	)
 	if err != nil {
 		t.Fatalf("alice unable to process bob's revocation: %v", err)
 	}
@@ -2477,7 +2497,9 @@ func TestUpdateFeeMultipleUpdates(t *testing.T) {
 	}
 
 	// Bob receives revocation from Alice.
-	_, _, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
+	_, _, _, _, err = bobChannel.ReceiveRevocation(
+		aliceRevocation, channeldb.LockedInTime{},
+	)
 	if err != nil {
 		t.Fatalf("bob unable to process alice's revocation: %v", err)
 	}
@@ -2903,7 +2925,9 @@ func TestChanSyncOweCommitment(t *testing.T) {
 	if err != nil {
 		t.Fatalf("bob unable to sign commitment: %v", err)
 	}
-	_, _, _, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
+	_, _, _, _, err = aliceChannel.ReceiveRevocation(
+		bobRevocation, channeldb.LockedInTime{},
+	)
 	if err != nil {
 		t.Fatalf("alice unable to recv revocation: %v", err)
 	}
@@ -2915,7 +2939,9 @@ func TestChanSyncOweCommitment(t *testing.T) {
 	if err != nil {
 		t.Fatalf("alice unable to revoke commitment: %v", err)
 	}
-	_, _, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
+	_, _, _, _, err = bobChannel.ReceiveRevocation(
+		aliceRevocation, channeldb.LockedInTime{},
+	)
 	if err != nil {
 		t.Fatalf("bob unable to recv revocation: %v", err)
 	}
@@ -3074,7 +3100,9 @@ func TestChanSyncOweRevocation(t *testing.T) {
 		t.Fatalf("bob unable to sign commitment: %v", err)
 	}
 
-	_, _, _, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
+	_, _, _, _, err = aliceChannel.ReceiveRevocation(
+		bobRevocation, channeldb.LockedInTime{},
+	)
 	if err != nil {
 		t.Fatalf("alice unable to recv revocation: %v", err)
 	}
@@ -3156,7 +3184,9 @@ func TestChanSyncOweRevocation(t *testing.T) {
 	// TODO(roasbeef): restart bob too???
 
 	// We'll continue by then allowing bob to process Alice's revocation message.
-	_, _, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
+	_, _, _, _, err = bobChannel.ReceiveRevocation(
+		aliceRevocation, channeldb.LockedInTime{},
+	)
 	if err != nil {
 		t.Fatalf("bob unable to recv revocation: %v", err)
 	}
@@ -3335,7 +3365,9 @@ func TestChanSyncOweRevocationAndCommit(t *testing.T) {
 
 	// We'll now finish the state transition by having Alice process both
 	// messages, and send her final revocation.
-	_, _, _, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
+	_, _, _, _, err = aliceChannel.ReceiveRevocation(
+		bobRevocation, channeldb.LockedInTime{},
+	)
 	if err != nil {
 		t.Fatalf("alice unable to recv revocation: %v", err)
 	}
@@ -3347,7 +3379,9 @@ func TestChanSyncOweRevocationAndCommit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("alice unable to revoke commitment: %v", err)
 	}
-	_, _, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
+	_, _, _, _, err = bobChannel.ReceiveRevocation(
+		aliceRevocation, channeldb.LockedInTime{},
+	)
 	if err != nil {
 		t.Fatalf("bob unable to recv revocation: %v", err)
 	}
@@ -3435,7 +3469,9 @@ func TestChanSyncOweRevocationAndCommitForceTransition(t *testing.T) {
 	if err != nil {
 		t.Fatalf("alice unable to revoke commitment: %v", err)
 	}
-	_, _, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
+	_, _, _, _, err = bobChannel.ReceiveRevocation(
+		aliceRevocation, channeldb.LockedInTime{},
+	)
 	if err != nil {
 		t.Fatalf("bob unable to recv revocation: %v", err)
 	}
@@ -3565,7 +3601,9 @@ func TestChanSyncOweRevocationAndCommitForceTransition(t *testing.T) {
 	// Now, we'll continue the exchange, sending Bob's revocation and
 	// signature message to Alice, ending with Alice sending her revocation
 	// message to Bob.
-	_, _, _, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
+	_, _, _, _, err = aliceChannel.ReceiveRevocation(
+		bobRevocation, channeldb.LockedInTime{},
+	)
 	if err != nil {
 		t.Fatalf("alice unable to recv revocation: %v", err)
 	}
@@ -3579,7 +3617,9 @@ func TestChanSyncOweRevocationAndCommitForceTransition(t *testing.T) {
 	if err != nil {
 		t.Fatalf("alice unable to revoke commitment: %v", err)
 	}
-	_, _, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
+	_, _, _, _, err = bobChannel.ReceiveRevocation(
+		aliceRevocation, channeldb.LockedInTime{},
+	)
 	if err != nil {
 		t.Fatalf("bob unable to recv revocation: %v", err)
 	}
@@ -4002,7 +4042,9 @@ func TestChannelRetransmissionFeeUpdate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("bob unable to sign commitment: %v", err)
 	}
-	_, _, _, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
+	_, _, _, _, err = aliceChannel.ReceiveRevocation(
+		bobRevocation, channeldb.LockedInTime{},
+	)
 	if err != nil {
 		t.Fatalf("alice unable to recv revocation: %v", err)
 	}
@@ -4014,7 +4056,9 @@ func TestChannelRetransmissionFeeUpdate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("alice unable to revoke commitment: %v", err)
 	}
-	_, _, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
+	_, _, _, _, err = bobChannel.ReceiveRevocation(
+		aliceRevocation, channeldb.LockedInTime{},
+	)
 	if err != nil {
 		t.Fatalf("bob unable to recv revocation: %v", err)
 	}
@@ -4215,7 +4259,9 @@ func TestFeeUpdateOldDiskFormat(t *testing.T) {
 	if err != nil {
 		t.Fatalf("bob unable to sign commitment: %v", err)
 	}
-	_, _, _, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
+	_, _, _, _, err = aliceChannel.ReceiveRevocation(
+		bobRevocation, channeldb.LockedInTime{},
+	)
 	if err != nil {
 		t.Fatalf("alice unable to recv revocation: %v", err)
 	}
@@ -4227,7 +4273,9 @@ func TestFeeUpdateOldDiskFormat(t *testing.T) {
 	if err != nil {
 		t.Fatalf("alice unable to revoke commitment: %v", err)
 	}
-	_, _, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
+	_, _, _, _, err = bobChannel.ReceiveRevocation(
+		aliceRevocation, channeldb.LockedInTime{},
+	)
 	if err != nil {
 		t.Fatalf("bob unable to recv revocation: %v", err)
 	}
@@ -4590,7 +4638,9 @@ func TestLockedInHtlcForwardingSkipAfterRestart(t *testing.T) {
 	}
 
 	// Alice should detect that she doesn't need to forward any HTLC's.
-	fwdPkg, _, _, _, err := aliceChannel.ReceiveRevocation(bobRevocation)
+	fwdPkg, _, _, _, err := aliceChannel.ReceiveRevocation(
+		bobRevocation, channeldb.LockedInTime{},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -4621,7 +4671,9 @@ func TestLockedInHtlcForwardingSkipAfterRestart(t *testing.T) {
 
 	// Bob should now detect that he now has 2 incoming HTLC's that he can
 	// forward along.
-	fwdPkg, _, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
+	fwdPkg, _, _, _, err = bobChannel.ReceiveRevocation(
+		aliceRevocation, channeldb.LockedInTime{},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -4674,7 +4726,9 @@ func TestLockedInHtlcForwardingSkipAfterRestart(t *testing.T) {
 	// At this point, Bob receives the revocation from Alice, which is now
 	// his signal to examine all the HTLC's that have been locked in to
 	// process.
-	fwdPkg, _, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
+	fwdPkg, _, _, _, err = bobChannel.ReceiveRevocation(
+		aliceRevocation, channeldb.LockedInTime{},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -4720,7 +4774,9 @@ func TestLockedInHtlcForwardingSkipAfterRestart(t *testing.T) {
 
 	// Alice should detect that she doesn't need to forward any Adds's, but
 	// that the Fail has been locked in an can be forwarded.
-	_, adds, settleFails, _, err := aliceChannel.ReceiveRevocation(bobRevocation)
+	_, adds, settleFails, _, err := aliceChannel.ReceiveRevocation(
+		bobRevocation, channeldb.LockedInTime{},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -4777,7 +4833,9 @@ func TestLockedInHtlcForwardingSkipAfterRestart(t *testing.T) {
 
 	// Alice should detect that she doesn't need to forward any HTLC's, as
 	// the updates haven't been committed by Bob yet.
-	fwdPkg, _, _, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
+	fwdPkg, _, _, _, err = aliceChannel.ReceiveRevocation(
+		bobRevocation, channeldb.LockedInTime{},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -4808,7 +4866,9 @@ func TestLockedInHtlcForwardingSkipAfterRestart(t *testing.T) {
 
 	// Bob should detect that he has nothing to forward, as he hasn't
 	// received any HTLCs.
-	fwdPkg, _, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
+	fwdPkg, _, _, _, err = bobChannel.ReceiveRevocation(
+		aliceRevocation, channeldb.LockedInTime{},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -4838,7 +4898,9 @@ func TestLockedInHtlcForwardingSkipAfterRestart(t *testing.T) {
 
 	// When Alice receives the revocation, she should detect that she
 	// can now forward the freshly locked-in Fail.
-	_, adds, settleFails, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
+	_, adds, settleFails, _, err = aliceChannel.ReceiveRevocation(
+		bobRevocation, channeldb.LockedInTime{},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -5894,7 +5956,9 @@ func TestChannelRestoreUpdateLogs(t *testing.T) {
 	// sent. However her local commitment chain still won't include the
 	// state with the HTLC, since she hasn't received a new commitment
 	// signature from Bob yet.
-	_, _, _, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
+	_, _, _, _, err = aliceChannel.ReceiveRevocation(
+		bobRevocation, channeldb.LockedInTime{},
+	)
 	if err != nil {
 		t.Fatalf("unable to recive revocation: %v", err)
 	}
@@ -6096,7 +6160,9 @@ func TestChannelRestoreUpdateLogsFailedHTLC(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to revoke commitment: %v", err)
 	}
-	_, _, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
+	_, _, _, _, err = bobChannel.ReceiveRevocation(
+		aliceRevocation, channeldb.LockedInTime{},
+	)
 	if err != nil {
 		t.Fatalf("bob unable to process alice's revocation: %v", err)
 	}
@@ -6132,7 +6198,9 @@ func TestChannelRestoreUpdateLogsFailedHTLC(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to revoke commitment: %v", err)
 	}
-	_, _, _, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
+	_, _, _, _, err = aliceChannel.ReceiveRevocation(
+		bobRevocation, channeldb.LockedInTime{},
+	)
 	if err != nil {
 		t.Fatalf("unable to receive revocation: %v", err)
 	}
@@ -6389,7 +6457,9 @@ func TestChannelRestoreCommitHeight(t *testing.T) {
 	bobChannel = restoreAndAssertCommitHeights(t, bobChannel, true, 0, 1, 0)
 
 	// Alice receives the revocation, ACKing her pending commitment.
-	_, _, _, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
+	_, _, _, _, err = aliceChannel.ReceiveRevocation(
+		bobRevocation, channeldb.LockedInTime{},
+	)
 	if err != nil {
 		t.Fatalf("unable to recive revocation: %v", err)
 	}
@@ -6424,7 +6494,9 @@ func TestChannelRestoreCommitHeight(t *testing.T) {
 	aliceChannel = restoreAndAssertCommitHeights(t, aliceChannel, false,
 		0, 1, 1)
 
-	_, _, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
+	_, _, _, _, err = bobChannel.ReceiveRevocation(
+		aliceRevocation, channeldb.LockedInTime{},
+	)
 	if err != nil {
 		t.Fatalf("unable to recive revocation: %v", err)
 	}
@@ -6576,7 +6648,9 @@ func TestForceCloseBorkedState(t *testing.T) {
 
 	// At this point, all channel mutating methods should now fail as they
 	// shouldn't be able to proceed if the channel is borked.
-	_, _, _, _, err = aliceChannel.ReceiveRevocation(revokeMsg)
+	_, _, _, _, err = aliceChannel.ReceiveRevocation(
+		revokeMsg, channeldb.LockedInTime{},
+	)
 	if err != channeldb.ErrChanBorked {
 		t.Fatalf("advance commitment tail should have failed")
 	}

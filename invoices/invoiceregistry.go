@@ -36,6 +36,10 @@ var (
 	// ErrInvoiceAmountTooLow is returned  when an invoice is attempted to be
 	// accepted or settled with an amount that is too low.
 	ErrInvoiceAmountTooLow = errors.New("paid amount less than invoice amount")
+
+	// ErrShuttingDown is returned when an operation failed because the
+	// invoice registry is shutting down.
+	ErrShuttingDown = errors.New("invoice registry shutting down")
 )
 
 // HodlEvent describes how an htlc should be resolved. If HodlEvent.Preimage is
@@ -330,7 +334,7 @@ func (i *InvoiceRegistry) deliverBacklogEvents(client *InvoiceSubscription) erro
 			invoice: &addEvent,
 		}:
 		case <-i.quit:
-			return fmt.Errorf("registry shutting down")
+			return ErrShuttingDown
 		}
 	}
 
@@ -344,7 +348,7 @@ func (i *InvoiceRegistry) deliverBacklogEvents(client *InvoiceSubscription) erro
 			invoice: &settleEvent,
 		}:
 		case <-i.quit:
-			return fmt.Errorf("registry shutting down")
+			return ErrShuttingDown
 		}
 	}
 
@@ -801,7 +805,7 @@ func (i *invoiceSubscriptionKit) notify(event *invoiceEvent) error {
 	select {
 	case i.ntfnQueue.ChanIn() <- event:
 	case <-i.inv.quit:
-		return fmt.Errorf("registry shutting down")
+		return ErrShuttingDown
 	}
 
 	return nil

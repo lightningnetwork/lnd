@@ -11,7 +11,6 @@ import (
 	"net"
 	"reflect"
 	"runtime"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -623,12 +622,8 @@ func TestExitNodeAmountPayloadMismatch(t *testing.T) {
 	).Wait(30 * time.Second)
 	if err == nil {
 		t.Fatalf("payment should have failed but didn't")
-	} else if !strings.Contains(err.Error(), lnwire.CodeUnknownPaymentHash.String()) {
-		// TODO(roasbeef): use proper error after error propagation is
-		// in
-		t.Fatalf("expected %v got %v", err,
-			lnwire.CodeUnknownPaymentHash)
 	}
+	assertFailureCode(t, err, lnwire.CodeFinalIncorrectHtlcAmount)
 }
 
 // TestLinkForwardTimelockPolicyMismatch tests that if a node is an
@@ -1025,9 +1020,8 @@ func TestChannelLinkMultiHopInsufficientPayment(t *testing.T) {
 	).Wait(30 * time.Second)
 	if err == nil {
 		t.Fatal("error haven't been received")
-	} else if !strings.Contains(err.Error(), "insufficient capacity") {
-		t.Fatalf("wrong error has been received: %v", err)
 	}
+	assertFailureCode(t, err, lnwire.CodeTemporaryChannelFailure)
 
 	// Wait for Alice to receive the revocation.
 	//
@@ -1136,10 +1130,9 @@ func TestChannelLinkMultiHopUnknownPaymentHash(t *testing.T) {
 		t.Fatalf("no result arrive")
 	}
 
-	fErr := result.Error
-	if !strings.Contains(fErr.Error(), lnwire.CodeUnknownPaymentHash.String()) {
-		t.Fatalf("expected %v got %v", lnwire.CodeUnknownPaymentHash, fErr)
-	}
+	assertFailureCode(
+		t, result.Error, lnwire.CodeIncorrectOrUnknownPaymentDetails,
+	)
 
 	// Wait for Alice to receive the revocation.
 	time.Sleep(100 * time.Millisecond)
@@ -1420,10 +1413,10 @@ func TestChannelLinkExpiryTooSoonExitNode(t *testing.T) {
 	}
 
 	switch ferr.FailureMessage.(type) {
-	case *lnwire.FailFinalExpiryTooSoon:
+	case *lnwire.FailIncorrectDetails:
 	default:
-		t.Fatalf("incorrect error, expected final time lock too "+
-			"early, instead have: %v", err)
+		t.Fatalf("expected incorrect_or_unknown_payment_details, "+
+			"instead have: %v", err)
 	}
 }
 
@@ -5677,7 +5670,7 @@ func TestChannelLinkCanceledInvoice(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected ForwardingError, but got %v", err)
 	}
-	_, ok = fErr.FailureMessage.(*lnwire.FailUnknownPaymentHash)
+	_, ok = fErr.FailureMessage.(*lnwire.FailIncorrectDetails)
 	if !ok {
 		t.Fatalf("expected unknown payment hash, but got %v", err)
 	}
@@ -5846,11 +5839,7 @@ func TestChannelLinkHoldInvoiceCancel(t *testing.T) {
 
 	// Wait for payment to succeed.
 	err = <-ctx.errChan
-	if !strings.Contains(err.Error(),
-		lnwire.CodeUnknownPaymentHash.String()) {
-
-		t.Fatal("expected unknown payment hash")
-	}
+	assertFailureCode(t, err, lnwire.CodeIncorrectOrUnknownPaymentDetails)
 }
 
 // TestChannelLinkHoldInvoiceRestart asserts hodl htlcs are held after blocks
@@ -6079,5 +6068,19 @@ func TestChannelLinkRevocationWindowHodl(t *testing.T) {
 	case msg := <-aliceMsgs:
 		t.Fatalf("did not expect message %T", msg)
 	default:
+	}
+}
+
+// assertFailureCode asserts that an error is of type ForwardingError and that
+// the failure code is as expected.
+func assertFailureCode(t *testing.T, err error, code lnwire.FailCode) {
+	fErr, ok := err.(*ForwardingError)
+	if !ok {
+		t.Fatalf("expected ForwardingError but got %T", err)
+	}
+
+	if fErr.FailureMessage.Code() != code {
+		t.Fatalf("expected %v but got %v",
+			code, fErr.FailureMessage.Code())
 	}
 }

@@ -28,41 +28,6 @@ var (
 	DebugHash = DebugPre.Hash()
 )
 
-// HtlcCancelReason defines reasons for which htlcs can be canceled.
-type HtlcCancelReason uint8
-
-const (
-	// CancelInvoiceUnknown is returned if the preimage is unknown.
-	CancelInvoiceUnknown HtlcCancelReason = iota
-
-	// CancelExpiryTooSoon is returned when the timelock of the htlc
-	// does not satisfy the invoice cltv expiry requirement.
-	CancelExpiryTooSoon
-
-	// CancelInvoiceCanceled is returned when the invoice is already
-	// canceled and can't be paid to anymore.
-	CancelInvoiceCanceled
-
-	// CancelAmountTooLow is returned when the amount paid is too low.
-	CancelAmountTooLow
-)
-
-// String returns a human readable identifier for the cancel reason.
-func (r HtlcCancelReason) String() string {
-	switch r {
-	case CancelInvoiceUnknown:
-		return "InvoiceUnknown"
-	case CancelExpiryTooSoon:
-		return "ExpiryTooSoon"
-	case CancelInvoiceCanceled:
-		return "InvoiceCanceled"
-	case CancelAmountTooLow:
-		return "CancelAmountTooLow"
-	default:
-		return "Unknown"
-	}
-}
-
 var (
 	// ErrInvoiceExpiryTooSoon is returned when an invoice is attempted to be
 	// accepted or settled with not enough blocks remaining.
@@ -82,10 +47,6 @@ type HodlEvent struct {
 
 	// Hash is the htlc hash.
 	Hash lntypes.Hash
-
-	// CancelReason specifies the reason why invoice registry decided to
-	// cancel the htlc.
-	CancelReason HtlcCancelReason
 }
 
 // InvoiceRegistry is a central registry of all the outstanding invoices
@@ -644,8 +605,7 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 		debugLog("invoice already canceled")
 
 		return &HodlEvent{
-			Hash:         rHash,
-			CancelReason: CancelInvoiceCanceled,
+			Hash: rHash,
 		}, nil
 
 	// If invoice is already accepted, add this htlc to the list of
@@ -661,8 +621,7 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 		debugLog("expiry too soon")
 
 		return &HodlEvent{
-			Hash:         rHash,
-			CancelReason: CancelExpiryTooSoon,
+			Hash: rHash,
 		}, nil
 
 		// If there are not enough blocks left, cancel the htlc.
@@ -670,8 +629,7 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 		debugLog("amount too low")
 
 		return &HodlEvent{
-			Hash:         rHash,
-			CancelReason: CancelAmountTooLow,
+			Hash: rHash,
 		}, nil
 
 	// If this call settled the invoice, settle the htlc. Otherwise
@@ -750,8 +708,7 @@ func (i *InvoiceRegistry) CancelInvoice(payHash lntypes.Hash) error {
 
 	log.Debugf("Invoice(%v): canceled", payHash)
 	i.notifyHodlSubscribers(HodlEvent{
-		Hash:         payHash,
-		CancelReason: CancelInvoiceCanceled,
+		Hash: payHash,
 	})
 	i.notifyClients(payHash, invoice, channeldb.ContractCanceled)
 

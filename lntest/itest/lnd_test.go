@@ -8664,7 +8664,7 @@ out:
 		t.Fatalf("payment should have been rejected due to invalid " +
 			"payment hash")
 	}
-	expectedErrorCode := lnwire.CodeUnknownPaymentHash.String()
+	expectedErrorCode := lnwire.CodeIncorrectOrUnknownPaymentDetails.String()
 	if !strings.Contains(resp.PaymentError, expectedErrorCode) {
 		// TODO(roasbeef): make into proper gRPC error code
 		t.Fatalf("payment should have failed due to unknown payment hash, "+
@@ -8696,7 +8696,7 @@ out:
 		t.Fatalf("payment should have been rejected due to wrong " +
 			"HTLC amount")
 	}
-	expectedErrorCode = lnwire.CodeUnknownPaymentHash.String()
+	expectedErrorCode = lnwire.CodeIncorrectOrUnknownPaymentDetails.String()
 	if !strings.Contains(resp.PaymentError, expectedErrorCode) {
 		t.Fatalf("payment should have failed due to wrong amount, "+
 			"instead failed due to: %v", resp.PaymentError)

@@ -855,7 +855,7 @@ func putInvoice(invoices, invoiceIndex, addIndex *bbolt.Bucket,
 	// Finally, serialize the invoice itself to be written to the disk.
 	var buf bytes.Buffer
 	if err := serializeInvoice(&buf, i); err != nil {
-		return 0, nil
+		return 0, err
 	}
 
 	if err := invoices.Put(invoiceKey[:], buf.Bytes()); err != nil {

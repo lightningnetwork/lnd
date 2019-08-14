@@ -71,7 +71,7 @@ func EUint8(w io.Writer, val interface{}, buf *[8]byte) error {
 		_, err := w.Write(buf[:1])
 		return err
 	}
-	return ErrTypeForEncoding{val, "uint8"}
+	return NewTypeForEncodingErr(val, "uint8")
 }
 
 // EUint8T encodes a uint8 val to the provided io.Writer. This method is exposed
@@ -91,7 +91,7 @@ func EUint16(w io.Writer, val interface{}, buf *[8]byte) error {
 		_, err := w.Write(buf[:2])
 		return err
 	}
-	return ErrTypeForEncoding{val, "uint16"}
+	return NewTypeForEncodingErr(val, "uint16")
 }
 
 // EUint16T encodes a uint16 val to the provided io.Writer. This method is
@@ -111,7 +111,7 @@ func EUint32(w io.Writer, val interface{}, buf *[8]byte) error {
 		_, err := w.Write(buf[:4])
 		return err
 	}
-	return ErrTypeForEncoding{val, "uint32"}
+	return NewTypeForEncodingErr(val, "uint32")
 }
 
 // EUint32T encodes a uint32 val to the provided io.Writer. This method is
@@ -131,7 +131,7 @@ func EUint64(w io.Writer, val interface{}, buf *[8]byte) error {
 		_, err := w.Write(buf[:])
 		return err
 	}
-	return ErrTypeForEncoding{val, "uint64"}
+	return NewTypeForEncodingErr(val, "uint64")
 }
 
 // EUint64T encodes a uint64 val to the provided io.Writer. This method is
@@ -153,7 +153,7 @@ func DUint8(r io.Reader, val interface{}, buf *[8]byte, l uint64) error {
 		*i = buf[0]
 		return nil
 	}
-	return ErrTypeForDecoding{val, "uint8", l, 1}
+	return NewTypeForDecodingErr(val, "uint8", l, 1)
 }
 
 // DUint16 is a Decoder for uint16 values. An error is returned if val is not a
@@ -166,7 +166,7 @@ func DUint16(r io.Reader, val interface{}, buf *[8]byte, l uint64) error {
 		*i = byteOrder.Uint16(buf[:2])
 		return nil
 	}
-	return ErrTypeForDecoding{val, "uint16", l, 2}
+	return NewTypeForDecodingErr(val, "uint16", l, 2)
 }
 
 // DUint32 is a Decoder for uint32 values. An error is returned if val is not a
@@ -179,7 +179,7 @@ func DUint32(r io.Reader, val interface{}, buf *[8]byte, l uint64) error {
 		*i = byteOrder.Uint32(buf[:4])
 		return nil
 	}
-	return ErrTypeForDecoding{val, "uint32", l, 4}
+	return NewTypeForDecodingErr(val, "uint32", l, 4)
 }
 
 // DUint64 is a Decoder for uint64 values. An error is returned if val is not a
@@ -192,7 +192,7 @@ func DUint64(r io.Reader, val interface{}, buf *[8]byte, l uint64) error {
 		*i = byteOrder.Uint64(buf[:])
 		return nil
 	}
-	return ErrTypeForDecoding{val, "uint64", l, 8}
+	return NewTypeForDecodingErr(val, "uint64", l, 8)
 }
 
 // EBytes32 is an Encoder for 32-byte arrays. An error is returned if val is not
@@ -202,7 +202,7 @@ func EBytes32(w io.Writer, val interface{}, _ *[8]byte) error {
 		_, err := w.Write(b[:])
 		return err
 	}
-	return ErrTypeForEncoding{val, "[32]byte"}
+	return NewTypeForEncodingErr(val, "[32]byte")
 }
 
 // DBytes32 is a Decoder for 32-byte arrays. An error is returned if val is not
@@ -212,7 +212,7 @@ func DBytes32(r io.Reader, val interface{}, _ *[8]byte, l uint64) error {
 		_, err := io.ReadFull(r, b[:])
 		return err
 	}
-	return ErrTypeForDecoding{val, "[32]byte", l, 32}
+	return NewTypeForDecodingErr(val, "[32]byte", l, 32)
 }
 
 // EBytes33 is an Encoder for 33-byte arrays. An error is returned if val is not
@@ -222,7 +222,7 @@ func EBytes33(w io.Writer, val interface{}, _ *[8]byte) error {
 		_, err := w.Write(b[:])
 		return err
 	}
-	return ErrTypeForEncoding{val, "[33]byte"}
+	return NewTypeForEncodingErr(val, "[33]byte")
 }
 
 // DBytes33 is a Decoder for 33-byte arrays. An error is returned if val is not
@@ -232,7 +232,7 @@ func DBytes33(r io.Reader, val interface{}, _ *[8]byte, l uint64) error {
 		_, err := io.ReadFull(r, b[:])
 		return err
 	}
-	return ErrTypeForDecoding{val, "[33]byte", l, 33}
+	return NewTypeForDecodingErr(val, "[33]byte", l, 33)
 }
 
 // EBytes64 is an Encoder for 64-byte arrays. An error is returned if val is not
@@ -242,7 +242,7 @@ func EBytes64(w io.Writer, val interface{}, _ *[8]byte) error {
 		_, err := w.Write(b[:])
 		return err
 	}
-	return ErrTypeForEncoding{val, "[64]byte"}
+	return NewTypeForEncodingErr(val, "[64]byte")
 }
 
 // DBytes64 is an Decoder for 64-byte arrays. An error is returned if val is not
@@ -252,7 +252,7 @@ func DBytes64(r io.Reader, val interface{}, _ *[8]byte, l uint64) error {
 		_, err := io.ReadFull(r, b[:])
 		return err
 	}
-	return ErrTypeForDecoding{val, "[64]byte", l, 64}
+	return NewTypeForDecodingErr(val, "[64]byte", l, 64)
 }
 
 // EPubKey is an Encoder for *btcec.PublicKey values. An error is returned if
@@ -262,7 +262,7 @@ func EPubKey(w io.Writer, val interface{}, _ *[8]byte) error {
 		_, err := w.Write((*pk).SerializeCompressed())
 		return err
 	}
-	return ErrTypeForEncoding{val, "*btcec.PublicKey"}
+	return NewTypeForEncodingErr(val, "*btcec.PublicKey")
 }
 
 // DPubKey is a Decoder for *btcec.PublicKey values. An error is returned if val
@@ -284,7 +284,7 @@ func DPubKey(r io.Reader, val interface{}, _ *[8]byte, l uint64) error {
 
 		return nil
 	}
-	return ErrTypeForDecoding{val, "*btcec.PublicKey", l, 33}
+	return NewTypeForDecodingErr(val, "*btcec.PublicKey", l, 33)
 }
 
 // EVarBytes is an Encoder for variable byte slices. An error is returned if val
@@ -294,7 +294,7 @@ func EVarBytes(w io.Writer, val interface{}, _ *[8]byte) error {
 		_, err := w.Write(*b)
 		return err
 	}
-	return ErrTypeForEncoding{val, "[]byte"}
+	return NewTypeForEncodingErr(val, "[]byte")
 }
 
 // DVarBytes is a Decoder for variable byte slices. An error is returned if val
@@ -305,5 +305,5 @@ func DVarBytes(r io.Reader, val interface{}, _ *[8]byte, l uint64) error {
 		_, err := io.ReadFull(r, *b)
 		return err
 	}
-	return ErrTypeForDecoding{val, "[]byte", l, l}
+	return NewTypeForDecodingErr(val, "[]byte", l, l)
 }

@@ -29,7 +29,7 @@ import (
 	"github.com/btcsuite/btcwallet/wallet/txauthor"
 	"github.com/coreos/bbolt"
 	"github.com/davecgh/go-spew/spew"
-	"github.com/grpc-ecosystem/go-grpc-middleware"
+	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
 	proxy "github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/build"
@@ -3066,14 +3066,6 @@ func extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPaymentIntent, error
 		}
 
 		copy(payIntent.rHash[:], paymentHash)
-
-	// If we're in debug HTLC mode, then all outgoing HTLCs will pay to the
-	// same debug rHash. Otherwise, we pay to the rHash specified within
-	// the RPC request.
-	case cfg.DebugHTLC &&
-		bytes.Equal(payIntent.rHash[:], lntypes.ZeroHash[:]):
-
-		copy(payIntent.rHash[:], invoices.DebugHash[:])
 
 	default:
 		copy(payIntent.rHash[:], rpcPayReq.PaymentHash)

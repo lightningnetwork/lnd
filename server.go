@@ -396,16 +396,6 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 		subscribers: make(map[uint64]*preimageSubscriber),
 	}
 
-	// If the debug HTLC flag is on, then we invoice a "master debug"
-	// invoice which all outgoing payments will be sent and all incoming
-	// HTLCs with the debug R-Hash immediately settled.
-	if cfg.DebugHTLC {
-		kiloCoin := btcutil.Amount(btcutil.SatoshiPerBitcoin * 1000)
-		s.invoices.AddDebugInvoice(kiloCoin, invoices.DebugPre)
-		srvrLog.Debugf("Debug HTLC invoice inserted, preimage=%x, hash=%x",
-			invoices.DebugPre[:], invoices.DebugHash[:])
-	}
-
 	_, currentHeight, err := s.cc.chainIO.GetBestBlock()
 	if err != nil {
 		return nil, err

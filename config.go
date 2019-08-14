@@ -269,7 +269,6 @@ type config struct {
 
 	Profile string `long:"profile" description:"Enable HTTP profiling on given port -- NOTE port must be between 1024 and 65535"`
 
-	DebugHTLC          bool   `long:"debughtlc" description:"Activate the debug htlc mode. With the debug HTLC mode, all payments sent use a pre-determined R-Hash. Additionally, all HTLCs sent to a node with the debug HTLC R-Hash are immediately settled in the next available state transition."`
 	UnsafeDisconnect   bool   `long:"unsafe-disconnect" description:"Allows the rpcserver to intentionally disconnect from peers with open channels. USED FOR TESTING ONLY."`
 	UnsafeReplay       bool   `long:"unsafe-replay" description:"Causes a link to replay the adds on its commitment txn after starting up, this enables testing of the sphinx replay logic."`
 	MaxPendingChannels int    `long:"maxpendingchannels" description:"The maximum number of incoming pending channels permitted per peer."`
@@ -718,13 +717,6 @@ func loadConfig() (*config, error) {
 			return nil, err
 		}
 
-		if cfg.Litecoin.MainNet && cfg.DebugHTLC {
-			str := "%s: debug-htlc mode cannot be used " +
-				"on litecoin mainnet"
-			err := fmt.Errorf(str, funcName)
-			return nil, err
-		}
-
 		// The litecoin chain is the current active chain. However
 		// throughout the codebase we required chaincfg.Params. So as a
 		// temporary hack, we'll mutate the default net params for
@@ -803,13 +795,6 @@ func loadConfig() (*config, error) {
 			str := "%s: either --bitcoin.mainnet, or " +
 				"bitcoin.testnet, bitcoin.simnet, or bitcoin.regtest " +
 				"must be specified"
-			err := fmt.Errorf(str, funcName)
-			return nil, err
-		}
-
-		if cfg.Bitcoin.MainNet && cfg.DebugHTLC {
-			str := "%s: debug-htlc mode cannot be used " +
-				"on bitcoin mainnet"
 			err := fmt.Errorf(str, funcName)
 			return nil, err
 		}

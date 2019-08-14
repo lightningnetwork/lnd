@@ -272,7 +272,7 @@ type InvoiceHTLC struct {
 
 	// State indicates the state the invoice htlc is currently in. A
 	// cancelled htlc isn't just removed from the invoice htlcs map, because
-	// we need AcceptedHeight to properly cancel the htlc back.
+	// we need AcceptHeight to properly cancel the htlc back.
 	State HtlcState
 }
 

@@ -39,6 +39,9 @@ type HodlEvent struct {
 	// CircuitKey is the key of the htlc for which we have a resolution
 	// decision.
 	CircuitKey channeldb.CircuitKey
+
+	// AcceptHeight is the original height at which the htlc was accepted.
+	AcceptHeight int32
 }
 
 // InvoiceRegistry is a central registry of all the outstanding invoices
@@ -552,20 +555,29 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 	// If it isn't recorded, cancel htlc.
 	if !ok {
 		return &HodlEvent{
-			CircuitKey: circuitKey,
+			CircuitKey:   circuitKey,
+			AcceptHeight: currentHeight,
 		}, nil
 	}
+
+	// Determine accepted height of this htlc. If the htlc reached the
+	// invoice database (possibly in a previous call to the invoice
+	// registry), we'll take the original accepted height as it was recorded
+	// in the database.
+	acceptHeight := int32(invoiceHtlc.AcceptHeight)
 
 	switch invoiceHtlc.State {
 	case channeldb.HtlcStateCancelled:
 		return &HodlEvent{
-			CircuitKey: circuitKey,
+			CircuitKey:   circuitKey,
+			AcceptHeight: acceptHeight,
 		}, nil
 
 	case channeldb.HtlcStateSettled:
 		return &HodlEvent{
-			CircuitKey: circuitKey,
-			Preimage:   &invoice.Terms.PaymentPreimage,
+			CircuitKey:   circuitKey,
+			Preimage:     &invoice.Terms.PaymentPreimage,
+			AcceptHeight: acceptHeight,
 		}, nil
 
 	case channeldb.HtlcStateAccepted:
@@ -622,8 +634,9 @@ func (i *InvoiceRegistry) SettleHodlInvoice(preimage lntypes.Preimage) error {
 		}
 
 		i.notifyHodlSubscribers(HodlEvent{
-			CircuitKey: key,
-			Preimage:   &preimage,
+			CircuitKey:   key,
+			Preimage:     &preimage,
+			AcceptHeight: int32(htlc.AcceptHeight),
 		})
 	}
 	i.notifyClients(hash, invoice, invoice.Terms.State)
@@ -703,7 +716,8 @@ func (i *InvoiceRegistry) CancelInvoice(payHash lntypes.Hash) error {
 		}
 
 		i.notifyHodlSubscribers(HodlEvent{
-			CircuitKey: key,
+			CircuitKey:   key,
+			AcceptHeight: int32(htlc.AcceptHeight),
 		})
 	}
 	i.notifyClients(payHash, invoice, channeldb.ContractCanceled)

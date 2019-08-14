@@ -23,6 +23,8 @@ var (
 
 	testHtlcExpiry = uint32(5)
 
+	testInvoiceCltvDelta = uint32(4)
+
 	testFinalCltvRejectDelta = int32(4)
 
 	testCurrentHeight = int32(1)
@@ -121,6 +123,23 @@ func TestSettleInvoice(t *testing.T) {
 
 	hodlChan := make(chan interface{}, 1)
 
+	// Try to settle invoice with an htlc that expires too soon.
+	event, err := registry.NotifyExitHopHtlc(
+		hash, testInvoice.Terms.Value,
+		uint32(testCurrentHeight)+testInvoiceCltvDelta-1,
+		testCurrentHeight, getCircuitKey(10), hodlChan, nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if event.Preimage != nil {
+		t.Fatal("expected cancel event")
+	}
+	if event.AcceptHeight != testCurrentHeight {
+		t.Fatalf("expected acceptHeight %v, but got %v",
+			testCurrentHeight, event.AcceptHeight)
+	}
+
 	// Settle invoice with a slightly higher amount.
 	amtPaid := lnwire.MilliSatoshi(100500)
 	_, err = registry.NotifyExitHopHtlc(
@@ -159,7 +178,7 @@ func TestSettleInvoice(t *testing.T) {
 
 	// Try to settle again with the same htlc id. We need this idempotent
 	// behaviour after a restart.
-	event, err := registry.NotifyExitHopHtlc(
+	event, err = registry.NotifyExitHopHtlc(
 		hash, amtPaid, testHtlcExpiry, testCurrentHeight,
 		getCircuitKey(0), hodlChan, nil,
 	)
@@ -309,7 +328,7 @@ func TestCancelInvoice(t *testing.T) {
 	}
 
 	// Notify arrival of a new htlc paying to this invoice. This should
-	// succeed.
+	// result in a cancel event.
 	hodlChan := make(chan interface{})
 	event, err := registry.NotifyExitHopHtlc(
 		hash, amt, testHtlcExpiry, testCurrentHeight,
@@ -322,10 +341,15 @@ func TestCancelInvoice(t *testing.T) {
 	if event.Preimage != nil {
 		t.Fatal("expected cancel hodl event")
 	}
+	if event.AcceptHeight != testCurrentHeight {
+		t.Fatalf("expected acceptHeight %v, but got %v",
+			testCurrentHeight, event.AcceptHeight)
+	}
 }
 
-// TestHoldInvoice tests settling of a hold invoice and related notifications.
-func TestHoldInvoice(t *testing.T) {
+// TestSettleHoldInvoice tests settling of a hold invoice and related
+// notifications.
+func TestSettleHoldInvoice(t *testing.T) {
 	defer timeout(t)()
 
 	cdb, cleanup, err := newDB()
@@ -462,6 +486,10 @@ func TestHoldInvoice(t *testing.T) {
 	if *hodlEvent.Preimage != preimage {
 		t.Fatal("unexpected preimage in hodl event")
 	}
+	if hodlEvent.AcceptHeight != testCurrentHeight {
+		t.Fatalf("expected acceptHeight %v, but got %v",
+			testCurrentHeight, event.AcceptHeight)
+	}
 
 	// We expect a settled notification to be sent out for both all and
 	// single invoice subscribers.
@@ -491,6 +519,85 @@ func TestHoldInvoice(t *testing.T) {
 	err = registry.CancelInvoice(hash)
 	if err == nil {
 		t.Fatal("expected cancelation of a settled invoice to fail")
+	}
+}
+
+// TestCancelHoldInvoice tests canceling of a hold invoice and related
+// notifications.
+func TestCancelHoldInvoice(t *testing.T) {
+	defer timeout(t)()
+
+	cdb, cleanup, err := newDB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+
+	// Instantiate and start the invoice registry.
+	registry := NewRegistry(cdb, testFinalCltvRejectDelta)
+
+	err = registry.Start()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer registry.Stop()
+
+	// Add the invoice.
+	invoice := &channeldb.Invoice{
+		Terms: channeldb.ContractTerm{
+			PaymentPreimage: channeldb.UnknownPreimage,
+			Value:           lnwire.MilliSatoshi(100000),
+		},
+	}
+
+	_, err = registry.AddInvoice(invoice, hash)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	amtPaid := lnwire.MilliSatoshi(100000)
+	hodlChan := make(chan interface{}, 1)
+
+	// NotifyExitHopHtlc without a preimage present in the invoice registry
+	// should be possible.
+	event, err := registry.NotifyExitHopHtlc(
+		hash, amtPaid, testHtlcExpiry, testCurrentHeight,
+		getCircuitKey(0), hodlChan, nil,
+	)
+	if err != nil {
+		t.Fatalf("expected settle to succeed but got %v", err)
+	}
+	if event != nil {
+		t.Fatalf("expected htlc to be held")
+	}
+
+	// Cancel invoice.
+	err = registry.CancelInvoice(hash)
+	if err != nil {
+		t.Fatal("cancel invoice failed")
+	}
+
+	hodlEvent := (<-hodlChan).(HodlEvent)
+	if hodlEvent.Preimage != nil {
+		t.Fatal("expected cancel hodl event")
+	}
+
+	// Offering the same htlc again at a higher height should still result
+	// in a rejection. The accept height is expected to be the original
+	// accept height.
+	event, err = registry.NotifyExitHopHtlc(
+		hash, amtPaid, testHtlcExpiry, testCurrentHeight+1,
+		getCircuitKey(0), hodlChan, nil,
+	)
+	if err != nil {
+		t.Fatalf("expected settle to succeed but got %v", err)
+	}
+	if event.Preimage != nil {
+		t.Fatalf("expected htlc to be canceled")
+	}
+	if event.AcceptHeight != testCurrentHeight {
+		t.Fatalf("expected acceptHeight %v, but got %v",
+			testCurrentHeight, event.AcceptHeight)
 	}
 }
 

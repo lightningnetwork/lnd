@@ -103,8 +103,8 @@ func (ctx *mcTestContext) expectP(amt lnwire.MilliSatoshi, expected float64) {
 }
 
 // reportFailure reports a failure by using a test route.
-func (ctx *mcTestContext) reportFailure(t time.Time,
-	amt lnwire.MilliSatoshi, failure lnwire.FailureMessage) {
+func (ctx *mcTestContext) reportFailure(amt lnwire.MilliSatoshi,
+	failure lnwire.FailureMessage) {
 
 	mcTestRoute.Hops[0].AmtToForward = amt
 
@@ -127,10 +127,7 @@ func TestMissionControl(t *testing.T) {
 	ctx.expectP(1000, 0.8)
 
 	// Expect probability to be zero after reporting the edge as failed.
-	ctx.reportFailure(
-		testTime, 1000,
-		lnwire.NewTemporaryChannelFailure(nil),
-	)
+	ctx.reportFailure(1000, lnwire.NewTemporaryChannelFailure(nil))
 	ctx.expectP(1000, 0)
 
 	// As we reported with a min penalization amt, a lower amt than reported
@@ -143,10 +140,7 @@ func TestMissionControl(t *testing.T) {
 
 	// Edge fails again, this time without a min penalization amt. The edge
 	// should be penalized regardless of amount.
-	ctx.reportFailure(
-		ctx.now, 0,
-		lnwire.NewTemporaryChannelFailure(nil),
-	)
+	ctx.reportFailure(0, lnwire.NewTemporaryChannelFailure(nil))
 	ctx.expectP(1000, 0)
 	ctx.expectP(500, 0)
 
@@ -160,10 +154,7 @@ func TestMissionControl(t *testing.T) {
 
 	// A node level failure should bring probability of every channel back
 	// to zero.
-	ctx.reportFailure(
-		ctx.now, 0,
-		lnwire.NewExpiryTooSoon(lnwire.ChannelUpdate{}),
-	)
+	ctx.reportFailure(0, lnwire.NewExpiryTooSoon(lnwire.ChannelUpdate{}))
 	ctx.expectP(1000, 0)
 
 	// Check whether history snapshot looks sane.
@@ -186,16 +177,14 @@ func TestMissionControlChannelUpdate(t *testing.T) {
 	// Report a policy related failure. Because it is the first, we don't
 	// expect a penalty.
 	ctx.reportFailure(
-		ctx.now, 0,
-		lnwire.NewFeeInsufficient(0, lnwire.ChannelUpdate{}),
+		0, lnwire.NewFeeInsufficient(0, lnwire.ChannelUpdate{}),
 	)
 	ctx.expectP(0, 0.8)
 
 	// Report another failure for the same channel. We expect it to be
 	// pruned.
 	ctx.reportFailure(
-		ctx.now, 0,
-		lnwire.NewFeeInsufficient(0, lnwire.ChannelUpdate{}),
+		0, lnwire.NewFeeInsufficient(0, lnwire.ChannelUpdate{}),
 	)
 	ctx.expectP(0, 0)
 }

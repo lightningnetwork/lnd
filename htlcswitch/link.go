@@ -364,9 +364,9 @@ type channelLink struct {
 	// registry.
 	hodlQueue *queue.ConcurrentQueue
 
-	// hodlMap stores a list of htlc data structs per hash. It allows
+	// hodlMap stores related htlc data for a circuit key. It allows
 	// resolving those htlcs when we receive a message on hodlQueue.
-	hodlMap map[lntypes.Hash][]hodlHtlc
+	hodlMap map[channeldb.CircuitKey]hodlHtlc
 
 	wg   sync.WaitGroup
 	quit chan struct{}
@@ -391,7 +391,7 @@ func NewChannelLink(cfg ChannelLinkConfig,
 		logCommitTimer: time.NewTimer(300 * time.Millisecond),
 		overflowQueue:  newPacketQueue(input.MaxHTLCNumber / 2),
 		htlcUpdates:    make(chan *contractcourt.ContractUpdate),
-		hodlMap:        make(map[lntypes.Hash][]hodlHtlc),
+		hodlMap:        make(map[channeldb.CircuitKey]hodlHtlc),
 		hodlQueue:      queue.NewConcurrentQueue(10),
 		quit:           make(chan struct{}),
 	}
@@ -1151,9 +1151,20 @@ func (l *channelLink) processHodlQueue(firstHodlEvent invoices.HodlEvent) error 
 	hodlEvent := firstHodlEvent
 loop:
 	for {
-		if err := l.processHodlMapEvent(hodlEvent); err != nil {
+		// Lookup all hodl htlcs that can be failed or settled with this event.
+		// The hodl htlc must be present in the map.
+		circuitKey := hodlEvent.CircuitKey
+		hodlHtlc, ok := l.hodlMap[circuitKey]
+		if !ok {
+			return fmt.Errorf("hodl htlc not found: %v", circuitKey)
+		}
+
+		if err := l.processHodlEvent(hodlEvent, hodlHtlc); err != nil {
 			return err
 		}
+
+		// Clean up hodl map.
+		delete(l.hodlMap, circuitKey)
 
 		select {
 		case item := <-l.hodlQueue.ChanOut():
@@ -1171,73 +1182,37 @@ loop:
 	return nil
 }
 
-// processHodlMapEvent resolves stored hodl htlcs based using the information in
-// hodlEvent.
-func (l *channelLink) processHodlMapEvent(hodlEvent invoices.HodlEvent) error {
-	// Lookup all hodl htlcs that can be failed or settled with this event.
-	// The hodl htlc must be present in the map.
-	hash := hodlEvent.Hash
-	hodlHtlcs, ok := l.hodlMap[hash]
-	if !ok {
-		return fmt.Errorf("hodl htlc not found: %v", hash)
-	}
-
-	if err := l.processHodlEvent(hodlEvent, hodlHtlcs...); err != nil {
-		return err
-	}
-
-	// Clean up hodl map.
-	delete(l.hodlMap, hash)
-
-	return nil
-}
-
 // processHodlEvent applies a received hodl event to the provided htlc. When
 // this function returns without an error, the commit tx should be updated.
 func (l *channelLink) processHodlEvent(hodlEvent invoices.HodlEvent,
-	htlcs ...hodlHtlc) error {
+	htlc hodlHtlc) error {
 
-	hash := hodlEvent.Hash
+	l.batchCounter++
+
+	circuitKey := hodlEvent.CircuitKey
 
 	// Determine required action for the resolution.
-	var hodlAction func(htlc hodlHtlc) error
 	if hodlEvent.Preimage != nil {
-		l.debugf("Received hodl settle event for %v", hash)
+		l.debugf("Received hodl settle event for %v", circuitKey)
 
-		hodlAction = func(htlc hodlHtlc) error {
-			return l.settleHTLC(
-				*hodlEvent.Preimage, htlc.pd.HtlcIndex,
-				htlc.pd.SourceRef,
-			)
-		}
-	} else {
-		l.debugf("Received hodl cancel event for %v", hash)
-
-		hodlAction = func(htlc hodlHtlc) error {
-			// In case of a cancel, always return
-			// incorrect_or_unknown_payment_details in order to
-			// avoid leaking info.
-			failure := lnwire.NewFailIncorrectDetails(
-				htlc.pd.Amount,
-			)
-
-			l.sendHTLCError(
-				htlc.pd.HtlcIndex, failure, htlc.obfuscator,
-				htlc.pd.SourceRef,
-			)
-			return nil
-		}
+		return l.settleHTLC(
+			*hodlEvent.Preimage, htlc.pd.HtlcIndex,
+			htlc.pd.SourceRef,
+		)
 	}
 
-	// Apply action for all htlcs matching this hash.
-	for _, htlc := range htlcs {
-		if err := hodlAction(htlc); err != nil {
-			return err
-		}
+	l.debugf("Received hodl cancel event for %v", circuitKey)
 
-		l.batchCounter++
-	}
+	// In case of a cancel, always return
+	// incorrect_or_unknown_payment_details in order to avoid leaking info.
+	failure := lnwire.NewFailIncorrectDetails(
+		htlc.pd.Amount,
+	)
 
+	l.sendHTLCError(
+		htlc.pd.HtlcIndex, failure, htlc.obfuscator,
+		htlc.pd.SourceRef,
+	)
 	return nil
 }
 
@@ -2913,8 +2888,7 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 
 	if event == nil {
 		// Save payment descriptor for future reference.
-		hodlHtlcs := l.hodlMap[invoiceHash]
-		l.hodlMap[invoiceHash] = append(hodlHtlcs, htlc)
+		l.hodlMap[circuitKey] = htlc
 
 		return false, nil
 	}

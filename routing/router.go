@@ -182,9 +182,9 @@ type MissionController interface {
 		failureSourceIdx *int, failure lnwire.FailureMessage) (bool,
 		channeldb.FailureReason, error)
 
-	// GetEdgeProbability is expected to return the success probability of a
+	// GetProbability is expected to return the success probability of a
 	// payment from fromNode along edge.
-	GetEdgeProbability(fromNode route.Vertex, edge EdgeLocator,
+	GetProbability(fromNode, toNode route.Vertex,
 		amt lnwire.MilliSatoshi) float64
 }
 
@@ -348,13 +348,6 @@ func newEdgeLocator(edge *channeldb.ChannelEdgePolicy) *EdgeLocator {
 // String returns a human readable version of the edgeLocator values.
 func (e *EdgeLocator) String() string {
 	return fmt.Sprintf("%v:%v", e.ChannelID, e.Direction)
-}
-
-// edge is a combination of a channel and the node pubkeys of both of its
-// endpoints.
-type edge struct {
-	from, to route.Vertex
-	channel  uint64
 }
 
 // ChannelRouter is the layer 3 router within the Lightning stack. Below the

@@ -1645,9 +1645,9 @@ message QueryRoutesRequest {
     repeated bytes ignored_nodes = 6;
 
     /**
-    A list of edges to ignore during path finding.
+    Deprecated. A list of edges to ignore during path finding.
     */
-    repeated EdgeLocator ignored_edges = 7;
+    repeated EdgeLocator ignored_edges = 7 [deprecated = true];
 
     /**
     The source node where the request route should originated from. If empty,
@@ -1660,6 +1660,19 @@ message QueryRoutesRequest {
     the optimal route.
     */
     bool use_mission_control = 9;
+
+    /**
+    A list of directed node pairs that will be ignored during path finding.
+    */
+    repeated NodePair ignored_pairs = 10;
+}
+
+message NodePair {
+    /// The sending node of the pair.
+    bytes from = 1;
+
+    /// The receiving node of the pair.
+    bytes to = 2;
 }
 
 message EdgeLocator {

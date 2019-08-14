@@ -246,7 +246,7 @@ type graphParams struct {
 type RestrictParams struct {
 	// ProbabilitySource is a callback that is expected to return the
 	// success probability of traversing the channel from the node.
-	ProbabilitySource func(route.Vertex, EdgeLocator,
+	ProbabilitySource func(route.Vertex, route.Vertex,
 		lnwire.MilliSatoshi) float64
 
 	// FeeLimit is a maximum fee amount allowed to be used on the path from
@@ -401,14 +401,12 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		amountToSend := toNodeDist.amountToReceive
 
 		// Request the success probability for this edge.
-		locator := newEdgeLocator(edge)
 		edgeProbability := r.ProbabilitySource(
-			fromVertex, *locator, amountToSend,
+			fromVertex, toNode, amountToSend,
 		)
 
-		log.Tracef("path finding probability: fromnode=%v, chanid=%v, "+
-			"probability=%v", fromVertex, locator.ChannelID,
-			edgeProbability)
+		log.Tracef("path finding probability: fromnode=%v, tonode=%v, "+
+			"probability=%v", fromVertex, toNode, edgeProbability)
 
 		// If the probability is zero, there is no point in trying.
 		if edgeProbability == 0 {

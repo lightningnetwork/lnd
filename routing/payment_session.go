@@ -91,7 +91,7 @@ func (p *paymentSession) RequestRoute(payment *LightningPayment,
 	ss := p.sessionSource
 
 	restrictions := &RestrictParams{
-		ProbabilitySource: ss.MissionControl.GetEdgeProbability,
+		ProbabilitySource: ss.MissionControl.GetProbability,
 		FeeLimit:          payment.FeeLimit,
 		OutgoingChannelID: payment.OutgoingChannelID,
 		CltvLimit:         cltvLimit,

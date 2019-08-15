@@ -498,7 +498,7 @@ func (u *utxoNursery) NurseryReport(
 	u.mu.Lock()
 	defer u.mu.Unlock()
 
-	utxnLog.Infof("NurseryReport: building nursery report for channel %v",
+	utxnLog.Debugf("NurseryReport: building nursery report for channel %v",
 		chanPoint)
 
 	report := &contractMaturityReport{}

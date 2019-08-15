@@ -2,7 +2,6 @@ package invoices
 
 import (
 	"errors"
-	"fmt"
 	"sync"
 	"sync/atomic"
 
@@ -25,6 +24,9 @@ var (
 	// ErrShuttingDown is returned when an operation failed because the
 	// invoice registry is shutting down.
 	ErrShuttingDown = errors.New("invoice registry shutting down")
+
+	// errNoUpdate is returned when no invoice updated is required.
+	errNoUpdate = errors.New("no update needed")
 )
 
 // HodlEvent describes how an htlc should be resolved. If HodlEvent.Preimage is
@@ -409,59 +411,6 @@ func (i *InvoiceRegistry) LookupInvoice(rHash lntypes.Hash) (channeldb.Invoice,
 	return i.cdb.LookupInvoice(rHash)
 }
 
-// updateInvoice is a callback used inside invoice db transactions to
-// atomically check-and-update an invoice.
-func (i *InvoiceRegistry) updateInvoice(invoice *channeldb.Invoice,
-	amtPaid lnwire.MilliSatoshi, htlcExpiry uint32, currentHeight int32) (
-	*channeldb.InvoiceUpdateDesc, error) {
-
-	// If the invoice is already canceled, there is no further checking to
-	// do.
-	if invoice.Terms.State == channeldb.ContractCanceled {
-		return nil, channeldb.ErrInvoiceAlreadyCanceled
-	}
-
-	// If an invoice amount is specified, check that enough is paid. Also
-	// check this for duplicate payments if the invoice is already settled
-	// or accepted.
-	if invoice.Terms.Value > 0 && amtPaid < invoice.Terms.Value {
-		return nil, ErrInvoiceAmountTooLow
-	}
-
-	// Return early in case the invoice was already accepted or settled. We
-	// don't want to check the expiry again, because it may be that we are
-	// just restarting.
-	switch invoice.Terms.State {
-	case channeldb.ContractAccepted:
-		return nil, channeldb.ErrInvoiceAlreadyAccepted
-	case channeldb.ContractSettled:
-		return nil, channeldb.ErrInvoiceAlreadySettled
-	}
-
-	if htlcExpiry < uint32(currentHeight+i.finalCltvRejectDelta) {
-		return nil, ErrInvoiceExpiryTooSoon
-	}
-
-	if htlcExpiry < uint32(currentHeight+invoice.FinalCltvDelta) {
-		return nil, ErrInvoiceExpiryTooSoon
-	}
-
-	update := channeldb.InvoiceUpdateDesc{
-		AmtPaid: amtPaid,
-	}
-
-	// Check to see if we can settle or this is an hold invoice and we need
-	// to wait for the preimage.
-	holdInvoice := invoice.Terms.PaymentPreimage == channeldb.UnknownPreimage
-	if holdInvoice {
-		update.State = channeldb.ContractAccepted
-	} else {
-		update.Preimage = invoice.Terms.PaymentPreimage
-		update.State = channeldb.ContractSettled
-	}
-	return &update, nil
-}
-
 // NotifyExitHopHtlc attempts to mark an invoice as settled. If the invoice is a
 // debug invoice, then this method is a noop as debug invoices are never fully
 // settled. The return value describes how the htlc should be resolved.
@@ -486,100 +435,133 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 			rHash[:], s, amtPaid, expiry, circuitKey)
 	}
 
-	// If this isn't a debug invoice, then we'll attempt to settle an
-	// invoice matching this rHash on disk (if one exists).
-	invoice, err := i.cdb.UpdateInvoice(
-		rHash,
-		func(inv *channeldb.Invoice) (*channeldb.InvoiceUpdateDesc,
-			error) {
-
-			return i.updateInvoice(
-				inv, amtPaid, expiry, currentHeight,
-			)
-		},
+	const (
+		actionCancel = iota
+		actionSettle
+		actionHold
 	)
+
+	// If no action is set, cancel the htlc.
+	action := actionCancel
+
+	updateInvoice := func(inv *channeldb.Invoice) (
+		*channeldb.InvoiceUpdateDesc, error) {
+
+		// If the invoice is already canceled, there is no
+		// further checking to do.
+		if inv.Terms.State == channeldb.ContractCanceled {
+			debugLog("invoice already canceled")
+			return nil, errNoUpdate
+		}
+
+		// If an invoice amount is specified, check that enough
+		// is paid. Also check this for duplicate payments if
+		// the invoice is already settled or accepted.
+		if inv.Terms.Value > 0 && amtPaid < inv.Terms.Value {
+			debugLog("amount too low")
+			return nil, errNoUpdate
+		}
+
+		// Return early in case the invoice was already accepted or
+		// settled. We don't want to check the expiry again, because it
+		// may be that we are just restarting.
+		//
+		// NOTE: Though our recovery and forwarding logic is
+		// predominately batched, settling invoices happens iteratively.
+		// We may reject one of two payments for the same rhash at
+		// first, but then restart and reject both after seeing that the
+		// invoice has been settled. Without any record of which one
+		// settles first, it is ambiguous as to which one actually
+		// settled the invoice. Thus, by accepting all payments, we
+		// eliminate the race condition that can lead to this
+		// inconsistency.
+		//
+		// TODO(conner): track ownership of settlements to properly
+		// recover from failures? or add batch invoice settlement
+		switch inv.Terms.State {
+		case channeldb.ContractAccepted:
+			debugLog("accepting duplicate payment to accepted invoice")
+			action = actionHold
+			return nil, errNoUpdate
+
+		// If invoice is already settled, settle htlc. This means we
+		// accept more payments to the same invoice hash.
+		case channeldb.ContractSettled:
+			debugLog("accepting duplicate payment to settled invoice")
+			action = actionSettle
+			return nil, errNoUpdate
+		}
+
+		// The invoice is still open. Check the expiry.
+		if expiry < uint32(currentHeight+i.finalCltvRejectDelta) {
+			debugLog("expiry too soon")
+			return nil, errNoUpdate
+		}
+
+		if expiry < uint32(currentHeight+inv.FinalCltvDelta) {
+			debugLog("expiry too soon")
+			return nil, errNoUpdate
+		}
+
+		update := channeldb.InvoiceUpdateDesc{
+			AmtPaid: amtPaid,
+		}
+
+		// Check to see if we can settle or this is an hold invoice and
+		// we need to wait for the preimage.
+		holdInvoice := inv.Terms.PaymentPreimage == channeldb.UnknownPreimage
+		if holdInvoice {
+			debugLog("accepted")
+			action = actionHold
+			update.State = channeldb.ContractAccepted
+		} else {
+			debugLog("settled")
+			action = actionSettle
+			update.Preimage = inv.Terms.PaymentPreimage
+			update.State = channeldb.ContractSettled
+		}
+		return &update, nil
+	}
+
+	// We'll attempt to settle an invoice matching this rHash on disk (if
+	// one exists). The callback will set the resolution action that is
+	// returned to the link or contract resolver.
+	invoice, err := i.cdb.UpdateInvoice(rHash, updateInvoice)
 	switch err {
 
-	// If invoice is already settled, settle htlc. This means we accept more
-	// payments to the same invoice hash.
-	//
-	// NOTE: Though our recovery and forwarding logic is predominately
-	// batched, settling invoices happens iteratively. We may reject one of
-	// two payments for the same rhash at first, but then restart and reject
-	// both after seeing that the invoice has been settled. Without any
-	// record of which one settles first, it is ambiguous as to which one
-	// actually settled the invoice. Thus, by accepting all payments, we
-	// eliminate the race condition that can lead to this inconsistency.
-	//
-	// TODO(conner): track ownership of settlements to properly recover from
-	// failures? or add batch invoice settlement
-	case channeldb.ErrInvoiceAlreadySettled:
-		debugLog("accepting duplicate payment to settled invoice")
+	// Invoice was updated, notify clients.
+	case nil:
+		i.notifyClients(rHash, invoice, invoice.Terms.State)
 
+	// No invoice update in the database was performed, no action required.
+	case errNoUpdate:
+
+	// Log and return other unexpected errors.
+	default:
+		debugLog(err.Error())
+
+		return nil, err
+	}
+
+	switch action {
+
+	case actionSettle:
 		return &HodlEvent{
 			Hash:     rHash,
 			Preimage: &invoice.Terms.PaymentPreimage,
 		}, nil
 
-	// If invoice is already canceled, cancel htlc.
-	case channeldb.ErrInvoiceAlreadyCanceled:
-		debugLog("invoice already canceled")
-
+	case actionCancel:
 		return &HodlEvent{
 			Hash: rHash,
 		}, nil
 
-	// If invoice is already accepted, add this htlc to the list of
-	// subscribers.
-	case channeldb.ErrInvoiceAlreadyAccepted:
-		debugLog("accepting duplicate payment to accepted invoice")
-
+	case actionHold:
 		i.hodlSubscribe(hodlChan, rHash)
 		return nil, nil
 
-	// If there are not enough blocks left, cancel the htlc.
-	case ErrInvoiceExpiryTooSoon:
-		debugLog("expiry too soon")
-
-		return &HodlEvent{
-			Hash: rHash,
-		}, nil
-
-		// If there are not enough blocks left, cancel the htlc.
-	case ErrInvoiceAmountTooLow:
-		debugLog("amount too low")
-
-		return &HodlEvent{
-			Hash: rHash,
-		}, nil
-
-	// If this call settled the invoice, settle the htlc. Otherwise
-	// subscribe for a future hodl event.
-	case nil:
-		i.notifyClients(rHash, invoice, invoice.Terms.State)
-		switch invoice.Terms.State {
-		case channeldb.ContractSettled:
-			debugLog("settled")
-
-			return &HodlEvent{
-				Hash:     rHash,
-				Preimage: &invoice.Terms.PaymentPreimage,
-			}, nil
-		case channeldb.ContractAccepted:
-			debugLog("accepted")
-
-			// Subscribe to updates to this invoice.
-			i.hodlSubscribe(hodlChan, rHash)
-			return nil, nil
-		default:
-			return nil, fmt.Errorf("unexpected invoice state %v",
-				invoice.Terms.State)
-		}
-
 	default:
-		debugLog(err.Error())
-
-		return nil, err
+		panic("unknown action")
 	}
 }
 

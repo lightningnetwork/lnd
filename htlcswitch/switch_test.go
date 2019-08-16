@@ -2097,8 +2097,8 @@ func TestUpdateFailMalformedHTLCErrorConversion(t *testing.T) {
 
 		fwdingErr := err.(*ForwardingError)
 		failureMsg := fwdingErr.FailureMessage
-		if _, ok := failureMsg.(*lnwire.FailTemporaryChannelFailure); !ok {
-			t.Fatalf("expected temp chan failure instead got: %v",
+		if _, ok := failureMsg.(*lnwire.FailInvalidOnionKey); !ok {
+			t.Fatalf("expected onion failure instead got: %v",
 				fwdingErr.FailureMessage)
 		}
 	}

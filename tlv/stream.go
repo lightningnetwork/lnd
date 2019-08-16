@@ -6,11 +6,17 @@ import (
 	"io"
 	"io/ioutil"
 	"math"
+
+	"github.com/lightningnetwork/lnd/lnwire"
 )
 
 // ErrStreamNotCanonical signals that a decoded stream does not contain records
 // sorting by monotonically-increasing type.
 var ErrStreamNotCanonical = errors.New("tlv stream is not canonical")
+
+// ErrRecordTooLarge signals that a decoded record has a length that is too
+// long to parse.
+var ErrRecordTooLarge = errors.New("record is too large")
 
 // ErrUnknownRequiredType is an error returned when decoding an unknown and even
 // type from a Stream.
@@ -181,6 +187,10 @@ func (s *Stream) Decode(r io.Reader) error {
 		// Other unexpected errors.
 		case err != nil:
 			return err
+		}
+
+		if length > lnwire.MaxMessagePayload {
+			return ErrRecordTooLarge
 		}
 
 		// Search the records known to the stream for this type. We'll

@@ -383,9 +383,10 @@ func (m *SyncManager) syncerHandler() {
 		case <-m.cfg.HistoricalSyncTicker.Ticks():
 			s := m.forceHistoricalSync()
 
-			// If we've already performed our initial historical
-			// sync, then we have nothing left to do.
-			if m.IsGraphSynced() {
+			// If we don't have a syncer available or we've already
+			// performed our initial historical sync, then we have
+			// nothing left to do.
+			if s == nil || m.IsGraphSynced() {
 				continue
 			}
 

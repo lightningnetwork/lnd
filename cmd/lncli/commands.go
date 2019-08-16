@@ -1879,6 +1879,7 @@ func getInfo(ctx *cli.Context) error {
 		BlockHash           string   `json:"block_hash"`
 		BestHeaderTimestamp int64    `json:"best_header_timestamp"`
 		SyncedToChain       bool     `json:"synced_to_chain"`
+		SyncedToGraph       bool     `json:"synced_to_graph"`
 		Testnet             bool     `json:"testnet"`
 		Chains              []chain  `json:"chains"`
 		Uris                []string `json:"uris"`
@@ -1895,6 +1896,7 @@ func getInfo(ctx *cli.Context) error {
 		BlockHash:           resp.BlockHash,
 		BestHeaderTimestamp: resp.BestHeaderTimestamp,
 		SyncedToChain:       resp.SyncedToChain,
+		SyncedToGraph:       resp.SyncedToGraph,
 		Testnet:             resp.Testnet,
 		Chains:              chains,
 		Uris:                resp.Uris,

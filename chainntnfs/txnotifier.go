@@ -46,10 +46,22 @@ var (
 	// with the TxNotifier but it been shut down.
 	ErrTxNotifierExiting = errors.New("TxNotifier is exiting")
 
-	// ErrTxMaxConfs signals that the user requested a number of
-	// confirmations beyond the reorg safety limit.
-	ErrTxMaxConfs = fmt.Errorf("too many confirmations requested, max is %d",
-		MaxNumConfs)
+	// ErrNoScript is an error returned when a confirmation/spend
+	// registration is attempted without providing an accompanying output
+	// script.
+	ErrNoScript = errors.New("an output script must be provided")
+
+	// ErrNoHeightHint is an error returned when a confirmation/spend
+	// registration is attempted without providing an accompanying height
+	// hint.
+	ErrNoHeightHint = errors.New("a height hint greater than 0 must be " +
+		"provided")
+
+	// ErrNumConfsOutOfRange is an error returned when a confirmation/spend
+	// registration is attempted and the number of confirmations provided is
+	// out of range.
+	ErrNumConfsOutOfRange = fmt.Errorf("number of confirmations must be "+
+		"between %d and %d", 1, MaxNumConfs)
 )
 
 // rescanState indicates the progression of a registration before the notifier
@@ -531,15 +543,27 @@ func NewTxNotifier(startHeight uint32, reorgSafetyLimit uint32,
 func (n *TxNotifier) newConfNtfn(txid *chainhash.Hash,
 	pkScript []byte, numConfs, heightHint uint32) (*ConfNtfn, error) {
 
-	confRequest, err := NewConfRequest(txid, pkScript)
-	if err != nil {
-		return nil, err
+	// An accompanying output script must always be provided.
+	if len(pkScript) == 0 {
+		return nil, ErrNoScript
 	}
 
 	// Enforce that we will not dispatch confirmations beyond the reorg
 	// safety limit.
-	if numConfs > n.reorgSafetyLimit {
-		return nil, ErrTxMaxConfs
+	if numConfs == 0 || numConfs > n.reorgSafetyLimit {
+		return nil, ErrNumConfsOutOfRange
+	}
+
+	// A height hint must be provided to prevent scanning from the genesis
+	// block.
+	if heightHint == 0 {
+		return nil, ErrNoHeightHint
+	}
+
+	// Ensure the output script is of a supported type.
+	confRequest, err := NewConfRequest(txid, pkScript)
+	if err != nil {
+		return nil, err
 	}
 
 	confID := atomic.AddUint64(&n.confClientCounter, 1)
@@ -910,6 +934,18 @@ func (n *TxNotifier) dispatchConfDetails(
 func (n *TxNotifier) newSpendNtfn(outpoint *wire.OutPoint,
 	pkScript []byte, heightHint uint32) (*SpendNtfn, error) {
 
+	// An accompanying output script must always be provided.
+	if len(pkScript) == 0 {
+		return nil, ErrNoScript
+	}
+
+	// A height hint must be provided to prevent scanning from the genesis
+	// block.
+	if heightHint == 0 {
+		return nil, ErrNoHeightHint
+	}
+
+	// Ensure the output script is of a supported type.
 	spendRequest, err := NewSpendRequest(outpoint, pkScript)
 	if err != nil {
 		return nil, err

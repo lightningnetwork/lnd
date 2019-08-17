@@ -124,30 +124,81 @@ func newMockHintCache() *mockHintCache {
 	}
 }
 
-// TestTxNotifierMaxConfs ensures that we are not able to register for more
-// confirmations on a transaction than the maximum supported.
-func TestTxNotifierMaxConfs(t *testing.T) {
+// TestTxNotifierRegistrationValidation ensures that we are not able to register
+// requests with invalid parameters.
+func TestTxNotifierRegistrationValidation(t *testing.T) {
 	t.Parallel()
 
-	hintCache := newMockHintCache()
-	n := chainntnfs.NewTxNotifier(
-		10, chainntnfs.ReorgSafetyLimit, hintCache, hintCache,
-	)
-
-	// Registering one confirmation above the maximum should fail with
-	// ErrTxMaxConfs.
-	_, err := n.RegisterConf(
-		&chainntnfs.ZeroHash, testRawScript, chainntnfs.MaxNumConfs+1, 1,
-	)
-	if err != chainntnfs.ErrTxMaxConfs {
-		t.Fatalf("expected chainntnfs.ErrTxMaxConfs, got %v", err)
+	testCases := []struct {
+		name       string
+		pkScript   []byte
+		numConfs   uint32
+		heightHint uint32
+		checkSpend bool
+		err        error
+	}{
+		{
+			name:       "empty output script",
+			pkScript:   nil,
+			numConfs:   1,
+			heightHint: 1,
+			checkSpend: true,
+			err:        chainntnfs.ErrNoScript,
+		},
+		{
+			name:       "zero num confs",
+			pkScript:   testRawScript,
+			numConfs:   0,
+			heightHint: 1,
+			err:        chainntnfs.ErrNumConfsOutOfRange,
+		},
+		{
+			name:       "exceed max num confs",
+			pkScript:   testRawScript,
+			numConfs:   chainntnfs.MaxNumConfs + 1,
+			heightHint: 1,
+			err:        chainntnfs.ErrNumConfsOutOfRange,
+		},
+		{
+			name:       "empty height hint",
+			pkScript:   testRawScript,
+			numConfs:   1,
+			heightHint: 0,
+			checkSpend: true,
+			err:        chainntnfs.ErrNoHeightHint,
+		},
 	}
 
-	_, err = n.RegisterConf(
-		&chainntnfs.ZeroHash, testRawScript, chainntnfs.MaxNumConfs, 1,
-	)
-	if err != nil {
-		t.Fatalf("unable to register conf ntfn: %v", err)
+	for _, testCase := range testCases {
+		testCase := testCase
+		t.Run(testCase.name, func(t *testing.T) {
+			hintCache := newMockHintCache()
+			n := chainntnfs.NewTxNotifier(
+				10, chainntnfs.ReorgSafetyLimit, hintCache, hintCache,
+			)
+
+			_, err := n.RegisterConf(
+				&chainntnfs.ZeroHash, testCase.pkScript,
+				testCase.numConfs, testCase.heightHint,
+			)
+			if err != testCase.err {
+				t.Fatalf("conf registration expected error "+
+					"\"%v\", got \"%v\"", testCase.err, err)
+			}
+
+			if !testCase.checkSpend {
+				return
+			}
+
+			_, err = n.RegisterSpend(
+				&chainntnfs.ZeroOutPoint, testCase.pkScript,
+				testCase.heightHint,
+			)
+			if err != testCase.err {
+				t.Fatalf("spend registration expected error "+
+					"\"%v\", got \"%v\"", testCase.err, err)
+			}
+		})
 	}
 }
 

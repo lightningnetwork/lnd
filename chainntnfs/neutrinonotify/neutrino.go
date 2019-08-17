@@ -37,7 +37,6 @@ const (
 // TODO(roasbeef): heavily consolidate with NeutrinoNotifier code
 //  * maybe combine into single package?
 type NeutrinoNotifier struct {
-	spendClientCounter uint64 // To be used atomically.
 	epochClientCounter uint64 // To be used atomically.
 
 	started int32 // To be used atomically.
@@ -662,23 +661,11 @@ func (n *NeutrinoNotifier) notifyBlockEpochClient(epochClient *blockEpochRegistr
 func (n *NeutrinoNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 	pkScript []byte, heightHint uint32) (*chainntnfs.SpendEvent, error) {
 
-	// First, we'll construct a spend notification request and hand it off
-	// to the txNotifier.
-	spendID := atomic.AddUint64(&n.spendClientCounter, 1)
-	spendRequest, err := chainntnfs.NewSpendRequest(outpoint, pkScript)
-	if err != nil {
-		return nil, err
-	}
-	ntfn := &chainntnfs.SpendNtfn{
-		SpendID:      spendID,
-		SpendRequest: spendRequest,
-		Event: chainntnfs.NewSpendEvent(func() {
-			n.txNotifier.CancelSpend(spendRequest, spendID)
-		}),
-		HeightHint: heightHint,
-	}
-
-	historicalDispatch, txNotifierTip, err := n.txNotifier.RegisterSpend(ntfn)
+	// Register the conf notification with the TxNotifier. A non-nil value
+	// for `dispatch` will be returned if we are required to perform a
+	// manual scan for the confirmation. Otherwise the notifier will begin
+	// watching at tip for the transaction to confirm.
+	ntfn, err := n.txNotifier.RegisterSpend(outpoint, pkScript, heightHint)
 	if err != nil {
 		return nil, err
 	}
@@ -690,9 +677,12 @@ func (n *NeutrinoNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 	//
 	// We'll update our filter first to ensure we can immediately detect the
 	// spend at tip.
+	if outpoint == nil {
+		outpoint = &chainntnfs.ZeroOutPoint
+	}
 	inputToWatch := neutrino.InputWithScript{
-		OutPoint: spendRequest.OutPoint,
-		PkScript: spendRequest.PkScript.Script(),
+		OutPoint: *outpoint,
+		PkScript: pkScript,
 	}
 	updateOptions := []neutrino.UpdateOption{
 		neutrino.AddInputs(inputToWatch),
@@ -703,10 +693,9 @@ func (n *NeutrinoNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 	// update. In the case of an output script spend request, we'll check if
 	// we should perform a historical rescan and start from there, as we
 	// cannot do so with GetUtxo since it matches outpoints.
-	rewindHeight := txNotifierTip
-	if historicalDispatch != nil &&
-		spendRequest.OutPoint == chainntnfs.ZeroOutPoint {
-		rewindHeight = historicalDispatch.StartHeight
+	rewindHeight := ntfn.Height
+	if ntfn.HistoricalDispatch != nil && *outpoint == chainntnfs.ZeroOutPoint {
+		rewindHeight = ntfn.HistoricalDispatch.StartHeight
 	}
 	updateOptions = append(updateOptions, neutrino.Rewind(rewindHeight))
 
@@ -733,8 +722,7 @@ func (n *NeutrinoNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 	// scan of the chain, or if we already performed one like in the case of
 	// output script spend requests, then we can return early as there's
 	// nothing left for us to do.
-	if historicalDispatch == nil ||
-		spendRequest.OutPoint == chainntnfs.ZeroOutPoint {
+	if ntfn.HistoricalDispatch == nil || *outpoint == chainntnfs.ZeroOutPoint {
 		return ntfn.Event, nil
 	}
 
@@ -752,7 +740,7 @@ func (n *NeutrinoNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 			currentHeight := uint32(n.bestBlock.Height)
 			n.bestBlockMtx.RUnlock()
 
-			if currentHeight >= historicalDispatch.StartHeight {
+			if currentHeight >= ntfn.HistoricalDispatch.StartHeight {
 				break
 			}
 
@@ -766,10 +754,10 @@ func (n *NeutrinoNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 		spendReport, err := n.p2pNode.GetUtxo(
 			neutrino.WatchInputs(inputToWatch),
 			neutrino.StartBlock(&waddrmgr.BlockStamp{
-				Height: int32(historicalDispatch.StartHeight),
+				Height: int32(ntfn.HistoricalDispatch.StartHeight),
 			}),
 			neutrino.EndBlock(&waddrmgr.BlockStamp{
-				Height: int32(historicalDispatch.EndHeight),
+				Height: int32(ntfn.HistoricalDispatch.EndHeight),
 			}),
 			neutrino.QuitChan(n.quit),
 		)
@@ -784,7 +772,7 @@ func (n *NeutrinoNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 		if spendReport != nil && spendReport.SpendingTx != nil {
 			spendingTxHash := spendReport.SpendingTx.TxHash()
 			spendDetails = &chainntnfs.SpendDetail{
-				SpentOutPoint:     &spendRequest.OutPoint,
+				SpentOutPoint:     outpoint,
 				SpenderTxHash:     &spendingTxHash,
 				SpendingTx:        spendReport.SpendingTx,
 				SpenderInputIndex: spendReport.SpendingInputIndex,
@@ -796,7 +784,9 @@ func (n *NeutrinoNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 		// not, we'll mark our historical rescan as complete to ensure the
 		// outpoint's spend hint gets updated upon connected/disconnected
 		// blocks.
-		err = n.txNotifier.UpdateSpendDetails(spendRequest, spendDetails)
+		err = n.txNotifier.UpdateSpendDetails(
+			ntfn.HistoricalDispatch.SpendRequest, spendDetails,
+		)
 		if err != nil {
 			chainntnfs.Log.Errorf("Failed to update spend details: %v", err)
 			return

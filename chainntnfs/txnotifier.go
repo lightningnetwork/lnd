@@ -415,13 +415,33 @@ type HistoricalSpendDispatch struct {
 	EndHeight uint32
 }
 
+// SpendRegistration encompasses all of the information required for callers to
+// retrieve details about a spend event.
+type SpendRegistration struct {
+	// Event contains references to the channels that the notifications are
+	// to be sent over.
+	Event *SpendEvent
+
+	// HistoricalDispatch, if non-nil, signals to the client who registered
+	// the notification that they are responsible for attempting to manually
+	// rescan blocks for the txid/output script between the start and end
+	// heights.
+	HistoricalDispatch *HistoricalSpendDispatch
+
+	// Height is the height of the TxNotifier at the time the spend
+	// notification was registered. This can be used so that backends can
+	// request to be notified of spends from this point forwards.
+	Height uint32
+}
+
 // TxNotifier is a struct responsible for delivering transaction notifications
 // to subscribers. These notifications can be of two different types:
 // transaction/output script confirmations and/or outpoint/output script spends.
 // The TxNotifier will watch the blockchain as new blocks come in, in order to
 // satisfy its client requests.
 type TxNotifier struct {
-	confClientCounter uint64 // To be used atomically.
+	confClientCounter  uint64 // To be used atomically.
+	spendClientCounter uint64 // To be used atomically.
 
 	// currentHeight is the height of the tracked blockchain. It is used to
 	// determine the number of confirmations a tx has and ensure blocks are
@@ -885,27 +905,48 @@ func (n *TxNotifier) dispatchConfDetails(
 	return nil
 }
 
+// newSpendNtfn validates all of the parameters required to successfully create
+// and register a spend notification.
+func (n *TxNotifier) newSpendNtfn(outpoint *wire.OutPoint,
+	pkScript []byte, heightHint uint32) (*SpendNtfn, error) {
+
+	spendRequest, err := NewSpendRequest(outpoint, pkScript)
+	if err != nil {
+		return nil, err
+	}
+
+	spendID := atomic.AddUint64(&n.spendClientCounter, 1)
+	return &SpendNtfn{
+		SpendID:      spendID,
+		SpendRequest: spendRequest,
+		Event: NewSpendEvent(func() {
+			n.CancelSpend(spendRequest, spendID)
+		}),
+		HeightHint: heightHint,
+	}, nil
+}
+
 // RegisterSpend handles a new spend notification request. The client will be
 // notified once the outpoint/output script is detected as spent within the
 // chain.
-//
-// The registration succeeds if no error is returned. If the returned
-// HistoricalSpendDisaptch is non-nil, the caller is responsible for attempting
-// to determine whether the outpoint/output script has been spent between the
-// start and end heights. The notifier's current height is also returned so that
-// backends can request to be notified of spends from this point forwards.
 //
 // NOTE: If the outpoint/output script has already been spent within the chain
 // before the notifier's current tip, the spend details must be provided with
 // the UpdateSpendDetails method, otherwise we will wait for the outpoint/output
 // script to be spent at tip, even though it already has.
-func (n *TxNotifier) RegisterSpend(ntfn *SpendNtfn) (*HistoricalSpendDispatch,
-	uint32, error) {
+func (n *TxNotifier) RegisterSpend(outpoint *wire.OutPoint, pkScript []byte,
+	heightHint uint32) (*SpendRegistration, error) {
 
 	select {
 	case <-n.quit:
-		return nil, 0, ErrTxNotifierExiting
+		return nil, ErrTxNotifierExiting
 	default:
+	}
+
+	// We'll start by performing a series of validation checks.
+	ntfn, err := n.newSpendNtfn(outpoint, pkScript, heightHint)
+	if err != nil {
+		return nil, err
 	}
 
 	// Before proceeding to register the notification, we'll query our spend
@@ -953,9 +994,16 @@ func (n *TxNotifier) RegisterSpend(ntfn *SpendNtfn) (*HistoricalSpendDispatch,
 			"registration since rescan has finished",
 			ntfn.SpendRequest)
 
-		return nil, n.currentHeight, n.dispatchSpendDetails(
-			ntfn, spendSet.details,
-		)
+		err := n.dispatchSpendDetails(ntfn, spendSet.details)
+		if err != nil {
+			return nil, err
+		}
+
+		return &SpendRegistration{
+			Event:              ntfn.Event,
+			HistoricalDispatch: nil,
+			Height:             n.currentHeight,
+		}, nil
 
 	// If there is an active rescan to determine whether the request has
 	// been spent, then we won't trigger another one.
@@ -963,7 +1011,11 @@ func (n *TxNotifier) RegisterSpend(ntfn *SpendNtfn) (*HistoricalSpendDispatch,
 		Log.Debugf("Waiting for pending rescan to finish before "+
 			"notifying %v at tip", ntfn.SpendRequest)
 
-		return nil, n.currentHeight, nil
+		return &SpendRegistration{
+			Event:              ntfn.Event,
+			HistoricalDispatch: nil,
+			Height:             n.currentHeight,
+		}, nil
 
 	// Otherwise, we'll fall through and let the caller know that a rescan
 	// should be dispatched to determine whether the request has already
@@ -983,7 +1035,11 @@ func (n *TxNotifier) RegisterSpend(ntfn *SpendNtfn) (*HistoricalSpendDispatch,
 		// spend hints for this request get updated upon
 		// connected/disconnected blocks.
 		spendSet.rescanStatus = rescanComplete
-		return nil, n.currentHeight, nil
+		return &SpendRegistration{
+			Event:              ntfn.Event,
+			HistoricalDispatch: nil,
+			Height:             n.currentHeight,
+		}, nil
 	}
 
 	// We'll set the rescan status to pending to ensure subsequent
@@ -993,11 +1049,15 @@ func (n *TxNotifier) RegisterSpend(ntfn *SpendNtfn) (*HistoricalSpendDispatch,
 	Log.Debugf("Dispatching historical spend rescan for %v",
 		ntfn.SpendRequest)
 
-	return &HistoricalSpendDispatch{
-		SpendRequest: ntfn.SpendRequest,
-		StartHeight:  startHeight,
-		EndHeight:    n.currentHeight,
-	}, n.currentHeight, nil
+	return &SpendRegistration{
+		Event: ntfn.Event,
+		HistoricalDispatch: &HistoricalSpendDispatch{
+			SpendRequest: ntfn.SpendRequest,
+			StartHeight:  startHeight,
+			EndHeight:    n.currentHeight,
+		},
+		Height: n.currentHeight,
+	}, nil
 }
 
 // CancelSpend cancels an existing request for a spend notification of an

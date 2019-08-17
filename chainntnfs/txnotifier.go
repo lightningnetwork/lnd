@@ -1912,10 +1912,10 @@ func (n *TxNotifier) dispatchSpendReorg(ntfn *SpendNtfn) error {
 // closes the event channels of all registered notifications that have not been
 // dispatched yet.
 func (n *TxNotifier) TearDown() {
+	close(n.quit)
+
 	n.Lock()
 	defer n.Unlock()
-
-	close(n.quit)
 
 	for _, confSet := range n.confNotifications {
 		for _, ntfn := range confSet.ntfns {

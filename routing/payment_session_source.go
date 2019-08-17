@@ -97,26 +97,22 @@ func (m *SessionSource) NewPaymentSession(routeHints [][]zpay32.HopHint,
 		}
 	}
 
-	// We'll also obtain a set of bandwidthHints from the lower layer for
-	// each of our outbound channels. This will allow the path finding to
-	// skip any links that aren't active or just don't have enough
-	// bandwidth to carry the payment.
 	sourceNode, err := m.Graph.SourceNode()
 	if err != nil {
 		return nil, err
 	}
-	bandwidthHints, err := generateBandwidthHints(
-		sourceNode, m.QueryBandwidth,
-	)
-	if err != nil {
-		return nil, err
+
+	getBandwidthHints := func() (map[uint64]lnwire.MilliSatoshi,
+		error) {
+
+		return generateBandwidthHints(sourceNode, m.QueryBandwidth)
 	}
 
 	return &paymentSession{
-		additionalEdges: edges,
-		bandwidthHints:  bandwidthHints,
-		sessionSource:   m,
-		pathFinder:      findPath,
+		additionalEdges:   edges,
+		getBandwidthHints: getBandwidthHints,
+		sessionSource:     m,
+		pathFinder:        findPath,
 	}, nil
 }
 

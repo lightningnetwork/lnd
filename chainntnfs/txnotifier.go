@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
@@ -255,6 +256,25 @@ type HistoricalConfDispatch struct {
 	EndHeight uint32
 }
 
+// ConfRegistration encompasses all of the information required for callers to
+// retrieve details about a confirmation event.
+type ConfRegistration struct {
+	// Event contains references to the channels that the notifications are
+	// to be sent over.
+	Event *ConfirmationEvent
+
+	// HistoricalDispatch, if non-nil, signals to the client who registered
+	// the notification that they are responsible for attempting to manually
+	// rescan blocks for the txid/output script between the start and end
+	// heights.
+	HistoricalDispatch *HistoricalConfDispatch
+
+	// Height is the height of the TxNotifier at the time the confirmation
+	// notification was registered. This can be used so that backends can
+	// request to be notified of confirmations from this point forwards.
+	Height uint32
+}
+
 // SpendRequest encapsulates a request for a spend notification of either an
 // outpoint or output script.
 type SpendRequest struct {
@@ -401,6 +421,8 @@ type HistoricalSpendDispatch struct {
 // The TxNotifier will watch the blockchain as new blocks come in, in order to
 // satisfy its client requests.
 type TxNotifier struct {
+	confClientCounter uint64 // To be used atomically.
+
 	// currentHeight is the height of the tracked blockchain. It is used to
 	// determine the number of confirmations a tx has and ensure blocks are
 	// connected and disconnected in order.
@@ -484,33 +506,59 @@ func NewTxNotifier(startHeight uint32, reorgSafetyLimit uint32,
 	}
 }
 
+// newConfNtfn validates all of the parameters required to successfully create
+// and register a confirmation notification.
+func (n *TxNotifier) newConfNtfn(txid *chainhash.Hash,
+	pkScript []byte, numConfs, heightHint uint32) (*ConfNtfn, error) {
+
+	confRequest, err := NewConfRequest(txid, pkScript)
+	if err != nil {
+		return nil, err
+	}
+
+	// Enforce that we will not dispatch confirmations beyond the reorg
+	// safety limit.
+	if numConfs > n.reorgSafetyLimit {
+		return nil, ErrTxMaxConfs
+	}
+
+	confID := atomic.AddUint64(&n.confClientCounter, 1)
+	return &ConfNtfn{
+		ConfID:           confID,
+		ConfRequest:      confRequest,
+		NumConfirmations: numConfs,
+		Event: NewConfirmationEvent(numConfs, func() {
+			n.CancelConf(confRequest, confID)
+		}),
+		HeightHint: heightHint,
+	}, nil
+}
+
 // RegisterConf handles a new confirmation notification request. The client will
 // be notified when the transaction/output script gets a sufficient number of
-// confirmations in the blockchain. The registration succeeds if no error is
-// returned. If the returned HistoricalConfDispatch is non-nil, the caller is
-// responsible for attempting to manually rescan blocks for the txid/output
-// script between the start and end heights. The notifier's current height is
-// also returned so that backends can request to be notified of confirmations
-// from this point forwards.
+// confirmations in the blockchain.
 //
 // NOTE: If the transaction/output script has already been included in a block
 // on the chain, the confirmation details must be provided with the
 // UpdateConfDetails method, otherwise we will wait for the transaction/output
 // script to confirm even though it already has.
-func (n *TxNotifier) RegisterConf(ntfn *ConfNtfn) (*HistoricalConfDispatch,
-	uint32, error) {
+func (n *TxNotifier) RegisterConf(txid *chainhash.Hash, pkScript []byte,
+	numConfs, heightHint uint32) (*ConfRegistration, error) {
 
 	select {
 	case <-n.quit:
-		return nil, 0, ErrTxNotifierExiting
+		return nil, ErrTxNotifierExiting
 	default:
 	}
 
-	// Enforce that we will not dispatch confirmations beyond the reorg
-	// safety limit.
-	if ntfn.NumConfirmations > n.reorgSafetyLimit {
-		return nil, 0, ErrTxMaxConfs
+	// We'll start by performing a series of validation checks.
+	ntfn, err := n.newConfNtfn(txid, pkScript, numConfs, heightHint)
+	if err != nil {
+		return nil, err
 	}
+
+	Log.Infof("New confirmation subscription: %v, num_confs=%v ",
+		ntfn.ConfRequest, numConfs)
 
 	// Before proceeding to register the notification, we'll query our
 	// height hint cache to determine whether a better one exists.
@@ -557,9 +605,16 @@ func (n *TxNotifier) RegisterConf(ntfn *ConfNtfn) (*HistoricalConfDispatch,
 			"registration since rescan has finished",
 			ntfn.ConfRequest)
 
-		return nil, n.currentHeight, n.dispatchConfDetails(
-			ntfn, confSet.details,
-		)
+		err := n.dispatchConfDetails(ntfn, confSet.details)
+		if err != nil {
+			return nil, err
+		}
+
+		return &ConfRegistration{
+			Event:              ntfn.Event,
+			HistoricalDispatch: nil,
+			Height:             n.currentHeight,
+		}, nil
 
 	// A rescan is already in progress, return here to prevent dispatching
 	// another. When the rescan returns, this notification's details will be
@@ -568,7 +623,11 @@ func (n *TxNotifier) RegisterConf(ntfn *ConfNtfn) (*HistoricalConfDispatch,
 		Log.Debugf("Waiting for pending rescan to finish before "+
 			"notifying %v at tip", ntfn.ConfRequest)
 
-		return nil, n.currentHeight, nil
+		return &ConfRegistration{
+			Event:              ntfn.Event,
+			HistoricalDispatch: nil,
+			Height:             n.currentHeight,
+		}, nil
 
 	// If no rescan has been dispatched, attempt to do so now.
 	case rescanNotStarted:
@@ -587,7 +646,11 @@ func (n *TxNotifier) RegisterConf(ntfn *ConfNtfn) (*HistoricalConfDispatch,
 		// notifier to start delivering messages for this set
 		// immediately.
 		confSet.rescanStatus = rescanComplete
-		return nil, n.currentHeight, nil
+		return &ConfRegistration{
+			Event:              ntfn.Event,
+			HistoricalDispatch: nil,
+			Height:             n.currentHeight,
+		}, nil
 	}
 
 	Log.Debugf("Dispatching historical confirmation rescan for %v",
@@ -607,7 +670,11 @@ func (n *TxNotifier) RegisterConf(ntfn *ConfNtfn) (*HistoricalConfDispatch,
 	// registrations don't also attempt a dispatch.
 	confSet.rescanStatus = rescanPending
 
-	return dispatch, n.currentHeight, nil
+	return &ConfRegistration{
+		Event:              ntfn.Event,
+		HistoricalDispatch: dispatch,
+		Height:             n.currentHeight,
+	}, nil
 }
 
 // CancelConf cancels an existing request for a spend notification of an

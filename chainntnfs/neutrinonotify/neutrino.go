@@ -37,7 +37,6 @@ const (
 // TODO(roasbeef): heavily consolidate with NeutrinoNotifier code
 //  * maybe combine into single package?
 type NeutrinoNotifier struct {
-	confClientCounter  uint64 // To be used atomically.
 	spendClientCounter uint64 // To be used atomically.
 	epochClientCounter uint64 // To be used atomically.
 
@@ -820,31 +819,13 @@ func (n *NeutrinoNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 	pkScript []byte,
 	numConfs, heightHint uint32) (*chainntnfs.ConfirmationEvent, error) {
 
-	// Construct a notification request for the transaction and send it to
-	// the main event loop.
-	confID := atomic.AddUint64(&n.confClientCounter, 1)
-	confRequest, err := chainntnfs.NewConfRequest(txid, pkScript)
-	if err != nil {
-		return nil, err
-	}
-	ntfn := &chainntnfs.ConfNtfn{
-		ConfID:           confID,
-		ConfRequest:      confRequest,
-		NumConfirmations: numConfs,
-		Event: chainntnfs.NewConfirmationEvent(numConfs, func() {
-			n.txNotifier.CancelConf(confRequest, confID)
-		}),
-		HeightHint: heightHint,
-	}
-
-	chainntnfs.Log.Infof("New confirmation subscription: %v, num_confs=%v",
-		confRequest, numConfs)
-
 	// Register the conf notification with the TxNotifier. A non-nil value
 	// for `dispatch` will be returned if we are required to perform a
 	// manual scan for the confirmation. Otherwise the notifier will begin
 	// watching at tip for the transaction to confirm.
-	dispatch, txNotifierTip, err := n.txNotifier.RegisterConf(ntfn)
+	ntfn, err := n.txNotifier.RegisterConf(
+		txid, pkScript, numConfs, heightHint,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -859,9 +840,7 @@ func (n *NeutrinoNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 	// type so we can instruct neutrino to match if the transaction
 	// containing the script is found in a block.
 	params := n.p2pNode.ChainParams()
-	_, addrs, _, err := txscript.ExtractPkScriptAddrs(
-		confRequest.PkScript.Script(), &params,
-	)
+	_, addrs, _, err := txscript.ExtractPkScriptAddrs(pkScript, &params)
 	if err != nil {
 		return nil, fmt.Errorf("unable to extract script: %v", err)
 	}
@@ -873,7 +852,7 @@ func (n *NeutrinoNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 	case n.notificationRegistry <- &rescanFilterUpdate{
 		updateOptions: []neutrino.UpdateOption{
 			neutrino.AddAddrs(addrs...),
-			neutrino.Rewind(txNotifierTip),
+			neutrino.Rewind(ntfn.Height),
 			neutrino.DisableDisconnectedNtfns(true),
 		},
 		errChan: errChan,
@@ -893,14 +872,14 @@ func (n *NeutrinoNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 
 	// If a historical rescan was not requested by the txNotifier, then we
 	// can return to the caller.
-	if dispatch == nil {
+	if ntfn.HistoricalDispatch == nil {
 		return ntfn.Event, nil
 	}
 
 	// Finally, with the filter updated, we can dispatch the historical
 	// rescan to ensure we can detect if the event happened in the past.
 	select {
-	case n.notificationRegistry <- dispatch:
+	case n.notificationRegistry <- ntfn.HistoricalDispatch:
 	case <-n.quit:
 		return nil, chainntnfs.ErrChainNotifierShuttingDown
 	}

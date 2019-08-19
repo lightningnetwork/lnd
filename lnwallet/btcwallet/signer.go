@@ -26,17 +26,7 @@ func (b *BtcWallet) FetchInputInfo(prevOut *wire.OutPoint) (*wire.TxOut, error) 
 		err    error
 		output *wire.TxOut
 	)
-
-	// First check to see if the output is already within the utxo cache.
-	// If so we can return directly saving a disk access.
-	b.cacheMtx.RLock()
-	if output, ok := b.utxoCache[*prevOut]; ok {
-		b.cacheMtx.RUnlock()
-		return output, nil
-	}
-	b.cacheMtx.RUnlock()
-
-	// Otherwise, we manually look up the output within the tx store.
+	// We manually look up the output within the tx store.
 	txid := &prevOut.Hash
 	txDetail, err := base.UnstableAPI(b.wallet).TxDetails(txid)
 	if err != nil {
@@ -54,9 +44,6 @@ func (b *BtcWallet) FetchInputInfo(prevOut *wire.OutPoint) (*wire.TxOut, error) 
 		return nil, err
 	}
 
-	b.cacheMtx.Lock()
-	b.utxoCache[*prevOut] = output
-	b.cacheMtx.Unlock()
 
 	return output, nil
 }

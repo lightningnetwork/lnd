@@ -108,40 +108,19 @@ func TestDetermineFeePerKw(t *testing.T) {
 }
 
 type mockUtxoSource struct {
-	outpoints map[wire.OutPoint]*wire.TxOut
-
 	outputs []*lnwallet.Utxo
 }
 
 func newMockUtxoSource(utxos []*lnwallet.Utxo) *mockUtxoSource {
-	m := &mockUtxoSource{
-		outputs:   utxos,
-		outpoints: make(map[wire.OutPoint]*wire.TxOut),
+	return &mockUtxoSource{
+		outputs: utxos,
 	}
-
-	for _, utxo := range utxos {
-		m.outpoints[utxo.OutPoint] = &wire.TxOut{
-			Value:    int64(utxo.Value),
-			PkScript: utxo.PkScript,
-		}
-	}
-
-	return m
 }
 
 func (m *mockUtxoSource) ListUnspentWitness(minConfs int32,
 	maxConfs int32) ([]*lnwallet.Utxo, error) {
 
 	return m.outputs, nil
-}
-
-func (m *mockUtxoSource) FetchInputInfo(op *wire.OutPoint) (*wire.TxOut, error) {
-	txOut, ok := m.outpoints[*op]
-	if !ok {
-		return nil, fmt.Errorf("no output found")
-	}
-
-	return txOut, nil
 }
 
 type mockCoinSelectionLocker struct {
@@ -202,6 +181,7 @@ var deliveryAddr = func() btcutil.Address {
 var testUtxos = []*lnwallet.Utxo{
 	{
 		// A p2wkh output.
+		AddressType: lnwallet.WitnessPubKey,
 		PkScript: []byte{
 			0x0, 0x14, 0x64, 0x3d, 0x8b, 0x15, 0x69, 0x4a, 0x54,
 			0x7d, 0x57, 0x33, 0x6e, 0x51, 0xdf, 0xfd, 0x38, 0xe3,
@@ -215,6 +195,7 @@ var testUtxos = []*lnwallet.Utxo{
 
 	{
 		// A np2wkh output.
+		AddressType: lnwallet.NestedWitnessPubKey,
 		PkScript: []byte{
 			0xa9, 0x14, 0x97, 0x17, 0xf7, 0xd1, 0x5f, 0x6f, 0x8b,
 			0x7, 0xe3, 0x58, 0x43, 0x19, 0xb9, 0x7e, 0xa9, 0x20,
@@ -228,6 +209,7 @@ var testUtxos = []*lnwallet.Utxo{
 
 	// A p2wsh output.
 	{
+		AddressType: lnwallet.UnknownAddressType,
 		PkScript: []byte{
 			0x0, 0x20, 0x70, 0x1a, 0x8d, 0x40, 0x1c, 0x84, 0xfb, 0x13,
 			0xe6, 0xba, 0xf1, 0x69, 0xd5, 0x96, 0x84, 0xe2, 0x7a, 0xbd,

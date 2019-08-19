@@ -1,6 +1,8 @@
 package btcwallet
 
 import (
+	"fmt"
+
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
@@ -21,11 +23,7 @@ import (
 // of ErrNotMine should be returned instead.
 //
 // This is a part of the WalletController interface.
-func (b *BtcWallet) FetchInputInfo(prevOut *wire.OutPoint) (*wire.TxOut, error) {
-	var (
-		err    error
-		output *wire.TxOut
-	)
+func (b *BtcWallet) FetchInputInfo(prevOut *wire.OutPoint) (*lnwallet.Utxo, error) {
 	// We manually look up the output within the tx store.
 	txid := &prevOut.Hash
 	txDetail, err := base.UnstableAPI(b.wallet).TxDetails(txid)
@@ -39,13 +37,40 @@ func (b *BtcWallet) FetchInputInfo(prevOut *wire.OutPoint) (*wire.TxOut, error) 
 	// we actually have control of this output. We do this because the check
 	// above only guarantees that the transaction is somehow relevant to us,
 	// like in the event of us being the sender of the transaction.
-	output = txDetail.TxRecord.MsgTx.TxOut[prevOut.Index]
-	if _, err := b.fetchOutputAddr(output.PkScript); err != nil {
+	pkScript := txDetail.TxRecord.MsgTx.TxOut[prevOut.Index].PkScript
+	if _, err := b.fetchOutputAddr(pkScript); err != nil {
 		return nil, err
 	}
 
+	// Then, we'll populate all of the information required by the struct.
+	addressType := lnwallet.UnknownAddressType
+	switch {
+	case txscript.IsPayToWitnessPubKeyHash(pkScript):
+		addressType = lnwallet.WitnessPubKey
+	case txscript.IsPayToScriptHash(pkScript):
+		addressType = lnwallet.NestedWitnessPubKey
+	}
 
-	return output, nil
+	// Determine the number of confirmations the output currently has.
+	_, currentHeight, err := b.GetBestBlock()
+	if err != nil {
+		return nil, fmt.Errorf("unable to retrieve current height: %v",
+			err)
+	}
+	confs := int64(0)
+	if txDetail.Block.Height != -1 {
+		confs = int64(currentHeight - txDetail.Block.Height)
+	}
+
+	return &lnwallet.Utxo{
+		AddressType: addressType,
+		Value: btcutil.Amount(
+			txDetail.TxRecord.MsgTx.TxOut[prevOut.Index].Value,
+		),
+		PkScript:      pkScript,
+		Confirmations: confs,
+		OutPoint:      *prevOut,
+	}, nil
 }
 
 // fetchOutputAddr attempts to fetch the managed address corresponding to the

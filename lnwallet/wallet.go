@@ -774,7 +774,10 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 			return
 		}
 
-		signDesc.Output = info
+		signDesc.Output = &wire.TxOut{
+			PkScript: info.PkScript,
+			Value:    int64(info.Value),
+		}
 		signDesc.InputIndex = i
 
 		inputScript, err := l.Cfg.Signer.ComputeInputScript(

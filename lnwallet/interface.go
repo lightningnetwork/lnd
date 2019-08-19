@@ -59,8 +59,6 @@ type Utxo struct {
 	Value         btcutil.Amount
 	Confirmations int64
 	PkScript      []byte
-	RedeemScript  []byte
-	WitnessScript []byte
 	wire.OutPoint
 }
 

@@ -2395,6 +2395,9 @@ message PolicyUpdateRequest {
 
     /// The required timelock delta for HTLCs forwarded over the channel.
     uint32 time_lock_delta = 5 [json_name = "time_lock_delta"];
+
+    /// If set, the maximum HTLC size in milli-satoshis. If unset, the maximum HTLC will be unchanged.
+    uint64 max_htlc_msat = 6 [json_name = "max_htlc_msat"];
 }
 message PolicyUpdateResponse {
 }

@@ -3150,6 +3150,11 @@
           "type": "integer",
           "format": "int64",
           "description": "/ The required timelock delta for HTLCs forwarded over the channel."
+        },
+        "max_htlc_msat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "/ If set, the maximum HTLC size in milli-satoshis. If unset, the maximum HTLC will be unchanged."
         }
       }
     },

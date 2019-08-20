@@ -1631,8 +1631,21 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 				OnionSHA256: msg.ShaOnionBlob,
 			}
 		default:
-			log.Errorf("Unknown failure code: %v", msg.FailureCode)
-			failure = &lnwire.FailTemporaryChannelFailure{}
+			log.Warnf("Unexpected failure code received in "+
+				"UpdateFailMailformedHTLC: %v", msg.FailureCode)
+
+			// We don't just pass back the error we received from
+			// our successor. Otherwise we might report a failure
+			// that penalizes us more than needed. If the onion that
+			// we forwarded was correct, the node should have been
+			// able to send back its own failure. The node did not
+			// send back its own failure, so we assume there was a
+			// problem with the onion and report that back. We reuse
+			// the invalid onion key failure because there is no
+			// specific error for this case.
+			failure = &lnwire.FailInvalidOnionKey{
+				OnionSHA256: msg.ShaOnionBlob,
+			}
 		}
 
 		// With the error parsed, we'll convert the into it's opaque

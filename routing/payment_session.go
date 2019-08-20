@@ -33,7 +33,7 @@ type PaymentSession interface {
 type paymentSession struct {
 	additionalEdges map[route.Vertex][]*channeldb.ChannelEdgePolicy
 
-	bandwidthHints map[uint64]lnwire.MilliSatoshi
+	getBandwidthHints func() (map[uint64]lnwire.MilliSatoshi, error)
 
 	sessionSource *SessionSource
 
@@ -97,11 +97,22 @@ func (p *paymentSession) RequestRoute(payment *LightningPayment,
 		CltvLimit:         cltvLimit,
 	}
 
+	// We'll also obtain a set of bandwidthHints from the lower layer for
+	// each of our outbound channels. This will allow the path finding to
+	// skip any links that aren't active or just don't have enough bandwidth
+	// to carry the payment. New bandwidth hints are queried for every new
+	// path finding attempt, because concurrent payments may change
+	// balances.
+	bandwidthHints, err := p.getBandwidthHints()
+	if err != nil {
+		return nil, err
+	}
+
 	path, err := p.pathFinder(
 		&graphParams{
 			graph:           ss.Graph,
 			additionalEdges: p.additionalEdges,
-			bandwidthHints:  p.bandwidthHints,
+			bandwidthHints:  bandwidthHints,
 		},
 		restrictions, &ss.PathFindingConfig,
 		ss.SelfNode.PubKeyBytes, payment.Target,

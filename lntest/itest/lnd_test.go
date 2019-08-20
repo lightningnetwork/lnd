@@ -3567,7 +3567,7 @@ func testSphinxReplayPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Construct the response we expect after sending a duplicate packet
 	// that fails due to sphinx replay detection.
-	replayErr := "TemporaryChannelFailure"
+	replayErr := "InvalidOnionKey"
 	if !strings.Contains(resp.PaymentError, replayErr) {
 		t.Fatalf("received payment error: %v, expected %v",
 			resp.PaymentError, replayErr)

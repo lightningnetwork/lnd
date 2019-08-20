@@ -18,8 +18,12 @@ import (
 // TestManager tests that the local channel manager properly propagates fee
 // updates to gossiper and links.
 func TestManager(t *testing.T) {
-	chanPoint := wire.OutPoint{Hash: chainhash.Hash{1}, Index: 2}
-	chanCap := btcutil.Amount(1000)
+	var (
+		chanPoint        = wire.OutPoint{Hash: chainhash.Hash{1}, Index: 2}
+		chanCap          = btcutil.Amount(1000)
+		maxPendingAmount = lnwire.MilliSatoshi(999000)
+		minHTLC          = lnwire.MilliSatoshi(2000)
+	)
 
 	newPolicy := routing.ChannelPolicy{
 		FeeSchema: routing.FeeSchema{
@@ -27,6 +31,12 @@ func TestManager(t *testing.T) {
 			FeeRate: 200,
 		},
 		TimeLockDelta: 80,
+		MaxHTLC:       5000,
+	}
+
+	currentPolicy := channeldb.ChannelEdgePolicy{
+		MinHTLC:      minHTLC,
+		MessageFlags: lnwire.ChanUpdateOptionMaxHtlc,
 	}
 
 	updateForwardingPolicies := func(
@@ -46,7 +56,7 @@ func TestManager(t *testing.T) {
 		if uint32(policy.FeeRate) != newPolicy.FeeRate {
 			t.Fatal("unexpected base fee")
 		}
-		if policy.MaxHTLC != lnwire.NewMSatFromSatoshis(chanCap) {
+		if policy.MaxHTLC != newPolicy.MaxHTLC {
 			t.Fatal("unexpected max htlc")
 		}
 	}
@@ -71,7 +81,7 @@ func TestManager(t *testing.T) {
 		if uint32(policy.FeeProportionalMillionths) != newPolicy.FeeRate {
 			t.Fatal("unexpected base fee")
 		}
-		if policy.MaxHTLC != lnwire.NewMSatFromSatoshis(chanCap) {
+		if policy.MaxHTLC != newPolicy.MaxHTLC {
 			t.Fatal("unexpected max htlc")
 		}
 
@@ -86,14 +96,30 @@ func TestManager(t *testing.T) {
 				Capacity:     chanCap,
 				ChannelPoint: chanPoint,
 			},
-			&channeldb.ChannelEdgePolicy{},
+			&currentPolicy,
 		)
+	}
+
+	fetchChannel := func(chanPoint wire.OutPoint) (*channeldb.OpenChannel,
+		error) {
+
+		constraints := channeldb.ChannelConstraints{
+			MaxPendingAmount: maxPendingAmount,
+			MinHTLC:          minHTLC,
+		}
+
+		return &channeldb.OpenChannel{
+			LocalChanCfg: channeldb.ChannelConfig{
+				ChannelConstraints: constraints,
+			},
+		}, nil
 	}
 
 	manager := Manager{
 		UpdateForwardingPolicies:  updateForwardingPolicies,
 		PropagateChanPolicyUpdate: propagateChanPolicyUpdate,
 		ForAllOutgoingChannels:    forAllOutgoingChannels,
+		FetchChannel:              fetchChannel,
 	}
 
 	// Test updating a specific channels.
@@ -105,6 +131,17 @@ func TestManager(t *testing.T) {
 	// Test updating all channels, which comes down to the same as testing a
 	// specific channel because there is only one channel.
 	err = manager.UpdatePolicy(newPolicy)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// If no max htlc is specified, the max htlc value should be kept
+	// unchanged.
+	currentPolicy.MaxHTLC = newPolicy.MaxHTLC
+	noMaxHtlcPolicy := newPolicy
+	noMaxHtlcPolicy.MaxHTLC = 0
+
+	err = manager.UpdatePolicy(noMaxHtlcPolicy)
 	if err != nil {
 		t.Fatal(err)
 	}

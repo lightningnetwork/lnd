@@ -5,7 +5,6 @@ import (
 	"sync"
 
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/htlcswitch"
@@ -30,6 +29,10 @@ type Manager struct {
 	// channels.
 	ForAllOutgoingChannels func(cb func(*channeldb.ChannelEdgeInfo,
 		*channeldb.ChannelEdgePolicy) error) error
+
+	// FetchChannel is used to query local channel parameters.
+	FetchChannel func(chanPoint wire.OutPoint) (*channeldb.OpenChannel,
+		error)
 
 	// policyUpdateLock ensures that the database and the link do not fall
 	// out of sync if there are concurrent fee update calls. Without it,
@@ -74,7 +77,7 @@ func (r *Manager) UpdatePolicy(newSchema routing.ChannelPolicy,
 		}
 
 		// Apply the new policy to the edge.
-		err := r.updateEdge(info.Capacity, edge, newSchema)
+		err := r.updateEdge(info.ChannelPoint, edge, newSchema)
 		if err != nil {
 			return nil
 		}
@@ -117,7 +120,7 @@ func (r *Manager) UpdatePolicy(newSchema routing.ChannelPolicy,
 }
 
 // updateEdge updates the given edge with the new schema.
-func (r *Manager) updateEdge(capacity btcutil.Amount,
+func (r *Manager) updateEdge(chanPoint wire.OutPoint,
 	edge *channeldb.ChannelEdgePolicy,
 	newSchema routing.ChannelPolicy) error {
 
@@ -128,12 +131,49 @@ func (r *Manager) updateEdge(capacity btcutil.Amount,
 	)
 	edge.TimeLockDelta = uint16(newSchema.TimeLockDelta)
 
-	// Max htlc is currently always set to the channel capacity.
+	// Retrieve negotiated channel htlc amt limits.
+	amtMin, amtMax, err := r.getHtlcAmtLimits(chanPoint)
+	if err != nil {
+		return nil
+	}
+
+	// We now update the edge max htlc value.
+	switch {
+
+	// If a non-zero max htlc was specified, use it to update the edge.
+	// Otherwise keep the value unchanged.
+	case newSchema.MaxHTLC != 0:
+		edge.MaxHTLC = newSchema.MaxHTLC
+
+	// If this edge still doesn't have a max htlc set, set it to the max.
+	// This is an on-the-fly migration.
+	case !edge.MessageFlags.HasMaxHtlc():
+		edge.MaxHTLC = amtMax
+
+	// If this edge has a max htlc that exceeds what the channel can
+	// actually carry, correct it now. This can happen, because we
+	// previously set the max htlc to the channel capacity.
+	case edge.MaxHTLC > amtMax:
+		edge.MaxHTLC = amtMax
+	}
+
+	// If the MaxHtlc flag wasn't already set, we can set it now.
 	edge.MessageFlags |= lnwire.ChanUpdateOptionMaxHtlc
-	edge.MaxHTLC = lnwire.NewMSatFromSatoshis(capacity)
 
 	// Validate htlc amount constraints.
-	if edge.MinHTLC > edge.MaxHTLC {
+	switch {
+	case edge.MinHTLC < amtMin:
+		return fmt.Errorf("min htlc amount of %v msat is below "+
+			"min htlc parameter of %v msat for channel %v",
+			edge.MinHTLC, amtMin,
+			chanPoint)
+
+	case edge.MaxHTLC > amtMax:
+		return fmt.Errorf("max htlc size of %v msat is above "+
+			"max pending amount of %v msat for channel %v",
+			edge.MaxHTLC, amtMax, chanPoint)
+
+	case edge.MinHTLC > edge.MaxHTLC:
 		return fmt.Errorf("min_htlc %v greater than max_htlc %v",
 			edge.MinHTLC, edge.MaxHTLC)
 	}
@@ -142,4 +182,23 @@ func (r *Manager) updateEdge(capacity btcutil.Amount,
 	edge.SetSigBytes(nil)
 
 	return nil
+}
+
+// getHtlcAmtLimits retrieves the negotiated channel min and max htlc amount
+// constraints.
+func (r *Manager) getHtlcAmtLimits(chanPoint wire.OutPoint) (
+	lnwire.MilliSatoshi, lnwire.MilliSatoshi, error) {
+
+	ch, err := r.FetchChannel(chanPoint)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	// The max htlc policy field must be less than or equal to the channel
+	// capacity AND less than or equal to the max in-flight HTLC value.
+	// Since the latter is always less than or equal to the former, just
+	// return the max in-flight value.
+	maxAmt := ch.LocalChanCfg.ChannelConstraints.MaxPendingAmount
+
+	return ch.LocalChanCfg.MinHTLC, maxAmt, nil
 }

@@ -742,6 +742,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 		ForAllOutgoingChannels:    s.chanRouter.ForAllOutgoingChannels,
 		PropagateChanPolicyUpdate: s.authGossiper.PropagateChanPolicyUpdate,
 		UpdateForwardingPolicies:  s.htlcSwitch.UpdateForwardingPolicies,
+		FetchChannel:              s.chanDB.FetchChannel,
 	}
 
 	utxnStore, err := newNurseryStore(activeNetParams.GenesisHash, chanDB)

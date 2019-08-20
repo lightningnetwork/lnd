@@ -219,6 +219,10 @@ type ChannelPolicy struct {
 	// TimeLockDelta is the required HTLC timelock delta to be used
 	// when forwarding payments.
 	TimeLockDelta uint32
+
+	// MaxHTLC is the maximum HTLC size including fees we are allowed to
+	// forward over this channel.
+	MaxHTLC lnwire.MilliSatoshi
 }
 
 // Config defines the configuration for the ChannelRouter. ALL elements within

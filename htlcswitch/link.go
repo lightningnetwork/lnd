@@ -191,16 +191,10 @@ type ChannelLinkConfig struct {
 	// transaction to ensure timely confirmation.
 	FeeEstimator lnwallet.FeeEstimator
 
-	// DebugHTLC should be turned on if you want all HTLCs sent to a node
-	// with the debug htlc R-Hash are immediately settled in the next
-	// available state transition.
-	DebugHTLC bool
-
 	// hodl.Mask is a bitvector composed of hodl.Flags, specifying breakpoints
 	// for HTLC forwarding internal to the switch.
 	//
-	// NOTE: This should only be used for testing, and should only be used
-	// simultaneously with DebugHTLC.
+	// NOTE: This should only be used for testing.
 	HodlMask hodl.Mask
 
 	// SyncStates is used to indicate that we need send the channel
@@ -1256,7 +1250,7 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 		// If hodl.AddOutgoing mode is active, we exit early to simulate
 		// arbitrary delays between the switch adding an ADD to the
 		// mailbox, and the HTLC being added to the commitment state.
-		if l.cfg.DebugHTLC && l.cfg.HodlMask.Active(hodl.AddOutgoing) {
+		if l.cfg.HodlMask.Active(hodl.AddOutgoing) {
 			l.warnf(hodl.AddOutgoing.Warning())
 			l.mailBox.AckPacket(pkt.inKey())
 			return
@@ -1378,7 +1372,7 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 		// simulate arbitrary delays between the switch adding the
 		// SETTLE to the mailbox, and the HTLC being added to the
 		// commitment state.
-		if l.cfg.DebugHTLC && l.cfg.HodlMask.Active(hodl.SettleOutgoing) {
+		if l.cfg.HodlMask.Active(hodl.SettleOutgoing) {
 			l.warnf(hodl.SettleOutgoing.Warning())
 			l.mailBox.AckPacket(pkt.inKey())
 			return
@@ -1436,7 +1430,7 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 		// simulate arbitrary delays between the switch adding a FAIL to
 		// the mailbox, and the HTLC being added to the commitment
 		// state.
-		if l.cfg.DebugHTLC && l.cfg.HodlMask.Active(hodl.FailOutgoing) {
+		if l.cfg.HodlMask.Active(hodl.FailOutgoing) {
 			l.warnf(hodl.FailOutgoing.Warning())
 			l.mailBox.AckPacket(pkt.inKey())
 			return
@@ -1948,7 +1942,7 @@ func (l *channelLink) updateCommitTx() error {
 	// commit any in-memory modifications to the channel state. Exiting here
 	// permits testing of either the switch or link's ability to trim
 	// circuits that have been opened, but unsuccessfully committed.
-	if l.cfg.DebugHTLC && l.cfg.HodlMask.Active(hodl.Commit) {
+	if l.cfg.HodlMask.Active(hodl.Commit) {
 		l.warnf(hodl.Commit.Warning())
 		return nil
 	}
@@ -2445,7 +2439,7 @@ func (l *channelLink) processRemoteSettleFails(fwdPkg *channeldb.FwdPkg,
 			// If hodl.SettleIncoming is requested, we will not
 			// forward the SETTLE to the switch and will not signal
 			// a free slot on the commitment transaction.
-			if l.cfg.DebugHTLC && l.cfg.HodlMask.Active(hodl.SettleIncoming) {
+			if l.cfg.HodlMask.Active(hodl.SettleIncoming) {
 				l.warnf(hodl.SettleIncoming.Warning())
 				continue
 			}
@@ -2473,7 +2467,7 @@ func (l *channelLink) processRemoteSettleFails(fwdPkg *channeldb.FwdPkg,
 			// If hodl.SettleIncoming is requested, we will not
 			// forward the FAIL to the switch and will not signal a
 			// free slot on the commitment transaction.
-			if l.cfg.DebugHTLC && l.cfg.HodlMask.Active(hodl.FailIncoming) {
+			if l.cfg.HodlMask.Active(hodl.FailIncoming) {
 				l.warnf(hodl.FailIncoming.Warning())
 				continue
 			}
@@ -2654,8 +2648,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 			// If hodl.AddIncoming is requested, we will not
 			// validate the forwarded ADD, nor will we send the
 			// packet to the htlc switch.
-			if l.cfg.DebugHTLC &&
-				l.cfg.HodlMask.Active(hodl.AddIncoming) {
+			if l.cfg.HodlMask.Active(hodl.AddIncoming) {
 				l.warnf(hodl.AddIncoming.Warning())
 				continue
 			}
@@ -2814,7 +2807,7 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 	// If hodl.ExitSettle is requested, we will not validate the final hop's
 	// ADD, nor will we settle the corresponding invoice or respond with the
 	// preimage.
-	if l.cfg.DebugHTLC && l.cfg.HodlMask.Active(hodl.ExitSettle) {
+	if l.cfg.HodlMask.Active(hodl.ExitSettle) {
 		l.warnf(hodl.ExitSettle.Warning())
 
 		return false, nil
@@ -2823,7 +2816,7 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 	// As we're the exit hop, we'll double check the hop-payload included in
 	// the HTLC to ensure that it was crafted correctly by the sender and
 	// matches the HTLC we were extended.
-	if !l.cfg.DebugHTLC && pd.Amount != fwdInfo.AmountToForward {
+	if pd.Amount != fwdInfo.AmountToForward {
 
 		log.Errorf("Onion payload of incoming htlc(%x) has incorrect "+
 			"value: expected %v, got %v", pd.RHash,
@@ -2837,7 +2830,7 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 
 	// We'll also ensure that our time-lock value has been computed
 	// correctly.
-	if !l.cfg.DebugHTLC && pd.Timeout != fwdInfo.OutgoingCTLV {
+	if pd.Timeout != fwdInfo.OutgoingCTLV {
 		log.Errorf("Onion payload of incoming htlc(%x) has incorrect "+
 			"time-lock: expected %v, got %v",
 			pd.RHash[:], pd.Timeout, fwdInfo.OutgoingCTLV)
@@ -2914,7 +2907,7 @@ func (l *channelLink) settleHTLC(preimage lntypes.Preimage, htlcIndex uint64,
 
 	// If the link is in hodl.BogusSettle mode, replace the preimage with a
 	// fake one before sending it to the peer.
-	if l.cfg.DebugHTLC && l.cfg.HodlMask.Active(hodl.BogusSettle) {
+	if l.cfg.HodlMask.Active(hodl.BogusSettle) {
 		l.warnf(hodl.BogusSettle.Warning())
 		preimage = [32]byte{}
 		copy(preimage[:], bytes.Repeat([]byte{2}, 32))

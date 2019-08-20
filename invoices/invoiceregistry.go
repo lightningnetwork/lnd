@@ -1,31 +1,16 @@
 package invoices
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
-	"time"
 
-	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/queue"
-)
-
-var (
-	// DebugPre is the default debug preimage which is inserted into the
-	// invoice registry if the --debughtlc flag is activated on start up.
-	// All nodes initialized with the flag active will immediately settle
-	// any incoming HTLC whose rHash corresponds with the debug
-	// preimage.
-	DebugPre, _ = lntypes.MakePreimage(bytes.Repeat([]byte{1}, 32))
-
-	// DebugHash is the hash of the default preimage.
-	DebugHash = DebugPre.Hash()
 )
 
 var (
@@ -73,11 +58,6 @@ type InvoiceRegistry struct {
 	// new single invoice subscriptions are carried.
 	invoiceEvents chan interface{}
 
-	// debugInvoices is a map which stores special "debug" invoices which
-	// should be only created/used when manual tests require an invoice
-	// that *all* nodes are able to fully settle.
-	debugInvoices map[lntypes.Hash]*channeldb.Invoice
-
 	// decodeFinalCltvExpiry is a function used to decode the final expiry
 	// value from the payment request.
 	decodeFinalCltvExpiry func(invoice string) (uint32, error)
@@ -110,7 +90,6 @@ func NewRegistry(cdb *channeldb.DB, decodeFinalCltvExpiry func(invoice string) (
 
 	return &InvoiceRegistry{
 		cdb:                       cdb,
-		debugInvoices:             make(map[lntypes.Hash]*channeldb.Invoice),
 		notificationClients:       make(map[uint32]*InvoiceSubscription),
 		singleNotificationClients: make(map[uint32]*SingleInvoiceSubscription),
 		newSubscriptions:          make(chan *InvoiceSubscription),
@@ -392,32 +371,6 @@ func (i *InvoiceRegistry) deliverSingleBacklogEvents(
 	return nil
 }
 
-// AddDebugInvoice adds a debug invoice for the specified amount, identified
-// by the passed preimage. Once this invoice is added, subsystems within the
-// daemon add/forward HTLCs that are able to obtain the proper preimage
-// required for redemption in the case that we're the final destination.
-func (i *InvoiceRegistry) AddDebugInvoice(amt btcutil.Amount,
-	preimage lntypes.Preimage) {
-
-	paymentHash := preimage.Hash()
-
-	invoice := &channeldb.Invoice{
-		CreationDate: time.Now(),
-		Terms: channeldb.ContractTerm{
-			Value:           lnwire.NewMSatFromSatoshis(amt),
-			PaymentPreimage: preimage,
-		},
-	}
-
-	i.Lock()
-	i.debugInvoices[paymentHash] = invoice
-	i.Unlock()
-
-	log.Debugf("Adding debug invoice %v", newLogClosure(func() string {
-		return spew.Sdump(invoice)
-	}))
-}
-
 // AddInvoice adds a regular invoice for the specified amount, identified by
 // the passed preimage. Additionally, any memo or receipt data provided will
 // also be stored on-disk. Once this invoice is added, subsystems within the
@@ -458,19 +411,8 @@ func (i *InvoiceRegistry) AddInvoice(invoice *channeldb.Invoice,
 //
 // TODO(roasbeef): ignore if settled?
 func (i *InvoiceRegistry) LookupInvoice(rHash lntypes.Hash) (channeldb.Invoice, uint32, error) {
-	// First check the in-memory debug invoice index to see if this is an
-	// existing invoice added for debugging.
-	i.RLock()
-	debugInv, ok := i.debugInvoices[rHash]
-	i.RUnlock()
-
-	// If found, then simply return the invoice directly.
-	if ok {
-		return *debugInv, 0, nil
-	}
-
-	// Otherwise, we'll check the database to see if there's an existing
-	// matching invoice.
+	// We'll check the database to see if there's an existing matching
+	// invoice.
 	invoice, err := i.cdb.LookupInvoice(rHash)
 	if err != nil {
 		return channeldb.Invoice{}, 0, err
@@ -555,18 +497,6 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 	debugLog := func(s string) {
 		log.Debugf("Invoice(%x): %v, amt=%v, expiry=%v",
 			rHash[:], s, amtPaid, expiry)
-	}
-	// First check the in-memory debug invoice index to see if this is an
-	// existing invoice added for debugging.
-	if invoice, ok := i.debugInvoices[rHash]; ok {
-		debugLog("payment to debug invoice accepted")
-
-		// Debug invoices are never fully settled, so we just settle the
-		// htlc in this case.
-		return &HodlEvent{
-			Hash:     rHash,
-			Preimage: &invoice.Terms.PaymentPreimage,
-		}, nil
 	}
 
 	// If this isn't a debug invoice, then we'll attempt to settle an

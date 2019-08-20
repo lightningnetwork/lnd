@@ -14,10 +14,8 @@ import (
 // which may search, lookup and settle invoices.
 type InvoiceDatabase interface {
 	// LookupInvoice attempts to look up an invoice according to its 32
-	// byte payment hash. This method should also reutrn the min final CLTV
-	// delta for this invoice. We'll use this to ensure that the HTLC
-	// extended to us gives us enough time to settle as we prescribe.
-	LookupInvoice(lntypes.Hash) (channeldb.Invoice, uint32, error)
+	// byte payment hash.
+	LookupInvoice(lntypes.Hash) (channeldb.Invoice, error)
 
 	// NotifyExitHopHtlc attempts to mark an invoice as settled. If the
 	// invoice is a debug invoice, then this method is a noop as debug

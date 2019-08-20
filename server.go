@@ -55,7 +55,6 @@ import (
 	"github.com/lightningnetwork/lnd/watchtower/wtclient"
 	"github.com/lightningnetwork/lnd/watchtower/wtdb"
 	"github.com/lightningnetwork/lnd/watchtower/wtpolicy"
-	"github.com/lightningnetwork/lnd/zpay32"
 )
 
 const (
@@ -347,14 +346,6 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 		readBufferPool, cfg.Workers.Read, pool.DefaultWorkerTimeout,
 	)
 
-	decodeFinalCltvExpiry := func(payReq string) (uint32, error) {
-		invoice, err := zpay32.Decode(payReq, activeNetParams.Params)
-		if err != nil {
-			return 0, err
-		}
-		return uint32(invoice.MinFinalCLTVExpiry()), nil
-	}
-
 	s := &server{
 		chanDB:         chanDB,
 		cc:             cc,
@@ -364,8 +355,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 		chansToRestore: chansToRestore,
 
 		invoices: invoices.NewRegistry(
-			chanDB, decodeFinalCltvExpiry,
-			defaultFinalCltvRejectDelta,
+			chanDB, defaultFinalCltvRejectDelta,
 		),
 
 		channelNotifier: channelnotifier.New(chanDB),

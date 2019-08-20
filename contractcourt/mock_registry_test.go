@@ -39,8 +39,8 @@ func (r *mockRegistry) NotifyExitHopHtlc(payHash lntypes.Hash,
 
 func (r *mockRegistry) HodlUnsubscribeAll(subscriber chan<- interface{}) {}
 
-func (r *mockRegistry) LookupInvoice(lntypes.Hash) (channeldb.Invoice, uint32,
+func (r *mockRegistry) LookupInvoice(lntypes.Hash) (channeldb.Invoice,
 	error) {
 
-	return channeldb.Invoice{}, 0, channeldb.ErrInvoiceNotFound
+	return channeldb.Invoice{}, channeldb.ErrInvoiceNotFound
 }

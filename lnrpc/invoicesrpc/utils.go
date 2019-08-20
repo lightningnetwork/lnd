@@ -36,13 +36,6 @@ func CreateRPCInvoice(invoice *channeldb.Invoice,
 		settleDate = invoice.SettleDate.Unix()
 	}
 
-	// Expiry time will default to 3600 seconds if not specified
-	// explicitly.
-	expiry := int64(decoded.Expiry().Seconds())
-
-	// The expiry will default to 9 blocks if not specified explicitly.
-	cltvExpiry := decoded.MinFinalCLTVExpiry()
-
 	// Convert between the `lnrpc` and `routing` types.
 	routeHints := CreateRPCRouteHints(decoded.RouteHints)
 
@@ -77,8 +70,8 @@ func CreateRPCInvoice(invoice *channeldb.Invoice,
 		Settled:         isSettled,
 		PaymentRequest:  paymentRequest,
 		DescriptionHash: descHash,
-		Expiry:          expiry,
-		CltvExpiry:      cltvExpiry,
+		Expiry:          int64(invoice.Expiry.Seconds()),
+		CltvExpiry:      uint64(invoice.FinalCltvDelta),
 		FallbackAddr:    fallbackAddr,
 		RouteHints:      routeHints,
 		AddIndex:        invoice.AddIndex,

@@ -30,10 +30,6 @@ var (
 	testCurrentHeight = int32(1)
 )
 
-func decodeExpiry(payReq string) (uint32, error) {
-	return uint32(testInvoiceCltvDelta), nil
-}
-
 var (
 	testInvoice = &channeldb.Invoice{
 		Terms: channeldb.ContractTerm{
@@ -50,7 +46,7 @@ func newTestContext(t *testing.T) (*InvoiceRegistry, func()) {
 	}
 
 	// Instantiate and start the invoice registry.
-	registry := NewRegistry(cdb, decodeExpiry, testFinalCltvRejectDelta)
+	registry := NewRegistry(cdb, testFinalCltvRejectDelta)
 
 	err = registry.Start()
 	if err != nil {
@@ -204,7 +200,7 @@ func TestSettleInvoice(t *testing.T) {
 	}
 
 	// Check that settled amount remains unchanged.
-	inv, _, err := registry.LookupInvoice(hash)
+	inv, err := registry.LookupInvoice(hash)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -337,7 +333,7 @@ func TestHoldInvoice(t *testing.T) {
 	defer cleanup()
 
 	// Instantiate and start the invoice registry.
-	registry := NewRegistry(cdb, decodeExpiry, testFinalCltvRejectDelta)
+	registry := NewRegistry(cdb, testFinalCltvRejectDelta)
 
 	err = registry.Start()
 	if err != nil {

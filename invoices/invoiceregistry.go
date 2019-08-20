@@ -58,10 +58,6 @@ type InvoiceRegistry struct {
 	// new single invoice subscriptions are carried.
 	invoiceEvents chan interface{}
 
-	// decodeFinalCltvExpiry is a function used to decode the final expiry
-	// value from the payment request.
-	decodeFinalCltvExpiry func(invoice string) (uint32, error)
-
 	// subscriptions is a map from a payment hash to a list of subscribers.
 	// It is used for efficient notification of links.
 	hodlSubscriptions map[lntypes.Hash]map[chan<- interface{}]struct{}
@@ -85,8 +81,7 @@ type InvoiceRegistry struct {
 // wraps the persistent on-disk invoice storage with an additional in-memory
 // layer. The in-memory layer is in place such that debug invoices can be added
 // which are volatile yet available system wide within the daemon.
-func NewRegistry(cdb *channeldb.DB, decodeFinalCltvExpiry func(invoice string) (
-	uint32, error), finalCltvRejectDelta int32) *InvoiceRegistry {
+func NewRegistry(cdb *channeldb.DB, finalCltvRejectDelta int32) *InvoiceRegistry {
 
 	return &InvoiceRegistry{
 		cdb:                       cdb,
@@ -97,7 +92,6 @@ func NewRegistry(cdb *channeldb.DB, decodeFinalCltvExpiry func(invoice string) (
 		invoiceEvents:             make(chan interface{}, 100),
 		hodlSubscriptions:         make(map[lntypes.Hash]map[chan<- interface{}]struct{}),
 		hodlReverseSubscriptions:  make(map[chan<- interface{}]map[lntypes.Hash]struct{}),
-		decodeFinalCltvExpiry:     decodeFinalCltvExpiry,
 		finalCltvRejectDelta:      finalCltvRejectDelta,
 		quit:                      make(chan struct{}),
 	}
@@ -404,26 +398,15 @@ func (i *InvoiceRegistry) AddInvoice(invoice *channeldb.Invoice,
 }
 
 // LookupInvoice looks up an invoice by its payment hash (R-Hash), if found
-// then we're able to pull the funds pending within an HTLC. We'll also return
-// what the expected min final CLTV delta is, pre-parsed from the payment
-// request. This may be used by callers to determine if an HTLC is well formed
-// according to the cltv delta.
+// then we're able to pull the funds pending within an HTLC.
 //
 // TODO(roasbeef): ignore if settled?
-func (i *InvoiceRegistry) LookupInvoice(rHash lntypes.Hash) (channeldb.Invoice, uint32, error) {
+func (i *InvoiceRegistry) LookupInvoice(rHash lntypes.Hash) (channeldb.Invoice,
+	error) {
+
 	// We'll check the database to see if there's an existing matching
 	// invoice.
-	invoice, err := i.cdb.LookupInvoice(rHash)
-	if err != nil {
-		return channeldb.Invoice{}, 0, err
-	}
-
-	expiry, err := i.decodeFinalCltvExpiry(string(invoice.PaymentRequest))
-	if err != nil {
-		return channeldb.Invoice{}, 0, err
-	}
-
-	return invoice, expiry, nil
+	return i.cdb.LookupInvoice(rHash)
 }
 
 // checkHtlcParameters is a callback used inside invoice db transactions to
@@ -454,17 +437,11 @@ func (i *InvoiceRegistry) checkHtlcParameters(invoice *channeldb.Invoice,
 		return channeldb.ErrInvoiceAlreadySettled
 	}
 
-	// The invoice is still open. Check the expiry.
-	expiry, err := i.decodeFinalCltvExpiry(string(invoice.PaymentRequest))
-	if err != nil {
-		return err
-	}
-
 	if htlcExpiry < uint32(currentHeight+i.finalCltvRejectDelta) {
 		return ErrInvoiceExpiryTooSoon
 	}
 
-	if htlcExpiry < uint32(currentHeight)+expiry {
+	if htlcExpiry < uint32(currentHeight+invoice.FinalCltvDelta) {
 		return ErrInvoiceExpiryTooSoon
 	}
 

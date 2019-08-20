@@ -238,7 +238,7 @@ func TestChannelLinkSingleHopPayment(t *testing.T) {
 
 	// Check that alice invoice was settled and bandwidth of HTLC
 	// links was changed.
-	invoice, _, err := receiver.registry.LookupInvoice(rhash)
+	invoice, err := receiver.registry.LookupInvoice(rhash)
 	if err != nil {
 		t.Fatalf("unable to get invoice: %v", err)
 	}
@@ -498,7 +498,7 @@ func testChannelLinkMultiHopPayment(t *testing.T,
 
 	// Check that Carol invoice was settled and bandwidth of HTLC
 	// links were changed.
-	invoice, _, err := receiver.registry.LookupInvoice(rhash)
+	invoice, err := receiver.registry.LookupInvoice(rhash)
 	if err != nil {
 		t.Fatalf("unable to get invoice: %v", err)
 	}
@@ -912,7 +912,7 @@ func TestUpdateForwardingPolicy(t *testing.T) {
 
 	// Carol's invoice should now be shown as settled as the payment
 	// succeeded.
-	invoice, _, err := n.carolServer.registry.LookupInvoice(payResp)
+	invoice, err := n.carolServer.registry.LookupInvoice(payResp)
 	if err != nil {
 		t.Fatalf("unable to get invoice: %v", err)
 	}
@@ -1030,7 +1030,7 @@ func TestChannelLinkMultiHopInsufficientPayment(t *testing.T) {
 
 	// Check that alice invoice wasn't settled and bandwidth of htlc
 	// links hasn't been changed.
-	invoice, _, err := receiver.registry.LookupInvoice(rhash)
+	invoice, err := receiver.registry.LookupInvoice(rhash)
 	if err != nil {
 		t.Fatalf("unable to get invoice: %v", err)
 	}
@@ -1215,7 +1215,7 @@ func TestChannelLinkMultiHopUnknownNextHop(t *testing.T) {
 
 	// Check that alice invoice wasn't settled and bandwidth of htlc
 	// links hasn't been changed.
-	invoice, _, err := receiver.registry.LookupInvoice(rhash)
+	invoice, err := receiver.registry.LookupInvoice(rhash)
 	if err != nil {
 		t.Fatalf("unable to get invoice: %v", err)
 	}
@@ -1330,7 +1330,7 @@ func TestChannelLinkMultiHopDecodeError(t *testing.T) {
 
 	// Check that alice invoice wasn't settled and bandwidth of htlc
 	// links hasn't been changed.
-	invoice, _, err := receiver.registry.LookupInvoice(rhash)
+	invoice, err := receiver.registry.LookupInvoice(rhash)
 	if err != nil {
 		t.Fatalf("unable to get invoice: %v", err)
 	}
@@ -3455,7 +3455,7 @@ func TestChannelRetransmission(t *testing.T) {
 
 			// Check that alice invoice wasn't settled and
 			// bandwidth of htlc links hasn't been changed.
-			invoice, _, err = receiver.registry.LookupInvoice(rhash)
+			invoice, err = receiver.registry.LookupInvoice(rhash)
 			if err != nil {
 				err = errors.Errorf("unable to get invoice: %v", err)
 				continue
@@ -3974,7 +3974,7 @@ func TestChannelLinkAcceptOverpay(t *testing.T) {
 
 	// Even though we sent 2x what was asked for, Carol should still have
 	// accepted the payment and marked it as settled.
-	invoice, _, err := receiver.registry.LookupInvoice(rhash)
+	invoice, err := receiver.registry.LookupInvoice(rhash)
 	if err != nil {
 		t.Fatalf("unable to get invoice: %v", err)
 	}

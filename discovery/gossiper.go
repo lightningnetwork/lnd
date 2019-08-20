@@ -1308,6 +1308,12 @@ func (d *AuthenticatedGossiper) processChanPolicyUpdate(
 		)
 		edge.TimeLockDelta = uint16(policyUpdate.newSchema.TimeLockDelta)
 
+		// MaxHTLC is optional in channel policy update requests.
+		if policyUpdate.newSchema.MaxHTLC != 0 {
+			edge.MessageFlags |= lnwire.ChanUpdateOptionMaxHtlc
+			edge.MaxHTLC = policyUpdate.newSchema.MaxHTLC
+		}
+
 		edgesToUpdate = append(edgesToUpdate, edgeWithInfo{
 			info: info,
 			edge: edge,

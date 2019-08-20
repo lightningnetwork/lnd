@@ -3428,8 +3428,10 @@ out:
 	// Now that all of our channels are loaded, we'll attempt to update the
 	// policy of all of them.
 	const newTimeLockDelta = 100
+	const newMaxHtlc = (1 << 63) - 1
 	newPolicy := routing.ChannelPolicy{
 		TimeLockDelta: newTimeLockDelta,
+		MaxHTLC:       newMaxHtlc,
 	}
 	newChanPolicies, err := ctx.gossiper.PropagateChanPolicyUpdate(newPolicy)
 	if err != nil {
@@ -3462,6 +3464,11 @@ out:
 				return fmt.Errorf("wrong delta: expected %v, "+
 					"got %v", newTimeLockDelta,
 					upd.TimeLockDelta)
+			}
+			if upd.HtlcMaximumMsat != newMaxHtlc {
+				return fmt.Errorf("wrong max htlc: expected "+
+					"%v, got %v", newMaxHtlc,
+					upd.HtlcMaximumMsat)
 			}
 
 			return nil

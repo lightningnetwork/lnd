@@ -388,7 +388,7 @@ func TestHoldInvoice(t *testing.T) {
 		t.Fatalf("expected settle to succeed but got %v", err)
 	}
 	if event != nil {
-		t.Fatalf("unexpect direct settle")
+		t.Fatalf("expected htlc to be held")
 	}
 
 	// Test idempotency.
@@ -399,7 +399,34 @@ func TestHoldInvoice(t *testing.T) {
 		t.Fatalf("expected settle to succeed but got %v", err)
 	}
 	if event != nil {
-		t.Fatalf("unexpect direct settle")
+		t.Fatalf("expected htlc to be held")
+	}
+
+	// Test replay at a higher height. We expect the same result because it
+	// is a replay.
+	event, err = registry.NotifyExitHopHtlc(
+		hash, amtPaid, testHtlcExpiry, testCurrentHeight+10,
+		getCircuitKey(0), hodlChan,
+	)
+	if err != nil {
+		t.Fatalf("expected settle to succeed but got %v", err)
+	}
+	if event != nil {
+		t.Fatalf("expected htlc to be held")
+	}
+
+	// Test a new htlc coming in that doesn't meet the final cltv delta
+	// requirement. It should be rejected, but because invoice registry
+	// doesn't track individual htlcs it is accepted.
+	event, err = registry.NotifyExitHopHtlc(
+		hash, amtPaid, 1, testCurrentHeight,
+		getCircuitKey(1), hodlChan,
+	)
+	if err != nil {
+		t.Fatalf("expected settle to succeed but got %v", err)
+	}
+	if event != nil {
+		t.Fatalf("expected htlc to be held")
 	}
 
 	// We expect the accepted state to be sent to the single invoice
@@ -431,6 +458,10 @@ func TestHoldInvoice(t *testing.T) {
 	if settledInvoice.Terms.State != channeldb.ContractSettled {
 		t.Fatalf("expected state ContractSettled, but got %v",
 			settledInvoice.Terms.State)
+	}
+	if settledInvoice.AmtPaid != amtPaid {
+		t.Fatalf("expected amount to be %v, but got %v",
+			amtPaid, settledInvoice.AmtPaid)
 	}
 
 	update = <-subscription.Updates

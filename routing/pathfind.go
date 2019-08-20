@@ -6,6 +6,7 @@ import (
 	"math"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec"
 	"github.com/coreos/bbolt"
 
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -324,56 +325,35 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 	// traversal.
 	nodeHeap := newDistanceHeap()
 
-	// For each node in the graph, we create an entry in the distance map
-	// for the node set with a distance of "infinity". graph.ForEachNode
-	// also returns the source node, so there is no need to add the source
-	// node explicitly.
+	// Holds the current best distance for a given node.
 	distance := make(map[route.Vertex]nodeWithDist)
-	if err := g.graph.ForEachNode(tx, func(_ *bbolt.Tx,
-		node *channeldb.LightningNode) error {
-		// TODO(roasbeef): with larger graph can just use disk seeks
-		// with a visited map
-		vertex := route.Vertex(node.PubKeyBytes)
-		distance[vertex] = nodeWithDist{
-			dist: infinity,
-			node: route.Vertex(node.PubKeyBytes),
+
+	if r.DestPayloadTLV {
+		// Check if the target has TLV enabled
+
+		targetKey, err := btcec.ParsePubKey(target[:], btcec.S256())
+		if err != nil {
+			return nil, err
 		}
 
-		// If we don't have any features for this node, then we can
-		// stop here.
-		if node.Features == nil || !r.DestPayloadTLV {
-			return nil
+		targetNode, err := g.graph.FetchLightningNode(targetKey)
+		if err != nil {
+			return nil, err
 		}
 
-		// We only need to perform this check for the final node, so we
-		// can exit here if this isn't them.
-		if vertex != target {
-			return nil
+		if targetNode.Features != nil {
+			supportsTLV := targetNode.Features.HasFeature(
+				lnwire.TLVOnionPayloadOptional,
+			)
+			if !supportsTLV {
+				return nil, fmt.Errorf("destination hop doesn't " +
+					"understand new TLV paylods")
+			}
 		}
-
-		// If we have any records for the final hop, then we'll check
-		// not to ensure that they are actually able to interpret them.
-		supportsTLV := node.Features.HasFeature(
-			lnwire.TLVOnionPayloadOptional,
-		)
-		if !supportsTLV {
-			return fmt.Errorf("destination hop doesn't " +
-				"understand new TLV paylods")
-		}
-
-		return nil
-	}); err != nil {
-		return nil, err
 	}
 
 	additionalEdgesWithSrc := make(map[route.Vertex][]*edgePolicyWithSource)
 	for vertex, outgoingEdgePolicies := range g.additionalEdges {
-		// We'll also include all the nodes found within the additional
-		// edges that are not known to us yet in the distance map.
-		distance[vertex] = nodeWithDist{
-			dist: infinity,
-			node: vertex,
-		}
 
 		// Build reverse lookup to find incoming edges. Needed because
 		// search is taken place from target to source.
@@ -391,11 +371,11 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 	}
 
 	// We can't always assume that the end destination is publicly
-	// advertised to the network and included in the graph.ForEachNode call
-	// above, so we'll manually include the target node. The target node
-	// charges no fee. Distance is set to 0, because this is the starting
-	// point of the graph traversal. We are searching backwards to get the
-	// fees first time right and correctly match channel bandwidth.
+	// advertised to the network so we'll manually include the target node.
+	// The target node charges no fee. Distance is set to 0, because this
+	// is the starting point of the graph traversal. We are searching
+	// backwards to get the fees first time right and correctly match
+	// channel bandwidth.
 	distance[target] = nodeWithDist{
 		dist:            0,
 		weight:          0,
@@ -551,7 +531,8 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		// route, return. It is important to also return if the distance
 		// is equal, because otherwise the algorithm could run into an
 		// endless loop.
-		if tempDist >= distance[fromVertex].dist {
+		current, ok := distance[fromVertex]
+		if ok && tempDist >= current.dist {
 			return
 		}
 

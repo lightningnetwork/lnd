@@ -83,6 +83,25 @@ func (b *BtcWallet) fetchOutputAddr(script []byte) (waddrmgr.ManagedAddress, err
 	return nil, lnwallet.ErrNotMine
 }
 
+// deriveFromKeyLoc attempts to derive a private key using a fully specified
+// KeyLocator.
+func deriveFromKeyLoc(scopedMgr *waddrmgr.ScopedKeyManager,
+	addrmgrNs walletdb.ReadWriteBucket,
+	keyLoc keychain.KeyLocator) (*btcec.PrivateKey, error) {
+
+	path := waddrmgr.DerivationPath{
+		Account: uint32(keyLoc.Family),
+		Branch:  0,
+		Index:   uint32(keyLoc.Index),
+	}
+	addr, err := scopedMgr.DeriveFromKeyPath(addrmgrNs, path)
+	if err != nil {
+		return nil, err
+	}
+
+	return addr.(waddrmgr.ManagedPubKeyAddress).PrivKey()
+}
+
 // deriveKeyByLocator attempts to derive a key stored in the wallet given a
 // valid key locator.
 func (b *BtcWallet) deriveKeyByLocator(keyLoc keychain.KeyLocator) (*btcec.PrivateKey, error) {
@@ -95,20 +114,31 @@ func (b *BtcWallet) deriveKeyByLocator(keyLoc keychain.KeyLocator) (*btcec.Priva
 	}
 
 	var key *btcec.PrivateKey
-	err = walletdb.View(b.db, func(tx walletdb.ReadTx) error {
-		addrmgrNs := tx.ReadBucket(waddrmgrNamespaceKey)
+	err = walletdb.Update(b.db, func(tx walletdb.ReadWriteTx) error {
+		addrmgrNs := tx.ReadWriteBucket(waddrmgrNamespaceKey)
 
-		path := waddrmgr.DerivationPath{
-			Account: uint32(keyLoc.Family),
-			Branch:  0,
-			Index:   uint32(keyLoc.Index),
-		}
-		addr, err := scopedMgr.DeriveFromKeyPath(addrmgrNs, path)
-		if err != nil {
-			return err
+		key, err = deriveFromKeyLoc(scopedMgr, addrmgrNs, keyLoc)
+		if waddrmgr.IsError(err, waddrmgr.ErrAccountNotFound) {
+			// If we've reached this point, then the account
+			// doesn't yet exist, so we'll create it now to ensure
+			// we can sign.
+			acctErr := scopedMgr.NewRawAccount(
+				addrmgrNs, uint32(keyLoc.Family),
+			)
+			if acctErr != nil {
+				return acctErr
+			}
+
+			// Now that we know the account exists, we'll attempt
+			// to re-derive the private key.
+			key, err = deriveFromKeyLoc(
+				scopedMgr, addrmgrNs, keyLoc,
+			)
+			if err != nil {
+				return err
+			}
 		}
 
-		key, err = addr.(waddrmgr.ManagedPubKeyAddress).PrivKey()
 		return err
 	})
 	if err != nil {

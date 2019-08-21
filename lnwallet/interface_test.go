@@ -2427,6 +2427,48 @@ func testCreateSimpleTx(r *rpctest.Harness, w *lnwallet.LightningWallet,
 	}
 }
 
+// testSignOutputCreateAccount tests that we're able to properly sign for an
+// output if the target account hasn't yet been created on disk. In this case,
+// we'll create the account, then sign.
+func testSignOutputCreateAccount(r *rpctest.Harness, w *lnwallet.LightningWallet,
+	_ *lnwallet.LightningWallet, t *testing.T) {
+
+	// First, we'll create a sign desc that references a non-default key
+	// family. Under the hood, key families are actually accounts, so this
+	// should force create of the account so we can sign with it.
+	fakeTx := wire.NewMsgTx(2)
+	fakeTx.AddTxIn(&wire.TxIn{
+		PreviousOutPoint: wire.OutPoint{
+			Hash:  chainhash.Hash{},
+			Index: 0,
+		},
+	})
+	signDesc := &input.SignDescriptor{
+		KeyDesc: keychain.KeyDescriptor{
+			KeyLocator: keychain.KeyLocator{
+				Family: 99,
+				Index:  1,
+			},
+		},
+		WitnessScript: []byte{},
+		Output: &wire.TxOut{
+			Value: 1000,
+		},
+		HashType:   txscript.SigHashAll,
+		SigHashes:  txscript.NewTxSigHashes(fakeTx),
+		InputIndex: 0,
+	}
+
+	// We'll now sign and expect this to succeed, as even though the
+	// account doesn't exist atm, it should be created in order to process
+	// the inbound signing request.
+	_, err := w.Cfg.Signer.SignOutputRaw(fakeTx, signDesc)
+	if err != nil {
+		t.Fatalf("unable to sign for output with non-existent "+
+			"account: %v", err)
+	}
+}
+
 type walletTestCase struct {
 	name string
 	test func(miner *rpctest.Harness, alice, bob *lnwallet.LightningWallet,
@@ -2492,6 +2534,10 @@ var walletTests = []walletTestCase{
 	{
 		name: "create simple tx",
 		test: testCreateSimpleTx,
+	},
+	{
+		name: "test sign create account",
+		test: testSignOutputCreateAccount,
 	},
 }
 

@@ -456,6 +456,7 @@ func (i *InvoiceRegistry) updateInvoice(invoice *channeldb.Invoice,
 	if holdInvoice {
 		update.State = channeldb.ContractAccepted
 	} else {
+		update.Preimage = invoice.Terms.PaymentPreimage
 		update.State = channeldb.ContractSettled
 	}
 	return &update, nil
@@ -587,13 +588,32 @@ func (i *InvoiceRegistry) SettleHodlInvoice(preimage lntypes.Preimage) error {
 	i.Lock()
 	defer i.Unlock()
 
-	invoice, err := i.cdb.SettleHoldInvoice(preimage)
+	updateInvoice := func(invoice *channeldb.Invoice) (
+		*channeldb.InvoiceUpdateDesc, error) {
+
+		switch invoice.Terms.State {
+		case channeldb.ContractOpen:
+			return nil, channeldb.ErrInvoiceStillOpen
+		case channeldb.ContractCanceled:
+			return nil, channeldb.ErrInvoiceAlreadyCanceled
+		case channeldb.ContractSettled:
+			return nil, channeldb.ErrInvoiceAlreadySettled
+		}
+
+		return &channeldb.InvoiceUpdateDesc{
+			AmtPaid:  invoice.AmtPaid,
+			State:    channeldb.ContractSettled,
+			Preimage: preimage,
+		}, nil
+	}
+
+	hash := preimage.Hash()
+	invoice, err := i.cdb.UpdateInvoice(hash, updateInvoice)
 	if err != nil {
 		log.Errorf("SettleHodlInvoice with preimage %v: %v", preimage, err)
 		return err
 	}
 
-	hash := preimage.Hash()
 	log.Debugf("Invoice(%v): settled with preimage %v", hash,
 		invoice.Terms.PaymentPreimage)
 

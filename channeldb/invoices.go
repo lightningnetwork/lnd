@@ -284,6 +284,9 @@ type InvoiceUpdateDesc struct {
 
 	// AmtPaid is the updated amount that has been paid to this invoice.
 	AmtPaid lnwire.MilliSatoshi
+
+	// Preimage must be set to the preimage when state is settled.
+	Preimage lntypes.Preimage
 }
 
 // InvoiceUpdateCallback is a callback used in the db transaction to update the
@@ -740,47 +743,8 @@ func (d *DB) UpdateInvoice(paymentHash lntypes.Hash,
 		}
 
 		updatedInvoice, err = updateInvoice(
-			invoices, settleIndex, invoiceNum, callback,
-		)
-
-		return err
-	})
-
-	return updatedInvoice, err
-}
-
-// SettleHoldInvoice sets the preimage of a hodl invoice and marks the invoice
-// as settled.
-func (d *DB) SettleHoldInvoice(preimage lntypes.Preimage) (*Invoice, error) {
-	var updatedInvoice *Invoice
-	hash := preimage.Hash()
-	err := d.Update(func(tx *bbolt.Tx) error {
-		invoices, err := tx.CreateBucketIfNotExists(invoiceBucket)
-		if err != nil {
-			return err
-		}
-		invoiceIndex, err := invoices.CreateBucketIfNotExists(
-			invoiceIndexBucket,
-		)
-		if err != nil {
-			return err
-		}
-		settleIndex, err := invoices.CreateBucketIfNotExists(
-			settleIndexBucket,
-		)
-		if err != nil {
-			return err
-		}
-
-		// Check the invoice index to see if an invoice paying to this
-		// hash exists within the DB.
-		invoiceNum := invoiceIndex.Get(hash[:])
-		if invoiceNum == nil {
-			return ErrInvoiceNotFound
-		}
-
-		updatedInvoice, err = settleHoldInvoice(
-			invoices, settleIndex, invoiceNum, preimage,
+			paymentHash, invoices, settleIndex, invoiceNum,
+			callback,
 		)
 
 		return err
@@ -1243,8 +1207,8 @@ func copyInvoice(src *Invoice) *Invoice {
 
 // updateInvoice fetches the invoice, obtains the update descriptor from the
 // callback and applies the updates in a single db transaction.
-func updateInvoice(invoices, settleIndex *bbolt.Bucket, invoiceNum []byte,
-	callback InvoiceUpdateCallback) (*Invoice, error) {
+func updateInvoice(hash lntypes.Hash, invoices, settleIndex *bbolt.Bucket,
+	invoiceNum []byte, callback InvoiceUpdateCallback) (*Invoice, error) {
 
 	invoice, err := fetchInvoice(invoiceNum, invoices)
 	if err != nil {
@@ -1271,6 +1235,11 @@ func updateInvoice(invoices, settleIndex *bbolt.Bucket, invoiceNum []byte,
 	// time.
 	if preUpdateState != invoice.Terms.State &&
 		invoice.Terms.State == ContractSettled {
+
+		if update.Preimage.Hash() != hash {
+			return nil, fmt.Errorf("preimage does not match")
+		}
+		invoice.Terms.PaymentPreimage = update.Preimage
 
 		err := setSettleFields(settleIndex, invoiceNum, &invoice)
 		if err != nil {
@@ -1312,43 +1281,6 @@ func setSettleFields(settleIndex *bbolt.Bucket, invoiceNum []byte,
 	invoice.SettleIndex = nextSettleSeqNo
 
 	return nil
-}
-
-func settleHoldInvoice(invoices, settleIndex *bbolt.Bucket,
-	invoiceNum []byte, preimage lntypes.Preimage) (*Invoice,
-	error) {
-
-	invoice, err := fetchInvoice(invoiceNum, invoices)
-	if err != nil {
-		return nil, err
-	}
-
-	switch invoice.Terms.State {
-	case ContractOpen:
-		return &invoice, ErrInvoiceStillOpen
-	case ContractCanceled:
-		return &invoice, ErrInvoiceAlreadyCanceled
-	case ContractSettled:
-		return &invoice, ErrInvoiceAlreadySettled
-	}
-
-	invoice.Terms.PaymentPreimage = preimage
-
-	err = setSettleFields(settleIndex, invoiceNum, &invoice)
-	if err != nil {
-		return nil, err
-	}
-
-	var buf bytes.Buffer
-	if err := serializeInvoice(&buf, &invoice); err != nil {
-		return nil, err
-	}
-
-	if err := invoices.Put(invoiceNum[:], buf.Bytes()); err != nil {
-		return nil, err
-	}
-
-	return &invoice, nil
 }
 
 func cancelInvoice(invoices *bbolt.Bucket, invoiceNum []byte) (

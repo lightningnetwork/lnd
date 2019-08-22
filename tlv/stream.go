@@ -8,9 +8,19 @@ import (
 	"math"
 )
 
+// MaxRecordSize is the maximum size of a particular record that will be parsed
+// by a stream decoder. This value is currently chosen to the be equal to the
+// maximum message size permitted by BOLT 1, as no record should be bigger than
+// an entire message.
+const MaxRecordSize = 65535 // 65KB
+
 // ErrStreamNotCanonical signals that a decoded stream does not contain records
 // sorting by monotonically-increasing type.
 var ErrStreamNotCanonical = errors.New("tlv stream is not canonical")
+
+// ErrRecordTooLarge signals that a decoded record has a length that is too
+// long to parse.
+var ErrRecordTooLarge = errors.New("record is too large")
 
 // ErrUnknownRequiredType is an error returned when decoding an unknown and even
 // type from a Stream.
@@ -181,6 +191,14 @@ func (s *Stream) Decode(r io.Reader) error {
 		// Other unexpected errors.
 		case err != nil:
 			return err
+		}
+
+		// Place a soft limit on the size of a sane record, which
+		// prevents malicious encoders from causing us to allocate an
+		// unbounded amount of memory when decoding variable-sized
+		// fields.
+		if length > MaxRecordSize {
+			return ErrRecordTooLarge
 		}
 
 		// Search the records known to the stream for this type. We'll

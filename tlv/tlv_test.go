@@ -49,6 +49,8 @@ type N1 struct {
 	nodeAmts  nodeAmts
 	cltvDelta uint16
 
+	alias []byte
+
 	stream *tlv.Stream
 }
 
@@ -66,6 +68,7 @@ func NewN1() *N1 {
 		tlv.MakePrimitiveRecord(2, &n.scid),
 		tlv.MakeStaticRecord(3, &n.nodeAmts, 49, ENodeAmts, DNodeAmts),
 		tlv.MakePrimitiveRecord(254, &n.cltvDelta),
+		tlv.MakePrimitiveRecord(401, &n.alias),
 	)
 
 	return n
@@ -395,6 +398,12 @@ var tlvDecodingFailureTests = []struct {
 		name:   "type wraparound",
 		bytes:  []byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00, 0x00},
 		expErr: tlv.ErrStreamNotCanonical,
+	},
+	{
+		name:   "absurd record length",
+		bytes:  []byte{0xfd, 0x01, 0x91, 0xfe, 0xff, 0xff, 0xff, 0xff},
+		expErr: tlv.ErrRecordTooLarge,
+		skipN2: true,
 	},
 }
 

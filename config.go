@@ -1125,6 +1125,11 @@ func cleanAndExpandPath(path string) string {
 	return filepath.Clean(os.ExpandEnv(path))
 }
 
+// CleanAndExpandPath is an exported version of the cleanAndExpandPath function
+func CleanAndExpandPath(path string) string {
+	return cleanAndExpandPath(path)
+}
+
 // parseAndSetDebugLevels attempts to parse the specified debug level and set
 // the levels accordingly. An appropriate error is returned if anything is
 // invalid.

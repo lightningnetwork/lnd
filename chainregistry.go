@@ -12,6 +12,9 @@ import (
 	"sync"
 	"time"
 
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
+
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/btcsuite/btcutil"
@@ -28,10 +31,14 @@ import (
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/chainview"
+	"github.com/lightningnetwork/lnd/signal"
+	"github.com/lightningnetwork/lnd/watchtower"
+	"github.com/lightningnetwork/lnd/watchtower/wtdb"
 )
 
 const (
@@ -800,4 +807,172 @@ func parseHeaderStateAssertion(state string) (*headerfs.FilterHeader, error) {
 		Height:     uint32(height),
 		FilterHash: *hash,
 	}, nil
+}
+
+// GenTowerChainControl creates the infrastructure required to run a watchtower
+// on LND
+func GenTowerChainControl() (*chainControl, *config, error) {
+	cfg, err := loadConfig()
+	if err != nil {
+		err := fmt.Errorf("Unable to load config file: %v", err)
+		return nil, nil, err
+	}
+
+	// Much of the below is taken from lnd.go
+
+	// Create the network-segmented directory for the channel database.
+	graphDir := filepath.Join(cfg.DataDir,
+		defaultGraphSubDirname,
+		normalizeNetwork(activeNetParams.Name))
+
+	// Open the channeldb, which is dedicated to storing channel, and
+	// network related metadata.
+	chanDB, err := channeldb.Open(
+		graphDir,
+		channeldb.OptionSetRejectCacheSize(cfg.Caches.RejectCacheSize),
+		channeldb.OptionSetChannelCacheSize(cfg.Caches.ChannelCacheSize),
+	)
+	if err != nil {
+		err := fmt.Errorf("Unable to open channeldb: %v", err)
+		return nil, nil, err
+	}
+	defer chanDB.Close()
+
+	tlsCfg, restCreds, restProxyDest, err := getTLSConfig(
+		cfg.TLSCertPath, cfg.TLSKeyPath, cfg.TLSExtraIPs,
+		cfg.TLSExtraDomains, cfg.RPCListeners,
+	)
+	if err != nil {
+		err := fmt.Errorf("Unable to load TLS credentials: %v", err)
+		return nil, nil, err
+	}
+
+	serverCreds := credentials.NewTLS(tlsCfg)
+	serverOpts := []grpc.ServerOption{grpc.Creds(serverCreds)}
+
+	// For our REST dial options, we'll still use TLS, but also increase
+	// the max message size that we'll decode to allow clients to hit
+	// endpoints which return more data such as the DescribeGraph call.
+	restDialOpts := []grpc.DialOption{
+		grpc.WithTransportCredentials(*restCreds),
+		grpc.WithDefaultCallOptions(
+			grpc.MaxCallRecvMsgSize(1 * 1024 * 1024 * 50),
+		),
+	}
+
+	var (
+		walletInitParams WalletUnlockParams
+		privateWalletPw  = lnwallet.DefaultPrivatePassphrase
+		publicWalletPw   = lnwallet.DefaultPublicPassphrase
+	)
+
+	// If the user didn't request a seed, then we'll manually assume a
+	// wallet birthday of now, as otherwise the seed would've specified
+	// this information.
+	walletInitParams.Birthday = time.Now()
+
+	// We wait until the user provides a password over RPC. In case lnd is
+	// started with the --noseedbackup flag, we use the default password
+	// for wallet encryption.
+	if !cfg.NoSeedBackup {
+		params, err := waitForWalletPassword(
+			cfg.RPCListeners, cfg.RESTListeners, serverOpts,
+			restDialOpts, restProxyDest, tlsCfg, cfg,
+		)
+		if err != nil {
+			err := fmt.Errorf("Unable to set up wallet password "+
+				"listeners: %v", err)
+			return nil, nil, err
+		}
+
+		walletInitParams = *params
+		privateWalletPw = walletInitParams.Password
+		publicWalletPw = walletInitParams.Password
+
+		if walletInitParams.RecoveryWindow > 0 {
+			ltndLog.Infof("Wallet recovery mode enabled with "+
+				"address lookahead of %d addresses",
+				walletInitParams.RecoveryWindow)
+		}
+	}
+
+	// With the information parsed from the configuration, create valid
+	// instances of the pertinent interfaces required to operate the
+	// Tower Daemon.
+	activeChainControl, err := newChainControlFromConfig(
+		cfg, chanDB, privateWalletPw, publicWalletPw,
+		walletInitParams.Birthday, walletInitParams.RecoveryWindow,
+		walletInitParams.Wallet, nil,
+	)
+	if err != nil {
+		err := fmt.Errorf("Unable to create chain control: %v", err)
+		return nil, nil, err
+	}
+
+	return activeChainControl, cfg, nil
+}
+
+func CreateTower(activeChainControl *chainControl, cfg *config) error {
+	if cfg.Watchtower.Active {
+		// Segment the watchtower directory by chain and network.
+		towerDBDir := filepath.Join(
+			cfg.Watchtower.TowerDir,
+			registeredChains.PrimaryChain().String(),
+			normalizeNetwork(activeNetParams.Name),
+		)
+
+		towerDB, err := wtdb.OpenTowerDB(towerDBDir)
+		if err != nil {
+			err := fmt.Errorf("Unable to open watchtower "+
+				"database: %v", err)
+			return err
+		}
+		defer towerDB.Close()
+
+		towerPrivKey, err := activeChainControl.wallet.DerivePrivKey(
+			keychain.KeyDescriptor{
+				KeyLocator: keychain.KeyLocator{
+					Family: keychain.KeyFamilyTowerID,
+					Index:  0,
+				},
+			},
+		)
+		if err != nil {
+			err := fmt.Errorf("Unable to derive watchtower "+
+				"private key: %v", err)
+			return err
+		}
+
+		wtConfig, err := cfg.Watchtower.Apply(&watchtower.Config{
+			BlockFetcher:   activeChainControl.chainIO,
+			DB:             towerDB,
+			EpochRegistrar: activeChainControl.chainNotifier,
+			Net:            cfg.net,
+			NewAddress: func() (btcutil.Address, error) {
+				return activeChainControl.wallet.NewAddress(
+					lnwallet.WitnessPubKey, false,
+				)
+			},
+			NodePrivKey: towerPrivKey,
+			PublishTx:   activeChainControl.wallet.PublishTransaction,
+			ChainHash:   *activeNetParams.GenesisHash,
+		}, lncfg.NormalizeAddresses)
+		if err != nil {
+			err := fmt.Errorf("Unable to configure watchtower: %v",
+				err)
+			return err
+		}
+
+		_, err = watchtower.New(wtConfig)
+		if err != nil {
+			err := fmt.Errorf("Unable to create watchtower: %v",
+				err)
+			return err
+		}
+	}
+
+	ltndLog.Info("Watchtower launched")
+
+	<-signal.ShutdownChannel()
+	return nil
 }

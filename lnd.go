@@ -246,7 +246,7 @@ func Main() error {
 	if !cfg.NoSeedBackup {
 		params, err := waitForWalletPassword(
 			cfg.RPCListeners, cfg.RESTListeners, serverOpts,
-			restDialOpts, restProxyDest, tlsCfg,
+			restDialOpts, restProxyDest, tlsCfg, nil,
 		)
 		if err != nil {
 			err := fmt.Errorf("Unable to set up wallet password "+
@@ -882,7 +882,7 @@ type WalletUnlockParams struct {
 // the user to this RPC server.
 func waitForWalletPassword(grpcEndpoints, restEndpoints []net.Addr,
 	serverOpts []grpc.ServerOption, restDialOpts []grpc.DialOption,
-	restProxyDest string, tlsConf *tls.Config) (*WalletUnlockParams, error) {
+	restProxyDest string, tlsConf *tls.Config, cfg *config) (*WalletUnlockParams, error) {
 
 	// Set up a new PasswordService, which will listen for passwords
 	// provided over RPC.

@@ -2020,8 +2020,8 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 			prefix = "remote"
 		}
 
-		log.Infof("Received new %v channel announcement: %v", prefix,
-			spew.Sdump(msg))
+		log.Infof("Received new %v channel announcement for %v", prefix,
+			msg.ShortChannelID)
 
 		// By the specification, channel announcement proofs should be
 		// sent after some number of confirmations after channel was

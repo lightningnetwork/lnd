@@ -333,10 +333,10 @@ message QueryMissionControlRequest {}
 /// QueryMissionControlResponse contains mission control state.
 message QueryMissionControlResponse {
     /// Node-level mission control state.
-    repeated NodeHistory nodes = 1;
+    repeated NodeHistory nodes = 1 [json_name = "nodes"];
 
     /// Node pair-level mission control state.
-    repeated PairHistory pairs = 2;
+    repeated PairHistory pairs = 2 [json_name = "pairs"];
 }
 
 /// NodeHistory contains the mission control state for a particular node.
@@ -359,7 +359,7 @@ message NodeHistory {
 /// PairHistory contains the mission control state for a particular node pair.
 message PairHistory {
     /// The source node pubkey of the pair.
-    bytes node_from = 1 [json_name="node_from"];
+    bytes node_from = 1 [json_name ="node_from"];
     
     /// The destination node pubkey of the pair.
     bytes node_to = 2 [json_name="node_to"];

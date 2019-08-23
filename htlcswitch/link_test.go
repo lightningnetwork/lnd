@@ -1686,6 +1686,7 @@ func newSingleLinkTestHarness(chanAmt, chanReserve btcutil.Amount) (
 		MinFeeUpdateTimeout:   30 * time.Minute,
 		MaxFeeUpdateTimeout:   40 * time.Minute,
 		MaxOutgoingCltvExpiry: DefaultMaxOutgoingCltvExpiry,
+		MaxFeeAllocation:      DefaultMaxLinkFeeAllocation,
 	}
 
 	const startingHeight = 100
@@ -3736,9 +3737,10 @@ func TestChannelLinkUpdateCommitFee(t *testing.T) {
 	// First, we'll create our traditional three hop network. We'll only be
 	// interacting with and asserting the state of two of the end points
 	// for this test.
+	const aliceInitialBalance = btcutil.SatoshiPerBitcoin * 3
 	channels, cleanUp, _, err := createClusterChannels(
-		btcutil.SatoshiPerBitcoin*3,
-		btcutil.SatoshiPerBitcoin*5)
+		aliceInitialBalance, btcutil.SatoshiPerBitcoin*5,
+	)
 	if err != nil {
 		t.Fatalf("unable to create channel: %v", err)
 	}
@@ -3757,8 +3759,15 @@ func TestChannelLinkUpdateCommitFee(t *testing.T) {
 		{"alice", "bob", &lnwire.FundingLocked{}, false},
 		{"bob", "alice", &lnwire.FundingLocked{}, false},
 
+		// First fee update.
 		{"alice", "bob", &lnwire.UpdateFee{}, false},
+		{"alice", "bob", &lnwire.CommitSig{}, false},
+		{"bob", "alice", &lnwire.RevokeAndAck{}, false},
+		{"bob", "alice", &lnwire.CommitSig{}, false},
+		{"alice", "bob", &lnwire.RevokeAndAck{}, false},
 
+		// Second fee update.
+		{"alice", "bob", &lnwire.UpdateFee{}, false},
 		{"alice", "bob", &lnwire.CommitSig{}, false},
 		{"bob", "alice", &lnwire.RevokeAndAck{}, false},
 		{"bob", "alice", &lnwire.CommitSig{}, false},
@@ -3779,7 +3788,7 @@ func TestChannelLinkUpdateCommitFee(t *testing.T) {
 
 	// triggerFeeUpdate is a helper closure to determine whether a fee
 	// update was triggered and completed properly.
-	triggerFeeUpdate := func(newFeeRate lnwallet.SatPerKWeight,
+	triggerFeeUpdate := func(feeEstimate, newFeeRate lnwallet.SatPerKWeight,
 		shouldUpdate bool) {
 
 		t.Helper()
@@ -3795,7 +3804,7 @@ func TestChannelLinkUpdateCommitFee(t *testing.T) {
 
 		// Next, we'll send the first fee rate response to Alice.
 		select {
-		case n.feeEstimator.byteFeeIn <- newFeeRate:
+		case n.feeEstimator.byteFeeIn <- feeEstimate:
 		case <-time.After(time.Second * 5):
 			t.Fatalf("alice didn't query for the new network fee")
 		}
@@ -3830,11 +3839,18 @@ func TestChannelLinkUpdateCommitFee(t *testing.T) {
 
 	// Triggering the link to update the fee of the channel with the same
 	// fee rate should not send a fee update.
-	triggerFeeUpdate(startingFeeRate, false)
+	triggerFeeUpdate(startingFeeRate, startingFeeRate, false)
 
 	// Triggering the link to update the fee of the channel with a much
 	// larger fee rate _should_ send a fee update.
-	triggerFeeUpdate(startingFeeRate*3, true)
+	newFeeRate := startingFeeRate * 3
+	triggerFeeUpdate(newFeeRate, newFeeRate, true)
+
+	// Triggering the link to update the fee of the channel with a fee rate
+	// that exceeds its maximum fee allocation should result in a fee rate
+	// corresponding to the maximum fee allocation.
+	const maxFeeRate lnwallet.SatPerKWeight = 207182320
+	triggerFeeUpdate(maxFeeRate+1, maxFeeRate, true)
 }
 
 // TestChannelLinkAcceptDuplicatePayment tests that if a link receives an
@@ -4236,6 +4252,7 @@ func (h *persistentLinkHarness) restartLink(
 		// Set any hodl flags requested for the new link.
 		HodlMask:              hodl.MaskFromFlags(hodlFlags...),
 		MaxOutgoingCltvExpiry: DefaultMaxOutgoingCltvExpiry,
+		MaxFeeAllocation:      DefaultMaxLinkFeeAllocation,
 	}
 
 	const startingHeight = 100

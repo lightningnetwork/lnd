@@ -317,6 +317,8 @@ type config struct {
 
 	MaxOutgoingCltvExpiry uint32 `long:"max-cltv-expiry" description:"The maximum number of blocks funds could be locked up for when forwarding payments."`
 
+	MaxChannelFeeAllocation float64 `long:"max-channel-fee-allocation" description:"The maximum percentage of total funds that can be allocated to a channel's commitment fee. This only applies for the initiator of the channel. Valid values are within [0.1, 1]."`
+
 	net tor.Net
 
 	Routing *routing.Conf `group:"routing" namespace:"routing"`
@@ -432,7 +434,8 @@ func loadConfig() (*config, error) {
 		Watchtower: &lncfg.Watchtower{
 			TowerDir: defaultTowerDir,
 		},
-		MaxOutgoingCltvExpiry: htlcswitch.DefaultMaxOutgoingCltvExpiry,
+		MaxOutgoingCltvExpiry:   htlcswitch.DefaultMaxOutgoingCltvExpiry,
+		MaxChannelFeeAllocation: htlcswitch.DefaultMaxLinkFeeAllocation,
 	}
 
 	// Pre-parse the command line options to pick up an alternative config
@@ -589,6 +592,13 @@ func loadConfig() (*config, error) {
 
 	if _, err := validateAtplCfg(cfg.Autopilot); err != nil {
 		return nil, err
+	}
+
+	// Ensure a valid max channel fee allocation was set.
+	if cfg.MaxChannelFeeAllocation <= 0 || cfg.MaxChannelFeeAllocation > 1 {
+		return nil, fmt.Errorf("invalid max channel fee allocation: "+
+			"%v, must be within (0, 1]",
+			cfg.MaxChannelFeeAllocation)
 	}
 
 	// Validate the Tor config parameters.

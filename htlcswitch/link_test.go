@@ -3775,62 +3775,66 @@ func TestChannelLinkUpdateCommitFee(t *testing.T) {
 	defer n.stop()
 	defer n.feeEstimator.Stop()
 
-	// For the sake of this test, we'll reset the timer to fire in a second
-	// so that Alice's link queries for a new network fee.
-	n.aliceChannelLink.updateFeeTimer.Reset(time.Millisecond)
-
 	startingFeeRate := channels.aliceToBob.CommitFeeRate()
 
-	// Next, we'll send the first fee rate response to Alice.
-	select {
-	case n.feeEstimator.byteFeeIn <- startingFeeRate:
-	case <-time.After(time.Second * 5):
-		t.Fatalf("alice didn't query for the new network fee")
+	// triggerFeeUpdate is a helper closure to determine whether a fee
+	// update was triggered and completed properly.
+	triggerFeeUpdate := func(newFeeRate lnwallet.SatPerKWeight,
+		shouldUpdate bool) {
+
+		t.Helper()
+
+		// Record the fee rates before the links process the fee update
+		// to test the case where a fee update isn't triggered.
+		aliceBefore := channels.aliceToBob.CommitFeeRate()
+		bobBefore := channels.bobToAlice.CommitFeeRate()
+
+		// For the sake of this test, we'll reset the timer so that
+		// Alice's link queries for a new network fee.
+		n.aliceChannelLink.updateFeeTimer.Reset(time.Millisecond)
+
+		// Next, we'll send the first fee rate response to Alice.
+		select {
+		case n.feeEstimator.byteFeeIn <- newFeeRate:
+		case <-time.After(time.Second * 5):
+			t.Fatalf("alice didn't query for the new network fee")
+		}
+
+		// Give the links some time to process the fee update.
+		time.Sleep(time.Second)
+
+		// Record the fee rates after the links have processed the fee
+		// update and ensure they are correct based on whether a fee
+		// update should have been triggered.
+		aliceAfter := channels.aliceToBob.CommitFeeRate()
+		bobAfter := channels.bobToAlice.CommitFeeRate()
+
+		switch {
+		case shouldUpdate && aliceAfter != newFeeRate:
+			t.Fatalf("alice's fee rate didn't change: expected %v, "+
+				"got %v", newFeeRate, aliceAfter)
+
+		case shouldUpdate && bobAfter != newFeeRate:
+			t.Fatalf("bob's fee rate didn't change: expected %v, "+
+				"got %v", newFeeRate, bobAfter)
+
+		case !shouldUpdate && aliceAfter != aliceBefore:
+			t.Fatalf("alice's fee rate shouldn't have changed: "+
+				"expected %v, got %v", aliceAfter, aliceAfter)
+
+		case !shouldUpdate && bobAfter != bobBefore:
+			t.Fatalf("bob's fee rate shouldn't have changed: "+
+				"expected %v, got %v", bobBefore, bobAfter)
+		}
 	}
 
-	time.Sleep(time.Second)
+	// Triggering the link to update the fee of the channel with the same
+	// fee rate should not send a fee update.
+	triggerFeeUpdate(startingFeeRate, false)
 
-	// The fee rate on the alice <-> bob channel should still be the same
-	// on both sides.
-	aliceFeeRate := channels.aliceToBob.CommitFeeRate()
-	bobFeeRate := channels.bobToAlice.CommitFeeRate()
-	if aliceFeeRate != startingFeeRate {
-		t.Fatalf("alice's fee rate shouldn't have changed: "+
-			"expected %v, got %v", aliceFeeRate, startingFeeRate)
-	}
-	if bobFeeRate != startingFeeRate {
-		t.Fatalf("bob's fee rate shouldn't have changed: "+
-			"expected %v, got %v", bobFeeRate, startingFeeRate)
-	}
-
-	// We'll reset the timer once again to ensure Alice's link queries for a
-	// new network fee.
-	n.aliceChannelLink.updateFeeTimer.Reset(time.Millisecond)
-
-	// Next, we'll set up a deliver a fee rate that's triple the current
-	// fee rate. This should cause the Alice (the initiator) to trigger a
-	// fee update.
-	newFeeRate := startingFeeRate * 3
-	select {
-	case n.feeEstimator.byteFeeIn <- newFeeRate:
-	case <-time.After(time.Second * 5):
-		t.Fatalf("alice didn't query for the new network fee")
-	}
-
-	time.Sleep(time.Second)
-
-	// At this point, Alice should've triggered a new fee update that
-	// increased the fee rate to match the new rate.
-	aliceFeeRate = channels.aliceToBob.CommitFeeRate()
-	bobFeeRate = channels.bobToAlice.CommitFeeRate()
-	if aliceFeeRate != newFeeRate {
-		t.Fatalf("alice's fee rate didn't change: expected %v, got %v",
-			newFeeRate, aliceFeeRate)
-	}
-	if bobFeeRate != newFeeRate {
-		t.Fatalf("bob's fee rate didn't change: expected %v, got %v",
-			newFeeRate, aliceFeeRate)
-	}
+	// Triggering the link to update the fee of the channel with a much
+	// larger fee rate _should_ send a fee update.
+	triggerFeeUpdate(startingFeeRate*3, true)
 }
 
 // TestChannelLinkAcceptDuplicatePayment tests that if a link receives an

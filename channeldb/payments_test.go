@@ -205,6 +205,17 @@ func TestSentPaymentSerialization(t *testing.T) {
 		t.Fatalf("unable to deserialize info: %v", err)
 	}
 
+	// First we verify all the records match up porperly, as they aren't
+	// able to be properly compared using reflect.DeepEqual.
+	assertRouteHopRecordsEqual(&s.Route, &newAttemptInfo.Route)
+
+	// With the hop recrods, equal, we'll now blank them out as
+	// reflect.DeepEqual can't properly compare tlv.Record instances.
+	newAttemptInfo.Route.Hops[0].TLVRecords = nil
+	newAttemptInfo.Route.Hops[1].TLVRecords = nil
+	s.Route.Hops[0].TLVRecords = nil
+	s.Route.Hops[1].TLVRecords = nil
+
 	if !reflect.DeepEqual(s, newAttemptInfo) {
 		s.SessionKey.Curve = nil
 		newAttemptInfo.SessionKey.Curve = nil

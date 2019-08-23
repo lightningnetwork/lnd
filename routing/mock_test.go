@@ -105,6 +105,12 @@ func (m *mockMissionControl) ReportPaymentFail(paymentID uint64, rt *route.Route
 	return nil, nil
 }
 
+func (m *mockMissionControl) ReportPaymentSuccess(paymentID uint64,
+	rt *route.Route) error {
+
+	return nil
+}
+
 func (m *mockMissionControl) GetProbability(fromNode, toNode route.Vertex,
 	amt lnwire.MilliSatoshi) float64 {
 

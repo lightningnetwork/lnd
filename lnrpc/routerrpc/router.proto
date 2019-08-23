@@ -364,14 +364,17 @@ message PairHistory {
     /// The destination node pubkey of the pair.
     bytes node_to = 2 [json_name="node_to"];
     
-    /// Time stamp of last failure.
-    int64 last_fail_time = 3 [json_name = "last_fail_time"];
+    /// Time stamp of last result.
+    int64 timestamp = 3 [json_name = "timestamp"];
 
-    /// Minimum penalization amount.
+    /// Minimum penalization amount (only applies to failed attempts).
     int64 min_penalize_amt_sat = 4 [json_name = "min_penalize_amt_sat"];
 
     /// Estimation of success probability for this pair.
     float success_prob = 5 [json_name = "success_prob"];
+
+    /// Whether the last payment attempt through this pair was successful.
+    bool last_attempt_successful = 6 [json_name = "last_attempt_successful"];
 }
 
 service Router {

@@ -38,10 +38,11 @@ func queryMissionControl(ctx *cli.Context) error {
 	}
 
 	type displayPairHistory struct {
-		NodeFrom, NodeTo  string
-		LastFailTime      int64
-		SuccessProb       float32
-		MinPenalizeAmtSat int64
+		NodeFrom, NodeTo      string
+		LastAttemptSuccessful bool
+		Timestamp             int64
+		SuccessProb           float32
+		MinPenalizeAmtSat     int64
 	}
 
 	displayResp := struct {
@@ -64,11 +65,12 @@ func queryMissionControl(ctx *cli.Context) error {
 		displayResp.Pairs = append(
 			displayResp.Pairs,
 			displayPairHistory{
-				NodeFrom:          hex.EncodeToString(n.NodeFrom),
-				NodeTo:            hex.EncodeToString(n.NodeTo),
-				LastFailTime:      n.LastFailTime,
-				SuccessProb:       n.SuccessProb,
-				MinPenalizeAmtSat: n.MinPenalizeAmtSat,
+				NodeFrom:              hex.EncodeToString(n.NodeFrom),
+				NodeTo:                hex.EncodeToString(n.NodeTo),
+				LastAttemptSuccessful: n.LastAttemptSuccessful,
+				Timestamp:             n.Timestamp,
+				SuccessProb:           n.SuccessProb,
+				MinPenalizeAmtSat:     n.MinPenalizeAmtSat,
 			},
 		)
 	}

@@ -55,7 +55,7 @@ var (
 
 	// DefaultAprioriHopProbability is the default a priori probability for
 	// a hop.
-	DefaultAprioriHopProbability = float64(0.95)
+	DefaultAprioriHopProbability = float64(0.6)
 )
 
 // edgePolicyWithSource is a helper struct to keep track of the source node

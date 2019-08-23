@@ -6280,6 +6280,26 @@ func (lc *LightningChannel) CalcFee(feeRate SatPerKWeight) btcutil.Amount {
 	return feeRate.FeeForWeight(input.CommitWeight)
 }
 
+// MaxFeeRate returns the maximum fee rate given an allocation of the channel
+// initiator's spendable balance. This can be useful to determine when we should
+// stop proposing fee updates that exceed our maximum allocation.
+//
+// NOTE: This should only be used for channels in which the local commitment is
+// the initiator.
+func (lc *LightningChannel) MaxFeeRate(maxAllocation float64) SatPerKWeight {
+	lc.RLock()
+	defer lc.RUnlock()
+
+	// The maximum fee depends of the available balance that can be
+	// committed towards fees.
+	balance, weight := lc.availableBalance()
+	feeBalance := float64(
+		balance.ToSatoshis() + lc.channelState.LocalCommitment.CommitFee,
+	)
+	maxFee := feeBalance * maxAllocation
+	return SatPerKWeight(maxFee / (float64(weight) / 1000))
+}
+
 // RemoteNextRevocation returns the channelState's RemoteNextRevocation.
 func (lc *LightningChannel) RemoteNextRevocation() *btcec.PublicKey {
 	lc.RLock()

@@ -15,6 +15,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 func initDB() (*DB, error) {
@@ -137,8 +138,37 @@ func TestPaymentControlSwitchFail(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error shouldn't have been received, got: %v", err)
 	}
+
+	err = assertRouteHopRecordsEqual(route, &attempt.Route)
+	if err != nil {
+		t.Fatalf("route tlv records not equal: %v", err)
+	}
+
+	for i := 0; i < len(route.Hops); i++ {
+		for j := 0; j < len(route.Hops[i].TLVRecords); j++ {
+			expectedRecord := route.Hops[i].TLVRecords[j]
+			newRecord := attempt.Route.Hops[i].TLVRecords[j]
+
+			err := assertHopRecordsEqual(expectedRecord, newRecord)
+			if err != nil {
+				t.Fatalf("route record mismatch: %v", err)
+			}
+		}
+	}
+
+	for i := 0; i < len(route.Hops); i++ {
+		// reflect.DeepEqual can't assert that two function closures
+		// are equal. The underlying tlv.Record uses function closures
+		// internally, so after we verify that the records match above
+		// manually, we unset these so we can use reflect.DeepEqual
+		// below.
+		route.Hops[i].TLVRecords = nil
+		attempt.Route.Hops[i].TLVRecords = nil
+	}
+
 	if !reflect.DeepEqual(*route, attempt.Route) {
-		t.Fatalf("unexpected route returned")
+		t.Fatalf("unexpected route returned: %v vs %v",
+			spew.Sdump(attempt.Route), spew.Sdump(*route))
 	}
 
 	assertPaymentStatus(t, db, info.PaymentHash, StatusSucceeded)
@@ -427,7 +457,6 @@ func checkPaymentCreationInfo(bucket *bbolt.Bucket, c *PaymentCreationInfo) erro
 	r := bytes.NewReader(b)
 	c2, err := deserializePaymentCreationInfo(r)
 	if err != nil {
-		fmt.Println("creation info err: ", err)
 		return err
 	}
 	if !reflect.DeepEqual(c, c2) {
@@ -454,9 +483,32 @@ func checkPaymentAttemptInfo(bucket *bbolt.Bucket, a *PaymentAttemptInfo) error 
 	if err != nil {
 		return err
 	}
+
+	err = assertRouteHopRecordsEqual(&a.Route, &a2.Route)
+	if err != nil {
+		return err
+	}
+
+	recordCache := make(map[int][]tlv.Record)
+	for i := 0; i < len(a.Route.Hops); i++ {
+		recordCache[i] = a.Route.Hops[i].TLVRecords
+
+		// reflect.DeepEqual can't assert that two function closures
+		// are equal. The underlying tlv.Record uses function closures
+		// internally, so after we verify that the records match above
+		// manually, we unset these so we can use reflect.DeepEqual
+		// below.
+		a.Route.Hops[i].TLVRecords = nil
+		a2.Route.Hops[i].TLVRecords = nil
+	}
+
 	if !reflect.DeepEqual(a, a2) {
 		return fmt.Errorf("PaymentAttemptInfos don't match: %v vs %v",
 			spew.Sdump(a), spew.Sdump(a2))
+	}
+
+	for index, records := range recordCache {
+		a.Route.Hops[index].TLVRecords = records
 	}
 
 	return nil

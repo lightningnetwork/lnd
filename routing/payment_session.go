@@ -127,6 +127,7 @@ func (p *paymentSession) RequestRoute(payment *LightningPayment,
 	sourceVertex := route.Vertex(ss.SelfNode.PubKeyBytes)
 	route, err := newRoute(
 		payment.Amount, sourceVertex, path, height, finalCltvDelta,
+		payment.FinalDestRecords,
 	)
 	if err != nil {
 		// TODO(roasbeef): return which edge/vertex didn't work

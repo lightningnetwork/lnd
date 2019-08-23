@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/routing/route"
 
@@ -26,6 +27,7 @@ var (
 		ChannelID:        12345,
 		OutgoingTimeLock: 111,
 		AmtToForward:     555,
+		LegacyPayload:    true,
 	}
 
 	testRoute = route.Route{
@@ -142,8 +144,11 @@ func TestControlTowerSubscribeSuccess(t *testing.T) {
 		if result.Preimage != preimg {
 			t.Fatal("unexpected preimage")
 		}
+
 		if !reflect.DeepEqual(result.Route, &attempt.Route) {
-			t.Fatal("unexpected route")
+			t.Fatalf("unexpected route: %v vs %v",
+				spew.Sdump(result.Route),
+				spew.Sdump(attempt.Route))
 		}
 
 		// After the final event, we expect the channel to be closed.

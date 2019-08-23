@@ -1,7 +1,10 @@
 package tlv
 
 import (
+	"bytes"
+	"fmt"
 	"io"
+	"sort"
 
 	"github.com/btcsuite/btcd/btcec"
 )
@@ -55,6 +58,20 @@ func (f *Record) Size() uint64 {
 	}
 
 	return f.sizeFunc()
+}
+
+// Type returns the type of the underlying TLV record.
+func (f *Record) Type() Type {
+	return f.typ
+}
+
+// Encode writes out the TLV record to the passed writer. This is useful when a
+// caller wants to obtain the raw encoding of a *single* TLV record, outside
+// the context of the Stream struct.
+func (f *Record) Encode(w io.Writer) error {
+	var b [8]byte
+
+	return f.encoder(w, f.value, &b)
 }
 
 // MakePrimitiveRecord creates a record for common types.
@@ -112,7 +129,7 @@ func MakePrimitiveRecord(typ Type, val interface{}) Record {
 		decoder = DVarBytes
 
 	default:
-		panic("unknown primitive type")
+		panic(fmt.Sprintf("unknown primitive type: %T", val))
 	}
 
 	return Record{
@@ -150,4 +167,64 @@ func MakeDynamicRecord(typ Type, val interface{}, sizeFunc SizeFunc,
 		encoder:  encoder,
 		decoder:  decoder,
 	}
+}
+
+// RecordsToMap encodes a series of TLV records as raw key-value pairs in the
+// form of a map.
+func RecordsToMap(records []Record) (map[uint64][]byte, error) {
+	tlvMap := make(map[uint64][]byte, len(records))
+
+	for _, record := range records {
+		var b bytes.Buffer
+		if err := record.Encode(&b); err != nil {
+			return nil, err
+		}
+
+		tlvMap[uint64(record.Type())] = b.Bytes()
+	}
+
+	return tlvMap, nil
+}
+
+// StubEncoder is a factory function that makes a stub tlv.Encoder out of a raw
+// value. We can use this to make a record that can be encoded when we don't
+// actually know it's true underlying value, and only it serialization.
+func StubEncoder(v []byte) Encoder {
+	return func(w io.Writer, val interface{}, buf *[8]byte) error {
+		_, err := w.Write(v)
+		return err
+	}
+}
+
+// MapToRecords encodes the passed TLV map as a series of regular tlv.Record
+// instances. The resulting set of records will be returned in sorted order by
+// their type.
+func MapToRecords(tlvMap map[uint64][]byte) ([]Record, error) {
+	records := make([]Record, 0, len(tlvMap))
+	for k, v := range tlvMap {
+		// We don't pass in a decoder here since we don't actually know
+		// the type, and only expect this Record to be used for display
+		// and encoding purposes.
+		record := MakeStaticRecord(
+			Type(k), nil, uint64(len(v)), StubEncoder(v), nil,
+		)
+
+		records = append(records, record)
+	}
+
+	SortRecords(records)
+
+	return records, nil
+}
+
+// SortRecords is a helper function that will sort a slice of records in place
+// according to their type.
+func SortRecords(records []Record) {
+	if len(records) == 0 {
+		return
+	}
+
+	sort.Slice(records, func(i, j int) bool {
+		return records[i].Type() < records[j].Type()
+	})
 }

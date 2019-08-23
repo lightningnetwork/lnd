@@ -2,6 +2,7 @@ package routing
 
 import (
 	"container/heap"
+	"fmt"
 	"math"
 
 	"github.com/coreos/bbolt"
@@ -9,6 +10,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 const (
@@ -98,7 +100,8 @@ func isSamePath(path1, path2 []*channeldb.ChannelEdgePolicy) bool {
 // the source to the target node of the path finding attempt.
 func newRoute(amtToSend lnwire.MilliSatoshi, sourceVertex route.Vertex,
 	pathEdges []*channeldb.ChannelEdgePolicy, currentHeight uint32,
-	finalCLTVDelta uint16) (*route.Route, error) {
+	finalCLTVDelta uint16,
+	finalDestRecords []tlv.Record) (*route.Route, error) {
 
 	var (
 		hops []*route.Hop
@@ -179,7 +182,27 @@ func newRoute(amtToSend lnwire.MilliSatoshi, sourceVertex route.Vertex,
 			ChannelID:        edge.ChannelID,
 			AmtToForward:     amtToForward,
 			OutgoingTimeLock: outgoingTimeLock,
+			LegacyPayload:    true,
 		}
+
+		// We start out above by assuming that this node needs the
+		// legacy payload, as if we don't have the full
+		// NodeAnnouncement information for this node, then we can't
+		// assume it knows the latest features. If we do have a feature
+		// vector for this node, then we'll update the info now.
+		if edge.Node.Features != nil {
+			features := edge.Node.Features
+			currentHop.LegacyPayload = !features.HasFeature(
+				lnwire.TLVOnionPayloadOptional,
+			)
+		}
+
+		// If this is the last hop, then we'll populate any TLV records
+		// destined for it.
+		if i == len(pathEdges)-1 && len(finalDestRecords) != 0 {
+			currentHop.TLVRecords = finalDestRecords
+		}
+
 		hops = append([]*route.Hop{currentHop}, hops...)
 
 		// Finally, we update the amount that needs to flow into the
@@ -190,7 +213,8 @@ func newRoute(amtToSend lnwire.MilliSatoshi, sourceVertex route.Vertex,
 
 	// With the base routing data expressed as hops, build the full route
 	newRoute, err := route.NewRouteFromHops(
-		nextIncomingAmount, totalTimeLock, route.Vertex(sourceVertex), hops,
+		nextIncomingAmount, totalTimeLock, route.Vertex(sourceVertex),
+		hops,
 	)
 	if err != nil {
 		return nil, err
@@ -261,6 +285,11 @@ type RestrictParams struct {
 	// ctlv. After path finding is complete, the caller needs to increase
 	// all cltv expiry heights with the required final cltv delta.
 	CltvLimit *uint32
+
+	// DestPayloadTLV should be set to true if we need to drop off a TLV
+	// payload at the final hop in order to properly complete this payment
+	// attempt.
+	DestPayloadTLV bool
 }
 
 // PathFindingConfig defines global parameters that control the trade-off in
@@ -316,10 +345,34 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		node *channeldb.LightningNode) error {
 		// TODO(roasbeef): with larger graph can just use disk seeks
 		// with a visited map
-		distance[route.Vertex(node.PubKeyBytes)] = nodeWithDist{
+		vertex := route.Vertex(node.PubKeyBytes)
+		distance[vertex] = nodeWithDist{
 			dist: infinity,
 			node: route.Vertex(node.PubKeyBytes),
 		}
+
+		// If we don't have any features for this node, then we can
+		// stop here.
+		if node.Features == nil || !r.DestPayloadTLV {
+			return nil
+		}
+
+		// We only need to perform this check for the final node, so we
+		// can exit here if this isn't them.
+		if vertex != target {
+			return nil
+		}
+
+		// If we have any records for the final hop, then we'll check
+		// not to ensure that they are actually able to interpret them.
+		supportsTLV := node.Features.HasFeature(
+			lnwire.TLVOnionPayloadOptional,
+		)
+		if !supportsTLV {
+			return fmt.Errorf("destination hop doesn't " +
+				"understand new TLV paylods")
+		}
+
 		return nil
 	}); err != nil {
 		return nil, err

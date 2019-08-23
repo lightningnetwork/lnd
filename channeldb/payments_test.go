@@ -13,17 +13,32 @@ import (
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 var (
 	priv, _ = btcec.NewPrivateKey(btcec.S256())
 	pub     = priv.PubKey()
 
-	testHop = &route.Hop{
+	tlvBytes   = []byte{1, 2, 3}
+	tlvEncoder = tlv.StubEncoder(tlvBytes)
+	testHop1   = &route.Hop{
 		PubKeyBytes:      route.NewVertex(pub),
 		ChannelID:        12345,
 		OutgoingTimeLock: 111,
 		AmtToForward:     555,
+		TLVRecords: []tlv.Record{
+			tlv.MakeStaticRecord(1, nil, 3, tlvEncoder, nil),
+			tlv.MakeStaticRecord(2, nil, 3, tlvEncoder, nil),
+		},
+	}
+
+	testHop2 = &route.Hop{
+		PubKeyBytes:      route.NewVertex(pub),
+		ChannelID:        12345,
+		OutgoingTimeLock: 111,
+		AmtToForward:     555,
+		LegacyPayload:    true,
 	}
 
 	testRoute = route.Route{
@@ -31,8 +46,8 @@ var (
 		TotalAmount:   1234567,
 		SourcePubKey:  route.NewVertex(pub),
 		Hops: []*route.Hop{
-			testHop,
-			testHop,
+			testHop1,
+			testHop2,
 		},
 	}
 )
@@ -191,12 +206,54 @@ func TestSentPaymentSerialization(t *testing.T) {
 	}
 
 	if !reflect.DeepEqual(s, newAttemptInfo) {
+		s.SessionKey.Curve = nil
+		newAttemptInfo.SessionKey.Curve = nil
 		t.Fatalf("Payments do not match after "+
 			"serialization/deserialization %v vs %v",
 			spew.Sdump(s), spew.Sdump(newAttemptInfo),
 		)
 	}
 
+}
+
+func assertRouteHopRecordsEqual(r1, r2 *route.Route) error {
+	for i := 0; i < len(r1.Hops); i++ {
+		for j := 0; j < len(r1.Hops[i].TLVRecords); j++ {
+			expectedRecord := r1.Hops[i].TLVRecords[j]
+			newRecord := r2.Hops[i].TLVRecords[j]
+
+			err := assertHopRecordsEqual(expectedRecord, newRecord)
+			if err != nil {
+				return fmt.Errorf("route record mismatch: %v", err)
+			}
+		}
+	}
+
+	return nil
+}
+
+func assertHopRecordsEqual(h1, h2 tlv.Record) error {
+	if h1.Type() != h2.Type() {
+		return fmt.Errorf("wrong type: expected %v, got %v", h1.Type(),
+			h2.Type())
+	}
+
+	var b bytes.Buffer
+	if err := h2.Encode(&b); err != nil {
+		return fmt.Errorf("unable to encode record: %v", err)
+	}
+
+	if !bytes.Equal(b.Bytes(), tlvBytes) {
+		return fmt.Errorf("wrong raw record: expected %x, got %x",
+			tlvBytes, b.Bytes())
+	}
+
+	if h1.Size() != h2.Size() {
+		return fmt.Errorf("wrong size: expected %v, "+
+			"got %v", h1.Size(), h2.Size())
+	}
+
+	return nil
 }
 
 func TestRouteSerialization(t *testing.T) {
@@ -213,9 +270,23 @@ func TestRouteSerialization(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// First we verify all the records match up porperly, as they aren't
+	// able to be properly compared using reflect.DeepEqual.
+	err = assertRouteHopRecordsEqual(&testRoute, &route2)
+	if err != nil {
+		t.Fatalf("route tlv records don't match: %v", err)
+	}
+
+	// Now that we know the records match up, we'll examine the remainder
+	// of the route without the TLV records attached as reflect.DeepEqual
+	// can't properly assert their equality.
+	testRoute.Hops[0].TLVRecords = nil
+	testRoute.Hops[1].TLVRecords = nil
+	route2.Hops[0].TLVRecords = nil
+	route2.Hops[1].TLVRecords = nil
+
 	if !reflect.DeepEqual(testRoute, route2) {
 		t.Fatalf("routes not equal: \n%v vs \n%v",
 			spew.Sdump(testRoute), spew.Sdump(route2))
 	}
-
 }

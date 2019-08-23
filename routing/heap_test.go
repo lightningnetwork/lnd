@@ -17,7 +17,7 @@ func TestHeapOrdering(t *testing.T) {
 
 	// First, create a blank heap, we'll use this to push on randomly
 	// generated items.
-	nodeHeap := newDistanceHeap()
+	nodeHeap := newDistanceHeap(0)
 
 	prand.Seed(1)
 

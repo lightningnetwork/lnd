@@ -37,6 +37,11 @@ const (
 	// some effect with smaller time lock values. The value may need
 	// tweaking and/or be made configurable in the future.
 	RiskFactorBillionths = 15
+
+	// estimatedNodeCount is used to preallocate the path finding structures
+	// to avoid resizing and copies. It should be number on the same order as
+	// the number of active nodes in the network.
+	estimatedNodeCount = 10000
 )
 
 // pathFinder defines the interface of a path finding algorithm.
@@ -320,14 +325,6 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		defer tx.Rollback()
 	}
 
-	// First we'll initialize an empty heap which'll help us to quickly
-	// locate the next edge we should visit next during our graph
-	// traversal.
-	nodeHeap := newDistanceHeap()
-
-	// Holds the current best distance for a given node.
-	distance := make(map[route.Vertex]nodeWithDist)
-
 	if r.DestPayloadTLV {
 		// Check if the target has TLV enabled
 
@@ -351,6 +348,19 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 			}
 		}
 	}
+
+	// First we'll initialize an empty heap which'll help us to quickly
+	// locate the next edge we should visit next during our graph
+	// traversal.
+	nodeHeap := newDistanceHeap(estimatedNodeCount)
+
+	// Holds the current best distance for a given node.
+	distance := make(map[route.Vertex]nodeWithDist, estimatedNodeCount)
+
+	// We'll use this map as a series of "next" hop pointers. So to get
+	// from `Vertex` to the target node, we'll take the edge that it's
+	// mapped to within `next`.
+	next := make(map[route.Vertex]*channeldb.ChannelEdgePolicy, estimatedNodeCount)
 
 	additionalEdgesWithSrc := make(map[route.Vertex][]*edgePolicyWithSource)
 	for vertex, outgoingEdgePolicies := range g.additionalEdges {
@@ -384,11 +394,6 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		incomingCltv:    0,
 		probability:     1,
 	}
-
-	// We'll use this map as a series of "next" hop pointers. So to get
-	// from `Vertex` to the target node, we'll take the edge that it's
-	// mapped to within `next`.
-	next := make(map[route.Vertex]*channeldb.ChannelEdgePolicy)
 
 	// processEdge is a helper closure that will be used to make sure edges
 	// satisfy our specific requirements.
@@ -659,7 +664,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 
 	// Use the nextHop map to unravel the forward path from source to
 	// target.
-	pathEdges := make([]*channeldb.ChannelEdgePolicy, 0, len(next))
+	var pathEdges []*channeldb.ChannelEdgePolicy
 	currentNode := source
 	for currentNode != target { // TODO(roasbeef): assumes no cycles
 		// Determine the next hop forward using the next map.

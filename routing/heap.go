@@ -50,9 +50,10 @@ type distanceHeap struct {
 
 // newDistanceHeap initializes a new distance heap. This is required because
 // we must initialize the pubkeyIndices map for path-finding optimizations.
-func newDistanceHeap() distanceHeap {
+func newDistanceHeap(numNodes int) distanceHeap {
 	distHeap := distanceHeap{
-		pubkeyIndices: make(map[route.Vertex]int),
+		pubkeyIndices: make(map[route.Vertex]int, numNodes),
+		nodes:         make([]nodeWithDist, 0, numNodes),
 	}
 
 	return distHeap

@@ -552,7 +552,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		// better than the current best known distance to this node.
 		// The new better distance is recorded, and also our "next hop"
 		// map is populated with this edge.
-		distance[fromVertex] = nodeWithDist{
+		withDist := nodeWithDist{
 			dist:            tempDist,
 			weight:          tempWeight,
 			node:            fromVertex,
@@ -560,13 +560,14 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 			incomingCltv:    incomingCltv,
 			probability:     probability,
 		}
+		distance[fromVertex] = withDist
 
 		next[fromVertex] = edge
 
-		// Either push distance[fromVertex] onto the heap if the node
+		// Either push withDist onto the heap if the node
 		// represented by fromVertex is not already on the heap OR adjust
 		// its position within the heap via heap.Fix.
-		nodeHeap.PushOrFix(distance[fromVertex])
+		nodeHeap.PushOrFix(withDist)
 	}
 
 	// TODO(roasbeef): also add path caching

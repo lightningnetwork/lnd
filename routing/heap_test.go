@@ -24,12 +24,12 @@ func TestHeapOrdering(t *testing.T) {
 	// Create 100 random entries adding them to the heap created above, but
 	// also a list that we'll sort with the entries.
 	const numEntries = 100
-	sortedEntries := make([]nodeWithDist, 0, numEntries)
+	sortedEntries := make([]*nodeWithDist, 0, numEntries)
 	for i := 0; i < numEntries; i++ {
 		var pubKey [33]byte
 		prand.Read(pubKey[:])
 
-		entry := nodeWithDist{
+		entry := &nodeWithDist{
 			node: route.Vertex(pubKey),
 			dist: prand.Int63(),
 		}
@@ -55,9 +55,9 @@ func TestHeapOrdering(t *testing.T) {
 
 	// One by one, pop of all the entries from the heap, they should come
 	// out in sorted order.
-	var poppedEntries []nodeWithDist
+	var poppedEntries []*nodeWithDist
 	for nodeHeap.Len() != 0 {
-		e := heap.Pop(&nodeHeap).(nodeWithDist)
+		e := heap.Pop(&nodeHeap).(*nodeWithDist)
 		poppedEntries = append(poppedEntries, e)
 	}
 

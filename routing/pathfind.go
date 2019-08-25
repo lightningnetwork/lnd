@@ -355,12 +355,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 	nodeHeap := newDistanceHeap(estimatedNodeCount)
 
 	// Holds the current best distance for a given node.
-	distance := make(map[route.Vertex]nodeWithDist, estimatedNodeCount)
-
-	// We'll use this map as a series of "next" hop pointers. So to get
-	// from `Vertex` to the target node, we'll take the edge that it's
-	// mapped to within `next`.
-	next := make(map[route.Vertex]*channeldb.ChannelEdgePolicy, estimatedNodeCount)
+	distance := make(map[route.Vertex]*nodeWithDist, estimatedNodeCount)
 
 	additionalEdgesWithSrc := make(map[route.Vertex][]*edgePolicyWithSource)
 	for vertex, outgoingEdgePolicies := range g.additionalEdges {
@@ -386,7 +381,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 	// is the starting point of the graph traversal. We are searching
 	// backwards to get the fees first time right and correctly match
 	// channel bandwidth.
-	distance[target] = nodeWithDist{
+	distance[target] = &nodeWithDist{
 		dist:            0,
 		weight:          0,
 		node:            target,
@@ -552,17 +547,16 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		// better than the current best known distance to this node.
 		// The new better distance is recorded, and also our "next hop"
 		// map is populated with this edge.
-		withDist := nodeWithDist{
+		withDist := &nodeWithDist{
 			dist:            tempDist,
 			weight:          tempWeight,
 			node:            fromVertex,
 			amountToReceive: amountToReceive,
 			incomingCltv:    incomingCltv,
 			probability:     probability,
+			nextHop:         edge,
 		}
 		distance[fromVertex] = withDist
-
-		next[fromVertex] = edge
 
 		// Either push withDist onto the heap if the node
 		// represented by fromVertex is not already on the heap OR adjust
@@ -582,7 +576,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 
 		// Fetch the node within the smallest distance from our source
 		// from the heap.
-		partialPath := heap.Pop(&nodeHeap).(nodeWithDist)
+		partialPath := heap.Pop(&nodeHeap).(*nodeWithDist)
 		pivot := partialPath.node
 
 		// If we've reached our source (or we don't have any incoming
@@ -632,7 +626,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 
 			// Check if this candidate node is better than what we
 			// already have.
-			processEdge(route.Vertex(chanSource), edgeBandwidth, inEdge, pivot)
+			processEdge(chanSource, edgeBandwidth, inEdge, pivot)
 			return nil
 		}
 
@@ -656,26 +650,24 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		}
 	}
 
-	// If the source node isn't found in the next hop map, then a path
-	// doesn't exist, so we terminate in an error.
-	if _, ok := next[source]; !ok {
-		return nil, newErrf(ErrNoPathFound, "unable to find a path to "+
-			"destination")
-	}
-
-	// Use the nextHop map to unravel the forward path from source to
+	// Use the distance map to unravel the forward path from source to
 	// target.
 	var pathEdges []*channeldb.ChannelEdgePolicy
 	currentNode := source
 	for currentNode != target { // TODO(roasbeef): assumes no cycles
 		// Determine the next hop forward using the next map.
-		nextNode := next[currentNode]
+		currentNodeWithDist, ok := distance[currentNode]
+		if !ok {
+			// If the node doesnt have a next hop it means we didn't find a path.
+			return nil, newErrf(ErrNoPathFound, "unable to find a "+
+				"path to destination")
+		}
 
 		// Add the next hop to the list of path edges.
-		pathEdges = append(pathEdges, nextNode)
+		pathEdges = append(pathEdges, currentNodeWithDist.nextHop)
 
 		// Advance current node.
-		currentNode = route.Vertex(nextNode.Node.PubKeyBytes)
+		currentNode = currentNodeWithDist.nextHop.Node.PubKeyBytes
 	}
 
 	// The route is invalid if it spans more than 20 hops. The current

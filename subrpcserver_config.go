@@ -152,6 +152,9 @@ func (s *subRPCServerConfigs) PopulateDependencies(cc *chainControl,
 			subCfgValue.FieldByName("Sweeper").Set(
 				reflect.ValueOf(sweeper),
 			)
+			subCfgValue.FieldByName("Chain").Set(
+				reflect.ValueOf(cc.chainIO),
+			)
 
 		case *autopilotrpc.Config:
 			subCfgValue := extractReflectValue(subCfg)

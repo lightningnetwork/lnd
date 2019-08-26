@@ -59,8 +59,6 @@ type Utxo struct {
 	Value         btcutil.Amount
 	Confirmations int64
 	PkScript      []byte
-	RedeemScript  []byte
-	WitnessScript []byte
 	wire.OutPoint
 }
 
@@ -137,7 +135,7 @@ type WalletController interface {
 	// passed outpoint. If the base wallet determines this output is under
 	// its control, then the original txout should be returned.  Otherwise,
 	// a non-nil error value of ErrNotMine should be returned instead.
-	FetchInputInfo(prevOut *wire.OutPoint) (*wire.TxOut, error)
+	FetchInputInfo(prevOut *wire.OutPoint) (*Utxo, error)
 
 	// ConfirmedBalance returns the sum of all the wallet's unspent outputs
 	// that have at least confs confirmations. If confs is set to zero,

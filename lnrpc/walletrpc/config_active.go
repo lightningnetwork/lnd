@@ -43,4 +43,8 @@ type Config struct {
 	// Sweeper is the central batching engine of lnd. It is responsible for
 	// sweeping inputs in batches back into the wallet.
 	Sweeper *sweep.UtxoSweeper
+
+	// Chain is an interface that the WalletKit will use to determine state
+	// about the backing chain of the wallet.
+	Chain lnwallet.BlockChainIO
 }

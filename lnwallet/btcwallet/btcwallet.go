@@ -59,11 +59,6 @@ type BtcWallet struct {
 	netParams *chaincfg.Params
 
 	chainKeyScope waddrmgr.KeyScope
-
-	// utxoCache is a cache used to speed up repeated calls to
-	// FetchInputInfo.
-	utxoCache map[wire.OutPoint]*wire.TxOut
-	cacheMtx  sync.RWMutex
 }
 
 // A compile time check to ensure that BtcWallet implements the
@@ -130,7 +125,6 @@ func New(cfg Config) (*BtcWallet, error) {
 		chain:         cfg.ChainSource,
 		netParams:     cfg.NetParams,
 		chainKeyScope: chainKeyScope,
-		utxoCache:     make(map[wire.OutPoint]*wire.TxOut),
 	}, nil
 }
 

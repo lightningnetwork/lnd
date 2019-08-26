@@ -9,6 +9,7 @@ import (
 	"github.com/btcsuite/btcd/btcjson"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcwallet/chain"
@@ -39,8 +40,6 @@ type chainUpdate struct {
 // chain client. Multiple concurrent clients are supported. All notifications
 // are achieved via non-blocking sends on client channels.
 type BitcoindNotifier struct {
-	confClientCounter  uint64 // To be used atomically.
-	spendClientCounter uint64 // To be used atomically.
 	epochClientCounter uint64 // To be used atomically.
 
 	started int32 // To be used atomically.
@@ -616,23 +615,11 @@ func (b *BitcoindNotifier) notifyBlockEpochClient(epochClient *blockEpochRegistr
 func (b *BitcoindNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 	pkScript []byte, heightHint uint32) (*chainntnfs.SpendEvent, error) {
 
-	// First, we'll construct a spend notification request and hand it off
-	// to the txNotifier.
-	spendID := atomic.AddUint64(&b.spendClientCounter, 1)
-	spendRequest, err := chainntnfs.NewSpendRequest(outpoint, pkScript)
-	if err != nil {
-		return nil, err
-	}
-	ntfn := &chainntnfs.SpendNtfn{
-		SpendID:      spendID,
-		SpendRequest: spendRequest,
-		Event: chainntnfs.NewSpendEvent(func() {
-			b.txNotifier.CancelSpend(spendRequest, spendID)
-		}),
-		HeightHint: heightHint,
-	}
-
-	historicalDispatch, _, err := b.txNotifier.RegisterSpend(ntfn)
+	// Register the conf notification with the TxNotifier. A non-nil value
+	// for `dispatch` will be returned if we are required to perform a
+	// manual scan for the confirmation. Otherwise the notifier will begin
+	// watching at tip for the transaction to confirm.
+	ntfn, err := b.txNotifier.RegisterSpend(outpoint, pkScript, heightHint)
 	if err != nil {
 		return nil, err
 	}
@@ -641,17 +628,18 @@ func (b *BitcoindNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 	// outpoint/output script as spent.
 	//
 	// TODO(wilmer): use LoadFilter API instead.
-	if spendRequest.OutPoint == chainntnfs.ZeroOutPoint {
-		addr, err := spendRequest.PkScript.Address(b.chainParams)
+	if outpoint == nil || *outpoint == chainntnfs.ZeroOutPoint {
+		_, addrs, _, err := txscript.ExtractPkScriptAddrs(
+			pkScript, b.chainParams,
+		)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("unable to parse script: %v", err)
 		}
-		addrs := []btcutil.Address{addr}
 		if err := b.chainConn.NotifyReceived(addrs); err != nil {
 			return nil, err
 		}
 	} else {
-		ops := []*wire.OutPoint{&spendRequest.OutPoint}
+		ops := []*wire.OutPoint{outpoint}
 		if err := b.chainConn.NotifySpent(ops); err != nil {
 			return nil, err
 		}
@@ -660,7 +648,7 @@ func (b *BitcoindNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 	// If the txNotifier didn't return any details to perform a historical
 	// scan of the chain, then we can return early as there's nothing left
 	// for us to do.
-	if historicalDispatch == nil {
+	if ntfn.HistoricalDispatch == nil {
 		return ntfn.Event, nil
 	}
 
@@ -670,9 +658,9 @@ func (b *BitcoindNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 	// We'll short-circuit the path when dispatching the spend of a script,
 	// rather than an outpoint, as there aren't any additional checks we can
 	// make for scripts.
-	if spendRequest.OutPoint == chainntnfs.ZeroOutPoint {
+	if ntfn.HistoricalDispatch.OutPoint == chainntnfs.ZeroOutPoint {
 		select {
-		case b.notificationRegistry <- historicalDispatch:
+		case b.notificationRegistry <- ntfn.HistoricalDispatch:
 		case <-b.quit:
 			return nil, chainntnfs.ErrChainNotifierShuttingDown
 		}
@@ -687,16 +675,16 @@ func (b *BitcoindNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 	// We'll start by checking the backend's UTXO set to determine whether
 	// the outpoint has been spent. If it hasn't, we can return to the
 	// caller as well.
-	txOut, err := b.chainConn.GetTxOut(
-		&spendRequest.OutPoint.Hash, spendRequest.OutPoint.Index, true,
-	)
+	txOut, err := b.chainConn.GetTxOut(&outpoint.Hash, outpoint.Index, true)
 	if err != nil {
 		return nil, err
 	}
 	if txOut != nil {
 		// We'll let the txNotifier know the outpoint is still unspent
 		// in order to begin updating its spend hint.
-		err := b.txNotifier.UpdateSpendDetails(spendRequest, nil)
+		err := b.txNotifier.UpdateSpendDetails(
+			ntfn.HistoricalDispatch.SpendRequest, nil,
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -711,14 +699,14 @@ func (b *BitcoindNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 	// index (if enabled) to determine if we have a better rescan starting
 	// height. We can do this as the GetRawTransaction call will return the
 	// hash of the block it was included in within the chain.
-	tx, err := b.chainConn.GetRawTransactionVerbose(&spendRequest.OutPoint.Hash)
+	tx, err := b.chainConn.GetRawTransactionVerbose(&outpoint.Hash)
 	if err != nil {
 		// Avoid returning an error if the transaction was not found to
 		// proceed with fallback methods.
 		jsonErr, ok := err.(*btcjson.RPCError)
 		if !ok || jsonErr.Code != btcjson.ErrRPCNoTxInfo {
 			return nil, fmt.Errorf("unable to query for txid %v: %v",
-				spendRequest.OutPoint.Hash, err)
+				outpoint.Hash, err)
 		}
 	}
 
@@ -741,15 +729,15 @@ func (b *BitcoindNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 			return nil, err
 		}
 
-		if uint32(blockHeight) > historicalDispatch.StartHeight {
-			historicalDispatch.StartHeight = uint32(blockHeight)
+		if uint32(blockHeight) > ntfn.HistoricalDispatch.StartHeight {
+			ntfn.HistoricalDispatch.StartHeight = uint32(blockHeight)
 		}
 	}
 
 	// Now that we've determined the starting point of our rescan, we can
 	// dispatch it and return.
 	select {
-	case b.notificationRegistry <- historicalDispatch:
+	case b.notificationRegistry <- ntfn.HistoricalDispatch:
 	case <-b.quit:
 		return nil, chainntnfs.ErrChainNotifierShuttingDown
 	}
@@ -827,41 +815,23 @@ func (b *BitcoindNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 	pkScript []byte,
 	numConfs, heightHint uint32) (*chainntnfs.ConfirmationEvent, error) {
 
-	// Construct a notification request for the transaction and send it to
-	// the main event loop.
-	confID := atomic.AddUint64(&b.confClientCounter, 1)
-	confRequest, err := chainntnfs.NewConfRequest(txid, pkScript)
-	if err != nil {
-		return nil, err
-	}
-	ntfn := &chainntnfs.ConfNtfn{
-		ConfID:           confID,
-		ConfRequest:      confRequest,
-		NumConfirmations: numConfs,
-		Event: chainntnfs.NewConfirmationEvent(numConfs, func() {
-			b.txNotifier.CancelConf(confRequest, confID)
-		}),
-		HeightHint: heightHint,
-	}
-
-	chainntnfs.Log.Infof("New confirmation subscription: %v, num_confs=%v",
-		confRequest, numConfs)
-
 	// Register the conf notification with the TxNotifier. A non-nil value
 	// for `dispatch` will be returned if we are required to perform a
 	// manual scan for the confirmation. Otherwise the notifier will begin
 	// watching at tip for the transaction to confirm.
-	dispatch, _, err := b.txNotifier.RegisterConf(ntfn)
+	ntfn, err := b.txNotifier.RegisterConf(
+		txid, pkScript, numConfs, heightHint,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	if dispatch == nil {
+	if ntfn.HistoricalDispatch == nil {
 		return ntfn.Event, nil
 	}
 
 	select {
-	case b.notificationRegistry <- dispatch:
+	case b.notificationRegistry <- ntfn.HistoricalDispatch:
 		return ntfn.Event, nil
 	case <-b.quit:
 		return nil, chainntnfs.ErrChainNotifierShuttingDown

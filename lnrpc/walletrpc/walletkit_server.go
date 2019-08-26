@@ -4,6 +4,7 @@ package walletrpc
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -496,27 +497,44 @@ func (w *WalletKit) BumpFee(ctx context.Context,
 	//
 	// We'll gather all of the information required by the UtxoSweeper in
 	// order to sweep the output.
-	txOut, err := w.cfg.Wallet.FetchInputInfo(op)
+	utxo, err := w.cfg.Wallet.FetchInputInfo(op)
 	if err != nil {
 		return nil, err
 	}
 
+	// We're only able to bump the fee of unconfirmed transactions.
+	if utxo.Confirmations > 0 {
+		return nil, errors.New("unable to bump fee of a confirmed " +
+			"transaction")
+	}
+
 	var witnessType input.WitnessType
-	switch {
-	case txscript.IsPayToWitnessPubKeyHash(txOut.PkScript):
+	switch utxo.AddressType {
+	case lnwallet.WitnessPubKey:
 		witnessType = input.WitnessKeyHash
-	case txscript.IsPayToScriptHash(txOut.PkScript):
+	case lnwallet.NestedWitnessPubKey:
 		witnessType = input.NestedWitnessKeyHash
 	default:
 		return nil, fmt.Errorf("unknown input witness %v", op)
 	}
 
 	signDesc := &input.SignDescriptor{
-		Output:   txOut,
+		Output: &wire.TxOut{
+			PkScript: utxo.PkScript,
+			Value:    int64(utxo.Value),
+		},
 		HashType: txscript.SigHashAll,
 	}
 
-	input := input.NewBaseInput(op, witnessType, signDesc, 0)
+	// We'll use the current height as the height hint since we're dealing
+	// with an unconfirmed transaction.
+	_, currentHeight, err := w.cfg.Chain.GetBestBlock()
+	if err != nil {
+		return nil, fmt.Errorf("unable to retrieve current height: %v",
+			err)
+	}
+
+	input := input.NewBaseInput(op, witnessType, signDesc, uint32(currentHeight))
 	if _, err = w.cfg.Sweeper.SweepInput(input, feePreference); err != nil {
 		return nil, err
 	}

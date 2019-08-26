@@ -308,6 +308,7 @@ func createTestChannelArbitrator(t *testing.T, log ArbitratorLog) (*chanArbTestC
 			incubateChan <- struct{}{}
 			return nil
 		},
+		OnionProcessor: &mockOnionProcessor{},
 	}
 
 	// We'll use the resolvedChan to synchronize on call to

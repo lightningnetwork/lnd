@@ -906,6 +906,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 		Sweeper:             s.sweeper,
 		Registry:            s.invoices,
 		NotifyClosedChannel: s.channelNotifier.NotifyClosedChannelEvent,
+		OnionProcessor:      s.sphinx,
 	}, chanDB)
 
 	s.breachArbiter = newBreachArbiter(&BreachConfig{

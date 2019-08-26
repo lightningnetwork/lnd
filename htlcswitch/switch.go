@@ -171,6 +171,10 @@ type Config struct {
 	// the ChannelNotifier when channels become active and inactive.
 	NotifyActiveChannel   func(wire.OutPoint)
 	NotifyInactiveChannel func(wire.OutPoint)
+
+	// RejectHTLC is a flag that instructs the htlcswitch to reject any
+	// HTLCs that are not from the source hop.
+	RejectHTLC bool
 }
 
 // Switch is the central messaging bus for all incoming/outgoing HTLCs.
@@ -1025,6 +1029,15 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 	// payment circuit within our internal state so we can properly forward
 	// the ultimate settle message back latter.
 	case *lnwire.UpdateAddHTLC:
+		// Check if the node is set to reject all onward HTLCs and also make
+		// sure that HTLC is not from the source node.
+		if s.cfg.RejectHTLC && packet.incomingChanID != sourceHop {
+			failure := &lnwire.FailChannelDisabled{}
+			addErr := fmt.Errorf("unable to forward any htlcs")
+
+			return s.failAddPacket(packet, failure, addErr)
+		}
+
 		if packet.incomingChanID == sourceHop {
 			// A blank incomingChanID indicates that this is
 			// a pending user-initiated payment.

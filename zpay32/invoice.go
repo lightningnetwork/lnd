@@ -67,6 +67,16 @@ const (
 
 	// fieldTypeC contains an optional requested final CLTV delta.
 	fieldTypeC = 24
+
+	// fieldType9 contains one or more bytes for signaling features
+	// supported or required by the receiver.
+	fieldType9 = 5
+)
+
+var (
+	// InvoiceFeatures holds the set of all known feature bits that are
+	// exposed as BOLT 11 features.
+	InvoiceFeatures = map[lnwire.FeatureBit]string{}
 )
 
 // MessageSigner is passed to the Encode method to provide a signature
@@ -146,6 +156,10 @@ type Invoice struct {
 	//
 	// NOTE: This is optional.
 	RouteHints [][]HopHint
+
+	// Features represents an optional field used to signal optional or
+	// required support for features by the receiver.
+	Features *lnwire.FeatureVector
 }
 
 // Amount is a functional option that allows callers of NewInvoice to set the
@@ -663,6 +677,14 @@ func parseTaggedFields(invoice *Invoice, fields []byte, net *chaincfg.Params) er
 			}
 
 			invoice.RouteHints = append(invoice.RouteHints, routeHint)
+		case fieldType9:
+			if invoice.Features != nil {
+				// We skip the field if we have already seen a
+				// supported one.
+				continue
+			}
+
+			invoice.Features, err = parseFeatures(base32Data)
 		default:
 			// Ignore unknown type.
 		}
@@ -874,6 +896,25 @@ func parseRouteHint(data []byte) ([]HopHint, error) {
 	return routeHint, nil
 }
 
+// parseFeatures decodes any feature bits directly from the base32
+// representation.
+func parseFeatures(data []byte) (*lnwire.FeatureVector, error) {
+	rawFeatures := lnwire.NewRawFeatureVector()
+	err := rawFeatures.DecodeBase32(bytes.NewReader(data), len(data))
+	if err != nil {
+		return nil, err
+	}
+
+	fv := lnwire.NewFeatureVector(rawFeatures, InvoiceFeatures)
+	unknownFeatures := fv.UnknownRequiredFeatures()
+	if len(unknownFeatures) > 0 {
+		return nil, fmt.Errorf("invoice contains unknown required "+
+			"features: %v", unknownFeatures)
+	}
+
+	return fv, nil
+}
+
 // writeTaggedFields writes the non-nil tagged fields of the Invoice to the
 // base32 buffer.
 func writeTaggedFields(bufferBase32 *bytes.Buffer, invoice *Invoice) error {
@@ -1020,6 +1061,18 @@ func writeTaggedFields(bufferBase32 *bytes.Buffer, invoice *Invoice) error {
 		}
 
 		err = writeTaggedField(bufferBase32, fieldTypeN, pubKeyBase32)
+		if err != nil {
+			return err
+		}
+	}
+	if invoice.Features != nil && invoice.Features.SerializeSize32() > 0 {
+		var b bytes.Buffer
+		err := invoice.Features.RawFeatureVector.EncodeBase32(&b)
+		if err != nil {
+			return err
+		}
+
+		err = writeTaggedField(bufferBase32, fieldType9, b.Bytes())
 		if err != nil {
 			return err
 		}

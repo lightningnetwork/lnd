@@ -127,6 +127,20 @@ func (fv *RawFeatureVector) Unset(feature FeatureBit) {
 // SerializeSize returns the number of bytes needed to represent feature vector
 // in byte format.
 func (fv *RawFeatureVector) SerializeSize() int {
+	// We calculate byte-length via the largest bit index.
+	return fv.serializeSize(8)
+}
+
+// SerializeSize32 returns the number of bytes needed to represent feature
+// vector in base32 format.
+func (fv *RawFeatureVector) SerializeSize32() int {
+	// We calculate base32-length via the largest bit index.
+	return fv.serializeSize(5)
+}
+
+// serializeSize returns the number of bytes required to encode the feature
+// vector using at most width bits per encoded byte.
+func (fv *RawFeatureVector) serializeSize(width int) int {
 	// Find the largest feature bit index
 	max := -1
 	for feature := range fv.features {
@@ -139,8 +153,7 @@ func (fv *RawFeatureVector) SerializeSize() int {
 		return 0
 	}
 
-	// We calculate byte-length via the largest bit index
-	return max/8 + 1
+	return max/width + 1
 }
 
 // Encode writes the feature vector in byte representation. Every feature

@@ -3259,6 +3259,16 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 	if chanReserve == 0 {
 		chanReserve = f.cfg.RequiredRemoteChanReserve(capacity, ourDustLimit)
 	}
+	if chanReserve < ourDustLimit {
+		msg.Err <- fmt.Errorf("remote channel reserve %v is less than the "+
+			"dust limit", chanReserve)
+		return
+	}
+	if chanReserve >= capacity {
+		msg.Err <- fmt.Errorf("remote channel reserve %v should be less "+
+			"than the channel capacity", chanReserve)
+		return
+	}
 
 	// If a pending channel map for this peer isn't already created, then
 	// we create one, ultimately allowing us to track this pending

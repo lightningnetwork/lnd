@@ -559,6 +559,7 @@ func (a *Agent) openChans(availableFunds btcutil.Amount, numChans uint32,
 		// order to avoid attempting to make a channel with
 		// ourselves.
 		if bytes.Equal(nID[:], selfPubBytes) {
+			log.Tracef("Skipping self node %x", nID[:])
 			return nil
 		}
 
@@ -566,6 +567,8 @@ func (a *Agent) openChans(availableFunds btcutil.Amount, numChans uint32,
 		// so we'll skip it.
 		addrs := node.Addrs()
 		if len(addrs) == 0 {
+			log.Tracef("Skipping node %x since no addresses known",
+				nID[:])
 			return nil
 		}
 		addresses[nID] = addrs
@@ -573,6 +576,7 @@ func (a *Agent) openChans(availableFunds btcutil.Amount, numChans uint32,
 		// Additionally, if this node is in the blacklist, then
 		// we'll skip it.
 		if _, ok := nodesToSkip[nID]; ok {
+			log.Tracef("Skipping blacklisted node %x", nID[:])
 			return nil
 		}
 
@@ -604,12 +608,17 @@ func (a *Agent) openChans(availableFunds btcutil.Amount, numChans uint32,
 
 	chanCandidates := make(map[NodeID]*AttachmentDirective)
 	for nID := range scores {
+		log.Tracef("Creating attachment directive for chosen node %x",
+			nID[:])
+
 		// Add addresses to the candidates.
 		addrs := addresses[nID]
 
 		// If the node has no known addresses, we cannot connect to it,
 		// so we'll skip it.
 		if len(addrs) == 0 {
+			log.Tracef("Skipping scored node %x with no addresses",
+				nID[:])
 			continue
 		}
 
@@ -621,6 +630,9 @@ func (a *Agent) openChans(availableFunds btcutil.Amount, numChans uint32,
 
 		// If we run out of funds, we can break early.
 		if chanSize < a.cfg.Constraints.MinChanSize() {
+			log.Tracef("Chan size %v too small to satisfy min "+
+				"channel size %v, breaking", chanSize,
+				a.cfg.Constraints.MinChanSize())
 			break
 		}
 

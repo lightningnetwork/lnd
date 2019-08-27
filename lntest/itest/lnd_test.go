@@ -10153,6 +10153,10 @@ func testMultiHopHtlcLocalTimeout(net *lntest.NetworkHarness, t *harnessTest) {
 	if err != nil {
 		t.Fatalf("unable to get txid: %v", err)
 	}
+	closeTxid, err := waitForTxInMempool(net.Miner.Node, minerMempoolTimeout)
+	if err != nil {
+		t.Fatalf("unable to find closing txid: %v", err)
+	}
 	assertSpendingTxInMempool(
 		t, net.Miner.Node, minerMempoolTimeout, wire.OutPoint{
 			Hash:  *bobFundingTxid,
@@ -10179,24 +10183,22 @@ func testMultiHopHtlcLocalTimeout(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("htlc mismatch: %v", predErr)
 	}
 
-	// We'll mine defaultCSV blocks in order to generate the sweep
-	// transaction of Bob's funding output. This will also bring us to the
-	// maturity height of the htlc tx output.
-	if _, err := net.Miner.Node.Generate(defaultCSV); err != nil {
-		t.Fatalf("unable to generate blocks: %v", err)
+	// With the closing transaction confirmed, we should expect Bob's HTLC
+	// timeout transaction to be broadcast due to the expiry being reached.
+	htlcTimeout, err := waitForTxInMempool(net.Miner.Node, minerMempoolTimeout)
+	if err != nil {
+		t.Fatalf("unable to find bob's htlc timeout tx: %v", err)
 	}
 
-	_, err = waitForTxInMempool(net.Miner.Node, minerMempoolTimeout)
-	if err != nil {
-		t.Fatalf("unable to find bob's funding output sweep tx: %v", err)
-	}
-
-	// The second layer HTLC timeout transaction should now have been
-	// broadcast on-chain.
-	secondLayerHash, err := waitForTxInMempool(net.Miner.Node, minerMempoolTimeout)
-	if err != nil {
-		t.Fatalf("unable to find bob's second layer transaction")
-	}
+	// We'll mine the remaining blocks in order to generate the sweep
+	// transaction of Bob's commitment output.
+	mineBlocks(t, net, defaultCSV, 1)
+	assertSpendingTxInMempool(
+		t, net.Miner.Node, minerMempoolTimeout, wire.OutPoint{
+			Hash:  *closeTxid,
+			Index: 1,
+		},
+	)
 
 	// Bob's pending channel report should show that he has a commitment
 	// output awaiting sweeping, and also that there's an outgoing HTLC
@@ -10220,14 +10222,20 @@ func testMultiHopHtlcLocalTimeout(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("bob should have pending htlc but doesn't")
 	}
 
-	// Now we'll mine an additional block, which should include the second
-	// layer sweep tx.
-	block := mineBlocks(t, net, 1, 1)[0]
+	// Now we'll mine an additional block, which should confirm Bob's commit
+	// sweep. This block should also prompt Bob to broadcast their second
+	// layer sweep due to the CSV on the HTLC timeout output.
+	mineBlocks(t, net, 1, 1)
+	assertSpendingTxInMempool(
+		t, net.Miner.Node, minerMempoolTimeout, wire.OutPoint{
+			Hash:  *htlcTimeout,
+			Index: 0,
+		},
+	)
 
-	// The block should have confirmed Bob's second layer sweeping
-	// transaction. Therefore, at this point, there should be no active
-	// HTLC's on the commitment transaction from Alice -> Bob.
-	assertTxInBlock(t, block, secondLayerHash)
+	// The block should have confirmed Bob's HTLC timeout transaction.
+	// Therefore, at this point, there should be no active HTLC's on the
+	// commitment transaction from Alice -> Bob.
 	nodes = []*lntest.HarnessNode{net.Alice}
 	err = lntest.WaitPredicate(func() bool {
 		predErr = assertNumActiveHtlcs(nodes, 0)
@@ -10250,16 +10258,6 @@ func testMultiHopHtlcLocalTimeout(net *lntest.NetworkHarness, t *harnessTest) {
 	forceCloseChan = pendingChanResp.PendingForceClosingChannels[0]
 	if forceCloseChan.PendingHtlcs[0].Stage != 2 {
 		t.Fatalf("bob's htlc should have advanced to the second stage: %v", err)
-	}
-
-	// We'll now mine four more blocks. After the 4th block, a transaction
-	// sweeping the HTLC output should be broadcast.
-	if _, err := net.Miner.Node.Generate(4); err != nil {
-		t.Fatalf("unable to generate blocks: %v", err)
-	}
-	_, err = waitForTxInMempool(net.Miner.Node, minerMempoolTimeout)
-	if err != nil {
-		t.Fatalf("unable to find bob's sweeping transaction: %v", err)
 	}
 
 	// Next, we'll mine a final block that should confirm the second-layer

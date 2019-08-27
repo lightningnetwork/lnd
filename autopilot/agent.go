@@ -523,6 +523,17 @@ func (a *Agent) controller() {
 func (a *Agent) openChans(availableFunds btcutil.Amount, numChans uint32,
 	totalChans []Channel) error {
 
+	// As channel size we'll use the maximum channel size available.
+	chanSize := a.cfg.Constraints.MaxChanSize()
+	if availableFunds < chanSize {
+		chanSize = availableFunds
+	}
+
+	if chanSize < a.cfg.Constraints.MinChanSize() {
+		return fmt.Errorf("not enough funds available to open a " +
+			"single channel")
+	}
+
 	// We're to attempt an attachment so we'll obtain the set of
 	// nodes that we currently have channels with so we avoid
 	// duplicate edges.
@@ -569,17 +580,6 @@ func (a *Agent) openChans(availableFunds btcutil.Amount, numChans uint32,
 		return nil
 	}); err != nil {
 		return fmt.Errorf("unable to get graph nodes: %v", err)
-	}
-
-	// As channel size we'll use the maximum channel size available.
-	chanSize := a.cfg.Constraints.MaxChanSize()
-	if availableFunds < chanSize {
-		chanSize = availableFunds
-	}
-
-	if chanSize < a.cfg.Constraints.MinChanSize() {
-		return fmt.Errorf("not enough funds available to open a " +
-			"single channel")
 	}
 
 	// Use the heuristic to calculate a score for each node in the

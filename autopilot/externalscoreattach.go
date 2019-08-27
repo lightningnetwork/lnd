@@ -62,6 +62,8 @@ func (s *ExternalScoreAttachment) SetNodeScores(targetHeuristic string,
 	defer s.Unlock()
 
 	s.nodeScores = newScores
+	log.Tracef("Setting %v external scores", len(s.nodeScores))
+
 	return true, nil
 }
 
@@ -90,25 +92,30 @@ func (s *ExternalScoreAttachment) NodeScores(g ChannelGraph, chans []Channel,
 	s.Lock()
 	defer s.Unlock()
 
+	log.Tracef("External scoring %v nodes, from %v set scores",
+		len(nodes), len(s.nodeScores))
+
 	// Fill the map of candidates to return.
 	candidates := make(map[NodeID]*NodeScore)
 	for nID := range nodes {
 		var score float64
 		if nodeScore, ok := s.nodeScores[nID]; ok {
-			score = float64(nodeScore)
+			score = nodeScore
 		}
-
-		_, ok := existingPeers[nID]
-		switch {
 
 		// If the node is among or existing channel peers, we don't
 		// need another channel.
-		case ok:
+		if _, ok := existingPeers[nID]; ok {
+			log.Tracef("Skipping existing peer %x from external "+
+				"score results", nID[:])
 			continue
+		}
+
+		log.Tracef("External score %v given to node %x", score, nID[:])
 
 		// Instead of adding a node with score 0 to the returned set,
 		// we just skip it.
-		case score == 0:
+		if score == 0 {
 			continue
 		}
 

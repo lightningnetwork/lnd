@@ -3777,15 +3777,12 @@ func marshalDbEdge(edgeInfo *channeldb.ChannelEdgeInfo,
 		c2, c1 = c1, c2
 	}
 
-	var (
-		lastUpdate int64
-	)
-
-	if c2 != nil {
-		lastUpdate = c2.LastUpdate.Unix()
-	}
+	var lastUpdate int64
 	if c1 != nil {
 		lastUpdate = c1.LastUpdate.Unix()
+	}
+	if c2 != nil && c2.LastUpdate.Unix() > lastUpdate {
+		lastUpdate = c2.LastUpdate.Unix()
 	}
 
 	edge := &lnrpc.ChannelEdge{

@@ -100,6 +100,7 @@ func NewBackend(miner string, netParams *chaincfg.Params) (
 	bitcoind := exec.Command(
 		"bitcoind",
 		"-datadir="+tempBitcoindDir,
+		"-debug",
 		"-regtest",
 		"-txindex",
 		"-whitelist=127.0.0.1", // whitelist localhost to speed up relay

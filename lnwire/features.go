@@ -127,6 +127,20 @@ func (fv *RawFeatureVector) Unset(feature FeatureBit) {
 // SerializeSize returns the number of bytes needed to represent feature vector
 // in byte format.
 func (fv *RawFeatureVector) SerializeSize() int {
+	// We calculate byte-length via the largest bit index.
+	return fv.serializeSize(8)
+}
+
+// SerializeSize32 returns the number of bytes needed to represent feature
+// vector in base32 format.
+func (fv *RawFeatureVector) SerializeSize32() int {
+	// We calculate base32-length via the largest bit index.
+	return fv.serializeSize(5)
+}
+
+// serializeSize returns the number of bytes required to encode the feature
+// vector using at most width bits per encoded byte.
+func (fv *RawFeatureVector) serializeSize(width int) int {
 	// Find the largest feature bit index
 	max := -1
 	for feature := range fv.features {
@@ -139,8 +153,7 @@ func (fv *RawFeatureVector) SerializeSize() int {
 		return 0
 	}
 
-	// We calculate byte-length via the largest bit index
-	return max/8 + 1
+	return max/width + 1
 }
 
 // Encode writes the feature vector in byte representation. Every feature
@@ -156,12 +169,25 @@ func (fv *RawFeatureVector) Encode(w io.Writer) error {
 		return err
 	}
 
+	return fv.encode(w, length, 8)
+}
+
+// EncodeBase32 writes the feature vector in base32 representation. Every feature
+// encoded as a bit, and the bit vector is serialized using the least number of
+// bytes.
+func (fv *RawFeatureVector) EncodeBase32(w io.Writer) error {
+	length := fv.SerializeSize32()
+	return fv.encode(w, length, 5)
+}
+
+// encode writes the feature vector
+func (fv *RawFeatureVector) encode(w io.Writer, length, width int) error {
 	// Generate the data and write it.
 	data := make([]byte, length)
 	for feature := range fv.features {
-		byteIndex := int(feature / 8)
-		bitIndex := feature % 8
-		data[length-byteIndex-1] |= 1 << bitIndex
+		byteIndex := int(feature) / width
+		bitIndex := int(feature) % width
+		data[length-byteIndex-1] |= 1 << uint(bitIndex)
 	}
 
 	_, err := w.Write(data)
@@ -180,6 +206,19 @@ func (fv *RawFeatureVector) Decode(r io.Reader) error {
 	}
 	length := binary.BigEndian.Uint16(l[:])
 
+	return fv.decode(r, int(length), 8)
+}
+
+// DecodeBase32 reads the feature vector from its base32 representation. Every
+// feature encoded as a bit, and the bit vector is serialized using the least
+// number of bytes.
+func (fv *RawFeatureVector) DecodeBase32(r io.Reader, length int) error {
+	return fv.decode(r, length, 5)
+}
+
+// decode reads a feature vector from the next length bytes of the io.Reader,
+// assuming each byte has width feature bits encoded per byte.
+func (fv *RawFeatureVector) decode(r io.Reader, length, width int) error {
 	// Read the feature vector data.
 	data := make([]byte, length)
 	if _, err := io.ReadFull(r, data); err != nil {
@@ -187,10 +226,10 @@ func (fv *RawFeatureVector) Decode(r io.Reader) error {
 	}
 
 	// Set feature bits from parsed data.
-	bitsNumber := len(data) * 8
+	bitsNumber := len(data) * width
 	for i := 0; i < bitsNumber; i++ {
-		byteIndex := uint16(i / 8)
-		bitIndex := uint(i % 8)
+		byteIndex := int(i / width)
+		bitIndex := uint(i % width)
 		if (data[length-byteIndex-1]>>bitIndex)&1 == 1 {
 			fv.Set(FeatureBit(i))
 		}

@@ -1728,6 +1728,18 @@ func (r *ChannelRouter) preparePayment(payment *LightningPayment) (
 func (r *ChannelRouter) SendToRoute(hash lntypes.Hash, route *route.Route) (
 	lntypes.Preimage, error) {
 
+	return r.SendToRouteMPP(hash, route, 0, [32]byte{})
+}
+
+// SendToRouteMPP attempts to send a payment with the given hash through the
+// provided route. This function is blocking and will return the obtained
+// preimage if the payment is successful or the full error in case of a failure.
+// Providing a total > 0 and a non-zero addr will cause this method to send an
+// MPP shard with those parameters passed via the option_mpp tlv record to the
+// receiver. Otherwise, this call will send a regular single shot payment.
+func (r *ChannelRouter) SendToRouteMPP(hash lntypes.Hash, route *route.Route,
+	total lnwire.MilliSatoshi, addr lntypes.Hash) (lntypes.Preimage, error) {
+
 	// Create a payment session for just this route.
 	paySession := r.cfg.SessionSource.NewPaymentSessionForRoute(route)
 

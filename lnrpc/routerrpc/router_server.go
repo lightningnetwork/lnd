@@ -280,7 +280,18 @@ func (s *Server) SendToRoute(ctx context.Context,
 		return nil, err
 	}
 
-	preimage, err := s.cfg.Router.SendToRoute(hash, route)
+	total := lnwire.MilliSatoshi(req.TotalAmtMsat)
+
+	var addr lntypes.Hash
+	if len(req.PaymentAddr) > 0 {
+		addr, err = lntypes.MakeHash(req.PaymentAddr)
+		if err != nil {
+			return nil, fmt.Errorf("unable to parse "+
+				"payment_addr: %v", err)
+		}
+	}
+
+	preimage, err := s.cfg.Router.SendToRouteMPP(hash, route, total, addr)
 
 	// In the success case, return the preimage.
 	if err == nil {

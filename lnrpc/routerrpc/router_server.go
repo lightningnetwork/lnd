@@ -72,6 +72,10 @@ var (
 			Entity: "offchain",
 			Action: "write",
 		}},
+		"/routerrpc.Router/BuildRoute": {{
+			Entity: "offchain",
+			Action: "read",
+		}},
 	}
 
 	// DefaultRouterMacFilename is the default name of the router macaroon
@@ -611,4 +615,50 @@ func marshallFailureReason(reason channeldb.FailureReason) (
 	}
 
 	return 0, errors.New("unknown failure reason")
+}
+
+// BuildRoute builds a route from a list of hop addresses.
+func (s *Server) BuildRoute(ctx context.Context,
+	req *BuildRouteRequest) (*BuildRouteResponse, error) {
+
+	// Unmarshall hop list.
+	hops := make([]route.Vertex, len(req.HopPubkeys))
+	for i, pubkeyBytes := range req.HopPubkeys {
+		pubkey, err := route.NewVertexFromBytes(pubkeyBytes)
+		if err != nil {
+			return nil, err
+		}
+		hops[i] = pubkey
+	}
+
+	// Prepare BuildRoute call parameters from rpc request.
+	var amt *lnwire.MilliSatoshi
+	if req.AmtMsat != 0 {
+		rpcAmt := lnwire.MilliSatoshi(req.AmtMsat)
+		amt = &rpcAmt
+	}
+
+	var outgoingChan *uint64
+	if req.OutgoingChanId != 0 {
+		outgoingChan = &req.OutgoingChanId
+	}
+
+	// Build the route and return it to the caller.
+	route, err := s.cfg.Router.BuildRoute(
+		amt, hops, outgoingChan, req.FinalCltvDelta,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	rpcRoute, err := s.cfg.RouterBackend.MarshallRoute(route)
+	if err != nil {
+		return nil, err
+	}
+
+	routeResp := &BuildRouteResponse{
+		Route: rpcRoute,
+	}
+
+	return routeResp, nil
 }

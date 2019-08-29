@@ -100,7 +100,7 @@ enum PaymentState {
     FAILED_NO_ROUTE = 3;
 
     /**
-    A non-recoverable error has occured.
+    A non-recoverable error has occurred.
     */
     FAILED_ERROR = 4;
 
@@ -111,22 +111,22 @@ enum PaymentState {
     FAILED_INCORRECT_PAYMENT_DETAILS = 5;
 }
 
-
 message PaymentStatus {
-    /// Current state the payment is in.
+    /**
+    Current state the payment is in.
+    */
     PaymentState state = 1;
 
     /**
-    The pre-image of the payment when state is SUCCEEDED.
+    The pre-image of the payment when state is not IN_FLIGHT.
     */
     bytes preimage = 2;
 
     /**
-    The taken route when state is SUCCEEDED.
+    The taken route when state is not IN_FLIGHT.
     */
     lnrpc.Route route = 3;
 }
-
 
 message RouteFeeRequest {
     /**
@@ -161,6 +161,22 @@ message SendToRouteRequest {
 
     /// Route that should be used to attempt to complete the payment.
     lnrpc.Route route = 2;
+
+    /**
+    If non-zero, the total amount in satoshis being sent as part of a larger
+    multi-path payment. The caller is responsible for ensuring subpayments to
+    the same node and payment_hash are equal or greater than total_amt_msat. The
+    same total_amt_msat must be used on all subpayments.
+    */
+    int64 total_amt_msat = 3;
+
+    /**
+    If total_amt_msat is non-zero, a unique, random identifier used to
+    authenticate the sender as the intended payer of a multi-path payment. The
+    payment_addr must be the same for all subpayments, and match the
+    payment_addr provided in the receiver's invoice.
+    */
+    bytes payment_addr = 4;
 }
 
 message SendToRouteResponse {

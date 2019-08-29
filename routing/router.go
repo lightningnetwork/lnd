@@ -1740,11 +1740,32 @@ func (r *ChannelRouter) SendToRoute(hash lntypes.Hash, route *route.Route) (
 func (r *ChannelRouter) SendToRouteMPP(hash lntypes.Hash, route *route.Route,
 	total lnwire.MilliSatoshi, addr lntypes.Hash) (lntypes.Preimage, error) {
 
-	// Create a payment session for just this route.
-	paySession := r.cfg.SessionSource.NewPaymentSessionForRoute(route)
-
 	// Calculate amount paid to receiver.
 	amt := route.TotalAmount - route.TotalFees()
+
+	// Verify mpp params, if applicable.
+	useMPP := total > 0
+	if useMPP {
+		switch {
+
+		// The amount of the shard should not be greater than the total.
+		case amt > total:
+			return [32]byte{}, fmt.Errorf("amt %v cannot be "+
+				"greater than total %v", amt, total)
+
+		// The payment address should not be empty.
+		case addr == lntypes.ZeroHash:
+			return [32]byte{}, fmt.Errorf("payment_addr must " +
+				"be populated for mpp")
+		}
+
+		// If we're using mpp, set the amount in the payment creation
+		// info to the total amount. The route will contain the amount
+		// paid in the shard.
+		amt = total
+
+		route.AddMPP(total, addr)
+	}
 
 	// Record this payment hash with the ControlTower, ensuring it is not
 	// already in-flight.
@@ -1770,6 +1791,9 @@ func (r *ChannelRouter) SendToRouteMPP(hash lntypes.Hash, route *route.Route,
 	payment := &LightningPayment{
 		PaymentHash: hash,
 	}
+
+	// Create a payment session for just this route.
+	paySession := r.cfg.SessionSource.NewPaymentSessionForRoute(route)
 
 	// Since this is the first time this payment is being made, we pass nil
 	// for the existing attempt.
@@ -1862,7 +1886,6 @@ func (r *ChannelRouter) sendPayment(
 	}
 
 	return p.resumePayment()
-
 }
 
 // tryApplyChannelUpdate tries to apply a channel update present in the failure

@@ -8,6 +8,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -38,19 +39,9 @@ func TestSphinxHopIteratorForwardingInstructions(t *testing.T) {
 	// as we would normally in the routing network.
 	var b bytes.Buffer
 	tlvRecords := []tlv.Record{
-		tlv.MakeDynamicRecord(
-			tlv.AmtOnionType, &hopData.ForwardAmount, func() uint64 {
-				return tlv.SizeTUint64(hopData.ForwardAmount)
-			},
-			tlv.ETUint64, tlv.DTUint64,
-		),
-		tlv.MakeDynamicRecord(
-			tlv.LockTimeOnionType, &hopData.OutgoingCltv, func() uint64 {
-				return tlv.SizeTUint32(hopData.OutgoingCltv)
-			},
-			tlv.ETUint32, tlv.DTUint32,
-		),
-		tlv.MakePrimitiveRecord(tlv.NextHopOnionType, &nextAddrInt),
+		record.NewAmtToFwdRecord(&hopData.ForwardAmount),
+		record.NewLockTimeRecord(&hopData.OutgoingCltv),
+		record.NewNextHopIDRecord(&nextAddrInt),
 	}
 	tlvStream, err := tlv.NewStream(tlvRecords...)
 	if err != nil {

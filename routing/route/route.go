@@ -11,6 +11,7 @@ import (
 	"github.com/btcsuite/btcd/btcec"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -105,19 +106,9 @@ func (h *Hop) PackHopPayload(w io.Writer, nextChanID uint64) error {
 	// required routing fields, as well as these optional values.
 	amt := uint64(h.AmtToForward)
 	combinedRecords := append(h.TLVRecords,
-		tlv.MakeDynamicRecord(
-			tlv.AmtOnionType, &amt, func() uint64 {
-				return tlv.SizeTUint64(amt)
-			},
-			tlv.ETUint64, tlv.DTUint64,
-		),
-		tlv.MakeDynamicRecord(
-			tlv.LockTimeOnionType, &h.OutgoingTimeLock, func() uint64 {
-				return tlv.SizeTUint32(h.OutgoingTimeLock)
-			},
-			tlv.ETUint32, tlv.DTUint32,
-		),
-		tlv.MakePrimitiveRecord(tlv.NextHopOnionType, &nextChanID),
+		record.NewAmtToFwdRecord(&amt),
+		record.NewLockTimeRecord(&h.OutgoingTimeLock),
+		record.NewNextHopIDRecord(&nextChanID),
 	)
 
 	// To ensure we produce a canonical stream, we'll sort the records

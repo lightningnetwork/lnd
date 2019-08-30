@@ -9,6 +9,7 @@ import (
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -175,15 +176,9 @@ func (r *sphinxHopIterator) ForwardingInstructions() (ForwardingInfo, error) {
 		var cid uint64
 
 		tlvStream, err := tlv.NewStream(
-			tlv.MakeDynamicRecord(
-				tlv.AmtOnionType, &amt, nil,
-				tlv.ETUint64, tlv.DTUint64,
-			),
-			tlv.MakeDynamicRecord(
-				tlv.LockTimeOnionType, &cltv, nil,
-				tlv.ETUint32, tlv.DTUint32,
-			),
-			tlv.MakePrimitiveRecord(tlv.NextHopOnionType, &cid),
+			record.NewAmtToFwdRecord(&amt),
+			record.NewLockTimeRecord(&cltv),
+			record.NewNextHopIDRecord(&cid),
 		)
 		if err != nil {
 			return ForwardingInfo{}, err

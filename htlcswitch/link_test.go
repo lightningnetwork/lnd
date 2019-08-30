@@ -4308,7 +4308,7 @@ func generateHtlcAndInvoice(t *testing.T,
 
 	htlcAmt := lnwire.NewMSatFromSatoshis(10000)
 	htlcExpiry := testStartingHeight + testInvoiceCltvExpiry
-	hops := []ForwardingInfo{
+	hops := []hop.ForwardingInfo{
 		{
 			Network:         hop.BitcoinNetwork,
 			NextHop:         exitHop,

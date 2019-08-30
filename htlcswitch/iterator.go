@@ -24,33 +24,6 @@ var (
 	sourceHop lnwire.ShortChannelID
 )
 
-// ForwardingInfo contains all the information that is necessary to forward and
-// incoming HTLC to the next hop encoded within a valid HopIterator instance.
-// Forwarding links are to use this information to authenticate the information
-// received within the incoming HTLC, to ensure that the prior hop didn't
-// tamper with the end-to-end routing information at all.
-type ForwardingInfo struct {
-	// Network is the target blockchain network that the HTLC will travel
-	// over next.
-	Network hop.Network
-
-	// NextHop is the channel ID of the next hop. The received HTLC should
-	// be forwarded to this particular channel in order to continue the
-	// end-to-end route.
-	NextHop lnwire.ShortChannelID
-
-	// AmountToForward is the amount of milli-satoshis that the receiving
-	// node should forward to the next hop.
-	AmountToForward lnwire.MilliSatoshi
-
-	// OutgoingCTLV is the specified value of the CTLV timelock to be used
-	// in the outgoing HTLC.
-	OutgoingCTLV uint32
-
-	// TODO(roasbeef): modify sphinx logic to not just discard the
-	// remaining bytes, instead should include the rest as excess
-}
-
 // HopIterator is an interface that abstracts away the routing information
 // included in HTLC's which includes the entirety of the payment path of an
 // HTLC. This interface provides two basic method which carry out: how to
@@ -62,7 +35,7 @@ type HopIterator interface {
 	// Additionally, the information encoded within the returned
 	// ForwardingInfo is to be used by each hop to authenticate the
 	// information given to it by the prior hop.
-	ForwardingInstructions() (ForwardingInfo, error)
+	ForwardingInstructions() (hop.ForwardingInfo, error)
 
 	// ExtraOnionBlob returns the additional EOB data (if available).
 	ExtraOnionBlob() []byte
@@ -119,7 +92,9 @@ func (r *sphinxHopIterator) EncodeNextHop(w io.Writer) error {
 // hop to authenticate the information given to it by the prior hop.
 //
 // NOTE: Part of the HopIterator interface.
-func (r *sphinxHopIterator) ForwardingInstructions() (ForwardingInfo, error) {
+func (r *sphinxHopIterator) ForwardingInstructions() (
+	hop.ForwardingInfo, error) {
+
 	var (
 		nextHop lnwire.ShortChannelID
 		amt     uint64
@@ -154,24 +129,25 @@ func (r *sphinxHopIterator) ForwardingInstructions() (ForwardingInfo, error) {
 			record.NewNextHopIDRecord(&cid),
 		)
 		if err != nil {
-			return ForwardingInfo{}, err
+			return hop.ForwardingInfo{}, err
 		}
 
 		err = tlvStream.Decode(bytes.NewReader(
 			r.processedPacket.Payload.Payload,
 		))
 		if err != nil {
-			return ForwardingInfo{}, err
+			return hop.ForwardingInfo{}, err
 		}
 
 		nextHop = lnwire.NewShortChanIDFromInt(cid)
 
 	default:
-		return ForwardingInfo{}, fmt.Errorf("unknown sphinx payload "+
-			"type: %v", r.processedPacket.Payload.Type)
+		return hop.ForwardingInfo{}, fmt.Errorf("unknown "+
+			"sphinx payload type: %v",
+			r.processedPacket.Payload.Type)
 	}
 
-	return ForwardingInfo{
+	return hop.ForwardingInfo{
 		Network:         hop.BitcoinNetwork,
 		NextHop:         nextHop,
 		AmountToForward: lnwire.MilliSatoshi(amt),

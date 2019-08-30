@@ -9334,6 +9334,17 @@ func testNodeAnnouncement(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to connect bob to carol: %v", err)
 	}
 
+	// Alice shouldn't receive any new updates yet since the channel has yet
+	// to be opened.
+	select {
+	case <-aliceSub.updateChan:
+		t.Fatalf("received unexpected update from dave")
+	case <-time.After(time.Second):
+	}
+
+	// We'll then go ahead and open a channel between Bob and Dave. This
+	// ensures that Alice receives the node announcement from Bob as part of
+	// the announcement broadcast.
 	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
 	chanPoint := openChannelAndAssert(
 		ctxt, t, net, net.Bob, dave,
@@ -9341,13 +9352,6 @@ func testNodeAnnouncement(net *lntest.NetworkHarness, t *harnessTest) {
 			Amt: 1000000,
 		},
 	)
-
-	// When Alice now connects with Dave, Alice will get his node
-	// announcement.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	if err := net.ConnectNodes(ctxt, net.Alice, dave); err != nil {
-		t.Fatalf("unable to connect bob to carol: %v", err)
-	}
 
 	assertAddrs := func(addrsFound []string, targetAddrs ...string) {
 		addrs := make(map[string]struct{}, len(addrsFound))
@@ -9386,6 +9390,9 @@ func testNodeAnnouncement(net *lntest.NetworkHarness, t *harnessTest) {
 		}
 	}
 
+	// We'll then wait for Alice to receive Dave's node announcement
+	// including the expected advertised addresses from Bob since they
+	// should already be connected.
 	waitForAddrsInUpdate(
 		aliceSub, dave.PubKeyStr, advertisedAddrs...,
 	)

@@ -26,6 +26,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/htlcswitch/hodl"
+	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -4309,7 +4310,7 @@ func generateHtlcAndInvoice(t *testing.T,
 	htlcExpiry := testStartingHeight + testInvoiceCltvExpiry
 	hops := []ForwardingInfo{
 		{
-			Network:         BitcoinHop,
+			Network:         hop.BitcoinNetwork,
 			NextHop:         exitHop,
 			AmountToForward: htlcAmt,
 			OutgoingCTLV:    uint32(htlcExpiry),

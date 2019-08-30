@@ -8,38 +8,11 @@ import (
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/lightningnetwork/lightning-onion"
+	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/tlv"
 )
-
-// NetworkHop indicates the blockchain network that is intended to be the next
-// hop for a forwarded HTLC. The existence of this field within the
-// ForwardingInfo struct enables the ability for HTLC to cross chain-boundaries
-// at will.
-type NetworkHop uint8
-
-const (
-	// BitcoinHop denotes that an HTLC is to be forwarded along the Bitcoin
-	// link with the specified short channel ID.
-	BitcoinHop NetworkHop = iota
-
-	// LitecoinHop denotes that an HTLC is to be forwarded along the
-	// Litecoin link with the specified short channel ID.
-	LitecoinHop
-)
-
-// String returns the string representation of the target NetworkHop.
-func (c NetworkHop) String() string {
-	switch c {
-	case BitcoinHop:
-		return "Bitcoin"
-	case LitecoinHop:
-		return "Litecoin"
-	default:
-		return "Kekcoin"
-	}
-}
 
 var (
 	// exitHop is a special "hop" which denotes that an incoming HTLC is
@@ -59,7 +32,7 @@ var (
 type ForwardingInfo struct {
 	// Network is the target blockchain network that the HTLC will travel
 	// over next.
-	Network NetworkHop
+	Network hop.Network
 
 	// NextHop is the channel ID of the next hop. The received HTLC should
 	// be forwarded to this particular channel in order to continue the
@@ -199,7 +172,7 @@ func (r *sphinxHopIterator) ForwardingInstructions() (ForwardingInfo, error) {
 	}
 
 	return ForwardingInfo{
-		Network:         BitcoinHop,
+		Network:         hop.BitcoinNetwork,
 		NextHop:         nextHop,
 		AmountToForward: lnwire.MilliSatoshi(amt),
 		OutgoingCTLV:    cltv,

@@ -25,6 +25,7 @@ import (
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
+	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnpeer"
@@ -680,7 +681,7 @@ func generateHops(payAmt lnwire.MilliSatoshi, startingHeight uint32,
 		}
 
 		hops[i] = ForwardingInfo{
-			Network:         BitcoinHop,
+			Network:         hop.BitcoinNetwork,
 			NextHop:         nextHop,
 			AmountToForward: amount,
 			OutgoingCTLV:    timeLock,

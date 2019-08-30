@@ -23,6 +23,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
+	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lnpeer"
@@ -485,7 +486,7 @@ func (f *ForwardingInfo) decode(r io.Reader) error {
 	if _, err := r.Read(net[:]); err != nil {
 		return err
 	}
-	f.Network = NetworkHop(net[0])
+	f.Network = hop.Network(net[0])
 
 	if err := binary.Read(r, binary.BigEndian, &f.NextHop); err != nil {
 		return err

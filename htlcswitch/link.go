@@ -2156,31 +2156,16 @@ func (l *channelLink) AttachMailBox(mailbox MailBox) {
 
 // UpdateForwardingPolicy updates the forwarding policy for the target
 // ChannelLink. Once updated, the link will use the new forwarding policy to
-// govern if it an incoming HTLC should be forwarded or not. Note that this
-// processing of the new policy will ensure that uninitialized fields in the
-// passed policy won't override already initialized fields in the current
-// policy.
+// govern if it an incoming HTLC should be forwarded or not. We assume that
+// fields that are zero are intentionally set to zero, so we'll use newPolicy to
+// update all of the link's FwrdingPolicy's values.
 //
 // NOTE: Part of the ChannelLink interface.
 func (l *channelLink) UpdateForwardingPolicy(newPolicy ForwardingPolicy) {
 	l.Lock()
 	defer l.Unlock()
 
-	// In order to avoid overriding a valid policy with a "null" field in
-	// the new policy, we'll only update to the set sub policy if the new
-	// value isn't uninitialized.
-	if newPolicy.BaseFee != 0 {
-		l.cfg.FwrdingPolicy.BaseFee = newPolicy.BaseFee
-	}
-	if newPolicy.FeeRate != 0 {
-		l.cfg.FwrdingPolicy.FeeRate = newPolicy.FeeRate
-	}
-	if newPolicy.TimeLockDelta != 0 {
-		l.cfg.FwrdingPolicy.TimeLockDelta = newPolicy.TimeLockDelta
-	}
-	if newPolicy.MinHTLC != 0 {
-		l.cfg.FwrdingPolicy.MinHTLC = newPolicy.MinHTLC
-	}
+	l.cfg.FwrdingPolicy = newPolicy
 }
 
 // HtlcSatifiesPolicy should return a nil error if the passed HTLC details

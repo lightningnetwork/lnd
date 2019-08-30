@@ -3391,8 +3391,14 @@ func TestPropagateChanPolicyUpdate(t *testing.T) {
 	// the channel ann proof from the first channel in order to have it be
 	// marked as private channel.
 	firstChanID := channelsToAnnounce[0].localChanAnn.ShortChannelID
-	for _, batch := range channelsToAnnounce {
-		sendLocalMsg(t, ctx, batch.localChanAnn, localKey)
+	for i, batch := range channelsToAnnounce {
+		// channelPoint ensures that each channel policy in the map
+		// returned by PropagateChanPolicyUpdate has a unique key. Since
+		// the map is keyed by wire.OutPoint, we want to ensure that
+		// each channel has a unique channel point.
+		channelPoint := ChannelPoint(wire.OutPoint{Index: uint32(i)})
+
+		sendLocalMsg(t, ctx, batch.localChanAnn, localKey, channelPoint)
 		sendLocalMsg(t, ctx, batch.chanUpdAnn1, localKey)
 		sendLocalMsg(t, ctx, batch.nodeAnn1, localKey)
 
@@ -3430,9 +3436,17 @@ out:
 	newPolicy := routing.ChannelPolicy{
 		TimeLockDelta: newTimeLockDelta,
 	}
-	err = ctx.gossiper.PropagateChanPolicyUpdate(newPolicy)
+	newChanPolicies, err := ctx.gossiper.PropagateChanPolicyUpdate(newPolicy)
 	if err != nil {
 		t.Fatalf("unable to chan policies: %v", err)
+	}
+
+	// Ensure that the updated channel policies are as expected.
+	for _, dbPolicy := range newChanPolicies {
+		if dbPolicy.TimeLockDelta != uint16(newPolicy.TimeLockDelta) {
+			t.Fatalf("wrong delta: expected %v, got %v",
+				newPolicy.TimeLockDelta, dbPolicy.TimeLockDelta)
+		}
 	}
 
 	// Two channel updates should now be broadcast, with neither of them

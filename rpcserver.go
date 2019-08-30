@@ -4550,6 +4550,12 @@ func (r *rpcServer) FeeReport(ctx context.Context,
 // 0.000001, or 0.0001%.
 const minFeeRate = 1e-6
 
+// policyUpdateLock ensures that the database and the link do not fall out of
+// sync if there are concurrent fee update calls. Without it, there is a chance
+// that policy A updates the database, then policy B updates the database, then
+// policy B updates the link, then policy A updates the link.
+var policyUpdateLock sync.Mutex
+
 // UpdateChannelPolicy allows the caller to update the channel forwarding policy
 // for all channels globally, or a particular channel.
 func (r *rpcServer) UpdateChannelPolicy(ctx context.Context,
@@ -4617,30 +4623,18 @@ func (r *rpcServer) UpdateChannelPolicy(ctx context.Context,
 	// With the scope resolved, we'll now send this to the
 	// AuthenticatedGossiper so it can propagate the new policy for our
 	// target channel(s).
-	err := r.server.authGossiper.PropagateChanPolicyUpdate(
+	policyUpdateLock.Lock()
+	defer policyUpdateLock.Unlock()
+	chanPolicies, err := r.server.authGossiper.PropagateChanPolicyUpdate(
 		chanPolicy, targetChans...,
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	// Finally, we'll apply the set of active links amongst the target
-	// channels.
-	//
-	// We create a partially policy as the logic won't overwrite a valid
-	// sub-policy with a "nil" one.
-	p := htlcswitch.ForwardingPolicy{
-		BaseFee:       baseFeeMsat,
-		FeeRate:       lnwire.MilliSatoshi(feeRateFixed),
-		TimeLockDelta: req.TimeLockDelta,
-	}
-	err = r.server.htlcSwitch.UpdateForwardingPolicies(p, targetChans...)
-	if err != nil {
-		// If we're unable update the fees due to the links not being
-		// online, then we don't need to fail the call. We'll simply
-		// log the failure.
-		rpcsLog.Warnf("Unable to update link fees: %v", err)
-	}
+	// Finally, we'll apply the set of channel policies to the target
+	// channels' links.
+	r.server.htlcSwitch.UpdateForwardingPolicies(chanPolicies)
 
 	return &lnrpc.PolicyUpdateResponse{}, nil
 }

@@ -439,60 +439,51 @@ func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID, paymentID uint64,
 }
 
 // UpdateForwardingPolicies sends a message to the switch to update the
-// forwarding policies for the set of target channels. If the set of targeted
-// channels is nil, then the forwarding policies for all active channels with
-// be updated.
+// forwarding policies for the set of target channels, keyed in chanPolicies.
 //
 // NOTE: This function is synchronous and will block until either the
 // forwarding policies for all links have been updated, or the switch shuts
 // down.
-func (s *Switch) UpdateForwardingPolicies(newPolicy ForwardingPolicy,
-	targetChans ...wire.OutPoint) error {
+func (s *Switch) UpdateForwardingPolicies(
+	chanPolicies map[wire.OutPoint]*channeldb.ChannelEdgePolicy) {
 
-	log.Debugf("Updating link policies: %v", newLogClosure(func() string {
-		return spew.Sdump(newPolicy)
+	log.Tracef("Updating link policies: %v", newLogClosure(func() string {
+		return spew.Sdump(chanPolicies)
 	}))
-
-	var linksToUpdate []ChannelLink
 
 	s.indexMtx.RLock()
 
-	// If no channels have been targeted, then we'll collect all inks to
-	// update their policies.
-	if len(targetChans) == 0 {
-		for _, link := range s.linkIndex {
-			linksToUpdate = append(linksToUpdate, link)
+	// Update each link in chanPolicies.
+	for targetLink := range chanPolicies {
+		cid := lnwire.NewChanIDFromOutPoint(&targetLink)
+
+		link, ok := s.linkIndex[cid]
+		if !ok {
+			log.Debugf("Unable to find ChannelPoint(%v) to update "+
+				"link policy", targetLink)
+			continue
 		}
-	} else {
-		// Otherwise, we'll only attempt to update the forwarding
-		// policies for the set of targeted links.
-		for _, targetLink := range targetChans {
-			cid := lnwire.NewChanIDFromOutPoint(&targetLink)
 
-			// If we can't locate a link by its converted channel
-			// ID, then we'll return an error back to the caller.
-			link, ok := s.linkIndex[cid]
-			if !ok {
-				s.indexMtx.RUnlock()
-
-				return fmt.Errorf("unable to find "+
-					"ChannelPoint(%v) to update link "+
-					"policy", targetLink)
-			}
-
-			linksToUpdate = append(linksToUpdate, link)
-		}
-	}
-
-	s.indexMtx.RUnlock()
-
-	// With all the links we need to update collected, we can release the
-	// mutex then update each link directly.
-	for _, link := range linksToUpdate {
+		newPolicy := dbPolicyToFwdingPolicy(
+			chanPolicies[*link.ChannelPoint()],
+		)
 		link.UpdateForwardingPolicy(newPolicy)
 	}
 
-	return nil
+	s.indexMtx.RUnlock()
+}
+
+// dbPolicyToFwdingPolicy is a helper function that converts a channeldb
+// ChannelEdgePolicy into a ForwardingPolicy struct for the purpose of updating
+// the forwarding policy of a link.
+func dbPolicyToFwdingPolicy(policy *channeldb.ChannelEdgePolicy) ForwardingPolicy {
+	return ForwardingPolicy{
+		BaseFee:       policy.FeeBaseMSat,
+		FeeRate:       policy.FeeProportionalMillionths,
+		TimeLockDelta: uint32(policy.TimeLockDelta),
+		MinHTLC:       policy.MinHTLC,
+		MaxHTLC:       policy.MaxHTLC,
+	}
 }
 
 // forward is used in order to find next channel link and apply htlc update.

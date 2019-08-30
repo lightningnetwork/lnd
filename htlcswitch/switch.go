@@ -16,6 +16,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
+	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -354,7 +355,7 @@ func (s *Switch) GetPaymentResult(paymentID uint64, paymentHash lntypes.Hash,
 		nChan  <-chan *networkResult
 		err    error
 		outKey = CircuitKey{
-			ChanID: sourceHop,
+			ChanID: hop.Source,
 			HtlcID: paymentID,
 		}
 	)
@@ -428,7 +429,7 @@ func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID, paymentID uint64,
 	// this stage it means that packet haven't left boundaries of our
 	// system and something wrong happened.
 	packet := &htlcPacket{
-		incomingChanID: sourceHop,
+		incomingChanID: hop.Source,
 		incomingHTLCID: paymentID,
 		outgoingChanID: firstHop,
 		htlc:           htlc,
@@ -513,7 +514,7 @@ func (s *Switch) forward(packet *htlcPacket) error {
 			return ErrDuplicateAdd
 
 		case len(actions.Fails) == 1:
-			if packet.incomingChanID == sourceHop {
+			if packet.incomingChanID == hop.Source {
 				return err
 			}
 
@@ -1031,14 +1032,14 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 	case *lnwire.UpdateAddHTLC:
 		// Check if the node is set to reject all onward HTLCs and also make
 		// sure that HTLC is not from the source node.
-		if s.cfg.RejectHTLC && packet.incomingChanID != sourceHop {
+		if s.cfg.RejectHTLC && packet.incomingChanID != hop.Source {
 			failure := &lnwire.FailChannelDisabled{}
 			addErr := fmt.Errorf("unable to forward any htlcs")
 
 			return s.failAddPacket(packet, failure, addErr)
 		}
 
-		if packet.incomingChanID == sourceHop {
+		if packet.incomingChanID == hop.Source {
 			// A blank incomingChanID indicates that this is
 			// a pending user-initiated payment.
 			return s.handleLocalDispatch(packet)
@@ -1080,7 +1081,7 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 
 			// If the link doesn't yet have a source chan ID, then
 			// we'll skip it as well.
-			case link.ShortChanID() == sourceHop:
+			case link.ShortChanID() == hop.Source:
 				continue
 			}
 
@@ -1222,7 +1223,7 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 			//
 			// TODO(roasbeef): only do this once link actually
 			// fully settles?
-			localHTLC := packet.incomingChanID == sourceHop
+			localHTLC := packet.incomingChanID == hop.Source
 			if !localHTLC {
 				s.fwdEventMtx.Lock()
 				s.pendingFwdingEvents = append(
@@ -1241,7 +1242,7 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 
 		// A blank IncomingChanID in a circuit indicates that it is a pending
 		// user-initiated payment.
-		if packet.incomingChanID == sourceHop {
+		if packet.incomingChanID == hop.Source {
 			return s.handleLocalDispatch(packet)
 		}
 
@@ -1798,7 +1799,7 @@ func (s *Switch) reforwardResponses() error {
 		shortChanID := openChannel.ShortChanID()
 
 		// Locally-initiated payments never need reforwarding.
-		if shortChanID == sourceHop {
+		if shortChanID == hop.Source {
 			continue
 		}
 
@@ -1994,7 +1995,7 @@ func (s *Switch) AddLink(link ChannelLink) error {
 	}
 
 	shortChanID := link.ShortChanID()
-	if shortChanID == sourceHop {
+	if shortChanID == hop.Source {
 		log.Infof("Adding pending link chan_id=%v, short_chan_id=%v",
 			chanID, shortChanID)
 
@@ -2157,7 +2158,7 @@ func (s *Switch) UpdateShortChanID(chanID lnwire.ChannelID) error {
 	}
 
 	// Reject any blank short channel ids.
-	if shortChanID == sourceHop {
+	if shortChanID == hop.Source {
 		return fmt.Errorf("refusing trivial short_chan_id for chan_id=%v"+
 			"live link", chanID)
 	}

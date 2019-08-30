@@ -14,16 +14,6 @@ import (
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
-var (
-	// exitHop is a special "hop" which denotes that an incoming HTLC is
-	// meant to pay finally to the receiving node.
-	exitHop lnwire.ShortChannelID
-
-	// sourceHop is a sentinel value denoting that an incoming HTLC is
-	// initiated by our own switch.
-	sourceHop lnwire.ShortChannelID
-)
-
 // HopIterator is an interface that abstracts away the routing information
 // included in HTLC's which includes the entirety of the payment path of an
 // HTLC. This interface provides two basic method which carry out: how to
@@ -109,7 +99,7 @@ func (r *sphinxHopIterator) ForwardingInstructions() (
 
 		switch r.processedPacket.Action {
 		case sphinx.ExitNode:
-			nextHop = exitHop
+			nextHop = hop.Exit
 		case sphinx.MoreHops:
 			s := binary.BigEndian.Uint64(fwdInst.NextAddress[:])
 			nextHop = lnwire.NewShortChanIDFromInt(s)

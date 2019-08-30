@@ -648,7 +648,7 @@ func generateHops(payAmt lnwire.MilliSatoshi, startingHeight uint32,
 	for i := len(path) - 1; i >= 0; i-- {
 		// If this is the last hop, then the next hop is the special
 		// "exit node". Otherwise, we look to the "prior" hop.
-		nextHop := exitHop
+		nextHop := hop.Exit
 		if i != len(path)-1 {
 			nextHop = path[i+1].channel.ShortChanID()
 		}

@@ -742,7 +742,7 @@ func (d *DB) UpdateInvoice(paymentHash lntypes.Hash,
 			return ErrInvoiceNotFound
 		}
 
-		updatedInvoice, err = updateInvoice(
+		updatedInvoice, err = d.updateInvoice(
 			paymentHash, invoices, settleIndex, invoiceNum,
 			callback,
 		)
@@ -1176,7 +1176,7 @@ func copyInvoice(src *Invoice) *Invoice {
 
 // updateInvoice fetches the invoice, obtains the update descriptor from the
 // callback and applies the updates in a single db transaction.
-func updateInvoice(hash lntypes.Hash, invoices, settleIndex *bbolt.Bucket,
+func (d *DB) updateInvoice(hash lntypes.Hash, invoices, settleIndex *bbolt.Bucket,
 	invoiceNum []byte, callback InvoiceUpdateCallback) (*Invoice, error) {
 
 	invoice, err := fetchInvoice(invoiceNum, invoices)
@@ -1210,7 +1210,9 @@ func updateInvoice(hash lntypes.Hash, invoices, settleIndex *bbolt.Bucket,
 		}
 		invoice.Terms.PaymentPreimage = update.Preimage
 
-		err := setSettleFields(settleIndex, invoiceNum, &invoice)
+		err := setSettleFields(
+			settleIndex, invoiceNum, &invoice, d.now(),
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -1229,7 +1231,7 @@ func updateInvoice(hash lntypes.Hash, invoices, settleIndex *bbolt.Bucket,
 }
 
 func setSettleFields(settleIndex *bbolt.Bucket, invoiceNum []byte,
-	invoice *Invoice) error {
+	invoice *Invoice, now time.Time) error {
 
 	// Now that we know the invoice hasn't already been settled, we'll
 	// update the settle index so we can place this settle event in the
@@ -1246,7 +1248,7 @@ func setSettleFields(settleIndex *bbolt.Bucket, invoiceNum []byte,
 	}
 
 	invoice.Terms.State = ContractSettled
-	invoice.SettleDate = time.Now()
+	invoice.SettleDate = now
 	invoice.SettleIndex = nextSettleSeqNo
 
 	return nil

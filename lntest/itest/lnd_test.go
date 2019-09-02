@@ -8853,7 +8853,6 @@ func testRejectHTLC(net *lntest.NetworkHarness, t *harnessTest) {
 	//
 	const chanAmt = btcutil.Amount(1000000)
 	ctxb := context.Background()
-	timeout := time.Duration(time.Second * 5)
 
 	// Create Carol with reject htlc flag.
 	carol, err := net.NewNode("Carol", []string{"--rejecthtlc"})
@@ -8885,7 +8884,7 @@ func testRejectHTLC(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// Open a channel between Alice and Carol.
-	ctxt, _ := context.WithTimeout(ctxb, timeout)
+	ctxt, _ := context.WithTimeout(ctxb, channelOpenTimeout)
 	chanPointAlice := openChannelAndAssert(
 		ctxt, t, net, net.Alice, carol,
 		lntest.OpenChannelParams{
@@ -8894,7 +8893,7 @@ func testRejectHTLC(net *lntest.NetworkHarness, t *harnessTest) {
 	)
 
 	// Open a channel between Carol and Bob.
-	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
 	chanPointCarol := openChannelAndAssert(
 		ctxt, t, net, carol, net.Bob,
 		lntest.OpenChannelParams{
@@ -8934,7 +8933,7 @@ func testRejectHTLC(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// Alice pays Carols invoice.
-	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	err = completePaymentRequests(
 		ctxt, net.Alice, []string{resp.PaymentRequest}, true,
 	)
@@ -8959,7 +8958,7 @@ func testRejectHTLC(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// Carol pays Bobs invoice.
-	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	err = completePaymentRequests(
 		ctxt, carol, []string{resp.PaymentRequest}, true,
 	)
@@ -8987,7 +8986,7 @@ func testRejectHTLC(net *lntest.NetworkHarness, t *harnessTest) {
 	// Alice attempts to pay Bobs invoice. This payment should be rejected since
 	// we are using Carol as an intermediary hop, Carol is running lnd with
 	// --rejecthtlc.
-	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	err = completePaymentRequests(
 		ctxt, net.Alice, []string{resp.PaymentRequest}, true,
 	)
@@ -9001,9 +9000,9 @@ func testRejectHTLC(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// Close all channels.
-	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
 	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPointAlice, false)
-	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
 	closeChannelAndAssert(ctxt, t, net, carol, chanPointCarol, false)
 }
 

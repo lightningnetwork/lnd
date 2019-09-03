@@ -49,6 +49,9 @@ const (
 	prevSuccessProbability = 0.95
 )
 
+// NodeResults contains previous results from a node to its peers.
+type NodeResults map[route.Vertex]timedPairResult
+
 // MissionControl contains state which summarizes the past attempts of HTLC
 // routing by external callers when sending payments throughout the network. It
 // acts as a shared memory during routing attempts with the goal to optimize the
@@ -59,8 +62,11 @@ const (
 // since the last failure is used to estimate a success probability that is fed
 // into the path finding process for subsequent payment attempts.
 type MissionControl struct {
-	// lastPairResult tracks the last payment result per node pair.
-	lastPairResult map[DirectedNodePair]timedPairResult
+	// lastPairResult tracks the last payment result (on a pair basis) for
+	// each transited node. This is a multi-layer map that allows us to look
+	// up the failure history of all connected channels (node pairs) for a
+	// particular node.
+	lastPairResult map[route.Vertex]NodeResults
 
 	// lastNodeFailure tracks the last node level failure per node.
 	lastNodeFailure map[route.Vertex]time.Time
@@ -180,7 +186,7 @@ func NewMissionControl(db *bbolt.DB, cfg *MissionControlConfig) (
 	}
 
 	mc := &MissionControl{
-		lastPairResult:   make(map[DirectedNodePair]timedPairResult),
+		lastPairResult:   make(map[route.Vertex]NodeResults),
 		lastNodeFailure:  make(map[route.Vertex]time.Time),
 		lastSecondChance: make(map[DirectedNodePair]time.Time),
 		now:              time.Now,
@@ -226,7 +232,7 @@ func (m *MissionControl) ResetHistory() error {
 		return err
 	}
 
-	m.lastPairResult = make(map[DirectedNodePair]timedPairResult)
+	m.lastPairResult = make(map[route.Vertex]NodeResults)
 	m.lastNodeFailure = make(map[route.Vertex]time.Time)
 	m.lastSecondChance = make(map[DirectedNodePair]time.Time)
 
@@ -264,6 +270,36 @@ func (m *MissionControl) getProbAfterFail(lastFailure time.Time) float64 {
 	return probability
 }
 
+// getLastPairResult gets the last recorded result for a node pair.
+func (m *MissionControl) getLastPairResult(fromNode,
+	toNode route.Vertex) *timedPairResult {
+
+	nodePairs, ok := m.lastPairResult[fromNode]
+	if !ok {
+		return nil
+	}
+
+	lastResult, ok := nodePairs[toNode]
+	if !ok {
+		return nil
+	}
+
+	return &lastResult
+}
+
+// setLastPairResult stores a result for a node pair.
+func (m *MissionControl) setLastPairResult(fromNode,
+	toNode route.Vertex, result *timedPairResult) {
+
+	nodePairs, ok := m.lastPairResult[fromNode]
+	if !ok {
+		nodePairs = make(NodeResults)
+		m.lastPairResult[fromNode] = nodePairs
+	}
+
+	nodePairs[toNode] = *result
+}
+
 // getPairProbability estimates the probability of successfully
 // traversing from fromNode to toNode based on historical payment outcomes.
 func (m *MissionControl) getPairProbability(fromNode,
@@ -276,13 +312,12 @@ func (m *MissionControl) getPairProbability(fromNode,
 	lastFail := m.lastNodeFailure[fromNode]
 
 	// Retrieve the last pair outcome.
-	pair := NewDirectedNodePair(fromNode, toNode)
-	lastPairResult, ok := m.lastPairResult[pair]
+	lastPairResult := m.getLastPairResult(fromNode, toNode)
 
 	// Only look at the last pair outcome if it happened after the last node
 	// level failure. Otherwise the node level failure is the most recent
 	// and used as the basis for calculation of the probability.
-	if ok && lastPairResult.timestamp.After(lastFail) {
+	if lastPairResult != nil && lastPairResult.timestamp.After(lastFail) {
 		if lastPairResult.success {
 			return prevSuccessProbability
 		}
@@ -355,20 +390,26 @@ func (m *MissionControl) GetHistorySnapshot() *MissionControlSnapshot {
 
 	pairs := make([]MissionControlPairSnapshot, 0, len(m.lastPairResult))
 
-	for v, h := range m.lastPairResult {
-		// Show probability assuming amount meets min
-		// penalization amount.
-		prob := m.getPairProbability(v.From, v.To, h.minPenalizeAmt)
+	for fromNode, fromPairs := range m.lastPairResult {
+		for toNode, result := range fromPairs {
+			// Show probability assuming amount meets min
+			// penalization amount.
+			prob := m.getPairProbability(
+				fromNode, toNode, result.minPenalizeAmt,
+			)
 
-		pair := MissionControlPairSnapshot{
-			Pair:                  v,
-			MinPenalizeAmt:        h.minPenalizeAmt,
-			Timestamp:             h.timestamp,
-			SuccessProb:           prob,
-			LastAttemptSuccessful: h.success,
+			pair := NewDirectedNodePair(fromNode, toNode)
+
+			pairSnapshot := MissionControlPairSnapshot{
+				Pair:                  pair,
+				MinPenalizeAmt:        result.minPenalizeAmt,
+				Timestamp:             result.timestamp,
+				SuccessProb:           prob,
+				LastAttemptSuccessful: result.success,
+			}
+
+			pairs = append(pairs, pairSnapshot)
 		}
-
-		pairs = append(pairs, pair)
 	}
 
 	snapshot := MissionControlSnapshot{
@@ -480,10 +521,10 @@ func (m *MissionControl) applyPaymentResult(
 				pair, pairResult.minPenalizeAmt)
 		}
 
-		m.lastPairResult[pair] = timedPairResult{
+		m.setLastPairResult(pair.From, pair.To, &timedPairResult{
 			timestamp:  result.timeReply,
 			pairResult: pairResult,
-		}
+		})
 	}
 
 	return i.finalFailureReason

@@ -380,6 +380,9 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 
 	registryConfig := invoices.RegistryConfig{
 		FinalCltvRejectDelta: defaultFinalCltvRejectDelta,
+		HtlcHoldDuration:     invoices.DefaultHtlcHoldDuration,
+		Now:                  time.Now,
+		TickAfter:            time.After,
 	}
 
 	s := &server{

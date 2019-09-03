@@ -2854,6 +2854,11 @@
             "format": "byte"
           },
           "description": "/ Custom tlv records."
+        },
+        "mpp_total_amt_msat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "/ The total amount of the mpp payment in msat."
         }
       },
       "title": "/ Details of an HTLC that paid to an invoice"

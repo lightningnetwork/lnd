@@ -117,6 +117,7 @@ const (
 	resolveTimeType  tlv.Type = 11
 	expiryHeightType tlv.Type = 13
 	htlcStateType    tlv.Type = 15
+	mppTotalAmtType  tlv.Type = 17
 
 	// A set of tlv type definitions used to serialize invoice bodiees.
 	//
@@ -289,6 +290,10 @@ type InvoiceHTLC struct {
 	// Amt is the amount that is carried by this htlc.
 	Amt lnwire.MilliSatoshi
 
+	// MppTotalAmt is a field for mpp that indicates the expected total
+	// amount.
+	MppTotalAmt lnwire.MilliSatoshi
+
 	// AcceptHeight is the block height at which the invoice registry
 	// decided to accept this htlc as a payment to the invoice. At this
 	// height, the invoice cltv delay must have been met.
@@ -322,6 +327,10 @@ type HtlcAcceptDesc struct {
 
 	// Amt is the amount that is carried by this htlc.
 	Amt lnwire.MilliSatoshi
+
+	// MppTotalAmt is a field for mpp that indicates the expected total
+	// amount.
+	MppTotalAmt lnwire.MilliSatoshi
 
 	// Expiry is the expiry height of this htlc.
 	Expiry uint32
@@ -1018,6 +1027,7 @@ func serializeHtlcs(w io.Writer, htlcs map[CircuitKey]*InvoiceHTLC) error {
 		// Encode the htlc in a tlv stream.
 		chanID := key.ChanID.ToUint64()
 		amt := uint64(htlc.Amt)
+		mppTotalAmt := uint64(htlc.MppTotalAmt)
 		acceptTime := uint64(htlc.AcceptTime.UnixNano())
 		resolveTime := uint64(htlc.ResolveTime.UnixNano())
 		state := uint8(htlc.State)
@@ -1034,6 +1044,7 @@ func serializeHtlcs(w io.Writer, htlcs map[CircuitKey]*InvoiceHTLC) error {
 			tlv.MakePrimitiveRecord(resolveTimeType, &resolveTime),
 			tlv.MakePrimitiveRecord(expiryHeightType, &htlc.Expiry),
 			tlv.MakePrimitiveRecord(htlcStateType, &state),
+			tlv.MakePrimitiveRecord(mppTotalAmtType, &mppTotalAmt),
 		)
 
 		// Convert the custom records to tlv.Record types that are ready
@@ -1193,7 +1204,7 @@ func deserializeHtlcs(r io.Reader) (map[CircuitKey]*InvoiceHTLC, error) {
 			chanID                  uint64
 			state                   uint8
 			acceptTime, resolveTime uint64
-			amt                     uint64
+			amt, mppTotalAmt        uint64
 		)
 		tlvStream, err := tlv.NewStream(
 			tlv.MakePrimitiveRecord(chanIDType, &chanID),
@@ -1206,6 +1217,7 @@ func deserializeHtlcs(r io.Reader) (map[CircuitKey]*InvoiceHTLC, error) {
 			tlv.MakePrimitiveRecord(resolveTimeType, &resolveTime),
 			tlv.MakePrimitiveRecord(expiryHeightType, &htlc.Expiry),
 			tlv.MakePrimitiveRecord(htlcStateType, &state),
+			tlv.MakePrimitiveRecord(mppTotalAmtType, &mppTotalAmt),
 		)
 		if err != nil {
 			return nil, err
@@ -1221,6 +1233,7 @@ func deserializeHtlcs(r io.Reader) (map[CircuitKey]*InvoiceHTLC, error) {
 		htlc.ResolveTime = time.Unix(0, int64(resolveTime))
 		htlc.State = HtlcState(state)
 		htlc.Amt = lnwire.MilliSatoshi(amt)
+		htlc.MppTotalAmt = lnwire.MilliSatoshi(mppTotalAmt)
 
 		// Reconstruct the custom records fields from the parsed types
 		// map return from the tlv parser.
@@ -1324,6 +1337,7 @@ func (d *DB) updateInvoice(hash lntypes.Hash, invoices, settleIndex *bbolt.Bucke
 
 		htlc := &InvoiceHTLC{
 			Amt:           htlcUpdate.Amt,
+			MppTotalAmt:   htlcUpdate.MppTotalAmt,
 			Expiry:        htlcUpdate.Expiry,
 			AcceptHeight:  uint32(htlcUpdate.AcceptHeight),
 			AcceptTime:    now,

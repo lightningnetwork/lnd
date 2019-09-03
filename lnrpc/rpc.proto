@@ -2407,6 +2407,9 @@ message InvoiceHTLC {
 
     /// Custom tlv records.
     map<uint64, bytes> custom_records = 9 [json_name = "custom_records"];
+
+    /// The total amount of the mpp payment in msat.
+    uint64 mpp_total_amt_msat = 10 [json_name = "mpp_total_amt_msat"];
 }
 
 message AddInvoiceResponse {

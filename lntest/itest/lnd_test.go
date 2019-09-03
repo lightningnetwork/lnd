@@ -4712,11 +4712,27 @@ func testSingleHopSendToRouteCase(net *lntest.NetworkHarness, t *harnessTest,
 	}
 
 	// Create invoices for Dave, which expect a payment from Carol.
-	_, rHashes, _, err := createPayReqs(
+	payReqs, rHashes, _, err := createPayReqs(
 		dave, paymentAmtSat, numPayments,
 	)
 	if err != nil {
 		t.Fatalf("unable to create pay reqs: %v", err)
+	}
+
+	// Reconstruct payment addresses.
+	var payAddrs [][]byte
+	for _, payReq := range payReqs {
+		ctx, _ := context.WithTimeout(
+			context.Background(), defaultTimeout,
+		)
+		resp, err := dave.DecodePayReq(
+			ctx,
+			&lnrpc.PayReqString{PayReq: payReq},
+		)
+		if err != nil {
+			t.Fatalf("decode pay req: %v", err)
+		}
+		payAddrs = append(payAddrs, resp.PaymentAddr)
 	}
 
 	// Query for routes to pay from Carol to Dave.
@@ -4741,12 +4757,10 @@ func testSingleHopSendToRouteCase(net *lntest.NetworkHarness, t *harnessTest,
 	// Construct a closure that will set MPP fields on the route, which
 	// allows us to test MPP payments.
 	setMPPFields := func(i int) {
-		addr := [32]byte{byte(i)}
-
 		hop := r.Hops[len(r.Hops)-1]
 		hop.TlvPayload = true
 		hop.MppRecord = &lnrpc.MPPRecord{
-			PaymentAddr:  addr[:],
+			PaymentAddr:  payAddrs[i],
 			TotalAmtMsat: paymentAmtSat * 1000,
 		}
 	}
@@ -4930,8 +4944,8 @@ func testSingleHopSendToRouteCase(net *lntest.NetworkHarness, t *harnessTest,
 					hop.MppRecord.TotalAmtMsat)
 			}
 
-			expAddr := [32]byte{byte(i)}
-			if !bytes.Equal(hop.MppRecord.PaymentAddr, expAddr[:]) {
+			expAddr := payAddrs[i]
+			if !bytes.Equal(hop.MppRecord.PaymentAddr, expAddr) {
 				t.Fatalf("incorrect mpp payment addr for payment %d "+
 					"want: %x, got: %x",
 					i, expAddr, hop.MppRecord.PaymentAddr)

@@ -1704,7 +1704,17 @@ message EdgeLocator {
 }
 
 message QueryRoutesResponse {
+    /**
+    The route that results from the path finding operation. This is still a
+    repeated field to retain backwards compatibility.
+    */
     repeated Route routes = 1 [json_name = "routes"];
+
+    /**
+    The success probability of the returned route based on the current mission
+    control state. [EXPERIMENTAL]
+    */
+    double success_prob = 2 [json_name = "success_prob"];
 }
 
 message Hop {

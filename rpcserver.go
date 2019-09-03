@@ -2356,10 +2356,13 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 		pub := waitingClose.IdentityPub.SerializeCompressed()
 		chanPoint := waitingClose.FundingOutpoint
 		channel := &lnrpc.PendingChannelsResponse_PendingChannel{
-			RemoteNodePub: hex.EncodeToString(pub),
-			ChannelPoint:  chanPoint.String(),
-			Capacity:      int64(waitingClose.Capacity),
-			LocalBalance:  int64(waitingClose.LocalCommitment.LocalBalance.ToSatoshis()),
+			RemoteNodePub:        hex.EncodeToString(pub),
+			ChannelPoint:         chanPoint.String(),
+			Capacity:             int64(waitingClose.Capacity),
+			LocalBalance:         int64(waitingClose.LocalCommitment.LocalBalance.ToSatoshis()),
+			RemoteBalance:        int64(waitingClose.LocalCommitment.RemoteBalance.ToSatoshis()),
+			LocalChanReserveSat:  int64(waitingClose.LocalChanCfg.ChanReserve),
+			RemoteChanReserveSat: int64(waitingClose.RemoteChanCfg.ChanReserve),
 		}
 
 		// A close tx has been broadcasted, all our balance will be in

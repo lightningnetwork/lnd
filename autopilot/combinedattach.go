@@ -78,6 +78,8 @@ func (c *WeightedCombAttachment) NodeScores(g ChannelGraph, chans []Channel,
 	// nodes for the given channel size.
 	var subScores []map[NodeID]*NodeScore
 	for _, h := range c.heuristics {
+		log.Tracef("Getting scores from sub heuristic %v", h.Name())
+
 		s, err := h.NodeScores(
 			g, chans, chanSize, nodes,
 		)
@@ -102,13 +104,23 @@ func (c *WeightedCombAttachment) NodeScores(g ChannelGraph, chans []Channel,
 		for i, h := range c.heuristics {
 			sub, ok := subScores[i][nID]
 			if !ok {
+				log.Tracef("No score given to node %x by sub "+
+					"heuristic %v", nID[:], h.Name())
 				continue
 			}
 			// Use the heuristic's weight factor to determine of
 			// how much weight we should give to this particular
 			// score.
-			score.Score += h.Weight * sub.Score
+			subScore := h.Weight * sub.Score
+			log.Tracef("Giving node %x a sub score of %v "+
+				"(%v * %v) from sub heuristic %v", nID[:],
+				subScore, h.Weight, sub.Score, h.Name())
+
+			score.Score += subScore
 		}
+
+		log.Tracef("Node %x got final combined score %v", nID[:],
+			score.Score)
 
 		switch {
 		// Instead of adding a node with score 0 to the returned set,

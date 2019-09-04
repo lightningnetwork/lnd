@@ -32,6 +32,9 @@ var (
 	mcTestTime  = time.Date(2018, time.January, 9, 14, 00, 00, 0, time.UTC)
 	mcTestNode1 = mcTestRoute.Hops[0].PubKeyBytes
 	mcTestNode2 = mcTestRoute.Hops[1].PubKeyBytes
+
+	testPenaltyHalfLife       = 30 * time.Minute
+	testAprioriHopProbability = 0.8
 )
 
 type mcTestContext struct {
@@ -73,8 +76,8 @@ func (ctx *mcTestContext) restartMc() {
 	mc, err := NewMissionControl(
 		ctx.db,
 		&MissionControlConfig{
-			PenaltyHalfLife:       30 * time.Minute,
-			AprioriHopProbability: 0.8,
+			PenaltyHalfLife:       testPenaltyHalfLife,
+			AprioriHopProbability: testAprioriHopProbability,
 		},
 	)
 	if err != nil {
@@ -142,7 +145,7 @@ func TestMissionControl(t *testing.T) {
 
 	// As we reported with a min penalization amt, a lower amt than reported
 	// should be unaffected.
-	ctx.expectP(500, 0.8)
+	ctx.expectP(500, testAprioriHopProbability)
 
 	// Edge decay started.
 	ctx.now = testTime.Add(30 * time.Minute)
@@ -192,7 +195,7 @@ func TestMissionControlChannelUpdate(t *testing.T) {
 	ctx.reportFailure(
 		0, lnwire.NewFeeInsufficient(0, lnwire.ChannelUpdate{}),
 	)
-	ctx.expectP(0, 0.8)
+	ctx.expectP(0, testAprioriHopProbability)
 
 	// Report another failure for the same channel. We expect it to be
 	// pruned.

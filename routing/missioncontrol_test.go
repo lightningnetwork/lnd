@@ -34,7 +34,8 @@ var (
 	mcTestNode2 = mcTestRoute.Hops[1].PubKeyBytes
 
 	testPenaltyHalfLife       = 30 * time.Minute
-	testAprioriHopProbability = 0.8
+	testAprioriHopProbability = 0.9
+	testAprioriWeight         = 0.5
 )
 
 type mcTestContext struct {
@@ -78,6 +79,7 @@ func (ctx *mcTestContext) restartMc() {
 		&MissionControlConfig{
 			PenaltyHalfLife:       testPenaltyHalfLife,
 			AprioriHopProbability: testAprioriHopProbability,
+			AprioriWeight:         testAprioriWeight,
 		},
 	)
 	if err != nil {
@@ -136,20 +138,23 @@ func TestMissionControl(t *testing.T) {
 
 	testTime := time.Date(2018, time.January, 9, 14, 00, 00, 0, time.UTC)
 
-	// Initial probability is expected to be 1.
-	ctx.expectP(1000, 0.8)
+	// Initial probability is expected to be the a priori.
+	ctx.expectP(1000, testAprioriHopProbability)
 
 	// Expect probability to be zero after reporting the edge as failed.
 	ctx.reportFailure(1000, lnwire.NewTemporaryChannelFailure(nil))
 	ctx.expectP(1000, 0)
 
 	// As we reported with a min penalization amt, a lower amt than reported
-	// should be unaffected.
+	// should return the node probability, which is the a priori
+	// probability.
 	ctx.expectP(500, testAprioriHopProbability)
 
-	// Edge decay started.
+	// Edge decay started. The node probability weighted average should now
+	// have shifted from 1:1 to 1:0.5 -> 60%. The connection probability is
+	// half way through the recovery, so we expect 30% here.
 	ctx.now = testTime.Add(30 * time.Minute)
-	ctx.expectP(1000, 0.4)
+	ctx.expectP(1000, 0.3)
 
 	// Edge fails again, this time without a min penalization amt. The edge
 	// should be penalized regardless of amount.
@@ -159,11 +164,11 @@ func TestMissionControl(t *testing.T) {
 
 	// Edge decay started.
 	ctx.now = testTime.Add(60 * time.Minute)
-	ctx.expectP(1000, 0.4)
+	ctx.expectP(1000, 0.3)
 
 	// Restart mission control to test persistence.
 	ctx.restartMc()
-	ctx.expectP(1000, 0.4)
+	ctx.expectP(1000, 0.3)
 
 	// A node level failure should bring probability of all known channels
 	// back to zero.

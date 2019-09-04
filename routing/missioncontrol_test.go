@@ -165,8 +165,8 @@ func TestMissionControl(t *testing.T) {
 	ctx.restartMc()
 	ctx.expectP(1000, 0.4)
 
-	// A node level failure should bring probability of every channel back
-	// to zero.
+	// A node level failure should bring probability of all known channels
+	// back to zero.
 	ctx.reportFailure(0, lnwire.NewExpiryTooSoon(lnwire.ChannelUpdate{}))
 	ctx.expectP(1000, 0)
 
@@ -177,8 +177,8 @@ func TestMissionControl(t *testing.T) {
 			len(history.Nodes))
 	}
 
-	if len(history.Pairs) != 2 {
-		t.Fatalf("expected 2 pairs, but got %v", len(history.Pairs))
+	if len(history.Pairs) != 3 {
+		t.Fatalf("expected 3 pairs, but got %v", len(history.Pairs))
 	}
 
 	// Test reporting a success.

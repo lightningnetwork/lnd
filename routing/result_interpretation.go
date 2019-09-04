@@ -378,10 +378,30 @@ func (i *interpretedResult) processPaymentOutcomeUnknown(route *route.Route) {
 	i.failPairRange(route, 0, n-1)
 }
 
-// failNode marks the node indicated by idx in the route as failed. This
-// function intentionally panics when the self node is failed.
+// failNode marks the node indicated by idx in the route as failed. It also
+// marks the incoming and outgoing channels of the node as failed. This function
+// intentionally panics when the self node is failed.
 func (i *interpretedResult) failNode(rt *route.Route, idx int) {
+	// Mark the node as failing.
 	i.nodeFailure = &rt.Hops[idx-1].PubKeyBytes
+
+	// Mark the incoming connection as failed for the node. We intent to
+	// penalize as much as we can for a node level failure, including future
+	// outgoing traffic for this connection. The pair as it is returned by
+	// getPair is directed towards the failed node. Therefore we first
+	// reverse the pair. We don't want to affect the score of the node
+	// sending towards the failing node.
+	incomingChannelIdx := idx - 1
+	inPair, _ := getPair(rt, incomingChannelIdx)
+	i.pairResults[inPair.Reverse()] = failPairResult(0)
+
+	// If not the ultimate node, mark the outgoing connection as failed for
+	// the node.
+	if idx < len(rt.Hops) {
+		outgoingChannelIdx := idx
+		outPair, _ := getPair(rt, outgoingChannelIdx)
+		i.pairResults[outPair] = failPairResult(0)
+	}
 }
 
 // failPairRange marks the node pairs from node fromIdx to node toIdx as failed

@@ -146,6 +146,10 @@ var resultTestCases = []resultTestCase{
 
 		expectedResult: &interpretedResult{
 			nodeFailure: &hops[1],
+			pairResults: map[DirectedNodePair]pairResult{
+				getTestPair(1, 0): failPairResult(0),
+				getTestPair(1, 2): failPairResult(0),
+			},
 		},
 	},
 
@@ -160,6 +164,9 @@ var resultTestCases = []resultTestCase{
 		expectedResult: &interpretedResult{
 			finalFailureReason: &reasonError,
 			nodeFailure:        &hops[1],
+			pairResults: map[DirectedNodePair]pairResult{
+				getTestPair(1, 0): failPairResult(0),
+			},
 		},
 	},
 }

@@ -260,14 +260,23 @@ func (m *MissionControl) getProbAfterFail(lastFailure time.Time) float64 {
 
 	timeSinceLastFailure := m.now().Sub(lastFailure)
 
-	// Calculate success probability. It is an exponential curve that brings
-	// the probability down to zero when a failure occurs. From there it
-	// recovers asymptotically back to the a priori probability. The rate at
-	// which this happens is controlled by the penaltyHalfLife parameter.
-	exp := -timeSinceLastFailure.Hours() / m.cfg.PenaltyHalfLife.Hours()
-	probability := m.cfg.AprioriHopProbability * (1 - math.Pow(2, exp))
+	// Calculate success probability based on the weight of the last
+	// failure. When the failure is fresh, its weight is 1 and we'll return
+	// probability 0. Over time the probability recovers to the a priori
+	// probability.
+	weight := m.getWeight(timeSinceLastFailure)
+	probability := m.cfg.AprioriHopProbability * (1 - weight)
 
 	return probability
+}
+
+// getWeight calculates a weight in the range [0, 1] that should be assigned to
+// a payment result. Weight follows an exponential curve that starts at 1 when
+// the result is fresh and asymptotically approaches zero over time. The rate at
+// which this happens is controlled by the penaltyHalfLife parameter.
+func (m *MissionControl) getWeight(age time.Duration) float64 {
+	exp := -age.Hours() / m.cfg.PenaltyHalfLife.Hours()
+	return math.Pow(2, exp)
 }
 
 // getLastPairResult gets the last recorded result for a node pair.

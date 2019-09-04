@@ -59,5 +59,6 @@ exec lnd \
     "--$BACKEND.rpchost"="blockchain" \
     "--$BACKEND.rpcuser"="$RPCUSER" \
     "--$BACKEND.rpcpass"="$RPCPASS" \
+    "--rpclisten=0.0.0.0:10009" \
     --debuglevel="$DEBUG" \
     "$@"

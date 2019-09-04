@@ -53,7 +53,7 @@ func NewPayloadFromReader(r io.Reader) (*Payload, error) {
 		return nil, err
 	}
 
-	err = tlvStream.Decode(r)
+	_, err = tlvStream.DecodeWithParsedTypes(r)
 	if err != nil {
 		return nil, err
 	}

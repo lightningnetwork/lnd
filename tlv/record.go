@@ -12,6 +12,9 @@ import (
 // Type is an 64-bit identifier for a TLV Record.
 type Type uint64
 
+// TypeSet is an unordered set of Types.
+type TypeSet map[Type]struct{}
+
 // Encoder is a signature for methods that can encode TLV values. An error
 // should be returned if the Encoder cannot support the underlying type of val.
 // The provided scratch buffer must be non-nil.

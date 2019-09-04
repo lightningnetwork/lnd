@@ -108,8 +108,17 @@ func (h *Hop) PackHopPayload(w io.Writer, nextChanID uint64) error {
 	combinedRecords := append(h.TLVRecords,
 		record.NewAmtToFwdRecord(&amt),
 		record.NewLockTimeRecord(&h.OutgoingTimeLock),
-		record.NewNextHopIDRecord(&nextChanID),
 	)
+
+	// BOLT 04 says the next_hop_id should be omitted for the final hop,
+	// but present for all others.
+	//
+	// TODO(conner): test using hop.Exit once available
+	if nextChanID != 0 {
+		combinedRecords = append(combinedRecords,
+			record.NewNextHopIDRecord(&nextChanID),
+		)
+	}
 
 	// To ensure we produce a canonical stream, we'll sort the records
 	// before encoding them as a stream in the hop payload.

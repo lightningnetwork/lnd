@@ -3163,7 +3163,13 @@
           "type": "array",
           "items": {
             "$ref": "#/definitions/lnrpcRoute"
-          }
+          },
+          "description": "*\nThe route that results from the path finding operation. This is still a\nrepeated field to retain backwards compatibility."
+        },
+        "success_prob": {
+          "type": "number",
+          "format": "double",
+          "title": "*\nThe success probability of the returned route based on the current mission\ncontrol state. [EXPERIMENTAL]"
         }
       }
     },

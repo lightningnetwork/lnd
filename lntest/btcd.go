@@ -35,6 +35,10 @@ type BtcdBackendConfig struct {
 	minerAddr string
 }
 
+// A compile time assertion to ensure BtcdBackendConfig meets the BackendConfig
+// interface.
+var _ BackendConfig = (*BtcdBackendConfig)(nil)
+
 // GenArgs returns the arguments needed to be passed to LND at startup for
 // using this node as a chain backend.
 func (b BtcdBackendConfig) GenArgs() []string {
@@ -67,7 +71,9 @@ func (b BtcdBackendConfig) Name() string {
 // NewBackend starts a new rpctest.Harness and returns a BtcdBackendConfig for
 // that node. miner should be set to the P2P address of the miner to connect
 // to.
-func NewBackend(miner string) (*BtcdBackendConfig, func(), error) {
+func NewBackend(miner string, netParams *chaincfg.Params) (
+	*BtcdBackendConfig, func(), error) {
+
 	args := []string{
 		"--rejectnonstd",
 		"--txindex",
@@ -76,7 +82,6 @@ func NewBackend(miner string) (*BtcdBackendConfig, func(), error) {
 		"--logdir=" + logDir,
 		"--connect=" + miner,
 	}
-	netParams := &chaincfg.SimNetParams
 	chainBackend, err := rpctest.New(netParams, nil, args)
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to create btcd node: %v", err)

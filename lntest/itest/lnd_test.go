@@ -45,7 +45,7 @@ import (
 )
 
 var (
-	harnessNetParams = &chaincfg.SimNetParams
+	harnessNetParams = &chaincfg.RegressionNetParams
 )
 
 const (
@@ -8853,7 +8853,6 @@ func testRejectHTLC(net *lntest.NetworkHarness, t *harnessTest) {
 	//
 	const chanAmt = btcutil.Amount(1000000)
 	ctxb := context.Background()
-	timeout := time.Duration(time.Second * 5)
 
 	// Create Carol with reject htlc flag.
 	carol, err := net.NewNode("Carol", []string{"--rejecthtlc"})
@@ -8885,7 +8884,7 @@ func testRejectHTLC(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// Open a channel between Alice and Carol.
-	ctxt, _ := context.WithTimeout(ctxb, timeout)
+	ctxt, _ := context.WithTimeout(ctxb, channelOpenTimeout)
 	chanPointAlice := openChannelAndAssert(
 		ctxt, t, net, net.Alice, carol,
 		lntest.OpenChannelParams{
@@ -8894,7 +8893,7 @@ func testRejectHTLC(net *lntest.NetworkHarness, t *harnessTest) {
 	)
 
 	// Open a channel between Carol and Bob.
-	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
 	chanPointCarol := openChannelAndAssert(
 		ctxt, t, net, carol, net.Bob,
 		lntest.OpenChannelParams{
@@ -8934,7 +8933,7 @@ func testRejectHTLC(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// Alice pays Carols invoice.
-	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	err = completePaymentRequests(
 		ctxt, net.Alice, []string{resp.PaymentRequest}, true,
 	)
@@ -8959,7 +8958,7 @@ func testRejectHTLC(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// Carol pays Bobs invoice.
-	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	err = completePaymentRequests(
 		ctxt, carol, []string{resp.PaymentRequest}, true,
 	)
@@ -8987,7 +8986,7 @@ func testRejectHTLC(net *lntest.NetworkHarness, t *harnessTest) {
 	// Alice attempts to pay Bobs invoice. This payment should be rejected since
 	// we are using Carol as an intermediary hop, Carol is running lnd with
 	// --rejecthtlc.
-	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	err = completePaymentRequests(
 		ctxt, net.Alice, []string{resp.PaymentRequest}, true,
 	)
@@ -9001,9 +9000,9 @@ func testRejectHTLC(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// Close all channels.
-	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
 	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPointAlice, false)
-	ctxt, _ = context.WithTimeout(ctxb, timeout)
+	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
 	closeChannelAndAssert(ctxt, t, net, carol, chanPointCarol, false)
 }
 
@@ -12760,6 +12759,10 @@ func testSendUpdateDisableChannel(net *lntest.NetworkHarness, t *harnessTest) {
 		},
 	)
 	mineBlocks(t, net, 1, 1)
+
+	// And finally, clean up the force closed channel by mining the
+	// sweeping transaction.
+	cleanupForceClose(t, net, net.Alice, chanPointAliceCarol)
 }
 
 // testAbandonChannel abandones a channel and asserts that it is no
@@ -14415,7 +14418,9 @@ func TestLightningNetworkDaemon(t *testing.T) {
 	}()
 
 	// Start a chain backend.
-	chainBackend, cleanUp, err := lntest.NewBackend(miner.P2PAddress())
+	chainBackend, cleanUp, err := lntest.NewBackend(
+		miner.P2PAddress(), harnessNetParams,
+	)
 	if err != nil {
 		ht.Fatalf("unable to start backend: %v", err)
 	}
@@ -14454,7 +14459,7 @@ func TestLightningNetworkDaemon(t *testing.T) {
 
 	// Next mine enough blocks in order for segwit and the CSV package
 	// soft-fork to activate on SimNet.
-	numBlocks := chaincfg.SimNetParams.MinerConfirmationWindow * 2
+	numBlocks := harnessNetParams.MinerConfirmationWindow * 2
 	if _, err := miner.Node.Generate(numBlocks); err != nil {
 		ht.Fatalf("unable to generate blocks: %v", err)
 	}

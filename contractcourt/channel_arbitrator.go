@@ -479,7 +479,7 @@ func (c *ChannelArbitrator) relaunchResolvers() error {
 		"resolvers", c.cfg.ChanPoint, len(unresolvedContracts))
 
 	for _, resolver := range unresolvedContracts {
-		supplementResolver(resolver, htlcMap)
+		c.supplementResolver(resolver, htlcMap)
 	}
 
 	c.launchResolvers(unresolvedContracts)
@@ -489,24 +489,22 @@ func (c *ChannelArbitrator) relaunchResolvers() error {
 
 // supplementResolver takes a resolver as it is restored from the log and fills
 // in missing data from the htlcMap.
-func supplementResolver(resolver ContractResolver,
+func (c *ChannelArbitrator) supplementResolver(resolver ContractResolver,
 	htlcMap map[wire.OutPoint]*channeldb.HTLC) error {
 
 	switch r := resolver.(type) {
 
 	case *htlcSuccessResolver:
-		return supplementSuccessResolver(r, htlcMap)
+		return c.supplementSuccessResolver(r, htlcMap)
 
 	case *htlcIncomingContestResolver:
-		return supplementSuccessResolver(
-			&r.htlcSuccessResolver, htlcMap,
-		)
+		return c.supplementIncomingContestResolver(r, htlcMap)
 
 	case *htlcTimeoutResolver:
-		return supplementTimeoutResolver(r, htlcMap)
+		return c.supplementTimeoutResolver(r, htlcMap)
 
 	case *htlcOutgoingContestResolver:
-		return supplementTimeoutResolver(
+		return c.supplementTimeoutResolver(
 			&r.htlcTimeoutResolver, htlcMap,
 		)
 	}
@@ -514,9 +512,33 @@ func supplementResolver(resolver ContractResolver,
 	return nil
 }
 
+// supplementSuccessResolver takes a htlcIncomingContestResolver as it is
+// restored from the log and fills in missing data from the htlcMap.
+func (c *ChannelArbitrator) supplementIncomingContestResolver(
+	r *htlcIncomingContestResolver,
+	htlcMap map[wire.OutPoint]*channeldb.HTLC) error {
+
+	res := r.htlcResolution
+	htlcPoint := res.HtlcPoint()
+	htlc, ok := htlcMap[htlcPoint]
+	if !ok {
+		return errors.New(
+			"htlc for incoming contest resolver unavailable",
+		)
+	}
+
+	r.htlcAmt = htlc.Amt
+	r.circuitKey = channeldb.CircuitKey{
+		ChanID: c.cfg.ShortChanID,
+		HtlcID: htlc.HtlcIndex,
+	}
+
+	return nil
+}
+
 // supplementSuccessResolver takes a htlcSuccessResolver as it is restored from
 // the log and fills in missing data from the htlcMap.
-func supplementSuccessResolver(r *htlcSuccessResolver,
+func (c *ChannelArbitrator) supplementSuccessResolver(r *htlcSuccessResolver,
 	htlcMap map[wire.OutPoint]*channeldb.HTLC) error {
 
 	res := r.htlcResolution
@@ -533,7 +555,7 @@ func supplementSuccessResolver(r *htlcSuccessResolver,
 
 // supplementTimeoutResolver takes a htlcSuccessResolver as it is restored from
 // the log and fills in missing data from the htlcMap.
-func supplementTimeoutResolver(r *htlcTimeoutResolver,
+func (c *ChannelArbitrator) supplementTimeoutResolver(r *htlcTimeoutResolver,
 	htlcMap map[wire.OutPoint]*channeldb.HTLC) error {
 
 	res := r.htlcResolution
@@ -1326,7 +1348,7 @@ func (c *ChannelArbitrator) isPreimageAvailable(hash lntypes.Hash) (bool,
 	// than the invoice cltv delta. We don't want to go to chain only to
 	// have the incoming contest resolver decide that we don't want to
 	// settle this invoice.
-	invoice, _, err := c.cfg.Registry.LookupInvoice(hash)
+	invoice, err := c.cfg.Registry.LookupInvoice(hash)
 	switch err {
 	case nil:
 	case channeldb.ErrInvoiceNotFound, channeldb.ErrNoInvoicesCreated:
@@ -1723,9 +1745,15 @@ func (c *ChannelArbitrator) prepContractResolutions(
 					continue
 				}
 
+				circuitKey := channeldb.CircuitKey{
+					HtlcID: htlc.HtlcIndex,
+					ChanID: c.cfg.ShortChanID,
+				}
+
 				resKit.Quit = make(chan struct{})
 				resolver := &htlcIncomingContestResolver{
 					htlcExpiry: htlc.RefundTimeout,
+					circuitKey: circuitKey,
 					htlcSuccessResolver: htlcSuccessResolver{
 						htlcResolution:  resolution,
 						broadcastHeight: height,

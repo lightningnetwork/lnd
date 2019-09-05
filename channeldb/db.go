@@ -110,6 +110,11 @@ var (
 			number:    10,
 			migration: migrateRouteSerialization,
 		},
+		{
+			// Add invoice htlc and cltv delta fields.
+			number:    11,
+			migration: migrateInvoices,
+		},
 	}
 
 	// Big endian is the preferred byte order, due to cursor scans over
@@ -124,6 +129,7 @@ type DB struct {
 	*bbolt.DB
 	dbPath string
 	graph  *ChannelGraph
+	now    func() time.Time
 }
 
 // Open opens an existing channeldb. Any necessary schemas migrations due to
@@ -157,6 +163,7 @@ func Open(dbPath string, modifiers ...OptionModifier) (*DB, error) {
 	chanDB := &DB{
 		DB:     bdb,
 		dbPath: dbPath,
+		now:    time.Now,
 	}
 	chanDB.graph = newChannelGraph(
 		chanDB, opts.RejectCacheSize, opts.ChannelCacheSize,

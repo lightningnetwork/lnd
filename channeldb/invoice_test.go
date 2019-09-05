@@ -24,6 +24,8 @@ func randInvoice(value lnwire.MilliSatoshi) (*Invoice, error) {
 			PaymentPreimage: pre,
 			Value:           value,
 		},
+		Htlcs:  map[CircuitKey]*InvoiceHTLC{},
+		Expiry: 4000,
 	}
 	i.Memo = []byte("memo")
 	i.Receipt = []byte("receipt")
@@ -59,6 +61,7 @@ func TestInvoiceWorkflow(t *testing.T) {
 		// Use single second precision to avoid false positive test
 		// failures due to the monotonic time component.
 		CreationDate: time.Unix(time.Now().Unix(), 0),
+		Htlcs:        map[CircuitKey]*InvoiceHTLC{},
 	}
 	fakeInvoice.Memo = []byte("memo")
 	fakeInvoice.Receipt = []byte("receipt")
@@ -99,9 +102,7 @@ func TestInvoiceWorkflow(t *testing.T) {
 	// now have the settled bit toggle to true and a non-default
 	// SettledDate
 	payAmt := fakeInvoice.Terms.Value * 2
-	_, err = db.AcceptOrSettleInvoice(
-		paymentHash, payAmt, checkHtlcParameters,
-	)
+	_, err = db.UpdateInvoice(paymentHash, getUpdateInvoice(payAmt))
 	if err != nil {
 		t.Fatalf("unable to settle invoice: %v", err)
 	}
@@ -264,8 +265,8 @@ func TestInvoiceAddTimeSeries(t *testing.T) {
 
 		paymentHash := invoice.Terms.PaymentPreimage.Hash()
 
-		_, err := db.AcceptOrSettleInvoice(
-			paymentHash, 0, checkHtlcParameters,
+		_, err := db.UpdateInvoice(
+			paymentHash, getUpdateInvoice(0),
 		)
 		if err != nil {
 			t.Fatalf("unable to settle invoice: %v", err)
@@ -332,6 +333,7 @@ func TestDuplicateSettleInvoice(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to make test db: %v", err)
 	}
+	db.now = func() time.Time { return time.Unix(1, 0) }
 
 	// We'll start out by creating an invoice and writing it to the DB.
 	amt := lnwire.NewMSatFromSatoshis(1000)
@@ -347,8 +349,8 @@ func TestDuplicateSettleInvoice(t *testing.T) {
 	}
 
 	// With the invoice in the DB, we'll now attempt to settle the invoice.
-	dbInvoice, err := db.AcceptOrSettleInvoice(
-		payHash, amt, checkHtlcParameters,
+	dbInvoice, err := db.UpdateInvoice(
+		payHash, getUpdateInvoice(amt),
 	)
 	if err != nil {
 		t.Fatalf("unable to settle invoice: %v", err)
@@ -360,6 +362,14 @@ func TestDuplicateSettleInvoice(t *testing.T) {
 	invoice.Terms.State = ContractSettled
 	invoice.AmtPaid = amt
 	invoice.SettleDate = dbInvoice.SettleDate
+	invoice.Htlcs = map[CircuitKey]*InvoiceHTLC{
+		{}: {
+			Amt:         amt,
+			AcceptTime:  time.Unix(1, 0),
+			ResolveTime: time.Unix(1, 0),
+			State:       HtlcStateSettled,
+		},
+	}
 
 	// We should get back the exact same invoice that we just inserted.
 	if !reflect.DeepEqual(dbInvoice, invoice) {
@@ -369,8 +379,8 @@ func TestDuplicateSettleInvoice(t *testing.T) {
 
 	// If we try to settle the invoice again, then we should get the very
 	// same invoice back, but with an error this time.
-	dbInvoice, err = db.AcceptOrSettleInvoice(
-		payHash, amt, checkHtlcParameters,
+	dbInvoice, err = db.UpdateInvoice(
+		payHash, getUpdateInvoice(amt),
 	)
 	if err != ErrInvoiceAlreadySettled {
 		t.Fatalf("expected ErrInvoiceAlreadySettled")
@@ -416,8 +426,8 @@ func TestQueryInvoices(t *testing.T) {
 
 		// We'll only settle half of all invoices created.
 		if i%2 == 0 {
-			_, err := db.AcceptOrSettleInvoice(
-				paymentHash, i, checkHtlcParameters,
+			_, err := db.UpdateInvoice(
+				paymentHash, getUpdateInvoice(i),
 			)
 			if err != nil {
 				t.Fatalf("unable to settle invoice: %v", err)
@@ -661,10 +671,24 @@ func TestQueryInvoices(t *testing.T) {
 	}
 }
 
-func checkHtlcParameters(invoice *Invoice) error {
-	if invoice.Terms.State == ContractSettled {
-		return ErrInvoiceAlreadySettled
-	}
+// getUpdateInvoice returns an invoice update callback that, when called,
+// settles the invoice with the given amount.
+func getUpdateInvoice(amt lnwire.MilliSatoshi) InvoiceUpdateCallback {
+	return func(invoice *Invoice) (*InvoiceUpdateDesc, error) {
+		if invoice.Terms.State == ContractSettled {
+			return nil, ErrInvoiceAlreadySettled
+		}
 
-	return nil
+		update := &InvoiceUpdateDesc{
+			Preimage: invoice.Terms.PaymentPreimage,
+			State:    ContractSettled,
+			Htlcs: map[CircuitKey]*HtlcAcceptDesc{
+				{}: {
+					Amt: amt,
+				},
+			},
+		}
+
+		return update, nil
+	}
 }

@@ -768,13 +768,9 @@ func newMockRegistry(minDelta uint32) *mockInvoiceRegistry {
 		panic(err)
 	}
 
-	decodeExpiry := func(invoice string) (uint32, error) {
-		return testInvoiceCltvExpiry, nil
-	}
-
 	finalCltvRejectDelta := int32(5)
 
-	registry := invoices.NewRegistry(cdb, decodeExpiry, finalCltvRejectDelta)
+	registry := invoices.NewRegistry(cdb, finalCltvRejectDelta)
 	registry.Start()
 
 	return &mockInvoiceRegistry{
@@ -783,7 +779,9 @@ func newMockRegistry(minDelta uint32) *mockInvoiceRegistry {
 	}
 }
 
-func (i *mockInvoiceRegistry) LookupInvoice(rHash lntypes.Hash) (channeldb.Invoice, uint32, error) {
+func (i *mockInvoiceRegistry) LookupInvoice(rHash lntypes.Hash) (
+	channeldb.Invoice, error) {
+
 	return i.registry.LookupInvoice(rHash)
 }
 
@@ -793,10 +791,11 @@ func (i *mockInvoiceRegistry) SettleHodlInvoice(preimage lntypes.Preimage) error
 
 func (i *mockInvoiceRegistry) NotifyExitHopHtlc(rhash lntypes.Hash,
 	amt lnwire.MilliSatoshi, expiry uint32, currentHeight int32,
-	hodlChan chan<- interface{}, eob []byte) (*invoices.HodlEvent, error) {
+	circuitKey channeldb.CircuitKey, hodlChan chan<- interface{},
+	eob []byte) (*invoices.HodlEvent, error) {
 
 	event, err := i.registry.NotifyExitHopHtlc(
-		rhash, amt, expiry, currentHeight, hodlChan, eob,
+		rhash, amt, expiry, currentHeight, circuitKey, hodlChan, eob,
 	)
 	if err != nil {
 		return nil, err

@@ -1117,6 +1117,7 @@ func (h *hopNetwork) createChannelLink(server, peer *mockServer,
 			OnChannelFailure:        func(lnwire.ChannelID, lnwire.ShortChannelID, LinkFailureError) {},
 			OutgoingCltvRejectDelta: 3,
 			MaxOutgoingCltvExpiry:   DefaultMaxOutgoingCltvExpiry,
+			MaxFeeAllocation:        DefaultMaxLinkFeeAllocation,
 		},
 		channel,
 	)

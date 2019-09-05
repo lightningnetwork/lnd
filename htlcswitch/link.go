@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"fmt"
+	"math"
 	prand "math/rand"
 	"sync"
 	"sync/atomic"
@@ -50,6 +51,11 @@ const (
 	// DefaultMaxLinkFeeUpdateTimeout represents the maximum interval in
 	// which a link should propose to update its commitment fee rate.
 	DefaultMaxLinkFeeUpdateTimeout = 60 * time.Minute
+
+	// DefaultMaxLinkFeeAllocation is the highest allocation we'll allow
+	// a channel's commitment fee to be of its balance. This only applies to
+	// the initiator of the channel.
+	DefaultMaxLinkFeeAllocation float64 = 0.5
 )
 
 // ForwardingPolicy describes the set of constraints that a given ChannelLink
@@ -250,6 +256,11 @@ type ChannelLinkConfig struct {
 	// accept for a forwarded HTLC. The value is relative to the current
 	// block height.
 	MaxOutgoingCltvExpiry uint32
+
+	// MaxFeeAllocation is the highest allocation we'll allow a channel's
+	// commitment fee to be of its balance. This only applies to the
+	// initiator of the channel.
+	MaxFeeAllocation float64
 }
 
 // channelLink is the service which drives a channel's commitment update
@@ -995,22 +1006,27 @@ out:
 			// If we are the initiator, then we'll sample the
 			// current fee rate to get into the chain within 3
 			// blocks.
-			feePerKw, err := l.sampleNetworkFee()
+			netFee, err := l.sampleNetworkFee()
 			if err != nil {
 				log.Errorf("unable to sample network fee: %v", err)
 				continue
 			}
 
 			// We'll check to see if we should update the fee rate
-			// based on our current set fee rate.
+			// based on our current set fee rate. We'll cap the new
+			// fee rate to our max fee allocation.
 			commitFee := l.channel.CommitFeeRate()
-			if !shouldAdjustCommitFee(feePerKw, commitFee) {
+			maxFee := l.channel.MaxFeeRate(l.cfg.MaxFeeAllocation)
+			newCommitFee := lnwallet.SatPerKWeight(
+				math.Min(float64(netFee), float64(maxFee)),
+			)
+			if !shouldAdjustCommitFee(newCommitFee, commitFee) {
 				continue
 			}
 
 			// If we do, then we'll send a new UpdateFee message to
 			// the remote party, to be locked in with a new update.
-			if err := l.updateChannelFee(feePerKw); err != nil {
+			if err := l.updateChannelFee(newCommitFee); err != nil {
 				log.Errorf("unable to update fee rate: %v", err)
 				continue
 			}

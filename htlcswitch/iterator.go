@@ -2,81 +2,14 @@ package htlcswitch
 
 import (
 	"bytes"
-	"encoding/binary"
 	"fmt"
 	"io"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/lightningnetwork/lightning-onion"
+	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/lightningnetwork/lnd/record"
-	"github.com/lightningnetwork/lnd/tlv"
 )
-
-// NetworkHop indicates the blockchain network that is intended to be the next
-// hop for a forwarded HTLC. The existence of this field within the
-// ForwardingInfo struct enables the ability for HTLC to cross chain-boundaries
-// at will.
-type NetworkHop uint8
-
-const (
-	// BitcoinHop denotes that an HTLC is to be forwarded along the Bitcoin
-	// link with the specified short channel ID.
-	BitcoinHop NetworkHop = iota
-
-	// LitecoinHop denotes that an HTLC is to be forwarded along the
-	// Litecoin link with the specified short channel ID.
-	LitecoinHop
-)
-
-// String returns the string representation of the target NetworkHop.
-func (c NetworkHop) String() string {
-	switch c {
-	case BitcoinHop:
-		return "Bitcoin"
-	case LitecoinHop:
-		return "Litecoin"
-	default:
-		return "Kekcoin"
-	}
-}
-
-var (
-	// exitHop is a special "hop" which denotes that an incoming HTLC is
-	// meant to pay finally to the receiving node.
-	exitHop lnwire.ShortChannelID
-
-	// sourceHop is a sentinel value denoting that an incoming HTLC is
-	// initiated by our own switch.
-	sourceHop lnwire.ShortChannelID
-)
-
-// ForwardingInfo contains all the information that is necessary to forward and
-// incoming HTLC to the next hop encoded within a valid HopIterator instance.
-// Forwarding links are to use this information to authenticate the information
-// received within the incoming HTLC, to ensure that the prior hop didn't
-// tamper with the end-to-end routing information at all.
-type ForwardingInfo struct {
-	// Network is the target blockchain network that the HTLC will travel
-	// over next.
-	Network NetworkHop
-
-	// NextHop is the channel ID of the next hop. The received HTLC should
-	// be forwarded to this particular channel in order to continue the
-	// end-to-end route.
-	NextHop lnwire.ShortChannelID
-
-	// AmountToForward is the amount of milli-satoshis that the receiving
-	// node should forward to the next hop.
-	AmountToForward lnwire.MilliSatoshi
-
-	// OutgoingCTLV is the specified value of the CTLV timelock to be used
-	// in the outgoing HTLC.
-	OutgoingCTLV uint32
-
-	// TODO(roasbeef): modify sphinx logic to not just discard the
-	// remaining bytes, instead should include the rest as excess
-}
 
 // HopIterator is an interface that abstracts away the routing information
 // included in HTLC's which includes the entirety of the payment path of an
@@ -89,7 +22,7 @@ type HopIterator interface {
 	// Additionally, the information encoded within the returned
 	// ForwardingInfo is to be used by each hop to authenticate the
 	// information given to it by the prior hop.
-	ForwardingInstructions() (ForwardingInfo, error)
+	ForwardingInstructions() (hop.ForwardingInfo, error)
 
 	// ExtraOnionBlob returns the additional EOB data (if available).
 	ExtraOnionBlob() []byte
@@ -146,64 +79,35 @@ func (r *sphinxHopIterator) EncodeNextHop(w io.Writer) error {
 // hop to authenticate the information given to it by the prior hop.
 //
 // NOTE: Part of the HopIterator interface.
-func (r *sphinxHopIterator) ForwardingInstructions() (ForwardingInfo, error) {
-	var (
-		nextHop lnwire.ShortChannelID
-		amt     uint64
-		cltv    uint32
-	)
+func (r *sphinxHopIterator) ForwardingInstructions() (
+	hop.ForwardingInfo, error) {
 
 	switch r.processedPacket.Payload.Type {
 	// If this is the legacy payload, then we'll extract the information
 	// directly from the pre-populated ForwardingInstructions field.
 	case sphinx.PayloadLegacy:
 		fwdInst := r.processedPacket.ForwardingInstructions
+		p := hop.NewLegacyPayload(fwdInst)
 
-		switch r.processedPacket.Action {
-		case sphinx.ExitNode:
-			nextHop = exitHop
-		case sphinx.MoreHops:
-			s := binary.BigEndian.Uint64(fwdInst.NextAddress[:])
-			nextHop = lnwire.NewShortChanIDFromInt(s)
-		}
-
-		amt = fwdInst.ForwardAmount
-		cltv = fwdInst.OutgoingCltv
+		return p.ForwardingInfo(), nil
 
 	// Otherwise, if this is the TLV payload, then we'll make a new stream
 	// to decode only what we need to make routing decisions.
 	case sphinx.PayloadTLV:
-		var cid uint64
-
-		tlvStream, err := tlv.NewStream(
-			record.NewAmtToFwdRecord(&amt),
-			record.NewLockTimeRecord(&cltv),
-			record.NewNextHopIDRecord(&cid),
-		)
-		if err != nil {
-			return ForwardingInfo{}, err
-		}
-
-		err = tlvStream.Decode(bytes.NewReader(
+		p, err := hop.NewPayloadFromReader(bytes.NewReader(
 			r.processedPacket.Payload.Payload,
 		))
 		if err != nil {
-			return ForwardingInfo{}, err
+			return hop.ForwardingInfo{}, err
 		}
 
-		nextHop = lnwire.NewShortChanIDFromInt(cid)
+		return p.ForwardingInfo(), nil
 
 	default:
-		return ForwardingInfo{}, fmt.Errorf("unknown sphinx payload "+
-			"type: %v", r.processedPacket.Payload.Type)
+		return hop.ForwardingInfo{}, fmt.Errorf("unknown "+
+			"sphinx payload type: %v",
+			r.processedPacket.Payload.Type)
 	}
-
-	return ForwardingInfo{
-		Network:         BitcoinHop,
-		NextHop:         nextHop,
-		AmountToForward: lnwire.MilliSatoshi(amt),
-		OutgoingCTLV:    cltv,
-	}, nil
 }
 
 // ExtraOnionBlob returns the additional EOB data (if available).

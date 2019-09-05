@@ -25,6 +25,7 @@ import (
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
+	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnpeer"
@@ -596,7 +597,9 @@ func generatePayment(invoiceAmt, htlcAmt lnwire.MilliSatoshi, timelock uint32,
 }
 
 // generateRoute generates the path blob by given array of peers.
-func generateRoute(hops ...ForwardingInfo) ([lnwire.OnionPacketSize]byte, error) {
+func generateRoute(hops ...hop.ForwardingInfo) (
+	[lnwire.OnionPacketSize]byte, error) {
+
 	var blob [lnwire.OnionPacketSize]byte
 	if len(hops) == 0 {
 		return blob, errors.New("empty path")
@@ -635,16 +638,17 @@ type threeHopNetwork struct {
 // also the time lock value needed to route an HTLC with the target amount over
 // the specified path.
 func generateHops(payAmt lnwire.MilliSatoshi, startingHeight uint32,
-	path ...*channelLink) (lnwire.MilliSatoshi, uint32, []ForwardingInfo) {
+	path ...*channelLink) (lnwire.MilliSatoshi, uint32,
+	[]hop.ForwardingInfo) {
 
 	totalTimelock := startingHeight
 	runningAmt := payAmt
 
-	hops := make([]ForwardingInfo, len(path))
+	hops := make([]hop.ForwardingInfo, len(path))
 	for i := len(path) - 1; i >= 0; i-- {
 		// If this is the last hop, then the next hop is the special
 		// "exit node". Otherwise, we look to the "prior" hop.
-		nextHop := exitHop
+		nextHop := hop.Exit
 		if i != len(path)-1 {
 			nextHop = path[i+1].channel.ShortChanID()
 		}
@@ -679,8 +683,8 @@ func generateHops(payAmt lnwire.MilliSatoshi, startingHeight uint32,
 			amount = runningAmt - fee
 		}
 
-		hops[i] = ForwardingInfo{
-			Network:         BitcoinHop,
+		hops[i] = hop.ForwardingInfo{
+			Network:         hop.BitcoinNetwork,
 			NextHop:         nextHop,
 			AmountToForward: amount,
 			OutgoingCTLV:    timeLock,
@@ -731,7 +735,7 @@ func waitForPayFuncResult(payFunc func() error, d time.Duration) error {
 // * from Alice to Carol through the Bob
 // * from Alice to some another peer through the Bob
 func makePayment(sendingPeer, receivingPeer lnpeer.Peer,
-	firstHop lnwire.ShortChannelID, hops []ForwardingInfo,
+	firstHop lnwire.ShortChannelID, hops []hop.ForwardingInfo,
 	invoiceAmt, htlcAmt lnwire.MilliSatoshi,
 	timelock uint32) *paymentResponse {
 
@@ -765,7 +769,7 @@ func makePayment(sendingPeer, receivingPeer lnpeer.Peer,
 // preparePayment creates an invoice at the receivingPeer and returns a function
 // that, when called, launches the payment from the sendingPeer.
 func preparePayment(sendingPeer, receivingPeer lnpeer.Peer,
-	firstHop lnwire.ShortChannelID, hops []ForwardingInfo,
+	firstHop lnwire.ShortChannelID, hops []hop.ForwardingInfo,
 	invoiceAmt, htlcAmt lnwire.MilliSatoshi,
 	timelock uint32) (*channeldb.Invoice, func() error, error) {
 
@@ -1246,7 +1250,7 @@ func (n *twoHopNetwork) stop() {
 }
 
 func (n *twoHopNetwork) makeHoldPayment(sendingPeer, receivingPeer lnpeer.Peer,
-	firstHop lnwire.ShortChannelID, hops []ForwardingInfo,
+	firstHop lnwire.ShortChannelID, hops []hop.ForwardingInfo,
 	invoiceAmt, htlcAmt lnwire.MilliSatoshi,
 	timelock uint32, preimage lntypes.Preimage) chan error {
 

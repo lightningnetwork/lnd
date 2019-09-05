@@ -26,6 +26,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/htlcswitch/hodl"
+	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -1936,7 +1937,7 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 	}
 	addPkt := htlcPacket{
 		htlc:           htlc,
-		incomingChanID: sourceHop,
+		incomingChanID: hop.Source,
 		incomingHTLCID: 0,
 		obfuscator:     NewMockObfuscator(),
 	}
@@ -2016,7 +2017,7 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 	}
 	addPkt = htlcPacket{
 		htlc:           htlc,
-		incomingChanID: sourceHop,
+		incomingChanID: hop.Source,
 		incomingHTLCID: 1,
 		obfuscator:     NewMockObfuscator(),
 	}
@@ -2534,7 +2535,7 @@ func genAddsAndCircuits(numHtlcs int, htlc *lnwire.UpdateAddHTLC) (
 	for i := 0; i < numHtlcs; i++ {
 		addPkt := htlcPacket{
 			htlc:           htlc,
-			incomingChanID: sourceHop,
+			incomingChanID: hop.Source,
 			incomingHTLCID: uint64(i),
 			obfuscator:     NewMockObfuscator(),
 		}
@@ -4307,10 +4308,10 @@ func generateHtlcAndInvoice(t *testing.T,
 
 	htlcAmt := lnwire.NewMSatFromSatoshis(10000)
 	htlcExpiry := testStartingHeight + testInvoiceCltvExpiry
-	hops := []ForwardingInfo{
+	hops := []hop.ForwardingInfo{
 		{
-			Network:         BitcoinHop,
-			NextHop:         exitHop,
+			Network:         hop.BitcoinNetwork,
+			NextHop:         hop.Exit,
 			AmountToForward: htlcAmt,
 			OutgoingCTLV:    uint32(htlcExpiry),
 		},

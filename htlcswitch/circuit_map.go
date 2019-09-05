@@ -9,6 +9,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -311,7 +312,7 @@ func (cm *circuitMap) restoreMemState() error {
 			// documented case of stray keystones emerges for
 			// forwarded payments, this check should be removed, but
 			// with extreme caution.
-			if strayKeystone.OutKey.ChanID != sourceHop {
+			if strayKeystone.OutKey.ChanID != hop.Source {
 				continue
 			}
 
@@ -396,9 +397,9 @@ func (cm *circuitMap) trimAllOpenCircuits() error {
 
 		// First, skip any channels that have not been assigned their
 		// final channel identifier, otherwise we would try to trim
-		// htlcs belonging to the all-zero, sourceHop ID.
+		// htlcs belonging to the all-zero, hop.Source ID.
 		chanID := activeChannel.ShortChanID()
-		if chanID == sourceHop {
+		if chanID == hop.Source {
 			continue
 		}
 

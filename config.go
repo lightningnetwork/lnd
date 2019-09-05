@@ -259,6 +259,7 @@ type config struct {
 	Listeners        []net.Addr
 	ExternalIPs      []net.Addr
 	DisableListen    bool          `long:"nolisten" description:"Disable listening for incoming peer connections"`
+	DisableRest      bool          `long:"norest" description:"Disable REST API"`
 	NAT              bool          `long:"nat" description:"Toggle NAT traversal support (using either UPnP or NAT-PMP) to automatically advertise your external IP address to the network -- NOTE this does not support devices behind multiple NATs"`
 	MinBackoff       time.Duration `long:"minbackoff" description:"Shortest backoff when reconnecting to persistent peers. Valid time units are {s, m, h}."`
 	MaxBackoff       time.Duration `long:"maxbackoff" description:"Longest backoff when reconnecting to persistent peers. Valid time units are {s, m, h}."`
@@ -1031,11 +1032,17 @@ func loadConfig() (*config, error) {
 	if err != nil {
 		return nil, err
 	}
-	err = lncfg.EnforceSafeAuthentication(
-		cfg.RESTListeners, !cfg.NoMacaroons,
-	)
-	if err != nil {
-		return nil, err
+
+	if cfg.DisableRest {
+		ltndLog.Infof("REST API is disabled!")
+		cfg.RESTListeners = nil
+	} else {
+		err = lncfg.EnforceSafeAuthentication(
+			cfg.RESTListeners, !cfg.NoMacaroons,
+		)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// Remove the listening addresses specified if listening is disabled.

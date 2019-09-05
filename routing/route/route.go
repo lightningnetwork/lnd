@@ -11,6 +11,7 @@ import (
 	"github.com/btcsuite/btcd/btcec"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -103,28 +104,33 @@ func (h *Hop) PackHopPayload(w io.Writer, nextChanID uint64) error {
 
 	// Otherwise, we'll need to make a new stream that includes our
 	// required routing fields, as well as these optional values.
+	var records []tlv.Record
+
+	// Every hop must have an amount to forward and CLTV expiry.
 	amt := uint64(h.AmtToForward)
-	combinedRecords := append(h.TLVRecords,
-		tlv.MakeDynamicRecord(
-			tlv.AmtOnionType, &amt, func() uint64 {
-				return tlv.SizeTUint64(amt)
-			},
-			tlv.ETUint64, tlv.DTUint64,
-		),
-		tlv.MakeDynamicRecord(
-			tlv.LockTimeOnionType, &h.OutgoingTimeLock, func() uint64 {
-				return tlv.SizeTUint32(h.OutgoingTimeLock)
-			},
-			tlv.ETUint32, tlv.DTUint32,
-		),
-		tlv.MakePrimitiveRecord(tlv.NextHopOnionType, &nextChanID),
+	records = append(records,
+		record.NewAmtToFwdRecord(&amt),
+		record.NewLockTimeRecord(&h.OutgoingTimeLock),
 	)
+
+	// BOLT 04 says the next_hop_id should be omitted for the final hop,
+	// but present for all others.
+	//
+	// TODO(conner): test using hop.Exit once available
+	if nextChanID != 0 {
+		records = append(records,
+			record.NewNextHopIDRecord(&nextChanID),
+		)
+	}
+
+	// Append any custom types destined for this hop.
+	records = append(records, h.TLVRecords...)
 
 	// To ensure we produce a canonical stream, we'll sort the records
 	// before encoding them as a stream in the hop payload.
-	tlv.SortRecords(combinedRecords)
+	tlv.SortRecords(records)
 
-	tlvStream, err := tlv.NewStream(combinedRecords...)
+	tlvStream, err := tlv.NewStream(records...)
 	if err != nil {
 		return err
 	}

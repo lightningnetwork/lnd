@@ -1,4 +1,4 @@
-package htlcswitch
+package hop
 
 import (
 	"bytes"
@@ -7,7 +7,6 @@ import (
 
 	"github.com/davecgh/go-spew/spew"
 	sphinx "github.com/lightningnetwork/lightning-onion"
-	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/tlv"
@@ -30,7 +29,7 @@ func TestSphinxHopIteratorForwardingInstructions(t *testing.T) {
 	// Next, we'll make the hop forwarding information that we should
 	// extract each type, no matter the payload type.
 	nextAddrInt := binary.BigEndian.Uint64(hopData.NextAddress[:])
-	expectedFwdInfo := hop.ForwardingInfo{
+	expectedFwdInfo := ForwardingInfo{
 		NextHop:         lnwire.NewShortChanIDFromInt(nextAddrInt),
 		AmountToForward: lnwire.MilliSatoshi(hopData.ForwardAmount),
 		OutgoingCTLV:    hopData.OutgoingCltv,
@@ -54,7 +53,7 @@ func TestSphinxHopIteratorForwardingInstructions(t *testing.T) {
 
 	var testCases = []struct {
 		sphinxPacket    *sphinx.ProcessedPacket
-		expectedFwdInfo hop.ForwardingInfo
+		expectedFwdInfo ForwardingInfo
 	}{
 		// A regular legacy payload that signals more hops.
 		{

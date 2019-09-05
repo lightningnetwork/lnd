@@ -144,12 +144,12 @@ type ChannelLinkConfig struct {
 	//
 	// NOTE: This function assumes the same set of readers and preimages
 	// are always presented for the same identifier.
-	DecodeHopIterators func([]byte, []DecodeHopIteratorRequest) (
-		[]DecodeHopIteratorResponse, error)
+	DecodeHopIterators func([]byte, []hop.DecodeHopIteratorRequest) (
+		[]hop.DecodeHopIteratorResponse, error)
 
 	// ExtractErrorEncrypter function is responsible for decoding HTLC
 	// Sphinx onion blob, and creating onion failure obfuscator.
-	ExtractErrorEncrypter ErrorEncrypterExtracter
+	ExtractErrorEncrypter hop.ErrorEncrypterExtracter
 
 	// FetchLastChannelUpdate retrieves the latest routing policy for a
 	// target channel. This channel will typically be the outgoing channel
@@ -379,7 +379,7 @@ type channelLink struct {
 // hodlHtlc contains htlc data that is required for resolution.
 type hodlHtlc struct {
 	pd         *lnwallet.PaymentDescriptor
-	obfuscator ErrorEncrypter
+	obfuscator hop.ErrorEncrypter
 }
 
 // NewChannelLink creates a new instance of a ChannelLink given a configuration
@@ -2553,7 +2553,9 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 	l.tracef("processing %d remote adds for height %d",
 		len(lockedInHtlcs), fwdPkg.Height)
 
-	decodeReqs := make([]DecodeHopIteratorRequest, 0, len(lockedInHtlcs))
+	decodeReqs := make(
+		[]hop.DecodeHopIteratorRequest, 0, len(lockedInHtlcs),
+	)
 	for _, pd := range lockedInHtlcs {
 		switch pd.EntryType {
 
@@ -2565,7 +2567,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 			// which process the Sphinx packet.
 			onionReader := bytes.NewReader(pd.OnionBlob)
 
-			req := DecodeHopIteratorRequest{
+			req := hop.DecodeHopIteratorRequest{
 				OnionReader:  onionReader,
 				RHash:        pd.RHash[:],
 				IncomingCltv: pd.Timeout,
@@ -2850,7 +2852,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 // processExitHop handles an htlc for which this link is the exit hop. It
 // returns a boolean indicating whether the commitment tx needs an update.
 func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
-	obfuscator ErrorEncrypter, fwdInfo hop.ForwardingInfo,
+	obfuscator hop.ErrorEncrypter, fwdInfo hop.ForwardingInfo,
 	heightNow uint32, eob []byte) (bool, error) {
 
 	// If hodl.ExitSettle is requested, we will not validate the final hop's
@@ -3021,7 +3023,7 @@ func (l *channelLink) handleBatchFwdErrs(errChan chan error) {
 // sendHTLCError functions cancels HTLC and send cancel message back to the
 // peer from which HTLC was received.
 func (l *channelLink) sendHTLCError(htlcIndex uint64, failure lnwire.FailureMessage,
-	e ErrorEncrypter, sourceRef *channeldb.AddRef) {
+	e hop.ErrorEncrypter, sourceRef *channeldb.AddRef) {
 
 	reason, err := e.EncryptFirstHop(failure)
 	if err != nil {

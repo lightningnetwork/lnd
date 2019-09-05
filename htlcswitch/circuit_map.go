@@ -179,7 +179,7 @@ type CircuitMapConfig struct {
 
 	// ExtractErrorEncrypter derives the shared secret used to encrypt
 	// errors from the obfuscator's ephemeral public key.
-	ExtractErrorEncrypter ErrorEncrypterExtracter
+	ExtractErrorEncrypter hop.ErrorEncrypterExtracter
 }
 
 // NewCircuitMap creates a new instance of the circuitMap.

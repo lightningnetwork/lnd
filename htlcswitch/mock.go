@@ -272,7 +272,7 @@ type mockHopIterator struct {
 	hops []hop.ForwardingInfo
 }
 
-func newMockHopIterator(hops ...hop.ForwardingInfo) HopIterator {
+func newMockHopIterator(hops ...hop.ForwardingInfo) hop.Iterator {
 	return &mockHopIterator{hops: hops}
 }
 
@@ -289,7 +289,8 @@ func (r *mockHopIterator) ExtraOnionBlob() []byte {
 }
 
 func (r *mockHopIterator) ExtractErrorEncrypter(
-	extracter ErrorEncrypterExtracter) (ErrorEncrypter, lnwire.FailCode) {
+	extracter hop.ErrorEncrypterExtracter) (hop.ErrorEncrypter,
+	lnwire.FailCode) {
 
 	return extracter(nil)
 }
@@ -331,7 +332,7 @@ func encodeFwdInfo(w io.Writer, f *hop.ForwardingInfo) error {
 	return nil
 }
 
-var _ HopIterator = (*mockHopIterator)(nil)
+var _ hop.Iterator = (*mockHopIterator)(nil)
 
 // mockObfuscator mock implementation of the failure obfuscator which only
 // encodes the failure and do not makes any onion obfuscation.
@@ -340,7 +341,7 @@ type mockObfuscator struct {
 }
 
 // NewMockObfuscator initializes a dummy mockObfuscator used for testing.
-func NewMockObfuscator() ErrorEncrypter {
+func NewMockObfuscator() hop.ErrorEncrypter {
 	return &mockObfuscator{}
 }
 
@@ -348,8 +349,8 @@ func (o *mockObfuscator) OnionPacket() *sphinx.OnionPacket {
 	return o.ogPacket
 }
 
-func (o *mockObfuscator) Type() EncrypterType {
-	return EncrypterTypeMock
+func (o *mockObfuscator) Type() hop.EncrypterType {
+	return hop.EncrypterTypeMock
 }
 
 func (o *mockObfuscator) Encode(w io.Writer) error {
@@ -360,7 +361,9 @@ func (o *mockObfuscator) Decode(r io.Reader) error {
 	return nil
 }
 
-func (o *mockObfuscator) Reextract(extracter ErrorEncrypterExtracter) error {
+func (o *mockObfuscator) Reextract(
+	extracter hop.ErrorEncrypterExtracter) error {
+
 	return nil
 }
 
@@ -411,19 +414,19 @@ var _ ErrorDecrypter = (*mockDeobfuscator)(nil)
 type mockIteratorDecoder struct {
 	mu sync.RWMutex
 
-	responses map[[32]byte][]DecodeHopIteratorResponse
+	responses map[[32]byte][]hop.DecodeHopIteratorResponse
 
 	decodeFail bool
 }
 
 func newMockIteratorDecoder() *mockIteratorDecoder {
 	return &mockIteratorDecoder{
-		responses: make(map[[32]byte][]DecodeHopIteratorResponse),
+		responses: make(map[[32]byte][]hop.DecodeHopIteratorResponse),
 	}
 }
 
 func (p *mockIteratorDecoder) DecodeHopIterator(r io.Reader, rHash []byte,
-	cltv uint32) (HopIterator, lnwire.FailCode) {
+	cltv uint32) (hop.Iterator, lnwire.FailCode) {
 
 	var b [4]byte
 	_, err := r.Read(b[:])
@@ -446,7 +449,8 @@ func (p *mockIteratorDecoder) DecodeHopIterator(r io.Reader, rHash []byte,
 }
 
 func (p *mockIteratorDecoder) DecodeHopIterators(id []byte,
-	reqs []DecodeHopIteratorRequest) ([]DecodeHopIteratorResponse, error) {
+	reqs []hop.DecodeHopIteratorRequest) (
+	[]hop.DecodeHopIteratorResponse, error) {
 
 	idHash := sha256.Sum256(id)
 
@@ -459,7 +463,7 @@ func (p *mockIteratorDecoder) DecodeHopIterators(id []byte,
 
 	batchSize := len(reqs)
 
-	resps := make([]DecodeHopIteratorResponse, 0, batchSize)
+	resps := make([]hop.DecodeHopIteratorResponse, 0, batchSize)
 	for _, req := range reqs {
 		iterator, failcode := p.DecodeHopIterator(
 			req.OnionReader, req.RHash, req.IncomingCltv,
@@ -469,7 +473,7 @@ func (p *mockIteratorDecoder) DecodeHopIterators(id []byte,
 			failcode = lnwire.CodeTemporaryChannelFailure
 		}
 
-		resp := DecodeHopIteratorResponse{
+		resp := hop.DecodeHopIteratorResponse{
 			HopIterator: iterator,
 			FailCode:    failcode,
 		}

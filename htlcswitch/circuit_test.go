@@ -9,9 +9,10 @@ import (
 	"github.com/btcsuite/btcd/btcec"
 	bitcoinCfg "github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcutil"
-	"github.com/lightningnetwork/lightning-onion"
+	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
+	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -30,7 +31,7 @@ var (
 
 	// testExtracter is a precomputed extraction of testEphemeralKey, using
 	// the sphinxPrivKey.
-	testExtracter *htlcswitch.SphinxErrorEncrypter
+	testExtracter *hop.SphinxErrorEncrypter
 )
 
 func init() {
@@ -67,7 +68,7 @@ func initTestExtracter() {
 		testEphemeralKey,
 	)
 
-	sphinxExtracter, ok := obfuscator.(*htlcswitch.SphinxErrorEncrypter)
+	sphinxExtracter, ok := obfuscator.(*hop.SphinxErrorEncrypter)
 	if !ok {
 		panic("did not extract sphinx error encrypter")
 	}
@@ -81,7 +82,7 @@ func initTestExtracter() {
 
 // newOnionProcessor creates starts a new htlcswitch.OnionProcessor using a temp
 // db and no garbage collection.
-func newOnionProcessor(t *testing.T) *htlcswitch.OnionProcessor {
+func newOnionProcessor(t *testing.T) *hop.OnionProcessor {
 	sphinxRouter := sphinx.NewRouter(
 		sphinxPrivKey, &bitcoinCfg.SimNetParams, sphinx.NewMemoryReplayLog(),
 	)
@@ -90,7 +91,7 @@ func newOnionProcessor(t *testing.T) *htlcswitch.OnionProcessor {
 		t.Fatalf("unable to start sphinx router: %v", err)
 	}
 
-	return htlcswitch.NewOnionProcessor(sphinxRouter)
+	return hop.NewOnionProcessor(sphinxRouter)
 }
 
 // newCircuitMap creates a new htlcswitch.CircuitMap using a temp db and a
@@ -128,7 +129,7 @@ var halfCircuitTests = []struct {
 	outValue  btcutil.Amount
 	chanID    lnwire.ShortChannelID
 	htlcID    uint64
-	encrypter htlcswitch.ErrorEncrypter
+	encrypter hop.ErrorEncrypter
 }{
 	{
 		hash:      hash1,
@@ -1142,7 +1143,7 @@ func TestCircuitMapCloseOpenCircuits(t *testing.T) {
 			ChanID: chan1,
 			HtlcID: 3,
 		},
-		ErrorEncrypter: &htlcswitch.SphinxErrorEncrypter{
+		ErrorEncrypter: &hop.SphinxErrorEncrypter{
 			EphemeralKey: testEphemeralKey,
 		},
 	}

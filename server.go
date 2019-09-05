@@ -34,6 +34,7 @@ import (
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/htlcswitch"
+	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lncfg"
@@ -208,7 +209,7 @@ type server struct {
 
 	chainArb *contractcourt.ChainArbitrator
 
-	sphinx *htlcswitch.OnionProcessor
+	sphinx *hop.OnionProcessor
 
 	towerClient wtclient.Client
 
@@ -367,7 +368,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 
 		// TODO(roasbeef): derive proper onion key based on rotation
 		// schedule
-		sphinx: htlcswitch.NewOnionProcessor(sphinxRouter),
+		sphinx: hop.NewOnionProcessor(sphinxRouter),
 
 		persistentPeers:         make(map[string]struct{}),
 		persistentPeersBackoff:  make(map[string]time.Duration),

@@ -263,7 +263,12 @@ func TestOpenChannelPutGetDelete(t *testing.T) {
 			OnionBlob:     []byte("onionblob"),
 		},
 	}
-	if err := state.FullSync(); err != nil {
+
+	addr := &net.TCPAddr{
+		IP:   net.ParseIP("127.0.0.1"),
+		Port: 18556,
+	}
+	if err := state.SyncPending(addr, 101); err != nil {
 		t.Fatalf("unable to save and serialize channel state: %v", err)
 	}
 
@@ -363,7 +368,12 @@ func TestChannelStateTransition(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to create channel state: %v", err)
 	}
-	if err := channel.FullSync(); err != nil {
+
+	addr := &net.TCPAddr{
+		IP:   net.ParseIP("127.0.0.1"),
+		Port: 18556,
+	}
+	if err := channel.SyncPending(addr, 101); err != nil {
 		t.Fatalf("unable to save and serialize channel state: %v", err)
 	}
 

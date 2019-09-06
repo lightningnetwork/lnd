@@ -514,16 +514,6 @@ type OpenChannel struct {
 	sync.RWMutex
 }
 
-// FullSync serializes, and writes to disk the *full* channel state, using
-// both the active channel bucket to store the prefixed column fields, and the
-// remote node's ID to store the remainder of the channel state.
-func (c *OpenChannel) FullSync() error {
-	c.Lock()
-	defer c.Unlock()
-
-	return c.Db.Update(c.fullSync)
-}
-
 // ShortChanID returns the current ShortChannelID of this channel.
 func (c *OpenChannel) ShortChanID() lnwire.ShortChannelID {
 	c.RLock()
@@ -648,9 +638,8 @@ func fetchChanBucket(tx *bbolt.Tx, nodeKey *btcec.PublicKey,
 	return chanBucket, nil
 }
 
-// fullSync is an internal version of the FullSync method which allows callers
-// to sync the contents of an OpenChannel while re-using an existing database
-// transaction.
+// fullSync syncs the contents of an OpenChannel while re-using an existing
+// database transaction.
 func (c *OpenChannel) fullSync(tx *bbolt.Tx) error {
 	// First fetch the top level bucket which stores all data related to
 	// current, active channels.

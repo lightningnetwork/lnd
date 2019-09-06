@@ -444,7 +444,9 @@ func (c *channelCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message, b
 		if err := c.cfg.broadcastTx(closeTx); err != nil {
 			return nil, false, err
 		}
-		if err := c.cfg.channel.MarkCommitmentBroadcasted(); err != nil {
+
+		err = c.cfg.channel.MarkCommitmentBroadcasted(closeTx)
+		if err != nil {
 			return nil, false, err
 		}
 

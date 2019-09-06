@@ -6259,11 +6259,11 @@ func (lc *LightningChannel) State() *channeldb.OpenChannel {
 // MarkCommitmentBroadcasted marks the channel as a commitment transaction has
 // been broadcast, either our own or the remote, and we should watch the chain
 // for it to confirm before taking any further action.
-func (lc *LightningChannel) MarkCommitmentBroadcasted() error {
+func (lc *LightningChannel) MarkCommitmentBroadcasted(tx *wire.MsgTx) error {
 	lc.Lock()
 	defer lc.Unlock()
 
-	return lc.channelState.MarkCommitmentBroadcasted()
+	return lc.channelState.MarkCommitmentBroadcasted(tx)
 }
 
 // ActiveHtlcs returns a slice of HTLC's which are currently active on *both*

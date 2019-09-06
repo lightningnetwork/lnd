@@ -97,7 +97,7 @@ type ChannelArbitratorConfig struct {
 
 	// MarkCommitmentBroadcasted should mark the channel as the commitment
 	// being broadcast, and we are waiting for the commitment to confirm.
-	MarkCommitmentBroadcasted func() error
+	MarkCommitmentBroadcasted func(*wire.MsgTx) error
 
 	// MarkChannelClosed marks the channel closed in the database, with the
 	// passed close summary. After this method successfully returns we can
@@ -840,7 +840,7 @@ func (c *ChannelArbitrator) stateStep(
 			}
 		}
 
-		if err := c.cfg.MarkCommitmentBroadcasted(); err != nil {
+		if err := c.cfg.MarkCommitmentBroadcasted(closeTx); err != nil {
 			log.Errorf("ChannelArbitrator(%v): unable to "+
 				"mark commitment broadcasted: %v",
 				c.cfg.ChanPoint, err)

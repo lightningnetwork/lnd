@@ -895,6 +895,11 @@ func (l *channelLink) htlcManager() {
 	if l.cfg.SyncStates {
 		err := l.syncChanStates()
 		if err != nil {
+			log.Warnf("Error when syncing channel states: %v", err)
+
+			_, localDataLoss :=
+				err.(*lnwallet.ErrCommitSyncLocalDataLoss)
+
 			switch {
 			case err == ErrLinkShuttingDown:
 				log.Debugf("unable to sync channel states, " +
@@ -936,7 +941,7 @@ func (l *channelLink) htlcManager() {
 			// TODO(halseth): mark this, such that we prevent
 			// channel from being force closed by the user or
 			// contractcourt etc.
-			case err == lnwallet.ErrCommitSyncLocalDataLoss:
+			case localDataLoss:
 
 			// We determined the commit chains were not possible to
 			// sync. We cautiously fail the channel, but don't

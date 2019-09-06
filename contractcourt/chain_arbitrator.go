@@ -412,6 +412,36 @@ func (c *ChainArbitrator) Start() error {
 		}
 
 		c.activeChannels[chanPoint] = channelArb
+
+		// If the channel has had its commitment broadcasted already,
+		// republish it in case it didn't propagate.
+		if !channel.HasChanStatus(
+			channeldb.ChanStatusCommitBroadcasted,
+		) {
+			continue
+		}
+
+		closeTx, err := channel.BroadcastedCommitment()
+		switch {
+
+		// This can happen for channels that had their closing tx
+		// published before we started storing it to disk.
+		case err == channeldb.ErrNoCloseTx:
+			log.Warnf("Channel %v is in state CommitBroadcasted, "+
+				"but no closing tx to re-publish...", chanPoint)
+			continue
+
+		case err != nil:
+			return err
+		}
+
+		log.Infof("Re-publishing closing tx(%v) for channel %v",
+			closeTx.TxHash(), chanPoint)
+		err = c.cfg.PublishTx(closeTx)
+		if err != nil && err != lnwallet.ErrDoubleSpend {
+			log.Warnf("Unable to broadcast close tx(%v): %v",
+				closeTx.TxHash(), err)
+		}
 	}
 
 	// In addition to the channels that we know to be open, we'll also

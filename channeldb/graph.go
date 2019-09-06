@@ -2256,7 +2256,7 @@ func (c *ChannelGraph) HasLightningNode(nodePub [33]byte) (time.Time, bool, erro
 		return nil
 	})
 	if err != nil {
-		return time.Time{}, exists, nil
+		return time.Time{}, exists, err
 	}
 
 	return updateTime, exists, nil

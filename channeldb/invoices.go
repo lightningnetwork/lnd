@@ -372,7 +372,7 @@ func (d *DB) AddInvoice(newInvoice *Invoice, paymentHash lntypes.Hash) (
 			byteOrder.PutUint32(scratch[:], invoiceNum)
 			err := invoiceIndex.Put(numInvoicesKey, scratch[:])
 			if err != nil {
-				return nil
+				return err
 			}
 		} else {
 			invoiceNum = byteOrder.Uint32(invoiceCounter)

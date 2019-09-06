@@ -4,7 +4,7 @@ require (
 	github.com/NebulousLabs/fastrand v0.0.0-20181203155948-6fb6489aac4e // indirect
 	github.com/NebulousLabs/go-upnp v0.0.0-20180202185039-29b680b06c82
 	github.com/Yawning/aez v0.0.0-20180114000226-4dad034d9db2
-	github.com/btcsuite/btcd v0.0.0-20190629003639-c26ffa870fd8
+	github.com/btcsuite/btcd v0.0.0-20190824003749-130ea5bddde3
 	github.com/btcsuite/btclog v0.0.0-20170628155309-84c8d2346e9f
 	github.com/btcsuite/btcutil v0.0.0-20190425235716-9e5f4b9a998d
 	github.com/btcsuite/btcwallet v0.0.0-20190712034938-7a3a3e82cbb6
@@ -29,6 +29,7 @@ require (
 	github.com/lightningnetwork/lightning-onion v0.0.0-20190808221659-0c0c9dbf17ea
 	github.com/lightningnetwork/lnd/queue v1.0.1
 	github.com/lightningnetwork/lnd/ticker v1.0.0
+	github.com/lightningnetwork/lnd/tlv v1.0.0
 	github.com/ltcsuite/ltcd v0.0.0-20190101042124-f37f8bf35796
 	github.com/miekg/dns v0.0.0-20171125082028-79bfde677fa8
 	github.com/prometheus/client_golang v0.9.3
@@ -43,10 +44,13 @@ require (
 	gopkg.in/errgo.v1 v1.0.1 // indirect
 	gopkg.in/macaroon-bakery.v2 v2.0.1
 	gopkg.in/macaroon.v2 v2.0.0
+	gopkg.in/mgo.v2 v2.0.0-20190816093944-a6b53ec6cb22 // indirect
 )
 
 replace github.com/lightningnetwork/lnd/ticker => ./ticker
 
 replace github.com/lightningnetwork/lnd/queue => ./queue
+
+replace github.com/lightningnetwork/lnd/tlv => ./tlv
 
 replace git.schwanenlied.me/yawning/bsaes.git => github.com/Yawning/bsaes v0.0.0-20180720073208-c0276d75487e

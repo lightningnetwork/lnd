@@ -345,7 +345,11 @@ func (hn *HarnessNode) start(lndError chan<- error) error {
 	hn.quit = make(chan struct{})
 
 	args := hn.cfg.genArgs()
-	hn.cmd = exec.Command("../../lnd-itest", args...)
+	binaryPath, err := filepath.Abs("../../lnd-itest")
+	if err != nil {
+		return err
+	}
+	hn.cmd = exec.Command(binaryPath, args...)
 
 	// Redirect stderr output to buffer
 	var errb bytes.Buffer

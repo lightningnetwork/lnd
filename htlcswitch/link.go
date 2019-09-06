@@ -922,12 +922,12 @@ func (l *channelLink) htlcManager() {
 			// what they sent us before.
 			// TODO(halseth): ban peer?
 			case err == lnwallet.ErrInvalidLocalUnrevokedCommitPoint:
-				err = l.channel.MarkBorked()
-				if err != nil {
-					log.Errorf("Unable to mark channel "+
-						"borked: %v", err)
-				}
-
+				// We'll fail the link and tell the peer to
+				// force close the channel. Note that the
+				// database state is not updated here, but will
+				// be updated when the close transaction is
+				// ready to avoid that we go down before
+				// storing the transaction in the db.
 				l.fail(
 					LinkFailureError{
 						code:       ErrSyncError,

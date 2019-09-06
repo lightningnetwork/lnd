@@ -108,6 +108,10 @@ var (
 	// in the database.
 	ErrNoCommitPoint = fmt.Errorf("no commit point found")
 
+	// ErrNoCloseTx is returned when no closing tx is found for a channel
+	// in the state CommitBroadcasted.
+	ErrNoCloseTx = fmt.Errorf("no closing tx found")
+
 	// ErrNoRestoredChannelMutation is returned when a caller attempts to
 	// mutate a channel that's been recovered.
 	ErrNoRestoredChannelMutation = fmt.Errorf("cannot mutate restored " +
@@ -900,6 +904,37 @@ func (c *OpenChannel) MarkCommitmentBroadcasted(closeTx *wire.MsgTx) error {
 	}
 
 	return c.putChanStatus(ChanStatusCommitBroadcasted, putClosingTx)
+}
+
+// BroadcastedCommitment retrieves the stored closing tx set during
+// MarkCommitmentBroadcasted. If not found ErrNoCloseTx is returned.
+func (c *OpenChannel) BroadcastedCommitment() (*wire.MsgTx, error) {
+	var closeTx *wire.MsgTx
+
+	err := c.Db.View(func(tx *bbolt.Tx) error {
+		chanBucket, err := fetchChanBucket(
+			tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
+		)
+		switch err {
+		case nil:
+		case ErrNoChanDBExists, ErrNoActiveChannels, ErrChannelNotFound:
+			return ErrNoCloseTx
+		default:
+			return err
+		}
+
+		bs := chanBucket.Get(closingTxKey)
+		if bs == nil {
+			return ErrNoCloseTx
+		}
+		r := bytes.NewReader(bs)
+		return ReadElement(r, &closeTx)
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return closeTx, nil
 }
 
 // putChanStatus appends the given status to the channel. fs is an optional

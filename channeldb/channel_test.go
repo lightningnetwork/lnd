@@ -891,7 +891,12 @@ func TestFetchWaitingCloseChannels(t *testing.T) {
 	// This would happen in the event of a force close and should make the
 	// channels enter a state of waiting close.
 	for _, channel := range channels {
-		closeTx := &wire.MsgTx{}
+		closeTx := wire.NewMsgTx(2)
+		closeTx.AddTxIn(
+			&wire.TxIn{
+				PreviousOutPoint: channel.FundingOutpoint,
+			},
+		)
 		if err := channel.MarkCommitmentBroadcasted(closeTx); err != nil {
 			t.Fatalf("unable to mark commitment broadcast: %v", err)
 		}
@@ -916,6 +921,19 @@ func TestFetchWaitingCloseChannels(t *testing.T) {
 		if _, ok := expectedChannels[channel.FundingOutpoint]; !ok {
 			t.Fatalf("expected channel %v to be waiting close",
 				channel.FundingOutpoint)
+		}
+
+		// Finally, make sure we can retrieve the closing tx for the
+		// channel.
+		closeTx, err := channel.BroadcastedCommitment()
+		if err != nil {
+			t.Fatalf("Unable to retrieve commitment: %v", err)
+		}
+
+		if closeTx.TxIn[0].PreviousOutPoint != channel.FundingOutpoint {
+			t.Fatalf("expected outpoint %v, got %v",
+				channel.FundingOutpoint,
+				closeTx.TxIn[0].PreviousOutPoint)
 		}
 	}
 }

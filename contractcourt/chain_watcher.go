@@ -731,8 +731,7 @@ func (c *chainWatcher) dispatchCooperativeClose(commitSpend *chainntnfs.SpendDet
 	}
 
 	// Attempt to add a channel sync message to the close summary.
-	chanSync, err := lnwallet.ChanSyncMsg(
-		c.cfg.chanState,
+	chanSync, err := c.cfg.chanState.ChanSyncMsg(
 		c.cfg.chanState.HasChanStatus(channeldb.ChanStatusRestored),
 	)
 	if err != nil {
@@ -811,8 +810,7 @@ func (c *chainWatcher) dispatchLocalForceClose(
 	}
 
 	// Attempt to add a channel sync message to the close summary.
-	chanSync, err := lnwallet.ChanSyncMsg(
-		c.cfg.chanState,
+	chanSync, err := c.cfg.chanState.ChanSyncMsg(
 		c.cfg.chanState.HasChanStatus(channeldb.ChanStatusRestored),
 	)
 	if err != nil {
@@ -998,8 +996,7 @@ func (c *chainWatcher) dispatchContractBreach(spendEvent *chainntnfs.SpendDetail
 	}
 
 	// Attempt to add a channel sync message to the close summary.
-	chanSync, err := lnwallet.ChanSyncMsg(
-		c.cfg.chanState,
+	chanSync, err := c.cfg.chanState.ChanSyncMsg(
 		c.cfg.chanState.HasChanStatus(channeldb.ChanStatusRestored),
 	)
 	if err != nil {

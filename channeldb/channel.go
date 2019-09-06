@@ -16,6 +16,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/coreos/bbolt"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
@@ -808,6 +809,85 @@ func (c *OpenChannel) MarkBorked() error {
 	defer c.Unlock()
 
 	return c.putChanStatus(ChanStatusBorked)
+}
+
+// ChanSyncMsg returns the ChannelReestablish message that should be sent upon
+// reconnection with the remote peer that we're maintaining this channel with.
+// The information contained within this message is necessary to re-sync our
+// commitment chains in the case of a last or only partially processed message.
+// When the remote party receiver this message one of three things may happen:
+//
+//   1. We're fully synced and no messages need to be sent.
+//   2. We didn't get the last CommitSig message they sent, to they'll re-send
+//      it.
+//   3. We didn't get the last RevokeAndAck message they sent, so they'll
+//      re-send it.
+//
+// The isRestoredChan bool indicates if we need to craft a chan sync message
+// for a channel that's been restored. If this is a restored channel, then
+// we'll modify our typical chan sync  message to ensure they force close even
+// if we're on the very first state.
+func (c *OpenChannel) ChanSyncMsg(
+	isRestoredChan bool) (*lnwire.ChannelReestablish, error) {
+
+	c.Lock()
+	defer c.Unlock()
+
+	// The remote commitment height that we'll send in the
+	// ChannelReestablish message is our current commitment height plus
+	// one. If the receiver thinks that our commitment height is actually
+	// *equal* to this value, then they'll re-send the last commitment that
+	// they sent but we never fully processed.
+	localHeight := c.LocalCommitment.CommitHeight
+	nextLocalCommitHeight := localHeight + 1
+
+	// The second value we'll send is the height of the remote commitment
+	// from our PoV. If the receiver thinks that their height is actually
+	// *one plus* this value, then they'll re-send their last revocation.
+	remoteChainTipHeight := c.RemoteCommitment.CommitHeight
+
+	// If this channel has undergone a commitment update, then in order to
+	// prove to the remote party our knowledge of their prior commitment
+	// state, we'll also send over the last commitment secret that the
+	// remote party sent.
+	var lastCommitSecret [32]byte
+	if remoteChainTipHeight != 0 {
+		remoteSecret, err := c.RevocationStore.LookUp(
+			remoteChainTipHeight - 1,
+		)
+		if err != nil {
+			return nil, err
+		}
+		lastCommitSecret = [32]byte(*remoteSecret)
+	}
+
+	// Additionally, we'll send over the current unrevoked commitment on
+	// our local commitment transaction.
+	currentCommitSecret, err := c.RevocationProducer.AtIndex(
+		localHeight,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// If we've restored this channel, then we'll purposefully give them an
+	// invalid LocalUnrevokedCommitPoint so they'll force close the channel
+	// allowing us to sweep our funds.
+	if isRestoredChan {
+		currentCommitSecret[0] ^= 1
+	}
+
+	return &lnwire.ChannelReestablish{
+		ChanID: lnwire.NewChanIDFromOutPoint(
+			&c.FundingOutpoint,
+		),
+		NextLocalCommitHeight:  nextLocalCommitHeight,
+		RemoteCommitTailHeight: remoteChainTipHeight,
+		LastRemoteCommitSecret: lastCommitSecret,
+		LocalUnrevokedCommitPoint: input.ComputeCommitmentPoint(
+			currentCommitSecret[:],
+		),
+	}, nil
 }
 
 // isBorked returns true if the channel has been marked as borked in the

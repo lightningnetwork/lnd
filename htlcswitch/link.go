@@ -609,8 +609,7 @@ func (l *channelLink) syncChanStates() error {
 	// side. Based on this message, the remote party will decide if they
 	// need to retransmit any data or not.
 	chanState := l.channel.State()
-	localChanSyncMsg, err := lnwallet.ChanSyncMsg(
-		chanState,
+	localChanSyncMsg, err := chanState.ChanSyncMsg(
 		chanState.HasChanStatus(channeldb.ChanStatusRestored),
 	)
 	if err != nil {

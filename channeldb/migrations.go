@@ -845,7 +845,7 @@ func migrateOutgoingPayments(tx *bbolt.Tx) error {
 		}
 
 		var attemptBuf bytes.Buffer
-		if err := serializePaymentAttemptInfo(&attemptBuf, s); err != nil {
+		if err := serializePaymentAttemptInfoMigration9(&attemptBuf, s); err != nil {
 			return err
 		}
 

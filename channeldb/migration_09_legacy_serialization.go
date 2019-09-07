@@ -7,6 +7,7 @@ import (
 
 	"github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing/route"
 )
 
 var (
@@ -252,4 +253,51 @@ func deserializeOutgoingPayment(r io.Reader) (*outgoingPayment, error) {
 	}
 
 	return p, nil
+}
+
+// serializePaymentAttemptInfoMigration9 is the serializePaymentAttemptInfo
+// version as existed when migration #9 was created. We keep this around, along
+// with the methods below to ensure that clients that upgrade will use the
+// correct version of this method.
+func serializePaymentAttemptInfoMigration9(w io.Writer, a *PaymentAttemptInfo) error {
+	if err := WriteElements(w, a.PaymentID, a.SessionKey); err != nil {
+		return err
+	}
+
+	if err := serializeRouteMigration9(w, a.Route); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func serializeHopMigration9(w io.Writer, h *route.Hop) error {
+	if err := WriteElements(w,
+		h.PubKeyBytes[:], h.ChannelID, h.OutgoingTimeLock,
+		h.AmtToForward,
+	); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func serializeRouteMigration9(w io.Writer, r route.Route) error {
+	if err := WriteElements(w,
+		r.TotalTimeLock, r.TotalAmount, r.SourcePubKey[:],
+	); err != nil {
+		return err
+	}
+
+	if err := WriteElements(w, uint32(len(r.Hops))); err != nil {
+		return err
+	}
+
+	for _, h := range r.Hops {
+		if err := serializeHopMigration9(w, h); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }

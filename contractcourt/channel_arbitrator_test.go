@@ -655,30 +655,15 @@ func TestChannelArbitratorBreachClose(t *testing.T) {
 // ChannelArbitrator goes through the expected states in case we request it to
 // force close a channel that still has an HTLC pending.
 func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
-	arbLog := &mockArbitratorLog{
-		state:     StateDefault,
-		newStates: make(chan ArbitratorState, 5),
-		resolvers: make(map[ContractResolver]struct{}),
-	}
-
-	chanArbCtx, err := createTestChannelArbitrator(
-		t, arbLog,
-	)
+	// We create a new test context for this channel arb, notice that we
+	// pass in a nil ArbitratorLog which means that a default one backed by
+	// a real DB will be created. We need this for our test as we want to
+	// test proper restart recovery and resolver population.
+	chanArbCtx, err := createTestChannelArbitrator(t, nil)
 	if err != nil {
 		t.Fatalf("unable to create ChannelArbitrator: %v", err)
 	}
-
-	incubateChan := make(chan struct{})
 	chanArb := chanArbCtx.chanArb
-	chanArb.cfg.IncubateOutputs = func(_ wire.OutPoint,
-		_ *lnwallet.CommitOutputResolution,
-		_ *lnwallet.OutgoingHtlcResolution,
-		_ *lnwallet.IncomingHtlcResolution, _ uint32) error {
-
-		incubateChan <- struct{}{}
-
-		return nil
-	}
 	chanArb.cfg.PreimageDB = newMockWitnessBeacon()
 	chanArb.cfg.Registry = &mockRegistry{}
 
@@ -697,9 +682,10 @@ func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
 	chanArb.UpdateContractSignals(signals)
 
 	// Add HTLC to channel arbitrator.
+	htlcAmt := 10000
 	htlc := channeldb.HTLC{
 		Incoming:  false,
-		Amt:       10000,
+		Amt:       lnwire.MilliSatoshi(htlcAmt),
 		HtlcIndex: 99,
 	}
 
@@ -775,8 +761,8 @@ func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
 		Index: 0,
 	}
 
-	// Set up the outgoing resolution. Populate SignedTimeoutTx because
-	// our commitment transaction got confirmed.
+	// Set up the outgoing resolution. Populate SignedTimeoutTx because our
+	// commitment transaction got confirmed.
 	outgoingRes := lnwallet.OutgoingHtlcResolution{
 		Expiry: 10,
 		SweepSignDesc: input.SignDescriptor{
@@ -835,29 +821,71 @@ func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
 		t.Fatalf("resolution msgs not sent")
 	}
 
+	// We'll grab the old notifier here as our resolvers are still holding
+	// a reference to this instance, and a new one will be created when we
+	// restart the channel arb below.
+	oldNotifier := chanArb.cfg.Notifier.(*mockNotifier)
+
+	// At this point, in order to simulate a restart, we'll re-create the
+	// channel arbitrator. We do this to ensure that all information
+	// required to properly resolve this HTLC are populated.
+	if err := chanArb.Stop(); err != nil {
+		t.Fatalf("unable to stop chan arb: %v", err)
+	}
+
+	// We'll no re-create the resolver, notice that we use the existing
+	// arbLog so it carries over the same on-disk state.
+	chanArbCtxNew, err := chanArbCtx.Restart(nil)
+	if err != nil {
+		t.Fatalf("unable to create ChannelArbitrator: %v", err)
+	}
+	chanArb = chanArbCtxNew.chanArb
+	defer chanArbCtxNew.CleanUp()
+
+	// Post restart, it should be the case that our resolver was properly
+	// supplemented, and we only have a single resolver in the final set.
+	if len(chanArb.activeResolvers) != 1 {
+		t.Fatalf("expected single resolver, instead got: %v",
+			len(chanArb.activeResolvers))
+	}
+
+	// We'll now examine the in-memory state of the active resolvers to
+	// ensure t hey were populated properly.
+	resolver := chanArb.activeResolvers[0]
+	outgoingResolver, ok := resolver.(*htlcOutgoingContestResolver)
+	if !ok {
+		t.Fatalf("expected outgoing contest resolver, got %vT",
+			resolver)
+	}
+
+	// The resolver should have its htlcAmt field populated as it.
+	if int64(outgoingResolver.htlcAmt) != int64(htlcAmt) {
+		t.Fatalf("wrong htlc amount: expected %v, got %v,",
+			htlcAmt, int64(outgoingResolver.htlcAmt))
+	}
+
 	// htlcOutgoingContestResolver is now active and waiting for the HTLC to
 	// expire. It should not yet have passed it on for incubation.
 	select {
-	case <-incubateChan:
+	case <-chanArbCtx.incubationRequests:
 		t.Fatalf("contract should not be incubated yet")
 	default:
 	}
 
 	// Send a notification that the expiry height has been reached.
-	notifier := chanArb.cfg.Notifier.(*mockNotifier)
-	notifier.epochChan <- &chainntnfs.BlockEpoch{Height: 10}
+	oldNotifier.epochChan <- &chainntnfs.BlockEpoch{Height: 10}
 
 	// htlcOutgoingContestResolver is now transforming into a
 	// htlcTimeoutResolver and should send the contract off for incubation.
 	select {
-	case <-incubateChan:
+	case <-chanArbCtx.incubationRequests:
 	case <-time.After(5 * time.Second):
 		t.Fatalf("no response received")
 	}
 
 	// Notify resolver that the HTLC output of the commitment has been
 	// spent.
-	notifier.spendChan <- &chainntnfs.SpendDetail{SpendingTx: closeTx}
+	oldNotifier.spendChan <- &chainntnfs.SpendDetail{SpendingTx: closeTx}
 
 	// Finally, we should also receive a resolution message instructing the
 	// switch to cancel back the HTLC.
@@ -879,18 +907,18 @@ func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
 	// to the second level. Channel arbitrator should still not be marked
 	// as resolved.
 	select {
-	case <-chanArbCtx.resolvedChan:
+	case <-chanArbCtxNew.resolvedChan:
 		t.Fatalf("channel resolved prematurely")
 	default:
 	}
 
 	// Notify resolver that the second level transaction is spent.
-	notifier.spendChan <- &chainntnfs.SpendDetail{SpendingTx: closeTx}
+	oldNotifier.spendChan <- &chainntnfs.SpendDetail{SpendingTx: closeTx}
 
 	// At this point channel should be marked as resolved.
-	chanArbCtx.AssertStateTransitions(StateFullyResolved)
+	chanArbCtxNew.AssertStateTransitions(StateFullyResolved)
 	select {
-	case <-chanArbCtx.resolvedChan:
+	case <-chanArbCtxNew.resolvedChan:
 	case <-time.After(5 * time.Second):
 		t.Fatalf("contract was not resolved")
 	}

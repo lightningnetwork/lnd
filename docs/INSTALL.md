@@ -12,6 +12,7 @@
     * [Running lnd using the btcd backend](#running-lnd-using-the-btcd-backend)
   * [Using Neutrino](#using-neutrino)
   * [Using bitcoind or litecoind](#using-bitcoind-or-litecoind)
+* [Creating a Wallet](#creating-a-wallet)
 * [Macaroons](#macaroons)
 * [Network Reachability](#network-reachability)
 * [Simnet vs. Testnet Development](#simnet-vs-testnet-development)
@@ -363,6 +364,20 @@ lnd --bitcoin.active --bitcoin.testnet --debuglevel=debug --bitcoin.node=bitcoin
   the default `bitcoind` settings, having more than one instance of `lnd`, or
   `lnd` plus any application that consumes the RPC could cause `lnd` to miss
   crucial updates from the backend.
+
+
+# Creating a wallet
+If `lnd` is being run for the first time, create a new wallet with:
+```
+lncli create
+```
+This will prompt for a wallet password, and optionally a cipher seed
+passphrase.
+
+`lnd` will then print a 24 word cipher seed mnemonic, which can be used to
+recover the wallet in case of data loss. The user should write this down and
+keep in a safe place.
+
 
 # Macaroons
 

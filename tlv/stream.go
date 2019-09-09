@@ -144,6 +144,21 @@ func (s *Stream) Encode(w io.Writer) error {
 // the last record was read cleanly and we should stop parsing. All other io.EOF
 // or io.ErrUnexpectedEOF errors are returned.
 func (s *Stream) Decode(r io.Reader) error {
+	_, err := s.decode(r, nil)
+	return err
+}
+
+// DecodeWithParsedTypes is identical to Decode, but if successful, returns a
+// TypeSet containing the types of all records that were decoded or ignored from
+// the stream.
+func (s *Stream) DecodeWithParsedTypes(r io.Reader) (TypeSet, error) {
+	return s.decode(r, make(TypeSet))
+}
+
+// decode is a helper function that performs the basis of stream decoding. If
+// the caller needs the set of parsed types, it must provide an initialized
+// parsedTypes, otherwise the returned TypeSet will be nil.
+func (s *Stream) decode(r io.Reader, parsedTypes TypeSet) (TypeSet, error) {
 	var (
 		typ       Type
 		min       Type
@@ -161,11 +176,11 @@ func (s *Stream) Decode(r io.Reader) error {
 		// We'll silence an EOF when zero bytes remain, meaning the
 		// stream was cleanly encoded.
 		case err == io.EOF:
-			return nil
+			return parsedTypes, nil
 
 		// Other unexpected errors.
 		case err != nil:
-			return err
+			return nil, err
 		}
 
 		typ = Type(t)
@@ -176,7 +191,7 @@ func (s *Stream) Decode(r io.Reader) error {
 		// encodings that have duplicate records or from accepting an
 		// unsorted series.
 		if overflow || typ < min {
-			return ErrStreamNotCanonical
+			return nil, ErrStreamNotCanonical
 		}
 
 		// Read the varint length.
@@ -186,11 +201,11 @@ func (s *Stream) Decode(r io.Reader) error {
 		// We'll convert any EOFs to ErrUnexpectedEOF, since this
 		// results in an invalid record.
 		case err == io.EOF:
-			return io.ErrUnexpectedEOF
+			return nil, io.ErrUnexpectedEOF
 
 		// Other unexpected errors.
 		case err != nil:
-			return err
+			return nil, err
 		}
 
 		// Place a soft limit on the size of a sane record, which
@@ -198,7 +213,7 @@ func (s *Stream) Decode(r io.Reader) error {
 		// unbounded amount of memory when decoding variable-sized
 		// fields.
 		if length > MaxRecordSize {
-			return ErrRecordTooLarge
+			return nil, ErrRecordTooLarge
 		}
 
 		// Search the records known to the stream for this type. We'll
@@ -218,17 +233,17 @@ func (s *Stream) Decode(r io.Reader) error {
 			// We'll convert any EOFs to ErrUnexpectedEOF, since this
 			// results in an invalid record.
 			case err == io.EOF:
-				return io.ErrUnexpectedEOF
+				return nil, io.ErrUnexpectedEOF
 
 			// Other unexpected errors.
 			case err != nil:
-				return err
+				return nil, err
 			}
 
 		// This record type is unknown to the stream, fail if the type
 		// is even meaning that we are required to understand it.
 		case typ%2 == 0:
-			return ErrUnknownRequiredType(typ)
+			return nil, ErrUnknownRequiredType(typ)
 
 		// Otherwise, the record type is unknown and is odd, discard the
 		// number of bytes specified by length.
@@ -239,12 +254,18 @@ func (s *Stream) Decode(r io.Reader) error {
 			// We'll convert any EOFs to ErrUnexpectedEOF, since this
 			// results in an invalid record.
 			case err == io.EOF:
-				return io.ErrUnexpectedEOF
+				return nil, io.ErrUnexpectedEOF
 
 			// Other unexpected errors.
 			case err != nil:
-				return err
+				return nil, err
 			}
+		}
+
+		// Record the successfully decoded or ignored type if the
+		// caller provided an initialized TypeSet.
+		if parsedTypes != nil {
+			parsedTypes[typ] = struct{}{}
 		}
 
 		// Update our record index so that we can begin our next search

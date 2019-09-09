@@ -626,7 +626,7 @@ func TestOutgoingPaymentsMigration(t *testing.T) {
 			t.Fatal("migration 'paymentStatusesMigration' wasn't applied")
 		}
 
-		sentPayments, err := d.FetchPayments()
+		sentPayments, err := d.fetchPaymentsMigration9()
 		if err != nil {
 			t.Fatalf("unable to fetch sent payments: %v", err)
 		}

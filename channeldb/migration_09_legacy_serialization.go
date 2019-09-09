@@ -3,9 +3,12 @@ package channeldb
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"io"
+	"sort"
 
 	"github.com/coreos/bbolt"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
@@ -300,4 +303,195 @@ func serializeRouteMigration9(w io.Writer, r route.Route) error {
 	}
 
 	return nil
+}
+
+func deserializePaymentAttemptInfoMigration9(r io.Reader) (*PaymentAttemptInfo, error) {
+	a := &PaymentAttemptInfo{}
+	err := ReadElements(r, &a.PaymentID, &a.SessionKey)
+	if err != nil {
+		return nil, err
+	}
+	a.Route, err = deserializeRouteMigration9(r)
+	if err != nil {
+		return nil, err
+	}
+	return a, nil
+}
+
+func deserializeRouteMigration9(r io.Reader) (route.Route, error) {
+	rt := route.Route{}
+	if err := ReadElements(r,
+		&rt.TotalTimeLock, &rt.TotalAmount,
+	); err != nil {
+		return rt, err
+	}
+
+	var pub []byte
+	if err := ReadElements(r, &pub); err != nil {
+		return rt, err
+	}
+	copy(rt.SourcePubKey[:], pub)
+
+	var numHops uint32
+	if err := ReadElements(r, &numHops); err != nil {
+		return rt, err
+	}
+
+	var hops []*route.Hop
+	for i := uint32(0); i < numHops; i++ {
+		hop, err := deserializeHopMigration9(r)
+		if err != nil {
+			return rt, err
+		}
+		hops = append(hops, hop)
+	}
+	rt.Hops = hops
+
+	return rt, nil
+}
+
+func deserializeHopMigration9(r io.Reader) (*route.Hop, error) {
+	h := &route.Hop{}
+
+	var pub []byte
+	if err := ReadElements(r, &pub); err != nil {
+		return nil, err
+	}
+	copy(h.PubKeyBytes[:], pub)
+
+	if err := ReadElements(r,
+		&h.ChannelID, &h.OutgoingTimeLock, &h.AmtToForward,
+	); err != nil {
+		return nil, err
+	}
+
+	return h, nil
+}
+
+// fetchPaymentsMigration9 returns all sent payments found in the DB using the
+// payment attempt info format that was present as of migration #9. We need
+// this as otherwise, the current FetchPayments version will use the latest
+// decoding format. Note that we only need this for the
+// TestOutgoingPaymentsMigration migration test case.
+func (db *DB) fetchPaymentsMigration9() ([]*Payment, error) {
+	var payments []*Payment
+
+	err := db.View(func(tx *bbolt.Tx) error {
+		paymentsBucket := tx.Bucket(paymentsRootBucket)
+		if paymentsBucket == nil {
+			return nil
+		}
+
+		return paymentsBucket.ForEach(func(k, v []byte) error {
+			bucket := paymentsBucket.Bucket(k)
+			if bucket == nil {
+				// We only expect sub-buckets to be found in
+				// this top-level bucket.
+				return fmt.Errorf("non bucket element in " +
+					"payments bucket")
+			}
+
+			p, err := fetchPaymentMigration9(bucket)
+			if err != nil {
+				return err
+			}
+
+			payments = append(payments, p)
+
+			// For older versions of lnd, duplicate payments to a
+			// payment has was possible. These will be found in a
+			// sub-bucket indexed by their sequence number if
+			// available.
+			dup := bucket.Bucket(paymentDuplicateBucket)
+			if dup == nil {
+				return nil
+			}
+
+			return dup.ForEach(func(k, v []byte) error {
+				subBucket := dup.Bucket(k)
+				if subBucket == nil {
+					// We one bucket for each duplicate to
+					// be found.
+					return fmt.Errorf("non bucket element" +
+						"in duplicate bucket")
+				}
+
+				p, err := fetchPaymentMigration9(subBucket)
+				if err != nil {
+					return err
+				}
+
+				payments = append(payments, p)
+				return nil
+			})
+		})
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// Before returning, sort the payments by their sequence number.
+	sort.Slice(payments, func(i, j int) bool {
+		return payments[i].sequenceNum < payments[j].sequenceNum
+	})
+
+	return payments, nil
+}
+
+func fetchPaymentMigration9(bucket *bbolt.Bucket) (*Payment, error) {
+	var (
+		err error
+		p   = &Payment{}
+	)
+
+	seqBytes := bucket.Get(paymentSequenceKey)
+	if seqBytes == nil {
+		return nil, fmt.Errorf("sequence number not found")
+	}
+
+	p.sequenceNum = binary.BigEndian.Uint64(seqBytes)
+
+	// Get the payment status.
+	p.Status = fetchPaymentStatus(bucket)
+
+	// Get the PaymentCreationInfo.
+	b := bucket.Get(paymentCreationInfoKey)
+	if b == nil {
+		return nil, fmt.Errorf("creation info not found")
+	}
+
+	r := bytes.NewReader(b)
+	p.Info, err = deserializePaymentCreationInfo(r)
+	if err != nil {
+		return nil, err
+
+	}
+
+	// Get the PaymentAttemptInfo. This can be unset.
+	b = bucket.Get(paymentAttemptInfoKey)
+	if b != nil {
+		r = bytes.NewReader(b)
+		p.Attempt, err = deserializePaymentAttemptInfoMigration9(r)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// Get the payment preimage. This is only found for
+	// completed payments.
+	b = bucket.Get(paymentSettleInfoKey)
+	if b != nil {
+		var preimg lntypes.Preimage
+		copy(preimg[:], b[:])
+		p.PaymentPreimage = &preimg
+	}
+
+	// Get failure reason if available.
+	b = bucket.Get(paymentFailInfoKey)
+	if b != nil {
+		reason := FailureReason(b[0])
+		p.Failure = &reason
+	}
+
+	return p, nil
 }

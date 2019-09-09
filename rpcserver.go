@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"net"
 	"net/http"
 	"sort"
 	"strings"
@@ -409,6 +410,11 @@ type rpcServer struct {
 	// requests from.
 	grpcServer *grpc.Server
 
+	// listeners is a list of listeners to use when starting the grpc
+	// server. We make it configurable such that the grpc server can listen
+	// on custom interfaces.
+	listeners []net.Listener
+
 	// listenerCleanUp are a set of closures functions that will allow this
 	// main RPC server to clean up all the listening socket created for the
 	// server.
@@ -442,10 +448,10 @@ var _ lnrpc.LightningServer = (*rpcServer)(nil)
 // base level options passed to the grPC server. This typically includes things
 // like requiring TLS, etc.
 func newRPCServer(s *server, macService *macaroons.Service,
-	subServerCgs *subRPCServerConfigs, serverOpts []grpc.ServerOption,
-	restDialOpts []grpc.DialOption, restProxyDest string,
-	atpl *autopilot.Manager, invoiceRegistry *invoices.InvoiceRegistry,
-	tower *watchtower.Standalone, tlsCfg *tls.Config) (*rpcServer, error) {
+	subServerCgs *subRPCServerConfigs, restDialOpts []grpc.DialOption,
+	restProxyDest string, atpl *autopilot.Manager,
+	invoiceRegistry *invoices.InvoiceRegistry, tower *watchtower.Standalone,
+	tlsCfg *tls.Config, getListeners rpcListeners) (*rpcServer, error) {
 
 	// Set up router rpc backend.
 	channelGraph := s.chanDB.ChannelGraph()
@@ -570,6 +576,12 @@ func newRPCServer(s *server, macService *macaroons.Service,
 		strmInterceptors, errorLogStreamServerInterceptor(rpcsLog),
 	)
 
+	// Get the listeners and server options to use for this rpc server.
+	listeners, cleanup, serverOpts, err := getListeners()
+	if err != nil {
+		return nil, err
+	}
+
 	// If any interceptors have been set up, add them to the server options.
 	if len(unaryInterceptors) != 0 && len(strmInterceptors) != 0 {
 		chainedUnary := grpc_middleware.WithUnaryServerChain(
@@ -585,14 +597,16 @@ func newRPCServer(s *server, macService *macaroons.Service,
 	// gRPC server, and register the main lnrpc server along side.
 	grpcServer := grpc.NewServer(serverOpts...)
 	rootRPCServer := &rpcServer{
-		restDialOpts:  restDialOpts,
-		restProxyDest: restProxyDest,
-		subServers:    subServers,
-		tlsCfg:        tlsCfg,
-		grpcServer:    grpcServer,
-		server:        s,
-		routerBackend: routerBackend,
-		quit:          make(chan struct{}, 1),
+		restDialOpts:    restDialOpts,
+		listeners:       listeners,
+		listenerCleanUp: []func(){cleanup},
+		restProxyDest:   restProxyDest,
+		subServers:      subServers,
+		tlsCfg:          tlsCfg,
+		grpcServer:      grpcServer,
+		server:          s,
+		routerBackend:   routerBackend,
+		quit:            make(chan struct{}, 1),
 	}
 	lnrpc.RegisterLightningServer(grpcServer, rootRPCServer)
 
@@ -632,23 +646,11 @@ func (r *rpcServer) Start() error {
 
 	// With all the sub-servers started, we'll spin up the listeners for
 	// the main RPC server itself.
-	for _, listener := range cfg.RPCListeners {
-		lis, err := lncfg.ListenOnAddress(listener)
-		if err != nil {
-			ltndLog.Errorf(
-				"RPC server unable to listen on %s", listener,
-			)
-			return err
-		}
-
-		r.listenerCleanUp = append(r.listenerCleanUp, func() {
-			lis.Close()
-		})
-
-		go func() {
+	for _, lis := range r.listeners {
+		go func(lis net.Listener) {
 			rpcsLog.Infof("RPC server listening on %s", lis.Addr())
 			r.grpcServer.Serve(lis)
-		}()
+		}(lis)
 	}
 
 	// If Prometheus monitoring is enabled, start the Prometheus exporter.

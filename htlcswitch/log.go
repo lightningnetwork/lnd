@@ -16,7 +16,6 @@ func init() {
 	logger := build.NewSubLogger("HSWC", nil)
 
 	UseLogger(logger)
-	hop.UseLogger(logger)
 }
 
 // DisableLog disables all library log output.  Logging output is disabled
@@ -30,6 +29,7 @@ func DisableLog() {
 // using btclog.
 func UseLogger(logger btclog.Logger) {
 	log = logger
+	hop.UseLogger(logger)
 }
 
 // logClosure is used to provide a closure over expensive logging operations so

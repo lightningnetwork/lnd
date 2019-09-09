@@ -1152,8 +1152,10 @@ func (c *ChannelArbitrator) checkCommitChainActions(height uint32,
 	//  * race condition if adding and we broadcast, etc
 	//  * or would make each instance sync?
 
-	log.Debugf("ChannelArbitrator(%v): checking chain actions at "+
-		"height=%v", c.cfg.ChanPoint, height)
+	log.Debugf("ChannelArbitrator(%v): checking commit chain actions at "+
+		"height=%v, in_htlc_count=%v, out_htlc_count=%v",
+		c.cfg.ChanPoint, height,
+		len(htlcs.incomingHTLCs), len(htlcs.outgoingHTLCs))
 
 	actionMap := make(ChainActionMap)
 

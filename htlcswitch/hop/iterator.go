@@ -1,4 +1,4 @@
-package htlcswitch
+package hop
 
 import (
 	"bytes"
@@ -6,23 +6,22 @@ import (
 	"io"
 
 	"github.com/btcsuite/btcd/btcec"
-	"github.com/lightningnetwork/lightning-onion"
-	"github.com/lightningnetwork/lnd/htlcswitch/hop"
+	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
-// HopIterator is an interface that abstracts away the routing information
+// Iterator is an interface that abstracts away the routing information
 // included in HTLC's which includes the entirety of the payment path of an
 // HTLC. This interface provides two basic method which carry out: how to
 // interpret the forwarding information encoded within the HTLC packet, and hop
 // to encode the forwarding information for the _next_ hop.
-type HopIterator interface {
+type Iterator interface {
 	// ForwardingInstructions returns the set of fields that detail exactly
 	// _how_ this hop should forward the HTLC to the next hop.
 	// Additionally, the information encoded within the returned
 	// ForwardingInfo is to be used by each hop to authenticate the
 	// information given to it by the prior hop.
-	ForwardingInstructions() (hop.ForwardingInfo, error)
+	ForwardingInstructions() (ForwardingInfo, error)
 
 	// ExtraOnionBlob returns the additional EOB data (if available).
 	ExtraOnionBlob() []byte
@@ -64,7 +63,7 @@ func makeSphinxHopIterator(ogPacket *sphinx.OnionPacket,
 
 // A compile time check to ensure sphinxHopIterator implements the HopIterator
 // interface.
-var _ HopIterator = (*sphinxHopIterator)(nil)
+var _ Iterator = (*sphinxHopIterator)(nil)
 
 // Encode encodes iterator and writes it to the writer.
 //
@@ -79,32 +78,30 @@ func (r *sphinxHopIterator) EncodeNextHop(w io.Writer) error {
 // hop to authenticate the information given to it by the prior hop.
 //
 // NOTE: Part of the HopIterator interface.
-func (r *sphinxHopIterator) ForwardingInstructions() (
-	hop.ForwardingInfo, error) {
-
+func (r *sphinxHopIterator) ForwardingInstructions() (ForwardingInfo, error) {
 	switch r.processedPacket.Payload.Type {
 	// If this is the legacy payload, then we'll extract the information
 	// directly from the pre-populated ForwardingInstructions field.
 	case sphinx.PayloadLegacy:
 		fwdInst := r.processedPacket.ForwardingInstructions
-		p := hop.NewLegacyPayload(fwdInst)
+		p := NewLegacyPayload(fwdInst)
 
 		return p.ForwardingInfo(), nil
 
 	// Otherwise, if this is the TLV payload, then we'll make a new stream
 	// to decode only what we need to make routing decisions.
 	case sphinx.PayloadTLV:
-		p, err := hop.NewPayloadFromReader(bytes.NewReader(
+		p, err := NewPayloadFromReader(bytes.NewReader(
 			r.processedPacket.Payload.Payload,
 		))
 		if err != nil {
-			return hop.ForwardingInfo{}, err
+			return ForwardingInfo{}, err
 		}
 
 		return p.ForwardingInfo(), nil
 
 	default:
-		return hop.ForwardingInfo{}, fmt.Errorf("unknown "+
+		return ForwardingInfo{}, fmt.Errorf("unknown "+
 			"sphinx payload type: %v",
 			r.processedPacket.Payload.Type)
 	}
@@ -164,7 +161,7 @@ func (p *OnionProcessor) Stop() error {
 // instance using the rHash as the associated data when checking the relevant
 // MACs during the decoding process.
 func (p *OnionProcessor) DecodeHopIterator(r io.Reader, rHash []byte,
-	incomingCltv uint32) (HopIterator, lnwire.FailCode) {
+	incomingCltv uint32) (Iterator, lnwire.FailCode) {
 
 	onionPkt := &sphinx.OnionPacket{}
 	if err := onionPkt.Decode(r); err != nil {
@@ -216,7 +213,7 @@ type DecodeHopIteratorRequest struct {
 // DecodeHopIteratorResponse encapsulates the outcome of a batched sphinx onion
 // processing.
 type DecodeHopIteratorResponse struct {
-	HopIterator HopIterator
+	HopIterator Iterator
 	FailCode    lnwire.FailCode
 }
 
@@ -225,7 +222,7 @@ type DecodeHopIteratorResponse struct {
 //
 // NOTE: The HopIterator should be considered invalid if the fail code is
 // anything but lnwire.CodeNone.
-func (r *DecodeHopIteratorResponse) Result() (HopIterator, lnwire.FailCode) {
+func (r *DecodeHopIteratorResponse) Result() (Iterator, lnwire.FailCode) {
 	return r.HopIterator, r.FailCode
 }
 

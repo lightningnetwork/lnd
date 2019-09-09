@@ -143,7 +143,7 @@ type Config struct {
 	// ExtractErrorEncrypter is an interface allowing switch to reextract
 	// error encrypters stored in the circuit map on restarts, since they
 	// are not stored directly within the database.
-	ExtractErrorEncrypter ErrorEncrypterExtracter
+	ExtractErrorEncrypter hop.ErrorEncrypterExtracter
 
 	// FetchLastChannelUpdate retrieves the latest routing policy for a
 	// target channel. This channel will typically be the outgoing channel

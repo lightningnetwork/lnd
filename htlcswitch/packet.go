@@ -2,6 +2,7 @@ package htlcswitch
 
 import (
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -54,7 +55,7 @@ type htlcPacket struct {
 
 	// obfuscator contains the necessary state to allow the switch to wrap
 	// any forwarded errors in an additional layer of encryption.
-	obfuscator ErrorEncrypter
+	obfuscator hop.ErrorEncrypter
 
 	// localFailure is set to true if an HTLC fails for a local payment before
 	// the first hop. In this case, the failure reason is simply encoded, not

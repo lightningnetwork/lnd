@@ -138,7 +138,7 @@ func (p *PaymentControl) InitPayment(paymentHash lntypes.Hash,
 		return bucket.Delete(paymentFailInfoKey)
 	})
 	if err != nil {
-		return nil
+		return err
 	}
 
 	return updateErr

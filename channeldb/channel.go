@@ -1870,7 +1870,7 @@ func (c *OpenChannel) CommitmentHeight() (uint64, error) {
 		return nil
 	})
 	if err != nil {
-		return 0, nil
+		return 0, err
 	}
 
 	return height, nil

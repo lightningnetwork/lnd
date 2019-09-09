@@ -15,8 +15,8 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcutil/gcs/builder"
-	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/lightninglabs/neutrino"
+	"github.com/lightninglabs/neutrino/headerfs"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/queue"
 )
@@ -753,10 +753,10 @@ func (n *NeutrinoNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 
 		spendReport, err := n.p2pNode.GetUtxo(
 			neutrino.WatchInputs(inputToWatch),
-			neutrino.StartBlock(&waddrmgr.BlockStamp{
+			neutrino.StartBlock(&headerfs.BlockStamp{
 				Height: int32(ntfn.HistoricalDispatch.StartHeight),
 			}),
-			neutrino.EndBlock(&waddrmgr.BlockStamp{
+			neutrino.EndBlock(&headerfs.BlockStamp{
 				Height: int32(ntfn.HistoricalDispatch.EndHeight),
 			}),
 			neutrino.QuitChan(n.quit),

@@ -23,14 +23,6 @@ const (
 	notifierType = "bitcoind"
 )
 
-// chainUpdate encapsulates an update to the current main chain. This struct is
-// used as an element within an unbounded queue in order to avoid blocking the
-// main rpc dispatch rule.
-type chainUpdate struct {
-	blockHash   *chainhash.Hash
-	blockHeight int32
-}
-
 // TODO(roasbeef): generalize struct below:
 //  * move chans to config
 //  * extract common code
@@ -164,13 +156,6 @@ func (b *BitcoindNotifier) Stop() error {
 	b.txNotifier.TearDown()
 
 	return nil
-}
-
-// blockNtfn packages a notification of a connected/disconnected block along
-// with its height at the time.
-type blockNtfn struct {
-	sha    *chainhash.Hash
-	height int32
 }
 
 // notificationDispatcher is the primary goroutine which handles client

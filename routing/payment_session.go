@@ -137,9 +137,3 @@ func (p *paymentSession) RequestRoute(payment *LightningPayment,
 
 	return route, err
 }
-
-// nodeChannel is a combination of the node pubkey and one of its channels.
-type nodeChannel struct {
-	node    route.Vertex
-	channel uint64
-}

@@ -109,7 +109,7 @@ type channelState uint8
 const (
 	// channelPending indicates this channel is still going through the
 	// funding workflow, and isn't yet open.
-	channelPending channelState = iota
+	channelPending channelState = iota // nolint: unused
 
 	// channelOpen represents an open, active channel capable of
 	// sending/receiving HTLCs.
@@ -130,7 +130,7 @@ const (
 
 	// channelPendingPayment indicates that there a currently outstanding
 	// HTLCs within the channel.
-	channelPendingPayment
+	channelPendingPayment // nolint:unused
 )
 
 // PaymentHash represents the sha256 of a random value. This hash is used to
@@ -1031,10 +1031,6 @@ type commitmentChain struct {
 	// Once a commitment transaction is revoked, the tail is incremented,
 	// freeing up the revocation window for new commitments.
 	commitments *list.List
-
-	// startingHeight is the starting height of this commitment chain on a
-	// session basis.
-	startingHeight uint64
 }
 
 // newCommitmentChain creates a new commitment chain.
@@ -1295,8 +1291,6 @@ type LightningChannel struct {
 	// signDesc is the primary sign descriptor that is capable of signing
 	// the commitment transaction that spends the multi-sig output.
 	signDesc *input.SignDescriptor
-
-	channelEvents chainntnfs.ChainNotifier
 
 	status channelState
 

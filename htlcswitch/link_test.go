@@ -1690,7 +1690,6 @@ func newSingleLinkTestHarness(chanAmt, chanReserve btcutil.Amount) (
 		MaxFeeAllocation:      DefaultMaxLinkFeeAllocation,
 	}
 
-	const startingHeight = 100
 	aliceLink := NewChannelLink(aliceCfg, aliceLc.channel)
 	start := func() error {
 		return aliceSwitch.AddLink(aliceLink)
@@ -4035,10 +4034,6 @@ func TestChannelLinkAcceptOverpay(t *testing.T) {
 	}
 }
 
-// chanRestoreFunc is a method signature for functions that can reload both
-// endpoints of a link from their persistent storage engines.
-type chanRestoreFunc func() (*lnwallet.LightningChannel, *lnwallet.LightningChannel, error)
-
 // persistentLinkHarness is used to control the lifecylce of a link and the
 // switch that operates it. It supports the ability to restart either the link
 // or both the link and the switch.
@@ -4256,7 +4251,6 @@ func (h *persistentLinkHarness) restartLink(
 		MaxFeeAllocation:      DefaultMaxLinkFeeAllocation,
 	}
 
-	const startingHeight = 100
 	aliceLink := NewChannelLink(aliceCfg, aliceChannel)
 	if err := aliceSwitch.AddLink(aliceLink); err != nil {
 		return nil, nil, nil, err
@@ -5394,7 +5388,6 @@ func TestChannelLinkFail(t *testing.T) {
 	}
 
 	const chanAmt = btcutil.SatoshiPerBitcoin * 5
-	const chanReserve = 0
 
 	// Execute each test case.
 	for i, test := range testCases {

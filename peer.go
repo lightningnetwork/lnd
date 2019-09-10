@@ -30,10 +30,6 @@ import (
 	"github.com/lightningnetwork/lnd/ticker"
 )
 
-var (
-	numNodes int32
-)
-
 const (
 	// pingInterval is the interval at which ping messages are sent.
 	pingInterval = 1 * time.Minute
@@ -80,12 +76,6 @@ type newChannelMsg struct {
 type closeMsg struct {
 	cid lnwire.ChannelID
 	msg lnwire.Message
-}
-
-// chanSnapshotReq is a message sent by outside subsystems to a peer in order
-// to gain a snapshot of the peer's currently active channels.
-type chanSnapshotReq struct {
-	resp chan []*channeldb.ChannelSnapshot
 }
 
 // pendingUpdate describes the pending state of a closing channel.
@@ -717,7 +707,6 @@ type msgStream struct {
 
 	mtx sync.Mutex
 
-	bufSize      uint32
 	producerSema chan struct{}
 
 	wg   sync.WaitGroup

@@ -29,9 +29,7 @@ var (
 		"[2001:db8:85a3:0:0:8a2e:370:7334]:80")
 	testAddrs = []net.Addr{testAddr, anotherAddr}
 
-	randSource = prand.NewSource(time.Now().Unix())
-	randInts   = prand.New(randSource)
-	testSig    = &btcec.Signature{
+	testSig = &btcec.Signature{
 		R: new(big.Int),
 		S: new(big.Int),
 	}

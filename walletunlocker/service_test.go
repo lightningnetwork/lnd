@@ -18,10 +18,6 @@ import (
 	"golang.org/x/net/context"
 )
 
-const (
-	walletDbName = "wallet.db"
-)
-
 var (
 	testPassword = []byte("test-password")
 	testSeed     = []byte("test-seed-123456789")

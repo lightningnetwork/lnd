@@ -74,10 +74,6 @@ var chanGraphs = []struct {
 // TestPrefAttachmentSelectEmptyGraph ensures that when passed an
 // empty graph, the NodeSores function always returns a score of 0.
 func TestPrefAttachmentSelectEmptyGraph(t *testing.T) {
-	const (
-		maxChanSize = btcutil.Amount(btcutil.SatoshiPerBitcoin)
-	)
-
 	prefAttach := NewPrefAttachment()
 
 	// Create a random public key, which we will query to get a score for.
@@ -119,47 +115,6 @@ func TestPrefAttachmentSelectEmptyGraph(t *testing.T) {
 		})
 		if !success {
 			break
-		}
-	}
-}
-
-// completeGraph is a helper method that adds numNodes fully connected nodes to
-// the graph.
-func completeGraph(t *testing.T, g testGraph, numNodes int) {
-	const chanCapacity = btcutil.SatoshiPerBitcoin
-	nodes := make(map[int]*btcec.PublicKey)
-	for i := 0; i < numNodes; i++ {
-		for j := i + 1; j < numNodes; j++ {
-
-			node1 := nodes[i]
-			node2 := nodes[j]
-			edge1, edge2, err := g.addRandChannel(
-				node1, node2, chanCapacity)
-			if err != nil {
-				t.Fatalf("unable to generate channel: %v", err)
-			}
-
-			if node1 == nil {
-				pubKeyBytes := edge1.Peer.PubKey()
-				nodes[i], err = btcec.ParsePubKey(
-					pubKeyBytes[:], btcec.S256(),
-				)
-				if err != nil {
-					t.Fatalf("unable to parse pubkey: %v",
-						err)
-				}
-			}
-
-			if node2 == nil {
-				pubKeyBytes := edge2.Peer.PubKey()
-				nodes[j], err = btcec.ParsePubKey(
-					pubKeyBytes[:], btcec.S256(),
-				)
-				if err != nil {
-					t.Fatalf("unable to parse pubkey: %v",
-						err)
-				}
-			}
 		}
 	}
 }

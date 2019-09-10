@@ -286,25 +286,6 @@ func (ctx *sweeperTestContext) assertPendingInputs(inputs ...input.Input) {
 	}
 }
 
-// receiveSpendTx receives the transaction sent through the given resultChan.
-func receiveSpendTx(t *testing.T, resultChan chan Result) *wire.MsgTx {
-	t.Helper()
-
-	var result Result
-	select {
-	case result = <-resultChan:
-	case <-time.After(5 * time.Second):
-		t.Fatal("no sweep result received")
-	}
-
-	if result.Err != nil {
-		t.Fatalf("expected successful spend, but received error "+
-			"\"%v\" instead", result.Err)
-	}
-
-	return result.Tx
-}
-
 // assertTxSweepsInputs ensures that the transaction returned within the value
 // received from resultChan spends the given inputs.
 func assertTxSweepsInputs(t *testing.T, sweepTx *wire.MsgTx,

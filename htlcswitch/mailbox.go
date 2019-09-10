@@ -63,7 +63,6 @@ type memoryMailBox struct {
 	stopped sync.Once
 
 	wireMessages *list.List
-	wireHead     *list.Element
 	wireMtx      sync.Mutex
 	wireCond     *sync.Cond
 

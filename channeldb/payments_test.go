@@ -101,14 +101,6 @@ func makeFakeInfo() (*PaymentCreationInfo, *PaymentAttemptInfo) {
 	return c, a
 }
 
-func makeFakePaymentHash() [32]byte {
-	var paymentHash [32]byte
-	rBytes, _ := randomBytes(0, 32)
-	copy(paymentHash[:], rBytes)
-
-	return paymentHash
-}
-
 // randomBytes creates random []byte with length in range [minLen, maxLen)
 func randomBytes(minLen, maxLen int) ([]byte, error) {
 	randBuf := make([]byte, minLen+rand.Intn(maxLen-minLen))

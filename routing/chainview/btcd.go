@@ -437,7 +437,6 @@ func (b *BtcdFilteredChainView) chainFilterer() {
 type filterUpdate struct {
 	newUtxos     []wire.OutPoint
 	updateHeight uint32
-	done         chan struct{}
 }
 
 // UpdateFilter updates the UTXO filter which is to be consulted when creating

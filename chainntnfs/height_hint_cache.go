@@ -8,15 +8,6 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 )
 
-const (
-	// dbName is the default name of the database storing the height hints.
-	dbName = "heighthint.db"
-
-	// dbFilePermission is the default permission of the database file
-	// storing the height hints.
-	dbFilePermission = 0600
-)
-
 var (
 	// spendHintBucket is the name of the bucket which houses the height
 	// hint for outpoints. Each height hint represents the earliest height

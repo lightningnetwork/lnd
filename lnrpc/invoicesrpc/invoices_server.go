@@ -69,9 +69,6 @@ var (
 // RPC server allows external callers to access the status of the invoices
 // currently active within lnd, as well as configuring it at runtime.
 type Server struct {
-	started  int32 // To be used atomically.
-	shutdown int32 // To be used atomically.
-
 	quit chan struct{}
 
 	cfg *Config

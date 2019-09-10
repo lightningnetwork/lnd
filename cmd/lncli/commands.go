@@ -2818,37 +2818,6 @@ func describeGraph(ctx *cli.Context) error {
 	return nil
 }
 
-// normalizeFunc is a factory function which returns a function that normalizes
-// the capacity of edges within the graph. The value of the returned
-// function can be used to either plot the capacities, or to use a weight in a
-// rendering of the graph.
-func normalizeFunc(edges []*lnrpc.ChannelEdge, scaleFactor float64) func(int64) float64 {
-	var (
-		min float64 = math.MaxInt64
-		max float64
-	)
-
-	for _, edge := range edges {
-		// In order to obtain saner values, we reduce the capacity of a
-		// channel to its base 2 logarithm.
-		z := math.Log2(float64(edge.Capacity))
-
-		if z < min {
-			min = z
-		}
-		if z > max {
-			max = z
-		}
-	}
-
-	return func(x int64) float64 {
-		y := math.Log2(float64(x))
-
-		// TODO(roasbeef): results in min being zero
-		return (y - min) / (max - min) * scaleFactor
-	}
-}
-
 var listPaymentsCommand = cli.Command{
 	Name:     "listpayments",
 	Category: "Payments",

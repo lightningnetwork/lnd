@@ -1311,7 +1311,6 @@ func TestStateUpdatePersistence(t *testing.T) {
 	}
 	defer cleanUp()
 
-	const numHtlcs = 4
 	htlcAmt := lnwire.NewMSatFromSatoshis(5000)
 
 	var fakeOnionBlob [lnwire.OnionPacketSize]byte

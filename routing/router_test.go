@@ -67,14 +67,6 @@ func (c *testCtx) RestartRouter() error {
 	return nil
 }
 
-func copyPubKey(pub *btcec.PublicKey) *btcec.PublicKey {
-	return &btcec.PublicKey{
-		Curve: btcec.S256(),
-		X:     pub.X,
-		Y:     pub.Y,
-	}
-}
-
 func createTestCtxFromGraphInstance(startingHeight uint32, graphInstance *testGraphInstance) (
 	*testCtx, func(), error) {
 

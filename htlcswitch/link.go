@@ -321,10 +321,6 @@ type channelLink struct {
 	// been processed because of the commitment transaction overflow.
 	overflowQueue *packetQueue
 
-	// startMailBox directs whether or not to start the mailbox when
-	// starting the link. It may have already been started by the switch.
-	startMailBox bool
-
 	// mailBox is the main interface between the outside world and the
 	// link. All incoming messages will be sent over this mailBox. Messages
 	// include new updates from our connected peer, and new packets to be

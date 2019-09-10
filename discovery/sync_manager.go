@@ -116,10 +116,6 @@ type SyncManager struct {
 
 	cfg SyncManagerCfg
 
-	// historicalSync allows us to perform an initial historical sync only
-	// _once_ with a peer during the SyncManager's startup.
-	historicalSync sync.Once
-
 	// newSyncers is a channel we'll use to process requests to create
 	// GossipSyncers for newly connected peers.
 	newSyncers chan *newSyncer

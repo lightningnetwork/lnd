@@ -187,10 +187,6 @@ type gossipSyncerCfg struct {
 	// in compressed format.
 	peerPub [33]byte
 
-	// syncChanUpdates is a bool that indicates if we should request a
-	// continual channel update stream or not.
-	syncChanUpdates bool
-
 	// channelSeries is the primary interface that we'll use to generate
 	// our queries and respond to the queries of the remote peer.
 	channelSeries ChannelGraphTimeSeries

@@ -8,13 +8,6 @@ import (
 	"testing/quick"
 )
 
-var (
-	nID1 = NodeID([33]byte{1})
-	nID2 = NodeID([33]byte{2})
-	nID3 = NodeID([33]byte{3})
-	nID4 = NodeID([33]byte{4})
-)
-
 // TestWeightedChoiceEmptyMap tests that passing in an empty slice of weights
 // returns an error.
 func TestWeightedChoiceEmptyMap(t *testing.T) {
@@ -95,7 +88,6 @@ type nonNegative []float64
 // Generate generates a value of type nonNegative to be used during
 // QuickTests.
 func (nonNegative) Generate(rand *rand.Rand, size int) reflect.Value {
-	const precision = 100
 	w := make([]float64, size)
 
 	for i := range w {

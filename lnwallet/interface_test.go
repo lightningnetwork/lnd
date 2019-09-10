@@ -43,16 +43,6 @@ import (
 )
 
 var (
-	privPass = []byte("private-test")
-
-	// For simplicity a single priv key controls all of our test outputs.
-	testWalletPrivKey = []byte{
-		0x2b, 0xd8, 0x06, 0xc9, 0x7f, 0x0e, 0x00, 0xaf,
-		0x1a, 0x1f, 0xc3, 0x32, 0x8f, 0xa7, 0x63, 0xa9,
-		0x26, 0x97, 0x23, 0xc8, 0xdb, 0x8f, 0xac, 0x4f,
-		0x93, 0xaf, 0x71, 0xdb, 0x18, 0x6d, 0x6e, 0x90,
-	}
-
 	bobsPrivKey = []byte{
 		0x81, 0xb6, 0x37, 0xd8, 0xfc, 0xd2, 0xc6, 0xda,
 		0x63, 0x59, 0xe6, 0x96, 0x31, 0x13, 0xa1, 0x17,
@@ -110,22 +100,6 @@ func assertProperBalance(t *testing.T, lw *lnwallet.LightningWallet,
 	if balance.ToBTC() != amount {
 		t.Fatalf("wallet credits not properly loaded, should have 40BTC, "+
 			"instead have %v", balance)
-	}
-}
-
-func assertChannelOpen(t *testing.T, miner *rpctest.Harness, numConfs uint32,
-	c <-chan *lnwallet.LightningChannel) *lnwallet.LightningChannel {
-	// Mine a single block. After this block is mined, the channel should
-	// be considered fully open.
-	if _, err := miner.Node.Generate(1); err != nil {
-		t.Fatalf("unable to generate block: %v", err)
-	}
-	select {
-	case lnc := <-c:
-		return lnc
-	case <-time.After(time.Second * 5):
-		t.Fatalf("channel never opened")
-		return nil
 	}
 }
 
@@ -251,20 +225,6 @@ func assertTxInWallet(t *testing.T, w *lnwallet.LightningWallet,
 	}
 
 	t.Fatalf("transaction %v not found", txHash)
-}
-
-// calcStaticFee calculates appropriate fees for commitment transactions.  This
-// function provides a simple way to allow test balance assertions to take fee
-// calculations into account.
-// TODO(bvu): Refactor when dynamic fee estimation is added.
-func calcStaticFee(numHTLCs int) btcutil.Amount {
-	const (
-		commitWeight = btcutil.Amount(724)
-		htlcWeight   = 172
-		feePerKw     = btcutil.Amount(250/4) * 1000
-	)
-	return feePerKw * (commitWeight +
-		btcutil.Amount(htlcWeight*numHTLCs)) / 1000
 }
 
 func loadTestCredits(miner *rpctest.Harness, w *lnwallet.LightningWallet,

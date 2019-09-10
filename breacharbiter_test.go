@@ -1982,19 +1982,3 @@ func forceStateTransition(chanA, chanB *lnwallet.LightningChannel) error {
 
 	return nil
 }
-
-// calcStaticFee calculates appropriate fees for commitment transactions.  This
-// function provides a simple way to allow test balance assertions to take fee
-// calculations into account.
-//
-// TODO(bvu): Refactor when dynamic fee estimation is added.
-// TODO(conner) remove code duplication
-func calcStaticFee(numHTLCs int) btcutil.Amount {
-	const (
-		commitWeight = btcutil.Amount(724)
-		htlcWeight   = 172
-		feePerKw     = btcutil.Amount(24/4) * 1000
-	)
-	return feePerKw * (commitWeight +
-		btcutil.Amount(htlcWeight*numHTLCs)) / 1000
-}

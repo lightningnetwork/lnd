@@ -295,25 +295,6 @@ type Config struct {
 	PathFindingConfig PathFindingConfig
 }
 
-// routeTuple is an entry within the ChannelRouter's route cache. We cache
-// prospective routes based on first the destination, and then the target
-// amount. We required the target amount as that will influence the available
-// set of paths for a payment.
-type routeTuple struct {
-	amt  lnwire.MilliSatoshi
-	dest [33]byte
-}
-
-// newRouteTuple creates a new route tuple from the target and amount.
-func newRouteTuple(amt lnwire.MilliSatoshi, dest []byte) routeTuple {
-	r := routeTuple{
-		amt: amt,
-	}
-	copy(r.dest[:], dest)
-
-	return r
-}
-
 // EdgeLocator is a struct used to identify a specific edge.
 type EdgeLocator struct {
 	// ChannelID is the channel of this edge.
@@ -323,31 +304,6 @@ type EdgeLocator struct {
 	// the channel direction flag. A value of 0 means the direction from the
 	// lower node pubkey to the higher.
 	Direction uint8
-}
-
-// newEdgeLocatorByPubkeys returns an edgeLocator based on its end point
-// pubkeys.
-func newEdgeLocatorByPubkeys(channelID uint64, fromNode, toNode *route.Vertex) *EdgeLocator {
-	// Determine direction based on lexicographical ordering of both
-	// pubkeys.
-	var direction uint8
-	if bytes.Compare(fromNode[:], toNode[:]) == 1 {
-		direction = 1
-	}
-
-	return &EdgeLocator{
-		ChannelID: channelID,
-		Direction: direction,
-	}
-}
-
-// newEdgeLocator extracts an edgeLocator based for a full edge policy
-// structure.
-func newEdgeLocator(edge *channeldb.ChannelEdgePolicy) *EdgeLocator {
-	return &EdgeLocator{
-		ChannelID: edge.ChannelID,
-		Direction: uint8(edge.ChannelFlags & lnwire.ChanUpdateDirection),
-	}
 }
 
 // String returns a human readable version of the edgeLocator values.

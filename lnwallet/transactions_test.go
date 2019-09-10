@@ -222,11 +222,10 @@ func newTestContext() (tc *testContext, err error) {
 	}
 
 	htlcData := []struct {
-		incoming    bool
-		amount      lnwire.MilliSatoshi
-		expiry      uint32
-		preimage    string
-		paymentHash PaymentHash
+		incoming bool
+		amount   lnwire.MilliSatoshi
+		expiry   uint32
+		preimage string
 	}{
 		{
 			incoming: true,

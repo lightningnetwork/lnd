@@ -49,8 +49,6 @@ const (
 )
 
 var (
-	privPass = []byte("dummy-pass")
-
 	// Use hard-coded keys for Alice and Bob, the two FundingManagers that
 	// we will test the interaction between.
 	alicePrivKeyBytes = [32]byte{

@@ -59,6 +59,9 @@ var (
 	retransmitDelay  = time.Hour * 1
 	proofMatureDelta uint32
 
+	// The test timestamp + rebroadcast interval makes sure messages won't
+	// be rebroadcasted automaticallty during the tests.
+	testTimestamp       = uint32(1234567890)
 	rebroadcastInterval = time.Hour * 1000000
 )
 
@@ -469,7 +472,7 @@ type annBatch struct {
 func createAnnouncements(blockHeight uint32) (*annBatch, error) {
 	var err error
 	var batch annBatch
-	timestamp := uint32(123456)
+	timestamp := testTimestamp
 
 	batch.nodeAnn1, err = createNodeAnnouncement(nodeKeyPriv1, timestamp)
 	if err != nil {
@@ -779,8 +782,7 @@ func createTestCtx(startHeight uint32) (*testCtx, func(), error) {
 func TestProcessAnnouncement(t *testing.T) {
 	t.Parallel()
 
-	timestamp := uint32(123456)
-
+	timestamp := testTimestamp
 	ctx, cleanup, err := createTestCtx(0)
 	if err != nil {
 		t.Fatalf("can't create context: %v", err)
@@ -888,7 +890,7 @@ func TestProcessAnnouncement(t *testing.T) {
 func TestPrematureAnnouncement(t *testing.T) {
 	t.Parallel()
 
-	timestamp := uint32(123456)
+	timestamp := testTimestamp
 
 	ctx, cleanup, err := createTestCtx(0)
 	if err != nil {
@@ -1798,7 +1800,7 @@ func TestSignatureAnnouncementFullProofWhenRemoteProof(t *testing.T) {
 func TestDeDuplicatedAnnouncements(t *testing.T) {
 	t.Parallel()
 
-	timestamp := uint32(123456)
+	timestamp := testTimestamp
 	announcements := deDupedAnnouncements{}
 	announcements.Reset()
 
@@ -2668,6 +2670,7 @@ func TestExtraDataChannelAnnouncementValidation(t *testing.T) {
 func TestExtraDataChannelUpdateValidation(t *testing.T) {
 	t.Parallel()
 
+	timestamp := testTimestamp
 	ctx, cleanup, err := createTestCtx(0)
 	if err != nil {
 		t.Fatalf("can't create context: %v", err)
@@ -2675,7 +2678,6 @@ func TestExtraDataChannelUpdateValidation(t *testing.T) {
 	defer cleanup()
 
 	remotePeer := &mockPeer{nodeKeyPriv1.PubKey(), nil, nil}
-	timestamp := uint32(123456)
 
 	// In this scenario, we'll create two announcements, one regular
 	// channel announcement, and another channel update announcement, that
@@ -2742,7 +2744,7 @@ func TestExtraDataNodeAnnouncementValidation(t *testing.T) {
 	defer cleanup()
 
 	remotePeer := &mockPeer{nodeKeyPriv1.PubKey(), nil, nil}
-	timestamp := uint32(123456)
+	timestamp := testTimestamp
 
 	// We'll create a node announcement that includes a set of opaque data
 	// which we don't know of, but will store anyway in order to ensure

@@ -165,10 +165,6 @@ func (r *mockGraphSource) UpdateEdge(edge *channeldb.ChannelEdgePolicy) error {
 	return nil
 }
 
-func (r *mockGraphSource) SelfEdges() ([]*channeldb.ChannelEdgePolicy, error) {
-	return nil, nil
-}
-
 func (r *mockGraphSource) CurrentBlockHeight() (uint32, error) {
 	return r.bestHeight, nil
 }

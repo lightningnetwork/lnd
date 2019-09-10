@@ -1111,8 +1111,10 @@ func (d *DB) syncVersions(versions []version) error {
 	}
 
 	latestVersion := getLatestDBVersion(versions)
+	minUpgradeVersion := getMinUpgradeVersion(versions)
 	log.Infof("Checking for schema update: latest_version=%v, "+
-		"db_version=%v", latestVersion, meta.DbVersionNumber)
+		"min_upgrade_version=%v, db_version=%v", latestVersion,
+		minUpgradeVersion, meta.DbVersionNumber)
 
 	switch {
 
@@ -1124,6 +1126,12 @@ func (d *DB) syncVersions(versions []version) error {
 			"lower version=%d", meta.DbVersionNumber,
 			latestVersion)
 		return ErrDBReversion
+
+	case meta.DbVersionNumber < minUpgradeVersion:
+		log.Errorf("Refusing to upgrade from db_version=%d to "+
+			"latest_version=%d. Upgrade via intermediate major "+
+			"release(s).", meta.DbVersionNumber, latestVersion)
+		return ErrDBVersionTooLow
 
 	// If the current database version matches the latest version number,
 	// then we don't need to perform any migrations.
@@ -1166,6 +1174,21 @@ func (d *DB) ChannelGraph() *ChannelGraph {
 
 func getLatestDBVersion(versions []version) uint32 {
 	return versions[len(versions)-1].number
+}
+
+// getMinUpgradeVersion returns the minimum version required to upgrade the
+// database.
+func getMinUpgradeVersion(versions []version) uint32 {
+	firstMigrationVersion := versions[0].number
+
+	// If we can upgrade from the base version with this version of lnd,
+	// return the base version as the minimum required version.
+	if firstMigrationVersion == 0 {
+		return 0
+	}
+
+	// Otherwise require the version that the first migration upgrades from.
+	return firstMigrationVersion - 1
 }
 
 // getMigrationsToApply retrieves the migration function that should be

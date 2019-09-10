@@ -14,6 +14,10 @@ var (
 	// prior database version.
 	ErrDBReversion = fmt.Errorf("channel db cannot revert to prior version")
 
+	// ErrDBVersionTooLow is returned when detecting an attempt to upgrade a
+	// version for which migration is no longer supported.
+	ErrDBVersionTooLow = fmt.Errorf("channel db version too old to upgrade")
+
 	// ErrLinkNodesNotFound is returned when node info bucket hasn't been
 	// created.
 	ErrLinkNodesNotFound = fmt.Errorf("no link nodes exist")

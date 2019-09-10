@@ -5530,9 +5530,9 @@ func TestForwardingAsymmetricTimeLockPolicies(t *testing.T) {
 	// Now that each of the links are up, we'll modify the link from Alice
 	// -> Bob to have a greater time lock delta than that of the link of
 	// Bob -> Carol.
-	n.firstBobChannelLink.UpdateForwardingPolicy(ForwardingPolicy{
-		TimeLockDelta: 7,
-	})
+	newPolicy := n.firstBobChannelLink.cfg.FwrdingPolicy
+	newPolicy.TimeLockDelta = 7
+	n.firstBobChannelLink.UpdateForwardingPolicy(newPolicy)
 
 	// Now that the Alice -> Bob link has been updated, we'll craft and
 	// send a payment from Alice -> Carol. This should succeed as normal,

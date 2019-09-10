@@ -160,6 +160,13 @@ type Config struct {
 	// should check if we need re-broadcast any of our personal channels.
 	RetransmitDelay time.Duration
 
+	// RebroadcastInterval is the maximum time we wait between sending out
+	// channel updates for our active channels and our own node
+	// announcement. We do this to ensure our active presence on the
+	// network is known, and we are not being considered a zombie node or
+	// having zombie channels.
+	RebroadcastInterval time.Duration
+
 	// WaitingProofStore is a persistent storage of partial channel proof
 	// announcement messages. We use it to buffer half of the material
 	// needed to reconstruct a full authenticated channel announcement.
@@ -1193,14 +1200,12 @@ func (d *AuthenticatedGossiper) retransmitStaleChannels() error {
 			return nil
 		}
 
-		const broadcastInterval = time.Hour * 24
-
 		timeElapsed := time.Since(edge.LastUpdate)
 
-		// If it's been a full day since we've re-broadcasted the
-		// channel, add the channel to the set of edges we need to
-		// update.
-		if timeElapsed >= broadcastInterval {
+		// If it's been longer than RebroadcastInterval since we've
+		// re-broadcasted the channel, add the channel to the set of
+		// edges we need to update.
+		if timeElapsed >= d.cfg.RebroadcastInterval {
 			edgesToUpdate = append(edgesToUpdate, updateTuple{
 				info: info,
 				edge: edge,

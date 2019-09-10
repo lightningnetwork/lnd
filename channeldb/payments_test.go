@@ -228,10 +228,21 @@ func TestSentPaymentSerialization(t *testing.T) {
 }
 
 func assertRouteHopRecordsEqual(r1, r2 *route.Route) error {
+	if len(r1.Hops) != len(r2.Hops) {
+		return errors.New("route hop count mismatch")
+	}
+
 	for i := 0; i < len(r1.Hops); i++ {
-		for j := 0; j < len(r1.Hops[i].TLVRecords); j++ {
-			expectedRecord := r1.Hops[i].TLVRecords[j]
-			newRecord := r2.Hops[i].TLVRecords[j]
+		records1 := r1.Hops[i].TLVRecords
+		records2 := r2.Hops[i].TLVRecords
+		if len(records1) != len(records2) {
+			return fmt.Errorf("route record count for hop %v "+
+				"mismatch", i)
+		}
+
+		for j := 0; j < len(records1); j++ {
+			expectedRecord := records1[j]
+			newRecord := records2[j]
 
 			err := assertHopRecordsEqual(expectedRecord, newRecord)
 			if err != nil {

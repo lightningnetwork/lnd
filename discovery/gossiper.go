@@ -147,6 +147,12 @@ type Config struct {
 	// notification for when it reconnects.
 	NotifyWhenOffline func(peerPubKey [33]byte) <-chan struct{}
 
+	// SelfNodeAnnouncement is a function that fetches our own current node
+	// announcement, for use when determining whether we should update our
+	// peers about our presence on the network. If the refresh is true, a
+	// new and updated announcement will be returned.
+	SelfNodeAnnouncement func(refresh bool) (lnwire.NodeAnnouncement, error)
+
 	// ProofMatureDelta the number of confirmations which is needed before
 	// exchange the channel announcement proofs.
 	ProofMatureDelta uint32

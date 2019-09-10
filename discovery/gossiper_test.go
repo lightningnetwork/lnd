@@ -58,6 +58,8 @@ var (
 	trickleDelay     = time.Millisecond * 100
 	retransmitDelay  = time.Hour * 1
 	proofMatureDelta uint32
+
+	rebroadcastInterval = time.Hour * 1000000
 )
 
 // makeTestDB creates a new instance of the ChannelDB for testing purposes. A
@@ -741,7 +743,8 @@ func createTestCtx(startHeight uint32) (*testCtx, func(), error) {
 		},
 		Router:               router,
 		TrickleDelay:         trickleDelay,
-		RetransmitDelay:      retransmitDelay,
+		RetransmitTicker:     ticker.NewForce(retransmitDelay),
+		RebroadcastInterval:  rebroadcastInterval,
 		ProofMatureDelta:     proofMatureDelta,
 		WaitingProofStore:    waitingProofStore,
 		MessageStore:         newMockMessageStore(),
@@ -1493,7 +1496,8 @@ func TestSignatureAnnouncementRetryAtStartup(t *testing.T) {
 		NotifyWhenOffline:    ctx.gossiper.reliableSender.cfg.NotifyWhenOffline,
 		Router:               ctx.gossiper.cfg.Router,
 		TrickleDelay:         trickleDelay,
-		RetransmitDelay:      retransmitDelay,
+		RetransmitTicker:     ticker.NewForce(retransmitDelay),
+		RebroadcastInterval:  rebroadcastInterval,
 		ProofMatureDelta:     proofMatureDelta,
 		WaitingProofStore:    ctx.gossiper.cfg.WaitingProofStore,
 		MessageStore:         ctx.gossiper.cfg.MessageStore,
@@ -1657,6 +1661,7 @@ func TestSignatureAnnouncementFullProofWhenRemoteProof(t *testing.T) {
 		t.Fatal("channel update announcement was broadcast")
 	case <-time.After(2 * trickleDelay):
 	}
+
 	select {
 	case msg := <-sentToPeer:
 		assertMessage(t, batch.chanUpdAnn1, msg)

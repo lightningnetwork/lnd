@@ -156,9 +156,10 @@ type Config struct {
 	// the last trickle tick.
 	TrickleDelay time.Duration
 
-	// RetransmitDelay is the period of a timer which indicates that we
-	// should check if we need re-broadcast any of our personal channels.
-	RetransmitDelay time.Duration
+	// RetransmitTicker is a ticker that ticks with a period which
+	// indicates that we should check if we need re-broadcast any of our
+	// personal channels.
+	RetransmitTicker ticker.Ticker
 
 	// RebroadcastInterval is the maximum time we wait between sending out
 	// channel updates for our active channels and our own node
@@ -888,15 +889,15 @@ func (d *AuthenticatedGossiper) networkHandler() {
 	announcements := deDupedAnnouncements{}
 	announcements.Reset()
 
-	retransmitTimer := time.NewTicker(d.cfg.RetransmitDelay)
-	defer retransmitTimer.Stop()
+	d.cfg.RetransmitTicker.Resume()
+	defer d.cfg.RetransmitTicker.Stop()
 
 	trickleTimer := time.NewTicker(d.cfg.TrickleDelay)
 	defer trickleTimer.Stop()
 
 	// To start, we'll first check to see if there are any stale channels
 	// that we need to re-transmit.
-	if err := d.retransmitStaleChannels(); err != nil {
+	if err := d.retransmitStaleChannels(time.Now()); err != nil {
 		log.Errorf("Unable to rebroadcast stale channels: %v", err)
 	}
 
@@ -1111,8 +1112,8 @@ func (d *AuthenticatedGossiper) networkHandler() {
 		// personal channels. This addresses the case of "zombie"
 		// channels and channel advertisements that have been dropped,
 		// or not properly propagated through the network.
-		case <-retransmitTimer.C:
-			if err := d.retransmitStaleChannels(); err != nil {
+		case tick := <-d.cfg.RetransmitTicker.Ticks():
+			if err := d.retransmitStaleChannels(tick); err != nil {
 				log.Errorf("unable to rebroadcast stale "+
 					"channels: %v", err)
 			}
@@ -1166,7 +1167,7 @@ func (d *AuthenticatedGossiper) isRecentlyRejectedMsg(msg lnwire.Message) bool {
 // is known to maintain to check to see if any of them are "stale". A channel
 // is stale iff, the last timestamp of its rebroadcast is older then
 // broadcastInterval.
-func (d *AuthenticatedGossiper) retransmitStaleChannels() error {
+func (d *AuthenticatedGossiper) retransmitStaleChannels(now time.Time) error {
 	// Iterate over all of our channels and check if any of them fall
 	// within the prune interval or re-broadcast interval.
 	type updateTuple struct {
@@ -1200,7 +1201,7 @@ func (d *AuthenticatedGossiper) retransmitStaleChannels() error {
 			return nil
 		}
 
-		timeElapsed := time.Since(edge.LastUpdate)
+		timeElapsed := now.Sub(edge.LastUpdate)
 
 		// If it's been longer than RebroadcastInterval since we've
 		// re-broadcasted the channel, add the channel to the set of

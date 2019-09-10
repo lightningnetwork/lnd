@@ -2932,9 +2932,9 @@ func TestRetransmit(t *testing.T) {
 		t.Fatalf("unable to force tick")
 	}
 
-	// The channel announcement + local channel update should be
-	// re-broadcast.
-	checkAnnouncements(t, 1, 1, 0)
+	// The channel announcement + local channel update + node announcement
+	// should be re-broadcast.
+	checkAnnouncements(t, 1, 1, 1)
 }
 
 // TestNodeAnnouncementNoChannels tests that NodeAnnouncements for nodes with

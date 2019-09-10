@@ -901,10 +901,10 @@ func (d *AuthenticatedGossiper) networkHandler() {
 	trickleTimer := time.NewTicker(d.cfg.TrickleDelay)
 	defer trickleTimer.Stop()
 
-	// To start, we'll first check to see if there are any stale channels
-	// that we need to re-transmit.
-	if err := d.retransmitStaleChannels(time.Now()); err != nil {
-		log.Errorf("Unable to rebroadcast stale channels: %v", err)
+	// To start, we'll first check to see if there are any stale channel or
+	// node announcements that we need to re-transmit.
+	if err := d.retransmitStaleAnns(time.Now()); err != nil {
+		log.Errorf("Unable to rebroadcast stale announcements: %v", err)
 	}
 
 	// We'll use this validation to ensure that we process jobs in their
@@ -1115,13 +1115,14 @@ func (d *AuthenticatedGossiper) networkHandler() {
 
 		// The retransmission timer has ticked which indicates that we
 		// should check if we need to prune or re-broadcast any of our
-		// personal channels. This addresses the case of "zombie"
-		// channels and channel advertisements that have been dropped,
-		// or not properly propagated through the network.
+		// personal channels or node announcement. This addresses the
+		// case of "zombie" channels and channel advertisements that
+		// have been dropped, or not properly propagated through the
+		// network.
 		case tick := <-d.cfg.RetransmitTicker.Ticks():
-			if err := d.retransmitStaleChannels(tick); err != nil {
+			if err := d.retransmitStaleAnns(tick); err != nil {
 				log.Errorf("unable to rebroadcast stale "+
-					"channels: %v", err)
+					"announcements: %v", err)
 			}
 
 		// The gossiper has been signalled to exit, to we exit our
@@ -1169,18 +1170,23 @@ func (d *AuthenticatedGossiper) isRecentlyRejectedMsg(msg lnwire.Message) bool {
 	}
 }
 
-// retransmitStaleChannels examines all outgoing channels that the source node
-// is known to maintain to check to see if any of them are "stale". A channel
-// is stale iff, the last timestamp of its rebroadcast is older then
-// broadcastInterval.
-func (d *AuthenticatedGossiper) retransmitStaleChannels(now time.Time) error {
+// retransmitStaleAnns examines all outgoing channels that the source node is
+// known to maintain to check to see if any of them are "stale". A channel is
+// stale iff, the last timestamp of its rebroadcast is older than the
+// RebroadcastInterval. We also check if a refreshed node announcement should
+// be resent.
+func (d *AuthenticatedGossiper) retransmitStaleAnns(now time.Time) error {
 	// Iterate over all of our channels and check if any of them fall
 	// within the prune interval or re-broadcast interval.
 	type updateTuple struct {
 		info *channeldb.ChannelEdgeInfo
 		edge *channeldb.ChannelEdgePolicy
 	}
-	var edgesToUpdate []updateTuple
+
+	var (
+		havePublicChannels bool
+		edgesToUpdate      []updateTuple
+	)
 	err := d.cfg.Router.ForAllOutgoingChannels(func(
 		info *channeldb.ChannelEdgeInfo,
 		edge *channeldb.ChannelEdgePolicy) error {
@@ -1195,6 +1201,11 @@ func (d *AuthenticatedGossiper) retransmitStaleChannels(now time.Time) error {
 				"without AuthProof: %v", info.ChannelID)
 			return nil
 		}
+
+		// We make a note that we have at least one public channel. We
+		// use this to determine whether we should send a node
+		// announcement below.
+		havePublicChannels = true
 
 		// If this edge has a ChannelUpdate that was created before the
 		// introduction of the MaxHTLC field, then we'll update this
@@ -1246,13 +1257,51 @@ func (d *AuthenticatedGossiper) retransmitStaleChannels(now time.Time) error {
 		signedUpdates = append(signedUpdates, chanUpdate)
 	}
 
-	// If we don't have any channels to re-broadcast, then we'll exit
+	// If we don't have any public channels, we return as we don't want to
+	// broadcast anything that would reveal our existence.
+	if !havePublicChannels {
+		return nil
+	}
+
+	// We'll also check that our NodeAnnouncement is not too old.
+	currentNodeAnn, err := d.cfg.SelfNodeAnnouncement(false)
+	if err != nil {
+		return fmt.Errorf("unable to get current node announment: %v",
+			err)
+	}
+
+	timestamp := time.Unix(int64(currentNodeAnn.Timestamp), 0)
+	timeElapsed := now.Sub(timestamp)
+
+	// If it's been a full day since we've re-broadcasted the
+	// node announcement, refresh it and resend it.
+	nodeAnnStr := ""
+	if timeElapsed >= d.cfg.RebroadcastInterval {
+		newNodeAnn, err := d.cfg.SelfNodeAnnouncement(true)
+		if err != nil {
+			return fmt.Errorf("unable to get refreshed node "+
+				"announcement: %v", err)
+		}
+
+		signedUpdates = append(signedUpdates, &newNodeAnn)
+		nodeAnnStr = " and our refreshed node announcement"
+
+		// Before broadcasting the refreshed node announcement, add it
+		// to our own graph.
+		if err := d.addNode(&newNodeAnn); err != nil {
+			log.Errorf("Unable to add refreshed node announcement "+
+				"to graph: %v", err)
+		}
+	}
+
+	// If we don't have any updates to re-broadcast, then we'll exit
 	// early.
 	if len(signedUpdates) == 0 {
 		return nil
 	}
 
-	log.Infof("Retransmitting %v outgoing channels", len(edgesToUpdate))
+	log.Infof("Retransmitting %v outgoing channels%v",
+		len(edgesToUpdate), nodeAnnStr)
 
 	// With all the wire announcements properly crafted, we'll broadcast
 	// our known outgoing channels to all our immediate peers.

@@ -1454,6 +1454,33 @@ func (d *AuthenticatedGossiper) processRejectedEdge(
 	return announcements, nil
 }
 
+// addNode processes the given node announcement, and adds it to our channel
+// graph.
+func (d *AuthenticatedGossiper) addNode(msg *lnwire.NodeAnnouncement) error {
+	if err := routing.ValidateNodeAnn(msg); err != nil {
+		return fmt.Errorf("unable to validate node announcement: %v",
+			err)
+	}
+
+	timestamp := time.Unix(int64(msg.Timestamp), 0)
+	features := lnwire.NewFeatureVector(
+		msg.Features, lnwire.GlobalFeatures,
+	)
+	node := &channeldb.LightningNode{
+		HaveNodeAnnouncement: true,
+		LastUpdate:           timestamp,
+		Addresses:            msg.Addresses,
+		PubKeyBytes:          msg.NodeID,
+		Alias:                msg.Alias.String(),
+		AuthSigBytes:         msg.Signature.ToSignatureBytes(),
+		Features:             features,
+		Color:                msg.RGBColor,
+		ExtraOpaqueData:      msg.ExtraOpaqueData,
+	}
+
+	return d.cfg.Router.AddNode(node)
+}
+
 // processNetworkAnnouncement processes a new network relate authenticated
 // channel or node announcement or announcements proofs. If the announcement
 // didn't affect the internal state due to either being out of date, invalid,
@@ -1487,30 +1514,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 			return nil
 		}
 
-		if err := routing.ValidateNodeAnn(msg); err != nil {
-			err := fmt.Errorf("unable to validate "+
-				"node announcement: %v", err)
-			log.Error(err)
-			nMsg.err <- err
-			return nil
-		}
-
-		features := lnwire.NewFeatureVector(
-			msg.Features, lnwire.GlobalFeatures,
-		)
-		node := &channeldb.LightningNode{
-			HaveNodeAnnouncement: true,
-			LastUpdate:           timestamp,
-			Addresses:            msg.Addresses,
-			PubKeyBytes:          msg.NodeID,
-			Alias:                msg.Alias.String(),
-			AuthSigBytes:         msg.Signature.ToSignatureBytes(),
-			Features:             features,
-			Color:                msg.RGBColor,
-			ExtraOpaqueData:      msg.ExtraOpaqueData,
-		}
-
-		if err := d.cfg.Router.AddNode(node); err != nil {
+		if err := d.addNode(msg); err != nil {
 			if routing.IsError(err, routing.ErrOutdated,
 				routing.ErrIgnored) {
 
@@ -1526,10 +1530,10 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 		// In order to ensure we don't leak unadvertised nodes, we'll
 		// make a quick check to ensure this node intends to publicly
 		// advertise itself to the network.
-		isPublic, err := d.cfg.Router.IsPublicNode(node.PubKeyBytes)
+		isPublic, err := d.cfg.Router.IsPublicNode(msg.NodeID)
 		if err != nil {
 			log.Errorf("Unable to determine if node %x is "+
-				"advertised: %v", node.PubKeyBytes, err)
+				"advertised: %v", msg.NodeID, err)
 			nMsg.err <- err
 			return nil
 		}

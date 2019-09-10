@@ -2766,6 +2766,171 @@ func TestExtraDataNodeAnnouncementValidation(t *testing.T) {
 	}
 }
 
+// assertBroadcast checks that num messages are being broadcasted from the
+// gossiper. The broadcasted messages are returned.
+func assertBroadcast(t *testing.T, ctx *testCtx, num int) []lnwire.Message {
+	t.Helper()
+
+	var msgs []lnwire.Message
+	for i := 0; i < num; i++ {
+		select {
+		case msg := <-ctx.broadcastedMessage:
+			msgs = append(msgs, msg.msg)
+		case <-time.After(time.Second):
+			t.Fatalf("expected %d messages to be broadcast, only "+
+				"got %d", num, i)
+		}
+	}
+
+	// No more messages should be broadcast.
+	select {
+	case msg := <-ctx.broadcastedMessage:
+		t.Fatalf("unexpected message was broadcast: %T", msg.msg)
+	case <-time.After(2 * trickleDelay):
+	}
+
+	return msgs
+}
+
+// assertProcessAnnouncemnt is a helper method that checks that the result of
+// processing an announcement is successful.
+func assertProcessAnnouncement(t *testing.T, result chan error) {
+	t.Helper()
+
+	select {
+	case err := <-result:
+		if err != nil {
+			t.Fatalf("unable to process :%v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("did not process announcement")
+	}
+}
+
+// TestRetransmit checks that the expected announcements are retransmitted when
+// the retransmit ticker ticks.
+func TestRetransmit(t *testing.T) {
+	t.Parallel()
+
+	ctx, cleanup, err := createTestCtx(proofMatureDelta)
+	if err != nil {
+		t.Fatalf("can't create context: %v", err)
+	}
+	defer cleanup()
+
+	batch, err := createAnnouncements(0)
+	if err != nil {
+		t.Fatalf("can't generate announcements: %v", err)
+	}
+
+	localKey, err := btcec.ParsePubKey(batch.nodeAnn1.NodeID[:], btcec.S256())
+	if err != nil {
+		t.Fatalf("unable to parse pubkey: %v", err)
+	}
+	remoteKey, err := btcec.ParsePubKey(batch.nodeAnn2.NodeID[:], btcec.S256())
+	if err != nil {
+		t.Fatalf("unable to parse pubkey: %v", err)
+	}
+	remotePeer := &mockPeer{remoteKey, nil, nil}
+
+	// Process a local channel annoucement, channel update and node
+	// announcement. No messages should be broadcasted yet, since no proof
+	// has been exchanged.
+	assertProcessAnnouncement(
+		t, ctx.gossiper.ProcessLocalAnnouncement(
+			batch.localChanAnn, localKey,
+		),
+	)
+	assertBroadcast(t, ctx, 0)
+
+	assertProcessAnnouncement(
+		t, ctx.gossiper.ProcessLocalAnnouncement(
+			batch.chanUpdAnn1, localKey,
+		),
+	)
+	assertBroadcast(t, ctx, 0)
+
+	assertProcessAnnouncement(
+		t, ctx.gossiper.ProcessLocalAnnouncement(
+			batch.nodeAnn1, localKey,
+		),
+	)
+	assertBroadcast(t, ctx, 0)
+
+	// Add the remote channel update to the gossiper. Similarly, nothing
+	// should be broadcasted.
+	assertProcessAnnouncement(
+		t, ctx.gossiper.ProcessRemoteAnnouncement(
+			batch.chanUpdAnn2, remotePeer,
+		),
+	)
+	assertBroadcast(t, ctx, 0)
+
+	// Now add the local and remote proof to the gossiper, which should
+	// trigger a broadcast of the announcements.
+	assertProcessAnnouncement(
+		t, ctx.gossiper.ProcessLocalAnnouncement(
+			batch.localProofAnn, localKey,
+		),
+	)
+	assertBroadcast(t, ctx, 0)
+
+	assertProcessAnnouncement(
+		t, ctx.gossiper.ProcessRemoteAnnouncement(
+			batch.remoteProofAnn, remotePeer,
+		),
+	)
+
+	// checkAnncouncments make sure the expected number of channel
+	// announcements + channel updates + node announcements are broadcast.
+	checkAnnouncements := func(t *testing.T, chanAnns, chanUpds,
+		nodeAnns int) {
+
+		t.Helper()
+
+		num := chanAnns + chanUpds + nodeAnns
+		anns := assertBroadcast(t, ctx, num)
+
+		// Count the received announcements.
+		var chanAnn, chanUpd, nodeAnn int
+		for _, msg := range anns {
+			switch msg.(type) {
+			case *lnwire.ChannelAnnouncement:
+				chanAnn++
+			case *lnwire.ChannelUpdate:
+				chanUpd++
+			case *lnwire.NodeAnnouncement:
+				nodeAnn++
+			}
+		}
+
+		if chanAnn != chanAnns || chanUpd != chanUpds ||
+			nodeAnn != nodeAnns {
+			t.Fatalf("unexpected number of announcements: "+
+				"chanAnn=%d, chanUpd=%d, nodeAnn=%d",
+				chanAnn, chanUpd, nodeAnn)
+		}
+	}
+
+	// All announcements should be broadcast, including the remote channel
+	// update.
+	checkAnnouncements(t, 1, 2, 1)
+
+	// Now let the retransmit ticker tick, which should trigger updates to
+	// be rebroadcast.
+	now := time.Unix(int64(testTimestamp), 0)
+	future := now.Add(rebroadcastInterval + 10*time.Second)
+	select {
+	case ctx.gossiper.cfg.RetransmitTicker.(*ticker.Force).Force <- future:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("unable to force tick")
+	}
+
+	// The channel announcement + local channel update should be
+	// re-broadcast.
+	checkAnnouncements(t, 1, 1, 0)
+}
+
 // TestNodeAnnouncementNoChannels tests that NodeAnnouncements for nodes with
 // no existing channels in the graph do not get forwarded.
 func TestNodeAnnouncementNoChannels(t *testing.T) {

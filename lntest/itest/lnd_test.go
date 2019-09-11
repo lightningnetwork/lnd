@@ -927,13 +927,13 @@ func testOnchainFundRecovery(net *lntest.NetworkHarness, t *harnessTest) {
 	restoreCheckBalance(6*btcutil.SatoshiPerBitcoin, 6, 20, nil)
 }
 
-// testBasicChannelFunding performs a test exercising expected behavior from a
-// basic funding workflow. The test creates a new channel between Alice and
-// Bob, then immediately closes the channel after asserting some expected post
-// conditions. Finally, the chain itself is checked to ensure the closing
-// transaction was mined.
-func testBasicChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
-	ctxb := context.Background()
+// basicChannelFundingTest is a sub-test of the main testBasicChannelFunding
+// test. Given two nodes: Alice and Bob, it'll assert proper channel creation,
+// then return a function closure that should be called to assert proper
+// channel closure.
+func basicChannelFundingTest(t *harnessTest, net *lntest.NetworkHarness,
+	alice *lntest.HarnessNode,
+	bob *lntest.HarnessNode) (*lnrpc.Channel, *lnrpc.Channel, func(), error) {
 
 	chanAmt := lnd.MaxBtcFundingAmount
 	pushAmt := btcutil.Amount(100000)
@@ -944,9 +944,10 @@ func testBasicChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 	// open or an error occurs in the funding process. A series of
 	// assertions will be executed to ensure the funding process completed
 	// successfully.
+	ctxb := context.Background()
 	ctxt, _ := context.WithTimeout(ctxb, channelOpenTimeout)
 	chanPoint := openChannelAndAssert(
-		ctxt, t, net, net.Alice, net.Bob,
+		ctxt, t, net, alice, bob,
 		lntest.OpenChannelParams{
 			Amt:     chanAmt,
 			PushAmt: pushAmt,
@@ -954,42 +955,160 @@ func testBasicChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 	)
 
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err := net.Alice.WaitForNetworkChannelOpen(ctxt, chanPoint)
+	err := alice.WaitForNetworkChannelOpen(ctxt, chanPoint)
 	if err != nil {
-		t.Fatalf("alice didn't report channel: %v", err)
+		return nil, nil, nil, fmt.Errorf("alice didn't report "+
+			"channel: %v", err)
 	}
-	err = net.Bob.WaitForNetworkChannelOpen(ctxt, chanPoint)
+	err = bob.WaitForNetworkChannelOpen(ctxt, chanPoint)
 	if err != nil {
-		t.Fatalf("bob didn't report channel: %v", err)
+		return nil, nil, nil, fmt.Errorf("bob didn't report "+
+			"channel: %v", err)
 	}
 
 	// With the channel open, ensure that the amount specified above has
 	// properly been pushed to Bob.
 	balReq := &lnrpc.ChannelBalanceRequest{}
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	aliceBal, err := net.Alice.ChannelBalance(ctxt, balReq)
+	aliceBal, err := alice.ChannelBalance(ctxt, balReq)
 	if err != nil {
-		t.Fatalf("unable to get alice's balance: %v", err)
+		return nil, nil, nil, fmt.Errorf("unable to get alice's "+
+			"balance: %v", err)
 	}
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	bobBal, err := net.Bob.ChannelBalance(ctxt, balReq)
+	bobBal, err := bob.ChannelBalance(ctxt, balReq)
 	if err != nil {
-		t.Fatalf("unable to get bobs's balance: %v", err)
+		return nil, nil, nil, fmt.Errorf("unable to get bobs's "+
+			"balance: %v", err)
 	}
 	if aliceBal.Balance != int64(chanAmt-pushAmt-calcStaticFee(0)) {
-		t.Fatalf("alice's balance is incorrect: expected %v got %v",
+		return nil, nil, nil, fmt.Errorf("alice's balance is "+
+			"incorrect: expected %v got %v",
 			chanAmt-pushAmt-calcStaticFee(0), aliceBal)
 	}
 	if bobBal.Balance != int64(pushAmt) {
-		t.Fatalf("bob's balance is incorrect: expected %v got %v",
-			pushAmt, bobBal.Balance)
+		return nil, nil, nil, fmt.Errorf("bob's balance is incorrect: "+
+			"expected %v got %v", pushAmt, bobBal.Balance)
 	}
 
-	// Finally, immediately close the channel. This function will also
-	// block until the channel is closed and will additionally assert the
-	// relevant channel closing post conditions.
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, false)
+	req := &lnrpc.ListChannelsRequest{}
+	aliceChannel, err := alice.ListChannels(context.Background(), req)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("unable to obtain chan: %v", err)
+	}
+
+	bobChannel, err := bob.ListChannels(context.Background(), req)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("unable to obtain chan: %v", err)
+	}
+
+	closeChan := func() {
+		// Finally, immediately close the channel. This function will
+		// also block until the channel is closed and will additionally
+		// assert the relevant channel closing post conditions.
+		ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
+		closeChannelAndAssert(ctxt, t, net, alice, chanPoint, false)
+	}
+
+	return aliceChannel.Channels[0], bobChannel.Channels[0], closeChan, nil
+}
+
+// testBasicChannelFunding performs a test exercising expected behavior from a
+// basic funding workflow. The test creates a new channel between Alice and
+// Bob, then immediately closes the channel after asserting some expected post
+// conditions. Finally, the chain itself is checked to ensure the closing
+// transaction was mined.
+func testBasicChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
+
+	ctxb := context.Background()
+
+test:
+	// We'll test all possible combinations of the feature bit presence
+	// that both nodes can signal for this new channel type. We'll make a
+	// new Carol+Dave for each test instance as well.
+	for _, carolTweakless := range []bool{true, false} {
+		for _, daveTweakless := range []bool{true, false} {
+			// Based on the current tweak variable for Carol, we'll
+			// preferentially signal the legacy commitment format.
+			// We do the same for Dave shortly below.
+			var carolArgs []string
+			if !carolTweakless {
+				carolArgs = []string{"--legacyprotocol.committweak"}
+			}
+			carol, err := net.NewNode("Carol", carolArgs)
+			if err != nil {
+				t.Fatalf("unable to create new node: %v", err)
+			}
+
+			// Each time, we'll send Carol a new set of coins in
+			// order to fund the channel.
+			ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
+			err = net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, carol)
+			if err != nil {
+				t.Fatalf("unable to send coins to carol: %v", err)
+			}
+
+			var daveArgs []string
+			if !daveTweakless {
+				daveArgs = []string{"--legacyprotocol.committweak"}
+			}
+			dave, err := net.NewNode("Dave", daveArgs)
+			if err != nil {
+				t.Fatalf("unable to create new node: %v", err)
+			}
+
+			// Before we start the test, we'll ensure both sides
+			// are connected to the funding flow can properly be
+			// executed.
+			ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+			err = net.EnsureConnected(ctxt, carol, dave)
+			if err != nil {
+				t.Fatalf("unable to connect peers: %v", err)
+			}
+
+			testName := fmt.Sprintf("carol_tweak=%v,dave_tweak=%v",
+				carolTweakless, daveTweakless)
+
+			ht := t
+			success := t.t.Run(testName, func(t *testing.T) {
+				carolChannel, daveChannel, closeChan, err := basicChannelFundingTest(
+					ht, net, carol, dave,
+				)
+				if err != nil {
+					t.Fatalf("failed funding flow: %v", err)
+				}
+
+				tweaklessSignalled := carolTweakless && daveTweakless
+				tweaklessChans := (carolChannel.StaticRemoteKey &&
+					daveChannel.StaticRemoteKey)
+				switch {
+				// If both sides signalled a tweakless channel, and the
+				// resulting channel doesn't reflect this, then this
+				// is a failed case.
+				case tweaklessSignalled && !tweaklessChans:
+					t.Fatalf("expected tweakless channnel, got " +
+						"non-tweaked channel")
+
+				// If both sides didn't signal a tweakless
+				// channel, and the resulting channel is
+				// tweakless, and this is also a failed case.
+				case !tweaklessSignalled && tweaklessChans:
+					t.Fatalf("expected non-tweaked channel, got " +
+						"tweakless channel")
+				}
+
+				// As we've concluded this sub-test case we'll
+				// now close out the channel for both sides.
+				closeChan()
+			})
+			if !success {
+				break test
+			}
+
+			shutdownAndAssert(net, t, carol)
+			shutdownAndAssert(net, t, dave)
+		}
+	}
 }
 
 // testUnconfirmedChannelFunding tests that our unconfirmed change outputs can

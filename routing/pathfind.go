@@ -75,22 +75,6 @@ func computeFee(amt lnwire.MilliSatoshi,
 	return edge.FeeBaseMSat + (amt*edge.FeeProportionalMillionths)/1000000
 }
 
-// isSamePath returns true if path1 and path2 travel through the exact same
-// edges, and false otherwise.
-func isSamePath(path1, path2 []*channeldb.ChannelEdgePolicy) bool {
-	if len(path1) != len(path2) {
-		return false
-	}
-
-	for i := 0; i < len(path1); i++ {
-		if path1[i].ChannelID != path2[i].ChannelID {
-			return false
-		}
-	}
-
-	return true
-}
-
 // newRoute returns a fully valid route between the source and target that's
 // capable of supporting a payment of `amtToSend` after fees are fully
 // computed. If the route is too long, or the selected path cannot support the

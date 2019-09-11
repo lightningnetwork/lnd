@@ -550,18 +550,6 @@ func assertHasKeystone(t *testing.T, cm htlcswitch.CircuitMap,
 	}
 }
 
-// assertDoesNotHaveKeystone tests that the circuit map does not contain a
-// circuit for the provided outgoing circuit key.
-func assertDoesNotHaveKeystone(t *testing.T, cm htlcswitch.CircuitMap,
-	outKey htlcswitch.CircuitKey) {
-
-	circuit := cm.LookupOpenCircuit(outKey)
-	if circuit != nil {
-		t.Fatalf("expected no circuit for keystone %s, found %v",
-			outKey, circuit)
-	}
-}
-
 // assertHasCircuitForHash tests that the provided circuit appears in the list
 // of circuits for the given hash.
 func assertHasCircuitForHash(t *testing.T, cm htlcswitch.CircuitMap, hash [32]byte,
@@ -617,17 +605,6 @@ func equalIgnoreLFD(c, c2 *htlcswitch.PaymentCircuit) bool {
 	c2.LoadedFromDisk = ogLFD2
 
 	return isEqual
-}
-
-// assertDoesNotHaveCircuit queries the circuit map using the circuit's
-// incoming circuit key, and fails if it is found.
-func assertDoesNotHaveCircuit(t *testing.T, cm htlcswitch.CircuitMap,
-	c *htlcswitch.PaymentCircuit) {
-
-	c2 := cm.LookupCircuit(c.Incoming)
-	if c2 != nil {
-		t.Fatalf("expected no circuit for %v, got %v", c, c2)
-	}
 }
 
 // makeCircuitDB initializes a new test channeldb for testing the persistence of

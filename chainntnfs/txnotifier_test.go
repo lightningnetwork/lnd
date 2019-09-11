@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -33,7 +32,6 @@ var (
 		0x86, 0xf4, 0xcb, 0xf9, 0x8e, 0xae, 0xd2, 0x21,
 		0xb3, 0x0b, 0xd9, 0xa0, 0xb9, 0x28,
 	}
-	testScript, _ = txscript.ParsePkScript(testRawScript)
 )
 
 type mockHintCache struct {

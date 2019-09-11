@@ -23,8 +23,6 @@ var (
 
 	testHtlcExpiry = uint32(5)
 
-	testInvoiceCltvDelta = uint32(4)
-
 	testFinalCltvRejectDelta = int32(4)
 
 	testCurrentHeight = int32(1)

@@ -128,8 +128,6 @@ type mockServer struct {
 	name     string
 	messages chan lnwire.Message
 
-	errChan chan error
-
 	id         [33]byte
 	htlcSwitch *Switch
 
@@ -624,8 +622,6 @@ type mockChannelLink struct {
 	chanID lnwire.ChannelID
 
 	peer lnpeer.Peer
-
-	startMailBox bool
 
 	mailBox MailBox
 

@@ -102,10 +102,6 @@ const (
 	// checkSumSize is the index within an enciphered cipher seed that
 	// marks the start of the checksum.
 	checkSumOffset = EncipheredCipherSeedSize - checkSumSize
-
-	// encipheredSeedSize is the size of the cipherseed before applying the
-	// external version, salt, and checksum for the final encoding.
-	encipheredSeedSize = DecipheredCipherSeedSize + CipherTextExpansion
 )
 
 var (

@@ -27,7 +27,6 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
-	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/btcsuite/btcwallet/wallet/txauthor"
 	"github.com/coreos/bbolt"
 	"github.com/davecgh/go-spew/spew"
@@ -76,8 +75,6 @@ var (
 	// defined in BOLT-002. This value depends on which chain is active.
 	// It is set to the value under the Bitcoin chain as default.
 	MaxPaymentMSat = maxBtcPaymentMSat
-
-	defaultAccount uint32 = waddrmgr.DefaultAccountNum
 
 	// readPermissions is a slice of all entities that allow read
 	// permissions for authorization purposes, all lowercase.
@@ -395,8 +392,6 @@ type rpcServer struct {
 	shutdown int32 // To be used atomically.
 
 	server *server
-
-	wg sync.WaitGroup
 
 	// subServers are a set of sub-RPC servers that use the same gRPC and
 	// listening sockets as the main RPC server, but which maintain their

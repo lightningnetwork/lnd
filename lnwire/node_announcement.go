@@ -10,11 +10,6 @@ import (
 	"unicode/utf8"
 )
 
-var (
-	startPort uint16 = 1024
-	endPort   uint16 = 49151
-)
-
 // ErrUnknownAddrType is an error returned if we encounter an unknown address type
 // when parsing addresses.
 type ErrUnknownAddrType struct {

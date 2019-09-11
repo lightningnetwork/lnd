@@ -123,15 +123,6 @@ func (r *reservationWithCtx) isLocked() bool {
 	return r.lastUpdated.IsZero()
 }
 
-// lock locks the reservation from zombie pruning by setting its timestamp to the
-// zero value.
-func (r *reservationWithCtx) lock() {
-	r.updateMtx.Lock()
-	defer r.updateMtx.Unlock()
-
-	r.lastUpdated = time.Time{}
-}
-
 // updateTimestamp updates the reservation's timestamp with the current time.
 func (r *reservationWithCtx) updateTimestamp() {
 	r.updateMtx.Lock()
@@ -2504,14 +2495,6 @@ func (f *fundingManager) handleFundingLocked(fmsg *fundingLockedMsg) {
 			fmsg.peer.IdentityKey().SerializeCompressed(),
 			channel.FundingOutpoint, err)
 	}
-}
-
-// channelProof is one half of the proof necessary to create an authenticated
-// announcement on the network. The two signatures individually sign a
-// statement of the existence of a channel.
-type channelProof struct {
-	nodeSig    *btcec.Signature
-	bitcoinSig *btcec.Signature
 }
 
 // chanAnnouncement encapsulates the two authenticated announcements that we

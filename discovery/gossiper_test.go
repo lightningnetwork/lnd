@@ -43,10 +43,6 @@ var (
 	_, _ = testSig.R.SetString("63724406601629180062774974542967536251589935445068131219452686511677818569431", 10)
 	_, _ = testSig.S.SetString("18801056069249825825291287104931333862866033135609736119018462340006816851118", 10)
 
-	inputStr = "147caa76786596590baa4e98f5d9f48b86c7765e489f7a6ff3360fe5c674360b"
-	sha, _   = chainhash.NewHashFromStr(inputStr)
-	outpoint = wire.NewOutPoint(sha, 0)
-
 	bitcoinKeyPriv1, _ = btcec.NewPrivateKey(btcec.S256())
 	bitcoinKeyPub1     = bitcoinKeyPriv1.PubKey()
 
@@ -59,10 +55,9 @@ var (
 	nodeKeyPriv2, _ = btcec.NewPrivateKey(btcec.S256())
 	nodeKeyPub2     = nodeKeyPriv2.PubKey()
 
-	trickleDelay        = time.Millisecond * 100
-	retransmitDelay     = time.Hour * 1
-	proofMatureDelta    uint32
-	maxBtcFundingAmount = btcutil.Amount(1<<62) - 1
+	trickleDelay     = time.Millisecond * 100
+	retransmitDelay  = time.Hour * 1
+	proofMatureDelta uint32
 )
 
 // makeTestDB creates a new instance of the ChannelDB for testing purposes. A

@@ -17,7 +17,6 @@ import (
 const (
 	defaultEncoding   = lnwire.EncodingSortedPlain
 	latestKnownHeight = 1337
-	startHeight       = latestKnownHeight - chanRangeQueryBuffer
 )
 
 var (

@@ -919,11 +919,6 @@ func uint16Key(i uint16) []byte {
 	return key
 }
 
-// uint16FromKey reconstructs a 16-bit unsigned integer from a 2-byte slice.
-func uint16FromKey(key []byte) uint16 {
-	return byteOrder.Uint16(key)
-}
-
 // Compile-time constraint to ensure that ChannelPackager implements the public
 // FwdPackager interface.
 var _ FwdPackager = (*ChannelPackager)(nil)

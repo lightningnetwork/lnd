@@ -8,7 +8,6 @@ import (
 	"io"
 	"io/ioutil"
 	"os"
-	"sync"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -17,14 +16,11 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
-	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
 )
 
 var (
-	privPass = []byte("private-test")
-
 	// For simplicity a single priv key controls all of our test outputs.
 	testWalletPrivKey = []byte{
 		0x2b, 0xd8, 0x06, 0xc9, 0x7f, 0x0e, 0x00, 0xaf,
@@ -48,10 +44,6 @@ var (
 		0x4f, 0x2f, 0x6f, 0x25, 0x88, 0xa3, 0xef, 0xb9,
 		0x6a, 0x49, 0x18, 0x83, 0x31, 0x98, 0x47, 0x53,
 	}
-
-	// The number of confirmations required to consider any created channel
-	// open.
-	numReqConfs = uint16(1)
 
 	// A serializable txn for testing funding txn.
 	testTx = &wire.MsgTx{
@@ -382,43 +374,6 @@ func initRevocationWindows(chanA, chanB *LightningChannel) error {
 	return nil
 }
 
-type mockPreimageCache struct {
-	sync.Mutex
-	preimageMap map[lntypes.Hash]lntypes.Preimage
-}
-
-func newMockPreimageCache() *mockPreimageCache {
-	return &mockPreimageCache{
-		preimageMap: make(map[lntypes.Hash]lntypes.Preimage),
-	}
-}
-
-func (m *mockPreimageCache) LookupPreimage(
-	hash lntypes.Hash) (lntypes.Preimage, bool) {
-
-	m.Lock()
-	defer m.Unlock()
-
-	p, ok := m.preimageMap[hash]
-	return p, ok
-}
-
-func (m *mockPreimageCache) AddPreimages(preimages ...lntypes.Preimage) error {
-	preimageCopies := make([]lntypes.Preimage, 0, len(preimages))
-	for _, preimage := range preimages {
-		preimageCopies = append(preimageCopies, preimage)
-	}
-
-	m.Lock()
-	defer m.Unlock()
-
-	for _, preimage := range preimageCopies {
-		m.preimageMap[preimage.Hash()] = preimage
-	}
-
-	return nil
-}
-
 // pubkeyFromHex parses a Bitcoin public key from a hex encoded string.
 func pubkeyFromHex(keyHex string) (*btcec.PublicKey, error) {
 	bytes, err := hex.DecodeString(keyHex)
@@ -437,25 +392,6 @@ func privkeyFromHex(keyHex string) (*btcec.PrivateKey, error) {
 	key, _ := btcec.PrivKeyFromBytes(btcec.S256(), bytes)
 	return key, nil
 
-}
-
-// pubkeyToHex serializes a Bitcoin public key to a hex encoded string.
-func pubkeyToHex(key *btcec.PublicKey) string {
-	return hex.EncodeToString(key.SerializeCompressed())
-}
-
-// privkeyFromHex serializes a Bitcoin private key to a hex encoded string.
-func privkeyToHex(key *btcec.PrivateKey) string {
-	return hex.EncodeToString(key.Serialize())
-}
-
-// signatureFromHex parses a Bitcoin signature from a hex encoded string.
-func signatureFromHex(sigHex string) (*btcec.Signature, error) {
-	bytes, err := hex.DecodeString(sigHex)
-	if err != nil {
-		return nil, err
-	}
-	return btcec.ParseSignature(bytes, btcec.S256())
 }
 
 // blockFromHex parses a full Bitcoin block from a hex encoded string.

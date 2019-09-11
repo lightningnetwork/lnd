@@ -109,16 +109,6 @@ func CreateChanAnnouncement(chanProof *channeldb.ChannelAuthProof,
 	return chanAnn, edge1Ann, edge2Ann, nil
 }
 
-// copyPubKey performs a copy of the target public key, setting a fresh curve
-// parameter during the process.
-func copyPubKey(pub *btcec.PublicKey) *btcec.PublicKey {
-	return &btcec.PublicKey{
-		Curve: btcec.S256(),
-		X:     pub.X,
-		Y:     pub.Y,
-	}
-}
-
 // SignAnnouncement is a helper function which is used to sign any outgoing
 // channel node node announcement messages.
 func SignAnnouncement(signer lnwallet.MessageSigner, pubKey *btcec.PublicKey,

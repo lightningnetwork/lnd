@@ -253,10 +253,6 @@ type LightningWallet struct {
 	// keys, revocation keys, etc.
 	keychain.SecretKeyRing
 
-	// This mutex is to be held when generating external keys to be used as
-	// multi-sig, and commitment keys within the channel.
-	keyGenMtx sync.RWMutex
-
 	// This mutex MUST be held when performing coin selection in order to
 	// avoid inadvertently creating multiple funding transaction which
 	// double spend inputs across each other.
@@ -956,9 +952,6 @@ func (l *LightningWallet) handleSingleContribution(req *addSingleContributionMsg
 // pertaining to the exact location in the main chain in-which the transaction
 // was confirmed.
 type openChanDetails struct {
-	channel     *LightningChannel
-	blockHeight uint32
-	txIndex     uint32
 }
 
 // handleFundingCounterPartySigs is the final step in the channel reservation

@@ -27,10 +27,6 @@ var (
 
 	// errNoUpdate is returned when no invoice updated is required.
 	errNoUpdate = errors.New("no update needed")
-
-	// errReplayedHtlc is returned if the htlc is already recorded on the
-	// invoice.
-	errReplayedHtlc = errors.New("replayed htlc")
 )
 
 // HodlEvent describes how an htlc should be resolved. If HodlEvent.Preimage is

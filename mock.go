@@ -16,7 +16,6 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
-	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 )
 
@@ -228,7 +227,6 @@ func (*mockChainIO) GetBlock(blockHash *chainhash.Hash) (*wire.MsgBlock, error) 
 // interaction with the bitcoin network.
 type mockWalletController struct {
 	rootKey               *btcec.PrivateKey
-	prevAddres            btcutil.Address
 	publishedTransactions chan *wire.MsgTx
 	index                 uint32
 	utxos                 []*lnwallet.Utxo
@@ -354,34 +352,4 @@ func (m *mockSecretKeyRing) DerivePrivKey(keyDesc keychain.KeyDescriptor) (*btce
 func (m *mockSecretKeyRing) ScalarMult(keyDesc keychain.KeyDescriptor,
 	pubKey *btcec.PublicKey) ([]byte, error) {
 	return nil, nil
-}
-
-type mockPreimageCache struct {
-	sync.Mutex
-	preimageMap map[lntypes.Hash]lntypes.Preimage
-}
-
-func newMockPreimageCache() *mockPreimageCache {
-	return &mockPreimageCache{
-		preimageMap: make(map[lntypes.Hash]lntypes.Preimage),
-	}
-}
-
-func (m *mockPreimageCache) LookupPreimage(hash lntypes.Hash) (lntypes.Preimage, bool) {
-	m.Lock()
-	defer m.Unlock()
-
-	p, ok := m.preimageMap[hash]
-	return p, ok
-}
-
-func (m *mockPreimageCache) AddPreimages(preimages ...lntypes.Preimage) error {
-	m.Lock()
-	defer m.Unlock()
-
-	for _, preimage := range preimages {
-		m.preimageMap[preimage.Hash()] = preimage
-	}
-
-	return nil
 }

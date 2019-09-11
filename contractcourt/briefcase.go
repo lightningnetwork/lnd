@@ -184,24 +184,24 @@ type resolverType uint8
 const (
 	// resolverTimeout is the type of a resolver that's tasked with
 	// resolving an outgoing HTLC that is very close to timing out.
-	resolverTimeout = 0
+	resolverTimeout resolverType = 0
 
 	// resolverSuccess is the type of a resolver that's tasked with
 	// resolving an incoming HTLC that we already know the preimage of.
-	resolverSuccess = 1
+	resolverSuccess resolverType = 1
 
 	// resolverOutgoingContest is the type of a resolver that's tasked with
 	// resolving an outgoing HTLC that hasn't yet timed out.
-	resolverOutgoingContest = 2
+	resolverOutgoingContest resolverType = 2
 
 	// resolverIncomingContest is the type of a resolver that's tasked with
 	// resolving an incoming HTLC that we don't yet know the preimage to.
-	resolverIncomingContest = 3
+	resolverIncomingContest resolverType = 3
 
 	// resolverUnilateralSweep is the type of resolver that's tasked with
 	// sweeping out direct commitment output form the remote party's
 	// commitment transaction.
-	resolverUnilateralSweep = 4
+	resolverUnilateralSweep resolverType = 4
 )
 
 // resolverIDLen is the size of the resolver ID key. This is 36 bytes as we get
@@ -366,7 +366,7 @@ func (b *boltArbitratorLog) writeResolver(contractBucket *bbolt.Bucket,
 	// this byte, we can later properly deserialize the resolver properly.
 	var (
 		buf   bytes.Buffer
-		rType uint8
+		rType resolverType
 	)
 	switch res.(type) {
 	case *htlcTimeoutResolver:
@@ -461,7 +461,7 @@ func (b *boltArbitratorLog) FetchUnresolvedContracts() ([]ContractResolver, erro
 			// We'll snip off the first byte of the raw resolver
 			// bytes in order to extract what type of resolver
 			// we're about to encode.
-			resType := resBytes[0]
+			resType := resolverType(resBytes[0])
 
 			// Then we'll create a reader using the remaining
 			// bytes.

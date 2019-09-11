@@ -23,7 +23,6 @@ type mockArbitratorLog struct {
 	failCommit      bool
 	failCommitState ArbitratorState
 	resolutions     *ContractResolutions
-	chainActions    ChainActionMap
 	resolvers       map[ContractResolver]struct{}
 
 	commitSet *CommitSet

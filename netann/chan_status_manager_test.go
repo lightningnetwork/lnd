@@ -111,7 +111,6 @@ func createEdgePolicies(t *testing.T, channel *channeldb.OpenChannel,
 }
 
 type mockGraph struct {
-	pubKey    *btcec.PublicKey
 	mu        sync.Mutex
 	channels  []*channeldb.OpenChannel
 	chanInfos map[wire.OutPoint]*channeldb.ChannelEdgeInfo

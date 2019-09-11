@@ -6,25 +6,6 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 )
 
-// changeBit is a functio that function that flips a bit of the hash at a
-// particular bit-index. You should be aware that the bit flipping in this
-// function a bit strange, example:
-// hash: [0b00000000, 0b00000000,  ... 0b00000000]
-//	    0		   1       ...      31
-//
-// byte: 0 0 0 0 0 0 0 0
-// 	 7 6 5 4 3 2 1 0
-//
-// By flipping the bit at 7 position you will flip the first bit in hash and by
-// flipping the bit at 8 position you will flip the 16 bit in hash.
-func changeBit(hash []byte, position uint8) []byte {
-	byteNumber := position / 8
-	bitNumber := position % 8
-
-	hash[byteNumber] ^= (1 << bitNumber)
-	return hash
-}
-
 // getBit return bit on index at position.
 func getBit(index index, position uint8) uint8 {
 	return uint8((uint64(index) >> position) & 1)

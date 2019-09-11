@@ -2,7 +2,6 @@ package htlcswitch
 
 import (
 	"bytes"
-	"crypto/sha256"
 	"errors"
 	"fmt"
 	"sync"
@@ -66,10 +65,6 @@ var (
 	// ErrUnreadableFailureMessage is returned when the failure message
 	// cannot be decrypted.
 	ErrUnreadableFailureMessage = errors.New("unreadable failure message")
-
-	// zeroPreimage is the empty preimage which is returned when we have
-	// some errors.
-	zeroPreimage [sha256.Size]byte
 )
 
 // plexPacket encapsulates switch packet and adds error channel to receive
@@ -257,10 +252,6 @@ type Switch struct {
 	// resolutionMsgs is the channel that all external contract resolution
 	// messages will be sent over.
 	resolutionMsgs chan *resolutionMsg
-
-	// linkControl is a channel used to propagate add/remove/get htlc
-	// switch handler commands.
-	linkControl chan interface{}
 
 	// pendingFwdingEvents is the set of forwarding events which have been
 	// collected during the current interval, but hasn't yet been written
@@ -2223,18 +2214,6 @@ func (s *Switch) openCircuits(keystones ...Keystone) error {
 // from the circuit map.
 func (s *Switch) deleteCircuits(inKeys ...CircuitKey) error {
 	return s.circuits.DeleteCircuits(inKeys...)
-}
-
-// lookupCircuit queries the in memory representation of the circuit map to
-// retrieve a particular circuit.
-func (s *Switch) lookupCircuit(inKey CircuitKey) *PaymentCircuit {
-	return s.circuits.LookupCircuit(inKey)
-}
-
-// lookupOpenCircuit queries the in-memory representation of the circuit map for a
-// circuit whose outgoing circuit key matches outKey.
-func (s *Switch) lookupOpenCircuit(outKey CircuitKey) *PaymentCircuit {
-	return s.circuits.LookupOpenCircuit(outKey)
 }
 
 // FlushForwardingEvents flushes out the set of pending forwarding events to

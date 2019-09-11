@@ -15,9 +15,6 @@ import (
 	"github.com/lightningnetwork/lnd/shachain"
 )
 
-// outPointSize is the size of a serialized outpoint on disk.
-const outPointSize = 36
-
 // writeOutpoint writes an outpoint to the passed writer using the minimal
 // amount of bytes possible.
 func writeOutpoint(w io.Writer, o *wire.OutPoint) error {

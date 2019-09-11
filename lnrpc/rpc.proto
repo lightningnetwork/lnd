@@ -1237,6 +1237,14 @@ message Channel {
     The minimum satoshis the other node is required to reserve in its balance.
     */
     int64 remote_chan_reserve_sat = 21 [json_name = "remote_chan_reserve_sat"];
+
+    /**
+    If true, then this channel uses the modern commitment format where the key
+    in the output of the remote party does not change each state. This makes
+    back up and recovery easier as when the channel is closed, the funds go
+    directly to that key. 
+    */
+    bool static_remote_key = 22 [json_name = "static_remote_key"];
 }
 
 

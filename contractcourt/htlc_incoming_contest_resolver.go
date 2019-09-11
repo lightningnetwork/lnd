@@ -3,7 +3,6 @@ package contractcourt
 import (
 	"encoding/binary"
 	"errors"
-	"fmt"
 	"io"
 
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -66,11 +65,11 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 	select {
 	case newBlock, ok := <-blockEpochs.Epochs:
 		if !ok {
-			return nil, fmt.Errorf("quitting")
+			return nil, errResolverShuttingDown
 		}
 		currentHeight = newBlock.Height
 	case <-h.Quit:
-		return nil, fmt.Errorf("resolver stopped")
+		return nil, errResolverShuttingDown
 	}
 
 	// We'll first check if this HTLC has been timed out, if so, we can
@@ -224,7 +223,7 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 
 		case newBlock, ok := <-blockEpochs.Epochs:
 			if !ok {
-				return nil, fmt.Errorf("quitting")
+				return nil, errResolverShuttingDown
 			}
 
 			// If this new height expires the HTLC, then this means
@@ -241,7 +240,7 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 			}
 
 		case <-h.Quit:
-			return nil, fmt.Errorf("resolver stopped")
+			return nil, errResolverShuttingDown
 		}
 	}
 }

@@ -1866,6 +1866,10 @@ func (c *ChannelArbitrator) resolveContract(currentContract ContractResolver) {
 			// contract.
 			nextContract, err := currentContract.Resolve()
 			if err != nil {
+				if err == errResolverShuttingDown {
+					return
+				}
+
 				log.Errorf("ChannelArbitrator(%v): unable to "+
 					"progress resolver: %v",
 					c.cfg.ChanPoint, err)

@@ -803,13 +803,10 @@ func (c *OpenChannel) MarkBorked() error {
 //   3. We didn't get the last RevokeAndAck message they sent, so they'll
 //      re-send it.
 //
-// The isRestoredChan bool indicates if we need to craft a chan sync message
-// for a channel that's been restored. If this is a restored channel, then
-// we'll modify our typical chan sync  message to ensure they force close even
-// if we're on the very first state.
-func (c *OpenChannel) ChanSyncMsg(
-	isRestoredChan bool) (*lnwire.ChannelReestablish, error) {
-
+// If this is a restored channel, having status ChanStatusRestored, then we'll
+// modify our typical chan sync message to ensure they force close even if
+// we're on the very first state.
+func (c *OpenChannel) ChanSyncMsg() (*lnwire.ChannelReestablish, error) {
 	c.Lock()
 	defer c.Unlock()
 
@@ -853,7 +850,7 @@ func (c *OpenChannel) ChanSyncMsg(
 	// If we've restored this channel, then we'll purposefully give them an
 	// invalid LocalUnrevokedCommitPoint so they'll force close the channel
 	// allowing us to sweep our funds.
-	if isRestoredChan {
+	if c.hasChanStatus(ChanStatusRestored) {
 		currentCommitSecret[0] ^= 1
 	}
 

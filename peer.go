@@ -454,7 +454,7 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) (
 			// channel reestablish message sent from the peer, but
 			// that's okay since the assumption is that we did when
 			// marking the channel borked.
-			chanSync, err := dbChan.ChanSyncMsg(false)
+			chanSync, err := dbChan.ChanSyncMsg()
 			if err != nil {
 				peerLog.Errorf("Unable to create channel "+
 					"reestablish message for channel %v: "+

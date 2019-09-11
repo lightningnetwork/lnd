@@ -324,6 +324,12 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 		globalFeatures.Set(lnwire.TLVOnionPayloadOptional)
 	}
 
+	// Similarly, we default to the new modern commitment format unless the
+	// legacy commitment config is set to true.
+	if !cfg.LegacyProtocol.LegacyCommitment() {
+		globalFeatures.Set(lnwire.StaticRemoteKeyOptional)
+	}
+
 	var serializedPubKey [33]byte
 	copy(serializedPubKey[:], privKey.PubKey().SerializeCompressed())
 
@@ -388,8 +394,9 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 		peerConnectedListeners:    make(map[string][]chan<- lnpeer.Peer),
 		peerDisconnectedListeners: make(map[string][]chan<- struct{}),
 
-		globalFeatures: lnwire.NewFeatureVector(globalFeatures,
-			lnwire.GlobalFeatures),
+		globalFeatures: lnwire.NewFeatureVector(
+			globalFeatures, lnwire.GlobalFeatures,
+		),
 		quit: make(chan struct{}),
 	}
 

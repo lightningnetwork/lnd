@@ -1651,6 +1651,12 @@ func (m *mockPeer) IdentityKey() *btcec.PublicKey {
 func (m *mockPeer) Address() net.Addr {
 	return nil
 }
+func (m *mockPeer) LocalGlobalFeatures() *lnwire.FeatureVector {
+	return nil
+}
+func (m *mockPeer) RemoteGlobalFeatures() *lnwire.FeatureVector {
+	return nil
+}
 
 func newSingleLinkTestHarness(chanAmt, chanReserve btcutil.Amount) (
 	ChannelLink, *lnwallet.LightningChannel, chan time.Time, func() error,

@@ -183,6 +183,14 @@ func (n *testNode) QuitSignal() <-chan struct{} {
 	return n.shutdownChannel
 }
 
+func (n *testNode) LocalGlobalFeatures() *lnwire.FeatureVector {
+	return lnwire.NewFeatureVector(nil, nil)
+}
+
+func (n *testNode) RemoteGlobalFeatures() *lnwire.FeatureVector {
+	return lnwire.NewFeatureVector(nil, nil)
+}
+
 func (n *testNode) AddNewChannel(channel *channeldb.OpenChannel,
 	quit <-chan struct{}) error {
 

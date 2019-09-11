@@ -2,7 +2,6 @@ package contractcourt
 
 import (
 	"encoding/binary"
-	"fmt"
 	"io"
 
 	"github.com/btcsuite/btcd/wire"
@@ -171,11 +170,11 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 		select {
 		case _, ok := <-confNtfn.Confirmed:
 			if !ok {
-				return nil, fmt.Errorf("quitting")
+				return nil, errResolverShuttingDown
 			}
 
 		case <-h.Quit:
-			return nil, fmt.Errorf("quitting")
+			return nil, errResolverShuttingDown
 		}
 
 		// Once the transaction has received a sufficient number of
@@ -236,11 +235,11 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 	select {
 	case _, ok := <-spendNtfn.Spend:
 		if !ok {
-			return nil, fmt.Errorf("quitting")
+			return nil, errResolverShuttingDown
 		}
 
 	case <-h.Quit:
-		return nil, fmt.Errorf("quitting")
+		return nil, errResolverShuttingDown
 	}
 
 	h.resolved = true

@@ -2,6 +2,7 @@ package contractcourt
 
 import (
 	"encoding/binary"
+	"errors"
 	"io"
 )
 
@@ -83,3 +84,9 @@ type ResolverKit struct {
 
 	Quit chan struct{}
 }
+
+var (
+	// errResolverShuttingDown is returned when the resolver stops
+	// progressing because it received the quit signal.
+	errResolverShuttingDown = errors.New("resolver shutting down")
+)

@@ -271,11 +271,11 @@ func (h *htlcTimeoutResolver) Resolve() (ContractResolver, error) {
 		select {
 		case _, ok := <-spendNtfn.Spend:
 			if !ok {
-				return fmt.Errorf("notifier quit")
+				return errResolverShuttingDown
 			}
 
 		case <-h.Quit:
-			return fmt.Errorf("quitting")
+			return errResolverShuttingDown
 		}
 
 		return nil
@@ -309,11 +309,11 @@ func (h *htlcTimeoutResolver) Resolve() (ContractResolver, error) {
 	select {
 	case spend, ok = <-spendNtfn.Spend:
 		if !ok {
-			return nil, fmt.Errorf("quitting")
+			return nil, errResolverShuttingDown
 		}
 
 	case <-h.Quit:
-		return nil, fmt.Errorf("quitting")
+		return nil, errResolverShuttingDown
 	}
 
 	// If the spend reveals the pre-image, then we'll enter the clean up

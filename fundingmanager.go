@@ -532,12 +532,8 @@ func (f *fundingManager) start() error {
 
 		// We will restart the funding state machine for all channels,
 		// which will wait for the channel's funding transaction to be
-		// confirmed on the blockchain, and retransmit the messages
+		// confirmed on the blockchain, and transmit the messages
 		// necessary for the channel to be operational.
-		// TODO(halseth): retransmission of messages to make the
-		// channel operational is only done on restart atm, but should
-		// also be done if a peer that disappeared during the opening
-		// process reconnects.
 		f.wg.Add(1)
 		go f.advanceFundingState(channel, chanID, nil)
 	}
@@ -2244,6 +2240,9 @@ func (f *fundingManager) annAfterSixConfs(completeChan *channeldb.OpenChannel,
 		fndgLog.Debugf("Sending our NodeAnnouncement for "+
 			"ChannelID(%v) to %x", chanID, pubKey)
 
+		// TODO(halseth): make reliable. If the peer is not online this
+		// will fail, and the opening process will stop. Should instead
+		// block here, waiting for the peer to come online.
 		if err := peer.SendMessage(true, &nodeAnn); err != nil {
 			return fmt.Errorf("unable to send node announcement "+
 				"to peer %x: %v", pubKey, err)

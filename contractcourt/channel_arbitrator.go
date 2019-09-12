@@ -1871,8 +1871,8 @@ func (c *ChannelArbitrator) resolveContract(currentContract ContractResolver) {
 				}
 
 				log.Errorf("ChannelArbitrator(%v): unable to "+
-					"progress resolver: %v",
-					c.cfg.ChanPoint, err)
+					"progress %T: %v",
+					c.cfg.ChanPoint, currentContract, err)
 				return
 			}
 

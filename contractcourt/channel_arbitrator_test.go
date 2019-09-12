@@ -527,8 +527,15 @@ func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
 		OutputIndex: -1,
 	}
 
+	incomingDustHtlc := channeldb.HTLC{
+		Incoming:    true,
+		Amt:         105,
+		HtlcIndex:   101,
+		OutputIndex: -1,
+	}
+
 	htlcSet := []channeldb.HTLC{
-		htlc, outgoingDustHtlc,
+		htlc, outgoingDustHtlc, incomingDustHtlc,
 	}
 
 	htlcUpdates <- &ContractUpdate{

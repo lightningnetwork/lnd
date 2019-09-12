@@ -13413,7 +13413,11 @@ func testChanRestoreScenario(t *harnessTest, net *lntest.NetworkHarness,
 	if err != nil {
 		t.Fatalf("unable to create new node: %v", err)
 	}
-	defer shutdownAndAssert(net, t, dave)
+	// Defer to a closure instead of to shutdownAndAssert due to the value
+	// of 'dave' changing throughout the test.
+	defer func() {
+		shutdownAndAssert(net, t, dave)
+	}()
 	carol, err := net.NewNode("carol", nil)
 	if err != nil {
 		t.Fatalf("unable to make new node: %v", err)

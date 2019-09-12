@@ -1,6 +1,11 @@
 run:
   # timeout for analysis
   deadline: 4m
+
+  # Linting uses a lot of memory. Keep it under control by only running a single
+  # worker.
+  concurrency: 1
+
   build-tags:
     - autopilotrpc
     - chainrpc
@@ -20,9 +25,18 @@ linters-settings:
     simplify: true
 
 linters:
-  disable-all: true
-  enable:
-    - gofmt
-    - golint
-    - govet
-    - unused
+  enable-all: true
+  disable:
+  # Global variables are used in many places throughout the code base.
+  - gochecknoglobals
+
+  # Some lines are over 80 characters on purpose and we don't want to make them
+  # even longer by marking them as 'nolint'.
+  - lll
+
+  # We don't care (enough) about misaligned structs to lint that.
+  - maligned
+
+issues:
+  # Only show newly introduced problems.
+  new-from-rev: 01f696afce2f9c0d4ed854edefa3846891d01d8a

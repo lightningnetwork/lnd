@@ -16,7 +16,7 @@ func TestWaitingProofStore(t *testing.T) {
 
 	db, cleanup, err := makeTestDB()
 	if err != nil {
-
+		t.Fatalf("failed to make test database: %s", err)
 	}
 	defer cleanup()
 

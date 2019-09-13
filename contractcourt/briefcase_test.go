@@ -358,6 +358,9 @@ func TestContractInsertionRetrieval(t *testing.T) {
 		t.Fatalf("unable to wipe log: %v", err)
 	}
 	diskResolvers, err = testLog.FetchUnresolvedContracts()
+	if err != nil {
+		t.Fatalf("unable to fetch unresolved contracts: %v", err)
+	}
 	if len(diskResolvers) != 0 {
 		t.Fatalf("no resolvers should be found, instead %v were",
 			len(diskResolvers))
@@ -611,6 +614,9 @@ func TestStateMutation(t *testing.T) {
 	// If we try to query for the state again, we should get the default
 	// state again.
 	arbState, err = testLog.CurrentState()
+	if err != nil {
+		t.Fatalf("unable to query current state: %v", err)
+	}
 	if arbState != StateDefault {
 		t.Fatalf("state mismatch: expected %v, got %v", StateDefault,
 			arbState)

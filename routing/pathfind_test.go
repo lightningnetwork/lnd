@@ -1421,6 +1421,9 @@ func TestRouteFailMaxHTLC(t *testing.T) {
 	// Next, update the middle edge policy to only allow payments up to 100k
 	// msat.
 	_, midEdge, _, err := graph.graph.FetchChannelEdgesByID(firstToSecondID)
+	if err != nil {
+		t.Fatalf("unable to fetch channel edges by ID: %v", err)
+	}
 	midEdge.MessageFlags = 1
 	midEdge.MaxHTLC = payAmt - 1
 	if err := graph.graph.UpdateEdgePolicy(midEdge); err != nil {

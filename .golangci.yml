@@ -37,6 +37,10 @@ linters:
   # We don't care (enough) about misaligned structs to lint that.
   - maligned
 
+  # We have long functions, especially in tests. Moving or renaming those would
+  # trigger funlen problems that we may not want to solve at that time.
+  - funlen
+
 issues:
   # Only show newly introduced problems.
   new-from-rev: 01f696afce2f9c0d4ed854edefa3846891d01d8a

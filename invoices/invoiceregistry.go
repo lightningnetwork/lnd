@@ -640,7 +640,21 @@ func (i *InvoiceRegistry) CancelInvoice(payHash lntypes.Hash) error {
 		canceledHtlcs := make(
 			map[channeldb.CircuitKey]*channeldb.HtlcAcceptDesc,
 		)
-		for key := range invoice.Htlcs {
+		for key, htlc := range invoice.Htlcs {
+			switch htlc.State {
+
+			// If we get here, there shouldn't be any settled htlcs.
+			case channeldb.HtlcStateSettled:
+				return nil, errors.New("cannot cancel " +
+					"invoice with settled htlc(s)")
+
+			// Don't cancel htlcs that were already cancelled,
+			// because it would incorrectly modify the invoice paid
+			// amt.
+			case channeldb.HtlcStateCancelled:
+				continue
+			}
+
 			canceledHtlcs[key] = nil
 		}
 

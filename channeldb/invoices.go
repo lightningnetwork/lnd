@@ -1224,9 +1224,9 @@ func (d *DB) updateInvoice(hash lntypes.Hash, invoices, settleIndex *bbolt.Bucke
 			if !ok {
 				return nil, fmt.Errorf("unknown htlc %v", key)
 			}
-			if htlc.State == HtlcStateSettled {
-				return nil, fmt.Errorf("cannot cancel a " +
-					"settled htlc")
+			if htlc.State != HtlcStateAccepted {
+				return nil, fmt.Errorf("can only cancel " +
+					"accepted htlcs")
 			}
 
 			htlc.State = HtlcStateCancelled

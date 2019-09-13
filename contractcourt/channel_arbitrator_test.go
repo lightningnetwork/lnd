@@ -496,6 +496,8 @@ func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
 
 		return nil
 	}
+	chanArb.cfg.PreimageDB = newMockWitnessBeacon()
+	chanArb.cfg.Registry = &mockRegistry{}
 
 	if err := chanArb.Start(); err != nil {
 		t.Fatalf("unable to start ChannelArbitrator: %v", err)
@@ -512,16 +514,26 @@ func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
 	chanArb.UpdateContractSignals(signals)
 
 	// Add HTLC to channel arbitrator.
-	htlcIndex := uint64(99)
 	htlc := channeldb.HTLC{
 		Incoming:  false,
 		Amt:       10000,
-		HtlcIndex: htlcIndex,
+		HtlcIndex: 99,
+	}
+
+	outgoingDustHtlc := channeldb.HTLC{
+		Incoming:    false,
+		Amt:         100,
+		HtlcIndex:   100,
+		OutputIndex: -1,
+	}
+
+	htlcSet := []channeldb.HTLC{
+		htlc, outgoingDustHtlc,
 	}
 
 	htlcUpdates <- &ContractUpdate{
 		HtlcKey: LocalHtlcSet,
-		Htlcs:   []channeldb.HTLC{htlc},
+		Htlcs:   htlcSet,
 	}
 
 	errChan := make(chan error, 1)
@@ -607,7 +619,7 @@ func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
 		CommitSet: CommitSet{
 			ConfCommitKey: &LocalHtlcSet,
 			HtlcSets: map[HtlcSetKey][]channeldb.HTLC{
-				LocalHtlcSet: {htlc},
+				LocalHtlcSet: htlcSet,
 			},
 		},
 	}
@@ -616,6 +628,22 @@ func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
 		t, arbLog.newStates, StateContractClosed,
 		StateWaitingFullResolution,
 	)
+
+	// We expect an immediate resolution message for the outgoing dust htlc.
+	// It is not resolvable on-chain.
+	select {
+	case msgs := <-resolutions:
+		if len(msgs) != 1 {
+			t.Fatalf("expected 1 message, instead got %v", len(msgs))
+		}
+
+		if msgs[0].HtlcIndex != outgoingDustHtlc.HtlcIndex {
+			t.Fatalf("wrong htlc index: expected %v, got %v",
+				outgoingDustHtlc.HtlcIndex, msgs[0].HtlcIndex)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatalf("resolution msgs not sent")
+	}
 
 	// htlcOutgoingContestResolver is now active and waiting for the HTLC to
 	// expire. It should not yet have passed it on for incubation.
@@ -649,9 +677,9 @@ func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
 			t.Fatalf("expected 1 message, instead got %v", len(msgs))
 		}
 
-		if msgs[0].HtlcIndex != htlcIndex {
+		if msgs[0].HtlcIndex != htlc.HtlcIndex {
 			t.Fatalf("wrong htlc index: expected %v, got %v",
-				htlcIndex, msgs[0].HtlcIndex)
+				htlc.HtlcIndex, msgs[0].HtlcIndex)
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatalf("resolution msgs not sent")

@@ -208,12 +208,20 @@ func CreateTestChannels() (*LightningChannel, *LightningChannel, func(), error) 
 	}
 
 	alicePath, err := ioutil.TempDir("", "alicedb")
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
 	dbAlice, err := channeldb.Open(alicePath)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 
 	bobPath, err := ioutil.TempDir("", "bobdb")
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
 	dbBob, err := channeldb.Open(bobPath)
 	if err != nil {
 		return nil, nil, nil, err

@@ -941,6 +941,9 @@ func TestAddProof(t *testing.T) {
 	}
 
 	info, _, _, err := ctx.router.GetChannelByID(*chanID)
+	if err != nil {
+		t.Fatalf("unable to get channel: %v", err)
+	}
 	if info.AuthProof == nil {
 		t.Fatal("proof have been updated")
 	}

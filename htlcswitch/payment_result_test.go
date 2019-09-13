@@ -100,6 +100,10 @@ func TestNetworkResultStore(t *testing.T) {
 	const numResults = 4
 
 	tempDir, err := ioutil.TempDir("", "testdb")
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	db, err := channeldb.Open(tempDir)
 	if err != nil {
 		t.Fatal(err)

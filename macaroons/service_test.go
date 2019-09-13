@@ -45,6 +45,9 @@ func setupTestRootKeyStorage(t *testing.T) string {
 	}
 	defer store.Close()
 	err = store.CreateUnlock(&defaultPw)
+	if err != nil {
+		t.Fatalf("error creating unlock: %v", err)
+	}
 	return tempDir
 }
 

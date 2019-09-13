@@ -329,6 +329,9 @@ func TestHoldInvoice(t *testing.T) {
 	defer timeout(t)()
 
 	cdb, cleanup, err := newDB()
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer cleanup()
 
 	// Instantiate and start the invoice registry.

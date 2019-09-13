@@ -3,10 +3,10 @@ package brontide
 import (
 	"bytes"
 	"encoding/hex"
+	"fmt"
 	"io"
 	"math"
 	"net"
-	"sync"
 	"testing"
 	"testing/iotest"
 
@@ -266,22 +266,22 @@ func TestWriteMessageChunking(t *testing.T) {
 	// Launch a new goroutine to write the large message generated above in
 	// chunks. We spawn a new goroutine because otherwise, we may block as
 	// the kernel waits for the buffer to flush.
-	var wg sync.WaitGroup
-	wg.Add(1)
+	errCh := make(chan error)
 	go func() {
-		defer wg.Done()
+		defer close(errCh)
 
 		bytesWritten, err := localConn.Write(largeMessage)
 		if err != nil {
-			t.Fatalf("unable to write message: %v", err)
+			errCh <- fmt.Errorf("unable to write message: %v", err)
+			return
 		}
 
 		// The entire message should have been written out to the remote
 		// connection.
 		if bytesWritten != len(largeMessage) {
-			t.Fatalf("bytes not fully written!")
+			errCh <- fmt.Errorf("bytes not fully written")
+			return
 		}
-
 	}()
 
 	// Attempt to read the entirety of the message generated above.
@@ -290,7 +290,10 @@ func TestWriteMessageChunking(t *testing.T) {
 		t.Fatalf("unable to read message: %v", err)
 	}
 
-	wg.Wait()
+	err = <-errCh
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	// Finally, the message the remote end of the connection received
 	// should be identical to what we sent from the local connection.

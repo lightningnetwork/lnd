@@ -961,7 +961,7 @@ func decodeIncomingResolution(r io.Reader, h *lnwallet.IncomingHtlcResolution) e
 
 func encodeOutgoingResolution(w io.Writer, o *lnwallet.OutgoingHtlcResolution) error {
 	if err := binary.Write(w, endian, o.Expiry); err != nil {
-		return nil
+		return err
 	}
 
 	if o.SignedTimeoutTx == nil {
@@ -979,7 +979,7 @@ func encodeOutgoingResolution(w io.Writer, o *lnwallet.OutgoingHtlcResolution) e
 	}
 
 	if err := binary.Write(w, endian, o.CsvDelay); err != nil {
-		return nil
+		return err
 	}
 	if _, err := w.Write(o.ClaimOutpoint.Hash[:]); err != nil {
 		return err

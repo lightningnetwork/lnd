@@ -276,12 +276,12 @@ func readRemoteKeyDesc(r io.Reader) (keychain.KeyDescriptor, error) {
 
 	_, err := io.ReadFull(r, pub[:])
 	if err != nil {
-		return keyDesc, nil
+		return keychain.KeyDescriptor{}, err
 	}
 
 	keyDesc.PubKey, err = btcec.ParsePubKey(pub[:], btcec.S256())
 	if err != nil {
-		return keyDesc, nil
+		return keychain.KeyDescriptor{}, err
 	}
 
 	keyDesc.PubKey.Curve = nil

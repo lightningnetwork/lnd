@@ -1052,7 +1052,7 @@ func writeTaggedFields(bufferBase32 *bytes.Buffer, invoice *Invoice) error {
 		pubKeyBase32, err := bech32.ConvertBits(
 			invoice.Destination.SerializeCompressed(), 8, 5, true)
 		if err != nil {
-			return nil
+			return err
 		}
 
 		if len(pubKeyBase32) != pubKeyBase32Len {

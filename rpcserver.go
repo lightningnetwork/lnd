@@ -4461,7 +4461,7 @@ func (r *rpcServer) FeeReport(ctx context.Context,
 		for {
 			timeSlice, err := fwdEventLog.Query(query)
 			if err != nil {
-				return 0, nil
+				return 0, err
 			}
 
 			// If the timeslice is empty, then we'll return as

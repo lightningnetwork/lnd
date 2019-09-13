@@ -106,6 +106,11 @@ related dependencies run the following commands:
 ```
 go get -d github.com/lightningnetwork/lnd
 cd $GOPATH/src/github.com/lightningnetwork/lnd
+```
+
+Then clean the module cache and make install:
+```
+go clean -modcache
 make && make install
 ```
 
@@ -138,6 +143,7 @@ commands:
 ```
 cd $GOPATH/src/github.com/lightningnetwork/lnd
 git pull
+go clean -modcache
 make clean && make && make install
 ```
 
@@ -148,6 +154,7 @@ used directly:
 ```
 cd $GOPATH/src/github.com/lightningnetwork/lnd
 git pull
+go clean -modcache
 GO111MODULE=on go install -v ./...
 ```
 

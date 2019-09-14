@@ -27,46 +27,46 @@
   * **Go:** `lnd` is written in Go. To install, run one of the following commands:
 
 
-    **Note**: The minimum version of Go supported is Go 1.12. We recommend that
+    **Note**: The minimum version of Go supported is Go 1.13. We recommend that
     users use the latest version of Go, which at the time of writing is
-    [`1.12`](https://blog.golang.org/go1.12).
+    [`1.13`](https://blog.golang.org/go1.13).
 
 
     On Linux:
 
     (x86-64)
     ```
-    wget https://dl.google.com/go/go1.12.3.linux-amd64.tar.gz
-    sha256sum go1.12.3.linux-amd64.tar.gz | awk -F " " '{ print $1 }'
+    wget https://dl.google.com/go/go1.13.linux-amd64.tar.gz
+    sha256sum go1.13.linux-amd64.tar.gz | awk -F " " '{ print $1 }'
     ```
 
     The final output of the command above should be
-    `3924819eed16e55114f02d25d03e77c916ec40b7fd15c8acb5838b63135b03df`. If it
+    `68a2297eb099d1a76097905a2ce334e3155004ec08cdea85f24527be3c48e856`. If it
     isn't, then the target REPO HAS BEEN MODIFIED, and you shouldn't install
     this version of Go. If it matches, then proceed to install Go:
     ```
-    tar -C /usr/local -xzf go1.12.3.linux-amd64.tar.gz
+    tar -C /usr/local -xzf go1.13.linux-amd64.tar.gz
     export PATH=$PATH:/usr/local/go/bin
     ```
 
     (ARMv6)
     ```
-    wget https://dl.google.com/go/go1.12.3.linux-armv6l.tar.gz
-    sha256sum go1.12.3.linux-armv6l.tar.gz | awk -F " " '{ print $1 }'
+    wget https://dl.google.com/go/go1.13.linux-armv6l.tar.gz
+    sha256sum go1.13.linux-armv6l.tar.gz | awk -F " " '{ print $1 }'
     ```
 
     The final output of the command above should be
-    `efce59fac5ebc7302263ca1093fe2c3252c1b936f5b1ae08afc328eea0403c79`. If it
+    `931906d67cae1222f501e7be26e0ee73ba89420be0c4591925901cb9a4e156f0`. If it
     isn't, then the target REPO HAS BEEN MODIFIED, and you shouldn't install
     this version of Go. If it matches, then proceed to install Go:
     ```
-    tar -C /usr/local -xzf go1.12.3.linux-armv6l.tar.gz
+    tar -C /usr/local -xzf go1.13.linux-armv6l.tar.gz
     export PATH=$PATH:/usr/local/go/bin
     ```
 
     On Mac OS X:
     ```
-    brew install go@1.12
+    brew install go@1.13
     ```
 
     On FreeBSD:

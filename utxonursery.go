@@ -948,7 +948,7 @@ func (u *utxoNursery) waitForTimeoutConf(baby *babyOutput,
 	select {
 	case txConfirmation, ok := <-confChan.Confirmed:
 		if !ok {
-			utxnLog.Errorf("Notification chan "+
+			utxnLog.Debugf("Notification chan "+
 				"closed, can't advance baby output %v",
 				baby.OutPoint())
 			return

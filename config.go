@@ -219,6 +219,7 @@ type torConfig struct {
 	DNS             string `long:"dns" description:"The DNS server as host:port that Tor will use for SRV queries - NOTE must have TCP resolution enabled"`
 	StreamIsolation bool   `long:"streamisolation" description:"Enable Tor stream isolation by randomizing user credentials for each connection."`
 	Control         string `long:"control" description:"The host:port that Tor is listening on for Tor control connections"`
+	TargetIPAddress string `long:"targetipaddress" description:"IP address that Tor should use as the target of the hidden service"`
 	V2              bool   `long:"v2" description:"Automatically set up a v2 onion service to listen for inbound connections"`
 	V3              bool   `long:"v3" description:"Automatically set up a v3 onion service to listen for inbound connections"`
 	PrivateKeyPath  string `long:"privatekeypath" description:"The path to the private key of the onion service being created"`

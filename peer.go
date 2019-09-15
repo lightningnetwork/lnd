@@ -247,7 +247,7 @@ func newPeer(conn net.Conn, connReq *connmgr.ConnReq, server *server,
 		outgoingCltvRejectDelta: outgoingCltvRejectDelta,
 
 		sendQueue:     make(chan outgoingMsg),
-		outgoingQueue: make(chan outgoingMsg),
+		outgoingQueue: make(chan outgoingMsg, outgoingQueueLen),
 
 		addedChannels:  make(map[lnwire.ChannelID]struct{}),
 		activeChannels: make(map[lnwire.ChannelID]*lnwallet.LightningChannel),

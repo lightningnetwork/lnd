@@ -324,6 +324,7 @@ func marshallError(sendError error) (*Failure, error) {
 
 	case *lnwire.FailIncorrectDetails:
 		response.Code = Failure_INCORRECT_OR_UNKNOWN_PAYMENT_DETAILS
+		response.Height = onionErr.Height()
 
 	case *lnwire.FailIncorrectPaymentAmount:
 		response.Code = Failure_INCORRECT_PAYMENT_AMOUNT

@@ -103,7 +103,7 @@ var resultTestCases = []resultTestCase{
 		name:          "fail incorrect details",
 		route:         &routeTwoHop,
 		failureSrcIdx: 2,
-		failure:       lnwire.NewFailIncorrectDetails(97),
+		failure:       lnwire.NewFailIncorrectDetails(97, 0),
 
 		expectedResult: &interpretedResult{
 			pairResults: map[DirectedNodePair]pairResult{

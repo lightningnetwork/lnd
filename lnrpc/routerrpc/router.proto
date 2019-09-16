@@ -239,6 +239,9 @@ message Failure {
     the failure message. Position zero is the sender node.
     **/
     uint32 failure_source_index = 8;
+
+    /// A failure type-dependent block height.
+    uint32 height = 9;
 }
 
 

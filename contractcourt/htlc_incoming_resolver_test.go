@@ -18,8 +18,9 @@ const (
 )
 
 var (
-	testResPreimage = lntypes.Preimage{1, 2, 3}
-	testResHash     = testResPreimage.Hash()
+	testResPreimage   = lntypes.Preimage{1, 2, 3}
+	testResHash       = testResPreimage.Hash()
+	testResCircuitKey = channeldb.CircuitKey{}
 )
 
 // TestHtlcIncomingResolverFwdPreimageKnown tests resolution of a forwarded htlc
@@ -92,8 +93,8 @@ func TestHtlcIncomingResolverExitSettle(t *testing.T) {
 
 	ctx := newIncomingResolverTestContext(t)
 	ctx.registry.notifyEvent = &invoices.HodlEvent{
-		Hash:     testResHash,
-		Preimage: &testResPreimage,
+		CircuitKey: testResCircuitKey,
+		Preimage:   &testResPreimage,
 	}
 	ctx.resolve()
 
@@ -116,7 +117,7 @@ func TestHtlcIncomingResolverExitCancel(t *testing.T) {
 
 	ctx := newIncomingResolverTestContext(t)
 	ctx.registry.notifyEvent = &invoices.HodlEvent{
-		Hash: testResHash,
+		CircuitKey: testResCircuitKey,
 	}
 	ctx.resolve()
 	ctx.waitForResult(false)
@@ -133,8 +134,8 @@ func TestHtlcIncomingResolverExitSettleHodl(t *testing.T) {
 
 	notifyData := <-ctx.registry.notifyChan
 	notifyData.hodlChan <- invoices.HodlEvent{
-		Hash:     testResHash,
-		Preimage: &testResPreimage,
+		CircuitKey: testResCircuitKey,
+		Preimage:   &testResPreimage,
 	}
 
 	ctx.waitForResult(true)
@@ -162,7 +163,7 @@ func TestHtlcIncomingResolverExitCancelHodl(t *testing.T) {
 	ctx.resolve()
 	notifyData := <-ctx.registry.notifyChan
 	notifyData.hodlChan <- invoices.HodlEvent{
-		Hash: testResHash,
+		CircuitKey: testResCircuitKey,
 	}
 	ctx.waitForResult(false)
 }

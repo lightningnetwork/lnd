@@ -36,8 +36,12 @@ type HodlEvent struct {
 	// Preimage is the htlc preimage. Its value is nil in case of a cancel.
 	Preimage *lntypes.Preimage
 
-	// Hash is the htlc hash.
-	Hash lntypes.Hash
+	// CircuitKey is the key of the htlc for which we have a resolution
+	// decision.
+	CircuitKey channeldb.CircuitKey
+
+	// AcceptHeight is the original height at which the htlc was accepted.
+	AcceptHeight int32
 }
 
 // InvoiceRegistry is a central registry of all the outstanding invoices
@@ -60,13 +64,13 @@ type InvoiceRegistry struct {
 	// new single invoice subscriptions are carried.
 	invoiceEvents chan interface{}
 
-	// subscriptions is a map from a payment hash to a list of subscribers.
+	// subscriptions is a map from a circuit key to a list of subscribers.
 	// It is used for efficient notification of links.
-	hodlSubscriptions map[lntypes.Hash]map[chan<- interface{}]struct{}
+	hodlSubscriptions map[channeldb.CircuitKey]map[chan<- interface{}]struct{}
 
-	// reverseSubscriptions tracks hashes subscribed to per subscriber. This
-	// is used to unsubscribe from all hashes efficiently.
-	hodlReverseSubscriptions map[chan<- interface{}]map[lntypes.Hash]struct{}
+	// reverseSubscriptions tracks circuit keys subscribed to per
+	// subscriber. This is used to unsubscribe from all hashes efficiently.
+	hodlReverseSubscriptions map[chan<- interface{}]map[channeldb.CircuitKey]struct{}
 
 	// finalCltvRejectDelta defines the number of blocks before the expiry
 	// of the htlc where we no longer settle it as an exit hop and instead
@@ -92,8 +96,8 @@ func NewRegistry(cdb *channeldb.DB, finalCltvRejectDelta int32) *InvoiceRegistry
 		newSubscriptions:          make(chan *InvoiceSubscription),
 		subscriptionCancels:       make(chan uint32),
 		invoiceEvents:             make(chan interface{}, 100),
-		hodlSubscriptions:         make(map[lntypes.Hash]map[chan<- interface{}]struct{}),
-		hodlReverseSubscriptions:  make(map[chan<- interface{}]map[lntypes.Hash]struct{}),
+		hodlSubscriptions:         make(map[channeldb.CircuitKey]map[chan<- interface{}]struct{}),
+		hodlReverseSubscriptions:  make(map[chan<- interface{}]map[channeldb.CircuitKey]struct{}),
 		finalCltvRejectDelta:      finalCltvRejectDelta,
 		quit:                      make(chan struct{}),
 	}
@@ -551,24 +555,33 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 	// If it isn't recorded, cancel htlc.
 	if !ok {
 		return &HodlEvent{
-			Hash: rHash,
+			CircuitKey:   circuitKey,
+			AcceptHeight: currentHeight,
 		}, nil
 	}
+
+	// Determine accepted height of this htlc. If the htlc reached the
+	// invoice database (possibly in a previous call to the invoice
+	// registry), we'll take the original accepted height as it was recorded
+	// in the database.
+	acceptHeight := int32(invoiceHtlc.AcceptHeight)
 
 	switch invoiceHtlc.State {
 	case channeldb.HtlcStateCancelled:
 		return &HodlEvent{
-			Hash: rHash,
+			CircuitKey:   circuitKey,
+			AcceptHeight: acceptHeight,
 		}, nil
 
 	case channeldb.HtlcStateSettled:
 		return &HodlEvent{
-			Hash:     rHash,
-			Preimage: &invoice.Terms.PaymentPreimage,
+			CircuitKey:   circuitKey,
+			Preimage:     &invoice.Terms.PaymentPreimage,
+			AcceptHeight: acceptHeight,
 		}, nil
 
 	case channeldb.HtlcStateAccepted:
-		i.hodlSubscribe(hodlChan, rHash)
+		i.hodlSubscribe(hodlChan, circuitKey)
 		return nil, nil
 
 	default:
@@ -609,10 +622,23 @@ func (i *InvoiceRegistry) SettleHodlInvoice(preimage lntypes.Preimage) error {
 	log.Debugf("Invoice(%v): settled with preimage %v", hash,
 		invoice.Terms.PaymentPreimage)
 
-	i.notifyHodlSubscribers(HodlEvent{
-		Hash:     hash,
-		Preimage: &preimage,
-	})
+	// In the callback, we marked the invoice as settled. UpdateInvoice will
+	// have seen this and should have moved all htlcs that were accepted to
+	// the settled state. In the loop below, we go through all of these and
+	// notify links and resolvers that are waiting for resolution. Any htlcs
+	// that were already settled before, will be notified again. This isn't
+	// necessary but doesn't hurt either.
+	for key, htlc := range invoice.Htlcs {
+		if htlc.State != channeldb.HtlcStateSettled {
+			continue
+		}
+
+		i.notifyHodlSubscribers(HodlEvent{
+			CircuitKey:   key,
+			Preimage:     &preimage,
+			AcceptHeight: int32(htlc.AcceptHeight),
+		})
+	}
 	i.notifyClients(hash, invoice, invoice.Terms.State)
 
 	return nil
@@ -640,7 +666,21 @@ func (i *InvoiceRegistry) CancelInvoice(payHash lntypes.Hash) error {
 		canceledHtlcs := make(
 			map[channeldb.CircuitKey]*channeldb.HtlcAcceptDesc,
 		)
-		for key := range invoice.Htlcs {
+		for key, htlc := range invoice.Htlcs {
+			switch htlc.State {
+
+			// If we get here, there shouldn't be any settled htlcs.
+			case channeldb.HtlcStateSettled:
+				return nil, errors.New("cannot cancel " +
+					"invoice with settled htlc(s)")
+
+			// Don't cancel htlcs that were already cancelled,
+			// because it would incorrectly modify the invoice paid
+			// amt.
+			case channeldb.HtlcStateCancelled:
+				continue
+			}
+
 			canceledHtlcs[key] = nil
 		}
 
@@ -664,9 +704,22 @@ func (i *InvoiceRegistry) CancelInvoice(payHash lntypes.Hash) error {
 	}
 
 	log.Debugf("Invoice(%v): canceled", payHash)
-	i.notifyHodlSubscribers(HodlEvent{
-		Hash: payHash,
-	})
+
+	// In the callback, some htlcs may have been moved to the canceled
+	// state. We now go through all of these and notify links and resolvers
+	// that are waiting for resolution. Any htlcs that were already canceled
+	// before, will be notified again. This isn't necessary but doesn't hurt
+	// either.
+	for key, htlc := range invoice.Htlcs {
+		if htlc.State != channeldb.HtlcStateCancelled {
+			continue
+		}
+
+		i.notifyHodlSubscribers(HodlEvent{
+			CircuitKey:   key,
+			AcceptHeight: int32(htlc.AcceptHeight),
+		})
+	}
 	i.notifyClients(payHash, invoice, channeldb.ContractCanceled)
 
 	return nil
@@ -933,7 +986,7 @@ func (i *InvoiceRegistry) SubscribeSingleInvoice(
 
 // notifyHodlSubscribers sends out the hodl event to all current subscribers.
 func (i *InvoiceRegistry) notifyHodlSubscribers(hodlEvent HodlEvent) {
-	subscribers, ok := i.hodlSubscriptions[hodlEvent.Hash]
+	subscribers, ok := i.hodlSubscriptions[hodlEvent.CircuitKey]
 	if !ok {
 		return
 	}
@@ -948,31 +1001,34 @@ func (i *InvoiceRegistry) notifyHodlSubscribers(hodlEvent HodlEvent) {
 			return
 		}
 
-		delete(i.hodlReverseSubscriptions[subscriber], hodlEvent.Hash)
+		delete(
+			i.hodlReverseSubscriptions[subscriber],
+			hodlEvent.CircuitKey,
+		)
 	}
 
-	delete(i.hodlSubscriptions, hodlEvent.Hash)
+	delete(i.hodlSubscriptions, hodlEvent.CircuitKey)
 }
 
 // hodlSubscribe adds a new invoice subscription.
 func (i *InvoiceRegistry) hodlSubscribe(subscriber chan<- interface{},
-	hash lntypes.Hash) {
+	circuitKey channeldb.CircuitKey) {
 
-	log.Debugf("Hodl subscribe for %v", hash)
+	log.Debugf("Hodl subscribe for %v", circuitKey)
 
-	subscriptions, ok := i.hodlSubscriptions[hash]
+	subscriptions, ok := i.hodlSubscriptions[circuitKey]
 	if !ok {
 		subscriptions = make(map[chan<- interface{}]struct{})
-		i.hodlSubscriptions[hash] = subscriptions
+		i.hodlSubscriptions[circuitKey] = subscriptions
 	}
 	subscriptions[subscriber] = struct{}{}
 
 	reverseSubscriptions, ok := i.hodlReverseSubscriptions[subscriber]
 	if !ok {
-		reverseSubscriptions = make(map[lntypes.Hash]struct{})
+		reverseSubscriptions = make(map[channeldb.CircuitKey]struct{})
 		i.hodlReverseSubscriptions[subscriber] = reverseSubscriptions
 	}
-	reverseSubscriptions[hash] = struct{}{}
+	reverseSubscriptions[circuitKey] = struct{}{}
 }
 
 // HodlUnsubscribeAll cancels the subscription.

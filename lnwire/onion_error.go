@@ -333,19 +333,30 @@ func (f *FailIncorrectPaymentAmount) Error() string {
 type FailIncorrectDetails struct {
 	// amount is the value of the extended HTLC.
 	amount MilliSatoshi
+
+	// height is the block height when the htlc was received.
+	height uint32
 }
 
 // NewFailIncorrectDetails makes a new instance of the FailIncorrectDetails
-// error bound to the specified HTLC amount.
-func NewFailIncorrectDetails(amt MilliSatoshi) *FailIncorrectDetails {
+// error bound to the specified HTLC amount and acceptance height.
+func NewFailIncorrectDetails(amt MilliSatoshi,
+	height uint32) *FailIncorrectDetails {
+
 	return &FailIncorrectDetails{
 		amount: amt,
+		height: height,
 	}
 }
 
 // Amount is the value of the extended HTLC.
 func (f *FailIncorrectDetails) Amount() MilliSatoshi {
 	return f.amount
+}
+
+// Height is the block height when the htlc was received.
+func (f *FailIncorrectDetails) Height() uint32 {
+	return f.height
 }
 
 // Code returns the failure unique code.
@@ -360,7 +371,8 @@ func (f *FailIncorrectDetails) Code() FailCode {
 // NOTE: Implements the error interface.
 func (f *FailIncorrectDetails) Error() string {
 	return fmt.Sprintf(
-		"%v(amt=%v)", CodeIncorrectOrUnknownPaymentDetails, f.amount,
+		"%v(amt=%v, height=%v)", CodeIncorrectOrUnknownPaymentDetails,
+		f.amount, f.height,
 	)
 }
 
@@ -381,6 +393,17 @@ func (f *FailIncorrectDetails) Decode(r io.Reader, pver uint32) error {
 		return err
 	}
 
+	// At a later stage, the height field was also tacked on. We need to
+	// check for io.EOF here as well.
+	err = ReadElement(r, &f.height)
+	switch {
+	case err == io.EOF:
+		return nil
+
+	case err != nil:
+		return err
+	}
+
 	return nil
 }
 
@@ -388,7 +411,7 @@ func (f *FailIncorrectDetails) Decode(r io.Reader, pver uint32) error {
 //
 // NOTE: Part of the Serializable interface.
 func (f *FailIncorrectDetails) Encode(w io.Writer, pver uint32) error {
-	return WriteElement(w, f.amount)
+	return WriteElements(w, f.amount, f.height)
 }
 
 // FailFinalExpiryTooSoon is returned if the cltv_expiry is too low, the final

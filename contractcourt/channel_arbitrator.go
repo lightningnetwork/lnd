@@ -1316,6 +1316,15 @@ func (c *ChannelArbitrator) checkCommitChainActions(height uint32,
 	// either learn of it eventually from the outgoing HTLC, or the sender
 	// will timeout the HTLC.
 	for _, htlc := range htlcs.incomingHTLCs {
+		// If the HTLC is dust, there is no action to be taken.
+		if htlc.OutputIndex < 0 {
+			log.Debugf("ChannelArbitrator(%v): no resolution "+
+				"needed for incoming dust htlc=%x",
+				c.cfg.ChanPoint, htlc.RHash[:])
+
+			continue
+		}
+
 		log.Tracef("ChannelArbitrator(%v): watching chain to decide "+
 			"action for incoming htlc=%x", c.cfg.ChanPoint,
 			htlc.RHash[:])
@@ -1871,8 +1880,8 @@ func (c *ChannelArbitrator) resolveContract(currentContract ContractResolver) {
 				}
 
 				log.Errorf("ChannelArbitrator(%v): unable to "+
-					"progress resolver: %v",
-					c.cfg.ChanPoint, err)
+					"progress %T: %v",
+					c.cfg.ChanPoint, currentContract, err)
 				return
 			}
 

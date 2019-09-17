@@ -354,7 +354,7 @@ func TestChannelArbitratorRemoteForceClose(t *testing.T) {
 		t, log.newStates, StateContractClosed, StateFullyResolved,
 	)
 
-	// It should alos mark the channel as resolved.
+	// It should also mark the channel as resolved.
 	select {
 	case <-resolved:
 		// Expected.
@@ -459,6 +459,49 @@ func TestChannelArbitratorLocalForceClose(t *testing.T) {
 	// It should transition StateContractClosed -> StateFullyResolved.
 	assertStateTransitions(t, log.newStates, StateContractClosed,
 		StateFullyResolved)
+
+	// It should also mark the channel as resolved.
+	select {
+	case <-resolved:
+		// Expected.
+	case <-time.After(5 * time.Second):
+		t.Fatalf("contract was not resolved")
+	}
+}
+
+// TestChannelArbitratorBreachClose tests that the ChannelArbitrator goes
+// through the expected states in case we notice a breach in the chain, and
+// gracefully exits.
+func TestChannelArbitratorBreachClose(t *testing.T) {
+	log := &mockArbitratorLog{
+		state:     StateDefault,
+		newStates: make(chan ArbitratorState, 5),
+	}
+
+	chanArb, resolved, _, _, err := createTestChannelArbitrator(log)
+	if err != nil {
+		t.Fatalf("unable to create ChannelArbitrator: %v", err)
+	}
+
+	if err := chanArb.Start(); err != nil {
+		t.Fatalf("unable to start ChannelArbitrator: %v", err)
+	}
+	defer func() {
+		if err := chanArb.Stop(); err != nil {
+			t.Fatal(err)
+		}
+	}()
+
+	// It should start out in the default state.
+	assertState(t, chanArb, StateDefault)
+
+	// Send a breach close event.
+	chanArb.cfg.ChainEvents.ContractBreach <- &lnwallet.BreachRetribution{}
+
+	// It should transition StateDefault -> StateFullyResolved.
+	assertStateTransitions(
+		t, log.newStates, StateFullyResolved,
+	)
 
 	// It should also mark the channel as resolved.
 	select {

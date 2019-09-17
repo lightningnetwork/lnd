@@ -663,11 +663,11 @@ func CreateCommitmentTxns(localBalance, remoteBalance btcutil.Amount,
 	fundingTxIn wire.TxIn,
 	tweaklessCommit bool) (*wire.MsgTx, *wire.MsgTx, error) {
 
-	localCommitmentKeys := deriveCommitmentKeys(
+	localCommitmentKeys := DeriveCommitmentKeys(
 		localCommitPoint, true, tweaklessCommit, ourChanCfg,
 		theirChanCfg,
 	)
-	remoteCommitmentKeys := deriveCommitmentKeys(
+	remoteCommitmentKeys := DeriveCommitmentKeys(
 		remoteCommitPoint, false, tweaklessCommit, ourChanCfg,
 		theirChanCfg,
 	)

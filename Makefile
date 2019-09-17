@@ -36,6 +36,10 @@ GOBUILD := GO111MODULE=on go build -v -trimpath
 GOINSTALL := GO111MODULE=on go install -v -trimpath
 GOTEST := GO111MODULE=on go test -v
 
+# Switch to tmp directory to prevent lnd go.mod from being modified.
+# Hopefully someday a flag for go get will be added for this.
+GOGET := cd /tmp; GO111MODULE=on go get -u -v
+
 GOFILES_NOVENDOR = $(shell find . -type f -name '*.go' -not -path "./vendor/*")
 GOLIST := go list -deps $(PKG)/... | grep '$(PKG)'| grep -v '/vendor/'
 GOLISTCOVER := $(shell go list -deps -f '{{.ImportPath}}' ./... | grep '$(PKG)' | sed -e 's/^$(ESCPKG)/./')
@@ -67,23 +71,19 @@ all: scratch check install
 
 $(GOVERALLS_BIN):
 	@$(call print, "Fetching goveralls.")
-	go get -u $(GOVERALLS_PKG)
+	$(GOGET) $(GOVERALLS_PKG)
 
 $(LINT_BIN):
 	@$(call print, "Fetching linter")
-	# Switch to tmp directory to prevent lnd go.mod from being modified.
-	# Hopefully someday a flag for go get will be added for this.
-	cd /tmp
-	GO111MODULE=on go get $(LINT_PKG)
+	$(GOGET) $(LINT_PKG)
 
 $(GOACC_BIN):
 	@$(call print, "Fetching go-acc")
-	go get -u -v $(GOACC_PKG)@$(GOACC_COMMIT)
-	$(GOINSTALL) $(GOACC_PKG)
+	$(GOGET) $(GOACC_PKG)@$(GOACC_COMMIT)
 
 btcd:
 	@$(call print, "Installing btcd.")
-	GO111MODULE=on go get -v $(BTCD_PKG)@$(BTCD_COMMIT)
+	$(GOGET) $(BTCD_PKG)@$(BTCD_COMMIT)
 	$(GOINSTALL) $(BTCD_PKG)
 	$(GOINSTALL) $(BTCD_PKG)/cmd/btcctl
 

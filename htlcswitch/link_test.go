@@ -4405,6 +4405,13 @@ func TestChannelLinkNoMoreUpdates(t *testing.T) {
 	htlc1 := generateHtlc(t, coreLink, bobChannel, 0)
 	htlc2 := generateHtlc(t, coreLink, bobChannel, 1)
 
+	ctx := linkTestContext{
+		t:          t,
+		aliceLink:  aliceLink,
+		aliceMsgs:  aliceMsgs,
+		bobChannel: bobChannel,
+	}
+
 	// We now play out the following scanario:
 	//
 	// (1) Alice receives htlc1 from Bob.
@@ -4435,29 +4442,29 @@ func TestChannelLinkNoMoreUpdates(t *testing.T) {
 	// Alice sent.
 	// (17) Send a signature for the empty state. No HTLCs are left.
 	// (18) Alice will revoke her previous state.
-	//								      Alice		   Bob
-	//									|                   |
-	//									|        ...        |
-	//									|                   | <--- idle (no htlc on either side)
-	//									|                   |
-	sendHtlcBobToAlice(t, aliceLink, bobChannel, htlc1)                //   |<----- add-1 ------| (1)
-	sendCommitSigBobToAlice(t, aliceLink, bobChannel, 1)               //   |<------ sig -------| (2)
-	sendHtlcBobToAlice(t, aliceLink, bobChannel, htlc2)                //   |<----- add-2 ------| (3)
-	receiveRevAndAckAliceToBob(t, aliceMsgs, aliceLink, bobChannel)    //   |------- rev ------>| (4) <--- Alice acks add-1
-	receiveCommitSigAliceToBob(t, aliceMsgs, aliceLink, bobChannel, 1) //   |------- sig ------>| (5) <--- Alice signs add-1
-	sendCommitSigBobToAlice(t, aliceLink, bobChannel, 2)               //   |<------ sig -------| (6)
-	receiveRevAndAckAliceToBob(t, aliceMsgs, aliceLink, bobChannel)    //   |------- rev ------>| (7) <--- Alice acks add-2
-	sendRevAndAckBobToAlice(t, aliceLink, bobChannel)                  //   |<------ rev -------| (8)
-	receiveSettleAliceToBob(t, aliceMsgs, aliceLink, bobChannel)       //   |------ ful-1 ----->| (9)
-	receiveCommitSigAliceToBob(t, aliceMsgs, aliceLink, bobChannel, 1) //   |------- sig ------>| (10) <--- Alice signs add-1 + add-2 + ful-1 = add-2
-	sendRevAndAckBobToAlice(t, aliceLink, bobChannel)                  //   |<------ rev -------| (11)
-	sendCommitSigBobToAlice(t, aliceLink, bobChannel, 1)               //   |<------ sig -------| (12)
-	receiveSettleAliceToBob(t, aliceMsgs, aliceLink, bobChannel)       //   |------ ful-2 ----->| (13)
-	receiveCommitSigAliceToBob(t, aliceMsgs, aliceLink, bobChannel, 0) //   |------- sig ------>| (14) <--- Alice signs add-2 + ful-2 = no htlcs
-	receiveRevAndAckAliceToBob(t, aliceMsgs, aliceLink, bobChannel)    //   |------- rev ------>| (15)
-	sendRevAndAckBobToAlice(t, aliceLink, bobChannel)                  //   |<------ rev -------| (16) <--- Bob acks that there are no more htlcs
-	sendCommitSigBobToAlice(t, aliceLink, bobChannel, 0)               //   |<------ sig -------| (17)
-	receiveRevAndAckAliceToBob(t, aliceMsgs, aliceLink, bobChannel)    //   |------- rev ------>| (18) <--- Alice acks that there are no htlcs on Alice's side
+	//                                   Alice                Bob
+	//                                     |                   |
+	//                                     |        ...        |
+	//                                     |                   | <--- idle (no htlc on either side)
+	//                                     |                   |
+	ctx.sendHtlcBobToAlice(htlc1)     //   |<----- add-1 ------| (1)
+	ctx.sendCommitSigBobToAlice(1)    //   |<------ sig -------| (2)
+	ctx.sendHtlcBobToAlice(htlc2)     //   |<----- add-2 ------| (3)
+	ctx.receiveRevAndAckAliceToBob()  //   |------- rev ------>| (4) <--- Alice acks add-1
+	ctx.receiveCommitSigAliceToBob(1) //   |------- sig ------>| (5) <--- Alice signs add-1
+	ctx.sendCommitSigBobToAlice(2)    //   |<------ sig -------| (6)
+	ctx.receiveRevAndAckAliceToBob()  //   |------- rev ------>| (7) <--- Alice acks add-2
+	ctx.sendRevAndAckBobToAlice()     //   |<------ rev -------| (8)
+	ctx.receiveSettleAliceToBob()     //   |------ ful-1 ----->| (9)
+	ctx.receiveCommitSigAliceToBob(1) //   |------- sig ------>| (10) <--- Alice signs add-1 + add-2 + ful-1 = add-2
+	ctx.sendRevAndAckBobToAlice()     //   |<------ rev -------| (11)
+	ctx.sendCommitSigBobToAlice(1)    //   |<------ sig -------| (12)
+	ctx.receiveSettleAliceToBob()     //   |------ ful-2 ----->| (13)
+	ctx.receiveCommitSigAliceToBob(0) //   |------- sig ------>| (14) <--- Alice signs add-2 + ful-2 = no htlcs
+	ctx.receiveRevAndAckAliceToBob()  //   |------- rev ------>| (15)
+	ctx.sendRevAndAckBobToAlice()     //   |<------ rev -------| (16) <--- Bob acks that there are no more htlcs
+	ctx.sendCommitSigBobToAlice(0)    //   |<------ sig -------| (17)
+	ctx.receiveRevAndAckAliceToBob()  //   |------- rev ------>| (18) <--- Alice acks that there are no htlcs on Alice's side
 
 	// No there are no more changes to ACK or sign, make sure Alice doesn't
 	// attempt to send any more messages.
@@ -4521,6 +4528,21 @@ func TestChannelLinkWaitForRevocation(t *testing.T) {
 		htlcs = append(htlcs, htlc)
 	}
 
+	ctx := linkTestContext{
+		t:          t,
+		aliceLink:  aliceLink,
+		aliceMsgs:  aliceMsgs,
+		bobChannel: bobChannel,
+	}
+
+	assertNoMsgFromAlice := func() {
+		select {
+		case <-aliceMsgs:
+			t.Fatalf("did not expect message from Alice")
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+
 	// We play out the following scenario:
 	//
 	// (1) Add the first HTLC.
@@ -4559,45 +4581,41 @@ func TestChannelLinkWaitForRevocation(t *testing.T) {
 	// that now. Since Bob ACKed all settles, no HTLCs should be left on
 	// the commitment.
 	// (18) Alice will revoke her previous state.
-	//									       Alice		    Bob
-	//									         |                   |
-	//									         |        ...        |
-	//									         |                   | <--- idle (no htlc on either side)
-	//									         |                   |
-	sendHtlcBobToAlice(t, aliceLink, bobChannel, htlcs[0])             //	         |<----- add-1 ------| (1)
-	sendCommitSigBobToAlice(t, aliceLink, bobChannel, 1)               //  	         |<------ sig -------| (2)
-	receiveRevAndAckAliceToBob(t, aliceMsgs, aliceLink, bobChannel)    //  	         |------- rev ------>| (3) <--- Alice acks add-1
-	receiveCommitSigAliceToBob(t, aliceMsgs, aliceLink, bobChannel, 1) //  	         |------- sig ------>| (4) <--- Alice signs add-1
-	for i := 1; i < numHtlcs; i++ {                                    //		 |		     |
-		sendHtlcBobToAlice(t, aliceLink, bobChannel, htlcs[i])          //       |<----- add-i ------| (5.i)
-		sendCommitSigBobToAlice(t, aliceLink, bobChannel, i+1)          //       |<------ sig -------| (6.i)
-		receiveRevAndAckAliceToBob(t, aliceMsgs, aliceLink, bobChannel) //       |------- rev ------>| (7.i) <--- Alice acks add-i
-		select {                                                        //	 |		     |
-		case <-aliceMsgs: //						         |		     | Alice should not send a sig for
-			t.Fatalf("unexpectedly received msg from Alice") //	         |		     | Bob's last state, since she is
-		default: //							         |		     | still waiting for a revocation
-		} //								         |		     | for the previous one.
-	} //									         |		     |
-	sendRevAndAckBobToAlice(t, aliceLink, bobChannel)                           //   |<------ rev -------| (8) Finally let Bob send rev
-	receiveSettleAliceToBob(t, aliceMsgs, aliceLink, bobChannel)                //   |------ ful-1 ----->| (9)
-	receiveCommitSigAliceToBob(t, aliceMsgs, aliceLink, bobChannel, numHtlcs-1) //   |------- sig ------>| (10) <--- Alice signs add-i
-	sendRevAndAckBobToAlice(t, aliceLink, bobChannel)                           //   |<------ rev -------| (11)
-	for i := 1; i < numHtlcs; i++ {                                             //	 |		     |
-		receiveSettleAliceToBob(t, aliceMsgs, aliceLink, bobChannel) //		 |------ ful-1 ----->| (12.i)
-	} //										 |		     |
-	sendCommitSigBobToAlice(t, aliceLink, bobChannel, numHtlcs-1)      //		 |<------ sig -------| (13)
-	receiveCommitSigAliceToBob(t, aliceMsgs, aliceLink, bobChannel, 0) //   	 |------- sig ------>| (14)
-	sendRevAndAckBobToAlice(t, aliceLink, bobChannel)                  //   	 |<------ rev -------| (15)
-	receiveRevAndAckAliceToBob(t, aliceMsgs, aliceLink, bobChannel)    //   	 |------- rev ------>| (16)
-	sendCommitSigBobToAlice(t, aliceLink, bobChannel, 0)               //   	 |<------ sig -------| (17)
-	receiveRevAndAckAliceToBob(t, aliceMsgs, aliceLink, bobChannel)    //   	 |------- rev ------>| (18)
+	//                                            Alice                Bob
+	//                                              |                   |
+	//                                              |        ...        |
+	//                                              |                   | <--- idle (no htlc on either side)
+	//                                              |                   |
+	ctx.sendHtlcBobToAlice(htlcs[0])  //            |<----- add-1 ------| (1)
+	ctx.sendCommitSigBobToAlice(1)    //            |<------ sig -------| (2)
+	ctx.receiveRevAndAckAliceToBob()  //            |------- rev ------>| (3) <--- Alice acks add-1
+	ctx.receiveCommitSigAliceToBob(1) //            |------- sig ------>| (4) <--- Alice signs add-1
+	for i := 1; i < numHtlcs; i++ {   //            |                   |
+		ctx.sendHtlcBobToAlice(htlcs[i])   //   |<----- add-i ------| (5.i)
+		ctx.sendCommitSigBobToAlice(i + 1) //   |<------ sig -------| (6.i)
+		ctx.receiveRevAndAckAliceToBob()   //   |------- rev ------>| (7.i) <--- Alice acks add-i
+		assertNoMsgFromAlice()             //   |                   |
+		//                                      |                   | Alice should not send a sig for
+		//                                      |                   | Bob's last state, since she is
+		//                                      |                   | still waiting for a revocation
+		//                                      |                   | for the previous one.
+	} //                                            |                   |
+	ctx.sendRevAndAckBobToAlice()                // |<------ rev -------| (8) Finally let Bob send rev
+	ctx.receiveSettleAliceToBob()                // |------ ful-1 ----->| (9)
+	ctx.receiveCommitSigAliceToBob(numHtlcs - 1) // |------- sig ------>| (10) <--- Alice signs add-i
+	ctx.sendRevAndAckBobToAlice()                // |<------ rev -------| (11)
+	for i := 1; i < numHtlcs; i++ {              // |                   |
+		ctx.receiveSettleAliceToBob() //        |------ ful-1 ----->| (12.i)
+	} //                                            |                   |
+	ctx.sendCommitSigBobToAlice(numHtlcs - 1) //    |<------ sig -------| (13)
+	ctx.receiveCommitSigAliceToBob(0)         //    |------- sig ------>| (14)
+	ctx.sendRevAndAckBobToAlice()             //    |<------ rev -------| (15)
+	ctx.receiveRevAndAckAliceToBob()          //    |------- rev ------>| (16)
+	ctx.sendCommitSigBobToAlice(0)            //    |<------ sig -------| (17)
+	ctx.receiveRevAndAckAliceToBob()          //    |------- rev ------>| (18)
 
 	// Both side's state is now updated, no more messages should be sent.
-	select {
-	case <-aliceMsgs:
-		t.Fatalf("did not expect message from Alice")
-	case <-time.After(50 * time.Millisecond):
-	}
+	assertNoMsgFromAlice()
 }
 
 // TestChannelLinkBatchPreimageWrite asserts that a link will batch preimage
@@ -4657,10 +4675,17 @@ func testChannelLinkBatchPreimageWrite(t *testing.T, disconnect bool) {
 		invoices = append(invoices, invoice)
 	}
 
+	ctx := linkTestContext{
+		t:          t,
+		aliceLink:  aliceLink,
+		aliceMsgs:  aliceMsgs,
+		bobChannel: bobChannel,
+	}
+
 	// First, send a batch of Adds from Alice to Bob.
 	for i, htlc := range htlcs {
-		sendHtlcAliceToBob(t, aliceLink, i, htlc)
-		receiveHtlcAliceToBob(t, aliceMsgs, bobChannel)
+		ctx.sendHtlcAliceToBob(i, htlc)
+		ctx.receiveHtlcAliceToBob()
 	}
 
 	// Assert that no preimages exist for these htlcs in Alice's cache.
@@ -4676,12 +4701,10 @@ func testChannelLinkBatchPreimageWrite(t *testing.T, disconnect bool) {
 
 	// Do a commitment dance to lock in the Adds, we expect numHtlcs htlcs
 	// to be on each party's commitment transactions.
-	receiveCommitSigAliceToBob(
-		t, aliceMsgs, aliceLink, bobChannel, numHtlcs,
-	)
-	sendRevAndAckBobToAlice(t, aliceLink, bobChannel)
-	sendCommitSigBobToAlice(t, aliceLink, bobChannel, numHtlcs)
-	receiveRevAndAckAliceToBob(t, aliceMsgs, aliceLink, bobChannel)
+	ctx.receiveCommitSigAliceToBob(numHtlcs)
+	ctx.sendRevAndAckBobToAlice()
+	ctx.sendCommitSigBobToAlice(numHtlcs)
+	ctx.receiveRevAndAckAliceToBob()
 
 	// Check again that no preimages exist for these htlcs in Alice's cache.
 	checkHasPreimages(t, coreLink, htlcs, false)
@@ -4689,8 +4712,8 @@ func testChannelLinkBatchPreimageWrite(t *testing.T, disconnect bool) {
 	// Now, have Bob settle the HTLCs back to Alice using the preimages in
 	// the invoice corresponding to each of the HTLCs.
 	for i, invoice := range invoices {
-		sendSettleBobToAlice(
-			t, aliceLink, bobChannel, uint64(i),
+		ctx.sendSettleBobToAlice(
+			uint64(i),
 			invoice.Terms.PaymentPreimage,
 		)
 	}
@@ -4711,7 +4734,7 @@ func testChannelLinkBatchPreimageWrite(t *testing.T, disconnect bool) {
 	// Otherwise, we are testing that Alice commits the preimages after
 	// receiving a CommitSig from Bob. Bob's commitment should now have 0
 	// HTLCs.
-	sendCommitSigBobToAlice(t, aliceLink, bobChannel, 0)
+	ctx.sendCommitSigBobToAlice(0)
 
 	// Since Alice will process the CommitSig asynchronously, we wait until
 	// she replies with her RevokeAndAck to ensure the tests reliably
@@ -4762,6 +4785,13 @@ func TestChannelLinkCleanupSpuriousResponses(t *testing.T) {
 	htlc1 := generateHtlc(t, coreLink, bobChannel, 0)
 	htlc2 := generateHtlc(t, coreLink, bobChannel, 1)
 
+	ctx := linkTestContext{
+		t:          t,
+		aliceLink:  aliceLink,
+		aliceMsgs:  aliceMsgs,
+		bobChannel: bobChannel,
+	}
+
 	// We start with he following scenario: Bob sends Alice two HTLCs, and a
 	// commitment dance ensures, leaving two HTLCs that Alice can respond
 	// to. Since Alice is in ExitSettle mode, we will then take over and
@@ -4775,12 +4805,12 @@ func TestChannelLinkCleanupSpuriousResponses(t *testing.T) {
 	//   |<-----  rev  ------|
 	//   |<-----  sig  ------| commits add-1 + add-2
 	//   |------  rev  ----->|
-	sendHtlcBobToAlice(t, aliceLink, bobChannel, htlc1)
-	sendHtlcBobToAlice(t, aliceLink, bobChannel, htlc2)
-	sendCommitSigBobToAlice(t, aliceLink, bobChannel, 2)
-	receiveRevAndAckAliceToBob(t, aliceMsgs, aliceLink, bobChannel)
-	receiveCommitSigAliceToBob(t, aliceMsgs, aliceLink, bobChannel, 2)
-	sendRevAndAckBobToAlice(t, aliceLink, bobChannel)
+	ctx.sendHtlcBobToAlice(htlc1)
+	ctx.sendHtlcBobToAlice(htlc2)
+	ctx.sendCommitSigBobToAlice(2)
+	ctx.receiveRevAndAckAliceToBob()
+	ctx.receiveCommitSigAliceToBob(2)
+	ctx.sendRevAndAckBobToAlice()
 
 	// Give Alice to time to process the revocation.
 	time.Sleep(time.Second)
@@ -4829,8 +4859,8 @@ func TestChannelLinkCleanupSpuriousResponses(t *testing.T) {
 	//  Bob               Alice
 	//   |<----- fal-1 ------|
 	//   |<-----  sig  ------| commits fal-1
-	receiveFailAliceToBob(t, aliceMsgs, aliceLink, bobChannel)
-	receiveCommitSigAliceToBob(t, aliceMsgs, aliceLink, bobChannel, 1)
+	ctx.receiveFailAliceToBob()
+	ctx.receiveCommitSigAliceToBob(1)
 
 	aliceFwdPkgs, err = coreLink.channel.LoadFwdPkgs()
 	if err != nil {
@@ -4866,9 +4896,9 @@ func TestChannelLinkCleanupSpuriousResponses(t *testing.T) {
 	//   |------  rev  ----->|
 	//   |------  sig  ----->|
 	//   |<-----  rev  ------|
-	sendRevAndAckBobToAlice(t, aliceLink, bobChannel)
-	sendCommitSigBobToAlice(t, aliceLink, bobChannel, 1)
-	receiveRevAndAckAliceToBob(t, aliceMsgs, aliceLink, bobChannel)
+	ctx.sendRevAndAckBobToAlice()
+	ctx.sendCommitSigBobToAlice(1)
+	ctx.receiveRevAndAckAliceToBob()
 
 	// Next, we'll construct a fail packet for add-2 (index 1), which we'll
 	// send to Bob and lock in. Since the AddRef is set on this instance, we
@@ -4889,8 +4919,8 @@ func TestChannelLinkCleanupSpuriousResponses(t *testing.T) {
 	//  Bob               Alice
 	//   |<----- fal-1 ------|
 	//   |<-----  sig  ------| commits fal-1
-	receiveFailAliceToBob(t, aliceMsgs, aliceLink, bobChannel)
-	receiveCommitSigAliceToBob(t, aliceMsgs, aliceLink, bobChannel, 0)
+	ctx.receiveFailAliceToBob()
+	ctx.receiveCommitSigAliceToBob(0)
 
 	aliceFwdPkgs, err = coreLink.channel.LoadFwdPkgs()
 	if err != nil {
@@ -4932,9 +4962,9 @@ func TestChannelLinkCleanupSpuriousResponses(t *testing.T) {
 	//   |------  rev  ----->|
 	//   |------  sig  ----->|
 	//   |<-----  rev  ------|
-	sendRevAndAckBobToAlice(t, aliceLink, bobChannel)
-	sendCommitSigBobToAlice(t, aliceLink, bobChannel, 0)
-	receiveRevAndAckAliceToBob(t, aliceMsgs, aliceLink, bobChannel)
+	ctx.sendRevAndAckBobToAlice()
+	ctx.sendCommitSigBobToAlice(0)
+	ctx.receiveRevAndAckAliceToBob()
 
 	// We'll do a quick sanity check, and blindly send the same fail packet
 	// for the first HTLC. Since this HTLC index has already been settled,
@@ -5139,7 +5169,12 @@ func TestChannelLinkFail(t *testing.T) {
 
 				// Generate an HTLC and send to the link.
 				htlc1 := generateHtlc(t, c, remoteChannel, 0)
-				sendHtlcBobToAlice(t, c, remoteChannel, htlc1)
+				ctx := linkTestContext{
+					t:          t,
+					aliceLink:  c,
+					bobChannel: remoteChannel,
+				}
+				ctx.sendHtlcBobToAlice(htlc1)
 
 				// Sign a commitment that will include
 				// signature for the HTLC just sent.
@@ -5171,7 +5206,13 @@ func TestChannelLinkFail(t *testing.T) {
 
 				// Generate an HTLC and send to the link.
 				htlc1 := generateHtlc(t, c, remoteChannel, 0)
-				sendHtlcBobToAlice(t, c, remoteChannel, htlc1)
+				ctx := linkTestContext{
+					t:          t,
+					aliceLink:  c,
+					bobChannel: remoteChannel,
+				}
+
+				ctx.sendHtlcBobToAlice(htlc1)
 
 				// Sign a commitment that will include
 				// signature for the HTLC just sent.
@@ -5714,12 +5755,19 @@ func TestChannelLinkHoldInvoiceRestart(t *testing.T) {
 		t.Fatalf("unable to add invoice to registry: %v", err)
 	}
 
+	ctx := linkTestContext{
+		t:          t,
+		aliceLink:  alice.link,
+		aliceMsgs:  alice.msgs,
+		bobChannel: bobChannel,
+	}
+
 	// Lock in htlc paying the hodl invoice.
-	sendHtlcBobToAlice(t, alice.link, bobChannel, htlc)
-	sendCommitSigBobToAlice(t, alice.link, bobChannel, 1)
-	receiveRevAndAckAliceToBob(t, alice.msgs, alice.link, bobChannel)
-	receiveCommitSigAliceToBob(t, alice.msgs, alice.link, bobChannel, 1)
-	sendRevAndAckBobToAlice(t, alice.link, bobChannel)
+	ctx.sendHtlcBobToAlice(htlc)
+	ctx.sendCommitSigBobToAlice(1)
+	ctx.receiveRevAndAckAliceToBob()
+	ctx.receiveCommitSigAliceToBob(1)
+	ctx.sendRevAndAckBobToAlice()
 
 	// We expect a call to the invoice registry to notify the arrival of the
 	// htlc.
@@ -5731,6 +5779,8 @@ func TestChannelLinkHoldInvoiceRestart(t *testing.T) {
 
 	// Restart link.
 	alice.restart(false)
+	ctx.aliceLink = alice.link
+	ctx.aliceMsgs = alice.msgs
 
 	// Expect htlc to be reprocessed.
 	<-registry.settleChan
@@ -5739,8 +5789,8 @@ func TestChannelLinkHoldInvoiceRestart(t *testing.T) {
 	registry.SettleHodlInvoice(preimage)
 
 	// Expect alice to send a settle and commitsig message to bob.
-	receiveSettleAliceToBob(t, alice.msgs, alice.link, bobChannel)
-	receiveCommitSigAliceToBob(t, alice.msgs, alice.link, bobChannel, 0)
+	ctx.receiveSettleAliceToBob()
+	ctx.receiveCommitSigAliceToBob(0)
 
 	// Stop the link
 	alice.link.Stop()
@@ -5806,12 +5856,19 @@ func TestChannelLinkRevocationWindowHodl(t *testing.T) {
 		t.Fatalf("unable to add invoice to registry: %v", err)
 	}
 
+	ctx := linkTestContext{
+		t:          t,
+		aliceLink:  aliceLink,
+		aliceMsgs:  aliceMsgs,
+		bobChannel: bobChannel,
+	}
+
 	// Lock in htlc 1 on both sides.
-	sendHtlcBobToAlice(t, aliceLink, bobChannel, htlc1)
-	sendCommitSigBobToAlice(t, aliceLink, bobChannel, 1)
-	receiveRevAndAckAliceToBob(t, aliceMsgs, aliceLink, bobChannel)
-	receiveCommitSigAliceToBob(t, aliceMsgs, aliceLink, bobChannel, 1)
-	sendRevAndAckBobToAlice(t, aliceLink, bobChannel)
+	ctx.sendHtlcBobToAlice(htlc1)
+	ctx.sendCommitSigBobToAlice(1)
+	ctx.receiveRevAndAckAliceToBob()
+	ctx.receiveCommitSigAliceToBob(1)
+	ctx.sendRevAndAckBobToAlice()
 
 	// We expect a call to the invoice registry to notify the arrival of
 	// htlc 1.
@@ -5822,11 +5879,11 @@ func TestChannelLinkRevocationWindowHodl(t *testing.T) {
 	}
 
 	// Lock in htlc 2 on both sides.
-	sendHtlcBobToAlice(t, aliceLink, bobChannel, htlc2)
-	sendCommitSigBobToAlice(t, aliceLink, bobChannel, 2)
-	receiveRevAndAckAliceToBob(t, aliceMsgs, aliceLink, bobChannel)
-	receiveCommitSigAliceToBob(t, aliceMsgs, aliceLink, bobChannel, 2)
-	sendRevAndAckBobToAlice(t, aliceLink, bobChannel)
+	ctx.sendHtlcBobToAlice(htlc2)
+	ctx.sendCommitSigBobToAlice(2)
+	ctx.receiveRevAndAckAliceToBob()
+	ctx.receiveCommitSigAliceToBob(2)
+	ctx.sendRevAndAckBobToAlice()
 
 	select {
 	case <-registry.settleChan:
@@ -5839,14 +5896,14 @@ func TestChannelLinkRevocationWindowHodl(t *testing.T) {
 
 	// Expect alice to send a settle and commitsig message to bob. Bob does
 	// not yet send the revocation.
-	receiveSettleAliceToBob(t, aliceMsgs, aliceLink, bobChannel)
-	receiveCommitSigAliceToBob(t, aliceMsgs, aliceLink, bobChannel, 1)
+	ctx.receiveSettleAliceToBob()
+	ctx.receiveCommitSigAliceToBob(1)
 
 	// Settle invoice 2 with the preimage.
 	registry.SettleHodlInvoice(preimage2)
 
 	// Expect alice to send a settle for htlc 2.
-	receiveSettleAliceToBob(t, aliceMsgs, aliceLink, bobChannel)
+	ctx.receiveSettleAliceToBob()
 
 	// At this point, Alice cannot send a new commit sig to bob because the
 	// revocation window is exhausted.
@@ -5862,7 +5919,7 @@ func TestChannelLinkRevocationWindowHodl(t *testing.T) {
 	}
 
 	// Bob sends revocation and signs commit with htlc 1 settled.
-	sendRevAndAckBobToAlice(t, aliceLink, bobChannel)
+	ctx.sendRevAndAckBobToAlice()
 
 	// Allow some time for it to be processed by the link.
 	time.Sleep(time.Second)
@@ -5873,12 +5930,12 @@ func TestChannelLinkRevocationWindowHodl(t *testing.T) {
 
 	// After the revocation, it is again possible for Alice to send a commit
 	// sig no more htlcs. Bob acks the update.
-	receiveCommitSigAliceToBob(t, aliceMsgs, aliceLink, bobChannel, 0)
-	sendRevAndAckBobToAlice(t, aliceLink, bobChannel)
+	ctx.receiveCommitSigAliceToBob(0)
+	ctx.sendRevAndAckBobToAlice()
 
 	// Bob updates his remote commit tx.
-	sendCommitSigBobToAlice(t, aliceLink, bobChannel, 0)
-	receiveRevAndAckAliceToBob(t, aliceMsgs, aliceLink, bobChannel)
+	ctx.sendCommitSigBobToAlice(0)
+	ctx.receiveRevAndAckAliceToBob()
 
 	// Stop the link
 	aliceLink.Stop()

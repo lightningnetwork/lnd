@@ -357,6 +357,9 @@ func (c *ChannelArbitrator) Start() error {
 			case channeldb.CooperativeClose:
 				trigger = coopCloseTrigger
 
+			case channeldb.BreachClose:
+				trigger = breachCloseTrigger
+
 			case channeldb.LocalForceClose:
 				trigger = localCloseTrigger
 

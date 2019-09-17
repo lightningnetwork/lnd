@@ -45,6 +45,16 @@ linters:
   # trigger funlen problems that we may not want to solve at that time.
   - funlen
 
+  # Disable for now as we haven't yet tuned the sensitivity to our codebase
+  # yet.  Enabling by default for example, would also force new contributors to
+  # potentially extensively refactor code, when they want to smaller change to
+  # land.
+  - gocyclo
+
+  # Instances of table driven tests that don't pre-allocate shouldn't trigger
+  # the linter.
+  - prealloc
+
 issues:
   # Only show newly introduced problems.
   new-from-rev: 01f696afce2f9c0d4ed854edefa3846891d01d8a

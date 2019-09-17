@@ -710,16 +710,20 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 	}
 
 	s.authGossiper = discovery.New(discovery.Config{
-		Router:                  s.chanRouter,
-		Notifier:                s.cc.chainNotifier,
-		ChainHash:               *activeNetParams.GenesisHash,
-		Broadcast:               s.BroadcastMessage,
-		ChanSeries:              chanSeries,
-		NotifyWhenOnline:        s.NotifyWhenOnline,
-		NotifyWhenOffline:       s.NotifyWhenOffline,
+		Router:            s.chanRouter,
+		Notifier:          s.cc.chainNotifier,
+		ChainHash:         *activeNetParams.GenesisHash,
+		Broadcast:         s.BroadcastMessage,
+		ChanSeries:        chanSeries,
+		NotifyWhenOnline:  s.NotifyWhenOnline,
+		NotifyWhenOffline: s.NotifyWhenOffline,
+		SelfNodeAnnouncement: func(refresh bool) (lnwire.NodeAnnouncement, error) {
+			return s.genNodeAnnouncement(refresh)
+		},
 		ProofMatureDelta:        0,
 		TrickleDelay:            time.Millisecond * time.Duration(cfg.TrickleDelay),
-		RetransmitDelay:         time.Minute * 30,
+		RetransmitTicker:        ticker.New(time.Minute * 30),
+		RebroadcastInterval:     time.Hour * 24,
 		WaitingProofStore:       waitingProofStore,
 		MessageStore:            gossipMessageStore,
 		AnnSigner:               s.nodeSigner,

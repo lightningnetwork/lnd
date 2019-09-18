@@ -8121,7 +8121,9 @@ func assertDLPExecuted(net *lntest.NetworkHarness, t *harnessTest,
 	assertTxInBlock(t, block, forceClose)
 
 	// Dave should sweep his funds immediately, as they are not timelocked.
-	daveSweep, err := waitForTxInMempool(net.Miner.Node, minerMempoolTimeout)
+	daveSweep, err := waitForTxInMempool(
+		net.Miner.Node, minerMempoolTimeout,
+	)
 	if err != nil {
 		t.Fatalf("unable to find Dave's sweep tx in mempool: %v", err)
 	}
@@ -13557,6 +13559,27 @@ func testChanRestoreScenario(t *harnessTest, net *lntest.NetworkHarness,
 	dave, err = restoredNodeFunc()
 	if err != nil {
 		t.Fatalf("unable to restore node: %v", err)
+	}
+
+	// First ensure that the on-chain balance is restored.
+	err = wait.NoError(func() error {
+		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
+		balReq := &lnrpc.WalletBalanceRequest{}
+		daveBalResp, err := dave.WalletBalance(ctxt, balReq)
+		if err != nil {
+			return err
+		}
+
+		daveBal := daveBalResp.ConfirmedBalance
+		if daveBal <= 0 {
+			return fmt.Errorf("expected positive balance, had %v",
+				daveBal)
+		}
+
+		return nil
+	}, defaultTimeout)
+	if err != nil {
+		t.Fatalf("On-chain balance not restored: %v", err)
 	}
 
 	// Now that we have our new node up, we expect that it'll re-connect to

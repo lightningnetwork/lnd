@@ -55,14 +55,12 @@ UNIT_RACE := $(UNIT) -race
 endif
 
 
-# Construct the integration test command with the added build flags.
-ITEST_TAGS := $(DEV_TAGS) rpctest chainrpc walletrpc signrpc invoicesrpc autopilotrpc routerrpc watchtowerrpc wtclientrpc
-
 # Default to btcd backend if not set.
-ifneq ($(backend),)
-ITEST_TAGS += ${backend}
-else
-ITEST_TAGS += btcd
+ifeq ($(backend),)
+backend = btcd
 endif
+
+# Construct the integration test command with the added build flags.
+ITEST_TAGS := $(DEV_TAGS) rpctest chainrpc walletrpc signrpc invoicesrpc autopilotrpc routerrpc watchtowerrpc wtclientrpc $(backend)
 
 ITEST := rm lntest/itest/*.log; date; $(GOTEST) ./lntest/itest -tags="$(ITEST_TAGS)" $(TEST_FLAGS) -logoutput -goroutinedump

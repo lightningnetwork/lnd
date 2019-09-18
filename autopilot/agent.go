@@ -141,6 +141,10 @@ type Agent struct {
 	// time.
 	chanOpenFailures chan *chanOpenFailureUpdate
 
+	// heuristicUpdates is a channel where updates from active heurstics
+	// will be sent.
+	heuristicUpdates chan *heuristicUpdate
+
 	// totalBalance is the total number of satoshis the backing wallet is
 	// known to control at any given instance. This value will be updated
 	// when the agent receives external balance update signals.
@@ -179,6 +183,7 @@ func New(cfg Config, initialState []Channel) (*Agent, error) {
 		balanceUpdates:     make(chan *balanceUpdate, 1),
 		nodeUpdates:        make(chan *nodeUpdates, 1),
 		chanOpenFailures:   make(chan *chanOpenFailureUpdate, 1),
+		heuristicUpdates:   make(chan *heuristicUpdate, 1),
 		pendingOpenUpdates: make(chan *chanPendingOpenUpdate, 1),
 		failedNodes:        make(map[NodeID]struct{}),
 		pendingConns:       make(map[NodeID]struct{}),
@@ -256,6 +261,13 @@ type chanPendingOpenUpdate struct{}
 // a previous channel open failed, and that it might be possible to try again.
 type chanOpenFailureUpdate struct{}
 
+// heuristicUpdate is an update sent when one of the autopilot heuristics has
+// changed, and prompts the agent to make a new attempt at opening more
+// channels.
+type heuristicUpdate struct {
+	heuristic AttachmentHeuristic
+}
+
 // chanCloseUpdate is a type of external state update that indicates that the
 // backing Lightning Node has closed a previously open channel.
 type chanCloseUpdate struct {
@@ -327,6 +339,17 @@ func (a *Agent) OnChannelClose(closedChans ...lnwire.ShortChannelID) {
 		case <-a.quit:
 		}
 	}()
+}
+
+// OnHeuristicUpdate is a method called when a heuristic has been updated, to
+// trigger the agent to do a new state assessment.
+func (a *Agent) OnHeuristicUpdate(h AttachmentHeuristic) {
+	select {
+	case a.heuristicUpdates <- &heuristicUpdate{
+		heuristic: h,
+	}:
+	default:
+	}
 }
 
 // mergeNodeMaps merges the Agent's set of nodes that it already has active
@@ -469,6 +492,12 @@ func (a *Agent) controller() {
 		case <-a.nodeUpdates:
 			log.Debugf("Node updates received, assessing " +
 				"need for more channels")
+
+		// Any of the deployed heuristics has been updated, check
+		// whether we have new channel candidates available.
+		case upd := <-a.heuristicUpdates:
+			log.Debugf("Heuristic %v updated, assessing need for "+
+				"more channels", upd.heuristic.Name())
 
 		// The agent has been signalled to exit, so we'll bail out
 		// immediately.

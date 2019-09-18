@@ -31,7 +31,7 @@ func validateAtplCfg(cfg *autoPilotConfig) ([]*autopilot.WeightedHeuristic,
 	for _, a := range autopilot.AvailableHeuristics {
 		heuristicsStr += fmt.Sprintf(" '%v' ", a.Name())
 	}
-	availStr := fmt.Sprintf("Avaiblable heuristcs are: [%v]", heuristicsStr)
+	availStr := fmt.Sprintf("Available heuristics are: [%v]", heuristicsStr)
 
 	// We'll go through the config and make sure all the heuristics exists,
 	// and that the sum of their weights is 1.0.

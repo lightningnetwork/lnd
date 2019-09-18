@@ -358,6 +358,9 @@ func (m *Manager) queryHeuristics(nodes map[NodeID]struct{}, localState bool) (
 // SetNodeScores is used to set the scores of the given heuristic, if it is
 // active, and ScoreSettable.
 func (m *Manager) SetNodeScores(name string, scores map[NodeID]float64) error {
+	m.Lock()
+	defer m.Unlock()
+
 	// It must be ScoreSettable to be available for external
 	// scores.
 	s, ok := m.cfg.PilotCfg.Heuristic.(ScoreSettable)
@@ -374,6 +377,12 @@ func (m *Manager) SetNodeScores(name string, scores map[NodeID]float64) error {
 
 	if !applied {
 		return fmt.Errorf("heuristic with name %v not found", name)
+	}
+
+	// If the autopilot agent is active, notify about the updated
+	// heuristic.
+	if m.pilot != nil {
+		m.pilot.OnHeuristicUpdate(m.cfg.PilotCfg.Heuristic)
 	}
 
 	return nil

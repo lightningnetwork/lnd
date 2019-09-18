@@ -288,8 +288,8 @@ func (r *ChannelReservation) CommitConstraints(c *channeldb.ChannelConstraints) 
 		return ErrCsvDelayTooLarge(c.CsvDelay, maxDelay)
 	}
 
-	// The dust limit should always be greater or equal to the channel
-	// reserve. The reservation request should be denied if otherwise.
+	// The channel reserve should always be greater or equal to the dust
+	// limit. The reservation request should be denied if otherwise.
 	if c.DustLimit > c.ChanReserve {
 		return ErrChanReserveTooSmall(c.ChanReserve, c.DustLimit)
 	}

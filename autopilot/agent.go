@@ -541,10 +541,28 @@ func (a *Agent) openChans(availableFunds btcutil.Amount, numChans uint32,
 	connectedNodes := a.chanState.ConnectedNodes()
 	a.chanStateMtx.Unlock()
 
+	for nID := range connectedNodes {
+		log.Tracef("Skipping node %x with open channel", nID[:])
+	}
+
 	a.pendingMtx.Lock()
+
+	for nID := range a.pendingOpens {
+		log.Tracef("Skipping node %x with pending channel open", nID[:])
+	}
+
+	for nID := range a.pendingConns {
+		log.Tracef("Skipping node %x with pending connection", nID[:])
+	}
+
+	for nID := range a.failedNodes {
+		log.Tracef("Skipping failed node %v", nID[:])
+	}
+
 	nodesToSkip := mergeNodeMaps(a.pendingOpens,
 		a.pendingConns, connectedNodes, a.failedNodes,
 	)
+
 	a.pendingMtx.Unlock()
 
 	// Gather the set of all nodes in the graph, except those we

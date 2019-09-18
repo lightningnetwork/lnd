@@ -49,7 +49,7 @@ include make/testing_flags.mk
 
 DEV_TAGS := $(if ${tags},$(DEV_TAGS) ${tags},$(DEV_TAGS))
 
-LINT = $(LINT_BIN) run
+LINT = $(LINT_BIN) run -v
 
 GREEN := "\\033[0;32m"
 NC := "\\033[0m"

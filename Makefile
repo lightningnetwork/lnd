@@ -4,7 +4,7 @@ MOBILE_PKG := $(PKG)/mobile
 
 BTCD_PKG := github.com/btcsuite/btcd
 GOVERALLS_PKG := github.com/mattn/goveralls
-LINT_PKG := github.com/golangci/golangci-lint/cmd/golangci-lint@v1.18.0
+LINT_PKG := github.com/golangci/golangci-lint/cmd/golangci-lint
 GOACC_PKG := github.com/ory/go-acc
 
 GO_BIN := ${GOPATH}/bin
@@ -30,6 +30,7 @@ BTCD_COMMIT := $(shell cat go.mod | \
 		awk -F " " '{ print $$2 }' | \
 		awk -F "/" '{ print $$1 }')
 
+LINT_COMMIT := v1.18.0
 GOACC_COMMIT := ddc355013f90fea78d83d3a6c71f1d37ac07ecd5
 
 DEPGET := cd /tmp && GO111MODULE=on go get -v
@@ -72,7 +73,7 @@ $(GOVERALLS_BIN):
 
 $(LINT_BIN):
 	@$(call print, "Fetching linter")
-	$(DEPGET) $(LINT_PKG)
+	$(DEPGET) $(LINT_PKG)@$(LINT_COMMIT)
 
 $(GOACC_BIN):
 	@$(call print, "Fetching go-acc")

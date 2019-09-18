@@ -74,7 +74,7 @@ $(LINT_BIN):
 	# Switch to tmp directory to prevent lnd go.mod from being modified.
 	# Hopefully someday a flag for go get will be added for this.
 	cd /tmp
-	GO111MODULE=on go get $(LINT_PKG)
+	GO111MODULE=on go get -v $(LINT_PKG)
 
 $(GOACC_BIN):
 	@$(call print, "Fetching go-acc")

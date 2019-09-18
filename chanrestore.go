@@ -83,9 +83,23 @@ func (c *chanDBRestorer) openChannelShell(backup chanbackup.Single) (
 		return nil, fmt.Errorf("unable to derive htlc key: %v", err)
 	}
 
+	var chanType channeldb.ChannelType
+	switch backup.Version {
+
+	case chanbackup.DefaultSingleVersion:
+		chanType = channeldb.SingleFunder
+
+	case chanbackup.TweaklessCommitVersion:
+		chanType = channeldb.SingleFunderTweakless
+
+	default:
+		return nil, fmt.Errorf("unknown Single version: %v", err)
+	}
+
 	chanShell := channeldb.ChannelShell{
 		NodeAddrs: backup.Addresses,
 		Chan: &channeldb.OpenChannel{
+			ChanType:                chanType,
 			ChainHash:               backup.ChainHash,
 			IsInitiator:             backup.IsInitiator,
 			Capacity:                backup.Capacity,

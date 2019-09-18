@@ -319,8 +319,12 @@ func (m *Manager) queryHeuristics(nodes map[NodeID]struct{}, localState bool) (
 
 	// We'll start by getting the scores from each available sub-heuristic,
 	// in addition the current agent heuristic.
+	var heuristics []AttachmentHeuristic
+	heuristics = append(heuristics, availableHeuristics...)
+	heuristics = append(heuristics, m.cfg.PilotCfg.Heuristic)
+
 	report := make(HeuristicScores)
-	for _, h := range append(availableHeuristics, m.cfg.PilotCfg.Heuristic) {
+	for _, h := range heuristics {
 		name := h.Name()
 
 		// If the agent heuristic is among the simple heuristics it

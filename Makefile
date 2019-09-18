@@ -32,6 +32,7 @@ BTCD_COMMIT := $(shell cat go.mod | \
 
 GOACC_COMMIT := ddc355013f90fea78d83d3a6c71f1d37ac07ecd5
 
+DEPGET := cd /tmp && GO111MODULE=on go get -v
 GOBUILD := GO111MODULE=on go build -v -trimpath
 GOINSTALL := GO111MODULE=on go install -v -trimpath
 GOTEST := GO111MODULE=on go test -v
@@ -71,18 +72,15 @@ $(GOVERALLS_BIN):
 
 $(LINT_BIN):
 	@$(call print, "Fetching linter")
-	# Switch to tmp directory to prevent lnd go.mod from being modified.
-	# Hopefully someday a flag for go get will be added for this.
-	cd /tmp
-	GO111MODULE=on go get -v $(LINT_PKG)
+	$(DEPGET) $(LINT_PKG)
 
 $(GOACC_BIN):
 	@$(call print, "Fetching go-acc")
-	GO111MODULE=on go get -v $(GOACC_PKG)@$(GOACC_COMMIT)
+	$(DEPGET) $(GOACC_PKG)@$(GOACC_COMMIT)
 
 btcd:
 	@$(call print, "Installing btcd.")
-	GO111MODULE=on go get -v $(BTCD_PKG)@$(BTCD_COMMIT)
+	$(DEPGET) $(BTCD_PKG)@$(BTCD_COMMIT)
 
 # ============
 # INSTALLATION

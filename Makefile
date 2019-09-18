@@ -78,7 +78,7 @@ $(LINT_BIN):
 
 $(GOACC_BIN):
 	@$(call print, "Fetching go-acc")
-	go get -u -v $(GOACC_PKG)@$(GOACC_COMMIT)
+	GO111MODULE=on go get -v $(GOACC_PKG)@$(GOACC_COMMIT)
 	$(GOINSTALL) $(GOACC_PKG)
 
 btcd:

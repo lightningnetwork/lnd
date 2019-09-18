@@ -79,13 +79,10 @@ $(LINT_BIN):
 $(GOACC_BIN):
 	@$(call print, "Fetching go-acc")
 	GO111MODULE=on go get -v $(GOACC_PKG)@$(GOACC_COMMIT)
-	$(GOINSTALL) $(GOACC_PKG)
 
 btcd:
 	@$(call print, "Installing btcd.")
 	GO111MODULE=on go get -v $(BTCD_PKG)@$(BTCD_COMMIT)
-	$(GOINSTALL) $(BTCD_PKG)
-	$(GOINSTALL) $(BTCD_PKG)/cmd/btcctl
 
 # ============
 # INSTALLATION

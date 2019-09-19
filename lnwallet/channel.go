@@ -3279,8 +3279,9 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 			msg.RemoteCommitTailHeight, localTailHeight)
 
 		if isRestoredChan {
-			walletLog.Warnf("ChannelPoint(%v): detected restored " +
-				"triggering DLP")
+			walletLog.Warnf("ChannelPoint(%v): detected restored "+
+				"triggering DLP",
+				lc.channelState.FundingOutpoint)
 		}
 
 		// We must check that we had recovery options to ensure the

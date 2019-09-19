@@ -1,5 +1,3 @@
-// +build wtclientrpc
-
 package main
 
 import (

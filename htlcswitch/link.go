@@ -279,8 +279,9 @@ type ChannelLinkConfig struct {
 // message ordering and updates.
 type channelLink struct {
 	// The following fields are only meant to be used *atomically*
-	started  int32
-	shutdown int32
+	started       int32
+	reestablished int32
+	shutdown      int32
 
 	// failed should be set to true in case a link error happens, making
 	// sure we don't process any more updates.
@@ -540,7 +541,21 @@ func (l *channelLink) WaitForShutdown() {
 // the all-zero source ID, meaning that the channel has had its ID finalized.
 func (l *channelLink) EligibleToForward() bool {
 	return l.channel.RemoteNextRevocation() != nil &&
-		l.ShortChanID() != hop.Source
+		l.ShortChanID() != hop.Source &&
+		l.isReestablished()
+}
+
+// isReestablished returns true if the link has successfully completed the
+// channel reestablishment dance.
+func (l *channelLink) isReestablished() bool {
+	return atomic.LoadInt32(&l.reestablished) == 1
+}
+
+// markReestablished signals that the remote peer has successfully exchanged
+// channel reestablish messages and that the channel is ready to process
+// subsequent messages.
+func (l *channelLink) markReestablished() {
+	atomic.StoreInt32(&l.reestablished, 1)
 }
 
 // sampleNetworkFee samples the current fee rate on the network to get into the
@@ -878,14 +893,6 @@ func (l *channelLink) htlcManager() {
 	log.Infof("HTLC manager for ChannelPoint(%v) started, "+
 		"bandwidth=%v", l.channel.ChannelPoint(), l.Bandwidth())
 
-	// Funding locked has already been received, so we'll go ahead and
-	// deliver the active channel notification since EligibleToForward
-	// returns true now that the link has been added to the switch.  We'll
-	// also defer the inactive notification for when the link exits to
-	// ensure that every active notification is matched by an inactive one.
-	l.cfg.NotifyActiveChannel(*l.ChannelPoint())
-	defer l.cfg.NotifyInactiveChannel(*l.ChannelPoint())
-
 	// TODO(roasbeef): need to call wipe chan whenever D/C?
 
 	// If this isn't the first time that this channel link has been
@@ -960,6 +967,17 @@ func (l *channelLink) htlcManager() {
 			return
 		}
 	}
+
+	// We've successfully reestablished the channel, mark it as such to
+	// allow the switch to forward HTLCs in the outbound direction.
+	l.markReestablished()
+
+	// Now that we've received both funding locked and channel reestablish,
+	// we can go ahead and send the active channel notification. We'll also
+	// defer the inactive notification for when the link exits to ensure
+	// that every active notification is matched by an inactive one.
+	l.cfg.NotifyActiveChannel(*l.ChannelPoint())
+	defer l.cfg.NotifyInactiveChannel(*l.ChannelPoint())
 
 	// With the channel states synced, we now reset the mailbox to ensure
 	// we start processing all unacked packets in order. This is done here

@@ -640,10 +640,8 @@ func (l *channelLink) syncChanStates() error {
 
 	var msgsToReSend []lnwire.Message
 
-	// Next, we'll wait to receive the ChanSync message with a timeout
-	// period. The first message sent MUST be the ChanSync message,
-	// otherwise, we'll terminate the connection.
-	chanSyncDeadline := time.After(time.Second * 30)
+	// Next, we'll wait indefinitely to receive the ChanSync message. The
+	// first message sent MUST be the ChanSync message.
 	select {
 	case msg := <-l.upstream:
 		remoteChanSyncMsg, ok := msg.(*lnwire.ChannelReestablish)
@@ -727,10 +725,6 @@ func (l *channelLink) syncChanStates() error {
 
 	case <-l.quit:
 		return ErrLinkShuttingDown
-
-	case <-chanSyncDeadline:
-		return fmt.Errorf("didn't receive ChannelReestablish before " +
-			"deadline")
 	}
 
 	return nil

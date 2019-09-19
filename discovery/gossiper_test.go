@@ -3602,20 +3602,26 @@ out:
 	// Now that all of our channels are loaded, we'll attempt to update the
 	// policy of all of them.
 	const newTimeLockDelta = 100
-	newPolicy := routing.ChannelPolicy{
-		TimeLockDelta: newTimeLockDelta,
-	}
-	newChanPolicies, err := ctx.gossiper.PropagateChanPolicyUpdate(newPolicy)
+	var edgesToUpdate []EdgeWithInfo
+	err = ctx.router.ForAllOutgoingChannels(func(
+		info *channeldb.ChannelEdgeInfo,
+		edge *channeldb.ChannelEdgePolicy) error {
+
+		edge.TimeLockDelta = uint16(newTimeLockDelta)
+		edgesToUpdate = append(edgesToUpdate, EdgeWithInfo{
+			Info: info,
+			Edge: edge,
+		})
+
+		return nil
+	})
 	if err != nil {
-		t.Fatalf("unable to chan policies: %v", err)
+		t.Fatal(err)
 	}
 
-	// Ensure that the updated channel policies are as expected.
-	for _, dbPolicy := range newChanPolicies {
-		if dbPolicy.TimeLockDelta != uint16(newPolicy.TimeLockDelta) {
-			t.Fatalf("wrong delta: expected %v, got %v",
-				newPolicy.TimeLockDelta, dbPolicy.TimeLockDelta)
-		}
+	err = ctx.gossiper.PropagateChanPolicyUpdate(edgesToUpdate)
+	if err != nil {
+		t.Fatalf("unable to chan policies: %v", err)
 	}
 
 	// Two channel updates should now be broadcast, with neither of them

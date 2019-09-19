@@ -86,14 +86,12 @@ type networkMsg struct {
 }
 
 // chanPolicyUpdateRequest is a request that is sent to the server when a caller
-// wishes to update the channel policy (fees e.g.) for a particular set of
-// channels. New ChannelUpdate messages will be crafted to be sent out during
-// the next broadcast epoch and the fee updates committed to the lower layer.
+// wishes to update a particular set of channels. New ChannelUpdate messages
+// will be crafted to be sent out during the next broadcast epoch and the fee
+// updates committed to the lower layer.
 type chanPolicyUpdateRequest struct {
-	targetChans []wire.OutPoint
-	newSchema   routing.ChannelPolicy
-
-	chanPolicies chan updatedChanPolicies
+	edgesToUpdate []EdgeWithInfo
+	errChan       chan error
 }
 
 // Config defines the configuration for the service. ALL elements within the
@@ -361,31 +359,36 @@ type updatedChanPolicies struct {
 	err          error
 }
 
-// PropagateChanPolicyUpdate signals the AuthenticatedGossiper to update the
-// channel forwarding policies for the specified channels. If no channels are
-// specified, then the update will be applied to all outgoing channels from the
-// source node. Policy updates are done in two stages: first, the
+// EdgeWithInfo contains the information that is required to update an edge.
+type EdgeWithInfo struct {
+	// Info describes the channel.
+	Info *channeldb.ChannelEdgeInfo
+
+	// Edge describes the policy in one direction of the channel.
+	Edge *channeldb.ChannelEdgePolicy
+}
+
+// PropagateChanPolicyUpdate signals the AuthenticatedGossiper to perform the
+// specified edge updates. Updates are done in two stages: first, the
 // AuthenticatedGossiper ensures the update has been committed by dependent
 // sub-systems, then it signs and broadcasts new updates to the network. A
 // mapping between outpoints and updated channel policies is returned, which is
 // used to update the forwarding policies of the underlying links.
 func (d *AuthenticatedGossiper) PropagateChanPolicyUpdate(
-	newSchema routing.ChannelPolicy, chanPoints ...wire.OutPoint) (
-	map[wire.OutPoint]*channeldb.ChannelEdgePolicy, error) {
+	edgesToUpdate []EdgeWithInfo) error {
 
-	chanPolicyChan := make(chan updatedChanPolicies, 1)
+	errChan := make(chan error, 1)
 	policyUpdate := &chanPolicyUpdateRequest{
-		targetChans:  chanPoints,
-		newSchema:    newSchema,
-		chanPolicies: chanPolicyChan,
+		edgesToUpdate: edgesToUpdate,
+		errChan:       errChan,
 	}
 
 	select {
 	case d.chanPolicyUpdates <- policyUpdate:
-		updatedPolicies := <-chanPolicyChan
-		return updatedPolicies.chanPolicies, updatedPolicies.err
+		err := <-errChan
+		return err
 	case <-d.quit:
-		return nil, fmt.Errorf("AuthenticatedGossiper shutting down")
+		return fmt.Errorf("AuthenticatedGossiper shutting down")
 	}
 }
 
@@ -922,14 +925,10 @@ func (d *AuthenticatedGossiper) networkHandler() {
 			// First, we'll now create new fully signed updates for
 			// the affected channels and also update the underlying
 			// graph with the new state.
-			chanPolicies, newChanUpdates, err := d.processChanPolicyUpdate(
-				policyUpdate,
+			newChanUpdates, err := d.processChanPolicyUpdate(
+				policyUpdate.edgesToUpdate,
 			)
-			update := updatedChanPolicies{
-				chanPolicies,
-				err,
-			}
-			policyUpdate.chanPolicies <- update
+			policyUpdate.errChan <- err
 			if err != nil {
 				log.Errorf("Unable to craft policy updates: %v",
 					err)
@@ -1317,102 +1316,29 @@ func (d *AuthenticatedGossiper) retransmitStaleAnns(now time.Time) error {
 	return nil
 }
 
-// processChanPolicyUpdate generates a new set of channel updates with the new
-// channel policy applied for each specified channel identified by its channel
-// point. In the case that no channel points are specified, then the update
-// will be applied to all channels. Finally, the backing ChannelGraphSource is
-// updated with the latest information reflecting the applied updates.
-//
-// TODO(roasbeef): generalize into generic for any channel update
+// processChanPolicyUpdate generates a new set of channel updates for the
+// provided list of edges and updates the backing ChannelGraphSource.
 func (d *AuthenticatedGossiper) processChanPolicyUpdate(
-	policyUpdate *chanPolicyUpdateRequest) (
-	map[wire.OutPoint]*channeldb.ChannelEdgePolicy, []networkMsg, error) {
+	edgesToUpdate []EdgeWithInfo) ([]networkMsg, error) {
 
-	// First, we'll construct a set of all the channels that need to be
-	// updated.
-	chansToUpdate := make(map[wire.OutPoint]struct{})
-	for _, chanPoint := range policyUpdate.targetChans {
-		chansToUpdate[chanPoint] = struct{}{}
-	}
-
-	// Next, we'll create a mapping from outpoint to edge policy that will
-	// be used by each edge's underlying link to update its policy.
-	chanPolicies := make(map[wire.OutPoint]*channeldb.ChannelEdgePolicy)
-
-	haveChanFilter := len(chansToUpdate) != 0
-	if haveChanFilter {
-		log.Infof("Updating routing policies for chan_points=%v",
-			spew.Sdump(chansToUpdate))
-	} else {
-		log.Infof("Updating routing policies for all chans")
-	}
-
-	type edgeWithInfo struct {
-		info *channeldb.ChannelEdgeInfo
-		edge *channeldb.ChannelEdgePolicy
-	}
-	var edgesToUpdate []edgeWithInfo
-
-	// Next, we'll loop over all the outgoing channels the router knows of.
-	// If we have a filter then we'll only collected those channels,
-	// otherwise we'll collect them all.
-	err := d.cfg.Router.ForAllOutgoingChannels(func(
-		info *channeldb.ChannelEdgeInfo,
-		edge *channeldb.ChannelEdgePolicy) error {
-
-		// If we have a channel filter, and this channel isn't a part
-		// of it, then we'll skip it.
-		if _, ok := chansToUpdate[info.ChannelPoint]; !ok && haveChanFilter {
-			return nil
-		}
-
-		// Now that we know we should update this channel, we'll update
-		// its set of policies.
-		edge.FeeBaseMSat = policyUpdate.newSchema.BaseFee
-		edge.FeeProportionalMillionths = lnwire.MilliSatoshi(
-			policyUpdate.newSchema.FeeRate,
-		)
-		edge.TimeLockDelta = uint16(policyUpdate.newSchema.TimeLockDelta)
-
-		// Max htlc is currently always set to the channel capacity.
-		edge.MessageFlags |= lnwire.ChanUpdateOptionMaxHtlc
-		edge.MaxHTLC = lnwire.NewMSatFromSatoshis(info.Capacity)
-
-		edgesToUpdate = append(edgesToUpdate, edgeWithInfo{
-			info: info,
-			edge: edge,
-		})
-
-		return nil
-	})
-	if err != nil {
-		return nil, nil, err
-	}
-
-	// With the set of edges we need to update retrieved, we'll now re-sign
-	// them, and insert them into the database.
 	var chanUpdates []networkMsg
 	for _, edgeInfo := range edgesToUpdate {
 		// Now that we've collected all the channels we need to update,
-		// we'll Re-sign and update the backing ChannelGraphSource, and
+		// we'll re-sign and update the backing ChannelGraphSource, and
 		// retrieve our ChannelUpdate to broadcast.
 		_, chanUpdate, err := d.updateChannel(
-			edgeInfo.info, edgeInfo.edge,
+			edgeInfo.Info, edgeInfo.Edge,
 		)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
-
-		// Since the update succeeded, add the edge to our policy
-		// mapping.
-		chanPolicies[edgeInfo.info.ChannelPoint] = edgeInfo.edge
 
 		// We'll avoid broadcasting any updates for private channels to
 		// avoid directly giving away their existence. Instead, we'll
 		// send the update directly to the remote party.
-		if edgeInfo.info.AuthProof == nil {
+		if edgeInfo.Info.AuthProof == nil {
 			remotePubKey := remotePubFromChanInfo(
-				edgeInfo.info, chanUpdate.ChannelFlags,
+				edgeInfo.Info, chanUpdate.ChannelFlags,
 			)
 			err := d.reliableSender.sendMessage(
 				chanUpdate, remotePubKey,
@@ -1435,7 +1361,7 @@ func (d *AuthenticatedGossiper) processChanPolicyUpdate(
 		})
 	}
 
-	return chanPolicies, chanUpdates, nil
+	return chanUpdates, nil
 }
 
 // processRejectedEdge examines a rejected edge to see if we can extract any

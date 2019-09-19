@@ -431,7 +431,7 @@ func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID, paymentID uint64,
 // forwarding policies for all links have been updated, or the switch shuts
 // down.
 func (s *Switch) UpdateForwardingPolicies(
-	chanPolicies map[wire.OutPoint]*channeldb.ChannelEdgePolicy) {
+	chanPolicies map[wire.OutPoint]ForwardingPolicy) {
 
 	log.Tracef("Updating link policies: %v", newLogClosure(func() string {
 		return spew.Sdump(chanPolicies)
@@ -440,7 +440,7 @@ func (s *Switch) UpdateForwardingPolicies(
 	s.indexMtx.RLock()
 
 	// Update each link in chanPolicies.
-	for targetLink := range chanPolicies {
+	for targetLink, policy := range chanPolicies {
 		cid := lnwire.NewChanIDFromOutPoint(&targetLink)
 
 		link, ok := s.linkIndex[cid]
@@ -450,26 +450,10 @@ func (s *Switch) UpdateForwardingPolicies(
 			continue
 		}
 
-		newPolicy := dbPolicyToFwdingPolicy(
-			chanPolicies[*link.ChannelPoint()],
-		)
-		link.UpdateForwardingPolicy(newPolicy)
+		link.UpdateForwardingPolicy(policy)
 	}
 
 	s.indexMtx.RUnlock()
-}
-
-// dbPolicyToFwdingPolicy is a helper function that converts a channeldb
-// ChannelEdgePolicy into a ForwardingPolicy struct for the purpose of updating
-// the forwarding policy of a link.
-func dbPolicyToFwdingPolicy(policy *channeldb.ChannelEdgePolicy) ForwardingPolicy {
-	return ForwardingPolicy{
-		BaseFee:       policy.FeeBaseMSat,
-		FeeRate:       policy.FeeProportionalMillionths,
-		TimeLockDelta: uint32(policy.TimeLockDelta),
-		MinHTLC:       policy.MinHTLC,
-		MaxHTLC:       policy.MaxHTLC,
-	}
 }
 
 // forward is used in order to find next channel link and apply htlc update.

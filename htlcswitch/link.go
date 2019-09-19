@@ -262,6 +262,14 @@ type ChannelLinkConfig struct {
 	// commitment fee to be of its balance. This only applies to the
 	// initiator of the channel.
 	MaxFeeAllocation float64
+
+	// NotifyActiveChannel allows the link to tell the ChannelNotifier when
+	// channels becomes active.
+	NotifyActiveChannel func(wire.OutPoint)
+
+	// NotifyInactiveChannel allows the switch to tell the ChannelNotifier
+	// when channels become inactive.
+	NotifyInactiveChannel func(wire.OutPoint)
 }
 
 // channelLink is the service which drives a channel's commitment update
@@ -869,6 +877,14 @@ func (l *channelLink) htlcManager() {
 
 	log.Infof("HTLC manager for ChannelPoint(%v) started, "+
 		"bandwidth=%v", l.channel.ChannelPoint(), l.Bandwidth())
+
+	// Funding locked has already been received, so we'll go ahead and
+	// deliver the active channel notification since EligibleToForward
+	// returns true now that the link has been added to the switch.  We'll
+	// also defer the inactive notification for when the link exits to
+	// ensure that every active notification is matched by an inactive one.
+	l.cfg.NotifyActiveChannel(*l.ChannelPoint())
+	defer l.cfg.NotifyInactiveChannel(*l.ChannelPoint())
 
 	// TODO(roasbeef): need to call wipe chan whenever D/C?
 

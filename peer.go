@@ -576,6 +576,8 @@ func (p *peer) addLink(chanPoint *wire.OutPoint,
 		TowerClient:             p.server.towerClient,
 		MaxOutgoingCltvExpiry:   cfg.MaxOutgoingCltvExpiry,
 		MaxFeeAllocation:        cfg.MaxChannelFeeAllocation,
+		NotifyActiveChannel:     p.server.channelNotifier.NotifyActiveChannelEvent,
+		NotifyInactiveChannel:   p.server.channelNotifier.NotifyInactiveChannelEvent,
 	}
 
 	link := htlcswitch.NewChannelLink(linkCfg, lnChan)

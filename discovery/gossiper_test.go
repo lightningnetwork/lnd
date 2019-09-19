@@ -24,7 +24,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnpeer"
-	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -3432,7 +3432,7 @@ func TestSendChannelUpdateReliably(t *testing.T) {
 
 	// Since the messages above are now deemed as stale, they should be
 	// removed from the message store.
-	err = lntest.WaitNoError(func() error {
+	err = wait.NoError(func() error {
 		msgs, err := ctx.gossiper.cfg.MessageStore.Messages()
 		if err != nil {
 			return fmt.Errorf("unable to retrieve pending "+
@@ -3491,7 +3491,7 @@ func assertBroadcastMsg(t *testing.T, ctx *testCtx,
 	// predicate returns true for any of the messages, so we'll continue to
 	// retry until either we hit our timeout, or it returns with no error
 	// (message found).
-	err := lntest.WaitNoError(func() error {
+	err := wait.NoError(func() error {
 		select {
 		case msg := <-ctx.broadcastedMessage:
 			return predicate(msg.msg)

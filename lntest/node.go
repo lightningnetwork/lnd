@@ -27,6 +27,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/watchtowerrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/wtclientrpc"
+	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
@@ -468,7 +469,7 @@ func (hn *HarnessNode) initClientWhenReady() error {
 		conn    *grpc.ClientConn
 		connErr error
 	)
-	if err := WaitNoError(func() error {
+	if err := wait.NoError(func() error {
 		conn, connErr = hn.ConnectRPC(true)
 		return connErr
 	}, 5*time.Second); err != nil {
@@ -543,7 +544,7 @@ func (hn *HarnessNode) initLightningClient(conn *grpc.ClientConn) error {
 	// until then, we'll create a dummy subscription to ensure we can do so
 	// successfully before proceeding. We use a dummy subscription in order
 	// to not consume an update from the real one.
-	err = WaitNoError(func() error {
+	err = wait.NoError(func() error {
 		req := &lnrpc.GraphTopologySubscription{}
 		ctx, cancelFunc := context.WithCancel(context.Background())
 		topologyClient, err := hn.SubscribeChannelGraph(ctx, req)
@@ -1064,7 +1065,7 @@ func (hn *HarnessNode) WaitForBalance(expectedBalance btcutil.Amount, confirmed 
 		return btcutil.Amount(balance.UnconfirmedBalance) == expectedBalance
 	}
 
-	err := WaitPredicate(doesBalanceMatch, 30*time.Second)
+	err := wait.Predicate(doesBalanceMatch, 30*time.Second)
 	if err != nil {
 		return fmt.Errorf("balances not synced after deadline: "+
 			"expected %v, only have %v", expectedBalance, lastBalance)

@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
-	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/ticker"
 )
@@ -504,7 +504,7 @@ func assertSyncerStatus(t *testing.T, s *GossipSyncer, syncState syncerState,
 
 	// We'll check the status of our syncer within a WaitPredicate as some
 	// sync transitions might cause this to be racy.
-	err := lntest.WaitNoError(func() error {
+	err := wait.NoError(func() error {
 		state := s.syncState()
 		if s.syncState() != syncState {
 			return fmt.Errorf("expected syncState %v for peer "+
@@ -545,7 +545,7 @@ func assertTransitionToChansSynced(t *testing.T, s *GossipSyncer, peer *mockPeer
 		t.Fatal("expected to receive FilterKnownChanIDs request")
 	}
 
-	err := lntest.WaitNoError(func() error {
+	err := wait.NoError(func() error {
 		state := syncerState(atomic.LoadUint32(&s.state))
 		if state != chansSynced {
 			return fmt.Errorf("expected syncerState %v, got %v",

@@ -12,6 +12,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/sweep"
 )
 
@@ -140,7 +141,7 @@ func testCPFP(net *lntest.NetworkHarness, t *harnessTest) {
 	mineBlocks(t, net, 1, 2)
 
 	// The input used to CPFP should no longer be pending.
-	err = lntest.WaitNoError(func() error {
+	err = wait.NoError(func() error {
 		req := &walletrpc.PendingSweepsRequest{}
 		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 		resp, err := net.Bob.WalletKitClient.PendingSweeps(ctxt, req)

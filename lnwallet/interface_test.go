@@ -1269,7 +1269,7 @@ func testTransactionSubscriptions(miner *rpctest.Harness,
 		outputAmt = btcutil.SatoshiPerBitcoin
 		numTxns   = 3
 	)
-	unconfirmedNtfns := make(chan struct{})
+	errCh1 := make(chan error, 1)
 	switch alice.BackEnd() {
 	case "neutrino":
 		// Neutrino doesn't listen for unconfirmed transactions.
@@ -1278,23 +1278,25 @@ func testTransactionSubscriptions(miner *rpctest.Harness,
 			for i := 0; i < numTxns; i++ {
 				txDetail := <-txClient.UnconfirmedTransactions()
 				if txDetail.NumConfirmations != 0 {
-					t.Fatalf("incorrect number of confs, "+
+					errCh1 <- fmt.Errorf("incorrect number of confs, "+
 						"expected %v got %v", 0,
 						txDetail.NumConfirmations)
+					return
 				}
 				if txDetail.Value != outputAmt {
-					t.Fatalf("incorrect output amt, "+
+					errCh1 <- fmt.Errorf("incorrect output amt, "+
 						"expected %v got %v", outputAmt,
 						txDetail.Value)
+					return
 				}
 				if txDetail.BlockHash != nil {
-					t.Fatalf("block hash should be nil, "+
+					errCh1 <- fmt.Errorf("block hash should be nil, "+
 						"is instead %v",
 						txDetail.BlockHash)
+					return
 				}
 			}
-
-			close(unconfirmedNtfns)
+			errCh1 <- nil
 		}()
 	}
 
@@ -1333,24 +1335,29 @@ func testTransactionSubscriptions(miner *rpctest.Harness,
 		select {
 		case <-time.After(time.Second * 10):
 			t.Fatalf("transactions not received after 10 seconds")
-		case <-unconfirmedNtfns: // Fall through on success
+		case err := <-errCh1:
+			if err != nil {
+				t.Fatal(err)
+			}
 		}
 	}
 
-	confirmedNtfns := make(chan struct{})
+	errCh2 := make(chan error, 1)
 	go func() {
 		for i := 0; i < numTxns; i++ {
 			txDetail := <-txClient.ConfirmedTransactions()
 			if txDetail.NumConfirmations != 1 {
-				t.Fatalf("incorrect number of confs for %s, expected %v got %v",
+				errCh2 <- fmt.Errorf("incorrect number of confs for %s, expected %v got %v",
 					txDetail.Hash, 1, txDetail.NumConfirmations)
+				return
 			}
 			if txDetail.Value != outputAmt {
-				t.Fatalf("incorrect output amt, expected %v got %v in txid %s",
+				errCh2 <- fmt.Errorf("incorrect output amt, expected %v got %v in txid %s",
 					outputAmt, txDetail.Value, txDetail.Hash)
+				return
 			}
 		}
-		close(confirmedNtfns)
+		errCh2 <- nil
 	}()
 
 	// Next mine a single block, all the transactions generated above
@@ -1364,7 +1371,10 @@ func testTransactionSubscriptions(miner *rpctest.Harness,
 	select {
 	case <-time.After(time.Second * 5):
 		t.Fatalf("transactions not received after 5 seconds")
-	case <-confirmedNtfns: // Fall through on success
+	case err := <-errCh2:
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	// We'll also ensure that the client is able to send our new

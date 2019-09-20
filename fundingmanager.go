@@ -857,7 +857,7 @@ func (f *fundingManager) failFundingFlow(peer lnpeer.Peer, tempChanID [32]byte,
 	}
 
 	// We only send the exact error if it is part of out whitelisted set of
-	// errors (lnwire.ErrorCode or lnwallet.ReservationError).
+	// errors (lnwire.FundingError or lnwallet.ReservationError).
 	var msg lnwire.ErrorData
 	switch e := fundingErr.(type) {
 
@@ -865,7 +865,7 @@ func (f *fundingManager) failFundingFlow(peer lnpeer.Peer, tempChanID [32]byte,
 	// whitelisted types.
 	case lnwallet.ReservationError:
 		msg = lnwire.ErrorData(e.Error())
-	case lnwire.ErrorCode:
+	case lnwire.FundingError:
 		msg = lnwire.ErrorData(e.Error())
 
 	// For all other error types we just send a generic error.

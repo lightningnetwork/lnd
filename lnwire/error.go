@@ -3,40 +3,30 @@ package lnwire
 import (
 	"fmt"
 	"io"
-
-	"google.golang.org/grpc/codes"
 )
 
-// ErrorCode represents the short error code for each of the defined errors
-// within the Lightning Network protocol spec.
-type ErrorCode uint8
-
-// ToGrpcCode is used to generate gRPC specific code which will be propagated
-// to the ln rpc client. This code is used to have more detailed view of what
-// goes wrong and also in order to have the ability pragmatically determine the
-// error and take specific actions on the client side.
-func (e ErrorCode) ToGrpcCode() codes.Code {
-	return (codes.Code)(e) + 100
-}
+// FundingError represents a set of errors that can be encountered and sent
+// during the funding workflow.
+type FundingError uint8
 
 const (
 	// ErrMaxPendingChannels is returned by remote peer when the number of
 	// active pending channels exceeds their maximum policy limit.
-	ErrMaxPendingChannels ErrorCode = 1
+	ErrMaxPendingChannels FundingError = 1
 
 	// ErrSynchronizingChain is returned by a remote peer that receives a
 	// channel update or a funding request while their still syncing to the
 	// latest state of the blockchain.
-	ErrSynchronizingChain ErrorCode = 2
+	ErrSynchronizingChain FundingError = 2
 
 	// ErrChanTooLarge is returned by a remote peer that receives a
 	// FundingOpen request for a channel that is above their current
 	// soft-limit.
-	ErrChanTooLarge ErrorCode = 3
+	ErrChanTooLarge FundingError = 3
 )
 
-// String returns a human readable version of the target ErrorCode.
-func (e ErrorCode) String() string {
+// String returns a human readable version of the target FundingError.
+func (e FundingError) String() string {
 	switch e {
 	case ErrMaxPendingChannels:
 		return "Number of pending channels exceed maximum"
@@ -49,10 +39,10 @@ func (e ErrorCode) String() string {
 	}
 }
 
-// Error returns the human redable version of the target ErrorCode.
+// Error returns the human redable version of the target FundingError.
 //
-// Satisfies the Error interface.
-func (e ErrorCode) Error() string {
+// NOTE: Satisfies the Error interface.
+func (e FundingError) Error() string {
 	return e.String()
 }
 
@@ -66,8 +56,6 @@ type ErrorData []byte
 // format is purposefully general in order to allow expression of a wide array
 // of possible errors. Each Error message is directed at a particular open
 // channel referenced by ChannelPoint.
-//
-// TODO(roasbeef): remove the error code
 type Error struct {
 	// ChanID references the active channel in which the error occurred
 	// within. If the ChanID is all zeros, then this error applies to the

@@ -951,27 +951,32 @@ func loadConfig() (*config, error) {
 		normalizeNetwork(activeNetParams.Name))
 
 	// Special show command to list supported subsystems and exit.
-	/*TODO(guggero) fix
 	if cfg.DebugLevel == "show" {
-		fmt.Println("Supported subsystems", supportedSubsystems())
+		fmt.Println("Supported subsystems",
+			logWriter.SupportedSubsystems())
 		os.Exit(0)
-	}*/
+	}
 
 	// Initialize logging at the default logging level.
-	/*TODO(guggero) fix
-	initLogRotator(
+	err = logWriter.InitLogRotator(
 		filepath.Join(cfg.LogDir, defaultLogFilename),
 		cfg.MaxLogFileSize, cfg.MaxLogFiles,
-	)*/
+	)
+	if err != nil {
+		str := "%s: log rotation setup failed: %v"
+		err = fmt.Errorf(str, funcName, err.Error())
+		fmt.Fprintln(os.Stderr, err)
+		return nil, err
+	}
 
 	// Parse, validate, and set debug log level(s).
-	/*TODO(guggero) fix
-	if err := parseAndSetDebugLevels(cfg.DebugLevel); err != nil {
-		err := fmt.Errorf("%s: %v", funcName, err.Error())
+	err = build.ParseAndSetDebugLevels(cfg.DebugLevel, logWriter)
+	if err != nil {
+		err = fmt.Errorf("%s: %v", funcName, err.Error())
 		fmt.Fprintln(os.Stderr, err)
 		fmt.Fprintln(os.Stderr, usageMessage)
 		return nil, err
-	}*/
+	}
 
 	// At least one RPCListener is required. So listen on localhost per
 	// default.

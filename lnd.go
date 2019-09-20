@@ -125,10 +125,10 @@ func Main(lisCfg ListenerCfg) error {
 	cfg = loadedConfig
 	defer func() {
 		ltndLog.Info("Shutdown complete")
-		/* TODO(guggero) fix after refactor
-		if logRotator != nil {
-			logRotator.Close()
-		}*/
+		err := logWriter.Close()
+		if err != nil {
+			ltndLog.Errorf("Could not close log rotator: %v", err)
+		}
 	}()
 
 	// Show version at startup.

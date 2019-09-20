@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -4342,7 +4343,9 @@ func (r *rpcServer) DebugLevel(ctx context.Context,
 	// sub-systems.
 	if req.Show {
 		return &lnrpc.DebugLevelResponse{
-			SubSystems: "", //TODO(guggero) fix strings.Join(supportedSubsystems(), " "),
+			SubSystems: strings.Join(
+				logWriter.SupportedSubsystems(), " ",
+			),
 		}, nil
 	}
 
@@ -4350,11 +4353,10 @@ func (r *rpcServer) DebugLevel(ctx context.Context,
 
 	// Otherwise, we'll attempt to set the logging level using the
 	// specified level spec.
-	/*TODO(guggero) fix
-	if err := parseAndSetDebugLevels(req.LevelSpec); err != nil {
+	err := build.ParseAndSetDebugLevels(req.LevelSpec, logWriter)
+	if err != nil {
 		return nil, err
 	}
-	*/
 
 	return &lnrpc.DebugLevelResponse{}, nil
 }

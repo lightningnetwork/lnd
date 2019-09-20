@@ -2955,14 +2955,14 @@ func (f *fundingManager) handleErrorMsg(fmsg *fundingErrorMsg) {
 	resCtx, err := f.cancelReservationCtx(fmsg.peerKey, chanID)
 	if err != nil {
 		fndgLog.Warnf("Received error for non-existent funding "+
-			"flow: %v (%v)", err, spew.Sdump(protocolErr))
+			"flow: %v (%v)", err, protocolErr.Error())
 		return
 	}
 
 	// If we did indeed find the funding workflow, then we'll return the
 	// error back to the caller (if any), and cancel the workflow itself.
 	fundingErr := fmt.Errorf("received funding error from %x: %v",
-		fmsg.peerKey.SerializeCompressed(), string(protocolErr.Data),
+		fmsg.peerKey.SerializeCompressed(), protocolErr.Error(),
 	)
 	fndgLog.Errorf(fundingErr.Error())
 

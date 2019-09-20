@@ -1,6 +1,7 @@
 package lnwire
 
 import (
+	"fmt"
 	"io"
 
 	"google.golang.org/grpc/codes"
@@ -87,6 +88,18 @@ func NewError() *Error {
 // interface.
 var _ Message = (*Error)(nil)
 
+// Error returns the string representation to Error.
+//
+// NOTE: Satisfies the error interface.
+func (c *Error) Error() string {
+	errMsg := "non-ascii data"
+	if isASCII(c.Data) {
+		errMsg = string(c.Data)
+	}
+
+	return fmt.Sprintf("chan_id=%v, err=%v", c.ChanID, errMsg)
+}
+
 // Decode deserializes a serialized Error message stored in the passed
 // io.Reader observing the specified protocol version.
 //
@@ -124,4 +137,15 @@ func (c *Error) MsgType() MessageType {
 func (c *Error) MaxPayloadLength(uint32) uint32 {
 	// 32 + 2 + 65501
 	return 65535
+}
+
+// isASCII is a helper method that checks whether all bytes in `data` would be
+// printable ASCII characters if interpreted as a string.
+func isASCII(data []byte) bool {
+	for _, c := range data {
+		if c < 32 || c > 126 {
+			return false
+		}
+	}
+	return true
 }

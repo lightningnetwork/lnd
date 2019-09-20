@@ -430,8 +430,6 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 		FwdEventTicker:         ticker.New(htlcswitch.DefaultFwdEventInterval),
 		LogEventTicker:         ticker.New(htlcswitch.DefaultLogInterval),
 		AckEventTicker:         ticker.New(htlcswitch.DefaultAckInterval),
-		NotifyActiveChannel:    s.channelNotifier.NotifyActiveChannelEvent,
-		NotifyInactiveChannel:  s.channelNotifier.NotifyInactiveChannelEvent,
 		RejectHTLC:             cfg.RejectHTLC,
 	}, uint32(currentHeight))
 	if err != nil {

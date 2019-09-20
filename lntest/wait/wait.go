@@ -1,0 +1,78 @@
+package wait
+
+import (
+	"fmt"
+	"time"
+)
+
+// Predicate is a helper test function that will wait for a timeout period of
+// time until the passed predicate returns true. This function is helpful as
+// timing doesn't always line up well when running integration tests with
+// several running lnd nodes. This function gives callers a way to assert that
+// some property is upheld within a particular time frame.
+func Predicate(pred func() bool, timeout time.Duration) error {
+	const pollInterval = 20 * time.Millisecond
+
+	exitTimer := time.After(timeout)
+	for {
+		<-time.After(pollInterval)
+
+		select {
+		case <-exitTimer:
+			return fmt.Errorf("predicate not satisfied after time out")
+		default:
+		}
+
+		if pred() {
+			return nil
+		}
+	}
+}
+
+// NoError is a wrapper around Predicate that waits for the passed method f to
+// execute without error, and returns the last error encountered if this doesn't
+// happen within the timeout.
+func NoError(f func() error, timeout time.Duration) error {
+	var predErr error
+	pred := func() bool {
+		if err := f(); err != nil {
+			predErr = err
+			return false
+		}
+		return true
+	}
+
+	// If f() doesn't succeed within the timeout, return the last
+	// encountered error.
+	if err := Predicate(pred, timeout); err != nil {
+		return predErr
+	}
+
+	return nil
+}
+
+// Invariant is a helper test function that will wait for a timeout period of
+// time, verifying that a statement remains true for the entire duration.  This
+// function is helpful as timing doesn't always line up well when running
+// integration tests with several running lnd nodes. This function gives callers
+// a way to assert that some property is maintained over a particular time
+// frame.
+func Invariant(statement func() bool, timeout time.Duration) error {
+	const pollInterval = 20 * time.Millisecond
+
+	exitTimer := time.After(timeout)
+	for {
+		<-time.After(pollInterval)
+
+		// Fail if the invariant is broken while polling.
+		if !statement() {
+			return fmt.Errorf("invariant broken before time out")
+		}
+
+		select {
+		case <-exitTimer:
+			return nil
+		default:
+		}
+	}
+}

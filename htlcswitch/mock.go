@@ -171,12 +171,10 @@ func initSwitchWithDB(startingHeight uint32, db *channeldb.DB) (*Switch, error) 
 		FetchLastChannelUpdate: func(lnwire.ShortChannelID) (*lnwire.ChannelUpdate, error) {
 			return nil, nil
 		},
-		Notifier:              &mockNotifier{},
-		FwdEventTicker:        ticker.NewForce(DefaultFwdEventInterval),
-		LogEventTicker:        ticker.NewForce(DefaultLogInterval),
-		AckEventTicker:        ticker.NewForce(DefaultAckInterval),
-		NotifyActiveChannel:   func(wire.OutPoint) {},
-		NotifyInactiveChannel: func(wire.OutPoint) {},
+		Notifier:       &mockNotifier{},
+		FwdEventTicker: ticker.NewForce(DefaultFwdEventInterval),
+		LogEventTicker: ticker.NewForce(DefaultLogInterval),
+		AckEventTicker: ticker.NewForce(DefaultAckInterval),
 	}
 
 	return New(cfg, startingHeight)

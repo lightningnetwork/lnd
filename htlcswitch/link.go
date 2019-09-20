@@ -262,6 +262,14 @@ type ChannelLinkConfig struct {
 	// commitment fee to be of its balance. This only applies to the
 	// initiator of the channel.
 	MaxFeeAllocation float64
+
+	// NotifyActiveChannel allows the link to tell the ChannelNotifier when
+	// channels becomes active.
+	NotifyActiveChannel func(wire.OutPoint)
+
+	// NotifyInactiveChannel allows the switch to tell the ChannelNotifier
+	// when channels become inactive.
+	NotifyInactiveChannel func(wire.OutPoint)
 }
 
 // channelLink is the service which drives a channel's commitment update
@@ -271,8 +279,9 @@ type ChannelLinkConfig struct {
 // message ordering and updates.
 type channelLink struct {
 	// The following fields are only meant to be used *atomically*
-	started  int32
-	shutdown int32
+	started       int32
+	reestablished int32
+	shutdown      int32
 
 	// failed should be set to true in case a link error happens, making
 	// sure we don't process any more updates.
@@ -532,7 +541,21 @@ func (l *channelLink) WaitForShutdown() {
 // the all-zero source ID, meaning that the channel has had its ID finalized.
 func (l *channelLink) EligibleToForward() bool {
 	return l.channel.RemoteNextRevocation() != nil &&
-		l.ShortChanID() != hop.Source
+		l.ShortChanID() != hop.Source &&
+		l.isReestablished()
+}
+
+// isReestablished returns true if the link has successfully completed the
+// channel reestablishment dance.
+func (l *channelLink) isReestablished() bool {
+	return atomic.LoadInt32(&l.reestablished) == 1
+}
+
+// markReestablished signals that the remote peer has successfully exchanged
+// channel reestablish messages and that the channel is ready to process
+// subsequent messages.
+func (l *channelLink) markReestablished() {
+	atomic.StoreInt32(&l.reestablished, 1)
 }
 
 // sampleNetworkFee samples the current fee rate on the network to get into the
@@ -617,10 +640,8 @@ func (l *channelLink) syncChanStates() error {
 
 	var msgsToReSend []lnwire.Message
 
-	// Next, we'll wait to receive the ChanSync message with a timeout
-	// period. The first message sent MUST be the ChanSync message,
-	// otherwise, we'll terminate the connection.
-	chanSyncDeadline := time.After(time.Second * 30)
+	// Next, we'll wait indefinitely to receive the ChanSync message. The
+	// first message sent MUST be the ChanSync message.
 	select {
 	case msg := <-l.upstream:
 		remoteChanSyncMsg, ok := msg.(*lnwire.ChannelReestablish)
@@ -704,10 +725,6 @@ func (l *channelLink) syncChanStates() error {
 
 	case <-l.quit:
 		return ErrLinkShuttingDown
-
-	case <-chanSyncDeadline:
-		return fmt.Errorf("didn't receive ChannelReestablish before " +
-			"deadline")
 	}
 
 	return nil
@@ -944,6 +961,17 @@ func (l *channelLink) htlcManager() {
 			return
 		}
 	}
+
+	// We've successfully reestablished the channel, mark it as such to
+	// allow the switch to forward HTLCs in the outbound direction.
+	l.markReestablished()
+
+	// Now that we've received both funding locked and channel reestablish,
+	// we can go ahead and send the active channel notification. We'll also
+	// defer the inactive notification for when the link exits to ensure
+	// that every active notification is matched by an inactive one.
+	l.cfg.NotifyActiveChannel(*l.ChannelPoint())
+	defer l.cfg.NotifyInactiveChannel(*l.ChannelPoint())
 
 	// With the channel states synced, we now reset the mailbox to ensure
 	// we start processing all unacked packets in order. This is done here

@@ -29,7 +29,7 @@ import (
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
-	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
@@ -1537,7 +1537,7 @@ func assertBrarCleanup(t *testing.T, brar *breachArbiter,
 
 	t.Helper()
 
-	err := lntest.WaitNoError(func() error {
+	err := wait.NoError(func() error {
 		isBreached, err := brar.IsBreached(chanPoint)
 		if err != nil {
 			return err

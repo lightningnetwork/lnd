@@ -958,10 +958,11 @@ func loadConfig() (*config, error) {
 	}*/
 
 	// Initialize logging at the default logging level.
+	/*TODO(guggero) fix
 	initLogRotator(
 		filepath.Join(cfg.LogDir, defaultLogFilename),
 		cfg.MaxLogFileSize, cfg.MaxLogFiles,
-	)
+	)*/
 
 	// Parse, validate, and set debug log level(s).
 	/*TODO(guggero) fix

@@ -26,7 +26,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
 	"golang.org/x/crypto/salsa20"
-	"google.golang.org/grpc"
 )
 
 const (
@@ -862,15 +861,14 @@ func (f *fundingManager) failFundingFlow(peer lnpeer.Peer, tempChanID [32]byte,
 	var msg lnwire.ErrorData
 	switch e := fundingErr.(type) {
 
-	// Let the actual error message be sent to the remote.
+	// Let the actual error message be sent to the remote for the
+	// whitelisted types.
 	case lnwallet.ReservationError:
 		msg = lnwire.ErrorData(e.Error())
-
-	// Send the status code.
 	case lnwire.ErrorCode:
-		msg = lnwire.ErrorData{byte(e)}
+		msg = lnwire.ErrorData(e.Error())
 
-	// We just send a generic error.
+	// For all other error types we just send a generic error.
 	default:
 		msg = lnwire.ErrorData("funding failed due to internal error")
 	}
@@ -2963,25 +2961,12 @@ func (f *fundingManager) handleErrorMsg(fmsg *fundingErrorMsg) {
 
 	// If we did indeed find the funding workflow, then we'll return the
 	// error back to the caller (if any), and cancel the workflow itself.
-	lnErr := lnwire.ErrorCode(protocolErr.Data[0])
-	fndgLog.Errorf("Received funding error from %x: %v",
+	fundingErr := fmt.Errorf("received funding error from %x: %v",
 		fmsg.peerKey.SerializeCompressed(), string(protocolErr.Data),
 	)
+	fndgLog.Errorf(fundingErr.Error())
 
-	// If this isn't a simple error code, then we'll display the entire
-	// thing.
-	if len(protocolErr.Data) > 1 {
-		err = grpc.Errorf(
-			lnErr.ToGrpcCode(), string(protocolErr.Data),
-		)
-	} else {
-		// Otherwise, we'll attempt to display just the error code
-		// itself.
-		err = grpc.Errorf(
-			lnErr.ToGrpcCode(), lnErr.String(),
-		)
-	}
-	resCtx.err <- err
+	resCtx.err <- fundingErr
 }
 
 // pruneZombieReservations loops through all pending reservations and fails the

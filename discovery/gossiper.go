@@ -1211,6 +1211,11 @@ func (d *AuthenticatedGossiper) retransmitStaleAnns(now time.Time) error {
 		// introduction of the MaxHTLC field, then we'll update this
 		// edge to propagate this information in the network.
 		if !edge.MessageFlags.HasMaxHtlc() {
+			// We'll make sure we support the new max_htlc field if
+			// not already present.
+			edge.MessageFlags |= lnwire.ChanUpdateOptionMaxHtlc
+			edge.MaxHTLC = lnwire.NewMSatFromSatoshis(info.Capacity)
+
 			edgesToUpdate = append(edgesToUpdate, updateTuple{
 				info: info,
 				edge: edge,
@@ -1368,6 +1373,10 @@ func (d *AuthenticatedGossiper) processChanPolicyUpdate(
 			policyUpdate.newSchema.FeeRate,
 		)
 		edge.TimeLockDelta = uint16(policyUpdate.newSchema.TimeLockDelta)
+
+		// Max htlc is currently always set to the channel capacity.
+		edge.MessageFlags |= lnwire.ChanUpdateOptionMaxHtlc
+		edge.MaxHTLC = lnwire.NewMSatFromSatoshis(info.Capacity)
 
 		edgesToUpdate = append(edgesToUpdate, edgeWithInfo{
 			info: info,
@@ -2513,13 +2522,6 @@ func (d *AuthenticatedGossiper) isMsgStale(msg lnwire.Message) bool {
 func (d *AuthenticatedGossiper) updateChannel(info *channeldb.ChannelEdgeInfo,
 	edge *channeldb.ChannelEdgePolicy) (*lnwire.ChannelAnnouncement,
 	*lnwire.ChannelUpdate, error) {
-
-	// We'll make sure we support the new max_htlc field if not already
-	// present.
-	if !edge.MessageFlags.HasMaxHtlc() {
-		edge.MessageFlags |= lnwire.ChanUpdateOptionMaxHtlc
-		edge.MaxHTLC = lnwire.NewMSatFromSatoshis(info.Capacity)
-	}
 
 	// Make sure timestamp is always increased, such that our update gets
 	// propagated.

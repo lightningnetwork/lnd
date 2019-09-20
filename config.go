@@ -232,7 +232,7 @@ type config struct {
 	ShowVersion bool `short:"V" long:"version" description:"Display version information and exit"`
 
 	LndDir          string   `long:"lnddir" description:"The base directory that contains lnd's data, logs, configuration file, etc."`
-	ConfigFile      string   `long:"C" long:"configfile" description:"Path to configuration file"`
+	ConfigFile      string   `short:"C" long:"configfile" description:"Path to configuration file"`
 	DataDir         string   `short:"b" long:"datadir" description:"The directory to store lnd's data within"`
 	TLSCertPath     string   `long:"tlscertpath" description:"Path to write the TLS certificate for lnd's RPC and REST services"`
 	TLSKeyPath      string   `long:"tlskeypath" description:"Path to write the TLS private key for lnd's RPC and REST services"`

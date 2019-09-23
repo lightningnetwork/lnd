@@ -5,7 +5,6 @@ import (
 
 	"github.com/btcsuite/btcd/connmgr"
 	"github.com/btcsuite/btclog"
-	"github.com/jrick/logrotate/rotator"
 	"github.com/lightninglabs/neutrino"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/autopilot"
@@ -44,129 +43,79 @@ import (
 //
 // Loggers can not be used before the log rotator has been initialized with a
 // log file.  This must be performed early during application startup by
-// calling initLogRotator.
+// calling logWriter.InitLogRotator.
 var (
-	logWriter = &build.LogWriter{}
+	logWriter = build.NewRotatingLogWriter()
 
-	// backendLog is the logging backend used to create all subsystem
-	// loggers.  The backend must not be used before the log rotator has
-	// been initialized, or data races and/or nil pointer dereferences will
-	// occur.
-	backendLog = btclog.NewBackend(logWriter)
-
-	// logRotator is one of the logging outputs.  It should be closed on
-	// application shutdown.
-	logRotator *rotator.Rotator
-
-	ltndLog = build.NewSubLogger("LTND", backendLog.Logger)
-	lnwlLog = build.NewSubLogger("LNWL", backendLog.Logger)
-	peerLog = build.NewSubLogger("PEER", backendLog.Logger)
-	discLog = build.NewSubLogger("DISC", backendLog.Logger)
-	rpcsLog = build.NewSubLogger("RPCS", backendLog.Logger)
-	srvrLog = build.NewSubLogger("SRVR", backendLog.Logger)
-	ntfnLog = build.NewSubLogger("NTFN", backendLog.Logger)
-	chdbLog = build.NewSubLogger("CHDB", backendLog.Logger)
-	fndgLog = build.NewSubLogger("FNDG", backendLog.Logger)
-	hswcLog = build.NewSubLogger("HSWC", backendLog.Logger)
-	utxnLog = build.NewSubLogger("UTXN", backendLog.Logger)
-	brarLog = build.NewSubLogger("BRAR", backendLog.Logger)
-	cmgrLog = build.NewSubLogger("CMGR", backendLog.Logger)
-	crtrLog = build.NewSubLogger("CRTR", backendLog.Logger)
-	btcnLog = build.NewSubLogger("BTCN", backendLog.Logger)
-	atplLog = build.NewSubLogger("ATPL", backendLog.Logger)
-	cnctLog = build.NewSubLogger("CNCT", backendLog.Logger)
-	sphxLog = build.NewSubLogger("SPHX", backendLog.Logger)
-	swprLog = build.NewSubLogger("SWPR", backendLog.Logger)
-	sgnrLog = build.NewSubLogger("SGNR", backendLog.Logger)
-	wlktLog = build.NewSubLogger("WLKT", backendLog.Logger)
-	arpcLog = build.NewSubLogger("ARPC", backendLog.Logger)
-	invcLog = build.NewSubLogger("INVC", backendLog.Logger)
-	nannLog = build.NewSubLogger("NANN", backendLog.Logger)
-	wtwrLog = build.NewSubLogger("WTWR", backendLog.Logger)
-	ntfrLog = build.NewSubLogger("NTFR", backendLog.Logger)
-	irpcLog = build.NewSubLogger("IRPC", backendLog.Logger)
-	chnfLog = build.NewSubLogger("CHNF", backendLog.Logger)
-	chbuLog = build.NewSubLogger("CHBU", backendLog.Logger)
-	promLog = build.NewSubLogger("PROM", backendLog.Logger)
-	wtclLog = build.NewSubLogger("WTCL", backendLog.Logger)
-	prnfLog = build.NewSubLogger("PRNF", backendLog.Logger)
+	// Loggers that need to be accessible from the lnd package can be placed
+	// here. Loggers that are only used in sub modules can be added directly
+	// by using the addSubLogger method.
+	ltndLog = build.NewSubLogger("LTND", logWriter.GenSubLogger)
+	peerLog = build.NewSubLogger("PEER", logWriter.GenSubLogger)
+	rpcsLog = build.NewSubLogger("RPCS", logWriter.GenSubLogger)
+	srvrLog = build.NewSubLogger("SRVR", logWriter.GenSubLogger)
+	fndgLog = build.NewSubLogger("FNDG", logWriter.GenSubLogger)
+	utxnLog = build.NewSubLogger("UTXN", logWriter.GenSubLogger)
+	brarLog = build.NewSubLogger("BRAR", logWriter.GenSubLogger)
+	atplLog = build.NewSubLogger("ATPL", logWriter.GenSubLogger)
 )
 
 // Initialize package-global logger variables.
 func init() {
-	lnwallet.UseLogger(lnwlLog)
-	discovery.UseLogger(discLog)
-	chainntnfs.UseLogger(ntfnLog)
-	channeldb.UseLogger(chdbLog)
-	htlcswitch.UseLogger(hswcLog)
-	connmgr.UseLogger(cmgrLog)
-	routing.UseLogger(crtrLog)
-	neutrino.UseLogger(btcnLog)
-	autopilot.UseLogger(atplLog)
-	contractcourt.UseLogger(cnctLog)
-	sphinx.UseLogger(sphxLog)
-	signal.UseLogger(ltndLog)
-	sweep.UseLogger(swprLog)
-	signrpc.UseLogger(sgnrLog)
-	walletrpc.UseLogger(wlktLog)
-	autopilotrpc.UseLogger(arpcLog)
-	invoices.UseLogger(invcLog)
-	netann.UseLogger(nannLog)
-	watchtower.UseLogger(wtwrLog)
-	chainrpc.UseLogger(ntfrLog)
-	invoicesrpc.UseLogger(irpcLog)
-	channelnotifier.UseLogger(chnfLog)
-	chanbackup.UseLogger(chbuLog)
-	monitoring.UseLogger(promLog)
-	wtclient.UseLogger(wtclLog)
-	peernotifier.UseLogger(prnfLog)
+	setSubLogger("LTND", ltndLog, signal.UseLogger)
+	setSubLogger("ATPL", atplLog, autopilot.UseLogger)
+	setSubLogger("PEER", peerLog, nil)
+	setSubLogger("RPCS", rpcsLog, nil)
+	setSubLogger("SRVR", srvrLog, nil)
+	setSubLogger("FNDG", fndgLog, nil)
+	setSubLogger("UTXN", utxnLog, nil)
+	setSubLogger("BRAR", brarLog, nil)
+
+	addSubLogger("LNWL", lnwallet.UseLogger)
+	addSubLogger("DISC", discovery.UseLogger)
+	addSubLogger("NTFN", chainntnfs.UseLogger)
+	addSubLogger("CHDB", channeldb.UseLogger)
+	addSubLogger("HSWC", htlcswitch.UseLogger)
+	addSubLogger("CMGR", connmgr.UseLogger)
+	addSubLogger("CRTR", routing.UseLogger)
+	addSubLogger("BTCN", neutrino.UseLogger)
+	addSubLogger("CNCT", contractcourt.UseLogger)
+	addSubLogger("SPHX", sphinx.UseLogger)
+	addSubLogger("SWPR", sweep.UseLogger)
+	addSubLogger("SGNR", signrpc.UseLogger)
+	addSubLogger("WLKT", walletrpc.UseLogger)
+	addSubLogger("ARPC", autopilotrpc.UseLogger)
+	addSubLogger("INVC", invoices.UseLogger)
+	addSubLogger("NANN", netann.UseLogger)
+	addSubLogger("WTWR", watchtower.UseLogger)
+	addSubLogger("NTFR", chainrpc.UseLogger)
+	addSubLogger("IRPC", invoicesrpc.UseLogger)
+	addSubLogger("CHNF", channelnotifier.UseLogger)
+	addSubLogger("CHBU", chanbackup.UseLogger)
+	addSubLogger("PROM", monitoring.UseLogger)
+	addSubLogger("WTCL", wtclient.UseLogger)
+	addSubLogger("PRNF", peernotifier.UseLogger)
 
 	addSubLogger(routerrpc.Subsystem, routerrpc.UseLogger)
 	addSubLogger(wtclientrpc.Subsystem, wtclientrpc.UseLogger)
 }
 
-// addSubLogger is a helper method to conveniently register the logger of a sub
-// system.
+// addSubLogger is a helper method to conveniently create and register the
+// logger of a sub system.
 func addSubLogger(subsystem string, useLogger func(btclog.Logger)) {
-	logger := build.NewSubLogger(subsystem, backendLog.Logger)
-	useLogger(logger)
-	subsystemLoggers[subsystem] = logger
+	logger := build.NewSubLogger(subsystem, logWriter.GenSubLogger)
+	setSubLogger(subsystem, logger, useLogger)
 }
 
-// subsystemLoggers maps each subsystem identifier to its associated logger.
-var subsystemLoggers = map[string]btclog.Logger{
-	"LTND": ltndLog,
-	"LNWL": lnwlLog,
-	"PEER": peerLog,
-	"DISC": discLog,
-	"RPCS": rpcsLog,
-	"SRVR": srvrLog,
-	"NTFN": ntfnLog,
-	"CHDB": chdbLog,
-	"FNDG": fndgLog,
-	"HSWC": hswcLog,
-	"UTXN": utxnLog,
-	"BRAR": brarLog,
-	"CMGR": cmgrLog,
-	"CRTR": crtrLog,
-	"BTCN": btcnLog,
-	"ATPL": atplLog,
-	"CNCT": cnctLog,
-	"SPHX": sphxLog,
-	"SWPR": swprLog,
-	"SGNR": sgnrLog,
-	"WLKT": wlktLog,
-	"ARPC": arpcLog,
-	"INVC": invcLog,
-	"NANN": nannLog,
-	"WTWR": wtwrLog,
-	"NTFR": ntfrLog,
-	"IRPC": irpcLog,
-	"CHNF": chnfLog,
-	"CHBU": chbuLog,
-	"PROM": promLog,
-	"WTCL": wtclLog,
-	"PRNF": prnfLog,
+// setSubLogger is a helper method to conveniently register the logger of a sub
+// system.
+func setSubLogger(subsystem string, logger btclog.Logger,
+	useLogger func(btclog.Logger)) {
+
+	logWriter.RegisterSubLogger(subsystem, logger)
+	if useLogger != nil {
+		useLogger(logger)
+	}
 }
 
 // logClosure is used to provide a closure over expensive logging operations so

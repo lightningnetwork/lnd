@@ -4699,11 +4699,10 @@ func TestChannelLinkNoEmptySig(t *testing.T) {
 	ctx.receiveRevAndAckAliceToBob()
 	ctx.sendRevAndAckBobToAlice()
 
-	// The situation now is that Alice still doesn't have her two htlcs on
-	// the local commit tx. Bob needs to send a new signature and Alice can
-	// only wait for that. However, Alice's log commit timer fires and Alice
-	// sends a commitment tx containing no updates. THIS SHOULD NOT HAPPEN!
-	ctx.receiveCommitSigAliceToBob(2)
+	// The commit txes are not in sync, but it is Bob's turn to send a new
+	// signature. We don't expect Alice to send out any message. This check
+	// allows some time for the log commit ticker to trigger for Alice.
+	ctx.assertNoMsgFromAlice(time.Second)
 }
 
 // TestChannelLinkBatchPreimageWrite asserts that a link will batch preimage
@@ -6109,9 +6108,8 @@ func TestChannelLinkReceiveEmptySig(t *testing.T) {
 	// Send RevokeAndAck Bob->Alice to ack the added htlc.
 	ctx.sendRevAndAckBobToAlice()
 
-	// No new updates to sign, Alice still sends out an empty sig. THIS
-	// SHOULD NOT HAPPEN!
-	ctx.receiveCommitSigAliceToBob(1)
+	// We received an empty commit sig, we accepted it, but there is nothing
+	// new to sign for us.
 
 	// No other messages are expected.
 	ctx.assertNoMsgFromAlice(time.Second)

@@ -3535,7 +3535,7 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 		// but died before the signature was sent. We re-transmit our
 		// revocation, but also initiate a state transition to re-sync
 		// them.
-		if !lc.FullySynced() {
+		if lc.OweCommitment(true) {
 			commitSig, htlcSigs, _, err := lc.SignNextCommitment()
 			switch {
 
@@ -4223,26 +4223,6 @@ func (lc *LightningChannel) oweCommitment(local bool) bool {
 		localUpdatesPending, remoteUpdatesPending)
 
 	return oweCommitment
-}
-
-// FullySynced returns a boolean value reflecting if both commitment chains
-// (remote+local) are fully in sync. Both commitment chains are fully in sync
-// if the tip of each chain includes the latest committed changes from both
-// sides.
-func (lc *LightningChannel) FullySynced() bool {
-	lc.RLock()
-	defer lc.RUnlock()
-
-	lastLocalCommit := lc.localCommitChain.tip()
-	lastRemoteCommit := lc.remoteCommitChain.tip()
-
-	localUpdatesSynced := (lastLocalCommit.ourMessageIndex ==
-		lastRemoteCommit.ourMessageIndex)
-
-	remoteUpdatesSynced := (lastLocalCommit.theirMessageIndex ==
-		lastRemoteCommit.theirMessageIndex)
-
-	return localUpdatesSynced && remoteUpdatesSynced
 }
 
 // RevokeCurrentCommitment revokes the next lowest unrevoked commitment

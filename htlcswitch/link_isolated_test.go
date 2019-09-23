@@ -251,3 +251,15 @@ func (l *linkTestContext) receiveFailAliceToBob() {
 		l.t.Fatalf("unable to apply received fail htlc: %v", err)
 	}
 }
+
+// assertNoMsgFromAlice asserts that Alice hasn't sent a message. Before
+// calling, make sure that Alice has had the opportunity to send the message.
+func (l *linkTestContext) assertNoMsgFromAlice() {
+	l.t.Helper()
+
+	select {
+	case msg := <-l.aliceMsgs:
+		l.t.Fatalf("unexpected message from Alice: %v", msg)
+	default:
+	}
+}

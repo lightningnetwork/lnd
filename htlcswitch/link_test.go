@@ -4645,11 +4645,12 @@ func TestChannelLinkNoEmptySig(t *testing.T) {
 	ctx.receiveRevAndAckAliceToBob()
 	ctx.sendRevAndAckBobToAlice()
 
-	// The situation now is that Alice still doesn't have her two htlcs on
-	// the local commit tx. Bob needs to send a new signature and Alice can
-	// only wait for that. However, Alice's log commit timer fires and Alice
-	// sends a commitment tx containing no updates. THIS SHOULD NOT HAPPEN!
-	ctx.receiveCommitSigAliceToBob(2)
+	// Allow some time for the log commit ticker to trigger for Alice.
+	time.Sleep(time.Second)
+
+	// The commit txes are not in sync, but it is Bob's turn to send a new
+	// signature. We don't expect Alice to send out any message.
+	ctx.assertNoMsgFromAlice()
 
 	aliceLink.Stop()
 }

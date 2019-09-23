@@ -3348,7 +3348,7 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 		// but died before the signature was sent. We re-transmit our
 		// revocation, but also initiate a state transition to re-sync
 		// them.
-		if !lc.FullySynced() {
+		if !lc.AllUpdatesSigned() {
 			commitSig, htlcSigs, _, err := lc.SignNextCommitment()
 			switch {
 
@@ -4188,24 +4188,29 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSig lnwire.Sig,
 	return nil
 }
 
-// FullySynced returns a boolean value reflecting if both commitment chains
-// (remote+local) are fully in sync. Both commitment chains are fully in sync
-// if the tip of each chain includes the latest committed changes from both
-// sides.
-func (lc *LightningChannel) FullySynced() bool {
+// AllUpdatesSigned returns a boolean value reflecting whether we need to send
+// out a commitment signature because there are outstanding local updates and/or
+// updates in the local commit tx that aren't reflected in the remote commit tx
+// yet.
+func (lc *LightningChannel) AllUpdatesSigned() bool {
 	lc.RLock()
 	defer lc.RUnlock()
 
-	lastLocalCommit := lc.localCommitChain.tip()
 	lastRemoteCommit := lc.remoteCommitChain.tip()
+	lastLocalCommit := lc.localCommitChain.tip()
 
-	localUpdatesSynced := (lastLocalCommit.ourMessageIndex ==
-		lastRemoteCommit.ourMessageIndex)
+	localUpdatesPending := lc.localUpdateLog.logIndex !=
+		lastRemoteCommit.ourMessageIndex
 
-	remoteUpdatesSynced := (lastLocalCommit.theirMessageIndex ==
-		lastRemoteCommit.theirMessageIndex)
+	remoteUpdatesPending := lastLocalCommit.theirMessageIndex !=
+		lastRemoteCommit.theirMessageIndex
 
-	return localUpdatesSynced && remoteUpdatesSynced
+	allSigned := !localUpdatesPending && !remoteUpdatesPending
+
+	lc.logDebug("All signed: %v (local updates: %v, remote updates %v)",
+		allSigned, localUpdatesPending, remoteUpdatesPending)
+
+	return allSigned
 }
 
 // RevokeCurrentCommitment revokes the next lowest unrevoked commitment

@@ -1054,7 +1054,7 @@ out:
 			// update in some time, check to see if we have any
 			// pending updates we need to commit due to our
 			// commitment chains being desynchronized.
-			if l.channel.FullySynced() {
+			if l.channel.AllUpdatesSigned() {
 				continue
 			}
 
@@ -1762,7 +1762,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// If both commitment chains are fully synced from our PoV,
 		// then we don't need to reply with a signature as both sides
 		// already have a commitment with the latest accepted.
-		if l.channel.FullySynced() {
+		if l.channel.AllUpdatesSigned() {
 			return
 		}
 

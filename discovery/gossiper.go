@@ -2552,7 +2552,7 @@ func (d *AuthenticatedGossiper) updateChannel(info *channeldb.ChannelEdgeInfo,
 
 	// Next, we'll set the new signature in place, and update the reference
 	// in the backing slice.
-	edge.SigBytes = sig.Serialize()
+	edge.SetSigBytes(sig.Serialize())
 	chanUpdate.Signature, err = lnwire.NewSigFromSignature(sig)
 	if err != nil {
 		return nil, nil, err

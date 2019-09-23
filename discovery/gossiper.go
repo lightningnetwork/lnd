@@ -2543,12 +2543,6 @@ func (d *AuthenticatedGossiper) updateChannel(info *channeldb.ChannelEdgeInfo,
 		ExtraOpaqueData: edge.ExtraOpaqueData,
 	}
 
-	var err error
-	chanUpdate.Signature, err = lnwire.NewSigFromRawSignature(edge.SigBytes)
-	if err != nil {
-		return nil, nil, err
-	}
-
 	// With the update applied, we'll generate a new signature over a
 	// digest of the channel announcement itself.
 	sig, err := SignAnnouncement(d.cfg.AnnSigner, d.selfKey, chanUpdate)

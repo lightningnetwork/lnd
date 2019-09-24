@@ -4545,12 +4545,6 @@ func (r *rpcServer) FeeReport(ctx context.Context,
 // 0.000001, or 0.0001%.
 const minFeeRate = 1e-6
 
-// policyUpdateLock ensures that the database and the link do not fall out of
-// sync if there are concurrent fee update calls. Without it, there is a chance
-// that policy A updates the database, then policy B updates the database, then
-// policy B updates the link, then policy A updates the link.
-var policyUpdateLock sync.Mutex
-
 // UpdateChannelPolicy allows the caller to update the channel forwarding policy
 // for all channels globally, or a particular channel.
 func (r *rpcServer) UpdateChannelPolicy(ctx context.Context,
@@ -4608,6 +4602,7 @@ func (r *rpcServer) UpdateChannelPolicy(ctx context.Context,
 	chanPolicy := routing.ChannelPolicy{
 		FeeSchema:     feeSchema,
 		TimeLockDelta: req.TimeLockDelta,
+		MaxHTLC:       lnwire.MilliSatoshi(req.MaxHtlcMsat),
 	}
 
 	rpcsLog.Debugf("[updatechanpolicy] updating channel policy base_fee=%v, "+
@@ -4615,21 +4610,12 @@ func (r *rpcServer) UpdateChannelPolicy(ctx context.Context,
 		req.BaseFeeMsat, req.FeeRate, feeRateFixed, req.TimeLockDelta,
 		spew.Sdump(targetChans))
 
-	// With the scope resolved, we'll now send this to the
-	// AuthenticatedGossiper so it can propagate the new policy for our
-	// target channel(s).
-	policyUpdateLock.Lock()
-	defer policyUpdateLock.Unlock()
-	chanPolicies, err := r.server.authGossiper.PropagateChanPolicyUpdate(
-		chanPolicy, targetChans...,
-	)
+	// With the scope resolved, we'll now send this to the local channel
+	// manager so it can propagate the new policy for our target channel(s).
+	err := r.server.localChanMgr.UpdatePolicy(chanPolicy, targetChans...)
 	if err != nil {
 		return nil, err
 	}
-
-	// Finally, we'll apply the set of channel policies to the target
-	// channels' links.
-	r.server.htlcSwitch.UpdateForwardingPolicies(chanPolicies)
 
 	return &lnrpc.PolicyUpdateResponse{}, nil
 }

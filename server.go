@@ -48,6 +48,7 @@ import (
 	"github.com/lightningnetwork/lnd/peernotifier"
 	"github.com/lightningnetwork/lnd/pool"
 	"github.com/lightningnetwork/lnd/routing"
+	"github.com/lightningnetwork/lnd/routing/localchans"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/sweep"
 	"github.com/lightningnetwork/lnd/ticker"
@@ -202,6 +203,8 @@ type server struct {
 	controlTower routing.ControlTower
 
 	authGossiper *discovery.AuthenticatedGossiper
+
+	localChanMgr *localchans.Manager
 
 	utxoNursery *utxoNursery
 
@@ -734,6 +737,13 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 	},
 		s.identityPriv.PubKey(),
 	)
+
+	s.localChanMgr = &localchans.Manager{
+		ForAllOutgoingChannels:    s.chanRouter.ForAllOutgoingChannels,
+		PropagateChanPolicyUpdate: s.authGossiper.PropagateChanPolicyUpdate,
+		UpdateForwardingPolicies:  s.htlcSwitch.UpdateForwardingPolicies,
+		FetchChannel:              s.chanDB.FetchChannel,
+	}
 
 	utxnStore, err := newNurseryStore(activeNetParams.GenesisHash, chanDB)
 	if err != nil {

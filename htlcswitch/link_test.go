@@ -971,6 +971,47 @@ func TestUpdateForwardingPolicy(t *testing.T) {
 	default:
 		t.Fatalf("expected FailFeeInsufficient instead got: %v", err)
 	}
+
+	// Reset the policy so we can then test updating the max HTLC policy.
+	n.secondBobChannelLink.UpdateForwardingPolicy(n.globalPolicy)
+
+	// As a sanity check, ensure the original payment now succeeds again.
+	_, err = makePayment(
+		n.aliceServer, n.carolServer, firstHop, hops, amountNoFee,
+		htlcAmt, htlcExpiry,
+	).Wait(30 * time.Second)
+	if err != nil {
+		t.Fatalf("unable to send payment: %v", err)
+	}
+
+	// Now we'll update Bob's policy to lower his max HTLC to an extent
+	// that'll cause him to reject the same HTLC that we just sent.
+	newPolicy = n.globalPolicy
+	newPolicy.MaxHTLC = amountNoFee - 1
+	n.secondBobChannelLink.UpdateForwardingPolicy(newPolicy)
+
+	// Next, we'll send the payment again, using the exact same per-hop
+	// payload for each node. This payment should fail as it won't factor
+	// in Bob's new max HTLC policy.
+	_, err = makePayment(
+		n.aliceServer, n.carolServer, firstHop, hops, amountNoFee,
+		htlcAmt, htlcExpiry,
+	).Wait(30 * time.Second)
+	if err == nil {
+		t.Fatalf("payment should've been rejected")
+	}
+
+	ferr, ok = err.(*ForwardingError)
+	if !ok {
+		t.Fatalf("expected a ForwardingError, instead got (%T): %v",
+			err, err)
+	}
+	switch ferr.FailureMessage.(type) {
+	case *lnwire.FailTemporaryChannelFailure:
+	default:
+		t.Fatalf("expected TemporaryChannelFailure, instead got: %v",
+			err)
+	}
 }
 
 // TestChannelLinkMultiHopInsufficientPayment checks that we receive error if

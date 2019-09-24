@@ -117,12 +117,6 @@ func WriteElement(w io.Writer, element interface{}) error {
 		if _, err := w.Write(b[:]); err != nil {
 			return err
 		}
-	case ErrorCode:
-		var b [2]byte
-		binary.BigEndian.PutUint16(b[:], uint16(e))
-		if _, err := w.Write(b[:]); err != nil {
-			return err
-		}
 	case MilliSatoshi:
 		var b [8]byte
 		binary.BigEndian.PutUint64(b[:], uint64(e))
@@ -506,12 +500,6 @@ func ReadElement(r io.Reader, element interface{}) error {
 			return err
 		}
 		*e = ChanUpdateChanFlags(b[0])
-	case *ErrorCode:
-		var b [2]byte
-		if _, err := io.ReadFull(r, b[:]); err != nil {
-			return err
-		}
-		*e = ErrorCode(binary.BigEndian.Uint16(b[:]))
 	case *uint32:
 		var b [4]byte
 		if _, err := io.ReadFull(r, b[:]); err != nil {

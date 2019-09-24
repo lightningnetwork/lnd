@@ -42,7 +42,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
 	"golang.org/x/net/context"
-	"google.golang.org/grpc"
 )
 
 var (
@@ -6187,7 +6186,9 @@ func testMaxPendingChannels(net *lntest.NetworkHarness, t *harnessTest) {
 
 	if err == nil {
 		t.Fatalf("error wasn't received")
-	} else if grpc.Code(err) != lnwire.ErrMaxPendingChannels.ToGrpcCode() {
+	} else if !strings.Contains(
+		err.Error(), lnwire.ErrMaxPendingChannels.Error(),
+	) {
 		t.Fatalf("not expected error was received: %v", err)
 	}
 

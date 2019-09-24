@@ -1023,11 +1023,14 @@ out:
 			break out
 		}
 
-		// If the previous event resulted in a non-empty
-		// batch, reinstate the batch ticker so that it can be
-		// cleared.
+		// If the previous event resulted in a non-empty batch, resume
+		// the batch ticker so that it can be cleared. Otherwise pause
+		// the ticker to prevent waking up the htlcManager while the
+		// batch is empty.
 		if l.batchCounter > 0 {
 			l.cfg.BatchTicker.Resume()
+		} else {
+			l.cfg.BatchTicker.Pause()
 		}
 
 		select {
@@ -1109,19 +1112,10 @@ out:
 			}
 
 		case <-l.cfg.BatchTicker.Ticks():
-			// If the current batch is empty, then we have no work
-			// here. We also disable the batch ticker from waking up
-			// the htlcManager while the batch is empty.
-			if l.batchCounter == 0 {
-				l.cfg.BatchTicker.Pause()
-				continue
-			}
-
-			// Otherwise, attempt to extend the remote commitment
-			// chain including all the currently pending entries.
-			// If the send was unsuccessful, then abandon the
-			// update, waiting for the revocation window to open
-			// up.
+			// Attempt to extend the remote commitment chain
+			// including all the currently pending entries. If the
+			// send was unsuccessful, then abandon the update,
+			// waiting for the revocation window to open up.
 			if err := l.updateCommitTx(); err != nil {
 				l.fail(LinkFailureError{code: ErrInternalError},
 					"unable to update commitment: %v", err)

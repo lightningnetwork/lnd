@@ -21,6 +21,7 @@ import (
 	"github.com/golang/protobuf/jsonpb"
 	"github.com/golang/protobuf/proto"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/walletunlocker"
 	"github.com/urfave/cli"
 	"golang.org/x/crypto/ssh/terminal"
@@ -2381,22 +2382,23 @@ var sendToRouteCommand = cli.Command{
 	Usage:    "Send a payment over a predefined route.",
 	Description: `
 	Send a payment over Lightning using a specific route. One must specify
-	a list of routes to attempt and the payment hash. This command can even
-	be chained with the response to queryroutes. This command can be used
-	to implement channel rebalancing by crafting a self-route, or even
-	atomic swaps using a self-route that crosses multiple chains.
+	the route to attempt and the payment hash. This command can even
+	be chained with the response to queryroutes or buildroute. This command
+	can be used to implement channel rebalancing by crafting a self-route, 
+	or even atomic swaps using a self-route that crosses multiple chains.
 
-	There are three ways to specify routes:
+	There are three ways to specify a route:
 	   * using the --routes parameter to manually specify a JSON encoded
-	     set of routes in the format of the return value of queryroutes:
+	     route in the format of the return value of queryroutes or
+	     buildroute:
 	         (lncli sendtoroute --payment_hash=<pay_hash> --routes=<route>)
 
-	   * passing the routes as a positional argument:
+	   * passing the route as a positional argument:
 	         (lncli sendtoroute --payment_hash=pay_hash <route>)
 
-	   * or reading in the routes from stdin, which can allow chaining the
-	     response from queryroutes, or even read in a file with a set of
-	     pre-computed routes:
+	   * or reading in the route from stdin, which can allow chaining the
+	     response from queryroutes or buildroute, or even read in a file
+	     with a pre-computed route:
 	         (lncli queryroutes --args.. | lncli sendtoroute --payment_hash= -
 
 	     notice the '-' at the end, which signals that lncli should read
@@ -2474,25 +2476,37 @@ func sendToRoute(ctx *cli.Context) error {
 		jsonRoutes = string(b)
 	}
 
+	// Try to parse the provided json both in the legacy QueryRoutes format
+	// that contains a list of routes and the single route BuildRoute
+	// format.
+	var route *lnrpc.Route
 	routes := &lnrpc.QueryRoutesResponse{}
 	err = jsonpb.UnmarshalString(jsonRoutes, routes)
-	if err != nil {
-		return fmt.Errorf("unable to unmarshal json string "+
-			"from incoming array of routes: %v", err)
-	}
+	if err == nil {
+		if len(routes.Routes) == 0 {
+			return fmt.Errorf("no routes provided")
+		}
 
-	if len(routes.Routes) == 0 {
-		return fmt.Errorf("no routes provided")
-	}
+		if len(routes.Routes) != 1 {
+			return fmt.Errorf("expected a single route, but got %v",
+				len(routes.Routes))
+		}
 
-	if len(routes.Routes) != 1 {
-		return fmt.Errorf("expected a single route, but got %v",
-			len(routes.Routes))
+		route = routes.Routes[0]
+	} else {
+		routes := &routerrpc.BuildRouteResponse{}
+		err = jsonpb.UnmarshalString(jsonRoutes, routes)
+		if err != nil {
+			return fmt.Errorf("unable to unmarshal json string "+
+				"from incoming array of routes: %v", err)
+		}
+
+		route = routes.Route
 	}
 
 	req := &lnrpc.SendToRouteRequest{
 		PaymentHash: rHash,
-		Route:       routes.Routes[0],
+		Route:       route,
 	}
 
 	return sendToRouteRequest(ctx, req)

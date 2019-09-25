@@ -380,6 +380,39 @@ message PairHistory {
     bool last_attempt_successful = 6 [json_name = "last_attempt_successful"];
 }
 
+message BuildRouteRequest {
+    /**
+    The amount to send expressed in msat. If set to zero, the minimum routable
+    amount is used.
+    */
+    int64 amt_msat = 1;
+
+    /**
+    CLTV delta from the current height that should be used for the timelock
+    of the final hop
+    */
+    int32 final_cltv_delta = 2;
+
+    /**
+    The channel id of the channel that must be taken to the first hop. If zero,
+    any channel may be used.
+    */
+    uint64 outgoing_chan_id = 3;
+
+    /**
+    A list of hops that defines the route. This does not include the source hop
+    pubkey.
+    */
+    repeated bytes hop_pubkeys = 4;
+}
+
+message BuildRouteResponse {
+    /**
+    Fully specified route that can be used to execute the payment.
+    */
+    lnrpc.Route route = 1;
+}
+
 service Router {
     /**
     SendPayment attempts to route a payment described by the passed
@@ -419,4 +452,11 @@ service Router {
     It is a development feature.
     */
     rpc QueryMissionControl(QueryMissionControlRequest) returns (QueryMissionControlResponse);
+
+    /**
+    BuildRoute builds a fully specified route based on a list of hop public
+    keys. It retrieves the relevant channel policies from the graph in order to
+    calculate the correct fees and time locks.
+    */
+    rpc BuildRoute(BuildRouteRequest) returns (BuildRouteResponse);
 }

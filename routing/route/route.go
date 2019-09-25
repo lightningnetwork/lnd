@@ -3,6 +3,7 @@ package route
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"strconv"
@@ -45,6 +46,22 @@ func NewVertexFromBytes(b []byte) (Vertex, error) {
 	var v Vertex
 	copy(v[:], b)
 	return v, nil
+}
+
+// NewVertexFromStr returns a new Vertex given its hex-encoded string format.
+func NewVertexFromStr(v string) (Vertex, error) {
+	// Return error if hex string is of incorrect length.
+	if len(v) != VertexSize*2 {
+		return Vertex{}, fmt.Errorf("invalid vertex string length of "+
+			"%v, want %v", len(v), VertexSize*2)
+	}
+
+	vertex, err := hex.DecodeString(v)
+	if err != nil {
+		return Vertex{}, err
+	}
+
+	return NewVertexFromBytes(vertex)
 }
 
 // String returns a human readable version of the Vertex which is the

@@ -155,6 +155,9 @@ const (
 	// would be possible for a node to create a ton of updates and slowly
 	// fill our disk, and also waste bandwidth due to relaying.
 	MaxAllowedExtraOpaqueBytes = 10000
+
+	// feeRateParts is the total number of parts used to express fee rates.
+	feeRateParts = 1e6
 )
 
 // ChannelGraph is a persistent, on-disk graph representation of the Lightning
@@ -2826,6 +2829,31 @@ func (c *ChannelEdgePolicy) SetSigBytes(sig []byte) {
 func (c *ChannelEdgePolicy) IsDisabled() bool {
 	return c.ChannelFlags&lnwire.ChanUpdateDisabled ==
 		lnwire.ChanUpdateDisabled
+}
+
+// ComputeFee computes the fee to forward an HTLC of `amt` milli-satoshis over
+// the passed active payment channel. This value is currently computed as
+// specified in BOLT07, but will likely change in the near future.
+func (c *ChannelEdgePolicy) ComputeFee(
+	amt lnwire.MilliSatoshi) lnwire.MilliSatoshi {
+
+	return c.FeeBaseMSat + (amt*c.FeeProportionalMillionths)/feeRateParts
+}
+
+// divideCeil divides dividend by factor and rounds the result up.
+func divideCeil(dividend, factor lnwire.MilliSatoshi) lnwire.MilliSatoshi {
+	return (dividend + factor - 1) / factor
+}
+
+// ComputeFeeFromIncoming computes the fee to forward an HTLC given the incoming
+// amount.
+func (c *ChannelEdgePolicy) ComputeFeeFromIncoming(
+	incomingAmt lnwire.MilliSatoshi) lnwire.MilliSatoshi {
+
+	return incomingAmt - divideCeil(
+		feeRateParts*(incomingAmt-c.FeeBaseMSat),
+		feeRateParts+c.FeeProportionalMillionths,
+	)
 }
 
 // FetchChannelEdgesByOutpoint attempts to lookup the two directed edges for

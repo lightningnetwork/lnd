@@ -6,5 +6,9 @@ import "github.com/urfave/cli"
 
 // routerCommands will return nil for non-routerrpc builds.
 func routerCommands() []cli.Command {
-	return []cli.Command{queryMissionControlCommand, resetMissionControlCommand}
+	return []cli.Command{
+		queryMissionControlCommand,
+		resetMissionControlCommand,
+		buildRouteCommand,
+	}
 }

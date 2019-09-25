@@ -1,6 +1,8 @@
 package lnwire
 
-import "io"
+import (
+	"io"
+)
 
 // UpdateFulfillHTLC is sent by Alice to Bob when she wishes to settle a
 // particular HTLC referenced by its HTLCKey within a specific active channel
@@ -75,4 +77,12 @@ func (c *UpdateFulfillHTLC) MsgType() MessageType {
 func (c *UpdateFulfillHTLC) MaxPayloadLength(uint32) uint32 {
 	// 32 + 8 + 32
 	return 72
+}
+
+// TargetChanID returns the channel id of the link for which this message is
+// intended.
+//
+// NOTE: Part of lnd.LinkUpdater interface.
+func (c *UpdateFulfillHTLC) TargetChanID() ChannelID {
+	return c.ChanID
 }

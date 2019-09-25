@@ -1,6 +1,8 @@
 package lnwire
 
-import "io"
+import (
+	"io"
+)
 
 // CommitSig is sent by either side to stage any pending HTLC's in the
 // receiver's pending set into a new commitment state.  Implicitly, the new
@@ -82,4 +84,12 @@ func (c *CommitSig) MsgType() MessageType {
 func (c *CommitSig) MaxPayloadLength(uint32) uint32 {
 	// 32 + 64 + 2 + max_allowed_htlcs
 	return MaxMessagePayload
+}
+
+// TargetChanID returns the channel id of the link for which this message is
+// intended.
+//
+// NOTE: Part of lnd.LinkUpdater interface.
+func (c *CommitSig) TargetChanID() ChannelID {
+	return c.ChanID
 }

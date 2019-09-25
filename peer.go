@@ -1038,7 +1038,7 @@ out:
 		}
 
 		var (
-			isChanUpdate bool
+			isLinkUpdate bool
 			targetChan   lnwire.ChannelID
 		)
 
@@ -1105,7 +1105,7 @@ out:
 			// If not we hand the error to the channel link for
 			// this channel.
 			default:
-				isChanUpdate = true
+				isLinkUpdate = true
 				targetChan = msg.ChanID
 
 				// Also marked this channel as failed, so we
@@ -1114,31 +1114,13 @@ out:
 				p.failedChannels[targetChan] = struct{}{}
 			}
 
-		// TODO(roasbeef): create ChanUpdater interface for the below
-		case *lnwire.UpdateAddHTLC:
-			isChanUpdate = true
-			targetChan = msg.ChanID
-		case *lnwire.UpdateFulfillHTLC:
-			isChanUpdate = true
-			targetChan = msg.ChanID
-		case *lnwire.UpdateFailMalformedHTLC:
-			isChanUpdate = true
-			targetChan = msg.ChanID
-		case *lnwire.UpdateFailHTLC:
-			isChanUpdate = true
-			targetChan = msg.ChanID
-		case *lnwire.RevokeAndAck:
-			isChanUpdate = true
-			targetChan = msg.ChanID
-		case *lnwire.CommitSig:
-			isChanUpdate = true
-			targetChan = msg.ChanID
-		case *lnwire.UpdateFee:
-			isChanUpdate = true
-			targetChan = msg.ChanID
 		case *lnwire.ChannelReestablish:
-			isChanUpdate = true
+			isLinkUpdate = true
 			targetChan = msg.ChanID
+
+		case LinkUpdater:
+			isLinkUpdate = true
+			targetChan = msg.TargetChanID()
 
 		case *lnwire.ChannelUpdate,
 			*lnwire.ChannelAnnouncement,
@@ -1157,7 +1139,7 @@ out:
 				"%v", uint16(msg.MsgType()), p)
 		}
 
-		if isChanUpdate {
+		if isLinkUpdate {
 			// If this is a channel update, then we need to feed it
 			// into the channel's in-order message stream.
 			chanStream, ok := chanMsgStreams[targetChan]
@@ -2541,6 +2523,14 @@ func (p *peer) AddNewChannel(channel *channeldb.OpenChannel,
 // peer started successfully, and zero otherwise.
 func (p *peer) StartTime() time.Time {
 	return p.startTime
+}
+
+// LinkUpdater is an interface implemented by most messages in BOLT 2 that are
+// allowed to update the channel state.
+type LinkUpdater interface {
+	// TargetChanID returns the channel id of the link for which this
+	// message is intended.
+	TargetChanID() lnwire.ChannelID
 }
 
 // TODO(roasbeef): make all start/stop mutexes a CAS

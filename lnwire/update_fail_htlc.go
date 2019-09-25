@@ -1,6 +1,8 @@
 package lnwire
 
-import "io"
+import (
+	"io"
+)
 
 // OpaqueReason is an opaque encrypted byte slice that encodes the exact
 // failure reason and additional some supplemental data. The contents of this
@@ -82,4 +84,12 @@ func (c *UpdateFailHTLC) MaxPayloadLength(uint32) uint32 {
 	length += 292
 
 	return length
+}
+
+// TargetChanID returns the channel id of the link for which this message is
+// intended.
+//
+// NOTE: Part of lnd.LinkUpdater interface.
+func (c *UpdateFailHTLC) TargetChanID() ChannelID {
+	return c.ChanID
 }

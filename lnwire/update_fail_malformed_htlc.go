@@ -73,3 +73,11 @@ func (c *UpdateFailMalformedHTLC) MaxPayloadLength(uint32) uint32 {
 	// 32 +  8 + 32 + 2
 	return 74
 }
+
+// TargetChanID returns the channel id of the link for which this message is
+// intended.
+//
+// NOTE: Part of lnd.LinkUpdater interface.
+func (c *UpdateFailMalformedHTLC) TargetChanID() ChannelID {
+	return c.ChanID
+}

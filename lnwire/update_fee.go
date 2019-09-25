@@ -68,3 +68,11 @@ func (c *UpdateFee) MaxPayloadLength(uint32) uint32 {
 	// 32 + 4
 	return 36
 }
+
+// TargetChanID returns the channel id of the link for which this message is
+// intended.
+//
+// NOTE: Part of lnd.LinkUpdater interface.
+func (c *UpdateFee) TargetChanID() ChannelID {
+	return c.ChanID
+}

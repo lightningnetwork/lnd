@@ -155,6 +155,10 @@ type peer struct {
 	// channels to the source peer which handled the funding workflow.
 	newChannels chan *newChannelMsg
 
+	// activeMsgStreams is a map from channel id to the channel streams that
+	// proxy messages to individual, active links.
+	activeMsgStreams map[lnwire.ChannelID]*msgStream
+
 	// activeChanCloses is a map that keep track of all the active
 	// cooperative channel closures that are active. Any channel closing
 	// messages are directed to one of these active state machines. Once
@@ -252,6 +256,8 @@ func newPeer(conn net.Conn, connReq *connmgr.ConnReq, server *server,
 		addedChannels:  make(map[lnwire.ChannelID]struct{}),
 		activeChannels: make(map[lnwire.ChannelID]*lnwallet.LightningChannel),
 		newChannels:    make(chan *newChannelMsg, 1),
+
+		activeMsgStreams: make(map[lnwire.ChannelID]*msgStream),
 
 		activeChanCloses:   make(map[lnwire.ChannelID]*channelCloser),
 		localCloseChanReqs: make(chan *htlcswitch.ChanClose),
@@ -901,33 +907,7 @@ func newChanMsgStream(p *peer, cid lnwire.ChannelID) *msgStream {
 			// active goroutine dedicated to this channel.
 			if chanLink == nil {
 				link, err := p.server.htlcSwitch.GetLink(cid)
-				switch {
-
-				// If we failed to find the link in question,
-				// and the message received was a channel sync
-				// message, then this might be a peer trying to
-				// resync closed channel. In this case we'll
-				// try to resend our last channel sync message,
-				// such that the peer can recover funds from
-				// the closed channel.
-				case err != nil && isChanSyncMsg:
-					peerLog.Debugf("Unable to find "+
-						"link(%v) to handle channel "+
-						"sync, attempting to resend "+
-						"last ChanSync message", cid)
-
-					err := p.resendChanSyncMsg(cid)
-					if err != nil {
-						// TODO(halseth): send error to
-						// peer?
-						peerLog.Errorf(
-							"resend failed: %v",
-							err,
-						)
-					}
-					return
-
-				case err != nil:
+				if err != nil {
 					peerLog.Errorf("recv'd update for "+
 						"unknown channel %v from %v: "+
 						"%v", cid, p, err)
@@ -990,8 +970,6 @@ func (p *peer) readHandler() {
 	discStream := newDiscMsgStream(p)
 	discStream.Start()
 	defer discStream.Stop()
-
-	chanMsgStreams := make(map[lnwire.ChannelID]*msgStream)
 out:
 	for atomic.LoadInt32(&p.disconnect) == 0 {
 		nextMsg, err := p.readNextMessage()
@@ -1038,8 +1016,8 @@ out:
 		}
 
 		var (
-			isChanUpdate bool
 			targetChan   lnwire.ChannelID
+			isLinkUpdate bool
 		)
 
 		switch msg := nextMsg.(type) {
@@ -1081,64 +1059,31 @@ out:
 			}
 
 		case *lnwire.Error:
-			key := p.addr.IdentityKey
+			targetChan = msg.ChanID
+			isLinkUpdate = p.handleError(msg)
 
-			switch {
-			// In the case of an all-zero channel ID we want to
-			// forward the error to all channels with this peer.
-			case msg.ChanID == lnwire.ConnectionWideID:
-				for chanID, chanStream := range chanMsgStreams {
-					chanStream.AddMsg(nextMsg)
+		case *lnwire.ChannelReestablish:
+			targetChan = msg.ChanID
+			isLinkUpdate = p.isActiveChannel(targetChan)
 
-					// Also marked this channel as failed,
-					// so we won't try to restart it on
-					// reconnect with this peer.
-					p.failedChannels[chanID] = struct{}{}
+			// If we failed to find the link in question, and the
+			// message received was a channel sync message, then
+			// this might be a peer trying to resync closed channel.
+			// In this case we'll try to resend our last channel
+			// sync message, such that the peer can recover funds
+			// from the closed channel.
+			if !isLinkUpdate {
+				err := p.resendChanSyncMsg(targetChan)
+				if err != nil {
+					// TODO(halseth): send error to peer?
+					peerLog.Errorf("resend failed: %v",
+						err)
 				}
-
-			// If the channel ID for the error message corresponds
-			// to a pending channel, then the funding manager will
-			// handle the error.
-			case p.server.fundingMgr.IsPendingChannel(msg.ChanID, key):
-				p.server.fundingMgr.processFundingError(msg, key)
-
-			// If not we hand the error to the channel link for
-			// this channel.
-			default:
-				isChanUpdate = true
-				targetChan = msg.ChanID
-
-				// Also marked this channel as failed, so we
-				// won't try to restart it on reconnect with
-				// this peer.
-				p.failedChannels[targetChan] = struct{}{}
 			}
 
-		// TODO(roasbeef): create ChanUpdater interface for the below
-		case *lnwire.UpdateAddHTLC:
-			isChanUpdate = true
-			targetChan = msg.ChanID
-		case *lnwire.UpdateFulfillHTLC:
-			isChanUpdate = true
-			targetChan = msg.ChanID
-		case *lnwire.UpdateFailMalformedHTLC:
-			isChanUpdate = true
-			targetChan = msg.ChanID
-		case *lnwire.UpdateFailHTLC:
-			isChanUpdate = true
-			targetChan = msg.ChanID
-		case *lnwire.RevokeAndAck:
-			isChanUpdate = true
-			targetChan = msg.ChanID
-		case *lnwire.CommitSig:
-			isChanUpdate = true
-			targetChan = msg.ChanID
-		case *lnwire.UpdateFee:
-			isChanUpdate = true
-			targetChan = msg.ChanID
-		case *lnwire.ChannelReestablish:
-			isChanUpdate = true
-			targetChan = msg.ChanID
+		case LinkUpdater:
+			targetChan = msg.TargetChanID()
+			isLinkUpdate = p.isActiveChannel(targetChan)
 
 		case *lnwire.ChannelUpdate,
 			*lnwire.ChannelAnnouncement,
@@ -1157,16 +1102,16 @@ out:
 				"%v", uint16(msg.MsgType()), p)
 		}
 
-		if isChanUpdate {
+		if isLinkUpdate {
 			// If this is a channel update, then we need to feed it
 			// into the channel's in-order message stream.
-			chanStream, ok := chanMsgStreams[targetChan]
+			chanStream, ok := p.activeMsgStreams[targetChan]
 			if !ok {
 				// If a stream hasn't yet been created, then
 				// we'll do so, add it to the map, and finally
 				// start it.
 				chanStream = newChanMsgStream(p, targetChan)
-				chanMsgStreams[targetChan] = chanStream
+				p.activeMsgStreams[targetChan] = chanStream
 				chanStream.Start()
 				defer chanStream.Stop()
 			}
@@ -1182,6 +1127,54 @@ out:
 	p.Disconnect(errors.New("read handler closed"))
 
 	peerLog.Tracef("readHandler for peer %v done", p)
+}
+
+// isActiveChannel returns true if the provided channel id is active, otherwise
+// returns false.
+func (p *peer) isActiveChannel(chanID lnwire.ChannelID) bool {
+	p.activeChanMtx.RLock()
+	_, ok := p.activeChannels[chanID]
+	p.activeChanMtx.RUnlock()
+	return ok
+}
+
+// handleError processes an error message read from the remote peer. The boolean
+// returns indicates whether the message should be delivered to a targeted peer.
+//
+// NOTE: This method should only be called from within the readHandler.
+func (p *peer) handleError(msg *lnwire.Error) bool {
+	key := p.addr.IdentityKey
+
+	switch {
+
+	// In the case of an all-zero channel ID we want to forward the error to
+	// all channels with this peer.
+	case msg.ChanID == lnwire.ConnectionWideID:
+		for chanID, chanStream := range p.activeMsgStreams {
+			chanStream.AddMsg(msg)
+
+			// Also marked this channel as failed, so we won't try
+			// to restart it on reconnect with this peer.
+			p.failedChannels[chanID] = struct{}{}
+		}
+		return false
+
+	// If the channel ID for the error message corresponds to a pending
+	// channel, then the funding manager will handle the error.
+	case p.server.fundingMgr.IsPendingChannel(msg.ChanID, key):
+		p.server.fundingMgr.processFundingError(msg, key)
+		return false
+
+	// If not we hand the error to the channel link for this channel.
+	case p.isActiveChannel(msg.ChanID):
+		// Mark this channel as failed, so we won't try to restart it on
+		// reconnect with this peer.
+		p.failedChannels[msg.ChanID] = struct{}{}
+		return true
+
+	default:
+		return false
+	}
 }
 
 // messageSummary returns a human-readable string that summarizes a
@@ -2407,6 +2400,11 @@ func (p *peer) resendChanSyncMsg(cid lnwire.ChannelID) error {
 			cid)
 	}
 
+	if !c.RemotePub.IsEqual(p.IdentityKey()) {
+		return fmt.Errorf("ignoring channel reestablish from "+
+			"peer=%x", p.IdentityKey())
+	}
+
 	peerLog.Debugf("Re-sending channel sync message for channel %v to "+
 		"peer %v", cid, p)
 
@@ -2541,6 +2539,14 @@ func (p *peer) AddNewChannel(channel *channeldb.OpenChannel,
 // peer started successfully, and zero otherwise.
 func (p *peer) StartTime() time.Time {
 	return p.startTime
+}
+
+// LinkUpdater is an interface implemented by most messages in BOLT 2 that are
+// allowed to update the channel state.
+type LinkUpdater interface {
+	// TargetChanID returns the channel id of the link for which this
+	// message is intended.
+	TargetChanID() lnwire.ChannelID
 }
 
 // TODO(roasbeef): make all start/stop mutexes a CAS

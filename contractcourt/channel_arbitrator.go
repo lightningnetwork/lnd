@@ -97,7 +97,7 @@ type ChannelArbitratorConfig struct {
 
 	// MarkCommitmentBroadcasted should mark the channel as the commitment
 	// being broadcast, and we are waiting for the commitment to confirm.
-	MarkCommitmentBroadcasted func() error
+	MarkCommitmentBroadcasted func(*wire.MsgTx) error
 
 	// MarkChannelClosed marks the channel closed in the database, with the
 	// passed close summary. After this method successfully returns we can
@@ -821,6 +821,16 @@ func (c *ChannelArbitrator) stateStep(
 		}
 		closeTx = closeSummary.CloseTx
 
+		// Before publishing the transaction, we store it to the
+		// database, such that we can re-publish later in case it
+		// didn't propagate.
+		if err := c.cfg.MarkCommitmentBroadcasted(closeTx); err != nil {
+			log.Errorf("ChannelArbitrator(%v): unable to "+
+				"mark commitment broadcasted: %v",
+				c.cfg.ChanPoint, err)
+			return StateError, closeTx, err
+		}
+
 		// With the close transaction in hand, broadcast the
 		// transaction to the network, thereby entering the post
 		// channel resolution state.
@@ -838,12 +848,6 @@ func (c *ChannelArbitrator) stateStep(
 			if err != lnwallet.ErrDoubleSpend {
 				return StateError, closeTx, err
 			}
-		}
-
-		if err := c.cfg.MarkCommitmentBroadcasted(); err != nil {
-			log.Errorf("ChannelArbitrator(%v): unable to "+
-				"mark commitment broadcasted: %v",
-				c.cfg.ChanPoint, err)
 		}
 
 		// We go to the StateCommitmentBroadcasted state, where we'll

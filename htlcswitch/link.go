@@ -609,28 +609,10 @@ func (l *channelLink) syncChanStates() error {
 	// side. Based on this message, the remote party will decide if they
 	// need to retransmit any data or not.
 	chanState := l.channel.State()
-	localChanSyncMsg, err := lnwallet.ChanSyncMsg(
-		chanState,
-		chanState.HasChanStatus(channeldb.ChanStatusRestored),
-	)
+	localChanSyncMsg, err := chanState.ChanSyncMsg()
 	if err != nil {
 		return fmt.Errorf("unable to generate chan sync message for "+
 			"ChannelPoint(%v)", l.channel.ChannelPoint())
-	}
-
-	// If we have a restored channel, we'll delay sending our channel
-	// reestablish message briefly to ensure we first have a stable
-	// connection. Sending the message will cause the remote peer to force
-	// close the channel, which currently may not be resumed reliably if the
-	// connection is being torn down simultaneously. This delay can be
-	// removed after the force close is reliable, but in the meantime it
-	// improves the reliability of successfully closing out the channel.
-	if chanState.HasChanStatus(channeldb.ChanStatusRestored) {
-		select {
-		case <-time.After(5 * time.Second):
-		case <-l.quit:
-			return ErrLinkShuttingDown
-		}
 	}
 
 	if err := l.cfg.Peer.SendMessage(true, localChanSyncMsg); err != nil {
@@ -896,6 +878,11 @@ func (l *channelLink) htlcManager() {
 	if l.cfg.SyncStates {
 		err := l.syncChanStates()
 		if err != nil {
+			log.Warnf("Error when syncing channel states: %v", err)
+
+			errDataLoss, localDataLoss :=
+				err.(*lnwallet.ErrCommitSyncLocalDataLoss)
+
 			switch {
 			case err == ErrLinkShuttingDown:
 				log.Debugf("unable to sync channel states, " +
@@ -918,6 +905,12 @@ func (l *channelLink) htlcManager() {
 			// what they sent us before.
 			// TODO(halseth): ban peer?
 			case err == lnwallet.ErrInvalidLocalUnrevokedCommitPoint:
+				// We'll fail the link and tell the peer to
+				// force close the channel. Note that the
+				// database state is not updated here, but will
+				// be updated when the close transaction is
+				// ready to avoid that we go down before
+				// storing the transaction in the db.
 				l.fail(
 					LinkFailureError{
 						code:       ErrSyncError,
@@ -931,13 +924,18 @@ func (l *channelLink) htlcManager() {
 			// We have lost state and cannot safely force close the
 			// channel. Fail the channel and wait for the remote to
 			// hopefully force close it. The remote has sent us its
-			// latest unrevoked commitment point, that we stored in
-			// the database, that we can use to retrieve the funds
-			// when the remote closes the channel.
-			// TODO(halseth): mark this, such that we prevent
-			// channel from being force closed by the user or
-			// contractcourt etc.
-			case err == lnwallet.ErrCommitSyncLocalDataLoss:
+			// latest unrevoked commitment point, and we'll store
+			// it in the database, such that we can attempt to
+			// recover the funds if the remote force closes the
+			// channel.
+			case localDataLoss:
+				err := l.channel.MarkDataLoss(
+					errDataLoss.CommitPoint,
+				)
+				if err != nil {
+					log.Errorf("Unable to mark channel "+
+						"data loss: %v", err)
+				}
 
 			// We determined the commit chains were not possible to
 			// sync. We cautiously fail the channel, but don't
@@ -945,6 +943,10 @@ func (l *channelLink) htlcManager() {
 			// TODO(halseth): can we safely force close in any
 			// cases where this error is returned?
 			case err == lnwallet.ErrCannotSyncCommitChains:
+				if err := l.channel.MarkBorked(); err != nil {
+					log.Errorf("Unable to mark channel "+
+						"borked: %v", err)
+				}
 
 			// Other, unspecified error.
 			default:

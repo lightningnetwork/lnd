@@ -81,16 +81,6 @@ var (
 	ErrInvalidLocalUnrevokedCommitPoint = fmt.Errorf("unrevoked commit " +
 		"point is invalid")
 
-	// ErrCommitSyncLocalDataLoss is returned in the case that we receive a
-	// valid commit secret within the ChannelReestablish message from the
-	// remote node AND they advertise a RemoteCommitTailHeight higher than
-	// our current known height. This means we have lost some critical
-	// data, and must fail the channel and MUST NOT force close it. Instead
-	// we should wait for the remote to force close it, such that we can
-	// attempt to sweep our funds.
-	ErrCommitSyncLocalDataLoss = fmt.Errorf("possible local commitment " +
-		"state data loss")
-
 	// ErrCommitSyncRemoteDataLoss is returned in the case that we receive
 	// a ChannelReestablish message from the remote that advertises a
 	// NextLocalCommitHeight that is lower than what they have already
@@ -100,6 +90,30 @@ var (
 	ErrCommitSyncRemoteDataLoss = fmt.Errorf("possible remote commitment " +
 		"state data loss")
 )
+
+// ErrCommitSyncLocalDataLoss is returned in the case that we receive a valid
+// commit secret within the ChannelReestablish message from the remote node AND
+// they advertise a RemoteCommitTailHeight higher than our current known
+// height. This means we have lost some critical data, and must fail the
+// channel and MUST NOT force close it. Instead we should wait for the remote
+// to force close it, such that we can attempt to sweep our funds. The
+// commitment point needed to sweep the remote's force close is encapsuled.
+type ErrCommitSyncLocalDataLoss struct {
+	// ChannelPoint is the identifier for the channel that experienced data
+	// loss.
+	ChannelPoint wire.OutPoint
+
+	// CommitPoint is the last unrevoked commit point, sent to us by the
+	// remote when we determined we had lost state.
+	CommitPoint *btcec.PublicKey
+}
+
+// Error returns a string representation of the local data loss error.
+func (e *ErrCommitSyncLocalDataLoss) Error() string {
+	return fmt.Sprintf("ChannelPoint(%v) with CommitPoint(%x) had "+
+		"possible local commitment state data loss", e.ChannelPoint,
+		e.CommitPoint.SerializeCompressed())
+}
 
 // channelState is an enum like type which represents the current state of a
 // particular channel.
@@ -3293,10 +3307,6 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 			// doesn't support data loss protection. In either case
 			// it is not safe for us to keep using the channel, so
 			// we mark it borked and fail the channel.
-			if err := lc.channelState.MarkBorked(); err != nil {
-				return nil, nil, nil, err
-			}
-
 			walletLog.Errorf("ChannelPoint(%v), sync failed: "+
 				"local data loss, but no recovery option.",
 				lc.channelState.FundingOutpoint)
@@ -3304,16 +3314,11 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 		}
 
 		// In this case, we've likely lost data and shouldn't proceed
-		// with channel updates. So we'll store the commit point we
-		// were given in the database, such that we can attempt to
-		// recover the funds if the remote force closes the channel.
-		err := lc.channelState.MarkDataLoss(
-			msg.LocalUnrevokedCommitPoint,
-		)
-		if err != nil {
-			return nil, nil, nil, err
+		// with channel updates.
+		return nil, nil, nil, &ErrCommitSyncLocalDataLoss{
+			ChannelPoint: lc.channelState.FundingOutpoint,
+			CommitPoint:  msg.LocalUnrevokedCommitPoint,
 		}
-		return nil, nil, nil, ErrCommitSyncLocalDataLoss
 
 	// If the height of our commitment chain reported by the remote party
 	// is behind our view of the chain, then they probably lost some state,
@@ -3323,10 +3328,6 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 			"believes our tail height is %v, while we have %v!",
 			lc.channelState.FundingOutpoint,
 			msg.RemoteCommitTailHeight, localTailHeight)
-
-		if err := lc.channelState.MarkBorked(); err != nil {
-			return nil, nil, nil, err
-		}
 		return nil, nil, nil, ErrCommitSyncRemoteDataLoss
 
 	// Their view of our commit chain is consistent with our view.
@@ -3390,10 +3391,6 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 			"believes our tail height is %v, while we have %v!",
 			lc.channelState.FundingOutpoint,
 			msg.RemoteCommitTailHeight, localTailHeight)
-
-		if err := lc.channelState.MarkBorked(); err != nil {
-			return nil, nil, nil, err
-		}
 		return nil, nil, nil, ErrCannotSyncCommitChains
 	}
 
@@ -3412,9 +3409,6 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 			lc.channelState.FundingOutpoint,
 			msg.NextLocalCommitHeight, remoteTipHeight)
 
-		if err := lc.channelState.MarkBorked(); err != nil {
-			return nil, nil, nil, err
-		}
 		return nil, nil, nil, ErrCannotSyncCommitChains
 
 	// They are waiting for a state they have already ACKed.
@@ -3426,9 +3420,6 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 
 		// They previously ACKed our current tail, and now they are
 		// waiting for it. They probably lost state.
-		if err := lc.channelState.MarkBorked(); err != nil {
-			return nil, nil, nil, err
-		}
 		return nil, nil, nil, ErrCommitSyncRemoteDataLoss
 
 	// They have received our latest commitment, life is good.
@@ -3474,10 +3465,6 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 			"next commit height is %v, while we believe it is %v!",
 			lc.channelState.FundingOutpoint,
 			msg.NextLocalCommitHeight, remoteTipHeight)
-
-		if err := lc.channelState.MarkBorked(); err != nil {
-			return nil, nil, nil, err
-		}
 		return nil, nil, nil, ErrCannotSyncCommitChains
 	}
 
@@ -3515,95 +3502,10 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 			"sent invalid commit point for height %v!",
 			lc.channelState.FundingOutpoint,
 			msg.NextLocalCommitHeight)
-
-		if err := lc.channelState.MarkBorked(); err != nil {
-			return nil, nil, nil, err
-		}
-
-		// TODO(halseth): force close?
 		return nil, nil, nil, ErrInvalidLocalUnrevokedCommitPoint
 	}
 
 	return updates, openedCircuits, closedCircuits, nil
-}
-
-// ChanSyncMsg returns the ChannelReestablish message that should be sent upon
-// reconnection with the remote peer that we're maintaining this channel with.
-// The information contained within this message is necessary to re-sync our
-// commitment chains in the case of a last or only partially processed message.
-// When the remote party receiver this message one of three things may happen:
-//
-//   1. We're fully synced and no messages need to be sent.
-//   2. We didn't get the last CommitSig message they sent, to they'll re-send
-//      it.
-//   3. We didn't get the last RevokeAndAck message they sent, so they'll
-//      re-send it.
-//
-// The isRestoredChan bool indicates if we need to craft a chan sync message
-// for a channel that's been restored. If this is a restored channel, then
-// we'll modify our typical chan sync  message to ensure they force close even
-// if we're on the very first state.
-func ChanSyncMsg(c *channeldb.OpenChannel,
-	isRestoredChan bool) (*lnwire.ChannelReestablish, error) {
-
-	c.Lock()
-	defer c.Unlock()
-
-	// The remote commitment height that we'll send in the
-	// ChannelReestablish message is our current commitment height plus
-	// one. If the receiver thinks that our commitment height is actually
-	// *equal* to this value, then they'll re-send the last commitment that
-	// they sent but we never fully processed.
-	localHeight := c.LocalCommitment.CommitHeight
-	nextLocalCommitHeight := localHeight + 1
-
-	// The second value we'll send is the height of the remote commitment
-	// from our PoV. If the receiver thinks that their height is actually
-	// *one plus* this value, then they'll re-send their last revocation.
-	remoteChainTipHeight := c.RemoteCommitment.CommitHeight
-
-	// If this channel has undergone a commitment update, then in order to
-	// prove to the remote party our knowledge of their prior commitment
-	// state, we'll also send over the last commitment secret that the
-	// remote party sent.
-	var lastCommitSecret [32]byte
-	if remoteChainTipHeight != 0 {
-		remoteSecret, err := c.RevocationStore.LookUp(
-			remoteChainTipHeight - 1,
-		)
-		if err != nil {
-			return nil, err
-		}
-		lastCommitSecret = [32]byte(*remoteSecret)
-	}
-
-	// Additionally, we'll send over the current unrevoked commitment on
-	// our local commitment transaction.
-	currentCommitSecret, err := c.RevocationProducer.AtIndex(
-		localHeight,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	// If we've restored this channel, then we'll purposefully give them an
-	// invalid LocalUnrevokedCommitPoint so they'll force close the channel
-	// allowing us to sweep our funds.
-	if isRestoredChan {
-		currentCommitSecret[0] ^= 1
-	}
-
-	return &lnwire.ChannelReestablish{
-		ChanID: lnwire.NewChanIDFromOutPoint(
-			&c.FundingOutpoint,
-		),
-		NextLocalCommitHeight:  nextLocalCommitHeight,
-		RemoteCommitTailHeight: remoteChainTipHeight,
-		LastRemoteCommitSecret: lastCommitSecret,
-		LocalUnrevokedCommitPoint: input.ComputeCommitmentPoint(
-			currentCommitSecret[:],
-		),
-	}, nil
 }
 
 // computeView takes the given htlcView, and calculates the balances, filtered
@@ -5187,10 +5089,7 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, signer input.Si
 	}
 
 	// Attempt to add a channel sync message to the close summary.
-	chanSync, err := ChanSyncMsg(
-		chanState,
-		chanState.HasChanStatus(channeldb.ChanStatusRestored),
-	)
+	chanSync, err := chanState.ChanSyncMsg()
 	if err != nil {
 		walletLog.Errorf("ChannelPoint(%v): unable to create channel sync "+
 			"message: %v", chanState.FundingOutpoint, err)
@@ -6336,14 +6235,34 @@ func (lc *LightningChannel) State() *channeldb.OpenChannel {
 	return lc.channelState
 }
 
-// MarkCommitmentBroadcasted marks the channel as a commitment transaction has
-// been broadcast, either our own or the remote, and we should watch the chain
-// for it to confirm before taking any further action.
-func (lc *LightningChannel) MarkCommitmentBroadcasted() error {
+// MarkBorked marks the event when the channel as reached an irreconcilable
+// state, such as a channel breach or state desynchronization. Borked channels
+// should never be added to the switch.
+func (lc *LightningChannel) MarkBorked() error {
 	lc.Lock()
 	defer lc.Unlock()
 
-	return lc.channelState.MarkCommitmentBroadcasted()
+	return lc.channelState.MarkBorked()
+}
+
+// MarkCommitmentBroadcasted marks the channel as a commitment transaction has
+// been broadcast, either our own or the remote, and we should watch the chain
+// for it to confirm before taking any further action.
+func (lc *LightningChannel) MarkCommitmentBroadcasted(tx *wire.MsgTx) error {
+	lc.Lock()
+	defer lc.Unlock()
+
+	return lc.channelState.MarkCommitmentBroadcasted(tx)
+}
+
+// MarkDataLoss marks sets the channel status to LocalDataLoss and stores the
+// passed commitPoint for use to retrieve funds in case the remote force closes
+// the channel.
+func (lc *LightningChannel) MarkDataLoss(commitPoint *btcec.PublicKey) error {
+	lc.Lock()
+	defer lc.Unlock()
+
+	return lc.channelState.MarkDataLoss(commitPoint)
 }
 
 // ActiveHtlcs returns a slice of HTLC's which are currently active on *both*

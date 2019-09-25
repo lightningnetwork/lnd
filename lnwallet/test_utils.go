@@ -7,6 +7,8 @@ import (
 	"encoding/hex"
 	"io"
 	"io/ioutil"
+	prand "math/rand"
+	"net"
 	"os"
 
 	"github.com/btcsuite/btcd/btcec"
@@ -101,7 +103,7 @@ func CreateTestChannels() (*LightningChannel, *LightningChannel, func(), error) 
 
 	prevOut := &wire.OutPoint{
 		Hash:  chainhash.Hash(testHdSeed),
-		Index: 0,
+		Index: prand.Uint32(),
 	}
 	fundingTxIn := wire.NewTxIn(prevOut, nil, nil)
 
@@ -334,10 +336,20 @@ func CreateTestChannels() (*LightningChannel, *LightningChannel, func(), error) 
 		return nil, nil, nil, err
 	}
 
-	if err := channelAlice.channelState.FullSync(); err != nil {
+	addr := &net.TCPAddr{
+		IP:   net.ParseIP("127.0.0.1"),
+		Port: 18556,
+	}
+	if err := channelAlice.channelState.SyncPending(addr, 101); err != nil {
 		return nil, nil, nil, err
 	}
-	if err := channelBob.channelState.FullSync(); err != nil {
+
+	addr = &net.TCPAddr{
+		IP:   net.ParseIP("127.0.0.1"),
+		Port: 18555,
+	}
+
+	if err := channelBob.channelState.SyncPending(addr, 101); err != nil {
 		return nil, nil, nil, err
 	}
 

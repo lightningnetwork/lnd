@@ -110,7 +110,12 @@ func TestFetchClosedChannelForID(t *testing.T) {
 	for i := uint32(0); i < numChans; i++ {
 		// Save the open channel to disk.
 		state.FundingOutpoint.Index = i
-		if err := state.FullSync(); err != nil {
+
+		addr := &net.TCPAddr{
+			IP:   net.ParseIP("127.0.0.1"),
+			Port: 18556,
+		}
+		if err := state.SyncPending(addr, 101); err != nil {
 			t.Fatalf("unable to save and serialize channel "+
 				"state: %v", err)
 		}

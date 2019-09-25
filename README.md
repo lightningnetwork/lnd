@@ -83,7 +83,7 @@ any issues regarding security or privacy, please disclose the information
 responsibly by sending an email to security at lightning dot engineering,
 preferably [encrypted using our designated PGP key
 (`91FE464CD75101DA6B6BAB60555C6465E5BCB3AF`) which can be found
-here](https://gist.githubusercontent.com/Roasbeef/6fb5b52886183239e4aa558f83d085d3/raw/1d03e006e88edeb7ff5ac6e025f6e861a45ac41c/security@lightning.engineering).
+[here](https://gist.githubusercontent.com/Roasbeef/6fb5b52886183239e4aa558f83d085d3/raw/5ef96c426e3cf20a2443dc9d3c7d6877576da9ca/security@lightning.engineering).
 
 ## Further reading
 * [Step-by-step send payment guide with docker](https://github.com/lightningnetwork/lnd/tree/master/docker)

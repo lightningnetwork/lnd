@@ -1042,8 +1042,8 @@ out:
 		}
 
 		var (
-			isLinkUpdate bool
 			targetChan   lnwire.ChannelID
+			isLinkUpdate bool
 		)
 
 		switch msg := nextMsg.(type) {
@@ -1085,16 +1085,16 @@ out:
 			}
 
 		case *lnwire.Error:
-			isLinkUpdate = p.handleError(msg)
 			targetChan = msg.ChanID
+			isLinkUpdate = p.handleError(msg)
 
 		case *lnwire.ChannelReestablish:
 			isLinkUpdate = true
 			targetChan = msg.ChanID
 
 		case LinkUpdater:
-			isLinkUpdate = true
 			targetChan = msg.TargetChanID()
+			isLinkUpdate = p.isActiveChannel(targetChan)
 
 		case *lnwire.ChannelUpdate,
 			*lnwire.ChannelAnnouncement,
@@ -1140,6 +1140,15 @@ out:
 	peerLog.Tracef("readHandler for peer %v done", p)
 }
 
+// isActiveChannel returns true if the provided channel id is active, otherwise
+// returns false.
+func (p *peer) isActiveChannel(chanID lnwire.ChannelID) bool {
+	p.activeChanMtx.RLock()
+	_, ok := p.activeChannels[chanID]
+	p.activeChanMtx.RUnlock()
+	return ok
+}
+
 // handleError processes an error message read from the remote peer. The boolean
 // returns indicates whether the message should be delivered to a targeted peer.
 //
@@ -1168,11 +1177,14 @@ func (p *peer) handleError(msg *lnwire.Error) bool {
 		return false
 
 	// If not we hand the error to the channel link for this channel.
-	default:
+	case p.isActiveChannel(msg.ChanID):
 		// Mark this channel as failed, so we won't try to restart it on
 		// reconnect with this peer.
 		p.failedChannels[msg.ChanID] = struct{}{}
 		return true
+
+	default:
+		return false
 	}
 }
 

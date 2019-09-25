@@ -1,4 +1,3 @@
-
 # Private Altruist Watchtowers
 
 As of v0.7.0, `lnd` supports the ability to run a private, altruist watchtower
@@ -44,6 +43,7 @@ The minimal configuration needed to activate the tower is `watchtower.active=1`.
 
 Retrieving information about your tower’s configurations can be done using
 `lncli tower info`:
+
 ```
 🏔 lncli tower info
 {
@@ -54,8 +54,10 @@ Retrieving information about your tower’s configurations can be done using
         "uris": null,
 }
 ```
+
 The entire set of watchtower configuration options can be found using 
 `lnd -h`:
+
 ```
 watchtower:
       --watchtower.active                                     If the watchtower should be active or not
@@ -80,6 +82,7 @@ properly configured to point to an active listener.
 Additionally, users can specify their tower’s external IP address(es) using
 `watchtower.externalip=`, which will expose the full tower URIs
 (pubkey@host:port) over RPC or `lncli tower info`: 
+
 ```
         ...
         "uris": [
@@ -88,9 +91,10 @@ Additionally, users can specify their tower’s external IP address(es) using
 ```
 
 The watchtower's URIs can be given to clients in order to connect and use the
-tower by setting the `wtclient.private-tower-uris` option:
+tower with the following command:
+
 ```
-wtclient.private-tower-uris=03281d603b2c5e19b8893a484eb938d7377179a9ef1a6bca4c0bcbbfc291657b63@1.2.3.4:9911
+🏔 lncli wtclient add 03281d603b2c5e19b8893a484eb938d7377179a9ef1a6bca4c0bcbbfc291657b63@1.2.3.4:9911
 ```
 
 If the watchtower's clients will need remote access, be sure to either:
@@ -112,51 +116,103 @@ will be appended to the chosen directory to isolate databases for different
 chains, so setting `watchtower.towerdir=/path/to/towerdir` will yield a
 watchtower database at `/path/to/towerdir/bitcoin/mainnet/watchtower.db`.
 
-On linux, for example, the default watchtower database will be located at:
+On Linux, for example, the default watchtower database will be located at:
+
 ```
 /$USER/.lnd/data/watchtower/bitcoin/mainnet/watchtower.db
 ```
 
 ## Configuring a Watchtower Client
 
-In order to set up a watchtower client, you’ll need the watchtower URI of an
-active watchtower, which will appear like:
+In order to set up a watchtower client, you’ll need two things:
+
+1. The watchtower client must be enabled with the `--wtclient.active` flag.
+
 ```
-03281d603b2c5e19b8893a484eb938d7377179a9ef1a6bca4c0bcbbfc291657b63@1.2.3.4:9911
+🏔 lnd --wtclient.active
 ```
 
-The client will automatically be enabled if a URI is configured using
-`wtclient.private-tower-uris`:
+2. The watchtower URI of an active watchtower.
+
 ```
-wtclient.private-tower-uris=03281d603b2c5e19b8893a484eb938d7377179a9ef1a6bca4c0bcbbfc291657b63@1.2.3.4:9911
+🏔 lncli wtclient add 03281d603b2c5e19b8893a484eb938d7377179a9ef1a6bca4c0bcbbfc291657b63@1.2.3.4:9911
 ```
 
-At the moment, at most one private watchtower can be configured. If none are
-provided, `lnd` will disable the watchtower client.
-
-The entire set of watchtower client configuration options can be found using
-`lnd -h`:
-```
-wtclient:
-      --wtclient.private-tower-uris=                          Specifies the URIs of private watchtowers to use in backing up revoked states. URIs must be of the form <pubkey>@<addr>. Only 1 URI is supported at this time, if none are provided the tower will not be enabled.
-      --wtclient.sweep-fee-rate=                              Specifies the fee rate in sat/byte to be used when constructing justice transactions sent to the watchtower.
-```
+Multiple watchtowers can be configured through this method.
 
 ### Justice Fee Rates
 
 Users may optionally configure the fee rate of justice transactions by setting
 the `wtclient.sweep-fee-rate` option, which accepts values in sat/byte. The
 default value is 10 sat/byte, though users may choose to target higher rates to
-offer greater priority during fee-spikes. Modifying the `sweep-fee-rate` will be
-applied to all new updates after the daemon has been restarted.
+offer greater priority during fee-spikes. Modifying the `sweep-fee-rate` will
+be applied to all new updates after the daemon has been restarted.
 
 ### Monitoring
 
-For now, no information regarding the operation of the watchtower client is
-exposed over the RPC interface. We are working to expose this information in a
-later release, progress on this can be tracked [in this
-PR](https://github.com/lightningnetwork/lnd/pull/3184). Users will be reliant on
-WTCL logs for observing the behavior of the client. We also plan to expand on
-the initial feature set by permitting multiple active towers for redundancy, as
-well as modifying the chosen set of towers dynamically without restarting the
-daemon.
+With the addition of the `lncli wtclient` command, users are now able to
+interact with the watchtower client directly to obtain/modify information about
+the set of registered watchtowers.
+
+As as example, with the `lncli wtclient tower` command, you can obtain the
+number of sessions currently negotiated with the watchtower added above and
+determine whether it is currently being used for backups through the
+`active_session_candidate` value.
+
+```
+🏔 lncli wtclient tower 03281d603b2c5e19b8893a484eb938d7377179a9ef1a6bca4c0bcbbfc291657b63
+{
+	"pubkey": "03281d603b2c5e19b8893a484eb938d7377179a9ef1a6bca4c0bcbbfc291657b63",
+	"addresses": [
+		"1.2.3.4:9911"
+	],
+	"active_session_candidate": true,
+	"num_sessions": 1,
+	"sessions": []
+}
+```
+
+To obtain information about the watchtower's sessions, users can use the
+`--include_sessions` flag.
+
+```
+🏔 lncli wtclient tower --include_sessions 03281d603b2c5e19b8893a484eb938d7377179a9ef1a6bca4c0bcbbfc291657b63
+{
+        "pubkey": "03281d603b2c5e19b8893a484eb938d7377179a9ef1a6bca4c0bcbbfc291657b63",
+        "addresses": [
+                "1.2.3.4:9911"
+        ],
+        "active_session_candidate": true,
+        "num_sessions": 1,
+        "sessions": [
+                {
+                        "num_backups": 0,
+                        "num_pending_backups": 0,
+                        "max_backups": 1024,
+                        "sweep_sat_per_byte": 10
+                }
+        ]
+}
+```
+
+The entire set of watchtower client configuration options can be found with
+`lncli wtclient -h`:
+
+```
+NAME:
+   lncli wtclient - Interact with the watchtower client.
+
+USAGE:
+   lncli wtclient command [command options] [arguments...]
+
+COMMANDS:
+     add     Register a watchtower to use for future sessions/backups.
+     remove  Remove a watchtower to prevent its use for future sessions/backups.
+     towers  Display information about all registered watchtowers.
+     tower   Display information about a specific registered watchtower.
+     stats   Display the session stats of the watchtower client.
+     policy  Display the active watchtower client policy configuration.
+
+OPTIONS:
+   --help, -h  show help
+```

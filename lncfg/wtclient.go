@@ -1,6 +1,6 @@
 package lncfg
 
-import "errors"
+import "fmt"
 
 // WtClient holds the configuration options for the daemon's watchtower client.
 type WtClient struct {
@@ -21,13 +21,13 @@ type WtClient struct {
 //
 // NOTE: Part of the Validator interface.
 func (c *WtClient) Validate() error {
+	// TODO(wilmer): remove in v0.9.0 release.
 	if len(c.PrivateTowerURIs) > 0 {
-		return errors.New("`wtclient.private-tower-uris` is " +
-			"deprecated and will be removed in the v0.8.0 " +
-			"release, to specify watchtowers remove " +
-			"`wtclient.private-tower-uris`, set " +
-			"`wtclient.active`, and check out `lncli wtclient -h` " +
-			"for more information on how to manage towers")
+		fmt.Println("The `wtclient.private-tower-uris` option has " +
+			"been deprecated as of v0.8.0-beta and will be " +
+			"removed in v0.9.0-beta. To setup watchtowers for " +
+			"the client, set `wtclient.active` and run " +
+			"`lncli wtclient -h` for more information.")
 	}
 
 	return nil

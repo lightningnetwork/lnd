@@ -907,33 +907,7 @@ func newChanMsgStream(p *peer, cid lnwire.ChannelID) *msgStream {
 			// active goroutine dedicated to this channel.
 			if chanLink == nil {
 				link, err := p.server.htlcSwitch.GetLink(cid)
-				switch {
-
-				// If we failed to find the link in question,
-				// and the message received was a channel sync
-				// message, then this might be a peer trying to
-				// resync closed channel. In this case we'll
-				// try to resend our last channel sync message,
-				// such that the peer can recover funds from
-				// the closed channel.
-				case err != nil && isChanSyncMsg:
-					peerLog.Debugf("Unable to find "+
-						"link(%v) to handle channel "+
-						"sync, attempting to resend "+
-						"last ChanSync message", cid)
-
-					err := p.resendChanSyncMsg(cid)
-					if err != nil {
-						// TODO(halseth): send error to
-						// peer?
-						peerLog.Errorf(
-							"resend failed: %v",
-							err,
-						)
-					}
-					return
-
-				case err != nil:
+				if err != nil {
 					peerLog.Errorf("recv'd update for "+
 						"unknown channel %v from %v: "+
 						"%v", cid, p, err)
@@ -1089,8 +1063,23 @@ out:
 			isLinkUpdate = p.handleError(msg)
 
 		case *lnwire.ChannelReestablish:
-			isLinkUpdate = true
 			targetChan = msg.ChanID
+			isLinkUpdate = p.isActiveChannel(targetChan)
+
+			// If we failed to find the link in question, and the
+			// message received was a channel sync message, then
+			// this might be a peer trying to resync closed channel.
+			// In this case we'll try to resend our last channel
+			// sync message, such that the peer can recover funds
+			// from the closed channel.
+			if !isLinkUpdate {
+				err := p.resendChanSyncMsg(targetChan)
+				if err != nil {
+					// TODO(halseth): send error to peer?
+					peerLog.Errorf("resend failed: %v",
+						err)
+				}
+			}
 
 		case LinkUpdater:
 			targetChan = msg.TargetChanID()
@@ -2409,6 +2398,11 @@ func (p *peer) resendChanSyncMsg(cid lnwire.ChannelID) error {
 	if c.LastChanSyncMsg == nil {
 		return fmt.Errorf("no chan sync message stored for channel %v",
 			cid)
+	}
+
+	if !c.RemotePub.IsEqual(p.IdentityKey()) {
+		return fmt.Errorf("ignoring channel reestablish from "+
+			"peer=%x", p.IdentityKey())
 	}
 
 	peerLog.Debugf("Re-sending channel sync message for channel %v to "+

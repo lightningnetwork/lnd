@@ -1657,6 +1657,76 @@
         }
       }
     },
+    "lnrpcChannelAcceptRequest": {
+      "type": "object",
+      "properties": {
+        "node_pubkey": {
+          "type": "string",
+          "format": "byte",
+          "description": "/ The pubkey of the node that wishes to open an inbound channel."
+        },
+        "chain_hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "/ The hash of the genesis block that the proposed channel resides in."
+        },
+        "pending_chan_id": {
+          "type": "string",
+          "format": "byte",
+          "description": "/ The pending channel id."
+        },
+        "funding_amt": {
+          "type": "string",
+          "format": "uint64",
+          "description": "/ The funding amount in satoshis that initiator wishes to use in the channel."
+        },
+        "push_amt": {
+          "type": "string",
+          "format": "uint64",
+          "description": "/ The push amount of the proposed channel in millisatoshis."
+        },
+        "dust_limit": {
+          "type": "string",
+          "format": "uint64",
+          "description": "/ The dust limit of the initiator's commitment tx."
+        },
+        "max_value_in_flight": {
+          "type": "string",
+          "format": "uint64",
+          "description": "/ The maximum amount of coins in millisatoshis that can be pending in this channel."
+        },
+        "channel_reserve": {
+          "type": "string",
+          "format": "uint64",
+          "description": "/ The minimum amount of satoshis the initiator requires us to have at all times."
+        },
+        "min_htlc": {
+          "type": "string",
+          "format": "uint64",
+          "description": "/ The smallest HTLC in millisatoshis that the initiator will accept."
+        },
+        "fee_per_kw": {
+          "type": "string",
+          "format": "uint64",
+          "description": "/ The initial fee rate that the initiator suggests for both commitment transactions."
+        },
+        "csv_delay": {
+          "type": "integer",
+          "format": "int64",
+          "description": "*\nThe number of blocks to use for the relative time lock in the pay-to-self output\nof both commitment transactions."
+        },
+        "max_accepted_htlcs": {
+          "type": "integer",
+          "format": "int64",
+          "description": "/ The total number of incoming HTLC's that the initiator will accept."
+        },
+        "channel_flags": {
+          "type": "integer",
+          "format": "int64",
+          "description": "/ A bit-field which the initiator uses to specify proposed channel behavior."
+        }
+      }
+    },
     "lnrpcChannelBackup": {
       "type": "object",
       "properties": {

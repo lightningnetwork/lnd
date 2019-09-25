@@ -307,7 +307,7 @@ The `Faucet` node address can be found at the [Faucet Lightning Community webpag
 
 ```bash 
 # Run "Alice" container and log into it:
-$ docker-compose up -d "alice"; docker exec -i -t "alice" bash
+$ docker-compose run -d --name alice lnd_btc; docker exec -i -t "alice" bash
 
 # Connect "Alice" to the "Faucet" node:
 alice$ lncli --network=testnet connect <faucet_identity_address>@<faucet_host>

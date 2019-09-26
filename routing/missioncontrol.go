@@ -125,7 +125,24 @@ type timedPairResult struct {
 	// timestamp is the time when this result was obtained.
 	timestamp time.Time
 
-	pairResult
+	// minPenalizeAmt is the minimum amount for which a penalty should be
+	// applied based on this result. Only applies to fail results.
+	minPenalizeAmt lnwire.MilliSatoshi
+
+	// success indicates whether the payment attempt was successful through
+	// this pair.
+	success bool
+}
+
+// newTimedPairResult wraps a pair result with a timestamp.
+func newTimedPairResult(timestamp time.Time,
+	result pairResult) timedPairResult {
+
+	return timedPairResult{
+		timestamp:      timestamp,
+		minPenalizeAmt: result.minPenalizeAmt,
+		success:        result.success,
+	}
 }
 
 // MissionControlSnapshot contains a snapshot of the current state of mission
@@ -278,10 +295,9 @@ func (m *MissionControl) setAllFail(fromNode route.Vertex,
 	}
 
 	for connection := range nodePairs {
-		nodePairs[connection] = timedPairResult{
-			timestamp:  timestamp,
-			pairResult: failPairResult(0),
-		}
+		nodePairs[connection] = newTimedPairResult(
+			timestamp, failPairResult(0),
+		)
 	}
 }
 
@@ -468,10 +484,13 @@ func (m *MissionControl) applyPaymentResult(
 				pair, pairResult.minPenalizeAmt)
 		}
 
-		m.setLastPairResult(pair.From, pair.To, timedPairResult{
-			timestamp:  result.timeReply,
-			pairResult: pairResult,
-		})
+		m.setLastPairResult(
+			pair.From, pair.To,
+			newTimedPairResult(
+				result.timeReply,
+				pairResult,
+			),
+		)
 	}
 
 	return i.finalFailureReason

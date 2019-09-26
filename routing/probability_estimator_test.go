@@ -84,10 +84,10 @@ func TestProbabilityEstimatorOneSuccess(t *testing.T) {
 	ctx := newEstimatorTestContext(t)
 
 	ctx.results = map[int]timedPairResult{
-		node1: {
-			timestamp:  testTime.Add(-time.Hour),
-			pairResult: successPairResult(),
-		},
+		node1: newTimedPairResult(
+			testTime.Add(-time.Hour),
+			successPairResult(),
+		),
 	}
 
 	// Because of the previous success, this channel keep reporting a high
@@ -108,10 +108,10 @@ func TestProbabilityEstimatorOneFailure(t *testing.T) {
 	ctx := newEstimatorTestContext(t)
 
 	ctx.results = map[int]timedPairResult{
-		node1: {
-			timestamp:  testTime.Add(-time.Hour),
-			pairResult: failPairResult(0),
-		},
+		node1: newTimedPairResult(
+			testTime.Add(-time.Hour),
+			failPairResult(0),
+		),
 	}
 
 	// For an untried node, we expected the node probability. The weight for
@@ -131,18 +131,18 @@ func TestProbabilityEstimatorMix(t *testing.T) {
 	ctx := newEstimatorTestContext(t)
 
 	ctx.results = map[int]timedPairResult{
-		node1: {
-			timestamp:  testTime.Add(-time.Hour),
-			pairResult: successPairResult(),
-		},
-		node2: {
-			timestamp:  testTime.Add(-2 * time.Hour),
-			pairResult: failPairResult(0),
-		},
-		node3: {
-			timestamp:  testTime.Add(-3 * time.Hour),
-			pairResult: failPairResult(0),
-		},
+		node1: newTimedPairResult(
+			testTime.Add(-time.Hour),
+			successPairResult(),
+		),
+		node2: newTimedPairResult(
+			testTime.Add(-2*time.Hour),
+			failPairResult(0),
+		),
+		node3: newTimedPairResult(
+			testTime.Add(-3*time.Hour),
+			failPairResult(0),
+		),
 	}
 
 	// We expect the probability for a previously successful channel to

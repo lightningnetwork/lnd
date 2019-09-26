@@ -33,7 +33,7 @@ type estimatorTestContext struct {
 	// corresponds to the last result towards a node. The list index equals
 	// the node id. So the first element in the list is the result towards
 	// node 0.
-	results map[int]timedPairResult
+	results map[int]TimedPairResult
 }
 
 func newEstimatorTestContext(t *testing.T) *estimatorTestContext {
@@ -83,7 +83,7 @@ func TestProbabilityEstimatorNoResults(t *testing.T) {
 func TestProbabilityEstimatorOneSuccess(t *testing.T) {
 	ctx := newEstimatorTestContext(t)
 
-	ctx.results = map[int]timedPairResult{
+	ctx.results = map[int]TimedPairResult{
 		node1: newTimedPairResult(
 			testTime.Add(-time.Hour),
 			successPairResult(),
@@ -107,7 +107,7 @@ func TestProbabilityEstimatorOneSuccess(t *testing.T) {
 func TestProbabilityEstimatorOneFailure(t *testing.T) {
 	ctx := newEstimatorTestContext(t)
 
-	ctx.results = map[int]timedPairResult{
+	ctx.results = map[int]TimedPairResult{
 		node1: newTimedPairResult(
 			testTime.Add(-time.Hour),
 			failPairResult(0),
@@ -130,7 +130,7 @@ func TestProbabilityEstimatorOneFailure(t *testing.T) {
 func TestProbabilityEstimatorMix(t *testing.T) {
 	ctx := newEstimatorTestContext(t)
 
-	ctx.results = map[int]timedPairResult{
+	ctx.results = map[int]TimedPairResult{
 		node1: newTimedPairResult(
 			testTime.Add(-time.Hour),
 			successPairResult(),

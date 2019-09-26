@@ -53,7 +53,7 @@ const (
 )
 
 // NodeResults contains previous results from a node to its peers.
-type NodeResults map[route.Vertex]timedPairResult
+type NodeResults map[route.Vertex]TimedPairResult
 
 // MissionControl contains state which summarizes the past attempts of HTLC
 // routing by external callers when sending payments throughout the network. It
@@ -120,28 +120,28 @@ type MissionControlConfig struct {
 	AprioriWeight float64
 }
 
-// timedPairResult describes a timestamped pair result.
-type timedPairResult struct {
+// TimedPairResult describes a timestamped pair result.
+type TimedPairResult struct {
 	// timestamp is the time when this result was obtained.
-	timestamp time.Time
+	Timestamp time.Time
 
 	// minPenalizeAmt is the minimum amount for which a penalty should be
 	// applied based on this result. Only applies to fail results.
-	minPenalizeAmt lnwire.MilliSatoshi
+	MinPenalizeAmt lnwire.MilliSatoshi
 
 	// success indicates whether the payment attempt was successful through
 	// this pair.
-	success bool
+	Success bool
 }
 
 // newTimedPairResult wraps a pair result with a timestamp.
 func newTimedPairResult(timestamp time.Time,
-	result pairResult) timedPairResult {
+	result pairResult) TimedPairResult {
 
-	return timedPairResult{
-		timestamp:      timestamp,
-		minPenalizeAmt: result.minPenalizeAmt,
-		success:        result.success,
+	return TimedPairResult{
+		Timestamp:      timestamp,
+		MinPenalizeAmt: result.minPenalizeAmt,
+		Success:        result.success,
 	}
 }
 
@@ -274,7 +274,7 @@ func (m *MissionControl) GetProbability(fromNode, toNode route.Vertex,
 
 // setLastPairResult stores a result for a node pair.
 func (m *MissionControl) setLastPairResult(fromNode,
-	toNode route.Vertex, result timedPairResult) {
+	toNode route.Vertex, result TimedPairResult) {
 
 	nodePairs, ok := m.lastPairResult[fromNode]
 	if !ok {
@@ -350,9 +350,9 @@ func (m *MissionControl) GetHistorySnapshot() *MissionControlSnapshot {
 
 			pairSnapshot := MissionControlPairSnapshot{
 				Pair:                  pair,
-				MinPenalizeAmt:        result.minPenalizeAmt,
-				Timestamp:             result.timestamp,
-				LastAttemptSuccessful: result.success,
+				MinPenalizeAmt:        result.MinPenalizeAmt,
+				Timestamp:             result.Timestamp,
+				LastAttemptSuccessful: result.Success,
 			}
 
 			pairs = append(pairs, pairSnapshot)

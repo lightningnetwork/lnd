@@ -80,19 +80,19 @@ func (p *probabilityEstimator) getNodeProbability(now time.Time,
 	totalWeight := aprioriFactor
 
 	for _, result := range results {
-		age := now.Sub(result.timestamp)
+		age := now.Sub(result.Timestamp)
 
 		switch {
 		// Weigh success with a constant high weight of 1. There is no
 		// decay.
-		case result.success:
+		case result.Success:
 			totalWeight++
 			probabilitiesTotal += p.prevSuccessProbability
 
 		// Weigh failures in accordance with their age. The base
 		// probability of a failure is considered zero, so nothing needs
 		// to be added to probabilitiesTotal.
-		case amt >= result.minPenalizeAmt:
+		case amt >= result.MinPenalizeAmt:
 			totalWeight += p.getWeight(age)
 		}
 	}
@@ -127,7 +127,7 @@ func (p *probabilityEstimator) getPairProbability(
 
 	// For successes, we have a fixed (high) probability. Those pairs
 	// will be assumed good until proven otherwise.
-	if lastPairResult.success {
+	if lastPairResult.Success {
 		return p.prevSuccessProbability
 	}
 
@@ -138,11 +138,11 @@ func (p *probabilityEstimator) getPairProbability(
 	// penalization. If the current amount is smaller than the amount that
 	// previously triggered a failure, we act as if this is an untried
 	// channel.
-	if amt < lastPairResult.minPenalizeAmt {
+	if amt < lastPairResult.MinPenalizeAmt {
 		return nodeProbability
 	}
 
-	timeSinceLastFailure := now.Sub(lastPairResult.timestamp)
+	timeSinceLastFailure := now.Sub(lastPairResult.Timestamp)
 
 	// Calculate success probability based on the weight of the last
 	// failure. When the failure is fresh, its weight is 1 and we'll return

@@ -80,19 +80,20 @@ func (p *probabilityEstimator) getNodeProbability(now time.Time,
 	totalWeight := aprioriFactor
 
 	for _, result := range results {
-		age := now.Sub(result.Timestamp)
-
 		switch {
+
 		// Weigh success with a constant high weight of 1. There is no
-		// decay.
-		case result.Success:
+		// decay. Amt is never zero, so this clause is never executed
+		// when result.SuccessAmt is zero.
+		case amt <= result.SuccessAmt:
 			totalWeight++
 			probabilitiesTotal += p.prevSuccessProbability
 
 		// Weigh failures in accordance with their age. The base
 		// probability of a failure is considered zero, so nothing needs
 		// to be added to probabilitiesTotal.
-		case amt >= result.Amt:
+		case !result.FailTime.IsZero() && amt >= result.FailAmt:
+			age := now.Sub(result.FailTime)
 			totalWeight += p.getWeight(age)
 		}
 	}
@@ -155,9 +156,10 @@ func (p *probabilityEstimator) calculateProbability(
 		return nodeProbability
 	}
 
-	// For successes, we have a fixed (high) probability. Those pairs
-	// will be assumed good until proven otherwise.
-	if lastPairResult.Success {
+	// For successes, we have a fixed (high) probability. Those pairs will
+	// be assumed good until proven otherwise. Amt is never zero, so this
+	// clause is never executed when lastPairResult.SuccessAmt is zero.
+	if amt <= lastPairResult.SuccessAmt {
 		return p.prevSuccessProbability
 	}
 
@@ -166,11 +168,11 @@ func (p *probabilityEstimator) calculateProbability(
 	// penalization. If the current amount is smaller than the amount that
 	// previously triggered a failure, we act as if this is an untried
 	// channel.
-	if amt < lastPairResult.Amt {
+	if lastPairResult.FailTime.IsZero() || amt < lastPairResult.FailAmt {
 		return nodeProbability
 	}
 
-	timeSinceLastFailure := now.Sub(lastPairResult.Timestamp)
+	timeSinceLastFailure := now.Sub(lastPairResult.FailTime)
 
 	// Calculate success probability based on the weight of the last
 	// failure. When the failure is fresh, its weight is 1 and we'll return

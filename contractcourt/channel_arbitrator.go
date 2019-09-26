@@ -415,7 +415,19 @@ func (c *ChannelArbitrator) Start() error {
 	if startingState == StateWaitingFullResolution &&
 		nextState == StateWaitingFullResolution {
 
-		if err := c.relaunchResolvers(); err != nil {
+		// In order to relaunch the resolvers, we'll need to fetch the
+		// set of HTLCs that were present in the commitment transaction
+		// at the time it was confirmed. commitSet.ConfCommitKey can't
+		// be nil at this point since we're in
+		// StateWaitingFullResolution. We can only be in
+		// StateWaitingFullResolution after we've transitioned from
+		// StateContractClosed which can only be triggered by the local
+		// or remote close trigger. This trigger is only fired when we
+		// receive a chain event from the chain watcher than the
+		// commitment has been confirmed on chain, and before we
+		// advance our state step, we call InsertConfirmedCommitSet.
+		confCommitSet := commitSet.HtlcSets[*commitSet.ConfCommitKey]
+		if err := c.relaunchResolvers(confCommitSet); err != nil {
 			c.cfg.BlockEpochs.Cancel()
 			return err
 		}
@@ -431,7 +443,7 @@ func (c *ChannelArbitrator) Start() error {
 // starting the ChannelArbitrator. This information should ideally be stored in
 // the database, so this only serves as a intermediate work-around to prevent a
 // migration.
-func (c *ChannelArbitrator) relaunchResolvers() error {
+func (c *ChannelArbitrator) relaunchResolvers(confirmedHTLCs []channeldb.HTLC) error {
 	// We'll now query our log to see if there are any active
 	// unresolved contracts. If this is the case, then we'll
 	// relaunch all contract resolvers.
@@ -456,31 +468,22 @@ func (c *ChannelArbitrator) relaunchResolvers() error {
 	// to prevent a db migration. We use all available htlc sets here in
 	// order to ensure we have complete coverage.
 	htlcMap := make(map[wire.OutPoint]*channeldb.HTLC)
-	for _, htlcs := range c.activeHTLCs {
-		for _, htlc := range htlcs.incomingHTLCs {
-			htlc := htlc
-			outpoint := wire.OutPoint{
-				Hash:  commitHash,
-				Index: uint32(htlc.OutputIndex),
-			}
-			htlcMap[outpoint] = &htlc
+	for _, htlc := range confirmedHTLCs {
+		htlc := htlc
+		outpoint := wire.OutPoint{
+			Hash:  commitHash,
+			Index: uint32(htlc.OutputIndex),
 		}
-
-		for _, htlc := range htlcs.outgoingHTLCs {
-			htlc := htlc
-			outpoint := wire.OutPoint{
-				Hash:  commitHash,
-				Index: uint32(htlc.OutputIndex),
-			}
-			htlcMap[outpoint] = &htlc
-		}
+		htlcMap[outpoint] = &htlc
 	}
 
 	log.Infof("ChannelArbitrator(%v): relaunching %v contract "+
 		"resolvers", c.cfg.ChanPoint, len(unresolvedContracts))
 
 	for _, resolver := range unresolvedContracts {
-		c.supplementResolver(resolver, htlcMap)
+		if err := c.supplementResolver(resolver, htlcMap); err != nil {
+			return err
+		}
 	}
 
 	c.launchResolvers(unresolvedContracts)

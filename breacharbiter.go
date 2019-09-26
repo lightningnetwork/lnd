@@ -944,17 +944,24 @@ func newRetributionInfo(chanPoint *wire.OutPoint,
 
 	// First, record the breach information for the local channel point if
 	// it is not considered dust, which is signaled by a non-nil sign
-	// descriptor. Here we use CommitmentNoDelay since this output belongs
-	// to us and has no time-based constraints on spending.
+	// descriptor. Here we use CommitmentNoDelay (or
+	// CommitmentNoDelayTweakless for newer commitments) since this output
+	// belongs to us and has no time-based constraints on spending.
 	if breachInfo.LocalOutputSignDesc != nil {
+		witnessType := input.CommitmentNoDelay
+		if breachInfo.LocalOutputSignDesc.SingleTweak == nil {
+			witnessType = input.CommitSpendNoDelayTweakless
+		}
+
 		localOutput := makeBreachedOutput(
 			&breachInfo.LocalOutpoint,
-			input.CommitmentNoDelay,
+			witnessType,
 			// No second level script as this is a commitment
 			// output.
 			nil,
 			breachInfo.LocalOutputSignDesc,
-			breachInfo.BreachHeight)
+			breachInfo.BreachHeight,
+		)
 
 		breachedOutputs = append(breachedOutputs, localOutput)
 	}
@@ -972,7 +979,8 @@ func newRetributionInfo(chanPoint *wire.OutPoint,
 			// output.
 			nil,
 			breachInfo.RemoteOutputSignDesc,
-			breachInfo.BreachHeight)
+			breachInfo.BreachHeight,
+		)
 
 		breachedOutputs = append(breachedOutputs, remoteOutput)
 	}
@@ -1048,6 +1056,8 @@ func (b *breachArbiter) createJusticeTx(
 		// type is unrecognized, we will omit it from the transaction.
 		var witnessWeight int
 		switch inp.WitnessType() {
+		case input.CommitSpendNoDelayTweakless:
+			fallthrough
 		case input.CommitmentNoDelay:
 			witnessWeight = input.P2WKHWitnessSize
 

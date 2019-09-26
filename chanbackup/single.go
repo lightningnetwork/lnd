@@ -21,11 +21,16 @@ import (
 type SingleBackupVersion byte
 
 const (
-	// DefaultSingleVersion is the defautl version of the single channel
-	// backup. The seralized version of this static channel backup is
+	// DefaultSingleVersion is the default version of the single channel
+	// backup. The serialized version of this static channel backup is
 	// simply: version || SCB. Where SCB is the known format of the
 	// version.
 	DefaultSingleVersion = 0
+
+	// TweaklessCommitVersion is the second SCB version. This version
+	// implicitly denotes that this channel uses the new tweakless commit
+	// format.
+	TweaklessCommitVersion = 1
 )
 
 // Single is a static description of an existing channel that can be used for
@@ -121,8 +126,7 @@ func NewSingle(channel *channeldb.OpenChannel,
 	// key.
 	_, shaChainPoint := btcec.PrivKeyFromBytes(btcec.S256(), b.Bytes())
 
-	return Single{
-		Version:         DefaultSingleVersion,
+	single := Single{
 		IsInitiator:     channel.IsInitiator,
 		ChainHash:       channel.ChainHash,
 		FundingOutpoint: channel.FundingOutpoint,
@@ -139,6 +143,14 @@ func NewSingle(channel *channeldb.OpenChannel,
 			},
 		},
 	}
+
+	if channel.ChanType.IsTweakless() {
+		single.Version = TweaklessCommitVersion
+	} else {
+		single.Version = DefaultSingleVersion
+	}
+
+	return single
 }
 
 // Serialize attempts to write out the serialized version of the target
@@ -148,6 +160,7 @@ func (s *Single) Serialize(w io.Writer) error {
 	// we're aware of.
 	switch s.Version {
 	case DefaultSingleVersion:
+	case TweaklessCommitVersion:
 	default:
 		return fmt.Errorf("unable to serialize w/ unknown "+
 			"version: %v", s.Version)
@@ -305,6 +318,7 @@ func (s *Single) Deserialize(r io.Reader) error {
 
 	switch s.Version {
 	case DefaultSingleVersion:
+	case TweaklessCommitVersion:
 	default:
 		return fmt.Errorf("unable to de-serialize w/ unknown "+
 			"version: %v", s.Version)

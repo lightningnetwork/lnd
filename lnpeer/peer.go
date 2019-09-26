@@ -46,4 +46,16 @@ type Peer interface {
 	// using the interface to cancel any processing in the event the backing
 	// implementation exits.
 	QuitSignal() <-chan struct{}
+
+	// LocalGlobalFeatures returns the set of global features that has been
+	// advertised by the local peer. This allows sub-systems that use this
+	// interface to gate their behavior off the set of negotiated feature
+	// bits.
+	LocalGlobalFeatures() *lnwire.FeatureVector
+
+	// RemoteGlobalFeatures returns the set of global features that has
+	// been advertised by the remote peer. This allows sub-systems that use
+	// this interface to gate their behavior off the set of negotiated
+	// feature bits.
+	RemoteGlobalFeatures() *lnwire.FeatureVector
 }

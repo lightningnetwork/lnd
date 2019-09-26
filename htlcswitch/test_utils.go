@@ -257,9 +257,10 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 	}
 	aliceCommitPoint := input.ComputeCommitmentPoint(aliceFirstRevoke[:])
 
-	aliceCommitTx, bobCommitTx, err := lnwallet.CreateCommitmentTxns(aliceAmount,
-		bobAmount, &aliceCfg, &bobCfg, aliceCommitPoint, bobCommitPoint,
-		*fundingTxIn)
+	aliceCommitTx, bobCommitTx, err := lnwallet.CreateCommitmentTxns(
+		aliceAmount, bobAmount, &aliceCfg, &bobCfg, aliceCommitPoint,
+		bobCommitPoint, *fundingTxIn, true,
+	)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -326,7 +327,7 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 		RemoteChanCfg:           bobCfg,
 		IdentityPub:             aliceKeyPub,
 		FundingOutpoint:         *prevOut,
-		ChanType:                channeldb.SingleFunder,
+		ChanType:                channeldb.SingleFunderTweakless,
 		IsInitiator:             true,
 		Capacity:                channelCapacity,
 		RemoteCurrentRevocation: bobCommitPoint,
@@ -345,7 +346,7 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 		RemoteChanCfg:           aliceCfg,
 		IdentityPub:             bobKeyPub,
 		FundingOutpoint:         *prevOut,
-		ChanType:                channeldb.SingleFunder,
+		ChanType:                channeldb.SingleFunderTweakless,
 		IsInitiator:             false,
 		Capacity:                channelCapacity,
 		RemoteCurrentRevocation: aliceCommitPoint,

@@ -14,3 +14,9 @@ type LegacyProtocol struct {
 func (l *LegacyProtocol) LegacyOnion() bool {
 	return false
 }
+
+// LegacyOnion returns true if the old commitment format should be used for new
+// funded channels.
+func (l *LegacyProtocol) LegacyCommitment() bool {
+	return false
+}

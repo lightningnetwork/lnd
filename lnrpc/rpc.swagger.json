@@ -1654,6 +1654,11 @@
           "type": "string",
           "format": "int64",
           "description": "*\nThe minimum satoshis the other node is required to reserve in its balance."
+        },
+        "static_remote_key": {
+          "type": "boolean",
+          "format": "boolean",
+          "description": "*\nIf true, then this channel uses the modern commitment format where the key\nin the output of the remote party does not change each state. This makes\nback up and recovery easier as when the channel is closed, the funds go\ndirectly to that key."
         }
       }
     },

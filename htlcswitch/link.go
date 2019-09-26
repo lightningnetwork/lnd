@@ -954,7 +954,7 @@ func (l *channelLink) htlcManager() {
 
 			l.fail(
 				LinkFailureError{
-					code:       ErrSyncError,
+					code:       ErrRecoveryError,
 					ForceClose: false,
 				},
 				"unable to synchronize channel "+
@@ -1844,8 +1844,13 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 				return
 			}
 
+			chanType := l.channel.State().ChanType
+			isTweakless := chanType == channeldb.SingleFunderTweakless
+
 			chanID := l.ChanID()
-			err = l.cfg.TowerClient.BackupState(&chanID, breachInfo)
+			err = l.cfg.TowerClient.BackupState(
+				&chanID, breachInfo, isTweakless,
+			)
 			if err != nil {
 				l.fail(LinkFailureError{code: ErrInternalError},
 					"unable to queue breach backup: %v", err)

@@ -106,6 +106,10 @@ type InitFundingReserveMsg struct {
 	// output selected to fund the channel should satisfy.
 	MinConfs int32
 
+	// Tweakless indicates if the channel should use the new tweakless
+	// commitment format or not.
+	Tweakless bool
+
 	// err is a channel in which all errors will be sent across. Will be
 	// nil if this initial set is successful.
 	//
@@ -489,6 +493,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 	reservation, err := NewChannelReservation(
 		capacity, localFundingAmt, req.CommitFeePerKw, l, id,
 		req.PushMSat, l.Cfg.NetParams.GenesisHash, req.Flags,
+		req.Tweakless,
 	)
 	if err != nil {
 		selected.unlockCoins()
@@ -655,12 +660,17 @@ func (l *LightningWallet) handleFundingCancelRequest(req *fundingReserveCancelMs
 func CreateCommitmentTxns(localBalance, remoteBalance btcutil.Amount,
 	ourChanCfg, theirChanCfg *channeldb.ChannelConfig,
 	localCommitPoint, remoteCommitPoint *btcec.PublicKey,
-	fundingTxIn wire.TxIn) (*wire.MsgTx, *wire.MsgTx, error) {
+	fundingTxIn wire.TxIn,
+	tweaklessCommit bool) (*wire.MsgTx, *wire.MsgTx, error) {
 
-	localCommitmentKeys := deriveCommitmentKeys(localCommitPoint, true,
-		ourChanCfg, theirChanCfg)
-	remoteCommitmentKeys := deriveCommitmentKeys(remoteCommitPoint, false,
-		ourChanCfg, theirChanCfg)
+	localCommitmentKeys := DeriveCommitmentKeys(
+		localCommitPoint, true, tweaklessCommit, ourChanCfg,
+		theirChanCfg,
+	)
+	remoteCommitmentKeys := DeriveCommitmentKeys(
+		remoteCommitPoint, false, tweaklessCommit, ourChanCfg,
+		theirChanCfg,
+	)
 
 	ourCommitTx, err := CreateCommitTx(fundingTxIn, localCommitmentKeys,
 		uint32(ourChanCfg.CsvDelay), localBalance, remoteBalance,
@@ -827,11 +837,13 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	// With the funding tx complete, create both commitment transactions.
 	localBalance := pendingReservation.partialState.LocalCommitment.LocalBalance.ToSatoshis()
 	remoteBalance := pendingReservation.partialState.LocalCommitment.RemoteBalance.ToSatoshis()
+	tweaklessCommits := pendingReservation.partialState.ChanType.IsTweakless()
 	ourCommitTx, theirCommitTx, err := CreateCommitmentTxns(
 		localBalance, remoteBalance, ourContribution.ChannelConfig,
 		theirContribution.ChannelConfig,
 		ourContribution.FirstCommitmentPoint,
 		theirContribution.FirstCommitmentPoint, fundingTxIn,
+		tweaklessCommits,
 	)
 	if err != nil {
 		req.err <- err
@@ -842,7 +854,7 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	// obfuscator then use it to encode the current state number within
 	// both commitment transactions.
 	var stateObfuscator [StateHintSize]byte
-	if chanState.ChanType == channeldb.SingleFunder {
+	if chanState.ChanType.IsSingleFunder() {
 		stateObfuscator = DeriveStateHintObfuscator(
 			ourContribution.PaymentBasePoint.PubKey,
 			theirContribution.PaymentBasePoint.PubKey,
@@ -1151,13 +1163,14 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 	// remote node's commitment transactions.
 	localBalance := pendingReservation.partialState.LocalCommitment.LocalBalance.ToSatoshis()
 	remoteBalance := pendingReservation.partialState.LocalCommitment.RemoteBalance.ToSatoshis()
+	tweaklessCommits := pendingReservation.partialState.ChanType.IsTweakless()
 	ourCommitTx, theirCommitTx, err := CreateCommitmentTxns(
 		localBalance, remoteBalance,
 		pendingReservation.ourContribution.ChannelConfig,
 		pendingReservation.theirContribution.ChannelConfig,
 		pendingReservation.ourContribution.FirstCommitmentPoint,
 		pendingReservation.theirContribution.FirstCommitmentPoint,
-		*fundingTxIn,
+		*fundingTxIn, tweaklessCommits,
 	)
 	if err != nil {
 		req.err <- err

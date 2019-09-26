@@ -2410,6 +2410,24 @@ func (p *peer) handleInitMsg(msg *lnwire.Init) error {
 	return nil
 }
 
+// LocalGlobalFeatures returns the set of global features that has been
+// advertised by the local node. This allows sub-systems that use this
+// interface to gate their behavior off the set of negotiated feature bits.
+//
+// NOTE: Part of the lnpeer.Peer interface.
+func (p *peer) LocalGlobalFeatures() *lnwire.FeatureVector {
+	return p.server.globalFeatures
+}
+
+// RemoteGlobalFeatures returns the set of global features that has been
+// advertised by the remote node. This allows sub-systems that use this
+// interface to gate their behavior off the set of negotiated feature bits.
+//
+// NOTE: Part of the lnpeer.Peer interface.
+func (p *peer) RemoteGlobalFeatures() *lnwire.FeatureVector {
+	return p.remoteGlobalFeatures
+}
+
 // sendInitMsg sends init message to remote peer which contains our currently
 // supported local and global features.
 func (p *peer) sendInitMsg() error {

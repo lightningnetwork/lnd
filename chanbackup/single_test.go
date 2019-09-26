@@ -124,8 +124,14 @@ func genRandomOpenChannelShell() (*channeldb.OpenChannel, error) {
 		isInitiator = true
 	}
 
+	chanType := channeldb.SingleFunder
+	if rand.Int63()%2 == 0 {
+		chanType = channeldb.SingleFunderTweakless
+	}
+
 	return &channeldb.OpenChannel{
 		ChainHash:       chainHash,
+		ChanType:        chanType,
 		IsInitiator:     isInitiator,
 		FundingOutpoint: chanPoint,
 		ShortChannelID: lnwire.NewShortChanIDFromInt(
@@ -223,6 +229,12 @@ func TestSinglePackUnpack(t *testing.T) {
 			valid:   true,
 		},
 
+		// The new tweakless version, should pack/unpack with no problem.
+		{
+			version: TweaklessCommitVersion,
+			valid:   true,
+		},
+
 		// A non-default version, atm this should result in a failure.
 		{
 			version: 99,
@@ -274,7 +286,7 @@ func TestSinglePackUnpack(t *testing.T) {
 			}
 
 			rawBytes := rawSingle.Bytes()
-			rawBytes[0] ^= 1
+			rawBytes[0] ^= 5
 
 			newReader := bytes.NewReader(rawBytes)
 			err = unpackedSingle.Deserialize(newReader)

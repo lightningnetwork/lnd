@@ -55,6 +55,16 @@ const (
 	// packet.
 	TLVOnionPayloadOptional FeatureBit = 9
 
+	// StaticRemoteKeyRequired is a required feature bit that signals that
+	// within one's commitment transaction, the key used for the remote
+	// party's non-delay output should not be tweaked.
+	StaticRemoteKeyRequired FeatureBit = 10
+
+	// StaticRemoteKeyOptional is an optional feature bit that signals that
+	// within one's commitment transaction, the key used for the remote
+	// party's non-delay output should not be tweaked.
+	StaticRemoteKeyOptional FeatureBit = 11
+
 	// maxAllowedSize is a maximum allowed size of feature vector.
 	//
 	// NOTE: Within the protocol, the maximum allowed message size is 65535
@@ -88,6 +98,8 @@ var LocalFeatures = map[FeatureBit]string{
 var GlobalFeatures = map[FeatureBit]string{
 	TLVOnionPayloadRequired: "tlv-onion",
 	TLVOnionPayloadOptional: "tlv-onion",
+	StaticRemoteKeyOptional: "static-remote-key",
+	StaticRemoteKeyRequired: "static-remote-key",
 }
 
 // RawFeatureVector represents a set of feature bits as defined in BOLT-09.  A

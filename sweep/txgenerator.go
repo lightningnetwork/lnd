@@ -259,6 +259,8 @@ func getInputWitnessSizeUpperBound(inp input.Input) (int, bool, error) {
 	switch inp.WitnessType() {
 
 	// Outputs on a remote commitment transaction that pay directly to us.
+	case input.CommitSpendNoDelayTweakless:
+		fallthrough
 	case input.WitnessKeyHash:
 		fallthrough
 	case input.CommitmentNoDelay:

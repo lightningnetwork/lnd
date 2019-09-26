@@ -135,13 +135,30 @@ const (
 
 	// SingleFunder represents a channel wherein one party solely funds the
 	// entire capacity of the channel.
-	SingleFunder = 0
+	SingleFunder ChannelType = 0
 
 	// DualFunder represents a channel wherein both parties contribute
 	// funds towards the total capacity of the channel. The channel may be
 	// funded symmetrically or asymmetrically.
-	DualFunder = 1
+	DualFunder ChannelType = 1
+
+	// SingleFunderTweakless is similar to the basic SingleFunder channel
+	// type, but it omits the tweak for one's key in the commitment
+	// transaction of the remote party.
+	SingleFunderTweakless ChannelType = 2
 )
+
+// IsSingleFunder returns true if the channel type if one of the known single
+// funder variants.
+func (c ChannelType) IsSingleFunder() bool {
+	return c == SingleFunder || c == SingleFunderTweakless
+}
+
+// IsTweakless returns true if the target channel uses a commitment that
+// doesn't tweak the key for the remote party.
+func (c ChannelType) IsTweakless() bool {
+	return c == SingleFunderTweakless
+}
 
 // ChannelConstraints represents a set of constraints meant to allow a node to
 // limit their exposure, enact flow control and ensure that all HTLCs are
@@ -852,6 +869,14 @@ func (c *OpenChannel) ChanSyncMsg() (*lnwire.ChannelReestablish, error) {
 	// allowing us to sweep our funds.
 	if c.hasChanStatus(ChanStatusRestored) {
 		currentCommitSecret[0] ^= 1
+
+		// If this is a tweakless channel, then we'll purposefully send
+		// a next local height taht's invalid to trigger a force close
+		// on their end. We do this as tweakless channels don't require
+		// that the commitment point is valid, only that it's present.
+		if c.ChanType.IsTweakless() {
+			nextLocalCommitHeight = 0
+		}
 	}
 
 	return &lnwire.ChannelReestablish{
@@ -2506,7 +2531,7 @@ func putChanInfo(chanBucket *bbolt.Bucket, channel *OpenChannel) error {
 	}
 
 	// For single funder channels that we initiated, write the funding txn.
-	if channel.ChanType == SingleFunder && channel.IsInitiator &&
+	if channel.ChanType.IsSingleFunder() && channel.IsInitiator &&
 		!channel.hasChanStatus(ChanStatusRestored) {
 
 		if err := WriteElement(&w, channel.FundingTxn); err != nil {
@@ -2628,7 +2653,7 @@ func fetchChanInfo(chanBucket *bbolt.Bucket, channel *OpenChannel) error {
 	}
 
 	// For single funder channels that we initiated, read the funding txn.
-	if channel.ChanType == SingleFunder && channel.IsInitiator &&
+	if channel.ChanType.IsSingleFunder() && channel.IsInitiator &&
 		!channel.hasChanStatus(ChanStatusRestored) {
 
 		if err := ReadElement(r, &channel.FundingTxn); err != nil {

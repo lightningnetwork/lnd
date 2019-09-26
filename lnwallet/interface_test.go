@@ -698,7 +698,7 @@ func testCancelNonExistentReservation(miner *rpctest.Harness,
 	// Create our own reservation, give it some ID.
 	res, err := lnwallet.NewChannelReservation(
 		10000, 10000, feePerKw, alice, 22, 10, &testHdSeed,
-		lnwire.FFAnnounceChannel,
+		lnwire.FFAnnounceChannel, true,
 	)
 	if err != nil {
 		t.Fatalf("unable to create res: %v", err)
@@ -736,6 +736,7 @@ func testReservationInitiatorBalanceBelowDustCancel(miner *rpctest.Harness,
 		FundingFeePerKw:  1000,
 		PushMSat:         0,
 		Flags:            lnwire.FFAnnounceChannel,
+		Tweakless:        true,
 	}
 	_, err = alice.InitChannelReservation(req)
 	switch {
@@ -790,7 +791,7 @@ func assertContributionInitPopulated(t *testing.T, c *lnwallet.ChannelContributi
 }
 
 func testSingleFunderReservationWorkflow(miner *rpctest.Harness,
-	alice, bob *lnwallet.LightningWallet, t *testing.T) {
+	alice, bob *lnwallet.LightningWallet, t *testing.T, tweakless bool) {
 
 	// For this scenario, Alice will be the channel initiator while bob
 	// will act as the responder to the workflow.
@@ -817,6 +818,7 @@ func testSingleFunderReservationWorkflow(miner *rpctest.Harness,
 		FundingFeePerKw:  feePerKw,
 		PushMSat:         pushAmt,
 		Flags:            lnwire.FFAnnounceChannel,
+		Tweakless:        tweakless,
 	}
 	aliceChanReservation, err := alice.InitChannelReservation(aliceReq)
 	if err != nil {
@@ -860,6 +862,7 @@ func testSingleFunderReservationWorkflow(miner *rpctest.Harness,
 		FundingFeePerKw:  feePerKw,
 		PushMSat:         pushAmt,
 		Flags:            lnwire.FFAnnounceChannel,
+		Tweakless:        tweakless,
 	}
 	bobChanReservation, err := bob.InitChannelReservation(bobReq)
 	if err != nil {
@@ -966,7 +969,7 @@ func testSingleFunderReservationWorkflow(miner *rpctest.Harness,
 	if !aliceChannels[0].IsInitiator {
 		t.Fatalf("alice not detected as channel initiator")
 	}
-	if aliceChannels[0].ChanType != channeldb.SingleFunder {
+	if !aliceChannels[0].ChanType.IsSingleFunder() {
 		t.Fatalf("channel type is incorrect, expected %v instead got %v",
 			channeldb.SingleFunder, aliceChannels[0].ChanType)
 	}
@@ -986,7 +989,7 @@ func testSingleFunderReservationWorkflow(miner *rpctest.Harness,
 	if bobChannels[0].IsInitiator {
 		t.Fatalf("bob not detected as channel responder")
 	}
-	if bobChannels[0].ChanType != channeldb.SingleFunder {
+	if !bobChannels[0].ChanType.IsSingleFunder() {
 		t.Fatalf("channel type is incorrect, expected %v instead got %v",
 			channeldb.SingleFunder, bobChannels[0].ChanType)
 	}
@@ -2515,7 +2518,23 @@ var walletTests = []walletTestCase{
 	},
 	{
 		name: "single funding workflow",
-		test: testSingleFunderReservationWorkflow,
+		test: func(miner *rpctest.Harness, alice,
+			bob *lnwallet.LightningWallet, t *testing.T) {
+
+			testSingleFunderReservationWorkflow(
+				miner, alice, bob, t, false,
+			)
+		},
+	},
+	{
+		name: "single funding workflow tweakless",
+		test: func(miner *rpctest.Harness, alice,
+			bob *lnwallet.LightningWallet, t *testing.T) {
+
+			testSingleFunderReservationWorkflow(
+				miner, alice, bob, t, true,
+			)
+		},
 	},
 	{
 		name: "dual funder workflow",

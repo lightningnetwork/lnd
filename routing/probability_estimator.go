@@ -92,7 +92,7 @@ func (p *probabilityEstimator) getNodeProbability(now time.Time,
 		// Weigh failures in accordance with their age. The base
 		// probability of a failure is considered zero, so nothing needs
 		// to be added to probabilitiesTotal.
-		case amt >= result.MinPenalizeAmt:
+		case amt >= result.Amt:
 			totalWeight += p.getWeight(age)
 		}
 	}
@@ -166,7 +166,7 @@ func (p *probabilityEstimator) calculateProbability(
 	// penalization. If the current amount is smaller than the amount that
 	// previously triggered a failure, we act as if this is an untried
 	// channel.
-	if amt < lastPairResult.MinPenalizeAmt {
+	if amt < lastPairResult.Amt {
 		return nodeProbability
 	}
 

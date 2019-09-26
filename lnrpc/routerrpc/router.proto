@@ -394,8 +394,11 @@ message PairData {
     /// Time stamp of last result.
     int64 timestamp = 1 [json_name = "timestamp"];
 
-    /// Minimum penalization amount (only applies to failed attempts).
-    int64 min_penalize_amt_sat = 2 [json_name = "min_penalize_amt_sat"];
+    /// Last amount that was forwarded rounded to whole satoshis.
+    int64 amt_sat = 2 [json_name = "amt_sat"];
+
+    /// Last amount that was forwarded in millisatoshis.
+    int64 amt_msat = 4 [json_name = "amt_msat"];
 
     /// Whether the last payment attempt through this pair was successful.
     bool last_attempt_successful = 3 [json_name = "last_attempt_successful"];

@@ -17,9 +17,9 @@ var (
 // pairResult contains the result of the interpretation of a payment attempt for
 // a specific node pair.
 type pairResult struct {
-	// minPenalizeAmt is the minimum amount for which a penalty should be
-	// applied based on this result. Only applies to fail results.
-	minPenalizeAmt lnwire.MilliSatoshi
+	// amt is the amount that was forwarded for this pair. Can be set to
+	// zero for failures that are amount independent.
+	amt lnwire.MilliSatoshi
 
 	// success indicates whether the payment attempt was successful through
 	// this pair.
@@ -29,24 +29,28 @@ type pairResult struct {
 // failPairResult creates a new result struct for a failure.
 func failPairResult(minPenalizeAmt lnwire.MilliSatoshi) pairResult {
 	return pairResult{
-		minPenalizeAmt: minPenalizeAmt,
+		amt: minPenalizeAmt,
 	}
 }
 
-// successPairResult creates a new result struct for a success.
-func successPairResult() pairResult {
+// newSuccessPairResult creates a new result struct for a success.
+func successPairResult(successAmt lnwire.MilliSatoshi) pairResult {
 	return pairResult{
 		success: true,
+		amt:     successAmt,
 	}
 }
 
 // String returns the human-readable representation of a pair result.
 func (p pairResult) String() string {
+	var resultType string
 	if p.success {
-		return "success"
+		resultType = "success"
+	} else {
+		resultType = "failed"
 	}
 
-	return fmt.Sprintf("failed (minPenalizeAmt=%v)", p.minPenalizeAmt)
+	return fmt.Sprintf("%v (amt=%v)", resultType, p.amt)
 }
 
 // interpretedResult contains the result of the interpretation of a payment
@@ -458,9 +462,9 @@ func (i *interpretedResult) successPairRange(
 	rt *route.Route, fromIdx, toIdx int) {
 
 	for idx := fromIdx; idx <= toIdx; idx++ {
-		pair, _ := getPair(rt, idx)
+		pair, amt := getPair(rt, idx)
 
-		i.pairResults[pair] = successPairResult()
+		i.pairResults[pair] = successPairResult(amt)
 	}
 }
 

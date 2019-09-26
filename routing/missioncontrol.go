@@ -128,11 +128,10 @@ type TimedPairResult struct {
 	// timestamp is the time when this result was obtained.
 	Timestamp time.Time
 
-	// minPenalizeAmt is the minimum amount for which a penalty should be
-	// applied based on this result. Only applies to fail results.
-	MinPenalizeAmt lnwire.MilliSatoshi
+	// Amt is the amount that was forwarded in the last payment attempt.
+	Amt lnwire.MilliSatoshi
 
-	// success indicates whether the payment attempt was successful through
+	// Success indicates whether the payment attempt was successful through
 	// this pair.
 	Success bool
 }
@@ -142,9 +141,9 @@ func newTimedPairResult(timestamp time.Time,
 	result pairResult) TimedPairResult {
 
 	return TimedPairResult{
-		Timestamp:      timestamp,
-		MinPenalizeAmt: result.minPenalizeAmt,
-		Success:        result.success,
+		Timestamp: timestamp,
+		Amt:       result.amt,
+		Success:   result.success,
 	}
 }
 
@@ -497,8 +496,8 @@ func (m *MissionControl) applyPaymentResult(
 				"Control: pair=%v", pair)
 		} else {
 			log.Debugf("Reporting pair failure to Mission "+
-				"Control: pair=%v, minPenalizeAmt=%v",
-				pair, pairResult.minPenalizeAmt)
+				"Control: pair=%v, amt=%v",
+				pair, pairResult.amt)
 		}
 
 		m.setLastPairResult(

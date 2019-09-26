@@ -86,7 +86,7 @@ func TestProbabilityEstimatorOneSuccess(t *testing.T) {
 	ctx.results = map[int]TimedPairResult{
 		node1: newTimedPairResult(
 			testTime.Add(-time.Hour),
-			successPairResult(),
+			successPairResult(100),
 		),
 	}
 
@@ -133,7 +133,7 @@ func TestProbabilityEstimatorMix(t *testing.T) {
 	ctx.results = map[int]TimedPairResult{
 		node1: newTimedPairResult(
 			testTime.Add(-time.Hour),
-			successPairResult(),
+			successPairResult(100),
 		),
 		node2: newTimedPairResult(
 			testTime.Add(-2*time.Hour),

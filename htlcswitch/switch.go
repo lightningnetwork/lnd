@@ -1036,13 +1036,7 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 		for _, link := range interfaceLinks {
 			// We'll skip any links that aren't yet eligible for
 			// forwarding.
-			switch {
-			case !link.EligibleToForward():
-				continue
-
-			// If the link doesn't yet have a source chan ID, then
-			// we'll skip it as well.
-			case link.ShortChanID() == hop.Source:
+			if !link.EligibleToForward() {
 				continue
 			}
 

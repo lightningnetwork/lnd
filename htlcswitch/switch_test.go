@@ -1299,10 +1299,10 @@ type multiHopFwdTest struct {
 // to forward any HTLC's.
 func TestSkipIneligibleLinksMultiHopForward(t *testing.T) {
 	tests := []multiHopFwdTest{
-		// None of the channels is eligible or has enough bandwidth.
+		// None of the channels is eligible.
 		{
 			name:          "not eligible",
-			expectedReply: lnwire.CodeTemporaryChannelFailure,
+			expectedReply: lnwire.CodeUnknownNextPeer,
 		},
 
 		// Channel one has a policy failure and the other channel isn't
@@ -1314,25 +1314,23 @@ func TestSkipIneligibleLinksMultiHopForward(t *testing.T) {
 			expectedReply: lnwire.CodeFinalIncorrectCltvExpiry,
 		},
 
-		// The requested channel is not eligible or has insufficient
-		// bandwidth, but the packet is forwarded through the other
-		// channel.
+		// The requested channel is not eligible, but the packet is
+		// forwarded through the other channel.
 		{
 			name:          "non-strict success",
 			eligible2:     true,
 			expectedReply: lnwire.CodeNone,
 		},
 
-		// The requested channel is not eligible or has insufficient
-		// bandwidth and the other channel's policy isn't satisfied.
-		//
-		// NOTE: We expect a temporary channel failure here, but don't
-		// receive it!
+		// The requested channel has insufficient bandwidth and the
+		// other channel's policy isn't satisfied.
 		{
 			name:          "non-strict policy fail",
+			eligible1:     true,
+			failure1:      lnwire.NewTemporaryChannelFailure(nil),
 			eligible2:     true,
 			failure2:      lnwire.NewFinalIncorrectCltvExpiry(0),
-			expectedReply: lnwire.CodeUnknownNextPeer,
+			expectedReply: lnwire.CodeTemporaryChannelFailure,
 		},
 	}
 

@@ -2341,6 +2341,15 @@ func (l *channelLink) canSendHtlc(policy ForwardingPolicy,
 		return &lnwire.FailExpiryTooFar{}
 	}
 
+	// Check to see if there is enough balance in this channel.
+	if amt > l.Bandwidth() {
+		return l.createFailureWithUpdate(
+			func(upd *lnwire.ChannelUpdate) lnwire.FailureMessage {
+				return lnwire.NewTemporaryChannelFailure(upd)
+			},
+		)
+	}
+
 	return nil
 }
 

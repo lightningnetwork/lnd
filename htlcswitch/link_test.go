@@ -5406,6 +5406,15 @@ func TestCheckHtlcForward(t *testing.T) {
 		return &lnwire.ChannelUpdate{}, nil
 	}
 
+	testChannel, _, fCleanUp, err := createTestChannel(
+		alicePrivKey, bobPrivKey, 100000, 100000,
+		1000, 1000, lnwire.ShortChannelID{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fCleanUp()
+
 	link := channelLink{
 		cfg: ChannelLinkConfig{
 			FwrdingPolicy: ForwardingPolicy{
@@ -5417,7 +5426,9 @@ func TestCheckHtlcForward(t *testing.T) {
 			FetchLastChannelUpdate: fetchLastChannelUpdate,
 			MaxOutgoingCltvExpiry:  DefaultMaxOutgoingCltvExpiry,
 		},
-		log: log,
+		log:           log,
+		channel:       testChannel.channel,
+		overflowQueue: newPacketQueue(input.MaxHTLCNumber / 2),
 	}
 
 	var hash [32]byte

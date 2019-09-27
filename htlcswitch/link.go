@@ -2184,13 +2184,13 @@ func (l *channelLink) UpdateForwardingPolicy(newPolicy ForwardingPolicy) {
 	l.cfg.FwrdingPolicy = newPolicy
 }
 
-// HtlcSatifiesPolicy should return a nil error if the passed HTLC details
-// satisfy the current forwarding policy fo the target link.  Otherwise, a
-// valid protocol failure message should be returned in order to signal to the
-// source of the HTLC, the policy consistency issue.
+// CheckHtlcForward should return a nil error if the passed HTLC details satisfy
+// the current forwarding policy fo the target link.  Otherwise, a valid
+// protocol failure message should be returned in order to signal to the source
+// of the HTLC, the policy consistency issue.
 //
 // NOTE: Part of the ChannelLink interface.
-func (l *channelLink) HtlcSatifiesPolicy(payHash [32]byte,
+func (l *channelLink) CheckHtlcForward(payHash [32]byte,
 	incomingHtlcAmt, amtToForward lnwire.MilliSatoshi,
 	incomingTimeout, outgoingTimeout uint32,
 	heightNow uint32) lnwire.FailureMessage {
@@ -2200,7 +2200,7 @@ func (l *channelLink) HtlcSatifiesPolicy(payHash [32]byte,
 	l.RUnlock()
 
 	// First check whether the outgoing htlc satisfies the channel policy.
-	err := l.htlcSatifiesPolicyOutgoing(
+	err := l.canSendHtlc(
 		policy, payHash, amtToForward, outgoingTimeout, heightNow,
 	)
 	if err != nil {
@@ -2259,12 +2259,12 @@ func (l *channelLink) HtlcSatifiesPolicy(payHash [32]byte,
 	return nil
 }
 
-// HtlcSatifiesPolicyLocal should return a nil error if the passed HTLC details
-// satisfy the current channel policy.  Otherwise, a valid protocol failure
-// message should be returned in order to signal the violation. This call is
-// intended to be used for locally initiated payments for which there is no
-// corresponding incoming htlc.
-func (l *channelLink) HtlcSatifiesPolicyLocal(payHash [32]byte,
+// CheckHtlcTransit should return a nil error if the passed HTLC details satisfy the
+// current channel policy.  Otherwise, a valid protocol failure message should
+// be returned in order to signal the violation. This call is intended to be
+// used for locally initiated payments for which there is no corresponding
+// incoming htlc.
+func (l *channelLink) CheckHtlcTransit(payHash [32]byte,
 	amt lnwire.MilliSatoshi, timeout uint32,
 	heightNow uint32) lnwire.FailureMessage {
 
@@ -2272,14 +2272,14 @@ func (l *channelLink) HtlcSatifiesPolicyLocal(payHash [32]byte,
 	policy := l.cfg.FwrdingPolicy
 	l.RUnlock()
 
-	return l.htlcSatifiesPolicyOutgoing(
+	return l.canSendHtlc(
 		policy, payHash, amt, timeout, heightNow,
 	)
 }
 
 // htlcSatifiesPolicyOutgoing checks whether the given htlc parameters satisfy
 // the channel's amount and time lock constraints.
-func (l *channelLink) htlcSatifiesPolicyOutgoing(policy ForwardingPolicy,
+func (l *channelLink) canSendHtlc(policy ForwardingPolicy,
 	payHash [32]byte, amt lnwire.MilliSatoshi, timeout uint32,
 	heightNow uint32) lnwire.FailureMessage {
 

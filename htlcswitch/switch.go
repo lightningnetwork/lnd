@@ -775,7 +775,7 @@ func (s *Switch) handleLocalDispatch(pkt *htlcPacket) error {
 
 		// Ensure that the htlc satisfies the outgoing channel policy.
 		currentHeight := atomic.LoadUint32(&s.bestHeight)
-		htlcErr := link.HtlcSatifiesPolicyLocal(
+		htlcErr := link.CheckHtlcTransit(
 			htlc.PaymentHash,
 			htlc.Amount,
 			htlc.Expiry, currentHeight,
@@ -1050,7 +1050,7 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 			// that the HTLC satisfies the current forwarding
 			// policy of this target link.
 			currentHeight := atomic.LoadUint32(&s.bestHeight)
-			err := link.HtlcSatifiesPolicy(
+			err := link.CheckHtlcForward(
 				htlc.PaymentHash, packet.incomingAmount,
 				packet.amount, packet.incomingTimeout,
 				packet.outgoingTimeout, currentHeight,

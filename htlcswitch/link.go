@@ -2338,7 +2338,7 @@ func (l *channelLink) htlcSatifiesPolicyOutgoing(policy ForwardingPolicy,
 			l.ShortChanID(),
 		)
 		if err != nil {
-			failure = lnwire.NewTemporaryChannelFailure(update)
+			failure = &lnwire.FailTemporaryNodeFailure{}
 		} else {
 			failure = lnwire.NewExpiryTooSoon(*update)
 		}

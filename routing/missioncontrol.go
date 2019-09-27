@@ -355,6 +355,26 @@ func (m *MissionControl) GetHistorySnapshot() *MissionControlSnapshot {
 	return &snapshot
 }
 
+// GetPairHistorySnapshot returns the stored history for a given node pair.
+func (m *MissionControl) GetPairHistorySnapshot(
+	fromNode, toNode route.Vertex) TimedPairResult {
+
+	m.Lock()
+	defer m.Unlock()
+
+	results, ok := m.lastPairResult[fromNode]
+	if !ok {
+		return TimedPairResult{}
+	}
+
+	result, ok := results[toNode]
+	if !ok {
+		return TimedPairResult{}
+	}
+
+	return result
+}
+
 // ReportPaymentFail reports a failed payment to mission control as input for
 // future probability estimates. The failureSourceIdx argument indicates the
 // failure source. If it is nil, the failure source is unknown. This function

@@ -367,6 +367,25 @@ message PairData {
     bool last_attempt_successful = 3 [json_name = "last_attempt_successful"];
 }
 
+message QueryProbabilityRequest{
+    /// The source node pubkey of the pair.
+    bytes from_node = 1 [json_name = "from_node"];
+
+    /// The destination node pubkey of the pair.
+    bytes to_node = 2 [json_name = "to_node"];
+
+    /// The amount for which to calculate a probability.
+    int64 amt_msat = 3 [json_name = "amt_msat"];
+}
+
+message QueryProbabilityResponse{
+    /// The success probability for the requested pair.
+    double probability = 1 [json_name = "probability"];
+
+    /// The historical data for the requested pair.
+    PairData history = 2 [json_name = "history"];
+}
+
 message BuildRouteRequest {
     /**
     The amount to send expressed in msat. If set to zero, the minimum routable
@@ -439,6 +458,12 @@ service Router {
     It is a development feature.
     */
     rpc QueryMissionControl(QueryMissionControlRequest) returns (QueryMissionControlResponse);
+
+    /**
+    QueryProbability returns the current success probability estimate for a
+    given node pair and amount.
+    */
+    rpc QueryProbability(QueryProbabilityRequest) returns (QueryProbabilityResponse);
 
     /**
     BuildRoute builds a fully specified route based on a list of hop public

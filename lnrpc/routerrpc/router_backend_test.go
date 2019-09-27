@@ -174,3 +174,9 @@ func (m *mockMissionControl) ResetHistory() error {
 func (m *mockMissionControl) GetHistorySnapshot() *routing.MissionControlSnapshot {
 	return nil
 }
+
+func (m *mockMissionControl) GetPairHistorySnapshot(fromNode,
+	toNode route.Vertex) routing.TimedPairResult {
+
+	return routing.TimedPairResult{}
+}

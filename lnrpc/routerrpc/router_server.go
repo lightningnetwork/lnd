@@ -68,6 +68,10 @@ var (
 			Entity: "offchain",
 			Action: "read",
 		}},
+		"/routerrpc.Router/QueryProbability": {{
+			Entity: "offchain",
+			Action: "read",
+		}},
 		"/routerrpc.Router/ResetMissionControl": {{
 			Entity: "offchain",
 			Action: "write",
@@ -501,6 +505,33 @@ func toRPCPairData(data *routing.TimedPairResult) *PairData {
 	}
 
 	return &rpcData
+}
+
+// QueryProbability returns the current success probability estimate for a
+// given node pair and amount.
+func (s *Server) QueryProbability(ctx context.Context,
+	req *QueryProbabilityRequest) (*QueryProbabilityResponse, error) {
+
+	fromNode, err := route.NewVertexFromBytes(req.FromNode)
+	if err != nil {
+		return nil, err
+	}
+
+	toNode, err := route.NewVertexFromBytes(req.ToNode)
+	if err != nil {
+		return nil, err
+	}
+
+	amt := lnwire.MilliSatoshi(req.AmtMsat)
+
+	mc := s.cfg.RouterBackend.MissionControl
+	prob := mc.GetProbability(fromNode, toNode, amt)
+	history := mc.GetPairHistorySnapshot(fromNode, toNode)
+
+	return &QueryProbabilityResponse{
+		Probability: prob,
+		History:     toRPCPairData(&history),
+	}, nil
 }
 
 // TrackPayment returns a stream of payment state updates. The stream is

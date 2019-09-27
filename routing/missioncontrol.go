@@ -118,26 +118,9 @@ type timedPairResult struct {
 // MissionControlSnapshot contains a snapshot of the current state of mission
 // control.
 type MissionControlSnapshot struct {
-	// Nodes contains the per node information of this snapshot.
-	Nodes []MissionControlNodeSnapshot
-
 	// Pairs is a list of channels for which specific information is
 	// logged.
 	Pairs []MissionControlPairSnapshot
-}
-
-// MissionControlNodeSnapshot contains a snapshot of the current node state in
-// mission control.
-type MissionControlNodeSnapshot struct {
-	// Node pubkey.
-	Node route.Vertex
-
-	// LastFail is the time of last failure.
-	LastFail time.Time
-
-	// OtherSuccessProb is the success probability for pairs not in
-	// the Pairs slice.
-	OtherSuccessProb float64
 }
 
 // MissionControlPairSnapshot contains a snapshot of the current node pair
@@ -152,9 +135,6 @@ type MissionControlPairSnapshot struct {
 	// MinPenalizeAmt is the minimum amount for which the channel will be
 	// penalized.
 	MinPenalizeAmt lnwire.MilliSatoshi
-
-	// SuccessProb is the success probability estimation for this channel.
-	SuccessProb float64
 
 	// LastAttemptSuccessful indicates whether the last payment attempt
 	// through this pair was successful.
@@ -386,26 +366,10 @@ func (m *MissionControl) GetHistorySnapshot() *MissionControlSnapshot {
 		"node_failure_count=%v, pair_result_count=%v",
 		len(m.lastNodeFailure), len(m.lastPairResult))
 
-	nodes := make([]MissionControlNodeSnapshot, 0, len(m.lastNodeFailure))
-	for v, h := range m.lastNodeFailure {
-		otherProb := m.getPairProbability(v, route.Vertex{}, 0)
-
-		nodes = append(nodes, MissionControlNodeSnapshot{
-			Node:             v,
-			LastFail:         h,
-			OtherSuccessProb: otherProb,
-		})
-	}
-
 	pairs := make([]MissionControlPairSnapshot, 0, len(m.lastPairResult))
 
 	for fromNode, fromPairs := range m.lastPairResult {
 		for toNode, result := range fromPairs {
-			// Show probability assuming amount meets min
-			// penalization amount.
-			prob := m.getPairProbability(
-				fromNode, toNode, result.minPenalizeAmt,
-			)
 
 			pair := NewDirectedNodePair(fromNode, toNode)
 
@@ -413,7 +377,6 @@ func (m *MissionControl) GetHistorySnapshot() *MissionControlSnapshot {
 				Pair:                  pair,
 				MinPenalizeAmt:        result.minPenalizeAmt,
 				Timestamp:             result.timestamp,
-				SuccessProb:           prob,
 				LastAttemptSuccessful: result.success,
 			}
 
@@ -422,7 +385,6 @@ func (m *MissionControl) GetHistorySnapshot() *MissionControlSnapshot {
 	}
 
 	snapshot := MissionControlSnapshot{
-		Nodes: nodes,
 		Pairs: pairs,
 	}
 

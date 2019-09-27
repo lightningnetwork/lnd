@@ -466,22 +466,6 @@ func (s *Server) QueryMissionControl(ctx context.Context,
 
 	snapshot := s.cfg.RouterBackend.MissionControl.GetHistorySnapshot()
 
-	rpcNodes := make([]*NodeHistory, 0, len(snapshot.Nodes))
-	for _, n := range snapshot.Nodes {
-		// Copy node struct to prevent loop variable binding bugs.
-		node := n
-
-		rpcNode := NodeHistory{
-			Pubkey:       node.Node[:],
-			LastFailTime: node.LastFail.Unix(),
-			OtherSuccessProb: float32(
-				node.OtherSuccessProb,
-			),
-		}
-
-		rpcNodes = append(rpcNodes, &rpcNode)
-	}
-
 	rpcPairs := make([]*PairHistory, 0, len(snapshot.Pairs))
 	for _, p := range snapshot.Pairs {
 		// Prevent binding to loop variable.
@@ -494,7 +478,6 @@ func (s *Server) QueryMissionControl(ctx context.Context,
 			MinPenalizeAmtSat: int64(
 				pair.MinPenalizeAmt.ToSatoshis(),
 			),
-			SuccessProb:           float32(pair.SuccessProb),
 			LastAttemptSuccessful: pair.LastAttemptSuccessful,
 		}
 
@@ -502,7 +485,6 @@ func (s *Server) QueryMissionControl(ctx context.Context,
 	}
 
 	response := QueryMissionControlResponse{
-		Nodes: rpcNodes,
 		Pairs: rpcPairs,
 	}
 

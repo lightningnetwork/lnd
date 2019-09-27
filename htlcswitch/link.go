@@ -605,6 +605,19 @@ func shouldAdjustCommitFee(netFee, chanFee lnwallet.SatPerKWeight) bool {
 	}
 }
 
+// createFailureWithUpdate retrieves this link's last channel update message and
+// passes it into the callback. It expects a fully populated failure message.
+func (l *channelLink) createFailureWithUpdate(
+	cb func(update *lnwire.ChannelUpdate) lnwire.FailureMessage) lnwire.FailureMessage {
+
+	update, err := l.cfg.FetchLastChannelUpdate(l.ShortChanID())
+	if err != nil {
+		return &lnwire.FailTemporaryNodeFailure{}
+	}
+
+	return cb(update)
+}
+
 // syncChanState attempts to synchronize channel states with the remote party.
 // This method is to be called upon reconnection after the initial funding
 // flow. We'll compare out commitment chains with the remote party, and re-send
@@ -1312,17 +1325,13 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 					reason       lnwire.OpaqueReason
 				)
 
-				var failure lnwire.FailureMessage
-				update, err := l.cfg.FetchLastChannelUpdate(
-					l.ShortChanID(),
+				failure := l.createFailureWithUpdate(
+					func(upd *lnwire.ChannelUpdate) lnwire.FailureMessage {
+						return lnwire.NewTemporaryChannelFailure(
+							upd,
+						)
+					},
 				)
-				if err != nil {
-					failure = &lnwire.FailTemporaryNodeFailure{}
-				} else {
-					failure = lnwire.NewTemporaryChannelFailure(
-						update,
-					)
-				}
 
 				// Encrypt the error back to the source unless
 				// the payment was generated locally.
@@ -2216,17 +2225,14 @@ func (l *channelLink) HtlcSatifiesPolicy(payHash [32]byte,
 
 		// As part of the returned error, we'll send our latest routing
 		// policy so the sending node obtains the most up to date data.
-		var failure lnwire.FailureMessage
-		update, err := l.cfg.FetchLastChannelUpdate(l.ShortChanID())
-		if err != nil {
-			failure = &lnwire.FailTemporaryNodeFailure{}
-		} else {
-			failure = lnwire.NewFeeInsufficient(
-				amtToForward, *update,
-			)
-		}
 
-		return failure
+		return l.createFailureWithUpdate(
+			func(upd *lnwire.ChannelUpdate) lnwire.FailureMessage {
+				return lnwire.NewFeeInsufficient(
+					amtToForward, *upd,
+				)
+			},
+		)
 	}
 
 	// Finally, we'll ensure that the time-lock on the outgoing HTLC meets
@@ -2241,19 +2247,13 @@ func (l *channelLink) HtlcSatifiesPolicy(payHash [32]byte,
 
 		// Grab the latest routing policy so the sending node is up to
 		// date with our current policy.
-		var failure lnwire.FailureMessage
-		update, err := l.cfg.FetchLastChannelUpdate(
-			l.ShortChanID(),
+		return l.createFailureWithUpdate(
+			func(upd *lnwire.ChannelUpdate) lnwire.FailureMessage {
+				return lnwire.NewIncorrectCltvExpiry(
+					incomingTimeout, *upd,
+				)
+			},
 		)
-		if err != nil {
-			failure = lnwire.NewTemporaryChannelFailure(update)
-		} else {
-			failure = lnwire.NewIncorrectCltvExpiry(
-				incomingTimeout, *update,
-			)
-		}
-
-		return failure
 	}
 
 	return nil
@@ -2293,36 +2293,28 @@ func (l *channelLink) htlcSatifiesPolicyOutgoing(policy ForwardingPolicy,
 
 		// As part of the returned error, we'll send our latest routing
 		// policy so the sending node obtains the most up to date data.
-		var failure lnwire.FailureMessage
-		update, err := l.cfg.FetchLastChannelUpdate(l.ShortChanID())
-		if err != nil {
-			failure = &lnwire.FailTemporaryNodeFailure{}
-		} else {
-			failure = lnwire.NewAmountBelowMinimum(
-				amt, *update,
-			)
-		}
-
-		return failure
+		return l.createFailureWithUpdate(
+			func(upd *lnwire.ChannelUpdate) lnwire.FailureMessage {
+				return lnwire.NewAmountBelowMinimum(
+					amt, *upd,
+				)
+			},
+		)
 	}
 
-	// Next, ensure that the passed HTLC isn't too large. If so, we'll cancel
-	// the HTLC directly.
+	// Next, ensure that the passed HTLC isn't too large. If so, we'll
+	// cancel the HTLC directly.
 	if policy.MaxHTLC != 0 && amt > policy.MaxHTLC {
 		l.log.Errorf("outgoing htlc(%x) is too large: max_htlc=%v, "+
 			"htlc_value=%v", payHash[:], policy.MaxHTLC, amt)
 
-		// As part of the returned error, we'll send our latest routing policy
-		// so the sending node obtains the most up-to-date data.
-		var failure lnwire.FailureMessage
-		update, err := l.cfg.FetchLastChannelUpdate(l.ShortChanID())
-		if err != nil {
-			failure = &lnwire.FailTemporaryNodeFailure{}
-		} else {
-			failure = lnwire.NewTemporaryChannelFailure(update)
-		}
-
-		return failure
+		// As part of the returned error, we'll send our latest routing
+		// policy so the sending node obtains the most up-to-date data.
+		return l.createFailureWithUpdate(
+			func(upd *lnwire.ChannelUpdate) lnwire.FailureMessage {
+				return lnwire.NewTemporaryChannelFailure(upd)
+			},
+		)
 	}
 
 	// We want to avoid offering an HTLC which will expire in the near
@@ -2333,17 +2325,11 @@ func (l *channelLink) htlcSatifiesPolicyOutgoing(policy ForwardingPolicy,
 			"outgoing_expiry=%v, best_height=%v", payHash[:],
 			timeout, heightNow)
 
-		var failure lnwire.FailureMessage
-		update, err := l.cfg.FetchLastChannelUpdate(
-			l.ShortChanID(),
+		return l.createFailureWithUpdate(
+			func(upd *lnwire.ChannelUpdate) lnwire.FailureMessage {
+				return lnwire.NewExpiryTooSoon(*upd)
+			},
 		)
-		if err != nil {
-			failure = &lnwire.FailTemporaryNodeFailure{}
-		} else {
-			failure = lnwire.NewExpiryTooSoon(*update)
-		}
-
-		return failure
 	}
 
 	// Check absolute max delta.
@@ -2764,17 +2750,13 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 				l.log.Errorf("unable to encode the "+
 					"remaining route %v", err)
 
-				var failure lnwire.FailureMessage
-				update, err := l.cfg.FetchLastChannelUpdate(
-					l.ShortChanID(),
+				failure := l.createFailureWithUpdate(
+					func(upd *lnwire.ChannelUpdate) lnwire.FailureMessage {
+						return lnwire.NewTemporaryChannelFailure(
+							upd,
+						)
+					},
 				)
-				if err != nil {
-					failure = &lnwire.FailTemporaryNodeFailure{}
-				} else {
-					failure = lnwire.NewTemporaryChannelFailure(
-						update,
-					)
-				}
 
 				l.sendHTLCError(
 					pd.HtlcIndex, failure, obfuscator, pd.SourceRef,

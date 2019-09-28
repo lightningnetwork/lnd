@@ -1,6 +1,7 @@
 package macaroons
 
 import (
+	"context"
 	"encoding/hex"
 	"fmt"
 	"os"
@@ -13,8 +14,6 @@ import (
 	"gopkg.in/macaroon-bakery.v2/bakery"
 	"gopkg.in/macaroon-bakery.v2/bakery/checkers"
 	macaroon "gopkg.in/macaroon.v2"
-
-	"golang.org/x/net/context"
 )
 
 var (

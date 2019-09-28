@@ -70,6 +70,9 @@ func applyMigration(t *testing.T, beforeMigration, afterMigration func(d *DB),
 
 	// Sync with the latest version - applying migration function.
 	err = cdb.syncVersions(versions)
+	if err != nil {
+		log.Error(err)
+	}
 }
 
 // TestVersionFetchPut checks the propernces of fetch/put methods

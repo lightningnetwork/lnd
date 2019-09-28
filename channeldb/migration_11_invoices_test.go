@@ -127,6 +127,32 @@ func TestMigrateInvoices(t *testing.T) {
 		false)
 }
 
+// TestMigrateInvoicesHodl checks that a hodl invoice in the accepted state
+// fails the migration.
+func TestMigrateInvoicesHodl(t *testing.T) {
+	t.Parallel()
+
+	payReqBtc, err := getPayReq(&bitcoinCfg.MainNetParams)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	invoices := []Invoice{
+		{
+			PaymentRequest: []byte(payReqBtc),
+			Terms: ContractTerm{
+				State: ContractAccepted,
+			},
+		},
+	}
+
+	applyMigration(t,
+		func(d *DB) { beforeMigrationFuncV11(t, d, invoices) },
+		func(d *DB) {},
+		migrateInvoices,
+		true)
+}
+
 // signDigestCompact generates a test signature to be used in the generation of
 // test payment requests.
 func signDigestCompact(hash []byte) ([]byte, error) {

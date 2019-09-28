@@ -6,6 +6,7 @@ package lnd
 
 import (
 	"bytes"
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -29,8 +30,6 @@ import (
 	_ "net/http/pprof"
 
 	"gopkg.in/macaroon-bakery.v2/bakery"
-
-	"golang.org/x/net/context"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"

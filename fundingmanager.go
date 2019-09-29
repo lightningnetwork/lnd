@@ -363,6 +363,10 @@ type fundingConfig struct {
 	// and on the requesting node's public key that returns a bool which tells
 	// the funding manager whether or not to accept the channel.
 	OpenChannelPredicate chanacceptor.ChannelAcceptor
+
+	// NotifyPendingOpenChannelEvent informs the ChannelNotifier when channels
+	// enter a pending state.
+	NotifyPendingOpenChannelEvent func(wire.OutPoint)
 }
 
 // fundingManager acts as an orchestrator/bridge between the wallet's
@@ -1691,6 +1695,10 @@ func (f *fundingManager) handleFundingCreated(fmsg *fundingCreatedMsg) {
 	f.localDiscoverySignals[channelID] = make(chan struct{})
 	f.localDiscoveryMtx.Unlock()
 
+	// Inform the ChannelNotifier that the channel has entered
+	// pending open state.
+	f.cfg.NotifyPendingOpenChannelEvent(fundingOut)
+
 	// At this point we have sent our last funding message to the
 	// initiating peer before the funding transaction will be broadcast.
 	// With this last message, our job as the responder is now complete.
@@ -1835,6 +1843,9 @@ func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
 
 	select {
 	case resCtx.updates <- upd:
+		// Inform the ChannelNotifier that the channel has entered
+		// pending open state.
+		f.cfg.NotifyPendingOpenChannelEvent(*fundingPoint)
 	case <-f.quit:
 		return
 	}

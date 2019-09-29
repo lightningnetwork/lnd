@@ -1930,6 +1930,7 @@ message ChannelEventUpdate {
         ChannelCloseSummary closed_channel = 2 [ json_name = "closed_channel" ];
         ChannelPoint active_channel = 3 [ json_name = "active_channel" ];
         ChannelPoint inactive_channel = 4 [ json_name = "inactive_channel" ];
+        PendingUpdate pending_open_channel = 6 [json_name = "pending_open_channel"];
     }
 
     enum UpdateType {
@@ -1937,6 +1938,7 @@ message ChannelEventUpdate {
          CLOSED_CHANNEL = 1;
          ACTIVE_CHANNEL = 2;
          INACTIVE_CHANNEL = 3;
+         PENDING_OPEN_CHANNEL = 4;
     }
 
     UpdateType type = 5 [ json_name = "type" ];

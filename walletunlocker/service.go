@@ -1,6 +1,7 @@
 package walletunlocker
 
 import (
+	"context"
 	"crypto/rand"
 	"errors"
 	"fmt"
@@ -15,7 +16,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
-	"golang.org/x/net/context"
 )
 
 // ChannelsToRecover wraps any set of packed (serialized+encrypted) channel

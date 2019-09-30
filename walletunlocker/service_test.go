@@ -2,6 +2,7 @@ package walletunlocker_test
 
 import (
 	"bytes"
+	"context"
 	"io/ioutil"
 	"os"
 	"strings"
@@ -15,7 +16,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"github.com/lightningnetwork/lnd/walletunlocker"
-	"golang.org/x/net/context"
 )
 
 var (

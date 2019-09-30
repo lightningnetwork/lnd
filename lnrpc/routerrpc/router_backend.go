@@ -1,6 +1,7 @@
 package routerrpc
 
 import (
+	"context"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -16,7 +17,6 @@ import (
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/lightningnetwork/lnd/zpay32"
-	context "golang.org/x/net/context"
 )
 
 // RouterBackend contains the backend implementation of the router rpc sub

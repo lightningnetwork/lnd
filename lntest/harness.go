@@ -1,6 +1,7 @@
 package lntest
 
 import (
+	"context"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -12,7 +13,6 @@ import (
 	"sync"
 	"time"
 
-	"golang.org/x/net/context"
 	"google.golang.org/grpc/grpclog"
 
 	"github.com/btcsuite/btcd/chaincfg"

@@ -69,6 +69,11 @@ func migrateInvoices(tx *bbolt.Tx) error {
 			return err
 		}
 
+		if invoice.Terms.State == ContractAccepted {
+			return fmt.Errorf("cannot upgrade with invoice(s) " +
+				"in accepted state, see release notes")
+		}
+
 		// Try to decode the payment request for every possible net to
 		// avoid passing a the active network to channeldb. This would
 		// be a layering violation, while this migration is only running

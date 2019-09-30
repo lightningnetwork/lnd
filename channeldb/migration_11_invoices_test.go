@@ -24,6 +24,43 @@ var (
 	testCltvDelta = int32(50)
 )
 
+// beforeMigrationFuncV11 insert the test invoices in the database.
+func beforeMigrationFuncV11(t *testing.T, d *DB, invoices []Invoice) {
+	err := d.Update(func(tx *bbolt.Tx) error {
+		invoicesBucket, err := tx.CreateBucketIfNotExists(
+			invoiceBucket,
+		)
+		if err != nil {
+			return err
+		}
+
+		invoiceNum := uint32(1)
+		for _, invoice := range invoices {
+			var invoiceKey [4]byte
+			byteOrder.PutUint32(invoiceKey[:], invoiceNum)
+			invoiceNum++
+
+			var buf bytes.Buffer
+			err := serializeInvoiceLegacy(&buf, &invoice) // nolint:scopelint
+			if err != nil {
+				return err
+			}
+
+			err = invoicesBucket.Put(
+				invoiceKey[:], buf.Bytes(),
+			)
+			if err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 // TestMigrateInvoices checks that invoices are migrated correctly.
 func TestMigrateInvoices(t *testing.T) {
 	t.Parallel()
@@ -47,42 +84,6 @@ func TestMigrateInvoices(t *testing.T) {
 		{
 			PaymentRequest: []byte(payReqLtc),
 		},
-	}
-
-	beforeMigrationFunc := func(d *DB) {
-		err := d.Update(func(tx *bbolt.Tx) error {
-			invoicesBucket, err := tx.CreateBucketIfNotExists(
-				invoiceBucket,
-			)
-			if err != nil {
-				return err
-			}
-
-			invoiceNum := uint32(1)
-			for _, invoice := range invoices {
-				var invoiceKey [4]byte
-				byteOrder.PutUint32(invoiceKey[:], invoiceNum)
-				invoiceNum++
-
-				var buf bytes.Buffer
-				err := serializeInvoiceLegacy(&buf, &invoice)
-				if err != nil {
-					return err
-				}
-
-				err = invoicesBucket.Put(
-					invoiceKey[:], buf.Bytes(),
-				)
-				if err != nil {
-					return err
-				}
-			}
-
-			return nil
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
 	}
 
 	// Verify that all invoices were migrated.
@@ -120,10 +121,36 @@ func TestMigrateInvoices(t *testing.T) {
 	}
 
 	applyMigration(t,
-		beforeMigrationFunc,
+		func(d *DB) { beforeMigrationFuncV11(t, d, invoices) },
 		afterMigrationFunc,
 		migrateInvoices,
 		false)
+}
+
+// TestMigrateInvoicesHodl checks that a hodl invoice in the accepted state
+// fails the migration.
+func TestMigrateInvoicesHodl(t *testing.T) {
+	t.Parallel()
+
+	payReqBtc, err := getPayReq(&bitcoinCfg.MainNetParams)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	invoices := []Invoice{
+		{
+			PaymentRequest: []byte(payReqBtc),
+			Terms: ContractTerm{
+				State: ContractAccepted,
+			},
+		},
+	}
+
+	applyMigration(t,
+		func(d *DB) { beforeMigrationFuncV11(t, d, invoices) },
+		func(d *DB) {},
+		migrateInvoices,
+		true)
 }
 
 // signDigestCompact generates a test signature to be used in the generation of

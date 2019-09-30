@@ -392,31 +392,10 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 
 	// processEdge is a helper closure that will be used to make sure edges
 	// satisfy our specific requirements.
-	processEdge := func(fromVertex route.Vertex, bandwidth lnwire.MilliSatoshi,
+	processEdge := func(fromVertex route.Vertex,
 		edge *channeldb.ChannelEdgePolicy, toNodeDist *nodeWithDist) {
 
 		edgesExpanded++
-
-		// If this is not a local channel and it is disabled, we will
-		// skip it.
-		// TODO(halseth): also ignore disable flags for non-local
-		// channels if bandwidth hint is set?
-		isSourceChan := fromVertex == source
-
-		edgeFlags := edge.ChannelFlags
-		isDisabled := edgeFlags&lnwire.ChanUpdateDisabled != 0
-
-		if !isSourceChan && isDisabled {
-			return
-		}
-
-		// If we have an outgoing channel restriction and this is not
-		// the specified channel, skip it.
-		if isSourceChan && r.OutgoingChannelID != nil &&
-			*r.OutgoingChannelID != edge.ChannelID {
-
-			return
-		}
 
 		// Calculate amount that the candidate node would have to sent
 		// out.
@@ -435,25 +414,6 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 
 		// If the probability is zero, there is no point in trying.
 		if edgeProbability == 0 {
-			return
-		}
-
-		// If the estimated bandwidth of the channel edge is not able
-		// to carry the amount that needs to be send, return.
-		if bandwidth < amountToSend {
-			return
-		}
-
-		// If the amountToSend is less than the minimum required
-		// amount, return.
-		if amountToSend < edge.MinHTLC {
-			return
-		}
-
-		// If this edge was constructed from a hop hint, we won't have access to
-		// its max HTLC. Therefore, only consider discarding this edge here if
-		// the field is set.
-		if edge.MaxHTLC != 0 && edge.MaxHTLC < amountToSend {
 			return
 		}
 
@@ -585,67 +545,34 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 			break
 		}
 
-		cb := func(_ *bbolt.Tx, edgeInfo *channeldb.ChannelEdgeInfo, _,
-			inEdge *channeldb.ChannelEdgePolicy) error {
+		// Create unified policies for all incoming connections.
+		u := newUnifiedPolicies(source, pivot, r.OutgoingChannelID)
 
-			// If there is no edge policy for this candidate
-			// node, skip. Note that we are searching backwards
-			// so this node would have come prior to the pivot
-			// node in the route.
-			if inEdge == nil {
-				return nil
-			}
-
-			// We'll query the lower layer to see if we can obtain
-			// any more up to date information concerning the
-			// bandwidth of this edge.
-			edgeBandwidth, ok := g.bandwidthHints[edgeInfo.ChannelID]
-			if !ok {
-				// If we don't have a hint for this edge, then
-				// we'll just use the known Capacity/MaxHTLC as
-				// the available bandwidth. It's possible for
-				// the capacity to be unknown when operating
-				// under a light client.
-				edgeBandwidth = inEdge.MaxHTLC
-				if edgeBandwidth == 0 {
-					edgeBandwidth = lnwire.NewMSatFromSatoshis(
-						edgeInfo.Capacity,
-					)
-				}
-			}
-
-			// Before we can process the edge, we'll need to fetch
-			// the node on the _other_ end of this channel as we
-			// may later need to iterate over the incoming edges of
-			// this node if we explore it further.
-			chanSource, err := edgeInfo.OtherNodeKeyBytes(pivot[:])
-			if err != nil {
-				return err
-			}
-
-			// Check if this candidate node is better than what we
-			// already have.
-			processEdge(chanSource, edgeBandwidth, inEdge, partialPath)
-			return nil
-		}
-
-		// Now that we've found the next potential step to take we'll
-		// examine all the incoming edges (channels) from this node to
-		// further our graph traversal.
-		err := g.graph.ForEachNodeChannel(tx, pivot[:], cb)
+		err := u.addGraphPolicies(g.graph, tx)
 		if err != nil {
 			return nil, err
 		}
 
-		// Then, we'll examine all the additional edges from the node
-		// we're currently visiting. Since we don't know the capacity
-		// of the private channel, we'll assume it was selected as a
-		// routing hint due to having enough capacity for the payment
-		// and use the payment amount as its capacity.
-		bandWidth := partialPath.amountToReceive
 		for _, reverseEdge := range additionalEdgesWithSrc[pivot] {
-			processEdge(reverseEdge.sourceNode, bandWidth,
-				reverseEdge.edge, partialPath)
+			u.addPolicy(reverseEdge.sourceNode, reverseEdge.edge, 0)
+		}
+
+		amtToSend := partialPath.amountToReceive
+
+		// Expand all connections using the optimal policy for each
+		// connection.
+		for fromNode, unifiedPolicy := range u.policies {
+			policy := unifiedPolicy.getPolicy(
+				amtToSend, g.bandwidthHints,
+			)
+
+			if policy == nil {
+				continue
+			}
+
+			// Check if this candidate node is better than what we
+			// already have.
+			processEdge(fromNode, policy, partialPath)
 		}
 	}
 

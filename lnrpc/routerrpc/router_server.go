@@ -478,7 +478,7 @@ func (s *Server) QueryMissionControl(ctx context.Context,
 			MinPenalizeAmtSat: int64(
 				pair.MinPenalizeAmt.ToSatoshis(),
 			),
-			LastAttemptSuccessful: pair.LastAttemptSuccessful,
+			LastAttemptSuccessful: pair.Success,
 		}
 
 		rpcPairs = append(rpcPairs, &rpcPair)

@@ -68,12 +68,8 @@ var resultTestCases = []resultTestCase{
 
 		expectedResult: &interpretedResult{
 			pairResults: map[DirectedNodePair]pairResult{
-				getTestPair(0, 1): {
-					success: true,
-				},
-				getTestPair(1, 2): {
-					minPenalizeAmt: 99,
-				},
+				getTestPair(0, 1): successPairResult(),
+				getTestPair(1, 2): failPairResult(99),
 			},
 		},
 	},
@@ -87,12 +83,12 @@ var resultTestCases = []resultTestCase{
 
 		expectedResult: &interpretedResult{
 			pairResults: map[DirectedNodePair]pairResult{
-				getTestPair(0, 1): {},
-				getTestPair(1, 0): {},
-				getTestPair(1, 2): {},
-				getTestPair(2, 1): {},
-				getTestPair(2, 3): {},
-				getTestPair(3, 2): {},
+				getTestPair(0, 1): failPairResult(0),
+				getTestPair(1, 0): failPairResult(0),
+				getTestPair(1, 2): failPairResult(0),
+				getTestPair(2, 1): failPairResult(0),
+				getTestPair(2, 3): failPairResult(0),
+				getTestPair(3, 2): failPairResult(0),
 			},
 		},
 	},
@@ -107,12 +103,8 @@ var resultTestCases = []resultTestCase{
 
 		expectedResult: &interpretedResult{
 			pairResults: map[DirectedNodePair]pairResult{
-				getTestPair(0, 1): {
-					success: true,
-				},
-				getTestPair(1, 2): {
-					success: true,
-				},
+				getTestPair(0, 1): successPairResult(),
+				getTestPair(1, 2): successPairResult(),
 			},
 			finalFailureReason: &reasonIncorrectDetails,
 		},
@@ -126,9 +118,7 @@ var resultTestCases = []resultTestCase{
 
 		expectedResult: &interpretedResult{
 			pairResults: map[DirectedNodePair]pairResult{
-				getTestPair(0, 1): {
-					success: true,
-				},
+				getTestPair(0, 1): successPairResult(),
 			},
 		},
 	},
@@ -141,12 +131,8 @@ var resultTestCases = []resultTestCase{
 
 		expectedResult: &interpretedResult{
 			pairResults: map[DirectedNodePair]pairResult{
-				getTestPair(0, 1): {
-					success: true,
-				},
-				getTestPair(1, 2): {
-					success: true,
-				},
+				getTestPair(0, 1): successPairResult(),
+				getTestPair(1, 2): successPairResult(),
 			},
 		},
 	},

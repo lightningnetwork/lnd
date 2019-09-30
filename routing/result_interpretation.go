@@ -26,6 +26,20 @@ type pairResult struct {
 	success bool
 }
 
+// failPairResult creates a new result struct for a failure.
+func failPairResult(minPenalizeAmt lnwire.MilliSatoshi) pairResult {
+	return pairResult{
+		minPenalizeAmt: minPenalizeAmt,
+	}
+}
+
+// successPairResult creates a new result struct for a success.
+func successPairResult() pairResult {
+	return pairResult{
+		success: true,
+	}
+}
+
 // String returns the human-readable representation of a pair result.
 func (p pairResult) String() string {
 	if p.success {
@@ -387,8 +401,8 @@ func (i *interpretedResult) failPair(
 	pair, _ := getPair(rt, idx)
 
 	// Report pair in both directions without a minimum penalization amount.
-	i.pairResults[pair] = pairResult{}
-	i.pairResults[pair.Reverse()] = pairResult{}
+	i.pairResults[pair] = failPairResult(0)
+	i.pairResults[pair.Reverse()] = failPairResult(0)
 }
 
 // failPairBalance marks a pair as failed with a minimum penalization amount.
@@ -397,9 +411,7 @@ func (i *interpretedResult) failPairBalance(
 
 	pair, amt := getPair(rt, channelIdx)
 
-	i.pairResults[pair] = pairResult{
-		minPenalizeAmt: amt,
-	}
+	i.pairResults[pair] = failPairResult(amt)
 }
 
 // successPairRange marks the node pairs from node fromIdx to node toIdx as
@@ -410,9 +422,7 @@ func (i *interpretedResult) successPairRange(
 	for idx := fromIdx; idx <= toIdx; idx++ {
 		pair, _ := getPair(rt, idx)
 
-		i.pairResults[pair] = pairResult{
-			success: true,
-		}
+		i.pairResults[pair] = successPairResult()
 	}
 }
 

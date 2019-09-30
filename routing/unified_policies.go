@@ -261,3 +261,15 @@ func (u *unifiedPolicy) getPolicyNetwork(
 
 	return &modifiedPolicy
 }
+
+// minAmt returns the minimum amount that can be forwarded on this connection.
+func (u *unifiedPolicy) minAmt() lnwire.MilliSatoshi {
+	min := ^lnwire.MilliSatoshi(0)
+	for _, edge := range u.edges {
+		if edge.policy.MinHTLC < min {
+			min = edge.policy.MinHTLC
+		}
+	}
+
+	return min
+}

@@ -443,9 +443,10 @@ func (hn *HarnessNode) start(lndError chan<- error) error {
 	// Since Stop uses the LightningClient to stop the node, if we fail to get a
 	// connected client, we have to kill the process.
 	useMacaroons := !hn.cfg.HasSeed
-	conn, err := hn.ConnectRPC(useMacaroons)
+	conn, cancel, err := hn.ConnectRPC(useMacaroons)
 	if err != nil {
 		hn.cmd.Process.Kill()
+		cancel()
 		return err
 	}
 
@@ -470,7 +471,7 @@ func (hn *HarnessNode) initClientWhenReady() error {
 		connErr error
 	)
 	if err := wait.NoError(func() error {
-		conn, connErr = hn.ConnectRPC(true)
+		conn, _, connErr = hn.ConnectRPC(true)
 		return connErr
 	}, 5*time.Second); err != nil {
 		return err
@@ -637,14 +638,16 @@ func (hn *HarnessNode) writePidFile() error {
 
 // ConnectRPC uses the TLS certificate and admin macaroon files written by the
 // lnd node to create a gRPC client connection.
-func (hn *HarnessNode) ConnectRPC(useMacs bool) (*grpc.ClientConn, error) {
+func (hn *HarnessNode) ConnectRPC(useMacs bool) (*grpc.ClientConn, context.CancelFunc, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), (time.Second * 20))
+
 	// Wait until TLS certificate and admin macaroon are created before
 	// using them, up to 20 sec.
 	tlsTimeout := time.After(30 * time.Second)
 	for !fileExists(hn.cfg.TLSCertPath) {
 		select {
 		case <-tlsTimeout:
-			return nil, fmt.Errorf("timeout waiting for TLS cert " +
+			return nil, cancel, fmt.Errorf("timeout waiting for TLS cert " +
 				"file to be created after 30 seconds")
 		case <-time.After(100 * time.Millisecond):
 		}
@@ -652,25 +655,25 @@ func (hn *HarnessNode) ConnectRPC(useMacs bool) (*grpc.ClientConn, error) {
 
 	opts := []grpc.DialOption{
 		grpc.WithBlock(),
-		grpc.WithTimeout(time.Second * 20),
 	}
 
 	tlsCreds, err := credentials.NewClientTLSFromFile(hn.cfg.TLSCertPath, "")
 	if err != nil {
-		return nil, err
+		return nil, cancel, err
 	}
 
 	opts = append(opts, grpc.WithTransportCredentials(tlsCreds))
 
 	if !useMacs {
-		return grpc.Dial(hn.cfg.RPCAddr(), opts...)
+		conn, err := grpc.DialContext(ctx, hn.cfg.RPCAddr(), opts...)
+		return conn, cancel, err
 	}
 
 	macTimeout := time.After(30 * time.Second)
 	for !fileExists(hn.cfg.AdminMacPath) {
 		select {
 		case <-macTimeout:
-			return nil, fmt.Errorf("timeout waiting for admin " +
+			return nil, cancel, fmt.Errorf("timeout waiting for admin " +
 				"macaroon file to be created after 30 seconds")
 		case <-time.After(100 * time.Millisecond):
 		}
@@ -678,17 +681,18 @@ func (hn *HarnessNode) ConnectRPC(useMacs bool) (*grpc.ClientConn, error) {
 
 	macBytes, err := ioutil.ReadFile(hn.cfg.AdminMacPath)
 	if err != nil {
-		return nil, err
+		return nil, cancel, err
 	}
 	mac := &macaroon.Macaroon{}
 	if err = mac.UnmarshalBinary(macBytes); err != nil {
-		return nil, err
+		return nil, cancel, err
 	}
 
 	macCred := macaroons.NewMacaroonCredential(mac)
 	opts = append(opts, grpc.WithPerRPCCredentials(macCred))
 
-	return grpc.Dial(hn.cfg.RPCAddr(), opts...)
+	conn, err := grpc.DialContext(ctx, hn.cfg.RPCAddr(), opts...)
+	return conn, cancel, err
 }
 
 // SetExtraArgs assigns the ExtraArgs field for the node's configuration. The

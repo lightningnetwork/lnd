@@ -3434,10 +3434,10 @@ func TestBuildRoute(t *testing.T) {
 	}
 
 	// Check that we get the expected route back. The total amount should be
-	// the amount to deliver to hop c (100 sats) plus the fee for hop b (5
-	// sats).
-	checkHops(rt, []uint64{1, 2})
-	if rt.TotalAmount != 105000 {
+	// the amount to deliver to hop c (100 sats) plus the max fee for the
+	// connection b->c (6 sats).
+	checkHops(rt, []uint64{1, 7})
+	if rt.TotalAmount != 106000 {
 		t.Fatalf("unexpected total amount %v", rt.TotalAmount)
 	}
 
@@ -3450,11 +3450,11 @@ func TestBuildRoute(t *testing.T) {
 	}
 
 	// Check that we get the expected route back. The minimum that we can
-	// send from b to c is 20 sats. Hop b charges 1 sat for the forwarding.
-	// The channel between hop a and b can carry amounts in the range [5,
-	// 100], so 21 sats is the minimum amount for this route.
-	checkHops(rt, []uint64{1, 2})
-	if rt.TotalAmount != 21000 {
+	// send from b to c is 20 sats. Hop b charges 1200 msat for the
+	// forwarding. The channel between hop a and b can carry amounts in the
+	// range [5, 100], so 21200 msats is the minimum amount for this route.
+	checkHops(rt, []uint64{1, 7})
+	if rt.TotalAmount != 21200 {
 		t.Fatalf("unexpected total amount %v", rt.TotalAmount)
 	}
 

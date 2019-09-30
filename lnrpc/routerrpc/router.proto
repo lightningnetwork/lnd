@@ -350,17 +350,21 @@ message PairHistory {
     
     /// The destination node pubkey of the pair.
     bytes node_to = 2 [json_name="node_to"];
-    
+
+    reserved 3, 4, 5, 6;
+
+    PairData history = 7 [json_name="history"];
+}
+
+message PairData {
     /// Time stamp of last result.
-    int64 timestamp = 3 [json_name = "timestamp"];
+    int64 timestamp = 1 [json_name = "timestamp"];
 
     /// Minimum penalization amount (only applies to failed attempts).
-    int64 min_penalize_amt_sat = 4 [json_name = "min_penalize_amt_sat"];
-
-    reserved 5;
+    int64 min_penalize_amt_sat = 2 [json_name = "min_penalize_amt_sat"];
 
     /// Whether the last payment attempt through this pair was successful.
-    bool last_attempt_successful = 6 [json_name = "last_attempt_successful"];
+    bool last_attempt_successful = 3 [json_name = "last_attempt_successful"];
 }
 
 message BuildRouteRequest {

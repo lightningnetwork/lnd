@@ -4946,7 +4946,7 @@ func (lc *LightningChannel) getSignedCommitTx() (*wire.MsgTx, error) {
 	// Fetch the current commitment transaction, along with their signature
 	// for the transaction.
 	localCommit := lc.channelState.LocalCommitment
-	commitTx := localCommit.CommitTx
+	commitTx := localCommit.CommitTx.Copy()
 	theirSig := append(localCommit.CommitSig, byte(txscript.SigHashAll))
 
 	// With this, we then generate the full witness so the caller can

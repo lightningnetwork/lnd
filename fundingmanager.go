@@ -969,7 +969,7 @@ func (f *fundingManager) stateStep(channel *channeldb.OpenChannel,
 func (f *fundingManager) advancePendingChannelState(
 	channel *channeldb.OpenChannel, pendingChanID [32]byte) error {
 
-	shortChanID, err := f.waitForFundingWithTimeout(channel)
+	confChannel, err := f.waitForFundingWithTimeout(channel)
 	if err == ErrConfirmationTimeout {
 		// We'll get a timeout if the number of blocks mined
 		// since the channel was initiated reaches
@@ -1031,9 +1031,9 @@ func (f *fundingManager) advancePendingChannelState(
 	// Success, funding transaction was confirmed.
 	chanID := lnwire.NewChanIDFromOutPoint(&channel.FundingOutpoint)
 	fndgLog.Debugf("ChannelID(%v) is now fully confirmed! "+
-		"(shortChanID=%v)", chanID, shortChanID)
+		"(shortChanID=%v)", chanID, confChannel.shortChanID)
 
-	err = f.handleFundingConfirmation(channel, *shortChanID)
+	err = f.handleFundingConfirmation(channel, confChannel)
 	if err != nil {
 		return fmt.Errorf("unable to handle funding "+
 			"confirmation for ChannelPoint(%v): %v",
@@ -1792,15 +1792,28 @@ func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
 	go f.advanceFundingState(completeChan, pendingChanID, resCtx.updates)
 }
 
+// confirmedChannel wraps a confirmed funding transaction, as well as the short
+// channel ID which identifies that channel into a single struct. We'll use
+// this to pass around the final state of a channel after it has been
+// confirmed.
+type confirmedChannel struct {
+	// shortChanID expresses where in the block the funding transaction was
+	// located.
+	shortChanID lnwire.ShortChannelID
+
+	// fundingTx is the funding transaction that created the channel.
+	fundingTx *wire.MsgTx
+}
+
 // waitForFundingWithTimeout is a wrapper around waitForFundingConfirmation and
 // waitForTimeout that will return ErrConfirmationTimeout if we are not the
 // channel initiator and the maxWaitNumBlocksFundingConf has passed from the
 // funding broadcast height. In case of confirmation, the short channel ID of
-// the channel will be returned.
+// the channel and the funding transaction will be returned.
 func (f *fundingManager) waitForFundingWithTimeout(
-	ch *channeldb.OpenChannel) (*lnwire.ShortChannelID, error) {
+	ch *channeldb.OpenChannel) (*confirmedChannel, error) {
 
-	confChan := make(chan *lnwire.ShortChannelID)
+	confChan := make(chan *confirmedChannel)
 	timeoutChan := make(chan error, 1)
 	cancelChan := make(chan struct{})
 
@@ -1816,8 +1829,6 @@ func (f *fundingManager) waitForFundingWithTimeout(
 	}
 	defer close(cancelChan)
 
-	var shortChanID *lnwire.ShortChannelID
-	var ok bool
 	select {
 	case err := <-timeoutChan:
 		if err != nil {
@@ -1830,12 +1841,12 @@ func (f *fundingManager) waitForFundingWithTimeout(
 		// startup.
 		return nil, ErrFundingManagerShuttingDown
 
-	case shortChanID, ok = <-confChan:
+	case confirmedChannel, ok := <-confChan:
 		if !ok {
 			return nil, fmt.Errorf("waiting for funding" +
 				"confirmation failed")
 		}
-		return shortChanID, nil
+		return confirmedChannel, nil
 	}
 }
 
@@ -1864,7 +1875,7 @@ func makeFundingScript(channel *channeldb.OpenChannel) ([]byte, error) {
 // NOTE: This MUST be run as a goroutine.
 func (f *fundingManager) waitForFundingConfirmation(
 	completeChan *channeldb.OpenChannel, cancelChan <-chan struct{},
-	confChan chan<- *lnwire.ShortChannelID) {
+	confChan chan<- *confirmedChannel) {
 
 	defer f.wg.Done()
 	defer close(confChan)
@@ -1924,22 +1935,8 @@ func (f *fundingManager) waitForFundingConfirmation(
 	}
 
 	fundingPoint := completeChan.FundingOutpoint
-	chanID := lnwire.NewChanIDFromOutPoint(&fundingPoint)
-	if int(fundingPoint.Index) >= len(confDetails.Tx.TxOut) {
-		fndgLog.Warnf("Funding point index does not exist for "+
-			"ChannelPoint(%v)", completeChan.FundingOutpoint)
-		return
-	}
-
-	outputAmt := btcutil.Amount(confDetails.Tx.TxOut[fundingPoint.Index].Value)
-	if outputAmt != completeChan.Capacity {
-		fndgLog.Warnf("Invalid output value for ChannelPoint(%v)",
-			completeChan.FundingOutpoint)
-		return
-	}
-
 	fndgLog.Infof("ChannelPoint(%v) is now active: ChannelID(%x)",
-		fundingPoint, chanID[:])
+		fundingPoint, lnwire.NewChanIDFromOutPoint(&fundingPoint))
 
 	// With the block height and the transaction index known, we can
 	// construct the compact chanID which is used on the network to unique
@@ -1951,7 +1948,10 @@ func (f *fundingManager) waitForFundingConfirmation(
 	}
 
 	select {
-	case confChan <- &shortChanID:
+	case confChan <- &confirmedChannel{
+		shortChanID: shortChanID,
+		fundingTx:   confDetails.Tx,
+	}:
 	case <-f.quit:
 		return
 	}
@@ -2022,7 +2022,7 @@ func (f *fundingManager) waitForTimeout(completeChan *channeldb.OpenChannel,
 // for this channel.
 func (f *fundingManager) handleFundingConfirmation(
 	completeChan *channeldb.OpenChannel,
-	shortChanID lnwire.ShortChannelID) error {
+	confChannel *confirmedChannel) error {
 
 	fundingPoint := completeChan.FundingOutpoint
 	chanID := lnwire.NewChanIDFromOutPoint(&fundingPoint)
@@ -2030,13 +2030,24 @@ func (f *fundingManager) handleFundingConfirmation(
 	// TODO(roasbeef): ideally persistent state update for chan above
 	// should be abstracted
 
+	// Now that that the channel has been fully confirmed, we'll request
+	// that the wallet fully verify this channel to ensure that it can be
+	// used.
+	err := f.cfg.Wallet.ValidateChannel(completeChan, confChannel.fundingTx)
+	if err != nil {
+		// TODO(roasbeef): delete chan state?
+		return fmt.Errorf("unable to validate channel: %v", err)
+	}
+
 	// The funding transaction now being confirmed, we add this channel to
 	// the fundingManager's internal persistent state machine that we use
 	// to track the remaining process of the channel opening. This is
 	// useful to resume the opening process in case of restarts. We set the
 	// opening state before we mark the channel opened in the database,
 	// such that we can receover from one of the db writes failing.
-	err := f.saveChannelOpeningState(&fundingPoint, markedOpen, &shortChanID)
+	err = f.saveChannelOpeningState(
+		&fundingPoint, markedOpen, &confChannel.shortChanID,
+	)
 	if err != nil {
 		return fmt.Errorf("error setting channel state to markedOpen: %v",
 			err)
@@ -2044,7 +2055,8 @@ func (f *fundingManager) handleFundingConfirmation(
 
 	// Now that the channel has been fully confirmed and we successfully
 	// saved the opening state, we'll mark it as open within the database.
-	if err := completeChan.MarkAsOpen(shortChanID); err != nil {
+	err = completeChan.MarkAsOpen(confChannel.shortChanID)
+	if err != nil {
 		return fmt.Errorf("error setting channel pending flag to false: "+
 			"%v", err)
 	}

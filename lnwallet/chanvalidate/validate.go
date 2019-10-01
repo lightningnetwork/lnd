@@ -143,7 +143,7 @@ type Context struct {
 	FundingTx *wire.MsgTx
 
 	// CommitCtx is an optional additional set of validation context
-	// required to validate a self-owned channel. If present, then fully
+	// required to validate a self-owned channel. If present, then a full
 	// Script VM validation will be performed.
 	CommitCtx *CommitmentContext
 }
@@ -184,7 +184,7 @@ func Validate(ctx *Context) (*wire.OutPoint, error) {
 	}
 
 	// If we reach this point, then all other checks have succeeded, so
-	// we'll now attempt fully Script VM execution to ensure that we're
+	// we'll now attempt a full Script VM execution to ensure that we're
 	// able to close the channel using this initial state.
 	vm, err := txscript.NewEngine(
 		ctx.MultiSigPkScript, ctx.CommitCtx.FullySignedCommitTx,

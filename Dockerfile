@@ -1,4 +1,4 @@
-FROM golang:alpine as builder
+FROM golang:1.13-alpine as builder
 
 # Force Go to use the cgo based DNS resolver. This is required to ensure DNS
 # queries required to connect to linked containers succeed.
@@ -34,4 +34,3 @@ EXPOSE 9735 10009
 
 # Specify the start command and entrypoint as the lnd daemon.
 ENTRYPOINT ["lnd"]
-CMD ["lnd"]

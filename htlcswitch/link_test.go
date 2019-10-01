@@ -5417,6 +5417,7 @@ func TestHtlcSatisfyPolicy(t *testing.T) {
 			FetchLastChannelUpdate: fetchLastChannelUpdate,
 			MaxOutgoingCltvExpiry:  DefaultMaxOutgoingCltvExpiry,
 		},
+		log: log,
 	}
 
 	var hash [32]byte

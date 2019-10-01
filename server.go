@@ -3207,6 +3207,18 @@ func (s *server) OpenChannel(
 	}
 	s.mu.RUnlock()
 
+	// We'll wait until the peer is active before beginning the channel
+	// opening process.
+	select {
+	case <-peer.activeSignal:
+	case <-peer.quit:
+		req.err <- fmt.Errorf("peer %x disconnected", pubKeyBytes)
+		return req.updates, req.err
+	case <-s.quit:
+		req.err <- ErrServerShuttingDown
+		return req.updates, req.err
+	}
+
 	// If the fee rate wasn't specified, then we'll use a default
 	// confirmation target.
 	if req.fundingFeePerKw == 0 {

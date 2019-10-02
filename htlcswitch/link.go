@@ -482,7 +482,7 @@ func (l *channelLink) Start() error {
 
 			err := l.cfg.UpdateContractSignals(signals)
 			if err != nil {
-				l.log.Errorf("Unable to update signals")
+				l.log.Errorf("unable to update signals")
 			}
 		}()
 	}
@@ -530,7 +530,7 @@ func (l *channelLink) Stop() {
 	// we had learned them at some point.
 	err := l.cfg.PreimageCache.AddPreimages(l.uncommittedPreimages...)
 	if err != nil {
-		l.log.Errorf("Unable to add preimages=%v to cache: %v",
+		l.log.Errorf("unable to add preimages=%v to cache: %v",
 			l.uncommittedPreimages, err)
 	}
 }
@@ -609,7 +609,7 @@ func shouldAdjustCommitFee(netFee, chanFee lnwallet.SatPerKWeight) bool {
 // flow. We'll compare out commitment chains with the remote party, and re-send
 // either a danging commit signature, a revocation, or both.
 func (l *channelLink) syncChanStates() error {
-	l.log.Info("Attempting to re-resynchronize")
+	l.log.Info("attempting to re-resynchronize")
 
 	// First, we'll generate our ChanSync message to send to the other
 	// side. Based on this message, the remote party will decide if they
@@ -667,7 +667,7 @@ func (l *channelLink) syncChanStates() error {
 		}
 
 		// In any case, we'll then process their ChanSync message.
-		l.log.Info("Received re-establishment message from remote side")
+		l.log.Info("received re-establishment message from remote side")
 
 		var (
 			openedCircuits []CircuitKey
@@ -696,7 +696,7 @@ func (l *channelLink) syncChanStates() error {
 		}
 
 		if len(msgsToReSend) > 0 {
-			l.log.Infof("Sending %v updates to synchronize the "+
+			l.log.Infof("sending %v updates to synchronize the "+
 				"state", len(msgsToReSend))
 		}
 
@@ -776,7 +776,7 @@ func (l *channelLink) resolveFwdPkg(fwdPkg *channeldb.FwdPkg) (bool, error) {
 			fwdPkg.Source, fwdPkg.Height, fwdPkg.SettleFails,
 		)
 		if err != nil {
-			l.log.Errorf("Unable to process remote log updates: %v",
+			l.log.Errorf("unable to process remote log updates: %v",
 				err)
 			return false, err
 		}
@@ -793,7 +793,7 @@ func (l *channelLink) resolveFwdPkg(fwdPkg *channeldb.FwdPkg) (bool, error) {
 			fwdPkg.Source, fwdPkg.Height, fwdPkg.Adds,
 		)
 		if err != nil {
-			l.log.Errorf("Unable to process remote log updates: %v",
+			l.log.Errorf("unable to process remote log updates: %v",
 				err)
 			return false, err
 		}
@@ -880,7 +880,7 @@ func (l *channelLink) htlcManager() {
 	if l.cfg.SyncStates {
 		err := l.syncChanStates()
 		if err != nil {
-			l.log.Warnf("Error when syncing channel states: %v", err)
+			l.log.Warnf("error when syncing channel states: %v", err)
 
 			errDataLoss, localDataLoss :=
 				err.(*lnwallet.ErrCommitSyncLocalDataLoss)
@@ -935,7 +935,7 @@ func (l *channelLink) htlcManager() {
 					errDataLoss.CommitPoint,
 				)
 				if err != nil {
-					l.log.Errorf("Unable to mark channel "+
+					l.log.Errorf("unable to mark channel "+
 						"data loss: %v", err)
 				}
 
@@ -946,7 +946,7 @@ func (l *channelLink) htlcManager() {
 			// cases where this error is returned?
 			case err == lnwallet.ErrCannotSyncCommitChains:
 				if err := l.channel.MarkBorked(); err != nil {
-					l.log.Errorf("Unable to mark channel "+
+					l.log.Errorf("unable to mark channel "+
 						"borked: %v", err)
 				}
 
@@ -1069,7 +1069,7 @@ out:
 		//
 		// TODO(roasbeef): add force closure? also breach?
 		case <-l.cfg.ChainEvents.RemoteUnilateralClosure:
-			l.log.Warnf("Remote peer has closed on-chain")
+			l.log.Warnf("remote peer has closed on-chain")
 
 			// TODO(roasbeef): remove all together
 			go func() {
@@ -1124,7 +1124,7 @@ out:
 		// to continue propagating within the network.
 		case packet := <-l.overflowQueue.outgoingPkts:
 			msg := packet.htlc.(*lnwire.UpdateAddHTLC)
-			l.log.Tracef("Reprocessing downstream add update "+
+			l.log.Tracef("reprocessing downstream add update "+
 				"with payment hash(%x)", msg.PaymentHash[:])
 
 			l.handleDownStreamPkt(packet, true)
@@ -1139,7 +1139,7 @@ out:
 			// failed, then we'll free up a new slot.
 			htlc, ok := pkt.htlc.(*lnwire.UpdateAddHTLC)
 			if ok && l.overflowQueue.Length() != 0 {
-				l.log.Infof("Downstream htlc add update with "+
+				l.log.Infof("downstream htlc add update with "+
 					"payment hash(%x) have been added to "+
 					"reprocessing queue, batch_size=%v",
 					htlc.PaymentHash[:],
@@ -1227,7 +1227,7 @@ func (l *channelLink) processHodlEvent(hodlEvent invoices.HodlEvent,
 
 	// Determine required action for the resolution.
 	if hodlEvent.Preimage != nil {
-		l.log.Debugf("Received hodl settle event for %v", circuitKey)
+		l.log.Debugf("received hodl settle event for %v", circuitKey)
 
 		return l.settleHTLC(
 			*hodlEvent.Preimage, htlc.pd.HtlcIndex,
@@ -1235,7 +1235,7 @@ func (l *channelLink) processHodlEvent(hodlEvent invoices.HodlEvent,
 		)
 	}
 
-	l.log.Debugf("Received hodl cancel event for %v", circuitKey)
+	l.log.Debugf("received hodl cancel event for %v", circuitKey)
 
 	// In case of a cancel, always return
 	// incorrect_or_unknown_payment_details in order to avoid leaking info.
@@ -1290,7 +1290,7 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 			// The channels spare bandwidth is fully allocated, so
 			// we'll put this HTLC into the overflow queue.
 			case lnwallet.ErrMaxHTLCNumber:
-				l.log.Infof("Downstream htlc add update with "+
+				l.log.Infof("downstream htlc add update with "+
 					"payment hash(%x) have been added to "+
 					"reprocessing queue, batch: %v",
 					htlc.PaymentHash[:],
@@ -1303,7 +1303,7 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 			// machine, as a result, we'll signal the switch to
 			// cancel the pending payment.
 			default:
-				l.log.Warnf("Unable to handle downstream add "+
+				l.log.Warnf("unable to handle downstream add "+
 					"HTLC: %v", err)
 
 				var (
@@ -1374,7 +1374,7 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 			}
 		}
 
-		l.log.Tracef("Received downstream htlc: payment_hash=%x, "+
+		l.log.Tracef("received downstream htlc: payment_hash=%x, "+
 			"local_log_index=%v, batch_size=%v",
 			htlc.PaymentHash[:], index, l.batchCounter+1)
 
@@ -1382,7 +1382,7 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 		pkt.outgoingHTLCID = index
 		htlc.ID = index
 
-		l.log.Debugf("Queueing keystone of ADD open circuit: %s->%s",
+		l.log.Debugf("queueing keystone of ADD open circuit: %s->%s",
 			pkt.inKey(), pkt.outKey())
 
 		l.openedCircuits = append(l.openedCircuits, pkt.inKey())
@@ -1432,7 +1432,7 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 			return
 		}
 
-		l.log.Debugf("Queueing removal of SETTLE closed circuit: "+
+		l.log.Debugf("queueing removal of SETTLE closed circuit: "+
 			"%s->%s", pkt.inKey(), pkt.outKey())
 
 		l.closedCircuits = append(l.closedCircuits, pkt.inKey())
@@ -1489,7 +1489,7 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 			return
 		}
 
-		l.log.Debugf("Queueing removal of FAIL closed circuit: %s->%s",
+		l.log.Debugf("queueing removal of FAIL closed circuit: %s->%s",
 			pkt.inKey(), pkt.outKey())
 
 		l.closedCircuits = append(l.closedCircuits, pkt.inKey())
@@ -1527,7 +1527,7 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 func (l *channelLink) cleanupSpuriousResponse(pkt *htlcPacket) {
 	inKey := pkt.inKey()
 
-	l.log.Debugf("Cleaning up spurious response for incoming "+
+	l.log.Debugf("cleaning up spurious response for incoming "+
 		"circuit-key=%v", inKey)
 
 	// If the htlc packet doesn't have a source reference, it is unsafe to
@@ -1573,7 +1573,7 @@ func (l *channelLink) cleanupSpuriousResponse(pkt *htlcPacket) {
 		}
 	}
 
-	l.log.Debugf("Deleting circuit for incoming circuit-key=%x", inKey)
+	l.log.Debugf("deleting circuit for incoming circuit-key=%x", inKey)
 
 	// With all known references acked, we can now safely delete the circuit
 	// from the switch's circuit map, as the state is no longer needed.
@@ -1601,7 +1601,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			return
 		}
 
-		l.log.Tracef("Receive upstream htlc with payment hash(%x), "+
+		l.log.Tracef("receive upstream htlc with payment hash(%x), "+
 			"assigning index: %v", msg.PaymentHash[:], index)
 
 	case *lnwire.UpdateFulfillHTLC:
@@ -1654,7 +1654,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 				OnionSHA256: msg.ShaOnionBlob,
 			}
 		default:
-			l.log.Warnf("Unexpected failure code received in "+
+			l.log.Warnf("unexpected failure code received in "+
 				"UpdateFailMailformedHTLC: %v", msg.FailureCode)
 
 			// We don't just pass back the error we received from
@@ -2088,7 +2088,7 @@ func (l *channelLink) UpdateShortChanID() (lnwire.ShortChannelID, error) {
 
 	sid := l.channel.ShortChanID()
 
-	l.log.Infof("Updating to short_chan_id=%v for chan_id=%v", sid, chanID)
+	l.log.Infof("updating to short_chan_id=%v for chan_id=%v", sid, chanID)
 
 	l.Lock()
 	l.shortChanID = sid
@@ -2100,7 +2100,7 @@ func (l *channelLink) UpdateShortChanID() (lnwire.ShortChannelID, error) {
 			ShortChanID: sid,
 		})
 		if err != nil {
-			l.log.Errorf("Unable to update signals")
+			l.log.Errorf("unable to update signals")
 		}
 	}()
 
@@ -2234,7 +2234,7 @@ func (l *channelLink) HtlcSatifiesPolicy(payHash [32]byte,
 	// sender messed up, or an intermediate node tampered with the HTLC.
 	timeDelta := policy.TimeLockDelta
 	if incomingTimeout < outgoingTimeout+timeDelta {
-		l.log.Errorf("Incoming htlc(%x) has incorrect time-lock value: "+
+		l.log.Errorf("incoming htlc(%x) has incorrect time-lock value: "+
 			"expected at least %v block delta, got %v block delta",
 			payHash[:], timeDelta, incomingTimeout-outgoingTimeout)
 
@@ -2660,7 +2660,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 			)
 			needUpdate = true
 
-			l.log.Errorf("Unable to decode forwarding "+
+			l.log.Errorf("unable to decode forwarding "+
 				"instructions: %v", err)
 			continue
 		}
@@ -2858,7 +2858,7 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 	// matches the HTLC we were extended.
 	if pd.Amount != fwdInfo.AmountToForward {
 
-		l.log.Errorf("Onion payload of incoming htlc(%x) has incorrect "+
+		l.log.Errorf("onion payload of incoming htlc(%x) has incorrect "+
 			"value: expected %v, got %v", pd.RHash,
 			pd.Amount, fwdInfo.AmountToForward)
 
@@ -2871,7 +2871,7 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 	// We'll also ensure that our time-lock value has been computed
 	// correctly.
 	if pd.Timeout != fwdInfo.OutgoingCTLV {
-		l.log.Errorf("Onion payload of incoming htlc(%x) has incorrect "+
+		l.log.Errorf("onion payload of incoming htlc(%x) has incorrect "+
 			"time-lock: expected %v, got %v",
 			pd.RHash[:], pd.Timeout, fwdInfo.OutgoingCTLV)
 
@@ -3063,12 +3063,12 @@ func (l *channelLink) fail(linkErr LinkFailureError,
 
 	// Return if we have already notified about a failure.
 	if l.failed {
-		l.log.Warnf("Ignoring link failure (%v), as link already "+
+		l.log.Warnf("ignoring link failure (%v), as link already "+
 			"failed", reason)
 		return
 	}
 
-	l.log.Errorf("Failing link: %s", reason)
+	l.log.Errorf("failing link: %s", reason)
 
 	// Set failed, such that we won't process any more updates, and notify
 	// the peer about the failure.

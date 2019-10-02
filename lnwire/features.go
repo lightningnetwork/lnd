@@ -58,12 +58,12 @@ const (
 	// StaticRemoteKeyRequired is a required feature bit that signals that
 	// within one's commitment transaction, the key used for the remote
 	// party's non-delay output should not be tweaked.
-	StaticRemoteKeyRequired FeatureBit = 10
+	StaticRemoteKeyRequired FeatureBit = 12
 
 	// StaticRemoteKeyOptional is an optional feature bit that signals that
 	// within one's commitment transaction, the key used for the remote
 	// party's non-delay output should not be tweaked.
-	StaticRemoteKeyOptional FeatureBit = 11
+	StaticRemoteKeyOptional FeatureBit = 13
 
 	// maxAllowedSize is a maximum allowed size of feature vector.
 	//

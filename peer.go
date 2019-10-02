@@ -121,6 +121,10 @@ type peer struct {
 	addr        *lnwire.NetAddress
 	pubKeyBytes [33]byte
 
+	// activeSignal when closed signals that the peer is now active and
+	// ready to process messages.
+	activeSignal chan struct{}
+
 	// startTime is the time this peer connection was successfully
 	// established. It will be zero for peers that did not successfully
 	// Start().
@@ -240,6 +244,8 @@ func newPeer(conn net.Conn, connReq *connmgr.ConnReq, server *server,
 	p := &peer{
 		conn: conn,
 		addr: addr,
+
+		activeSignal: make(chan struct{}),
 
 		inbound: inbound,
 		connReq: connReq,
@@ -368,6 +374,9 @@ func (p *peer) Start() error {
 	go p.readHandler()
 	go p.channelManager()
 	go p.pingHandler()
+
+	// Signal to any external processes that the peer is now active.
+	close(p.activeSignal)
 
 	// Now that the peer has started up, we send any channel sync messages
 	// that must be resent for borked channels.

@@ -6611,3 +6611,30 @@ func TestForceCloseBorkedState(t *testing.T) {
 		t.Fatalf("append remove chain tail should have failed")
 	}
 }
+
+// TestChannelMaxFeeRate ensures we correctly compute a channel initiator's max
+// fee rate based on an allocation and its available balance. It should never
+// dip below the established fee floor.
+func TestChannelMaxFeeRate(t *testing.T) {
+	t.Parallel()
+
+	aliceChannel, _, cleanUp, err := CreateTestChannels(true)
+	if err != nil {
+		t.Fatalf("unable to create test channels: %v", err)
+	}
+	defer cleanUp()
+
+	assertMaxFeeRate := func(maxAlloc float64, expFeeRate SatPerKWeight) {
+		maxFeeRate := aliceChannel.MaxFeeRate(maxAlloc)
+		if maxFeeRate != expFeeRate {
+			t.Fatalf("expected max fee rate of %v with max "+
+				"allocation of %v, got %v", expFeeRate,
+				maxAlloc, maxFeeRate)
+		}
+	}
+
+	assertMaxFeeRate(1.0, 690607734)
+	assertMaxFeeRate(0.001, 690607)
+	assertMaxFeeRate(0.000001, 690)
+	assertMaxFeeRate(0.0000001, FeePerKwFloor)
+}

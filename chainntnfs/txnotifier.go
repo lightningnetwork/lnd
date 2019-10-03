@@ -601,9 +601,6 @@ func (n *TxNotifier) RegisterConf(txid *chainhash.Hash, pkScript []byte,
 		return nil, err
 	}
 
-	Log.Infof("New confirmation subscription: %v, num_confs=%v ",
-		ntfn.ConfRequest, numConfs)
-
 	// Before proceeding to register the notification, we'll query our
 	// height hint cache to determine whether a better one exists.
 	//
@@ -622,11 +619,12 @@ func (n *TxNotifier) RegisterConf(txid *chainhash.Hash, pkScript []byte,
 			ntfn.ConfRequest, err)
 	}
 
+	Log.Infof("New confirmation subscription: conf_id=%d, %v, "+
+		"num_confs=%v height_hint=%d", ntfn.ConfID, ntfn.ConfRequest,
+		numConfs, startHeight)
+
 	n.Lock()
 	defer n.Unlock()
-
-	Log.Infof("New confirmation subscription: conf_id=%d, %v, "+
-		"height_hint=%d", ntfn.ConfID, ntfn.ConfRequest, startHeight)
 
 	confSet, ok := n.confNotifications[ntfn.ConfRequest]
 	if !ok {

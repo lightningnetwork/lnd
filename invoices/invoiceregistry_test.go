@@ -461,7 +461,7 @@ func TestSettleHoldInvoice(t *testing.T) {
 		t.Fatalf("expected settle to succeed but got %v", err)
 	}
 	if event == nil || event.Preimage != nil {
-		t.Fatalf("expected htlc to be cancelled")
+		t.Fatalf("expected htlc to be canceled")
 	}
 
 	// We expect the accepted state to be sent to the single invoice

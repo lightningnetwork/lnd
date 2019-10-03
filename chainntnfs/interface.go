@@ -141,7 +141,7 @@ type ChainNotifier interface {
 
 	// Stops the concrete ChainNotifier. Once stopped, the ChainNotifier
 	// should disallow any future requests from potential clients.
-	// Additionally, all pending client notifications will be cancelled
+	// Additionally, all pending client notifications will be canceled
 	// by closing the related channels on the *Event's.
 	Stop() error
 }

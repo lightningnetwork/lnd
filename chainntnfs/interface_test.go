@@ -919,7 +919,7 @@ func testCancelSpendNtfn(node *rpctest.Harness,
 	notifier chainntnfs.TestChainNotifier, scriptDispatch bool, t *testing.T) {
 
 	// We'd like to test that once a spend notification is registered, it
-	// can be cancelled before the notification is dispatched.
+	// can be canceled before the notification is dispatched.
 
 	// First, we'll start by creating a new output that we can spend
 	// ourselves.
@@ -1006,10 +1006,10 @@ func testCancelSpendNtfn(node *rpctest.Harness,
 	select {
 	case _, ok := <-spendClients[1].Spend:
 		if ok {
-			t.Fatalf("spend ntfn should have been cancelled")
+			t.Fatalf("spend ntfn should have been canceled")
 		}
 	case <-time.After(20 * time.Second):
-		t.Fatalf("spend ntfn never cancelled")
+		t.Fatalf("spend ntfn never canceled")
 	}
 }
 
@@ -1045,7 +1045,7 @@ func testCancelEpochNtfn(node *rpctest.Harness,
 	select {
 	case _, ok := <-epochClients[0].Epochs:
 		if ok {
-			t.Fatalf("epoch notification should have been cancelled")
+			t.Fatalf("epoch notification should have been canceled")
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatalf("epoch notification not sent")
@@ -1056,7 +1056,7 @@ func testCancelEpochNtfn(node *rpctest.Harness,
 	select {
 	case _, ok := <-epochClients[1].Epochs:
 		if !ok {
-			t.Fatalf("epoch was cancelled")
+			t.Fatalf("epoch was canceled")
 		}
 	case <-time.After(20 * time.Second):
 		t.Fatalf("epoch notification not sent")

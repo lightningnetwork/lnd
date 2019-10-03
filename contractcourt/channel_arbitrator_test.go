@@ -1785,7 +1785,7 @@ func TestChannelArbitratorDanglingCommitForceClose(t *testing.T) {
 			)
 
 			// Now that we've sent this signal, we should have that
-			// HTLC be cancelled back immediately.
+			// HTLC be canceled back immediately.
 			select {
 			case msgs := <-chanArbCtx.resolutions:
 				if len(msgs) != 1 {

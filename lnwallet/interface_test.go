@@ -707,7 +707,7 @@ func testCancelNonExistentReservation(miner *rpctest.Harness,
 	// Attempt to cancel this reservation. This should fail, we know
 	// nothing of it.
 	if err := res.Cancel(); err == nil {
-		t.Fatalf("cancelled non-existent reservation")
+		t.Fatalf("canceled non-existent reservation")
 	}
 }
 

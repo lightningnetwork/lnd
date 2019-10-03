@@ -449,7 +449,7 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 		htlc, ok := inv.Htlcs[circuitKey]
 		if ok {
 			switch htlc.State {
-			case channeldb.HtlcStateCancelled:
+			case channeldb.HtlcStateCanceled:
 				debugLog("replayed htlc to canceled invoice")
 
 			case channeldb.HtlcStateAccepted:
@@ -567,7 +567,7 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 	acceptHeight := int32(invoiceHtlc.AcceptHeight)
 
 	switch invoiceHtlc.State {
-	case channeldb.HtlcStateCancelled:
+	case channeldb.HtlcStateCanceled:
 		return &HodlEvent{
 			CircuitKey:   circuitKey,
 			AcceptHeight: acceptHeight,
@@ -662,7 +662,7 @@ func (i *InvoiceRegistry) CancelInvoice(payHash lntypes.Hash) error {
 			return nil, channeldb.ErrInvoiceAlreadyCanceled
 		}
 
-		// Mark individual held htlcs as cancelled.
+		// Mark individual held htlcs as canceled.
 		canceledHtlcs := make(
 			map[channeldb.CircuitKey]*channeldb.HtlcAcceptDesc,
 		)
@@ -674,10 +674,10 @@ func (i *InvoiceRegistry) CancelInvoice(payHash lntypes.Hash) error {
 				return nil, errors.New("cannot cancel " +
 					"invoice with settled htlc(s)")
 
-			// Don't cancel htlcs that were already cancelled,
+			// Don't cancel htlcs that were already canceled,
 			// because it would incorrectly modify the invoice paid
 			// amt.
-			case channeldb.HtlcStateCancelled:
+			case channeldb.HtlcStateCanceled:
 				continue
 			}
 
@@ -711,7 +711,7 @@ func (i *InvoiceRegistry) CancelInvoice(payHash lntypes.Hash) error {
 	// before, will be notified again. This isn't necessary but doesn't hurt
 	// either.
 	for key, htlc := range invoice.Htlcs {
-		if htlc.State != channeldb.HtlcStateCancelled {
+		if htlc.State != channeldb.HtlcStateCanceled {
 			continue
 		}
 
@@ -749,7 +749,7 @@ type invoiceSubscriptionKit struct {
 	inv       *InvoiceRegistry
 	ntfnQueue *queue.ConcurrentQueue
 
-	cancelled  uint32 // To be used atomically.
+	canceled   uint32 // To be used atomically.
 	cancelChan chan struct{}
 	wg         sync.WaitGroup
 }
@@ -801,7 +801,7 @@ type SingleInvoiceSubscription struct {
 // Cancel unregisters the InvoiceSubscription, freeing any previously allocated
 // resources.
 func (i *invoiceSubscriptionKit) Cancel() {
-	if !atomic.CompareAndSwapUint32(&i.cancelled, 0, 1) {
+	if !atomic.CompareAndSwapUint32(&i.canceled, 0, 1) {
 		return
 	}
 

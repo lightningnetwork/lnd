@@ -36,7 +36,7 @@ type PaymentResult struct {
 	Preimage [32]byte
 
 	// Error is non-nil in case a HTLC send failed, and the HTLC is now
-	// irrevocably cancelled. If the payment failed during forwarding, this
+	// irrevocably canceled. If the payment failed during forwarding, this
 	// error will be a *ForwardingError.
 	Error error
 }

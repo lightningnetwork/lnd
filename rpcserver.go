@@ -4134,7 +4134,7 @@ func (r *rpcServer) SubscribeChannelGraph(req *lnrpc.GraphTopologySubscription,
 		case topChange, ok := <-client.TopologyChanges:
 			// If the second value from the channel read is nil,
 			// then this means that the channel router is exiting
-			// or the notification client was cancelled. So we'll
+			// or the notification client was canceled. So we'll
 			// exit early.
 			if !ok {
 				return errors.New("server shutting down")

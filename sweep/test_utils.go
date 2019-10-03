@@ -166,7 +166,7 @@ func (m *MockNotifier) RegisterBlockEpochNtfn(
 	return &chainntnfs.BlockEpochEvent{
 		Epochs: epochChan,
 		Cancel: func() {
-			log.Tracef("Mock block ntfn cancelled")
+			log.Tracef("Mock block ntfn canceled")
 			m.mutex.Lock()
 			delete(m.epochChan, epochChan)
 			m.mutex.Unlock()

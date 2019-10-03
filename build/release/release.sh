@@ -40,24 +40,37 @@ cd $MAINDIR
 SYS=${LNDBUILDSYS:-"
         darwin-386
         darwin-amd64
+        darwin-arm
+        darwin-arm64
         dragonfly-amd64
         freebsd-386
         freebsd-amd64
         freebsd-arm
+        illumos-amd64
         linux-386
         linux-amd64
         linux-armv6
         linux-armv7
         linux-arm64
         linux-ppc64
+        linux-ppc64le
+        linux-mips
+        linux-mipsle
         linux-mips64
         linux-mips64le
+        linux-s390x
         netbsd-386
         netbsd-amd64
+        netbsd-arm
+        netbsd-arm64
         openbsd-386
         openbsd-amd64
+        openbsd-arm
+        openbsd-arm64
+        solaris-amd64
         windows-386
         windows-amd64
+        windows-arm
 "}
 
 # Use the first element of $GOPATH in the case where GOPATH is a list

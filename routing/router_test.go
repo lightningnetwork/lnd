@@ -3405,6 +3405,8 @@ func TestBuildRoute(t *testing.T) {
 	defer cleanUp()
 
 	checkHops := func(rt *route.Route, expected []uint64) {
+		t.Helper()
+
 		if len(rt.Hops) != len(expected) {
 			t.Fatal("hop count mismatch")
 		}

@@ -954,7 +954,7 @@ func (s *Switch) parseFailedPayment(deobfuscator ErrorDecrypter,
 	// go on chain.
 	case isResolution && htlc.Reason == nil:
 		userErr := fmt.Sprintf("payment was resolved "+
-			"on-chain, then cancelled back (hash=%v, pid=%d)",
+			"on-chain, then canceled back (hash=%v, pid=%d)",
 			paymentHash, paymentID)
 
 		return &ForwardingError{
@@ -1861,7 +1861,7 @@ func (s *Switch) reforwardSettleFails(fwdPkgs []*channeldb.FwdPkg) {
 			// commitment state, so we'll forward this to the switch so the
 			// backwards undo can continue.
 			case lnwallet.Fail:
-				// Fetch the reason the HTLC was cancelled so we can
+				// Fetch the reason the HTLC was canceled so we can
 				// continue to propagate it.
 				failPacket := &htlcPacket{
 					outgoingChanID: fwdPkg.Source,

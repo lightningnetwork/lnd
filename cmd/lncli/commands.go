@@ -2025,7 +2025,7 @@ func closedChannels(ctx *cli.Context) error {
 		LocalForce:      ctx.Bool("local_force"),
 		RemoteForce:     ctx.Bool("remote_force"),
 		Breach:          ctx.Bool("breach"),
-		FundingCanceled: ctx.Bool("funding_cancelled"),
+		FundingCanceled: ctx.Bool("funding_canceled"),
 		Abandoned:       ctx.Bool("abandoned"),
 	}
 

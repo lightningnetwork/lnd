@@ -2605,7 +2605,7 @@
         "resolve_time": {
           "type": "string",
           "format": "int64",
-          "description": "/ Time at which this htlc was settled or cancelled."
+          "description": "/ Time at which this htlc was settled or canceled."
         },
         "expiry_height": {
           "type": "integer",
@@ -2624,7 +2624,7 @@
       "enum": [
         "ACCEPTED",
         "SETTLED",
-        "CANCELLED"
+        "CANCELED"
       ],
       "default": "ACCEPTED"
     },

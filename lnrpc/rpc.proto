@@ -2204,7 +2204,7 @@ message Invoice {
 enum InvoiceHTLCState {
     ACCEPTED = 0;
     SETTLED = 1;
-    CANCELLED = 2;
+    CANCELED = 2;
 }
 
 /// Details of an HTLC that paid to an invoice
@@ -2224,7 +2224,7 @@ message InvoiceHTLC {
     /// Time at which this htlc was accepted.
     int64 accept_time = 5 [json_name = "accept_time"];
 
-    /// Time at which this htlc was settled or cancelled.
+    /// Time at which this htlc was settled or canceled.
     int64 resolve_time = 6 [json_name = "resolve_time"];
     
     /// Block height at which this htlc expires.

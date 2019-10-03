@@ -34,7 +34,7 @@ type ResolutionMsg struct {
 	// commitment trace.
 	HtlcIndex uint64
 
-	// Failure will be non-nil if the incoming contract should be cancelled
+	// Failure will be non-nil if the incoming contract should be canceled
 	// all together. This can happen if the outgoing contract was dust, if
 	// if the outgoing HTLC timed out.
 	Failure lnwire.FailureMessage

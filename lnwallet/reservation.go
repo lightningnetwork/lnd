@@ -56,7 +56,7 @@ func (c *ChannelContribution) toChanConfig() channeldb.ChannelConfig {
 // reservation workflow, resources consumed by a contribution are "locked"
 // themselves. This prevents a number of race conditions such as two funding
 // transactions double-spending the same input. A reservation can also be
-// cancelled, which removes the resources from limbo, allowing another
+// canceled, which removes the resources from limbo, allowing another
 // reservation to claim them.
 //
 // The reservation workflow consists of the following three steps:

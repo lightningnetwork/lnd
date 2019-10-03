@@ -68,8 +68,8 @@ func CreateRPCInvoice(invoice *channeldb.Invoice,
 			state = lnrpc.InvoiceHTLCState_ACCEPTED
 		case channeldb.HtlcStateSettled:
 			state = lnrpc.InvoiceHTLCState_SETTLED
-		case channeldb.HtlcStateCancelled:
-			state = lnrpc.InvoiceHTLCState_CANCELLED
+		case channeldb.HtlcStateCanceled:
+			state = lnrpc.InvoiceHTLCState_CANCELED
 		default:
 			return nil, fmt.Errorf("unknown state %v", htlc.State)
 		}

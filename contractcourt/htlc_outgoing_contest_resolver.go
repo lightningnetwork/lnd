@@ -152,7 +152,7 @@ func (h *htlcOutgoingContestResolver) Resolve() (ContractResolver, error) {
 			return h.claimCleanUp(commitSpend)
 
 		case <-h.Quit:
-			return nil, fmt.Errorf("resolver cancelled")
+			return nil, fmt.Errorf("resolver canceled")
 		}
 	}
 }

@@ -186,7 +186,7 @@ out:
 				// safely close the channel used to send epoch
 				// notifications, in order to notify any
 				// listeners that the intent has been
-				// cancelled.
+				// canceled.
 				close(b.blockEpochClients[msg.epochID].epochChan)
 				delete(b.blockEpochClients, msg.epochID)
 

@@ -325,12 +325,12 @@ type PaymentDescriptor struct {
 	// NOTE: Populated only in payment descriptor with MalformedFail type.
 	ShaOnionBlob [sha256.Size]byte
 
-	// FailReason stores the reason why a particular payment was cancelled.
+	// FailReason stores the reason why a particular payment was canceled.
 	//
 	// NOTE: Populate only in fail payment descriptor entry types.
 	FailReason []byte
 
-	// FailCode stores the code why a particular payment was cancelled.
+	// FailCode stores the code why a particular payment was canceled.
 	//
 	// NOTE: Populated only in payment descriptor with MalformedFail type.
 	FailCode lnwire.FailCode

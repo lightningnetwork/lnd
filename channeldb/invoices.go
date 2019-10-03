@@ -230,7 +230,7 @@ type Invoice struct {
 	AmtPaid lnwire.MilliSatoshi
 
 	// Htlcs records all htlcs that paid to this invoice. Some of these
-	// htlcs may have been marked as cancelled.
+	// htlcs may have been marked as canceled.
 	Htlcs map[CircuitKey]*InvoiceHTLC
 }
 
@@ -241,9 +241,9 @@ const (
 	// HtlcStateAccepted indicates the htlc is locked-in, but not resolved.
 	HtlcStateAccepted HtlcState = iota
 
-	// HtlcStateCancelled indicates the htlc is cancelled back to the
+	// HtlcStateCanceled indicates the htlc is canceled back to the
 	// sender.
-	HtlcStateCancelled
+	HtlcStateCanceled
 
 	// HtlcStateSettled indicates the htlc is settled.
 	HtlcStateSettled
@@ -271,7 +271,7 @@ type InvoiceHTLC struct {
 	Expiry uint32
 
 	// State indicates the state the invoice htlc is currently in. A
-	// cancelled htlc isn't just removed from the invoice htlcs map, because
+	// canceled htlc isn't just removed from the invoice htlcs map, because
 	// we need AcceptHeight to properly cancel the htlc back.
 	State HtlcState
 }
@@ -296,7 +296,7 @@ type InvoiceUpdateDesc struct {
 
 	// Htlcs describes the changes that need to be made to the invoice htlcs
 	// in the database. Htlc map entries with their value set should be
-	// added. If the map value is nil, the htlc should be cancelled.
+	// added. If the map value is nil, the htlc should be canceled.
 	Htlcs map[CircuitKey]*HtlcAcceptDesc
 
 	// Preimage must be set to the preimage when state is settled.
@@ -1219,7 +1219,7 @@ func (d *DB) updateInvoice(hash lntypes.Hash, invoices, settleIndex *bbolt.Bucke
 	for key, htlcUpdate := range update.Htlcs {
 		htlc, ok := invoice.Htlcs[key]
 
-		// No update means the htlc needs to be cancelled.
+		// No update means the htlc needs to be canceled.
 		if htlcUpdate == nil {
 			if !ok {
 				return nil, fmt.Errorf("unknown htlc %v", key)
@@ -1229,7 +1229,7 @@ func (d *DB) updateInvoice(hash lntypes.Hash, invoices, settleIndex *bbolt.Bucke
 					"accepted htlcs")
 			}
 
-			htlc.State = HtlcStateCancelled
+			htlc.State = HtlcStateCanceled
 			htlc.ResolveTime = now
 			invoice.AmtPaid -= htlc.Amt
 

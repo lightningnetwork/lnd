@@ -46,7 +46,7 @@ const (
 	FlagUpdate FailCode = 0x1000
 )
 
-// FailCode specifies the precise reason that an upstream HTLC was cancelled.
+// FailCode specifies the precise reason that an upstream HTLC was canceled.
 // Each UpdateFailHTLC message carries a FailCode which is to be passed
 // backwards, encrypted at each step back to the source of the HTLC within the
 // route.

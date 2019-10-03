@@ -363,7 +363,7 @@ func (l *LightningWallet) ResetReservations() {
 }
 
 // ActiveReservations returns a slice of all the currently active
-// (non-cancelled) reservations.
+// (non-canceled) reservations.
 func (l *LightningWallet) ActiveReservations() []*ChannelReservation {
 	reservations := make([]*ChannelReservation, 0, len(l.fundingLimbo))
 	for _, reservation := range l.fundingLimbo {
@@ -520,7 +520,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 
 	// Funding reservation request successfully handled. The funding inputs
 	// will be marked as unavailable until the reservation is either
-	// completed, or cancelled.
+	// completed, or canceled.
 	req.resp <- reservation
 	req.err <- nil
 }

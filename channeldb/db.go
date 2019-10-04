@@ -85,7 +85,7 @@ func Open(dbPath string, modifiers ...OptionModifier) (*DB, error) {
 	// Specify bbolt freelist options to reduce heap pressure in case the
 	// freelist grows to be very large.
 	options := &bbolt.Options{
-		NoFreelistSync: true,
+		NoFreelistSync: opts.NoFreelistSync,
 		FreelistType:   bbolt.FreelistMapType,
 	}
 

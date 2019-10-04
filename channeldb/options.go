@@ -21,6 +21,11 @@ type Options struct {
 	// ChannelCacheSize is the maximum number of ChannelEdges to hold in the
 	// channel cache.
 	ChannelCacheSize int
+
+	// NoFreelistSync, if true, prevents the database from syncing its
+	// freelist to disk, resulting in improved performance at the expense of
+	// increased startup time.
+	NoFreelistSync bool
 }
 
 // DefaultOptions returns an Options populated with default values.
@@ -28,6 +33,7 @@ func DefaultOptions() Options {
 	return Options{
 		RejectCacheSize:  DefaultRejectCacheSize,
 		ChannelCacheSize: DefaultChannelCacheSize,
+		NoFreelistSync:   true,
 	}
 }
 
@@ -45,5 +51,12 @@ func OptionSetRejectCacheSize(n int) OptionModifier {
 func OptionSetChannelCacheSize(n int) OptionModifier {
 	return func(o *Options) {
 		o.ChannelCacheSize = n
+	}
+}
+
+// OptionSetSyncFreelist allows the database to sync its freelist.
+func OptionSetSyncFreelist(b bool) OptionModifier {
+	return func(o *Options) {
+		o.NoFreelistSync = !b
 	}
 }

@@ -190,6 +190,7 @@ func Main(lisCfg ListenerCfg) error {
 		graphDir,
 		channeldb.OptionSetRejectCacheSize(cfg.Caches.RejectCacheSize),
 		channeldb.OptionSetChannelCacheSize(cfg.Caches.ChannelCacheSize),
+		channeldb.OptionSetSyncFreelist(cfg.SyncFreelist),
 	)
 	if err != nil {
 		err := fmt.Errorf("Unable to open channeldb: %v", err)
@@ -1000,7 +1001,8 @@ func waitForWalletPassword(restEndpoints []net.Addr,
 		cfg.AdminMacPath, cfg.ReadMacPath, cfg.InvoiceMacPath,
 	}
 	pwService := walletunlocker.New(
-		chainConfig.ChainDir, activeNetParams.Params, macaroonFiles,
+		chainConfig.ChainDir, activeNetParams.Params, !cfg.SyncFreelist,
+		macaroonFiles,
 	)
 	lnrpc.RegisterWalletUnlockerServer(grpcServer, pwService)
 
@@ -1093,7 +1095,8 @@ func waitForWalletPassword(restEndpoints []net.Addr,
 			chainConfig.ChainDir, activeNetParams.Params,
 		)
 		loader := wallet.NewLoader(
-			activeNetParams.Params, netDir, uint32(recoveryWindow),
+			activeNetParams.Params, netDir, !cfg.SyncFreelist,
+			recoveryWindow,
 		)
 
 		// With the seed, we can now use the wallet loader to create

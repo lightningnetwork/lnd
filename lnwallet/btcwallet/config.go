@@ -75,6 +75,11 @@ type Config struct {
 	// encrypted at all, in which case it should be attempted to be loaded
 	// normally when creating the BtcWallet.
 	Wallet *wallet.Wallet
+
+	// NoFreelistSync, if true, prevents the database from syncing its
+	// freelist to disk, resulting in improved performance at the expense of
+	// increased startup time.
+	NoFreelistSync bool
 }
 
 // NetworkDir returns the directory name of a network directory to hold wallet

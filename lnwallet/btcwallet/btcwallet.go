@@ -89,8 +89,10 @@ func New(cfg Config) (*BtcWallet, error) {
 		} else {
 			pubPass = cfg.PublicPass
 		}
-		loader := base.NewLoader(cfg.NetParams, netDir,
-			cfg.RecoveryWindow)
+		loader := base.NewLoader(
+			cfg.NetParams, netDir, cfg.NoFreelistSync,
+			cfg.RecoveryWindow,
+		)
 		walletExists, err := loader.WalletExists()
 		if err != nil {
 			return nil, err

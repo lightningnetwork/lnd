@@ -21,6 +21,7 @@ import (
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/chanvalidate"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/multimutex"
 	"github.com/lightningnetwork/lnd/routing/chainview"
@@ -1174,9 +1175,9 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 		// to obtain the full funding outpoint that's encoded within
 		// the channel ID.
 		channelID := lnwire.NewShortChanIDFromInt(msg.ChannelID)
-		fundingPoint, _, err := r.fetchChanPoint(&channelID)
+		fundingTx, err := r.fetchFundingTx(&channelID)
 		if err != nil {
-			return errors.Errorf("unable to fetch chan point for "+
+			return errors.Errorf("unable to fetch funding tx for "+
 				"chan_id=%v: %v", msg.ChannelID, err)
 		}
 
@@ -1189,7 +1190,22 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 		if err != nil {
 			return err
 		}
-		fundingPkScript, err := input.WitnessScriptHash(witnessScript)
+		pkScript, err := input.WitnessScriptHash(witnessScript)
+		if err != nil {
+			return err
+		}
+
+		// Next we'll validate that this channel is actually well
+		// formed. If this check fails, then this channel either
+		// doesn't exist, or isn't the one that was meant to be created
+		// according to the passed channel proofs.
+		fundingPoint, err := chanvalidate.Validate(&chanvalidate.Context{
+			Locator: &chanvalidate.ShortChanIDChanLocator{
+				ID: channelID,
+			},
+			MultiSigPkScript: pkScript,
+			FundingTx:        fundingTx,
+		})
 		if err != nil {
 			return err
 		}
@@ -1197,6 +1213,10 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 		// Now that we have the funding outpoint of the channel, ensure
 		// that it hasn't yet been spent. If so, then this channel has
 		// been closed so we'll ignore it.
+		fundingPkScript, err := input.WitnessScriptHash(witnessScript)
+		if err != nil {
+			return err
+		}
 		chanUtxo, err := r.cfg.Chain.GetUtxo(
 			fundingPoint, fundingPkScript, channelID.BlockHeight,
 			r.quit,
@@ -1205,16 +1225,6 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 			return fmt.Errorf("unable to fetch utxo "+
 				"for chan_id=%v, chan_point=%v: %v",
 				msg.ChannelID, fundingPoint, err)
-		}
-
-		// By checking the equality of witness pkscripts we checks that
-		// funding witness script is multisignature lock which contains
-		// both local and remote public keys which was declared in
-		// channel edge and also that the announced channel value is
-		// right.
-		if !bytes.Equal(fundingPkScript, chanUtxo.PkScript) {
-			return errors.Errorf("pkScript mismatch: expected %x, "+
-				"got %x", fundingPkScript, chanUtxo.PkScript)
 		}
 
 		// TODO(roasbeef): this is a hack, needs to be removed
@@ -1339,25 +1349,24 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 	return nil
 }
 
-// fetchChanPoint retrieves the original outpoint which is encoded within the
-// channelID. This method also return the public key script for the target
-// transaction.
+// fetchFundingTx returns the funding transaction identified by the passed
+// short channel ID.
 //
 // TODO(roasbeef): replace with call to GetBlockTransaction? (would allow to
 // later use getblocktxn)
-func (r *ChannelRouter) fetchChanPoint(
-	chanID *lnwire.ShortChannelID) (*wire.OutPoint, *wire.TxOut, error) {
+func (r *ChannelRouter) fetchFundingTx(
+	chanID *lnwire.ShortChannelID) (*wire.MsgTx, error) {
 
 	// First fetch the block hash by the block number encoded, then use
 	// that hash to fetch the block itself.
 	blockNum := int64(chanID.BlockHeight)
 	blockHash, err := r.cfg.Chain.GetBlockHash(blockNum)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	fundingBlock, err := r.cfg.Chain.GetBlock(blockHash)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	// As a sanity check, ensure that the advertised transaction index is
@@ -1365,21 +1374,12 @@ func (r *ChannelRouter) fetchChanPoint(
 	// block.
 	numTxns := uint32(len(fundingBlock.Transactions))
 	if chanID.TxIndex > numTxns-1 {
-		return nil, nil, fmt.Errorf("tx_index=#%v is out of range "+
-			"(max_index=%v), network_chan_id=%v\n", chanID.TxIndex,
-			numTxns-1, spew.Sdump(chanID))
+		return nil, fmt.Errorf("tx_index=#%v is out of range "+
+			"(max_index=%v), network_chan_id=%v", chanID.TxIndex,
+			numTxns-1, chanID)
 	}
 
-	// Finally once we have the block itself, we seek to the targeted
-	// transaction index to obtain the funding output and txout.
-	fundingTx := fundingBlock.Transactions[chanID.TxIndex]
-	outPoint := &wire.OutPoint{
-		Hash:  fundingTx.TxHash(),
-		Index: uint32(chanID.TxPosition),
-	}
-	txOut := fundingTx.TxOut[chanID.TxPosition]
-
-	return outPoint, txOut, nil
+	return fundingBlock.Transactions[chanID.TxIndex], nil
 }
 
 // routingMsg couples a routing related routing topology update to the

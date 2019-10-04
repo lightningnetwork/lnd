@@ -268,7 +268,7 @@ func NewNeutrinoBackend(t *testing.T, minerAddr string) (*neutrino.ChainService,
 	}
 
 	dbName := filepath.Join(spvDir, "neutrino.db")
-	spvDatabase, err := walletdb.Create("bdb", dbName)
+	spvDatabase, err := walletdb.Create("bdb", dbName, true)
 	if err != nil {
 		os.RemoveAll(spvDir)
 		t.Fatalf("unable to create walletdb: %v", err)

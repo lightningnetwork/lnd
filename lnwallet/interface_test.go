@@ -2804,8 +2804,9 @@ func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 
 			// Start Alice - open a database, start a neutrino
 			// instance, and initialize a btcwallet driver for it.
-			aliceDB, err := walletdb.Create("bdb",
-				tempTestDirAlice+"/neutrino.db")
+			aliceDB, err := walletdb.Create(
+				"bdb", tempTestDirAlice+"/neutrino.db", true,
+			)
 			if err != nil {
 				t.Fatalf("unable to create DB: %v", err)
 			}
@@ -2831,8 +2832,9 @@ func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 
 			// Start Bob - open a database, start a neutrino
 			// instance, and initialize a btcwallet driver for it.
-			bobDB, err := walletdb.Create("bdb",
-				tempTestDirBob+"/neutrino.db")
+			bobDB, err := walletdb.Create(
+				"bdb", tempTestDirBob+"/neutrino.db", true,
+			)
 			if err != nil {
 				t.Fatalf("unable to create DB: %v", err)
 			}

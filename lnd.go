@@ -1000,7 +1000,8 @@ func waitForWalletPassword(restEndpoints []net.Addr,
 		cfg.AdminMacPath, cfg.ReadMacPath, cfg.InvoiceMacPath,
 	}
 	pwService := walletunlocker.New(
-		chainConfig.ChainDir, activeNetParams.Params, macaroonFiles,
+		chainConfig.ChainDir, activeNetParams.Params, true,
+		macaroonFiles,
 	)
 	lnrpc.RegisterWalletUnlockerServer(grpcServer, pwService)
 
@@ -1093,7 +1094,7 @@ func waitForWalletPassword(restEndpoints []net.Addr,
 			chainConfig.ChainDir, activeNetParams.Params,
 		)
 		loader := wallet.NewLoader(
-			activeNetParams.Params, netDir, uint32(recoveryWindow),
+			activeNetParams.Params, netDir, true, recoveryWindow,
 		)
 
 		// With the seed, we can now use the wallet loader to create

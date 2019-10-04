@@ -165,6 +165,7 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 		ignoredPairs[pair] = struct{}{}
 	}
 
+	var destTLV map[uint64][]byte
 	restrictions := &routing.RestrictParams{
 		FeeLimit: feeLimit,
 		ProbabilitySource: func(fromNode, toNode route.Vertex,
@@ -190,13 +191,13 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 				fromNode, toNode, amt,
 			)
 		},
-		DestPayloadTLV: len(in.DestTlv) != 0,
+		DestPayloadTLV: len(destTLV) != 0,
 	}
 
 	// If we have any TLV records destined for the final hop, then we'll
 	// attempt to decode them now into a form that the router can more
 	// easily manipulate.
-	destTlvRecords, err := tlv.MapToRecords(in.DestTlv)
+	destTlvRecords, err := tlv.MapToRecords(destTLV)
 	if err != nil {
 		return nil, err
 	}
@@ -332,11 +333,6 @@ func (r *RouterBackend) MarshallRoute(route *route.Route) (*lnrpc.Route, error) 
 			chanCapacity = incomingAmt.ToSatoshis()
 		}
 
-		tlvMap, err := tlv.RecordsToMap(hop.TLVRecords)
-		if err != nil {
-			return nil, err
-		}
-
 		resp.Hops[i] = &lnrpc.Hop{
 			ChanId:           hop.ChannelID,
 			ChanCapacity:     int64(chanCapacity),
@@ -348,7 +344,6 @@ func (r *RouterBackend) MarshallRoute(route *route.Route) (*lnrpc.Route, error) 
 			PubKey: hex.EncodeToString(
 				hop.PubKeyBytes[:],
 			),
-			TlvRecords: tlvMap,
 			TlvPayload: !hop.LegacyPayload,
 		}
 		incomingAmt = hop.AmtToForward
@@ -380,10 +375,7 @@ func (r *RouterBackend) UnmarshallHopByChannelLookup(hop *lnrpc.Hop,
 		return nil, fmt.Errorf("channel edge does not match expected node")
 	}
 
-	tlvRecords, err := tlv.MapToRecords(hop.TlvRecords)
-	if err != nil {
-		return nil, err
-	}
+	var tlvRecords []tlv.Record
 
 	return &route.Hop{
 		OutgoingTimeLock: hop.Expiry,
@@ -408,12 +400,6 @@ func UnmarshallKnownPubkeyHop(hop *lnrpc.Hop) (*route.Hop, error) {
 	copy(pubKeyBytes[:], pubKey)
 
 	var tlvRecords []tlv.Record
-	if hop.TlvRecords != nil {
-		tlvRecords, err = tlv.MapToRecords(hop.TlvRecords)
-		if err != nil {
-			return nil, err
-		}
-	}
 
 	return &route.Hop{
 		OutgoingTimeLock: hop.Expiry,
@@ -501,11 +487,10 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 		return nil, errors.New("timeout_seconds must be specified")
 	}
 
-	if len(rpcPayReq.DestTlv) != 0 {
+	var destTLV map[uint64][]byte
+	if len(destTLV) != 0 {
 		var err error
-		payIntent.FinalDestRecords, err = tlv.MapToRecords(
-			rpcPayReq.DestTlv,
-		)
+		payIntent.FinalDestRecords, err = tlv.MapToRecords(destTLV)
 		if err != nil {
 			return nil, err
 		}

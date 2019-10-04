@@ -426,8 +426,7 @@ func (c *ChannelArbitrator) Start() error {
 		// receive a chain event from the chain watcher than the
 		// commitment has been confirmed on chain, and before we
 		// advance our state step, we call InsertConfirmedCommitSet.
-		confCommitSet := commitSet.HtlcSets[*commitSet.ConfCommitKey]
-		if err := c.relaunchResolvers(confCommitSet); err != nil {
+		if err := c.relaunchResolvers(commitSet); err != nil {
 			c.cfg.BlockEpochs.Cancel()
 			return err
 		}
@@ -443,10 +442,10 @@ func (c *ChannelArbitrator) Start() error {
 // starting the ChannelArbitrator. This information should ideally be stored in
 // the database, so this only serves as a intermediate work-around to prevent a
 // migration.
-func (c *ChannelArbitrator) relaunchResolvers(confirmedHTLCs []channeldb.HTLC) error {
-	// We'll now query our log to see if there are any active
-	// unresolved contracts. If this is the case, then we'll
-	// relaunch all contract resolvers.
+func (c *ChannelArbitrator) relaunchResolvers(commitSet *CommitSet) error {
+	// We'll now query our log to see if there are any active unresolved
+	// contracts. If this is the case, then we'll relaunch all contract
+	// resolvers.
 	unresolvedContracts, err := c.log.FetchUnresolvedContracts()
 	if err != nil {
 		return err
@@ -460,6 +459,27 @@ func (c *ChannelArbitrator) relaunchResolvers(confirmedHTLCs []channeldb.HTLC) e
 		return err
 	}
 	commitHash := contractResolutions.CommitHash
+
+	// In prior versions of lnd, the information needed to supplement the
+	// resolvers (in most cases, the full amount of the HTLC) was found in
+	// the chain action map, which is now deprecated.  As a result, if the
+	// commitSet is nil (an older node with unresolved HTLCs at time of
+	// upgrade), then we'll use the chain action information in place. The
+	// chain actions may exclude some information, but we cannot recover it
+	// for these older nodes at the moment.
+	var confirmedHTLCs []channeldb.HTLC
+	if commitSet != nil {
+		confirmedHTLCs = commitSet.HtlcSets[*commitSet.ConfCommitKey]
+	} else {
+		chainActions, err := c.log.FetchChainActions()
+		if err != nil {
+			log.Errorf("unable to fetch chain actions: %v", err)
+			return err
+		}
+		for _, htlcs := range chainActions {
+			confirmedHTLCs = append(confirmedHTLCs, htlcs...)
+		}
+	}
 
 	// Reconstruct the htlc outpoints and data from the chain action log.
 	// The purpose of the constructed htlc map is to supplement to

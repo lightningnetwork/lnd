@@ -1192,7 +1192,7 @@ func (n *NetworkHarness) WaitForChannelClose(ctx context.Context,
 // AssertChannelExists asserts that an active channel identified by the
 // specified channel point exists from the point-of-view of the node.
 func (n *NetworkHarness) AssertChannelExists(ctx context.Context,
-	node *HarnessNode, chanPoint *wire.OutPoint, isActive bool) error {
+	node *HarnessNode, chanPoint string, isActive bool) error {
 
 	req := &lnrpc.ListChannelsRequest{}
 
@@ -1205,7 +1205,7 @@ func (n *NetworkHarness) AssertChannelExists(ctx context.Context,
 		}
 
 		for _, channel := range resp.Channels {
-			if channel.ChannelPoint == chanPoint.String() {
+			if channel.ChannelPoint == chanPoint {
 				return channel.Active == isActive
 			}
 

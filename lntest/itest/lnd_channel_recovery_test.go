@@ -105,7 +105,7 @@ func testChannelRecovery(net *lntest.NetworkHarness, t *harnessTest) {
 
 	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
 	isNotActive := false
-	err = net.AssertChannelExists(ctxt, srcNode, &chanPoint, isNotActive)
+	err = net.AssertChannelExists(ctxt, srcNode, chanPoint.String(), isNotActive)
 	if err != nil {
 		t.Fatalf("unable to assert channel existence: %v", err)
 	}

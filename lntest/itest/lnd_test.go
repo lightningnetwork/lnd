@@ -282,11 +282,11 @@ func openChannelAndAssert(ctx context.Context, t *harnessTest,
 		Index: fundingChanPoint.OutputIndex,
 	}
 	isActive := true
-	err = net.AssertChannelExists(ctx, alice, &chanPoint, isActive)
+	err = net.AssertChannelExists(ctx, alice, chanPoint.String(), isActive)
 	if err != nil {
 		t.Fatalf("unable to assert channel existence: %v", err)
 	}
-	err = net.AssertChannelExists(ctx, bob, &chanPoint, isActive)
+	err = net.AssertChannelExists(ctx, bob, chanPoint.String(), isActive)
 	if err != nil {
 		t.Fatalf("unable to assert channel existence: %v", err)
 	}
@@ -2326,12 +2326,12 @@ func testDisconnectingTargetPeer(net *lntest.NetworkHarness, t *harnessTest) {
 	// Check both nodes to ensure that the channel is ready for operation.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	isActive := true
-	err = net.AssertChannelExists(ctxt, net.Alice, &outPoint, isActive)
+	err = net.AssertChannelExists(ctxt, net.Alice, outPoint.String(), isActive)
 	if err != nil {
 		t.Fatalf("unable to assert channel existence: %v", err)
 	}
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = net.AssertChannelExists(ctxt, net.Bob, &outPoint, isActive)
+	err = net.AssertChannelExists(ctxt, net.Bob, outPoint.String(), isActive)
 	if err != nil {
 		t.Fatalf("unable to assert channel existence: %v", err)
 	}
@@ -2504,12 +2504,12 @@ func testChannelFundingPersistence(net *lntest.NetworkHarness, t *harnessTest) {
 	// Check both nodes to ensure that the channel is ready for operation.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	isActive := true
-	err = net.AssertChannelExists(ctxt, net.Alice, &outPoint, isActive)
+	err = net.AssertChannelExists(ctxt, net.Alice, outPoint.String(), isActive)
 	if err != nil {
 		t.Fatalf("unable to assert channel existence: %v", err)
 	}
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = net.AssertChannelExists(ctxt, carol, &outPoint, isActive)
+	err = net.AssertChannelExists(ctxt, carol, outPoint.String(), isActive)
 	if err != nil {
 		t.Fatalf("unable to assert channel existence: %v", err)
 	}
@@ -5261,12 +5261,12 @@ func testPrivateChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	isActive := true
-	err = net.AssertChannelExists(ctxt, carol, &privateFundPoint, isActive)
+	err = net.AssertChannelExists(ctxt, carol, privateFundPoint.String(), isActive)
 	if err != nil {
 		t.Fatalf("unable to assert channel existence: %v", err)
 	}
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = net.AssertChannelExists(ctxt, net.Alice, &privateFundPoint, isActive)
+	err = net.AssertChannelExists(ctxt, net.Alice, privateFundPoint.String(), isActive)
 	if err != nil {
 		t.Fatalf("unable to assert channel existence: %v", err)
 	}
@@ -6455,7 +6455,7 @@ func testMaxPendingChannels(net *lntest.NetworkHarness, t *harnessTest) {
 		}
 		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 		isActive := true
-		err = net.AssertChannelExists(ctxt, net.Alice, &chanPoint, isActive)
+		err = net.AssertChannelExists(ctxt, net.Alice, outPoint.String(), isActive)
 		if err != nil {
 			t.Fatalf("unable to assert channel existence: %v", err)
 		}

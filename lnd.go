@@ -506,11 +506,21 @@ func Main(lisCfg ListenerCfg) error {
 			return err
 		}
 
+		torConfig := watchtower.TorConfig{
+			Control:          cfg.Tor.Control,
+			StreamIsolation:  cfg.Tor.StreamIsolation,
+			V2:               cfg.Tor.V2,
+			V3:               cfg.Tor.V3,
+			TargetIPAddress:  cfg.Tor.TargetIPAddress,
+			WTPrivateKeyPath: cfg.Tor.WTPrivateKeyPath,
+		}
+
 		wtConfig, err := cfg.Watchtower.Apply(&watchtower.Config{
 			BlockFetcher:   activeChainControl.chainIO,
 			DB:             towerDB,
 			EpochRegistrar: activeChainControl.chainNotifier,
 			Net:            cfg.net,
+			Tor:            &torConfig,
 			NewAddress: func() (btcutil.Address, error) {
 				return activeChainControl.wallet.NewAddress(
 					lnwallet.WitnessPubKey, false,

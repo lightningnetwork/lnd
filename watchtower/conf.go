@@ -29,6 +29,10 @@ type Conf struct {
 func (c *Conf) Apply(cfg *Config,
 	normalizer AddressNormalizer) (*Config, error) {
 
+	if cfg.PeerPort == 0 {
+		cfg.PeerPort = DefaultPeerPort
+	}
+
 	// Set the Config's listening addresses if they are empty.
 	if cfg.ListenAddrs == nil {
 		// Without a network, we will be unable to resolve the listening

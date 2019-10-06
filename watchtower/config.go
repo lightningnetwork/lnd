@@ -59,6 +59,12 @@ type Config struct {
 	// for client connections. Either a clear net or Tor are supported.
 	Net tor.Net
 
+	// TorCfg holds Tor configuration info, if it is enabled.
+	Tor *TorConfig
+
+	// The watchtower server port to which clients can connect.
+	PeerPort int
+
 	// NewAddress is used to generate reward addresses, where a cut of
 	// successfully sent funds can be received.
 	NewAddress func() (btcutil.Address, error)
@@ -89,4 +95,26 @@ type Config struct {
 	// message from the other end, if the connection has stopped buffering
 	// the server's replies.
 	WriteTimeout time.Duration
+}
+
+type TorConfig struct {
+	// Control specifies the port number where the Tor Control listens for
+	// connections. The Tor Control communicates with the Tor daemon.
+	Control string
+
+	// Enable Tor stream isolation.
+	StreamIsolation bool
+
+	// V2 sets up a V2 onion service to listen for Tor connections.
+	V2 bool
+
+	// V3 sets up a V3 onion service to listen for Tor connections.
+	V3 bool
+
+	// IP address that Tor should use as the target of the onion service.
+	TargetIPAddress string
+
+	// WTPrivateKeyPath specifies where the watchtower onion service key
+	// will be written.
+	WTPrivateKeyPath string
 }

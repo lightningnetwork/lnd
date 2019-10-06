@@ -215,15 +215,16 @@ type autoPilotConfig struct {
 }
 
 type torConfig struct {
-	Active          bool   `long:"active" description:"Allow outbound and inbound connections to be routed through Tor"`
-	SOCKS           string `long:"socks" description:"The host:port that Tor's exposed SOCKS5 proxy is listening on"`
-	DNS             string `long:"dns" description:"The DNS server as host:port that Tor will use for SRV queries - NOTE must have TCP resolution enabled"`
-	StreamIsolation bool   `long:"streamisolation" description:"Enable Tor stream isolation by randomizing user credentials for each connection."`
-	Control         string `long:"control" description:"The host:port that Tor is listening on for Tor control connections"`
-	TargetIPAddress string `long:"targetipaddress" description:"IP address that Tor should use as the target of the hidden service"`
-	V2              bool   `long:"v2" description:"Automatically set up a v2 onion service to listen for inbound connections"`
-	V3              bool   `long:"v3" description:"Automatically set up a v3 onion service to listen for inbound connections"`
-	PrivateKeyPath  string `long:"privatekeypath" description:"The path to the private key of the onion service being created"`
+	Active           bool   `long:"active" description:"Allow outbound and inbound connections to be routed through Tor"`
+	SOCKS            string `long:"socks" description:"The host:port that Tor's exposed SOCKS5 proxy is listening on"`
+	DNS              string `long:"dns" description:"The DNS server as host:port that Tor will use for SRV queries - NOTE must have TCP resolution enabled"`
+	StreamIsolation  bool   `long:"streamisolation" description:"Enable Tor stream isolation by randomizing user credentials for each connection."`
+	Control          string `long:"control" description:"The host:port that Tor is listening on for Tor control connections"`
+        TargetIPAddress string `long:"targetipaddress" description:"IP address that Tor should use as the target of the hidden service"`
+	V2               bool   `long:"v2" description:"Automatically set up a v2 onion service to listen for inbound connections"`
+	V3               bool   `long:"v3" description:"Automatically set up a v3 onion service to listen for inbound connections"`
+	PrivateKeyPath   string `long:"privatekeypath" description:"The path to the private key of the onion service being created"`
+	WTPrivateKeyPath string `long:"wtprivatekeypath" description:"The path to the private key of the watchtower onion service being created"`
 }
 
 // config defines the configuration options for lnd.
@@ -558,6 +559,7 @@ func loadConfig() (*config, error) {
 	cfg.BitcoindMode.Dir = cleanAndExpandPath(cfg.BitcoindMode.Dir)
 	cfg.LitecoindMode.Dir = cleanAndExpandPath(cfg.LitecoindMode.Dir)
 	cfg.Tor.PrivateKeyPath = cleanAndExpandPath(cfg.Tor.PrivateKeyPath)
+	cfg.Tor.WTPrivateKeyPath = cleanAndExpandPath(cfg.Tor.WTPrivateKeyPath)
 	cfg.Watchtower.TowerDir = cleanAndExpandPath(cfg.Watchtower.TowerDir)
 
 	// Ensure that the user didn't attempt to specify negative values for
@@ -669,6 +671,21 @@ func loadConfig() (*config, error) {
 		case cfg.Tor.V3:
 			cfg.Tor.PrivateKeyPath = filepath.Join(
 				lndDir, defaultTorV3PrivateKeyFilename,
+			)
+		}
+	}
+
+	if cfg.Tor.WTPrivateKeyPath == "" {
+		switch {
+		case cfg.Tor.V2:
+			cfg.Tor.WTPrivateKeyPath = filepath.Join(
+				cfg.Watchtower.TowerDir,
+				defaultTorV2PrivateKeyFilename,
+			)
+		case cfg.Tor.V3:
+			cfg.Tor.WTPrivateKeyPath = filepath.Join(
+				cfg.Watchtower.TowerDir,
+				defaultTorV3PrivateKeyFilename,
 			)
 		}
 	}

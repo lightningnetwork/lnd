@@ -6,6 +6,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/lightningnetwork/lnd/brontide"
+	"github.com/lightningnetwork/lnd/tor"
 	"github.com/lightningnetwork/lnd/watchtower/lookout"
 	"github.com/lightningnetwork/lnd/watchtower/wtserver"
 )
@@ -80,16 +81,26 @@ func New(cfg *Config) (*Standalone, error) {
 		listeners = append(listeners, listener)
 	}
 
+	// We will create a new Tor controller for the watchtower to
+	// communicate with the Tor daemon.
+	var torController *tor.Controller
+
+	if cfg.Tor.V2 || cfg.Tor.V3 {
+		torController = tor.NewController(cfg.Tor.Control)
+	}
+
 	// Initialize the server with its required resources.
 	server, err := wtserver.New(&wtserver.Config{
-		ChainHash:     cfg.ChainHash,
-		DB:            cfg.DB,
-		NodePrivKey:   cfg.NodePrivKey,
-		Listeners:     listeners,
-		ReadTimeout:   cfg.ReadTimeout,
-		WriteTimeout:  cfg.WriteTimeout,
-		NewAddress:    cfg.NewAddress,
-		DisableReward: true,
+		ChainHash:        cfg.ChainHash,
+		DB:               cfg.DB,
+		NodePrivKey:      cfg.NodePrivKey,
+		Listeners:        listeners,
+		TorController:    torController,
+		ReadTimeout:      cfg.ReadTimeout,
+		WriteTimeout:     cfg.WriteTimeout,
+		NewAddress:       cfg.NewAddress,
+		DisableReward:    true,
+		WTPrivateKeyPath: cfg.Tor.WTPrivateKeyPath,
 	})
 	if err != nil {
 		return nil, err

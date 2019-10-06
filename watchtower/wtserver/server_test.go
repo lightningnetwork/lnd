@@ -2,6 +2,8 @@ package wtserver_test
 
 import (
 	"bytes"
+	"io/ioutil"
+	"os"
 	"reflect"
 	"testing"
 	"time"
@@ -11,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/tor"
 	"github.com/lightningnetwork/lnd/watchtower/blob"
 	"github.com/lightningnetwork/lnd/watchtower/wtdb"
 	"github.com/lightningnetwork/lnd/watchtower/wtmock"
@@ -54,10 +57,21 @@ func initServer(t *testing.T, db wtserver.DB,
 		db = wtmock.NewTowerDB()
 	}
 
+	torController := tor.NewController("localhost:9051", "")
+
+	torNet := &tor.ProxyNet{
+		SOCKS:           "localhost:9050",
+		StreamIsolation: false,
+	}
+
 	s, err := wtserver.New(&wtserver.Config{
-		DB:           db,
-		ReadTimeout:  timeout,
-		WriteTimeout: timeout,
+		DB:            db,
+		PeerPort:      9913,
+		TorController: torController,
+		OnionType:     tor.V3,
+		Net:           torNet,
+		ReadTimeout:   timeout,
+		WriteTimeout:  timeout,
 		NewAddress: func() (btcutil.Address, error) {
 			return addr, nil
 		},
@@ -66,6 +80,14 @@ func initServer(t *testing.T, db wtserver.DB,
 	if err != nil {
 		t.Fatalf("unable to create server: %v", err)
 	}
+
+	tempDirPath, err := ioutil.TempDir("", ".watchtower")
+	if err != nil {
+		t.Fatalf("couldn't create temporary cert directory")
+	}
+	defer os.RemoveAll(tempDirPath)
+
+	s.SetWTPrivateKeyPath(tempDirPath + "v3_onion_private_key")
 
 	if err = s.Start(); err != nil {
 		t.Fatalf("unable to start server: %v", err)
@@ -809,6 +831,26 @@ func TestServerDeleteSession(t *testing.T) {
 		// Invoke assertions after completing the request/response
 		// dance.
 		msg.assert(t)
+	}
+}
+
+// TestAddWatchtowerOnion tests that a watchtower onion address was
+// successfully created
+func TestAddWatchtowerOnion(t *testing.T) {
+	const timeoutDuration = 500 * time.Millisecond
+
+	// When server is created, tor controller will be created too.
+	s := initServer(t, nil, timeoutDuration)
+	defer s.Stop()
+
+	ss := s.(*wtserver.Server)
+
+	filename := wtserver.CleanAndExpandPath(ss.WTPrivateKeyPath())
+
+	// See if onion service private key file was created automatically.
+	_, err := os.Stat(filename)
+	if os.IsNotExist(err) {
+		t.Fatalf("expected onion service private key to be created %+v", err)
 	}
 }
 

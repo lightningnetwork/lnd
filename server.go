@@ -792,6 +792,8 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 		NextAttemptDeltaFunc: sweep.DefaultNextAttemptDeltaFunc,
 		MaxFeeRate:           sweep.DefaultMaxFeeRate,
 		FeeRateBucketSize:    sweep.DefaultFeeRateBucketSize,
+		FetchInputInfo:       cc.wallet.FetchInputInfo,
+		GetBestBlock:         cc.chainIO.GetBestBlock,
 	})
 
 	s.utxoNursery = newUtxoNursery(&NurseryConfig{
@@ -929,6 +931,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 		PublishTransaction: cc.wallet.PublishTransaction,
 		Notifier:           cc.chainNotifier,
 		FeeEstimator:       cc.feeEstimator,
+		CPFP:               s.sweeper.CPFP,
 		SignMessage: func(pubKey *btcec.PublicKey,
 			msg []byte) (*btcec.Signature, error) {
 

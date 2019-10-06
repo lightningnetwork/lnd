@@ -331,6 +331,9 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 
 			return nil, fmt.Errorf("unable to find channel")
 		},
+		CPFP: func(previousOutPoint *wire.OutPoint, satPerByte uint32) error {
+			return nil
+		},
 		DefaultRoutingPolicy: htlcswitch.ForwardingPolicy{
 			MinHTLC:       5,
 			BaseFee:       100,

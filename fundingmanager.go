@@ -350,6 +350,13 @@ type fundingConfig struct {
 	// and on the requesting node's public key that returns a bool which tells
 	// the funding manager whether or not to accept the channel.
 	OpenChannelPredicate chanacceptor.ChannelAcceptor
+
+	// RecoverFundingTx is used to give permission to the funding manager
+	// to attempt to recover a stuck fundingTx.
+	RecoverFundingTx bool
+
+	CPFP func(previousOutPoint *wire.OutPoint,
+		satPerByte uint32) error
 }
 
 // fundingManager acts as an orchestrator/bridge between the wallet's
@@ -457,6 +464,29 @@ var (
 	// state.
 	ErrChannelNotFound = fmt.Errorf("channel not found")
 )
+
+// recoverFundingTx is the main orchestrator for handling the funding
+// transaction recovery. Once the recovery is complete it will initiate
+// the remainder of the channel creation workflow.
+func (f *fundingManager) recoverFundingTx(ch *channeldb.OpenChannel,
+	confChan <-chan *confirmedChannel) (*confirmedChannel, error) {
+
+	var changeIndex = 1
+
+	fundingTxHash := ch.FundingTxn.TxHash()
+	changeOutPoint := wire.NewOutPoint(&fundingTxHash, uint32(changeIndex))
+
+	//TODO: Remove hardcoding
+	satPerByte := uint32(100)
+
+	err := f.cfg.CPFP(changeOutPoint, satPerByte)
+	if err != nil {
+		return nil, err
+	}
+
+	confirmedChannel := <-confChan
+	return confirmedChannel, nil
+}
 
 // newFundingManager creates and initializes a new instance of the
 // fundingManager.
@@ -1820,13 +1850,8 @@ func (f *fundingManager) waitForFundingWithTimeout(
 	f.wg.Add(1)
 	go f.waitForFundingConfirmation(ch, cancelChan, confChan)
 
-	// If we are not the initiator, we have no money at stake and will
-	// timeout waiting for the funding transaction to confirm after a
-	// while.
-	if !ch.IsInitiator {
-		f.wg.Add(1)
-		go f.waitForTimeout(ch, cancelChan, timeoutChan)
-	}
+	f.wg.Add(1)
+	go f.waitForTimeout(ch, cancelChan, timeoutChan)
 	defer close(cancelChan)
 
 	select {
@@ -1834,7 +1859,14 @@ func (f *fundingManager) waitForFundingWithTimeout(
 		if err != nil {
 			return nil, err
 		}
-		return nil, ErrConfirmationTimeout
+		if !ch.IsInitiator {
+			return nil, ErrConfirmationTimeout
+		}
+		confirmedChannel, err := f.recoverFundingTx(ch, confChan)
+		if err != nil {
+			return nil, ErrConfirmationTimeout
+		}
+		return confirmedChannel, nil
 
 	case <-f.quit:
 		// The fundingManager is shutting down, and will resume wait on
@@ -1979,7 +2011,7 @@ func (f *fundingManager) waitForTimeout(completeChan *channeldb.OpenChannel,
 	defer epochClient.Cancel()
 
 	// On block maxHeight we will cancel the funding confirmation wait.
-	maxHeight := completeChan.FundingBroadcastHeight + maxWaitNumBlocksFundingConf
+	maxHeight := completeChan.FundingBroadcastHeight + MaxWaitNumBlocksFundingConf
 	for {
 		select {
 		case epoch, ok := <-epochClient.Epochs:
@@ -1995,16 +2027,12 @@ func (f *fundingManager) waitForTimeout(completeChan *channeldb.OpenChannel,
 				fndgLog.Warnf("Waited for %v blocks without "+
 					"seeing funding transaction confirmed,"+
 					" cancelling.",
-					maxWaitNumBlocksFundingConf)
+					MaxWaitNumBlocksFundingConf)
 
 				// Notify the caller of the timeout.
 				close(timeoutChan)
 				return
 			}
-
-			// TODO: If we are the channel initiator implement
-			// a method for recovering the funds from the funding
-			// transaction
 
 		case <-cancelChan:
 			return

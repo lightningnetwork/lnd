@@ -10,6 +10,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
+
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
@@ -193,6 +196,10 @@ type UtxoSweeperConfig struct {
 	// GenSweepScript generates a P2WKH script belonging to the wallet where
 	// funds can be swept.
 	GenSweepScript func() ([]byte, error)
+
+	GetBestBlock func() (*chainhash.Hash, int32, error)
+
+	FetchInputInfo func(prevOut *wire.OutPoint) (*lnwallet.Utxo, error)
 
 	// FeeEstimator is used when crafting sweep transactions to estimate
 	// the necessary fee relative to the expected size of the sweep
@@ -1013,6 +1020,61 @@ func (s *UtxoSweeper) handlePendingSweepsReq(
 	}
 
 	return pendingInputs
+}
+
+// Attempt to force a transaction to be confirmed through
+// child-pay-for-parent https://bitcoin.org/en/glossary/cpfp
+func (s *UtxoSweeper) CPFP(previousOutPoint *wire.OutPoint,
+	satPerByte uint32) error {
+
+	// Construct the request's fee preference.
+	satPerKw := lnwallet.SatPerKVByte(satPerByte * 1000).FeePerKWeight()
+	feePreference := FeePreference{
+		FeeRate: satPerKw,
+	}
+
+	utxo, err := s.cfg.FetchInputInfo(previousOutPoint)
+	if err != nil {
+		return err
+	}
+
+	// We're only able to bump the fee of unconfirmed transactions.
+	if utxo.Confirmations > 0 {
+		return errors.New("unable to bump fee of a confirmed " +
+			"transaction")
+	}
+
+	var witnessType input.WitnessType
+	switch utxo.AddressType {
+	case lnwallet.WitnessPubKey:
+		witnessType = input.WitnessKeyHash
+	case lnwallet.NestedWitnessPubKey:
+		witnessType = input.NestedWitnessKeyHash
+	default:
+		return fmt.Errorf("unknown input witness %v", previousOutPoint)
+	}
+
+	signDesc := &input.SignDescriptor{
+		Output: &wire.TxOut{
+			PkScript: utxo.PkScript,
+			Value:    int64(utxo.Value),
+		},
+		HashType: txscript.SigHashAll,
+	}
+
+	// We'll use the current height as the height hint since we're dealing
+	// with an unconfirmed transaction.
+	_, currentHeight, err := s.cfg.GetBestBlock()
+	if err != nil {
+		return fmt.Errorf("unable to retrieve current height: %v", err)
+	}
+
+	baseInput := input.NewBaseInput(previousOutPoint, witnessType, signDesc, uint32(currentHeight))
+	if _, err = s.SweepInput(baseInput, feePreference); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // BumpFee allows bumping the fee of an input being swept by the UtxoSweeper

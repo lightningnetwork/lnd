@@ -84,9 +84,17 @@ func New(cfg *Config) (*Standalone, error) {
 	// We will create a new Tor controller for the watchtower to
 	// communicate with the Tor daemon.
 	var torController *tor.Controller
+	var onionType tor.OnionType
 
 	if cfg.Tor.V2 || cfg.Tor.V3 {
-		torController = tor.NewController(cfg.Tor.Control)
+		torController = tor.NewController(
+			cfg.Tor.Control, cfg.Tor.TargetIPAddress,
+		)
+		if cfg.Tor.V2 {
+			onionType = tor.V2
+		} else {
+			onionType = tor.V3
+		}
 	}
 
 	// Initialize the server with its required resources.
@@ -96,6 +104,9 @@ func New(cfg *Config) (*Standalone, error) {
 		NodePrivKey:      cfg.NodePrivKey,
 		Listeners:        listeners,
 		TorController:    torController,
+		Net:              cfg.Net,
+		OnionType:        onionType,
+		PeerPort:         cfg.PeerPort,
 		ReadTimeout:      cfg.ReadTimeout,
 		WriteTimeout:     cfg.WriteTimeout,
 		NewAddress:       cfg.NewAddress,
@@ -108,7 +119,7 @@ func New(cfg *Config) (*Standalone, error) {
 
 	return &Standalone{
 		cfg:       cfg,
-		listeners: listeners,
+		listeners: server.GetListeners(),
 		server:    server,
 		lookout:   lookout,
 	}, nil
@@ -129,6 +140,12 @@ func (w *Standalone) Start() error {
 	if err := w.server.Start(); err != nil {
 		w.lookout.Stop()
 		return err
+	}
+
+	// When a Tor hidden service listener is created, it needs to be added
+	// to the watchtower's listeners.
+	if w.cfg.Tor.V2 || w.cfg.Tor.V3 {
+		w.listeners = w.server.GetListeners()
 	}
 
 	log.Infof("Watchtower started successfully")

@@ -21,6 +21,8 @@ type Interface interface {
 
 	// Stop cleans up the watchtower's current connections and resources.
 	Stop() error
+
+	GetListeners() []net.Listener
 }
 
 // Peer is the primary interface used to abstract watchtower clients.

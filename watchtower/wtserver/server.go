@@ -5,6 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
+	"os/user"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -13,6 +17,7 @@ import (
 	"github.com/btcsuite/btcd/connmgr"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/tor"
 	"github.com/lightningnetwork/lnd/watchtower/wtdb"
 	"github.com/lightningnetwork/lnd/watchtower/wtwire"
 )
@@ -39,6 +44,20 @@ type Config struct {
 
 	// Listeners specifies which address to which clients may connect.
 	Listeners []net.Listener
+
+	// The server port to which clients can connect.
+	PeerPort int
+
+	// TorController communicates with a local Tor server and can spin up
+	// an onion service.
+	TorController *tor.Controller
+
+	// Net specifies the network type that the watchtower will use to listen
+	// for client connections. Either a clear net or Tor are supported.
+	Net tor.Net
+
+	// The version of the onion service to be used -- V2 or V3.
+	OnionType tor.OnionType
 
 	// ReadTimeout specifies how long a client may go without sending a
 	// message.
@@ -67,6 +86,10 @@ type Config struct {
 	// DisableReward causes the server to reject any session creation
 	// attempts that request rewards.
 	DisableReward bool
+
+	// WTPrivateKeyPath holds the path to the watchtower onion
+	// service private key.
+	WTPrivateKeyPath string
 }
 
 // Server houses the state required to handle watchtower peers. It's primary job
@@ -124,8 +147,16 @@ func New(cfg *Config) (*Server, error) {
 
 // Start begins listening on the server's listeners.
 func (s *Server) Start() error {
+	var startErr error
 	s.started.Do(func() {
 		log.Infof("Starting watchtower server")
+
+		if s.cfg.TorController != nil {
+			if err := s.startTorController(); err != nil {
+				startErr = err
+				return
+			}
+		}
 
 		s.wg.Add(1)
 		go s.peerHandler()
@@ -134,13 +165,18 @@ func (s *Server) Start() error {
 
 		log.Infof("Watchtower server started successfully")
 	})
-	return nil
+
+	return startErr
 }
 
 // Stop shutdowns down the server's listeners and any active requests.
 func (s *Server) Stop() error {
 	s.stopped.Do(func() {
 		log.Infof("Stopping watchtower server")
+
+		if s.cfg.TorController != nil {
+			s.cfg.TorController.Stop()
+		}
 
 		s.connMgr.Stop()
 
@@ -150,6 +186,10 @@ func (s *Server) Stop() error {
 		log.Infof("Watchtower server stopped successfully")
 	})
 	return nil
+}
+
+func (s *Server) GetListeners() []net.Listener {
+	return s.cfg.Listeners
 }
 
 // inboundPeerConnected is the callback given to the connection manager, and is
@@ -406,6 +446,16 @@ func (s *Server) removeAllPeers() {
 	}
 }
 
+// WTPrivateKeyPath returns the path of the watchtower onion service key.
+func (s *Server) WTPrivateKeyPath() string {
+	return s.cfg.WTPrivateKeyPath
+}
+
+// SetWTPrivateKeyPath sets the path of the watchtower onion service key.
+func (s *Server) SetWTPrivateKeyPath(path string) {
+	s.cfg.WTPrivateKeyPath = path
+}
+
 // logMessage writes information about a message exchanged with a remote peer,
 // using directional prepositions to signal whether the message was sent or
 // received.
@@ -430,4 +480,74 @@ func logMessage(peer Peer, msg wtwire.Message, read bool) {
 // noDial is a dummy dial method passed to the server's connmgr.
 func noDial(_ net.Addr) (net.Conn, error) {
 	return nil, fmt.Errorf("watchtower cannot make outgoing conns")
+}
+
+// startTorController starts the watchtower tor controller connecting to the Tor
+// daemon.
+func (s *Server) startTorController() error {
+	if err := s.cfg.TorController.Start(); err != nil {
+		return fmt.Errorf("Cannot create watchtower Tor controller: %v", err)
+	}
+
+	// Determine the different ports the server is listening on. The onion
+	// service's virtual port will map to these ports and one will be picked
+	// at random when the onion service is being accessed.
+	listenPorts := make([]int, 0, len(s.cfg.Listeners))
+	for _, listener := range s.cfg.Listeners {
+		port := listener.Addr().(*net.TCPAddr).Port
+		listenPorts = append(listenPorts, port)
+	}
+
+	privateKeyPath := CleanAndExpandPath(s.cfg.WTPrivateKeyPath)
+
+	onionCfg := tor.AddOnionConfig{
+		Type:           s.cfg.OnionType,
+		VirtualPort:    s.cfg.PeerPort,
+		TargetPorts:    listenPorts,
+		PrivateKeyPath: privateKeyPath,
+	}
+
+	onionAddr, err := s.cfg.TorController.AddOnion(onionCfg)
+	if err != nil {
+		return fmt.Errorf("Cannot create or find Tor onion service: %v", err)
+	}
+
+	// Create a listener so the watchtower will listen for connections to
+	// the onion address.
+	addr, err := s.cfg.Net.ResolveTCPAddr("tcp", onionAddr.String())
+
+	onionListener, err := net.ListenTCP("tcp", addr)
+	if err != nil {
+		return fmt.Errorf("Problem creating onion listener: %v", err)
+	}
+
+	s.cfg.Listeners = append(s.cfg.Listeners, onionListener)
+
+	return nil
+}
+
+// CleanAndExpandPath expands environment variables and leading ~ in the
+// passed path, cleans the result, and returns it.
+// This function is taken from https://github.com/btcsuite/btcd
+func CleanAndExpandPath(path string) string {
+	if path == "" {
+		return ""
+	}
+
+	// Expand initial ~ to OS specific home directory.
+	if strings.HasPrefix(path, "~") {
+		var homeDir string
+		user, err := user.Current()
+		if err == nil {
+			homeDir = user.HomeDir
+		} else {
+			homeDir = os.Getenv("HOME")
+		}
+
+		path = strings.Replace(path, "~", homeDir, 1)
+	}
+
+	// NOTE: The os.ExpandEnv doesn't work with Windows-style %VARIABLE%,
+	// but the variables can still be expanded via POSIX-style $VARIABLE.
+	return filepath.Clean(os.ExpandEnv(path))
 }

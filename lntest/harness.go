@@ -435,44 +435,61 @@ func (n *NetworkHarness) EnsureConnected(ctx context.Context, a, b *HarnessNode)
 			},
 		}
 
-		ctxt, _ = context.WithTimeout(ctx, 15*time.Second)
-		err = n.connect(ctxt, req, a)
-		switch {
+		var predErr error
+		err = wait.Predicate(func() bool {
+			ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+			defer cancel()
 
-		// Request was successful, wait for both to display the
-		// connection.
-		case err == nil:
-			return errConnectionRequested
+			err := n.connect(ctx, req, a)
+			switch {
 
-		// If the two are already connected, we return early with no
-		// error.
-		case strings.Contains(err.Error(), "already connected to peer"):
-			return nil
+			// Request was successful, wait for both to display the
+			// connection.
+			case err == nil:
+				predErr = errConnectionRequested
+				return true
 
-		default:
-			return err
+			// If the two are already connected, we return early
+			// with no error.
+			case strings.Contains(
+				err.Error(), "already connected to peer",
+			):
+				predErr = nil
+				return true
+
+			default:
+				predErr = err
+				return false
+			}
+
+		}, DefaultTimeout)
+		if err != nil {
+			return fmt.Errorf("connection not succeeded within 15 "+
+				"seconds: %v", predErr)
 		}
+
+		return predErr
 	}
 
 	aErr := tryConnect(a, b)
 	bErr := tryConnect(b, a)
 	switch {
+	// If both reported already being connected to each other, we can exit
+	// early.
 	case aErr == nil && bErr == nil:
-		// If both reported already being connected to each other, we
-		// can exit early.
 		return nil
 
+	// Return any critical errors returned by either alice.
 	case aErr != nil && aErr != errConnectionRequested:
-		// Return any critical errors returned by either alice.
 		return aErr
 
+	// Return any critical errors returned by either bob.
 	case bErr != nil && bErr != errConnectionRequested:
-		// Return any critical errors returned by either bob.
 		return bErr
 
+	// Otherwise one or both requested a connection, so we wait for the
+	// peers lists to reflect the connection.
 	default:
-		// Otherwise one or both requested a connection, so we wait for
-		// the peers lists to reflect the connection.
 	}
 
 	findSelfInPeerList := func(a, b *HarnessNode) bool {

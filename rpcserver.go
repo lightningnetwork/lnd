@@ -4672,13 +4672,8 @@ func (r *rpcServer) ForwardingHistory(ctx context.Context,
 		numEvents uint32
 	)
 
-	// If the start time wasn't specified, we'll default to 24 hours ago.
-	if req.StartTime == 0 {
-		now := time.Now()
-		startTime = now.Add(-time.Hour * 24)
-	} else {
-		startTime = time.Unix(int64(req.StartTime), 0)
-	}
+	// startTime defaults to the Unix epoch (0 unixtime, or midnight 01-01-1970).
+	startTime = time.Unix(int64(req.StartTime), 0)
 
 	// If the end time wasn't specified, assume a default end time of now.
 	if req.EndTime == 0 {

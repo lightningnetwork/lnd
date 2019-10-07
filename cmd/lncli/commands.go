@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
@@ -3582,6 +3583,9 @@ func forwardingHistory(ctx *cli.Context) error {
 			return fmt.Errorf("unable to decode start_time %v", err)
 		}
 		args = args.Tail()
+	default:
+		now := time.Now()
+		startTime = uint64(now.Add(-time.Hour * 24).Unix())
 	}
 
 	switch {

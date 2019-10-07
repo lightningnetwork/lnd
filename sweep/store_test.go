@@ -53,7 +53,7 @@ func TestStore(t *testing.T) {
 
 		testStore(t, func() (SweeperStore, error) {
 			var chain chainhash.Hash
-			return NewSweeperStore(cdb, &chain)
+			return NewSweeperStore(cdb.DB, &chain)
 		})
 	})
 	t.Run("mock", func(t *testing.T) {

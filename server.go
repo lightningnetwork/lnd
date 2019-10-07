@@ -780,7 +780,6 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 			return time.NewTimer(sweep.DefaultBatchWindowDuration).C
 		},
 		Notifier:             cc.chainNotifier,
-		ChainIO:              cc.chainIO,
 		Store:                sweeperStore,
 		MaxInputsPerTx:       sweep.DefaultMaxInputsPerTx,
 		MaxSweepAttempts:     sweep.DefaultMaxSweepAttempts,

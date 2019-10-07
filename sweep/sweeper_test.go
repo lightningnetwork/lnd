@@ -130,9 +130,8 @@ func createSweeperTestContext(t *testing.T) *sweeperTestContext {
 			ctx.timeoutChan <- c
 			return c
 		},
-		Store:   store,
-		Signer:  &mockSigner{},
-		ChainIO: &mockChainIO{},
+		Store:  store,
+		Signer: &mockSigner{},
 		GenSweepScript: func() ([]byte, error) {
 			script := []byte{outputScriptCount}
 			outputScriptCount++

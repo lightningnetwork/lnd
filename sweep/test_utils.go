@@ -10,12 +10,12 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/input"
-	"github.com/lightningnetwork/lnd/lnwallet"
 )
 
 var (
 	defaultTestTimeout = 5 * time.Second
-	mockChainIOHeight  = int32(100)
+	mockChainHash, _   = chainhash.NewHashFromStr("00aabbccddeeff")
+	mockChainHeight    = int32(100)
 )
 
 type mockSigner struct {
@@ -155,12 +155,22 @@ func (m *MockNotifier) RegisterBlockEpochNtfn(
 	log.Tracef("Mock block ntfn registered")
 
 	m.mutex.Lock()
-	epochChan := make(chan *chainntnfs.BlockEpoch, 0)
-	bestHeight := int32(0)
-	if bestBlock != nil {
-		bestHeight = bestBlock.Height
+	epochChan := make(chan *chainntnfs.BlockEpoch, 1)
+
+	// The real notifier returns a notification with the current block hash
+	// and height immediately if no best block hash or height is specified
+	// in the request. We want to emulate this behaviour as well for the
+	// mock.
+	switch {
+	case bestBlock == nil:
+		epochChan <- &chainntnfs.BlockEpoch{
+			Hash:   mockChainHash,
+			Height: mockChainHeight,
+		}
+		m.epochChan[epochChan] = mockChainHeight
+	default:
+		m.epochChan[epochChan] = bestBlock.Height
 	}
-	m.epochChan[epochChan] = bestHeight
 	m.mutex.Unlock()
 
 	return &chainntnfs.BlockEpochEvent{
@@ -234,26 +244,4 @@ func (m *MockNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 				outpoint)
 		},
 	}, nil
-}
-
-type mockChainIO struct{}
-
-var _ lnwallet.BlockChainIO = (*mockChainIO)(nil)
-
-func (m *mockChainIO) GetBestBlock() (*chainhash.Hash, int32, error) {
-	return nil, mockChainIOHeight, nil
-}
-
-func (m *mockChainIO) GetUtxo(op *wire.OutPoint, pkScript []byte,
-	heightHint uint32, _ <-chan struct{}) (*wire.TxOut, error) {
-
-	return nil, nil
-}
-
-func (m *mockChainIO) GetBlockHash(blockHeight int64) (*chainhash.Hash, error) {
-	return nil, nil
-}
-
-func (m *mockChainIO) GetBlock(blockHash *chainhash.Hash) (*wire.MsgBlock, error) {
-	return nil, nil
 }

@@ -1336,6 +1336,7 @@ func TestSkipIneligibleLinksMultiHopForward(t *testing.T) {
 	// Alice.
 	preimage := [sha256.Size]byte{1}
 	rhash := fastsha256.Sum256(preimage[:])
+	obfuscator := NewMockObfuscator()
 	packet = &htlcPacket{
 		incomingChanID: aliceChannelLink.ShortChanID(),
 		incomingHTLCID: 0,
@@ -1344,13 +1345,18 @@ func TestSkipIneligibleLinksMultiHopForward(t *testing.T) {
 			PaymentHash: rhash,
 			Amount:      1,
 		},
-		obfuscator: NewMockObfuscator(),
+		obfuscator: obfuscator,
 	}
 
 	// The request to forward should fail as
 	err = s.forward(packet)
 	if err == nil {
 		t.Fatalf("forwarding should have failed due to inactive link")
+	}
+
+	failure := obfuscator.(*mockObfuscator).failure
+	if _, ok := failure.(*lnwire.FailTemporaryChannelFailure); !ok {
+		t.Fatalf("unexpected failure %T", failure)
 	}
 
 	if s.circuits.NumOpen() != 0 {

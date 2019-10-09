@@ -334,6 +334,7 @@ var _ hop.Iterator = (*mockHopIterator)(nil)
 // encodes the failure and do not makes any onion obfuscation.
 type mockObfuscator struct {
 	ogPacket *sphinx.OnionPacket
+	failure  lnwire.FailureMessage
 }
 
 // NewMockObfuscator initializes a dummy mockObfuscator used for testing.
@@ -365,6 +366,8 @@ func (o *mockObfuscator) Reextract(
 
 func (o *mockObfuscator) EncryptFirstHop(failure lnwire.FailureMessage) (
 	lnwire.OpaqueReason, error) {
+
+	o.failure = failure
 
 	var b bytes.Buffer
 	if err := lnwire.EncodeFailure(&b, failure, 0); err != nil {

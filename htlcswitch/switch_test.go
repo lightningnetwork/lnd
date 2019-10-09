@@ -1405,7 +1405,7 @@ func testSkipLinkLocalForward(t *testing.T, eligible bool,
 	aliceChannelLink := newMockChannelLink(
 		s, chanID1, aliceChanID, alicePeer, eligible,
 	)
-	aliceChannelLink.htlcSatifiesPolicyLocalResult = policyResult
+	aliceChannelLink.checkHtlcTransitResult = policyResult
 	if err := s.AddLink(aliceChannelLink); err != nil {
 		t.Fatalf("unable to add alice link: %v", err)
 	}

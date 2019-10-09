@@ -92,27 +92,28 @@ var (
 
 var idSeqNum uint64
 
-func genIDs() (lnwire.ChannelID, lnwire.ChannelID, lnwire.ShortChannelID,
-	lnwire.ShortChannelID) {
-
-	id := atomic.AddUint64(&idSeqNum, 2)
+// genID generates a unique tuple to identify a test channel.
+func genID() (lnwire.ChannelID, lnwire.ShortChannelID) {
+	id := atomic.AddUint64(&idSeqNum, 1)
 
 	var scratch [8]byte
 
 	binary.BigEndian.PutUint64(scratch[:], id)
 	hash1, _ := chainhash.NewHash(bytes.Repeat(scratch[:], 4))
 
-	binary.BigEndian.PutUint64(scratch[:], id+1)
-	hash2, _ := chainhash.NewHash(bytes.Repeat(scratch[:], 4))
-
 	chanPoint1 := wire.NewOutPoint(hash1, uint32(id))
-	chanPoint2 := wire.NewOutPoint(hash2, uint32(id+1))
-
 	chanID1 := lnwire.NewChanIDFromOutPoint(chanPoint1)
-	chanID2 := lnwire.NewChanIDFromOutPoint(chanPoint2)
-
 	aliceChanID := lnwire.NewShortChanIDFromInt(id)
-	bobChanID := lnwire.NewShortChanIDFromInt(id + 1)
+
+	return chanID1, aliceChanID
+}
+
+// genIDs generates ids for two test channels.
+func genIDs() (lnwire.ChannelID, lnwire.ChannelID, lnwire.ShortChannelID,
+	lnwire.ShortChannelID) {
+
+	chanID1, aliceChanID := genID()
+	chanID2, bobChanID := genID()
 
 	return chanID1, chanID2, aliceChanID, bobChanID
 }

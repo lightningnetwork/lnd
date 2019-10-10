@@ -351,6 +351,9 @@ func marshallError(sendError error) (*Failure, error) {
 		response.Code = Failure_EXPIRY_TOO_SOON
 		response.ChannelUpdate = marshallChannelUpdate(&onionErr.Update)
 
+	case *lnwire.FailExpiryTooFar:
+		response.Code = Failure_EXPIRY_TOO_FAR
+
 	case *lnwire.FailInvalidOnionVersion:
 		response.Code = Failure_INVALID_ONION_VERSION
 		response.OnionSha_256 = onionErr.OnionSHA256[:]
@@ -404,8 +407,12 @@ func marshallError(sendError error) (*Failure, error) {
 
 	case *lnwire.FailPermanentChannelFailure:
 		response.Code = Failure_PERMANENT_CHANNEL_FAILURE
-	default:
+
+	case nil:
 		response.Code = Failure_UNKNOWN_FAILURE
+
+	default:
+		return nil, fmt.Errorf("cannot marshall failure %T", onionErr)
 	}
 
 	response.FailureSourceIndex = uint32(fErr.FailureSourceIdx)

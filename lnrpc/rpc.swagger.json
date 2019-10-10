@@ -1715,6 +1715,16 @@
           "type": "boolean",
           "format": "boolean",
           "description": "*\nIf true, then this channel uses the modern commitment format where the key\nin the output of the remote party does not change each state. This makes\nback up and recovery easier as when the channel is closed, the funds go\ndirectly to that key."
+        },
+        "lifetime": {
+          "type": "string",
+          "format": "int64",
+          "description": "*\nThe number of seconds that the channel has been monitored by the channel\nscoring system. Scores are currently not persisted, so this value may be\nless than the lifetime of the channel [EXPERIMENTAL]."
+        },
+        "uptime": {
+          "type": "string",
+          "format": "int64",
+          "description": "*\nThe number of seconds that the remote peer has been observed as being online\nby the channel scoring system over the lifetime of the channel [EXPERIMENTAL]."
         }
       }
     },

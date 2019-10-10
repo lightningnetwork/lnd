@@ -977,6 +977,11 @@ type CommitmentKeyRing struct {
 	// commitment transaction.
 	NoDelayKey *btcec.PublicKey
 
+	// LocalNoDelayKey is the tx owner's payment key in the commitment tx.
+	// This is the key used to generate the unencumbered output within the
+	// commitment transaction.
+	LocalNoDelayKey *btcec.PublicKey
+
 	// RevocationKey is the key that can be used by the other party to
 	// redeem outputs from a revoked commitment transaction if it were to
 	// be published.
@@ -1007,6 +1012,7 @@ func DeriveCommitmentKeys(commitPoint *btcec.PublicKey,
 		RemoteHtlcKey: input.TweakPubKey(
 			remoteChanCfg.HtlcBasePoint.PubKey, commitPoint,
 		),
+		LocalNoDelayKey: localChanCfg.PaymentBasePoint.PubKey,
 	}
 
 	// We'll now compute the delay, no delay, and revocation key based on
@@ -4986,6 +4992,16 @@ type CommitOutputResolution struct {
 	MaturityDelay uint32
 }
 
+type AnchorOutputResolution struct {
+	// SelfOutPoint is the full outpoint that points to our anchor output
+	// within the closing commitment transaction.
+	SelfOutPoint wire.OutPoint
+
+	// SelfOutputSignDesc is a fully populated sign descriptor capable of
+	// generating a valid signature to sweep the output paying to us.
+	SelfOutputSignDesc input.SignDescriptor
+}
+
 // UnilateralCloseSummary describes the details of a detected unilateral
 // channel closure. This includes the information about with which
 // transactions, and block the channel was unilaterally closed, as well as
@@ -5624,6 +5640,8 @@ type LocalForceCloseSummary struct {
 	// then this will be nil.
 	CommitResolution *CommitOutputResolution
 
+	AnchorResolutions []*AnchorOutputResolution
+
 	// HtlcResolutions contains all the data required to sweep any outgoing
 	// HTLC's and incoming HTLc's we know the preimage to. For each of these
 	// HTLC's, we'll need to go to the second level to sweep them fully.
@@ -5710,6 +5728,17 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel, signer input.Si
 		return nil, err
 	}
 
+	anchorScript, err := input.CommitScriptUnencumbered(
+		keyRing.LocalNoDelayKey,
+	)
+	if err != nil {
+		return nil, err
+	}
+	anchorScriptHash, err := input.WitnessScriptHash(anchorScript)
+	if err != nil {
+		return nil, err
+	}
+
 	// Locate the output index of the delayed commitment output back to us.
 	// We'll return the details of this output to the caller so they can
 	// sweep it once it's mature.
@@ -5717,15 +5746,27 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel, signer input.Si
 		delayIndex  uint32
 		delayScript []byte
 	)
-	for i, txOut := range commitTx.TxOut {
-		if !bytes.Equal(payToUsScriptHash, txOut.PkScript) {
-			continue
-		}
 
-		delayIndex = uint32(i)
-		delayScript = txOut.PkScript
-		break
+	anchors := []*AnchorOutputResolution{}
+
+	for i, txOut := range commitTx.TxOut {
+		switch {
+		case bytes.Equal(payToUsScriptHash, txOut.PkScript):
+			delayIndex = uint32(i)
+			delayScript = txOut.PkScript
+		case bytes.Equal(anchorScriptHash, txOut.PkScript):
+			anchors = append(anchors, &AnchorOutputResolution{
+				SelfOutPoint: wire.OutPoint{
+					Hash:  commitTx.TxHash(),
+					Index: uint32(i),
+				},
+				// Set sign descriptor
+			})
+		}
 	}
+
+	// TODO: Add the two possible remote commit tx to_remote outputs to the
+	// anchors set.
 
 	// With the necessary information gathered above, create a new sign
 	// descriptor which is capable of generating the signature the caller
@@ -5772,11 +5813,12 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel, signer input.Si
 	}
 
 	return &LocalForceCloseSummary{
-		ChanPoint:        chanState.FundingOutpoint,
-		CloseTx:          commitTx,
-		CommitResolution: commitResolution,
-		HtlcResolutions:  htlcResolutions,
-		ChanSnapshot:     *chanState.Snapshot(),
+		ChanPoint:         chanState.FundingOutpoint,
+		CloseTx:           commitTx,
+		CommitResolution:  commitResolution,
+		AnchorResolutions: anchors,
+		HtlcResolutions:   htlcResolutions,
+		ChanSnapshot:      *chanState.Snapshot(),
 	}, nil
 }
 

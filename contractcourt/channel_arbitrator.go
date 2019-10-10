@@ -12,9 +12,11 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/sweep"
 )
 
 var (
@@ -871,6 +873,43 @@ func (c *ChannelArbitrator) stateStep(
 			if err != lnwallet.ErrDoubleSpend {
 				return StateError, closeTx, err
 			}
+
+			// We don't know whether the double spend is caused by
+			// our own commit tx in the mempool (previous run), or
+			// the remote tx.
+		}
+
+		// Try to sweep all possible anchors. Even if we succeed in
+		// publishing, it may still be that the remote tx "wins the
+		// mempool" on the network. Maybe not in our mempool, but our
+		// mempool isn't necessarily fixed either (multiple neutrino
+		// peers). Or possibly in the future, our mempool tx may get
+		// replaced by the remote tx if it is packaged with a child tx.
+		for _, anchor := range closeSummary.AnchorResolutions {
+			// Prepare anchor output for sweeping.
+			anchorInput := input.MakeBaseInput(
+				&anchor.SelfOutPoint,
+				input.CommitmentNoDelay,
+				&anchor.SelfOutputSignDesc,
+				triggerHeight,
+			)
+
+			// Sweep anchor output with default sweep conf target.
+			//
+			// TODO: More active miner fee decision making when
+			// deadline approaches. (out of scope for poc)
+			//
+			// TODO: Add exclusive groups to prevent any of these
+			// anchors to end up in the same sweep tx.
+			_, err = c.cfg.Sweeper.SweepInput(
+				&anchorInput,
+				sweep.FeePreference{
+					ConfTarget: sweepConfTarget,
+				},
+			)
+			if err != nil {
+				return StateError, closeTx, err
+			}
 		}
 
 		// We go to the StateCommitmentBroadcasted state, where we'll
@@ -911,6 +950,9 @@ func (c *ChannelArbitrator) stateStep(
 	// outside sub-systems, so we'll process the prior set of on-chain
 	// contract actions and launch a set of resolvers.
 	case StateContractClosed:
+		// TODO: Cancel two remote anchor sweeps or one local anchor
+		// sweep in the sweeper, now that we know which tx confirmed.
+
 		// First, we'll fetch our chain actions, and both sets of
 		// resolutions so we can process them.
 		contractResolutions, err := c.log.FetchContractResolutions()

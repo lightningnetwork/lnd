@@ -240,7 +240,7 @@ process.
 There are multiple ways of obtaining SCBs from `lnd`. The most commonly used
 method will likely be via the `channels.backup` file that's stored on-disk
 alongside the rest of the chain data. This is a special file that contains SCB
-entries for _all_ currently open channels. Each time a channel is opened or
+entries for _all_ currently open channels. Each time a channel is opened, changed, or
 closed, this file is updated on disk in a safe manner (atomic file rename). As
 a result, unlike the `channel.db` file, it's _always_ safe to copy this file
 for backup at ones desired location. The default location on Linux is: 

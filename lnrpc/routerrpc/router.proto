@@ -201,6 +201,7 @@ message Failure {
         TEMPORARY_NODE_FAILURE = 19;
         PERMANENT_NODE_FAILURE = 20;
         PERMANENT_CHANNEL_FAILURE = 21;
+        EXPIRY_TOO_FAR = 22;
 
         /**
         The error source is known, but the failure itself couldn't be decoded.

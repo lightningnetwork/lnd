@@ -3001,6 +3001,7 @@ var queryRoutesCommand = cli.Command{
 			Name:  "use_mc",
 			Usage: "use mission control probabilities",
 		},
+		cltvLimitFlag,
 	},
 	Action: actionDecorator(queryRoutes),
 }
@@ -3051,6 +3052,7 @@ func queryRoutes(ctx *cli.Context) error {
 		FeeLimit:          feeLimit,
 		FinalCltvDelta:    int32(ctx.Int("final_cltv_delta")),
 		UseMissionControl: ctx.Bool("use_mc"),
+		CltvLimit:         uint32(ctx.Uint64(cltvLimitFlag.Name)),
 	}
 
 	route, err := client.QueryRoutes(ctxb, req)

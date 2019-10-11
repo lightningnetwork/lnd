@@ -248,11 +248,14 @@ func (s *Server) EstimateRouteFee(ctx context.Context,
 	feeLimit := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
 
 	// Finally, we'll query for a route to the destination that can carry
-	// that target amount, we'll only request a single route.
+	// that target amount, we'll only request a single route. Set a
+	// restriction for the default CLTV limit, otherwise we can find a route
+	// that exceeds it and is useless to us.
 	route, err := s.cfg.Router.FindRoute(
 		s.cfg.RouterBackend.SelfNode, destNode, amtMsat,
 		&routing.RestrictParams{
-			FeeLimit: feeLimit,
+			FeeLimit:  feeLimit,
+			CltvLimit: s.cfg.RouterBackend.MaxTotalTimelock,
 		}, nil,
 	)
 	if err != nil {

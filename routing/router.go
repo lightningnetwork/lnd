@@ -1560,7 +1560,7 @@ type LightningPayment struct {
 
 	// CltvLimit is the maximum time lock that is allowed for attempts to
 	// complete this payment.
-	CltvLimit *uint32
+	CltvLimit uint32
 
 	// PaymentHash is the r-hash value to use within the HTLC extended to
 	// the first hop.

@@ -20,7 +20,7 @@ func TestRequestRoute(t *testing.T) {
 
 		// We expect find path to receive a cltv limit excluding the
 		// final cltv delta (including the block padding).
-		if *r.CltvLimit != 22-uint32(BlockPadding) {
+		if r.CltvLimit != 22-uint32(BlockPadding) {
 			t.Fatal("wrong cltv limit")
 		}
 
@@ -58,7 +58,7 @@ func TestRequestRoute(t *testing.T) {
 	finalCltvDelta := uint16(8)
 
 	payment := &LightningPayment{
-		CltvLimit:      &cltvLimit,
+		CltvLimit:      cltvLimit,
 		FinalCLTVDelta: finalCltvDelta,
 	}
 

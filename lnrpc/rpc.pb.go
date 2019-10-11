@@ -1052,8 +1052,9 @@ type SendRequest struct {
 	//any channel may be used.
 	OutgoingChanId uint64 `protobuf:"varint,9,opt,name=outgoing_chan_id,json=outgoingChanId,proto3" json:"outgoing_chan_id,omitempty"`
 	//*
-	//An optional maximum total time lock for the route. If zero, there is no
-	//maximum enforced.
+	//An optional maximum total time lock for the route. This should not exceed
+	//lnd's `--max-cltv-expiry` setting. If zero, then the value of
+	//`--max-cltv-expiry` is enforced.
 	CltvLimit uint32 `protobuf:"varint,10,opt,name=cltv_limit,json=cltvLimit,proto3" json:"cltv_limit,omitempty"`
 	//*
 	//An optional field that can be used to pass an arbitrary set of TLV records

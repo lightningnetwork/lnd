@@ -888,8 +888,9 @@ message SendRequest {
     uint64 outgoing_chan_id = 9;
 
     /** 
-    An optional maximum total time lock for the route. If zero, there is no
-    maximum enforced.
+    An optional maximum total time lock for the route. This should not exceed
+    lnd's `--max-cltv-expiry` setting. If zero, then the value of
+    `--max-cltv-expiry` is enforced.
     */
     uint32 cltv_limit = 10;
 

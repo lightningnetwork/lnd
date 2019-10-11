@@ -55,6 +55,10 @@ type RouterBackend struct {
 	// Tower is the ControlTower instance that is used to track pending
 	// payments.
 	Tower routing.ControlTower
+
+	// MaxTotalTimelock is the maximum total time lock a route is allowed to
+	// have.
+	MaxTotalTimelock uint32
 }
 
 // MissionControl defines the mission control dependencies of routerrpc.
@@ -471,11 +475,14 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 		payIntent.OutgoingChannelID = &rpcPayReq.OutgoingChanId
 	}
 
-	// Take cltv limit from request if set.
-	if rpcPayReq.CltvLimit != 0 {
-		cltvLimit := uint32(rpcPayReq.CltvLimit)
-		payIntent.CltvLimit = &cltvLimit
+	// Take the CLTV limit from the request if set, otherwise use the max.
+	cltvLimit, err := ValidateCLTVLimit(
+		uint32(rpcPayReq.CltvLimit), r.MaxTotalTimelock,
+	)
+	if err != nil {
+		return nil, err
 	}
+	payIntent.CltvLimit = cltvLimit
 
 	// Take fee limit from request.
 	payIntent.FeeLimit = lnwire.NewMSatFromSatoshis(
@@ -674,4 +681,19 @@ func ValidatePayReqExpiry(payReq *zpay32.Invoice) error {
 	}
 
 	return nil
+}
+
+// ValidateCLTVLimit returns a valid CLTV limit given a value and a maximum. If
+// the value exceeds the maximum, then an error is returned. If the value is 0,
+// then the maximum is used.
+func ValidateCLTVLimit(val, max uint32) (uint32, error) {
+	switch {
+	case val == 0:
+		return max, nil
+	case val > max:
+		return 0, fmt.Errorf("total time lock of %v exceeds max "+
+			"allowed %v", val, max)
+	default:
+		return val, nil
+	}
 }

@@ -3437,7 +3437,7 @@
         "cltv_limit": {
           "type": "integer",
           "format": "int64",
-          "description": "* \nAn optional maximum total time lock for the route. If zero, there is no\nmaximum enforced."
+          "description": "* \nAn optional maximum total time lock for the route. This should not exceed\nlnd's `--max-cltv-expiry` setting. If zero, then the value of\n`--max-cltv-expiry` is enforced."
         },
         "dest_tlv": {
           "type": "object",

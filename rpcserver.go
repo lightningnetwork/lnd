@@ -501,10 +501,11 @@ func newRPCServer(s *server, macService *macaroons.Service,
 
 			return info.NodeKey1Bytes, info.NodeKey2Bytes, nil
 		},
-		FindRoute:       s.chanRouter.FindRoute,
-		MissionControl:  s.missionControl,
-		ActiveNetParams: activeNetParams.Params,
-		Tower:           s.controlTower,
+		FindRoute:        s.chanRouter.FindRoute,
+		MissionControl:   s.missionControl,
+		ActiveNetParams:  activeNetParams.Params,
+		Tower:            s.controlTower,
+		MaxTotalTimelock: cfg.MaxOutgoingCltvExpiry,
 	}
 
 	var (
@@ -2940,7 +2941,7 @@ func (r *rpcServer) unmarshallSendToRouteRequest(
 type rpcPaymentIntent struct {
 	msat              lnwire.MilliSatoshi
 	feeLimit          lnwire.MilliSatoshi
-	cltvLimit         *uint32
+	cltvLimit         uint32
 	dest              route.Vertex
 	rHash             [32]byte
 	cltvDelta         uint16
@@ -2987,10 +2988,14 @@ func extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPaymentIntent, error
 		payIntent.outgoingChannelID = &rpcPayReq.OutgoingChanId
 	}
 
-	// Take cltv limit from request if set.
-	if rpcPayReq.CltvLimit != 0 {
-		payIntent.cltvLimit = &rpcPayReq.CltvLimit
+	// Take the CLTV limit from the request if set, otherwise use the max.
+	cltvLimit, err := routerrpc.ValidateCLTVLimit(
+		rpcPayReq.CltvLimit, cfg.MaxOutgoingCltvExpiry,
+	)
+	if err != nil {
+		return payIntent, err
 	}
+	payIntent.cltvLimit = cltvLimit
 
 	if len(rpcPayReq.DestTlv) != 0 {
 		var err error

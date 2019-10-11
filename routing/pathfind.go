@@ -260,7 +260,7 @@ type RestrictParams struct {
 	// CltvLimit is the maximum time lock of the route excluding the final
 	// ctlv. After path finding is complete, the caller needs to increase
 	// all cltv expiry heights with the required final cltv delta.
-	CltvLimit *uint32
+	CltvLimit uint32
 
 	// DestPayloadTLV should be set to true if we need to drop off a TLV
 	// payload at the final hop in order to properly complete this payment
@@ -495,8 +495,8 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		incomingCltv := toNodeDist.incomingCltv +
 			uint32(timeLockDelta)
 
-		// Check that we have cltv limit and that we are within it.
-		if r.CltvLimit != nil && incomingCltv > *r.CltvLimit {
+		// Check that we are within our CLTV limit.
+		if incomingCltv > r.CltvLimit {
 			return
 		}
 

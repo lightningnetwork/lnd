@@ -38,6 +38,72 @@ var (
 	// current db.
 	dbVersions = []version{
 		{
+			// The base DB version requires no migration.
+			number:    0,
+			migration: nil,
+		},
+		{
+			// The version of the database where two new indexes
+			// for the update time of node and channel updates were
+			// added.
+			number:    1,
+			migration: migrateNodeAndEdgeUpdateIndex,
+		},
+		{
+			// The DB version that added the invoice event time
+			// series.
+			number:    2,
+			migration: migrateInvoiceTimeSeries,
+		},
+		{
+			// The DB version that updated the embedded invoice in
+			// outgoing payments to match the new format.
+			number:    3,
+			migration: migrateInvoiceTimeSeriesOutgoingPayments,
+		},
+		{
+			// The version of the database where every channel
+			// always has two entries in the edges bucket. If
+			// a policy is unknown, this will be represented
+			// by a special byte sequence.
+			number:    4,
+			migration: migrateEdgePolicies,
+		},
+		{
+			// The DB version where we persist each attempt to send
+			// an HTLC to a payment hash, and track whether the
+			// payment is in-flight, succeeded, or failed.
+			number:    5,
+			migration: paymentStatusesMigration,
+		},
+		{
+			// The DB version that properly prunes stale entries
+			// from the edge update index.
+			number:    6,
+			migration: migratePruneEdgeUpdateIndex,
+		},
+		{
+			// The DB version that migrates the ChannelCloseSummary
+			// to a format where optional fields are indicated with
+			// boolean flags.
+			number:    7,
+			migration: migrateOptionalChannelCloseSummaryFields,
+		},
+		{
+			// The DB version that changes the gossiper's message
+			// store keys to account for the message's type and
+			// ShortChannelID.
+			number:    8,
+			migration: migrateGossipMessageStoreKeys,
+		},
+		{
+			// The DB version where the payments and payment
+			// statuses are moved to being stored in a combined
+			// bucket.
+			number:    9,
+			migration: migrateOutgoingPayments,
+		},
+		{
 			// The DB version where we started to store legacy
 			// payload information for all routes, as well as the
 			// optional TLV records.
@@ -197,6 +263,10 @@ func createChannelDB(dbPath string) error {
 		}
 
 		if _, err := tx.CreateBucket(invoiceBucket); err != nil {
+			return err
+		}
+
+		if _, err := tx.CreateBucket(paymentBucket); err != nil {
 			return err
 		}
 

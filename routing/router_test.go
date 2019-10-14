@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"image/color"
+	"math"
 	"math/rand"
 	"strings"
 	"sync/atomic"
@@ -219,6 +220,7 @@ func TestFindRoutesWithFeeLimit(t *testing.T) {
 	restrictions := &RestrictParams{
 		FeeLimit:          lnwire.NewMSatFromSatoshis(10),
 		ProbabilitySource: noProbabilitySource,
+		CltvLimit:         math.MaxUint32,
 	}
 
 	route, err := ctx.router.FindRoute(

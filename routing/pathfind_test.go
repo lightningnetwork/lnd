@@ -54,6 +54,7 @@ var (
 	noRestrictions = &RestrictParams{
 		FeeLimit:          noFeeLimit,
 		ProbabilitySource: noProbabilitySource,
+		CltvLimit:         math.MaxUint32,
 	}
 
 	testPathFindingConfig = &PathFindingConfig{}
@@ -789,6 +790,7 @@ func testBasicGraphPathFindingCase(t *testing.T, graphInstance *testGraphInstanc
 		&RestrictParams{
 			FeeLimit:          test.feeLimit,
 			ProbabilitySource: noProbabilitySource,
+			CltvLimit:         math.MaxUint32,
 		},
 		testPathFindingConfig,
 		sourceNode.PubKeyBytes, target, paymentAmt,
@@ -1916,6 +1918,7 @@ func TestRestrictOutgoingChannel(t *testing.T) {
 			FeeLimit:          noFeeLimit,
 			OutgoingChannelID: &outgoingChannelID,
 			ProbabilitySource: noProbabilitySource,
+			CltvLimit:         math.MaxUint32,
 		},
 		testPathFindingConfig,
 		sourceVertex, target, paymentAmt,
@@ -1942,7 +1945,7 @@ func TestRestrictOutgoingChannel(t *testing.T) {
 // TestCltvLimit asserts that a cltv limit is obeyed by the path finding
 // algorithm.
 func TestCltvLimit(t *testing.T) {
-	t.Run("no limit", func(t *testing.T) { testCltvLimit(t, 0, 1) })
+	t.Run("no limit", func(t *testing.T) { testCltvLimit(t, 2016, 1) })
 	t.Run("no path", func(t *testing.T) { testCltvLimit(t, 50, 0) })
 	t.Run("force high cost", func(t *testing.T) { testCltvLimit(t, 80, 3) })
 }
@@ -1998,19 +2001,13 @@ func testCltvLimit(t *testing.T, limit uint32, expectedChannel uint64) {
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
 	target := testGraphInstance.aliasMap["target"]
 
-	// Find the best path given the cltv limit.
-	var cltvLimit *uint32
-	if limit != 0 {
-		cltvLimit = &limit
-	}
-
 	path, err := findPath(
 		&graphParams{
 			graph: testGraphInstance.graph,
 		},
 		&RestrictParams{
 			FeeLimit:          noFeeLimit,
-			CltvLimit:         cltvLimit,
+			CltvLimit:         limit,
 			ProbabilitySource: noProbabilitySource,
 		},
 		testPathFindingConfig,
@@ -2195,6 +2192,7 @@ func testProbabilityRouting(t *testing.T, p10, p11, p20, minProbability float64,
 		&RestrictParams{
 			FeeLimit:          noFeeLimit,
 			ProbabilitySource: probabilitySource,
+			CltvLimit:         math.MaxUint32,
 		},
 		&PathFindingConfig{
 			PaymentAttemptPenalty: lnwire.NewMSatFromSatoshis(10),

@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	math "math"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec"
@@ -55,6 +56,10 @@ type RouterBackend struct {
 	// Tower is the ControlTower instance that is used to track pending
 	// payments.
 	Tower routing.ControlTower
+
+	// MaxTotalTimelock is the maximum total time lock a route is allowed to
+	// have.
+	MaxTotalTimelock uint32
 }
 
 // MissionControl defines the mission control dependencies of routerrpc.
@@ -165,6 +170,26 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 		ignoredPairs[pair] = struct{}{}
 	}
 
+	// Since QueryRoutes allows having a different source other than
+	// ourselves, we'll only apply our max time lock if we are the source.
+	maxTotalTimelock := r.MaxTotalTimelock
+	if sourcePubKey != r.SelfNode {
+		maxTotalTimelock = math.MaxUint32
+	}
+	cltvLimit, err := ValidateCLTVLimit(in.CltvLimit, maxTotalTimelock)
+	if err != nil {
+		return nil, err
+	}
+
+	// We need to subtract the final delta before passing it into path
+	// finding. The optimal path is independent of the final cltv delta and
+	// the path finding algorithm is unaware of this value.
+	finalCLTVDelta := uint16(zpay32.DefaultFinalCLTVDelta)
+	if in.FinalCltvDelta != 0 {
+		finalCLTVDelta = uint16(in.FinalCltvDelta)
+	}
+	cltvLimit -= uint32(finalCLTVDelta)
+
 	var destTLV map[uint64][]byte
 	restrictions := &routing.RestrictParams{
 		FeeLimit: feeLimit,
@@ -192,6 +217,7 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 			)
 		},
 		DestPayloadTLV: len(destTLV) != 0,
+		CltvLimit:      cltvLimit,
 	}
 
 	// If we have any TLV records destined for the final hop, then we'll
@@ -205,24 +231,12 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 	// Query the channel router for a possible path to the destination that
 	// can carry `in.Amt` satoshis _including_ the total fee required on
 	// the route.
-	var (
-		route   *route.Route
-		findErr error
+	route, err := r.FindRoute(
+		sourcePubKey, targetPubKey, amtMSat, restrictions,
+		destTlvRecords, finalCLTVDelta,
 	)
-
-	if in.FinalCltvDelta == 0 {
-		route, findErr = r.FindRoute(
-			sourcePubKey, targetPubKey, amtMSat, restrictions,
-			destTlvRecords,
-		)
-	} else {
-		route, findErr = r.FindRoute(
-			sourcePubKey, targetPubKey, amtMSat, restrictions,
-			destTlvRecords, uint16(in.FinalCltvDelta),
-		)
-	}
-	if findErr != nil {
-		return nil, findErr
+	if err != nil {
+		return nil, err
 	}
 
 	// For each valid route, we'll convert the result into the format
@@ -471,11 +485,14 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 		payIntent.OutgoingChannelID = &rpcPayReq.OutgoingChanId
 	}
 
-	// Take cltv limit from request if set.
-	if rpcPayReq.CltvLimit != 0 {
-		cltvLimit := uint32(rpcPayReq.CltvLimit)
-		payIntent.CltvLimit = &cltvLimit
+	// Take the CLTV limit from the request if set, otherwise use the max.
+	cltvLimit, err := ValidateCLTVLimit(
+		uint32(rpcPayReq.CltvLimit), r.MaxTotalTimelock,
+	)
+	if err != nil {
+		return nil, err
 	}
+	payIntent.CltvLimit = cltvLimit
 
 	// Take fee limit from request.
 	payIntent.FeeLimit = lnwire.NewMSatFromSatoshis(
@@ -674,4 +691,19 @@ func ValidatePayReqExpiry(payReq *zpay32.Invoice) error {
 	}
 
 	return nil
+}
+
+// ValidateCLTVLimit returns a valid CLTV limit given a value and a maximum. If
+// the value exceeds the maximum, then an error is returned. If the value is 0,
+// then the maximum is used.
+func ValidateCLTVLimit(val, max uint32) (uint32, error) {
+	switch {
+	case val == 0:
+		return max, nil
+	case val > max:
+		return 0, fmt.Errorf("total time lock of %v exceeds max "+
+			"allowed %v", val, max)
+	default:
+		return val, nil
+	}
 }

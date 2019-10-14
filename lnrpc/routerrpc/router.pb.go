@@ -212,8 +212,9 @@ type SendPaymentRequest struct {
 	//any channel may be used.
 	OutgoingChanId uint64 `protobuf:"varint,8,opt,name=outgoing_chan_id,json=outgoingChanId,proto3" json:"outgoing_chan_id,omitempty"`
 	//*
-	//An optional maximum total time lock for the route. If zero, there is no
-	//maximum enforced.
+	//An optional maximum total time lock for the route. This should not exceed
+	//lnd's `--max-cltv-expiry` setting. If zero, then the value of
+	//`--max-cltv-expiry` is enforced.
 	CltvLimit int32 `protobuf:"varint,9,opt,name=cltv_limit,json=cltvLimit,proto3" json:"cltv_limit,omitempty"`
 	//*
 	//Optional route hints to reach the destination through private channels.

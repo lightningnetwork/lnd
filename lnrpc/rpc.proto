@@ -888,8 +888,9 @@ message SendRequest {
     uint64 outgoing_chan_id = 9;
 
     /** 
-    An optional maximum total time lock for the route. If zero, there is no
-    maximum enforced.
+    An optional maximum total time lock for the route. This should not exceed
+    lnd's `--max-cltv-expiry` setting. If zero, then the value of
+    `--max-cltv-expiry` is enforced.
     */
     uint32 cltv_limit = 10;
 
@@ -1741,6 +1742,13 @@ message QueryRoutesRequest {
     A list of directed node pairs that will be ignored during path finding.
     */
     repeated NodePair ignored_pairs = 10;
+
+    /** 
+    An optional maximum total time lock for the route. If the source is empty or
+    ourselves, this should not exceed lnd's `--max-cltv-expiry` setting. If
+    zero, then the value of `--max-cltv-expiry` is used as the limit.
+    */
+    uint32 cltv_limit = 11;
 }
 
 message NodePair {

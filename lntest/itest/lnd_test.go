@@ -3546,6 +3546,52 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 }
 
+// testSafeMode performs a test to make sure that if the safe mode flag is enabled
+// for an LND node, the node will respond with an error to force close requests made
+// with an RPC connection
+func testSafeMode(net *lntest.NetworkHarness, t *harnessTest) {
+	ctxb := context.Background()
+
+	const (
+		chanAmt     = btcutil.Amount(10e6)
+		pushAmt     = btcutil.Amount(5e6)
+		paymentAmt  = 100000
+		numInvoices = 6
+	)
+
+	// Since we'd like to test failure scenarios with outstanding htlcs,
+	// we'll introduce another node into our test network: Carol.
+	carol, err := net.NewNode("Carol", []string{"--safemode"})
+	if err != nil {
+		t.Fatalf("unable to create new nodes: %v", err)
+	}
+	defer shutdownAndAssert(net, t, carol)
+
+	// We must let Alice have an open channel before she can send a node
+	// announcement, so we open a channel with Carol,
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
+	if err := net.ConnectNodes(ctxt, net.Alice, carol); err != nil {
+		t.Fatalf("unable to connect alice to carol: %v", err)
+	}
+
+	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
+	chanPoint := openChannelAndAssert(
+		ctxt, t, net, net.Alice, carol,
+		lntest.OpenChannelParams{
+			Amt:     chanAmt,
+			PushAmt: pushAmt,
+		},
+	)
+
+	// Now that the channel is open, we try to force close the channel. Sending a
+	// force close message to a node in safe mode should fail.
+	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
+	_, _, err = net.CloseChannel(ctxt, carol, chanPoint, true)
+	if err == nil {
+		t.Fatalf("force channel closure in safe mode should result in an err")
+	}
+}
+
 // testSphinxReplayPersistence verifies that replayed onion packets are rejected
 // by a remote peer after a restart. We use a combination of unsafe
 // configuration arguments to force Carol to replay the same sphinx packet after
@@ -14330,6 +14376,10 @@ var testsCases = []*testCase{
 	{
 		name: "channel force closure",
 		test: testChannelForceClosure,
+	},
+	{
+		name: "safe mode prohibits channel force closure",
+		test: testSafeMode,
 	},
 	{
 		name: "channel balance",

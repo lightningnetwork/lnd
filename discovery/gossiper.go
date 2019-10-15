@@ -2092,7 +2092,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 			}
 
 			log.Infof("Orphan %v proof announcement with "+
-				"short_chan_id=%v, adding"+
+				"short_chan_id=%v, adding "+
 				"to waiting batch", prefix, shortChanID)
 			nMsg.err <- nil
 			return nil

@@ -239,11 +239,7 @@ func (c *CfFilteredChainView) FilterBlock(blockHash *chainhash.Hash) (*FilteredB
 	// outpoint that have been spent.
 	filter, err := c.p2pNode.GetCFilter(*blockHash, wire.GCSFilterRegular)
 	if err != nil {
-		return nil, err
-	}
-
-	if filter == nil {
-		return nil, fmt.Errorf("Unable to fetch filter")
+		return nil, fmt.Errorf("unable to fetch filter: %v", err)
 	}
 
 	// Before we can match the filter, we'll need to map each item in our

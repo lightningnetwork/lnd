@@ -1745,6 +1745,10 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 	// transaction here rather than going to the switch as we don't require
 	// interaction from the peer.
 	if force {
+		if cfg.SafeMode {
+			return fmt.Errorf("cannot force close channel in safe mode")
+		}
+
 		_, bestHeight, err := r.server.cc.chainIO.GetBestBlock()
 		if err != nil {
 			return err

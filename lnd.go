@@ -130,6 +130,11 @@ func Main(lisCfg ListenerCfg) error {
 		}
 	}()
 
+	if cfg.SafeMode {
+		ltndLog.Infof("Starting LND in safe mode." +
+			"All commitment transactions are forbidden in this state.")
+	}
+
 	// Show version at startup.
 	ltndLog.Infof("Version: %s, build=%s, logging=%s",
 		build.Version(), build.Deployment, build.LoggingType)

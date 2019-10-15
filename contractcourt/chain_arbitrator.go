@@ -150,6 +150,10 @@ type ChainArbitratorConfig struct {
 	// NotifyClosedChannel is a function closure that the ChainArbitrator
 	// will use to notify the ChannelNotifier about a newly closed channel.
 	NotifyClosedChannel func(wire.OutPoint)
+
+	// SafeMode is a boolean value that determines whether the ChainArbitrator
+	// should be able to force close channels or not
+	SafeMode bool
 }
 
 // ChainArbitrator is a sub-system that oversees the on-chain resolution of all
@@ -232,6 +236,9 @@ func newActiveChannelArbitrator(channel *channeldb.OpenChannel,
 		ShortChanID: channel.ShortChanID(),
 		BlockEpochs: blockEpoch,
 		ForceCloseChan: func() (*lnwallet.LocalForceCloseSummary, error) {
+			if c.cfg.SafeMode {
+				return nil, fmt.Errorf("ChainArbitrator can not force close channels when lnd has been started in safe mode")
+			}
 			// First, we mark the channel as borked, this ensure
 			// that no new state transitions can happen, and also
 			// that the link won't be loaded into the switch.
@@ -695,6 +702,10 @@ func (c *ChainArbitrator) ForceCloseContract(chanPoint wire.OutPoint) (*wire.Msg
 	c.Unlock()
 	if !ok {
 		return nil, fmt.Errorf("unable to find arbitrator")
+	}
+
+	if c.cfg.SafeMode {
+		return nil, fmt.Errorf("ChainArbitrator can not force close channels when lnd has been started in safe mode")
 	}
 
 	log.Infof("Attempting to force close ChannelPoint(%v)", chanPoint)

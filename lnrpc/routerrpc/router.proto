@@ -51,7 +51,7 @@ message SendPaymentRequest {
     The channel id of the channel that must be taken to the first hop. If zero,
     any channel may be used.
     */
-    uint64 outgoing_chan_id = 8;
+    uint64 outgoing_chan_id = 8 [jstype = JS_STRING];
 
     /** 
     An optional maximum total time lock for the route. This should not exceed
@@ -265,7 +265,7 @@ message ChannelUpdate {
     /**
     The unique description of the funding transaction.
     */
-    uint64 chan_id = 3;
+    uint64 chan_id = 3 [jstype = JS_STRING];
 
     /**
     A timestamp that allows ordering in the case of multiple announcements.
@@ -399,7 +399,7 @@ message BuildRouteRequest {
     The channel id of the channel that must be taken to the first hop. If zero,
     any channel may be used.
     */
-    uint64 outgoing_chan_id = 3;
+    uint64 outgoing_chan_id = 3 [jstype = JS_STRING];
 
     /**
     A list of hops that defines the route. This does not include the source hop

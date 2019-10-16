@@ -14,7 +14,6 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -953,19 +952,27 @@ func loadConfig() (*config, error) {
 
 	// Special show command to list supported subsystems and exit.
 	if cfg.DebugLevel == "show" {
-		fmt.Println("Supported subsystems", supportedSubsystems())
+		fmt.Println("Supported subsystems",
+			logWriter.SupportedSubsystems())
 		os.Exit(0)
 	}
 
 	// Initialize logging at the default logging level.
-	initLogRotator(
+	err = logWriter.InitLogRotator(
 		filepath.Join(cfg.LogDir, defaultLogFilename),
 		cfg.MaxLogFileSize, cfg.MaxLogFiles,
 	)
+	if err != nil {
+		str := "%s: log rotation setup failed: %v"
+		err = fmt.Errorf(str, funcName, err.Error())
+		fmt.Fprintln(os.Stderr, err)
+		return nil, err
+	}
 
 	// Parse, validate, and set debug log level(s).
-	if err := parseAndSetDebugLevels(cfg.DebugLevel); err != nil {
-		err := fmt.Errorf("%s: %v", funcName, err.Error())
+	err = build.ParseAndSetDebugLevels(cfg.DebugLevel, logWriter)
+	if err != nil {
+		err = fmt.Errorf("%s: %v", funcName, err.Error())
 		fmt.Fprintln(os.Stderr, err)
 		fmt.Fprintln(os.Stderr, usageMessage)
 		return nil, err
@@ -1138,92 +1145,6 @@ func cleanAndExpandPath(path string) string {
 	// NOTE: The os.ExpandEnv doesn't work with Windows-style %VARIABLE%,
 	// but the variables can still be expanded via POSIX-style $VARIABLE.
 	return filepath.Clean(os.ExpandEnv(path))
-}
-
-// parseAndSetDebugLevels attempts to parse the specified debug level and set
-// the levels accordingly. An appropriate error is returned if anything is
-// invalid.
-func parseAndSetDebugLevels(debugLevel string) error {
-	// When the specified string doesn't have any delimiters, treat it as
-	// the log level for all subsystems.
-	if !strings.Contains(debugLevel, ",") && !strings.Contains(debugLevel, "=") {
-		// Validate debug log level.
-		if !validLogLevel(debugLevel) {
-			str := "The specified debug level [%v] is invalid"
-			return fmt.Errorf(str, debugLevel)
-		}
-
-		// Change the logging level for all subsystems.
-		setLogLevels(debugLevel)
-
-		return nil
-	}
-
-	// Split the specified string into subsystem/level pairs while detecting
-	// issues and update the log levels accordingly.
-	for _, logLevelPair := range strings.Split(debugLevel, ",") {
-		if !strings.Contains(logLevelPair, "=") {
-			str := "The specified debug level contains an invalid " +
-				"subsystem/level pair [%v]"
-			return fmt.Errorf(str, logLevelPair)
-		}
-
-		// Extract the specified subsystem and log level.
-		fields := strings.Split(logLevelPair, "=")
-		subsysID, logLevel := fields[0], fields[1]
-
-		// Validate subsystem.
-		if _, exists := subsystemLoggers[subsysID]; !exists {
-			str := "The specified subsystem [%v] is invalid -- " +
-				"supported subsystems %v"
-			return fmt.Errorf(str, subsysID, supportedSubsystems())
-		}
-
-		// Validate log level.
-		if !validLogLevel(logLevel) {
-			str := "The specified debug level [%v] is invalid"
-			return fmt.Errorf(str, logLevel)
-		}
-
-		setLogLevel(subsysID, logLevel)
-	}
-
-	return nil
-}
-
-// validLogLevel returns whether or not logLevel is a valid debug log level.
-func validLogLevel(logLevel string) bool {
-	switch logLevel {
-	case "trace":
-		fallthrough
-	case "debug":
-		fallthrough
-	case "info":
-		fallthrough
-	case "warn":
-		fallthrough
-	case "error":
-		fallthrough
-	case "critical":
-		fallthrough
-	case "off":
-		return true
-	}
-	return false
-}
-
-// supportedSubsystems returns a sorted slice of the supported subsystems for
-// logging purposes.
-func supportedSubsystems() []string {
-	// Convert the subsystemLoggers map keys to a slice.
-	subsystems := make([]string, 0, len(subsystemLoggers))
-	for subsysID := range subsystemLoggers {
-		subsystems = append(subsystems, subsysID)
-	}
-
-	// Sort the subsystems for stable display.
-	sort.Strings(subsystems)
-	return subsystems
 }
 
 func parseRPCParams(cConfig *chainConfig, nodeConfig interface{}, net chainCode,

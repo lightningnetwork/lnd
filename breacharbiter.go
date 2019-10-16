@@ -821,7 +821,7 @@ func (b *breachArbiter) handleBreachHandoff(breachEvent *ContractBreachEvent) {
 type breachedOutput struct {
 	amt         btcutil.Amount
 	outpoint    wire.OutPoint
-	witnessType input.WitnessType
+	witnessType input.StandardWitnessType
 	signDesc    input.SignDescriptor
 	confHeight  uint32
 
@@ -833,7 +833,7 @@ type breachedOutput struct {
 // makeBreachedOutput assembles a new breachedOutput that can be used by the
 // breach arbiter to construct a justice or sweep transaction.
 func makeBreachedOutput(outpoint *wire.OutPoint,
-	witnessType input.WitnessType,
+	witnessType input.StandardWitnessType,
 	secondLevelScript []byte,
 	signDescriptor *input.SignDescriptor,
 	confHeight uint32) breachedOutput {
@@ -883,9 +883,7 @@ func (bo *breachedOutput) CraftInputScript(signer input.Signer, txn *wire.MsgTx,
 
 	// First, we ensure that the witness generation function has been
 	// initialized for this breached output.
-	bo.witnessFunc = bo.witnessType.GenWitnessFunc(
-		signer, bo.SignDesc(),
-	)
+	bo.witnessFunc = bo.witnessType.WitnessGenerator(signer, bo.SignDesc())
 
 	// Now that we have ensured that the witness generation function has
 	// been initialized, we can proceed to execute it and generate the
@@ -993,7 +991,7 @@ func newRetributionInfo(chanPoint *wire.OutPoint,
 		// Using the breachedHtlc's incoming flag, determine the
 		// appropriate witness type that needs to be generated in order
 		// to sweep the HTLC output.
-		var htlcWitnessType input.WitnessType
+		var htlcWitnessType input.StandardWitnessType
 		if breachedHtlc.IsIncoming {
 			htlcWitnessType = input.HtlcAcceptedRevoke
 		} else {
@@ -1051,32 +1049,15 @@ func (b *breachArbiter) createJusticeTx(
 		// Grab locally scoped reference to breached output.
 		inp := &r.breachedOutputs[i]
 
-		// First, select the appropriate estimated witness weight for
+		// First, determine the appropriate estimated witness weight for
 		// the give witness type of this breached output. If the witness
-		// type is unrecognized, we will omit it from the transaction.
-		var witnessWeight int
-		switch inp.WitnessType() {
-		case input.CommitSpendNoDelayTweakless:
-			fallthrough
-		case input.CommitmentNoDelay:
-			witnessWeight = input.P2WKHWitnessSize
-
-		case input.CommitmentRevoke:
-			witnessWeight = input.ToLocalPenaltyWitnessSize
-
-		case input.HtlcOfferedRevoke:
-			witnessWeight = input.OfferedHtlcPenaltyWitnessSize
-
-		case input.HtlcAcceptedRevoke:
-			witnessWeight = input.AcceptedHtlcPenaltyWitnessSize
-
-		case input.HtlcSecondLevelRevoke:
-			witnessWeight = input.ToLocalPenaltyWitnessSize
-
-		default:
-			brarLog.Warnf("breached output in retribution info "+
-				"contains unexpected witness type: %v",
-				inp.WitnessType())
+		// weight cannot be estimated, we will omit it from the
+		// transaction.
+		witnessWeight, _, err := inp.WitnessType().SizeUpperBound()
+		if err != nil {
+			brarLog.Warnf("could not determine witness weight "+
+				"for breached output in retribution info: %v",
+				err)
 			continue
 		}
 		weightEstimate.AddWitnessInput(witnessWeight)
@@ -1555,7 +1536,7 @@ func (bo *breachedOutput) Decode(r io.Reader) error {
 	if _, err := io.ReadFull(r, scratch[:2]); err != nil {
 		return err
 	}
-	bo.witnessType = input.WitnessType(
+	bo.witnessType = input.StandardWitnessType(
 		binary.BigEndian.Uint16(scratch[:2]),
 	)
 

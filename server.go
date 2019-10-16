@@ -764,7 +764,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 		sweep.DefaultBatchWindowDuration)
 
 	sweeperStore, err := sweep.NewSweeperStore(
-		chanDB, activeNetParams.GenesisHash,
+		chanDB.DB, activeNetParams.GenesisHash,
 	)
 	if err != nil {
 		srvrLog.Errorf("unable to create sweeper store: %v", err)
@@ -780,7 +780,6 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 			return time.NewTimer(sweep.DefaultBatchWindowDuration).C
 		},
 		Notifier:             cc.chainNotifier,
-		ChainIO:              cc.chainIO,
 		Store:                sweeperStore,
 		MaxInputsPerTx:       sweep.DefaultMaxInputsPerTx,
 		MaxSweepAttempts:     sweep.DefaultMaxSweepAttempts,

@@ -9,7 +9,6 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/coreos/bbolt"
-	"github.com/lightningnetwork/lnd/channeldb"
 )
 
 var (
@@ -57,11 +56,11 @@ type SweeperStore interface {
 }
 
 type sweeperStore struct {
-	db *channeldb.DB
+	db *bbolt.DB
 }
 
 // NewSweeperStore returns a new store instance.
-func NewSweeperStore(db *channeldb.DB, chainHash *chainhash.Hash) (
+func NewSweeperStore(db *bbolt.DB, chainHash *chainhash.Hash) (
 	SweeperStore, error) {
 
 	err := db.Update(func(tx *bbolt.Tx) error {

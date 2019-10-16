@@ -56,7 +56,7 @@ func generateInputPartitionings(sweepableInputs []input.Input,
 	// on the signature length, which is not known yet at this point.
 	yields := make(map[wire.OutPoint]int64)
 	for _, input := range sweepableInputs {
-		size, _, err := getInputWitnessSizeUpperBound(input)
+		size, _, err := input.WitnessType().SizeUpperBound()
 		if err != nil {
 			return nil, fmt.Errorf(
 				"failed adding input weight: %v", err)
@@ -126,7 +126,7 @@ func getPositiveYieldInputs(sweepableInputs []input.Input, maxInputs int,
 	for idx, input := range sweepableInputs {
 		// Can ignore error, because it has already been checked when
 		// calculating the yields.
-		size, isNestedP2SH, _ := getInputWitnessSizeUpperBound(input)
+		size, isNestedP2SH, _ := input.WitnessType().SizeUpperBound()
 
 		// Keep a running weight estimate of the input set.
 		if isNestedP2SH {
@@ -251,59 +251,6 @@ func createSweepTx(inputs []input.Input, outputPkScript []byte,
 	return sweepTx, nil
 }
 
-// getInputWitnessSizeUpperBound returns the maximum length of the witness for
-// the given input if it would be included in a tx. We also return if the
-// output itself is a nested p2sh output, if so then we need to take into
-// account the extra sigScript data size.
-func getInputWitnessSizeUpperBound(inp input.Input) (int, bool, error) {
-	switch inp.WitnessType() {
-
-	// Outputs on a remote commitment transaction that pay directly to us.
-	case input.CommitSpendNoDelayTweakless:
-		fallthrough
-	case input.WitnessKeyHash:
-		fallthrough
-	case input.CommitmentNoDelay:
-		return input.P2WKHWitnessSize, false, nil
-
-	// Outputs on a past commitment transaction that pay directly
-	// to us.
-	case input.CommitmentTimeLock:
-		return input.ToLocalTimeoutWitnessSize, false, nil
-
-	// Outgoing second layer HTLC's that have confirmed within the
-	// chain, and the output they produced is now mature enough to
-	// sweep.
-	case input.HtlcOfferedTimeoutSecondLevel:
-		return input.ToLocalTimeoutWitnessSize, false, nil
-
-	// Incoming second layer HTLC's that have confirmed within the
-	// chain, and the output they produced is now mature enough to
-	// sweep.
-	case input.HtlcAcceptedSuccessSecondLevel:
-		return input.ToLocalTimeoutWitnessSize, false, nil
-
-	// An HTLC on the commitment transaction of the remote party,
-	// that has had its absolute timelock expire.
-	case input.HtlcOfferedRemoteTimeout:
-		return input.AcceptedHtlcTimeoutWitnessSize, false, nil
-
-	// An HTLC on the commitment transaction of the remote party,
-	// that can be swept with the preimage.
-	case input.HtlcAcceptedRemoteSuccess:
-		return input.OfferedHtlcSuccessWitnessSize, false, nil
-
-	// A nested P2SH input that has a p2wkh witness script. We'll mark this
-	// as nested P2SH so the caller can estimate the weight properly
-	// including the sigScript.
-	case input.NestedWitnessKeyHash:
-		return input.P2WKHWitnessSize, true, nil
-	}
-
-	return 0, false, fmt.Errorf("unexpected witness type: %v",
-		inp.WitnessType())
-}
-
 // getWeightEstimate returns a weight estimate for the given inputs.
 // Additionally, it returns counts for the number of csv and cltv inputs.
 func getWeightEstimate(inputs []input.Input) ([]input.Input, int64, int, int) {
@@ -328,10 +275,8 @@ func getWeightEstimate(inputs []input.Input) ([]input.Input, int64, int, int) {
 	for i := range inputs {
 		inp := inputs[i]
 
-		// For fee estimation purposes, we'll now attempt to obtain an
-		// upper bound on the weight this input will add when fully
-		// populated.
-		size, isNestedP2SH, err := getInputWitnessSizeUpperBound(inp)
+		wt := inp.WitnessType()
+		inpCsv, inpCltv, err := wt.AddWeightEstimation(&weightEstimate)
 		if err != nil {
 			log.Warn(err)
 
@@ -339,23 +284,8 @@ func getWeightEstimate(inputs []input.Input) ([]input.Input, int64, int, int) {
 			// given.
 			continue
 		}
-
-		// If this is a nested P2SH input, then we'll need to factor in
-		// the additional data push within the sigScript.
-		if isNestedP2SH {
-			weightEstimate.AddNestedP2WSHInput(size)
-		} else {
-			weightEstimate.AddWitnessInput(size)
-		}
-
-		switch inp.WitnessType() {
-		case input.CommitmentTimeLock,
-			input.HtlcOfferedTimeoutSecondLevel,
-			input.HtlcAcceptedSuccessSecondLevel:
-			csvCount++
-		case input.HtlcOfferedRemoteTimeout:
-			cltvCount++
-		}
+		csvCount += inpCsv
+		cltvCount += inpCltv
 		sweepInputs = append(sweepInputs, inp)
 	}
 

@@ -114,9 +114,7 @@ func NewBaseInput(outpoint *wire.OutPoint, witnessType WitnessType,
 func (bi *BaseInput) CraftInputScript(signer Signer, txn *wire.MsgTx,
 	hashCache *txscript.TxSigHashes, txinIdx int) (*Script, error) {
 
-	witnessFunc := bi.witnessType.GenWitnessFunc(
-		signer, bi.SignDesc(),
-	)
+	witnessFunc := bi.witnessType.WitnessGenerator(signer, bi.SignDesc())
 
 	return witnessFunc(txn, hashCache, txinIdx)
 }

@@ -1344,7 +1344,7 @@ type kidOutput struct {
 }
 
 func makeKidOutput(outpoint, originChanPoint *wire.OutPoint,
-	blocksToMaturity uint32, witnessType input.WitnessType,
+	blocksToMaturity uint32, witnessType input.StandardWitnessType,
 	signDescriptor *input.SignDescriptor,
 	absoluteMaturity uint32) kidOutput {
 
@@ -1423,7 +1423,7 @@ func (k *kidOutput) Encode(w io.Writer) error {
 		return err
 	}
 
-	byteOrder.PutUint16(scratch[:2], uint16(k.WitnessType()))
+	byteOrder.PutUint16(scratch[:2], uint16(k.witnessType))
 	if _, err := w.Write(scratch[:2]); err != nil {
 		return err
 	}
@@ -1473,7 +1473,7 @@ func (k *kidOutput) Decode(r io.Reader) error {
 	if _, err := r.Read(scratch[:2]); err != nil {
 		return err
 	}
-	k.witnessType = input.WitnessType(byteOrder.Uint16(scratch[:2]))
+	k.witnessType = input.StandardWitnessType(byteOrder.Uint16(scratch[:2]))
 
 	return input.ReadSignDescriptor(r, &k.signDesc)
 }

@@ -2163,6 +2163,16 @@
           "type": "string",
           "format": "uint64",
           "description": "/ The total fee (in milli-satoshis) that this payment circuit carried."
+        },
+        "amt_in_msat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "/ The total amount (in milli-satoshis) of the incoming HTLC that created half the circuit."
+        },
+        "amt_out_msat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "/ The total amount (in milli-satoshis) of the outgoing HTLC that created the second half of the circuit."
         }
       }
     },

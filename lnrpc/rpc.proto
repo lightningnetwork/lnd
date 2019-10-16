@@ -2498,6 +2498,13 @@ message ForwardingEvent {
     /// The total fee (in milli-satoshis) that this payment circuit carried.
     uint64 fee_msat = 8 [json_name = "fee_msat"];
 
+    /// The total amount (in milli-satoshis) of the incoming HTLC that created half the circuit.
+    uint64 amt_in_msat = 9 [json_name = "amt_in_msat"];
+
+    /// The total amount (in milli-satoshis) of the outgoing HTLC that created the second half of the circuit.
+    uint64 amt_out_msat = 10 [json_name = "amt_out_msat"];
+
+
     // TODO(roasbeef): add settlement latency?
     //  * use FPE on the chan id?
     //  * also list failures?

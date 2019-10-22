@@ -424,6 +424,7 @@ statements and select statements.
 If one is forced to wrap lines of function arguments that exceed the 80
 character limit, then a new line should be inserted before the first stanza in
 the comment body.
+
 **WRONG**
 ```go
    func foo(a, b, c, 

@@ -443,35 +443,72 @@ func (c *ChainArbitrator) Start() error {
 	// the chain any longer, only resolve the contracts on the confirmed
 	// commitment.
 	for _, closeChanInfo := range closingChannels {
-		blockEpoch, err := c.cfg.Notifier.RegisterBlockEpochNtfn(nil)
+		chanPoint := closeChanInfo.ChanPoint
+
+		channel, err := c.chanSource.FetchOpenChannel(closeChanInfo.RemotePub,
+			&chanPoint, closeChanInfo.ChainHash)
+		if err != nil {
+			return fmt.Errorf("cannot find open channel info for %v: %v",
+				chanPoint, err)
+		}
+
+		// First, we'll create an active chainWatcher for this channel
+		// to ensure that we detect any relevant on chain events.
+		chainWatcher, err := newChainWatcher(
+			chainWatcherConfig{
+				chanState: channel,
+				notifier:  c.cfg.Notifier,
+				signer:    c.cfg.Signer,
+				isOurAddr: c.cfg.IsOurAddress,
+				contractBreach: func(retInfo *lnwallet.BreachRetribution) error {
+					return c.cfg.ContractBreach(chanPoint, retInfo)
+				},
+				extractStateNumHint: lnwallet.GetStateNumHint,
+			},
+		)
 		if err != nil {
 			return err
 		}
 
-		// We can leave off the CloseContract and ForceCloseChan
-		// methods as the channel is already closed at this point.
-		chanPoint := closeChanInfo.ChanPoint
-		arbCfg := ChannelArbitratorConfig{
-			ChanPoint:             chanPoint,
-			ShortChanID:           closeChanInfo.ShortChanID,
-			BlockEpochs:           blockEpoch,
-			ChainArbitratorConfig: c.cfg,
-			ChainEvents:           &ChainEventSubscription{},
-			IsPendingClose:        true,
-			ClosingHeight:         closeChanInfo.CloseHeight,
-			CloseType:             closeChanInfo.CloseType,
-		}
-
-		arbCfg.MarkChannelResolved = func() error {
-			return c.resolveContract(chanPoint)
-		}
-
-		// We can also leave off the set of HTLC's here as since the
-		// channel is already in the process of being full resolved, no
-		// new HTLC's will be added.
-		c.activeChannels[chanPoint] = NewChannelArbitrator(
-			arbCfg, nil,
+		c.activeWatchers[chanPoint] = chainWatcher
+		channelArb, err := newActiveChannelArbitrator(
+			channel, c, chainWatcher.SubscribeChannelEvents(),
 		)
+		if err != nil {
+			return err
+		}
+
+		c.activeChannels[chanPoint] = channelArb
+
+		// If the channel has had its commitment broadcasted already,
+		// republish it in case it didn't propagate.
+		if !channel.HasChanStatus(
+			channeldb.ChanStatusCommitBroadcasted,
+		) {
+			continue
+		}
+
+		closeTx, err := channel.BroadcastedCommitment()
+		switch {
+
+		// This can happen for channels that had their closing tx
+		// published before we started storing it to disk.
+		case err == channeldb.ErrNoCloseTx:
+			log.Warnf("Channel %v is in state CommitBroadcasted, "+
+				"but no closing tx to re-publish...", chanPoint)
+			continue
+
+		case err != nil:
+			return err
+		}
+
+		log.Infof("Re-publishing closing tx(%v) for channel %v",
+			closeTx.TxHash(), chanPoint)
+		err = c.cfg.PublishTx(closeTx)
+		if err != nil && err != lnwallet.ErrDoubleSpend {
+			log.Warnf("Unable to broadcast close tx(%v): %v",
+				closeTx.TxHash(), err)
+		}
 	}
 
 	// Now, we'll start all chain watchers in parallel to shorten start up

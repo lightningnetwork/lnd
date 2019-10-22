@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/coreos/bbolt"
 	"github.com/go-errors/errors"
@@ -353,6 +354,28 @@ func (d *DB) FetchOpenChannels(nodeID *btcec.PublicKey) ([]*OpenChannel, error) 
 	})
 
 	return channels, err
+}
+
+func (d *DB) FetchOpenChannel(nodeID *btcec.PublicKey, chanPoint *wire.OutPoint,
+	chainHash chainhash.Hash) (*OpenChannel, error) {
+
+	var channel *OpenChannel
+	err := d.View(func(tx *bbolt.Tx) error {
+
+		openChanBucket, err := fetchChanBucket(tx, nodeID, chanPoint, chainHash)
+		if err != nil {
+			return err
+		}
+
+		channel, err = fetchOpenChannel(openChanBucket, chanPoint)
+		if err != nil {
+			return err
+		}
+		channel.Db = d
+		return nil
+	})
+
+	return channel, err
 }
 
 // fetchOpenChannels uses and existing database transaction and returns all
@@ -822,6 +845,7 @@ func (d *DB) FetchClosedChannelForID(cid lnwire.ChannelID) (
 // the pending funds in a channel that has been forcibly closed have been
 // swept.
 func (d *DB) MarkChanFullyClosed(chanPoint *wire.OutPoint) error {
+	log.Infof("DEBUG MarkChanFullyClosed %v", *chanPoint)
 	return d.Update(func(tx *bbolt.Tx) error {
 		var b bytes.Buffer
 		if err := writeOutpoint(&b, chanPoint); err != nil {
@@ -860,6 +884,49 @@ func (d *DB) MarkChanFullyClosed(chanPoint *wire.OutPoint) error {
 		}
 
 		err = closedChanBucket.Put(chanID, newSummary.Bytes())
+		if err != nil {
+			return err
+		}
+
+		openChanBucket := tx.Bucket(openChannelBucket)
+		if openChanBucket == nil {
+			return ErrNoChanDBExists
+		}
+
+		nodePub := chanSummary.RemotePub.SerializeCompressed()
+		nodeChanBucket := openChanBucket.Bucket(nodePub)
+		if nodeChanBucket == nil {
+			return ErrNoActiveChannels
+		}
+
+		chainBucket := nodeChanBucket.Bucket(chanSummary.ChainHash[:])
+		if chainBucket == nil {
+			return ErrNoActiveChannels
+		}
+
+		chanBucket := chainBucket.Bucket(chanID)
+		if chanBucket == nil {
+			return ErrNoActiveChannels
+		}
+
+		// Now that the index to this channel has been deleted, purge
+		// the remaining channel metadata from the database.
+		err = deleteOpenChannel(chanBucket, chanID)
+		if err != nil {
+			return err
+		}
+
+		// With the base channel data deleted, attempt to delete the
+		// information stored within the revocation log.
+		logBucket := chanBucket.Bucket(revocationLogBucket)
+		if logBucket != nil {
+			err = chanBucket.DeleteBucket(revocationLogBucket)
+			if err != nil {
+				return err
+			}
+		}
+
+		err = chainBucket.DeleteBucket(chanID)
 		if err != nil {
 			return err
 		}

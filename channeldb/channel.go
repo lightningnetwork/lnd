@@ -1068,7 +1068,8 @@ func fetchOpenChannel(chanBucket *bbolt.Bucket,
 	// First, we'll read all the static information that changes less
 	// frequently from disk.
 	if err := fetchChanInfo(chanBucket, channel); err != nil {
-		return nil, fmt.Errorf("unable to fetch chan info: %v", err)
+		return nil, fmt.Errorf("unable to fetch chan info for %v: %v",
+			*chanPoint, err)
 	}
 
 	// With the static information read, we'll now read the current
@@ -2206,28 +2207,6 @@ func (c *OpenChannel) CloseChannel(summary *ChannelCloseSummary) error {
 			return err
 		}
 
-		// Now that the index to this channel has been deleted, purge
-		// the remaining channel metadata from the database.
-		err = deleteOpenChannel(chanBucket, chanPointBuf.Bytes())
-		if err != nil {
-			return err
-		}
-
-		// With the base channel data deleted, attempt to delete the
-		// information stored within the revocation log.
-		logBucket := chanBucket.Bucket(revocationLogBucket)
-		if logBucket != nil {
-			err = chanBucket.DeleteBucket(revocationLogBucket)
-			if err != nil {
-				return err
-			}
-		}
-
-		err = chainBucket.DeleteBucket(chanPointBuf.Bytes())
-		if err != nil {
-			return err
-		}
-
 		// Finally, create a summary of this channel in the closed
 		// channel bucket for this node.
 		return putChannelCloseSummary(
@@ -2758,6 +2737,7 @@ func fetchChanRevocationState(chanBucket *bbolt.Bucket, channel *OpenChannel) er
 }
 
 func deleteOpenChannel(chanBucket *bbolt.Bucket, chanPointBytes []byte) error {
+	log.Infof("DEBUG delete open channel %x", chanPointBytes)
 
 	if err := chanBucket.Delete(chanInfoKey); err != nil {
 		return err

@@ -280,6 +280,12 @@ type ChannelArbitrator struct {
 	// upon start up to decide which actions to take.
 	state ArbitratorState
 
+	contractResolutions *ContractResolutions
+
+	unresolvedContracts []ContractResolver
+
+	commitSet *CommitSet
+
 	wg   sync.WaitGroup
 	quit chan struct{}
 }
@@ -318,11 +324,7 @@ func (c *ChannelArbitrator) Start() error {
 
 	// First, we'll read our last state from disk, so our internal state
 	// machine can act accordingly.
-	c.state, err = c.log.CurrentState()
-	if err != nil {
-		c.cfg.BlockEpochs.Cancel()
-		return err
-	}
+	c.state = StateDefault
 
 	log.Infof("ChannelArbitrator(%v): starting state=%v", c.cfg.ChanPoint,
 		c.state)
@@ -333,176 +335,8 @@ func (c *ChannelArbitrator) Start() error {
 		return err
 	}
 
-	// If the channel has been marked pending close in the database, and we
-	// haven't transitioned the state machine to StateContractClosed (or a
-	// succeeding state), then a state transition most likely failed. We'll
-	// try to recover from this by manually advancing the state by setting
-	// the corresponding close trigger.
-	trigger := chainTrigger
-	triggerHeight := uint32(bestHeight)
-	if c.cfg.IsPendingClose {
-		switch c.state {
-		case StateDefault:
-			fallthrough
-		case StateBroadcastCommit:
-			fallthrough
-		case StateCommitmentBroadcasted:
-			switch c.cfg.CloseType {
-
-			case channeldb.CooperativeClose:
-				trigger = coopCloseTrigger
-
-			case channeldb.BreachClose:
-				trigger = breachCloseTrigger
-
-			case channeldb.LocalForceClose:
-				trigger = localCloseTrigger
-
-			case channeldb.RemoteForceClose:
-				trigger = remoteCloseTrigger
-			}
-			triggerHeight = c.cfg.ClosingHeight
-
-			log.Warnf("ChannelArbitrator(%v): detected stalled "+
-				"state=%v for closed channel, using "+
-				"trigger=%v", c.cfg.ChanPoint, c.state, trigger)
-		}
-	}
-
-	// Next we'll fetch our confirmed commitment set. This will only exist
-	// if the channel has been closed out on chain for modern nodes. For
-	// older nodes, this won't be found at all, and will rely on the
-	// existing written chain actions. Additionally, if this channel hasn't
-	// logged any actions in the log, then this field won't be present.
-	commitSet, err := c.log.FetchConfirmedCommitSet()
-	if err != nil && err != errNoCommitSet && err != errScopeBucketNoExist {
-		return err
-	}
-
-	// We'll now attempt to advance our state forward based on the current
-	// on-chain state, and our set of active contracts.
-	startingState := c.state
-	nextState, _, err := c.advanceState(
-		triggerHeight, trigger, commitSet,
-	)
-	if err != nil {
-		switch err {
-
-		// If we detect that we tried to fetch resolutions, but failed,
-		// this channel was marked closed in the database before
-		// resolutions successfully written. In this case there is not
-		// much we can do, so we don't return the error.
-		case errScopeBucketNoExist:
-			fallthrough
-		case errNoResolutions:
-			log.Warnf("ChannelArbitrator(%v): detected closed"+
-				"channel with no contract resolutions written.",
-				c.cfg.ChanPoint)
-
-		default:
-			c.cfg.BlockEpochs.Cancel()
-			return err
-		}
-	}
-
-	// If we start and ended at the awaiting full resolution state, then
-	// we'll relaunch our set of unresolved contracts.
-	if startingState == StateWaitingFullResolution &&
-		nextState == StateWaitingFullResolution {
-
-		// In order to relaunch the resolvers, we'll need to fetch the
-		// set of HTLCs that were present in the commitment transaction
-		// at the time it was confirmed. commitSet.ConfCommitKey can't
-		// be nil at this point since we're in
-		// StateWaitingFullResolution. We can only be in
-		// StateWaitingFullResolution after we've transitioned from
-		// StateContractClosed which can only be triggered by the local
-		// or remote close trigger. This trigger is only fired when we
-		// receive a chain event from the chain watcher than the
-		// commitment has been confirmed on chain, and before we
-		// advance our state step, we call InsertConfirmedCommitSet.
-		if err := c.relaunchResolvers(commitSet); err != nil {
-			c.cfg.BlockEpochs.Cancel()
-			return err
-		}
-	}
-
 	c.wg.Add(1)
 	go c.channelAttendant(bestHeight)
-	return nil
-}
-
-// relauchResolvers relaunches the set of resolvers for unresolved contracts in
-// order to provide them with information that's not immediately available upon
-// starting the ChannelArbitrator. This information should ideally be stored in
-// the database, so this only serves as a intermediate work-around to prevent a
-// migration.
-func (c *ChannelArbitrator) relaunchResolvers(commitSet *CommitSet) error {
-	// We'll now query our log to see if there are any active unresolved
-	// contracts. If this is the case, then we'll relaunch all contract
-	// resolvers.
-	unresolvedContracts, err := c.log.FetchUnresolvedContracts()
-	if err != nil {
-		return err
-	}
-
-	// Retrieve the commitment tx hash from the log.
-	contractResolutions, err := c.log.FetchContractResolutions()
-	if err != nil {
-		log.Errorf("unable to fetch contract resolutions: %v",
-			err)
-		return err
-	}
-	commitHash := contractResolutions.CommitHash
-
-	// In prior versions of lnd, the information needed to supplement the
-	// resolvers (in most cases, the full amount of the HTLC) was found in
-	// the chain action map, which is now deprecated.  As a result, if the
-	// commitSet is nil (an older node with unresolved HTLCs at time of
-	// upgrade), then we'll use the chain action information in place. The
-	// chain actions may exclude some information, but we cannot recover it
-	// for these older nodes at the moment.
-	var confirmedHTLCs []channeldb.HTLC
-	if commitSet != nil {
-		confirmedHTLCs = commitSet.HtlcSets[*commitSet.ConfCommitKey]
-	} else {
-		chainActions, err := c.log.FetchChainActions()
-		if err != nil {
-			log.Errorf("unable to fetch chain actions: %v", err)
-			return err
-		}
-		for _, htlcs := range chainActions {
-			confirmedHTLCs = append(confirmedHTLCs, htlcs...)
-		}
-	}
-
-	// Reconstruct the htlc outpoints and data from the chain action log.
-	// The purpose of the constructed htlc map is to supplement to
-	// resolvers restored from database with extra data. Ideally this data
-	// is stored as part of the resolver in the log. This is a workaround
-	// to prevent a db migration. We use all available htlc sets here in
-	// order to ensure we have complete coverage.
-	htlcMap := make(map[wire.OutPoint]*channeldb.HTLC)
-	for _, htlc := range confirmedHTLCs {
-		htlc := htlc
-		outpoint := wire.OutPoint{
-			Hash:  commitHash,
-			Index: uint32(htlc.OutputIndex),
-		}
-		htlcMap[outpoint] = &htlc
-	}
-
-	log.Infof("ChannelArbitrator(%v): relaunching %v contract "+
-		"resolvers", c.cfg.ChanPoint, len(unresolvedContracts))
-
-	for _, resolver := range unresolvedContracts {
-		if err := c.supplementResolver(resolver, htlcMap); err != nil {
-			return err
-		}
-	}
-
-	c.launchResolvers(unresolvedContracts)
-
 	return nil
 }
 
@@ -906,14 +740,7 @@ func (c *ChannelArbitrator) stateStep(
 	// outside sub-systems, so we'll process the prior set of on-chain
 	// contract actions and launch a set of resolvers.
 	case StateContractClosed:
-		// First, we'll fetch our chain actions, and both sets of
-		// resolutions so we can process them.
-		contractResolutions, err := c.log.FetchContractResolutions()
-		if err != nil {
-			log.Errorf("unable to fetch contract resolutions: %v",
-				err)
-			return StateError, closeTx, err
-		}
+		contractResolutions := c.contractResolutions
 
 		// If the resolution is empty, and we have no HTLCs at all to
 		// tend to, then we're done here. We don't need to launch any
@@ -935,7 +762,7 @@ func (c *ChannelArbitrator) stateStep(
 			log.Infof("ChannelArbitrator(%v): sending commit "+
 				"output for incubation", c.cfg.ChanPoint)
 
-			err = c.cfg.IncubateOutputs(
+			err := c.cfg.IncubateOutputs(
 				c.cfg.ChanPoint, commitRes,
 				nil, nil, triggerHeight,
 			)
@@ -981,7 +808,9 @@ func (c *ChannelArbitrator) stateStep(
 		log.Debugf("ChannelArbitrator(%v): inserting %v contract "+
 			"resolvers", c.cfg.ChanPoint, len(htlcResolvers))
 
-		err = c.log.InsertUnresolvedContracts(htlcResolvers...)
+		c.unresolvedContracts = htlcResolvers
+
+		err = c.InsertUnresolvedContracts(htlcResolvers...)
 		if err != nil {
 			return StateError, closeTx, err
 		}
@@ -998,14 +827,9 @@ func (c *ChannelArbitrator) stateStep(
 		log.Infof("ChannelArbitrator(%v): still awaiting contract "+
 			"resolution", c.cfg.ChanPoint)
 
-		numUnresolved, err := c.log.FetchUnresolvedContracts()
-		if err != nil {
-			return StateError, closeTx, err
-		}
-
 		// If we still have unresolved contracts, then we'll stay alive
 		// to oversee their resolution.
-		if len(numUnresolved) != 0 {
+		if len(c.unresolvedContracts) != 0 {
 			nextState = StateWaitingFullResolution
 			break
 		}
@@ -1091,15 +915,6 @@ func (c *ChannelArbitrator) advanceState(
 			return nextState, forceCloseTx, nil
 		}
 
-		// As the prior state was successfully executed, we can now
-		// commit the next state. This ensures that we will re-execute
-		// the prior state if anything fails.
-		if err := c.log.CommitState(nextState); err != nil {
-			log.Errorf("ChannelArbitrator(%v): unable to commit "+
-				"next state(%v): %v", c.cfg.ChanPoint,
-				nextState, err)
-			return priorState, nil, err
-		}
 		c.state = nextState
 	}
 }
@@ -1595,14 +1410,6 @@ func (c *ChannelArbitrator) checkRemoteDiffActions(height uint32,
 func (c *ChannelArbitrator) constructChainActions(confCommitSet *CommitSet,
 	height uint32, trigger transitionTrigger) (ChainActionMap, error) {
 
-	// If we've reached this point and have not confirmed commitment set,
-	// then this is an older node that had a pending close channel before
-	// the CommitSet was introduced. In this case, we'll just return the
-	// existing ChainActionMap they had on disk.
-	if confCommitSet == nil {
-		return c.log.FetchChainActions()
-	}
-
 	// Otherwise we have the full commitment set written to disk, and can
 	// proceed as normal.
 	htlcSets := confCommitSet.toActiveHTLCSets()
@@ -1632,6 +1439,57 @@ func (c *ChannelArbitrator) constructChainActions(confCommitSet *CommitSet,
 	}
 
 	return nil, fmt.Errorf("unable to locate chain actions")
+}
+
+func (c *ChannelArbitrator) InsertUnresolvedContracts(resolvers ...ContractResolver) error {
+	log.Infof("Inserting %v resolvers", len(resolvers))
+
+newResolverLoop:
+	for _, r := range resolvers {
+		for i, existingResolver := range c.unresolvedContracts {
+			// Try to replace an existing resolver
+			if bytes.Equal(existingResolver.ResolverKey(), r.ResolverKey()) {
+				c.unresolvedContracts[i] = r
+
+				log.Infof("Replaced resolver %T by %T", existingResolver, r)
+
+				continue newResolverLoop
+			}
+		}
+		c.unresolvedContracts = append(c.unresolvedContracts, r)
+		log.Infof("Appended resolver %T", r)
+	}
+	return nil
+}
+
+func (c *ChannelArbitrator) SwapContract(oldContract, newContract ContractResolver) error {
+	for i, existingResolver := range c.unresolvedContracts {
+		// Try to swap resolver
+		if bytes.Equal(existingResolver.ResolverKey(), oldContract.ResolverKey()) {
+			c.unresolvedContracts[i] = newContract
+			return nil
+		}
+	}
+
+	return nil
+}
+
+func (c *ChannelArbitrator) ResolveContract(res ContractResolver) error {
+	for i, existingResolver := range c.unresolvedContracts {
+		// Delete resolver
+		if bytes.Equal(existingResolver.ResolverKey(), res.ResolverKey()) {
+			c.unresolvedContracts[i] = c.unresolvedContracts[len(c.unresolvedContracts)-1]
+			c.unresolvedContracts[len(c.unresolvedContracts)-1] = nil
+			c.unresolvedContracts = c.unresolvedContracts[:len(c.unresolvedContracts)-1]
+
+			log.Infof("Resolved contract %v", res.ResolverKey())
+
+			break
+		}
+	}
+
+	log.Infof("Remaining count: %v", len(c.unresolvedContracts))
+	return nil
 }
 
 // prepContractResolutions is called either int he case that we decide we need
@@ -1683,7 +1541,7 @@ func (c *ChannelArbitrator) prepContractResolutions(
 	resKit := ResolverKit{
 		ChannelArbitratorConfig: c.cfg,
 		Checkpoint: func(res ContractResolver) error {
-			return c.log.InsertUnresolvedContracts(res)
+			return c.InsertUnresolvedContracts(res)
 		},
 	}
 
@@ -1932,7 +1790,7 @@ func (c *ChannelArbitrator) resolveContract(currentContract ContractResolver) {
 					nextContract)
 
 				// Swap contract in log.
-				err := c.log.SwapContract(
+				err := c.SwapContract(
 					currentContract, nextContract,
 				)
 				if err != nil {
@@ -1963,7 +1821,7 @@ func (c *ChannelArbitrator) resolveContract(currentContract ContractResolver) {
 					"contract %T fully resolved",
 					c.cfg.ChanPoint, currentContract)
 
-				err := c.log.ResolveContract(currentContract)
+				err := c.ResolveContract(currentContract)
 				if err != nil {
 					log.Errorf("unable to resolve contract: %v",
 						err)
@@ -2143,7 +2001,7 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 			}
 			closeTx := closeInfo.CloseTx
 
-			contractRes := &ContractResolutions{
+			c.contractResolutions = &ContractResolutions{
 				CommitHash:       closeTx.TxHash(),
 				CommitResolution: closeInfo.CommitResolution,
 				HtlcResolutions:  *closeInfo.HtlcResolutions,
@@ -2155,20 +2013,7 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 			// available to fetch in that state, we'll also write
 			// the commit set so we can reconstruct our chain
 			// actions on restart.
-			err := c.log.LogContractResolutions(contractRes)
-			if err != nil {
-				log.Errorf("Unable to write resolutions: %v",
-					err)
-				return
-			}
-			err = c.log.InsertConfirmedCommitSet(
-				&closeInfo.CommitSet,
-			)
-			if err != nil {
-				log.Errorf("Unable to write commit set: %v",
-					err)
-				return
-			}
+			c.commitSet = &closeInfo.CommitSet
 
 			// After the set of resolutions are successfully
 			// logged, we can safely close the channel. After this
@@ -2180,7 +2025,7 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 			// case we must manually re-trigger the state
 			// transition into StateContractClosed based on the
 			// close status of the channel.
-			err = c.cfg.MarkChannelClosed(
+			err := c.cfg.MarkChannelClosed(
 				closeInfo.ChannelCloseSummary,
 			)
 			if err != nil {
@@ -2209,32 +2054,13 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 			// If we don't have a self output, and there are no
 			// active HTLC's, then we can immediately mark the
 			// contract as fully resolved and exit.
-			contractRes := &ContractResolutions{
+			c.contractResolutions = &ContractResolutions{
 				CommitHash:       *uniClosure.SpenderTxHash,
 				CommitResolution: uniClosure.CommitResolution,
 				HtlcResolutions:  *uniClosure.HtlcResolutions,
 			}
 
-			// When processing a unilateral close event, we'll
-			// transition to the ContractClosed state. We'll log
-			// out the set of resolutions such that they are
-			// available to fetch in that state, we'll also write
-			// the commit set so we can reconstruct our chain
-			// actions on restart.
-			err := c.log.LogContractResolutions(contractRes)
-			if err != nil {
-				log.Errorf("Unable to write resolutions: %v",
-					err)
-				return
-			}
-			err = c.log.InsertConfirmedCommitSet(
-				&uniClosure.CommitSet,
-			)
-			if err != nil {
-				log.Errorf("Unable to write commit set: %v",
-					err)
-				return
-			}
+			c.commitSet = &uniClosure.CommitSet
 
 			// After the set of resolutions are successfully
 			// logged, we can safely close the channel. After this
@@ -2247,7 +2073,7 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 			// transition into StateContractClosed based on the
 			// close status of the channel.
 			closeSummary := &uniClosure.ChannelCloseSummary
-			err = c.cfg.MarkChannelClosed(closeSummary)
+			err := c.cfg.MarkChannelClosed(closeSummary)
 			if err != nil {
 				log.Errorf("Unable to mark channel closed: %v",
 					err)

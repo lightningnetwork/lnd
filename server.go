@@ -552,7 +552,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 	// automatically create an onion service, we'll initiate our Tor
 	// controller and establish a connection to the Tor server.
 	if cfg.Tor.Active && (cfg.Tor.V2 || cfg.Tor.V3) {
-		s.torController = tor.NewController(cfg.Tor.Control)
+		s.torController = tor.NewController(cfg.Tor.Control, cfg.Tor.TargetIPAddress)
 	}
 
 	chanGraph := chanDB.ChannelGraph()

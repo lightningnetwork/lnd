@@ -81,12 +81,17 @@ type Controller struct {
 
 	// version is the current version of the Tor server.
 	version string
+
+	// The IP address which we tell the Tor server to use to connect to the LND node.
+	// This is required when the Tor server runs on another host, otherwise the service
+	// will not be reachable.
+	targetIPAddress string
 }
 
 // NewController returns a new Tor controller that will be able to interact with
 // a Tor server.
-func NewController(controlAddr string) *Controller {
-	return &Controller{controlAddr: controlAddr}
+func NewController(controlAddr string, targetIPAddress string) *Controller {
+	return &Controller{controlAddr: controlAddr, targetIPAddress: targetIPAddress}
 }
 
 // Start establishes and authenticates the connection between the controller and
@@ -469,13 +474,24 @@ func (c *Controller) AddOnion(cfg AddOnionConfig) (*OnionAddr, error) {
 	// port. If no target ports were specified, we'll use the virtual port
 	// to provide a one-to-one mapping.
 	var portParam string
-	if len(cfg.TargetPorts) == 0 {
-		portParam += fmt.Sprintf("Port=%d,%d ", cfg.VirtualPort,
-			cfg.VirtualPort)
-	} else {
-		for _, targetPort := range cfg.TargetPorts {
+
+	// Helper function which appends the correct Port param depending on
+	// whether the user chose to use a custom target IP address or not.
+	pushPortParam := func(targetPort int) {
+		if c.targetIPAddress == "" {
 			portParam += fmt.Sprintf("Port=%d,%d ", cfg.VirtualPort,
 				targetPort)
+		} else {
+			portParam += fmt.Sprintf("Port=%d,%s:%d ", cfg.VirtualPort,
+				c.targetIPAddress, targetPort)
+		}
+	}
+
+	if len(cfg.TargetPorts) == 0 {
+		pushPortParam(cfg.VirtualPort)
+	} else {
+		for _, targetPort := range cfg.TargetPorts {
+			pushPortParam(targetPort)
 		}
 	}
 

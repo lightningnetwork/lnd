@@ -40,72 +40,6 @@ func (c *ContractResolutions) IsEmpty() bool {
 		len(c.HtlcResolutions.OutgoingHTLCs) == 0
 }
 
-// ArbitratorLog is the primary source of persistent storage for the
-// ChannelArbitrator. The log stores the current state of the
-// ChannelArbitrator's internal state machine, any items that are required to
-// properly make a state transition, and any unresolved contracts.
-type ArbitratorLog interface {
-	// TODO(roasbeef): document on interface the errors expected to be
-	// returned
-
-	// CurrentState returns the current state of the ChannelArbitrator.
-	CurrentState() (ArbitratorState, error)
-
-	// CommitState persists, the current state of the chain attendant.
-	CommitState(ArbitratorState) error
-
-	// InsertUnresolvedContracts inserts a set of unresolved contracts into
-	// the log. The log will then persistently store each contract until
-	// they've been swapped out, or resolved.
-	InsertUnresolvedContracts(...ContractResolver) error
-
-	// FetchUnresolvedContracts returns all unresolved contracts that have
-	// been previously written to the log.
-	FetchUnresolvedContracts() ([]ContractResolver, error)
-
-	// SwapContract performs an atomic swap of the old contract for the new
-	// contract. This method is used when after a contract has been fully
-	// resolved, it produces another contract that needs to be resolved.
-	SwapContract(old ContractResolver, new ContractResolver) error
-
-	// ResolveContract marks a contract as fully resolved. Once a contract
-	// has been fully resolved, it is deleted from persistent storage.
-	ResolveContract(ContractResolver) error
-
-	// LogContractResolutions stores a complete contract resolution for the
-	// contract under watch. This method will be called once the
-	// ChannelArbitrator either force closes a channel, or detects that the
-	// remote party has broadcast their commitment on chain.
-	LogContractResolutions(*ContractResolutions) error
-
-	// FetchContractResolutions fetches the set of previously stored
-	// contract resolutions from persistent storage.
-	FetchContractResolutions() (*ContractResolutions, error)
-
-	// InsertConfirmedCommitSet stores the known set of active HTLCs at the
-	// time channel closure. We'll use this to reconstruct our set of chain
-	// actions anew based on the confirmed and pending commitment state.
-	InsertConfirmedCommitSet(c *CommitSet) error
-
-	// FetchConfirmedCommitSet fetches the known confirmed active HTLC set
-	// from the database.
-	FetchConfirmedCommitSet() (*CommitSet, error)
-
-	// FetchChainActions attempts to fetch the set of previously stored
-	// chain actions. We'll use this upon restart to properly advance our
-	// state machine forward.
-	//
-	// NOTE: This method only exists in order to be able to serve nodes had
-	// channels in the process of closing before the CommitSet struct was
-	// introduced.
-	FetchChainActions() (ChainActionMap, error)
-
-	// WipeHistory is to be called ONLY once *all* contracts have been
-	// fully resolved, and the channel closure if finalized. This method
-	// will delete all on-disk state within the persistent log.
-	WipeHistory() error
-}
-
 // ArbitratorState is an enum that details the current state of the
 // ChannelArbitrator's state machine.
 type ArbitratorState uint8
@@ -305,27 +239,6 @@ type boltArbitratorLog struct {
 
 	scopeKey logScope
 }
-
-// newBoltArbitratorLog returns a new instance of the boltArbitratorLog given
-// an arbitrator config, and the items needed to create its log scope.
-func newBoltArbitratorLog(db *bbolt.DB, cfg ChannelArbitratorConfig,
-	chainHash chainhash.Hash, chanPoint wire.OutPoint) (*boltArbitratorLog, error) {
-
-	scope, err := newLogScope(chainHash, chanPoint)
-	if err != nil {
-		return nil, err
-	}
-
-	return &boltArbitratorLog{
-		db:       db,
-		cfg:      cfg,
-		scopeKey: *scope,
-	}, nil
-}
-
-// A compile time check to ensure boltArbitratorLog meets the ArbitratorLog
-// interface.
-var _ ArbitratorLog = (*boltArbitratorLog)(nil)
 
 func fetchContractReadBucket(tx *bbolt.Tx, scopeKey []byte) (*bbolt.Bucket, error) {
 	scopeBucket := tx.Bucket(scopeKey)

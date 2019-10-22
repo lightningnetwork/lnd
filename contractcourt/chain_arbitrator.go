@@ -284,16 +284,9 @@ func newActiveChannelArbitrator(channel *channeldb.OpenChannel,
 	//
 	// TODO(roasbeef); abstraction leak...
 	//  * rework: adaptor method to set log scope w/ factory func
-	chanLog, err := newBoltArbitratorLog(
-		c.chanSource.DB, arbCfg, c.cfg.ChainHash, chanPoint,
-	)
-	if err != nil {
-		blockEpoch.Cancel()
-		return nil, err
-	}
 
 	arbCfg.MarkChannelResolved = func() error {
-		return c.resolveContract(chanPoint, chanLog)
+		return c.resolveContract(chanPoint)
 	}
 
 	// Finally, we'll need to construct a series of htlc Sets based on all
@@ -314,15 +307,14 @@ func newActiveChannelArbitrator(channel *channeldb.OpenChannel,
 	}
 
 	return NewChannelArbitrator(
-		arbCfg, htlcSets, chanLog,
+		arbCfg, htlcSets,
 	), nil
 }
 
 // resolveContract marks a contract as fully resolved within the database.
 // This is only to be done once all contracts which were live on the channel
 // before hitting the chain have been resolved.
-func (c *ChainArbitrator) resolveContract(chanPoint wire.OutPoint,
-	arbLog ArbitratorLog) error {
+func (c *ChainArbitrator) resolveContract(chanPoint wire.OutPoint) error {
 
 	log.Infof("Marking ChannelPoint(%v) fully resolved", chanPoint)
 
@@ -333,17 +325,6 @@ func (c *ChainArbitrator) resolveContract(chanPoint wire.OutPoint,
 		log.Errorf("ChainArbitrator: unable to mark ChannelPoint(%v) "+
 			"fully closed: %v", chanPoint, err)
 		return err
-	}
-
-	if arbLog != nil {
-		// Once this has been marked as resolved, we'll wipe the log
-		// that the channel arbitrator was using to store its
-		// persistent state. We do this after marking the channel
-		// resolved, as otherwise, the arbitrator would be re-created,
-		// and think it was starting from the default state.
-		if err := arbLog.WipeHistory(); err != nil {
-			return err
-		}
 	}
 
 	c.Lock()
@@ -480,22 +461,16 @@ func (c *ChainArbitrator) Start() error {
 			ClosingHeight:         closeChanInfo.CloseHeight,
 			CloseType:             closeChanInfo.CloseType,
 		}
-		chanLog, err := newBoltArbitratorLog(
-			c.chanSource.DB, arbCfg, c.cfg.ChainHash, chanPoint,
-		)
-		if err != nil {
-			blockEpoch.Cancel()
-			return err
-		}
+
 		arbCfg.MarkChannelResolved = func() error {
-			return c.resolveContract(chanPoint, chanLog)
+			return c.resolveContract(chanPoint)
 		}
 
 		// We can also leave off the set of HTLC's here as since the
 		// channel is already in the process of being full resolved, no
 		// new HTLC's will be added.
 		c.activeChannels[chanPoint] = NewChannelArbitrator(
-			arbCfg, nil, chanLog,
+			arbCfg, nil,
 		)
 	}
 

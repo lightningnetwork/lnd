@@ -242,10 +242,6 @@ type ChannelArbitrator struct {
 	started int32 // To be used atomically.
 	stopped int32 // To be used atomically.
 
-	// log is a persistent log that the attendant will use to checkpoint
-	// its next action, and the state of any unresolved contracts.
-	log ArbitratorLog
-
 	// activeHTLCs is the set of active incoming/outgoing HTLC's on all
 	// currently valid commitment transactions.
 	activeHTLCs map[HtlcSetKey]htlcSet
@@ -291,10 +287,9 @@ type ChannelArbitrator struct {
 // NewChannelArbitrator returns a new instance of a ChannelArbitrator backed by
 // the passed config struct.
 func NewChannelArbitrator(cfg ChannelArbitratorConfig,
-	htlcSets map[HtlcSetKey]htlcSet, log ArbitratorLog) *ChannelArbitrator {
+	htlcSets map[HtlcSetKey]htlcSet) *ChannelArbitrator {
 
 	return &ChannelArbitrator{
-		log:              log,
 		signalUpdates:    make(chan *signalUpdateMsg),
 		htlcUpdates:      make(<-chan *ContractUpdate),
 		resolutionSignal: make(chan struct{}),

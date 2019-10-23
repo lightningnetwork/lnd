@@ -13,17 +13,17 @@ import (
 	"sync"
 	"time"
 
-	"google.golang.org/grpc/grpclog"
-
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/integration/rpctest"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
+	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"google.golang.org/grpc/grpclog"
 )
 
 // DefaultCSV is the CSV delay (remotedelay) we will start our test nodes with.
@@ -395,7 +395,7 @@ func (n *NetworkHarness) connect(ctx context.Context,
 tryconnect:
 	if _, err := a.ConnectPeer(ctx, req); err != nil {
 		// If the chain backend is still syncing, retry.
-		if strings.Contains(err.Error(), "still syncing") {
+		if err == lnd.ErrServerNotActive {
 			select {
 			case <-time.After(100 * time.Millisecond):
 				goto tryconnect

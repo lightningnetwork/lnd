@@ -337,28 +337,10 @@ message QueryMissionControlRequest {}
 
 /// QueryMissionControlResponse contains mission control state.
 message QueryMissionControlResponse {
-    /// Node-level mission control state.
-    repeated NodeHistory nodes = 1 [json_name = "nodes"];
+    reserved 1;
 
     /// Node pair-level mission control state.
     repeated PairHistory pairs = 2 [json_name = "pairs"];
-}
-
-/// NodeHistory contains the mission control state for a particular node.
-message NodeHistory {
-    /// Node pubkey
-    bytes pubkey = 1 [json_name = "pubkey"];
-
-    /// Time stamp of last failure. Set to zero if no failure happened yet.
-    int64 last_fail_time = 2 [json_name = "last_fail_time"];
-
-    /**
-    Estimation of success probability of forwarding towards peers of this node
-    for which no specific history is available.
-    **/
-    float other_success_prob = 3 [json_name = "other_success_prob"];
-
-    reserved 4;
 }
 
 /// PairHistory contains the mission control state for a particular node pair.
@@ -375,8 +357,7 @@ message PairHistory {
     /// Minimum penalization amount (only applies to failed attempts).
     int64 min_penalize_amt_sat = 4 [json_name = "min_penalize_amt_sat"];
 
-    /// Estimation of success probability for this pair.
-    float success_prob = 5 [json_name = "success_prob"];
+    reserved 5;
 
     /// Whether the last payment attempt through this pair was successful.
     bool last_attempt_successful = 6 [json_name = "last_attempt_successful"];

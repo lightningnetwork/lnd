@@ -45,6 +45,7 @@ type Config struct {
 func DefaultConfig() *Config {
 	defaultRoutingConfig := RoutingConfig{
 		AprioriHopProbability: routing.DefaultAprioriHopProbability,
+		AprioriWeight:         routing.DefaultAprioriWeight,
 		MinRouteProbability:   routing.DefaultMinRouteProbability,
 		PenaltyHalfLife:       routing.DefaultPenaltyHalfLife,
 		AttemptCost: routing.DefaultPaymentAttemptPenalty.
@@ -61,6 +62,7 @@ func DefaultConfig() *Config {
 func GetRoutingConfig(cfg *Config) *RoutingConfig {
 	return &RoutingConfig{
 		AprioriHopProbability: cfg.AprioriHopProbability,
+		AprioriWeight:         cfg.AprioriWeight,
 		MinRouteProbability:   cfg.MinRouteProbability,
 		AttemptCost:           cfg.AttemptCost,
 		PenaltyHalfLife:       cfg.PenaltyHalfLife,

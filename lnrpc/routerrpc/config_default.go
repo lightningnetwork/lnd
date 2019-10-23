@@ -18,6 +18,7 @@ func DefaultConfig() *Config {
 func GetRoutingConfig(cfg *Config) *RoutingConfig {
 	return &RoutingConfig{
 		AprioriHopProbability: routing.DefaultAprioriHopProbability,
+		AprioriWeight:         routing.DefaultAprioriWeight,
 		MinRouteProbability:   routing.DefaultMinRouteProbability,
 		AttemptCost: routing.DefaultPaymentAttemptPenalty.
 			ToSatoshis(),

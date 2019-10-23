@@ -604,6 +604,166 @@ func TestTxNotifierFutureSpendDispatch(t *testing.T) {
 	}
 }
 
+// TestTxNotifierFutureConfDispatchReuseSafe tests that the notifier does not
+// misbehave even if two confirmation requests for the same script are issued
+// at different block heights (which means funds are being sent to the same
+// script multiple times).
+func TestTxNotifierFutureConfDispatchReuseSafe(t *testing.T) {
+	t.Parallel()
+
+	currentBlock := uint32(10)
+	hintCache := newMockHintCache()
+	n := chainntnfs.NewTxNotifier(
+		currentBlock, 2, hintCache, hintCache,
+	)
+
+	// We'll register a TX that sends to our test script and put it into a
+	// block. Additionally we register a notification request for just the
+	// script which should also be confirmed with that block.
+	tx1 := wire.MsgTx{Version: 1}
+	tx1.AddTxOut(&wire.TxOut{PkScript: testRawScript})
+	tx1Hash := tx1.TxHash()
+	ntfn1, err := n.RegisterConf(&tx1Hash, testRawScript, 1, 1)
+	if err != nil {
+		t.Fatalf("unable to register ntfn: %v", err)
+	}
+	scriptNtfn1, err := n.RegisterConf(nil, testRawScript, 1, 1)
+	if err != nil {
+		t.Fatalf("unable to register ntfn: %v", err)
+	}
+	block := btcutil.NewBlock(&wire.MsgBlock{
+		Transactions: []*wire.MsgTx{&tx1},
+	})
+	currentBlock++
+	err = n.ConnectTip(block.Hash(), currentBlock, block.Transactions())
+	if err != nil {
+		t.Fatalf("unable to connect block: %v", err)
+	}
+	if err := n.NotifyHeight(currentBlock); err != nil {
+		t.Fatalf("unable to dispatch notifications: %v", err)
+	}
+
+	// Expect an update and confirmation of TX 1 at this point. We save the
+	// confirmation details because we expect to receive the same details
+	// for all further registrations.
+	var confDetails *chainntnfs.TxConfirmation
+	select {
+	case <-ntfn1.Event.Updates:
+	default:
+		t.Fatal("expected update of TX 1")
+	}
+	select {
+	case confDetails = <-ntfn1.Event.Confirmed:
+		if confDetails.BlockHeight != currentBlock {
+			t.Fatalf("expected TX to be confirmed in latest block")
+		}
+	default:
+		t.Fatal("expected confirmation of TX 1")
+	}
+
+	// The notification for the script should also have received a
+	// confirmation.
+	select {
+	case <-scriptNtfn1.Event.Updates:
+	default:
+		t.Fatal("expected update of script ntfn")
+	}
+	select {
+	case details := <-scriptNtfn1.Event.Confirmed:
+		assertConfDetails(t, details, confDetails)
+	default:
+		t.Fatal("expected update of script ntfn")
+	}
+
+	// Now register a second TX that spends to two outputs with the same
+	// script so we have a different TXID. And again register a confirmation
+	// for just the script.
+	tx2 := wire.MsgTx{Version: 1}
+	tx2.AddTxOut(&wire.TxOut{PkScript: testRawScript})
+	tx2.AddTxOut(&wire.TxOut{PkScript: testRawScript})
+	tx2Hash := tx2.TxHash()
+	ntfn2, err := n.RegisterConf(&tx2Hash, testRawScript, 1, 1)
+	if err != nil {
+		t.Fatalf("unable to register ntfn: %v", err)
+	}
+	scriptNtfn2, err := n.RegisterConf(nil, testRawScript, 1, 1)
+	if err != nil {
+		t.Fatalf("unable to register ntfn: %v", err)
+	}
+	block2 := btcutil.NewBlock(&wire.MsgBlock{
+		Transactions: []*wire.MsgTx{&tx2},
+	})
+	currentBlock++
+	err = n.ConnectTip(block2.Hash(), currentBlock, block2.Transactions())
+	if err != nil {
+		t.Fatalf("unable to connect block: %v", err)
+	}
+	if err := n.NotifyHeight(currentBlock); err != nil {
+		t.Fatalf("unable to dispatch notifications: %v", err)
+	}
+
+	// Transaction 2 should get a confirmation here too. Since it was
+	// a different TXID we wouldn't get the cached details here but the TX
+	// should be confirmed right away still.
+	select {
+	case <-ntfn2.Event.Updates:
+	default:
+		t.Fatal("expected update of TX 2")
+	}
+	select {
+	case details := <-ntfn2.Event.Confirmed:
+		if details.BlockHeight != currentBlock {
+			t.Fatalf("expected TX to be confirmed in latest block")
+		}
+	default:
+		t.Fatal("expected update of TX 2")
+	}
+
+	// The second notification for the script should also have received a
+	// confirmation. Since it's the same script, we expect to get the cached
+	// details from the first TX back immediately. Nothing should be
+	// registered at the notifier for the current block height for that
+	// script any more.
+	select {
+	case <-scriptNtfn2.Event.Updates:
+	default:
+		t.Fatal("expected update of script ntfn")
+	}
+	select {
+	case details := <-scriptNtfn2.Event.Confirmed:
+		assertConfDetails(t, details, confDetails)
+	default:
+		t.Fatal("expected update of script ntfn")
+	}
+
+	// Finally, mine a few empty blocks and expect both TXs to be confirmed.
+	for currentBlock < 15 {
+		block := btcutil.NewBlock(&wire.MsgBlock{})
+		currentBlock++
+		err = n.ConnectTip(
+			block.Hash(), currentBlock, block.Transactions(),
+		)
+		if err != nil {
+			t.Fatalf("unable to connect block: %v", err)
+		}
+		if err := n.NotifyHeight(currentBlock); err != nil {
+			t.Fatalf("unable to dispatch notifications: %v", err)
+		}
+	}
+
+	// Events for both confirmation requests should have been dispatched.
+	select {
+	case <-ntfn1.Event.Done:
+	default:
+		t.Fatal("expected notifications for TX 1 to be done")
+	}
+	select {
+	case <-ntfn2.Event.Done:
+	default:
+		t.Fatal("expected notifications for TX 2 to be done")
+	}
+}
+
 // TestTxNotifierHistoricalSpendDispatch tests that the TxNotifier dispatches
 // registered notifications when an outpoint is spent before registration.
 func TestTxNotifierHistoricalSpendDispatch(t *testing.T) {

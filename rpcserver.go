@@ -1698,6 +1698,10 @@ func GetChanPointFundingTxid(chanPoint *lnrpc.ChannelPoint) (*chainhash.Hash, er
 func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 	updateStream lnrpc.Lightning_CloseChannelServer) error {
 
+	if !r.server.Started() {
+		return ErrServerNotActive
+	}
+
 	// If the user didn't specify a channel point, then we'll reject this
 	// request all together.
 	if in.GetChannelPoint() == nil {

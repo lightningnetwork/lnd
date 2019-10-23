@@ -334,6 +334,7 @@ var _ hop.Iterator = (*mockHopIterator)(nil)
 // encodes the failure and do not makes any onion obfuscation.
 type mockObfuscator struct {
 	ogPacket *sphinx.OnionPacket
+	failure  lnwire.FailureMessage
 }
 
 // NewMockObfuscator initializes a dummy mockObfuscator used for testing.
@@ -365,6 +366,8 @@ func (o *mockObfuscator) Reextract(
 
 func (o *mockObfuscator) EncryptFirstHop(failure lnwire.FailureMessage) (
 	lnwire.OpaqueReason, error) {
+
+	o.failure = failure
 
 	var b bytes.Buffer
 	if err := lnwire.EncodeFailure(&b, failure, 0); err != nil {
@@ -637,7 +640,9 @@ type mockChannelLink struct {
 
 	htlcID uint64
 
-	htlcSatifiesPolicyLocalResult lnwire.FailureMessage
+	checkHtlcTransitResult lnwire.FailureMessage
+
+	checkHtlcForwardResult lnwire.FailureMessage
 }
 
 // completeCircuit is a helper method for adding the finalized payment circuit
@@ -696,16 +701,17 @@ func (f *mockChannelLink) HandleChannelUpdate(lnwire.Message) {
 
 func (f *mockChannelLink) UpdateForwardingPolicy(_ ForwardingPolicy) {
 }
-func (f *mockChannelLink) HtlcSatifiesPolicy([32]byte, lnwire.MilliSatoshi,
+func (f *mockChannelLink) CheckHtlcForward([32]byte, lnwire.MilliSatoshi,
 	lnwire.MilliSatoshi, uint32, uint32, uint32) lnwire.FailureMessage {
-	return nil
+
+	return f.checkHtlcForwardResult
 }
 
-func (f *mockChannelLink) HtlcSatifiesPolicyLocal(payHash [32]byte,
+func (f *mockChannelLink) CheckHtlcTransit(payHash [32]byte,
 	amt lnwire.MilliSatoshi, timeout uint32,
 	heightNow uint32) lnwire.FailureMessage {
 
-	return f.htlcSatifiesPolicyLocalResult
+	return f.checkHtlcTransitResult
 }
 
 func (f *mockChannelLink) Stats() (uint64, lnwire.MilliSatoshi, lnwire.MilliSatoshi) {

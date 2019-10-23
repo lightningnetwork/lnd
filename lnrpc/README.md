@@ -124,6 +124,9 @@ description):
   * ForwardingHistory
      * ForwardingHistory allows the caller to query the htlcswitch for a
        record of all HTLCs forwarded.
+  * BakeMacaroon
+     * Bakes a new macaroon with the provided list of permissions and
+       restrictions
 
 ## Service: WalletUnlocker
 

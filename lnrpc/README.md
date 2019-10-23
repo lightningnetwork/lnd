@@ -120,7 +120,10 @@ description):
        enforced by the node globally for each channel.
   * UpdateChannelPolicy
      * Allows the caller to update the fee schedule and channel policies for all channels
-       globally, or a particular channel
+       globally, or a particular channel.
+  * ForwardingHistory
+     * ForwardingHistory allows the caller to query the htlcswitch for a
+       record of all HTLCs forwarded.
 
 ## Service: WalletUnlocker
 

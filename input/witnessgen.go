@@ -35,9 +35,8 @@ type WitnessType interface {
 	SizeUpperBound() (int, bool, error)
 
 	// AddWeightEstimation adds the estimated size of the witness in bytes
-	// to the given weight estimator and returns the number of
-	// CSVs/CLTVs used by the script.
-	AddWeightEstimation(estimator *TxWeightEstimator) (int, int, error)
+	// to the given weight estimator.
+	AddWeightEstimation(e *TxWeightEstimator) error
 }
 
 // StandardWitnessType is a numeric representation of standard pre-defined types
@@ -159,6 +158,12 @@ func (wt StandardWitnessType) String() string {
 
 	case HtlcSecondLevelRevoke:
 		return "HtlcSecondLevelRevoke"
+
+	case WitnessKeyHash:
+		return "WitnessKeyHash"
+
+	case NestedWitnessKeyHash:
+		return "NestedWitnessKeyHash"
 
 	default:
 		return fmt.Sprintf("Unknown WitnessType: %v", uint32(wt))
@@ -368,42 +373,25 @@ func (wt StandardWitnessType) SizeUpperBound() (int, bool, error) {
 }
 
 // AddWeightEstimation adds the estimated size of the witness in bytes to the
-// given weight estimator and returns the number of CSVs/CLTVs used by the
-// script.
+// given weight estimator.
 //
 // NOTE: This is part of the WitnessType interface.
-func (wt StandardWitnessType) AddWeightEstimation(
-	estimator *TxWeightEstimator) (int, int, error) {
-
-	var (
-		csvCount  = 0
-		cltvCount = 0
-	)
-
+func (wt StandardWitnessType) AddWeightEstimation(e *TxWeightEstimator) error {
 	// For fee estimation purposes, we'll now attempt to obtain an
 	// upper bound on the weight this input will add when fully
 	// populated.
 	size, isNestedP2SH, err := wt.SizeUpperBound()
 	if err != nil {
-		return 0, 0, err
+		return err
 	}
 
 	// If this is a nested P2SH input, then we'll need to factor in
 	// the additional data push within the sigScript.
 	if isNestedP2SH {
-		estimator.AddNestedP2WSHInput(size)
+		e.AddNestedP2WSHInput(size)
 	} else {
-		estimator.AddWitnessInput(size)
+		e.AddWitnessInput(size)
 	}
 
-	switch wt {
-	case CommitmentTimeLock,
-		HtlcOfferedTimeoutSecondLevel,
-		HtlcAcceptedSuccessSecondLevel:
-		csvCount++
-	case HtlcOfferedRemoteTimeout:
-		cltvCount++
-	}
-
-	return csvCount, cltvCount, nil
+	return nil
 }

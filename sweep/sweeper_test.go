@@ -339,7 +339,7 @@ func assertTxFeeRate(t *testing.T, tx *wire.MsgTx,
 	outputAmt := tx.TxOut[0].Value
 
 	fee := btcutil.Amount(inputAmt - outputAmt)
-	_, txWeight, _, _ := getWeightEstimate(inputs)
+	_, txWeight := getWeightEstimate(inputs)
 
 	expectedFee := expectedFeeRate.FeeForWeight(txWeight)
 	if fee != expectedFee {

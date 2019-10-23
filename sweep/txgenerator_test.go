@@ -14,9 +14,10 @@ var (
 		input.HtlcOfferedRemoteTimeout,
 		input.WitnessKeyHash,
 	}
-	expectedWeight = int64(1459)
-	expectedCsv    = 2
-	expectedCltv   = 1
+	expectedWeight  = int64(1459)
+	expectedSummary = "1 CommitmentTimeLock, 1 " +
+		"HtlcAcceptedSuccessSecondLevel, 1 HtlcOfferedRemoteTimeout, " +
+		"1 WitnessKeyHash"
 )
 
 // TestWeightEstimate tests that the estimated weight and number of CSVs/CLTVs
@@ -33,17 +34,14 @@ func TestWeightEstimate(t *testing.T) {
 		))
 	}
 
-	_, weight, csv, cltv := getWeightEstimate(inputs)
+	_, weight := getWeightEstimate(inputs)
 	if weight != expectedWeight {
 		t.Fatalf("unexpected weight. expected %d but got %d.",
 			expectedWeight, weight)
 	}
-	if csv != expectedCsv {
-		t.Fatalf("unexpected csv count. expected %d but got %d.",
-			expectedCsv, csv)
-	}
-	if cltv != expectedCltv {
-		t.Fatalf("unexpected cltv count. expected %d but got %d.",
-			expectedCltv, cltv)
+	summary := inputTypeSummary(inputs)
+	if summary != expectedSummary {
+		t.Fatalf("unexpected summary. expected %s but got %s.",
+			expectedSummary, summary)
 	}
 }

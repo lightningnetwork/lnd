@@ -3,6 +3,7 @@ package sweep
 import (
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/txscript"
@@ -171,10 +172,10 @@ func createSweepTx(inputs []input.Input, outputPkScript []byte,
 	currentBlockHeight uint32, feePerKw lnwallet.SatPerKWeight,
 	signer input.Signer) (*wire.MsgTx, error) {
 
-	inputs, txWeight, csvCount, cltvCount := getWeightEstimate(inputs)
+	inputs, txWeight := getWeightEstimate(inputs)
 
-	log.Infof("Creating sweep transaction for %v inputs (%v CSV, %v CLTV) "+
-		"using %v sat/kw", len(inputs), csvCount, cltvCount,
+	log.Infof("Creating sweep transaction for %v inputs (%s) "+
+		"using %v sat/kw", len(inputs), inputTypeSummary(inputs),
 		int64(feePerKw))
 
 	txFee := feePerKw.FeeForWeight(txWeight)
@@ -253,7 +254,7 @@ func createSweepTx(inputs []input.Input, outputPkScript []byte,
 
 // getWeightEstimate returns a weight estimate for the given inputs.
 // Additionally, it returns counts for the number of csv and cltv inputs.
-func getWeightEstimate(inputs []input.Input) ([]input.Input, int64, int, int) {
+func getWeightEstimate(inputs []input.Input) ([]input.Input, int64) {
 	// We initialize a weight estimator so we can accurately asses the
 	// amount of fees we need to pay for this sweep transaction.
 	//
@@ -268,15 +269,12 @@ func getWeightEstimate(inputs []input.Input) ([]input.Input, int64, int, int) {
 	// For each output, use its witness type to determine the estimate
 	// weight of its witness, and add it to the proper set of spendable
 	// outputs.
-	var (
-		sweepInputs         []input.Input
-		csvCount, cltvCount int
-	)
+	var sweepInputs []input.Input
 	for i := range inputs {
 		inp := inputs[i]
 
 		wt := inp.WitnessType()
-		inpCsv, inpCltv, err := wt.AddWeightEstimation(&weightEstimate)
+		err := wt.AddWeightEstimation(&weightEstimate)
 		if err != nil {
 			log.Warn(err)
 
@@ -284,12 +282,38 @@ func getWeightEstimate(inputs []input.Input) ([]input.Input, int64, int, int) {
 			// given.
 			continue
 		}
-		csvCount += inpCsv
-		cltvCount += inpCltv
+
 		sweepInputs = append(sweepInputs, inp)
 	}
 
-	txWeight := int64(weightEstimate.Weight())
+	return sweepInputs, int64(weightEstimate.Weight())
+}
 
-	return sweepInputs, txWeight, csvCount, cltvCount
+// inputSummary returns a string containing a human readable summary about the
+// witness types of a list of inputs.
+func inputTypeSummary(inputs []input.Input) string {
+	// Count each input by the string representation of its witness type.
+	// We also keep track of the keys so we can later sort by them to get
+	// a stable output.
+	counts := make(map[string]uint32)
+	keys := make([]string, 0, len(inputs))
+	for _, i := range inputs {
+		key := i.WitnessType().String()
+		_, ok := counts[key]
+		if !ok {
+			counts[key] = 0
+			keys = append(keys, key)
+		}
+		counts[key]++
+	}
+	sort.Strings(keys)
+
+	// Return a nice string representation of the counts by comma joining a
+	// slice.
+	var parts []string
+	for _, witnessType := range keys {
+		part := fmt.Sprintf("%d %s", counts[witnessType], witnessType)
+		parts = append(parts, part)
+	}
+	return strings.Join(parts, ", ")
 }

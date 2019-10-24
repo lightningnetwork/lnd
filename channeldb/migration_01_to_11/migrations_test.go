@@ -197,7 +197,7 @@ func TestPaymentStatusesMigration(t *testing.T) {
 	applyMigration(t,
 		beforeMigrationFunc,
 		afterMigrationFunc,
-		paymentStatusesMigration,
+		PaymentStatusesMigration,
 		false)
 }
 
@@ -469,7 +469,7 @@ func TestMigrateOptionalChannelCloseSummaryFields(t *testing.T) {
 		applyMigration(t,
 			beforeMigrationFunc,
 			afterMigrationFunc,
-			migrateOptionalChannelCloseSummaryFields,
+			MigrateOptionalChannelCloseSummaryFields,
 			false)
 	}
 }
@@ -565,7 +565,7 @@ func TestMigrateGossipMessageStoreKeys(t *testing.T) {
 
 	applyMigration(
 		t, beforeMigration, afterMigration,
-		migrateGossipMessageStoreKeys, false,
+		MigrateGossipMessageStoreKeys, false,
 	)
 }
 
@@ -724,7 +724,7 @@ func TestOutgoingPaymentsMigration(t *testing.T) {
 	applyMigration(t,
 		beforeMigrationFunc,
 		afterMigrationFunc,
-		migrateOutgoingPayments,
+		MigrateOutgoingPayments,
 		false)
 }
 
@@ -947,6 +947,6 @@ func TestPaymentRouteSerialization(t *testing.T) {
 	applyMigration(t,
 		beforeMigrationFunc,
 		afterMigrationFunc,
-		migrateRouteSerialization,
+		MigrateRouteSerialization,
 		false)
 }

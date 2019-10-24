@@ -10,6 +10,9 @@ run:
   skip-files:
     - "mobile\\/.*generated\\.go"
 
+  skip-dirs:
+    - channeldb/migration_01_to_11
+
   build-tags:
     - autopilotrpc
     - chainrpc

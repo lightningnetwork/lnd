@@ -39,24 +39,3 @@ func DefaultOptions() Options {
 
 // OptionModifier is a function signature for modifying the default Options.
 type OptionModifier func(*Options)
-
-// OptionSetRejectCacheSize sets the RejectCacheSize to n.
-func OptionSetRejectCacheSize(n int) OptionModifier {
-	return func(o *Options) {
-		o.RejectCacheSize = n
-	}
-}
-
-// OptionSetChannelCacheSize sets the ChannelCacheSize to n.
-func OptionSetChannelCacheSize(n int) OptionModifier {
-	return func(o *Options) {
-		o.ChannelCacheSize = n
-	}
-}
-
-// OptionSetSyncFreelist allows the database to sync its freelist.
-func OptionSetSyncFreelist(b bool) OptionModifier {
-	return func(o *Options) {
-		o.NoFreelistSync = !b
-	}
-}

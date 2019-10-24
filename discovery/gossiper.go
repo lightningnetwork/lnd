@@ -229,6 +229,13 @@ type Config struct {
 	// This prevents ranges with old start times from causing us to dump the
 	// graph on connect.
 	IgnoreHistoricalFilters bool
+
+	// AssumeChannelValid toggles whether or not the router will verify
+	// signatures for incoming channel announcements. We skip this to
+	// increase performance on low powered devices, and since we are not
+	// checking unspentness of the channel in this mode, they are easily
+	// spoofed anyway.
+	AssumeChannelValid bool
 }
 
 // AuthenticatedGossiper is a subsystem which is responsible for receiving
@@ -1604,16 +1611,18 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 		// formed.
 		var proof *channeldb.ChannelAuthProof
 		if nMsg.isRemote {
-			if err := routing.ValidateChannelAnn(msg); err != nil {
-				err := fmt.Errorf("unable to validate "+
-					"announcement: %v", err)
-				d.rejectMtx.Lock()
-				d.recentRejects[msg.ShortChannelID.ToUint64()] = struct{}{}
-				d.rejectMtx.Unlock()
+			if !d.cfg.AssumeChannelValid {
+				if err := routing.ValidateChannelAnn(msg); err != nil {
+					err := fmt.Errorf("unable to validate "+
+						"announcement: %v", err)
+					d.rejectMtx.Lock()
+					d.recentRejects[msg.ShortChannelID.ToUint64()] = struct{}{}
+					d.rejectMtx.Unlock()
 
-				log.Error(err)
-				nMsg.err <- err
-				return nil
+					log.Error(err)
+					nMsg.err <- err
+					return nil
+				}
 			}
 
 			// If the proof checks out, then we'll save the proof

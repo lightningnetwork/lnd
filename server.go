@@ -773,6 +773,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 		MinimumBatchSize:        10,
 		SubBatchDelay:           time.Second * 5,
 		IgnoreHistoricalFilters: cfg.IgnoreHistoricalGossipFilters,
+		AssumeChannelValid:      cfg.Routing.UseAssumeChannelValid(),
 	},
 		s.identityPriv.PubKey(),
 	)

@@ -3,6 +3,7 @@ package routing
 import (
 	"container/heap"
 
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
@@ -35,12 +36,15 @@ type nodeWithDist struct {
 	// Includes the routing fees and a virtual cost factor to account for
 	// time locks.
 	weight int64
+
+	// nextHop is the edge this route comes from.
+	nextHop *channeldb.ChannelEdgePolicy
 }
 
 // distanceHeap is a min-distance heap that's used within our path finding
 // algorithm to keep track of the "closest" node to our source node.
 type distanceHeap struct {
-	nodes []nodeWithDist
+	nodes []*nodeWithDist
 
 	// pubkeyIndices maps public keys of nodes to their respective index in
 	// the heap. This is used as a way to avoid db lookups by using heap.Fix
@@ -50,9 +54,10 @@ type distanceHeap struct {
 
 // newDistanceHeap initializes a new distance heap. This is required because
 // we must initialize the pubkeyIndices map for path-finding optimizations.
-func newDistanceHeap() distanceHeap {
+func newDistanceHeap(numNodes int) distanceHeap {
 	distHeap := distanceHeap{
-		pubkeyIndices: make(map[route.Vertex]int),
+		pubkeyIndices: make(map[route.Vertex]int, numNodes),
+		nodes:         make([]*nodeWithDist, 0, numNodes),
 	}
 
 	return distHeap
@@ -84,7 +89,7 @@ func (d *distanceHeap) Swap(i, j int) {
 //
 // NOTE: This is part of the heap.Interface implementation.
 func (d *distanceHeap) Push(x interface{}) {
-	n := x.(nodeWithDist)
+	n := x.(*nodeWithDist)
 	d.nodes = append(d.nodes, n)
 	d.pubkeyIndices[n.node] = len(d.nodes) - 1
 }
@@ -96,6 +101,7 @@ func (d *distanceHeap) Push(x interface{}) {
 func (d *distanceHeap) Pop() interface{} {
 	n := len(d.nodes)
 	x := d.nodes[n-1]
+	d.nodes[n-1] = nil
 	d.nodes = d.nodes[0 : n-1]
 	delete(d.pubkeyIndices, x.node)
 	return x
@@ -106,7 +112,7 @@ func (d *distanceHeap) Pop() interface{} {
 // modify its position and reorder the heap. If the vertex does not already
 // exist in the heap, then it is pushed onto the heap. Otherwise, we will end
 // up performing more db lookups on the same node in the pathfinding algorithm.
-func (d *distanceHeap) PushOrFix(dist nodeWithDist) {
+func (d *distanceHeap) PushOrFix(dist *nodeWithDist) {
 	index, ok := d.pubkeyIndices[dist.node]
 	if !ok {
 		heap.Push(d, dist)

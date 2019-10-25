@@ -151,6 +151,10 @@ var (
 			Entity: "signer",
 			Action: "generate",
 		},
+		{
+			Entity: "macaroon",
+			Action: "generate",
+		},
 	}
 
 	// invoicePermissions is a slice of all the entities that allows a user
@@ -178,7 +182,27 @@ var (
 			Action: "read",
 		},
 	}
+
+	// TODO(guggero): Refactor into constants that are used for all
+	// permissions in this file. Also expose the list of possible
+	// permissions in an RPC when per RPC permissions are
+	// implemented.
+	validActions  = []string{"read", "write", "generate"}
+	validEntities = []string{
+		"onchain", "offchain", "address", "message",
+		"peers", "info", "invoices", "signer", "macaroon",
+	}
 )
+
+// stringInSlice returns true if a string is contained in the given slice.
+func stringInSlice(a string, slice []string) bool {
+	for _, b := range slice {
+		if b == a {
+			return true
+		}
+	}
+	return false
+}
 
 // mainRPCServerPermissions returns a mapping of the main RPC server calls to
 // the permissions they require.
@@ -400,6 +424,10 @@ func mainRPCServerPermissions() map[string][]bakery.Op {
 			Entity: "offchain",
 			Action: "write",
 		}},
+		"/lnrpc.Lightning/BakeMacaroon": {{
+			Entity: "macaroon",
+			Action: "generate",
+		}},
 	}
 }
 
@@ -453,6 +481,10 @@ type rpcServer struct {
 	chanPredicate *chanacceptor.ChainedAcceptor
 
 	quit chan struct{}
+
+	// macService is the macaroon service that we need to mint new
+	// macaroons.
+	macService *macaroons.Service
 }
 
 // A compile time check to ensure that rpcServer fully implements the
@@ -627,6 +659,7 @@ func newRPCServer(s *server, macService *macaroons.Service,
 		routerBackend:   routerBackend,
 		chanPredicate:   chanPredicate,
 		quit:            make(chan struct{}, 1),
+		macService:      macService,
 	}
 	lnrpc.RegisterLightningServer(grpcServer, rootRPCServer)
 
@@ -5246,4 +5279,65 @@ func (r *rpcServer) ChannelAcceptor(stream lnrpc.Lightning_ChannelAcceptorServer
 			return fmt.Errorf("RPC server is shutting down")
 		}
 	}
+}
+
+// BakeMacaroon allows the creation of a new macaroon with custom read and write
+// permissions. No first-party caveats are added since this can be done offline.
+func (r *rpcServer) BakeMacaroon(ctx context.Context,
+	req *lnrpc.BakeMacaroonRequest) (*lnrpc.BakeMacaroonResponse, error) {
+
+	rpcsLog.Debugf("[bakemacaroon]")
+
+	// If the --no-macaroons flag is used to start lnd, the macaroon service
+	// is not initialized. Therefore we can't bake new macaroons.
+	if r.macService == nil {
+		return nil, fmt.Errorf("macaroon authentication disabled, " +
+			"remove --no-macaroons flag to enable")
+	}
+
+	helpMsg := fmt.Sprintf("supported actions are %v, supported entities "+
+		"are %v", validActions, validEntities)
+
+	// Don't allow empty permission list as it doesn't make sense to have
+	// a macaroon that is not allowed to access any RPC.
+	if len(req.Permissions) == 0 {
+		return nil, fmt.Errorf("permission list cannot be empty. "+
+			"specify at least one action/entity pair. %s", helpMsg)
+	}
+
+	// Validate and map permission struct used by gRPC to the one used by
+	// the bakery.
+	requestedPermissions := make([]bakery.Op, len(req.Permissions))
+	for idx, op := range req.Permissions {
+		if !stringInSlice(op.Action, validActions) {
+			return nil, fmt.Errorf("invalid permission action. %s",
+				helpMsg)
+		}
+		if !stringInSlice(op.Entity, validEntities) {
+			return nil, fmt.Errorf("invalid permission entity. %s",
+				helpMsg)
+		}
+
+		requestedPermissions[idx] = bakery.Op{
+			Entity: op.Entity,
+			Action: op.Action,
+		}
+	}
+
+	// Bake new macaroon with the given permissions and send it binary
+	// serialized and hex encoded to the client.
+	newMac, err := r.macService.Oven.NewMacaroon(
+		ctx, bakery.LatestVersion, nil, requestedPermissions...,
+	)
+	if err != nil {
+		return nil, err
+	}
+	newMacBytes, err := newMac.M().MarshalBinary()
+	if err != nil {
+		return nil, err
+	}
+	resp := &lnrpc.BakeMacaroonResponse{}
+	resp.Macaroon = hex.EncodeToString(newMacBytes)
+
+	return resp, nil
 }

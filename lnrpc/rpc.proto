@@ -777,6 +777,18 @@ service Lightning {
     */
     rpc SubscribeChannelBackups(ChannelBackupSubscription) returns (stream ChanBackupSnapshot) {
     };
+
+    /** lncli: `bakemacaroon`
+    BakeMacaroon allows the creation of a new macaroon with custom read and
+    write permissions. No first-party caveats are added since this can be done
+    offline.
+    */
+    rpc BakeMacaroon(BakeMacaroonRequest) returns (BakeMacaroonResponse) {
+        option (google.api.http) = {
+            post: "/v1/macaroon"
+            body: "*"
+        };
+    };
 }
 
 message Utxo {
@@ -2584,4 +2596,20 @@ message RestoreBackupResponse {}
 message ChannelBackupSubscription {}
 
 message VerifyChanBackupResponse {
+}
+
+message MacaroonPermission {
+    /// The entity a permission grants access to.
+    string entity = 1 [json_name = "entity"];
+
+    /// The action that is granted.
+    string action = 2 [json_name = "action"];
+}
+message BakeMacaroonRequest {
+    /// The list of permissions the new macaroon should grant.
+    repeated MacaroonPermission permissions = 1 [json_name = "permissions"];
+}
+message BakeMacaroonResponse {
+    /// The hex encoded macaroon, serialized in binary format.
+    string macaroon = 1 [json_name = "macaroon"];
 }

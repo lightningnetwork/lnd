@@ -1258,6 +1258,19 @@ message Channel {
     directly to that key. 
     */
     bool static_remote_key = 22 [json_name = "static_remote_key"];
+
+    /**
+    The number of seconds that the channel has been monitored by the channel
+    scoring system. Scores are currently not persisted, so this value may be
+    less than the lifetime of the channel [EXPERIMENTAL].
+    */
+    int64 lifetime = 23 [json_name = "lifetime"];
+
+    /**
+    The number of seconds that the remote peer has been observed as being online
+    by the channel scoring system over the lifetime of the channel [EXPERIMENTAL].
+    */
+    int64 uptime = 24 [json_name = "uptime"];
 }
 
 

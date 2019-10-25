@@ -17,12 +17,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/lightningnetwork/lnd/chanacceptor"
-	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
-	"github.com/lightningnetwork/lnd/routing/route"
-	"github.com/lightningnetwork/lnd/tlv"
-	"github.com/lightningnetwork/lnd/watchtower"
-
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -36,6 +30,7 @@ import (
 	proxy "github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/build"
+	"github.com/lightningnetwork/lnd/chanacceptor"
 	"github.com/lightningnetwork/lnd/chanbackup"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channelnotifier"
@@ -46,14 +41,18 @@ import (
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/monitoring"
 	"github.com/lightningnetwork/lnd/routing"
+	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/signal"
 	"github.com/lightningnetwork/lnd/sweep"
+	"github.com/lightningnetwork/lnd/tlv"
+	"github.com/lightningnetwork/lnd/watchtower"
 	"github.com/lightningnetwork/lnd/zpay32"
 	"github.com/tv42/zbase32"
 	"google.golang.org/grpc"
@@ -2702,12 +2701,43 @@ func createRPCOpenChannel(r *rpcServer, graph *channeldb.ChannelGraph,
 	}
 	externalCommitFee := dbChannel.Capacity - sumOutputs
 
+	chanID := dbChannel.ShortChannelID.ToUint64()
+
+	var (
+		uptime   time.Duration
+		lifespan time.Duration
+	)
+
+	// Get the lifespan observed by the channel event store.
+	startTime, endTime, err := r.server.chanEventStore.GetLifespan(chanID)
+	if err != nil {
+		// If the channel cannot be found, log an error and do not perform
+		// further calculations for uptime and lifespan.
+		rpcsLog.Warnf("GetLifespan %v error: %v", chanID, err)
+	} else {
+		// If endTime is zero, the channel is still open, progress endTime to
+		// the present so we can calculate lifespan.
+		if endTime.IsZero() {
+			endTime = time.Now()
+		}
+		lifespan = endTime.Sub(startTime)
+
+		uptime, err = r.server.chanEventStore.GetUptime(
+			chanID,
+			startTime,
+			endTime,
+		)
+		if err != nil {
+			rpcsLog.Warnf("GetUptime %v error: %v", chanID, err)
+		}
+	}
+
 	channel := &lnrpc.Channel{
 		Active:                isActive,
 		Private:               !isPublic,
 		RemotePubkey:          nodeID,
 		ChannelPoint:          chanPoint.String(),
-		ChanId:                dbChannel.ShortChannelID.ToUint64(),
+		ChanId:                chanID,
 		Capacity:              int64(dbChannel.Capacity),
 		LocalBalance:          int64(localBalance.ToSatoshis()),
 		RemoteBalance:         int64(remoteBalance.ToSatoshis()),
@@ -2724,6 +2754,8 @@ func createRPCOpenChannel(r *rpcServer, graph *channeldb.ChannelGraph,
 		LocalChanReserveSat:   int64(dbChannel.LocalChanCfg.ChanReserve),
 		RemoteChanReserveSat:  int64(dbChannel.RemoteChanCfg.ChanReserve),
 		StaticRemoteKey:       dbChannel.ChanType.IsTweakless(),
+		Lifetime:              int64(lifespan.Seconds()),
+		Uptime:                int64(uptime.Seconds()),
 	}
 
 	for i, htlc := range localCommit.Htlcs {

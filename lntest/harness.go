@@ -344,13 +344,14 @@ func (n *NetworkHarness) newNode(name string, extraArgs []string,
 	hasSeed bool, password []byte) (*HarnessNode, error) {
 
 	node, err := newNode(nodeConfig{
-		Name:       name,
-		HasSeed:    hasSeed,
-		Password:   password,
-		BackendCfg: n.BackendCfg,
-		NetParams:  n.netParams,
-		ExtraArgs:  extraArgs,
-		RecoveryTx: true,
+		Name:                        name,
+		HasSeed:                     hasSeed,
+		Password:                    password,
+		BackendCfg:                  n.BackendCfg,
+		NetParams:                   n.netParams,
+		ExtraArgs:                   extraArgs,
+		MaxWaitNumBlocksFundingConf: MaxWaitNumBlocksFundingConf,
+		RecoveryTx:                  true,
 	})
 	if err != nil {
 		return nil, err

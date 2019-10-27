@@ -374,11 +374,12 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 			publTxChan <- txn
 			return nil
 		},
-		ZombieSweeperInterval:  1 * time.Hour,
-		ReservationTimeout:     1 * time.Nanosecond,
-		MaxPendingChannels:     DefaultMaxPendingChannels,
-		NotifyOpenChannelEvent: func(wire.OutPoint) {},
-		OpenChannelPredicate:   chainedAcceptor,
+		ZombieSweeperInterval:       1 * time.Hour,
+		ReservationTimeout:          1 * time.Nanosecond,
+		MaxPendingChannels:          DefaultMaxPendingChannels,
+		NotifyOpenChannelEvent:      func(wire.OutPoint) {},
+		OpenChannelPredicate:        chainedAcceptor,
+		MaxWaitNumBlocksFundingConf: defaultMaxWaitNumBlocksFundingConf,
 	}
 
 	for _, op := range options {
@@ -1707,14 +1708,14 @@ func TestFundingManagerFundingTimeout(t *testing.T) {
 	// We expect Bob to forget the channel after 2016 blocks (2 weeks), so
 	// mine 2016-1, and check that it is still pending.
 	bob.mockNotifier.epochChan <- &chainntnfs.BlockEpoch{
-		Height: fundingBroadcastHeight + MaxWaitNumBlocksFundingConf - 1,
+		Height: fundingBroadcastHeight + int32(defaultMaxWaitNumBlocksFundingConf-1),
 	}
 
 	// Bob should still be waiting for the channel to open.
 	assertNumPendingChannelsRemains(t, bob, 1)
 
 	bob.mockNotifier.epochChan <- &chainntnfs.BlockEpoch{
-		Height: fundingBroadcastHeight + MaxWaitNumBlocksFundingConf,
+		Height: fundingBroadcastHeight + int32(defaultMaxWaitNumBlocksFundingConf),
 	}
 
 	// Bob should have sent an Error message to Alice.

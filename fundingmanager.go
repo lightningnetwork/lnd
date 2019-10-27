@@ -47,11 +47,6 @@ const (
 	minLtcRemoteDelay uint16 = 576
 	maxLtcRemoteDelay uint16 = 8064
 
-	// MaxWaitNumBlocksFundingConf is the maximum number of blocks to wait
-	// for the funding transaction to be confirmed before forgetting
-	// channels that aren't initiated by us. 2016 blocks is ~2 weeks.
-	MaxWaitNumBlocksFundingConf = 2016
-
 	// minChanFundingSize is the smallest channel that we'll allow to be
 	// created over the RPC interface.
 	minChanFundingSize = btcutil.Amount(20000)
@@ -357,6 +352,11 @@ type fundingConfig struct {
 
 	CPFP func(previousOutPoint *wire.OutPoint,
 		satPerByte uint32) error
+
+	// MaxWaitNumBlocksFundingConf is the maximum number of blocks to wait
+	// for the funding transaction to be confirmed before forgetting
+	// channels that aren't initiated by us.
+	MaxWaitNumBlocksFundingConf uint32
 }
 
 // fundingManager acts as an orchestrator/bridge between the wallet's
@@ -2011,7 +2011,7 @@ func (f *fundingManager) waitForTimeout(completeChan *channeldb.OpenChannel,
 	defer epochClient.Cancel()
 
 	// On block maxHeight we will cancel the funding confirmation wait.
-	maxHeight := completeChan.FundingBroadcastHeight + MaxWaitNumBlocksFundingConf
+	maxHeight := completeChan.FundingBroadcastHeight + f.cfg.MaxWaitNumBlocksFundingConf
 	for {
 		select {
 		case epoch, ok := <-epochClient.Epochs:
@@ -2027,7 +2027,7 @@ func (f *fundingManager) waitForTimeout(completeChan *channeldb.OpenChannel,
 				fndgLog.Warnf("Waited for %v blocks without "+
 					"seeing funding transaction confirmed,"+
 					" cancelling.",
-					MaxWaitNumBlocksFundingConf)
+					f.cfg.MaxWaitNumBlocksFundingConf)
 
 				// Notify the caller of the timeout.
 				close(timeoutChan)

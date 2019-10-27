@@ -39,7 +39,7 @@ func testChannelRecovery(net *lntest.NetworkHarness, t *harnessTest) {
 		srcNodePending, destNodePending, PendingOpen,
 	)
 
-	numberOfBlocks := lnd.MaxWaitNumBlocksFundingConf + 50
+	numberOfBlocks := lntest.MaxWaitNumBlocksFundingConf + 50
 	mineEmptyBlocks(t, net, numberOfBlocks)
 
 	expectedNumberTransactions := 2

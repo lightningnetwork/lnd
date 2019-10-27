@@ -58,15 +58,16 @@ const (
 	// pending channels permitted per peer.
 	DefaultMaxPendingChannels = 1
 
-	defaultNoSeedBackup             = false
-	defaultTrickleDelay             = 90 * 1000
-	defaultChanStatusSampleInterval = time.Minute
-	defaultChanEnableTimeout        = 19 * time.Minute
-	defaultChanDisableTimeout       = 20 * time.Minute
-	defaultMaxLogFiles              = 3
-	defaultMaxLogFileSize           = 10
-	defaultMinBackoff               = time.Second
-	defaultMaxBackoff               = time.Hour
+	defaultNoSeedBackup                = false
+	defaultTrickleDelay                = 90 * 1000
+	defaultChanStatusSampleInterval    = time.Minute
+	defaultChanEnableTimeout           = 19 * time.Minute
+	defaultChanDisableTimeout          = 20 * time.Minute
+	defaultMaxLogFiles                 = 3
+	defaultMaxLogFileSize              = 10
+	defaultMinBackoff                  = time.Second
+	defaultMaxBackoff                  = time.Hour
+	defaultMaxWaitNumBlocksFundingConf = 2016
 
 	defaultTorSOCKSPort            = 9050
 	defaultTorDNSHost              = "soa.nodes.lightning.directory"
@@ -254,21 +255,21 @@ type config struct {
 	// loadConfig function. We need to expose the 'raw' strings so the
 	// command line library can access them.
 	// Only the parsed net.Addrs should be used!
-	RawRPCListeners  []string `long:"rpclisten" description:"Add an interface/port/socket to listen for RPC connections"`
-	RawRESTListeners []string `long:"restlisten" description:"Add an interface/port/socket to listen for REST connections"`
-	RawListeners     []string `long:"listen" description:"Add an interface/port to listen for peer connections"`
-	RawExternalIPs   []string `long:"externalip" description:"Add an ip:port to the list of local addresses we claim to listen on to peers. If a port is not specified, the default (9735) will be used regardless of other parameters"`
-	RPCListeners     []net.Addr
-	RESTListeners    []net.Addr
-	Listeners        []net.Addr
-	ExternalIPs      []net.Addr
-	DisableListen    bool          `long:"nolisten" description:"Disable listening for incoming peer connections"`
-	DisableRest      bool          `long:"norest" description:"Disable REST API"`
-	NAT              bool          `long:"nat" description:"Toggle NAT traversal support (using either UPnP or NAT-PMP) to automatically advertise your external IP address to the network -- NOTE this does not support devices behind multiple NATs"`
-	MinBackoff       time.Duration `long:"minbackoff" description:"Shortest backoff when reconnecting to persistent peers. Valid time units are {s, m, h}."`
-	MaxBackoff       time.Duration `long:"maxbackoff" description:"Longest backoff when reconnecting to persistent peers. Valid time units are {s, m, h}."`
-
-	DebugLevel string `short:"d" long:"debuglevel" description:"Logging level for all subsystems {trace, debug, info, warn, error, critical} -- You may also specify <subsystem>=<level>,<subsystem2>=<level>,... to set the log level for individual subsystems -- Use show to list available subsystems"`
+	RawRPCListeners             []string `long:"rpclisten" description:"Add an interface/port/socket to listen for RPC connections"`
+	RawRESTListeners            []string `long:"restlisten" description:"Add an interface/port/socket to listen for REST connections"`
+	RawListeners                []string `long:"listen" description:"Add an interface/port to listen for peer connections"`
+	RawExternalIPs              []string `long:"externalip" description:"Add an ip:port to the list of local addresses we claim to listen on to peers. If a port is not specified, the default (9735) will be used regardless of other parameters"`
+	RPCListeners                []net.Addr
+	RESTListeners               []net.Addr
+	Listeners                   []net.Addr
+	ExternalIPs                 []net.Addr
+	DisableListen               bool          `long:"nolisten" description:"Disable listening for incoming peer connections"`
+	DisableRest                 bool          `long:"norest" description:"Disable REST API"`
+	NAT                         bool          `long:"nat" description:"Toggle NAT traversal support (using either UPnP or NAT-PMP) to automatically advertise your external IP address to the network -- NOTE this does not support devices behind multiple NATs"`
+	MinBackoff                  time.Duration `long:"minbackoff" description:"Shortest backoff when reconnecting to persistent peers. Valid time units are {s, m, h}."`
+	MaxBackoff                  time.Duration `long:"maxbackoff" description:"Longest backoff when reconnecting to persistent peers. Valid time units are {s, m, h}."`
+	MaxWaitNumBlocksFundingConf uint32        `long:"maxWaitNumBlocksFundingConf" description:"Maximum number of blocks to wait before timing out on funding transaction confirmation"`
+	DebugLevel                  string        `short:"d" long:"debuglevel" description:"Logging level for all subsystems {trace, debug, info, warn, error, critical} -- You may also specify <subsystem>=<level>,<subsystem2>=<level>,... to set the log level for individual subsystems -- Use show to list available subsystems"`
 
 	CPUProfile string `long:"cpuprofile" description:"Write CPU profile to the specified file"`
 
@@ -396,10 +397,11 @@ func loadConfig() (*config, error) {
 			Dir:     defaultLitecoindDir,
 			RPCHost: defaultRPCHost,
 		},
-		MaxPendingChannels: DefaultMaxPendingChannels,
-		NoSeedBackup:       defaultNoSeedBackup,
-		MinBackoff:         defaultMinBackoff,
-		MaxBackoff:         defaultMaxBackoff,
+		MaxPendingChannels:          DefaultMaxPendingChannels,
+		NoSeedBackup:                defaultNoSeedBackup,
+		MinBackoff:                  defaultMinBackoff,
+		MaxBackoff:                  defaultMaxBackoff,
+		MaxWaitNumBlocksFundingConf: defaultMaxWaitNumBlocksFundingConf,
 		SubRPCServers: &subRPCServerConfigs{
 			SignRPC:   &signrpc.Config{},
 			RouterRPC: routerrpc.DefaultConfig(),
@@ -443,8 +445,8 @@ func loadConfig() (*config, error) {
 		Watchtower: &lncfg.Watchtower{
 			TowerDir: defaultTowerDir,
 		},
-		MaxOutgoingCltvExpiry:   htlcswitch.DefaultMaxOutgoingCltvExpiry,
-		MaxChannelFeeAllocation: htlcswitch.DefaultMaxLinkFeeAllocation,
+		MaxOutgoingCltvExpiry:    htlcswitch.DefaultMaxOutgoingCltvExpiry,
+		MaxChannelFeeAllocation:  htlcswitch.DefaultMaxLinkFeeAllocation,
 		RecoverFundingTx:         defaultRecoveryFundingTx,
 		MaxRecoveryTxFeeIncrease: defaultMaxRecoveryTxFeeIncrease,
 	}

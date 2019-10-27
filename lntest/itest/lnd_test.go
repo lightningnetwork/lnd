@@ -6455,7 +6455,7 @@ func testMaxPendingChannels(net *lntest.NetworkHarness, t *harnessTest) {
 		}
 		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 		isActive := true
-		err = net.AssertChannelExists(ctxt, net.Alice, outPoint.String(), isActive)
+		err = net.AssertChannelExists(ctxt, net.Alice, chanPoint.String(), isActive)
 		if err != nil {
 			t.Fatalf("unable to assert channel existence: %v", err)
 		}

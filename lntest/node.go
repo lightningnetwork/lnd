@@ -73,6 +73,8 @@ const (
 	// trickleDelay is the amount of time in milliseconds between each
 	// release of announcements by AuthenticatedGossiper to the network.
 	trickleDelay = 50
+
+	MaxWaitNumBlocksFundingConf = 10
 )
 
 var (
@@ -128,13 +130,14 @@ type nodeConfig struct {
 	BaseDir    string
 	ExtraArgs  []string
 
-	DataDir        string
-	LogDir         string
-	TLSCertPath    string
-	TLSKeyPath     string
-	AdminMacPath   string
-	ReadMacPath    string
-	InvoiceMacPath string
+	DataDir                     string
+	LogDir                      string
+	TLSCertPath                 string
+	TLSKeyPath                  string
+	AdminMacPath                string
+	ReadMacPath                 string
+	InvoiceMacPath              string
+	MaxWaitNumBlocksFundingConf uint32
 
 	HasSeed  bool
 	Password []byte
@@ -194,6 +197,7 @@ func (cfg nodeConfig) genArgs() []string {
 	args = append(args, "--nobootstrap")
 	args = append(args, "--debuglevel=debug")
 	args = append(args, "--bitcoin.defaultchanconfs=1")
+	args = append(args, fmt.Sprintf("--maxWaitNumBlocksFundingConf=%v", cfg.MaxWaitNumBlocksFundingConf))
 	args = append(args, fmt.Sprintf("--bitcoin.defaultremotedelay=%v", DefaultCSV))
 	args = append(args, fmt.Sprintf("--rpclisten=%v", cfg.RPCAddr()))
 	args = append(args, fmt.Sprintf("--restlisten=%v", cfg.RESTAddr()))
@@ -298,7 +302,6 @@ func newNode(cfg nodeConfig) (*HarnessNode, error) {
 	cfg.AdminMacPath = filepath.Join(cfg.DataDir, "admin.macaroon")
 	cfg.ReadMacPath = filepath.Join(cfg.DataDir, "readonly.macaroon")
 	cfg.InvoiceMacPath = filepath.Join(cfg.DataDir, "invoice.macaroon")
-
 	cfg.P2PPort, cfg.RPCPort, cfg.RESTPort, cfg.ProfilePort = generateListeningPorts()
 
 	nodeNum := numActiveNodes

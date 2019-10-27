@@ -14403,6 +14403,10 @@ type testCase struct {
 
 var testsCases = []*testCase{
 	{
+		name: "channel timeout recovery",
+		test: testChannelRecovery,
+	},
+	{
 		name: "sweep coins",
 		test: testSweepAllCoins,
 	},
@@ -14650,10 +14654,6 @@ var testsCases = []*testCase{
 	{
 		name: "cpfp",
 		test: testCPFP,
-	},
-	{
-		name: "channel timeout recovery",
-		test: testChannelRecovery,
 	},
 }
 

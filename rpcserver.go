@@ -1294,8 +1294,7 @@ func (r *rpcServer) ConnectPeer(ctx context.Context,
 	// The server hasn't yet started, so it won't be able to service any of
 	// our requests, so we'll bail early here.
 	if !r.server.Started() {
-		return nil, fmt.Errorf("chain backend is still syncing, server " +
-			"not active yet")
+		return nil, ErrServerNotActive
 	}
 
 	if in.Addr == nil {
@@ -1348,8 +1347,7 @@ func (r *rpcServer) DisconnectPeer(ctx context.Context,
 	rpcsLog.Debugf("[disconnectpeer] from peer(%s)", in.PubKey)
 
 	if !r.server.Started() {
-		return nil, fmt.Errorf("chain backend is still syncing, server " +
-			"not active yet")
+		return nil, ErrServerNotActive
 	}
 
 	// First we'll validate the string passed in within the request to
@@ -1435,8 +1433,7 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 		in.LocalFundingAmount, in.PushSat)
 
 	if !r.server.Started() {
-		return fmt.Errorf("chain backend is still syncing, server " +
-			"not active yet")
+		return ErrServerNotActive
 	}
 
 	localFundingAmt := btcutil.Amount(in.LocalFundingAmount)
@@ -1595,8 +1592,7 @@ func (r *rpcServer) OpenChannelSync(ctx context.Context,
 	// syncing, as otherwise we may not be able to obtain the relevant
 	// notifications.
 	if !r.server.Started() {
-		return nil, fmt.Errorf("chain backend is still syncing, server " +
-			"not active yet")
+		return nil, ErrServerNotActive
 	}
 
 	// Creation of channels before the wallet syncs up is currently
@@ -1738,6 +1734,10 @@ func GetChanPointFundingTxid(chanPoint *lnrpc.ChannelPoint) (*chainhash.Hash, er
 // a force close after a timeout period in the case of an inactive peer.
 func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 	updateStream lnrpc.Lightning_CloseChannelServer) error {
+
+	if !r.server.Started() {
+		return ErrServerNotActive
+	}
 
 	// If the user didn't specify a channel point, then we'll reject this
 	// request all together.
@@ -3275,8 +3275,7 @@ func (r *rpcServer) sendPayment(stream *paymentStream) error {
 	// syncing as we may be trying to sent a payment over a "stale"
 	// channel.
 	if !r.server.Started() {
-		return fmt.Errorf("chain backend is still syncing, server " +
-			"not active yet")
+		return ErrServerNotActive
 	}
 
 	// TODO(roasbeef): check payment filter to see if already used?
@@ -3466,8 +3465,7 @@ func (r *rpcServer) sendPaymentSync(ctx context.Context,
 	// syncing as we may be trying to sent a payment over a "stale"
 	// channel.
 	if !r.server.Started() {
-		return nil, fmt.Errorf("chain backend is still syncing, server " +
-			"not active yet")
+		return nil, ErrServerNotActive
 	}
 
 	// First we'll attempt to map the proto describing the next payment to

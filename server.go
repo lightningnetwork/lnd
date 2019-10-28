@@ -90,6 +90,11 @@ var (
 	// given peer.
 	ErrPeerNotConnected = errors.New("peer is not connected")
 
+	// ErrServerNotActive indicates that the server has started but hasn't
+	// fully finished the startup process.
+	ErrServerNotActive = errors.New("server is still in the process of " +
+		"starting")
+
 	// ErrServerShuttingDown indicates that the server is in the process of
 	// gracefully exiting.
 	ErrServerShuttingDown = errors.New("server is shutting down")

@@ -3,6 +3,7 @@ package channeldb
 import (
 	"github.com/btcsuite/btclog"
 	"github.com/lightningnetwork/lnd/build"
+	"github.com/lightningnetwork/lnd/channeldb/migration_01_to_11"
 )
 
 // log is a logger that is initialized with no output filters.  This
@@ -25,4 +26,5 @@ func DisableLog() {
 // using btclog.
 func UseLogger(logger btclog.Logger) {
 	log = logger
+	migration_01_to_11.UseLogger(logger)
 }

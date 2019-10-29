@@ -1353,7 +1353,7 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 		HtlcPoint:            ourContribution.HtlcBasePoint.PubKey,
 		FirstCommitmentPoint: ourContribution.FirstCommitmentPoint,
 	}
-	if err := fmsg.peer.SendMessage(false, &fundingAccept); err != nil {
+	if err := fmsg.peer.SendMessage(true, &fundingAccept); err != nil {
 		fndgLog.Errorf("unable to send funding response to peer: %v", err)
 		f.failFundingFlow(fmsg.peer, msg.PendingChannelID, err)
 		return
@@ -1512,7 +1512,7 @@ func (f *fundingManager) handleFundingAccept(fmsg *fundingAcceptMsg) {
 		f.failFundingFlow(fmsg.peer, msg.PendingChannelID, err)
 		return
 	}
-	if err := fmsg.peer.SendMessage(false, fundingCreated); err != nil {
+	if err := fmsg.peer.SendMessage(true, fundingCreated); err != nil {
 		fndgLog.Errorf("Unable to send funding complete message: %v", err)
 		f.failFundingFlow(fmsg.peer, msg.PendingChannelID, err)
 		return
@@ -1625,7 +1625,7 @@ func (f *fundingManager) handleFundingCreated(fmsg *fundingCreatedMsg) {
 		ChanID:    channelID,
 		CommitSig: ourCommitSig,
 	}
-	if err := fmsg.peer.SendMessage(false, fundingSigned); err != nil {
+	if err := fmsg.peer.SendMessage(true, fundingSigned); err != nil {
 		fndgLog.Errorf("unable to send FundingSigned message: %v", err)
 		f.failFundingFlow(fmsg.peer, pendingChanID, err)
 		deleteFromDatabase()
@@ -2133,7 +2133,7 @@ func (f *fundingManager) sendFundingLocked(
 		fndgLog.Infof("Peer(%x) is online, sending FundingLocked "+
 			"for ChannelID(%v)", peerKey, chanID)
 
-		if err := peer.SendMessage(false, fundingLockedMsg); err == nil {
+		if err := peer.SendMessage(true, fundingLockedMsg); err == nil {
 			// Sending succeeded, we can break out and continue the
 			// funding flow.
 			break
@@ -2890,7 +2890,7 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 		FirstCommitmentPoint: ourContribution.FirstCommitmentPoint,
 		ChannelFlags:         channelFlags,
 	}
-	if err := msg.peer.SendMessage(false, &fundingOpen); err != nil {
+	if err := msg.peer.SendMessage(true, &fundingOpen); err != nil {
 		e := fmt.Errorf("Unable to send funding request message: %v",
 			err)
 		fndgLog.Errorf(e.Error())

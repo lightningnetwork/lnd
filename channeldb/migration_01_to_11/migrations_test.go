@@ -950,3 +950,14 @@ func TestPaymentRouteSerialization(t *testing.T) {
 		MigrateRouteSerialization,
 		false)
 }
+
+// TestNotCoveredMigrations only references migrations that are not referenced
+// anywhere else in this package. This prevents false positives when linting
+// with unused.
+func TestNotCoveredMigrations(t *testing.T) {
+	_ = MigrateNodeAndEdgeUpdateIndex
+	_ = MigrateInvoiceTimeSeries
+	_ = MigrateInvoiceTimeSeriesOutgoingPayments
+	_ = MigrateEdgePolicies
+	_ = MigratePruneEdgeUpdateIndex
+}

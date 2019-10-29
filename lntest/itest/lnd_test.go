@@ -1206,15 +1206,23 @@ func testUnconfirmedChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 		pushAmt = btcutil.Amount(100000)
 	)
 
+	balReq := &lnrpc.ChannelBalanceRequest{}
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
+	aliceInitialBal, err := net.Alice.ChannelBalance(ctxt, balReq)
+	if err != nil {
+		t.Fatalf("unable to get alice's balance: %v", err)
+	}
+
 	// We'll start off by creating a node for Carol.
 	carol, err := net.NewNode("Carol", nil)
 	if err != nil {
 		t.Fatalf("unable to create carol's node: %v", err)
 	}
+
 	defer shutdownAndAssert(net, t, carol)
 
 	// We'll send her some confirmed funds.
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	err = net.SendCoins(ctxt, 2*chanAmt, carol)
 	if err != nil {
 		t.Fatalf("unable to send coins to carol: %v", err)
@@ -1280,7 +1288,7 @@ func testUnconfirmedChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// With the channel open, we'll check the balances on each side of the
 	// channel as a sanity check to ensure things worked out as intended.
-	balReq := &lnrpc.ChannelBalanceRequest{}
+
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	carolBal, err := carol.ChannelBalance(ctxt, balReq)
 	if err != nil {
@@ -1295,7 +1303,7 @@ func testUnconfirmedChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("carol's balance is incorrect: expected %v got %v",
 			chanAmt-pushAmt-calcStaticFee(0), carolBal)
 	}
-	if aliceBal.Balance != int64(pushAmt) {
+	if aliceBal.Balance != aliceInitialBal.Balance+int64(pushAmt) {
 		t.Fatalf("alice's balance is incorrect: expected %v got %v",
 			pushAmt, aliceBal.Balance)
 	}

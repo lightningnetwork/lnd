@@ -2,9 +2,12 @@ package contractcourt
 
 import (
 	"encoding/binary"
+	"fmt"
 	"io"
+	"sync"
 
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/sweep"
@@ -36,6 +39,13 @@ type commitSweepResolver struct {
 	// chanPoint is the channel point of the original contract.
 	chanPoint wire.OutPoint
 
+	// currentReport stores the current state of the resolver for reporting
+	// over the rpc interface.
+	currentReport ContractReport
+
+	// reportLock prevents concurrent access to the resolver report.
+	reportLock sync.Mutex
+
 	contractResolverKit
 }
 
@@ -52,6 +62,7 @@ func newCommitSweepResolver(res lnwallet.CommitOutputResolution,
 	}
 
 	r.initLogger(r)
+	r.initReport()
 
 	return r
 }
@@ -61,6 +72,63 @@ func newCommitSweepResolver(res lnwallet.CommitOutputResolution,
 func (c *commitSweepResolver) ResolverKey() []byte {
 	key := newResolverID(c.commitResolution.SelfOutPoint)
 	return key[:]
+}
+
+// waitForHeight registers for block notifications and waits for the provided
+// block height to be reached.
+func (c *commitSweepResolver) waitForHeight(waitHeight uint32) error {
+	// Register for block epochs. After registration, the current height
+	// will be sent on the channel immediately.
+	blockEpochs, err := c.Notifier.RegisterBlockEpochNtfn(nil)
+	if err != nil {
+		return err
+	}
+	defer blockEpochs.Cancel()
+
+	for {
+		select {
+		case newBlock, ok := <-blockEpochs.Epochs:
+			if !ok {
+				return errResolverShuttingDown
+			}
+			height := newBlock.Height
+			if height >= int32(waitHeight) {
+				return nil
+			}
+
+		case <-c.quit:
+			return errResolverShuttingDown
+		}
+	}
+}
+
+// getCommitTxConfHeight waits for confirmation of the commitment tx and returns
+// the confirmation height.
+func (c *commitSweepResolver) getCommitTxConfHeight() (uint32, error) {
+	txID := c.commitResolution.SelfOutPoint.Hash
+	signDesc := c.commitResolution.SelfOutputSignDesc
+	pkScript := signDesc.Output.PkScript
+	const confDepth = 1
+	confChan, err := c.Notifier.RegisterConfirmationsNtfn(
+		&txID, pkScript, confDepth, c.broadcastHeight,
+	)
+	if err != nil {
+		return 0, err
+	}
+	defer confChan.Cancel()
+
+	select {
+	case txConfirmation, ok := <-confChan.Confirmed:
+		if !ok {
+			return 0, fmt.Errorf("cannot get confirmation "+
+				"for commit tx %v", txID)
+		}
+
+		return txConfirmation.BlockHeight, nil
+
+	case <-c.quit:
+		return 0, errResolverShuttingDown
+	}
 }
 
 // Resolve instructs the contract resolver to resolve the output on-chain. Once
@@ -76,155 +144,100 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 		return nil, nil
 	}
 
-	// First, we'll register for a notification once the commitment output
-	// itself has been confirmed.
-	//
-	// TODO(roasbeef): instead sweep asap if remote commit? yeh
-	commitTXID := c.commitResolution.SelfOutPoint.Hash
-	sweepScript := c.commitResolution.SelfOutputSignDesc.Output.PkScript
-	confNtfn, err := c.Notifier.RegisterConfirmationsNtfn(
-		&commitTXID, sweepScript, 1, c.broadcastHeight,
-	)
+	confHeight, err := c.getCommitTxConfHeight()
 	if err != nil {
 		return nil, err
 	}
 
-	c.log.Debugf("waiting for commit tx to confirm")
+	unlockHeight := confHeight + c.commitResolution.MaturityDelay
 
-	select {
-	case _, ok := <-confNtfn.Confirmed:
-		if !ok {
-			return nil, errResolverShuttingDown
+	c.log.Debugf("commit conf_height=%v, unlock_height=%v",
+		confHeight, unlockHeight)
+
+	// Update report now that we learned the confirmation height.
+	c.reportLock.Lock()
+	c.currentReport.MaturityHeight = unlockHeight
+	c.reportLock.Unlock()
+
+	// If there is a csv delay, we'll wait for that.
+	if c.commitResolution.MaturityDelay > 0 {
+		c.log.Debugf("waiting for csv lock to expire at height %v",
+			unlockHeight)
+
+		// We only need to wait for the block before the block that
+		// unlocks the spend path.
+		err := c.waitForHeight(unlockHeight - 1)
+		if err != nil {
+			return nil, err
 		}
-
-	case <-c.quit:
-		return nil, errResolverShuttingDown
 	}
 
 	// We're dealing with our commitment transaction if the delay on the
 	// resolution isn't zero.
 	isLocalCommitTx := c.commitResolution.MaturityDelay != 0
 
-	if !isLocalCommitTx {
-		// There're two types of commitments, those that have tweaks
-		// for the remote key (us in this case), and those that don't.
-		// We'll rely on the presence of the commitment tweak to to
-		// discern which type of commitment this is.
-		var witnessType input.WitnessType
-		if c.commitResolution.SelfOutputSignDesc.SingleTweak == nil {
-			witnessType = input.CommitSpendNoDelayTweakless
-		} else {
-			witnessType = input.CommitmentNoDelay
-		}
-
-		// We'll craft an input with all the information required for
-		// the sweeper to create a fully valid sweeping transaction to
-		// recover these coins.
-		inp := input.MakeBaseInput(
-			&c.commitResolution.SelfOutPoint,
-			witnessType,
-			&c.commitResolution.SelfOutputSignDesc,
-			c.broadcastHeight,
-		)
-
-		// With our input constructed, we'll now offer it to the
-		// sweeper.
-		c.log.Infof("sweeping commit output")
-
-		feePref := sweep.FeePreference{ConfTarget: commitOutputConfTarget}
-		resultChan, err := c.Sweeper.SweepInput(&inp, feePref)
-		if err != nil {
-			c.log.Errorf("unable to sweep input: %v", err)
-
-			return nil, err
-		}
-
-		// Sweeper is going to join this input with other inputs if
-		// possible and publish the sweep tx. When the sweep tx
-		// confirms, it signals us through the result channel with the
-		// outcome. Wait for this to happen.
-		select {
-		case sweepResult := <-resultChan:
-			if sweepResult.Err != nil {
-				c.log.Errorf("unable to sweep input: %v",
-					sweepResult.Err)
-
-				return nil, sweepResult.Err
-			}
-
-			c.log.Infof("commit tx fully resolved by sweep tx: %v",
-				sweepResult.Tx.TxHash())
-		case <-c.quit:
-			return nil, errResolverShuttingDown
-		}
-
-		c.resolved = true
-		return nil, c.Checkpoint(c)
+	// There're two types of commitments, those that have tweaks
+	// for the remote key (us in this case), and those that don't.
+	// We'll rely on the presence of the commitment tweak to to
+	// discern which type of commitment this is.
+	var witnessType input.WitnessType
+	switch {
+	case isLocalCommitTx:
+		witnessType = input.CommitmentTimeLock
+	case c.commitResolution.SelfOutputSignDesc.SingleTweak == nil:
+		witnessType = input.CommitSpendNoDelayTweakless
+	default:
+		witnessType = input.CommitmentNoDelay
 	}
 
-	// Otherwise we are dealing with a local commitment transaction and the
-	// output we need to sweep has been sent to the nursery for incubation.
-	// In this case, we'll wait until the commitment output has been spent.
-	spendNtfn, err := c.Notifier.RegisterSpendNtfn(
+	// We'll craft an input with all the information required for
+	// the sweeper to create a fully valid sweeping transaction to
+	// recover these coins.
+	inp := input.NewCsvInput(
 		&c.commitResolution.SelfOutPoint,
-		c.commitResolution.SelfOutputSignDesc.Output.PkScript,
+		witnessType,
+		&c.commitResolution.SelfOutputSignDesc,
 		c.broadcastHeight,
+		c.commitResolution.MaturityDelay,
 	)
+
+	// With our input constructed, we'll now offer it to the
+	// sweeper.
+	c.log.Infof("sweeping commit output")
+
+	feePref := sweep.FeePreference{ConfTarget: commitOutputConfTarget}
+	resultChan, err := c.Sweeper.SweepInput(inp, feePref)
 	if err != nil {
+		c.log.Errorf("unable to sweep input: %v", err)
+
 		return nil, err
 	}
 
-	c.log.Infof("waiting for commit output to be swept")
-
-	var sweepTx *wire.MsgTx
+	// Sweeper is going to join this input with other inputs if
+	// possible and publish the sweep tx. When the sweep tx
+	// confirms, it signals us through the result channel with the
+	// outcome. Wait for this to happen.
 	select {
-	case commitSpend, ok := <-spendNtfn.Spend:
-		if !ok {
-			return nil, errResolverShuttingDown
+	case sweepResult := <-resultChan:
+		if sweepResult.Err != nil {
+			c.log.Errorf("unable to sweep input: %v",
+				sweepResult.Err)
+
+			return nil, sweepResult.Err
 		}
 
-		// Once we detect the commitment output has been spent,
-		// we'll extract the spending transaction itself, as we
-		// now consider this to be our sweep transaction.
-		sweepTx = commitSpend.SpendingTx
-
-		c.log.Infof("commit output swept by txid=%v", sweepTx.TxHash())
-
-		if err := c.Checkpoint(c); err != nil {
-			c.log.Errorf("unable to Checkpoint: %v", err)
-			return nil, err
-		}
+		c.log.Infof("commit tx fully resolved by sweep tx: %v",
+			sweepResult.Tx.TxHash())
 	case <-c.quit:
 		return nil, errResolverShuttingDown
 	}
 
-	c.log.Infof("waiting for commit sweep txid=%v conf", sweepTx.TxHash())
+	// Funds have been swept and balance is no longer in limbo.
+	c.reportLock.Lock()
+	c.currentReport.RecoveredBalance = c.currentReport.LimboBalance
+	c.currentReport.LimboBalance = 0
+	c.reportLock.Unlock()
 
-	// Now we'll wait until the sweeping transaction has been fully
-	// confirmed.  Once it's confirmed, we can mark this contract resolved.
-	sweepTXID := sweepTx.TxHash()
-	sweepingScript := sweepTx.TxOut[0].PkScript
-	confNtfn, err = c.Notifier.RegisterConfirmationsNtfn(
-		&sweepTXID, sweepingScript, 1, c.broadcastHeight,
-	)
-	if err != nil {
-		return nil, err
-	}
-	select {
-	case confInfo, ok := <-confNtfn.Confirmed:
-		if !ok {
-			return nil, errResolverShuttingDown
-		}
-
-		c.log.Infof("commit tx is fully resolved, at height: %v",
-			confInfo.BlockHeight)
-
-	case <-c.quit:
-		return nil, errResolverShuttingDown
-	}
-
-	// Once the transaction has received a sufficient number of
-	// confirmations, we'll mark ourselves as fully resolved and exit.
 	c.resolved = true
 	return nil, c.Checkpoint(c)
 }
@@ -309,10 +322,42 @@ func newCommitSweepResolverFromReader(r io.Reader, resCfg ResolverConfig) (
 	// the database.
 
 	c.initLogger(c)
+	c.initReport()
 
 	return c, nil
 }
 
+// report returns a report on the resolution state of the contract.
+func (c *commitSweepResolver) report() *ContractReport {
+	c.reportLock.Lock()
+	defer c.reportLock.Unlock()
+
+	copy := c.currentReport
+	return &copy
+}
+
+// initReport initializes the pending channels report for this resolver.
+func (c *commitSweepResolver) initReport() {
+	amt := btcutil.Amount(
+		c.commitResolution.SelfOutputSignDesc.Output.Value,
+	)
+
+	// Set the initial report. All fields are filled in, except for the
+	// maturity height which remains 0 until Resolve() is executed.
+	//
+	// TODO(joostjager): Resolvers only activate after the commit tx
+	// confirms. With more refactoring in channel arbitrator, it would be
+	// possible to make the confirmation height part of ResolverConfig and
+	// populate MaturityHeight here.
+	c.currentReport = ContractReport{
+		Outpoint:         c.commitResolution.SelfOutPoint,
+		Type:             ReportOutputUnencumbered,
+		Amount:           amt,
+		LimboBalance:     amt,
+		RecoveredBalance: 0,
+	}
+}
+
 // A compile time assertion to ensure commitSweepResolver meets the
 // ContractResolver interface.
-var _ ContractResolver = (*commitSweepResolver)(nil)
+var _ reportingContractResolver = (*commitSweepResolver)(nil)

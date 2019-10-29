@@ -2452,25 +2452,51 @@ func (r *rpcServer) arbitratorPopulateForceCloseResp(chanPoint *wire.OutPoint,
 	reports := arbitrator.Report()
 
 	for _, report := range reports {
-		incoming := report.Type == contractcourt.ReportOutputIncomingHtlc
+		switch report.Type {
 
-		htlc := &lnrpc.PendingHTLC{
-			Incoming:       incoming,
-			Amount:         int64(report.Amount),
-			Outpoint:       report.Outpoint.String(),
-			MaturityHeight: report.MaturityHeight,
-			Stage:          report.Stage,
-		}
+		// For a direct output, populate/update the top level
+		// response properties.
+		case contractcourt.ReportOutputUnencumbered:
+			// Populate the maturity height fields for the direct
+			// commitment output to us.
+			forceClose.MaturityHeight = report.MaturityHeight
 
-		if htlc.MaturityHeight != 0 {
-			htlc.BlocksTilMaturity =
-				int32(htlc.MaturityHeight) - currentHeight
+			// If the transaction has been confirmed, then we can
+			// compute how many blocks it has left.
+			if forceClose.MaturityHeight != 0 {
+				forceClose.BlocksTilMaturity =
+					int32(forceClose.MaturityHeight) -
+						currentHeight
+			}
+
+		// Add htlcs to the PendingHtlcs response property.
+		case contractcourt.ReportOutputIncomingHtlc,
+			contractcourt.ReportOutputOutgoingHtlc:
+
+			incoming := report.Type == contractcourt.ReportOutputIncomingHtlc
+			htlc := &lnrpc.PendingHTLC{
+				Incoming:       incoming,
+				Amount:         int64(report.Amount),
+				Outpoint:       report.Outpoint.String(),
+				MaturityHeight: report.MaturityHeight,
+				Stage:          report.Stage,
+			}
+
+			if htlc.MaturityHeight != 0 {
+				htlc.BlocksTilMaturity =
+					int32(htlc.MaturityHeight) - currentHeight
+			}
+
+			forceClose.PendingHtlcs = append(forceClose.PendingHtlcs, htlc)
+
+		default:
+			return fmt.Errorf("unknown report output type: %v",
+				report.Type)
 		}
 
 		forceClose.LimboBalance += int64(report.LimboBalance)
 		forceClose.RecoveredBalance += int64(report.RecoveredBalance)
 
-		forceClose.PendingHtlcs = append(forceClose.PendingHtlcs, htlc)
 	}
 
 	return nil
@@ -2501,15 +2527,6 @@ func (r *rpcServer) nurseryPopulateForceCloseResp(chanPoint *wire.OutPoint,
 	// wallet.
 	forceClose.LimboBalance = int64(nurseryInfo.limboBalance)
 	forceClose.RecoveredBalance = int64(nurseryInfo.recoveredBalance)
-	forceClose.MaturityHeight = nurseryInfo.maturityHeight
-
-	// If the transaction has been confirmed, then we can compute how many
-	// blocks it has left.
-	if forceClose.MaturityHeight != 0 {
-		forceClose.BlocksTilMaturity =
-			int32(forceClose.MaturityHeight) -
-				currentHeight
-	}
 
 	for _, htlcReport := range nurseryInfo.htlcs {
 		// TODO(conner) set incoming flag appropriately after handling

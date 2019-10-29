@@ -141,6 +141,10 @@ const (
 	// ReportOutputOutgoingHtlc is an outgoing hash time locked contract on
 	// the commitment tx.
 	ReportOutputOutgoingHtlc
+
+	// ReportOutputUnencumbered is an uncontested output on the commitment
+	// transaction paying to us directly.
+	ReportOutputUnencumbered
 )
 
 // ContractReport provides a summary of a commitment tx output.
@@ -871,27 +875,6 @@ func (c *ChannelArbitrator) stateStep(
 				c.cfg.ChanPoint)
 			nextState = StateFullyResolved
 			break
-		}
-
-		// If we've have broadcast the commitment transaction, we send
-		// our commitment output for incubation, but only if it wasn't
-		// trimmed.  We'll need to wait for a CSV timeout before we can
-		// reclaim the funds.
-		commitRes := contractResolutions.CommitResolution
-		if commitRes != nil && commitRes.MaturityDelay > 0 {
-			log.Infof("ChannelArbitrator(%v): sending commit "+
-				"output for incubation", c.cfg.ChanPoint)
-
-			err = c.cfg.IncubateOutputs(
-				c.cfg.ChanPoint, commitRes,
-				nil, nil, triggerHeight,
-			)
-			if err != nil {
-				// TODO(roasbeef): check for AlreadyExists errors
-				log.Errorf("unable to incubate commitment "+
-					"output: %v", err)
-				return StateError, closeTx, err
-			}
 		}
 
 		// Now that we know we'll need to act, we'll process the htlc

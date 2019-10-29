@@ -2037,6 +2037,20 @@ func (p *peer) reenableActiveChannels() {
 	}
 }
 
+// getLocalDeliveryScript returns an script to close the channel out to. If
+// an upfront shutdown script was set, it is returned. Otherwise, a random
+// delivery script is returned.
+func (p *peer) getLocalDeliveryScript(upfront lnwire.DeliveryAddress) (lnwire.DeliveryAddress, error) {
+	// if an upfront address was set, return it.
+	if len(upfront) != 0 {
+		return upfront, nil
+	}
+
+	// If the local node did not set an upfront shutdown script, create a new
+	// delivery script.
+	return p.genDeliveryScript()
+}
+
 // fetchActiveChanCloser attempts to fetch the active chan closer state machine
 // for the target channel ID. If the channel isn't active an error is returned.
 // Otherwise, either an existing state machine will be returned, or a new one
@@ -2064,12 +2078,14 @@ func (p *peer) fetchActiveChanCloser(chanID lnwire.ChannelID) (*channelCloser, e
 				"channel w/ active htlcs")
 		}
 
-		// We'll create a valid closing state machine in order to
-		// respond to the initiated cooperative channel closure.
-		deliveryAddr, err := p.genDeliveryScript()
+		// We'll create a valid closing state machine in order to respond to the
+		// initiated cooperative channel closure. First, we set the delivery
+		// script that our funds will be paid out to.
+		deliveryAddr, err := p.getLocalDeliveryScript(
+			channel.LocalUpfrontShutdownScript(),
+		)
 		if err != nil {
 			peerLog.Errorf("unable to gen delivery script: %v", err)
-
 			return nil, fmt.Errorf("close addr unavailable")
 		}
 
@@ -2095,6 +2111,7 @@ func (p *peer) fetchActiveChanCloser(chanID lnwire.ChannelID) (*channelCloser, e
 				unregisterChannel: p.server.htlcSwitch.RemoveLink,
 				broadcastTx:       p.server.cc.wallet.PublishTransaction,
 				disableChannel:    p.server.chanStatusMgr.RequestDisable,
+				disconnect:        p.Disconnect,
 				quit:              p.quit,
 			},
 			deliveryAddr,
@@ -2130,10 +2147,11 @@ func (p *peer) handleLocalCloseReq(req *htlcswitch.ChanClose) {
 	// out this channel on-chain, so we execute the cooperative channel
 	// closure workflow.
 	case htlcswitch.CloseRegular:
-		// First, we'll fetch a fresh delivery address that we'll use
-		// to send the funds to in the case of a successful
-		// negotiation.
-		deliveryAddr, err := p.genDeliveryScript()
+		// First, we'll fetch a  delivery address that we'll use to send the
+		// funds to in the case of a successful negotiation.
+		deliveryAddr, err := p.getLocalDeliveryScript(
+			channel.LocalUpfrontShutdownScript(),
+		)
 		if err != nil {
 			peerLog.Errorf(err.Error())
 			req.Err <- err
@@ -2155,6 +2173,7 @@ func (p *peer) handleLocalCloseReq(req *htlcswitch.ChanClose) {
 				unregisterChannel: p.server.htlcSwitch.RemoveLink,
 				broadcastTx:       p.server.cc.wallet.PublishTransaction,
 				disableChannel:    p.server.chanStatusMgr.RequestDisable,
+				disconnect:        p.Disconnect,
 				quit:              p.quit,
 			},
 			deliveryAddr,

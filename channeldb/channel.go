@@ -532,6 +532,16 @@ type OpenChannel struct {
 	// for which we are the initiator.
 	FundingTxn *wire.MsgTx
 
+	// LocalShutdownScript is set to a pre-set script if the channel was opened
+	// by the local node with option_upfront_shutdown_script set. If the option
+	// was not set, the field is empty.
+	LocalShutdownScript lnwire.DeliveryAddress
+
+	// RemoteShutdownScript is set to a pre-set script if the channel was opened
+	// by the remote node with option_upfront_shutdown_script set. If the option
+	// was not set, the field is empty.
+	RemoteShutdownScript lnwire.DeliveryAddress
+
 	// TODO(roasbeef): eww
 	Db *DB
 

@@ -1,6 +1,7 @@
 package lnd
 
 import (
+	"bytes"
 	"fmt"
 
 	"github.com/btcsuite/btcd/txscript"
@@ -81,6 +82,10 @@ type chanCloseCfg struct {
 	// disableChannel disables a channel, resulting in it not being able to
 	// forward payments.
 	disableChannel func(wire.OutPoint) error
+
+	// disconnect should be called to disconnect from the remote peer in this
+	// close.
+	disconnect func(err error)
 
 	// quit is a channel that should be sent upon in the occasion the state
 	// machine should cease all progress and shutdown.
@@ -262,6 +267,23 @@ func (c *channelCloser) CloseRequest() *htlcswitch.ChanClose {
 	return c.closeReq
 }
 
+// checkRemoteDeliveryAddress checks that the address provided by the remote
+// peer matches the upfront shutdown address, if it is set. It does not perform
+// any validation on the address provided.
+func checkRemoteDeliveryAddress(upfront, address lnwire.DeliveryAddress) error {
+	// If an upfront shutdown address is empty, return early.
+	if len(upfront) == 0 {
+		return nil
+	}
+
+	if !bytes.Equal(address, upfront) {
+		return fmt.Errorf("shutdown address: %x does not match upfront "+
+			"shutdown script: %x", address, upfront)
+	}
+
+	return nil
+}
+
 // ProcessCloseMsg attempts to process the next message in the closing series.
 // This method will update the state accordingly and return two primary values:
 // the next set of messages to be sent, and a bool indicating if the fee
@@ -282,9 +304,21 @@ func (c *channelCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message, b
 				"instead have %v", spew.Sdump(msg))
 		}
 
-		// Next, we'll note the other party's preference for their
-		// delivery address. We'll use this when we craft the closure
-		// transaction.
+		// If the remote node opened the channel with option upfront shutdown
+		// script, check that the address they provided matches.
+		err := checkRemoteDeliveryAddress(
+			c.cfg.channel.RemoteUpfrontShutdownScript(), shutDownMsg.Address,
+		)
+		if err != nil {
+			// The remote peer has provided a script that does not match the
+			// one set on channel open. Disconnect from the peer, as per BOLT 2.
+			c.cfg.disconnect(err)
+			return nil, false, err
+		}
+
+		// Once we have checked that the other party has not violated option
+		// upfront shutdown we set their preference for delivery address. We'll
+		// use this when we craft the closure transaction.
 		c.remoteDeliveryScript = shutDownMsg.Address
 
 		// We'll generate a shutdown message of our own to send across
@@ -332,7 +366,19 @@ func (c *channelCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message, b
 				"instead have %v", spew.Sdump(msg))
 		}
 
-		// Now that we know this is a valid shutdown message, we'll
+		// If the remote node opened the channel with option upfront shutdown
+		// script, check that the address they provided matches.
+		err := checkRemoteDeliveryAddress(
+			c.cfg.channel.RemoteUpfrontShutdownScript(), shutDownMsg.Address,
+		)
+		if err != nil {
+			// The remote peer has provided a script that does not match the
+			// one set on channel open. Disconnect from the peer, as per BOLT 2.
+			c.cfg.disconnect(err)
+			return nil, false, err
+		}
+
+		// Now that we know this is a valid shutdown message and address, we'll
 		// record their preferred delivery closing script.
 		c.remoteDeliveryScript = shutDownMsg.Address
 

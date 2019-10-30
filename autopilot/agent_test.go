@@ -330,6 +330,54 @@ func TestAgentChannelOpenSignal(t *testing.T) {
 	}
 }
 
+// TestAgentHeuristicUpdateSignal tests that upon notification about a
+// heuristic update, the agent reconsults the heuristic.
+func TestAgentHeuristicUpdateSignal(t *testing.T) {
+	t.Parallel()
+
+	testCtx, cleanup := setup(t, nil)
+	defer cleanup()
+
+	// We'll send an initial "no" response to advance the agent past its
+	// initial check.
+	respondMoreChans(t, testCtx, moreChansResp{0, 0})
+
+	// Next we'll signal that one of the heuristcs have been updated.
+	testCtx.agent.OnHeuristicUpdate(testCtx.heuristic)
+
+	// The update should trigger the agent to ask for a channel budget.so
+	// we'll respond that there is a budget for opening 1 more channel.
+	respondMoreChans(t, testCtx,
+		moreChansResp{
+			numMore: 1,
+			amt:     1 * btcutil.SatoshiPerBitcoin,
+		},
+	)
+
+	// At this point, the agent should now be querying the heuristic for
+	// scores. We'll respond.
+	pub, err := testCtx.graph.addRandNode()
+	if err != nil {
+		t.Fatalf("unable to generate key: %v", err)
+	}
+	nodeID := NewNodeID(pub)
+	scores := map[NodeID]*NodeScore{
+		nodeID: {
+			NodeID: nodeID,
+			Score:  0.5,
+		},
+	}
+	respondNodeScores(t, testCtx, scores)
+
+	// Finally, this should result in the agent opening a channel.
+	chanController := testCtx.chanController.(*mockChanController)
+	select {
+	case <-chanController.openChanSignals:
+	case <-time.After(time.Second * 10):
+		t.Fatalf("channel not opened in time")
+	}
+}
+
 // A mockFailingChanController always fails to open a channel.
 type mockFailingChanController struct {
 }

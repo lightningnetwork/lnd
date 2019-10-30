@@ -44,12 +44,16 @@ func newCommitSweepResolver(res lnwallet.CommitOutputResolution,
 	broadcastHeight uint32,
 	chanPoint wire.OutPoint, resCfg ResolverConfig) *commitSweepResolver {
 
-	return &commitSweepResolver{
+	r := &commitSweepResolver{
 		contractResolverKit: *newContractResolverKit(resCfg),
 		commitResolution:    res,
 		broadcastHeight:     broadcastHeight,
 		chanPoint:           chanPoint,
 	}
+
+	r.initLogger(r)
+
+	return r
 }
 
 // ResolverKey returns an identifier which should be globally unique for this
@@ -85,7 +89,7 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 		return nil, err
 	}
 
-	log.Debugf("%T(%v): waiting for commit tx to confirm", c, c.chanPoint)
+	c.log.Debugf("waiting for commit tx to confirm")
 
 	select {
 	case _, ok := <-confNtfn.Confirmed:
@@ -125,13 +129,12 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 
 		// With our input constructed, we'll now offer it to the
 		// sweeper.
-		log.Infof("%T(%v): sweeping commit output", c, c.chanPoint)
+		c.log.Infof("sweeping commit output")
 
 		feePref := sweep.FeePreference{ConfTarget: commitOutputConfTarget}
 		resultChan, err := c.Sweeper.SweepInput(&inp, feePref)
 		if err != nil {
-			log.Errorf("%T(%v): unable to sweep input: %v",
-				c, c.chanPoint, err)
+			c.log.Errorf("unable to sweep input: %v", err)
 
 			return nil, err
 		}
@@ -143,14 +146,14 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 		select {
 		case sweepResult := <-resultChan:
 			if sweepResult.Err != nil {
-				log.Errorf("%T(%v): unable to sweep input: %v",
-					c, c.chanPoint, sweepResult.Err)
+				c.log.Errorf("unable to sweep input: %v",
+					sweepResult.Err)
 
 				return nil, sweepResult.Err
 			}
 
-			log.Infof("ChannelPoint(%v) commit tx is fully resolved by "+
-				"sweep tx: %v", c.chanPoint, sweepResult.Tx.TxHash())
+			c.log.Infof("commit tx fully resolved by sweep tx: %v",
+				sweepResult.Tx.TxHash())
 		case <-c.quit:
 			return nil, errResolverShuttingDown
 		}
@@ -171,8 +174,7 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 		return nil, err
 	}
 
-	log.Infof("%T(%v): waiting for commit output to be swept", c,
-		c.chanPoint)
+	c.log.Infof("waiting for commit output to be swept")
 
 	var sweepTx *wire.MsgTx
 	select {
@@ -186,19 +188,17 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 		// now consider this to be our sweep transaction.
 		sweepTx = commitSpend.SpendingTx
 
-		log.Infof("%T(%v): commit output swept by txid=%v",
-			c, c.chanPoint, sweepTx.TxHash())
+		c.log.Infof("commit output swept by txid=%v", sweepTx.TxHash())
 
 		if err := c.Checkpoint(c); err != nil {
-			log.Errorf("unable to Checkpoint: %v", err)
+			c.log.Errorf("unable to Checkpoint: %v", err)
 			return nil, err
 		}
 	case <-c.quit:
 		return nil, errResolverShuttingDown
 	}
 
-	log.Infof("%T(%v): waiting for commit sweep txid=%v conf", c, c.chanPoint,
-		sweepTx.TxHash())
+	c.log.Infof("waiting for commit sweep txid=%v conf", sweepTx.TxHash())
 
 	// Now we'll wait until the sweeping transaction has been fully
 	// confirmed.  Once it's confirmed, we can mark this contract resolved.
@@ -216,8 +216,8 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 			return nil, errResolverShuttingDown
 		}
 
-		log.Infof("ChannelPoint(%v) commit tx is fully resolved, at height: %v",
-			c.chanPoint, confInfo.BlockHeight)
+		c.log.Infof("commit tx is fully resolved, at height: %v",
+			confInfo.BlockHeight)
 
 	case <-c.quit:
 		return nil, errResolverShuttingDown
@@ -307,6 +307,8 @@ func newCommitSweepResolverFromReader(r io.Reader, resCfg ResolverConfig) (
 	// Previously a sweep tx was deserialized at this point. Refactoring
 	// removed this, but keep in mind that this data may still be present in
 	// the database.
+
+	c.initLogger(c)
 
 	return c, nil
 }

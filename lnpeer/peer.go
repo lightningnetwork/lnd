@@ -58,4 +58,14 @@ type Peer interface {
 	// this interface to gate their behavior off the set of negotiated
 	// feature bits.
 	RemoteGlobalFeatures() *lnwire.FeatureVector
+
+	// RemoteGlobalFeatures returns the set of local features that has been
+	// advertised by the remote node. This allows sub-systems that use this
+	// interface to gate their behavior off the set of negotiated feature bits.
+	RemoteLocalFeatures() *lnwire.FeatureVector
+
+	// LocalLocalFeatures returns the set of local features that has been
+	// advertised by the local node. This allows sub-systems that use this
+	// interface to gate their behavior off the set of negotiated feature bits.
+	LocalLocalFeatures() *lnwire.FeatureVector
 }

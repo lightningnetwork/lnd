@@ -608,6 +608,14 @@ func (s *mockServer) RemoteGlobalFeatures() *lnwire.FeatureVector {
 	return nil
 }
 
+func (s *mockServer) RemoteLocalFeatures() *lnwire.FeatureVector {
+	return nil
+}
+
+func (s *mockServer) LocalLocalFeatures() *lnwire.FeatureVector {
+	return nil
+}
+
 func (s *mockServer) Stop() error {
 	if !atomic.CompareAndSwapInt32(&s.shutdown, 0, 1) {
 		return nil

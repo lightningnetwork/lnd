@@ -247,7 +247,7 @@ func (h *htlcTimeoutResolver) Resolve() (ContractResolver, error) {
 			h.htlcResolution.ClaimOutpoint)
 
 		err := h.IncubateOutputs(
-			h.ChanPoint, nil, &h.htlcResolution, nil,
+			h.ChanPoint, &h.htlcResolution, nil,
 			h.broadcastHeight,
 		)
 		if err != nil {

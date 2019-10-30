@@ -330,7 +330,6 @@ func (u *utxoNursery) Stop() error {
 // they're CLTV absolute time locked, or if they're CSV relative time locked.
 // Once all outputs reach maturity, they'll be swept back into the wallet.
 func (u *utxoNursery) IncubateOutputs(chanPoint wire.OutPoint,
-	commitResolution *lnwallet.CommitOutputResolution,
 	outgoingHtlcs []lnwallet.OutgoingHtlcResolution,
 	incomingHtlcs []lnwallet.IncomingHtlcResolution,
 	broadcastHeight uint32) error {
@@ -352,8 +351,6 @@ func (u *utxoNursery) IncubateOutputs(chanPoint wire.OutPoint,
 
 	numHtlcs := len(incomingHtlcs) + len(outgoingHtlcs)
 	var (
-		hasCommit bool
-
 		// Kid outputs can be swept after an initial confirmation
 		// followed by a maturity period.Baby outputs are two stage and
 		// will need to wait for an absolute time out to reach a
@@ -363,28 +360,6 @@ func (u *utxoNursery) IncubateOutputs(chanPoint wire.OutPoint,
 	)
 
 	// 1. Build all the spendable outputs that we will try to incubate.
-
-	// It could be that our to-self output was below the dust limit. In
-	// that case the commit resolution would be nil and we would not have
-	// that output to incubate.
-	if commitResolution != nil {
-		hasCommit = true
-		selfOutput := makeKidOutput(
-			&commitResolution.SelfOutPoint,
-			&chanPoint,
-			commitResolution.MaturityDelay,
-			input.CommitmentTimeLock,
-			&commitResolution.SelfOutputSignDesc,
-			0,
-		)
-
-		// We'll skip any zero valued outputs as this indicates we
-		// don't have a settled balance within the commitment
-		// transaction.
-		if selfOutput.Amount() > 0 {
-			kidOutputs = append(kidOutputs, selfOutput)
-		}
-	}
 
 	// TODO(roasbeef): query and see if we already have, if so don't add?
 
@@ -436,8 +411,8 @@ func (u *utxoNursery) IncubateOutputs(chanPoint wire.OutPoint,
 	//  * need ability to cancel in the case that we learn of pre-image or
 	//    remote party pulls
 
-	utxnLog.Infof("Incubating Channel(%s) has-commit=%v, num-htlcs=%d",
-		chanPoint, hasCommit, numHtlcs)
+	utxnLog.Infof("Incubating Channel(%s) num-htlcs=%d",
+		chanPoint, numHtlcs)
 
 	u.mu.Lock()
 	defer u.mu.Unlock()
@@ -538,8 +513,6 @@ func (u *utxoNursery) NurseryReport(
 				// Preschool outputs are awaiting the
 				// confirmation of the commitment transaction.
 				switch kid.WitnessType() {
-				case input.CommitmentTimeLock:
-					report.AddLimboCommitment(&kid)
 
 				case input.HtlcAcceptedSuccessSecondLevel:
 					// An HTLC output on our commitment transaction
@@ -561,11 +534,6 @@ func (u *utxoNursery) NurseryReport(
 				// We can distinguish them via their witness
 				// types.
 				switch kid.WitnessType() {
-				case input.CommitmentTimeLock:
-					// The commitment transaction has been
-					// confirmed, and we are waiting the CSV
-					// delay to expire.
-					report.AddLimboCommitment(&kid)
 
 				case input.HtlcOfferedRemoteTimeout:
 					// This is an HTLC output on the
@@ -590,11 +558,6 @@ func (u *utxoNursery) NurseryReport(
 				// will contribute towards the recovered
 				// balance.
 				switch kid.WitnessType() {
-				case input.CommitmentTimeLock:
-					// The commitment output was
-					// successfully swept back into a
-					// regular p2wkh output.
-					report.AddRecoveredCommitment(&kid)
 
 				case input.HtlcAcceptedSuccessSecondLevel:
 					fallthrough
@@ -1071,11 +1034,6 @@ type contractMaturityReport struct {
 	// recoveredBalance is the total value that has been successfully swept
 	// back to the user's wallet.
 	recoveredBalance btcutil.Amount
-
-	// maturityHeight is the absolute block height that this output will
-	// mature at.
-	maturityHeight uint32
-
 	// htlcs records a maturity report for each htlc output in this channel.
 	htlcs []htlcMaturityReport
 }
@@ -1098,26 +1056,6 @@ type htlcMaturityReport struct {
 	// to its expiry height, while a stage 2 htlc's maturity height will be
 	// set to its confirmation height plus the maturity requirement.
 	stage uint32
-}
-
-// AddLimboCommitment adds an incubating commitment output to maturity
-// report's htlcs, and contributes its amount to the limbo balance.
-func (c *contractMaturityReport) AddLimboCommitment(kid *kidOutput) {
-	c.limboBalance += kid.Amount()
-
-	// If the confirmation height is set, then this means the contract has
-	// been confirmed, and we know the final maturity height.
-	if kid.ConfHeight() != 0 {
-		c.maturityHeight = kid.BlocksToMaturity() + kid.ConfHeight()
-	}
-}
-
-// AddRecoveredCommitment adds a graduated commitment output to maturity
-// report's  htlcs, and contributes its amount to the recovered balance.
-func (c *contractMaturityReport) AddRecoveredCommitment(kid *kidOutput) {
-	c.recoveredBalance += kid.Amount()
-
-	c.maturityHeight = kid.BlocksToMaturity() + kid.ConfHeight()
 }
 
 // AddLimboStage1TimeoutHtlc adds an htlc crib output to the maturity report's

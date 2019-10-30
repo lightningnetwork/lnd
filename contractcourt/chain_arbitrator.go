@@ -113,8 +113,7 @@ type ChainArbitratorConfig struct {
 	// the process of incubation. This is used when a resolver wishes to
 	// pass off the output to the nursery as we're only waiting on an
 	// absolute/relative item block.
-	IncubateOutputs func(wire.OutPoint, *lnwallet.CommitOutputResolution,
-		*lnwallet.OutgoingHtlcResolution,
+	IncubateOutputs func(wire.OutPoint, *lnwallet.OutgoingHtlcResolution,
 		*lnwallet.IncomingHtlcResolution, uint32) error
 
 	// PreimageDB is a global store of all known pre-images. We'll use this

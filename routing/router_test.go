@@ -2,6 +2,7 @@ package routing
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"image/color"
 	"math"
@@ -2978,13 +2979,14 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 
 		// On startup, the router should fetch all pending payments
 		// from the ControlTower, so assert that here.
-		didFetch := make(chan struct{})
+		errCh := make(chan error)
 		go func() {
+			close(errCh)
 			select {
 			case <-control.fetchInFlight:
-				close(didFetch)
+				return
 			case <-time.After(1 * time.Second):
-				t.Fatalf("router did not fetch in flight " +
+				errCh <- errors.New("router did not fetch in flight " +
 					"payments")
 			}
 		}()
@@ -2994,7 +2996,10 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 		}
 
 		select {
-		case <-didFetch:
+		case err := <-errCh:
+			if err != nil {
+				t.Fatalf("error in anonymous goroutine: %s", err)
+			}
 		case <-time.After(1 * time.Second):
 			t.Fatalf("did not fetch in flight payments at startup")
 		}

@@ -130,8 +130,8 @@ type ChannelReservation struct {
 func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 	commitFeePerKw SatPerKWeight, wallet *LightningWallet,
 	id uint64, pushMSat lnwire.MilliSatoshi, chainHash *chainhash.Hash,
-	flags lnwire.FundingFlag,
-	tweaklessCommit bool) (*ChannelReservation, error) {
+	flags lnwire.FundingFlag, tweaklessCommit bool, localShutdown,
+	remoteShutdown lnwire.DeliveryAddress) (*ChannelReservation, error) {
 
 	var (
 		ourBalance   lnwire.MilliSatoshi
@@ -254,7 +254,9 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 				FeePerKw:      btcutil.Amount(commitFeePerKw),
 				CommitFee:     commitFee,
 			},
-			Db: wallet.Cfg.Database,
+			Db:                   wallet.Cfg.Database,
+			LocalShutdownScript:  localShutdown,
+			RemoteShutdownScript: remoteShutdown,
 		},
 		pushMSat:      pushMSat,
 		reservationID: id,
@@ -378,6 +380,25 @@ func (r *ChannelReservation) ProcessContribution(theirContribution *ChannelContr
 	r.wallet.msgChan <- &addContributionMsg{
 		pendingFundingID: r.reservationID,
 		contribution:     theirContribution,
+		err:              errChan,
+	}
+
+	return <-errChan
+}
+
+// ProcessUpfrontShutdown adds a remote upfront shutdown script to the channel
+// reservation if the script passed is non-nil.
+func (r *ChannelReservation) ProcessUpfrontShutdown(script lnwire.DeliveryAddress) error {
+	// If the script is empty, there is no need to set it.
+	if len(script) == 0 {
+		return nil
+	}
+
+	errChan := make(chan error, 1)
+
+	r.wallet.msgChan <- &addUpfrontShutdown{
+		pendingFundingID: r.reservationID,
+		script:           script,
 		err:              errChan,
 	}
 

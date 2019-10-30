@@ -111,6 +111,15 @@ type InitFundingReserveMsg struct {
 	// commitment format or not.
 	Tweakless bool
 
+	// LocalUpfrontShutdown is the script that we specified for option upfront
+	// shutdown. If the remote peer does not support option upfront shutdown,
+	// it is nil.
+	LocalUpfrontShutdown lnwire.DeliveryAddress
+
+	// RemoteUpfrontShutdown is the script that the peer specified for option
+	// upfront shutdown. If not script was provided, the script is nil.
+	RemoteUpfrontShutdown lnwire.DeliveryAddress
+
 	// err is a channel in which all errors will be sent across. Will be
 	// nil if this initial set is successful.
 	//
@@ -190,6 +199,17 @@ type addCounterPartySigsMsg struct {
 	// This channel is used to return the completed channel after the wallet
 	// has completed all of its stages in the funding process.
 	completeChan chan *channeldb.OpenChannel
+
+	// NOTE: In order to avoid deadlocks, this channel MUST be buffered.
+	err chan error
+}
+
+// addUpfrontShutdown updates an existing reservation to contain an upfront
+// shutdown address for the remote peer.
+type addUpfrontShutdown struct {
+	pendingFundingID uint64
+
+	script lnwire.DeliveryAddress
 
 	// NOTE: In order to avoid deadlocks, this channel MUST be buffered.
 	err chan error
@@ -394,6 +414,8 @@ out:
 				l.handleSingleFunderSigs(msg)
 			case *addCounterPartySigsMsg:
 				l.handleFundingCounterPartySigs(msg)
+			case *addUpfrontShutdown:
+				l.handleUpfrontShutdown(msg)
 			}
 		case <-l.quit:
 			// TODO: do some clean up
@@ -494,7 +516,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 	reservation, err := NewChannelReservation(
 		capacity, localFundingAmt, req.CommitFeePerKw, l, id,
 		req.PushMSat, l.Cfg.NetParams.GenesisHash, req.Flags,
-		req.Tweakless,
+		req.Tweakless, req.LocalUpfrontShutdown, req.RemoteUpfrontShutdown,
 	)
 	if err != nil {
 		selected.unlockCoins()
@@ -957,6 +979,31 @@ func (l *LightningWallet) handleSingleContribution(req *addSingleContributionMsg
 
 	req.err <- nil
 	return
+}
+
+// handleUpfrontShutdown sets the remote party's upfront shutdown script.
+func (l *LightningWallet) handleUpfrontShutdown(req *addUpfrontShutdown) {
+	l.limboMtx.RLock()
+	pendingReservation, ok := l.fundingLimbo[req.pendingFundingID]
+	l.limboMtx.RUnlock()
+
+	if !ok {
+		req.err <- fmt.Errorf("attempted to update non-existent funding state")
+		return
+	}
+
+	// Grab the mutex on the ChannelReservation to ensure thread-safety
+	pendingReservation.Lock()
+	defer pendingReservation.Unlock()
+
+	pendingReservation.partialState.RemoteShutdownScript = req.script
+
+	// Update the reservation in memory.
+	l.limboMtx.Lock()
+	l.fundingLimbo[req.pendingFundingID] = pendingReservation
+	l.limboMtx.Unlock()
+
+	req.err <- nil
 }
 
 // openChanDetails contains a "finalized" channel which can be considered

@@ -41,6 +41,10 @@ type Peer interface {
 	// Address returns the network address of the remote peer.
 	Address() net.Addr
 
+	// GenDeliveryScript returns a new script to be used to send our funds to in
+	// the case of a cooperative channel close negotiation.
+	GenDeliveryScript() ([]byte, error)
+
 	// QuitSignal is a method that should return a channel which will be
 	// sent upon or closed once the backing peer exits. This allows callers
 	// using the interface to cancel any processing in the event the backing

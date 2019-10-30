@@ -590,6 +590,10 @@ func (s *mockServer) Address() net.Addr {
 	return nil
 }
 
+func (s *mockServer) GenDeliveryScript() ([]byte, error) {
+	return nil, nil
+}
+
 func (s *mockServer) AddNewChannel(channel *channeldb.OpenChannel,
 	cancel <-chan struct{}) error {
 

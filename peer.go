@@ -1728,9 +1728,11 @@ func (p *peer) ChannelSnapshots() []*channeldb.ChannelSnapshot {
 	return snapshots
 }
 
-// genDeliveryScript returns a new script to be used to send our funds to in
+// GenDeliveryScript returns a new script to be used to send our funds to in
 // the case of a cooperative channel close negotiation.
-func (p *peer) genDeliveryScript() ([]byte, error) {
+//
+// NOTE: Part of the lnpeer.Peer interface.
+func (p *peer) GenDeliveryScript() ([]byte, error) {
 	deliveryAddr, err := p.server.cc.wallet.NewAddress(
 		lnwallet.WitnessPubKey, false,
 	)
@@ -2048,7 +2050,7 @@ func (p *peer) getLocalDeliveryScript(upfront lnwire.DeliveryAddress) (lnwire.De
 
 	// If the local node did not set an upfront shutdown script, create a new
 	// delivery script.
-	return p.genDeliveryScript()
+	return p.GenDeliveryScript()
 }
 
 // fetchActiveChanCloser attempts to fetch the active chan closer state machine

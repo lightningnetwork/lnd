@@ -129,13 +129,27 @@ type ChannelArbitratorConfig struct {
 	ChainArbitratorConfig
 }
 
+// ReportOutputType describes the type of output that is being reported
+// on.
+type ReportOutputType uint8
+
+const (
+	// ReportOutputIncomingHtlc is an incoming hash time locked contract on
+	// the commitment tx.
+	ReportOutputIncomingHtlc ReportOutputType = iota
+
+	// ReportOutputOutgoingHtlc is an outgoing hash time locked contract on
+	// the commitment tx.
+	ReportOutputOutgoingHtlc
+)
+
 // ContractReport provides a summary of a commitment tx output.
 type ContractReport struct {
 	// Outpoint is the final output that will be swept back to the wallet.
 	Outpoint wire.OutPoint
 
-	// Incoming indicates whether the htlc was incoming to this channel.
-	Incoming bool
+	// Type indicates the type of the reported output.
+	Type ReportOutputType
 
 	// Amount is the final value that will be swept in back to the wallet.
 	Amount btcutil.Amount

@@ -34,6 +34,7 @@ import (
 	"github.com/lightningnetwork/lnd/chanbackup"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channelnotifier"
+	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/input"
@@ -2451,8 +2452,10 @@ func (r *rpcServer) arbitratorPopulateForceCloseResp(chanPoint *wire.OutPoint,
 	reports := arbitrator.Report()
 
 	for _, report := range reports {
+		incoming := report.Type == contractcourt.ReportOutputIncomingHtlc
+
 		htlc := &lnrpc.PendingHTLC{
-			Incoming:       report.Incoming,
+			Incoming:       incoming,
 			Amount:         int64(report.Amount),
 			Outpoint:       report.Outpoint.String(),
 			MaturityHeight: report.MaturityHeight,

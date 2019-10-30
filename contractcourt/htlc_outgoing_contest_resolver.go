@@ -166,7 +166,7 @@ func (h *htlcOutgoingContestResolver) report() *ContractReport {
 
 	return &ContractReport{
 		Outpoint:       h.htlcResolution.ClaimOutpoint,
-		Incoming:       false,
+		Type:           ReportOutputOutgoingHtlc,
 		Amount:         finalAmt,
 		MaturityHeight: h.htlcResolution.Expiry,
 		LimboBalance:   finalAmt,

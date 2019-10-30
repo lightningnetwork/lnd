@@ -26,6 +26,7 @@ func (m *mockNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash, _ []byte,
 	heightHint uint32) (*chainntnfs.ConfirmationEvent, error) {
 	return &chainntnfs.ConfirmationEvent{
 		Confirmed: m.confChan,
+		Cancel:    func() {},
 	}, nil
 }
 

@@ -43,6 +43,16 @@ var (
 	// funding flow.
 	chanInfoKey = []byte("chan-info-key")
 
+	// localUpfrontShutdownKey can be accessed within the bucket for a channel
+	// (identified by its chanPoint). This key stores an optional upfront
+	// shutdown script for the local peer.
+	localUpfrontShutdownKey = []byte("local-upfront-shutdown-key")
+
+	// remoteUpfrontShutdownKey can be accessed within the bucket for a channel
+	// (identified by its chanPoint). This key stores an optional upfront
+	// shutdown script for the remote peer.
+	remoteUpfrontShutdownKey = []byte("remote-upfront-shutdown-key")
+
 	// chanCommitmentKey can be accessed within the sub-bucket for a
 	// particular channel. This key stores the up to date commitment state
 	// for a particular channel party. Appending a 0 to the end of this key
@@ -2556,7 +2566,38 @@ func putChanInfo(chanBucket *bbolt.Bucket, channel *OpenChannel) error {
 		return err
 	}
 
-	return chanBucket.Put(chanInfoKey, w.Bytes())
+	if err := chanBucket.Put(chanInfoKey, w.Bytes()); err != nil {
+		return err
+	}
+
+	// Finally, add optional shutdown scripts for the local and remote peer if
+	// they are present.
+	if err := putOptionalUpfrontShutdownScript(
+		chanBucket, localUpfrontShutdownKey, channel.LocalShutdownScript,
+	); err != nil {
+		return err
+	}
+
+	return putOptionalUpfrontShutdownScript(
+		chanBucket, remoteUpfrontShutdownKey, channel.RemoteShutdownScript,
+	)
+}
+
+// putOptionalUpfrontShutdownScript adds a shutdown script under the key
+// provided if it has a non-zero length.
+func putOptionalUpfrontShutdownScript(chanBucket *bbolt.Bucket, key []byte,
+	script lnwire.DeliveryAddress) error {
+	// If the script is empty, we do not need to add anything.
+	if len(script) == 0 {
+		return nil
+	}
+
+	var w bytes.Buffer
+	if err := WriteElement(&w, script); err != nil {
+		return err
+	}
+
+	return chanBucket.Put(key, w.Bytes())
 }
 
 func serializeChanCommit(w io.Writer, c *ChannelCommitment) error {
@@ -2679,6 +2720,39 @@ func fetchChanInfo(chanBucket *bbolt.Bucket, channel *OpenChannel) error {
 	}
 
 	channel.Packager = NewChannelPackager(channel.ShortChannelID)
+
+	// Finally, read the optional shutdown scripts.
+	if err := readOptionalShutdownScript(
+		chanBucket, localUpfrontShutdownKey, &channel.LocalShutdownScript,
+	); err != nil {
+		return err
+	}
+
+	if err := readOptionalShutdownScript(
+		chanBucket, remoteUpfrontShutdownKey, &channel.RemoteShutdownScript,
+	); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// readOptionalShutdownScript reads the shutdown script stored under the key
+// provided if it is present. Upfront shutdown scripts are optional, so the
+// function returns with no error if the key is not present.
+func readOptionalShutdownScript(chanBucket *bbolt.Bucket, key []byte,
+	addr *lnwire.DeliveryAddress) error {
+
+	// Return early if the bucket does not exit, a shutdown script was not set.
+	bs := chanBucket.Get(key)
+	if bs == nil {
+		return nil
+	}
+
+	r := bytes.NewReader(bs)
+	if err := ReadElements(r, addr); err != nil {
+		return err
+	}
 
 	return nil
 }

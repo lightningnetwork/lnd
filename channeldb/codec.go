@@ -213,6 +213,9 @@ func WriteElement(w io.Writer, element interface{}) error {
 			}
 		}
 
+	case lnwire.DeliveryAddress:
+		return WriteElement(w, []byte(e))
+
 	default:
 		return UnknownElementType{"WriteElement", e}
 	}
@@ -432,6 +435,12 @@ func ReadElement(r io.Reader, element interface{}) error {
 			}
 			(*e)[i] = addr
 		}
+	case *lnwire.DeliveryAddress:
+		var addr []byte
+		if err := ReadElement(r, &addr); err != nil {
+			return err
+		}
+		*e = addr
 
 	default:
 		return UnknownElementType{"ReadElement", e}

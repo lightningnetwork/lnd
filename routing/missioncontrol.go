@@ -53,7 +53,7 @@ const (
 )
 
 // NodeResults contains previous results from a node to its peers.
-type NodeResults map[route.Vertex]timedPairResult
+type NodeResults map[route.Vertex]TimedPairResult
 
 // MissionControl contains state which summarizes the past attempts of HTLC
 // routing by external callers when sending payments throughout the network. It
@@ -120,12 +120,29 @@ type MissionControlConfig struct {
 	AprioriWeight float64
 }
 
-// timedPairResult describes a timestamped pair result.
-type timedPairResult struct {
+// TimedPairResult describes a timestamped pair result.
+type TimedPairResult struct {
 	// timestamp is the time when this result was obtained.
-	timestamp time.Time
+	Timestamp time.Time
 
-	pairResult
+	// minPenalizeAmt is the minimum amount for which a penalty should be
+	// applied based on this result. Only applies to fail results.
+	MinPenalizeAmt lnwire.MilliSatoshi
+
+	// success indicates whether the payment attempt was successful through
+	// this pair.
+	Success bool
+}
+
+// newTimedPairResult wraps a pair result with a timestamp.
+func newTimedPairResult(timestamp time.Time,
+	result pairResult) TimedPairResult {
+
+	return TimedPairResult{
+		Timestamp:      timestamp,
+		MinPenalizeAmt: result.minPenalizeAmt,
+		Success:        result.success,
+	}
 }
 
 // MissionControlSnapshot contains a snapshot of the current state of mission
@@ -142,16 +159,8 @@ type MissionControlPairSnapshot struct {
 	// Pair is the node pair of which the state is described.
 	Pair DirectedNodePair
 
-	// Timestamp is the time of last result.
-	Timestamp time.Time
-
-	// MinPenalizeAmt is the minimum amount for which the channel will be
-	// penalized.
-	MinPenalizeAmt lnwire.MilliSatoshi
-
-	// LastAttemptSuccessful indicates whether the last payment attempt
-	// through this pair was successful.
-	LastAttemptSuccessful bool
+	// TimedPairResult contains the data for this pair.
+	TimedPairResult
 }
 
 // paymentResult is the information that becomes available when a payment
@@ -257,7 +266,7 @@ func (m *MissionControl) GetProbability(fromNode, toNode route.Vertex,
 
 // setLastPairResult stores a result for a node pair.
 func (m *MissionControl) setLastPairResult(fromNode,
-	toNode route.Vertex, result timedPairResult) {
+	toNode route.Vertex, result TimedPairResult) {
 
 	nodePairs, ok := m.lastPairResult[fromNode]
 	if !ok {
@@ -278,10 +287,9 @@ func (m *MissionControl) setAllFail(fromNode route.Vertex,
 	}
 
 	for connection := range nodePairs {
-		nodePairs[connection] = timedPairResult{
-			timestamp:  timestamp,
-			pairResult: failPairResult(0),
-		}
+		nodePairs[connection] = newTimedPairResult(
+			timestamp, failPairResult(0),
+		)
 	}
 }
 
@@ -329,14 +337,11 @@ func (m *MissionControl) GetHistorySnapshot() *MissionControlSnapshot {
 
 	for fromNode, fromPairs := range m.lastPairResult {
 		for toNode, result := range fromPairs {
-
 			pair := NewDirectedNodePair(fromNode, toNode)
 
 			pairSnapshot := MissionControlPairSnapshot{
-				Pair:                  pair,
-				MinPenalizeAmt:        result.minPenalizeAmt,
-				Timestamp:             result.timestamp,
-				LastAttemptSuccessful: result.success,
+				Pair:            pair,
+				TimedPairResult: result,
 			}
 
 			pairs = append(pairs, pairSnapshot)
@@ -348,6 +353,26 @@ func (m *MissionControl) GetHistorySnapshot() *MissionControlSnapshot {
 	}
 
 	return &snapshot
+}
+
+// GetPairHistorySnapshot returns the stored history for a given node pair.
+func (m *MissionControl) GetPairHistorySnapshot(
+	fromNode, toNode route.Vertex) TimedPairResult {
+
+	m.Lock()
+	defer m.Unlock()
+
+	results, ok := m.lastPairResult[fromNode]
+	if !ok {
+		return TimedPairResult{}
+	}
+
+	result, ok := results[toNode]
+	if !ok {
+		return TimedPairResult{}
+	}
+
+	return result
 }
 
 // ReportPaymentFail reports a failed payment to mission control as input for
@@ -468,10 +493,13 @@ func (m *MissionControl) applyPaymentResult(
 				pair, pairResult.minPenalizeAmt)
 		}
 
-		m.setLastPairResult(pair.From, pair.To, timedPairResult{
-			timestamp:  result.timeReply,
-			pairResult: pairResult,
-		})
+		m.setLastPairResult(
+			pair.From, pair.To,
+			newTimedPairResult(
+				result.timeReply,
+				pairResult,
+			),
+		)
 	}
 
 	return i.finalFailureReason

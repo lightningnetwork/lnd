@@ -76,6 +76,11 @@ type MissionControl interface {
 	// GetHistorySnapshot takes a snapshot from the current mission control
 	// state and actual probability estimates.
 	GetHistorySnapshot() *routing.MissionControlSnapshot
+
+	// GetPairHistorySnapshot returns the stored history for a given node
+	// pair.
+	GetPairHistorySnapshot(fromNode,
+		toNode route.Vertex) routing.TimedPairResult
 }
 
 // QueryRoutes attempts to query the daemons' Channel Router for a possible

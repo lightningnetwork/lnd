@@ -8,6 +8,7 @@ import "github.com/urfave/cli"
 func routerCommands() []cli.Command {
 	return []cli.Command{
 		queryMissionControlCommand,
+		queryProbCommand,
 		resetMissionControlCommand,
 		buildRouteCommand,
 	}

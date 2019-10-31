@@ -294,7 +294,7 @@ func (i *incomingResolverTestContext) waitForResult(expectSuccessRes bool) {
 	}
 
 	if !expectSuccessRes {
-		if err != nil {
+		if i.nextResolver != nil {
 			i.t.Fatal("expected no next resolver")
 		}
 		return

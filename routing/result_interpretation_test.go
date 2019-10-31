@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/lnwire"
 
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -45,6 +46,11 @@ var (
 
 func getTestPair(from, to int) DirectedNodePair {
 	return NewDirectedNodePair(hops[from], hops[to])
+}
+
+func getPolicyFailure(from, to int) *DirectedNodePair {
+	pair := getTestPair(from, to)
+	return &pair
 }
 
 type resultTestCase struct {
@@ -169,6 +175,28 @@ var resultTestCases = []resultTestCase{
 			},
 		},
 	},
+
+	// Tests that a fee insufficient failure to an intermediate hop with
+	// index 2 results in the first hop marked as success, and then a
+	// bidirectional failure for the incoming channel. It should also result
+	// in a policy failure for the outgoing hop.
+	{
+		name:          "fail fee insufficient intermediate",
+		route:         &routeFourHop,
+		failureSrcIdx: 2,
+		failure:       lnwire.NewFeeInsufficient(0, lnwire.ChannelUpdate{}),
+
+		expectedResult: &interpretedResult{
+			pairResults: map[DirectedNodePair]pairResult{
+				getTestPair(0, 1): {
+					success: true,
+				},
+				getTestPair(1, 2): {},
+				getTestPair(2, 1): {},
+			},
+			policyFailure: getPolicyFailure(2, 3),
+		},
+	},
 }
 
 // TestResultInterpretation executes a list of test cases that test the result
@@ -192,7 +220,8 @@ func TestResultInterpretation(t *testing.T) {
 			}
 
 			if !reflect.DeepEqual(i, expected) {
-				t.Fatal("unexpected result")
+				t.Fatalf("unexpected result\nwant: %v\ngot: %v",
+					spew.Sdump(expected), spew.Sdump(i))
 			}
 		})
 	}

@@ -265,7 +265,7 @@ func (i *interpretedResult) processPaymentOutcomeIntermediate(
 
 		// All nodes up to the failing pair must have forwarded
 		// successfully.
-		if errorSourceIdx > 2 {
+		if errorSourceIdx > 1 {
 			i.successPairRange(route, 0, errorSourceIdx-2)
 		}
 	}

@@ -11,15 +11,50 @@ import (
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
+// PayloadViolation is an enum encapsulating the possible invalid payload
+// violations that can occur when processing or validating a payload.
+type PayloadViolation byte
+
+const (
+	// OmittedViolation indicates that a type was expected to be found the
+	// payload but was absent.
+	OmittedViolation PayloadViolation = iota
+
+	// IncludedViolation indicates that a type was expected to be omitted
+	// from the payload but was present.
+	IncludedViolation
+
+	// RequiredViolation indicates that an unknown even type was found in
+	// the payload that we could not process.
+	RequiredViolation
+)
+
+// String returns a human-readable description of the violation as a verb.
+func (v PayloadViolation) String() string {
+	switch v {
+	case OmittedViolation:
+		return "omitted"
+
+	case IncludedViolation:
+		return "included"
+
+	case RequiredViolation:
+		return "required"
+
+	default:
+		return "unknown violation"
+	}
+}
+
 // ErrInvalidPayload is an error returned when a parsed onion payload either
 // included or omitted incorrect records for a particular hop type.
 type ErrInvalidPayload struct {
 	// Type the record's type that cause the violation.
 	Type tlv.Type
 
-	// Ommitted if true, signals that the sender did not include the record.
-	// Otherwise, the sender included the record when it shouldn't have.
-	Omitted bool
+	// Violation is an enum indicating the type of violation detected in
+	// processing Type.
+	Violation PayloadViolation
 
 	// FinalHop if true, indicates that the violation is for the final hop
 	// in the route (identified by next hop id), otherwise the violation is
@@ -33,13 +68,9 @@ func (e ErrInvalidPayload) Error() string {
 	if e.FinalHop {
 		hopType = "final"
 	}
-	violation := "included"
-	if e.Omitted {
-		violation = "omitted"
-	}
 
-	return fmt.Sprintf("onion payload for %s hop %s record with type %d",
-		hopType, violation, e.Type)
+	return fmt.Sprintf("onion payload for %s hop %v record with type %d",
+		hopType, e.Violation, e.Type)
 }
 
 // Payload encapsulates all information delivered to a hop in an onion payload.
@@ -87,6 +118,18 @@ func NewPayloadFromReader(r io.Reader) (*Payload, error) {
 
 	parsedTypes, err := tlvStream.DecodeWithParsedTypes(r)
 	if err != nil {
+		// Promote any required type failures into ErrInvalidPayload.
+		if e, required := err.(tlv.ErrUnknownRequiredType); required {
+			// NOTE: FinalHop will be incorrect if the unknown
+			// required was type 0. Otherwise, the failure must have
+			// occurred after type 6 and cid should contain an
+			// accurate value.
+			return nil, ErrInvalidPayload{
+				Type:      tlv.Type(e),
+				Violation: RequiredViolation,
+				FinalHop:  cid == 0,
+			}
+		}
 		return nil, err
 	}
 
@@ -133,17 +176,17 @@ func ValidateParsedPayloadTypes(parsedTypes tlv.TypeSet,
 	// All hops must include an amount to forward.
 	case !hasAmt:
 		return ErrInvalidPayload{
-			Type:     record.AmtOnionType,
-			Omitted:  true,
-			FinalHop: isFinalHop,
+			Type:      record.AmtOnionType,
+			Violation: OmittedViolation,
+			FinalHop:  isFinalHop,
 		}
 
 	// All hops must include a cltv expiry.
 	case !hasLockTime:
 		return ErrInvalidPayload{
-			Type:     record.LockTimeOnionType,
-			Omitted:  true,
-			FinalHop: isFinalHop,
+			Type:      record.LockTimeOnionType,
+			Violation: OmittedViolation,
+			FinalHop:  isFinalHop,
 		}
 
 	// The exit hop should omit the next hop id. If nextHop != Exit, the
@@ -151,9 +194,9 @@ func ValidateParsedPayloadTypes(parsedTypes tlv.TypeSet,
 	// inclusion at intermediate hops directly.
 	case isFinalHop && hasNextHop:
 		return ErrInvalidPayload{
-			Type:     record.NextHopOnionType,
-			Omitted:  false,
-			FinalHop: true,
+			Type:      record.NextHopOnionType,
+			Violation: IncludedViolation,
+			FinalHop:  true,
 		}
 	}
 

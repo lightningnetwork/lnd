@@ -31,6 +31,7 @@ import (
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
 )
@@ -1675,7 +1676,7 @@ func createTestArbiter(t *testing.T, contractBreaches chan *ContractBreachEvent,
 	ba := newBreachArbiter(&BreachConfig{
 		CloseLink:          func(_ *wire.OutPoint, _ htlcswitch.ChannelCloseType) {},
 		DB:                 db,
-		Estimator:          lnwallet.NewStaticFeeEstimator(12500, 0),
+		Estimator:          chainfee.NewStaticEstimator(12500, 0),
 		GenSweepScript:     func() ([]byte, error) { return nil, nil },
 		ContractBreaches:   contractBreaches,
 		Signer:             signer,
@@ -1824,7 +1825,7 @@ func createInitChannels(revocationWindow int) (*lnwallet.LightningChannel, *lnwa
 		return nil, nil, nil, err
 	}
 
-	estimator := lnwallet.NewStaticFeeEstimator(12500, 0)
+	estimator := chainfee.NewStaticEstimator(12500, 0)
 	feePerKw, err := estimator.EstimateFeePerKW(1)
 	if err != nil {
 		return nil, nil, nil, err

@@ -19,6 +19,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/sweep"
 	"google.golang.org/grpc"
 	"gopkg.in/macaroon-bakery.v2/bakery"
@@ -303,7 +304,7 @@ func (w *WalletKit) SendOutputs(ctx context.Context,
 	// Now that we have the outputs mapped, we can request that the wallet
 	// attempt to create this transaction.
 	tx, err := w.cfg.Wallet.SendOutputs(
-		outputsToCreate, lnwallet.SatPerKWeight(req.SatPerKw),
+		outputsToCreate, chainfee.SatPerKWeight(req.SatPerKw),
 	)
 	if err != nil {
 		return nil, err
@@ -468,7 +469,7 @@ func (w *WalletKit) BumpFee(ctx context.Context,
 	}
 
 	// Construct the request's fee preference.
-	satPerKw := lnwallet.SatPerKVByte(in.SatPerByte * 1000).FeePerKWeight()
+	satPerKw := chainfee.SatPerKVByte(in.SatPerByte * 1000).FeePerKWeight()
 	feePreference := sweep.FeePreference{
 		ConfTarget: uint32(in.TargetConf),
 		FeeRate:    satPerKw,

@@ -7,6 +7,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/watchtower/blob"
 )
 
@@ -27,11 +28,11 @@ const (
 
 	// DefaultSweepFeeRate specifies the fee rate used to construct justice
 	// transactions. The value is expressed in satoshis per kilo-weight.
-	DefaultSweepFeeRate = lnwallet.SatPerKWeight(2500)
+	DefaultSweepFeeRate = chainfee.SatPerKWeight(2500)
 
 	// MinSweepFeeRate is the minimum sweep fee rate a client may use in its
 	// policy, the current value is 4 sat/vbyte.
-	MinSweepFeeRate = lnwallet.SatPerKWeight(1000)
+	MinSweepFeeRate = chainfee.SatPerKWeight(1000)
 )
 
 var (
@@ -97,7 +98,7 @@ type TxPolicy struct {
 	// constructing the justice transaction. All sweep transactions created
 	// for this session must use this value during construction, and the
 	// signatures must implicitly commit to the resulting output values.
-	SweepFeeRate lnwallet.SatPerKWeight
+	SweepFeeRate chainfee.SatPerKWeight
 }
 
 // Policy defines the negotiated parameters for a session between a client and

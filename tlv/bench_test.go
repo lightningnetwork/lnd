@@ -6,7 +6,7 @@ import (
 	"io/ioutil"
 	"testing"
 
-	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/lightningnetwork/lnd/watchtower/blob"
 	"github.com/lightningnetwork/lnd/watchtower/wtwire"
@@ -19,7 +19,7 @@ type CreateSessionTLV struct {
 	MaxUpdates   uint16
 	RewardBase   uint32
 	RewardRate   uint32
-	SweepFeeRate lnwallet.SatPerKWeight
+	SweepFeeRate chainfee.SatPerKWeight
 
 	tlvStream *tlv.Stream
 }
@@ -48,24 +48,24 @@ func DBlobType(r io.Reader, val interface{}, buf *[8]byte, l uint64) error {
 
 // ESatPerKW is an encoder for lnwallet.SatPerKWeight.
 func ESatPerKW(w io.Writer, val interface{}, buf *[8]byte) error {
-	if v, ok := val.(*lnwallet.SatPerKWeight); ok {
+	if v, ok := val.(*chainfee.SatPerKWeight); ok {
 		return tlv.EUint64(w, uint64(*v), buf)
 	}
-	return tlv.NewTypeForEncodingErr(val, "lnwallet.SatPerKWeight")
+	return tlv.NewTypeForEncodingErr(val, "chainfee.SatPerKWeight")
 }
 
 // DSatPerKW is an decoder for lnwallet.SatPerKWeight.
 func DSatPerKW(r io.Reader, val interface{}, buf *[8]byte, l uint64) error {
-	if v, ok := val.(*lnwallet.SatPerKWeight); ok {
+	if v, ok := val.(*chainfee.SatPerKWeight); ok {
 		var sat uint64
 		err := tlv.DUint64(r, &sat, buf, l)
 		if err != nil {
 			return err
 		}
-		*v = lnwallet.SatPerKWeight(sat)
+		*v = chainfee.SatPerKWeight(sat)
 		return nil
 	}
-	return tlv.NewTypeForDecodingErr(val, "lnwallet.SatPerKWeight", l, 8)
+	return tlv.NewTypeForDecodingErr(val, "chainfee.SatPerKWeight", l, 8)
 }
 
 // NewCreateSessionTLV initializes a new CreateSessionTLV message.

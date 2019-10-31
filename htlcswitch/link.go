@@ -24,6 +24,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/queue"
 	"github.com/lightningnetwork/lnd/ticker"
@@ -199,7 +200,7 @@ type ChannelLinkConfig struct {
 	// FeeEstimator is an instance of a live fee estimator which will be
 	// used to dynamically regulate the current fee of the commitment
 	// transaction to ensure timely confirmation.
-	FeeEstimator lnwallet.FeeEstimator
+	FeeEstimator chainfee.Estimator
 
 	// hodl.Mask is a bitvector composed of hodl.Flags, specifying breakpoints
 	// for HTLC forwarding internal to the switch.
@@ -570,7 +571,7 @@ func (l *channelLink) markReestablished() {
 // chain in a timely manner. The returned value is expressed in fee-per-kw, as
 // this is the native rate used when computing the fee for commitment
 // transactions, and the second-level HTLC transactions.
-func (l *channelLink) sampleNetworkFee() (lnwallet.SatPerKWeight, error) {
+func (l *channelLink) sampleNetworkFee() (chainfee.SatPerKWeight, error) {
 	// We'll first query for the sat/kw recommended to be confirmed within 3
 	// blocks.
 	feePerKw, err := l.cfg.FeeEstimator.EstimateFeePerKW(3)
@@ -587,7 +588,7 @@ func (l *channelLink) sampleNetworkFee() (lnwallet.SatPerKWeight, error) {
 // shouldAdjustCommitFee returns true if we should update our commitment fee to
 // match that of the network fee. We'll only update our commitment fee if the
 // network fee is +/- 10% to our network fee.
-func shouldAdjustCommitFee(netFee, chanFee lnwallet.SatPerKWeight) bool {
+func shouldAdjustCommitFee(netFee, chanFee chainfee.SatPerKWeight) bool {
 	switch {
 	// If the network fee is greater than the commitment fee, then we'll
 	// switch to it if it's at least 10% greater than the commit fee.
@@ -1061,7 +1062,7 @@ out:
 			// fee rate to our max fee allocation.
 			commitFee := l.channel.CommitFeeRate()
 			maxFee := l.channel.MaxFeeRate(l.cfg.MaxFeeAllocation)
-			newCommitFee := lnwallet.SatPerKWeight(
+			newCommitFee := chainfee.SatPerKWeight(
 				math.Min(float64(netFee), float64(maxFee)),
 			)
 			if !shouldAdjustCommitFee(newCommitFee, commitFee) {
@@ -1894,7 +1895,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 	case *lnwire.UpdateFee:
 		// We received fee update from peer. If we are the initiator we
 		// will fail the channel, if not we will apply the update.
-		fee := lnwallet.SatPerKWeight(msg.FeePerKw)
+		fee := chainfee.SatPerKWeight(msg.FeePerKw)
 		if err := l.channel.ReceiveUpdateFee(fee); err != nil {
 			l.fail(LinkFailureError{code: ErrInvalidUpdate},
 				"error receiving fee update: %v", err)
@@ -2394,7 +2395,7 @@ func (l *channelLink) HandleChannelUpdate(message lnwire.Message) {
 
 // updateChannelFee updates the commitment fee-per-kw on this channel by
 // committing to an update_fee message.
-func (l *channelLink) updateChannelFee(feePerKw lnwallet.SatPerKWeight) error {
+func (l *channelLink) updateChannelFee(feePerKw chainfee.SatPerKWeight) error {
 
 	l.log.Infof("updating commit fee to %v sat/kw", feePerKw)
 

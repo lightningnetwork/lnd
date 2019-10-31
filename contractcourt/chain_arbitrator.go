@@ -13,6 +13,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/sweep"
 )
@@ -131,7 +132,7 @@ type ChainArbitratorConfig struct {
 	Signer input.Signer
 
 	// FeeEstimator will be used to return fee estimates.
-	FeeEstimator lnwallet.FeeEstimator
+	FeeEstimator chainfee.Estimator
 
 	// ChainIO allows us to query the state of the current main chain.
 	ChainIO lnwallet.BlockChainIO

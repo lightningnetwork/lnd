@@ -11,7 +11,7 @@ import (
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcwallet/wallet/txrules"
 	"github.com/lightningnetwork/lnd/input"
-	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
 
 var (
@@ -31,7 +31,7 @@ type inputSet []input.Input
 // inputs are skipped. No input sets with a total value after fees below the
 // dust limit are returned.
 func generateInputPartitionings(sweepableInputs []input.Input,
-	relayFeePerKW, feePerKW lnwallet.SatPerKWeight,
+	relayFeePerKW, feePerKW chainfee.SatPerKWeight,
 	maxInputsPerTx int) ([]inputSet, error) {
 
 	// Calculate dust limit based on the P2WPKH output script of the sweep
@@ -116,7 +116,7 @@ func generateInputPartitionings(sweepableInputs []input.Input,
 // minimizing any negative externalities we cause for the Bitcoin system as a
 // whole.
 func getPositiveYieldInputs(sweepableInputs []input.Input, maxInputs int,
-	feePerKW lnwallet.SatPerKWeight) (int, btcutil.Amount) {
+	feePerKW chainfee.SatPerKWeight) (int, btcutil.Amount) {
 
 	var weightEstimate input.TxWeightEstimator
 
@@ -169,7 +169,7 @@ func getPositiveYieldInputs(sweepableInputs []input.Input, maxInputs int,
 
 // createSweepTx builds a signed tx spending the inputs to a the output script.
 func createSweepTx(inputs []input.Input, outputPkScript []byte,
-	currentBlockHeight uint32, feePerKw lnwallet.SatPerKWeight,
+	currentBlockHeight uint32, feePerKw chainfee.SatPerKWeight,
 	signer input.Signer) (*wire.MsgTx, error) {
 
 	inputs, txWeight := getWeightEstimate(inputs)

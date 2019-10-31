@@ -16,6 +16,7 @@ import (
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/watchtower/blob"
 	"github.com/lightningnetwork/lnd/watchtower/wtdb"
@@ -86,7 +87,7 @@ func genTaskTest(
 	toLocalAmt int64,
 	toRemoteAmt int64,
 	blobType blob.Type,
-	sweepFeeRate lnwallet.SatPerKWeight,
+	sweepFeeRate chainfee.SatPerKWeight,
 	rewardScript []byte,
 	expSweepAmt int64,
 	expRewardAmt int64,

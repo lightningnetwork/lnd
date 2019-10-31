@@ -21,6 +21,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwallet/chanvalidate"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
@@ -89,11 +90,11 @@ type InitFundingReserveMsg struct {
 	// of initial commitment transactions. In order to ensure timely
 	// confirmation, it is recommended that this fee should be generous,
 	// paying some multiple of the accepted base fee rate of the network.
-	CommitFeePerKw SatPerKWeight
+	CommitFeePerKw chainfee.SatPerKWeight
 
 	// FundingFeePerKw is the fee rate in sat/kw to use for the initial
 	// funding transaction.
-	FundingFeePerKw SatPerKWeight
+	FundingFeePerKw chainfee.SatPerKWeight
 
 	// PushMSat is the number of milli-satoshis that should be pushed over
 	// the responder as part of the initial channel creation.
@@ -1323,7 +1324,7 @@ type coinSelection struct {
 // returned, and the value of the resulting funding output. This method locks
 // the selected outputs, and a function closure to unlock them in case of an
 // error is returned.
-func (l *LightningWallet) selectCoinsAndChange(feeRate SatPerKWeight,
+func (l *LightningWallet) selectCoinsAndChange(feeRate chainfee.SatPerKWeight,
 	amt btcutil.Amount, minConfs int32, subtractFees bool) (
 	*coinSelection, error) {
 
@@ -1485,7 +1486,7 @@ func selectInputs(amt btcutil.Amount, coins []*Utxo) (btcutil.Amount, []*Utxo, e
 // change output to fund amt satoshis, adhering to the specified fee rate. The
 // specified fee rate should be expressed in sat/kw for coin selection to
 // function properly.
-func coinSelect(feeRate SatPerKWeight, amt btcutil.Amount,
+func coinSelect(feeRate chainfee.SatPerKWeight, amt btcutil.Amount,
 	coins []*Utxo) ([]*Utxo, btcutil.Amount, error) {
 
 	amtNeeded := amt
@@ -1549,7 +1550,7 @@ func coinSelect(feeRate SatPerKWeight, amt btcutil.Amount,
 // coinSelectSubtractFees attempts to select coins such that we'll spend up to
 // amt in total after fees, adhering to the specified fee rate. The selected
 // coins, the final output and change values are returned.
-func coinSelectSubtractFees(feeRate SatPerKWeight, amt,
+func coinSelectSubtractFees(feeRate chainfee.SatPerKWeight, amt,
 	dustLimit btcutil.Amount, coins []*Utxo) ([]*Utxo, btcutil.Amount,
 	btcutil.Amount, error) {
 

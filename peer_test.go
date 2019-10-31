@@ -10,7 +10,7 @@ import (
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/htlcswitch"
-	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -156,7 +156,7 @@ func TestPeerChannelClosureAcceptFeeInitiator(t *testing.T) {
 			dummyDeliveryScript),
 	}
 
-	estimator := lnwallet.NewStaticFeeEstimator(12500, 0)
+	estimator := chainfee.NewStaticEstimator(12500, 0)
 	feePerKw, err := estimator.EstimateFeePerKW(1)
 	if err != nil {
 		t.Fatalf("unable to query fee estimator: %v", err)
@@ -446,7 +446,7 @@ func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 		msg: respShutdown,
 	}
 
-	estimator := lnwallet.NewStaticFeeEstimator(12500, 0)
+	estimator := chainfee.NewStaticEstimator(12500, 0)
 	initiatorIdealFeeRate, err := estimator.EstimateFeePerKW(1)
 	if err != nil {
 		t.Fatalf("unable to query fee estimator: %v", err)

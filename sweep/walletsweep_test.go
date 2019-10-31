@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
 
 // TestDetermineFeePerKw tests that given a fee preference, the
@@ -17,8 +18,8 @@ import (
 func TestDetermineFeePerKw(t *testing.T) {
 	t.Parallel()
 
-	defaultFee := lnwallet.SatPerKWeight(999)
-	relayFee := lnwallet.SatPerKWeight(300)
+	defaultFee := chainfee.SatPerKWeight(999)
+	relayFee := chainfee.SatPerKWeight(300)
 
 	feeEstimator := newMockFeeEstimator(defaultFee, relayFee)
 
@@ -35,7 +36,7 @@ func TestDetermineFeePerKw(t *testing.T) {
 
 		// fee is the value the DetermineFeePerKw should return given
 		// the FeePreference above
-		fee lnwallet.SatPerKWeight
+		fee chainfee.SatPerKWeight
 
 		// fail determines if this test case should fail or not.
 		fail bool
@@ -43,9 +44,9 @@ func TestDetermineFeePerKw(t *testing.T) {
 		// A fee rate below the fee rate floor should output the floor.
 		{
 			feePref: FeePreference{
-				FeeRate: lnwallet.SatPerKWeight(99),
+				FeeRate: chainfee.SatPerKWeight(99),
 			},
-			fee: lnwallet.FeePerKwFloor,
+			fee: chainfee.FeePerKwFloor,
 		},
 
 		// A fee rate above the floor, should pass through and return

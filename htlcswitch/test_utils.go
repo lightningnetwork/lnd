@@ -32,6 +32,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
 	"github.com/lightningnetwork/lnd/ticker"
@@ -286,7 +287,7 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 		return nil, nil, nil, err
 	}
 
-	estimator := lnwallet.NewStaticFeeEstimator(6000, 0)
+	estimator := chainfee.NewStaticEstimator(6000, 0)
 	feePerKw, err := estimator.EstimateFeePerKW(1)
 	if err != nil {
 		return nil, nil, nil, err
@@ -1078,7 +1079,7 @@ func newHopNetwork() *hopNetwork {
 	obfuscator := NewMockObfuscator()
 
 	feeEstimator := &mockFeeEstimator{
-		byteFeeIn: make(chan lnwallet.SatPerKWeight),
+		byteFeeIn: make(chan chainfee.SatPerKWeight),
 		quit:      make(chan struct{}),
 	}
 

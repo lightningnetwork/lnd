@@ -9,6 +9,7 @@ import (
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
 
 const (
@@ -27,7 +28,7 @@ type FeePreference struct {
 
 	// FeeRate if non-zero, signals a fee pre fence expressed in the fee
 	// rate expressed in sat/kw for a particular transaction.
-	FeeRate lnwallet.SatPerKWeight
+	FeeRate chainfee.SatPerKWeight
 }
 
 // String returns a human-readable string of the fee preference.
@@ -42,8 +43,8 @@ func (p FeePreference) String() string {
 // an estimator, a confirmation target, and a manual value for sat/byte. A
 // value is chosen based on the two free parameters as one, or both of them can
 // be zero.
-func DetermineFeePerKw(feeEstimator lnwallet.FeeEstimator,
-	feePref FeePreference) (lnwallet.SatPerKWeight, error) {
+func DetermineFeePerKw(feeEstimator chainfee.Estimator,
+	feePref FeePreference) (chainfee.SatPerKWeight, error) {
 
 	switch {
 	// If both values are set, then we'll return an error as we require a
@@ -70,12 +71,12 @@ func DetermineFeePerKw(feeEstimator lnwallet.FeeEstimator,
 	// internally.
 	case feePref.FeeRate != 0:
 		feePerKW := feePref.FeeRate
-		if feePerKW < lnwallet.FeePerKwFloor {
+		if feePerKW < chainfee.FeePerKwFloor {
 			log.Infof("Manual fee rate input of %d sat/kw is "+
 				"too low, using %d sat/kw instead", feePerKW,
-				lnwallet.FeePerKwFloor)
+				chainfee.FeePerKwFloor)
 
-			feePerKW = lnwallet.FeePerKwFloor
+			feePerKW = chainfee.FeePerKwFloor
 		}
 
 		return feePerKW, nil
@@ -152,10 +153,10 @@ type WalletSweepPackage struct {
 // by the delivery address. The sweep transaction will be crafted with the
 // target fee rate, and will use the utxoSource and outpointLocker as sources
 // for wallet funds.
-func CraftSweepAllTx(feeRate lnwallet.SatPerKWeight, blockHeight uint32,
+func CraftSweepAllTx(feeRate chainfee.SatPerKWeight, blockHeight uint32,
 	deliveryAddr btcutil.Address, coinSelectLocker CoinSelectionLocker,
 	utxoSource UtxoSource, outpointLocker OutpointLocker,
-	feeEstimator lnwallet.FeeEstimator,
+	feeEstimator chainfee.Estimator,
 	signer input.Signer) (*WalletSweepPackage, error) {
 
 	// TODO(roasbeef): turn off ATPL as well when available?

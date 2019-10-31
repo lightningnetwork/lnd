@@ -9,6 +9,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -150,7 +151,7 @@ type channelCloser struct {
 // passed configuration, and delivery+fee preference. The final argument should
 // only be populated iff, we're the initiator of this closing request.
 func newChannelCloser(cfg chanCloseCfg, deliveryScript []byte,
-	idealFeePerKw lnwallet.SatPerKWeight, negotiationHeight uint32,
+	idealFeePerKw chainfee.SatPerKWeight, negotiationHeight uint32,
 	closeReq *htlcswitch.ChanClose) *channelCloser {
 
 	// Given the target fee-per-kw, we'll compute what our ideal _total_

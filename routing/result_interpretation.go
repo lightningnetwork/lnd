@@ -270,6 +270,16 @@ func (i *interpretedResult) processPaymentOutcomeIntermediate(
 		}
 	}
 
+	reportNode := func() {
+		// Fail only the node that reported the failure.
+		i.failNode(route, errorSourceIdx)
+
+		// Other preceding channels in the route forwarded correctly.
+		if errorSourceIdx > 1 {
+			i.successPairRange(route, 0, errorSourceIdx-2)
+		}
+	}
+
 	reportAll := func() {
 		// We trust ourselves. If the error comes from the first hop, we
 		// can penalize the whole node. In that case there is no
@@ -301,6 +311,14 @@ func (i *interpretedResult) processPaymentOutcomeIntermediate(
 		*lnwire.FailInvalidOnionKey:
 
 		reportOutgoing()
+
+	// If InvalidOnionPayload is received, we penalize only the reporting
+	// node. We know the preceding hop didn't corrupt the onion, since the
+	// reporting node is able to send the failure. We assume that we
+	// constructed a valid onion payload and that the failure is most likely
+	// an unknown required type or a bug in their implementation.
+	case *lnwire.InvalidOnionPayload:
+		reportNode()
 
 	// If the next hop in the route wasn't known or offline, we'll only
 	// penalize the channel set which we attempted to route over. This is

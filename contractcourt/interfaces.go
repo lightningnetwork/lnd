@@ -3,11 +3,14 @@ package contractcourt
 import (
 	"io"
 
+	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/sweep"
 )
 
 // Registry is an interface which represents the invoice registry.
@@ -35,4 +38,17 @@ type OnionProcessor interface {
 	// ReconstructHopIterator attempts to decode a valid sphinx packet from
 	// the passed io.Reader instance.
 	ReconstructHopIterator(r io.Reader, rHash []byte) (hop.Iterator, error)
+}
+
+// UtxoSweeper defines the sweep functions that contract court requires.
+type UtxoSweeper interface {
+	// SweepInput sweeps inputs back into the wallet.
+	SweepInput(input input.Input,
+		feePreference sweep.FeePreference) (chan sweep.Result, error)
+
+	// CreateSweepTx accepts a list of inputs and signs and generates a txn
+	// that spends from them. This method also makes an accurate fee
+	// estimate before generating the required witnesses.
+	CreateSweepTx(inputs []input.Input, feePref sweep.FeePreference,
+		currentBlockHeight uint32) (*wire.MsgTx, error)
 }

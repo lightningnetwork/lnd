@@ -15,7 +15,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/lightningnetwork/lnd/sweep"
 )
 
 // ErrChainArbExiting signals that the chain arbitrator is shutting down.
@@ -141,7 +140,7 @@ type ChainArbitratorConfig struct {
 	DisableChannel func(wire.OutPoint) error
 
 	// Sweeper allows resolvers to sweep their final outputs.
-	Sweeper *sweep.UtxoSweeper
+	Sweeper UtxoSweeper
 
 	// Registry is the invoice database that is used by resolvers to lookup
 	// preimages and settle invoices.

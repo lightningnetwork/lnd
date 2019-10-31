@@ -5,11 +5,6 @@ import (
 )
 
 var (
-
-	// ErrDBReversion is returned when detecting an attempt to revert to a
-	// prior database version.
-	ErrDBReversion = fmt.Errorf("channel db cannot revert to prior version")
-
 	// ErrNoInvoicesCreated is returned when we don't have invoices in
 	// our database to return.
 	ErrNoInvoicesCreated = fmt.Errorf("there are no existing invoices")
@@ -17,10 +12,6 @@ var (
 	// ErrNoPaymentsCreated is returned when bucket of payments hasn't been
 	// created.
 	ErrNoPaymentsCreated = fmt.Errorf("there are no existing payments")
-
-	// ErrMetaNotFound is returned when meta bucket hasn't been
-	// created.
-	ErrMetaNotFound = fmt.Errorf("unable to locate meta information")
 
 	// ErrGraphNotFound is returned when at least one of the components of
 	// graph doesn't exist.

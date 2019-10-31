@@ -21,11 +21,6 @@ const (
 // up-to-date version of the database.
 type migration func(tx *bbolt.Tx) error
 
-type version struct {
-	number    uint32
-	migration migration
-}
-
 var (
 	// Big endian is the preferred byte order, due to cursor scans over
 	// integer keys iterating in order.
@@ -220,89 +215,7 @@ func (d *DB) FetchClosedChannels(pendingOnly bool) ([]*ChannelCloseSummary, erro
 	return chanSummaries, nil
 }
 
-// syncVersions function is used for safe db version synchronization. It
-// applies migration functions to the current database and recovers the
-// previous state of db if at least one error/panic appeared during migration.
-func (d *DB) syncVersions(versions []version) error {
-	meta, err := d.FetchMeta(nil)
-	if err != nil {
-		if err == ErrMetaNotFound {
-			meta = &Meta{}
-		} else {
-			return err
-		}
-	}
-
-	latestVersion := getLatestDBVersion(versions)
-	log.Infof("Checking for schema update: latest_version=%v, "+
-		"db_version=%v", latestVersion, meta.DbVersionNumber)
-
-	switch {
-
-	// If the database reports a higher version that we are aware of, the
-	// user is probably trying to revert to a prior version of lnd. We fail
-	// here to prevent reversions and unintended corruption.
-	case meta.DbVersionNumber > latestVersion:
-		log.Errorf("Refusing to revert from db_version=%d to "+
-			"lower version=%d", meta.DbVersionNumber,
-			latestVersion)
-		return ErrDBReversion
-
-	// If the current database version matches the latest version number,
-	// then we don't need to perform any migrations.
-	case meta.DbVersionNumber == latestVersion:
-		return nil
-	}
-
-	log.Infof("Performing database schema migration")
-
-	// Otherwise, we fetch the migrations which need to applied, and
-	// execute them serially within a single database transaction to ensure
-	// the migration is atomic.
-	migrations, migrationVersions := getMigrationsToApply(
-		versions, meta.DbVersionNumber,
-	)
-	return d.Update(func(tx *bbolt.Tx) error {
-		for i, migration := range migrations {
-			if migration == nil {
-				continue
-			}
-
-			log.Infof("Applying migration #%v", migrationVersions[i])
-
-			if err := migration(tx); err != nil {
-				log.Infof("Unable to apply migration #%v",
-					migrationVersions[i])
-				return err
-			}
-		}
-
-		meta.DbVersionNumber = latestVersion
-		return putMeta(meta, tx)
-	})
-}
-
 // ChannelGraph returns a new instance of the directed channel graph.
 func (d *DB) ChannelGraph() *ChannelGraph {
 	return d.graph
-}
-
-func getLatestDBVersion(versions []version) uint32 {
-	return versions[len(versions)-1].number
-}
-
-// getMigrationsToApply retrieves the migration function that should be
-// applied to the database.
-func getMigrationsToApply(versions []version, version uint32) ([]migration, []uint32) {
-	migrations := make([]migration, 0, len(versions))
-	migrationVersions := make([]uint32, 0, len(versions))
-
-	for _, v := range versions {
-		if v.number > version {
-			migrations = append(migrations, v.migration)
-			migrationVersions = append(migrationVersions, v.number)
-		}
-	}
-
-	return migrations, migrationVersions
 }

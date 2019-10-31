@@ -18,47 +18,6 @@ type Meta struct {
 	DbVersionNumber uint32
 }
 
-// FetchMeta fetches the meta data from boltdb and returns filled meta
-// structure.
-func (d *DB) FetchMeta(tx *bbolt.Tx) (*Meta, error) {
-	meta := &Meta{}
-
-	err := d.View(func(tx *bbolt.Tx) error {
-		return fetchMeta(meta, tx)
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return meta, nil
-}
-
-// fetchMeta is an internal helper function used in order to allow callers to
-// re-use a database transaction. See the publicly exported FetchMeta method
-// for more information.
-func fetchMeta(meta *Meta, tx *bbolt.Tx) error {
-	metaBucket := tx.Bucket(metaBucket)
-	if metaBucket == nil {
-		return ErrMetaNotFound
-	}
-
-	data := metaBucket.Get(dbVersionKey)
-	if data == nil {
-		meta.DbVersionNumber = 0
-	} else {
-		meta.DbVersionNumber = byteOrder.Uint32(data)
-	}
-
-	return nil
-}
-
-// PutMeta writes the passed instance of the database met-data struct to disk.
-func (d *DB) PutMeta(meta *Meta) error {
-	return d.Update(func(tx *bbolt.Tx) error {
-		return putMeta(meta, tx)
-	})
-}
-
 // putMeta is an internal helper function used in order to allow callers to
 // re-use a database transaction. See the publicly exported PutMeta method for
 // more information.

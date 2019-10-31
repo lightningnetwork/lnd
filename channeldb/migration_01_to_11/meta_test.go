@@ -3,6 +3,7 @@ package migration_01_to_11
 import (
 	"testing"
 
+	"github.com/coreos/bbolt"
 	"github.com/go-errors/errors"
 )
 
@@ -31,24 +32,6 @@ func applyMigration(t *testing.T, beforeMigration, afterMigration func(d *DB),
 	// with test data.
 	beforeMigration(cdb)
 
-	// Create test meta info with zero database version and put it on disk.
-	// Than creating the version list pretending that new version was added.
-	meta := &Meta{DbVersionNumber: 0}
-	if err := cdb.PutMeta(meta); err != nil {
-		t.Fatalf("unable to store meta data: %v", err)
-	}
-
-	versions := []version{
-		{
-			number:    0,
-			migration: nil,
-		},
-		{
-			number:    1,
-			migration: migrationFunc,
-		},
-	}
-
 	defer func() {
 		if r := recover(); r != nil {
 			err = errors.New(r)
@@ -65,8 +48,10 @@ func applyMigration(t *testing.T, beforeMigration, afterMigration func(d *DB),
 		afterMigration(cdb)
 	}()
 
-	// Sync with the latest version - applying migration function.
-	err = cdb.syncVersions(versions)
+	// Apply migration.
+	err = cdb.Update(func(tx *bbolt.Tx) error {
+		return migrationFunc(tx)
+	})
 	if err != nil {
 		log.Error(err)
 	}

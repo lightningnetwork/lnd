@@ -2646,12 +2646,23 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 		fwdInfo, err := chanIterator.ForwardingInstructions()
 		if err != nil {
 			// If we're unable to process the onion payload, or we
-			// we received malformed TLV stream, then we should
-			// send an error back to the caller so the HTLC can be
-			// canceled.
+			// received invalid onion payload failure, then we
+			// should send an error back to the caller so the HTLC
+			// can be canceled.
+			var failedType uint64
+			if e, ok := err.(hop.ErrInvalidPayload); ok {
+				failedType = uint64(e.Type)
+			}
+
+			// TODO: currently none of the test unit infrastructure
+			// is setup to handle TLV payloads, so testing this
+			// would require implementing a separate mock iterator
+			// for TLV payloads that also supports injecting invalid
+			// payloads. Deferring this non-trival effort till a
+			// later date
 			l.sendHTLCError(
 				pd.HtlcIndex,
-				lnwire.NewInvalidOnionVersion(onionBlob[:]),
+				lnwire.NewInvalidOnionPayload(failedType, 0),
 				obfuscator, pd.SourceRef,
 			)
 			needUpdate = true

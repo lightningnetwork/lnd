@@ -120,10 +120,21 @@ func NewPayloadFromReader(r io.Reader) (*Payload, error) {
 	if err != nil {
 		// Promote any required type failures into ErrInvalidPayload.
 		if e, required := err.(tlv.ErrUnknownRequiredType); required {
-			// NOTE: FinalHop will be incorrect if the unknown
-			// required was type 0. Otherwise, the failure must have
-			// occurred after type 6 and cid should contain an
-			// accurate value.
+			// NOTE: Sigh. If the sender included a next hop whose
+			// value is zero, this would be considered invalid by
+			// our validation rules below. It's not totally clear
+			// whether this required failure should take precedence
+			// over the constraints applied by known types.
+			// Unfortunately this is an artifact of the layering
+			// violation in placing the even/odd rule in the parsing
+			// logic and not at a higher level of validation like
+			// the other presence/omission checks.
+			//
+			// As a result, this may need to be revisted if it is
+			// decided that the checks below overrule an unknown
+			// required type failure, in which case an
+			// IncludedViolation should be returned instead of the
+			// RequiredViolation.
 			return nil, ErrInvalidPayload{
 				Type:      tlv.Type(e),
 				Violation: RequiredViolation,

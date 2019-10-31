@@ -98,12 +98,34 @@ var decodePayloadTests = []decodePayloadTest{
 		},
 	},
 	{
-		name:    "required type zero",
+		name:    "required type zero final hop",
 		payload: []byte{0x00, 0x00},
 		expErr: hop.ErrInvalidPayload{
 			Type:      0,
 			Violation: hop.RequiredViolation,
 			FinalHop:  true,
+		},
+	},
+	{
+		name: "required type zero final hop zero sid",
+		payload: []byte{0x00, 0x00, 0x06, 0x08, 0x00, 0x00, 0x00, 0x00,
+			0x00, 0x00, 0x00, 0x00,
+		},
+		expErr: hop.ErrInvalidPayload{
+			Type:      0,
+			Violation: hop.RequiredViolation,
+			FinalHop:  true,
+		},
+	},
+	{
+		name: "required type zero intermediate hop",
+		payload: []byte{0x00, 0x00, 0x06, 0x08, 0x01, 0x00, 0x00, 0x00,
+			0x00, 0x00, 0x00, 0x00,
+		},
+		expErr: hop.ErrInvalidPayload{
+			Type:      0,
+			Violation: hop.RequiredViolation,
+			FinalHop:  false,
 		},
 	},
 }

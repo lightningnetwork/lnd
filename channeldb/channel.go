@@ -125,39 +125,45 @@ var (
 // ChannelType is an enum-like type that describes one of several possible
 // channel types. Each open channel is associated with a particular type as the
 // channel type may determine how higher level operations are conducted such as
-// fee negotiation, channel closing, the format of HTLCs, etc.
-// TODO(roasbeef): split up per-chain?
+// fee negotiation, channel closing, the format of HTLCs, etc. Structure-wise,
+// a ChannelType is a bit field, with each bit denoting a modification from the
+// base channel type of single funder.
 type ChannelType uint8
 
 const (
 	// NOTE: iota isn't used here for this enum needs to be stable
 	// long-term as it will be persisted to the database.
 
-	// SingleFunder represents a channel wherein one party solely funds the
-	// entire capacity of the channel.
-	SingleFunder ChannelType = 0
+	// SingleFunderBit represents a channel wherein one party solely funds
+	// the entire capacity of the channel.
+	SingleFunderBit ChannelType = 0
 
-	// DualFunder represents a channel wherein both parties contribute
+	// DualFunderBit represents a channel wherein both parties contribute
 	// funds towards the total capacity of the channel. The channel may be
 	// funded symmetrically or asymmetrically.
-	DualFunder ChannelType = 1
+	DualFunderBit ChannelType = 1 << 0
 
 	// SingleFunderTweakless is similar to the basic SingleFunder channel
 	// type, but it omits the tweak for one's key in the commitment
 	// transaction of the remote party.
-	SingleFunderTweakless ChannelType = 2
+	SingleFunderTweaklessBit ChannelType = 1 << 1
 )
 
 // IsSingleFunder returns true if the channel type if one of the known single
 // funder variants.
 func (c ChannelType) IsSingleFunder() bool {
-	return c == SingleFunder || c == SingleFunderTweakless
+	return c&DualFunderBit == 0
+}
+
+// IsDualFunder returns true if the ChannelType has the DualFunderBit set.
+func (c ChannelType) IsDualFunder() bool {
+	return c&DualFunderBit == DualFunderBit
 }
 
 // IsTweakless returns true if the target channel uses a commitment that
 // doesn't tweak the key for the remote party.
 func (c ChannelType) IsTweakless() bool {
-	return c == SingleFunderTweakless
+	return c&SingleFunderTweaklessBit == SingleFunderTweaklessBit
 }
 
 // ChannelConstraints represents a set of constraints meant to allow a node to

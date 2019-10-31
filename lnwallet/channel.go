@@ -868,8 +868,7 @@ func (lc *LightningChannel) diskCommitToMemCommit(isLocal bool,
 	// If this commit is tweakless, then it'll affect the way we derive our
 	// keys, which will affect the commitment transaction reconstruction.
 	// So we'll determine this first, before we do anything else.
-	tweaklessCommit := (lc.channelState.ChanType ==
-		channeldb.SingleFunderTweakless)
+	tweaklessCommit := lc.channelState.ChanType.IsTweakless()
 
 	// First, we'll need to re-derive the commitment key ring for each
 	// party used within this particular state. If this is a pending commit

@@ -215,15 +215,15 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 	// a single-funder channel.
 	if ourBalance == 0 || theirBalance == 0 || pushMSat != 0 {
 		if tweaklessCommit {
-			chanType = channeldb.SingleFunderTweakless
+			chanType |= channeldb.SingleFunderTweaklessBit
 		} else {
-			chanType = channeldb.SingleFunder
+			chanType |= channeldb.SingleFunderBit
 		}
 	} else {
 		// Otherwise, this is a dual funder channel, and no side is
 		// technically the "initiator"
 		initiator = false
-		chanType = channeldb.DualFunder
+		chanType |= channeldb.DualFunderBit
 	}
 
 	return &ChannelReservation{

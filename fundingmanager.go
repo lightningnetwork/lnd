@@ -521,7 +521,7 @@ func (f *fundingManager) start() error {
 			// Rebroadcast the funding transaction for any pending
 			// channel that we initiated. No error will be returned
 			// if the transaction already has been broadcasted.
-			if channel.ChanType == channeldb.SingleFunder &&
+			if channel.ChanType.IsSingleFunder() &&
 				channel.IsInitiator {
 
 				err := f.cfg.PublishTransaction(

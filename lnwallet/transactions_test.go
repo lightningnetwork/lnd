@@ -370,7 +370,7 @@ func TestCommitmentAndHTLCTransactions(t *testing.T) {
 
 	// Manually construct a new LightningChannel.
 	channelState := channeldb.OpenChannel{
-		ChanType:        channeldb.SingleFunderTweakless,
+		ChanType:        channeldb.SingleFunderTweaklessBit,
 		ChainHash:       *tc.netParams.GenesisHash,
 		FundingOutpoint: tc.fundingOutpoint,
 		ShortChannelID:  tc.shortChanID,

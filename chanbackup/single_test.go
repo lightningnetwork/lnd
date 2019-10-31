@@ -124,9 +124,9 @@ func genRandomOpenChannelShell() (*channeldb.OpenChannel, error) {
 		isInitiator = true
 	}
 
-	chanType := channeldb.SingleFunder
+	chanType := channeldb.SingleFunderBit
 	if rand.Int63()%2 == 0 {
-		chanType = channeldb.SingleFunderTweakless
+		chanType = channeldb.SingleFunderTweaklessBit
 	}
 
 	return &channeldb.OpenChannel{

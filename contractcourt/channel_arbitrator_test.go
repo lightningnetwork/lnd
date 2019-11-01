@@ -684,7 +684,7 @@ func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
 
 	// Add HTLC to channel arbitrator.
 	htlcAmt := 10000
-	htlc := channeldb.HTLC{
+	outgoingHtlc := channeldb.HTLC{
 		Incoming:  false,
 		Amt:       lnwire.MilliSatoshi(htlcAmt),
 		HtlcIndex: 99,
@@ -705,7 +705,7 @@ func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
 	}
 
 	htlcSet := []channeldb.HTLC{
-		htlc, outgoingDustHtlc, incomingDustHtlc,
+		outgoingHtlc, outgoingDustHtlc, incomingDustHtlc,
 	}
 
 	htlcUpdates <- &ContractUpdate{
@@ -757,7 +757,7 @@ func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
 		},
 	}
 
-	htlcOp := wire.OutPoint{
+	htlcOpOutgoing := wire.OutPoint{
 		Hash:  closeTx.TxHash(),
 		Index: 0,
 	}
@@ -772,7 +772,7 @@ func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
 		SignedTimeoutTx: &wire.MsgTx{
 			TxIn: []*wire.TxIn{
 				{
-					PreviousOutPoint: htlcOp,
+					PreviousOutPoint: htlcOpOutgoing,
 					Witness:          [][]byte{{}},
 				},
 			},
@@ -896,9 +896,9 @@ func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
 			t.Fatalf("expected 1 message, instead got %v", len(msgs))
 		}
 
-		if msgs[0].HtlcIndex != htlc.HtlcIndex {
+		if msgs[0].HtlcIndex != outgoingHtlc.HtlcIndex {
 			t.Fatalf("wrong htlc index: expected %v, got %v",
-				htlc.HtlcIndex, msgs[0].HtlcIndex)
+				outgoingHtlc.HtlcIndex, msgs[0].HtlcIndex)
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatalf("resolution msgs not sent")

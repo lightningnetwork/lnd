@@ -26,6 +26,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/wtclientrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
 	"github.com/lightningnetwork/lnd/monitoring"
 	"github.com/lightningnetwork/lnd/netann"
 	"github.com/lightningnetwork/lnd/peernotifier"
@@ -96,6 +97,7 @@ func init() {
 	addSubLogger("PROM", monitoring.UseLogger)
 	addSubLogger("WTCL", wtclient.UseLogger)
 	addSubLogger("PRNF", peernotifier.UseLogger)
+	addSubLogger("CHFD", chanfunding.UseLogger)
 
 	addSubLogger(routerrpc.Subsystem, routerrpc.UseLogger)
 	addSubLogger(wtclientrpc.Subsystem, wtclientrpc.UseLogger)

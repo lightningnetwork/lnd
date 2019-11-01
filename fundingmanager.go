@@ -521,8 +521,9 @@ func (f *fundingManager) start() error {
 
 			// Rebroadcast the funding transaction for any pending
 			// channel that we initiated. No error will be returned
-			// if the transaction already has been broadcasted.
-			if channel.ChanType.IsSingleFunder() &&
+			// if the transaction already has been broadcast.
+			chanType := channel.ChanType
+			if chanType.IsSingleFunder() && chanType.HasFundingTx() &&
 				channel.IsInitiator {
 
 				err := f.cfg.PublishTransaction(
@@ -1739,21 +1740,28 @@ func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
 	// delete it from our set of active reservations.
 	f.deleteReservationCtx(peerKey, pendingChanID)
 
-	// Broadcast the finalized funding transaction to the network.
-	fundingTx := completeChan.FundingTxn
-	fndgLog.Infof("Broadcasting funding tx for ChannelPoint(%v): %v",
-		completeChan.FundingOutpoint, spew.Sdump(fundingTx))
+	// Broadcast the finalized funding transaction to the network, but only
+	// if we actually have the funding transaction.
+	if completeChan.ChanType.HasFundingTx() {
+		fundingTx := completeChan.FundingTxn
 
-	err = f.cfg.PublishTransaction(fundingTx)
-	if err != nil {
-		fndgLog.Errorf("Unable to broadcast funding tx for "+
-			"ChannelPoint(%v): %v", completeChan.FundingOutpoint,
-			err)
-		// We failed to broadcast the funding transaction, but watch
-		// the channel regardless, in case the transaction made it to
-		// the network. We will retry broadcast at startup.
-		// TODO(halseth): retry more often? Handle with CPFP? Just
-		// delete from the DB?
+		fndgLog.Infof("Broadcasting funding tx for ChannelPoint(%v): %v",
+			completeChan.FundingOutpoint, spew.Sdump(fundingTx))
+
+		err = f.cfg.PublishTransaction(fundingTx)
+		if err != nil {
+			fndgLog.Errorf("Unable to broadcast funding tx for "+
+				"ChannelPoint(%v): %v",
+				completeChan.FundingOutpoint, err)
+
+			// We failed to broadcast the funding transaction, but
+			// watch the channel regardless, in case the
+			// transaction made it to the network. We will retry
+			// broadcast at startup.
+			//
+			// TODO(halseth): retry more often? Handle with CPFP?
+			// Just delete from the DB?
+		}
 	}
 
 	// Now that we have a finalized reservation for this funding flow,

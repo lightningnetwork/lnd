@@ -22,6 +22,7 @@ import (
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
 	"github.com/lightningnetwork/lnd/lnwallet/chanvalidate"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
@@ -32,20 +33,6 @@ const (
 	// outside word.
 	msgBufferSize = 100
 )
-
-// ErrInsufficientFunds is a type matching the error interface which is
-// returned when coin selection for a new funding transaction fails to due
-// having an insufficient amount of confirmed funds.
-type ErrInsufficientFunds struct {
-	amountAvailable btcutil.Amount
-	amountSelected  btcutil.Amount
-}
-
-func (e *ErrInsufficientFunds) Error() string {
-	return fmt.Sprintf("not enough witness outputs to create funding transaction,"+
-		" need %v only have %v  available", e.amountAvailable,
-		e.amountSelected)
-}
 
 // InitFundingReserveMsg is the first message sent to initiate the workflow
 // required to open a payment channel with a remote peer. The initial required
@@ -1341,13 +1328,24 @@ func (l *LightningWallet) selectCoinsAndChange(feeRate chainfee.SatPerKWeight,
 
 	// Find all unlocked unspent witness outputs that satisfy the minimum
 	// number of confirmations required.
-	coins, err := l.ListUnspentWitness(minConfs, math.MaxInt32)
+	utxos, err := l.ListUnspentWitness(minConfs, math.MaxInt32)
 	if err != nil {
 		return nil, err
 	}
 
+	coins := make([]chanfunding.Coin, len(utxos), 0)
+	for _, utxo := range utxos {
+		coins = append(coins, chanfunding.Coin{
+			TxOut: wire.TxOut{
+				Value:    int64(utxo.Value),
+				PkScript: utxo.PkScript,
+			},
+			OutPoint: utxo.OutPoint,
+		})
+	}
+
 	var (
-		selectedCoins []*Utxo
+		selectedCoins []chanfunding.Coin
 		fundingAmt    btcutil.Amount
 		changeAmt     btcutil.Amount
 	)
@@ -1361,7 +1359,7 @@ func (l *LightningWallet) selectCoinsAndChange(feeRate chainfee.SatPerKWeight,
 	// won't deduct more that the specified balance from our wallet.
 	case subtractFees:
 		dustLimit := l.Cfg.DefaultConstraints.DustLimit
-		selectedCoins, fundingAmt, changeAmt, err = coinSelectSubtractFees(
+		selectedCoins, fundingAmt, changeAmt, err = chanfunding.CoinSelectSubtractFees(
 			feeRate, amt, dustLimit, coins,
 		)
 		if err != nil {
@@ -1372,7 +1370,7 @@ func (l *LightningWallet) selectCoinsAndChange(feeRate chainfee.SatPerKWeight,
 	// amount.
 	default:
 		fundingAmt = amt
-		selectedCoins, changeAmt, err = coinSelect(feeRate, amt, coins)
+		selectedCoins, changeAmt, err = chanfunding.CoinSelect(feeRate, amt, coins)
 		if err != nil {
 			return nil, err
 		}
@@ -1466,179 +1464,6 @@ func initStateHints(commit1, commit2 *wire.MsgTx,
 	}
 
 	return nil
-}
-
-// selectInputs selects a slice of inputs necessary to meet the specified
-// selection amount. If input selection is unable to succeed due to insufficient
-// funds, a non-nil error is returned. Additionally, the total amount of the
-// selected coins are returned in order for the caller to properly handle
-// change+fees.
-func selectInputs(amt btcutil.Amount, coins []*Utxo) (btcutil.Amount, []*Utxo, error) {
-	satSelected := btcutil.Amount(0)
-	for i, coin := range coins {
-		satSelected += coin.Value
-		if satSelected >= amt {
-			return satSelected, coins[:i+1], nil
-		}
-	}
-	return 0, nil, &ErrInsufficientFunds{amt, satSelected}
-}
-
-// coinSelect attempts to select a sufficient amount of coins, including a
-// change output to fund amt satoshis, adhering to the specified fee rate. The
-// specified fee rate should be expressed in sat/kw for coin selection to
-// function properly.
-func coinSelect(feeRate chainfee.SatPerKWeight, amt btcutil.Amount,
-	coins []*Utxo) ([]*Utxo, btcutil.Amount, error) {
-
-	amtNeeded := amt
-	for {
-		// First perform an initial round of coin selection to estimate
-		// the required fee.
-		totalSat, selectedUtxos, err := selectInputs(amtNeeded, coins)
-		if err != nil {
-			return nil, 0, err
-		}
-
-		var weightEstimate input.TxWeightEstimator
-
-		for _, utxo := range selectedUtxos {
-			switch utxo.AddressType {
-			case WitnessPubKey:
-				weightEstimate.AddP2WKHInput()
-			case NestedWitnessPubKey:
-				weightEstimate.AddNestedP2WKHInput()
-			default:
-				return nil, 0, fmt.Errorf("unsupported address type: %v",
-					utxo.AddressType)
-			}
-		}
-
-		// Channel funding multisig output is P2WSH.
-		weightEstimate.AddP2WSHOutput()
-
-		// Assume that change output is a P2WKH output.
-		//
-		// TODO: Handle wallets that generate non-witness change
-		// addresses.
-		// TODO(halseth): make coinSelect not estimate change output
-		// for dust change.
-		weightEstimate.AddP2WKHOutput()
-
-		// The difference between the selected amount and the amount
-		// requested will be used to pay fees, and generate a change
-		// output with the remaining.
-		overShootAmt := totalSat - amt
-
-		// Based on the estimated size and fee rate, if the excess
-		// amount isn't enough to pay fees, then increase the requested
-		// coin amount by the estimate required fee, performing another
-		// round of coin selection.
-		totalWeight := int64(weightEstimate.Weight())
-		requiredFee := feeRate.FeeForWeight(totalWeight)
-		if overShootAmt < requiredFee {
-			amtNeeded = amt + requiredFee
-			continue
-		}
-
-		// If the fee is sufficient, then calculate the size of the
-		// change output.
-		changeAmt := overShootAmt - requiredFee
-
-		return selectedUtxos, changeAmt, nil
-	}
-}
-
-// coinSelectSubtractFees attempts to select coins such that we'll spend up to
-// amt in total after fees, adhering to the specified fee rate. The selected
-// coins, the final output and change values are returned.
-func coinSelectSubtractFees(feeRate chainfee.SatPerKWeight, amt,
-	dustLimit btcutil.Amount, coins []*Utxo) ([]*Utxo, btcutil.Amount,
-	btcutil.Amount, error) {
-
-	// First perform an initial round of coin selection to estimate
-	// the required fee.
-	totalSat, selectedUtxos, err := selectInputs(amt, coins)
-	if err != nil {
-		return nil, 0, 0, err
-	}
-
-	var weightEstimate input.TxWeightEstimator
-	for _, utxo := range selectedUtxos {
-		switch utxo.AddressType {
-		case WitnessPubKey:
-			weightEstimate.AddP2WKHInput()
-		case NestedWitnessPubKey:
-			weightEstimate.AddNestedP2WKHInput()
-		default:
-			return nil, 0, 0, fmt.Errorf("unsupported "+
-				"address type: %v", utxo.AddressType)
-		}
-	}
-
-	// Channel funding multisig output is P2WSH.
-	weightEstimate.AddP2WSHOutput()
-
-	// At this point we've got two possibilities, either create a
-	// change output, or not. We'll first try without creating a
-	// change output.
-	//
-	// Estimate the fee required for a transaction without a change
-	// output.
-	totalWeight := int64(weightEstimate.Weight())
-	requiredFee := feeRate.FeeForWeight(totalWeight)
-
-	// For a transaction without a change output, we'll let everything go
-	// to our multi-sig output after subtracting fees.
-	outputAmt := totalSat - requiredFee
-	changeAmt := btcutil.Amount(0)
-
-	// If the the output is too small after subtracting the fee, the coin
-	// selection cannot be performed with an amount this small.
-	if outputAmt <= dustLimit {
-		return nil, 0, 0, fmt.Errorf("output amount(%v) after "+
-			"subtracting fees(%v) below dust limit(%v)", outputAmt,
-			requiredFee, dustLimit)
-	}
-
-	// We were able to create a transaction with no change from the
-	// selected inputs. We'll remember the resulting values for
-	// now, while we try to add a change output. Assume that change output
-	// is a P2WKH output.
-	weightEstimate.AddP2WKHOutput()
-
-	// Now that we have added the change output, redo the fee
-	// estimate.
-	totalWeight = int64(weightEstimate.Weight())
-	requiredFee = feeRate.FeeForWeight(totalWeight)
-
-	// For a transaction with a change output, everything we don't spend
-	// will go to change.
-	newChange := totalSat - amt
-	newOutput := amt - requiredFee
-
-	// If adding a change output leads to both outputs being above
-	// the dust limit, we'll add the change output. Otherwise we'll
-	// go with the no change tx we originally found.
-	if newChange > dustLimit && newOutput > dustLimit {
-		outputAmt = newOutput
-		changeAmt = newChange
-	}
-
-	// Sanity check the resulting output values to make sure we
-	// don't burn a great part to fees.
-	totalOut := outputAmt + changeAmt
-	fee := totalSat - totalOut
-
-	// Fail if more than 20% goes to fees.
-	// TODO(halseth): smarter fee limit. Make configurable or dynamic wrt
-	// total funding size?
-	if fee > totalOut/5 {
-		return nil, 0, 0, fmt.Errorf("fee %v on total output"+
-			"value %v", fee, totalOut)
-	}
-
-	return selectedUtxos, outputAmt, changeAmt, nil
 }
 
 // ValidateChannel will attempt to fully validate a newly mined channel, given

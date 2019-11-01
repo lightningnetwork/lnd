@@ -114,13 +114,6 @@ type ChannelReservation struct {
 	// commitment state.
 	pushMSat lnwire.MilliSatoshi
 
-	// chanOpen houses a struct containing the channel and additional
-	// confirmation details will be sent on once the channel is considered
-	// 'open'. A channel is open once the funding transaction has reached a
-	// sufficient number of confirmations.
-	chanOpen    chan *openChanDetails
-	chanOpenErr chan error
-
 	wallet *LightningWallet
 }
 
@@ -259,8 +252,6 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 		},
 		pushMSat:      pushMSat,
 		reservationID: id,
-		chanOpen:      make(chan *openChanDetails, 1),
-		chanOpenErr:   make(chan error, 1),
 		wallet:        wallet,
 	}, nil
 }

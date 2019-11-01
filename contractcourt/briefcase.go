@@ -473,7 +473,6 @@ func (b *boltArbitratorLog) FetchUnresolvedContracts() ([]ContractResolver, erro
 				if err := timeoutRes.Decode(resReader); err != nil {
 					return err
 				}
-				timeoutRes.AttachResolverKit(resKit)
 
 				res = timeoutRes
 

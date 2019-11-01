@@ -46,11 +46,6 @@ type ContractResolver interface {
 	// passed Writer.
 	Encode(w io.Writer) error
 
-	// Decode attempts to decode an encoded ContractResolver from the
-	// passed Reader instance, returning an active ContractResolver
-	// instance.
-	Decode(r io.Reader) error
-
 	// AttachResolverKit should be called once a resolved is successfully
 	// decoded from its stored format. This struct delivers a generic tool
 	// kit that resolvers need to complete their duty.

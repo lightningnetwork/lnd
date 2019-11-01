@@ -1,6 +1,7 @@
 package lnd
 
 import (
+	"encoding/hex"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -18,6 +19,10 @@ import (
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+)
+
+var (
+	coinPkScript, _ = hex.DecodeString("001431df1bde03c074d0cf21ea2529427e1499b8f1de")
 )
 
 // The block height returned by the mock BlockChainIO's GetBestBlock.
@@ -297,7 +302,7 @@ func (m *mockWalletController) ListUnspentWitness(minconfirms,
 	utxo := &lnwallet.Utxo{
 		AddressType: lnwallet.WitnessPubKey,
 		Value:       btcutil.Amount(10 * btcutil.SatoshiPerBitcoin),
-		PkScript:    make([]byte, 22),
+		PkScript:    coinPkScript,
 		OutPoint: wire.OutPoint{
 			Hash:  chainhash.Hash{},
 			Index: m.index,

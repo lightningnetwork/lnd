@@ -11,6 +11,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -114,7 +115,10 @@ type ChannelReservation struct {
 	// commitment state.
 	pushMSat lnwire.MilliSatoshi
 
-	wallet *LightningWallet
+	wallet     *LightningWallet
+	chanFunder chanfunding.Assembler
+
+	fundingIntent chanfunding.Intent
 }
 
 // NewChannelReservation creates a new channel reservation. This function is
@@ -124,8 +128,8 @@ type ChannelReservation struct {
 func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 	commitFeePerKw chainfee.SatPerKWeight, wallet *LightningWallet,
 	id uint64, pushMSat lnwire.MilliSatoshi, chainHash *chainhash.Hash,
-	flags lnwire.FundingFlag,
-	tweaklessCommit bool) (*ChannelReservation, error) {
+	flags lnwire.FundingFlag, tweaklessCommit bool,
+	fundingAssembler chanfunding.Assembler) (*ChannelReservation, error) {
 
 	var (
 		ourBalance   lnwire.MilliSatoshi
@@ -213,6 +217,14 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 		} else {
 			chanType |= channeldb.SingleFunderBit
 		}
+
+		// If this intent isn't one that's able to provide us with a
+		// funding transaction, then we'll set the chanType bit to
+		// signal that we don't have access to one.
+		if _, ok := fundingAssembler.(chanfunding.FundingTxAssembler); !ok {
+			chanType |= channeldb.NoFundingTxBit
+		}
+
 	} else {
 		// Otherwise, this is a dual funder channel, and no side is
 		// technically the "initiator"
@@ -253,6 +265,7 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 		pushMSat:      pushMSat,
 		reservationID: id,
 		wallet:        wallet,
+		chanFunder:    fundingAssembler,
 	}, nil
 }
 

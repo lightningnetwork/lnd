@@ -41,6 +41,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -616,7 +617,7 @@ func testFundingTransactionLockedOutputs(miner *rpctest.Harness,
 	if err == nil {
 		t.Fatalf("not error returned, should fail on coin selection")
 	}
-	if _, ok := err.(*lnwallet.ErrInsufficientFunds); !ok {
+	if _, ok := err.(*chanfunding.ErrInsufficientFunds); !ok {
 		t.Fatalf("error not coinselect error: %v", err)
 	}
 	if failedReservation != nil {
@@ -655,7 +656,7 @@ func testFundingCancellationNotEnoughFunds(miner *rpctest.Harness,
 
 	// Attempt to create another channel with 44 BTC, this should fail.
 	_, err = alice.InitChannelReservation(req)
-	if _, ok := err.(*lnwallet.ErrInsufficientFunds); !ok {
+	if _, ok := err.(*chanfunding.ErrInsufficientFunds); !ok {
 		t.Fatalf("coin selection succeeded should have insufficient funds: %v",
 			err)
 	}
@@ -699,7 +700,7 @@ func testCancelNonExistentReservation(miner *rpctest.Harness,
 	// Create our own reservation, give it some ID.
 	res, err := lnwallet.NewChannelReservation(
 		10000, 10000, feePerKw, alice, 22, 10, &testHdSeed,
-		lnwire.FFAnnounceChannel, true,
+		lnwire.FFAnnounceChannel, true, nil, [32]byte{},
 	)
 	if err != nil {
 		t.Fatalf("unable to create res: %v", err)

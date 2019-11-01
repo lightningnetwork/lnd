@@ -2864,7 +2864,7 @@ func TestFundingManagerFundAll(t *testing.T) {
 			Value: btcutil.Amount(
 				0.05 * btcutil.SatoshiPerBitcoin,
 			),
-			PkScript: make([]byte, 22),
+			PkScript: coinPkScript,
 			OutPoint: wire.OutPoint{
 				Hash:  chainhash.Hash{},
 				Index: 0,
@@ -2875,7 +2875,7 @@ func TestFundingManagerFundAll(t *testing.T) {
 			Value: btcutil.Amount(
 				0.06 * btcutil.SatoshiPerBitcoin,
 			),
-			PkScript: make([]byte, 22),
+			PkScript: coinPkScript,
 			OutPoint: wire.OutPoint{
 				Hash:  chainhash.Hash{},
 				Index: 1,

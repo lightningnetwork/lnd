@@ -277,6 +277,11 @@ type LightningWallet struct {
 	// the currently locked outpoints.
 	lockedOutPoints map[wire.OutPoint]struct{}
 
+	// fundingIntents houses all the "interception" registered by a caller
+	// using the RegisterFundingIntent method.
+	intentMtx      sync.RWMutex
+	fundingIntents map[[32]byte]chanfunding.Intent
+
 	quit chan struct{}
 
 	wg sync.WaitGroup
@@ -297,6 +302,7 @@ func NewLightningWallet(Cfg Config) (*LightningWallet, error) {
 		nextFundingID:    0,
 		fundingLimbo:     make(map[uint64]*ChannelReservation),
 		lockedOutPoints:  make(map[wire.OutPoint]struct{}),
+		fundingIntents:   make(map[[32]byte]chanfunding.Intent),
 		quit:             make(chan struct{}),
 	}, nil
 }
@@ -435,6 +441,21 @@ func (l *LightningWallet) InitChannelReservation(
 	return <-req.resp, <-req.err
 }
 
+// RegisterFundingIntent allows a caller to signal to the wallet that if a
+// pending channel ID of expectedID is found, then it can skip constructing a
+// new chanfunding.Assembler, and instead use the specified chanfunding.Intent.
+// As an example, this lets some of the parameters for funding transaction to
+// be negotiated outside the regular funding protocol.
+func (l *LightningWallet) RegisterFundingIntent(expectedID [32]byte,
+	shimIntent chanfunding.Intent) error {
+
+	l.intentMtx.Lock()
+	l.fundingIntents[expectedID] = shimIntent
+	l.intentMtx.Unlock()
+
+	return nil
+}
+
 // handleFundingReserveRequest processes a message intending to create, and
 // validate a funding reservation request.
 func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg) {
@@ -478,11 +499,19 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 		err           error
 	)
 
-	// If we're on the receiving end of a single funder channel then we
-	// don't need to perform any coin selection, and the remote contributes
-	// all funds. Otherwise, attempt to obtain enough coins to meet the
-	// required funding amount.
-	if req.LocalFundingAmt != 0 {
+	// If we've just received an inbound funding request that we have a
+	// registered shim intent to, then we'll obtain the backing intent now.
+	// In this case, we're doing a special funding workflow that allows
+	// more advanced constructions such as channel factories to be
+	// instantiated.
+	l.intentMtx.Lock()
+	fundingIntent, ok := l.fundingIntents[req.PendingChanID]
+	l.intentMtx.Unlock()
+
+	// Otherwise, this is a normal funding flow, so we'll use the chan
+	// funder in the attached request to provision the inputs/outputs
+	// that'll ultimately be used to construct the funding transaction.
+	if !ok {
 		// Coin selection is done on the basis of sat/kw, so we'll use
 		// the fee rate passed in to perform coin selection.
 		var err error
@@ -699,6 +728,16 @@ func (l *LightningWallet) handleFundingCancelRequest(req *fundingReserveCancelMs
 	// available?
 
 	delete(l.fundingLimbo, req.pendingFundingID)
+
+	pid := pendingReservation.pendingChanID
+
+	l.intentMtx.Lock()
+	if intent, ok := l.fundingIntents[pid]; ok {
+		intent.Cancel()
+
+		delete(l.fundingIntents, pendingReservation.pendingChanID)
+	}
+	l.intentMtx.Unlock()
 
 	req.err <- nil
 }
@@ -1149,6 +1188,10 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 	delete(l.fundingLimbo, res.reservationID)
 	l.limboMtx.Unlock()
 
+	l.intentMtx.Lock()
+	delete(l.fundingIntents, res.pendingChanID)
+	l.intentMtx.Unlock()
+
 	// As we're about to broadcast the funding transaction, we'll take note
 	// of the current height for record keeping purposes.
 	//
@@ -1347,6 +1390,10 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 	l.limboMtx.Lock()
 	delete(l.fundingLimbo, req.pendingFundingID)
 	l.limboMtx.Unlock()
+
+	l.intentMtx.Lock()
+	delete(l.fundingIntents, pendingReservation.pendingChanID)
+	l.intentMtx.Unlock()
 }
 
 // WithCoinSelectLock will execute the passed function closure in a

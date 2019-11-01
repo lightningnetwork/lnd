@@ -87,10 +87,10 @@ func (c *chanDBRestorer) openChannelShell(backup chanbackup.Single) (
 	switch backup.Version {
 
 	case chanbackup.DefaultSingleVersion:
-		chanType = channeldb.SingleFunder
+		chanType = channeldb.SingleFunderBit
 
 	case chanbackup.TweaklessCommitVersion:
-		chanType = channeldb.SingleFunderTweakless
+		chanType = channeldb.SingleFunderTweaklessBit
 
 	default:
 		return nil, fmt.Errorf("unknown Single version: %v", err)

@@ -187,7 +187,7 @@ func createTestChannelState(cdb *DB) (*OpenChannel, error) {
 	chanID := lnwire.NewShortChanIDFromInt(uint64(rand.Int63()))
 
 	return &OpenChannel{
-		ChanType:          SingleFunder,
+		ChanType:          SingleFunderBit,
 		ChainHash:         key,
 		FundingOutpoint:   wire.OutPoint{Hash: key, Index: rand.Uint32()},
 		ShortChannelID:    chanID,

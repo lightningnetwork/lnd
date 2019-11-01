@@ -525,8 +525,21 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 		return
 	}
 
+	var keyRing keychain.KeyRing = l.SecretKeyRing
+
+	// If this is a shim intent, then it may be attempting to use an
+	// existing set of keys for the funding workflow. In this case, we'll
+	// make a simple wrapper keychain.KeyRing that will proxy certain
+	// derivation calls to future callers.
+	if shimIntent, ok := fundingIntent.(*chanfunding.ShimIntent); ok {
+		keyRing = &shimKeyRing{
+			KeyRing:    keyRing,
+			ShimIntent: shimIntent,
+		}
+	}
+
 	err = l.initOurContribution(
-		reservation, fundingIntent, req.NodeAddr, req.NodeID,
+		reservation, fundingIntent, req.NodeAddr, req.NodeID, keyRing,
 	)
 	if err != nil {
 		if fundingIntent != nil {
@@ -556,7 +569,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 // channel.
 func (l *LightningWallet) initOurContribution(reservation *ChannelReservation,
 	fundingIntent chanfunding.Intent, nodeAddr net.Addr,
-	nodeID *btcec.PublicKey) error {
+	nodeID *btcec.PublicKey, keyRing keychain.KeyRing) error {
 
 	// Grab the mutex on the ChannelReservation to ensure thread-safety
 	reservation.Lock()
@@ -584,31 +597,31 @@ func (l *LightningWallet) initOurContribution(reservation *ChannelReservation,
 	reservation.partialState.IdentityPub = nodeID
 
 	var err error
-	reservation.ourContribution.MultiSigKey, err = l.DeriveNextKey(
+	reservation.ourContribution.MultiSigKey, err = keyRing.DeriveNextKey(
 		keychain.KeyFamilyMultiSig,
 	)
 	if err != nil {
 		return err
 	}
-	reservation.ourContribution.RevocationBasePoint, err = l.DeriveNextKey(
+	reservation.ourContribution.RevocationBasePoint, err = keyRing.DeriveNextKey(
 		keychain.KeyFamilyRevocationBase,
 	)
 	if err != nil {
 		return err
 	}
-	reservation.ourContribution.HtlcBasePoint, err = l.DeriveNextKey(
+	reservation.ourContribution.HtlcBasePoint, err = keyRing.DeriveNextKey(
 		keychain.KeyFamilyHtlcBase,
 	)
 	if err != nil {
 		return err
 	}
-	reservation.ourContribution.PaymentBasePoint, err = l.DeriveNextKey(
+	reservation.ourContribution.PaymentBasePoint, err = keyRing.DeriveNextKey(
 		keychain.KeyFamilyPaymentBase,
 	)
 	if err != nil {
 		return err
 	}
-	reservation.ourContribution.DelayBasePoint, err = l.DeriveNextKey(
+	reservation.ourContribution.DelayBasePoint, err = keyRing.DeriveNextKey(
 		keychain.KeyFamilyDelayBase,
 	)
 	if err != nil {
@@ -617,7 +630,7 @@ func (l *LightningWallet) initOurContribution(reservation *ChannelReservation,
 
 	// With the above keys created, we'll also need to initialization our
 	// initial revocation tree state.
-	nextRevocationKeyDesc, err := l.DeriveNextKey(
+	nextRevocationKeyDesc, err := keyRing.DeriveNextKey(
 		keychain.KeyFamilyRevocationRoot,
 	)
 	if err != nil {
@@ -766,6 +779,15 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	// which type of intent we obtained from our chanfunding.Assembler,
 	// we'll carry out a distinct set of steps.
 	switch fundingIntent := pendingReservation.fundingIntent.(type) {
+	case *chanfunding.ShimIntent:
+		chanPoint, err = fundingIntent.ChanPoint()
+		if err != nil {
+			req.err <- fmt.Errorf("unable to obtain chan point: %v", err)
+			return
+		}
+
+		pendingReservation.partialState.FundingOutpoint = *chanPoint
+
 	case *chanfunding.FullIntent:
 		// Now that we know their public key, we can bind theirs as
 		// well as ours to the funding intent.
@@ -1476,4 +1498,29 @@ func (c *CoinSource) CoinFromOutPoint(op wire.OutPoint) (*chanfunding.Coin, erro
 		},
 		OutPoint: inputInfo.OutPoint,
 	}, nil
+}
+
+// shimKeyRing is a wrapper struct that's used to provide the proper multi-sig
+// key for an initiated external funding flow.
+type shimKeyRing struct {
+	keychain.KeyRing
+
+	*chanfunding.ShimIntent
+}
+
+// DeriveNextKey intercepts the normal DeriveNextKey call to a keychain.KeyRing
+// instance, and supplies the multi-sig key specified by the ShimIntent. This
+// allows us to transparently insert new keys into the existing funding flow,
+// as these keys may not come from the wallet itself.
+func (s *shimKeyRing) DeriveNextKey(keyFam keychain.KeyFamily) (keychain.KeyDescriptor, error) {
+	if keyFam != keychain.KeyFamilyMultiSig {
+		return s.KeyRing.DeriveNextKey(keyFam)
+	}
+
+	fundingKeys, err := s.ShimIntent.MultiSigKeys()
+	if err != nil {
+		return keychain.KeyDescriptor{}, err
+	}
+
+	return *fundingKeys.LocalKey, nil
 }

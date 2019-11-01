@@ -262,35 +262,40 @@ func (c *commitSweepResolver) Encode(w io.Writer) error {
 	return nil
 }
 
-// Decode attempts to decode an encoded ContractResolver from the passed Reader
-// instance, returning an active ContractResolver instance.
-//
-// NOTE: Part of the ContractResolver interface.
-func (c *commitSweepResolver) Decode(r io.Reader) error {
+// newCommitSweepResolverFromReader attempts to decode an encoded
+// ContractResolver from the passed Reader instance, returning an active
+// ContractResolver instance.
+func newCommitSweepResolverFromReader(r io.Reader, resCfg ResolverConfig) (
+	*commitSweepResolver, error) {
+
+	c := &commitSweepResolver{
+		contractResolverKit: *newContractResolverKit(resCfg),
+	}
+
 	if err := decodeCommitResolution(r, &c.commitResolution); err != nil {
-		return err
+		return nil, err
 	}
 
 	if err := binary.Read(r, endian, &c.resolved); err != nil {
-		return err
+		return nil, err
 	}
 	if err := binary.Read(r, endian, &c.broadcastHeight); err != nil {
-		return err
+		return nil, err
 	}
 	_, err := io.ReadFull(r, c.chanPoint.Hash[:])
 	if err != nil {
-		return err
+		return nil, err
 	}
 	err = binary.Read(r, endian, &c.chanPoint.Index)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// Previously a sweep tx was deserialized at this point. Refactoring
 	// removed this, but keep in mind that this data may still be present in
 	// the database.
 
-	return nil
+	return c, nil
 }
 
 // AttachConfig should be called once a resolved is successfully decoded from

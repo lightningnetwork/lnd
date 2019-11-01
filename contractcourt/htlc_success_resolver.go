@@ -290,32 +290,37 @@ func (h *htlcSuccessResolver) Encode(w io.Writer) error {
 	return nil
 }
 
-// Decode attempts to decode an encoded ContractResolver from the passed Reader
-// instance, returning an active ContractResolver instance.
-//
-// NOTE: Part of the ContractResolver interface.
-func (h *htlcSuccessResolver) Decode(r io.Reader) error {
+// newSuccessResolverFromReader attempts to decode an encoded ContractResolver
+// from the passed Reader instance, returning an active ContractResolver
+// instance.
+func newSuccessResolverFromReader(r io.Reader, resCfg ResolverConfig) (
+	*htlcSuccessResolver, error) {
+
+	h := &htlcSuccessResolver{
+		contractResolverKit: *newContractResolverKit(resCfg),
+	}
+
 	// First we'll decode our inner HTLC resolution.
 	if err := decodeIncomingResolution(r, &h.htlcResolution); err != nil {
-		return err
+		return nil, err
 	}
 
 	// Next, we'll read all the fields that are specified to the contract
 	// resolver.
 	if err := binary.Read(r, endian, &h.outputIncubating); err != nil {
-		return err
+		return nil, err
 	}
 	if err := binary.Read(r, endian, &h.resolved); err != nil {
-		return err
+		return nil, err
 	}
 	if err := binary.Read(r, endian, &h.broadcastHeight); err != nil {
-		return err
+		return nil, err
 	}
 	if _, err := io.ReadFull(r, h.payHash[:]); err != nil {
-		return err
+		return nil, err
 	}
 
-	return nil
+	return h, nil
 }
 
 // AttachConfig should be called once a resolved is successfully decoded from

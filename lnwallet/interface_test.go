@@ -2871,8 +2871,10 @@ func TestLightningWallet(t *testing.T) {
 
 	for _, walletDriver := range lnwallet.RegisteredWallets() {
 		for _, backEnd := range walletDriver.BackEnds() {
-			runTests(t, walletDriver, backEnd, miningNode,
-				rpcConfig, chainNotifier)
+			if !runTests(t, walletDriver, backEnd, miningNode,
+				rpcConfig, chainNotifier) {
+				return
+			}
 		}
 	}
 }
@@ -2884,7 +2886,7 @@ func TestLightningWallet(t *testing.T) {
 func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 	backEnd string, miningNode *rpctest.Harness,
 	rpcConfig rpcclient.ConnConfig,
-	chainNotifier *btcdnotify.BtcdNotifier) {
+	chainNotifier chainntnfs.ChainNotifier) bool {
 
 	var (
 		bio lnwallet.BlockChainIO
@@ -3113,8 +3115,7 @@ func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 
 	bob, err := createTestWallet(
 		tempTestDirBob, miningNode, netParams,
-		chainNotifier, bobWalletController, bobKeyRing,
-		bobSigner, bio,
+		chainNotifier, bobWalletController, bobKeyRing, bobSigner, bio,
 	)
 	if err != nil {
 		t.Fatalf("unable to create test ln wallet: %v", err)
@@ -3135,7 +3136,7 @@ func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 			walletTest.test(miningNode, alice, bob, t)
 		})
 		if !success {
-			break
+			return false
 		}
 
 		// TODO(roasbeef): possible reset mining
@@ -3146,4 +3147,6 @@ func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 			t.Fatalf("unable to wipe wallet state: %v", err)
 		}
 	}
+
+	return true
 }

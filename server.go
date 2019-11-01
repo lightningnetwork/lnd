@@ -44,6 +44,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/nat"
 	"github.com/lightningnetwork/lnd/netann"
@@ -1136,7 +1137,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 		if cfg.WtClient.SweepFeeRate != 0 {
 			// We expose the sweep fee rate in sat/byte, but the
 			// tower protocol operations on sat/kw.
-			sweepRateSatPerByte := lnwallet.SatPerKVByte(
+			sweepRateSatPerByte := chainfee.SatPerKVByte(
 				1000 * cfg.WtClient.SweepFeeRate,
 			)
 			policy.SweepFeeRate = sweepRateSatPerByte.FeePerKWeight()
@@ -3071,7 +3072,7 @@ type openChanReq struct {
 
 	pushAmt lnwire.MilliSatoshi
 
-	fundingFeePerKw lnwallet.SatPerKWeight
+	fundingFeePerKw chainfee.SatPerKWeight
 
 	private bool
 

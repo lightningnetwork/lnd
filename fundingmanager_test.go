@@ -32,6 +32,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -218,7 +219,7 @@ func createTestWallet(cdb *channeldb.DB, netParams *chaincfg.Params,
 	notifier chainntnfs.ChainNotifier, wc lnwallet.WalletController,
 	signer input.Signer, keyRing keychain.SecretKeyRing,
 	bio lnwallet.BlockChainIO,
-	estimator lnwallet.FeeEstimator) (*lnwallet.LightningWallet, error) {
+	estimator chainfee.Estimator) (*lnwallet.LightningWallet, error) {
 
 	wallet, err := lnwallet.NewLightningWallet(lnwallet.Config{
 		Database:           cdb,
@@ -247,7 +248,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 	options ...cfgOption) (*testNode, error) {
 
 	netParams := activeNetParams.Params
-	estimator := lnwallet.NewStaticFeeEstimator(62500, 0)
+	estimator := chainfee.NewStaticEstimator(62500, 0)
 
 	chainNotifier := &mockNotifier{
 		oneConfChannel: make(chan *chainntnfs.TxConfirmation, 1),

@@ -16,13 +16,14 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
 
 const (
 	// DefaultMaxFeeRate is the default maximum fee rate allowed within the
 	// UtxoSweeper. The current value is equivalent to a fee rate of 10,000
 	// sat/vbyte.
-	DefaultMaxFeeRate = lnwallet.FeePerKwFloor * 1e4
+	DefaultMaxFeeRate = chainfee.FeePerKwFloor * 1e4
 
 	// DefaultFeeRateBucketSize is the default size of fee rate buckets
 	// we'll use when clustering inputs into buckets with similar fee rates
@@ -92,7 +93,7 @@ type pendingInput struct {
 
 	// lastFeeRate is the most recent fee rate used for this input within a
 	// transaction broadcast to the network.
-	lastFeeRate lnwallet.SatPerKWeight
+	lastFeeRate chainfee.SatPerKWeight
 }
 
 // pendingInputs is a type alias for a set of pending inputs.
@@ -101,7 +102,7 @@ type pendingInputs = map[wire.OutPoint]*pendingInput
 // inputCluster is a helper struct to gather a set of pending inputs that should
 // be swept with the specified fee rate.
 type inputCluster struct {
-	sweepFeeRate lnwallet.SatPerKWeight
+	sweepFeeRate chainfee.SatPerKWeight
 	inputs       pendingInputs
 }
 
@@ -126,7 +127,7 @@ type PendingInput struct {
 
 	// LastFeeRate is the most recent fee rate used for the input being
 	// swept within a transaction broadcast to the network.
-	LastFeeRate lnwallet.SatPerKWeight
+	LastFeeRate chainfee.SatPerKWeight
 
 	// BroadcastAttempts is the number of attempts we've made to sweept the
 	// input.
@@ -182,7 +183,7 @@ type UtxoSweeper struct {
 
 	currentOutputScript []byte
 
-	relayFeeRate lnwallet.SatPerKWeight
+	relayFeeRate chainfee.SatPerKWeight
 
 	quit chan struct{}
 	wg   sync.WaitGroup
@@ -197,7 +198,7 @@ type UtxoSweeperConfig struct {
 	// FeeEstimator is used when crafting sweep transactions to estimate
 	// the necessary fee relative to the expected size of the sweep
 	// transaction.
-	FeeEstimator lnwallet.FeeEstimator
+	FeeEstimator chainfee.Estimator
 
 	// PublishTransaction facilitates the process of broadcasting a signed
 	// transaction to the appropriate network.
@@ -235,7 +236,7 @@ type UtxoSweeperConfig struct {
 
 	// MaxFeeRate is the the maximum fee rate allowed within the
 	// UtxoSweeper.
-	MaxFeeRate lnwallet.SatPerKWeight
+	MaxFeeRate chainfee.SatPerKWeight
 
 	// FeeRateBucketSize is the default size of fee rate buckets we'll use
 	// when clustering inputs into buckets with similar fee rates within the
@@ -403,7 +404,7 @@ func (s *UtxoSweeper) SweepInput(input input.Input,
 // feeRateForPreference returns a fee rate for the given fee preference. It
 // ensures that the fee rate respects the bounds of the UtxoSweeper.
 func (s *UtxoSweeper) feeRateForPreference(
-	feePreference FeePreference) (lnwallet.SatPerKWeight, error) {
+	feePreference FeePreference) (chainfee.SatPerKWeight, error) {
 
 	// Ensure a type of fee preference is specified to prevent using a
 	// default below.
@@ -637,10 +638,10 @@ func (s *UtxoSweeper) collector(blockEpochs <-chan *chainntnfs.BlockEpoch) {
 // bucketForFeeReate determines the proper bucket for a fee rate. This is done
 // in order to batch inputs with similar fee rates together.
 func (s *UtxoSweeper) bucketForFeeRate(
-	feeRate lnwallet.SatPerKWeight) lnwallet.SatPerKWeight {
+	feeRate chainfee.SatPerKWeight) chainfee.SatPerKWeight {
 
-	minBucket := s.relayFeeRate + lnwallet.SatPerKWeight(s.cfg.FeeRateBucketSize)
-	return lnwallet.SatPerKWeight(
+	minBucket := s.relayFeeRate + chainfee.SatPerKWeight(s.cfg.FeeRateBucketSize)
+	return chainfee.SatPerKWeight(
 		math.Ceil(float64(feeRate) / float64(minBucket)),
 	)
 }
@@ -650,8 +651,8 @@ func (s *UtxoSweeper) bucketForFeeRate(
 // sweep fee rate, which is determined by calculating the average fee rate of
 // all inputs within that cluster.
 func (s *UtxoSweeper) clusterBySweepFeeRate() []inputCluster {
-	bucketInputs := make(map[lnwallet.SatPerKWeight]pendingInputs)
-	inputFeeRates := make(map[wire.OutPoint]lnwallet.SatPerKWeight)
+	bucketInputs := make(map[chainfee.SatPerKWeight]pendingInputs)
+	inputFeeRates := make(map[wire.OutPoint]chainfee.SatPerKWeight)
 
 	// First, we'll group together all inputs with similar fee rates. This
 	// is done by determining the fee rate bucket they should belong in.
@@ -678,11 +679,11 @@ func (s *UtxoSweeper) clusterBySweepFeeRate() []inputCluster {
 	// calculating the average fee rate of the inputs within each set.
 	inputClusters := make([]inputCluster, 0, len(bucketInputs))
 	for _, inputs := range bucketInputs {
-		var sweepFeeRate lnwallet.SatPerKWeight
+		var sweepFeeRate chainfee.SatPerKWeight
 		for op := range inputs {
 			sweepFeeRate += inputFeeRates[op]
 		}
-		sweepFeeRate /= lnwallet.SatPerKWeight(len(inputs))
+		sweepFeeRate /= chainfee.SatPerKWeight(len(inputs))
 		inputClusters = append(inputClusters, inputCluster{
 			sweepFeeRate: sweepFeeRate,
 			inputs:       inputs,
@@ -836,7 +837,7 @@ func (s *UtxoSweeper) getInputLists(cluster inputCluster,
 
 // sweep takes a set of preselected inputs, creates a sweep tx and publishes the
 // tx. The output address is only marked as used if the publish succeeds.
-func (s *UtxoSweeper) sweep(inputs inputSet, feeRate lnwallet.SatPerKWeight,
+func (s *UtxoSweeper) sweep(inputs inputSet, feeRate chainfee.SatPerKWeight,
 	currentHeight int32) error {
 
 	// Generate an output script if there isn't an unused script available.

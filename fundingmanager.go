@@ -24,6 +24,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
 	"golang.org/x/crypto/salsa20"
@@ -230,7 +231,7 @@ type fundingConfig struct {
 
 	// FeeEstimator calculates appropriate fee rates based on historical
 	// transaction information.
-	FeeEstimator lnwallet.FeeEstimator
+	FeeEstimator chainfee.Estimator
 
 	// Notifier is used by the FundingManager to determine when the
 	// channel's funding transaction has been confirmed on the blockchain
@@ -1218,7 +1219,7 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 		NodeAddr:         fmsg.peer.Address(),
 		LocalFundingAmt:  0,
 		RemoteFundingAmt: amt,
-		CommitFeePerKw:   lnwallet.SatPerKWeight(msg.FeePerKiloWeight),
+		CommitFeePerKw:   chainfee.SatPerKWeight(msg.FeePerKiloWeight),
 		FundingFeePerKw:  0,
 		PushMSat:         msg.PushAmount,
 		Flags:            msg.ChannelFlags,

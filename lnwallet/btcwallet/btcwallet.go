@@ -21,6 +21,7 @@ import (
 	"github.com/btcsuite/btcwallet/walletdb"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
 
 const (
@@ -289,7 +290,7 @@ func (b *BtcWallet) IsOurAddress(a btcutil.Address) bool {
 //
 // This is a part of the WalletController interface.
 func (b *BtcWallet) SendOutputs(outputs []*wire.TxOut,
-	feeRate lnwallet.SatPerKWeight) (*wire.MsgTx, error) {
+	feeRate chainfee.SatPerKWeight) (*wire.MsgTx, error) {
 
 	// Convert our fee rate from sat/kw to sat/kb since it's required by
 	// SendOutputs.
@@ -314,7 +315,7 @@ func (b *BtcWallet) SendOutputs(outputs []*wire.TxOut,
 //
 // This is a part of the WalletController interface.
 func (b *BtcWallet) CreateSimpleTx(outputs []*wire.TxOut,
-	feeRate lnwallet.SatPerKWeight, dryRun bool) (*txauthor.AuthoredTx, error) {
+	feeRate chainfee.SatPerKWeight, dryRun bool) (*txauthor.AuthoredTx, error) {
 
 	// The fee rate is passed in using units of sat/kw, so we'll convert
 	// this to sat/KB as the CreateSimpleTx method requires this unit.

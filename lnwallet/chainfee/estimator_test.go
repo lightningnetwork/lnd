@@ -1,4 +1,4 @@
-package lnwallet_test
+package chainfee
 
 import (
 	"bytes"
@@ -9,8 +9,6 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcutil"
-
-	"github.com/lightningnetwork/lnd/lnwallet"
 )
 
 type mockSparseConfFeeSource struct {
@@ -38,9 +36,9 @@ func TestFeeRateTypes(t *testing.T) {
 	const weight = vsize * 4
 
 	// Test the conversion from sat/kw to sat/kb.
-	for feePerKw := lnwallet.SatPerKWeight(250); feePerKw < 10000; feePerKw += 50 {
+	for feePerKw := SatPerKWeight(250); feePerKw < 10000; feePerKw += 50 {
 		feePerKB := feePerKw.FeePerKVByte()
-		if feePerKB != lnwallet.SatPerKVByte(feePerKw*4) {
+		if feePerKB != SatPerKVByte(feePerKw*4) {
 			t.Fatalf("expected %d sat/kb, got %d sat/kb when "+
 				"converting from %d sat/kw", feePerKw*4,
 				feePerKB, feePerKw)
@@ -62,9 +60,9 @@ func TestFeeRateTypes(t *testing.T) {
 	}
 
 	// Test the conversion from sat/kb to sat/kw.
-	for feePerKB := lnwallet.SatPerKVByte(1000); feePerKB < 40000; feePerKB += 1000 {
+	for feePerKB := SatPerKVByte(1000); feePerKB < 40000; feePerKB += 1000 {
 		feePerKw := feePerKB.FeePerKWeight()
-		if feePerKw != lnwallet.SatPerKWeight(feePerKB/4) {
+		if feePerKw != SatPerKWeight(feePerKB/4) {
 			t.Fatalf("expected %d sat/kw, got %d sat/kw when "+
 				"converting from %d sat/kb", feePerKB/4,
 				feePerKw, feePerKB)
@@ -91,9 +89,9 @@ func TestFeeRateTypes(t *testing.T) {
 func TestStaticFeeEstimator(t *testing.T) {
 	t.Parallel()
 
-	const feePerKw = lnwallet.FeePerKwFloor
+	const feePerKw = FeePerKwFloor
 
-	feeEstimator := lnwallet.NewStaticFeeEstimator(feePerKw, 0)
+	feeEstimator := NewStaticEstimator(feePerKw, 0)
 	if err := feeEstimator.Start(); err != nil {
 		t.Fatalf("unable to start fee estimator: %v", err)
 	}
@@ -116,7 +114,7 @@ func TestSparseConfFeeSource(t *testing.T) {
 
 	// Test that GenQueryURL returns the URL as is.
 	url := "test"
-	feeSource := lnwallet.SparseConfFeeSource{URL: url}
+	feeSource := SparseConfFeeSource{URL: url}
 	queryURL := feeSource.GenQueryURL()
 	if queryURL != url {
 		t.Fatalf("expected query URL of %v, got %v", url, queryURL)
@@ -166,7 +164,7 @@ func TestSparseConfFeeSource(t *testing.T) {
 func TestWebAPIFeeEstimator(t *testing.T) {
 	t.Parallel()
 
-	feeFloor := uint32(lnwallet.FeePerKwFloor.FeePerKVByte())
+	feeFloor := uint32(FeePerKwFloor.FeePerKVByte())
 	testCases := []struct {
 		name   string
 		target uint32
@@ -194,7 +192,7 @@ func TestWebAPIFeeEstimator(t *testing.T) {
 		fees: testFees,
 	}
 
-	estimator := lnwallet.NewWebAPIFeeEstimator(feeSource, 10)
+	estimator := NewWebAPIEstimator(feeSource, 10)
 
 	// Test that requesting a fee when no fees have been cached fails.
 	_, err := estimator.EstimateFeePerKW(5)
@@ -210,6 +208,7 @@ func TestWebAPIFeeEstimator(t *testing.T) {
 	defer estimator.Stop()
 
 	for _, tc := range testCases {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			est, err := estimator.EstimateFeePerKW(tc.target)
 			if tc.err != "" {
@@ -220,7 +219,7 @@ func TestWebAPIFeeEstimator(t *testing.T) {
 						"fail, instead got: %v", err)
 				}
 			} else {
-				exp := lnwallet.SatPerKVByte(tc.est).FeePerKWeight()
+				exp := SatPerKVByte(tc.est).FeePerKWeight()
 				if err != nil {
 					t.Fatalf("unable to estimate fee for "+
 						"%v block target, got: %v",

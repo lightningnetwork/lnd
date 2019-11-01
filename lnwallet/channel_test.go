@@ -19,6 +19,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -456,8 +457,12 @@ func TestCooperativeChannelClosure(t *testing.T) {
 	aliceDeliveryScript := bobsPrivKey[:]
 	bobDeliveryScript := testHdSeed[:]
 
-	aliceFeeRate := SatPerKWeight(aliceChannel.channelState.LocalCommitment.FeePerKw)
-	bobFeeRate := SatPerKWeight(bobChannel.channelState.LocalCommitment.FeePerKw)
+	aliceFeeRate := chainfee.SatPerKWeight(
+		aliceChannel.channelState.LocalCommitment.FeePerKw,
+	)
+	bobFeeRate := chainfee.SatPerKWeight(
+		bobChannel.channelState.LocalCommitment.FeePerKw,
+	)
 
 	// We'll store with both Alice and Bob creating a new close proposal
 	// with the same fee.
@@ -596,7 +601,9 @@ func TestForceClose(t *testing.T) {
 	// Factoring in the fee rate, Alice's amount should properly reflect
 	// that we've added two additional HTLC to the commitment transaction.
 	totalCommitWeight := input.CommitWeight + (input.HtlcWeight * 2)
-	feePerKw := SatPerKWeight(aliceChannel.channelState.LocalCommitment.FeePerKw)
+	feePerKw := chainfee.SatPerKWeight(
+		aliceChannel.channelState.LocalCommitment.FeePerKw,
+	)
 	commitFee := feePerKw.FeeForWeight(totalCommitWeight)
 	expectedAmount := (aliceChannel.Capacity / 2) - htlcAmount.ToSatoshis() - commitFee
 	if aliceCommitResolution.SelfOutputSignDesc.Output.Value != int64(expectedAmount) {
@@ -1004,7 +1011,10 @@ func TestHTLCDustLimit(t *testing.T) {
 	// The amount of the HTLC should be above Alice's dust limit and below
 	// Bob's dust limit.
 	htlcSat := (btcutil.Amount(500) + htlcTimeoutFee(
-		SatPerKWeight(aliceChannel.channelState.LocalCommitment.FeePerKw)))
+		chainfee.SatPerKWeight(
+			aliceChannel.channelState.LocalCommitment.FeePerKw,
+		),
+	))
 	htlcAmount := lnwire.NewMSatFromSatoshis(htlcSat)
 
 	htlc, preimage := createHTLC(0, htlcAmount)
@@ -1102,7 +1112,7 @@ func TestHTLCSigNumber(t *testing.T) {
 	}
 
 	// Calculate two values that will be below and above Bob's dust limit.
-	estimator := NewStaticFeeEstimator(6000, 0)
+	estimator := chainfee.NewStaticEstimator(6000, 0)
 	feePerKw, err := estimator.EstimateFeePerKW(1)
 	if err != nil {
 		t.Fatalf("unable to get fee: %v", err)
@@ -1268,7 +1278,9 @@ func TestChannelBalanceDustLimit(t *testing.T) {
 	aliceBalance := aliceChannel.channelState.LocalCommitment.LocalBalance.ToSatoshis()
 	htlcSat := aliceBalance - defaultFee
 	htlcSat += htlcSuccessFee(
-		SatPerKWeight(aliceChannel.channelState.LocalCommitment.FeePerKw),
+		chainfee.SatPerKWeight(
+			aliceChannel.channelState.LocalCommitment.FeePerKw,
+		),
 	)
 
 	htlcAmount := lnwire.NewMSatFromSatoshis(htlcSat)
@@ -1366,7 +1378,7 @@ func TestStateUpdatePersistence(t *testing.T) {
 	}
 
 	// Also add a fee update to the update logs.
-	fee := SatPerKWeight(333)
+	fee := chainfee.SatPerKWeight(333)
 	if err := aliceChannel.UpdateFee(fee); err != nil {
 		t.Fatalf("unable to send fee update")
 	}
@@ -1779,8 +1791,12 @@ func TestCooperativeCloseDustAdherence(t *testing.T) {
 	}
 	defer cleanUp()
 
-	aliceFeeRate := SatPerKWeight(aliceChannel.channelState.LocalCommitment.FeePerKw)
-	bobFeeRate := SatPerKWeight(bobChannel.channelState.LocalCommitment.FeePerKw)
+	aliceFeeRate := chainfee.SatPerKWeight(
+		aliceChannel.channelState.LocalCommitment.FeePerKw,
+	)
+	bobFeeRate := chainfee.SatPerKWeight(
+		bobChannel.channelState.LocalCommitment.FeePerKw,
+	)
 
 	setDustLimit := func(dustVal btcutil.Amount) {
 		aliceChannel.channelState.LocalChanCfg.DustLimit = dustVal
@@ -1946,7 +1962,7 @@ func TestUpdateFeeAdjustments(t *testing.T) {
 
 	// We'll first try to increase the fee rate 5x, this should be able to
 	// be committed without any issue.
-	newFee := SatPerKWeight(baseFeeRate * 5)
+	newFee := chainfee.SatPerKWeight(baseFeeRate * 5)
 
 	if err := aliceChannel.UpdateFee(newFee); err != nil {
 		t.Fatalf("unable to alice update fee: %v", err)
@@ -1964,7 +1980,7 @@ func TestUpdateFeeAdjustments(t *testing.T) {
 	// We'll now attempt to increase the fee rate 1,000,000x of the base
 	// fee.  This should result in an error as Alice won't be able to pay
 	// this new fee rate.
-	newFee = SatPerKWeight(baseFeeRate * 1000000)
+	newFee = chainfee.SatPerKWeight(baseFeeRate * 1000000)
 	if err := aliceChannel.UpdateFee(newFee); err == nil {
 		t.Fatalf("alice should reject the fee rate")
 	}
@@ -1972,7 +1988,7 @@ func TestUpdateFeeAdjustments(t *testing.T) {
 	// Finally, we'll attempt to adjust the fee down and use a fee which is
 	// smaller than the initial base fee rate. The fee application and
 	// state transition should proceed without issue.
-	newFee = SatPerKWeight(baseFeeRate / 10)
+	newFee = chainfee.SatPerKWeight(baseFeeRate / 10)
 	if err := aliceChannel.UpdateFee(newFee); err != nil {
 		t.Fatalf("unable to alice update fee: %v", err)
 	}
@@ -2048,7 +2064,7 @@ func TestUpdateFeeConcurrentSig(t *testing.T) {
 	}
 
 	// Simulate Alice sending update fee message to bob.
-	fee := SatPerKWeight(333)
+	fee := chainfee.SatPerKWeight(333)
 	if err := aliceChannel.UpdateFee(fee); err != nil {
 		t.Fatalf("unable to send fee update")
 	}
@@ -2084,7 +2100,7 @@ func TestUpdateFeeConcurrentSig(t *testing.T) {
 		t.Fatalf("bob unable to process alice's new commitment: %v", err)
 	}
 
-	if SatPerKWeight(bobChannel.channelState.LocalCommitment.FeePerKw) == fee {
+	if chainfee.SatPerKWeight(bobChannel.channelState.LocalCommitment.FeePerKw) == fee {
 		t.Fatalf("bob's feePerKw was unexpectedly locked in")
 	}
 
@@ -2095,7 +2111,7 @@ func TestUpdateFeeConcurrentSig(t *testing.T) {
 		t.Fatalf("unable to generate bob revocation: %v", err)
 	}
 
-	if SatPerKWeight(bobChannel.channelState.LocalCommitment.FeePerKw) != fee {
+	if chainfee.SatPerKWeight(bobChannel.channelState.LocalCommitment.FeePerKw) != fee {
 		t.Fatalf("bob's feePerKw was not locked in")
 	}
 }
@@ -2134,7 +2150,7 @@ func TestUpdateFeeSenderCommits(t *testing.T) {
 	}
 
 	// Simulate Alice sending update fee message to bob.
-	fee := SatPerKWeight(333)
+	fee := chainfee.SatPerKWeight(333)
 	aliceChannel.UpdateFee(fee)
 	bobChannel.ReceiveUpdateFee(fee)
 
@@ -2154,7 +2170,9 @@ func TestUpdateFeeSenderCommits(t *testing.T) {
 		t.Fatalf("bob unable to process alice's new commitment: %v", err)
 	}
 
-	if SatPerKWeight(bobChannel.channelState.LocalCommitment.FeePerKw) == fee {
+	if chainfee.SatPerKWeight(
+		bobChannel.channelState.LocalCommitment.FeePerKw,
+	) == fee {
 		t.Fatalf("bob's feePerKw was unexpectedly locked in")
 	}
 
@@ -2165,7 +2183,9 @@ func TestUpdateFeeSenderCommits(t *testing.T) {
 		t.Fatalf("unable to generate bob revocation: %v", err)
 	}
 
-	if SatPerKWeight(bobChannel.channelState.LocalCommitment.FeePerKw) != fee {
+	if chainfee.SatPerKWeight(
+		bobChannel.channelState.LocalCommitment.FeePerKw,
+	) != fee {
 		t.Fatalf("bob's feePerKw was not locked in")
 	}
 
@@ -2191,7 +2211,9 @@ func TestUpdateFeeSenderCommits(t *testing.T) {
 		t.Fatalf("alice unable to process bob's new commitment: %v", err)
 	}
 
-	if SatPerKWeight(aliceChannel.channelState.LocalCommitment.FeePerKw) == fee {
+	if chainfee.SatPerKWeight(
+		aliceChannel.channelState.LocalCommitment.FeePerKw,
+	) == fee {
 		t.Fatalf("alice's feePerKw was unexpectedly locked in")
 	}
 
@@ -2202,7 +2224,9 @@ func TestUpdateFeeSenderCommits(t *testing.T) {
 		t.Fatalf("unable to revoke alice channel: %v", err)
 	}
 
-	if SatPerKWeight(aliceChannel.channelState.LocalCommitment.FeePerKw) != fee {
+	if chainfee.SatPerKWeight(
+		aliceChannel.channelState.LocalCommitment.FeePerKw,
+	) != fee {
 		t.Fatalf("alice's feePerKw was not locked in")
 	}
 
@@ -2248,7 +2272,7 @@ func TestUpdateFeeReceiverCommits(t *testing.T) {
 	}
 
 	// Simulate Alice sending update fee message to bob
-	fee := SatPerKWeight(333)
+	fee := chainfee.SatPerKWeight(333)
 	aliceChannel.UpdateFee(fee)
 	bobChannel.ReceiveUpdateFee(fee)
 
@@ -2296,7 +2320,9 @@ func TestUpdateFeeReceiverCommits(t *testing.T) {
 		t.Fatalf("alice unable to process bob's new commitment: %v", err)
 	}
 
-	if SatPerKWeight(bobChannel.channelState.LocalCommitment.FeePerKw) == fee {
+	if chainfee.SatPerKWeight(
+		bobChannel.channelState.LocalCommitment.FeePerKw,
+	) == fee {
 		t.Fatalf("bob's feePerKw was unexpectedly locked in")
 	}
 
@@ -2308,7 +2334,9 @@ func TestUpdateFeeReceiverCommits(t *testing.T) {
 		t.Fatalf("unable to revoke alice channel: %v", err)
 	}
 
-	if SatPerKWeight(bobChannel.channelState.LocalCommitment.FeePerKw) != fee {
+	if chainfee.SatPerKWeight(
+		bobChannel.channelState.LocalCommitment.FeePerKw,
+	) != fee {
 		t.Fatalf("bob's feePerKw was not locked in")
 	}
 
@@ -2333,7 +2361,9 @@ func TestUpdateFeeReceiverCommits(t *testing.T) {
 		t.Fatalf("alice unable to process bob's new commitment: %v", err)
 	}
 
-	if SatPerKWeight(aliceChannel.channelState.LocalCommitment.FeePerKw) == fee {
+	if chainfee.SatPerKWeight(
+		aliceChannel.channelState.LocalCommitment.FeePerKw,
+	) == fee {
 		t.Fatalf("alice's feePerKw was unexpectedly locked in")
 	}
 
@@ -2344,7 +2374,9 @@ func TestUpdateFeeReceiverCommits(t *testing.T) {
 		t.Fatalf("unable to generate bob revocation: %v", err)
 	}
 
-	if SatPerKWeight(aliceChannel.channelState.LocalCommitment.FeePerKw) != fee {
+	if chainfee.SatPerKWeight(
+		aliceChannel.channelState.LocalCommitment.FeePerKw,
+	) != fee {
 		t.Fatalf("Alice's feePerKw was not locked in")
 	}
 
@@ -2372,7 +2404,7 @@ func TestUpdateFeeReceiverSendsUpdate(t *testing.T) {
 
 	// Since Alice is the channel initiator, she should fail when receiving
 	// fee update
-	fee := SatPerKWeight(333)
+	fee := chainfee.SatPerKWeight(333)
 	err = aliceChannel.ReceiveUpdateFee(fee)
 	if err == nil {
 		t.Fatalf("expected alice to fail receiving fee update")
@@ -2400,9 +2432,9 @@ func TestUpdateFeeMultipleUpdates(t *testing.T) {
 	defer cleanUp()
 
 	// Simulate Alice sending update fee message to bob.
-	fee1 := SatPerKWeight(333)
-	fee2 := SatPerKWeight(333)
-	fee := SatPerKWeight(333)
+	fee1 := chainfee.SatPerKWeight(333)
+	fee2 := chainfee.SatPerKWeight(333)
+	fee := chainfee.SatPerKWeight(333)
 	aliceChannel.UpdateFee(fee1)
 	aliceChannel.UpdateFee(fee2)
 	aliceChannel.UpdateFee(fee)
@@ -2427,15 +2459,17 @@ func TestUpdateFeeMultipleUpdates(t *testing.T) {
 		t.Fatalf("bob unable to process alice's new commitment: %v", err)
 	}
 
-	if SatPerKWeight(bobChannel.channelState.LocalCommitment.FeePerKw) == fee {
+	if chainfee.SatPerKWeight(
+		bobChannel.channelState.LocalCommitment.FeePerKw,
+	) == fee {
 		t.Fatalf("bob's feePerKw was unexpectedly locked in")
 	}
 
 	// Alice sending more fee updates now should not mess up the old fee
 	// they both committed to.
-	fee3 := SatPerKWeight(444)
-	fee4 := SatPerKWeight(555)
-	fee5 := SatPerKWeight(666)
+	fee3 := chainfee.SatPerKWeight(444)
+	fee4 := chainfee.SatPerKWeight(555)
+	fee5 := chainfee.SatPerKWeight(666)
 	aliceChannel.UpdateFee(fee3)
 	aliceChannel.UpdateFee(fee4)
 	aliceChannel.UpdateFee(fee5)
@@ -2450,7 +2484,9 @@ func TestUpdateFeeMultipleUpdates(t *testing.T) {
 		t.Fatalf("unable to generate bob revocation: %v", err)
 	}
 
-	if SatPerKWeight(bobChannel.channelState.LocalCommitment.FeePerKw) != fee {
+	if chainfee.SatPerKWeight(
+		bobChannel.channelState.LocalCommitment.FeePerKw,
+	) != fee {
 		t.Fatalf("bob's feePerKw was not locked in")
 	}
 
@@ -2475,7 +2511,9 @@ func TestUpdateFeeMultipleUpdates(t *testing.T) {
 		t.Fatalf("alice unable to process bob's new commitment: %v", err)
 	}
 
-	if SatPerKWeight(aliceChannel.channelState.LocalCommitment.FeePerKw) == fee {
+	if chainfee.SatPerKWeight(
+		aliceChannel.channelState.LocalCommitment.FeePerKw,
+	) == fee {
 		t.Fatalf("alice's feePerKw was unexpectedly locked in")
 	}
 
@@ -2486,7 +2524,9 @@ func TestUpdateFeeMultipleUpdates(t *testing.T) {
 		t.Fatalf("unable to revoke alice channel: %v", err)
 	}
 
-	if SatPerKWeight(aliceChannel.channelState.LocalCommitment.FeePerKw) != fee {
+	if chainfee.SatPerKWeight(
+		aliceChannel.channelState.LocalCommitment.FeePerKw,
+	) != fee {
 		t.Fatalf("alice's feePerKw was not locked in")
 	}
 
@@ -3869,7 +3909,9 @@ func TestFeeUpdateRejectInsaneFee(t *testing.T) {
 
 	// Next, we'll try to add a fee rate to Alice which is 1,000,000x her
 	// starting fee rate.
-	startingFeeRate := SatPerKWeight(aliceChannel.channelState.LocalCommitment.FeePerKw)
+	startingFeeRate := chainfee.SatPerKWeight(
+		aliceChannel.channelState.LocalCommitment.FeePerKw,
+	)
 	newFeeRate := startingFeeRate * 1000000
 
 	// Both Alice and Bob should reject this new fee rate as it is far too
@@ -3895,7 +3937,9 @@ func TestChannelRetransmissionFeeUpdate(t *testing.T) {
 
 	// First, we'll fetch the current fee rate present within the
 	// commitment transactions.
-	startingFeeRate := SatPerKWeight(aliceChannel.channelState.LocalCommitment.FeePerKw)
+	startingFeeRate := chainfee.SatPerKWeight(
+		aliceChannel.channelState.LocalCommitment.FeePerKw,
+	)
 
 	// Next, we'll start a commitment update, with Alice sending a new
 	// update to double the fee rate of the commitment.
@@ -4034,10 +4078,14 @@ func TestChannelRetransmissionFeeUpdate(t *testing.T) {
 	}
 
 	// Both parties should now have the latest fee rate locked-in.
-	if SatPerKWeight(aliceChannel.channelState.LocalCommitment.FeePerKw) != newFeeRate {
+	if chainfee.SatPerKWeight(
+		aliceChannel.channelState.LocalCommitment.FeePerKw,
+	) != newFeeRate {
 		t.Fatalf("alice's feePerKw was not locked in")
 	}
-	if SatPerKWeight(bobChannel.channelState.LocalCommitment.FeePerKw) != newFeeRate {
+	if chainfee.SatPerKWeight(
+		bobChannel.channelState.LocalCommitment.FeePerKw,
+	) != newFeeRate {
 		t.Fatalf("bob's feePerKw was not locked in")
 	}
 
@@ -4118,7 +4166,7 @@ func TestFeeUpdateOldDiskFormat(t *testing.T) {
 
 	// First, we'll fetch the current fee rate present within the
 	// commitment transactions.
-	startingFeeRate := SatPerKWeight(
+	startingFeeRate := chainfee.SatPerKWeight(
 		aliceChannel.channelState.LocalCommitment.FeePerKw,
 	)
 	newFeeRate := startingFeeRate
@@ -4247,10 +4295,14 @@ func TestFeeUpdateOldDiskFormat(t *testing.T) {
 	}
 
 	// Both parties should now have the latest fee rate locked-in.
-	if SatPerKWeight(aliceChannel.channelState.LocalCommitment.FeePerKw) != newFeeRate {
+	if chainfee.SatPerKWeight(
+		aliceChannel.channelState.LocalCommitment.FeePerKw,
+	) != newFeeRate {
 		t.Fatalf("alice's feePerKw was not locked in")
 	}
-	if SatPerKWeight(bobChannel.channelState.LocalCommitment.FeePerKw) != newFeeRate {
+	if chainfee.SatPerKWeight(
+		bobChannel.channelState.LocalCommitment.FeePerKw,
+	) != newFeeRate {
 		t.Fatalf("bob's feePerKw was not locked in")
 	}
 
@@ -4272,10 +4324,14 @@ func TestFeeUpdateOldDiskFormat(t *testing.T) {
 	assertLogItems(0, numHTLCs+1)
 
 	// ...and the final fee rate locked in.
-	if SatPerKWeight(aliceChannel.channelState.LocalCommitment.FeePerKw) != newFeeRate {
+	if chainfee.SatPerKWeight(
+		aliceChannel.channelState.LocalCommitment.FeePerKw,
+	) != newFeeRate {
 		t.Fatalf("alice's feePerKw was not locked in")
 	}
-	if SatPerKWeight(bobChannel.channelState.LocalCommitment.FeePerKw) != newFeeRate {
+	if chainfee.SatPerKWeight(
+		bobChannel.channelState.LocalCommitment.FeePerKw,
+	) != newFeeRate {
 		t.Fatalf("bob's feePerKw was not locked in")
 	}
 }
@@ -6624,7 +6680,9 @@ func TestChannelMaxFeeRate(t *testing.T) {
 	}
 	defer cleanUp()
 
-	assertMaxFeeRate := func(maxAlloc float64, expFeeRate SatPerKWeight) {
+	assertMaxFeeRate := func(maxAlloc float64,
+		expFeeRate chainfee.SatPerKWeight) {
+
 		maxFeeRate := aliceChannel.MaxFeeRate(maxAlloc)
 		if maxFeeRate != expFeeRate {
 			t.Fatalf("expected max fee rate of %v with max "+
@@ -6636,5 +6694,5 @@ func TestChannelMaxFeeRate(t *testing.T) {
 	assertMaxFeeRate(1.0, 690607734)
 	assertMaxFeeRate(0.001, 690607)
 	assertMaxFeeRate(0.000001, 690)
-	assertMaxFeeRate(0.0000001, FeePerKwFloor)
+	assertMaxFeeRate(0.0000001, chainfee.FeePerKwFloor)
 }

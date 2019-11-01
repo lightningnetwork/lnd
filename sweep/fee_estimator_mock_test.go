@@ -3,38 +3,38 @@ package sweep
 import (
 	"sync"
 
-	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
 
 // mockFeeEstimator implements a mock fee estimator. It closely resembles
 // lnwallet.StaticFeeEstimator with the addition that fees can be changed for
 // testing purposes in a thread safe manner.
 type mockFeeEstimator struct {
-	feePerKW lnwallet.SatPerKWeight
+	feePerKW chainfee.SatPerKWeight
 
-	relayFee lnwallet.SatPerKWeight
+	relayFee chainfee.SatPerKWeight
 
-	blocksToFee map[uint32]lnwallet.SatPerKWeight
+	blocksToFee map[uint32]chainfee.SatPerKWeight
 
 	// A closure that when set is used instead of the
 	// mockFeeEstimator.EstimateFeePerKW method.
-	estimateFeePerKW func(numBlocks uint32) (lnwallet.SatPerKWeight, error)
+	estimateFeePerKW func(numBlocks uint32) (chainfee.SatPerKWeight, error)
 
 	lock sync.Mutex
 }
 
 func newMockFeeEstimator(feePerKW,
-	relayFee lnwallet.SatPerKWeight) *mockFeeEstimator {
+	relayFee chainfee.SatPerKWeight) *mockFeeEstimator {
 
 	return &mockFeeEstimator{
 		feePerKW:    feePerKW,
 		relayFee:    relayFee,
-		blocksToFee: make(map[uint32]lnwallet.SatPerKWeight),
+		blocksToFee: make(map[uint32]chainfee.SatPerKWeight),
 	}
 }
 
 func (e *mockFeeEstimator) updateFees(feePerKW,
-	relayFee lnwallet.SatPerKWeight) {
+	relayFee chainfee.SatPerKWeight) {
 
 	e.lock.Lock()
 	defer e.lock.Unlock()
@@ -44,7 +44,7 @@ func (e *mockFeeEstimator) updateFees(feePerKW,
 }
 
 func (e *mockFeeEstimator) EstimateFeePerKW(numBlocks uint32) (
-	lnwallet.SatPerKWeight, error) {
+	chainfee.SatPerKWeight, error) {
 
 	e.lock.Lock()
 	defer e.lock.Unlock()
@@ -60,7 +60,7 @@ func (e *mockFeeEstimator) EstimateFeePerKW(numBlocks uint32) (
 	return e.feePerKW, nil
 }
 
-func (e *mockFeeEstimator) RelayFeePerKW() lnwallet.SatPerKWeight {
+func (e *mockFeeEstimator) RelayFeePerKW() chainfee.SatPerKWeight {
 	e.lock.Lock()
 	defer e.lock.Unlock()
 
@@ -75,4 +75,4 @@ func (e *mockFeeEstimator) Stop() error {
 	return nil
 }
 
-var _ lnwallet.FeeEstimator = (*mockFeeEstimator)(nil)
+var _ chainfee.Estimator = (*mockFeeEstimator)(nil)

@@ -18,6 +18,7 @@ import (
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/ticker"
 )
@@ -102,7 +103,7 @@ type ChanClose struct {
 	// This value is only utilized if the closure type is CloseRegular.
 	// This will be the starting offered fee when the fee negotiation
 	// process for the cooperative closure transaction kicks off.
-	TargetFeePerKw lnwallet.SatPerKWeight
+	TargetFeePerKw chainfee.SatPerKWeight
 
 	// Updates is used by request creator to receive the notifications about
 	// execution of the close channel request.
@@ -1368,7 +1369,7 @@ func (s *Switch) teardownCircuit(pkt *htlcPacket) error {
 // then the last parameter should be the ideal fee-per-kw that will be used as
 // a starting point for close negotiation.
 func (s *Switch) CloseLink(chanPoint *wire.OutPoint, closeType ChannelCloseType,
-	targetFeePerKw lnwallet.SatPerKWeight) (chan interface{},
+	targetFeePerKw chainfee.SatPerKWeight) (chan interface{},
 	chan error) {
 
 	// TODO(roasbeef) abstract out the close updates.

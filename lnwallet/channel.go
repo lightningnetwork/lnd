@@ -22,6 +22,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -512,7 +513,7 @@ type commitment struct {
 
 	// feePerKw is the fee per kw used to calculate this commitment
 	// transaction's fee.
-	feePerKw SatPerKWeight
+	feePerKw chainfee.SatPerKWeight
 
 	// dustLimit is the limit on the commitment transaction such that no
 	// output values should be below this amount.
@@ -759,7 +760,7 @@ func (c *commitment) toDiskCommit(ourCommit bool) *channeldb.ChannelCommitment {
 // commitment struct and updateLog. This function is used when we need to
 // restore commitment state written do disk back into memory once we need to
 // restart a channel session.
-func (lc *LightningChannel) diskHtlcToPayDesc(feeRate SatPerKWeight,
+func (lc *LightningChannel) diskHtlcToPayDesc(feeRate chainfee.SatPerKWeight,
 	commitHeight uint64, htlc *channeldb.HTLC, localCommitKeys,
 	remoteCommitKeys *CommitmentKeyRing) (PaymentDescriptor, error) {
 
@@ -824,7 +825,7 @@ func (lc *LightningChannel) diskHtlcToPayDesc(feeRate SatPerKWeight,
 // these payment descriptors can be re-inserted into the in-memory updateLog
 // for each side.
 func (lc *LightningChannel) extractPayDescs(commitHeight uint64,
-	feeRate SatPerKWeight, htlcs []channeldb.HTLC, localCommitKeys,
+	feeRate chainfee.SatPerKWeight, htlcs []channeldb.HTLC, localCommitKeys,
 	remoteCommitKeys *CommitmentKeyRing) ([]PaymentDescriptor, []PaymentDescriptor, error) {
 
 	var (
@@ -893,7 +894,8 @@ func (lc *LightningChannel) diskCommitToMemCommit(isLocal bool,
 	// HTLC"s into PaymentDescriptor's so we can re-insert them into our
 	// update log.
 	incomingHtlcs, outgoingHtlcs, err := lc.extractPayDescs(
-		diskCommit.CommitHeight, SatPerKWeight(diskCommit.FeePerKw),
+		diskCommit.CommitHeight,
+		chainfee.SatPerKWeight(diskCommit.FeePerKw),
 		diskCommit.Htlcs, localCommitKeys, remoteCommitKeys,
 	)
 	if err != nil {
@@ -914,7 +916,7 @@ func (lc *LightningChannel) diskCommitToMemCommit(isLocal bool,
 		txn:               diskCommit.CommitTx,
 		sig:               diskCommit.CommitSig,
 		fee:               diskCommit.CommitFee,
-		feePerKw:          SatPerKWeight(diskCommit.FeePerKw),
+		feePerKw:          chainfee.SatPerKWeight(diskCommit.FeePerKw),
 		incomingHTLCs:     incomingHtlcs,
 		outgoingHTLCs:     outgoingHtlcs,
 	}
@@ -1508,7 +1510,7 @@ func (lc *LightningChannel) ResetState() {
 // if nothing happened.
 func (lc *LightningChannel) logUpdateToPayDesc(logUpdate *channeldb.LogUpdate,
 	remoteUpdateLog *updateLog, commitHeight uint64,
-	feeRate SatPerKWeight, remoteCommitKeys *CommitmentKeyRing,
+	feeRate chainfee.SatPerKWeight, remoteCommitKeys *CommitmentKeyRing,
 	remoteDustLimit btcutil.Amount) (*PaymentDescriptor, error) {
 
 	// Depending on the type of update message we'll map that to a distinct
@@ -1825,7 +1827,8 @@ func (lc *LightningChannel) restoreStateLogs(
 	for _, logUpdate := range pendingRemoteCommitDiff.LogUpdates {
 		payDesc, err := lc.logUpdateToPayDesc(
 			&logUpdate, lc.remoteUpdateLog, pendingHeight,
-			SatPerKWeight(pendingCommit.FeePerKw), pendingRemoteKeys,
+			chainfee.SatPerKWeight(pendingCommit.FeePerKw),
+			pendingRemoteKeys,
 			lc.channelState.RemoteChanCfg.DustLimit,
 		)
 		if err != nil {
@@ -2108,7 +2111,7 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 		// an output on the commitment transaction.
 		if htlcIsDust(
 			htlc.Incoming, false,
-			SatPerKWeight(revokedSnapshot.FeePerKw),
+			chainfee.SatPerKWeight(revokedSnapshot.FeePerKw),
 			htlc.Amt.ToSatoshis(), chanState.RemoteChanCfg.DustLimit,
 		) {
 			continue
@@ -2197,13 +2200,13 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 
 // htlcTimeoutFee returns the fee in satoshis required for an HTLC timeout
 // transaction based on the current fee rate.
-func htlcTimeoutFee(feePerKw SatPerKWeight) btcutil.Amount {
+func htlcTimeoutFee(feePerKw chainfee.SatPerKWeight) btcutil.Amount {
 	return feePerKw.FeeForWeight(input.HtlcTimeoutWeight)
 }
 
 // htlcSuccessFee returns the fee in satoshis required for an HTLC success
 // transaction based on the current fee rate.
-func htlcSuccessFee(feePerKw SatPerKWeight) btcutil.Amount {
+func htlcSuccessFee(feePerKw chainfee.SatPerKWeight) btcutil.Amount {
 	return feePerKw.FeeForWeight(input.HtlcSuccessWeight)
 }
 
@@ -2213,7 +2216,7 @@ func htlcSuccessFee(feePerKw SatPerKWeight) btcutil.Amount {
 // require as we currently used second-level HTLC transactions as off-chain
 // covenants. Depending on the two bits, we'll either be using a timeout or
 // success transaction which have different weights.
-func htlcIsDust(incoming, ourCommit bool, feePerKw SatPerKWeight,
+func htlcIsDust(incoming, ourCommit bool, feePerKw chainfee.SatPerKWeight,
 	htlcAmt, dustLimit btcutil.Amount) bool {
 
 	// First we'll determine the fee required for this HTLC based on if this is
@@ -2254,7 +2257,7 @@ func htlcIsDust(incoming, ourCommit bool, feePerKw SatPerKWeight,
 type htlcView struct {
 	ourUpdates   []*PaymentDescriptor
 	theirUpdates []*PaymentDescriptor
-	feePerKw     SatPerKWeight
+	feePerKw     chainfee.SatPerKWeight
 }
 
 // fetchHTLCView returns all the candidate HTLC updates which should be
@@ -2785,7 +2788,7 @@ func processFeeUpdate(feeUpdate *PaymentDescriptor, nextHeight uint64,
 
 	// If the update wasn't already locked in, update the current fee rate
 	// to reflect this update.
-	view.feePerKw = SatPerKWeight(feeUpdate.Amount.ToSatoshis())
+	view.feePerKw = chainfee.SatPerKWeight(feeUpdate.Amount.ToSatoshis())
 
 	if mutateState {
 		*addHeight = nextHeight
@@ -3130,9 +3133,9 @@ func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
 
 	// Ensure that the fee being applied is enough to be relayed across the
 	// network in a reasonable time frame.
-	if feePerKw < FeePerKwFloor {
+	if feePerKw < chainfee.FeePerKwFloor {
 		return fmt.Errorf("commitment fee per kw %v below fee floor %v",
-			feePerKw, FeePerKwFloor)
+			feePerKw, chainfee.FeePerKwFloor)
 	}
 
 	// If the added HTLCs will decrease the balance, make sure they won't
@@ -5048,7 +5051,7 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, signer input.Si
 	// Next, we'll obtain HTLC resolutions for all the outgoing HTLC's we
 	// had on their commitment transaction.
 	htlcResolutions, err := extractHtlcResolutions(
-		SatPerKWeight(remoteCommit.FeePerKw), false, signer,
+		chainfee.SatPerKWeight(remoteCommit.FeePerKw), false, signer,
 		remoteCommit.Htlcs, keyRing, &chanState.LocalChanCfg,
 		&chanState.RemoteChanCfg, *commitSpend.SpenderTxHash,
 	)
@@ -5245,10 +5248,11 @@ type HtlcResolutions struct {
 // newOutgoingHtlcResolution generates a new HTLC resolution capable of
 // allowing the caller to sweep an outgoing HTLC present on either their, or
 // the remote party's commitment transaction.
-func newOutgoingHtlcResolution(signer input.Signer, localChanCfg *channeldb.ChannelConfig,
-	commitHash chainhash.Hash, htlc *channeldb.HTLC, keyRing *CommitmentKeyRing,
-	feePerKw SatPerKWeight, dustLimit btcutil.Amount, csvDelay uint32, localCommit bool,
-) (*OutgoingHtlcResolution, error) {
+func newOutgoingHtlcResolution(signer input.Signer,
+	localChanCfg *channeldb.ChannelConfig, commitHash chainhash.Hash,
+	htlc *channeldb.HTLC, keyRing *CommitmentKeyRing,
+	feePerKw chainfee.SatPerKWeight, csvDelay uint32,
+	localCommit bool) (*OutgoingHtlcResolution, error) {
 
 	op := wire.OutPoint{
 		Hash:  commitHash,
@@ -5387,7 +5391,7 @@ func newOutgoingHtlcResolution(signer input.Signer, localChanCfg *channeldb.Chan
 // TODO(roasbeef) consolidate code with above func
 func newIncomingHtlcResolution(signer input.Signer, localChanCfg *channeldb.ChannelConfig,
 	commitHash chainhash.Hash, htlc *channeldb.HTLC, keyRing *CommitmentKeyRing,
-	feePerKw SatPerKWeight, dustLimit btcutil.Amount, csvDelay uint32,
+	feePerKw chainfee.SatPerKWeight, csvDelay uint32,
 	localCommit bool) (*IncomingHtlcResolution, error) {
 
 	op := wire.OutPoint{
@@ -5541,7 +5545,7 @@ func (r *OutgoingHtlcResolution) HtlcPoint() wire.OutPoint {
 // extractHtlcResolutions creates a series of outgoing HTLC resolutions, and
 // the local key used when generating the HTLC scrips. This function is to be
 // used in two cases: force close, or a unilateral close.
-func extractHtlcResolutions(feePerKw SatPerKWeight, ourCommit bool,
+func extractHtlcResolutions(feePerKw chainfee.SatPerKWeight, ourCommit bool,
 	signer input.Signer, htlcs []channeldb.HTLC, keyRing *CommitmentKeyRing,
 	localChanCfg, remoteChanCfg *channeldb.ChannelConfig,
 	commitHash chainhash.Hash) (*HtlcResolutions, error) {
@@ -5572,7 +5576,7 @@ func extractHtlcResolutions(feePerKw SatPerKWeight, ourCommit bool,
 			// as we can satisfy the contract.
 			ihr, err := newIncomingHtlcResolution(
 				signer, localChanCfg, commitHash, &htlc, keyRing,
-				feePerKw, dustLimit, uint32(csvDelay), ourCommit,
+				feePerKw, uint32(csvDelay), ourCommit,
 			)
 			if err != nil {
 				return nil, err
@@ -5584,7 +5588,7 @@ func extractHtlcResolutions(feePerKw SatPerKWeight, ourCommit bool,
 
 		ohr, err := newOutgoingHtlcResolution(
 			signer, localChanCfg, commitHash, &htlc, keyRing,
-			feePerKw, dustLimit, uint32(csvDelay), ourCommit,
+			feePerKw, uint32(csvDelay), ourCommit,
 		)
 		if err != nil {
 			return nil, err
@@ -5762,7 +5766,7 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel, signer input.Si
 	// outgoing HTLC's that we'll need to claim as well.
 	txHash := commitTx.TxHash()
 	htlcResolutions, err := extractHtlcResolutions(
-		SatPerKWeight(localCommit.FeePerKw), true, signer,
+		chainfee.SatPerKWeight(localCommit.FeePerKw), true, signer,
 		localCommit.Htlcs, keyRing, &chanState.LocalChanCfg,
 		&chanState.RemoteChanCfg, txHash,
 	)
@@ -5980,7 +5984,7 @@ func (lc *LightningChannel) StateSnapshot() *channeldb.ChannelSnapshot {
 // validateFeeRate ensures that if the passed fee is applied to the channel,
 // and a new commitment is created (which evaluates this fee), then the
 // initiator of the channel does not dip below their reserve.
-func (lc *LightningChannel) validateFeeRate(feePerKw SatPerKWeight) error {
+func (lc *LightningChannel) validateFeeRate(feePerKw chainfee.SatPerKWeight) error {
 	// We'll ensure that we can accommodate this new fee change, yet still
 	// be above our reserve balance. Otherwise, we'll reject the fee
 	// update.
@@ -6028,7 +6032,7 @@ func (lc *LightningChannel) validateFeeRate(feePerKw SatPerKWeight) error {
 // UpdateFee initiates a fee update for this channel. Must only be called by
 // the channel initiator, and must be called before sending update_fee to
 // the remote.
-func (lc *LightningChannel) UpdateFee(feePerKw SatPerKWeight) error {
+func (lc *LightningChannel) UpdateFee(feePerKw chainfee.SatPerKWeight) error {
 	lc.Lock()
 	defer lc.Unlock()
 
@@ -6056,7 +6060,7 @@ func (lc *LightningChannel) UpdateFee(feePerKw SatPerKWeight) error {
 
 // ReceiveUpdateFee handles an updated fee sent from remote. This method will
 // return an error if called as channel initiator.
-func (lc *LightningChannel) ReceiveUpdateFee(feePerKw SatPerKWeight) error {
+func (lc *LightningChannel) ReceiveUpdateFee(feePerKw chainfee.SatPerKWeight) error {
 	lc.Lock()
 	defer lc.Unlock()
 
@@ -6212,7 +6216,7 @@ func CreateCooperativeCloseTx(fundingTxIn wire.TxIn,
 
 // CalcFee returns the commitment fee to use for the given
 // fee rate (fee-per-kw).
-func (lc *LightningChannel) CalcFee(feeRate SatPerKWeight) btcutil.Amount {
+func (lc *LightningChannel) CalcFee(feeRate chainfee.SatPerKWeight) btcutil.Amount {
 	return feeRate.FeeForWeight(input.CommitWeight)
 }
 
@@ -6222,7 +6226,7 @@ func (lc *LightningChannel) CalcFee(feeRate SatPerKWeight) btcutil.Amount {
 //
 // NOTE: This should only be used for channels in which the local commitment is
 // the initiator.
-func (lc *LightningChannel) MaxFeeRate(maxAllocation float64) SatPerKWeight {
+func (lc *LightningChannel) MaxFeeRate(maxAllocation float64) chainfee.SatPerKWeight {
 	lc.RLock()
 	defer lc.RUnlock()
 
@@ -6236,7 +6240,9 @@ func (lc *LightningChannel) MaxFeeRate(maxAllocation float64) SatPerKWeight {
 
 	// Ensure the fee rate doesn't dip below the fee floor.
 	maxFeeRate := maxFee / (float64(weight) / 1000)
-	return SatPerKWeight(math.Max(maxFeeRate, float64(FeePerKwFloor)))
+	return chainfee.SatPerKWeight(
+		math.Max(maxFeeRate, float64(chainfee.FeePerKwFloor)),
+	)
 }
 
 // RemoteNextRevocation returns the channelState's RemoteNextRevocation.
@@ -6259,11 +6265,11 @@ func (lc *LightningChannel) IsInitiator() bool {
 
 // CommitFeeRate returns the current fee rate of the commitment transaction in
 // units of sat-per-kw.
-func (lc *LightningChannel) CommitFeeRate() SatPerKWeight {
+func (lc *LightningChannel) CommitFeeRate() chainfee.SatPerKWeight {
 	lc.RLock()
 	defer lc.RUnlock()
 
-	return SatPerKWeight(lc.channelState.LocalCommitment.FeePerKw)
+	return chainfee.SatPerKWeight(lc.channelState.LocalCommitment.FeePerKw)
 }
 
 // IsPending returns true if the channel's funding transaction has been fully

@@ -17,6 +17,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
 )
@@ -800,7 +801,7 @@ func TestCommitmentAndHTLCTransactions(t *testing.T) {
 			height:       test.commitment.CommitHeight,
 			ourBalance:   test.commitment.LocalBalance,
 			theirBalance: test.commitment.RemoteBalance,
-			feePerKw:     SatPerKWeight(test.commitment.FeePerKw),
+			feePerKw:     chainfee.SatPerKWeight(test.commitment.FeePerKw),
 			dustLimit:    tc.dustLimit,
 			isOurs:       true,
 		}
@@ -843,7 +844,7 @@ func TestCommitmentAndHTLCTransactions(t *testing.T) {
 		// Generate second-level HTLC transactions for HTLCs in
 		// commitment tx.
 		htlcResolutions, err := extractHtlcResolutions(
-			SatPerKWeight(test.commitment.FeePerKw), true, signer,
+			chainfee.SatPerKWeight(test.commitment.FeePerKw), true, signer,
 			htlcs, keys, channel.localChanCfg, channel.remoteChanCfg,
 			commitTx.TxHash(),
 		)

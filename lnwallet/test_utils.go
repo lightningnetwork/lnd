@@ -18,6 +18,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
 )
@@ -233,7 +234,7 @@ func CreateTestChannels(tweaklessCommits bool) (
 		return nil, nil, nil, err
 	}
 
-	estimator := NewStaticFeeEstimator(6000, 0)
+	estimator := chainfee.NewStaticEstimator(6000, 0)
 	feePerKw, err := estimator.EstimateFeePerKW(1)
 	if err != nil {
 		return nil, nil, nil, err

@@ -5,6 +5,7 @@ package walletrpc
 import (
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/sweep"
 )
@@ -30,7 +31,7 @@ type Config struct {
 
 	// FeeEstimator is an instance of the primary fee estimator instance
 	// the WalletKit will use to respond to fee estimation requests.
-	FeeEstimator lnwallet.FeeEstimator
+	FeeEstimator chainfee.Estimator
 
 	// Wallet is the primary wallet that the WalletKit will use to proxy
 	// any relevant requests to.

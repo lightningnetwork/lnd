@@ -5,12 +5,15 @@ import (
 
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
 
 // fundingFee is a helper method that returns the fee estimate used for a tx
 // with the given number of inputs and the optional change output. This matches
 // the estimate done by the wallet.
-func fundingFee(feeRate SatPerKWeight, numInput int, change bool) btcutil.Amount {
+func fundingFee(feeRate chainfee.SatPerKWeight, numInput int, // nolint:unparam
+	change bool) btcutil.Amount {
+
 	var weightEstimate input.TxWeightEstimator
 
 	// All inputs.
@@ -39,7 +42,7 @@ func fundingFee(feeRate SatPerKWeight, numInput int, change bool) btcutil.Amount
 func TestCoinSelect(t *testing.T) {
 	t.Parallel()
 
-	const feeRate = SatPerKWeight(100)
+	const feeRate = chainfee.SatPerKWeight(100)
 	const dust = btcutil.Amount(100)
 
 	type testCase struct {
@@ -185,7 +188,7 @@ func TestCoinSelect(t *testing.T) {
 func TestCoinSelectSubtractFees(t *testing.T) {
 	t.Parallel()
 
-	const feeRate = SatPerKWeight(100)
+	const feeRate = chainfee.SatPerKWeight(100)
 	const dustLimit = btcutil.Amount(1000)
 	const dust = btcutil.Amount(100)
 

@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -128,7 +129,7 @@ type ChannelReservation struct {
 // creation of all channel reservations should be carried out via the
 // lnwallet.InitChannelReservation interface.
 func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
-	commitFeePerKw SatPerKWeight, wallet *LightningWallet,
+	commitFeePerKw chainfee.SatPerKWeight, wallet *LightningWallet,
 	id uint64, pushMSat lnwire.MilliSatoshi, chainHash *chainhash.Hash,
 	flags lnwire.FundingFlag,
 	tweaklessCommit bool) (*ChannelReservation, error) {

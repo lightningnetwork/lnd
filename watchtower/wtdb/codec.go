@@ -4,7 +4,7 @@ import (
 	"io"
 
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/watchtower/blob"
 	"github.com/lightningnetwork/lnd/watchtower/wtpolicy"
 )
@@ -58,7 +58,7 @@ func ReadElement(r io.Reader, element interface{}) error {
 		}
 
 		e.BlobType = blob.Type(blobType)
-		e.SweepFeeRate = lnwallet.SatPerKWeight(sweepFeeRate)
+		e.SweepFeeRate = chainfee.SatPerKWeight(sweepFeeRate)
 
 	// Type is still unknown to wtdb extensions, fail.
 	default:

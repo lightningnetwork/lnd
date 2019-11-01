@@ -40,6 +40,7 @@ import (
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -166,7 +167,7 @@ func newPkScript(t *testing.T, w *lnwallet.LightningWallet,
 // parties to send on-chain funds to each other.
 func sendCoins(t *testing.T, miner *rpctest.Harness,
 	sender, receiver *lnwallet.LightningWallet, output *wire.TxOut,
-	feeRate lnwallet.SatPerKWeight) *wire.MsgTx {
+	feeRate chainfee.SatPerKWeight) *wire.MsgTx { //nolint:unparam
 
 	t.Helper()
 
@@ -330,7 +331,7 @@ func createTestWallet(tempTestDir string, miningNode *rpctest.Harness,
 		WalletController: wc,
 		Signer:           signer,
 		ChainIO:          bio,
-		FeeEstimator:     lnwallet.NewStaticFeeEstimator(2500, 0),
+		FeeEstimator:     chainfee.NewStaticEstimator(2500, 0),
 		DefaultConstraints: channeldb.ChannelConstraints{
 			DustLimit:        500,
 			MaxPendingAmount: lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin) * 100,
@@ -723,7 +724,7 @@ func testReservationInitiatorBalanceBelowDustCancel(miner *rpctest.Harness,
 		t.Fatalf("unable to create amt: %v", err)
 	}
 
-	feePerKw := lnwallet.SatPerKWeight(
+	feePerKw := chainfee.SatPerKWeight(
 		numBTC * numBTC * btcutil.SatoshiPerBitcoin,
 	)
 	req := &lnwallet.InitFundingReserveMsg{
@@ -2151,7 +2152,7 @@ func testChangeOutputSpendConfirmation(r *rpctest.Harness,
 	//
 	// TODO(wilmer): replace this once SendOutputs easily supports sending
 	// all funds in one transaction.
-	txFeeRate := lnwallet.SatPerKWeight(2500)
+	txFeeRate := chainfee.SatPerKWeight(2500)
 	txFee := btcutil.Amount(14380)
 	output := &wire.TxOut{
 		Value:    int64(aliceBalance - txFee),
@@ -2247,7 +2248,7 @@ func testLastUnusedAddr(miner *rpctest.Harness,
 		if err != nil {
 			t.Fatalf("unable to convert addr to script: %v", err)
 		}
-		feeRate := lnwallet.SatPerKWeight(2500)
+		feeRate := chainfee.SatPerKWeight(2500)
 		output := &wire.TxOut{
 			Value:    1000000,
 			PkScript: addrScript,
@@ -2281,7 +2282,7 @@ func testCreateSimpleTx(r *rpctest.Harness, w *lnwallet.LightningWallet,
 	// The test cases we will run through for all backends.
 	testCases := []struct {
 		outVals []int64
-		feeRate lnwallet.SatPerKWeight
+		feeRate chainfee.SatPerKWeight
 		valid   bool
 	}{
 		{

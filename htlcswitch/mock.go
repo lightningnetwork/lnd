@@ -28,7 +28,7 @@ import (
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lntypes"
-	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/ticker"
 )
@@ -70,13 +70,13 @@ func (m *mockPreimageCache) SubscribeUpdates() *contractcourt.WitnessSubscriptio
 }
 
 type mockFeeEstimator struct {
-	byteFeeIn chan lnwallet.SatPerKWeight
+	byteFeeIn chan chainfee.SatPerKWeight
 
 	quit chan struct{}
 }
 
 func (m *mockFeeEstimator) EstimateFeePerKW(
-	numBlocks uint32) (lnwallet.SatPerKWeight, error) {
+	numBlocks uint32) (chainfee.SatPerKWeight, error) {
 
 	select {
 	case feeRate := <-m.byteFeeIn:
@@ -86,7 +86,7 @@ func (m *mockFeeEstimator) EstimateFeePerKW(
 	}
 }
 
-func (m *mockFeeEstimator) RelayFeePerKW() lnwallet.SatPerKWeight {
+func (m *mockFeeEstimator) RelayFeePerKW() chainfee.SatPerKWeight {
 	return 1e3
 }
 
@@ -98,7 +98,7 @@ func (m *mockFeeEstimator) Stop() error {
 	return nil
 }
 
-var _ lnwallet.FeeEstimator = (*mockFeeEstimator)(nil)
+var _ chainfee.Estimator = (*mockFeeEstimator)(nil)
 
 type mockForwardingLog struct {
 	sync.Mutex

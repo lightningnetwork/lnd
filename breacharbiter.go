@@ -21,6 +21,7 @@ import (
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
 
 var (
@@ -78,7 +79,7 @@ type BreachConfig struct {
 	// Estimator is used by the breach arbiter to determine an appropriate
 	// fee level when generating, signing, and broadcasting sweep
 	// transactions.
-	Estimator lnwallet.FeeEstimator
+	Estimator chainfee.Estimator
 
 	// GenSweepScript generates the receiving scripts for swept outputs.
 	GenSweepScript func() ([]byte, error)

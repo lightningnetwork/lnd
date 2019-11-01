@@ -48,6 +48,10 @@ type InitFundingReserveMsg struct {
 	// target channel.
 	ChainHash *chainhash.Hash
 
+	// PendingChanID is the pending channel ID for this funding flow as
+	// used in the wire protocol.
+	PendingChanID [32]byte
+
 	// NodeID is the ID of the remote node we would like to open a channel
 	// with.
 	NodeID *btcec.PublicKey
@@ -513,7 +517,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 	reservation, err := NewChannelReservation(
 		capacity, localFundingAmt, req.CommitFeePerKw, l, id,
 		req.PushMSat, l.Cfg.NetParams.GenesisHash, req.Flags,
-		req.Tweakless, req.ChanFunder,
+		req.Tweakless, req.ChanFunder, req.PendingChanID,
 	)
 	if err != nil {
 		if fundingIntent != nil {

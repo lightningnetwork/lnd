@@ -338,6 +338,18 @@ func newIncomingContestResolverFromReader(r io.Reader, resCfg ResolverConfig) (
 	return h, nil
 }
 
+// Supplement adds additional information to the resolver that is required
+// before Resolve() is called.
+//
+// NOTE: Part of the htlcContractResolver interface.
+func (h *htlcIncomingContestResolver) Supplement(htlc channeldb.HTLC) {
+	h.htlcAmt = htlc.Amt
+	h.circuitKey = channeldb.CircuitKey{
+		ChanID: h.ShortChanID,
+		HtlcID: htlc.HtlcIndex,
+	}
+}
+
 // A compile time assertion to ensure htlcIncomingContestResolver meets the
 // ContractResolver interface.
-var _ ContractResolver = (*htlcIncomingContestResolver)(nil)
+var _ htlcContractResolver = (*htlcIncomingContestResolver)(nil)

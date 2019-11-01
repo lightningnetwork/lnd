@@ -501,96 +501,24 @@ func (c *ChannelArbitrator) relaunchResolvers(commitSet *CommitSet) error {
 		"resolvers", c.cfg.ChanPoint, len(unresolvedContracts))
 
 	for _, resolver := range unresolvedContracts {
-		if err := c.supplementResolver(resolver, htlcMap); err != nil {
-			return err
+		htlcResolver, ok := resolver.(htlcContractResolver)
+		if !ok {
+			continue
 		}
+
+		htlcPoint := htlcResolver.HtlcPoint()
+		htlc, ok := htlcMap[htlcPoint]
+		if !ok {
+			return fmt.Errorf(
+				"htlc resolver %T unavailable", resolver,
+			)
+		}
+
+		htlcResolver.Supplement(*htlc)
 	}
 
 	c.launchResolvers(unresolvedContracts)
 
-	return nil
-}
-
-// supplementResolver takes a resolver as it is restored from the log and fills
-// in missing data from the htlcMap.
-func (c *ChannelArbitrator) supplementResolver(resolver ContractResolver,
-	htlcMap map[wire.OutPoint]*channeldb.HTLC) error {
-
-	switch r := resolver.(type) {
-
-	case *htlcSuccessResolver:
-		return c.supplementSuccessResolver(r, htlcMap)
-
-	case *htlcIncomingContestResolver:
-		return c.supplementIncomingContestResolver(r, htlcMap)
-
-	case *htlcTimeoutResolver:
-		return c.supplementTimeoutResolver(r, htlcMap)
-
-	case *htlcOutgoingContestResolver:
-		return c.supplementTimeoutResolver(
-			&r.htlcTimeoutResolver, htlcMap,
-		)
-	}
-
-	return nil
-}
-
-// supplementSuccessResolver takes a htlcIncomingContestResolver as it is
-// restored from the log and fills in missing data from the htlcMap.
-func (c *ChannelArbitrator) supplementIncomingContestResolver(
-	r *htlcIncomingContestResolver,
-	htlcMap map[wire.OutPoint]*channeldb.HTLC) error {
-
-	res := r.htlcResolution
-	htlcPoint := res.HtlcPoint()
-	htlc, ok := htlcMap[htlcPoint]
-	if !ok {
-		return errors.New(
-			"htlc for incoming contest resolver unavailable",
-		)
-	}
-
-	r.htlcAmt = htlc.Amt
-	r.circuitKey = channeldb.CircuitKey{
-		ChanID: c.cfg.ShortChanID,
-		HtlcID: htlc.HtlcIndex,
-	}
-
-	return nil
-}
-
-// supplementSuccessResolver takes a htlcSuccessResolver as it is restored from
-// the log and fills in missing data from the htlcMap.
-func (c *ChannelArbitrator) supplementSuccessResolver(r *htlcSuccessResolver,
-	htlcMap map[wire.OutPoint]*channeldb.HTLC) error {
-
-	res := r.htlcResolution
-	htlcPoint := res.HtlcPoint()
-	htlc, ok := htlcMap[htlcPoint]
-	if !ok {
-		return errors.New(
-			"htlc for success resolver unavailable",
-		)
-	}
-	r.htlcAmt = htlc.Amt
-	return nil
-}
-
-// supplementTimeoutResolver takes a htlcSuccessResolver as it is restored from
-// the log and fills in missing data from the htlcMap.
-func (c *ChannelArbitrator) supplementTimeoutResolver(r *htlcTimeoutResolver,
-	htlcMap map[wire.OutPoint]*channeldb.HTLC) error {
-
-	res := r.htlcResolution
-	htlcPoint := res.HtlcPoint()
-	htlc, ok := htlcMap[htlcPoint]
-	if !ok {
-		return errors.New(
-			"htlc for timeout resolver unavailable",
-		)
-	}
-	r.htlcAmt = htlc.Amt
 	return nil
 }
 

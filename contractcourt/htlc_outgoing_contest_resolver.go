@@ -215,4 +215,4 @@ func newOutgoingContestResolverFromReader(r io.Reader, resCfg ResolverConfig) (
 
 // A compile time assertion to ensure htlcOutgoingContestResolver meets the
 // ContractResolver interface.
-var _ ContractResolver = (*htlcOutgoingContestResolver)(nil)
+var _ htlcContractResolver = (*htlcOutgoingContestResolver)(nil)

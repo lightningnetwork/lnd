@@ -690,6 +690,14 @@ func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
 		HtlcIndex: 99,
 	}
 
+	incomingHtlc := channeldb.HTLC{
+		Incoming:      true,
+		Amt:           lnwire.MilliSatoshi(htlcAmt),
+		HtlcIndex:     102,
+		OutputIndex:   1,
+		RefundTimeout: 10,
+	}
+
 	outgoingDustHtlc := channeldb.HTLC{
 		Incoming:    false,
 		Amt:         100,
@@ -705,7 +713,7 @@ func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
 	}
 
 	htlcSet := []channeldb.HTLC{
-		outgoingHtlc, outgoingDustHtlc, incomingDustHtlc,
+		outgoingHtlc, incomingHtlc, outgoingDustHtlc, incomingDustHtlc,
 	}
 
 	htlcUpdates <- &ContractUpdate{
@@ -761,6 +769,10 @@ func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
 		Hash:  closeTx.TxHash(),
 		Index: 0,
 	}
+	incomingHtlcOp := wire.OutPoint{
+		Hash:  closeTx.TxHash(),
+		Index: 1,
+	}
 
 	// Set up the outgoing resolution. Populate SignedTimeoutTx because our
 	// commitment transaction got confirmed.
@@ -782,6 +794,15 @@ func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
 		},
 	}
 
+	// Set up the incoming resolution. Populate SignedTimeoutTx because our
+	// commitment transaction got confirmed.
+	incomingRes := lnwallet.IncomingHtlcResolution{
+		SweepSignDesc: input.SignDescriptor{
+			Output: &wire.TxOut{},
+		},
+		ClaimOutpoint: incomingHtlcOp,
+	}
+
 	chanArb.cfg.ChainEvents.LocalUnilateralClosure <- &LocalUnilateralCloseInfo{
 		SpendDetail: &chainntnfs.SpendDetail{},
 		LocalForceCloseSummary: &lnwallet.LocalForceCloseSummary{
@@ -789,6 +810,9 @@ func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
 			HtlcResolutions: &lnwallet.HtlcResolutions{
 				OutgoingHTLCs: []lnwallet.OutgoingHtlcResolution{
 					outgoingRes,
+				},
+				IncomingHTLCs: []lnwallet.IncomingHtlcResolution{
+					incomingRes,
 				},
 			},
 		},
@@ -845,7 +869,7 @@ func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
 
 	// Post restart, it should be the case that our resolver was properly
 	// supplemented, and we only have a single resolver in the final set.
-	if len(chanArb.activeResolvers) != 1 {
+	if len(chanArb.activeResolvers) != 2 {
 		t.Fatalf("expected single resolver, instead got: %v",
 			len(chanArb.activeResolvers))
 	}
@@ -873,7 +897,10 @@ func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
 	default:
 	}
 
-	// Send a notification that the expiry height has been reached.
+	// Send a notification that the expiry height has been reached. The
+	// notification is sent twice, because both the incoming and outgoing
+	// resolver are expecting this event.
+	oldNotifier.epochChan <- &chainntnfs.BlockEpoch{Height: 10}
 	oldNotifier.epochChan <- &chainntnfs.BlockEpoch{Height: 10}
 
 	// htlcOutgoingContestResolver is now transforming into a

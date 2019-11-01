@@ -170,11 +170,11 @@ $ cd $GOPATH/src/google.golang.org/genproto
 $ git reset --hard a8101f21cf983e773d0c1133ebc5424792003214
 ```
 
-4. Install `grpc-ecosystem/grpc-gateway` at commit `f2862b476edcef83412c7af8687c9cd8e4097c0f`.
+4. Install `grpc-ecosystem/grpc-gateway` at version `v1.8.6`.
 ```bash
 $ git clone https://github.com/grpc-ecosystem/grpc-gateway $GOPATH/src/github.com/grpc-ecosystem/grpc-gateway
 $ cd $GOPATH/src/github.com/grpc-ecosystem/grpc-gateway
-$ git reset --hard f2862b476edcef83412c7af8687c9cd8e4097c0f
+$ git reset --hard v1.8.6
 $ go install ./protoc-gen-grpc-gateway ./protoc-gen-swagger
 ```
 

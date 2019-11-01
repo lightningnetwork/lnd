@@ -55,6 +55,21 @@ type htlcSuccessResolver struct {
 	contractResolverKit
 }
 
+// newSuccessResolver instanties a new htlc success resolver.
+func newSuccessResolver(res lnwallet.IncomingHtlcResolution,
+	broadcastHeight uint32, payHash lntypes.Hash,
+	htlcAmt lnwire.MilliSatoshi,
+	resCfg ResolverConfig) *htlcSuccessResolver {
+
+	return &htlcSuccessResolver{
+		contractResolverKit: *newContractResolverKit(resCfg),
+		htlcResolution:      res,
+		broadcastHeight:     broadcastHeight,
+		payHash:             payHash,
+		htlcAmt:             htlcAmt,
+	}
+}
+
 // ResolverKey returns an identifier which should be globally unique for this
 // particular resolver within the chain the original contract resides within.
 //
@@ -321,15 +336,6 @@ func newSuccessResolverFromReader(r io.Reader, resCfg ResolverConfig) (
 	}
 
 	return h, nil
-}
-
-// AttachConfig should be called once a resolved is successfully decoded from
-// its stored format. This struct delivers the configuration items that
-// resolvers need to complete their duty.
-//
-// NOTE: Part of the ContractResolver interface.
-func (h *htlcSuccessResolver) AttachConfig(r ResolverConfig) {
-	h.contractResolverKit = *newContractResolverKit(r)
 }
 
 // A compile time assertion to ensure htlcSuccessResolver meets the

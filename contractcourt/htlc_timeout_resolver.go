@@ -51,6 +51,21 @@ type htlcTimeoutResolver struct {
 	contractResolverKit
 }
 
+// newTimeoutResolver instantiates a new timeout htlc resolver.
+func newTimeoutResolver(res lnwallet.OutgoingHtlcResolution,
+	broadcastHeight uint32, htlcIndex uint64,
+	htlcAmt lnwire.MilliSatoshi,
+	resCfg ResolverConfig) *htlcTimeoutResolver {
+
+	return &htlcTimeoutResolver{
+		contractResolverKit: *newContractResolverKit(resCfg),
+		htlcResolution:      res,
+		broadcastHeight:     broadcastHeight,
+		htlcIndex:           htlcIndex,
+		htlcAmt:             htlcAmt,
+	}
+}
+
 // ResolverKey returns an identifier which should be globally unique for this
 // particular resolver within the chain the original contract resides within.
 //
@@ -439,15 +454,6 @@ func newTimeoutResolverFromReader(r io.Reader, resCfg ResolverConfig) (
 	}
 
 	return h, nil
-}
-
-// AttachConfig should be called once a resolved is successfully decoded from
-// its stored format. This struct delivers the configuration items that
-// resolvers need to complete their duty.
-//
-// NOTE: Part of the ContractResolver interface.
-func (h *htlcTimeoutResolver) AttachConfig(r ResolverConfig) {
-	h.contractResolverKit = *newContractResolverKit(r)
 }
 
 // A compile time assertion to ensure htlcTimeoutResolver meets the

@@ -39,6 +39,19 @@ type commitSweepResolver struct {
 	contractResolverKit
 }
 
+// newCommitSweepResolver instantiates a new direct commit output resolver.
+func newCommitSweepResolver(res lnwallet.CommitOutputResolution,
+	broadcastHeight uint32,
+	chanPoint wire.OutPoint, resCfg ResolverConfig) *commitSweepResolver {
+
+	return &commitSweepResolver{
+		contractResolverKit: *newContractResolverKit(resCfg),
+		commitResolution:    res,
+		broadcastHeight:     broadcastHeight,
+		chanPoint:           chanPoint,
+	}
+}
+
 // ResolverKey returns an identifier which should be globally unique for this
 // particular resolver within the chain the original contract resides within.
 func (c *commitSweepResolver) ResolverKey() []byte {
@@ -296,15 +309,6 @@ func newCommitSweepResolverFromReader(r io.Reader, resCfg ResolverConfig) (
 	// the database.
 
 	return c, nil
-}
-
-// AttachConfig should be called once a resolved is successfully decoded from
-// its stored format. This struct delivers the configuration items that
-// resolvers need to complete their duty.
-//
-// NOTE: Part of the ContractResolver interface.
-func (c *commitSweepResolver) AttachConfig(r ResolverConfig) {
-	c.contractResolverKit = *newContractResolverKit(r)
 }
 
 // A compile time assertion to ensure commitSweepResolver meets the

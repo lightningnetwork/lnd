@@ -1733,14 +1733,10 @@ func (c *ChannelArbitrator) prepContractResolutions(
 					continue
 				}
 
-				resKit := newContractResolverKit(resolverCfg)
-				resolver := &htlcSuccessResolver{
-					htlcResolution:      resolution,
-					broadcastHeight:     height,
-					payHash:             htlc.RHash,
-					htlcAmt:             htlc.Amt,
-					contractResolverKit: *resKit,
-				}
+				resolver := newSuccessResolver(
+					resolution, height,
+					htlc.RHash, htlc.Amt, resolverCfg,
+				)
 				htlcResolvers = append(htlcResolvers, resolver)
 			}
 
@@ -1761,14 +1757,10 @@ func (c *ChannelArbitrator) prepContractResolutions(
 					continue
 				}
 
-				resKit := newContractResolverKit(resolverCfg)
-				resolver := &htlcTimeoutResolver{
-					htlcResolution:      resolution,
-					broadcastHeight:     height,
-					htlcIndex:           htlc.HtlcIndex,
-					htlcAmt:             htlc.Amt,
-					contractResolverKit: *resKit,
-				}
+				resolver := newTimeoutResolver(
+					resolution, height, htlc.HtlcIndex,
+					htlc.Amt, resolverCfg,
+				)
 				htlcResolvers = append(htlcResolvers, resolver)
 			}
 
@@ -1798,18 +1790,11 @@ func (c *ChannelArbitrator) prepContractResolutions(
 					ChanID: c.cfg.ShortChanID,
 				}
 
-				resKit := newContractResolverKit(resolverCfg)
-				resolver := &htlcIncomingContestResolver{
-					htlcExpiry: htlc.RefundTimeout,
-					circuitKey: circuitKey,
-					htlcSuccessResolver: htlcSuccessResolver{
-						htlcResolution:      resolution,
-						broadcastHeight:     height,
-						payHash:             htlc.RHash,
-						htlcAmt:             htlc.Amt,
-						contractResolverKit: *resKit,
-					},
-				}
+				resolver := newIncomingContestResolver(
+					htlc.RefundTimeout, circuitKey,
+					resolution, height, htlc.RHash,
+					htlc.Amt, resolverCfg,
+				)
 				htlcResolvers = append(htlcResolvers, resolver)
 			}
 
@@ -1831,16 +1816,10 @@ func (c *ChannelArbitrator) prepContractResolutions(
 					continue
 				}
 
-				resKit := newContractResolverKit(resolverCfg)
-				resolver := &htlcOutgoingContestResolver{
-					htlcTimeoutResolver: htlcTimeoutResolver{
-						htlcResolution:      resolution,
-						broadcastHeight:     height,
-						htlcIndex:           htlc.HtlcIndex,
-						htlcAmt:             htlc.Amt,
-						contractResolverKit: *resKit,
-					},
-				}
+				resolver := newOutgoingContestResolver(
+					resolution, height, htlc.HtlcIndex,
+					htlc.Amt, resolverCfg,
+				)
 				htlcResolvers = append(htlcResolvers, resolver)
 			}
 		}
@@ -1850,14 +1829,10 @@ func (c *ChannelArbitrator) prepContractResolutions(
 	// a resolver to sweep our commitment output (but only if it wasn't
 	// trimmed).
 	if contractResolutions.CommitResolution != nil {
-		resKit := newContractResolverKit(resolverCfg)
-		resolver := &commitSweepResolver{
-			commitResolution:    *contractResolutions.CommitResolution,
-			broadcastHeight:     height,
-			chanPoint:           c.cfg.ChanPoint,
-			contractResolverKit: *resKit,
-		}
-
+		resolver := newCommitSweepResolver(
+			*contractResolutions.CommitResolution,
+			height, c.cfg.ChanPoint, resolverCfg,
+		)
 		htlcResolvers = append(htlcResolvers, resolver)
 	}
 

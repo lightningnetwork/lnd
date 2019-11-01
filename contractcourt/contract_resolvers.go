@@ -46,11 +46,6 @@ type ContractResolver interface {
 	// passed Writer.
 	Encode(w io.Writer) error
 
-	// AttachConfig should be called once a resolved is successfully decoded
-	// from its stored format. This struct delivers the configuration items
-	// that resolvers need to complete their duty.
-	AttachConfig(ResolverConfig)
-
 	// Stop signals the resolver to cancel any current resolution
 	// processes, and suspend.
 	Stop()

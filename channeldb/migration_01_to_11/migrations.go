@@ -1,4 +1,4 @@
-package channeldb
+package migration_01_to_11
 
 import (
 	"bytes"
@@ -12,12 +12,12 @@ import (
 	"github.com/lightningnetwork/lnd/routing/route"
 )
 
-// migrateNodeAndEdgeUpdateIndex is a migration function that will update the
+// MigrateNodeAndEdgeUpdateIndex is a migration function that will update the
 // database from version 0 to version 1. In version 1, we add two new indexes
 // (one for nodes and one for edges) to keep track of the last time a node or
 // edge was updated on the network. These new indexes allow us to implement the
 // new graph sync protocol added.
-func migrateNodeAndEdgeUpdateIndex(tx *bbolt.Tx) error {
+func MigrateNodeAndEdgeUpdateIndex(tx *bbolt.Tx) error {
 	// First, we'll populating the node portion of the new index. Before we
 	// can add new values to the index, we'll first create the new bucket
 	// where these items will be housed.
@@ -118,11 +118,11 @@ func migrateNodeAndEdgeUpdateIndex(tx *bbolt.Tx) error {
 	return nil
 }
 
-// migrateInvoiceTimeSeries is a database migration that assigns all existing
+// MigrateInvoiceTimeSeries is a database migration that assigns all existing
 // invoices an index in the add and/or the settle index. Additionally, all
 // existing invoices will have their bytes padded out in order to encode the
 // add+settle index as well as the amount paid.
-func migrateInvoiceTimeSeries(tx *bbolt.Tx) error {
+func MigrateInvoiceTimeSeries(tx *bbolt.Tx) error {
 	invoices, err := tx.CreateBucketIfNotExists(invoiceBucket)
 	if err != nil {
 		return err
@@ -255,11 +255,11 @@ func migrateInvoiceTimeSeries(tx *bbolt.Tx) error {
 	return nil
 }
 
-// migrateInvoiceTimeSeriesOutgoingPayments is a follow up to the
+// MigrateInvoiceTimeSeriesOutgoingPayments is a follow up to the
 // migrateInvoiceTimeSeries migration. As at the time of writing, the
 // OutgoingPayment struct embeddeds an instance of the Invoice struct. As a
 // result, we also need to migrate the internal invoice to the new format.
-func migrateInvoiceTimeSeriesOutgoingPayments(tx *bbolt.Tx) error {
+func MigrateInvoiceTimeSeriesOutgoingPayments(tx *bbolt.Tx) error {
 	payBucket := tx.Bucket(paymentBucket)
 	if payBucket == nil {
 		return nil
@@ -336,11 +336,11 @@ func migrateInvoiceTimeSeriesOutgoingPayments(tx *bbolt.Tx) error {
 	return nil
 }
 
-// migrateEdgePolicies is a migration function that will update the edges
+// MigrateEdgePolicies is a migration function that will update the edges
 // bucket. It ensure that edges with unknown policies will also have an entry
 // in the bucket. After the migration, there will be two edge entries for
 // every channel, regardless of whether the policies are known.
-func migrateEdgePolicies(tx *bbolt.Tx) error {
+func MigrateEdgePolicies(tx *bbolt.Tx) error {
 	nodes := tx.Bucket(nodeBucket)
 	if nodes == nil {
 		return nil
@@ -409,10 +409,10 @@ func migrateEdgePolicies(tx *bbolt.Tx) error {
 	return nil
 }
 
-// paymentStatusesMigration is a database migration intended for adding payment
+// PaymentStatusesMigration is a database migration intended for adding payment
 // statuses for each existing payment entity in bucket to be able control
 // transitions of statuses and prevent cases such as double payment
-func paymentStatusesMigration(tx *bbolt.Tx) error {
+func PaymentStatusesMigration(tx *bbolt.Tx) error {
 	// Get the bucket dedicated to storing statuses of payments,
 	// where a key is payment hash, value is payment status.
 	paymentStatuses, err := tx.CreateBucketIfNotExists(paymentStatusBucket)
@@ -492,14 +492,14 @@ func paymentStatusesMigration(tx *bbolt.Tx) error {
 	return nil
 }
 
-// migratePruneEdgeUpdateIndex is a database migration that attempts to resolve
+// MigratePruneEdgeUpdateIndex is a database migration that attempts to resolve
 // some lingering bugs with regards to edge policies and their update index.
 // Stale entries within the edge update index were not being properly pruned due
 // to a miscalculation on the offset of an edge's policy last update. This
 // migration also fixes the case where the public keys within edge policies were
 // being serialized with an extra byte, causing an even greater error when
 // attempting to perform the offset calculation described earlier.
-func migratePruneEdgeUpdateIndex(tx *bbolt.Tx) error {
+func MigratePruneEdgeUpdateIndex(tx *bbolt.Tx) error {
 	// To begin the migration, we'll retrieve the update index bucket. If it
 	// does not exist, we have nothing left to do so we can simply exit.
 	edges := tx.Bucket(edgeBucket)
@@ -610,10 +610,10 @@ func migratePruneEdgeUpdateIndex(tx *bbolt.Tx) error {
 	return nil
 }
 
-// migrateOptionalChannelCloseSummaryFields migrates the serialized format of
+// MigrateOptionalChannelCloseSummaryFields migrates the serialized format of
 // ChannelCloseSummary to a format where optional fields' presence is indicated
 // with boolean markers.
-func migrateOptionalChannelCloseSummaryFields(tx *bbolt.Tx) error {
+func MigrateOptionalChannelCloseSummaryFields(tx *bbolt.Tx) error {
 	closedChanBucket := tx.Bucket(closedChannelBucket)
 	if closedChanBucket == nil {
 		return nil
@@ -669,10 +669,10 @@ func migrateOptionalChannelCloseSummaryFields(tx *bbolt.Tx) error {
 
 var messageStoreBucket = []byte("message-store")
 
-// migrateGossipMessageStoreKeys migrates the key format for gossip messages
+// MigrateGossipMessageStoreKeys migrates the key format for gossip messages
 // found in the message store to a new one that takes into consideration the of
 // the message being stored.
-func migrateGossipMessageStoreKeys(tx *bbolt.Tx) error {
+func MigrateGossipMessageStoreKeys(tx *bbolt.Tx) error {
 	// We'll start by retrieving the bucket in which these messages are
 	// stored within. If there isn't one, there's nothing left for us to do
 	// so we can avoid the migration.
@@ -739,7 +739,7 @@ func migrateGossipMessageStoreKeys(tx *bbolt.Tx) error {
 	return nil
 }
 
-// migrateOutgoingPayments moves the OutgoingPayments into a new bucket format
+// MigrateOutgoingPayments moves the OutgoingPayments into a new bucket format
 // where they all reside in a top-level bucket indexed by the payment hash. In
 // this sub-bucket we store information relevant to this payment, such as the
 // payment status.
@@ -748,7 +748,7 @@ func migrateGossipMessageStoreKeys(tx *bbolt.Tx) error {
 // InFlight (we have no PaymentAttemptInfo available for pre-migration
 // payments) we delete those statuses, so only Completed payments remain in the
 // new bucket structure.
-func migrateOutgoingPayments(tx *bbolt.Tx) error {
+func MigrateOutgoingPayments(tx *bbolt.Tx) error {
 	log.Infof("Migrating outgoing payments to new bucket structure")
 
 	oldPayments := tx.Bucket(paymentBucket)

@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/coreos/bbolt"
 	"github.com/go-errors/errors"
+	"github.com/lightningnetwork/lnd/channeldb/migration_01_to_11"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -47,19 +48,19 @@ var (
 			// for the update time of node and channel updates were
 			// added.
 			number:    1,
-			migration: migrateNodeAndEdgeUpdateIndex,
+			migration: migration_01_to_11.MigrateNodeAndEdgeUpdateIndex,
 		},
 		{
 			// The DB version that added the invoice event time
 			// series.
 			number:    2,
-			migration: migrateInvoiceTimeSeries,
+			migration: migration_01_to_11.MigrateInvoiceTimeSeries,
 		},
 		{
 			// The DB version that updated the embedded invoice in
 			// outgoing payments to match the new format.
 			number:    3,
-			migration: migrateInvoiceTimeSeriesOutgoingPayments,
+			migration: migration_01_to_11.MigrateInvoiceTimeSeriesOutgoingPayments,
 		},
 		{
 			// The version of the database where every channel
@@ -67,53 +68,53 @@ var (
 			// a policy is unknown, this will be represented
 			// by a special byte sequence.
 			number:    4,
-			migration: migrateEdgePolicies,
+			migration: migration_01_to_11.MigrateEdgePolicies,
 		},
 		{
 			// The DB version where we persist each attempt to send
 			// an HTLC to a payment hash, and track whether the
 			// payment is in-flight, succeeded, or failed.
 			number:    5,
-			migration: paymentStatusesMigration,
+			migration: migration_01_to_11.PaymentStatusesMigration,
 		},
 		{
 			// The DB version that properly prunes stale entries
 			// from the edge update index.
 			number:    6,
-			migration: migratePruneEdgeUpdateIndex,
+			migration: migration_01_to_11.MigratePruneEdgeUpdateIndex,
 		},
 		{
 			// The DB version that migrates the ChannelCloseSummary
 			// to a format where optional fields are indicated with
 			// boolean flags.
 			number:    7,
-			migration: migrateOptionalChannelCloseSummaryFields,
+			migration: migration_01_to_11.MigrateOptionalChannelCloseSummaryFields,
 		},
 		{
 			// The DB version that changes the gossiper's message
 			// store keys to account for the message's type and
 			// ShortChannelID.
 			number:    8,
-			migration: migrateGossipMessageStoreKeys,
+			migration: migration_01_to_11.MigrateGossipMessageStoreKeys,
 		},
 		{
 			// The DB version where the payments and payment
 			// statuses are moved to being stored in a combined
 			// bucket.
 			number:    9,
-			migration: migrateOutgoingPayments,
+			migration: migration_01_to_11.MigrateOutgoingPayments,
 		},
 		{
 			// The DB version where we started to store legacy
 			// payload information for all routes, as well as the
 			// optional TLV records.
 			number:    10,
-			migration: migrateRouteSerialization,
+			migration: migration_01_to_11.MigrateRouteSerialization,
 		},
 		{
 			// Add invoice htlc and cltv delta fields.
 			number:    11,
-			migration: migrateInvoices,
+			migration: migration_01_to_11.MigrateInvoices,
 		},
 	}
 
@@ -263,10 +264,6 @@ func createChannelDB(dbPath string) error {
 		}
 
 		if _, err := tx.CreateBucket(invoiceBucket); err != nil {
-			return err
-		}
-
-		if _, err := tx.CreateBucket(paymentBucket); err != nil {
 			return err
 		}
 

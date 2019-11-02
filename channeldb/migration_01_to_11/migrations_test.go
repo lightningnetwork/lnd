@@ -1,4 +1,4 @@
-package channeldb
+package migration_01_to_11
 
 import (
 	"bytes"
@@ -135,15 +135,6 @@ func TestPaymentStatusesMigration(t *testing.T) {
 	// Verify that the created payment status is "Completed" for our one
 	// fake payment.
 	afterMigrationFunc := func(d *DB) {
-		meta, err := d.FetchMeta(nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		if meta.DbVersionNumber != 1 {
-			t.Fatal("migration 'paymentStatusesMigration' wasn't applied")
-		}
-
 		// Check that our completed payments were migrated.
 		paymentStatus, err := d.fetchPaymentStatus(paymentHash)
 		if err != nil {
@@ -197,7 +188,7 @@ func TestPaymentStatusesMigration(t *testing.T) {
 	applyMigration(t,
 		beforeMigrationFunc,
 		afterMigrationFunc,
-		paymentStatusesMigration,
+		PaymentStatusesMigration,
 		false)
 }
 
@@ -404,15 +395,6 @@ func TestMigrateOptionalChannelCloseSummaryFields(t *testing.T) {
 
 		// After the migration it should be found in the new format.
 		afterMigrationFunc := func(d *DB) {
-			meta, err := d.FetchMeta(nil)
-			if err != nil {
-				t.Fatal(err)
-			}
-
-			if meta.DbVersionNumber != 1 {
-				t.Fatal("migration wasn't applied")
-			}
-
 			// We generate the new serialized version, to check
 			// against what is found in the DB.
 			var b bytes.Buffer
@@ -469,7 +451,7 @@ func TestMigrateOptionalChannelCloseSummaryFields(t *testing.T) {
 		applyMigration(t,
 			beforeMigrationFunc,
 			afterMigrationFunc,
-			migrateOptionalChannelCloseSummaryFields,
+			MigrateOptionalChannelCloseSummaryFields,
 			false)
 	}
 }
@@ -521,16 +503,8 @@ func TestMigrateGossipMessageStoreKeys(t *testing.T) {
 	//   2. We can find the message under its new key.
 	//   3. The message matches the original.
 	afterMigration := func(db *DB) {
-		meta, err := db.FetchMeta(nil)
-		if err != nil {
-			t.Fatalf("unable to fetch db version: %v", err)
-		}
-		if meta.DbVersionNumber != 1 {
-			t.Fatalf("migration should have succeeded but didn't")
-		}
-
 		var rawMsg []byte
-		err = db.View(func(tx *bbolt.Tx) error {
+		err := db.View(func(tx *bbolt.Tx) error {
 			messageStore := tx.Bucket(messageStoreBucket)
 			if messageStore == nil {
 				return errors.New("message store bucket not " +
@@ -565,7 +539,7 @@ func TestMigrateGossipMessageStoreKeys(t *testing.T) {
 
 	applyMigration(
 		t, beforeMigration, afterMigration,
-		migrateGossipMessageStoreKeys, false,
+		MigrateGossipMessageStoreKeys, false,
 	)
 }
 
@@ -617,15 +591,6 @@ func TestOutgoingPaymentsMigration(t *testing.T) {
 
 	// Verify that all payments were migrated.
 	afterMigrationFunc := func(d *DB) {
-		meta, err := d.FetchMeta(nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		if meta.DbVersionNumber != 1 {
-			t.Fatal("migration 'paymentStatusesMigration' wasn't applied")
-		}
-
 		sentPayments, err := d.fetchPaymentsMigration9()
 		if err != nil {
 			t.Fatalf("unable to fetch sent payments: %v", err)
@@ -724,7 +689,7 @@ func TestOutgoingPaymentsMigration(t *testing.T) {
 	applyMigration(t,
 		beforeMigrationFunc,
 		afterMigrationFunc,
-		migrateOutgoingPayments,
+		MigrateOutgoingPayments,
 		false)
 }
 
@@ -947,6 +912,17 @@ func TestPaymentRouteSerialization(t *testing.T) {
 	applyMigration(t,
 		beforeMigrationFunc,
 		afterMigrationFunc,
-		migrateRouteSerialization,
+		MigrateRouteSerialization,
 		false)
+}
+
+// TestNotCoveredMigrations only references migrations that are not referenced
+// anywhere else in this package. This prevents false positives when linting
+// with unused.
+func TestNotCoveredMigrations(t *testing.T) {
+	_ = MigrateNodeAndEdgeUpdateIndex
+	_ = MigrateInvoiceTimeSeries
+	_ = MigrateInvoiceTimeSeriesOutgoingPayments
+	_ = MigrateEdgePolicies
+	_ = MigratePruneEdgeUpdateIndex
 }

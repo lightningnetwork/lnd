@@ -1,4 +1,4 @@
-package channeldb
+package migration_01_to_11
 
 import (
 	"bytes"

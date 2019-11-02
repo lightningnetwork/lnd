@@ -1,4 +1,4 @@
-package channeldb
+package migration_01_to_11
 
 import (
 	"bytes"
@@ -88,15 +88,6 @@ func TestMigrateInvoices(t *testing.T) {
 
 	// Verify that all invoices were migrated.
 	afterMigrationFunc := func(d *DB) {
-		meta, err := d.FetchMeta(nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		if meta.DbVersionNumber != 1 {
-			t.Fatal("migration 'invoices' wasn't applied")
-		}
-
 		dbInvoices, err := d.FetchAllInvoices(false)
 		if err != nil {
 			t.Fatalf("unable to fetch invoices: %v", err)
@@ -123,7 +114,7 @@ func TestMigrateInvoices(t *testing.T) {
 	applyMigration(t,
 		func(d *DB) { beforeMigrationFuncV11(t, d, invoices) },
 		afterMigrationFunc,
-		migrateInvoices,
+		MigrateInvoices,
 		false)
 }
 
@@ -149,7 +140,7 @@ func TestMigrateInvoicesHodl(t *testing.T) {
 	applyMigration(t,
 		func(d *DB) { beforeMigrationFuncV11(t, d, invoices) },
 		func(d *DB) {},
-		migrateInvoices,
+		MigrateInvoices,
 		true)
 }
 

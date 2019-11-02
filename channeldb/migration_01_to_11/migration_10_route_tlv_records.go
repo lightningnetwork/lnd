@@ -1,4 +1,4 @@
-package channeldb
+package migration_01_to_11
 
 import (
 	"bytes"
@@ -8,10 +8,10 @@ import (
 	"github.com/lightningnetwork/lnd/routing/route"
 )
 
-// migrateRouteSerialization migrates the way we serialize routes across the
+// MigrateRouteSerialization migrates the way we serialize routes across the
 // entire database. At the time of writing of this migration, this includes our
 // payment attempts, as well as the payment results in mission control.
-func migrateRouteSerialization(tx *bbolt.Tx) error {
+func MigrateRouteSerialization(tx *bbolt.Tx) error {
 	// First, we'll do all the payment attempts.
 	rootPaymentBucket := tx.Bucket(paymentsRootBucket)
 	if rootPaymentBucket == nil {

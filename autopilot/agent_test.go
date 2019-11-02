@@ -338,6 +338,11 @@ func TestAgentHeuristicUpdateSignal(t *testing.T) {
 	testCtx, cleanup := setup(t, nil)
 	defer cleanup()
 
+	pub, err := testCtx.graph.addRandNode()
+	if err != nil {
+		t.Fatalf("unable to generate key: %v", err)
+	}
+
 	// We'll send an initial "no" response to advance the agent past its
 	// initial check.
 	respondMoreChans(t, testCtx, moreChansResp{0, 0})
@@ -356,10 +361,6 @@ func TestAgentHeuristicUpdateSignal(t *testing.T) {
 
 	// At this point, the agent should now be querying the heuristic for
 	// scores. We'll respond.
-	pub, err := testCtx.graph.addRandNode()
-	if err != nil {
-		t.Fatalf("unable to generate key: %v", err)
-	}
 	nodeID := NewNodeID(pub)
 	scores := map[NodeID]*NodeScore{
 		nodeID: {

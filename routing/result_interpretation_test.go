@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/lnwire"
 
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -45,6 +46,11 @@ var (
 
 func getTestPair(from, to int) DirectedNodePair {
 	return NewDirectedNodePair(hops[from], hops[to])
+}
+
+func getPolicyFailure(from, to int) *DirectedNodePair {
+	pair := getTestPair(from, to)
+	return &pair
 }
 
 type resultTestCase struct {
@@ -169,6 +175,97 @@ var resultTestCases = []resultTestCase{
 			},
 		},
 	},
+
+	// Tests that a fee insufficient failure to an intermediate hop with
+	// index 2 results in the first hop marked as success, and then a
+	// bidirectional failure for the incoming channel. It should also result
+	// in a policy failure for the outgoing hop.
+	{
+		name:          "fail fee insufficient intermediate",
+		route:         &routeFourHop,
+		failureSrcIdx: 2,
+		failure:       lnwire.NewFeeInsufficient(0, lnwire.ChannelUpdate{}),
+
+		expectedResult: &interpretedResult{
+			pairResults: map[DirectedNodePair]pairResult{
+				getTestPair(0, 1): {
+					success: true,
+				},
+				getTestPair(1, 2): {},
+				getTestPair(2, 1): {},
+			},
+			policyFailure: getPolicyFailure(2, 3),
+		},
+	},
+
+	// Tests an invalid onion payload from a final hop. The final hop should
+	// be failed while the proceeding hops are reproed as successes. The
+	// failure is terminal since the receiver can't process our onion.
+	{
+		name:          "fail invalid onion payload final hop",
+		route:         &routeFourHop,
+		failureSrcIdx: 4,
+		failure:       lnwire.NewInvalidOnionPayload(0, 0),
+
+		expectedResult: &interpretedResult{
+			pairResults: map[DirectedNodePair]pairResult{
+				getTestPair(0, 1): {
+					success: true,
+				},
+				getTestPair(1, 2): {
+					success: true,
+				},
+				getTestPair(2, 3): {
+					success: true,
+				},
+				getTestPair(4, 3): {},
+			},
+			finalFailureReason: &reasonError,
+			nodeFailure:        &hops[4],
+		},
+	},
+
+	// Tests an invalid onion payload from an intermediate hop. Only the
+	// reporting node should be failed. The failure is non-terminal since we
+	// can still try other paths.
+	{
+		name:          "fail invalid onion payload intermediate",
+		route:         &routeFourHop,
+		failureSrcIdx: 3,
+		failure:       lnwire.NewInvalidOnionPayload(0, 0),
+
+		expectedResult: &interpretedResult{
+			pairResults: map[DirectedNodePair]pairResult{
+				getTestPair(0, 1): {
+					success: true,
+				},
+				getTestPair(1, 2): {
+					success: true,
+				},
+				getTestPair(3, 2): {},
+				getTestPair(3, 4): {},
+			},
+			nodeFailure: &hops[3],
+		},
+	},
+
+	// Tests an invalid onion payload in a direct peer that is also the
+	// final hop. The final node should be failed and the error is terminal
+	// since the remote node can't process our onion.
+	{
+		name:          "fail invalid onion payload direct",
+		route:         &routeOneHop,
+		failureSrcIdx: 1,
+		failure:       lnwire.NewInvalidOnionPayload(0, 0),
+
+		expectedResult: &interpretedResult{
+			pairResults: map[DirectedNodePair]pairResult{
+				getTestPair(1, 0): {},
+			},
+			finalFailureReason: &reasonError,
+			nodeFailure:        &hops[1],
+		},
+	},
 }
 
 // TestResultInterpretation executes a list of test cases that test the result
@@ -192,7 +289,8 @@ func TestResultInterpretation(t *testing.T) {
 			}
 
 			if !reflect.DeepEqual(i, expected) {
-				t.Fatal("unexpected result")
+				t.Fatalf("unexpected result\nwant: %v\ngot: %v",
+					spew.Sdump(expected), spew.Sdump(i))
 			}
 		})
 	}

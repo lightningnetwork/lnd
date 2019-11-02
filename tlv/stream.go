@@ -162,6 +162,7 @@ func (s *Stream) decode(r io.Reader, parsedTypes TypeSet) (TypeSet, error) {
 	var (
 		typ       Type
 		min       Type
+		firstFail *Type
 		recordIdx int
 		overflow  bool
 	)
@@ -176,7 +177,10 @@ func (s *Stream) decode(r io.Reader, parsedTypes TypeSet) (TypeSet, error) {
 		// We'll silence an EOF when zero bytes remain, meaning the
 		// stream was cleanly encoded.
 		case err == io.EOF:
-			return parsedTypes, nil
+			if firstFail == nil {
+				return parsedTypes, nil
+			}
+			return parsedTypes, ErrUnknownRequiredType(*firstFail)
 
 		// Other unexpected errors.
 		case err != nil:
@@ -243,7 +247,27 @@ func (s *Stream) decode(r io.Reader, parsedTypes TypeSet) (TypeSet, error) {
 		// This record type is unknown to the stream, fail if the type
 		// is even meaning that we are required to understand it.
 		case typ%2 == 0:
-			return nil, ErrUnknownRequiredType(typ)
+			// We'll fail immediately in the case that we aren't
+			// tracking the set of parsed types.
+			if parsedTypes == nil {
+				return nil, ErrUnknownRequiredType(typ)
+			}
+
+			// Otherwise, we'll track the first such failure and
+			// allow parsing to continue. If no other types of
+			// errors are encountered, the first failure will be
+			// returned as an ErrUnknownRequiredType so that the
+			// full set of included types can be returned.
+			if firstFail == nil {
+				failTyp := typ
+				firstFail = &failTyp
+			}
+
+			// With the failure type recorded, we'll simply discard
+			// the remainder of the record as if it were optional.
+			// The first failure will be returned after reaching the
+			// stopping condition.
+			fallthrough
 
 		// Otherwise, the record type is unknown and is odd, discard the
 		// number of bytes specified by length.

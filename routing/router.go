@@ -852,7 +852,6 @@ func (r *ChannelRouter) networkHandler() {
 	graphPruneTicker := time.NewTicker(r.cfg.GraphPruneInterval)
 	defer graphPruneTicker.Stop()
 
-	r.statTicker.Resume()
 	defer r.statTicker.Stop()
 
 	r.stats.Reset()
@@ -862,6 +861,12 @@ func (r *ChannelRouter) networkHandler() {
 	validationBarrier := NewValidationBarrier(runtime.NumCPU()*4, r.quit)
 
 	for {
+
+		// If there are stats, resume the statTicker.
+		if !r.stats.Empty() {
+			r.statTicker.Resume()
+		}
+
 		select {
 		// A new fully validated network update has just arrived. As a
 		// result we'll modify the channel graph accordingly depending
@@ -1343,8 +1348,6 @@ func (r *ChannelRouter) processUpdate(msg interface{}) error {
 	default:
 		return errors.Errorf("wrong routing update message type")
 	}
-
-	r.statTicker.Resume()
 
 	return nil
 }

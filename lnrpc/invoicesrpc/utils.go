@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -203,4 +204,32 @@ func CreateRPCRouteHints(routeHints [][]zpay32.HopHint) []*lnrpc.RouteHint {
 	}
 
 	return res
+}
+
+// CreateZpay32HopHints takes in the lnrpc form of route hints and converts them
+// into an invoice decoded form.
+func CreateZpay32HopHints(routeHints []*lnrpc.RouteHint) ([][]zpay32.HopHint, error) {
+	var res [][]zpay32.HopHint
+	for _, route := range routeHints {
+		hopHints := make([]zpay32.HopHint, 0, len(route.HopHints))
+		for _, hop := range route.HopHints {
+			pubKeyBytes, err := hex.DecodeString(hop.NodeId)
+			if err != nil {
+				return nil, err
+			}
+			p, err := btcec.ParsePubKey(pubKeyBytes, btcec.S256())
+			if err != nil {
+				return nil, err
+			}
+			hopHints = append(hopHints, zpay32.HopHint{
+				NodeID:                    p,
+				ChannelID:                 hop.ChanId,
+				FeeBaseMSat:               hop.FeeBaseMsat,
+				FeeProportionalMillionths: hop.FeeProportionalMillionths,
+				CLTVExpiryDelta:           uint16(hop.CltvExpiryDelta),
+			})
+		}
+		res = append(res, hopHints)
+	}
+	return res, nil
 }

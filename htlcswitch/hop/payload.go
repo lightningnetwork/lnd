@@ -233,3 +233,9 @@ func ValidateParsedPayloadTypes(parsedTypes tlv.TypeSet,
 
 	return nil
 }
+
+// MultiPath returns the record corresponding the option_mpp parsed from the
+// onion payload.
+func (h *Payload) MultiPath() *record.MPP {
+	return h.MPP
+}

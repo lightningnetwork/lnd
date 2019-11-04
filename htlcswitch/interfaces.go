@@ -27,7 +27,7 @@ type InvoiceDatabase interface {
 	NotifyExitHopHtlc(payHash lntypes.Hash, paidAmount lnwire.MilliSatoshi,
 		expiry uint32, currentHeight int32,
 		circuitKey channeldb.CircuitKey, hodlChan chan<- interface{},
-		eob []byte) (*invoices.HodlEvent, error)
+		payload invoices.Payload) (*invoices.HodlEvent, error)
 
 	// CancelInvoice attempts to cancel the invoice corresponding to the
 	// passed payment hash.

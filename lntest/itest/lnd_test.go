@@ -4488,16 +4488,6 @@ func testSingleHopSendToRoute(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to create pay reqs: %v", err)
 	}
 
-	// We'll wait for all parties to recognize the new channels within the
-	// network.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = net.Bob.WaitForNetworkChannelOpen(ctxt, chanPointAlice)
-	if err != nil {
-		t.Fatalf("alice didn't advertise her channel in time: %v", err)
-	}
-
-	time.Sleep(time.Millisecond * 50)
-
 	// Using Alice as the source, pay to the 5 invoices from Carol created
 	// above.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)

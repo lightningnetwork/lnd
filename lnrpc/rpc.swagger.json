@@ -2530,6 +2530,10 @@
           "type": "boolean",
           "format": "boolean",
           "description": "* \nIf set to true, then this hop will be encoded using the new variable length\nTLV format."
+        },
+        "mpp_record": {
+          "$ref": "#/definitions/lnrpcMPPRecord",
+          "description": "*\nAn optional TLV record tha singals the use of an MPP payment. If present,\nthe receiver will enforce that that the same mpp_record is included in the\nfinal hop payload of all non-zero payments in the HTLC set. If empty, a\nregular single-shot payment is or was attempted."
         }
       }
     },
@@ -2870,6 +2874,21 @@
             "$ref": "#/definitions/lnrpcUtxo"
           },
           "title": "/ A list of utxos"
+        }
+      }
+    },
+    "lnrpcMPPRecord": {
+      "type": "object",
+      "properties": {
+        "payment_addr": {
+          "type": "string",
+          "format": "byte",
+          "description": "*\nA unique, random identifier used to authenticate the sender as the intended\npayer of a multi-path payment. The payment_addr must be the same for all\nsubpayments, and match the payment_addr provided in the receiver's invoice.\nThe same payment_addr must be used on all subpayments."
+        },
+        "total_amt_msat": {
+          "type": "string",
+          "format": "int64",
+          "description": "*\nThe total amount in milli-satoshis being sent as part of a larger multi-path\npayment. The caller is responsible for ensuring subpayments to the same node\nand payment_hash sum exactly to total_amt_msat. The same\ntotal_amt_msat must be used on all subpayments."
         }
       }
     },

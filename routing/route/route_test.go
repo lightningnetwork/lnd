@@ -1,9 +1,11 @@
 package route
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/record"
 )
 
 // TestRouteTotalFees checks that a route reports the expected total fee.
@@ -55,4 +57,39 @@ func TestRouteTotalFees(t *testing.T) {
 		t.Fatalf("expected %v fees, got %v", fee, r.TotalFees())
 	}
 
+}
+
+var (
+	testAmt  = lnwire.MilliSatoshi(1000)
+	testAddr = [32]byte{0x01, 0x02}
+)
+
+// TestMPPHop asserts that a Hop will encode a non-nil to final nodes, and fail
+// when trying to send to intermediaries.
+func TestMPPHop(t *testing.T) {
+	t.Parallel()
+
+	hop := Hop{
+		ChannelID:        1,
+		OutgoingTimeLock: 44,
+		AmtToForward:     testAmt,
+		LegacyPayload:    false,
+		MPP:              record.NewMPP(testAmt, testAddr),
+	}
+
+	// Encoding an MPP record to an intermediate hop should result in a
+	// failure.
+	var b bytes.Buffer
+	err := hop.PackHopPayload(&b, 2)
+	if err != ErrIntermediateMPPHop {
+		t.Fatalf("expected err: %v, got: %v",
+			ErrIntermediateMPPHop, err)
+	}
+
+	// Encoding an MPP record to a final hop should be successful.
+	b.Reset()
+	err = hop.PackHopPayload(&b, 0)
+	if err != nil {
+		t.Fatalf("expected err: %v, got: %v", nil, err)
+	}
 }

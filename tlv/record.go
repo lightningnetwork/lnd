@@ -85,6 +85,14 @@ func (f *Record) Encode(w io.Writer) error {
 	return f.encoder(w, f.value, &b)
 }
 
+// Decode read in the TLV record from the passed reader. This is useful when a
+// caller wants decode a *single* TLV record, outside the context of the Stream
+// struct.
+func (f *Record) Decode(r io.Reader, l uint64) error {
+	var b [8]byte
+	return f.decoder(r, f.value, &b, l)
+}
+
 // MakePrimitiveRecord creates a record for common types.
 func MakePrimitiveRecord(typ Type, val interface{}) Record {
 	var (

@@ -14,6 +14,7 @@ import (
 	"github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/tlv"
 )
@@ -508,7 +509,9 @@ func deserializePaymentAttemptInfo(r io.Reader) (*PaymentAttemptInfo, error) {
 
 func serializeHop(w io.Writer, h *route.Hop) error {
 	if err := WriteElements(w,
-		h.PubKeyBytes[:], h.ChannelID, h.OutgoingTimeLock,
+		h.PubKeyBytes[:],
+		h.ChannelID,
+		h.OutgoingTimeLock,
 		h.AmtToForward,
 	); err != nil {
 		return err
@@ -525,10 +528,23 @@ func serializeHop(w io.Writer, h *route.Hop) error {
 		return WriteElements(w, uint32(0))
 	}
 
+	// Gather all non-primitive TLV records so that they can be serialized
+	// as a single blob.
+	//
+	// TODO(conner): add migration to unify all fields in a single TLV
+	// blobs. The split approach will cause headaches down the road as more
+	// fields are added, which we can avoid by having a single TLV stream
+	// for all payload fields.
+	var records []tlv.Record
+	if h.MPP != nil {
+		records = append(records, h.MPP.Record())
+	}
+	records = append(records, h.TLVRecords...)
+
 	// Otherwise, we'll transform our slice of records into a map of the
 	// raw bytes, then serialize them in-line with a length (number of
 	// elements) prefix.
-	mapRecords, err := tlv.RecordsToMap(h.TLVRecords)
+	mapRecords, err := tlv.RecordsToMap(records)
 	if err != nil {
 		return err
 	}
@@ -602,6 +618,29 @@ func deserializeHop(r io.Reader) (*route.Hop, error) {
 		}
 
 		tlvMap[tlvType] = rawRecordBytes
+	}
+
+	// If the MPP type is present, remove it from the generic TLV map and
+	// parse it back into a proper MPP struct.
+	//
+	// TODO(conner): add migration to unify all fields in a single TLV
+	// blobs. The split approach will cause headaches down the road as more
+	// fields are added, which we can avoid by having a single TLV stream
+	// for all payload fields.
+	mppType := uint64(record.MPPOnionType)
+	if mppBytes, ok := tlvMap[mppType]; ok {
+		delete(tlvMap, mppType)
+
+		var (
+			mpp    = &record.MPP{}
+			mppRec = mpp.Record()
+			r      = bytes.NewReader(mppBytes)
+		)
+		err := mppRec.Decode(r, uint64(len(mppBytes)))
+		if err != nil {
+			return nil, err
+		}
+		h.MPP = mpp
 	}
 
 	tlvRecords, err := tlv.MapToRecords(tlvMap)

@@ -265,16 +265,14 @@ func (s *mockServer) QuitSignal() <-chan struct{} {
 // mockHopIterator represents the test version of hop iterator which instead
 // of encrypting the path in onion blob just stores the path as a list of hops.
 type mockHopIterator struct {
-	hops []hop.ForwardingInfo
+	hops []*hop.Payload
 }
 
-func newMockHopIterator(hops ...hop.ForwardingInfo) hop.Iterator {
+func newMockHopIterator(hops ...*hop.Payload) hop.Iterator {
 	return &mockHopIterator{hops: hops}
 }
 
-func (r *mockHopIterator) ForwardingInstructions() (
-	hop.ForwardingInfo, error) {
-
+func (r *mockHopIterator) HopPayload() (*hop.Payload, error) {
 	h := r.hops[0]
 	r.hops = r.hops[1:]
 	return h, nil
@@ -300,7 +298,8 @@ func (r *mockHopIterator) EncodeNextHop(w io.Writer) error {
 	}
 
 	for _, hop := range r.hops {
-		if err := encodeFwdInfo(w, &hop); err != nil {
+		fwdInfo := hop.ForwardingInfo()
+		if err := encodeFwdInfo(w, &fwdInfo); err != nil {
 			return err
 		}
 	}
@@ -434,14 +433,22 @@ func (p *mockIteratorDecoder) DecodeHopIterator(r io.Reader, rHash []byte,
 	}
 	hopLength := binary.BigEndian.Uint32(b[:])
 
-	hops := make([]hop.ForwardingInfo, hopLength)
+	hops := make([]*hop.Payload, hopLength)
 	for i := uint32(0); i < hopLength; i++ {
-		f := &hop.ForwardingInfo{}
-		if err := decodeFwdInfo(r, f); err != nil {
+		var f hop.ForwardingInfo
+		if err := decodeFwdInfo(r, &f); err != nil {
 			return nil, lnwire.CodeTemporaryChannelFailure
 		}
 
-		hops[i] = *f
+		var nextHopBytes [8]byte
+		binary.BigEndian.PutUint64(nextHopBytes[:], f.NextHop.ToUint64())
+
+		hops[i] = hop.NewLegacyPayload(&sphinx.HopData{
+			Realm:         [1]byte{}, // hop.BitcoinNetwork
+			NextAddress:   nextHopBytes,
+			ForwardAmount: uint64(f.AmountToForward),
+			OutgoingCltv:  f.OutgoingCTLV,
+		})
 	}
 
 	return newMockHopIterator(hops...), lnwire.CodeNone

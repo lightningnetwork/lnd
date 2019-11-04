@@ -2642,7 +2642,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 
 		heightNow := l.cfg.Switch.BestHeight()
 
-		fwdInfo, err := chanIterator.ForwardingInstructions()
+		pld, err := chanIterator.HopPayload()
 		if err != nil {
 			// If we're unable to process the onion payload, or we
 			// received invalid onion payload failure, then we
@@ -2670,6 +2670,8 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 				"instructions: %v", err)
 			continue
 		}
+
+		fwdInfo := pld.ForwardingInfo()
 
 		switch fwdInfo.NextHop {
 		case hop.Exit:

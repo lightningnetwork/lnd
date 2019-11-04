@@ -43,6 +43,14 @@ func SizeVarBytes(e *[]byte) SizeFunc {
 	}
 }
 
+// RecorderProducer is an interface for objects that can produce a Record object
+// capable of encoding and/or decoding the RecordProducer as a Record.
+type RecordProducer interface {
+	// Record returns a Record that can be used to encode or decode the
+	// backing object.
+	Record() Record
+}
+
 // Record holds the required information to encode or decode a TLV record.
 type Record struct {
 	value      interface{}

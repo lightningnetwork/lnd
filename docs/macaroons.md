@@ -119,6 +119,11 @@ A very simple example using `curl` may look something like this:
 
 Have a look at the [Java GRPC example](/docs/grpc/java.md) for programmatic usage details.
 
+## Creating macaroons with custom permissions
+
+The macaroon bakery is described in more detail in the
+[README in the macaroons package](../macaroons/README.md).
+
 ## Future improvements to the `lnd` macaroon implementation
 
 The existing macaroon implementation in `lnd` and `lncli` lays the groundwork
@@ -130,8 +135,6 @@ such as:
 * Macaroon database encryption
 
 * Root key rotation and possibly macaroon invalidation/rotation
-
-* Tools to allow you to easily delegate macaroons in more flexible ways
 
 * Additional restrictions, such as limiting payments to use (or not use)
   specific routes, channels, nodes, etc.

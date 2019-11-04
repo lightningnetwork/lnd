@@ -87,3 +87,30 @@ be found in `constraints.go`:
 * `IPLockConstraint`: Locks the macaroon to a specific IP address.
   This constraint can be set by adding the parameter `--macaroonip a.b.c.d` to
   the `lncli` command.
+
+## Bakery
+
+As of lnd `v0.9.0-beta` there is a macaroon bakery available through gRPC and
+command line.
+Users can create their own macaroons with custom permissions if the provided
+default macaroons (`admin`, `invoice` and `readonly`) are not sufficient.
+
+For example, a macaroon that is only allowed to manage peers would be created
+with the following command:
+
+`lncli bakemacaroon peers:read peers:write`
+
+A full and up-to-date list of available entity/action pairs can be found by
+looking at the `rpcserver.go` in the root folder of the project.
+
+### Upgrading from v0.8.0-beta or earlier
+
+Users upgrading from a version prior to `v0.9.0-beta` might get a `permission
+denied ` error when trying to use the `lncli bakemacaroon` command.
+This is because the bakery requires a new permission (`macaroon/generate`) to
+access.
+Users can obtain a new `admin.macaroon` that contains this permission by
+removing all three default macaroons (`admin.macaroon`, `invoice.macaroon` and
+`readonly.macaroon`, **NOT** the `macaroons.db`!) from their
+`data/chain/<chain>/<network>/` directory inside the lnd data directory and
+restarting lnd.

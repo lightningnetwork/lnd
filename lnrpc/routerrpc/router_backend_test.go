@@ -180,3 +180,123 @@ func (m *mockMissionControl) GetPairHistorySnapshot(fromNode,
 
 	return routing.TimedPairResult{}
 }
+
+type mppOutcome byte
+
+const (
+	valid mppOutcome = iota
+	invalid
+	nompp
+)
+
+type unmarshalMPPTest struct {
+	name    string
+	mpp     *lnrpc.MPPRecord
+	outcome mppOutcome
+}
+
+// TestUnmarshalMPP checks both positive and negative cases of UnmarshalMPP to
+// assert that an MPP record is only returned when both fields are properly
+// specified. It also asserts that zero-values for both inputs is also valid,
+// but returns a nil record.
+func TestUnmarshalMPP(t *testing.T) {
+	tests := []unmarshalMPPTest{
+		{
+			name:    "nil record",
+			mpp:     nil,
+			outcome: nompp,
+		},
+		{
+			name: "invalid total or addr",
+			mpp: &lnrpc.MPPRecord{
+				PaymentAddr:  nil,
+				TotalAmtMsat: 0,
+			},
+			outcome: invalid,
+		},
+		{
+			name: "valid total only",
+			mpp: &lnrpc.MPPRecord{
+				PaymentAddr:  nil,
+				TotalAmtMsat: 8,
+			},
+			outcome: invalid,
+		},
+		{
+			name: "valid addr only",
+			mpp: &lnrpc.MPPRecord{
+				PaymentAddr:  bytes.Repeat([]byte{0x02}, 32),
+				TotalAmtMsat: 0,
+			},
+			outcome: invalid,
+		},
+		{
+			name: "valid total and invalid addr",
+			mpp: &lnrpc.MPPRecord{
+				PaymentAddr:  []byte{0x02},
+				TotalAmtMsat: 8,
+			},
+			outcome: invalid,
+		},
+		{
+			name: "valid total and valid addr",
+			mpp: &lnrpc.MPPRecord{
+				PaymentAddr:  bytes.Repeat([]byte{0x02}, 32),
+				TotalAmtMsat: 8,
+			},
+			outcome: valid,
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			testUnmarshalMPP(t, test)
+		})
+	}
+}
+
+func testUnmarshalMPP(t *testing.T, test unmarshalMPPTest) {
+	mpp, err := UnmarshalMPP(test.mpp)
+	switch test.outcome {
+
+	// Valid arguments should result in no error, a non-nil MPP record, and
+	// the fields should be set correctly.
+	case valid:
+		if err != nil {
+			t.Fatalf("unable to parse mpp record: %v", err)
+		}
+		if mpp == nil {
+			t.Fatalf("mpp payload should be non-nil")
+		}
+		if int64(mpp.TotalMsat()) != test.mpp.TotalAmtMsat {
+			t.Fatalf("incorrect total msat")
+		}
+		addr := mpp.PaymentAddr()
+		if !bytes.Equal(addr[:], test.mpp.PaymentAddr) {
+			t.Fatalf("incorrect payment addr")
+		}
+
+	// Invalid arguments should produce a failure and nil MPP record.
+	case invalid:
+		if err == nil {
+			t.Fatalf("expected failure for invalid mpp")
+		}
+		if mpp != nil {
+			t.Fatalf("mpp payload should be nil for failure")
+		}
+
+	// Arguments that produce no MPP field should return no error and no MPP
+	// record.
+	case nompp:
+		if err != nil {
+			t.Fatalf("failure for args resulting for no-mpp")
+		}
+		if mpp != nil {
+			t.Fatalf("mpp payload should be nil for no-mpp")
+		}
+
+	default:
+		t.Fatalf("test case has non-standard outcome")
+	}
+}

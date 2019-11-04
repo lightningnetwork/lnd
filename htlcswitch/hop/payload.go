@@ -81,6 +81,10 @@ type Payload struct {
 	// FwdInfo holds the basic parameters required for HTLC forwarding, e.g.
 	// amount, cltv, and next hop.
 	FwdInfo ForwardingInfo
+
+	// MPP holds the info provided in an option_mpp record when parsed from
+	// a TLV onion payload.
+	MPP *record.MPP
 }
 
 // NewLegacyPayload builds a Payload from the amount, cltv, and next hop
@@ -105,12 +109,14 @@ func NewPayloadFromReader(r io.Reader) (*Payload, error) {
 		cid  uint64
 		amt  uint64
 		cltv uint32
+		mpp  = &record.MPP{}
 	)
 
 	tlvStream, err := tlv.NewStream(
 		record.NewAmtToFwdRecord(&amt),
 		record.NewLockTimeRecord(&cltv),
 		record.NewNextHopIDRecord(&cid),
+		mpp.Record(),
 	)
 	if err != nil {
 		return nil, err
@@ -151,6 +157,12 @@ func NewPayloadFromReader(r io.Reader) (*Payload, error) {
 		return nil, err
 	}
 
+	// If no MPP field was parsed, set the MPP field on the resulting
+	// payload to nil.
+	if _, ok := parsedTypes[record.MPPOnionType]; !ok {
+		mpp = nil
+	}
+
 	return &Payload{
 		FwdInfo: ForwardingInfo{
 			Network:         BitcoinNetwork,
@@ -158,6 +170,7 @@ func NewPayloadFromReader(r io.Reader) (*Payload, error) {
 			AmountToForward: lnwire.MilliSatoshi(amt),
 			OutgoingCTLV:    cltv,
 		},
+		MPP: mpp,
 	}, nil
 }
 
@@ -179,6 +192,7 @@ func ValidateParsedPayloadTypes(parsedTypes tlv.TypeSet,
 	_, hasAmt := parsedTypes[record.AmtOnionType]
 	_, hasLockTime := parsedTypes[record.LockTimeOnionType]
 	_, hasNextHop := parsedTypes[record.NextHopOnionType]
+	_, hasMPP := parsedTypes[record.MPPOnionType]
 
 	switch {
 
@@ -206,6 +220,14 @@ func ValidateParsedPayloadTypes(parsedTypes tlv.TypeSet,
 			Type:      record.NextHopOnionType,
 			Violation: IncludedViolation,
 			FinalHop:  true,
+		}
+
+	// Intermediate nodes should never receive MPP fields.
+	case !isFinalHop && hasMPP:
+		return ErrInvalidPayload{
+			Type:      record.MPPOnionType,
+			Violation: IncludedViolation,
+			FinalHop:  isFinalHop,
 		}
 	}
 

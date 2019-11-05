@@ -1647,6 +1647,8 @@ func (c *ChannelArbitrator) prepContractResolutions(
 		// claim the HTLC (second-level or directly), then add the pre
 		case HtlcClaimAction:
 			for _, htlc := range htlcs {
+				htlc := htlc
+
 				htlcOp := wire.OutPoint{
 					Hash:  commitHash,
 					Index: uint32(htlc.OutputIndex),
@@ -1662,8 +1664,7 @@ func (c *ChannelArbitrator) prepContractResolutions(
 				}
 
 				resolver := newSuccessResolver(
-					resolution, height,
-					htlc.RHash, htlc.Amt, resolverCfg,
+					resolution, height, htlc, resolverCfg,
 				)
 				htlcResolvers = append(htlcResolvers, resolver)
 			}
@@ -1673,6 +1674,8 @@ func (c *ChannelArbitrator) prepContractResolutions(
 		// backwards.
 		case HtlcTimeoutAction:
 			for _, htlc := range htlcs {
+				htlc := htlc
+
 				htlcOp := wire.OutPoint{
 					Hash:  commitHash,
 					Index: uint32(htlc.OutputIndex),
@@ -1686,8 +1689,7 @@ func (c *ChannelArbitrator) prepContractResolutions(
 				}
 
 				resolver := newTimeoutResolver(
-					resolution, height, htlc.HtlcIndex,
-					htlc.Amt, resolverCfg,
+					resolution, height, htlc, resolverCfg,
 				)
 				htlcResolvers = append(htlcResolvers, resolver)
 			}
@@ -1697,6 +1699,8 @@ func (c *ChannelArbitrator) prepContractResolutions(
 		// learn of the pre-image, or let the remote party time out.
 		case HtlcIncomingWatchAction:
 			for _, htlc := range htlcs {
+				htlc := htlc
+
 				htlcOp := wire.OutPoint{
 					Hash:  commitHash,
 					Index: uint32(htlc.OutputIndex),
@@ -1713,15 +1717,9 @@ func (c *ChannelArbitrator) prepContractResolutions(
 					continue
 				}
 
-				circuitKey := channeldb.CircuitKey{
-					HtlcID: htlc.HtlcIndex,
-					ChanID: c.cfg.ShortChanID,
-				}
-
 				resolver := newIncomingContestResolver(
-					htlc.RefundTimeout, circuitKey,
-					resolution, height, htlc.RHash,
-					htlc.Amt, resolverCfg,
+					resolution, height, htlc,
+					resolverCfg,
 				)
 				htlcResolvers = append(htlcResolvers, resolver)
 			}
@@ -1731,6 +1729,8 @@ func (c *ChannelArbitrator) prepContractResolutions(
 		// backwards), or just timeout.
 		case HtlcOutgoingWatchAction:
 			for _, htlc := range htlcs {
+				htlc := htlc
+
 				htlcOp := wire.OutPoint{
 					Hash:  commitHash,
 					Index: uint32(htlc.OutputIndex),
@@ -1745,8 +1745,7 @@ func (c *ChannelArbitrator) prepContractResolutions(
 				}
 
 				resolver := newOutgoingContestResolver(
-					resolution, height, htlc.HtlcIndex,
-					htlc.Amt, resolverCfg,
+					resolution, height, htlc, resolverCfg,
 				)
 				htlcResolvers = append(htlcResolvers, resolver)
 			}

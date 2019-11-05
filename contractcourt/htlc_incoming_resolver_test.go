@@ -210,7 +210,9 @@ func newIncomingResolverTestContext(t *testing.T) *incomingResolverTestContext {
 		htlcSuccessResolver: htlcSuccessResolver{
 			contractResolverKit: *newContractResolverKit(cfg),
 			htlcResolution:      lnwallet.IncomingHtlcResolution{},
-			payHash:             testResHash,
+			htlc: channeldb.HTLC{
+				RHash: testResHash,
+			},
 		},
 		htlcExpiry: testHtlcExpiry,
 	}

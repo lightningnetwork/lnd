@@ -10,7 +10,6 @@ import (
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
-	"github.com/lightningnetwork/lnd/lnwire"
 )
 
 // htlcIncomingContestResolver is a ContractResolver that's able to resolve an
@@ -27,28 +26,22 @@ type htlcIncomingContestResolver struct {
 	// successfully.
 	htlcExpiry uint32
 
-	// circuitKey describes the incoming htlc that is being resolved.
-	circuitKey channeldb.CircuitKey
-
 	// htlcSuccessResolver is the inner resolver that may be utilized if we
 	// learn of the preimage.
 	htlcSuccessResolver
 }
 
 // newIncomingContestResolver instantiates a new incoming htlc contest resolver.
-func newIncomingContestResolver(htlcExpiry uint32,
-	circuitKey channeldb.CircuitKey, res lnwallet.IncomingHtlcResolution,
-	broadcastHeight uint32, payHash lntypes.Hash,
-	htlcAmt lnwire.MilliSatoshi,
-	resCfg ResolverConfig) *htlcIncomingContestResolver {
+func newIncomingContestResolver(
+	res lnwallet.IncomingHtlcResolution, broadcastHeight uint32,
+	htlc channeldb.HTLC, resCfg ResolverConfig) *htlcIncomingContestResolver {
 
 	success := newSuccessResolver(
-		res, broadcastHeight, payHash, htlcAmt, resCfg,
+		res, broadcastHeight, htlc, resCfg,
 	)
 
 	return &htlcIncomingContestResolver{
-		htlcExpiry:          htlcExpiry,
-		circuitKey:          circuitKey,
+		htlcExpiry:          htlc.RefundTimeout,
 		htlcSuccessResolver: *success,
 	}
 }
@@ -119,7 +112,7 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 	applyPreimage := func(preimage lntypes.Preimage) error {
 		// Sanity check to see if this preimage matches our htlc. At
 		// this point it should never happen that it does not match.
-		if !preimage.Matches(h.payHash) {
+		if !preimage.Matches(h.htlc.RHash) {
 			return errors.New("preimage does not match hash")
 		}
 
@@ -185,9 +178,14 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 	// on-chain. If this HTLC indeed pays to an existing invoice, the
 	// invoice registry will tell us what to do with the HTLC. This is
 	// identical to HTLC resolution in the link.
+	circuitKey := channeldb.CircuitKey{
+		ChanID: h.ShortChanID,
+		HtlcID: h.htlc.HtlcIndex,
+	}
+
 	event, err := h.Registry.NotifyExitHopHtlc(
-		h.payHash, h.htlcAmt, h.htlcExpiry, currentHeight,
-		h.circuitKey, hodlChan, nil,
+		h.htlc.RHash, h.htlc.Amt, h.htlcExpiry, currentHeight,
+		circuitKey, hodlChan, nil,
 	)
 	switch err {
 	case channeldb.ErrInvoiceNotFound:
@@ -204,7 +202,7 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 
 	// With the epochs and preimage subscriptions initialized, we'll query
 	// to see if we already know the preimage.
-	preimage, ok := h.PreimageDB.LookupPreimage(h.payHash)
+	preimage, ok := h.PreimageDB.LookupPreimage(h.htlc.RHash)
 	if ok {
 		// If we do, then this means we can claim the HTLC!  However,
 		// we don't know how to ourselves, so we'll return our inner
@@ -222,7 +220,7 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 		case preimage := <-preimageSubscription.WitnessUpdates:
 			// We receive all new preimages, so we need to ignore
 			// all except the preimage we are waiting for.
-			if !preimage.Matches(h.payHash) {
+			if !preimage.Matches(h.htlc.RHash) {
 				continue
 			}
 
@@ -268,7 +266,7 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 func (h *htlcIncomingContestResolver) report() *ContractReport {
 	// No locking needed as these values are read-only.
 
-	finalAmt := h.htlcAmt.ToSatoshis()
+	finalAmt := h.htlc.Amt.ToSatoshis()
 	if h.htlcResolution.SignedSuccessTx != nil {
 		finalAmt = btcutil.Amount(
 			h.htlcResolution.SignedSuccessTx.TxOut[0].Value,
@@ -343,11 +341,7 @@ func newIncomingContestResolverFromReader(r io.Reader, resCfg ResolverConfig) (
 //
 // NOTE: Part of the htlcContractResolver interface.
 func (h *htlcIncomingContestResolver) Supplement(htlc channeldb.HTLC) {
-	h.htlcAmt = htlc.Amt
-	h.circuitKey = channeldb.CircuitKey{
-		ChanID: h.ShortChanID,
-		HtlcID: htlc.HtlcIndex,
-	}
+	h.htlc = htlc
 }
 
 // A compile time assertion to ensure htlcIncomingContestResolver meets the

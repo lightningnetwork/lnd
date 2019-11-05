@@ -23,6 +23,7 @@ import (
 	"github.com/btcsuite/fastsha256"
 	"github.com/coreos/bbolt"
 	"github.com/go-errors/errors"
+	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
@@ -601,7 +602,7 @@ func generatePayment(invoiceAmt, htlcAmt lnwire.MilliSatoshi, timelock uint32,
 }
 
 // generateRoute generates the path blob by given array of peers.
-func generateRoute(hops ...hop.ForwardingInfo) (
+func generateRoute(hops ...*hop.Payload) (
 	[lnwire.OnionPacketSize]byte, error) {
 
 	var blob [lnwire.OnionPacketSize]byte
@@ -642,13 +643,12 @@ type threeHopNetwork struct {
 // also the time lock value needed to route an HTLC with the target amount over
 // the specified path.
 func generateHops(payAmt lnwire.MilliSatoshi, startingHeight uint32,
-	path ...*channelLink) (lnwire.MilliSatoshi, uint32,
-	[]hop.ForwardingInfo) {
+	path ...*channelLink) (lnwire.MilliSatoshi, uint32, []*hop.Payload) {
 
 	totalTimelock := startingHeight
 	runningAmt := payAmt
 
-	hops := make([]hop.ForwardingInfo, len(path))
+	hops := make([]*hop.Payload, len(path))
 	for i := len(path) - 1; i >= 0; i-- {
 		// If this is the last hop, then the next hop is the special
 		// "exit node". Otherwise, we look to the "prior" hop.
@@ -676,7 +676,7 @@ func generateHops(payAmt lnwire.MilliSatoshi, startingHeight uint32,
 		amount := payAmt
 		if i != len(path)-1 {
 			prevHop := hops[i+1]
-			prevAmount := prevHop.AmountToForward
+			prevAmount := prevHop.ForwardingInfo().AmountToForward
 
 			fee := ExpectedFee(path[i].cfg.FwrdingPolicy, prevAmount)
 			runningAmt += fee
@@ -687,12 +687,15 @@ func generateHops(payAmt lnwire.MilliSatoshi, startingHeight uint32,
 			amount = runningAmt - fee
 		}
 
-		hops[i] = hop.ForwardingInfo{
-			Network:         hop.BitcoinNetwork,
-			NextHop:         nextHop,
-			AmountToForward: amount,
-			OutgoingCTLV:    timeLock,
-		}
+		var nextHopBytes [8]byte
+		binary.BigEndian.PutUint64(nextHopBytes[:], nextHop.ToUint64())
+
+		hops[i] = hop.NewLegacyPayload(&sphinx.HopData{
+			Realm:         [1]byte{}, // hop.BitcoinNetwork
+			NextAddress:   nextHopBytes,
+			ForwardAmount: uint64(amount),
+			OutgoingCltv:  timeLock,
+		})
 	}
 
 	return runningAmt, totalTimelock, hops
@@ -739,7 +742,7 @@ func waitForPayFuncResult(payFunc func() error, d time.Duration) error {
 // * from Alice to Carol through the Bob
 // * from Alice to some another peer through the Bob
 func makePayment(sendingPeer, receivingPeer lnpeer.Peer,
-	firstHop lnwire.ShortChannelID, hops []hop.ForwardingInfo,
+	firstHop lnwire.ShortChannelID, hops []*hop.Payload,
 	invoiceAmt, htlcAmt lnwire.MilliSatoshi,
 	timelock uint32) *paymentResponse {
 
@@ -773,7 +776,7 @@ func makePayment(sendingPeer, receivingPeer lnpeer.Peer,
 // preparePayment creates an invoice at the receivingPeer and returns a function
 // that, when called, launches the payment from the sendingPeer.
 func preparePayment(sendingPeer, receivingPeer lnpeer.Peer,
-	firstHop lnwire.ShortChannelID, hops []hop.ForwardingInfo,
+	firstHop lnwire.ShortChannelID, hops []*hop.Payload,
 	invoiceAmt, htlcAmt lnwire.MilliSatoshi,
 	timelock uint32) (*channeldb.Invoice, func() error, error) {
 
@@ -1265,7 +1268,7 @@ func (n *twoHopNetwork) stop() {
 }
 
 func (n *twoHopNetwork) makeHoldPayment(sendingPeer, receivingPeer lnpeer.Peer,
-	firstHop lnwire.ShortChannelID, hops []hop.ForwardingInfo,
+	firstHop lnwire.ShortChannelID, hops []*hop.Payload,
 	invoiceAmt, htlcAmt lnwire.MilliSatoshi,
 	timelock uint32, preimage lntypes.Preimage) chan error {
 

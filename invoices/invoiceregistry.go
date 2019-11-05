@@ -429,7 +429,7 @@ func (i *InvoiceRegistry) LookupInvoice(rHash lntypes.Hash) (channeldb.Invoice,
 func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 	amtPaid lnwire.MilliSatoshi, expiry uint32, currentHeight int32,
 	circuitKey channeldb.CircuitKey, hodlChan chan<- interface{},
-	eob []byte) (*HodlEvent, error) {
+	payload Payload) (*HodlEvent, error) {
 
 	i.Lock()
 	defer i.Unlock()

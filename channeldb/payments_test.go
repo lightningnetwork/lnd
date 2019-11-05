@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/tlv"
 )
@@ -31,6 +32,7 @@ var (
 			tlv.MakeStaticRecord(1, nil, 3, tlvEncoder, nil),
 			tlv.MakeStaticRecord(2, nil, 3, tlvEncoder, nil),
 		},
+		MPP: record.NewMPP(32, [32]byte{0x42}),
 	}
 
 	testHop2 = &route.Hop{
@@ -46,8 +48,8 @@ var (
 		TotalAmount:   1234567,
 		SourcePubKey:  route.NewVertex(pub),
 		Hops: []*route.Hop{
-			testHop1,
 			testHop2,
+			testHop1,
 		},
 	}
 )

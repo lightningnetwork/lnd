@@ -85,12 +85,13 @@ func TestSphinxHopIteratorForwardingInstructions(t *testing.T) {
 	for i, testCase := range testCases {
 		iterator.processedPacket = testCase.sphinxPacket
 
-		fwdInfo, err := iterator.ForwardingInstructions()
+		pld, err := iterator.HopPayload()
 		if err != nil {
 			t.Fatalf("#%v: unable to extract forwarding "+
 				"instructions: %v", i, err)
 		}
 
+		fwdInfo := pld.ForwardingInfo()
 		if fwdInfo != testCase.expectedFwdInfo {
 			t.Fatalf("#%v: wrong fwding info: expected %v, got %v",
 				i, spew.Sdump(testCase.expectedFwdInfo),

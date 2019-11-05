@@ -43,6 +43,14 @@ func SizeVarBytes(e *[]byte) SizeFunc {
 	}
 }
 
+// RecorderProducer is an interface for objects that can produce a Record object
+// capable of encoding and/or decoding the RecordProducer as a Record.
+type RecordProducer interface {
+	// Record returns a Record that can be used to encode or decode the
+	// backing object.
+	Record() Record
+}
+
 // Record holds the required information to encode or decode a TLV record.
 type Record struct {
 	value      interface{}
@@ -75,6 +83,14 @@ func (f *Record) Encode(w io.Writer) error {
 	var b [8]byte
 
 	return f.encoder(w, f.value, &b)
+}
+
+// Decode read in the TLV record from the passed reader. This is useful when a
+// caller wants decode a *single* TLV record, outside the context of the Stream
+// struct.
+func (f *Record) Decode(r io.Reader, l uint64) error {
+	var b [8]byte
+	return f.decoder(r, f.value, &b, l)
 }
 
 // MakePrimitiveRecord creates a record for common types.

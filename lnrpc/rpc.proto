@@ -1836,6 +1836,32 @@ message Hop {
     TLV format.
     */
     bool tlv_payload = 9 [json_name = "tlv_payload"];
+
+    /**
+    An optional TLV record tha singals the use of an MPP payment. If present,
+    the receiver will enforce that that the same mpp_record is included in the
+    final hop payload of all non-zero payments in the HTLC set. If empty, a
+    regular single-shot payment is or was attempted.
+    */
+    MPPRecord mpp_record = 10 [json_name = "mpp_record"];
+}
+
+message MPPRecord {
+    /**
+    A unique, random identifier used to authenticate the sender as the intended
+    payer of a multi-path payment. The payment_addr must be the same for all
+    subpayments, and match the payment_addr provided in the receiver's invoice.
+    The same payment_addr must be used on all subpayments.
+    */
+    bytes payment_addr = 11 [json_name = "payment_addr"];
+
+    /**
+    The total amount in milli-satoshis being sent as part of a larger multi-path
+    payment. The caller is responsible for ensuring subpayments to the same node
+    and payment_hash sum exactly to total_amt_msat. The same
+    total_amt_msat must be used on all subpayments.
+    */
+    int64 total_amt_msat = 10 [json_name = "total_amt_msat"];
 }
 
 /**

@@ -60,6 +60,8 @@ func TestSizeTUint16(t *testing.T) {
 func TestTUint16(t *testing.T) {
 	var buf [8]byte
 	for _, test := range tuint16Tests {
+		test := test
+
 		if len(test.bytes) != int(test.size) {
 			t.Fatalf("invalid test case, "+
 				"len(bytes)[%d] != size[%d]",
@@ -68,6 +70,7 @@ func TestTUint16(t *testing.T) {
 
 		name := fmt.Sprintf("0x%x", test.value)
 		t.Run(name, func(t *testing.T) {
+			// Test generic encoder.
 			var b bytes.Buffer
 			err := tlv.ETUint16(&b, &test.value, &buf)
 			if err != nil {
@@ -78,6 +81,19 @@ func TestTUint16(t *testing.T) {
 				t.Fatalf("encoding mismatch, "+
 					"expected: %x, got: %x",
 					test.bytes, b.Bytes())
+			}
+
+			// Test non-generic encoder.
+			var b2 bytes.Buffer
+			err = tlv.ETUint16T(&b2, test.value, &buf)
+			if err != nil {
+				t.Fatalf("unable to encode tuint16: %v", err)
+			}
+
+			if !bytes.Equal(b2.Bytes(), test.bytes) {
+				t.Fatalf("encoding mismatch, "+
+					"expected: %x, got: %x",
+					test.bytes, b2.Bytes())
 			}
 
 			var value uint16
@@ -168,6 +184,8 @@ func TestSizeTUint32(t *testing.T) {
 func TestTUint32(t *testing.T) {
 	var buf [8]byte
 	for _, test := range tuint32Tests {
+		test := test
+
 		if len(test.bytes) != int(test.size) {
 			t.Fatalf("invalid test case, "+
 				"len(bytes)[%d] != size[%d]",
@@ -176,6 +194,7 @@ func TestTUint32(t *testing.T) {
 
 		name := fmt.Sprintf("0x%x", test.value)
 		t.Run(name, func(t *testing.T) {
+			// Test generic encoder.
 			var b bytes.Buffer
 			err := tlv.ETUint32(&b, &test.value, &buf)
 			if err != nil {
@@ -186,6 +205,19 @@ func TestTUint32(t *testing.T) {
 				t.Fatalf("encoding mismatch, "+
 					"expected: %x, got: %x",
 					test.bytes, b.Bytes())
+			}
+
+			// Test non-generic encoder.
+			var b2 bytes.Buffer
+			err = tlv.ETUint32T(&b2, test.value, &buf)
+			if err != nil {
+				t.Fatalf("unable to encode tuint32: %v", err)
+			}
+
+			if !bytes.Equal(b2.Bytes(), test.bytes) {
+				t.Fatalf("encoding mismatch, "+
+					"expected: %x, got: %x",
+					test.bytes, b2.Bytes())
 			}
 
 			var value uint32
@@ -322,6 +354,8 @@ func TestSizeTUint64(t *testing.T) {
 func TestTUint64(t *testing.T) {
 	var buf [8]byte
 	for _, test := range tuint64Tests {
+		test := test
+
 		if len(test.bytes) != int(test.size) {
 			t.Fatalf("invalid test case, "+
 				"len(bytes)[%d] != size[%d]",
@@ -330,6 +364,7 @@ func TestTUint64(t *testing.T) {
 
 		name := fmt.Sprintf("0x%x", test.value)
 		t.Run(name, func(t *testing.T) {
+			// Test generic encoder.
 			var b bytes.Buffer
 			err := tlv.ETUint64(&b, &test.value, &buf)
 			if err != nil {
@@ -340,6 +375,19 @@ func TestTUint64(t *testing.T) {
 				t.Fatalf("encoding mismatch, "+
 					"expected: %x, got: %x",
 					test.bytes, b.Bytes())
+			}
+
+			// Test non-generic encoder.
+			var b2 bytes.Buffer
+			err = tlv.ETUint64T(&b2, test.value, &buf)
+			if err != nil {
+				t.Fatalf("unable to encode tuint64: %v", err)
+			}
+
+			if !bytes.Equal(b2.Bytes(), test.bytes) {
+				t.Fatalf("encoding mismatch, "+
+					"expected: %x, got: %x",
+					test.bytes, b2.Bytes())
 			}
 
 			var value uint64

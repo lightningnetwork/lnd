@@ -68,7 +68,7 @@ func (l *Lookout) Start() error {
 	if startEpoch == nil {
 		log.Infof("Starting lookout from chain tip")
 	} else {
-		log.Infof("Starting lookout from epoch(height=%d hash=%x)",
+		log.Infof("Starting lookout from epoch(height=%d hash=%v)",
 			startEpoch.Height, startEpoch.Hash)
 	}
 

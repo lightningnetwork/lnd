@@ -1404,7 +1404,7 @@ func (r *ChannelRouter) FindRoute(source, target route.Vertex,
 		finalCLTVDelta = finalExpiry[0]
 	}
 
-	log.Debugf("Searching for path to %x, sending %v", target, amt)
+	log.Debugf("Searching for path to %v, sending %v", target, amt)
 
 	// We can short circuit the routing by opportunistically checking to
 	// see if the target vertex event exists in the current graph.
@@ -1847,7 +1847,7 @@ func (r *ChannelRouter) tryApplyChannelUpdate(rt *route.Route,
 
 	// Apply channel update.
 	if !r.applyChannelUpdate(update, errSource) {
-		log.Debugf("Invalid channel update received: node=%x",
+		log.Debugf("Invalid channel update received: node=%v",
 			errVertex)
 	}
 

@@ -2915,7 +2915,7 @@ func (s *server) peerTerminationWatcher(p *peer, ready chan struct{}) {
 
 	// If there were any notification requests for when this peer
 	// disconnected, we can trigger them now.
-	srvrLog.Debugf("Notifying that peer %x is offline", p)
+	srvrLog.Debugf("Notifying that peer %v is offline", p)
 	pubStr := string(pubKey.SerializeCompressed())
 	for _, offlineChan := range s.peerDisconnectedListeners[pubStr] {
 		close(offlineChan)

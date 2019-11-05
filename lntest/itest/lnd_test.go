@@ -1219,6 +1219,90 @@ func testUnconfirmedChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 	closeChannelAndAssert(ctxt, t, net, carol, chanPoint, false)
 }
 
+// testPaymentFollowingChannelOpen tests that the channel transition from
+// 'pending' to 'open' state does not cause any inconsistencies within other
+// subsystems trying to udpate the channel state in the db. We follow
+// this transition with a payment that updates the commitment state and
+// verify that the pending state is up to date.
+func testPaymentFollowingChannelOpen(net *lntest.NetworkHarness, t *harnessTest) {
+	ctxb := context.Background()
+
+	// We first establish a channel between Alice and Bob.
+	const paymentAmt = btcutil.Amount(100)
+	ctxt, _ := context.WithTimeout(ctxb, channelOpenTimeout)
+	channelCapacity := btcutil.Amount(paymentAmt * 1000)
+	pendingUpdate, err := net.OpenPendingChannel(ctxt, net.Alice, net.Bob,
+		channelCapacity, 0)
+	if err != nil {
+		t.Fatalf("unable to open channel: %v", err)
+	}
+
+	// At this point, the channel's funding transaction will have
+	// been broadcast, but not confirmed. Alice and Bob's nodes
+	// should reflect this when queried via RPC.
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	assertNumOpenChannelsPending(ctxt, t, net.Alice, net.Bob, 1)
+
+	// We are restarting Bob's node to let the link be created for the pending
+	// channel.
+	if err := net.RestartNode(net.Bob, nil); err != nil {
+		t.Fatalf("Bob restart failed: %v", err)
+	}
+
+	// We ensure that Bob reconnets to Alice.
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	if err := net.EnsureConnected(ctxt, net.Bob, net.Alice); err != nil {
+		t.Fatalf("peers unable to reconnect after restart: %v", err)
+	}
+
+	// We mine one block for the channel to be confirmed.
+	_ = mineBlocks(t, net, 6, 1)[0]
+
+	// We verify that the chanel is open from both nodes point of view.
+	time.Sleep(time.Millisecond * 300)
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	assertNumOpenChannelsPending(ctxt, t, net.Alice, net.Bob, 0)
+
+	// With the channel open, we'll create invoices for Bob that Alice
+	// will pay to in order to advance the state of the channel.
+	bobPayReqs, _, _, err := createPayReqs(
+		net.Bob, paymentAmt, 1,
+	)
+	if err != nil {
+		t.Fatalf("unable to create pay reqs: %v", err)
+	}
+
+	// Send payment to Bob so there a chanel update to disk will be executed.
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	_, err = net.Alice.SendPaymentSync(ctxt,
+		&lnrpc.SendRequest{PaymentRequest: bobPayReqs[0]})
+	if err != nil {
+		t.Fatalf("unable to create payment stream for alice: %v", err)
+	}
+
+	// At this point we want to make sure the channel is opened and not pending.
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	res, err := net.Bob.ListChannels(ctxt, &lnrpc.ListChannelsRequest{})
+	if err != nil {
+		t.Fatalf("unable to list bob channels: %v", err)
+	}
+	if len(res.Channels) == 0 {
+		t.Fatalf("bob list of channels is empty")
+	}
+
+	// Finally, immediately close the channel. This function will also
+	// block until the channel is closed and will additionally assert the
+	// relevant channel closing post conditions.
+	chanPoint := &lnrpc.ChannelPoint{
+		FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
+			FundingTxidBytes: pendingUpdate.Txid,
+		},
+		OutputIndex: pendingUpdate.OutputIndex,
+	}
+	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
+	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, false)
+}
+
 // txStr returns the string representation of the channel's funding transaction.
 func txStr(chanPoint *lnrpc.ChannelPoint) string {
 	fundingTxID, err := lnd.GetChanPointFundingTxid(chanPoint)
@@ -14954,6 +15038,10 @@ var testsCases = []*testCase{
 	{
 		name: "macaroon authentication",
 		test: testMacaroonAuthentication,
+	},
+	{
+		name: "immediate payment after channel opened",
+		test: testPaymentFollowingChannelOpen,
 	},
 }
 

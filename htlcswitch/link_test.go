@@ -4620,6 +4620,92 @@ func TestChannelLinkWaitForRevocation(t *testing.T) {
 	assertNoMsgFromAlice()
 }
 
+// TestChannelLinkNoEmptySig asserts that no empty commit sig message is sent
+// when the commitment txes are out of sync.
+func TestChannelLinkNoEmptySig(t *testing.T) {
+	t.Parallel()
+
+	const chanAmt = btcutil.SatoshiPerBitcoin * 5
+	const chanReserve = btcutil.SatoshiPerBitcoin * 1
+	aliceLink, bobChannel, batchTicker, start, cleanUp, _, err :=
+		newSingleLinkTestHarness(chanAmt, chanReserve)
+	if err != nil {
+		t.Fatalf("unable to create link: %v", err)
+	}
+	defer cleanUp()
+
+	if err := start(); err != nil {
+		t.Fatalf("unable to start test harness: %v", err)
+	}
+	defer aliceLink.Stop()
+
+	var (
+		coreLink  = aliceLink.(*channelLink)
+		aliceMsgs = coreLink.cfg.Peer.(*mockPeer).sentMsgs
+	)
+
+	ctx := linkTestContext{
+		t:          t,
+		aliceLink:  aliceLink,
+		aliceMsgs:  aliceMsgs,
+		bobChannel: bobChannel,
+	}
+
+	// Send htlc 1 from Alice to Bob.
+	htlc1, _ := generateHtlcAndInvoice(t, 0)
+	ctx.sendHtlcAliceToBob(0, htlc1)
+	ctx.receiveHtlcAliceToBob()
+
+	// Tick the batch ticker to trigger a commitsig from Alice->Bob.
+	select {
+	case batchTicker <- time.Now():
+	case <-time.After(5 * time.Second):
+		t.Fatalf("could not force commit sig")
+	}
+
+	// Receive a CommitSig from Alice covering the Add from above.
+	ctx.receiveCommitSigAliceToBob(1)
+
+	// Bob revokes previous commitment tx.
+	ctx.sendRevAndAckBobToAlice()
+
+	// Alice sends htlc 2 to Bob.
+	htlc2, _ := generateHtlcAndInvoice(t, 0)
+	ctx.sendHtlcAliceToBob(1, htlc2)
+	ctx.receiveHtlcAliceToBob()
+
+	// Tick the batch ticker to trigger a commitsig from Alice->Bob.
+	select {
+	case batchTicker <- time.Now():
+	case <-time.After(5 * time.Second):
+		t.Fatalf("could not force commit sig")
+	}
+
+	// Get the commit sig from Alice, but don't send it to Bob yet.
+	commitSigAlice := ctx.receiveCommitSigAlice(2)
+
+	// Bob adds htlc 1 to its remote commit tx.
+	ctx.sendCommitSigBobToAlice(1)
+
+	// Now send Bob the signature from Alice covering both htlcs.
+	err = bobChannel.ReceiveNewCommitment(
+		commitSigAlice.CommitSig, commitSigAlice.HtlcSigs,
+	)
+	if err != nil {
+		t.Fatalf("bob failed receiving commitment: %v", err)
+	}
+
+	// Both Alice and Bob revoke their previous commitment txes.
+	ctx.receiveRevAndAckAliceToBob()
+	ctx.sendRevAndAckBobToAlice()
+
+	// The situation now is that Alice still doesn't have her two htlcs on
+	// the local commit tx. Bob needs to send a new signature and Alice can
+	// only wait for that. However, Alice's log commit timer fires and Alice
+	// sends a commitment tx containing no updates. THIS SHOULD NOT HAPPEN!
+	ctx.receiveCommitSigAliceToBob(2)
+}
+
 // TestChannelLinkBatchPreimageWrite asserts that a link will batch preimage
 // writes when just as it receives a CommitSig to lock in any Settles, and also
 // if the link is aware of any uncommitted preimages if the link is stopped,
@@ -5960,6 +6046,78 @@ func TestChannelLinkRevocationWindowHodl(t *testing.T) {
 		t.Fatalf("did not expect message %T", msg)
 	default:
 	}
+}
+
+// TestChannelLinkReceiveEmptySig tests the response of the link to receiving an
+// empty commit sig. This should be tolerated, but we shouldn't send out an
+// empty sig ourselves.
+func TestChannelLinkReceiveEmptySig(t *testing.T) {
+	t.Parallel()
+
+	const chanAmt = btcutil.SatoshiPerBitcoin * 5
+	const chanReserve = btcutil.SatoshiPerBitcoin * 1
+	aliceLink, bobChannel, batchTicker, start, cleanUp, _, err :=
+		newSingleLinkTestHarness(chanAmt, chanReserve)
+	if err != nil {
+		t.Fatalf("unable to create link: %v", err)
+	}
+	defer cleanUp()
+
+	if err := start(); err != nil {
+		t.Fatalf("unable to start test harness: %v", err)
+	}
+
+	var (
+		coreLink  = aliceLink.(*channelLink)
+		aliceMsgs = coreLink.cfg.Peer.(*mockPeer).sentMsgs
+	)
+
+	ctx := linkTestContext{
+		t:          t,
+		aliceLink:  aliceLink,
+		aliceMsgs:  aliceMsgs,
+		bobChannel: bobChannel,
+	}
+
+	htlc, _ := generateHtlcAndInvoice(t, 0)
+
+	// First, send an Add from Alice to Bob.
+	ctx.sendHtlcAliceToBob(0, htlc)
+	ctx.receiveHtlcAliceToBob()
+
+	// Tick the batch ticker to trigger a commitsig from Alice->Bob.
+	select {
+	case batchTicker <- time.Now():
+	case <-time.After(5 * time.Second):
+		t.Fatalf("could not force commit sig")
+	}
+
+	// Make Bob send a CommitSig. Since Bob hasn't received Alice's sig, he
+	// cannot add the htlc to his remote tx yet. The commit sig that we
+	// force Bob to send will be empty. Note that this normally does not
+	// happen, because the link (which is not present for Bob in this test)
+	// check whether Bob actually owes a sig first.
+	ctx.sendCommitSigBobToAlice(0)
+
+	// Receive a CommitSig from Alice covering the htlc from above.
+	ctx.receiveCommitSigAliceToBob(1)
+
+	// Wait for RevokeAndAck Alice->Bob. Even though Bob sent an empty
+	// commit sig, Alice still needs to revoke the previous commitment tx.
+	ctx.receiveRevAndAckAliceToBob()
+
+	// Send RevokeAndAck Bob->Alice to ack the added htlc.
+	ctx.sendRevAndAckBobToAlice()
+
+	// No new updates to sign, Alice still sends out an empty sig. THIS
+	// SHOULD NOT HAPPEN!
+	ctx.receiveCommitSigAliceToBob(1)
+
+	// No other messages are expected.
+	ctx.assertNoMsgFromAlice(time.Second)
+
+	// Stop the link
+	aliceLink.Stop()
 }
 
 // assertFailureCode asserts that an error is of type ForwardingError and that

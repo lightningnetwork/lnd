@@ -2,7 +2,7 @@
 
 ### Prerequisites
 #### protoc
-Install the dependencies for genarating protobuf definitions as stated in [lnrpc docs](
+Install the dependencies for generating protobuf definitions as stated in [lnrpc docs](
 ../lnrpc/README.md#generate-protobuf-definitions)
 
 #### gomobile

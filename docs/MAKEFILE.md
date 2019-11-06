@@ -9,6 +9,10 @@ make check
 make install
 ```
 
+The command `make check` requires `bitcoind` (almost any version should do) to
+be available in the system's `$PATH` variable. Otherwise some of the tests will
+fail.
+
 Developers
 ==========
 

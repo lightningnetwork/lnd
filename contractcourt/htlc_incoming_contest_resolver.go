@@ -310,13 +310,13 @@ func (h *htlcIncomingContestResolver) Decode(r io.Reader) error {
 	return h.htlcSuccessResolver.Decode(r)
 }
 
-// AttachResolverKit should be called once a resolved is successfully decoded
-// from its stored format. This struct delivers a generic tool kit that
+// AttachConfig should be called once a resolved is successfully decoded from
+// its stored format. This struct delivers the configuration items that
 // resolvers need to complete their duty.
 //
 // NOTE: Part of the ContractResolver interface.
-func (h *htlcIncomingContestResolver) AttachResolverKit(r ResolverKit) {
-	h.ResolverKit = r
+func (h *htlcIncomingContestResolver) AttachConfig(r ResolverConfig) {
+	h.htlcSuccessResolver.AttachConfig(r)
 }
 
 // A compile time assertion to ensure htlcIncomingContestResolver meets the

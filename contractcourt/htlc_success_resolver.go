@@ -52,7 +52,7 @@ type htlcSuccessResolver struct {
 	// account any fees that may have to be paid if it goes on chain.
 	htlcAmt lnwire.MilliSatoshi
 
-	ResolverKit
+	contractResolverKit
 }
 
 // ResolverKey returns an identifier which should be globally unique for this
@@ -318,13 +318,13 @@ func (h *htlcSuccessResolver) Decode(r io.Reader) error {
 	return nil
 }
 
-// AttachResolverKit should be called once a resolved is successfully decoded
-// from its stored format. This struct delivers a generic tool kit that
+// AttachConfig should be called once a resolved is successfully decoded from
+// its stored format. This struct delivers the configuration items that
 // resolvers need to complete their duty.
 //
 // NOTE: Part of the ContractResolver interface.
-func (h *htlcSuccessResolver) AttachResolverKit(r ResolverKit) {
-	h.ResolverKit = r
+func (h *htlcSuccessResolver) AttachConfig(r ResolverConfig) {
+	h.contractResolverKit = *newContractResolverKit(r)
 }
 
 // A compile time assertion to ensure htlcSuccessResolver meets the

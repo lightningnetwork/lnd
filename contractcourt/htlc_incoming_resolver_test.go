@@ -199,17 +199,18 @@ func newIncomingResolverTestContext(t *testing.T) *incomingResolverTestContext {
 		},
 	}
 
+	cfg := ResolverConfig{
+		ChannelArbitratorConfig: chainCfg,
+		Checkpoint: func(_ ContractResolver) error {
+			checkPointChan <- struct{}{}
+			return nil
+		},
+	}
 	resolver := &htlcIncomingContestResolver{
 		htlcSuccessResolver: htlcSuccessResolver{
-			ResolverKit: ResolverKit{
-				ChannelArbitratorConfig: chainCfg,
-				Checkpoint: func(_ ContractResolver) error {
-					checkPointChan <- struct{}{}
-					return nil
-				},
-			},
-			htlcResolution: lnwallet.IncomingHtlcResolution{},
-			payHash:        testResHash,
+			contractResolverKit: *newContractResolverKit(cfg),
+			htlcResolution:      lnwallet.IncomingHtlcResolution{},
+			payHash:             testResHash,
 		},
 		htlcExpiry: testHtlcExpiry,
 	}

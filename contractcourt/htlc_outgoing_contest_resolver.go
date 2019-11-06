@@ -189,13 +189,13 @@ func (h *htlcOutgoingContestResolver) Decode(r io.Reader) error {
 	return h.htlcTimeoutResolver.Decode(r)
 }
 
-// AttachResolverKit should be called once a resolved is successfully decoded
-// from its stored format. This struct delivers a generic tool kit that
+// AttachConfig should be called once a resolved is successfully decoded from
+// its stored format. This struct delivers the configuration items that
 // resolvers need to complete their duty.
 //
 // NOTE: Part of the ContractResolver interface.
-func (h *htlcOutgoingContestResolver) AttachResolverKit(r ResolverKit) {
-	h.ResolverKit = r
+func (h *htlcOutgoingContestResolver) AttachConfig(r ResolverConfig) {
+	h.htlcTimeoutResolver.AttachConfig(r)
 }
 
 // A compile time assertion to ensure htlcOutgoingContestResolver meets the

@@ -440,7 +440,7 @@ func (b *boltArbitratorLog) CommitState(s ArbitratorState) error {
 //
 // NOTE: Part of the ContractResolver interface.
 func (b *boltArbitratorLog) FetchUnresolvedContracts() ([]ContractResolver, error) {
-	resKit := ResolverKit{
+	resolverCfg := ResolverConfig{
 		ChannelArbitratorConfig: b.cfg,
 		Checkpoint:              b.checkpointContract,
 	}
@@ -516,8 +516,7 @@ func (b *boltArbitratorLog) FetchUnresolvedContracts() ([]ContractResolver, erro
 				return fmt.Errorf("unknown resolver type: %v", resType)
 			}
 
-			resKit.quit = make(chan struct{})
-			res.AttachResolverKit(resKit)
+			res.AttachConfig(resolverCfg)
 			contracts = append(contracts, res)
 			return nil
 		})

@@ -122,16 +122,18 @@ func newOutgoingResolverTestContext(t *testing.T) *outgoingResolverTestContext {
 		},
 	}
 
+	cfg := ResolverConfig{
+		ChannelArbitratorConfig: chainCfg,
+		Checkpoint: func(_ ContractResolver) error {
+			checkPointChan <- struct{}{}
+			return nil
+		},
+	}
+
 	resolver := &htlcOutgoingContestResolver{
 		htlcTimeoutResolver: htlcTimeoutResolver{
-			ResolverKit: ResolverKit{
-				ChannelArbitratorConfig: chainCfg,
-				Checkpoint: func(_ ContractResolver) error {
-					checkPointChan <- struct{}{}
-					return nil
-				},
-			},
-			htlcResolution: outgoingRes,
+			contractResolverKit: *newContractResolverKit(cfg),
+			htlcResolution:      outgoingRes,
 		},
 	}
 

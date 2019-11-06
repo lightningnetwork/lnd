@@ -1685,7 +1685,7 @@ func (c *ChannelArbitrator) prepContractResolutions(
 
 	// We'll create the resolver kit that we'll be cloning for each
 	// resolver so they each can do their duty.
-	resKit := ResolverKit{
+	resolverCfg := ResolverConfig{
 		ChannelArbitratorConfig: c.cfg,
 		Checkpoint: func(res ContractResolver) error {
 			return c.log.InsertUnresolvedContracts(res)
@@ -1733,13 +1733,13 @@ func (c *ChannelArbitrator) prepContractResolutions(
 					continue
 				}
 
-				resKit.quit = make(chan struct{})
+				resKit := newContractResolverKit(resolverCfg)
 				resolver := &htlcSuccessResolver{
-					htlcResolution:  resolution,
-					broadcastHeight: height,
-					payHash:         htlc.RHash,
-					htlcAmt:         htlc.Amt,
-					ResolverKit:     resKit,
+					htlcResolution:      resolution,
+					broadcastHeight:     height,
+					payHash:             htlc.RHash,
+					htlcAmt:             htlc.Amt,
+					contractResolverKit: *resKit,
 				}
 				htlcResolvers = append(htlcResolvers, resolver)
 			}
@@ -1761,13 +1761,13 @@ func (c *ChannelArbitrator) prepContractResolutions(
 					continue
 				}
 
-				resKit.quit = make(chan struct{})
+				resKit := newContractResolverKit(resolverCfg)
 				resolver := &htlcTimeoutResolver{
-					htlcResolution:  resolution,
-					broadcastHeight: height,
-					htlcIndex:       htlc.HtlcIndex,
-					htlcAmt:         htlc.Amt,
-					ResolverKit:     resKit,
+					htlcResolution:      resolution,
+					broadcastHeight:     height,
+					htlcIndex:           htlc.HtlcIndex,
+					htlcAmt:             htlc.Amt,
+					contractResolverKit: *resKit,
 				}
 				htlcResolvers = append(htlcResolvers, resolver)
 			}
@@ -1798,16 +1798,16 @@ func (c *ChannelArbitrator) prepContractResolutions(
 					ChanID: c.cfg.ShortChanID,
 				}
 
-				resKit.quit = make(chan struct{})
+				resKit := newContractResolverKit(resolverCfg)
 				resolver := &htlcIncomingContestResolver{
 					htlcExpiry: htlc.RefundTimeout,
 					circuitKey: circuitKey,
 					htlcSuccessResolver: htlcSuccessResolver{
-						htlcResolution:  resolution,
-						broadcastHeight: height,
-						payHash:         htlc.RHash,
-						htlcAmt:         htlc.Amt,
-						ResolverKit:     resKit,
+						htlcResolution:      resolution,
+						broadcastHeight:     height,
+						payHash:             htlc.RHash,
+						htlcAmt:             htlc.Amt,
+						contractResolverKit: *resKit,
 					},
 				}
 				htlcResolvers = append(htlcResolvers, resolver)
@@ -1831,14 +1831,14 @@ func (c *ChannelArbitrator) prepContractResolutions(
 					continue
 				}
 
-				resKit.quit = make(chan struct{})
+				resKit := newContractResolverKit(resolverCfg)
 				resolver := &htlcOutgoingContestResolver{
 					htlcTimeoutResolver: htlcTimeoutResolver{
-						htlcResolution:  resolution,
-						broadcastHeight: height,
-						htlcIndex:       htlc.HtlcIndex,
-						htlcAmt:         htlc.Amt,
-						ResolverKit:     resKit,
+						htlcResolution:      resolution,
+						broadcastHeight:     height,
+						htlcIndex:           htlc.HtlcIndex,
+						htlcAmt:             htlc.Amt,
+						contractResolverKit: *resKit,
 					},
 				}
 				htlcResolvers = append(htlcResolvers, resolver)
@@ -1850,12 +1850,12 @@ func (c *ChannelArbitrator) prepContractResolutions(
 	// a resolver to sweep our commitment output (but only if it wasn't
 	// trimmed).
 	if contractResolutions.CommitResolution != nil {
-		resKit.quit = make(chan struct{})
+		resKit := newContractResolverKit(resolverCfg)
 		resolver := &commitSweepResolver{
-			commitResolution: *contractResolutions.CommitResolution,
-			broadcastHeight:  height,
-			chanPoint:        c.cfg.ChanPoint,
-			ResolverKit:      resKit,
+			commitResolution:    *contractResolutions.CommitResolution,
+			broadcastHeight:     height,
+			chanPoint:           c.cfg.ChanPoint,
+			contractResolverKit: *resKit,
 		}
 
 		htlcResolvers = append(htlcResolvers, resolver)

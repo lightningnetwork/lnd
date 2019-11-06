@@ -36,7 +36,7 @@ type commitSweepResolver struct {
 	// chanPoint is the channel point of the original contract.
 	chanPoint wire.OutPoint
 
-	ResolverKit
+	contractResolverKit
 }
 
 // ResolverKey returns an identifier which should be globally unique for this
@@ -293,13 +293,13 @@ func (c *commitSweepResolver) Decode(r io.Reader) error {
 	return nil
 }
 
-// AttachResolverKit should be called once a resolved is successfully decoded
-// from its stored format. This struct delivers a generic tool kit that
+// AttachConfig should be called once a resolved is successfully decoded from
+// its stored format. This struct delivers the configuration items that
 // resolvers need to complete their duty.
 //
 // NOTE: Part of the ContractResolver interface.
-func (c *commitSweepResolver) AttachResolverKit(r ResolverKit) {
-	c.ResolverKit = r
+func (c *commitSweepResolver) AttachConfig(r ResolverConfig) {
+	c.contractResolverKit = *newContractResolverKit(r)
 }
 
 // A compile time assertion to ensure commitSweepResolver meets the

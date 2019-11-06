@@ -274,7 +274,7 @@ func (h *htlcTimeoutResolver) Resolve() (ContractResolver, error) {
 				return errResolverShuttingDown
 			}
 
-		case <-h.Quit:
+		case <-h.quit:
 			return errResolverShuttingDown
 		}
 
@@ -312,7 +312,7 @@ func (h *htlcTimeoutResolver) Resolve() (ContractResolver, error) {
 			return nil, errResolverShuttingDown
 		}
 
-	case <-h.Quit:
+	case <-h.quit:
 		return nil, errResolverShuttingDown
 	}
 
@@ -365,7 +365,7 @@ func (h *htlcTimeoutResolver) Resolve() (ContractResolver, error) {
 //
 // NOTE: Part of the ContractResolver interface.
 func (h *htlcTimeoutResolver) Stop() {
-	close(h.Quit)
+	close(h.quit)
 }
 
 // IsResolved returns true if the stored state in the resolve is fully

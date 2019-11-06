@@ -1733,7 +1733,7 @@ func (c *ChannelArbitrator) prepContractResolutions(
 					continue
 				}
 
-				resKit.Quit = make(chan struct{})
+				resKit.quit = make(chan struct{})
 				resolver := &htlcSuccessResolver{
 					htlcResolution:  resolution,
 					broadcastHeight: height,
@@ -1761,7 +1761,7 @@ func (c *ChannelArbitrator) prepContractResolutions(
 					continue
 				}
 
-				resKit.Quit = make(chan struct{})
+				resKit.quit = make(chan struct{})
 				resolver := &htlcTimeoutResolver{
 					htlcResolution:  resolution,
 					broadcastHeight: height,
@@ -1798,7 +1798,7 @@ func (c *ChannelArbitrator) prepContractResolutions(
 					ChanID: c.cfg.ShortChanID,
 				}
 
-				resKit.Quit = make(chan struct{})
+				resKit.quit = make(chan struct{})
 				resolver := &htlcIncomingContestResolver{
 					htlcExpiry: htlc.RefundTimeout,
 					circuitKey: circuitKey,
@@ -1831,7 +1831,7 @@ func (c *ChannelArbitrator) prepContractResolutions(
 					continue
 				}
 
-				resKit.Quit = make(chan struct{})
+				resKit.quit = make(chan struct{})
 				resolver := &htlcOutgoingContestResolver{
 					htlcTimeoutResolver: htlcTimeoutResolver{
 						htlcResolution:  resolution,
@@ -1850,7 +1850,7 @@ func (c *ChannelArbitrator) prepContractResolutions(
 	// a resolver to sweep our commitment output (but only if it wasn't
 	// trimmed).
 	if contractResolutions.CommitResolution != nil {
-		resKit.Quit = make(chan struct{})
+		resKit.quit = make(chan struct{})
 		resolver := &commitSweepResolver{
 			commitResolution: *contractResolutions.CommitResolution,
 			broadcastHeight:  height,

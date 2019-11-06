@@ -68,7 +68,7 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 			return nil, errResolverShuttingDown
 		}
 		currentHeight = newBlock.Height
-	case <-h.Quit:
+	case <-h.quit:
 		return nil, errResolverShuttingDown
 	}
 
@@ -239,7 +239,7 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 				return nil, h.Checkpoint(h)
 			}
 
-		case <-h.Quit:
+		case <-h.quit:
 			return nil, errResolverShuttingDown
 		}
 	}
@@ -271,7 +271,7 @@ func (h *htlcIncomingContestResolver) report() *ContractReport {
 //
 // NOTE: Part of the ContractResolver interface.
 func (h *htlcIncomingContestResolver) Stop() {
-	close(h.Quit)
+	close(h.quit)
 }
 
 // IsResolved returns true if the stored state in the resolve is fully

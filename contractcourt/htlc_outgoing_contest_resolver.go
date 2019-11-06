@@ -130,7 +130,7 @@ func (h *htlcOutgoingContestResolver) Resolve() (ContractResolver, error) {
 			// claimed.
 			return h.claimCleanUp(commitSpend)
 
-		case <-h.Quit:
+		case <-h.quit:
 			return nil, fmt.Errorf("resolver canceled")
 		}
 	}
@@ -162,7 +162,7 @@ func (h *htlcOutgoingContestResolver) report() *ContractReport {
 //
 // NOTE: Part of the ContractResolver interface.
 func (h *htlcOutgoingContestResolver) Stop() {
-	close(h.Quit)
+	close(h.quit)
 }
 
 // IsResolved returns true if the stored state in the resolve is fully

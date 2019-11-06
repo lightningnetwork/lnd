@@ -80,7 +80,7 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 			return nil, errResolverShuttingDown
 		}
 
-	case <-c.Quit:
+	case <-c.quit:
 		return nil, errResolverShuttingDown
 	}
 
@@ -138,7 +138,7 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 
 			log.Infof("ChannelPoint(%v) commit tx is fully resolved by "+
 				"sweep tx: %v", c.chanPoint, sweepResult.Tx.TxHash())
-		case <-c.Quit:
+		case <-c.quit:
 			return nil, errResolverShuttingDown
 		}
 
@@ -180,7 +180,7 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 			log.Errorf("unable to Checkpoint: %v", err)
 			return nil, err
 		}
-	case <-c.Quit:
+	case <-c.quit:
 		return nil, errResolverShuttingDown
 	}
 
@@ -206,7 +206,7 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 		log.Infof("ChannelPoint(%v) commit tx is fully resolved, at height: %v",
 			c.chanPoint, confInfo.BlockHeight)
 
-	case <-c.Quit:
+	case <-c.quit:
 		return nil, errResolverShuttingDown
 	}
 
@@ -221,7 +221,7 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 //
 // NOTE: Part of the ContractResolver interface.
 func (c *commitSweepResolver) Stop() {
-	close(c.Quit)
+	close(c.quit)
 }
 
 // IsResolved returns true if the stored state in the resolve is fully

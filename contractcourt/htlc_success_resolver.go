@@ -173,7 +173,7 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 				return nil, errResolverShuttingDown
 			}
 
-		case <-h.Quit:
+		case <-h.quit:
 			return nil, errResolverShuttingDown
 		}
 
@@ -238,7 +238,7 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 			return nil, errResolverShuttingDown
 		}
 
-	case <-h.Quit:
+	case <-h.quit:
 		return nil, errResolverShuttingDown
 	}
 
@@ -251,7 +251,7 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 //
 // NOTE: Part of the ContractResolver interface.
 func (h *htlcSuccessResolver) Stop() {
-	close(h.Quit)
+	close(h.quit)
 }
 
 // IsResolved returns true if the stored state in the resolve is fully

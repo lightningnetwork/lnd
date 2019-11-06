@@ -516,7 +516,7 @@ func (b *boltArbitratorLog) FetchUnresolvedContracts() ([]ContractResolver, erro
 				return fmt.Errorf("unknown resolver type: %v", resType)
 			}
 
-			resKit.Quit = make(chan struct{})
+			resKit.quit = make(chan struct{})
 			res.AttachResolverKit(resKit)
 			contracts = append(contracts, res)
 			return nil

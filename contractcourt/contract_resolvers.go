@@ -77,7 +77,7 @@ type ResolverKit struct {
 	// return a non-nil error upon success.
 	Checkpoint func(ContractResolver) error
 
-	Quit chan struct{}
+	quit chan struct{}
 }
 
 var (

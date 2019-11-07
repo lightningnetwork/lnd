@@ -118,6 +118,9 @@ type MissionControlConfig struct {
 	// probability completely and only base the probability on historical
 	// results, unless there are none available.
 	AprioriWeight float64
+
+	// SelfNode is our own pubkey.
+	SelfNode route.Vertex
 }
 
 // TimedPairResult describes a timestamped pair result.
@@ -260,6 +263,11 @@ func (m *MissionControl) GetProbability(fromNode, toNode route.Vertex,
 
 	now := m.now()
 	results := m.lastPairResult[fromNode]
+
+	// Use a distinct probability estimation function for local channels.
+	if fromNode == m.cfg.SelfNode {
+		return m.estimator.getLocalPairProbability(now, results, toNode)
+	}
 
 	return m.estimator.getPairProbability(now, results, toNode, amt)
 }

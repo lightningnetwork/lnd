@@ -123,6 +123,22 @@ func (p *probabilityEstimator) getPairProbability(
 	)
 }
 
+// getLocalPairProbability estimates the probability of successfully traversing
+// our own local channels to toNode.
+func (p *probabilityEstimator) getLocalPairProbability(
+	now time.Time, results NodeResults, toNode route.Vertex) float64 {
+
+	// For local channels that have never been tried before, we assume them
+	// to be successful. We have accurate balance and online status
+	// information on our own channels, so when we select them in a route it
+	// is close to certain that those channels will work.
+	nodeProbability := p.prevSuccessProbability
+
+	return p.calculateProbability(
+		now, results, nodeProbability, toNode, lnwire.MaxMilliSatoshi,
+	)
+}
+
 // calculateProbability estimates the probability of successfully traversing to
 // toNode based on historical payment outcomes and a fall-back node probability.
 func (p *probabilityEstimator) calculateProbability(

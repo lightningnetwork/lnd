@@ -346,6 +346,8 @@ func (l *LightningWallet) Shutdown() error {
 func (l *LightningWallet) LockedOutpoints() []*wire.OutPoint {
 	outPoints := make([]*wire.OutPoint, 0, len(l.lockedOutPoints))
 	for outPoint := range l.lockedOutPoints {
+		outPoint := outPoint
+
 		outPoints = append(outPoints, &outPoint)
 	}
 

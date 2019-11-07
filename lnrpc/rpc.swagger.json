@@ -163,7 +163,7 @@
         "parameters": [
           {
             "name": "channel_point.funding_txid_str",
-            "description": "/ Hex-encoded string representing the funding transaction",
+            "description": "*\nHex-encoded string representing the byte-reversed hash of the funding\ntransaction.",
             "in": "path",
             "required": true,
             "type": "string"
@@ -178,7 +178,7 @@
           },
           {
             "name": "channel_point.funding_txid_bytes",
-            "description": "/ Txid of the funding transaction.",
+            "description": "*\nTxid of the funding transaction. When using REST, this field must be\nencoded as base64.",
             "in": "query",
             "required": false,
             "type": "string",
@@ -276,7 +276,7 @@
         "parameters": [
           {
             "name": "chan_point.funding_txid_str",
-            "description": "/ Hex-encoded string representing the funding transaction",
+            "description": "*\nHex-encoded string representing the byte-reversed hash of the funding\ntransaction.",
             "in": "path",
             "required": true,
             "type": "string"
@@ -291,7 +291,7 @@
           },
           {
             "name": "chan_point.funding_txid_bytes",
-            "description": "/ Txid of the funding transaction.",
+            "description": "*\nTxid of the funding transaction. When using REST, this field must be\nencoded as base64.",
             "in": "query",
             "required": false,
             "type": "string",
@@ -450,7 +450,7 @@
         "parameters": [
           {
             "name": "channel_point.funding_txid_str",
-            "description": "/ Hex-encoded string representing the funding transaction",
+            "description": "*\nHex-encoded string representing the byte-reversed hash of the funding\ntransaction.",
             "in": "path",
             "required": true,
             "type": "string"
@@ -465,7 +465,7 @@
           },
           {
             "name": "channel_point.funding_txid_bytes",
-            "description": "/ Txid of the funding transaction.",
+            "description": "*\nTxid of the funding transaction. When using REST, this field must be\nencoded as base64.",
             "in": "query",
             "required": false,
             "type": "string",
@@ -561,7 +561,7 @@
         "parameters": [
           {
             "name": "aezeed_passphrase",
-            "description": "*\naezeed_passphrase is an optional user provided passphrase that will be used\nto encrypt the generated aezeed cipher seed.",
+            "description": "*\naezeed_passphrase is an optional user provided passphrase that will be used\nto encrypt the generated aezeed cipher seed. When using REST, this field\nmust be encoded as base64.",
             "in": "query",
             "required": false,
             "type": "string",
@@ -569,7 +569,7 @@
           },
           {
             "name": "seed_entropy",
-            "description": "*\nseed_entropy is an optional 16-bytes generated via CSPRNG. If not\nspecified, then a fresh set of randomness will be used to create the seed.",
+            "description": "*\nseed_entropy is an optional 16-bytes generated via CSPRNG. If not\nspecified, then a fresh set of randomness will be used to create the seed.\nWhen using REST, this field must be encoded as base64.",
             "in": "query",
             "required": false,
             "type": "string",
@@ -600,7 +600,7 @@
     },
     "/v1/graph": {
       "get": {
-        "summary": "* lncli: `describegraph`\nDescribeGraph returns a description of the latest graph state from the\npoint of view of the node. The graph information is partitioned into two\ncomponents: all the nodes/vertexes, and all the edges that connect the\nvertexes themselves.  As this is a directed graph, the edges also contain\nthe node directional specific routing policy which includes: the time lock\ndelta, fee information, etc.",
+        "summary": "* lncli: `describegraph`\nDescribeGraph returns a description of the latest graph state from the\npoint of view of the node. The graph information is partitioned into two\ncomponents: all the nodes/vertexes, and all the edges that connect the\nvertexes themselves. As this is a directed graph, the edges also contain\nthe node directional specific routing policy which includes: the time lock\ndelta, fee information, etc.",
         "operationId": "DescribeGraph",
         "responses": {
           "200": {
@@ -757,7 +757,7 @@
           },
           {
             "name": "ignored_nodes",
-            "description": "*\nA list of nodes to ignore during path finding.",
+            "description": "*\nA list of nodes to ignore during path finding. When using REST, these fields\nmust be encoded as base64.",
             "in": "query",
             "required": false,
             "type": "array",
@@ -839,14 +839,14 @@
         "parameters": [
           {
             "name": "r_hash_str",
-            "description": "*\nThe hex-encoded payment hash of the invoice to be looked up. The passed\npayment hash must be exactly 32 bytes, otherwise an error is returned.",
+            "description": "*\nThe hex-encoded payment hash of the invoice to be looked up. The passed\npayment hash must be exactly 32 bytes, otherwise an error is returned.\nDeprecated now that the REST gateway supports base64 encoding of bytes\nfields.",
             "in": "path",
             "required": true,
             "type": "string"
           },
           {
             "name": "r_hash",
-            "description": "/ The payment hash of the invoice to be looked up.",
+            "description": "*\nThe payment hash of the invoice to be looked up. When using REST, this field\nmust be encoded as base64.",
             "in": "query",
             "required": false,
             "type": "string",
@@ -936,7 +936,7 @@
     },
     "/v1/invoices/subscribe": {
       "get": {
-        "summary": "*\nSubscribeInvoices returns a uni-directional stream (server -\u003e client) for\nnotifying the client of newly added/settled invoices. The caller can\noptionally specify the add_index and/or the settle_index. If the add_index\nis specified, then we'll first start by sending add invoice events for all\ninvoices with an add_index greater than the specified value.  If the\nsettle_index is specified, the next, we'll send out all settle events for\ninvoices with a settle_index greater than the specified value.  One or both\nof these fields can be set. If no fields are set, then we'll only send out\nthe latest add/settle events.",
+        "summary": "*\nSubscribeInvoices returns a uni-directional stream (server -\u003e client) for\nnotifying the client of newly added/settled invoices. The caller can\noptionally specify the add_index and/or the settle_index. If the add_index\nis specified, then we'll first start by sending add invoice events for all\ninvoices with an add_index greater than the specified value. If the\nsettle_index is specified, the next, we'll send out all settle events for\ninvoices with a settle_index greater than the specified value. One or both\nof these fields can be set. If no fields are set, then we'll only send out\nthe latest add/settle events.",
         "operationId": "SubscribeInvoices",
         "responses": {
           "200": {
@@ -1195,7 +1195,7 @@
     "/v1/switch": {
       "post": {
         "summary": "* lncli: `fwdinghistory`\nForwardingHistory allows the caller to query the htlcswitch for a record of\nall HTLCs forwarded within the target time range, and integer offset\nwithin that time range. If no time-range is specified, then the first chunk\nof the past 24 hrs of forwarding history are returned.",
-        "description": "A list of forwarding events are returned. The size of each forwarding event\nis 40 bytes, and the max message size able to be returned in gRPC is 4 MiB.\nAs a result each message can only contain 50k entries.  Each response has\nthe index offset of the last entry. The index offset can be provided to the\nrequest to allow the caller to skip a series of records.",
+        "description": "A list of forwarding events are returned. The size of each forwarding event\nis 40 bytes, and the max message size able to be returned in gRPC is 4 MiB.\nAs a result each message can only contain 50k entries. Each response has\nthe index offset of the last entry. The index offset can be provided to the\nrequest to allow the caller to skip a series of records.",
         "operationId": "ForwardingHistory",
         "responses": {
           "200": {
@@ -1572,7 +1572,7 @@
         },
         "payment_request": {
           "type": "string",
-          "description": "*\nA bare-bones invoice for a payment within the Lightning Network.  With the\ndetails of the invoice, the sender has all the data necessary to send a\npayment to the recipient."
+          "description": "*\nA bare-bones invoice for a payment within the Lightning Network. With the\ndetails of the invoice, the sender has all the data necessary to send a\npayment to the recipient."
         },
         "add_index": {
           "type": "string",
@@ -1646,12 +1646,12 @@
         "current_password": {
           "type": "string",
           "format": "byte",
-          "description": "*\ncurrent_password should be the current valid passphrase used to unlock the\ndaemon."
+          "description": "*\ncurrent_password should be the current valid passphrase used to unlock the\ndaemon. When using REST, this field must be encoded as base64."
         },
         "new_password": {
           "type": "string",
           "format": "byte",
-          "description": "*\nnew_password should be the new passphrase that will be needed to unlock the\ndaemon."
+          "description": "*\nnew_password should be the new passphrase that will be needed to unlock the\ndaemon. When using REST, this field must be encoded as base64."
         }
       }
     },
@@ -1862,7 +1862,7 @@
         "chan_backup": {
           "type": "string",
           "format": "byte",
-          "description": "*\nIs an encrypted single-chan backup. this can be passed to\nRestoreChannelBackups, or the WalletUnlocker Init and Unlock methods in\norder to trigger the recovery protocol."
+          "description": "*\nIs an encrypted single-chan backup. this can be passed to\nRestoreChannelBackups, or the WalletUnlocker Init and Unlock methods in\norder to trigger the recovery protocol. When using REST, this field must be\nencoded as base64."
         }
       }
     },
@@ -2094,11 +2094,11 @@
         "funding_txid_bytes": {
           "type": "string",
           "format": "byte",
-          "title": "/ Txid of the funding transaction"
+          "description": "*\nTxid of the funding transaction. When using REST, this field must be\nencoded as base64."
         },
         "funding_txid_str": {
           "type": "string",
-          "title": "/ Hex-encoded string representing the funding transaction"
+          "description": "*\nHex-encoded string representing the byte-reversed hash of the funding\ntransaction."
         },
         "output_index": {
           "type": "integer",
@@ -2160,7 +2160,7 @@
         "perm": {
           "type": "boolean",
           "format": "boolean",
-          "description": "* If set, the daemon will attempt to persistently connect to the target\npeer.  Otherwise, the call will be synchronous."
+          "description": "* If set, the daemon will attempt to persistently connect to the target\npeer. Otherwise, the call will be synchronous."
         }
       }
     },
@@ -2572,7 +2572,7 @@
         "wallet_password": {
           "type": "string",
           "format": "byte",
-          "description": "*\nwallet_password is the passphrase that should be used to encrypt the\nwallet. This MUST be at least 8 chars in length. After creation, this\npassword is required to unlock the daemon."
+          "description": "*\nwallet_password is the passphrase that should be used to encrypt the\nwallet. This MUST be at least 8 chars in length. After creation, this\npassword is required to unlock the daemon. When using REST, this field\nmust be encoded as base64."
         },
         "cipher_seed_mnemonic": {
           "type": "array",
@@ -2584,7 +2584,7 @@
         "aezeed_passphrase": {
           "type": "string",
           "format": "byte",
-          "description": "*\naezeed_passphrase is an optional user provided passphrase that will be used\nto encrypt the generated aezeed cipher seed."
+          "description": "*\naezeed_passphrase is an optional user provided passphrase that will be used\nto encrypt the generated aezeed cipher seed. When using REST, this field\nmust be encoded as base64."
         },
         "recovery_window": {
           "type": "integer",
@@ -2615,12 +2615,12 @@
         "r_preimage": {
           "type": "string",
           "format": "byte",
-          "title": "*\nThe hex-encoded preimage (32 byte) which will allow settling an incoming\nHTLC payable to this preimage"
+          "description": "*\nThe hex-encoded preimage (32 byte) which will allow settling an incoming\nHTLC payable to this preimage. When using REST, this field must be encoded\nas base64."
         },
         "r_hash": {
           "type": "string",
           "format": "byte",
-          "title": "/ The hash of the preimage"
+          "description": "*\nThe hash of the preimage. When using REST, this field must be encoded as\nbase64."
         },
         "value": {
           "type": "string",
@@ -2644,12 +2644,12 @@
         },
         "payment_request": {
           "type": "string",
-          "description": "*\nA bare-bones invoice for a payment within the Lightning Network.  With the\ndetails of the invoice, the sender has all the data necessary to send a\npayment to the recipient."
+          "description": "*\nA bare-bones invoice for a payment within the Lightning Network. With the\ndetails of the invoice, the sender has all the data necessary to send a\npayment to the recipient."
         },
         "description_hash": {
           "type": "string",
           "format": "byte",
-          "description": "*\nHash (SHA-256) of a description of the payment. Used if the description of\npayment (memo) is too long to naturally fit within the description field\nof an encoded payment request."
+          "description": "*\nHash (SHA-256) of a description of the payment. Used if the description of\npayment (memo) is too long to naturally fit within the description field\nof an encoded payment request. When using REST, this field must be encoded\nas base64."
         },
         "expiry": {
           "type": "string",
@@ -2918,7 +2918,7 @@
         "multi_chan_backup": {
           "type": "string",
           "format": "byte",
-          "description": "*\nA single encrypted blob containing all the static channel backups of the\nchannel listed above. This can be stored as a single file or blob, and\nsafely be replaced with any prior/future versions."
+          "description": "*\nA single encrypted blob containing all the static channel backups of the\nchannel listed above. This can be stored as a single file or blob, and\nsafely be replaced with any prior/future versions. When using REST, this\nfield must be encoded as base64."
         }
       }
     },
@@ -3024,12 +3024,12 @@
         "from": {
           "type": "string",
           "format": "byte",
-          "description": "/ The sending node of the pair."
+          "description": "*\nThe sending node of the pair. When using REST, this field must be encoded as\nbase64."
         },
         "to": {
           "type": "string",
           "format": "byte",
-          "description": "/ The receiving node of the pair."
+          "description": "*\nThe receiving node of the pair. When using REST, this field must be encoded\nas base64."
         }
       }
     },
@@ -3063,11 +3063,11 @@
         "node_pubkey": {
           "type": "string",
           "format": "byte",
-          "title": "/ The pubkey of the node to open a channel with"
+          "description": "*\nThe pubkey of the node to open a channel with. When using REST, this field\nmust be encoded as base64."
         },
         "node_pubkey_string": {
           "type": "string",
-          "title": "/ The hex encoded pubkey of the node to open a channel with"
+          "description": "*\nThe hex encoded pubkey of the node to open a channel with. Deprecated now\nthat the REST gateway supports base64 encoding of bytes fields."
         },
         "local_funding_amount": {
           "type": "string",
@@ -3444,11 +3444,13 @@
       "type": "object",
       "properties": {
         "chan_backups": {
-          "$ref": "#/definitions/lnrpcChannelBackups"
+          "$ref": "#/definitions/lnrpcChannelBackups",
+          "description": "*\nThe channels to restore as a list of channel/backup pairs."
         },
         "multi_chan_backup": {
           "type": "string",
-          "format": "byte"
+          "format": "byte",
+          "description": "*\nThe channels to restore in the packed multi backup format. When using\nREST, this field must be encoded as base64."
         }
       }
     },
@@ -3458,12 +3460,12 @@
         "total_time_lock": {
           "type": "integer",
           "format": "int64",
-          "description": "*\nThe cumulative (final) time lock across the entire route.  This is the CLTV\nvalue that should be extended to the first hop in the route. All other hops\nwill decrement the time-lock as advertised, leaving enough time for all\nhops to wait for or present the payment preimage to complete the payment."
+          "description": "*\nThe cumulative (final) time lock across the entire route. This is the CLTV\nvalue that should be extended to the first hop in the route. All other hops\nwill decrement the time-lock as advertised, leaving enough time for all\nhops to wait for or present the payment preimage to complete the payment."
         },
         "total_fees": {
           "type": "string",
           "format": "int64",
-          "description": "*\nThe sum of the fees paid at each hop within the final route.  In the case\nof a one-hop payment, this value will be zero as we don't need to pay a fee\nto ourselves."
+          "description": "*\nThe sum of the fees paid at each hop within the final route. In the case\nof a one-hop payment, this value will be zero as we don't need to pay a fee\nto ourselves."
         },
         "total_amt": {
           "type": "string",
@@ -3588,11 +3590,11 @@
         "dest": {
           "type": "string",
           "format": "byte",
-          "title": "/ The identity pubkey of the payment recipient"
+          "description": "*\nThe identity pubkey of the payment recipient. When using REST, this field\nmust be encoded as base64."
         },
         "dest_string": {
           "type": "string",
-          "title": "/ The hex-encoded identity pubkey of the payment recipient"
+          "description": "*\nThe hex-encoded identity pubkey of the payment recipient. Deprecated now\nthat the REST gateway supports base64 encoding of bytes fields."
         },
         "amt": {
           "type": "string",
@@ -3602,15 +3604,15 @@
         "payment_hash": {
           "type": "string",
           "format": "byte",
-          "title": "/ The hash to use within the payment's HTLC"
+          "description": "*\nThe hash to use within the payment's HTLC. When using REST, this field\nmust be encoded as base64."
         },
         "payment_hash_string": {
           "type": "string",
-          "title": "/ The hex-encoded hash to use within the payment's HTLC"
+          "description": "*\nThe hex-encoded hash to use within the payment's HTLC. Deprecated now\nthat the REST gateway supports base64 encoding of bytes fields."
         },
         "payment_request": {
           "type": "string",
-          "description": "*\nA bare-bones invoice for a payment within the Lightning Network.  With the\ndetails of the invoice, the sender has all the data necessary to send a\npayment to the recipient."
+          "description": "*\nA bare-bones invoice for a payment within the Lightning Network. With the\ndetails of the invoice, the sender has all the data necessary to send a\npayment to the recipient."
         },
         "final_cltv_delta": {
           "type": "integer",
@@ -3637,7 +3639,7 @@
             "type": "string",
             "format": "byte"
           },
-          "description": "* \nAn optional field that can be used to pass an arbitrary set of TLV records\nto a peer which understands the new records. This can be used to pass\napplication specific data during the payment attempt."
+          "description": "* \nAn optional field that can be used to pass an arbitrary set of TLV records\nto a peer which understands the new records. This can be used to pass\napplication specific data during the payment attempt. When using REST, the\nvalues must be encoded as base64."
         }
       }
     },
@@ -3666,11 +3668,11 @@
         "payment_hash": {
           "type": "string",
           "format": "byte",
-          "description": "/ The payment hash to use for the HTLC."
+          "description": "*\nThe payment hash to use for the HTLC. When using REST, this field must be\nencoded as base64."
         },
         "payment_hash_string": {
           "type": "string",
-          "description": "/ An optional hex-encoded payment hash to be used for the HTLC."
+          "description": "*\nAn optional hex-encoded payment hash to be used for the HTLC. Deprecated now\nthat the REST gateway supports base64 encoding of bytes fields."
         },
         "route": {
           "$ref": "#/definitions/lnrpcRoute",
@@ -3684,7 +3686,7 @@
         "msg": {
           "type": "string",
           "format": "byte",
-          "title": "/ The message to be signed"
+          "description": "*\nThe message to be signed. When using REST, this field must be encoded as\nbase64."
         }
       }
     },
@@ -3767,7 +3769,7 @@
         "wallet_password": {
           "type": "string",
           "format": "byte",
-          "description": "*\nwallet_password should be the current valid passphrase for the daemon. This\nwill be required to decrypt on-disk material that the daemon requires to\nfunction properly."
+          "description": "*\nwallet_password should be the current valid passphrase for the daemon. This\nwill be required to decrypt on-disk material that the daemon requires to\nfunction properly. When using REST, this field must be encoded as base64."
         },
         "recovery_window": {
           "type": "integer",
@@ -3823,7 +3825,7 @@
         "msg": {
           "type": "string",
           "format": "byte",
-          "title": "/ The message over which the signature is to be verified"
+          "description": "*\nThe message over which the signature is to be verified. When using REST,\nthis field must be encoded as base64."
         },
         "signature": {
           "type": "string",

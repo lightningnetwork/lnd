@@ -76,36 +76,6 @@ func (h *htlcOutgoingContestResolver) Resolve() (ContractResolver, error) {
 	default:
 	}
 
-	// We'll check the current height, if the HTLC has already expired,
-	// then we'll morph immediately into a resolver that can sweep the
-	// HTLC.
-	//
-	// TODO(roasbeef): use grace period instead?
-	_, currentHeight, err := h.ChainIO.GetBestBlock()
-	if err != nil {
-		return nil, err
-	}
-
-	// If the current height is >= expiry-1, then a spend will be valid to
-	// be included in the next block, and we can immediately return the
-	// resolver.
-	//
-	// TODO(joostjager): Statement above may not be valid. For CLTV locks,
-	// the expiry value is the last _invalid_ block. The likely reason that
-	// this does not create a problem, is that utxonursery is checking the
-	// expiry again (in the proper way). Same holds for minus one operation
-	// below.
-	//
-	// Source:
-	// https://github.com/btcsuite/btcd/blob/991d32e72fe84d5fbf9c47cd604d793a0cd3a072/blockchain/validate.go#L154
-	if uint32(currentHeight) >= h.htlcResolution.Expiry-1 {
-		log.Infof("%T(%v): HTLC has expired (height=%v, expiry=%v), "+
-			"transforming into timeout resolver", h,
-			h.htlcResolution.ClaimOutpoint, currentHeight,
-			h.htlcResolution.Expiry)
-		return &h.htlcTimeoutResolver, nil
-	}
-
 	// If we reach this point, then we can't fully act yet, so we'll await
 	// either of our signals triggering: the HTLC expires, or we learn of
 	// the preimage.
@@ -125,9 +95,18 @@ func (h *htlcOutgoingContestResolver) Resolve() (ContractResolver, error) {
 				return nil, errResolverShuttingDown
 			}
 
-			// If this new height expires the HTLC, then we can
-			// exit early and create a resolver that's capable of
-			// handling the time locked output.
+			// If the current height is >= expiry-1, then a timeout
+			// path spend will be valid to be included in the next
+			// block, and we can immediately return the resolver.
+			//
+			// TODO(joostjager): Statement above may not be valid.
+			// For CLTV locks, the expiry value is the last
+			// _invalid_ block. The likely reason that this does not
+			// create a problem, is that utxonursery is checking the
+			// expiry again (in the proper way).
+			//
+			// Source:
+			// https://github.com/btcsuite/btcd/blob/991d32e72fe84d5fbf9c47cd604d793a0cd3a072/blockchain/validate.go#L154
 			newHeight := uint32(newBlock.Height)
 			if newHeight >= h.htlcResolution.Expiry-1 {
 				log.Infof("%T(%v): HTLC has expired "+

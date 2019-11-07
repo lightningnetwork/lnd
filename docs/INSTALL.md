@@ -158,6 +158,9 @@ To check that `lnd` was installed properly run the following command:
 make check
 ```
 
+This command requires `bitcoind` (almost any version should do) to be available
+in the system's `$PATH` variable. Otherwise some of the tests will fail.
+
 # Available Backend Operating Modes
 
 In order to run, `lnd` requires, that the user specify a chain backend. At the

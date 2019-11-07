@@ -2,11 +2,11 @@
 
 ### Prerequisites
 #### protoc
-Install the dependencies for genarating protobuf definitions as stated in [lnrpc docs](
+Install the dependencies for generating protobuf definitions as stated in [lnrpc docs](
 ../lnrpc/README.md#generate-protobuf-definitions)
 
 #### gomobile
-Follow [gomobile](https://github.com/golang/go/wiki/Mobile) in order to intall `gomobile` and dependencies.
+Follow [gomobile](https://github.com/golang/go/wiki/Mobile) in order to install `gomobile` and dependencies.
 
 Remember to run `gomobile init` (otherwise the `lnd` build might just hang).
 

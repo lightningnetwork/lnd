@@ -116,13 +116,27 @@ func (p *probabilityEstimator) getPairProbability(
 	now time.Time, results NodeResults,
 	toNode route.Vertex, amt lnwire.MilliSatoshi) float64 {
 
+	nodeProbability := p.getNodeProbability(now, results, amt)
+
+	return p.calculateProbability(
+		now, results, nodeProbability, toNode, amt,
+	)
+}
+
+// calculateProbability estimates the probability of successfully traversing to
+// toNode based on historical payment outcomes and a fall-back node probability.
+func (p *probabilityEstimator) calculateProbability(
+	now time.Time, results NodeResults,
+	nodeProbability float64, toNode route.Vertex,
+	amt lnwire.MilliSatoshi) float64 {
+
 	// Retrieve the last pair outcome.
 	lastPairResult, ok := results[toNode]
 
 	// If there is no history for this pair, return the node probability
 	// that is a probability estimate for untried channel.
 	if !ok {
-		return p.getNodeProbability(now, results, amt)
+		return nodeProbability
 	}
 
 	// For successes, we have a fixed (high) probability. Those pairs
@@ -130,8 +144,6 @@ func (p *probabilityEstimator) getPairProbability(
 	if lastPairResult.Success {
 		return p.prevSuccessProbability
 	}
-
-	nodeProbability := p.getNodeProbability(now, results, amt)
 
 	// Take into account a minimum penalize amount. For balance errors, a
 	// failure may be reported with such a minimum to prevent too aggressive

@@ -270,6 +270,7 @@ func (s *Server) AddHoldInvoice(ctx context.Context,
 		FallbackAddr:    invoice.FallbackAddr,
 		CltvExpiry:      invoice.CltvExpiry,
 		Private:         invoice.Private,
+		PrivateChannels: invoice.PrivateChannels,
 	}
 
 	_, dbInvoice, err := AddInvoice(ctx, addInvoiceCfg, addInvoiceData)

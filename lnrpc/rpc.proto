@@ -2242,6 +2242,11 @@ message Invoice {
 
     /// List of HTLCs paying to this invoice [EXPERIMENTAL].
     repeated InvoiceHTLC htlcs = 22 [json_name = "htlcs"];
+
+    /**
+    The list of private channel ids that will be used as hop hints.
+    */
+    repeated uint64 private_channels = 23 [json_name = "private_channels"];
 }
 
 enum InvoiceHTLCState {

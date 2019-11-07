@@ -91,6 +91,11 @@ type AddInvoiceData struct {
 	// Whether this invoice should include routing hints for private
 	// channels.
 	Private bool
+
+	// An optional array that may contain private channel ids to be used
+	// as hop hints. Privacy-conscious users may use this to select
+	// specific private channels rather than all of them.
+	PrivateChannels []uint64
 }
 
 // AddInvoice attempts to add a new invoice to the invoice database. Any
@@ -253,6 +258,16 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 		options = append(options, zpay32.CLTVExpiry(uint64(defaultDelta)))
 	}
 
+	if len(invoice.PrivateChannels) > 0 && !invoice.Private {
+		return nil, nil, fmt.Errorf("must set private flag in conjunction " +
+			"with privatechannels")
+	}
+
+	privateChanMap := make(map[uint64]struct{})
+	for _, privateChan := range invoice.PrivateChannels {
+		privateChanMap[privateChan] = struct{}{}
+	}
+
 	// If we were requested to include routing hints in the invoice, then
 	// we'll fetch all of our available private channels and create routing
 	// hints for them.
@@ -277,6 +292,18 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 			isPublic := channel.ChannelFlags&lnwire.FFAnnounceChannel != 0
 			if isPublic {
 				continue
+			}
+
+			// If the user has manually defined private hop hints, ignore
+			// any channels not in the array.
+			if len(invoice.PrivateChannels) > 0 {
+				// Check to see whether the ShortChannelID exists in the private
+				// channel map. If it isn't, don't add this private channel to
+				// the list of hop hints.
+				sid := channel.ShortChannelID.ToUint64()
+				if _, ok := privateChanMap[sid]; !ok {
+					continue
+				}
 			}
 
 			// Make sure the counterparty has enough balance in the

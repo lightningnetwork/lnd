@@ -82,6 +82,11 @@ message AddHoldInvoiceRequest {
 
     /// Whether this invoice should include routing hints for private channels.
     bool private = 9 [json_name = "private"];
+
+    /**
+    The list of private channel ids that will be used as hop hints.
+    */
+    repeated uint64 private_channels = 10 [json_name = "private_channels"];
 }
 
 message AddHoldInvoiceResp {

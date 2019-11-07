@@ -3532,6 +3532,7 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		FallbackAddr:    invoice.FallbackAddr,
 		CltvExpiry:      invoice.CltvExpiry,
 		Private:         invoice.Private,
+		PrivateChannels: invoice.PrivateChannels,
 	}
 
 	if invoice.RPreimage != nil {

@@ -2595,11 +2595,16 @@ var addInvoiceCommand = cli.Command{
 				"specified an expiry of 3600 seconds (1 hour) " +
 				"is implied.",
 		},
-		cli.BoolTFlag{
+		cli.BoolFlag{
 			Name: "private",
 			Usage: "encode routing hints in the invoice with " +
 				"private channels in order to assist the " +
 				"payer in reaching you",
+		},
+		cli.StringFlag{
+			Name: "private_channels",
+			Usage: "a comma-separated list of private channel ids " +
+				"to use as hop hints",
 		},
 	},
 	Action: actionDecorator(addInvoice),
@@ -2651,6 +2656,20 @@ func addInvoice(ctx *cli.Context) error {
 		return fmt.Errorf("unable to parse receipt: %v", err)
 	}
 
+	var privateChans []uint64
+	if ctx.IsSet("private_channels") {
+		// Parse the private channels into an array of uint64
+		privChanStrings := ctx.String("private_channels")
+		for _, chanString := range strings.Split(privChanStrings, ",") {
+			privChan, err := strconv.Atoi(chanString)
+			if err != nil {
+				return fmt.Errorf("unable to parse private channel: %v", err)
+			}
+
+			privateChans = append(privateChans, uint64(privChan))
+		}
+	}
+
 	invoice := &lnrpc.Invoice{
 		Memo:            ctx.String("memo"),
 		Receipt:         receipt,
@@ -2660,6 +2679,7 @@ func addInvoice(ctx *cli.Context) error {
 		FallbackAddr:    ctx.String("fallback_addr"),
 		Expiry:          ctx.Int64("expiry"),
 		Private:         ctx.Bool("private"),
+		PrivateChannels: privateChans,
 	}
 
 	resp, err := client.AddInvoice(context.Background(), invoice)

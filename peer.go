@@ -190,9 +190,16 @@ type peer struct {
 
 	server *server
 
-	// localFeatures is the set of local features that we advertised to the
-	// remote node.
-	localFeatures *lnwire.RawFeatureVector
+	// features is the set of features that we advertised to the remote
+	// node.
+	features *lnwire.FeatureVector
+
+	// legacyFeatures is the set of features that we advertised to the remote
+	// node for backwards compatibility. Nodes that have not implemented
+	// flat featurs will still be able to read our feature bits from the
+	// legacy global field, but we will also advertise everything in the
+	// default features field.
+	legacyFeatures *lnwire.FeatureVector
 
 	// outgoingCltvRejectDelta defines the number of blocks before expiry of
 	// an htlc where we don't offer an htlc anymore.
@@ -234,7 +241,7 @@ var _ lnpeer.Peer = (*peer)(nil)
 // pointer to the main server.
 func newPeer(conn net.Conn, connReq *connmgr.ConnReq, server *server,
 	addr *lnwire.NetAddress, inbound bool,
-	localFeatures *lnwire.RawFeatureVector,
+	features, legacyFeatures *lnwire.FeatureVector,
 	chanActiveTimeout time.Duration,
 	outgoingCltvRejectDelta uint32) (
 	*peer, error) {
@@ -252,7 +259,8 @@ func newPeer(conn net.Conn, connReq *connmgr.ConnReq, server *server,
 
 		server: server,
 
-		localFeatures: localFeatures,
+		features:       features,
+		legacyFeatures: legacyFeatures,
 
 		outgoingCltvRejectDelta: outgoingCltvRejectDelta,
 
@@ -2425,7 +2433,7 @@ func (p *peer) handleInitMsg(msg *lnwire.Init) error {
 //
 // NOTE: Part of the lnpeer.Peer interface.
 func (p *peer) LocalGlobalFeatures() *lnwire.FeatureVector {
-	return p.server.globalFeatures
+	return p.features
 }
 
 // RemoteGlobalFeatures returns the set of global features that has been
@@ -2441,8 +2449,8 @@ func (p *peer) RemoteGlobalFeatures() *lnwire.FeatureVector {
 // supported local and global features.
 func (p *peer) sendInitMsg() error {
 	msg := lnwire.NewInitMessage(
-		p.server.globalFeatures.RawFeatureVector,
-		p.localFeatures,
+		p.legacyFeatures.RawFeatureVector,
+		p.features.RawFeatureVector,
 	)
 
 	return p.writeMessage(msg)

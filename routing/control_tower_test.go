@@ -144,10 +144,13 @@ func TestControlTowerSubscribeSuccess(t *testing.T) {
 		if result.Preimage != preimg {
 			t.Fatal("unexpected preimage")
 		}
-
-		if !reflect.DeepEqual(result.Route, &attempt.Route) {
-			t.Fatalf("unexpected route: %v vs %v",
-				spew.Sdump(result.Route),
+		if len(result.HTLCs) != 1 {
+			t.Fatalf("expected one htlc, got %d", len(result.HTLCs))
+		}
+		htlc := result.HTLCs[0]
+		if !reflect.DeepEqual(htlc.Route, attempt.Route) {
+			t.Fatalf("unexpected htlc route: %v vs %v",
+				spew.Sdump(htlc.Route),
 				spew.Sdump(attempt.Route))
 		}
 
@@ -168,6 +171,15 @@ func TestControlTowerSubscribeSuccess(t *testing.T) {
 func TestPaymentControlSubscribeFail(t *testing.T) {
 	t.Parallel()
 
+	t.Run("register attempt", func(t *testing.T) {
+		testPaymentControlSubscribeFail(t, true)
+	})
+	t.Run("no register attempt", func(t *testing.T) {
+		testPaymentControlSubscribeFail(t, false)
+	})
+}
+
+func testPaymentControlSubscribeFail(t *testing.T, registerAttempt bool) {
 	db, err := initDB()
 	if err != nil {
 		t.Fatalf("unable to init db: %v", err)
@@ -176,7 +188,7 @@ func TestPaymentControlSubscribeFail(t *testing.T) {
 	pControl := NewControlTower(channeldb.NewPaymentControl(db))
 
 	// Initiate a payment.
-	info, _, _, err := genInfo()
+	info, attempt, _, err := genInfo()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,6 +202,17 @@ func TestPaymentControlSubscribeFail(t *testing.T) {
 	_, subscriber1, err := pControl.SubscribePayment(info.PaymentHash)
 	if err != nil {
 		t.Fatalf("expected subscribe to succeed, but got: %v", err)
+	}
+
+	// Conditionally register the attempt based on the test type. This
+	// allows us to simulate failing after attempting with an htlc or before
+	// making any attempts at all.
+	if registerAttempt {
+		// Register an attempt.
+		err = pControl.RegisterAttempt(info.PaymentHash, attempt)
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	// Mark the payment as failed.
@@ -223,9 +246,28 @@ func TestPaymentControlSubscribeFail(t *testing.T) {
 		if result.Success {
 			t.Fatal("unexpected payment state")
 		}
-		if result.Route != nil {
-			t.Fatal("expected no route")
+
+		// There will either be one or zero htlcs depending on whether
+		// or not the attempt was registered. Assert the correct number
+		// is present, and the route taken if the attempt was
+		// registered.
+		if registerAttempt {
+			if len(result.HTLCs) != 1 {
+				t.Fatalf("expected 1 htlc, got: %d",
+					len(result.HTLCs))
+			}
+
+			htlc := result.HTLCs[0]
+			if !reflect.DeepEqual(htlc.Route, testRoute) {
+				t.Fatalf("unexpected htlc route: %v vs %v",
+					spew.Sdump(htlc.Route),
+					spew.Sdump(testRoute))
+			}
+		} else if len(result.HTLCs) != 0 {
+			t.Fatalf("expected 0 htlcs, got: %d",
+				len(result.HTLCs))
 		}
+
 		if result.FailureReason != channeldb.FailureReasonTimeout {
 			t.Fatal("unexpected failure reason")
 		}

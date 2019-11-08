@@ -337,7 +337,7 @@ func (db *DB) FetchPayments() ([]*MPPayment, error) {
 				return err
 			}
 
-			payments = append(payments, p.ToMPPayment())
+			payments = append(payments, p)
 
 			// For older versions of lnd, duplicate payments to a
 			// payment has was possible. These will be found in a
@@ -362,7 +362,7 @@ func (db *DB) FetchPayments() ([]*MPPayment, error) {
 					return err
 				}
 
-				payments = append(payments, p.ToMPPayment())
+				payments = append(payments, p)
 				return nil
 			})
 		})
@@ -379,7 +379,7 @@ func (db *DB) FetchPayments() ([]*MPPayment, error) {
 	return payments, nil
 }
 
-func fetchPayment(bucket *bbolt.Bucket) (*Payment, error) {
+func fetchPayment(bucket *bbolt.Bucket) (*MPPayment, error) {
 	var (
 		err error
 		p   = &Payment{}
@@ -434,7 +434,7 @@ func fetchPayment(bucket *bbolt.Bucket) (*Payment, error) {
 		p.Failure = &reason
 	}
 
-	return p, nil
+	return p.ToMPPayment(), nil
 }
 
 // DeletePayments deletes all completed and failed payments from the DB.

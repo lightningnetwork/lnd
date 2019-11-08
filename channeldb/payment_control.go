@@ -8,7 +8,6 @@ import (
 
 	"github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lnd/lntypes"
-	"github.com/lightningnetwork/lnd/routing/route"
 )
 
 var (
@@ -192,16 +191,17 @@ func (p *PaymentControl) RegisterAttempt(paymentHash lntypes.Hash,
 // duplicate payments to the same payment hash. The provided preimage is
 // atomically saved to the DB for record keeping.
 func (p *PaymentControl) Success(paymentHash lntypes.Hash,
-	preimage lntypes.Preimage) (*route.Route, error) {
+	preimage lntypes.Preimage) (*MPPayment, error) {
 
 	var (
 		updateErr error
-		route     *route.Route
+		payment   *MPPayment
 	)
 	err := p.db.Batch(func(tx *bbolt.Tx) error {
 		// Reset the update error, to avoid carrying over an error
 		// from a previous execution of the batched db transaction.
 		updateErr = nil
+		payment = nil
 
 		bucket, err := fetchPaymentBucket(tx, paymentHash)
 		if err == ErrPaymentNotInitiated {
@@ -225,20 +225,14 @@ func (p *PaymentControl) Success(paymentHash lntypes.Hash,
 		}
 
 		// Retrieve attempt info for the notification.
-		attempt, err := fetchPaymentAttempt(bucket)
-		if err != nil {
-			return err
-		}
-
-		route = &attempt.Route
-
-		return nil
+		payment, err = fetchPayment(bucket)
+		return err
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	return route, updateErr
+	return payment, updateErr
 }
 
 // Fail transitions a payment into the Failed state, and records the reason the
@@ -246,16 +240,17 @@ func (p *PaymentControl) Success(paymentHash lntypes.Hash,
 // its next call for this payment hash, allowing the switch to make a
 // subsequent payment.
 func (p *PaymentControl) Fail(paymentHash lntypes.Hash,
-	reason FailureReason) (*route.Route, error) {
+	reason FailureReason) (*MPPayment, error) {
 
 	var (
 		updateErr error
-		route     *route.Route
+		payment   *MPPayment
 	)
 	err := p.db.Batch(func(tx *bbolt.Tx) error {
 		// Reset the update error, to avoid carrying over an error
 		// from a previous execution of the batched db transaction.
 		updateErr = nil
+		payment = nil
 
 		bucket, err := fetchPaymentBucket(tx, paymentHash)
 		if err == ErrPaymentNotInitiated {
@@ -279,28 +274,21 @@ func (p *PaymentControl) Fail(paymentHash lntypes.Hash,
 		}
 
 		// Retrieve attempt info for the notification, if available.
-		attempt, err := fetchPaymentAttempt(bucket)
-		if err != nil && err != errNoAttemptInfo {
-			return err
-		}
-		if err != errNoAttemptInfo {
-			route = &attempt.Route
-		}
-
-		return nil
+		payment, err = fetchPayment(bucket)
+		return err
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	return route, updateErr
+	return payment, updateErr
 }
 
 // FetchPayment returns information about a payment from the database.
 func (p *PaymentControl) FetchPayment(paymentHash lntypes.Hash) (
-	*Payment, error) {
+	*MPPayment, error) {
 
-	var payment *Payment
+	var payment *MPPayment
 	err := p.db.View(func(tx *bbolt.Tx) error {
 		bucket, err := fetchPaymentBucket(tx, paymentHash)
 		if err != nil {

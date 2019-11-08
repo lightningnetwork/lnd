@@ -584,19 +584,12 @@ func (s *Server) trackPayment(paymentHash lntypes.Hash,
 	case result := <-resultChan:
 		// Marshall result to rpc type.
 		var status PaymentStatus
-
 		if result.Success {
 			log.Debugf("Payment %v successfully completed",
 				paymentHash)
 
 			status.State = PaymentState_SUCCEEDED
 			status.Preimage = result.Preimage[:]
-			status.Route, err = router.MarshallRoute(
-				result.Route,
-			)
-			if err != nil {
-				return err
-			}
 		} else {
 			state, err := marshallFailureReason(
 				result.FailureReason,
@@ -605,15 +598,49 @@ func (s *Server) trackPayment(paymentHash lntypes.Hash,
 				return err
 			}
 			status.State = state
-			if result.Route != nil {
-				status.Route, err = router.MarshallRoute(
-					result.Route,
-				)
-				if err != nil {
-					return err
-				}
+		}
+
+		// Extract the last route from the given list of HTLCs. This
+		// will populate the legacy route field for backwards
+		// compatibility.
+		//
+		// NOTE: For now there will be at most one HTLC, this code
+		// should be revisted or the field removed when multiple HTLCs
+		// are permitted.
+		var legacyRoute *route.Route
+		for _, htlc := range result.HTLCs {
+			switch {
+			case htlc.Settle != nil:
+				legacyRoute = &htlc.Route
+
+			// Only display the route for failed payments if we got
+			// an incorrect payment details error, so that it can be
+			// used for probing or fee estimation.
+			case htlc.Failure != nil && result.FailureReason ==
+				channeldb.FailureReasonPaymentDetails:
+
+				legacyRoute = &htlc.Route
 			}
 		}
+		if legacyRoute != nil {
+			status.Route, err = router.MarshallRoute(legacyRoute)
+			if err != nil {
+				return err
+			}
+		}
+
+		// Marshal our list of HTLCs that have been tried for this
+		// payment.
+		htlcs := make([]*lnrpc.HTLCAttempt, 0, len(result.HTLCs))
+		for _, dbHtlc := range result.HTLCs {
+			htlc, err := router.MarshalHTLCAttempt(dbHtlc)
+			if err != nil {
+				return err
+			}
+
+			htlcs = append(htlcs, htlc)
+		}
+		status.Htlcs = htlcs
 
 		// Send event to the client.
 		err = stream.Send(&status)

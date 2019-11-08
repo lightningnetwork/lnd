@@ -116,13 +116,43 @@ func (p *probabilityEstimator) getPairProbability(
 	now time.Time, results NodeResults,
 	toNode route.Vertex, amt lnwire.MilliSatoshi) float64 {
 
+	nodeProbability := p.getNodeProbability(now, results, amt)
+
+	return p.calculateProbability(
+		now, results, nodeProbability, toNode, amt,
+	)
+}
+
+// getLocalPairProbability estimates the probability of successfully traversing
+// our own local channels to toNode.
+func (p *probabilityEstimator) getLocalPairProbability(
+	now time.Time, results NodeResults, toNode route.Vertex) float64 {
+
+	// For local channels that have never been tried before, we assume them
+	// to be successful. We have accurate balance and online status
+	// information on our own channels, so when we select them in a route it
+	// is close to certain that those channels will work.
+	nodeProbability := p.prevSuccessProbability
+
+	return p.calculateProbability(
+		now, results, nodeProbability, toNode, lnwire.MaxMilliSatoshi,
+	)
+}
+
+// calculateProbability estimates the probability of successfully traversing to
+// toNode based on historical payment outcomes and a fall-back node probability.
+func (p *probabilityEstimator) calculateProbability(
+	now time.Time, results NodeResults,
+	nodeProbability float64, toNode route.Vertex,
+	amt lnwire.MilliSatoshi) float64 {
+
 	// Retrieve the last pair outcome.
 	lastPairResult, ok := results[toNode]
 
 	// If there is no history for this pair, return the node probability
 	// that is a probability estimate for untried channel.
 	if !ok {
-		return p.getNodeProbability(now, results, amt)
+		return nodeProbability
 	}
 
 	// For successes, we have a fixed (high) probability. Those pairs
@@ -130,8 +160,6 @@ func (p *probabilityEstimator) getPairProbability(
 	if lastPairResult.Success {
 		return p.prevSuccessProbability
 	}
-
-	nodeProbability := p.getNodeProbability(now, results, amt)
 
 	// Take into account a minimum penalize amount. For balance errors, a
 	// failure may be reported with such a minimum to prevent too aggressive

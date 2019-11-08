@@ -13,7 +13,7 @@ import (
 
 var (
 	mcTestRoute = &route.Route{
-		SourcePubKey: route.Vertex{10},
+		SourcePubKey: mcTestSelf,
 		Hops: []*route.Hop{
 			{
 				ChannelID:     1,
@@ -30,6 +30,7 @@ var (
 	}
 
 	mcTestTime  = time.Date(2018, time.January, 9, 14, 00, 00, 0, time.UTC)
+	mcTestSelf  = route.Vertex{10}
 	mcTestNode1 = mcTestRoute.Hops[0].PubKeyBytes
 	mcTestNode2 = mcTestRoute.Hops[1].PubKeyBytes
 
@@ -80,6 +81,7 @@ func (ctx *mcTestContext) restartMc() {
 			PenaltyHalfLife:       testPenaltyHalfLife,
 			AprioriHopProbability: testAprioriHopProbability,
 			AprioriWeight:         testAprioriWeight,
+			SelfNode:              mcTestSelf,
 		},
 	)
 	if err != nil {
@@ -98,7 +100,6 @@ func (ctx *mcTestContext) cleanup() {
 
 // Assert that mission control returns a probability for an edge.
 func (ctx *mcTestContext) expectP(amt lnwire.MilliSatoshi, expected float64) {
-
 	ctx.t.Helper()
 
 	p := ctx.mc.GetProbability(mcTestNode1, mcTestNode2, amt)
@@ -137,6 +138,13 @@ func TestMissionControl(t *testing.T) {
 	ctx.now = testTime
 
 	testTime := time.Date(2018, time.January, 9, 14, 00, 00, 0, time.UTC)
+
+	// For local channels, we expect a higher probability than our a prior
+	// test probability.
+	selfP := ctx.mc.GetProbability(mcTestSelf, mcTestNode1, 100)
+	if selfP != prevSuccessProbability {
+		t.Fatalf("expected prev success prob for untried local chans")
+	}
 
 	// Initial probability is expected to be the a priori.
 	ctx.expectP(1000, testAprioriHopProbability)

@@ -2,8 +2,15 @@ package lnwire
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
+)
+
+var (
+	// ErrFeaturePairExists signals an error in feature vector construction
+	// where the opposing bit in a feature pair has already been set.
+	ErrFeaturePairExists = errors.New("feature pair exists")
 )
 
 // FeatureBit represents a feature that can be enabled in either a local or
@@ -136,6 +143,15 @@ func NewRawFeatureVector(bits ...FeatureBit) *RawFeatureVector {
 	return fv
 }
 
+// Clone makes a copy of a feature vector.
+func (fv *RawFeatureVector) Clone() *RawFeatureVector {
+	newFeatures := NewRawFeatureVector()
+	for bit := range fv.features {
+		newFeatures.Set(bit)
+	}
+	return newFeatures
+}
+
 // IsSet returns whether a particular feature bit is enabled in the vector.
 func (fv *RawFeatureVector) IsSet(feature FeatureBit) bool {
 	return fv.features[feature]
@@ -144,6 +160,20 @@ func (fv *RawFeatureVector) IsSet(feature FeatureBit) bool {
 // Set marks a feature as enabled in the vector.
 func (fv *RawFeatureVector) Set(feature FeatureBit) {
 	fv.features[feature] = true
+}
+
+// SafeSet sets the chosen feature bit in the feature vector, but returns an
+// error if the opposing feature bit is already set. This ensures both that we
+// are creating properly structured feature vectors, and in some cases, that
+// peers are sending properly encoded ones, i.e. it can't be both optional and
+// required.
+func (fv *RawFeatureVector) SafeSet(feature FeatureBit) error {
+	if _, ok := fv.features[feature^1]; ok {
+		return ErrFeaturePairExists
+	}
+
+	fv.Set(feature)
+	return nil
 }
 
 // Unset marks a feature as disabled in the vector.

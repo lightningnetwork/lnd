@@ -1653,10 +1653,10 @@ func (m *mockPeer) IdentityKey() *btcec.PublicKey {
 func (m *mockPeer) Address() net.Addr {
 	return nil
 }
-func (m *mockPeer) LocalGlobalFeatures() *lnwire.FeatureVector {
+func (m *mockPeer) LocalFeatures() *lnwire.FeatureVector {
 	return nil
 }
-func (m *mockPeer) RemoteGlobalFeatures() *lnwire.FeatureVector {
+func (m *mockPeer) RemoteFeatures() *lnwire.FeatureVector {
 	return nil
 }
 

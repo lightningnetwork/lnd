@@ -143,6 +143,17 @@ func NewRawFeatureVector(bits ...FeatureBit) *RawFeatureVector {
 	return fv
 }
 
+// Merges sets all feature bits in other on the receiver's feature vector.
+func (fv *RawFeatureVector) Merge(other *RawFeatureVector) error {
+	for bit := range other.features {
+		err := fv.SafeSet(bit)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // Clone makes a copy of a feature vector.
 func (fv *RawFeatureVector) Clone() *RawFeatureVector {
 	newFeatures := NewRawFeatureVector()

@@ -85,30 +85,6 @@ const (
 	maxAllowedSize = 32764
 )
 
-// LocalFeatures is a mapping of known connection-local feature bits to a
-// descriptive name. All known local feature bits must be assigned a name in
-// this mapping. Local features are those which are only sent to the peer and
-// not advertised to the entire network. A full description of these feature
-// bits is provided in the BOLT-09 specification.
-var LocalFeatures = map[FeatureBit]string{
-	DataLossProtectRequired: "data-loss-protect",
-	DataLossProtectOptional: "data-loss-protect",
-	InitialRoutingSync:      "initial-routing-sync",
-	GossipQueriesRequired:   "gossip-queries",
-	GossipQueriesOptional:   "gossip-queries",
-}
-
-// GlobalFeatures is a mapping of known global feature bits to a descriptive
-// name. All known global feature bits must be assigned a name in this mapping.
-// Global features are those which are advertised to the entire network. A full
-// description of these feature bits is provided in the BOLT-09 specification.
-var GlobalFeatures = map[FeatureBit]string{
-	TLVOnionPayloadRequired: "tlv-onion",
-	TLVOnionPayloadOptional: "tlv-onion",
-	StaticRemoteKeyOptional: "static-remote-key",
-	StaticRemoteKeyRequired: "static-remote-key",
-}
-
 // Features is a mapping of known feature bits to a descriptive name. All known
 // feature bits must be assigned a name in this mapping, and feature bit pairs
 // must be assigned together for correct behavior.

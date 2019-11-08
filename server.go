@@ -1971,7 +1971,7 @@ func (s *server) initTorController() error {
 		Addresses:            newNodeAnn.Addresses,
 		Alias:                newNodeAnn.Alias.String(),
 		Features: lnwire.NewFeatureVector(
-			newNodeAnn.Features, lnwire.GlobalFeatures,
+			newNodeAnn.Features, lnwire.Features,
 		),
 		Color:        newNodeAnn.RGBColor,
 		AuthSigBytes: newNodeAnn.Signature.ToSignatureBytes(),

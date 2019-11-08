@@ -102,6 +102,21 @@ var GlobalFeatures = map[FeatureBit]string{
 	StaticRemoteKeyRequired: "static-remote-key",
 }
 
+// Features is a mapping of known feature bits to a descriptive name. All known
+// feature bits must be assigned a name in this mapping, and feature bit pairs
+// must be assigned together for correct behavior.
+var Features = map[FeatureBit]string{
+	DataLossProtectRequired: "data-loss-protect",
+	DataLossProtectOptional: "data-loss-protect",
+	InitialRoutingSync:      "initial-routing-sync",
+	GossipQueriesRequired:   "gossip-queries",
+	GossipQueriesOptional:   "gossip-queries",
+	TLVOnionPayloadRequired: "tlv-onion",
+	TLVOnionPayloadOptional: "tlv-onion",
+	StaticRemoteKeyOptional: "static-remote-key",
+	StaticRemoteKeyRequired: "static-remote-key",
+}
+
 // RawFeatureVector represents a set of feature bits as defined in BOLT-09.  A
 // RawFeatureVector itself just stores a set of bit flags but can be used to
 // construct a FeatureVector which binds meaning to each bit. Feature vectors

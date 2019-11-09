@@ -79,7 +79,6 @@ func init() {
 	addSubLogger("CHDB", channeldb.UseLogger)
 	addSubLogger("HSWC", htlcswitch.UseLogger)
 	addSubLogger("CMGR", connmgr.UseLogger)
-	addSubLogger("CRTR", routing.UseLogger)
 	addSubLogger("BTCN", neutrino.UseLogger)
 	addSubLogger("CNCT", contractcourt.UseLogger)
 	addSubLogger("SPHX", sphinx.UseLogger)
@@ -99,6 +98,7 @@ func init() {
 	addSubLogger("PRNF", peernotifier.UseLogger)
 	addSubLogger("CHFD", chanfunding.UseLogger)
 
+	addSubLogger(routing.Subsystem, routing.UseLogger)
 	addSubLogger(routerrpc.Subsystem, routerrpc.UseLogger)
 	addSubLogger(wtclientrpc.Subsystem, wtclientrpc.UseLogger)
 	addSubLogger(chanfitness.Subsystem, chanfitness.UseLogger)

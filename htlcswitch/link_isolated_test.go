@@ -139,6 +139,21 @@ func (l *linkTestContext) receiveRevAndAckAliceToBob() {
 func (l *linkTestContext) receiveCommitSigAliceToBob(expHtlcs int) {
 	l.t.Helper()
 
+	comSig := l.receiveCommitSigAlice(expHtlcs)
+
+	err := l.bobChannel.ReceiveNewCommitment(
+		comSig.CommitSig, comSig.HtlcSigs,
+	)
+	if err != nil {
+		l.t.Fatalf("bob failed receiving commitment: %v", err)
+	}
+}
+
+// receiveCommitSigAlice waits for Alice to send a CommitSig, signing expHtlcs
+// numbers of HTLCs.
+func (l *linkTestContext) receiveCommitSigAlice(expHtlcs int) *lnwire.CommitSig {
+	l.t.Helper()
+
 	var msg lnwire.Message
 	select {
 	case msg = <-l.aliceMsgs:
@@ -155,11 +170,8 @@ func (l *linkTestContext) receiveCommitSigAliceToBob(expHtlcs int) {
 		l.t.Fatalf("expected %d htlc sigs, got %d", expHtlcs,
 			len(comSig.HtlcSigs))
 	}
-	err := l.bobChannel.ReceiveNewCommitment(comSig.CommitSig,
-		comSig.HtlcSigs)
-	if err != nil {
-		l.t.Fatalf("bob failed receiving commitment: %v", err)
-	}
+
+	return comSig
 }
 
 // sendRevAndAckBobToAlice make Bob revoke his current commitment, then hand
@@ -240,5 +252,17 @@ func (l *linkTestContext) receiveFailAliceToBob() {
 	err := l.bobChannel.ReceiveFailHTLC(failMsg.ID, failMsg.Reason)
 	if err != nil {
 		l.t.Fatalf("unable to apply received fail htlc: %v", err)
+	}
+}
+
+// assertNoMsgFromAlice asserts that Alice hasn't sent a message. Before
+// calling, make sure that Alice has had the opportunity to send the message.
+func (l *linkTestContext) assertNoMsgFromAlice(timeout time.Duration) {
+	l.t.Helper()
+
+	select {
+	case msg := <-l.aliceMsgs:
+		l.t.Fatalf("unexpected message from Alice: %v", msg)
+	case <-time.After(timeout):
 	}
 }

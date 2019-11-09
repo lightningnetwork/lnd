@@ -4620,6 +4620,91 @@ func TestChannelLinkWaitForRevocation(t *testing.T) {
 	assertNoMsgFromAlice()
 }
 
+// TestChannelLinkNoEmptySig asserts that no empty commit sig message is sent
+// when the commitment txes are out of sync.
+func TestChannelLinkNoEmptySig(t *testing.T) {
+	t.Parallel()
+
+	const chanAmt = btcutil.SatoshiPerBitcoin * 5
+	const chanReserve = btcutil.SatoshiPerBitcoin * 1
+	aliceLink, bobChannel, batchTicker, start, cleanUp, _, err :=
+		newSingleLinkTestHarness(chanAmt, chanReserve)
+	if err != nil {
+		t.Fatalf("unable to create link: %v", err)
+	}
+	defer cleanUp()
+
+	if err := start(); err != nil {
+		t.Fatalf("unable to start test harness: %v", err)
+	}
+	defer aliceLink.Stop()
+
+	var (
+		coreLink  = aliceLink.(*channelLink)
+		aliceMsgs = coreLink.cfg.Peer.(*mockPeer).sentMsgs
+	)
+
+	ctx := linkTestContext{
+		t:          t,
+		aliceLink:  aliceLink,
+		aliceMsgs:  aliceMsgs,
+		bobChannel: bobChannel,
+	}
+
+	// Send htlc 1 from Alice to Bob.
+	htlc1, _ := generateHtlcAndInvoice(t, 0)
+	ctx.sendHtlcAliceToBob(0, htlc1)
+	ctx.receiveHtlcAliceToBob()
+
+	// Tick the batch ticker to trigger a commitsig from Alice->Bob.
+	select {
+	case batchTicker <- time.Now():
+	case <-time.After(5 * time.Second):
+		t.Fatalf("could not force commit sig")
+	}
+
+	// Receive a CommitSig from Alice covering the Add from above.
+	ctx.receiveCommitSigAliceToBob(1)
+
+	// Bob revokes previous commitment tx.
+	ctx.sendRevAndAckBobToAlice()
+
+	// Alice sends htlc 2 to Bob.
+	htlc2, _ := generateHtlcAndInvoice(t, 0)
+	ctx.sendHtlcAliceToBob(1, htlc2)
+	ctx.receiveHtlcAliceToBob()
+
+	// Tick the batch ticker to trigger a commitsig from Alice->Bob.
+	select {
+	case batchTicker <- time.Now():
+	case <-time.After(5 * time.Second):
+		t.Fatalf("could not force commit sig")
+	}
+
+	// Get the commit sig from Alice, but don't send it to Bob yet.
+	commitSigAlice := ctx.receiveCommitSigAlice(2)
+
+	// Bob adds htlc 1 to its remote commit tx.
+	ctx.sendCommitSigBobToAlice(1)
+
+	// Now send Bob the signature from Alice covering both htlcs.
+	err = bobChannel.ReceiveNewCommitment(
+		commitSigAlice.CommitSig, commitSigAlice.HtlcSigs,
+	)
+	if err != nil {
+		t.Fatalf("bob failed receiving commitment: %v", err)
+	}
+
+	// Both Alice and Bob revoke their previous commitment txes.
+	ctx.receiveRevAndAckAliceToBob()
+	ctx.sendRevAndAckBobToAlice()
+
+	// The commit txes are not in sync, but it is Bob's turn to send a new
+	// signature. We don't expect Alice to send out any message. This check
+	// allows some time for the log commit ticker to trigger for Alice.
+	ctx.assertNoMsgFromAlice(time.Second)
+}
+
 // TestChannelLinkBatchPreimageWrite asserts that a link will batch preimage
 // writes when just as it receives a CommitSig to lock in any Settles, and also
 // if the link is aware of any uncommitted preimages if the link is stopped,
@@ -5817,6 +5902,95 @@ func TestChannelLinkHoldInvoiceRestart(t *testing.T) {
 	}
 }
 
+// TestChannelLinkRevocationWindowRegular asserts that htlcs paying to a regular
+// invoice are settled even if the revocation window gets exhausted.
+func TestChannelLinkRevocationWindowRegular(t *testing.T) {
+	t.Parallel()
+
+	const (
+		chanAmt = btcutil.SatoshiPerBitcoin * 5
+	)
+
+	// We'll start by creating a new link with our chanAmt (5 BTC). We will
+	// only be testing Alice's behavior, so the reference to Bob's channel
+	// state is unnecessary.
+	aliceLink, bobChannel, _, start, cleanUp, _, err :=
+		newSingleLinkTestHarness(chanAmt, 0)
+	if err != nil {
+		t.Fatalf("unable to create link: %v", err)
+	}
+	defer cleanUp()
+
+	if err := start(); err != nil {
+		t.Fatalf("unable to start test harness: %v", err)
+	}
+	defer aliceLink.Stop()
+
+	var (
+		coreLink  = aliceLink.(*channelLink)
+		registry  = coreLink.cfg.Registry.(*mockInvoiceRegistry)
+		aliceMsgs = coreLink.cfg.Peer.(*mockPeer).sentMsgs
+	)
+
+	ctx := linkTestContext{
+		t:          t,
+		aliceLink:  aliceLink,
+		aliceMsgs:  aliceMsgs,
+		bobChannel: bobChannel,
+	}
+
+	registry.settleChan = make(chan lntypes.Hash)
+
+	htlc1, invoice1 := generateHtlcAndInvoice(t, 0)
+	htlc2, invoice2 := generateHtlcAndInvoice(t, 1)
+
+	// We must add the invoice to the registry, such that Alice
+	// expects this payment.
+	err = registry.AddInvoice(*invoice1, htlc1.PaymentHash)
+	if err != nil {
+		t.Fatalf("unable to add invoice to registry: %v", err)
+	}
+	err = registry.AddInvoice(*invoice2, htlc2.PaymentHash)
+	if err != nil {
+		t.Fatalf("unable to add invoice to registry: %v", err)
+	}
+
+	// Lock in htlc 1 on both sides.
+	ctx.sendHtlcBobToAlice(htlc1)
+	ctx.sendCommitSigBobToAlice(1)
+	ctx.receiveRevAndAckAliceToBob()
+	ctx.receiveCommitSigAliceToBob(1)
+	ctx.sendRevAndAckBobToAlice()
+
+	// We expect a call to the invoice registry to notify the arrival of the
+	// htlc.
+	select {
+	case <-registry.settleChan:
+	case <-time.After(5 * time.Second):
+		t.Fatal("expected invoice to be settled")
+	}
+
+	// Expect alice to send a settle and commitsig message to bob. Bob does
+	// not yet send the revocation.
+	ctx.receiveSettleAliceToBob()
+	ctx.receiveCommitSigAliceToBob(0)
+
+	// Pay invoice 2.
+	ctx.sendHtlcBobToAlice(htlc2)
+	ctx.sendCommitSigBobToAlice(2)
+	ctx.receiveRevAndAckAliceToBob()
+
+	// At this point, Alice cannot send a new commit sig to bob because the
+	// revocation window is exhausted.
+
+	// Bob sends revocation and signs commit with htlc1 settled.
+	ctx.sendRevAndAckBobToAlice()
+
+	// After the revocation, it is again possible for Alice to send a commit
+	// sig with htlc2.
+	ctx.receiveCommitSigAliceToBob(1)
+}
+
 // TestChannelLinkRevocationWindowHodl asserts that htlcs paying to a hodl
 // invoice are settled even if the revocation window gets exhausted.
 func TestChannelLinkRevocationWindowHodl(t *testing.T) {
@@ -5960,6 +6134,77 @@ func TestChannelLinkRevocationWindowHodl(t *testing.T) {
 		t.Fatalf("did not expect message %T", msg)
 	default:
 	}
+}
+
+// TestChannelLinkReceiveEmptySig tests the response of the link to receiving an
+// empty commit sig. This should be tolerated, but we shouldn't send out an
+// empty sig ourselves.
+func TestChannelLinkReceiveEmptySig(t *testing.T) {
+	t.Parallel()
+
+	const chanAmt = btcutil.SatoshiPerBitcoin * 5
+	const chanReserve = btcutil.SatoshiPerBitcoin * 1
+	aliceLink, bobChannel, batchTicker, start, cleanUp, _, err :=
+		newSingleLinkTestHarness(chanAmt, chanReserve)
+	if err != nil {
+		t.Fatalf("unable to create link: %v", err)
+	}
+	defer cleanUp()
+
+	if err := start(); err != nil {
+		t.Fatalf("unable to start test harness: %v", err)
+	}
+
+	var (
+		coreLink  = aliceLink.(*channelLink)
+		aliceMsgs = coreLink.cfg.Peer.(*mockPeer).sentMsgs
+	)
+
+	ctx := linkTestContext{
+		t:          t,
+		aliceLink:  aliceLink,
+		aliceMsgs:  aliceMsgs,
+		bobChannel: bobChannel,
+	}
+
+	htlc, _ := generateHtlcAndInvoice(t, 0)
+
+	// First, send an Add from Alice to Bob.
+	ctx.sendHtlcAliceToBob(0, htlc)
+	ctx.receiveHtlcAliceToBob()
+
+	// Tick the batch ticker to trigger a commitsig from Alice->Bob.
+	select {
+	case batchTicker <- time.Now():
+	case <-time.After(5 * time.Second):
+		t.Fatalf("could not force commit sig")
+	}
+
+	// Make Bob send a CommitSig. Since Bob hasn't received Alice's sig, he
+	// cannot add the htlc to his remote tx yet. The commit sig that we
+	// force Bob to send will be empty. Note that this normally does not
+	// happen, because the link (which is not present for Bob in this test)
+	// check whether Bob actually owes a sig first.
+	ctx.sendCommitSigBobToAlice(0)
+
+	// Receive a CommitSig from Alice covering the htlc from above.
+	ctx.receiveCommitSigAliceToBob(1)
+
+	// Wait for RevokeAndAck Alice->Bob. Even though Bob sent an empty
+	// commit sig, Alice still needs to revoke the previous commitment tx.
+	ctx.receiveRevAndAckAliceToBob()
+
+	// Send RevokeAndAck Bob->Alice to ack the added htlc.
+	ctx.sendRevAndAckBobToAlice()
+
+	// We received an empty commit sig, we accepted it, but there is nothing
+	// new to sign for us.
+
+	// No other messages are expected.
+	ctx.assertNoMsgFromAlice(time.Second)
+
+	// Stop the link
+	aliceLink.Stop()
 }
 
 // assertFailureCode asserts that an error is of type ForwardingError and that

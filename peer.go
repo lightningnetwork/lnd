@@ -190,21 +190,24 @@ type peer struct {
 
 	server *server
 
-	// localFeatures is the set of local features that we advertised to the
-	// remote node.
-	localFeatures *lnwire.RawFeatureVector
+	// features is the set of features that we advertised to the remote
+	// node.
+	features *lnwire.FeatureVector
+
+	// legacyFeatures is the set of features that we advertised to the remote
+	// node for backwards compatibility. Nodes that have not implemented
+	// flat featurs will still be able to read our feature bits from the
+	// legacy global field, but we will also advertise everything in the
+	// default features field.
+	legacyFeatures *lnwire.FeatureVector
 
 	// outgoingCltvRejectDelta defines the number of blocks before expiry of
 	// an htlc where we don't offer an htlc anymore.
 	outgoingCltvRejectDelta uint32
 
-	// remoteLocalFeatures is the local feature vector received from the
-	// peer during the connection handshake.
-	remoteLocalFeatures *lnwire.FeatureVector
-
-	// remoteGlobalFeatures is the global feature vector received from the
-	// peer during the connection handshake.
-	remoteGlobalFeatures *lnwire.FeatureVector
+	// remoteFeatures is the feature vector received from the peer during
+	// the connection handshake.
+	remoteFeatures *lnwire.FeatureVector
 
 	// failedChannels is a set that tracks channels we consider `failed`.
 	// This is a temporary measure until we have implemented real failure
@@ -234,7 +237,7 @@ var _ lnpeer.Peer = (*peer)(nil)
 // pointer to the main server.
 func newPeer(conn net.Conn, connReq *connmgr.ConnReq, server *server,
 	addr *lnwire.NetAddress, inbound bool,
-	localFeatures *lnwire.RawFeatureVector,
+	features, legacyFeatures *lnwire.FeatureVector,
 	chanActiveTimeout time.Duration,
 	outgoingCltvRejectDelta uint32) (
 	*peer, error) {
@@ -252,7 +255,8 @@ func newPeer(conn net.Conn, connReq *connmgr.ConnReq, server *server,
 
 		server: server,
 
-		localFeatures: localFeatures,
+		features:       features,
+		legacyFeatures: legacyFeatures,
 
 		outgoingCltvRejectDelta: outgoingCltvRejectDelta,
 
@@ -399,7 +403,7 @@ func (p *peer) initGossipSync() {
 
 	// If the remote peer knows of the new gossip queries feature, then
 	// we'll create a new gossipSyncer in the AuthenticatedGossiper for it.
-	case p.remoteLocalFeatures.HasFeature(lnwire.GossipQueriesOptional):
+	case p.remoteFeatures.HasFeature(lnwire.GossipQueriesOptional):
 		srvrLog.Infof("Negotiated chan series queries with %x",
 			p.pubKeyBytes[:])
 
@@ -2387,62 +2391,63 @@ func (p *peer) WipeChannel(chanPoint *wire.OutPoint) error {
 // handleInitMsg handles the incoming init message which contains global and
 // local features vectors. If feature vectors are incompatible then disconnect.
 func (p *peer) handleInitMsg(msg *lnwire.Init) error {
-	p.remoteLocalFeatures = lnwire.NewFeatureVector(
-		msg.LocalFeatures, lnwire.LocalFeatures,
-	)
-	p.remoteGlobalFeatures = lnwire.NewFeatureVector(
-		msg.GlobalFeatures, lnwire.GlobalFeatures,
+	// First, merge any features from the legacy global features field into
+	// those presented in the local features fields.
+	err := msg.Features.Merge(msg.GlobalFeatures)
+	if err != nil {
+		return fmt.Errorf("unable to merge legacy global featues: %v",
+			err)
+	}
+
+	// Then, finalize the remote feature vector providing the flatteneed
+	// feature bit namespace.
+	p.remoteFeatures = lnwire.NewFeatureVector(
+		msg.Features, lnwire.Features,
 	)
 
 	// Now that we have their features loaded, we'll ensure that they
 	// didn't set any required bits that we don't know of.
-	unknownLocalFeatures := p.remoteLocalFeatures.UnknownRequiredFeatures()
-	if len(unknownLocalFeatures) > 0 {
-		err := fmt.Errorf("Peer set unknown local feature bits: %v",
-			unknownLocalFeatures)
-		return err
-	}
-	unknownGlobalFeatures := p.remoteGlobalFeatures.UnknownRequiredFeatures()
-	if len(unknownGlobalFeatures) > 0 {
-		err := fmt.Errorf("Peer set unknown global feature bits: %v",
-			unknownGlobalFeatures)
+	unknownFeatures := p.remoteFeatures.UnknownRequiredFeatures()
+	if len(unknownFeatures) > 0 {
+		err := fmt.Errorf("peer set unknown feature bits: %v",
+			unknownFeatures)
 		return err
 	}
 
 	// Now that we know we understand their requirements, we'll check to
 	// see if they don't support anything that we deem to be mandatory.
 	switch {
-	case !p.remoteLocalFeatures.HasFeature(lnwire.DataLossProtectRequired):
+	case !p.remoteFeatures.HasFeature(lnwire.DataLossProtectRequired):
 		return fmt.Errorf("data loss protection required")
 	}
 
 	return nil
 }
 
-// LocalGlobalFeatures returns the set of global features that has been
-// advertised by the local node. This allows sub-systems that use this
-// interface to gate their behavior off the set of negotiated feature bits.
+// LocalFeatures returns the set of global features that has been advertised by
+// the local node. This allows sub-systems that use this interface to gate their
+// behavior off the set of negotiated feature bits.
 //
 // NOTE: Part of the lnpeer.Peer interface.
-func (p *peer) LocalGlobalFeatures() *lnwire.FeatureVector {
-	return p.server.globalFeatures
+func (p *peer) LocalFeatures() *lnwire.FeatureVector {
+	return p.features
 }
 
-// RemoteGlobalFeatures returns the set of global features that has been
-// advertised by the remote node. This allows sub-systems that use this
-// interface to gate their behavior off the set of negotiated feature bits.
+// RemoteFeatures returns the set of global features that has been advertised by
+// the remote node. This allows sub-systems that use this interface to gate
+// their behavior off the set of negotiated feature bits.
 //
 // NOTE: Part of the lnpeer.Peer interface.
-func (p *peer) RemoteGlobalFeatures() *lnwire.FeatureVector {
-	return p.remoteGlobalFeatures
+func (p *peer) RemoteFeatures() *lnwire.FeatureVector {
+	return p.remoteFeatures
 }
 
 // sendInitMsg sends init message to remote peer which contains our currently
 // supported local and global features.
 func (p *peer) sendInitMsg() error {
 	msg := lnwire.NewInitMessage(
-		p.server.globalFeatures.RawFeatureVector,
-		p.localFeatures,
+		p.legacyFeatures.RawFeatureVector,
+		p.features.RawFeatureVector,
 	)
 
 	return p.writeMessage(msg)

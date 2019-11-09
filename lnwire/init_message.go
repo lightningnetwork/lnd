@@ -7,20 +7,26 @@ import "io"
 // diagnosis where features are incompatible. Each node MUST wait to receive
 // init before sending any other messages.
 type Init struct {
-	// GlobalFeatures is feature vector which affects HTLCs and thus are
-	// also advertised to other nodes.
+	// GlobalFeatures is a legacy feature vector used for backwards
+	// compatibility with older nodes. Any features defined here should be
+	// merged with those presented in Features.
 	GlobalFeatures *RawFeatureVector
 
-	// LocalFeatures is feature vector which only affect the protocol
-	// between two nodes.
-	LocalFeatures *RawFeatureVector
+	// Features is a feature vector containing a the features supported by
+	// the remote node.
+	//
+	// NOTE: Older nodes may place some features in GlobalFeatures, but all
+	// new features are to be added in Features. When handling an Init
+	// message, any GlobalFeatures should be merged into the unified
+	// Features field.
+	Features *RawFeatureVector
 }
 
 // NewInitMessage creates new instance of init message object.
-func NewInitMessage(gf *RawFeatureVector, lf *RawFeatureVector) *Init {
+func NewInitMessage(gf *RawFeatureVector, f *RawFeatureVector) *Init {
 	return &Init{
 		GlobalFeatures: gf,
-		LocalFeatures:  lf,
+		Features:       f,
 	}
 }
 
@@ -35,7 +41,7 @@ var _ Message = (*Init)(nil)
 func (msg *Init) Decode(r io.Reader, pver uint32) error {
 	return ReadElements(r,
 		&msg.GlobalFeatures,
-		&msg.LocalFeatures,
+		&msg.Features,
 	)
 }
 
@@ -46,7 +52,7 @@ func (msg *Init) Decode(r io.Reader, pver uint32) error {
 func (msg *Init) Encode(w io.Writer, pver uint32) error {
 	return WriteElements(w,
 		msg.GlobalFeatures,
-		msg.LocalFeatures,
+		msg.Features,
 	)
 }
 

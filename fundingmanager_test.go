@@ -184,11 +184,11 @@ func (n *testNode) QuitSignal() <-chan struct{} {
 	return n.shutdownChannel
 }
 
-func (n *testNode) LocalGlobalFeatures() *lnwire.FeatureVector {
+func (n *testNode) LocalFeatures() *lnwire.FeatureVector {
 	return lnwire.NewFeatureVector(nil, nil)
 }
 
-func (n *testNode) RemoteGlobalFeatures() *lnwire.FeatureVector {
+func (n *testNode) RemoteFeatures() *lnwire.FeatureVector {
 	return lnwire.NewFeatureVector(nil, nil)
 }
 

@@ -157,8 +157,9 @@ func (d *databaseChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 							IP: bytes.Repeat([]byte("a"), 16),
 						},
 					},
-					Features: lnwire.NewFeatureVector(nil,
-						lnwire.GlobalFeatures),
+					Features: lnwire.NewFeatureVector(
+						nil, lnwire.Features,
+					),
 					AuthSigBytes: testSig.Serialize(),
 				}
 				graphNode.AddPubKey(pub)
@@ -183,7 +184,9 @@ func (d *databaseChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 					IP: bytes.Repeat([]byte("a"), 16),
 				},
 			},
-			Features:     lnwire.NewFeatureVector(nil, lnwire.GlobalFeatures),
+			Features: lnwire.NewFeatureVector(
+				nil, lnwire.Features,
+			),
 			AuthSigBytes: testSig.Serialize(),
 		}
 		dbNode.AddPubKey(nodeKey)
@@ -287,7 +290,9 @@ func (d *databaseChannelGraph) addRandNode() (*btcec.PublicKey, error) {
 				IP: bytes.Repeat([]byte("a"), 16),
 			},
 		},
-		Features:     lnwire.NewFeatureVector(nil, lnwire.GlobalFeatures),
+		Features: lnwire.NewFeatureVector(
+			nil, lnwire.Features,
+		),
 		AuthSigBytes: testSig.Serialize(),
 	}
 	dbNode.AddPubKey(nodeKey)

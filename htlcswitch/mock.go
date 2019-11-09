@@ -607,11 +607,11 @@ func (s *mockServer) WipeChannel(*wire.OutPoint) error {
 	return nil
 }
 
-func (s *mockServer) LocalGlobalFeatures() *lnwire.FeatureVector {
+func (s *mockServer) LocalFeatures() *lnwire.FeatureVector {
 	return nil
 }
 
-func (s *mockServer) RemoteGlobalFeatures() *lnwire.FeatureVector {
+func (s *mockServer) RemoteFeatures() *lnwire.FeatureVector {
 	return nil
 }
 

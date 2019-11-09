@@ -1205,10 +1205,10 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 	// negotiated the new tweakless commitment format. This is only the
 	// case if *both* us and the remote peer are signaling the proper
 	// feature bit.
-	localTweakless := fmsg.peer.LocalGlobalFeatures().HasFeature(
+	localTweakless := fmsg.peer.LocalFeatures().HasFeature(
 		lnwire.StaticRemoteKeyOptional,
 	)
-	remoteTweakless := fmsg.peer.RemoteGlobalFeatures().HasFeature(
+	remoteTweakless := fmsg.peer.RemoteFeatures().HasFeature(
 		lnwire.StaticRemoteKeyOptional,
 	)
 	tweaklessCommitment := localTweakless && remoteTweakless
@@ -2780,10 +2780,10 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 	// negotiated the new tweakless commitment format. This is only the
 	// case if *both* us and the remote peer are signaling the proper
 	// feature bit.
-	localTweakless := msg.peer.LocalGlobalFeatures().HasFeature(
+	localTweakless := msg.peer.LocalFeatures().HasFeature(
 		lnwire.StaticRemoteKeyOptional,
 	)
-	remoteTweakless := msg.peer.RemoteGlobalFeatures().HasFeature(
+	remoteTweakless := msg.peer.RemoteFeatures().HasFeature(
 		lnwire.StaticRemoteKeyOptional,
 	)
 	tweaklessCommitment := localTweakless && remoteTweakless

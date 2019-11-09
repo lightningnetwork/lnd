@@ -1401,6 +1401,86 @@ func create(ctx *cli.Context) error {
 	client, cleanUp := getWalletUnlockerClient(ctx)
 	defer cleanUp()
 
+	var (
+		chanBackups *lnrpc.ChanBackupSnapshot
+
+		// We use var restoreSCB to track if we will be including an SCB
+		// recovery in the init wallet request.
+		restoreSCB = false
+	)
+
+	backups, err := parseChanBackups(ctx)
+
+	// We'll check to see if the user provided any static channel backups (SCB),
+	// if so, we will warn the user that SCB recovery closes all open channels
+	// and ask them to confirm their intention.
+	// If the user agrees, we'll add the SCB recovery onto the final init wallet
+	// request.
+	switch {
+	// parseChanBackups returns an errMissingBackup error (which we ignore) if
+	// the user did not request a SCB recovery.
+	case err == errMissingChanBackup:
+
+	// Passed an invalid channel backup file.
+	case err != nil:
+		return fmt.Errorf("unable to parse chan backups: %v", err)
+
+	// We have an SCB recovery option with a valid backup file.
+	default:
+
+	warningLoop:
+		for {
+
+			fmt.Println()
+			fmt.Printf("WARNING: You are attempting to restore from a " +
+				"static channel backup (SCB) file.\nThis action will CLOSE " +
+				"all currently open channels, and you will pay on-chain fees." +
+				"\n\nAre you sure you want to recover funds from a" +
+				" static channel backup? (Enter y/n): ")
+
+			reader := bufio.NewReader(os.Stdin)
+			answer, err := reader.ReadString('\n')
+			if err != nil {
+				return err
+			}
+
+			answer = strings.TrimSpace(answer)
+			answer = strings.ToLower(answer)
+
+			switch answer {
+			case "y":
+				restoreSCB = true
+				break warningLoop
+			case "n":
+				restoreSCB = false
+				break warningLoop
+			}
+		}
+	}
+
+	// Proceed with SCB recovery.
+	if restoreSCB {
+		fmt.Println("Static Channel Backup (SCB) recovery selected!")
+		if backups != nil {
+			switch {
+			case backups.GetChanBackups() != nil:
+				singleBackup := backups.GetChanBackups()
+				chanBackups = &lnrpc.ChanBackupSnapshot{
+					SingleChanBackups: singleBackup,
+				}
+
+			case backups.GetMultiChanBackup() != nil:
+				multiBackup := backups.GetMultiChanBackup()
+				chanBackups = &lnrpc.ChanBackupSnapshot{
+					MultiChanBackup: &lnrpc.MultiChanBackup{
+						MultiChanBackup: multiBackup,
+					},
+				}
+			}
+		}
+
+	}
+
 	walletPassword, err := capturePassword(
 		"Input wallet password: ", false, walletunlocker.ValidatePassword,
 	)
@@ -1568,34 +1648,6 @@ mnemonicCheck:
 
 	fmt.Println("\n!!!YOU MUST WRITE DOWN THIS SEED TO BE ABLE TO " +
 		"RESTORE THE WALLET!!!")
-
-	// We'll also check to see if they provided any static channel backups,
-	// if so, then we'll also tack these onto the final init wallet request.
-	// We can ignore the errMissingChanBackup error as it's an optional
-	// field.
-	backups, err := parseChanBackups(ctx)
-	if err != nil && err != errMissingChanBackup {
-		return fmt.Errorf("unable to parse chan backups: %v", err)
-	}
-
-	var chanBackups *lnrpc.ChanBackupSnapshot
-	if backups != nil {
-		switch {
-		case backups.GetChanBackups() != nil:
-			singleBackup := backups.GetChanBackups()
-			chanBackups = &lnrpc.ChanBackupSnapshot{
-				SingleChanBackups: singleBackup,
-			}
-
-		case backups.GetMultiChanBackup() != nil:
-			multiBackup := backups.GetMultiChanBackup()
-			chanBackups = &lnrpc.ChanBackupSnapshot{
-				MultiChanBackup: &lnrpc.MultiChanBackup{
-					MultiChanBackup: multiBackup,
-				},
-			}
-		}
-	}
 
 	// With either the user's prior cipher seed, or a newly generated one,
 	// we'll go ahead and initialize the wallet.
@@ -2404,7 +2456,7 @@ var sendToRouteCommand = cli.Command{
 	Send a payment over Lightning using a specific route. One must specify
 	the route to attempt and the payment hash. This command can even
 	be chained with the response to queryroutes or buildroute. This command
-	can be used to implement channel rebalancing by crafting a self-route, 
+	can be used to implement channel rebalancing by crafting a self-route,
 	or even atomic swaps using a self-route that crosses multiple chains.
 
 	There are three ways to specify a route:

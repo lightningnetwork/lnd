@@ -124,28 +124,6 @@ func NewPayloadFromReader(r io.Reader) (*Payload, error) {
 
 	parsedTypes, err := tlvStream.DecodeWithParsedTypes(r)
 	if err != nil {
-		// Promote any required type failures into ErrInvalidPayload.
-		if e, required := err.(tlv.ErrUnknownRequiredType); required {
-			// If the parser returned an unknown required type
-			// failure, we'll first check that the payload is
-			// properly formed according to our known set of
-			// constraints. If an error is discovered, this
-			// overrides the required type failure.
-			nextHop := lnwire.NewShortChanIDFromInt(cid)
-			err = ValidateParsedPayloadTypes(parsedTypes, nextHop)
-			if err != nil {
-				return nil, err
-			}
-
-			// Otherwise the known constraints were applied
-			// successfully, report the invalid type failure
-			// returned by the parser.
-			return nil, ErrInvalidPayload{
-				Type:      tlv.Type(e),
-				Violation: RequiredViolation,
-				FinalHop:  nextHop == Exit,
-			}
-		}
 		return nil, err
 	}
 
@@ -155,6 +133,16 @@ func NewPayloadFromReader(r io.Reader) (*Payload, error) {
 	err = ValidateParsedPayloadTypes(parsedTypes, nextHop)
 	if err != nil {
 		return nil, err
+	}
+
+	// Check for violation of the rules for mandatory fields.
+	violatingType := getMinRequiredViolation(parsedTypes)
+	if violatingType != nil {
+		return nil, ErrInvalidPayload{
+			Type:      *violatingType,
+			Violation: RequiredViolation,
+			FinalHop:  nextHop == Exit,
+		}
 	}
 
 	// If no MPP field was parsed, set the MPP field on the resulting
@@ -238,4 +226,33 @@ func ValidateParsedPayloadTypes(parsedTypes tlv.TypeSet,
 // onion payload.
 func (h *Payload) MultiPath() *record.MPP {
 	return h.MPP
+}
+
+// getMinRequiredViolation checks for unrecognized required (even) fields in the
+// standard range and returns the lowest required type. Always returning the
+// lowest required type allows a failure message to be deterministic.
+func getMinRequiredViolation(set tlv.TypeSet) *tlv.Type {
+	var (
+		requiredViolation        bool
+		minRequiredViolationType tlv.Type
+	)
+	for t, known := range set {
+		// If a type is even but not known to us, we cannot process the
+		// payload. We are required to understand a field that we don't
+		// support.
+		if known || t%2 != 0 {
+			continue
+		}
+
+		if !requiredViolation || t < minRequiredViolationType {
+			minRequiredViolationType = t
+		}
+		requiredViolation = true
+	}
+
+	if requiredViolation {
+		return &minRequiredViolationType
+	}
+
+	return nil
 }

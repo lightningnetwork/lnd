@@ -204,26 +204,6 @@ var tlvDecodingFailureTests = []struct {
 		expErr: io.ErrUnexpectedEOF,
 	},
 	{
-		name:   "unknown even type",
-		bytes:  []byte{0x12, 0x00},
-		expErr: tlv.ErrUnknownRequiredType(0x12),
-	},
-	{
-		name:   "unknown even type",
-		bytes:  []byte{0xfd, 0x01, 0x02, 0x00},
-		expErr: tlv.ErrUnknownRequiredType(0x102),
-	},
-	{
-		name:   "unknown even type",
-		bytes:  []byte{0xfe, 0x01, 0x00, 0x00, 0x02, 0x00},
-		expErr: tlv.ErrUnknownRequiredType(0x01000002),
-	},
-	{
-		name:   "unknown even type",
-		bytes:  []byte{0xff, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00},
-		expErr: tlv.ErrUnknownRequiredType(0x0100000000000002),
-	},
-	{
 		name:   "greater than encoding length for n1's amt",
 		bytes:  []byte{0x01, 0x09, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff},
 		expErr: tlv.NewTypeForDecodingErr(new(uint64), "uint64", 9, 8),
@@ -341,12 +321,6 @@ var tlvDecodingFailureTests = []struct {
 		skipN2: true,
 	},
 	{
-		name:   "unknown required type or n1",
-		bytes:  []byte{0x00, 0x00},
-		expErr: tlv.ErrUnknownRequiredType(0x00),
-		skipN2: true,
-	},
-	{
 		name:   "less than encoding length for n1's cltvDelta",
 		bytes:  []byte{0xfd, 0x00, 0x0fe, 0x00},
 		expErr: tlv.NewTypeForDecodingErr(new(uint16), "uint16", 0, 2),
@@ -362,12 +336,6 @@ var tlvDecodingFailureTests = []struct {
 		name:   "greater than encoding length for n1's cltvDelta",
 		bytes:  []byte{0xfd, 0x00, 0xfe, 0x03, 0x01, 0x01, 0x01},
 		expErr: tlv.NewTypeForDecodingErr(new(uint16), "uint16", 3, 2),
-		skipN2: true,
-	},
-	{
-		name:   "unknown even field for n1's namespace",
-		bytes:  []byte{0x0a, 0x00},
-		expErr: tlv.ErrUnknownRequiredType(0x0a),
 		skipN2: true,
 	},
 	{

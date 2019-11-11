@@ -29,6 +29,12 @@ const (
 	RequiredViolation
 )
 
+const (
+	// customTypeStart is the start of the custom tlv type range as defined
+	// in BOLT 01.
+	customTypeStart = 65536
+)
+
 // String returns a human-readable description of the violation as a verb.
 func (v PayloadViolation) String() string {
 	switch v {
@@ -240,7 +246,10 @@ func getMinRequiredViolation(set tlv.TypeSet) *tlv.Type {
 		// If a type is even but not known to us, we cannot process the
 		// payload. We are required to understand a field that we don't
 		// support.
-		if known || t%2 != 0 {
+		//
+		// We always accept custom fields, because a higher level
+		// application may understand them.
+		if known || t%2 != 0 || t >= customTypeStart {
 			continue
 		}
 

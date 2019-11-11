@@ -725,9 +725,17 @@
           },
           {
             "name": "amt",
-            "description": "/ The amount to send expressed in satoshis",
+            "description": "*\nThe amount to send expressed in satoshis.\n\nThe fields amt and amt_msat are mutually exclusive.",
             "in": "path",
             "required": true,
+            "type": "string",
+            "format": "int64"
+          },
+          {
+            "name": "amt_msat",
+            "description": "*\nThe amount to send expressed in millisatoshis.\n\nThe fields amt and amt_msat are mutually exclusive.",
+            "in": "query",
+            "required": false,
             "type": "string",
             "format": "int64"
           },
@@ -741,7 +749,15 @@
           },
           {
             "name": "fee_limit.fixed",
-            "description": "/ The fee limit expressed as a fixed amount of satoshis.",
+            "description": "*\nThe fee limit expressed as a fixed amount of satoshis.\n\nThe fields fixed and fixed_msat are mutually exclusive.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "int64"
+          },
+          {
+            "name": "fee_limit.fixed_msat",
+            "description": "*\nThe fee limit expressed as a fixed amount of millisatoshis.\n\nThe fields fixed and fixed_msat are mutually exclusive.",
             "in": "query",
             "required": false,
             "type": "string",
@@ -2217,7 +2233,12 @@
         "fixed": {
           "type": "string",
           "format": "int64",
-          "description": "/ The fee limit expressed as a fixed amount of satoshis."
+          "description": "*\nThe fee limit expressed as a fixed amount of satoshis.\n\nThe fields fixed and fixed_msat are mutually exclusive."
+        },
+        "fixed_msat": {
+          "type": "string",
+          "format": "int64",
+          "description": "*\nThe fee limit expressed as a fixed amount of millisatoshis.\n\nThe fields fixed and fixed_msat are mutually exclusive."
         },
         "percent": {
           "type": "string",
@@ -3599,7 +3620,12 @@
         "amt": {
           "type": "string",
           "format": "int64",
-          "description": "/ Number of satoshis to send."
+          "description": "*\nThe amount to send expressed in satoshis.\n\nThe fields amt and amt_msat are mutually exclusive."
+        },
+        "amt_msat": {
+          "type": "string",
+          "format": "int64",
+          "description": "*\nThe amount to send expressed in millisatoshis.\n\nThe fields amt and amt_msat are mutually exclusive."
         },
         "payment_hash": {
           "type": "string",

@@ -30,10 +30,14 @@ type ForwardingError struct {
 // returned.
 func (f *ForwardingError) Error() string {
 	if f.ExtraMsg == "" {
-		return fmt.Sprintf("%v", f.FailureMessage)
+		return fmt.Sprintf(
+			"%v@%v", f.FailureMessage, f.FailureSourceIdx,
+		)
 	}
 
-	return fmt.Sprintf("%v: %v", f.FailureMessage, f.ExtraMsg)
+	return fmt.Sprintf(
+		"%v@%v: %v", f.FailureMessage, f.FailureSourceIdx, f.ExtraMsg,
+	)
 }
 
 // ErrorDecrypter is an interface that is used to decrypt the onion encrypted

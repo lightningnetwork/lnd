@@ -63,8 +63,12 @@ bitcoin into.
 # Init bitcoin network env variable:
 $ export NETWORK="simnet" 
 
+# Create persistent volumes for alice and bob.
+docker volume create simnet_lnd_alice
+docker volume create simnet_lnd_bob
+
 # Run the "Alice" container and log into it:
-$ docker-compose run -d --name alice lnd_btc
+$ docker-compose run -d --name alice --volume simnet_lnd_alice:/root/.lnd lnd_btc
 $ docker exec -i -t alice bash
 
 # Generate a new backward compatible nested p2sh address for Alice:
@@ -90,7 +94,7 @@ Connect `Bob` node to `Alice` node.
 
 ```bash
 # Run "Bob" node and log into it:
-$ docker-compose run -d --name bob lnd_btc
+$ docker-compose run -d --name bob --volume simnet_lnd_bob:/root/.lnd lnd_btc
 $ docker exec -i -t bob bash
 
 # Get the identity pubkey of "Bob" node:

@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"fmt"
 	"io"
+	"sync"
 
 	"github.com/coreos/bbolt"
 
@@ -47,7 +48,8 @@ var (
 type RootKeyStorage struct {
 	*bbolt.DB
 
-	encKey *snacl.SecretKey
+	encKeyMtx sync.RWMutex
+	encKey    *snacl.SecretKey
 }
 
 // NewRootKeyStorage creates a RootKeyStorage instance.
@@ -63,12 +65,15 @@ func NewRootKeyStorage(db *bbolt.DB) (*RootKeyStorage, error) {
 	}
 
 	// Return the DB wrapped in a RootKeyStorage object.
-	return &RootKeyStorage{db, nil}, nil
+	return &RootKeyStorage{DB: db, encKey: nil}, nil
 }
 
 // CreateUnlock sets an encryption key if one is not already set, otherwise it
 // checks if the password is correct for the stored encryption key.
 func (r *RootKeyStorage) CreateUnlock(password *[]byte) error {
+	r.encKeyMtx.Lock()
+	defer r.encKeyMtx.Unlock()
+
 	// Check if we've already unlocked the store; return an error if so.
 	if r.encKey != nil {
 		return ErrAlreadyUnlocked
@@ -119,6 +124,9 @@ func (r *RootKeyStorage) CreateUnlock(password *[]byte) error {
 
 // Get implements the Get method for the bakery.RootKeyStorage interface.
 func (r *RootKeyStorage) Get(_ context.Context, id []byte) ([]byte, error) {
+	r.encKeyMtx.RLock()
+	defer r.encKeyMtx.RUnlock()
+
 	if r.encKey == nil {
 		return nil, ErrStoreLocked
 	}
@@ -150,6 +158,9 @@ func (r *RootKeyStorage) Get(_ context.Context, id []byte) ([]byte, error) {
 // interface.
 // TODO(aakselrod): Add support for key rotation.
 func (r *RootKeyStorage) RootKey(_ context.Context) ([]byte, []byte, error) {
+	r.encKeyMtx.RLock()
+	defer r.encKeyMtx.RUnlock()
+
 	if r.encKey == nil {
 		return nil, nil, ErrStoreLocked
 	}
@@ -195,6 +206,9 @@ func (r *RootKeyStorage) RootKey(_ context.Context) ([]byte, []byte, error) {
 // Close closes the underlying database and zeroes the encryption key stored
 // in memory.
 func (r *RootKeyStorage) Close() error {
+	r.encKeyMtx.Lock()
+	defer r.encKeyMtx.Unlock()
+
 	if r.encKey != nil {
 		r.encKey.Zero()
 	}

@@ -1248,8 +1248,14 @@ func TestChannelLinkMultiHopUnknownNextHop(t *testing.T) {
 		totalTimelock).Wait(30 * time.Second)
 	if err == nil {
 		t.Fatal("error haven't been received")
-	} else if err.Error() != lnwire.CodeUnknownNextPeer.String() {
-		t.Fatalf("wrong error have been received: %v", err)
+	}
+	fErr, ok := err.(*ForwardingError)
+	if !ok {
+		t.Fatalf("expected ForwardingError")
+	}
+	if _, ok = fErr.FailureMessage.(*lnwire.FailUnknownNextPeer); !ok {
+		t.Fatalf("wrong error has been received: %T",
+			fErr.FailureMessage)
 	}
 
 	// Wait for Alice to receive the revocation.

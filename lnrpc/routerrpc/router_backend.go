@@ -136,7 +136,7 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 	}
 
 	// Unmarshall restrictions from request.
-	feeLimit := calculateFeeLimit(in.FeeLimit, amtMSat)
+	feeLimit := lnrpc.CalculateFeeLimit(in.FeeLimit, amtMSat)
 
 	ignoredNodes := make(map[route.Vertex]struct{})
 	for _, ignorePubKey := range in.IgnoredNodes {
@@ -306,27 +306,6 @@ func (r *RouterBackend) rpcEdgeToPair(e *lnrpc.EdgeLocator) (
 	}
 
 	return pair, nil
-}
-
-// calculateFeeLimit returns the fee limit in millisatoshis. If a percentage
-// based fee limit has been requested, we'll factor in the ratio provided with
-// the amount of the payment.
-func calculateFeeLimit(feeLimit *lnrpc.FeeLimit,
-	amount lnwire.MilliSatoshi) lnwire.MilliSatoshi {
-
-	switch feeLimit.GetLimit().(type) {
-	case *lnrpc.FeeLimit_Fixed:
-		return lnwire.NewMSatFromSatoshis(
-			btcutil.Amount(feeLimit.GetFixed()),
-		)
-	case *lnrpc.FeeLimit_Percent:
-		return amount * lnwire.MilliSatoshi(feeLimit.GetPercent()) / 100
-	default:
-		// If a fee limit was not specified, we'll use the payment's
-		// amount as an upper bound in order to avoid payment attempts
-		// from incurring fees higher than the payment amount itself.
-		return amount
-	}
 }
 
 // MarshallRoute marshalls an internal route to an rpc route struct.

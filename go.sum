@@ -134,6 +134,8 @@ github.com/lightninglabs/gozmq v0.0.0-20190710231225-cea2a031735d h1:tt8hwvxl6fk
 github.com/lightninglabs/gozmq v0.0.0-20190710231225-cea2a031735d/go.mod h1:vxmQPeIQxPf6Jf9rM8R+B4rKBqLA2AjttNxkFBL2Plk=
 github.com/lightninglabs/neutrino v0.10.0 h1:yWVy2cOCCXbKFdpYCE9vD1fWRJDd9FtGXhUws4l9RkU=
 github.com/lightninglabs/neutrino v0.10.0/go.mod h1:C3KhCMk1Mcx3j8v0qRVWM1Ow6rIJSvSPnUAq00ZNAfk=
+github.com/lightninglabs/neutrino v0.10.1-0.20191111074637-d9b036bf675c h1:FDuM1xfX51eK7LLeW6WCndeViiqLEKLnRL4P2ak1J/Q=
+github.com/lightninglabs/neutrino v0.10.1-0.20191111074637-d9b036bf675c/go.mod h1:C3KhCMk1Mcx3j8v0qRVWM1Ow6rIJSvSPnUAq00ZNAfk=
 github.com/lightningnetwork/lightning-onion v0.0.0-20190909101754-850081b08b6a h1:GoWPN4i4jTKRxhVNh9a2vvBBO1Y2seiJB+SopUYoKyo=
 github.com/lightningnetwork/lightning-onion v0.0.0-20190909101754-850081b08b6a/go.mod h1:rigfi6Af/KqsF7Za0hOgcyq2PNH4AN70AaMRxcJkff4=
 github.com/ltcsuite/ltcd v0.0.0-20190101042124-f37f8bf35796 h1:sjOGyegMIhvgfq5oaue6Td+hxZuf3tDC8lAPrFldqFw=

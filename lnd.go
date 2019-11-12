@@ -116,6 +116,9 @@ type rpcListeners func() ([]net.Listener, func(), []grpc.ServerOption, error)
 // created in the top-level scope of a main method aren't executed if os.Exit()
 // is called.
 func Main(lisCfg ListenerCfg) error {
+	// Hook interceptor for os signals.
+	signal.Intercept()
+
 	// Load the configuration, and parse any command line options. This
 	// function will also set up logging properly.
 	loadedConfig, err := loadConfig()

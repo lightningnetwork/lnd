@@ -237,14 +237,17 @@ func TestHtlcTimeoutResolver(t *testing.T) {
 			},
 		}
 
-		resolver := &htlcTimeoutResolver{
-			ResolverKit: ResolverKit{
-				ChannelArbitratorConfig: chainCfg,
-				Checkpoint: func(_ ContractResolver) error {
-					checkPointChan <- struct{}{}
-					return nil
-				},
+		cfg := ResolverConfig{
+			ChannelArbitratorConfig: chainCfg,
+			Checkpoint: func(_ ContractResolver) error {
+				checkPointChan <- struct{}{}
+				return nil
 			},
+		}
+		resolver := &htlcTimeoutResolver{
+			contractResolverKit: *newContractResolverKit(
+				cfg,
+			),
 		}
 		resolver.htlcResolution.SweepSignDesc = *fakeSignDesc
 

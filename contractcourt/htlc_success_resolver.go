@@ -52,7 +52,22 @@ type htlcSuccessResolver struct {
 	// account any fees that may have to be paid if it goes on chain.
 	htlcAmt lnwire.MilliSatoshi
 
-	ResolverKit
+	contractResolverKit
+}
+
+// newSuccessResolver instanties a new htlc success resolver.
+func newSuccessResolver(res lnwallet.IncomingHtlcResolution,
+	broadcastHeight uint32, payHash lntypes.Hash,
+	htlcAmt lnwire.MilliSatoshi,
+	resCfg ResolverConfig) *htlcSuccessResolver {
+
+	return &htlcSuccessResolver{
+		contractResolverKit: *newContractResolverKit(resCfg),
+		htlcResolution:      res,
+		broadcastHeight:     broadcastHeight,
+		payHash:             payHash,
+		htlcAmt:             htlcAmt,
+	}
 }
 
 // ResolverKey returns an identifier which should be globally unique for this
@@ -173,7 +188,7 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 				return nil, errResolverShuttingDown
 			}
 
-		case <-h.Quit:
+		case <-h.quit:
 			return nil, errResolverShuttingDown
 		}
 
@@ -238,7 +253,7 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 			return nil, errResolverShuttingDown
 		}
 
-	case <-h.Quit:
+	case <-h.quit:
 		return nil, errResolverShuttingDown
 	}
 
@@ -251,7 +266,7 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 //
 // NOTE: Part of the ContractResolver interface.
 func (h *htlcSuccessResolver) Stop() {
-	close(h.Quit)
+	close(h.quit)
 }
 
 // IsResolved returns true if the stored state in the resolve is fully
@@ -290,41 +305,37 @@ func (h *htlcSuccessResolver) Encode(w io.Writer) error {
 	return nil
 }
 
-// Decode attempts to decode an encoded ContractResolver from the passed Reader
-// instance, returning an active ContractResolver instance.
-//
-// NOTE: Part of the ContractResolver interface.
-func (h *htlcSuccessResolver) Decode(r io.Reader) error {
+// newSuccessResolverFromReader attempts to decode an encoded ContractResolver
+// from the passed Reader instance, returning an active ContractResolver
+// instance.
+func newSuccessResolverFromReader(r io.Reader, resCfg ResolverConfig) (
+	*htlcSuccessResolver, error) {
+
+	h := &htlcSuccessResolver{
+		contractResolverKit: *newContractResolverKit(resCfg),
+	}
+
 	// First we'll decode our inner HTLC resolution.
 	if err := decodeIncomingResolution(r, &h.htlcResolution); err != nil {
-		return err
+		return nil, err
 	}
 
 	// Next, we'll read all the fields that are specified to the contract
 	// resolver.
 	if err := binary.Read(r, endian, &h.outputIncubating); err != nil {
-		return err
+		return nil, err
 	}
 	if err := binary.Read(r, endian, &h.resolved); err != nil {
-		return err
+		return nil, err
 	}
 	if err := binary.Read(r, endian, &h.broadcastHeight); err != nil {
-		return err
+		return nil, err
 	}
 	if _, err := io.ReadFull(r, h.payHash[:]); err != nil {
-		return err
+		return nil, err
 	}
 
-	return nil
-}
-
-// AttachResolverKit should be called once a resolved is successfully decoded
-// from its stored format. This struct delivers a generic tool kit that
-// resolvers need to complete their duty.
-//
-// NOTE: Part of the ContractResolver interface.
-func (h *htlcSuccessResolver) AttachResolverKit(r ResolverKit) {
-	h.ResolverKit = r
+	return h, nil
 }
 
 // A compile time assertion to ensure htlcSuccessResolver meets the

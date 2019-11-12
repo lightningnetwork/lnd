@@ -48,7 +48,22 @@ type htlcTimeoutResolver struct {
 	// account any fees that may have to be paid if it goes on chain.
 	htlcAmt lnwire.MilliSatoshi
 
-	ResolverKit
+	contractResolverKit
+}
+
+// newTimeoutResolver instantiates a new timeout htlc resolver.
+func newTimeoutResolver(res lnwallet.OutgoingHtlcResolution,
+	broadcastHeight uint32, htlcIndex uint64,
+	htlcAmt lnwire.MilliSatoshi,
+	resCfg ResolverConfig) *htlcTimeoutResolver {
+
+	return &htlcTimeoutResolver{
+		contractResolverKit: *newContractResolverKit(resCfg),
+		htlcResolution:      res,
+		broadcastHeight:     broadcastHeight,
+		htlcIndex:           htlcIndex,
+		htlcAmt:             htlcAmt,
+	}
 }
 
 // ResolverKey returns an identifier which should be globally unique for this
@@ -274,7 +289,7 @@ func (h *htlcTimeoutResolver) Resolve() (ContractResolver, error) {
 				return errResolverShuttingDown
 			}
 
-		case <-h.Quit:
+		case <-h.quit:
 			return errResolverShuttingDown
 		}
 
@@ -312,7 +327,7 @@ func (h *htlcTimeoutResolver) Resolve() (ContractResolver, error) {
 			return nil, errResolverShuttingDown
 		}
 
-	case <-h.Quit:
+	case <-h.quit:
 		return nil, errResolverShuttingDown
 	}
 
@@ -365,7 +380,7 @@ func (h *htlcTimeoutResolver) Resolve() (ContractResolver, error) {
 //
 // NOTE: Part of the ContractResolver interface.
 func (h *htlcTimeoutResolver) Stop() {
-	close(h.Quit)
+	close(h.quit)
 }
 
 // IsResolved returns true if the stored state in the resolve is fully
@@ -406,43 +421,39 @@ func (h *htlcTimeoutResolver) Encode(w io.Writer) error {
 	return nil
 }
 
-// Decode attempts to decode an encoded ContractResolver from the passed Reader
-// instance, returning an active ContractResolver instance.
-//
-// NOTE: Part of the ContractResolver interface.
-func (h *htlcTimeoutResolver) Decode(r io.Reader) error {
+// newTimeoutResolverFromReader attempts to decode an encoded ContractResolver
+// from the passed Reader instance, returning an active ContractResolver
+// instance.
+func newTimeoutResolverFromReader(r io.Reader, resCfg ResolverConfig) (
+	*htlcTimeoutResolver, error) {
+
+	h := &htlcTimeoutResolver{
+		contractResolverKit: *newContractResolverKit(resCfg),
+	}
+
 	// First, we'll read out all the mandatory fields of the
 	// OutgoingHtlcResolution that we store.
 	if err := decodeOutgoingResolution(r, &h.htlcResolution); err != nil {
-		return err
+		return nil, err
 	}
 
 	// With those fields read, we can now read back the fields that are
 	// specific to the resolver itself.
 	if err := binary.Read(r, endian, &h.outputIncubating); err != nil {
-		return err
+		return nil, err
 	}
 	if err := binary.Read(r, endian, &h.resolved); err != nil {
-		return err
+		return nil, err
 	}
 	if err := binary.Read(r, endian, &h.broadcastHeight); err != nil {
-		return err
+		return nil, err
 	}
 
 	if err := binary.Read(r, endian, &h.htlcIndex); err != nil {
-		return err
+		return nil, err
 	}
 
-	return nil
-}
-
-// AttachResolverKit should be called once a resolved is successfully decoded
-// from its stored format. This struct delivers a generic tool kit that
-// resolvers need to complete their duty.
-//
-// NOTE: Part of the ContractResolver interface.
-func (h *htlcTimeoutResolver) AttachResolverKit(r ResolverKit) {
-	h.ResolverKit = r
+	return h, nil
 }
 
 // A compile time assertion to ensure htlcTimeoutResolver meets the

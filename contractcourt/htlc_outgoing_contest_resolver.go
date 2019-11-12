@@ -5,6 +5,8 @@ import (
 	"io"
 
 	"github.com/btcsuite/btcutil"
+	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwire"
 )
 
 // htlcOutgoingContestResolver is a ContractResolver that's able to resolve an
@@ -16,6 +18,21 @@ type htlcOutgoingContestResolver struct {
 	// htlcTimeoutResolver is the inner solver that this resolver may turn
 	// into. This only happens if the HTLC expires on-chain.
 	htlcTimeoutResolver
+}
+
+// newOutgoingContestResolver instantiates a new outgoing contested htlc
+// resolver.
+func newOutgoingContestResolver(res lnwallet.OutgoingHtlcResolution,
+	broadcastHeight uint32, htlcIndex uint64, htlcAmt lnwire.MilliSatoshi,
+	resCfg ResolverConfig) *htlcOutgoingContestResolver {
+
+	timeout := newTimeoutResolver(
+		res, broadcastHeight, htlcIndex, htlcAmt, resCfg,
+	)
+
+	return &htlcOutgoingContestResolver{
+		htlcTimeoutResolver: *timeout,
+	}
 }
 
 // Resolve commences the resolution of this contract. As this contract hasn't
@@ -130,7 +147,7 @@ func (h *htlcOutgoingContestResolver) Resolve() (ContractResolver, error) {
 			// claimed.
 			return h.claimCleanUp(commitSpend)
 
-		case <-h.Quit:
+		case <-h.quit:
 			return nil, fmt.Errorf("resolver canceled")
 		}
 	}
@@ -162,7 +179,7 @@ func (h *htlcOutgoingContestResolver) report() *ContractReport {
 //
 // NOTE: Part of the ContractResolver interface.
 func (h *htlcOutgoingContestResolver) Stop() {
-	close(h.Quit)
+	close(h.quit)
 }
 
 // IsResolved returns true if the stored state in the resolve is fully
@@ -181,21 +198,19 @@ func (h *htlcOutgoingContestResolver) Encode(w io.Writer) error {
 	return h.htlcTimeoutResolver.Encode(w)
 }
 
-// Decode attempts to decode an encoded ContractResolver from the passed Reader
-// instance, returning an active ContractResolver instance.
-//
-// NOTE: Part of the ContractResolver interface.
-func (h *htlcOutgoingContestResolver) Decode(r io.Reader) error {
-	return h.htlcTimeoutResolver.Decode(r)
-}
+// newOutgoingContestResolverFromReader attempts to decode an encoded ContractResolver
+// from the passed Reader instance, returning an active ContractResolver
+// instance.
+func newOutgoingContestResolverFromReader(r io.Reader, resCfg ResolverConfig) (
+	*htlcOutgoingContestResolver, error) {
 
-// AttachResolverKit should be called once a resolved is successfully decoded
-// from its stored format. This struct delivers a generic tool kit that
-// resolvers need to complete their duty.
-//
-// NOTE: Part of the ContractResolver interface.
-func (h *htlcOutgoingContestResolver) AttachResolverKit(r ResolverKit) {
-	h.ResolverKit = r
+	h := &htlcOutgoingContestResolver{}
+	timeoutResolver, err := newTimeoutResolverFromReader(r, resCfg)
+	if err != nil {
+		return nil, err
+	}
+	h.htlcTimeoutResolver = *timeoutResolver
+	return h, nil
 }
 
 // A compile time assertion to ensure htlcOutgoingContestResolver meets the

@@ -440,7 +440,7 @@ func (b *boltArbitratorLog) CommitState(s ArbitratorState) error {
 //
 // NOTE: Part of the ContractResolver interface.
 func (b *boltArbitratorLog) FetchUnresolvedContracts() ([]ContractResolver, error) {
-	resKit := ResolverKit{
+	resolverCfg := ResolverConfig{
 		ChannelArbitratorConfig: b.cfg,
 		Checkpoint:              b.checkpointContract,
 	}
@@ -469,56 +469,38 @@ func (b *boltArbitratorLog) FetchUnresolvedContracts() ([]ContractResolver, erro
 
 			switch resType {
 			case resolverTimeout:
-				timeoutRes := &htlcTimeoutResolver{}
-				if err := timeoutRes.Decode(resReader); err != nil {
-					return err
-				}
-				timeoutRes.AttachResolverKit(resKit)
-
-				res = timeoutRes
+				res, err = newTimeoutResolverFromReader(
+					resReader, resolverCfg,
+				)
 
 			case resolverSuccess:
-				successRes := &htlcSuccessResolver{}
-				if err := successRes.Decode(resReader); err != nil {
-					return err
-				}
-
-				res = successRes
+				res, err = newSuccessResolverFromReader(
+					resReader, resolverCfg,
+				)
 
 			case resolverOutgoingContest:
-				outContestRes := &htlcOutgoingContestResolver{
-					htlcTimeoutResolver: htlcTimeoutResolver{},
-				}
-				if err := outContestRes.Decode(resReader); err != nil {
-					return err
-				}
-
-				res = outContestRes
+				res, err = newOutgoingContestResolverFromReader(
+					resReader, resolverCfg,
+				)
 
 			case resolverIncomingContest:
-				inContestRes := &htlcIncomingContestResolver{
-					htlcSuccessResolver: htlcSuccessResolver{},
-				}
-				if err := inContestRes.Decode(resReader); err != nil {
-					return err
-				}
-
-				res = inContestRes
+				res, err = newIncomingContestResolverFromReader(
+					resReader, resolverCfg,
+				)
 
 			case resolverUnilateralSweep:
-				sweepRes := &commitSweepResolver{}
-				if err := sweepRes.Decode(resReader); err != nil {
-					return err
-				}
-
-				res = sweepRes
+				res, err = newCommitSweepResolverFromReader(
+					resReader, resolverCfg,
+				)
 
 			default:
 				return fmt.Errorf("unknown resolver type: %v", resType)
 			}
 
-			resKit.Quit = make(chan struct{})
-			res.AttachResolverKit(resKit)
+			if err != nil {
+				return err
+			}
+
 			contracts = append(contracts, res)
 			return nil
 		})

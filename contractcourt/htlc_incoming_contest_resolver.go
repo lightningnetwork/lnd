@@ -5,11 +5,12 @@ import (
 	"errors"
 	"io"
 
+	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/invoices"
-
-	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwire"
 )
 
 // htlcIncomingContestResolver is a ContractResolver that's able to resolve an
@@ -32,6 +33,24 @@ type htlcIncomingContestResolver struct {
 	// htlcSuccessResolver is the inner resolver that may be utilized if we
 	// learn of the preimage.
 	htlcSuccessResolver
+}
+
+// newIncomingContestResolver instantiates a new incoming htlc contest resolver.
+func newIncomingContestResolver(htlcExpiry uint32,
+	circuitKey channeldb.CircuitKey, res lnwallet.IncomingHtlcResolution,
+	broadcastHeight uint32, payHash lntypes.Hash,
+	htlcAmt lnwire.MilliSatoshi,
+	resCfg ResolverConfig) *htlcIncomingContestResolver {
+
+	success := newSuccessResolver(
+		res, broadcastHeight, payHash, htlcAmt, resCfg,
+	)
+
+	return &htlcIncomingContestResolver{
+		htlcExpiry:          htlcExpiry,
+		circuitKey:          circuitKey,
+		htlcSuccessResolver: *success,
+	}
 }
 
 // Resolve attempts to resolve this contract. As we don't yet know of the
@@ -68,7 +87,7 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 			return nil, errResolverShuttingDown
 		}
 		currentHeight = newBlock.Height
-	case <-h.Quit:
+	case <-h.quit:
 		return nil, errResolverShuttingDown
 	}
 
@@ -239,7 +258,7 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 				return nil, h.Checkpoint(h)
 			}
 
-		case <-h.Quit:
+		case <-h.quit:
 			return nil, errResolverShuttingDown
 		}
 	}
@@ -271,7 +290,7 @@ func (h *htlcIncomingContestResolver) report() *ContractReport {
 //
 // NOTE: Part of the ContractResolver interface.
 func (h *htlcIncomingContestResolver) Stop() {
-	close(h.Quit)
+	close(h.quit)
 }
 
 // IsResolved returns true if the stored state in the resolve is fully
@@ -296,27 +315,27 @@ func (h *htlcIncomingContestResolver) Encode(w io.Writer) error {
 	return h.htlcSuccessResolver.Encode(w)
 }
 
-// Decode attempts to decode an encoded ContractResolver from the passed Reader
-// instance, returning an active ContractResolver instance.
-//
-// NOTE: Part of the ContractResolver interface.
-func (h *htlcIncomingContestResolver) Decode(r io.Reader) error {
+// newIncomingContestResolverFromReader attempts to decode an encoded ContractResolver
+// from the passed Reader instance, returning an active ContractResolver
+// instance.
+func newIncomingContestResolverFromReader(r io.Reader, resCfg ResolverConfig) (
+	*htlcIncomingContestResolver, error) {
+
+	h := &htlcIncomingContestResolver{}
+
 	// We'll first read the one field unique to this resolver.
 	if err := binary.Read(r, endian, &h.htlcExpiry); err != nil {
-		return err
+		return nil, err
 	}
 
 	// Then we'll decode our internal resolver.
-	return h.htlcSuccessResolver.Decode(r)
-}
+	successResolver, err := newSuccessResolverFromReader(r, resCfg)
+	if err != nil {
+		return nil, err
+	}
+	h.htlcSuccessResolver = *successResolver
 
-// AttachResolverKit should be called once a resolved is successfully decoded
-// from its stored format. This struct delivers a generic tool kit that
-// resolvers need to complete their duty.
-//
-// NOTE: Part of the ContractResolver interface.
-func (h *htlcIncomingContestResolver) AttachResolverKit(r ResolverKit) {
-	h.ResolverKit = r
+	return h, nil
 }
 
 // A compile time assertion to ensure htlcIncomingContestResolver meets the

@@ -26,7 +26,8 @@ var (
 	shutdownChannel = make(chan struct{})
 )
 
-func init() {
+// Intercept starts the interception of interrupt signals.
+func Intercept() {
 	signalsToCatch := []os.Signal{
 		os.Interrupt,
 		os.Kill,

@@ -2,7 +2,6 @@ package tlv
 
 import (
 	"errors"
-	"fmt"
 	"io"
 	"io/ioutil"
 	"math"
@@ -21,15 +20,6 @@ var ErrStreamNotCanonical = errors.New("tlv stream is not canonical")
 // ErrRecordTooLarge signals that a decoded record has a length that is too
 // long to parse.
 var ErrRecordTooLarge = errors.New("record is too large")
-
-// ErrUnknownRequiredType is an error returned when decoding an unknown and even
-// type from a Stream.
-type ErrUnknownRequiredType Type
-
-// Error returns a human-readable description of unknown required type.
-func (t ErrUnknownRequiredType) Error() string {
-	return fmt.Sprintf("unknown required type: %d", t)
-}
 
 // Stream defines a TLV stream that can be used for encoding or decoding a set
 // of TLV Records.
@@ -162,7 +152,6 @@ func (s *Stream) decode(r io.Reader, parsedTypes TypeSet) (TypeSet, error) {
 	var (
 		typ       Type
 		min       Type
-		firstFail *Type
 		recordIdx int
 		overflow  bool
 	)
@@ -177,10 +166,7 @@ func (s *Stream) decode(r io.Reader, parsedTypes TypeSet) (TypeSet, error) {
 		// We'll silence an EOF when zero bytes remain, meaning the
 		// stream was cleanly encoded.
 		case err == io.EOF:
-			if firstFail == nil {
-				return parsedTypes, nil
-			}
-			return parsedTypes, ErrUnknownRequiredType(*firstFail)
+			return parsedTypes, nil
 
 		// Other unexpected errors.
 		case err != nil:
@@ -244,31 +230,6 @@ func (s *Stream) decode(r io.Reader, parsedTypes TypeSet) (TypeSet, error) {
 				return nil, err
 			}
 
-		// This record type is unknown to the stream, fail if the type
-		// is even meaning that we are required to understand it.
-		case typ%2 == 0:
-			// We'll fail immediately in the case that we aren't
-			// tracking the set of parsed types.
-			if parsedTypes == nil {
-				return nil, ErrUnknownRequiredType(typ)
-			}
-
-			// Otherwise, we'll track the first such failure and
-			// allow parsing to continue. If no other types of
-			// errors are encountered, the first failure will be
-			// returned as an ErrUnknownRequiredType so that the
-			// full set of included types can be returned.
-			if firstFail == nil {
-				failTyp := typ
-				firstFail = &failTyp
-			}
-
-			// With the failure type recorded, we'll simply discard
-			// the remainder of the record as if it were optional.
-			// The first failure will be returned after reaching the
-			// stopping condition.
-			fallthrough
-
 		// Otherwise, the record type is unknown and is odd, discard the
 		// number of bytes specified by length.
 		default:
@@ -289,7 +250,7 @@ func (s *Stream) decode(r io.Reader, parsedTypes TypeSet) (TypeSet, error) {
 		// Record the successfully decoded or ignored type if the
 		// caller provided an initialized TypeSet.
 		if parsedTypes != nil {
-			parsedTypes[typ] = struct{}{}
+			parsedTypes[typ] = ok
 		}
 
 		// Update our record index so that we can begin our next search

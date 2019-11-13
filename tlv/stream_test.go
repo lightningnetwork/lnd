@@ -9,49 +9,38 @@ import (
 )
 
 type parsedTypeTest struct {
-	name   string
-	encode []tlv.Type
-	decode []tlv.Type
-	expErr error
+	name           string
+	encode         []tlv.Type
+	decode         []tlv.Type
+	expParsedTypes tlv.TypeSet
 }
 
 // TestParsedTypes asserts that a Stream will properly return the set of types
 // that it encounters when the type is known-and-decoded or unknown-and-ignored.
 func TestParsedTypes(t *testing.T) {
 	const (
-		firstReqType  = 0
-		knownType     = 1
-		unknownType   = 3
-		secondReqType = 4
+		knownType       = 1
+		unknownType     = 3
+		secondKnownType = 4
 	)
 
 	tests := []parsedTypeTest{
 		{
-			name:   "known optional and unknown optional",
+			name:   "known and unknown",
 			encode: []tlv.Type{knownType, unknownType},
 			decode: []tlv.Type{knownType},
+			expParsedTypes: tlv.TypeSet{
+				unknownType: false,
+				knownType:   true,
+			},
 		},
 		{
-			name:   "unknown required and known optional",
-			encode: []tlv.Type{firstReqType, knownType},
-			decode: []tlv.Type{knownType},
-			expErr: tlv.ErrUnknownRequiredType(firstReqType),
-		},
-		{
-			name:   "unknown required and unknown optional",
-			encode: []tlv.Type{unknownType, secondReqType},
-			expErr: tlv.ErrUnknownRequiredType(secondReqType),
-		},
-		{
-			name:   "unknown required and known required",
-			encode: []tlv.Type{firstReqType, secondReqType},
-			decode: []tlv.Type{secondReqType},
-			expErr: tlv.ErrUnknownRequiredType(firstReqType),
-		},
-		{
-			name:   "two unknown required",
-			encode: []tlv.Type{firstReqType, secondReqType},
-			expErr: tlv.ErrUnknownRequiredType(firstReqType),
+			name:   "known and missing known",
+			encode: []tlv.Type{knownType},
+			decode: []tlv.Type{knownType, secondKnownType},
+			expParsedTypes: tlv.TypeSet{
+				knownType: true,
+			},
 		},
 	}
 
@@ -92,16 +81,10 @@ func testParsedTypes(t *testing.T, test parsedTypeTest) {
 	parsedTypes, err := decStream.DecodeWithParsedTypes(
 		bytes.NewReader(b.Bytes()),
 	)
-	if !reflect.DeepEqual(err, test.expErr) {
-		t.Fatalf("error mismatch, want: %v got: %v", err, test.expErr)
+	if err != nil {
+		t.Fatalf("error decoding: %v", err)
 	}
-
-	// Assert that all encoded types are included in the set of parsed
-	// types.
-	for _, typ := range test.encode {
-		if _, ok := parsedTypes[typ]; !ok {
-			t.Fatalf("encoded type %d should be in parsed types",
-				typ)
-		}
+	if !reflect.DeepEqual(parsedTypes, test.expParsedTypes) {
+		t.Fatalf("error mismatch on parsed types")
 	}
 }

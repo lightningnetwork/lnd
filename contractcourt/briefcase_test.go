@@ -161,9 +161,9 @@ func assertResolversEqual(t *testing.T, originalResolver ContractResolver,
 			t.Fatalf("expected %v, got %v",
 				ogRes.broadcastHeight, diskRes.broadcastHeight)
 		}
-		if ogRes.htlcIndex != diskRes.htlcIndex {
-			t.Fatalf("expected %v, got %v", ogRes.htlcIndex,
-				diskRes.htlcIndex)
+		if ogRes.htlc.HtlcIndex != diskRes.htlc.HtlcIndex {
+			t.Fatalf("expected %v, got %v", ogRes.htlc.HtlcIndex,
+				diskRes.htlc.HtlcIndex)
 		}
 	}
 
@@ -184,9 +184,9 @@ func assertResolversEqual(t *testing.T, originalResolver ContractResolver,
 			t.Fatalf("expected %v, got %v",
 				ogRes.broadcastHeight, diskRes.broadcastHeight)
 		}
-		if ogRes.payHash != diskRes.payHash {
-			t.Fatalf("expected %v, got %v", ogRes.payHash,
-				diskRes.payHash)
+		if ogRes.htlc.RHash != diskRes.htlc.RHash {
+			t.Fatalf("expected %v, got %v", ogRes.htlc.RHash,
+				diskRes.htlc.RHash)
 		}
 	}
 
@@ -265,7 +265,9 @@ func TestContractInsertionRetrieval(t *testing.T) {
 		outputIncubating: true,
 		resolved:         true,
 		broadcastHeight:  102,
-		htlcIndex:        12,
+		htlc: channeldb.HTLC{
+			HtlcIndex: 12,
+		},
 	}
 	successResolver := htlcSuccessResolver{
 		htlcResolution: lnwallet.IncomingHtlcResolution{
@@ -278,8 +280,10 @@ func TestContractInsertionRetrieval(t *testing.T) {
 		outputIncubating: true,
 		resolved:         true,
 		broadcastHeight:  109,
-		payHash:          testPreimage,
-		sweepTx:          nil,
+		htlc: channeldb.HTLC{
+			RHash: testPreimage,
+		},
+		sweepTx: nil,
 	}
 	resolvers := []ContractResolver{
 		&timeoutResolver,
@@ -395,7 +399,9 @@ func TestContractResolution(t *testing.T) {
 		outputIncubating: true,
 		resolved:         true,
 		broadcastHeight:  192,
-		htlcIndex:        9912,
+		htlc: channeldb.HTLC{
+			HtlcIndex: 9912,
+		},
 	}
 
 	// First, we'll insert the resolver into the database and ensure that
@@ -454,7 +460,9 @@ func TestContractSwapping(t *testing.T) {
 		outputIncubating: true,
 		resolved:         true,
 		broadcastHeight:  102,
-		htlcIndex:        12,
+		htlc: channeldb.HTLC{
+			HtlcIndex: 12,
+		},
 	}
 	contestResolver := &htlcOutgoingContestResolver{
 		htlcTimeoutResolver: timeoutResolver,

@@ -8,6 +8,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -40,29 +41,22 @@ type htlcTimeoutResolver struct {
 	// TODO(roasbeef): wrap above into definite resolution embedding?
 	broadcastHeight uint32
 
-	// htlcIndex is the index of this HTLC within the trace of the
-	// additional commitment state machine.
-	htlcIndex uint64
-
-	// htlcAmt is the original amount of the htlc, not taking into
-	// account any fees that may have to be paid if it goes on chain.
-	htlcAmt lnwire.MilliSatoshi
+	// htlc contains information on the htlc that we are resolving on-chain.
+	htlc channeldb.HTLC
 
 	contractResolverKit
 }
 
 // newTimeoutResolver instantiates a new timeout htlc resolver.
 func newTimeoutResolver(res lnwallet.OutgoingHtlcResolution,
-	broadcastHeight uint32, htlcIndex uint64,
-	htlcAmt lnwire.MilliSatoshi,
+	broadcastHeight uint32, htlc channeldb.HTLC,
 	resCfg ResolverConfig) *htlcTimeoutResolver {
 
 	return &htlcTimeoutResolver{
 		contractResolverKit: *newContractResolverKit(resCfg),
 		htlcResolution:      res,
 		broadcastHeight:     broadcastHeight,
-		htlcIndex:           htlcIndex,
-		htlcAmt:             htlcAmt,
+		htlc:                htlc,
 	}
 }
 
@@ -157,7 +151,7 @@ func (h *htlcTimeoutResolver) claimCleanUp(
 	// resolved, then exit.
 	if err := h.DeliverResolutionMsg(ResolutionMsg{
 		SourceChan: h.ShortChanID,
-		HtlcIndex:  h.htlcIndex,
+		HtlcIndex:  h.htlc.HtlcIndex,
 		PreImage:   &pre,
 	}); err != nil {
 		return nil, err
@@ -352,7 +346,7 @@ func (h *htlcTimeoutResolver) Resolve() (ContractResolver, error) {
 	failureMsg := &lnwire.FailPermanentChannelFailure{}
 	if err := h.DeliverResolutionMsg(ResolutionMsg{
 		SourceChan: h.ShortChanID,
-		HtlcIndex:  h.htlcIndex,
+		HtlcIndex:  h.htlc.HtlcIndex,
 		Failure:    failureMsg,
 	}); err != nil {
 		return nil, err
@@ -414,7 +408,7 @@ func (h *htlcTimeoutResolver) Encode(w io.Writer) error {
 		return err
 	}
 
-	if err := binary.Write(w, endian, h.htlcIndex); err != nil {
+	if err := binary.Write(w, endian, h.htlc.HtlcIndex); err != nil {
 		return err
 	}
 
@@ -449,13 +443,28 @@ func newTimeoutResolverFromReader(r io.Reader, resCfg ResolverConfig) (
 		return nil, err
 	}
 
-	if err := binary.Read(r, endian, &h.htlcIndex); err != nil {
+	if err := binary.Read(r, endian, &h.htlc.HtlcIndex); err != nil {
 		return nil, err
 	}
 
 	return h, nil
 }
 
+// Supplement adds additional information to the resolver that is required
+// before Resolve() is called.
+//
+// NOTE: Part of the htlcContractResolver interface.
+func (h *htlcTimeoutResolver) Supplement(htlc channeldb.HTLC) {
+	h.htlc = htlc
+}
+
+// HtlcPoint returns the htlc's outpoint on the commitment tx.
+//
+// NOTE: Part of the htlcContractResolver interface.
+func (h *htlcTimeoutResolver) HtlcPoint() wire.OutPoint {
+	return h.htlcResolution.HtlcPoint()
+}
+
 // A compile time assertion to ensure htlcTimeoutResolver meets the
 // ContractResolver interface.
-var _ ContractResolver = (*htlcTimeoutResolver)(nil)
+var _ htlcContractResolver = (*htlcTimeoutResolver)(nil)

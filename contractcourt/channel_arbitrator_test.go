@@ -308,6 +308,7 @@ func createTestChannelArbitrator(t *testing.T, log ArbitratorLog) (*chanArbTestC
 			incubateChan <- struct{}{}
 			return nil
 		},
+		OnionProcessor: &mockOnionProcessor{},
 	}
 
 	// We'll use the resolvedChan to synchronize on call to
@@ -858,10 +859,10 @@ func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
 			resolver)
 	}
 
-	// The resolver should have its htlcAmt field populated as it.
-	if int64(outgoingResolver.htlcAmt) != int64(htlcAmt) {
+	// The resolver should have its htlc amt field populated as it.
+	if int64(outgoingResolver.htlc.Amt) != int64(htlcAmt) {
 		t.Fatalf("wrong htlc amount: expected %v, got %v,",
-			htlcAmt, int64(outgoingResolver.htlcAmt))
+			htlcAmt, int64(outgoingResolver.htlc.Amt))
 	}
 
 	// htlcOutgoingContestResolver is now active and waiting for the HTLC to

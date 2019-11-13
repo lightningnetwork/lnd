@@ -151,6 +151,10 @@ type ChainArbitratorConfig struct {
 	// NotifyClosedChannel is a function closure that the ChainArbitrator
 	// will use to notify the ChannelNotifier about a newly closed channel.
 	NotifyClosedChannel func(wire.OutPoint)
+
+	// OnionProcessor is used to decode onion payloads for on-chain
+	// resolution.
+	OnionProcessor OnionProcessor
 }
 
 // ChainArbitrator is a sub-system that oversees the on-chain resolution of all

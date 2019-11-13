@@ -184,6 +184,30 @@ func (p *OnionProcessor) DecodeHopIterator(r io.Reader, rHash []byte,
 	return makeSphinxHopIterator(onionPkt, sphinxPacket), lnwire.CodeNone
 }
 
+// ReconstructHopIterator attempts to decode a valid sphinx packet from the passed io.Reader
+// instance using the rHash as the associated data when checking the relevant
+// MACs during the decoding process.
+func (p *OnionProcessor) ReconstructHopIterator(r io.Reader, rHash []byte) (
+	Iterator, error) {
+
+	onionPkt := &sphinx.OnionPacket{}
+	if err := onionPkt.Decode(r); err != nil {
+		return nil, err
+	}
+
+	// Attempt to process the Sphinx packet. We include the payment hash of
+	// the HTLC as it's authenticated within the Sphinx packet itself as
+	// associated data in order to thwart attempts a replay attacks. In the
+	// case of a replay, an attacker is *forced* to use the same payment
+	// hash twice, thereby losing their money entirely.
+	sphinxPacket, err := p.router.ReconstructOnionPacket(onionPkt, rHash)
+	if err != nil {
+		return nil, err
+	}
+
+	return makeSphinxHopIterator(onionPkt, sphinxPacket), nil
+}
+
 // DecodeHopIteratorRequest encapsulates all date necessary to process an onion
 // packet, perform sphinx replay detection, and schedule the entry for garbage
 // collection.

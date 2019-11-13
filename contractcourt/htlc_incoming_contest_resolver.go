@@ -1,16 +1,17 @@
 package contractcourt
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"io"
 
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
-	"github.com/lightningnetwork/lnd/lnwire"
 )
 
 // htlcIncomingContestResolver is a ContractResolver that's able to resolve an
@@ -27,28 +28,22 @@ type htlcIncomingContestResolver struct {
 	// successfully.
 	htlcExpiry uint32
 
-	// circuitKey describes the incoming htlc that is being resolved.
-	circuitKey channeldb.CircuitKey
-
 	// htlcSuccessResolver is the inner resolver that may be utilized if we
 	// learn of the preimage.
 	htlcSuccessResolver
 }
 
 // newIncomingContestResolver instantiates a new incoming htlc contest resolver.
-func newIncomingContestResolver(htlcExpiry uint32,
-	circuitKey channeldb.CircuitKey, res lnwallet.IncomingHtlcResolution,
-	broadcastHeight uint32, payHash lntypes.Hash,
-	htlcAmt lnwire.MilliSatoshi,
-	resCfg ResolverConfig) *htlcIncomingContestResolver {
+func newIncomingContestResolver(
+	res lnwallet.IncomingHtlcResolution, broadcastHeight uint32,
+	htlc channeldb.HTLC, resCfg ResolverConfig) *htlcIncomingContestResolver {
 
 	success := newSuccessResolver(
-		res, broadcastHeight, payHash, htlcAmt, resCfg,
+		res, broadcastHeight, htlc, resCfg,
 	)
 
 	return &htlcIncomingContestResolver{
-		htlcExpiry:          htlcExpiry,
-		circuitKey:          circuitKey,
+		htlcExpiry:          htlc.RefundTimeout,
 		htlcSuccessResolver: *success,
 	}
 }
@@ -69,6 +64,22 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 	// If we're already full resolved, then we don't have anything further
 	// to do.
 	if h.resolved {
+		return nil, nil
+	}
+
+	// First try to parse the payload. If that fails, we can stop resolution
+	// now.
+	payload, err := h.decodePayload()
+	if err != nil {
+		log.Debugf("ChannelArbitrator(%v): cannot decode payload of "+
+			"htlc %v", h.ChanPoint, h.HtlcPoint())
+
+		// If we've locked in an htlc with an invalid payload on our
+		// commitment tx, we don't need to resolve it. The other party
+		// will time it out and get their funds back. This situation can
+		// present itself when we crash before processRemoteAdds in the
+		// link has ran.
+		h.resolved = true
 		return nil, nil
 	}
 
@@ -119,7 +130,7 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 	applyPreimage := func(preimage lntypes.Preimage) error {
 		// Sanity check to see if this preimage matches our htlc. At
 		// this point it should never happen that it does not match.
-		if !preimage.Matches(h.payHash) {
+		if !preimage.Matches(h.htlc.RHash) {
 			return errors.New("preimage does not match hash")
 		}
 
@@ -185,9 +196,14 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 	// on-chain. If this HTLC indeed pays to an existing invoice, the
 	// invoice registry will tell us what to do with the HTLC. This is
 	// identical to HTLC resolution in the link.
+	circuitKey := channeldb.CircuitKey{
+		ChanID: h.ShortChanID,
+		HtlcID: h.htlc.HtlcIndex,
+	}
+
 	event, err := h.Registry.NotifyExitHopHtlc(
-		h.payHash, h.htlcAmt, h.htlcExpiry, currentHeight,
-		h.circuitKey, hodlChan, nil,
+		h.htlc.RHash, h.htlc.Amt, h.htlcExpiry, currentHeight,
+		circuitKey, hodlChan, payload,
 	)
 	switch err {
 	case channeldb.ErrInvoiceNotFound:
@@ -204,7 +220,7 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 
 	// With the epochs and preimage subscriptions initialized, we'll query
 	// to see if we already know the preimage.
-	preimage, ok := h.PreimageDB.LookupPreimage(h.payHash)
+	preimage, ok := h.PreimageDB.LookupPreimage(h.htlc.RHash)
 	if ok {
 		// If we do, then this means we can claim the HTLC!  However,
 		// we don't know how to ourselves, so we'll return our inner
@@ -222,7 +238,7 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 		case preimage := <-preimageSubscription.WitnessUpdates:
 			// We receive all new preimages, so we need to ignore
 			// all except the preimage we are waiting for.
-			if !preimage.Matches(h.payHash) {
+			if !preimage.Matches(h.htlc.RHash) {
 				continue
 			}
 
@@ -268,7 +284,7 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 func (h *htlcIncomingContestResolver) report() *ContractReport {
 	// No locking needed as these values are read-only.
 
-	finalAmt := h.htlcAmt.ToSatoshis()
+	finalAmt := h.htlc.Amt.ToSatoshis()
 	if h.htlcResolution.SignedSuccessTx != nil {
 		finalAmt = btcutil.Amount(
 			h.htlcResolution.SignedSuccessTx.TxOut[0].Value,
@@ -338,6 +354,28 @@ func newIncomingContestResolverFromReader(r io.Reader, resCfg ResolverConfig) (
 	return h, nil
 }
 
+// Supplement adds additional information to the resolver that is required
+// before Resolve() is called.
+//
+// NOTE: Part of the htlcContractResolver interface.
+func (h *htlcIncomingContestResolver) Supplement(htlc channeldb.HTLC) {
+	h.htlc = htlc
+}
+
+// decodePayload (re)decodes the hop payload of a received htlc.
+func (h *htlcIncomingContestResolver) decodePayload() (*hop.Payload, error) {
+
+	onionReader := bytes.NewReader(h.htlc.OnionBlob)
+	iterator, err := h.OnionProcessor.ReconstructHopIterator(
+		onionReader, h.htlc.RHash[:],
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return iterator.HopPayload()
+}
+
 // A compile time assertion to ensure htlcIncomingContestResolver meets the
 // ContractResolver interface.
-var _ ContractResolver = (*htlcIncomingContestResolver)(nil)
+var _ htlcContractResolver = (*htlcIncomingContestResolver)(nil)

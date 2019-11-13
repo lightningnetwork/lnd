@@ -4,6 +4,9 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
+
+	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/channeldb"
 )
 
 var (
@@ -49,6 +52,18 @@ type ContractResolver interface {
 	// Stop signals the resolver to cancel any current resolution
 	// processes, and suspend.
 	Stop()
+}
+
+// htlcContractResolver is the required interface for htlc resolvers.
+type htlcContractResolver interface {
+	ContractResolver
+
+	// HtlcPoint returns the htlc's outpoint on the commitment tx.
+	HtlcPoint() wire.OutPoint
+
+	// Supplement adds additional information to the resolver that is
+	// required before Resolve() is called.
+	Supplement(htlc channeldb.HTLC)
 }
 
 // reportingContractResolver is a ContractResolver that also exposes a report on

@@ -410,4 +410,44 @@ func TestSinglePackStaticChanBackups(t *testing.T) {
 	}
 }
 
+// TestSingleUnconfirmedChannel tests that unconfirmed channels get serialized
+// correctly by encoding the funding broadcast height as block height of the
+// short channel ID.
+func TestSingleUnconfirmedChannel(t *testing.T) {
+	t.Parallel()
+
+	var fundingBroadcastHeight = uint32(1234)
+
+	// Let's create an open channel shell that contains all the information
+	// we need to create a static channel backup but simulate an
+	// unconfirmed channel by setting the block height to 0.
+	channel, err := genRandomOpenChannelShell()
+	if err != nil {
+		t.Fatalf("unable to gen open channel: %v", err)
+	}
+	channel.ShortChannelID.BlockHeight = 0
+	channel.FundingBroadcastHeight = fundingBroadcastHeight
+
+	singleChanBackup := NewSingle(channel, []net.Addr{addr1, addr2})
+	keyRing := &mockKeyRing{}
+
+	// Pack it and then unpack it again to make sure everything is written
+	// correctly, then check that the block height of the unpacked
+	// is the funding broadcast height we set before.
+	var b bytes.Buffer
+	if err := singleChanBackup.PackToWriter(&b, keyRing); err != nil {
+		t.Fatalf("unable to pack single: %v", err)
+	}
+	var unpackedSingle Single
+	err = unpackedSingle.UnpackFromReader(&b, keyRing)
+	if err != nil {
+		t.Fatalf("unable to unpack single: %v", err)
+	}
+	if unpackedSingle.ShortChannelID.BlockHeight != fundingBroadcastHeight {
+		t.Fatalf("invalid block height. got %d expected %d.",
+			unpackedSingle.ShortChannelID.BlockHeight,
+			fundingBroadcastHeight)
+	}
+}
+
 // TODO(roasbsef): fuzz parsing

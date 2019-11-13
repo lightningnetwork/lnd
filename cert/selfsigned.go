@@ -17,10 +17,10 @@ import (
 )
 
 const (
-	// defaultAutogenCertValidity is the default validity of a self-signed
+	// DefaultAutogenValidity is the default validity of a self-signed
 	// certificate. The value corresponds to 14 months
 	// (14 months * 30 days * 24 hours).
-	defaultAutogenCertValidity = 14 * 30 * 24 * time.Hour
+	DefaultAutogenValidity = 14 * 30 * 24 * time.Hour
 )
 
 var (
@@ -31,7 +31,7 @@ var (
 	serialNumberLimit = new(big.Int).Lsh(big.NewInt(1), 128)
 )
 
-// genCertPair generates a key/cert pair to the paths provided. The
+// GenCertPair generates a key/cert pair to the paths provided. The
 // auto-generated certificates should *not* be used in production for public
 // access as they're self-signed and don't necessarily contain all of the
 // desired hostnames for the service. For production/public use, consider a
@@ -39,7 +39,7 @@ var (
 //
 // This function is adapted from https://github.com/btcsuite/btcd and
 // https://github.com/btcsuite/btcutil
-func genCertPair(org, certFile, keyFile string, tlsExtraIPs,
+func GenCertPair(org, certFile, keyFile string, tlsExtraIPs,
 	tlsExtraDomains []string, certValidity time.Duration) error {
 
 	now := time.Now()

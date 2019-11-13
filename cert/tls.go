@@ -24,10 +24,10 @@ var (
 	}
 )
 
-// loadCert loads a certificate and its corresponding private key from the PEM
+// LoadCert loads a certificate and its corresponding private key from the PEM
 // files indicated and returns the certificate in the two formats it is most
 // commonly used.
-func loadCert(certPath, keyPath string) (tls.Certificate, *x509.Certificate,
+func LoadCert(certPath, keyPath string) (tls.Certificate, *x509.Certificate,
 	error) {
 
 	// The certData returned here is just a wrapper around the PEM blocks
@@ -49,9 +49,9 @@ func loadCert(certPath, keyPath string) (tls.Certificate, *x509.Certificate,
 	return certData, x509Cert, nil
 }
 
-// tLSConfFromCert returns the default TLS configuration used for a server,
+// TLSConfFromCert returns the default TLS configuration used for a server,
 // using the given certificate as identity.
-func tlsConfFromCert(certData tls.Certificate) *tls.Config {
+func TLSConfFromCert(certData tls.Certificate) *tls.Config {
 	return &tls.Config{
 		Certificates: []tls.Certificate{certData},
 		CipherSuites: tlsCipherSuites,

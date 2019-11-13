@@ -66,6 +66,9 @@ type Single struct {
 	// ShortChannelID encodes the exact location in the chain in which the
 	// channel was initially confirmed. This includes: the block height,
 	// transaction index, and the output within the target transaction.
+	// Channels that were not confirmed at the time of backup creation will
+	// have the funding TX broadcast height set as their block height in
+	// the ShortChannelID.
 	ShortChannelID lnwire.ShortChannelID
 
 	// RemoteNodePub is the identity public key of the remote node this
@@ -126,11 +129,21 @@ func NewSingle(channel *channeldb.OpenChannel,
 	// key.
 	_, shaChainPoint := btcec.PrivKeyFromBytes(btcec.S256(), b.Bytes())
 
+	// If a channel is unconfirmed, the block height of the ShortChannelID
+	// is zero. This will lead to problems when trying to restore that
+	// channel as the spend notifier would get a height hint of zero.
+	// To work around that problem, we add the channel broadcast height
+	// to the channel ID so we can use that as height hint on restore.
+	chanID := channel.ShortChanID()
+	if chanID.BlockHeight == 0 {
+		chanID.BlockHeight = channel.FundingBroadcastHeight
+	}
+
 	single := Single{
 		IsInitiator:     channel.IsInitiator,
 		ChainHash:       channel.ChainHash,
 		FundingOutpoint: channel.FundingOutpoint,
-		ShortChannelID:  channel.ShortChannelID,
+		ShortChannelID:  chanID,
 		RemoteNodePub:   channel.IdentityPub,
 		Addresses:       nodeAddrs,
 		Capacity:        channel.Capacity,

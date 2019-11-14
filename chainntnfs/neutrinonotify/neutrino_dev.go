@@ -64,7 +64,6 @@ func (n *NeutrinoNotifier) UnsafeStart(bestHeight int32,
 	n.rescanErr = n.chainView.Start()
 
 	n.chainUpdates.Start()
-	n.txUpdates.Start()
 
 	if generateBlocks != nil {
 		// Ensure no block notifications are pending when we start the

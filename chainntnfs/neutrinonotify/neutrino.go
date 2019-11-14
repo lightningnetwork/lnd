@@ -60,7 +60,6 @@ type NeutrinoNotifier struct {
 	rescanErr <-chan error
 
 	chainUpdates *queue.ConcurrentQueue
-	txUpdates    *queue.ConcurrentQueue
 
 	// spendHintCache is a cache used to query and update the latest height
 	// hints for an outpoint. Each height hint represents the earliest
@@ -99,7 +98,6 @@ func New(node *neutrino.ChainService, spendHintCache chainntnfs.SpendHintCache,
 		rescanErr: make(chan error),
 
 		chainUpdates: queue.NewConcurrentQueue(10),
-		txUpdates:    queue.NewConcurrentQueue(10),
 
 		spendHintCache:   spendHintCache,
 		confirmHintCache: confirmHintCache,
@@ -120,7 +118,6 @@ func (n *NeutrinoNotifier) Start() error {
 	// onFilteredBlockConnected and onRelavantTx callbacks won't be
 	// blocked.
 	n.chainUpdates.Start()
-	n.txUpdates.Start()
 
 	// First, we'll obtain the latest block height of the p2p node. We'll
 	// start the auto-rescan from this point. Once a caller actually wishes
@@ -128,7 +125,6 @@ func (n *NeutrinoNotifier) Start() error {
 	// accordingly.
 	startingPoint, err := n.p2pNode.BestBlock()
 	if err != nil {
-		n.txUpdates.Stop()
 		n.chainUpdates.Stop()
 		return err
 	}
@@ -152,7 +148,6 @@ func (n *NeutrinoNotifier) Start() error {
 			rpcclient.NotificationHandlers{
 				OnFilteredBlockConnected:    n.onFilteredBlockConnected,
 				OnFilteredBlockDisconnected: n.onFilteredBlockDisconnected,
-				OnRedeemingTx:               n.onRelevantTx,
 			},
 		),
 		neutrino.WatchInputs(zeroInput),
@@ -185,7 +180,6 @@ func (n *NeutrinoNotifier) Stop() error {
 	n.wg.Wait()
 
 	n.chainUpdates.Stop()
-	n.txUpdates.Stop()
 
 	// Notify all pending clients of our shutdown by closing the related
 	// notification channels.
@@ -253,22 +247,6 @@ func (n *NeutrinoNotifier) onFilteredBlockDisconnected(height int32,
 		height:  uint32(height),
 		connect: false,
 	}:
-	case <-n.quit:
-	}
-}
-
-// relevantTx represents a relevant transaction to the notifier that fulfills
-// any outstanding spend requests.
-type relevantTx struct {
-	tx      *btcutil.Tx
-	details *btcjson.BlockDetails
-}
-
-// onRelevantTx is a callback that proxies relevant transaction notifications
-// from the backend to the notifier's main event handler.
-func (n *NeutrinoNotifier) onRelevantTx(tx *btcutil.Tx, details *btcjson.BlockDetails) {
-	select {
-	case n.txUpdates.ChanIn() <- &relevantTx{tx, details}:
 	case <-n.quit:
 	}
 }
@@ -471,22 +449,6 @@ out:
 			// partially completed.
 			n.bestBlock = newBestBlock
 			n.bestBlockMtx.Unlock()
-
-		case txUpdate := <-n.txUpdates.ChanOut():
-			// A new relevant transaction notification has been
-			// received from the backend. We'll attempt to process
-			// it to determine if it fulfills any outstanding
-			// confirmation and/or spend requests and dispatch
-			// notifications for them.
-			update := txUpdate.(*relevantTx)
-			err := n.txNotifier.ProcessRelevantSpendTx(
-				update.tx, uint32(update.details.Height),
-			)
-			if err != nil {
-				chainntnfs.Log.Errorf("Unable to process "+
-					"transaction %v: %v", update.tx.Hash(),
-					err)
-			}
 
 		case err := <-n.rescanErr:
 			chainntnfs.Log.Errorf("Error during rescan: %v", err)

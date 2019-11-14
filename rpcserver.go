@@ -440,6 +440,13 @@ func mainRPCServerPermissions() map[string][]bakery.Op {
 			Entity: "peers",
 			Action: "read",
 		}},
+		"/lnrpc.Lightning/FundingStateStep": {{
+			Entity: "onchain",
+			Action: "write",
+		}, {
+			Entity: "offchain",
+			Action: "write",
+		}},
 	}
 }
 
@@ -5691,4 +5698,18 @@ func (r *rpcServer) BakeMacaroon(ctx context.Context,
 	resp.Macaroon = hex.EncodeToString(newMacBytes)
 
 	return resp, nil
+}
+
+// FundingStateStep is an advanced funding related call that allows the caller
+// to either execute some preparatory steps for a funding workflow, or manually
+// progress a funding workflow. The primary way a funding flow is identified is
+// via its pending channel ID. As an example, this method can be used to
+// specify that we're expecting a funding flow for a particular pending channel
+// ID, for which we need to use specific parameters.  Alternatively, this can
+// be used to interactively drive PSBT signing for funding for partially
+// complete funding transactions.
+func (r *rpcServer) FundingStateStep(context.Context,
+	*lnrpc.FundingTransitionMsg) (*lnrpc.FundingStateStepResp, error) {
+
+	return nil, fmt.Errorf("not implemented")
 }

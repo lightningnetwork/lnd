@@ -635,27 +635,6 @@ func (b *BtcdNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 		return nil, err
 	}
 
-	// We'll then request the backend to notify us when it has detected the
-	// outpoint/output script as spent.
-	//
-	// TODO(wilmer): use LoadFilter API instead.
-	if outpoint == nil || *outpoint == chainntnfs.ZeroOutPoint {
-		_, addrs, _, err := txscript.ExtractPkScriptAddrs(
-			pkScript, b.chainParams,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("unable to parse script: %v", err)
-		}
-		if err := b.chainConn.NotifyReceived(addrs); err != nil {
-			return nil, err
-		}
-	} else {
-		ops := []*wire.OutPoint{outpoint}
-		if err := b.chainConn.NotifySpent(ops); err != nil {
-			return nil, err
-		}
-	}
-
 	// If the txNotifier didn't return any details to perform a historical
 	// scan of the chain, then we can return early as there's nothing left
 	// for us to do.

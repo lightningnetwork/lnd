@@ -1,5 +1,5 @@
 # lightning-onion
-This repository houses an implementation of the [Lightning
+This package houses an implementation of the [Lightning
 Network's](lightning.network) onion routing protocol. The Lightning Network
 uses onion routing to securely, and privately route HTLC's
 (Hash-Time-Locked-Contracts, basically a conditional payment) within the

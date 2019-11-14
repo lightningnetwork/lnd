@@ -11,9 +11,9 @@ import (
 	"strings"
 
 	"github.com/btcsuite/btcd/btcec"
-	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
+	"github.com/lightningnetwork/lnd/sphinx"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 

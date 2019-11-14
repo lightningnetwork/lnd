@@ -6,8 +6,8 @@ import (
 	"io"
 
 	"github.com/btcsuite/btcd/btcec"
-	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/sphinx"
 )
 
 // Iterator is an interface that abstracts away the routing information

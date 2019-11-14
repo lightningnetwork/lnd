@@ -6,8 +6,8 @@ import (
 	"io"
 
 	"github.com/btcsuite/btcd/btcec"
-	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/sphinx"
 )
 
 // EncrypterType establishes an enum used in serialization to indicate how to

@@ -20,8 +20,7 @@ within it.  In the current state `lnd` is capable of:
 * Completely managing all channel states (including the exceptional ones!).
 * Maintaining a fully authenticated+validated channel graph.
 * Performing path finding within the network, passively forwarding incoming payments.
-* Sending outgoing [onion-encrypted payments](https://github.com/lightningnetwork/lightning-onion)
-through the network.
+* Sending outgoing onion-encrypted payments through the network.
 * Updating advertised fee schedules.
 * Automatic channel management ([`autopilot`](https://github.com/lightningnetwork/lnd/tree/master/autopilot)).
 

@@ -6,9 +6,9 @@ import (
 	"testing"
 
 	"github.com/davecgh/go-spew/spew"
-	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
+	"github.com/lightningnetwork/lnd/sphinx"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 

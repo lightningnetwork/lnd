@@ -9,6 +9,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 // HopData is the information destined for individual hops. It is a fixed size
@@ -211,7 +212,7 @@ func (hp *HopPayload) Encode(w io.Writer) error {
 	// as a var-int.
 	case PayloadTLV:
 		var b [8]byte
-		err := WriteVarInt(w, uint64(len(hp.Payload)), &b)
+		err := tlv.WriteVarInt(w, uint64(len(hp.Payload)), &b)
 		if err != nil {
 			return err
 		}
@@ -256,7 +257,7 @@ func (hp *HopPayload) Decode(r io.Reader) error {
 		// Otherwise, this is the new TLV based payload type, so we'll
 		// extract the payload length encoded as a var-int.
 		var b [8]byte
-		varInt, err := ReadVarInt(bufReader, &b)
+		varInt, err := tlv.ReadVarInt(bufReader, &b)
 		if err != nil {
 			return err
 		}

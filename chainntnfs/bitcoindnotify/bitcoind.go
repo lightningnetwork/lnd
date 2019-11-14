@@ -390,25 +390,6 @@ out:
 				// Set the bestBlock here in case a chain
 				// rewind partially completed.
 				b.bestBlock = newBestBlock
-
-			case chain.RelevantTx:
-				// We only care about notifying on confirmed
-				// spends, so if this is a mempool spend, we can
-				// ignore it and wait for the spend to appear in
-				// on-chain.
-				if item.Block == nil {
-					continue
-				}
-
-				tx := btcutil.NewTx(&item.TxRecord.MsgTx)
-				err := b.txNotifier.ProcessRelevantSpendTx(
-					tx, uint32(item.Block.Height),
-				)
-				if err != nil {
-					chainntnfs.Log.Errorf("Unable to "+
-						"process transaction %v: %v",
-						tx.Hash(), err)
-				}
 			}
 
 		case <-b.quit:

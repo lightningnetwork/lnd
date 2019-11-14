@@ -569,12 +569,11 @@ func Main(lisCfg ListenerCfg) error {
 	}
 	defer rpcServer.Stop()
 
-	// If we're not in regtest or simnet mode, We'll wait until we're fully
-	// synced to continue the start up of the remainder of the daemon. This
-	// ensures that we don't accept any possibly invalid state transitions, or
-	// accept channels with spent funds.
-	if !(cfg.Bitcoin.RegTest || cfg.Bitcoin.SimNet ||
-		cfg.Litecoin.RegTest || cfg.Litecoin.SimNet) {
+	// If StartBeforeSynced is not set and we're not in regtest or simnet mode,
+	// we'll wait until we're fully synced to continue the start up of the
+	// remainder of the daemon. This ensures that we don't accept any possibly
+	// invalid state transitions, or accept channels with spent funds.
+	if !startBeforeSynced(cfg, registeredChains) {
 
 		_, bestHeight, err := activeChainControl.chainIO.GetBestBlock()
 		if err != nil {
@@ -653,6 +652,16 @@ func Main(lisCfg ListenerCfg) error {
 	// the interrupt handler.
 	<-signal.ShutdownChannel()
 	return nil
+}
+
+func startBeforeSynced(cfg *config, registeredChains *chainRegistry) bool {
+	switch registeredChains.PrimaryChain() {
+	case bitcoinChain:
+		return cfg.Bitcoin.StartBeforeSynced || cfg.Bitcoin.RegTest || cfg.Bitcoin.SimNet
+	case litecoinChain:
+		return cfg.Litecoin.StartBeforeSynced || cfg.Litecoin.RegTest || cfg.Litecoin.SimNet
+	}
+	return false
 }
 
 // getTLSConfig returns a TLS configuration for the gRPC server and credentials

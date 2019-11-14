@@ -36,14 +36,6 @@ type chainUpdate struct {
 	connect bool
 }
 
-// txUpdate encapsulates a transaction related notification sent from btcd to
-// the registered RPC client. This struct is used as an element within an
-// unbounded queue in order to avoid blocking the main rpc dispatch rule.
-type txUpdate struct {
-	tx      *btcutil.Tx
-	details *btcjson.BlockDetails
-}
-
 // TODO(roasbeef): generalize struct below:
 //  * move chans to config, allow outside callers to handle send conditions
 
@@ -69,7 +61,6 @@ type BtcdNotifier struct {
 	bestBlock chainntnfs.BlockEpoch
 
 	chainUpdates *queue.ConcurrentQueue
-	txUpdates    *queue.ConcurrentQueue
 
 	// spendHintCache is a cache used to query and update the latest height
 	// hints for an outpoint. Each height hint represents the earliest
@@ -104,7 +95,6 @@ func New(config *rpcclient.ConnConfig, chainParams *chaincfg.Params,
 		blockEpochClients: make(map[uint64]*blockEpochRegistration),
 
 		chainUpdates: queue.NewConcurrentQueue(10),
-		txUpdates:    queue.NewConcurrentQueue(10),
 
 		spendHintCache:   spendHintCache,
 		confirmHintCache: confirmHintCache,
@@ -115,7 +105,6 @@ func New(config *rpcclient.ConnConfig, chainParams *chaincfg.Params,
 	ntfnCallbacks := &rpcclient.NotificationHandlers{
 		OnBlockConnected:    notifier.onBlockConnected,
 		OnBlockDisconnected: notifier.onBlockDisconnected,
-		OnRedeemingTx:       notifier.onRedeemingTx,
 	}
 
 	// Disable connecting to btcd within the rpcclient.New method. We
@@ -140,22 +129,18 @@ func (b *BtcdNotifier) Start() error {
 	}
 
 	// Start our concurrent queues before starting the chain connection, to
-	// ensure onBlockConnected and onRedeemingTx callbacks won't be
-	// blocked.
+	// ensure the onBlockConnected callbacks won't be blocked.
 	b.chainUpdates.Start()
-	b.txUpdates.Start()
 
 	// Connect to btcd, and register for notifications on connected, and
 	// disconnected blocks.
 	if err := b.chainConn.Connect(20); err != nil {
-		b.txUpdates.Stop()
 		b.chainUpdates.Stop()
 		return err
 	}
 
 	currentHash, currentHeight, err := b.chainConn.GetBestBlock()
 	if err != nil {
-		b.txUpdates.Stop()
 		b.chainUpdates.Stop()
 		return err
 	}
@@ -171,7 +156,6 @@ func (b *BtcdNotifier) Start() error {
 	}
 
 	if err := b.chainConn.NotifyBlocks(); err != nil {
-		b.txUpdates.Stop()
 		b.chainUpdates.Stop()
 		return err
 	}
@@ -197,7 +181,6 @@ func (b *BtcdNotifier) Stop() error {
 	b.wg.Wait()
 
 	b.chainUpdates.Stop()
-	b.txUpdates.Stop()
 
 	// Notify all pending clients of our shutdown by closing the related
 	// notification channels.
@@ -256,17 +239,6 @@ func (b *BtcdNotifier) onBlockDisconnected(hash *chainhash.Hash, height int32, t
 		blockHeight: height,
 		connect:     false,
 	}:
-	case <-b.quit:
-		return
-	}
-}
-
-// onRedeemingTx implements on OnRedeemingTx callback for rpcclient.
-func (b *BtcdNotifier) onRedeemingTx(tx *btcutil.Tx, details *btcjson.BlockDetails) {
-	// Append this new transaction update to the end of the queue of new
-	// chain updates.
-	select {
-	case b.txUpdates.ChanIn() <- &txUpdate{tx, details}:
 	case <-b.quit:
 		return
 	}
@@ -450,25 +422,6 @@ out:
 			// Set the bestBlock here in case a chain rewind
 			// partially completed.
 			b.bestBlock = newBestBlock
-
-		case item := <-b.txUpdates.ChanOut():
-			newSpend := item.(*txUpdate)
-
-			// We only care about notifying on confirmed spends, so
-			// if this is a mempool spend, we can ignore it and wait
-			// for the spend to appear in on-chain.
-			if newSpend.details == nil {
-				continue
-			}
-
-			err := b.txNotifier.ProcessRelevantSpendTx(
-				newSpend.tx, uint32(newSpend.details.Height),
-			)
-			if err != nil {
-				chainntnfs.Log.Errorf("Unable to process "+
-					"transaction %v: %v",
-					newSpend.tx.Hash(), err)
-			}
 
 		case <-b.quit:
 			break out

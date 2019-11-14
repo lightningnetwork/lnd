@@ -34,7 +34,6 @@ func (b *BtcdNotifier) UnsafeStart(bestHeight int32, bestHash *chainhash.Hash,
 	)
 
 	b.chainUpdates.Start()
-	b.txUpdates.Start()
 
 	if generateBlocks != nil {
 		// Ensure no block notifications are pending when we start the

@@ -154,15 +154,9 @@ func NewCannedAssembler(chanPoint wire.OutPoint, fundingAmt btcutil.Amount,
 //
 // NOTE: This method satisfies the chanfunding.Assembler interface.
 func (c *CannedAssembler) ProvisionChannel(req *Request) (Intent, error) {
-	switch {
-	// A simple sanity check to ensure the provision request matches the
-	// re-made shim intent.
-	case req.LocalAmt != c.fundingAmt:
-		return nil, fmt.Errorf("intent doesn't match canned assembler")
-
 	// We'll exit out if this field is set as the funding transaction has
 	// already been assembled, so we don't influence coin selection..
-	case req.SubtractFees:
+	if req.SubtractFees {
 		return nil, fmt.Errorf("SubtractFees ignored, funding " +
 			"transaction is frozen")
 	}
@@ -177,6 +171,14 @@ func (c *CannedAssembler) ProvisionChannel(req *Request) (Intent, error) {
 		intent.localFundingAmt = c.fundingAmt
 	} else {
 		intent.remoteFundingAmt = c.fundingAmt
+	}
+
+	// A simple sanity check to ensure the provisioned request matches the
+	// re-made shim intent.
+	if req.LocalAmt+req.RemoteAmt != c.fundingAmt {
+		return nil, fmt.Errorf("intent doesn't match canned "+
+			"assembler: local_amt=%v, remote_amt=%v, funding_amt=%v",
+			req.LocalAmt, req.RemoteAmt, c.fundingAmt)
 	}
 
 	return intent, nil

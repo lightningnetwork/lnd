@@ -5814,8 +5814,68 @@ func (r *rpcServer) BakeMacaroon(ctx context.Context,
 // ID, for which we need to use specific parameters.  Alternatively, this can
 // be used to interactively drive PSBT signing for funding for partially
 // complete funding transactions.
-func (r *rpcServer) FundingStateStep(context.Context,
-	*lnrpc.FundingTransitionMsg) (*lnrpc.FundingStateStepResp, error) {
+func (r *rpcServer) FundingStateStep(ctx context.Context,
+	in *lnrpc.FundingTransitionMsg) (*lnrpc.FundingStateStepResp, error) {
 
-	return nil, fmt.Errorf("not implemented")
+	switch {
+
+	// If this is a message to register a new shim that is an external
+	// channel point, then we'll contact the wallet to register this new
+	// shim. A user will use this method to register a new channel funding
+	// workflow which has already been partially negotiated outside of the
+	// core protocol.
+	case in.GetShimRegister() != nil &&
+		in.GetShimRegister().GetChanPointShim() != nil:
+
+		rpcShimIntent := in.GetShimRegister().GetChanPointShim()
+
+		// Using the rpc shim as a template, we'll construct a new
+		// chanfunding.Assembler that is able to express proper
+		// formulation of this expected channel.
+		shimAssembler, err := newFundingShimAssembler(
+			rpcShimIntent, false, r.server.cc.keyRing,
+		)
+		if err != nil {
+			return nil, err
+		}
+		req := &chanfunding.Request{
+			RemoteAmt: btcutil.Amount(rpcShimIntent.Amt),
+		}
+		shimIntent, err := shimAssembler.ProvisionChannel(req)
+		if err != nil {
+			return nil, err
+		}
+
+		// Once we have the intent, we'll register it with the wallet.
+		// Once we receive an incoming funding request that uses this
+		// pending channel ID, then this shim will be dispatched in
+		// place of our regular funding workflow.
+		var pendingChanID [32]byte
+		copy(pendingChanID[:], rpcShimIntent.PendingChanId)
+		err = r.server.cc.wallet.RegisterFundingIntent(
+			pendingChanID, shimIntent,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+	// If this is a transition to cancel an existing shim, then we'll pass
+	// this message along to the wallet.
+	case in.GetShimCancel() != nil:
+		pid := in.GetShimCancel().PendingChanId
+
+		var pendingChanID [32]byte
+		copy(pendingChanID[:], pid)
+
+		err := r.server.cc.wallet.CancelFundingIntent(pendingChanID)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// TODO(roasbeef): extend PendingChannels to also show shims
+
+	// TODO(roasbeef): return resulting state? also add a method to query
+	// current state?
+	return &lnrpc.FundingStateStepResp{}, nil
 }

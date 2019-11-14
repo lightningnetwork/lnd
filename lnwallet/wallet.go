@@ -450,8 +450,30 @@ func (l *LightningWallet) RegisterFundingIntent(expectedID [32]byte,
 	shimIntent chanfunding.Intent) error {
 
 	l.intentMtx.Lock()
+	defer l.intentMtx.Unlock()
+
+	if _, ok := l.fundingIntents[expectedID]; ok {
+		return fmt.Errorf("pendingChanID(%x) already has intent "+
+			"registered", expectedID[:])
+	}
+
 	l.fundingIntents[expectedID] = shimIntent
-	l.intentMtx.Unlock()
+
+	return nil
+}
+
+// CancelFundingIntent allows a caller to cancel a previously registered
+// funding intent. If no intent was found, then an error will be returned.
+func (l *LightningWallet) CancelFundingIntent(pid [32]byte) error {
+	l.intentMtx.Lock()
+	defer l.intentMtx.Unlock()
+
+	if _, ok := l.fundingIntents[pid]; !ok {
+		return fmt.Errorf("no funding intent found for "+
+			"pendingChannelID(%x)", pid[:])
+	}
+
+	delete(l.fundingIntents, pid)
 
 	return nil
 }

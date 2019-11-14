@@ -9,7 +9,6 @@ import (
 	"github.com/btcsuite/btcd/btcjson"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcwallet/chain"
@@ -588,27 +587,6 @@ func (b *BitcoindNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 	ntfn, err := b.txNotifier.RegisterSpend(outpoint, pkScript, heightHint)
 	if err != nil {
 		return nil, err
-	}
-
-	// We'll then request the backend to notify us when it has detected the
-	// outpoint/output script as spent.
-	//
-	// TODO(wilmer): use LoadFilter API instead.
-	if outpoint == nil || *outpoint == chainntnfs.ZeroOutPoint {
-		_, addrs, _, err := txscript.ExtractPkScriptAddrs(
-			pkScript, b.chainParams,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("unable to parse script: %v", err)
-		}
-		if err := b.chainConn.NotifyReceived(addrs); err != nil {
-			return nil, err
-		}
-	} else {
-		ops := []*wire.OutPoint{outpoint}
-		if err := b.chainConn.NotifySpent(ops); err != nil {
-			return nil, err
-		}
 	}
 
 	// If the txNotifier didn't return any details to perform a historical

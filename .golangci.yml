@@ -12,6 +12,7 @@ run:
 
   skip-dirs:
     - channeldb/migration_01_to_11
+    - sphinx
 
   build-tags:
     - autopilotrpc

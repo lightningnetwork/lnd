@@ -328,9 +328,10 @@ func NewSpendRequest(op *wire.OutPoint, pkScript []byte) (SpendRequest, error) {
 // String returns the string representation of the SpendRequest.
 func (r SpendRequest) String() string {
 	if r.OutPoint != ZeroOutPoint {
-		return fmt.Sprintf("outpoint=%v", r.OutPoint)
+		return fmt.Sprintf("outpoint=%v, script=%v", r.OutPoint,
+			r.PkScript)
 	}
-	return fmt.Sprintf("script=%v", r.PkScript)
+	return fmt.Sprintf("outpoint=<zero>, script=%v", r.PkScript)
 }
 
 // SpendHintKey returns the key that will be used to index the spend request's

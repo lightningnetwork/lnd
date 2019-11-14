@@ -1129,51 +1129,6 @@ func (n *TxNotifier) CancelSpend(spendRequest SpendRequest, spendID uint64) {
 	delete(spendSet.ntfns, spendID)
 }
 
-// ProcessRelevantSpendTx processes a transaction provided externally. This will
-// check whether the transaction is relevant to the notifier if it spends any
-// outpoints/output scripts for which we currently have registered notifications
-// for. If it is relevant, spend notifications will be dispatched to the caller.
-func (n *TxNotifier) ProcessRelevantSpendTx(tx *btcutil.Tx,
-	blockHeight uint32) error {
-
-	select {
-	case <-n.quit:
-		return ErrTxNotifierExiting
-	default:
-	}
-
-	// Ensure we hold the lock throughout handling the notification to
-	// prevent the notifier from advancing its height underneath us.
-	n.Lock()
-	defer n.Unlock()
-
-	// We'll use a channel to coalesce all the spend requests that this
-	// transaction fulfills.
-	type spend struct {
-		request *SpendRequest
-		details *SpendDetail
-	}
-
-	// We'll set up the onSpend filter callback to gather all the fulfilled
-	// spends requests within this transaction.
-	var spends []spend
-	onSpend := func(request SpendRequest, details *SpendDetail) {
-		spends = append(spends, spend{&request, details})
-	}
-	n.filterTx(tx, nil, blockHeight, nil, onSpend)
-
-	// After the transaction has been filtered, we can finally dispatch
-	// notifications for each request.
-	for _, spend := range spends {
-		err := n.updateSpendDetails(*spend.request, spend.details)
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
 // UpdateSpendDetails attempts to update the spend details for all active spend
 // notification requests for an outpoint/output script. This method should be
 // used once a historical scan of the chain has finished. If the historical scan

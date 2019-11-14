@@ -34,14 +34,17 @@ var (
 // and passed onto path finding.
 func TestQueryRoutes(t *testing.T) {
 	t.Run("no mission control", func(t *testing.T) {
-		testQueryRoutes(t, false)
+		testQueryRoutes(t, false, false)
+	})
+	t.Run("no mission control and msat", func(t *testing.T) {
+		testQueryRoutes(t, false, true)
 	})
 	t.Run("with mission control", func(t *testing.T) {
-		testQueryRoutes(t, true)
+		testQueryRoutes(t, true, false)
 	})
 }
 
-func testQueryRoutes(t *testing.T, useMissionControl bool) {
+func testQueryRoutes(t *testing.T, useMissionControl bool, useMsat bool) {
 	ignoreNodeBytes, err := hex.DecodeString(ignoreNodeKey)
 	if err != nil {
 		t.Fatal(err)
@@ -57,14 +60,8 @@ func testQueryRoutes(t *testing.T, useMissionControl bool) {
 
 	request := &lnrpc.QueryRoutesRequest{
 		PubKey:         destKey,
-		Amt:            100000,
 		FinalCltvDelta: 100,
-		FeeLimit: &lnrpc.FeeLimit{
-			Limit: &lnrpc.FeeLimit_Fixed{
-				Fixed: 250,
-			},
-		},
-		IgnoredNodes: [][]byte{ignoreNodeBytes},
+		IgnoredNodes:   [][]byte{ignoreNodeBytes},
 		IgnoredEdges: []*lnrpc.EdgeLocator{{
 			ChannelId:        555,
 			DirectionReverse: true,
@@ -76,12 +73,29 @@ func testQueryRoutes(t *testing.T, useMissionControl bool) {
 		UseMissionControl: useMissionControl,
 	}
 
+	amtSat := int64(100000)
+	if useMsat {
+		request.AmtMsat = amtSat * 1000
+		request.FeeLimit = &lnrpc.FeeLimit{
+			Limit: &lnrpc.FeeLimit_FixedMsat{
+				FixedMsat: 250000,
+			},
+		}
+	} else {
+		request.Amt = amtSat
+		request.FeeLimit = &lnrpc.FeeLimit{
+			Limit: &lnrpc.FeeLimit_Fixed{
+				Fixed: 250,
+			},
+		}
+	}
+
 	findRoute := func(source, target route.Vertex,
 		amt lnwire.MilliSatoshi, restrictions *routing.RestrictParams,
 		_ []tlv.Record,
 		finalExpiry ...uint16) (*route.Route, error) {
 
-		if int64(amt) != request.Amt*1000 {
+		if int64(amt) != amtSat*1000 {
 			t.Fatal("unexpected amount")
 		}
 

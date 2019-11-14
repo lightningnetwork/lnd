@@ -128,15 +128,17 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 	// Currently, within the bootstrap phase of the network, we limit the
 	// largest payment size allotted to (2^32) - 1 mSAT or 4.29 million
 	// satoshis.
-	amt := btcutil.Amount(in.Amt)
-	amtMSat := lnwire.NewMSatFromSatoshis(amt)
-	if amtMSat > r.MaxPaymentMSat {
+	amt, err := lnrpc.UnmarshallAmt(in.Amt, in.AmtMsat)
+	if err != nil {
+		return nil, err
+	}
+	if amt > r.MaxPaymentMSat {
 		return nil, fmt.Errorf("payment of %v is too large, max payment "+
 			"allowed is %v", amt, r.MaxPaymentMSat.ToSatoshis())
 	}
 
 	// Unmarshall restrictions from request.
-	feeLimit := calculateFeeLimit(in.FeeLimit, amtMSat)
+	feeLimit := lnrpc.CalculateFeeLimit(in.FeeLimit, amt)
 
 	ignoredNodes := make(map[route.Vertex]struct{})
 	for _, ignorePubKey := range in.IgnoredNodes {
@@ -239,7 +241,7 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 	// can carry `in.Amt` satoshis _including_ the total fee required on
 	// the route.
 	route, err := r.FindRoute(
-		sourcePubKey, targetPubKey, amtMSat, restrictions,
+		sourcePubKey, targetPubKey, amt, restrictions,
 		destTlvRecords, finalCLTVDelta,
 	)
 	if err != nil {
@@ -306,27 +308,6 @@ func (r *RouterBackend) rpcEdgeToPair(e *lnrpc.EdgeLocator) (
 	}
 
 	return pair, nil
-}
-
-// calculateFeeLimit returns the fee limit in millisatoshis. If a percentage
-// based fee limit has been requested, we'll factor in the ratio provided with
-// the amount of the payment.
-func calculateFeeLimit(feeLimit *lnrpc.FeeLimit,
-	amount lnwire.MilliSatoshi) lnwire.MilliSatoshi {
-
-	switch feeLimit.GetLimit().(type) {
-	case *lnrpc.FeeLimit_Fixed:
-		return lnwire.NewMSatFromSatoshis(
-			btcutil.Amount(feeLimit.GetFixed()),
-		)
-	case *lnrpc.FeeLimit_Percent:
-		return amount * lnwire.MilliSatoshi(feeLimit.GetPercent()) / 100
-	default:
-		// If a fee limit was not specified, we'll use the payment's
-		// amount as an upper bound in order to avoid payment attempts
-		// from incurring fees higher than the payment amount itself.
-		return amount
-	}
 }
 
 // MarshallRoute marshalls an internal route to an rpc route struct.
@@ -526,9 +507,12 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 	payIntent.CltvLimit = cltvLimit
 
 	// Take fee limit from request.
-	payIntent.FeeLimit = lnwire.NewMSatFromSatoshis(
-		btcutil.Amount(rpcPayReq.FeeLimitSat),
+	payIntent.FeeLimit, err = lnrpc.UnmarshallAmt(
+		rpcPayReq.FeeLimitSat, rpcPayReq.FeeLimitMsat,
 	)
+	if err != nil {
+		return nil, err
+	}
 
 	// Set payment attempt timeout.
 	if rpcPayReq.TimeoutSeconds == 0 {
@@ -555,6 +539,14 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 		return nil, err
 	}
 	payIntent.RouteHints = routeHints
+
+	// Unmarshall either sat or msat amount from request.
+	reqAmt, err := lnrpc.UnmarshallAmt(
+		rpcPayReq.Amt, rpcPayReq.AmtMsat,
+	)
+	if err != nil {
+		return nil, err
+	}
 
 	// If the payment request field isn't blank, then the details of the
 	// invoice are encoded entirely within the encoded payReq.  So we'll
@@ -593,17 +585,15 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 		// We override the amount to pay with the amount provided from
 		// the payment request.
 		if payReq.MilliSat == nil {
-			if rpcPayReq.Amt == 0 {
+			if reqAmt == 0 {
 				return nil, errors.New("amount must be " +
 					"specified when paying a zero amount " +
 					"invoice")
 			}
 
-			payIntent.Amount = lnwire.NewMSatFromSatoshis(
-				btcutil.Amount(rpcPayReq.Amt),
-			)
+			payIntent.Amount = reqAmt
 		} else {
-			if rpcPayReq.Amt != 0 {
+			if reqAmt != 0 {
 				return nil, errors.New("amount must not be " +
 					"specified when paying a non-zero " +
 					" amount invoice")
@@ -641,13 +631,11 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 		}
 
 		// Amount.
-		if rpcPayReq.Amt == 0 {
+		if reqAmt == 0 {
 			return nil, errors.New("amount must be specified")
 		}
 
-		payIntent.Amount = lnwire.NewMSatFromSatoshis(
-			btcutil.Amount(rpcPayReq.Amt),
-		)
+		payIntent.Amount = reqAmt
 
 		// Payment hash.
 		copy(payIntent.PaymentHash[:], rpcPayReq.PaymentHash)

@@ -2908,27 +2908,6 @@ type rpcPaymentRequest struct {
 	route *route.Route
 }
 
-// calculateFeeLimit returns the fee limit in millisatoshis. If a percentage
-// based fee limit has been requested, we'll factor in the ratio provided with
-// the amount of the payment.
-func calculateFeeLimit(feeLimit *lnrpc.FeeLimit,
-	amount lnwire.MilliSatoshi) lnwire.MilliSatoshi {
-
-	switch feeLimit.GetLimit().(type) {
-	case *lnrpc.FeeLimit_Fixed:
-		return lnwire.NewMSatFromSatoshis(
-			btcutil.Amount(feeLimit.GetFixed()),
-		)
-	case *lnrpc.FeeLimit_Percent:
-		return amount * lnwire.MilliSatoshi(feeLimit.GetPercent()) / 100
-	default:
-		// If a fee limit was not specified, we'll use the payment's
-		// amount as an upper bound in order to avoid payment attempts
-		// from incurring fees higher than the payment amount itself.
-		return amount
-	}
-}
-
 // SendPayment dispatches a bi-directional streaming RPC for sending payments
 // through the Lightning Network. A single RPC invocation creates a persistent
 // bi-directional stream allowing clients to rapidly send payments through the
@@ -3100,21 +3079,25 @@ func extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPaymentIntent, error
 		// We override the amount to pay with the amount provided from
 		// the payment request.
 		if payReq.MilliSat == nil {
-			if rpcPayReq.Amt == 0 {
+			amt, err := lnrpc.UnmarshallAmt(
+				rpcPayReq.Amt, rpcPayReq.AmtMsat,
+			)
+			if err != nil {
+				return payIntent, err
+			}
+			if amt == 0 {
 				return payIntent, errors.New("amount must be " +
 					"specified when paying a zero amount " +
 					"invoice")
 			}
 
-			payIntent.msat = lnwire.NewMSatFromSatoshis(
-				btcutil.Amount(rpcPayReq.Amt),
-			)
+			payIntent.msat = amt
 		} else {
 			payIntent.msat = *payReq.MilliSat
 		}
 
 		// Calculate the fee limit that should be used for this payment.
-		payIntent.feeLimit = calculateFeeLimit(
+		payIntent.feeLimit = lnrpc.CalculateFeeLimit(
 			rpcPayReq.FeeLimit, payIntent.msat,
 		)
 
@@ -3149,12 +3132,15 @@ func extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPaymentIntent, error
 	// Otherwise, If the payment request field was not specified
 	// (and a custom route wasn't specified), construct the payment
 	// from the other fields.
-	payIntent.msat = lnwire.NewMSatFromSatoshis(
-		btcutil.Amount(rpcPayReq.Amt),
+	payIntent.msat, err = lnrpc.UnmarshallAmt(
+		rpcPayReq.Amt, rpcPayReq.AmtMsat,
 	)
+	if err != nil {
+		return payIntent, err
+	}
 
 	// Calculate the fee limit that should be used for this payment.
-	payIntent.feeLimit = calculateFeeLimit(
+	payIntent.feeLimit = lnrpc.CalculateFeeLimit(
 		rpcPayReq.FeeLimit, payIntent.msat,
 	)
 

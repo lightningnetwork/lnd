@@ -13155,17 +13155,42 @@ func testAbandonChannel(net *lntest.NetworkHarness, t *harnessTest) {
 
 	ctxt, _ := context.WithTimeout(ctxb, channelOpenTimeout)
 	chanPoint := openChannelAndAssert(
-		ctxt, t, net, net.Alice, net.Bob, channelParam)
+		ctxt, t, net, net.Alice, net.Bob, channelParam,
+	)
+	txid, err := lnd.GetChanPointFundingTxid(chanPoint)
+	if err != nil {
+		t.Fatalf("unable to get txid: %v", err)
+	}
+	chanPointStr := fmt.Sprintf("%v:%v", txid, chanPoint.OutputIndex)
 
 	// Wait for channel to be confirmed open.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err := net.Alice.WaitForNetworkChannelOpen(ctxt, chanPoint)
+	err = net.Alice.WaitForNetworkChannelOpen(ctxt, chanPoint)
 	if err != nil {
 		t.Fatalf("alice didn't report channel: %v", err)
 	}
 	err = net.Bob.WaitForNetworkChannelOpen(ctxt, chanPoint)
 	if err != nil {
 		t.Fatalf("bob didn't report channel: %v", err)
+	}
+
+	// Now that the channel is open, we'll obtain its channel ID real quick
+	// so we can use it to query the graph below.
+	listReq := &lnrpc.ListChannelsRequest{}
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	aliceChannelList, err := net.Alice.ListChannels(ctxt, listReq)
+	if err != nil {
+		t.Fatalf("unable to fetch alice's channels: %v", err)
+	}
+	var chanID uint64
+	for _, channel := range aliceChannelList.Channels {
+		if channel.ChannelPoint == chanPointStr {
+			chanID = channel.ChanId
+		}
+	}
+
+	if chanID == 0 {
+		t.Fatalf("unable to find channel")
 	}
 
 	// Send request to abandon channel.
@@ -13180,9 +13205,8 @@ func testAbandonChannel(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// Assert that channel in no longer open.
-	listReq := &lnrpc.ListChannelsRequest{}
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	aliceChannelList, err := net.Alice.ListChannels(ctxt, listReq)
+	aliceChannelList, err = net.Alice.ListChannels(ctxt, listReq)
 	if err != nil {
 		t.Fatalf("unable to list channels: %v", err)
 	}
@@ -13230,9 +13254,26 @@ func testAbandonChannel(net *lntest.NetworkHarness, t *harnessTest) {
 			len(aliceClosedList.Channels))
 	}
 
-	// Now that we're done with the test, the channel can be closed. This is
-	// necessary to avoid unexpected outcomes of other tests that use Bob's
-	// lnd instance.
+	// Ensure that the channel can no longer be found in the channel graph.
+	_, err = net.Alice.GetChanInfo(ctxb, &lnrpc.ChanInfoRequest{
+		ChanId: chanID,
+	})
+	if !strings.Contains(err.Error(), "marked as zombie") {
+		t.Fatalf("channel shouldn't be found in the channel " +
+			"graph!")
+	}
+
+	// Calling AbandonChannel again, should result in no new errors, as the
+	// channel has already been removed.
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	_, err = net.Alice.AbandonChannel(ctxt, abandonChannelRequest)
+	if err != nil {
+		t.Fatalf("unable to abandon channel a second time: %v", err)
+	}
+
+	// Now that we're done with the test, the channel can be closed. This
+	// is necessary to avoid unexpected outcomes of other tests that use
+	// Bob's lnd instance.
 	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
 	closeChannelAndAssert(ctxt, t, net, net.Bob, chanPoint, true)
 

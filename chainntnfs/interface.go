@@ -241,6 +241,12 @@ type SpendDetail struct {
 	SpendingHeight    int32
 }
 
+// String returns a string representation of SpendDetail.
+func (s *SpendDetail) String() string {
+	return fmt.Sprintf("%v[%d] spending %v at height=%v", s.SpenderTxHash,
+		s.SpenderInputIndex, s.SpentOutPoint, s.SpendingHeight)
+}
+
 // SpendEvent encapsulates a spentness notification. Its only field 'Spend' will
 // be sent upon once the target output passed into RegisterSpendNtfn has been
 // spent on the blockchain.

@@ -337,7 +337,7 @@ func TestDuplicateSettleInvoice(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to make test db: %v", err)
 	}
-	db.now = func() time.Time { return time.Unix(1, 0) }
+	db.Now = func() time.Time { return time.Unix(1, 0) }
 
 	// We'll start out by creating an invoice and writing it to the DB.
 	amt := lnwire.NewMSatFromSatoshis(1000)

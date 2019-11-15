@@ -341,8 +341,8 @@ func (p *paymentLifecycle) sendPaymentAttempt(firstHop lnwire.ShortChannelID,
 		return err
 	}
 
-	log.Debugf("Payment %x (pid=%v) successfully sent to switch",
-		p.payment.PaymentHash, p.attempt.PaymentID)
+	log.Debugf("Payment %x (pid=%v) successfully sent to switch, route: %v",
+		p.payment.PaymentHash, p.attempt.PaymentID, &p.attempt.Route)
 
 	return nil
 }

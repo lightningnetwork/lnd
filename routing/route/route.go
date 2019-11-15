@@ -340,15 +340,19 @@ func (r *Route) ToSphinxPath() (*sphinx.PaymentPath, error) {
 func (r *Route) String() string {
 	var b strings.Builder
 
+	amt := r.TotalAmount
 	for i, hop := range r.Hops {
 		if i > 0 {
-			b.WriteString(",")
+			b.WriteString(" -> ")
 		}
-		b.WriteString(strconv.FormatUint(hop.ChannelID, 10))
+		b.WriteString(fmt.Sprintf("%v (%v)",
+			strconv.FormatUint(hop.ChannelID, 10),
+			amt,
+		))
+		amt = hop.AmtToForward
 	}
 
-	return fmt.Sprintf("amt=%v, fees=%v, tl=%v, chans=%v",
-		r.TotalAmount-r.TotalFees(), r.TotalFees(), r.TotalTimeLock,
-		b.String(),
+	return fmt.Sprintf("%v, cltv %v",
+		b.String(), r.TotalTimeLock,
 	)
 }

@@ -62,6 +62,9 @@ func TestStartStoreError(t *testing.T) {
 				SubscribeChannelEvents: test.ChannelEvents,
 				SubscribePeerEvents:    test.PeerEvents,
 				GetOpenChannels:        test.GetChannels,
+				GetOpenTime: func(blockHeight uint32) (i time.Time, e error) {
+					return time.Now(), nil
+				},
 			})
 
 			err := store.Start()
@@ -290,7 +293,7 @@ func TestGetLifetime(t *testing.T) {
 			// Create and  empty events store for testing.
 			store := NewChannelEventStore(&Config{})
 
-			// Start goroutine which consumes GetLifespan requests.
+			// Start goroutine which consumes GetTimestamps requests.
 			store.wg.Add(1)
 			go store.consume(&subscriptions{
 				channelUpdates: make(chan interface{}),
@@ -305,25 +308,33 @@ func TestGetLifetime(t *testing.T) {
 			// be present.
 			if test.channelFound {
 				store.channels[test.chanID] = &chanEventLog{
-					openedAt: test.opened,
-					closedAt: test.closed,
+					ChannelTimestamps: ChannelTimestamps{
+						OpenedAt: test.opened,
+						ClosedAt: test.closed,
+					},
 				}
 			}
 
-			open, close, err := store.GetLifespan(test.chanID)
-			if test.expectErr && err == nil {
-				t.Fatal("Expected an error, got nil")
-			}
-			if !test.expectErr && err != nil {
-				t.Fatalf("Expected no error, got: %v", err)
-			}
-
-			if open != test.opened {
-				t.Errorf("Expected: %v, got %v", test.opened, open)
+			timestamps, err := store.GetTimestamps(test.chanID)
+			gotError := err != nil
+			if test.expectErr != gotError {
+				t.Fatalf("Expected an error: %v, got an error: %v",
+					test.expectErr, gotError)
 			}
 
-			if close != test.closed {
-				t.Errorf("Expected: %v, got %v", test.closed, close)
+			// If we received an error, do not perform further validation.
+			if err != nil {
+				return
+			}
+
+			if timestamps.OpenedAt != test.opened {
+				t.Errorf("Expected: %v, got %v", test.opened,
+					timestamps.OpenedAt)
+			}
+
+			if timestamps.ClosedAt != test.closed {
+				t.Errorf("Expected: %v, got %v", test.closed,
+					timestamps.ClosedAt)
 			}
 		})
 	}
@@ -349,8 +360,8 @@ func TestGetUptime(t *testing.T) {
 		// events is the set of events we expect to find in the channel store.
 		events []*channelEvent
 
-		// openedAt is the time the channel is recorded as open by the store.
-		openedAt time.Time
+		// monitoredSince is the time the channel is recorded as open by the store.
+		monitoredSince time.Time
 
 		// closedAt is the time the channel is recorded as closed by the store.
 		// If the channel is still open, this value is zero.
@@ -387,7 +398,7 @@ func TestGetUptime(t *testing.T) {
 					eventType: peerOfflineEvent,
 				},
 			},
-			openedAt:       fourHoursAgo,
+			monitoredSince: fourHoursAgo,
 			expectedUptime: time.Hour * 2,
 			startTime:      fourHoursAgo,
 			endTime:        now,
@@ -401,7 +412,7 @@ func TestGetUptime(t *testing.T) {
 					eventType: peerOnlineEvent,
 				},
 			},
-			openedAt:       fourHoursAgo,
+			monitoredSince: fourHoursAgo,
 			expectedUptime: time.Hour * 4,
 			endTime:        now,
 			channelFound:   true,
@@ -437,10 +448,12 @@ func TestGetUptime(t *testing.T) {
 			// Add the channel to the store if it is intended to be found.
 			if test.channelFound {
 				store.channels[test.chanID] = &chanEventLog{
-					events:   test.events,
-					now:      func() time.Time { return now },
-					openedAt: test.openedAt,
-					closedAt: test.closedAt,
+					events: test.events,
+					ChannelTimestamps: ChannelTimestamps{
+						ClosedAt:       test.closedAt,
+						MonitoredSince: test.monitoredSince,
+						now:            func() time.Time { return now },
+					},
 				}
 			}
 

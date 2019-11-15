@@ -2709,24 +2709,25 @@ func createRPCOpenChannel(r *rpcServer, graph *channeldb.ChannelGraph,
 		lifespan time.Duration
 	)
 
-	// Get the lifespan observed by the channel event store.
-	startTime, endTime, err := r.server.chanEventStore.GetLifespan(chanID)
+	// Get timestamps for the channel so that we can calculate uptime and total
+	// time monitored.
+	timestamps, err := r.server.chanEventStore.GetTimestamps(chanID)
 	if err != nil {
 		// If the channel cannot be found, log an error and do not perform
 		// further calculations for uptime and lifespan.
-		rpcsLog.Warnf("GetLifespan %v error: %v", chanID, err)
+		rpcsLog.Warnf("GetTimestamps %v error: %v", chanID, err)
 	} else {
+		lifespan = timestamps.Monitored()
+
 		// If endTime is zero, the channel is still open, progress endTime to
-		// the present so we can calculate lifespan.
+		// the present for uptime calculation.
+		endTime := timestamps.ClosedAt
 		if endTime.IsZero() {
 			endTime = time.Now()
 		}
-		lifespan = endTime.Sub(startTime)
 
 		uptime, err = r.server.chanEventStore.GetUptime(
-			chanID,
-			startTime,
-			endTime,
+			chanID, timestamps.OpenedAt, endTime,
 		)
 		if err != nil {
 			rpcsLog.Warnf("GetUptime %v error: %v", chanID, err)

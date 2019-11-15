@@ -45,31 +45,83 @@ type chanEventLog struct {
 	// events is a log of timestamped events observed for the channel.
 	events []*channelEvent
 
+	// ChannelTimestamps contains the opened, closed and monitored since times
+	// for the channel. It also contains a now function which is used for time
+	// mocking in unit tests.
+	ChannelTimestamps
+}
+
+// ChannelTimestamps provides open and close timestamps for a channel, as well
+// as a timestamp which indicates when monitoring of the channel began. A
+// MonitoredUntil variable which indicates when monitoring ended is not given
+// because monitoring ends when the channel is closed.
+type ChannelTimestamps struct {
+	// Opened at is the time that the channel was opened on chain. Note that
+	// this value is set from block height when channels exist at startup.
+	// Block timestamps can be up to two hours in the future, so this value
+	// should not be relied upon for any strict calculations, see
+	// https://en.bitcoin.it/wiki/Block_timestamp for details.
+	OpenedAt time.Time
+
+	// Closed at is the time that the channel was closed on chain. If it is
+	// still open, this value is zero.
+	ClosedAt time.Time
+
+	// monitoredSince tracks the first time this channel was seen. This is not
+	// necessarily the time that it confirmed on chain because channel events
+	// are not persisted at present.
+	MonitoredSince time.Time
+
 	// now is expected to return the current time. It is supplied as an
 	// external function to enable deterministic unit tests.
 	now func() time.Time
-
-	// openedAt tracks the first time this channel was seen. This is not
-	// necessarily the time that it confirmed on chain because channel events
-	// are not persisted at present.
-	openedAt time.Time
-
-	// closedAt is the time that the channel was closed. If the channel has not
-	// been closed yet, it is zero.
-	closedAt time.Time
 }
 
-func newEventLog(id uint64, peer route.Vertex, now func() time.Time) *chanEventLog {
+// Lifetime returns the amount of time that the channel was open for. If the
+// channel is not closed yet, the value is calculated until the present.
+func (c ChannelTimestamps) Lifetime() time.Duration {
+	endTime := c.ClosedAt
+	if endTime.IsZero() {
+		endTime = c.now()
+	}
+
+	return endTime.Sub(c.OpenedAt)
+}
+
+// Monitored returns the amount of time that the channel has been monitored.
+// If the channel is closed, this value is calculated until close time, and if
+// it is still opened, it is calculated until the present.
+func (c ChannelTimestamps) Monitored() time.Duration {
+	endTime := c.ClosedAt
+	if endTime.IsZero() {
+		endTime = c.now()
+	}
+
+	return endTime.Sub(c.MonitoredSince)
+}
+
+// newEventLog returns a channel event log for a channel id, peer vertex and
+// channel open time. It also takes a now function which allows for easier
+// time mocking during unit testing. This function is used to set the monitored
+// since field, which indicates the point at which monitoring of the channel
+// began.
+func newEventLog(id uint64, peer route.Vertex, openedAt time.Time,
+	now func() time.Time) *chanEventLog {
+
 	return &chanEventLog{
 		id:   id,
 		peer: peer,
-		now:  now,
+		ChannelTimestamps: ChannelTimestamps{
+			OpenedAt:       openedAt,
+			MonitoredSince: now(),
+			now:            now,
+		},
 	}
 }
 
 // close sets the closing time for an event log.
 func (e *chanEventLog) close() {
-	e.closedAt = e.now()
+	e.ClosedAt = e.now()
 }
 
 // add appends an event with the given type and current time to the event log.
@@ -77,7 +129,7 @@ func (e *chanEventLog) close() {
 // not set yet.
 func (e *chanEventLog) add(eventType eventType) {
 	// If the channel is already closed, return early without adding an event.
-	if !e.closedAt.IsZero() {
+	if !e.ClosedAt.IsZero() {
 		return
 	}
 
@@ -87,13 +139,6 @@ func (e *chanEventLog) add(eventType eventType) {
 		eventType: eventType,
 	}
 	e.events = append(e.events, event)
-
-	// If the eventLog does not have an opened time set, set it to the timestamp
-	// of the event. This has the effect of setting the eventLog's open time to
-	// the timestamp of the first event added.
-	if e.openedAt.IsZero() {
-		e.openedAt = event.timestamp
-	}
 
 	log.Debugf("Channel %v recording event: %v", e.id, eventType)
 }
@@ -160,7 +205,7 @@ func (e *chanEventLog) getOnlinePeriods() []*onlinePeriod {
 	// The log ended on an online event, so we need to add a final online event.
 	// If the channel is closed, this period is until channel closure. It it is
 	// still open, we calculate it until the present.
-	endTime := e.closedAt
+	endTime := e.ClosedAt
 	if endTime.IsZero() {
 		endTime = e.now()
 	}

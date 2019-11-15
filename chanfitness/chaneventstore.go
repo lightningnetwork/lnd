@@ -65,6 +65,9 @@ type Config struct {
 	// GetOpenChannels provides a list of existing open channels which is used
 	// to populate the ChannelEventStore with a set of channels on startup.
 	GetOpenChannels func() ([]*channeldb.OpenChannel, error)
+
+	// GetOpenTime looks up the opening time of a channel by its block height.
+	GetOpenTime func(blockHeight uint32) (time.Time, error)
 }
 
 // lifespanRequest contains the channel ID required to query the store for a
@@ -78,9 +81,8 @@ type lifespanRequest struct {
 // lifespanResponse contains the response to a lifespanRequest and an error if
 // one occurred.
 type lifespanResponse struct {
-	start time.Time
-	end   time.Time
-	err   error
+	ChannelTimestamps
+	err error
 }
 
 // uptimeRequest contains the parameters required to query the store for a
@@ -160,9 +162,18 @@ func (c *ChannelEventStore) Start() error {
 			return err
 		}
 
+		// Channels which already exist at startup have an open time in the
+		// past. Get their open time from the block height in the short channel
+		// ID so that we can set their correct opening time. Note that this
+		// time is not exact, since block timestamps can vary.
+		opened, err := c.cfg.GetOpenTime(ch.ShortChannelID.BlockHeight)
+		if err != nil {
+			return err
+		}
+
 		// Add existing channels to the channel store with an initial peer
 		// online or offline event.
-		c.addChannel(ch.ShortChanID().ToUint64(), peerKey)
+		c.addChannel(ch.ShortChanID().ToUint64(), peerKey, opened)
 	}
 
 	// Start a goroutine that consumes events from all subscriptions.
@@ -191,7 +202,9 @@ func (c *ChannelEventStore) Stop() {
 // already present in the map, the function returns early. This function should
 // be called to add existing channels on startup and when open channel events
 // are observed.
-func (c *ChannelEventStore) addChannel(channelID uint64, peer route.Vertex) {
+func (c *ChannelEventStore) addChannel(channelID uint64, peer route.Vertex,
+	openedAt time.Time) {
+
 	// Check for the unexpected case where the channel is already in the store.
 	_, ok := c.channels[channelID]
 	if ok {
@@ -199,7 +212,7 @@ func (c *ChannelEventStore) addChannel(channelID uint64, peer route.Vertex) {
 		return
 	}
 
-	eventLog := newEventLog(channelID, peer, time.Now)
+	eventLog := newEventLog(channelID, peer, openedAt, time.Now)
 
 	// If the peer is online, add a peer online event to indicate its starting
 	// state.
@@ -270,7 +283,10 @@ func (c *ChannelEventStore) consume(subscriptions *subscriptions) {
 						event.Channel.IdentityPub.SerializeCompressed())
 				}
 
-				c.addChannel(chanID, peerKey)
+				// Add channel to event store with the current time as the open
+				// time because OpenChannelEvent notifications are sent as the
+				// channel transitions from pending to opening.
+				c.addChannel(chanID, peerKey, time.Now())
 
 			// A channel has been closed, we must remove the channel from the
 			// store and record a channel closed event.
@@ -300,8 +316,7 @@ func (c *ChannelEventStore) consume(subscriptions *subscriptions) {
 			if !ok {
 				resp.err = fmt.Errorf("channel %v not found", req.channelID)
 			} else {
-				resp.start = channel.openedAt
-				resp.end = channel.closedAt
+				resp.ChannelTimestamps = channel.ChannelTimestamps
 			}
 
 			req.responseChan <- resp
@@ -328,10 +343,10 @@ func (c *ChannelEventStore) consume(subscriptions *subscriptions) {
 	}
 }
 
-// GetLifespan returns the opening and closing time observed for a channel and
-// a boolean to indicate whether the channel is known the the event store. If
-// the channel is still open, a zero close time is returned.
-func (c *ChannelEventStore) GetLifespan(chanID uint64) (time.Time, time.Time, error) {
+// GetTimestamps returns opened, closed and monitored since timestamps for a
+// channel. If the channel is not known to the event store, an error is
+// returned.
+func (c *ChannelEventStore) GetTimestamps(chanID uint64) (*ChannelTimestamps, error) {
 	request := lifespanRequest{
 		channelID:    chanID,
 		responseChan: make(chan lifespanResponse),
@@ -343,17 +358,17 @@ func (c *ChannelEventStore) GetLifespan(chanID uint64) (time.Time, time.Time, er
 	select {
 	case c.lifespanRequests <- request:
 	case <-c.quit:
-		return time.Time{}, time.Time{}, errShuttingDown
+		return nil, errShuttingDown
 	}
 
 	// Return the response we receive on the response channel or exit early if
 	// the store is instructed to exit.
 	select {
 	case resp := <-request.responseChan:
-		return resp.start, resp.end, resp.err
+		return &resp.ChannelTimestamps, resp.err
 
 	case <-c.quit:
-		return time.Time{}, time.Time{}, errShuttingDown
+		return nil, errShuttingDown
 	}
 }
 

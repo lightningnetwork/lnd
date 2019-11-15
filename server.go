@@ -1138,6 +1138,19 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 		SubscribeChannelEvents: s.channelNotifier.SubscribeChannelEvents,
 		SubscribePeerEvents:    s.peerNotifier.SubscribePeerEvents,
 		GetOpenChannels:        s.chanDB.FetchAllOpenChannels,
+		GetOpenTime: func(blockHeight uint32) (time.Time, error) {
+			hash, err := s.cc.chainIO.GetBlockHash(int64(blockHeight))
+			if err != nil {
+				return time.Time{}, err
+			}
+
+			header, err := s.cc.chainIO.GetBlockHeader(hash)
+			if err != nil {
+				return time.Time{}, err
+			}
+
+			return header.Timestamp, nil
+		},
 	})
 
 	if cfg.WtClient.Active {

@@ -18,7 +18,9 @@ func TestAdd(t *testing.T) {
 		{
 			name: "Channel open",
 			eventLog: &chanEventLog{
-				now: time.Now,
+				ChannelTimestamps: ChannelTimestamps{
+					now: time.Now,
+				},
 			},
 			event:    peerOnlineEvent,
 			expected: []eventType{peerOnlineEvent},
@@ -26,7 +28,9 @@ func TestAdd(t *testing.T) {
 		{
 			name: "Channel closed, event not added",
 			eventLog: &chanEventLog{
-				now: time.Now,
+				ChannelTimestamps: ChannelTimestamps{
+					now: time.Now,
+				},
 			},
 			event:    peerOnlineEvent,
 			expected: []eventType{},
@@ -65,7 +69,7 @@ func TestGetOnlinePeriod(t *testing.T) {
 		name           string
 		events         []*channelEvent
 		expectedOnline []*onlinePeriod
-		openedAt       time.Time
+		monitoredSince time.Time
 		closedAt       time.Time
 	}{
 		{
@@ -138,11 +142,13 @@ func TestGetOnlinePeriod(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			score := &chanEventLog{
 				events: test.events,
-				now: func() time.Time {
-					return now
+				ChannelTimestamps: ChannelTimestamps{
+					now: func() time.Time {
+						return now
+					},
+					MonitoredSince: test.monitoredSince,
+					ClosedAt:       test.closedAt,
 				},
-				openedAt: test.openedAt,
-				closedAt: test.closedAt,
 			}
 
 			online := score.getOnlinePeriods()
@@ -371,11 +377,13 @@ func TestUptime(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			score := &chanEventLog{
 				events: test.events,
-				now: func() time.Time {
-					return now
+				ChannelTimestamps: ChannelTimestamps{
+					ClosedAt:       test.closedAt,
+					MonitoredSince: test.openedAt,
+					now: func() time.Time {
+						return now
+					},
 				},
-				openedAt: test.openedAt,
-				closedAt: test.closedAt,
 			}
 
 			uptime, err := score.uptime(test.startTime, test.endTime)

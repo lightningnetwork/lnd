@@ -15,7 +15,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/lightningnetwork/lnd/sweep"
 )
 
 // ErrChainArbExiting signals that the chain arbitrator is shutting down.
@@ -113,8 +112,7 @@ type ChainArbitratorConfig struct {
 	// the process of incubation. This is used when a resolver wishes to
 	// pass off the output to the nursery as we're only waiting on an
 	// absolute/relative item block.
-	IncubateOutputs func(wire.OutPoint, *lnwallet.CommitOutputResolution,
-		*lnwallet.OutgoingHtlcResolution,
+	IncubateOutputs func(wire.OutPoint, *lnwallet.OutgoingHtlcResolution,
 		*lnwallet.IncomingHtlcResolution, uint32) error
 
 	// PreimageDB is a global store of all known pre-images. We'll use this
@@ -142,7 +140,7 @@ type ChainArbitratorConfig struct {
 	DisableChannel func(wire.OutPoint) error
 
 	// Sweeper allows resolvers to sweep their final outputs.
-	Sweeper *sweep.UtxoSweeper
+	Sweeper UtxoSweeper
 
 	// Registry is the invoice database that is used by resolvers to lookup
 	// preimages and settle invoices.

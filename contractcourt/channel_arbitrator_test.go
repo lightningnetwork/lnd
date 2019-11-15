@@ -301,7 +301,7 @@ func createTestChannelArbitrator(t *testing.T, log ArbitratorLog) (*chanArbTestC
 			spendChan: make(chan *chainntnfs.SpendDetail),
 			confChan:  make(chan *chainntnfs.TxConfirmation),
 		},
-		IncubateOutputs: func(wire.OutPoint, *lnwallet.CommitOutputResolution,
+		IncubateOutputs: func(wire.OutPoint,
 			*lnwallet.OutgoingHtlcResolution,
 			*lnwallet.IncomingHtlcResolution, uint32) error {
 

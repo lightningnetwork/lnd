@@ -211,7 +211,7 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 			h, h.htlc.RHash[:])
 
 		err := h.IncubateOutputs(
-			h.ChanPoint, nil, nil, &h.htlcResolution,
+			h.ChanPoint, nil, &h.htlcResolution,
 			h.broadcastHeight,
 		)
 		if err != nil {

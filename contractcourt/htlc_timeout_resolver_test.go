@@ -216,7 +216,6 @@ func TestHtlcTimeoutResolver(t *testing.T) {
 				Notifier:   notifier,
 				PreimageDB: witnessBeacon,
 				IncubateOutputs: func(wire.OutPoint,
-					*lnwallet.CommitOutputResolution,
 					*lnwallet.OutgoingHtlcResolution,
 					*lnwallet.IncomingHtlcResolution,
 					uint32) error {

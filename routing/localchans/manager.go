@@ -79,6 +79,9 @@ func (r *Manager) UpdatePolicy(newSchema routing.ChannelPolicy,
 		// Apply the new policy to the edge.
 		err := r.updateEdge(info.ChannelPoint, edge, newSchema)
 		if err != nil {
+			log.Warnf("Cannot update policy for %v: %v\n",
+				info.ChannelPoint, err,
+			)
 			return nil
 		}
 

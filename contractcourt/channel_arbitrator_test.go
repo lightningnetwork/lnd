@@ -171,6 +171,10 @@ func (*mockChainIO) GetBlock(blockHash *chainhash.Hash) (*wire.MsgBlock, error) 
 	return nil, nil
 }
 
+func (*mockChainIO) GetBlockHeader(blockHash *chainhash.Hash) (*wire.BlockHeader, error) {
+	return nil, nil
+}
+
 type chanArbTestCtx struct {
 	t *testing.T
 

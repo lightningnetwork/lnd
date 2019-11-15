@@ -281,6 +281,9 @@ type BlockChainIO interface {
 	// GetBlock returns the block in the main chain identified by the given
 	// hash.
 	GetBlock(blockHash *chainhash.Hash) (*wire.MsgBlock, error)
+
+	// GetBlockHeader returns the header for the block with the given hash.
+	GetBlockHeader(blockHash *chainhash.Hash) (*wire.BlockHeader, error)
 }
 
 // MessageSigner represents an abstract object capable of signing arbitrary

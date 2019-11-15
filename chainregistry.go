@@ -36,7 +36,20 @@ import (
 )
 
 const (
-	defaultBitcoinMinHTLCMSat = lnwire.MilliSatoshi(1000)
+	// defaultBitcoinMinHTLCMSat is the default smallest value htlc this
+	// node will accept. This value is proposed in the channel open sequence
+	// and cannot be changed during the life of the channel.
+	//
+	// All forwarded payments are subjected to the min htlc constraint of
+	// the routing policy of the outgoing channel. This implicitly controls
+	// the minimum htlc value on the incoming channel too.
+	defaultBitcoinMinHTLCInMSat = lnwire.MilliSatoshi(1000)
+
+	// defaultBitcoinMinHTLCOutMSat is the default minimum htlc value that
+	// we require for sending out htlcs. Our channel peer may have a lower
+	// min htlc channel parameter, but we - by default - don't forward
+	// anything under the value defined here.
+	defaultBitcoinMinHTLCOutMSat = lnwire.MilliSatoshi(1000)
 
 	// DefaultBitcoinBaseFeeMSat is the default forwarding base fee.
 	DefaultBitcoinBaseFeeMSat = lnwire.MilliSatoshi(1000)
@@ -48,11 +61,12 @@ const (
 	// delta.
 	DefaultBitcoinTimeLockDelta = 40
 
-	defaultLitecoinMinHTLCMSat   = lnwire.MilliSatoshi(1000)
-	defaultLitecoinBaseFeeMSat   = lnwire.MilliSatoshi(1000)
-	defaultLitecoinFeeRate       = lnwire.MilliSatoshi(1)
-	defaultLitecoinTimeLockDelta = 576
-	defaultLitecoinDustLimit     = btcutil.Amount(54600)
+	defaultLitecoinMinHTLCInMSat  = lnwire.MilliSatoshi(1000)
+	defaultLitecoinMinHTLCOutMSat = lnwire.MilliSatoshi(1000)
+	defaultLitecoinBaseFeeMSat    = lnwire.MilliSatoshi(1000)
+	defaultLitecoinFeeRate        = lnwire.MilliSatoshi(1)
+	defaultLitecoinTimeLockDelta  = 576
+	defaultLitecoinDustLimit      = btcutil.Amount(54600)
 
 	// defaultBitcoinStaticFeePerKW is the fee rate of 50 sat/vbyte
 	// expressed in sat/kw.
@@ -159,23 +173,23 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 	switch registeredChains.PrimaryChain() {
 	case bitcoinChain:
 		cc.routingPolicy = htlcswitch.ForwardingPolicy{
-			MinHTLCOut:    cfg.Bitcoin.MinHTLC,
+			MinHTLCOut:    cfg.Bitcoin.MinHTLCOut,
 			BaseFee:       cfg.Bitcoin.BaseFee,
 			FeeRate:       cfg.Bitcoin.FeeRate,
 			TimeLockDelta: cfg.Bitcoin.TimeLockDelta,
 		}
-		cc.minHtlcIn = cfg.Bitcoin.MinHTLC
+		cc.minHtlcIn = cfg.Bitcoin.MinHTLCIn
 		cc.feeEstimator = chainfee.NewStaticEstimator(
 			defaultBitcoinStaticFeePerKW, 0,
 		)
 	case litecoinChain:
 		cc.routingPolicy = htlcswitch.ForwardingPolicy{
-			MinHTLCOut:    cfg.Litecoin.MinHTLC,
+			MinHTLCOut:    cfg.Litecoin.MinHTLCOut,
 			BaseFee:       cfg.Litecoin.BaseFee,
 			FeeRate:       cfg.Litecoin.FeeRate,
 			TimeLockDelta: cfg.Litecoin.TimeLockDelta,
 		}
-		cc.minHtlcIn = cfg.Litecoin.MinHTLC
+		cc.minHtlcIn = cfg.Litecoin.MinHTLCIn
 		cc.feeEstimator = chainfee.NewStaticEstimator(
 			defaultLitecoinStaticFeePerKW, 0,
 		)

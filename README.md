@@ -59,7 +59,7 @@ resources including talks, articles, and example applications can be found at:
 [dev.lightning.community](https://dev.lightning.community).
 
 Finally, we also have an active
-[Slack](https://join.slack.com/t/lightningcommunity/shared_invite/enQtMzQ0OTQyNjE5NjU1LThmOGJkZDIzY2U2ODI5ODhmOWMzM2FkOTY5ZTdkYTc5NDYyN2U1YTJkZTE1MWU2OTZlZTAyOWY4NGY2M2M1NTM) where protocol developers, application developers, testers and users gather to
+[Slack](https://join.slack.com/t/lightningcommunity/shared_invite/enQtODI1NTUwOTgwNTMxLThkYjQ2ZTQ3YTYyNzE3ZTk2ODMxNDMzYzdkNjRlY2EwYzRjMjg2NmM5MDZmZmE5OTY1MDZhZmZiMTZlMmIzYWM) where protocol developers, application developers, testers and users gather to
 discuss various aspects of `lnd` and also Lightning in general.
 
 ## Installation

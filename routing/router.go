@@ -224,6 +224,10 @@ type ChannelPolicy struct {
 	// MaxHTLC is the maximum HTLC size including fees we are allowed to
 	// forward over this channel.
 	MaxHTLC lnwire.MilliSatoshi
+
+	// MinHTLC is the minimum HTLC size including fees we are allowed to
+	// forward over this channel.
+	MinHTLC *lnwire.MilliSatoshi
 }
 
 // Config defines the configuration for the ChannelRouter. ALL elements within

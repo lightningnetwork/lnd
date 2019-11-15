@@ -160,6 +160,11 @@ func (r *Manager) updateEdge(chanPoint wire.OutPoint,
 		edge.MaxHTLC = amtMax
 	}
 
+	// If a new min htlc is specified, update the edge.
+	if newSchema.MinHTLC != nil {
+		edge.MinHTLC = *newSchema.MinHTLC
+	}
+
 	// If the MaxHtlc flag wasn't already set, we can set it now.
 	edge.MessageFlags |= lnwire.ChanUpdateOptionMaxHtlc
 

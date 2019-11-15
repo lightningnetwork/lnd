@@ -2686,6 +2686,12 @@ message PolicyUpdateRequest {
 
     /// If set, the maximum HTLC size in milli-satoshis. If unset, the maximum HTLC will be unchanged.
     uint64 max_htlc_msat = 6 [json_name = "max_htlc_msat"];
+
+    /// The minimum HTLC size in milli-satoshis. Only applied if min_htlc_msat_specified is true.
+    uint64 min_htlc_msat = 7 [json_name = "min_htlc_msat"];
+
+    /// If true, min_htlc_msat is applied.
+    bool min_htlc_msat_specified = 8 [json_name = "set_min_htlc_msat"];
 }
 message PolicyUpdateResponse {
 }

@@ -4864,15 +4864,25 @@ func (r *rpcServer) UpdateChannelPolicy(ctx context.Context,
 		FeeRate: feeRateFixed,
 	}
 
+	maxHtlc := lnwire.MilliSatoshi(req.MaxHtlcMsat)
+	var minHtlc *lnwire.MilliSatoshi
+	if req.MinHtlcMsatSpecified {
+		min := lnwire.MilliSatoshi(req.MinHtlcMsat)
+		minHtlc = &min
+	}
+
 	chanPolicy := routing.ChannelPolicy{
 		FeeSchema:     feeSchema,
 		TimeLockDelta: req.TimeLockDelta,
-		MaxHTLC:       lnwire.MilliSatoshi(req.MaxHtlcMsat),
+		MaxHTLC:       maxHtlc,
+		MinHTLC:       minHtlc,
 	}
 
 	rpcsLog.Debugf("[updatechanpolicy] updating channel policy base_fee=%v, "+
-		"rate_float=%v, rate_fixed=%v, time_lock_delta: %v, targets=%v",
+		"rate_float=%v, rate_fixed=%v, time_lock_delta: %v, "+
+		"min_htlc=%v, max_htlc=%v, targets=%v",
 		req.BaseFeeMsat, req.FeeRate, feeRateFixed, req.TimeLockDelta,
+		minHtlc, maxHtlc,
 		spew.Sdump(targetChans))
 
 	// With the scope resolved, we'll now send this to the local channel

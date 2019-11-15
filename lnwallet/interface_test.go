@@ -1386,7 +1386,7 @@ func testTransactionSubscriptions(miner *rpctest.Harness,
 	// notifications when we _create_ transactions ourselves that spend our
 	// own outputs.
 	b := txscript.NewScriptBuilder()
-	b.AddOp(txscript.OP_0)
+	b.AddOp(txscript.OP_RETURN)
 	outputScript, err := b.Script()
 	if err != nil {
 		t.Fatalf("unable to make output script: %v", err)
@@ -1595,7 +1595,7 @@ func newTx(t *testing.T, r *rpctest.Harness, pubKey *btcec.PublicKey,
 	}
 
 	// Create a new unconfirmed tx that spends this output.
-	txFee := btcutil.Amount(0.1 * btcutil.SatoshiPerBitcoin)
+	txFee := btcutil.Amount(0.001 * btcutil.SatoshiPerBitcoin)
 	tx1, err := txFromOutput(
 		tx, alice.Cfg.Signer, pubKey, pubKey, txFee, rbf,
 	)
@@ -1672,7 +1672,7 @@ func testPublishTransaction(r *rpctest.Harness,
 	// We'll do the next mempool check on both RBF and non-RBF enabled
 	// transactions.
 	var (
-		txFee         = btcutil.Amount(0.05 * btcutil.SatoshiPerBitcoin)
+		txFee         = btcutil.Amount(0.005 * btcutil.SatoshiPerBitcoin)
 		tx3, tx3Spend *wire.MsgTx
 	)
 

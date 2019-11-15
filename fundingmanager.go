@@ -2209,6 +2209,12 @@ func (f *fundingManager) addToRouterGraph(completeChan *channeldb.OpenChannel,
 	// need to determine the smallest HTLC it deems economically relevant.
 	fwdMinHTLC := completeChan.LocalChanCfg.MinHTLC
 
+	// We don't necessarily want to go as low as the remote party
+	// allows. Check it against our default forwarding policy.
+	if fwdMinHTLC < f.cfg.DefaultRoutingPolicy.MinHTLCOut {
+		fwdMinHTLC = f.cfg.DefaultRoutingPolicy.MinHTLCOut
+	}
+
 	// We'll obtain the max HTLC value we can forward in our direction, as
 	// we'll use this value within our ChannelUpdate. This value must be <=
 	// channel capacity and <= the maximum in-flight msats set by the peer.

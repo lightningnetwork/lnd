@@ -71,10 +71,8 @@ const (
 // the error possibly carrying along a ChannelUpdate message that includes the
 // latest policy.
 type ForwardingPolicy struct {
-	// MinHTLC is the smallest HTLC that is to be forwarded. This is
-	// set when a channel is first opened, and will be static for the
-	// lifetime of the channel.
-	MinHTLC lnwire.MilliSatoshi
+	// MinHTLC is the smallest HTLC that is to be forwarded.
+	MinHTLCOut lnwire.MilliSatoshi
 
 	// MaxHTLC is the largest HTLC that is to be forwarded.
 	MaxHTLC lnwire.MilliSatoshi
@@ -2218,9 +2216,9 @@ func (l *channelLink) canSendHtlc(policy ForwardingPolicy,
 	// As our first sanity check, we'll ensure that the passed HTLC isn't
 	// too small for the next hop. If so, then we'll cancel the HTLC
 	// directly.
-	if amt < policy.MinHTLC {
+	if amt < policy.MinHTLCOut {
 		l.log.Errorf("outgoing htlc(%x) is too small: min_htlc=%v, "+
-			"htlc_value=%v", payHash[:], policy.MinHTLC,
+			"htlc_value=%v", payHash[:], policy.MinHTLCOut,
 			amt)
 
 		// As part of the returned error, we'll send our latest routing

@@ -92,7 +92,7 @@ func (c *chanController) OpenChannel(target *btcec.PublicKey,
 	}
 
 	// TODO(halseth): make configurable?
-	minHtlc := lnwire.NewMSatFromSatoshis(1)
+	minHtlcIn := lnwire.NewMSatFromSatoshis(1)
 
 	// Construct the open channel request and send it to the server to begin
 	// the funding workflow.
@@ -102,7 +102,7 @@ func (c *chanController) OpenChannel(target *btcec.PublicKey,
 		subtractFees:    true,
 		localFundingAmt: amt,
 		pushAmt:         0,
-		minHtlc:         minHtlc,
+		minHtlcIn:       minHtlcIn,
 		fundingFeePerKw: feePerKw,
 		private:         c.private,
 		remoteCsvDelay:  0,

@@ -93,7 +93,7 @@ func (r *Manager) UpdatePolicy(newSchema routing.ChannelPolicy,
 			BaseFee:       edge.FeeBaseMSat,
 			FeeRate:       edge.FeeProportionalMillionths,
 			TimeLockDelta: uint32(edge.TimeLockDelta),
-			MinHTLC:       edge.MinHTLC,
+			MinHTLCOut:    edge.MinHTLC,
 			MaxHTLC:       edge.MaxHTLC,
 		}
 

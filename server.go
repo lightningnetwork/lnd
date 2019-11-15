@@ -985,6 +985,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 			return nil, fmt.Errorf("unable to find channel")
 		},
 		DefaultRoutingPolicy: cc.routingPolicy,
+		DefaultMinHtlcIn:     cc.minHtlcIn,
 		NumRequiredConfs: func(chanAmt btcutil.Amount,
 			pushAmt lnwire.MilliSatoshi) uint16 {
 			// For large channels we increase the number
@@ -3084,8 +3085,8 @@ type openChanReq struct {
 
 	private bool
 
-	// minHtlc is the minimum incoming htlc that we accept.
-	minHtlc lnwire.MilliSatoshi
+	// minHtlcIn is the minimum incoming htlc that we accept.
+	minHtlcIn lnwire.MilliSatoshi
 
 	remoteCsvDelay uint16
 

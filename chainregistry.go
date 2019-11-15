@@ -130,6 +130,8 @@ type chainControl struct {
 	wallet *lnwallet.LightningWallet
 
 	routingPolicy htlcswitch.ForwardingPolicy
+
+	minHtlcIn lnwire.MilliSatoshi
 }
 
 // newChainControlFromConfig attempts to create a chainControl instance
@@ -157,21 +159,23 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 	switch registeredChains.PrimaryChain() {
 	case bitcoinChain:
 		cc.routingPolicy = htlcswitch.ForwardingPolicy{
-			MinHTLC:       cfg.Bitcoin.MinHTLC,
+			MinHTLCOut:    cfg.Bitcoin.MinHTLC,
 			BaseFee:       cfg.Bitcoin.BaseFee,
 			FeeRate:       cfg.Bitcoin.FeeRate,
 			TimeLockDelta: cfg.Bitcoin.TimeLockDelta,
 		}
+		cc.minHtlcIn = cfg.Bitcoin.MinHTLC
 		cc.feeEstimator = chainfee.NewStaticEstimator(
 			defaultBitcoinStaticFeePerKW, 0,
 		)
 	case litecoinChain:
 		cc.routingPolicy = htlcswitch.ForwardingPolicy{
-			MinHTLC:       cfg.Litecoin.MinHTLC,
+			MinHTLCOut:    cfg.Litecoin.MinHTLC,
 			BaseFee:       cfg.Litecoin.BaseFee,
 			FeeRate:       cfg.Litecoin.FeeRate,
 			TimeLockDelta: cfg.Litecoin.TimeLockDelta,
 		}
+		cc.minHtlcIn = cfg.Litecoin.MinHTLC
 		cc.feeEstimator = chainfee.NewStaticEstimator(
 			defaultLitecoinStaticFeePerKW, 0,
 		)

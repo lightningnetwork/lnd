@@ -1694,7 +1694,7 @@ func newSingleLinkTestHarness(chanAmt, chanReserve btcutil.Amount) (
 			quit:     make(chan struct{}),
 		}
 		globalPolicy = ForwardingPolicy{
-			MinHTLC:       lnwire.NewMSatFromSatoshis(5),
+			MinHTLCOut:    lnwire.NewMSatFromSatoshis(5),
 			MaxHTLC:       lnwire.NewMSatFromSatoshis(chanAmt),
 			BaseFee:       lnwire.NewMSatFromSatoshis(1),
 			TimeLockDelta: 6,
@@ -4253,7 +4253,7 @@ func (h *persistentLinkHarness) restartLink(
 		}
 
 		globalPolicy = ForwardingPolicy{
-			MinHTLC:       lnwire.NewMSatFromSatoshis(5),
+			MinHTLCOut:    lnwire.NewMSatFromSatoshis(5),
 			BaseFee:       lnwire.NewMSatFromSatoshis(1),
 			TimeLockDelta: 6,
 		}
@@ -5512,7 +5512,7 @@ func TestCheckHtlcForward(t *testing.T) {
 		cfg: ChannelLinkConfig{
 			FwrdingPolicy: ForwardingPolicy{
 				TimeLockDelta: 20,
-				MinHTLC:       500,
+				MinHTLCOut:    500,
 				MaxHTLC:       1000,
 				BaseFee:       10,
 			},

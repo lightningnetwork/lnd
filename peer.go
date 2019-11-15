@@ -531,7 +531,7 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) (
 		var forwardingPolicy *htlcswitch.ForwardingPolicy
 		if selfPolicy != nil {
 			forwardingPolicy = &htlcswitch.ForwardingPolicy{
-				MinHTLC:       selfPolicy.MinHTLC,
+				MinHTLCOut:    selfPolicy.MinHTLC,
 				MaxHTLC:       selfPolicy.MaxHTLC,
 				BaseFee:       selfPolicy.FeeBaseMSat,
 				FeeRate:       selfPolicy.FeeProportionalMillionths,
@@ -1862,7 +1862,7 @@ out:
 			fwdMinHtlc := lnChan.FwdMinHtlc()
 			defaultPolicy := p.server.cc.routingPolicy
 			forwardingPolicy := &htlcswitch.ForwardingPolicy{
-				MinHTLC:       fwdMinHtlc,
+				MinHTLCOut:    fwdMinHtlc,
 				MaxHTLC:       newChan.LocalChanCfg.MaxPendingAmount,
 				BaseFee:       defaultPolicy.BaseFee,
 				FeeRate:       defaultPolicy.FeeRate,

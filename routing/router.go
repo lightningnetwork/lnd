@@ -533,7 +533,7 @@ func (r *ChannelRouter) Start() error {
 				PaymentHash: payment.Info.PaymentHash,
 			}
 
-			_, _, err = r.sendPayment(payment.Attempt, lPayment, paySession)
+			_, _, err := r.sendPayment(payment.Attempt, lPayment, paySession)
 			if err != nil {
 				log.Errorf("Resuming payment with hash %v "+
 					"failed: %v.", payment.Info.PaymentHash, err)

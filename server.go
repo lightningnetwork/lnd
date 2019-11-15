@@ -3084,6 +3084,7 @@ type openChanReq struct {
 
 	private bool
 
+	// minHtlc is the minimum incoming htlc that we accept.
 	minHtlc lnwire.MilliSatoshi
 
 	remoteCsvDelay uint16

@@ -2767,11 +2767,11 @@ type ChannelEdgePolicy struct {
 	// the node would like to HTLC exchanges.
 	TimeLockDelta uint16
 
-	// MinHTLC is the smallest value HTLC this node will accept, expressed
+	// MinHTLC is the smallest value HTLC this node will forward, expressed
 	// in millisatoshi.
 	MinHTLC lnwire.MilliSatoshi
 
-	// MaxHTLC is the largest value HTLC this node will accept, expressed
+	// MaxHTLC is the largest value HTLC this node will forward, expressed
 	// in millisatoshi.
 	MaxHTLC lnwire.MilliSatoshi
 

@@ -38,12 +38,14 @@ import (
 const (
 	// defaultBitcoinMinHTLCMSat is the default smallest value htlc this
 	// node will accept. This value is proposed in the channel open sequence
-	// and cannot be changed during the life of the channel.
+	// and cannot be changed during the life of the channel. It is zero by
+	// default to allow maximum flexibility in deciding what size payments
+	// to forward.
 	//
 	// All forwarded payments are subjected to the min htlc constraint of
 	// the routing policy of the outgoing channel. This implicitly controls
 	// the minimum htlc value on the incoming channel too.
-	defaultBitcoinMinHTLCInMSat = lnwire.MilliSatoshi(1000)
+	defaultBitcoinMinHTLCInMSat = lnwire.MilliSatoshi(1)
 
 	// defaultBitcoinMinHTLCOutMSat is the default minimum htlc value that
 	// we require for sending out htlcs. Our channel peer may have a lower
@@ -61,7 +63,7 @@ const (
 	// delta.
 	DefaultBitcoinTimeLockDelta = 40
 
-	defaultLitecoinMinHTLCInMSat  = lnwire.MilliSatoshi(1000)
+	defaultLitecoinMinHTLCInMSat  = lnwire.MilliSatoshi(1)
 	defaultLitecoinMinHTLCOutMSat = lnwire.MilliSatoshi(1000)
 	defaultLitecoinBaseFeeMSat    = lnwire.MilliSatoshi(1000)
 	defaultLitecoinFeeRate        = lnwire.MilliSatoshi(1)

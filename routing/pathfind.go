@@ -263,6 +263,10 @@ type RestrictParams struct {
 	// hop. If nil, any channel may be used.
 	OutgoingChannelID *uint64
 
+	// LastHop is the pubkey of the last node before the final destination
+	// is reached. If nil, any node may be used.
+	LastHop *route.Vertex
+
 	// CltvLimit is the maximum time lock of the route excluding the final
 	// ctlv. After path finding is complete, the caller needs to increase
 	// all cltv expiry heights with the required final cltv delta.
@@ -562,6 +566,13 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		// Expand all connections using the optimal policy for each
 		// connection.
 		for fromNode, unifiedPolicy := range u.policies {
+			// Apply last hop restriction if set.
+			if r.LastHop != nil &&
+				pivot == target && fromNode != *r.LastHop {
+
+				continue
+			}
+
 			policy := unifiedPolicy.getPolicy(
 				amtToSend, g.bandwidthHints,
 			)

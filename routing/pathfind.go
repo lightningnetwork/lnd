@@ -534,7 +534,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 	// heap.
 	heap.Push(&nodeHeap, distance[target])
 
-	for nodeHeap.Len() != 0 {
+	for {
 		nodesVisited++
 
 		// Fetch the node within the smallest distance from our source
@@ -585,13 +585,17 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 			// already have.
 			processEdge(fromNode, policy, partialPath)
 		}
+
+		if nodeHeap.Len() == 0 {
+			break
+		}
 	}
 
 	// Use the distance map to unravel the forward path from source to
 	// target.
 	var pathEdges []*channeldb.ChannelEdgePolicy
 	currentNode := source
-	for currentNode != target { // TODO(roasbeef): assumes no cycles
+	for {
 		// Determine the next hop forward using the next map.
 		currentNodeWithDist, ok := distance[currentNode]
 		if !ok {
@@ -605,6 +609,10 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 
 		// Advance current node.
 		currentNode = currentNodeWithDist.nextHop.Node.PubKeyBytes
+
+		if currentNode == target {
+			break
+		}
 	}
 
 	// The route is invalid if it spans more than 20 hops. The current

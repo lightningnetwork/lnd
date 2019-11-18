@@ -68,6 +68,10 @@ type Config struct {
 
 	// GetOpenTime looks up the opening time of a channel by its block height.
 	GetOpenTime func(blockHeight uint32) (time.Time, error)
+
+	// QueryForwardLog is a function which queries the forwarder log for all
+	// events in the period given.
+	QueryForwardLog func(startTime, endTime time.Time) ([]channeldb.ForwardingEvent, error)
 }
 
 // lifespanRequest contains the channel ID required to query the store for a

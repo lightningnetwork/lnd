@@ -1151,6 +1151,40 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 
 			return header.Timestamp, nil
 		},
+		QueryForwardLog: func(startTime,
+			endTime time.Time) ([]channeldb.ForwardingEvent, error) {
+
+			var (
+				offset uint32
+				events []channeldb.ForwardingEvent
+			)
+
+			for {
+				req := channeldb.ForwardingEventQuery{
+					StartTime:    startTime,
+					EndTime:      endTime,
+					IndexOffset:  offset,
+					NumMaxEvents: 500,
+				}
+
+				forwarding, err := s.chanDB.ForwardingLog().Query(req)
+				if err != nil {
+					return nil, err
+				}
+
+				// Add the events returned to our list of events.
+				events = append(events, forwarding.ForwardingEvents...)
+
+				// If we have less than the maximum number of events, we do not
+				// need to  query further for more events.
+				if uint32(len(forwarding.ForwardingEvents)) < req.NumMaxEvents {
+					return events, nil
+				}
+
+				// Update the offset for the next query.
+				offset = forwarding.LastIndexOffset
+			}
+		},
 	})
 
 	if cfg.WtClient.Active {

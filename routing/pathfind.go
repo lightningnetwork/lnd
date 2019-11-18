@@ -530,24 +530,13 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 	// TODO(roasbeef): also add path caching
 	//  * similar to route caching, but doesn't factor in the amount
 
-	// To start, our target node will the sole item within our distance
-	// heap.
-	heap.Push(&nodeHeap, distance[target])
-
+	// The partial path that we start out with is a path that consists of
+	// just the target node.
+	partialPath := distance[target]
 	for {
 		nodesVisited++
 
-		// Fetch the node within the smallest distance from our source
-		// from the heap.
-		partialPath := heap.Pop(&nodeHeap).(*nodeWithDist)
 		pivot := partialPath.node
-
-		// If we've reached our source (or we don't have any incoming
-		// edges), then we're done here and can exit the graph
-		// traversal early.
-		if pivot == source {
-			break
-		}
 
 		// Create unified policies for all incoming connections.
 		u := newUnifiedPolicies(source, pivot, r.OutgoingChannelID)
@@ -587,6 +576,17 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		}
 
 		if nodeHeap.Len() == 0 {
+			break
+		}
+
+		// Fetch the node within the smallest distance from our source
+		// from the heap.
+		partialPath = heap.Pop(&nodeHeap).(*nodeWithDist)
+
+		// If we've reached our source (or we don't have any incoming
+		// edges), then we're done here and can exit the graph
+		// traversal early.
+		if partialPath.node == source {
 			break
 		}
 	}

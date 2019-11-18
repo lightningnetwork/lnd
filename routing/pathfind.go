@@ -381,11 +381,14 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 
 	// We can't always assume that the end destination is publicly
 	// advertised to the network so we'll manually include the target node.
-	// The target node charges no fee. Distance is set to 0, because this
-	// is the starting point of the graph traversal. We are searching
-	// backwards to get the fees first time right and correctly match
-	// channel bandwidth.
-	distance[target] = &nodeWithDist{
+	// The target node charges no fee. Distance is set to 0, because this is
+	// the starting point of the graph traversal. We are searching backwards
+	// to get the fees first time right and correctly match channel
+	// bandwidth.
+	//
+	// Don't record the initial partial path in the distance map and reserve
+	// that key for the source key in the case we route to ourselves.
+	partialPath := &nodeWithDist{
 		dist:            0,
 		weight:          0,
 		node:            target,
@@ -530,9 +533,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 	// TODO(roasbeef): also add path caching
 	//  * similar to route caching, but doesn't factor in the amount
 
-	// The partial path that we start out with is a path that consists of
-	// just the target node.
-	partialPath := distance[target]
+	routeToSelf := source == target
 	for {
 		nodesVisited++
 
@@ -555,6 +556,15 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		// Expand all connections using the optimal policy for each
 		// connection.
 		for fromNode, unifiedPolicy := range u.policies {
+			// The target node is not recorded in the distance map.
+			// Therefore we need to have this check to prevent
+			// creating a cycle. Only when we intend to route to
+			// self, we allow this cycle to form. In that case we'll
+			// also break out of the search loop below.
+			if !routeToSelf && fromNode == target {
+				continue
+			}
+
 			// Apply last hop restriction if set.
 			if r.LastHop != nil &&
 				pivot == target && fromNode != *r.LastHop {
@@ -610,6 +620,9 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		// Advance current node.
 		currentNode = currentNodeWithDist.nextHop.Node.PubKeyBytes
 
+		// Check stop condition at the end of this loop. This prevents
+		// breaking out too soon for self-payments that have target set
+		// to source.
 		if currentNode == target {
 			break
 		}

@@ -2224,6 +2224,53 @@ func TestNoCycle(t *testing.T) {
 	}
 }
 
+// TestRouteToSelf tests that it is possible to find a route to the self node.
+func TestRouteToSelf(t *testing.T) {
+	t.Parallel()
+
+	testChannels := []*testChannel{
+		symmetricTestChannel("source", "a", 100000, &testChannelPolicy{
+			Expiry:      144,
+			FeeBaseMsat: 500,
+		}, 1),
+		symmetricTestChannel("source", "b", 100000, &testChannelPolicy{
+			Expiry:      144,
+			FeeBaseMsat: 1000,
+		}, 2),
+		symmetricTestChannel("a", "b", 100000, &testChannelPolicy{
+			Expiry:      144,
+			FeeBaseMsat: 1000,
+		}, 3),
+	}
+
+	ctx := newPathFindingTestContext(t, testChannels, "source")
+	defer ctx.cleanup()
+
+	paymentAmt := lnwire.NewMSatFromSatoshis(100)
+	target := ctx.source
+
+	// Find the best path to self. We expect this to be source->a->source,
+	// because a charges the lowest forwarding fee.
+	path, err := ctx.findPath(target, paymentAmt)
+	if err != nil {
+		t.Fatalf("unable to find path: %v", err)
+	}
+	ctx.assertPath(path, []uint64{1, 1})
+
+	outgoingChanID := uint64(1)
+	lastHop := ctx.keyFromAlias("b")
+	ctx.restrictParams.OutgoingChannelID = &outgoingChanID
+	ctx.restrictParams.LastHop = &lastHop
+
+	// Find the best path to self given that we want to go out via channel 1
+	// and return through node b.
+	path, err = ctx.findPath(target, paymentAmt)
+	if err != nil {
+		t.Fatalf("unable to find path: %v", err)
+	}
+	ctx.assertPath(path, []uint64{1, 3, 2})
+}
+
 type pathFindingTestContext struct {
 	t                 *testing.T
 	graphParams       graphParams
@@ -2290,4 +2337,18 @@ func (c *pathFindingTestContext) findPath(target route.Vertex,
 		&c.graphParams, &c.restrictParams, &c.pathFindingConfig,
 		c.source, target, amt,
 	)
+}
+
+func (c *pathFindingTestContext) assertPath(path []*channeldb.ChannelEdgePolicy, expected []uint64) {
+	if len(path) != len(expected) {
+		c.t.Fatalf("expected path of length %v, but got %v",
+			len(expected), len(path))
+	}
+
+	for i, edge := range path {
+		if edge.ChannelID != expected[i] {
+			c.t.Fatalf("expected hop %v to be channel %v, "+
+				"but got %v", i, expected[i], edge.ChannelID)
+		}
+	}
 }

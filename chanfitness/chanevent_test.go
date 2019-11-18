@@ -3,6 +3,11 @@ package chanfitness
 import (
 	"testing"
 	"time"
+
+	"github.com/lightningnetwork/lnd/routing/route"
+
+	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/lnwire"
 )
 
 // TestAdd tests adding events to an event log. It tests the case where the
@@ -397,6 +402,161 @@ func TestUptime(t *testing.T) {
 			if uptime != test.expectedUptime {
 				t.Errorf("Expected uptime: %v, got: %v",
 					test.expectedUptime, uptime)
+			}
+		})
+	}
+}
+
+// TestRevenue tests revenue calculations for a channel for a set of forwarding
+// events. It covers the case where the channel is the incoming channel,
+// outgoing channel and not in the event log at all.
+func TestRevenue(t *testing.T) {
+	now := time.Now
+
+	twoHoursAgo := now().Add(time.Hour * -2)
+	oneHourAgo := now().Add(time.Hour * -1)
+
+	ourID := lnwire.ShortChannelID{BlockHeight: 1, TxIndex: 2, TxPosition: 3}
+	otherID := lnwire.ShortChannelID{BlockHeight: 3, TxIndex: 2, TxPosition: 1}
+
+	// outIncoming is a forwarding event where we are the incoming channel.
+	ourIncoming := channeldb.ForwardingEvent{
+		IncomingChanID: ourID,
+		OutgoingChanID: otherID,
+		AmtIn:          1000,
+		AmtOut:         500,
+	}
+
+	// ourOutgoing is a forwarding event where we are the outgoing channel.
+	ourOutgoing := channeldb.ForwardingEvent{
+		IncomingChanID: otherID,
+		OutgoingChanID: ourID,
+		AmtIn:          400,
+		AmtOut:         200,
+	}
+
+	// notOurs is a forwarding event that we are not involved in.
+	notOurs := channeldb.ForwardingEvent{
+		IncomingChanID: otherID,
+		OutgoingChanID: otherID,
+		AmtIn:          100,
+		AmtOut:         90,
+	}
+
+	// rounded is a forwarding event where we earned 1 msat of feed, and can be
+	// used to test for rounding errors in revenue calculations.
+	rounded := channeldb.ForwardingEvent{
+		IncomingChanID: ourID,
+		OutgoingChanID: otherID,
+		AmtIn:          2,
+		AmtOut:         1,
+	}
+
+	tests := []struct {
+		name            string
+		events          []channeldb.ForwardingEvent
+		attributeIncome float64
+		channelID       uint64
+		openedAt        time.Time
+		startTime       time.Time
+		endTime         time.Time
+		expectedErr     error
+		expectedRevenue lnwire.MilliSatoshi
+	}{
+		{
+			name:      "No events",
+			openedAt:  oneHourAgo,
+			startTime: twoHoursAgo,
+			endTime:   oneHourAgo,
+		},
+		{
+			name:        "Invalid time range",
+			startTime:   oneHourAgo,
+			endTime:     twoHoursAgo,
+			expectedErr: errEndBeforeStart,
+		},
+		{
+			name:        "Zero end time",
+			startTime:   oneHourAgo,
+			endTime:     time.Time{},
+			expectedErr: errZeroEndTime,
+		},
+		{
+			name: "Zero start time ok",
+			events: []channeldb.ForwardingEvent{
+				ourIncoming,
+			},
+			channelID:       ourID.ToUint64(),
+			attributeIncome: 0.5,
+			openedAt:        twoHoursAgo,
+			endTime:         oneHourAgo,
+			expectedRevenue: 250,
+		},
+		{
+			name: "Incoming and outgoing",
+			events: []channeldb.ForwardingEvent{
+				ourIncoming,
+				ourOutgoing,
+				notOurs,
+			},
+			channelID:       ourID.ToUint64(),
+			attributeIncome: 0.5,
+			openedAt:        oneHourAgo,
+			startTime:       twoHoursAgo,
+			endTime:         oneHourAgo,
+			expectedRevenue: 350,
+		},
+		{
+			name: "No Revenue",
+			events: []channeldb.ForwardingEvent{
+				notOurs,
+				notOurs,
+			},
+			channelID:       ourID.ToUint64(),
+			attributeIncome: 0.5,
+			openedAt:        oneHourAgo,
+			startTime:       twoHoursAgo,
+			endTime:         oneHourAgo,
+			expectedRevenue: 0,
+		},
+		{
+			name: "Two half msat not rounded",
+			events: []channeldb.ForwardingEvent{
+				rounded,
+				rounded,
+			},
+			channelID:       ourID.ToUint64(),
+			attributeIncome: 0.5,
+			openedAt:        oneHourAgo,
+			startTime:       twoHoursAgo,
+			endTime:         oneHourAgo,
+			expectedRevenue: 1,
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+
+		t.Run(test.name, func(t *testing.T) {
+			eventLog := newEventLog(
+				test.channelID, route.Vertex{}, test.openedAt, now,
+			)
+
+			events := func(startTime, endTime time.Time) ([]channeldb.ForwardingEvent, error) {
+				return test.events, nil
+			}
+
+			revenue, err := eventLog.revenue(
+				test.startTime, test.endTime, events, test.attributeIncome,
+			)
+			if err != test.expectedErr {
+				t.Fatalf("expected err: %v, got: %v", test.expectedErr,
+					err)
+			}
+
+			if revenue != test.expectedRevenue {
+				t.Fatalf("expected revenue: %v, got: %v",
+					test.expectedRevenue, revenue)
 			}
 		})
 	}

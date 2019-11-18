@@ -4,7 +4,19 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
+)
+
+var (
+	// errZero end time is returned when a query over a range does not have an
+	// end time.
+	errZeroEndTime = fmt.Errorf("zero end time")
+
+	// errEndBeforeStart is returned when a query over a range has an end time
+	// which is before the start time.
+	errEndBeforeStart = fmt.Errorf("end time before start time")
 )
 
 type eventType int
@@ -222,12 +234,8 @@ func (e *chanEventLog) getOnlinePeriods() []*onlinePeriod {
 // before the start or a zero end time is returned.
 func (e *chanEventLog) uptime(start, end time.Time) (time.Duration, error) {
 	// Error if we are provided with an invalid range to calculate uptime for.
-	if end.Before(start) {
-		return 0, fmt.Errorf("end time: %v before start time: %v",
-			end, start)
-	}
-	if end.IsZero() {
-		return 0, fmt.Errorf("zero end time")
+	if err := validateRange(start, end); err != nil {
+		return 0, err
 	}
 
 	var uptime time.Duration
@@ -260,4 +268,77 @@ func (e *chanEventLog) uptime(start, end time.Time) (time.Duration, error) {
 	}
 
 	return uptime, nil
+}
+
+type eventsFunc func(startTime, endTime time.Time) ([]channeldb.ForwardingEvent, error)
+
+func (e *chanEventLog) revenue(startTime, endTime time.Time, events eventsFunc,
+	attributeIncoming float64) (lnwire.MilliSatoshi, error) {
+
+	log.Debugf("Calculating revenue for channel: %v from %v to %v", e.id,
+		startTime, endTime)
+
+	// Error if the range provided is invalid.
+	if err := validateRange(startTime, endTime); err != nil {
+		return 0, err
+	}
+
+	// If a start time is not specified, use the open time of the channel,
+	// adjusted by the block time offset.
+	if startTime.IsZero() {
+		startTime = e.OpenedAt
+	}
+
+	eventList, err := events(startTime, endTime)
+	if err != nil {
+		return 0, err
+	}
+
+	// Revenue is the total revenue earned by this channel in millisatoshis.
+	// This value is accumulated as a float then converted to millisatoshis so
+	// that we can minimize the amount of rounding from float -> int.
+	var revenue float64
+
+	for _, event := range eventList {
+		// Calculate fees earned for this event.
+		fee := event.AmtIn - event.AmtOut
+
+		// If our target channel was the incoming channel for this event,
+		// attribute the incomingAttribute percentage of the fees to it.
+		if event.IncomingChanID.ToUint64() == e.id {
+			earned := float64(fee) * attributeIncoming
+
+			log.Debugf("Channel: %v is outgoing channel, incrementing "+
+				"revenue by: %v msat", e.id, earned)
+
+			revenue += earned
+		}
+
+		// If our target channel was the outgoing channel for this event,
+		// attribute (1 - percentage for incoming) percent of the fees to it.
+		if event.OutgoingChanID.ToUint64() == e.id {
+			earned := float64(fee) * (1 - attributeIncoming)
+
+			log.Debugf("Channel: %v is outgoing channel, incrementing "+
+				"revenue by: %v msat", e.id, earned)
+
+			revenue += earned
+		}
+	}
+
+	return lnwire.MilliSatoshi(uint64(revenue)), nil
+}
+
+// validateRange returns an error if the endtime provided is zero or before the
+// start time provided.
+func validateRange(startTime, endTime time.Time) error {
+	if endTime.IsZero() {
+		return errZeroEndTime
+	}
+
+	if endTime.Before(startTime) {
+		return errEndBeforeStart
+	}
+
+	return nil
 }

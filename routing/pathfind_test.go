@@ -1821,30 +1821,22 @@ func TestRestrictOutgoingChannel(t *testing.T) {
 	// target. The path through channel 2 is the highest cost path.
 	testChannels := []*testChannel{
 		symmetricTestChannel("roasbeef", "a", 100000, &testChannelPolicy{
-			Expiry:  144,
-			FeeRate: 400,
-			MinHTLC: 1,
+			Expiry: 144,
 		}, 1),
 		symmetricTestChannel("a", "target", 100000, &testChannelPolicy{
 			Expiry:  144,
 			FeeRate: 400,
-			MinHTLC: 1,
-		}),
+		}, 4),
 		symmetricTestChannel("roasbeef", "b", 100000, &testChannelPolicy{
-			Expiry:  144,
-			FeeRate: 800,
-			MinHTLC: 1,
+			Expiry: 144,
 		}, 2),
 		symmetricTestChannel("roasbeef", "b", 100000, &testChannelPolicy{
-			Expiry:  144,
-			FeeRate: 600,
-			MinHTLC: 1,
+			Expiry: 144,
 		}, 3),
 		symmetricTestChannel("b", "target", 100000, &testChannelPolicy{
 			Expiry:  144,
-			FeeRate: 400,
-			MinHTLC: 1,
-		}),
+			FeeRate: 800,
+		}, 5),
 	}
 
 	ctx := newPathFindingTestContext(t, testChannels, "roasbeef")

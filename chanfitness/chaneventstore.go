@@ -18,14 +18,21 @@ import (
 
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channelnotifier"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/peernotifier"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/subscribe"
 )
 
-// errShuttingDown is returned when the store cannot respond to a query because
-// it has received the shutdown signal.
-var errShuttingDown = errors.New("channel event store shutting down")
+var (
+	// errShuttingDown is returned when the store cannot respond to a query because
+	// it has received the shutdown signal.
+	errShuttingDown = errors.New("channel event store shutting down")
+
+	// attributeIncoming is the percentage of fees to attribute to incoming
+	// channels in revenue calculations.
+	attributeIncoming = 0.5
+)
 
 // ChannelEventStore maintains a set of event logs for the node's channels to
 // provide insight into the performance and health of channels.
@@ -44,6 +51,9 @@ type ChannelEventStore struct {
 
 	// uptimeRequests serves requests for the uptime of channels.
 	uptimeRequests chan uptimeRequest
+
+	// revenueRequests serves requests for the revenue on a channel.
+	revenueRequests chan revenueRequest
 
 	quit chan struct{}
 
@@ -105,6 +115,23 @@ type uptimeResponse struct {
 	err    error
 }
 
+// revenueRequest contains the parameters required to query the store for a
+// channel's revenue over a period, and a blocking response channel on which the
+// result is sent.
+type revenueRequest struct {
+	channelID    uint64
+	startTime    time.Time
+	endTime      time.Time
+	responseChan chan revenueResponse
+}
+
+// revenueResponse contains the resonse to a revenueRequest and an error if one
+// occurred.
+type revenueResponse struct {
+	revenue lnwire.MilliSatoshi
+	err     error
+}
+
 // NewChannelEventStore initializes an event store with the config provided.
 // Note that this function does not start the main event loop, Start() must be
 // called.
@@ -115,6 +142,7 @@ func NewChannelEventStore(config *Config) *ChannelEventStore {
 		peers:            make(map[route.Vertex]bool),
 		lifespanRequests: make(chan lifespanRequest),
 		uptimeRequests:   make(chan uptimeRequest),
+		revenueRequests:  make(chan revenueRequest),
 		quit:             make(chan struct{}),
 	}
 
@@ -340,6 +368,20 @@ func (c *ChannelEventStore) consume(subscriptions *subscriptions) {
 
 			req.responseChan <- resp
 
+		case req := <-c.revenueRequests:
+			var resp revenueResponse
+
+			channel, ok := c.channels[req.channelID]
+			if !ok {
+				resp.err = fmt.Errorf("channel %v not found", req.channelID)
+			} else {
+				resp.revenue, resp.err = channel.revenue(
+					req.startTime, req.endTime, c.cfg.QueryForwardLog, attributeIncoming,
+				)
+			}
+
+			req.responseChan <- resp
+
 		// Exit if the store receives the signal to shutdown.
 		case <-c.quit:
 			return
@@ -402,6 +444,38 @@ func (c *ChannelEventStore) GetUptime(chanID uint64, startTime,
 	select {
 	case resp := <-request.responseChan:
 		return resp.uptime, resp.err
+
+	case <-c.quit:
+		return 0, errShuttingDown
+	}
+}
+
+// GetRevenue returns the revenue of a channel over a period and an error if the
+// channel cannot be found or the revenue calculation fails.
+func (c *ChannelEventStore) GetRevenue(chanID uint64, startTime,
+	endTime time.Time) (lnwire.MilliSatoshi, error) {
+
+	request := revenueRequest{
+		channelID:    chanID,
+		startTime:    startTime,
+		endTime:      endTime,
+		responseChan: make(chan revenueResponse),
+	}
+
+	// Send a request for the channel's revenue to the main event loop, or
+	// return early with an error if the store has already received a shutdown
+	// signal.
+	select {
+	case c.revenueRequests <- request:
+	case <-c.quit:
+		return 0, errShuttingDown
+	}
+
+	// Return the response we receive on the response channel or exit early if
+	// the store is instructed to exit.
+	select {
+	case resp := <-request.responseChan:
+		return resp.revenue, resp.err
 
 	case <-c.quit:
 		return 0, errShuttingDown

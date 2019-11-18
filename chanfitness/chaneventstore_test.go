@@ -473,3 +473,118 @@ func TestGetUptime(t *testing.T) {
 		})
 	}
 }
+
+// TestGetRevenue tests handling of requests for channel revenue when the store
+// has knowledge of of the channel and when it is unknown.
+func TestGetRevenue(t *testing.T) {
+	// Set time for deterministic unit tests.
+	now := time.Now()
+	twoHoursAgo := now.Add(time.Hour * -2)
+
+	ourID := lnwire.ShortChannelID{BlockHeight: 1, TxIndex: 2, TxPosition: 3}
+
+	tests := []struct {
+		name string
+
+		chanID uint64
+
+		events []channeldb.ForwardingEvent
+
+		// channelFound is true if we expect to find the channel in the store.
+		channelFound bool
+
+		// startTime specifies the beginning of the uptime range we want to
+		// calculate.
+		startTime time.Time
+
+		// endTime specified the end of the uptime range we want to calculate.
+		endTime time.Time
+
+		// expectedRevenue is the revenue we expect to be returned.
+		// Revenue = sum[ (amt in - amt out) * 0.5 ]
+		// By default we attribute revenue evenly between incoming and outgoing.
+		expectedRevenue lnwire.MilliSatoshi
+
+		expectErr bool
+	}{
+		{
+			name:            "Channel found, no events",
+			chanID:          ourID.ToUint64(),
+			startTime:       twoHoursAgo,
+			endTime:         now,
+			channelFound:    true,
+			expectedRevenue: 0,
+			expectErr:       false,
+		},
+		{
+			name:            "Channel not found, error",
+			chanID:          ourID.ToUint64(),
+			startTime:       twoHoursAgo,
+			endTime:         now,
+			channelFound:    false,
+			expectedRevenue: 0,
+			expectErr:       true,
+		},
+		{
+			name:   "Channel not found, some has events",
+			chanID: ourID.ToUint64(),
+			events: []channeldb.ForwardingEvent{
+				{
+					IncomingChanID: ourID,
+					OutgoingChanID: lnwire.ShortChannelID{},
+					AmtIn:          12,
+					AmtOut:         6,
+				},
+			},
+			startTime:       twoHoursAgo,
+			endTime:         now,
+			channelFound:    true,
+			expectedRevenue: 3,
+			expectErr:       false,
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+
+		t.Run(test.name, func(t *testing.T) {
+			// Create and  empty events store for testing.
+			store := NewChannelEventStore(&Config{
+				QueryForwardLog: func(startTime, endTime time.Time) (events []channeldb.ForwardingEvent, e error) {
+					return test.events, nil
+				},
+			})
+
+			// Start goroutine which consumes GetTimestamps requests.
+			store.wg.Add(1)
+			go store.consume(&subscriptions{
+				channelUpdates: make(chan interface{}),
+				peerUpdates:    make(chan interface{}),
+				cancel:         func() {},
+			})
+
+			// Stop the store's go routine.
+			defer store.Stop()
+
+			// Add channel to eventStore if the test indicates that it should
+			// be present.
+			if test.channelFound {
+				store.channels[test.chanID] = &chanEventLog{}
+			}
+
+			revenue, err := store.GetRevenue(
+				test.chanID, test.startTime, test.endTime,
+			)
+			hadErr := err != nil
+			if hadErr != test.expectErr {
+				t.Fatalf("Expected an error: %v, got an error: %v",
+					test.expectErr, hadErr)
+			}
+
+			if revenue != test.expectedRevenue {
+				t.Fatalf("Expected revenue: %v, got; %v",
+					test.expectedRevenue, revenue)
+			}
+		})
+	}
+}

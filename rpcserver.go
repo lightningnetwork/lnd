@@ -5360,3 +5360,44 @@ func (r *rpcServer) BakeMacaroon(ctx context.Context,
 
 	return resp, nil
 }
+
+// ChannelInsights returns channel insights over a user specified period of
+// time. If no start time is provided, the query is run from epoch time. If no
+// end time is provided, it is run until the present. Only channels that were
+// open on startup will have insights available, because insights are not
+// persisted.
+func (r *rpcServer) ChannelInsights(ctx context.Context,
+	req *lnrpc.ChannelInsightsRequest) (*lnrpc.ChannelInsightsResponse, error) {
+
+	ts, err := r.server.chanEventStore.GetTimestamps(req.ChanId)
+	if err != nil {
+		return nil, err
+	}
+
+	// If no start time is provided in the request, start will default to unix
+	// epoch.
+	start := time.Unix(req.StartTime, 0)
+
+	// Set end from the request, if no value was provided set it to now.
+	end := time.Unix(req.EndTime, 0)
+	if req.EndTime == 0 {
+		end = time.Now()
+	}
+
+	uptime, err := r.server.chanEventStore.GetUptime(req.ChanId, start, end)
+	if err != nil {
+		return nil, err
+	}
+
+	revenue, err := r.server.chanEventStore.GetRevenue(req.ChanId, start, end)
+	if err != nil {
+		return nil, err
+	}
+
+	return &lnrpc.ChannelInsightsResponse{
+		OpenedAt:       ts.OpenedAt.Unix(),
+		MonitoredSince: ts.MonitoredSince.Unix(),
+		Uptime:         int64(uptime.Seconds()),
+		RevenueMsat:    uint64(revenue),
+	}, nil
+}

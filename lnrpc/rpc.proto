@@ -793,6 +793,19 @@ service Lightning {
             body: "*"
         };
     };
+
+    /** lncli: `channelinsights`
+    ChannelInsights provides information about the performance of a channel.
+    This endpoint will only provide insights for channels which were open on
+    startup, because channel insights are not persisted.
+    [EXPERIMENTAL]
+    */
+    rpc ChannelInsights(ChannelInsightsRequest) returns (ChannelInsightsResponse) {
+        option (google.api.http) = {
+            post: "/v1/insights"
+            body: "*"
+        };
+    };
 }
 
 message Utxo {
@@ -2751,4 +2764,32 @@ message BakeMacaroonRequest {
 message BakeMacaroonResponse {
     /// The hex encoded macaroon, serialized in binary format.
     string macaroon = 1 [json_name = "macaroon"];
+}
+
+message ChannelInsightsRequest{
+    /// Short channel to get insights for.
+    uint64 chan_id = 1 [json_name = "chan_id", jstype = JS_STRING];
+
+    /// Start time to query insights from.
+    int64 start_time = 2 [ json_name = "start_time" ];
+
+    /// Start time to query insights until.
+    int64 end_time = 3 [ json_name = "end_time" ];
+}
+
+message ChannelInsightsResponse{
+    /// Timestamp that the channel was opened on chain.
+    int64 opened_at = 1 [ json_name = "opened_at" ];
+
+    /// Timestamp that the channel was opened on chain.
+    int64 monitored_since = 2 [ json_name = "monitored_since"];
+
+    /// Timestamp that the channel was closed, set to 0 if the channel is open.
+    int64 closed_at = 3 [ json_name = "closed_at" ];
+
+    /// The number of seconds the remote peer has been online over the period queried.
+    int64 uptime = 4 [json_name = "uptime"];
+
+    /// The revenue in millisatoshis of the channel over the period queried.
+    uint64 revenue_msat = 5 [json_name = "revenue_msat"];
 }

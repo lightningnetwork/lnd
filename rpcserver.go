@@ -3017,6 +3017,7 @@ type rpcPaymentIntent struct {
 	cltvDelta         uint16
 	routeHints        [][]zpay32.HopHint
 	outgoingChannelID *uint64
+	lastHop           *route.Vertex
 	payReq            []byte
 
 	destTLV []tlv.Record
@@ -3056,6 +3057,17 @@ func extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPaymentIntent, error
 	// restriction if specified.
 	if rpcPayReq.OutgoingChanId != 0 {
 		payIntent.outgoingChannelID = &rpcPayReq.OutgoingChanId
+	}
+
+	// Pass along a last hop restriction if specified.
+	if len(rpcPayReq.LastHopPubkey) > 0 {
+		lastHop, err := route.NewVertexFromBytes(
+			rpcPayReq.LastHopPubkey,
+		)
+		if err != nil {
+			return payIntent, err
+		}
+		payIntent.lastHop = &lastHop
 	}
 
 	// Take the CLTV limit from the request if set, otherwise use the max.
@@ -3237,6 +3249,7 @@ func (r *rpcServer) dispatchPaymentIntent(
 			PaymentHash:       payIntent.rHash,
 			RouteHints:        payIntent.routeHints,
 			OutgoingChannelID: payIntent.outgoingChannelID,
+			LastHop:           payIntent.lastHop,
 			PaymentRequest:    payIntent.payReq,
 			PayAttemptTimeout: routing.DefaultPayAttemptTimeout,
 			FinalDestRecords:  payIntent.destTLV,

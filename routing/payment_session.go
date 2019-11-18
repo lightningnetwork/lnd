@@ -89,6 +89,7 @@ func (p *paymentSession) RequestRoute(payment *LightningPayment,
 		ProbabilitySource: ss.MissionControl.GetProbability,
 		FeeLimit:          payment.FeeLimit,
 		OutgoingChannelID: payment.OutgoingChannelID,
+		LastHop:           payment.LastHop,
 		CltvLimit:         cltvLimit,
 	}
 

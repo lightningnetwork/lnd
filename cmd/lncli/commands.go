@@ -24,6 +24,7 @@ import (
 	"github.com/golang/protobuf/proto"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
+	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/walletunlocker"
 	"github.com/urfave/cli"
 	"golang.org/x/crypto/ssh/terminal"
@@ -2040,11 +2041,18 @@ func closedChannels(ctx *cli.Context) error {
 	return nil
 }
 
-var cltvLimitFlag = cli.UintFlag{
-	Name: "cltv_limit",
-	Usage: "the maximum time lock that may be used for " +
-		"this payment",
-}
+var (
+	cltvLimitFlag = cli.UintFlag{
+		Name: "cltv_limit",
+		Usage: "the maximum time lock that may be used for " +
+			"this payment",
+	}
+
+	lastHopFlag = cli.StringFlag{
+		Name:  "last_hop",
+		Usage: "pubkey of the last hop to use for this payment",
+	}
+)
 
 // paymentFlags returns common flags for sendpayment and payinvoice.
 func paymentFlags() []cli.Flag {
@@ -2065,6 +2073,7 @@ func paymentFlags() []cli.Flag {
 				"payment",
 		},
 		cltvLimitFlag,
+		lastHopFlag,
 		cli.Uint64Flag{
 			Name: "outgoing_chan_id",
 			Usage: "short channel id of the outgoing channel to " +
@@ -2281,6 +2290,16 @@ func sendPaymentRequest(ctx *cli.Context, req *lnrpc.SendRequest) error {
 	req.FeeLimit = feeLimit
 
 	req.OutgoingChanId = ctx.Uint64("outgoing_chan_id")
+	if ctx.IsSet(lastHopFlag.Name) {
+		lastHop, err := route.NewVertexFromStr(
+			ctx.String(lastHopFlag.Name),
+		)
+		if err != nil {
+			return err
+		}
+		req.LastHopPubkey = lastHop[:]
+	}
+
 	req.CltvLimit = uint32(ctx.Int(cltvLimitFlag.Name))
 
 	amt := req.Amt

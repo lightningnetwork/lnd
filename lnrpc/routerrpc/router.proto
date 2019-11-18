@@ -77,6 +77,11 @@ message SendPaymentRequest {
     */
     uint64 outgoing_chan_id = 8 [jstype = JS_STRING];
 
+    /**
+    The pubkey of the last hop of the route. If empty, any hop may be used.
+    */
+    bytes last_hop_pubkey = 14;
+
     /** 
     An optional maximum total time lock for the route. This should not exceed
     lnd's `--max-cltv-expiry` setting. If zero, then the value of

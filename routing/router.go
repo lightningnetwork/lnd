@@ -1596,6 +1596,10 @@ type LightningPayment struct {
 	// hop. If nil, any channel may be used.
 	OutgoingChannelID *uint64
 
+	// LastHop is the pubkey of the last node before the final destination
+	// is reached. If nil, any node may be used.
+	LastHop *route.Vertex
+
 	// PaymentRequest is an optional payment request that this payment is
 	// attempting to complete.
 	PaymentRequest []byte

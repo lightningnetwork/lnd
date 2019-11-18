@@ -2154,6 +2154,76 @@ func testProbabilityRouting(t *testing.T, p10, p11, p20, minProbability float64,
 	}
 }
 
+// TestNoCycle tries to guide the path finding algorithm into reconstructing an
+// endless route. It asserts that the algorithm is able to handle this properly.
+func TestNoCycle(t *testing.T) {
+	t.Parallel()
+
+	// Set up a test graph with two paths: source->a->target and
+	// source->b->c->target. The fees are setup such that, searching
+	// backwards, the algorithm will evaluate the following end of the route
+	// first: ->target->c->target. This does not make sense, because if
+	// target is reached, there is no need to continue to c. A proper
+	// implementation will then go on with alternative routes. It will then
+	// consider ->a->target because its cost is lower than the alternative
+	// ->b->c->target and finally find source->a->target as the best route.
+	testChannels := []*testChannel{
+		symmetricTestChannel("source", "a", 100000, &testChannelPolicy{
+			Expiry: 144,
+		}, 1),
+		symmetricTestChannel("source", "b", 100000, &testChannelPolicy{
+			Expiry: 144,
+		}, 2),
+		symmetricTestChannel("b", "c", 100000, &testChannelPolicy{
+			Expiry:      144,
+			FeeBaseMsat: 2000,
+		}, 3),
+		symmetricTestChannel("c", "target", 100000, &testChannelPolicy{
+			Expiry:      144,
+			FeeBaseMsat: 0,
+		}, 4),
+		symmetricTestChannel("a", "target", 100000, &testChannelPolicy{
+			Expiry:      144,
+			FeeBaseMsat: 600,
+		}, 5),
+	}
+
+	ctx := newPathFindingTestContext(t, testChannels, "source")
+	defer ctx.cleanup()
+
+	const (
+		startingHeight = 100
+		finalHopCLTV   = 1
+	)
+
+	paymentAmt := lnwire.NewMSatFromSatoshis(100)
+	target := ctx.keyFromAlias("target")
+
+	// Find the best path given the restriction to only use channel 2 as the
+	// outgoing channel.
+	path, err := ctx.findPath(target, paymentAmt)
+	if err != nil {
+		t.Fatalf("unable to find path: %v", err)
+	}
+	route, err := newRoute(
+		paymentAmt, ctx.source, path, startingHeight,
+		finalHopCLTV, nil,
+	)
+	if err != nil {
+		t.Fatalf("unable to create path: %v", err)
+	}
+
+	if len(route.Hops) != 2 {
+		t.Fatalf("unexpected route")
+	}
+	if route.Hops[0].ChannelID != 1 {
+		t.Fatalf("unexpected first hop")
+	}
+	if route.Hops[1].ChannelID != 5 {
+		t.Fatalf("unexpected second hop")
+	}
+}
+
 type pathFindingTestContext struct {
 	t                 *testing.T
 	graphParams       graphParams

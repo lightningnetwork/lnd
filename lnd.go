@@ -224,10 +224,12 @@ func Main(lisCfg ListenerCfg) error {
 	// For our REST dial options, we'll still use TLS, but also increase
 	// the max message size that we'll decode to allow clients to hit
 	// endpoints which return more data such as the DescribeGraph call.
+	// We set this to 200MiB atm. Should be the same value as maxMsgRecvSize
+	// in cmd/lncli/main.go.
 	restDialOpts := []grpc.DialOption{
 		grpc.WithTransportCredentials(*restCreds),
 		grpc.WithDefaultCallOptions(
-			grpc.MaxCallRecvMsgSize(1 * 1024 * 1024 * 50),
+			grpc.MaxCallRecvMsgSize(1 * 1024 * 1024 * 200),
 		),
 	}
 

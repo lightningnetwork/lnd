@@ -35,7 +35,7 @@ require (
 	github.com/kkdai/bstream v0.0.0-20181106074824-b3251f7901ec
 	github.com/lightninglabs/neutrino v0.10.1-0.20191111074637-d9b036bf675c
 	github.com/lightningnetwork/lightning-onion v0.0.0-20190909101754-850081b08b6a
-	github.com/lightningnetwork/lnd/cert v0.0.0-00010101000000-000000000000
+	github.com/lightningnetwork/lnd/cert v1.0.0
 	github.com/lightningnetwork/lnd/queue v1.0.1
 	github.com/lightningnetwork/lnd/ticker v1.0.0
 	github.com/ltcsuite/ltcd v0.0.0-20190101042124-f37f8bf35796

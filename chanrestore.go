@@ -2,9 +2,11 @@ package lnd
 
 import (
 	"fmt"
+	"math"
 	"net"
 
 	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightningnetwork/lnd/chanbackup"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -12,6 +14,18 @@ import (
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
+)
+
+const (
+	// mainnetSCBLaunchBlock is the approximate block height of the bitcoin
+	// mainnet chain of the date when SCBs first were released in lnd
+	// (v0.6.0-beta). The block date is 4/15/2019, 10:54 PM UTC.
+	mainnetSCBLaunchBlock = 571800
+
+	// testnetSCBLaunchBlock is the approximate block height of the bitcoin
+	// testnet3 chain of the date when SCBs first were released in lnd
+	// (v0.6.0-beta). The block date is 4/16/2019, 08:04 AM UTC.
+	testnetSCBLaunchBlock = 1489300
 )
 
 // chanDBRestorer is an implementation of the chanbackup.ChannelRestorer
@@ -126,13 +140,70 @@ func (c *chanDBRestorer) openChannelShell(backup chanbackup.Single) (
 // NOTE: Part of the chanbackup.ChannelRestorer interface.
 func (c *chanDBRestorer) RestoreChansFromSingles(backups ...chanbackup.Single) error {
 	channelShells := make([]*channeldb.ChannelShell, 0, len(backups))
+	firstChanHeight := uint32(math.MaxUint32)
 	for _, backup := range backups {
 		chanShell, err := c.openChannelShell(backup)
 		if err != nil {
 			return err
 		}
 
+		// Find the block height of the earliest channel in this backup.
+		chanHeight := chanShell.Chan.ShortChanID().BlockHeight
+		if chanHeight != 0 && chanHeight < firstChanHeight {
+			firstChanHeight = chanHeight
+		}
+
 		channelShells = append(channelShells, chanShell)
+	}
+
+	// In case there were only unconfirmed channels, we will have to scan
+	// the chain beginning from the launch date of SCBs.
+	if firstChanHeight == math.MaxUint32 {
+		chainHash := channelShells[0].Chan.ChainHash
+		switch {
+		case chainHash.IsEqual(chaincfg.MainNetParams.GenesisHash):
+			firstChanHeight = mainnetSCBLaunchBlock
+
+		case chainHash.IsEqual(chaincfg.TestNet3Params.GenesisHash):
+			firstChanHeight = testnetSCBLaunchBlock
+
+		default:
+			// Worst case: We have no height hint and start at
+			// block 1. Should only happen for SCBs in regtest,
+			// simnet and litecoin.
+			firstChanHeight = 1
+		}
+	}
+
+	// If there were channels in the backup that were not confirmed at the
+	// time of the backup creation, they won't have a block height in the
+	// ShortChanID which would lead to an error in the chain watcher.
+	// We want to at least set the funding broadcast height that the chain
+	// watcher can use instead. We have two possible fallback values for
+	// the broadcast height that we are going to try here.
+	for _, chanShell := range channelShells {
+		channel := chanShell.Chan
+
+		switch {
+		// Fallback case 1: It is extremely unlikely at this point that
+		// a channel we are trying to restore has a coinbase funding TX.
+		// Therefore we can be quite certain that if the TxIndex is
+		// zero, it was an unconfirmed channel where we used the
+		// BlockHeight to encode the funding TX broadcast height. To not
+		// end up with an invalid short channel ID that looks valid, we
+		// restore the "original" unconfirmed one here.
+		case channel.ShortChannelID.TxIndex == 0:
+			broadcastHeight := channel.ShortChannelID.BlockHeight
+			channel.FundingBroadcastHeight = broadcastHeight
+			channel.ShortChannelID.BlockHeight = 0
+
+		// Fallback case 2: This is an unconfirmed channel from an old
+		// backup file where we didn't have any workaround in place.
+		// Best we can do here is set the funding broadcast height to a
+		// reasonable value that we determined earlier.
+		case channel.ShortChanID().BlockHeight == 0:
+			channel.FundingBroadcastHeight = firstChanHeight
+		}
 	}
 
 	ltndLog.Infof("Inserting %v SCB channel shells into DB",

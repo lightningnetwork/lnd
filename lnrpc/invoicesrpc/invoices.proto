@@ -55,8 +55,19 @@ message AddHoldInvoiceRequest {
     /// The hash of the preimage
     bytes hash = 2 [json_name = "hash"];
 
-    /// The value of this invoice in satoshis
+    /**
+    The value of this invoice in satoshis
+
+    The fields value and value_msat are mutually exclusive.
+    */
     int64 value = 3 [json_name = "value"];
+
+    /**
+    The value of this invoice in millisatoshis
+
+    The fields value and value_msat are mutually exclusive.
+    */
+    int64 value_msat = 10 [json_name = "value_msat"];
 
     /**
     Hash (SHA-256) of a description of the payment. Used if the description of

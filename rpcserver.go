@@ -3529,10 +3529,15 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		ChanDB:            r.server.chanDB,
 	}
 
+	value, err := lnrpc.UnmarshallAmt(invoice.Value, invoice.ValueMsat)
+	if err != nil {
+		return nil, err
+	}
+
 	addInvoiceData := &invoicesrpc.AddInvoiceData{
 		Memo:            invoice.Memo,
 		Receipt:         invoice.Receipt,
-		Value:           btcutil.Amount(invoice.Value),
+		Value:           value,
 		DescriptionHash: invoice.DescriptionHash,
 		Expiry:          invoice.Expiry,
 		FallbackAddr:    invoice.FallbackAddr,

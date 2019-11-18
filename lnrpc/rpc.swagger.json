@@ -2646,7 +2646,14 @@
         "value": {
           "type": "string",
           "format": "int64",
-          "title": "/ The value of this invoice in satoshis"
+          "description": "The fields value and value_msat are mutually exclusive.",
+          "title": "*\nThe value of this invoice in satoshis"
+        },
+        "value_msat": {
+          "type": "string",
+          "format": "int64",
+          "description": "The fields value and value_msat are mutually exclusive.",
+          "title": "*\nThe value of this invoice in millisatoshis"
         },
         "settled": {
           "type": "boolean",

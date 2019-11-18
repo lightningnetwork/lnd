@@ -2230,8 +2230,19 @@ message Invoice {
     */
     bytes r_hash = 4 [json_name = "r_hash"];
 
-    /// The value of this invoice in satoshis
+    /**
+    The value of this invoice in satoshis
+
+    The fields value and value_msat are mutually exclusive.
+    */
     int64 value = 5 [json_name = "value"];
+
+    /**
+    The value of this invoice in millisatoshis
+
+    The fields value and value_msat are mutually exclusive.
+    */
+    int64 value_msat = 23 [json_name = "value_msat"];
 
     /// Whether this invoice has been fulfilled
     bool settled = 6 [json_name = "settled", deprecated = true];

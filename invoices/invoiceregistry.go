@@ -443,6 +443,7 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 		expiry:               expiry,
 		currentHeight:        currentHeight,
 		finalCltvRejectDelta: i.finalCltvRejectDelta,
+		customRecords:        payload.CustomRecords(),
 	}
 
 	// We'll attempt to settle an invoice matching this rHash on disk (if

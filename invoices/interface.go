@@ -1,6 +1,9 @@
 package invoices
 
-import "github.com/lightningnetwork/lnd/record"
+import (
+	"github.com/lightningnetwork/lnd/htlcswitch/hop"
+	"github.com/lightningnetwork/lnd/record"
+)
 
 // Payload abstracts access to any additional fields provided in the final hop's
 // TLV onion payload.
@@ -8,4 +11,8 @@ type Payload interface {
 	// MultiPath returns the record corresponding the option_mpp parsed from
 	// the onion payload.
 	MultiPath() *record.MPP
+
+	// CustomRecords returns the custom tlv type records that were parsed
+	// from the payload.
+	CustomRecords() hop.CustomRecordSet
 }

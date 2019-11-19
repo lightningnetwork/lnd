@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
+	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
@@ -209,13 +210,15 @@ func TestInvoiceCancelSingleHtlc(t *testing.T) {
 
 	// Accept an htlc on this invoice.
 	key := CircuitKey{ChanID: lnwire.NewShortChanIDFromInt(1), HtlcID: 4}
+	htlc := HtlcAcceptDesc{
+		Amt:           500,
+		CustomRecords: make(hop.CustomRecordSet),
+	}
 	invoice, err := db.UpdateInvoice(paymentHash,
 		func(invoice *Invoice) (*InvoiceUpdateDesc, error) {
 			return &InvoiceUpdateDesc{
 				AddHtlcs: map[CircuitKey]*HtlcAcceptDesc{
-					key: {
-						Amt: 500,
-					},
+					key: &htlc,
 				},
 			}, nil
 		})
@@ -432,10 +435,11 @@ func TestDuplicateSettleInvoice(t *testing.T) {
 	invoice.SettleDate = dbInvoice.SettleDate
 	invoice.Htlcs = map[CircuitKey]*InvoiceHTLC{
 		{}: {
-			Amt:         amt,
-			AcceptTime:  time.Unix(1, 0),
-			ResolveTime: time.Unix(1, 0),
-			State:       HtlcStateSettled,
+			Amt:           amt,
+			AcceptTime:    time.Unix(1, 0),
+			ResolveTime:   time.Unix(1, 0),
+			State:         HtlcStateSettled,
+			CustomRecords: make(hop.CustomRecordSet),
 		},
 	}
 
@@ -747,6 +751,8 @@ func getUpdateInvoice(amt lnwire.MilliSatoshi) InvoiceUpdateCallback {
 			return nil, ErrInvoiceAlreadySettled
 		}
 
+		noRecords := make(hop.CustomRecordSet)
+
 		update := &InvoiceUpdateDesc{
 			State: &InvoiceStateUpdateDesc{
 				Preimage: invoice.Terms.PaymentPreimage,
@@ -754,11 +760,73 @@ func getUpdateInvoice(amt lnwire.MilliSatoshi) InvoiceUpdateCallback {
 			},
 			AddHtlcs: map[CircuitKey]*HtlcAcceptDesc{
 				{}: {
-					Amt: amt,
+					Amt:           amt,
+					CustomRecords: noRecords,
 				},
 			},
 		}
 
 		return update, nil
+	}
+}
+
+// TestCustomRecords tests that custom records are properly recorded in the
+// invoice database.
+func TestCustomRecords(t *testing.T) {
+	t.Parallel()
+
+	db, cleanUp, err := makeTestDB()
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to make test db: %v", err)
+	}
+
+	testInvoice := &Invoice{
+		Htlcs: map[CircuitKey]*InvoiceHTLC{},
+	}
+	testInvoice.Terms.Value = lnwire.NewMSatFromSatoshis(10000)
+	testInvoice.Terms.Features = emptyFeatures
+
+	var paymentHash lntypes.Hash
+	if _, err := db.AddInvoice(testInvoice, paymentHash); err != nil {
+		t.Fatalf("unable to find invoice: %v", err)
+	}
+
+	// Accept an htlc with custom records on this invoice.
+	key := CircuitKey{ChanID: lnwire.NewShortChanIDFromInt(1), HtlcID: 4}
+
+	records := hop.CustomRecordSet{
+		100000: []byte{},
+		100001: []byte{1, 2},
+	}
+
+	_, err = db.UpdateInvoice(paymentHash,
+		func(invoice *Invoice) (*InvoiceUpdateDesc, error) {
+			return &InvoiceUpdateDesc{
+				AddHtlcs: map[CircuitKey]*HtlcAcceptDesc{
+					key: {
+						Amt:           500,
+						CustomRecords: records,
+					},
+				},
+			}, nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("unable to add invoice htlc: %v", err)
+	}
+
+	// Retrieve the invoice from that database and verify that the custom
+	// records are present.
+	dbInvoice, err := db.LookupInvoice(paymentHash)
+	if err != nil {
+		t.Fatalf("unable to lookup invoice: %v", err)
+	}
+
+	if len(dbInvoice.Htlcs) != 1 {
+		t.Fatalf("expected the htlc to be added")
+	}
+	if !reflect.DeepEqual(records, dbInvoice.Htlcs[key].CustomRecords) {
+		t.Fatalf("invalid custom records")
 	}
 }

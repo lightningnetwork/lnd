@@ -2819,6 +2819,14 @@
         "state": {
           "$ref": "#/definitions/lnrpcInvoiceHTLCState",
           "description": "/ Current state the htlc is in."
+        },
+        "custom_records": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "/ Custom tlv records."
         }
       },
       "title": "/ Details of an HTLC that paid to an invoice"

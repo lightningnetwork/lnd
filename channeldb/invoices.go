@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/coreos/bbolt"
+	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tlv"
@@ -308,6 +309,10 @@ type InvoiceHTLC struct {
 	// canceled htlc isn't just removed from the invoice htlcs map, because
 	// we need AcceptHeight to properly cancel the htlc back.
 	State HtlcState
+
+	// CustomRecords contains the custom key/value pairs that accompanied
+	// the htlc.
+	CustomRecords hop.CustomRecordSet
 }
 
 // HtlcAcceptDesc describes the details of a newly accepted htlc.
@@ -320,6 +325,10 @@ type HtlcAcceptDesc struct {
 
 	// Expiry is the expiry height of this htlc.
 	Expiry uint32
+
+	// CustomRecords contains the custom key/value pairs that accompanied
+	// the htlc.
+	CustomRecords hop.CustomRecordSet
 }
 
 // InvoiceUpdateDesc describes the changes that should be applied to the
@@ -1013,7 +1022,8 @@ func serializeHtlcs(w io.Writer, htlcs map[CircuitKey]*InvoiceHTLC) error {
 		resolveTime := uint64(htlc.ResolveTime.UnixNano())
 		state := uint8(htlc.State)
 
-		tlvStream, err := tlv.NewStream(
+		var records []tlv.Record
+		records = append(records,
 			tlv.MakePrimitiveRecord(chanIDType, &chanID),
 			tlv.MakePrimitiveRecord(htlcIDType, &key.HtlcID),
 			tlv.MakePrimitiveRecord(amtType, &amt),
@@ -1025,6 +1035,16 @@ func serializeHtlcs(w io.Writer, htlcs map[CircuitKey]*InvoiceHTLC) error {
 			tlv.MakePrimitiveRecord(expiryHeightType, &htlc.Expiry),
 			tlv.MakePrimitiveRecord(htlcStateType, &state),
 		)
+
+		// Convert the custom records to tlv.Record types that are ready
+		// for serialization.
+		customRecords := tlv.MapToRecords(htlc.CustomRecords)
+
+		// Append the custom records. Their ids are in the experimental
+		// range and sorted, so there is no need to sort again.
+		records = append(records, customRecords...)
+
+		tlvStream, err := tlv.NewStream(records...)
 		if err != nil {
 			return err
 		}
@@ -1191,7 +1211,8 @@ func deserializeHtlcs(r io.Reader) (map[CircuitKey]*InvoiceHTLC, error) {
 			return nil, err
 		}
 
-		if err := tlvStream.Decode(htlcReader); err != nil {
+		parsedTypes, err := tlvStream.DecodeWithParsedTypes(htlcReader)
+		if err != nil {
 			return nil, err
 		}
 
@@ -1200,6 +1221,10 @@ func deserializeHtlcs(r io.Reader) (map[CircuitKey]*InvoiceHTLC, error) {
 		htlc.ResolveTime = time.Unix(0, int64(resolveTime))
 		htlc.State = HtlcState(state)
 		htlc.Amt = lnwire.MilliSatoshi(amt)
+
+		// Reconstruct the custom records fields from the parsed types
+		// map return from the tlv parser.
+		htlc.CustomRecords = hop.NewCustomRecords(parsedTypes)
 
 		htlcs[key] = &htlc
 	}
@@ -1290,12 +1315,20 @@ func (d *DB) updateInvoice(hash lntypes.Hash, invoices, settleIndex *bbolt.Bucke
 		if _, exists := invoice.Htlcs[key]; exists {
 			return nil, fmt.Errorf("duplicate add of htlc %v", key)
 		}
+
+		// Force caller to supply htlc without custom records in a
+		// consistent way.
+		if htlcUpdate.CustomRecords == nil {
+			return nil, errors.New("nil custom records map")
+		}
+
 		htlc := &InvoiceHTLC{
-			Amt:          htlcUpdate.Amt,
-			Expiry:       htlcUpdate.Expiry,
-			AcceptHeight: uint32(htlcUpdate.AcceptHeight),
-			AcceptTime:   now,
-			State:        HtlcStateAccepted,
+			Amt:           htlcUpdate.Amt,
+			Expiry:        htlcUpdate.Expiry,
+			AcceptHeight:  uint32(htlcUpdate.AcceptHeight),
+			AcceptTime:    now,
+			State:         HtlcStateAccepted,
+			CustomRecords: htlcUpdate.CustomRecords,
 		}
 
 		invoice.Htlcs[key] = htlc

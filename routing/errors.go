@@ -7,18 +7,10 @@ import "github.com/go-errors/errors"
 type errorCode uint8
 
 const (
-	// ErrNoPathFound is returned when a path to the target destination
-	// does not exist in the graph.
-	ErrNoPathFound errorCode = iota
-
-	// ErrMaxHopsExceeded is returned when a candidate path is found, but
-	// the length of that path exceeds HopLimit.
-	ErrMaxHopsExceeded
-
 	// ErrTargetNotInNetwork is returned when the target of a path-finding
 	// or payment attempt isn't known to be within the current version of
 	// the channel graph.
-	ErrTargetNotInNetwork
+	ErrTargetNotInNetwork errorCode = iota
 
 	// ErrOutdated is returned when the routing update already have
 	// been applied, or a newer update is already known.

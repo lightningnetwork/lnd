@@ -2,13 +2,13 @@ package routing
 
 import (
 	"container/heap"
+	"errors"
 	"fmt"
 	"math"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/coreos/bbolt"
-
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -63,6 +63,19 @@ var (
 	// DefaultAprioriHopProbability is the default a priori probability for
 	// a hop.
 	DefaultAprioriHopProbability = float64(0.6)
+
+	// errNoTlvPayload is returned when the destination hop does not support
+	// a tlv payload.
+	errNoTlvPayload = errors.New("destination hop doesn't " +
+		"understand new TLV payloads")
+
+	// errNoPathFound is returned when a path to the target destination does
+	// not exist in the graph.
+	errNoPathFound = errors.New("unable to find a path to destination")
+
+	// errMaxHopsExceeded is returned when a candidate path is found, but
+	// the length of that path exceeds HopLimit.
+	errMaxHopsExceeded = errors.New("potential path has too many hops")
 )
 
 // edgePolicyWithSource is a helper struct to keep track of the source node
@@ -347,8 +360,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 				lnwire.TLVOnionPayloadOptional,
 			)
 			if !supportsTLV {
-				return nil, fmt.Errorf("destination hop doesn't " +
-					"understand new TLV paylods")
+				return nil, errNoTlvPayload
 			}
 		}
 	}
@@ -610,8 +622,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		currentNodeWithDist, ok := distance[currentNode]
 		if !ok {
 			// If the node doesnt have a next hop it means we didn't find a path.
-			return nil, newErrf(ErrNoPathFound, "unable to find a "+
-				"path to destination")
+			return nil, errNoPathFound
 		}
 
 		// Add the next hop to the list of path edges.
@@ -634,8 +645,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 	// hops, then it's invalid.
 	numEdges := len(pathEdges)
 	if numEdges > HopLimit {
-		return nil, newErr(ErrMaxHopsExceeded, "potential path has "+
-			"too many hops")
+		return nil, errMaxHopsExceeded
 	}
 
 	log.Debugf("Found route: probability=%v, hops=%v, fee=%v\n",

@@ -11,16 +11,6 @@ const (
 	// does not exist in the graph.
 	ErrNoPathFound errorCode = iota
 
-	// ErrNoRouteFound is returned when the router is unable to find a
-	// valid route to the target destination after fees and time-lock
-	// limitations are factored in.
-	ErrNoRouteFound
-
-	// ErrInsufficientCapacity is returned when a path if found, yet the
-	// capacity of one of the channels in the path is insufficient to carry
-	// the payment.
-	ErrInsufficientCapacity
-
 	// ErrMaxHopsExceeded is returned when a candidate path is found, but
 	// the length of that path exceeds HopLimit.
 	ErrMaxHopsExceeded
@@ -39,18 +29,9 @@ const (
 	// announcement was given for node not found in any channel.
 	ErrIgnored
 
-	// ErrRejected is returned if the update is for a channel ID that was
-	// previously added to the reject cache because of an invalid update
-	// was attempted to be processed.
-	ErrRejected
-
 	// ErrPaymentAttemptTimeout is an error that indicates that a payment
 	// attempt timed out before we were able to successfully route an HTLC.
 	ErrPaymentAttemptTimeout
-
-	// ErrFeeLimitExceeded is returned when the total fees of a route exceed
-	// the user-specified fee limit.
-	ErrFeeLimitExceeded
 )
 
 // routerError is a structure that represent the error inside the routing package,

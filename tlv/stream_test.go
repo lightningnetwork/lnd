@@ -12,7 +12,7 @@ type parsedTypeTest struct {
 	name           string
 	encode         []tlv.Type
 	decode         []tlv.Type
-	expParsedTypes tlv.TypeSet
+	expParsedTypes tlv.TypeMap
 }
 
 // TestParsedTypes asserts that a Stream will properly return the set of types
@@ -29,17 +29,17 @@ func TestParsedTypes(t *testing.T) {
 			name:   "known and unknown",
 			encode: []tlv.Type{knownType, unknownType},
 			decode: []tlv.Type{knownType},
-			expParsedTypes: tlv.TypeSet{
-				unknownType: false,
-				knownType:   true,
+			expParsedTypes: tlv.TypeMap{
+				unknownType: []byte{0, 0, 0, 0, 0, 0, 0, 0},
+				knownType:   nil,
 			},
 		},
 		{
 			name:   "known and missing known",
 			encode: []tlv.Type{knownType},
 			decode: []tlv.Type{knownType, secondKnownType},
-			expParsedTypes: tlv.TypeSet{
-				knownType: true,
+			expParsedTypes: tlv.TypeMap{
+				knownType: nil,
 			},
 		},
 	}

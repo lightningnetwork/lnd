@@ -12,9 +12,10 @@ import (
 // Type is an 64-bit identifier for a TLV Record.
 type Type uint64
 
-// TypeSet is an unordered set of Types. The map item boolean values indicate
-// whether the type that we parsed was known.
-type TypeSet map[Type]bool
+// TypeMap is a map of parsed Types. The map values are byte slices. If the byte
+// slice is nil, the type was successfully parsed. Otherwise the value is byte
+// slice containing the encoded data.
+type TypeMap map[Type][]byte
 
 // Encoder is a signature for methods that can encode TLV values. An error
 // should be returned if the Encoder cannot support the underlying type of val.

@@ -178,7 +178,7 @@ func (h *Payload) ForwardingInfo() ForwardingInfo {
 // ensure that the proper fields are either included or omitted. The finalHop
 // boolean should be true if the payload was parsed for an exit hop. The
 // requirements for this method are described in BOLT 04.
-func ValidateParsedPayloadTypes(parsedTypes tlv.TypeSet,
+func ValidateParsedPayloadTypes(parsedTypes tlv.TypeMap,
 	nextHop lnwire.ShortChannelID) error {
 
 	isFinalHop := nextHop == Exit
@@ -237,19 +237,19 @@ func (h *Payload) MultiPath() *record.MPP {
 // getMinRequiredViolation checks for unrecognized required (even) fields in the
 // standard range and returns the lowest required type. Always returning the
 // lowest required type allows a failure message to be deterministic.
-func getMinRequiredViolation(set tlv.TypeSet) *tlv.Type {
+func getMinRequiredViolation(set tlv.TypeMap) *tlv.Type {
 	var (
 		requiredViolation        bool
 		minRequiredViolationType tlv.Type
 	)
-	for t, known := range set {
+	for t, parseResult := range set {
 		// If a type is even but not known to us, we cannot process the
 		// payload. We are required to understand a field that we don't
 		// support.
 		//
 		// We always accept custom fields, because a higher level
 		// application may understand them.
-		if known || t%2 != 0 || t >= CustomTypeStart {
+		if parseResult == nil || t%2 != 0 || t >= CustomTypeStart {
 			continue
 		}
 

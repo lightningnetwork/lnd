@@ -497,6 +497,17 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 		payIntent.OutgoingChannelID = &rpcPayReq.OutgoingChanId
 	}
 
+	// Pass along a last hop restriction if specified.
+	if len(rpcPayReq.LastHopPubkey) > 0 {
+		lastHop, err := route.NewVertexFromBytes(
+			rpcPayReq.LastHopPubkey,
+		)
+		if err != nil {
+			return nil, err
+		}
+		payIntent.LastHop = &lastHop
+	}
+
 	// Take the CLTV limit from the request if set, otherwise use the max.
 	cltvLimit, err := ValidateCLTVLimit(
 		uint32(rpcPayReq.CltvLimit), r.MaxTotalTimelock,

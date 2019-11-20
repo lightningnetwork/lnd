@@ -14130,6 +14130,72 @@ func testChannelBackupRestore(net *lntest.NetworkHarness, t *harnessTest) {
 				}, nil
 			},
 		},
+
+		// Restore the backup from the on-disk file a second time to
+		// make sure imports can be canceled and later resumed.
+		{
+			name:      "restore from backup file twice",
+			initiator: true,
+			private:   false,
+			restoreMethod: func(oldNode *lntest.HarnessNode,
+				backupFilePath string,
+				mnemonic []string) (nodeRestorer, error) {
+
+				// Read the entire Multi backup stored within
+				// this node's chaannels.backup file.
+				multi, err := ioutil.ReadFile(backupFilePath)
+				if err != nil {
+					return nil, err
+				}
+
+				// Now that we have Dave's backup file, we'll
+				// create a new nodeRestorer that will restore
+				// using the on-disk channels.backup.
+				backup := &lnrpc.RestoreChanBackupRequest_MultiChanBackup{
+					MultiChanBackup: multi,
+				}
+
+				ctxb := context.Background()
+
+				return func() (*lntest.HarnessNode, error) {
+					newNode, err := net.RestoreNodeWithSeed(
+						"dave", nil, password, mnemonic,
+						1000, nil,
+					)
+					if err != nil {
+						return nil, fmt.Errorf("unable to "+
+							"restore node: %v", err)
+					}
+
+					_, err = newNode.RestoreChannelBackups(
+						ctxb,
+						&lnrpc.RestoreChanBackupRequest{
+							Backup: backup,
+						},
+					)
+					if err != nil {
+						return nil, fmt.Errorf("unable "+
+							"to restore backups: %v",
+							err)
+					}
+
+					_, err = newNode.RestoreChannelBackups(
+						ctxb,
+						&lnrpc.RestoreChanBackupRequest{
+							Backup: backup,
+						},
+					)
+					if err != nil {
+						return nil, fmt.Errorf("unable "+
+							"to restore backups the"+
+							"second time: %v",
+							err)
+					}
+
+					return newNode, nil
+				}, nil
+			},
+		},
 	}
 
 	// TODO(roasbeef): online vs offline close?

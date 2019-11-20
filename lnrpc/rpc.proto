@@ -2478,11 +2478,11 @@ message Payment {
     /// Deprecated, use value_sat or value_msat.
     int64 value = 2 [json_name = "value", deprecated = true];
 
-    /// The date of this payment
-    int64 creation_date = 3 [json_name = "creation_date"];
+    /// Deprecated, use creation_time_ns
+    int64 creation_date = 3 [json_name = "creation_date", deprecated = true];
 
-    /// The path this payment took
-    repeated string path = 4 [ json_name = "path" ];
+    /// The path this payment took.
+    repeated string path = 4 [json_name = "path", deprecated = true];
 
     /// Deprecated, use fee_sat or fee_msat.
     int64 fee = 5 [json_name = "fee", deprecated = true];
@@ -2514,6 +2514,35 @@ message Payment {
 
     ///  The fee paid for this payment in milli-satoshis
     int64 fee_msat = 12 [json_name = "fee_msat"];
+
+    /// The time in UNIX nanoseconds at which the payment was created.
+    int64 creation_time_ns = 13 [json_name = "creation_time_ns"];
+
+    /// The HTLCs made in attempt to settle the payment [EXPERIMENTAL].
+    repeated HTLCAttempt htlcs = 14 [json_name = "htlcs"];
+}
+
+message HTLCAttempt {
+        enum HTLCStatus {
+                IN_FLIGHT = 0;
+                SUCCEEDED = 1;
+                FAILED = 2;
+        }
+
+        /// The status of the HTLC.
+        HTLCStatus status = 1 [json_name = "status"];
+
+        /// The route taken by this HTLC.
+        Route route = 2 [json_name = "route"];
+
+        /// The time in UNIX nanonseconds at which this HTLC was sent.
+        int64 attempt_time_ns = 3 [json_name = "attempt_time_ns"];
+
+        /**
+        The time in UNIX nanonseconds at which this HTLC was settled or failed.
+        This value will not be set if the HTLC is still IN_FLIGHT.
+        */
+        int64 resolve_time_ns = 4 [json_name = "resolve_time_ns"];
 }
 
 message ListPaymentsRequest {

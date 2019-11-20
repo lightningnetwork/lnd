@@ -2247,25 +2247,25 @@ func testDisconnectingTargetPeer(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to assert channel existence: %v", err)
 	}
 
-	// Finally, immediately close the channel. This function will also
-	// block until the channel is closed and will additionally assert the
-	// relevant channel closing post conditions.
+	// Disconnect Alice-peer from Bob-peer and get error causes by one
+	// active channel with detach node is existing.
+	if err := net.DisconnectNodes(ctxt, alice, bob); err == nil {
+		t.Fatalf("Bob's peer was disconnected from Alice's"+
+			" while one active channel is existing: err %v", err)
+	}
+
+	// Check existing connection.
+	assertNumConnections(t, alice, bob, 1)
+
+	// Finally, immediately close the channel. This function will also block
+	// until the channel is closed and will additionally assert the relevant
+	// channel closing post conditions.
 	chanPoint := &lnrpc.ChannelPoint{
 		FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
 			FundingTxidBytes: pendingUpdate.Txid,
 		},
 		OutputIndex: pendingUpdate.OutputIndex,
 	}
-
-	// Disconnect Alice-peer from Bob-peer and get error
-	// causes by one active channel with detach node is existing.
-	if err := net.DisconnectNodes(ctxt, net.Alice, net.Bob); err == nil {
-		t.Fatalf("Bob's peer was disconnected from Alice's"+
-			" while one active channel is existing: err %v", err)
-	}
-
-	// Check existing connection.
-	assertNumConnections(t, net.Alice, net.Bob, 1)
 
 	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
 	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, true)

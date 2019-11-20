@@ -12,6 +12,7 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcutil"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -778,4 +779,49 @@ func UnmarshalMPP(reqMPP *lnrpc.MPPRecord) (*record.MPP, error) {
 	total := lnwire.MilliSatoshi(reqTotal)
 
 	return record.NewMPP(total, addr), nil
+}
+
+// MarshalHTLCAttempt constructs an RPC HTLCAttempt from the db representation.
+func (r *RouterBackend) MarshalHTLCAttempt(
+	htlc channeldb.HTLCAttempt) (*lnrpc.HTLCAttempt, error) {
+
+	var (
+		status      lnrpc.HTLCAttempt_HTLCStatus
+		resolveTime int64
+	)
+
+	switch {
+	case htlc.Settle != nil:
+		status = lnrpc.HTLCAttempt_SUCCEEDED
+		resolveTime = MarshalTimeNano(htlc.Settle.SettleTime)
+
+	case htlc.Failure != nil:
+		status = lnrpc.HTLCAttempt_FAILED
+		resolveTime = MarshalTimeNano(htlc.Failure.FailTime)
+
+	default:
+		status = lnrpc.HTLCAttempt_IN_FLIGHT
+	}
+
+	route, err := r.MarshallRoute(&htlc.Route)
+	if err != nil {
+		return nil, err
+	}
+
+	return &lnrpc.HTLCAttempt{
+		Status:        status,
+		Route:         route,
+		AttemptTimeNs: MarshalTimeNano(htlc.AttemptTime),
+		ResolveTimeNs: resolveTime,
+	}, nil
+}
+
+// MarshalTimeNano converts a time.Time into its nanosecond representation. If
+// the time is zero, this method simply returns 0, since calling UnixNano() on a
+// zero-valued time is undefined.
+func MarshalTimeNano(t time.Time) int64 {
+	if t.IsZero() {
+		return 0
+	}
+	return t.UnixNano()
 }

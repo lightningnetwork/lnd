@@ -1094,6 +1094,54 @@ func (d *DB) AddrsForNode(nodePub *btcec.PublicKey) ([]net.Addr, error) {
 	return dedupedAddrs, nil
 }
 
+// AbandonChannel attempts to remove the target channel from the open channel
+// database. If the channel was already removed (has a closed channel entry),
+// then we'll return a nil error. Otherwise, we'll insert a new close summary
+// into the database.
+func (d *DB) AbandonChannel(chanPoint *wire.OutPoint, bestHeight uint32) error {
+	// With the chanPoint constructed, we'll attempt to find the target
+	// channel in the database. If we can't find the channel, then we'll
+	// return the error back to the caller.
+	dbChan, err := d.FetchChannel(*chanPoint)
+	switch {
+	// If the channel wasn't found, then it's possible that it was already
+	// abandoned from the database.
+	case err == ErrChannelNotFound:
+		_, closedErr := d.FetchClosedChannel(chanPoint)
+		if closedErr != nil {
+			return closedErr
+		}
+
+		// If the channel was already closed, then we don't return an
+		// error as we'd like fro this step to be repeatable.
+		return nil
+	case err != nil:
+		return err
+	}
+
+	// Now that we've found the channel, we'll populate a close summary for
+	// the channel, so we can store as much information for this abounded
+	// channel as possible. We also ensure that we set Pending to false, to
+	// indicate that this channel has been "fully" closed.
+	summary := &ChannelCloseSummary{
+		CloseType:               Abandoned,
+		ChanPoint:               *chanPoint,
+		ChainHash:               dbChan.ChainHash,
+		CloseHeight:             bestHeight,
+		RemotePub:               dbChan.IdentityPub,
+		Capacity:                dbChan.Capacity,
+		SettledBalance:          dbChan.LocalCommitment.LocalBalance.ToSatoshis(),
+		ShortChanID:             dbChan.ShortChanID(),
+		RemoteCurrentRevocation: dbChan.RemoteCurrentRevocation,
+		RemoteNextRevocation:    dbChan.RemoteNextRevocation,
+		LocalChanConfig:         dbChan.LocalChanCfg,
+	}
+
+	// Finally, we'll close the channel in the DB, and return back to the
+	// caller.
+	return dbChan.CloseChannel(summary)
+}
+
 // syncVersions function is used for safe db version synchronization. It
 // applies migration functions to the current database and recovers the
 // previous state of db if at least one error/panic appeared during migration.

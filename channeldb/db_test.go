@@ -469,3 +469,67 @@ func TestRestoreChannelShells(t *testing.T) {
 		t.Fatalf("only a single edge should be inserted: %v", err)
 	}
 }
+
+// TestAbandonChannel tests that the AbandonChannel method is able to properly
+// remove a channel from the database and add a close channel summary. If
+// called after a channel has already been removed, the method shouldn't return
+// an error.
+func TestAbandonChannel(t *testing.T) {
+	t.Parallel()
+
+	cdb, cleanUp, err := makeTestDB()
+	if err != nil {
+		t.Fatalf("unable to make test database: %v", err)
+	}
+	defer cleanUp()
+
+	// If we attempt to abandon the state of a channel that doesn't exist
+	// in the open or closed channel bucket, then we should receive an
+	// error.
+	err = cdb.AbandonChannel(&wire.OutPoint{}, 0)
+	if err == nil {
+		t.Fatalf("removing non-existent channel should have failed")
+	}
+
+	// We'll now create a new channel to abandon shortly.
+	chanState, err := createTestChannelState(cdb)
+	if err != nil {
+		t.Fatalf("unable to create channel state: %v", err)
+	}
+	addr := &net.TCPAddr{
+		IP:   net.ParseIP("127.0.0.1"),
+		Port: 18555,
+	}
+	err = chanState.SyncPending(addr, 10)
+	if err != nil {
+		t.Fatalf("unable to sync pending channel: %v", err)
+	}
+
+	// We should now be able to abandon the channel without any errors.
+	closeHeight := uint32(11)
+	err = cdb.AbandonChannel(&chanState.FundingOutpoint, closeHeight)
+	if err != nil {
+		t.Fatalf("unable to abandon channel: %v", err)
+	}
+
+	// At this point, the channel should no longer be found in the set of
+	// open channels.
+	_, err = cdb.FetchChannel(chanState.FundingOutpoint)
+	if err != ErrChannelNotFound {
+		t.Fatalf("channel should not have been found: %v", err)
+	}
+
+	// However we should be able to retrieve a close channel summary for
+	// the channel.
+	_, err = cdb.FetchClosedChannel(&chanState.FundingOutpoint)
+	if err != nil {
+		t.Fatalf("unable to fetch closed channel: %v", err)
+	}
+
+	// Finally, if we attempt to abandon the channel again, we should get a
+	// nil error as the channel has already been abandoned.
+	err = cdb.AbandonChannel(&chanState.FundingOutpoint, closeHeight)
+	if err != nil {
+		t.Fatalf("unable to abandon channel: %v", err)
+	}
+}

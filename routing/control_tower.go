@@ -142,7 +142,7 @@ func createFailedResult(rt *route.Route,
 
 	// In case of incorrect payment details, set the route. This can be used
 	// for probing and to extract a fee estimate from the route.
-	if reason == channeldb.FailureReasonIncorrectPaymentDetails {
+	if reason == channeldb.FailureReasonPaymentDetails {
 		result.Route = rt
 	}
 

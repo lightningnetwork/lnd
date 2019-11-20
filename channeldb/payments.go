@@ -101,9 +101,9 @@ const (
 	// payment.
 	FailureReasonError FailureReason = 2
 
-	// FailureReasonIncorrectPaymentDetails indicates that either the hash
-	// is unknown or the final cltv delta or amount is incorrect.
-	FailureReasonIncorrectPaymentDetails FailureReason = 3
+	// FailureReasonPaymentDetails indicates that either the hash is unknown
+	// or the final cltv delta or amount is incorrect.
+	FailureReasonPaymentDetails FailureReason = 3
 
 	// TODO(halseth): cancel state.
 
@@ -120,7 +120,7 @@ func (r FailureReason) String() string {
 		return "no_route"
 	case FailureReasonError:
 		return "error"
-	case FailureReasonIncorrectPaymentDetails:
+	case FailureReasonPaymentDetails:
 		return "incorrect_payment_details"
 	}
 

@@ -645,7 +645,7 @@ func marshallFailureReason(reason channeldb.FailureReason) (
 	case channeldb.FailureReasonError:
 		return PaymentState_FAILED_ERROR, nil
 
-	case channeldb.FailureReasonIncorrectPaymentDetails:
+	case channeldb.FailureReasonPaymentDetails:
 		return PaymentState_FAILED_INCORRECT_PAYMENT_DETAILS, nil
 	}
 

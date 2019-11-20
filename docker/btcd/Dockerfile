@@ -1,6 +1,6 @@
 FROM golang:1.12-alpine as builder
 
-MAINTAINER Olaoluwa Osuntokun <laolu@lightning.network>
+LABEL maintainer="Olaoluwa Osuntokun <laolu@lightning.engineering>"
 
 # Install build dependencies such as git and glide.
 RUN apk add --no-cache git gcc musl-dev

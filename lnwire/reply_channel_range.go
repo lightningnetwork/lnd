@@ -64,7 +64,7 @@ func (c *ReplyChannelRange) Encode(w io.Writer, pver uint32) error {
 		return err
 	}
 
-	return encodeShortChanIDs(w, c.EncodingType, c.ShortChanIDs)
+	return encodeShortChanIDs(w, c.EncodingType, c.ShortChanIDs, false)
 }
 
 // MsgType returns the integer uniquely identifying this message type on the

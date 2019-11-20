@@ -21,6 +21,12 @@ type ReplyChannelRange struct {
 
 	// ShortChanIDs is a slice of decoded short channel ID's.
 	ShortChanIDs []ShortChannelID
+
+	// noSort indicates whether or not to sort the short channel ids before
+	// writing them out.
+	//
+	// NOTE: This should only be used for testing.
+	noSort bool
 }
 
 // NewReplyChannelRange creates a new empty ReplyChannelRange message.
@@ -64,7 +70,7 @@ func (c *ReplyChannelRange) Encode(w io.Writer, pver uint32) error {
 		return err
 	}
 
-	return encodeShortChanIDs(w, c.EncodingType, c.ShortChanIDs, false)
+	return encodeShortChanIDs(w, c.EncodingType, c.ShortChanIDs, c.noSort)
 }
 
 // MsgType returns the integer uniquely identifying this message type on the

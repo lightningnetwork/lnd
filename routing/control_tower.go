@@ -56,12 +56,12 @@ type PaymentResult struct {
 	// for successful payments.
 	Route *route.Route
 
-	// PaymentPreimage is the preimage of a successful payment. This serves
-	// as a proof of payment. It is only set for successful payments.
+	// Preimage is the preimage of a successful payment. This serves as a
+	// proof of payment. It is only set for successful payments.
 	Preimage lntypes.Preimage
 
-	// Failure is a failure reason code indicating the reason the payment
-	// failed. It is only set for failed payments.
+	// FailureReason is a failure reason code indicating the reason the
+	// payment failed. It is only set for failed payments.
 	FailureReason channeldb.FailureReason
 }
 

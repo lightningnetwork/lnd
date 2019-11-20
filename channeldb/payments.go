@@ -252,9 +252,70 @@ type Payment struct {
 	Failure *FailureReason
 }
 
+// ToMPPayment converts a legacy payment into an MPPayment.
+func (p *Payment) ToMPPayment() *MPPayment {
+	var (
+		htlcs   []HTLCAttempt
+		reason  *FailureReason
+		settle  *HTLCSettleInfo
+		failure *HTLCFailInfo
+	)
+
+	// Promote the payment failure to a proper fail struct, if it exists.
+	if p.Failure != nil {
+		// NOTE: FailTime is not set for legacy payments.
+		failure = &HTLCFailInfo{}
+		reason = p.Failure
+	}
+
+	// Promote the payment preimage to proper settle struct, if it exists.
+	if p.Preimage != nil {
+		// NOTE: SettleTime is not set for legacy payments.
+		settle = &HTLCSettleInfo{
+			Preimage: *p.Preimage,
+		}
+	}
+
+	// Either a settle or a failure may be set, but not both.
+	if settle != nil && failure != nil {
+		panic("htlc attempt has both settle and failure info")
+	}
+
+	// Populate a single HTLC on the MPPayment if an attempt exists on the
+	// legacy payment. If none exists we will leave the attempt info blank
+	// since we cannot recover it.
+	if p.Attempt != nil {
+		// NOTE: AttemptTime is not set for legacy payments.
+		htlcs = []HTLCAttempt{
+			{
+				PaymentID:  p.Attempt.PaymentID,
+				SessionKey: p.Attempt.SessionKey,
+				Route:      p.Attempt.Route,
+				Settle:     settle,
+				Failure:    failure,
+			},
+		}
+	}
+
+	return &MPPayment{
+		sequenceNum: p.sequenceNum,
+		Info: &MPPaymentCreationInfo{
+			PaymentHash:    p.Info.PaymentHash,
+			Value:          p.Info.Value,
+			CreationTime:   p.Info.CreationDate,
+			PaymentRequest: p.Info.PaymentRequest,
+		},
+		HTLCs:         htlcs,
+		FailureReason: reason,
+		Status:        p.Status,
+	}
+}
+
 // FetchPayments returns all sent payments found in the DB.
-func (db *DB) FetchPayments() ([]*Payment, error) {
-	var payments []*Payment
+//
+// nolint: dupl
+func (db *DB) FetchPayments() ([]*MPPayment, error) {
+	var payments []*MPPayment
 
 	err := db.View(func(tx *bbolt.Tx) error {
 		paymentsBucket := tx.Bucket(paymentsRootBucket)
@@ -276,7 +337,7 @@ func (db *DB) FetchPayments() ([]*Payment, error) {
 				return err
 			}
 
-			payments = append(payments, p)
+			payments = append(payments, p.ToMPPayment())
 
 			// For older versions of lnd, duplicate payments to a
 			// payment has was possible. These will be found in a
@@ -301,7 +362,7 @@ func (db *DB) FetchPayments() ([]*Payment, error) {
 					return err
 				}
 
-				payments = append(payments, p)
+				payments = append(payments, p.ToMPPayment())
 				return nil
 			})
 		})
@@ -473,7 +534,7 @@ func deserializePaymentCreationInfo(r io.Reader) (*PaymentCreationInfo, error) {
 	reqLen := uint32(byteOrder.Uint32(scratch[:4]))
 	payReq := make([]byte, reqLen)
 	if reqLen > 0 {
-		if _, err := io.ReadFull(r, payReq[:]); err != nil {
+		if _, err := io.ReadFull(r, payReq); err != nil {
 			return nil, err
 		}
 	}

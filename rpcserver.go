@@ -4348,22 +4348,27 @@ func (r *rpcServer) ListPayments(ctx context.Context,
 			continue
 		}
 
-		// Fetch the payment's route, which will be empty if an attempt
-		// has not been made.
-		var route route.Route
-		if payment.Attempt != nil {
-			route = payment.Attempt.Route
+		// Fetch the payment's route and preimage. If no HTLC was
+		// successful, an empty route and preimage will be used.
+		var (
+			route    route.Route
+			preimage lntypes.Preimage
+		)
+		for _, htlc := range payment.HTLCs {
+			// Display the last route attempted.
+			route = htlc.Route
+
+			// If any of the htlcs have settled, extract a valid
+			// preimage.
+			if htlc.Settle != nil {
+				preimage = htlc.Settle.Preimage
+			}
 		}
+
+		// Encode the hops from the successful route, if any.
 		path := make([]string, len(route.Hops))
 		for i, hop := range route.Hops {
 			path[i] = hex.EncodeToString(hop.PubKeyBytes[:])
-		}
-
-		// Fetch the preimage if the payment was successful, otherwise a
-		// zero-value preimage will be used.
-		var preimage lntypes.Preimage
-		if payment.Preimage != nil {
-			preimage = *payment.Preimage
 		}
 
 		msatValue := int64(payment.Info.Value)
@@ -4380,7 +4385,7 @@ func (r *rpcServer) ListPayments(ctx context.Context,
 			Value:           satValue,
 			ValueMsat:       msatValue,
 			ValueSat:        satValue,
-			CreationDate:    payment.Info.CreationDate.Unix(),
+			CreationDate:    payment.Info.CreationTime.Unix(),
 			Path:            path,
 			Fee:             int64(route.TotalFees().ToSatoshis()),
 			FeeSat:          int64(route.TotalFees().ToSatoshis()),

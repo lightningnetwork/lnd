@@ -239,11 +239,11 @@ type Payment struct {
 	// NOTE: Can be nil if no attempt is yet made.
 	Attempt *PaymentAttemptInfo
 
-	// PaymentPreimage is the preimage of a successful payment. This serves
-	// as a proof of payment. It will only be non-nil for settled payments.
+	// Preimage is the preimage of a successful payment. This serves as a
+	// proof of payment. It will only be non-nil for settled payments.
 	//
 	// NOTE: Can be nil if payment is not settled.
-	PaymentPreimage *lntypes.Preimage
+	Preimage *lntypes.Preimage
 
 	// Failure is a failure reason code indicating the reason the payment
 	// failed. It is only non-nil for failed payments.
@@ -363,7 +363,7 @@ func fetchPayment(bucket *bbolt.Bucket) (*Payment, error) {
 	if b != nil {
 		var preimg lntypes.Preimage
 		copy(preimg[:], b[:])
-		p.PaymentPreimage = &preimg
+		p.Preimage = &preimg
 	}
 
 	// Get failure reason if available.

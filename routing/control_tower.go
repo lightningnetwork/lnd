@@ -214,7 +214,7 @@ func (p *controlTower) SubscribePayment(paymentHash lntypes.Hash) (
 	// immediately.
 	case channeldb.StatusSucceeded:
 		event = *createSuccessResult(
-			&payment.Attempt.Route, *payment.PaymentPreimage,
+			&payment.Attempt.Route, *payment.Preimage,
 		)
 
 	// Payment already failed. It is not necessary to register as a

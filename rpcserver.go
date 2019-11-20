@@ -4348,9 +4348,8 @@ func (r *rpcServer) ListPayments(ctx context.Context,
 			continue
 		}
 
-		// If a payment attempt has been made we can fetch the route.
-		// Otherwise we'll just populate the RPC response with an empty
-		// one.
+		// Fetch the payment's route, which will be empty if an attempt
+		// has not been made.
 		var route route.Route
 		if payment.Attempt != nil {
 			route = payment.Attempt.Route
@@ -4360,10 +4359,11 @@ func (r *rpcServer) ListPayments(ctx context.Context,
 			path[i] = hex.EncodeToString(hop.PubKeyBytes[:])
 		}
 
-		// If this payment is settled, the preimage will be available.
+		// Fetch the preimage if the payment was successful, otherwise a
+		// zero-value preimage will be used.
 		var preimage lntypes.Preimage
-		if payment.PaymentPreimage != nil {
-			preimage = *payment.PaymentPreimage
+		if payment.Preimage != nil {
+			preimage = *payment.Preimage
 		}
 
 		msatValue := int64(payment.Info.Value)

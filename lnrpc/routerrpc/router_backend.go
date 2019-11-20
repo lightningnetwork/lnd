@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -200,7 +201,6 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 	}
 	cltvLimit -= uint32(finalCLTVDelta)
 
-	var destTLV map[uint64][]byte
 	restrictions := &routing.RestrictParams{
 		FeeLimit: feeLimit,
 		ProbabilitySource: func(fromNode, toNode route.Vertex,
@@ -226,14 +226,17 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 				fromNode, toNode, amt,
 			)
 		},
-		DestPayloadTLV: len(destTLV) != 0,
+		DestPayloadTLV: len(in.DestCustomRecords) != 0,
 		CltvLimit:      cltvLimit,
 	}
 
 	// If we have any TLV records destined for the final hop, then we'll
 	// attempt to decode them now into a form that the router can more
 	// easily manipulate.
-	destTlvRecords := tlv.MapToRecords(destTLV)
+	destTlvRecords, err := UnmarshallCustomRecords(in.DestCustomRecords)
+	if err != nil {
+		return nil, err
+	}
 
 	// Query the channel router for a possible path to the destination that
 	// can carry `in.Amt` satoshis _including_ the total fee required on
@@ -344,6 +347,11 @@ func (r *RouterBackend) MarshallRoute(route *route.Route) (*lnrpc.Route, error) 
 			}
 		}
 
+		tlvMap, err := tlv.RecordsToMap(hop.TLVRecords)
+		if err != nil {
+			return nil, err
+		}
+
 		resp.Hops[i] = &lnrpc.Hop{
 			ChanId:           hop.ChannelID,
 			ChanCapacity:     int64(chanCapacity),
@@ -355,8 +363,9 @@ func (r *RouterBackend) MarshallRoute(route *route.Route) (*lnrpc.Route, error) 
 			PubKey: hex.EncodeToString(
 				hop.PubKeyBytes[:],
 			),
-			TlvPayload: !hop.LegacyPayload,
-			MppRecord:  mpp,
+			CustomRecords: tlvMap,
+			TlvPayload:    !hop.LegacyPayload,
+			MppRecord:     mpp,
 		}
 		incomingAmt = hop.AmtToForward
 	}
@@ -364,12 +373,35 @@ func (r *RouterBackend) MarshallRoute(route *route.Route) (*lnrpc.Route, error) 
 	return resp, nil
 }
 
+// UnmarshallCustomRecords unmarshall rpc custom records to tlv records.
+func UnmarshallCustomRecords(rpcRecords map[uint64][]byte) ([]tlv.Record,
+	error) {
+
+	if len(rpcRecords) == 0 {
+		return nil, nil
+	}
+
+	tlvRecords := tlv.MapToRecords(rpcRecords)
+
+	// tlvRecords is sorted, so we only need to check that the first
+	// element is within the custom range.
+	if uint64(tlvRecords[0].Type()) < hop.CustomTypeStart {
+		return nil, fmt.Errorf("no custom records with types "+
+			"below %v allowed", hop.CustomTypeStart)
+	}
+
+	return tlvRecords, nil
+}
+
 // UnmarshallHopWithPubkey unmarshalls an rpc hop for which the pubkey has
 // already been extracted.
 func UnmarshallHopWithPubkey(rpcHop *lnrpc.Hop, pubkey route.Vertex) (*route.Hop,
 	error) {
 
-	var tlvRecords []tlv.Record
+	tlvRecords, err := UnmarshallCustomRecords(rpcHop.CustomRecords)
+	if err != nil {
+		return nil, err
+	}
 
 	mpp, err := UnmarshalMPP(rpcHop.MppRecord)
 	if err != nil {
@@ -502,9 +534,11 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 		return nil, errors.New("timeout_seconds must be specified")
 	}
 
-	var destTLV map[uint64][]byte
-	if len(destTLV) != 0 {
-		payIntent.FinalDestRecords = tlv.MapToRecords(destTLV)
+	payIntent.FinalDestRecords, err = UnmarshallCustomRecords(
+		rpcPayReq.DestCustomRecords,
+	)
+	if err != nil {
+		return nil, err
 	}
 
 	payIntent.PayAttemptTimeout = time.Second *

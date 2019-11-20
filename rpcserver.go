@@ -3133,8 +3133,11 @@ func (r *rpcServer) extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPayme
 	}
 	payIntent.cltvLimit = cltvLimit
 
-	if len(rpcPayReq.DestTlv) != 0 {
-		payIntent.destTLV = tlv.MapToRecords(rpcPayReq.DestTlv)
+	payIntent.destTLV, err = routerrpc.UnmarshallCustomRecords(
+		rpcPayReq.DestCustomRecords,
+	)
+	if err != nil {
+		return payIntent, err
 	}
 
 	validateDest := func(dest route.Vertex) error {

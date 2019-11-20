@@ -97,9 +97,11 @@ message SendPaymentRequest {
     /** 
     An optional field that can be used to pass an arbitrary set of TLV records
     to a peer which understands the new records. This can be used to pass
-    application specific data during the payment attempt.
+    application specific data during the payment attempt. Record types are
+    required to be in the custom range >= 65536. When using REST, the values
+    must be encoded as base64.
     */
-    map<uint64, bytes> dest_tlv = 11;
+    map<uint64, bytes> dest_custom_records = 11;
 
     /// If set, circular payments to self are permitted.
     bool allow_self_payment = 15;

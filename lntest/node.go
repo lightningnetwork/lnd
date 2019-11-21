@@ -77,7 +77,8 @@ const (
 
 var (
 	// numActiveNodes is the number of active nodes within the test network.
-	numActiveNodes = 0
+	numActiveNodes    = 0
+	numActiveNodesMtx sync.Mutex
 
 	// logOutput is a flag that can be set to append the output from the
 	// seed nodes to log files.
@@ -96,6 +97,9 @@ var (
 // support multiple test nodes running at once, the p2p, rpc, rest and
 // profiling ports are incremented after each initialization.
 func generateListeningPorts() (int, int, int, int) {
+	numActiveNodesMtx.Lock()
+	defer numActiveNodesMtx.Unlock()
+
 	p2p := defaultNodePort + (4 * numActiveNodes)
 	rpc := defaultClientPort + (4 * numActiveNodes)
 	rest := defaultRestPort + (4 * numActiveNodes)
@@ -295,8 +299,10 @@ func newNode(cfg nodeConfig) (*HarnessNode, error) {
 
 	cfg.P2PPort, cfg.RPCPort, cfg.RESTPort, cfg.ProfilePort = generateListeningPorts()
 
+	numActiveNodesMtx.Lock()
 	nodeNum := numActiveNodes
 	numActiveNodes++
+	numActiveNodesMtx.Unlock()
 
 	return &HarnessNode{
 		cfg:               &cfg,

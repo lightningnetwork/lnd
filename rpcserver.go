@@ -1947,6 +1947,28 @@ func createRPCCloseUpdate(update interface{}) (
 	return nil, errors.New("unknown close status update")
 }
 
+// abandonChanFromGraph attempts to remove a channel from the channel graph. If
+// we can't find the chanID in the graph, then we assume it has already been
+// removed, and will return a nop.
+func abandonChanFromGraph(chanGraph *channeldb.ChannelGraph,
+	chanPoint *wire.OutPoint) error {
+
+	// First, we'll obtain the channel ID. If we can't locate this, then
+	// it's the case that the channel may have already been removed from
+	// the graph, so we'll return a nil error.
+	chanID, err := chanGraph.ChannelID(chanPoint)
+	switch {
+	case err == channeldb.ErrEdgeNotFound:
+		return nil
+	case err != nil:
+		return err
+	}
+
+	// If the channel ID is still in the graph, then that means the channel
+	// is still open, so we'll now move to purge it from the graph.
+	return chanGraph.DeleteChannelEdges(chanID)
+}
+
 // AbandonChannel removes all channel state from the database except for a
 // close summary. This method can be used to get rid of permanently unusable
 // channels due to bugs fixed in newer versions of lnd.
@@ -1970,40 +1992,68 @@ func (r *rpcServer) AbandonChannel(ctx context.Context,
 	index := in.ChannelPoint.OutputIndex
 	chanPoint := wire.NewOutPoint(txid, index)
 
-	// With the chanPoint constructed, we'll attempt to find the target
-	// channel in the database. If we can't find the channel, then we'll
-	// return the error back to the caller.
-	dbChan, err := r.server.chanDB.FetchChannel(*chanPoint)
-	if err != nil {
-		return nil, err
-	}
-
-	// Now that we've found the channel, we'll populate a close summary for
-	// the channel, so we can store as much information for this abounded
-	// channel as possible. We also ensure that we set Pending to false, to
-	// indicate that this channel has been "fully" closed.
+	// When we remove the channel from the database, we need to set a close
+	// height, so we'll just use the current best known height.
 	_, bestHeight, err := r.server.cc.chainIO.GetBestBlock()
 	if err != nil {
 		return nil, err
 	}
-	summary := &channeldb.ChannelCloseSummary{
-		CloseType:               channeldb.Abandoned,
-		ChanPoint:               *chanPoint,
-		ChainHash:               dbChan.ChainHash,
-		CloseHeight:             uint32(bestHeight),
-		RemotePub:               dbChan.IdentityPub,
-		Capacity:                dbChan.Capacity,
-		SettledBalance:          dbChan.LocalCommitment.LocalBalance.ToSatoshis(),
-		ShortChanID:             dbChan.ShortChanID(),
-		RemoteCurrentRevocation: dbChan.RemoteCurrentRevocation,
-		RemoteNextRevocation:    dbChan.RemoteNextRevocation,
-		LocalChanConfig:         dbChan.LocalChanCfg,
+
+	dbChan, err := r.server.chanDB.FetchChannel(*chanPoint)
+	switch {
+	// If the channel isn't found in the set of open channels, then we can
+	// continue on as it can't be loaded into the link/peer.
+	case err == channeldb.ErrChannelNotFound:
+		break
+
+	// If the channel is still known to be open, then before we modify any
+	// on-disk state, we'll remove the channel from the switch and peer
+	// state if it's been loaded in.
+	case err == nil:
+		// We'll mark the channel as borked before we remove the state
+		// from the switch/peer so it won't be loaded back in if the
+		// peer reconnects.
+		if err := dbChan.MarkBorked(); err != nil {
+			return nil, err
+		}
+		remotePub := dbChan.IdentityPub
+		if peer, err := r.server.FindPeer(remotePub); err == nil {
+			if err := peer.WipeChannel(chanPoint); err != nil {
+				return nil, fmt.Errorf("unable to wipe "+
+					"channel state: %v", err)
+			}
+		}
+
+	default:
+		return nil, err
 	}
 
-	// Finally, we'll close the channel in the DB, and return back to the
-	// caller.
-	err = dbChan.CloseChannel(summary)
+	// Abandoning a channel is a three step process: remove from the open
+	// channel state, remove from the graph, remove from the contract
+	// court. Between any step it's possible that the users restarts the
+	// process all over again. As a result, each of the steps below are
+	// intended to be idempotent.
+	err = r.server.chanDB.AbandonChannel(chanPoint, uint32(bestHeight))
 	if err != nil {
+		return nil, err
+	}
+	err = abandonChanFromGraph(
+		r.server.chanDB.ChannelGraph(), chanPoint,
+	)
+	if err != nil {
+		return nil, err
+	}
+	err = r.server.chainArb.ResolveContract(*chanPoint)
+	if err != nil {
+		return nil, err
+	}
+
+	// If this channel was in the process of being closed, but didn't fully
+	// close, then it's possible that the nursery is hanging on to some
+	// state. To err on the side of caution, we'll now attempt to wipe any
+	// state for this channel from the nursery.
+	err = r.server.utxoNursery.cfg.Store.RemoveChannel(chanPoint)
+	if err != nil && err != ErrContractNotFound {
 		return nil, err
 	}
 

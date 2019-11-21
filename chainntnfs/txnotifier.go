@@ -1084,8 +1084,8 @@ func (n *TxNotifier) RegisterSpend(outpoint *wire.OutPoint, pkScript []byte,
 	// notifications don't also attempt a historical dispatch.
 	spendSet.rescanStatus = rescanPending
 
-	Log.Debugf("Dispatching historical spend rescan for %v",
-		ntfn.SpendRequest)
+	Log.Infof("Dispatching historical spend rescan for %v, start=%d, "+
+		"end=%d", ntfn.SpendRequest, startHeight, n.currentHeight)
 
 	return &SpendRegistration{
 		Event: ntfn.Event,
@@ -1299,8 +1299,9 @@ func (n *TxNotifier) dispatchSpendDetails(ntfn *SpendNtfn, details *SpendDetail)
 		return nil
 	}
 
-	Log.Infof("Dispatching confirmed spend notification for %v at height=%d",
-		ntfn.SpendRequest, n.currentHeight)
+	Log.Infof("Dispatching confirmed spend notification for %v at "+
+		"current height=%d: %v", ntfn.SpendRequest, n.currentHeight,
+		details)
 
 	select {
 	case ntfn.Event.Spend <- details:

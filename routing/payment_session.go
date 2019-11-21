@@ -1,7 +1,7 @@
 package routing
 
 import (
-	"fmt"
+	"errors"
 
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -11,6 +11,12 @@ import (
 // BlockPadding is used to increment the finalCltvDelta value for the last hop
 // to prevent an HTLC being failed if some blocks are mined while it's in-flight.
 const BlockPadding uint16 = 3
+
+var (
+	// errPrebuiltRouteTried is returned when the single pre-built route
+	// failed and there is nothing more we can do.
+	errPrebuiltRouteTried = errors.New("pre-built route already tried")
+)
 
 // PaymentSession is used during SendPayment attempts to provide routes to
 // attempt. It also defines methods to give the PaymentSession additional
@@ -66,7 +72,7 @@ func (p *paymentSession) RequestRoute(payment *LightningPayment,
 	// If the pre-built route has been tried already, the payment session is
 	// over.
 	case p.preBuiltRoute != nil:
-		return nil, fmt.Errorf("pre-built route already tried")
+		return nil, errPrebuiltRouteTried
 	}
 
 	// Add BlockPadding to the finalCltvDelta so that the receiving node

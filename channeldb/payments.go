@@ -105,6 +105,10 @@ const (
 	// or the final cltv delta or amount is incorrect.
 	FailureReasonPaymentDetails FailureReason = 3
 
+	// FailureReasonInsufficientBalance indicates that we didn't have enough
+	// balance to complete the payment.
+	FailureReasonInsufficientBalance FailureReason = 4
+
 	// TODO(halseth): cancel state.
 
 	// TODO(joostjager): Add failure reasons for:
@@ -122,6 +126,8 @@ func (r FailureReason) String() string {
 		return "error"
 	case FailureReasonPaymentDetails:
 		return "incorrect_payment_details"
+	case FailureReasonInsufficientBalance:
+		return "insufficient_balance"
 	}
 
 	return "unknown"

@@ -194,6 +194,9 @@ func errorToPaymentFailure(err error) channeldb.FailureReason {
 		errPrebuiltRouteTried:
 
 		return channeldb.FailureReasonNoRoute
+
+	case errInsufficientBalance:
+		return channeldb.FailureReasonInsufficientBalance
 	}
 
 	return channeldb.FailureReasonError

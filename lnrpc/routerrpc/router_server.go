@@ -678,6 +678,9 @@ func marshallFailureReason(reason channeldb.FailureReason) (
 
 	case channeldb.FailureReasonPaymentDetails:
 		return PaymentState_FAILED_INCORRECT_PAYMENT_DETAILS, nil
+
+	case channeldb.FailureReasonInsufficientBalance:
+		return PaymentState_FAILED_INSUFFICIENT_BALANCE, nil
 	}
 
 	return 0, errors.New("unknown failure reason")

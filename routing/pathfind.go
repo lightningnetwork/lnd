@@ -617,7 +617,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		pivot := partialPath.node
 
 		// Create unified policies for all incoming connections.
-		u := newUnifiedPolicies(source, pivot, r.OutgoingChannelID)
+		u := newUnifiedPolicies(self, pivot, r.OutgoingChannelID)
 
 		err := u.addGraphPolicies(g.graph, tx)
 		if err != nil {

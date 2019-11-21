@@ -2299,15 +2299,12 @@ func newPathFindingTestContext(t *testing.T, testChannels []*testChannel,
 		t:                 t,
 		testGraphInstance: testGraphInstance,
 		source:            route.Vertex(sourceNode.PubKeyBytes),
+		pathFindingConfig: *testPathFindingConfig,
+		graphParams: graphParams{
+			graph: testGraphInstance.graph,
+		},
+		restrictParams: *noRestrictions,
 	}
-
-	ctx.pathFindingConfig = *testPathFindingConfig
-
-	ctx.graphParams.graph = testGraphInstance.graph
-
-	ctx.restrictParams.FeeLimit = noFeeLimit
-	ctx.restrictParams.ProbabilitySource = noProbabilitySource
-	ctx.restrictParams.CltvLimit = math.MaxUint32
 
 	return ctx
 }

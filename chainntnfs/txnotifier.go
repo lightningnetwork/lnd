@@ -1245,6 +1245,8 @@ func (n *TxNotifier) updateSpendDetails(spendRequest SpendRequest,
 				n.currentHeight, spendRequest, err)
 		}
 
+		Log.Debugf("Updated spend hint to height=%v for unconfirmed "+
+			"spend request %v", n.currentHeight, spendRequest)
 		return nil
 	}
 
@@ -1270,6 +1272,9 @@ func (n *TxNotifier) updateSpendDetails(spendRequest SpendRequest,
 			details.SpendingHeight, spendRequest, err)
 	}
 
+	Log.Debugf("Updated spend hint to height=%v for confirmed spend "+
+		"request %v", details.SpendingHeight, spendRequest)
+
 	spendSet.details = details
 	for _, ntfn := range spendSet.ntfns {
 		err := n.dispatchSpendDetails(ntfn, spendSet.details)
@@ -1288,6 +1293,9 @@ func (n *TxNotifier) dispatchSpendDetails(ntfn *SpendNtfn, details *SpendDetail)
 	// If there are no spend details to dispatch or if the notification has
 	// already been dispatched, then we can skip dispatching to this client.
 	if details == nil || ntfn.dispatched {
+		Log.Debugf("Skipping dispatch of spend details(%v) for "+
+			"request %v, dispatched=%v", details, ntfn.SpendRequest,
+			ntfn.dispatched)
 		return nil
 	}
 
@@ -1345,6 +1353,8 @@ func (n *TxNotifier) ConnectTip(blockHash *chainhash.Hash, blockHeight uint32,
 
 	// First, we'll iterate over all the transactions found in this block to
 	// determine if it includes any relevant transactions to the TxNotifier.
+	Log.Debugf("Filtering %d txns for %d spend requests at height %d",
+		len(txns), len(n.spendNotifications), blockHeight)
 	for _, tx := range txns {
 		n.filterTx(
 			tx, blockHash, blockHeight, n.handleConfDetailsAtTip,
@@ -1386,6 +1396,8 @@ func (n *TxNotifier) ConnectTip(blockHash *chainhash.Hash, blockHeight uint32,
 				}
 			}
 
+			Log.Debugf("Deleting mature spend request %v at "+
+				"height=%d", spendRequest, blockHeight)
 			delete(n.spendNotifications, spendRequest)
 		}
 		delete(n.spendsByHeight, matureBlockHeight)
@@ -1587,6 +1599,9 @@ func (n *TxNotifier) handleSpendDetailsAtTip(spendRequest SpendRequest,
 		n.spendsByHeight[spendHeight] = opSet
 	}
 	opSet[spendRequest] = struct{}{}
+
+	Log.Debugf("Spend request %v spent at tip=%d", spendRequest,
+		spendHeight)
 }
 
 // NotifyHeight dispatches confirmation and spend notifications to the clients

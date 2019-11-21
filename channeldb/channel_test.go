@@ -939,8 +939,8 @@ func TestFetchWaitingCloseChannels(t *testing.T) {
 }
 
 // TestRefreshShortChanID asserts that RefreshShortChanID updates the in-memory
-// short channel ID of another OpenChannel to reflect a preceding call to
-// MarkOpen on a different OpenChannel.
+// state of another OpenChannel to reflect a preceding call to MarkOpen on a
+// different OpenChannel.
 func TestRefreshShortChanID(t *testing.T) {
 	t.Parallel()
 
@@ -1037,5 +1037,11 @@ func TestRefreshShortChanID(t *testing.T) {
 		t.Fatalf("channel packager source was not updated: want %v, "+
 			"got %v", chanOpenLoc,
 			pendingChannel.Packager.(*ChannelPackager).source)
+	}
+
+	// Check to ensure that this channel is no longer pending and this field
+	// is up to date.
+	if pendingChannel.IsPending {
+		t.Fatalf("channel pending state wasn't updated: want false got true")
 	}
 }

@@ -13,9 +13,9 @@ Remember to run `gomobile init` (otherwise the `lnd` build might just hang).
 Note that `gomobile` only supports building projects from `GOPATH` at this point.
 
 #### falafel
-Install [`falafel`](https://github.com/halseth/falafel):
+Install [`falafel`](https://github.com/lightninglabs/falafel):
 ```
-go get -u -v github.com/halseth/falafel
+go get -u -v github.com/lightninglabs/falafel
 ```
 
 ### Building `lnd` for iOS

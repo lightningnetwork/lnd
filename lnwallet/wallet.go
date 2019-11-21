@@ -1057,16 +1057,19 @@ func (l *LightningWallet) verifyFundingInputs(fundingTx *wire.MsgTx,
 			//
 			// TODO(roasbeef): when dual funder pass actual
 			// height-hint
-			pkScript, err := input.WitnessScriptHash(
-				txin.Witness[len(txin.Witness)-1],
+			//
+			// TODO(roasbeef): this fails for neutrino always as it
+			// treats the height hint as an exact birthday of the
+			// utxo rather than a lower bound
+			pkScript, err := txscript.ComputePkScript(
+				txin.SignatureScript, txin.Witness,
 			)
 			if err != nil {
 				return fmt.Errorf("cannot create script: %v", err)
 			}
-
 			output, err := l.Cfg.ChainIO.GetUtxo(
 				&txin.PreviousOutPoint,
-				pkScript, 0, l.quit,
+				pkScript.Script(), 0, l.quit,
 			)
 			if output == nil {
 				return fmt.Errorf("input to funding tx does "+

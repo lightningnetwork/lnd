@@ -186,6 +186,19 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 
 }
 
+// errorToPaymentFailure takes a path finding error and converts it into a
+// payment-level failure.
+func errorToPaymentFailure(err error) channeldb.FailureReason {
+	switch err {
+	case errNoTlvPayload, errNoPathFound, errMaxHopsExceeded,
+		errPrebuiltRouteTried:
+
+		return channeldb.FailureReasonNoRoute
+	}
+
+	return channeldb.FailureReasonError
+}
+
 // createNewPaymentAttempt creates and stores a new payment attempt to the
 // database.
 func (p *paymentLifecycle) createNewPaymentAttempt() (lnwire.ShortChannelID,
@@ -230,11 +243,14 @@ func (p *paymentLifecycle) createNewPaymentAttempt() (lnwire.ShortChannelID,
 		log.Warnf("Failed to find route for payment %x: %v",
 			p.payment.PaymentHash, err)
 
+		// Convert error to payment-level failure.
+		failure := errorToPaymentFailure(err)
+
 		// If we're unable to successfully make a payment using
 		// any of the routes we've found, then mark the payment
 		// as permanently failed.
 		saveErr := p.router.cfg.Control.Fail(
-			p.payment.PaymentHash, channeldb.FailureReasonNoRoute,
+			p.payment.PaymentHash, failure,
 		)
 		if saveErr != nil {
 			return lnwire.ShortChannelID{}, nil, saveErr

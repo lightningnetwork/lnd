@@ -1132,7 +1132,7 @@ func deserializeHtlcs(r io.Reader) (map[CircuitKey]*InvoiceHTLC, error) {
 
 	for {
 		// Read the length of the tlv stream for this htlc.
-		var streamLen uint64
+		var streamLen int64
 		if err := binary.Read(r, byteOrder, &streamLen); err != nil {
 			if err == io.EOF {
 				break
@@ -1141,11 +1141,9 @@ func deserializeHtlcs(r io.Reader) (map[CircuitKey]*InvoiceHTLC, error) {
 			return nil, err
 		}
 
-		streamBytes := make([]byte, streamLen)
-		if _, err := r.Read(streamBytes); err != nil {
-			return nil, err
-		}
-		streamReader := bytes.NewReader(streamBytes)
+		// Limit the reader so that it stops at the end of this htlc's
+		// stream.
+		htlcReader := io.LimitReader(r, streamLen)
 
 		// Decode the contents into the htlc fields.
 		var (
@@ -1172,7 +1170,7 @@ func deserializeHtlcs(r io.Reader) (map[CircuitKey]*InvoiceHTLC, error) {
 			return nil, err
 		}
 
-		if err := tlvStream.Decode(streamReader); err != nil {
+		if err := tlvStream.Decode(htlcReader); err != nil {
 			return nil, err
 		}
 

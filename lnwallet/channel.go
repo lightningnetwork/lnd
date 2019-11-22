@@ -1952,6 +1952,13 @@ type BreachRetribution struct {
 	// party) within the breach transaction.
 	LocalOutpoint wire.OutPoint
 
+	// LocalAnchorSignDesc is a SignDescriptor capable of generating the
+	// signature for the local anchor output.
+	LocalAnchorSignDesc *input.SignDescriptor
+
+	// LocalAnchor is the local anchor output on the commitment.
+	LocalAnchor wire.OutPoint
+
 	// RemoteOutputSignDesc is a SignDescriptor which is capable of
 	// generating the signature required to claim the funds as described
 	// within the revocation clause of the remote party's commitment
@@ -2042,11 +2049,29 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 		return nil, err
 	}
 
+	// Similarly, the anchor going to us will be the anchor output
+	// spendable by the remote anchor key.
+	localAnchorScript, err := input.CommitScriptAnchor(
+		chanState.RemoteChanCfg.MultiSigKey.PubKey,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	localAnchorScriptHash, err := input.WitnessScriptHash(localAnchorScript)
+	if err != nil {
+		return nil, err
+	}
+
 	// In order to fully populate the breach retribution struct, we'll need
 	// to find the exact index of the local+remote commitment outputs.
 	localOutpoint := wire.OutPoint{
 		Hash: commitHash,
 	}
+	localAnchor := wire.OutPoint{
+		Hash: commitHash,
+	}
+
 	remoteOutpoint := wire.OutPoint{
 		Hash: commitHash,
 	}
@@ -2054,6 +2079,8 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 		switch {
 		case bytes.Equal(txOut.PkScript, localWitnessHash):
 			localOutpoint.Index = uint32(i)
+		case bytes.Equal(txOut.PkScript, localAnchorScriptHash):
+			localAnchor.Index = uint32(i)
 		case bytes.Equal(txOut.PkScript, remoteWitnessHash):
 			remoteOutpoint.Index = uint32(i)
 		}
@@ -2064,6 +2091,7 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 	// party's dust limit, the respective sign descriptor will be nil.
 	var (
 		localSignDesc  *input.SignDescriptor
+		anchorSignDesc *input.SignDescriptor
 		remoteSignDesc *input.SignDescriptor
 	)
 
@@ -2090,6 +2118,18 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 		if tweaklessCommit {
 			localSignDesc.SingleTweak = nil
 		}
+	}
+
+	anchorSize := chanState.AnchorSize
+	anchorSignDesc = &input.SignDescriptor{
+		SingleTweak:   nil,
+		KeyDesc:       chanState.LocalChanCfg.MultiSigKey,
+		WitnessScript: localAnchorScript,
+		Output: &wire.TxOut{
+			PkScript: localAnchorScriptHash,
+			Value:    int64(anchorSize),
+		},
+		HashType: txscript.SigHashAll,
 	}
 
 	// Similarly, if the remote balance exceeds the remote party's dust
@@ -2200,6 +2240,8 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 		PendingHTLCs:         revokedSnapshot.Htlcs,
 		LocalOutpoint:        localOutpoint,
 		LocalOutputSignDesc:  localSignDesc,
+		LocalAnchorSignDesc:  anchorSignDesc,
+		LocalAnchor:          localAnchor,
 		RemoteOutpoint:       remoteOutpoint,
 		RemoteOutputSignDesc: remoteSignDesc,
 		HtlcRetributions:     htlcRetributions,

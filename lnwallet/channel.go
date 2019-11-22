@@ -2430,23 +2430,27 @@ func (lc *LightningChannel) createCommitmentTx(c *commitment,
 	}
 
 	var (
-		delay                      uint32
+		localCfg, remoteCfg        *channeldb.ChannelConfig
 		delayBalance, p2wkhBalance btcutil.Amount
 	)
 	if c.isOurs {
-		delay = uint32(lc.localChanCfg.CsvDelay)
+		localCfg = lc.localChanCfg
+		remoteCfg = lc.remoteChanCfg
 		delayBalance = ourBalance.ToSatoshis()
 		p2wkhBalance = theirBalance.ToSatoshis()
 	} else {
-		delay = uint32(lc.remoteChanCfg.CsvDelay)
+		localCfg = lc.remoteChanCfg
+		remoteCfg = lc.localChanCfg
 		delayBalance = theirBalance.ToSatoshis()
 		p2wkhBalance = ourBalance.ToSatoshis()
 	}
 
 	// Generate a new commitment transaction with all the latest
 	// unsettled/un-timed out HTLCs.
-	commitTx, err := CreateCommitTx(lc.fundingTxIn(), keyRing, delay,
-		delayBalance, p2wkhBalance, c.dustLimit)
+	commitTx, err := CreateCommitTx(
+		lc.fundingTxIn(), keyRing, localCfg, remoteCfg, delayBalance,
+		p2wkhBalance,
+	)
 	if err != nil {
 		return err
 	}
@@ -6203,17 +6207,19 @@ func (lc *LightningChannel) generateRevocation(height uint64) (*lnwire.RevokeAnd
 // to the "owner" of the commitment transaction which can be spent after a
 // relative block delay or revocation event, and the other paying the
 // counterparty within the channel, which can be spent immediately.
-func CreateCommitTx(fundingOutput wire.TxIn,
-	keyRing *CommitmentKeyRing, csvTimeout uint32,
-	amountToSelf, amountToThem, dustLimit btcutil.Amount) (*wire.MsgTx, error) {
+func CreateCommitTx(fundingOutput wire.TxIn, keyRing *CommitmentKeyRing,
+	localChanCfg, remoteChanCfg *channeldb.ChannelConfig,
+	amountToSelf, amountToThem btcutil.Amount) (*wire.MsgTx, error) {
 
 	// First, we create the script for the delayed "pay-to-self" output.
 	// This output has 2 main redemption clauses: either we can redeem the
 	// output after a relative block delay, or the remote node can claim
 	// the funds with the revocation key if we broadcast a revoked
 	// commitment transaction.
-	ourRedeemScript, err := input.CommitScriptToSelf(csvTimeout, keyRing.DelayKey,
-		keyRing.RevocationKey)
+	ourRedeemScript, err := input.CommitScriptToSelf(
+		uint32(localChanCfg.CsvDelay), keyRing.DelayKey,
+		keyRing.RevocationKey,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -6236,13 +6242,13 @@ func CreateCommitTx(fundingOutput wire.TxIn,
 	commitTx.AddTxIn(&fundingOutput)
 
 	// Avoid creating dust outputs within the commitment transaction.
-	if amountToSelf >= dustLimit {
+	if amountToSelf >= localChanCfg.DustLimit {
 		commitTx.AddTxOut(&wire.TxOut{
 			PkScript: payToUsScriptHash,
 			Value:    int64(amountToSelf),
 		})
 	}
-	if amountToThem >= dustLimit {
+	if amountToThem >= localChanCfg.DustLimit {
 		commitTx.AddTxOut(&wire.TxOut{
 			PkScript: theirWitnessKeyHash,
 			Value:    int64(amountToThem),

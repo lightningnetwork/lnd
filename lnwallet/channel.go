@@ -5963,10 +5963,11 @@ func (lc *LightningChannel) CreateCloseProposal(proposedFee btcutil.Amount,
 		theirBalance = theirBalance - proposedFee + commitFee
 	}
 
-	closeTx := CreateCooperativeCloseTx(lc.fundingTxIn(),
-		lc.localChanCfg.DustLimit, lc.remoteChanCfg.DustLimit,
-		ourBalance, theirBalance, localDeliveryScript,
-		remoteDeliveryScript, lc.channelState.IsInitiator)
+	closeTx := CreateCooperativeCloseTx(
+		lc.fundingTxIn(), lc.localChanCfg.DustLimit,
+		lc.remoteChanCfg.DustLimit, ourBalance, theirBalance,
+		localDeliveryScript, remoteDeliveryScript,
+	)
 
 	// Ensure that the transaction doesn't explicitly violate any
 	// consensus rules such as being too big, or having any value with a
@@ -6033,10 +6034,11 @@ func (lc *LightningChannel) CompleteCooperativeClose(localSig, remoteSig []byte,
 	// Create the transaction used to return the current settled balance
 	// on this active channel back to both parties. In this current model,
 	// the initiator pays full fees for the cooperative close transaction.
-	closeTx := CreateCooperativeCloseTx(lc.fundingTxIn(),
-		lc.localChanCfg.DustLimit, lc.remoteChanCfg.DustLimit,
-		ourBalance, theirBalance, localDeliveryScript,
-		remoteDeliveryScript, lc.channelState.IsInitiator)
+	closeTx := CreateCooperativeCloseTx(
+		lc.fundingTxIn(), lc.localChanCfg.DustLimit,
+		lc.remoteChanCfg.DustLimit, ourBalance, theirBalance,
+		localDeliveryScript, remoteDeliveryScript,
+	)
 
 	// Ensure that the transaction doesn't explicitly validate any
 	// consensus rules such as being too big, or having any value with a
@@ -6375,8 +6377,7 @@ func CreateCommitTx(fundingOutput wire.TxIn, keyRing *CommitmentKeyRing,
 // transaction in full.
 func CreateCooperativeCloseTx(fundingTxIn wire.TxIn,
 	localDust, remoteDust, ourBalance, theirBalance btcutil.Amount,
-	ourDeliveryScript, theirDeliveryScript []byte,
-	initiator bool) *wire.MsgTx {
+	ourDeliveryScript, theirDeliveryScript []byte) *wire.MsgTx {
 
 	// Construct the transaction to perform a cooperative closure of the
 	// channel. In the event that one side doesn't have any settled funds

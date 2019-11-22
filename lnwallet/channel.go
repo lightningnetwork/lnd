@@ -2500,11 +2500,31 @@ func (lc *LightningChannel) createCommitmentTx(c *commitment,
 		p2wkhBalance = ourBalance.ToSatoshis()
 	}
 
+	hasHtlcs := false
+	for _, htlc := range filteredHTLCView.ourUpdates {
+		if htlcIsDust(false, c.isOurs, c.feePerKw,
+			htlc.Amount.ToSatoshis(), c.dustLimit) {
+			continue
+		}
+
+		hasHtlcs = true
+		break
+	}
+	for _, htlc := range filteredHTLCView.theirUpdates {
+		if htlcIsDust(true, c.isOurs, c.feePerKw,
+			htlc.Amount.ToSatoshis(), c.dustLimit) {
+			continue
+		}
+
+		hasHtlcs = true
+		break
+	}
+
 	// Generate a new commitment transaction with all the latest
 	// unsettled/un-timed out HTLCs.
 	commitTx, err := CreateCommitTx(
 		lc.fundingTxIn(), keyRing, localCfg, remoteCfg, delayBalance,
-		p2wkhBalance, lc.channelState.AnchorSize,
+		p2wkhBalance, lc.channelState.AnchorSize, hasHtlcs,
 	)
 	if err != nil {
 		return err
@@ -6358,7 +6378,8 @@ func (lc *LightningChannel) generateRevocation(height uint64) (*lnwire.RevokeAnd
 // counterparty within the channel, which can be spent immediately.
 func CreateCommitTx(fundingOutput wire.TxIn, keyRing *CommitmentKeyRing,
 	localChanCfg, remoteChanCfg *channeldb.ChannelConfig,
-	amountToSelf, amountToThem, anchorSize btcutil.Amount) (*wire.MsgTx, error) {
+	amountToSelf, amountToThem, anchorSize btcutil.Amount,
+	hasHtlcs bool) (*wire.MsgTx, error) {
 
 	// First, we create the script for the delayed "pay-to-self" output.
 	// This output has 2 main redemption clauses: either we can redeem the
@@ -6430,11 +6451,14 @@ func CreateCommitTx(fundingOutput wire.TxIn, keyRing *CommitmentKeyRing,
 		})
 	}
 
-	// Add an anchor ouput to ourselves.
-	commitTx.AddTxOut(&wire.TxOut{
-		PkScript: ourAnchorScriptHash,
-		Value:    int64(anchorSize),
-	})
+	// Add an anchor ouput to ourselves only if we have a commitment output
+	// or there are HTLCs.
+	if amountToSelf >= localChanCfg.DustLimit || hasHtlcs {
+		commitTx.AddTxOut(&wire.TxOut{
+			PkScript: ourAnchorScriptHash,
+			Value:    int64(anchorSize),
+		})
+	}
 
 	if amountToThem >= localChanCfg.DustLimit {
 		commitTx.AddTxOut(&wire.TxOut{
@@ -6443,11 +6467,14 @@ func CreateCommitTx(fundingOutput wire.TxIn, keyRing *CommitmentKeyRing,
 		})
 	}
 
-	// Add anchor output to remote.
-	commitTx.AddTxOut(&wire.TxOut{
-		PkScript: theirAnchorScriptHash,
-		Value:    int64(anchorSize),
-	})
+	// Add anchor output to remote only if they have a commitment output or
+	// there are HTLCs.
+	if amountToThem >= localChanCfg.DustLimit || hasHtlcs {
+		commitTx.AddTxOut(&wire.TxOut{
+			PkScript: theirAnchorScriptHash,
+			Value:    int64(anchorSize),
+		})
+	}
 
 	// TODO(halseth): anchor should not be created if no commitoutput or
 	// HTLCs.

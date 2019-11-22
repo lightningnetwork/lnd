@@ -7834,6 +7834,13 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 	checkCarolBalance(pushAmt - 3*paymentAmt)
 	checkCarolNumUpdatesAtLeast(carolStateNumPreCopy + 1)
 
+	// Suspend Dave, such that Carol won't reconnect at startup, triggering
+	// the data loss protection.
+	restartDave, err := net.SuspendNode(dave)
+	if err != nil {
+		t.Fatalf("unable to suspend Dave: %v", err)
+	}
+
 	// Now we shutdown Carol, copying over the her temporary database state
 	// which has the *prior* channel state over her current most up to date
 	// state. With this, we essentially force Carol to travel back in time
@@ -7885,17 +7892,13 @@ func testRevokedCloseRetributionRemoteHodl(net *lntest.NetworkHarness,
 		t.Fatalf("expected closeTx(%v) in mempool, instead found %v",
 			closeTxId, txid)
 	}
-	time.Sleep(200 * time.Millisecond)
 
 	// Generate a single block to mine the breach transaction.
 	block := mineBlocks(t, net, 1, 1)[0]
 
-	// Wait so Dave receives a confirmation of Carol's breach transaction.
-	time.Sleep(200 * time.Millisecond)
-
-	// We restart Dave to ensure that he is persisting his retribution
-	// state and continues exacting justice after her node restarts.
-	if err := net.RestartNode(dave, nil); err != nil {
+	// We resurrect Dave to ensure he will be exacting justice after his
+	// node restarts.
+	if err := restartDave(); err != nil {
 		t.Fatalf("unable to stop Dave's node: %v", err)
 	}
 

@@ -91,9 +91,9 @@ type ChannelArbitratorConfig struct {
 	// is watching over. We'll use this when we decide that we need to go
 	// to chain. It should in addition tell the switch to remove the
 	// corresponding link, such that we won't accept any new updates. The
-	// returned summary contains all items needed to eventually resolve all
-	// outputs on chain.
-	ForceCloseChan func() (*lnwallet.LocalForceCloseSummary, error)
+	// returned transactions is our latest commitment state, which will
+	// close the transaction if published.
+	ForceCloseChan func() (*wire.MsgTx, error)
 
 	// MarkCommitmentBroadcasted should mark the channel as the commitment
 	// being broadcast, and we are waiting for the commitment to confirm.
@@ -782,13 +782,13 @@ func (c *ChannelArbitrator) stateStep(
 		// We'll tell the switch that it should remove the link for
 		// this channel, in addition to fetching the force close
 		// summary needed to close this channel on chain.
-		closeSummary, err := c.cfg.ForceCloseChan()
+		var err error
+		closeTx, err = c.cfg.ForceCloseChan()
 		if err != nil {
 			log.Errorf("ChannelArbitrator(%v): unable to "+
 				"force close: %v", c.cfg.ChanPoint, err)
 			return StateError, closeTx, err
 		}
-		closeTx = closeSummary.CloseTx
 
 		// Before publishing the transaction, we store it to the
 		// database, such that we can re-publish later in case it

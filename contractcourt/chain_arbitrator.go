@@ -234,7 +234,7 @@ func newActiveChannelArbitrator(channel *channeldb.OpenChannel,
 		ChanPoint:   chanPoint,
 		ShortChanID: channel.ShortChanID(),
 		BlockEpochs: blockEpoch,
-		ForceCloseChan: func() (*lnwallet.LocalForceCloseSummary, error) {
+		ForceCloseChan: func() (*wire.MsgTx, error) {
 			// First, we mark the channel as borked, this ensure
 			// that no new state transitions can happen, and also
 			// that the link won't be loaded into the switch.

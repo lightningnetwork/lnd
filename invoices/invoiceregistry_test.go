@@ -28,6 +28,10 @@ var (
 	testFinalCltvRejectDelta = int32(4)
 
 	testCurrentHeight = int32(1)
+
+	testFeatures = lnwire.NewFeatureVector(
+		nil, lnwire.Features,
+	)
 )
 
 var (
@@ -35,6 +39,15 @@ var (
 		Terms: channeldb.ContractTerm{
 			PaymentPreimage: preimage,
 			Value:           lnwire.MilliSatoshi(100000),
+			Features:        testFeatures,
+		},
+	}
+
+	testHodlInvoice = &channeldb.Invoice{
+		Terms: channeldb.ContractTerm{
+			PaymentPreimage: channeldb.UnknownPreimage,
+			Value:           lnwire.MilliSatoshi(100000),
+			Features:        testFeatures,
 		},
 	}
 )
@@ -382,14 +395,7 @@ func TestSettleHoldInvoice(t *testing.T) {
 	}
 
 	// Add the invoice.
-	invoice := &channeldb.Invoice{
-		Terms: channeldb.ContractTerm{
-			PaymentPreimage: channeldb.UnknownPreimage,
-			Value:           lnwire.MilliSatoshi(100000),
-		},
-	}
-
-	_, err = registry.AddInvoice(invoice, hash)
+	_, err = registry.AddInvoice(testHodlInvoice, hash)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -543,14 +549,7 @@ func TestCancelHoldInvoice(t *testing.T) {
 	defer registry.Stop()
 
 	// Add the invoice.
-	invoice := &channeldb.Invoice{
-		Terms: channeldb.ContractTerm{
-			PaymentPreimage: channeldb.UnknownPreimage,
-			Value:           lnwire.MilliSatoshi(100000),
-		},
-	}
-
-	_, err = registry.AddInvoice(invoice, hash)
+	_, err = registry.AddInvoice(testHodlInvoice, hash)
 	if err != nil {
 		t.Fatal(err)
 	}

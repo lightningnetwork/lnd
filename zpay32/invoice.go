@@ -242,6 +242,14 @@ func RouteHint(routeHint []HopHint) func(*Invoice) {
 	}
 }
 
+// Features is a functional option that allows callers of NewInvoice to set the
+// desired feature bits that are advertised on the invoice.
+func Features(features *lnwire.FeatureVector) func(*Invoice) {
+	return func(i *Invoice) {
+		i.Features = features
+	}
+}
+
 // NewInvoice creates a new Invoice object. The last parameter is a set of
 // variadic arguments for setting optional fields of the invoice.
 //

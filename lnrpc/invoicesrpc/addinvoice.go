@@ -363,6 +363,13 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 
 	}
 
+	// Set a blank feature vector, as our invoice generation forbids nil
+	// features.
+	invoiceFeatures := lnwire.NewFeatureVector(
+		lnwire.NewRawFeatureVector(), lnwire.Features,
+	)
+	options = append(options, zpay32.Features(invoiceFeatures))
+
 	// Create and encode the payment request as a bech32 (zpay32) string.
 	creationDate := time.Now()
 	payReq, err := zpay32.NewInvoice(
@@ -390,6 +397,7 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 		Terms: channeldb.ContractTerm{
 			Value:           amtMSat,
 			PaymentPreimage: paymentPreimage,
+			Features:        invoiceFeatures,
 		},
 	}
 

@@ -371,3 +371,10 @@ func (fv *FeatureVector) isFeatureBitPair(bit FeatureBit) bool {
 	name2, known2 := fv.featureNames[bit^1]
 	return known1 && known2 && name1 == name2
 }
+
+// Clone copies a feature vector, carrying over its feature bits. The feature
+// names are not copied.
+func (fv *FeatureVector) Clone() *FeatureVector {
+	features := fv.RawFeatureVector.Clone()
+	return NewFeatureVector(features, fv.featureNames)
+}

@@ -154,8 +154,6 @@ type Invoice struct {
 
 // LegacyDeserializeInvoice decodes an invoice from the passed io.Reader using
 // the pre-TLV serialization.
-//
-// nolint: dupl
 func LegacyDeserializeInvoice(r io.Reader) (Invoice, error) {
 	var err error
 	invoice := Invoice{}
@@ -241,6 +239,8 @@ func deserializeHtlcs(r io.Reader) ([]byte, error) {
 }
 
 // SerializeInvoice serializes an invoice to a writer.
+//
+// nolint: dupl
 func SerializeInvoice(w io.Writer, i *Invoice) error {
 	creationDateBytes, err := i.CreationDate.MarshalBinary()
 	if err != nil {

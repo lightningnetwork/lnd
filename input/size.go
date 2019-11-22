@@ -175,11 +175,13 @@ const (
 
 	// HtlcTimeoutWeight is the weight of the HTLC timeout transaction
 	// which will transition an outgoing HTLC to the delay-and-claim state.
-	HtlcTimeoutWeight = 663
+	// NOTE: Three extra elements to the input script.
+	HtlcTimeoutWeight = 663 + 3*witnessScaleFactor
 
 	// HtlcSuccessWeight is the weight of the HTLC success transaction
 	// which will transition an incoming HTLC to the delay-and-claim state.
-	HtlcSuccessWeight = 703
+	// NOTE: Three extra elements to the input script.
+	HtlcSuccessWeight = 703 + 3*witnessScaleFactor
 
 	// MaxHTLCNumber is the maximum number HTLCs which can be included in a
 	// commitment transaction. This limit was chosen such that, in the case

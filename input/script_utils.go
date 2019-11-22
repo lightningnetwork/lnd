@@ -160,6 +160,7 @@ func Ripemd160H(d []byte) []byte {
 // OP_IF
 //     OP_CHECKSIG
 // OP_ELSE
+//     1 OP_CHECKSEQUENCEVERIFY OP_DROP
 //     <recv htlc key>
 //     OP_SWAP OP_SIZE 32 OP_EQUAL
 //     OP_NOTIF
@@ -192,6 +193,11 @@ func SenderHTLCScript(senderHtlcKey, receiverHtlcKey,
 	// the pre-image, or the sender of the HTLC sweeping the output after
 	// it has timed out.
 	builder.AddOp(txscript.OP_ELSE)
+
+	// 1 block CSV delay.
+	builder.AddInt64(1)
+	builder.AddOp(txscript.OP_CHECKSEQUENCEVERIFY)
+	builder.AddOp(txscript.OP_DROP)
 
 	// We'll do a bit of set up by pushing the receiver's key on the top of
 	// the stack. This will be needed later if we decide that this is the
@@ -372,6 +378,7 @@ func SenderHtlcSpendTimeout(receiverSig []byte, signer Signer,
 // OP_IF
 //     OP_CHECKSIG
 // OP_ELSE
+//     1 OP_CHECKSEQUENCEVERIFY OP_DROP
 //     <sendr htlc key>
 //     OP_SWAP OP_SIZE 32 OP_EQUAL
 //     OP_IF
@@ -407,6 +414,11 @@ func ReceiverHTLCScript(cltvExpiry uint32, senderHtlcKey,
 	// the pre-image, or the sender of the HTLC sweeping the output after
 	// it has timed out.
 	builder.AddOp(txscript.OP_ELSE)
+
+	// 1 block CSV delay.
+	builder.AddInt64(1)
+	builder.AddOp(txscript.OP_CHECKSEQUENCEVERIFY)
+	builder.AddOp(txscript.OP_DROP)
 
 	// We'll do a bit of set up by pushing the sender's key on the top of
 	// the stack. This will be needed later if we decide that this is the

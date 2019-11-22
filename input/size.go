@@ -6,15 +6,6 @@ import (
 )
 
 const (
-	// CommitWeight is the weight of the base commitment transaction which
-	// includes: one p2wsh input, out p2wkh output, and one p2wsh output.
-	CommitWeight int64 = 724
-
-	// HtlcWeight is the weight of an HTLC output.
-	HtlcWeight int64 = 172
-)
-
-const (
 	// witnessScaleFactor determines the level of "discount" witness data
 	// receives compared to "base" data. A scale factor of 4, denotes that
 	// witness data is 1/4 as cheap as regular non-witness data. Value copied
@@ -167,6 +158,9 @@ const (
 
 	// WitnessCommitmentTxWeight 224 weight
 	WitnessCommitmentTxWeight = WitnessHeaderSize + WitnessSize
+
+	// CommitWeight 724 weight
+	CommitWeight = BaseCommitmentTxWeight + WitnessCommitmentTxWeight
 
 	// HTLCWeight 172 weight
 	HTLCWeight = witnessScaleFactor * HTLCSize

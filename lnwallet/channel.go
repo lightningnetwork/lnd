@@ -502,7 +502,8 @@ type commitment struct {
 	// evaluating all the add/remove/settle log entries before the listed
 	// indexes.
 	//
-	// NOTE: This is the balance *after* subtracting any commitment fee.
+	// NOTE: This is the balance *after* subtracting any commitment fee,
+	// but *not* anchors.
 	ourBalance   lnwire.MilliSatoshi
 	theirBalance lnwire.MilliSatoshi
 
@@ -2461,24 +2462,26 @@ func (lc *LightningChannel) createCommitmentTx(c *commitment,
 	// With the weight known, we can now calculate the commitment fee,
 	// ensuring that we account for any dust outputs trimmed above.
 	commitFee := c.feePerKw.FeeForWeight(totalCommitWeight)
-	commitFeeMSat := lnwire.NewMSatFromSatoshis(commitFee)
+	initiatorFee := commitFee + 2*lc.channelState.AnchorSize
+	initiatorFeeMSat := lnwire.NewMSatFromSatoshis(initiatorFee)
 
-	// Currently, within the protocol, the initiator always pays the fees.
-	// So we'll subtract the fee amount from the balance of the current
-	// initiator. If the initiator is unable to pay the fee fully, then
-	// their entire output is consumed.
+	// The commitment has one to_local_anchor output, one timelocked
+	// to_local output, and one to_remote output.  The commitment will have
+	// a minimum fee, and this fee is always paid by the initiator. This
+	// fee is subracted from the node's output, resulting in it being set
+	// to 0 if below the dust limit.
 	switch {
-	case lc.channelState.IsInitiator && commitFee > ourBalance.ToSatoshis():
+	case lc.channelState.IsInitiator && initiatorFee > ourBalance.ToSatoshis():
 		ourBalance = 0
 
 	case lc.channelState.IsInitiator:
-		ourBalance -= commitFeeMSat
+		ourBalance -= initiatorFeeMSat
 
-	case !lc.channelState.IsInitiator && commitFee > theirBalance.ToSatoshis():
+	case !lc.channelState.IsInitiator && initiatorFee > theirBalance.ToSatoshis():
 		theirBalance = 0
 
 	case !lc.channelState.IsInitiator:
-		theirBalance -= commitFeeMSat
+		theirBalance -= initiatorFeeMSat
 	}
 
 	var (
@@ -3155,6 +3158,7 @@ func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
 	}
 
 	commitChain := lc.localCommitChain
+	anchorSize := lc.channelState.AnchorSize
 	if remoteChain {
 		commitChain = lc.remoteCommitChain
 	}
@@ -3170,10 +3174,14 @@ func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
 	// balance.
 	commitFee := feePerKw.FeeForWeight(commitWeight)
 	commitFeeMsat := lnwire.NewMSatFromSatoshis(commitFee)
+	anchorSizeMSat := lnwire.NewMSatFromSatoshis(anchorSize)
+
 	if lc.channelState.IsInitiator {
 		ourBalance -= commitFeeMsat
+		ourBalance -= 2 * anchorSizeMSat
 	} else {
 		theirBalance -= commitFeeMsat
+		theirBalance -= 2 * anchorSizeMSat
 	}
 
 	// As a quick sanity check, we'll ensure that if we interpret the
@@ -6110,6 +6118,11 @@ func (lc *LightningChannel) availableBalance() (lnwire.MilliSatoshi, int64) {
 	commitFee := filteredView.feePerKw.FeeForWeight(commitWeight)
 	if lc.channelState.IsInitiator {
 		ourBalance -= lnwire.NewMSatFromSatoshis(commitFee)
+
+		// We'll subtract the size of the two anchors, since it must
+		// always be reserved from the initiator's balance.
+		anchorSize := lc.channelState.AnchorSize
+		ourBalance -= 2 * lnwire.NewMSatFromSatoshis(anchorSize)
 	}
 
 	return ourBalance, commitWeight

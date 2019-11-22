@@ -211,6 +211,8 @@ func NewChannelReservation(capacity, localFundingAmt, anchorSize btcutil.Amount,
 		)
 	}
 
+	// TODO: must ensure balance is enough to pay for anchors on both commitments.
+
 	// Next we'll set the channel type based on what we can ascertain about
 	// the balances/push amount within the channel.
 	var chanType channeldb.ChannelType

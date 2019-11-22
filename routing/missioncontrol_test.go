@@ -204,12 +204,12 @@ func TestMissionControlChannelUpdate(t *testing.T) {
 	ctx.reportFailure(
 		0, lnwire.NewFeeInsufficient(0, lnwire.ChannelUpdate{}),
 	)
-	ctx.expectP(0, testAprioriHopProbability)
+	ctx.expectP(100, testAprioriHopProbability)
 
 	// Report another failure for the same channel. We expect it to be
 	// pruned.
 	ctx.reportFailure(
 		0, lnwire.NewFeeInsufficient(0, lnwire.ChannelUpdate{}),
 	)
-	ctx.expectP(0, 0)
+	ctx.expectP(100, 0)
 }

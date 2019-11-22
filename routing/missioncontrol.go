@@ -125,27 +125,22 @@ type MissionControlConfig struct {
 
 // TimedPairResult describes a timestamped pair result.
 type TimedPairResult struct {
-	// timestamp is the time when this result was obtained.
-	Timestamp time.Time
+	// FailTime is the time of the last failure.
+	FailTime time.Time
 
-	// minPenalizeAmt is the minimum amount for which a penalty should be
-	// applied based on this result. Only applies to fail results.
-	MinPenalizeAmt lnwire.MilliSatoshi
+	// FailAmt is the amount of the last failure. This amount may be pushed
+	// up if a later success is higher than the last failed amount.
+	FailAmt lnwire.MilliSatoshi
 
-	// success indicates whether the payment attempt was successful through
-	// this pair.
-	Success bool
-}
+	// SuccessTime is the time of the last success.
+	SuccessTime time.Time
 
-// newTimedPairResult wraps a pair result with a timestamp.
-func newTimedPairResult(timestamp time.Time,
-	result pairResult) TimedPairResult {
-
-	return TimedPairResult{
-		Timestamp:      timestamp,
-		MinPenalizeAmt: result.minPenalizeAmt,
-		Success:        result.success,
-	}
+	// SuccessAmt is the highest amount that successfully forwarded. This
+	// isn't necessarily the last success amount. The value of this field
+	// may also be pushed down if a later failure is lower than the highest
+	// success amount. Because of this, SuccessAmt may not match
+	// SuccessTime.
+	SuccessAmt lnwire.MilliSatoshi
 }
 
 // MissionControlSnapshot contains a snapshot of the current state of mission
@@ -273,8 +268,8 @@ func (m *MissionControl) GetProbability(fromNode, toNode route.Vertex,
 }
 
 // setLastPairResult stores a result for a node pair.
-func (m *MissionControl) setLastPairResult(fromNode,
-	toNode route.Vertex, result TimedPairResult) {
+func (m *MissionControl) setLastPairResult(fromNode, toNode route.Vertex,
+	timestamp time.Time, result *pairResult) {
 
 	nodePairs, ok := m.lastPairResult[fromNode]
 	if !ok {
@@ -282,7 +277,60 @@ func (m *MissionControl) setLastPairResult(fromNode,
 		m.lastPairResult[fromNode] = nodePairs
 	}
 
-	nodePairs[toNode] = result
+	current := nodePairs[toNode]
+
+	// Apply the new result to the existing data for this pair. If there is
+	// no existing data, apply it to the default values for TimedPairResult.
+	if result.success {
+		successAmt := result.amt
+		current.SuccessTime = timestamp
+
+		// Only update the success amount if this amount is higher. This
+		// prevents the success range from shrinking when there is no
+		// reason to do so. For example: small amount probes shouldn't
+		// affect a previous success for a much larger amount.
+		if successAmt > current.SuccessAmt {
+			current.SuccessAmt = successAmt
+		}
+
+		// If the success amount goes into the failure range, move the
+		// failure range up. Future attempts up to the success amount
+		// are likely to succeed. We don't want to clear the failure
+		// completely, because we haven't learnt much for amounts above
+		// the current success amount.
+		if !current.FailTime.IsZero() && successAmt >= current.FailAmt {
+			current.FailAmt = successAmt + 1
+		}
+	} else {
+		// For failures we always want to update both the amount and the
+		// time. Those need to relate to the same result, because the
+		// time is used to gradually diminish the penality for that
+		// specific result. Updating the timestamp but not the amount
+		// could cause a failure for a lower amount (a more severe
+		// condition) to be revived as if it just happened.
+		failAmt := result.amt
+		current.FailTime = timestamp
+		current.FailAmt = failAmt
+
+		switch {
+		// The failure amount is set to zero when the failure is
+		// amount-independent, meaning that the attempt would have
+		// failed regardless of the amount. This should also reset the
+		// success amount to zero.
+		case failAmt == 0:
+			current.SuccessAmt = 0
+
+		// If the failure range goes into the success range, move the
+		// success range down.
+		case failAmt <= current.SuccessAmt:
+			current.SuccessAmt = failAmt - 1
+		}
+	}
+
+	log.Debugf("Setting %v->%v range to [%v-%v]",
+		fromNode, toNode, current.SuccessAmt, current.FailAmt)
+
+	nodePairs[toNode] = current
 }
 
 // setAllFail stores a fail result for all known connection of the given node.
@@ -295,9 +343,9 @@ func (m *MissionControl) setAllFail(fromNode route.Vertex,
 	}
 
 	for connection := range nodePairs {
-		nodePairs[connection] = newTimedPairResult(
-			timestamp, failPairResult(0),
-		)
+		nodePairs[connection] = TimedPairResult{
+			FailTime: timestamp,
+		}
 	}
 }
 
@@ -492,21 +540,19 @@ func (m *MissionControl) applyPaymentResult(
 	}
 
 	for pair, pairResult := range i.pairResults {
+		pairResult := pairResult
+
 		if pairResult.success {
 			log.Debugf("Reporting pair success to Mission "+
 				"Control: pair=%v", pair)
 		} else {
 			log.Debugf("Reporting pair failure to Mission "+
-				"Control: pair=%v, minPenalizeAmt=%v",
-				pair, pairResult.minPenalizeAmt)
+				"Control: pair=%v, amt=%v",
+				pair, pairResult.amt)
 		}
 
 		m.setLastPairResult(
-			pair.From, pair.To,
-			newTimedPairResult(
-				result.timeReply,
-				pairResult,
-			),
+			pair.From, pair.To, result.timeReply, &pairResult,
 		)
 	}
 

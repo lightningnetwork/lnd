@@ -391,14 +391,31 @@ message PairHistory {
 }
 
 message PairData {
-    /// Time stamp of last result.
-    int64 timestamp = 1 [json_name = "timestamp"];
+    /// Time of last failure.
+    int64 fail_time = 1 [json_name = "fail_time"];
 
-    /// Minimum penalization amount (only applies to failed attempts).
-    int64 min_penalize_amt_sat = 2 [json_name = "min_penalize_amt_sat"];
+    /**
+    Lowest amount that failed to forward rounded to whole sats. This may be
+    set to zero if the failure is independent of amount.
+    */
+    int64 fail_amt_sat = 2 [json_name = "fail_amt_sat"];
 
-    /// Whether the last payment attempt through this pair was successful.
-    bool last_attempt_successful = 3 [json_name = "last_attempt_successful"];
+    /**
+    Lowest amount that failed to forward in millisats. This may be
+    set to zero if the failure is independent of amount.
+    */
+    int64 fail_amt_msat = 4 [json_name = "fail_amt_msat"];
+
+    reserved 3;
+
+    /// Time of last success.
+    int64 success_time = 5 [json_name = "success_time"];
+
+    /// Highest amount that we could successfully forward rounded to whole sats.
+    int64 success_amt_sat = 6 [json_name = "success_amt_sat"];
+
+    /// Highest amount that we could successfully forward in millisats.
+    int64 success_amt_msat = 7 [json_name = "success_amt_msat"];
 }
 
 message QueryProbabilityRequest{

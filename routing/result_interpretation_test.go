@@ -74,7 +74,7 @@ var resultTestCases = []resultTestCase{
 
 		expectedResult: &interpretedResult{
 			pairResults: map[DirectedNodePair]pairResult{
-				getTestPair(0, 1): successPairResult(),
+				getTestPair(0, 1): successPairResult(100),
 				getTestPair(1, 2): failPairResult(99),
 			},
 		},
@@ -109,8 +109,8 @@ var resultTestCases = []resultTestCase{
 
 		expectedResult: &interpretedResult{
 			pairResults: map[DirectedNodePair]pairResult{
-				getTestPair(0, 1): successPairResult(),
-				getTestPair(1, 2): successPairResult(),
+				getTestPair(0, 1): successPairResult(100),
+				getTestPair(1, 2): successPairResult(99),
 			},
 			finalFailureReason: &reasonIncorrectDetails,
 		},
@@ -124,7 +124,7 @@ var resultTestCases = []resultTestCase{
 
 		expectedResult: &interpretedResult{
 			pairResults: map[DirectedNodePair]pairResult{
-				getTestPair(0, 1): successPairResult(),
+				getTestPair(0, 1): successPairResult(100),
 			},
 		},
 	},
@@ -137,8 +137,8 @@ var resultTestCases = []resultTestCase{
 
 		expectedResult: &interpretedResult{
 			pairResults: map[DirectedNodePair]pairResult{
-				getTestPair(0, 1): successPairResult(),
-				getTestPair(1, 2): successPairResult(),
+				getTestPair(0, 1): successPairResult(100),
+				getTestPair(1, 2): successPairResult(99),
 			},
 		},
 	},
@@ -190,6 +190,7 @@ var resultTestCases = []resultTestCase{
 			pairResults: map[DirectedNodePair]pairResult{
 				getTestPair(0, 1): {
 					success: true,
+					amt:     100,
 				},
 				getTestPair(1, 2): {},
 				getTestPair(2, 1): {},
@@ -211,12 +212,15 @@ var resultTestCases = []resultTestCase{
 			pairResults: map[DirectedNodePair]pairResult{
 				getTestPair(0, 1): {
 					success: true,
+					amt:     100,
 				},
 				getTestPair(1, 2): {
 					success: true,
+					amt:     99,
 				},
 				getTestPair(2, 3): {
 					success: true,
+					amt:     97,
 				},
 				getTestPair(4, 3): {},
 			},
@@ -238,9 +242,11 @@ var resultTestCases = []resultTestCase{
 			pairResults: map[DirectedNodePair]pairResult{
 				getTestPair(0, 1): {
 					success: true,
+					amt:     100,
 				},
 				getTestPair(1, 2): {
 					success: true,
+					amt:     99,
 				},
 				getTestPair(3, 2): {},
 				getTestPair(3, 4): {},

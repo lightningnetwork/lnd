@@ -1418,6 +1418,15 @@
       ],
       "default": "OPEN_CHANNEL"
     },
+    "HTLCAttemptHTLCStatus": {
+      "type": "string",
+      "enum": [
+        "IN_FLIGHT",
+        "SUCCEEDED",
+        "FAILED"
+      ],
+      "default": "IN_FLIGHT"
+    },
     "InvoiceInvoiceState": {
       "type": "string",
       "enum": [
@@ -2511,6 +2520,29 @@
         }
       }
     },
+    "lnrpcHTLCAttempt": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "$ref": "#/definitions/HTLCAttemptHTLCStatus",
+          "description": "/ The status of the HTLC."
+        },
+        "route": {
+          "$ref": "#/definitions/lnrpcRoute",
+          "description": "/ The route taken by this HTLC."
+        },
+        "attempt_time_ns": {
+          "type": "string",
+          "format": "int64",
+          "description": "/ The time in UNIX nanonseconds at which this HTLC was sent."
+        },
+        "resolve_time_ns": {
+          "type": "string",
+          "format": "int64",
+          "description": "*\nThe time in UNIX nanonseconds at which this HTLC was settled or failed.\nThis value will not be set if the HTLC is still IN_FLIGHT."
+        }
+      }
+    },
     "lnrpcHop": {
       "type": "object",
       "properties": {
@@ -3231,14 +3263,14 @@
         "creation_date": {
           "type": "string",
           "format": "int64",
-          "title": "/ The date of this payment"
+          "title": "/ Deprecated, use creation_time_ns"
         },
         "path": {
           "type": "array",
           "items": {
             "type": "string"
           },
-          "title": "/ The path this payment took"
+          "description": "/ The path this payment took."
         },
         "fee": {
           "type": "string",
@@ -3276,6 +3308,18 @@
           "type": "string",
           "format": "int64",
           "title": "/  The fee paid for this payment in milli-satoshis"
+        },
+        "creation_time_ns": {
+          "type": "string",
+          "format": "int64",
+          "description": "/ The time in UNIX nanoseconds at which the payment was created."
+        },
+        "htlcs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcHTLCAttempt"
+          },
+          "description": "/ The HTLCs made in attempt to settle the payment [EXPERIMENTAL]."
         }
       }
     },

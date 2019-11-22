@@ -14,7 +14,6 @@ import (
 	"github.com/coreos/bbolt"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/lntypes"
-	"github.com/lightningnetwork/lnd/routing/route"
 )
 
 func initDB() (*DB, error) {
@@ -132,16 +131,22 @@ func TestPaymentControlSwitchFail(t *testing.T) {
 	)
 
 	// Verifies that status was changed to StatusSucceeded.
-	var route *route.Route
-	route, err = pControl.Success(info.PaymentHash, preimg)
+	var payment *MPPayment
+	payment, err = pControl.Success(info.PaymentHash, preimg)
 	if err != nil {
 		t.Fatalf("error shouldn't have been received, got: %v", err)
 	}
 
-	err = assertRouteEqual(route, &attempt.Route)
+	if len(payment.HTLCs) != 1 {
+		t.Fatalf("payment should have one htlc, got: %d",
+			len(payment.HTLCs))
+	}
+
+	err = assertRouteEqual(&payment.HTLCs[0].Route, &attempt.Route)
 	if err != nil {
 		t.Fatalf("unexpected route returned: %v vs %v: %v",
-			spew.Sdump(attempt.Route), spew.Sdump(*route), err)
+			spew.Sdump(attempt.Route),
+			spew.Sdump(payment.HTLCs[0].Route), err)
 	}
 
 	assertPaymentStatus(t, db, info.PaymentHash, StatusSucceeded)

@@ -11,7 +11,7 @@ import (
 // Instantiate variables to allow taking a reference from the failure reason.
 var (
 	reasonError            = channeldb.FailureReasonError
-	reasonIncorrectDetails = channeldb.FailureReasonIncorrectPaymentDetails
+	reasonIncorrectDetails = channeldb.FailureReasonPaymentDetails
 )
 
 // pairResult contains the result of the interpretation of a payment attempt for

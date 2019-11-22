@@ -4737,6 +4737,50 @@ func testSingleHopSendToRouteCase(net *lntest.NetworkHarness, t *harnessTest,
 				"want: %d, got: %d",
 				i, paymentAmtSat, p.ValueSat)
 		}
+
+		// Assert exactly one htlc was made.
+		if len(p.Htlcs) != 1 {
+			t.Fatalf("expected 1 htlc for payment %d, got: %d",
+				i, len(p.Htlcs))
+		}
+
+		// Assert the htlc's route is populated.
+		htlc := p.Htlcs[0]
+		if htlc.Route == nil {
+			t.Fatalf("expected route for payment %d", i)
+		}
+
+		// Assert the hop has exactly one hop.
+		if len(htlc.Route.Hops) != 1 {
+			t.Fatalf("expected 1 hop for payment %d, got: %d",
+				i, len(htlc.Route.Hops))
+		}
+
+		// If this is an MPP test, assert the MPP record's fields are
+		// properly populated. Otherwise the hop should not have an MPP
+		// record.
+		hop := htlc.Route.Hops[0]
+		if test.mpp {
+			if hop.MppRecord == nil {
+				t.Fatalf("expected mpp record for mpp payment")
+			}
+
+			if hop.MppRecord.TotalAmtMsat != paymentAmtSat*1000 {
+				t.Fatalf("incorrect mpp total msat for payment %d "+
+					"want: %d, got: %d",
+					i, paymentAmtSat*1000,
+					hop.MppRecord.TotalAmtMsat)
+			}
+
+			expAddr := [32]byte{byte(i)}
+			if !bytes.Equal(hop.MppRecord.PaymentAddr, expAddr[:]) {
+				t.Fatalf("incorrect mpp payment addr for payment %d "+
+					"want: %x, got: %x",
+					i, expAddr, hop.MppRecord.PaymentAddr)
+			}
+		} else if hop.MppRecord != nil {
+			t.Fatalf("unexpected mpp record for non-mpp payment")
+		}
 	}
 
 	// Verify that the invoices's from Dave's PoV have the correct payment

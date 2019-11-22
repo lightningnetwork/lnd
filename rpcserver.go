@@ -4398,22 +4398,27 @@ func (r *rpcServer) ListPayments(ctx context.Context,
 			continue
 		}
 
-		// If a payment attempt has been made we can fetch the route.
-		// Otherwise we'll just populate the RPC response with an empty
-		// one.
-		var route route.Route
-		if payment.Attempt != nil {
-			route = payment.Attempt.Route
+		// Fetch the payment's route and preimage. If no HTLC was
+		// successful, an empty route and preimage will be used.
+		var (
+			route    route.Route
+			preimage lntypes.Preimage
+		)
+		for _, htlc := range payment.HTLCs {
+			// Display the last route attempted.
+			route = htlc.Route
+
+			// If any of the htlcs have settled, extract a valid
+			// preimage.
+			if htlc.Settle != nil {
+				preimage = htlc.Settle.Preimage
+			}
 		}
+
+		// Encode the hops from the successful route, if any.
 		path := make([]string, len(route.Hops))
 		for i, hop := range route.Hops {
 			path[i] = hex.EncodeToString(hop.PubKeyBytes[:])
-		}
-
-		// If this payment is settled, the preimage will be available.
-		var preimage lntypes.Preimage
-		if payment.PaymentPreimage != nil {
-			preimage = *payment.PaymentPreimage
 		}
 
 		msatValue := int64(payment.Info.Value)
@@ -4424,13 +4429,25 @@ func (r *rpcServer) ListPayments(ctx context.Context,
 			return nil, err
 		}
 
+		htlcs := make([]*lnrpc.HTLCAttempt, 0, len(payment.HTLCs))
+		for _, dbHTLC := range payment.HTLCs {
+			htlc, err := r.routerBackend.MarshalHTLCAttempt(dbHTLC)
+			if err != nil {
+				return nil, err
+			}
+
+			htlcs = append(htlcs, htlc)
+		}
+
 		paymentHash := payment.Info.PaymentHash
+		creationTimeNS := routerrpc.MarshalTimeNano(payment.Info.CreationTime)
 		paymentsResp.Payments = append(paymentsResp.Payments, &lnrpc.Payment{
 			PaymentHash:     hex.EncodeToString(paymentHash[:]),
 			Value:           satValue,
 			ValueMsat:       msatValue,
 			ValueSat:        satValue,
-			CreationDate:    payment.Info.CreationDate.Unix(),
+			CreationDate:    payment.Info.CreationTime.Unix(),
+			CreationTimeNs:  creationTimeNS,
 			Path:            path,
 			Fee:             int64(route.TotalFees().ToSatoshis()),
 			FeeSat:          int64(route.TotalFees().ToSatoshis()),
@@ -4438,6 +4455,7 @@ func (r *rpcServer) ListPayments(ctx context.Context,
 			PaymentPreimage: hex.EncodeToString(preimage[:]),
 			PaymentRequest:  string(payment.Info.PaymentRequest),
 			Status:          status,
+			Htlcs:           htlcs,
 		})
 	}
 

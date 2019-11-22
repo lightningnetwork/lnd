@@ -219,7 +219,7 @@ func StubEncoder(v []byte) Encoder {
 // MapToRecords encodes the passed TLV map as a series of regular tlv.Record
 // instances. The resulting set of records will be returned in sorted order by
 // their type.
-func MapToRecords(tlvMap map[uint64][]byte) ([]Record, error) {
+func MapToRecords(tlvMap map[uint64][]byte) []Record {
 	records := make([]Record, 0, len(tlvMap))
 	for k, v := range tlvMap {
 		// We don't pass in a decoder here since we don't actually know
@@ -234,7 +234,7 @@ func MapToRecords(tlvMap map[uint64][]byte) ([]Record, error) {
 
 	SortRecords(records)
 
-	return records, nil
+	return records
 }
 
 // SortRecords is a helper function that will sort a slice of records in place

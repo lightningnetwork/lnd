@@ -233,10 +233,7 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 	// If we have any TLV records destined for the final hop, then we'll
 	// attempt to decode them now into a form that the router can more
 	// easily manipulate.
-	destTlvRecords, err := tlv.MapToRecords(destTLV)
-	if err != nil {
-		return nil, err
-	}
+	destTlvRecords := tlv.MapToRecords(destTLV)
 
 	// Query the channel router for a possible path to the destination that
 	// can carry `in.Amt` satoshis _including_ the total fee required on
@@ -533,11 +530,7 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 
 	var destTLV map[uint64][]byte
 	if len(destTLV) != 0 {
-		var err error
-		payIntent.FinalDestRecords, err = tlv.MapToRecords(destTLV)
-		if err != nil {
-			return nil, err
-		}
+		payIntent.FinalDestRecords = tlv.MapToRecords(destTLV)
 	}
 
 	payIntent.PayAttemptTimeout = time.Second *

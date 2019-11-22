@@ -2459,7 +2459,7 @@ func (lc *LightningChannel) createCommitmentTx(c *commitment,
 	// unsettled/un-timed out HTLCs.
 	commitTx, err := CreateCommitTx(
 		lc.fundingTxIn(), keyRing, localCfg, remoteCfg, delayBalance,
-		p2wkhBalance,
+		p2wkhBalance, lc.channelState.AnchorSize,
 	)
 	if err != nil {
 		return err
@@ -6228,7 +6228,7 @@ func (lc *LightningChannel) generateRevocation(height uint64) (*lnwire.RevokeAnd
 // counterparty within the channel, which can be spent immediately.
 func CreateCommitTx(fundingOutput wire.TxIn, keyRing *CommitmentKeyRing,
 	localChanCfg, remoteChanCfg *channeldb.ChannelConfig,
-	amountToSelf, amountToThem btcutil.Amount) (*wire.MsgTx, error) {
+	amountToSelf, amountToThem, anchorSize btcutil.Amount) (*wire.MsgTx, error) {
 
 	// First, we create the script for the delayed "pay-to-self" output.
 	// This output has 2 main redemption clauses: either we can redeem the
@@ -6247,6 +6247,19 @@ func CreateCommitTx(fundingOutput wire.TxIn, keyRing *CommitmentKeyRing,
 		return nil, err
 	}
 
+	// Then the ancor output spendable by us.
+	ourAnchorScript, err := input.CommitScriptAnchor(
+		localChanCfg.MultiSigKey.PubKey,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	ourAnchorScriptHash, err := input.WitnessScriptHash(ourAnchorScript)
+	if err != nil {
+		return nil, err
+	}
+
 	// Next, we create the script paying to them. This is also has a CSV
 	// delay.
 	theirRedeemScript, err := input.CommitScriptToRemote(
@@ -6256,6 +6269,19 @@ func CreateCommitTx(fundingOutput wire.TxIn, keyRing *CommitmentKeyRing,
 		return nil, err
 	}
 	payToThemScriptHash, err := input.WitnessScriptHash(theirRedeemScript)
+	if err != nil {
+		return nil, err
+	}
+
+	// And the anchor spemdable by them.
+	theirAnchorScript, err := input.CommitScriptAnchor(
+		remoteChanCfg.MultiSigKey.PubKey,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	theirAnchorScriptHash, err := input.WitnessScriptHash(theirAnchorScript)
 	if err != nil {
 		return nil, err
 	}
@@ -6273,12 +6299,28 @@ func CreateCommitTx(fundingOutput wire.TxIn, keyRing *CommitmentKeyRing,
 			Value:    int64(amountToSelf),
 		})
 	}
+
+	// Add an anchor ouput to ourselves.
+	commitTx.AddTxOut(&wire.TxOut{
+		PkScript: ourAnchorScriptHash,
+		Value:    int64(anchorSize),
+	})
+
 	if amountToThem >= localChanCfg.DustLimit {
 		commitTx.AddTxOut(&wire.TxOut{
 			PkScript: payToThemScriptHash,
 			Value:    int64(amountToThem),
 		})
 	}
+
+	// Add anchor output to remote.
+	commitTx.AddTxOut(&wire.TxOut{
+		PkScript: theirAnchorScriptHash,
+		Value:    int64(anchorSize),
+	})
+
+	// TODO(halseth): anchor should not be created if no commitoutput or
+	// HTLCs.
 
 	return commitTx, nil
 }

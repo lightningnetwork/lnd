@@ -207,7 +207,7 @@ func CreateTestChannels(tweaklessCommits bool) (
 	aliceCommitPoint := input.ComputeCommitmentPoint(aliceFirstRevoke[:])
 
 	aliceCommitTx, bobCommitTx, err := CreateCommitmentTxns(
-		channelBal, channelBal, &aliceCfg, &bobCfg, aliceCommitPoint,
+		channelBal, channelBal, 294, &aliceCfg, &bobCfg, aliceCommitPoint,
 		bobCommitPoint, *fundingTxIn, tweaklessCommits,
 	)
 	if err != nil {

@@ -666,7 +666,7 @@ func (l *LightningWallet) handleFundingCancelRequest(req *fundingReserveCancelMs
 // initial funding workflow as both sides must generate a signature for the
 // remote party's commitment transaction, and verify the signature for their
 // version of the commitment transaction.
-func CreateCommitmentTxns(localBalance, remoteBalance btcutil.Amount,
+func CreateCommitmentTxns(localBalance, remoteBalance, anchorSize btcutil.Amount,
 	ourChanCfg, theirChanCfg *channeldb.ChannelConfig,
 	localCommitPoint, remoteCommitPoint *btcec.PublicKey,
 	fundingTxIn wire.TxIn,
@@ -683,7 +683,7 @@ func CreateCommitmentTxns(localBalance, remoteBalance btcutil.Amount,
 
 	ourCommitTx, err := CreateCommitTx(
 		fundingTxIn, localCommitmentKeys, ourChanCfg, theirChanCfg,
-		localBalance, remoteBalance,
+		localBalance, remoteBalance, anchorSize,
 	)
 	if err != nil {
 		return nil, nil, err
@@ -696,7 +696,7 @@ func CreateCommitmentTxns(localBalance, remoteBalance btcutil.Amount,
 
 	theirCommitTx, err := CreateCommitTx(
 		fundingTxIn, remoteCommitmentKeys, theirChanCfg, ourChanCfg,
-		remoteBalance, localBalance,
+		remoteBalance, localBalance, anchorSize,
 	)
 	if err != nil {
 		return nil, nil, err
@@ -848,9 +848,10 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	// With the funding tx complete, create both commitment transactions.
 	localBalance := pendingReservation.partialState.LocalCommitment.LocalBalance.ToSatoshis()
 	remoteBalance := pendingReservation.partialState.LocalCommitment.RemoteBalance.ToSatoshis()
+	anchorSize := pendingReservation.partialState.AnchorSize
 	tweaklessCommits := pendingReservation.partialState.ChanType.IsTweakless()
 	ourCommitTx, theirCommitTx, err := CreateCommitmentTxns(
-		localBalance, remoteBalance, ourContribution.ChannelConfig,
+		localBalance, remoteBalance, anchorSize, ourContribution.ChannelConfig,
 		theirContribution.ChannelConfig,
 		ourContribution.FirstCommitmentPoint,
 		theirContribution.FirstCommitmentPoint, fundingTxIn,
@@ -1174,9 +1175,10 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 	// remote node's commitment transactions.
 	localBalance := pendingReservation.partialState.LocalCommitment.LocalBalance.ToSatoshis()
 	remoteBalance := pendingReservation.partialState.LocalCommitment.RemoteBalance.ToSatoshis()
+	anchorSize := pendingReservation.partialState.AnchorSize
 	tweaklessCommits := pendingReservation.partialState.ChanType.IsTweakless()
 	ourCommitTx, theirCommitTx, err := CreateCommitmentTxns(
-		localBalance, remoteBalance,
+		localBalance, remoteBalance, anchorSize,
 		pendingReservation.ourContribution.ChannelConfig,
 		pendingReservation.theirContribution.ChannelConfig,
 		pendingReservation.ourContribution.FirstCommitmentPoint,

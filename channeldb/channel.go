@@ -241,6 +241,7 @@ type ChannelConfig struct {
 	// commitment transaction for a node. This will be combined with a
 	// tweak derived from the per-commitment point to ensure unique keys
 	// for each commitment transaction.
+	// TODO(halseth): rename
 	PaymentBasePoint keychain.KeyDescriptor
 
 	// DelayBasePoint is the base public key to be used when deriving the
@@ -248,6 +249,7 @@ type ChannelConfig struct {
 	// transaction for a node. This will be combined with a tweak derived
 	// from the per-commitment point to ensure unique keys for each
 	// commitment transaction.
+	// TODO(halseth): rename
 	DelayBasePoint keychain.KeyDescriptor
 
 	// HtlcBasePoint is the base public key to be used when deriving the

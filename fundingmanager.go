@@ -108,11 +108,11 @@ type reservationWithCtx struct {
 	reservation *lnwallet.ChannelReservation
 	peer        lnpeer.Peer
 
-	chanAmt btcutil.Amount
+	chanAmt           btcutil.Amount
+	symmetricCsvDelay uint16
 
 	// Constraints we require for the remote.
-	remoteCsvDelay uint16
-	remoteMinHtlc  lnwire.MilliSatoshi
+	remoteMinHtlc lnwire.MilliSatoshi
 
 	updateMtx   sync.RWMutex
 	lastUpdated time.Time
@@ -1242,6 +1242,13 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 	numConfsReq := f.cfg.NumRequiredConfs(msg.FundingAmount, msg.PushAmount)
 	reservation.SetNumConfsRequired(numConfsReq)
 
+	// We'll always use the maximum of the parties' CSV delay as the the
+	// symmetric delay.
+	symmetricCsvDelay := f.cfg.RequiredRemoteDelay(amt)
+	if symmetricCsvDelay < msg.CsvDelay {
+		symmetricCsvDelay = msg.CsvDelay
+	}
+
 	// We'll also validate and apply all the constraints the initiating
 	// party is attempting to dictate for our commitment transaction.
 	channelConstraints := &channeldb.ChannelConstraints{
@@ -1250,7 +1257,7 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 		MaxPendingAmount: msg.MaxValueInFlight,
 		MinHTLC:          msg.HtlcMinimum,
 		MaxAcceptedHtlcs: msg.MaxAcceptedHTLCs,
-		CsvDelay:         msg.CsvDelay,
+		CsvDelay:         symmetricCsvDelay,
 	}
 	err = reservation.CommitConstraints(channelConstraints)
 	if err != nil {
@@ -1265,7 +1272,6 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 		tweaklessCommitment)
 
 	// Generate our required constraints for the remote party.
-	remoteCsvDelay := f.cfg.RequiredRemoteDelay(amt)
 	chanReserve := f.cfg.RequiredRemoteChanReserve(amt, msg.DustLimit)
 	maxValue := f.cfg.RequiredRemoteMaxValue(amt)
 	maxHtlcs := f.cfg.RequiredRemoteMaxHTLCs(amt)
@@ -1279,12 +1285,12 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 		f.activeReservations[peerIDKey] = make(pendingChannels)
 	}
 	resCtx := &reservationWithCtx{
-		reservation:    reservation,
-		chanAmt:        amt,
-		remoteCsvDelay: remoteCsvDelay,
-		remoteMinHtlc:  minHtlc,
-		err:            make(chan error, 1),
-		peer:           fmsg.peer,
+		reservation:       reservation,
+		chanAmt:           amt,
+		symmetricCsvDelay: symmetricCsvDelay,
+		remoteMinHtlc:     minHtlc,
+		err:               make(chan error, 1),
+		peer:              fmsg.peer,
 	}
 	f.activeReservations[peerIDKey][msg.PendingChannelID] = resCtx
 	f.resMtx.Unlock()
@@ -1304,7 +1310,7 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 				ChanReserve:      chanReserve,
 				MinHTLC:          minHtlc,
 				MaxAcceptedHtlcs: maxHtlcs,
-				CsvDelay:         remoteCsvDelay,
+				CsvDelay:         symmetricCsvDelay,
 			},
 			MultiSigKey: keychain.KeyDescriptor{
 				PubKey: copyPubKey(msg.FundingKey),
@@ -1345,7 +1351,7 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 		ChannelReserve:       chanReserve,
 		MinAcceptDepth:       uint32(numConfsReq),
 		HtlcMinimum:          minHtlc,
-		CsvDelay:             remoteCsvDelay,
+		CsvDelay:             symmetricCsvDelay,
 		MaxAcceptedHTLCs:     maxHtlcs,
 		FundingKey:           ourContribution.MultiSigKey.PubKey,
 		RevocationPoint:      ourContribution.RevocationBasePoint.PubKey,
@@ -1445,7 +1451,7 @@ func (f *fundingManager) handleFundingAccept(fmsg *fundingAcceptMsg) {
 				ChanReserve:      chanReserve,
 				MinHTLC:          resCtx.remoteMinHtlc,
 				MaxAcceptedHtlcs: maxHtlcs,
-				CsvDelay:         resCtx.remoteCsvDelay,
+				CsvDelay:         resCtx.symmetricCsvDelay,
 			},
 			MultiSigKey: keychain.KeyDescriptor{
 				PubKey: copyPubKey(msg.FundingKey),
@@ -2829,6 +2835,9 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 		remoteCsvDelay = f.cfg.RequiredRemoteDelay(capacity)
 	}
 
+	// TODO(halseth): expose on RPC.
+	symmetricCsvDelay := remoteCsvDelay
+
 	// If no minimum HTLC value was specified, use the default one.
 	if minHtlc == 0 {
 		minHtlc = f.cfg.DefaultRoutingPolicy.MinHTLC
@@ -2844,13 +2853,13 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 	}
 
 	resCtx := &reservationWithCtx{
-		chanAmt:        capacity,
-		remoteCsvDelay: remoteCsvDelay,
-		remoteMinHtlc:  minHtlc,
-		reservation:    reservation,
-		peer:           msg.peer,
-		updates:        msg.updates,
-		err:            msg.err,
+		chanAmt:           capacity,
+		symmetricCsvDelay: symmetricCsvDelay,
+		remoteMinHtlc:     minHtlc,
+		reservation:       reservation,
+		peer:              msg.peer,
+		updates:           msg.updates,
+		err:               msg.err,
 	}
 	f.activeReservations[peerIDKey][chanID] = resCtx
 	f.resMtx.Unlock()

@@ -113,7 +113,10 @@ func (p *JusticeDescriptor) commitToRemoteInput() (*breachedInput, error) {
 
 	// Compute the witness script hash from the to-remote pubkey, which will
 	// be used to locate the input on the breach commitment transaction.
-	toRemoteScriptHash, err := input.CommitScriptUnencumbered(
+	toRemoteScriptHash, err := input.CommitScriptToRemote(
+		// TODO(halseth): deal with the CSV delay. Must communicate it
+		// with WT? Or bruteforce...
+		123,
 		toRemotePubKey,
 	)
 	if err != nil {

@@ -2927,7 +2927,7 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 			Output: &wire.TxOut{
 				Value: int64(htlc.Amount.ToSatoshis()),
 			},
-			HashType:   txscript.SigHashAll,
+			HashType:   txscript.SigHashSingle | txscript.SigHashAnyOneCanPay,
 			SigHashes:  txscript.NewTxSigHashes(sigJob.Tx),
 			InputIndex: 0,
 		}
@@ -2978,7 +2978,7 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 			Output: &wire.TxOut{
 				Value: int64(htlc.Amount.ToSatoshis()),
 			},
-			HashType:   txscript.SigHashAll,
+			HashType:   txscript.SigHashSingle | txscript.SigHashAnyOneCanPay,
 			SigHashes:  txscript.NewTxSigHashes(sigJob.Tx),
 			InputIndex: 0,
 		}
@@ -3886,7 +3886,8 @@ func genHtlcSigValidationJobs(localCommitmentView *commitment,
 				hashCache := txscript.NewTxSigHashes(successTx)
 				sigHash, err := txscript.CalcWitnessSigHash(
 					htlc.ourWitnessScript, hashCache,
-					txscript.SigHashAll, successTx, 0,
+					txscript.SigHashSingle|txscript.SigHashAnyOneCanPay,
+					successTx, 0,
 					int64(htlc.Amount.ToSatoshis()),
 				)
 				if err != nil {
@@ -3940,7 +3941,8 @@ func genHtlcSigValidationJobs(localCommitmentView *commitment,
 				hashCache := txscript.NewTxSigHashes(timeoutTx)
 				sigHash, err := txscript.CalcWitnessSigHash(
 					htlc.ourWitnessScript, hashCache,
-					txscript.SigHashAll, timeoutTx, 0,
+					txscript.SigHashSingle|txscript.SigHashAnyOneCanPay,
+					timeoutTx, 0,
 					int64(htlc.Amount.ToSatoshis()),
 				)
 				if err != nil {
@@ -5478,7 +5480,7 @@ func newOutgoingHtlcResolution(signer input.Signer,
 		Output: &wire.TxOut{
 			Value: int64(htlc.Amt.ToSatoshis()),
 		},
-		HashType:   txscript.SigHashAll,
+		HashType:   txscript.SigHashSingle | txscript.SigHashAnyOneCanPay,
 		SigHashes:  txscript.NewTxSigHashes(timeoutTx),
 		InputIndex: 0,
 	}
@@ -5613,7 +5615,7 @@ func newIncomingHtlcResolution(signer input.Signer, localChanCfg *channeldb.Chan
 		Output: &wire.TxOut{
 			Value: int64(htlc.Amt.ToSatoshis()),
 		},
-		HashType:   txscript.SigHashAll,
+		HashType:   txscript.SigHashSingle | txscript.SigHashAnyOneCanPay,
 		SigHashes:  txscript.NewTxSigHashes(successTx),
 		InputIndex: 0,
 	}

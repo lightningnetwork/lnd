@@ -128,7 +128,7 @@ type ChannelReservation struct {
 // used only internally by lnwallet. In order to concurrent safety, the
 // creation of all channel reservations should be carried out via the
 // lnwallet.InitChannelReservation interface.
-func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
+func NewChannelReservation(capacity, localFundingAmt, anchorSize btcutil.Amount,
 	commitFeePerKw chainfee.SatPerKWeight, wallet *LightningWallet,
 	id uint64, pushMSat lnwire.MilliSatoshi, chainHash *chainhash.Hash,
 	flags lnwire.FundingFlag,
@@ -145,7 +145,11 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 	// TODO(halseth): make method take remote funding amount directly
 	// instead of inferring it from capacity and local amt.
 	capacityMSat := lnwire.NewMSatFromSatoshis(capacity)
-	feeMSat := lnwire.NewMSatFromSatoshis(commitFee)
+
+	// The total fees subtracted from the initiator's balance is the
+	// commitment transaction fee and the 2 anchors.
+	feeMSat := lnwire.NewMSatFromSatoshis(commitFee) +
+		2*lnwire.NewMSatFromSatoshis(anchorSize)
 
 	// If we're the responder to a single-funder reservation, then we have
 	// no initial balance in the channel unless the remote party is pushing
@@ -243,6 +247,7 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 			IsInitiator:  initiator,
 			ChannelFlags: flags,
 			Capacity:     capacity,
+			AnchorSize:   anchorSize,
 			LocalCommitment: channeldb.ChannelCommitment{
 				LocalBalance:  ourBalance,
 				RemoteBalance: theirBalance,

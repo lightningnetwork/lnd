@@ -86,6 +86,10 @@ type InitFundingReserveMsg struct {
 	// to this channel.
 	RemoteFundingAmt btcutil.Amount
 
+	// AnchorSize is the size of the anchor proposed by the channel
+	// initiator.
+	AnchorSize btcutil.Amount
+
 	// CommitFeePerKw is the starting accepted satoshis/Kw fee for the set
 	// of initial commitment transactions. In order to ensure timely
 	// confirmation, it is recommended that this fee should be generous,
@@ -495,7 +499,8 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 
 	id := atomic.AddUint64(&l.nextFundingID, 1)
 	reservation, err := NewChannelReservation(
-		capacity, localFundingAmt, req.CommitFeePerKw, l, id,
+		capacity, localFundingAmt, req.AnchorSize,
+		req.CommitFeePerKw, l, id,
 		req.PushMSat, l.Cfg.NetParams.GenesisHash, req.Flags,
 		req.Tweakless,
 	)

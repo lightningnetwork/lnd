@@ -437,6 +437,9 @@ type OpenChannel struct {
 	// point on each branch.
 	ChainHash chainhash.Hash
 
+	// AnchorSize is the size of the anchor outputs for this channel.
+	AnchorSize btcutil.Amount
+
 	// FundingOutpoint is the outpoint of the final funding transaction.
 	// This value uniquely and globally identifies the channel within the
 	// target blockchain as specified by the chain hash parameter.
@@ -2531,7 +2534,8 @@ func writeChanConfig(b io.Writer, c *ChannelConfig) error {
 func putChanInfo(chanBucket *bbolt.Bucket, channel *OpenChannel) error {
 	var w bytes.Buffer
 	if err := WriteElements(&w,
-		channel.ChanType, channel.ChainHash, channel.FundingOutpoint,
+		channel.ChanType, channel.ChainHash, channel.AnchorSize,
+		channel.FundingOutpoint,
 		channel.ShortChannelID, channel.IsPending, channel.IsInitiator,
 		channel.chanStatus, channel.FundingBroadcastHeight,
 		channel.NumConfsRequired, channel.ChannelFlags,
@@ -2653,7 +2657,8 @@ func fetchChanInfo(chanBucket *bbolt.Bucket, channel *OpenChannel) error {
 	r := bytes.NewReader(infoBytes)
 
 	if err := ReadElements(r,
-		&channel.ChanType, &channel.ChainHash, &channel.FundingOutpoint,
+		&channel.ChanType, &channel.ChainHash, &channel.AnchorSize,
+		&channel.FundingOutpoint,
 		&channel.ShortChannelID, &channel.IsPending, &channel.IsInitiator,
 		&channel.chanStatus, &channel.FundingBroadcastHeight,
 		&channel.NumConfsRequired, &channel.ChannelFlags,

@@ -2535,11 +2535,11 @@ message HTLCAttempt {
         /// The route taken by this HTLC.
         Route route = 2 [json_name = "route"];
 
-        /// The time in UNIX nanonseconds at which this HTLC was sent.
+        /// The time in UNIX nanoseconds at which this HTLC was sent.
         int64 attempt_time_ns = 3 [json_name = "attempt_time_ns"];
 
         /**
-        The time in UNIX nanonseconds at which this HTLC was settled or failed.
+        The time in UNIX nanoseconds at which this HTLC was settled or failed.
         This value will not be set if the HTLC is still IN_FLIGHT.
         */
         int64 resolve_time_ns = 4 [json_name = "resolve_time_ns"];

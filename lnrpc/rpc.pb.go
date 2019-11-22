@@ -7846,10 +7846,10 @@ type HTLCAttempt struct {
 	Status HTLCAttempt_HTLCStatus `protobuf:"varint,1,opt,name=status,proto3,enum=lnrpc.HTLCAttempt_HTLCStatus" json:"status,omitempty"`
 	/// The route taken by this HTLC.
 	Route *Route `protobuf:"bytes,2,opt,name=route,proto3" json:"route,omitempty"`
-	/// The time in UNIX nanonseconds at which this HTLC was sent.
+	/// The time in UNIX nanoseconds at which this HTLC was sent.
 	AttemptTimeNs int64 `protobuf:"varint,3,opt,name=attempt_time_ns,proto3" json:"attempt_time_ns,omitempty"`
 	//*
-	//The time in UNIX nanonseconds at which this HTLC was settled or failed.
+	//The time in UNIX nanoseconds at which this HTLC was settled or failed.
 	//This value will not be set if the HTLC is still IN_FLIGHT.
 	ResolveTimeNs        int64    `protobuf:"varint,4,opt,name=resolve_time_ns,proto3" json:"resolve_time_ns,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`

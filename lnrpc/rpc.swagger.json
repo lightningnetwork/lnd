@@ -2534,12 +2534,12 @@
         "attempt_time_ns": {
           "type": "string",
           "format": "int64",
-          "description": "/ The time in UNIX nanonseconds at which this HTLC was sent."
+          "description": "/ The time in UNIX nanoseconds at which this HTLC was sent."
         },
         "resolve_time_ns": {
           "type": "string",
           "format": "int64",
-          "description": "*\nThe time in UNIX nanonseconds at which this HTLC was settled or failed.\nThis value will not be set if the HTLC is still IN_FLIGHT."
+          "description": "*\nThe time in UNIX nanoseconds at which this HTLC was settled or failed.\nThis value will not be set if the HTLC is still IN_FLIGHT."
         }
       }
     },

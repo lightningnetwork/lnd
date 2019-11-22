@@ -57,10 +57,6 @@ type AddInvoiceData struct {
 	// description_hash field is not being used.
 	Memo string
 
-	// Deprecated. An optional cryptographic receipt of payment which is not
-	// implemented.
-	Receipt []byte
-
 	// The preimage which will allow settling an incoming HTLC payable to
 	// this preimage. If Preimage is set, Hash should be nil. If both
 	// Preimage and Hash are nil, a random preimage is generated.
@@ -153,10 +149,6 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 	if len(invoice.Memo) > channeldb.MaxMemoSize {
 		return nil, nil, fmt.Errorf("memo too large: %v bytes "+
 			"(maxsize=%v)", len(invoice.Memo), channeldb.MaxMemoSize)
-	}
-	if len(invoice.Receipt) > channeldb.MaxReceiptSize {
-		return nil, nil, fmt.Errorf("receipt too large: %v bytes "+
-			"(maxsize=%v)", len(invoice.Receipt), channeldb.MaxReceiptSize)
 	}
 	if len(invoice.DescriptionHash) > 0 && len(invoice.DescriptionHash) != 32 {
 		return nil, nil, fmt.Errorf("description hash is %v bytes, must be 32",
@@ -392,7 +384,6 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 	newInvoice := &channeldb.Invoice{
 		CreationDate:   creationDate,
 		Memo:           []byte(invoice.Memo),
-		Receipt:        invoice.Receipt,
 		PaymentRequest: []byte(payReqString),
 		FinalCltvDelta: int32(payReq.MinFinalCLTVExpiry()),
 		Expiry:         payReq.Expiry(),

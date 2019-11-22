@@ -504,6 +504,27 @@ type commitment struct {
 	//
 	// NOTE: This is the balance *after* subtracting any commitment fee,
 	// but *not* anchors.
+	//
+	// what happens if they ave diff dustlimits? => take max of both, with
+	// added validation check. If we use diff anchor sizes on the two
+	// commitments, it gets complicated since the balance will be diff (but
+	// could possibly work?)
+	//
+	// Assumption: ourBalance+theirBalance+commitfee+2*dustlimit == capacity
+	// (commitfee and anchors already subtracted from balance)
+	//
+	// Reason we always need an anchor (even when has no balance) is in the
+	// case there is a HTLC we care about on the commitment.
+	//
+	// We always have two anchors, and it is always subtracted from the initiator.
+	//
+	// local (non-)initiator's commitment:
+	// total local balance (to_local + to_local_anchor) should always be ourBalance+dustLimit
+	// total remote balance (to_remote + to_remote_anchor) will always be theirBalance+dustlimit
+	//	to_local: ourBalance (stripped below dustlimit)
+	//	to_local_anchor: dustlimit (always present)
+	//	to_remote: theirBalance (stripped below dustlimit)
+	//	to_remote_anchor: dustlimit (always present)
 	ourBalance   lnwire.MilliSatoshi
 	theirBalance lnwire.MilliSatoshi
 
@@ -687,6 +708,9 @@ func (c *commitment) populateHtlcIndexes() error {
 // written to disk after an accepted state transition.
 func (c *commitment) toDiskCommit(ourCommit bool) *channeldb.ChannelCommitment {
 	numHtlcs := len(c.outgoingHTLCs) + len(c.incomingHTLCs)
+
+	// The disk commitment has had the fee subtracted from the balance, so
+	// account for that.
 
 	commit := &channeldb.ChannelCommitment{
 		CommitHeight:    c.height,
@@ -2382,6 +2406,8 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 		dustLimit = lc.localChanCfg.DustLimit
 	}
 
+	// balances before subtracting fees.
+	// this is cheating a bit...
 	c := &commitment{
 		ourBalance:        ourBalance,
 		theirBalance:      theirBalance,
@@ -2399,6 +2425,8 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 	if err := lc.createCommitmentTx(c, filteredHTLCView, keyRing); err != nil {
 		return nil, err
 	}
+
+	// At this point the fees have been subtracted.
 
 	// In order to ensure _none_ of the HTLC's associated with this new
 	// commitment are mutated, we'll manually copy over each HTLC to its
@@ -2427,6 +2455,7 @@ func (lc *LightningChannel) fundingTxIn() wire.TxIn {
 
 // createCommitmentTx generates the unsigned commitment transaction for a
 // commitment view and assigns to txn field.
+// modifyes passed commitment by subtracting fees.
 func (lc *LightningChannel) createCommitmentTx(c *commitment,
 	filteredHTLCView *htlcView, keyRing *CommitmentKeyRing) error {
 
@@ -2598,6 +2627,7 @@ func (lc *LightningChannel) createCommitmentTx(c *commitment,
 			totalOut, lc.channelState.Capacity)
 	}
 
+	// Update to  the format after subtracting fees.
 	c.txn = commitTx
 	c.fee = commitFee
 	c.ourBalance = ourBalance
@@ -3196,6 +3226,7 @@ func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
 	commitFeeMsat := lnwire.NewMSatFromSatoshis(commitFee)
 	anchorSizeMSat := lnwire.NewMSatFromSatoshis(anchorSize)
 
+	// subtracts fees
 	if lc.channelState.IsInitiator {
 		ourBalance -= commitFeeMsat
 		ourBalance -= 2 * anchorSizeMSat
@@ -3775,6 +3806,7 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 //
 // If the updateState boolean is set true, the add and remove heights of the
 // HTLCs will be set to the next commitment height.
+// Returns balance before subtracting fees
 func (lc *LightningChannel) computeView(view *htlcView, remoteChain bool,
 	updateState bool) (lnwire.MilliSatoshi, lnwire.MilliSatoshi, int64,
 	*htlcView) {
@@ -3796,6 +3828,7 @@ func (lc *LightningChannel) computeView(view *htlcView, remoteChain bool,
 	// initiator's balance, so that the fee can be recalculated and
 	// re-applied in case fee estimation parameters have changed or the
 	// number of outstanding HTLCs has changed.
+	// adds back fees.
 	if lc.channelState.IsInitiator {
 		ourBalance += lnwire.NewMSatFromSatoshis(
 			commitChain.tip().fee)

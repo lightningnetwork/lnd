@@ -68,6 +68,10 @@ const (
 	// currently accepted on the Litecoin chain within the Lightning
 	// Protocol.
 	maxLtcFundingAmount = MaxBtcFundingAmount * btcToLtcConversionRate
+
+	// defaultAnchorSize is the dafult value we'll require as anchor size
+	// in case we are the initiator of a channel.
+	defaultAnchorSize = btcutil.Amount(294)
 )
 
 var (
@@ -109,6 +113,7 @@ type reservationWithCtx struct {
 	peer        lnpeer.Peer
 
 	chanAmt           btcutil.Amount
+	anchorSize        btcutil.Amount
 	symmetricCsvDelay uint16
 
 	// Constraints we require for the remote.
@@ -1165,6 +1170,21 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 		return
 	}
 
+	// Since we are the responder of the channel flow, we don't really care
+	// how big the anchor size becomes (yay, it is free money!). But we do
+	// care about it being too low, since it can make the commitment not
+	// progapate.
+	anchorSize := msg.AnchorSize
+	if anchorSize < defaultAnchorSize {
+		f.failFundingFlow(
+			fmsg.peer, fmsg.msg.PendingChannelID,
+			lnwallet.ErrAnchorTooSmall(
+				anchorSize, defaultAnchorSize,
+			),
+		)
+		return
+	}
+
 	// If request specifies non-zero push amount and 'rejectpush' is set,
 	// signal an error.
 	if f.cfg.RejectPush && msg.PushAmount > 0 {
@@ -1287,6 +1307,7 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 	resCtx := &reservationWithCtx{
 		reservation:       reservation,
 		chanAmt:           amt,
+		anchorSize:        anchorSize,
 		symmetricCsvDelay: symmetricCsvDelay,
 		remoteMinHtlc:     minHtlc,
 		err:               make(chan error, 1),
@@ -2744,6 +2765,7 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 		localAmt       = msg.localFundingAmt
 		minHtlc        = msg.minHtlc
 		remoteCsvDelay = msg.remoteCsvDelay
+		anchorSize     = defaultAnchorSize
 	)
 
 	// We'll determine our dust limit depending on which chain is active.
@@ -2854,6 +2876,7 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 
 	resCtx := &reservationWithCtx{
 		chanAmt:           capacity,
+		anchorSize:        anchorSize,
 		symmetricCsvDelay: symmetricCsvDelay,
 		remoteMinHtlc:     minHtlc,
 		reservation:       reservation,
@@ -2887,6 +2910,7 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 		FundingAmount:        capacity,
 		PushAmount:           msg.pushAmt,
 		DustLimit:            ourContribution.DustLimit,
+		AnchorSize:           anchorSize,
 		MaxValueInFlight:     maxValue,
 		ChannelReserve:       chanReserve,
 		HtlcMinimum:          minHtlc,

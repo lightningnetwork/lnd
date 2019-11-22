@@ -50,6 +50,10 @@ type OpenChannel struct {
 	// transaction, with the amount of the HTLC going to dust.
 	DustLimit btcutil.Amount
 
+	// AnchorSize is the size of the two anchor outputs that is paid for by
+	// the initiator.
+	AnchorSize btcutil.Amount
+
 	// MaxValueInFlight represents the maximum amount of coins that can be
 	// pending within the channel at any given time. If the amount of funds
 	// in limbo exceeds this amount, then the channel will be failed.
@@ -140,6 +144,7 @@ func (o *OpenChannel) Encode(w io.Writer, pver uint32) error {
 		o.FundingAmount,
 		o.PushAmount,
 		o.DustLimit,
+		o.AnchorSize,
 		o.MaxValueInFlight,
 		o.ChannelReserve,
 		o.HtlcMinimum,
@@ -168,6 +173,7 @@ func (o *OpenChannel) Decode(r io.Reader, pver uint32) error {
 		&o.FundingAmount,
 		&o.PushAmount,
 		&o.DustLimit,
+		&o.AnchorSize,
 		&o.MaxValueInFlight,
 		&o.ChannelReserve,
 		&o.HtlcMinimum,
@@ -198,5 +204,5 @@ func (o *OpenChannel) MsgType() MessageType {
 // This is part of the lnwire.Message interface.
 func (o *OpenChannel) MaxPayloadLength(uint32) uint32 {
 	// (32 * 2) + (8 * 6) + (4 * 1) + (2 * 2) + (33 * 6) + 1
-	return 319
+	return 319 + 8
 }

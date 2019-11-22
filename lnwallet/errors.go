@@ -142,6 +142,16 @@ func ErrChanTooSmall(chanSize, minChanSize btcutil.Amount) ReservationError {
 	}
 }
 
+// ErrAnchorTooSmall returns an error indicating that we don't accept the
+// anchor size proposed by the initiator, as we deem it too small for the
+// commitment to propagate.
+func ErrAnchorTooSmall(anchor, minAnchor btcutil.Amount) ReservationError {
+	return ReservationError{
+		fmt.Errorf("anchor size of %v is below min anchor size of %v",
+			anchor, minAnchor),
+	}
+}
+
 // ErrHtlcIndexAlreadyFailed is returned when the HTLC index has already been
 // failed, but has not been committed by our commitment state.
 type ErrHtlcIndexAlreadyFailed uint64

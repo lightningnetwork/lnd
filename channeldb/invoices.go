@@ -166,6 +166,13 @@ func (c ContractState) String() string {
 // the necessary conditions required before the invoice can be considered fully
 // settled by the payee.
 type ContractTerm struct {
+	// FinalCltvDelta is the minimum required number of blocks before htlc
+	// expiry when the invoice is accepted.
+	FinalCltvDelta int32
+
+	// Expiry defines how long after creation this invoice should expire.
+	Expiry time.Duration
+
 	// PaymentPreimage is the preimage which is to be revealed in the
 	// occasion that an HTLC paying to the hash of this preimage is
 	// extended.
@@ -174,9 +181,6 @@ type ContractTerm struct {
 	// Value is the expected amount of milli-satoshis to be paid to an HTLC
 	// which can be satisfied by the above preimage.
 	Value lnwire.MilliSatoshi
-
-	// State describes the state the invoice is in.
-	State ContractState
 
 	// PaymentAddr is a randomly generated value include in the MPP record
 	// by the sender to prevent probing of the receiver.
@@ -205,13 +209,6 @@ type Invoice struct {
 	// PaymentRequest is an optional field where a payment request created
 	// for this invoice can be stored.
 	PaymentRequest []byte
-
-	// FinalCltvDelta is the minimum required number of blocks before htlc
-	// expiry when the invoice is accepted.
-	FinalCltvDelta int32
-
-	// Expiry defines how long after creation this invoice should expire.
-	Expiry time.Duration
 
 	// CreationDate is the exact time the invoice was created.
 	CreationDate time.Time
@@ -244,6 +241,9 @@ type Invoice struct {
 	//
 	// NOTE: This index starts at 1.
 	SettleIndex uint64
+
+	// State describes the state the invoice is in.
+	State ContractState
 
 	// AmtPaid is the final amount that we ultimately accepted for pay for
 	// this invoice. We specify this value independently as it's possible
@@ -552,7 +552,7 @@ func (d *DB) FetchAllInvoices(pendingOnly bool) ([]Invoice, error) {
 			}
 
 			if pendingOnly &&
-				invoice.Terms.State == ContractSettled {
+				invoice.State == ContractSettled {
 
 				return nil
 			}
@@ -702,7 +702,7 @@ func (d *DB) QueryInvoices(q InvoiceQuery) (InvoiceSlice, error) {
 			// Skip any settled invoices if the caller is only
 			// interested in unsettled.
 			if q.PendingOnly &&
-				invoice.Terms.State == ContractSettled {
+				invoice.State == ContractSettled {
 
 				continue
 			}
@@ -931,11 +931,11 @@ func serializeInvoice(w io.Writer, i *Invoice) error {
 
 	preimage := [32]byte(i.Terms.PaymentPreimage)
 	value := uint64(i.Terms.Value)
-	cltvDelta := uint32(i.FinalCltvDelta)
-	expiry := uint64(i.Expiry)
+	cltvDelta := uint32(i.Terms.FinalCltvDelta)
+	expiry := uint64(i.Terms.Expiry)
 
 	amtPaid := uint64(i.AmtPaid)
-	state := uint8(i.Terms.State)
+	state := uint8(i.State)
 
 	tlvStream, err := tlv.NewStream(
 		// Memo and payreq.
@@ -1094,10 +1094,10 @@ func deserializeInvoice(r io.Reader) (Invoice, error) {
 
 	i.Terms.PaymentPreimage = lntypes.Preimage(preimage)
 	i.Terms.Value = lnwire.MilliSatoshi(value)
-	i.FinalCltvDelta = int32(cltvDelta)
-	i.Expiry = time.Duration(expiry)
+	i.Terms.FinalCltvDelta = int32(cltvDelta)
+	i.Terms.Expiry = time.Duration(expiry)
 	i.AmtPaid = lnwire.MilliSatoshi(amtPaid)
-	i.Terms.State = ContractState(state)
+	i.State = ContractState(state)
 
 	err = i.CreationDate.UnmarshalBinary(creationDateBytes)
 	if err != nil {
@@ -1198,13 +1198,12 @@ func copyInvoice(src *Invoice) *Invoice {
 	dest := Invoice{
 		Memo:           copySlice(src.Memo),
 		PaymentRequest: copySlice(src.PaymentRequest),
-		FinalCltvDelta: src.FinalCltvDelta,
-		Expiry:         src.Expiry,
 		CreationDate:   src.CreationDate,
 		SettleDate:     src.SettleDate,
 		Terms:          src.Terms,
 		AddIndex:       src.AddIndex,
 		SettleIndex:    src.SettleIndex,
+		State:          src.State,
 		AmtPaid:        src.AmtPaid,
 		Htlcs: make(
 			map[CircuitKey]*InvoiceHTLC, len(src.Htlcs),
@@ -1230,7 +1229,7 @@ func (d *DB) updateInvoice(hash lntypes.Hash, invoices, settleIndex *bbolt.Bucke
 		return nil, err
 	}
 
-	preUpdateState := invoice.Terms.State
+	preUpdateState := invoice.State
 
 	// Create deep copy to prevent any accidental modification in the
 	// callback.
@@ -1243,7 +1242,7 @@ func (d *DB) updateInvoice(hash lntypes.Hash, invoices, settleIndex *bbolt.Bucke
 	}
 
 	// Update invoice state.
-	invoice.Terms.State = update.State
+	invoice.State = update.State
 
 	now := d.now()
 
@@ -1291,8 +1290,8 @@ func (d *DB) updateInvoice(hash lntypes.Hash, invoices, settleIndex *bbolt.Bucke
 
 	// If invoice moved to the settled state, update settle index and settle
 	// time.
-	if preUpdateState != invoice.Terms.State &&
-		invoice.Terms.State == ContractSettled {
+	if preUpdateState != invoice.State &&
+		invoice.State == ContractSettled {
 
 		if update.Preimage.Hash() != hash {
 			return nil, fmt.Errorf("preimage does not match")
@@ -1344,7 +1343,7 @@ func setSettleFields(settleIndex *bbolt.Bucket, invoiceNum []byte,
 		return err
 	}
 
-	invoice.Terms.State = ContractSettled
+	invoice.State = ContractSettled
 	invoice.SettleDate = now
 	invoice.SettleIndex = nextSettleSeqNo
 

@@ -5,6 +5,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
@@ -47,6 +48,14 @@ func Recover(backups []Single, restorer ChannelRestorer,
 			backup.FundingOutpoint)
 
 		err := restorer.RestoreChansFromSingles(backup)
+
+		// If a channel is already present in the channel DB, we can
+		// just continue. No reason to fail a whole set of multi backups
+		// for example. This allows resume of a restore in case another
+		// error happens.
+		if err == channeldb.ErrChanAlreadyExists {
+			continue
+		}
 		if err != nil {
 			return err
 		}

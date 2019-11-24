@@ -36,7 +36,7 @@ GOACC_COMMIT := ddc355013f90fea78d83d3a6c71f1d37ac07ecd5
 DEPGET := cd /tmp && GO111MODULE=on go get -v
 GOBUILD := GO111MODULE=on go build -v
 GOINSTALL := GO111MODULE=on go install -v
-GOTEST := GO111MODULE=on go test -v
+GOTEST := GO111MODULE=on go test 
 
 GOFILES_NOVENDOR = $(shell find . -type f -name '*.go' -not -path "./vendor/*")
 GOLIST := go list -deps $(PKG)/... | grep '$(PKG)'| grep -v '/vendor/'

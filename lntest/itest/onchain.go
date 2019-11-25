@@ -94,7 +94,7 @@ func testCPFP(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 	bumpFeeReq := &walletrpc.BumpFeeRequest{
 		Outpoint:   op,
-		SatPerByte: uint32(sweep.DefaultMaxFeeRate.FeePerKVByte() / 1000),
+		SatPerByte: uint32(sweep.DefaultMaxFeeRate.FeePerKVByte() / 2000),
 	}
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	_, err = net.Bob.WalletKitClient.BumpFee(ctxt, bumpFeeReq)

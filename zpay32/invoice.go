@@ -90,6 +90,10 @@ var (
 	// ErrInvalidFieldLength is returned when a tagged field was specified
 	// with a length larger than the left over bytes of the data field.
 	ErrInvalidFieldLength = errors.New("invalid field length")
+
+	// ErrBrokenTaggedField is returned when the last tagged field is
+	// incorrectly formatted and doesn't have enough bytes to be read.
+	ErrBrokenTaggedField = errors.New("last tagged field is broken")
 )
 
 // MessageSigner is passed to the Encode method to provide a signature
@@ -604,12 +608,14 @@ func parseTimestamp(data []byte) (uint64, error) {
 // fills the Invoice struct accordingly.
 func parseTaggedFields(invoice *Invoice, fields []byte, net *chaincfg.Params) error {
 	index := 0
-	for {
+	for len(fields)-index > 0 {
 		// If there are less than 3 groups to read, there cannot be more
 		// interesting information, as we need the type (1 group) and
 		// length (2 groups).
+		//
+		// This means the last tagged field is broken.
 		if len(fields)-index < 3 {
-			break
+			return ErrBrokenTaggedField
 		}
 
 		typ := fields[index]

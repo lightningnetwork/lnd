@@ -587,7 +587,7 @@ func TestSettleMpp(t *testing.T) {
 	}
 
 	// Simulate mpp timeout releasing htlc 1.
-	ctx.clock.setTime(testTime.Add(30 * time.Second))
+	ctx.clock.SetTime(testTime.Add(30 * time.Second))
 
 	hodlEvent := (<-hodlChan1).(HodlEvent)
 	if hodlEvent.Preimage != nil {

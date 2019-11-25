@@ -9,6 +9,7 @@ import (
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/queue"
@@ -62,12 +63,10 @@ type RegistryConfig struct {
 	// waiting for the other set members to arrive.
 	HtlcHoldDuration time.Duration
 
-	// Now returns the current time.
-	Now func() time.Time
-
-	// TickAfter returns a channel that is sent on after the specified
-	// duration as passed.
-	TickAfter func(duration time.Duration) <-chan time.Time
+	// Clock holds the clock implementation that is used to provide
+	// Now() and TickAfter() and is useful to stub out the clock functions
+	// during testing.
+	Clock clock.Clock
 }
 
 // htlcReleaseEvent describes an htlc auto-release event. It is used to release
@@ -177,8 +176,8 @@ type invoiceEvent struct {
 // tickAt returns a channel that ticks at the specified time. If the time has
 // already passed, it will tick immediately.
 func (i *InvoiceRegistry) tickAt(t time.Time) <-chan time.Time {
-	now := i.cfg.Now()
-	return i.cfg.TickAfter(t.Sub(now))
+	now := i.cfg.Clock.Now()
+	return i.cfg.Clock.TickAfter(t.Sub(now))
 }
 
 // invoiceEventLoop is the dedicated goroutine responsible for accepting

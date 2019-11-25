@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
@@ -120,27 +121,26 @@ func newTestChannelDB() (*channeldb.DB, func(), error) {
 
 type testContext struct {
 	registry *InvoiceRegistry
-	clock    *testClock
+	clock    *clock.TestClock
 
 	cleanup func()
 	t       *testing.T
 }
 
 func newTestContext(t *testing.T) *testContext {
-	clock := newTestClock(testTime)
+	clock := clock.NewTestClock(testTime)
 
 	cdb, cleanup, err := newTestChannelDB()
 	if err != nil {
 		t.Fatal(err)
 	}
-	cdb.Now = clock.now
+	cdb.Now = clock.Now
 
 	// Instantiate and start the invoice ctx.registry.
 	cfg := RegistryConfig{
 		FinalCltvRejectDelta: testFinalCltvRejectDelta,
 		HtlcHoldDuration:     30 * time.Second,
-		Now:                  clock.now,
-		TickAfter:            clock.tickAfter,
+		Clock:                clock,
 	}
 	registry := NewRegistry(cdb, &cfg)
 

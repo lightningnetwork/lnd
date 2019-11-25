@@ -467,7 +467,7 @@ func (c *ChannelArbitrator) Start() error {
 		// receive a chain event from the chain watcher than the
 		// commitment has been confirmed on chain, and before we
 		// advance our state step, we call InsertConfirmedCommitSet.
-		if err := c.relaunchResolvers(commitSet); err != nil {
+		if err := c.relaunchResolvers(commitSet, triggerHeight); err != nil {
 			c.cfg.BlockEpochs.Cancel()
 			return err
 		}
@@ -483,7 +483,9 @@ func (c *ChannelArbitrator) Start() error {
 // starting the ChannelArbitrator. This information should ideally be stored in
 // the database, so this only serves as a intermediate work-around to prevent a
 // migration.
-func (c *ChannelArbitrator) relaunchResolvers(commitSet *CommitSet) error {
+func (c *ChannelArbitrator) relaunchResolvers(commitSet *CommitSet,
+	heightHint uint32) error {
+
 	// We'll now query our log to see if there are any active unresolved
 	// contracts. If this is the case, then we'll relaunch all contract
 	// resolvers.
@@ -556,6 +558,19 @@ func (c *ChannelArbitrator) relaunchResolvers(commitSet *CommitSet) error {
 		}
 
 		htlcResolver.Supplement(*htlc)
+	}
+
+	// The anchor resolver is stateless and can always be re-instantiated.
+	if contractResolutions.AnchorResolution != nil {
+		anchorResolver := newAnchorResolver(
+			contractResolutions.AnchorResolution.AnchorSignDescriptor,
+			contractResolutions.AnchorResolution.CommitAnchor,
+			heightHint, c.cfg.ChanPoint,
+			ResolverConfig{
+				ChannelArbitratorConfig: c.cfg,
+			},
+		)
+		unresolvedContracts = append(unresolvedContracts, anchorResolver)
 	}
 
 	c.launchResolvers(unresolvedContracts)
@@ -1856,8 +1871,8 @@ func (c *ChannelArbitrator) prepContractResolutions(
 		}
 	}
 
-	// Finally, if this is was a unilateral closure, then we'll also create
-	// a resolver to sweep our commitment output (but only if it wasn't
+	// If this is was an unilateral closure, then we'll also create a
+	// resolver to sweep our commitment output (but only if it wasn't
 	// trimmed).
 	if contractResolutions.CommitResolution != nil {
 		resolver := newCommitSweepResolver(
@@ -1865,6 +1880,17 @@ func (c *ChannelArbitrator) prepContractResolutions(
 			height, c.cfg.ChanPoint, resolverCfg,
 		)
 		htlcResolvers = append(htlcResolvers, resolver)
+	}
+
+	// We instantiate an anchor resolver if the commitmentment tx has an
+	// anchor.
+	if contractResolutions.AnchorResolution != nil {
+		anchorResolver := newAnchorResolver(
+			contractResolutions.AnchorResolution.AnchorSignDescriptor,
+			contractResolutions.AnchorResolution.CommitAnchor,
+			height, c.cfg.ChanPoint, resolverCfg,
+		)
+		htlcResolvers = append(htlcResolvers, anchorResolver)
 	}
 
 	return htlcResolvers, msgsToSend, nil

@@ -56,4 +56,12 @@ type UtxoSweeper interface {
 	// RelayFeePerKW returns the minimum fee rate required for transactions
 	// to be relayed.
 	RelayFeePerKW() chainfee.SatPerKWeight
+
+	// UpdateParams allows updating the sweep parameters of a pending input
+	// in the UtxoSweeper. This function can be used to provide an updated
+	// fee preference that will be used for a new sweep transaction of the
+	// input that will act as a replacement transaction (RBF) of the
+	// original sweeping transaction, if any.
+	UpdateParams(input wire.OutPoint, params sweep.ParamsUpdate) (
+		chan sweep.Result, error)
 }

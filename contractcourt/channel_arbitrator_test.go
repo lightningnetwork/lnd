@@ -2168,6 +2168,69 @@ func TestChannelArbitratorAnchors(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatalf("no response received")
 	}
+
+	// Now notify about the local force close getting confirmed.
+	closeTx := &wire.MsgTx{
+		TxIn: []*wire.TxIn{
+			{
+				PreviousOutPoint: wire.OutPoint{},
+				Witness: [][]byte{
+					{0x1},
+					{0x2},
+				},
+			},
+		},
+	}
+
+	chanArb.cfg.ChainEvents.LocalUnilateralClosure <- &LocalUnilateralCloseInfo{
+		SpendDetail: &chainntnfs.SpendDetail{},
+		LocalForceCloseSummary: &lnwallet.LocalForceCloseSummary{
+			CloseTx:         closeTx,
+			HtlcResolutions: &lnwallet.HtlcResolutions{},
+			AnchorResolution: &lnwallet.AnchorResolution{
+				AnchorSignDescriptor: input.SignDescriptor{
+					Output: &wire.TxOut{
+						Value: 1,
+					},
+				},
+			},
+		},
+		ChannelCloseSummary: &channeldb.ChannelCloseSummary{},
+		CommitSet: CommitSet{
+			ConfCommitKey: &LocalHtlcSet,
+			HtlcSets:      map[HtlcSetKey][]channeldb.HTLC{},
+		},
+	}
+
+	chanArbCtx.AssertStateTransitions(
+		StateContractClosed,
+		StateWaitingFullResolution,
+	)
+
+	// We expect to only have the anchor resolver active.
+	if len(chanArb.activeResolvers) != 1 {
+		t.Fatalf("expected single resolver, instead got: %v",
+			len(chanArb.activeResolvers))
+	}
+
+	resolver := chanArb.activeResolvers[0]
+	_, ok := resolver.(*anchorResolver)
+	if !ok {
+		t.Fatalf("expected anchor resolver, got %T", resolver)
+	}
+
+	// The anchor resolver is expected to offer the anchor input to the
+	// sweeper.
+	<-chanArbCtx.sweeper.updatedInputs
+
+	// The mock sweeper immediately signals success for that input. This
+	// should transition the channel to the resolved state.
+	chanArbCtx.AssertStateTransitions(StateFullyResolved)
+	select {
+	case <-chanArbCtx.resolvedChan:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("contract was not resolved")
+	}
 }
 
 type mockChannel struct {

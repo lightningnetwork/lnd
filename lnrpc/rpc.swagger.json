@@ -2660,11 +2660,6 @@
           "type": "string",
           "description": "*\nAn optional memo to attach along with the invoice. Used for record keeping\npurposes for the invoice's creator, and will also be set in the description\nfield of the encoded payment request if the description_hash field is not\nbeing used."
         },
-        "receipt": {
-          "type": "string",
-          "format": "byte",
-          "description": "* Deprecated. An optional cryptographic receipt of payment which is not\nimplemented."
-        },
         "r_preimage": {
           "type": "string",
           "format": "byte",

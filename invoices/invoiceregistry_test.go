@@ -28,6 +28,10 @@ var (
 	testFinalCltvRejectDelta = int32(4)
 
 	testCurrentHeight = int32(1)
+
+	testFeatures = lnwire.NewFeatureVector(
+		nil, lnwire.Features,
+	)
 )
 
 var (
@@ -35,6 +39,15 @@ var (
 		Terms: channeldb.ContractTerm{
 			PaymentPreimage: preimage,
 			Value:           lnwire.MilliSatoshi(100000),
+			Features:        testFeatures,
+		},
+	}
+
+	testHodlInvoice = &channeldb.Invoice{
+		Terms: channeldb.ContractTerm{
+			PaymentPreimage: channeldb.UnknownPreimage,
+			Value:           lnwire.MilliSatoshi(100000),
+			Features:        testFeatures,
 		},
 	}
 )
@@ -102,9 +115,9 @@ func TestSettleInvoice(t *testing.T) {
 	// We expect the open state to be sent to the single invoice subscriber.
 	select {
 	case update := <-subscription.Updates:
-		if update.Terms.State != channeldb.ContractOpen {
+		if update.State != channeldb.ContractOpen {
 			t.Fatalf("expected state ContractOpen, but got %v",
-				update.Terms.State)
+				update.State)
 		}
 	case <-time.After(testTimeout):
 		t.Fatal("no update received")
@@ -113,9 +126,9 @@ func TestSettleInvoice(t *testing.T) {
 	// We expect a new invoice notification to be sent out.
 	select {
 	case newInvoice := <-allSubscriptions.NewInvoices:
-		if newInvoice.Terms.State != channeldb.ContractOpen {
+		if newInvoice.State != channeldb.ContractOpen {
 			t.Fatalf("expected state ContractOpen, but got %v",
-				newInvoice.Terms.State)
+				newInvoice.State)
 		}
 	case <-time.After(testTimeout):
 		t.Fatal("no update received")
@@ -154,9 +167,9 @@ func TestSettleInvoice(t *testing.T) {
 	// subscriber.
 	select {
 	case update := <-subscription.Updates:
-		if update.Terms.State != channeldb.ContractSettled {
+		if update.State != channeldb.ContractSettled {
 			t.Fatalf("expected state ContractOpen, but got %v",
-				update.Terms.State)
+				update.State)
 		}
 		if update.AmtPaid != amtPaid {
 			t.Fatal("invoice AmtPaid incorrect")
@@ -168,9 +181,9 @@ func TestSettleInvoice(t *testing.T) {
 	// We expect a settled notification to be sent out.
 	select {
 	case settledInvoice := <-allSubscriptions.SettledInvoices:
-		if settledInvoice.Terms.State != channeldb.ContractSettled {
+		if settledInvoice.State != channeldb.ContractSettled {
 			t.Fatalf("expected state ContractOpen, but got %v",
-				settledInvoice.Terms.State)
+				settledInvoice.State)
 		}
 	case <-time.After(testTimeout):
 		t.Fatal("no update received")
@@ -275,10 +288,10 @@ func TestCancelInvoice(t *testing.T) {
 	// We expect the open state to be sent to the single invoice subscriber.
 	select {
 	case update := <-subscription.Updates:
-		if update.Terms.State != channeldb.ContractOpen {
+		if update.State != channeldb.ContractOpen {
 			t.Fatalf(
 				"expected state ContractOpen, but got %v",
-				update.Terms.State,
+				update.State,
 			)
 		}
 	case <-time.After(testTimeout):
@@ -288,10 +301,10 @@ func TestCancelInvoice(t *testing.T) {
 	// We expect a new invoice notification to be sent out.
 	select {
 	case newInvoice := <-allSubscriptions.NewInvoices:
-		if newInvoice.Terms.State != channeldb.ContractOpen {
+		if newInvoice.State != channeldb.ContractOpen {
 			t.Fatalf(
 				"expected state ContractOpen, but got %v",
-				newInvoice.Terms.State,
+				newInvoice.State,
 			)
 		}
 	case <-time.After(testTimeout):
@@ -308,10 +321,10 @@ func TestCancelInvoice(t *testing.T) {
 	// subscriber.
 	select {
 	case update := <-subscription.Updates:
-		if update.Terms.State != channeldb.ContractCanceled {
+		if update.State != channeldb.ContractCanceled {
 			t.Fatalf(
 				"expected state ContractCanceled, but got %v",
-				update.Terms.State,
+				update.State,
 			)
 		}
 	case <-time.After(testTimeout):
@@ -382,30 +395,23 @@ func TestSettleHoldInvoice(t *testing.T) {
 	}
 
 	// Add the invoice.
-	invoice := &channeldb.Invoice{
-		Terms: channeldb.ContractTerm{
-			PaymentPreimage: channeldb.UnknownPreimage,
-			Value:           lnwire.MilliSatoshi(100000),
-		},
-	}
-
-	_, err = registry.AddInvoice(invoice, hash)
+	_, err = registry.AddInvoice(testHodlInvoice, hash)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// We expect the open state to be sent to the single invoice subscriber.
 	update := <-subscription.Updates
-	if update.Terms.State != channeldb.ContractOpen {
+	if update.State != channeldb.ContractOpen {
 		t.Fatalf("expected state ContractOpen, but got %v",
-			update.Terms.State)
+			update.State)
 	}
 
 	// We expect a new invoice notification to be sent out.
 	newInvoice := <-allSubscriptions.NewInvoices
-	if newInvoice.Terms.State != channeldb.ContractOpen {
+	if newInvoice.State != channeldb.ContractOpen {
 		t.Fatalf("expected state ContractOpen, but got %v",
-			newInvoice.Terms.State)
+			newInvoice.State)
 	}
 
 	// Use slightly higher amount for accept/settle.
@@ -468,9 +474,9 @@ func TestSettleHoldInvoice(t *testing.T) {
 	// subscriber. For all invoice subscribers, we don't expect an update.
 	// Those only get notified on settle.
 	update = <-subscription.Updates
-	if update.Terms.State != channeldb.ContractAccepted {
+	if update.State != channeldb.ContractAccepted {
 		t.Fatalf("expected state ContractAccepted, but got %v",
-			update.Terms.State)
+			update.State)
 	}
 	if update.AmtPaid != amtPaid {
 		t.Fatal("invoice AmtPaid incorrect")
@@ -494,9 +500,9 @@ func TestSettleHoldInvoice(t *testing.T) {
 	// We expect a settled notification to be sent out for both all and
 	// single invoice subscribers.
 	settledInvoice := <-allSubscriptions.SettledInvoices
-	if settledInvoice.Terms.State != channeldb.ContractSettled {
+	if settledInvoice.State != channeldb.ContractSettled {
 		t.Fatalf("expected state ContractSettled, but got %v",
-			settledInvoice.Terms.State)
+			settledInvoice.State)
 	}
 	if settledInvoice.AmtPaid != amtPaid {
 		t.Fatalf("expected amount to be %v, but got %v",
@@ -504,9 +510,9 @@ func TestSettleHoldInvoice(t *testing.T) {
 	}
 
 	update = <-subscription.Updates
-	if update.Terms.State != channeldb.ContractSettled {
+	if update.State != channeldb.ContractSettled {
 		t.Fatalf("expected state ContractSettled, but got %v",
-			update.Terms.State)
+			update.State)
 	}
 
 	// Idempotency.
@@ -543,14 +549,7 @@ func TestCancelHoldInvoice(t *testing.T) {
 	defer registry.Stop()
 
 	// Add the invoice.
-	invoice := &channeldb.Invoice{
-		Terms: channeldb.ContractTerm{
-			PaymentPreimage: channeldb.UnknownPreimage,
-			Value:           lnwire.MilliSatoshi(100000),
-		},
-	}
-
-	_, err = registry.AddInvoice(invoice, hash)
+	_, err = registry.AddInvoice(testHodlInvoice, hash)
 	if err != nil {
 		t.Fatal(err)
 	}

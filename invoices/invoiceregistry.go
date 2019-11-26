@@ -179,7 +179,7 @@ func (i *InvoiceRegistry) invoiceEventNotifier() {
 				// For backwards compatibility, do not notify
 				// all invoice subscribers of cancel and accept
 				// events.
-				state := e.invoice.Terms.State
+				state := e.invoice.State
 				if state != channeldb.ContractCanceled &&
 					state != channeldb.ContractAccepted {
 
@@ -231,7 +231,7 @@ func (i *InvoiceRegistry) dispatchToClients(event *invoiceEvent) {
 		// ensure we don't duplicate any events.
 
 		// TODO(joostjager): Refactor switches.
-		state := event.invoice.Terms.State
+		state := event.invoice.State
 		switch {
 		// If we've already sent this settle event to
 		// the client, then we can skip this.
@@ -277,14 +277,14 @@ func (i *InvoiceRegistry) dispatchToClients(event *invoiceEvent) {
 		// the latest add/settle index it has. We'll use this to ensure
 		// we don't send a notification twice, which can happen if a new
 		// event is added while we're catching up a new client.
-		switch event.invoice.Terms.State {
+		switch event.invoice.State {
 		case channeldb.ContractSettled:
 			client.settleIndex = invoice.SettleIndex
 		case channeldb.ContractOpen:
 			client.addIndex = invoice.AddIndex
 		default:
 			log.Errorf("unexpected invoice state: %v",
-				event.invoice.Terms.State)
+				event.invoice.State)
 		}
 	}
 }
@@ -467,7 +467,7 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 
 		// If the invoice is already canceled, there is no further
 		// checking to do.
-		if inv.Terms.State == channeldb.ContractCanceled {
+		if inv.State == channeldb.ContractCanceled {
 			debugLog("invoice already canceled")
 			return nil, errNoUpdate
 		}
@@ -486,7 +486,7 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 			return nil, errNoUpdate
 		}
 
-		if expiry < uint32(currentHeight+inv.FinalCltvDelta) {
+		if expiry < uint32(currentHeight+inv.Terms.FinalCltvDelta) {
 			debugLog("expiry too soon")
 			return nil, errNoUpdate
 		}
@@ -506,7 +506,7 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 
 		// Don't update invoice state if we are accepting a duplicate
 		// payment. We do accept or settle the HTLC.
-		switch inv.Terms.State {
+		switch inv.State {
 		case channeldb.ContractAccepted:
 			debugLog("accepting duplicate payment to accepted invoice")
 			update.State = channeldb.ContractAccepted
@@ -546,7 +546,7 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 	}
 
 	if updateSubscribers {
-		i.notifyClients(rHash, invoice, invoice.Terms.State)
+		i.notifyClients(rHash, invoice, invoice.State)
 	}
 
 	// Inspect latest htlc state on the invoice.
@@ -597,7 +597,7 @@ func (i *InvoiceRegistry) SettleHodlInvoice(preimage lntypes.Preimage) error {
 	updateInvoice := func(invoice *channeldb.Invoice) (
 		*channeldb.InvoiceUpdateDesc, error) {
 
-		switch invoice.Terms.State {
+		switch invoice.State {
 		case channeldb.ContractOpen:
 			return nil, channeldb.ErrInvoiceStillOpen
 		case channeldb.ContractCanceled:
@@ -639,7 +639,7 @@ func (i *InvoiceRegistry) SettleHodlInvoice(preimage lntypes.Preimage) error {
 			AcceptHeight: int32(htlc.AcceptHeight),
 		})
 	}
-	i.notifyClients(hash, invoice, invoice.Terms.State)
+	i.notifyClients(hash, invoice, invoice.State)
 
 	return nil
 }
@@ -655,7 +655,7 @@ func (i *InvoiceRegistry) CancelInvoice(payHash lntypes.Hash) error {
 	updateInvoice := func(invoice *channeldb.Invoice) (
 		*channeldb.InvoiceUpdateDesc, error) {
 
-		switch invoice.Terms.State {
+		switch invoice.State {
 		case channeldb.ContractSettled:
 			return nil, channeldb.ErrInvoiceAlreadySettled
 		case channeldb.ContractCanceled:
@@ -868,7 +868,7 @@ func (i *InvoiceRegistry) SubscribeNotifications(addIndex, settleIndex uint64) *
 				invoiceEvent := ntfn.(*invoiceEvent)
 
 				var targetChan chan *channeldb.Invoice
-				state := invoiceEvent.invoice.Terms.State
+				state := invoiceEvent.invoice.State
 				switch state {
 				case channeldb.ContractOpen:
 					targetChan = client.NewInvoices

@@ -43,10 +43,10 @@ func CreateRPCInvoice(invoice *channeldb.Invoice,
 	satAmt := invoice.Terms.Value.ToSatoshis()
 	satAmtPaid := invoice.AmtPaid.ToSatoshis()
 
-	isSettled := invoice.Terms.State == channeldb.ContractSettled
+	isSettled := invoice.State == channeldb.ContractSettled
 
 	var state lnrpc.Invoice_InvoiceState
-	switch invoice.Terms.State {
+	switch invoice.State {
 	case channeldb.ContractOpen:
 		state = lnrpc.Invoice_OPEN
 	case channeldb.ContractSettled:
@@ -57,7 +57,7 @@ func CreateRPCInvoice(invoice *channeldb.Invoice,
 		state = lnrpc.Invoice_ACCEPTED
 	default:
 		return nil, fmt.Errorf("unknown invoice state %v",
-			invoice.Terms.State)
+			invoice.State)
 	}
 
 	rpcHtlcs := make([]*lnrpc.InvoiceHTLC, 0, len(invoice.Htlcs))
@@ -94,7 +94,6 @@ func CreateRPCInvoice(invoice *channeldb.Invoice,
 
 	rpcInvoice := &lnrpc.Invoice{
 		Memo:            string(invoice.Memo[:]),
-		Receipt:         invoice.Receipt[:],
 		RHash:           decoded.PaymentHash[:],
 		Value:           int64(satAmt),
 		ValueMsat:       int64(invoice.Terms.Value),
@@ -103,8 +102,8 @@ func CreateRPCInvoice(invoice *channeldb.Invoice,
 		Settled:         isSettled,
 		PaymentRequest:  paymentRequest,
 		DescriptionHash: descHash,
-		Expiry:          int64(invoice.Expiry.Seconds()),
-		CltvExpiry:      uint64(invoice.FinalCltvDelta),
+		Expiry:          int64(invoice.Terms.Expiry.Seconds()),
+		CltvExpiry:      uint64(invoice.Terms.FinalCltvDelta),
 		FallbackAddr:    fallbackAddr,
 		RouteHints:      routeHints,
 		AddIndex:        invoice.AddIndex,

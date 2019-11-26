@@ -72,3 +72,6 @@ do
            --proto_path=${DIRECTORY} \
            ${file}
 done
+
+# Run goimports to resolve any dependencies among the sub-servers.
+goimports -w ./*_generated.go

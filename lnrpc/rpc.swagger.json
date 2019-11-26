@@ -3717,6 +3717,11 @@
             "format": "byte"
           },
           "description": "* \nAn optional field that can be used to pass an arbitrary set of TLV records\nto a peer which understands the new records. This can be used to pass\napplication specific data during the payment attempt. When using REST, the\nvalues must be encoded as base64."
+        },
+        "allow_self_payment": {
+          "type": "boolean",
+          "format": "boolean",
+          "description": "/ If set, circular payments to self are permitted."
         }
       }
     },

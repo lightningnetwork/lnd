@@ -381,11 +381,14 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 
 	// We can't always assume that the end destination is publicly
 	// advertised to the network so we'll manually include the target node.
-	// The target node charges no fee. Distance is set to 0, because this
-	// is the starting point of the graph traversal. We are searching
-	// backwards to get the fees first time right and correctly match
-	// channel bandwidth.
-	distance[target] = &nodeWithDist{
+	// The target node charges no fee. Distance is set to 0, because this is
+	// the starting point of the graph traversal. We are searching backwards
+	// to get the fees first time right and correctly match channel
+	// bandwidth.
+	//
+	// Don't record the initial partial path in the distance map and reserve
+	// that key for the source key in the case we route to ourselves.
+	partialPath := &nodeWithDist{
 		dist:            0,
 		weight:          0,
 		node:            target,
@@ -530,24 +533,11 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 	// TODO(roasbeef): also add path caching
 	//  * similar to route caching, but doesn't factor in the amount
 
-	// To start, our target node will the sole item within our distance
-	// heap.
-	heap.Push(&nodeHeap, distance[target])
-
-	for nodeHeap.Len() != 0 {
+	routeToSelf := source == target
+	for {
 		nodesVisited++
 
-		// Fetch the node within the smallest distance from our source
-		// from the heap.
-		partialPath := heap.Pop(&nodeHeap).(*nodeWithDist)
 		pivot := partialPath.node
-
-		// If we've reached our source (or we don't have any incoming
-		// edges), then we're done here and can exit the graph
-		// traversal early.
-		if pivot == source {
-			break
-		}
 
 		// Create unified policies for all incoming connections.
 		u := newUnifiedPolicies(source, pivot, r.OutgoingChannelID)
@@ -566,6 +556,15 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		// Expand all connections using the optimal policy for each
 		// connection.
 		for fromNode, unifiedPolicy := range u.policies {
+			// The target node is not recorded in the distance map.
+			// Therefore we need to have this check to prevent
+			// creating a cycle. Only when we intend to route to
+			// self, we allow this cycle to form. In that case we'll
+			// also break out of the search loop below.
+			if !routeToSelf && fromNode == target {
+				continue
+			}
+
 			// Apply last hop restriction if set.
 			if r.LastHop != nil &&
 				pivot == target && fromNode != *r.LastHop {
@@ -585,13 +584,28 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 			// already have.
 			processEdge(fromNode, policy, partialPath)
 		}
+
+		if nodeHeap.Len() == 0 {
+			break
+		}
+
+		// Fetch the node within the smallest distance from our source
+		// from the heap.
+		partialPath = heap.Pop(&nodeHeap).(*nodeWithDist)
+
+		// If we've reached our source (or we don't have any incoming
+		// edges), then we're done here and can exit the graph
+		// traversal early.
+		if partialPath.node == source {
+			break
+		}
 	}
 
 	// Use the distance map to unravel the forward path from source to
 	// target.
 	var pathEdges []*channeldb.ChannelEdgePolicy
 	currentNode := source
-	for currentNode != target { // TODO(roasbeef): assumes no cycles
+	for {
 		// Determine the next hop forward using the next map.
 		currentNodeWithDist, ok := distance[currentNode]
 		if !ok {
@@ -605,6 +619,13 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 
 		// Advance current node.
 		currentNode = currentNodeWithDist.nextHop.Node.PubKeyBytes
+
+		// Check stop condition at the end of this loop. This prevents
+		// breaking out too soon for self-payments that have target set
+		// to source.
+		if currentNode == target {
+			break
+		}
 	}
 
 	// The route is invalid if it spans more than 20 hops. The current

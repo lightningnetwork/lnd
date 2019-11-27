@@ -27,6 +27,10 @@ type CommitmentType interface {
 	CommitFee(feePerKw chainfee.SatPerKWeight, numHtlcs int64) btcutil.Amount
 
 	HtlcSigHash() txscript.SigHashType
+
+	DeriveCommitmentKeys(commitPoint *btcec.PublicKey,
+		isOurCommit bool,
+		localChanCfg, remoteChanCfg *channeldb.ChannelConfig) *CommitmentKeyRing
 }
 
 func CommitmentFromChanType(t channeldb.ChannelType) (CommitmentType, error) {
@@ -66,6 +70,34 @@ func (s *SingleFunder) CommitFee(feePerKw chainfee.SatPerKWeight, numHtlcs int64
 
 func (s *SingleFunder) HtlcSigHash() txscript.SigHashType {
 	return txscript.SigHashAll
+}
+
+func (s *SingleFunder) DeriveCommitmentKeys(commitPoint *btcec.PublicKey,
+	isOurCommit bool,
+	localChanCfg, remoteChanCfg *channeldb.ChannelConfig) *CommitmentKeyRing {
+
+	return DeriveCommitmentKeys(
+		commitPoint, isOurCommit, false,
+		localChanCfg, remoteChanCfg,
+	)
+
+}
+
+type SingleFunderTweakless struct {
+	SingleFunder
+}
+
+var _ CommitmentType = (*SingleFunderTweakless)(nil)
+
+func (s *SingleFunderTweakless) DeriveCommitmentKeys(commitPoint *btcec.PublicKey,
+	isOurCommit bool,
+	localChanCfg, remoteChanCfg *channeldb.ChannelConfig) *CommitmentKeyRing {
+
+	return DeriveCommitmentKeys(
+		commitPoint, isOurCommit, true,
+		localChanCfg, remoteChanCfg,
+	)
+
 }
 
 type Anchor struct{}
@@ -122,4 +154,15 @@ func (a *Anchor) CommitFee(feePerKw chainfee.SatPerKWeight, numHtlcs int64) btcu
 
 func (a *Anchor) HtlcSigHash() txscript.SigHashType {
 	return txscript.SigHashSingle | txscript.SigHashAnyOneCanPay
+}
+
+func (A *Anchor) DeriveCommitmentKeys(commitPoint *btcec.PublicKey,
+	isOurCommit bool,
+	localChanCfg, remoteChanCfg *channeldb.ChannelConfig) *CommitmentKeyRing {
+
+	return DeriveCommitmentKeys(
+		commitPoint, isOurCommit, true,
+		localChanCfg, remoteChanCfg,
+	)
+
 }

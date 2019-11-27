@@ -891,10 +891,10 @@ func (lc *LightningChannel) diskCommitToMemCommit(isLocal bool,
 	diskCommit *channeldb.ChannelCommitment, localCommitPoint,
 	remoteCommitPoint *btcec.PublicKey) (*commitment, error) {
 
-	// If this commit is tweakless, then it'll affect the way we derive our
-	// keys, which will affect the commitment transaction reconstruction.
-	// So we'll determine this first, before we do anything else.
-	tweaklessCommit := lc.channelState.ChanType.IsTweakless()
+	t, err := CommitmentFromChanType(lc.channelState.ChanType)
+	if err != nil {
+		return nil, err
+	}
 
 	// First, we'll need to re-derive the commitment key ring for each
 	// party used within this particular state. If this is a pending commit
@@ -903,14 +903,14 @@ func (lc *LightningChannel) diskCommitToMemCommit(isLocal bool,
 	// haven't yet received a responding commitment from the remote party.
 	var localCommitKeys, remoteCommitKeys *CommitmentKeyRing
 	if localCommitPoint != nil {
-		localCommitKeys = DeriveCommitmentKeys(
-			localCommitPoint, true, tweaklessCommit,
+		localCommitKeys = t.DeriveCommitmentKeys(
+			localCommitPoint, true,
 			lc.localChanCfg, lc.remoteChanCfg,
 		)
 	}
 	if remoteCommitPoint != nil {
-		remoteCommitKeys = DeriveCommitmentKeys(
-			remoteCommitPoint, false, tweaklessCommit,
+		remoteCommitKeys = t.DeriveCommitmentKeys(
+			remoteCommitPoint, false,
 			lc.localChanCfg, lc.remoteChanCfg,
 		)
 	}
@@ -1066,6 +1066,7 @@ func DeriveCommitmentKeys(commitPoint *btcec.PublicKey,
 	// we'll use that directly, and ignore the commitPoint tweak.
 	if tweaklessCommit {
 		keyRing.RemoteDelayKey = noDelayBasePoint
+		keyRing.LocalCommitKeyTweak = nil
 	} else {
 		keyRing.RemoteDelayKey = input.TweakPubKey(
 			noDelayBasePoint, commitPoint,
@@ -1744,9 +1745,13 @@ func (lc *LightningChannel) restoreCommitState(
 
 		// We'll also re-create the set of commitment keys needed to
 		// fully re-derive the state.
-		tweaklessCommit := lc.channelState.ChanType.IsTweakless()
-		pendingRemoteKeyChain = DeriveCommitmentKeys(
-			pendingCommitPoint, false, tweaklessCommit,
+		t, err := CommitmentFromChanType(lc.channelState.ChanType)
+		if err != nil {
+			return err
+		}
+
+		pendingRemoteKeyChain = t.DeriveCommitmentKeys(
+			pendingCommitPoint, false,
 			lc.localChanCfg, lc.remoteChanCfg,
 		)
 	}
@@ -2047,9 +2052,8 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 
 	// With the commitment point generated, we can now generate the four
 	// keys we'll need to reconstruct the commitment state,
-	tweaklessCommit := chanState.ChanType.IsTweakless()
-	keyRing := DeriveCommitmentKeys(
-		commitmentPoint, false, tweaklessCommit,
+	keyRing := t.DeriveCommitmentKeys(
+		commitmentPoint, false,
 		&chanState.LocalChanCfg, &chanState.RemoteChanCfg,
 	)
 
@@ -2156,12 +2160,6 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 				Value:    int64(localAmt),
 			},
 			HashType: txscript.SigHashAll,
-		}
-
-		// If this is a tweakless commitment, then we can safely blank
-		// out the SingleTweak value as it isn't needed.
-		if tweaklessCommit {
-			localSignDesc.SingleTweak = nil
 		}
 	}
 
@@ -3399,11 +3397,15 @@ func (lc *LightningChannel) SignNextCommitment() (lnwire.Sig, []lnwire.Sig, []ch
 		return sig, htlcSigs, nil, err
 	}
 
+	t, err := CommitmentFromChanType(lc.channelState.ChanType)
+	if err != nil {
+		return sig, htlcSigs, nil, err
+	}
 	// Grab the next commitment point for the remote party. This will be
 	// used within fetchCommitmentView to derive all the keys necessary to
 	// construct the commitment state.
-	keyRing := DeriveCommitmentKeys(
-		commitPoint, false, lc.channelState.ChanType.IsTweakless(),
+	keyRing := t.DeriveCommitmentKeys(
+		commitPoint, false,
 		lc.localChanCfg, lc.remoteChanCfg,
 	)
 
@@ -3798,6 +3800,7 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 
 	// Only if this is a tweakless channel will we attempt to verify the
 	// commitment point, as otherwise it has no validity requirements.
+	// TODO: something here?
 	tweakless := lc.channelState.ChanType.IsTweakless()
 	if !tweakless && commitPoint != nil &&
 		!commitPoint.IsEqual(msg.LocalUnrevokedCommitPoint) {
@@ -4162,9 +4165,14 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSig lnwire.Sig,
 	if err != nil {
 		return err
 	}
+
+	t, err := CommitmentFromChanType(lc.channelState.ChanType)
+	if err != nil {
+		return err
+	}
 	commitPoint := input.ComputeCommitmentPoint(commitSecret[:])
-	keyRing := DeriveCommitmentKeys(
-		commitPoint, true, lc.channelState.ChanType.IsTweakless(),
+	keyRing := t.DeriveCommitmentKeys(
+		commitPoint, true,
 		lc.localChanCfg, lc.remoteChanCfg,
 	)
 
@@ -4206,11 +4214,6 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSig lnwire.Sig,
 	if err != nil {
 		// TODO(roasbeef): fetchview has already mutated the HTLCs...
 		//  * need to either roll-back, or make pure
-		return err
-	}
-
-	t, err := CommitmentFromChanType(lc.channelState.ChanType)
-	if err != nil {
 		return err
 	}
 
@@ -5253,18 +5256,17 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, signer input.Si
 	remoteCommit channeldb.ChannelCommitment,
 	commitPoint *btcec.PublicKey) (*UnilateralCloseSummary, error) {
 
-	// First, we'll generate the commitment point and the revocation point
-	// so we can re-construct the HTLC state and also our payment key.
-	tweaklessCommit := chanState.ChanType.IsTweakless()
-	keyRing := DeriveCommitmentKeys(
-		commitPoint, false, tweaklessCommit, &chanState.LocalChanCfg,
-		&chanState.RemoteChanCfg,
-	)
-
 	t, err := CommitmentFromChanType(chanState.ChanType)
 	if err != nil {
 		return nil, err
 	}
+
+	// First, we'll generate the commitment point and the revocation point
+	// so we can re-construct the HTLC state and also our payment key.
+	keyRing := t.DeriveCommitmentKeys(
+		commitPoint, false, &chanState.LocalChanCfg,
+		&chanState.RemoteChanCfg,
+	)
 
 	// Next, we'll obtain HTLC resolutions for all the outgoing HTLC's we
 	// had on their commitment transaction.
@@ -5330,11 +5332,6 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, signer input.Si
 			MaturityDelay: 0,
 		}
 
-		// If this is a tweakless commitment, then we can safely blank
-		// out the SingleTweak value as it isn't needed.
-		if tweaklessCommit {
-			commitResolution.SelfOutputSignDesc.SingleTweak = nil
-		}
 	}
 
 	closeSummary := channeldb.ChannelCloseSummary{
@@ -5900,15 +5897,14 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel, signer input.Si
 		return nil, err
 	}
 	commitPoint := input.ComputeCommitmentPoint(revocation[:])
-	keyRing := DeriveCommitmentKeys(
-		commitPoint, true, chanState.ChanType.IsTweakless(),
-		&chanState.LocalChanCfg, &chanState.RemoteChanCfg,
-	)
-
 	t, err := CommitmentFromChanType(chanState.ChanType)
 	if err != nil {
 		return nil, err
 	}
+	keyRing := t.DeriveCommitmentKeys(
+		commitPoint, true,
+		&chanState.LocalChanCfg, &chanState.RemoteChanCfg,
+	)
 
 	selfScript, err := input.CommitScriptToSelf(csvTimeout, keyRing.LocalDelayKey,
 		keyRing.RevocationKey)

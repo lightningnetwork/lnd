@@ -1241,6 +1241,11 @@ func (d *DB) updateInvoice(hash lntypes.Hash, invoices, settleIndex *bbolt.Bucke
 		return &invoice, err
 	}
 
+	// If there is nothing to update, return early.
+	if update == nil {
+		return &invoice, nil
+	}
+
 	// Update invoice state.
 	invoice.State = update.State
 

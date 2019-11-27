@@ -130,7 +130,9 @@ func updateInvoice(ctx *invoiceUpdateCtx, inv *channeldb.Invoice) (
 		},
 	}
 
-	update := channeldb.InvoiceUpdateDesc{Htlcs: newHtlcs}
+	update := channeldb.InvoiceUpdateDesc{
+		AddHtlcs: newHtlcs,
+	}
 
 	// Don't update invoice state if we are accepting a duplicate payment.
 	// We do accept or settle the HTLC.

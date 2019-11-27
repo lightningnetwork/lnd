@@ -598,7 +598,7 @@ func (i *InvoiceRegistry) CancelInvoice(payHash lntypes.Hash) error {
 
 		// Mark individual held htlcs as canceled.
 		canceledHtlcs := make(
-			map[channeldb.CircuitKey]*channeldb.HtlcAcceptDesc,
+			map[channeldb.CircuitKey]struct{},
 		)
 		for key, htlc := range invoice.Htlcs {
 			switch htlc.State {
@@ -615,13 +615,13 @@ func (i *InvoiceRegistry) CancelInvoice(payHash lntypes.Hash) error {
 				continue
 			}
 
-			canceledHtlcs[key] = nil
+			canceledHtlcs[key] = struct{}{}
 		}
 
 		// Move invoice to the canceled state.
 		return &channeldb.InvoiceUpdateDesc{
-			Htlcs: canceledHtlcs,
-			State: channeldb.ContractCanceled,
+			CancelHtlcs: canceledHtlcs,
+			State:       channeldb.ContractCanceled,
 		}, nil
 	}
 

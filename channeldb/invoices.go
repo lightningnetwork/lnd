@@ -316,10 +316,12 @@ type InvoiceUpdateDesc struct {
 	// State is the new state that this invoice should progress to.
 	State ContractState
 
-	// Htlcs describes the changes that need to be made to the invoice htlcs
-	// in the database. Htlc map entries with their value set should be
-	// added. If the map value is nil, the htlc should be canceled.
-	Htlcs map[CircuitKey]*HtlcAcceptDesc
+	// CancelHtlcs describes the htlcs that need to be canceled.
+	CancelHtlcs map[CircuitKey]struct{}
+
+	// AddHtlcs describes the newly accepted htlcs that need to be added to
+	// the invoice.
+	AddHtlcs map[CircuitKey]*HtlcAcceptDesc
 
 	// Preimage must be set to the preimage when state is settled.
 	Preimage lntypes.Preimage
@@ -1251,26 +1253,25 @@ func (d *DB) updateInvoice(hash lntypes.Hash, invoices, settleIndex *bbolt.Bucke
 
 	now := d.Now()
 
-	// Update htlc set.
-	for key, htlcUpdate := range update.Htlcs {
+	// Process cancel actions from update descriptor.
+	for key := range update.CancelHtlcs {
 		htlc, ok := invoice.Htlcs[key]
-
-		// No update means the htlc needs to be canceled.
-		if htlcUpdate == nil {
-			if !ok {
-				return nil, fmt.Errorf("unknown htlc %v", key)
-			}
-			if htlc.State != HtlcStateAccepted {
-				return nil, fmt.Errorf("can only cancel " +
-					"accepted htlcs")
-			}
-
-			htlc.State = HtlcStateCanceled
-			htlc.ResolveTime = now
-			invoice.AmtPaid -= htlc.Amt
-
-			continue
+		if !ok {
+			return nil, fmt.Errorf("unknown htlc %v", key)
 		}
+		if htlc.State != HtlcStateAccepted {
+			return nil, fmt.Errorf("can only cancel " +
+				"accepted htlcs")
+		}
+
+		htlc.State = HtlcStateCanceled
+		htlc.ResolveTime = now
+		invoice.AmtPaid -= htlc.Amt
+	}
+
+	// Process add actions from update descriptor.
+	for key, htlcUpdate := range update.AddHtlcs {
+		htlc, ok := invoice.Htlcs[key]
 
 		// Add new htlc paying to the invoice.
 		if ok {

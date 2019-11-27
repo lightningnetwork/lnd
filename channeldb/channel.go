@@ -596,6 +596,7 @@ func (c *OpenChannel) hasChanStatus(status ChannelStatus) bool {
 
 // RefreshShortChanID updates the in-memory channel state using the latest
 // value observed on disk.
+//
 // TODO: the name of this function should be changed to reflect the fact that
 // it is not only refreshing the short channel id but all the channel state.
 // maybe Refresh/Reload?
@@ -611,7 +612,8 @@ func (c *OpenChannel) RefreshShortChanID() error {
 			return err
 		}
 
-		// populating the in-memory channel with the info fetched from disk.
+		// We'll re-populating the in-memory channel with the info
+		// fetched from disk.
 		if err := fetchChanInfo(chanBucket, c); err != nil {
 			return fmt.Errorf("unable to fetch chan info: %v", err)
 		}

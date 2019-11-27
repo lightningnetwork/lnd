@@ -594,13 +594,16 @@ func (c *OpenChannel) hasChanStatus(status ChannelStatus) bool {
 	return c.chanStatus&status == status
 }
 
-// RefreshShortChanID updates the in-memory short channel ID using the latest
+// RefreshShortChanID updates the in-memory channel state using the latest
 // value observed on disk.
+//
+// TODO: the name of this function should be changed to reflect the fact that
+// it is not only refreshing the short channel id but all the channel state.
+// maybe Refresh/Reload?
 func (c *OpenChannel) RefreshShortChanID() error {
 	c.Lock()
 	defer c.Unlock()
 
-	var sid lnwire.ShortChannelID
 	err := c.Db.View(func(tx *bbolt.Tx) error {
 		chanBucket, err := fetchChanBucket(
 			tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
@@ -609,21 +612,17 @@ func (c *OpenChannel) RefreshShortChanID() error {
 			return err
 		}
 
-		channel, err := fetchOpenChannel(chanBucket, &c.FundingOutpoint)
-		if err != nil {
-			return err
+		// We'll re-populating the in-memory channel with the info
+		// fetched from disk.
+		if err := fetchChanInfo(chanBucket, c); err != nil {
+			return fmt.Errorf("unable to fetch chan info: %v", err)
 		}
-
-		sid = channel.ShortChannelID
 
 		return nil
 	})
 	if err != nil {
 		return err
 	}
-
-	c.ShortChannelID = sid
-	c.Packager = NewChannelPackager(sid)
 
 	return nil
 }

@@ -209,6 +209,7 @@ func CreateTestChannels(tweaklessCommits bool) (
 	aliceCommitTx, bobCommitTx, err := CreateCommitmentTxns(
 		channelBal, channelBal, 294, &aliceCfg, &bobCfg, aliceCommitPoint,
 		bobCommitPoint, *fundingTxIn, tweaklessCommits,
+		&SingleFunder{},
 	)
 	if err != nil {
 		return nil, nil, nil, err

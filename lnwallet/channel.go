@@ -1934,6 +1934,14 @@ type HtlcRetribution struct {
 	// witness type should be used to sweep the output.
 	IsIncoming bool
 }
+type AnchorOut struct {
+	// LocalAnchorSignDesc is a SignDescriptor capable of generating the
+	// signature for the local anchor output.
+	LocalAnchorSignDesc *input.SignDescriptor
+
+	// LocalAnchor is the local anchor output on the commitment.
+	LocalAnchor wire.OutPoint
+}
 
 // BreachRetribution contains all the data necessary to bring a channel
 // counterparty to justice claiming ALL lingering funds within the channel in
@@ -1977,12 +1985,7 @@ type BreachRetribution struct {
 	// party) within the breach transaction.
 	LocalOutpoint wire.OutPoint
 
-	// LocalAnchorSignDesc is a SignDescriptor capable of generating the
-	// signature for the local anchor output.
-	LocalAnchorSignDesc *input.SignDescriptor
-
-	// LocalAnchor is the local anchor output on the commitment.
-	LocalAnchor wire.OutPoint
+	AnchorOuts []AnchorOut
 
 	// RemoteOutputSignDesc is a SignDescriptor which is capable of
 	// generating the signature required to claim the funds as described
@@ -2037,6 +2040,11 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 		btcec.S256(), revocationPreimage[:],
 	)
 
+	t, err := CommitmentFromChanType(chanState.ChanType)
+	if err != nil {
+		return nil, err
+	}
+
 	// With the commitment point generated, we can now generate the four
 	// keys we'll need to reconstruct the commitment state,
 	tweaklessCommit := chanState.ChanType.IsTweakless()
@@ -2063,27 +2071,16 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 	// Since it is the remote breach we are reconstructing, the output going
 	// to us will be a to-remote script with our local delay.
 	localDelay := uint32(chanState.LocalChanCfg.CsvDelay)
-	localPkScript, err := input.CommitScriptToRemote(
+	localPkScript, localWitnessHash, err := t.CommitScriptToRemote(
 		localDelay, keyRing.RemoteDelayKey,
 	)
 	if err != nil {
 		return nil, err
 	}
-	localWitnessHash, err := input.WitnessScriptHash(localPkScript)
-	if err != nil {
-		return nil, err
-	}
 
-	// Similarly, the anchor going to us will be the anchor output
-	// spendable by the remote anchor key.
-	localAnchorScript, err := input.CommitScriptAnchor(
+	anchors, err := t.CommitScriptAnchor(
 		chanState.RemoteChanCfg.MultiSigKey.PubKey,
 	)
-	if err != nil {
-		return nil, err
-	}
-
-	localAnchorScriptHash, err := input.WitnessScriptHash(localAnchorScript)
 	if err != nil {
 		return nil, err
 	}
@@ -2093,9 +2090,8 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 	localOutpoint := wire.OutPoint{
 		Hash: commitHash,
 	}
-	localAnchor := wire.OutPoint{
-		Hash: commitHash,
-	}
+
+	localAnchors := make([]AnchorOut, len(anchors))
 
 	remoteOutpoint := wire.OutPoint{
 		Hash: commitHash,
@@ -2104,10 +2100,35 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 		switch {
 		case bytes.Equal(txOut.PkScript, localWitnessHash):
 			localOutpoint.Index = uint32(i)
-		case bytes.Equal(txOut.PkScript, localAnchorScriptHash):
-			localAnchor.Index = uint32(i)
 		case bytes.Equal(txOut.PkScript, remoteWitnessHash):
 			remoteOutpoint.Index = uint32(i)
+		}
+
+		for j := range anchors {
+			if bytes.Equal(txOut.PkScript, anchors[j].PkScript) {
+				localAnchorScript := anchors[j].PkScript
+				localAnchorScriptHash := anchors[j].WitnessScript
+
+				anchorSize := chanState.AnchorSize
+				anchorSignDesc := &input.SignDescriptor{
+					SingleTweak:   nil,
+					KeyDesc:       chanState.LocalChanCfg.MultiSigKey,
+					WitnessScript: localAnchorScript,
+					Output: &wire.TxOut{
+						PkScript: localAnchorScriptHash,
+						Value:    int64(anchorSize),
+					},
+					HashType: txscript.SigHashAll,
+				}
+
+				localAnchors[j] = AnchorOut{
+					LocalAnchorSignDesc: anchorSignDesc,
+					LocalAnchor: wire.OutPoint{
+						Hash:  commitHash,
+						Index: uint32(i),
+					},
+				}
+			}
 		}
 	}
 
@@ -2116,7 +2137,6 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 	// party's dust limit, the respective sign descriptor will be nil.
 	var (
 		localSignDesc  *input.SignDescriptor
-		anchorSignDesc *input.SignDescriptor
 		remoteSignDesc *input.SignDescriptor
 	)
 
@@ -2143,18 +2163,6 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 		if tweaklessCommit {
 			localSignDesc.SingleTweak = nil
 		}
-	}
-
-	anchorSize := chanState.AnchorSize
-	anchorSignDesc = &input.SignDescriptor{
-		SingleTweak:   nil,
-		KeyDesc:       chanState.LocalChanCfg.MultiSigKey,
-		WitnessScript: localAnchorScript,
-		Output: &wire.TxOut{
-			PkScript: localAnchorScriptHash,
-			Value:    int64(anchorSize),
-		},
-		HashType: txscript.SigHashAll,
 	}
 
 	// Similarly, if the remote balance exceeds the remote party's dust
@@ -2265,8 +2273,7 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 		PendingHTLCs:         revokedSnapshot.Htlcs,
 		LocalOutpoint:        localOutpoint,
 		LocalOutputSignDesc:  localSignDesc,
-		LocalAnchorSignDesc:  anchorSignDesc,
-		LocalAnchor:          localAnchor,
+		AnchorOuts:           localAnchors,
 		RemoteOutpoint:       remoteOutpoint,
 		RemoteOutputSignDesc: remoteSignDesc,
 		HtlcRetributions:     htlcRetributions,
@@ -2422,7 +2429,7 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 	}
 
 	// Actually generate unsigned commitment transaction for this view.
-	if err := lc.createCommitmentTx(c, filteredHTLCView, keyRing); err != nil {
+	if err := lc.createCommitmentTx(c, filteredHTLCView, keyRing, lc.channelState.ChanType); err != nil {
 		return nil, err
 	}
 
@@ -2457,7 +2464,7 @@ func (lc *LightningChannel) fundingTxIn() wire.TxIn {
 // commitment view and assigns to txn field.
 // modifyes passed commitment by subtracting fees.
 func (lc *LightningChannel) createCommitmentTx(c *commitment,
-	filteredHTLCView *htlcView, keyRing *CommitmentKeyRing) error {
+	filteredHTLCView *htlcView, keyRing *CommitmentKeyRing, chanType channeldb.ChannelType) error {
 
 	ourBalance := c.ourBalance
 	theirBalance := c.theirBalance
@@ -2482,15 +2489,21 @@ func (lc *LightningChannel) createCommitmentTx(c *commitment,
 		numHTLCs++
 	}
 
+	t, err := CommitmentFromChanType(chanType)
+	if err != nil {
+		return err
+	}
+
 	// Next, we'll calculate the fee for the commitment transaction based
 	// on its total weight. Once we have the total weight, we'll multiply
 	// by the current fee-per-kw, then divide by 1000 to get the proper
 	// fee.
-	totalCommitWeight := input.CommitWeight + (input.HTLCWeight * numHTLCs)
 
 	// With the weight known, we can now calculate the commitment fee,
 	// ensuring that we account for any dust outputs trimmed above.
-	commitFee := c.feePerKw.FeeForWeight(totalCommitWeight)
+	commitFee := t.CommitFee(c.feePerKw, numHTLCs)
+
+	// TODO: Anchor size 0 for non anchor channels
 	initiatorFee := commitFee + 2*lc.channelState.AnchorSize
 	initiatorFeeMSat := lnwire.NewMSatFromSatoshis(initiatorFee)
 
@@ -2553,7 +2566,7 @@ func (lc *LightningChannel) createCommitmentTx(c *commitment,
 	// unsettled/un-timed out HTLCs.
 	commitTx, err := CreateCommitTx(
 		lc.fundingTxIn(), keyRing, localCfg, remoteCfg, delayBalance,
-		p2wkhBalance, lc.channelState.AnchorSize, hasHtlcs,
+		p2wkhBalance, lc.channelState.AnchorSize, hasHtlcs, t,
 	)
 	if err != nil {
 		return err
@@ -3883,7 +3896,7 @@ func (lc *LightningChannel) computeView(view *htlcView, remoteChain bool,
 // directly into the pool of workers.
 func genHtlcSigValidationJobs(localCommitmentView *commitment,
 	keyRing *CommitmentKeyRing, htlcSigs []lnwire.Sig,
-	localChanCfg, remoteChanCfg *channeldb.ChannelConfig) ([]VerifyJob, error) {
+	localChanCfg, remoteChanCfg *channeldb.ChannelConfig, t CommitmentType) ([]VerifyJob, error) {
 
 	txHash := localCommitmentView.txn.TxHash()
 	feePerKw := localCommitmentView.feePerKw
@@ -3939,7 +3952,7 @@ func genHtlcSigValidationJobs(localCommitmentView *commitment,
 				hashCache := txscript.NewTxSigHashes(successTx)
 				sigHash, err := txscript.CalcWitnessSigHash(
 					htlc.ourWitnessScript, hashCache,
-					txscript.SigHashSingle|txscript.SigHashAnyOneCanPay,
+					t.HtlcSigHash(),
 					successTx, 0,
 					int64(htlc.Amount.ToSatoshis()),
 				)
@@ -3994,7 +4007,7 @@ func genHtlcSigValidationJobs(localCommitmentView *commitment,
 				hashCache := txscript.NewTxSigHashes(timeoutTx)
 				sigHash, err := txscript.CalcWitnessSigHash(
 					htlc.ourWitnessScript, hashCache,
-					txscript.SigHashSingle|txscript.SigHashAnyOneCanPay,
+					t.HtlcSigHash(),
 					timeoutTx, 0,
 					int64(htlc.Amount.ToSatoshis()),
 				)
@@ -4196,12 +4209,17 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSig lnwire.Sig,
 		return err
 	}
 
+	t, err := CommitmentFromChanType(lc.channelState.ChanType)
+	if err != nil {
+		return err
+	}
+
 	// As an optimization, we'll generate a series of jobs for the worker
 	// pool to verify each of the HTLc signatures presented. Once
 	// generated, we'll submit these jobs to the worker pool.
 	verifyJobs, err := genHtlcSigValidationJobs(
 		localCommitmentView, keyRing, htlcSigs, lc.localChanCfg,
-		lc.remoteChanCfg,
+		lc.remoteChanCfg, t,
 	)
 	if err != nil {
 		return err
@@ -5243,12 +5261,18 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, signer input.Si
 		&chanState.RemoteChanCfg,
 	)
 
+	t, err := CommitmentFromChanType(chanState.ChanType)
+	if err != nil {
+		return nil, err
+	}
+
 	// Next, we'll obtain HTLC resolutions for all the outgoing HTLC's we
 	// had on their commitment transaction.
 	htlcResolutions, err := extractHtlcResolutions(
 		chainfee.SatPerKWeight(remoteCommit.FeePerKw), false, signer,
 		remoteCommit.Htlcs, keyRing, &chanState.LocalChanCfg,
 		&chanState.RemoteChanCfg, *commitSpend.SpenderTxHash,
+		t,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create htlc "+
@@ -5261,15 +5285,9 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, signer input.Si
 	// locate the output index of our non-delayed output on the commitment
 	// transaction.
 	localDelay := uint32(chanState.LocalChanCfg.CsvDelay)
-	selfPkScript, err := input.CommitScriptToRemote(
+	selfPkScript, selfWitnessHash, err := t.CommitScriptToRemote(
 		localDelay, keyRing.RemoteDelayKey,
 	)
-	if err != nil {
-		return nil, fmt.Errorf("unable to create self commit "+
-			"script: %v", err)
-	}
-
-	selfWitnessHash, err := input.WitnessScriptHash(selfPkScript)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create self commit "+
 			"script: %v", err)
@@ -5456,7 +5474,7 @@ func newOutgoingHtlcResolution(signer input.Signer,
 	localChanCfg *channeldb.ChannelConfig, commitHash chainhash.Hash,
 	htlc *channeldb.HTLC, keyRing *CommitmentKeyRing,
 	feePerKw chainfee.SatPerKWeight, csvDelay uint32,
-	localCommit bool) (*OutgoingHtlcResolution, error) {
+	localCommit bool, t CommitmentType) (*OutgoingHtlcResolution, error) {
 
 	op := wire.OutPoint{
 		Hash:  commitHash,
@@ -5533,7 +5551,7 @@ func newOutgoingHtlcResolution(signer input.Signer,
 		Output: &wire.TxOut{
 			Value: int64(htlc.Amt.ToSatoshis()),
 		},
-		HashType:   txscript.SigHashSingle | txscript.SigHashAnyOneCanPay,
+		HashType:   t.HtlcSigHash(),
 		SigHashes:  txscript.NewTxSigHashes(timeoutTx),
 		InputIndex: 0,
 	}
@@ -5596,7 +5614,7 @@ func newOutgoingHtlcResolution(signer input.Signer,
 func newIncomingHtlcResolution(signer input.Signer, localChanCfg *channeldb.ChannelConfig,
 	commitHash chainhash.Hash, htlc *channeldb.HTLC, keyRing *CommitmentKeyRing,
 	feePerKw chainfee.SatPerKWeight, csvDelay uint32,
-	localCommit bool) (*IncomingHtlcResolution, error) {
+	localCommit bool, t CommitmentType) (*IncomingHtlcResolution, error) {
 
 	op := wire.OutPoint{
 		Hash:  commitHash,
@@ -5668,7 +5686,7 @@ func newIncomingHtlcResolution(signer input.Signer, localChanCfg *channeldb.Chan
 		Output: &wire.TxOut{
 			Value: int64(htlc.Amt.ToSatoshis()),
 		},
-		HashType:   txscript.SigHashSingle | txscript.SigHashAnyOneCanPay,
+		HashType:   t.HtlcSigHash(),
 		SigHashes:  txscript.NewTxSigHashes(successTx),
 		InputIndex: 0,
 	}
@@ -5752,7 +5770,7 @@ func (r *OutgoingHtlcResolution) HtlcPoint() wire.OutPoint {
 func extractHtlcResolutions(feePerKw chainfee.SatPerKWeight, ourCommit bool,
 	signer input.Signer, htlcs []channeldb.HTLC, keyRing *CommitmentKeyRing,
 	localChanCfg, remoteChanCfg *channeldb.ChannelConfig,
-	commitHash chainhash.Hash) (*HtlcResolutions, error) {
+	commitHash chainhash.Hash, t CommitmentType) (*HtlcResolutions, error) {
 
 	// TODO(roasbeef): don't need to swap csv delay?
 	dustLimit := remoteChanCfg.DustLimit
@@ -5780,7 +5798,7 @@ func extractHtlcResolutions(feePerKw chainfee.SatPerKWeight, ourCommit bool,
 			// as we can satisfy the contract.
 			ihr, err := newIncomingHtlcResolution(
 				signer, localChanCfg, commitHash, &htlc, keyRing,
-				feePerKw, uint32(csvDelay), ourCommit,
+				feePerKw, uint32(csvDelay), ourCommit, t,
 			)
 			if err != nil {
 				return nil, err
@@ -5792,7 +5810,7 @@ func extractHtlcResolutions(feePerKw chainfee.SatPerKWeight, ourCommit bool,
 
 		ohr, err := newOutgoingHtlcResolution(
 			signer, localChanCfg, commitHash, &htlc, keyRing,
-			feePerKw, uint32(csvDelay), ourCommit,
+			feePerKw, uint32(csvDelay), ourCommit, t,
 		)
 		if err != nil {
 			return nil, err
@@ -5886,6 +5904,12 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel, signer input.Si
 		commitPoint, true, chanState.ChanType.IsTweakless(),
 		&chanState.LocalChanCfg, &chanState.RemoteChanCfg,
 	)
+
+	t, err := CommitmentFromChanType(chanState.ChanType)
+	if err != nil {
+		return nil, err
+	}
+
 	selfScript, err := input.CommitScriptToSelf(csvTimeout, keyRing.LocalDelayKey,
 		keyRing.RevocationKey)
 	if err != nil {
@@ -5951,7 +5975,7 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel, signer input.Si
 	htlcResolutions, err := extractHtlcResolutions(
 		chainfee.SatPerKWeight(localCommit.FeePerKw), true, signer,
 		localCommit.Htlcs, keyRing, &chanState.LocalChanCfg,
-		&chanState.RemoteChanCfg, txHash,
+		&chanState.RemoteChanCfg, txHash, t,
 	)
 	if err != nil {
 		return nil, err
@@ -6121,40 +6145,49 @@ func (lc *LightningChannel) CompleteCooperativeClose(localSig, remoteSig []byte,
 
 // AnchorResolutions holds the informations necessary to spend the anchors in
 // play.
-type AnchorResolutions struct {
+type AnchorResolution struct {
 	// AnchorSignDescriptor is the sign descriptor for all variants of our
 	// anchor.
 	AnchorSignDescriptor *input.SignDescriptor
 
 	// LocalCommitAnchor is the anchor outpoint on our local commitment.
-	LocalCommitAnchor *wire.OutPoint
+	CommitAnchor *wire.OutPoint
 
 	// RemoteCommitAnchor is the anchor outpoint on the acked remote
 	// commitment.
-	RemoteCommitAnchor *wire.OutPoint
+	//	RemoteCommitAnchor *wire.OutPoint
 
 	// RemotePendingCommitAnchor is the anchor outpoint on the pending ack
 	// remote commitment. This can be nil.
-	RemotePendingCommitAnchor *wire.OutPoint
+	//	RemotePendingCommitAnchor *wire.OutPoint
 }
 
 // NewAnchorResolutions returns the anchor resolutions for the channel state.
 func NewAnchorResolutions(chanState *channeldb.OpenChannel) (
-	*AnchorResolutions, error) {
+	[]*AnchorResolution, error) {
+
+	t, err := CommitmentFromChanType(chanState.ChanType)
+	if err != nil {
+		return nil, err
+	}
+
+	var res []*AnchorResolution
 
 	// Derive our local anchor script, which will be found on each of the
 	// commitments.
-	localAnchorScript, err := input.CommitScriptAnchor(
+	anchors, err := t.CommitScriptAnchor(
 		chanState.LocalChanCfg.MultiSigKey.PubKey,
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	localAnchorScriptHash, err := input.WitnessScriptHash(localAnchorScript)
-	if err != nil {
-		return nil, err
+	if len(anchors) == 0 {
+		return nil, nil
 	}
+
+	localAnchorScript := anchors[0].WitnessScript
+	localAnchorScriptHash := anchors[0].PkScript
 
 	// Similarly the sign descriptor will be the same for all commitments.
 	anchorSize := chanState.AnchorSize
@@ -6189,12 +6222,15 @@ func NewAnchorResolutions(chanState *channeldb.OpenChannel) (
 	if err != nil {
 		return nil, err
 	}
-	resolutions := &AnchorResolutions{
-		AnchorSignDescriptor:      anchorSignDesc,
-		LocalCommitAnchor:         locateAnchor(localCommit),
-		RemoteCommitAnchor:        locateAnchor(remoteCommit),
-		RemotePendingCommitAnchor: nil,
-	}
+	res = append(res, &AnchorResolution{
+		AnchorSignDescriptor: anchorSignDesc,
+		CommitAnchor:         locateAnchor(localCommit),
+	})
+
+	res = append(res, &AnchorResolution{
+		AnchorSignDescriptor: anchorSignDesc,
+		CommitAnchor:         locateAnchor(remoteCommit),
+	})
 
 	// Get their pending commit, if any.
 	remotePendingCommit, err := chanState.RemoteCommitChainTip()
@@ -6203,12 +6239,15 @@ func NewAnchorResolutions(chanState *channeldb.OpenChannel) (
 	}
 
 	if remotePendingCommit != nil {
-		resolutions.RemotePendingCommitAnchor = locateAnchor(
-			&remotePendingCommit.Commitment,
-		)
+		res = append(res, &AnchorResolution{
+			AnchorSignDescriptor: anchorSignDesc,
+			CommitAnchor: locateAnchor(
+				&remotePendingCommit.Commitment,
+			),
+		})
 	}
 
-	return resolutions, nil
+	return res, nil
 }
 
 // AvailableBalance returns the current available balance within the channel.
@@ -6247,6 +6286,7 @@ func (lc *LightningChannel) availableBalance() (lnwire.MilliSatoshi, int64) {
 
 		// We'll subtract the size of the two anchors, since it must
 		// always be reserved from the initiator's balance.
+		// TODO: zero anchor size for non-anchors
 		anchorSize := lc.channelState.AnchorSize
 		ourBalance -= 2 * lnwire.NewMSatFromSatoshis(anchorSize)
 	}
@@ -6412,7 +6452,7 @@ func (lc *LightningChannel) generateRevocation(height uint64) (*lnwire.RevokeAnd
 func CreateCommitTx(fundingOutput wire.TxIn, keyRing *CommitmentKeyRing,
 	localChanCfg, remoteChanCfg *channeldb.ChannelConfig,
 	amountToSelf, amountToThem, anchorSize btcutil.Amount,
-	hasHtlcs bool) (*wire.MsgTx, error) {
+	hasHtlcs bool, t CommitmentType) (*wire.MsgTx, error) {
 
 	// First, we create the script for the delayed "pay-to-self" output.
 	// This output has 2 main redemption clauses: either we can redeem the
@@ -6431,41 +6471,26 @@ func CreateCommitTx(fundingOutput wire.TxIn, keyRing *CommitmentKeyRing,
 		return nil, err
 	}
 
-	// Then the ancor output spendable by us.
-	ourAnchorScript, err := input.CommitScriptAnchor(
+	ourAnchors, err := t.CommitScriptAnchor(
 		localChanCfg.MultiSigKey.PubKey,
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	ourAnchorScriptHash, err := input.WitnessScriptHash(ourAnchorScript)
-	if err != nil {
-		return nil, err
-	}
-
 	// Next, we create the script paying to them. This is also has a CSV
 	// delay.
-	theirRedeemScript, err := input.CommitScriptToRemote(
+	_, payToThemScriptHash, err := t.CommitScriptToRemote(
 		uint32(remoteChanCfg.CsvDelay), keyRing.RemoteDelayKey,
 	)
 	if err != nil {
 		return nil, err
 	}
-	payToThemScriptHash, err := input.WitnessScriptHash(theirRedeemScript)
-	if err != nil {
-		return nil, err
-	}
 
 	// And the anchor spemdable by them.
-	theirAnchorScript, err := input.CommitScriptAnchor(
+	theirAnchors, err := t.CommitScriptAnchor(
 		remoteChanCfg.MultiSigKey.PubKey,
 	)
-	if err != nil {
-		return nil, err
-	}
-
-	theirAnchorScriptHash, err := input.WitnessScriptHash(theirAnchorScript)
 	if err != nil {
 		return nil, err
 	}
@@ -6486,11 +6511,13 @@ func CreateCommitTx(fundingOutput wire.TxIn, keyRing *CommitmentKeyRing,
 
 	// Add an anchor ouput to ourselves only if we have a commitment output
 	// or there are HTLCs.
-	if amountToSelf >= localChanCfg.DustLimit || hasHtlcs {
-		commitTx.AddTxOut(&wire.TxOut{
-			PkScript: ourAnchorScriptHash,
-			Value:    int64(anchorSize),
-		})
+	for _, a := range ourAnchors {
+		if amountToSelf >= localChanCfg.DustLimit || hasHtlcs {
+			commitTx.AddTxOut(&wire.TxOut{
+				PkScript: a.PkScript,
+				Value:    int64(anchorSize),
+			})
+		}
 	}
 
 	if amountToThem >= localChanCfg.DustLimit {
@@ -6502,11 +6529,13 @@ func CreateCommitTx(fundingOutput wire.TxIn, keyRing *CommitmentKeyRing,
 
 	// Add anchor output to remote only if they have a commitment output or
 	// there are HTLCs.
-	if amountToThem >= localChanCfg.DustLimit || hasHtlcs {
-		commitTx.AddTxOut(&wire.TxOut{
-			PkScript: theirAnchorScriptHash,
-			Value:    int64(anchorSize),
-		})
+	for _, a := range theirAnchors {
+		if amountToThem >= localChanCfg.DustLimit || hasHtlcs {
+			commitTx.AddTxOut(&wire.TxOut{
+				PkScript: a.PkScript,
+				Value:    int64(anchorSize),
+			})
+		}
 	}
 
 	// TODO(halseth): anchor should not be created if no commitoutput or

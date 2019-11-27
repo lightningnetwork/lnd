@@ -2533,6 +2533,7 @@ func writeChanConfig(b io.Writer, c *ChannelConfig) error {
 
 func putChanInfo(chanBucket *bbolt.Bucket, channel *OpenChannel) error {
 	var w bytes.Buffer
+	// TODO: mark anchor type by having anchor in own bucket?
 	if err := WriteElements(&w,
 		channel.ChanType, channel.ChainHash, channel.AnchorSize,
 		channel.FundingOutpoint,

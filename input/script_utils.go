@@ -840,6 +840,18 @@ func CommitScriptToSelf(csvTimeout uint32, selfKey, revokeKey *btcec.PublicKey) 
 	return builder.Script()
 }
 
+// CommitScriptUnencumbered constructs the public key script on the commitment
+// transaction paying to the "other" party. The constructed output is a normal
+// p2wkh output spendable immediately, requiring no contestation period.
+func CommitScriptUnencumbered(key *btcec.PublicKey) ([]byte, error) {
+	// This script goes to the "other" party, and is spendable immediately.
+	builder := txscript.NewScriptBuilder()
+	builder.AddOp(txscript.OP_0)
+	builder.AddData(btcutil.Hash160(key.SerializeCompressed()))
+
+	return builder.Script()
+}
+
 // CommitScriptToRemote constructs the script for the output on the commitment
 // transaction paying to the remote party of said commitment transaction.  The
 // money can only be spend after the timeout has passed.

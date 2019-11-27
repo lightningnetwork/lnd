@@ -670,7 +670,7 @@ func CreateCommitmentTxns(localBalance, remoteBalance, anchorSize btcutil.Amount
 	ourChanCfg, theirChanCfg *channeldb.ChannelConfig,
 	localCommitPoint, remoteCommitPoint *btcec.PublicKey,
 	fundingTxIn wire.TxIn,
-	tweaklessCommit bool) (*wire.MsgTx, *wire.MsgTx, error) {
+	tweaklessCommit bool, t CommitmentType) (*wire.MsgTx, *wire.MsgTx, error) {
 
 	localCommitmentKeys := DeriveCommitmentKeys(
 		localCommitPoint, true, tweaklessCommit, ourChanCfg,
@@ -683,7 +683,7 @@ func CreateCommitmentTxns(localBalance, remoteBalance, anchorSize btcutil.Amount
 
 	ourCommitTx, err := CreateCommitTx(
 		fundingTxIn, localCommitmentKeys, ourChanCfg, theirChanCfg,
-		localBalance, remoteBalance, anchorSize, false,
+		localBalance, remoteBalance, anchorSize, false, t,
 	)
 	if err != nil {
 		return nil, nil, err
@@ -696,7 +696,7 @@ func CreateCommitmentTxns(localBalance, remoteBalance, anchorSize btcutil.Amount
 
 	theirCommitTx, err := CreateCommitTx(
 		fundingTxIn, remoteCommitmentKeys, theirChanCfg, ourChanCfg,
-		remoteBalance, localBalance, anchorSize, false,
+		remoteBalance, localBalance, anchorSize, false, t,
 	)
 	if err != nil {
 		return nil, nil, err
@@ -845,6 +845,12 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 		},
 	}
 
+	t, err := CommitmentFromChanType(pendingReservation.partialState.ChanType)
+	if err != nil {
+		req.err <- err
+		return
+	}
+
 	// With the funding tx complete, create both commitment transactions.
 	localBalance := pendingReservation.partialState.LocalCommitment.LocalBalance.ToSatoshis()
 	remoteBalance := pendingReservation.partialState.LocalCommitment.RemoteBalance.ToSatoshis()
@@ -855,7 +861,7 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 		theirContribution.ChannelConfig,
 		ourContribution.FirstCommitmentPoint,
 		theirContribution.FirstCommitmentPoint, fundingTxIn,
-		tweaklessCommits,
+		tweaklessCommits, t,
 	)
 	if err != nil {
 		req.err <- err
@@ -1170,6 +1176,12 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 	chanState.FundingOutpoint = *req.fundingOutpoint
 	fundingTxIn := wire.NewTxIn(req.fundingOutpoint, nil, nil)
 
+	t, err := CommitmentFromChanType(pendingReservation.partialState.ChanType)
+	if err != nil {
+		req.err <- err
+		return
+	}
+
 	// Now that we have the funding outpoint, we can generate both versions
 	// of the commitment transaction, and generate a signature for the
 	// remote node's commitment transactions.
@@ -1183,7 +1195,7 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 		pendingReservation.theirContribution.ChannelConfig,
 		pendingReservation.ourContribution.FirstCommitmentPoint,
 		pendingReservation.theirContribution.FirstCommitmentPoint,
-		*fundingTxIn, tweaklessCommits,
+		*fundingTxIn, tweaklessCommits, t,
 	)
 	if err != nil {
 		req.err <- err

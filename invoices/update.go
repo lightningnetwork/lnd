@@ -138,11 +138,9 @@ func updateInvoice(ctx *invoiceUpdateCtx, inv *channeldb.Invoice) (
 	// We do accept or settle the HTLC.
 	switch inv.State {
 	case channeldb.ContractAccepted:
-		update.State = channeldb.ContractAccepted
 		return &update, resultDuplicateToAccepted, nil
 
 	case channeldb.ContractSettled:
-		update.State = channeldb.ContractSettled
 		return &update, resultDuplicateToSettled, nil
 	}
 
@@ -150,12 +148,16 @@ func updateInvoice(ctx *invoiceUpdateCtx, inv *channeldb.Invoice) (
 	// to wait for the preimage.
 	holdInvoice := inv.Terms.PaymentPreimage == channeldb.UnknownPreimage
 	if holdInvoice {
-		update.State = channeldb.ContractAccepted
+		update.State = &channeldb.InvoiceStateUpdateDesc{
+			NewState: channeldb.ContractAccepted,
+		}
 		return &update, resultAccepted, nil
 	}
 
-	update.Preimage = inv.Terms.PaymentPreimage
-	update.State = channeldb.ContractSettled
+	update.State = &channeldb.InvoiceStateUpdateDesc{
+		NewState: channeldb.ContractSettled,
+		Preimage: inv.Terms.PaymentPreimage,
+	}
 
 	return &update, resultSettled, nil
 }

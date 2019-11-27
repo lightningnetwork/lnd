@@ -684,8 +684,10 @@ func getUpdateInvoice(amt lnwire.MilliSatoshi) InvoiceUpdateCallback {
 		}
 
 		update := &InvoiceUpdateDesc{
-			Preimage: invoice.Terms.PaymentPreimage,
-			State:    ContractSettled,
+			State: &InvoiceStateUpdateDesc{
+				Preimage: invoice.Terms.PaymentPreimage,
+				NewState: ContractSettled,
+			},
 			AddHtlcs: map[CircuitKey]*HtlcAcceptDesc{
 				{}: {
 					Amt: amt,

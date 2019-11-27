@@ -76,6 +76,18 @@ var (
 
 	// ErrInvoiceStillOpen is returned when the invoice is still open.
 	ErrInvoiceStillOpen = errors.New("invoice still open")
+
+	// ErrInvoiceCannotOpen is returned when an attempt is made to move an
+	// invoice to the open state.
+	ErrInvoiceCannotOpen = errors.New("cannot move invoice to open")
+
+	// ErrInvoiceCannotAccept is returned when an attempt is made to accept
+	// an invoice while the invoice is not in the open state.
+	ErrInvoiceCannotAccept = errors.New("cannot accept invoice")
+
+	// ErrInvoicePreimageMismatch is returned when the preimage doesn't
+	// match the invoice hash.
+	ErrInvoicePreimageMismatch = errors.New("preimage does not match")
 )
 
 const (
@@ -313,8 +325,9 @@ type HtlcAcceptDesc struct {
 // InvoiceUpdateDesc describes the changes that should be applied to the
 // invoice.
 type InvoiceUpdateDesc struct {
-	// State is the new state that this invoice should progress to.
-	State ContractState
+	// State is the new state that this invoice should progress to. If nil,
+	// the state is left unchanged.
+	State *InvoiceStateUpdateDesc
 
 	// CancelHtlcs describes the htlcs that need to be canceled.
 	CancelHtlcs map[CircuitKey]struct{}
@@ -322,8 +335,14 @@ type InvoiceUpdateDesc struct {
 	// AddHtlcs describes the newly accepted htlcs that need to be added to
 	// the invoice.
 	AddHtlcs map[CircuitKey]*HtlcAcceptDesc
+}
 
-	// Preimage must be set to the preimage when state is settled.
+// InvoiceStateUpdateDesc describes an invoice-level state transition.
+type InvoiceStateUpdateDesc struct {
+	// NewState is the new state that this invoice should progress to.
+	NewState ContractState
+
+	// Preimage must be set to the preimage when NewState is settled.
 	Preimage lntypes.Preimage
 }
 
@@ -1231,8 +1250,6 @@ func (d *DB) updateInvoice(hash lntypes.Hash, invoices, settleIndex *bbolt.Bucke
 		return nil, err
 	}
 
-	preUpdateState := invoice.State
-
 	// Create deep copy to prevent any accidental modification in the
 	// callback.
 	invoiceCopy := copyInvoice(&invoice)
@@ -1248,78 +1265,97 @@ func (d *DB) updateInvoice(hash lntypes.Hash, invoices, settleIndex *bbolt.Bucke
 		return &invoice, nil
 	}
 
-	// Update invoice state.
-	invoice.State = update.State
-
 	now := d.Now()
 
-	// Process cancel actions from update descriptor.
-	for key := range update.CancelHtlcs {
-		htlc, ok := invoice.Htlcs[key]
-		if !ok {
-			return nil, fmt.Errorf("unknown htlc %v", key)
-		}
-		if htlc.State != HtlcStateAccepted {
-			return nil, fmt.Errorf("can only cancel " +
-				"accepted htlcs")
+	// Update invoice state if the update descriptor indicates an invoice
+	// state change.
+	if update.State != nil {
+		err := updateInvoiceState(&invoice, hash, *update.State)
+		if err != nil {
+			return nil, err
 		}
 
-		htlc.State = HtlcStateCanceled
-		htlc.ResolveTime = now
-		invoice.AmtPaid -= htlc.Amt
+		if update.State.NewState == ContractSettled {
+			err := setSettleMetaFields(
+				settleIndex, invoiceNum, &invoice, now,
+			)
+			if err != nil {
+				return nil, err
+			}
+		}
 	}
 
 	// Process add actions from update descriptor.
 	for key, htlcUpdate := range update.AddHtlcs {
-		htlc, ok := invoice.Htlcs[key]
-
-		// Add new htlc paying to the invoice.
-		if ok {
-			return nil, fmt.Errorf("htlc %v already exists", key)
+		if _, exists := invoice.Htlcs[key]; exists {
+			return nil, fmt.Errorf("duplicate add of htlc %v", key)
 		}
-		htlc = &InvoiceHTLC{
+		htlc := &InvoiceHTLC{
 			Amt:          htlcUpdate.Amt,
 			Expiry:       htlcUpdate.Expiry,
 			AcceptHeight: uint32(htlcUpdate.AcceptHeight),
 			AcceptTime:   now,
-		}
-		if preUpdateState == ContractSettled {
-			htlc.State = HtlcStateSettled
-			htlc.ResolveTime = now
-		} else {
-			htlc.State = HtlcStateAccepted
+			State:        HtlcStateAccepted,
 		}
 
 		invoice.Htlcs[key] = htlc
-		invoice.AmtPaid += htlc.Amt
 	}
 
-	// If invoice moved to the settled state, update settle index and settle
-	// time.
-	if preUpdateState != invoice.State &&
-		invoice.State == ContractSettled {
-
-		if update.Preimage.Hash() != hash {
-			return nil, fmt.Errorf("preimage does not match")
-		}
-		invoice.Terms.PaymentPreimage = update.Preimage
-
-		// Settle all accepted htlcs.
-		for _, htlc := range invoice.Htlcs {
-			if htlc.State != HtlcStateAccepted {
-				continue
+	// Align htlc states with invoice state and recalculate amount paid.
+	var (
+		amtPaid     lnwire.MilliSatoshi
+		cancelHtlcs = update.CancelHtlcs
+	)
+	for key, htlc := range invoice.Htlcs {
+		// Check whether this htlc needs to be canceled. If it does,
+		// update the htlc state to Canceled.
+		_, cancel := cancelHtlcs[key]
+		if cancel {
+			// Consistency check to verify that there is no overlap
+			// between the add and cancel sets.
+			if _, added := update.AddHtlcs[key]; added {
+				return nil, fmt.Errorf("added htlc %v canceled",
+					key)
 			}
 
-			htlc.State = HtlcStateSettled
-			htlc.ResolveTime = now
+			err := cancelSingleHtlc(now, htlc, invoice.State)
+			if err != nil {
+				return nil, err
+			}
+
+			// Delete processed cancel action, so that we can check
+			// later that there are no actions left.
+			delete(cancelHtlcs, key)
+
+			continue
 		}
 
-		err := setSettleFields(settleIndex, invoiceNum, &invoice, now)
+		// The invoice state may have changed and this could have
+		// implications for the states of the individual htlcs. Align
+		// the htlc state with the current invoice state.
+		err := updateHtlc(now, htlc, invoice.State)
 		if err != nil {
 			return nil, err
 		}
+
+		// Update the running amount paid to this invoice. We don't
+		// include accepted htlcs when the invoice is still open.
+		if invoice.State != ContractOpen &&
+			(htlc.State == HtlcStateAccepted ||
+				htlc.State == HtlcStateSettled) {
+
+			amtPaid += htlc.Amt
+		}
+	}
+	invoice.AmtPaid = amtPaid
+
+	// Verify that we didn't get an action for htlcs that are not present on
+	// the invoice.
+	if len(cancelHtlcs) > 0 {
+		return nil, errors.New("cancel action on non-existent htlc(s)")
 	}
 
+	// Reserialize and update invoice.
 	var buf bytes.Buffer
 	if err := serializeInvoice(&buf, &invoice); err != nil {
 		return nil, err
@@ -1332,7 +1368,119 @@ func (d *DB) updateInvoice(hash lntypes.Hash, invoices, settleIndex *bbolt.Bucke
 	return &invoice, nil
 }
 
-func setSettleFields(settleIndex *bbolt.Bucket, invoiceNum []byte,
+// updateInvoiceState validates and processes an invoice state update.
+func updateInvoiceState(invoice *Invoice, hash lntypes.Hash,
+	update InvoiceStateUpdateDesc) error {
+
+	// Returning to open is never allowed from any state.
+	if update.NewState == ContractOpen {
+		return ErrInvoiceCannotOpen
+	}
+
+	switch invoice.State {
+
+	// Once a contract is accepted, we can only transition to settled or
+	// canceled. Forbid transitioning back into this state. Otherwise this
+	// state is identical to ContractOpen, so we fallthrough to apply the
+	// same checks that we apply to open invoices.
+	case ContractAccepted:
+		if update.NewState == ContractAccepted {
+			return ErrInvoiceCannotAccept
+		}
+
+		fallthrough
+
+	// If a contract is open, permit a state transition to accepted, settled
+	// or canceled. The only restriction is on transitioning to settled
+	// where we ensure the preimage is valid.
+	case ContractOpen:
+		if update.NewState == ContractSettled {
+			// Validate preimage.
+			if update.Preimage.Hash() != hash {
+				return ErrInvoicePreimageMismatch
+			}
+			invoice.Terms.PaymentPreimage = update.Preimage
+		}
+
+	// Once settled, we are in a terminal state.
+	case ContractSettled:
+		return ErrInvoiceAlreadySettled
+
+	// Once canceled, we are in a terminal state.
+	case ContractCanceled:
+		return ErrInvoiceAlreadyCanceled
+
+	default:
+		return errors.New("unknown state transition")
+	}
+
+	invoice.State = update.NewState
+
+	return nil
+}
+
+// cancelSingleHtlc validates cancelation of a single htlc and update its state.
+func cancelSingleHtlc(resolveTime time.Time, htlc *InvoiceHTLC,
+	invState ContractState) error {
+
+	// It is only possible to cancel individual htlcs on an open invoice.
+	if invState != ContractOpen {
+		return fmt.Errorf("htlc canceled on invoice in "+
+			"state %v", invState)
+	}
+
+	// It is only possible if the htlc is still pending.
+	if htlc.State != HtlcStateAccepted {
+		return fmt.Errorf("htlc canceled in state %v",
+			htlc.State)
+	}
+
+	htlc.State = HtlcStateCanceled
+	htlc.ResolveTime = resolveTime
+
+	return nil
+}
+
+// updateHtlc aligns the state of an htlc with the given invoice state.
+func updateHtlc(resolveTime time.Time, htlc *InvoiceHTLC,
+	invState ContractState) error {
+
+	switch invState {
+
+	case ContractSettled:
+		if htlc.State == HtlcStateAccepted {
+			htlc.State = HtlcStateSettled
+			htlc.ResolveTime = resolveTime
+		}
+
+	case ContractCanceled:
+		switch htlc.State {
+
+		case HtlcStateAccepted:
+			htlc.State = HtlcStateCanceled
+			htlc.ResolveTime = resolveTime
+
+		case HtlcStateSettled:
+			return fmt.Errorf("cannot have a settled htlc with " +
+				"invoice in state canceled")
+		}
+
+	case ContractOpen, ContractAccepted:
+		if htlc.State == HtlcStateSettled {
+			return fmt.Errorf("cannot have a settled htlc with "+
+				"invoice in state %v", invState)
+		}
+
+	default:
+		return errors.New("unknown state transition")
+	}
+
+	return nil
+}
+
+// setSettleMetaFields updates the metadata associated with settlement of an
+// invoice.
+func setSettleMetaFields(settleIndex *bbolt.Bucket, invoiceNum []byte,
 	invoice *Invoice, now time.Time) error {
 
 	// Now that we know the invoice hasn't already been settled, we'll
@@ -1349,7 +1497,6 @@ func setSettleFields(settleIndex *bbolt.Bucket, invoiceNum []byte,
 		return err
 	}
 
-	invoice.State = ContractSettled
 	invoice.SettleDate = now
 	invoice.SettleIndex = nextSettleSeqNo
 

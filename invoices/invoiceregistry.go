@@ -464,7 +464,7 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 
 			// Only send an update if the invoice state was changed.
 			updateSubscribers = updateDesc != nil &&
-				inv.State != updateDesc.State
+				updateDesc.State != nil
 
 			// Assign result to outer scope variable.
 			result = res
@@ -541,8 +541,10 @@ func (i *InvoiceRegistry) SettleHodlInvoice(preimage lntypes.Preimage) error {
 		}
 
 		return &channeldb.InvoiceUpdateDesc{
-			State:    channeldb.ContractSettled,
-			Preimage: preimage,
+			State: &channeldb.InvoiceStateUpdateDesc{
+				NewState: channeldb.ContractSettled,
+				Preimage: preimage,
+			},
 		}, nil
 	}
 
@@ -589,39 +591,13 @@ func (i *InvoiceRegistry) CancelInvoice(payHash lntypes.Hash) error {
 	updateInvoice := func(invoice *channeldb.Invoice) (
 		*channeldb.InvoiceUpdateDesc, error) {
 
-		switch invoice.State {
-		case channeldb.ContractSettled:
-			return nil, channeldb.ErrInvoiceAlreadySettled
-		case channeldb.ContractCanceled:
-			return nil, channeldb.ErrInvoiceAlreadyCanceled
-		}
-
-		// Mark individual held htlcs as canceled.
-		canceledHtlcs := make(
-			map[channeldb.CircuitKey]struct{},
-		)
-		for key, htlc := range invoice.Htlcs {
-			switch htlc.State {
-
-			// If we get here, there shouldn't be any settled htlcs.
-			case channeldb.HtlcStateSettled:
-				return nil, errors.New("cannot cancel " +
-					"invoice with settled htlc(s)")
-
-			// Don't cancel htlcs that were already canceled,
-			// because it would incorrectly modify the invoice paid
-			// amt.
-			case channeldb.HtlcStateCanceled:
-				continue
-			}
-
-			canceledHtlcs[key] = struct{}{}
-		}
-
-		// Move invoice to the canceled state.
+		// Move invoice to the canceled state. Rely on validation in
+		// channeldb to return an error if the invoice is already
+		// settled or canceled.
 		return &channeldb.InvoiceUpdateDesc{
-			CancelHtlcs: canceledHtlcs,
-			State:       channeldb.ContractCanceled,
+			State: &channeldb.InvoiceStateUpdateDesc{
+				NewState: channeldb.ContractCanceled,
+			},
 		}, nil
 	}
 

@@ -17,6 +17,7 @@ import (
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	"github.com/lightningnetwork/lnd/lnwallet/commitmenttx"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/watchtower/blob"
 	"github.com/lightningnetwork/lnd/watchtower/wtdb"
@@ -119,7 +120,7 @@ func genTaskTest(
 	breachInfo := &lnwallet.BreachRetribution{
 		RevokedStateNum:   stateNum,
 		BreachTransaction: breachTxn,
-		KeyRing: &lnwallet.CommitmentKeyRing{
+		KeyRing: &commitmenttx.KeyRing{
 			RevocationKey: revPK,
 			DelayKey:      toLocalPK,
 			NoDelayKey:    toRemotePK,

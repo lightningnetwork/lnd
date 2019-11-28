@@ -17,6 +17,7 @@ import (
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/commitmenttx"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/watchtower/blob"
 	"github.com/lightningnetwork/lnd/watchtower/wtclient"
@@ -289,7 +290,7 @@ func (c *mockChannel) createRemoteCommitTx(t *testing.T) {
 		outputIndex++
 	}
 
-	commitKeyRing := &lnwallet.CommitmentKeyRing{
+	commitKeyRing := &commitmenttx.KeyRing{
 		RevocationKey: c.revPK,
 		NoDelayKey:    c.toLocalPK,
 		DelayKey:      c.toRemotePK,

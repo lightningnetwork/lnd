@@ -332,7 +332,8 @@ func (c *chainWatcher) SubscribeChannelEvents() *ChainEventSubscription {
 // based off of only the set of outputs included.
 func isOurCommitment(localChanCfg, remoteChanCfg channeldb.ChannelConfig,
 	commitSpend *chainntnfs.SpendDetail, broadcastStateNum uint64,
-	revocationProducer shachain.Producer, tweakless bool) (bool, error) {
+	revocationProducer shachain.Producer,
+	commitType commitmenttx.CommitmentType) (bool, error) {
 
 	// First, we'll re-derive our commitment point for this state since
 	// this is what we use to randomize each of the keys for this state.
@@ -345,8 +346,8 @@ func isOurCommitment(localChanCfg, remoteChanCfg channeldb.ChannelConfig,
 	// Now that we have the commit point, we'll derive the tweaked local
 	// and remote keys for this state. We use our point as only we can
 	// revoke our own commitment.
-	commitKeyRing := commitmenttx.DeriveCommitmentKeys(
-		commitPoint, true, tweakless, &localChanCfg, &remoteChanCfg,
+	commitKeyRing := commitType.DeriveCommitmentKeys(
+		commitPoint, true, &localChanCfg, &remoteChanCfg,
 	)
 
 	// With the keys derived, we'll construct the remote script that'll be
@@ -426,7 +427,9 @@ func (c *chainWatcher) closeObserver(spendNtfn *chainntnfs.SpendEvent) {
 		// An additional piece of information we need to properly
 		// dispatch a close event if is this channel was using the
 		// tweakless remove key format or not.
-		tweaklessCommit := c.cfg.chanState.ChanType.IsTweakless()
+		commitType := commitmenttx.CommitmentFromChanType(
+			c.cfg.chanState.ChanType,
+		)
 
 		localCommit, remoteCommit, err := c.cfg.chanState.LatestCommitments()
 		if err != nil {
@@ -485,7 +488,7 @@ func (c *chainWatcher) closeObserver(spendNtfn *chainntnfs.SpendEvent) {
 			c.cfg.chanState.LocalChanCfg,
 			c.cfg.chanState.RemoteChanCfg, commitSpend,
 			broadcastStateNum, c.cfg.chanState.RevocationProducer,
-			tweaklessCommit,
+			commitType,
 		)
 		if err != nil {
 			log.Errorf("unable to determine self commit for "+
@@ -597,6 +600,7 @@ func (c *chainWatcher) closeObserver(spendNtfn *chainntnfs.SpendEvent) {
 			// close and sweep immediately using a fake commitPoint
 			// as it isn't actually needed for recovery anymore.
 			commitPoint := c.cfg.chanState.RemoteCurrentRevocation
+			tweaklessCommit := c.cfg.chanState.ChanType.IsTweakless()
 			if !tweaklessCommit {
 				commitPoint = c.waitForCommitmentPoint()
 				if commitPoint == nil {

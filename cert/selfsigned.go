@@ -109,6 +109,10 @@ func GenCertPair(org, certFile, keyFile string, tlsExtraIPs,
 	// verification will fail in the client.
 	dnsNames = append(dnsNames, "unix", "unixpacket")
 
+	// Also add hostnames for 'bufconn' which is the hostname used for the
+	// in-memory connections used on mobile.
+	dnsNames = append(dnsNames, "bufconn")
+
 	// Generate a private key for the certificate.
 	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {

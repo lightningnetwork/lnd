@@ -508,10 +508,11 @@ var _ lnrpc.LightningServer = (*rpcServer)(nil)
 // base level options passed to the grPC server. This typically includes things
 // like requiring TLS, etc.
 func newRPCServer(s *server, macService *macaroons.Service,
-	subServerCgs *subRPCServerConfigs, restDialOpts []grpc.DialOption,
-	restProxyDest string, atpl *autopilot.Manager,
-	invoiceRegistry *invoices.InvoiceRegistry, tower *watchtower.Standalone,
-	tlsCfg *tls.Config, getListeners rpcListeners,
+	subServerCgs *subRPCServerConfigs, serverOpts []grpc.ServerOption,
+	restDialOpts []grpc.DialOption, restProxyDest string,
+	atpl *autopilot.Manager, invoiceRegistry *invoices.InvoiceRegistry,
+	tower *watchtower.Standalone, tlsCfg *tls.Config,
+	getListeners rpcListeners,
 	chanPredicate *chanacceptor.ChainedAcceptor) (*rpcServer, error) {
 
 	// Set up router rpc backend.
@@ -643,7 +644,7 @@ func newRPCServer(s *server, macService *macaroons.Service,
 	)
 
 	// Get the listeners and server options to use for this rpc server.
-	listeners, cleanup, serverOpts, err := getListeners()
+	listeners, cleanup, err := getListeners()
 	if err != nil {
 		return nil, err
 	}

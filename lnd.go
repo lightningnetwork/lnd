@@ -59,16 +59,25 @@ var (
 	networkDir string
 )
 
+// ListnerWithSignal is a net.Listner that has an additional Ready channel that
+// will be closed when a server starts listening.
+type ListenerWithSignal struct {
+	net.Listener
+
+	// Ready will be closed by the server listening on Listener.
+	Ready chan struct{}
+}
+
 // ListenerCfg is a wrapper around custom listeners that can be passed to lnd
 // when calling its main method.
 type ListenerCfg struct {
 	// WalletUnlocker can be set to the listener to use for the wallet
 	// unlocker. If nil a regular network listener will be created.
-	WalletUnlocker net.Listener
+	WalletUnlocker *ListenerWithSignal
 
 	// RPCListener can be set to the listener to use for the RPC server. If
 	// nil a regular network listener will be created.
-	RPCListener net.Listener
+	RPCListener *ListenerWithSignal
 }
 
 // rpcListeners is a function type used for closures that fetches a set of RPC
@@ -76,7 +85,8 @@ type ListenerCfg struct {
 // with these listeners. If no custom listeners are present, this should return
 // normal listeners from the RPC endpoints defined in the config, and server
 // options specifying TLS.
-type rpcListeners func() ([]net.Listener, func(), []grpc.ServerOption, error)
+type rpcListeners func() ([]*ListenerWithSignal, func(), []grpc.ServerOption,
+	error)
 
 // Main is the true entry point for lnd. This function is required since defers
 // created in the top-level scope of a main method aren't executed if os.Exit()
@@ -235,10 +245,10 @@ func Main(lisCfg ListenerCfg) error {
 	// getListeners is a closure that creates listeners from the
 	// RPCListeners defined in the config. It also returns a cleanup
 	// closure and the server options to use for the GRPC server.
-	getListeners := func() ([]net.Listener, func(), []grpc.ServerOption,
-		error) {
+	getListeners := func() ([]*ListenerWithSignal, func(),
+		[]grpc.ServerOption, error) {
 
-		var grpcListeners []net.Listener
+		var grpcListeners []*ListenerWithSignal
 		for _, grpcEndpoint := range cfg.RPCListeners {
 			// Start a gRPC server listening for HTTP/2
 			// connections.
@@ -248,7 +258,11 @@ func Main(lisCfg ListenerCfg) error {
 					grpcEndpoint)
 				return nil, nil, nil, err
 			}
-			grpcListeners = append(grpcListeners, lis)
+			grpcListeners = append(
+				grpcListeners, &ListenerWithSignal{
+					Listener: lis,
+					Ready:    make(chan struct{}),
+				})
 		}
 
 		cleanup := func() {
@@ -262,7 +276,7 @@ func Main(lisCfg ListenerCfg) error {
 	// walletUnlockerListeners is a closure we'll hand to the wallet
 	// unlocker, that will be called when it needs listeners for its GPRC
 	// server.
-	walletUnlockerListeners := func() ([]net.Listener, func(),
+	walletUnlockerListeners := func() ([]*ListenerWithSignal, func(),
 		[]grpc.ServerOption, error) {
 
 		// If we have chosen to start with a dedicated listener for the
@@ -271,8 +285,8 @@ func Main(lisCfg ListenerCfg) error {
 		// TODO(halseth): any point in adding TLS support for custom
 		// listeners?
 		if lisCfg.WalletUnlocker != nil {
-			return []net.Listener{lisCfg.WalletUnlocker}, func() {},
-				[]grpc.ServerOption{}, nil
+			return []*ListenerWithSignal{lisCfg.WalletUnlocker},
+				func() {}, []grpc.ServerOption{}, nil
 		}
 
 		// Otherwise we'll return the regular listeners.
@@ -501,8 +515,8 @@ func Main(lisCfg ListenerCfg) error {
 
 	// rpcListeners is a closure we'll hand to the rpc server, that will be
 	// called when it needs listeners for its GPRC server.
-	rpcListeners := func() ([]net.Listener, func(), []grpc.ServerOption,
-		error) {
+	rpcListeners := func() ([]*ListenerWithSignal, func(),
+		[]grpc.ServerOption, error) {
 
 		// If we have chosen to start with a dedicated listener for the
 		// rpc server, we return it directly, and empty server options
@@ -510,8 +524,8 @@ func Main(lisCfg ListenerCfg) error {
 		// TODO(halseth): any point in adding TLS support for custom
 		// listeners?
 		if lisCfg.RPCListener != nil {
-			return []net.Listener{lisCfg.RPCListener}, func() {},
-				[]grpc.ServerOption{}, nil
+			return []*ListenerWithSignal{lisCfg.RPCListener},
+				func() {}, []grpc.ServerOption{}, nil
 		}
 
 		// Otherwise we'll return the regular listeners.
@@ -841,9 +855,13 @@ func waitForWalletPassword(restEndpoints []net.Addr,
 
 	for _, lis := range listeners {
 		wg.Add(1)
-		go func(lis net.Listener) {
+		go func(lis *ListenerWithSignal) {
 			rpcsLog.Infof("password RPC server listening on %s",
 				lis.Addr())
+
+			// Close the ready chan to indicate we are listening.
+			close(lis.Ready)
+
 			wg.Done()
 			grpcServer.Serve(lis)
 		}(lis)

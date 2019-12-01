@@ -2154,6 +2154,72 @@ func testProbabilityRouting(t *testing.T, p10, p11, p20, minProbability float64,
 	}
 }
 
+// TestEqualCostRouteSelection asserts that route probability will be used as a
+// tie breaker in case the path finding probabilities are equal.
+func TestEqualCostRouteSelection(t *testing.T) {
+	t.Parallel()
+
+	// Set up a test graph with two possible paths to the target: via a and
+	// via b. The routing fees and probabilities are chosen such that the
+	// algorithm will first explore target->a->source (backwards search).
+	// This route has fee 6 and a penality of 4 for the 25% success
+	// probability. The algorithm will then proceed with evaluating
+	// target->b->source, which has a fee of 8 and a penalty of 2 for the
+	// 50% success probability. Both routes have the same path finding cost
+	// of 10. It is expected that in that case, the highest probability
+	// route (through b) is chosen.
+	testChannels := []*testChannel{
+		symmetricTestChannel("source", "a", 100000, &testChannelPolicy{}),
+		symmetricTestChannel("source", "b", 100000, &testChannelPolicy{}),
+		symmetricTestChannel("a", "target", 100000, &testChannelPolicy{
+			Expiry:      144,
+			FeeBaseMsat: lnwire.NewMSatFromSatoshis(6),
+			MinHTLC:     1,
+		}, 1),
+		symmetricTestChannel("b", "target", 100000, &testChannelPolicy{
+			Expiry:      100,
+			FeeBaseMsat: lnwire.NewMSatFromSatoshis(8),
+			MinHTLC:     1,
+		}, 2),
+	}
+
+	ctx := newPathFindingTestContext(t, testChannels, "source")
+	defer ctx.cleanup()
+
+	alias := ctx.testGraphInstance.aliasMap
+
+	paymentAmt := lnwire.NewMSatFromSatoshis(100)
+	target := ctx.testGraphInstance.aliasMap["target"]
+
+	ctx.restrictParams.ProbabilitySource = func(fromNode, toNode route.Vertex,
+		amt lnwire.MilliSatoshi) float64 {
+
+		switch {
+		case fromNode == alias["source"] && toNode == alias["a"]:
+			return 0.25
+		case fromNode == alias["source"] && toNode == alias["b"]:
+			return 0.5
+		default:
+			return 1
+		}
+	}
+
+	ctx.pathFindingConfig = PathFindingConfig{
+		PaymentAttemptPenalty: lnwire.NewMSatFromSatoshis(1),
+	}
+
+	path, err := ctx.findPath(target, paymentAmt)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if path[1].ChannelID != 2 {
+		t.Fatalf("expected route to pass through channel %v, "+
+			"but channel %v was selected instead", 2,
+			path[1].ChannelID)
+	}
+}
+
 // TestNoCycle tries to guide the path finding algorithm into reconstructing an
 // endless route. It asserts that the algorithm is able to handle this properly.
 func TestNoCycle(t *testing.T) {

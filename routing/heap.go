@@ -73,6 +73,11 @@ func (d *distanceHeap) Len() int { return len(d.nodes) }
 //
 // NOTE: This is part of the heap.Interface implementation.
 func (d *distanceHeap) Less(i, j int) bool {
+	// If distances are equal, tie break on probability.
+	if d.nodes[i].dist == d.nodes[j].dist {
+		return d.nodes[i].probability > d.nodes[j].probability
+	}
+
 	return d.nodes[i].dist < d.nodes[j].dist
 }
 

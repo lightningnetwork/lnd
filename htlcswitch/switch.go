@@ -779,6 +779,7 @@ func (s *Switch) handleLocalDispatch(pkt *htlcPacket) error {
 				ExtraMsg: fmt.Sprintf("Link %v is not available to forward",
 					pkt.outgoingChanID),
 				FailureSourceIdx: 0,
+				FailureDetail:    htlcnotifier.FailureDetailLinkNotEligible,
 			}
 
 			log.Error(fwdErr.ExtraMsg)
@@ -1138,7 +1139,9 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 					packet.incomingChanID, packet.incomingHTLCID,
 					packet.outgoingChanID, packet.outgoingHTLCID)
 
-				packet.linkFailure = &ForwardingError{}
+				packet.linkFailure = &ForwardingError{
+					FailureDetail: htlcnotifier.FailureDetailMalformedHTLC,
+				}
 
 				fail.Reason = circuit.ErrorEncrypter.EncryptMalformedError(
 					fail.Reason,

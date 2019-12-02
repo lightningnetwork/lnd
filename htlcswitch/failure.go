@@ -6,6 +6,7 @@ import (
 
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
+	"github.com/lightningnetwork/lnd/htlcswitch/htlcnotifier"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -23,6 +24,10 @@ type ForwardingError struct {
 	ExtraMsg string
 
 	lnwire.FailureMessage
+
+	// FailureDetail contains further granularity for forwarding errors beyond
+	// the reason provided by the lnwire FailureMessage.
+	htlcnotifier.FailureDetail
 }
 
 // Error implements the built-in error interface. We use this method to allow

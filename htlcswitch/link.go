@@ -1217,6 +1217,7 @@ func (l *channelLink) processHodlEvent(hodlEvent invoices.HodlEvent,
 		FailureMessage: lnwire.NewFailIncorrectDetails(
 			htlc.pd.Amount, uint32(hodlEvent.AcceptHeight),
 		),
+		FailureDetail: htlcnotifier.FailureDetailHODLCancel,
 	}
 
 	l.sendHTLCError(
@@ -2261,6 +2262,7 @@ func (l *channelLink) canSendHtlc(policy ForwardingPolicy,
 					return lnwire.NewTemporaryChannelFailure(upd)
 				},
 			),
+			FailureDetail: htlcnotifier.FailureDetailHTLCTooBig,
 		}
 	}
 
@@ -2298,6 +2300,7 @@ func (l *channelLink) canSendHtlc(policy ForwardingPolicy,
 					return lnwire.NewTemporaryChannelFailure(upd)
 				},
 			),
+			FailureDetail: htlcnotifier.FailureDetailInsufficientBalance,
 		}
 	}
 
@@ -2719,6 +2722,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 							return lnwire.NewTemporaryChannelFailure(upd)
 						},
 					),
+					FailureDetail: htlcnotifier.FailureDetailCannotEncodeRoute,
 				}
 
 				l.sendHTLCError(pd, failure, obfuscator, pd.SourceRef)
@@ -2850,6 +2854,7 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 			FailureMessage: lnwire.NewFailIncorrectDetails(
 				pd.Amount, heightNow,
 			),
+			FailureDetail: htlcnotifier.FailureDetailInvoiceNotFound,
 		}
 
 		l.sendHTLCError(pd, failure, obfuscator, pd.SourceRef)

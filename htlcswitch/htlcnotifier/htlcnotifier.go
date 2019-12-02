@@ -123,6 +123,39 @@ type ForwardingEvent struct {
 // provide detailed information about failures.
 type FailureDetail int
 
+const (
+	// FailureDetailNone is used when there are no further failure details
+	// beyond lnwire's failure message.
+	FailureDetailNone FailureDetail = iota
+
+	// FailureDetailInsufficientBalance accompanies TemporaryChannelFailure to
+	// indicate that we did not have sufficient balance in our channel.
+	FailureDetailInsufficientBalance
+
+	// FailureDetailHTLCTooBig accompanies TemporaryChannelFailure to indicate
+	// that the HTLC violated our maximum HTLC size.
+	FailureDetailHTLCTooBig
+
+	// FailureDetailHODLCancel is returned when we cancel a HODL invoice.
+	FailureDetailHODLCancel
+
+	// FailureDetailCannotEncodeRoute is returned when we cannot encode the onion
+	// packet for the next hop on the route.
+	FailureDetailCannotEncodeRoute
+
+	// FailureDetailLinkNotEligible is returned when a link is not eligible for
+	// forwarding.
+	FailureDetailLinkNotEligible
+
+	// FailureDetailMalformedHTLC is used when we try to forward a HTLC out,
+	// but our peer returns a malformed HTLC error.
+	FailureDetailMalformedHTLC
+
+	// FailureDetailInvoiceNotFound is returned when an attempt is made to pay an
+	// unknown invoice.
+	FailureDetailInvoiceNotFound
+)
+
 type LinkFailEvent struct {
 	// HTLCKey contains the information which uniquely identifies the failed
 	// HTLC.

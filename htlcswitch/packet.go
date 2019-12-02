@@ -54,6 +54,11 @@ type htlcPacket struct {
 	// encrypted with any shared secret.
 	localFailure bool
 
+	// linkFailure is non-nil if we have failed the HTLC on our incoming or
+	// outgoing link. The values contained in the linkFailure are used to notify
+	// detailed link failure events.
+	linkFailure *ForwardingError
+
 	// convertedError is set to true if this is an HTLC fail that was
 	// created using an UpdateFailMalformedHTLC from the remote party. If
 	// this is true, then when forwarding this failure packet, we'll need

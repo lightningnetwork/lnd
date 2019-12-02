@@ -1114,10 +1114,12 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 			// encrypt it as it's actually internally sourced.
 			case packet.isResolution:
 				var err error
+				packet.linkFailure = &ForwardingError{
+					FailureMessage: &lnwire.FailPermanentChannelFailure{},
+				}
 				// TODO(roasbeef): don't need to pass actually?
-				failure := &lnwire.FailPermanentChannelFailure{}
 				fail.Reason, err = circuit.ErrorEncrypter.EncryptFirstHop(
-					failure,
+					packet.linkFailure.FailureMessage,
 				)
 				if err != nil {
 					err = fmt.Errorf("unable to obfuscate "+
@@ -1135,6 +1137,8 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 					"(%s, %d) <-> (%s, %d))", packet.circuit.PaymentHash,
 					packet.incomingChanID, packet.incomingHTLCID,
 					packet.outgoingChanID, packet.outgoingHTLCID)
+
+				packet.linkFailure = &ForwardingError{}
 
 				fail.Reason = circuit.ErrorEncrypter.EncryptMalformedError(
 					fail.Reason,
@@ -1213,6 +1217,7 @@ func (s *Switch) failAddPacket(packet *htlcPacket,
 		htlc: &lnwire.UpdateFailHTLC{
 			Reason: reason,
 		},
+		linkFailure: fwdErr,
 	}
 
 	// Route a fail packet back to the source link.

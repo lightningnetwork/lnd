@@ -3930,6 +3930,23 @@ func testSingleHopInvoice(net *lntest.NetworkHarness, t *harnessTest) {
 			"timeout: %v", err)
 	}
 
+	// Before sending the payment, subscribe to HTLCEvents for alice and bob.
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	aliceCl, err := net.Alice.SubscribeHTLCEvents(
+		ctxt, &lnrpc.SubscribeHTLCEventsRequest{},
+	)
+	if err != nil {
+		t.Fatalf("error subscribing to alice's htlc events: %v", err)
+	}
+
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	bobCl, err := net.Bob.SubscribeHTLCEvents(
+		ctxt, &lnrpc.SubscribeHTLCEventsRequest{},
+	)
+	if err != nil {
+		t.Fatalf("error subscribing to bob's htlc events: %v", err)
+	}
+
 	// With the invoice for Bob added, send a payment towards Alice paying
 	// to the above generated invoice.
 	sendReq := &lnrpc.SendRequest{
@@ -3947,6 +3964,20 @@ func testSingleHopInvoice(net *lntest.NetworkHarness, t *harnessTest) {
 	} else if !bytes.Equal(preimage, resp.PaymentPreimage) {
 		t.Fatalf("preimage mismatch: expected %v, got %v", preimage,
 			resp.GetPaymentPreimage())
+	}
+
+	// We have only sent one payment, so when we check HTLC events, we are only
+	// expecting events for a single hash.
+	expected := [][]byte{invoiceResp.RHash}
+
+	// Alice sent the payment, so we expect a forward and settle event for her.
+	if err := testHTLCEvents(aliceCl, expected, expected, nil, 0); err != nil {
+		t.Fatalf("htlc events not as expected for alice: %v", err)
+	}
+
+	// Bob is the recipient, so we only expect a settle event for him.
+	if err := testHTLCEvents(bobCl, nil, expected, nil, 0); err != nil {
+		t.Fatalf("htlc events not as expected for bob: %v", err)
 	}
 
 	// Bob's invoice should now be found and marked as settled.
@@ -4264,6 +4295,95 @@ func updateChannelPolicy(t *harnessTest, node *lntest.HarnessNode,
 	)
 }
 
+// testHTLCEvents tests that the HTLC subscription to a node's HTLC
+// events returns forwarding and settle events with the hashes provided,
+// link failures with the set of reasons given and the correct number of
+// forward failures. It will error of one of the expected events is not found.
+//
+// Note that the client provided must be subscribed to before payments are
+// made, because events are streamed from point of connection.
+func testHTLCEvents(client lnrpc.Lightning_SubscribeHTLCEventsClient,
+	expectedForwards, expectedSettles [][]byte,
+	expectedLinkFailures []lnrpc.FailReason, expectedForwardFails int) error {
+
+	forwardEvents := make(map[string]bool)
+	settleEvents := make(map[string]bool)
+	linkFailures := make(map[lnrpc.FailReason]bool)
+	forwardFailures := 0
+
+	// Add the hashes of all the expected forward and settle events to maps
+	// which will be used to track whether we have all the events we need.
+	for _, hash := range expectedForwards {
+		forwardEvents[string(hash)] = false
+	}
+
+	for _, hash := range expectedSettles {
+		settleEvents[string(hash)] = false
+	}
+
+	// Add all the expected link failure reaons to a map which will track
+	// whether we have the events we expect.
+	for _, reason := range expectedLinkFailures {
+		linkFailures[reason] = false
+	}
+
+	expectedEventCount := len(expectedSettles) + len(expectedForwards) +
+		len(linkFailures) + expectedForwardFails
+
+	// Consume the expected number of events, tracking per type.
+	for i := 0; i < expectedEventCount; i++ {
+		event, err := client.Recv()
+		if err != nil {
+			return err
+		}
+
+		switch e := event.Event.(type) {
+		case *lnrpc.HTLCEvent_ForwardEvent:
+			forwardEvents[string(e.ForwardEvent.HtlcInfo.PaymentHash)] = true
+
+		case *lnrpc.HTLCEvent_SettleEvent:
+			settleEvents[string(e.SettleEvent.HtlcInfo.PaymentHash)] = true
+
+		case *lnrpc.HTLCEvent_LinkFailEvent:
+			linkFailures[e.LinkFailEvent.FailReason] = true
+
+		case *lnrpc.HTLCEvent_ForwardFailEvent:
+			forwardFailures++
+
+		default:
+			return fmt.Errorf("unknown htlc event type: %T", e)
+		}
+	}
+
+	// Check that all of the expected payment hashes were found.
+	for _, found := range forwardEvents {
+		if !found {
+			return fmt.Errorf("mising forward event")
+		}
+	}
+
+	for _, found := range settleEvents {
+		if !found {
+			return fmt.Errorf("mising settle event")
+		}
+	}
+
+	// Check that all the expected link failures were found.
+	for reason, found := range linkFailures {
+		if !found {
+			return fmt.Errorf("missing link failure: %v", reason)
+		}
+	}
+
+	// Check that we have the number of forwarding failures that we expect.
+	if expectedForwardFails != forwardFailures {
+		return fmt.Errorf("expected: %v forward failures, got: %v",
+			expectedForwardFails, forwardFailures)
+	}
+
+	return nil
+}
+
 func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxb := context.Background()
 
@@ -4390,11 +4510,44 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 		}
 	}
 
+	// Before we send any payments, subscribe to HTLC events for all nodes.
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	aliceCl, err := net.Alice.SubscribeHTLCEvents(
+		ctxt, &lnrpc.SubscribeHTLCEventsRequest{},
+	)
+	if err != nil {
+		t.Fatalf("failed to subscribe to alice's HTLC events: %v", err)
+	}
+
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	bobCl, err := net.Bob.SubscribeHTLCEvents(
+		ctxt, &lnrpc.SubscribeHTLCEventsRequest{},
+	)
+	if err != nil {
+		t.Fatalf("failed to subscribe to bob's HTLC events: %v", err)
+	}
+
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	carolCl, err := carol.SubscribeHTLCEvents(
+		ctxt, &lnrpc.SubscribeHTLCEventsRequest{},
+	)
+	if err != nil {
+		t.Fatalf("failed to subscribe to carol's HTLC events: %v", err)
+	}
+
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	daveCl, err := dave.SubscribeHTLCEvents(
+		ctxt, &lnrpc.SubscribeHTLCEventsRequest{},
+	)
+	if err != nil {
+		t.Fatalf("failed to subscribe to dave's HTLC events: %v", err)
+	}
+
 	// Create 5 invoices for Bob, which expect a payment from Carol for 1k
 	// satoshis with a different preimage each time.
 	const numPayments = 5
 	const paymentAmt = 1000
-	payReqs, _, _, err := createPayReqs(
+	payReqs, hashes, _, err := createPayReqs(
 		net.Bob, paymentAmt, numPayments,
 	)
 	if err != nil {
@@ -4437,6 +4590,27 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	err = completePaymentRequests(ctxt, carol, payReqs, true)
 	if err != nil {
 		t.Fatalf("unable to send payments: %v", err)
+	}
+
+	// carol sent the payments, so we expect forward and settle events for each
+	// payment.
+	if err := testHTLCEvents(carolCl, hashes, hashes, nil, 0); err != nil {
+		t.Fatalf("carol htlc events not as expected: %v", err)
+	}
+
+	// dave and alice forwarded the events as part of the mulithop route, so we
+	// expect forward and settle events for each payment.
+	if err := testHTLCEvents(daveCl, hashes, hashes, nil, 0); err != nil {
+		t.Fatalf("dave htlc events not as expected: %v", err)
+	}
+
+	if err := testHTLCEvents(aliceCl, hashes, hashes, nil, 0); err != nil {
+		t.Fatalf("alice htlc events not as expected: %v", err)
+	}
+
+	// bob is the recipient of the payments, so we only expect settle events.
+	if err := testHTLCEvents(bobCl, nil, hashes, nil, 0); err != nil {
+		t.Fatalf("alice htlc events not as expected: %v", err)
 	}
 
 	// When asserting the amount of satoshis moved, we'll factor in the
@@ -9190,16 +9364,41 @@ out:
 		t.Fatalf("channel not seen by alice before timeout: %v", err)
 	}
 
+	// Before we send any payments, subscribe to HTLC events for all of the
+	// nodes.
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	aliceCl, err := net.Alice.SubscribeHTLCEvents(
+		ctxt, &lnrpc.SubscribeHTLCEventsRequest{},
+	)
+	if err != nil {
+		t.Fatalf("could not subscribe to alice's HTLC events: %v", err)
+	}
+
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	bobCl, err := net.Bob.SubscribeHTLCEvents(
+		ctxt, &lnrpc.SubscribeHTLCEventsRequest{},
+	)
+	if err != nil {
+		t.Fatalf("could not subscribe to bob's HTLC events: %v", err)
+	}
+
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	carolCl, err := carol.SubscribeHTLCEvents(
+		ctxt, &lnrpc.SubscribeHTLCEventsRequest{},
+	)
+	if err != nil {
+		t.Fatalf("could not subscribe to bob's HTLC events: %v", err)
+	}
+
 	// For the first scenario, we'll test the cancellation of an HTLC with
 	// an unknown payment hash.
 	// TODO(roasbeef): return failure response rather than failing entire
 	// stream on payment error.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	sendReq := &lnrpc.SendRequest{
-		PaymentHashString: hex.EncodeToString(makeFakePayHash(t)),
-		DestString:        hex.EncodeToString(carol.PubKey[:]),
-		Amt:               payAmt,
-		FinalCltvDelta:    int32(carolPayReq.CltvExpiry),
+		PaymentHash:    makeFakePayHash(t),
+		Dest:           carol.PubKey[:],
+		Amt:            payAmt,
+		FinalCltvDelta: int32(carolPayReq.CltvExpiry),
 	}
 	resp, err := net.Alice.SendPaymentSync(ctxt, sendReq)
 	if err != nil {
@@ -9219,13 +9418,34 @@ out:
 			"instead failed due to: %v", resp.PaymentError)
 	}
 
+	expectedHash := [][]byte{sendReq.PaymentHash}
+
+	// Alice sent the failed payment, se we expect her to have a forward event
+	// and a forwarding failure.
+	if err := testHTLCEvents(aliceCl, expectedHash, nil, nil, 1); err != nil {
+		t.Fatalf("alice did not have expected HTLC events: %v", err)
+	}
+
+	// Bob forwarded the failed payment, so we expect him to have a forward
+	// event and a forwarding failure.
+	if err := testHTLCEvents(bobCl, expectedHash, nil, nil, 1); err != nil {
+		t.Fatalf("bob did not have expected HTLC events: %v", err)
+	}
+
+	// Carol was the recipient of a payment with an unknown payment hash, so
+	// we expect her to have a link failure event with reason unknown invoice.
+	expectedFail := []lnrpc.FailReason{lnrpc.FailReason_INVOICE_NOT_FOUND}
+	if err := testHTLCEvents(carolCl, nil, nil, expectedFail, 0); err != nil {
+		t.Fatalf("carol did not have expected HTLC events: %v", err)
+	}
+
 	// The balances of all parties should be the same as initially since
 	// the HTLC was canceled.
 	assertBaseBalance()
 
 	// Next, we'll test the case of a recognized payHash but, an incorrect
 	// value on the extended HTLC.
-	htlcAmt := lnwire.NewMSatFromSatoshis(1000)
+	htlcAmt := lnwire.NewMSatFromSatoshis(33)
 	sendReq = &lnrpc.SendRequest{
 		PaymentHashString: hex.EncodeToString(carolInvoice.RHash),
 		DestString:        hex.EncodeToString(carol.PubKey[:]),
@@ -9250,11 +9470,32 @@ out:
 			"instead failed due to: %v", resp.PaymentError)
 	}
 
-	// We'll also ensure that the encoded error includes the invlaid HTLC
+	// We'll also ensure that the encoded error includes the invalid HTLC
 	// amount.
 	if !strings.Contains(resp.PaymentError, htlcAmt.String()) {
 		t.Fatalf("error didn't include expected payment amt of %v: "+
 			"%v", htlcAmt, resp.PaymentError)
+	}
+
+	// Alice sent the failed payment, se we expect her to have a forward event
+	// and a forwarding failure.
+	expectedHash = [][]byte{carolInvoice.RHash}
+	if err := testHTLCEvents(aliceCl, expectedHash, nil, nil, 1); err != nil {
+		t.Fatalf("alice did not have expected HTLC events: %v", err)
+	}
+
+	// Bob forwarded the failed payment, so we expect him to have a forward
+	// event and a forwarding failure.
+	if err := testHTLCEvents(bobCl, expectedHash, nil, nil, 1); err != nil {
+		t.Fatalf("bob did not have expected HTLC events: %v", err)
+	}
+
+	// Carol was the recipient of a payment with an incorrect amount, so
+	// we expect her to have a link failure event with reason incorrect amount.
+	// TODO(carla): replace with specific error once available.
+	expectedFail = []lnrpc.FailReason{lnrpc.FailReason_HODL_INVOICE_CANCELLED}
+	if err := testHTLCEvents(carolCl, nil, nil, expectedFail, 0); err != nil {
+		t.Fatalf("carol did not have expected HTLC events: %v", err)
 	}
 
 	// The balances of all parties should be the same as initially since
@@ -9309,6 +9550,23 @@ out:
 		}
 
 		amtSent += toSend
+
+		// Bob forwarded sent the payment, so we expect him to have a HTLC
+		// forwarded and settled event.
+		expectedHash = [][]byte{carolInvoice2.RHash}
+		if err := testHTLCEvents(
+			bobCl, expectedHash, expectedHash, nil, 0,
+		); err != nil {
+			t.Fatalf("bob did not have expected HTLC events: %v", err)
+		}
+
+		// Carol was the recipient of a payment, so we expect her to have a
+		// settle event.
+		if err := testHTLCEvents(
+			carolCl, nil, expectedHash, nil, 0,
+		); err != nil {
+			t.Fatalf("carol did not have expected HTLC events: %v", err)
+		}
 	}
 
 	// At this point, Alice has 50mil satoshis on her side of the channel,
@@ -9338,6 +9596,20 @@ out:
 		lnwire.CodeTemporaryChannelFailure.String()) {
 		t.Fatalf("payment should fail due to insufficient capacity, "+
 			"instead: %v", resp.PaymentError)
+	}
+
+	// Alice sent the failed payment, se we expect her to have a forward event
+	// and a forwarding failure.
+	expectedHash = [][]byte{carolInvoice3.RHash}
+	if err := testHTLCEvents(aliceCl, expectedHash, nil, nil, 1); err != nil {
+		t.Fatalf("alice did not have expected HTLC events: %v", err)
+	}
+
+	// Bob failed the payment with insufficient bandwidth, so we expect him to
+	// have a link failure.
+	expectedFail = []lnrpc.FailReason{lnrpc.FailReason_INSUFFICIENT_BALANCE}
+	if err := testHTLCEvents(bobCl, nil, nil, expectedFail, 0); err != nil {
+		t.Fatalf("bob did not have expected HTLC events: %v", err)
 	}
 
 	// Generate new invoice to not pay same invoice twice.
@@ -9380,6 +9652,20 @@ out:
 	if !strings.Contains(resp.PaymentError, expectedErrorCode) {
 		t.Fatalf("payment should fail due to unknown hop, instead: %v",
 			resp.PaymentError)
+	}
+
+	// Alice sent the failed payment, se we expect her to have a forward event
+	// and a forwarding failure.
+	expectedHash = [][]byte{carolInvoice.RHash}
+	if err := testHTLCEvents(aliceCl, expectedHash, nil, nil, 1); err != nil {
+		t.Fatalf("alice did not have expected HTLC events: %v", err)
+	}
+
+	// Bob failed the payment with unknown next link, so should have a failure
+	// with reason unknown peer.
+	expectedFail = []lnrpc.FailReason{lnrpc.FailReason_UNKNOWN_NEXT_PEER}
+	if err := testHTLCEvents(bobCl, nil, nil, expectedFail, 0); err != nil {
+		t.Fatalf("bob did not have expected HTLC events: %v", err)
 	}
 
 	// Finally, immediately close the channel. This function will also
@@ -9468,6 +9754,31 @@ func testRejectHTLC(net *lntest.NetworkHarness, t *harnessTest) {
 		return preimage
 	}
 
+	// Before we send any payments, subscribe to HTLC events for all nodes.
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	aliceCl, err := net.Alice.SubscribeHTLCEvents(
+		ctxt, &lnrpc.SubscribeHTLCEventsRequest{},
+	)
+	if err != nil {
+		t.Fatalf("failed to subscribe to alice's HTLC events: %v", err)
+	}
+
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	bobCl, err := net.Bob.SubscribeHTLCEvents(
+		ctxt, &lnrpc.SubscribeHTLCEventsRequest{},
+	)
+	if err != nil {
+		t.Fatalf("failed to subscribe to bob's HTLC events: %v", err)
+	}
+
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	carolCl, err := carol.SubscribeHTLCEvents(
+		ctxt, &lnrpc.SubscribeHTLCEventsRequest{},
+	)
+	if err != nil {
+		t.Fatalf("failed to subscribe to carol's HTLC events: %v", err)
+	}
+
 	// Create an invoice from Carol of 100 satoshis.
 	// We expect Alice to be able to pay this invoice.
 	preimage := genPreImage()
@@ -9493,6 +9804,17 @@ func testRejectHTLC(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to send payments from alice to carol: %v", err)
 	}
 
+	expectedHash := [][]byte{resp.RHash}
+	// Alice sent the payment, so we expect a forward and settle event for her.
+	if err := testHTLCEvents(aliceCl, expectedHash, expectedHash, nil, 0); err != nil {
+		t.Fatalf("htlc events not as expected for alice: %v", err)
+	}
+
+	// Carol is the recipient, so we only expect a settle event for her.
+	if err := testHTLCEvents(carolCl, nil, expectedHash, nil, 0); err != nil {
+		t.Fatalf("htlc events not as expected for carol: %v", err)
+	}
+
 	// Create an invoice from Bob of 100 satoshis.
 	// We expect Carol to be able to pay this invoice.
 	preimage = genPreImage()
@@ -9516,6 +9838,17 @@ func testRejectHTLC(net *lntest.NetworkHarness, t *harnessTest) {
 	)
 	if err != nil {
 		t.Fatalf("unable to send payments from carol to bob: %v", err)
+	}
+
+	expectedHash = [][]byte{resp.RHash}
+	// Carol sent the payment, so we expect a forward and settle event for her.
+	if err := testHTLCEvents(carolCl, expectedHash, expectedHash, nil, 0); err != nil {
+		t.Fatalf("htlc events not as expected for carol: %v", err)
+	}
+
+	// Bob is the recipient, so we only expect a settle event for him.
+	if err := testHTLCEvents(bobCl, nil, expectedHash, nil, 0); err != nil {
+		t.Fatalf("htlc events not as expected for bob: %v", err)
 	}
 
 	// Create an invoice from Bob of 100 satoshis.
@@ -9549,6 +9882,19 @@ func testRejectHTLC(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 	if !strings.Contains(err.Error(), lnwire.CodeChannelDisabled.String()) {
 		t.Fatalf("error returned should have been Channel Disabled")
+	}
+
+	expectedHash = [][]byte{resp.RHash}
+	// Alice sent the payment, so we expect a forward and fail event for her.
+	if err := testHTLCEvents(aliceCl, expectedHash, nil, nil, 1); err != nil {
+		t.Fatalf("htlc events not as expected for alice: %v", err)
+	}
+
+	// Carol fails the payment due to a disabled channel, so we expect a link
+	// error with failure reason disabled channel.
+	linkFailure := []lnrpc.FailReason{lnrpc.FailReason_CHANNEL_DISABLED}
+	if err := testHTLCEvents(carolCl, nil, nil, linkFailure, 0); err != nil {
+		t.Fatalf("htlc events not as expected for carol: %v", err)
 	}
 
 	// Close all channels.

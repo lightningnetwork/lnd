@@ -37,6 +37,7 @@ import (
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/htlcswitch"
+	"github.com/lightningnetwork/lnd/htlcswitch/htlcnotifier"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lncfg"
@@ -429,6 +430,10 @@ func mainRPCServerPermissions() map[string][]bakery.Op {
 		"/lnrpc.Lightning/BakeMacaroon": {{
 			Entity: "macaroon",
 			Action: "generate",
+		}},
+		"/lnrpc.Lightning/SubscribeHTLCEvents": {{
+			Entity: "offchain",
+			Action: "read",
 		}},
 	}
 }
@@ -5489,4 +5494,174 @@ func (r *rpcServer) BakeMacaroon(ctx context.Context,
 	resp.Macaroon = hex.EncodeToString(newMacBytes)
 
 	return resp, nil
+}
+
+// SubscribeHTLCEvents creates a uni-directional stream from the server to
+// the client which delivers a stream a HTLC events.
+func (r *rpcServer) SubscribeHTLCEvents(req *lnrpc.SubscribeHTLCEventsRequest,
+	updateStream lnrpc.Lightning_SubscribeHTLCEventsServer) error {
+
+	htlcClient, err := r.server.htlcNotifier.SubscribeHTLCEvents()
+	if err != nil {
+		return err
+	}
+	defer htlcClient.Cancel()
+
+	for {
+		select {
+		case event := <-htlcClient.Updates():
+			var htlcEvent lnrpc.HTLCEvent
+
+			switch e := event.(type) {
+			case htlcnotifier.ForwardingEvent:
+				// Set timestamp and htlc key on the HTLC event
+				htlcEvent.Timestamp = uint64(e.Timestamp.Unix())
+				htlcEvent.HtlcKey = rpcHTLCKey(e.HTLCKey)
+
+				htlcEvent.Event = &lnrpc.HTLCEvent_ForwardEvent{
+					ForwardEvent: &lnrpc.ForwardEvent{
+						HtlcInfo: rpcHTLCInfo(e.HTLCInfo),
+					},
+				}
+
+			case htlcnotifier.ForwardingFailEvent:
+				// Set timestamp and htlc key on the HTLC event
+				htlcEvent.Timestamp = uint64(e.Timestamp.Unix())
+				htlcEvent.HtlcKey = rpcHTLCKey(e.HTLCKey)
+
+				htlcEvent.Event = &lnrpc.HTLCEvent_ForwardFailEvent{
+					ForwardFailEvent: &lnrpc.ForwardFailEvent{},
+				}
+
+			case htlcnotifier.LinkFailEvent:
+				// Set timestamp and htlc key on the HTLC event
+				htlcEvent.Timestamp = uint64(e.Timestamp.Unix())
+				htlcEvent.HtlcKey = rpcHTLCKey(e.HTLCKey)
+
+				failReason, err := rpcFailReason(e.FailReason, e.FailDetail)
+				if err != nil {
+					return err
+				}
+
+				htlcEvent.Event = &lnrpc.HTLCEvent_LinkFailEvent{
+					LinkFailEvent: &lnrpc.LinkFailEvent{
+						HtlcInfo:   rpcHTLCInfo(e.HTLCInfo),
+						FailReason: failReason,
+					},
+				}
+
+			case htlcnotifier.SettleEvent:
+				// Set timestamp and htlc key on the HTLC event
+				htlcEvent.Timestamp = uint64(e.Timestamp.Unix())
+				htlcEvent.HtlcKey = rpcHTLCKey(e.HTLCKey)
+
+				htlcEvent.Event = &lnrpc.HTLCEvent_SettleEvent{
+					SettleEvent: &lnrpc.SettleEvent{
+						HtlcInfo: rpcHTLCInfo(e.HTLCInfo),
+					},
+				}
+			}
+
+			if err := updateStream.Send(&htlcEvent); err != nil {
+				return err
+			}
+
+		case <-r.quit:
+			return nil
+		}
+	}
+}
+
+// rpcHTLCKey creates a rpc HTLCKey struct from a htlcnotifier key.
+func rpcHTLCKey(key htlcnotifier.HTLCKey) *lnrpc.HTLCKey {
+	return &lnrpc.HTLCKey{
+		IncomingChannel: key.IncomingChannel.ToUint64(),
+		OutgoingChannel: key.OutgoingChannel.ToUint64(),
+		IncomingIndex:   key.HTLCInIndex,
+		OutgoingIndex:   key.HTLCOutIndex,
+	}
+}
+
+// rpcHTLCInfo creates a rpc HTLCInfo struct from a htlcnotifier info struct.
+func rpcHTLCInfo(info htlcnotifier.HTLCInfo) *lnrpc.HTLCInfo {
+	return &lnrpc.HTLCInfo{
+		IncomingTimelock: info.IncomingTimeLock,
+		OutgoingTimelock: info.OutgoingTimeLock,
+		IncomingAmount:   uint64(info.IncomingAmt),
+		OutgoingAmt:      uint64(info.OutgoingAmt),
+		PaymentHash:      info.PayHash[:],
+	}
+}
+
+// rpcFailReason maps a lnwire failure message and failure detail to a rpc
+// failReason. If the combination is unknown, an error is returned.
+func rpcFailReason(failure lnwire.FailureMessage,
+	detail htlcnotifier.FailureDetail) (lnrpc.FailReason, error) {
+
+	switch failure.(type) {
+	case *lnwire.FailFinalIncorrectHtlcAmount:
+		return lnrpc.FailReason_FINAL_AMOUNT_INCORRECT, nil
+
+	case *lnwire.FailFinalIncorrectCltvExpiry:
+		return lnrpc.FailReason_FINAL_INCORRECT_CLTV, nil
+
+	case *lnwire.FailIncorrectDetails:
+		switch detail {
+		case htlcnotifier.FailureDetailHODLCancel:
+			return lnrpc.FailReason_HODL_INVOICE_CANCELLED, nil
+
+		case htlcnotifier.FailureDetailInvoiceNotFound:
+			return lnrpc.FailReason_INVOICE_NOT_FOUND, nil
+		}
+
+		return lnrpc.FailReason_INCORRECT_DETAILS, nil
+
+	case *lnwire.InvalidOnionPayload:
+		return lnrpc.FailReason_INVALID_ONION_PAYLOAD, nil
+
+	case *lnwire.FailTemporaryChannelFailure:
+		switch detail {
+		case htlcnotifier.FailureDetailInsufficientBalance:
+			return lnrpc.FailReason_INSUFFICIENT_BALANCE, nil
+
+		case htlcnotifier.FailureDetailHTLCTooBig:
+			return lnrpc.FailReason_HTLC_TOO_BIG, nil
+
+		case htlcnotifier.FailureDetailLinkNotEligible:
+			return lnrpc.FailReason_LINK_NOT_ELIGIBLE, nil
+		}
+
+		return lnrpc.FailReason_TEMPORARY_CHANNEL_FAILURE, nil
+
+	case *lnwire.FailChannelDisabled:
+		return lnrpc.FailReason_CHANNEL_DISABLED, nil
+
+	case *lnwire.FailUnknownNextPeer:
+		return lnrpc.FailReason_UNKNOWN_NEXT_PEER, nil
+
+	case *lnwire.FailAmountBelowMinimum:
+		return lnrpc.FailReason_AMOUNT_BELOW_MINIMUM, nil
+
+	case *lnwire.FailExpiryTooSoon:
+		return lnrpc.FailReason_EXPIRY_TOO_SOON, nil
+
+	case *lnwire.FailExpiryTooFar:
+		return lnrpc.FailReason_EXPIRY_TOO_FAR, nil
+
+	case *lnwire.FailPermanentChannelFailure:
+		return lnrpc.FailReason_PERMANENT_CHANNEL_FAIL, nil
+
+	case *lnwire.FailFeeInsufficient:
+		return lnrpc.FailReason_INSUFFICIENT_FEE, nil
+
+	case *lnwire.FailIncorrectCltvExpiry:
+		return lnrpc.FailReason_INCORRECT_CLTV, nil
+
+	default:
+		if detail == htlcnotifier.FailureDetailMalformedHTLC {
+			return lnrpc.FailReason_MALFORMED_HTLC, nil
+		}
+
+		return 0, fmt.Errorf("unknown link failure: %T: %v", failure, detail)
+	}
 }

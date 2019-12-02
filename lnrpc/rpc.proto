@@ -793,6 +793,12 @@ service Lightning {
             body: "*"
         };
     };
+
+    /**
+    SubscribeHTLCEvents creates a uni-directional stream from the server to
+    the client which delivers a stream a HTLC events.
+    */
+    rpc SubscribeHTLCEvents (SubscribeHTLCEventsRequest) returns (stream HTLCEvent);
 }
 
 message Utxo {
@@ -2796,4 +2802,102 @@ message BakeMacaroonRequest {
 message BakeMacaroonResponse {
     /// The hex encoded macaroon, serialized in binary format.
     string macaroon = 1 [json_name = "macaroon"];
+}
+
+message SubscribeHTLCEventsRequest{}
+
+message HTLCEvent{
+    /*
+    HTLC key identifies HTLCs and can be used to match forward events to their
+    corresponding settle or fail event.
+    */
+    HTLCKey htlc_key = 1 [json_name="htlc_key"];
+
+    // Timestamp is the time (unix epoch offset) that the event occurred.
+    uint64 timestamp = 2 [json_name="timestamp"];
+
+    oneof event {
+        ForwardEvent forward_event = 3 [json_name = "forward_event"];
+        ForwardFailEvent forward_fail_event = 4 [json_name = "forward_fail_event"];
+        SettleEvent settle_event = 5 [json_name = "settle_event"];
+        LinkFailEvent link_fail_event = 6[json_name= "link_fail_event"];
+    }
+}
+
+message HTLCKey{
+    /*
+    IncomingChannel is the channel that the incoming HTLC arrived at our node
+    on. This value is zero for sends.
+    */
+    uint64 incoming_channel = 1[json_name="incoming_channel"];
+
+    /*
+    Outgoing channel is the channel that the outgoing HTLC left our node on.
+    This value is zero for receives.
+    */
+    uint64 outgoing_channel = 2[json_name="outgoing_channel"];
+
+    // Incoming index is the index of the incoming HTLC in the incoming channel.
+    uint64 incoming_index = 3 [json_name="incoming_index"];
+
+    // Outgoing index is the index of the outgoing HTLC in the outgoing channel.
+    uint64 outgoing_index = 4 [json_name="outgoing_index"];
+}
+
+message HTLCInfo{
+    uint32 incoming_timelock = 1 [json_name="incoming_timelock"];
+
+    uint32 outgoing_timelock = 2 [json_name="outgoing_timelock"];
+
+    uint64 incoming_amount = 3 [json_name="incoming_amount"];
+
+    uint64 outgoing_amt = 4 [json_name ="outgoing_amount"];
+
+    // Payment hash is the payment has of the HTLC.
+    bytes payment_hash = 5 [json_name = "payment_hash"];
+}
+
+message ForwardEvent{
+    // HTLCInfo contains details about the HTLC that was forwarded.
+    HTLCInfo htlc_info = 1 [json_name="htlc_info"];
+}
+
+message ForwardFailEvent{}
+
+message SettleEvent{
+    // HTLCInfo contains details about the HTLC that was settled.
+    HTLCInfo htlc_info = 1 [json_name="htlc_info"];
+}
+
+enum FailReason {
+    AMOUNT_BELOW_MINIMUM =0;
+    HTLC_TOO_BIG =1;
+    INSUFFICIENT_BALANCE=2;
+    LINK_NOT_ELIGIBLE=3;
+    CANT_ENCODE_ROUTE =4;
+    UNKNOWN_NEXT_PEER=5;
+    PERMANENT_CHANNEL_FAIL=6;
+    MALFORMED_HTLC =7;
+    EXPIRY_TOO_SOON =8;
+    EXPIRY_TOO_FAR =9;
+    CHANNEL_DISABLED=10;
+    FINAL_AMOUNT_INCORRECT = 11;
+    INVOICE_UNDERPAID = 12;
+    FINAL_INCORRECT_CLTV = 13;
+    INVOICE_NOT_FOUND = 14;
+    HODL_INVOICE_CANCELLED = 15;
+    INVALID_ONION_PAYLOAD = 16;
+    INVOICE_ALREADY_CANCELLED = 17;
+    TEMPORARY_CHANNEL_FAILURE = 18;
+    INSUFFICIENT_FEE = 19;
+    INCORRECT_CLTV = 20;
+    INCORRECT_DETAILS = 21;
+}
+
+message LinkFailEvent{
+    // HTLCInfo contains details about the HTLC that was settled.
+    HTLCInfo htlc_info = 1 [json_name="htlc_info"];
+
+    // FailReason provides the reason that the HTLC failed.
+    FailReason fail_reason = 2 [json_name = "fail_reason"];
 }

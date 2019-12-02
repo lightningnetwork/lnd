@@ -1213,12 +1213,14 @@ func (l *channelLink) processHodlEvent(hodlEvent invoices.HodlEvent,
 
 	// In case of a cancel, always return
 	// incorrect_or_unknown_payment_details in order to avoid leaking info.
-	failure := lnwire.NewFailIncorrectDetails(
-		htlc.pd.Amount, uint32(hodlEvent.AcceptHeight),
-	)
+	failure := ForwardingError{
+		FailureMessage: lnwire.NewFailIncorrectDetails(
+			htlc.pd.Amount, uint32(hodlEvent.AcceptHeight),
+		),
+	}
 
 	l.sendHTLCError(
-		htlc.pd.HtlcIndex, failure, htlc.obfuscator,
+		htlc.pd, failure, htlc.obfuscator,
 		htlc.pd.SourceRef,
 	)
 	return nil
@@ -2604,11 +2606,11 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 			// for TLV payloads that also supports injecting invalid
 			// payloads. Deferring this non-trival effort till a
 			// later date
-			l.sendHTLCError(
-				pd.HtlcIndex,
-				lnwire.NewInvalidOnionPayload(failedType, 0),
-				obfuscator, pd.SourceRef,
-			)
+			failure := ForwardingError{
+				FailureMessage: lnwire.NewInvalidOnionPayload(failedType, 0),
+			}
+
+			l.sendHTLCError(pd, failure, obfuscator, pd.SourceRef)
 
 			l.log.Errorf("unable to decode forwarding "+
 				"instructions: %v", err)
@@ -2711,17 +2713,15 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 				l.log.Errorf("unable to encode the "+
 					"remaining route %v", err)
 
-				failure := l.createFailureWithUpdate(
-					func(upd *lnwire.ChannelUpdate) lnwire.FailureMessage {
-						return lnwire.NewTemporaryChannelFailure(
-							upd,
-						)
-					},
-				)
+				failure := ForwardingError{
+					FailureMessage: l.createFailureWithUpdate(
+						func(upd *lnwire.ChannelUpdate) lnwire.FailureMessage {
+							return lnwire.NewTemporaryChannelFailure(upd)
+						},
+					),
+				}
 
-				l.sendHTLCError(
-					pd.HtlcIndex, failure, obfuscator, pd.SourceRef,
-				)
+				l.sendHTLCError(pd, failure, obfuscator, pd.SourceRef)
 				continue
 			}
 
@@ -2803,8 +2803,10 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 			"value: expected %v, got %v", pd.RHash,
 			pd.Amount, fwdInfo.AmountToForward)
 
-		failure := lnwire.NewFinalIncorrectHtlcAmount(pd.Amount)
-		l.sendHTLCError(pd.HtlcIndex, failure, obfuscator, pd.SourceRef)
+		failure := ForwardingError{
+			FailureMessage: lnwire.NewFinalIncorrectHtlcAmount(pd.Amount),
+		}
+		l.sendHTLCError(pd, failure, obfuscator, pd.SourceRef)
 
 		return nil
 	}
@@ -2816,8 +2818,11 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 			"time-lock: expected %v, got %v",
 			pd.RHash[:], pd.Timeout, fwdInfo.OutgoingCTLV)
 
-		failure := lnwire.NewFinalIncorrectCltvExpiry(pd.Timeout)
-		l.sendHTLCError(pd.HtlcIndex, failure, obfuscator, pd.SourceRef)
+		failure := ForwardingError{
+			FailureMessage: lnwire.NewFinalIncorrectCltvExpiry(pd.Timeout),
+		}
+
+		l.sendHTLCError(pd, failure, obfuscator, pd.SourceRef)
 
 		return nil
 	}
@@ -2841,8 +2846,13 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 
 	// Cancel htlc if we don't have an invoice for it.
 	case channeldb.ErrInvoiceNotFound:
-		failure := lnwire.NewFailIncorrectDetails(pd.Amount, heightNow)
-		l.sendHTLCError(pd.HtlcIndex, failure, obfuscator, pd.SourceRef)
+		failure := ForwardingError{
+			FailureMessage: lnwire.NewFailIncorrectDetails(
+				pd.Amount, heightNow,
+			),
+		}
+
+		l.sendHTLCError(pd, failure, obfuscator, pd.SourceRef)
 
 		return nil
 
@@ -2947,26 +2957,30 @@ func (l *channelLink) handleBatchFwdErrs(errChan chan error) {
 
 // sendHTLCError functions cancels HTLC and send cancel message back to the
 // peer from which HTLC was received.
-func (l *channelLink) sendHTLCError(htlcIndex uint64, failure lnwire.FailureMessage,
-	e hop.ErrorEncrypter, sourceRef *channeldb.AddRef) {
+func (l *channelLink) sendHTLCError(pd *lnwallet.PaymentDescriptor,
+	fwdErr ForwardingError, e hop.ErrorEncrypter,
+	sourceRef *channeldb.AddRef) {
 
-	reason, err := e.EncryptFirstHop(failure)
+	reason, err := e.EncryptFirstHop(fwdErr.FailureMessage)
 	if err != nil {
 		l.log.Errorf("unable to obfuscate error: %v", err)
 		return
 	}
 
-	err = l.channel.FailHTLC(htlcIndex, reason, sourceRef, nil, nil)
+	err = l.channel.FailHTLC(pd.HtlcIndex, reason, sourceRef, nil, nil)
 	if err != nil {
 		l.log.Errorf("unable cancel htlc: %v", err)
 		return
 	}
 
-	l.cfg.Peer.SendMessage(false, &lnwire.UpdateFailHTLC{
+	if err := l.cfg.Peer.SendMessage(false, &lnwire.UpdateFailHTLC{
 		ChanID: l.ChanID(),
-		ID:     htlcIndex,
+		ID:     pd.HtlcIndex,
 		Reason: reason,
-	})
+	}); err != nil {
+		log.Tracef("error sending message to peer %x: %v",
+			l.cfg.Peer.PubKey(), err)
+	}
 }
 
 // sendMalformedHTLCError helper function which sends the malformed HTLC update

@@ -17,6 +17,7 @@ import (
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/htlcswitch"
+	"github.com/lightningnetwork/lnd/htlcswitch/htlcnotifier"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lnrpc/autopilotrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/chainrpc"
@@ -100,6 +101,7 @@ func init() {
 	addSubLogger(routerrpc.Subsystem, routerrpc.UseLogger)
 	addSubLogger(wtclientrpc.Subsystem, wtclientrpc.UseLogger)
 	addSubLogger(chanfitness.Subsystem, chanfitness.UseLogger)
+	addSubLogger(htlcnotifier.Subsystem, htlcnotifier.UseLogger)
 }
 
 // addSubLogger is a helper method to conveniently create and register the

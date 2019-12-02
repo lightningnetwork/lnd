@@ -1203,6 +1203,19 @@ func (l *channelLink) processHodlEvent(hodlEvent invoices.HodlEvent,
 	if hodlEvent.Preimage != nil {
 		l.log.Debugf("received hodl settle event for %v", circuitKey)
 
+		l.cfg.HTLCNotifier.NotifySettleEvent(htlcnotifier.SettleEvent{
+			HTLCKey: htlcnotifier.HTLCKey{
+				IncomingChannel: l.shortChanID,
+				HTLCInIndex:     htlc.pd.HtlcIndex,
+			},
+			HTLCInfo: htlcnotifier.HTLCInfo{
+				IncomingTimeLock: htlc.pd.Timeout,
+				IncomingAmt:      htlc.pd.Amount,
+				PayHash:          htlc.pd.RHash,
+			},
+			Timestamp: time.Now(),
+		})
+
 		return l.settleHTLC(
 			*hodlEvent.Preimage, htlc.pd.HtlcIndex,
 			htlc.pd.SourceRef,
@@ -1356,6 +1369,23 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 		pkt.outgoingHTLCID = index
 		htlc.ID = index
 
+		l.cfg.HTLCNotifier.NotifyForwardingEvent(htlcnotifier.ForwardingEvent{
+			HTLCKey: htlcnotifier.HTLCKey{
+				IncomingChannel: pkt.incomingChanID,
+				OutgoingChannel: pkt.outgoingChanID,
+				HTLCInIndex:     pkt.incomingHTLCID,
+				HTLCOutIndex:    pkt.outgoingHTLCID,
+			},
+			HTLCInfo: htlcnotifier.HTLCInfo{
+				IncomingTimeLock: pkt.incomingTimeout,
+				OutgoingTimeLock: pkt.outgoingTimeout,
+				IncomingAmt:      pkt.incomingAmount,
+				OutgoingAmt:      pkt.amount,
+				PayHash:          htlc.PaymentHash,
+			},
+			Timestamp: time.Now(),
+		})
+
 		l.log.Debugf("queueing keystone of ADD open circuit: %s->%s",
 			pkt.inKey(), pkt.outKey())
 
@@ -1417,6 +1447,23 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 		htlc.ChanID = l.ChanID()
 		htlc.ID = pkt.incomingHTLCID
 
+		l.cfg.HTLCNotifier.NotifySettleEvent(htlcnotifier.SettleEvent{
+			HTLCKey: htlcnotifier.HTLCKey{
+				IncomingChannel: pkt.incomingChanID,
+				OutgoingChannel: pkt.outgoingChanID,
+				HTLCInIndex:     pkt.incomingHTLCID,
+				HTLCOutIndex:    pkt.outgoingHTLCID,
+			},
+			HTLCInfo: htlcnotifier.HTLCInfo{
+				IncomingTimeLock: pkt.incomingTimeout,
+				OutgoingTimeLock: pkt.outgoingTimeout,
+				IncomingAmt:      pkt.incomingAmount,
+				OutgoingAmt:      pkt.amount,
+				PayHash:          sha256.Sum256(htlc.PaymentPreimage[:]),
+			},
+			Timestamp: time.Now(),
+		})
+
 		// Then we send the HTLC settle message to the connected peer
 		// so we can continue the propagation of the settle message.
 		l.cfg.Peer.SendMessage(false, htlc)
@@ -1474,6 +1521,37 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 		// within the switch.
 		htlc.ChanID = l.ChanID()
 		htlc.ID = pkt.incomingHTLCID
+
+		key := htlcnotifier.HTLCKey{
+			IncomingChannel: pkt.incomingChanID,
+			OutgoingChannel: pkt.outgoingChanID,
+			HTLCInIndex:     pkt.incomingHTLCID,
+			HTLCOutIndex:    pkt.outgoingHTLCID,
+		}
+
+		// If there was not a link failure, notify a forwarding failure event.
+		// Otherwise, the failure originated from our node, so should we should
+		// notify a link failure.
+		if pkt.linkFailure == nil {
+			l.cfg.HTLCNotifier.NotifyForwardingFailEvent(
+				htlcnotifier.ForwardingFailEvent{
+					HTLCKey:   key,
+					Timestamp: time.Now(),
+				})
+		} else {
+			l.cfg.HTLCNotifier.NotifyLinkFailEvent(htlcnotifier.LinkFailEvent{
+				HTLCKey: key,
+				HTLCInfo: htlcnotifier.HTLCInfo{
+					IncomingTimeLock: pkt.incomingTimeout,
+					OutgoingTimeLock: pkt.outgoingTimeout,
+					IncomingAmt:      pkt.incomingAmount,
+					OutgoingAmt:      pkt.amount,
+				},
+				FailReason: pkt.linkFailure.FailureMessage,
+				FailDetail: pkt.linkFailure.FailureDetail,
+				Timestamp:  time.Now(),
+			})
+		}
 
 		// Finally, we send the HTLC message to the peer which
 		// initially created the HTLC.
@@ -2802,7 +2880,6 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 	// the HTLC to ensure that it was crafted correctly by the sender and
 	// matches the HTLC we were extended.
 	if pd.Amount != fwdInfo.AmountToForward {
-
 		l.log.Errorf("onion payload of incoming htlc(%x) has incorrect "+
 			"value: expected %v, got %v", pd.RHash,
 			pd.Amount, fwdInfo.AmountToForward)
@@ -2971,6 +3048,25 @@ func (l *channelLink) sendHTLCError(pd *lnwallet.PaymentDescriptor,
 		l.log.Errorf("unable to obfuscate error: %v", err)
 		return
 	}
+
+	// Notify a link failure on our incoming link. Outgoing HTLC information
+	// is not available at this point, because we have not decrypted the onion,
+	// so it is excluded.
+	l.cfg.HTLCNotifier.NotifyLinkFailEvent(htlcnotifier.LinkFailEvent{
+		HTLCKey: htlcnotifier.HTLCKey{
+			IncomingChannel: l.shortChanID,
+			HTLCInIndex:     pd.HtlcIndex,
+		},
+		HTLCInfo: htlcnotifier.HTLCInfo{
+			IncomingTimeLock: pd.Timeout,
+			IncomingAmt:      pd.Amount,
+			PayHash:          pd.RHash,
+		},
+		FailReason:     fwdErr.FailureMessage,
+		FailDetail:     fwdErr.FailureDetail,
+		IncomingFailed: true,
+		Timestamp:      time.Now(),
+	})
 
 	err = l.channel.FailHTLC(pd.HtlcIndex, reason, sourceRef, nil, nil)
 	if err != nil {

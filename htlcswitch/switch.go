@@ -2,6 +2,7 @@ package htlcswitch
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"sync"
@@ -842,6 +843,34 @@ func (s *Switch) handleLocalResponse(pkt *htlcPacket) {
 		log.Errorf("Unable to complete payment for pid=%v: %v",
 			paymentID, err)
 		return
+	}
+
+	// Notify on the HTLC failure or success that is returned.
+	key := htlcnotifier.HTLCKey{
+		IncomingChannel: pkt.incomingChanID,
+		OutgoingChannel: pkt.outgoingChanID,
+		HTLCInIndex:     pkt.incomingHTLCID,
+		HTLCOutIndex:    pkt.outgoingHTLCID,
+	}
+
+	switch msg := pkt.htlc.(type) {
+	case *lnwire.UpdateFulfillHTLC:
+		s.cfg.HTLCNotifier.NotifySettleEvent(htlcnotifier.SettleEvent{
+			HTLCKey: key,
+			HTLCInfo: htlcnotifier.HTLCInfo{
+				IncomingTimeLock: pkt.incomingTimeout,
+				OutgoingTimeLock: pkt.outgoingTimeout,
+				IncomingAmt:      pkt.incomingAmount,
+				OutgoingAmt:      pkt.amount,
+				PayHash:          sha256.Sum256(msg.PaymentPreimage[:]),
+			},
+			Timestamp: time.Now(),
+		})
+	case *lnwire.UpdateFailHTLC:
+		s.cfg.HTLCNotifier.NotifyForwardingFailEvent(htlcnotifier.ForwardingFailEvent{
+			HTLCKey:   key,
+			Timestamp: time.Now(),
+		})
 	}
 
 	// First, we'll clean up any fwdpkg references, circuit entries, and

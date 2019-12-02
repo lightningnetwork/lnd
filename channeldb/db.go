@@ -429,23 +429,12 @@ func (d *DB) fetchNodeChannels(chainBucket *bbolt.Bucket) ([]*OpenChannel, error
 			return nil
 		}
 
-		// Once we've found a valid channel bucket, we'll extract it
-		// from the node's chain bucket.
-		chanBucket := chainBucket.Bucket(chanPoint)
-
-		var outPoint wire.OutPoint
-		err := readOutpoint(bytes.NewReader(chanPoint), &outPoint)
+		channel, err := d.fetchChannelFromBucket(chainBucket, chanPoint)
 		if err != nil {
 			return err
 		}
-		oChannel, err := fetchOpenChannel(chanBucket, &outPoint)
-		if err != nil {
-			return fmt.Errorf("unable to read channel data for "+
-				"chan_point=%v: %v", outPoint, err)
-		}
-		oChannel.Db = d
 
-		channels = append(channels, oChannel)
+		channels = append(channels, channel)
 
 		return nil
 	})
@@ -454,6 +443,30 @@ func (d *DB) fetchNodeChannels(chainBucket *bbolt.Bucket) ([]*OpenChannel, error
 	}
 
 	return channels, nil
+}
+
+// fetchChannelFromBucket fetches the channel identifier by chanPoint from the
+// given bucket.
+func (d *DB) fetchChannelFromBucket(bucket *bbolt.Bucket, chanPoint []byte) (
+	*OpenChannel, error) {
+
+	// Once we've found a valid channel bucket, we'll extract it
+	// from the node's chain bucket.
+	chanBucket := bucket.Bucket(chanPoint)
+
+	var outPoint wire.OutPoint
+	err := readOutpoint(bytes.NewReader(chanPoint), &outPoint)
+	if err != nil {
+		return nil, err
+	}
+	oChannel, err := fetchOpenChannel(chanBucket, &outPoint)
+	if err != nil {
+		return nil, fmt.Errorf("unable to read channel data for "+
+			"chan_point=%v: %v", outPoint, err)
+	}
+	oChannel.Db = d
+
+	return oChannel, nil
 }
 
 // FetchChannel attempts to locate a channel specified by the passed channel

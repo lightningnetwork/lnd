@@ -52,6 +52,29 @@ func randInvoice(value lnwire.MilliSatoshi) (*Invoice, error) {
 	return i, nil
 }
 
+// Tests that pending invoices are those which are either in ContractOpen or
+// in ContractAccepted state.
+func TestInvoiceIsPending(t *testing.T) {
+	contractStates := []ContractState{
+		ContractOpen, ContractSettled, ContractCanceled, ContractAccepted,
+	}
+
+	for _, state := range contractStates {
+		invoice := Invoice{
+			State: state,
+		}
+
+		// We expect that an invoice is pending if it's either in ContractOpen
+		// or ContractAccepted state.
+		pending := (state == ContractOpen || state == ContractAccepted)
+
+		if invoice.IsPending() != pending {
+			t.Fatalf("expected pending: %v, got: %v, invoice: %v",
+				pending, invoice.IsPending(), invoice)
+		}
+	}
+}
+
 func TestInvoiceWorkflow(t *testing.T) {
 	t.Parallel()
 
@@ -436,7 +459,7 @@ func TestFetchAllInvoicesWithPaymentHash(t *testing.T) {
 		invoice.State = states[i%len(states)]
 		paymentHash := invoice.Terms.PaymentPreimage.Hash()
 
-		if invoice.State != ContractSettled && invoice.State != ContractCanceled {
+		if invoice.IsPending() {
 			testPendingInvoices[paymentHash] = invoice
 		}
 
@@ -576,6 +599,69 @@ func TestDuplicateSettleInvoice(t *testing.T) {
 	if !reflect.DeepEqual(dbInvoice, invoice) {
 		t.Fatalf("wrong invoice after second settle, expected %v got %v",
 			spew.Sdump(invoice), spew.Sdump(dbInvoice))
+	}
+}
+
+// TestFetchAllInvoices tests that FetchAllInvoices works as expected.
+func TestFetchAllInvoices(t *testing.T) {
+	t.Parallel()
+
+	db, cleanUp, err := makeTestDB()
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to make test db: %v", err)
+	}
+
+	contractStates := []ContractState{
+		ContractOpen, ContractSettled, ContractCanceled, ContractAccepted,
+	}
+
+	numInvoices := len(contractStates) * 2
+
+	var expectedPendingInvoices []Invoice
+	var expectedAllInvoices []Invoice
+
+	for i := 1; i <= numInvoices; i++ {
+		invoice, err := randInvoice(lnwire.MilliSatoshi(i))
+
+		if err != nil {
+			t.Fatalf("unable to create invoice: %v", err)
+		}
+
+		invoice.AddIndex = uint64(i)
+		// Set the contract state of the next invoice such that there's an equal
+		// number for all possbile states.
+		invoice.State = contractStates[i%len(contractStates)]
+
+		paymentHash := invoice.Terms.PaymentPreimage.Hash()
+		if invoice.IsPending() {
+			expectedPendingInvoices = append(expectedPendingInvoices, *invoice)
+		}
+		expectedAllInvoices = append(expectedAllInvoices, *invoice)
+
+		if _, err := db.AddInvoice(invoice, paymentHash); err != nil {
+			t.Fatalf("unable to add invoice: %v", err)
+		}
+	}
+
+	pendingInvoices, err := db.FetchAllInvoices(true)
+	if err != nil {
+		t.Fatalf("unable to fetch all pending invoices: %v", err)
+	}
+
+	allInvoices, err := db.FetchAllInvoices(false)
+	if err != nil {
+		t.Fatalf("unable to fetch all non pending invoices: %v", err)
+	}
+
+	if !reflect.DeepEqual(pendingInvoices, expectedPendingInvoices) {
+		t.Fatalf("pending invoices: %v\n != \n expected einvoices: %v",
+			spew.Sdump(pendingInvoices), spew.Sdump(expectedPendingInvoices))
+	}
+
+	if !reflect.DeepEqual(allInvoices, expectedAllInvoices) {
+		t.Fatalf("pending + non pending: %v\n != \n expected: %v",
+			spew.Sdump(allInvoices), spew.Sdump(expectedAllInvoices))
 	}
 }
 

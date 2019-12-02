@@ -7556,7 +7556,9 @@ func (m *PaymentHash) GetRHash() []byte {
 }
 
 type ListInvoiceRequest struct {
-	/// If set, only unsettled invoices will be returned in the response.
+	//*
+	//If set, only invoices that are not settled and not canceled will be returned
+	//in the response.
 	PendingOnly bool `protobuf:"varint,1,opt,name=pending_only,proto3" json:"pending_only,omitempty"`
 	//*
 	//The index of an invoice that will be used as either the start or end of a

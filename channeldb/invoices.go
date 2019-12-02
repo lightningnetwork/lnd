@@ -149,15 +149,13 @@ const (
 	// ContractOpen means the invoice has only been created.
 	ContractOpen ContractState = 0
 
-	// ContractSettled means the htlc is settled and the invoice has been
-	// paid.
+	// ContractSettled means the htlc is settled and the invoice has been paid.
 	ContractSettled ContractState = 1
 
 	// ContractCanceled means the invoice has been canceled.
 	ContractCanceled ContractState = 2
 
-	// ContractAccepted means the HTLC has been accepted but not settled
-	// yet.
+	// ContractAccepted means the HTLC has been accepted but not settled yet.
 	ContractAccepted ContractState = 3
 )
 
@@ -385,6 +383,11 @@ func validateInvoice(i *Invoice) error {
 	return nil
 }
 
+// IsPending returns ture if the invoice is in ContractOpen state.
+func (i *Invoice) IsPending() bool {
+	return i.State == ContractOpen || i.State == ContractAccepted
+}
+
 // AddInvoice inserts the targeted invoice into the database. If the invoice has
 // *any* payment hashes which already exists within the database, then the
 // insertion will be aborted and rejected due to the strict policy banning any
@@ -578,9 +581,9 @@ type InvoiceWithPaymentHash struct {
 
 // FetchAllInvoicesWithPaymentHash returns all invoices and their payment hashes
 // currently stored within the database. If the pendingOnly param is true, then
-// only unsettled invoices and their payment hashes will be returned, skipping
-// all invoices that are fully settled or canceled. Note that the returned
-// array is not ordered by add index.
+// only open or accepted invoices and their payment hashes will be returned,
+// skipping all invoices that are fully settled or canceled. Note that the
+// returned array is not ordered by add index.
 func (d *DB) FetchAllInvoicesWithPaymentHash(pendingOnly bool) (
 	[]InvoiceWithPaymentHash, error) {
 
@@ -617,10 +620,7 @@ func (d *DB) FetchAllInvoicesWithPaymentHash(pendingOnly bool) (
 				return err
 			}
 
-			if pendingOnly &&
-				(invoice.State == ContractSettled ||
-					invoice.State == ContractCanceled) {
-
+			if pendingOnly && !invoice.IsPending() {
 				return nil
 			}
 
@@ -643,8 +643,9 @@ func (d *DB) FetchAllInvoicesWithPaymentHash(pendingOnly bool) (
 }
 
 // FetchAllInvoices returns all invoices currently stored within the database.
-// If the pendingOnly param is true, then only unsettled invoices will be
-// returned, skipping all invoices that are fully settled.
+// If the pendingOnly param is set to true, then only invoices in open or
+// accepted state will be returned, skipping all invoices that are fully
+// settled or canceled.
 func (d *DB) FetchAllInvoices(pendingOnly bool) ([]Invoice, error) {
 	var invoices []Invoice
 
@@ -668,9 +669,7 @@ func (d *DB) FetchAllInvoices(pendingOnly bool) ([]Invoice, error) {
 				return err
 			}
 
-			if pendingOnly &&
-				invoice.State == ContractSettled {
-
+			if pendingOnly && !invoice.IsPending() {
 				return nil
 			}
 
@@ -816,11 +815,9 @@ func (d *DB) QueryInvoices(q InvoiceQuery) (InvoiceSlice, error) {
 				return err
 			}
 
-			// Skip any settled invoices if the caller is only
-			// interested in unsettled.
-			if q.PendingOnly &&
-				invoice.State == ContractSettled {
-
+			// Skip any settled or canceled invoices if the caller is
+			// only interested in pending ones.
+			if q.PendingOnly && !invoice.IsPending() {
 				continue
 			}
 

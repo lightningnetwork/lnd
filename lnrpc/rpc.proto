@@ -2450,7 +2450,10 @@ message PaymentHash {
 }
 
 message ListInvoiceRequest {
-    /// If set, only unsettled invoices will be returned in the response.
+    /**
+    If set, only invoices that are not settled and not canceled will be returned
+    in the response.
+    */
     bool pending_only = 1 [json_name = "pending_only"];
 
     /**

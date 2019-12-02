@@ -896,7 +896,7 @@
         "parameters": [
           {
             "name": "pending_only",
-            "description": "/ If set, only unsettled invoices will be returned in the response.",
+            "description": "*\nIf set, only invoices that are not settled and not canceled will be returned\nin the response.",
             "in": "query",
             "required": false,
             "type": "boolean",

@@ -155,7 +155,7 @@ type Config struct {
 
 	// HTLCNotifier is an instance of a htlcNotifier which we will pipe HTLC
 	// events through.
-	HTLCNotifier *htlcnotifier.HTLCNotifier
+	HTLCNotifier htlcnotifier.Notifier
 
 	// FwdEventTicker is a signal that instructs the htlcswitch to flush any
 	// pending forwarding events.
@@ -485,18 +485,19 @@ func (s *Switch) forward(packet *htlcPacket) error {
 				return err
 			}
 
-			var failure lnwire.FailureMessage
+			failure := &ForwardingError{
+				ExtraMsg: ErrIncompleteForward.Error(),
+			}
 			update, err := s.cfg.FetchLastChannelUpdate(
 				packet.incomingChanID,
 			)
 			if err != nil {
-				failure = &lnwire.FailTemporaryNodeFailure{}
+				failure.FailureMessage = &lnwire.FailTemporaryNodeFailure{}
 			} else {
-				failure = lnwire.NewTemporaryChannelFailure(update)
+				failure.FailureMessage = lnwire.NewTemporaryChannelFailure(update)
 			}
-			addErr := ErrIncompleteForward
 
-			return s.failAddPacket(packet, failure, addErr)
+			return s.failAddPacket(packet, failure)
 		}
 
 		packet.circuit = circuit
@@ -636,23 +637,25 @@ func (s *Switch) ForwardPackets(linkQuit chan struct{},
 	// left in a half added state, which can happen when recovering from
 	// failures.
 	if len(failedPackets) > 0 {
-		var failure lnwire.FailureMessage
+		failure := &ForwardingError{
+			ExtraMsg: "failing packet after detecting incomplete forward",
+		}
+
 		update, err := s.cfg.FetchLastChannelUpdate(
 			failedPackets[0].incomingChanID,
 		)
 		if err != nil {
-			failure = &lnwire.FailTemporaryNodeFailure{}
+			failure.FailureMessage = &lnwire.FailTemporaryNodeFailure{}
 		} else {
-			failure = lnwire.NewTemporaryChannelFailure(update)
+			failure.FailureMessage = lnwire.NewTemporaryChannelFailure(update)
 		}
 
 		for _, packet := range failedPackets {
-			addErr := errors.New("failing packet after " +
-				"detecting incomplete forward")
-
 			// We don't handle the error here since this method
 			// always returns an error.
-			s.failAddPacket(packet, failure, addErr)
+			if err := s.failAddPacket(packet, failure); err != nil {
+				log.Tracef("error failing packet: %v", err)
+			}
 		}
 	}
 
@@ -769,14 +772,18 @@ func (s *Switch) handleLocalDispatch(pkt *htlcPacket) error {
 				pkt.outgoingChanID)
 			log.Error(err)
 
-			// The update does not need to be populated as the error
-			// will be returned back to the router.
-			htlcErr := lnwire.NewTemporaryChannelFailure(nil)
-			return &ForwardingError{
+			fwdErr := &ForwardingError{
+				// The update does not need to be populated as the error
+				// will be returned back to the router.
+				FailureMessage: lnwire.NewTemporaryChannelFailure(nil),
+				ExtraMsg: fmt.Sprintf("Link %v is not available to forward",
+					pkt.outgoingChanID),
 				FailureSourceIdx: 0,
-				ExtraMsg:         err.Error(),
-				FailureMessage:   htlcErr,
 			}
+
+			log.Error(fwdErr.ExtraMsg)
+
+			return fwdErr
 		}
 
 		// Ensure that the htlc satisfies the outgoing channel policy.
@@ -790,10 +797,7 @@ func (s *Switch) handleLocalDispatch(pkt *htlcPacket) error {
 			log.Errorf("Link %v policy for local forward not "+
 				"satisfied", pkt.outgoingChanID)
 
-			return &ForwardingError{
-				FailureSourceIdx: 0,
-				FailureMessage:   htlcErr,
-			}
+			return htlcErr
 		}
 
 		return link.HandleSwitchPacket(pkt)
@@ -984,10 +988,12 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 		// Check if the node is set to reject all onward HTLCs and also make
 		// sure that HTLC is not from the source node.
 		if s.cfg.RejectHTLC && packet.incomingChanID != hop.Source {
-			failure := &lnwire.FailChannelDisabled{}
-			addErr := fmt.Errorf("unable to forward any htlcs")
+			failure := &ForwardingError{
+				FailureMessage: &lnwire.FailChannelDisabled{},
+				ExtraMsg:       "unable to forward any htlcs",
+			}
 
-			return s.failAddPacket(packet, failure, addErr)
+			return s.failAddPacket(packet, failure)
 		}
 
 		if packet.incomingChanID == hop.Source {
@@ -1004,11 +1010,13 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 			// If packet was forwarded from another channel link
 			// than we should notify this link that some error
 			// occurred.
-			failure := &lnwire.FailUnknownNextPeer{}
-			addErr := fmt.Errorf("unable to find link with "+
-				"destination %v", packet.outgoingChanID)
+			failure := &ForwardingError{
+				FailureMessage: &lnwire.FailUnknownNextPeer{},
+				ExtraMsg: fmt.Sprintf("unable to find link with "+
+					"destination %v", packet.outgoingChanID),
+			}
 
-			return s.failAddPacket(packet, failure, addErr)
+			return s.failAddPacket(packet, failure)
 		}
 		targetPeerKey := targetLink.Peer().PubKey()
 		interfaceLinks, _ := s.getLinks(targetPeerKey)
@@ -1018,18 +1026,20 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 		// selection process. This way we can return the error for
 		// precise link that the sender selected, while optimistically
 		// trying all links to utilize our available bandwidth.
-		linkErrs := make(map[lnwire.ShortChannelID]lnwire.FailureMessage)
+		linkErrs := make(map[lnwire.ShortChannelID]*ForwardingError)
 
 		// Try to find destination channel link with appropriate
 		// bandwidth.
 		var destination ChannelLink
 		for _, link := range interfaceLinks {
-			var failure lnwire.FailureMessage
+			var failure *ForwardingError
 
 			// We'll skip any links that aren't yet eligible for
 			// forwarding.
 			if !link.EligibleToForward() {
-				failure = &lnwire.FailUnknownNextPeer{}
+				failure = &ForwardingError{
+					FailureMessage: &lnwire.FailUnknownNextPeer{},
+				}
 			} else {
 				// We'll ensure that the HTLC satisfies the
 				// current forwarding conditions of this target
@@ -1064,7 +1074,9 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 				// If we can't find the error of the source,
 				// then we'll return an unknown next peer,
 				// though this should never happen.
-				linkErr = &lnwire.FailUnknownNextPeer{}
+				linkErr = &ForwardingError{
+					FailureMessage: &lnwire.FailUnknownNextPeer{},
+				}
 				log.Warnf("unable to find err source for "+
 					"outgoing_link=%v, errors=%v",
 					packet.outgoingChanID, newLogClosure(func() string {
@@ -1072,12 +1084,11 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 					}))
 			}
 
-			addErr := fmt.Errorf("incoming HTLC(%x) violated "+
-				"target outgoing link (id=%v) policy: %v",
-				htlc.PaymentHash[:], packet.outgoingChanID,
-				linkErr)
+			linkErr.ExtraMsg = fmt.Sprintf("incoming HTLC(%x) violated "+
+				"target outgoing link (id=%v) policy: %T", htlc.PaymentHash[:],
+				packet.outgoingChanID, linkErr.FailureMessage)
 
-			return s.failAddPacket(packet, linkErr, addErr)
+			return s.failAddPacket(packet, linkErr)
 		}
 
 		// Send the packet to the destination channel link which
@@ -1179,12 +1190,12 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 // The ciphertext will be derived from the failure message proivded by context.
 // This method returns the failErr if all other steps complete successfully.
 func (s *Switch) failAddPacket(packet *htlcPacket,
-	failure lnwire.FailureMessage, failErr error) error {
+	fwdErr *ForwardingError) error {
 
 	// Encrypt the failure so that the sender will be able to read the error
 	// message. Since we failed this packet, we use EncryptFirstHop to
 	// obfuscate the failure for their eyes only.
-	reason, err := packet.obfuscator.EncryptFirstHop(failure)
+	reason, err := packet.obfuscator.EncryptFirstHop(fwdErr.FailureMessage)
 	if err != nil {
 		err := fmt.Errorf("unable to obfuscate "+
 			"error: %v", err)
@@ -1192,7 +1203,7 @@ func (s *Switch) failAddPacket(packet *htlcPacket,
 		return err
 	}
 
-	log.Error(failErr)
+	log.Error(fwdErr.ExtraMsg)
 
 	failPkt := &htlcPacket{
 		sourceRef:      packet.sourceRef,
@@ -1214,7 +1225,7 @@ func (s *Switch) failAddPacket(packet *htlcPacket,
 		return err
 	}
 
-	return failErr
+	return fwdErr
 }
 
 // closeCircuit accepts a settle or fail htlc and the associated htlc packet and

@@ -24,6 +24,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
+	"github.com/lightningnetwork/lnd/htlcswitch/htlcnotifier"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lnpeer"
@@ -172,6 +173,7 @@ func initSwitchWithDB(startingHeight uint32, db *channeldb.DB) (*Switch, error) 
 			return nil, nil
 		},
 		Notifier:       &mockNotifier{},
+		HTLCNotifier:   &mockHTLCNotifier{},
 		FwdEventTicker: ticker.NewForce(DefaultFwdEventInterval),
 		LogEventTicker: ticker.NewForce(DefaultLogInterval),
 		AckEventTicker: ticker.NewForce(DefaultAckInterval),
@@ -647,9 +649,9 @@ type mockChannelLink struct {
 
 	htlcID uint64
 
-	checkHtlcTransitResult lnwire.FailureMessage
+	checkHtlcTransitResult *ForwardingError
 
-	checkHtlcForwardResult lnwire.FailureMessage
+	checkHtlcForwardResult *ForwardingError
 }
 
 // completeCircuit is a helper method for adding the finalized payment circuit
@@ -709,14 +711,14 @@ func (f *mockChannelLink) HandleChannelUpdate(lnwire.Message) {
 func (f *mockChannelLink) UpdateForwardingPolicy(_ ForwardingPolicy) {
 }
 func (f *mockChannelLink) CheckHtlcForward([32]byte, lnwire.MilliSatoshi,
-	lnwire.MilliSatoshi, uint32, uint32, uint32) lnwire.FailureMessage {
+	lnwire.MilliSatoshi, uint32, uint32, uint32) *ForwardingError {
 
 	return f.checkHtlcForwardResult
 }
 
 func (f *mockChannelLink) CheckHtlcTransit(payHash [32]byte,
 	amt lnwire.MilliSatoshi, timeout uint32,
-	heightNow uint32) lnwire.FailureMessage {
+	heightNow uint32) *ForwardingError {
 
 	return f.checkHtlcTransitResult
 }
@@ -937,6 +939,16 @@ func (m *mockNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint, _ []byte,
 		Spend: make(chan *chainntnfs.SpendDetail),
 	}, nil
 }
+
+type mockHTLCNotifier struct{}
+
+func (h *mockHTLCNotifier) NotifyForwardingEvent(event htlcnotifier.ForwardingEvent) {}
+
+func (h *mockHTLCNotifier) NotifyLinkFailEvent(event htlcnotifier.LinkFailEvent) {}
+
+func (h *mockHTLCNotifier) NotifyForwardingFailEvent(event htlcnotifier.ForwardingFailEvent) {}
+
+func (h *mockHTLCNotifier) NotifySettleEvent(event htlcnotifier.SettleEvent) {}
 
 type mockCircuitMap struct {
 	lookup chan *PaymentCircuit

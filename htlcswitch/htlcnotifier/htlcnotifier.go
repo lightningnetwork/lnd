@@ -173,6 +173,8 @@ type SettleEvent struct {
 
 // NotifyForwardingEvent notifies the HTLCNotifier than a HTLC has been
 // forwarded.
+//
+// Note this is part of the Notifier interface.
 func (h *HTLCNotifier) NotifyForwardingEvent(event ForwardingEvent) {
 	log.Debugf("Notifying forward event from %v(%v) to %v(%v)",
 		event.IncomingChannel, event.HTLCInIndex, event.OutgoingChannel,
@@ -185,6 +187,8 @@ func (h *HTLCNotifier) NotifyForwardingEvent(event ForwardingEvent) {
 
 // NotifyLinkFailEvent notifies the HTLCNotifier that we have failed a HTLC on
 // one of our links.
+//
+// Note this is part of the Notifier interface.
 func (h *HTLCNotifier) NotifyLinkFailEvent(event LinkFailEvent) {
 	log.Debugf("Notifying link failure event from %v(%v) to %v(%v),"+
 		"incoming link: %v, with reason: %v, details: %v", event.IncomingChannel,
@@ -198,6 +202,8 @@ func (h *HTLCNotifier) NotifyLinkFailEvent(event LinkFailEvent) {
 
 // NotifyForwardingFailEvent notifies the HTLCNotifier that a HTLC we forwarded
 // has failed down the line.
+//
+// Note this is part of the Notifier interface.
 func (h *HTLCNotifier) NotifyForwardingFailEvent(event ForwardingFailEvent) {
 	log.Debugf("Notifying forwarding failure event from %v(%v) to %v(%v)",
 		event.IncomingChannel, event.HTLCInIndex, event.OutgoingChannel,
@@ -210,6 +216,8 @@ func (h *HTLCNotifier) NotifyForwardingFailEvent(event ForwardingFailEvent) {
 
 // NotifySettleEvent notifies the HTLCNotifier that a HTLC that we committed to
 // as part of a forward or a receive to our node has been settled.
+//
+// Note this is part of the Notifier interface.
 func (h *HTLCNotifier) NotifySettleEvent(event SettleEvent) {
 	log.Debugf("Notifying settle event from %v(%v) to %v(%v)",
 		event.IncomingChannel, event.HTLCInIndex, event.OutgoingChannel,

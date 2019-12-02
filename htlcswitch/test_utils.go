@@ -1139,6 +1139,7 @@ func (h *hopNetwork) createChannelLink(server, peer *mockServer,
 			MaxFeeAllocation:        DefaultMaxLinkFeeAllocation,
 			NotifyActiveChannel:     func(wire.OutPoint) {},
 			NotifyInactiveChannel:   func(wire.OutPoint) {},
+			HTLCNotifier:            &mockHTLCNotifier{},
 		},
 		channel,
 	)

@@ -38,6 +38,7 @@ import (
 	"github.com/lightningnetwork/lnd/feature"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
+	"github.com/lightningnetwork/lnd/htlcswitch/htlcnotifier"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lncfg"
@@ -200,6 +201,8 @@ type server struct {
 	channelNotifier *channelnotifier.ChannelNotifier
 
 	peerNotifier *peernotifier.PeerNotifier
+
+	htlcNotifier *htlcnotifier.HTLCNotifier
 
 	witnessBeacon contractcourt.WitnessBeacon
 
@@ -428,6 +431,8 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 		return nil, err
 	}
 
+	s.htlcNotifier = htlcnotifier.New()
+
 	s.htlcSwitch, err = htlcswitch.New(htlcswitch.Config{
 		DB: chanDB,
 		LocalChannelClose: func(pubKey []byte,
@@ -457,6 +462,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 		ExtractErrorEncrypter:  s.sphinx.ExtractErrorEncrypter,
 		FetchLastChannelUpdate: s.fetchLastChanUpdate(),
 		Notifier:               s.cc.chainNotifier,
+		HTLCNotifier:           s.htlcNotifier,
 		FwdEventTicker:         ticker.New(htlcswitch.DefaultFwdEventInterval),
 		LogEventTicker:         ticker.New(htlcswitch.DefaultLogInterval),
 		AckEventTicker:         ticker.New(htlcswitch.DefaultAckInterval),
@@ -1300,6 +1306,10 @@ func (s *server) Start() error {
 			startErr = err
 			return
 		}
+		if err := s.htlcNotifier.Start(); err != nil {
+			startErr = err
+			return
+		}
 
 		// Before we start the connMgr, we'll check to see if we have
 		// any backups to recover. We do this now as we want to ensure
@@ -1417,6 +1427,7 @@ func (s *server) Stop() error {
 		s.fundingMgr.Stop()
 		s.chanSubSwapper.Stop()
 		s.chanEventStore.Stop()
+		s.htlcNotifier.Stop()
 
 		// Disconnect from each active peers to ensure that
 		// peerTerminationWatchers signal completion to each peer.

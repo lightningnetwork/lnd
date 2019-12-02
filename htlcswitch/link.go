@@ -19,6 +19,7 @@ import (
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/htlcswitch/hodl"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
+	"github.com/lightningnetwork/lnd/htlcswitch/htlcnotifier"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lnpeer"
@@ -274,6 +275,10 @@ type ChannelLinkConfig struct {
 	// NotifyInactiveChannel allows the switch to tell the ChannelNotifier
 	// when channels become inactive.
 	NotifyInactiveChannel func(wire.OutPoint)
+
+	// HTLCNotifier is an instance of a htlcNotifier which we will pipe HTLC
+	// events through.
+	HTLCNotifier *htlcnotifier.HTLCNotifier
 }
 
 // channelLink is the service which drives a channel's commitment update

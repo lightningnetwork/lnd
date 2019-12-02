@@ -16,6 +16,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
+	"github.com/lightningnetwork/lnd/htlcswitch/htlcnotifier"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -151,6 +152,10 @@ type Config struct {
 	// Notifier is an instance of a chain notifier that we'll use to signal
 	// the switch when a new block has arrived.
 	Notifier chainntnfs.ChainNotifier
+
+	// HTLCNotifier is an instance of a htlcNotifier which we will pipe HTLC
+	// events through.
+	HTLCNotifier *htlcnotifier.HTLCNotifier
 
 	// FwdEventTicker is a signal that instructs the htlcswitch to flush any
 	// pending forwarding events.

@@ -29,4 +29,8 @@ var defaultSetDesc = setDesc{
 		SetNodeAnn:      {}, // N
 		SetLegacyGlobal: {},
 	},
+	lnwire.UpfrontShutdownScriptOptional: {
+		SetInit:    {}, // I
+		SetNodeAnn: {}, // N
+	},
 }

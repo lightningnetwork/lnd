@@ -149,6 +149,7 @@ type testNode struct {
 	mockNotifier    *mockNotifier
 	testDir         string
 	shutdownChannel chan struct{}
+	remoteFeatures  []lnwire.FeatureBit
 
 	remotePeer  *testNode
 	sendMessage func(lnwire.Message) error
@@ -189,7 +190,9 @@ func (n *testNode) LocalFeatures() *lnwire.FeatureVector {
 }
 
 func (n *testNode) RemoteFeatures() *lnwire.FeatureVector {
-	return lnwire.NewFeatureVector(nil, nil)
+	return lnwire.NewFeatureVector(
+		lnwire.NewRawFeatureVector(n.remoteFeatures...), nil,
+	)
 }
 
 func (n *testNode) AddNewChannel(channel *channeldb.OpenChannel,
@@ -2946,5 +2949,94 @@ func TestFundingManagerFundAll(t *testing.T) {
 					txIn.PreviousOutPoint)
 			}
 		}
+	}
+}
+
+// TestGetUpfrontShutdown tests different combinations of inputs for getting a
+// shutdown script. It varies whether the peer has the feature set, whether
+// the user has provided a script and our local configuration to test that
+// GetUpfrontShutdownScript returns the expected outcome.
+func TestGetUpfrontShutdownScript(t *testing.T) {
+	upfrontScript := []byte("upfront script")
+	generatedScript := []byte("generated script")
+
+	getScript := func() (lnwire.DeliveryAddress, error) {
+		return generatedScript, nil
+	}
+
+	tests := []struct {
+		name           string
+		getScript      func() (lnwire.DeliveryAddress, error)
+		upfrontScript  lnwire.DeliveryAddress
+		peerEnabled    bool
+		localEnabled   bool
+		expectedScript lnwire.DeliveryAddress
+		expectedErr    error
+	}{
+		{
+			name:      "peer disabled, no shutdown",
+			getScript: getScript,
+		},
+		{
+			name:          "peer disabled, upfront provided",
+			upfrontScript: upfrontScript,
+			expectedErr:   errUpfrontShutdownScriptNotSupported,
+		},
+		{
+			name:           "peer enabled, upfront provided",
+			upfrontScript:  upfrontScript,
+			peerEnabled:    true,
+			expectedScript: upfrontScript,
+		},
+		{
+			name:        "peer enabled, local disabled",
+			peerEnabled: true,
+		},
+		{
+			name:           "local enabled, no upfront script",
+			getScript:      getScript,
+			peerEnabled:    true,
+			localEnabled:   true,
+			expectedScript: generatedScript,
+		},
+		{
+			name:           "local enabled, upfront script",
+			peerEnabled:    true,
+			upfrontScript:  upfrontScript,
+			localEnabled:   true,
+			expectedScript: upfrontScript,
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+
+		t.Run(test.name, func(t *testing.T) {
+			var mockPeer testNode
+
+			// If the remote peer in the test should support upfront shutdown,
+			// add the feature bit.
+			if test.peerEnabled {
+				mockPeer.remoteFeatures = []lnwire.FeatureBit{
+					lnwire.UpfrontShutdownScriptOptional,
+				}
+			}
+
+			// Set the command line option in config as needed.
+			cfg = &config{EnableUpfrontShutdown: test.localEnabled}
+
+			addr, err := getUpfrontShutdownScript(
+				&mockPeer, test.upfrontScript, test.getScript,
+			)
+			if err != test.expectedErr {
+				t.Fatalf("got: %v, expected error: %v", err, test.expectedErr)
+			}
+
+			if !bytes.Equal(addr, test.expectedScript) {
+				t.Fatalf("expected address: %x, got: %x",
+					test.expectedScript, addr)
+			}
+
+		})
 	}
 }

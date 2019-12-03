@@ -45,7 +45,7 @@ NETWORK=$(set_default "$NETWORK" "simnet")
 
 PARAMS=""
 if [ "$NETWORK" != "mainnet" ]; then
-    PARAMS=$(echo --$NETWORK)
+    PARAMS="--$NETWORK"
 fi
 
 PARAMS=$(echo $PARAMS \

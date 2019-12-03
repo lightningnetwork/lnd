@@ -4918,6 +4918,18 @@ func (lc *LightningChannel) ShortChanID() lnwire.ShortChannelID {
 	return lc.channelState.ShortChanID()
 }
 
+// LocalUpfrontShutdownScript returns the local upfront shutdown script for the
+// channel. If it was not set, an empty byte array is returned.
+func (lc *LightningChannel) LocalUpfrontShutdownScript() lnwire.DeliveryAddress {
+	return nil
+}
+
+// RemoteUpfrontShutdownScript returns the remote upfront shutdown script for the
+// channel. If it was not set, an empty byte array is returned.
+func (lc *LightningChannel) RemoteUpfrontShutdownScript() lnwire.DeliveryAddress {
+	return nil
+}
+
 // genHtlcScript generates the proper P2WSH public key scripts for the HTLC
 // output modified by two-bits denoting if this is an incoming HTLC, and if the
 // HTLC is being applied to their commitment transaction or ours.

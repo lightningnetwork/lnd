@@ -64,3 +64,10 @@ linters:
 issues:
   # Only show newly introduced problems.
   new-from-rev: 01f696afce2f9c0d4ed854edefa3846891d01d8a
+
+  exclude-rules:
+    # Exclude gosec from running for tests so that tests with weak randomness
+    # (math/rand) will pass the linter.
+    - path: _test\.go
+      linters:
+        - gosec

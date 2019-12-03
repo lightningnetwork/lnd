@@ -793,6 +793,19 @@ service Lightning {
             body: "*"
         };
     };
+
+    /** lncli: `channelrevenue`
+    ChannelReports returns a report on all channels that forwarded htlcs over
+    the period queried. The report contains details of the channel's revenue
+    earned over the period. If available, the channel's remote peer's uptime is
+    also reported.
+    */
+    rpc ChannelReports(ChannelReportsRequest) returns (ChannelReportsResponse) {
+        option (google.api.http) = {
+            post: "/v1/report"
+            body: "*"
+        };
+    };
 }
 
 message Utxo {
@@ -2815,4 +2828,93 @@ message BakeMacaroonRequest {
 message BakeMacaroonResponse {
     /// The hex encoded macaroon, serialized in binary format.
     string macaroon = 1 [json_name = "macaroon"];
+}
+
+message ChannelReportsRequest{
+    /*
+    Start time is beginning of the range over which the report will be
+    generated, expressed as unix epoch offset in seconds.
+    */
+    uint64 start_time = 1 [json_name = "start_time"];
+
+    /*
+    End time is end of the range over which the report will be
+    generated, expressed as unix epoch offset in seconds.
+     */
+    uint64 end_time = 2 [json_name = "end_time"];
+}
+
+message ChannelReportsResponse{
+    /*
+    ChannelReport is a set of channel reports for all the channels that
+    forwarded htlcs the relevant period.
+    */
+    repeated ChannelReport reports = 1 [json_name = "channel_report"];
+}
+
+message ChannelReport{
+    /*
+    OutPoint is the funding outpoint of the channel this report has
+    been generated for.
+    */
+    OutPoint channel_outpoint = 1 [json_name = "channel_outpoint"];
+
+    /*
+    Uptime is the amount of time in seconds that the remote peer for this
+    channel was observed as being online for.
+    */
+    int64 uptime_seconds = 2 [json_name = "uptime_seconds"];
+
+    /*
+    Monitored since is the time (unix epoch offset in seconds) from which the
+    channel's uptime was first calculated. If this value is zero, the channel's
+    uptime was not monitored.
+    */
+    int64 monitored_since = 3 [json_name = "monitored_since"];
+
+    /*
+    Monitored until is the time (unix epoch offset in seconds) that the
+    channel's uptime was monitored until. If this value is zero, the channel's
+    uptime was not monitored.
+    */
+    int64 monitored_until = 4 [json_name = "monitored_until"];
+
+    /*
+    Revenue reports provide the revenue that the channel has generated
+    through forwarding htlcs. They are provided per partner channel, as
+    htlcs are forwarded by pairs of channels.
+    */
+    repeated RevenueReport revenue_reports =5[json_name="revenue_reports"];
+}
+
+message RevenueReport{
+    // OutPoint channel is funcing outpoing the channel that this revenue was
+    // generated with.
+    OutPoint pair_channel = 1 [json_name="pair_channel"];
+
+    /*
+    Amount outgoing msat is the amount in millisatoshis that arrived
+    on the pair channel to be forwarded onwards by our channel.
+    */
+    int64 amount_outgoing_msat = 2 [json_name = "amount_outgoing_msat"];
+
+    /*
+    Fees outgoing is the amount of fees in millisatoshis that we
+    attribute to the channel for its role as the outgoing channel in
+    forwards.
+     */
+    int64 fees_outgoing_msat = 3 [json_name = "fees_outgoing_msat"];
+
+    /*
+    Amount incoming msat is the amount in millisatoshis that arrived
+    on our channel to be forwarded onwards by the pair channel.
+    */
+    int64 amount_incoming_msat = 4 [json_name = "amount_incoming_msat"];
+
+    /*
+    Fees incoming is the amount of fees in millisatoshis that we
+    attribute to the channel for its role as the incoming channel in
+    forwards.
+     */
+    int64 fees_incoming_msat = 5 [json_name = "fees_incoming_msat"];
 }

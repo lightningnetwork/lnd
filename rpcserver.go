@@ -32,6 +32,7 @@ import (
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/chanacceptor"
 	"github.com/lightningnetwork/lnd/chanbackup"
+	"github.com/lightningnetwork/lnd/chanfitness"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channelnotifier"
 	"github.com/lightningnetwork/lnd/contractcourt"
@@ -83,6 +84,10 @@ var (
 	//
 	// TODO: Make this configurable
 	defaultAcceptorTimeout = 15 * time.Second
+
+	// defaultAttributeIncoming is the default percentage of fees that we
+	// attribute to incoming channels when calculating revenue reports.
+	defaultAttributeIncoming = 0.5
 
 	// readPermissions is a slice of all entities that allow read
 	// permissions for authorization purposes, all lowercase.
@@ -5483,6 +5488,138 @@ func (r *rpcServer) BakeMacaroon(ctx context.Context,
 	}
 	resp := &lnrpc.BakeMacaroonResponse{}
 	resp.Macaroon = hex.EncodeToString(newMacBytes)
+
+	return resp, nil
+}
+
+// ChannelReports produces a set of channel reports for the channels that
+// forwarded htlcs over the period provided. If a channel did not forward
+// any htlcs over the period, it is not included.
+func (r *rpcServer) ChannelReports(ctx context.Context,
+	req *lnrpc.ChannelReportsRequest) (*lnrpc.ChannelReportsResponse, error) {
+
+	// Set start time to the user specified value. If no value is provided,
+	// start time will be set to the unix epoch.
+	startTime := time.Unix(int64(req.StartTime), 0)
+
+	// Set end time from the user specified time. If no value was provided,
+	// end time will be set to the present.
+	endTime := time.Unix(int64(req.EndTime), 0)
+	if req.EndTime == 0 {
+		endTime = time.Now()
+	}
+
+	if endTime.Before(startTime) {
+		return nil, fmt.Errorf("end time: %v before start time: %v",
+			endTime, startTime)
+	}
+
+	// Obtain paginated forwarder events by querying the forwarder log in the
+	// period provided.
+	query := func(offset, maxEvents uint32) (channeldb.ForwardingLogTimeSlice, error) {
+		return r.server.chanDB.ForwardingLog().Query(
+			channeldb.ForwardingEventQuery{
+				StartTime:    startTime,
+				EndTime:      endTime,
+				IndexOffset:  offset,
+				NumMaxEvents: maxEvents,
+			})
+	}
+
+	// To provide the user with a revenue report by outpoint, we need to map
+	// short channel ids in the forwarding log to outpoints. Lookup all open and
+	// closed channels to produce a map of short channel id to outpoint.
+	channels, err := r.server.chanDB.FetchAllChannels()
+	if err != nil {
+		return nil, err
+	}
+
+	closedChannels, err := r.server.chanDB.FetchClosedChannels(false)
+	if err != nil {
+		return nil, err
+	}
+
+	// Add the channels looked up to a map of short channel id to outpoint.
+	channelIDs := make(map[lnwire.ShortChannelID]wire.OutPoint)
+	for _, channel := range channels {
+		channelIDs[channel.ShortChannelID] = channel.FundingOutpoint
+	}
+
+	for _, closedChannel := range closedChannels {
+		channelIDs[closedChannel.ShortChanID] = closedChannel.ChanPoint
+	}
+
+	// Query for report over relevant period.
+	report, err := chanfitness.GetRevenueReport(
+		channelIDs, query, defaultAttributeIncoming,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	resp := &lnrpc.ChannelReportsResponse{}
+	for channel, pair := range report.ChannelPairs {
+		// Set uptime and monitored time on the response if it is available.
+		// Errors are logged because the channel event store does not persist
+		// its data, so is likely to not have records for historical channels.
+		start, end, err := r.server.chanEventStore.GetLifespan(channel)
+		if err != nil {
+			rpcsLog.Debugf("could not get lifespan for channel: %v, %v",
+				channel, err)
+		} else if end.IsZero() {
+			// If we successfully retrieved the channel's lifespan and the end
+			// time is zero, the channel is still open, so end time should be
+			// progressed to the present.
+			end = time.Now()
+		}
+
+		// If start and end have non-zero values, set monitored since and until.
+		var monitoredSince, monitoredUntil int64
+		if !start.IsZero() {
+			monitoredSince = start.Unix()
+		}
+
+		if !end.IsZero() {
+			monitoredUntil = end.Unix()
+		}
+
+		// Get uptime over the user requested period.
+		uptime, err := r.server.chanEventStore.GetUptime(channel, startTime, endTime)
+		if err != nil {
+			rpcsLog.Debugf("could not get uptime for channel: %v, %v",
+				channel, err)
+		}
+
+		// Create a channel report for each channel in the report.
+		channelReport := &lnrpc.ChannelReport{
+			ChannelOutpoint: &lnrpc.OutPoint{
+				TxidBytes:   channel.Hash[:],
+				OutputIndex: channel.Index,
+			},
+			UptimeSeconds:  int64(uptime.Seconds()),
+			MonitoredSince: monitoredSince,
+			MonitoredUntil: monitoredUntil,
+		}
+
+		// Add the channel's revenue reports to the response.
+		for pairChannel, report := range pair {
+			revenueReport := &lnrpc.RevenueReport{
+				PairChannel: &lnrpc.OutPoint{
+					TxidBytes:   pairChannel.Hash[:],
+					OutputIndex: pairChannel.Index,
+				},
+				AmountIncomingMsat: int64(report.AmountIncoming),
+				AmountOutgoingMsat: int64(report.AmountOutgoing),
+				FeesIncomingMsat:   int64(report.FeesIncoming),
+				FeesOutgoingMsat:   int64(report.FeesOutgoing),
+			}
+
+			channelReport.RevenueReports = append(
+				channelReport.RevenueReports, revenueReport,
+			)
+		}
+		resp.Reports = append(resp.Reports, channelReport)
+	}
 
 	return resp, nil
 }

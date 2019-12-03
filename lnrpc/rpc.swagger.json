@@ -1181,6 +1181,33 @@
         ]
       }
     },
+    "/v1/report": {
+      "post": {
+        "summary": "* lncli: `channelrevenue`\nChannelReports returns a report on all channels that forwarded htlcs over\nthe period queried. The report contains details of the channel's revenue\nearned over the period. If available, the channel's remote peer's uptime is\nalso reported.",
+        "operationId": "ChannelReports",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/lnrpcChannelReportsResponse"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/lnrpcChannelReportsRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
     "/v1/signmessage": {
       "post": {
         "summary": "* lncli: `signmessage`\nSignMessage signs a message with this node's private key. The returned\nsignature string is `zbase32` encoded and pubkey recoverable, meaning that\nonly the message digest and signature are needed for verification.",
@@ -2129,6 +2156,64 @@
           "type": "integer",
           "format": "int64",
           "title": "/ The index of the output of the funding transaction"
+        }
+      }
+    },
+    "lnrpcChannelReport": {
+      "type": "object",
+      "properties": {
+        "channel_outpoint": {
+          "$ref": "#/definitions/lnrpcOutPoint",
+          "description": "OutPoint is the funding outpoint of the channel this report has\nbeen generated for."
+        },
+        "uptime_seconds": {
+          "type": "string",
+          "format": "int64",
+          "description": "Uptime is the amount of time in seconds that the remote peer for this\nchannel was observed as being online for."
+        },
+        "monitored_since": {
+          "type": "string",
+          "format": "int64",
+          "description": "Monitored since is the time (unix epoch offset in seconds) from which the\nchannel's uptime was first calculated. If this value is zero, the channel's\nuptime was not monitored."
+        },
+        "monitored_until": {
+          "type": "string",
+          "format": "int64",
+          "description": "Monitored until is the time (unix epoch offset in seconds) that the\nchannel's uptime was monitored until. If this value is zero, the channel's\nuptime was not monitored."
+        },
+        "revenue_reports": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcRevenueReport"
+          },
+          "description": "Revenue reports provide the revenue that the channel has generated\nthrough forwarding htlcs. They are provided per partner channel, as\nhtlcs are forwarded by pairs of channels."
+        }
+      }
+    },
+    "lnrpcChannelReportsRequest": {
+      "type": "object",
+      "properties": {
+        "start_time": {
+          "type": "string",
+          "format": "uint64",
+          "description": "Start time is beginning of the range over which the report will be\ngenerated, expressed as unix epoch offset in seconds."
+        },
+        "end_time": {
+          "type": "string",
+          "format": "uint64",
+          "description": "End time is end of the range over which the report will be\ngenerated, expressed as unix epoch offset in seconds."
+        }
+      }
+    },
+    "lnrpcChannelReportsResponse": {
+      "type": "object",
+      "properties": {
+        "reports": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcChannelReport"
+          },
+          "description": "ChannelReport is a set of channel reports for all the channels that\nforwarded htlcs the relevant period."
         }
       }
     },
@@ -3526,6 +3611,35 @@
           "type": "string",
           "format": "byte",
           "description": "*\nThe channels to restore in the packed multi backup format. When using\nREST, this field must be encoded as base64."
+        }
+      }
+    },
+    "lnrpcRevenueReport": {
+      "type": "object",
+      "properties": {
+        "pair_channel": {
+          "$ref": "#/definitions/lnrpcOutPoint",
+          "description": "OutPoint channel is funcing outpoing the channel that this revenue was\ngenerated with."
+        },
+        "amount_outgoing_msat": {
+          "type": "string",
+          "format": "int64",
+          "description": "Amount outgoing msat is the amount in millisatoshis that arrived\non the pair channel to be forwarded onwards by our channel."
+        },
+        "fees_outgoing_msat": {
+          "type": "string",
+          "format": "int64",
+          "description": "Fees outgoing is the amount of fees in millisatoshis that we\nattribute to the channel for its role as the outgoing channel in\nforwards."
+        },
+        "amount_incoming_msat": {
+          "type": "string",
+          "format": "int64",
+          "description": "Amount incoming msat is the amount in millisatoshis that arrived\non our channel to be forwarded onwards by the pair channel."
+        },
+        "fees_incoming_msat": {
+          "type": "string",
+          "format": "int64",
+          "description": "Fees incoming is the amount of fees in millisatoshis that we\nattribute to the channel for its role as the incoming channel in\nforwards."
         }
       }
     },

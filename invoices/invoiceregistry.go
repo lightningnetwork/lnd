@@ -412,9 +412,8 @@ func (i *InvoiceRegistry) LookupInvoice(rHash lntypes.Hash) (channeldb.Invoice,
 	return i.cdb.LookupInvoice(rHash)
 }
 
-// NotifyExitHopHtlc attempts to mark an invoice as settled. If the invoice is a
-// debug invoice, then this method is a noop as debug invoices are never fully
-// settled. The return value describes how the htlc should be resolved.
+// NotifyExitHopHtlc attempts to mark an invoice as settled. The return value
+// describes how the htlc should be resolved.
 //
 // When the preimage of the invoice is not yet known (hodl invoice), this
 // function moves the invoice to the accepted state. When SettleHoldInvoice is

@@ -147,6 +147,11 @@ const (
 	// type, but it omits the tweak for one's key in the commitment
 	// transaction of the remote party.
 	SingleFunderTweaklessBit ChannelType = 1 << 1
+
+	// NoFundingTxBit denotes if we have the funding transaction locally on
+	// disk. This bit may be on if the funding transaction was crafted by a
+	// wallet external to the primary daemon.
+	NoFundingTxBit ChannelType = 1 << 2
 )
 
 // IsSingleFunder returns true if the channel type if one of the known single
@@ -164,6 +169,12 @@ func (c ChannelType) IsDualFunder() bool {
 // doesn't tweak the key for the remote party.
 func (c ChannelType) IsTweakless() bool {
 	return c&SingleFunderTweaklessBit == SingleFunderTweaklessBit
+}
+
+// HasFundingTx returns true if this channel type is one that has a funding
+// transaction stored locally.
+func (c ChannelType) HasFundingTx() bool {
+	return c&NoFundingTxBit == 0
 }
 
 // ChannelConstraints represents a set of constraints meant to allow a node to
@@ -535,7 +546,9 @@ type OpenChannel struct {
 	// is found to be pending.
 	//
 	// NOTE: This value will only be populated for single-funder channels
-	// for which we are the initiator.
+	// for which we are the initiator, and that we also have the funding
+	// transaction for. One can check this by using the HasFundingTx()
+	// method on the ChanType field.
 	FundingTxn *wire.MsgTx
 
 	// TODO(roasbeef): eww
@@ -2522,6 +2535,16 @@ func writeChanConfig(b io.Writer, c *ChannelConfig) error {
 	)
 }
 
+// fundingTxPresent returns true if expect the funding transcation to be found
+// on disk or already populated within the passed oen chanel struct.
+func fundingTxPresent(channel *OpenChannel) bool {
+	chanType := channel.ChanType
+
+	return chanType.IsSingleFunder() && chanType.HasFundingTx() &&
+		channel.IsInitiator &&
+		!channel.hasChanStatus(ChanStatusRestored)
+}
+
 func putChanInfo(chanBucket *bbolt.Bucket, channel *OpenChannel) error {
 	var w bytes.Buffer
 	if err := WriteElements(&w,
@@ -2535,10 +2558,9 @@ func putChanInfo(chanBucket *bbolt.Bucket, channel *OpenChannel) error {
 		return err
 	}
 
-	// For single funder channels that we initiated, write the funding txn.
-	if channel.ChanType.IsSingleFunder() && channel.IsInitiator &&
-		!channel.hasChanStatus(ChanStatusRestored) {
-
+	// For single funder channels that we initiated, and we have the
+	// funding transaction, then write the funding txn.
+	if fundingTxPresent(channel) {
 		if err := WriteElement(&w, channel.FundingTxn); err != nil {
 			return err
 		}
@@ -2657,10 +2679,9 @@ func fetchChanInfo(chanBucket *bbolt.Bucket, channel *OpenChannel) error {
 		return err
 	}
 
-	// For single funder channels that we initiated, read the funding txn.
-	if channel.ChanType.IsSingleFunder() && channel.IsInitiator &&
-		!channel.hasChanStatus(ChanStatusRestored) {
-
+	// For single funder channels that we initiated and have the funding
+	// transaction to, read the funding txn.
+	if fundingTxPresent(channel) {
 		if err := ReadElement(r, &channel.FundingTxn); err != nil {
 			return err
 		}

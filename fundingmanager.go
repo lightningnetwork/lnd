@@ -521,8 +521,9 @@ func (f *fundingManager) start() error {
 
 			// Rebroadcast the funding transaction for any pending
 			// channel that we initiated. No error will be returned
-			// if the transaction already has been broadcasted.
-			if channel.ChanType.IsSingleFunder() &&
+			// if the transaction already has been broadcast.
+			chanType := channel.ChanType
+			if chanType.IsSingleFunder() && chanType.HasFundingTx() &&
 				channel.IsInitiator {
 
 				err := f.cfg.PublishTransaction(
@@ -1215,6 +1216,7 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 	chainHash := chainhash.Hash(msg.ChainHash)
 	req := &lnwallet.InitFundingReserveMsg{
 		ChainHash:        &chainHash,
+		PendingChanID:    msg.PendingChannelID,
 		NodeID:           fmsg.peer.IdentityKey(),
 		NodeAddr:         fmsg.peer.Address(),
 		LocalFundingAmt:  0,
@@ -1739,21 +1741,28 @@ func (f *fundingManager) handleFundingSigned(fmsg *fundingSignedMsg) {
 	// delete it from our set of active reservations.
 	f.deleteReservationCtx(peerKey, pendingChanID)
 
-	// Broadcast the finalized funding transaction to the network.
-	fundingTx := completeChan.FundingTxn
-	fndgLog.Infof("Broadcasting funding tx for ChannelPoint(%v): %v",
-		completeChan.FundingOutpoint, spew.Sdump(fundingTx))
+	// Broadcast the finalized funding transaction to the network, but only
+	// if we actually have the funding transaction.
+	if completeChan.ChanType.HasFundingTx() {
+		fundingTx := completeChan.FundingTxn
 
-	err = f.cfg.PublishTransaction(fundingTx)
-	if err != nil {
-		fndgLog.Errorf("Unable to broadcast funding tx for "+
-			"ChannelPoint(%v): %v", completeChan.FundingOutpoint,
-			err)
-		// We failed to broadcast the funding transaction, but watch
-		// the channel regardless, in case the transaction made it to
-		// the network. We will retry broadcast at startup.
-		// TODO(halseth): retry more often? Handle with CPFP? Just
-		// delete from the DB?
+		fndgLog.Infof("Broadcasting funding tx for ChannelPoint(%v): %v",
+			completeChan.FundingOutpoint, spew.Sdump(fundingTx))
+
+		err = f.cfg.PublishTransaction(fundingTx)
+		if err != nil {
+			fndgLog.Errorf("Unable to broadcast funding tx for "+
+				"ChannelPoint(%v): %v",
+				completeChan.FundingOutpoint, err)
+
+			// We failed to broadcast the funding transaction, but
+			// watch the channel regardless, in case the
+			// transaction made it to the network. We will retry
+			// broadcast at startup.
+			//
+			// TODO(halseth): retry more often? Handle with CPFP?
+			// Just delete from the DB?
+		}
 	}
 
 	// Now that we have a finalized reservation for this funding flow,
@@ -2773,6 +2782,10 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 		channelFlags = lnwire.FFAnnounceChannel
 	}
 
+	// Obtain a new pending channel ID which is used to track this
+	// reservation throughout its lifetime.
+	chanID := f.nextPendingChanID()
+
 	// Initialize a funding reservation with the local wallet. If the
 	// wallet doesn't have enough funds to commit to this channel, then the
 	// request will fail, and be aborted.
@@ -2790,6 +2803,7 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 	tweaklessCommitment := localTweakless && remoteTweakless
 	req := &lnwallet.InitFundingReserveMsg{
 		ChainHash:        &msg.chainHash,
+		PendingChanID:    chanID,
 		NodeID:           peerKey,
 		NodeAddr:         msg.peer.Address(),
 		SubtractFees:     msg.subtractFees,
@@ -2815,11 +2829,7 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 	// SubtractFees=true.
 	capacity := reservation.Capacity()
 
-	// Obtain a new pending channel ID which is used to track this
-	// reservation throughout its lifetime.
-	chanID := f.nextPendingChanID()
-
-	fndgLog.Infof("Target commit tx sat/kw for pending_id(%x): %v", chanID,
+	fndgLog.Infof("Target commit tx sat/kw for pendingID(%x): %v", chanID,
 		int64(commitFeePerKw))
 
 	// If the remote CSV delay was not set in the open channel request,

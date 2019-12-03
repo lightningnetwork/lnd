@@ -1,11 +1,19 @@
-package lnwallet
+package chanfunding
 
 import (
+	"encoding/hex"
 	"testing"
 
+	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+)
+
+var (
+	p2wkhScript, _ = hex.DecodeString(
+		"001411034bdcb6ccb7744fdfdeea958a6fb0b415a032",
+	)
 )
 
 // fundingFee is a helper method that returns the fee estimate used for a tx
@@ -48,7 +56,7 @@ func TestCoinSelect(t *testing.T) {
 	type testCase struct {
 		name        string
 		outputValue btcutil.Amount
-		coins       []*Utxo
+		coins       []Coin
 
 		expectedInput  []btcutil.Amount
 		expectedChange btcutil.Amount
@@ -61,10 +69,12 @@ func TestCoinSelect(t *testing.T) {
 			// This will obviously lead to a change output of
 			// almost 0.5 BTC.
 			name: "big change",
-			coins: []*Utxo{
+			coins: []Coin{
 				{
-					AddressType: WitnessPubKey,
-					Value:       1 * btcutil.SatoshiPerBitcoin,
+					TxOut: wire.TxOut{
+						PkScript: p2wkhScript,
+						Value:    1 * btcutil.SatoshiPerBitcoin,
+					},
 				},
 			},
 			outputValue: 0.5 * btcutil.SatoshiPerBitcoin,
@@ -81,10 +91,12 @@ func TestCoinSelect(t *testing.T) {
 			// This should lead to an error, as we don't have
 			// enough funds to pay the fee.
 			name: "nothing left for fees",
-			coins: []*Utxo{
+			coins: []Coin{
 				{
-					AddressType: WitnessPubKey,
-					Value:       1 * btcutil.SatoshiPerBitcoin,
+					TxOut: wire.TxOut{
+						PkScript: p2wkhScript,
+						Value:    1 * btcutil.SatoshiPerBitcoin,
+					},
 				},
 			},
 			outputValue: 1 * btcutil.SatoshiPerBitcoin,
@@ -95,10 +107,12 @@ func TestCoinSelect(t *testing.T) {
 			// as big as possible, such that the remaining change
 			// will be dust.
 			name: "dust change",
-			coins: []*Utxo{
+			coins: []Coin{
 				{
-					AddressType: WitnessPubKey,
-					Value:       1 * btcutil.SatoshiPerBitcoin,
+					TxOut: wire.TxOut{
+						PkScript: p2wkhScript,
+						Value:    1 * btcutil.SatoshiPerBitcoin,
+					},
 				},
 			},
 			// We tune the output value by subtracting the expected
@@ -117,10 +131,12 @@ func TestCoinSelect(t *testing.T) {
 			// as big as possible, such that there is nothing left
 			// for change.
 			name: "no change",
-			coins: []*Utxo{
+			coins: []Coin{
 				{
-					AddressType: WitnessPubKey,
-					Value:       1 * btcutil.SatoshiPerBitcoin,
+					TxOut: wire.TxOut{
+						PkScript: p2wkhScript,
+						Value:    1 * btcutil.SatoshiPerBitcoin,
+					},
 				},
 			},
 			// We tune the output value to be the maximum amount
@@ -143,7 +159,7 @@ func TestCoinSelect(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			selected, changeAmt, err := coinSelect(
+			selected, changeAmt, err := CoinSelect(
 				feeRate, test.outputValue, test.coins,
 			)
 			if !test.expectErr && err != nil {
@@ -166,7 +182,7 @@ func TestCoinSelect(t *testing.T) {
 			}
 
 			for i, coin := range selected {
-				if coin.Value != test.expectedInput[i] {
+				if coin.Value != int64(test.expectedInput[i]) {
 					t.Fatalf("expected input %v to have value %v, "+
 						"had %v", i, test.expectedInput[i],
 						coin.Value)
@@ -195,7 +211,7 @@ func TestCoinSelectSubtractFees(t *testing.T) {
 	type testCase struct {
 		name       string
 		spendValue btcutil.Amount
-		coins      []*Utxo
+		coins      []Coin
 
 		expectedInput      []btcutil.Amount
 		expectedFundingAmt btcutil.Amount
@@ -209,10 +225,12 @@ func TestCoinSelectSubtractFees(t *testing.T) {
 			// should lead to a funding TX with one output, the
 			// rest goes to fees.
 			name: "spend all",
-			coins: []*Utxo{
+			coins: []Coin{
 				{
-					AddressType: WitnessPubKey,
-					Value:       1 * btcutil.SatoshiPerBitcoin,
+					TxOut: wire.TxOut{
+						PkScript: p2wkhScript,
+						Value:    1 * btcutil.SatoshiPerBitcoin,
+					},
 				},
 			},
 			spendValue: 1 * btcutil.SatoshiPerBitcoin,
@@ -228,10 +246,12 @@ func TestCoinSelectSubtractFees(t *testing.T) {
 			// The total funds available is below the dust limit
 			// after paying fees.
 			name: "dust output",
-			coins: []*Utxo{
+			coins: []Coin{
 				{
-					AddressType: WitnessPubKey,
-					Value:       fundingFee(feeRate, 1, false) + dust,
+					TxOut: wire.TxOut{
+						PkScript: p2wkhScript,
+						Value:    int64(fundingFee(feeRate, 1, false) + dust),
+					},
 				},
 			},
 			spendValue: fundingFee(feeRate, 1, false) + dust,
@@ -243,10 +263,12 @@ func TestCoinSelectSubtractFees(t *testing.T) {
 			// is below the dust limit. The remainder should go
 			// towards the funding output.
 			name: "dust change",
-			coins: []*Utxo{
+			coins: []Coin{
 				{
-					AddressType: WitnessPubKey,
-					Value:       1 * btcutil.SatoshiPerBitcoin,
+					TxOut: wire.TxOut{
+						PkScript: p2wkhScript,
+						Value:    1 * btcutil.SatoshiPerBitcoin,
+					},
 				},
 			},
 			spendValue: 1*btcutil.SatoshiPerBitcoin - dust,
@@ -260,10 +282,12 @@ func TestCoinSelectSubtractFees(t *testing.T) {
 		{
 			// We got just enough funds to create an output above the dust limit.
 			name: "output right above dustlimit",
-			coins: []*Utxo{
+			coins: []Coin{
 				{
-					AddressType: WitnessPubKey,
-					Value:       fundingFee(feeRate, 1, false) + dustLimit + 1,
+					TxOut: wire.TxOut{
+						PkScript: p2wkhScript,
+						Value:    int64(fundingFee(feeRate, 1, false) + dustLimit + 1),
+					},
 				},
 			},
 			spendValue: fundingFee(feeRate, 1, false) + dustLimit + 1,
@@ -278,10 +302,12 @@ func TestCoinSelectSubtractFees(t *testing.T) {
 			// Amount left is below dust limit after paying fee for
 			// a change output, resulting in a no-change tx.
 			name: "no amount to pay fee for change",
-			coins: []*Utxo{
+			coins: []Coin{
 				{
-					AddressType: WitnessPubKey,
-					Value:       fundingFee(feeRate, 1, false) + 2*(dustLimit+1),
+					TxOut: wire.TxOut{
+						PkScript: p2wkhScript,
+						Value:    int64(fundingFee(feeRate, 1, false) + 2*(dustLimit+1)),
+					},
 				},
 			},
 			spendValue: fundingFee(feeRate, 1, false) + dustLimit + 1,
@@ -295,10 +321,12 @@ func TestCoinSelectSubtractFees(t *testing.T) {
 		{
 			// If more than 20% of funds goes to fees, it should fail.
 			name: "high fee",
-			coins: []*Utxo{
+			coins: []Coin{
 				{
-					AddressType: WitnessPubKey,
-					Value:       5 * fundingFee(feeRate, 1, false),
+					TxOut: wire.TxOut{
+						PkScript: p2wkhScript,
+						Value:    int64(5 * fundingFee(feeRate, 1, false)),
+					},
 				},
 			},
 			spendValue: 5 * fundingFee(feeRate, 1, false),
@@ -308,8 +336,10 @@ func TestCoinSelectSubtractFees(t *testing.T) {
 	}
 
 	for _, test := range testCases {
+		test := test
+
 		t.Run(test.name, func(t *testing.T) {
-			selected, localFundingAmt, changeAmt, err := coinSelectSubtractFees(
+			selected, localFundingAmt, changeAmt, err := CoinSelectSubtractFees(
 				feeRate, test.spendValue, dustLimit, test.coins,
 			)
 			if !test.expectErr && err != nil {
@@ -332,7 +362,7 @@ func TestCoinSelectSubtractFees(t *testing.T) {
 			}
 
 			for i, coin := range selected {
-				if coin.Value != test.expectedInput[i] {
+				if coin.Value != int64(test.expectedInput[i]) {
 					t.Fatalf("expected input %v to have value %v, "+
 						"had %v", i, test.expectedInput[i],
 						coin.Value)

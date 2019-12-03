@@ -107,8 +107,9 @@ func updateInvoice(ctx *invoiceUpdateCtx, inv *channeldb.Invoice) (
 
 	// If an invoice amount is specified, check that enough is paid. Also
 	// check this for duplicate payments if the invoice is already settled
-	// or accepted.
-	if inv.Terms.Value > 0 && ctx.amtPaid < inv.Terms.Value {
+	// or accepted. In case this is a zero-valued invoice, it will always be
+	// enough.
+	if ctx.amtPaid < inv.Terms.Value {
 		return nil, resultAmountTooLow, nil
 	}
 

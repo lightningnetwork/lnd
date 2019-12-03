@@ -493,13 +493,25 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 			int64(cfg.PaymentAttemptPenalty),
 		)
 
-		// If the current best route is better than this candidate
-		// route, return. It is important to also return if the distance
-		// is equal, because otherwise the algorithm could run into an
-		// endless loop.
+		// If there is already a best route stored, compare this
+		// candidate route with the best route so far.
 		current, ok := distance[fromVertex]
-		if ok && tempDist >= current.dist {
-			return
+		if ok {
+			// If this route is worse than what we already found,
+			// skip this route.
+			if tempDist > current.dist {
+				return
+			}
+
+			// If the route is equally good and the probability
+			// isn't better, skip this route. It is important to
+			// also return if both cost and probability are equal,
+			// because otherwise the algorithm could run into an
+			// endless loop.
+			probNotBetter := probability <= current.probability
+			if tempDist == current.dist && probNotBetter {
+				return
+			}
 		}
 
 		// Every edge should have a positive time lock delta. If we

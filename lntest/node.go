@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/btcsuite/btcd/chaincfg"
@@ -36,38 +37,15 @@ import (
 )
 
 const (
-	// defaultNodePort is the initial p2p port which will be used by the
-	// first created lightning node to listen on for incoming p2p
-	// connections.  Subsequent allocated ports for future Lightning nodes
-	// instances will be monotonically increasing numbers calculated as
-	// such: defaultP2pPort + (4 * harness.nodeNum).
+	// defaultNodePort is the start of the range for listening ports of
+	// harness nodes. Ports are monotonically increasing starting from this
+	// number and are determined by the results of nextAvailablePort().
 	defaultNodePort = 19555
 
-	// defaultClientPort is the initial rpc port which will be used by the
-	// first created lightning node to listen on for incoming rpc
-	// connections. Subsequent allocated ports for future rpc harness
-	// instances will be monotonically increasing numbers calculated
-	// as such: defaultP2pPort + (4 * harness.nodeNum).
-	defaultClientPort = defaultNodePort + 1
-
-	// defaultRestPort is the initial rest port which will be used by the
-	// first created lightning node to listen on for incoming rest
-	// connections. Subsequent allocated ports for future rpc harness
-	// instances will be monotonically increasing numbers calculated
-	// as such: defaultP2pPort + (4 * harness.nodeNum).
-	defaultRestPort = defaultNodePort + 2
-
-	// defaultProfilePort is the initial port which will be used for
-	// profiling by the first created lightning node. Subsequent allocated
-	// ports for future rpc harness instances will be monotonically
-	// increasing numbers calculated as such:
-	// defaultProfilePort + (4 * harness.nodeNum).
-	defaultProfilePort = defaultNodePort + 3
-
-	// logPubKeyBytes is the number of bytes of the node's PubKey that
-	// will be appended to the log file name. The whole PubKey is too
-	// long and not really necessary to quickly identify what node
-	// produced which log file.
+	// logPubKeyBytes is the number of bytes of the node's PubKey that will
+	// be appended to the log file name. The whole PubKey is too long and
+	// not really necessary to quickly identify what node produced which
+	// log file.
 	logPubKeyBytes = 4
 
 	// trickleDelay is the amount of time in milliseconds between each
@@ -80,6 +58,10 @@ var (
 	numActiveNodes    = 0
 	numActiveNodesMtx sync.Mutex
 
+	// lastPort is the last port determined to be free for use by a new
+	// node. It should be used atomically.
+	lastPort uint32 = defaultNodePort
+
 	// logOutput is a flag that can be set to append the output from the
 	// seed nodes to log files.
 	logOutput = flag.Bool("logoutput", false,
@@ -91,19 +73,42 @@ var (
 		"write goroutine dump from node n to file pprof-n.log")
 )
 
-// generateListeningPorts returns three ints representing ports to listen on
-// designated for the current lightning network test. If there haven't been any
-// test instances created, the default ports are used. Otherwise, in order to
-// support multiple test nodes running at once, the p2p, rpc, rest and
-// profiling ports are incremented after each initialization.
-func generateListeningPorts() (int, int, int, int) {
-	numActiveNodesMtx.Lock()
-	defer numActiveNodesMtx.Unlock()
+// nextAvailablePort returns the first port that is available for listening by
+// a new node. It panics if no port is found and the maximum available TCP port
+// is reached.
+func nextAvailablePort() int {
+	port := atomic.AddUint32(&lastPort, 1)
+	for port < 65535 {
+		// If there are no errors while attempting to listen on this
+		// port, close the socket and return it as available. While it
+		// could be the case that some other process picks up this port
+		// between the time the socket is closed and it's reopened in
+		// the harness node, in practice in CI servers this seems much
+		// less likely than simply some other process already being
+		// bound at the start of the tests.
+		addr := fmt.Sprintf("127.0.0.1:%d", port)
+		l, err := net.Listen("tcp4", addr)
+		if err == nil {
+			err := l.Close()
+			if err == nil {
+				return int(port)
+			}
+		}
+		port = atomic.AddUint32(&lastPort, 1)
+	}
 
-	p2p := defaultNodePort + (4 * numActiveNodes)
-	rpc := defaultClientPort + (4 * numActiveNodes)
-	rest := defaultRestPort + (4 * numActiveNodes)
-	profile := defaultProfilePort + (4 * numActiveNodes)
+	// No ports available? Must be a mistake.
+	panic("no ports available for listening")
+}
+
+// generateListeningPorts returns four ints representing ports to listen on
+// designated for the current lightning network test. This returns the next
+// available ports for the p2p, rpc, rest and profiling services.
+func generateListeningPorts() (int, int, int, int) {
+	p2p := nextAvailablePort()
+	rpc := nextAvailablePort()
+	rest := nextAvailablePort()
+	profile := nextAvailablePort()
 
 	return p2p, rpc, rest, profile
 }

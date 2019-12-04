@@ -2582,11 +2582,19 @@
         "tlv_payload": {
           "type": "boolean",
           "format": "boolean",
-          "description": "* \nIf set to true, then this hop will be encoded using the new variable length\nTLV format."
+          "description": "* \nIf set to true, then this hop will be encoded using the new variable length\nTLV format. Note that if any custom tlv_records below are specified, then\nthis field MUST be set to true for them to be encoded properly."
         },
         "mpp_record": {
           "$ref": "#/definitions/lnrpcMPPRecord",
           "description": "*\nAn optional TLV record tha singals the use of an MPP payment. If present,\nthe receiver will enforce that that the same mpp_record is included in the\nfinal hop payload of all non-zero payments in the HTLC set. If empty, a\nregular single-shot payment is or was attempted."
+        },
+        "custom_records": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "*\nAn optional set of key-value TLV records. This is useful within the context\nof the SendToRoute call as it allows callers to specify arbitrary K-V pairs\nto drop off at each hop within the onion."
         }
       }
     },
@@ -3710,13 +3718,13 @@
           "format": "int64",
           "description": "* \nAn optional maximum total time lock for the route. This should not exceed\nlnd's `--max-cltv-expiry` setting. If zero, then the value of\n`--max-cltv-expiry` is enforced."
         },
-        "dest_tlv": {
+        "dest_custom_records": {
           "type": "object",
           "additionalProperties": {
             "type": "string",
             "format": "byte"
           },
-          "description": "* \nAn optional field that can be used to pass an arbitrary set of TLV records\nto a peer which understands the new records. This can be used to pass\napplication specific data during the payment attempt. When using REST, the\nvalues must be encoded as base64."
+          "description": "* \nAn optional field that can be used to pass an arbitrary set of TLV records\nto a peer which understands the new records. This can be used to pass\napplication specific data during the payment attempt. Record types are\nrequired to be in the custom range \u003e= 65536. When using REST, the values\nmust be encoded as base64."
         },
         "allow_self_payment": {
           "type": "boolean",

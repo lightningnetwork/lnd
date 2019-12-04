@@ -710,12 +710,7 @@ func deserializeHop(r io.Reader) (*route.Hop, error) {
 		h.MPP = mpp
 	}
 
-	tlvRecords, err := tlv.MapToRecords(tlvMap)
-	if err != nil {
-		return nil, err
-	}
-
-	h.TLVRecords = tlvRecords
+	h.TLVRecords = tlv.MapToRecords(tlvMap)
 
 	return h, nil
 }

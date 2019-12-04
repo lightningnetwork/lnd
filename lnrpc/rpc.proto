@@ -952,10 +952,11 @@ message SendRequest {
     /** 
     An optional field that can be used to pass an arbitrary set of TLV records
     to a peer which understands the new records. This can be used to pass
-    application specific data during the payment attempt. When using REST, the
-    values must be encoded as base64.
+    application specific data during the payment attempt. Record types are
+    required to be in the custom range >= 65536. When using REST, the values
+    must be encoded as base64.
     */
-    map<uint64, bytes> dest_tlv = 11;
+    map<uint64, bytes> dest_custom_records = 11;
 
     /// If set, circular payments to self are permitted.
     bool allow_self_payment = 14;
@@ -1857,6 +1858,16 @@ message QueryRoutesRequest {
     zero, then the value of `--max-cltv-expiry` is used as the limit.
     */
     uint32 cltv_limit = 11;
+
+    /** 
+    An optional field that can be used to pass an arbitrary set of TLV records
+    to a peer which understands the new records. This can be used to pass
+    application specific data during the payment attempt. If the destination
+    does not support the specified recrods, and error will be returned.
+    Record types are required to be in the custom range >= 65536. When using
+    REST, the values must be encoded as base64.
+    */
+    map<uint64, bytes> dest_custom_records = 13;
 }
 
 message NodePair {
@@ -1922,7 +1933,8 @@ message Hop {
 
     /** 
     If set to true, then this hop will be encoded using the new variable length
-    TLV format.
+    TLV format. Note that if any custom tlv_records below are specified, then
+    this field MUST be set to true for them to be encoded properly.
     */
     bool tlv_payload = 9 [json_name = "tlv_payload"];
 
@@ -1933,6 +1945,13 @@ message Hop {
     regular single-shot payment is or was attempted.
     */
     MPPRecord mpp_record = 10 [json_name = "mpp_record"];
+
+    /**
+    An optional set of key-value TLV records. This is useful within the context
+    of the SendToRoute call as it allows callers to specify arbitrary K-V pairs
+    to drop off at each hop within the onion.
+    */
+    map<uint64, bytes> custom_records = 11 [json_name = "custom_records"];
 }
 
 message MPPRecord {

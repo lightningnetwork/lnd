@@ -30,9 +30,9 @@ const (
 )
 
 const (
-	// customTypeStart is the start of the custom tlv type range as defined
+	// CustomTypeStart is the start of the custom tlv type range as defined
 	// in BOLT 01.
-	customTypeStart = 65536
+	CustomTypeStart = 65536
 )
 
 // String returns a human-readable description of the violation as a verb.
@@ -249,7 +249,7 @@ func getMinRequiredViolation(set tlv.TypeSet) *tlv.Type {
 		//
 		// We always accept custom fields, because a higher level
 		// application may understand them.
-		if known || t%2 != 0 || t >= customTypeStart {
+		if known || t%2 != 0 || t >= CustomTypeStart {
 			continue
 		}
 

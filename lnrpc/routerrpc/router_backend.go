@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -200,7 +201,6 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 	}
 	cltvLimit -= uint32(finalCLTVDelta)
 
-	var destTLV map[uint64][]byte
 	restrictions := &routing.RestrictParams{
 		FeeLimit: feeLimit,
 		ProbabilitySource: func(fromNode, toNode route.Vertex,
@@ -226,14 +226,14 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 				fromNode, toNode, amt,
 			)
 		},
-		DestPayloadTLV: len(destTLV) != 0,
+		DestPayloadTLV: len(in.DestCustomRecords) != 0,
 		CltvLimit:      cltvLimit,
 	}
 
 	// If we have any TLV records destined for the final hop, then we'll
 	// attempt to decode them now into a form that the router can more
 	// easily manipulate.
-	destTlvRecords, err := tlv.MapToRecords(destTLV)
+	destTlvRecords, err := UnmarshallCustomRecords(in.DestCustomRecords)
 	if err != nil {
 		return nil, err
 	}
@@ -347,6 +347,11 @@ func (r *RouterBackend) MarshallRoute(route *route.Route) (*lnrpc.Route, error) 
 			}
 		}
 
+		tlvMap, err := tlv.RecordsToMap(hop.TLVRecords)
+		if err != nil {
+			return nil, err
+		}
+
 		resp.Hops[i] = &lnrpc.Hop{
 			ChanId:           hop.ChannelID,
 			ChanCapacity:     int64(chanCapacity),
@@ -358,8 +363,9 @@ func (r *RouterBackend) MarshallRoute(route *route.Route) (*lnrpc.Route, error) 
 			PubKey: hex.EncodeToString(
 				hop.PubKeyBytes[:],
 			),
-			TlvPayload: !hop.LegacyPayload,
-			MppRecord:  mpp,
+			CustomRecords: tlvMap,
+			TlvPayload:    !hop.LegacyPayload,
+			MppRecord:     mpp,
 		}
 		incomingAmt = hop.AmtToForward
 	}
@@ -367,90 +373,87 @@ func (r *RouterBackend) MarshallRoute(route *route.Route) (*lnrpc.Route, error) 
 	return resp, nil
 }
 
-// UnmarshallHopByChannelLookup unmarshalls an rpc hop for which the pub key is
-// not known. This function will query the channel graph with channel id to
-// retrieve both endpoints and determine the hop pubkey using the previous hop
-// pubkey. If the channel is unknown, an error is returned.
-func (r *RouterBackend) UnmarshallHopByChannelLookup(hop *lnrpc.Hop,
-	prevPubKeyBytes [33]byte) (*route.Hop, error) {
+// UnmarshallCustomRecords unmarshall rpc custom records to tlv records.
+func UnmarshallCustomRecords(rpcRecords map[uint64][]byte) ([]tlv.Record,
+	error) {
 
-	// Discard edge policies, because they may be nil.
-	node1, node2, err := r.FetchChannelEndpoints(hop.ChanId)
-	if err != nil {
-		return nil, err
+	if len(rpcRecords) == 0 {
+		return nil, nil
 	}
 
-	var pubKeyBytes [33]byte
-	switch {
-	case prevPubKeyBytes == node1:
-		pubKeyBytes = node2
-	case prevPubKeyBytes == node2:
-		pubKeyBytes = node1
-	default:
-		return nil, fmt.Errorf("channel edge does not match expected node")
+	tlvRecords := tlv.MapToRecords(rpcRecords)
+
+	// tlvRecords is sorted, so we only need to check that the first
+	// element is within the custom range.
+	if uint64(tlvRecords[0].Type()) < hop.CustomTypeStart {
+		return nil, fmt.Errorf("no custom records with types "+
+			"below %v allowed", hop.CustomTypeStart)
 	}
 
-	var tlvRecords []tlv.Record
-
-	mpp, err := UnmarshalMPP(hop.MppRecord)
-	if err != nil {
-		return nil, err
-	}
-
-	return &route.Hop{
-		OutgoingTimeLock: hop.Expiry,
-		AmtToForward:     lnwire.MilliSatoshi(hop.AmtToForwardMsat),
-		PubKeyBytes:      pubKeyBytes,
-		ChannelID:        hop.ChanId,
-		TLVRecords:       tlvRecords,
-		LegacyPayload:    !hop.TlvPayload,
-		MPP:              mpp,
-	}, nil
+	return tlvRecords, nil
 }
 
-// UnmarshallKnownPubkeyHop unmarshalls an rpc hop that contains the hop pubkey.
-// The channel graph doesn't need to be queried because all information required
-// for sending the payment is present.
-func UnmarshallKnownPubkeyHop(hop *lnrpc.Hop) (*route.Hop, error) {
-	pubKey, err := hex.DecodeString(hop.PubKey)
+// UnmarshallHopWithPubkey unmarshalls an rpc hop for which the pubkey has
+// already been extracted.
+func UnmarshallHopWithPubkey(rpcHop *lnrpc.Hop, pubkey route.Vertex) (*route.Hop,
+	error) {
+
+	tlvRecords, err := UnmarshallCustomRecords(rpcHop.CustomRecords)
 	if err != nil {
-		return nil, fmt.Errorf("cannot decode pubkey %s", hop.PubKey)
+		return nil, err
 	}
 
-	var pubKeyBytes [33]byte
-	copy(pubKeyBytes[:], pubKey)
-
-	var tlvRecords []tlv.Record
-
-	mpp, err := UnmarshalMPP(hop.MppRecord)
+	mpp, err := UnmarshalMPP(rpcHop.MppRecord)
 	if err != nil {
 		return nil, err
 	}
 
 	return &route.Hop{
-		OutgoingTimeLock: hop.Expiry,
-		AmtToForward:     lnwire.MilliSatoshi(hop.AmtToForwardMsat),
-		PubKeyBytes:      pubKeyBytes,
-		ChannelID:        hop.ChanId,
+		OutgoingTimeLock: rpcHop.Expiry,
+		AmtToForward:     lnwire.MilliSatoshi(rpcHop.AmtToForwardMsat),
+		PubKeyBytes:      pubkey,
+		ChannelID:        rpcHop.ChanId,
 		TLVRecords:       tlvRecords,
-		LegacyPayload:    !hop.TlvPayload,
+		LegacyPayload:    !rpcHop.TlvPayload,
 		MPP:              mpp,
 	}, nil
 }
 
 // UnmarshallHop unmarshalls an rpc hop that may or may not contain a node
 // pubkey.
-func (r *RouterBackend) UnmarshallHop(hop *lnrpc.Hop,
+func (r *RouterBackend) UnmarshallHop(rpcHop *lnrpc.Hop,
 	prevNodePubKey [33]byte) (*route.Hop, error) {
 
-	if hop.PubKey == "" {
-		// If no pub key is given of the hop, the local channel
-		// graph needs to be queried to complete the information
-		// necessary for routing.
-		return r.UnmarshallHopByChannelLookup(hop, prevNodePubKey)
+	var pubKeyBytes [33]byte
+	if rpcHop.PubKey != "" {
+		// Unmarshall the provided hop pubkey.
+		pubKey, err := hex.DecodeString(rpcHop.PubKey)
+		if err != nil {
+			return nil, fmt.Errorf("cannot decode pubkey %s",
+				rpcHop.PubKey)
+		}
+		copy(pubKeyBytes[:], pubKey)
+	} else {
+		// If no pub key is given of the hop, the local channel graph
+		// needs to be queried to complete the information necessary for
+		// routing. Discard edge policies, because they may be nil.
+		node1, node2, err := r.FetchChannelEndpoints(rpcHop.ChanId)
+		if err != nil {
+			return nil, err
+		}
+
+		switch {
+		case prevNodePubKey == node1:
+			pubKeyBytes = node2
+		case prevNodePubKey == node2:
+			pubKeyBytes = node1
+		default:
+			return nil, fmt.Errorf("channel edge does not match " +
+				"expected node")
+		}
 	}
 
-	return UnmarshallKnownPubkeyHop(hop)
+	return UnmarshallHopWithPubkey(rpcHop, pubKeyBytes)
 }
 
 // UnmarshallRoute unmarshalls an rpc route. For hops that don't specify a
@@ -531,13 +534,11 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 		return nil, errors.New("timeout_seconds must be specified")
 	}
 
-	var destTLV map[uint64][]byte
-	if len(destTLV) != 0 {
-		var err error
-		payIntent.FinalDestRecords, err = tlv.MapToRecords(destTLV)
-		if err != nil {
-			return nil, err
-		}
+	payIntent.FinalDestRecords, err = UnmarshallCustomRecords(
+		rpcPayReq.DestCustomRecords,
+	)
+	if err != nil {
+		return nil, err
 	}
 
 	payIntent.PayAttemptTimeout = time.Second *

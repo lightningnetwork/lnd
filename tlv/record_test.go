@@ -114,10 +114,7 @@ func TestRecordMapTransformation(t *testing.T) {
 				spew.Sdump(mappedRecords))
 		}
 
-		unmappedRecords, err := MapToRecords(mappedRecords)
-		if err != nil {
-			t.Fatalf("#%v: unable to unmap records: %v", i, err)
-		}
+		unmappedRecords := MapToRecords(mappedRecords)
 
 		for i := 0; i < len(testCase.records); i++ {
 			if unmappedRecords[i].Type() != testCase.records[i].Type() {

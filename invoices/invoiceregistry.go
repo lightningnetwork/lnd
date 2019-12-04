@@ -41,6 +41,16 @@ type HodlEvent struct {
 	AcceptHeight int32
 }
 
+// RegistryConfig contains the configuration parameters for invoice registry.
+type RegistryConfig struct {
+	// FinalCltvRejectDelta defines the number of blocks before the expiry
+	// of the htlc where we no longer settle it as an exit hop and instead
+	// cancel it back. Normally this value should be lower than the cltv
+	// expiry of any invoice we create and the code effectuating this should
+	// not be hit.
+	FinalCltvRejectDelta int32
+}
+
 // InvoiceRegistry is a central registry of all the outstanding invoices
 // created by the daemon. The registry is a thin wrapper around a map in order
 // to ensure that all updates/reads are thread safe.
@@ -48,6 +58,9 @@ type InvoiceRegistry struct {
 	sync.RWMutex
 
 	cdb *channeldb.DB
+
+	// cfg contains the registry's configuration parameters.
+	cfg *RegistryConfig
 
 	clientMtx                 sync.Mutex
 	nextClientID              uint32
@@ -69,13 +82,6 @@ type InvoiceRegistry struct {
 	// subscriber. This is used to unsubscribe from all hashes efficiently.
 	hodlReverseSubscriptions map[chan<- interface{}]map[channeldb.CircuitKey]struct{}
 
-	// finalCltvRejectDelta defines the number of blocks before the expiry
-	// of the htlc where we no longer settle it as an exit hop and instead
-	// cancel it back. Normally this value should be lower than the cltv
-	// expiry of any invoice we create and the code effectuating this should
-	// not be hit.
-	finalCltvRejectDelta int32
-
 	wg   sync.WaitGroup
 	quit chan struct{}
 }
@@ -84,7 +90,7 @@ type InvoiceRegistry struct {
 // wraps the persistent on-disk invoice storage with an additional in-memory
 // layer. The in-memory layer is in place such that debug invoices can be added
 // which are volatile yet available system wide within the daemon.
-func NewRegistry(cdb *channeldb.DB, finalCltvRejectDelta int32) *InvoiceRegistry {
+func NewRegistry(cdb *channeldb.DB, cfg *RegistryConfig) *InvoiceRegistry {
 
 	return &InvoiceRegistry{
 		cdb:                       cdb,
@@ -95,7 +101,7 @@ func NewRegistry(cdb *channeldb.DB, finalCltvRejectDelta int32) *InvoiceRegistry
 		invoiceEvents:             make(chan interface{}, 100),
 		hodlSubscriptions:         make(map[channeldb.CircuitKey]map[chan<- interface{}]struct{}),
 		hodlReverseSubscriptions:  make(map[chan<- interface{}]map[channeldb.CircuitKey]struct{}),
-		finalCltvRejectDelta:      finalCltvRejectDelta,
+		cfg:                       cfg,
 		quit:                      make(chan struct{}),
 	}
 }
@@ -442,7 +448,7 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 		amtPaid:              amtPaid,
 		expiry:               expiry,
 		currentHeight:        currentHeight,
-		finalCltvRejectDelta: i.finalCltvRejectDelta,
+		finalCltvRejectDelta: i.cfg.FinalCltvRejectDelta,
 		customRecords:        payload.CustomRecords(),
 	}
 

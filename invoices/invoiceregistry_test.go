@@ -71,7 +71,10 @@ func newTestContext(t *testing.T) *testContext {
 	}
 
 	// Instantiate and start the invoice ctx.registry.
-	registry := NewRegistry(cdb, testFinalCltvRejectDelta)
+	cfg := RegistryConfig{
+		FinalCltvRejectDelta: testFinalCltvRejectDelta,
+	}
+	registry := NewRegistry(cdb, &cfg)
 
 	err = registry.Start()
 	if err != nil {
@@ -390,7 +393,10 @@ func TestSettleHoldInvoice(t *testing.T) {
 	defer cleanup()
 
 	// Instantiate and start the invoice ctx.registry.
-	registry := NewRegistry(cdb, testFinalCltvRejectDelta)
+	cfg := RegistryConfig{
+		FinalCltvRejectDelta: testFinalCltvRejectDelta,
+	}
+	registry := NewRegistry(cdb, &cfg)
 
 	err = registry.Start()
 	if err != nil {
@@ -558,7 +564,10 @@ func TestCancelHoldInvoice(t *testing.T) {
 	defer cleanup()
 
 	// Instantiate and start the invoice ctx.registry.
-	registry := NewRegistry(cdb, testFinalCltvRejectDelta)
+	cfg := RegistryConfig{
+		FinalCltvRejectDelta: testFinalCltvRejectDelta,
+	}
+	registry := NewRegistry(cdb, &cfg)
 
 	err = registry.Start()
 	if err != nil {

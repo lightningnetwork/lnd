@@ -142,6 +142,11 @@ enum PaymentState {
     invalid final cltv delta)
     */
     FAILED_INCORRECT_PAYMENT_DETAILS = 5;
+
+    /**
+    Insufficient local balance.
+    */
+    FAILED_INSUFFICIENT_BALANCE = 6;
 }
 
 

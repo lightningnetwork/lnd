@@ -7,28 +7,10 @@ import "github.com/go-errors/errors"
 type errorCode uint8
 
 const (
-	// ErrNoPathFound is returned when a path to the target destination
-	// does not exist in the graph.
-	ErrNoPathFound errorCode = iota
-
-	// ErrNoRouteFound is returned when the router is unable to find a
-	// valid route to the target destination after fees and time-lock
-	// limitations are factored in.
-	ErrNoRouteFound
-
-	// ErrInsufficientCapacity is returned when a path if found, yet the
-	// capacity of one of the channels in the path is insufficient to carry
-	// the payment.
-	ErrInsufficientCapacity
-
-	// ErrMaxHopsExceeded is returned when a candidate path is found, but
-	// the length of that path exceeds HopLimit.
-	ErrMaxHopsExceeded
-
 	// ErrTargetNotInNetwork is returned when the target of a path-finding
 	// or payment attempt isn't known to be within the current version of
 	// the channel graph.
-	ErrTargetNotInNetwork
+	ErrTargetNotInNetwork errorCode = iota
 
 	// ErrOutdated is returned when the routing update already have
 	// been applied, or a newer update is already known.
@@ -39,18 +21,9 @@ const (
 	// announcement was given for node not found in any channel.
 	ErrIgnored
 
-	// ErrRejected is returned if the update is for a channel ID that was
-	// previously added to the reject cache because of an invalid update
-	// was attempted to be processed.
-	ErrRejected
-
 	// ErrPaymentAttemptTimeout is an error that indicates that a payment
 	// attempt timed out before we were able to successfully route an HTLC.
 	ErrPaymentAttemptTimeout
-
-	// ErrFeeLimitExceeded is returned when the total fees of a route exceed
-	// the user-specified fee limit.
-	ErrFeeLimitExceeded
 )
 
 // routerError is a structure that represent the error inside the routing package,

@@ -2,13 +2,13 @@ package routing
 
 import (
 	"container/heap"
+	"errors"
 	"fmt"
 	"math"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/coreos/bbolt"
-
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -63,6 +63,23 @@ var (
 	// DefaultAprioriHopProbability is the default a priori probability for
 	// a hop.
 	DefaultAprioriHopProbability = float64(0.6)
+
+	// errNoTlvPayload is returned when the destination hop does not support
+	// a tlv payload.
+	errNoTlvPayload = errors.New("destination hop doesn't " +
+		"understand new TLV payloads")
+
+	// errNoPathFound is returned when a path to the target destination does
+	// not exist in the graph.
+	errNoPathFound = errors.New("unable to find a path to destination")
+
+	// errMaxHopsExceeded is returned when a candidate path is found, but
+	// the length of that path exceeds HopLimit.
+	errMaxHopsExceeded = errors.New("potential path has too many hops")
+
+	// errInsufficientLocalBalance is returned when none of the local
+	// channels have enough balance for the payment.
+	errInsufficientBalance = errors.New("insufficient local balance")
 )
 
 // edgePolicyWithSource is a helper struct to keep track of the source node
@@ -292,6 +309,50 @@ type PathFindingConfig struct {
 	MinProbability float64
 }
 
+// getMaxOutgoingAmt returns the maximum available balance in any of the
+// channels of the given node.
+func getMaxOutgoingAmt(node route.Vertex, outgoingChan *uint64,
+	g *graphParams, tx *bbolt.Tx) (lnwire.MilliSatoshi, error) {
+
+	var max lnwire.MilliSatoshi
+	cb := func(_ *bbolt.Tx, edgeInfo *channeldb.ChannelEdgeInfo, outEdge,
+		_ *channeldb.ChannelEdgePolicy) error {
+
+		if outEdge == nil {
+			return nil
+		}
+
+		chanID := outEdge.ChannelID
+
+		// Enforce outgoing channel restriction.
+		if outgoingChan != nil && chanID != *outgoingChan {
+			return nil
+		}
+
+		bandwidth, ok := g.bandwidthHints[chanID]
+
+		// If the bandwidth is not available for whatever reason, don't
+		// fail the pathfinding early.
+		if !ok {
+			max = lnwire.MaxMilliSatoshi
+			return nil
+		}
+
+		if bandwidth > max {
+			max = bandwidth
+		}
+
+		return nil
+	}
+
+	// Iterate over all channels of the to node.
+	err := g.graph.ForEachNodeChannel(tx, node[:], cb)
+	if err != nil {
+		return 0, err
+	}
+	return max, err
+}
+
 // findPath attempts to find a path from the source node within the
 // ChannelGraph to the target node that's capable of supporting a payment of
 // `amt` value. The current approach implemented is modified version of
@@ -319,7 +380,13 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 			"time=%v", nodesVisited, edgesExpanded, timeElapsed)
 	}()
 
-	var err error
+	// Get source node outside of the pathfinding tx, to prevent a deadlock.
+	selfNode, err := g.graph.SourceNode()
+	if err != nil {
+		return nil, err
+	}
+	self := selfNode.PubKeyBytes
+
 	tx := g.tx
 	if tx == nil {
 		tx, err = g.graph.Database().Begin(false)
@@ -347,9 +414,20 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 				lnwire.TLVOnionPayloadOptional,
 			)
 			if !supportsTLV {
-				return nil, fmt.Errorf("destination hop doesn't " +
-					"understand new TLV paylods")
+				return nil, errNoTlvPayload
 			}
+		}
+	}
+
+	// If we are routing from ourselves, check that we have enough local
+	// balance available.
+	if source == self {
+		max, err := getMaxOutgoingAmt(self, r.OutgoingChannelID, g, tx)
+		if err != nil {
+			return nil, err
+		}
+		if max < amt {
+			return nil, errInsufficientBalance
 		}
 	}
 
@@ -363,7 +441,6 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 
 	additionalEdgesWithSrc := make(map[route.Vertex][]*edgePolicyWithSource)
 	for vertex, outgoingEdgePolicies := range g.additionalEdges {
-
 		// Build reverse lookup to find incoming edges. Needed because
 		// search is taken place from target to source.
 		for _, outgoingEdgePolicy := range outgoingEdgePolicies {
@@ -552,7 +629,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		pivot := partialPath.node
 
 		// Create unified policies for all incoming connections.
-		u := newUnifiedPolicies(source, pivot, r.OutgoingChannelID)
+		u := newUnifiedPolicies(self, pivot, r.OutgoingChannelID)
 
 		err := u.addGraphPolicies(g.graph, tx)
 		if err != nil {
@@ -622,8 +699,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		currentNodeWithDist, ok := distance[currentNode]
 		if !ok {
 			// If the node doesnt have a next hop it means we didn't find a path.
-			return nil, newErrf(ErrNoPathFound, "unable to find a "+
-				"path to destination")
+			return nil, errNoPathFound
 		}
 
 		// Add the next hop to the list of path edges.
@@ -646,8 +722,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 	// hops, then it's invalid.
 	numEdges := len(pathEdges)
 	if numEdges > HopLimit {
-		return nil, newErr(ErrMaxHopsExceeded, "potential path has "+
-			"too many hops")
+		return nil, errMaxHopsExceeded
 	}
 
 	log.Debugf("Found route: probability=%v, hops=%v, fee=%v\n",

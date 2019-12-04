@@ -1269,7 +1269,7 @@ func TestPathNotAvailable(t *testing.T) {
 		noRestrictions, testPathFindingConfig,
 		sourceNode.PubKeyBytes, unknownNode, 100,
 	)
-	if !IsError(err, ErrNoPathFound) {
+	if err != errNoPathFound {
 		t.Fatalf("path shouldn't have been found: %v", err)
 	}
 }
@@ -1306,7 +1306,7 @@ func TestPathInsufficientCapacity(t *testing.T) {
 		noRestrictions, testPathFindingConfig,
 		sourceNode.PubKeyBytes, target, payAmt,
 	)
-	if !IsError(err, ErrNoPathFound) {
+	if err != errNoPathFound {
 		t.Fatalf("graph shouldn't be able to support payment: %v", err)
 	}
 }
@@ -1339,7 +1339,7 @@ func TestRouteFailMinHTLC(t *testing.T) {
 		noRestrictions, testPathFindingConfig,
 		sourceNode.PubKeyBytes, target, payAmt,
 	)
-	if !IsError(err, ErrNoPathFound) {
+	if err != errNoPathFound {
 		t.Fatalf("graph shouldn't be able to support payment: %v", err)
 	}
 }
@@ -1403,7 +1403,7 @@ func TestRouteFailMaxHTLC(t *testing.T) {
 	// We'll now attempt to route through that edge with a payment above
 	// 100k msat, which should fail.
 	_, err = ctx.findPath(target, payAmt)
-	if !IsError(err, ErrNoPathFound) {
+	if err != errNoPathFound {
 		t.Fatalf("graph shouldn't be able to support payment: %v", err)
 	}
 }
@@ -1491,7 +1491,7 @@ func TestRouteFailDisabledEdge(t *testing.T) {
 		noRestrictions, testPathFindingConfig,
 		sourceNode.PubKeyBytes, target, payAmt,
 	)
-	if !IsError(err, ErrNoPathFound) {
+	if err != errNoPathFound {
 		t.Fatalf("graph shouldn't be able to support payment: %v", err)
 	}
 }
@@ -1549,7 +1549,7 @@ func TestPathSourceEdgesBandwidth(t *testing.T) {
 		noRestrictions, testPathFindingConfig,
 		sourceNode.PubKeyBytes, target, payAmt,
 	)
-	if !IsError(err, ErrNoPathFound) {
+	if err != errNoPathFound {
 		t.Fatalf("graph shouldn't be able to support payment: %v", err)
 	}
 
@@ -1971,7 +1971,7 @@ func testCltvLimit(t *testing.T, limit uint32, expectedChannel uint64) {
 	path, err := ctx.findPath(target, paymentAmt)
 	if expectedChannel == 0 {
 		// Finish test if we expect no route.
-		if IsError(err, ErrNoPathFound) {
+		if err == errNoPathFound {
 			return
 		}
 		t.Fatal("expected no path to be found")
@@ -2137,7 +2137,7 @@ func testProbabilityRouting(t *testing.T, p10, p11, p20, minProbability float64,
 
 	path, err := ctx.findPath(target, paymentAmt)
 	if expectedChan == 0 {
-		if err == nil || !IsError(err, ErrNoPathFound) {
+		if err != errNoPathFound {
 			t.Fatalf("expected no path found, but got %v", err)
 		}
 		return
@@ -2337,6 +2337,37 @@ func TestRouteToSelf(t *testing.T) {
 	ctx.assertPath(path, []uint64{1, 3, 2})
 }
 
+// TestInsufficientBalance tests that a dedicated error is returned for
+// insufficient local balance.
+func TestInsufficientBalance(t *testing.T) {
+	t.Parallel()
+
+	testChannels := []*testChannel{
+		symmetricTestChannel("source", "target", 100000, &testChannelPolicy{
+			Expiry:      144,
+			FeeBaseMsat: 500,
+		}, 1),
+	}
+
+	ctx := newPathFindingTestContext(t, testChannels, "source")
+	defer ctx.cleanup()
+
+	paymentAmt := lnwire.NewMSatFromSatoshis(100)
+	target := ctx.keyFromAlias("target")
+
+	ctx.graphParams.bandwidthHints = map[uint64]lnwire.MilliSatoshi{
+		1: lnwire.NewMSatFromSatoshis(50),
+	}
+
+	// Find the best path to self. We expect this to be source->a->source,
+	// because a charges the lowest forwarding fee.
+	_, err := ctx.findPath(target, paymentAmt)
+	if err != errInsufficientBalance {
+		t.Fatalf("expected insufficient balance error, but got: %v",
+			err)
+	}
+}
+
 type pathFindingTestContext struct {
 	t                 *testing.T
 	graphParams       graphParams
@@ -2365,15 +2396,12 @@ func newPathFindingTestContext(t *testing.T, testChannels []*testChannel,
 		t:                 t,
 		testGraphInstance: testGraphInstance,
 		source:            route.Vertex(sourceNode.PubKeyBytes),
+		pathFindingConfig: *testPathFindingConfig,
+		graphParams: graphParams{
+			graph: testGraphInstance.graph,
+		},
+		restrictParams: *noRestrictions,
 	}
-
-	ctx.pathFindingConfig = *testPathFindingConfig
-
-	ctx.graphParams.graph = testGraphInstance.graph
-
-	ctx.restrictParams.FeeLimit = noFeeLimit
-	ctx.restrictParams.ProbabilitySource = noProbabilitySource
-	ctx.restrictParams.CltvLimit = math.MaxUint32
 
 	return ctx
 }

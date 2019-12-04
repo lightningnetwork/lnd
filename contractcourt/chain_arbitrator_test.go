@@ -12,10 +12,10 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 )
 
-// TestChainArbitratorRepulishCommitment testst that the chain arbitrator will
-// republish closing transactions for channels marked CommitementBroadcast in
-// the database at startup.
-func TestChainArbitratorRepublishCommitment(t *testing.T) {
+// TestChainArbitratorRepulishCloses tests that the chain arbitrator will
+// republish closing transactions for channels marked CommitementBroadcast or
+// CoopBroadcast in the database at startup.
+func TestChainArbitratorRepublishCloses(t *testing.T) {
 	t.Parallel()
 
 	tempPath, err := ioutil.TempDir("", "testdb")
@@ -65,17 +65,22 @@ func TestChainArbitratorRepublishCommitment(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+
+		err = channels[i].MarkCoopBroadcasted(closeTx)
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	// We keep track of the transactions published by the ChainArbitrator
 	// at startup.
-	published := make(map[chainhash.Hash]struct{})
+	published := make(map[chainhash.Hash]int)
 
 	chainArbCfg := ChainArbitratorConfig{
 		ChainIO:  &mockChainIO{},
 		Notifier: &mockNotifier{},
 		PublishTx: func(tx *wire.MsgTx) error {
-			published[tx.TxHash()] = struct{}{}
+			published[tx.TxHash()]++
 			return nil
 		},
 	}
@@ -103,9 +108,14 @@ func TestChainArbitratorRepublishCommitment(t *testing.T) {
 		closeTx := channels[i].FundingTxn.Copy()
 		closeTx.TxIn[0].PreviousOutPoint = channels[i].FundingOutpoint
 
-		_, ok := published[closeTx.TxHash()]
+		count, ok := published[closeTx.TxHash()]
 		if !ok {
 			t.Fatalf("closing tx not re-published")
+		}
+
+		// We expect one coop close and one force close.
+		if count != 2 {
+			t.Fatalf("expected 2 closing txns, only got %d", count)
 		}
 
 		delete(published, closeTx.TxHash())

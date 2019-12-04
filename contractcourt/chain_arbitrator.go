@@ -432,34 +432,10 @@ func (c *ChainArbitrator) Start() error {
 
 		c.activeChannels[chanPoint] = channelArb
 
-		// If the channel has had its commitment broadcasted already,
-		// republish it in case it didn't propagate.
-		if !channel.HasChanStatus(
-			channeldb.ChanStatusCommitBroadcasted,
-		) {
-			continue
-		}
-
-		closeTx, err := channel.BroadcastedCommitment()
-		switch {
-
-		// This can happen for channels that had their closing tx
-		// published before we started storing it to disk.
-		case err == channeldb.ErrNoCloseTx:
-			log.Warnf("Channel %v is in state CommitBroadcasted, "+
-				"but no closing tx to re-publish...", chanPoint)
-			continue
-
-		case err != nil:
+		// Republish any closing transactions for this channel.
+		err = c.publishClosingTxs(channel)
+		if err != nil {
 			return err
-		}
-
-		log.Infof("Re-publishing closing tx(%v) for channel %v",
-			closeTx.TxHash(), chanPoint)
-		err = c.cfg.PublishTx(closeTx)
-		if err != nil && err != lnwallet.ErrDoubleSpend {
-			log.Warnf("Unable to broadcast close tx(%v): %v",
-				closeTx.TxHash(), err)
 		}
 	}
 
@@ -566,6 +542,90 @@ func (c *ChainArbitrator) Start() error {
 	}
 
 	// TODO(roasbeef): eventually move all breach watching here
+
+	return nil
+}
+
+// publishClosingTxs will load any stored cooperative or unilater closing
+// transactions and republish them. This helps ensure propagation of the
+// transactions in the event that prior publications failed.
+func (c *ChainArbitrator) publishClosingTxs(
+	channel *channeldb.OpenChannel) error {
+
+	// If the channel has had its unilateral close broadcasted already,
+	// republish it in case it didn't propagate.
+	if channel.HasChanStatus(channeldb.ChanStatusCommitBroadcasted) {
+		err := c.rebroadcast(
+			channel, channeldb.ChanStatusCommitBroadcasted,
+		)
+		if err != nil {
+			return err
+		}
+	}
+
+	// If the channel has had its cooperative close broadcasted
+	// already, republish it in case it didn't propagate.
+	if channel.HasChanStatus(channeldb.ChanStatusCoopBroadcasted) {
+		err := c.rebroadcast(
+			channel, channeldb.ChanStatusCoopBroadcasted,
+		)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// rebroadcast is a helper method which will republish the unilateral or
+// cooperative close transaction or a channel in a particular state.
+//
+// NOTE: There is no risk to caling this method if the channel isn't in either
+// CommimentBroadcasted or CoopBroadcasted, but the logs will be misleading.
+func (c *ChainArbitrator) rebroadcast(channel *channeldb.OpenChannel,
+	state channeldb.ChannelStatus) error {
+
+	chanPoint := channel.FundingOutpoint
+
+	var (
+		closeTx *wire.MsgTx
+		kind    string
+		err     error
+	)
+	switch state {
+	case channeldb.ChanStatusCommitBroadcasted:
+		kind = "force"
+		closeTx, err = channel.BroadcastedCommitment()
+
+	case channeldb.ChanStatusCoopBroadcasted:
+		kind = "coop"
+		closeTx, err = channel.BroadcastedCooperative()
+
+	default:
+		return fmt.Errorf("unknown closing state: %v", state)
+	}
+
+	switch {
+
+	// This can happen for channels that had their closing tx published
+	// before we started storing it to disk.
+	case err == channeldb.ErrNoCloseTx:
+		log.Warnf("Channel %v is in state %v, but no %s closing tx "+
+			"to re-publish...", chanPoint, state, kind)
+		return nil
+
+	case err != nil:
+		return err
+	}
+
+	log.Infof("Re-publishing %s close tx(%v) for channel %v",
+		kind, closeTx.TxHash(), chanPoint)
+
+	err = c.cfg.PublishTx(closeTx)
+	if err != nil && err != lnwallet.ErrDoubleSpend {
+		log.Warnf("Unable to broadcast %s close tx(%v): %v",
+			kind, closeTx.TxHash(), err)
+	}
 
 	return nil
 }

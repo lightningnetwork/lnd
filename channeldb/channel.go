@@ -956,13 +956,18 @@ func (c *OpenChannel) markBroadcasted(status ChannelStatus, key []byte,
 	c.Lock()
 	defer c.Unlock()
 
-	var b bytes.Buffer
-	if err := WriteElement(&b, closeTx); err != nil {
-		return err
-	}
+	// If a closing tx is provided, we'll generate a closure to write the
+	// transaction in the appropriate bucket under the given key.
+	var putClosingTx func(*bbolt.Bucket) error
+	if closeTx != nil {
+		var b bytes.Buffer
+		if err := WriteElement(&b, closeTx); err != nil {
+			return err
+		}
 
-	putClosingTx := func(chanBucket *bbolt.Bucket) error {
-		return chanBucket.Put(key, b.Bytes())
+		putClosingTx = func(chanBucket *bbolt.Bucket) error {
+			return chanBucket.Put(key, b.Bytes())
+		}
 	}
 
 	return c.putChanStatus(status, putClosingTx)
@@ -1039,6 +1044,11 @@ func (c *OpenChannel) putChanStatus(status ChannelStatus,
 		}
 
 		for _, f := range fs {
+			// Skip execution of nil closures.
+			if f == nil {
+				continue
+			}
+
 			if err := f(chanBucket); err != nil {
 				return err
 			}

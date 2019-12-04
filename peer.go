@@ -535,6 +535,9 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) (
 				FeeRate:       selfPolicy.FeeProportionalMillionths,
 				TimeLockDelta: uint32(selfPolicy.TimeLockDelta),
 			}
+			if forwardingPolicy.MaxHTLC > MaxPaymentMSat {
+				forwardingPolicy.MaxHTLC = MaxPaymentMSat
+			}
 		} else {
 			peerLog.Warnf("Unable to find our forwarding policy "+
 				"for channel %v, using default values",
@@ -1865,6 +1868,9 @@ out:
 				BaseFee:       defaultPolicy.BaseFee,
 				FeeRate:       defaultPolicy.FeeRate,
 				TimeLockDelta: defaultPolicy.TimeLockDelta,
+			}
+			if forwardingPolicy.MaxHTLC > MaxPaymentMSat {
+				forwardingPolicy.MaxHTLC = MaxPaymentMSat
 			}
 
 			// Create the link and add it to the switch.

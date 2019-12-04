@@ -900,6 +900,14 @@ func TestFetchWaitingCloseChannels(t *testing.T) {
 		if err := channel.MarkCommitmentBroadcasted(closeTx); err != nil {
 			t.Fatalf("unable to mark commitment broadcast: %v", err)
 		}
+
+		// Modify the close tx deterministically  and also mark it as
+		// coop closed. Later we will test that distinct transactions
+		// are returned for both coop and force closes.
+		closeTx.TxIn[0].PreviousOutPoint.Index ^= 1
+		if err := channel.MarkCoopBroadcasted(closeTx); err != nil {
+			t.Fatalf("unable to mark coop broadcast: %v", err)
+		}
 	}
 
 	// Now, we'll fetch all the channels waiting to be closed from the
@@ -909,7 +917,7 @@ func TestFetchWaitingCloseChannels(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to fetch all waiting close channels: %v", err)
 	}
-	if len(waitingCloseChannels) != 2 {
+	if len(waitingCloseChannels) != numChannels {
 		t.Fatalf("expected %d channels waiting to be closed, got %d", 2,
 			len(waitingCloseChannels))
 	}
@@ -923,17 +931,31 @@ func TestFetchWaitingCloseChannels(t *testing.T) {
 				channel.FundingOutpoint)
 		}
 
-		// Finally, make sure we can retrieve the closing tx for the
-		// channel.
-		closeTx, err := channel.BroadcastedCommitment()
+		chanPoint := channel.FundingOutpoint
+
+		// Assert that the force close transaction is retrievable.
+		forceCloseTx, err := channel.BroadcastedCommitment()
 		if err != nil {
 			t.Fatalf("Unable to retrieve commitment: %v", err)
 		}
 
-		if closeTx.TxIn[0].PreviousOutPoint != channel.FundingOutpoint {
+		if forceCloseTx.TxIn[0].PreviousOutPoint != chanPoint {
 			t.Fatalf("expected outpoint %v, got %v",
-				channel.FundingOutpoint,
-				closeTx.TxIn[0].PreviousOutPoint)
+				chanPoint,
+				forceCloseTx.TxIn[0].PreviousOutPoint)
+		}
+
+		// Assert that the coop close transaction is retrievable.
+		coopCloseTx, err := channel.BroadcastedCooperative()
+		if err != nil {
+			t.Fatalf("unable to retrieve coop close: %v", err)
+		}
+
+		chanPoint.Index ^= 1
+		if coopCloseTx.TxIn[0].PreviousOutPoint != chanPoint {
+			t.Fatalf("expected outpoint %v, got %v",
+				chanPoint,
+				coopCloseTx.TxIn[0].PreviousOutPoint)
 		}
 	}
 }

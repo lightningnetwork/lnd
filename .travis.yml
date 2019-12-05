@@ -14,33 +14,29 @@ go:
 env:
   global:
     - GOCACHE=$HOME/.go-build
-  matrix:
-    - RACE=true
-    - ITEST=true
-    - NEUTRINO_ITEST=true
-    - BITCOIND_ITEST=true
-    - COVER=true 
 
 sudo: required
 
-script:
-  - export GO111MODULE=on
-  - bash ./scripts/install_bitcoind.sh
+before_script: bash ./scripts/install_bitcoind.sh
 
-  # Run unit tests with race condition detector.
-  - 'if [ "$RACE" = true ]; then make travis-race ; fi'
-
-  # Run btcd integration tests.
-  - 'if [ "$ITEST" = true ]; then make travis-itest; fi'
-
-  # Run neutrino integration tests.
-  - 'if [ "$NEUTRINO_ITEST" = true ]; then make travis-itest backend=neutrino; fi'
-
-  # Run bitcoind integration tests.
-  - 'if [ "$BITCOIND_ITEST" = true ]; then make travis-itest backend=bitcoind; fi'
-
-  # Run unit tests and generate coverage report.
-  - 'if [ "$COVER" = true ]; then make travis-cover; fi'
+jobs:
+  include:
+    - stage: Build
+      script: 
+      - make unit pkg=... case=_NONE_ 
+      - make lint
+      - make btcd
+    - stage: Test
+      script: make travis-cover
+      name: Unit Cover
+    - script: make travis-race
+      name: Unit Race
+    - script: make itest
+      name: Btcd Integration
+    - script: make itest backend=bitcoind
+      name: Bitcoind Integration
+    - script: make itest backend=neutrino
+      name: Neutrino Integration
 
 after_script:
   - LOG_FILES=./lntest/itest/*.log

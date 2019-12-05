@@ -136,7 +136,7 @@ type ChannelReservation struct {
 func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 	commitFeePerKw chainfee.SatPerKWeight, wallet *LightningWallet,
 	id uint64, pushMSat lnwire.MilliSatoshi, chainHash *chainhash.Hash,
-	flags lnwire.FundingFlag, tweaklessCommit bool,
+	flags lnwire.FundingFlag, tweaklessCommit bool, anchorSize btcutil.Amount,
 	fundingAssembler chanfunding.Assembler,
 	pendingChanID [32]byte) (*ChannelReservation, error) {
 
@@ -151,7 +151,10 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 	// TODO(halseth): make method take remote funding amount directly
 	// instead of inferring it from capacity and local amt.
 	capacityMSat := lnwire.NewMSatFromSatoshis(capacity)
-	feeMSat := lnwire.NewMSatFromSatoshis(commitFee)
+
+	// The total fee paid by the initiator will be the commitment fee in
+	// addition to the two anchor outputs.
+	feeMSat := lnwire.NewMSatFromSatoshis(commitFee + 2*anchorSize)
 
 	// If we're the responder to a single-funder reservation, then we have
 	// no initial balance in the channel unless the remote party is pushing
@@ -213,6 +216,16 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 		)
 	}
 
+	// Similarly we ensure their balance is reasonable if we are not the
+	// initiator.
+	if !initiator && theirBalance.ToSatoshis() <= 2*DefaultDustLimit() {
+		return nil, ErrFunderBalanceDust(
+			int64(commitFee),
+			int64(ourBalance.ToSatoshis()),
+			int64(2*DefaultDustLimit()),
+		)
+	}
+
 	// Next we'll set the channel type based on what we can ascertain about
 	// the balances/push amount within the channel.
 	var chanType channeldb.ChannelType
@@ -241,6 +254,12 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 		chanType |= channeldb.DualFunderBit
 	}
 
+	// For non-zero anchor sizes, we are adding anchor outputs to our
+	// commitment.
+	if anchorSize > 0 {
+		chanType |= channeldb.AnchorOutputsBit
+	}
+
 	return &ChannelReservation{
 		ourContribution: &ChannelContribution{
 			FundingAmount: ourBalance.ToSatoshis(),
@@ -252,6 +271,7 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 		},
 		partialState: &channeldb.OpenChannel{
 			ChanType:     chanType,
+			AnchorSize:   anchorSize,
 			ChainHash:    *chainHash,
 			IsPending:    true,
 			IsInitiator:  initiator,

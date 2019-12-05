@@ -103,6 +103,10 @@ type InitFundingReserveMsg struct {
 	// commitment format or not.
 	Tweakless bool
 
+	// AnchorSize is the agreed upon size of the anchor outputs to use for
+	// commitments. Zero for commitment types without anchor outputs.
+	AnchorSize btcutil.Amount
+
 	// ChanFunder is an optional channel funder that allows the caller to
 	// control exactly how the channel funding is carried out. If not
 	// specified, then the default chanfunding.WalletAssembler will be
@@ -547,7 +551,8 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 	reservation, err := NewChannelReservation(
 		capacity, localFundingAmt, req.CommitFeePerKw, l, id,
 		req.PushMSat, l.Cfg.NetParams.GenesisHash, req.Flags,
-		req.Tweakless, req.ChanFunder, req.PendingChanID,
+		req.Tweakless, req.AnchorSize, req.ChanFunder,
+		req.PendingChanID,
 	)
 	if err != nil {
 		if fundingIntent != nil {

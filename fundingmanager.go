@@ -1233,6 +1233,7 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 		Flags:            msg.ChannelFlags,
 		MinConfs:         1,
 		Tweakless:        tweaklessCommitment,
+		AnchorSize:       0,
 	}
 
 	reservation, err := f.cfg.Wallet.InitChannelReservation(req)
@@ -2893,6 +2894,7 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 		Flags:            channelFlags,
 		MinConfs:         msg.minConfs,
 		Tweakless:        tweaklessCommitment,
+		AnchorSize:       0,
 	}
 
 	reservation, err := f.cfg.Wallet.InitChannelReservation(req)

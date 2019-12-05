@@ -60,14 +60,36 @@ type chanEventLog struct {
 	closedAt time.Time
 }
 
+// newEventLog creates an event log for a channel. If the peer is online at
+// the time the event log is created, add an online event with the same
+// timestamp as the event log so that the event log does not have a gap
+// between open time and the online event in the case where the peer was
+// already online.
 func newEventLog(fundingTxID wire.OutPoint, peer route.Vertex,
-	now func() time.Time) *chanEventLog {
+	now func() time.Time, peerOnline bool) *chanEventLog {
 
-	return &chanEventLog{
+	// Set the opened time of the event log to the present.
+	openedAt := now()
+
+	eventlog := &chanEventLog{
 		fundingTxID: fundingTxID,
 		peer:        peer,
 		now:         now,
+		openedAt:    openedAt,
 	}
+
+	// If the peer is online at startup, add a peer online event with the same
+	// timestamp as the event log opening time.
+	if peerOnline {
+		eventlog.events = []*channelEvent{
+			{
+				eventType: peerOnlineEvent,
+				timestamp: openedAt,
+			},
+		}
+	}
+
+	return eventlog
 }
 
 // close sets the closing time for an event log.
@@ -90,13 +112,6 @@ func (e *chanEventLog) add(eventType eventType) {
 		eventType: eventType,
 	}
 	e.events = append(e.events, event)
-
-	// If the eventLog does not have an opened time set, set it to the timestamp
-	// of the event. This has the effect of setting the eventLog's open time to
-	// the timestamp of the first event added.
-	if e.openedAt.IsZero() {
-		e.openedAt = event.timestamp
-	}
 
 	log.Debugf("Channel %v recording event: %v", e.fundingTxID, eventType)
 }

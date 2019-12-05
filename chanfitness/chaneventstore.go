@@ -163,7 +163,7 @@ func (c *ChannelEventStore) Start() error {
 
 		// Add existing channels to the channel store with an initial peer
 		// online or offline event.
-		c.addChannel(ch.FundingOutpoint, peerKey)
+		c.addChannel(ch.FundingOutpoint, peerKey, c.peers[peerKey])
 	}
 
 	// Start a goroutine that consumes events from all subscriptions.
@@ -193,7 +193,7 @@ func (c *ChannelEventStore) Stop() {
 // be called to add existing channels on startup and when open channel events
 // are observed.
 func (c *ChannelEventStore) addChannel(fundingTxID wire.OutPoint,
-	peer route.Vertex) {
+	peer route.Vertex, peerOnline bool) {
 
 	// Check for the unexpected case where the channel is already in the store.
 	_, ok := c.channels[fundingTxID]
@@ -202,14 +202,8 @@ func (c *ChannelEventStore) addChannel(fundingTxID wire.OutPoint,
 		return
 	}
 
-	eventLog := newEventLog(fundingTxID, peer, time.Now)
-
-	// If the peer is online, add a peer online event to indicate its starting
-	// state.
-	online := c.peers[peer]
-	if online {
-		eventLog.add(peerOnlineEvent)
-	}
+	// Create an event log for the channel.
+	eventLog := newEventLog(fundingTxID, peer, time.Now, peerOnline)
 
 	c.channels[fundingTxID] = eventLog
 }
@@ -271,7 +265,9 @@ func (c *ChannelEventStore) consume(subscriptions *subscriptions) {
 						event.Channel.IdentityPub.SerializeCompressed())
 				}
 
-				c.addChannel(event.Channel.FundingOutpoint, peerKey)
+				c.addChannel(
+					event.Channel.FundingOutpoint, peerKey, c.peers[peerKey],
+				)
 
 			// A channel has been closed, we must remove the channel from the
 			// store and record a channel closed event.

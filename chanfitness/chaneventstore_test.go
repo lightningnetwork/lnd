@@ -75,13 +75,9 @@ func TestStartStoreError(t *testing.T) {
 	}
 }
 
-// TestMonitorChannelEvents tests the store's handling of channel and peer
-// events. It tests for the unexpected cases where we receive a channel open for
-// an already known channel and but does not test for closing an unknown channel
-// because it would require custom logic in the test to prevent iterating
-// through an eventLog which does not exist. This test does not test handling
-// of uptime and lifespan requests, as they are tested in their own tests.
-func TestMonitorChannelEvents(t *testing.T) {
+// getTestChannel returns a non-zero peer pubKey, serialized pubKey and channel
+// funding txid for testing.
+func getTestChannel(t *testing.T) (*btcec.PublicKey, route.Vertex, wire.OutPoint) {
 	privKey, err := btcec.NewPrivateKey(btcec.S256())
 	if err != nil {
 		t.Fatalf("Error getting pubkey: %v", err)
@@ -100,10 +96,20 @@ func TestMonitorChannelEvents(t *testing.T) {
 		t.Fatalf("error creating txid: %v", err)
 	}
 
-	chanPoint := wire.OutPoint{
+	return privKey.PubKey(), pubKey, wire.OutPoint{
 		Hash:  txid,
 		Index: 0,
 	}
+}
+
+// TestMonitorChannelEvents tests the store's handling of channel and peer
+// events. It tests for the unexpected cases where we receive a channel open for
+// an already known channel and but does not test for closing an unknown channel
+// because it would require custom logic in the test to prevent iterating
+// through an eventLog which does not exist. This test does not test handling
+// of uptime and lifespan requests, as they are tested in their own tests.
+func TestMonitorChannelEvents(t *testing.T) {
+	pubkey, vertex, chanPoint := getTestChannel(t)
 
 	tests := []struct {
 		name string
@@ -125,12 +131,12 @@ func TestMonitorChannelEvents(t *testing.T) {
 				channelEvents <- channelnotifier.OpenChannelEvent{
 					Channel: &channeldb.OpenChannel{
 						FundingOutpoint: chanPoint,
-						IdentityPub:     privKey.PubKey(),
+						IdentityPub:     pubkey,
 					},
 				}
 
 				// Add a peer online event.
-				peerEvents <- peernotifier.PeerOnlineEvent{PubKey: pubKey}
+				peerEvents <- peernotifier.PeerOnlineEvent{PubKey: vertex}
 			},
 			expectedEvents: []eventType{peerOnlineEvent},
 		},
@@ -141,18 +147,18 @@ func TestMonitorChannelEvents(t *testing.T) {
 				channelEvents <- channelnotifier.OpenChannelEvent{
 					Channel: &channeldb.OpenChannel{
 						FundingOutpoint: chanPoint,
-						IdentityPub:     privKey.PubKey(),
+						IdentityPub:     pubkey,
 					},
 				}
 
 				// Add a peer online event.
-				peerEvents <- peernotifier.PeerOnlineEvent{PubKey: pubKey}
+				peerEvents <- peernotifier.PeerOnlineEvent{PubKey: vertex}
 
 				// Add a duplicate channel open event.
 				channelEvents <- channelnotifier.OpenChannelEvent{
 					Channel: &channeldb.OpenChannel{
 						FundingOutpoint: chanPoint,
-						IdentityPub:     privKey.PubKey(),
+						IdentityPub:     pubkey,
 					},
 				}
 			},
@@ -162,13 +168,13 @@ func TestMonitorChannelEvents(t *testing.T) {
 			name: "Channel opened, peer already online",
 			generateEvents: func(channelEvents, peerEvents chan<- interface{}) {
 				// Add a peer online event.
-				peerEvents <- peernotifier.PeerOnlineEvent{PubKey: pubKey}
+				peerEvents <- peernotifier.PeerOnlineEvent{PubKey: vertex}
 
 				// Add an open channel event
 				channelEvents <- channelnotifier.OpenChannelEvent{
 					Channel: &channeldb.OpenChannel{
 						FundingOutpoint: chanPoint,
-						IdentityPub:     privKey.PubKey(),
+						IdentityPub:     pubkey,
 					},
 				}
 			},
@@ -182,12 +188,12 @@ func TestMonitorChannelEvents(t *testing.T) {
 				channelEvents <- channelnotifier.OpenChannelEvent{
 					Channel: &channeldb.OpenChannel{
 						FundingOutpoint: chanPoint,
-						IdentityPub:     privKey.PubKey(),
+						IdentityPub:     pubkey,
 					},
 				}
 
 				// Add a peer online event.
-				peerEvents <- peernotifier.PeerOfflineEvent{PubKey: pubKey}
+				peerEvents <- peernotifier.PeerOfflineEvent{PubKey: vertex}
 
 				// Add a close channel event.
 				channelEvents <- channelnotifier.ClosedChannelEvent{
@@ -205,7 +211,7 @@ func TestMonitorChannelEvents(t *testing.T) {
 				channelEvents <- channelnotifier.OpenChannelEvent{
 					Channel: &channeldb.OpenChannel{
 						FundingOutpoint: chanPoint,
-						IdentityPub:     privKey.PubKey(),
+						IdentityPub:     pubkey,
 					},
 				}
 
@@ -217,7 +223,7 @@ func TestMonitorChannelEvents(t *testing.T) {
 				}
 
 				// Add a peer online event.
-				peerEvents <- peernotifier.PeerOfflineEvent{PubKey: pubKey}
+				peerEvents <- peernotifier.PeerOfflineEvent{PubKey: vertex}
 			},
 		},
 	}
@@ -463,6 +469,62 @@ func TestGetUptime(t *testing.T) {
 					test.expectedUptime, uptime)
 			}
 
+		})
+	}
+}
+
+// TestAddChannel tests that channels are added to the event store with
+// appropriate timestamps regardless of whether the peer is online. This test
+// addresses a bug where offline channels did not have an opened time set.
+func TestAddChannel(t *testing.T) {
+	_, vertex, chanPoint := getTestChannel(t)
+
+	tests := []struct {
+		name          string
+		peerOnline    bool
+		expctedEvents []*channelEvent
+	}{
+		{
+			name:       "peer online on start",
+			peerOnline: true,
+			expctedEvents: []*channelEvent{{
+				eventType: peerOnlineEvent,
+			}},
+		},
+		{
+			name:          "peer offline on start",
+			peerOnline:    true,
+			expctedEvents: []*channelEvent{},
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+
+		t.Run(test.name, func(t *testing.T) {
+			store := NewChannelEventStore(&Config{})
+
+			// Add channel to the store.
+			store.addChannel(chanPoint, vertex, test.peerOnline)
+
+			// Check that the eventlog is successfully added.
+			eventlog, ok := store.channels[chanPoint]
+			if !ok {
+				t.Fatalf("channel should be in store")
+			}
+
+			// Ensure that open time is always set.
+			if eventlog.openedAt.IsZero() {
+				t.Fatalf("channel should have opened at set")
+			}
+
+			// Check that an initial event has been added, where appropriate.
+			for i, event := range test.expctedEvents {
+				if eventlog.events[i].eventType != event.eventType {
+					t.Fatalf("expected: %v, got: %v", event.eventType,
+						eventlog.events[i].eventType)
+				}
+			}
 		})
 	}
 }

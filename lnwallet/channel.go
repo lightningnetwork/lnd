@@ -1910,8 +1910,12 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 	if err != nil {
 		return nil, err
 	}
-	localPkScript, err := input.CommitScriptUnencumbered(
-		keyRing.RemoteKey,
+
+	// Since it is the remote breach we are reconstructing, the output going
+	// to us will be a to-remote script with our local params.
+	localDelay := uint32(chanState.LocalChanCfg.CsvDelay)
+	localScript, err := commitType.CommitScriptToRemote(
+		localDelay, keyRing.RemoteKey,
 	)
 	if err != nil {
 		return nil, err
@@ -1927,7 +1931,7 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 	}
 	for i, txOut := range revokedSnapshot.CommitTx.TxOut {
 		switch {
-		case bytes.Equal(txOut.PkScript, localPkScript):
+		case bytes.Equal(txOut.PkScript, localScript.PkScript):
 			localOutpoint.Index = uint32(i)
 		case bytes.Equal(txOut.PkScript, remoteWitnessHash):
 			remoteOutpoint.Index = uint32(i)
@@ -1952,9 +1956,9 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 		localSignDesc = &input.SignDescriptor{
 			SingleTweak:   keyRing.LocalCommitKeyTweak,
 			KeyDesc:       chanState.LocalChanCfg.PaymentBasePoint,
-			WitnessScript: localPkScript,
+			WitnessScript: localScript.WitnessScript,
 			Output: &wire.TxOut{
-				PkScript: localPkScript,
+				PkScript: localScript.PkScript,
 				Value:    int64(localAmt),
 			},
 			HashType: txscript.SigHashAll,
@@ -2327,8 +2331,8 @@ func (lc *LightningChannel) createCommitmentTx(c *commitment,
 	// Generate a new commitment transaction with all the latest
 	// unsettled/un-timed out HTLCs.
 	commitTx, err := CreateCommitTx(
-		lc.fundingTxIn(), keyRing, localCfg, remoteCfg, localBalance,
-		remoteBalance,
+		lc.commitType, lc.fundingTxIn(), keyRing, localCfg, remoteCfg,
+		localBalance, remoteBalance,
 	)
 	if err != nil {
 		return err
@@ -5035,7 +5039,10 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, signer input.Si
 	// Before we can generate the proper sign descriptor, we'll need to
 	// locate the output index of our non-delayed output on the commitment
 	// transaction.
-	selfP2WKH, err := input.CommitScriptUnencumbered(keyRing.RemoteKey)
+	localDelay := uint32(chanState.LocalChanCfg.CsvDelay)
+	selfScript, err := commitType.CommitScriptToRemote(
+		localDelay, keyRing.RemoteKey,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create self commit "+
 			"script: %v", err)
@@ -5047,7 +5054,7 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, signer input.Si
 	)
 
 	for outputIndex, txOut := range commitTxBroadcast.TxOut {
-		if bytes.Equal(txOut.PkScript, selfP2WKH) {
+		if bytes.Equal(txOut.PkScript, selfScript.PkScript) {
 			selfPoint = &wire.OutPoint{
 				Hash:  *commitSpend.SpenderTxHash,
 				Index: uint32(outputIndex),
@@ -5068,10 +5075,10 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, signer input.Si
 			SelfOutputSignDesc: input.SignDescriptor{
 				KeyDesc:       localPayBase,
 				SingleTweak:   keyRing.LocalCommitKeyTweak,
-				WitnessScript: selfP2WKH,
+				WitnessScript: selfScript.WitnessScript,
 				Output: &wire.TxOut{
 					Value:    localBalance,
-					PkScript: selfP2WKH,
+					PkScript: selfScript.PkScript,
 				},
 				HashType: txscript.SigHashAll,
 			},
@@ -6098,7 +6105,8 @@ func (lc *LightningChannel) generateRevocation(height uint64) (*lnwire.RevokeAnd
 // spent after a relative block delay or revocation event, and a remote output
 // paying the counterparty within the channel, which can be spent immediately
 // or after a delay depending on the commitment type..
-func CreateCommitTx(fundingOutput wire.TxIn, keyRing *commitmenttx.KeyRing,
+func CreateCommitTx(commitType commitmenttx.CommitmentType,
+	fundingOutput wire.TxIn, keyRing *commitmenttx.KeyRing,
 	localChanCfg, remoteChanCfg *channeldb.ChannelConfig,
 	amountToLocal, amountToRemote btcutil.Amount) (*wire.MsgTx, error) {
 
@@ -6121,10 +6129,9 @@ func CreateCommitTx(fundingOutput wire.TxIn, keyRing *commitmenttx.KeyRing,
 		return nil, err
 	}
 
-	// Next, we create the script paying to the remote. This is just a
-	// regular P2WPKH output, without any added CSV delay.
-	toRemoteWitnessKeyHash, err := input.CommitScriptUnencumbered(
-		keyRing.RemoteKey,
+	// Next, we create the script paying to the remote.
+	toRemoteScript, err := commitType.CommitScriptToRemote(
+		uint32(remoteChanCfg.CsvDelay), keyRing.RemoteKey,
 	)
 	if err != nil {
 		return nil, err
@@ -6145,7 +6152,7 @@ func CreateCommitTx(fundingOutput wire.TxIn, keyRing *commitmenttx.KeyRing,
 	}
 	if amountToRemote >= localChanCfg.DustLimit {
 		commitTx.AddTxOut(&wire.TxOut{
-			PkScript: toRemoteWitnessKeyHash,
+			PkScript: toRemoteScript.PkScript,
 			Value:    int64(amountToRemote),
 		})
 	}

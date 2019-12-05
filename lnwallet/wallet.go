@@ -762,8 +762,8 @@ func CreateCommitmentTxns(localBalance, remoteBalance btcutil.Amount,
 	)
 
 	ourCommitTx, err := CreateCommitTx(
-		fundingTxIn, localCommitmentKeys, ourChanCfg, theirChanCfg,
-		localBalance, remoteBalance,
+		commitType, fundingTxIn, localCommitmentKeys, ourChanCfg,
+		theirChanCfg, localBalance, remoteBalance,
 	)
 	if err != nil {
 		return nil, nil, err
@@ -775,8 +775,8 @@ func CreateCommitmentTxns(localBalance, remoteBalance btcutil.Amount,
 	}
 
 	theirCommitTx, err := CreateCommitTx(
-		fundingTxIn, remoteCommitmentKeys, theirChanCfg, ourChanCfg,
-		remoteBalance, localBalance,
+		commitType, fundingTxIn, remoteCommitmentKeys, theirChanCfg,
+		ourChanCfg, remoteBalance, localBalance,
 	)
 	if err != nil {
 		return nil, nil, err

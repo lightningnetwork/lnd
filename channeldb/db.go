@@ -137,7 +137,8 @@ type DB struct {
 	*bbolt.DB
 	dbPath string
 	graph  *ChannelGraph
-	now    func() time.Time
+
+	Now func() time.Time
 }
 
 // Open opens an existing channeldb. Any necessary schemas migrations due to
@@ -171,7 +172,7 @@ func Open(dbPath string, modifiers ...OptionModifier) (*DB, error) {
 	chanDB := &DB{
 		DB:     bdb,
 		dbPath: dbPath,
-		now:    time.Now,
+		Now:    time.Now,
 	}
 	chanDB.graph = newChannelGraph(
 		chanDB, opts.RejectCacheSize, opts.ChannelCacheSize,

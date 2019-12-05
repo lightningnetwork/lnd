@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -184,6 +185,69 @@ func TestInvoiceWorkflow(t *testing.T) {
 	}
 }
 
+// TestInvoiceCancelSingleHtlc tests that a single htlc can be canceled on the
+// invoice.
+func TestInvoiceCancelSingleHtlc(t *testing.T) {
+	t.Parallel()
+
+	db, cleanUp, err := makeTestDB()
+	defer cleanUp()
+	if err != nil {
+		t.Fatalf("unable to make test db: %v", err)
+	}
+
+	testInvoice := &Invoice{
+		Htlcs: map[CircuitKey]*InvoiceHTLC{},
+	}
+	testInvoice.Terms.Value = lnwire.NewMSatFromSatoshis(10000)
+	testInvoice.Terms.Features = emptyFeatures
+
+	var paymentHash lntypes.Hash
+	if _, err := db.AddInvoice(testInvoice, paymentHash); err != nil {
+		t.Fatalf("unable to find invoice: %v", err)
+	}
+
+	// Accept an htlc on this invoice.
+	key := CircuitKey{ChanID: lnwire.NewShortChanIDFromInt(1), HtlcID: 4}
+	invoice, err := db.UpdateInvoice(paymentHash,
+		func(invoice *Invoice) (*InvoiceUpdateDesc, error) {
+			return &InvoiceUpdateDesc{
+				AddHtlcs: map[CircuitKey]*HtlcAcceptDesc{
+					key: {
+						Amt: 500,
+					},
+				},
+			}, nil
+		})
+	if err != nil {
+		t.Fatalf("unable to add invoice htlc: %v", err)
+	}
+	if len(invoice.Htlcs) != 1 {
+		t.Fatalf("expected the htlc to be added")
+	}
+	if invoice.Htlcs[key].State != HtlcStateAccepted {
+		t.Fatalf("expected htlc in state accepted")
+	}
+
+	// Cancel the htlc again.
+	invoice, err = db.UpdateInvoice(paymentHash, func(invoice *Invoice) (*InvoiceUpdateDesc, error) {
+		return &InvoiceUpdateDesc{
+			CancelHtlcs: map[CircuitKey]struct{}{
+				key: {},
+			},
+		}, nil
+	})
+	if err != nil {
+		t.Fatalf("unable to cancel htlc: %v", err)
+	}
+	if len(invoice.Htlcs) != 1 {
+		t.Fatalf("expected the htlc to be present")
+	}
+	if invoice.Htlcs[key].State != HtlcStateCanceled {
+		t.Fatalf("expected htlc in state canceled")
+	}
+}
+
 // TestInvoiceTimeSeries tests that newly added invoices invoices, as well as
 // settled invoices are added to the database are properly placed in the add
 // add or settle index which serves as an event time series.
@@ -337,7 +401,7 @@ func TestDuplicateSettleInvoice(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to make test db: %v", err)
 	}
-	db.now = func() time.Time { return time.Unix(1, 0) }
+	db.Now = func() time.Time { return time.Unix(1, 0) }
 
 	// We'll start out by creating an invoice and writing it to the DB.
 	amt := lnwire.NewMSatFromSatoshis(1000)
@@ -684,9 +748,11 @@ func getUpdateInvoice(amt lnwire.MilliSatoshi) InvoiceUpdateCallback {
 		}
 
 		update := &InvoiceUpdateDesc{
-			Preimage: invoice.Terms.PaymentPreimage,
-			State:    ContractSettled,
-			Htlcs: map[CircuitKey]*HtlcAcceptDesc{
+			State: &InvoiceStateUpdateDesc{
+				Preimage: invoice.Terms.PaymentPreimage,
+				NewState: ContractSettled,
+			},
+			AddHtlcs: map[CircuitKey]*HtlcAcceptDesc{
 				{}: {
 					Amt: amt,
 				},

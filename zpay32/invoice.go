@@ -73,6 +73,11 @@ const (
 	// supported or required by the receiver.
 	fieldType9 = 5
 
+	// fieldTypeS contains a 32-byte payment address, which is a nonce
+	// included in the final hop's payload to prevent intermediaries from
+	// probing the recipient.
+	fieldTypeS = 16
+
 	// maxInvoiceLength is the maximum total length an invoice can have.
 	// This is chosen to be the maximum number of bytes that can fit into a
 	// single QR code: https://en.wikipedia.org/wiki/QR_code#Storage
@@ -125,6 +130,10 @@ type Invoice struct {
 	// PaymentHash is the payment hash to be used for a payment to this
 	// invoice.
 	PaymentHash *[32]byte
+
+	// PaymentAddr is the payment address to be used by payments to prevent
+	// probing of the destination.
+	PaymentAddr *[32]byte
 
 	// Destination is the public key of the target node. This will always
 	// be set after decoding, and can optionally be set before encoding to
@@ -255,6 +264,14 @@ func RouteHint(routeHint []HopHint) func(*Invoice) {
 func Features(features *lnwire.FeatureVector) func(*Invoice) {
 	return func(i *Invoice) {
 		i.Features = features
+	}
+}
+
+// PaymentAddr is a functional option that allows callers of NewInvoice to set
+// the desired payment address tht is advertised on the invoice.
+func PaymentAddr(addr [32]byte) func(*Invoice) {
+	return func(i *Invoice) {
+		i.PaymentAddr = &addr
 	}
 }
 
@@ -643,6 +660,14 @@ func parseTaggedFields(invoice *Invoice, fields []byte, net *chaincfg.Params) er
 			}
 
 			invoice.PaymentHash, err = parse32Bytes(base32Data)
+		case fieldTypeS:
+			if invoice.PaymentAddr != nil {
+				// We skip the field if we have already seen a
+				// supported one.
+				continue
+			}
+
+			invoice.PaymentAddr, err = parse32Bytes(base32Data)
 		case fieldTypeD:
 			if invoice.Description != nil {
 				// We skip the field if we have already seen a
@@ -1056,6 +1081,14 @@ func writeTaggedFields(bufferBase32 *bytes.Buffer, invoice *Invoice) error {
 		}
 
 		err = writeTaggedField(bufferBase32, fieldType9, b.Bytes())
+		if err != nil {
+			return err
+		}
+	}
+	if invoice.PaymentAddr != nil {
+		err := writeBytes32(
+			bufferBase32, fieldTypeS, *invoice.PaymentAddr,
+		)
 		if err != nil {
 			return err
 		}

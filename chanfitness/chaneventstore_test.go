@@ -1,14 +1,15 @@
 package chanfitness
 
 import (
+	"crypto/rand"
 	"errors"
 	"testing"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channelnotifier"
-	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/peernotifier"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/subscribe"
@@ -93,10 +94,15 @@ func TestMonitorChannelEvents(t *testing.T) {
 		t.Fatalf("Could not create vertex: %v", err)
 	}
 
-	shortID := lnwire.ShortChannelID{
-		BlockHeight: 1234,
-		TxIndex:     2,
-		TxPosition:  2,
+	// Create test outpoint.
+	var txid [32]byte
+	if _, err := rand.Read(txid[:]); err != nil {
+		t.Fatalf("error creating txid: %v", err)
+	}
+
+	chanPoint := wire.OutPoint{
+		Hash:  txid,
+		Index: 0,
 	}
 
 	tests := []struct {
@@ -118,8 +124,8 @@ func TestMonitorChannelEvents(t *testing.T) {
 				// Add an open channel event
 				channelEvents <- channelnotifier.OpenChannelEvent{
 					Channel: &channeldb.OpenChannel{
-						ShortChannelID: shortID,
-						IdentityPub:    privKey.PubKey(),
+						FundingOutpoint: chanPoint,
+						IdentityPub:     privKey.PubKey(),
 					},
 				}
 
@@ -134,8 +140,8 @@ func TestMonitorChannelEvents(t *testing.T) {
 				// Add an open channel event
 				channelEvents <- channelnotifier.OpenChannelEvent{
 					Channel: &channeldb.OpenChannel{
-						ShortChannelID: shortID,
-						IdentityPub:    privKey.PubKey(),
+						FundingOutpoint: chanPoint,
+						IdentityPub:     privKey.PubKey(),
 					},
 				}
 
@@ -145,8 +151,8 @@ func TestMonitorChannelEvents(t *testing.T) {
 				// Add a duplicate channel open event.
 				channelEvents <- channelnotifier.OpenChannelEvent{
 					Channel: &channeldb.OpenChannel{
-						ShortChannelID: shortID,
-						IdentityPub:    privKey.PubKey(),
+						FundingOutpoint: chanPoint,
+						IdentityPub:     privKey.PubKey(),
 					},
 				}
 			},
@@ -161,8 +167,8 @@ func TestMonitorChannelEvents(t *testing.T) {
 				// Add an open channel event
 				channelEvents <- channelnotifier.OpenChannelEvent{
 					Channel: &channeldb.OpenChannel{
-						ShortChannelID: shortID,
-						IdentityPub:    privKey.PubKey(),
+						FundingOutpoint: chanPoint,
+						IdentityPub:     privKey.PubKey(),
 					},
 				}
 			},
@@ -175,8 +181,8 @@ func TestMonitorChannelEvents(t *testing.T) {
 				// Add an open channel event
 				channelEvents <- channelnotifier.OpenChannelEvent{
 					Channel: &channeldb.OpenChannel{
-						ShortChannelID: shortID,
-						IdentityPub:    privKey.PubKey(),
+						FundingOutpoint: chanPoint,
+						IdentityPub:     privKey.PubKey(),
 					},
 				}
 
@@ -186,7 +192,7 @@ func TestMonitorChannelEvents(t *testing.T) {
 				// Add a close channel event.
 				channelEvents <- channelnotifier.ClosedChannelEvent{
 					CloseSummary: &channeldb.ChannelCloseSummary{
-						ShortChanID: shortID,
+						ChanPoint: chanPoint,
 					},
 				}
 			},
@@ -198,15 +204,15 @@ func TestMonitorChannelEvents(t *testing.T) {
 				// Add an open channel event
 				channelEvents <- channelnotifier.OpenChannelEvent{
 					Channel: &channeldb.OpenChannel{
-						ShortChannelID: shortID,
-						IdentityPub:    privKey.PubKey(),
+						FundingOutpoint: chanPoint,
+						IdentityPub:     privKey.PubKey(),
 					},
 				}
 
 				// Add a close channel event.
 				channelEvents <- channelnotifier.ClosedChannelEvent{
 					CloseSummary: &channeldb.ChannelCloseSummary{
-						ShortChanID: shortID,
+						ChanPoint: chanPoint,
 					},
 				}
 
@@ -242,7 +248,7 @@ func TestMonitorChannelEvents(t *testing.T) {
 
 			// Retrieve the eventLog for the channel and check that its
 			// contents are as expected.
-			eventLog, ok := store.channels[shortID.ToUint64()]
+			eventLog, ok := store.channels[chanPoint]
 			if !ok {
 				t.Fatalf("Expected to find event store")
 			}
@@ -265,7 +271,7 @@ func TestGetLifetime(t *testing.T) {
 	tests := []struct {
 		name         string
 		channelFound bool
-		chanID       uint64
+		fundingTxID  wire.OutPoint
 		opened       time.Time
 		closed       time.Time
 		expectErr    bool
@@ -304,13 +310,13 @@ func TestGetLifetime(t *testing.T) {
 			// Add channel to eventStore if the test indicates that it should
 			// be present.
 			if test.channelFound {
-				store.channels[test.chanID] = &chanEventLog{
+				store.channels[test.fundingTxID] = &chanEventLog{
 					openedAt: test.opened,
 					closedAt: test.closed,
 				}
 			}
 
-			open, close, err := store.GetLifespan(test.chanID)
+			open, close, err := store.GetLifespan(test.fundingTxID)
 			if test.expectErr && err == nil {
 				t.Fatal("Expected an error, got nil")
 			}
@@ -344,7 +350,7 @@ func TestGetUptime(t *testing.T) {
 	tests := []struct {
 		name string
 
-		chanID uint64
+		fundingTxID wire.OutPoint
 
 		// events is the set of events we expect to find in the channel store.
 		events []*channelEvent
@@ -436,7 +442,7 @@ func TestGetUptime(t *testing.T) {
 
 			// Add the channel to the store if it is intended to be found.
 			if test.channelFound {
-				store.channels[test.chanID] = &chanEventLog{
+				store.channels[test.fundingTxID] = &chanEventLog{
 					events:   test.events,
 					now:      func() time.Time { return now },
 					openedAt: test.openedAt,
@@ -444,7 +450,7 @@ func TestGetUptime(t *testing.T) {
 				}
 			}
 
-			uptime, err := store.GetUptime(test.chanID, test.startTime, test.endTime)
+			uptime, err := store.GetUptime(test.fundingTxID, test.startTime, test.endTime)
 			if test.expectErr && err == nil {
 				t.Fatal("Expected an error, got nil")
 			}

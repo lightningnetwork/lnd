@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
 
@@ -36,8 +37,8 @@ type channelEvent struct {
 
 // chanEventLog stores all events that have occurred over a channel's lifetime.
 type chanEventLog struct {
-	// id is the uint64 of the short channel ID.
-	id uint64
+	// fundingTxID is the funding transaction for the channel.
+	fundingTxID wire.OutPoint
 
 	// peer is the compressed public key of the peer being monitored.
 	peer route.Vertex
@@ -59,11 +60,13 @@ type chanEventLog struct {
 	closedAt time.Time
 }
 
-func newEventLog(id uint64, peer route.Vertex, now func() time.Time) *chanEventLog {
+func newEventLog(fundingTxID wire.OutPoint, peer route.Vertex,
+	now func() time.Time) *chanEventLog {
+
 	return &chanEventLog{
-		id:   id,
-		peer: peer,
-		now:  now,
+		fundingTxID: fundingTxID,
+		peer:        peer,
+		now:         now,
 	}
 }
 
@@ -95,7 +98,7 @@ func (e *chanEventLog) add(eventType eventType) {
 		e.openedAt = event.timestamp
 	}
 
-	log.Debugf("Channel %v recording event: %v", e.id, eventType)
+	log.Debugf("Channel %v recording event: %v", e.fundingTxID, eventType)
 }
 
 // onlinePeriod represents a period of time over which a peer was online.

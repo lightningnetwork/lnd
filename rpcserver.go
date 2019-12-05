@@ -2776,19 +2776,20 @@ func createRPCOpenChannel(r *rpcServer, graph *channeldb.ChannelGraph,
 	}
 	externalCommitFee := dbChannel.Capacity - sumOutputs
 
-	chanID := dbChannel.ShortChannelID.ToUint64()
-
 	var (
 		uptime   time.Duration
 		lifespan time.Duration
 	)
 
 	// Get the lifespan observed by the channel event store.
-	startTime, endTime, err := r.server.chanEventStore.GetLifespan(chanID)
+	startTime, endTime, err := r.server.chanEventStore.GetLifespan(
+		dbChannel.FundingOutpoint,
+	)
 	if err != nil {
 		// If the channel cannot be found, log an error and do not perform
 		// further calculations for uptime and lifespan.
-		rpcsLog.Warnf("GetLifespan %v error: %v", chanID, err)
+		rpcsLog.Warnf("GetLifespan %v error: %v",
+			dbChannel.FundingOutpoint, err)
 	} else {
 		// If endTime is zero, the channel is still open, progress endTime to
 		// the present so we can calculate lifespan.
@@ -2798,12 +2799,10 @@ func createRPCOpenChannel(r *rpcServer, graph *channeldb.ChannelGraph,
 		lifespan = endTime.Sub(startTime)
 
 		uptime, err = r.server.chanEventStore.GetUptime(
-			chanID,
-			startTime,
-			endTime,
+			dbChannel.FundingOutpoint, startTime, endTime,
 		)
 		if err != nil {
-			rpcsLog.Warnf("GetUptime %v error: %v", chanID, err)
+			rpcsLog.Warnf("GetUptime %v error: %v", dbChannel.FundingOutpoint, err)
 		}
 	}
 
@@ -2812,7 +2811,7 @@ func createRPCOpenChannel(r *rpcServer, graph *channeldb.ChannelGraph,
 		Private:               !isPublic,
 		RemotePubkey:          nodeID,
 		ChannelPoint:          chanPoint.String(),
-		ChanId:                chanID,
+		ChanId:                dbChannel.ShortChannelID.ToUint64(),
 		Capacity:              int64(dbChannel.Capacity),
 		LocalBalance:          int64(localBalance.ToSatoshis()),
 		RemoteBalance:         int64(remoteBalance.ToSatoshis()),

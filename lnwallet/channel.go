@@ -2328,11 +2328,33 @@ func (lc *LightningChannel) createCommitmentTx(c *commitment,
 		remoteBalance = ourBalance.ToSatoshis()
 	}
 
+	// Check whether there are any htlcs left in the view. We need this to
+	// determing whether to add anchor outputs.
+	hasHtlcs := false
+	for _, htlc := range filteredHTLCView.ourUpdates {
+		if htlcIsDust(false, c.isOurs, c.feePerKw,
+			htlc.Amount.ToSatoshis(), localCfg.DustLimit) {
+			continue
+		}
+
+		hasHtlcs = true
+		break
+	}
+	for _, htlc := range filteredHTLCView.theirUpdates {
+		if htlcIsDust(true, c.isOurs, c.feePerKw,
+			htlc.Amount.ToSatoshis(), localCfg.DustLimit) {
+			continue
+		}
+
+		hasHtlcs = true
+		break
+	}
+
 	// Generate a new commitment transaction with all the latest
 	// unsettled/un-timed out HTLCs.
 	commitTx, err := CreateCommitTx(
 		lc.commitType, lc.fundingTxIn(), keyRing, localCfg, remoteCfg,
-		localBalance, remoteBalance,
+		localBalance, remoteBalance, lc.channelState.AnchorSize, hasHtlcs,
 	)
 	if err != nil {
 		return err
@@ -6108,7 +6130,8 @@ func (lc *LightningChannel) generateRevocation(height uint64) (*lnwire.RevokeAnd
 func CreateCommitTx(commitType commitmenttx.CommitmentType,
 	fundingOutput wire.TxIn, keyRing *commitmenttx.KeyRing,
 	localChanCfg, remoteChanCfg *channeldb.ChannelConfig,
-	amountToLocal, amountToRemote btcutil.Amount) (*wire.MsgTx, error) {
+	amountToLocal, amountToRemote, anchorSize btcutil.Amount,
+	hasHtlcs bool) (*wire.MsgTx, error) {
 
 	// First, we create the script for the delayed "pay-to-self" output.
 	// This output has 2 main redemption clauses: either we can redeem the
@@ -6137,6 +6160,14 @@ func CreateCommitTx(commitType commitmenttx.CommitmentType,
 		return nil, err
 	}
 
+	// Get the anchor outputs if any.
+	localAnchor, remoteAnchor, err := commitType.CommitScriptAnchors(
+		localChanCfg, remoteChanCfg,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	// Now that both output scripts have been created, we can finally create
 	// the transaction itself. We use a transaction version of 2 since CSV
 	// will fail unless the tx version is >= 2.
@@ -6150,10 +6181,33 @@ func CreateCommitTx(commitType commitmenttx.CommitmentType,
 			Value:    int64(amountToLocal),
 		})
 	}
+
 	if amountToRemote >= localChanCfg.DustLimit {
 		commitTx.AddTxOut(&wire.TxOut{
 			PkScript: toRemoteScript.PkScript,
 			Value:    int64(amountToRemote),
+		})
+	}
+
+	// Add local anchor output only if we have a commitment output
+	// or there are HTLCs.
+	localStake := amountToLocal >= localChanCfg.DustLimit || hasHtlcs
+
+	// Some commitment types don't have anchors, so check if it is non-nil.
+	if localAnchor != nil && localStake {
+		commitTx.AddTxOut(&wire.TxOut{
+			PkScript: localAnchor.PkScript,
+			Value:    int64(anchorSize),
+		})
+	}
+
+	// Add anchor output to remote only if they have a commitment output or
+	// there are HTLCs.
+	remoteStake := amountToRemote >= localChanCfg.DustLimit || hasHtlcs
+	if remoteAnchor != nil && remoteStake {
+		commitTx.AddTxOut(&wire.TxOut{
+			PkScript: remoteAnchor.PkScript,
+			Value:    int64(anchorSize),
 		})
 	}
 

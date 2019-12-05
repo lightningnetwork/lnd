@@ -31,7 +31,11 @@ func NewCommitmentType(chanType channeldb.ChannelType) CommitmentType {
 		chanType: chanType,
 	}
 
-	// TODO: validate bit combinations.
+	// The anchor chennel type MUST be tweakless.
+	if chanType.HasAnchors() && !chanType.IsTweakless() {
+		panic("invalid channel type combination")
+	}
+
 	return c
 }
 
@@ -55,6 +59,26 @@ func (c CommitmentType) DeriveCommitmentKeys(commitPoint *btcec.PublicKey,
 func (c CommitmentType) CommitScriptToRemote(csvTimeout uint32,
 	key *btcec.PublicKey) (*ScriptInfo, error) {
 
+	// If this channel type has anchors, we derive the delayed to_remote
+	// script.
+	if c.chanType.HasAnchors() {
+		script, err := input.CommitScriptToRemote(csvTimeout, key)
+		if err != nil {
+			return nil, err
+		}
+
+		p2wsh, err := input.WitnessScriptHash(script)
+		if err != nil {
+			return nil, err
+		}
+
+		return &ScriptInfo{
+			PkScript:      p2wsh,
+			WitnessScript: script,
+		}, nil
+	}
+
+	// Otherwise the te_remote will be a simple p2wkh.
 	p2wkh, err := input.CommitScriptUnencumbered(key)
 	if err != nil {
 		return nil, err
@@ -65,4 +89,53 @@ func (c CommitmentType) CommitScriptToRemote(csvTimeout uint32,
 	return &ScriptInfo{
 		PkScript: p2wkh,
 	}, nil
+}
+
+// CommitScriptAnchors return the scripts to use for the local and remote
+// anchor. The returned values can be nil to indicate the ouputs shouldn't be
+// added.
+func (c CommitmentType) CommitScriptAnchors(localChanCfg,
+	remoteChanCfg *channeldb.ChannelConfig) (*ScriptInfo, *ScriptInfo, error) {
+
+	// If this channel type has no anchors we can return immediately.
+	if c.chanType.HasAnchors() {
+		return nil, nil, nil
+	}
+
+	// Then the anchor output spendable by the local node.
+	localAnchorScript, err := input.CommitScriptAnchor(
+		localChanCfg.MultiSigKey.PubKey,
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	localAnchorScriptHash, err := input.WitnessScriptHash(localAnchorScript)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// And the anchor spemdable by the remote.
+	remoteAnchorScript, err := input.CommitScriptAnchor(
+		remoteChanCfg.MultiSigKey.PubKey,
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	remoteAnchorScriptHash, err := input.WitnessScriptHash(
+		remoteAnchorScript,
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return &ScriptInfo{
+			PkScript:      localAnchorScript,
+			WitnessScript: localAnchorScriptHash,
+		},
+		&ScriptInfo{
+			PkScript:      remoteAnchorScript,
+			WitnessScript: remoteAnchorScriptHash,
+		}, nil
 }

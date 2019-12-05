@@ -73,6 +73,11 @@ const (
 	// supported or required by the receiver.
 	fieldType9 = 5
 
+	// fieldTypeS contains a 32-byte payment address, which is a nonce
+	// included in the final hop's payload to prevent intermediaries from
+	// probing the recipient.
+	fieldTypeS = 16
+
 	// maxInvoiceLength is the maximum total length an invoice can have.
 	// This is chosen to be the maximum number of bytes that can fit into a
 	// single QR code: https://en.wikipedia.org/wiki/QR_code#Storage
@@ -125,6 +130,10 @@ type Invoice struct {
 	// PaymentHash is the payment hash to be used for a payment to this
 	// invoice.
 	PaymentHash *[32]byte
+
+	// PaymentAddr is the payment address to be used by payments to prevent
+	// probing of the destination.
+	PaymentAddr *[32]byte
 
 	// Destination is the public key of the target node. This will always
 	// be set after decoding, and can optionally be set before encoding to
@@ -255,6 +264,14 @@ func RouteHint(routeHint []HopHint) func(*Invoice) {
 func Features(features *lnwire.FeatureVector) func(*Invoice) {
 	return func(i *Invoice) {
 		i.Features = features
+	}
+}
+
+// PaymentAddr is a functional option that allows callers of NewInvoice to set
+// the desired payment address tht is advertised on the invoice.
+func PaymentAddr(addr [32]byte) func(*Invoice) {
+	return func(i *Invoice) {
+		i.PaymentAddr = &addr
 	}
 }
 
@@ -642,7 +659,15 @@ func parseTaggedFields(invoice *Invoice, fields []byte, net *chaincfg.Params) er
 				continue
 			}
 
-			invoice.PaymentHash, err = parsePaymentHash(base32Data)
+			invoice.PaymentHash, err = parse32Bytes(base32Data)
+		case fieldTypeS:
+			if invoice.PaymentAddr != nil {
+				// We skip the field if we have already seen a
+				// supported one.
+				continue
+			}
+
+			invoice.PaymentAddr, err = parse32Bytes(base32Data)
 		case fieldTypeD:
 			if invoice.Description != nil {
 				// We skip the field if we have already seen a
@@ -666,7 +691,7 @@ func parseTaggedFields(invoice *Invoice, fields []byte, net *chaincfg.Params) er
 				continue
 			}
 
-			invoice.DescriptionHash, err = parseDescriptionHash(base32Data)
+			invoice.DescriptionHash, err = parse32Bytes(base32Data)
 		case fieldTypeX:
 			if invoice.expiry != nil {
 				// We skip the field if we have already seen a
@@ -733,12 +758,12 @@ func parseFieldDataLength(data []byte) (uint16, error) {
 	return uint16(data[0])<<5 | uint16(data[1]), nil
 }
 
-// parsePaymentHash converts a 256-bit payment hash (encoded in base32)
-// to *[32]byte.
-func parsePaymentHash(data []byte) (*[32]byte, error) {
+// parse32Bytes converts a 256-bit value (encoded in base32) to *[32]byte. This
+// can be used for payment hashes, description hashes, payment addresses, etc.
+func parse32Bytes(data []byte) (*[32]byte, error) {
 	var paymentHash [32]byte
 
-	// As BOLT-11 states, a reader must skip over the payment hash field if
+	// As BOLT-11 states, a reader must skip over the 32-byte fields if
 	// it does not have a length of 52, so avoid returning an error.
 	if len(data) != hashBase32Len {
 		return nil, nil
@@ -782,27 +807,6 @@ func parseDestination(data []byte) (*btcec.PublicKey, error) {
 	}
 
 	return btcec.ParsePubKey(base256Data, btcec.S256())
-}
-
-// parseDescriptionHash converts a 256-bit description hash (encoded in base32)
-// to *[32]byte.
-func parseDescriptionHash(data []byte) (*[32]byte, error) {
-	var descriptionHash [32]byte
-
-	// As BOLT-11 states, a reader must skip over the description hash field
-	// if it does not have a length of 52, so avoid returning an error.
-	if len(data) != hashBase32Len {
-		return nil, nil
-	}
-
-	hash, err := bech32.ConvertBits(data, 5, 8, false)
-	if err != nil {
-		return nil, err
-	}
-
-	copy(descriptionHash[:], hash[:])
-
-	return &descriptionHash, nil
 }
 
 // parseExpiry converts the data (encoded in base32) into the expiry time.
@@ -944,18 +948,7 @@ func parseFeatures(data []byte) (*lnwire.FeatureVector, error) {
 // base32 buffer.
 func writeTaggedFields(bufferBase32 *bytes.Buffer, invoice *Invoice) error {
 	if invoice.PaymentHash != nil {
-		// Convert 32 byte hash to 52 5-bit groups.
-		base32, err := bech32.ConvertBits(invoice.PaymentHash[:], 8, 5,
-			true)
-		if err != nil {
-			return err
-		}
-		if len(base32) != hashBase32Len {
-			return fmt.Errorf("invalid payment hash length: %d",
-				len(invoice.PaymentHash))
-		}
-
-		err = writeTaggedField(bufferBase32, fieldTypeP, base32)
+		err := writeBytes32(bufferBase32, fieldTypeP, *invoice.PaymentHash)
 		if err != nil {
 			return err
 		}
@@ -974,19 +967,9 @@ func writeTaggedFields(bufferBase32 *bytes.Buffer, invoice *Invoice) error {
 	}
 
 	if invoice.DescriptionHash != nil {
-		// Convert 32 byte hash to 52 5-bit groups.
-		descBase32, err := bech32.ConvertBits(
-			invoice.DescriptionHash[:], 8, 5, true)
-		if err != nil {
-			return err
-		}
-
-		if len(descBase32) != hashBase32Len {
-			return fmt.Errorf("invalid description hash length: %d",
-				len(invoice.DescriptionHash))
-		}
-
-		err = writeTaggedField(bufferBase32, fieldTypeH, descBase32)
+		err := writeBytes32(
+			bufferBase32, fieldTypeH, *invoice.DescriptionHash,
+		)
 		if err != nil {
 			return err
 		}
@@ -1102,8 +1085,28 @@ func writeTaggedFields(bufferBase32 *bytes.Buffer, invoice *Invoice) error {
 			return err
 		}
 	}
+	if invoice.PaymentAddr != nil {
+		err := writeBytes32(
+			bufferBase32, fieldTypeS, *invoice.PaymentAddr,
+		)
+		if err != nil {
+			return err
+		}
+	}
 
 	return nil
+}
+
+// writeBytes32 encodes a 32-byte array as base32 and writes it to bufferBase32
+// under the passed fieldType.
+func writeBytes32(bufferBase32 *bytes.Buffer, fieldType byte, b [32]byte) error {
+	// Convert 32 byte hash to 52 5-bit groups.
+	base32, err := bech32.ConvertBits(b[:], 8, 5, true)
+	if err != nil {
+		return err
+	}
+
+	return writeTaggedField(bufferBase32, fieldType, base32)
 }
 
 // writeTaggedField takes the type of a tagged data field, and the data of

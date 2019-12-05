@@ -314,10 +314,10 @@ func TestParseFieldDataLength(t *testing.T) {
 	}
 }
 
-// TestParsePaymentHash checks that the payment hash is properly parsed.
+// TestParse32Bytes checks that the payment hash is properly parsed.
 // If the data does not have a length of 52 bytes, we skip over parsing the
 // field and do not return an error.
-func TestParsePaymentHash(t *testing.T) {
+func TestParse32Bytes(t *testing.T) {
 	t.Parallel()
 
 	testPaymentHashData, _ := bech32.ConvertBits(testPaymentHash[:], 8, 5, true)
@@ -350,7 +350,7 @@ func TestParsePaymentHash(t *testing.T) {
 	}
 
 	for i, test := range tests {
-		paymentHash, err := parsePaymentHash(test.data)
+		paymentHash, err := parse32Bytes(test.data)
 		if (err == nil) != test.valid {
 			t.Errorf("payment hash decoding test %d failed: %v", i, err)
 			return
@@ -453,56 +453,6 @@ func TestParseDestination(t *testing.T) {
 			t.Fatalf("test %d failed decoding destination: "+
 				"expected %x, got %x",
 				i, *test.result, *destination)
-			return
-		}
-	}
-}
-
-// TestParseDescriptionHash checks that the description hash is properly parsed.
-// If the data does not have a length of 52 bytes, we skip over parsing the
-// field and do not return an error.
-func TestParseDescriptionHash(t *testing.T) {
-	t.Parallel()
-
-	testDescriptionHashData, _ := bech32.ConvertBits(testDescriptionHash[:], 8, 5, true)
-
-	tests := []struct {
-		data   []byte
-		valid  bool
-		result *[32]byte
-	}{
-		{
-			data:   []byte{},
-			valid:  true,
-			result: nil, // skip unknown length, not 52 bytes
-		},
-		{
-			data:   []byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x0},
-			valid:  true,
-			result: nil, // skip unknown length, not 52 bytes
-		},
-		{
-			data:   testDescriptionHashData,
-			valid:  true,
-			result: &testDescriptionHash,
-		},
-		{
-			data:   append(testDescriptionHashData, 0x0),
-			valid:  true,
-			result: nil, // skip unknown length, not 52 bytes
-		},
-	}
-
-	for i, test := range tests {
-		descriptionHash, err := parseDescriptionHash(test.data)
-		if (err == nil) != test.valid {
-			t.Errorf("description hash decoding test %d failed: %v", i, err)
-			return
-		}
-		if test.valid && !compareHashes(descriptionHash, test.result) {
-			t.Fatalf("test %d failed decoding description hash: "+
-				"expected %x, got %x",
-				i, *test.result, *descriptionHash)
 			return
 		}
 	}

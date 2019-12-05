@@ -28,7 +28,19 @@ var (
 	testMillisat25mBTC   = lnwire.MilliSatoshi(2500000000)
 	testMillisat20mBTC   = lnwire.MilliSatoshi(2000000000)
 
-	testPaymentHashSlice, _ = hex.DecodeString("0001020304050607080900010203040506070809000102030405060708090102")
+	testPaymentHash = [32]byte{
+		0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+		0x08, 0x09, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05,
+		0x06, 0x07, 0x08, 0x09, 0x00, 0x01, 0x02, 0x03,
+		0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x01, 0x02,
+	}
+
+	testPaymentAddr = [32]byte{
+		0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x01, 0x02,
+		0x06, 0x07, 0x08, 0x09, 0x00, 0x01, 0x02, 0x03,
+		0x08, 0x09, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05,
+		0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+	}
 
 	testEmptyString    = ""
 	testCupOfCoffee    = "1 cup coffee"
@@ -94,7 +106,6 @@ var (
 	}
 
 	// Must be initialized in init().
-	testPaymentHash     [32]byte
 	testDescriptionHash [32]byte
 
 	ltcTestNetParams chaincfg.Params
@@ -102,7 +113,6 @@ var (
 )
 
 func init() {
-	copy(testPaymentHash[:], testPaymentHashSlice[:])
 	copy(testDescriptionHash[:], testDescriptionHashSlice[:])
 
 	// Initialize litecoin testnet and mainnet params by applying key fields
@@ -582,6 +592,25 @@ func TestDecodeEncode(t *testing.T) {
 					Description(testCupOfCoffee),
 					Destination(testPubKey),
 					CLTVExpiry(144),
+				)
+
+				return i
+			},
+		},
+		{
+			// Send 2500uBTC for a cup of coffee with a payment
+			// address.
+			encodedInvoice: "lnbc2500u1pvjluezpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqdq5xysxxatsyp3k7enxv4jsnp4q0n326hr8v9zprg8gsvezcch06gfaqqhde2aj730yg0durunfhv66sp5qszsvpcgpyqsyps8pqysqqgzqvyqjqqpqgpsgpgqqypqxpq9qcrsusq8nx2hdt3st3ankwz23xy9w7udvqq3f0mdlpc6ga5ew3y67u4qkx8vu72ejg5x6tqhyclm28r7r0mg6lx9x3vls9g6glp2qy3y34cpry54xp",
+			valid:          true,
+			decodedInvoice: func() *Invoice {
+				i, _ := NewInvoice(
+					&chaincfg.MainNetParams,
+					testPaymentHash,
+					time.Unix(1496314658, 0),
+					Amount(testMillisat2500uBTC),
+					Description(testCupOfCoffee),
+					Destination(testPubKey),
+					PaymentAddr(testPaymentAddr),
 				)
 
 				return i

@@ -3248,6 +3248,10 @@
           "items": {
             "$ref": "#/definitions/lnrpcRouteHint"
           }
+        },
+        "payment_addr": {
+          "type": "string",
+          "format": "byte"
         }
       }
     },

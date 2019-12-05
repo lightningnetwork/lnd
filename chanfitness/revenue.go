@@ -1,9 +1,76 @@
 package chanfitness
 
 import (
+	"errors"
+
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
+
+// maxQueryEvents is the number of events to query the forward log for at
+// a time.
+const maxQueryEvents uint32 = 500
+
+// errUnknownChannelID is returned when we cannot map a short channel ID to
+// a channel outpoint.
+var errUnknownChannelID = errors.New("cannot find channel outpoint")
+
+// eventsQuery is a function which returns paginated queries for forwarding
+// events.
+type eventsQuery func(
+	offset, maxEvents uint32) (channeldb.ForwardingLogTimeSlice, error)
+
+// getEvents gets calls the paginated query function until it has all the
+// forwarding events for the period provided. It takes a map of shortChannelIDs
+// to outpoints which is used to convert forwarding events short ids to
+// outpoints.
+func getEvents(channelIDs map[lnwire.ShortChannelID]wire.OutPoint,
+	query eventsQuery) ([]revenueEvent, error) {
+	var (
+		offset uint32
+		events []revenueEvent
+	)
+
+	for {
+		forwarding, err := query(offset, maxQueryEvents)
+		if err != nil {
+			return nil, err
+		}
+
+		// Get the event's channel outpoints from out known list of maps and
+		// create a revenue event. Return an error if the short channel id's
+		// outpoint cannot be found, because we expect all known short channel
+		// ids to be provided.
+		for _, fwd := range forwarding.ForwardingEvents {
+			incoming, ok := channelIDs[fwd.IncomingChanID]
+			if !ok {
+				return nil, errUnknownChannelID
+			}
+
+			outgoing, ok := channelIDs[fwd.OutgoingChanID]
+			if !ok {
+				return nil, errUnknownChannelID
+			}
+
+			events = append(events, revenueEvent{
+				incomingChannel: incoming,
+				outgoingChannel: outgoing,
+				incomingAmt:     fwd.AmtIn,
+				outgoingAmt:     fwd.AmtOut,
+			})
+		}
+
+		// If we have less than the maximum number of events, we do not
+		// need to  query further for more events.
+		if uint32(len(forwarding.ForwardingEvents)) < forwarding.NumMaxEvents {
+			return events, nil
+		}
+
+		// Update the offset for the next query.
+		offset = forwarding.LastIndexOffset
+	}
+}
 
 // RevenueReport provides a pairwise report on channel revenue. It maps a
 // target channel to a map of channels that it has forwarded HTLCs with to

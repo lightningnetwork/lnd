@@ -345,6 +345,101 @@ func TestOpenChannelPutGetDelete(t *testing.T) {
 	}
 }
 
+// TestOptionalShutdown tests the reading and writing of channels with and
+// without optional shutdown script fields.
+func TestOptionalShutdown(t *testing.T) {
+	local := lnwire.DeliveryAddress([]byte("local shutdown script"))
+	remote := lnwire.DeliveryAddress([]byte("remote shutdown script"))
+
+	if _, err := rand.Read(remote); err != nil {
+		t.Fatalf("Could not create random script: %v", err)
+	}
+
+	tests := []struct {
+		name           string
+		modifyChannel  func(channel *OpenChannel)
+		expectedLocal  lnwire.DeliveryAddress
+		expectedRemote lnwire.DeliveryAddress
+	}{
+		{
+			name:          "no shutdown scripts",
+			modifyChannel: func(channel *OpenChannel) {},
+		},
+		{
+			name: "local shutdown script",
+			modifyChannel: func(channel *OpenChannel) {
+				channel.LocalShutdownScript = local
+			},
+			expectedLocal: local,
+		},
+		{
+			name: "remote shutdown script",
+			modifyChannel: func(channel *OpenChannel) {
+				channel.RemoteShutdownScript = remote
+			},
+			expectedRemote: remote,
+		},
+		{
+			name: "both scripts set",
+			modifyChannel: func(channel *OpenChannel) {
+				channel.LocalShutdownScript = local
+				channel.RemoteShutdownScript = remote
+			},
+			expectedLocal:  local,
+			expectedRemote: remote,
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+
+		t.Run(test.name, func(t *testing.T) {
+			cdb, cleanUp, err := makeTestDB()
+			if err != nil {
+				t.Fatalf("unable to make test database: %v", err)
+			}
+			defer cleanUp()
+
+			// Create the test channel state, then add an additional fake HTLC
+			// before syncing to disk.
+			state, err := createTestChannelState(cdb)
+			if err != nil {
+				t.Fatalf("unable to create channel state: %v", err)
+			}
+
+			test.modifyChannel(state)
+
+			// Write channels to Db.
+			addr := &net.TCPAddr{
+				IP:   net.ParseIP("127.0.0.1"),
+				Port: 18556,
+			}
+			if err := state.SyncPending(addr, 101); err != nil {
+				t.Fatalf("unable to save and serialize channel state: %v", err)
+			}
+
+			openChannels, err := cdb.FetchOpenChannels(state.IdentityPub)
+			if err != nil {
+				t.Fatalf("unable to fetch open channel: %v", err)
+			}
+
+			if len(openChannels) != 1 {
+				t.Fatalf("Expected one channel open, got: %v", len(openChannels))
+			}
+
+			if !bytes.Equal(openChannels[0].LocalShutdownScript, test.expectedLocal) {
+				t.Fatalf("Expected local: %x, got: %x", test.expectedLocal,
+					openChannels[0].LocalShutdownScript)
+			}
+
+			if !bytes.Equal(openChannels[0].RemoteShutdownScript, test.expectedRemote) {
+				t.Fatalf("Expected remote: %x, got: %x", test.expectedRemote,
+					openChannels[0].RemoteShutdownScript)
+			}
+		})
+	}
+}
+
 func assertCommitmentEqual(t *testing.T, a, b *ChannelCommitment) {
 	if !reflect.DeepEqual(a, b) {
 		_, _, line, _ := runtime.Caller(1)

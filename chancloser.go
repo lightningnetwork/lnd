@@ -1,6 +1,7 @@
 package lnd
 
 import (
+	"bytes"
 	"fmt"
 
 	"github.com/btcsuite/btcd/txscript"
@@ -26,6 +27,12 @@ var (
 	// ErrInvalidState is returned when the closing state machine receives
 	// a message while it is in an unknown state.
 	ErrInvalidState = fmt.Errorf("invalid state")
+
+	// errUpfrontShutdownScriptMismatch is returned when our peer sends us a
+	// shutdown message with a script that does not match the upfront shutdown
+	// script previously set.
+	errUpfrontShutdownScriptMismatch = fmt.Errorf("peer's shutdown " +
+		"script does not match upfront shutdown script")
 )
 
 // closeState represents all the possible states the channel closer state
@@ -82,6 +89,9 @@ type chanCloseCfg struct {
 	// disableChannel disables a channel, resulting in it not being able to
 	// forward payments.
 	disableChannel func(wire.OutPoint) error
+
+	// disconnect will disconnect from the remote peer in this close.
+	disconnect func() error
 
 	// quit is a channel that should be sent upon in the occasion the state
 	// machine should cease all progress and shutdown.
@@ -263,6 +273,40 @@ func (c *channelCloser) CloseRequest() *htlcswitch.ChanClose {
 	return c.closeReq
 }
 
+// maybeMatchScript attempts to match the script provided in our peer's
+// shutdown message with the upfront shutdown script we have on record.
+// If no upfront shutdown script was set, we do not need to enforce option
+// upfront shutdown, so the function returns early. If an upfront script is
+// set, we check whether it matches the script provided by our peer. If they
+// do not match, we use the disconnect function provided to disconnect from
+// the peer.
+func maybeMatchScript(disconnect func() error,
+	upfrontScript, peerScript lnwire.DeliveryAddress) error {
+
+	// If no upfront shutdown script was set, return early because we do not
+	// need to enforce closure to a specific script.
+	if len(upfrontScript) == 0 {
+		return nil
+	}
+
+	// If an upfront shutdown script was provided, disconnect from the peer, as
+	// per BOLT 2, and return an error.
+	if !bytes.Equal(upfrontScript, peerScript) {
+		peerLog.Warnf("peer's script: %x does not match upfront "+
+			"shutdown script: %x", peerScript, upfrontScript)
+
+		// Disconnect from the peer because they have violated option upfront
+		// shutdown.
+		if err := disconnect(); err != nil {
+			return err
+		}
+
+		return errUpfrontShutdownScriptMismatch
+	}
+
+	return nil
+}
+
 // ProcessCloseMsg attempts to process the next message in the closing series.
 // This method will update the state accordingly and return two primary values:
 // the next set of messages to be sent, and a bool indicating if the fee
@@ -283,9 +327,18 @@ func (c *channelCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message, b
 				"instead have %v", spew.Sdump(msg))
 		}
 
-		// Next, we'll note the other party's preference for their
-		// delivery address. We'll use this when we craft the closure
-		// transaction.
+		// If the remote node opened the channel with option upfront shutdown
+		// script, check that the script they provided matches.
+		if err := maybeMatchScript(
+			c.cfg.disconnect, c.cfg.channel.RemoteUpfrontShutdownScript(),
+			shutDownMsg.Address,
+		); err != nil {
+			return nil, false, err
+		}
+
+		// Once we have checked that the other party has not violated option
+		// upfront shutdown we set their preference for delivery address. We'll
+		// use this when we craft the closure transaction.
 		c.remoteDeliveryScript = shutDownMsg.Address
 
 		// We'll generate a shutdown message of our own to send across
@@ -333,7 +386,16 @@ func (c *channelCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message, b
 				"instead have %v", spew.Sdump(msg))
 		}
 
-		// Now that we know this is a valid shutdown message, we'll
+		// If the remote node opened the channel with option upfront shutdown
+		// script, check that the script they provided matches.
+		if err := maybeMatchScript(
+			c.cfg.disconnect, c.cfg.channel.RemoteUpfrontShutdownScript(),
+			shutDownMsg.Address,
+		); err != nil {
+			return nil, false, err
+		}
+
+		// Now that we know this is a valid shutdown message and address, we'll
 		// record their preferred delivery closing script.
 		c.remoteDeliveryScript = shutDownMsg.Address
 

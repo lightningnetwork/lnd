@@ -42,6 +42,16 @@ const (
 	// connection is established.
 	InitialRoutingSync FeatureBit = 3
 
+	// UpfrontShutdownScriptRequired is a feature bit which indicates that a
+	// peer *requires* that the remote peer accept an upfront shutdown script to
+	// which payout is enforced on cooperative closes.
+	UpfrontShutdownScriptRequired FeatureBit = 4
+
+	// UpfrontShutdownScriptOptional is an optional feature bit which indicates
+	// that the peer will accept an upfront shutdown script to which payout is
+	// enforced on cooperative closes.
+	UpfrontShutdownScriptOptional FeatureBit = 5
+
 	// GossipQueriesRequired is a feature bit that indicates that the
 	// receiving peer MUST know of the set of features that allows nodes to
 	// more efficiently query the network view of peers on the network for
@@ -89,15 +99,17 @@ const (
 // feature bits must be assigned a name in this mapping, and feature bit pairs
 // must be assigned together for correct behavior.
 var Features = map[FeatureBit]string{
-	DataLossProtectRequired: "data-loss-protect",
-	DataLossProtectOptional: "data-loss-protect",
-	InitialRoutingSync:      "initial-routing-sync",
-	GossipQueriesRequired:   "gossip-queries",
-	GossipQueriesOptional:   "gossip-queries",
-	TLVOnionPayloadRequired: "tlv-onion",
-	TLVOnionPayloadOptional: "tlv-onion",
-	StaticRemoteKeyOptional: "static-remote-key",
-	StaticRemoteKeyRequired: "static-remote-key",
+	DataLossProtectRequired:       "data-loss-protect",
+	DataLossProtectOptional:       "data-loss-protect",
+	InitialRoutingSync:            "initial-routing-sync",
+	UpfrontShutdownScriptRequired: "upfront-shutdown-script",
+	UpfrontShutdownScriptOptional: "upfront-shutdown-script",
+	GossipQueriesRequired:         "gossip-queries",
+	GossipQueriesOptional:         "gossip-queries",
+	TLVOnionPayloadRequired:       "tlv-onion",
+	TLVOnionPayloadOptional:       "tlv-onion",
+	StaticRemoteKeyOptional:       "static-remote-key",
+	StaticRemoteKeyRequired:       "static-remote-key",
 }
 
 // RawFeatureVector represents a set of feature bits as defined in BOLT-09.  A

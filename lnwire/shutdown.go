@@ -22,6 +22,15 @@ type Shutdown struct {
 // p2wpkh.
 type DeliveryAddress []byte
 
+// deliveryAddressMaxSize is the maximum expected size in bytes of a
+// DeliveryAddress based on the types of scripts we know.
+// Following are the known scripts and their sizes in bytes.
+// - pay to witness script hash: 34
+// - pay to pubkey hash: 25
+// - pay to script hash: 22
+// - pay to witness pubkey hash: 22.
+const deliveryAddressMaxSize = 34
+
 // NewShutdown creates a new Shutdown message.
 func NewShutdown(cid ChannelID, addr DeliveryAddress) *Shutdown {
 	return &Shutdown{
@@ -71,11 +80,8 @@ func (s *Shutdown) MaxPayloadLength(pver uint32) uint32 {
 	// Len - 2 bytes
 	length += 2
 
-	// ScriptPubKey - 34 bytes for pay to witness script hash
-	length += 34
-
-	// NOTE: pay to pubkey hash is 25 bytes, pay to script hash is 22
-	// bytes, and pay to witness pubkey hash is 22 bytes in length.
+	// ScriptPubKey - maximum delivery address size.
+	length += deliveryAddressMaxSize
 
 	return length
 }

@@ -1217,6 +1217,13 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 	// rebroadcast on startup in case we fail.
 	res.partialState.FundingTxn = fundingTx
 
+	// Set optional upfront shutdown scripts on the channel state so that they
+	// are persisted. These values may be nil.
+	res.partialState.LocalShutdownScript =
+		res.ourContribution.UpfrontShutdown
+	res.partialState.RemoteShutdownScript =
+		res.theirContribution.UpfrontShutdown
+
 	// Add the complete funding transaction to the DB, in its open bucket
 	// which will be used for the lifetime of this channel.
 	nodeAddr := res.nodeAddr
@@ -1375,6 +1382,13 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 		req.completeChan <- nil
 		return
 	}
+
+	// Set optional upfront shutdown scripts on the channel state so that they
+	// are persisted. These values may be nil.
+	chanState.LocalShutdownScript =
+		pendingReservation.ourContribution.UpfrontShutdown
+	chanState.RemoteShutdownScript =
+		pendingReservation.theirContribution.UpfrontShutdown
 
 	// Add the complete funding transaction to the DB, in it's open bucket
 	// which will be used for the lifetime of this channel.

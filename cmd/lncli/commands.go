@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -24,6 +25,8 @@ import (
 	"github.com/lightninglabs/protobuf-hex-display/proto"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
+	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/walletunlocker"
 	"github.com/urfave/cli"
@@ -2164,6 +2167,10 @@ var sendPaymentCommand = cli.Command{
 			Name:  "final_cltv_delta",
 			Usage: "the number of blocks the last hop has to reveal the preimage",
 		},
+		cli.BoolFlag{
+			Name:  "key_send",
+			Usage: "will generate a pre-image and encode it in the sphinx packet, a dest must be set [experimental]",
+		},
 	),
 	Action: sendPayment,
 }
@@ -2268,14 +2275,32 @@ func sendPayment(ctx *cli.Context) error {
 
 	var rHash []byte
 
-	switch {
-	case ctx.IsSet("payment_hash"):
-		rHash, err = hex.DecodeString(ctx.String("payment_hash"))
-	case args.Present():
-		rHash, err = hex.DecodeString(args.First())
-		args = args.Tail()
-	default:
-		return fmt.Errorf("payment hash argument missing")
+	if ctx.Bool("key_send") {
+		if ctx.IsSet("payment_hash") {
+			return errors.New("cannot set payment hash when using " +
+				"key send")
+		}
+		var preimage lntypes.Preimage
+		if _, err := rand.Read(preimage[:]); err != nil {
+			return err
+		}
+
+		req.DestCustomRecords = map[uint64][]byte{
+			record.KeySendType: preimage[:],
+		}
+
+		hash := preimage.Hash()
+		rHash = hash[:]
+	} else {
+		switch {
+		case ctx.IsSet("payment_hash"):
+			rHash, err = hex.DecodeString(ctx.String("payment_hash"))
+		case args.Present():
+			rHash, err = hex.DecodeString(args.First())
+			args = args.Tail()
+		default:
+			return fmt.Errorf("payment hash argument missing")
+		}
 	}
 
 	if err != nil {

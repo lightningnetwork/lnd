@@ -1836,6 +1836,16 @@ type BreachRetribution struct {
 	// party) within the breach transaction.
 	LocalOutpoint wire.OutPoint
 
+	// LocalAnchorSignDesc is a SignDescriptor capable of generating the
+	// signature for the local anchor output if it exists.
+	//
+	// NOTE: A nil value indicates that the this commitment has no local
+	// anchor.
+	LocalAnchorSignDesc *input.SignDescriptor
+
+	// LocalAnchor is the local anchor output on the commitment.
+	LocalAnchor wire.OutPoint
+
 	// RemoteOutputSignDesc is a SignDescriptor which is capable of
 	// generating the signature required to claim the funds as described
 	// within the revocation clause of the remote party's commitment
@@ -1943,8 +1953,9 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 	// commitment outputs. If either is considered dust using the remote
 	// party's dust limit, the respective sign descriptor will be nil.
 	var (
-		localSignDesc  *input.SignDescriptor
-		remoteSignDesc *input.SignDescriptor
+		localSignDesc       *input.SignDescriptor
+		remoteSignDesc      *input.SignDescriptor
+		localAnchorSignDesc *input.SignDescriptor
 	)
 
 	// Compute the local and remote balances in satoshis.
@@ -1976,6 +1987,38 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 			Output: &wire.TxOut{
 				PkScript: remoteWitnessHash,
 				Value:    int64(remoteAmt),
+			},
+			HashType: txscript.SigHashAll,
+		}
+	}
+
+	// If this commitment type has anchors, we'll locate our local one.
+	_, localAnchorScript, err := commitType.CommitScriptAnchors(
+		&chanState.RemoteChanCfg, &chanState.LocalChanCfg,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	localAnchor := wire.OutPoint{
+		Hash: commitHash,
+	}
+
+	if localAnchorScript != nil {
+		for i, txOut := range revokedSnapshot.CommitTx.TxOut {
+			if bytes.Equal(txOut.PkScript, localAnchorScript.PkScript) {
+				localAnchor.Index = uint32(i)
+			}
+		}
+
+		anchorSize := chanState.AnchorSize
+		localAnchorSignDesc = &input.SignDescriptor{
+			SingleTweak:   nil,
+			KeyDesc:       chanState.LocalChanCfg.MultiSigKey,
+			WitnessScript: localAnchorScript.WitnessScript,
+			Output: &wire.TxOut{
+				PkScript: localAnchorScript.PkScript,
+				Value:    int64(anchorSize),
 			},
 			HashType: txscript.SigHashAll,
 		}
@@ -2074,6 +2117,8 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 		PendingHTLCs:         revokedSnapshot.Htlcs,
 		LocalOutpoint:        localOutpoint,
 		LocalOutputSignDesc:  localSignDesc,
+		LocalAnchor:          localAnchor,
+		LocalAnchorSignDesc:  localAnchorSignDesc,
 		RemoteOutpoint:       remoteOutpoint,
 		RemoteOutputSignDesc: remoteSignDesc,
 		HtlcRetributions:     htlcRetributions,

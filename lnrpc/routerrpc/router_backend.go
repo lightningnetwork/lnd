@@ -454,6 +454,13 @@ func (r *RouterBackend) UnmarshallRoute(rpcroute *lnrpc.Route) (
 			return nil, err
 		}
 
+		if routeHop.AmtToForward > r.MaxPaymentMSat {
+			return nil, fmt.Errorf("payment of %v is too large, "+
+				"max payment allowed is %v",
+				routeHop.AmtToForward,
+				r.MaxPaymentMSat.ToSatoshis())
+		}
+
 		hops[i] = routeHop
 
 		prevNodePubKey = routeHop.PubKeyBytes

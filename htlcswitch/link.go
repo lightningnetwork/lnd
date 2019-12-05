@@ -254,9 +254,9 @@ type ChannelLinkConfig struct {
 	// configured set of watchtowers.
 	TowerClient TowerClient
 
-	// MaxCltvExpiry is the maximum outgoing timelock that the link should
-	// accept for a forwarded HTLC. The value is relative to the current
-	// block height.
+	// MaxOutgoingCltvExpiry is the maximum outgoing timelock that the link
+	// should accept for a forwarded HTLC. The value is relative to the
+	// current block height.
 	MaxOutgoingCltvExpiry uint32
 
 	// MaxFeeAllocation is the highest allocation we'll allow a channel's

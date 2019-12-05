@@ -21,7 +21,8 @@ import (
 )
 
 type mockPayload struct {
-	mpp *record.MPP
+	mpp           *record.MPP
+	customRecords record.CustomSet
 }
 
 func (p *mockPayload) MultiPath() *record.MPP {
@@ -29,7 +30,13 @@ func (p *mockPayload) MultiPath() *record.MPP {
 }
 
 func (p *mockPayload) CustomRecords() record.CustomSet {
-	return make(record.CustomSet)
+	// This function should always return a map instance, but for mock
+	// configuration we do accept nil.
+	if p.customRecords == nil {
+		return make(record.CustomSet)
+	}
+
+	return p.customRecords
 }
 
 var (

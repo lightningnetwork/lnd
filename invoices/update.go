@@ -85,6 +85,10 @@ const (
 	// ResultInvoiceNotFound is returned when an attempt is made to pay an
 	// invoice that is unknown to us.
 	ResultInvoiceNotFound
+
+	// ResultKeySendError is returned when we receive invalid key send
+	// parameters.
+	ResultKeySendError
 )
 
 // String returns a human-readable representation of the invoice update result.
@@ -144,6 +148,9 @@ func (u ResolutionResult) String() string {
 
 	case ResultHtlcSetOverpayment:
 		return "mpp is overpaying set total"
+
+	case ResultKeySendError:
+		return "invalid key send parameters"
 
 	default:
 		return "unknown"

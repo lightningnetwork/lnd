@@ -17,6 +17,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/commitmenttx"
 	"github.com/lightningnetwork/lnd/shachain"
 )
 
@@ -344,7 +345,7 @@ func isOurCommitment(localChanCfg, remoteChanCfg channeldb.ChannelConfig,
 	// Now that we have the commit point, we'll derive the tweaked local
 	// and remote keys for this state. We use our point as only we can
 	// revoke our own commitment.
-	commitKeyRing := lnwallet.DeriveCommitmentKeys(
+	commitKeyRing := commitmenttx.DeriveCommitmentKeys(
 		commitPoint, true, tweakless, &localChanCfg, &remoteChanCfg,
 	)
 

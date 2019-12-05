@@ -18,6 +18,7 @@ import (
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	"github.com/lightningnetwork/lnd/lnwallet/commitmenttx"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
 )
@@ -435,7 +436,7 @@ func TestCommitmentAndHTLCTransactions(t *testing.T) {
 	// The commitmentPoint is technically hidden in the spec, but we need it to
 	// generate the correct tweak.
 	tweak := input.SingleTweakBytes(tc.commitmentPoint, tc.localPaymentBasePoint)
-	keys := &CommitmentKeyRing{
+	keys := &commitmenttx.KeyRing{
 		CommitPoint:         tc.commitmentPoint,
 		LocalCommitKeyTweak: tweak,
 		LocalHtlcKeyTweak:   tweak,
@@ -1059,7 +1060,7 @@ func testSpendValidation(t *testing.T, tweakless bool) {
 	// This is Alice's commitment transaction, so she must wait a CSV delay
 	// of 5 blocks before sweeping the output, while bob can spend
 	// immediately with either the revocation key, or his regular key.
-	keyRing := &CommitmentKeyRing{
+	keyRing := &commitmenttx.KeyRing{
 		DelayKey:      aliceDelayKey,
 		RevocationKey: revokePubKey,
 		NoDelayKey:    bobPayKey,

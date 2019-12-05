@@ -23,6 +23,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
 	"github.com/lightningnetwork/lnd/lnwallet/chanvalidate"
+	"github.com/lightningnetwork/lnd/lnwallet/commitmenttx"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
 )
@@ -753,11 +754,11 @@ func CreateCommitmentTxns(localBalance, remoteBalance btcutil.Amount,
 	fundingTxIn wire.TxIn,
 	tweaklessCommit bool) (*wire.MsgTx, *wire.MsgTx, error) {
 
-	localCommitmentKeys := DeriveCommitmentKeys(
+	localCommitmentKeys := commitmenttx.DeriveCommitmentKeys(
 		localCommitPoint, true, tweaklessCommit, ourChanCfg,
 		theirChanCfg,
 	)
-	remoteCommitmentKeys := DeriveCommitmentKeys(
+	remoteCommitmentKeys := commitmenttx.DeriveCommitmentKeys(
 		remoteCommitPoint, false, tweaklessCommit, ourChanCfg,
 		theirChanCfg,
 	)

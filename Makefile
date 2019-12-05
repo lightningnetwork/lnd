@@ -135,11 +135,9 @@ goveralls: $(GOVERALLS_BIN)
 	$(GOVERALLS_BIN) -coverprofile=coverage.txt -service=travis-ci
 
 
-travis-race: lint btcd unit-race
+travis-race: btcd unit-race
 
-travis-cover: lint btcd unit-cover goveralls
-
-travis-itest: lint itest
+travis-cover: btcd unit-cover goveralls
 
 # =============
 # FLAKE HUNTING

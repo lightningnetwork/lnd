@@ -69,9 +69,13 @@ var (
 	// remote peer during a channel sync in case we have lost channel state.
 	dataLossCommitPointKey = []byte("data-loss-commit-point-key")
 
-	// closingTxKey points to a the closing tx that we broadcasted when
-	// moving the channel to state CommitBroadcasted.
-	closingTxKey = []byte("closing-tx-key")
+	// forceCloseTxKey points to a the unilateral closing tx that we
+	// broadcasted when moving the channel to state CommitBroadcasted.
+	forceCloseTxKey = []byte("closing-tx-key")
+
+	// coopCloseTxKey points to a the cooperative closing tx that we
+	// broadcasted when moving the channel to state CoopBroadcasted.
+	coopCloseTxKey = []byte("coop-closing-tx-key")
 
 	// commitDiffKey stores the current pending commitment state we've
 	// extended to the remote party (if any). Each time we propose a new
@@ -382,6 +386,10 @@ var (
 	// has been restored, and doesn't have all the fields a typical channel
 	// will have.
 	ChanStatusRestored ChannelStatus = 1 << 3
+
+	// ChanStatusCoopBroadcasted indicates that a cooperative close for this
+	// channel has been broadcasted.
+	ChanStatusCoopBroadcasted ChannelStatus = 1 << 4
 )
 
 // chanStatusStrings maps a ChannelStatus to a human friendly string that
@@ -392,6 +400,7 @@ var chanStatusStrings = map[ChannelStatus]string{
 	ChanStatusCommitBroadcasted: "ChanStatusCommitBroadcasted",
 	ChanStatusLocalDataLoss:     "ChanStatusLocalDataLoss",
 	ChanStatusRestored:          "ChanStatusRestored",
+	ChanStatusCoopBroadcasted:   "ChanStatusCoopBroadcasted",
 }
 
 // orderedChanStatusFlags is an in-order list of all that channel status flags.
@@ -401,6 +410,7 @@ var orderedChanStatusFlags = []ChannelStatus{
 	ChanStatusCommitBroadcasted,
 	ChanStatusLocalDataLoss,
 	ChanStatusRestored,
+	ChanStatusCoopBroadcasted,
 }
 
 // String returns a human-readable representation of the ChannelStatus.
@@ -951,24 +961,65 @@ func (c *OpenChannel) isBorked(chanBucket *bbolt.Bucket) (bool, error) {
 // republish this tx at startup to ensure propagation, and we should still
 // handle the case where a different tx actually hits the chain.
 func (c *OpenChannel) MarkCommitmentBroadcasted(closeTx *wire.MsgTx) error {
+	return c.markBroadcasted(
+		ChanStatusCommitBroadcasted, forceCloseTxKey, closeTx,
+	)
+}
+
+// MarkCoopBroadcasted marks the channel to indicate that a cooperative close
+// transaction has been broadcast, either our own or the remote, and that we
+// should wach the chain for it to confirm before taking further action. It
+// takes as argument a cooperative close tx that could appear on chain, and
+// should be rebroadcast upon startup. This is only used to republish and ensure
+// propagation, and we should still handle the case where a different tx
+// actually hits the chain.
+func (c *OpenChannel) MarkCoopBroadcasted(closeTx *wire.MsgTx) error {
+	return c.markBroadcasted(
+		ChanStatusCoopBroadcasted, coopCloseTxKey, closeTx,
+	)
+}
+
+// markBroadcasted is a helper function which modifies the channel status of the
+// receiving channel and inserts a close transaction under the requested key,
+// which should specify either a coop or force close.
+func (c *OpenChannel) markBroadcasted(status ChannelStatus, key []byte,
+	closeTx *wire.MsgTx) error {
+
 	c.Lock()
 	defer c.Unlock()
 
-	var b bytes.Buffer
-	if err := WriteElement(&b, closeTx); err != nil {
-		return err
+	// If a closing tx is provided, we'll generate a closure to write the
+	// transaction in the appropriate bucket under the given key.
+	var putClosingTx func(*bbolt.Bucket) error
+	if closeTx != nil {
+		var b bytes.Buffer
+		if err := WriteElement(&b, closeTx); err != nil {
+			return err
+		}
+
+		putClosingTx = func(chanBucket *bbolt.Bucket) error {
+			return chanBucket.Put(key, b.Bytes())
+		}
 	}
 
-	putClosingTx := func(chanBucket *bbolt.Bucket) error {
-		return chanBucket.Put(closingTxKey, b.Bytes())
-	}
-
-	return c.putChanStatus(ChanStatusCommitBroadcasted, putClosingTx)
+	return c.putChanStatus(status, putClosingTx)
 }
 
-// BroadcastedCommitment retrieves the stored closing tx set during
+// BroadcastedCommitment retrieves the stored unilateral closing tx set during
 // MarkCommitmentBroadcasted. If not found ErrNoCloseTx is returned.
 func (c *OpenChannel) BroadcastedCommitment() (*wire.MsgTx, error) {
+	return c.getClosingTx(forceCloseTxKey)
+}
+
+// BroadcastedCooperative retrieves the stored cooperative closing tx set during
+// MarkCoopBroadcasted. If not found ErrNoCloseTx is returned.
+func (c *OpenChannel) BroadcastedCooperative() (*wire.MsgTx, error) {
+	return c.getClosingTx(coopCloseTxKey)
+}
+
+// getClosingTx is a helper method which returns the stored closing transaction
+// for key. The caller should use either the force or coop closing keys.
+func (c *OpenChannel) getClosingTx(key []byte) (*wire.MsgTx, error) {
 	var closeTx *wire.MsgTx
 
 	err := c.Db.View(func(tx *bbolt.Tx) error {
@@ -983,7 +1034,7 @@ func (c *OpenChannel) BroadcastedCommitment() (*wire.MsgTx, error) {
 			return err
 		}
 
-		bs := chanBucket.Get(closingTxKey)
+		bs := chanBucket.Get(key)
 		if bs == nil {
 			return ErrNoCloseTx
 		}
@@ -1025,6 +1076,11 @@ func (c *OpenChannel) putChanStatus(status ChannelStatus,
 		}
 
 		for _, f := range fs {
+			// Skip execution of nil closures.
+			if f == nil {
+				continue
+			}
+
 			if err := f(chanBucket); err != nil {
 				return err
 			}

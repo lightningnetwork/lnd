@@ -6394,6 +6394,16 @@ func (lc *LightningChannel) MarkCommitmentBroadcasted(tx *wire.MsgTx) error {
 	return lc.channelState.MarkCommitmentBroadcasted(tx)
 }
 
+// MarkCoopBroadcasted marks the channel as a cooperative close transaction has
+// been broadcast, and that we should watch the chain for it to confirm before
+// taking any further action.
+func (lc *LightningChannel) MarkCoopBroadcasted(tx *wire.MsgTx) error {
+	lc.Lock()
+	defer lc.Unlock()
+
+	return lc.channelState.MarkCoopBroadcasted(tx)
+}
+
 // MarkDataLoss marks sets the channel status to LocalDataLoss and stores the
 // passed commitPoint for use to retrieve funds in case the remote force closes
 // the channel.

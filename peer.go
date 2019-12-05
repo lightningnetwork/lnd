@@ -463,6 +463,8 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) (
 			fallthrough
 		case dbChan.HasChanStatus(channeldb.ChanStatusCommitBroadcasted):
 			fallthrough
+		case dbChan.HasChanStatus(channeldb.ChanStatusCoopBroadcasted):
+			fallthrough
 		case dbChan.HasChanStatus(channeldb.ChanStatusLocalDataLoss):
 			peerLog.Warnf("ChannelPoint(%v) has status %v, won't "+
 				"start.", chanPoint, dbChan.ChanStatus())

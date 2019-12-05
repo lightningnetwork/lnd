@@ -211,6 +211,24 @@ func (c *channelCloser) initChanShutdown() (*lnwire.Shutdown, error) {
 
 	// TODO(roasbeef): err if channel has htlc's?
 
+	// Before closing, we'll attempt to send a disable update for the
+	// channel. We do so before closing the channel as otherwise the current
+	// edge policy won't be retrievable from the graph.
+	if err := c.cfg.disableChannel(c.chanPoint); err != nil {
+		peerLog.Warnf("Unable to disable channel %v on "+
+			"close: %v", c.chanPoint, err)
+	}
+
+	// Before continuing, mark the channel as cooperatively closed with a
+	// nil txn. Even though we haven't negotiated the final txn, this
+	// guarantees that our listchannels rpc will be externally consistent,
+	// and reflect that the channel is being shutdown by the time the
+	// closing request returns.
+	err := c.cfg.channel.MarkCoopBroadcasted(nil)
+	if err != nil {
+		return nil, err
+	}
+
 	// Before returning the shutdown message, we'll unregister the channel
 	// to ensure that it isn't seen as usable within the system.
 	//
@@ -490,18 +508,10 @@ func (c *channelCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message, b
 		}
 		c.closingTx = closeTx
 
-		// Before closing, we'll attempt to send a disable update for
-		// the channel. We do so before closing the channel as otherwise
-		// the current edge policy won't be retrievable from the graph.
-		if err := c.cfg.disableChannel(c.chanPoint); err != nil {
-			peerLog.Warnf("Unable to disable channel %v on "+
-				"close: %v", c.chanPoint, err)
-		}
-
 		// Before publishing the closing tx, we persist it to the
 		// database, such that it can be republished if something goes
 		// wrong.
-		err = c.cfg.channel.MarkCommitmentBroadcasted(closeTx)
+		err = c.cfg.channel.MarkCoopBroadcasted(closeTx)
 		if err != nil {
 			return nil, false, err
 		}
@@ -549,7 +559,6 @@ func (c *channelCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message, b
 // transaction for a channel based on the prior fee negotiations and our
 // current compromise fee.
 func (c *channelCloser) proposeCloseSigned(fee btcutil.Amount) (*lnwire.ClosingSigned, error) {
-
 	rawSig, _, _, err := c.cfg.channel.CreateCloseProposal(
 		fee, c.localDeliveryScript, c.remoteDeliveryScript,
 	)

@@ -19,6 +19,7 @@ import (
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	"github.com/lightningnetwork/lnd/lnwallet/commitmenttx"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
 )
@@ -206,9 +207,13 @@ func CreateTestChannels(tweaklessCommits bool) (
 	}
 	aliceCommitPoint := input.ComputeCommitmentPoint(aliceFirstRevoke[:])
 
+	commitType := commitmenttx.NewCommitmentType(
+		channeldb.SingleFunderTweaklessBit,
+	)
+
 	aliceCommitTx, bobCommitTx, err := CreateCommitmentTxns(
 		channelBal, channelBal, &aliceCfg, &bobCfg, aliceCommitPoint,
-		bobCommitPoint, *fundingTxIn, tweaklessCommits,
+		bobCommitPoint, *fundingTxIn, commitType,
 	)
 	if err != nil {
 		return nil, nil, nil, err

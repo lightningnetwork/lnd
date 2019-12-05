@@ -370,6 +370,15 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 	)
 	options = append(options, zpay32.Features(invoiceFeatures))
 
+	// Generate and set a random payment address for this invoice. If the
+	// sender understands payment addresses, this can be used to avoid
+	// intermediaries probing the receiver.
+	var paymentAddr [32]byte
+	if _, err := rand.Read(paymentAddr[:]); err != nil {
+		return nil, nil, err
+	}
+	options = append(options, zpay32.PaymentAddr(paymentAddr))
+
 	// Create and encode the payment request as a bech32 (zpay32) string.
 	creationDate := time.Now()
 	payReq, err := zpay32.NewInvoice(
@@ -397,6 +406,7 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 			Expiry:          payReq.Expiry(),
 			Value:           amtMSat,
 			PaymentPreimage: paymentPreimage,
+			PaymentAddr:     paymentAddr,
 			Features:        invoiceFeatures,
 		},
 	}

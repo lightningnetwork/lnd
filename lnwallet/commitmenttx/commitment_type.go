@@ -139,3 +139,13 @@ func (c CommitmentType) CommitScriptAnchors(localChanCfg,
 			WitnessScript: remoteAnchorScriptHash,
 		}, nil
 }
+
+// CommitWeight returns the base commitment weight before adding HTLCs.
+func (c CommitmentType) CommitWeight() int64 {
+	// If this commitment has anchors, it will be slightly heavier.
+	if c.chanType.HasAnchors() {
+		return input.AnchorCommitWeight
+	}
+
+	return input.CommitWeight
+}

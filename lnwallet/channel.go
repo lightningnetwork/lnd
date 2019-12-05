@@ -2287,7 +2287,8 @@ func (lc *LightningChannel) createCommitmentTx(c *commitment,
 	// on its total weight. Once we have the total weight, we'll multiply
 	// by the current fee-per-kw, then divide by 1000 to get the proper
 	// fee.
-	totalCommitWeight := input.CommitWeight + (input.HTLCWeight * numHTLCs)
+	totalCommitWeight := lc.commitType.CommitWeight() +
+		input.HTLCWeight*numHTLCs
 
 	// With the weight known, we can now calculate the commitment fee,
 	// ensuring that we account for any dust outputs trimmed above.
@@ -3664,7 +3665,7 @@ func (lc *LightningChannel) computeView(view *htlcView, remoteChain bool,
 		totalHtlcWeight += input.HTLCWeight
 	}
 
-	totalCommitWeight := input.CommitWeight + totalHtlcWeight
+	totalCommitWeight := lc.commitType.CommitWeight() + totalHtlcWeight
 	return ourBalance, theirBalance, totalCommitWeight, filteredHTLCView
 }
 
@@ -6254,7 +6255,7 @@ func CreateCooperativeCloseTx(fundingTxIn wire.TxIn,
 // CalcFee returns the commitment fee to use for the given
 // fee rate (fee-per-kw).
 func (lc *LightningChannel) CalcFee(feeRate chainfee.SatPerKWeight) btcutil.Amount {
-	return feeRate.FeeForWeight(input.CommitWeight)
+	return feeRate.FeeForWeight(lc.commitType.CommitWeight())
 }
 
 // MaxFeeRate returns the maximum fee rate given an allocation of the channel

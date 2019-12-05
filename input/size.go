@@ -122,6 +122,12 @@ const (
 	//	- PkScript (P2WPKH)
 	CommitmentKeyHashOutput = 8 + 1 + P2WPKHSize
 
+	// CommitmentAnchorOutput 43 bytes
+	//	- Value: 8 bytes
+	//	- VarInt: 1 byte (PkScript length)
+	//	- PkScript (P2WSH)
+	CommitmentAnchorOutput = 8 + 1 + P2WSHSize
+
 	// HTLCSize 43 bytes
 	//	- Value: 8 bytes
 	//	- VarInt: 1 byte (PkScript length)
@@ -159,8 +165,31 @@ const (
 	// WitnessCommitmentTxWeight 224 weight
 	WitnessCommitmentTxWeight = WitnessHeaderSize + WitnessSize
 
+	// BaseAnchorCommitmentTxSize 223 + 43 * num-htlc-outputs bytes
+	//	- Version: 4 bytes
+	//	- WitnessHeader <---- part of the witness data
+	//	- CountTxIn: 1 byte
+	//	- TxIn: 41 bytes
+	//		FundingInput
+	//	- CountTxOut: 1 byte
+	//	- TxOut: 4*43 + 43 * num-htlc-outputs bytes
+	//		OutputPayingToThem,
+	//		OutputPayingToUs,
+	//		AnchorPayingToThem,
+	//		AnchorPayingToUs,
+	//		....HTLCOutputs...
+	//	- LockTime: 4 bytes
+	BaseAnchorCommitmentTxSize = 4 + 1 + FundingInputSize + 1 +
+		2*CommitmentDelayOutput + 2*CommitmentAnchorOutput + 4
+
+	// BaseAnchorCommitmentTxWeight 892 weight
+	BaseAnchorCommitmentTxWeight = witnessScaleFactor * BaseAnchorCommitmentTxSize
+
 	// CommitWeight 724 weight
 	CommitWeight = BaseCommitmentTxWeight + WitnessCommitmentTxWeight
+
+	// AnchorCommitWeight 1116 weight
+	AnchorCommitWeight = BaseAnchorCommitmentTxWeight + WitnessCommitmentTxWeight
 
 	// HTLCWeight 172 weight
 	HTLCWeight = witnessScaleFactor * HTLCSize

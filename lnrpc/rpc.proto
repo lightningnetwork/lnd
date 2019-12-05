@@ -2615,6 +2615,7 @@ message PayReq {
     string fallback_addr = 8 [json_name = "fallback_addr"];
     int64 cltv_expiry = 9 [json_name = "cltv_expiry"];
     repeated RouteHint route_hints = 10 [json_name = "route_hints"];
+    bytes payment_addr = 11 [json_name = "payment_addr"];
 }
 
 message FeeReportRequest {}

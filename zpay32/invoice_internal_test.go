@@ -777,3 +777,75 @@ func TestParseRouteHint(t *testing.T) {
 		}
 	}
 }
+
+// TestParseTaggedFields checks that tagged field data is correctly parsed or
+// errors as expected.
+func TestParseTaggedFields(t *testing.T) {
+	t.Parallel()
+
+	netParams := &chaincfg.SimNetParams
+
+	tests := []struct {
+		name    string
+		data    []byte
+		wantErr error
+	}{
+		{
+			name: "nil data",
+			data: nil,
+		},
+		{
+			name: "empty data",
+			data: []byte{},
+		},
+		{
+			// Type 0xff cannot be encoded in a single 5-bit
+			// element, so it's technically invalid but
+			// parseTaggedFields doesn't error on non-5bpp
+			// compatible codes so we can use a code in tests which
+			// will never become known in the future.
+			name: "valid unknown field",
+			data: []byte{0xff, 0x00, 0x00},
+		},
+		{
+			name: "unknown field valid data",
+			data: []byte{0xff, 0x00, 0x01, 0xab},
+		},
+		{
+			name:    "only type specified",
+			data:    []byte{0x0d},
+			wantErr: ErrBrokenTaggedField,
+		},
+		{
+			name:    "not enough bytes for len",
+			data:    []byte{0x0d, 0x00},
+			wantErr: ErrBrokenTaggedField,
+		},
+		{
+			name:    "no bytes after len",
+			data:    []byte{0x0d, 0x00, 0x01},
+			wantErr: ErrInvalidFieldLength,
+		},
+		{
+			name:    "not enough bytes after len",
+			data:    []byte{0x0d, 0x00, 0x02, 0x01},
+			wantErr: ErrInvalidFieldLength,
+		},
+		{
+			name:    "not enough bytes after len with unknown type",
+			data:    []byte{0xff, 0x00, 0x02, 0x01},
+			wantErr: ErrInvalidFieldLength,
+		},
+	}
+	for _, tc := range tests {
+		tc := tc // pin
+		t.Run(tc.name, func(t *testing.T) {
+			var invoice Invoice
+			gotErr := parseTaggedFields(&invoice, tc.data, netParams)
+			if tc.wantErr != gotErr {
+				t.Fatalf("Unexpected error. want=%v got=%v",
+					tc.wantErr, gotErr)
+			}
+		})
+	}
+}

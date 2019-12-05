@@ -189,7 +189,7 @@ func (t *backupTask) craftSessionPayload(
 	justiceKit := &blob.JusticeKit{
 		SweepAddress:     t.sweepPkScript,
 		RevocationPubKey: toBlobPubKey(keyRing.RevocationKey),
-		LocalDelayPubKey: toBlobPubKey(keyRing.DelayKey),
+		LocalDelayPubKey: toBlobPubKey(keyRing.LocalKey),
 		CSVDelay:         t.breachInfo.RemoteDelay,
 	}
 
@@ -199,7 +199,7 @@ func (t *backupTask) craftSessionPayload(
 	// output to spend from.
 	if t.toRemoteInput != nil {
 		justiceKit.CommitToRemotePubKey = toBlobPubKey(
-			keyRing.NoDelayKey,
+			keyRing.RemoteKey,
 		)
 	}
 

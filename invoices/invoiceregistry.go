@@ -710,9 +710,6 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 	circuitKey channeldb.CircuitKey, hodlChan chan<- interface{},
 	payload Payload) (*HtlcResolution, error) {
 
-	i.Lock()
-	defer i.Unlock()
-
 	mpp := payload.MultiPath()
 
 	debugLog := func(s string) {
@@ -731,6 +728,9 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 		customRecords:        payload.CustomRecords(),
 		mpp:                  mpp,
 	}
+
+	i.Lock()
+	defer i.Unlock()
 
 	// We'll attempt to settle an invoice matching this rHash on disk (if
 	// one exists). The callback will update the invoice state and/or htlcs.

@@ -21,6 +21,19 @@ var errUnknownChannelID = errors.New("cannot find channel outpoint")
 type eventsQuery func(
 	offset, maxEvents uint32) (channeldb.ForwardingLogTimeSlice, error)
 
+// GetRevenueReport calculates accumulates relevant forwarding logs and
+// produces a revenue report.
+func GetRevenueReport(channelIDs map[lnwire.ShortChannelID]wire.OutPoint,
+	query eventsQuery, attributeIncoming float64) (*RevenueReport, error) {
+
+	events, err := getEvents(channelIDs, query)
+	if err != nil {
+		return nil, err
+	}
+
+	return revenueReport(events, attributeIncoming), nil
+}
+
 // getEvents gets calls the paginated query function until it has all the
 // forwarding events for the period provided. It takes a map of shortChannelIDs
 // to outpoints which is used to convert forwarding events short ids to

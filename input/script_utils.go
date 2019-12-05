@@ -840,6 +840,62 @@ func CommitScriptUnencumbered(key *btcec.PublicKey) ([]byte, error) {
 	return builder.Script()
 }
 
+// CommitScriptAnchor constructs the script for the anchor output spendable by
+// the given key immediately, or by anyone after 10 confirmations.
+//
+// OP_DEPTH
+// OP_IF
+//	<funding_pubkey> OP_CHECKSIG
+// OP_ELSE
+//	10 OP_CSV
+// OP_ENDIF
+func CommitScriptAnchor(key *btcec.PublicKey) ([]byte, error) {
+	builder := txscript.NewScriptBuilder()
+
+	// OP_DEPTh to check if this is a spend with a key, or anyone can spend
+	// clause.
+	builder.AddOp(txscript.OP_DEPTH)
+
+	// If spend with key
+	builder.AddOp(txscript.OP_IF)
+	builder.AddData(key.SerializeCompressed())
+	builder.AddOp(txscript.OP_CHECKSIG)
+
+	// Otherswise it just have to be 10 blocks deep.
+	builder.AddOp(txscript.OP_ELSE)
+	builder.AddInt64(10)
+	builder.AddOp(txscript.OP_CHECKSEQUENCEVERIFY)
+
+	builder.AddOp(txscript.OP_ENDIF)
+
+	return builder.Script()
+}
+
+// CommitScriptToRemote constructs the script for the output on the commitment
+// transaction paying to the remote party of said commitment transaction.  The
+// money can only be spend after the timeout has passed.
+//
+// Possible Input Scripts:
+//     SWEEP: <sig>
+//
+// Output Script:
+//         <numRelativeBlocks> OP_CHECKSEQUENCEVERIFY OP_DROP <key> OP_CHECKSIG
+func CommitScriptToRemote(csvTimeout uint32, key *btcec.PublicKey) ([]byte, error) {
+	builder := txscript.NewScriptBuilder()
+
+	// Check that the CSV delay has passed
+	builder.AddInt64(int64(csvTimeout))
+	builder.AddOp(txscript.OP_CHECKSEQUENCEVERIFY)
+	builder.AddOp(txscript.OP_DROP)
+
+	// If that's the case, let the output be spent by a signature by the
+	// given key.
+	builder.AddData(key.SerializeCompressed())
+	builder.AddOp(txscript.OP_CHECKSIG)
+
+	return builder.Script()
+}
+
 // CommitSpendTimeout constructs a valid witness allowing the owner of a
 // particular commitment transaction to spend the output returning settled
 // funds back to themselves after a relative block timeout.  In order to

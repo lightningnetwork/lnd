@@ -112,6 +112,12 @@ func deriveCommitmentKeys(commitPoint *btcec.PublicKey,
 	// we'll use that directly, and ignore the commitPoint tweak.
 	if tweaklessCommit {
 		keyRing.NoDelayKey = noDelayBasePoint
+
+		// If this is a tweakless remote commitment, then we can safely
+		// blank out the SingleTweak value as it isn't needed.
+		if !isOurCommit {
+			keyRing.LocalCommitKeyTweak = nil
+		}
 	} else {
 		keyRing.NoDelayKey = input.TweakPubKey(
 			noDelayBasePoint, commitPoint,

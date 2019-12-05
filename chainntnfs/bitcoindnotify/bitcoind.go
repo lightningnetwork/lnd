@@ -262,6 +262,14 @@ out:
 						return
 					}
 
+					chainntnfs.Log.Infof("Historical "+
+						"spend dispatch finished"+
+						"for request %v (start=%v "+
+						"end=%v) with details: %v",
+						msg.SpendRequest,
+						msg.StartHeight, msg.EndHeight,
+						spendDetails)
+
 					// If the historical dispatch finished
 					// without error, we will invoke
 					// UpdateSpendDetails even if none were

@@ -503,7 +503,8 @@ type commitment struct {
 	// evaluating all the add/remove/settle log entries before the listed
 	// indexes.
 	//
-	// NOTE: This is the balance *after* subtracting any commitment fee.
+	// NOTE: This is the balance *after* subtracting any commitment fee,
+	// AND anchor outputs.
 	ourBalance   lnwire.MilliSatoshi
 	theirBalance lnwire.MilliSatoshi
 
@@ -2293,24 +2294,29 @@ func (lc *LightningChannel) createCommitmentTx(c *commitment,
 	// With the weight known, we can now calculate the commitment fee,
 	// ensuring that we account for any dust outputs trimmed above.
 	commitFee := c.feePerKw.FeeForWeight(totalCommitWeight)
-	commitFeeMSat := lnwire.NewMSatFromSatoshis(commitFee)
 
-	// Currently, within the protocol, the initiator always pays the fees.
-	// So we'll subtract the fee amount from the balance of the current
-	// initiator. If the initiator is unable to pay the fee fully, then
-	// their entire output is consumed.
+	// If the current commitment type has anchors (AnchorSize is non-zero)
+	// it will also be paid by the initiator.
+	initiatorFee := commitFee + 2*lc.channelState.AnchorSize
+	initiatorFeeMSat := lnwire.NewMSatFromSatoshis(initiatorFee)
+
+	// The commitment has one to_local_anchor output, one timelocked
+	// to_local output, and one to_remote output.  The commitment will have
+	// a minimum fee, and this fee is always paid by the initiator. This
+	// fee is subracted from the node's output, resulting in it being set
+	// to 0 if below the dust limit.
 	switch {
-	case lc.channelState.IsInitiator && commitFee > ourBalance.ToSatoshis():
+	case lc.channelState.IsInitiator && initiatorFee > ourBalance.ToSatoshis():
 		ourBalance = 0
 
 	case lc.channelState.IsInitiator:
-		ourBalance -= commitFeeMSat
+		ourBalance -= initiatorFeeMSat
 
-	case !lc.channelState.IsInitiator && commitFee > theirBalance.ToSatoshis():
+	case !lc.channelState.IsInitiator && initiatorFee > theirBalance.ToSatoshis():
 		theirBalance = 0
 
 	case !lc.channelState.IsInitiator:
-		theirBalance -= commitFeeMSat
+		theirBalance -= initiatorFeeMSat
 	}
 
 	var (
@@ -3023,11 +3029,16 @@ func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
 	// Calculate the commitment fee, and subtract it from the initiator's
 	// balance.
 	commitFee := feePerKw.FeeForWeight(commitWeight)
-	commitFeeMsat := lnwire.NewMSatFromSatoshis(commitFee)
+
+	// If the current commitment type has anchors (AnchorSize is non-zero)
+	// it will also be paid by the initiator.
+	initiatorFee := commitFee + 2*lc.channelState.AnchorSize
+	initiatorFeeMsat := lnwire.NewMSatFromSatoshis(initiatorFee)
+
 	if lc.channelState.IsInitiator {
-		ourBalance -= commitFeeMsat
+		ourBalance -= initiatorFeeMsat
 	} else {
-		theirBalance -= commitFeeMsat
+		theirBalance -= initiatorFeeMsat
 	}
 
 	// As a quick sanity check, we'll ensure that if we interpret the
@@ -3621,12 +3632,17 @@ func (lc *LightningChannel) computeView(view *htlcView, remoteChain bool,
 	// initiator's balance, so that the fee can be recalculated and
 	// re-applied in case fee estimation parameters have changed or the
 	// number of outstanding HTLCs has changed.
+	//
+	// If the current commitment type has anchors (AnchorSize is non-zero)
+	// it was also subtracted from the initiator's balance, so remember to
+	// add it back.
+	initiatorFee := commitChain.tip().fee + 2*lc.channelState.AnchorSize
+	initiatorFeeMSat := lnwire.NewMSatFromSatoshis(initiatorFee)
+
 	if lc.channelState.IsInitiator {
-		ourBalance += lnwire.NewMSatFromSatoshis(
-			commitChain.tip().fee)
+		ourBalance += initiatorFeeMSat
 	} else if !lc.channelState.IsInitiator {
-		theirBalance += lnwire.NewMSatFromSatoshis(
-			commitChain.tip().fee)
+		theirBalance += initiatorFeeMSat
 	}
 	nextHeight := commitChain.tip().height + 1
 
@@ -5813,11 +5829,14 @@ func (lc *LightningChannel) CreateCloseProposal(proposedFee btcutil.Amount,
 
 	// We'll make sure we account for the complete balance by adding the
 	// current dangling commitment fee to the balance of the initiator.
-	commitFee := localCommit.CommitFee
+	// Since there are no anchors on the coop close transaction, we'll also
+	// add back the size of the anchors to the initiator's balance.
+	initiatorFee := localCommit.CommitFee + 2*lc.channelState.AnchorSize
+
 	if lc.channelState.IsInitiator {
-		ourBalance = ourBalance - proposedFee + commitFee
+		ourBalance = ourBalance - proposedFee + initiatorFee
 	} else {
-		theirBalance = theirBalance - proposedFee + commitFee
+		theirBalance = theirBalance - proposedFee + initiatorFee
 	}
 
 	closeTx := CreateCooperativeCloseTx(
@@ -5881,11 +5900,14 @@ func (lc *LightningChannel) CompleteCooperativeClose(localSig, remoteSig []byte,
 
 	// We'll make sure we account for the complete balance by adding the
 	// current dangling commitment fee to the balance of the initiator.
-	commitFee := localCommit.CommitFee
+	// Since there are no anchors on the coop close transaction, we'll also
+	// add back the size of the anchors to the initiator's balance.
+	initiatorFee := localCommit.CommitFee + 2*lc.channelState.AnchorSize
+
 	if lc.channelState.IsInitiator {
-		ourBalance = ourBalance - proposedFee + commitFee
+		ourBalance = ourBalance - proposedFee + initiatorFee
 	} else {
-		theirBalance = theirBalance - proposedFee + commitFee
+		theirBalance = theirBalance - proposedFee + initiatorFee
 	}
 
 	// Create the transaction used to return the current settled balance
@@ -5965,8 +5987,14 @@ func (lc *LightningChannel) availableBalance() (lnwire.MilliSatoshi, int64) {
 	// If we are the channel initiator, we must remember to subtract the
 	// commitment fee from our available balance.
 	commitFee := filteredView.feePerKw.FeeForWeight(commitWeight)
+
+	// If the current commitment type has anchors (AnchorSize is non-zero)
+	// it will also be paid by the initiator.
+	initiatorFee := commitFee + 2*lc.channelState.AnchorSize
+	initiatorFeeMsat := lnwire.NewMSatFromSatoshis(initiatorFee)
+
 	if lc.channelState.IsInitiator {
-		ourBalance -= lnwire.NewMSatFromSatoshis(commitFee)
+		ourBalance -= initiatorFeeMsat
 	}
 
 	return ourBalance, commitWeight

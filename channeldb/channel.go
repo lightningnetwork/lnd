@@ -162,6 +162,12 @@ const (
 	// disk. This bit may be on if the funding transaction was crafted by a
 	// wallet external to the primary daemon.
 	NoFundingTxBit ChannelType = 1 << 2
+
+	// AnchorOutputsBit indicates that the channel makes use of anchor
+	// outputs to bump the commitment transaction's effective feerate. This
+	// channel type also uses a delayed to_remote output script. If bit is
+	// set, we'll find the size of the anchor outputs in the database.
+	AnchorOutputsBit ChannelType = 1 << 3
 )
 
 // IsSingleFunder returns true if the channel type if one of the known single
@@ -185,6 +191,12 @@ func (c ChannelType) IsTweakless() bool {
 // transaction stored locally.
 func (c ChannelType) HasFundingTx() bool {
 	return c&NoFundingTxBit == 0
+}
+
+// HasAnchors returns true if this channel type has anchor ouputs on its
+// commitment.
+func (c ChannelType) HasAnchors() bool {
+	return c&AnchorOutputsBit == AnchorOutputsBit
 }
 
 // ChannelConstraints represents a set of constraints meant to allow a node to
@@ -500,6 +512,10 @@ type OpenChannel struct {
 
 	// Capacity is the total capacity of this channel.
 	Capacity btcutil.Amount
+
+	// AnchorSize is the size of the anchor outputs for this channel. Only
+	// set if the AnchorOutputsBit is set for the channel type.
+	AnchorSize btcutil.Amount
 
 	// TotalMSatSent is the total number of milli-satoshis we've sent
 	// within this channel.
@@ -2597,6 +2613,14 @@ func putChanInfo(chanBucket *bbolt.Bucket, channel *OpenChannel) error {
 		return err
 	}
 
+	// If this is an anchor type, write the anchor size.
+	if channel.ChanType.HasAnchors() {
+		err := WriteElement(&w, channel.AnchorSize)
+		if err != nil {
+			return err
+		}
+	}
+
 	if err := chanBucket.Put(chanInfoKey, w.Bytes()); err != nil {
 		return err
 	}
@@ -2769,6 +2793,14 @@ func fetchChanInfo(chanBucket *bbolt.Bucket, channel *OpenChannel) error {
 	}
 	if err := readChanConfig(r, &channel.RemoteChanCfg); err != nil {
 		return err
+	}
+
+	// If this channel type has anchors, read the anchor size.
+	if channel.ChanType.HasAnchors() {
+		err := ReadElement(r, &channel.AnchorSize)
+		if err != nil {
+			return err
+		}
 	}
 
 	channel.Packager = NewChannelPackager(channel.ShortChannelID)

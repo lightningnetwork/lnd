@@ -13976,6 +13976,10 @@ type chanRestoreTestCase struct {
 	// private or not.
 	private bool
 
+	// unconfirmed signals if the channel from Dave to Carol should be
+	// confirmed or not.
+	unconfirmed bool
+
 	// restoreMethod takes an old node, then returns a function
 	// closure that'll return the same node, but with its state
 	// restored via a custom method. We use this to abstract away
@@ -14040,25 +14044,40 @@ func testChanRestoreScenario(t *harnessTest, net *lntest.NetworkHarness,
 	if err := net.ConnectNodes(ctxt, dave, carol); err != nil {
 		t.Fatalf("unable to connect dave to carol: %v", err)
 	}
-	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
-	chanPoint := openChannelAndAssert(
-		ctxt, t, net, from, to,
-		lntest.OpenChannelParams{
-			Amt:     chanAmt,
-			PushAmt: pushAmt,
-			Private: testCase.private,
-		},
-	)
 
-	// Wait for both sides to see the opened channel.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = dave.WaitForNetworkChannelOpen(ctxt, chanPoint)
-	if err != nil {
-		t.Fatalf("dave didn't report channel: %v", err)
-	}
-	err = carol.WaitForNetworkChannelOpen(ctxt, chanPoint)
-	if err != nil {
-		t.Fatalf("carol didn't report channel: %v", err)
+	// We will either open a confirmed or unconfirmed channel, depending on
+	// the requirements of the test case.
+	switch {
+	case testCase.unconfirmed:
+		ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
+		_, err := net.OpenPendingChannel(
+			ctxt, from, to, chanAmt, pushAmt,
+		)
+		if err != nil {
+			t.Fatalf("couldn't open pending channel: %v", err)
+		}
+
+	default:
+		ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
+		chanPoint := openChannelAndAssert(
+			ctxt, t, net, from, to,
+			lntest.OpenChannelParams{
+				Amt:     chanAmt,
+				PushAmt: pushAmt,
+				Private: testCase.private,
+			},
+		)
+
+		// Wait for both sides to see the opened channel.
+		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+		err = dave.WaitForNetworkChannelOpen(ctxt, chanPoint)
+		if err != nil {
+			t.Fatalf("dave didn't report channel: %v", err)
+		}
+		err = carol.WaitForNetworkChannelOpen(ctxt, chanPoint)
+		if err != nil {
+			t.Fatalf("carol didn't report channel: %v", err)
+		}
 	}
 
 	// If both parties should start with existing channel updates, then
@@ -14415,6 +14434,56 @@ func testChannelBackupRestore(net *lntest.NetworkHarness, t *harnessTest) {
 
 					return newNode, nil
 				}, nil
+			},
+		},
+
+		// Create a backup from an unconfirmed channel and make sure
+		// recovery works as well.
+		{
+			name:            "restore unconfirmed channel",
+			channelsUpdated: false,
+			initiator:       true,
+			private:         false,
+			unconfirmed:     true,
+			restoreMethod: func(oldNode *lntest.HarnessNode,
+				backupFilePath string,
+				mnemonic []string) (nodeRestorer, error) {
+
+				// For this restoration method, we'll grab the
+				// current multi-channel backup from the old
+				// node. The channel should be included, even if
+				// it is not confirmed yet.
+				req := &lnrpc.ChanBackupExportRequest{}
+				chanBackup, err := oldNode.ExportAllChannelBackups(
+					ctxb, req,
+				)
+				if err != nil {
+					return nil, fmt.Errorf("unable to obtain "+
+						"channel backup: %v", err)
+				}
+				chanPoints := chanBackup.MultiChanBackup.ChanPoints
+				if len(chanPoints) == 0 {
+					return nil, fmt.Errorf("unconfirmed " +
+						"channel not included in backup")
+				}
+
+				// Let's assume time passes, the channel
+				// confirms in the meantime but for some reason
+				// the backup we made while it was still
+				// unconfirmed is the only backup we have. We
+				// should still be able to restore it. To
+				// simulate time passing, we mine some blocks
+				// to get the channel confirmed _after_ we saved
+				// the backup.
+				mineBlocks(t, net, 6, 1)
+
+				// In our nodeRestorer function, we'll restore
+				// the node from seed, then manually recover
+				// the channel backup.
+				multi := chanBackup.MultiChanBackup.MultiChanBackup
+				return chanRestoreViaRPC(
+					net, password, mnemonic, multi,
+				)
 			},
 		},
 	}

@@ -1,9 +1,10 @@
-package commitmenttx
+package lnwallet
 
 import (
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/lnwallet/commitmenttx"
 )
 
 // ScriptIinfo holds a reedeem script and hash.
@@ -43,11 +44,11 @@ func NewCommitmentType(chanType channeldb.ChannelType) CommitmentType {
 // points and commitment point for the this commitment type.
 func (c CommitmentType) DeriveCommitmentKeys(commitPoint *btcec.PublicKey,
 	isOurCommit bool, localChanCfg,
-	remoteChanCfg *channeldb.ChannelConfig) *KeyRing {
+	remoteChanCfg *channeldb.ChannelConfig) *commitmenttx.KeyRing {
 
 	// Return commitment keys with tweaklessCommit set according to channel
 	// type.
-	return deriveCommitmentKeys(
+	return commitmenttx.DeriveCommitmentKeys(
 		commitPoint, isOurCommit, c.chanType.IsTweakless(),
 		localChanCfg, remoteChanCfg,
 	)

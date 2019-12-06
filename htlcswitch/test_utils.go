@@ -34,7 +34,6 @@ import (
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
-	"github.com/lightningnetwork/lnd/lnwallet/commitmenttx"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
 	"github.com/lightningnetwork/lnd/ticker"
@@ -261,7 +260,7 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 	}
 	aliceCommitPoint := input.ComputeCommitmentPoint(aliceFirstRevoke[:])
 
-	commitType := commitmenttx.NewCommitmentType(
+	commitType := lnwallet.NewCommitmentType(
 		channeldb.SingleFunderTweaklessBit,
 	)
 

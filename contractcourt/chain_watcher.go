@@ -17,7 +17,6 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
-	"github.com/lightningnetwork/lnd/lnwallet/commitmenttx"
 	"github.com/lightningnetwork/lnd/shachain"
 )
 
@@ -333,7 +332,7 @@ func (c *chainWatcher) SubscribeChannelEvents() *ChainEventSubscription {
 func isOurCommitment(localChanCfg, remoteChanCfg channeldb.ChannelConfig,
 	commitSpend *chainntnfs.SpendDetail, broadcastStateNum uint64,
 	revocationProducer shachain.Producer,
-	commitType commitmenttx.CommitmentType) (bool, error) {
+	commitType lnwallet.CommitmentType) (bool, error) {
 
 	// First, we'll re-derive our commitment point for this state since
 	// this is what we use to randomize each of the keys for this state.
@@ -478,7 +477,7 @@ func (c *chainWatcher) closeObserver(spendNtfn *chainntnfs.SpendEvent) {
 		// An additional piece of information we need to properly
 		// dispatch a close event is the commitment format this channel
 		// was using.
-		commitType := commitmenttx.NewCommitmentType(
+		commitType := lnwallet.NewCommitmentType(
 			c.cfg.chanState.ChanType,
 		)
 

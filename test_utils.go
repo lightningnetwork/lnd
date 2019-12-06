@@ -23,7 +23,6 @@ import (
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
-	"github.com/lightningnetwork/lnd/lnwallet/commitmenttx"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/netann"
 	"github.com/lightningnetwork/lnd/shachain"
@@ -188,7 +187,7 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 	}
 	aliceCommitPoint := input.ComputeCommitmentPoint(aliceFirstRevoke[:])
 
-	commitType := commitmenttx.NewCommitmentType(
+	commitType := lnwallet.NewCommitmentType(
 		channeldb.SingleFunderTweaklessBit,
 	)
 

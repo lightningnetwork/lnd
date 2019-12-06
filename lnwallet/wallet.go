@@ -23,7 +23,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
 	"github.com/lightningnetwork/lnd/lnwallet/chanvalidate"
-	"github.com/lightningnetwork/lnd/lnwallet/commitmenttx"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
 )
@@ -757,7 +756,7 @@ func CreateCommitmentTxns(localBalance, remoteBalance,
 	anchorSize btcutil.Amount,
 	ourChanCfg, theirChanCfg *channeldb.ChannelConfig,
 	localCommitPoint, remoteCommitPoint *btcec.PublicKey,
-	fundingTxIn wire.TxIn, commitType commitmenttx.CommitmentType) (
+	fundingTxIn wire.TxIn, commitType CommitmentType) (
 	*wire.MsgTx, *wire.MsgTx, error) {
 
 	localCommitmentKeys := commitType.DeriveCommitmentKeys(
@@ -914,7 +913,7 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	anchorSize := pendingReservation.partialState.AnchorSize
 	localBalance := pendingReservation.partialState.LocalCommitment.LocalBalance.ToSatoshis()
 	remoteBalance := pendingReservation.partialState.LocalCommitment.RemoteBalance.ToSatoshis()
-	commitType := commitmenttx.NewCommitmentType(
+	commitType := NewCommitmentType(
 		pendingReservation.partialState.ChanType,
 	)
 	ourCommitTx, theirCommitTx, err := CreateCommitmentTxns(
@@ -1278,7 +1277,7 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 	anchorSize := pendingReservation.partialState.AnchorSize
 	localBalance := pendingReservation.partialState.LocalCommitment.LocalBalance.ToSatoshis()
 	remoteBalance := pendingReservation.partialState.LocalCommitment.RemoteBalance.ToSatoshis()
-	commitType := commitmenttx.NewCommitmentType(
+	commitType := NewCommitmentType(
 		pendingReservation.partialState.ChanType,
 	)
 

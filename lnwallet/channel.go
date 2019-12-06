@@ -1209,7 +1209,7 @@ type LightningChannel struct {
 
 	status channelState
 
-	commitType commitmenttx.CommitmentType
+	commitType CommitmentType
 
 	// ChanPoint is the funding outpoint of this channel.
 	ChanPoint *wire.OutPoint
@@ -1300,7 +1300,7 @@ func NewLightningChannel(signer input.Signer,
 		remoteCommitChain: newCommitmentChain(),
 		localCommitChain:  newCommitmentChain(),
 		channelState:      state,
-		commitType:        commitmenttx.NewCommitmentType(state.ChanType),
+		commitType:        NewCommitmentType(state.ChanType),
 		localChanCfg:      &state.LocalChanCfg,
 		remoteChanCfg:     &state.RemoteChanCfg,
 		localUpdateLog:    localUpdateLog,
@@ -1901,7 +1901,7 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 
 	// With the commitment point generated, we can now generate the four
 	// keys we'll need to reconstruct the commitment state,
-	commitType := commitmenttx.NewCommitmentType(chanState.ChanType)
+	commitType := NewCommitmentType(chanState.ChanType)
 	keyRing := commitType.DeriveCommitmentKeys(
 		commitmentPoint, false, &chanState.LocalChanCfg,
 		&chanState.RemoteChanCfg,
@@ -5100,7 +5100,7 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, signer input.Si
 
 	// First, we'll generate the commitment point and the revocation point
 	// so we can re-construct the HTLC state and also our payment key.
-	commitType := commitmenttx.NewCommitmentType(chanState.ChanType)
+	commitType := NewCommitmentType(chanState.ChanType)
 	keyRing := commitType.DeriveCommitmentKeys(
 		commitPoint, false, &chanState.LocalChanCfg,
 		&chanState.RemoteChanCfg,
@@ -5755,7 +5755,7 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel, signer input.Si
 	}
 	commitPoint := input.ComputeCommitmentPoint(revocation[:])
 
-	commitType := commitmenttx.NewCommitmentType(chanState.ChanType)
+	commitType := NewCommitmentType(chanState.ChanType)
 	keyRing := commitType.DeriveCommitmentKeys(
 		commitPoint, true, &chanState.LocalChanCfg,
 		&chanState.RemoteChanCfg,
@@ -6201,7 +6201,7 @@ func (lc *LightningChannel) generateRevocation(height uint64) (*lnwire.RevokeAnd
 // spent after a relative block delay or revocation event, and a remote output
 // paying the counterparty within the channel, which can be spent immediately
 // or after a delay depending on the commitment type..
-func CreateCommitTx(commitType commitmenttx.CommitmentType,
+func CreateCommitTx(commitType CommitmentType,
 	fundingOutput wire.TxIn, keyRing *commitmenttx.KeyRing,
 	localChanCfg, remoteChanCfg *channeldb.ChannelConfig,
 	amountToLocal, amountToRemote, anchorSize btcutil.Amount,

@@ -58,7 +58,7 @@ type KeyRing struct {
 // deriveCommitmentKeys generates a new commitment key set using the base points
 // and commitment point. The keys are derived differently depending whether the
 // commitment transaction is ours or the remote peer's.
-func deriveCommitmentKeys(commitPoint *btcec.PublicKey,
+func DeriveCommitmentKeys(commitPoint *btcec.PublicKey,
 	isOurCommit, tweaklessCommit bool,
 	localChanCfg, remoteChanCfg *channeldb.ChannelConfig) *KeyRing {
 

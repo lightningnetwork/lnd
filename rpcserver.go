@@ -4588,9 +4588,10 @@ func (r *rpcServer) DecodePayReq(ctx context.Context,
 	// Convert between the `lnrpc` and `routing` types.
 	routeHints := invoicesrpc.CreateRPCRouteHints(payReq.RouteHints)
 
-	amt := int64(0)
+	var amtSat, amtMsat int64
 	if payReq.MilliSat != nil {
-		amt = int64(payReq.MilliSat.ToSatoshis())
+		amtSat = int64(payReq.MilliSat.ToSatoshis())
+		amtMsat = int64(*payReq.MilliSat)
 	}
 
 	// Extract the payment address from the payment request, if present.
@@ -4603,7 +4604,8 @@ func (r *rpcServer) DecodePayReq(ctx context.Context,
 	return &lnrpc.PayReq{
 		Destination:     hex.EncodeToString(dest),
 		PaymentHash:     hex.EncodeToString(payReq.PaymentHash[:]),
-		NumSatoshis:     amt,
+		NumSatoshis:     amtSat,
+		NumMsat:         amtMsat,
 		Timestamp:       payReq.Timestamp.Unix(),
 		Description:     desc,
 		DescriptionHash: hex.EncodeToString(descHash[:]),

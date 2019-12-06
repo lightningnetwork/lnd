@@ -3252,6 +3252,10 @@
         "payment_addr": {
           "type": "string",
           "format": "byte"
+        },
+        "num_msat": {
+          "type": "string",
+          "format": "int64"
         }
       }
     },

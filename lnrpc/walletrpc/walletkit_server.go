@@ -300,14 +300,26 @@ func (w *WalletKit) SendOutputs(ctx context.Context,
 			PkScript: output.PkScript,
 		})
 	}
+	fee := chainfee.SatPerKWeight(req.SatPerKw)
 
 	// Now that we have the outputs mapped, we can request that the wallet
-	// attempt to create this transaction.
-	tx, err := w.cfg.Wallet.SendOutputs(
-		outputsToCreate, chainfee.SatPerKWeight(req.SatPerKw),
-	)
-	if err != nil {
-		return nil, err
+	// attempt to create this transaction. We'll respect the caller's choice
+	// of whether we should broadcast the transaction as well or not.
+	var tx *wire.MsgTx
+	if req.PreventBroadcast {
+		authoredTx, err := w.cfg.Wallet.CreateSimpleTx(
+			outputsToCreate, fee, false,
+		)
+		if err != nil {
+			return nil, err
+		}
+		tx = authoredTx.Tx
+	} else {
+		var err error
+		tx, err = w.cfg.Wallet.SendOutputs(outputsToCreate, fee)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	var b bytes.Buffer

@@ -60,6 +60,12 @@ message SendOutputsRequest {
     A slice of the outputs that should be created in the transaction produced.
     */
     repeated signrpc.TxOut outputs = 2;
+
+    /*
+    If true, then the transaction created should not be broadcast to the
+    network.
+    */
+    bool prevent_broadcast = 3;
 }
 message SendOutputsResponse {
     /**

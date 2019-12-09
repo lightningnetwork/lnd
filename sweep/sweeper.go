@@ -50,6 +50,11 @@ var (
 	// request from a client whom did not specify a fee preference.
 	ErrNoFeePreference = errors.New("no fee preference specified")
 
+	// ErrExclusiveGroupSpend is returned in case a different input of the
+	// same exclusive group was spent.
+	ErrExclusiveGroupSpend = errors.New("other member of exclusive group " +
+		"was spent")
+
 	// ErrSweeperShuttingDown is an error returned when a client attempts to
 	// make a request to the UtxoSweeper, but it is unable to handle it as
 	// it is/has already been stoppepd.
@@ -71,11 +76,16 @@ type Params struct {
 	// Force indicates whether the input should be swept regardless of
 	// whether it is economical to do so.
 	Force bool
+
+	// ExclusiveGroup is an identifier that, if set, prevents other inputs
+	// with the same identifier from being batched together.
+	ExclusiveGroup *uint64
 }
 
 // String returns a human readable interpretation of the sweep parameters.
 func (p Params) String() string {
-	return fmt.Sprintf("fee=%v, force=%v", p.Fee, p.Force)
+	return fmt.Sprintf("fee=%v, force=%v, exclusive_group=%v",
+		p.Fee, p.Force, p.ExclusiveGroup)
 }
 
 // pendingInput is created when an input reaches the main loop for the first
@@ -552,7 +562,7 @@ func (s *UtxoSweeper) collector(blockEpochs <-chan *chainntnfs.BlockEpoch) {
 				// registration, deleted from pendingInputs but
 				// the ntfn was in-flight already. Or this could
 				// be not one of our inputs.
-				_, ok := s.pendingInputs[outpoint]
+				input, ok := s.pendingInputs[outpoint]
 				if !ok {
 					continue
 				}
@@ -568,6 +578,14 @@ func (s *UtxoSweeper) collector(blockEpochs <-chan *chainntnfs.BlockEpoch) {
 					Tx:  spend.SpendingTx,
 					Err: err,
 				})
+
+				// Remove all other inputs in this exclusive
+				// group.
+				if input.params.ExclusiveGroup != nil {
+					s.removeExclusiveGroup(
+						*input.params.ExclusiveGroup,
+					)
+				}
 			}
 
 			// Now that an input of ours is spent, we can try to
@@ -639,6 +657,31 @@ func (s *UtxoSweeper) collector(blockEpochs <-chan *chainntnfs.BlockEpoch) {
 	}
 }
 
+// removeExclusiveGroup removes all inputs in the given exclusive group. This
+// function is called when one of the exclusive group inputs has been spent. The
+// other inputs won't ever be spendable and can be removed. This also prevents
+// them from being part of future sweep transactions that would fail.
+func (s *UtxoSweeper) removeExclusiveGroup(group uint64) {
+	for outpoint, input := range s.pendingInputs {
+		outpoint := outpoint
+
+		// Skip inputs that aren't exclusive.
+		if input.params.ExclusiveGroup == nil {
+			continue
+		}
+
+		// Skip inputs from other exclusive groups.
+		if *input.params.ExclusiveGroup != group {
+			continue
+		}
+
+		// Signal result channels.
+		s.signalAndRemove(&outpoint, Result{
+			Err: ErrExclusiveGroupSpend,
+		})
+	}
+}
+
 // sweepCluster tries to sweep the given input cluster.
 func (s *UtxoSweeper) sweepCluster(cluster inputCluster,
 	currentHeight int32) error {
@@ -679,7 +722,7 @@ func (s *UtxoSweeper) bucketForFeeRate(
 // sweep fee rate, which is determined by calculating the average fee rate of
 // all inputs within that cluster.
 func (s *UtxoSweeper) clusterBySweepFeeRate() []inputCluster {
-	bucketInputs := make(map[int]pendingInputs)
+	bucketInputs := make(map[int]*bucketList)
 	inputFeeRates := make(map[wire.OutPoint]chainfee.SatPerKWeight)
 
 	// First, we'll group together all inputs with similar fee rates. This
@@ -692,30 +735,37 @@ func (s *UtxoSweeper) clusterBySweepFeeRate() []inputCluster {
 		}
 		feeGroup := s.bucketForFeeRate(feeRate)
 
-		inputs, ok := bucketInputs[feeGroup]
+		// Create a bucket list for this fee rate if there isn't one
+		// yet.
+		buckets, ok := bucketInputs[feeGroup]
 		if !ok {
-			inputs = make(pendingInputs)
-			bucketInputs[feeGroup] = inputs
+			buckets = &bucketList{}
+			bucketInputs[feeGroup] = buckets
 		}
 
+		// Request the bucket list to add this input. The bucket list
+		// will take into account exclusive group constraints.
+		buckets.add(input)
+
 		input.lastFeeRate = feeRate
-		inputs[op] = input
 		inputFeeRates[op] = feeRate
 	}
 
 	// We'll then determine the sweep fee rate for each set of inputs by
 	// calculating the average fee rate of the inputs within each set.
 	inputClusters := make([]inputCluster, 0, len(bucketInputs))
-	for _, inputs := range bucketInputs {
-		var sweepFeeRate chainfee.SatPerKWeight
-		for op := range inputs {
-			sweepFeeRate += inputFeeRates[op]
+	for _, buckets := range bucketInputs {
+		for _, inputs := range buckets.buckets {
+			var sweepFeeRate chainfee.SatPerKWeight
+			for op := range inputs {
+				sweepFeeRate += inputFeeRates[op]
+			}
+			sweepFeeRate /= chainfee.SatPerKWeight(len(inputs))
+			inputClusters = append(inputClusters, inputCluster{
+				sweepFeeRate: sweepFeeRate,
+				inputs:       inputs,
+			})
 		}
-		sweepFeeRate /= chainfee.SatPerKWeight(len(inputs))
-		inputClusters = append(inputClusters, inputCluster{
-			sweepFeeRate: sweepFeeRate,
-			inputs:       inputs,
-		})
 	}
 
 	return inputClusters

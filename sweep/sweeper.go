@@ -714,7 +714,15 @@ func (s *UtxoSweeper) sweepCluster(cluster inputCluster,
 func (s *UtxoSweeper) bucketForFeeRate(
 	feeRate chainfee.SatPerKWeight) int {
 
-	return int(feeRate-s.relayFeeRate) / s.cfg.FeeRateBucketSize
+	// Create an isolated bucket for sweeps at the minimum fee rate. This is
+	// to prevent very small outputs (anchors) from becoming uneconomical if
+	// their fee rate would be averaged with higher fee rate inputs in a
+	// regular bucket.
+	if feeRate == s.relayFeeRate {
+		return 0
+	}
+
+	return 1 + int(feeRate-s.relayFeeRate)/s.cfg.FeeRateBucketSize
 }
 
 // clusterBySweepFeeRate takes the set of pending inputs within the UtxoSweeper

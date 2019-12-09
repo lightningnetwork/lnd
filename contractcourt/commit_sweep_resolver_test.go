@@ -102,8 +102,8 @@ func newMockSweeper() *mockSweeper {
 	}
 }
 
-func (s *mockSweeper) SweepInput(input input.Input,
-	feePreference sweep.FeePreference) (chan sweep.Result, error) {
+func (s *mockSweeper) SweepInput(input input.Input, params sweep.Params) (
+	chan sweep.Result, error) {
 
 	s.sweptInputs <- input
 

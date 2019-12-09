@@ -201,7 +201,7 @@ type NurseryConfig struct {
 	Store NurseryStore
 
 	// Sweep sweeps an input back to the wallet.
-	SweepInput func(input.Input, sweep.FeePreference) (chan sweep.Result, error)
+	SweepInput func(input.Input, sweep.Params) (chan sweep.Result, error)
 }
 
 // utxoNursery is a system dedicated to incubating time-locked outputs created
@@ -778,7 +778,9 @@ func (u *utxoNursery) sweepMatureOutputs(classHeight uint32,
 		// passed in with disastrous consequences.
 		local := output
 
-		resultChan, err := u.cfg.SweepInput(&local, feePref)
+		resultChan, err := u.cfg.SweepInput(
+			&local, sweep.Params{Fee: feePref},
+		)
 		if err != nil {
 			return err
 		}

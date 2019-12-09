@@ -61,6 +61,14 @@ var (
 	DefaultMaxSweepAttempts = 10
 )
 
+// Params contains the parameters that control the sweeping process.
+type Params struct {
+	// Fee is the fee preference of the client who requested the input to be
+	// swept. If a confirmation target is specified, then we'll map it into
+	// a fee rate whenever we attempt to cluster inputs for a sweep.
+	Fee FeePreference
+}
+
 // pendingInput is created when an input reaches the main loop for the first
 // time. It tracks all relevant state that is needed for sweeping.
 type pendingInput struct {
@@ -84,11 +92,8 @@ type pendingInput struct {
 	// made to sweep this tx.
 	publishAttempts int
 
-	// feePreference is the fee preference of the client who requested the
-	// input to be swept. If a confirmation target is specified, then we'll
-	// map it into a fee rate whenever we attempt to cluster inputs for a
-	// sweep.
-	feePreference FeePreference
+	// params contains the parameters that control the sweeping process.
+	params Params
 
 	// lastFeeRate is the most recent fee rate used for this input within a
 	// transaction broadcast to the network.
@@ -266,9 +271,9 @@ type Result struct {
 // sweepInputMessage structs are used in the internal channel between the
 // SweepInput call and the sweeper main loop.
 type sweepInputMessage struct {
-	input         input.Input
-	feePreference FeePreference
-	resultChan    chan Result
+	input      input.Input
+	params     Params
+	resultChan chan Result
 }
 
 // New returns a new Sweeper instance.
@@ -368,26 +373,27 @@ func (s *UtxoSweeper) Stop() error {
 // Because it is an interface and we don't know what is exactly behind it, we
 // cannot make a local copy in sweeper.
 func (s *UtxoSweeper) SweepInput(input input.Input,
-	feePreference FeePreference) (chan Result, error) {
+	params Params) (chan Result, error) {
 
 	if input == nil || input.OutPoint() == nil || input.SignDesc() == nil {
 		return nil, errors.New("nil input received")
 	}
 
 	// Ensure the client provided a sane fee preference.
-	if _, err := s.feeRateForPreference(feePreference); err != nil {
+	if _, err := s.feeRateForPreference(params.Fee); err != nil {
 		return nil, err
 	}
 
 	log.Infof("Sweep request received: out_point=%v, witness_type=%v, "+
 		"time_lock=%v, amount=%v, fee_preference=%v", input.OutPoint(),
 		input.WitnessType(), input.BlocksToMaturity(),
-		btcutil.Amount(input.SignDesc().Output.Value), feePreference)
+		btcutil.Amount(input.SignDesc().Output.Value),
+		params.Fee)
 
 	sweeperInput := &sweepInputMessage{
-		input:         input,
-		feePreference: feePreference,
-		resultChan:    make(chan Result, 1),
+		input:      input,
+		params:     params,
+		resultChan: make(chan Result, 1),
 	}
 
 	// Deliver input to main event loop.
@@ -470,7 +476,7 @@ func (s *UtxoSweeper) collector(blockEpochs <-chan *chainntnfs.BlockEpoch) {
 				listeners:        []chan Result{input.resultChan},
 				input:            input.input,
 				minPublishHeight: bestHeight,
-				feePreference:    input.feePreference,
+				params:           input.params,
 			}
 			s.pendingInputs[outpoint] = pendInput
 
@@ -653,7 +659,7 @@ func (s *UtxoSweeper) clusterBySweepFeeRate() []inputCluster {
 	// First, we'll group together all inputs with similar fee rates. This
 	// is done by determining the fee rate bucket they should belong in.
 	for op, input := range s.pendingInputs {
-		feeRate, err := s.feeRateForPreference(input.feePreference)
+		feeRate, err := s.feeRateForPreference(input.params.Fee)
 		if err != nil {
 			log.Warnf("Skipping input %v: %v", op, err)
 			continue
@@ -1072,9 +1078,9 @@ func (s *UtxoSweeper) handleBumpFeeReq(req *bumpFeeReq,
 	}
 
 	log.Debugf("Updating fee preference for %v from %v to %v", req.input,
-		pendingInput.feePreference, req.feePreference)
+		pendingInput.params.Fee, req.feePreference)
 
-	pendingInput.feePreference = req.feePreference
+	pendingInput.params.Fee = req.feePreference
 
 	// We'll reset the input's publish height to the current so that a new
 	// transaction can be created that replaces the transaction currently

@@ -43,8 +43,8 @@ type OnionProcessor interface {
 // UtxoSweeper defines the sweep functions that contract court requires.
 type UtxoSweeper interface {
 	// SweepInput sweeps inputs back into the wallet.
-	SweepInput(input input.Input,
-		feePreference sweep.FeePreference) (chan sweep.Result, error)
+	SweepInput(input input.Input, params sweep.Params) (chan sweep.Result,
+		error)
 
 	// CreateSweepTx accepts a list of inputs and signs and generates a txn
 	// that spends from them. This method also makes an accurate fee

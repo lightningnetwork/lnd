@@ -983,7 +983,7 @@ func newMockSweeper(t *testing.T) *mockSweeper {
 }
 
 func (s *mockSweeper) sweepInput(input input.Input,
-	_ sweep.FeePreference) (chan sweep.Result, error) {
+	_ sweep.Params) (chan sweep.Result, error) {
 
 	utxnLog.Debugf("mockSweeper sweepInput called for %v", *input.OutPoint())
 

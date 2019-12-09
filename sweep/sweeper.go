@@ -3,7 +3,6 @@ package sweep
 import (
 	"errors"
 	"fmt"
-	"math"
 	"math/rand"
 	"sort"
 	"sync"
@@ -246,8 +245,8 @@ type UtxoSweeperConfig struct {
 	// of 10 would result in the following fee rate buckets up to the
 	// maximum fee rate:
 	//
-	//   #1: min = 1 sat/vbyte, max = 10 sat/vbyte
-	//   #2: min = 11 sat/vbyte, max = 20 sat/vbyte...
+	//   #1: min = 1 sat/vbyte, max (exclusive) = 11 sat/vbyte
+	//   #2: min = 11 sat/vbyte, max (exclusive) = 21 sat/vbyte...
 	FeeRateBucketSize int
 }
 
@@ -640,8 +639,7 @@ func (s *UtxoSweeper) collector(blockEpochs <-chan *chainntnfs.BlockEpoch) {
 func (s *UtxoSweeper) bucketForFeeRate(
 	feeRate chainfee.SatPerKWeight) int {
 
-	minBucket := s.relayFeeRate + chainfee.SatPerKWeight(s.cfg.FeeRateBucketSize)
-	return int(math.Ceil(float64(feeRate) / float64(minBucket)))
+	return int(feeRate-s.relayFeeRate) / s.cfg.FeeRateBucketSize
 }
 
 // clusterBySweepFeeRate takes the set of pending inputs within the UtxoSweeper

@@ -70,15 +70,14 @@ type Params struct {
 }
 
 // pendingInput is created when an input reaches the main loop for the first
-// time. It tracks all relevant state that is needed for sweeping.
+// time. It wraps the input and tracks all relevant state that is needed for
+// sweeping.
 type pendingInput struct {
+	input.Input
+
 	// listeners is a list of channels over which the final outcome of the
 	// sweep needs to be broadcasted.
 	listeners []chan Result
-
-	// input is the original struct that contains the input and sign
-	// descriptor.
-	input input.Input
 
 	// ntfnRegCancel is populated with a function that cancels the chain
 	// notifier spend registration.
@@ -474,7 +473,7 @@ func (s *UtxoSweeper) collector(blockEpochs <-chan *chainntnfs.BlockEpoch) {
 			// channel will be appended to this slice.
 			pendInput = &pendingInput{
 				listeners:        []chan Result{input.resultChan},
-				input:            input.input,
+				Input:            input.input,
 				minPublishHeight: bestHeight,
 				params:           input.params,
 			}
@@ -800,9 +799,9 @@ func (s *UtxoSweeper) getInputLists(cluster inputCluster,
 
 		// Add input to the either one of the lists.
 		if input.publishAttempts == 0 {
-			newInputs = append(newInputs, input.input)
+			newInputs = append(newInputs, input)
 		} else {
-			retryInputs = append(retryInputs, input.input)
+			retryInputs = append(retryInputs, input)
 		}
 	}
 
@@ -1002,12 +1001,12 @@ func (s *UtxoSweeper) handlePendingSweepsReq(
 	for _, pendingInput := range s.pendingInputs {
 		// Only the exported fields are set, as we expect the response
 		// to only be consumed externally.
-		op := *pendingInput.input.OutPoint()
+		op := *pendingInput.OutPoint()
 		pendingInputs[op] = &PendingInput{
 			OutPoint:    op,
-			WitnessType: pendingInput.input.WitnessType(),
+			WitnessType: pendingInput.WitnessType(),
 			Amount: btcutil.Amount(
-				pendingInput.input.SignDesc().Output.Value,
+				pendingInput.SignDesc().Output.Value,
 			),
 			LastFeeRate:         pendingInput.lastFeeRate,
 			BroadcastAttempts:   pendingInput.publishAttempts,

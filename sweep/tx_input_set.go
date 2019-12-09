@@ -24,6 +24,10 @@ const (
 	// constraintsWallet is for wallet inputs that are only added to bring up the tx
 	// output value.
 	constraintsWallet
+
+	// constraintsForce is for inputs that should be swept even with a negative
+	// yield at the set fee rate.
+	constraintsForce
 )
 
 // txInputSet is an object that accumulates tx inputs and keeps running counters
@@ -58,6 +62,10 @@ type txInputSet struct {
 	// wallet contains wallet functionality required by the input set to
 	// retrieve utxos.
 	wallet Wallet
+
+	// force indicates that this set must be swept even if the total yield
+	// is negative.
+	force bool
 }
 
 // newTxInputSet constructs a new, empty input set.
@@ -138,6 +146,10 @@ func (t *txInputSet) add(input input.Input, constraints addConstraints) bool {
 			return false
 		}
 
+	// For force adds, no further constraints apply.
+	case constraintsForce:
+		t.force = true
+
 	// We are attaching a wallet input to raise the tx output value above
 	// the dust limit.
 	case constraintsWallet:
@@ -153,7 +165,8 @@ func (t *txInputSet) add(input input.Input, constraints addConstraints) bool {
 
 		// In any case, we don't want to lose money by sweeping. If we
 		// don't get more out of the tx then we put in ourselves, do not
-		// add this wallet input.
+		// add this wallet input. If there is at least one force sweep
+		// in the set, this does no longer apply.
 		//
 		// We should only add wallet inputs to get the tx output value
 		// above the dust limit, otherwise we'd only burn into fees.
@@ -163,7 +176,7 @@ func (t *txInputSet) add(input input.Input, constraints addConstraints) bool {
 		// value of the wallet input and what we get out of this
 		// transaction. To prevent attaching and locking a big utxo for
 		// very little benefit.
-		if newWalletTotal >= newOutputValue {
+		if !t.force && newWalletTotal >= newOutputValue {
 			log.Debugf("Rejecting wallet input of %v, because it "+
 				"would make a negative yielding transaction "+
 				"(%v)",
@@ -174,6 +187,8 @@ func (t *txInputSet) add(input input.Input, constraints addConstraints) bool {
 	}
 
 	// Update running values.
+	//
+	// TODO: Return new instance?
 	t.inputTotal = newInputTotal
 	t.outputValue = newOutputValue
 	t.inputs = append(t.inputs, input)
@@ -193,11 +208,17 @@ func (t *txInputSet) add(input input.Input, constraints addConstraints) bool {
 // whole.
 func (t *txInputSet) addPositiveYieldInputs(sweepableInputs []txInput) {
 	for _, input := range sweepableInputs {
+		// Apply relaxed constraints for force sweeps.
+		constraints := constraintsRegular
+		if input.parameters().Force {
+			constraints = constraintsForce
+		}
+
 		// Try to add the input to the transaction. If that doesn't
 		// succeed because it wouldn't increase the output value,
 		// return. Assuming inputs are sorted by yield, any further
 		// inputs wouldn't increase the output value either.
-		if !t.add(input, constraintsRegular) {
+		if !t.add(input, constraints) {
 			return
 		}
 	}

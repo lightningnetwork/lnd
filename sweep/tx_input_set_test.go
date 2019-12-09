@@ -77,6 +77,16 @@ func TestTxInputSetFromWallet(t *testing.T) {
 		t.Fatal("expected dust limit not yet to be reached")
 	}
 
+	// Expect that adding a negative yield input fails.
+	if set.add(createP2WKHInput(50), constraintsRegular) {
+		t.Fatal("expected negative yield input add to fail")
+	}
+
+	// Force add the negative yield input. It should succeed.
+	if !set.add(createP2WKHInput(50), constraintsForce) {
+		t.Fatal("expected forced add to succeed")
+	}
+
 	err := set.tryAddWalletInputsIfNeeded()
 	if err != nil {
 		t.Fatal(err)

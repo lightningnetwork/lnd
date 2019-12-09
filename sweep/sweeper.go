@@ -67,11 +67,15 @@ type Params struct {
 	// swept. If a confirmation target is specified, then we'll map it into
 	// a fee rate whenever we attempt to cluster inputs for a sweep.
 	Fee FeePreference
+
+	// Force indicates whether the input should be swept regardless of
+	// whether it is economical to do so.
+	Force bool
 }
 
 // String returns a human readable interpretation of the sweep parameters.
 func (p Params) String() string {
-	return fmt.Sprintf("fee=%v", p.Fee)
+	return fmt.Sprintf("fee=%v, force=%v", p.Fee, p.Force)
 }
 
 // pendingInput is created when an input reaches the main loop for the first
@@ -398,10 +402,10 @@ func (s *UtxoSweeper) SweepInput(input input.Input,
 	}
 
 	log.Infof("Sweep request received: out_point=%v, witness_type=%v, "+
-		"time_lock=%v, amount=%v, fee_preference=%v", input.OutPoint(),
-		input.WitnessType(), input.BlocksToMaturity(),
+		"time_lock=%v, amount=%v, fee_preference=%v, force=%v",
+		input.OutPoint(), input.WitnessType(), input.BlocksToMaturity(),
 		btcutil.Amount(input.SignDesc().Output.Value),
-		params.Fee)
+		params.Fee, params.Force)
 
 	sweeperInput := &sweepInputMessage{
 		input:      input,

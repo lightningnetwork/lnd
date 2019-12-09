@@ -13,6 +13,7 @@ type PendingSweep struct {
 	NextBroadcastHeight uint32   `json:"next_broadcast_height"`
 	RequestedSatPerByte uint32   `json:"requested_sat_per_byte"`
 	RequestedConfTarget uint32   `json:"requested_conf_target"`
+	Force               bool     `json:"force"`
 }
 
 // NewPendingSweepFromProto converts the walletrpc.PendingSweep proto type into
@@ -27,5 +28,6 @@ func NewPendingSweepFromProto(pendingSweep *walletrpc.PendingSweep) *PendingSwee
 		NextBroadcastHeight: pendingSweep.NextBroadcastHeight,
 		RequestedSatPerByte: pendingSweep.RequestedSatPerByte,
 		RequestedConfTarget: pendingSweep.RequestedConfTarget,
+		Force:               pendingSweep.Force,
 	}
 }

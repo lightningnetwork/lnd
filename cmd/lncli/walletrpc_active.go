@@ -4,7 +4,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"sort"
 
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
@@ -113,7 +112,13 @@ var bumpFeeCommand = cli.Command{
 	Note that this command currently doesn't perform any validation checks
 	on the fee preference being provided. For now, the responsibility of
 	ensuring that the new fee preference is sufficient is delegated to the
-	user.`,
+	user.
+
+	The force flag enables sweeping of inputs that are negatively yielding.
+	Normally it does not make sense to lose money on sweeping, unless a
+	parent transaction needs to get confirmed and there is only a small
+	output available to attach the child transaction to.
+	`,
 	Flags: []cli.Flag{
 		cli.Uint64Flag{
 			Name: "conf_target",
@@ -125,6 +130,10 @@ var bumpFeeCommand = cli.Command{
 			Usage: "a manual fee expressed in sat/byte that " +
 				"should be used when sweeping the output",
 		},
+		cli.BoolFlag{
+			Name:  "force",
+			Usage: "sweep even if the yield is negative",
+		},
 	},
 	Action: actionDecorator(bumpFee),
 }
@@ -132,7 +141,7 @@ var bumpFeeCommand = cli.Command{
 func bumpFee(ctx *cli.Context) error {
 	// Display the command's help message if we do not have the expected
 	// number of arguments/flags.
-	if ctx.NArg() != 1 || ctx.NumFlags() != 1 {
+	if ctx.NArg() != 1 {
 		return cli.ShowCommandHelp(ctx, "bumpfee")
 	}
 
@@ -142,24 +151,14 @@ func bumpFee(ctx *cli.Context) error {
 		return err
 	}
 
-	var confTarget, satPerByte uint32
-	switch {
-	case ctx.IsSet("conf_target") && ctx.IsSet("sat_per_byte"):
-		return fmt.Errorf("either conf_target or sat_per_byte should " +
-			"be set, but not both")
-	case ctx.IsSet("conf_target"):
-		confTarget = uint32(ctx.Uint64("conf_target"))
-	case ctx.IsSet("sat_per_byte"):
-		satPerByte = uint32(ctx.Uint64("sat_per_byte"))
-	}
-
 	client, cleanUp := getWalletClient(ctx)
 	defer cleanUp()
 
 	resp, err := client.BumpFee(context.Background(), &walletrpc.BumpFeeRequest{
 		Outpoint:   protoOutPoint,
-		TargetConf: confTarget,
-		SatPerByte: satPerByte,
+		TargetConf: uint32(ctx.Uint64("conf_target")),
+		SatPerByte: uint32(ctx.Uint64("sat_per_byte")),
+		Force:      ctx.Bool("force"),
 	})
 	if err != nil {
 		return err

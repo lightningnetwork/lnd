@@ -1881,8 +1881,28 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 		// cooperative channel closure. So we'll forward the request to
 		// the htlc switch which will handle the negotiation and
 		// broadcast details.
+
+		var deliveryScript lnwire.DeliveryAddress
+
+		// If a delivery address to close out to was specified, decode it.
+		if len(in.DeliveryAddress) > 0 {
+			// Decode the address provided.
+			addr, err := btcutil.DecodeAddress(
+				in.DeliveryAddress, activeNetParams.Params,
+			)
+			if err != nil {
+				return fmt.Errorf("invalid delivery address: %v", err)
+			}
+
+			// Create a script to pay out to the address provided.
+			deliveryScript, err = txscript.PayToAddrScript(addr)
+			if err != nil {
+				return err
+			}
+		}
+
 		updateChan, errChan = r.server.htlcSwitch.CloseLink(
-			chanPoint, htlcswitch.CloseRegular, feeRate,
+			chanPoint, htlcswitch.CloseRegular, feeRate, deliveryScript,
 		)
 	}
 out:

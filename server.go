@@ -824,7 +824,11 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 		closureType htlcswitch.ChannelCloseType) {
 		// TODO(conner): Properly respect the update and error channels
 		// returned by CloseLink.
-		s.htlcSwitch.CloseLink(chanPoint, closureType, 0)
+
+		// Instruct the switch to close the channel.  Provide no close out
+		// delivery script or target fee per kw because user input is not
+		// available when the remote peer closes the channel.
+		s.htlcSwitch.CloseLink(chanPoint, closureType, 0, nil)
 	}
 
 	// We will use the following channel to reliably hand off contract

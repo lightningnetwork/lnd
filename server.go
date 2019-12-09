@@ -393,7 +393,10 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 		readPool:       readPool,
 		chansToRestore: chansToRestore,
 
-		invoices: invoices.NewRegistry(chanDB, &registryConfig),
+		invoices: invoices.NewRegistry(
+			chanDB, invoices.NewInvoiceExpiryWatcher(clock.NewDefaultClock()),
+			&registryConfig,
+		),
 
 		channelNotifier: channelnotifier.New(chanDB),
 

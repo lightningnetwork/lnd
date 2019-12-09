@@ -1,6 +1,7 @@
 package invoices
 
 import (
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"io/ioutil"
@@ -51,7 +52,7 @@ var (
 	testPrivKeyBytes, _ = hex.DecodeString(
 		"e126f68f7eafcc8b74f54d269fe206be715000f94dac067d1c04a8ca3b2db734")
 
-	testPrivKey, testPubKey = btcec.PrivKeyFromBytes(
+	testPrivKey, _ = btcec.PrivKeyFromBytes(
 		btcec.S256(), testPrivKeyBytes)
 
 	testInvoiceDescription = "coffee"
@@ -75,6 +76,8 @@ var (
 	)
 
 	testPayload = &mockPayload{}
+
+	testInvoiceCreationDate = testTime
 )
 
 var (
@@ -83,16 +86,20 @@ var (
 		Terms: channeldb.ContractTerm{
 			PaymentPreimage: testInvoicePreimage,
 			Value:           testInvoiceAmt,
+			Expiry:          time.Hour,
 			Features:        testFeatures,
 		},
+		CreationDate: testInvoiceCreationDate,
 	}
 
 	testHodlInvoice = &channeldb.Invoice{
 		Terms: channeldb.ContractTerm{
 			PaymentPreimage: channeldb.UnknownPreimage,
 			Value:           testInvoiceAmt,
+			Expiry:          time.Hour,
 			Features:        testFeatures,
 		},
+		CreationDate: testInvoiceCreationDate,
 	}
 )
 
@@ -120,6 +127,7 @@ func newTestChannelDB() (*channeldb.DB, func(), error) {
 }
 
 type testContext struct {
+	cdb      *channeldb.DB
 	registry *InvoiceRegistry
 	clock    *clock.TestClock
 
@@ -136,13 +144,15 @@ func newTestContext(t *testing.T) *testContext {
 	}
 	cdb.Now = clock.Now
 
+	expiryWatcher := NewInvoiceExpiryWatcher(clock)
+
 	// Instantiate and start the invoice ctx.registry.
 	cfg := RegistryConfig{
 		FinalCltvRejectDelta: testFinalCltvRejectDelta,
 		HtlcHoldDuration:     30 * time.Second,
 		Clock:                clock,
 	}
-	registry := NewRegistry(cdb, &cfg)
+	registry := NewRegistry(cdb, expiryWatcher, &cfg)
 
 	err = registry.Start()
 	if err != nil {
@@ -151,6 +161,7 @@ func newTestContext(t *testing.T) *testContext {
 	}
 
 	ctx := testContext{
+		cdb:      cdb,
 		registry: registry,
 		clock:    clock,
 		t:        t,
@@ -172,7 +183,7 @@ func getCircuitKey(htlcID uint64) channeldb.CircuitKey {
 	}
 }
 
-func newTestInvoice(t *testing.T,
+func newTestInvoice(t *testing.T, preimage lntypes.Preimage,
 	timestamp time.Time, expiry time.Duration) *channeldb.Invoice {
 
 	if expiry == 0 {
@@ -181,7 +192,7 @@ func newTestInvoice(t *testing.T,
 
 	rawInvoice, err := zpay32.NewInvoice(
 		testNetParams,
-		testInvoicePaymentHash,
+		preimage.Hash(),
 		timestamp,
 		zpay32.Amount(testInvoiceAmount),
 		zpay32.Description(testInvoiceDescription),
@@ -199,7 +210,7 @@ func newTestInvoice(t *testing.T,
 
 	return &channeldb.Invoice{
 		Terms: channeldb.ContractTerm{
-			PaymentPreimage: testInvoicePreimage,
+			PaymentPreimage: preimage,
 			Value:           testInvoiceAmount,
 			Expiry:          expiry,
 			Features:        testFeatures,
@@ -228,4 +239,42 @@ func timeout() func() {
 	return func() {
 		close(done)
 	}
+}
+
+// invoiceExpiryTestData simply holds generated expired and pending invoices.
+type invoiceExpiryTestData struct {
+	expiredInvoices map[lntypes.Hash]*channeldb.Invoice
+	pendingInvoices map[lntypes.Hash]*channeldb.Invoice
+}
+
+// generateInvoiceExpiryTestData generates the specified number of fake expired
+// and pending invoices anchored to the passed now timestamp.
+func generateInvoiceExpiryTestData(
+	t *testing.T, now time.Time,
+	offset, numExpired, numPending int) invoiceExpiryTestData {
+
+	var testData invoiceExpiryTestData
+
+	testData.expiredInvoices = make(map[lntypes.Hash]*channeldb.Invoice)
+	testData.pendingInvoices = make(map[lntypes.Hash]*channeldb.Invoice)
+
+	expiredCreationDate := now.Add(-24 * time.Hour)
+
+	for i := 1; i <= numExpired; i++ {
+		var preimage lntypes.Preimage
+		binary.BigEndian.PutUint32(preimage[:4], uint32(offset+i))
+		expiry := time.Duration((i+offset)%24) * time.Hour
+		invoice := newTestInvoice(t, preimage, expiredCreationDate, expiry)
+		testData.expiredInvoices[preimage.Hash()] = invoice
+	}
+
+	for i := 1; i <= numPending; i++ {
+		var preimage lntypes.Preimage
+		binary.BigEndian.PutUint32(preimage[4:], uint32(offset+i))
+		expiry := time.Duration((i+offset)%24) * time.Hour
+		invoice := newTestInvoice(t, preimage, now, expiry)
+		testData.pendingInvoices[preimage.Hash()] = invoice
+	}
+
+	return testData
 }

@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/clock"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
 )
@@ -301,8 +303,9 @@ func TestSettleHoldInvoice(t *testing.T) {
 	// Instantiate and start the invoice ctx.registry.
 	cfg := RegistryConfig{
 		FinalCltvRejectDelta: testFinalCltvRejectDelta,
+		Clock:                clock.NewTestClock(testTime),
 	}
-	registry := NewRegistry(cdb, &cfg)
+	registry := NewRegistry(cdb, NewInvoiceExpiryWatcher(cfg.Clock), &cfg)
 
 	err = registry.Start()
 	if err != nil {
@@ -461,7 +464,7 @@ func TestSettleHoldInvoice(t *testing.T) {
 // TestCancelHoldInvoice tests canceling of a hold invoice and related
 // notifications.
 func TestCancelHoldInvoice(t *testing.T) {
-	defer timeout()
+	defer timeout()()
 
 	cdb, cleanup, err := newTestChannelDB()
 	if err != nil {
@@ -472,8 +475,9 @@ func TestCancelHoldInvoice(t *testing.T) {
 	// Instantiate and start the invoice ctx.registry.
 	cfg := RegistryConfig{
 		FinalCltvRejectDelta: testFinalCltvRejectDelta,
+		Clock:                clock.NewTestClock(testTime),
 	}
-	registry := NewRegistry(cdb, &cfg)
+	registry := NewRegistry(cdb, NewInvoiceExpiryWatcher(cfg.Clock), &cfg)
 
 	err = registry.Start()
 	if err != nil {
@@ -557,7 +561,7 @@ func TestUnknownInvoice(t *testing.T) {
 
 // TestSettleMpp tests settling of an invoice with multiple partial payments.
 func TestSettleMpp(t *testing.T) {
-	defer timeout()
+	defer timeout()()
 
 	ctx := newTestContext(t)
 	defer ctx.cleanup()
@@ -634,5 +638,107 @@ func TestSettleMpp(t *testing.T) {
 	if inv.AmtPaid != testInvoice.Terms.Value {
 		t.Fatalf("amount incorrect, expected %v but got %v",
 			testInvoice.Terms.Value, inv.AmtPaid)
+	}
+}
+
+// Tests that invoices are canceled after expiration.
+func TestInvoiceExpiryWithRegistry(t *testing.T) {
+	t.Parallel()
+
+	cdb, cleanup, err := newTestChannelDB()
+	defer cleanup()
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	testClock := clock.NewTestClock(testTime)
+
+	cfg := RegistryConfig{
+		FinalCltvRejectDelta: testFinalCltvRejectDelta,
+		Clock:                testClock,
+	}
+
+	expiryWatcher := NewInvoiceExpiryWatcher(cfg.Clock)
+	registry := NewRegistry(cdb, expiryWatcher, &cfg)
+
+	// First prefill the Channel DB with some pre-existing invoices,
+	// half of them still pending, half of them expired.
+	const numExpired = 5
+	const numPending = 5
+	existingInvoices := generateInvoiceExpiryTestData(
+		t, testTime, 0, numExpired, numPending,
+	)
+
+	var expectedCancellations []lntypes.Hash
+
+	for paymentHash, expiredInvoice := range existingInvoices.expiredInvoices {
+		if _, err := cdb.AddInvoice(expiredInvoice, paymentHash); err != nil {
+			t.Fatalf("cannot add invoice to channel db: %v", err)
+		}
+		expectedCancellations = append(expectedCancellations, paymentHash)
+	}
+
+	for paymentHash, pendingInvoice := range existingInvoices.pendingInvoices {
+		if _, err := cdb.AddInvoice(pendingInvoice, paymentHash); err != nil {
+			t.Fatalf("cannot add invoice to channel db: %v", err)
+		}
+	}
+
+	if err = registry.Start(); err != nil {
+		t.Fatalf("cannot start registry: %v", err)
+	}
+
+	// Now generate pending and invoices and add them to the registry while
+	// it is up and running. We'll manipulate the clock to let them expire.
+	newInvoices := generateInvoiceExpiryTestData(
+		t, testTime, numExpired+numPending, 0, numPending,
+	)
+
+	var invoicesThatWillCancel []lntypes.Hash
+	for paymentHash, pendingInvoice := range newInvoices.pendingInvoices {
+		_, err := registry.AddInvoice(pendingInvoice, paymentHash)
+		invoicesThatWillCancel = append(invoicesThatWillCancel, paymentHash)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Check that they are really not canceled until before the clock is
+	// advanced.
+	for i := range invoicesThatWillCancel {
+		invoice, err := registry.LookupInvoice(invoicesThatWillCancel[i])
+		if err != nil {
+			t.Fatalf("cannot find invoice: %v", err)
+		}
+
+		if invoice.State == channeldb.ContractCanceled {
+			t.Fatalf("expected pending invoice, got canceled")
+		}
+	}
+
+	// Fwd time 1 day.
+	testClock.SetTime(testTime.Add(24 * time.Hour))
+
+	// Give some time to the watcher to cancel everything.
+	time.Sleep(testTimeout)
+	registry.Stop()
+
+	// Create the expected cancellation set before the final check.
+	expectedCancellations = append(
+		expectedCancellations, invoicesThatWillCancel...,
+	)
+
+	// Retrospectively check that all invoices that were expected to be canceled
+	// are indeed canceled.
+	for i := range expectedCancellations {
+		invoice, err := registry.LookupInvoice(expectedCancellations[i])
+		if err != nil {
+			t.Fatalf("cannot find invoice: %v", err)
+		}
+
+		if invoice.State != channeldb.ContractCanceled {
+			t.Fatalf("expected canceled invoice, got: %v", invoice.State)
+		}
 	}
 }

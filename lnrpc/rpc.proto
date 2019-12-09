@@ -1557,6 +1557,14 @@ message CloseChannelRequest {
 
     /// A manual fee rate set in sat/byte that should be used when crafting the closure transaction.
     int64 sat_per_byte = 4;
+
+    /*
+    An optional address to send funds to in the case of a cooperative close.
+    If the channel was opened with an upfront shutdown script and this field
+    is set, the request to close will fail because the channel must pay out
+    to the upfront shutdown addresss.
+    */
+    string delivery_address = 5 [json_name = "delivery_address"];
 }
 
 message CloseStatusUpdate {

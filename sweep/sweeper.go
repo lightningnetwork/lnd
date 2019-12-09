@@ -638,12 +638,10 @@ func (s *UtxoSweeper) collector(blockEpochs <-chan *chainntnfs.BlockEpoch) {
 // bucketForFeeReate determines the proper bucket for a fee rate. This is done
 // in order to batch inputs with similar fee rates together.
 func (s *UtxoSweeper) bucketForFeeRate(
-	feeRate chainfee.SatPerKWeight) chainfee.SatPerKWeight {
+	feeRate chainfee.SatPerKWeight) int {
 
 	minBucket := s.relayFeeRate + chainfee.SatPerKWeight(s.cfg.FeeRateBucketSize)
-	return chainfee.SatPerKWeight(
-		math.Ceil(float64(feeRate) / float64(minBucket)),
-	)
+	return int(math.Ceil(float64(feeRate) / float64(minBucket)))
 }
 
 // clusterBySweepFeeRate takes the set of pending inputs within the UtxoSweeper
@@ -651,7 +649,7 @@ func (s *UtxoSweeper) bucketForFeeRate(
 // sweep fee rate, which is determined by calculating the average fee rate of
 // all inputs within that cluster.
 func (s *UtxoSweeper) clusterBySweepFeeRate() []inputCluster {
-	bucketInputs := make(map[chainfee.SatPerKWeight]pendingInputs)
+	bucketInputs := make(map[int]pendingInputs)
 	inputFeeRates := make(map[wire.OutPoint]chainfee.SatPerKWeight)
 
 	// First, we'll group together all inputs with similar fee rates. This
@@ -662,12 +660,12 @@ func (s *UtxoSweeper) clusterBySweepFeeRate() []inputCluster {
 			log.Warnf("Skipping input %v: %v", op, err)
 			continue
 		}
-		bucket := s.bucketForFeeRate(feeRate)
+		feeGroup := s.bucketForFeeRate(feeRate)
 
-		inputs, ok := bucketInputs[bucket]
+		inputs, ok := bucketInputs[feeGroup]
 		if !ok {
 			inputs = make(pendingInputs)
-			bucketInputs[bucket] = inputs
+			bucketInputs[feeGroup] = inputs
 		}
 
 		input.lastFeeRate = feeRate

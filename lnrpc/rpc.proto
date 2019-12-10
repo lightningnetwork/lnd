@@ -2396,6 +2396,9 @@ message InvoiceHTLC {
 
     /// Current state the htlc is in.
     InvoiceHTLCState state = 8 [json_name = "state"];
+
+    /// Custom tlv records.
+    map<uint64, bytes> custom_records = 9 [json_name = "custom_records"];
 }
 
 message AddInvoiceResponse {

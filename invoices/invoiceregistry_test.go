@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
@@ -668,4 +669,8 @@ type mockPayload struct {
 
 func (p *mockPayload) MultiPath() *record.MPP {
 	return p.mpp
+}
+
+func (p *mockPayload) CustomRecords() hop.CustomRecordSet {
+	return make(hop.CustomRecordSet)
 }

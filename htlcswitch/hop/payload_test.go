@@ -11,10 +11,11 @@ import (
 )
 
 type decodePayloadTest struct {
-	name          string
-	payload       []byte
-	expErr        error
-	shouldHaveMPP bool
+	name             string
+	payload          []byte
+	expErr           error
+	expCustomRecords map[uint64][]byte
+	shouldHaveMPP    bool
 }
 
 var decodePayloadTests = []decodePayloadTest{
@@ -133,7 +134,10 @@ var decodePayloadTests = []decodePayloadTest{
 	{
 		name: "required type in custom range",
 		payload: []byte{0x02, 0x00, 0x04, 0x00,
-			0xfe, 0x00, 0x01, 0x00, 0x00, 0x00,
+			0xfe, 0x00, 0x01, 0x00, 0x00, 0x02, 0x10, 0x11,
+		},
+		expCustomRecords: map[uint64][]byte{
+			65536: {0x10, 0x11},
 		},
 	},
 	{
@@ -236,5 +240,15 @@ func testDecodeHopPayloadValidation(t *testing.T, test decodePayloadTest) {
 		}
 	} else if p.MPP != nil {
 		t.Fatalf("unexpected MPP payload")
+	}
+
+	// Convert expected nil map to empty map, because we always expect an
+	// initiated map from the payload.
+	expCustomRecords := make(hop.CustomRecordSet)
+	if test.expCustomRecords != nil {
+		expCustomRecords = test.expCustomRecords
+	}
+	if !reflect.DeepEqual(expCustomRecords, p.CustomRecords()) {
+		t.Fatalf("invalid custom records")
 	}
 }

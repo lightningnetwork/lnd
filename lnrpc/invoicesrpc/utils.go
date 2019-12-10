@@ -75,13 +75,14 @@ func CreateRPCInvoice(invoice *channeldb.Invoice,
 		}
 
 		rpcHtlc := lnrpc.InvoiceHTLC{
-			ChanId:       key.ChanID.ToUint64(),
-			HtlcIndex:    key.HtlcID,
-			AcceptHeight: int32(htlc.AcceptHeight),
-			AcceptTime:   htlc.AcceptTime.Unix(),
-			ExpiryHeight: int32(htlc.Expiry),
-			AmtMsat:      uint64(htlc.Amt),
-			State:        state,
+			ChanId:        key.ChanID.ToUint64(),
+			HtlcIndex:     key.HtlcID,
+			AcceptHeight:  int32(htlc.AcceptHeight),
+			AcceptTime:    htlc.AcceptTime.Unix(),
+			ExpiryHeight:  int32(htlc.Expiry),
+			AmtMsat:       uint64(htlc.Amt),
+			State:         state,
+			CustomRecords: htlc.CustomRecords,
 		}
 
 		// Only report resolved times if htlc is resolved.

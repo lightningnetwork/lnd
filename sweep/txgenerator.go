@@ -38,7 +38,7 @@ type inputSet []input.Input
 // dust limit are returned.
 func generateInputPartitionings(sweepableInputs []txInput,
 	relayFeePerKW, feePerKW chainfee.SatPerKWeight,
-	maxInputsPerTx int) ([]inputSet, error) {
+	maxInputsPerTx int, wallet Wallet) ([]inputSet, error) {
 
 	// Sort input by yield. We will start constructing input sets starting
 	// with the highest yield inputs. This is to prevent the construction
@@ -78,7 +78,7 @@ func generateInputPartitionings(sweepableInputs []txInput,
 		// condition that the tx will be published with the specified
 		// fee rate.
 		txInputs := newTxInputSet(
-			feePerKW, relayFeePerKW, maxInputsPerTx,
+			wallet, feePerKW, relayFeePerKW, maxInputsPerTx,
 		)
 
 		// From the set of sweepable inputs, keep adding inputs to the
@@ -92,18 +92,27 @@ func generateInputPartitionings(sweepableInputs []txInput,
 			return sets, nil
 		}
 
+		// Check the current output value and add wallet utxos if
+		// needed to push the output value to the lower limit.
+		if err := txInputs.tryAddWalletInputsIfNeeded(); err != nil {
+			return nil, err
+		}
+
 		// If the output value of this block of inputs does not reach
 		// the dust limit, stop sweeping. Because of the sorting,
 		// continuing with the remaining inputs will only lead to sets
-		// with a even lower output value.
+		// with an even lower output value.
 		if !txInputs.dustLimitReached() {
 			log.Debugf("Set value %v below dust limit of %v",
 				txInputs.outputValue, txInputs.dustLimit)
 			return sets, nil
 		}
 
-		log.Infof("Candidate sweep set of size=%v, has yield=%v",
-			inputCount, txInputs.outputValue)
+		log.Infof("Candidate sweep set of size=%v (+%v wallet inputs), "+
+			"has yield=%v, weight=%v",
+			inputCount, len(txInputs.inputs)-inputCount,
+			txInputs.outputValue-txInputs.walletInputTotal,
+			txInputs.weightEstimate.Weight())
 
 		sets = append(sets, txInputs.inputs)
 		sweepableInputs = sweepableInputs[inputCount:]
@@ -119,11 +128,11 @@ func createSweepTx(inputs []input.Input, outputPkScript []byte,
 
 	inputs, txWeight := getWeightEstimate(inputs)
 
-	log.Infof("Creating sweep transaction for %v inputs (%s) "+
-		"using %v sat/kw", len(inputs), inputTypeSummary(inputs),
-		int64(feePerKw))
-
 	txFee := feePerKw.FeeForWeight(txWeight)
+
+	log.Infof("Creating sweep transaction for %v inputs (%s) "+
+		"using %v sat/kw, tx_fee=%v", len(inputs),
+		inputTypeSummary(inputs), int64(feePerKw), txFee)
 
 	// Sum up the total value contained in the inputs.
 	var totalSum btcutil.Amount

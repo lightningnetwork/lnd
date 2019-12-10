@@ -25,6 +25,8 @@ type mockBackend struct {
 	unconfirmedSpendInputs map[wire.OutPoint]struct{}
 
 	publishChan chan wire.MsgTx
+
+	walletUtxos []*lnwallet.Utxo
 }
 
 func newMockBackend(t *testing.T, notifier *MockNotifier) *mockBackend {
@@ -82,6 +84,16 @@ func (b *mockBackend) PublishTransaction(tx *wire.MsgTx) error {
 		b.t.Fatalf("unexpected tx published")
 	}
 	return err
+}
+
+func (b *mockBackend) ListUnspentWitness(minconfirms, maxconfirms int32) (
+	[]*lnwallet.Utxo, error) {
+
+	return b.walletUtxos, nil
+}
+
+func (b *mockBackend) WithCoinSelectLock(f func() error) error {
+	return f()
 }
 
 func (b *mockBackend) deleteUnconfirmed(txHash chainhash.Hash) {

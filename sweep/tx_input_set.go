@@ -1,9 +1,15 @@
 package sweep
 
 import (
+	"fmt"
+	"math"
+
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcwallet/wallet/txrules"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
 
@@ -32,11 +38,18 @@ type txInputSet struct {
 	// maxInputs is the maximum number of inputs that will be accepted in
 	// the set.
 	maxInputs int
+
+	// walletInputTotal is the total value of inputs coming from the wallet.
+	walletInputTotal btcutil.Amount
+
+	// wallet contains wallet functionality required by the input set to
+	// retrieve utxos.
+	wallet Wallet
 }
 
 // newTxInputSet constructs a new, empty input set.
-func newTxInputSet(feePerKW, relayFee chainfee.SatPerKWeight,
-	maxInputs int) *txInputSet {
+func newTxInputSet(wallet Wallet, feePerKW,
+	relayFee chainfee.SatPerKWeight, maxInputs int) *txInputSet {
 
 	dustLimit := txrules.GetDustThreshold(
 		input.P2WPKHSize,
@@ -47,6 +60,7 @@ func newTxInputSet(feePerKW, relayFee chainfee.SatPerKWeight,
 		feePerKW:  feePerKW,
 		dustLimit: dustLimit,
 		maxInputs: maxInputs,
+		wallet:    wallet,
 	}
 
 	// Add the sweep tx output to the weight estimate.
@@ -64,9 +78,10 @@ func (t *txInputSet) dustLimitReached() bool {
 // add adds a new input to the set. It returns a bool indicating whether the
 // input was added to the set. An input is rejected if it decreases the tx
 // output value after paying fees.
-func (t *txInputSet) add(input input.Input) bool {
-	// Stop if max inputs is reached.
-	if len(t.inputs) == t.maxInputs {
+func (t *txInputSet) add(input input.Input, fromWallet bool) bool {
+	// Stop if max inputs is reached. Do not count additional wallet inputs,
+	// because we don't know in advance how many we may need.
+	if !fromWallet && len(t.inputs) >= t.maxInputs {
 		return false
 	}
 
@@ -100,6 +115,39 @@ func (t *txInputSet) add(input input.Input) bool {
 		return false
 	}
 
+	// If this input comes from the wallet, verify that we still gain
+	// something with this transaction.
+	if fromWallet {
+		// Calculate the total value that we spend in this tx from the
+		// wallet if we'd add this wallet input.
+		newWalletTotal := t.walletInputTotal + value
+
+		// In any case, we don't want to lose money by sweeping. If we
+		// don't get more out of the tx then we put in ourselves, do not
+		// add this wallet input.
+		//
+		// We should only add wallet inputs to get the tx output value
+		// above the dust limit, otherwise we'd only burn into fees.
+		// This is guarded by tryAddWalletInputsIfNeeded.
+		//
+		// TODO(joostjager): Possibly require a max ratio between the
+		// value of the wallet input and what we get out of this
+		// transaction. To prevent attaching and locking a big utxo for
+		// very little benefit.
+		if newWalletTotal >= newOutputValue {
+			log.Debugf("Rejecting wallet input of %v, because it "+
+				"would make a negative yielding transaction "+
+				"(%v)",
+				value, newOutputValue-newWalletTotal)
+
+			return false
+		}
+
+		// We've decided to add the wallet input. Increment the total
+		// wallet funds that go into this tx.
+		t.walletInputTotal = newWalletTotal
+	}
+
 	// Update running values.
 	t.inputTotal = newInputTotal
 	t.outputValue = newOutputValue
@@ -123,10 +171,78 @@ func (t *txInputSet) addPositiveYieldInputs(sweepableInputs []txInput) {
 		// succeed because it wouldn't increase the output value,
 		// return. Assuming inputs are sorted by yield, any further
 		// inputs wouldn't increase the output value either.
-		if !t.add(input) {
+		if !t.add(input, false) {
 			return
 		}
 	}
 
 	// We managed to add all inputs to the set.
+}
+
+// tryAddWalletInputsIfNeeded retrieves utxos from the wallet and tries adding as
+// many as required to bring the tx output value above the given minimum.
+func (t *txInputSet) tryAddWalletInputsIfNeeded() error {
+	// If we've already reached the dust limit, no action is needed.
+	if t.dustLimitReached() {
+		return nil
+	}
+
+	// Retrieve wallet utxos. Only consider confirmed utxos to prevent
+	// problems around RBF rules for unconfirmed inputs.
+	utxos, err := t.wallet.ListUnspentWitness(1, math.MaxInt32)
+	if err != nil {
+		return err
+	}
+
+	for _, utxo := range utxos {
+		input, err := createWalletTxInput(utxo)
+		if err != nil {
+			return err
+		}
+
+		// If the wallet input isn't positively-yielding at this fee
+		// rate, skip it.
+		if !t.add(input, true) {
+			continue
+		}
+
+		// Return if we've reached the minimum output amount.
+		if t.dustLimitReached() {
+			return nil
+		}
+	}
+
+	// We were not able to reach the minimum output amount.
+	return nil
+}
+
+// createWalletTxInput converts a wallet utxo into an object that can be added
+// to the other inputs to sweep.
+func createWalletTxInput(utxo *lnwallet.Utxo) (input.Input, error) {
+	var witnessType input.WitnessType
+	switch utxo.AddressType {
+	case lnwallet.WitnessPubKey:
+		witnessType = input.WitnessKeyHash
+	case lnwallet.NestedWitnessPubKey:
+		witnessType = input.NestedWitnessKeyHash
+	default:
+		return nil, fmt.Errorf("unknown address type %v",
+			utxo.AddressType)
+	}
+
+	signDesc := &input.SignDescriptor{
+		Output: &wire.TxOut{
+			PkScript: utxo.PkScript,
+			Value:    int64(utxo.Value),
+		},
+		HashType: txscript.SigHashAll,
+	}
+
+	// A height hint doesn't need to be set, because we don't monitor these
+	// inputs for spend.
+	heightHint := uint32(0)
+
+	return input.NewBaseInput(
+		&utxo.OutPoint, witnessType, signDesc, heightHint,
+	), nil
 }

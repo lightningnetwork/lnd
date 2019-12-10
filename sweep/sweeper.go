@@ -632,21 +632,27 @@ func (s *UtxoSweeper) collector(blockEpochs <-chan *chainntnfs.BlockEpoch) {
 func (s *UtxoSweeper) sweepCluster(cluster inputCluster,
 	currentHeight int32) error {
 
-	// Examine pending inputs and try to construct lists of inputs.
-	inputLists, err := s.getInputLists(cluster, currentHeight)
-	if err != nil {
-		return fmt.Errorf("unable to examine pending inputs: %v", err)
-	}
-
-	// Sweep selected inputs.
-	for _, inputs := range inputLists {
-		err := s.sweep(inputs, cluster.sweepFeeRate, currentHeight)
+	// Execute the sweep within a coin select lock. Otherwise the coins that
+	// we are going to spend may be selected for other transactions like
+	// funding of a channel.
+	return s.cfg.Wallet.WithCoinSelectLock(func() error {
+		// Examine pending inputs and try to construct
+		// lists of inputs.
+		inputLists, err := s.getInputLists(cluster, currentHeight)
 		if err != nil {
-			return fmt.Errorf("unable to sweep inputs: %v", err)
+			return fmt.Errorf("unable to examine pending inputs: %v", err)
 		}
-	}
 
-	return nil
+		// Sweep selected inputs.
+		for _, inputs := range inputLists {
+			err := s.sweep(inputs, cluster.sweepFeeRate, currentHeight)
+			if err != nil {
+				return fmt.Errorf("unable to sweep inputs: %v", err)
+			}
+		}
+
+		return nil
+	})
 }
 
 // bucketForFeeReate determines the proper bucket for a fee rate. This is done
@@ -718,6 +724,10 @@ func (s *UtxoSweeper) scheduleSweep(currentHeight int32) error {
 	startTimer := false
 	for _, cluster := range s.clusterBySweepFeeRate() {
 		// Examine pending inputs and try to construct lists of inputs.
+		// We don't need to obtain the coin selection lock, because we
+		// just need an indication as to whether we can sweep. More
+		// inputs may be added until we publish the transaction and
+		// coins that we select now may be used in other transactions.
 		inputLists, err := s.getInputLists(cluster, currentHeight)
 		if err != nil {
 			return fmt.Errorf("get input lists: %v", err)
@@ -823,6 +833,7 @@ func (s *UtxoSweeper) getInputLists(cluster inputCluster,
 		allSets, err = generateInputPartitionings(
 			append(retryInputs, newInputs...), s.relayFeeRate,
 			cluster.sweepFeeRate, s.cfg.MaxInputsPerTx,
+			s.cfg.Wallet,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("input partitionings: %v", err)
@@ -832,7 +843,7 @@ func (s *UtxoSweeper) getInputLists(cluster inputCluster,
 	// Create sets for just the new inputs.
 	newSets, err := generateInputPartitionings(
 		newInputs, s.relayFeeRate, cluster.sweepFeeRate,
-		s.cfg.MaxInputsPerTx,
+		s.cfg.MaxInputsPerTx, s.cfg.Wallet,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("input partitionings: %v", err)
@@ -908,7 +919,9 @@ func (s *UtxoSweeper) sweep(inputs inputSet, feeRate chainfee.SatPerKWeight,
 		if !ok {
 			// It can be that the input has been removed because it
 			// exceed the maximum number of attempts in a previous
-			// input set.
+			// input set. It could also be that this input is an
+			// additional wallet input that was attached. In that
+			// case there also isn't a pending input to update.
 			continue
 		}
 

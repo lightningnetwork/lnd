@@ -21,6 +21,13 @@ var (
 	DefaultMaxInputsPerTx = 100
 )
 
+// txInput is an interface that provides the input data required for tx
+// generation.
+type txInput interface {
+	input.Input
+	parameters() Params
+}
+
 // inputSet is a set of inputs that can be used as the basis to generate a tx
 // on.
 type inputSet []input.Input
@@ -30,7 +37,7 @@ type inputSet []input.Input
 // contains up to the configured maximum number of inputs. Negative yield
 // inputs are skipped. No input sets with a total value after fees below the
 // dust limit are returned.
-func generateInputPartitionings(sweepableInputs []input.Input,
+func generateInputPartitionings(sweepableInputs []txInput,
 	relayFeePerKW, feePerKW chainfee.SatPerKWeight,
 	maxInputsPerTx int) ([]inputSet, error) {
 
@@ -75,15 +82,21 @@ func generateInputPartitionings(sweepableInputs []input.Input,
 	// Select blocks of inputs up to the configured maximum number.
 	var sets []inputSet
 	for len(sweepableInputs) > 0 {
-		// Get the maximum number of inputs from sweepableInputs that
-		// we can use to create a positive yielding set from.
-		count, outputValue := getPositiveYieldInputs(
-			sweepableInputs, maxInputsPerTx, feePerKW,
+		// Start building a set of positive-yield tx inputs under the
+		// condition that the tx will be published with the specified
+		// fee rate.
+		txInputs := newTxInputSet(feePerKW)
+
+		// From the set of sweepable inputs, keep adding inputs to the
+		// input set until the tx output value no longer goes up or the
+		// maximum number of inputs is reached.
+		addPositiveYieldInputs(
+			txInputs, sweepableInputs, maxInputsPerTx,
 		)
 
-		// If there are no positive yield inputs left, we can stop
-		// here.
-		if count == 0 {
+		// If there are no positive yield inputs, we can stop here.
+		inputCount := len(txInputs.inputs)
+		if inputCount == 0 {
 			return sets, nil
 		}
 
@@ -91,80 +104,52 @@ func generateInputPartitionings(sweepableInputs []input.Input,
 		// the dust limit, stop sweeping. Because of the sorting,
 		// continuing with the remaining inputs will only lead to sets
 		// with a even lower output value.
-		if outputValue < dustLimit {
+		if txInputs.outputValue < dustLimit {
 			log.Debugf("Set value %v below dust limit of %v",
-				outputValue, dustLimit)
+				txInputs.outputValue, dustLimit)
 			return sets, nil
 		}
 
 		log.Infof("Candidate sweep set of size=%v, has yield=%v",
-			count, outputValue)
+			inputCount, txInputs.outputValue)
 
-		sets = append(sets, sweepableInputs[:count])
-		sweepableInputs = sweepableInputs[count:]
+		sweepSet := make([]input.Input, len(txInputs.inputs))
+		copy(sweepSet, txInputs.inputs)
+		sets = append(sets, sweepSet)
+
+		sweepableInputs = sweepableInputs[inputCount:]
 	}
 
 	return sets, nil
 }
 
-// getPositiveYieldInputs returns the maximum of a number n for which holds
-// that the inputs [0,n) of sweepableInputs have a positive yield.
-// Additionally, the total values of these inputs minus the fee is returned.
+// addPositiveYieldInputs adds sweepableInputs that have a positive yield to the
+// input set. This function assumes that the list of inputs is sorted descending
+// by yield.
 //
 // TODO(roasbeef): Consider including some negative yield inputs too to clean
 // up the utxo set even if it costs us some fees up front.  In the spirit of
 // minimizing any negative externalities we cause for the Bitcoin system as a
 // whole.
-func getPositiveYieldInputs(sweepableInputs []input.Input, maxInputs int,
-	feePerKW chainfee.SatPerKWeight) (int, btcutil.Amount) {
+func addPositiveYieldInputs(inputSet *txInputSet, sweepableInputs []txInput,
+	maxInputs int) {
 
-	var weightEstimate input.TxWeightEstimator
-
-	// Add the sweep tx output to the weight estimate.
-	weightEstimate.AddP2WKHOutput()
-
-	var total, outputValue btcutil.Amount
 	for idx, input := range sweepableInputs {
-		// Can ignore error, because it has already been checked when
-		// calculating the yields.
-		size, isNestedP2SH, _ := input.WitnessType().SizeUpperBound()
-
-		// Keep a running weight estimate of the input set.
-		if isNestedP2SH {
-			weightEstimate.AddNestedP2WSHInput(size)
-		} else {
-			weightEstimate.AddWitnessInput(size)
+		// Try to add the input to the transaction. If that doesn't
+		// succeed because it wouldn't increase the output value,
+		// return. Assuming inputs are sorted by yield, any further
+		// inputs wouldn't increase the output value either.
+		if !inputSet.add(input) {
+			return
 		}
-
-		newTotal := total + btcutil.Amount(input.SignDesc().Output.Value)
-
-		weight := weightEstimate.Weight()
-		fee := feePerKW.FeeForWeight(int64(weight))
-
-		// Calculate the output value if the current input would be
-		// added to the set.
-		newOutputValue := newTotal - fee
-
-		// If adding this input makes the total output value of the set
-		// decrease, this is a negative yield input. It shouldn't be
-		// added to the set. We return the current index as the number
-		// of inputs, so the current input is being excluded.
-		if newOutputValue <= outputValue {
-			return idx, outputValue
-		}
-
-		// Update running values.
-		total = newTotal
-		outputValue = newOutputValue
 
 		// Stop if max inputs is reached.
 		if idx == maxInputs-1 {
-			return maxInputs, outputValue
+			return
 		}
 	}
 
-	// We could add all inputs to the set, so return them all.
-	return len(sweepableInputs), outputValue
+	// We managed to add all inputs to the set.
 }
 
 // createSweepTx builds a signed tx spending the inputs to a the output script.

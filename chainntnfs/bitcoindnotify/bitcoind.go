@@ -263,7 +263,7 @@ out:
 					}
 
 					chainntnfs.Log.Infof("Historical "+
-						"spend dispatch finished"+
+						"spend dispatch finished "+
 						"for request %v (start=%v "+
 						"end=%v) with details: %v",
 						msg.SpendRequest,

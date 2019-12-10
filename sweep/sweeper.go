@@ -99,6 +99,13 @@ type pendingInput struct {
 	lastFeeRate chainfee.SatPerKWeight
 }
 
+// parameters returns the sweep parameters for this input.
+//
+// NOTE: Part of the txInput interface.
+func (p *pendingInput) parameters() Params {
+	return p.params
+}
+
 // pendingInputs is a type alias for a set of pending inputs.
 type pendingInputs = map[wire.OutPoint]*pendingInput
 
@@ -789,7 +796,7 @@ func (s *UtxoSweeper) getInputLists(cluster inputCluster,
 	// contain inputs that failed before. Therefore we also add sets
 	// consisting of only new inputs to the list, to make sure that new
 	// inputs are given a good, isolated chance of being published.
-	var newInputs, retryInputs []input.Input
+	var newInputs, retryInputs []txInput
 	for _, input := range cluster.inputs {
 		// Skip inputs that have a minimum publish height that is not
 		// yet reached.

@@ -2122,6 +2122,37 @@ func (p *peer) fetchActiveChanCloser(chanID lnwire.ChannelID) (*channelCloser, e
 	return chanCloser, nil
 }
 
+// chooseDeliveryScript takes two optionally set shutdown scripts and returns
+// a suitable script to close out to. This may be nil if neither script is
+// set. If both scripts are set, this function will error if they do not match.
+func chooseDeliveryScript(upfront,
+	requested lnwire.DeliveryAddress) (lnwire.DeliveryAddress, error) {
+
+	// If no upfront upfront shutdown script was provided, return the user
+	// requested address (which may be nil).
+	if len(upfront) == 0 {
+		return requested, nil
+	}
+
+	// If an upfront shutdown script was provided, and the user did not request
+	// a custom shutdown script, return the upfront address.
+	if len(requested) == 0 {
+		return upfront, nil
+	}
+
+	// If both an upfront shutdown script and a custom close script were
+	// provided, error if the user provided shutdown script does not match
+	// the upfront shutdown script (because closing out to a different script
+	// would violate upfront shutdown).
+	if !bytes.Equal(upfront, requested) {
+		return nil, errUpfrontShutdownScriptMismatch
+	}
+
+	// The user requested script matches the upfront shutdown script, so we
+	// can return it without error.
+	return upfront, nil
+}
+
 // handleLocalCloseReq kicks-off the workflow to execute a cooperative or
 // forced unilateral closure of the channel initiated by a local subsystem.
 func (p *peer) handleLocalCloseReq(req *htlcswitch.ChanClose) {
@@ -2144,13 +2175,26 @@ func (p *peer) handleLocalCloseReq(req *htlcswitch.ChanClose) {
 	// out this channel on-chain, so we execute the cooperative channel
 	// closure workflow.
 	case htlcswitch.CloseRegular:
-		// First, we'll fetch a  delivery script that we'll use to send the
-		// funds to in the case of a successful negotiation. If an upfront
-		// shutdown script was set, we will use it. Otherwise, we get a fresh
-		// delivery script.
-		deliveryScript := channel.LocalUpfrontShutdownScript()
+		// First, we'll choose a delivery address that we'll use to send the
+		// funds to in the case of a successful negotiation.
+
+		// An upfront shutdown and user provided script are both optional,
+		// but must be equal if both set  (because we cannot serve a request
+		// to close out to a script which violates upfront shutdown). Get the
+		// appropriate address to close out to (which may be nil if neither
+		// are set) and error if they are both set and do not match.
+		deliveryScript, err := chooseDeliveryScript(
+			channel.LocalUpfrontShutdownScript(), req.DeliveryScript,
+		)
+		if err != nil {
+			peerLog.Errorf("cannot close channel %v: %v", req.ChanPoint, err)
+			req.Err <- err
+			return
+		}
+
+		// If neither an upfront address or a user set address was
+		// provided, generate a fresh script.
 		if len(deliveryScript) == 0 {
-			var err error
 			deliveryScript, err = p.genDeliveryScript()
 			if err != nil {
 				peerLog.Errorf(err.Error())

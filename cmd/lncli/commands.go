@@ -835,10 +835,15 @@ var closeChannelCommand = cli.Command{
 	transaction will be broadcast to the network. As a result, any settled
 	funds will be time locked for a few blocks before they can be spent.
 
-	In the case of a cooperative closure, One can manually set the fee to
+	In the case of a cooperative closure, one can manually set the fee to
 	be used for the closing transaction via either the --conf_target or
 	--sat_per_byte arguments. This will be the starting value used during
 	fee negotiation. This is optional.
+
+	In the case of a cooperative closure, one can manually set the address
+	to deliver funds to upon closure. This is optional, and may only be used
+	if an upfront shutdown address has not already been set. If neither are
+	set the funds will be delivered to a new wallet address.
 
 	To view which funding_txids/output_indexes can be used for a channel close,
 	see the channel_point values within the listchannels command output.
@@ -874,6 +879,13 @@ var closeChannelCommand = cli.Command{
 				"sat/byte that should be used when crafting " +
 				"the transaction",
 		},
+		cli.StringFlag{
+			Name: "delivery_addr",
+			Usage: "(optional) an address to deliver funds " +
+				"upon cooperative channel closing, may only " +
+				"be used if an upfront shutdown addresss is not" +
+				"already set",
+		},
 	},
 	Action: actionDecorator(closeChannel),
 }
@@ -895,10 +907,11 @@ func closeChannel(ctx *cli.Context) error {
 
 	// TODO(roasbeef): implement time deadline within server
 	req := &lnrpc.CloseChannelRequest{
-		ChannelPoint: channelPoint,
-		Force:        ctx.Bool("force"),
-		TargetConf:   int32(ctx.Int64("conf_target")),
-		SatPerByte:   ctx.Int64("sat_per_byte"),
+		ChannelPoint:    channelPoint,
+		Force:           ctx.Bool("force"),
+		TargetConf:      int32(ctx.Int64("conf_target")),
+		SatPerByte:      ctx.Int64("sat_per_byte"),
+		DeliveryAddress: ctx.String("delivery_addr"),
 	}
 
 	// After parsing the request, we'll spin up a goroutine that will

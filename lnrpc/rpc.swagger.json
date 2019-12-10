@@ -494,6 +494,13 @@
             "required": false,
             "type": "string",
             "format": "int64"
+          },
+          {
+            "name": "delivery_address",
+            "description": "An optional address to send funds to in the case of a cooperative close.\nIf the channel was opened with an upfront shutdown script and this field\nis set, the request to close will fail because the channel must pay out\nto the upfront shutdown addresss.",
+            "in": "query",
+            "required": false,
+            "type": "string"
           }
         ],
         "tags": [

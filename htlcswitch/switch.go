@@ -105,6 +105,9 @@ type ChanClose struct {
 	// process for the cooperative closure transaction kicks off.
 	TargetFeePerKw chainfee.SatPerKWeight
 
+	// DeliveryScript is an optional delivery script to pay funds out to.
+	DeliveryScript lnwire.DeliveryAddress
+
 	// Updates is used by request creator to receive the notifications about
 	// execution of the close channel request.
 	Updates chan interface{}
@@ -1365,12 +1368,13 @@ func (s *Switch) teardownCircuit(pkt *htlcPacket) error {
 }
 
 // CloseLink creates and sends the close channel command to the target link
-// directing the specified closure type. If the closure type if CloseRegular,
-// then the last parameter should be the ideal fee-per-kw that will be used as
-// a starting point for close negotiation.
-func (s *Switch) CloseLink(chanPoint *wire.OutPoint, closeType ChannelCloseType,
-	targetFeePerKw chainfee.SatPerKWeight) (chan interface{},
-	chan error) {
+// directing the specified closure type. If the closure type is CloseRegular,
+// targetFeePerKw parameter should be the ideal fee-per-kw that will be used as
+// a starting point for close negotiation. The deliveryScript parameter is an
+// optional parameter which sets a user specified script to close out to.
+func (s *Switch) CloseLink(chanPoint *wire.OutPoint,
+	closeType ChannelCloseType, targetFeePerKw chainfee.SatPerKWeight,
+	deliveryScript lnwire.DeliveryAddress) (chan interface{}, chan error) {
 
 	// TODO(roasbeef) abstract out the close updates.
 	updateChan := make(chan interface{}, 2)
@@ -1381,6 +1385,7 @@ func (s *Switch) CloseLink(chanPoint *wire.OutPoint, closeType ChannelCloseType,
 		ChanPoint:      chanPoint,
 		Updates:        updateChan,
 		TargetFeePerKw: targetFeePerKw,
+		DeliveryScript: deliveryScript,
 		Err:            errChan,
 	}
 

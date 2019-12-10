@@ -28,10 +28,10 @@ var (
 	// a message while it is in an unknown state.
 	ErrInvalidState = fmt.Errorf("invalid state")
 
-	// errUpfrontShutdownScriptMismatch is returned when our peer sends us a
-	// shutdown message with a script that does not match the upfront shutdown
-	// script previously set.
-	errUpfrontShutdownScriptMismatch = fmt.Errorf("peer's shutdown " +
+	// errUpfrontShutdownScriptMismatch is returned when a peer or end user
+	// provides a script to cooperatively close out to which does not match
+	// the upfront shutdown script previously set for that party.
+	errUpfrontShutdownScriptMismatch = fmt.Errorf("shutdown " +
 		"script does not match upfront shutdown script")
 )
 

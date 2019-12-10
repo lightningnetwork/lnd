@@ -205,42 +205,42 @@ func TestFeatureNames(t *testing.T) {
 	}{
 		{
 			bit:           0,
-			expectedName:  "feature1(0)",
+			expectedName:  "feature1",
 			expectedKnown: true,
 		},
 		{
 			bit:           1,
-			expectedName:  "unknown(1)",
+			expectedName:  "unknown",
 			expectedKnown: false,
 		},
 		{
 			bit:           2,
-			expectedName:  "unknown(2)",
+			expectedName:  "unknown",
 			expectedKnown: false,
 		},
 		{
 			bit:           3,
-			expectedName:  "feature2(3)",
+			expectedName:  "feature2",
 			expectedKnown: true,
 		},
 		{
 			bit:           4,
-			expectedName:  "feature3(4)",
+			expectedName:  "feature3",
 			expectedKnown: true,
 		},
 		{
 			bit:           5,
-			expectedName:  "feature3(5)",
+			expectedName:  "feature3",
 			expectedKnown: true,
 		},
 		{
 			bit:           6,
-			expectedName:  "unknown(6)",
+			expectedName:  "unknown",
 			expectedKnown: false,
 		},
 		{
 			bit:           7,
-			expectedName:  "unknown(7)",
+			expectedName:  "unknown",
 			expectedKnown: false,
 		},
 	}

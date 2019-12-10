@@ -3,7 +3,6 @@ package lnwire
 import (
 	"encoding/binary"
 	"errors"
-	"fmt"
 	"io"
 )
 
@@ -362,9 +361,9 @@ func (fv *FeatureVector) UnknownRequiredFeatures() []FeatureBit {
 func (fv *FeatureVector) Name(bit FeatureBit) string {
 	name, known := fv.featureNames[bit]
 	if !known {
-		name = "unknown"
+		return "unknown"
 	}
-	return fmt.Sprintf("%s(%d)", name, bit)
+	return name
 }
 
 // IsKnown returns whether this feature bit represents a known feature.

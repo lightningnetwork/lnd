@@ -36,6 +36,7 @@ import (
 	"github.com/lightningnetwork/lnd/channelnotifier"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/discovery"
+	"github.com/lightningnetwork/lnd/feature"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/invoices"
@@ -549,6 +550,10 @@ func newRPCServer(s *server, macService *macaroons.Service,
 		MaxTotalTimelock: cfg.MaxOutgoingCltvExpiry,
 	}
 
+	genInvoiceFeatures := func() *lnwire.FeatureVector {
+		return s.featureMgr.Get(feature.SetInvoice)
+	}
+
 	var (
 		subServers     []lnrpc.SubServer
 		subServerPerms []lnrpc.MacaroonPerms
@@ -561,7 +566,7 @@ func newRPCServer(s *server, macService *macaroons.Service,
 		s.cc, networkDir, macService, atpl, invoiceRegistry,
 		s.htlcSwitch, activeNetParams.Params, s.chanRouter,
 		routerBackend, s.nodeSigner, s.chanDB, s.sweeper, tower,
-		s.towerClient, cfg.net.ResolveTCPAddr,
+		s.towerClient, cfg.net.ResolveTCPAddr, genInvoiceFeatures,
 	)
 	if err != nil {
 		return nil, err
@@ -3633,6 +3638,9 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		MaxPaymentMSat:    MaxPaymentMSat,
 		DefaultCLTVExpiry: defaultDelta,
 		ChanDB:            r.server.chanDB,
+		GenInvoiceFeatures: func() *lnwire.FeatureVector {
+			return r.server.featureMgr.Get(feature.SetInvoice)
+		},
 	}
 
 	value, err := lnrpc.UnmarshallAmt(invoice.Value, invoice.ValueMsat)

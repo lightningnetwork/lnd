@@ -47,6 +47,10 @@ type AddInvoiceConfig struct {
 	// ChanDB is a global boltdb instance which is needed to access the
 	// channel graph.
 	ChanDB *channeldb.DB
+
+	// GenInvoiceFeatures returns a feature containing feature bits that
+	// should be advertised on freshly generated invoices.
+	GenInvoiceFeatures func() *lnwire.FeatureVector
 }
 
 // AddInvoiceData contains the required data to create a new invoice.
@@ -363,11 +367,8 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 
 	}
 
-	// Set a blank feature vector, as our invoice generation forbids nil
-	// features.
-	invoiceFeatures := lnwire.NewFeatureVector(
-		lnwire.NewRawFeatureVector(), lnwire.Features,
-	)
+	// Set our desired invoice features and add them to our list of options.
+	invoiceFeatures := cfg.GenInvoiceFeatures()
 	options = append(options, zpay32.Features(invoiceFeatures))
 
 	// Generate and set a random payment address for this invoice. If the

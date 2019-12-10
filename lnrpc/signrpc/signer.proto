@@ -13,17 +13,17 @@ message KeyLocator {
 }
 
 message KeyDescriptor {
-     /**
-     The raw bytes of the key being identified. Either this or the KeyLocator
-     must be specified.
-     */
-     bytes raw_key_bytes = 1;
+    /**
+    The raw bytes of the key being identified. Either this or the KeyLocator
+    must be specified.
+    */
+    bytes raw_key_bytes = 1;
 
-     /** 
-     The key locator that identifies which key to use for signing. Either this
-     or the raw bytes of the target key must be specified.
-     */
-     KeyLocator key_loc = 2;
+    /** 
+    The key locator that identifies which key to use for signing. Either this
+    or the raw bytes of the target key must be specified.
+    */
+    KeyLocator key_loc = 2;
 }
 
 message TxOut {
@@ -119,6 +119,38 @@ message InputScriptResp {
     repeated InputScript input_scripts = 1;
 }
 
+message SignMessageReq {
+    /// The message to be signed.
+    bytes msg = 1;
+
+    /// The key locator that identifies which key to use for signing.
+    KeyLocator key_loc = 2;
+}
+message SignMessageResp {
+    /**
+    The signature for the given message in the fixed-size LN wire format.
+    */
+    bytes signature = 1;
+}
+
+message VerifyMessageReq {
+    /// The message over which the signature is to be verified.
+    bytes msg = 1;
+
+    /**
+    The fixed-size LN wire encoded signature to be verified over the given
+    message.
+    */
+    bytes signature = 2;
+
+    /// The public key the signature has to be valid for.
+    bytes pubkey = 3;
+}
+message VerifyMessageResp {
+    /// Whether the signature was valid over the given message.
+    bool valid = 1;
+}
+
 service Signer {
     /**
     SignOutputRaw is a method that can be used to generated a signature for a
@@ -130,7 +162,7 @@ service Signer {
     If we are  unable to sign using the specified keys, then an error will be
     returned.
     */
-    rpc SignOutputRaw(SignReq) returns (SignResp);
+    rpc SignOutputRaw (SignReq) returns (SignResp);
 
     /**
     ComputeInputScript generates a complete InputIndex for the passed
@@ -144,5 +176,23 @@ service Signer {
     in the TxOut field, the value in that same field, and finally the input
     index.
     */
-    rpc ComputeInputScript(SignReq) returns (InputScriptResp); 
+    rpc ComputeInputScript (SignReq) returns (InputScriptResp);
+
+    /**
+    SignMessage signs a message with the key specified in the key locator. The
+    returned signature is fixed-size LN wire format encoded.
+    
+    The main difference to SignMessage in the main RPC is that a specific key is
+    used to sign the message instead of the node identity private key.
+    */
+    rpc SignMessage (SignMessageReq) returns (SignMessageResp);
+
+    /**
+    VerifyMessage verifies a signature over a message using the public key
+    provided. The signature must be fixed-size LN wire format encoded.
+    
+    The main difference to VerifyMessage in the main RPC is that the public key
+    used to sign the message does not have to be a node known to the network.
+    */
+    rpc VerifyMessage (VerifyMessageReq) returns (VerifyMessageResp);
 }

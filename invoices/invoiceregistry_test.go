@@ -154,7 +154,7 @@ func TestSettleInvoice(t *testing.T) {
 	hodlChan := make(chan interface{}, 1)
 
 	// Try to settle invoice with an htlc that expires too soon.
-	event, err := ctx.registry.NotifyExitHopHtlc(
+	event, result, err := ctx.registry.NotifyExitHopHtlc(
 		hash, testInvoice.Terms.Value,
 		uint32(testCurrentHeight)+testInvoiceCltvDelta-1,
 		testCurrentHeight, getCircuitKey(10), hodlChan, testPayload,
@@ -169,15 +169,21 @@ func TestSettleInvoice(t *testing.T) {
 		t.Fatalf("expected acceptHeight %v, but got %v",
 			testCurrentHeight, event.AcceptHeight)
 	}
+	if result != ResultExpiryTooSoon {
+		t.Fatalf("expected expiry too soon, got: %v", result)
+	}
 
 	// Settle invoice with a slightly higher amount.
 	amtPaid := lnwire.MilliSatoshi(100500)
-	_, err = ctx.registry.NotifyExitHopHtlc(
+	_, result, err = ctx.registry.NotifyExitHopHtlc(
 		hash, amtPaid, testHtlcExpiry, testCurrentHeight,
 		getCircuitKey(0), hodlChan, testPayload,
 	)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if result != ResultSettled {
+		t.Fatalf("expected settled, got: %v", result)
 	}
 
 	// We expect the settled state to be sent to the single invoice
@@ -208,7 +214,7 @@ func TestSettleInvoice(t *testing.T) {
 
 	// Try to settle again with the same htlc id. We need this idempotent
 	// behaviour after a restart.
-	event, err = ctx.registry.NotifyExitHopHtlc(
+	event, result, err = ctx.registry.NotifyExitHopHtlc(
 		hash, amtPaid, testHtlcExpiry, testCurrentHeight,
 		getCircuitKey(0), hodlChan, testPayload,
 	)
@@ -218,11 +224,14 @@ func TestSettleInvoice(t *testing.T) {
 	if event.Preimage == nil {
 		t.Fatal("expected settle event")
 	}
+	if result != ResultReplayToSettled {
+		t.Fatalf("expected replay settled, got: %v", result)
+	}
 
 	// Try to settle again with a new higher-valued htlc. This payment
 	// should also be accepted, to prevent any change in behaviour for a
 	// paid invoice that may open up a probe vector.
-	event, err = ctx.registry.NotifyExitHopHtlc(
+	event, result, err = ctx.registry.NotifyExitHopHtlc(
 		hash, amtPaid+600, testHtlcExpiry, testCurrentHeight,
 		getCircuitKey(1), hodlChan, testPayload,
 	)
@@ -232,10 +241,13 @@ func TestSettleInvoice(t *testing.T) {
 	if event.Preimage == nil {
 		t.Fatal("expected settle event")
 	}
+	if result != ResultDuplicateToSettled {
+		t.Fatalf("expected duplicate settled, got: %v", result)
+	}
 
 	// Try to settle again with a lower amount. This should fail just as it
 	// would have failed if it were the first payment.
-	event, err = ctx.registry.NotifyExitHopHtlc(
+	event, result, err = ctx.registry.NotifyExitHopHtlc(
 		hash, amtPaid-600, testHtlcExpiry, testCurrentHeight,
 		getCircuitKey(2), hodlChan, testPayload,
 	)
@@ -244,6 +256,9 @@ func TestSettleInvoice(t *testing.T) {
 	}
 	if event.Preimage != nil {
 		t.Fatal("expected cancel event")
+	}
+	if result != ResultAmountTooLow {
+		t.Fatalf("expected amount too low, got: %v", result)
 	}
 
 	// Check that settled amount is equal to the sum of values of the htlcs
@@ -360,7 +375,7 @@ func TestCancelInvoice(t *testing.T) {
 	// Notify arrival of a new htlc paying to this invoice. This should
 	// result in a cancel event.
 	hodlChan := make(chan interface{})
-	event, err := ctx.registry.NotifyExitHopHtlc(
+	event, result, err := ctx.registry.NotifyExitHopHtlc(
 		hash, amt, testHtlcExpiry, testCurrentHeight,
 		getCircuitKey(0), hodlChan, testPayload,
 	)
@@ -374,6 +389,9 @@ func TestCancelInvoice(t *testing.T) {
 	if event.AcceptHeight != testCurrentHeight {
 		t.Fatalf("expected acceptHeight %v, but got %v",
 			testCurrentHeight, event.AcceptHeight)
+	}
+	if result != ResultInvoiceAlreadyCanceled {
+		t.Fatalf("expected invoice already cancelled, got: %v", result)
 	}
 }
 
@@ -438,7 +456,7 @@ func TestSettleHoldInvoice(t *testing.T) {
 
 	// NotifyExitHopHtlc without a preimage present in the invoice registry
 	// should be possible.
-	event, err := registry.NotifyExitHopHtlc(
+	event, result, err := registry.NotifyExitHopHtlc(
 		hash, amtPaid, testHtlcExpiry, testCurrentHeight,
 		getCircuitKey(0), hodlChan, testPayload,
 	)
@@ -447,10 +465,13 @@ func TestSettleHoldInvoice(t *testing.T) {
 	}
 	if event != nil {
 		t.Fatalf("expected htlc to be held")
+	}
+	if result != ResultAccepted {
+		t.Fatalf("expected accepted, got: %v", result)
 	}
 
 	// Test idempotency.
-	event, err = registry.NotifyExitHopHtlc(
+	event, result, err = registry.NotifyExitHopHtlc(
 		hash, amtPaid, testHtlcExpiry, testCurrentHeight,
 		getCircuitKey(0), hodlChan, testPayload,
 	)
@@ -459,11 +480,14 @@ func TestSettleHoldInvoice(t *testing.T) {
 	}
 	if event != nil {
 		t.Fatalf("expected htlc to be held")
+	}
+	if result != ResultReplayToAccepted {
+		t.Fatalf("expected replay accepted, got: %v", result)
 	}
 
 	// Test replay at a higher height. We expect the same result because it
 	// is a replay.
-	event, err = registry.NotifyExitHopHtlc(
+	event, result, err = registry.NotifyExitHopHtlc(
 		hash, amtPaid, testHtlcExpiry, testCurrentHeight+10,
 		getCircuitKey(0), hodlChan, testPayload,
 	)
@@ -473,10 +497,13 @@ func TestSettleHoldInvoice(t *testing.T) {
 	if event != nil {
 		t.Fatalf("expected htlc to be held")
 	}
+	if result != ResultReplayToAccepted {
+		t.Fatalf("expected replay settled, got: %v", result)
+	}
 
 	// Test a new htlc coming in that doesn't meet the final cltv delta
 	// requirement. It should be rejected.
-	event, err = registry.NotifyExitHopHtlc(
+	event, result, err = registry.NotifyExitHopHtlc(
 		hash, amtPaid, 1, testCurrentHeight,
 		getCircuitKey(1), hodlChan, testPayload,
 	)
@@ -485,6 +512,9 @@ func TestSettleHoldInvoice(t *testing.T) {
 	}
 	if event == nil || event.Preimage != nil {
 		t.Fatalf("expected htlc to be canceled")
+	}
+	if result != ResultExpiryTooSoon {
+		t.Fatalf("expected expiry too soon, got: %v", result)
 	}
 
 	// We expect the accepted state to be sent to the single invoice
@@ -576,7 +606,7 @@ func TestCancelHoldInvoice(t *testing.T) {
 
 	// NotifyExitHopHtlc without a preimage present in the invoice registry
 	// should be possible.
-	event, err := registry.NotifyExitHopHtlc(
+	event, result, err := registry.NotifyExitHopHtlc(
 		hash, amtPaid, testHtlcExpiry, testCurrentHeight,
 		getCircuitKey(0), hodlChan, testPayload,
 	)
@@ -585,6 +615,9 @@ func TestCancelHoldInvoice(t *testing.T) {
 	}
 	if event != nil {
 		t.Fatalf("expected htlc to be held")
+	}
+	if result != ResultAccepted {
+		t.Fatalf("expected invoice accepted, got: %v", result)
 	}
 
 	// Cancel invoice.
@@ -601,12 +634,12 @@ func TestCancelHoldInvoice(t *testing.T) {
 	// Offering the same htlc again at a higher height should still result
 	// in a rejection. The accept height is expected to be the original
 	// accept height.
-	event, err = registry.NotifyExitHopHtlc(
+	event, result, err = registry.NotifyExitHopHtlc(
 		hash, amtPaid, testHtlcExpiry, testCurrentHeight+1,
 		getCircuitKey(0), hodlChan, testPayload,
 	)
 	if err != nil {
-		t.Fatalf("expected settle to succeed but got %v", err)
+		t.Fatalf("expected htlc to be cancelled but got %v", err)
 	}
 	if event.Preimage != nil {
 		t.Fatalf("expected htlc to be canceled")
@@ -614,6 +647,9 @@ func TestCancelHoldInvoice(t *testing.T) {
 	if event.AcceptHeight != testCurrentHeight {
 		t.Fatalf("expected acceptHeight %v, but got %v",
 			testCurrentHeight, event.AcceptHeight)
+	}
+	if result != ResultReplayToCanceled {
+		t.Fatalf("expected replay to cancelled, got %v", result)
 	}
 }
 
@@ -653,7 +689,7 @@ func TestUnknownInvoice(t *testing.T) {
 	// succeed.
 	hodlChan := make(chan interface{})
 	amt := lnwire.MilliSatoshi(100000)
-	_, err := ctx.registry.NotifyExitHopHtlc(
+	_, _, err := ctx.registry.NotifyExitHopHtlc(
 		hash, amt, testHtlcExpiry, testCurrentHeight,
 		getCircuitKey(0), hodlChan, testPayload,
 	)

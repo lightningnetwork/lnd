@@ -201,7 +201,7 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 		HtlcID: h.htlc.HtlcIndex,
 	}
 
-	event, err := h.Registry.NotifyExitHopHtlc(
+	event, _, err := h.Registry.NotifyExitHopHtlc(
 		h.htlc.RHash, h.htlc.Amt, h.htlcExpiry, currentHeight,
 		circuitKey, hodlChan, payload,
 	)

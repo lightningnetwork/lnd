@@ -2762,8 +2762,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 	l.forwardBatch(switchPackets...)
 }
 
-// processExitHop handles an htlc for which this link is the exit hop. It
-// returns a boolean indicating whether the commitment tx needs an update.
+// processExitHop handles an htlc for which this link is the exit hop.
 func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 	obfuscator hop.ErrorEncrypter, fwdInfo hop.ForwardingInfo,
 	heightNow uint32, payload invoices.Payload) error {
@@ -2805,6 +2804,32 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 		return nil
 	}
 
+	// Once we have checked the values on the hop payload, we can process the
+	// htlc.
+	return l.processUpdateExitHTLC(pd, obfuscator, heightNow, payload)
+}
+
+// processUpdateExitHTLC attempts to update an exit hop htlc in the registry
+// then fails, settles or holds the htlc based on the update response
+// returned by the invoice registry.
+func (l *channelLink) processUpdateExitHTLC(pd *lnwallet.PaymentDescriptor,
+	obfuscator hop.ErrorEncrypter, heightNow uint32,
+	payload invoices.Payload) error {
+
+	// sendFailure is a closure used to fail the htlc with failure incorrect
+	// details, enriched with a specific failure reason.
+	sendFailure := func(failureDetail int) error {
+		failure := lnwire.NewFailIncorrectDetails(pd.Amount, heightNow)
+		l.log.Tracef("failure detail: %v would be added to failure"+
+			"by wrapping it in a forwarding error", failureDetail)
+
+		l.sendHTLCError(
+			pd.HtlcIndex, failure, obfuscator, pd.SourceRef,
+		)
+
+		return nil
+	}
+
 	// Notify the invoiceRegistry of the exit hop htlc. If we crash right
 	// after this, this code will be re-executed after restart. We will
 	// receive back a resolution event.
@@ -2815,43 +2840,76 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 		HtlcID: pd.HtlcIndex,
 	}
 
-	event, err := l.cfg.Registry.NotifyExitHopHtlc(
+	event, result, err := l.cfg.Registry.NotifyExitHopHtlc(
 		invoiceHash, pd.Amount, pd.Timeout, int32(heightNow),
 		circuitKey, l.hodlQueue.ChanIn(), payload,
 	)
-
-	switch err {
-
 	// Cancel htlc if we don't have an invoice for it.
-	case channeldb.ErrInvoiceNotFound:
-		failure := lnwire.NewFailIncorrectDetails(pd.Amount, heightNow)
-		l.sendHTLCError(pd.HtlcIndex, failure, obfuscator, pd.SourceRef)
-
-		return nil
-
-	// No error.
-	case nil:
-
-	// Pass error to caller.
-	default:
+	if err == channeldb.ErrInvoiceNotFound {
+		// Set a failure detail var here which tags the failure as invoice not
+		// found. 0 is just a placeholder in this WIP PR.
+		return sendFailure(0)
+	} else if err != nil {
 		return err
 	}
 
-	// Create a hodlHtlc struct and decide either resolved now or later.
-	htlc := hodlHtlc{
-		pd:         pd,
-		obfuscator: obfuscator,
-	}
-
-	if event == nil {
-		// Save payment descriptor for future reference.
-		l.hodlMap[circuitKey] = htlc
-
+	switch result {
+	// If the invoice was moved into an accepted state, save the payment
+	// descriptor for future reference.
+	case invoices.ResultReplayToAccepted:
+		fallthrough
+	case invoices.ResultDuplicateToAccepted:
+		fallthrough
+	case invoices.ResultAccepted:
+		l.hodlMap[circuitKey] = hodlHtlc{
+			pd:         pd,
+			obfuscator: obfuscator,
+		}
 		return nil
-	}
 
-	// Process the received resolution.
-	return l.processHodlEvent(*event, htlc)
+	// If the invoice was settled, settle it on the link.
+	case invoices.ResultReplayToSettled:
+		fallthrough
+	case invoices.ResultDuplicateToSettled:
+		fallthrough
+	case invoices.ResultSettled:
+		l.log.Debugf("received hodl settle event for %v", circuitKey)
+
+		return l.settleHTLC(
+			*event.Preimage, pd.HtlcIndex, pd.SourceRef,
+		)
+
+	// If the invoice was cancelled, fallthrough the the switch to fail the htlc
+	// with fail incorrect details (to preserve privacy on hodl invoices).
+	case invoices.ResultReplayToCanceled:
+		// Set a failure detail var here which tags the failure as a hodl cancel.
+		// 1 is just a placeholder in this WIP PR.
+		l.log.Debugf("received hodl cancel event for %v", circuitKey)
+
+		return sendFailure(1)
+
+	// If the invoice has already been cancelled, fallthrough the switch to fail
+	// the HTLC.
+	case invoices.ResultInvoiceAlreadyCanceled:
+		// Set a failure detail var here which tags the failure as already
+		// cancelled. 2 is just a placeholder in this WIP PR.
+		return sendFailure(2)
+
+	// If the invoice was underpaid, fallthrough the switch to fail the HTLC.
+	case invoices.ResultAmountTooLow:
+		// Set a failure detail var here which tags the failure as underpayment.
+		// 3 is just a placeholder in this WIP PR.
+		return sendFailure(3)
+
+	// If the expiry on the HTLC is too soon, fallthrough the switch to fail the
+	// HTLC. 4 is just a placehodler in this WIP PR.
+	case invoices.ResultExpiryTooSoon:
+		// Set a failure detail var here to tag the failure as expired too soon.
+		return sendFailure(4)
+
+	default:
+		panic("unexpected invoice result")
+	}
 }
 
 // settleHTLC settles the HTLC on the channel.

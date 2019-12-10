@@ -425,7 +425,7 @@ func (i *InvoiceRegistry) LookupInvoice(rHash lntypes.Hash) (channeldb.Invoice,
 func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 	amtPaid lnwire.MilliSatoshi, expiry uint32, currentHeight int32,
 	circuitKey channeldb.CircuitKey, hodlChan chan<- interface{},
-	payload Payload) (*HodlEvent, error) {
+	payload Payload) (*HodlEvent, UpdateResult, error) {
 
 	i.Lock()
 	defer i.Unlock()
@@ -448,7 +448,7 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 	// We'll attempt to settle an invoice matching this rHash on disk (if
 	// one exists). The callback will update the invoice state and/or htlcs.
 	var (
-		result            updateResult
+		result            UpdateResult
 		updateSubscribers bool
 	)
 	invoice, err := i.cdb.UpdateInvoice(
@@ -474,7 +474,7 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 	if err != nil {
 		debugLog(err.Error())
 
-		return nil, err
+		return nil, 0, err
 	}
 	debugLog(result.String())
 
@@ -490,7 +490,7 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 		return &HodlEvent{
 			CircuitKey:   circuitKey,
 			AcceptHeight: currentHeight,
-		}, nil
+		}, result, nil
 	}
 
 	// Determine accepted height of this htlc. If the htlc reached the
@@ -504,18 +504,18 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 		return &HodlEvent{
 			CircuitKey:   circuitKey,
 			AcceptHeight: acceptHeight,
-		}, nil
+		}, result, nil
 
 	case channeldb.HtlcStateSettled:
 		return &HodlEvent{
 			CircuitKey:   circuitKey,
 			Preimage:     &invoice.Terms.PaymentPreimage,
 			AcceptHeight: acceptHeight,
-		}, nil
+		}, result, nil
 
 	case channeldb.HtlcStateAccepted:
 		i.hodlSubscribe(hodlChan, circuitKey)
-		return nil, nil
+		return nil, result, nil
 
 	default:
 		panic("unknown action")

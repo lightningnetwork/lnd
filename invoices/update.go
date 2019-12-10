@@ -7,58 +7,58 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
-// updateResult is the result of the invoice update call.
-type updateResult uint8
+// UpdateResult is the result of the invoice update call.
+type UpdateResult uint8
 
 const (
-	resultInvalid updateResult = iota
-	resultReplayToCanceled
-	resultReplayToAccepted
-	resultReplayToSettled
-	resultInvoiceAlreadyCanceled
-	resultAmountTooLow
-	resultExpiryTooSoon
-	resultDuplicateToAccepted
-	resultDuplicateToSettled
-	resultAccepted
-	resultSettled
+	ResultInvalid UpdateResult = iota
+	ResultReplayToCanceled
+	ResultReplayToAccepted
+	ResultReplayToSettled
+	ResultInvoiceAlreadyCanceled
+	ResultAmountTooLow
+	ResultExpiryTooSoon
+	ResultDuplicateToAccepted
+	ResultDuplicateToSettled
+	ResultAccepted
+	ResultSettled
 )
 
 // String returns a human-readable representation of the invoice update result.
-func (u updateResult) String() string {
+func (u UpdateResult) String() string {
 	switch u {
 
-	case resultInvalid:
+	case ResultInvalid:
 		return "invalid"
 
-	case resultReplayToCanceled:
+	case ResultReplayToCanceled:
 		return "replayed htlc to canceled invoice"
 
-	case resultReplayToAccepted:
+	case ResultReplayToAccepted:
 		return "replayed htlc to accepted invoice"
 
-	case resultReplayToSettled:
+	case ResultReplayToSettled:
 		return "replayed htlc to settled invoice"
 
-	case resultInvoiceAlreadyCanceled:
+	case ResultInvoiceAlreadyCanceled:
 		return "invoice already canceled"
 
-	case resultAmountTooLow:
+	case ResultAmountTooLow:
 		return "amount too low"
 
-	case resultExpiryTooSoon:
+	case ResultExpiryTooSoon:
 		return "expiry too soon"
 
-	case resultDuplicateToAccepted:
+	case ResultDuplicateToAccepted:
 		return "accepting duplicate payment to accepted invoice"
 
-	case resultDuplicateToSettled:
+	case ResultDuplicateToSettled:
 		return "accepting duplicate payment to settled invoice"
 
-	case resultAccepted:
+	case ResultAccepted:
 		return "accepted"
 
-	case resultSettled:
+	case ResultSettled:
 		return "settled"
 
 	default:
@@ -79,20 +79,20 @@ type invoiceUpdateCtx struct {
 // updateInvoice is a callback for DB.UpdateInvoice that contains the invoice
 // settlement logic.
 func updateInvoice(ctx *invoiceUpdateCtx, inv *channeldb.Invoice) (
-	*channeldb.InvoiceUpdateDesc, updateResult, error) {
+	*channeldb.InvoiceUpdateDesc, UpdateResult, error) {
 
 	// Don't update the invoice when this is a replayed htlc.
 	htlc, ok := inv.Htlcs[ctx.circuitKey]
 	if ok {
 		switch htlc.State {
 		case channeldb.HtlcStateCanceled:
-			return nil, resultReplayToCanceled, nil
+			return nil, ResultReplayToCanceled, nil
 
 		case channeldb.HtlcStateAccepted:
-			return nil, resultReplayToAccepted, nil
+			return nil, ResultReplayToAccepted, nil
 
 		case channeldb.HtlcStateSettled:
-			return nil, resultReplayToSettled, nil
+			return nil, ResultReplayToSettled, nil
 
 		default:
 			return nil, 0, errors.New("unknown htlc state")
@@ -102,7 +102,7 @@ func updateInvoice(ctx *invoiceUpdateCtx, inv *channeldb.Invoice) (
 	// If the invoice is already canceled, there is no further checking to
 	// do.
 	if inv.State == channeldb.ContractCanceled {
-		return nil, resultInvoiceAlreadyCanceled, nil
+		return nil, ResultInvoiceAlreadyCanceled, nil
 	}
 
 	// If an invoice amount is specified, check that enough is paid. Also
@@ -110,16 +110,16 @@ func updateInvoice(ctx *invoiceUpdateCtx, inv *channeldb.Invoice) (
 	// or accepted. In case this is a zero-valued invoice, it will always be
 	// enough.
 	if ctx.amtPaid < inv.Terms.Value {
-		return nil, resultAmountTooLow, nil
+		return nil, ResultAmountTooLow, nil
 	}
 
 	// The invoice is still open. Check the expiry.
 	if ctx.expiry < uint32(ctx.currentHeight+ctx.finalCltvRejectDelta) {
-		return nil, resultExpiryTooSoon, nil
+		return nil, ResultExpiryTooSoon, nil
 	}
 
 	if ctx.expiry < uint32(ctx.currentHeight+inv.Terms.FinalCltvDelta) {
-		return nil, resultExpiryTooSoon, nil
+		return nil, ResultExpiryTooSoon, nil
 	}
 
 	// Record HTLC in the invoice database.
@@ -139,10 +139,10 @@ func updateInvoice(ctx *invoiceUpdateCtx, inv *channeldb.Invoice) (
 	// We do accept or settle the HTLC.
 	switch inv.State {
 	case channeldb.ContractAccepted:
-		return &update, resultDuplicateToAccepted, nil
+		return &update, ResultDuplicateToAccepted, nil
 
 	case channeldb.ContractSettled:
-		return &update, resultDuplicateToSettled, nil
+		return &update, ResultDuplicateToSettled, nil
 	}
 
 	// Check to see if we can settle or this is an hold invoice and we need
@@ -152,7 +152,7 @@ func updateInvoice(ctx *invoiceUpdateCtx, inv *channeldb.Invoice) (
 		update.State = &channeldb.InvoiceStateUpdateDesc{
 			NewState: channeldb.ContractAccepted,
 		}
-		return &update, resultAccepted, nil
+		return &update, ResultAccepted, nil
 	}
 
 	update.State = &channeldb.InvoiceStateUpdateDesc{
@@ -160,5 +160,5 @@ func updateInvoice(ctx *invoiceUpdateCtx, inv *channeldb.Invoice) (
 		Preimage: inv.Terms.PaymentPreimage,
 	}
 
-	return &update, resultSettled, nil
+	return &update, ResultSettled, nil
 }

@@ -260,3 +260,68 @@ func TestFeatureNames(t *testing.T) {
 		}
 	}
 }
+
+// TestIsRequired asserts that feature bits properly return their IsRequired
+// status. We require that even features be required and odd features be
+// optional.
+func TestIsRequired(t *testing.T) {
+	optional := FeatureBit(1)
+	if optional.IsRequired() {
+		t.Fatalf("optional feature should not be required")
+	}
+
+	required := FeatureBit(0)
+	if !required.IsRequired() {
+		t.Fatalf("required feature should be required")
+	}
+}
+
+// TestFeatures asserts that the Features() method on a FeatureVector properly
+// returns the set of feature bits it stores internallly.
+func TestFeatures(t *testing.T) {
+	tests := []struct {
+		name string
+		exp  map[FeatureBit]struct{}
+	}{
+		{
+			name: "empty",
+			exp:  map[FeatureBit]struct{}{},
+		},
+		{
+			name: "one",
+			exp: map[FeatureBit]struct{}{
+				5: {},
+			},
+		},
+		{
+			name: "several",
+			exp: map[FeatureBit]struct{}{
+				0:     {},
+				5:     {},
+				23948: {},
+			},
+		},
+	}
+
+	toRawFV := func(set map[FeatureBit]struct{}) *RawFeatureVector {
+		var bits []FeatureBit
+		for bit := range set {
+			bits = append(bits, bit)
+		}
+		return NewRawFeatureVector(bits...)
+	}
+
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			fv := NewFeatureVector(
+				toRawFV(test.exp), Features,
+			)
+
+			if !reflect.DeepEqual(fv.Features(), test.exp) {
+				t.Fatalf("feature mismatch, want: %v, got: %v",
+					test.exp, fv.Features())
+			}
+		})
+	}
+}

@@ -2,6 +2,8 @@ package sweep
 
 import (
 	"sync"
+	"testing"
+	"time"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
@@ -11,6 +13,8 @@ import (
 // mockBackend simulates a chain backend for realistic behaviour in unit tests
 // around double spends.
 type mockBackend struct {
+	t *testing.T
+
 	lock sync.Mutex
 
 	notifier *MockNotifier
@@ -19,14 +23,18 @@ type mockBackend struct {
 
 	unconfirmedTxes        map[chainhash.Hash]*wire.MsgTx
 	unconfirmedSpendInputs map[wire.OutPoint]struct{}
+
+	publishChan chan wire.MsgTx
 }
 
-func newMockBackend(notifier *MockNotifier) *mockBackend {
+func newMockBackend(t *testing.T, notifier *MockNotifier) *mockBackend {
 	return &mockBackend{
+		t:                      t,
 		notifier:               notifier,
 		unconfirmedTxes:        make(map[chainhash.Hash]*wire.MsgTx),
 		confirmedSpendInputs:   make(map[wire.OutPoint]struct{}),
 		unconfirmedSpendInputs: make(map[wire.OutPoint]struct{}),
+		publishChan:            make(chan wire.MsgTx, 2),
 	}
 }
 
@@ -63,6 +71,17 @@ func (b *mockBackend) publishTransaction(tx *wire.MsgTx) error {
 	testLog.Tracef("mockBackend publish tx %v", tx.TxHash())
 
 	return nil
+}
+
+func (b *mockBackend) PublishTransaction(tx *wire.MsgTx) error {
+	log.Tracef("Publishing tx %v", tx.TxHash())
+	err := b.publishTransaction(tx)
+	select {
+	case b.publishChan <- *tx:
+	case <-time.After(defaultTestTimeout):
+		b.t.Fatalf("unexpected tx published")
+	}
+	return err
 }
 
 func (b *mockBackend) deleteUnconfirmed(txHash chainhash.Hash) {

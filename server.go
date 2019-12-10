@@ -792,10 +792,10 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 	}
 
 	s.sweeper = sweep.New(&sweep.UtxoSweeperConfig{
-		FeeEstimator:       cc.feeEstimator,
-		GenSweepScript:     newSweepPkScriptGen(cc.wallet),
-		Signer:             cc.wallet.Cfg.Signer,
-		PublishTransaction: cc.wallet.PublishTransaction,
+		FeeEstimator:   cc.feeEstimator,
+		GenSweepScript: newSweepPkScriptGen(cc.wallet),
+		Signer:         cc.wallet.Cfg.Signer,
+		Wallet:         cc.wallet,
 		NewBatchTimer: func() <-chan time.Time {
 			return time.NewTimer(sweep.DefaultBatchWindowDuration).C
 		},

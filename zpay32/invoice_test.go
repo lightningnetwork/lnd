@@ -496,7 +496,7 @@ func TestDecodeEncode(t *testing.T) {
 					Destination: testPubKey,
 					Features: lnwire.NewFeatureVector(
 						lnwire.NewRawFeatureVector(1, 9),
-						InvoiceFeatures,
+						lnwire.Features,
 					),
 				}
 			},
@@ -523,7 +523,7 @@ func TestDecodeEncode(t *testing.T) {
 					Destination: testPubKey,
 					Features: lnwire.NewFeatureVector(
 						lnwire.NewRawFeatureVector(1, 9, 100),
-						InvoiceFeatures,
+						lnwire.Features,
 					),
 				}
 			},

@@ -85,11 +85,8 @@ const (
 )
 
 var (
-	// InvoiceFeatures holds the set of all known feature bits that are
-	// exposed as BOLT 11 features.
-	InvoiceFeatures = map[lnwire.FeatureBit]string{}
-
-	// ErrInvoiceTooLarge is returned when an invoice exceeds maxInvoiceLength.
+	// ErrInvoiceTooLarge is returned when an invoice exceeds
+	// maxInvoiceLength.
 	ErrInvoiceTooLarge = errors.New("invoice is too large")
 
 	// ErrInvalidFieldLength is returned when a tagged field was specified
@@ -934,7 +931,7 @@ func parseFeatures(data []byte) (*lnwire.FeatureVector, error) {
 		return nil, err
 	}
 
-	fv := lnwire.NewFeatureVector(rawFeatures, InvoiceFeatures)
+	fv := lnwire.NewFeatureVector(rawFeatures, lnwire.Features)
 	unknownFeatures := fv.UnknownRequiredFeatures()
 	if len(unknownFeatures) > 0 {
 		return nil, fmt.Errorf("invoice contains unknown required "+

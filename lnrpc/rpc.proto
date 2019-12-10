@@ -2628,6 +2628,14 @@ message PayReq {
     repeated RouteHint route_hints = 10 [json_name = "route_hints"];
     bytes payment_addr = 11 [json_name = "payment_addr"];
     int64 num_msat = 12 [json_name = "num_msat"];
+    repeated Feature features = 13 [json_name = "features"];
+}
+
+message Feature {
+        uint32 bit = 1 [json_name = "bit"];
+        string name = 2 [json_name = "name"];
+        bool is_required = 3 [json_name = "is_required"];
+        bool is_known = 4 [json_name = "is_known"];
 }
 
 message FeeReportRequest {}

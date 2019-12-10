@@ -246,13 +246,14 @@ func (s *Server) AddHoldInvoice(ctx context.Context,
 	invoice *AddHoldInvoiceRequest) (*AddHoldInvoiceResp, error) {
 
 	addInvoiceCfg := &AddInvoiceConfig{
-		AddInvoice:        s.cfg.InvoiceRegistry.AddInvoice,
-		IsChannelActive:   s.cfg.IsChannelActive,
-		ChainParams:       s.cfg.ChainParams,
-		NodeSigner:        s.cfg.NodeSigner,
-		MaxPaymentMSat:    s.cfg.MaxPaymentMSat,
-		DefaultCLTVExpiry: s.cfg.DefaultCLTVExpiry,
-		ChanDB:            s.cfg.ChanDB,
+		AddInvoice:         s.cfg.InvoiceRegistry.AddInvoice,
+		IsChannelActive:    s.cfg.IsChannelActive,
+		ChainParams:        s.cfg.ChainParams,
+		NodeSigner:         s.cfg.NodeSigner,
+		MaxPaymentMSat:     s.cfg.MaxPaymentMSat,
+		DefaultCLTVExpiry:  s.cfg.DefaultCLTVExpiry,
+		ChanDB:             s.cfg.ChanDB,
+		GenInvoiceFeatures: s.cfg.GenInvoiceFeatures,
 	}
 
 	hash, err := lntypes.MakeHash(invoice.Hash)

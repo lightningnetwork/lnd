@@ -3,7 +3,6 @@ package lnwire
 import (
 	"encoding/binary"
 	"errors"
-	"fmt"
 	"io"
 )
 
@@ -94,6 +93,11 @@ const (
 	// vector, or 131056 different features.
 	maxAllowedSize = 32764
 )
+
+// IsRequired returns true if the feature bit is even, and false otherwise.
+func (b FeatureBit) IsRequired() bool {
+	return b&0x01 == 0x00
+}
 
 // Features is a mapping of known feature bits to a descriptive name. All known
 // feature bits must be assigned a name in this mapping, and feature bit pairs
@@ -362,9 +366,9 @@ func (fv *FeatureVector) UnknownRequiredFeatures() []FeatureBit {
 func (fv *FeatureVector) Name(bit FeatureBit) string {
 	name, known := fv.featureNames[bit]
 	if !known {
-		name = "unknown"
+		return "unknown"
 	}
-	return fmt.Sprintf("%s(%d)", name, bit)
+	return name
 }
 
 // IsKnown returns whether this feature bit represents a known feature.
@@ -382,6 +386,15 @@ func (fv *FeatureVector) isFeatureBitPair(bit FeatureBit) bool {
 	name1, known1 := fv.featureNames[bit]
 	name2, known2 := fv.featureNames[bit^1]
 	return known1 && known2 && name1 == name2
+}
+
+// Features returns the set of raw features contained in the feature vector.
+func (fv *FeatureVector) Features() map[FeatureBit]struct{} {
+	fs := make(map[FeatureBit]struct{}, len(fv.RawFeatureVector.features))
+	for b := range fv.RawFeatureVector.features {
+		fs[b] = struct{}{}
+	}
+	return fs
 }
 
 // Clone copies a feature vector, carrying over its feature bits. The feature

@@ -50,4 +50,8 @@ type Config struct {
 	// ChanDB is a global boltdb instance which is needed to access the
 	// channel graph.
 	ChanDB *channeldb.DB
+
+	// GenInvoiceFeatures returns a feature containing feature bits that
+	// should be advertised on freshly generated invoices.
+	GenInvoiceFeatures func() *lnwire.FeatureVector
 }

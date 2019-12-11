@@ -224,8 +224,8 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 				fromNode, toNode, amt,
 			)
 		},
-		DestPayloadTLV: len(in.DestCustomRecords) != 0,
-		CltvLimit:      cltvLimit,
+		DestCustomRecords: record.CustomSet(in.DestCustomRecords),
+		CltvLimit:         cltvLimit,
 	}
 
 	// If we have any TLV records destined for the final hop, then we'll

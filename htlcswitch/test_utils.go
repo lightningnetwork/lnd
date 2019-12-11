@@ -1078,7 +1078,7 @@ func newHopNetwork() *hopNetwork {
 	defaultDelta := uint32(6)
 
 	globalPolicy := ForwardingPolicy{
-		MinHTLC:       lnwire.NewMSatFromSatoshis(5),
+		MinHTLCOut:    lnwire.NewMSatFromSatoshis(5),
 		BaseFee:       lnwire.NewMSatFromSatoshis(1),
 		TimeLockDelta: defaultDelta,
 	}

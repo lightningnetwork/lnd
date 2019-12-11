@@ -79,6 +79,9 @@ func (r *Manager) UpdatePolicy(newSchema routing.ChannelPolicy,
 		// Apply the new policy to the edge.
 		err := r.updateEdge(info.ChannelPoint, edge, newSchema)
 		if err != nil {
+			log.Warnf("Cannot update policy for %v: %v\n",
+				info.ChannelPoint, err,
+			)
 			return nil
 		}
 
@@ -93,7 +96,7 @@ func (r *Manager) UpdatePolicy(newSchema routing.ChannelPolicy,
 			BaseFee:       edge.FeeBaseMSat,
 			FeeRate:       edge.FeeProportionalMillionths,
 			TimeLockDelta: uint32(edge.TimeLockDelta),
-			MinHTLC:       edge.MinHTLC,
+			MinHTLCOut:    edge.MinHTLC,
 			MaxHTLC:       edge.MaxHTLC,
 		}
 
@@ -155,6 +158,11 @@ func (r *Manager) updateEdge(chanPoint wire.OutPoint,
 	// previously set the max htlc to the channel capacity.
 	case edge.MaxHTLC > amtMax:
 		edge.MaxHTLC = amtMax
+	}
+
+	// If a new min htlc is specified, update the edge.
+	if newSchema.MinHTLC != nil {
+		edge.MinHTLC = *newSchema.MinHTLC
 	}
 
 	// If the MaxHtlc flag wasn't already set, we can set it now.

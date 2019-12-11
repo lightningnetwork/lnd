@@ -479,7 +479,7 @@ func Main(lisCfg ListenerCfg) error {
 	// Set up an autopilot manager from the current config. This will be
 	// used to manage the underlying autopilot agent, starting and stopping
 	// it at will.
-	atplCfg, err := initAutoPilot(server, cfg.Autopilot)
+	atplCfg, err := initAutoPilot(server, cfg.Autopilot, mainChain)
 	if err != nil {
 		err := fmt.Errorf("Unable to initialize autopilot: %v", err)
 		ltndLog.Error(err)

@@ -285,6 +285,10 @@ type fundingConfig struct {
 	// initially announcing channels.
 	DefaultRoutingPolicy htlcswitch.ForwardingPolicy
 
+	// DefaultMinHtlcIn is the default minimum incoming htlc value that is
+	// set as a channel parameter.
+	DefaultMinHtlcIn lnwire.MilliSatoshi
+
 	// NumRequiredConfs is a function closure that helps the funding
 	// manager decide how many confirmations it should require for a
 	// channel extended to it. The function is able to take into account
@@ -1300,7 +1304,7 @@ func (f *fundingManager) handleFundingOpen(fmsg *fundingOpenMsg) {
 	chanReserve := f.cfg.RequiredRemoteChanReserve(amt, msg.DustLimit)
 	maxValue := f.cfg.RequiredRemoteMaxValue(amt)
 	maxHtlcs := f.cfg.RequiredRemoteMaxHTLCs(amt)
-	minHtlc := f.cfg.DefaultRoutingPolicy.MinHTLC
+	minHtlc := f.cfg.DefaultMinHtlcIn
 
 	// Once the reservation has been created successfully, we add it to
 	// this peer's map of pending reservations to track this particular
@@ -2205,6 +2209,12 @@ func (f *fundingManager) addToRouterGraph(completeChan *channeldb.OpenChannel,
 	// need to determine the smallest HTLC it deems economically relevant.
 	fwdMinHTLC := completeChan.LocalChanCfg.MinHTLC
 
+	// We don't necessarily want to go as low as the remote party
+	// allows. Check it against our default forwarding policy.
+	if fwdMinHTLC < f.cfg.DefaultRoutingPolicy.MinHTLCOut {
+		fwdMinHTLC = f.cfg.DefaultRoutingPolicy.MinHTLCOut
+	}
+
 	// We'll obtain the max HTLC value we can forward in our direction, as
 	// we'll use this value within our ChannelUpdate. This value must be <=
 	// channel capacity and <= the maximum in-flight msats set by the peer.
@@ -2375,30 +2385,13 @@ func (f *fundingManager) annAfterSixConfs(completeChan *channeldb.OpenChannel,
 		fndgLog.Infof("Announcing ChannelPoint(%v), short_chan_id=%v",
 			&fundingPoint, shortChanID)
 
-		// We'll obtain the min HTLC value we can forward in our
-		// direction, as we'll use this value within our ChannelUpdate.
-		// This constraint is originally set by the remote node, as it
-		// will be the one that will need to determine the smallest
-		// HTLC it deems economically relevant.
-		fwdMinHTLC := completeChan.LocalChanCfg.MinHTLC
-
-		// We'll obtain the max HTLC value we can forward in our
-		// direction, as we'll use this value within our ChannelUpdate.
-		// This value must be <= channel capacity and <= the maximum
-		// in-flight msats set by the peer.
-		fwdMaxHTLC := completeChan.LocalChanCfg.MaxPendingAmount
-		capacityMSat := lnwire.NewMSatFromSatoshis(completeChan.Capacity)
-		if fwdMaxHTLC > capacityMSat {
-			fwdMaxHTLC = capacityMSat
-		}
-
 		// Create and broadcast the proofs required to make this channel
 		// public and usable for other nodes for routing.
 		err = f.announceChannel(
 			f.cfg.IDKey, completeChan.IdentityPub,
 			completeChan.LocalChanCfg.MultiSigKey.PubKey,
 			completeChan.RemoteChanCfg.MultiSigKey.PubKey,
-			*shortChanID, chanID, fwdMinHTLC, fwdMaxHTLC,
+			*shortChanID, chanID,
 		)
 		if err != nil {
 			return fmt.Errorf("channel announcement failed: %v", err)
@@ -2690,15 +2683,18 @@ func (f *fundingManager) newChanAnnouncement(localPubKey, remotePubKey,
 // finish, either successfully or with an error.
 func (f *fundingManager) announceChannel(localIDKey, remoteIDKey, localFundingKey,
 	remoteFundingKey *btcec.PublicKey, shortChanID lnwire.ShortChannelID,
-	chanID lnwire.ChannelID, fwdMinHTLC, fwdMaxHTLC lnwire.MilliSatoshi) error {
+	chanID lnwire.ChannelID) error {
 
 	// First, we'll create the batch of announcements to be sent upon
 	// initial channel creation. This includes the channel announcement
 	// itself, the channel update announcement, and our half of the channel
 	// proof needed to fully authenticate the channel.
+	//
+	// We can pass in zeroes for the min and max htlc policy, because we
+	// only use the channel announcement message from the returned struct.
 	ann, err := f.newChanAnnouncement(localIDKey, remoteIDKey,
 		localFundingKey, remoteFundingKey, shortChanID, chanID,
-		fwdMinHTLC, fwdMaxHTLC,
+		0, 0,
 	)
 	if err != nil {
 		fndgLog.Errorf("can't generate channel announcement: %v", err)
@@ -2820,7 +2816,7 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 	var (
 		peerKey        = msg.peer.IdentityKey()
 		localAmt       = msg.localFundingAmt
-		minHtlc        = msg.minHtlc
+		minHtlcIn      = msg.minHtlcIn
 		remoteCsvDelay = msg.remoteCsvDelay
 	)
 
@@ -2936,8 +2932,8 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 	}
 
 	// If no minimum HTLC value was specified, use the default one.
-	if minHtlc == 0 {
-		minHtlc = f.cfg.DefaultRoutingPolicy.MinHTLC
+	if minHtlcIn == 0 {
+		minHtlcIn = f.cfg.DefaultMinHtlcIn
 	}
 
 	// If a pending channel map for this peer isn't already created, then
@@ -2952,7 +2948,7 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 	resCtx := &reservationWithCtx{
 		chanAmt:        capacity,
 		remoteCsvDelay: remoteCsvDelay,
-		remoteMinHtlc:  minHtlc,
+		remoteMinHtlc:  minHtlcIn,
 		reservation:    reservation,
 		peer:           msg.peer,
 		updates:        msg.updates,
@@ -2986,7 +2982,7 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 		DustLimit:             ourContribution.DustLimit,
 		MaxValueInFlight:      maxValue,
 		ChannelReserve:        chanReserve,
-		HtlcMinimum:           minHtlc,
+		HtlcMinimum:           minHtlcIn,
 		FeePerKiloWeight:      uint32(commitFeePerKw),
 		CsvDelay:              remoteCsvDelay,
 		MaxAcceptedHTLCs:      maxHtlcs,

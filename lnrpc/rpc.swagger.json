@@ -3538,6 +3538,16 @@
           "type": "string",
           "format": "uint64",
           "description": "/ If set, the maximum HTLC size in milli-satoshis. If unset, the maximum HTLC will be unchanged."
+        },
+        "min_htlc_msat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "/ The minimum HTLC size in milli-satoshis. Only applied if min_htlc_msat_specified is true."
+        },
+        "min_htlc_msat_specified": {
+          "type": "boolean",
+          "format": "boolean",
+          "description": "/ If true, min_htlc_msat is applied."
         }
       }
     },

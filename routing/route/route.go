@@ -26,6 +26,10 @@ var (
 	// each route.
 	ErrNoRouteHopsProvided = fmt.Errorf("empty route hops provided")
 
+	// ErrMaxRouteHopsExceeded is returned when a caller attempts to
+	// construct a new sphinx packet, but provides too many hops.
+	ErrMaxRouteHopsExceeded = fmt.Errorf("route has too many hops")
+
 	// ErrIntermediateMPPHop is returned when a hop tries to deliver an MPP
 	// record to an intermediate hop, only final hops can receive MPP
 	// records.
@@ -266,6 +270,11 @@ func NewRouteFromHops(amtToSend lnwire.MilliSatoshi, timeLock uint32,
 // final hop.
 func (r *Route) ToSphinxPath() (*sphinx.PaymentPath, error) {
 	var path sphinx.PaymentPath
+
+	// Check maximum route length.
+	if len(r.Hops) > sphinx.NumMaxHops {
+		return nil, ErrMaxRouteHopsExceeded
+	}
 
 	// For each hop encoded within the route, we'll convert the hop struct
 	// to an OnionHop with matching per-hop payload within the path as used

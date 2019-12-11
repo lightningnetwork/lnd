@@ -74,7 +74,9 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 			}
 		} else {
 			// If this was a resumed attempt, we must regenerate the
-			// circuit.
+			// circuit. We don't need to check for errors resulting
+			// from an invalid route, because the sphinx packet has
+			// been successfully generated before.
 			_, c, err := generateSphinxPacket(
 				&p.attempt.Route, p.payment.PaymentHash[:],
 				p.attempt.SessionKey,
@@ -281,6 +283,24 @@ func (p *paymentLifecycle) createNewPaymentAttempt() (lnwire.ShortChannelID,
 	onionBlob, c, err := generateSphinxPacket(
 		rt, p.payment.PaymentHash[:], sessionKey,
 	)
+
+	// With SendToRoute, it can happen that the route exceeds protocol
+	// constraints. Mark the payment as failed with an internal error.
+	if err == route.ErrMaxRouteHopsExceeded ||
+		err == sphinx.ErrMaxRoutingInfoSizeExceeded {
+
+		log.Debugf("Invalid route provided for payment %x: %v",
+			p.payment.PaymentHash, err)
+
+		controlErr := p.router.cfg.Control.Fail(
+			p.payment.PaymentHash, channeldb.FailureReasonError,
+		)
+		if controlErr != nil {
+			return lnwire.ShortChannelID{}, nil, controlErr
+		}
+	}
+
+	// In any case, don't continue if there is an error.
 	if err != nil {
 		return lnwire.ShortChannelID{}, nil, err
 	}

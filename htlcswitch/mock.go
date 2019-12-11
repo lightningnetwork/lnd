@@ -790,9 +790,12 @@ func newMockRegistry(minDelta uint32) *mockInvoiceRegistry {
 		panic(err)
 	}
 
-	finalCltvRejectDelta := int32(5)
-
-	registry := invoices.NewRegistry(cdb, finalCltvRejectDelta)
+	registry := invoices.NewRegistry(
+		cdb,
+		&invoices.RegistryConfig{
+			FinalCltvRejectDelta: 5,
+		},
+	)
 	registry.Start()
 
 	return &mockInvoiceRegistry{

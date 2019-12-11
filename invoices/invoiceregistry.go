@@ -2,8 +2,10 @@ package invoices
 
 import (
 	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -26,6 +28,12 @@ var (
 	ErrShuttingDown = errors.New("invoice registry shutting down")
 )
 
+const (
+	// DefaultHtlcHoldDuration defines the default for how long mpp htlcs
+	// are held while waiting for the other set members to arrive.
+	DefaultHtlcHoldDuration = 120 * time.Second
+)
+
 // HodlEvent describes how an htlc should be resolved. If HodlEvent.Preimage is
 // set, the event indicates a settle event. If Preimage is nil, it is a cancel
 // event.
@@ -41,6 +49,48 @@ type HodlEvent struct {
 	AcceptHeight int32
 }
 
+// RegistryConfig contains the configuration parameters for invoice registry.
+type RegistryConfig struct {
+	// FinalCltvRejectDelta defines the number of blocks before the expiry
+	// of the htlc where we no longer settle it as an exit hop and instead
+	// cancel it back. Normally this value should be lower than the cltv
+	// expiry of any invoice we create and the code effectuating this should
+	// not be hit.
+	FinalCltvRejectDelta int32
+
+	// HtlcHoldDuration defines for how long mpp htlcs are held while
+	// waiting for the other set members to arrive.
+	HtlcHoldDuration time.Duration
+
+	// Now returns the current time.
+	Now func() time.Time
+
+	// TickAfter returns a channel that is sent on after the specified
+	// duration as passed.
+	TickAfter func(duration time.Duration) <-chan time.Time
+}
+
+// htlcReleaseEvent describes an htlc auto-release event. It is used to release
+// mpp htlcs for which the complete set didn't arrive in time.
+type htlcReleaseEvent struct {
+	// hash is the payment hash of the htlc to release.
+	hash lntypes.Hash
+
+	// key is the circuit key of the htlc to release.
+	key channeldb.CircuitKey
+
+	// releaseTime is the time at which to release the htlc.
+	releaseTime time.Time
+}
+
+// Less is used to order PriorityQueueItem's by their release time such that
+// items with the older release time are at the top of the queue.
+//
+// NOTE: Part of the queue.PriorityQueueItem interface.
+func (r *htlcReleaseEvent) Less(other queue.PriorityQueueItem) bool {
+	return r.releaseTime.Before(other.(*htlcReleaseEvent).releaseTime)
+}
+
 // InvoiceRegistry is a central registry of all the outstanding invoices
 // created by the daemon. The registry is a thin wrapper around a map in order
 // to ensure that all updates/reads are thread safe.
@@ -48,6 +98,9 @@ type InvoiceRegistry struct {
 	sync.RWMutex
 
 	cdb *channeldb.DB
+
+	// cfg contains the registry's configuration parameters.
+	cfg *RegistryConfig
 
 	clientMtx                 sync.Mutex
 	nextClientID              uint32
@@ -69,12 +122,9 @@ type InvoiceRegistry struct {
 	// subscriber. This is used to unsubscribe from all hashes efficiently.
 	hodlReverseSubscriptions map[chan<- interface{}]map[channeldb.CircuitKey]struct{}
 
-	// finalCltvRejectDelta defines the number of blocks before the expiry
-	// of the htlc where we no longer settle it as an exit hop and instead
-	// cancel it back. Normally this value should be lower than the cltv
-	// expiry of any invoice we create and the code effectuating this should
-	// not be hit.
-	finalCltvRejectDelta int32
+	// htlcAutoReleaseChan contains the new htlcs that need to be
+	// auto-released.
+	htlcAutoReleaseChan chan *htlcReleaseEvent
 
 	wg   sync.WaitGroup
 	quit chan struct{}
@@ -84,8 +134,7 @@ type InvoiceRegistry struct {
 // wraps the persistent on-disk invoice storage with an additional in-memory
 // layer. The in-memory layer is in place such that debug invoices can be added
 // which are volatile yet available system wide within the daemon.
-func NewRegistry(cdb *channeldb.DB, finalCltvRejectDelta int32) *InvoiceRegistry {
-
+func NewRegistry(cdb *channeldb.DB, cfg *RegistryConfig) *InvoiceRegistry {
 	return &InvoiceRegistry{
 		cdb:                       cdb,
 		notificationClients:       make(map[uint32]*InvoiceSubscription),
@@ -95,7 +144,8 @@ func NewRegistry(cdb *channeldb.DB, finalCltvRejectDelta int32) *InvoiceRegistry
 		invoiceEvents:             make(chan interface{}, 100),
 		hodlSubscriptions:         make(map[channeldb.CircuitKey]map[chan<- interface{}]struct{}),
 		hodlReverseSubscriptions:  make(map[chan<- interface{}]map[channeldb.CircuitKey]struct{}),
-		finalCltvRejectDelta:      finalCltvRejectDelta,
+		cfg:                       cfg,
+		htlcAutoReleaseChan:       make(chan *htlcReleaseEvent),
 		quit:                      make(chan struct{}),
 	}
 }
@@ -104,7 +154,7 @@ func NewRegistry(cdb *channeldb.DB, finalCltvRejectDelta int32) *InvoiceRegistry
 func (i *InvoiceRegistry) Start() error {
 	i.wg.Add(1)
 
-	go i.invoiceEventNotifier()
+	go i.invoiceEventLoop()
 
 	return nil
 }
@@ -124,13 +174,31 @@ type invoiceEvent struct {
 	invoice *channeldb.Invoice
 }
 
-// invoiceEventNotifier is the dedicated goroutine responsible for accepting
+// tickAt returns a channel that ticks at the specified time. If the time has
+// already passed, it will tick immediately.
+func (i *InvoiceRegistry) tickAt(t time.Time) <-chan time.Time {
+	now := i.cfg.Now()
+	return i.cfg.TickAfter(t.Sub(now))
+}
+
+// invoiceEventLoop is the dedicated goroutine responsible for accepting
 // new notification subscriptions, cancelling old subscriptions, and
 // dispatching new invoice events.
-func (i *InvoiceRegistry) invoiceEventNotifier() {
+func (i *InvoiceRegistry) invoiceEventLoop() {
 	defer i.wg.Done()
 
+	// Set up a heap for htlc auto-releases.
+	autoReleaseHeap := &queue.PriorityQueue{}
+
 	for {
+		// If there is something to release, set up a release tick
+		// channel.
+		var nextReleaseTick <-chan time.Time
+		if autoReleaseHeap.Len() > 0 {
+			head := autoReleaseHeap.Top().(*htlcReleaseEvent)
+			nextReleaseTick = i.tickAt(head.releaseTime)
+		}
+
 		select {
 		// A new invoice subscription for all invoices has just arrived!
 		// We'll query for any backlog notifications, then add it to the
@@ -194,6 +262,29 @@ func (i *InvoiceRegistry) invoiceEventNotifier() {
 					"client: id=%v, hash=%v", e.id, e.hash)
 
 				i.singleNotificationClients[e.id] = e
+			}
+
+		// A new htlc came in for auto-release.
+		case event := <-i.htlcAutoReleaseChan:
+			log.Debugf("Scheduling auto-release for htlc: "+
+				"hash=%v, key=%v at %v",
+				event.hash, event.key, event.releaseTime)
+
+			// We use an independent timer for every htlc rather
+			// than a set timer that is reset with every htlc coming
+			// in. Otherwise the sender could keep resetting the
+			// timer until the broadcast window is entered and our
+			// channel is force closed.
+			autoReleaseHeap.Push(event)
+
+		// The htlc at the top of the heap needs to be auto-released.
+		case <-nextReleaseTick:
+			event := autoReleaseHeap.Pop().(*htlcReleaseEvent)
+			err := i.cancelSingleHtlc(
+				event.hash, event.key,
+			)
+			if err != nil {
+				log.Errorf("HTLC timer: %v", err)
 			}
 
 		case <-i.quit:
@@ -412,6 +503,114 @@ func (i *InvoiceRegistry) LookupInvoice(rHash lntypes.Hash) (channeldb.Invoice,
 	return i.cdb.LookupInvoice(rHash)
 }
 
+// startHtlcTimer starts a new timer via the invoice registry main loop that
+// cancels a single htlc on an invoice when the htlc hold duration has passed.
+func (i *InvoiceRegistry) startHtlcTimer(hash lntypes.Hash,
+	key channeldb.CircuitKey, acceptTime time.Time) error {
+
+	releaseTime := acceptTime.Add(i.cfg.HtlcHoldDuration)
+	event := &htlcReleaseEvent{
+		hash:        hash,
+		key:         key,
+		releaseTime: releaseTime,
+	}
+
+	select {
+	case i.htlcAutoReleaseChan <- event:
+		return nil
+
+	case <-i.quit:
+		return ErrShuttingDown
+	}
+}
+
+// cancelSingleHtlc cancels a single accepted htlc on an invoice.
+func (i *InvoiceRegistry) cancelSingleHtlc(hash lntypes.Hash,
+	key channeldb.CircuitKey) error {
+
+	i.Lock()
+	defer i.Unlock()
+
+	updateInvoice := func(invoice *channeldb.Invoice) (
+		*channeldb.InvoiceUpdateDesc, error) {
+
+		// Only allow individual htlc cancelation on open invoices.
+		if invoice.State != channeldb.ContractOpen {
+			log.Debugf("cancelSingleHtlc: invoice %v no longer "+
+				"open", hash)
+
+			return nil, nil
+		}
+
+		// Lookup the current status of the htlc in the database.
+		htlc, ok := invoice.Htlcs[key]
+		if !ok {
+			return nil, fmt.Errorf("htlc %v not found", key)
+		}
+
+		// Cancelation is only possible if the htlc wasn't already
+		// resolved.
+		if htlc.State != channeldb.HtlcStateAccepted {
+			log.Debugf("cancelSingleHtlc: htlc %v on invoice %v "+
+				"is already resolved", key, hash)
+
+			return nil, nil
+		}
+
+		log.Debugf("cancelSingleHtlc: cancelling htlc %v on invoice %v",
+			key, hash)
+
+		// Return an update descriptor that cancels htlc and keeps
+		// invoice open.
+		canceledHtlcs := map[channeldb.CircuitKey]struct{}{
+			key: {},
+		}
+
+		return &channeldb.InvoiceUpdateDesc{
+			CancelHtlcs: canceledHtlcs,
+		}, nil
+	}
+
+	// Try to mark the specified htlc as canceled in the invoice database.
+	// Intercept the update descriptor to set the local updated variable. If
+	// no invoice update is performed, we can return early.
+	var updated bool
+	invoice, err := i.cdb.UpdateInvoice(hash,
+		func(invoice *channeldb.Invoice) (
+			*channeldb.InvoiceUpdateDesc, error) {
+
+			updateDesc, err := updateInvoice(invoice)
+			if err != nil {
+				return nil, err
+			}
+			updated = updateDesc != nil
+
+			return updateDesc, err
+		},
+	)
+	if err != nil {
+		return err
+	}
+	if !updated {
+		return nil
+	}
+
+	// The invoice has been updated. Notify subscribers of the htlc
+	// resolution.
+	htlc, ok := invoice.Htlcs[key]
+	if !ok {
+		return fmt.Errorf("htlc %v not found", key)
+	}
+	if htlc.State == channeldb.HtlcStateCanceled {
+		i.notifyHodlSubscribers(HodlEvent{
+			CircuitKey:   key,
+			AcceptHeight: int32(htlc.AcceptHeight),
+			Preimage:     nil,
+		})
+	}
+	return nil
+}
+
 // NotifyExitHopHtlc attempts to mark an invoice as settled. The return value
 // describes how the htlc should be resolved.
 //
@@ -422,6 +621,11 @@ func (i *InvoiceRegistry) LookupInvoice(rHash lntypes.Hash) (channeldb.Invoice,
 // to be taken on the htlc (settle or cancel). The caller needs to ensure that
 // the channel is either buffered or received on from another goroutine to
 // prevent deadlock.
+//
+// In the case that the htlc is part of a larger set of htlcs that pay to the
+// same invoice (multi-path payment), the htlc is held until the set is
+// complete. If the set doesn't fully arrive in time, a timer will cancel the
+// held htlc.
 func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 	amtPaid lnwire.MilliSatoshi, expiry uint32, currentHeight int32,
 	circuitKey channeldb.CircuitKey, hodlChan chan<- interface{},
@@ -430,9 +634,11 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 	i.Lock()
 	defer i.Unlock()
 
+	mpp := payload.MultiPath()
+
 	debugLog := func(s string) {
-		log.Debugf("Invoice(%x): %v, amt=%v, expiry=%v, circuit=%v",
-			rHash[:], s, amtPaid, expiry, circuitKey)
+		log.Debugf("Invoice(%x): %v, amt=%v, expiry=%v, circuit=%v, "+
+			"mpp=%v", rHash[:], s, amtPaid, expiry, circuitKey, mpp)
 	}
 
 	// Create the update context containing the relevant details of the
@@ -442,8 +648,9 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 		amtPaid:              amtPaid,
 		expiry:               expiry,
 		currentHeight:        currentHeight,
-		finalCltvRejectDelta: i.finalCltvRejectDelta,
+		finalCltvRejectDelta: i.cfg.FinalCltvRejectDelta,
 		customRecords:        payload.CustomRecords(),
+		mpp:                  mpp,
 	}
 
 	// We'll attempt to settle an invoice matching this rHash on disk (if
@@ -508,6 +715,21 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 		}, nil
 
 	case channeldb.HtlcStateSettled:
+		// Also settle any previously accepted htlcs. The invoice state
+		// is leading. If an htlc is marked as settled, we should follow
+		// now and settle the htlc with our peer.
+		for key, htlc := range invoice.Htlcs {
+			if htlc.State != channeldb.HtlcStateSettled {
+				continue
+			}
+
+			i.notifyHodlSubscribers(HodlEvent{
+				CircuitKey:   key,
+				Preimage:     &invoice.Terms.PaymentPreimage,
+				AcceptHeight: int32(htlc.AcceptHeight),
+			})
+		}
+
 		return &HodlEvent{
 			CircuitKey:   circuitKey,
 			Preimage:     &invoice.Terms.PaymentPreimage,
@@ -515,6 +737,19 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 		}, nil
 
 	case channeldb.HtlcStateAccepted:
+		// (Re)start the htlc timer if the invoice is still open. It can
+		// only happen for mpp payments that there are htlcs in state
+		// Accepted while the invoice is Open.
+		if invoice.State == channeldb.ContractOpen {
+			err := i.startHtlcTimer(
+				rHash, circuitKey,
+				invoiceHtlc.AcceptTime,
+			)
+			if err != nil {
+				return nil, err
+			}
+		}
+
 		i.hodlSubscribe(hodlChan, circuitKey)
 		return nil, nil
 

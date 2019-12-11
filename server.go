@@ -378,6 +378,13 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 		return nil, err
 	}
 
+	registryConfig := invoices.RegistryConfig{
+		FinalCltvRejectDelta: defaultFinalCltvRejectDelta,
+		HtlcHoldDuration:     invoices.DefaultHtlcHoldDuration,
+		Now:                  time.Now,
+		TickAfter:            time.After,
+	}
+
 	s := &server{
 		chanDB:         chanDB,
 		cc:             cc,
@@ -386,9 +393,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 		readPool:       readPool,
 		chansToRestore: chansToRestore,
 
-		invoices: invoices.NewRegistry(
-			chanDB, defaultFinalCltvRejectDelta,
-		),
+		invoices: invoices.NewRegistry(chanDB, &registryConfig),
 
 		channelNotifier: channelnotifier.New(chanDB),
 

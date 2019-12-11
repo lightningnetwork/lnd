@@ -10,7 +10,6 @@ import (
 	"github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/lightningnetwork/lnd/routing/route"
 )
 
 var (
@@ -274,7 +273,7 @@ func serializePaymentAttemptInfoMigration9(w io.Writer, a *PaymentAttemptInfo) e
 	return nil
 }
 
-func serializeHopMigration9(w io.Writer, h *route.Hop) error {
+func serializeHopMigration9(w io.Writer, h *Hop) error {
 	if err := WriteElements(w,
 		h.PubKeyBytes[:], h.ChannelID, h.OutgoingTimeLock,
 		h.AmtToForward,
@@ -285,7 +284,7 @@ func serializeHopMigration9(w io.Writer, h *route.Hop) error {
 	return nil
 }
 
-func serializeRouteMigration9(w io.Writer, r route.Route) error {
+func serializeRouteMigration9(w io.Writer, r Route) error {
 	if err := WriteElements(w,
 		r.TotalTimeLock, r.TotalAmount, r.SourcePubKey[:],
 	); err != nil {
@@ -318,8 +317,8 @@ func deserializePaymentAttemptInfoMigration9(r io.Reader) (*PaymentAttemptInfo, 
 	return a, nil
 }
 
-func deserializeRouteMigration9(r io.Reader) (route.Route, error) {
-	rt := route.Route{}
+func deserializeRouteMigration9(r io.Reader) (Route, error) {
+	rt := Route{}
 	if err := ReadElements(r,
 		&rt.TotalTimeLock, &rt.TotalAmount,
 	); err != nil {
@@ -337,7 +336,7 @@ func deserializeRouteMigration9(r io.Reader) (route.Route, error) {
 		return rt, err
 	}
 
-	var hops []*route.Hop
+	var hops []*Hop
 	for i := uint32(0); i < numHops; i++ {
 		hop, err := deserializeHopMigration9(r)
 		if err != nil {
@@ -350,8 +349,8 @@ func deserializeRouteMigration9(r io.Reader) (route.Route, error) {
 	return rt, nil
 }
 
-func deserializeHopMigration9(r io.Reader) (*route.Hop, error) {
-	h := &route.Hop{}
+func deserializeHopMigration9(r io.Reader) (*Hop, error) {
+	h := &Hop{}
 
 	var pub []byte
 	if err := ReadElements(r, &pub); err != nil {

@@ -16,7 +16,6 @@ import (
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/lightningnetwork/lnd/routing/route"
 )
 
 // TestPaymentStatusesMigration checks that already completed payments will have
@@ -714,25 +713,25 @@ func makeRandPaymentCreationInfo() (*PaymentCreationInfo, error) {
 func TestPaymentRouteSerialization(t *testing.T) {
 	t.Parallel()
 
-	legacyHop1 := &route.Hop{
-		PubKeyBytes:      route.NewVertex(pub),
+	legacyHop1 := &Hop{
+		PubKeyBytes:      NewVertex(pub),
 		ChannelID:        12345,
 		OutgoingTimeLock: 111,
 		LegacyPayload:    true,
 		AmtToForward:     555,
 	}
-	legacyHop2 := &route.Hop{
-		PubKeyBytes:      route.NewVertex(pub),
+	legacyHop2 := &Hop{
+		PubKeyBytes:      NewVertex(pub),
 		ChannelID:        12345,
 		OutgoingTimeLock: 111,
 		LegacyPayload:    true,
 		AmtToForward:     555,
 	}
-	legacyRoute := route.Route{
+	legacyRoute := Route{
 		TotalTimeLock: 123,
 		TotalAmount:   1234567,
-		SourcePubKey:  route.NewVertex(pub),
-		Hops:          []*route.Hop{legacyHop1, legacyHop2},
+		SourcePubKey:  NewVertex(pub),
+		Hops:          []*Hop{legacyHop1, legacyHop2},
 	}
 
 	const numPayments = 4

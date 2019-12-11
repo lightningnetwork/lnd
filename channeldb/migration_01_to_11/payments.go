@@ -14,7 +14,6 @@ import (
 	"github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -213,7 +212,7 @@ type PaymentAttemptInfo struct {
 	SessionKey *btcec.PrivateKey
 
 	// Route is the route attempted to send the HTLC.
-	Route route.Route
+	Route Route
 }
 
 // Payment is a wrapper around a payment's PaymentCreationInfo,
@@ -464,7 +463,7 @@ func deserializePaymentAttemptInfo(r io.Reader) (*PaymentAttemptInfo, error) {
 	return a, nil
 }
 
-func serializeHop(w io.Writer, h *route.Hop) error {
+func serializeHop(w io.Writer, h *Hop) error {
 	if err := WriteElements(w,
 		h.PubKeyBytes[:], h.ChannelID, h.OutgoingTimeLock,
 		h.AmtToForward,
@@ -513,8 +512,8 @@ func serializeHop(w io.Writer, h *route.Hop) error {
 // to read/write a TLV stream larger than this.
 const maxOnionPayloadSize = 1300
 
-func deserializeHop(r io.Reader) (*route.Hop, error) {
-	h := &route.Hop{}
+func deserializeHop(r io.Reader) (*Hop, error) {
+	h := &Hop{}
 
 	var pub []byte
 	if err := ReadElements(r, &pub); err != nil {
@@ -568,7 +567,7 @@ func deserializeHop(r io.Reader) (*route.Hop, error) {
 }
 
 // SerializeRoute serializes a route.
-func SerializeRoute(w io.Writer, r route.Route) error {
+func SerializeRoute(w io.Writer, r Route) error {
 	if err := WriteElements(w,
 		r.TotalTimeLock, r.TotalAmount, r.SourcePubKey[:],
 	); err != nil {
@@ -589,8 +588,8 @@ func SerializeRoute(w io.Writer, r route.Route) error {
 }
 
 // DeserializeRoute deserializes a route.
-func DeserializeRoute(r io.Reader) (route.Route, error) {
-	rt := route.Route{}
+func DeserializeRoute(r io.Reader) (Route, error) {
+	rt := Route{}
 	if err := ReadElements(r,
 		&rt.TotalTimeLock, &rt.TotalAmount,
 	); err != nil {
@@ -608,7 +607,7 @@ func DeserializeRoute(r io.Reader) (route.Route, error) {
 		return rt, err
 	}
 
-	var hops []*route.Hop
+	var hops []*Hop
 	for i := uint32(0); i < numHops; i++ {
 		hop, err := deserializeHop(r)
 		if err != nil {

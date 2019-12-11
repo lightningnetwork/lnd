@@ -5,7 +5,6 @@ import (
 	"io"
 
 	"github.com/coreos/bbolt"
-	"github.com/lightningnetwork/lnd/routing/route"
 )
 
 // MigrateRouteSerialization migrates the way we serialize routes across the
@@ -154,8 +153,8 @@ func serializePaymentAttemptInfoLegacy(w io.Writer, a *PaymentAttemptInfo) error
 	return nil
 }
 
-func deserializeHopLegacy(r io.Reader) (*route.Hop, error) {
-	h := &route.Hop{}
+func deserializeHopLegacy(r io.Reader) (*Hop, error) {
+	h := &Hop{}
 
 	var pub []byte
 	if err := ReadElements(r, &pub); err != nil {
@@ -172,7 +171,7 @@ func deserializeHopLegacy(r io.Reader) (*route.Hop, error) {
 	return h, nil
 }
 
-func serializeHopLegacy(w io.Writer, h *route.Hop) error {
+func serializeHopLegacy(w io.Writer, h *Hop) error {
 	if err := WriteElements(w,
 		h.PubKeyBytes[:], h.ChannelID, h.OutgoingTimeLock,
 		h.AmtToForward,
@@ -183,8 +182,8 @@ func serializeHopLegacy(w io.Writer, h *route.Hop) error {
 	return nil
 }
 
-func deserializeRouteLegacy(r io.Reader) (route.Route, error) {
-	rt := route.Route{}
+func deserializeRouteLegacy(r io.Reader) (Route, error) {
+	rt := Route{}
 	if err := ReadElements(r,
 		&rt.TotalTimeLock, &rt.TotalAmount,
 	); err != nil {
@@ -202,7 +201,7 @@ func deserializeRouteLegacy(r io.Reader) (route.Route, error) {
 		return rt, err
 	}
 
-	var hops []*route.Hop
+	var hops []*Hop
 	for i := uint32(0); i < numHops; i++ {
 		hop, err := deserializeHopLegacy(r)
 		if err != nil {
@@ -215,7 +214,7 @@ func deserializeRouteLegacy(r io.Reader) (route.Route, error) {
 	return rt, nil
 }
 
-func serializeRouteLegacy(w io.Writer, r route.Route) error {
+func serializeRouteLegacy(w io.Writer, r Route) error {
 	if err := WriteElements(w,
 		r.TotalTimeLock, r.TotalAmount, r.SourcePubKey[:],
 	); err != nil {

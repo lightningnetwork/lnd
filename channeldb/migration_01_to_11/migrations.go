@@ -9,7 +9,6 @@ import (
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/lightningnetwork/lnd/routing/route"
 )
 
 // MigrateNodeAndEdgeUpdateIndex is a migration function that will update the
@@ -817,14 +816,14 @@ func MigrateOutgoingPayments(tx *bbolt.Tx) error {
 
 		// Do the same for the PaymentAttemptInfo.
 		totalAmt := payment.Terms.Value + payment.Fee
-		rt := route.Route{
+		rt := Route{
 			TotalTimeLock: payment.TimeLockLength,
 			TotalAmount:   totalAmt,
 			SourcePubKey:  sourcePubKey,
-			Hops:          []*route.Hop{},
+			Hops:          []*Hop{},
 		}
 		for _, hop := range payment.Path {
-			rt.Hops = append(rt.Hops, &route.Hop{
+			rt.Hops = append(rt.Hops, &Hop{
 				PubKeyBytes:  hop,
 				AmtToForward: totalAmt,
 			})

@@ -38,6 +38,10 @@ var (
 			Entity: "signer",
 			Action: "generate",
 		},
+		{
+			Entity: "signer",
+			Action: "read",
+		},
 	}
 
 	// macPermissions maps RPC calls to the permissions they require.
@@ -49,6 +53,14 @@ var (
 		"/signrpc.Signer/ComputeInputScript": {{
 			Entity: "signer",
 			Action: "generate",
+		}},
+		"/signrpc.Signer/SignMessage": {{
+			Entity: "signer",
+			Action: "generate",
+		}},
+		"/signrpc.Signer/VerifyMessage": {{
+			Entity: "signer",
+			Action: "read",
 		}},
 	}
 

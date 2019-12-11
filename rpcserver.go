@@ -115,6 +115,10 @@ var (
 			Entity: "invoices",
 			Action: "read",
 		},
+		{
+			Entity: "signer",
+			Action: "read",
+		},
 	}
 
 	// writePermissions is a slice of all entities that allow write

@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
@@ -690,8 +689,8 @@ func (p *mockPayload) MultiPath() *record.MPP {
 	return p.mpp
 }
 
-func (p *mockPayload) CustomRecords() hop.CustomRecordSet {
-	return make(hop.CustomRecordSet)
+func (p *mockPayload) CustomRecords() record.CustomSet {
+	return make(record.CustomSet)
 }
 
 // TestSettleMpp tests settling of an invoice with multiple partial payments.

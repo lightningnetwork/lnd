@@ -29,12 +29,6 @@ const (
 	RequiredViolation
 )
 
-const (
-	// CustomTypeStart is the start of the custom tlv type range as defined
-	// in BOLT 01.
-	CustomTypeStart = 65536
-)
-
 // String returns a human-readable description of the violation as a verb.
 func (v PayloadViolation) String() string {
 	switch v {
@@ -79,9 +73,6 @@ func (e ErrInvalidPayload) Error() string {
 		hopType, e.Violation, e.Type)
 }
 
-// CustomRecordSet stores a set of custom key/value pairs.
-type CustomRecordSet map[uint64][]byte
-
 // Payload encapsulates all information delivered to a hop in an onion payload.
 // A Hop can represent either a TLV or legacy payload. The primary forwarding
 // instruction can be accessed via ForwardingInfo, and additional records can be
@@ -97,7 +88,7 @@ type Payload struct {
 
 	// customRecords are user-defined records in the custom type range that
 	// were included in the payload.
-	customRecords CustomRecordSet
+	customRecords record.CustomSet
 }
 
 // NewLegacyPayload builds a Payload from the amount, cltv, and next hop
@@ -112,7 +103,7 @@ func NewLegacyPayload(f *sphinx.HopData) *Payload {
 			AmountToForward: lnwire.MilliSatoshi(f.ForwardAmount),
 			OutgoingCTLV:    f.OutgoingCltv,
 		},
-		customRecords: make(CustomRecordSet),
+		customRecords: make(record.CustomSet),
 	}
 }
 
@@ -188,10 +179,10 @@ func (h *Payload) ForwardingInfo() ForwardingInfo {
 
 // NewCustomRecords filters the types parsed from the tlv stream for custom
 // records.
-func NewCustomRecords(parsedTypes tlv.TypeMap) CustomRecordSet {
-	customRecords := make(CustomRecordSet)
+func NewCustomRecords(parsedTypes tlv.TypeMap) record.CustomSet {
+	customRecords := make(record.CustomSet)
 	for t, parseResult := range parsedTypes {
-		if parseResult == nil || t < CustomTypeStart {
+		if parseResult == nil || t < record.CustomTypeStart {
 			continue
 		}
 		customRecords[uint64(t)] = parseResult
@@ -261,7 +252,7 @@ func (h *Payload) MultiPath() *record.MPP {
 
 // CustomRecords returns the custom tlv type records that were parsed from the
 // payload.
-func (h *Payload) CustomRecords() CustomRecordSet {
+func (h *Payload) CustomRecords() record.CustomSet {
 	return h.customRecords
 }
 
@@ -280,7 +271,9 @@ func getMinRequiredViolation(set tlv.TypeMap) *tlv.Type {
 		//
 		// We always accept custom fields, because a higher level
 		// application may understand them.
-		if parseResult == nil || t%2 != 0 || t >= CustomTypeStart {
+		if parseResult == nil || t%2 != 0 ||
+			t >= record.CustomTypeStart {
+
 			continue
 		}
 

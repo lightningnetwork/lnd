@@ -244,7 +244,7 @@ func testDecodeHopPayloadValidation(t *testing.T, test decodePayloadTest) {
 
 	// Convert expected nil map to empty map, because we always expect an
 	// initiated map from the payload.
-	expCustomRecords := make(hop.CustomRecordSet)
+	expCustomRecords := make(record.CustomSet)
 	if test.expCustomRecords != nil {
 		expCustomRecords = test.expCustomRecords
 	}

@@ -13,7 +13,6 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -385,9 +384,9 @@ func UnmarshallCustomRecords(rpcRecords map[uint64][]byte) ([]tlv.Record,
 
 	// tlvRecords is sorted, so we only need to check that the first
 	// element is within the custom range.
-	if uint64(tlvRecords[0].Type()) < hop.CustomTypeStart {
+	if uint64(tlvRecords[0].Type()) < record.CustomTypeStart {
 		return nil, fmt.Errorf("no custom records with types "+
-			"below %v allowed", hop.CustomTypeStart)
+			"below %v allowed", record.CustomTypeStart)
 	}
 
 	return tlvRecords, nil

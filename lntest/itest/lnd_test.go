@@ -33,9 +33,11 @@ import (
 	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/chanbackup"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/watchtowerrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/wtclientrpc"
 	"github.com/lightningnetwork/lnd/lntest"
@@ -955,8 +957,8 @@ func testOnchainFundRecovery(net *lntest.NetworkHarness, t *harnessTest) {
 // then return a function closure that should be called to assert proper
 // channel closure.
 func basicChannelFundingTest(t *harnessTest, net *lntest.NetworkHarness,
-	alice *lntest.HarnessNode,
-	bob *lntest.HarnessNode) (*lnrpc.Channel, *lnrpc.Channel, func(), error) {
+	alice *lntest.HarnessNode, bob *lntest.HarnessNode,
+	fundingShim *lnrpc.FundingShim) (*lnrpc.Channel, *lnrpc.Channel, func(), error) {
 
 	chanAmt := lnd.MaxBtcFundingAmount
 	pushAmt := btcutil.Amount(100000)
@@ -972,8 +974,9 @@ func basicChannelFundingTest(t *harnessTest, net *lntest.NetworkHarness,
 	chanPoint := openChannelAndAssert(
 		ctxt, t, net, alice, bob,
 		lntest.OpenChannelParams{
-			Amt:     chanAmt,
-			PushAmt: pushAmt,
+			Amt:         chanAmt,
+			PushAmt:     pushAmt,
+			FundingShim: fundingShim,
 		},
 	)
 
@@ -1095,7 +1098,7 @@ test:
 			ht := t
 			success := t.t.Run(testName, func(t *testing.T) {
 				carolChannel, daveChannel, closeChan, err := basicChannelFundingTest(
-					ht, net, carol, dave,
+					ht, net, carol, dave, nil,
 				)
 				if err != nil {
 					t.Fatalf("failed funding flow: %v", err)
@@ -14907,6 +14910,181 @@ func testHoldInvoicePersistence(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 }
 
+// testExternalFundingChanPoint tests that we're able to carry out a normal
+// channel funding workflow given a channel point that was constructed outside
+// the main daemon.
+func testExternalFundingChanPoint(net *lntest.NetworkHarness, t *harnessTest) {
+	ctxb := context.Background()
+
+	// First, we'll create two new nodes that we'll use to open channel
+	// between for this test.
+	carol, err := net.NewNode("carol", nil)
+	if err != nil {
+		t.Fatalf("unable to start new node: %v", err)
+	}
+	defer shutdownAndAssert(net, t, carol)
+
+	dave, err := net.NewNode("dave", nil)
+	if err != nil {
+		t.Fatalf("unable to start new node: %v", err)
+	}
+	defer shutdownAndAssert(net, t, dave)
+
+	// Carol will be funding the channel, so we'll send some coins over to
+	// her and ensure they have enough confirmations before we proceed.
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
+	err = net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, carol)
+	if err != nil {
+		t.Fatalf("unable to send coins to carol: %v", err)
+	}
+
+	// Before we start the test, we'll ensure both sides are connected to
+	// the funding flow can properly be executed.
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	err = net.EnsureConnected(ctxt, carol, dave)
+	if err != nil {
+		t.Fatalf("unable to connect peers: %v", err)
+	}
+
+	// At this point, we're ready to simulate our external channle funding
+	// flow. To start with, we'll get to new keys from both sides which
+	// will be used to create the multi-sig output for the external funding
+	// transaction.
+	keyLoc := &signrpc.KeyLocator{
+		KeyFamily: 9999,
+		KeyIndex:  1,
+	}
+	carolFundingKey, err := carol.WalletKitClient.DeriveKey(ctxb, keyLoc)
+	if err != nil {
+		t.Fatalf("unable to get carol funding key: %v", err)
+	}
+	daveFundingKey, err := dave.WalletKitClient.DeriveKey(ctxb, keyLoc)
+	if err != nil {
+		t.Fatalf("unable to get dave funding key: %v", err)
+	}
+
+	// Now that we have the multi-sig keys for each party, we can manually
+	// construct the funding transaction. We'll instruct the backend to
+	// immediately create and broadcast a transaction paying out an exact
+	// amount. Normally this would reside in the mempool, but we just
+	// confirm it now for simplicity.
+	const chanSize = lnd.MaxBtcFundingAmount
+	_, fundingOutput, err := input.GenFundingPkScript(
+		carolFundingKey.RawKeyBytes, daveFundingKey.RawKeyBytes,
+		int64(chanSize),
+	)
+	if err != nil {
+		t.Fatalf("unable to create funding script: %v", err)
+	}
+	txid, err := net.Miner.SendOutputsWithoutChange(
+		[]*wire.TxOut{fundingOutput}, 5,
+	)
+	if err != nil {
+		t.Fatalf("unable to create funding output: %v", err)
+	}
+
+	// At this point, we can being our external channel funding workflow.
+	// We'll start by generating a pending channel ID externally that will
+	// be used to track this new funding type.
+	var pendingChanID [32]byte
+	if _, err := rand.Read(pendingChanID[:]); err != nil {
+		t.Fatalf("unable to gen pending chan ID: %v", err)
+	}
+
+	// Now that we have the pending channel ID, Dave (our responder) will
+	// register the intent to receive a new channel funding workflow using
+	// the pending channel ID.
+	chanPointShim := &lnrpc.ChanPointShim{
+		Amt: int64(chanSize),
+		ChanPoint: &lnrpc.ChannelPoint{
+			FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
+				FundingTxidBytes: txid[:],
+			},
+		},
+		LocalKey: &lnrpc.KeyDescriptor{
+			RawKeyBytes: daveFundingKey.RawKeyBytes,
+			KeyLoc: &lnrpc.KeyLocator{
+				KeyFamily: daveFundingKey.KeyLoc.KeyFamily,
+				KeyIndex:  daveFundingKey.KeyLoc.KeyIndex,
+			},
+		},
+		RemoteKey:     carolFundingKey.RawKeyBytes,
+		PendingChanId: pendingChanID[:],
+	}
+	fundingShim := &lnrpc.FundingShim{
+		Shim: &lnrpc.FundingShim_ChanPointShim{
+			ChanPointShim: chanPointShim,
+		},
+	}
+	_, err = dave.FundingStateStep(ctxb, &lnrpc.FundingTransitionMsg{
+		Trigger: &lnrpc.FundingTransitionMsg_ShimRegister{
+			ShimRegister: fundingShim,
+		},
+	})
+	if err != nil {
+		t.Fatalf("unable to walk funding state forward: %v", err)
+	}
+
+	// If we attempt to register the same shim (has the same pending chan
+	// ID), then we should get an error.
+	_, err = dave.FundingStateStep(ctxb, &lnrpc.FundingTransitionMsg{
+		Trigger: &lnrpc.FundingTransitionMsg_ShimRegister{
+			ShimRegister: fundingShim,
+		},
+	})
+	if err == nil {
+		t.Fatalf("duplicate pending channel ID funding shim " +
+			"registration should trigger an error")
+	}
+
+	// We'll take the chan point shim we just registered for Dave (the
+	// responder), and swap the local/remote keys before we feed it in as
+	// Carol's funding shim as the initiator.
+	fundingShim.GetChanPointShim().LocalKey = &lnrpc.KeyDescriptor{
+		RawKeyBytes: carolFundingKey.RawKeyBytes,
+		KeyLoc: &lnrpc.KeyLocator{
+			KeyFamily: carolFundingKey.KeyLoc.KeyFamily,
+			KeyIndex:  carolFundingKey.KeyLoc.KeyIndex,
+		},
+	}
+	fundingShim.GetChanPointShim().RemoteKey = daveFundingKey.RawKeyBytes
+
+	// At this point, we'll now carry out the normal basic channel funding
+	// test as everything should now proceed as normal (a regular channel
+	// funding flow).
+	_, _, closeChans, err := basicChannelFundingTest(
+		t, net, carol, dave, fundingShim,
+	)
+	if err != nil {
+		t.Fatalf("unable to open channels: %v", err)
+	}
+
+	// Next, to make sure the channel functions as normal, we'll make some
+	// payments within the channel.
+	payAmt := btcutil.Amount(100000)
+	invoice := &lnrpc.Invoice{
+		Memo:  "new chans",
+		Value: int64(payAmt),
+	}
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	resp, err := dave.AddInvoice(ctxt, invoice)
+	if err != nil {
+		t.Fatalf("unable to add invoice: %v", err)
+	}
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	err = completePaymentRequests(
+		ctxt, carol, []string{resp.PaymentRequest}, true,
+	)
+	if err != nil {
+		t.Fatalf("unable to make payments between Carol and Dave")
+	}
+
+	// To conclude, we'll close the newly created channel between Carol and
+	// Dave.
+	closeChans()
+
+}
+
 type testCase struct {
 	name string
 	test func(net *lntest.NetworkHarness, t *harnessTest)
@@ -15169,6 +15347,10 @@ var testsCases = []*testCase{
 	{
 		name: "immediate payment after channel opened",
 		test: testPaymentFollowingChannelOpen,
+	},
+	{
+		name: "external channel funding",
+		test: testExternalFundingChanPoint,
 	},
 }
 

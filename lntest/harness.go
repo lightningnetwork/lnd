@@ -844,6 +844,10 @@ type OpenChannelParams struct {
 
 	// MinHtlc is the htlc_minimum_msat value set when opening the channel.
 	MinHtlc lnwire.MilliSatoshi
+
+	// FundingShim is an optional funding shim that the caller can specify
+	// in order to modify the channel funding workflow.
+	FundingShim *lnrpc.FundingShim
 }
 
 // OpenChannel attempts to open a channel between srcNode and destNode with the
@@ -879,6 +883,7 @@ func (n *NetworkHarness) OpenChannel(ctx context.Context,
 		MinConfs:           minConfs,
 		SpendUnconfirmed:   p.SpendUnconfirmed,
 		MinHtlcMsat:        int64(p.MinHtlc),
+		FundingShim:        p.FundingShim,
 	}
 
 	respStream, err := srcNode.OpenChannel(ctx, openReq)

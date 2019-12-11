@@ -97,6 +97,7 @@ func (p *paymentSession) RequestRoute(payment *LightningPayment,
 		OutgoingChannelID: payment.OutgoingChannelID,
 		LastHop:           payment.LastHop,
 		CltvLimit:         cltvLimit,
+		DestCustomRecords: payment.DestCustomRecords,
 	}
 
 	// We'll also obtain a set of bandwidthHints from the lower layer for

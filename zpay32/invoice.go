@@ -257,7 +257,8 @@ func RouteHint(routeHint []HopHint) func(*Invoice) {
 }
 
 // Features is a functional option that allows callers of NewInvoice to set the
-// desired feature bits that are advertised on the invoice.
+// desired feature bits that are advertised on the invoice. If this option is
+// not used, an empty feature vector will automatically be populated.
 func Features(features *lnwire.FeatureVector) func(*Invoice) {
 	return func(i *Invoice) {
 		i.Features = features
@@ -288,6 +289,13 @@ func NewInvoice(net *chaincfg.Params, paymentHash [32]byte,
 
 	for _, option := range options {
 		option(invoice)
+	}
+
+	// If no features were set, we'll populate an empty feature vector.
+	if invoice.Features == nil {
+		invoice.Features = lnwire.NewFeatureVector(
+			nil, lnwire.Features,
+		)
 	}
 
 	if err := validateInvoice(invoice); err != nil {
@@ -396,6 +404,13 @@ func Decode(invoice string, net *chaincfg.Params) (*Invoice, error) {
 			return nil, err
 		}
 		decodedInvoice.Destination = pubkey
+	}
+
+	// If no feature vector was decoded, populate an empty one.
+	if decodedInvoice.Features == nil {
+		decodedInvoice.Features = lnwire.NewFeatureVector(
+			nil, lnwire.Features,
+		)
 	}
 
 	// Now that we have created the invoice, make sure it has the required
@@ -584,6 +599,11 @@ func validateInvoice(invoice *Invoice) error {
 		len(invoice.Destination.SerializeCompressed()) != 33 {
 		return fmt.Errorf("unsupported pubkey length: %d",
 			len(invoice.Destination.SerializeCompressed()))
+	}
+
+	// Ensure that all invoices have feature vectors.
+	if invoice.Features == nil {
+		return fmt.Errorf("missing feature vector")
 	}
 
 	return nil
@@ -1070,7 +1090,7 @@ func writeTaggedFields(bufferBase32 *bytes.Buffer, invoice *Invoice) error {
 			return err
 		}
 	}
-	if invoice.Features != nil && invoice.Features.SerializeSize32() > 0 {
+	if invoice.Features.SerializeSize32() > 0 {
 		var b bytes.Buffer
 		err := invoice.Features.RawFeatureVector.EncodeBase32(&b)
 		if err != nil {

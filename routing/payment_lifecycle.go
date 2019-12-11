@@ -239,7 +239,7 @@ func (p *paymentLifecycle) createNewPaymentAttempt() (lnwire.ShortChannelID,
 	}
 
 	// Create a new payment attempt from the given payment session.
-	route, err := p.paySession.RequestRoute(
+	rt, err := p.paySession.RequestRoute(
 		p.payment, uint32(p.currentHeight), p.finalCLTVDelta,
 	)
 	if err != nil {
@@ -279,7 +279,7 @@ func (p *paymentLifecycle) createNewPaymentAttempt() (lnwire.ShortChannelID,
 	// with the htlcAdd message that we send directly to the
 	// switch.
 	onionBlob, c, err := generateSphinxPacket(
-		route, p.payment.PaymentHash[:], sessionKey,
+		rt, p.payment.PaymentHash[:], sessionKey,
 	)
 	if err != nil {
 		return lnwire.ShortChannelID{}, nil, err
@@ -293,8 +293,8 @@ func (p *paymentLifecycle) createNewPaymentAttempt() (lnwire.ShortChannelID,
 	// metadata within this packet will be used to route the
 	// payment through the network, starting with the first-hop.
 	htlcAdd := &lnwire.UpdateAddHTLC{
-		Amount:      route.TotalAmount,
-		Expiry:      route.TotalTimeLock,
+		Amount:      rt.TotalAmount,
+		Expiry:      rt.TotalTimeLock,
 		PaymentHash: p.payment.PaymentHash,
 	}
 	copy(htlcAdd.OnionBlob[:], onionBlob)
@@ -303,7 +303,7 @@ func (p *paymentLifecycle) createNewPaymentAttempt() (lnwire.ShortChannelID,
 	// the payment. If this attempt fails, then we'll continue on
 	// to the next available route.
 	firstHop := lnwire.NewShortChanIDFromInt(
-		route.Hops[0].ChannelID,
+		rt.Hops[0].ChannelID,
 	)
 
 	// We generate a new, unique payment ID that we will use for
@@ -318,7 +318,7 @@ func (p *paymentLifecycle) createNewPaymentAttempt() (lnwire.ShortChannelID,
 	p.attempt = &channeldb.PaymentAttemptInfo{
 		PaymentID:  paymentID,
 		SessionKey: sessionKey,
-		Route:      *route,
+		Route:      *rt,
 	}
 
 	// Before sending this HTLC to the switch, we checkpoint the

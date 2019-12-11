@@ -709,20 +709,31 @@ func TestGossipSyncerReplyChanRangeQuery(t *testing.T) {
 
 	// Next, we'll craft a query to ask for all the new chan ID's after
 	// block 100.
+	const startingBlockHeight int = 100
 	query := &lnwire.QueryChannelRange{
-		FirstBlockHeight: 100,
+		FirstBlockHeight: uint32(startingBlockHeight),
 		NumBlocks:        50,
 	}
 
 	// We'll then launch a goroutine to reply to the query with a set of 5
 	// responses. This will ensure we get two full chunks, and one partial
 	// chunk.
-	resp := []lnwire.ShortChannelID{
-		lnwire.NewShortChanIDFromInt(1),
-		lnwire.NewShortChanIDFromInt(2),
-		lnwire.NewShortChanIDFromInt(3),
-		lnwire.NewShortChanIDFromInt(4),
-		lnwire.NewShortChanIDFromInt(5),
+	queryResp := []lnwire.ShortChannelID{
+		{
+			BlockHeight: uint32(startingBlockHeight),
+		},
+		{
+			BlockHeight: 102,
+		},
+		{
+			BlockHeight: 104,
+		},
+		{
+			BlockHeight: 106,
+		},
+		{
+			BlockHeight: 108,
+		},
 	}
 
 	errCh := make(chan error, 1)
@@ -740,7 +751,7 @@ func TestGossipSyncerReplyChanRangeQuery(t *testing.T) {
 
 			// If the proper request was sent, then we'll respond
 			// with our set of short channel ID's.
-			chanSeries.filterRangeResp <- resp
+			chanSeries.filterRangeResp <- queryResp
 			errCh <- nil
 		}
 	}()
@@ -767,16 +778,52 @@ func TestGossipSyncerReplyChanRangeQuery(t *testing.T) {
 				t.Fatalf("expected ReplyChannelRange instead got %T", msg)
 			}
 
+			// Only for the first iteration do we set the offset to
+			// zero as no chunks have been processed yet. For every
+			// other iteration, we want to move forward by the
+			// chunkSize (from the staring block height).
+			offset := 0
+			if i != 0 {
+				offset = 1
+			}
+			expectedFirstBlockHeight := (i+offset)*2 + startingBlockHeight
+
+			switch {
 			// If this is not the last chunk, then Complete should
 			// be set to zero. Otherwise, it should be one.
-			switch {
 			case i < 2 && rangeResp.Complete != 0:
 				t.Fatalf("non-final chunk should have "+
 					"Complete=0: %v", spew.Sdump(rangeResp))
 
+			case i < 2 && rangeResp.NumBlocks != chunkSize+1:
+				t.Fatalf("NumBlocks fields in resp "+
+					"incorrect: expected %v got %v",
+					chunkSize+1, rangeResp.NumBlocks)
+
+			case i < 2 && rangeResp.FirstBlockHeight !=
+				uint32(expectedFirstBlockHeight):
+
+				t.Fatalf("FirstBlockHeight incorrect: "+
+					"expected %v got %v",
+					rangeResp.FirstBlockHeight,
+					expectedFirstBlockHeight)
 			case i == 2 && rangeResp.Complete != 1:
 				t.Fatalf("final chunk should have "+
 					"Complete=1: %v", spew.Sdump(rangeResp))
+
+			case i == 2 && rangeResp.NumBlocks != 1:
+				t.Fatalf("NumBlocks fields in resp "+
+					"incorrect: expected %v got %v", 1,
+					rangeResp.NumBlocks)
+
+			case i == 2 && rangeResp.FirstBlockHeight !=
+				queryResp[len(queryResp)-1].BlockHeight:
+
+				t.Fatalf("FirstBlockHeight incorrect: "+
+					"expected %v got %v",
+					rangeResp.FirstBlockHeight,
+					queryResp[len(queryResp)-1].BlockHeight)
+
 			}
 
 			respMsgs = append(respMsgs, rangeResp.ShortChanIDs...)
@@ -785,13 +832,13 @@ func TestGossipSyncerReplyChanRangeQuery(t *testing.T) {
 
 	// We should get back exactly 5 short chan ID's, and they should match
 	// exactly the ID's we sent as a reply.
-	if len(respMsgs) != len(resp) {
+	if len(respMsgs) != len(queryResp) {
 		t.Fatalf("expected %v chan ID's, instead got %v",
-			len(resp), spew.Sdump(respMsgs))
+			len(queryResp), spew.Sdump(respMsgs))
 	}
-	if !reflect.DeepEqual(resp, respMsgs) {
+	if !reflect.DeepEqual(queryResp, respMsgs) {
 		t.Fatalf("mismatched response: expected %v, got %v",
-			spew.Sdump(resp), spew.Sdump(respMsgs))
+			spew.Sdump(queryResp), spew.Sdump(respMsgs))
 	}
 
 	// Wait for error from goroutine.

@@ -107,9 +107,9 @@ type Hop struct {
 	// only be set for the final hop.
 	MPP *record.MPP
 
-	// TLVRecords if non-nil are a set of additional TLV records that
+	// CustomRecords if non-nil are a set of additional TLV records that
 	// should be included in the forwarding instructions for this node.
-	TLVRecords []tlv.Record
+	CustomRecords record.CustomSet
 
 	// LegacyPayload if true, then this signals that this node doesn't
 	// understand the new TLV payload, so we must instead use the legacy
@@ -165,7 +165,8 @@ func (h *Hop) PackHopPayload(w io.Writer, nextChanID uint64) error {
 	}
 
 	// Append any custom types destined for this hop.
-	records = append(records, h.TLVRecords...)
+	tlvRecords := tlv.MapToRecords(h.CustomRecords)
+	records = append(records, tlvRecords...)
 
 	// To ensure we produce a canonical stream, we'll sort the records
 	// before encoding them as a stream in the hop payload.

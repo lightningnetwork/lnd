@@ -19,7 +19,6 @@ import (
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/routing/route"
-	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/lightningnetwork/lnd/zpay32"
 )
 
@@ -45,7 +44,7 @@ type RouterBackend struct {
 	// routes.
 	FindRoute func(source, target route.Vertex,
 		amt lnwire.MilliSatoshi, restrictions *routing.RestrictParams,
-		destTlvRecords []tlv.Record,
+		destCustomRecords record.CustomSet,
 		finalExpiry ...uint16) (*route.Route, error)
 
 	MissionControl MissionControl
@@ -232,7 +231,7 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 	// If we have any TLV records destined for the final hop, then we'll
 	// attempt to decode them now into a form that the router can more
 	// easily manipulate.
-	destTlvRecords, err := UnmarshallCustomRecords(in.DestCustomRecords)
+	err = ValidateCustomRecords(in.DestCustomRecords)
 	if err != nil {
 		return nil, err
 	}
@@ -242,7 +241,7 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 	// the route.
 	route, err := r.FindRoute(
 		sourcePubKey, targetPubKey, amt, restrictions,
-		destTlvRecords, finalCLTVDelta,
+		in.DestCustomRecords, finalCLTVDelta,
 	)
 	if err != nil {
 		return nil, err
@@ -346,11 +345,6 @@ func (r *RouterBackend) MarshallRoute(route *route.Route) (*lnrpc.Route, error) 
 			}
 		}
 
-		tlvMap, err := tlv.RecordsToMap(hop.TLVRecords)
-		if err != nil {
-			return nil, err
-		}
-
 		resp.Hops[i] = &lnrpc.Hop{
 			ChanId:           hop.ChannelID,
 			ChanCapacity:     int64(chanCapacity),
@@ -362,7 +356,7 @@ func (r *RouterBackend) MarshallRoute(route *route.Route) (*lnrpc.Route, error) 
 			PubKey: hex.EncodeToString(
 				hop.PubKeyBytes[:],
 			),
-			CustomRecords: tlvMap,
+			CustomRecords: hop.CustomRecords,
 			TlvPayload:    !hop.LegacyPayload,
 			MppRecord:     mpp,
 		}
@@ -372,24 +366,16 @@ func (r *RouterBackend) MarshallRoute(route *route.Route) (*lnrpc.Route, error) 
 	return resp, nil
 }
 
-// UnmarshallCustomRecords unmarshall rpc custom records to tlv records.
-func UnmarshallCustomRecords(rpcRecords map[uint64][]byte) ([]tlv.Record,
-	error) {
-
-	if len(rpcRecords) == 0 {
-		return nil, nil
+// ValidateCustomRecords checks that all custom records are in the custom type
+// range.
+func ValidateCustomRecords(rpcRecords map[uint64][]byte) error {
+	for key := range rpcRecords {
+		if key < record.CustomTypeStart {
+			return fmt.Errorf("no custom records with types "+
+				"below %v allowed", record.CustomTypeStart)
+		}
 	}
-
-	tlvRecords := tlv.MapToRecords(rpcRecords)
-
-	// tlvRecords is sorted, so we only need to check that the first
-	// element is within the custom range.
-	if uint64(tlvRecords[0].Type()) < record.CustomTypeStart {
-		return nil, fmt.Errorf("no custom records with types "+
-			"below %v allowed", record.CustomTypeStart)
-	}
-
-	return tlvRecords, nil
+	return nil
 }
 
 // UnmarshallHopWithPubkey unmarshalls an rpc hop for which the pubkey has
@@ -397,7 +383,7 @@ func UnmarshallCustomRecords(rpcRecords map[uint64][]byte) ([]tlv.Record,
 func UnmarshallHopWithPubkey(rpcHop *lnrpc.Hop, pubkey route.Vertex) (*route.Hop,
 	error) {
 
-	tlvRecords, err := UnmarshallCustomRecords(rpcHop.CustomRecords)
+	err := ValidateCustomRecords(rpcHop.CustomRecords)
 	if err != nil {
 		return nil, err
 	}
@@ -412,7 +398,7 @@ func UnmarshallHopWithPubkey(rpcHop *lnrpc.Hop, pubkey route.Vertex) (*route.Hop
 		AmtToForward:     lnwire.MilliSatoshi(rpcHop.AmtToForwardMsat),
 		PubKeyBytes:      pubkey,
 		ChannelID:        rpcHop.ChanId,
-		TLVRecords:       tlvRecords,
+		CustomRecords:    rpcHop.CustomRecords,
 		LegacyPayload:    !rpcHop.TlvPayload,
 		MPP:              mpp,
 	}, nil
@@ -540,12 +526,11 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 		return nil, errors.New("timeout_seconds must be specified")
 	}
 
-	payIntent.FinalDestRecords, err = UnmarshallCustomRecords(
-		rpcPayReq.DestCustomRecords,
-	)
+	err = ValidateCustomRecords(rpcPayReq.DestCustomRecords)
 	if err != nil {
 		return nil, err
 	}
+	payIntent.DestCustomRecords = rpcPayReq.DestCustomRecords
 
 	payIntent.PayAttemptTimeout = time.Second *
 		time.Duration(rpcPayReq.TimeoutSeconds)

@@ -11,8 +11,8 @@ import (
 	"github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing/route"
-	"github.com/lightningnetwork/lnd/tlv"
 )
 
 const (
@@ -100,7 +100,7 @@ type edgePolicyWithSource struct {
 func newRoute(amtToSend lnwire.MilliSatoshi, sourceVertex route.Vertex,
 	pathEdges []*channeldb.ChannelEdgePolicy, currentHeight uint32,
 	finalCLTVDelta uint16,
-	finalDestRecords []tlv.Record) (*route.Route, error) {
+	destCustomRecords record.CustomSet) (*route.Route, error) {
 
 	var (
 		hops []*route.Hop
@@ -198,8 +198,8 @@ func newRoute(amtToSend lnwire.MilliSatoshi, sourceVertex route.Vertex,
 
 		// If this is the last hop, then we'll populate any TLV records
 		// destined for it.
-		if i == len(pathEdges)-1 && len(finalDestRecords) != 0 {
-			currentHop.TLVRecords = finalDestRecords
+		if i == len(pathEdges)-1 && len(destCustomRecords) != 0 {
+			currentHop.CustomRecords = destCustomRecords
 		}
 
 		hops = append([]*route.Hop{currentHop}, hops...)

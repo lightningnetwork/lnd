@@ -67,12 +67,12 @@ var (
 func init() {
 	setSubLogger("LTND", ltndLog, signal.UseLogger)
 	setSubLogger("ATPL", atplLog, autopilot.UseLogger)
-	setSubLogger("PEER", peerLog, nil)
-	setSubLogger("RPCS", rpcsLog, nil)
-	setSubLogger("SRVR", srvrLog, nil)
-	setSubLogger("FNDG", fndgLog, nil)
-	setSubLogger("UTXN", utxnLog, nil)
-	setSubLogger("BRAR", brarLog, nil)
+	setSubLogger("PEER", peerLog)
+	setSubLogger("RPCS", rpcsLog)
+	setSubLogger("SRVR", srvrLog)
+	setSubLogger("FNDG", fndgLog)
+	setSubLogger("UTXN", utxnLog)
+	setSubLogger("BRAR", brarLog)
 
 	addSubLogger("LNWL", lnwallet.UseLogger)
 	addSubLogger("DISC", discovery.UseLogger)
@@ -99,27 +99,28 @@ func init() {
 	addSubLogger("PRNF", peernotifier.UseLogger)
 	addSubLogger("CHFD", chanfunding.UseLogger)
 
-	addSubLogger(routing.Subsystem, routing.UseLogger)
-	addSubLogger(routing.Subsystem, localchans.UseLogger)
+	addSubLogger(routing.Subsystem, routing.UseLogger, localchans.UseLogger)
 	addSubLogger(routerrpc.Subsystem, routerrpc.UseLogger)
 	addSubLogger(wtclientrpc.Subsystem, wtclientrpc.UseLogger)
 	addSubLogger(chanfitness.Subsystem, chanfitness.UseLogger)
 }
 
 // addSubLogger is a helper method to conveniently create and register the
-// logger of a sub system.
-func addSubLogger(subsystem string, useLogger func(btclog.Logger)) {
+// logger of one or more sub systems.
+func addSubLogger(subsystem string, useLoggers ...func(btclog.Logger)) {
+	// Create and register just a single logger to prevent them from
+	// overwriting each other internally.
 	logger := build.NewSubLogger(subsystem, logWriter.GenSubLogger)
-	setSubLogger(subsystem, logger, useLogger)
+	setSubLogger(subsystem, logger, useLoggers...)
 }
 
 // setSubLogger is a helper method to conveniently register the logger of a sub
 // system.
 func setSubLogger(subsystem string, logger btclog.Logger,
-	useLogger func(btclog.Logger)) {
+	useLoggers ...func(btclog.Logger)) {
 
 	logWriter.RegisterSubLogger(subsystem, logger)
-	if useLogger != nil {
+	for _, useLogger := range useLoggers {
 		useLogger(logger)
 	}
 }

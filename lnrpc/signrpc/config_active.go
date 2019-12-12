@@ -4,6 +4,7 @@ package signrpc
 
 import (
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/macaroons"
 )
 
@@ -30,4 +31,8 @@ type Config struct {
 	// job of the signer RPC server is simply to proxy valid requests to
 	// the active signer instance.
 	Signer input.Signer
+
+	// KeyRing is an interface that the signer will use to derive any keys
+	// for signing messages.
+	KeyRing keychain.SecretKeyRing
 }

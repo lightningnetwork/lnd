@@ -231,8 +231,8 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 	// If we have any TLV records destined for the final hop, then we'll
 	// attempt to decode them now into a form that the router can more
 	// easily manipulate.
-	err = ValidateCustomRecords(in.DestCustomRecords)
-	if err != nil {
+	customRecords := record.CustomSet(in.DestCustomRecords)
+	if err := customRecords.Validate(); err != nil {
 		return nil, err
 	}
 
@@ -241,7 +241,7 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 	// the route.
 	route, err := r.FindRoute(
 		sourcePubKey, targetPubKey, amt, restrictions,
-		in.DestCustomRecords, finalCLTVDelta,
+		customRecords, finalCLTVDelta,
 	)
 	if err != nil {
 		return nil, err
@@ -366,25 +366,13 @@ func (r *RouterBackend) MarshallRoute(route *route.Route) (*lnrpc.Route, error) 
 	return resp, nil
 }
 
-// ValidateCustomRecords checks that all custom records are in the custom type
-// range.
-func ValidateCustomRecords(rpcRecords map[uint64][]byte) error {
-	for key := range rpcRecords {
-		if key < record.CustomTypeStart {
-			return fmt.Errorf("no custom records with types "+
-				"below %v allowed", record.CustomTypeStart)
-		}
-	}
-	return nil
-}
-
 // UnmarshallHopWithPubkey unmarshalls an rpc hop for which the pubkey has
 // already been extracted.
 func UnmarshallHopWithPubkey(rpcHop *lnrpc.Hop, pubkey route.Vertex) (*route.Hop,
 	error) {
 
-	err := ValidateCustomRecords(rpcHop.CustomRecords)
-	if err != nil {
+	customRecords := record.CustomSet(rpcHop.CustomRecords)
+	if err := customRecords.Validate(); err != nil {
 		return nil, err
 	}
 
@@ -398,7 +386,7 @@ func UnmarshallHopWithPubkey(rpcHop *lnrpc.Hop, pubkey route.Vertex) (*route.Hop
 		AmtToForward:     lnwire.MilliSatoshi(rpcHop.AmtToForwardMsat),
 		PubKeyBytes:      pubkey,
 		ChannelID:        rpcHop.ChanId,
-		CustomRecords:    rpcHop.CustomRecords,
+		CustomRecords:    customRecords,
 		LegacyPayload:    !rpcHop.TlvPayload,
 		MPP:              mpp,
 	}, nil
@@ -526,11 +514,11 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 		return nil, errors.New("timeout_seconds must be specified")
 	}
 
-	err = ValidateCustomRecords(rpcPayReq.DestCustomRecords)
-	if err != nil {
+	customRecords := record.CustomSet(rpcPayReq.DestCustomRecords)
+	if err := customRecords.Validate(); err != nil {
 		return nil, err
 	}
-	payIntent.DestCustomRecords = rpcPayReq.DestCustomRecords
+	payIntent.DestCustomRecords = customRecords
 
 	payIntent.PayAttemptTimeout = time.Second *
 		time.Duration(rpcPayReq.TimeoutSeconds)

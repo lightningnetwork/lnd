@@ -3162,13 +3162,11 @@ func (r *rpcServer) extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPayme
 	}
 	payIntent.cltvLimit = cltvLimit
 
-	err = routerrpc.ValidateCustomRecords(
-		rpcPayReq.DestCustomRecords,
-	)
-	if err != nil {
+	customRecords := record.CustomSet(rpcPayReq.DestCustomRecords)
+	if err := customRecords.Validate(); err != nil {
 		return payIntent, err
 	}
-	payIntent.destCustomRecords = rpcPayReq.DestCustomRecords
+	payIntent.destCustomRecords = customRecords
 
 	validateDest := func(dest route.Vertex) error {
 		if rpcPayReq.AllowSelfPayment {

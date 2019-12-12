@@ -1,10 +1,9 @@
-package route
+package migration_01_to_11
 
 import (
 	"bytes"
 	"encoding/binary"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"io"
 	"strconv"
@@ -20,17 +19,9 @@ import (
 // VertexSize is the size of the array to store a vertex.
 const VertexSize = 33
 
-var (
-	// ErrNoRouteHopsProvided is returned when a caller attempts to
-	// construct a new sphinx packet, but provides an empty set of hops for
-	// each route.
-	ErrNoRouteHopsProvided = fmt.Errorf("empty route hops provided")
-
-	// ErrIntermediateMPPHop is returned when a hop tries to deliver an MPP
-	// record to an intermediate hop, only final hops can receive MPP
-	// records.
-	ErrIntermediateMPPHop = errors.New("cannot send MPP to intermediate")
-)
+// ErrNoRouteHopsProvided is returned when a caller attempts to construct a new
+// sphinx packet, but provides an empty set of hops for each route.
+var ErrNoRouteHopsProvided = fmt.Errorf("empty route hops provided")
 
 // Vertex is a simple alias for the serialization of a compressed Bitcoin
 // public key.
@@ -103,13 +94,9 @@ type Hop struct {
 	// carries as a fee will be subtracted by the hop.
 	AmtToForward lnwire.MilliSatoshi
 
-	// MPP encapsulates the data required for option_mpp. This field should
-	// only be set for the final hop.
-	MPP *record.MPP
-
-	// CustomRecords if non-nil are a set of additional TLV records that
+	// TLVRecords if non-nil are a set of additional TLV records that
 	// should be included in the forwarding instructions for this node.
-	CustomRecords record.CustomSet
+	TLVRecords []tlv.Record
 
 	// LegacyPayload if true, then this signals that this node doesn't
 	// understand the new TLV payload, so we must instead use the legacy
@@ -153,20 +140,8 @@ func (h *Hop) PackHopPayload(w io.Writer, nextChanID uint64) error {
 		)
 	}
 
-	// If an MPP record is destined for this hop, ensure that we only ever
-	// attach it to the final hop. Otherwise the route was constructed
-	// incorrectly.
-	if h.MPP != nil {
-		if nextChanID == 0 {
-			records = append(records, h.MPP.Record())
-		} else {
-			return ErrIntermediateMPPHop
-		}
-	}
-
 	// Append any custom types destined for this hop.
-	tlvRecords := tlv.MapToRecords(h.CustomRecords)
-	records = append(records, tlvRecords...)
+	records = append(records, h.TLVRecords...)
 
 	// To ensure we produce a canonical stream, we'll sort the records
 	// before encoding them as a stream in the hop payload.
@@ -341,19 +316,15 @@ func (r *Route) ToSphinxPath() (*sphinx.PaymentPath, error) {
 func (r *Route) String() string {
 	var b strings.Builder
 
-	amt := r.TotalAmount
 	for i, hop := range r.Hops {
 		if i > 0 {
-			b.WriteString(" -> ")
+			b.WriteString(",")
 		}
-		b.WriteString(fmt.Sprintf("%v (%v)",
-			strconv.FormatUint(hop.ChannelID, 10),
-			amt,
-		))
-		amt = hop.AmtToForward
+		b.WriteString(strconv.FormatUint(hop.ChannelID, 10))
 	}
 
-	return fmt.Sprintf("%v, cltv %v",
-		b.String(), r.TotalTimeLock,
+	return fmt.Sprintf("amt=%v, fees=%v, tl=%v, chans=%v",
+		r.TotalAmount-r.TotalFees(), r.TotalFees(), r.TotalTimeLock,
+		b.String(),
 	)
 }

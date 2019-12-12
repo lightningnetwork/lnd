@@ -12,6 +12,7 @@ import (
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -317,7 +318,7 @@ type InvoiceHTLC struct {
 
 	// CustomRecords contains the custom key/value pairs that accompanied
 	// the htlc.
-	CustomRecords hop.CustomRecordSet
+	CustomRecords record.CustomSet
 }
 
 // HtlcAcceptDesc describes the details of a newly accepted htlc.
@@ -337,7 +338,7 @@ type HtlcAcceptDesc struct {
 
 	// CustomRecords contains the custom key/value pairs that accompanied
 	// the htlc.
-	CustomRecords hop.CustomRecordSet
+	CustomRecords record.CustomSet
 }
 
 // InvoiceUpdateDesc describes the changes that should be applied to the

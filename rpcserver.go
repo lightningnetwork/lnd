@@ -50,11 +50,11 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/monitoring"
+	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/signal"
 	"github.com/lightningnetwork/lnd/sweep"
-	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/lightningnetwork/lnd/watchtower"
 	"github.com/lightningnetwork/lnd/zpay32"
 	"github.com/tv42/zbase32"
@@ -3103,7 +3103,7 @@ type rpcPaymentIntent struct {
 	lastHop           *route.Vertex
 	payReq            []byte
 
-	destTLV []tlv.Record
+	destCustomRecords record.CustomSet
 
 	route *route.Route
 }
@@ -3162,12 +3162,13 @@ func (r *rpcServer) extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPayme
 	}
 	payIntent.cltvLimit = cltvLimit
 
-	payIntent.destTLV, err = routerrpc.UnmarshallCustomRecords(
+	err = routerrpc.ValidateCustomRecords(
 		rpcPayReq.DestCustomRecords,
 	)
 	if err != nil {
 		return payIntent, err
 	}
+	payIntent.destCustomRecords = rpcPayReq.DestCustomRecords
 
 	validateDest := func(dest route.Vertex) error {
 		if rpcPayReq.AllowSelfPayment {
@@ -3352,7 +3353,7 @@ func (r *rpcServer) dispatchPaymentIntent(
 			LastHop:           payIntent.lastHop,
 			PaymentRequest:    payIntent.payReq,
 			PayAttemptTimeout: routing.DefaultPayAttemptTimeout,
-			FinalDestRecords:  payIntent.destTLV,
+			DestCustomRecords: payIntent.destCustomRecords,
 		}
 
 		preImage, route, routerErr = r.server.chanRouter.SendPayment(

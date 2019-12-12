@@ -8,9 +8,9 @@ import (
 
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/routing/route"
-	"github.com/lightningnetwork/lnd/tlv"
 
 	"github.com/lightningnetwork/lnd/lnrpc"
 )
@@ -92,7 +92,7 @@ func testQueryRoutes(t *testing.T, useMissionControl bool, useMsat bool) {
 
 	findRoute := func(source, target route.Vertex,
 		amt lnwire.MilliSatoshi, restrictions *routing.RestrictParams,
-		_ []tlv.Record,
+		_ record.CustomSet,
 		finalExpiry ...uint16) (*route.Route, error) {
 
 		if int64(amt) != amtSat*1000 {

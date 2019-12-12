@@ -3,8 +3,6 @@ package invoices
 import (
 	"errors"
 
-	"github.com/lightningnetwork/lnd/htlcswitch/hop"
-
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
@@ -105,7 +103,7 @@ type invoiceUpdateCtx struct {
 	expiry               uint32
 	currentHeight        int32
 	finalCltvRejectDelta int32
-	customRecords        hop.CustomRecordSet
+	customRecords        record.CustomSet
 	mpp                  *record.MPP
 }
 

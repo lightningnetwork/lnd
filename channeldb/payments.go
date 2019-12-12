@@ -606,7 +606,9 @@ func serializeHop(w io.Writer, h *route.Hop) error {
 	if h.MPP != nil {
 		records = append(records, h.MPP.Record())
 	}
-	records = append(records, h.TLVRecords...)
+
+	tlvRecords := tlv.MapToRecords(h.CustomRecords)
+	records = append(records, tlvRecords...)
 
 	// Otherwise, we'll transform our slice of records into a map of the
 	// raw bytes, then serialize them in-line with a length (number of
@@ -710,7 +712,7 @@ func deserializeHop(r io.Reader) (*route.Hop, error) {
 		h.MPP = mpp
 	}
 
-	h.TLVRecords = tlv.MapToRecords(tlvMap)
+	h.CustomRecords = tlvMap
 
 	return h, nil
 }

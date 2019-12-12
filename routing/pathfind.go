@@ -11,8 +11,8 @@ import (
 	"github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing/route"
-	"github.com/lightningnetwork/lnd/tlv"
 )
 
 const (
@@ -100,7 +100,7 @@ type edgePolicyWithSource struct {
 func newRoute(amtToSend lnwire.MilliSatoshi, sourceVertex route.Vertex,
 	pathEdges []*channeldb.ChannelEdgePolicy, currentHeight uint32,
 	finalCLTVDelta uint16,
-	finalDestRecords []tlv.Record) (*route.Route, error) {
+	destCustomRecords record.CustomSet) (*route.Route, error) {
 
 	var (
 		hops []*route.Hop
@@ -198,8 +198,8 @@ func newRoute(amtToSend lnwire.MilliSatoshi, sourceVertex route.Vertex,
 
 		// If this is the last hop, then we'll populate any TLV records
 		// destined for it.
-		if i == len(pathEdges)-1 && len(finalDestRecords) != 0 {
-			currentHop.TLVRecords = finalDestRecords
+		if i == len(pathEdges)-1 && len(destCustomRecords) != 0 {
+			currentHop.CustomRecords = destCustomRecords
 		}
 
 		hops = append([]*route.Hop{currentHop}, hops...)
@@ -289,10 +289,9 @@ type RestrictParams struct {
 	// all cltv expiry heights with the required final cltv delta.
 	CltvLimit uint32
 
-	// DestPayloadTLV should be set to true if we need to drop off a TLV
-	// payload at the final hop in order to properly complete this payment
-	// attempt.
-	DestPayloadTLV bool
+	// DestCustomRecords contains the custom records to drop off at the
+	// final hop, if any.
+	DestCustomRecords record.CustomSet
 }
 
 // PathFindingConfig defines global parameters that control the trade-off in
@@ -396,7 +395,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		defer tx.Rollback()
 	}
 
-	if r.DestPayloadTLV {
+	if len(r.DestCustomRecords) > 0 {
 		// Check if the target has TLV enabled
 
 		targetKey, err := btcec.ParsePubKey(target[:], btcec.S256())

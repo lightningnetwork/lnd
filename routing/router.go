@@ -24,10 +24,10 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chanvalidate"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/multimutex"
+	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing/chainview"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/ticker"
-	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/lightningnetwork/lnd/zpay32"
 )
 
@@ -1401,7 +1401,7 @@ type routingMsg struct {
 // factoring in channel capacities and cumulative fees along the route.
 func (r *ChannelRouter) FindRoute(source, target route.Vertex,
 	amt lnwire.MilliSatoshi, restrictions *RestrictParams,
-	destTlvRecords []tlv.Record,
+	destCustomRecords record.CustomSet,
 	finalExpiry ...uint16) (*route.Route, error) {
 
 	var finalCLTVDelta uint16
@@ -1455,7 +1455,7 @@ func (r *ChannelRouter) FindRoute(source, target route.Vertex,
 	// Create the route with absolute time lock values.
 	route, err := newRoute(
 		amt, source, path, uint32(currentHeight), finalCLTVDelta,
-		destTlvRecords,
+		destCustomRecords,
 	)
 	if err != nil {
 		return nil, err
@@ -1608,11 +1608,11 @@ type LightningPayment struct {
 	// attempting to complete.
 	PaymentRequest []byte
 
-	// FinalDestRecords are TLV records that are to be sent to the final
+	// DestCustomRecords are TLV records that are to be sent to the final
 	// hop in the new onion payload format. If the destination does not
 	// understand this new onion payload format, then the payment will
 	// fail.
-	FinalDestRecords []tlv.Record
+	DestCustomRecords record.CustomSet
 }
 
 // SendPayment attempts to send a payment as described within the passed

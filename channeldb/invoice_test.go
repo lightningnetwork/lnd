@@ -7,9 +7,9 @@ import (
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
-	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/record"
 )
 
 var (
@@ -212,7 +212,7 @@ func TestInvoiceCancelSingleHtlc(t *testing.T) {
 	key := CircuitKey{ChanID: lnwire.NewShortChanIDFromInt(1), HtlcID: 4}
 	htlc := HtlcAcceptDesc{
 		Amt:           500,
-		CustomRecords: make(hop.CustomRecordSet),
+		CustomRecords: make(record.CustomSet),
 	}
 	invoice, err := db.UpdateInvoice(paymentHash,
 		func(invoice *Invoice) (*InvoiceUpdateDesc, error) {
@@ -439,7 +439,7 @@ func TestDuplicateSettleInvoice(t *testing.T) {
 			AcceptTime:    time.Unix(1, 0),
 			ResolveTime:   time.Unix(1, 0),
 			State:         HtlcStateSettled,
-			CustomRecords: make(hop.CustomRecordSet),
+			CustomRecords: make(record.CustomSet),
 		},
 	}
 
@@ -751,7 +751,7 @@ func getUpdateInvoice(amt lnwire.MilliSatoshi) InvoiceUpdateCallback {
 			return nil, ErrInvoiceAlreadySettled
 		}
 
-		noRecords := make(hop.CustomRecordSet)
+		noRecords := make(record.CustomSet)
 
 		update := &InvoiceUpdateDesc{
 			State: &InvoiceStateUpdateDesc{
@@ -795,7 +795,7 @@ func TestCustomRecords(t *testing.T) {
 	// Accept an htlc with custom records on this invoice.
 	key := CircuitKey{ChanID: lnwire.NewShortChanIDFromInt(1), HtlcID: 4}
 
-	records := hop.CustomRecordSet{
+	records := record.CustomSet{
 		100000: []byte{},
 		100001: []byte{1, 2},
 	}

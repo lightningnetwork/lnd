@@ -607,6 +607,15 @@ func serializeHop(w io.Writer, h *route.Hop) error {
 		records = append(records, h.MPP.Record())
 	}
 
+	// Final sanity check to absolutely rule out custom records that are not
+	// custom and write into the standard range.
+	if err := h.CustomRecords.Validate(); err != nil {
+		return err
+	}
+
+	// Convert custom records to tlv and add to the record list.
+	// MapToRecords sorts the list, so adding it here will keep the list
+	// canonical.
 	tlvRecords := tlv.MapToRecords(h.CustomRecords)
 	records = append(records, tlvRecords...)
 

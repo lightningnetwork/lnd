@@ -28,8 +28,8 @@ var (
 		OutgoingTimeLock: 111,
 		AmtToForward:     555,
 		CustomRecords: record.CustomSet{
-			1: []byte{},
-			2: []byte{},
+			65536: []byte{},
+			80001: []byte{},
 		},
 		MPP: record.NewMPP(32, [32]byte{0x42}),
 	}

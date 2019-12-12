@@ -391,7 +391,7 @@ func newMockDeobfuscator() ErrorDecrypter {
 	return &mockDeobfuscator{}
 }
 
-func (o *mockDeobfuscator) DecryptError(reason lnwire.OpaqueReason) (*ForwardingError, error) {
+func (o *mockDeobfuscator) DecryptError(reason lnwire.OpaqueReason) (SwitchError, error) {
 
 	r := bytes.NewReader(reason)
 	failure, err := lnwire.DecodeFailure(r, 0)
@@ -401,7 +401,7 @@ func (o *mockDeobfuscator) DecryptError(reason lnwire.OpaqueReason) (*Forwarding
 
 	return &ForwardingError{
 		FailureSourceIdx: 1,
-		FailureMessage:   failure,
+		SwitchError:      newSwitchError(failure),
 	}, nil
 }
 

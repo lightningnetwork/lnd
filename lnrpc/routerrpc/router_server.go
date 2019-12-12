@@ -326,12 +326,13 @@ func marshallError(sendError error) (*Failure, error) {
 		return response, nil
 	}
 
+	// TODO(carla): check this.
 	fErr, ok := sendError.(*htlcswitch.ForwardingError)
 	if !ok {
 		return nil, sendError
 	}
 
-	switch onionErr := fErr.FailureMessage.(type) {
+	switch onionErr := fErr.GetWireFailure().(type) {
 
 	case *lnwire.FailIncorrectDetails:
 		response.Code = Failure_INCORRECT_OR_UNKNOWN_PAYMENT_DETAILS

@@ -37,7 +37,7 @@ type PaymentResult struct {
 
 	// Error is non-nil in case a HTLC send failed, and the HTLC is now
 	// irrevocably canceled. If the payment failed during forwarding, this
-	// error will be a *ForwardingError.
+	// error will be a SwitchError.
 	Error error
 }
 

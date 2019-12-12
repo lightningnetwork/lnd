@@ -1899,12 +1899,13 @@ func (r *ChannelRouter) processSendError(paymentID uint64, rt *route.Route,
 	}
 	// If an internal, non-forwarding error occurred, we can stop
 	// trying.
+	// TODO(carla): check up on where forwarding errors were previously used.
 	fErr, ok := sendErr.(*htlcswitch.ForwardingError)
 	if !ok {
 		return &internalErrorReason
 	}
 
-	failureMessage := fErr.FailureMessage
+	failureMessage := fErr.GetWireFailure()
 	failureSourceIdx := fErr.FailureSourceIdx
 
 	// Apply channel update if the error contains one. For unknown

@@ -9,8 +9,19 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
-// ForwardingError wraps an lnwire.FailureMessage in a struct that also
-// includes the source of the error.
+// SwitchError is an interface implemented by internal errors that wrap a wire
+// message along with additional metadata. These errors originated from within
+// our node.
+type SwitchError interface {
+	GetWireFailure() lnwire.FailureMessage
+	error
+}
+
+// ForwardingError wraps an switch error with a failure index. It does not
+// directly embed the lnwire.FailureMessage interface because doing so embeds the
+// lnwire.FailureMessage functionality but obscures whether the wire message is
+// Serializable, because this interface is not implemented on the ForwardingError
+// itself.
 type ForwardingError struct {
 	// FailureSourceIdx is the index of the node that sent the failure. With
 	// this information, the dispatcher of a payment can modify their set of
@@ -18,25 +29,15 @@ type ForwardingError struct {
 	// zero is the self node.
 	FailureSourceIdx int
 
-	// ExtraMsg is an additional error message that callers can provide in
-	// order to provide context specific error details.
-	ExtraMsg string
-
-	lnwire.FailureMessage
+	SwitchError
 }
 
 // Error implements the built-in error interface. We use this method to allow
 // the switch or any callers to insert additional context to the error message
 // returned.
 func (f *ForwardingError) Error() string {
-	if f.ExtraMsg == "" {
-		return fmt.Sprintf(
-			"%v@%v", f.FailureMessage, f.FailureSourceIdx,
-		)
-	}
-
 	return fmt.Sprintf(
-		"%v@%v: %v", f.FailureMessage, f.FailureSourceIdx, f.ExtraMsg,
+		"%v@%v", f.GetWireFailure().Error(), f.FailureSourceIdx,
 	)
 }
 
@@ -47,7 +48,7 @@ type ErrorDecrypter interface {
 	// hop, to the source of the error. A fully populated
 	// lnwire.FailureMessage is returned along with the source of the
 	// error.
-	DecryptError(lnwire.OpaqueReason) (*ForwardingError, error)
+	DecryptError(lnwire.OpaqueReason) (SwitchError, error)
 }
 
 // UnknownEncrypterType is an error message used to signal that an unexpected
@@ -82,7 +83,7 @@ type SphinxErrorDecrypter struct {
 //
 // NOTE: Part of the ErrorDecrypter interface.
 func (s *SphinxErrorDecrypter) DecryptError(reason lnwire.OpaqueReason) (
-	*ForwardingError, error) {
+	SwitchError, error) {
 
 	failure, err := s.OnionErrorDecrypter.DecryptError(reason)
 	if err != nil {
@@ -101,7 +102,7 @@ func (s *SphinxErrorDecrypter) DecryptError(reason lnwire.OpaqueReason) (
 
 	return &ForwardingError{
 		FailureSourceIdx: failure.SenderIdx,
-		FailureMessage:   failureMsg,
+		SwitchError:      newSwitchError(failureMsg),
 	}, nil
 }
 

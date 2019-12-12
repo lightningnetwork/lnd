@@ -574,9 +574,9 @@ func TestExitNodeTimelockPayloadMismatch(t *testing.T) {
 		t.Fatalf("payment should have failed but didn't")
 	}
 
-	ferr, ok := err.(*ForwardingError)
+	ferr, ok := err.(*SwitchError)
 	if !ok {
-		t.Fatalf("expected a ForwardingError, instead got: %T", err)
+		t.Fatalf("expected a SwitchError, instead got: %T", err)
 	}
 
 	switch ferr.FailureMessage.(type) {
@@ -674,9 +674,9 @@ func TestLinkForwardTimelockPolicyMismatch(t *testing.T) {
 		t.Fatalf("payment should have failed but didn't")
 	}
 
-	ferr, ok := err.(*ForwardingError)
+	ferr, ok := err.(*SwitchError)
 	if !ok {
-		t.Fatalf("expected a ForwardingError, instead got: %T", err)
+		t.Fatalf("expected a SwitchError, instead got: %T", err)
 	}
 
 	switch ferr.FailureMessage.(type) {
@@ -732,9 +732,9 @@ func TestLinkForwardFeePolicyMismatch(t *testing.T) {
 		t.Fatalf("payment should have failed but didn't")
 	}
 
-	ferr, ok := err.(*ForwardingError)
+	ferr, ok := err.(*SwitchError)
 	if !ok {
-		t.Fatalf("expected a ForwardingError, instead got: %T", err)
+		t.Fatalf("expected a SwitchError, instead got: %T", err)
 	}
 
 	switch ferr.FailureMessage.(type) {
@@ -790,9 +790,9 @@ func TestLinkForwardMinHTLCPolicyMismatch(t *testing.T) {
 		t.Fatalf("payment should have failed but didn't")
 	}
 
-	ferr, ok := err.(*ForwardingError)
+	ferr, ok := err.(*SwitchError)
 	if !ok {
-		t.Fatalf("expected a ForwardingError, instead got: %T", err)
+		t.Fatalf("expected a SwitchError, instead got: %T", err)
 	}
 
 	switch ferr.FailureMessage.(type) {
@@ -857,9 +857,9 @@ func TestLinkForwardMaxHTLCPolicyMismatch(t *testing.T) {
 		t.Fatalf("payment should have failed but didn't")
 	}
 
-	ferr, ok := err.(*ForwardingError)
+	ferr, ok := err.(*SwitchError)
 	if !ok {
-		t.Fatalf("expected a ForwardingError, instead got: %T", err)
+		t.Fatalf("expected a SwitchError, instead got: %T", err)
 	}
 
 	switch ferr.FailureMessage.(type) {
@@ -964,9 +964,9 @@ func TestUpdateForwardingPolicy(t *testing.T) {
 		t.Fatalf("payment should've been rejected")
 	}
 
-	ferr, ok := err.(*ForwardingError)
+	ferr, ok := err.(*SwitchError)
 	if !ok {
-		t.Fatalf("expected a ForwardingError, instead got (%T): %v", err, err)
+		t.Fatalf("expected a SwitchError, instead got (%T): %v", err, err)
 	}
 	switch ferr.FailureMessage.(type) {
 	case *lnwire.FailFeeInsufficient:
@@ -1003,9 +1003,9 @@ func TestUpdateForwardingPolicy(t *testing.T) {
 		t.Fatalf("payment should've been rejected")
 	}
 
-	ferr, ok = err.(*ForwardingError)
+	ferr, ok = err.(*SwitchError)
 	if !ok {
-		t.Fatalf("expected a ForwardingError, instead got (%T): %v",
+		t.Fatalf("expected a SwitchError, instead got (%T): %v",
 			err, err)
 	}
 	switch ferr.FailureMessage.(type) {
@@ -1249,9 +1249,9 @@ func TestChannelLinkMultiHopUnknownNextHop(t *testing.T) {
 	if err == nil {
 		t.Fatal("error haven't been received")
 	}
-	fErr, ok := err.(*ForwardingError)
+	fErr, ok := err.(*SwitchError)
 	if !ok {
-		t.Fatalf("expected ForwardingError")
+		t.Fatalf("expected SwitchError")
 	}
 	if _, ok = fErr.FailureMessage.(*lnwire.FailUnknownNextPeer); !ok {
 		t.Fatalf("wrong error has been received: %T",
@@ -1364,9 +1364,9 @@ func TestChannelLinkMultiHopDecodeError(t *testing.T) {
 		t.Fatal("error haven't been received")
 	}
 
-	ferr, ok := err.(*ForwardingError)
+	ferr, ok := err.(*SwitchError)
 	if !ok {
-		t.Fatalf("expected a ForwardingError, instead got: %T", err)
+		t.Fatalf("expected a SwitchError, instead got: %T", err)
 	}
 
 	switch ferr.FailureMessage.(type) {
@@ -1456,9 +1456,9 @@ func TestChannelLinkExpiryTooSoonExitNode(t *testing.T) {
 			"time lock value")
 	}
 
-	ferr, ok := err.(*ForwardingError)
+	ferr, ok := err.(*SwitchError)
 	if !ok {
-		t.Fatalf("expected a ForwardingError, instead got: %T %v",
+		t.Fatalf("expected a SwitchError, instead got: %T %v",
 			err, err)
 	}
 
@@ -1519,9 +1519,9 @@ func TestChannelLinkExpiryTooSoonMidNode(t *testing.T) {
 			"time lock value")
 	}
 
-	ferr, ok := err.(*ForwardingError)
+	ferr, ok := err.(*SwitchError)
 	if !ok {
-		t.Fatalf("expected a ForwardingError, instead got: %T: %v", err, err)
+		t.Fatalf("expected a SwitchError, instead got: %T: %v", err, err)
 	}
 
 	switch ferr.FailureMessage.(type) {
@@ -5632,9 +5632,9 @@ func TestChannelLinkCanceledInvoice(t *testing.T) {
 
 	// Because the invoice is canceled, we expect an unknown payment hash
 	// result.
-	fErr, ok := err.(*ForwardingError)
+	fErr, ok := err.(*SwitchError)
 	if !ok {
-		t.Fatalf("expected ForwardingError, but got %v", err)
+		t.Fatalf("expected SwitchError, but got %v", err)
 	}
 	_, ok = fErr.FailureMessage.(*lnwire.FailIncorrectDetails)
 	if !ok {
@@ -6213,12 +6213,12 @@ func TestChannelLinkReceiveEmptySig(t *testing.T) {
 	aliceLink.Stop()
 }
 
-// assertFailureCode asserts that an error is of type ForwardingError and that
+// assertFailureCode asserts that an error is of type SwitchError and that
 // the failure code is as expected.
 func assertFailureCode(t *testing.T, err error, code lnwire.FailCode) {
-	fErr, ok := err.(*ForwardingError)
+	fErr, ok := err.(*SwitchError)
 	if !ok {
-		t.Fatalf("expected ForwardingError but got %T", err)
+		t.Fatalf("expected SwitchError but got %T", err)
 	}
 
 	if fErr.FailureMessage.Code() != code {

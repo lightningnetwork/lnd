@@ -756,25 +756,20 @@ func (s *Switch) handleLocalDispatch(pkt *htlcPacket) error {
 		s.indexMtx.RUnlock()
 		if err != nil {
 			log.Errorf("Link %v not found", pkt.outgoingChanID)
-			return &ForwardingError{
-				FailureSourceIdx: 0,
-				FailureMessage:   &lnwire.FailUnknownNextPeer{},
-			}
+			return newSwitchError(&lnwire.FailUnknownNextPeer{})
 		}
 
 		if !link.EligibleToForward() {
-			err := fmt.Errorf("Link %v is not available to forward",
-				pkt.outgoingChanID)
+			failure := &SwitchFailureLinkNotEligible{
+				channelID: link.ShortChanID(),
+				// The update does not need to be populated as the error
+				// will be returned back to the router.
+				update: nil,
+			}
+
 			log.Error(err)
 
-			// The update does not need to be populated as the error
-			// will be returned back to the router.
-			htlcErr := lnwire.NewTemporaryChannelFailure(nil)
-			return &ForwardingError{
-				FailureSourceIdx: 0,
-				ExtraMsg:         err.Error(),
-				FailureMessage:   htlcErr,
-			}
+			return failure
 		}
 
 		// Ensure that the htlc satisfies the outgoing channel policy.
@@ -788,10 +783,7 @@ func (s *Switch) handleLocalDispatch(pkt *htlcPacket) error {
 			log.Errorf("Link %v policy for local forward not "+
 				"satisfied", pkt.outgoingChanID)
 
-			return &ForwardingError{
-				FailureSourceIdx: 0,
-				FailureMessage:   htlcErr,
-			}
+			return newSwitchError(htlcErr)
 		}
 
 		return link.HandleSwitchPacket(pkt)
@@ -801,6 +793,13 @@ func (s *Switch) handleLocalDispatch(pkt *htlcPacket) error {
 	go s.handleLocalResponse(pkt)
 
 	return nil
+}
+
+// channelUpdate returns a function which gets the channel update for a channel.
+func channelUpdate(l channelLink) func() (*lnwire.ChannelUpdate, error) {
+	return func() (*lnwire.ChannelUpdate, error) {
+		return l.cfg.FetchLastChannelUpdate(l.shortChanID)
+	}
 }
 
 // handleLocalResponse processes a Settle or Fail responding to a
@@ -915,40 +914,34 @@ func (s *Switch) parseFailedPayment(deobfuscator ErrorDecrypter,
 	// decrypt the error, simply decode it them report back to the
 	// user.
 	case unencrypted:
-		var userErr string
 		r := bytes.NewReader(htlc.Reason)
 		failureMsg, err := lnwire.DecodeFailure(r, 0)
 		if err != nil {
-			userErr = fmt.Sprintf("unable to decode onion "+
-				"failure (hash=%v, pid=%d): %v",
-				paymentHash, paymentID, err)
-			log.Error(userErr)
+			failure := &SwitchErrorOnionDecode{
+				paymentHash: paymentHash,
+				paymentID:   paymentID,
+				// As this didn't even clear the link, we don't need to
+				// apply an update here since it goes directly to the
+				// router.
+				update: nil,
+				err:    err,
+			}
 
-			// As this didn't even clear the link, we don't need to
-			// apply an update here since it goes directly to the
-			// router.
-			failureMsg = lnwire.NewTemporaryChannelFailure(nil)
+			log.Error(failure.Error())
+
+			return failure
 		}
 
-		return &ForwardingError{
-			FailureSourceIdx: 0,
-			ExtraMsg:         userErr,
-			FailureMessage:   failureMsg,
-		}
+		return newSwitchError(failureMsg)
 
 	// A payment had to be timed out on chain before it got past
 	// the first hop. In this case, we'll report a permanent
 	// channel failure as this means us, or the remote party had to
 	// go on chain.
 	case isResolution && htlc.Reason == nil:
-		userErr := fmt.Sprintf("payment was resolved "+
-			"on-chain, then canceled back (hash=%v, pid=%d)",
-			paymentHash, paymentID)
-
-		return &ForwardingError{
-			FailureSourceIdx: 0,
-			ExtraMsg:         userErr,
-			FailureMessage:   &lnwire.FailPermanentChannelFailure{},
+		return &SwitchErrorOnChainTimeout{
+			paymentHash: paymentHash,
+			paymentID:   paymentID,
 		}
 
 	// A regular multi-hop payment error that we'll need to

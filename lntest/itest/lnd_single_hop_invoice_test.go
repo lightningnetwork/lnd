@@ -12,6 +12,8 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
+	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/record"
 )
 
 func testSingleHopInvoice(net *lntest.NetworkHarness, t *harnessTest) {
@@ -132,6 +134,38 @@ func testSingleHopInvoice(net *lntest.NetworkHarness, t *harnessTest) {
 	// being update accordingly.
 	err = wait.NoError(
 		assertAmountSent(2*paymentAmt, net.Alice, net.Bob),
+		3*time.Second,
+	)
+	if err != nil {
+		t.Fatalf(err.Error())
+	}
+
+	// Next send a key send payment.
+	keySendPreimage := lntypes.Preimage{3, 4, 5, 11}
+	keySendHash := keySendPreimage.Hash()
+
+	sendReq = &lnrpc.SendRequest{
+		Dest:           net.Bob.PubKey[:],
+		Amt:            paymentAmt,
+		FinalCltvDelta: 40,
+		PaymentHash:    keySendHash[:],
+		DestCustomRecords: map[uint64][]byte{
+			record.KeySendType: keySendPreimage[:],
+		},
+	}
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	resp, err = net.Alice.SendPaymentSync(ctxt, sendReq)
+	if err != nil {
+		t.Fatalf("unable to send payment: %v", err)
+	}
+	if resp.PaymentError != "" {
+		t.Fatalf("error when attempting recv: %v", resp.PaymentError)
+	}
+
+	// The key send payment should also have succeeded, with the balances
+	// being update accordingly.
+	err = wait.NoError(
+		assertAmountSent(3*paymentAmt, net.Alice, net.Bob),
 		3*time.Second,
 	)
 	if err != nil {

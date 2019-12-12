@@ -916,8 +916,8 @@ func (g *GossipSyncer) replyShortChanIDs(query *lnwire.QueryShortChanIDs) error 
 	// different chain.
 	if g.cfg.chainHash != query.ChainHash {
 		log.Warnf("Remote peer requested QueryShortChanIDs for "+
-			"chain=%v, we're on chain=%v", g.cfg.chainHash,
-			query.ChainHash)
+			"chain=%v, we're on chain=%v", query.ChainHash,
+			g.cfg.chainHash)
 
 		return g.cfg.sendToPeerSync(&lnwire.ReplyShortChanIDsEnd{
 			ChainHash: query.ChainHash,

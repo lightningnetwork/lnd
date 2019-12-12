@@ -36,7 +36,7 @@ require (
 	github.com/lightninglabs/neutrino v0.11.0
 	github.com/lightningnetwork/lightning-onion v0.0.0-20190909101754-850081b08b6a
 	github.com/lightningnetwork/lnd/cert v1.0.0
-	github.com/lightningnetwork/lnd/queue v1.0.1
+	github.com/lightningnetwork/lnd/queue v1.0.2
 	github.com/lightningnetwork/lnd/ticker v1.0.0
 	github.com/ltcsuite/ltcd v0.0.0-20190101042124-f37f8bf35796
 	github.com/miekg/dns v0.0.0-20171125082028-79bfde677fa8

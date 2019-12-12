@@ -2371,6 +2371,9 @@ message Invoice {
 
     /// List of HTLCs paying to this invoice [EXPERIMENTAL].
     repeated InvoiceHTLC htlcs = 22 [json_name = "htlcs"];
+
+    /// List of features advertised on the invoice.
+    repeated Feature features = 24 [json_name = "features"];
 }
 
 enum InvoiceHTLCState {

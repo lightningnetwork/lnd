@@ -2802,6 +2802,13 @@
             "$ref": "#/definitions/lnrpcInvoiceHTLC"
           },
           "description": "/ List of HTLCs paying to this invoice [EXPERIMENTAL]."
+        },
+        "features": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcFeature"
+          },
+          "description": "/ List of features advertised on the invoice."
         }
       }
     },

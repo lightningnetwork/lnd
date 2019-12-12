@@ -7,6 +7,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/zpay32"
 )
 
@@ -116,6 +117,7 @@ func CreateRPCInvoice(invoice *channeldb.Invoice,
 		AmtPaid:         int64(invoice.AmtPaid),
 		State:           state,
 		Htlcs:           rpcHtlcs,
+		Features:        CreateRPCFeatures(invoice.Terms.Features),
 	}
 
 	if preimage != channeldb.UnknownPreimage {
@@ -123,6 +125,22 @@ func CreateRPCInvoice(invoice *channeldb.Invoice,
 	}
 
 	return rpcInvoice, nil
+}
+
+// CreateRPCFeatures maps a feature vector into a list of lnrpc.Features.
+func CreateRPCFeatures(fv *lnwire.FeatureVector) []*lnrpc.Feature {
+	features := fv.Features()
+	rpcFeatures := make([]*lnrpc.Feature, 0, len(features))
+	for bit := range features {
+		rpcFeatures = append(rpcFeatures, &lnrpc.Feature{
+			Bit:        uint32(bit),
+			Name:       fv.Name(bit),
+			IsRequired: bit.IsRequired(),
+			IsKnown:    fv.IsKnown(bit),
+		})
+	}
+
+	return rpcFeatures
 }
 
 // CreateRPCRouteHints takes in the decoded form of an invoice's route hints

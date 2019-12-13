@@ -523,7 +523,7 @@ func (m *SignMessageReq) GetKeyLoc() *KeyLocator {
 
 type SignMessageResp struct {
 	//*
-	//The signature for the given message in the DER format.
+	//The signature for the given message in the fixed-size LN wire format.
 	Signature            []byte   `protobuf:"bytes,1,opt,name=signature,proto3" json:"signature,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -565,7 +565,9 @@ func (m *SignMessageResp) GetSignature() []byte {
 type VerifyMessageReq struct {
 	/// The message over which the signature is to be verified.
 	Msg []byte `protobuf:"bytes,1,opt,name=msg,proto3" json:"msg,omitempty"`
-	/// The DER encoded signature to be verified over the given message.
+	//*
+	//The fixed-size LN wire encoded signature to be verified over the given
+	//message.
 	Signature []byte `protobuf:"bytes,2,opt,name=signature,proto3" json:"signature,omitempty"`
 	/// The public key the signature has to be valid for.
 	Pubkey               []byte   `protobuf:"bytes,3,opt,name=pubkey,proto3" json:"pubkey,omitempty"`
@@ -760,14 +762,14 @@ type SignerClient interface {
 	ComputeInputScript(ctx context.Context, in *SignReq, opts ...grpc.CallOption) (*InputScriptResp, error)
 	//*
 	//SignMessage signs a message with the key specified in the key locator. The
-	//returned signature is DER encoded.
+	//returned signature is fixed-size LN wire format encoded.
 	//
 	//The main difference to SignMessage in the main RPC is that a specific key is
 	//used to sign the message instead of the node identity private key.
 	SignMessage(ctx context.Context, in *SignMessageReq, opts ...grpc.CallOption) (*SignMessageResp, error)
 	//*
 	//VerifyMessage verifies a signature over a message using the public key
-	//provided. The signature must be DER encoded.
+	//provided. The signature must be fixed-size LN wire format encoded.
 	//
 	//The main difference to VerifyMessage in the main RPC is that the public key
 	//used to sign the message does not have to be a node known to the network.
@@ -844,14 +846,14 @@ type SignerServer interface {
 	ComputeInputScript(context.Context, *SignReq) (*InputScriptResp, error)
 	//*
 	//SignMessage signs a message with the key specified in the key locator. The
-	//returned signature is DER encoded.
+	//returned signature is fixed-size LN wire format encoded.
 	//
 	//The main difference to SignMessage in the main RPC is that a specific key is
 	//used to sign the message instead of the node identity private key.
 	SignMessage(context.Context, *SignMessageReq) (*SignMessageResp, error)
 	//*
 	//VerifyMessage verifies a signature over a message using the public key
-	//provided. The signature must be DER encoded.
+	//provided. The signature must be fixed-size LN wire format encoded.
 	//
 	//The main difference to VerifyMessage in the main RPC is that the public key
 	//used to sign the message does not have to be a node known to the network.

@@ -3,7 +3,7 @@ package channeldb
 import (
 	"fmt"
 
-	"github.com/coreos/bbolt"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/lntypes"
 )
 
@@ -106,8 +106,8 @@ func (w *WitnessCache) addWitnessEntries(wType WitnessType,
 		return nil
 	}
 
-	return w.db.Batch(func(tx *bbolt.Tx) error {
-		witnessBucket, err := tx.CreateBucketIfNotExists(witnessBucketKey)
+	return kvdb.Batch(w.db.Backend, func(tx kvdb.RwTx) error {
+		witnessBucket, err := tx.CreateTopLevelBucket(witnessBucketKey)
 		if err != nil {
 			return err
 		}
@@ -150,8 +150,8 @@ func (w *WitnessCache) LookupSha256Witness(hash lntypes.Hash) (lntypes.Preimage,
 // will be returned.
 func (w *WitnessCache) lookupWitness(wType WitnessType, witnessKey []byte) ([]byte, error) {
 	var witness []byte
-	err := w.db.View(func(tx *bbolt.Tx) error {
-		witnessBucket := tx.Bucket(witnessBucketKey)
+	err := kvdb.View(w.db, func(tx kvdb.ReadTx) error {
+		witnessBucket := tx.ReadBucket(witnessBucketKey)
 		if witnessBucket == nil {
 			return ErrNoWitnesses
 		}
@@ -160,7 +160,7 @@ func (w *WitnessCache) lookupWitness(wType WitnessType, witnessKey []byte) ([]by
 		if err != nil {
 			return err
 		}
-		witnessTypeBucket := witnessBucket.Bucket(witnessTypeBucketKey)
+		witnessTypeBucket := witnessBucket.NestedReadBucket(witnessTypeBucketKey)
 		if witnessTypeBucket == nil {
 			return ErrNoWitnesses
 		}
@@ -189,8 +189,8 @@ func (w *WitnessCache) DeleteSha256Witness(hash lntypes.Hash) error {
 
 // deleteWitness attempts to delete a particular witness from the database.
 func (w *WitnessCache) deleteWitness(wType WitnessType, witnessKey []byte) error {
-	return w.db.Batch(func(tx *bbolt.Tx) error {
-		witnessBucket, err := tx.CreateBucketIfNotExists(witnessBucketKey)
+	return kvdb.Batch(w.db.Backend, func(tx kvdb.RwTx) error {
+		witnessBucket, err := tx.CreateTopLevelBucket(witnessBucketKey)
 		if err != nil {
 			return err
 		}
@@ -213,8 +213,8 @@ func (w *WitnessCache) deleteWitness(wType WitnessType, witnessKey []byte) error
 // DeleteWitnessClass attempts to delete an *entire* class of witnesses. After
 // this function return with a non-nil error,
 func (w *WitnessCache) DeleteWitnessClass(wType WitnessType) error {
-	return w.db.Batch(func(tx *bbolt.Tx) error {
-		witnessBucket, err := tx.CreateBucketIfNotExists(witnessBucketKey)
+	return kvdb.Batch(w.db.Backend, func(tx kvdb.RwTx) error {
+		witnessBucket, err := tx.CreateTopLevelBucket(witnessBucketKey)
 		if err != nil {
 			return err
 		}
@@ -224,6 +224,6 @@ func (w *WitnessCache) DeleteWitnessClass(wType WitnessType) error {
 			return err
 		}
 
-		return witnessBucket.DeleteBucket(witnessTypeBucketKey)
+		return witnessBucket.DeleteNestedBucket(witnessTypeBucketKey)
 	})
 }

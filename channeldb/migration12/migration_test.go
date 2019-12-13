@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/coreos/bbolt"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/channeldb/migration12"
 	"github.com/lightningnetwork/lnd/channeldb/migtest"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -121,15 +121,15 @@ var (
 
 type migrationTest struct {
 	name            string
-	beforeMigration func(*bbolt.Tx) error
-	afterMigration  func(*bbolt.Tx) error
+	beforeMigration func(kvdb.RwTx) error
+	afterMigration  func(kvdb.RwTx) error
 }
 
 var migrationTests = []migrationTest{
 	{
 		name:            "no invoices",
-		beforeMigration: func(*bbolt.Tx) error { return nil },
-		afterMigration:  func(*bbolt.Tx) error { return nil },
+		beforeMigration: func(kvdb.RwTx) error { return nil },
+		afterMigration:  func(kvdb.RwTx) error { return nil },
 	},
 	{
 		name:            "zero htlcs",
@@ -145,9 +145,9 @@ var migrationTests = []migrationTest{
 
 // genBeforeMigration creates a closure that inserts an invoice serialized under
 // the old format under the test payment hash.
-func genBeforeMigration(beforeBytes []byte) func(*bbolt.Tx) error {
-	return func(tx *bbolt.Tx) error {
-		invoices, err := tx.CreateBucketIfNotExists(
+func genBeforeMigration(beforeBytes []byte) func(kvdb.RwTx) error {
+	return func(tx kvdb.RwTx) error {
+		invoices, err := tx.CreateTopLevelBucket(
 			invoiceBucket,
 		)
 		if err != nil {
@@ -162,9 +162,9 @@ func genBeforeMigration(beforeBytes []byte) func(*bbolt.Tx) error {
 // succeeded, but comparing the resulting encoding of the invoice to the
 // expected serialization. In addition, the decoded invoice is compared against
 // the expected invoice for equality.
-func genAfterMigration(afterBytes []byte) func(*bbolt.Tx) error {
-	return func(tx *bbolt.Tx) error {
-		invoices := tx.Bucket(invoiceBucket)
+func genAfterMigration(afterBytes []byte) func(kvdb.RwTx) error {
+	return func(tx kvdb.RwTx) error {
+		invoices := tx.ReadWriteBucket(invoiceBucket)
 		if invoices == nil {
 			return fmt.Errorf("invoice bucket not found")
 		}

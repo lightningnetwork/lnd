@@ -3,7 +3,7 @@ package migration13
 import (
 	"testing"
 
-	"github.com/coreos/bbolt"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/channeldb/migtest"
 )
 
@@ -111,10 +111,10 @@ func TestMigrateMpp(t *testing.T) {
 
 	migtest.ApplyMigration(
 		t,
-		func(tx *bbolt.Tx) error {
+		func(tx kvdb.RwTx) error {
 			return migtest.RestoreDB(tx, paymentsRootBucket, pre)
 		},
-		func(tx *bbolt.Tx) error {
+		func(tx kvdb.RwTx) error {
 			return migtest.VerifyDB(tx, paymentsRootBucket, post)
 		},
 		MigrateMPP,

@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/coreos/bbolt"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 )
 
 // DumpDB dumps go code describing the contents of the database to stdout. This
@@ -21,8 +21,8 @@ import (
 // 		hex("1111"): hex("5783492373"),
 // 	},
 // }
-func DumpDB(tx *bbolt.Tx, rootKey []byte) error {
-	bucket := tx.Bucket(rootKey)
+func DumpDB(tx kvdb.ReadTx, rootKey []byte) error {
+	bucket := tx.ReadBucket(rootKey)
 	if bucket == nil {
 		return fmt.Errorf("bucket %v not found", string(rootKey))
 	}
@@ -30,13 +30,13 @@ func DumpDB(tx *bbolt.Tx, rootKey []byte) error {
 	return dumpBucket(bucket)
 }
 
-func dumpBucket(bucket *bbolt.Bucket) error {
+func dumpBucket(bucket kvdb.ReadBucket) error {
 	fmt.Printf("map[string]interface{} {\n")
 	err := bucket.ForEach(func(k, v []byte) error {
 		key := toString(k)
 		fmt.Printf("%v: ", key)
 
-		subBucket := bucket.Bucket(k)
+		subBucket := bucket.NestedReadBucket(k)
 		if subBucket != nil {
 			err := dumpBucket(subBucket)
 			if err != nil {
@@ -58,8 +58,8 @@ func dumpBucket(bucket *bbolt.Bucket) error {
 }
 
 // RestoreDB primes the database with the given data set.
-func RestoreDB(tx *bbolt.Tx, rootKey []byte, data map[string]interface{}) error {
-	bucket, err := tx.CreateBucket(rootKey)
+func RestoreDB(tx kvdb.RwTx, rootKey []byte, data map[string]interface{}) error {
+	bucket, err := tx.CreateTopLevelBucket(rootKey)
 	if err != nil {
 		return err
 	}
@@ -67,7 +67,7 @@ func RestoreDB(tx *bbolt.Tx, rootKey []byte, data map[string]interface{}) error 
 	return restoreDB(bucket, data)
 }
 
-func restoreDB(bucket *bbolt.Bucket, data map[string]interface{}) error {
+func restoreDB(bucket kvdb.RwBucket, data map[string]interface{}) error {
 	for k, v := range data {
 		key := []byte(k)
 
@@ -100,8 +100,8 @@ func restoreDB(bucket *bbolt.Bucket, data map[string]interface{}) error {
 }
 
 // VerifyDB verifies the database against the given data set.
-func VerifyDB(tx *bbolt.Tx, rootKey []byte, data map[string]interface{}) error {
-	bucket := tx.Bucket(rootKey)
+func VerifyDB(tx kvdb.ReadTx, rootKey []byte, data map[string]interface{}) error {
+	bucket := tx.ReadBucket(rootKey)
 	if bucket == nil {
 		return fmt.Errorf("bucket %v not found", string(rootKey))
 	}
@@ -109,7 +109,7 @@ func VerifyDB(tx *bbolt.Tx, rootKey []byte, data map[string]interface{}) error {
 	return verifyDB(bucket, data)
 }
 
-func verifyDB(bucket *bbolt.Bucket, data map[string]interface{}) error {
+func verifyDB(bucket kvdb.ReadBucket, data map[string]interface{}) error {
 	for k, v := range data {
 		key := []byte(k)
 
@@ -126,7 +126,7 @@ func verifyDB(bucket *bbolt.Bucket, data map[string]interface{}) error {
 
 		// Key contains a sub-bucket.
 		case map[string]interface{}:
-			subBucket := bucket.Bucket(key)
+			subBucket := bucket.NestedReadBucket(key)
 			if subBucket == nil {
 				return fmt.Errorf("bucket %v not found", k)
 			}

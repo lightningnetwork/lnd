@@ -3,8 +3,8 @@ package migration_01_to_11
 import (
 	"testing"
 
-	"github.com/coreos/bbolt"
 	"github.com/go-errors/errors"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 )
 
 // applyMigration is a helper test function that encapsulates the general steps
@@ -49,7 +49,7 @@ func applyMigration(t *testing.T, beforeMigration, afterMigration func(d *DB),
 	}()
 
 	// Apply migration.
-	err = cdb.Update(func(tx *bbolt.Tx) error {
+	err = kvdb.Update(cdb, func(tx kvdb.RwTx) error {
 		return migrationFunc(tx)
 	})
 	if err != nil {

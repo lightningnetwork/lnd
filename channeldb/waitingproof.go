@@ -8,8 +8,8 @@ import (
 
 	"bytes"
 
-	"github.com/coreos/bbolt"
 	"github.com/go-errors/errors"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -61,12 +61,12 @@ func (s *WaitingProofStore) Add(proof *WaitingProof) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	err := s.db.Update(func(tx *bbolt.Tx) error {
+	err := kvdb.Update(s.db, func(tx kvdb.RwTx) error {
 		var err error
 		var b bytes.Buffer
 
 		// Get or create the bucket.
-		bucket, err := tx.CreateBucketIfNotExists(waitingProofsBucketKey)
+		bucket, err := tx.CreateTopLevelBucket(waitingProofsBucketKey)
 		if err != nil {
 			return err
 		}
@@ -100,9 +100,9 @@ func (s *WaitingProofStore) Remove(key WaitingProofKey) error {
 		return ErrWaitingProofNotFound
 	}
 
-	err := s.db.Update(func(tx *bbolt.Tx) error {
+	err := kvdb.Update(s.db, func(tx kvdb.RwTx) error {
 		// Get or create the top bucket.
-		bucket := tx.Bucket(waitingProofsBucketKey)
+		bucket := tx.ReadWriteBucket(waitingProofsBucketKey)
 		if bucket == nil {
 			return ErrWaitingProofNotFound
 		}
@@ -123,8 +123,8 @@ func (s *WaitingProofStore) Remove(key WaitingProofKey) error {
 // ForAll iterates thought all waiting proofs and passing the waiting proof
 // in the given callback.
 func (s *WaitingProofStore) ForAll(cb func(*WaitingProof) error) error {
-	return s.db.View(func(tx *bbolt.Tx) error {
-		bucket := tx.Bucket(waitingProofsBucketKey)
+	return kvdb.View(s.db, func(tx kvdb.ReadTx) error {
+		bucket := tx.ReadBucket(waitingProofsBucketKey)
 		if bucket == nil {
 			return ErrWaitingProofNotFound
 		}
@@ -158,8 +158,8 @@ func (s *WaitingProofStore) Get(key WaitingProofKey) (*WaitingProof, error) {
 		return nil, ErrWaitingProofNotFound
 	}
 
-	err := s.db.View(func(tx *bbolt.Tx) error {
-		bucket := tx.Bucket(waitingProofsBucketKey)
+	err := kvdb.View(s.db, func(tx kvdb.ReadTx) error {
+		bucket := tx.ReadBucket(waitingProofsBucketKey)
 		if bucket == nil {
 			return ErrWaitingProofNotFound
 		}

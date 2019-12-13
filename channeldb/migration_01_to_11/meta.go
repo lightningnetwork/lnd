@@ -1,6 +1,8 @@
 package migration_01_to_11
 
-import "github.com/coreos/bbolt"
+import (
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
+)
 
 var (
 	// metaBucket stores all the meta information concerning the state of
@@ -21,8 +23,8 @@ type Meta struct {
 // putMeta is an internal helper function used in order to allow callers to
 // re-use a database transaction. See the publicly exported PutMeta method for
 // more information.
-func putMeta(meta *Meta, tx *bbolt.Tx) error {
-	metaBucket, err := tx.CreateBucketIfNotExists(metaBucket)
+func putMeta(meta *Meta, tx kvdb.RwTx) error {
+	metaBucket, err := tx.CreateTopLevelBucket(metaBucket)
 	if err != nil {
 		return err
 	}
@@ -30,7 +32,7 @@ func putMeta(meta *Meta, tx *bbolt.Tx) error {
 	return putDbVersion(metaBucket, meta)
 }
 
-func putDbVersion(metaBucket *bbolt.Bucket, meta *Meta) error {
+func putDbVersion(metaBucket kvdb.RwBucket, meta *Meta) error {
 	scratch := make([]byte, 4)
 	byteOrder.PutUint32(scratch, meta.DbVersionNumber)
 	return metaBucket.Put(dbVersionKey, scratch)

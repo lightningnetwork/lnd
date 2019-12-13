@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/coreos/bbolt"
 	"github.com/go-errors/errors"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/channeldb/migration12"
 	"github.com/lightningnetwork/lnd/channeldb/migration13"
 	"github.com/lightningnetwork/lnd/channeldb/migration_01_to_11"
@@ -28,7 +29,7 @@ const (
 // migration is a function which takes a prior outdated version of the database
 // instances and mutates the key/bucket structure to arrive at a more
 // up-to-date version of the database.
-type migration func(tx *bbolt.Tx) error
+type migration func(tx kvdb.RwTx) error
 
 type version struct {
 	number    uint32

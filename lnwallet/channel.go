@@ -5115,6 +5115,11 @@ type UnilateralCloseSummary struct {
 	// RemoteCommit is the exact commitment state that the remote party
 	// broadcast.
 	RemoteCommit channeldb.ChannelCommitment
+
+	// AnchorResolution contains the data required to sweep our anchor
+	// output. If the channel type doesn't include anchors, the value of
+	// this field will be nil.
+	AnchorResolution *AnchorResolution
 }
 
 // NewUnilateralCloseSummary creates a new summary that provides the caller
@@ -5229,12 +5234,20 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, signer input.Si
 		closeSummary.LastChanSyncMsg = chanSync
 	}
 
+	anchorResolution, err := NewAnchorResolution(
+		chanState, commitTxBroadcast,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	return &UnilateralCloseSummary{
 		SpendDetail:         commitSpend,
 		ChannelCloseSummary: closeSummary,
 		CommitResolution:    commitResolution,
 		HtlcResolutions:     htlcResolutions,
 		RemoteCommit:        remoteCommit,
+		AnchorResolution:    anchorResolution,
 	}, nil
 }
 
@@ -5685,6 +5698,16 @@ func extractHtlcResolutions(feePerKw chainfee.SatPerKWeight, ourCommit bool,
 	}, nil
 }
 
+// AnchorResolution holds the information necessary to spend our commitment tx
+// anchor.
+type AnchorResolution struct {
+	// AnchorSignDescriptor is the sign descriptor for our anchor.
+	AnchorSignDescriptor input.SignDescriptor
+
+	// CommitAnchor is the anchor outpoint on the commit tx.
+	CommitAnchor wire.OutPoint
+}
+
 // LocalForceCloseSummary describes the final commitment state before the
 // channel is locked-down to initiate a force closure by broadcasting the
 // latest state on-chain. If we intend to broadcast this this state, the
@@ -5717,6 +5740,11 @@ type LocalForceCloseSummary struct {
 	// ChanSnapshot is a snapshot of the final state of the channel at the
 	// time the summary was created.
 	ChanSnapshot channeldb.ChannelSnapshot
+
+	// AnchorResolution contains the data required to sweep the anchor
+	// output. If the channel type doesn't include anchors, the value of
+	// this field will be nil.
+	AnchorResolution *AnchorResolution
 }
 
 // ForceClose executes a unilateral closure of the transaction at the current
@@ -5855,12 +5883,20 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel, signer input.Si
 		return nil, err
 	}
 
+	anchorResolution, err := NewAnchorResolution(
+		chanState, commitTx,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	return &LocalForceCloseSummary{
 		ChanPoint:        chanState.FundingOutpoint,
 		CloseTx:          commitTx,
 		CommitResolution: commitResolution,
 		HtlcResolutions:  htlcResolutions,
 		ChanSnapshot:     *chanState.Snapshot(),
+		AnchorResolution: anchorResolution,
 	}, nil
 }
 
@@ -6017,6 +6053,109 @@ func (lc *LightningChannel) CompleteCooperativeClose(localSig, remoteSig []byte,
 	lc.status = channelClosed
 
 	return closeTx, ourBalance, nil
+}
+
+// NewAnchorResolutions returns the anchor resolutions for all currently valid
+// commitment transactions. Because we have no view on the mempool, we can only
+// blindly anchor all of these txes down.
+func (lc *LightningChannel) NewAnchorResolutions() ([]*AnchorResolution,
+	error) {
+
+	lc.Lock()
+	defer lc.Unlock()
+
+	var resolutions []*AnchorResolution
+
+	// Add anchor for local commitment tx, if any.
+	localRes, err := NewAnchorResolution(
+		lc.channelState, lc.channelState.LocalCommitment.CommitTx,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if localRes != nil {
+		resolutions = append(resolutions, localRes)
+	}
+
+	// Add anchor for remote commitment tx, if any.
+	remoteRes, err := NewAnchorResolution(
+		lc.channelState, lc.channelState.RemoteCommitment.CommitTx,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if remoteRes != nil {
+		resolutions = append(resolutions, remoteRes)
+	}
+
+	// Add anchor for remote pending commitment tx, if any.
+	remotePendingCommit, err := lc.channelState.RemoteCommitChainTip()
+	if err != nil && err != channeldb.ErrNoPendingCommit {
+		return nil, err
+	}
+
+	if remotePendingCommit != nil {
+		remotePendingRes, err := NewAnchorResolution(
+			lc.channelState,
+			remotePendingCommit.Commitment.CommitTx,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		if remotePendingRes != nil {
+			resolutions = append(resolutions, remotePendingRes)
+		}
+	}
+
+	return resolutions, nil
+}
+
+// NewAnchorResolution returns the information that is required to sweep the
+// local anchor.
+func NewAnchorResolution(chanState *channeldb.OpenChannel,
+	commitTx *wire.MsgTx) (*AnchorResolution, error) {
+
+	// Return nil resolution if the channel has no anchors.
+	if !chanState.ChanType.HasAnchors() {
+		return nil, nil
+	}
+
+	// Derive our local anchor script.
+	localAnchor, _, err := CommitScriptAnchors(
+		&chanState.LocalChanCfg, &chanState.RemoteChanCfg,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// Look up the script on the commitment transaction. It may not be
+	// present if there is no output paying to us.
+	found, index := input.FindScriptOutputIndex(commitTx, localAnchor.PkScript)
+	if !found {
+		return nil, nil
+	}
+
+	outPoint := &wire.OutPoint{
+		Hash:  commitTx.TxHash(),
+		Index: index,
+	}
+
+	// Instantiate the sign descriptor that allows sweeping of the anchor.
+	signDesc := &input.SignDescriptor{
+		KeyDesc:       chanState.LocalChanCfg.MultiSigKey,
+		WitnessScript: localAnchor.WitnessScript,
+		Output: &wire.TxOut{
+			PkScript: localAnchor.PkScript,
+			Value:    int64(anchorSize),
+		},
+		HashType: txscript.SigHashAll,
+	}
+
+	return &AnchorResolution{
+		CommitAnchor:         *outPoint,
+		AnchorSignDescriptor: *signDesc,
+	}, nil
 }
 
 // AvailableBalance returns the current balance available for sending within

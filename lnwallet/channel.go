@@ -1813,6 +1813,19 @@ type BreachRetribution struct {
 	// party) within the breach transaction.
 	LocalOutpoint wire.OutPoint
 
+	// LocalAnchorSignDesc is a SignDescriptor capable of generating the
+	// signature for our anchor output on the commitment transaction.
+	//
+	// NOTE: A nil value indicates that there is no anchor spendable by us
+	// on this commitmenent.
+	LocalAnchorSignDesc *input.SignDescriptor
+
+	// LocalAnchor is our anchor output on the commitment.
+	//
+	// NOTE: A nil value indicates that there is no anchor spendable by us
+	// on this commitmenent.
+	LocalAnchor *wire.OutPoint
+
 	// RemoteOutputSignDesc is a SignDescriptor which is capable of
 	// generating the signature required to claim the funds as described
 	// within the revocation clause of the remote party's commitment
@@ -1898,6 +1911,20 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 		return nil, err
 	}
 
+	// Generate our anchor output script. Note that if this channel type
+	// doesn't have anchors, there will be no output on the commitment
+	// matching this script, and ourAnchor and sign descriptor will be nil.
+	var (
+		ourAnchor         *wire.OutPoint
+		ourAnchorSignDesc *input.SignDescriptor
+	)
+	ourAnchorScript, _, err := CommitScriptAnchors(
+		&chanState.LocalChanCfg, &chanState.RemoteChanCfg,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	// In order to fully populate the breach retribution struct, we'll need
 	// to find the exact index of the commitment outputs.
 	ourOutpoint := wire.OutPoint{
@@ -1910,6 +1937,11 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 		switch {
 		case bytes.Equal(txOut.PkScript, ourScript.PkScript):
 			ourOutpoint.Index = uint32(i)
+		case bytes.Equal(txOut.PkScript, ourAnchorScript.PkScript):
+			ourAnchor = &wire.OutPoint{
+				Hash:  commitHash,
+				Index: uint32(i),
+			}
 		case bytes.Equal(txOut.PkScript, theirWitnessHash):
 			theirOutpoint.Index = uint32(i)
 		}
@@ -1937,6 +1969,21 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 			Output: &wire.TxOut{
 				PkScript: ourScript.PkScript,
 				Value:    int64(ourAmt),
+			},
+			HashType: txscript.SigHashAll,
+		}
+	}
+
+	// If an anchor output was found, initiate the sign descriptor needed
+	// to spend it.
+	if ourAnchor != nil {
+		ourAnchorSignDesc = &input.SignDescriptor{
+			SingleTweak:   nil,
+			KeyDesc:       chanState.LocalChanCfg.MultiSigKey,
+			WitnessScript: ourAnchorScript.WitnessScript,
+			Output: &wire.TxOut{
+				PkScript: ourAnchorScript.PkScript,
+				Value:    int64(anchorSize),
 			},
 			HashType: txscript.SigHashAll,
 		}
@@ -2027,6 +2074,8 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 		PendingHTLCs:         revokedSnapshot.Htlcs,
 		LocalOutpoint:        ourOutpoint,
 		LocalOutputSignDesc:  ourSignDesc,
+		LocalAnchor:          ourAnchor,
+		LocalAnchorSignDesc:  ourAnchorSignDesc,
 		RemoteOutpoint:       theirOutpoint,
 		RemoteOutputSignDesc: theirSignDesc,
 		HtlcRetributions:     htlcRetributions,

@@ -599,27 +599,10 @@ func (s *UtxoSweeper) collector(blockEpochs <-chan *chainntnfs.BlockEpoch) {
 					inputClusters[j].sweepFeeRate
 			})
 			for _, cluster := range inputClusters {
-				// Examine pending inputs and try to construct
-				// lists of inputs.
-				inputLists, err := s.getInputLists(
-					cluster, bestHeight,
-				)
+				err := s.sweepCluster(cluster, bestHeight)
 				if err != nil {
-					log.Errorf("Unable to examine pending "+
-						"inputs: %v", err)
-					continue
-				}
-
-				// Sweep selected inputs.
-				for _, inputs := range inputLists {
-					err := s.sweep(
-						inputs, cluster.sweepFeeRate,
-						bestHeight,
-					)
-					if err != nil {
-						log.Errorf("Unable to sweep "+
-							"inputs: %v", err)
-					}
+					log.Errorf("input cluster sweep: %v",
+						err)
 				}
 			}
 
@@ -643,6 +626,27 @@ func (s *UtxoSweeper) collector(blockEpochs <-chan *chainntnfs.BlockEpoch) {
 			return
 		}
 	}
+}
+
+// sweepCluster tries to sweep the given input cluster.
+func (s *UtxoSweeper) sweepCluster(cluster inputCluster,
+	currentHeight int32) error {
+
+	// Examine pending inputs and try to construct lists of inputs.
+	inputLists, err := s.getInputLists(cluster, currentHeight)
+	if err != nil {
+		return fmt.Errorf("unable to examine pending inputs: %v", err)
+	}
+
+	// Sweep selected inputs.
+	for _, inputs := range inputLists {
+		err := s.sweep(inputs, cluster.sweepFeeRate, currentHeight)
+		if err != nil {
+			return fmt.Errorf("unable to sweep inputs: %v", err)
+		}
+	}
+
+	return nil
 }
 
 // bucketForFeeReate determines the proper bucket for a fee rate. This is done

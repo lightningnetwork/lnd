@@ -1768,11 +1768,17 @@ func (c *OpenChannel) AppendRemoteCommitChain(diff *CommitDiff) error {
 // this new pending commitment. Once they revoked their prior state, we'll swap
 // these pointers, causing the tip and the tail to point to the same entry.
 func (c *OpenChannel) RemoteCommitChainTip() (*CommitDiff, error) {
+	return c.RemoteCommitChainTipFrom(false)
+}
+
+// RemoteCommitChainTip returns the "tip" of the current remote commitment
+// chain. The confirmed bool indicates which bucket to retrieve the data from.
+func (c *OpenChannel) RemoteCommitChainTipFrom(confirmed bool) (*CommitDiff,
+	error) {
+
 	var cd *CommitDiff
 	err := c.Db.View(func(tx *bbolt.Tx) error {
-		chanBucket, err := fetchChanBucket(
-			tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
-		)
+		chanBucket, err := c.fetchChanBucket(tx, confirmed)
 		switch err {
 		case nil:
 		case ErrNoChanDBExists, ErrNoActiveChannels, ErrChannelNotFound:
@@ -2439,15 +2445,63 @@ func (c *OpenChannel) Snapshot() *ChannelSnapshot {
 	return snapshot
 }
 
+// fetchPendingCloseChanBucket is a helper function that returns the bucket
+// where a channel's pending close data resides in given the outpoint.
+func fetchPendingCloseChanBucket(tx *bbolt.Tx, outPoint *wire.OutPoint) (
+	*bbolt.Bucket, error) {
+
+	// First fetch the top level bucket which stores all data related to
+	// current, active channels.
+	historicalBucket := tx.Bucket(historicalChannelBucket)
+	if historicalBucket == nil {
+		return nil, ErrNoChanDBExists
+	}
+
+	// With the bucket for the node and chain fetched, we can now go down
+	// another level, for this channel itself.
+	var chanPointBuf bytes.Buffer
+	if err := writeOutpoint(&chanPointBuf, outPoint); err != nil {
+		return nil, err
+	}
+	chanBucket := historicalBucket.Bucket(chanPointBuf.Bytes())
+	if chanBucket == nil {
+		return nil, ErrChannelNotFound
+	}
+
+	return chanBucket, nil
+}
+
+// fetchChanBucket returns either the open or the confirmed channel bucket.
+func (c *OpenChannel) fetchChanBucket(tx *bbolt.Tx, confirmed bool) (
+	*bbolt.Bucket, error) {
+
+	if confirmed {
+		return fetchPendingCloseChanBucket(tx, &c.FundingOutpoint)
+	}
+
+	return fetchChanBucket(
+		tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
+	)
+}
+
 // LatestCommitments returns the two latest commitments for both the local and
 // remote party. These commitments are read from disk to ensure that only the
 // latest fully committed state is returned. The first commitment returned is
 // the local commitment, and the second returned is the remote commitment.
-func (c *OpenChannel) LatestCommitments() (*ChannelCommitment, *ChannelCommitment, error) {
+func (c *OpenChannel) LatestCommitments() (*ChannelCommitment,
+	*ChannelCommitment, error) {
+
+	return c.LatestCommitmentsFrom(false)
+}
+
+// LatestCommitmentsFrom returns the two latest commitments for both the local
+// and remote party. The confirmed boolean indicates the bucket to read the data
+// from.
+func (c *OpenChannel) LatestCommitmentsFrom(confirmed bool) (*ChannelCommitment,
+	*ChannelCommitment, error) {
+
 	err := c.Db.View(func(tx *bbolt.Tx) error {
-		chanBucket, err := fetchChanBucket(
-			tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
-		)
+		chanBucket, err := c.fetchChanBucket(tx, confirmed)
 		if err != nil {
 			return err
 		}

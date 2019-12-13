@@ -5659,6 +5659,105 @@ func (lc *LightningChannel) CompleteCooperativeClose(localSig, remoteSig []byte,
 	return closeTx, ourBalance, nil
 }
 
+// AnchorResolutions holds the informations necessary to spend the anchors in
+// play.
+type AnchorResolutions struct {
+	// AnchorSignDescriptor is the sign descriptor for all variants of our
+	// anchor.
+	AnchorSignDescriptor *input.SignDescriptor
+
+	// LocalCommitAnchor is the anchor outpoint on our local commitment.
+	// This is nil if the current channel type doesn't have anchor outputs.
+	LocalCommitAnchor *wire.OutPoint
+
+	// RemoteCommitAnchor is the anchor outpoint on the acked remote
+	// commitment. This is nil if the current channel type doesn't have
+	// anchor outputs.
+	RemoteCommitAnchor *wire.OutPoint
+
+	// RemotePendingCommitAnchor is the anchor outpoint on the pending ack
+	// remote commitment. This is nil if the current channel type doesn't
+	// have anchor outputs or there are no pending commit.
+	RemotePendingCommitAnchor *wire.OutPoint
+}
+
+// NewAnchorResolutions returns the anchor resolutions for the channel state.
+// The confirmed boolean indicates where to get the channel data from.
+func NewAnchorResolutions(chanState *channeldb.OpenChannel, confirmed bool) (
+	*AnchorResolutions, error) {
+
+	// Derive our local anchor script, which will be found on each of the
+	// commitments.
+	localAnchor, _, err := CommitScriptAnchors(
+		&chanState.LocalChanCfg, &chanState.RemoteChanCfg,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// Similarly the sign descriptor will be the same for all commitments.
+	anchorSignDesc := &input.SignDescriptor{
+		SingleTweak:   nil,
+		KeyDesc:       chanState.LocalChanCfg.MultiSigKey,
+		WitnessScript: localAnchor.WitnessScript,
+		Output: &wire.TxOut{
+			PkScript: localAnchor.PkScript,
+			Value:    int64(anchorSize),
+		},
+		HashType: txscript.SigHashAll,
+	}
+
+	// locateAnchor is a helper method that finds the local anchor outpoint
+	// on the given commitment. If not found nil is returned.
+	locateAnchor := func(commit *channeldb.ChannelCommitment) *wire.OutPoint {
+		tx := commit.CommitTx
+
+		for i, txOut := range tx.TxOut {
+			if !bytes.Equal(txOut.PkScript, localAnchor.PkScript) {
+				continue
+			}
+
+			return &wire.OutPoint{
+				Hash:  tx.TxHash(),
+				Index: uint32(i),
+			}
+		}
+
+		// Not found.
+		return nil
+	}
+
+	// Fetch the two latest commitments.
+	localCommit, remoteCommit, err := chanState.LatestCommitmentsFrom(
+		confirmed,
+	)
+	if err != nil {
+		return nil, err
+	}
+	resolutions := &AnchorResolutions{
+		AnchorSignDescriptor:      anchorSignDesc,
+		LocalCommitAnchor:         locateAnchor(localCommit),
+		RemoteCommitAnchor:        locateAnchor(remoteCommit),
+		RemotePendingCommitAnchor: nil,
+	}
+
+	// Get their pending commit, if any.
+	remotePendingCommit, err := chanState.RemoteCommitChainTipFrom(
+		confirmed,
+	)
+	if err != nil && err != channeldb.ErrNoPendingCommit {
+		return nil, err
+	}
+
+	if remotePendingCommit != nil {
+		resolutions.RemotePendingCommitAnchor = locateAnchor(
+			&remotePendingCommit.Commitment,
+		)
+	}
+
+	return resolutions, nil
+}
+
 // AvailableBalance returns the current available balance within the channel.
 // By available balance, we mean that if at this very instance s new commitment
 // were to be created which evals all the log entries, what would our available

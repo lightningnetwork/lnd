@@ -602,6 +602,8 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 		payIntent.RouteHints = append(
 			payIntent.RouteHints, payReq.RouteHints...,
 		)
+		payIntent.DestFeatures = payReq.Features
+		payIntent.PaymentAddr = payReq.PaymentAddr
 	} else {
 		// Otherwise, If the payment request field was not specified
 		// (and a custom route wasn't specified), construct the payment

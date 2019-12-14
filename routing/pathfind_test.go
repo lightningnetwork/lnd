@@ -1079,6 +1079,10 @@ func TestNewRoute(t *testing.T) {
 		// indicated by hops.
 		paymentAmount lnwire.MilliSatoshi
 
+		// destFeatures is a feature vector, that if non-nil, will
+		// overwrite the final hop's feature vector in the graph.
+		destFeatures *lnwire.FeatureVector
+
 		// expectedFees is a list of fees that every hop is expected
 		// to charge for forwarding.
 		expectedFees []lnwire.MilliSatoshi
@@ -1107,6 +1111,8 @@ func TestNewRoute(t *testing.T) {
 		// expectedErrorCode indicates the expected error code when
 		// expectError is true.
 		expectedErrorCode errorCode
+
+		expectedTLVPayload bool
 	}{
 		{
 			// For a single hop payment, no fees are expected to be paid.
@@ -1133,6 +1139,22 @@ func TestNewRoute(t *testing.T) {
 			expectedTimeLocks:     []uint32{1, 1},
 			expectedTotalAmount:   100130,
 			expectedTotalTimeLock: 6,
+		}, {
+			// For a two hop payment, only the fee for the first hop
+			// needs to be paid. The destination hop does not require
+			// a fee to receive the payment.
+			name:          "two hop tlv onion feature",
+			destFeatures:  tlvFeatures,
+			paymentAmount: 100000,
+			hops: []*channeldb.ChannelEdgePolicy{
+				createHop(0, 1000, 1000000, 10),
+				createHop(30, 1000, 1000000, 5),
+			},
+			expectedFees:          []lnwire.MilliSatoshi{130, 0},
+			expectedTimeLocks:     []uint32{1, 1},
+			expectedTotalAmount:   100130,
+			expectedTotalTimeLock: 6,
+			expectedTLVPayload:    true,
 		}, {
 			// A three hop payment where the first and second hop
 			// will both charge 1 msat. The fee for the first hop
@@ -1189,6 +1211,15 @@ func TestNewRoute(t *testing.T) {
 		}}
 
 	for _, testCase := range testCases {
+		testCase := testCase
+
+		// Overwrite the final hop's features if the test requires a
+		// custom feature vector.
+		if testCase.destFeatures != nil {
+			finalHop := testCase.hops[len(testCase.hops)-1]
+			finalHop.Node.Features = testCase.destFeatures
+		}
+
 		assertRoute := func(t *testing.T, route *route.Route) {
 			if route.TotalAmount != testCase.expectedTotalAmount {
 				t.Errorf("Expected total amount is be %v"+
@@ -1231,6 +1262,16 @@ func TestNewRoute(t *testing.T) {
 						i, expectedTimeLockHeight,
 						route.Hops[i].OutgoingTimeLock)
 				}
+			}
+
+			finalHop := route.Hops[len(route.Hops)-1]
+			if !finalHop.LegacyPayload !=
+				testCase.expectedTLVPayload {
+
+				t.Errorf("Expected tlv payload: %t, "+
+					"but got: %t instead",
+					testCase.expectedTLVPayload,
+					!finalHop.LegacyPayload)
 			}
 		}
 

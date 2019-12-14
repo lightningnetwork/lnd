@@ -147,7 +147,22 @@ func newRoute(sourceVertex route.Vertex,
 			amtToForward     lnwire.MilliSatoshi
 			fee              lnwire.MilliSatoshi
 			outgoingTimeLock uint32
+			tlvPayload       bool
 		)
+
+		// Define a helper function that checks this edge's feature
+		// vector for support for a given feature. We assume at this
+		// point that the feature vectors transitive dependencies have
+		// been validated.
+		supports := edge.Node.Features.HasFeature
+
+		// We start by assuming the node doesn't support TLV. We'll now
+		// inspect the node's feature vector to see if we can promote
+		// the hop. We assume already that the feature vector's
+		// transitive dependencies have already been validated by path
+		// finding or some other means.
+		tlvPayload = supports(lnwire.TLVOnionPayloadOptional)
+
 		if i == len(pathEdges)-1 {
 			// If this is the last hop, then the hop payload will
 			// contain the exact amount. In BOLT #4: Onion Routing
@@ -199,19 +214,7 @@ func newRoute(sourceVertex route.Vertex,
 			ChannelID:        edge.ChannelID,
 			AmtToForward:     amtToForward,
 			OutgoingTimeLock: outgoingTimeLock,
-			LegacyPayload:    true,
-		}
-
-		// We start out above by assuming that this node needs the
-		// legacy payload, as if we don't have the full
-		// NodeAnnouncement information for this node, then we can't
-		// assume it knows the latest features. If we do have a feature
-		// vector for this node, then we'll update the info now.
-		if edge.Node.Features != nil {
-			features := edge.Node.Features
-			currentHop.LegacyPayload = !features.HasFeature(
-				lnwire.TLVOnionPayloadOptional,
-			)
+			LegacyPayload:    !tlvPayload,
 		}
 
 		// If this is the last hop, then we'll populate any TLV records

@@ -644,6 +644,27 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 				edge.ChannelID)
 		}
 
+		switch {
+
+		// If this edge takes us to the final hop, we'll set the node
+		// features to those determined above. These are either taken
+		// from the destination features, e.g. virual or invoice
+		// features, or loaded as a fallback from the graph. The
+		// transitive dependencies were already validated above, so no
+		// need to do so now.
+		case edge.Node.PubKeyBytes == target:
+			edge.Node.Features = features
+
+		// Otherwise, this is some other intermediary node. Verify the
+		// transitive feature dependencies for this node, and skip the
+		// channel if they are invalid.
+		default:
+			err := feature.ValidateDeps(edge.Node.Features)
+			if err != nil {
+				return
+			}
+		}
+
 		// All conditions are met and this new tentative distance is
 		// better than the current best known distance to this node.
 		// The new better distance is recorded, and also our "next hop"

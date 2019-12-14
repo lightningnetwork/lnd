@@ -99,11 +99,12 @@ type edgePolicyWithSource struct {
 // finalHopParams encapsulates various parameters for route construction that
 // apply to the final hop in a route. These features include basic payment data
 // such as amounts and cltvs, as well as more complex features like destination
-// TLV records.
+// TLV records and payment address.
 type finalHopParams struct {
-	amt       lnwire.MilliSatoshi
-	cltvDelta uint16
-	records   record.CustomSet
+	amt         lnwire.MilliSatoshi
+	cltvDelta   uint16
+	records     record.CustomSet
+	paymentAddr *[32]byte
 }
 
 // newRoute returns a fully valid route between the source and target that's
@@ -149,6 +150,7 @@ func newRoute(sourceVertex route.Vertex,
 			outgoingTimeLock uint32
 			tlvPayload       bool
 			customRecords    record.CustomSet
+			mpp              *record.MPP
 		)
 
 		// Define a helper function that checks this edge's feature
@@ -189,6 +191,23 @@ func newRoute(sourceVertex route.Vertex,
 					"custom records")
 			}
 			customRecords = finalHop.records
+
+			// If we're attaching a payment addr but the receiver
+			// doesn't support both TLV and payment addrs, fail.
+			payAddr := supports(lnwire.PaymentAddrOptional)
+			if (!tlvPayload || !payAddr) &&
+				finalHop.paymentAddr != nil {
+
+				return nil, errors.New("cannot attach " +
+					"payment addr")
+			}
+
+			// Otherwise attach the mpp record if it exists.
+			if finalHop.paymentAddr != nil {
+				mpp = record.NewMPP(
+					finalHop.amt, *finalHop.paymentAddr,
+				)
+			}
 		} else {
 			// The amount that the current hop needs to forward is
 			// equal to the incoming amount of the next hop.
@@ -225,6 +244,7 @@ func newRoute(sourceVertex route.Vertex,
 			OutgoingTimeLock: outgoingTimeLock,
 			LegacyPayload:    !tlvPayload,
 			CustomRecords:    customRecords,
+			MPP:              mpp,
 		}
 
 		hops = append([]*route.Hop{currentHop}, hops...)

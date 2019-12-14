@@ -13,6 +13,7 @@ import (
 	"math/big"
 	"net"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -1045,6 +1046,8 @@ func TestNewRoute(t *testing.T) {
 	var sourceKey [33]byte
 	sourceVertex := route.Vertex(sourceKey)
 
+	testPaymentAddr := [32]byte{0x01, 0x02, 0x03}
+
 	const (
 		startingHeight = 100
 		finalHopCLTV   = 1
@@ -1083,6 +1086,8 @@ func TestNewRoute(t *testing.T) {
 		// overwrite the final hop's feature vector in the graph.
 		destFeatures *lnwire.FeatureVector
 
+		paymentAddr *[32]byte
+
 		// expectedFees is a list of fees that every hop is expected
 		// to charge for forwarding.
 		expectedFees []lnwire.MilliSatoshi
@@ -1113,6 +1118,8 @@ func TestNewRoute(t *testing.T) {
 		expectedErrorCode errorCode
 
 		expectedTLVPayload bool
+
+		expectedMPP *record.MPP
 	}{
 		{
 			// For a single hop payment, no fees are expected to be paid.
@@ -1155,6 +1162,26 @@ func TestNewRoute(t *testing.T) {
 			expectedTotalAmount:   100130,
 			expectedTotalTimeLock: 6,
 			expectedTLVPayload:    true,
+		}, {
+			// For a two hop payment, only the fee for the first hop
+			// needs to be paid. The destination hop does not require
+			// a fee to receive the payment.
+			name:          "two hop single shot mpp",
+			destFeatures:  tlvPayAddrFeatures,
+			paymentAddr:   &testPaymentAddr,
+			paymentAmount: 100000,
+			hops: []*channeldb.ChannelEdgePolicy{
+				createHop(0, 1000, 1000000, 10),
+				createHop(30, 1000, 1000000, 5),
+			},
+			expectedFees:          []lnwire.MilliSatoshi{130, 0},
+			expectedTimeLocks:     []uint32{1, 1},
+			expectedTotalAmount:   100130,
+			expectedTotalTimeLock: 6,
+			expectedTLVPayload:    true,
+			expectedMPP: record.NewMPP(
+				100000, testPaymentAddr,
+			),
 		}, {
 			// A three hop payment where the first and second hop
 			// will both charge 1 msat. The fee for the first hop
@@ -1268,10 +1295,18 @@ func TestNewRoute(t *testing.T) {
 			if !finalHop.LegacyPayload !=
 				testCase.expectedTLVPayload {
 
-				t.Errorf("Expected tlv payload: %t, "+
+				t.Errorf("Expected final hop tlv payload: %t, "+
 					"but got: %t instead",
 					testCase.expectedTLVPayload,
 					!finalHop.LegacyPayload)
+			}
+
+			if !reflect.DeepEqual(
+				finalHop.MPP, testCase.expectedMPP,
+			) {
+				t.Errorf("Expected final hop mpp field: %v, "+
+					" but got: %v instead",
+					testCase.expectedMPP, finalHop.MPP)
 			}
 		}
 
@@ -1279,9 +1314,10 @@ func TestNewRoute(t *testing.T) {
 			route, err := newRoute(
 				sourceVertex, testCase.hops, startingHeight,
 				finalHopParams{
-					amt:       testCase.paymentAmount,
-					cltvDelta: finalHopCLTV,
-					records:   nil,
+					amt:         testCase.paymentAmount,
+					cltvDelta:   finalHopCLTV,
+					records:     nil,
+					paymentAddr: testCase.paymentAddr,
 				},
 			)
 

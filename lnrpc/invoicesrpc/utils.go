@@ -128,20 +128,19 @@ func CreateRPCInvoice(invoice *channeldb.Invoice,
 }
 
 // CreateRPCFeatures maps a feature vector into a list of lnrpc.Features.
-func CreateRPCFeatures(fv *lnwire.FeatureVector) []*lnrpc.Feature {
+func CreateRPCFeatures(fv *lnwire.FeatureVector) map[uint32]*lnrpc.Feature {
 	if fv == nil {
 		return nil
 	}
 
 	features := fv.Features()
-	rpcFeatures := make([]*lnrpc.Feature, 0, len(features))
+	rpcFeatures := make(map[uint32]*lnrpc.Feature, len(features))
 	for bit := range features {
-		rpcFeatures = append(rpcFeatures, &lnrpc.Feature{
-			Bit:        uint32(bit),
+		rpcFeatures[uint32(bit)] = &lnrpc.Feature{
 			Name:       fv.Name(bit),
 			IsRequired: bit.IsRequired(),
 			IsKnown:    fv.IsKnown(bit),
-		})
+		}
 	}
 
 	return rpcFeatures

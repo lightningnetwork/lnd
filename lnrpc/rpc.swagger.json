@@ -2246,10 +2246,6 @@
     "lnrpcFeature": {
       "type": "object",
       "properties": {
-        "bit": {
-          "type": "integer",
-          "format": "int64"
-        },
         "name": {
           "type": "string"
         },
@@ -2804,8 +2800,8 @@
           "description": "/ List of HTLCs paying to this invoice [EXPERIMENTAL]."
         },
         "features": {
-          "type": "array",
-          "items": {
+          "type": "object",
+          "additionalProperties": {
             "$ref": "#/definitions/lnrpcFeature"
           },
           "description": "/ List of features advertised on the invoice."
@@ -2915,8 +2911,8 @@
           "type": "string"
         },
         "features": {
-          "type": "array",
-          "items": {
+          "type": "object",
+          "additionalProperties": {
             "$ref": "#/definitions/lnrpcFeature"
           }
         }
@@ -3311,8 +3307,8 @@
           "format": "int64"
         },
         "features": {
-          "type": "array",
-          "items": {
+          "type": "object",
+          "additionalProperties": {
             "$ref": "#/definitions/lnrpcFeature"
           }
         }
@@ -3439,8 +3435,8 @@
           "description": "The type of sync we are currently performing with this peer."
         },
         "features": {
-          "type": "array",
-          "items": {
+          "type": "object",
+          "additionalProperties": {
             "$ref": "#/definitions/lnrpcFeature"
           },
           "description": "/ Features advertised by the remote peer in their init message."

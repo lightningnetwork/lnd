@@ -148,6 +148,7 @@ func newRoute(sourceVertex route.Vertex,
 			fee              lnwire.MilliSatoshi
 			outgoingTimeLock uint32
 			tlvPayload       bool
+			customRecords    record.CustomSet
 		)
 
 		// Define a helper function that checks this edge's feature
@@ -180,6 +181,14 @@ func newRoute(sourceVertex route.Vertex,
 			totalTimeLock += uint32(finalHop.cltvDelta)
 
 			outgoingTimeLock = currentHeight + uint32(finalHop.cltvDelta)
+
+			// Attach any custom records to the final hop if the
+			// receiver supports TLV.
+			if !tlvPayload && finalHop.records != nil {
+				return nil, errors.New("cannot attach " +
+					"custom records")
+			}
+			customRecords = finalHop.records
 		} else {
 			// The amount that the current hop needs to forward is
 			// equal to the incoming amount of the next hop.
@@ -215,12 +224,7 @@ func newRoute(sourceVertex route.Vertex,
 			AmtToForward:     amtToForward,
 			OutgoingTimeLock: outgoingTimeLock,
 			LegacyPayload:    !tlvPayload,
-		}
-
-		// If this is the last hop, then we'll populate any TLV records
-		// destined for it.
-		if i == len(pathEdges)-1 && len(finalHop.records) != 0 {
-			currentHop.CustomRecords = finalHop.records
+			CustomRecords:    customRecords,
 		}
 
 		hops = append([]*route.Hop{currentHop}, hops...)

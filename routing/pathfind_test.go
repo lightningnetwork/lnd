@@ -664,8 +664,12 @@ func TestFindLowestFeePath(t *testing.T) {
 		t.Fatalf("unable to find path: %v", err)
 	}
 	route, err := newRoute(
-		paymentAmt, ctx.source, path, startingHeight,
-		finalHopCLTV, nil,
+		ctx.source, path, startingHeight,
+		finalHopParams{
+			amt:       paymentAmt,
+			cltvDelta: finalHopCLTV,
+			records:   nil,
+		},
 	)
 	if err != nil {
 		t.Fatalf("unable to create path: %v", err)
@@ -814,8 +818,12 @@ func testBasicGraphPathFindingCase(t *testing.T, graphInstance *testGraphInstanc
 	}
 
 	route, err := newRoute(
-		paymentAmt, sourceVertex, path, startingHeight,
-		finalHopCLTV, nil,
+		sourceVertex, path, startingHeight,
+		finalHopParams{
+			amt:       paymentAmt,
+			cltvDelta: finalHopCLTV,
+			records:   nil,
+		},
 	)
 	if err != nil {
 		t.Fatalf("unable to create path: %v", err)
@@ -1228,9 +1236,12 @@ func TestNewRoute(t *testing.T) {
 
 		t.Run(testCase.name, func(t *testing.T) {
 			route, err := newRoute(
-				testCase.paymentAmount, sourceVertex,
-				testCase.hops, startingHeight, finalHopCLTV,
-				nil,
+				sourceVertex, testCase.hops, startingHeight,
+				finalHopParams{
+					amt:       testCase.paymentAmount,
+					cltvDelta: finalHopCLTV,
+					records:   nil,
+				},
 			)
 
 			if testCase.expectError {
@@ -2118,8 +2129,12 @@ func TestRestrictOutgoingChannel(t *testing.T) {
 		t.Fatalf("unable to find path: %v", err)
 	}
 	route, err := newRoute(
-		paymentAmt, ctx.source, path, startingHeight,
-		finalHopCLTV, nil,
+		ctx.source, path, startingHeight,
+		finalHopParams{
+			amt:       paymentAmt,
+			cltvDelta: finalHopCLTV,
+			records:   nil,
+		},
 	)
 	if err != nil {
 		t.Fatalf("unable to create path: %v", err)
@@ -2244,8 +2259,12 @@ func testCltvLimit(t *testing.T, limit uint32, expectedChannel uint64) {
 		finalHopCLTV   = 1
 	)
 	route, err := newRoute(
-		paymentAmt, ctx.source, path, startingHeight, finalHopCLTV,
-		nil,
+		ctx.source, path, startingHeight,
+		finalHopParams{
+			amt:       paymentAmt,
+			cltvDelta: finalHopCLTV,
+			records:   nil,
+		},
 	)
 	if err != nil {
 		t.Fatalf("unable to create path: %v", err)
@@ -2531,8 +2550,12 @@ func TestNoCycle(t *testing.T) {
 		t.Fatalf("unable to find path: %v", err)
 	}
 	route, err := newRoute(
-		paymentAmt, ctx.source, path, startingHeight,
-		finalHopCLTV, nil,
+		ctx.source, path, startingHeight,
+		finalHopParams{
+			amt:       paymentAmt,
+			cltvDelta: finalHopCLTV,
+			records:   nil,
+		},
 	)
 	if err != nil {
 		t.Fatalf("unable to create path: %v", err)

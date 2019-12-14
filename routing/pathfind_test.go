@@ -96,9 +96,10 @@ type testGraph struct {
 // information such as the node's IP address as that information isn't needed
 // for our tests.
 type testNode struct {
-	Source bool   `json:"source"`
-	PubKey string `json:"pubkey"`
-	Alias  string `json:"alias"`
+	Source   bool                `json:"source"`
+	PubKey   string              `json:"pubkey"`
+	Alias    string              `json:"alias"`
+	Features []lnwire.FeatureBit `json:"features"`
 }
 
 // testChan represents the JSON version of a payment channel. This struct
@@ -185,13 +186,18 @@ func parseTestGraph(path string) (*testGraphInstance, error) {
 			return nil, err
 		}
 
+		features := lnwire.NewFeatureVector(
+			lnwire.NewRawFeatureVector(node.Features...),
+			lnwire.Features,
+		)
+
 		dbNode := &channeldb.LightningNode{
 			HaveNodeAnnouncement: true,
 			AuthSigBytes:         testSig.Serialize(),
 			LastUpdate:           testTime,
 			Addresses:            testAddrs,
 			Alias:                node.Alias,
-			Features:             testFeatures,
+			Features:             features,
 		}
 		copy(dbNode.PubKeyBytes[:], pubBytes)
 

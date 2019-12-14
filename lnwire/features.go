@@ -357,6 +357,11 @@ func NewFeatureVector(featureVector *RawFeatureVector,
 	}
 }
 
+// EmptyFeatureVector returns a feature vector with no bits set.
+func EmptyFeatureVector() *FeatureVector {
+	return NewFeatureVector(nil, Features)
+}
+
 // HasFeature returns whether a particular feature is included in the set. The
 // feature can be seen as set either if the bit is set directly OR the queried
 // bit has the same meaning as its corresponding even/odd bit, which is set

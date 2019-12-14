@@ -76,3 +76,23 @@ func Invariant(statement func() bool, timeout time.Duration) error {
 		}
 	}
 }
+
+// InvariantNoError is a wrapper around Invariant that waits out the duration
+// specified by timeout. It fails if the predicate ever returns an error during
+// that time.
+func InvariantNoError(f func() error, timeout time.Duration) error {
+	var predErr error
+	pred := func() bool {
+		if err := f(); err != nil {
+			predErr = err
+			return false
+		}
+		return true
+	}
+
+	if err := Invariant(pred, timeout); err != nil {
+		return predErr
+	}
+
+	return nil
+}

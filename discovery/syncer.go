@@ -825,13 +825,13 @@ func (g *GossipSyncer) replyChanRangeQuery(query *lnwire.QueryChannelRange) erro
 	// TODO(roasbeef): means can't send max uint above?
 	//  * or make internal 64
 
-	// In the base case (no actual response) the first block and the last
-	// block in the query will be the same. In the loop below, we'll update
-	// these two variables incrementally with each chunk to properly
-	// compute the starting block for each response and the number of
-	// blocks in a response.
-	firstBlockHeight := query.FirstBlockHeight
-	lastBlockHeight := query.FirstBlockHeight
+	// In the base case (no actual response) the first block and last block
+	// will match those of the query. In the loop below, we'll update these
+	// two variables incrementally with each chunk to properly compute the
+	// starting block for each response and the number of blocks in a
+	// response.
+	firstBlockHeight := startBlock
+	lastBlockHeight := endBlock
 
 	numChannels := int32(len(channelRange))
 	numChansSent := int32(0)
@@ -867,8 +867,25 @@ func (g *GossipSyncer) replyChanRangeQuery(query *lnwire.QueryChannelRange) erro
 		// update our pointers to the first and last blocks for each
 		// response.
 		if len(channelChunk) > 0 {
-			firstBlockHeight = channelChunk[0].BlockHeight
-			lastBlockHeight = channelChunk[len(channelChunk)-1].BlockHeight
+			// If this is the first response we'll send, we'll point
+			// the first block to the first block in the query.
+			// Otherwise, we'll continue from the block we left off
+			// at.
+			if numChansSent == 0 {
+				firstBlockHeight = startBlock
+			} else {
+				firstBlockHeight = lastBlockHeight
+			}
+
+			// If this is the last response we'll send, we'll point
+			// the last block to the last block of the query.
+			// Otherwise, we'll set it to the height of the last
+			// channel in the chunk.
+			if isFinalChunk {
+				lastBlockHeight = endBlock
+			} else {
+				lastBlockHeight = channelChunk[len(channelChunk)-1].BlockHeight
+			}
 		}
 
 		// The number of blocks contained in this response (the total

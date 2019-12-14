@@ -783,52 +783,55 @@ func TestGossipSyncerReplyChanRangeQuery(t *testing.T) {
 				t.Fatalf("expected ReplyChannelRange instead got %T", msg)
 			}
 
-			// Only for the first iteration do we set the offset to
-			// zero as no chunks have been processed yet. For every
-			// other iteration, we want to move forward by the
-			// chunkSize (from the staring block height).
-			offset := 0
-			if i != 0 {
-				offset = 1
-			}
-			expectedFirstBlockHeight := (i+offset)*2 + startingBlockHeight
+			// We'll determine the correct values of each field in
+			// each response based on the order that they were sent.
+			var (
+				expectedFirstBlockHeight uint32
+				expectedNumBlocks        uint32
+				expectedComplete         uint8
+			)
 
 			switch {
-			// If this is not the last chunk, then Complete should
-			// be set to zero. Otherwise, it should be one.
-			case i < 2 && rangeResp.Complete != 0:
-				t.Fatalf("non-final chunk should have "+
-					"Complete=0: %v", spew.Sdump(rangeResp))
+			// The first reply should range from our starting block
+			// height until it reaches its maximum capacity of
+			// channels.
+			case i == 0:
+				expectedFirstBlockHeight = startingBlockHeight
+				expectedNumBlocks = chunkSize + 1
 
-			case i < 2 && rangeResp.NumBlocks != chunkSize+1:
-				t.Fatalf("NumBlocks fields in resp "+
-					"incorrect: expected %v got %v",
-					chunkSize+1, rangeResp.NumBlocks)
+			// The last reply should range starting from the next
+			// block of our previous reply up until the ending
+			// height of the query. It should also have the Complete
+			// bit set.
+			case i == numExpectedChunks-1:
+				expectedFirstBlockHeight = respMsgs[len(respMsgs)-1].BlockHeight
+				expectedNumBlocks = endingBlockHeight - expectedFirstBlockHeight + 1
+				expectedComplete = 1
 
-			case i < 2 && rangeResp.FirstBlockHeight !=
-				uint32(expectedFirstBlockHeight):
+			// Any intermediate replies should range starting from
+			// the next block of our previous reply up until it
+			// reaches its maximum capacity of channels.
+			default:
+				expectedFirstBlockHeight = respMsgs[len(respMsgs)-1].BlockHeight
+				expectedNumBlocks = 5
+			}
 
-				t.Fatalf("FirstBlockHeight incorrect: "+
-					"expected %v got %v",
-					rangeResp.FirstBlockHeight,
-					expectedFirstBlockHeight)
-			case i == 2 && rangeResp.Complete != 1:
-				t.Fatalf("final chunk should have "+
-					"Complete=1: %v", spew.Sdump(rangeResp))
+			switch {
+			case rangeResp.FirstBlockHeight != expectedFirstBlockHeight:
+				t.Fatalf("FirstBlockHeight in resp #%d "+
+					"incorrect: expected %v, got %v", i+1,
+					expectedFirstBlockHeight,
+					rangeResp.FirstBlockHeight)
 
-			case i == 2 && rangeResp.NumBlocks != 1:
-				t.Fatalf("NumBlocks fields in resp "+
-					"incorrect: expected %v got %v", 1,
-					rangeResp.NumBlocks)
+			case rangeResp.NumBlocks != expectedNumBlocks:
+				t.Fatalf("NumBlocks in resp #%d incorrect: "+
+					"expected %v, got %v", i+1,
+					expectedNumBlocks, rangeResp.NumBlocks)
 
-			case i == 2 && rangeResp.FirstBlockHeight !=
-				queryResp[len(queryResp)-1].BlockHeight:
-
-				t.Fatalf("FirstBlockHeight incorrect: "+
-					"expected %v got %v",
-					rangeResp.FirstBlockHeight,
-					queryResp[len(queryResp)-1].BlockHeight)
-
+			case rangeResp.Complete != expectedComplete:
+				t.Fatalf("Complete in resp #%d incorrect: "+
+					"expected %v, got %v", i+1,
+					expectedNumBlocks, rangeResp.Complete)
 			}
 
 			respMsgs = append(respMsgs, rangeResp.ShortChanIDs...)

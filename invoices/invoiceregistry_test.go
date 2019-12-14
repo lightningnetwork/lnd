@@ -770,7 +770,7 @@ func TestInvoiceExpiryWithRegistry(t *testing.T) {
 	testClock.SetTime(testTime.Add(24 * time.Hour))
 
 	// Give some time to the watcher to cancel everything.
-	time.Sleep(testTimeout)
+	time.Sleep(500 * time.Millisecond)
 	registry.Stop()
 
 	// Create the expected cancellation set before the final check.

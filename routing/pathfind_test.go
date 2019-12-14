@@ -22,6 +22,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/feature"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -63,6 +64,19 @@ var (
 	tlvFeatures = lnwire.NewFeatureVector(
 		lnwire.NewRawFeatureVector(
 			lnwire.TLVOnionPayloadOptional,
+		), lnwire.Features,
+	)
+
+	payAddrFeatures = lnwire.NewFeatureVector(
+		lnwire.NewRawFeatureVector(
+			lnwire.PaymentAddrOptional,
+		), lnwire.Features,
+	)
+
+	tlvPayAddrFeatures = lnwire.NewFeatureVector(
+		lnwire.NewRawFeatureVector(
+			lnwire.TLVOnionPayloadOptional,
+			lnwire.PaymentAddrOptional,
 		), lnwire.Features,
 	)
 )
@@ -1399,6 +1413,63 @@ func TestDestTLVGraphFallback(t *testing.T) {
 	restrictions.DestFeatures = tlvFeatures
 
 	path, err = find(&restrictions, luoji)
+	if err != nil {
+		t.Fatalf("path shouldn't have been found: %v", err)
+	}
+	assertExpectedPath(t, graph.aliasMap, path, "luoji")
+}
+
+// TestDestFeatureMissingDep asserts that we fail path finding when the
+// destination's features are broken, in that the feature vector doesn't singal
+// all transitive dependencies.
+func TestDestFeatureMissingDep(t *testing.T) {
+	t.Parallel()
+
+	graph, err := parseTestGraph(basicGraphFilePath)
+	if err != nil {
+		t.Fatalf("unable to create graph: %v", err)
+	}
+	defer graph.cleanUp()
+
+	sourceNode, err := graph.graph.SourceNode()
+	if err != nil {
+		t.Fatalf("unable to fetch source node: %v", err)
+
+	}
+
+	find := func(r *RestrictParams,
+		target route.Vertex) ([]*channeldb.ChannelEdgePolicy, error) {
+
+		return findPath(
+			&graphParams{
+				graph: graph.graph,
+			},
+			r, testPathFindingConfig,
+			sourceNode.PubKeyBytes, target, 100,
+		)
+	}
+
+	luoji := graph.aliasMap["luoji"]
+
+	restrictions := *noRestrictions
+
+	// Add a broken feature vector, that signals payment addresses without
+	// signaling tlv. This should fail since we validate transitive feature
+	// dependencies for the final node.
+	restrictions.DestFeatures = payAddrFeatures
+
+	_, err = find(&restrictions, luoji)
+	if err != feature.NewErrMissingFeatureDep(
+		lnwire.TLVOnionPayloadOptional,
+	) {
+		t.Fatalf("path shouldn't have been found: %v", err)
+	}
+
+	// Now, set the TLV and payment addresses features. We should succeed in
+	// finding a path to luoji.
+	restrictions.DestFeatures = tlvPayAddrFeatures
+
+	path, err := find(&restrictions, luoji)
 	if err != nil {
 		t.Fatalf("path shouldn't have been found: %v", err)
 	}

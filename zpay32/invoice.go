@@ -548,7 +548,7 @@ func (invoice *Invoice) Expiry() time.Duration {
 	}
 
 	// If no expiry is set for this invoice, default is 3600 seconds.
-	return 3600 * time.Second
+	return DefaultInvoiceExpiry
 }
 
 // MinFinalCLTVExpiry returns the minimum final CLTV expiry delta as specified

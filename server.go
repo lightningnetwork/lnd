@@ -33,6 +33,7 @@ import (
 	"github.com/lightningnetwork/lnd/chanfitness"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channelnotifier"
+	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/feature"
@@ -381,8 +382,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 	registryConfig := invoices.RegistryConfig{
 		FinalCltvRejectDelta: defaultFinalCltvRejectDelta,
 		HtlcHoldDuration:     invoices.DefaultHtlcHoldDuration,
-		Now:                  time.Now,
-		TickAfter:            time.After,
+		Clock:                clock.NewDefaultClock(),
 	}
 
 	s := &server{
@@ -393,7 +393,10 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 		readPool:       readPool,
 		chansToRestore: chansToRestore,
 
-		invoices: invoices.NewRegistry(chanDB, &registryConfig),
+		invoices: invoices.NewRegistry(
+			chanDB, invoices.NewInvoiceExpiryWatcher(clock.NewDefaultClock()),
+			&registryConfig,
+		),
 
 		channelNotifier: channelnotifier.New(chanDB),
 

@@ -9,6 +9,7 @@ import (
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/queue"
@@ -62,12 +63,10 @@ type RegistryConfig struct {
 	// waiting for the other set members to arrive.
 	HtlcHoldDuration time.Duration
 
-	// Now returns the current time.
-	Now func() time.Time
-
-	// TickAfter returns a channel that is sent on after the specified
-	// duration as passed.
-	TickAfter func(duration time.Duration) <-chan time.Time
+	// Clock holds the clock implementation that is used to provide
+	// Now() and TickAfter() and is useful to stub out the clock functions
+	// during testing.
+	Clock clock.Clock
 }
 
 // htlcReleaseEvent describes an htlc auto-release event. It is used to release
@@ -126,6 +125,8 @@ type InvoiceRegistry struct {
 	// auto-released.
 	htlcAutoReleaseChan chan *htlcReleaseEvent
 
+	expiryWatcher *InvoiceExpiryWatcher
+
 	wg   sync.WaitGroup
 	quit chan struct{}
 }
@@ -134,7 +135,9 @@ type InvoiceRegistry struct {
 // wraps the persistent on-disk invoice storage with an additional in-memory
 // layer. The in-memory layer is in place such that debug invoices can be added
 // which are volatile yet available system wide within the daemon.
-func NewRegistry(cdb *channeldb.DB, cfg *RegistryConfig) *InvoiceRegistry {
+func NewRegistry(cdb *channeldb.DB, expiryWatcher *InvoiceExpiryWatcher,
+	cfg *RegistryConfig) *InvoiceRegistry {
+
 	return &InvoiceRegistry{
 		cdb:                       cdb,
 		notificationClients:       make(map[uint32]*InvoiceSubscription),
@@ -146,21 +149,62 @@ func NewRegistry(cdb *channeldb.DB, cfg *RegistryConfig) *InvoiceRegistry {
 		hodlReverseSubscriptions:  make(map[chan<- interface{}]map[channeldb.CircuitKey]struct{}),
 		cfg:                       cfg,
 		htlcAutoReleaseChan:       make(chan *htlcReleaseEvent),
+		expiryWatcher:             expiryWatcher,
 		quit:                      make(chan struct{}),
 	}
 }
 
+// populateExpiryWatcher fetches all active invoices and their corresponding
+// payment hashes from ChannelDB and adds them to the expiry watcher.
+func (i *InvoiceRegistry) populateExpiryWatcher() error {
+	pendingOnly := true
+	pendingInvoices, err := i.cdb.FetchAllInvoicesWithPaymentHash(pendingOnly)
+	if err != nil && err != channeldb.ErrNoInvoicesCreated {
+		log.Errorf(
+			"Error while prefetching active invoices from the database: %v", err,
+		)
+		return err
+	}
+
+	for idx := range pendingInvoices {
+		i.expiryWatcher.AddInvoice(
+			pendingInvoices[idx].PaymentHash, &pendingInvoices[idx].Invoice,
+		)
+	}
+
+	return nil
+}
+
 // Start starts the registry and all goroutines it needs to carry out its task.
 func (i *InvoiceRegistry) Start() error {
-	i.wg.Add(1)
+	// Start InvoiceExpiryWatcher and prepopulate it with existing active
+	// invoices.
+	err := i.expiryWatcher.Start(func(paymentHash lntypes.Hash) error {
+		cancelIfAccepted := false
+		return i.cancelInvoiceImpl(paymentHash, cancelIfAccepted)
+	})
 
+	if err != nil {
+		return err
+	}
+
+	i.wg.Add(1)
 	go i.invoiceEventLoop()
+
+	// Now prefetch all pending invoices to the expiry watcher.
+	err = i.populateExpiryWatcher()
+	if err != nil {
+		i.Stop()
+		return err
+	}
 
 	return nil
 }
 
 // Stop signals the registry for a graceful shutdown.
 func (i *InvoiceRegistry) Stop() {
+	i.expiryWatcher.Stop()
+
 	close(i.quit)
 
 	i.wg.Wait()
@@ -177,8 +221,8 @@ type invoiceEvent struct {
 // tickAt returns a channel that ticks at the specified time. If the time has
 // already passed, it will tick immediately.
 func (i *InvoiceRegistry) tickAt(t time.Time) <-chan time.Time {
-	now := i.cfg.Now()
-	return i.cfg.TickAfter(t.Sub(now))
+	now := i.cfg.Clock.Now()
+	return i.cfg.Clock.TickAfter(t.Sub(now))
 }
 
 // invoiceEventLoop is the dedicated goroutine responsible for accepting
@@ -471,7 +515,6 @@ func (i *InvoiceRegistry) AddInvoice(invoice *channeldb.Invoice,
 	paymentHash lntypes.Hash) (uint64, error) {
 
 	i.Lock()
-	defer i.Unlock()
 
 	log.Debugf("Invoice(%v): added %v", paymentHash,
 		newLogClosure(func() string {
@@ -481,12 +524,19 @@ func (i *InvoiceRegistry) AddInvoice(invoice *channeldb.Invoice,
 
 	addIndex, err := i.cdb.AddInvoice(invoice, paymentHash)
 	if err != nil {
+		i.Unlock()
 		return 0, err
 	}
 
 	// Now that we've added the invoice, we'll send dispatch a message to
 	// notify the clients of this new invoice.
 	i.notifyClients(paymentHash, invoice, channeldb.ContractOpen)
+	i.Unlock()
+
+	// InvoiceExpiryWatcher.AddInvoice must not be locked by InvoiceRegistry
+	// to avoid deadlock when a new invoice is added while an other is being
+	// canceled.
+	i.expiryWatcher.AddInvoice(paymentHash, invoice)
 
 	return addIndex, nil
 }
@@ -818,6 +868,15 @@ func (i *InvoiceRegistry) SettleHodlInvoice(preimage lntypes.Preimage) error {
 // CancelInvoice attempts to cancel the invoice corresponding to the passed
 // payment hash.
 func (i *InvoiceRegistry) CancelInvoice(payHash lntypes.Hash) error {
+	return i.cancelInvoiceImpl(payHash, true)
+}
+
+// cancelInvoice attempts to cancel the invoice corresponding to the passed
+// payment hash. Accepted invoices will only be canceled if explicitly
+// requested to do so.
+func (i *InvoiceRegistry) cancelInvoiceImpl(payHash lntypes.Hash,
+	cancelAccepted bool) error {
+
 	i.Lock()
 	defer i.Unlock()
 
@@ -825,6 +884,12 @@ func (i *InvoiceRegistry) CancelInvoice(payHash lntypes.Hash) error {
 
 	updateInvoice := func(invoice *channeldb.Invoice) (
 		*channeldb.InvoiceUpdateDesc, error) {
+
+		// Only cancel the invoice in ContractAccepted state if explicitly
+		// requested to do so.
+		if invoice.State == channeldb.ContractAccepted && !cancelAccepted {
+			return nil, nil
+		}
 
 		// Move invoice to the canceled state. Rely on validation in
 		// channeldb to return an error if the invoice is already
@@ -846,6 +911,13 @@ func (i *InvoiceRegistry) CancelInvoice(payHash lntypes.Hash) error {
 	}
 	if err != nil {
 		return err
+	}
+
+	// Return without cancellation if the invoice state is ContractAccepted.
+	if invoice.State == channeldb.ContractAccepted {
+		log.Debugf("Invoice(%v): remains accepted as cancel wasn't"+
+			"explicitly requested.", payHash)
+		return nil
 	}
 
 	log.Debugf("Invoice(%v): canceled", payHash)

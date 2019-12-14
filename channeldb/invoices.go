@@ -565,6 +565,83 @@ func (d *DB) LookupInvoice(paymentHash [32]byte) (Invoice, error) {
 	return invoice, nil
 }
 
+// InvoiceWithPaymentHash is used to store an invoice and its corresponding
+// payment hash. This struct is only used to store results of
+// ChannelDB.FetchAllInvoicesWithPaymentHash() call.
+type InvoiceWithPaymentHash struct {
+	// Invoice holds the invoice as selected from the invoices bucket.
+	Invoice Invoice
+
+	// PaymentHash is the payment hash for the Invoice.
+	PaymentHash lntypes.Hash
+}
+
+// FetchAllInvoicesWithPaymentHash returns all invoices and their payment hashes
+// currently stored within the database. If the pendingOnly param is true, then
+// only unsettled invoices and their payment hashes will be returned, skipping
+// all invoices that are fully settled or canceled. Note that the returned
+// array is not ordered by add index.
+func (d *DB) FetchAllInvoicesWithPaymentHash(pendingOnly bool) (
+	[]InvoiceWithPaymentHash, error) {
+
+	var result []InvoiceWithPaymentHash
+
+	err := d.View(func(tx *bbolt.Tx) error {
+		invoices := tx.Bucket(invoiceBucket)
+		if invoices == nil {
+			return ErrNoInvoicesCreated
+		}
+
+		invoiceIndex := invoices.Bucket(invoiceIndexBucket)
+		if invoiceIndex == nil {
+			// Mask the error if there's no invoice
+			// index as that simply means there are no
+			// invoices added yet to the DB. In this case
+			// we simply return an empty list.
+			return nil
+		}
+
+		return invoiceIndex.ForEach(func(k, v []byte) error {
+			// Skip the special numInvoicesKey as that does not
+			// point to a valid invoice.
+			if bytes.Equal(k, numInvoicesKey) {
+				return nil
+			}
+
+			if v == nil {
+				return nil
+			}
+
+			invoice, err := fetchInvoice(v, invoices)
+			if err != nil {
+				return err
+			}
+
+			if pendingOnly &&
+				(invoice.State == ContractSettled ||
+					invoice.State == ContractCanceled) {
+
+				return nil
+			}
+
+			invoiceWithPaymentHash := InvoiceWithPaymentHash{
+				Invoice: invoice,
+			}
+
+			copy(invoiceWithPaymentHash.PaymentHash[:], k)
+			result = append(result, invoiceWithPaymentHash)
+
+			return nil
+		})
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
 // FetchAllInvoices returns all invoices currently stored within the database.
 // If the pendingOnly param is true, then only unsettled invoices will be
 // returned, skipping all invoices that are fully settled.

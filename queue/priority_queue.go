@@ -9,6 +9,8 @@ import (
 // PriorityQueue will be able to use that to build and restore an underlying
 // heap.
 type PriorityQueueItem interface {
+	// Less must return true if this item is ordered before other and false
+	// otherwise.
 	Less(other PriorityQueueItem) bool
 }
 
@@ -43,7 +45,7 @@ func (pq *priorityQueue) Pop() interface{} {
 	return item
 }
 
-// Priority wrap a standard heap in a more object-oriented structure.
+// PriorityQueue wraps a standard heap into a self contained class.
 type PriorityQueue struct {
 	queue priorityQueue
 }

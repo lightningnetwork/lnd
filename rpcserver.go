@@ -2258,6 +2258,10 @@ func (r *rpcServer) ListPeers(ctx context.Context,
 			}
 		}
 
+		features := invoicesrpc.CreateRPCFeatures(
+			serverPeer.RemoteFeatures(),
+		)
+
 		peer := &lnrpc.Peer{
 			PubKey:    hex.EncodeToString(nodePub[:]),
 			Address:   serverPeer.conn.RemoteAddr().String(),
@@ -2268,6 +2272,7 @@ func (r *rpcServer) ListPeers(ctx context.Context,
 			SatRecv:   satRecv,
 			PingTime:  serverPeer.PingTime(),
 			SyncType:  lnrpcSyncType,
+			Features:  features,
 		}
 
 		resp.Peers = append(resp.Peers, peer)

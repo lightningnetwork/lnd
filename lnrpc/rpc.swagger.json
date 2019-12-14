@@ -3437,6 +3437,13 @@
         "sync_type": {
           "$ref": "#/definitions/PeerSyncType",
           "description": "The type of sync we are currently performing with this peer."
+        },
+        "features": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcFeature"
+          },
+          "description": "/ Features advertised by the remote peer in their init message."
         }
       }
     },

@@ -1449,6 +1449,9 @@ message Peer {
 
     // The type of sync we are currently performing with this peer.
     SyncType sync_type = 10 [json_name = "sync_type"];
+
+    /// Features advertised by the remote peer in their init message.
+    repeated Feature features = 11 [json_name = "features"];
 }
 
 message ListPeersRequest {

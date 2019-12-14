@@ -3956,6 +3956,7 @@ func (r *rpcServer) DescribeGraph(ctx context.Context,
 			Addresses:  nodeAddrs,
 			Alias:      node.Alias,
 			Color:      routing.EncodeHexColor(node.Color),
+			Features:   invoicesrpc.CreateRPCFeatures(node.Features),
 		})
 
 		return nil
@@ -4137,6 +4138,8 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 		nodeAddrs = append(nodeAddrs, nodeAddr)
 	}
 
+	features := invoicesrpc.CreateRPCFeatures(node.Features)
+
 	return &lnrpc.NodeInfo{
 		Node: &lnrpc.LightningNode{
 			LastUpdate: uint32(node.LastUpdate.Unix()),
@@ -4144,6 +4147,7 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 			Addresses:  nodeAddrs,
 			Alias:      node.Alias,
 			Color:      routing.EncodeHexColor(node.Color),
+			Features:   features,
 		},
 		NumChannels:   numChannels,
 		TotalCapacity: int64(totalCapacity),

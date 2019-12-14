@@ -2069,6 +2069,7 @@ message LightningNode {
     string alias = 3 [ json_name = "alias" ];
     repeated NodeAddress addresses = 4 [ json_name = "addresses" ];
     string color = 5 [ json_name = "color" ];
+    repeated Feature features = 6 [ json_name = "features" ];
 }
 
 message NodeAddress {

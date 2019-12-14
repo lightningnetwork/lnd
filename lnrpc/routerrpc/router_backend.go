@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/feature"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -633,6 +634,14 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 
 		// Payment hash.
 		copy(payIntent.PaymentHash[:], rpcPayReq.PaymentHash)
+
+		// Parse destination feature bits.
+		features, err := unmarshalFeatures(rpcPayReq.DestFeatures)
+		if err != nil {
+			return nil, err
+		}
+
+		payIntent.DestFeatures = features
 	}
 
 	// Currently, within the bootstrap phase of the network, we limit the
@@ -697,6 +706,27 @@ func unmarshallHopHint(rpcHint *lnrpc.HopHint) (zpay32.HopHint, error) {
 		FeeProportionalMillionths: rpcHint.FeeProportionalMillionths,
 		CLTVExpiryDelta:           uint16(rpcHint.CltvExpiryDelta),
 	}, nil
+}
+
+// unmarshalFeatures converts a list of uint32's into a valid feature vector.
+// This method checks that feature bit pairs aren't assigned toegether, and
+// validates transitive depdencies.
+func unmarshalFeatures(rpcFeatures []uint32) (*lnwire.FeatureVector, error) {
+	raw := lnwire.NewRawFeatureVector()
+	for _, bit := range rpcFeatures {
+		err := raw.SafeSet(lnwire.FeatureBit(bit))
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	fv := lnwire.NewFeatureVector(raw, lnwire.Features)
+	err := feature.ValidateDeps(fv)
+	if err != nil {
+		return nil, err
+	}
+
+	return fv, nil
 }
 
 // ValidatePayReqExpiry checks if the passed payment request has expired. In

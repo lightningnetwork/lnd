@@ -989,9 +989,7 @@ func TestGossipSyncerGenChanRangeQuery(t *testing.T) {
 }
 
 // TestGossipSyncerProcessChanRangeReply tests that we'll properly buffer
-// replied channel replies until we have the complete version. If no new
-// channels were discovered, then we should go directly to the chanSsSynced
-// state. Otherwise, we should go to the queryNewChannels states.
+// replied channel replies until we have the complete version.
 func TestGossipSyncerProcessChanRangeReply(t *testing.T) {
 	t.Parallel()
 
@@ -1080,48 +1078,6 @@ func TestGossipSyncerProcessChanRangeReply(t *testing.T) {
 	if !reflect.DeepEqual(syncer.newChansToQuery, expectedReq[1:]) {
 		t.Fatalf("wrong set of chans to query: expected %v, got %v",
 			syncer.newChansToQuery, expectedReq[1:])
-	}
-
-	// Wait for error from goroutine.
-	select {
-	case <-time.After(time.Second * 30):
-		t.Fatalf("goroutine did not return within 30 seconds")
-	case err := <-errCh:
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	// We'll repeat our final reply again, but this time we won't send any
-	// new channels. As a result, we should transition over to the
-	// chansSynced state.
-	errCh = make(chan error, 1)
-	go func() {
-		select {
-		case <-time.After(time.Second * 15):
-			errCh <- errors.New("no query received")
-			return
-		case req := <-chanSeries.filterReq:
-			// We should get a request for the entire range of short
-			// chan ID's.
-			if !reflect.DeepEqual(expectedReq[2], req[0]) {
-				errCh <- fmt.Errorf("wrong request: expected %v, got %v",
-					expectedReq[2], req[0])
-				return
-			}
-
-			// We'll send back only the last two to simulate filtering.
-			chanSeries.filterResp <- []lnwire.ShortChannelID{}
-			errCh <- nil
-		}
-	}()
-	if err := syncer.processChanRangeReply(replies[2]); err != nil {
-		t.Fatalf("unable to process reply: %v", err)
-	}
-
-	if syncer.syncState() != chansSynced {
-		t.Fatalf("wrong state: expected %v instead got %v",
-			chansSynced, syncer.state)
 	}
 
 	// Wait for error from goroutine.

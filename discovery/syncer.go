@@ -298,6 +298,17 @@ type GossipSyncer struct {
 	// received over, these will be read by the replyHandler.
 	queryMsgs chan lnwire.Message
 
+	// curQueryRangeMsg keeps track of the latest QueryChannelRange message
+	// we've sent to a peer to ensure we've consumed all expected replies.
+	// This field is primarily used within the waitingQueryChanReply state.
+	curQueryRangeMsg *lnwire.QueryChannelRange
+
+	// prevReplyChannelRange keeps track of the previous ReplyChannelRange
+	// message we've received from a peer to ensure they've fully replied to
+	// our query by ensuring they covered our requested block range. This
+	// field is primarily used within the waitingQueryChanReply state.
+	prevReplyChannelRange *lnwire.ReplyChannelRange
+
 	// bufferedChanRangeReplies is used in the waitingQueryChanReply to
 	// buffer all the chunked response to our query.
 	bufferedChanRangeReplies []lnwire.ShortChannelID
@@ -666,10 +677,64 @@ func (g *GossipSyncer) synchronizeChanIDs() (bool, error) {
 	return false, err
 }
 
+// isLegacyReplyChannelRange determines where a ReplyChannelRange message is
+// considered legacy. There was a point where lnd used to include the same query
+// over multiple replies, rather than including the portion of the query the
+// reply is handling. We'll use this as a way of detecting whether we are
+// communicating with a legacy node so we can properly sync with them.
+func isLegacyReplyChannelRange(query *lnwire.QueryChannelRange,
+	reply *lnwire.ReplyChannelRange) bool {
+
+	return reply.QueryChannelRange == *query
+}
+
 // processChanRangeReply is called each time the GossipSyncer receives a new
 // reply to the initial range query to discover new channels that it didn't
 // previously know of.
 func (g *GossipSyncer) processChanRangeReply(msg *lnwire.ReplyChannelRange) error {
+	// If we're not communicating with a legacy node, we'll apply some
+	// further constraints on their reply to ensure it satisfies our query.
+	if !isLegacyReplyChannelRange(g.curQueryRangeMsg, msg) {
+		// The first block should be within our original request.
+		if msg.FirstBlockHeight < g.curQueryRangeMsg.FirstBlockHeight {
+			return fmt.Errorf("reply includes channels for height "+
+				"%v prior to query %v", msg.FirstBlockHeight,
+				g.curQueryRangeMsg.FirstBlockHeight)
+		}
+
+		// The last block should also be. We don't need to check the
+		// intermediate ones because they should already be in sorted
+		// order.
+		replyLastHeight := msg.QueryChannelRange.LastBlockHeight()
+		queryLastHeight := g.curQueryRangeMsg.LastBlockHeight()
+		if replyLastHeight > queryLastHeight {
+			return fmt.Errorf("reply includes channels for height "+
+				"%v after query %v", replyLastHeight,
+				queryLastHeight)
+		}
+
+		// If we've previously received a reply for this query, look at
+		// its last block to ensure the current reply properly follows
+		// it.
+		if g.prevReplyChannelRange != nil {
+			prevReply := g.prevReplyChannelRange
+			prevReplyLastHeight := prevReply.LastBlockHeight()
+
+			// The current reply can either start from the previous
+			// reply's last block, if there are still more channels
+			// for the same block, or the block after.
+			if msg.FirstBlockHeight != prevReplyLastHeight &&
+				msg.FirstBlockHeight != prevReplyLastHeight+1 {
+
+				return fmt.Errorf("first block of reply %v "+
+					"does not continue from last block of "+
+					"previous %v", msg.FirstBlockHeight,
+					prevReplyLastHeight)
+			}
+		}
+	}
+
+	g.prevReplyChannelRange = msg
 	g.bufferedChanRangeReplies = append(
 		g.bufferedChanRangeReplies, msg.ShortChanIDs...,
 	)
@@ -679,8 +744,25 @@ func (g *GossipSyncer) processChanRangeReply(msg *lnwire.ReplyChannelRange) erro
 
 	// If this isn't the last response, then we can exit as we've already
 	// buffered the latest portion of the streaming reply.
-	if msg.Complete == 0 {
-		return nil
+	switch {
+	// If we're communicating with a legacy node, we'll need to look at the
+	// complete field.
+	case isLegacyReplyChannelRange(g.curQueryRangeMsg, msg):
+		if msg.Complete == 0 {
+			return nil
+		}
+
+	// Otherwise, we'll look at the reply's height range.
+	default:
+		replyLastHeight := msg.QueryChannelRange.LastBlockHeight()
+		queryLastHeight := g.curQueryRangeMsg.LastBlockHeight()
+
+		// TODO(wilmer): This might require some padding if the remote
+		// node is not aware of the last height we sent them, i.e., is
+		// behind a few blocks from us.
+		if replyLastHeight < queryLastHeight {
+			return nil
+		}
 	}
 
 	log.Infof("GossipSyncer(%x): filtering through %v chans",
@@ -696,8 +778,10 @@ func (g *GossipSyncer) processChanRangeReply(msg *lnwire.ReplyChannelRange) erro
 	}
 
 	// As we've received the entirety of the reply, we no longer need to
-	// hold on to the set of buffered replies, so we'll let that be garbage
-	// collected now.
+	// hold on to the set of buffered replies or the original query that
+	// prompted the replies, so we'll let that be garbage collected now.
+	g.curQueryRangeMsg = nil
+	g.prevReplyChannelRange = nil
 	g.bufferedChanRangeReplies = nil
 
 	// If there aren't any channels that we don't know of, then we can
@@ -757,11 +841,14 @@ func (g *GossipSyncer) genChanRangeQuery(
 	// Finally, we'll craft the channel range query, using our starting
 	// height, then asking for all known channels to the foreseeable end of
 	// the main chain.
-	return &lnwire.QueryChannelRange{
+	query := &lnwire.QueryChannelRange{
 		ChainHash:        g.cfg.chainHash,
 		FirstBlockHeight: startHeight,
 		NumBlocks:        math.MaxUint32 - startHeight,
-	}, nil
+	}
+	g.curQueryRangeMsg = query
+
+	return query, nil
 }
 
 // replyPeerQueries is called in response to any query by the remote peer.

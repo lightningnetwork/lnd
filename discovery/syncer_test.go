@@ -709,10 +709,12 @@ func TestGossipSyncerReplyChanRangeQuery(t *testing.T) {
 
 	// Next, we'll craft a query to ask for all the new chan ID's after
 	// block 100.
-	const startingBlockHeight int = 100
+	const startingBlockHeight = 100
+	const numBlocks = 50
+	const endingBlockHeight = startingBlockHeight + numBlocks - 1
 	query := &lnwire.QueryChannelRange{
 		FirstBlockHeight: uint32(startingBlockHeight),
-		NumBlocks:        50,
+		NumBlocks:        uint32(numBlocks),
 	}
 
 	// We'll then launch a goroutine to reply to the query with a set of 5
@@ -744,8 +746,11 @@ func TestGossipSyncerReplyChanRangeQuery(t *testing.T) {
 			return
 		case filterReq := <-chanSeries.filterRangeReqs:
 			// We should be querying for block 100 to 150.
-			if filterReq.startHeight != 100 && filterReq.endHeight != 150 {
-				errCh <- fmt.Errorf("wrong height range: %v", spew.Sdump(filterReq))
+			if filterReq.startHeight != startingBlockHeight &&
+				filterReq.endHeight != endingBlockHeight {
+
+				errCh <- fmt.Errorf("wrong height range: %v",
+					spew.Sdump(filterReq))
 				return
 			}
 

@@ -138,18 +138,34 @@ func newRoute(sourceVertex route.Vertex,
 		// payload for the hop this edge is leading to.
 		edge := pathEdges[i]
 
-		// If this is the last hop, then the hop payload will contain
-		// the exact amount. In BOLT #4: Onion Routing
-		// Protocol / "Payload for the Last Node", this is detailed.
-		amtToForward := finalHop.amt
+		// We'll calculate the amounts, timelocks, and fees for each hop
+		// in the route. The base case is the final hop which includes
+		// their amount and timelocks. These values will accumulate
+		// contributions from the preceding hops back to the sender as
+		// we compute the route in reverse.
+		var (
+			amtToForward     lnwire.MilliSatoshi
+			fee              lnwire.MilliSatoshi
+			outgoingTimeLock uint32
+		)
+		if i == len(pathEdges)-1 {
+			// If this is the last hop, then the hop payload will
+			// contain the exact amount. In BOLT #4: Onion Routing
+			// Protocol / "Payload for the Last Node", this is
+			// detailed.
+			amtToForward = finalHop.amt
 
-		// Fee is not part of the hop payload, but only used for
-		// reporting through RPC. Set to zero for the final hop.
-		fee := lnwire.MilliSatoshi(0)
+			// Fee is not part of the hop payload, but only used for
+			// reporting through RPC. Set to zero for the final hop.
+			fee = lnwire.MilliSatoshi(0)
 
-		// If the current hop isn't the last hop, then add enough funds
-		// to pay for transit over the next link.
-		if i != len(pathEdges)-1 {
+			// As this is the last hop, we'll use the specified
+			// final CLTV delta value instead of the value from the
+			// last link in the route.
+			totalTimeLock += uint32(finalHop.cltvDelta)
+
+			outgoingTimeLock = currentHeight + uint32(finalHop.cltvDelta)
+		} else {
 			// The amount that the current hop needs to forward is
 			// equal to the incoming amount of the next hop.
 			amtToForward = nextIncomingAmount
@@ -160,20 +176,7 @@ func newRoute(sourceVertex route.Vertex,
 			// is stored as part of the incoming channel of
 			// the next hop.
 			fee = pathEdges[i+1].ComputeFee(amtToForward)
-		}
 
-		// If this is the last hop, then for verification purposes, the
-		// value of the outgoing time-lock should be _exactly_ the
-		// absolute time out they'd expect in the HTLC.
-		var outgoingTimeLock uint32
-		if i == len(pathEdges)-1 {
-			// As this is the last hop, we'll use the specified
-			// final CLTV delta value instead of the value from the
-			// last link in the route.
-			totalTimeLock += uint32(finalHop.cltvDelta)
-
-			outgoingTimeLock = currentHeight + uint32(finalHop.cltvDelta)
-		} else {
 			// Next, increment the total timelock of the entire
 			// route such that each hops time lock increases as we
 			// walk backwards in the route, using the delta of the

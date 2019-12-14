@@ -1476,6 +1476,63 @@ func TestDestFeatureMissingDep(t *testing.T) {
 	assertExpectedPath(t, graph.aliasMap, path, "luoji")
 }
 
+// TestDestPaymentAddr asserts that we properly detect when we can send a
+// payment address to a receiver, and also that we fallback to the receiver's
+// node announcement if we don't have an invoice features.
+func TestDestPaymentAddr(t *testing.T) {
+	t.Parallel()
+
+	graph, err := parseTestGraph(basicGraphFilePath)
+	if err != nil {
+		t.Fatalf("unable to create graph: %v", err)
+	}
+	defer graph.cleanUp()
+
+	sourceNode, err := graph.graph.SourceNode()
+	if err != nil {
+		t.Fatalf("unable to fetch source node: %v", err)
+
+	}
+
+	find := func(r *RestrictParams,
+		target route.Vertex) ([]*channeldb.ChannelEdgePolicy, error) {
+
+		return findPath(
+			&graphParams{
+				graph: graph.graph,
+			},
+			r, testPathFindingConfig,
+			sourceNode.PubKeyBytes, target, 100,
+		)
+	}
+
+	luoji := graph.aliasMap["luoji"]
+
+	restrictions := *noRestrictions
+
+	// Add custom records w/o any invoice features.
+	restrictions.PaymentAddr = &[32]byte{1}
+
+	// Add empty destination features. This should cause us to fail, since
+	// this overrides anything in the graph.
+	restrictions.DestFeatures = lnwire.EmptyFeatureVector()
+
+	_, err = find(&restrictions, luoji)
+	if err != errNoPaymentAddr {
+		t.Fatalf("path shouldn't have been found: %v", err)
+	}
+
+	// Now, set the TLV dest feature. We should succeed in finding a path to
+	// luoji.
+	restrictions.DestFeatures = tlvPayAddrFeatures
+
+	path, err := find(&restrictions, luoji)
+	if err != nil {
+		t.Fatalf("path shouldn't have been found: %v", err)
+	}
+	assertExpectedPath(t, graph.aliasMap, path, "luoji")
+}
+
 func TestPathInsufficientCapacity(t *testing.T) {
 	t.Parallel()
 

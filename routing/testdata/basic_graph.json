@@ -45,7 +45,8 @@
         {
             "source": false, 
             "pubkey": "03c19f0027ffbb0ae0e14a4d958788793f9d74e107462473ec0c3891e4feb12e99", 
-            "alias": "satoshi" 
+            "alias": "satoshi",
+            "features": [9]
         }, 
         {
             "source": false, 

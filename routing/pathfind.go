@@ -292,6 +292,11 @@ type RestrictParams struct {
 	// DestCustomRecords contains the custom records to drop off at the
 	// final hop, if any.
 	DestCustomRecords record.CustomSet
+
+	// DestFeatures is a feature vector describing what the final hop
+	// supports. If none are provided, pathfinding will try to inspect any
+	// features on the node announcement instead.
+	DestFeatures *lnwire.FeatureVector
 }
 
 // PathFindingConfig defines global parameters that control the trade-off in
@@ -395,27 +400,39 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		defer tx.Rollback()
 	}
 
-	if len(r.DestCustomRecords) > 0 {
-		// Check if the target has TLV enabled
-
+	// If no destination features are provided, we will load what features
+	// we have for the target node from our graph.
+	features := r.DestFeatures
+	if features == nil {
 		targetKey, err := btcec.ParsePubKey(target[:], btcec.S256())
 		if err != nil {
 			return nil, err
 		}
 
 		targetNode, err := g.graph.FetchLightningNode(targetKey)
-		if err != nil {
-			return nil, err
-		}
+		switch {
 
-		if targetNode.Features != nil {
-			supportsTLV := targetNode.Features.HasFeature(
-				lnwire.TLVOnionPayloadOptional,
-			)
-			if !supportsTLV {
-				return nil, errNoTlvPayload
-			}
+		// If the node exists and has features, use them directly.
+		case err == nil:
+			features = targetNode.Features
+
+		// If an error other than the node not existing is hit, abort.
+		case err != channeldb.ErrGraphNodeNotFound:
+			return nil, err
+
+		// Otherwise, we couldn't find a node announcement, populate a
+		// blank feature vector.
+		default:
+			features = lnwire.EmptyFeatureVector()
 		}
+	}
+
+	// If the caller needs to send custom records, check that our
+	// destination feature vector supports TLV.
+	if len(r.DestCustomRecords) > 0 &&
+		!features.HasFeature(lnwire.TLVOnionPayloadOptional) {
+
+		return nil, errNoTlvPayload
 	}
 
 	// If we are routing from ourselves, check that we have enough local

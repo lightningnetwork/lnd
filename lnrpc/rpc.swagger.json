@@ -748,7 +748,7 @@
           },
           {
             "name": "final_cltv_delta",
-            "description": "/ An optional CLTV delta from the current height that should be used for the timelock of the final hop.",
+            "description": "*\nAn optional CLTV delta from the current height that should be used for the\ntimelock of the final hop. Note that unlike SendPayment, QueryRoutes does\nnot add any additional block padding on top of final_ctlv_delta. This\npadding of a few blocks needs to be added manually or otherwise failures may\nhappen when a block comes in while the payment is in flight.",
             "in": "query",
             "required": false,
             "type": "integer",

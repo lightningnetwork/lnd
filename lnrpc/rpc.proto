@@ -1821,7 +1821,13 @@ message QueryRoutesRequest {
 
     reserved 3;
 
-    /// An optional CLTV delta from the current height that should be used for the timelock of the final hop
+    /**
+    An optional CLTV delta from the current height that should be used for the
+    timelock of the final hop. Note that unlike SendPayment, QueryRoutes does
+    not add any additional block padding on top of final_ctlv_delta. This
+    padding of a few blocks needs to be added manually or otherwise failures may
+    happen when a block comes in while the payment is in flight.
+    */
     int32 final_cltv_delta = 4;
 
     /**

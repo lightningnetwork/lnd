@@ -2246,10 +2246,6 @@
     "lnrpcFeature": {
       "type": "object",
       "properties": {
-        "bit": {
-          "type": "integer",
-          "format": "int64"
-        },
         "name": {
           "type": "string"
         },
@@ -2804,8 +2800,8 @@
           "description": "/ List of HTLCs paying to this invoice [EXPERIMENTAL]."
         },
         "features": {
-          "type": "array",
-          "items": {
+          "type": "object",
+          "additionalProperties": {
             "$ref": "#/definitions/lnrpcFeature"
           },
           "description": "/ List of features advertised on the invoice."
@@ -2913,6 +2909,12 @@
         },
         "color": {
           "type": "string"
+        },
+        "features": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/lnrpcFeature"
+          }
         }
       },
       "description": "*\nAn individual vertex/node within the channel graph. A node is\nconnected to other nodes by one or more channel edges emanating from it. As the\ngraph is directed, a node will also have an incoming edge attached to it for\neach outgoing edge."
@@ -3305,8 +3307,8 @@
           "format": "int64"
         },
         "features": {
-          "type": "array",
-          "items": {
+          "type": "object",
+          "additionalProperties": {
             "$ref": "#/definitions/lnrpcFeature"
           }
         }
@@ -3431,6 +3433,13 @@
         "sync_type": {
           "$ref": "#/definitions/PeerSyncType",
           "description": "The type of sync we are currently performing with this peer."
+        },
+        "features": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/lnrpcFeature"
+          },
+          "description": "/ Features advertised by the remote peer in their init message."
         }
       }
     },

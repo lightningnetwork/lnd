@@ -1449,6 +1449,9 @@ message Peer {
 
     // The type of sync we are currently performing with this peer.
     SyncType sync_type = 10 [json_name = "sync_type"];
+
+    /// Features advertised by the remote peer in their init message.
+    map<uint32, Feature> features = 11 [json_name = "features"];
 }
 
 message ListPeersRequest {
@@ -2069,6 +2072,7 @@ message LightningNode {
     string alias = 3 [ json_name = "alias" ];
     repeated NodeAddress addresses = 4 [ json_name = "addresses" ];
     string color = 5 [ json_name = "color" ];
+    map<uint32, Feature> features = 6 [ json_name = "features" ];
 }
 
 message NodeAddress {
@@ -2373,7 +2377,7 @@ message Invoice {
     repeated InvoiceHTLC htlcs = 22 [json_name = "htlcs"];
 
     /// List of features advertised on the invoice.
-    repeated Feature features = 24 [json_name = "features"];
+    map<uint32, Feature> features = 24 [json_name = "features"];
 }
 
 enum InvoiceHTLCState {
@@ -2634,11 +2638,10 @@ message PayReq {
     repeated RouteHint route_hints = 10 [json_name = "route_hints"];
     bytes payment_addr = 11 [json_name = "payment_addr"];
     int64 num_msat = 12 [json_name = "num_msat"];
-    repeated Feature features = 13 [json_name = "features"];
+    map<uint32, Feature> features = 13 [json_name = "features"];
 }
 
 message Feature {
-        uint32 bit = 1 [json_name = "bit"];
         string name = 2 [json_name = "name"];
         bool is_required = 3 [json_name = "is_required"];
         bool is_known = 4 [json_name = "is_known"];

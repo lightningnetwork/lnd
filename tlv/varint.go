@@ -4,6 +4,8 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
+
+	"github.com/btcsuite/btcd/wire"
 )
 
 // ErrVarIntNotCanonical signals that the decoded varint was not minimally encoded.
@@ -106,4 +108,9 @@ func WriteVarInt(w io.Writer, val uint64, buf *[8]byte) error {
 
 	_, err := w.Write(buf[:length])
 	return err
+}
+
+// VarIntSize returns the required number of bytes to encode a var int.
+func VarIntSize(val uint64) uint64 {
+	return uint64(wire.VarIntSerializeSize(val))
 }

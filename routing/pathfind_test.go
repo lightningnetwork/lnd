@@ -1393,8 +1393,19 @@ func TestNewRoutePathTooLong(t *testing.T) {
 	// Assert that finding a 21 hop route fails.
 	node21 := ctx.keyFromAlias("node-21")
 	_, err = ctx.findPath(node21, payAmt)
-	if err != errMaxHopsExceeded {
-		t.Fatalf("expected route too long, but got %v", err)
+	if err != errNoPathFound {
+		t.Fatalf("not route error expected, but got %v", err)
+	}
+
+	// Assert that we can't find a 20 hop route if custom records make it
+	// exceed the maximum payload size.
+	ctx.restrictParams.DestFeatures = tlvFeatures
+	ctx.restrictParams.DestCustomRecords = map[uint64][]byte{
+		100000: bytes.Repeat([]byte{1}, 100),
+	}
+	_, err = ctx.findPath(node20, payAmt)
+	if err != errNoPathFound {
+		t.Fatalf("not route error expected, but got %v", err)
 	}
 }
 

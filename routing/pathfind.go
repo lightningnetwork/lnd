@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/coreos/bbolt"
+	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/feature"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -16,12 +17,6 @@ import (
 )
 
 const (
-	// HopLimit is the maximum number hops that is permissible as a route.
-	// Any potential paths found that lie above this limit will be rejected
-	// with an error. This value is computed using the current fixed-size
-	// packet length of the Sphinx construction.
-	HopLimit = 20
-
 	// infinity is used as a starting distance in our shortest path search.
 	infinity = math.MaxInt64
 
@@ -78,10 +73,6 @@ var (
 	// errNoPathFound is returned when a path to the target destination does
 	// not exist in the graph.
 	errNoPathFound = errors.New("unable to find a path to destination")
-
-	// errMaxHopsExceeded is returned when a candidate path is found, but
-	// the length of that path exceeds HopLimit.
-	errMaxHopsExceeded = errors.New("potential path has too many hops")
 
 	// errInsufficientLocalBalance is returned when none of the local
 	// channels have enough balance for the payment.
@@ -529,6 +520,23 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		}
 	}
 
+	// Build a preliminary destination hop structure to obtain the payload
+	// size.
+	var mpp *record.MPP
+	if r.PaymentAddr != nil {
+		mpp = record.NewMPP(amt, *r.PaymentAddr)
+	}
+
+	finalHop := route.Hop{
+		AmtToForward:     amt,
+		OutgoingTimeLock: uint32(finalHtlcExpiry),
+		CustomRecords:    r.DestCustomRecords,
+		LegacyPayload: !features.HasFeature(
+			lnwire.TLVOnionPayloadOptional,
+		),
+		MPP: mpp,
+	}
+
 	// We can't always assume that the end destination is publicly
 	// advertised to the network so we'll manually include the target node.
 	// The target node charges no fee. Distance is set to 0, because this is
@@ -545,6 +553,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		amountToReceive: amt,
 		incomingCltv:    finalHtlcExpiry,
 		probability:     1,
+		routingInfoSize: finalHop.PayloadSize(0),
 	}
 
 	// Calculate the absolute cltv limit. Use uint64 to prevent an overflow
@@ -554,6 +563,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 	// processEdge is a helper closure that will be used to make sure edges
 	// satisfy our specific requirements.
 	processEdge := func(fromVertex route.Vertex,
+		fromFeatures *lnwire.FeatureVector,
 		edge *channeldb.ChannelEdgePolicy, toNodeDist *nodeWithDist) {
 
 		edgesExpanded++
@@ -674,6 +684,34 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 				edge.ChannelID)
 		}
 
+		// Calculate the total routing info size if this hop were to be
+		// included. If we are coming from the source hop, the payload
+		// size is zero, because the original htlc isn't in the onion
+		// blob.
+		var payloadSize uint64
+		if fromVertex != source {
+			supportsTlv := fromFeatures.HasFeature(
+				lnwire.TLVOnionPayloadOptional,
+			)
+
+			hop := route.Hop{
+				AmtToForward: amountToSend,
+				OutgoingTimeLock: uint32(
+					toNodeDist.incomingCltv,
+				),
+				LegacyPayload: !supportsTlv,
+			}
+
+			payloadSize = hop.PayloadSize(edge.ChannelID)
+		}
+
+		routingInfoSize := toNodeDist.routingInfoSize + payloadSize
+
+		// Skip paths that would exceed the maximum routing info size.
+		if routingInfoSize > sphinx.MaxPayloadSize {
+			return
+		}
+
 		// All conditions are met and this new tentative distance is
 		// better than the current best known distance to this node.
 		// The new better distance is recorded, and also our "next hop"
@@ -686,6 +724,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 			incomingCltv:    incomingCltv,
 			probability:     probability,
 			nextHop:         edge,
+			routingInfoSize: routingInfoSize,
 		}
 		distance[fromVertex] = withDist
 
@@ -796,7 +835,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 
 			// Check if this candidate node is better than what we
 			// already have.
-			processEdge(fromNode, policy, partialPath)
+			processEdge(fromNode, fromFeatures, policy, partialPath)
 		}
 
 		if nodeHeap.Len() == 0 {
@@ -854,17 +893,8 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 	// findPath, and avoid using ChannelEdgePolicy altogether.
 	pathEdges[len(pathEdges)-1].Node.Features = features
 
-	// The route is invalid if it spans more than 20 hops. The current
-	// Sphinx (onion routing) implementation can only encode up to 20 hops
-	// as the entire packet is fixed size. If this route is more than 20
-	// hops, then it's invalid.
-	numEdges := len(pathEdges)
-	if numEdges > HopLimit {
-		return nil, errMaxHopsExceeded
-	}
-
 	log.Debugf("Found route: probability=%v, hops=%v, fee=%v\n",
-		distance[source].probability, numEdges,
+		distance[source].probability, len(pathEdges),
 		distance[source].amountToReceive-amt)
 
 	return pathEdges, nil

@@ -40,6 +40,10 @@ type nodeWithDist struct {
 
 	// nextHop is the edge this route comes from.
 	nextHop *channeldb.ChannelEdgePolicy
+
+	// routingInfoSize is the total size requirement for the payloads field
+	// in the onion packet from this hop towards the final destination.
+	routingInfoSize uint64
 }
 
 // distanceHeap is a min-distance heap that's used within our path finding

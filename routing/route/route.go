@@ -271,6 +271,11 @@ func NewRouteFromHops(amtToSend lnwire.MilliSatoshi, timeLock uint32,
 func (r *Route) ToSphinxPath() (*sphinx.PaymentPath, error) {
 	var path sphinx.PaymentPath
 
+	// We can only construct a route if there are hops provided.
+	if len(r.Hops) == 0 {
+		return nil, ErrNoRouteHopsProvided
+	}
+
 	// Check maximum route length.
 	if len(r.Hops) > sphinx.NumMaxHops {
 		return nil, ErrMaxRouteHopsExceeded

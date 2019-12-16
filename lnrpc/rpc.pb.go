@@ -5206,7 +5206,12 @@ type QueryRoutesRequest struct {
 	//
 	//The fields amt and amt_msat are mutually exclusive.
 	AmtMsat int64 `protobuf:"varint,12,opt,name=amt_msat,json=amtMsat,proto3" json:"amt_msat,omitempty"`
-	/// An optional CLTV delta from the current height that should be used for the timelock of the final hop
+	//*
+	//An optional CLTV delta from the current height that should be used for the
+	//timelock of the final hop. Note that unlike SendPayment, QueryRoutes does
+	//not add any additional block padding on top of final_ctlv_delta. This
+	//padding of a few blocks needs to be added manually or otherwise failures may
+	//happen when a block comes in while the payment is in flight.
 	FinalCltvDelta int32 `protobuf:"varint,4,opt,name=final_cltv_delta,json=finalCltvDelta,proto3" json:"final_cltv_delta,omitempty"`
 	//*
 	//The maximum number of satoshis that will be paid as a fee of the payment.

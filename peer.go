@@ -22,6 +22,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
+	"github.com/lightningnetwork/lnd/feature"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -2474,6 +2475,14 @@ func (p *peer) handleInitMsg(msg *lnwire.Init) error {
 		err := fmt.Errorf("peer set unknown feature bits: %v",
 			unknownFeatures)
 		return err
+	}
+
+	// Ensure the remote party's feature vector contains all transistive
+	// dependencies. We know ours are are correct since they are validated
+	// during the feature manager's instantiation.
+	err = feature.ValidateDeps(p.remoteFeatures)
+	if err != nil {
+		return fmt.Errorf("peer set invalid feature vector: %v", err)
 	}
 
 	// Now that we know we understand their requirements, we'll check to

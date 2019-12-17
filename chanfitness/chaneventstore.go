@@ -12,7 +12,6 @@ package chanfitness
 
 import (
 	"errors"
-	"fmt"
 	"sync"
 	"time"
 
@@ -23,9 +22,15 @@ import (
 	"github.com/lightningnetwork/lnd/subscribe"
 )
 
-// errShuttingDown is returned when the store cannot respond to a query because
-// it has received the shutdown signal.
-var errShuttingDown = errors.New("channel event store shutting down")
+var (
+	// errShuttingDown is returned when the store cannot respond to a query because
+	// it has received the shutdown signal.
+	errShuttingDown = errors.New("channel event store shutting down")
+
+	// ErrChannelNotFound is returned when a query is made for a channel that
+	// the event store does not have knowledge of.
+	ErrChannelNotFound = errors.New("channel not found in event store")
+)
 
 // ChannelEventStore maintains a set of event logs for the node's channels to
 // provide insight into the performance and health of channels.
@@ -298,7 +303,7 @@ func (c *ChannelEventStore) consume(subscriptions *subscriptions) {
 
 			channel, ok := c.channels[req.channelID]
 			if !ok {
-				resp.err = fmt.Errorf("channel %v not found", req.channelID)
+				resp.err = ErrChannelNotFound
 			} else {
 				resp.start = channel.openedAt
 				resp.end = channel.closedAt
@@ -312,7 +317,7 @@ func (c *ChannelEventStore) consume(subscriptions *subscriptions) {
 
 			channel, ok := c.channels[req.channelID]
 			if !ok {
-				resp.err = fmt.Errorf("channel %v not found", req.channelID)
+				resp.err = ErrChannelNotFound
 			} else {
 				uptime, err := channel.uptime(req.startTime, req.endTime)
 				resp.uptime = uptime

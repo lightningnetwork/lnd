@@ -263,23 +263,23 @@ func TestGetLifetime(t *testing.T) {
 	now := time.Now()
 
 	tests := []struct {
-		name         string
-		channelFound bool
-		chanID       uint64
-		opened       time.Time
-		closed       time.Time
-		expectErr    bool
+		name          string
+		channelFound  bool
+		chanID        uint64
+		opened        time.Time
+		closed        time.Time
+		expectedError error
 	}{
 		{
-			name:         "Channel found",
-			channelFound: true,
-			opened:       now,
-			closed:       now.Add(time.Hour * -1),
-			expectErr:    false,
+			name:          "Channel found",
+			channelFound:  true,
+			opened:        now,
+			closed:        now.Add(time.Hour * -1),
+			expectedError: nil,
 		},
 		{
-			name:      "Channel not found",
-			expectErr: true,
+			name:          "Channel not found",
+			expectedError: ErrChannelNotFound,
 		},
 	}
 
@@ -311,11 +311,8 @@ func TestGetLifetime(t *testing.T) {
 			}
 
 			open, close, err := store.GetLifespan(test.chanID)
-			if test.expectErr && err == nil {
-				t.Fatal("Expected an error, got nil")
-			}
-			if !test.expectErr && err != nil {
-				t.Fatalf("Expected no error, got: %v", err)
+			if test.expectedError != err {
+				t.Fatalf("Expected: %v, got: %v", test.expectedError, err)
 			}
 
 			if open != test.opened {
@@ -367,13 +364,15 @@ func TestGetUptime(t *testing.T) {
 		endTime time.Time
 
 		expectedUptime time.Duration
-		expectErr      bool
+
+		expectedError error
 	}{
 		{
-			name:         "No events",
-			startTime:    twoHoursAgo,
-			endTime:      now,
-			channelFound: true,
+			name:          "No events",
+			startTime:     twoHoursAgo,
+			endTime:       now,
+			channelFound:  true,
+			expectedError: nil,
 		},
 		{
 			name: "50% Uptime",
@@ -392,6 +391,7 @@ func TestGetUptime(t *testing.T) {
 			startTime:      fourHoursAgo,
 			endTime:        now,
 			channelFound:   true,
+			expectedError:  nil,
 		},
 		{
 			name: "Zero start time",
@@ -405,13 +405,14 @@ func TestGetUptime(t *testing.T) {
 			expectedUptime: time.Hour * 4,
 			endTime:        now,
 			channelFound:   true,
+			expectedError:  nil,
 		},
 		{
-			name:         "Channel not found",
-			startTime:    twoHoursAgo,
-			endTime:      now,
-			channelFound: false,
-			expectErr:    true,
+			name:          "Channel not found",
+			startTime:     twoHoursAgo,
+			endTime:       now,
+			channelFound:  false,
+			expectedError: ErrChannelNotFound,
 		},
 	}
 
@@ -445,11 +446,8 @@ func TestGetUptime(t *testing.T) {
 			}
 
 			uptime, err := store.GetUptime(test.chanID, test.startTime, test.endTime)
-			if test.expectErr && err == nil {
-				t.Fatal("Expected an error, got nil")
-			}
-			if !test.expectErr && err != nil {
-				t.Fatalf("Expcted no error, got: %v", err)
+			if test.expectedError != err {
+				t.Fatalf("Expected: %v, got: %v", test.expectedError, err)
 			}
 
 			if uptime != test.expectedUptime {

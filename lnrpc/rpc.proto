@@ -1539,6 +1539,12 @@ message GetInfoResponse {
 
     // Whether we consider ourselves synced with the public channel graph.
     bool synced_to_graph = 18 [json_name = "synced_to_graph"];
+
+    /*
+    Features that our node has advertised in our init message, node
+    announcements and invoices.
+    */
+    map<uint32, Feature> features = 19 [json_name = "features"];
 }
 
 message Chain {

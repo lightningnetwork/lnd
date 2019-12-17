@@ -1949,22 +1949,23 @@ func getInfo(ctx *cli.Context) error {
 	// We print a struct that mimics the proto definition of GetInfoResponse
 	// but has a better ordering for the same list of fields.
 	printJSON(struct {
-		Version             string   `json:"version"`
-		IdentityPubkey      string   `json:"identity_pubkey"`
-		Alias               string   `json:"alias"`
-		Color               string   `json:"color"`
-		NumPendingChannels  uint32   `json:"num_pending_channels"`
-		NumActiveChannels   uint32   `json:"num_active_channels"`
-		NumInactiveChannels uint32   `json:"num_inactive_channels"`
-		NumPeers            uint32   `json:"num_peers"`
-		BlockHeight         uint32   `json:"block_height"`
-		BlockHash           string   `json:"block_hash"`
-		BestHeaderTimestamp int64    `json:"best_header_timestamp"`
-		SyncedToChain       bool     `json:"synced_to_chain"`
-		SyncedToGraph       bool     `json:"synced_to_graph"`
-		Testnet             bool     `json:"testnet"`
-		Chains              []chain  `json:"chains"`
-		Uris                []string `json:"uris"`
+		Version             string                    `json:"version"`
+		IdentityPubkey      string                    `json:"identity_pubkey"`
+		Alias               string                    `json:"alias"`
+		Color               string                    `json:"color"`
+		NumPendingChannels  uint32                    `json:"num_pending_channels"`
+		NumActiveChannels   uint32                    `json:"num_active_channels"`
+		NumInactiveChannels uint32                    `json:"num_inactive_channels"`
+		NumPeers            uint32                    `json:"num_peers"`
+		BlockHeight         uint32                    `json:"block_height"`
+		BlockHash           string                    `json:"block_hash"`
+		BestHeaderTimestamp int64                     `json:"best_header_timestamp"`
+		SyncedToChain       bool                      `json:"synced_to_chain"`
+		SyncedToGraph       bool                      `json:"synced_to_graph"`
+		Testnet             bool                      `json:"testnet"`
+		Chains              []chain                   `json:"chains"`
+		Uris                []string                  `json:"uris"`
+		Features            map[uint32]*lnrpc.Feature `json:"features"`
 	}{
 		Version:             resp.Version,
 		IdentityPubkey:      resp.IdentityPubkey,
@@ -1982,6 +1983,7 @@ func getInfo(ctx *cli.Context) error {
 		Testnet:             resp.Testnet,
 		Chains:              chains,
 		Uris:                resp.Uris,
+		Features:            resp.Features,
 	})
 	return nil
 }

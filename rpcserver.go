@@ -2215,6 +2215,22 @@ func (r *rpcServer) GetInfo(ctx context.Context,
 
 	isGraphSynced := r.server.authGossiper.SyncManager().IsGraphSynced()
 
+	features := make(map[uint32]*lnrpc.Feature)
+	sets := r.server.featureMgr.ListSets()
+
+	for _, set := range sets {
+		// Get the a list of lnrpc features for each set we support.
+		featureVector := r.server.featureMgr.Get(set)
+		rpcFeatures := invoicesrpc.CreateRPCFeatures(featureVector)
+
+		// Add the features to our map of features, allowing over writing of
+		// existing values because features in different sets with the same bit
+		// are duplicated across sets.
+		for bit, feature := range rpcFeatures {
+			features[bit] = feature
+		}
+	}
+
 	// TODO(roasbeef): add synced height n stuff
 	return &lnrpc.GetInfoResponse{
 		IdentityPubkey:      encodedIDPub,
@@ -2233,6 +2249,7 @@ func (r *rpcServer) GetInfo(ctx context.Context,
 		BestHeaderTimestamp: int64(bestHeaderTimestamp),
 		Version:             build.Version(),
 		SyncedToGraph:       isGraphSynced,
+		Features:            features,
 	}, nil
 }
 

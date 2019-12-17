@@ -2504,6 +2504,13 @@
           "type": "boolean",
           "format": "boolean",
           "description": "Whether we consider ourselves synced with the public channel graph."
+        },
+        "features": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/lnrpcFeature"
+          },
+          "description": "Features that our node has advertised in our init message, node\nannouncements and invoices."
         }
       }
     },

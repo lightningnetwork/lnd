@@ -108,3 +108,14 @@ func (m *Manager) Get(set Set) *lnwire.FeatureVector {
 	raw := m.GetRaw(set)
 	return lnwire.NewFeatureVector(raw, lnwire.Features)
 }
+
+// ListSets returns a list of the feature sets that our node supports.
+func (m *Manager) ListSets() []Set {
+	var sets []Set
+
+	for set := range m.fsets {
+		sets = append(sets, set)
+	}
+
+	return sets
+}

@@ -298,9 +298,13 @@ func newNode(cfg NodeConfig) (*HarnessNode, error) {
 	cfg.LogDir = filepath.Join(cfg.BaseDir, "log")
 	cfg.TLSCertPath = filepath.Join(cfg.DataDir, "tls.cert")
 	cfg.TLSKeyPath = filepath.Join(cfg.DataDir, "tls.key")
-	cfg.AdminMacPath = filepath.Join(cfg.DataDir, "admin.macaroon")
-	cfg.ReadMacPath = filepath.Join(cfg.DataDir, "readonly.macaroon")
-	cfg.InvoiceMacPath = filepath.Join(cfg.DataDir, "invoice.macaroon")
+
+	networkDir := filepath.Join(
+		cfg.DataDir, "chain", "bitcoin", cfg.NetParams.Name,
+	)
+	cfg.AdminMacPath = filepath.Join(networkDir, "admin.macaroon")
+	cfg.ReadMacPath = filepath.Join(networkDir, "readonly.macaroon")
+	cfg.InvoiceMacPath = filepath.Join(networkDir, "invoice.macaroon")
 
 	cfg.P2PPort, cfg.RPCPort, cfg.RESTPort, cfg.ProfilePort = generateListeningPorts()
 

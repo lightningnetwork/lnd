@@ -2852,14 +2852,16 @@ func createRPCOpenChannel(r *rpcServer, graph *channeldb.ChannelGraph,
 		channel.UnsettledBalance += channel.PendingHtlcs[i].Amount
 	}
 
+	outpoint := dbChannel.FundingOutpoint
+
 	// Get the lifespan observed by the channel event store. If the channel is
 	// not known to the channel event store, return early because we cannot
 	// calculate any further uptime information.
-	startTime, endTime, err := r.server.chanEventStore.GetLifespan(channel.ChanId)
+	startTime, endTime, err := r.server.chanEventStore.GetLifespan(outpoint)
 	switch err {
 	case chanfitness.ErrChannelNotFound:
 		rpcsLog.Infof("channel: %v not found by channel event store",
-			channel.ChanId)
+			outpoint)
 
 		return channel, nil
 	case nil:
@@ -2880,7 +2882,7 @@ func createRPCOpenChannel(r *rpcServer, graph *channeldb.ChannelGraph,
 	// channel is known to the event store, so we can return any non-nil error
 	// that occurs.
 	uptime, err := r.server.chanEventStore.GetUptime(
-		channel.ChanId, startTime, endTime,
+		outpoint, startTime, endTime,
 	)
 	if err != nil {
 		return nil, err

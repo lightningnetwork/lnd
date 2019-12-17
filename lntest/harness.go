@@ -35,6 +35,10 @@ const DefaultCSV = 4
 type NetworkHarness struct {
 	netParams *chaincfg.Params
 
+	// lndBinary is the full path to the lnd binary that was specifically
+	// compiled with all required itest flags.
+	lndBinary string
+
 	// Miner is a reference to a running full node that can be used to create
 	// new blocks on the network.
 	Miner *rpctest.Harness
@@ -68,7 +72,9 @@ type NetworkHarness struct {
 // TODO(roasbeef): add option to use golang's build library to a binary of the
 // current repo. This will save developers from having to manually `go install`
 // within the repo each time before changes
-func NewNetworkHarness(r *rpctest.Harness, b BackendConfig) (*NetworkHarness, error) {
+func NewNetworkHarness(r *rpctest.Harness, b BackendConfig, lndBinary string) (
+	*NetworkHarness, error) {
+
 	n := NetworkHarness{
 		activeNodes:          make(map[int]*HarnessNode),
 		nodesByPub:           make(map[string]*HarnessNode),
@@ -79,6 +85,7 @@ func NewNetworkHarness(r *rpctest.Harness, b BackendConfig) (*NetworkHarness, er
 		Miner:                r,
 		BackendCfg:           b,
 		quit:                 make(chan struct{}),
+		lndBinary:            lndBinary,
 	}
 	go n.networkWatcher()
 	return &n, nil
@@ -361,7 +368,7 @@ func (n *NetworkHarness) newNode(name string, extraArgs []string,
 	n.activeNodes[node.NodeID] = node
 	n.mtx.Unlock()
 
-	if err := node.start(n.lndErrorChan); err != nil {
+	if err := node.start(n.lndBinary, n.lndErrorChan); err != nil {
 		return nil, err
 	}
 
@@ -612,7 +619,7 @@ func (n *NetworkHarness) RestartNode(node *HarnessNode, callback func() error,
 		}
 	}
 
-	if err := node.start(n.lndErrorChan); err != nil {
+	if err := node.start(n.lndBinary, n.lndErrorChan); err != nil {
 		return err
 	}
 
@@ -643,7 +650,7 @@ func (n *NetworkHarness) SuspendNode(node *HarnessNode) (func() error, error) {
 	}
 
 	restart := func() error {
-		return node.start(n.lndErrorChan)
+		return node.start(n.lndBinary, n.lndErrorChan)
 	}
 
 	return restart, nil

@@ -369,11 +369,11 @@ func (hn *HarnessNode) InvoiceMacPath() string {
 //
 // This may not clean up properly if an error is returned, so the caller should
 // call shutdown() regardless of the return value.
-func (hn *HarnessNode) start(lndError chan<- error) error {
+func (hn *HarnessNode) start(lndBinary string, lndError chan<- error) error {
 	hn.quit = make(chan struct{})
 
 	args := hn.Cfg.genArgs()
-	hn.cmd = exec.Command("../../lnd-itest", args...)
+	hn.cmd = exec.Command(lndBinary, args...)
 
 	// Redirect stderr output to buffer
 	var errb bytes.Buffer

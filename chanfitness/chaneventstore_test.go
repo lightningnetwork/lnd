@@ -466,3 +466,26 @@ func TestGetUptime(t *testing.T) {
 		})
 	}
 }
+
+// TestAddChannel tests that channels are added to the event store with
+// appropriate timestamps. This test addresses a bug where offline channels
+// did not have an opened time set.
+func TestAddChannel(t *testing.T) {
+	_, vertex, chanPoint := getTestChannel(t)
+
+	store := NewChannelEventStore(&Config{})
+
+	// Add channel to the store.
+	store.addChannel(chanPoint, vertex)
+
+	// Check that the eventlog is successfully added.
+	eventlog, ok := store.channels[chanPoint]
+	if !ok {
+		t.Fatalf("channel should be in store")
+	}
+
+	// Ensure that open time is always set.
+	if eventlog.openedAt.IsZero() {
+		t.Fatalf("channel should have opened at set")
+	}
+}

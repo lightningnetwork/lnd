@@ -60,14 +60,18 @@ type chanEventLog struct {
 	closedAt time.Time
 }
 
-func newEventLog(outpoint wire.OutPoint, peer route.Vertex,
+// newEventLog creates an event log for a channel with the openedAt time set.
+func newEventLog(channelPoint wire.OutPoint, peer route.Vertex,
 	now func() time.Time) *chanEventLog {
 
-	return &chanEventLog{
-		channelPoint: outpoint,
+	eventlog := &chanEventLog{
+		channelPoint: channelPoint,
 		peer:         peer,
 		now:          now,
+		openedAt:     now(),
 	}
+
+	return eventlog
 }
 
 // close sets the closing time for an event log.
@@ -90,13 +94,6 @@ func (e *chanEventLog) add(eventType eventType) {
 		eventType: eventType,
 	}
 	e.events = append(e.events, event)
-
-	// If the eventLog does not have an opened time set, set it to the timestamp
-	// of the event. This has the effect of setting the eventLog's open time to
-	// the timestamp of the first event added.
-	if e.openedAt.IsZero() {
-		e.openedAt = event.timestamp
-	}
 
 	log.Debugf("Channel %v recording event: %v", e.channelPoint, eventType)
 }

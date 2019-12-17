@@ -1094,6 +1094,14 @@ func writeTaggedFields(bufferBase32 *bytes.Buffer, invoice *Invoice) error {
 			return err
 		}
 	}
+	if invoice.PaymentAddr != nil {
+		err := writeBytes32(
+			bufferBase32, fieldTypeS, *invoice.PaymentAddr,
+		)
+		if err != nil {
+			return err
+		}
+	}
 	if invoice.Features.SerializeSize32() > 0 {
 		var b bytes.Buffer
 		err := invoice.Features.RawFeatureVector.EncodeBase32(&b)
@@ -1102,14 +1110,6 @@ func writeTaggedFields(bufferBase32 *bytes.Buffer, invoice *Invoice) error {
 		}
 
 		err = writeTaggedField(bufferBase32, fieldType9, b.Bytes())
-		if err != nil {
-			return err
-		}
-	}
-	if invoice.PaymentAddr != nil {
-		err := writeBytes32(
-			bufferBase32, fieldTypeS, *invoice.PaymentAddr,
-		)
 		if err != nil {
 			return err
 		}

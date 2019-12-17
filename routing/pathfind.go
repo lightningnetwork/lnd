@@ -47,7 +47,8 @@ const (
 // pathFinder defines the interface of a path finding algorithm.
 type pathFinder = func(g *graphParams, r *RestrictParams,
 	cfg *PathFindingConfig, source, target route.Vertex,
-	amt lnwire.MilliSatoshi) ([]*channeldb.ChannelEdgePolicy, error)
+	amt lnwire.MilliSatoshi, finalHtlcExpiry int32) (
+	[]*channeldb.ChannelEdgePolicy, error)
 
 var (
 	// DefaultPaymentAttemptPenalty is the virtual cost in path finding weight
@@ -411,7 +412,7 @@ func getMaxOutgoingAmt(node route.Vertex, outgoingChan *uint64,
 // that need to be paid along the path and accurately check the amount
 // to forward at every node against the available bandwidth.
 func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
-	source, target route.Vertex, amt lnwire.MilliSatoshi) (
+	source, target route.Vertex, amt lnwire.MilliSatoshi, finalHtlcExpiry int32) (
 	[]*channeldb.ChannelEdgePolicy, error) {
 
 	// Pathfinding can be a significant portion of the total payment
@@ -542,9 +543,13 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		weight:          0,
 		node:            target,
 		amountToReceive: amt,
-		incomingCltv:    0,
+		incomingCltv:    finalHtlcExpiry,
 		probability:     1,
 	}
+
+	// Calculate the absolute cltv limit. Use uint64 to prevent an overflow
+	// if the cltv limit is MaxUint32.
+	absoluteCltvLimit := uint64(r.CltvLimit) + uint64(finalHtlcExpiry)
 
 	// processEdge is a helper closure that will be used to make sure edges
 	// satisfy our specific requirements.
@@ -590,11 +595,10 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 			timeLockDelta = edge.TimeLockDelta
 		}
 
-		incomingCltv := toNodeDist.incomingCltv +
-			uint32(timeLockDelta)
+		incomingCltv := toNodeDist.incomingCltv + int32(timeLockDelta)
 
 		// Check that we are within our CLTV limit.
-		if incomingCltv > r.CltvLimit {
+		if uint64(incomingCltv) > absoluteCltvLimit {
 			return
 		}
 

@@ -2174,7 +2174,7 @@ func TestFindPathFeeWeighting(t *testing.T) {
 		},
 		noRestrictions,
 		testPathFindingConfig,
-		sourceNode.PubKeyBytes, target, amt,
+		sourceNode.PubKeyBytes, target, amt, 0,
 	)
 	if err != nil {
 		t.Fatalf("unable to find path: %v", err)

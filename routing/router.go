@@ -1431,23 +1431,25 @@ func (r *ChannelRouter) FindRoute(source, target route.Vertex,
 		return nil, err
 	}
 
+	// We'll fetch the current block height so we can properly calculate the
+	// required HTLC time locks within the route.
+	_, currentHeight, err := r.cfg.Chain.GetBestBlock()
+	if err != nil {
+		return nil, err
+	}
+
 	// Now that we know the destination is reachable within the graph, we'll
 	// execute our path finding algorithm.
+	finalHtlcExpiry := currentHeight + int32(finalCLTVDelta)
+
 	path, err := findPath(
 		&graphParams{
 			graph:          r.cfg.Graph,
 			bandwidthHints: bandwidthHints,
 		},
 		restrictions, &r.cfg.PathFindingConfig,
-		source, target, amt,
+		source, target, amt, finalHtlcExpiry,
 	)
-	if err != nil {
-		return nil, err
-	}
-
-	// We'll fetch the current block height so we can properly calculate the
-	// required HTLC time locks within the route.
-	_, currentHeight, err := r.cfg.Chain.GetBestBlock()
 	if err != nil {
 		return nil, err
 	}

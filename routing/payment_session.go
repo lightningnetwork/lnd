@@ -113,6 +113,8 @@ func (p *paymentSession) RequestRoute(payment *LightningPayment,
 		return nil, err
 	}
 
+	finalHtlcExpiry := int32(height) + int32(finalCltvDelta)
+
 	path, err := p.pathFinder(
 		&graphParams{
 			graph:           ss.Graph,
@@ -121,7 +123,7 @@ func (p *paymentSession) RequestRoute(payment *LightningPayment,
 		},
 		restrictions, &ss.PathFindingConfig,
 		ss.SelfNode.PubKeyBytes, payment.Target,
-		payment.Amount,
+		payment.Amount, finalHtlcExpiry,
 	)
 	if err != nil {
 		return nil, err

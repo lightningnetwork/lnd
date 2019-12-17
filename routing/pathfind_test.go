@@ -823,6 +823,7 @@ func testBasicGraphPathFindingCase(t *testing.T, graphInstance *testGraphInstanc
 		},
 		testPathFindingConfig,
 		sourceNode.PubKeyBytes, target, paymentAmt,
+		startingHeight+finalHopCLTV,
 	)
 	if test.expectFailureNoPath {
 		if err == nil {
@@ -1012,6 +1013,7 @@ func TestPathFindingWithAdditionalEdges(t *testing.T) {
 			},
 			r, testPathFindingConfig,
 			sourceNode.PubKeyBytes, doge.PubKeyBytes, paymentAmt,
+			0,
 		)
 	}
 
@@ -1383,7 +1385,7 @@ func TestNewRoutePathTooLong(t *testing.T) {
 			graph: graph.graph,
 		},
 		noRestrictions, testPathFindingConfig,
-		sourceNode.PubKeyBytes, target, paymentAmt,
+		sourceNode.PubKeyBytes, target, paymentAmt, 0,
 	)
 	if err != nil {
 		t.Fatalf("path should have been found")
@@ -1397,7 +1399,7 @@ func TestNewRoutePathTooLong(t *testing.T) {
 			graph: graph.graph,
 		},
 		noRestrictions, testPathFindingConfig,
-		sourceNode.PubKeyBytes, target, paymentAmt,
+		sourceNode.PubKeyBytes, target, paymentAmt, 0,
 	)
 	if err == nil {
 		t.Fatalf("should not have been able to find path, supposed to be "+
@@ -1437,7 +1439,7 @@ func TestPathNotAvailable(t *testing.T) {
 			graph: graph.graph,
 		},
 		noRestrictions, testPathFindingConfig,
-		sourceNode.PubKeyBytes, unknownNode, 100,
+		sourceNode.PubKeyBytes, unknownNode, 100, 0,
 	)
 	if err != errNoPathFound {
 		t.Fatalf("path shouldn't have been found: %v", err)
@@ -1495,7 +1497,7 @@ func TestDestTLVGraphFallback(t *testing.T) {
 				graph: ctx.graphParams.graph,
 			},
 			r, testPathFindingConfig,
-			sourceNode.PubKeyBytes, target, 100,
+			sourceNode.PubKeyBytes, target, 100, 0,
 		)
 	}
 
@@ -1604,7 +1606,7 @@ func TestMissingFeatureDep(t *testing.T) {
 				graph: ctx.graphParams.graph,
 			},
 			r, testPathFindingConfig,
-			sourceNode.PubKeyBytes, target, 100,
+			sourceNode.PubKeyBytes, target, 100, 0,
 		)
 	}
 
@@ -1682,7 +1684,7 @@ func TestDestPaymentAddr(t *testing.T) {
 				graph: ctx.graphParams.graph,
 			},
 			r, testPathFindingConfig,
-			sourceNode.PubKeyBytes, target, 100,
+			sourceNode.PubKeyBytes, target, 100, 0,
 		)
 	}
 
@@ -1743,7 +1745,7 @@ func TestPathInsufficientCapacity(t *testing.T) {
 			graph: graph.graph,
 		},
 		noRestrictions, testPathFindingConfig,
-		sourceNode.PubKeyBytes, target, payAmt,
+		sourceNode.PubKeyBytes, target, payAmt, 0,
 	)
 	if err != errNoPathFound {
 		t.Fatalf("graph shouldn't be able to support payment: %v", err)
@@ -1776,7 +1778,7 @@ func TestRouteFailMinHTLC(t *testing.T) {
 			graph: graph.graph,
 		},
 		noRestrictions, testPathFindingConfig,
-		sourceNode.PubKeyBytes, target, payAmt,
+		sourceNode.PubKeyBytes, target, payAmt, 0,
 	)
 	if err != errNoPathFound {
 		t.Fatalf("graph shouldn't be able to support payment: %v", err)
@@ -1875,7 +1877,7 @@ func TestRouteFailDisabledEdge(t *testing.T) {
 			graph: graph.graph,
 		},
 		noRestrictions, testPathFindingConfig,
-		sourceNode.PubKeyBytes, target, payAmt,
+		sourceNode.PubKeyBytes, target, payAmt, 0,
 	)
 	if err != nil {
 		t.Fatalf("unable to find path: %v", err)
@@ -1903,7 +1905,7 @@ func TestRouteFailDisabledEdge(t *testing.T) {
 			graph: graph.graph,
 		},
 		noRestrictions, testPathFindingConfig,
-		sourceNode.PubKeyBytes, target, payAmt,
+		sourceNode.PubKeyBytes, target, payAmt, 0,
 	)
 	if err != nil {
 		t.Fatalf("unable to find path: %v", err)
@@ -1928,7 +1930,7 @@ func TestRouteFailDisabledEdge(t *testing.T) {
 			graph: graph.graph,
 		},
 		noRestrictions, testPathFindingConfig,
-		sourceNode.PubKeyBytes, target, payAmt,
+		sourceNode.PubKeyBytes, target, payAmt, 0,
 	)
 	if err != errNoPathFound {
 		t.Fatalf("graph shouldn't be able to support payment: %v", err)
@@ -1962,7 +1964,7 @@ func TestPathSourceEdgesBandwidth(t *testing.T) {
 			graph: graph.graph,
 		},
 		noRestrictions, testPathFindingConfig,
-		sourceNode.PubKeyBytes, target, payAmt,
+		sourceNode.PubKeyBytes, target, payAmt, 0,
 	)
 	if err != nil {
 		t.Fatalf("unable to find path: %v", err)
@@ -1986,7 +1988,7 @@ func TestPathSourceEdgesBandwidth(t *testing.T) {
 			bandwidthHints: bandwidths,
 		},
 		noRestrictions, testPathFindingConfig,
-		sourceNode.PubKeyBytes, target, payAmt,
+		sourceNode.PubKeyBytes, target, payAmt, 0,
 	)
 	if err != errNoPathFound {
 		t.Fatalf("graph shouldn't be able to support payment: %v", err)
@@ -2004,7 +2006,7 @@ func TestPathSourceEdgesBandwidth(t *testing.T) {
 			bandwidthHints: bandwidths,
 		},
 		noRestrictions, testPathFindingConfig,
-		sourceNode.PubKeyBytes, target, payAmt,
+		sourceNode.PubKeyBytes, target, payAmt, 0,
 	)
 	if err != nil {
 		t.Fatalf("unable to find path: %v", err)
@@ -2035,7 +2037,7 @@ func TestPathSourceEdgesBandwidth(t *testing.T) {
 			bandwidthHints: bandwidths,
 		},
 		noRestrictions, testPathFindingConfig,
-		sourceNode.PubKeyBytes, target, payAmt,
+		sourceNode.PubKeyBytes, target, payAmt, 0,
 	)
 	if err != nil {
 		t.Fatalf("unable to find path: %v", err)
@@ -2872,7 +2874,7 @@ func (c *pathFindingTestContext) findPath(target route.Vertex,
 
 	return findPath(
 		&c.graphParams, &c.restrictParams, &c.pathFindingConfig,
-		c.source, target, amt,
+		c.source, target, amt, 0,
 	)
 }
 

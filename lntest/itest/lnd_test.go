@@ -3186,10 +3186,10 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// Currently within the codebase, the default CSV is 4 relative blocks.
-	// For the persistence test, we generate three blocks, then trigger
+	// For the persistence test, we generate two blocks, then trigger
 	// a restart and then generate the final block that should trigger
 	// the creation of the sweep transaction.
-	if _, err := net.Miner.Node.Generate(defaultCSV - 1); err != nil {
+	if _, err := net.Miner.Node.Generate(defaultCSV - 2); err != nil {
 		t.Fatalf("unable to mine blocks: %v", err)
 	}
 
@@ -3225,12 +3225,12 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 		}
 
 		// At this point, the nursery should show that the commitment
-		// output has 1 block left before its CSV delay expires. In
+		// output has 2 block left before its CSV delay expires. In
 		// total, we have mined exactly defaultCSV blocks, so the htlc
 		// outputs should also reflect that this many blocks have
 		// passed.
 		err = checkCommitmentMaturity(
-			forceClose, commCsvMaturityHeight, 1,
+			forceClose, commCsvMaturityHeight, 2,
 		)
 		if err != nil {
 			return err
@@ -3258,9 +3258,9 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to mine blocks: %v", err)
 	}
 
-	// At this point, the sweeping transaction should now be broadcast. So
-	// we fetch the node's mempool to ensure it has been properly
-	// broadcast.
+	// At this point, the CSV will expire in the next block, meaning that
+	// the sweeping transaction should now be broadcast. So we fetch the
+	// node's mempool to ensure it has been properly broadcast.
 	sweepingTXID, err := waitForTxInMempool(net.Miner.Node, minerMempoolTimeout)
 	if err != nil {
 		t.Fatalf("failed to get sweep tx from mempool: %v", err)
@@ -3361,7 +3361,7 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 	// of blocks we have generated since adding it to the nursery, and take
 	// an additional block off so that we end up one block shy of the expiry
 	// height, and add the block padding.
-	cltvHeightDelta := padCLTV(defaultCLTV - defaultCSV - 2 - 1)
+	cltvHeightDelta := padCLTV(defaultCLTV - defaultCSV - 1 - 1)
 
 	// Advance the blockchain until just before the CLTV expires, nothing
 	// exciting should have happened during this time.

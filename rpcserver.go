@@ -31,6 +31,7 @@ import (
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/chanacceptor"
 	"github.com/lightningnetwork/lnd/chanbackup"
+	"github.com/lightningnetwork/lnd/chanfitness"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channelnotifier"
 	"github.com/lightningnetwork/lnd/contractcourt"
@@ -2754,7 +2755,10 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 		// Next, we'll determine whether we should add this channel to
 		// our list depending on the type of channels requested to us.
 		isActive := peerOnline && linkActive
-		channel := createRPCOpenChannel(r, graph, dbChannel, isActive)
+		channel, err := createRPCOpenChannel(r, graph, dbChannel, isActive)
+		if err != nil {
+			return nil, err
+		}
 
 		// We'll only skip returning this channel if we were requested
 		// for a specific kind and this channel doesn't satisfy it.
@@ -2777,7 +2781,7 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 
 // createRPCOpenChannel creates an *lnrpc.Channel from the *channeldb.Channel.
 func createRPCOpenChannel(r *rpcServer, graph *channeldb.ChannelGraph,
-	dbChannel *channeldb.OpenChannel, isActive bool) *lnrpc.Channel {
+	dbChannel *channeldb.OpenChannel, isActive bool) (*lnrpc.Channel, error) {
 
 	nodePub := dbChannel.IdentityPub
 	nodeID := hex.EncodeToString(nodePub.SerializeCompressed())
@@ -2812,43 +2816,12 @@ func createRPCOpenChannel(r *rpcServer, graph *channeldb.ChannelGraph,
 	}
 	externalCommitFee := dbChannel.Capacity - sumOutputs
 
-	chanID := dbChannel.ShortChannelID.ToUint64()
-
-	var (
-		uptime   time.Duration
-		lifespan time.Duration
-	)
-
-	// Get the lifespan observed by the channel event store.
-	startTime, endTime, err := r.server.chanEventStore.GetLifespan(chanID)
-	if err != nil {
-		// If the channel cannot be found, log an error and do not perform
-		// further calculations for uptime and lifespan.
-		rpcsLog.Warnf("GetLifespan %v error: %v", chanID, err)
-	} else {
-		// If endTime is zero, the channel is still open, progress endTime to
-		// the present so we can calculate lifespan.
-		if endTime.IsZero() {
-			endTime = time.Now()
-		}
-		lifespan = endTime.Sub(startTime)
-
-		uptime, err = r.server.chanEventStore.GetUptime(
-			chanID,
-			startTime,
-			endTime,
-		)
-		if err != nil {
-			rpcsLog.Warnf("GetUptime %v error: %v", chanID, err)
-		}
-	}
-
 	channel := &lnrpc.Channel{
 		Active:                isActive,
 		Private:               !isPublic,
 		RemotePubkey:          nodeID,
 		ChannelPoint:          chanPoint.String(),
-		ChanId:                chanID,
+		ChanId:                dbChannel.ShortChannelID.ToUint64(),
 		Capacity:              int64(dbChannel.Capacity),
 		LocalBalance:          int64(localBalance.ToSatoshis()),
 		RemoteBalance:         int64(remoteBalance.ToSatoshis()),
@@ -2865,8 +2838,6 @@ func createRPCOpenChannel(r *rpcServer, graph *channeldb.ChannelGraph,
 		LocalChanReserveSat:   int64(dbChannel.LocalChanCfg.ChanReserve),
 		RemoteChanReserveSat:  int64(dbChannel.RemoteChanCfg.ChanReserve),
 		StaticRemoteKey:       dbChannel.ChanType.IsTweakless(),
-		Lifetime:              int64(lifespan.Seconds()),
-		Uptime:                int64(uptime.Seconds()),
 	}
 
 	for i, htlc := range localCommit.Htlcs {
@@ -2883,7 +2854,44 @@ func createRPCOpenChannel(r *rpcServer, graph *channeldb.ChannelGraph,
 		channel.UnsettledBalance += channel.PendingHtlcs[i].Amount
 	}
 
-	return channel
+	outpoint := dbChannel.FundingOutpoint
+
+	// Get the lifespan observed by the channel event store. If the channel is
+	// not known to the channel event store, return early because we cannot
+	// calculate any further uptime information.
+	startTime, endTime, err := r.server.chanEventStore.GetLifespan(outpoint)
+	switch err {
+	case chanfitness.ErrChannelNotFound:
+		rpcsLog.Infof("channel: %v not found by channel event store",
+			outpoint)
+
+		return channel, nil
+	case nil:
+		// If there is no error getting lifespan, continue to uptime
+		// calculation.
+	default:
+		return nil, err
+	}
+
+	// If endTime is zero, the channel is still open, progress endTime to
+	// the present so we can calculate lifetime.
+	if endTime.IsZero() {
+		endTime = time.Now()
+	}
+	channel.Lifetime = int64(endTime.Sub(startTime).Seconds())
+
+	// Once we have successfully obtained channel lifespan, we know that the
+	// channel is known to the event store, so we can return any non-nil error
+	// that occurs.
+	uptime, err := r.server.chanEventStore.GetUptime(
+		outpoint, startTime, endTime,
+	)
+	if err != nil {
+		return nil, err
+	}
+	channel.Uptime = int64(uptime.Seconds())
+
+	return channel, nil
 }
 
 // createRPCClosedChannel creates an *lnrpc.ClosedChannelSummary from a
@@ -2949,8 +2957,12 @@ func (r *rpcServer) SubscribeChannelEvents(req *lnrpc.ChannelEventSubscription,
 			var update *lnrpc.ChannelEventUpdate
 			switch event := e.(type) {
 			case channelnotifier.OpenChannelEvent:
-				channel := createRPCOpenChannel(r, graph,
+				channel, err := createRPCOpenChannel(r, graph,
 					event.Channel, true)
+				if err != nil {
+					return err
+				}
+
 				update = &lnrpc.ChannelEventUpdate{
 					Type: lnrpc.ChannelEventUpdate_OPEN_CHANNEL,
 					Channel: &lnrpc.ChannelEventUpdate_OpenChannel{

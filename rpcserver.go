@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"net"
 	"net/http"
 	"sort"
 	"strings"
@@ -461,7 +460,7 @@ type rpcServer struct {
 	// listeners is a list of listeners to use when starting the grpc
 	// server. We make it configurable such that the grpc server can listen
 	// on custom interfaces.
-	listeners []net.Listener
+	listeners []*ListenerWithSignal
 
 	// listenerCleanUp are a set of closures functions that will allow this
 	// main RPC server to clean up all the listening socket created for the
@@ -715,8 +714,11 @@ func (r *rpcServer) Start() error {
 	// With all the sub-servers started, we'll spin up the listeners for
 	// the main RPC server itself.
 	for _, lis := range r.listeners {
-		go func(lis net.Listener) {
+		go func(lis *ListenerWithSignal) {
 			rpcsLog.Infof("RPC server listening on %s", lis.Addr())
+
+			// Close the ready chan to indicate we are listening.
+			close(lis.Ready)
 			r.grpcServer.Serve(lis)
 		}(lis)
 	}

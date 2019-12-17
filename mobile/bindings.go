@@ -16,7 +16,11 @@ import (
 // extraArgs can be used to pass command line arguments to lnd that will
 // override what is found in the config file. Example:
 //	extraArgs = "--bitcoin.testnet --lnddir=\"/tmp/folder name/\" --profile=5050"
-func Start(extraArgs string, callback Callback) {
+//
+// The unlockerReady callback is called when the WalletUnlocker service is
+// ready, and rpcReady is called after the wallet has been unlocked and lnd is
+// ready to accept RPC calls.
+func Start(extraArgs string, unlockerReady, rpcReady Callback) {
 	// Split the argument string on "--" to get separated command line
 	// arguments.
 	var splitArgs []string
@@ -33,11 +37,24 @@ func Start(extraArgs string, callback Callback) {
 	// startup.
 	os.Args = append(os.Args, splitArgs...)
 
+	// Set up channels that will be notified when the RPC servers are ready
+	// to accept calls.
+	var (
+		unlockerListening = make(chan struct{})
+		rpcListening      = make(chan struct{})
+	)
+
 	// We call the main method with the custom in-memory listeners called
 	// by the mobile APIs, such that the grpc server will use these.
 	cfg := lnd.ListenerCfg{
-		WalletUnlocker: walletUnlockerLis,
-		RPCListener:    lightningLis,
+		WalletUnlocker: &lnd.ListenerWithSignal{
+			Listener: walletUnlockerLis,
+			Ready:    unlockerListening,
+		},
+		RPCListener: &lnd.ListenerWithSignal{
+			Listener: lightningLis,
+			Ready:    rpcListening,
+		},
 	}
 
 	// Call the "real" main in a nested manner so the defers will properly
@@ -53,9 +70,15 @@ func Start(extraArgs string, callback Callback) {
 		}
 	}()
 
-	// TODO(halseth): callback when RPC server is actually running. Since
-	// the RPC server might take a while to start up, the client might
-	// assume it is ready to accept calls when this callback is sent, while
-	// it's not.
-	callback.OnResponse([]byte("started"))
+	// Finally we start two go routines that will call the provided
+	// callbacks when the RPC servers are ready to accept calls.
+	go func() {
+		<-unlockerListening
+		unlockerReady.OnResponse([]byte{})
+	}()
+
+	go func() {
+		<-rpcListening
+		rpcReady.OnResponse([]byte{})
+	}()
 }

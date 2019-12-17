@@ -359,6 +359,13 @@ service Lightning {
         };
     }
 
+    /**
+    SubscribePeerEvents creates a uni-directional stream from the server to
+    the client in which any events relevant to the state of peers are sent
+    over. Events include peers going online and offline.
+    */
+    rpc SubscribePeerEvents (PeerEventSubscription) returns (stream PeerEvent);
+
     /** lncli: `getinfo`
     GetInfo returns general information concerning the lightning node including
     it's identity pubkey, alias, the chains it is connected to, and information
@@ -1459,6 +1466,21 @@ message ListPeersRequest {
 message ListPeersResponse {
     /// The list of currently connected peers
     repeated Peer peers = 1 [json_name = "peers"];
+}
+
+message PeerEventSubscription {
+}
+
+message PeerEvent {
+    /// The identity pubkey of the peer.
+    string pub_key = 1 [json_name = "pub_key"];
+
+    enum EventType {
+        PEER_ONLINE = 0;
+        PEER_OFFLINE = 1;
+    }
+
+    EventType type = 2 [ json_name = "type" ];
 }
 
 message GetInfoRequest {

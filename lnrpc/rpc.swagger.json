@@ -1454,6 +1454,14 @@
       ],
       "default": "UNKNOWN"
     },
+    "PeerEventEventType": {
+      "type": "string",
+      "enum": [
+        "PEER_ONLINE",
+        "PEER_OFFLINE"
+      ],
+      "default": "PEER_ONLINE"
+    },
     "PeerSyncType": {
       "type": "string",
       "enum": [
@@ -3443,6 +3451,18 @@
         }
       }
     },
+    "lnrpcPeerEvent": {
+      "type": "object",
+      "properties": {
+        "pub_key": {
+          "type": "string",
+          "description": "/ The identity pubkey of the peer."
+        },
+        "type": {
+          "$ref": "#/definitions/PeerEventEventType"
+        }
+      }
+    },
     "lnrpcPendingChannelsResponse": {
       "type": "object",
       "properties": {
@@ -4159,6 +4179,18 @@
         }
       },
       "title": "Stream result of lnrpcOpenStatusUpdate"
+    },
+    "lnrpcPeerEvent": {
+      "type": "object",
+      "properties": {
+        "result": {
+          "$ref": "#/definitions/lnrpcPeerEvent"
+        },
+        "error": {
+          "$ref": "#/definitions/runtimeStreamError"
+        }
+      },
+      "title": "Stream result of lnrpcPeerEvent"
     },
     "lnrpcSendResponse": {
       "type": "object",

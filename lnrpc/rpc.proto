@@ -1643,6 +1643,18 @@ message OpenChannelRequest {
 
     /// Whether unconfirmed outputs should be used as inputs for the funding transaction.
     bool spend_unconfirmed = 12 [json_name = "spend_unconfirmed"];
+
+    /*
+    Close address is an optional address which specifies the address to which
+    funds should be paid out to upon cooperative close. This field may only be
+    set if the peer supports the option upfront feature bit (call listpeers
+    to check). The remote peer will only accept cooperative closes to this
+    address if it is set.
+
+    Note: If this value is set on channel creation, you will *not* be able to
+    cooperatively close out to a different address.
+    */
+    string close_address = 13[json_name = "close_address"];
 }
 message OpenStatusUpdate {
     oneof update {

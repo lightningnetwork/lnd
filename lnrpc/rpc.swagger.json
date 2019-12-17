@@ -3233,6 +3233,10 @@
           "type": "boolean",
           "format": "boolean",
           "description": "/ Whether unconfirmed outputs should be used as inputs for the funding transaction."
+        },
+        "close_address": {
+          "type": "string",
+          "description": "Close address is an optional address which specifies the address to which\nfunds should be paid out to upon cooperative close. This field may only be\nset if the peer supports the option upfront feature bit (call listpeers\nto check). The remote peer will only accept cooperative closes to this\naddress if it is set.\n\nNote: If this value is set on channel creation, you will *not* be able to\ncooperatively close out to a different address."
         }
       }
     },

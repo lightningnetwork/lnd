@@ -37,6 +37,11 @@ var (
 	// TODO(roasbeef): flesh out comment
 	openChannelBucket = []byte("open-chan-bucket")
 
+	// historicalChannelBucket stores all channels that have seen their
+	// commitment tx confirm. All information from their previous open state
+	// is retained.
+	historicalChannelBucket = []byte("historical-chan-bucket")
+
 	// chanInfoKey can be accessed within the bucket for a channel
 	// (identified by its chanPoint). This key stores all the static
 	// information for a channel which is decided at the end of  the
@@ -2285,7 +2290,8 @@ func (c *OpenChannel) CloseChannel(summary *ChannelCloseSummary) error {
 		if err != nil {
 			return err
 		}
-		chanBucket := chainBucket.Bucket(chanPointBuf.Bytes())
+		chanKey := chanPointBuf.Bytes()
+		chanBucket := chainBucket.Bucket(chanKey)
 		if chanBucket == nil {
 			return ErrNoActiveChannels
 		}
@@ -2318,6 +2324,25 @@ func (c *OpenChannel) CloseChannel(summary *ChannelCloseSummary) error {
 		}
 
 		err = chainBucket.DeleteBucket(chanPointBuf.Bytes())
+		if err != nil {
+			return err
+		}
+
+		// Add channel state to the historical channel bucket.
+		historicalBucket, err := tx.CreateBucketIfNotExists(
+			historicalChannelBucket,
+		)
+		if err != nil {
+			return err
+		}
+
+		historicalChanBucket, err :=
+			historicalBucket.CreateBucketIfNotExists(chanKey)
+		if err != nil {
+			return err
+		}
+
+		err = putOpenChannel(historicalChanBucket, chanState)
 		if err != nil {
 			return err
 		}

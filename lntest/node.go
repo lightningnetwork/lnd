@@ -130,7 +130,7 @@ type BackendConfig interface {
 	Name() string
 }
 
-type nodeConfig struct {
+type NodeConfig struct {
 	Name       string
 	BackendCfg BackendConfig
 	NetParams  *chaincfg.Params
@@ -154,24 +154,24 @@ type nodeConfig struct {
 	ProfilePort int
 }
 
-func (cfg nodeConfig) P2PAddr() string {
+func (cfg NodeConfig) P2PAddr() string {
 	return net.JoinHostPort("127.0.0.1", strconv.Itoa(cfg.P2PPort))
 }
 
-func (cfg nodeConfig) RPCAddr() string {
+func (cfg NodeConfig) RPCAddr() string {
 	return net.JoinHostPort("127.0.0.1", strconv.Itoa(cfg.RPCPort))
 }
 
-func (cfg nodeConfig) RESTAddr() string {
+func (cfg NodeConfig) RESTAddr() string {
 	return net.JoinHostPort("127.0.0.1", strconv.Itoa(cfg.RESTPort))
 }
 
-func (cfg nodeConfig) DBPath() string {
+func (cfg NodeConfig) DBPath() string {
 	return filepath.Join(cfg.DataDir, "graph",
 		fmt.Sprintf("%v/channel.db", cfg.NetParams.Name))
 }
 
-func (cfg nodeConfig) ChanBackupPath() string {
+func (cfg NodeConfig) ChanBackupPath() string {
 	return filepath.Join(
 		cfg.DataDir, "chain", "bitcoin",
 		fmt.Sprintf(
@@ -183,7 +183,7 @@ func (cfg nodeConfig) ChanBackupPath() string {
 
 // genArgs generates a slice of command line arguments from the lightning node
 // config struct.
-func (cfg nodeConfig) genArgs() []string {
+func (cfg NodeConfig) genArgs() []string {
 	var args []string
 
 	switch cfg.NetParams {
@@ -232,7 +232,7 @@ func (cfg nodeConfig) genArgs() []string {
 // harness. Each HarnessNode instance also fully embeds an RPC client in
 // order to pragmatically drive the node.
 type HarnessNode struct {
-	cfg *nodeConfig
+	Cfg *NodeConfig
 
 	// NodeID is a unique identifier for the node within a NetworkHarness.
 	NodeID int
@@ -286,7 +286,7 @@ var _ lnrpc.WalletUnlockerClient = (*HarnessNode)(nil)
 var _ invoicesrpc.InvoicesClient = (*HarnessNode)(nil)
 
 // newNode creates a new test lightning node instance from the passed config.
-func newNode(cfg nodeConfig) (*HarnessNode, error) {
+func newNode(cfg NodeConfig) (*HarnessNode, error) {
 	if cfg.BaseDir == "" {
 		var err error
 		cfg.BaseDir, err = ioutil.TempDir("", "lndtest-node")
@@ -310,7 +310,7 @@ func newNode(cfg nodeConfig) (*HarnessNode, error) {
 	numActiveNodesMtx.Unlock()
 
 	return &HarnessNode{
-		cfg:               &cfg,
+		Cfg:               &cfg,
 		NodeID:            nodeNum,
 		chanWatchRequests: make(chan *chanWatchRequest),
 		openChans:         make(map[wire.OutPoint]int),
@@ -323,44 +323,44 @@ func newNode(cfg nodeConfig) (*HarnessNode, error) {
 
 // DBPath returns the filepath to the channeldb database file for this node.
 func (hn *HarnessNode) DBPath() string {
-	return hn.cfg.DBPath()
+	return hn.Cfg.DBPath()
 }
 
 // Name returns the name of this node set during initialization.
 func (hn *HarnessNode) Name() string {
-	return hn.cfg.Name
+	return hn.Cfg.Name
 }
 
 // TLSCertStr returns the path where the TLS certificate is stored.
 func (hn *HarnessNode) TLSCertStr() string {
-	return hn.cfg.TLSCertPath
+	return hn.Cfg.TLSCertPath
 }
 
 // TLSKeyStr returns the path where the TLS key is stored.
 func (hn *HarnessNode) TLSKeyStr() string {
-	return hn.cfg.TLSKeyPath
+	return hn.Cfg.TLSKeyPath
 }
 
 // ChanBackupPath returns the fielpath to the on-disk channels.backup file for
 // this node.
 func (hn *HarnessNode) ChanBackupPath() string {
-	return hn.cfg.ChanBackupPath()
+	return hn.Cfg.ChanBackupPath()
 }
 
 // AdminMacPath returns the filepath to the admin.macaroon file for this node.
 func (hn *HarnessNode) AdminMacPath() string {
-	return hn.cfg.AdminMacPath
+	return hn.Cfg.AdminMacPath
 }
 
 // ReadMacPath returns the filepath to the readonly.macaroon file for this node.
 func (hn *HarnessNode) ReadMacPath() string {
-	return hn.cfg.ReadMacPath
+	return hn.Cfg.ReadMacPath
 }
 
 // InvoiceMacPath returns the filepath to the invoice.macaroon file for this
 // node.
 func (hn *HarnessNode) InvoiceMacPath() string {
-	return hn.cfg.InvoiceMacPath
+	return hn.Cfg.InvoiceMacPath
 }
 
 // Start launches a new process running lnd. Additionally, the PID of the
@@ -372,7 +372,7 @@ func (hn *HarnessNode) InvoiceMacPath() string {
 func (hn *HarnessNode) start(lndError chan<- error) error {
 	hn.quit = make(chan struct{})
 
-	args := hn.cfg.genArgs()
+	args := hn.Cfg.genArgs()
 	hn.cmd = exec.Command("../../lnd-itest", args...)
 
 	// Redirect stderr output to buffer
@@ -391,14 +391,14 @@ func (hn *HarnessNode) start(lndError chan<- error) error {
 	// log files.
 	if *logOutput {
 		fileName := fmt.Sprintf("output-%d-%s-%s.log", hn.NodeID,
-			hn.cfg.Name, hex.EncodeToString(hn.PubKey[:logPubKeyBytes]))
+			hn.Cfg.Name, hex.EncodeToString(hn.PubKey[:logPubKeyBytes]))
 
 		// If the node's PubKey is not yet initialized, create a temporary
 		// file name. Later, after the PubKey has been initialized, the
 		// file can be moved to its final name with the PubKey included.
 		if bytes.Equal(hn.PubKey[:4], []byte{0, 0, 0, 0}) {
 			fileName = fmt.Sprintf("output-%d-%s-tmp__.log", hn.NodeID,
-				hn.cfg.Name)
+				hn.Cfg.Name)
 
 			// Once the node has done its work, the log file can be renamed.
 			finalizeLogfile = func() {
@@ -406,7 +406,7 @@ func (hn *HarnessNode) start(lndError chan<- error) error {
 					hn.logFile.Close()
 
 					newFileName := fmt.Sprintf("output-%d-%s-%s.log",
-						hn.NodeID, hn.cfg.Name,
+						hn.NodeID, hn.Cfg.Name,
 						hex.EncodeToString(hn.PubKey[:logPubKeyBytes]))
 					err := os.Rename(fileName, newFileName)
 					if err != nil {
@@ -469,7 +469,7 @@ func (hn *HarnessNode) start(lndError chan<- error) error {
 
 	// Since Stop uses the LightningClient to stop the node, if we fail to get a
 	// connected client, we have to kill the process.
-	useMacaroons := !hn.cfg.HasSeed
+	useMacaroons := !hn.Cfg.HasSeed
 	conn, err := hn.ConnectRPC(useMacaroons)
 	if err != nil {
 		hn.cmd.Process.Kill()
@@ -480,7 +480,7 @@ func (hn *HarnessNode) start(lndError chan<- error) error {
 	// additional step to unlock the wallet. The connection returned will
 	// only use the TLS certs, and can only perform operations necessary to
 	// unlock the daemon.
-	if hn.cfg.HasSeed {
+	if hn.Cfg.HasSeed {
 		hn.WalletUnlockerClient = lnrpc.NewWalletUnlockerClient(conn)
 		return nil
 	}
@@ -645,7 +645,7 @@ func (hn *HarnessNode) AddToLog(line string) error {
 
 // writePidFile writes the process ID of the running lnd process to a .pid file.
 func (hn *HarnessNode) writePidFile() error {
-	filePath := filepath.Join(hn.cfg.BaseDir, fmt.Sprintf("%v.pid", hn.NodeID))
+	filePath := filepath.Join(hn.Cfg.BaseDir, fmt.Sprintf("%v.pid", hn.NodeID))
 
 	pid, err := os.Create(filePath)
 	if err != nil {
@@ -699,7 +699,7 @@ func (hn *HarnessNode) ConnectRPCWithMacaroon(mac *macaroon.Macaroon) (
 
 	// Wait until TLS certificate is created before using it, up to 30 sec.
 	tlsTimeout := time.After(DefaultTimeout)
-	for !fileExists(hn.cfg.TLSCertPath) {
+	for !fileExists(hn.Cfg.TLSCertPath) {
 		select {
 		case <-tlsTimeout:
 			return nil, fmt.Errorf("timeout waiting for TLS cert " +
@@ -710,7 +710,7 @@ func (hn *HarnessNode) ConnectRPCWithMacaroon(mac *macaroon.Macaroon) (
 
 	opts := []grpc.DialOption{grpc.WithBlock()}
 	tlsCreds, err := credentials.NewClientTLSFromFile(
-		hn.cfg.TLSCertPath, "",
+		hn.Cfg.TLSCertPath, "",
 	)
 	if err != nil {
 		return nil, err
@@ -718,14 +718,14 @@ func (hn *HarnessNode) ConnectRPCWithMacaroon(mac *macaroon.Macaroon) (
 	opts = append(opts, grpc.WithTransportCredentials(tlsCreds))
 
 	if mac == nil {
-		return grpc.Dial(hn.cfg.RPCAddr(), opts...)
+		return grpc.Dial(hn.Cfg.RPCAddr(), opts...)
 	}
 	macCred := macaroons.NewMacaroonCredential(mac)
 	opts = append(opts, grpc.WithPerRPCCredentials(macCred))
 
 	ctx, cancel := context.WithTimeout(context.Background(), DefaultTimeout)
 	defer cancel()
-	return grpc.DialContext(ctx, hn.cfg.RPCAddr(), opts...)
+	return grpc.DialContext(ctx, hn.Cfg.RPCAddr(), opts...)
 }
 
 // ConnectRPC uses the TLS certificate and admin macaroon files written by the
@@ -739,7 +739,7 @@ func (hn *HarnessNode) ConnectRPC(useMacs bool) (*grpc.ClientConn, error) {
 
 	// If we should use a macaroon, always take the admin macaroon as a
 	// default.
-	mac, err := hn.ReadMacaroon(hn.cfg.AdminMacPath, DefaultTimeout)
+	mac, err := hn.ReadMacaroon(hn.Cfg.AdminMacPath, DefaultTimeout)
 	if err != nil {
 		return nil, err
 	}
@@ -749,12 +749,12 @@ func (hn *HarnessNode) ConnectRPC(useMacs bool) (*grpc.ClientConn, error) {
 // SetExtraArgs assigns the ExtraArgs field for the node's configuration. The
 // changes will take effect on restart.
 func (hn *HarnessNode) SetExtraArgs(extraArgs []string) {
-	hn.cfg.ExtraArgs = extraArgs
+	hn.Cfg.ExtraArgs = extraArgs
 }
 
 // cleanup cleans up all the temporary files created by the node's process.
 func (hn *HarnessNode) cleanup() error {
-	return os.RemoveAll(hn.cfg.BaseDir)
+	return os.RemoveAll(hn.Cfg.BaseDir)
 }
 
 // Stop attempts to stop the active lnd process.

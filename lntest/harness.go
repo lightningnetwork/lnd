@@ -343,7 +343,7 @@ func (n *NetworkHarness) RestoreNodeWithSeed(name string, extraArgs []string,
 func (n *NetworkHarness) newNode(name string, extraArgs []string,
 	hasSeed bool, password []byte) (*HarnessNode, error) {
 
-	node, err := newNode(nodeConfig{
+	node, err := newNode(NodeConfig{
 		Name:       name,
 		HasSeed:    hasSeed,
 		Password:   password,
@@ -368,7 +368,7 @@ func (n *NetworkHarness) newNode(name string, extraArgs []string,
 	// If this node is to have a seed, it will need to be unlocked or
 	// initialized via rpc. Delay registering it with the network until it
 	// can be driven via an unlocked rpc connection.
-	if node.cfg.HasSeed {
+	if node.Cfg.HasSeed {
 		return node, nil
 	}
 
@@ -431,7 +431,7 @@ func (n *NetworkHarness) EnsureConnected(ctx context.Context, a, b *HarnessNode)
 		req := &lnrpc.ConnectPeerRequest{
 			Addr: &lnrpc.LightningAddress{
 				Pubkey: bInfo.IdentityPubkey,
-				Host:   b.cfg.P2PAddr(),
+				Host:   b.Cfg.P2PAddr(),
 			},
 		}
 
@@ -536,7 +536,7 @@ func (n *NetworkHarness) ConnectNodes(ctx context.Context, a, b *HarnessNode) er
 	req := &lnrpc.ConnectPeerRequest{
 		Addr: &lnrpc.LightningAddress{
 			Pubkey: bobInfo.IdentityPubkey,
-			Host:   b.cfg.P2PAddr(),
+			Host:   b.Cfg.P2PAddr(),
 		},
 	}
 
@@ -618,14 +618,14 @@ func (n *NetworkHarness) RestartNode(node *HarnessNode, callback func() error,
 
 	// If the node doesn't have a password set, then we can exit here as we
 	// don't need to unlock it.
-	if len(node.cfg.Password) == 0 {
+	if len(node.Cfg.Password) == 0 {
 		return nil
 	}
 
 	// Otherwise, we'll unlock the wallet, then complete the final steps
 	// for the node initialization process.
 	unlockReq := &lnrpc.UnlockWalletRequest{
-		WalletPassword: node.cfg.Password,
+		WalletPassword: node.Cfg.Password,
 	}
 	if len(chanBackups) != 0 {
 		unlockReq.ChannelBackups = chanBackups[0]
@@ -687,13 +687,13 @@ func saveProfilesPage(node *HarnessNode) error {
 	resp, err := http.Get(
 		fmt.Sprintf(
 			"http://localhost:%d/debug/pprof/goroutine?debug=1",
-			node.cfg.ProfilePort,
+			node.Cfg.ProfilePort,
 		),
 	)
 	if err != nil {
 		return fmt.Errorf("Failed to get profile page "+
 			"(node_id=%d, name=%s): %v\n",
-			node.NodeID, node.cfg.Name, err)
+			node.NodeID, node.Cfg.Name, err)
 	}
 	defer resp.Body.Close()
 
@@ -701,11 +701,11 @@ func saveProfilesPage(node *HarnessNode) error {
 	if err != nil {
 		return fmt.Errorf("Failed to read profile page "+
 			"(node_id=%d, name=%s): %v\n",
-			node.NodeID, node.cfg.Name, err)
+			node.NodeID, node.Cfg.Name, err)
 	}
 
 	fileName := fmt.Sprintf(
-		"pprof-%d-%s-%s.log", node.NodeID, node.cfg.Name,
+		"pprof-%d-%s-%s.log", node.NodeID, node.Cfg.Name,
 		hex.EncodeToString(node.PubKey[:logPubKeyBytes]),
 	)
 
@@ -713,7 +713,7 @@ func saveProfilesPage(node *HarnessNode) error {
 	if err != nil {
 		return fmt.Errorf("Failed to create file for profile page "+
 			"(node_id=%d, name=%s): %v\n",
-			node.NodeID, node.cfg.Name, err)
+			node.NodeID, node.Cfg.Name, err)
 	}
 	defer logFile.Close()
 
@@ -721,7 +721,7 @@ func saveProfilesPage(node *HarnessNode) error {
 	if err != nil {
 		return fmt.Errorf("Failed to save profile page "+
 			"(node_id=%d, name=%s): %v\n",
-			node.NodeID, node.cfg.Name, err)
+			node.NodeID, node.Cfg.Name, err)
 	}
 	return nil
 }
@@ -1222,7 +1222,7 @@ func (n *NetworkHarness) AssertChannelExists(ctx context.Context,
 // Logs from lightning node being generated with delay - you should
 // add time.Sleep() in order to get all logs.
 func (n *NetworkHarness) DumpLogs(node *HarnessNode) (string, error) {
-	logFile := fmt.Sprintf("%v/simnet/lnd.log", node.cfg.LogDir)
+	logFile := fmt.Sprintf("%v/simnet/lnd.log", node.Cfg.LogDir)
 
 	buf, err := ioutil.ReadFile(logFile)
 	if err != nil {
@@ -1319,7 +1319,7 @@ func (n *NetworkHarness) sendCoins(ctx context.Context, amt btcutil.Amount,
 	err = wait.NoError(func() error {
 		// Since neutrino doesn't support unconfirmed outputs, skip
 		// this check.
-		if target.cfg.BackendCfg.Name() == "neutrino" {
+		if target.Cfg.BackendCfg.Name() == "neutrino" {
 			return nil
 		}
 

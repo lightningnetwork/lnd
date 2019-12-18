@@ -79,6 +79,19 @@ func Start(extraArgs string, unlockerReady, rpcReady Callback) {
 
 	go func() {
 		<-rpcListening
+
+		// Now that the RPC server is ready, we can get the needed
+		// authentication options, and add them to the global dial
+		// options.
+		auth, err := lnd.AdminAuthOptions()
+		if err != nil {
+			rpcReady.OnError(err)
+			return
+		}
+
+		// Add the auth options to the listener's dial options.
+		addLightningLisDialOption(auth...)
+
 		rpcReady.OnResponse([]byte{})
 	}()
 }

@@ -1542,6 +1542,11 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 	rpcsLog.Debugf("[openchannel]: using fee of %v sat/kw for funding tx",
 		int64(feeRate))
 
+	script, err := parseUpfrontShutdownAddress(in.CloseAddress)
+	if err != nil {
+		return fmt.Errorf("error parsing upfront shutdown: %v", err)
+	}
+
 	// Instruct the server to trigger the necessary events to attempt to
 	// open a new channel. A stream is returned in place, this stream will
 	// be used to consume updates of the state of the pending channel.
@@ -1555,6 +1560,7 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 		private:         in.Private,
 		remoteCsvDelay:  remoteCsvDelay,
 		minConfs:        minConfs,
+		shutdownScript:  script,
 	}
 
 	updateChan, errChan := r.server.OpenChannel(req)
@@ -1687,6 +1693,11 @@ func (r *rpcServer) OpenChannelSync(ctx context.Context,
 	rpcsLog.Tracef("[openchannel] target sat/kw for funding tx: %v",
 		int64(feeRate))
 
+	script, err := parseUpfrontShutdownAddress(in.CloseAddress)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing upfront shutdown: %v", err)
+	}
+
 	req := &openChanReq{
 		targetPubkey:    nodepubKey,
 		chainHash:       *activeNetParams.GenesisHash,
@@ -1697,6 +1708,7 @@ func (r *rpcServer) OpenChannelSync(ctx context.Context,
 		private:         in.Private,
 		remoteCsvDelay:  remoteCsvDelay,
 		minConfs:        minConfs,
+		shutdownScript:  script,
 	}
 
 	updateChan, errChan := r.server.OpenChannel(req)
@@ -1728,6 +1740,24 @@ func (r *rpcServer) OpenChannelSync(ctx context.Context,
 	case <-r.quit:
 		return nil, nil
 	}
+}
+
+// parseUpfrontShutdownScript attempts to parse an upfront shutdown address.
+// If the address is empty, it returns nil. If it successfully decoded the
+// address, it returns a script that pays out to the address.
+func parseUpfrontShutdownAddress(address string) (lnwire.DeliveryAddress, error) {
+	if len(address) == 0 {
+		return nil, nil
+	}
+
+	addr, err := btcutil.DecodeAddress(
+		address, activeNetParams.Params,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("invalid address: %v", err)
+	}
+
+	return txscript.PayToAddrScript(addr)
 }
 
 // GetChanPointFundingTxid returns the given channel point's funding txid in
@@ -2190,6 +2220,22 @@ func (r *rpcServer) GetInfo(ctx context.Context,
 
 	isGraphSynced := r.server.authGossiper.SyncManager().IsGraphSynced()
 
+	features := make(map[uint32]*lnrpc.Feature)
+	sets := r.server.featureMgr.ListSets()
+
+	for _, set := range sets {
+		// Get the a list of lnrpc features for each set we support.
+		featureVector := r.server.featureMgr.Get(set)
+		rpcFeatures := invoicesrpc.CreateRPCFeatures(featureVector)
+
+		// Add the features to our map of features, allowing over writing of
+		// existing values because features in different sets with the same bit
+		// are duplicated across sets.
+		for bit, feature := range rpcFeatures {
+			features[bit] = feature
+		}
+	}
+
 	// TODO(roasbeef): add synced height n stuff
 	return &lnrpc.GetInfoResponse{
 		IdentityPubkey:      encodedIDPub,
@@ -2208,6 +2254,7 @@ func (r *rpcServer) GetInfo(ctx context.Context,
 		BestHeaderTimestamp: int64(bestHeaderTimestamp),
 		Version:             build.Version(),
 		SyncedToGraph:       isGraphSynced,
+		Features:            features,
 	}, nil
 }
 
@@ -2942,6 +2989,25 @@ func createRPCOpenChannel(r *rpcServer, graph *channeldb.ChannelGraph,
 	}
 	channel.Uptime = int64(uptime.Seconds())
 
+	if len(dbChannel.LocalShutdownScript) > 0 {
+		_, addresses, _, err := txscript.ExtractPkScriptAddrs(
+			dbChannel.LocalShutdownScript, activeNetParams.Params,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		// We only expect one upfront shutdown address for a channel. If
+		// LocalShutdownScript is non-zero, there should be one payout address
+		// set.
+		if len(addresses) != 1 {
+			return nil, fmt.Errorf("expected one upfront shutdown address, "+
+				"got: %v", len(addresses))
+		}
+
+		channel.CloseAddress = addresses[0].String()
+	}
+
 	return channel, nil
 }
 
@@ -3020,6 +3086,7 @@ func (r *rpcServer) SubscribeChannelEvents(req *lnrpc.ChannelEventSubscription,
 						OpenChannel: channel,
 					},
 				}
+
 			case channelnotifier.ClosedChannelEvent:
 				closedChannel := createRPCClosedChannel(event.CloseSummary)
 				update = &lnrpc.ChannelEventUpdate{
@@ -3028,6 +3095,7 @@ func (r *rpcServer) SubscribeChannelEvents(req *lnrpc.ChannelEventSubscription,
 						ClosedChannel: closedChannel,
 					},
 				}
+
 			case channelnotifier.ActiveChannelEvent:
 				update = &lnrpc.ChannelEventUpdate{
 					Type: lnrpc.ChannelEventUpdate_ACTIVE_CHANNEL,
@@ -3040,6 +3108,7 @@ func (r *rpcServer) SubscribeChannelEvents(req *lnrpc.ChannelEventSubscription,
 						},
 					},
 				}
+
 			case channelnotifier.InactiveChannelEvent:
 				update = &lnrpc.ChannelEventUpdate{
 					Type: lnrpc.ChannelEventUpdate_INACTIVE_CHANNEL,
@@ -3052,6 +3121,7 @@ func (r *rpcServer) SubscribeChannelEvents(req *lnrpc.ChannelEventSubscription,
 						},
 					},
 				}
+
 			default:
 				return fmt.Errorf("unexpected channel event update: %v", event)
 			}

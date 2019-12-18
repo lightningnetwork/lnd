@@ -1819,6 +1819,10 @@
           "type": "string",
           "format": "int64",
           "description": "*\nThe number of seconds that the remote peer has been observed as being online\nby the channel scoring system over the lifetime of the channel [EXPERIMENTAL]."
+        },
+        "close_address": {
+          "type": "string",
+          "description": "*\nClose address is the address that we will enforce payout to on cooperative\nclose if the channel was opened utilizing option upfront shutdown. This\nvalue can be set on channel open by setting close_address in an open channel\nrequest. If this value is not set, you can still choose a payout address by\ncooperatively closing with the delivery_address field set."
         }
       }
     },
@@ -2504,6 +2508,13 @@
           "type": "boolean",
           "format": "boolean",
           "description": "Whether we consider ourselves synced with the public channel graph."
+        },
+        "features": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/lnrpcFeature"
+          },
+          "description": "Features that our node has advertised in our init message, node\nannouncements and invoices."
         }
       }
     },
@@ -3233,6 +3244,10 @@
           "type": "boolean",
           "format": "boolean",
           "description": "/ Whether unconfirmed outputs should be used as inputs for the funding transaction."
+        },
+        "close_address": {
+          "type": "string",
+          "description": "Close address is an optional address which specifies the address to which\nfunds should be paid out to upon cooperative close. This field may only be\nset if the peer supports the option upfront feature bit (call listpeers\nto check). The remote peer will only accept cooperative closes to this\naddress if it is set.\n\nNote: If this value is set on channel creation, you will *not* be able to\ncooperatively close out to a different address."
         }
       }
     },

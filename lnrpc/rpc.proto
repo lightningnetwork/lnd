@@ -1344,6 +1344,15 @@ message Channel {
     by the channel scoring system over the lifetime of the channel [EXPERIMENTAL].
     */
     int64 uptime = 24 [json_name = "uptime"];
+
+    /**
+    Close address is the address that we will enforce payout to on cooperative
+    close if the channel was opened utilizing option upfront shutdown. This
+    value can be set on channel open by setting close_address in an open channel
+    request. If this value is not set, you can still choose a payout address by
+    cooperatively closing with the delivery_address field set.
+    */
+    string close_address = 25 [json_name ="close_address"];
 }
 
 
@@ -1539,6 +1548,12 @@ message GetInfoResponse {
 
     // Whether we consider ourselves synced with the public channel graph.
     bool synced_to_graph = 18 [json_name = "synced_to_graph"];
+
+    /*
+    Features that our node has advertised in our init message, node
+    announcements and invoices.
+    */
+    map<uint32, Feature> features = 19 [json_name = "features"];
 }
 
 message Chain {
@@ -1643,6 +1658,18 @@ message OpenChannelRequest {
 
     /// Whether unconfirmed outputs should be used as inputs for the funding transaction.
     bool spend_unconfirmed = 12 [json_name = "spend_unconfirmed"];
+
+    /*
+    Close address is an optional address which specifies the address to which
+    funds should be paid out to upon cooperative close. This field may only be
+    set if the peer supports the option upfront feature bit (call listpeers
+    to check). The remote peer will only accept cooperative closes to this
+    address if it is set.
+
+    Note: If this value is set on channel creation, you will *not* be able to
+    cooperatively close out to a different address.
+    */
+    string close_address = 13[json_name = "close_address"];
 }
 message OpenStatusUpdate {
     oneof update {

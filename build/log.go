@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync"
 
 	"github.com/btcsuite/btclog"
 )
@@ -45,6 +46,12 @@ type LogWriter struct {
 	// is written to by the Write method of the LogWriter type. This only
 	// needs to be set if neither the stdlog or nolog builds are set.
 	RotatorPipe *io.PipeWriter
+
+	// startNewline is used in the LogWriter’s Write function to prepend a
+	// newline to the first byte slice that is logged. This is required to start
+	// logging on a new line on restart, rather than appending to the last log
+	// written
+	startNewLine sync.Once
 }
 
 // NewSubLogger constructs a new subsystem log from the current LogWriter

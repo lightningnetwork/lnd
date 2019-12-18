@@ -12,6 +12,14 @@ const LoggingType = LogTypeDefault
 func (w *LogWriter) Write(b []byte) (int, error) {
 	os.Stdout.Write(b)
 	if w.RotatorPipe != nil {
+
+		// A new line is appended to the first byte slice that is logged. This is required
+		// so that logging starts on a new line on restart, rather than appending to the
+		// last log written
+		w.startNewLine.Do(func() {
+			b = []byte("\n" + string(b))
+		})
+
 		w.RotatorPipe.Write(b)
 	}
 	return len(b), nil

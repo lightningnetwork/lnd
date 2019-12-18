@@ -1360,53 +1360,42 @@ func TestNewRoute(t *testing.T) {
 }
 
 func TestNewRoutePathTooLong(t *testing.T) {
-	t.Skip()
+	t.Parallel()
 
-	// Ensure that potential paths which are over the maximum hop-limit are
-	// rejected.
-	graph, err := parseTestGraph(excessiveHopsGraphFilePath)
+	var testChannels []*testChannel
+
+	// Setup a linear network of 21 hops.
+	fromNode := "start"
+	for i := 0; i < 21; i++ {
+		toNode := fmt.Sprintf("node-%v", i+1)
+		c := symmetricTestChannel(fromNode, toNode, 100000, &testChannelPolicy{
+			Expiry:  144,
+			FeeRate: 400,
+			MinHTLC: 1,
+			MaxHTLC: 100000001,
+		})
+		testChannels = append(testChannels, c)
+
+		fromNode = toNode
+	}
+
+	ctx := newPathFindingTestContext(t, testChannels, "start")
+	defer ctx.cleanup()
+
+	// Assert that we can find 20 hop routes.
+	node20 := ctx.keyFromAlias("node-20")
+	payAmt := lnwire.MilliSatoshi(100001)
+	_, err := ctx.findPath(node20, payAmt)
 	if err != nil {
-		t.Fatalf("unable to create graph: %v", err)
-	}
-	defer graph.cleanUp()
-
-	sourceNode, err := graph.graph.SourceNode()
-	if err != nil {
-		t.Fatalf("unable to fetch source node: %v", err)
+		t.Fatalf("unexpected pathfinding failure: %v", err)
 	}
 
-	paymentAmt := lnwire.NewMSatFromSatoshis(100)
-
-	// We start by confirming that routing a payment 20 hops away is
-	// possible. Alice should be able to find a valid route to ursula.
-	target := graph.aliasMap["ursula"]
-	_, err = findPath(
-		&graphParams{
-			graph: graph.graph,
-		},
-		noRestrictions, testPathFindingConfig,
-		sourceNode.PubKeyBytes, target, paymentAmt, 0,
-	)
-	if err != nil {
-		t.Fatalf("path should have been found")
+	// Assert that finding a 21 hop route fails.
+	node21 := ctx.keyFromAlias("node-21")
+	_, err = ctx.findPath(node21, payAmt)
+	if err != errMaxHopsExceeded {
+		t.Fatalf("expected route too long, but got %v", err)
 	}
-
-	// Vincent is 21 hops away from Alice, and thus no valid route should be
-	// presented to Alice.
-	target = graph.aliasMap["vincent"]
-	path, err := findPath(
-		&graphParams{
-			graph: graph.graph,
-		},
-		noRestrictions, testPathFindingConfig,
-		sourceNode.PubKeyBytes, target, paymentAmt, 0,
-	)
-	if err == nil {
-		t.Fatalf("should not have been able to find path, supposed to be "+
-			"greater than 20 hops, found route with %v hops",
-			len(path))
-	}
-
 }
 
 func TestPathNotAvailable(t *testing.T) {

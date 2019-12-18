@@ -670,36 +670,6 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 				edge.ChannelID)
 		}
 
-		switch {
-
-		// If this edge takes us to the final hop, we'll set the node
-		// features to those determined above. These are either taken
-		// from the destination features, e.g. virtual or invoice
-		// features, or loaded as a fallback from the graph. The
-		// transitive dependencies were already validated above, so no
-		// need to do so now.
-		//
-		// NOTE: This may overwrite features loaded from the graph if
-		// destination features were provided. This is fine though,
-		// since our route construction does not care where the features
-		// are actually taken from. In the future we may wish to do
-		// route construction within findPath, and avoid using
-		// ChannelEdgePolicy altogether.
-		case edge.Node.PubKeyBytes == target:
-			edge.Node.Features = features
-
-		// Otherwise, this is some other intermediary node. Verify the
-		// transitive feature dependencies for this node, and skip the
-		// channel if they are invalid.
-		default:
-			err := feature.ValidateDeps(edge.Node.Features)
-			if err != nil {
-				log.Tracef("Node %x has invalid features",
-					edge.Node.PubKeyBytes)
-				return
-			}
-		}
-
 		// All conditions are met and this new tentative distance is
 		// better than the current best known distance to this node.
 		// The new better distance is recorded, and also our "next hop"
@@ -723,6 +693,44 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 
 	// TODO(roasbeef): also add path caching
 	//  * similar to route caching, but doesn't factor in the amount
+
+	// Cache features because we visit nodes multiple times.
+	featureCache := make(map[route.Vertex]*lnwire.FeatureVector)
+
+	// getGraphFeatures returns (cached) node features from the graph.
+	getGraphFeatures := func(node route.Vertex) (*lnwire.FeatureVector,
+		error) {
+
+		// Check cache for features of the fromNode.
+		fromFeatures, ok := featureCache[node]
+		if !ok {
+			targetNode, err := g.graph.FetchLightningNode(tx, node)
+			switch {
+
+			// If the node exists and has valid features, use them.
+			case err == nil:
+				err := feature.ValidateDeps(targetNode.Features)
+				if err == nil {
+					fromFeatures = targetNode.Features
+				}
+
+			// If an error other than the node not existing is hit,
+			// abort.
+			case err != channeldb.ErrGraphNodeNotFound:
+				return nil, err
+
+			// Otherwise, we couldn't find a node announcement,
+			// populate a blank feature vector.
+			default:
+				fromFeatures = lnwire.EmptyFeatureVector()
+			}
+
+			// Update cache.
+			featureCache[node] = fromFeatures
+		}
+
+		return fromFeatures, nil
+	}
 
 	routeToSelf := source == target
 	for {
@@ -768,6 +776,17 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 			)
 
 			if policy == nil {
+				continue
+			}
+
+			// Get feature vector for fromNode.
+			fromFeatures, err := getGraphFeatures(fromNode)
+			if err != nil {
+				return nil, err
+			}
+
+			// If there are no valid features, skip this node.
+			if fromFeatures == nil {
 				continue
 			}
 
@@ -817,6 +836,19 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 			break
 		}
 	}
+
+	// For the final hop, we'll set the node features to those determined
+	// above. These are either taken from the destination features, e.g.
+	// virtual or invoice features, or loaded as a fallback from the graph.
+	// The transitive dependencies were already validated above, so no need
+	// to do so now.
+	//
+	// NOTE: This may overwrite features loaded from the graph if
+	// destination features were provided. This is fine though, since our
+	// route construction does not care where the features are actually
+	// taken from. In the future we may wish to do route construction within
+	// findPath, and avoid using ChannelEdgePolicy altogether.
+	pathEdges[len(pathEdges)-1].Node.Features = features
 
 	// The route is invalid if it spans more than 20 hops. The current
 	// Sphinx (onion routing) implementation can only encode up to 20 hops

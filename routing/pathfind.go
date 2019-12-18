@@ -683,27 +683,6 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 				edge.ChannelID)
 		}
 
-		switch {
-
-		// If this edge takes us to the final hop, we'll set the node
-		// features to those determined above. These are either taken
-		// from the destination features, e.g. virual or invoice
-		// features, or loaded as a fallback from the graph. The
-		// transitive dependencies were already validated above, so no
-		// need to do so now.
-		case edge.Node.PubKeyBytes == target:
-			edge.Node.Features = features
-
-		// Otherwise, this is some other intermediary node. Verify the
-		// transitive feature dependencies for this node, and skip the
-		// channel if they are invalid.
-		default:
-			err := feature.ValidateDeps(edge.Node.Features)
-			if err != nil {
-				return
-			}
-		}
-
 		// All conditions are met and this new tentative distance is
 		// better than the current best known distance to this node.
 		// The new better distance is recorded, and also our "next hop"
@@ -727,6 +706,9 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 
 	// TODO(roasbeef): also add path caching
 	//  * similar to route caching, but doesn't factor in the amount
+
+	// Cache features because we visit nodes multiple times.
+	featureCache := make(map[route.Vertex]*lnwire.FeatureVector)
 
 	routeToSelf := source == target
 	for {
@@ -775,8 +757,48 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 				continue
 			}
 
+			// Check cache for features of the fromNode.
+			fromFeatures, ok := featureCache[fromNode]
+			if !ok {
+				targetKey, err := btcec.ParsePubKey(fromNode[:], btcec.S256())
+				if err != nil {
+					return nil, err
+				}
+
+				targetNode, err := g.graph.FetchLightningNode(targetKey)
+				switch {
+
+				// If the node exists and has features, use
+				// them.
+				case err == nil:
+					// Only use features if they are valid.
+					err = feature.ValidateDeps(features)
+					if err == nil {
+						fromFeatures = targetNode.Features
+					}
+
+				// If an error other than the node not existing is hit, abort.
+				case err != channeldb.ErrGraphNodeNotFound:
+					return nil, err
+
+				// Otherwise, we couldn't find a node announcement, populate a
+				// blank feature vector.
+				default:
+					fromFeatures = lnwire.EmptyFeatureVector()
+				}
+
+				// Update cache.
+				featureCache[fromNode] = fromFeatures
+			}
+			if fromFeatures == nil {
+				continue
+			}
+
 			// Check if this candidate node is better than what we
 			// already have.
+			//
+			// TODO(joostjager): Pass in fromFeatures to processEdge
+			// for payload size calculation.
 			processEdge(fromNode, policy, partialPath)
 		}
 
@@ -821,6 +843,9 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 			break
 		}
 	}
+
+	// Overwrite final hop features.
+	pathEdges[len(pathEdges)-1].Node.Features = features
 
 	// The route is invalid if it spans more than 20 hops. The current
 	// Sphinx (onion routing) implementation can only encode up to 20 hops

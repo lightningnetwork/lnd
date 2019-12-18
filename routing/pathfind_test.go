@@ -2070,11 +2070,7 @@ func TestPathFindSpecExample(t *testing.T) {
 	// Carol, so we set "B" as the source node so path finding starts from
 	// Bob.
 	bob := ctx.aliases["B"]
-	bobKey, err := btcec.ParsePubKey(bob[:], btcec.S256())
-	if err != nil {
-		t.Fatal(err)
-	}
-	bobNode, err := ctx.graph.FetchLightningNode(bobKey)
+	bobNode, err := ctx.graph.FetchLightningNode(bob)
 	if err != nil {
 		t.Fatalf("unable to find bob: %v", err)
 	}
@@ -2123,11 +2119,7 @@ func TestPathFindSpecExample(t *testing.T) {
 	// Next, we'll set A as the source node so we can assert that we create
 	// the proper route for any queries starting with Alice.
 	alice := ctx.aliases["A"]
-	aliceKey, err := btcec.ParsePubKey(alice[:], btcec.S256())
-	if err != nil {
-		t.Fatal(err)
-	}
-	aliceNode, err := ctx.graph.FetchLightningNode(aliceKey)
+	aliceNode, err := ctx.graph.FetchLightningNode(alice)
 	if err != nil {
 		t.Fatalf("unable to find alice: %v", err)
 	}

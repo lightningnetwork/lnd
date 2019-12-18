@@ -7,7 +7,6 @@ import (
 	"math"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
 	"github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/feature"
@@ -447,12 +446,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 	// we have for the target node from our graph.
 	features := r.DestFeatures
 	if features == nil {
-		targetKey, err := btcec.ParsePubKey(target[:], btcec.S256())
-		if err != nil {
-			return nil, err
-		}
-
-		targetNode, err := g.graph.FetchLightningNode(targetKey)
+		targetNode, err := g.graph.FetchLightningNode(target)
 		switch {
 
 		// If the node exists and has features, use them directly.

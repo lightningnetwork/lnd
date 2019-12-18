@@ -2089,11 +2089,7 @@ func (r *ChannelRouter) GetChannelByID(chanID lnwire.ShortChannelID) (
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
 func (r *ChannelRouter) FetchLightningNode(node route.Vertex) (*channeldb.LightningNode, error) {
-	pubKey, err := btcec.ParsePubKey(node[:], btcec.S256())
-	if err != nil {
-		return nil, fmt.Errorf("unable to parse raw public key: %v", err)
-	}
-	return r.cfg.Graph.FetchLightningNode(pubKey)
+	return r.cfg.Graph.FetchLightningNode(node)
 }
 
 // ForEachNode is used to iterate over every node in router topology.

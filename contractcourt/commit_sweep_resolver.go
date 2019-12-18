@@ -164,9 +164,11 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 		c.log.Debugf("waiting for csv lock to expire at height %v",
 			unlockHeight)
 
-		// We only need to wait for the block before the block that
-		// unlocks the spend path.
-		err := c.waitForHeight(unlockHeight - 1)
+		// We really only need to wait for the block before the block
+		// that unlocks the spend path, but we wait one extra block to
+		// ensure propagation and to keep the old behavior from when
+		// the utxonursery did the commit sweep.
+		err := c.waitForHeight(unlockHeight)
 		if err != nil {
 			return nil, err
 		}

@@ -204,9 +204,11 @@ func TestCommitSweepResolverDelay(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 	}
 
-	// A new block arrives. The commit tx confirmed at height -1 and the csv
-	// is 3, so a spend will be valid in the first block after height +1.
-	ctx.notifyEpoch(testInitialBlockHeight + 1)
+	// A new block arrives. The commit tx confirmed at height -1 and the
+	// csv is 3, so a spend will be valid in the first block after height
+	// +1. Note that the resolver waits for +2  before publishing
+	// regardless, since this is legacy behavior from the nursery era.
+	ctx.notifyEpoch(testInitialBlockHeight + 2)
 
 	<-ctx.sweeper.sweptInputs
 

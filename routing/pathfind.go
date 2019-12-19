@@ -96,17 +96,29 @@ type edgePolicyWithSource struct {
 	edge       *channeldb.ChannelEdgePolicy
 }
 
-// newRoute returns a fully valid route between the source and target that's
-// capable of supporting a payment of `amtToSend` after fees are fully
-// computed. If the route is too long, or the selected path cannot support the
-// fully payment including fees, then a non-nil error is returned.
+// finalHopParams encapsulates various parameters for route construction that
+// apply to the final hop in a route. These features include basic payment data
+// such as amounts and cltvs, as well as more complex features like destination
+// custom records.
+type finalHopParams struct {
+	amt       lnwire.MilliSatoshi
+	cltvDelta uint16
+	records   record.CustomSet
+}
+
+// newRoute constructs a route using the provided path and final hop constraints.
+// Any destination specific fields from the final hop params  will be attached
+// assuming the destination's feature vector signals support, otherwise this
+// method will fail.  If the route is too long, or the selected path cannot
+// support the fully payment including fees, then a non-nil error is returned.
 //
 // NOTE: The passed slice of ChannelHops MUST be sorted in forward order: from
-// the source to the target node of the path finding attempt.
-func newRoute(amtToSend lnwire.MilliSatoshi, sourceVertex route.Vertex,
+// the source to the target node of the path finding attempt. It is assumed that
+// any feature vectors on all hops have been validated for transitive
+// dependencies.
+func newRoute(sourceVertex route.Vertex,
 	pathEdges []*channeldb.ChannelEdgePolicy, currentHeight uint32,
-	finalCLTVDelta uint16,
-	destCustomRecords record.CustomSet) (*route.Route, error) {
+	finalHop finalHopParams) (*route.Route, error) {
 
 	var (
 		hops []*route.Hop
@@ -132,7 +144,7 @@ func newRoute(amtToSend lnwire.MilliSatoshi, sourceVertex route.Vertex,
 		// If this is the last hop, then the hop payload will contain
 		// the exact amount. In BOLT #4: Onion Routing
 		// Protocol / "Payload for the Last Node", this is detailed.
-		amtToForward := amtToSend
+		amtToForward := finalHop.amt
 
 		// Fee is not part of the hop payload, but only used for
 		// reporting through RPC. Set to zero for the final hop.
@@ -161,9 +173,9 @@ func newRoute(amtToSend lnwire.MilliSatoshi, sourceVertex route.Vertex,
 			// As this is the last hop, we'll use the specified
 			// final CLTV delta value instead of the value from the
 			// last link in the route.
-			totalTimeLock += uint32(finalCLTVDelta)
+			totalTimeLock += uint32(finalHop.cltvDelta)
 
-			outgoingTimeLock = currentHeight + uint32(finalCLTVDelta)
+			outgoingTimeLock = currentHeight + uint32(finalHop.cltvDelta)
 		} else {
 			// Next, increment the total timelock of the entire
 			// route such that each hops time lock increases as we
@@ -204,8 +216,8 @@ func newRoute(amtToSend lnwire.MilliSatoshi, sourceVertex route.Vertex,
 
 		// If this is the last hop, then we'll populate any TLV records
 		// destined for it.
-		if i == len(pathEdges)-1 && len(destCustomRecords) != 0 {
-			currentHop.CustomRecords = destCustomRecords
+		if i == len(pathEdges)-1 && len(finalHop.records) != 0 {
+			currentHop.CustomRecords = finalHop.records
 		}
 
 		hops = append([]*route.Hop{currentHop}, hops...)

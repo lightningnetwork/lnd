@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/feature"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -426,6 +427,17 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 			features = lnwire.EmptyFeatureVector()
 		}
 	}
+
+	// With the destination's feature vector selected, ensure that all
+	// transitive depdencies are set.
+	err = feature.ValidateDeps(features)
+	if err != nil {
+		return nil, err
+	}
+
+	// Now that we know the feature vector is well formed, we'll proceed in
+	// checking that it supports the features we need, given our
+	// restrictions on the final hop.
 
 	// If the caller needs to send custom records, check that our
 	// destination feature vector supports TLV.

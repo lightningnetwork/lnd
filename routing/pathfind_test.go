@@ -22,6 +22,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/feature"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -63,6 +64,19 @@ var (
 	tlvFeatures = lnwire.NewFeatureVector(
 		lnwire.NewRawFeatureVector(
 			lnwire.TLVOnionPayloadOptional,
+		), lnwire.Features,
+	)
+
+	payAddrFeatures = lnwire.NewFeatureVector(
+		lnwire.NewRawFeatureVector(
+			lnwire.PaymentAddrOptional,
+		), lnwire.Features,
+	)
+
+	tlvPayAddrFeatures = lnwire.NewFeatureVector(
+		lnwire.NewRawFeatureVector(
+			lnwire.TLVOnionPayloadOptional,
+			lnwire.PaymentAddrOptional,
 		), lnwire.Features,
 	)
 )
@@ -1444,6 +1458,78 @@ func TestDestTLVGraphFallback(t *testing.T) {
 		t.Fatalf("path should have been found: %v", err)
 	}
 	assertExpectedPath(t, ctx.testGraphInstance.aliasMap, path, "luoji")
+}
+
+// TestMissingFeatureDep asserts that we fail path finding when the
+// destination's features are broken, in that the feature vector doesn't signal
+// all transitive dependencies.
+func TestMissingFeatureDep(t *testing.T) {
+	t.Parallel()
+
+	testChannels := []*testChannel{
+		asymmetricTestChannel("roasbeef", "conner", 100000,
+			&testChannelPolicy{
+				Expiry:  144,
+				FeeRate: 400,
+				MinHTLC: 1,
+				MaxHTLC: 100000000,
+			},
+			&testChannelPolicy{
+				Expiry:   144,
+				FeeRate:  400,
+				MinHTLC:  1,
+				MaxHTLC:  100000000,
+				Features: payAddrFeatures,
+			}, 0,
+		),
+	}
+
+	ctx := newPathFindingTestContext(t, testChannels, "roasbeef")
+	defer ctx.cleanup()
+
+	sourceNode, err := ctx.graphParams.graph.SourceNode()
+	if err != nil {
+		t.Fatalf("unable to fetch source node: %v", err)
+
+	}
+
+	find := func(r *RestrictParams,
+		target route.Vertex) ([]*channeldb.ChannelEdgePolicy, error) {
+
+		return findPath(
+			&graphParams{
+				graph: ctx.graphParams.graph,
+			},
+			r, testPathFindingConfig,
+			sourceNode.PubKeyBytes, target, 100,
+		)
+	}
+
+	// Conner's node in the graph has a broken feature vector, since it
+	// signals payment addresses without signaling tlv onions. Pathfinding
+	// should fail since we validate transitive feature dependencies for the
+	// final node.
+	conner := ctx.testGraphInstance.aliasMap["conner"]
+
+	restrictions := *noRestrictions
+
+	_, err = find(&restrictions, conner)
+	if err != feature.NewErrMissingFeatureDep(
+		lnwire.TLVOnionPayloadOptional,
+	) {
+		t.Fatalf("path shouldn't have been found: %v", err)
+	}
+
+	// Now, set the TLV and payment addresses features to override the
+	// broken features found in the graph. We should succeed in finding a
+	// path to conner.
+	restrictions.DestFeatures = tlvPayAddrFeatures
+
+	path, err := find(&restrictions, conner)
+	if err != nil {
+		t.Fatalf("path should have been found: %v", err)
+	}
+	assertExpectedPath(t, ctx.testGraphInstance.aliasMap, path, "conner")
 }
 
 func TestPathInsufficientCapacity(t *testing.T) {

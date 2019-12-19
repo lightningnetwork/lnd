@@ -166,8 +166,7 @@ func newRoute(sourceVertex route.Vertex,
 			// final CLTV delta value instead of the value from the
 			// last link in the route.
 			totalTimeLock += uint32(finalHop.cltvDelta)
-
-			outgoingTimeLock = currentHeight + uint32(finalHop.cltvDelta)
+			outgoingTimeLock = totalTimeLock
 		} else {
 			// The amount that the current hop needs to forward is
 			// equal to the incoming amount of the next hop.
@@ -180,18 +179,11 @@ func newRoute(sourceVertex route.Vertex,
 			// the next hop.
 			fee = pathEdges[i+1].ComputeFee(amtToForward)
 
-			// Next, increment the total timelock of the entire
-			// route such that each hops time lock increases as we
-			// walk backwards in the route, using the delta of the
-			// previous hop.
-			delta := uint32(pathEdges[i+1].TimeLockDelta)
-			totalTimeLock += delta
-
-			// Otherwise, the value of the outgoing time-lock will
-			// be the value of the time-lock for the _outgoing_
-			// HTLC, so we factor in their specified grace period
-			// (time lock delta).
-			outgoingTimeLock = totalTimeLock - delta
+			// We'll take the total timelock of the preceding hop as
+			// the outgoing timelock or this hop. Then we'll
+			// increment the total timelock incurred by this hop.
+			outgoingTimeLock = totalTimeLock
+			totalTimeLock += uint32(pathEdges[i+1].TimeLockDelta)
 		}
 
 		// Since we're traversing the path backwards atm, we prepend

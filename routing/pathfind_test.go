@@ -1482,6 +1482,21 @@ func TestMissingFeatureDep(t *testing.T) {
 				Features: payAddrFeatures,
 			}, 0,
 		),
+		asymmetricTestChannel("conner", "joost", 100000,
+			&testChannelPolicy{
+				Expiry:   144,
+				FeeRate:  400,
+				MinHTLC:  1,
+				MaxHTLC:  100000000,
+				Features: payAddrFeatures,
+			},
+			&testChannelPolicy{
+				Expiry:  144,
+				FeeRate: 400,
+				MinHTLC: 1,
+				MaxHTLC: 100000000,
+			}, 0,
+		),
 	}
 
 	ctx := newPathFindingTestContext(t, testChannels, "roasbeef")
@@ -1530,6 +1545,19 @@ func TestMissingFeatureDep(t *testing.T) {
 		t.Fatalf("path should have been found: %v", err)
 	}
 	assertExpectedPath(t, ctx.testGraphInstance.aliasMap, path, "conner")
+
+	// Finally, try to find a route to joost through conner. The
+	// destination features are set properly from the previous assertions,
+	// but conner's feature vector in the graph is still broken. We expect
+	// errNoPathFound and not the missing feature dep err above since
+	// intermediate hops are simply skipped if they have invalid feature
+	// vectors, leaving no possible route to joost.
+	joost := ctx.testGraphInstance.aliasMap["joost"]
+
+	_, err = find(&restrictions, joost)
+	if err != errNoPathFound {
+		t.Fatalf("path shouldn't have been found: %v", err)
+	}
 }
 
 // TestDestPaymentAddr asserts that we properly detect when we can send a

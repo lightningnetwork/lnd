@@ -320,10 +320,14 @@ type ChannelCommitment struct {
 
 	// LocalBalance is the current available settled balance within the
 	// channel directly spendable by us.
+	//
+	// NOTE: This is the balance *after* subtracting any commitment fee.
 	LocalBalance lnwire.MilliSatoshi
 
 	// RemoteBalance is the current available settled balance within the
 	// channel directly spendable by the remote node.
+	//
+	// NOTE: This is the balance *after* subtracting any commitment fee.
 	RemoteBalance lnwire.MilliSatoshi
 
 	// CommitFee is the amount calculated to be paid in fees for the

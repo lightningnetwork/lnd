@@ -98,6 +98,8 @@ func (p *paymentSession) RequestRoute(payment *LightningPayment,
 		LastHop:           payment.LastHop,
 		CltvLimit:         cltvLimit,
 		DestCustomRecords: payment.DestCustomRecords,
+		DestFeatures:      payment.DestFeatures,
+		PaymentAddr:       payment.PaymentAddr,
 	}
 
 	// We'll also obtain a set of bandwidthHints from the lower layer for
@@ -129,8 +131,13 @@ func (p *paymentSession) RequestRoute(payment *LightningPayment,
 	// a route by applying the time-lock and fee requirements.
 	sourceVertex := route.Vertex(ss.SelfNode.PubKeyBytes)
 	route, err := newRoute(
-		payment.Amount, sourceVertex, path, height, finalCltvDelta,
-		payment.DestCustomRecords,
+		sourceVertex, path, height,
+		finalHopParams{
+			amt:         payment.Amount,
+			cltvDelta:   finalCltvDelta,
+			records:     payment.DestCustomRecords,
+			paymentAddr: payment.PaymentAddr,
+		},
 	)
 	if err != nil {
 		// TODO(roasbeef): return which edge/vertex didn't work

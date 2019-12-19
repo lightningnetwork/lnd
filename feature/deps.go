@@ -30,6 +30,11 @@ type ErrMissingFeatureDep struct {
 	dep lnwire.FeatureBit
 }
 
+// NewErrMissingFeatureDep creates a new ErrMissingFeatureDep error.
+func NewErrMissingFeatureDep(dep lnwire.FeatureBit) ErrMissingFeatureDep {
+	return ErrMissingFeatureDep{dep: dep}
+}
+
 // Error returns a human-readable description of the missing dep error.
 func (e ErrMissingFeatureDep) Error() string {
 	return fmt.Sprintf("missing feature dependency: %v", e.dep)
@@ -74,7 +79,7 @@ func validateDeps(features featureSet, supported supportedFeatures) error {
 		// vector is invalid.
 		checked, ok := supported[bit]
 		if !ok {
-			return ErrMissingFeatureDep{bit}
+			return NewErrMissingFeatureDep(bit)
 		}
 
 		// Alternatively, if we know that this depdendency is valid, we

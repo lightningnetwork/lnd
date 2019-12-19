@@ -1454,8 +1454,12 @@ func (r *ChannelRouter) FindRoute(source, target route.Vertex,
 
 	// Create the route with absolute time lock values.
 	route, err := newRoute(
-		amt, source, path, uint32(currentHeight), finalCLTVDelta,
-		destCustomRecords,
+		source, path, uint32(currentHeight),
+		finalHopParams{
+			amt:       amt,
+			cltvDelta: finalCLTVDelta,
+			records:   destCustomRecords,
+		},
 	)
 	if err != nil {
 		return nil, err
@@ -1596,6 +1600,19 @@ type LightningPayment struct {
 	// LastHop is the pubkey of the last node before the final destination
 	// is reached. If nil, any node may be used.
 	LastHop *route.Vertex
+
+	// DestFeatures specifies the set of features we assume the final node
+	// has for pathfinding. Typically these will be taken directly from an
+	// invoice, but they can also be manually supplied or assumed by the
+	// sender. If a nil feature vector is provided, the router will try to
+	// fallback to the graph in order to load a feature vector for a node in
+	// the public graph.
+	DestFeatures *lnwire.FeatureVector
+
+	// PaymentAddr is the payment address specified by the receiver. This
+	// field should be a random 32-byte nonce presented in the receiver's
+	// invoice to prevent probing of the destination.
+	PaymentAddr *[32]byte
 
 	// PaymentRequest is an optional payment request that this payment is
 	// attempting to complete.
@@ -2403,7 +2420,11 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 	}
 
 	return newRoute(
-		receiverAmt, source, pathEdges, uint32(height),
-		uint16(finalCltvDelta), nil,
+		source, pathEdges, uint32(height),
+		finalHopParams{
+			amt:       receiverAmt,
+			cltvDelta: uint16(finalCltvDelta),
+			records:   nil,
+		},
 	)
 }

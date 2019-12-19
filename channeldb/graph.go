@@ -3461,6 +3461,10 @@ func deserializeLightningNode(r io.Reader) (LightningNode, error) {
 		err     error
 	)
 
+	// Always populate a feature vector, even if we don't have a node
+	// announcement and short circuit below.
+	node.Features = lnwire.EmptyFeatureVector()
+
 	if _, err := r.Read(scratch[:]); err != nil {
 		return LightningNode{}, err
 	}
@@ -3506,12 +3510,10 @@ func deserializeLightningNode(r io.Reader) (LightningNode, error) {
 		return LightningNode{}, err
 	}
 
-	fv := lnwire.NewFeatureVector(nil, lnwire.Features)
-	err = fv.Decode(r)
+	err = node.Features.Decode(r)
 	if err != nil {
 		return LightningNode{}, err
 	}
-	node.Features = fv
 
 	if _, err := r.Read(scratch[:2]); err != nil {
 		return LightningNode{}, err

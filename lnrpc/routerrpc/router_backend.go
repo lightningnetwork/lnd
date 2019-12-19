@@ -602,6 +602,8 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 		payIntent.RouteHints = append(
 			payIntent.RouteHints, payReq.RouteHints...,
 		)
+		payIntent.DestFeatures = payReq.Features
+		payIntent.PaymentAddr = payReq.PaymentAddr
 	} else {
 		// Otherwise, If the payment request field was not specified
 		// (and a custom route wasn't specified), construct the payment
@@ -631,6 +633,14 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 
 		// Payment hash.
 		copy(payIntent.PaymentHash[:], rpcPayReq.PaymentHash)
+
+		// Parse destination feature bits.
+		features, err := UnmarshalFeatures(rpcPayReq.DestFeatures)
+		if err != nil {
+			return nil, err
+		}
+
+		payIntent.DestFeatures = features
 	}
 
 	// Currently, within the bootstrap phase of the network, we limit the
@@ -695,6 +705,21 @@ func unmarshallHopHint(rpcHint *lnrpc.HopHint) (zpay32.HopHint, error) {
 		FeeProportionalMillionths: rpcHint.FeeProportionalMillionths,
 		CLTVExpiryDelta:           uint16(rpcHint.CltvExpiryDelta),
 	}, nil
+}
+
+// UnmarshalFeatures converts a list of uint32's into a valid feature vector.
+// This method checks that feature bit pairs aren't assigned toegether, and
+// validates transitive depdencies.
+func UnmarshalFeatures(rpcFeatures []lnrpc.FeatureBit) (*lnwire.FeatureVector, error) {
+	raw := lnwire.NewRawFeatureVector()
+	for _, bit := range rpcFeatures {
+		err := raw.SafeSet(lnwire.FeatureBit(bit))
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return lnwire.NewFeatureVector(raw, lnwire.Features), nil
 }
 
 // ValidatePayReqExpiry checks if the passed payment request has expired. In

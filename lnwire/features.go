@@ -134,6 +134,10 @@ var Features = map[FeatureBit]string{
 	TLVOnionPayloadOptional:       "tlv-onion",
 	StaticRemoteKeyOptional:       "static-remote-key",
 	StaticRemoteKeyRequired:       "static-remote-key",
+	PaymentAddrOptional:           "payment-addr",
+	PaymentAddrRequired:           "payment-addr",
+	MPPOptional:                   "multi-path-payments",
+	MPPRequired:                   "multi-path-payments",
 }
 
 // RawFeatureVector represents a set of feature bits as defined in BOLT-09.  A
@@ -355,6 +359,11 @@ func NewFeatureVector(featureVector *RawFeatureVector,
 		RawFeatureVector: featureVector,
 		featureNames:     featureNames,
 	}
+}
+
+// EmptyFeatureVector returns a feature vector with no bits set.
+func EmptyFeatureVector() *FeatureVector {
+	return NewFeatureVector(nil, Features)
 }
 
 // HasFeature returns whether a particular feature is included in the set. The

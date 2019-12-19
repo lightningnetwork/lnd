@@ -600,7 +600,7 @@ func TestForceClose(t *testing.T) {
 
 	// Factoring in the fee rate, Alice's amount should properly reflect
 	// that we've added two additional HTLC to the commitment transaction.
-	totalCommitWeight := input.CommitWeight + (input.HtlcWeight * 2)
+	totalCommitWeight := int64(input.CommitWeight + (input.HTLCWeight * 2))
 	feePerKw := chainfee.SatPerKWeight(
 		aliceChannel.channelState.LocalCommitment.FeePerKw,
 	)

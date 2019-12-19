@@ -3445,7 +3445,7 @@ func (lc *LightningChannel) computeView(view *htlcView, remoteChain bool,
 			continue
 		}
 
-		totalHtlcWeight += input.HtlcWeight
+		totalHtlcWeight += input.HTLCWeight
 	}
 	for _, htlc := range filteredHTLCView.theirUpdates {
 		if htlcIsDust(!remoteChain, !remoteChain, feePerKw,
@@ -3453,7 +3453,7 @@ func (lc *LightningChannel) computeView(view *htlcView, remoteChain bool,
 			continue
 		}
 
-		totalHtlcWeight += input.HtlcWeight
+		totalHtlcWeight += input.HTLCWeight
 	}
 
 	totalCommitWeight := input.CommitWeight + totalHtlcWeight

@@ -794,21 +794,30 @@ func TestCommitmentAndHTLCTransactions(t *testing.T) {
 		}
 		theHTLCView := htlcViewFromHTLCs(htlcs)
 
+		feePerKw := chainfee.SatPerKWeight(test.commitment.FeePerKw)
+		isOurs := true
+		height := test.commitment.CommitHeight
+
 		// Create unsigned commitment transaction.
-		commitmentView := &commitment{
-			height:       test.commitment.CommitHeight,
-			ourBalance:   test.commitment.LocalBalance,
-			theirBalance: test.commitment.RemoteBalance,
-			feePerKw:     chainfee.SatPerKWeight(test.commitment.FeePerKw),
-			dustLimit:    tc.dustLimit,
-			isOurs:       true,
-		}
-		err = channel.commitBuilder.createCommitmentTx(
-			commitmentView, theHTLCView, keys,
+		view, err := channel.commitBuilder.createCommitmentTx(
+			test.commitment.LocalBalance,
+			test.commitment.RemoteBalance, isOurs, feePerKw,
+			height, theHTLCView, keys,
 		)
 		if err != nil {
 			t.Errorf("Case %d: Failed to create new commitment tx: %v", i, err)
 			continue
+		}
+
+		commitmentView := &commitment{
+			ourBalance:   view.ourBalance,
+			theirBalance: view.theirBalance,
+			txn:          view.txn,
+			fee:          view.fee,
+			height:       height,
+			feePerKw:     feePerKw,
+			dustLimit:    tc.dustLimit,
+			isOurs:       isOurs,
 		}
 
 		// Initialize LocalCommit, which is used in getSignedCommitTx.

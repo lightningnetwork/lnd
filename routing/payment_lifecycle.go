@@ -192,7 +192,11 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 // payment-level failure.
 func errorToPaymentFailure(err error) channeldb.FailureReason {
 	switch err {
-	case errNoTlvPayload, errNoPathFound, errMaxHopsExceeded,
+	case
+		errNoTlvPayload,
+		errNoPaymentAddr,
+		errNoPathFound,
+		errMaxHopsExceeded,
 		errPrebuiltRouteTried:
 
 		return channeldb.FailureReasonNoRoute

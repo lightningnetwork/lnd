@@ -1048,8 +1048,10 @@ func testSpendValidation(t *testing.T, tweakless bool) {
 	// our commitments, if it's tweakless, his key will just be his regular
 	// pubkey.
 	bobPayKey := input.TweakPubKey(bobKeyPub, commitPoint)
+	channelType := channeldb.SingleFunderBit
 	if tweakless {
 		bobPayKey = bobKeyPub
+		channelType = channeldb.SingleFunderTweaklessBit
 	}
 
 	aliceCommitTweak := input.SingleTweakBytes(commitPoint, aliceKeyPub)
@@ -1086,8 +1088,8 @@ func testSpendValidation(t *testing.T, tweakless bool) {
 		RemoteKey:     bobPayKey,
 	}
 	commitmentTx, err := CreateCommitTx(
-		*fakeFundingTxIn, keyRing, aliceChanCfg, bobChanCfg,
-		channelBalance, channelBalance,
+		channelType, *fakeFundingTxIn, keyRing, aliceChanCfg,
+		bobChanCfg, channelBalance, channelBalance,
 	)
 	if err != nil {
 		t.Fatalf("unable to create commitment transaction: %v", nil)

@@ -325,7 +325,7 @@ type testChannelEnd struct {
 	*testChannelPolicy
 }
 
-func symmetricTestChannel(alias1 string, alias2 string, capacity btcutil.Amount,
+func symmetricTestChannel(alias1, alias2 string, capacity btcutil.Amount,
 	policy *testChannelPolicy, chanID ...uint64) *testChannel {
 
 	// Leaving id zero will result in auto-generation of a channel id during
@@ -335,18 +335,26 @@ func symmetricTestChannel(alias1 string, alias2 string, capacity btcutil.Amount,
 		id = chanID[0]
 	}
 
-	node2Policy := *policy
-	node2Policy.Direction = !policy.Direction
+	policy2 := *policy
+	policy2.Direction = !policy.Direction
+
+	return asymmetricTestChannel(
+		alias1, alias2, capacity, policy, &policy2, id,
+	)
+}
+
+func asymmetricTestChannel(alias1, alias2 string, capacity btcutil.Amount,
+	policy1, policy2 *testChannelPolicy, id uint64) *testChannel {
 
 	return &testChannel{
 		Capacity: capacity,
 		Node1: &testChannelEnd{
 			Alias:             alias1,
-			testChannelPolicy: policy,
+			testChannelPolicy: policy1,
 		},
 		Node2: &testChannelEnd{
 			Alias:             alias2,
-			testChannelPolicy: &node2Policy,
+			testChannelPolicy: policy2,
 		},
 		ChannelID: id,
 	}

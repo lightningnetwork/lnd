@@ -1487,13 +1487,6 @@ func generateNewSessionKey() (*btcec.PrivateKey, error) {
 func generateSphinxPacket(rt *route.Route, paymentHash []byte,
 	sessionKey *btcec.PrivateKey) ([]byte, *sphinx.Circuit, error) {
 
-	// As a sanity check, we'll ensure that the set of hops has been
-	// properly filled in, otherwise, we won't actually be able to
-	// construct a route.
-	if len(rt.Hops) == 0 {
-		return nil, nil, route.ErrNoRouteHopsProvided
-	}
-
 	// Now that we know we have an actual route, we'll map the route into a
 	// sphinx payument path which includes per-hop paylods for each hop
 	// that give each node within the route the necessary information

@@ -1219,7 +1219,7 @@ func testSpendValidation(t *testing.T, tweakless bool) {
 		signDesc.SingleTweak = bobCommitTweak
 	}
 	bobRegularSpend, err := input.CommitSpendNoDelay(
-		bobSigner, signDesc, sweepTx, tweakless,
+		bobSigner, signDesc, sweepTx,
 	)
 	if err != nil {
 		t.Fatalf("unable to create bob regular spend: %v", err)

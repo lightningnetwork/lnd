@@ -5239,7 +5239,7 @@ func TestChannelUnilateralClosePendingCommit(t *testing.T) {
 	})
 	aliceSignDesc.SigHashes = txscript.NewTxSigHashes(sweepTx)
 	sweepTx.TxIn[0].Witness, err = input.CommitSpendNoDelay(
-		aliceChannel.Signer, &aliceSignDesc, sweepTx, false,
+		aliceChannel.Signer, &aliceSignDesc, sweepTx,
 	)
 	if err != nil {
 		t.Fatalf("unable to generate sweep witness: %v", err)

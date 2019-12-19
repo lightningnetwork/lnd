@@ -628,7 +628,7 @@ func (h *testHarness) backupState(id, i uint64, expErr error) {
 	_, retribution := h.channel(id).getState(i)
 
 	chanID := chanIDFromInt(id)
-	err := h.client.BackupState(&chanID, retribution, false)
+	err := h.client.BackupState(&chanID, retribution)
 	if err != expErr {
 		h.t.Fatalf("back error mismatch, want: %v, got: %v",
 			expErr, err)

@@ -184,8 +184,6 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 	switch {
 	case isLocalCommitTx:
 		witnessType = input.CommitmentTimeLock
-	case c.commitResolution.SelfOutputSignDesc.SingleTweak == nil:
-		witnessType = input.CommitSpendNoDelayTweakless
 	default:
 		witnessType = input.CommitmentNoDelay
 	}

@@ -54,7 +54,7 @@ const (
 
 	// CommitmentNoDelay is a witness that allows us to spend a settled
 	// no-delay output immediately on a counterparty's commitment
-	// transaction.
+	// transaction, tweaked or tweakless.
 	CommitmentNoDelay StandardWitnessType = 1
 
 	// CommitmentRevoke is a witness that allows us to sweep the settled
@@ -114,11 +114,6 @@ const (
 	// output that sends to a nested P2SH script that pays to a key solely
 	// under our control. The witness generated needs to include the
 	NestedWitnessKeyHash StandardWitnessType = 11
-
-	// CommitSpendNoDelayTweakless is similar to the CommitSpendNoDelay
-	// type, but it omits the tweak that randomizes the key we need to
-	// spend with a channel peer supplied set of randomness.
-	CommitSpendNoDelayTweakless StandardWitnessType = 12
 )
 
 // String returns a human readable version of the target WitnessType.
@@ -131,9 +126,6 @@ func (wt StandardWitnessType) String() string {
 
 	case CommitmentNoDelay:
 		return "CommitmentNoDelay"
-
-	case CommitSpendNoDelayTweakless:
-		return "CommitmentNoDelayTweakless"
 
 	case CommitmentRevoke:
 		return "CommitmentRevoke"
@@ -198,17 +190,7 @@ func (wt StandardWitnessType) WitnessGenerator(signer Signer,
 			}, nil
 
 		case CommitmentNoDelay:
-			witness, err := CommitSpendNoDelay(signer, desc, tx, false)
-			if err != nil {
-				return nil, err
-			}
-
-			return &Script{
-				Witness: witness,
-			}, nil
-
-		case CommitSpendNoDelayTweakless:
-			witness, err := CommitSpendNoDelay(signer, desc, tx, true)
+			witness, err := CommitSpendNoDelay(signer, desc, tx)
 			if err != nil {
 				return nil, err
 			}
@@ -311,8 +293,6 @@ func (wt StandardWitnessType) SizeUpperBound() (int, bool, error) {
 	switch wt {
 
 	// Outputs on a remote commitment transaction that pay directly to us.
-	case CommitSpendNoDelayTweakless:
-		fallthrough
 	case WitnessKeyHash:
 		fallthrough
 	case CommitmentNoDelay:

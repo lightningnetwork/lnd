@@ -175,7 +175,7 @@ type TowerClient interface {
 	// successful unless the tower is unavailable and client is force quit,
 	// or the justice transaction would create dust outputs when trying to
 	// abide by the negotiated policy. If the channel we're trying to back
-	// up doesn't have a tweak for the remote party's output, then
-	// isTweakless should be true.
-	BackupState(*lnwire.ChannelID, *lnwallet.BreachRetribution, bool) error
+	// up doesn't have a tweak for the remote party's output, then the
+	// SingleTweak should be nil.
+	BackupState(*lnwire.ChannelID, *lnwallet.BreachRetribution) error
 }

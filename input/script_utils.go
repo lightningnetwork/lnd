@@ -903,14 +903,15 @@ func CommitSpendRevoke(signer Signer, signDesc *SignDescriptor,
 
 // CommitSpendNoDelay constructs a valid witness allowing a node to spend their
 // settled no-delay output on the counterparty's commitment transaction. If the
-// tweakless field is true, then we'll omit the set where we tweak the pubkey
-// with a random set of bytes, and use it directly in the witness stack.
+// passed sign descriptor has a nil SingleTweak, then we'll omit the set where
+// we tweak the pubkey with a random set of bytes, and use it directly in the
+// witness stack.
 //
 // NOTE: The passed SignDescriptor should include the raw (untweaked) public
 // key of the receiver and also the proper single tweak value based on the
 // current commitment point.
 func CommitSpendNoDelay(signer Signer, signDesc *SignDescriptor,
-	sweepTx *wire.MsgTx, tweakless bool) (wire.TxWitness, error) {
+	sweepTx *wire.MsgTx) (wire.TxWitness, error) {
 
 	if signDesc.KeyDesc.PubKey == nil {
 		return nil, fmt.Errorf("cannot generate witness with nil " +
@@ -930,18 +931,18 @@ func CommitSpendNoDelay(signer Signer, signDesc *SignDescriptor,
 	witness := make([][]byte, 2)
 	witness[0] = append(sweepSig, byte(signDesc.HashType))
 
-	switch tweakless {
+	switch {
 	// If we're tweaking the key, then we use the tweaked public key as the
 	// last item in the witness stack which was originally used to created
 	// the pkScript we're spending.
-	case false:
+	case signDesc.SingleTweak != nil:
 		witness[1] = TweakPubKeyWithTweak(
 			signDesc.KeyDesc.PubKey, signDesc.SingleTweak,
 		).SerializeCompressed()
 
 	// Otherwise, we can just use the raw pubkey, since there's no random
 	// value to be combined.
-	case true:
+	default:
 		witness[1] = signDesc.KeyDesc.PubKey.SerializeCompressed()
 	}
 

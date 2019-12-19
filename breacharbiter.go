@@ -943,15 +943,11 @@ func newRetributionInfo(chanPoint *wire.OutPoint,
 
 	// First, record the breach information for the local channel point if
 	// it is not considered dust, which is signaled by a non-nil sign
-	// descriptor. Here we use CommitmentNoDelay (or
-	// CommitmentNoDelayTweakless for newer commitments) since this output
-	// belongs to us and has no time-based constraints on spending.
+	// descriptor. Here we use CommitmentNoDelay (also for tweakless
+	// commitments) since this output belongs to us and has no time-based
+	// constraints on spending.
 	if breachInfo.LocalOutputSignDesc != nil {
 		witnessType := input.CommitmentNoDelay
-		if breachInfo.LocalOutputSignDesc.SingleTweak == nil {
-			witnessType = input.CommitSpendNoDelayTweakless
-		}
-
 		localOutput := makeBreachedOutput(
 			&breachInfo.LocalOutpoint,
 			witnessType,

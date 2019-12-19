@@ -146,7 +146,7 @@ var (
 		{
 			amt:         btcutil.Amount(1e7),
 			outpoint:    breachOutPoints[0],
-			witnessType: input.CommitSpendNoDelayTweakless,
+			witnessType: input.CommitmentNoDelay,
 			signDesc: input.SignDescriptor{
 				WitnessScript: []byte{
 					0x00, 0x14, 0xee, 0x91, 0x41, 0x7e,

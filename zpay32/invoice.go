@@ -144,7 +144,8 @@ type Invoice struct {
 	Destination *btcec.PublicKey
 
 	// minFinalCLTVExpiry is the value that the creator of the invoice
-	// expects to be used for the
+	// expects to be used for the CLTV expiry of the HTLC extended to it in
+	// the last hop.
 	//
 	// NOTE: This value is optional, and should be set to nil if the
 	// invoice creator doesn't have a strong requirement on the CLTV expiry

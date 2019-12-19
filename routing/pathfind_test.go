@@ -23,6 +23,7 @@ import (
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/zpay32"
 )
@@ -58,6 +59,12 @@ var (
 	}
 
 	testPathFindingConfig = &PathFindingConfig{}
+
+	tlvFeatures = lnwire.NewFeatureVector(
+		lnwire.NewRawFeatureVector(
+			lnwire.TLVOnionPayloadOptional,
+		), lnwire.Features,
+	)
 )
 
 var (
@@ -917,6 +924,10 @@ func testBasicGraphPathFindingCase(t *testing.T, graphInstance *testGraphInstanc
 	}
 }
 
+// TestPathFindingWithAdditionalEdges asserts that we are able to find paths to
+// nodes that do not exist in the graph by way of hop hints. We also test that
+// the path can support custom TLV records for the receiver under the
+// appropriate circumstances.
 func TestPathFindingWithAdditionalEdges(t *testing.T) {
 	t.Parallel()
 
@@ -968,21 +979,56 @@ func TestPathFindingWithAdditionalEdges(t *testing.T) {
 		graph.aliasMap["songoku"]: {songokuToDoge},
 	}
 
+	find := func(r *RestrictParams) (
+		[]*channeldb.ChannelEdgePolicy, error) {
+
+		return findPath(
+			&graphParams{
+				graph:           graph.graph,
+				additionalEdges: additionalEdges,
+			},
+			r, testPathFindingConfig,
+			sourceNode.PubKeyBytes, doge.PubKeyBytes, paymentAmt,
+		)
+	}
+
 	// We should now be able to find a path from roasbeef to doge.
-	path, err := findPath(
-		&graphParams{
-			graph:           graph.graph,
-			additionalEdges: additionalEdges,
-		},
-		noRestrictions, testPathFindingConfig,
-		sourceNode.PubKeyBytes, doge.PubKeyBytes, paymentAmt,
-	)
+	path, err := find(noRestrictions)
 	if err != nil {
 		t.Fatalf("unable to find private path to doge: %v", err)
 	}
 
 	// The path should represent the following hops:
 	//	roasbeef -> songoku -> doge
+	assertExpectedPath(t, graph.aliasMap, path, "songoku", "doge")
+
+	// Now, set custom records for the final hop. This should fail since no
+	// dest features are set, and we won't have a node ann to fall back on.
+	restrictions := *noRestrictions
+	restrictions.DestCustomRecords = record.CustomSet{70000: []byte{}}
+
+	_, err = find(&restrictions)
+	if err != errNoTlvPayload {
+		t.Fatalf("path shouldn't have been found: %v", err)
+	}
+
+	// Set empty dest features so we don't try the fallback. We should still
+	// fail since the tlv feature isn't set.
+	restrictions.DestFeatures = lnwire.EmptyFeatureVector()
+
+	_, err = find(&restrictions)
+	if err != errNoTlvPayload {
+		t.Fatalf("path shouldn't have been found: %v", err)
+	}
+
+	// Finally, set the tlv feature in the payload and assert we found the
+	// same path as before.
+	restrictions.DestFeatures = tlvFeatures
+
+	path, err = find(&restrictions)
+	if err != nil {
+		t.Fatalf("path should have been found: %v", err)
+	}
 	assertExpectedPath(t, graph.aliasMap, path, "songoku", "doge")
 }
 
@@ -1294,6 +1340,110 @@ func TestPathNotAvailable(t *testing.T) {
 	if err != errNoPathFound {
 		t.Fatalf("path shouldn't have been found: %v", err)
 	}
+}
+
+// TestDestTLVGraphFallback asserts that we properly detect when we can send TLV
+// records to a receiver, and also that we fallback to the receiver's node
+// announcement if we don't have an invoice features.
+func TestDestTLVGraphFallback(t *testing.T) {
+	t.Parallel()
+
+	testChannels := []*testChannel{
+		asymmetricTestChannel("roasbeef", "luoji", 100000,
+			&testChannelPolicy{
+				Expiry:  144,
+				FeeRate: 400,
+				MinHTLC: 1,
+				MaxHTLC: 100000000,
+			}, &testChannelPolicy{
+				Expiry:  144,
+				FeeRate: 400,
+				MinHTLC: 1,
+				MaxHTLC: 100000000,
+			}, 0),
+		asymmetricTestChannel("roasbeef", "satoshi", 100000,
+			&testChannelPolicy{
+				Expiry:  144,
+				FeeRate: 400,
+				MinHTLC: 1,
+				MaxHTLC: 100000000,
+			}, &testChannelPolicy{
+				Expiry:   144,
+				FeeRate:  400,
+				MinHTLC:  1,
+				MaxHTLC:  100000000,
+				Features: tlvFeatures,
+			}, 0),
+	}
+
+	ctx := newPathFindingTestContext(t, testChannels, "roasbeef")
+	defer ctx.cleanup()
+
+	sourceNode, err := ctx.graphParams.graph.SourceNode()
+	if err != nil {
+		t.Fatalf("unable to fetch source node: %v", err)
+
+	}
+
+	find := func(r *RestrictParams,
+		target route.Vertex) ([]*channeldb.ChannelEdgePolicy, error) {
+
+		return findPath(
+			&graphParams{
+				graph: ctx.graphParams.graph,
+			},
+			r, testPathFindingConfig,
+			sourceNode.PubKeyBytes, target, 100,
+		)
+	}
+
+	// Luoji's node ann has an empty feature vector.
+	luoji := ctx.testGraphInstance.aliasMap["luoji"]
+
+	// Satoshi's node ann supports TLV.
+	satoshi := ctx.testGraphInstance.aliasMap["satoshi"]
+
+	restrictions := *noRestrictions
+
+	// Add custom records w/o any dest features.
+	restrictions.DestCustomRecords = record.CustomSet{70000: []byte{}}
+
+	// Path to luoji should fail because his node ann features are empty.
+	_, err = find(&restrictions, luoji)
+	if err != errNoTlvPayload {
+		t.Fatalf("path shouldn't have been found: %v", err)
+	}
+
+	// However, path to satoshi should succeed via the fallback because his
+	// node ann features have the TLV bit.
+	path, err := find(&restrictions, satoshi)
+	if err != nil {
+		t.Fatalf("path should have been found: %v", err)
+	}
+	assertExpectedPath(t, ctx.testGraphInstance.aliasMap, path, "satoshi")
+
+	// Add empty destination features. This should cause both paths to fail,
+	// since this override anything in the graph.
+	restrictions.DestFeatures = lnwire.EmptyFeatureVector()
+
+	_, err = find(&restrictions, luoji)
+	if err != errNoTlvPayload {
+		t.Fatalf("path shouldn't have been found: %v", err)
+	}
+	_, err = find(&restrictions, satoshi)
+	if err != errNoTlvPayload {
+		t.Fatalf("path shouldn't have been found: %v", err)
+	}
+
+	// Finally, set the TLV dest feature. We should succeed in finding a
+	// path to luoji.
+	restrictions.DestFeatures = tlvFeatures
+
+	path, err = find(&restrictions, luoji)
+	if err != nil {
+		t.Fatalf("path should have been found: %v", err)
+	}
+	assertExpectedPath(t, ctx.testGraphInstance.aliasMap, path, "luoji")
 }
 
 func TestPathInsufficientCapacity(t *testing.T) {

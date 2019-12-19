@@ -3442,6 +3442,14 @@ func (r *rpcServer) extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPayme
 		copy(payIntent.rHash[:], rpcPayReq.PaymentHash)
 	}
 
+	// Unmarshal any custom destination features.
+	payIntent.destFeatures, err = routerrpc.UnmarshalFeatures(
+		rpcPayReq.DestFeatures,
+	)
+	if err != nil {
+		return payIntent, err
+	}
+
 	// Currently, within the bootstrap phase of the network, we limit the
 	// largest payment size allotted to (2^32) - 1 mSAT or 4.29 million
 	// satoshis.

@@ -1015,7 +1015,7 @@ func testSpendValidation(t *testing.T, tweakless bool) {
 	fakeFundingTxIn := wire.NewTxIn(fundingOut, nil, nil)
 
 	const channelBalance = btcutil.Amount(1 * 10e8)
-	const csvTimeout = uint32(5)
+	const csvTimeout = 5
 
 	// We also set up set some resources for the commitment transaction.
 	// Each side currently has 1 BTC within the channel, with a total
@@ -1050,6 +1050,20 @@ func testSpendValidation(t *testing.T, tweakless bool) {
 		Privkeys: []*btcec.PrivateKey{aliceKeyPriv},
 	}
 
+	aliceChanCfg := &channeldb.ChannelConfig{
+		ChannelConstraints: channeldb.ChannelConstraints{
+			DustLimit: DefaultDustLimit(),
+			CsvDelay:  csvTimeout,
+		},
+	}
+
+	bobChanCfg := &channeldb.ChannelConfig{
+		ChannelConstraints: channeldb.ChannelConstraints{
+			DustLimit: DefaultDustLimit(),
+			CsvDelay:  csvTimeout,
+		},
+	}
+
 	// With all the test data set up, we create the commitment transaction.
 	// We only focus on a single party's transactions, as the scripts are
 	// identical with the roles reversed.
@@ -1063,8 +1077,8 @@ func testSpendValidation(t *testing.T, tweakless bool) {
 		NoDelayKey:    bobPayKey,
 	}
 	commitmentTx, err := CreateCommitTx(
-		*fakeFundingTxIn, keyRing, csvTimeout, channelBalance,
-		channelBalance, DefaultDustLimit(),
+		*fakeFundingTxIn, keyRing, aliceChanCfg, bobChanCfg,
+		channelBalance, channelBalance,
 	)
 	if err != nil {
 		t.Fatalf("unable to create commitment transaction: %v", nil)

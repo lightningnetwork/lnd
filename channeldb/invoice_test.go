@@ -2,7 +2,6 @@ package channeldb
 
 import (
 	"crypto/rand"
-	mrand "math/rand"
 	"reflect"
 	"testing"
 	"time"
@@ -416,23 +415,25 @@ func TestFetchAllInvoicesWithPaymentHash(t *testing.T) {
 		t.Fatalf("expected empty list as a result, got: %v", empty)
 	}
 
-	// Now populate the DB and check if we can get all invoices with their
-	// payment hashes as expected.
-	const numInvoices = 20
-	testPendingInvoices := make(map[lntypes.Hash]*Invoice)
-	testAllInvoices := make(map[lntypes.Hash]*Invoice)
-
 	states := []ContractState{
 		ContractOpen, ContractSettled, ContractCanceled, ContractAccepted,
 	}
 
-	for i := lnwire.MilliSatoshi(1); i <= numInvoices; i++ {
-		invoice, err := randInvoice(i)
+	numInvoices := len(states) * 2
+	testPendingInvoices := make(map[lntypes.Hash]*Invoice)
+	testAllInvoices := make(map[lntypes.Hash]*Invoice)
+
+	// Now populate the DB and check if we can get all invoices with their
+	// payment hashes as expected.
+	for i := 1; i <= numInvoices; i++ {
+		invoice, err := randInvoice(lnwire.MilliSatoshi(i))
 		if err != nil {
 			t.Fatalf("unable to create invoice: %v", err)
 		}
 
-		invoice.State = states[mrand.Intn(len(states))]
+		// Set the contract state of the next invoice such that there's an equal
+		// number for all possbile states.
+		invoice.State = states[i%len(states)]
 		paymentHash := invoice.Terms.PaymentPreimage.Hash()
 
 		if invoice.State != ContractSettled && invoice.State != ContractCanceled {

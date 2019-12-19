@@ -351,7 +351,7 @@ func isOurCommitment(localChanCfg, remoteChanCfg channeldb.ChannelConfig,
 	// With the keys derived, we'll construct the remote script that'll be
 	// present if they have a non-dust balance on the commitment.
 	remotePkScript, err := input.CommitScriptUnencumbered(
-		commitKeyRing.NoDelayKey,
+		commitKeyRing.RemoteKey,
 	)
 	if err != nil {
 		return false, err
@@ -361,7 +361,7 @@ func isOurCommitment(localChanCfg, remoteChanCfg channeldb.ChannelConfig,
 	// the remote party allowing them to claim this output before the CSV
 	// delay if we breach.
 	localScript, err := input.CommitScriptToSelf(
-		uint32(localChanCfg.CsvDelay), commitKeyRing.DelayKey,
+		uint32(localChanCfg.CsvDelay), commitKeyRing.LocalKey,
 		commitKeyRing.RevocationKey,
 	)
 	if err != nil {
@@ -928,8 +928,8 @@ func (c *chainWatcher) dispatchContractBreach(spendEvent *chainntnfs.SpendDetail
 			retribution.KeyRing.CommitPoint.Curve = nil
 			retribution.KeyRing.LocalHtlcKey = nil
 			retribution.KeyRing.RemoteHtlcKey = nil
-			retribution.KeyRing.DelayKey = nil
-			retribution.KeyRing.NoDelayKey = nil
+			retribution.KeyRing.LocalKey = nil
+			retribution.KeyRing.RemoteKey = nil
 			retribution.KeyRing.RevocationKey = nil
 			return spew.Sdump(retribution)
 		}))

@@ -121,8 +121,8 @@ func genTaskTest(
 		BreachTransaction: breachTxn,
 		KeyRing: &lnwallet.CommitmentKeyRing{
 			RevocationKey: revPK,
-			DelayKey:      toLocalPK,
-			NoDelayKey:    toRemotePK,
+			LocalKey:      toLocalPK,
+			RemoteKey:     toRemotePK,
 		},
 		RemoteDelay: csvDelay,
 	}
@@ -565,9 +565,9 @@ func testBackupTask(t *testing.T, test backupTaskTest) {
 	}
 
 	keyRing := test.breachInfo.KeyRing
-	expToLocalPK := keyRing.DelayKey.SerializeCompressed()
+	expToLocalPK := keyRing.LocalKey.SerializeCompressed()
 	expRevPK := keyRing.RevocationKey.SerializeCompressed()
-	expToRemotePK := keyRing.NoDelayKey.SerializeCompressed()
+	expToRemotePK := keyRing.RemoteKey.SerializeCompressed()
 
 	// Assert that the blob contained the serialized revocation and to-local
 	// pubkeys.

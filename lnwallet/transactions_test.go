@@ -439,8 +439,8 @@ func TestCommitmentAndHTLCTransactions(t *testing.T) {
 		LocalHtlcKeyTweak:   tweak,
 		LocalHtlcKey:        tc.localPaymentPubKey,
 		RemoteHtlcKey:       tc.remotePaymentPubKey,
-		DelayKey:            tc.localDelayPubKey,
-		NoDelayKey:          tc.remotePaymentPubKey,
+		LocalKey:            tc.localDelayPubKey,
+		RemoteKey:           tc.remotePaymentPubKey,
 		RevocationKey:       tc.localRevocationPubKey,
 	}
 
@@ -1042,7 +1042,7 @@ func testSpendValidation(t *testing.T, tweakless bool) {
 	)
 	revokePubKey := input.DeriveRevocationPubkey(bobKeyPub, commitPoint)
 
-	aliceDelayKey := input.TweakPubKey(aliceKeyPub, commitPoint)
+	aliceLocalKey := input.TweakPubKey(aliceKeyPub, commitPoint)
 
 	// Bob will have the channel "force closed" on him, so for the sake of
 	// our commitments, if it's tweakless, his key will just be his regular
@@ -1081,9 +1081,9 @@ func testSpendValidation(t *testing.T, tweakless bool) {
 	// of 5 blocks before sweeping the output, while bob can spend
 	// immediately with either the revocation key, or his regular key.
 	keyRing := &CommitmentKeyRing{
-		DelayKey:      aliceDelayKey,
+		LocalKey:      aliceLocalKey,
 		RevocationKey: revokePubKey,
-		NoDelayKey:    bobPayKey,
+		RemoteKey:     bobPayKey,
 	}
 	commitmentTx, err := CreateCommitTx(
 		*fakeFundingTxIn, keyRing, aliceChanCfg, bobChanCfg,
@@ -1114,7 +1114,7 @@ func testSpendValidation(t *testing.T, tweakless bool) {
 
 	// First, we'll test spending with Alice's key after the timeout.
 	delayScript, err := input.CommitScriptToSelf(
-		csvTimeout, aliceDelayKey, revokePubKey,
+		csvTimeout, aliceLocalKey, revokePubKey,
 	)
 	if err != nil {
 		t.Fatalf("unable to generate alice delay script: %v", err)

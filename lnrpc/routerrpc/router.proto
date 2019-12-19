@@ -105,6 +105,13 @@ message SendPaymentRequest {
 
     /// If set, circular payments to self are permitted.
     bool allow_self_payment = 15;
+
+    /**
+    Features assumed to be supported by the final node. All transitive feature
+    depdencies must also be set properly. For a given feature bit pair, either
+    optional or remote may be set, but not both.
+    */
+    repeated lnrpc.FeatureBit dest_features = 16;
 }
 
 message TrackPaymentRequest {

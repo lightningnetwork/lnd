@@ -98,6 +98,8 @@ func (p *paymentSession) RequestRoute(payment *LightningPayment,
 		LastHop:           payment.LastHop,
 		CltvLimit:         cltvLimit,
 		DestCustomRecords: payment.DestCustomRecords,
+		DestFeatures:      payment.DestFeatures,
+		PaymentAddr:       payment.PaymentAddr,
 	}
 
 	// We'll also obtain a set of bandwidthHints from the lower layer for
@@ -131,9 +133,10 @@ func (p *paymentSession) RequestRoute(payment *LightningPayment,
 	route, err := newRoute(
 		sourceVertex, path, height,
 		finalHopParams{
-			amt:       payment.Amount,
-			cltvDelta: finalCltvDelta,
-			records:   payment.DestCustomRecords,
+			amt:         payment.Amount,
+			cltvDelta:   finalCltvDelta,
+			records:     payment.DestCustomRecords,
+			paymentAddr: payment.PaymentAddr,
 		},
 	)
 	if err != nil {

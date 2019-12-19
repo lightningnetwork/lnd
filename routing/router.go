@@ -1601,6 +1601,19 @@ type LightningPayment struct {
 	// is reached. If nil, any node may be used.
 	LastHop *route.Vertex
 
+	// DestFeatures specifies the set of features we assume the final node
+	// has for pathfinding. Typically these will be taken directly from an
+	// invoice, but they can also be manually supplied or assumed by the
+	// sender. If a nil feature vector is provided, the router will try to
+	// fallback to the graph in order to load a feature vector for a node in
+	// the public graph.
+	DestFeatures *lnwire.FeatureVector
+
+	// PaymentAddr is the payment address specified by the receiver. This
+	// field should be a random 32-byte nonce presented in the receiver's
+	// invoice to prevent probing of the destination.
+	PaymentAddr *[32]byte
+
 	// PaymentRequest is an optional payment request that this payment is
 	// attempting to complete.
 	PaymentRequest []byte

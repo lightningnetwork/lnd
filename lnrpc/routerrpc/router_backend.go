@@ -635,7 +635,9 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 		copy(payIntent.PaymentHash[:], rpcPayReq.PaymentHash)
 
 		// Parse destination feature bits.
-		features, err := UnmarshalFeatures(rpcPayReq.DestFeatures)
+		features, err := UnmarshalFeatures(
+			rpcPayReq.DestFeatures, rpcPayReq.DestFeaturesSpecified,
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -710,7 +712,18 @@ func unmarshallHopHint(rpcHint *lnrpc.HopHint) (zpay32.HopHint, error) {
 // UnmarshalFeatures converts a list of uint32's into a valid feature vector.
 // This method checks that feature bit pairs aren't assigned toegether, and
 // validates transitive depdencies.
-func UnmarshalFeatures(rpcFeatures []lnrpc.FeatureBit) (*lnwire.FeatureVector, error) {
+func UnmarshalFeatures(rpcFeatures []lnrpc.FeatureBit, specified bool) (
+	*lnwire.FeatureVector, error) {
+
+	if !specified {
+		if len(rpcFeatures) > 0 {
+			return nil, errors.New("no features allowed when set " +
+				"as not specified")
+		}
+
+		return nil, nil
+	}
+
 	raw := lnwire.NewRawFeatureVector()
 	for _, bit := range rpcFeatures {
 		err := raw.SafeSet(lnwire.FeatureBit(bit))

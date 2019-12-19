@@ -974,6 +974,12 @@ message SendRequest {
     optional or remote may be set, but not both.
     */
     repeated FeatureBit dest_features = 15;
+
+    /**
+    If set to true, the dest_features field will override the features are
+    present in the graph.
+    */
+    bool dest_features_specified = 16;
 }
 
 message SendResponse {

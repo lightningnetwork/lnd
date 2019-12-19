@@ -3445,6 +3445,7 @@ func (r *rpcServer) extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPayme
 	// Unmarshal any custom destination features.
 	payIntent.destFeatures, err = routerrpc.UnmarshalFeatures(
 		rpcPayReq.DestFeatures,
+		rpcPayReq.DestFeaturesSpecified,
 	)
 	if err != nil {
 		return payIntent, err

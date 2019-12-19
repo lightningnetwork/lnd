@@ -3875,6 +3875,11 @@
             "$ref": "#/definitions/lnrpcFeatureBit"
           },
           "description": "*\nFeatures assumed to be supported by the final node. All transitive feature\ndepdencies must also be set properly. For a given feature bit pair, either\noptional or remote may be set, but not both."
+        },
+        "dest_features_specified": {
+          "type": "boolean",
+          "format": "boolean",
+          "description": "*\nIf set to true, the dest_features field will override the features are\npresent in the graph."
         }
       }
     },

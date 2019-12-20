@@ -4,7 +4,6 @@ package main
 
 import (
 	"context"
-	"encoding/hex"
 
 	"github.com/lightningnetwork/lnd/lnrpc/watchtowerrpc"
 	"github.com/urfave/cli"
@@ -51,15 +50,7 @@ func towerInfo(ctx *cli.Context) error {
 		return err
 	}
 
-	printJSON(struct {
-		Pubkey    string   `json:"pubkey"`
-		Listeners []string `json:"listeners"`
-		URIs      []string `json:"uris"`
-	}{
-		Pubkey:    hex.EncodeToString(resp.Pubkey),
-		Listeners: resp.Listeners,
-		URIs:      resp.Uris,
-	})
+	printRespJSON(resp)
 
 	return nil
 }

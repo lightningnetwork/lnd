@@ -170,16 +170,8 @@ func listTowers(ctx *cli.Context) error {
 		return err
 	}
 
-	var listTowersResp = struct {
-		Towers []*Tower `json:"towers"`
-	}{
-		Towers: make([]*Tower, len(resp.Towers)),
-	}
-	for i, tower := range resp.Towers {
-		listTowersResp.Towers[i] = NewTowerFromProto(tower)
-	}
+	printRespJSON(resp)
 
-	printJSON(listTowersResp)
 	return nil
 }
 
@@ -224,7 +216,7 @@ func getTower(ctx *cli.Context) error {
 		return err
 	}
 
-	printJSON(NewTowerFromProto(resp))
+	printRespJSON(resp)
 	return nil
 }
 

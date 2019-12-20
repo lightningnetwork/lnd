@@ -81,7 +81,7 @@ func settleInvoice(ctx *cli.Context) error {
 		return err
 	}
 
-	printJSON(resp)
+	printRespJSON(resp)
 
 	return nil
 }
@@ -134,7 +134,7 @@ func cancelInvoice(ctx *cli.Context) error {
 		return err
 	}
 
-	printJSON(resp)
+	printRespJSON(resp)
 
 	return nil
 }

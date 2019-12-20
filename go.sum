@@ -134,6 +134,8 @@ github.com/lightninglabs/neutrino v0.11.0 h1:lPpYFCtsfJX2W5zI4pWycPmbbBdr7zU+Baf
 github.com/lightninglabs/neutrino v0.11.0/go.mod h1:CuhF0iuzg9Sp2HO6ZgXgayviFTn1QHdSTJlMncK80wg=
 github.com/lightningnetwork/lightning-onion v0.0.0-20191214001659-f34e9dc1651d h1:U50MHOOeL6gR3Ee/l0eMvZMpmRo+ydzmlQuIruCyCsA=
 github.com/lightningnetwork/lightning-onion v0.0.0-20191214001659-f34e9dc1651d/go.mod h1:rigfi6Af/KqsF7Za0hOgcyq2PNH4AN70AaMRxcJkff4=
+github.com/lightninglabs/protobuf-hex-display v1.3.3-0.20191212020323-b444784ce75d h1:QWD/5MPnaZfUVP7P8wLa4M8Td2DI7XXHXt2vhVtUgGI=
+github.com/lightninglabs/protobuf-hex-display v1.3.3-0.20191212020323-b444784ce75d/go.mod h1:KDb67YMzoh4eudnzClmvs2FbiLG9vxISmLApUkCa4uI=
 github.com/ltcsuite/ltcd v0.0.0-20190101042124-f37f8bf35796 h1:sjOGyegMIhvgfq5oaue6Td+hxZuf3tDC8lAPrFldqFw=
 github.com/ltcsuite/ltcd v0.0.0-20190101042124-f37f8bf35796/go.mod h1:3p7ZTf9V1sNPI5H8P3NkTFF4LuwMdPl2DodF60qAKqY=
 github.com/ltcsuite/ltcutil v0.0.0-20181217130922-17f3b04680b6/go.mod h1:8Vg/LTOO0KYa/vlHWJ6XZAevPQThGH5sufO0Hrou/lA=

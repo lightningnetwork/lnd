@@ -1209,18 +1209,33 @@ func (l *channelLink) processHtlcResolution(resolution invoices.HtlcResolution,
 	l.log.Debugf("received cancel resolution for %v with outcome: %v",
 		circuitKey, resolution.Outcome)
 
-	// The htlc has failed so we cancel it with FailIncorrectDetails. This
-	// error covers invoice failures and hodl cancels (which return it to avoid
-	// leaking information).
-	failure := lnwire.NewFailIncorrectDetails(
-		htlc.pd.Amount, uint32(resolution.AcceptHeight),
-	)
+	// Get the lnwire failure message based on the resolution result.
+	failure := getResolutionFailure(resolution, htlc.pd.Amount)
 
 	l.sendHTLCError(
 		htlc.pd.HtlcIndex, failure, htlc.obfuscator,
 		htlc.pd.SourceRef,
 	)
 	return nil
+}
+
+// getResolutionFailure returns the wire message that a htlc resolution should
+// be failed with.
+func getResolutionFailure(resolution invoices.HtlcResolution,
+	amount lnwire.MilliSatoshi) lnwire.FailureMessage {
+
+	// If the resolution has been resolved as part of a MPP timeout, we need
+	// to fail the htlc with lnwire.FailMppTimeout.
+	if resolution.Outcome == invoices.ResultMppTimeout {
+		return &lnwire.FailMPPTimeout{}
+	}
+
+	// If the htlc is not a MPP timeout, we fail it with FailIncorrectDetails
+	// This covers hodl cancels (which return it to avoid leaking information
+	// and other invoice failures such as underpayment or expiry too soon.
+	return lnwire.NewFailIncorrectDetails(
+		amount, uint32(resolution.AcceptHeight),
+	)
 }
 
 // randomFeeUpdateTimeout returns a random timeout between the bounds defined

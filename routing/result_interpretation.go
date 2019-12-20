@@ -191,10 +191,8 @@ func (i *interpretedResult) processPaymentOutcomeFinal(
 		i.failPair(route, n-1)
 
 		// The other hops relayed corectly, so assign those pairs a
-		// success result.
-		if n > 2 {
-			i.successPairRange(route, 0, n-2)
-		}
+		// success result. At this point, n >= 2.
+		i.successPairRange(route, 0, n-2)
 
 	// We are using wrong payment hash or amount, fail the payment.
 	case *lnwire.FailIncorrectPaymentAmount,
@@ -239,7 +237,7 @@ func (i *interpretedResult) processPaymentOutcomeFinal(
 		i.failNode(route, n)
 
 		// Other channels in the route forwarded correctly.
-		if n > 2 {
+		if n >= 2 {
 			i.successPairRange(route, 0, n-2)
 		}
 

@@ -32,6 +32,16 @@ var (
 		},
 	}
 
+	routeThreeHop = route.Route{
+		SourcePubKey: hops[0],
+		TotalAmount:  100,
+		Hops: []*route.Hop{
+			{PubKeyBytes: hops[1], AmtToForward: 99},
+			{PubKeyBytes: hops[2], AmtToForward: 97},
+			{PubKeyBytes: hops[3], AmtToForward: 94},
+		},
+	}
+
 	routeFourHop = route.Route{
 		SourcePubKey: hops[0],
 		TotalAmount:  100,
@@ -203,7 +213,7 @@ var resultTestCases = []resultTestCase{
 	// be failed while the proceeding hops are reproed as successes. The
 	// failure is terminal since the receiver can't process our onion.
 	{
-		name:          "fail invalid onion payload final hop",
+		name:          "fail invalid onion payload final hop four",
 		route:         &routeFourHop,
 		failureSrcIdx: 4,
 		failure:       lnwire.NewInvalidOnionPayload(0, 0),
@@ -226,6 +236,30 @@ var resultTestCases = []resultTestCase{
 			},
 			finalFailureReason: &reasonError,
 			nodeFailure:        &hops[4],
+		},
+	},
+
+	// Tests an invalid onion payload from a final hop on a three hop route.
+	{
+		name:          "fail invalid onion payload final hop three",
+		route:         &routeThreeHop,
+		failureSrcIdx: 3,
+		failure:       lnwire.NewInvalidOnionPayload(0, 0),
+
+		expectedResult: &interpretedResult{
+			pairResults: map[DirectedNodePair]pairResult{
+				getTestPair(0, 1): {
+					success: true,
+					amt:     100,
+				},
+				getTestPair(1, 2): {
+					success: true,
+					amt:     99,
+				},
+				getTestPair(3, 2): {},
+			},
+			finalFailureReason: &reasonError,
+			nodeFailure:        &hops[3],
 		},
 	},
 

@@ -758,11 +758,21 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 			return updateDesc, nil
 		},
 	)
-	if err != nil {
-		debugLog(err.Error())
+	switch err {
+	case channeldb.ErrInvoiceNotFound:
+		// If the invoice was not found, return a failure resolution
+		// with an invoice not found result.
+		return NewFailureResolution(
+			circuitKey, currentHeight, ResultInvoiceNotFound,
+		), nil
 
+	case nil:
+
+	default:
+		debugLog(err.Error())
 		return nil, err
 	}
+
 	debugLog(result.String())
 
 	if updateSubscribers {

@@ -585,12 +585,16 @@ func TestUnknownInvoice(t *testing.T) {
 	// succeed.
 	hodlChan := make(chan interface{})
 	amt := lnwire.MilliSatoshi(100000)
-	_, err := ctx.registry.NotifyExitHopHtlc(
+	result, err := ctx.registry.NotifyExitHopHtlc(
 		testInvoicePaymentHash, amt, testHtlcExpiry, testCurrentHeight,
 		getCircuitKey(0), hodlChan, testPayload,
 	)
-	if err != channeldb.ErrInvoiceNotFound {
-		t.Fatal("expected invoice not found error")
+	if err != nil {
+		t.Fatal("unexpected error")
+	}
+	if result.Outcome != ResultInvoiceNotFound {
+		t.Fatalf("expected ResultInvoiceNotFound, got: %v",
+			result.Outcome)
 	}
 }
 

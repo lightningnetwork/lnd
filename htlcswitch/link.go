@@ -2823,21 +2823,7 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 		invoiceHash, pd.Amount, pd.Timeout, int32(heightNow),
 		circuitKey, l.hodlQueue.ChanIn(), payload,
 	)
-
-	switch err {
-
-	// Cancel htlc if we don't have an invoice for it.
-	case channeldb.ErrInvoiceNotFound:
-		failure := lnwire.NewFailIncorrectDetails(pd.Amount, heightNow)
-		l.sendHTLCError(pd.HtlcIndex, failure, obfuscator, pd.SourceRef)
-
-		return nil
-
-	// No error.
-	case nil:
-
-	// Pass error to caller.
-	default:
+	if err != nil {
 		return err
 	}
 

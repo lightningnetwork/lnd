@@ -81,6 +81,10 @@ const (
 
 	// ResultHtlcSetOverpayment is returned when a mpp set is overpaid.
 	ResultHtlcSetOverpayment
+
+	// ResultInvoiceNotFound is returned when an attempt is made to pay an
+	// invoice that is unknown to us.
+	ResultInvoiceNotFound
 )
 
 // String returns a human-readable representation of the invoice update result.

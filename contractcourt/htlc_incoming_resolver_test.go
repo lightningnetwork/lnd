@@ -35,7 +35,10 @@ func TestHtlcIncomingResolverFwdPreimageKnown(t *testing.T) {
 	defer timeout(t)()
 
 	ctx := newIncomingResolverTestContext(t)
-	ctx.registry.notifyErr = channeldb.ErrInvoiceNotFound
+	ctx.registry.notifyResolution = invoices.NewFailureResolution(
+		testResCircuitKey, testHtlcExpiry,
+		invoices.ResultInvoiceNotFound,
+	)
 	ctx.witnessBeacon.lookupPreimage[testResHash] = testResPreimage
 	ctx.resolve()
 	ctx.waitForResult(true)
@@ -49,7 +52,10 @@ func TestHtlcIncomingResolverFwdContestedSuccess(t *testing.T) {
 	defer timeout(t)()
 
 	ctx := newIncomingResolverTestContext(t)
-	ctx.registry.notifyErr = channeldb.ErrInvoiceNotFound
+	ctx.registry.notifyResolution = invoices.NewFailureResolution(
+		testResCircuitKey, testHtlcExpiry,
+		invoices.ResultInvoiceNotFound,
+	)
 	ctx.resolve()
 
 	// Simulate a new block coming in. HTLC is not yet expired.
@@ -66,7 +72,10 @@ func TestHtlcIncomingResolverFwdContestedTimeout(t *testing.T) {
 	defer timeout(t)()
 
 	ctx := newIncomingResolverTestContext(t)
-	ctx.registry.notifyErr = channeldb.ErrInvoiceNotFound
+	ctx.registry.notifyResolution = invoices.NewFailureResolution(
+		testResCircuitKey, testHtlcExpiry,
+		invoices.ResultInvoiceNotFound,
+	)
 	ctx.resolve()
 
 	// Simulate a new block coming in. HTLC expires.
@@ -82,8 +91,10 @@ func TestHtlcIncomingResolverFwdTimeout(t *testing.T) {
 	defer timeout(t)()
 
 	ctx := newIncomingResolverTestContext(t)
-
-	ctx.registry.notifyErr = channeldb.ErrInvoiceNotFound
+	ctx.registry.notifyResolution = invoices.NewFailureResolution(
+		testResCircuitKey, testHtlcExpiry,
+		invoices.ResultInvoiceNotFound,
+	)
 	ctx.witnessBeacon.lookupPreimage[testResHash] = testResPreimage
 	ctx.resolver.htlcExpiry = 90
 	ctx.resolve()

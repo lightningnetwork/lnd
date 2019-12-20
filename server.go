@@ -3374,7 +3374,7 @@ func (s *server) fetchNodeAdvertisedAddr(pub *btcec.PublicKey) (net.Addr, error)
 		return nil, err
 	}
 
-	node, err := s.chanDB.ChannelGraph().FetchLightningNode(vertex)
+	node, err := s.chanDB.ChannelGraph().FetchLightningNode(nil, vertex)
 	if err != nil {
 		return nil, err
 	}

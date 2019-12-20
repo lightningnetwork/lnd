@@ -104,7 +104,7 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 
 	// Next, fetch the node from the database to ensure everything was
 	// serialized properly.
-	dbNode, err := graph.FetchLightningNode(testPub)
+	dbNode, err := graph.FetchLightningNode(nil, testPub)
 	if err != nil {
 		t.Fatalf("unable to locate node: %v", err)
 	}
@@ -128,7 +128,7 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 
 	// Finally, attempt to fetch the node again. This should fail as the
 	// node should have been deleted from the database.
-	_, err = graph.FetchLightningNode(testPub)
+	_, err = graph.FetchLightningNode(nil, testPub)
 	if err != ErrGraphNodeNotFound {
 		t.Fatalf("fetch after delete should fail!")
 	}
@@ -160,7 +160,7 @@ func TestPartialNode(t *testing.T) {
 
 	// Next, fetch the node from the database to ensure everything was
 	// serialized properly.
-	dbNode, err := graph.FetchLightningNode(testPub)
+	dbNode, err := graph.FetchLightningNode(nil, testPub)
 	if err != nil {
 		t.Fatalf("unable to locate node: %v", err)
 	}
@@ -192,7 +192,7 @@ func TestPartialNode(t *testing.T) {
 
 	// Finally, attempt to fetch the node again. This should fail as the
 	// node should have been deleted from the database.
-	_, err = graph.FetchLightningNode(testPub)
+	_, err = graph.FetchLightningNode(nil, testPub)
 	if err != ErrGraphNodeNotFound {
 		t.Fatalf("fetch after delete should fail!")
 	}
@@ -2387,7 +2387,8 @@ func TestPruneGraphNodes(t *testing.T) {
 
 	// Finally, we'll ensure that node3, the only fully unconnected node as
 	// properly deleted from the graph and not another node in its place.
-	if _, err := graph.FetchLightningNode(node3.PubKeyBytes); err == nil {
+	_, err = graph.FetchLightningNode(nil, node3.PubKeyBytes)
+	if err == nil {
 		t.Fatalf("node 3 should have been deleted!")
 	}
 }
@@ -2429,7 +2430,7 @@ func TestAddChannelEdgeShellNodes(t *testing.T) {
 
 	// Ensure that node1 was inserted as a full node, while node2 only has
 	// a shell node present.
-	node1, err = graph.FetchLightningNode(node1.PubKeyBytes)
+	node1, err = graph.FetchLightningNode(nil, node1.PubKeyBytes)
 	if err != nil {
 		t.Fatalf("unable to fetch node1: %v", err)
 	}
@@ -2437,7 +2438,7 @@ func TestAddChannelEdgeShellNodes(t *testing.T) {
 		t.Fatalf("have shell announcement for node1, shouldn't")
 	}
 
-	node2, err = graph.FetchLightningNode(node2.PubKeyBytes)
+	node2, err = graph.FetchLightningNode(nil, node2.PubKeyBytes)
 	if err != nil {
 		t.Fatalf("unable to fetch node2: %v", err)
 	}

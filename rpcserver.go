@@ -4239,7 +4239,7 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 	// With the public key decoded, attempt to fetch the node corresponding
 	// to this public key. If the node cannot be found, then an error will
 	// be returned.
-	node, err := graph.FetchLightningNode(pubKey)
+	node, err := graph.FetchLightningNode(nil, pubKey)
 	if err != nil {
 		return nil, err
 	}

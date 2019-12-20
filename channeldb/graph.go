@@ -2179,11 +2179,17 @@ func (l *LightningNode) isPublic(tx *bbolt.Tx, sourcePubKey []byte) (bool, error
 // FetchLightningNode attempts to look up a target node by its identity public
 // key. If the node isn't found in the database, then ErrGraphNodeNotFound is
 // returned.
-func (c *ChannelGraph) FetchLightningNode(nodePub route.Vertex) (*LightningNode,
-	error) {
+//
+// If the caller wishes to re-use an existing boltdb transaction, then it
+// should be passed as the first argument.  Otherwise the first argument should
+// be nil and a fresh transaction will be created to execute the graph
+// traversal.
+func (c *ChannelGraph) FetchLightningNode(tx *bbolt.Tx, nodePub route.Vertex) (
+	*LightningNode, error) {
 
 	var node *LightningNode
-	err := c.db.View(func(tx *bbolt.Tx) error {
+
+	fetchNode := func(tx *bbolt.Tx) error {
 		// First grab the nodes bucket which stores the mapping from
 		// pubKey to node information.
 		nodes := tx.Bucket(nodeBucket)
@@ -2210,7 +2216,14 @@ func (c *ChannelGraph) FetchLightningNode(nodePub route.Vertex) (*LightningNode,
 		node = &n
 
 		return nil
-	})
+	}
+
+	var err error
+	if tx == nil {
+		err = c.db.View(fetchNode)
+	} else {
+		err = fetchNode(tx)
+	}
 	if err != nil {
 		return nil, err
 	}

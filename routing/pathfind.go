@@ -446,7 +446,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 	// we have for the target node from our graph.
 	features := r.DestFeatures
 	if features == nil {
-		targetNode, err := g.graph.FetchLightningNode(target)
+		targetNode, err := g.graph.FetchLightningNode(tx, target)
 		switch {
 
 		// If the node exists and has features, use them directly.

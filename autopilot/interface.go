@@ -147,6 +147,23 @@ type AttachmentHeuristic interface {
 		map[NodeID]*NodeScore, error)
 }
 
+// NodeMetric is a common interface for all graph metrics that are not
+// directly used as autopilot node scores but may be used in compositional
+// heuristics or statistical information exposed to users.
+type NodeMetric interface {
+	// Name returns the unique name of this metric.
+	Name() string
+
+	// Refresh refreshes the metric values based on the current graph.
+	Refresh(graph ChannelGraph) error
+
+	// GetMetric returns the latest value of this metric. Values in the
+	// map are per node and can be in arbitrary domain. If normalize is
+	// set to true, then the returned values are normalized to either
+	// [0, 1] or [-1, 1] depending on the metric.
+	GetMetric(normalize bool) map[NodeID]float64
+}
+
 // ScoreSettable is an interface that indicates that the scores returned by the
 // heuristic can be mutated by an external caller. The ExternalScoreAttachment
 // currently implements this interface, and so should any heuristic that is

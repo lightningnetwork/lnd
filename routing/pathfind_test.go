@@ -339,7 +339,6 @@ type testChannelPolicy struct {
 	FeeRate     lnwire.MilliSatoshi
 	LastUpdate  time.Time
 	Disabled    bool
-	Direction   bool
 	Features    *lnwire.FeatureVector
 }
 
@@ -359,7 +358,6 @@ func symmetricTestChannel(alias1, alias2 string, capacity btcutil.Amount,
 	}
 
 	policy2 := *policy
-	policy2.Direction = !policy.Direction
 
 	return asymmetricTestChannel(
 		alias1, alias2, capacity, policy, &policy2, id,
@@ -554,18 +552,16 @@ func createTestGraphFromChannels(testChannels []*testChannel, source string) (
 			return nil, err
 		}
 
-		if testChannel.Node1.testChannelPolicy != nil {
+		if node1.testChannelPolicy != nil {
 			var msgFlags lnwire.ChanUpdateMsgFlags
-			if testChannel.Node1.MaxHTLC != 0 {
+			if node1.MaxHTLC != 0 {
 				msgFlags |= lnwire.ChanUpdateOptionMaxHtlc
 			}
 			var channelFlags lnwire.ChanUpdateChanFlags
-			if testChannel.Node1.Disabled {
+			if node1.Disabled {
 				channelFlags |= lnwire.ChanUpdateDisabled
 			}
-			if testChannel.Node1.Direction {
-				channelFlags |= lnwire.ChanUpdateDirection
-			}
+
 			edgePolicy := &channeldb.ChannelEdgePolicy{
 				SigBytes:                  testSig.Serialize(),
 				MessageFlags:              msgFlags,
@@ -583,18 +579,17 @@ func createTestGraphFromChannels(testChannels []*testChannel, source string) (
 			}
 		}
 
-		if testChannel.Node2.testChannelPolicy != nil {
+		if node2.testChannelPolicy != nil {
 			var msgFlags lnwire.ChanUpdateMsgFlags
-			if testChannel.Node2.MaxHTLC != 0 {
+			if node2.MaxHTLC != 0 {
 				msgFlags |= lnwire.ChanUpdateOptionMaxHtlc
 			}
-			channelFlags := lnwire.ChanUpdateChanFlags(0)
-			if testChannel.Node2.Disabled {
+			var channelFlags lnwire.ChanUpdateChanFlags
+			if node2.Disabled {
 				channelFlags |= lnwire.ChanUpdateDisabled
 			}
-			if testChannel.Node2.Direction {
-				channelFlags |= lnwire.ChanUpdateDirection
-			}
+			channelFlags |= lnwire.ChanUpdateDirection
+
 			edgePolicy := &channeldb.ChannelEdgePolicy{
 				SigBytes:                  testSig.Serialize(),
 				MessageFlags:              msgFlags,

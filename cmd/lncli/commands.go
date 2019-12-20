@@ -1938,53 +1938,7 @@ func getInfo(ctx *cli.Context) error {
 		return err
 	}
 
-	chains := make([]chain, len(resp.Chains))
-	for i, c := range resp.Chains {
-		chains[i] = chain{
-			Chain:   c.Chain,
-			Network: c.Network,
-		}
-	}
-
-	// We print a struct that mimics the proto definition of GetInfoResponse
-	// but has a better ordering for the same list of fields.
-	printJSON(struct {
-		Version             string                    `json:"version"`
-		IdentityPubkey      string                    `json:"identity_pubkey"`
-		Alias               string                    `json:"alias"`
-		Color               string                    `json:"color"`
-		NumPendingChannels  uint32                    `json:"num_pending_channels"`
-		NumActiveChannels   uint32                    `json:"num_active_channels"`
-		NumInactiveChannels uint32                    `json:"num_inactive_channels"`
-		NumPeers            uint32                    `json:"num_peers"`
-		BlockHeight         uint32                    `json:"block_height"`
-		BlockHash           string                    `json:"block_hash"`
-		BestHeaderTimestamp int64                     `json:"best_header_timestamp"`
-		SyncedToChain       bool                      `json:"synced_to_chain"`
-		SyncedToGraph       bool                      `json:"synced_to_graph"`
-		Testnet             bool                      `json:"testnet"`
-		Chains              []chain                   `json:"chains"`
-		Uris                []string                  `json:"uris"`
-		Features            map[uint32]*lnrpc.Feature `json:"features"`
-	}{
-		Version:             resp.Version,
-		IdentityPubkey:      resp.IdentityPubkey,
-		Alias:               resp.Alias,
-		Color:               resp.Color,
-		NumPendingChannels:  resp.NumPendingChannels,
-		NumActiveChannels:   resp.NumActiveChannels,
-		NumInactiveChannels: resp.NumInactiveChannels,
-		NumPeers:            resp.NumPeers,
-		BlockHeight:         resp.BlockHeight,
-		BlockHash:           resp.BlockHash,
-		BestHeaderTimestamp: resp.BestHeaderTimestamp,
-		SyncedToChain:       resp.SyncedToChain,
-		SyncedToGraph:       resp.SyncedToGraph,
-		Testnet:             resp.Testnet,
-		Chains:              chains,
-		Uris:                resp.Uris,
-		Features:            resp.Features,
-	})
+	printRespJSON(resp)
 	return nil
 }
 

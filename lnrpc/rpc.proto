@@ -1505,17 +1505,26 @@ message GetInfoRequest {
 }
 message GetInfoResponse {
 
+    /// The version of the LND software that the node is running.
+    string version = 14 [ json_name = "version" ];
+
     /// The identity pubkey of the current node.
     string identity_pubkey = 1 [json_name = "identity_pubkey"];
 
     /// If applicable, the alias of the current node, e.g. "bob"
     string alias = 2 [json_name = "alias"];
 
+    /// The color of the current node in hex code format
+    string color = 17 [json_name = "color"];
+
     /// Number of pending channels
     uint32 num_pending_channels = 3 [json_name = "num_pending_channels"];
 
     /// Number of active channels
     uint32 num_active_channels = 4 [json_name = "num_active_channels"];
+
+    /// Number of inactive channels
+    uint32 num_inactive_channels = 15 [json_name = "num_inactive_channels"];
 
     /// Number of peers
     uint32 num_peers = 5 [json_name = "num_peers"];
@@ -1526,8 +1535,14 @@ message GetInfoResponse {
     /// The node's current view of the hash of the best block
     string block_hash = 8 [json_name = "block_hash"];
 
+    /// Timestamp of the block best known to the wallet
+    int64 best_header_timestamp = 13 [ json_name = "best_header_timestamp" ];
+
     /// Whether the wallet's view is synced to the main chain
     bool synced_to_chain = 9 [json_name = "synced_to_chain"];
+
+    // Whether we consider ourselves synced with the public channel graph.
+    bool synced_to_graph = 18 [json_name = "synced_to_graph"];
 
     /** 
     Whether the current node is connected to testnet. This field is 
@@ -1537,26 +1552,11 @@ message GetInfoResponse {
 
     reserved 11;
 
-    /// The URIs of the current node.
-    repeated string uris = 12 [json_name = "uris"];
-
-    /// Timestamp of the block best known to the wallet
-    int64 best_header_timestamp = 13 [ json_name = "best_header_timestamp" ];
-
-    /// The version of the LND software that the node is running.
-    string version = 14 [ json_name = "version" ];
-
-    /// Number of inactive channels
-    uint32 num_inactive_channels = 15 [json_name = "num_inactive_channels"];
-
     /// A list of active chains the node is connected to
     repeated Chain chains = 16 [json_name = "chains"];
 
-    /// The color of the current node in hex code format
-    string color = 17 [json_name = "color"];
-
-    // Whether we consider ourselves synced with the public channel graph.
-    bool synced_to_graph = 18 [json_name = "synced_to_graph"];
+    /// The URIs of the current node.
+    repeated string uris = 12 [json_name = "uris"];
 
     /*
     Features that our node has advertised in our init message, node

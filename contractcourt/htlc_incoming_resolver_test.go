@@ -21,10 +21,11 @@ const (
 )
 
 var (
-	testResPreimage   = lntypes.Preimage{1, 2, 3}
-	testResHash       = testResPreimage.Hash()
-	testResCircuitKey = channeldb.CircuitKey{}
-	testOnionBlob     = []byte{4, 5, 6}
+	testResPreimage         = lntypes.Preimage{1, 2, 3}
+	testResHash             = testResPreimage.Hash()
+	testResCircuitKey       = channeldb.CircuitKey{}
+	testOnionBlob           = []byte{4, 5, 6}
+	testAcceptHeight  int32 = 1234
 )
 
 // TestHtlcIncomingResolverFwdPreimageKnown tests resolution of a forwarded htlc
@@ -96,10 +97,10 @@ func TestHtlcIncomingResolverExitSettle(t *testing.T) {
 	defer timeout(t)()
 
 	ctx := newIncomingResolverTestContext(t)
-	ctx.registry.notifyResolution = &invoices.HtlcResolution{
-		CircuitKey: testResCircuitKey,
-		Preimage:   &testResPreimage,
-	}
+	ctx.registry.notifyResolution = invoices.NewSettleResolution(
+		testResPreimage, testResCircuitKey, testAcceptHeight,
+	)
+
 	ctx.resolve()
 
 	data := <-ctx.registry.notifyChan
@@ -126,9 +127,10 @@ func TestHtlcIncomingResolverExitCancel(t *testing.T) {
 	defer timeout(t)()
 
 	ctx := newIncomingResolverTestContext(t)
-	ctx.registry.notifyResolution = &invoices.HtlcResolution{
-		CircuitKey: testResCircuitKey,
-	}
+	ctx.registry.notifyResolution = invoices.NewFailureResolution(
+		testResCircuitKey, testAcceptHeight,
+	)
+
 	ctx.resolve()
 	ctx.waitForResult(false)
 }
@@ -143,10 +145,9 @@ func TestHtlcIncomingResolverExitSettleHodl(t *testing.T) {
 	ctx.resolve()
 
 	notifyData := <-ctx.registry.notifyChan
-	notifyData.hodlChan <- invoices.HtlcResolution{
-		CircuitKey: testResCircuitKey,
-		Preimage:   &testResPreimage,
-	}
+	notifyData.hodlChan <- *invoices.NewSettleResolution(
+		testResPreimage, testResCircuitKey, testAcceptHeight,
+	)
 
 	ctx.waitForResult(true)
 }
@@ -172,9 +173,10 @@ func TestHtlcIncomingResolverExitCancelHodl(t *testing.T) {
 	ctx := newIncomingResolverTestContext(t)
 	ctx.resolve()
 	notifyData := <-ctx.registry.notifyChan
-	notifyData.hodlChan <- invoices.HtlcResolution{
-		CircuitKey: testResCircuitKey,
-	}
+	notifyData.hodlChan <- *invoices.NewFailureResolution(
+		testResCircuitKey, testAcceptHeight,
+	)
+
 	ctx.waitForResult(false)
 }
 

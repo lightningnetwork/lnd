@@ -50,6 +50,28 @@ type HtlcResolution struct {
 	AcceptHeight int32
 }
 
+// NewFailureResolution returns a htlc failure resolution.
+func NewFailureResolution(key channeldb.CircuitKey,
+	acceptHeight int32) *HtlcResolution {
+
+	return &HtlcResolution{
+		CircuitKey:   key,
+		AcceptHeight: acceptHeight,
+	}
+}
+
+// NewSettleResolution returns a htlc resolution which is associated with a
+// settle.
+func NewSettleResolution(preimage lntypes.Preimage, key channeldb.CircuitKey,
+	acceptHeight int32) *HtlcResolution {
+
+	return &HtlcResolution{
+		Preimage:     &preimage,
+		CircuitKey:   key,
+		AcceptHeight: acceptHeight,
+	}
+}
+
 // RegistryConfig contains the configuration parameters for invoice registry.
 type RegistryConfig struct {
 	// FinalCltvRejectDelta defines the number of blocks before the expiry
@@ -652,11 +674,9 @@ func (i *InvoiceRegistry) cancelSingleHtlc(hash lntypes.Hash,
 		return fmt.Errorf("htlc %v not found", key)
 	}
 	if htlc.State == channeldb.HtlcStateCanceled {
-		i.notifyHodlSubscribers(HtlcResolution{
-			CircuitKey:   key,
-			AcceptHeight: int32(htlc.AcceptHeight),
-			Preimage:     nil,
-		})
+		i.notifyHodlSubscribers(
+			*NewFailureResolution(key, int32(htlc.AcceptHeight)),
+		)
 	}
 	return nil
 }
@@ -745,10 +765,7 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 
 	// If it isn't recorded, cancel htlc.
 	if !ok {
-		return &HtlcResolution{
-			CircuitKey:   circuitKey,
-			AcceptHeight: currentHeight,
-		}, nil
+		return NewFailureResolution(circuitKey, currentHeight), nil
 	}
 
 	// Determine accepted height of this htlc. If the htlc reached the
@@ -759,10 +776,7 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 
 	switch invoiceHtlc.State {
 	case channeldb.HtlcStateCanceled:
-		return &HtlcResolution{
-			CircuitKey:   circuitKey,
-			AcceptHeight: acceptHeight,
-		}, nil
+		return NewFailureResolution(circuitKey, acceptHeight), nil
 
 	case channeldb.HtlcStateSettled:
 		// Also settle any previously accepted htlcs. The invoice state
@@ -773,18 +787,17 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 				continue
 			}
 
-			i.notifyHodlSubscribers(HtlcResolution{
-				CircuitKey:   key,
-				Preimage:     &invoice.Terms.PaymentPreimage,
-				AcceptHeight: int32(htlc.AcceptHeight),
-			})
+			resolution := *NewSettleResolution(
+				invoice.Terms.PaymentPreimage, key,
+				acceptHeight,
+			)
+
+			i.notifyHodlSubscribers(resolution)
 		}
 
-		return &HtlcResolution{
-			CircuitKey:   circuitKey,
-			Preimage:     &invoice.Terms.PaymentPreimage,
-			AcceptHeight: acceptHeight,
-		}, nil
+		return NewSettleResolution(
+			invoice.Terms.PaymentPreimage, circuitKey, acceptHeight,
+		), nil
 
 	case channeldb.HtlcStateAccepted:
 		// (Re)start the htlc timer if the invoice is still open. It can
@@ -836,7 +849,9 @@ func (i *InvoiceRegistry) SettleHodlInvoice(preimage lntypes.Preimage) error {
 	hash := preimage.Hash()
 	invoice, err := i.cdb.UpdateInvoice(hash, updateInvoice)
 	if err != nil {
-		log.Errorf("SettleHodlInvoice with preimage %v: %v", preimage, err)
+		log.Errorf("SettleHodlInvoice with preimage %v: %v",
+			preimage, err)
+
 		return err
 	}
 
@@ -854,11 +869,11 @@ func (i *InvoiceRegistry) SettleHodlInvoice(preimage lntypes.Preimage) error {
 			continue
 		}
 
-		i.notifyHodlSubscribers(HtlcResolution{
-			CircuitKey:   key,
-			Preimage:     &preimage,
-			AcceptHeight: int32(htlc.AcceptHeight),
-		})
+		resolution := *NewSettleResolution(
+			preimage, key, int32(htlc.AcceptHeight),
+		)
+
+		i.notifyHodlSubscribers(resolution)
 	}
 	i.notifyClients(hash, invoice, invoice.State)
 
@@ -932,10 +947,9 @@ func (i *InvoiceRegistry) cancelInvoiceImpl(payHash lntypes.Hash,
 			continue
 		}
 
-		i.notifyHodlSubscribers(HtlcResolution{
-			CircuitKey:   key,
-			AcceptHeight: int32(htlc.AcceptHeight),
-		})
+		i.notifyHodlSubscribers(
+			*NewFailureResolution(key, int32(htlc.AcceptHeight)),
+		)
 	}
 	i.notifyClients(payHash, invoice, channeldb.ContractCanceled)
 

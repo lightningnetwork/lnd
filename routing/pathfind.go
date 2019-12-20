@@ -893,7 +893,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 	// findPath, and avoid using ChannelEdgePolicy altogether.
 	pathEdges[len(pathEdges)-1].Node.Features = features
 
-	log.Debugf("Found route: probability=%v, hops=%v, fee=%v\n",
+	log.Debugf("Found route: probability=%v, hops=%v, fee=%v",
 		distance[source].probability, len(pathEdges),
 		distance[source].amountToReceive-amt)
 

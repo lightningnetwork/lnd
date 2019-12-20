@@ -256,6 +256,7 @@ message Failure {
         PERMANENT_NODE_FAILURE = 20;
         PERMANENT_CHANNEL_FAILURE = 21;
         EXPIRY_TOO_FAR = 22;
+        MPP_TIMEOUT = 23;
 
         /**
         The error source is known, but the failure itself couldn't be decoded.

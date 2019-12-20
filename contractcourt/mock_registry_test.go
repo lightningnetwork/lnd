@@ -16,9 +16,9 @@ type notifyExitHopData struct {
 }
 
 type mockRegistry struct {
-	notifyChan  chan notifyExitHopData
-	notifyErr   error
-	notifyEvent *invoices.HtlcResolution
+	notifyChan       chan notifyExitHopData
+	notifyErr        error
+	notifyResolution *invoices.HtlcResolution
 }
 
 func (r *mockRegistry) NotifyExitHopHtlc(payHash lntypes.Hash,
@@ -34,7 +34,7 @@ func (r *mockRegistry) NotifyExitHopHtlc(payHash lntypes.Hash,
 		currentHeight: currentHeight,
 	}
 
-	return r.notifyEvent, r.notifyErr
+	return r.notifyResolution, r.notifyErr
 }
 
 func (r *mockRegistry) HodlUnsubscribeAll(subscriber chan<- interface{}) {}

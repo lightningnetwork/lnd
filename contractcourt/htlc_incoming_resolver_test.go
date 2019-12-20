@@ -96,7 +96,7 @@ func TestHtlcIncomingResolverExitSettle(t *testing.T) {
 	defer timeout(t)()
 
 	ctx := newIncomingResolverTestContext(t)
-	ctx.registry.notifyEvent = &invoices.HtlcResolution{
+	ctx.registry.notifyResolution = &invoices.HtlcResolution{
 		CircuitKey: testResCircuitKey,
 		Preimage:   &testResPreimage,
 	}
@@ -126,7 +126,7 @@ func TestHtlcIncomingResolverExitCancel(t *testing.T) {
 	defer timeout(t)()
 
 	ctx := newIncomingResolverTestContext(t)
-	ctx.registry.notifyEvent = &invoices.HtlcResolution{
+	ctx.registry.notifyResolution = &invoices.HtlcResolution{
 		CircuitKey: testResCircuitKey,
 	}
 	ctx.resolve()

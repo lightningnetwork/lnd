@@ -3147,7 +3147,6 @@ func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 				strings.Contains(walletTest.name, "dual funder") {
 				t.Skip("skipping dual funder tests for neutrino")
 			}
-			return
 
 			walletTest.test(miningNode, alice, bob, t)
 		})

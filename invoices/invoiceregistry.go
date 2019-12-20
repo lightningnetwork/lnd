@@ -706,7 +706,7 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 	// We'll attempt to settle an invoice matching this rHash on disk (if
 	// one exists). The callback will update the invoice state and/or htlcs.
 	var (
-		result            updateResult
+		result            ResolutionResult
 		updateSubscribers bool
 	)
 	invoice, err := i.cdb.UpdateInvoice(

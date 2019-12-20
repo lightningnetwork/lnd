@@ -8,86 +8,141 @@ import (
 	"github.com/lightningnetwork/lnd/record"
 )
 
-// updateResult is the result of the invoice update call.
-type updateResult uint8
+// ResolutionResult provides metadata which about an invoice update which can
+// be used to take custom actions on resolution of the htlc. Only results which
+// are actionable by the link are exported.
+type ResolutionResult uint8
 
 const (
-	resultInvalid updateResult = iota
-	resultReplayToCanceled
-	resultReplayToAccepted
-	resultReplayToSettled
-	resultInvoiceAlreadyCanceled
-	resultAmountTooLow
-	resultExpiryTooSoon
-	resultDuplicateToAccepted
-	resultDuplicateToSettled
-	resultAccepted
-	resultSettled
-	resultInvoiceNotOpen
-	resultPartialAccepted
-	resultMppInProgress
-	resultAddressMismatch
-	resultHtlcSetTotalMismatch
-	resultHtlcSetTotalTooLow
-	resultHtlcSetOverpayment
+	resultInvalid ResolutionResult = iota
+
+	// ResultReplayToCanceled is returned when we replay a canceled invoice.
+	ResultReplayToCanceled
+
+	// ResultReplayToAccepted is returned when we replay an accepted invoice.
+	ResultReplayToAccepted
+
+	// ResultReplayToSettled is returned when we replay a settled invoice.
+	ResultReplayToSettled
+
+	// ResultInvoiceAlreadyCanceled is returned when trying to pay an invoice
+	// that is already canceled.
+	ResultInvoiceAlreadyCanceled
+
+	// ResultAmountTooLow is returned when an invoice is underpaid.
+	ResultAmountTooLow
+
+	// ResultExpiryTooSoon is returned when we do not accept an invoice payment
+	// because it expires too soon.
+	ResultExpiryTooSoon
+
+	// ResultDuplicateToAccepted is returned when we accept a duplicate htlc.
+	ResultDuplicateToAccepted
+
+	// ResultDuplicateToSettled is returned when we settle an invoice which has
+	// already been settled at least once.
+	ResultDuplicateToSettled
+
+	// ResultAccepted is returned when we accept a hodl invoice.
+	ResultAccepted
+
+	// ResultSettled is returned when we settle an invoice.
+	ResultSettled
+
+	// ResultCanceled is returned when we cancel an invoice and its associated
+	// htlcs.
+	ResultCanceled
+
+	// ResultInvoiceNotOpen is returned when a mpp invoice is not open.
+	ResultInvoiceNotOpen
+
+	// ResultPartialAccepted is returned when we have partially received
+	// payment.
+	ResultPartialAccepted
+
+	// ResultMppInProgress is returned when we are busy receiving a mpp payment.
+	ResultMppInProgress
+
+	// ResultMppTimeout is returned when an invoice paid with multiple partial
+	// payments times out before it is fully paid.
+	ResultMppTimeout
+
+	// ResultAddressMismatch is returned when the payment address for a mpp
+	// invoice does not match.
+	ResultAddressMismatch
+
+	// ResultHtlcSetTotalMismatch is returned when the amount paid by a htlc
+	// does not match its set total.
+	ResultHtlcSetTotalMismatch
+
+	// ResultHtlcSetTotalTooLow is returned when a mpp set total is too low for
+	// an invoice.
+	ResultHtlcSetTotalTooLow
+
+	// ResultHtlcSetOverpayment is returned when a mpp set is overpaid.
+	ResultHtlcSetOverpayment
+
+	// ResultInvoiceNotFound is returned when an attempt is made to pay an
+	// invoice that is unknown to us.
+	ResultInvoiceNotFound
 )
 
 // String returns a human-readable representation of the invoice update result.
-func (u updateResult) String() string {
+func (u ResolutionResult) String() string {
 	switch u {
 
 	case resultInvalid:
 		return "invalid"
 
-	case resultReplayToCanceled:
+	case ResultReplayToCanceled:
 		return "replayed htlc to canceled invoice"
 
-	case resultReplayToAccepted:
+	case ResultReplayToAccepted:
 		return "replayed htlc to accepted invoice"
 
-	case resultReplayToSettled:
+	case ResultReplayToSettled:
 		return "replayed htlc to settled invoice"
 
-	case resultInvoiceAlreadyCanceled:
+	case ResultInvoiceAlreadyCanceled:
 		return "invoice already canceled"
 
-	case resultAmountTooLow:
+	case ResultAmountTooLow:
 		return "amount too low"
 
-	case resultExpiryTooSoon:
+	case ResultExpiryTooSoon:
 		return "expiry too soon"
 
-	case resultDuplicateToAccepted:
+	case ResultDuplicateToAccepted:
 		return "accepting duplicate payment to accepted invoice"
 
-	case resultDuplicateToSettled:
+	case ResultDuplicateToSettled:
 		return "accepting duplicate payment to settled invoice"
 
-	case resultAccepted:
+	case ResultAccepted:
 		return "accepted"
 
-	case resultSettled:
+	case ResultSettled:
 		return "settled"
 
-	case resultInvoiceNotOpen:
+	case ResultInvoiceNotOpen:
 		return "invoice no longer open"
 
-	case resultPartialAccepted:
+	case ResultPartialAccepted:
 		return "partial payment accepted"
 
-	case resultMppInProgress:
+	case ResultMppInProgress:
 		return "mpp reception in progress"
 
-	case resultAddressMismatch:
+	case ResultAddressMismatch:
 		return "payment address mismatch"
 
-	case resultHtlcSetTotalMismatch:
+	case ResultHtlcSetTotalMismatch:
 		return "htlc total amt doesn't match set total"
 
-	case resultHtlcSetTotalTooLow:
+	case ResultHtlcSetTotalTooLow:
 		return "set total too low for invoice"
 
-	case resultHtlcSetOverpayment:
+	case ResultHtlcSetOverpayment:
 		return "mpp is overpaying set total"
 
 	default:
@@ -110,20 +165,20 @@ type invoiceUpdateCtx struct {
 // updateInvoice is a callback for DB.UpdateInvoice that contains the invoice
 // settlement logic.
 func updateInvoice(ctx *invoiceUpdateCtx, inv *channeldb.Invoice) (
-	*channeldb.InvoiceUpdateDesc, updateResult, error) {
+	*channeldb.InvoiceUpdateDesc, ResolutionResult, error) {
 
 	// Don't update the invoice when this is a replayed htlc.
 	htlc, ok := inv.Htlcs[ctx.circuitKey]
 	if ok {
 		switch htlc.State {
 		case channeldb.HtlcStateCanceled:
-			return nil, resultReplayToCanceled, nil
+			return nil, ResultReplayToCanceled, nil
 
 		case channeldb.HtlcStateAccepted:
-			return nil, resultReplayToAccepted, nil
+			return nil, ResultReplayToAccepted, nil
 
 		case channeldb.HtlcStateSettled:
-			return nil, resultReplayToSettled, nil
+			return nil, ResultReplayToSettled, nil
 
 		default:
 			return nil, 0, errors.New("unknown htlc state")
@@ -140,7 +195,7 @@ func updateInvoice(ctx *invoiceUpdateCtx, inv *channeldb.Invoice) (
 // updateMpp is a callback for DB.UpdateInvoice that contains the invoice
 // settlement logic for mpp payments.
 func updateMpp(ctx *invoiceUpdateCtx, inv *channeldb.Invoice) (
-	*channeldb.InvoiceUpdateDesc, updateResult, error) {
+	*channeldb.InvoiceUpdateDesc, ResolutionResult, error) {
 
 	// Start building the accept descriptor.
 	acceptDesc := &channeldb.HtlcAcceptDesc{
@@ -156,23 +211,23 @@ func updateMpp(ctx *invoiceUpdateCtx, inv *channeldb.Invoice) (
 	// Because non-mpp payments don't have a payment address, this is needed
 	// to thwart probing.
 	if inv.State != channeldb.ContractOpen {
-		return nil, resultInvoiceNotOpen, nil
+		return nil, ResultInvoiceNotOpen, nil
 	}
 
 	// Check the payment address that authorizes the payment.
 	if ctx.mpp.PaymentAddr() != inv.Terms.PaymentAddr {
-		return nil, resultAddressMismatch, nil
+		return nil, ResultAddressMismatch, nil
 	}
 
 	// Don't accept zero-valued sets.
 	if ctx.mpp.TotalMsat() == 0 {
-		return nil, resultHtlcSetTotalTooLow, nil
+		return nil, ResultHtlcSetTotalTooLow, nil
 	}
 
 	// Check that the total amt of the htlc set is high enough. In case this
 	// is a zero-valued invoice, it will always be enough.
 	if ctx.mpp.TotalMsat() < inv.Terms.Value {
-		return nil, resultHtlcSetTotalTooLow, nil
+		return nil, ResultHtlcSetTotalTooLow, nil
 	}
 
 	// Check whether total amt matches other htlcs in the set.
@@ -186,7 +241,7 @@ func updateMpp(ctx *invoiceUpdateCtx, inv *channeldb.Invoice) (
 		}
 
 		if ctx.mpp.TotalMsat() != htlc.MppTotalAmt {
-			return nil, resultHtlcSetTotalMismatch, nil
+			return nil, ResultHtlcSetTotalMismatch, nil
 		}
 
 		newSetTotal += htlc.Amt
@@ -197,16 +252,16 @@ func updateMpp(ctx *invoiceUpdateCtx, inv *channeldb.Invoice) (
 
 	// Make sure the communicated set total isn't overpaid.
 	if newSetTotal > ctx.mpp.TotalMsat() {
-		return nil, resultHtlcSetOverpayment, nil
+		return nil, ResultHtlcSetOverpayment, nil
 	}
 
 	// The invoice is still open. Check the expiry.
 	if ctx.expiry < uint32(ctx.currentHeight+ctx.finalCltvRejectDelta) {
-		return nil, resultExpiryTooSoon, nil
+		return nil, ResultExpiryTooSoon, nil
 	}
 
 	if ctx.expiry < uint32(ctx.currentHeight+inv.Terms.FinalCltvDelta) {
-		return nil, resultExpiryTooSoon, nil
+		return nil, ResultExpiryTooSoon, nil
 	}
 
 	// Record HTLC in the invoice database.
@@ -221,7 +276,7 @@ func updateMpp(ctx *invoiceUpdateCtx, inv *channeldb.Invoice) (
 	// If the invoice cannot be settled yet, only record the htlc.
 	setComplete := newSetTotal == ctx.mpp.TotalMsat()
 	if !setComplete {
-		return &update, resultPartialAccepted, nil
+		return &update, ResultPartialAccepted, nil
 	}
 
 	// Check to see if we can settle or this is an hold invoice and
@@ -231,7 +286,7 @@ func updateMpp(ctx *invoiceUpdateCtx, inv *channeldb.Invoice) (
 		update.State = &channeldb.InvoiceStateUpdateDesc{
 			NewState: channeldb.ContractAccepted,
 		}
-		return &update, resultAccepted, nil
+		return &update, ResultAccepted, nil
 	}
 
 	update.State = &channeldb.InvoiceStateUpdateDesc{
@@ -239,18 +294,18 @@ func updateMpp(ctx *invoiceUpdateCtx, inv *channeldb.Invoice) (
 		Preimage: inv.Terms.PaymentPreimage,
 	}
 
-	return &update, resultSettled, nil
+	return &update, ResultSettled, nil
 }
 
 // updateLegacy is a callback for DB.UpdateInvoice that contains the invoice
 // settlement logic for legacy payments.
 func updateLegacy(ctx *invoiceUpdateCtx, inv *channeldb.Invoice) (
-	*channeldb.InvoiceUpdateDesc, updateResult, error) {
+	*channeldb.InvoiceUpdateDesc, ResolutionResult, error) {
 
 	// If the invoice is already canceled, there is no further
 	// checking to do.
 	if inv.State == channeldb.ContractCanceled {
-		return nil, resultInvoiceAlreadyCanceled, nil
+		return nil, ResultInvoiceAlreadyCanceled, nil
 	}
 
 	// If an invoice amount is specified, check that enough is paid. Also
@@ -258,7 +313,7 @@ func updateLegacy(ctx *invoiceUpdateCtx, inv *channeldb.Invoice) (
 	// or accepted. In case this is a zero-valued invoice, it will always be
 	// enough.
 	if ctx.amtPaid < inv.Terms.Value {
-		return nil, resultAmountTooLow, nil
+		return nil, ResultAmountTooLow, nil
 	}
 
 	// TODO(joostjager): Check invoice mpp required feature
@@ -271,17 +326,17 @@ func updateLegacy(ctx *invoiceUpdateCtx, inv *channeldb.Invoice) (
 		if htlc.State == channeldb.HtlcStateAccepted &&
 			htlc.MppTotalAmt > 0 {
 
-			return nil, resultMppInProgress, nil
+			return nil, ResultMppInProgress, nil
 		}
 	}
 
 	// The invoice is still open. Check the expiry.
 	if ctx.expiry < uint32(ctx.currentHeight+ctx.finalCltvRejectDelta) {
-		return nil, resultExpiryTooSoon, nil
+		return nil, ResultExpiryTooSoon, nil
 	}
 
 	if ctx.expiry < uint32(ctx.currentHeight+inv.Terms.FinalCltvDelta) {
-		return nil, resultExpiryTooSoon, nil
+		return nil, ResultExpiryTooSoon, nil
 	}
 
 	// Record HTLC in the invoice database.
@@ -302,10 +357,10 @@ func updateLegacy(ctx *invoiceUpdateCtx, inv *channeldb.Invoice) (
 	// We do accept or settle the HTLC.
 	switch inv.State {
 	case channeldb.ContractAccepted:
-		return &update, resultDuplicateToAccepted, nil
+		return &update, ResultDuplicateToAccepted, nil
 
 	case channeldb.ContractSettled:
-		return &update, resultDuplicateToSettled, nil
+		return &update, ResultDuplicateToSettled, nil
 	}
 
 	// Check to see if we can settle or this is an hold invoice and we need
@@ -315,7 +370,7 @@ func updateLegacy(ctx *invoiceUpdateCtx, inv *channeldb.Invoice) (
 		update.State = &channeldb.InvoiceStateUpdateDesc{
 			NewState: channeldb.ContractAccepted,
 		}
-		return &update, resultAccepted, nil
+		return &update, ResultAccepted, nil
 	}
 
 	update.State = &channeldb.InvoiceStateUpdateDesc{
@@ -323,5 +378,5 @@ func updateLegacy(ctx *invoiceUpdateCtx, inv *channeldb.Invoice) (
 		Preimage: inv.Terms.PaymentPreimage,
 	}
 
-	return &update, resultSettled, nil
+	return &update, ResultSettled, nil
 }

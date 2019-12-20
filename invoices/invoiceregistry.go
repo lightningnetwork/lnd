@@ -35,10 +35,10 @@ const (
 	DefaultHtlcHoldDuration = 120 * time.Second
 )
 
-// HodlEvent describes how an htlc should be resolved. If HodlEvent.Preimage is
-// set, the event indicates a settle event. If Preimage is nil, it is a cancel
-// event.
-type HodlEvent struct {
+// HtlcResolution describes how an htlc should be resolved. If the preimage
+// field is set, the event indicates a settle event. If Preimage is nil, it is
+// a cancel event.
+type HtlcResolution struct {
 	// Preimage is the htlc preimage. Its value is nil in case of a cancel.
 	Preimage *lntypes.Preimage
 
@@ -48,6 +48,33 @@ type HodlEvent struct {
 
 	// AcceptHeight is the original height at which the htlc was accepted.
 	AcceptHeight int32
+
+	// Outcome indicates the outcome of the invoice registry update.
+	Outcome ResolutionResult
+}
+
+// NewFailureResolution returns a htlc failure resolution.
+func NewFailureResolution(key channeldb.CircuitKey,
+	acceptHeight int32, outcome ResolutionResult) *HtlcResolution {
+
+	return &HtlcResolution{
+		CircuitKey:   key,
+		AcceptHeight: acceptHeight,
+		Outcome:      outcome,
+	}
+}
+
+// NewSettleResolution returns a htlc resolution which is associated with a
+// settle.
+func NewSettleResolution(preimage lntypes.Preimage, key channeldb.CircuitKey,
+	acceptHeight int32, outcome ResolutionResult) *HtlcResolution {
+
+	return &HtlcResolution{
+		Preimage:     &preimage,
+		CircuitKey:   key,
+		AcceptHeight: acceptHeight,
+		Outcome:      outcome,
+	}
 }
 
 // RegistryConfig contains the configuration parameters for invoice registry.
@@ -325,7 +352,7 @@ func (i *InvoiceRegistry) invoiceEventLoop() {
 		case <-nextReleaseTick:
 			event := autoReleaseHeap.Pop().(*htlcReleaseEvent)
 			err := i.cancelSingleHtlc(
-				event.hash, event.key,
+				event.hash, event.key, ResultMppTimeout,
 			)
 			if err != nil {
 				log.Errorf("HTLC timer: %v", err)
@@ -574,9 +601,11 @@ func (i *InvoiceRegistry) startHtlcTimer(hash lntypes.Hash,
 	}
 }
 
-// cancelSingleHtlc cancels a single accepted htlc on an invoice.
+// cancelSingleHtlc cancels a single accepted htlc on an invoice. It takes
+// a resolution result which will be used to notify subscribed links and
+// resolvers of the details of the htlc cancellation.
 func (i *InvoiceRegistry) cancelSingleHtlc(hash lntypes.Hash,
-	key channeldb.CircuitKey) error {
+	key channeldb.CircuitKey, result ResolutionResult) error {
 
 	i.Lock()
 	defer i.Unlock()
@@ -652,11 +681,11 @@ func (i *InvoiceRegistry) cancelSingleHtlc(hash lntypes.Hash,
 		return fmt.Errorf("htlc %v not found", key)
 	}
 	if htlc.State == channeldb.HtlcStateCanceled {
-		i.notifyHodlSubscribers(HodlEvent{
-			CircuitKey:   key,
-			AcceptHeight: int32(htlc.AcceptHeight),
-			Preimage:     nil,
-		})
+		resolution := *NewFailureResolution(
+			key, int32(htlc.AcceptHeight), result,
+		)
+
+		i.notifyHodlSubscribers(resolution)
 	}
 	return nil
 }
@@ -679,7 +708,7 @@ func (i *InvoiceRegistry) cancelSingleHtlc(hash lntypes.Hash,
 func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 	amtPaid lnwire.MilliSatoshi, expiry uint32, currentHeight int32,
 	circuitKey channeldb.CircuitKey, hodlChan chan<- interface{},
-	payload Payload) (*HodlEvent, error) {
+	payload Payload) (*HtlcResolution, error) {
 
 	i.Lock()
 	defer i.Unlock()
@@ -706,7 +735,7 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 	// We'll attempt to settle an invoice matching this rHash on disk (if
 	// one exists). The callback will update the invoice state and/or htlcs.
 	var (
-		result            updateResult
+		result            ResolutionResult
 		updateSubscribers bool
 	)
 	invoice, err := i.cdb.UpdateInvoice(
@@ -729,11 +758,21 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 			return updateDesc, nil
 		},
 	)
-	if err != nil {
-		debugLog(err.Error())
+	switch err {
+	case channeldb.ErrInvoiceNotFound:
+		// If the invoice was not found, return a failure resolution
+		// with an invoice not found result.
+		return NewFailureResolution(
+			circuitKey, currentHeight, ResultInvoiceNotFound,
+		), nil
 
+	case nil:
+
+	default:
+		debugLog(err.Error())
 		return nil, err
 	}
+
 	debugLog(result.String())
 
 	if updateSubscribers {
@@ -745,10 +784,9 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 
 	// If it isn't recorded, cancel htlc.
 	if !ok {
-		return &HodlEvent{
-			CircuitKey:   circuitKey,
-			AcceptHeight: currentHeight,
-		}, nil
+		return NewFailureResolution(
+			circuitKey, currentHeight, result,
+		), nil
 	}
 
 	// Determine accepted height of this htlc. If the htlc reached the
@@ -759,10 +797,9 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 
 	switch invoiceHtlc.State {
 	case channeldb.HtlcStateCanceled:
-		return &HodlEvent{
-			CircuitKey:   circuitKey,
-			AcceptHeight: acceptHeight,
-		}, nil
+		return NewFailureResolution(
+			circuitKey, acceptHeight, result,
+		), nil
 
 	case channeldb.HtlcStateSettled:
 		// Also settle any previously accepted htlcs. The invoice state
@@ -773,18 +810,24 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 				continue
 			}
 
-			i.notifyHodlSubscribers(HodlEvent{
-				CircuitKey:   key,
-				Preimage:     &invoice.Terms.PaymentPreimage,
-				AcceptHeight: int32(htlc.AcceptHeight),
-			})
+			// Notify subscribers that the htlcs should be settled
+			// with our peer. Note that the outcome of the
+			// resolution is set based on the outcome of the single
+			// htlc that we just settled, so may not be accurate
+			// for all htlcs.
+			resolution := *NewSettleResolution(
+				invoice.Terms.PaymentPreimage, key,
+				acceptHeight, result,
+			)
+
+			i.notifyHodlSubscribers(resolution)
 		}
 
-		return &HodlEvent{
-			CircuitKey:   circuitKey,
-			Preimage:     &invoice.Terms.PaymentPreimage,
-			AcceptHeight: acceptHeight,
-		}, nil
+		resolution := NewSettleResolution(
+			invoice.Terms.PaymentPreimage, circuitKey,
+			acceptHeight, result,
+		)
+		return resolution, nil
 
 	case channeldb.HtlcStateAccepted:
 		// (Re)start the htlc timer if the invoice is still open. It can
@@ -836,7 +879,9 @@ func (i *InvoiceRegistry) SettleHodlInvoice(preimage lntypes.Preimage) error {
 	hash := preimage.Hash()
 	invoice, err := i.cdb.UpdateInvoice(hash, updateInvoice)
 	if err != nil {
-		log.Errorf("SettleHodlInvoice with preimage %v: %v", preimage, err)
+		log.Errorf("SettleHodlInvoice with preimage %v: %v",
+			preimage, err)
+
 		return err
 	}
 
@@ -854,11 +899,11 @@ func (i *InvoiceRegistry) SettleHodlInvoice(preimage lntypes.Preimage) error {
 			continue
 		}
 
-		i.notifyHodlSubscribers(HodlEvent{
-			CircuitKey:   key,
-			Preimage:     &preimage,
-			AcceptHeight: int32(htlc.AcceptHeight),
-		})
+		resolution := *NewSettleResolution(
+			preimage, key, int32(htlc.AcceptHeight), ResultSettled,
+		)
+
+		i.notifyHodlSubscribers(resolution)
 	}
 	i.notifyClients(hash, invoice, invoice.State)
 
@@ -873,7 +918,8 @@ func (i *InvoiceRegistry) CancelInvoice(payHash lntypes.Hash) error {
 
 // cancelInvoice attempts to cancel the invoice corresponding to the passed
 // payment hash. Accepted invoices will only be canceled if explicitly
-// requested to do so.
+// requested to do so. It notifies subscribing links and resolvers that
+// the associated htlcs were canceled if they change state.
 func (i *InvoiceRegistry) cancelInvoiceImpl(payHash lntypes.Hash,
 	cancelAccepted bool) error {
 
@@ -932,10 +978,11 @@ func (i *InvoiceRegistry) cancelInvoiceImpl(payHash lntypes.Hash,
 			continue
 		}
 
-		i.notifyHodlSubscribers(HodlEvent{
-			CircuitKey:   key,
-			AcceptHeight: int32(htlc.AcceptHeight),
-		})
+		i.notifyHodlSubscribers(
+			*NewFailureResolution(
+				key, int32(htlc.AcceptHeight), ResultCanceled,
+			),
+		)
 	}
 	i.notifyClients(payHash, invoice, channeldb.ContractCanceled)
 
@@ -1201,9 +1248,10 @@ func (i *InvoiceRegistry) SubscribeSingleInvoice(
 	return client, nil
 }
 
-// notifyHodlSubscribers sends out the hodl event to all current subscribers.
-func (i *InvoiceRegistry) notifyHodlSubscribers(hodlEvent HodlEvent) {
-	subscribers, ok := i.hodlSubscriptions[hodlEvent.CircuitKey]
+// notifyHodlSubscribers sends out the htlc resolution to all current
+// subscribers.
+func (i *InvoiceRegistry) notifyHodlSubscribers(htlcResolution HtlcResolution) {
+	subscribers, ok := i.hodlSubscriptions[htlcResolution.CircuitKey]
 	if !ok {
 		return
 	}
@@ -1213,18 +1261,18 @@ func (i *InvoiceRegistry) notifyHodlSubscribers(hodlEvent HodlEvent) {
 	// single resolution for each hash.
 	for subscriber := range subscribers {
 		select {
-		case subscriber <- hodlEvent:
+		case subscriber <- htlcResolution:
 		case <-i.quit:
 			return
 		}
 
 		delete(
 			i.hodlReverseSubscriptions[subscriber],
-			hodlEvent.CircuitKey,
+			htlcResolution.CircuitKey,
 		)
 	}
 
-	delete(i.hodlSubscriptions, hodlEvent.CircuitKey)
+	delete(i.hodlSubscriptions, htlcResolution.CircuitKey)
 }
 
 // hodlSubscribe adds a new invoice subscription.

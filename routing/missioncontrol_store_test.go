@@ -16,8 +16,12 @@ import (
 
 const testMaxRecords = 2
 
+// TestMissionControlStore tests the recording of payment failure events
+// in mission control. It tests encoding and decoding of differing lnwire
+// failures (FailIncorrectDetails and FailMppTimeout), pruning of results
+// and idempotent writes.
 func TestMissionControlStore(t *testing.T) {
-	// Set time zone explictly to keep test deterministic.
+	// Set time zone explicitly to keep test deterministic.
 	time.Local = time.UTC
 
 	file, err := ioutil.TempFile("", "*.db")
@@ -115,11 +119,12 @@ func TestMissionControlStore(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Add a newer result.
+	// Add a newer result which failed due to mpp timeout.
 	result3 := result1
 	result3.timeReply = result1.timeReply.Add(2 * time.Hour)
 	result3.timeFwd = result1.timeReply.Add(2 * time.Hour)
 	result3.id = 3
+	result3.failure = &lnwire.FailMPPTimeout{}
 
 	err = store.AddResult(&result3)
 	if err != nil {

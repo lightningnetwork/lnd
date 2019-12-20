@@ -272,6 +272,39 @@ var resultTestCases = []resultTestCase{
 			nodeFailure:        &hops[1],
 		},
 	},
+
+	// Tests a single hop mpp timeout. Test that final node is not
+	// penalized. This is a temporary measure while we decide how to
+	// penalize mpp timeouts.
+	{
+		name:          "one hop mpp timeout",
+		route:         &routeOneHop,
+		failureSrcIdx: 1,
+		failure:       &lnwire.FailMPPTimeout{},
+
+		expectedResult: &interpretedResult{
+			finalFailureReason: &reasonError,
+			nodeFailure:        nil,
+		},
+	},
+
+	// Tests a two hop mpp timeout. Test that final node is not penalized
+	// and the intermediate hop is attributed the success. This is a
+	// temporary measure while we decide how to penalize mpp timeouts.
+	{
+		name:          "two hop mpp timeout",
+		route:         &routeTwoHop,
+		failureSrcIdx: 2,
+		failure:       &lnwire.FailMPPTimeout{},
+
+		expectedResult: &interpretedResult{
+			pairResults: map[DirectedNodePair]pairResult{
+				getTestPair(0, 1): successPairResult(100),
+			},
+			finalFailureReason: &reasonError,
+			nodeFailure:        nil,
+		},
+	},
 }
 
 // TestResultInterpretation executes a list of test cases that test the result

@@ -38,6 +38,7 @@ var onionFailures = []FailureMessage{
 	&FailUnknownNextPeer{},
 	&FailIncorrectPaymentAmount{},
 	&FailFinalExpiryTooSoon{},
+	&FailMPPTimeout{},
 
 	NewFailIncorrectDetails(99, 100),
 	NewInvalidOnionVersion(testOnionHash),

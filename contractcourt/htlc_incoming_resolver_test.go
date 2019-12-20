@@ -21,10 +21,11 @@ const (
 )
 
 var (
-	testResPreimage   = lntypes.Preimage{1, 2, 3}
-	testResHash       = testResPreimage.Hash()
-	testResCircuitKey = channeldb.CircuitKey{}
-	testOnionBlob     = []byte{4, 5, 6}
+	testResPreimage         = lntypes.Preimage{1, 2, 3}
+	testResHash             = testResPreimage.Hash()
+	testResCircuitKey       = channeldb.CircuitKey{}
+	testOnionBlob           = []byte{4, 5, 6}
+	testAcceptHeight  int32 = 1234
 )
 
 // TestHtlcIncomingResolverFwdPreimageKnown tests resolution of a forwarded htlc
@@ -34,7 +35,10 @@ func TestHtlcIncomingResolverFwdPreimageKnown(t *testing.T) {
 	defer timeout(t)()
 
 	ctx := newIncomingResolverTestContext(t)
-	ctx.registry.notifyErr = channeldb.ErrInvoiceNotFound
+	ctx.registry.notifyResolution = invoices.NewFailureResolution(
+		testResCircuitKey, testHtlcExpiry,
+		invoices.ResultInvoiceNotFound,
+	)
 	ctx.witnessBeacon.lookupPreimage[testResHash] = testResPreimage
 	ctx.resolve()
 	ctx.waitForResult(true)
@@ -48,7 +52,10 @@ func TestHtlcIncomingResolverFwdContestedSuccess(t *testing.T) {
 	defer timeout(t)()
 
 	ctx := newIncomingResolverTestContext(t)
-	ctx.registry.notifyErr = channeldb.ErrInvoiceNotFound
+	ctx.registry.notifyResolution = invoices.NewFailureResolution(
+		testResCircuitKey, testHtlcExpiry,
+		invoices.ResultInvoiceNotFound,
+	)
 	ctx.resolve()
 
 	// Simulate a new block coming in. HTLC is not yet expired.
@@ -65,7 +72,10 @@ func TestHtlcIncomingResolverFwdContestedTimeout(t *testing.T) {
 	defer timeout(t)()
 
 	ctx := newIncomingResolverTestContext(t)
-	ctx.registry.notifyErr = channeldb.ErrInvoiceNotFound
+	ctx.registry.notifyResolution = invoices.NewFailureResolution(
+		testResCircuitKey, testHtlcExpiry,
+		invoices.ResultInvoiceNotFound,
+	)
 	ctx.resolve()
 
 	// Simulate a new block coming in. HTLC expires.
@@ -81,8 +91,10 @@ func TestHtlcIncomingResolverFwdTimeout(t *testing.T) {
 	defer timeout(t)()
 
 	ctx := newIncomingResolverTestContext(t)
-
-	ctx.registry.notifyErr = channeldb.ErrInvoiceNotFound
+	ctx.registry.notifyResolution = invoices.NewFailureResolution(
+		testResCircuitKey, testHtlcExpiry,
+		invoices.ResultInvoiceNotFound,
+	)
 	ctx.witnessBeacon.lookupPreimage[testResHash] = testResPreimage
 	ctx.resolver.htlcExpiry = 90
 	ctx.resolve()
@@ -96,10 +108,11 @@ func TestHtlcIncomingResolverExitSettle(t *testing.T) {
 	defer timeout(t)()
 
 	ctx := newIncomingResolverTestContext(t)
-	ctx.registry.notifyEvent = &invoices.HodlEvent{
-		CircuitKey: testResCircuitKey,
-		Preimage:   &testResPreimage,
-	}
+	ctx.registry.notifyResolution = invoices.NewSettleResolution(
+		testResPreimage, testResCircuitKey, testAcceptHeight,
+		invoices.ResultReplayToSettled,
+	)
+
 	ctx.resolve()
 
 	data := <-ctx.registry.notifyChan
@@ -126,9 +139,11 @@ func TestHtlcIncomingResolverExitCancel(t *testing.T) {
 	defer timeout(t)()
 
 	ctx := newIncomingResolverTestContext(t)
-	ctx.registry.notifyEvent = &invoices.HodlEvent{
-		CircuitKey: testResCircuitKey,
-	}
+	ctx.registry.notifyResolution = invoices.NewFailureResolution(
+		testResCircuitKey, testAcceptHeight,
+		invoices.ResultInvoiceAlreadyCanceled,
+	)
+
 	ctx.resolve()
 	ctx.waitForResult(false)
 }
@@ -143,10 +158,10 @@ func TestHtlcIncomingResolverExitSettleHodl(t *testing.T) {
 	ctx.resolve()
 
 	notifyData := <-ctx.registry.notifyChan
-	notifyData.hodlChan <- invoices.HodlEvent{
-		CircuitKey: testResCircuitKey,
-		Preimage:   &testResPreimage,
-	}
+	notifyData.hodlChan <- *invoices.NewSettleResolution(
+		testResPreimage, testResCircuitKey, testAcceptHeight,
+		invoices.ResultSettled,
+	)
 
 	ctx.waitForResult(true)
 }
@@ -172,9 +187,10 @@ func TestHtlcIncomingResolverExitCancelHodl(t *testing.T) {
 	ctx := newIncomingResolverTestContext(t)
 	ctx.resolve()
 	notifyData := <-ctx.registry.notifyChan
-	notifyData.hodlChan <- invoices.HodlEvent{
-		CircuitKey: testResCircuitKey,
-	}
+	notifyData.hodlChan <- *invoices.NewFailureResolution(
+		testResCircuitKey, testAcceptHeight, invoices.ResultCanceled,
+	)
+
 	ctx.waitForResult(false)
 }
 

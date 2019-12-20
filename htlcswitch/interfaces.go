@@ -27,7 +27,7 @@ type InvoiceDatabase interface {
 	NotifyExitHopHtlc(payHash lntypes.Hash, paidAmount lnwire.MilliSatoshi,
 		expiry uint32, currentHeight int32,
 		circuitKey channeldb.CircuitKey, hodlChan chan<- interface{},
-		payload invoices.Payload) (*invoices.HodlEvent, error)
+		payload invoices.Payload) (*invoices.HtlcResolution, error)
 
 	// CancelInvoice attempts to cancel the invoice corresponding to the
 	// passed payment hash.
@@ -36,7 +36,7 @@ type InvoiceDatabase interface {
 	// SettleHodlInvoice settles a hold invoice.
 	SettleHodlInvoice(preimage lntypes.Preimage) error
 
-	// HodlUnsubscribeAll unsubscribes from all hodl events.
+	// HodlUnsubscribeAll unsubscribes from all htlc resolutions.
 	HodlUnsubscribeAll(subscriber chan<- interface{})
 }
 

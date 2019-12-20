@@ -710,7 +710,15 @@ func unmarshallHopHint(rpcHint *lnrpc.HopHint) (zpay32.HopHint, error) {
 // UnmarshalFeatures converts a list of uint32's into a valid feature vector.
 // This method checks that feature bit pairs aren't assigned toegether, and
 // validates transitive depdencies.
-func UnmarshalFeatures(rpcFeatures []lnrpc.FeatureBit) (*lnwire.FeatureVector, error) {
+func UnmarshalFeatures(
+	rpcFeatures []lnrpc.FeatureBit) (*lnwire.FeatureVector, error) {
+
+	// If no destination features are specified we'll return nil to signal
+	// that the router should try to use the graph as a fallback.
+	if rpcFeatures == nil {
+		return nil, nil
+	}
+
 	raw := lnwire.NewRawFeatureVector()
 	for _, bit := range rpcFeatures {
 		err := raw.SafeSet(lnwire.FeatureBit(bit))

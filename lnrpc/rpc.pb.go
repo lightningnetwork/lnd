@@ -1229,7 +1229,9 @@ type SendRequest struct {
 	//*
 	//Features assumed to be supported by the final node. All transitive feature
 	//depdencies must also be set properly. For a given feature bit pair, either
-	//optional or remote may be set, but not both.
+	//optional or remote may be set, but not both. If this field is nil or empty,
+	//the router will try to load destination features from the graph as a
+	//fallback.
 	DestFeatures         []FeatureBit `protobuf:"varint,15,rep,packed,name=dest_features,json=destFeatures,proto3,enum=lnrpc.FeatureBit" json:"dest_features,omitempty"`
 	XXX_NoUnkeyedLiteral struct{}     `json:"-"`
 	XXX_unrecognized     []byte       `json:"-"`

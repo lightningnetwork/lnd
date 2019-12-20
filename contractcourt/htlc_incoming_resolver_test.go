@@ -99,6 +99,7 @@ func TestHtlcIncomingResolverExitSettle(t *testing.T) {
 	ctx := newIncomingResolverTestContext(t)
 	ctx.registry.notifyResolution = invoices.NewSettleResolution(
 		testResPreimage, testResCircuitKey, testAcceptHeight,
+		invoices.ResultReplayToSettled,
 	)
 
 	ctx.resolve()
@@ -129,6 +130,7 @@ func TestHtlcIncomingResolverExitCancel(t *testing.T) {
 	ctx := newIncomingResolverTestContext(t)
 	ctx.registry.notifyResolution = invoices.NewFailureResolution(
 		testResCircuitKey, testAcceptHeight,
+		invoices.ResultInvoiceAlreadyCanceled,
 	)
 
 	ctx.resolve()
@@ -147,6 +149,7 @@ func TestHtlcIncomingResolverExitSettleHodl(t *testing.T) {
 	notifyData := <-ctx.registry.notifyChan
 	notifyData.hodlChan <- *invoices.NewSettleResolution(
 		testResPreimage, testResCircuitKey, testAcceptHeight,
+		invoices.ResultSettled,
 	)
 
 	ctx.waitForResult(true)
@@ -174,7 +177,7 @@ func TestHtlcIncomingResolverExitCancelHodl(t *testing.T) {
 	ctx.resolve()
 	notifyData := <-ctx.registry.notifyChan
 	notifyData.hodlChan <- *invoices.NewFailureResolution(
-		testResCircuitKey, testAcceptHeight,
+		testResCircuitKey, testAcceptHeight, invoices.ResultCanceled,
 	)
 
 	ctx.waitForResult(false)

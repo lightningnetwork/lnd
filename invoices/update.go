@@ -49,6 +49,10 @@ const (
 	// ResultSettled is returned when we settle an invoice.
 	ResultSettled
 
+	// ResultCanceled is returned when we cancel an invoice and its associated
+	// htlcs.
+	ResultCanceled
+
 	// ResultInvoiceNotOpen is returned when a mpp invoice is not open.
 	ResultInvoiceNotOpen
 
@@ -58,6 +62,10 @@ const (
 
 	// ResultMppInProgress is returned when we are busy receiving a mpp payment.
 	ResultMppInProgress
+
+	// ResultMppTimeout is returned when an invoice paid with multiple partial
+	// payments times out before it is fully paid.
+	ResultMppTimeout
 
 	// ResultAddressMismatch is returned when the payment address for a mpp
 	// invoice does not match.

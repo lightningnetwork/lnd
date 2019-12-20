@@ -1164,7 +1164,7 @@ loop:
 			return fmt.Errorf("hodl htlc not found: %v", circuitKey)
 		}
 
-		if err := l.processHodlEvent(htlcResolution, hodlHtlc); err != nil {
+		if err := l.processHtlcResolution(htlcResolution, hodlHtlc); err != nil {
 			return err
 		}
 
@@ -1187,9 +1187,10 @@ loop:
 	return nil
 }
 
-// processHodlEvent applies a received htlc resolution to the provided htlc.
-// When this function returns without an error, the commit tx should be updated.
-func (l *channelLink) processHodlEvent(resolution invoices.HtlcResolution,
+// processHtlcResolution applies a received htlc resolution to the provided
+// htlc. When this function returns without an error, the commit tx should be
+// updated.
+func (l *channelLink) processHtlcResolution(resolution invoices.HtlcResolution,
 	htlc hodlHtlc) error {
 
 	circuitKey := resolution.CircuitKey
@@ -2851,7 +2852,7 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 	}
 
 	// Process the received resolution.
-	return l.processHodlEvent(*event, htlc)
+	return l.processHtlcResolution(*event, htlc)
 }
 
 // settleHTLC settles the HTLC on the channel.

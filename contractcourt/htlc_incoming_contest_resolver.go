@@ -169,8 +169,8 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 
 	// Define closure to process htlc resolutions either direct or triggered by
 	// later notification.
-	processHodlEvent := func(e invoices.HtlcResolution) (ContractResolver,
-		error) {
+	processHtlcResolution := func(e invoices.HtlcResolution) (
+		ContractResolver, error) {
 
 		if e.Preimage == nil {
 			log.Infof("%T(%v): Exit hop HTLC canceled "+
@@ -212,7 +212,7 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 
 		// Resolve the htlc directly if possible.
 		if event != nil {
-			return processHodlEvent(*event)
+			return processHtlcResolution(*event)
 		}
 	default:
 		return nil, err
@@ -254,7 +254,7 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 		case hodlItem := <-hodlChan:
 			htlcResolution := hodlItem.(invoices.HtlcResolution)
 
-			return processHodlEvent(htlcResolution)
+			return processHtlcResolution(htlcResolution)
 
 		case newBlock, ok := <-blockEpochs.Epochs:
 			if !ok {

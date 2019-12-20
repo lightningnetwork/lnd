@@ -109,7 +109,9 @@ message SendPaymentRequest {
     /**
     Features assumed to be supported by the final node. All transitive feature
     depdencies must also be set properly. For a given feature bit pair, either
-    optional or remote may be set, but not both.
+    optional or remote may be set, but not both. If this field is nil or empty,
+    the router will try to load destination features from the graph as a
+    fallback.
     */
     repeated lnrpc.FeatureBit dest_features = 16;
 }
@@ -254,6 +256,7 @@ message Failure {
         PERMANENT_NODE_FAILURE = 20;
         PERMANENT_CHANNEL_FAILURE = 21;
         EXPIRY_TOO_FAR = 22;
+        MPP_TIMEOUT = 23;
 
         /**
         The error source is known, but the failure itself couldn't be decoded.

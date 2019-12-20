@@ -196,7 +196,6 @@ func errorToPaymentFailure(err error) channeldb.FailureReason {
 		errNoTlvPayload,
 		errNoPaymentAddr,
 		errNoPathFound,
-		errMaxHopsExceeded,
 		errPrebuiltRouteTried:
 
 		return channeldb.FailureReasonNoRoute

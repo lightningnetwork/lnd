@@ -98,6 +98,11 @@ func (r *MPP) Record() tlv.Record {
 	)
 }
 
+// PayloadSize returns the size this record takes up in encoded form.
+func (r *MPP) PayloadSize() uint64 {
+	return 32 + tlv.SizeTUint64(uint64(r.totalMsat))
+}
+
 // String returns a human-readable representation of the mpp payload field.
 func (r *MPP) String() string {
 	return fmt.Sprintf("total=%v, addr=%x", r.totalMsat, r.paymentAddr)

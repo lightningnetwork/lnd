@@ -191,10 +191,8 @@ func (i *interpretedResult) processPaymentOutcomeFinal(
 		i.failPair(route, n-1)
 
 		// The other hops relayed corectly, so assign those pairs a
-		// success result.
-		if n > 2 {
-			i.successPairRange(route, 0, n-2)
-		}
+		// success result. At this point, n >= 2.
+		i.successPairRange(route, 0, n-2)
 
 	// We are using wrong payment hash or amount, fail the payment.
 	case *lnwire.FailIncorrectPaymentAmount,
@@ -216,6 +214,22 @@ func (i *interpretedResult) processPaymentOutcomeFinal(
 		// deliberately. What to penalize?
 		i.finalFailureReason = &reasonIncorrectDetails
 
+	case *lnwire.FailMPPTimeout:
+		// TODO(carla): decide how to penalize mpp timeout. In the
+		// meantime, attribute success to the hops along the route and
+		// do not penalize the final node.
+
+		i.finalFailureReason = &reasonError
+
+		// If this is a direct payment, take no action.
+		if n == 1 {
+			return
+		}
+
+		// Assign all pairs a success result except the final hop, as
+		// the payment reached the destination correctly.
+		i.successPairRange(route, 0, n-2)
+
 	default:
 		// All other errors are considered terminal if coming from the
 		// final hop. They indicate that something is wrong at the
@@ -223,7 +237,7 @@ func (i *interpretedResult) processPaymentOutcomeFinal(
 		i.failNode(route, n)
 
 		// Other channels in the route forwarded correctly.
-		if n > 2 {
+		if n >= 2 {
 			i.successPairRange(route, 0, n-2)
 		}
 

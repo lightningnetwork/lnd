@@ -24,9 +24,10 @@ type nodeWithDist struct {
 	// amount that includes also the fees for subsequent hops.
 	amountToReceive lnwire.MilliSatoshi
 
-	// incomingCltv is the expected cltv value for the incoming htlc of this
-	// node. This value does not include the final cltv.
-	incomingCltv uint32
+	// incomingCltv is the expected absolute expiry height for the incoming
+	// htlc of this node. This value should already include the final cltv
+	// delta.
+	incomingCltv int32
 
 	// probability is the probability that from this node onward the route
 	// is successful.
@@ -39,6 +40,10 @@ type nodeWithDist struct {
 
 	// nextHop is the edge this route comes from.
 	nextHop *channeldb.ChannelEdgePolicy
+
+	// routingInfoSize is the total size requirement for the payloads field
+	// in the onion packet from this hop towards the final destination.
+	routingInfoSize uint64
 }
 
 // distanceHeap is a min-distance heap that's used within our path finding

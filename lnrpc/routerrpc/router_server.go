@@ -415,6 +415,9 @@ func marshallError(sendError error) (*Failure, error) {
 	case *lnwire.FailPermanentChannelFailure:
 		response.Code = Failure_PERMANENT_CHANNEL_FAILURE
 
+	case *lnwire.FailMPPTimeout:
+		response.Code = Failure_MPP_TIMEOUT
+
 	case nil:
 		response.Code = Failure_UNKNOWN_FAILURE
 

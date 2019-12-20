@@ -42,6 +42,13 @@ var (
 		0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
 	}
 
+	specPaymentAddr = [32]byte{
+		0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11,
+		0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11,
+		0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11,
+		0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11,
+	}
+
 	testEmptyString    = ""
 	testCupOfCoffee    = "1 cup coffee"
 	testCoffeeBeans    = "coffee beans"
@@ -499,8 +506,8 @@ func TestDecodeEncode(t *testing.T) {
 		},
 		{
 			// On mainnet, please send $30 coffee beans supporting
-			// features 1 and 9.
-			encodedInvoice: "lnbc25m1pvjluezpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqdq5vdhkven9v5sxyetpdees9qzsze992adudgku8p05pstl6zh7av6rx2f297pv89gu5q93a0hf3g7lynl3xq56t23dpvah6u7y9qey9lccrdml3gaqwc6nxsl5ktzm464sq73t7cl",
+			// features 9, 15 and 99, using secret 0x11...
+			encodedInvoice: "lnbc25m1pvjluezpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqdq5vdhkven9v5sxyetpdeessp5zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zygs9q5sqqqqqqqqqqqqqqqpqsq67gye39hfg3zd8rgc80k32tvy9xk2xunwm5lzexnvpx6fd77en8qaq424dxgt56cag2dpt359k3ssyhetktkpqh24jqnjyw6uqd08sgptq44qu",
 			valid:          true,
 			decodedInvoice: func() *Invoice {
 				return &Invoice{
@@ -508,10 +515,11 @@ func TestDecodeEncode(t *testing.T) {
 					MilliSat:    &testMillisat25mBTC,
 					Timestamp:   time.Unix(1496314658, 0),
 					PaymentHash: &testPaymentHash,
+					PaymentAddr: &specPaymentAddr,
 					Description: &testCoffeeBeans,
 					Destination: testPubKey,
 					Features: lnwire.NewFeatureVector(
-						lnwire.NewRawFeatureVector(1, 9),
+						lnwire.NewRawFeatureVector(9, 15, 99),
 						lnwire.Features,
 					),
 				}
@@ -525,8 +533,8 @@ func TestDecodeEncode(t *testing.T) {
 		},
 		{
 			// On mainnet, please send $30 coffee beans supporting
-			// features 1, 9, and 100.
-			encodedInvoice: "lnbc25m1pvjluezpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqdq5vdhkven9v5sxyetpdees9q4pqqqqqqqqqqqqqqqqqqszk3ed62snp73037h4py4gry05eltlp0uezm2w9ajnerhmxzhzhsu40g9mgyx5v3ad4aqwkmvyftzk4k9zenz90mhjcy9hcevc7r3lx2sphzfxz7",
+			// features 9, 15, 99, and 100, using secret 0x11...
+			encodedInvoice: "lnbc25m1pvjluezpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqdq5vdhkven9v5sxyetpdeessp5zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zygs9q4psqqqqqqqqqqqqqqqpqqqqu7fz6pjqczdm3jp3qps7xntj2w2mm70e0ckhw3c5xk9p36pvk3sewn7ncaex6uzfq0vtqzy28se6pcwn790vxex7xystzumhg55p6qq9wq7td",
 			valid:          false,
 			skipEncoding:   true,
 			decodedInvoice: func() *Invoice {
@@ -535,10 +543,11 @@ func TestDecodeEncode(t *testing.T) {
 					MilliSat:    &testMillisat25mBTC,
 					Timestamp:   time.Unix(1496314658, 0),
 					PaymentHash: &testPaymentHash,
+					PaymentAddr: &specPaymentAddr,
 					Description: &testCoffeeBeans,
 					Destination: testPubKey,
 					Features: lnwire.NewFeatureVector(
-						lnwire.NewRawFeatureVector(1, 9, 100),
+						lnwire.NewRawFeatureVector(9, 15, 99, 100),
 						lnwire.Features,
 					),
 				}

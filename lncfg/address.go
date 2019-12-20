@@ -1,13 +1,13 @@
 package lncfg
 
 import (
+	"context"
 	"crypto/tls"
 	"encoding/hex"
 	"fmt"
 	"net"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -274,8 +274,10 @@ func verifyPort(address string, defaultPort string) string {
 
 // ClientAddressDialer creates a gRPC dialer that can also dial unix socket
 // addresses instead of just TCP addresses.
-func ClientAddressDialer(defaultPort string) func(string, time.Duration) (net.Conn, error) {
-	return func(addr string, timeout time.Duration) (net.Conn, error) {
+func ClientAddressDialer(defaultPort string) func(context.Context,
+	string) (net.Conn, error) {
+
+	return func(ctx context.Context, addr string) (net.Conn, error) {
 		parsedAddr, err := ParseAddressString(
 			addr, defaultPort, net.ResolveTCPAddr,
 		)
@@ -283,8 +285,9 @@ func ClientAddressDialer(defaultPort string) func(string, time.Duration) (net.Co
 			return nil, err
 		}
 
-		return net.DialTimeout(
-			parsedAddr.Network(), parsedAddr.String(), timeout,
+		d := net.Dialer{}
+		return d.DialContext(
+			ctx, parsedAddr.Network(), parsedAddr.String(),
 		)
 	}
 }

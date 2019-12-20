@@ -20,6 +20,7 @@ import (
 	"github.com/btcsuite/btcutil"
 	"github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing/route"
 )
 
 var (
@@ -513,7 +514,7 @@ func (c *ChannelGraph) LookupAlias(pub *btcec.PublicKey) (string, error) {
 
 // DeleteLightningNode starts a new database transaction to remove a vertex/node
 // from the database according to the node's public key.
-func (c *ChannelGraph) DeleteLightningNode(nodePub *btcec.PublicKey) error {
+func (c *ChannelGraph) DeleteLightningNode(nodePub route.Vertex) error {
 	// TODO(roasbeef): ensure dangling edges are removed...
 	return c.db.Update(func(tx *bbolt.Tx) error {
 		nodes := tx.Bucket(nodeBucket)
@@ -521,9 +522,7 @@ func (c *ChannelGraph) DeleteLightningNode(nodePub *btcec.PublicKey) error {
 			return ErrGraphNodeNotFound
 		}
 
-		return c.deleteLightningNode(
-			nodes, nodePub.SerializeCompressed(),
-		)
+		return c.deleteLightningNode(nodes, nodePub[:])
 	})
 }
 
@@ -2180,10 +2179,17 @@ func (l *LightningNode) isPublic(tx *bbolt.Tx, sourcePubKey []byte) (bool, error
 // FetchLightningNode attempts to look up a target node by its identity public
 // key. If the node isn't found in the database, then ErrGraphNodeNotFound is
 // returned.
-func (c *ChannelGraph) FetchLightningNode(pub *btcec.PublicKey) (*LightningNode, error) {
+//
+// If the caller wishes to re-use an existing boltdb transaction, then it
+// should be passed as the first argument.  Otherwise the first argument should
+// be nil and a fresh transaction will be created to execute the graph
+// traversal.
+func (c *ChannelGraph) FetchLightningNode(tx *bbolt.Tx, nodePub route.Vertex) (
+	*LightningNode, error) {
+
 	var node *LightningNode
-	nodePub := pub.SerializeCompressed()
-	err := c.db.View(func(tx *bbolt.Tx) error {
+
+	fetchNode := func(tx *bbolt.Tx) error {
 		// First grab the nodes bucket which stores the mapping from
 		// pubKey to node information.
 		nodes := tx.Bucket(nodeBucket)
@@ -2193,7 +2199,7 @@ func (c *ChannelGraph) FetchLightningNode(pub *btcec.PublicKey) (*LightningNode,
 
 		// If a key for this serialized public key isn't found, then
 		// the target node doesn't exist within the database.
-		nodeBytes := nodes.Get(nodePub)
+		nodeBytes := nodes.Get(nodePub[:])
 		if nodeBytes == nil {
 			return ErrGraphNodeNotFound
 		}
@@ -2210,7 +2216,14 @@ func (c *ChannelGraph) FetchLightningNode(pub *btcec.PublicKey) (*LightningNode,
 		node = &n
 
 		return nil
-	})
+	}
+
+	var err error
+	if tx == nil {
+		err = c.db.View(fetchNode)
+	} else {
+		err = fetchNode(tx)
+	}
 	if err != nil {
 		return nil, err
 	}

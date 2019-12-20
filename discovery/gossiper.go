@@ -47,6 +47,10 @@ var (
 	// gossip syncer corresponding to a gossip query message received from
 	// the remote peer.
 	ErrGossipSyncerNotFound = errors.New("gossip syncer not found")
+
+	// emptyPubkey is used to compare compressed pubkeys against an empty
+	// byte array.
+	emptyPubkey [33]byte
 )
 
 // optionalMsgFields is a set of optional message fields that external callers
@@ -2421,16 +2425,25 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 func (d *AuthenticatedGossiper) processZombieUpdate(
 	chanInfo *channeldb.ChannelEdgeInfo, msg *lnwire.ChannelUpdate) error {
 
-	// Since we've deemed the update as not stale above, before marking it
-	// live, we'll make sure it has been signed by the correct party. The
-	// least-significant bit in the flag on the channel update tells us
+	// The least-significant bit in the flag on the channel update tells us
 	// which edge is being updated.
+	isNode1 := msg.ChannelFlags&lnwire.ChanUpdateDirection == 0
+
+	// Since we've deemed the update as not stale above, before marking it
+	// live, we'll make sure it has been signed by the correct party. If we
+	// have both pubkeys, either party can resurect the channel. If we've
+	// already marked this with the stricter, single-sided resurrection we
+	// will only have the pubkey of the node with the oldest timestamp.
 	var pubKey *btcec.PublicKey
 	switch {
-	case msg.ChannelFlags&lnwire.ChanUpdateDirection == 0:
+	case isNode1 && chanInfo.NodeKey1Bytes != emptyPubkey:
 		pubKey, _ = chanInfo.NodeKey1()
-	case msg.ChannelFlags&lnwire.ChanUpdateDirection == 1:
+	case !isNode1 && chanInfo.NodeKey2Bytes != emptyPubkey:
 		pubKey, _ = chanInfo.NodeKey2()
+	}
+	if pubKey == nil {
+		return fmt.Errorf("incorrect pubkey to resurrect zombie "+
+			"with chan_id=%v", msg.ShortChannelID)
 	}
 
 	err := routing.VerifyChannelUpdateSignature(msg, pubKey)

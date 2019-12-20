@@ -489,8 +489,8 @@ func (l *channelLink) Stop() {
 
 	l.log.Info("stopping")
 
-	// As the link is stopping, we are no longer interested in hodl events
-	// coming from the invoice registry.
+	// As the link is stopping, we are no longer interested in htlc
+	// resolutions coming from the invoice registry.
 	l.cfg.Registry.HodlUnsubscribeAll(l.hodlQueue.ChanIn())
 
 	if l.cfg.ChainEvents.Cancel != nil {
@@ -1126,11 +1126,11 @@ out:
 		case msg := <-l.upstream:
 			l.handleUpstreamMsg(msg)
 
-		// A hodl event is received. This means that we now have a
+		// A htlc resolution is received. This means that we now have a
 		// resolution for a previously accepted htlc.
 		case hodlItem := <-l.hodlQueue.ChanOut():
-			hodlEvent := hodlItem.(invoices.HodlEvent)
-			err := l.processHodlQueue(hodlEvent)
+			htlcResolution := hodlItem.(invoices.HtlcResolution)
+			err := l.processHodlQueue(htlcResolution)
 			if err != nil {
 				l.fail(LinkFailureError{code: ErrInternalError},
 					fmt.Sprintf("process hodl queue: %v",
@@ -1145,24 +1145,26 @@ out:
 	}
 }
 
-// processHodlQueue processes a received hodl event and continues reading from
-// the hodl queue until no more events remain. When this function returns
-// without an error, the commit tx should be updated.
-func (l *channelLink) processHodlQueue(firstHodlEvent invoices.HodlEvent) error {
+// processHodlQueue processes a received htlc resolution and continues reading
+// from the hodl queue until no more resolutions remain. When this function
+// returns without an error, the commit tx should be updated.
+func (l *channelLink) processHodlQueue(
+	firstResolution invoices.HtlcResolution) error {
+
 	// Try to read all waiting resolution messages, so that they can all be
 	// processed in a single commitment tx update.
-	hodlEvent := firstHodlEvent
+	htlcResolution := firstResolution
 loop:
 	for {
 		// Lookup all hodl htlcs that can be failed or settled with this event.
 		// The hodl htlc must be present in the map.
-		circuitKey := hodlEvent.CircuitKey
+		circuitKey := htlcResolution.CircuitKey
 		hodlHtlc, ok := l.hodlMap[circuitKey]
 		if !ok {
 			return fmt.Errorf("hodl htlc not found: %v", circuitKey)
 		}
 
-		if err := l.processHodlEvent(hodlEvent, hodlHtlc); err != nil {
+		if err := l.processHodlEvent(htlcResolution, hodlHtlc); err != nil {
 			return err
 		}
 
@@ -1171,7 +1173,7 @@ loop:
 
 		select {
 		case item := <-l.hodlQueue.ChanOut():
-			hodlEvent = item.(invoices.HodlEvent)
+			htlcResolution = item.(invoices.HtlcResolution)
 		default:
 			break loop
 		}
@@ -1185,29 +1187,29 @@ loop:
 	return nil
 }
 
-// processHodlEvent applies a received hodl event to the provided htlc. When
-// this function returns without an error, the commit tx should be updated.
-func (l *channelLink) processHodlEvent(hodlEvent invoices.HodlEvent,
+// processHodlEvent applies a received htlc resolution to the provided htlc.
+// When this function returns without an error, the commit tx should be updated.
+func (l *channelLink) processHodlEvent(resolution invoices.HtlcResolution,
 	htlc hodlHtlc) error {
 
-	circuitKey := hodlEvent.CircuitKey
+	circuitKey := resolution.CircuitKey
 
 	// Determine required action for the resolution.
-	if hodlEvent.Preimage != nil {
-		l.log.Debugf("received hodl settle event for %v", circuitKey)
+	if resolution.Preimage != nil {
+		l.log.Debugf("received settle resolution for %v", circuitKey)
 
 		return l.settleHTLC(
-			*hodlEvent.Preimage, htlc.pd.HtlcIndex,
+			*resolution.Preimage, htlc.pd.HtlcIndex,
 			htlc.pd.SourceRef,
 		)
 	}
 
-	l.log.Debugf("received hodl cancel event for %v", circuitKey)
+	l.log.Debugf("received cancel resolution for %v", circuitKey)
 
 	// In case of a cancel, always return
 	// incorrect_or_unknown_payment_details in order to avoid leaking info.
 	failure := lnwire.NewFailIncorrectDetails(
-		htlc.pd.Amount, uint32(hodlEvent.AcceptHeight),
+		htlc.pd.Amount, uint32(resolution.AcceptHeight),
 	)
 
 	l.sendHTLCError(

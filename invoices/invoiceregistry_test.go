@@ -281,7 +281,7 @@ func TestCancelInvoice(t *testing.T) {
 	}
 
 	if event.Preimage != nil {
-		t.Fatal("expected cancel hodl event")
+		t.Fatal("expected cancel htlc resolution")
 	}
 	if event.AcceptHeight != testCurrentHeight {
 		t.Fatalf("expected acceptHeight %v, but got %v",
@@ -421,11 +421,11 @@ func TestSettleHoldInvoice(t *testing.T) {
 		t.Fatal("expected set preimage to succeed")
 	}
 
-	hodlEvent := (<-hodlChan).(HodlEvent)
-	if *hodlEvent.Preimage != testInvoicePreimage {
-		t.Fatal("unexpected preimage in hodl event")
+	htlcResolution := (<-hodlChan).(HtlcResolution)
+	if *htlcResolution.Preimage != testInvoicePreimage {
+		t.Fatal("unexpected preimage in hodl resolution")
 	}
-	if hodlEvent.AcceptHeight != testCurrentHeight {
+	if htlcResolution.AcceptHeight != testCurrentHeight {
 		t.Fatalf("expected acceptHeight %v, but got %v",
 			testCurrentHeight, event.AcceptHeight)
 	}
@@ -513,9 +513,9 @@ func TestCancelHoldInvoice(t *testing.T) {
 		t.Fatal("cancel invoice failed")
 	}
 
-	hodlEvent := (<-hodlChan).(HodlEvent)
-	if hodlEvent.Preimage != nil {
-		t.Fatal("expected cancel hodl event")
+	htlcResolution := (<-hodlChan).(HtlcResolution)
+	if htlcResolution.Preimage != nil {
+		t.Fatal("expected cancel htlc resolution")
 	}
 
 	// Offering the same htlc again at a higher height should still result
@@ -538,10 +538,10 @@ func TestCancelHoldInvoice(t *testing.T) {
 }
 
 // TestUnknownInvoice tests that invoice registry returns an error when the
-// invoice is unknown. This is to guard against returning a cancel hodl event
-// for forwarded htlcs. In the link, NotifyExitHopHtlc is only called if we are
-// the exit hop, but in htlcIncomingContestResolver it is called with forwarded
-// htlc hashes as well.
+// invoice is unknown. This is to guard against returning a cancel htlc
+// resolution for forwarded htlcs. In the link, NotifyExitHopHtlc is only called
+// if we are the exit hop, but in htlcIncomingContestResolver it is called with
+// forwarded htlc hashes as well.
 func TestUnknownInvoice(t *testing.T) {
 	ctx := newTestContext(t)
 	defer ctx.cleanup()
@@ -593,8 +593,8 @@ func TestSettleMpp(t *testing.T) {
 	// Simulate mpp timeout releasing htlc 1.
 	ctx.clock.SetTime(testTime.Add(30 * time.Second))
 
-	hodlEvent := (<-hodlChan1).(HodlEvent)
-	if hodlEvent.Preimage != nil {
+	htlcResolution := (<-hodlChan1).(HtlcResolution)
+	if htlcResolution.Preimage != nil {
 		t.Fatal("expected cancel event")
 	}
 

@@ -18,13 +18,13 @@ type notifyExitHopData struct {
 type mockRegistry struct {
 	notifyChan  chan notifyExitHopData
 	notifyErr   error
-	notifyEvent *invoices.HodlEvent
+	notifyEvent *invoices.HtlcResolution
 }
 
 func (r *mockRegistry) NotifyExitHopHtlc(payHash lntypes.Hash,
 	paidAmount lnwire.MilliSatoshi, expiry uint32, currentHeight int32,
 	circuitKey channeldb.CircuitKey, hodlChan chan<- interface{},
-	payload invoices.Payload) (*invoices.HodlEvent, error) {
+	payload invoices.Payload) (*invoices.HtlcResolution, error) {
 
 	r.notifyChan <- notifyExitHopData{
 		hodlChan:      hodlChan,

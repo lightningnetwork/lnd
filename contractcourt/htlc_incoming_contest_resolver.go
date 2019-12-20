@@ -167,9 +167,9 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 	preimageSubscription := h.PreimageDB.SubscribeUpdates()
 	defer preimageSubscription.CancelSubscription()
 
-	// Define closure to process hodl events either direct or triggered by
-	// later notifcation.
-	processHodlEvent := func(e invoices.HodlEvent) (ContractResolver,
+	// Define closure to process htlc resolutions either direct or triggered by
+	// later notification.
+	processHodlEvent := func(e invoices.HtlcResolution) (ContractResolver,
 		error) {
 
 		if e.Preimage == nil {
@@ -252,9 +252,9 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 			return &h.htlcSuccessResolver, nil
 
 		case hodlItem := <-hodlChan:
-			hodlEvent := hodlItem.(invoices.HodlEvent)
+			htlcResolution := hodlItem.(invoices.HtlcResolution)
 
-			return processHodlEvent(hodlEvent)
+			return processHodlEvent(htlcResolution)
 
 		case newBlock, ok := <-blockEpochs.Epochs:
 			if !ok {

@@ -1319,7 +1319,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 		t.Fatalf("unable to find any routes: %v", err)
 	}
 
-	copy1, err := ctx.graph.FetchLightningNode(priv1.PubKey())
+	copy1, err := ctx.graph.FetchLightningNode(nil, pub1)
 	if err != nil {
 		t.Fatalf("unable to fetch node: %v", err)
 	}
@@ -1328,7 +1328,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 		t.Fatalf("fetched node not equal to original")
 	}
 
-	copy2, err := ctx.graph.FetchLightningNode(priv2.PubKey())
+	copy2, err := ctx.graph.FetchLightningNode(nil, pub2)
 	if err != nil {
 		t.Fatalf("unable to fetch node: %v", err)
 	}
@@ -2174,7 +2174,7 @@ func TestFindPathFeeWeighting(t *testing.T) {
 		},
 		noRestrictions,
 		testPathFindingConfig,
-		sourceNode.PubKeyBytes, target, amt,
+		sourceNode.PubKeyBytes, target, amt, 0,
 	)
 	if err != nil {
 		t.Fatalf("unable to find path: %v", err)

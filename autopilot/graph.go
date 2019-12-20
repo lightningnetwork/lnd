@@ -13,6 +13,7 @@ import (
 	"github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing/route"
 )
 
 var (
@@ -145,7 +146,14 @@ func (d *databaseChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 
 	fetchNode := func(pub *btcec.PublicKey) (*channeldb.LightningNode, error) {
 		if pub != nil {
-			dbNode, err := d.db.FetchLightningNode(pub)
+			vertex, err := route.NewVertexFromBytes(
+				pub.SerializeCompressed(),
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			dbNode, err := d.db.FetchLightningNode(nil, vertex)
 			switch {
 			case err == channeldb.ErrGraphNodeNotFound:
 				fallthrough

@@ -7,8 +7,8 @@ import (
 	"math"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
 	"github.com/coreos/bbolt"
+	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/feature"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -17,12 +17,6 @@ import (
 )
 
 const (
-	// HopLimit is the maximum number hops that is permissible as a route.
-	// Any potential paths found that lie above this limit will be rejected
-	// with an error. This value is computed using the current fixed-size
-	// packet length of the Sphinx construction.
-	HopLimit = 20
-
 	// infinity is used as a starting distance in our shortest path search.
 	infinity = math.MaxInt64
 
@@ -48,7 +42,8 @@ const (
 // pathFinder defines the interface of a path finding algorithm.
 type pathFinder = func(g *graphParams, r *RestrictParams,
 	cfg *PathFindingConfig, source, target route.Vertex,
-	amt lnwire.MilliSatoshi) ([]*channeldb.ChannelEdgePolicy, error)
+	amt lnwire.MilliSatoshi, finalHtlcExpiry int32) (
+	[]*channeldb.ChannelEdgePolicy, error)
 
 var (
 	// DefaultPaymentAttemptPenalty is the virtual cost in path finding weight
@@ -78,10 +73,6 @@ var (
 	// errNoPathFound is returned when a path to the target destination does
 	// not exist in the graph.
 	errNoPathFound = errors.New("unable to find a path to destination")
-
-	// errMaxHopsExceeded is returned when a candidate path is found, but
-	// the length of that path exceeds HopLimit.
-	errMaxHopsExceeded = errors.New("potential path has too many hops")
 
 	// errInsufficientLocalBalance is returned when none of the local
 	// channels have enough balance for the payment.
@@ -412,7 +403,7 @@ func getMaxOutgoingAmt(node route.Vertex, outgoingChan *uint64,
 // that need to be paid along the path and accurately check the amount
 // to forward at every node against the available bandwidth.
 func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
-	source, target route.Vertex, amt lnwire.MilliSatoshi) (
+	source, target route.Vertex, amt lnwire.MilliSatoshi, finalHtlcExpiry int32) (
 	[]*channeldb.ChannelEdgePolicy, error) {
 
 	// Pathfinding can be a significant portion of the total payment
@@ -447,12 +438,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 	// we have for the target node from our graph.
 	features := r.DestFeatures
 	if features == nil {
-		targetKey, err := btcec.ParsePubKey(target[:], btcec.S256())
-		if err != nil {
-			return nil, err
-		}
-
-		targetNode, err := g.graph.FetchLightningNode(targetKey)
+		targetNode, err := g.graph.FetchLightningNode(tx, target)
 		switch {
 
 		// If the node exists and has features, use them directly.
@@ -534,6 +520,23 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		}
 	}
 
+	// Build a preliminary destination hop structure to obtain the payload
+	// size.
+	var mpp *record.MPP
+	if r.PaymentAddr != nil {
+		mpp = record.NewMPP(amt, *r.PaymentAddr)
+	}
+
+	finalHop := route.Hop{
+		AmtToForward:     amt,
+		OutgoingTimeLock: uint32(finalHtlcExpiry),
+		CustomRecords:    r.DestCustomRecords,
+		LegacyPayload: !features.HasFeature(
+			lnwire.TLVOnionPayloadOptional,
+		),
+		MPP: mpp,
+	}
+
 	// We can't always assume that the end destination is publicly
 	// advertised to the network so we'll manually include the target node.
 	// The target node charges no fee. Distance is set to 0, because this is
@@ -548,13 +551,19 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		weight:          0,
 		node:            target,
 		amountToReceive: amt,
-		incomingCltv:    0,
+		incomingCltv:    finalHtlcExpiry,
 		probability:     1,
+		routingInfoSize: finalHop.PayloadSize(0),
 	}
+
+	// Calculate the absolute cltv limit. Use uint64 to prevent an overflow
+	// if the cltv limit is MaxUint32.
+	absoluteCltvLimit := uint64(r.CltvLimit) + uint64(finalHtlcExpiry)
 
 	// processEdge is a helper closure that will be used to make sure edges
 	// satisfy our specific requirements.
 	processEdge := func(fromVertex route.Vertex,
+		fromFeatures *lnwire.FeatureVector,
 		edge *channeldb.ChannelEdgePolicy, toNodeDist *nodeWithDist) {
 
 		edgesExpanded++
@@ -596,11 +605,10 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 			timeLockDelta = edge.TimeLockDelta
 		}
 
-		incomingCltv := toNodeDist.incomingCltv +
-			uint32(timeLockDelta)
+		incomingCltv := toNodeDist.incomingCltv + int32(timeLockDelta)
 
 		// Check that we are within our CLTV limit.
-		if incomingCltv > r.CltvLimit {
+		if uint64(incomingCltv) > absoluteCltvLimit {
 			return
 		}
 
@@ -676,34 +684,32 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 				edge.ChannelID)
 		}
 
-		switch {
+		// Calculate the total routing info size if this hop were to be
+		// included. If we are coming from the source hop, the payload
+		// size is zero, because the original htlc isn't in the onion
+		// blob.
+		var payloadSize uint64
+		if fromVertex != source {
+			supportsTlv := fromFeatures.HasFeature(
+				lnwire.TLVOnionPayloadOptional,
+			)
 
-		// If this edge takes us to the final hop, we'll set the node
-		// features to those determined above. These are either taken
-		// from the destination features, e.g. virtual or invoice
-		// features, or loaded as a fallback from the graph. The
-		// transitive dependencies were already validated above, so no
-		// need to do so now.
-		//
-		// NOTE: This may overwrite features loaded from the graph if
-		// destination features were provided. This is fine though,
-		// since our route construction does not care where the features
-		// are actually taken from. In the future we may wish to do
-		// route construction within findPath, and avoid using
-		// ChannelEdgePolicy altogether.
-		case edge.Node.PubKeyBytes == target:
-			edge.Node.Features = features
-
-		// Otherwise, this is some other intermediary node. Verify the
-		// transitive feature dependencies for this node, and skip the
-		// channel if they are invalid.
-		default:
-			err := feature.ValidateDeps(edge.Node.Features)
-			if err != nil {
-				log.Tracef("Node %x has invalid features",
-					edge.Node.PubKeyBytes)
-				return
+			hop := route.Hop{
+				AmtToForward: amountToSend,
+				OutgoingTimeLock: uint32(
+					toNodeDist.incomingCltv,
+				),
+				LegacyPayload: !supportsTlv,
 			}
+
+			payloadSize = hop.PayloadSize(edge.ChannelID)
+		}
+
+		routingInfoSize := toNodeDist.routingInfoSize + payloadSize
+
+		// Skip paths that would exceed the maximum routing info size.
+		if routingInfoSize > sphinx.MaxPayloadSize {
+			return
 		}
 
 		// All conditions are met and this new tentative distance is
@@ -718,6 +724,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 			incomingCltv:    incomingCltv,
 			probability:     probability,
 			nextHop:         edge,
+			routingInfoSize: routingInfoSize,
 		}
 		distance[fromVertex] = withDist
 
@@ -729,6 +736,44 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 
 	// TODO(roasbeef): also add path caching
 	//  * similar to route caching, but doesn't factor in the amount
+
+	// Cache features because we visit nodes multiple times.
+	featureCache := make(map[route.Vertex]*lnwire.FeatureVector)
+
+	// getGraphFeatures returns (cached) node features from the graph.
+	getGraphFeatures := func(node route.Vertex) (*lnwire.FeatureVector,
+		error) {
+
+		// Check cache for features of the fromNode.
+		fromFeatures, ok := featureCache[node]
+		if !ok {
+			targetNode, err := g.graph.FetchLightningNode(tx, node)
+			switch {
+
+			// If the node exists and has valid features, use them.
+			case err == nil:
+				err := feature.ValidateDeps(targetNode.Features)
+				if err == nil {
+					fromFeatures = targetNode.Features
+				}
+
+			// If an error other than the node not existing is hit,
+			// abort.
+			case err != channeldb.ErrGraphNodeNotFound:
+				return nil, err
+
+			// Otherwise, we couldn't find a node announcement,
+			// populate a blank feature vector.
+			default:
+				fromFeatures = lnwire.EmptyFeatureVector()
+			}
+
+			// Update cache.
+			featureCache[node] = fromFeatures
+		}
+
+		return fromFeatures, nil
+	}
 
 	routeToSelf := source == target
 	for {
@@ -777,9 +822,20 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 				continue
 			}
 
+			// Get feature vector for fromNode.
+			fromFeatures, err := getGraphFeatures(fromNode)
+			if err != nil {
+				return nil, err
+			}
+
+			// If there are no valid features, skip this node.
+			if fromFeatures == nil {
+				continue
+			}
+
 			// Check if this candidate node is better than what we
 			// already have.
-			processEdge(fromNode, policy, partialPath)
+			processEdge(fromNode, fromFeatures, policy, partialPath)
 		}
 
 		if nodeHeap.Len() == 0 {
@@ -824,17 +880,21 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		}
 	}
 
-	// The route is invalid if it spans more than 20 hops. The current
-	// Sphinx (onion routing) implementation can only encode up to 20 hops
-	// as the entire packet is fixed size. If this route is more than 20
-	// hops, then it's invalid.
-	numEdges := len(pathEdges)
-	if numEdges > HopLimit {
-		return nil, errMaxHopsExceeded
-	}
+	// For the final hop, we'll set the node features to those determined
+	// above. These are either taken from the destination features, e.g.
+	// virtual or invoice features, or loaded as a fallback from the graph.
+	// The transitive dependencies were already validated above, so no need
+	// to do so now.
+	//
+	// NOTE: This may overwrite features loaded from the graph if
+	// destination features were provided. This is fine though, since our
+	// route construction does not care where the features are actually
+	// taken from. In the future we may wish to do route construction within
+	// findPath, and avoid using ChannelEdgePolicy altogether.
+	pathEdges[len(pathEdges)-1].Node.Features = features
 
-	log.Debugf("Found route: probability=%v, hops=%v, fee=%v\n",
-		distance[source].probability, numEdges,
+	log.Debugf("Found route: probability=%v, hops=%v, fee=%v",
+		distance[source].probability, len(pathEdges),
 		distance[source].amountToReceive-amt)
 
 	return pathEdges, nil

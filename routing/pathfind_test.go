@@ -823,6 +823,7 @@ func testBasicGraphPathFindingCase(t *testing.T, graphInstance *testGraphInstanc
 		},
 		testPathFindingConfig,
 		sourceNode.PubKeyBytes, target, paymentAmt,
+		startingHeight+finalHopCLTV,
 	)
 	if test.expectFailureNoPath {
 		if err == nil {
@@ -1012,6 +1013,7 @@ func TestPathFindingWithAdditionalEdges(t *testing.T) {
 			},
 			r, testPathFindingConfig,
 			sourceNode.PubKeyBytes, doge.PubKeyBytes, paymentAmt,
+			0,
 		)
 	}
 
@@ -1358,53 +1360,53 @@ func TestNewRoute(t *testing.T) {
 }
 
 func TestNewRoutePathTooLong(t *testing.T) {
-	t.Skip()
+	t.Parallel()
 
-	// Ensure that potential paths which are over the maximum hop-limit are
-	// rejected.
-	graph, err := parseTestGraph(excessiveHopsGraphFilePath)
+	var testChannels []*testChannel
+
+	// Setup a linear network of 21 hops.
+	fromNode := "start"
+	for i := 0; i < 21; i++ {
+		toNode := fmt.Sprintf("node-%v", i+1)
+		c := symmetricTestChannel(fromNode, toNode, 100000, &testChannelPolicy{
+			Expiry:  144,
+			FeeRate: 400,
+			MinHTLC: 1,
+			MaxHTLC: 100000001,
+		})
+		testChannels = append(testChannels, c)
+
+		fromNode = toNode
+	}
+
+	ctx := newPathFindingTestContext(t, testChannels, "start")
+	defer ctx.cleanup()
+
+	// Assert that we can find 20 hop routes.
+	node20 := ctx.keyFromAlias("node-20")
+	payAmt := lnwire.MilliSatoshi(100001)
+	_, err := ctx.findPath(node20, payAmt)
 	if err != nil {
-		t.Fatalf("unable to create graph: %v", err)
-	}
-	defer graph.cleanUp()
-
-	sourceNode, err := graph.graph.SourceNode()
-	if err != nil {
-		t.Fatalf("unable to fetch source node: %v", err)
+		t.Fatalf("unexpected pathfinding failure: %v", err)
 	}
 
-	paymentAmt := lnwire.NewMSatFromSatoshis(100)
-
-	// We start by confirming that routing a payment 20 hops away is
-	// possible. Alice should be able to find a valid route to ursula.
-	target := graph.aliasMap["ursula"]
-	_, err = findPath(
-		&graphParams{
-			graph: graph.graph,
-		},
-		noRestrictions, testPathFindingConfig,
-		sourceNode.PubKeyBytes, target, paymentAmt,
-	)
-	if err != nil {
-		t.Fatalf("path should have been found")
+	// Assert that finding a 21 hop route fails.
+	node21 := ctx.keyFromAlias("node-21")
+	_, err = ctx.findPath(node21, payAmt)
+	if err != errNoPathFound {
+		t.Fatalf("not route error expected, but got %v", err)
 	}
 
-	// Vincent is 21 hops away from Alice, and thus no valid route should be
-	// presented to Alice.
-	target = graph.aliasMap["vincent"]
-	path, err := findPath(
-		&graphParams{
-			graph: graph.graph,
-		},
-		noRestrictions, testPathFindingConfig,
-		sourceNode.PubKeyBytes, target, paymentAmt,
-	)
-	if err == nil {
-		t.Fatalf("should not have been able to find path, supposed to be "+
-			"greater than 20 hops, found route with %v hops",
-			len(path))
+	// Assert that we can't find a 20 hop route if custom records make it
+	// exceed the maximum payload size.
+	ctx.restrictParams.DestFeatures = tlvFeatures
+	ctx.restrictParams.DestCustomRecords = map[uint64][]byte{
+		100000: bytes.Repeat([]byte{1}, 100),
 	}
-
+	_, err = ctx.findPath(node20, payAmt)
+	if err != errNoPathFound {
+		t.Fatalf("not route error expected, but got %v", err)
+	}
 }
 
 func TestPathNotAvailable(t *testing.T) {
@@ -1437,7 +1439,7 @@ func TestPathNotAvailable(t *testing.T) {
 			graph: graph.graph,
 		},
 		noRestrictions, testPathFindingConfig,
-		sourceNode.PubKeyBytes, unknownNode, 100,
+		sourceNode.PubKeyBytes, unknownNode, 100, 0,
 	)
 	if err != errNoPathFound {
 		t.Fatalf("path shouldn't have been found: %v", err)
@@ -1495,7 +1497,7 @@ func TestDestTLVGraphFallback(t *testing.T) {
 				graph: ctx.graphParams.graph,
 			},
 			r, testPathFindingConfig,
-			sourceNode.PubKeyBytes, target, 100,
+			sourceNode.PubKeyBytes, target, 100, 0,
 		)
 	}
 
@@ -1604,7 +1606,7 @@ func TestMissingFeatureDep(t *testing.T) {
 				graph: ctx.graphParams.graph,
 			},
 			r, testPathFindingConfig,
-			sourceNode.PubKeyBytes, target, 100,
+			sourceNode.PubKeyBytes, target, 100, 0,
 		)
 	}
 
@@ -1682,7 +1684,7 @@ func TestDestPaymentAddr(t *testing.T) {
 				graph: ctx.graphParams.graph,
 			},
 			r, testPathFindingConfig,
-			sourceNode.PubKeyBytes, target, 100,
+			sourceNode.PubKeyBytes, target, 100, 0,
 		)
 	}
 
@@ -1743,7 +1745,7 @@ func TestPathInsufficientCapacity(t *testing.T) {
 			graph: graph.graph,
 		},
 		noRestrictions, testPathFindingConfig,
-		sourceNode.PubKeyBytes, target, payAmt,
+		sourceNode.PubKeyBytes, target, payAmt, 0,
 	)
 	if err != errNoPathFound {
 		t.Fatalf("graph shouldn't be able to support payment: %v", err)
@@ -1776,7 +1778,7 @@ func TestRouteFailMinHTLC(t *testing.T) {
 			graph: graph.graph,
 		},
 		noRestrictions, testPathFindingConfig,
-		sourceNode.PubKeyBytes, target, payAmt,
+		sourceNode.PubKeyBytes, target, payAmt, 0,
 	)
 	if err != errNoPathFound {
 		t.Fatalf("graph shouldn't be able to support payment: %v", err)
@@ -1875,7 +1877,7 @@ func TestRouteFailDisabledEdge(t *testing.T) {
 			graph: graph.graph,
 		},
 		noRestrictions, testPathFindingConfig,
-		sourceNode.PubKeyBytes, target, payAmt,
+		sourceNode.PubKeyBytes, target, payAmt, 0,
 	)
 	if err != nil {
 		t.Fatalf("unable to find path: %v", err)
@@ -1903,7 +1905,7 @@ func TestRouteFailDisabledEdge(t *testing.T) {
 			graph: graph.graph,
 		},
 		noRestrictions, testPathFindingConfig,
-		sourceNode.PubKeyBytes, target, payAmt,
+		sourceNode.PubKeyBytes, target, payAmt, 0,
 	)
 	if err != nil {
 		t.Fatalf("unable to find path: %v", err)
@@ -1928,7 +1930,7 @@ func TestRouteFailDisabledEdge(t *testing.T) {
 			graph: graph.graph,
 		},
 		noRestrictions, testPathFindingConfig,
-		sourceNode.PubKeyBytes, target, payAmt,
+		sourceNode.PubKeyBytes, target, payAmt, 0,
 	)
 	if err != errNoPathFound {
 		t.Fatalf("graph shouldn't be able to support payment: %v", err)
@@ -1962,7 +1964,7 @@ func TestPathSourceEdgesBandwidth(t *testing.T) {
 			graph: graph.graph,
 		},
 		noRestrictions, testPathFindingConfig,
-		sourceNode.PubKeyBytes, target, payAmt,
+		sourceNode.PubKeyBytes, target, payAmt, 0,
 	)
 	if err != nil {
 		t.Fatalf("unable to find path: %v", err)
@@ -1986,7 +1988,7 @@ func TestPathSourceEdgesBandwidth(t *testing.T) {
 			bandwidthHints: bandwidths,
 		},
 		noRestrictions, testPathFindingConfig,
-		sourceNode.PubKeyBytes, target, payAmt,
+		sourceNode.PubKeyBytes, target, payAmt, 0,
 	)
 	if err != errNoPathFound {
 		t.Fatalf("graph shouldn't be able to support payment: %v", err)
@@ -2004,7 +2006,7 @@ func TestPathSourceEdgesBandwidth(t *testing.T) {
 			bandwidthHints: bandwidths,
 		},
 		noRestrictions, testPathFindingConfig,
-		sourceNode.PubKeyBytes, target, payAmt,
+		sourceNode.PubKeyBytes, target, payAmt, 0,
 	)
 	if err != nil {
 		t.Fatalf("unable to find path: %v", err)
@@ -2035,7 +2037,7 @@ func TestPathSourceEdgesBandwidth(t *testing.T) {
 			bandwidthHints: bandwidths,
 		},
 		noRestrictions, testPathFindingConfig,
-		sourceNode.PubKeyBytes, target, payAmt,
+		sourceNode.PubKeyBytes, target, payAmt, 0,
 	)
 	if err != nil {
 		t.Fatalf("unable to find path: %v", err)
@@ -2070,11 +2072,7 @@ func TestPathFindSpecExample(t *testing.T) {
 	// Carol, so we set "B" as the source node so path finding starts from
 	// Bob.
 	bob := ctx.aliases["B"]
-	bobKey, err := btcec.ParsePubKey(bob[:], btcec.S256())
-	if err != nil {
-		t.Fatal(err)
-	}
-	bobNode, err := ctx.graph.FetchLightningNode(bobKey)
+	bobNode, err := ctx.graph.FetchLightningNode(nil, bob)
 	if err != nil {
 		t.Fatalf("unable to find bob: %v", err)
 	}
@@ -2123,11 +2121,7 @@ func TestPathFindSpecExample(t *testing.T) {
 	// Next, we'll set A as the source node so we can assert that we create
 	// the proper route for any queries starting with Alice.
 	alice := ctx.aliases["A"]
-	aliceKey, err := btcec.ParsePubKey(alice[:], btcec.S256())
-	if err != nil {
-		t.Fatal(err)
-	}
-	aliceNode, err := ctx.graph.FetchLightningNode(aliceKey)
+	aliceNode, err := ctx.graph.FetchLightningNode(nil, alice)
 	if err != nil {
 		t.Fatalf("unable to find alice: %v", err)
 	}
@@ -2880,7 +2874,7 @@ func (c *pathFindingTestContext) findPath(target route.Vertex,
 
 	return findPath(
 		&c.graphParams, &c.restrictParams, &c.pathFindingConfig,
-		c.source, target, amt,
+		c.source, target, amt, 0,
 	)
 }
 

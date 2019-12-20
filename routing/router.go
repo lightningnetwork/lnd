@@ -1431,23 +1431,25 @@ func (r *ChannelRouter) FindRoute(source, target route.Vertex,
 		return nil, err
 	}
 
+	// We'll fetch the current block height so we can properly calculate the
+	// required HTLC time locks within the route.
+	_, currentHeight, err := r.cfg.Chain.GetBestBlock()
+	if err != nil {
+		return nil, err
+	}
+
 	// Now that we know the destination is reachable within the graph, we'll
 	// execute our path finding algorithm.
+	finalHtlcExpiry := currentHeight + int32(finalCLTVDelta)
+
 	path, err := findPath(
 		&graphParams{
 			graph:          r.cfg.Graph,
 			bandwidthHints: bandwidthHints,
 		},
 		restrictions, &r.cfg.PathFindingConfig,
-		source, target, amt,
+		source, target, amt, finalHtlcExpiry,
 	)
-	if err != nil {
-		return nil, err
-	}
-
-	// We'll fetch the current block height so we can properly calculate the
-	// required HTLC time locks within the route.
-	_, currentHeight, err := r.cfg.Chain.GetBestBlock()
 	if err != nil {
 		return nil, err
 	}
@@ -2089,11 +2091,7 @@ func (r *ChannelRouter) GetChannelByID(chanID lnwire.ShortChannelID) (
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
 func (r *ChannelRouter) FetchLightningNode(node route.Vertex) (*channeldb.LightningNode, error) {
-	pubKey, err := btcec.ParsePubKey(node[:], btcec.S256())
-	if err != nil {
-		return nil, fmt.Errorf("unable to parse raw public key: %v", err)
-	}
-	return r.cfg.Graph.FetchLightningNode(pubKey)
+	return r.cfg.Graph.FetchLightningNode(nil, node)
 }
 
 // ForEachNode is used to iterate over every node in router topology.

@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -20,8 +19,9 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/golang/protobuf/jsonpb"
-	"github.com/golang/protobuf/proto"
+	"github.com/lightninglabs/protobuf-hex-display/json"
+	"github.com/lightninglabs/protobuf-hex-display/jsonpb"
+	"github.com/lightninglabs/protobuf-hex-display/proto"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -1938,53 +1938,7 @@ func getInfo(ctx *cli.Context) error {
 		return err
 	}
 
-	chains := make([]chain, len(resp.Chains))
-	for i, c := range resp.Chains {
-		chains[i] = chain{
-			Chain:   c.Chain,
-			Network: c.Network,
-		}
-	}
-
-	// We print a struct that mimics the proto definition of GetInfoResponse
-	// but has a better ordering for the same list of fields.
-	printJSON(struct {
-		Version             string                    `json:"version"`
-		IdentityPubkey      string                    `json:"identity_pubkey"`
-		Alias               string                    `json:"alias"`
-		Color               string                    `json:"color"`
-		NumPendingChannels  uint32                    `json:"num_pending_channels"`
-		NumActiveChannels   uint32                    `json:"num_active_channels"`
-		NumInactiveChannels uint32                    `json:"num_inactive_channels"`
-		NumPeers            uint32                    `json:"num_peers"`
-		BlockHeight         uint32                    `json:"block_height"`
-		BlockHash           string                    `json:"block_hash"`
-		BestHeaderTimestamp int64                     `json:"best_header_timestamp"`
-		SyncedToChain       bool                      `json:"synced_to_chain"`
-		SyncedToGraph       bool                      `json:"synced_to_graph"`
-		Testnet             bool                      `json:"testnet"`
-		Chains              []chain                   `json:"chains"`
-		Uris                []string                  `json:"uris"`
-		Features            map[uint32]*lnrpc.Feature `json:"features"`
-	}{
-		Version:             resp.Version,
-		IdentityPubkey:      resp.IdentityPubkey,
-		Alias:               resp.Alias,
-		Color:               resp.Color,
-		NumPendingChannels:  resp.NumPendingChannels,
-		NumActiveChannels:   resp.NumActiveChannels,
-		NumInactiveChannels: resp.NumInactiveChannels,
-		NumPeers:            resp.NumPeers,
-		BlockHeight:         resp.BlockHeight,
-		BlockHash:           resp.BlockHash,
-		BestHeaderTimestamp: resp.BestHeaderTimestamp,
-		SyncedToChain:       resp.SyncedToChain,
-		SyncedToGraph:       resp.SyncedToGraph,
-		Testnet:             resp.Testnet,
-		Chains:              chains,
-		Uris:                resp.Uris,
-		Features:            resp.Features,
-	})
+	printRespJSON(resp)
 	return nil
 }
 
@@ -2427,15 +2381,7 @@ func sendPaymentRequest(ctx *cli.Context, req *lnrpc.SendRequest) error {
 
 	paymentStream.CloseSend()
 
-	printJSON(struct {
-		E string       `json:"payment_error"`
-		P string       `json:"payment_preimage"`
-		R *lnrpc.Route `json:"payment_route"`
-	}{
-		E: resp.PaymentError,
-		P: hex.EncodeToString(resp.PaymentPreimage),
-		R: resp.PaymentRoute,
-	})
+	printRespJSON(resp)
 
 	// If we get a payment error back, we pass an error
 	// up to main which eventually calls fatal() and returns
@@ -2637,15 +2583,7 @@ func sendToRouteRequest(ctx *cli.Context, req *lnrpc.SendToRouteRequest) error {
 		return err
 	}
 
-	printJSON(struct {
-		E string       `json:"payment_error"`
-		P string       `json:"payment_preimage"`
-		R *lnrpc.Route `json:"payment_route"`
-	}{
-		E: resp.PaymentError,
-		P: hex.EncodeToString(resp.PaymentPreimage),
-		R: resp.PaymentRoute,
-	})
+	printRespJSON(resp)
 
 	return nil
 }
@@ -2762,15 +2700,7 @@ func addInvoice(ctx *cli.Context) error {
 		return err
 	}
 
-	printJSON(struct {
-		RHash    string `json:"r_hash"`
-		PayReq   string `json:"pay_req"`
-		AddIndex uint64 `json:"add_index"`
-	}{
-		RHash:    hex.EncodeToString(resp.RHash),
-		PayReq:   resp.PaymentRequest,
-		AddIndex: resp.AddIndex,
-	})
+	printRespJSON(resp)
 
 	return nil
 }
@@ -3856,14 +3786,11 @@ func exportChanBackup(ctx *cli.Context) error {
 
 		printJSON(struct {
 			ChanPoint  string `json:"chan_point"`
-			ChanBackup string `json:"chan_backup"`
+			ChanBackup []byte `json:"chan_backup"`
 		}{
-			ChanPoint: chanPoint.String(),
-			ChanBackup: hex.EncodeToString(
-				chanBackup.ChanBackup,
-			),
-		},
-		)
+			ChanPoint:  chanPoint.String(),
+			ChanBackup: chanBackup.ChanBackup,
+		})
 		return nil
 	}
 
@@ -3901,16 +3828,8 @@ func exportChanBackup(ctx *cli.Context) error {
 		}.String())
 	}
 
-	printJSON(struct {
-		ChanPoints      []string `json:"chan_points"`
-		MultiChanBackup string   `json:"multi_chan_backup"`
-	}{
-		ChanPoints: chanPoints,
-		MultiChanBackup: hex.EncodeToString(
-			chanBackup.MultiChanBackup.MultiChanBackup,
-		),
-	},
-	)
+	printRespJSON(chanBackup)
+
 	return nil
 }
 

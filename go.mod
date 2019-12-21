@@ -34,6 +34,7 @@ require (
 	github.com/juju/version v0.0.0-20180108022336-b64dbd566305 // indirect
 	github.com/kkdai/bstream v0.0.0-20181106074824-b3251f7901ec
 	github.com/lightninglabs/neutrino v0.11.0
+	github.com/lightninglabs/protobuf-hex-display v1.3.3-0.20191212020323-b444784ce75d
 	github.com/lightningnetwork/lightning-onion v0.0.0-20191214001659-f34e9dc1651d
 	github.com/lightningnetwork/lnd/cert v1.0.0
 	github.com/lightningnetwork/lnd/queue v1.0.2

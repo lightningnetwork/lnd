@@ -2453,6 +2453,10 @@
     "lnrpcGetInfoResponse": {
       "type": "object",
       "properties": {
+        "version": {
+          "type": "string",
+          "description": "/ The version of the LND software that the node is running."
+        },
         "identity_pubkey": {
           "type": "string",
           "description": "/ The identity pubkey of the current node."
@@ -2460,6 +2464,10 @@
         "alias": {
           "type": "string",
           "title": "/ If applicable, the alias of the current node, e.g. \"bob\""
+        },
+        "color": {
+          "type": "string",
+          "title": "/ The color of the current node in hex code format"
         },
         "num_pending_channels": {
           "type": "integer",
@@ -2470,6 +2478,11 @@
           "type": "integer",
           "format": "int64",
           "title": "/ Number of active channels"
+        },
+        "num_inactive_channels": {
+          "type": "integer",
+          "format": "int64",
+          "title": "/ Number of inactive channels"
         },
         "num_peers": {
           "type": "integer",
@@ -2485,36 +2498,25 @@
           "type": "string",
           "title": "/ The node's current view of the hash of the best block"
         },
-        "synced_to_chain": {
-          "type": "boolean",
-          "format": "boolean",
-          "title": "/ Whether the wallet's view is synced to the main chain"
-        },
-        "testnet": {
-          "type": "boolean",
-          "format": "boolean",
-          "title": "* \nWhether the current node is connected to testnet. This field is \ndeprecated and the network field should be used instead"
-        },
-        "uris": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "description": "/ The URIs of the current node."
-        },
         "best_header_timestamp": {
           "type": "string",
           "format": "int64",
           "title": "/ Timestamp of the block best known to the wallet"
         },
-        "version": {
-          "type": "string",
-          "description": "/ The version of the LND software that the node is running."
+        "synced_to_chain": {
+          "type": "boolean",
+          "format": "boolean",
+          "title": "/ Whether the wallet's view is synced to the main chain"
         },
-        "num_inactive_channels": {
-          "type": "integer",
-          "format": "int64",
-          "title": "/ Number of inactive channels"
+        "synced_to_graph": {
+          "type": "boolean",
+          "format": "boolean",
+          "description": "Whether we consider ourselves synced with the public channel graph."
+        },
+        "testnet": {
+          "type": "boolean",
+          "format": "boolean",
+          "title": "* \nWhether the current node is connected to testnet. This field is \ndeprecated and the network field should be used instead"
         },
         "chains": {
           "type": "array",
@@ -2523,14 +2525,12 @@
           },
           "title": "/ A list of active chains the node is connected to"
         },
-        "color": {
-          "type": "string",
-          "title": "/ The color of the current node in hex code format"
-        },
-        "synced_to_graph": {
-          "type": "boolean",
-          "format": "boolean",
-          "description": "Whether we consider ourselves synced with the public channel graph."
+        "uris": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "/ The URIs of the current node."
         },
         "features": {
           "type": "object",

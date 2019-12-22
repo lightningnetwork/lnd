@@ -232,21 +232,22 @@ type torConfig struct {
 type config struct {
 	ShowVersion bool `short:"V" long:"version" description:"Display version information and exit"`
 
-	LndDir          string   `long:"lnddir" description:"The base directory that contains lnd's data, logs, configuration file, etc."`
-	ConfigFile      string   `short:"C" long:"configfile" description:"Path to configuration file"`
-	DataDir         string   `short:"b" long:"datadir" description:"The directory to store lnd's data within"`
-	SyncFreelist    bool     `long:"sync-freelist" description:"Whether the databases used within lnd should sync their freelist to disk. This is disabled by default resulting in improved memory performance during operation, but with an increase in startup time."`
-	TLSCertPath     string   `long:"tlscertpath" description:"Path to write the TLS certificate for lnd's RPC and REST services"`
-	TLSKeyPath      string   `long:"tlskeypath" description:"Path to write the TLS private key for lnd's RPC and REST services"`
-	TLSExtraIPs     []string `long:"tlsextraip" description:"Adds an extra ip to the generated certificate"`
-	TLSExtraDomains []string `long:"tlsextradomain" description:"Adds an extra domain to the generated certificate"`
-	NoMacaroons     bool     `long:"no-macaroons" description:"Disable macaroon authentication"`
-	AdminMacPath    string   `long:"adminmacaroonpath" description:"Path to write the admin macaroon for lnd's RPC and REST services if it doesn't exist"`
-	ReadMacPath     string   `long:"readonlymacaroonpath" description:"Path to write the read-only macaroon for lnd's RPC and REST services if it doesn't exist"`
-	InvoiceMacPath  string   `long:"invoicemacaroonpath" description:"Path to the invoice-only macaroon for lnd's RPC and REST services if it doesn't exist"`
-	LogDir          string   `long:"logdir" description:"Directory to log output."`
-	MaxLogFiles     int      `long:"maxlogfiles" description:"Maximum logfiles to keep (0 for no rotation)"`
-	MaxLogFileSize  int      `long:"maxlogfilesize" description:"Maximum logfile size in MB"`
+	LndDir           string         `long:"lnddir" description:"The base directory that contains lnd's data, logs, configuration file, etc."`
+	ConfigFile       string         `short:"C" long:"configfile" description:"Path to configuration file"`
+	DataDir          string         `short:"b" long:"datadir" description:"The directory to store lnd's data within"`
+	SyncFreelist     bool           `long:"sync-freelist" description:"Whether the databases used within lnd should sync their freelist to disk. This is disabled by default resulting in improved memory performance during operation, but with an increase in startup time."`
+	TLSCertPath      string         `long:"tlscertpath" description:"Path to write the TLS certificate for lnd's RPC and REST services"`
+	TLSKeyPath       string         `long:"tlskeypath" description:"Path to write the TLS private key for lnd's RPC and REST services"`
+	TLSExtraIPs      []string       `long:"tlsextraip" description:"Adds an extra ip to the generated certificate"`
+	TLSExtraDomains  []string       `long:"tlsextradomain" description:"Adds an extra domain to the generated certificate"`
+	NoMacaroons      bool           `long:"no-macaroons" description:"Disable macaroon authentication"`
+	AdminMacPath     string         `long:"adminmacaroonpath" description:"Path to write the admin macaroon for lnd's RPC and REST services if it doesn't exist"`
+	ReadMacPath      string         `long:"readonlymacaroonpath" description:"Path to write the read-only macaroon for lnd's RPC and REST services if it doesn't exist"`
+	InvoiceMacPath   string         `long:"invoicemacaroonpath" description:"Path to the invoice-only macaroon for lnd's RPC and REST services if it doesn't exist"`
+	LogDir           string         `long:"logdir" description:"Directory to log output."`
+	MaxLogFiles      int            `long:"maxlogfiles" description:"Maximum logfiles to keep (0 for no rotation)"`
+	MaxLogFileSize   int            `long:"maxlogfilesize" description:"Maximum logfile size in MB"`
+	MaxFundingAmount btcutil.Amount `long:"maxfundingamount" description:"Maximum funding amount for new channels, same as max channel size"`
 
 	// We'll parse these 'raw' string arguments into real net.Addrs in the
 	// loadConfig function. We need to expose the 'raw' strings so the
@@ -351,15 +352,16 @@ type config struct {
 // 	4) Parse CLI options and overwrite/add any specified options
 func loadConfig() (*config, error) {
 	defaultCfg := config{
-		LndDir:         defaultLndDir,
-		ConfigFile:     defaultConfigFile,
-		DataDir:        defaultDataDir,
-		DebugLevel:     defaultLogLevel,
-		TLSCertPath:    defaultTLSCertPath,
-		TLSKeyPath:     defaultTLSKeyPath,
-		LogDir:         defaultLogDir,
-		MaxLogFiles:    defaultMaxLogFiles,
-		MaxLogFileSize: defaultMaxLogFileSize,
+		LndDir:           defaultLndDir,
+		ConfigFile:       defaultConfigFile,
+		DataDir:          defaultDataDir,
+		DebugLevel:       defaultLogLevel,
+		TLSCertPath:      defaultTLSCertPath,
+		TLSKeyPath:       defaultTLSKeyPath,
+		LogDir:           defaultLogDir,
+		MaxLogFiles:      defaultMaxLogFiles,
+		MaxLogFileSize:   defaultMaxLogFileSize,
+		MaxFundingAmount: MaxFundingAmount,
 		Bitcoin: &chainConfig{
 			MinHTLCIn:     defaultBitcoinMinHTLCInMSat,
 			MinHTLCOut:    defaultBitcoinMinHTLCOutMSat,
@@ -549,6 +551,11 @@ func loadConfig() (*config, error) {
 	cfg.LitecoindMode.Dir = cleanAndExpandPath(cfg.LitecoindMode.Dir)
 	cfg.Tor.PrivateKeyPath = cleanAndExpandPath(cfg.Tor.PrivateKeyPath)
 	cfg.Watchtower.TowerDir = cleanAndExpandPath(cfg.Watchtower.TowerDir)
+
+	if cfg.MaxFundingAmount != MaxFundingAmount {
+		MaxFundingAmount = cfg.MaxFundingAmount
+		cfg.Autopilot.MaxChannelSize = int64(cfg.MaxFundingAmount)
+	}
 
 	// Ensure that the user didn't attempt to specify negative values for
 	// any of the autopilot params.

@@ -40,6 +40,7 @@ import (
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/invoices"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
@@ -47,6 +48,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/monitoring"
@@ -439,6 +441,13 @@ func mainRPCServerPermissions() map[string][]bakery.Op {
 		"/lnrpc.Lightning/SubscribePeerEvents": {{
 			Entity: "peers",
 			Action: "read",
+		}},
+		"/lnrpc.Lightning/FundingStateStep": {{
+			Entity: "onchain",
+			Action: "write",
+		}, {
+			Entity: "offchain",
+			Action: "write",
 		}},
 	}
 }
@@ -1447,6 +1456,88 @@ func extractOpenChannelMinConfs(in *lnrpc.OpenChannelRequest) (int32, error) {
 	}
 }
 
+// newFundingShimAssembler returns a new fully populated
+// chanfunding.CannedAssembler using a FundingShim obtained from an RPC caller.
+func newFundingShimAssembler(chanPointShim *lnrpc.ChanPointShim,
+	initiator bool, keyRing keychain.KeyRing) (chanfunding.Assembler, error) {
+
+	// Perform some basic sanity checks to ensure that all the expected
+	// fields are populated.
+	switch {
+	case chanPointShim.RemoteKey == nil:
+		return nil, fmt.Errorf("remote key not set")
+
+	case chanPointShim.LocalKey == nil:
+		return nil, fmt.Errorf("local key desc not set")
+
+	case chanPointShim.LocalKey.RawKeyBytes == nil:
+		return nil, fmt.Errorf("local raw key bytes not set")
+
+	case chanPointShim.LocalKey.KeyLoc == nil:
+		return nil, fmt.Errorf("local key loc not set")
+
+	case chanPointShim.ChanPoint == nil:
+		return nil, fmt.Errorf("chan point not set")
+
+	case len(chanPointShim.PendingChanId) != 32:
+		return nil, fmt.Errorf("pending chan ID not set")
+	}
+
+	// First, we'll map the RPC's channel point to one we can actually use.
+	index := chanPointShim.ChanPoint.OutputIndex
+	txid, err := GetChanPointFundingTxid(chanPointShim.ChanPoint)
+	if err != nil {
+		return nil, err
+	}
+	chanPoint := wire.NewOutPoint(txid, index)
+
+	// Next we'll parse out the remote party's funding key, as well as our
+	// full key descriptor.
+	remoteKey, err := btcec.ParsePubKey(
+		chanPointShim.RemoteKey, btcec.S256(),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	shimKeyDesc := chanPointShim.LocalKey
+	localKey, err := btcec.ParsePubKey(
+		shimKeyDesc.RawKeyBytes, btcec.S256(),
+	)
+	if err != nil {
+		return nil, err
+	}
+	localKeyDesc := keychain.KeyDescriptor{
+		PubKey: localKey,
+		KeyLocator: keychain.KeyLocator{
+			Family: keychain.KeyFamily(
+				shimKeyDesc.KeyLoc.KeyFamily,
+			),
+			Index: uint32(shimKeyDesc.KeyLoc.KeyIndex),
+		},
+	}
+
+	// Verify that if we re-derive this key according to the passed
+	// KeyLocator, that we get the exact same key back. Otherwise, we may
+	// end up in a situation where we aren't able to actually sign for this
+	// newly created channel.
+	derivedKey, err := keyRing.DeriveKey(localKeyDesc.KeyLocator)
+	if err != nil {
+		return nil, err
+	}
+	if !derivedKey.PubKey.IsEqual(localKey) {
+		return nil, fmt.Errorf("KeyLocator does not match attached " +
+			"raw pubkey")
+	}
+
+	// With all the parts assembled, we can now make the canned assembler
+	// to pass into the wallet.
+	return chanfunding.NewCannedAssembler(
+		*chanPoint, btcutil.Amount(chanPointShim.Amt),
+		&localKeyDesc, remoteKey, initiator,
+	), nil
+}
+
 // OpenChannel attempts to open a singly funded channel specified in the
 // request to a remote peer.
 func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
@@ -1561,6 +1652,28 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 		remoteCsvDelay:  remoteCsvDelay,
 		minConfs:        minConfs,
 		shutdownScript:  script,
+	}
+
+	// If the user has provided a shim, then we'll now augment the based
+	// open channel request with this additional logic.
+	if in.FundingShim != nil {
+		// If we have a chan point shim, then this means the funding
+		// transaction was crafted externally. In this case we only
+		// need to hand a channel point down into the wallet.
+		if in.FundingShim.GetChanPointShim() != nil {
+			chanPointShim := in.FundingShim.GetChanPointShim()
+
+			// Map the channel point shim into a new
+			// chanfunding.CannedAssembler that the wallet will use
+			// to obtain the channel point details.
+			copy(req.pendingChanID[:], chanPointShim.PendingChanId)
+			req.chanFunder, err = newFundingShimAssembler(
+				chanPointShim, true, r.server.cc.keyRing,
+			)
+			if err != nil {
+				return err
+			}
+		}
 	}
 
 	updateChan, errChan := r.server.OpenChannel(req)
@@ -5691,4 +5804,78 @@ func (r *rpcServer) BakeMacaroon(ctx context.Context,
 	resp.Macaroon = hex.EncodeToString(newMacBytes)
 
 	return resp, nil
+}
+
+// FundingStateStep is an advanced funding related call that allows the caller
+// to either execute some preparatory steps for a funding workflow, or manually
+// progress a funding workflow. The primary way a funding flow is identified is
+// via its pending channel ID. As an example, this method can be used to
+// specify that we're expecting a funding flow for a particular pending channel
+// ID, for which we need to use specific parameters.  Alternatively, this can
+// be used to interactively drive PSBT signing for funding for partially
+// complete funding transactions.
+func (r *rpcServer) FundingStateStep(ctx context.Context,
+	in *lnrpc.FundingTransitionMsg) (*lnrpc.FundingStateStepResp, error) {
+
+	switch {
+
+	// If this is a message to register a new shim that is an external
+	// channel point, then we'll contact the wallet to register this new
+	// shim. A user will use this method to register a new channel funding
+	// workflow which has already been partially negotiated outside of the
+	// core protocol.
+	case in.GetShimRegister() != nil &&
+		in.GetShimRegister().GetChanPointShim() != nil:
+
+		rpcShimIntent := in.GetShimRegister().GetChanPointShim()
+
+		// Using the rpc shim as a template, we'll construct a new
+		// chanfunding.Assembler that is able to express proper
+		// formulation of this expected channel.
+		shimAssembler, err := newFundingShimAssembler(
+			rpcShimIntent, false, r.server.cc.keyRing,
+		)
+		if err != nil {
+			return nil, err
+		}
+		req := &chanfunding.Request{
+			RemoteAmt: btcutil.Amount(rpcShimIntent.Amt),
+		}
+		shimIntent, err := shimAssembler.ProvisionChannel(req)
+		if err != nil {
+			return nil, err
+		}
+
+		// Once we have the intent, we'll register it with the wallet.
+		// Once we receive an incoming funding request that uses this
+		// pending channel ID, then this shim will be dispatched in
+		// place of our regular funding workflow.
+		var pendingChanID [32]byte
+		copy(pendingChanID[:], rpcShimIntent.PendingChanId)
+		err = r.server.cc.wallet.RegisterFundingIntent(
+			pendingChanID, shimIntent,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+	// If this is a transition to cancel an existing shim, then we'll pass
+	// this message along to the wallet.
+	case in.GetShimCancel() != nil:
+		pid := in.GetShimCancel().PendingChanId
+
+		var pendingChanID [32]byte
+		copy(pendingChanID[:], pid)
+
+		err := r.server.cc.wallet.CancelFundingIntent(pendingChanID)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// TODO(roasbeef): extend PendingChannels to also show shims
+
+	// TODO(roasbeef): return resulting state? also add a method to query
+	// current state?
+	return &lnrpc.FundingStateStepResp{}, nil
 }

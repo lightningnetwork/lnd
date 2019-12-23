@@ -47,6 +47,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/nat"
 	"github.com/lightningnetwork/lnd/netann"
@@ -3107,6 +3108,17 @@ type openChanReq struct {
 	shutdownScript lnwire.DeliveryAddress
 
 	// TODO(roasbeef): add ability to specify channel constraints as well
+
+	// chanFunder is an optional channel funder that allows the caller to
+	// control exactly how the channel funding is carried out. If not
+	// specified, then the default chanfunding.WalletAssembler will be
+	// used.
+	chanFunder chanfunding.Assembler
+
+	// pendingChanID is not all zeroes (the default value), then this will
+	// be the pending channel ID used for the funding flow within the wire
+	// protocol.
+	pendingChanID [32]byte
 
 	updates chan *lnrpc.OpenStatusUpdate
 	err     chan error

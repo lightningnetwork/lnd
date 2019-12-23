@@ -96,7 +96,7 @@ func disable(ctx *cli.Context) error {
 
 var queryScoresCommand = cli.Command{
 	Name:        "query",
-	Usage:       "Query the autopilot heuristcs for nodes' scores.",
+	Usage:       "Query the autopilot heuristics for nodes' scores.",
 	ArgsUsage:   "[flags] <pubkey> <pubkey> <pubkey> ...",
 	Description: "",
 	Action:      actionDecorator(queryScores),

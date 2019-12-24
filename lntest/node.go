@@ -152,6 +152,8 @@ type nodeConfig struct {
 	RPCPort     int
 	RESTPort    int
 	ProfilePort int
+
+	AcceptKeySend bool
 }
 
 func (cfg nodeConfig) P2PAddr() string {
@@ -223,6 +225,10 @@ func (cfg nodeConfig) genArgs() []string {
 
 	if cfg.ExtraArgs != nil {
 		args = append(args, cfg.ExtraArgs...)
+	}
+
+	if cfg.AcceptKeySend {
+		args = append(args, "--accept-key-send")
 	}
 
 	return args
@@ -303,6 +309,11 @@ func newNode(cfg nodeConfig) (*HarnessNode, error) {
 	cfg.InvoiceMacPath = filepath.Join(cfg.DataDir, "invoice.macaroon")
 
 	cfg.P2PPort, cfg.RPCPort, cfg.RESTPort, cfg.ProfilePort = generateListeningPorts()
+
+	// Run all tests with accept key send. The key send code is very
+	// isolated and it is highly unlikely that it would affect regular
+	// itests when enabled.
+	cfg.AcceptKeySend = true
 
 	numActiveNodesMtx.Lock()
 	nodeNum := numActiveNodes

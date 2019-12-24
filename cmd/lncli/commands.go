@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -24,6 +25,8 @@ import (
 	"github.com/lightninglabs/protobuf-hex-display/proto"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
+	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/walletunlocker"
 	"github.com/urfave/cli"
@@ -2144,12 +2147,6 @@ var sendPaymentCommand = cli.Command{
 	    * --amt=A
 	    * --final_cltv_delta=T
 	    * --payment_hash=H
-
-	The --debug_send flag is provided for usage *purely* in test
-	environments. If specified, then the payment hash isn't required, as
-	it'll use the hash of all zeroes. This mode allows one to quickly test
-	payment connectivity without having to create an invoice at the
-	destination.
 	`,
 	ArgsUsage: "dest amt payment_hash final_cltv_delta | --pay_req=[payment request]",
 	Flags: append(paymentFlags(),
@@ -2166,13 +2163,13 @@ var sendPaymentCommand = cli.Command{
 			Name:  "payment_hash, r",
 			Usage: "the hash to use within the payment's HTLC",
 		},
-		cli.BoolFlag{
-			Name:  "debug_send",
-			Usage: "use the debug rHash when sending the HTLC",
-		},
 		cli.Int64Flag{
 			Name:  "final_cltv_delta",
 			Usage: "the number of blocks the last hop has to reveal the preimage",
+		},
+		cli.BoolFlag{
+			Name:  "key_send",
+			Usage: "will generate a pre-image and encode it in the sphinx packet, a dest must be set [experimental]",
 		},
 	),
 	Action: sendPayment,
@@ -2276,11 +2273,25 @@ func sendPayment(ctx *cli.Context) error {
 		Amt:  amount,
 	}
 
-	if ctx.Bool("debug_send") && (ctx.IsSet("payment_hash") || args.Present()) {
-		return fmt.Errorf("do not provide a payment hash with debug send")
-	} else if !ctx.Bool("debug_send") {
-		var rHash []byte
+	var rHash []byte
 
+	if ctx.Bool("key_send") {
+		if ctx.IsSet("payment_hash") {
+			return errors.New("cannot set payment hash when using " +
+				"key send")
+		}
+		var preimage lntypes.Preimage
+		if _, err := rand.Read(preimage[:]); err != nil {
+			return err
+		}
+
+		req.DestCustomRecords = map[uint64][]byte{
+			record.KeySendType: preimage[:],
+		}
+
+		hash := preimage.Hash()
+		rHash = hash[:]
+	} else {
 		switch {
 		case ctx.IsSet("payment_hash"):
 			rHash, err = hex.DecodeString(ctx.String("payment_hash"))
@@ -2290,26 +2301,26 @@ func sendPayment(ctx *cli.Context) error {
 		default:
 			return fmt.Errorf("payment hash argument missing")
 		}
+	}
 
+	if err != nil {
+		return err
+	}
+	if len(rHash) != 32 {
+		return fmt.Errorf("payment hash must be exactly 32 "+
+			"bytes, is instead %v", len(rHash))
+	}
+	req.PaymentHash = rHash
+
+	switch {
+	case ctx.IsSet("final_cltv_delta"):
+		req.FinalCltvDelta = int32(ctx.Int64("final_cltv_delta"))
+	case args.Present():
+		delta, err := strconv.ParseInt(args.First(), 10, 64)
 		if err != nil {
 			return err
 		}
-		if len(rHash) != 32 {
-			return fmt.Errorf("payment hash must be exactly 32 "+
-				"bytes, is instead %v", len(rHash))
-		}
-		req.PaymentHash = rHash
-
-		switch {
-		case ctx.IsSet("final_cltv_delta"):
-			req.FinalCltvDelta = int32(ctx.Int64("final_cltv_delta"))
-		case args.Present():
-			delta, err := strconv.ParseInt(args.First(), 10, 64)
-			if err != nil {
-				return err
-			}
-			req.FinalCltvDelta = int32(delta)
-		}
+		req.FinalCltvDelta = int32(delta)
 	}
 
 	return sendPaymentRequest(ctx, req)

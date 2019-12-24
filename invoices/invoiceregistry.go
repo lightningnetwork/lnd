@@ -13,6 +13,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/queue"
+	"github.com/lightningnetwork/lnd/record"
 )
 
 var (
@@ -94,6 +95,10 @@ type RegistryConfig struct {
 	// Now() and TickAfter() and is useful to stub out the clock functions
 	// during testing.
 	Clock clock.Clock
+
+	// AcceptKeySend indicates whether we want to accept spontaneous key
+	// send payments.
+	AcceptKeySend bool
 }
 
 // htlcReleaseEvent describes an htlc auto-release event. It is used to release
@@ -690,6 +695,68 @@ func (i *InvoiceRegistry) cancelSingleHtlc(hash lntypes.Hash,
 	return nil
 }
 
+// processKeySend just-in-time inserts an invoice if this htlc is a key send
+// htlc.
+func (i *InvoiceRegistry) processKeySend(ctx invoiceUpdateCtx,
+	hash lntypes.Hash) error {
+
+	// Retrieve key send record if present.
+	preimageSlice, ok := ctx.customRecords[record.KeySendType]
+	if !ok {
+		return nil
+	}
+
+	// Cancel htlc is preimage is invalid.
+	preimage, err := lntypes.MakePreimage(preimageSlice)
+	if err != nil || preimage.Hash() != hash {
+		return errors.New("invalid key send preimage")
+	}
+
+	// Don't accept zero preimages as those have a special meaning in our
+	// database for hodl invoices.
+	if preimage == channeldb.UnknownPreimage {
+		return errors.New("invalid key send preimage")
+	}
+
+	// Only allow key send for non-mpp payments.
+	if ctx.mpp != nil {
+		return errors.New("no mpp key send supported")
+	}
+
+	// Create an invoice for the htlc amount.
+	amt := ctx.amtPaid
+
+	// Set tlv optional feature vector on the invoice. Otherwise we wouldn't
+	// be able to pay to it with key send.
+	rawFeatures := lnwire.NewRawFeatureVector(
+		lnwire.TLVOnionPayloadOptional,
+	)
+	features := lnwire.NewFeatureVector(rawFeatures, lnwire.Features)
+
+	// Use the minimum block delta that we require for settling htlcs.
+	finalCltvDelta := i.cfg.FinalCltvRejectDelta
+
+	// Create placeholder invoice.
+	invoice := &channeldb.Invoice{
+		CreationDate: i.cfg.Clock.Now(),
+		Terms: channeldb.ContractTerm{
+			FinalCltvDelta:  finalCltvDelta,
+			Value:           amt,
+			PaymentPreimage: preimage,
+			Features:        features,
+		},
+	}
+
+	// Insert invoice into database. Ignore duplicates, because this
+	// may be a replay.
+	_, err = i.AddInvoice(invoice, hash)
+	if err != nil && err != channeldb.ErrDuplicateInvoice {
+		return err
+	}
+
+	return nil
+}
+
 // NotifyExitHopHtlc attempts to mark an invoice as settled. The return value
 // describes how the htlc should be resolved.
 //
@@ -710,9 +777,6 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 	circuitKey channeldb.CircuitKey, hodlChan chan<- interface{},
 	payload Payload) (*HtlcResolution, error) {
 
-	i.Lock()
-	defer i.Unlock()
-
 	mpp := payload.MultiPath()
 
 	debugLog := func(s string) {
@@ -731,6 +795,23 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 		customRecords:        payload.CustomRecords(),
 		mpp:                  mpp,
 	}
+
+	// Process key send if present. Do this outside of the lock, because
+	// AddInvoice obtains its own lock. This is no problem, because the
+	// operation is idempotent.
+	if i.cfg.AcceptKeySend {
+		err := i.processKeySend(updateCtx, rHash)
+		if err != nil {
+			debugLog(fmt.Sprintf("key send error: %v", err))
+
+			return NewFailureResolution(
+				circuitKey, currentHeight, ResultKeySendError,
+			), nil
+		}
+	}
+
+	i.Lock()
+	defer i.Unlock()
 
 	// We'll attempt to settle an invoice matching this rHash on disk (if
 	// one exists). The callback will update the invoice state and/or htlcs.

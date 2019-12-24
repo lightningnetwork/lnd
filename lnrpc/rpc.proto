@@ -2545,6 +2545,12 @@ message Invoice {
 
     /// List of features advertised on the invoice.
     map<uint32, Feature> features = 24 [json_name = "features"];
+    
+    /**
+    Indicates if this invoice was a spontaneous payment that arrived via keysend
+    [EXPERIMENTAL].
+    */
+    bool is_key_send = 25 [json_name = "is_key_send"];
 }
 
 enum InvoiceHTLCState {

@@ -384,6 +384,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 		FinalCltvRejectDelta: defaultFinalCltvRejectDelta,
 		HtlcHoldDuration:     invoices.DefaultHtlcHoldDuration,
 		Clock:                clock.NewDefaultClock(),
+		AcceptKeySend:        cfg.AcceptKeySend,
 	}
 
 	s := &server{

@@ -598,6 +598,110 @@ func TestUnknownInvoice(t *testing.T) {
 	}
 }
 
+// TestKeySend tests receiving a spontaneous payment with and without key send
+// enabled.
+func TestKeySend(t *testing.T) {
+	t.Run("enabled", func(t *testing.T) {
+		testKeySend(t, true)
+	})
+	t.Run("disabled", func(t *testing.T) {
+		testKeySend(t, false)
+	})
+}
+
+// testKeySend is the inner test function that tests key send for a particular
+// enabled state on the receiver end.
+func testKeySend(t *testing.T, keySendEnabled bool) {
+	defer timeout()()
+
+	ctx := newTestContext(t)
+	defer ctx.cleanup()
+
+	ctx.registry.cfg.AcceptKeySend = keySendEnabled
+
+	allSubscriptions := ctx.registry.SubscribeNotifications(0, 0)
+	defer allSubscriptions.Cancel()
+
+	hodlChan := make(chan interface{}, 1)
+
+	amt := lnwire.MilliSatoshi(1000)
+	expiry := uint32(testCurrentHeight + 20)
+
+	// Create key for key send.
+	preimage := lntypes.Preimage{1, 2, 3}
+	hash := preimage.Hash()
+
+	// Try to settle invoice with an invalid key send htlc.
+	invalidKeySendPayload := &mockPayload{
+		customRecords: map[uint64][]byte{
+			record.KeySendType: {1, 2, 3},
+		},
+	}
+
+	resolution, err := ctx.registry.NotifyExitHopHtlc(
+		hash, amt, expiry,
+		testCurrentHeight, getCircuitKey(10), hodlChan,
+		invalidKeySendPayload,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Expect a cancel resolution with the correct outcome.
+	if resolution.Preimage != nil {
+		t.Fatal("expected cancel resolution")
+	}
+	switch {
+	case !keySendEnabled && resolution.Outcome != ResultInvoiceNotFound:
+		t.Fatal("expected invoice not found outcome")
+
+	case keySendEnabled && resolution.Outcome != ResultKeySendError:
+		t.Fatal("expected key send error")
+	}
+
+	// Try to settle invoice with a valid key send htlc.
+	keySendPayload := &mockPayload{
+		customRecords: map[uint64][]byte{
+			record.KeySendType: preimage[:],
+		},
+	}
+
+	resolution, err = ctx.registry.NotifyExitHopHtlc(
+		hash, amt, expiry,
+		testCurrentHeight, getCircuitKey(10), hodlChan, keySendPayload,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Expect a cancel resolution if key send is disabled.
+	if !keySendEnabled {
+		if resolution.Outcome != ResultInvoiceNotFound {
+			t.Fatal("expected key send payment not to be accepted")
+		}
+		return
+	}
+
+	// Otherwise we expect no error and a settle resolution for the htlc.
+	if resolution.Preimage == nil || *resolution.Preimage != preimage {
+		t.Fatal("expected valid settle event")
+	}
+
+	// We expect a new invoice notification to be sent out.
+	newInvoice := <-allSubscriptions.NewInvoices
+	if newInvoice.State != channeldb.ContractOpen {
+		t.Fatalf("expected state ContractOpen, but got %v",
+			newInvoice.State)
+	}
+
+	// We expect a settled notification to be sent out.
+	settledInvoice := <-allSubscriptions.SettledInvoices
+	if settledInvoice.State != channeldb.ContractSettled {
+		t.Fatalf("expected state ContractOpen, but got %v",
+			settledInvoice.State)
+	}
+}
+
 // TestMppPayment tests settling of an invoice with multiple partial payments.
 // It covers the case where there is a mpp timeout before the whole invoice is
 // paid and the case where the invoice is settled in time.
@@ -770,7 +874,7 @@ func TestInvoiceExpiryWithRegistry(t *testing.T) {
 	testClock.SetTime(testTime.Add(24 * time.Hour))
 
 	// Give some time to the watcher to cancel everything.
-	time.Sleep(testTimeout)
+	time.Sleep(500 * time.Millisecond)
 	registry.Stop()
 
 	// Create the expected cancellation set before the final check.

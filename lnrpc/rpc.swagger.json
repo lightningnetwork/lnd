@@ -2896,6 +2896,11 @@
             "$ref": "#/definitions/lnrpcFeature"
           },
           "description": "/ List of features advertised on the invoice."
+        },
+        "is_key_send": {
+          "type": "boolean",
+          "format": "boolean",
+          "description": "*\nIndicates if this invoice was a spontaneous payment that arrived via keysend\n[EXPERIMENTAL]."
         }
       }
     },

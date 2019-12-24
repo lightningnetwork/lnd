@@ -219,8 +219,8 @@ type Invoice struct {
 	// or any other message which fits within the size constraints.
 	Memo []byte
 
-	// PaymentRequest is an optional field where a payment request created
-	// for this invoice can be stored.
+	// PaymentRequest is the encoded payment request for this invoice. For
+	// spontaneous (key send) payments, this field will be empty.
 	PaymentRequest []byte
 
 	// CreationDate is the exact time the invoice was created.

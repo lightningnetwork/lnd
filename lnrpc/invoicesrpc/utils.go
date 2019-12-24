@@ -2,6 +2,7 @@ package invoicesrpc
 
 import (
 	"encoding/hex"
+	"errors"
 	"fmt"
 
 	"github.com/btcsuite/btcd/chaincfg"
@@ -11,15 +12,42 @@ import (
 	"github.com/lightningnetwork/lnd/zpay32"
 )
 
+// decodePayReq decodes the invoice payment request if present. This is needed,
+// because not all information is stored in dedicated invoice fields. If there
+// is no payment request present, a dummy request will be returned. This can
+// happen with just-in-time inserted key send invoices.
+func decodePayReq(invoice *channeldb.Invoice,
+	activeNetParams *chaincfg.Params) (*zpay32.Invoice, error) {
+
+	paymentRequest := string(invoice.PaymentRequest)
+	if paymentRequest == "" {
+		preimage := invoice.Terms.PaymentPreimage
+		if preimage == channeldb.UnknownPreimage {
+			return nil, errors.New("cannot reconstruct pay req")
+		}
+		hash := [32]byte(preimage.Hash())
+		return &zpay32.Invoice{
+			PaymentHash: &hash,
+		}, nil
+	}
+
+	var err error
+	decoded, err := zpay32.Decode(paymentRequest, activeNetParams)
+	if err != nil {
+		return nil, fmt.Errorf("unable to decode payment "+
+			"request: %v", err)
+	}
+	return decoded, nil
+
+}
+
 // CreateRPCInvoice creates an *lnrpc.Invoice from the *channeldb.Invoice.
 func CreateRPCInvoice(invoice *channeldb.Invoice,
 	activeNetParams *chaincfg.Params) (*lnrpc.Invoice, error) {
 
-	paymentRequest := string(invoice.PaymentRequest)
-	decoded, err := zpay32.Decode(paymentRequest, activeNetParams)
+	decoded, err := decodePayReq(invoice, activeNetParams)
 	if err != nil {
-		return nil, fmt.Errorf("unable to decode payment request: %v",
-			err)
+		return nil, err
 	}
 
 	var descHash []byte
@@ -103,7 +131,7 @@ func CreateRPCInvoice(invoice *channeldb.Invoice,
 		CreationDate:    invoice.CreationDate.Unix(),
 		SettleDate:      settleDate,
 		Settled:         isSettled,
-		PaymentRequest:  paymentRequest,
+		PaymentRequest:  string(invoice.PaymentRequest),
 		DescriptionHash: descHash,
 		Expiry:          int64(invoice.Terms.Expiry.Seconds()),
 		CltvExpiry:      uint64(invoice.Terms.FinalCltvDelta),
@@ -118,6 +146,7 @@ func CreateRPCInvoice(invoice *channeldb.Invoice,
 		State:           state,
 		Htlcs:           rpcHtlcs,
 		Features:        CreateRPCFeatures(invoice.Terms.Features),
+		IsKeySend:       len(invoice.PaymentRequest) == 0,
 	}
 
 	if preimage != channeldb.UnknownPreimage {

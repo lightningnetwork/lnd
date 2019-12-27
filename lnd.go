@@ -224,6 +224,7 @@ func Main(lisCfg ListenerCfg) error {
 
 	// Open the channeldb, which is dedicated to storing channel, and
 	// network related metadata.
+	ltndLog.Infof("Opening the channeldb, might take a few minutes")
 	chanDB, err := channeldb.Open(
 		graphDir,
 		channeldb.OptionSetRejectCacheSize(cfg.Caches.RejectCacheSize),

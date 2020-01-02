@@ -1564,6 +1564,42 @@ type CommitDiff struct {
 	SettleFailAcks []SettleFailRef
 }
 
+// serializeLogUpdates serializes provided list of updates to a stream.
+func serializeLogUpdates(w io.Writer, logUpdates []LogUpdate) error {
+	numUpdates := uint16(len(logUpdates))
+	if err := binary.Write(w, byteOrder, numUpdates); err != nil {
+		return err
+	}
+
+	for _, diff := range logUpdates {
+		err := WriteElements(w, diff.LogIndex, diff.UpdateMsg)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// deserializeLogUpdates deserializes a list of updates from a stream.
+func deserializeLogUpdates(r io.Reader) ([]LogUpdate, error) {
+	var numUpdates uint16
+	if err := binary.Read(r, byteOrder, &numUpdates); err != nil {
+		return nil, err
+	}
+
+	logUpdates := make([]LogUpdate, numUpdates)
+	for i := 0; i < int(numUpdates); i++ {
+		err := ReadElements(r,
+			&logUpdates[i].LogIndex, &logUpdates[i].UpdateMsg,
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return logUpdates, nil
+}
+
 func serializeCommitDiff(w io.Writer, diff *CommitDiff) error {
 	if err := serializeChanCommit(w, &diff.Commitment); err != nil {
 		return err
@@ -1573,16 +1609,8 @@ func serializeCommitDiff(w io.Writer, diff *CommitDiff) error {
 		return err
 	}
 
-	numUpdates := uint16(len(diff.LogUpdates))
-	if err := binary.Write(w, byteOrder, numUpdates); err != nil {
+	if err := serializeLogUpdates(w, diff.LogUpdates); err != nil {
 		return err
-	}
-
-	for _, diff := range diff.LogUpdates {
-		err := WriteElements(w, diff.LogIndex, diff.UpdateMsg)
-		if err != nil {
-			return err
-		}
 	}
 
 	numOpenRefs := uint16(len(diff.OpenedCircuitKeys))
@@ -1628,19 +1656,9 @@ func deserializeCommitDiff(r io.Reader) (*CommitDiff, error) {
 		return nil, err
 	}
 
-	var numUpdates uint16
-	if err := binary.Read(r, byteOrder, &numUpdates); err != nil {
+	d.LogUpdates, err = deserializeLogUpdates(r)
+	if err != nil {
 		return nil, err
-	}
-
-	d.LogUpdates = make([]LogUpdate, numUpdates)
-	for i := 0; i < int(numUpdates); i++ {
-		err := ReadElements(r,
-			&d.LogUpdates[i].LogIndex, &d.LogUpdates[i].UpdateMsg,
-		)
-		if err != nil {
-			return nil, err
-		}
 	}
 
 	var numOpenRefs uint16

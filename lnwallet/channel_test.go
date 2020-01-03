@@ -3151,10 +3151,9 @@ func TestChanSyncOweCommitmentPendingRemote(t *testing.T) {
 		t.Fatalf("unable to sign commitment: %v", err)
 	}
 
-	// This commitment is expected to contain no htlcs anymore, but because
-	// of a bug it is still present. THIS IS NOT CORRECT!
-	if len(bobHtlcSigs) != 2 {
-		t.Fatal("expected htlc to still be pending")
+	// This commitment is expected to contain no htlcs anymore.
+	if len(bobHtlcSigs) != 0 {
+		t.Fatalf("no htlcs expected, but got %v", len(bobHtlcSigs))
 	}
 }
 
@@ -6289,11 +6288,8 @@ func TestChannelRestoreUpdateLogsFailedHTLC(t *testing.T) {
 	// sent a new signature yet. If we'd now restart and restore, the htlc
 	// failure update should still be waiting for inclusion in Alice's next
 	// signature. Otherwise the produced signature would be invalid.
-	//
-	// THIS IS NOT HAPPENING. The update log entry is dropped after a
-	// restart!
 	assertInLogs(t, aliceChannel, 1, 0, 0, 1)
-	restoreAndAssert(t, aliceChannel, 1, 0, 0, 0)
+	restoreAndAssert(t, aliceChannel, 1, 0, 0, 1)
 
 	// Now send a signature from Alice. This will give Bob a new commitment
 	// where the HTLC is removed.

@@ -403,7 +403,7 @@ func TestRestoreChannelShells(t *testing.T) {
 	// Ensure that it isn't possible to modify the commitment state machine
 	// of this restored channel.
 	channel := nodeChans[0]
-	err = channel.UpdateCommitment(nil)
+	err = channel.UpdateCommitment(nil, nil)
 	if err != ErrNoRestoredChannelMutation {
 		t.Fatalf("able to mutate restored channel")
 	}

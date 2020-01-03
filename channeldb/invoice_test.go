@@ -14,6 +14,7 @@ import (
 
 var (
 	emptyFeatures = lnwire.NewFeatureVector(nil, lnwire.Features)
+	testNow       = time.Unix(1, 0)
 )
 
 func randInvoice(value lnwire.MilliSatoshi) (*Invoice, error) {
@@ -23,9 +24,7 @@ func randInvoice(value lnwire.MilliSatoshi) (*Invoice, error) {
 	}
 
 	i := &Invoice{
-		// Use single second precision to avoid false positive test
-		// failures due to the monotonic time component.
-		CreationDate: time.Unix(time.Now().Unix(), 0),
+		CreationDate: testNow,
 		Terms: ContractTerm{
 			Expiry:          4000,
 			PaymentPreimage: pre,
@@ -87,9 +86,7 @@ func TestInvoiceWorkflow(t *testing.T) {
 	// Create a fake invoice which we'll use several times in the tests
 	// below.
 	fakeInvoice := &Invoice{
-		// Use single second precision to avoid false positive test
-		// failures due to the monotonic time component.
-		CreationDate: time.Unix(time.Now().Unix(), 0),
+		CreationDate: testNow,
 		Htlcs:        map[CircuitKey]*InvoiceHTLC{},
 	}
 	fakeInvoice.Memo = []byte("memo")
@@ -285,6 +282,7 @@ func TestInvoiceAddTimeSeries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to make test db: %v", err)
 	}
+	db.Now = func() time.Time { return testNow }
 
 	// We'll start off by creating 20 random invoices, and inserting them
 	// into the database.
@@ -537,7 +535,7 @@ func TestDuplicateSettleInvoice(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to make test db: %v", err)
 	}
-	db.Now = func() time.Time { return time.Unix(1, 0) }
+	db.Now = func() time.Time { return testNow }
 
 	// We'll start out by creating an invoice and writing it to the DB.
 	amt := lnwire.NewMSatFromSatoshis(1000)
@@ -675,6 +673,7 @@ func TestQueryInvoices(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to make test db: %v", err)
 	}
+	db.Now = func() time.Time { return testNow }
 
 	// To begin the test, we'll add 50 invoices to the database. We'll
 	// assume that the index of the invoice within the database is the same

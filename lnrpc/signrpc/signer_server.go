@@ -5,6 +5,7 @@ package signrpc
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -61,6 +62,10 @@ var (
 		"/signrpc.Signer/VerifyMessage": {{
 			Entity: "signer",
 			Action: "read",
+		}},
+		"/signrpc.Signer/DeriveSharedKey": {{
+			Entity: "signer",
+			Action: "generate",
 		}},
 	}
 
@@ -476,4 +481,56 @@ func (s *Server) VerifyMessage(ctx context.Context,
 	return &VerifyMessageResp{
 		Valid: valid,
 	}, nil
+}
+
+// DeriveSharedKey returns a shared secret key by performing Diffie-Hellman key
+// derivation between the ephemeral public key in the request and the node's
+// identity private key:
+//     P_shared = privKeyNodeID * ephemeralPubkey
+// The resulting shared public key is serialized in the compressed format and
+// hashed with sha256, resulting in the final key length of 256bit.
+func (s *Server) DeriveSharedKey(_ context.Context, in *SharedKeyRequest) (
+	*SharedKeyResponse, error) {
+
+	if len(in.EphemeralPubkey) != 33 {
+		return nil, fmt.Errorf("ephemeral pubkey must be " +
+			"serialized in compressed format")
+	}
+	ephemeralPubkey, err := btcec.ParsePubKey(
+		in.EphemeralPubkey, btcec.S256(),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to parse pubkey: %v", err)
+	}
+
+	// Derive our node's private key from the key ring.
+	idPrivKey, err := s.cfg.KeyRing.DerivePrivKey(keychain.KeyDescriptor{
+		KeyLocator: keychain.KeyLocator{
+			Family: keychain.KeyFamilyNodeKey,
+			Index:  0,
+		},
+	})
+	if err != nil {
+		err := fmt.Errorf("unable to derive node private key: %v", err)
+		log.Error(err)
+		return nil, err
+	}
+	idPrivKey.Curve = btcec.S256()
+
+	// Derive the shared key using ECDH and hashing the serialized
+	// compressed shared point.
+	sharedKeyHash := ecdh(ephemeralPubkey, idPrivKey)
+	return &SharedKeyResponse{SharedKey: sharedKeyHash}, nil
+}
+
+// ecdh performs an ECDH operation between pub and priv. The returned value is
+// the sha256 of the compressed shared point.
+func ecdh(pub *btcec.PublicKey, priv *btcec.PrivateKey) []byte {
+	s := &btcec.PublicKey{}
+	x, y := btcec.S256().ScalarMult(pub.X, pub.Y, priv.D.Bytes())
+	s.X = x
+	s.Y = y
+
+	h := sha256.Sum256(s.SerializeCompressed())
+	return h[:]
 }

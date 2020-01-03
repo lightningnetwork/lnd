@@ -642,49 +642,6 @@ func (d *DB) FetchAllInvoicesWithPaymentHash(pendingOnly bool) (
 	return result, nil
 }
 
-// FetchAllInvoices returns all invoices currently stored within the database.
-// If the pendingOnly param is set to true, then only invoices in open or
-// accepted state will be returned, skipping all invoices that are fully
-// settled or canceled.
-func (d *DB) FetchAllInvoices(pendingOnly bool) ([]Invoice, error) {
-	var invoices []Invoice
-
-	err := d.View(func(tx *bbolt.Tx) error {
-		invoiceB := tx.Bucket(invoiceBucket)
-		if invoiceB == nil {
-			return ErrNoInvoicesCreated
-		}
-
-		// Iterate through the entire key space of the top-level
-		// invoice bucket. If key with a non-nil value stores the next
-		// invoice ID which maps to the corresponding invoice.
-		return invoiceB.ForEach(func(k, v []byte) error {
-			if v == nil {
-				return nil
-			}
-
-			invoiceReader := bytes.NewReader(v)
-			invoice, err := deserializeInvoice(invoiceReader)
-			if err != nil {
-				return err
-			}
-
-			if pendingOnly && !invoice.IsPending() {
-				return nil
-			}
-
-			invoices = append(invoices, invoice)
-
-			return nil
-		})
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return invoices, nil
-}
-
 // InvoiceQuery represents a query to the invoice database. The query allows a
 // caller to retrieve all invoices starting from a particular add index and
 // limit the number of results returned.

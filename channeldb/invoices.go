@@ -1327,6 +1327,19 @@ func copySlice(src []byte) []byte {
 	return dest
 }
 
+// copyInvoiceHTLC makes a deep copy of the supplied invoice HTLC.
+func copyInvoiceHTLC(src *InvoiceHTLC) *InvoiceHTLC {
+	result := *src
+
+	// Make a copy of the CustomSet map.
+	result.CustomRecords = make(record.CustomSet)
+	for k, v := range src.CustomRecords {
+		result.CustomRecords[k] = v
+	}
+
+	return &result
+}
+
 // copyInvoice makes a deep copy of the supplied invoice.
 func copyInvoice(src *Invoice) *Invoice {
 	dest := Invoice{
@@ -1347,7 +1360,7 @@ func copyInvoice(src *Invoice) *Invoice {
 	dest.Terms.Features = src.Terms.Features.Clone()
 
 	for k, v := range src.Htlcs {
-		dest.Htlcs[k] = v
+		dest.Htlcs[k] = copyInvoiceHTLC(v)
 	}
 
 	return &dest

@@ -1226,10 +1226,6 @@ type LightningChannel struct {
 	// Capacity is the total capacity of this channel.
 	Capacity btcutil.Amount
 
-	// stateHintObfuscator is a 48-bit state hint that's used to obfuscate
-	// the current state number on the commitment transactions.
-	stateHintObfuscator [StateHintSize]byte
-
 	// currentHeight is the current height of our local commitment chain.
 	// This is also the same as the number of updates to the channel we've
 	// accepted.
@@ -1246,6 +1242,8 @@ type LightningChannel struct {
 	localCommitChain *commitmentChain
 
 	channelState *channeldb.OpenChannel
+
+	commitBuilder *CommitmentBuilder
 
 	// [local|remote]Log is a (mostly) append-only log storing all the HTLC
 	// updates to this channel. The log is walked backwards as HTLC updates
@@ -1299,6 +1297,7 @@ func NewLightningChannel(signer input.Signer,
 		remoteCommitChain: newCommitmentChain(),
 		localCommitChain:  newCommitmentChain(),
 		channelState:      state,
+		commitBuilder:     NewCommitmentBuilder(state),
 		localUpdateLog:    localUpdateLog,
 		remoteUpdateLog:   remoteUpdateLog,
 		ChanPoint:         &state.FundingOutpoint,
@@ -1321,8 +1320,6 @@ func NewLightningChannel(signer input.Signer,
 	if err := lc.createSignDesc(); err != nil {
 		return nil, err
 	}
-
-	lc.createStateHintObfuscator()
 
 	return lc, nil
 }
@@ -2208,7 +2205,10 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 	}
 
 	// Actually generate unsigned commitment transaction for this view.
-	if err := lc.createCommitmentTx(c, filteredHTLCView, keyRing); err != nil {
+	err := lc.commitBuilder.createCommitmentTx(
+		c, filteredHTLCView, keyRing,
+	)
+	if err != nil {
 		return nil, err
 	}
 

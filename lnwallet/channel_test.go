@@ -6178,7 +6178,12 @@ func TestChannelRestoreUpdateLogsFailedHTLC(t *testing.T) {
 	// At this point Alice has advanced her local commitment chain to a
 	// commitment with no HTLCs left. The current state on her remote
 	// commitment chain, however, still has the HTLC active, as she hasn't
-	// sent a new signature yet.
+	// sent a new signature yet. If we'd now restart and restore, the htlc
+	// failure update should still be waiting for inclusion in Alice's next
+	// signature. Otherwise the produced signature would be invalid.
+	//
+	// THIS IS NOT HAPPENING. The update log entry is dropped after a
+	// restart!
 	assertInLogs(t, aliceChannel, 1, 0, 0, 1)
 	restoreAndAssert(t, aliceChannel, 1, 0, 0, 0)
 

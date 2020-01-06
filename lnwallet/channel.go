@@ -1564,6 +1564,7 @@ func (lc *LightningChannel) logUpdateToPayDesc(logUpdate *channeldb.LogUpdate,
 
 		pd = &PaymentDescriptor{
 			Amount:                   ogHTLC.Amount,
+			RHash:                    ogHTLC.RHash,
 			RPreimage:                wireMsg.PaymentPreimage,
 			LogIndex:                 logUpdate.LogIndex,
 			ParentIndex:              ogHTLC.HtlcIndex,

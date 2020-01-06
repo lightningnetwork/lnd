@@ -154,6 +154,12 @@ message VerifyMessageResp {
 message SharedKeyRequest {
     // The ephemeral public key to use for the DH key derivation.
     bytes ephemeral_pubkey = 1;
+    
+    /**
+    The optional key locator of the local key that should be used. If this
+    parameter is not set then the node's identity private key will be used.
+    */
+    KeyLocator key_loc = 2;
 }
 
 message SharedKeyResponse {
@@ -209,8 +215,9 @@ service Signer {
     /*
     DeriveSharedKey returns a shared secret key by performing Diffie-Hellman key
     derivation between the ephemeral public key in the request and the node's
-    identity private key:
-        P_shared = privKeyNodeID * ephemeralPubkey
+    key specified in the key_loc parameter (or the node's identity private key
+    if no key locator is specified):
+        P_shared = privKeyNode * ephemeralPubkey
     The resulting shared public key is serialized in the compressed format and 
     hashed with sha256, resulting in the final key length of 256bit.
     */

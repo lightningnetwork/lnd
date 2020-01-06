@@ -213,13 +213,13 @@ func (lc *LightningChannel) createCommitmentTx(c *commitment,
 	// out HTLCs.
 	if c.isOurs {
 		commitTx, err = CreateCommitTx(
-			lc.fundingTxIn(), keyRing, &lc.channelState.LocalChanCfg,
+			fundingTxIn(lc.channelState), keyRing, &lc.channelState.LocalChanCfg,
 			&lc.channelState.RemoteChanCfg, ourBalance.ToSatoshis(),
 			theirBalance.ToSatoshis(),
 		)
 	} else {
 		commitTx, err = CreateCommitTx(
-			lc.fundingTxIn(), keyRing, &lc.channelState.RemoteChanCfg,
+			fundingTxIn(lc.channelState), keyRing, &lc.channelState.RemoteChanCfg,
 			&lc.channelState.LocalChanCfg, theirBalance.ToSatoshis(),
 			ourBalance.ToSatoshis(),
 		)

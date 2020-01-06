@@ -162,6 +162,37 @@ func DeriveCommitmentKeys(commitPoint *btcec.PublicKey,
 	return keyRing
 }
 
+// ScriptInfo holds a redeem script and hash.
+type ScriptInfo struct {
+	// PkScript is the output's PkScript.
+	PkScript []byte
+
+	// WitnessScript is the full script required to properly redeem the
+	// output. This field should be set to the full script if a p2wsh
+	// output is being signed. For p2wkh it should be set equal to the
+	// PkScript.
+	WitnessScript []byte
+}
+
+// CommitScriptToRemote creates the script that will pay to the non-owner of
+// the commitment transaction, adding a delay to the script based on the
+// channel type.
+func CommitScriptToRemote(_ channeldb.ChannelType, csvTimeout uint32,
+	key *btcec.PublicKey) (*ScriptInfo, error) {
+
+	p2wkh, err := input.CommitScriptUnencumbered(key)
+	if err != nil {
+		return nil, err
+	}
+
+	// Since this is a regular P2WKH, the WitnessScipt and PkScript should
+	// both be set to the script hash.
+	return &ScriptInfo{
+		WitnessScript: p2wkh,
+		PkScript:      p2wkh,
+	}, nil
+}
+
 // CommitmentBuilder is a type that wraps the type of channel we are dealing
 // with, and abstracts the various ways of constructing commitment
 // transactions.
@@ -292,15 +323,15 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 	// out HTLCs.
 	if isOurs {
 		commitTx, err = CreateCommitTx(
-			fundingTxIn(cb.chanState), keyRing, &cb.chanState.LocalChanCfg,
-			&cb.chanState.RemoteChanCfg, ourBalance.ToSatoshis(),
-			theirBalance.ToSatoshis(),
+			cb.chanState.ChanType, fundingTxIn(cb.chanState), keyRing,
+			&cb.chanState.LocalChanCfg, &cb.chanState.RemoteChanCfg,
+			ourBalance.ToSatoshis(), theirBalance.ToSatoshis(),
 		)
 	} else {
 		commitTx, err = CreateCommitTx(
-			fundingTxIn(cb.chanState), keyRing, &cb.chanState.RemoteChanCfg,
-			&cb.chanState.LocalChanCfg, theirBalance.ToSatoshis(),
-			ourBalance.ToSatoshis(),
+			cb.chanState.ChanType, fundingTxIn(cb.chanState), keyRing,
+			&cb.chanState.RemoteChanCfg, &cb.chanState.LocalChanCfg,
+			theirBalance.ToSatoshis(), ourBalance.ToSatoshis(),
 		)
 	}
 	if err != nil {
@@ -389,7 +420,8 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 // spent after a relative block delay or revocation event, and a remote output
 // paying the counterparty within the channel, which can be spent immediately
 // or after a delay depending on the commitment type..
-func CreateCommitTx(fundingOutput wire.TxIn, keyRing *CommitmentKeyRing,
+func CreateCommitTx(chanType channeldb.ChannelType,
+	fundingOutput wire.TxIn, keyRing *CommitmentKeyRing,
 	localChanCfg, remoteChanCfg *channeldb.ChannelConfig,
 	amountToLocal, amountToRemote btcutil.Amount) (*wire.MsgTx, error) {
 
@@ -412,10 +444,9 @@ func CreateCommitTx(fundingOutput wire.TxIn, keyRing *CommitmentKeyRing,
 		return nil, err
 	}
 
-	// Next, we create the script paying to the remote. This is just a
-	// regular P2WPKH output, without any added CSV delay.
-	toRemoteWitnessKeyHash, err := input.CommitScriptUnencumbered(
-		keyRing.ToRemoteKey,
+	// Next, we create the script paying to the remote.
+	toRemoteScript, err := CommitScriptToRemote(
+		chanType, uint32(remoteChanCfg.CsvDelay), keyRing.ToRemoteKey,
 	)
 	if err != nil {
 		return nil, err
@@ -436,7 +467,7 @@ func CreateCommitTx(fundingOutput wire.TxIn, keyRing *CommitmentKeyRing,
 	}
 	if amountToRemote >= localChanCfg.DustLimit {
 		commitTx.AddTxOut(&wire.TxOut{
-			PkScript: toRemoteWitnessKeyHash,
+			PkScript: toRemoteScript.PkScript,
 			Value:    int64(amountToRemote),
 		})
 	}

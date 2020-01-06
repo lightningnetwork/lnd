@@ -9,6 +9,7 @@ import (
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -166,18 +167,41 @@ func createStateHintObfuscator(state *channeldb.OpenChannel) [StateHintSize]byte
 	)
 }
 
-// createCommitmentTx generates the unsigned commitment transaction for a
-// commitment view and assigns to txn field.
-func (cb *CommitmentBuilder) createCommitmentTx(c *commitment,
-	filteredHTLCView *htlcView, keyRing *CommitmentKeyRing) error {
+// unsignedCommitmentTx is the final commitment created from evaluating an HTLC
+// view at a given height, along with some meta data.
+type unsignedCommitmentTx struct {
+	// txn is the final, unsigned commitment transaction for this view.
+	txn *wire.MsgTx
 
-	ourBalance := c.ourBalance
-	theirBalance := c.theirBalance
+	// fee is the total fee of the commitment transaction.
+	fee btcutil.Amount
+
+	// ourBalance|theirBalance is the balances of this commitment. This can
+	// be different than the balances before creating the commitment
+	// transaction as one party must pay the commitment fee.
+	ourBalance   lnwire.MilliSatoshi
+	theirBalance lnwire.MilliSatoshi
+}
+
+// createUnsignedCommitmentTx generates the unsigned commitment transaction for
+// a commitment view and returns it as part of the unsignedCommitmentTx. The
+// passed in balances should be balances *before* subtracting any commitment
+// fees.
+func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
+	theirBalance lnwire.MilliSatoshi, isOurs bool,
+	feePerKw chainfee.SatPerKWeight, height uint64,
+	filteredHTLCView *htlcView,
+	keyRing *CommitmentKeyRing) (*unsignedCommitmentTx, error) {
+
+	dustLimit := cb.chanState.LocalChanCfg.DustLimit
+	if !isOurs {
+		dustLimit = cb.chanState.RemoteChanCfg.DustLimit
+	}
 
 	numHTLCs := int64(0)
 	for _, htlc := range filteredHTLCView.ourUpdates {
-		if htlcIsDust(false, c.isOurs, c.feePerKw,
-			htlc.Amount.ToSatoshis(), c.dustLimit) {
+		if htlcIsDust(false, isOurs, feePerKw,
+			htlc.Amount.ToSatoshis(), dustLimit) {
 
 			continue
 		}
@@ -185,8 +209,8 @@ func (cb *CommitmentBuilder) createCommitmentTx(c *commitment,
 		numHTLCs++
 	}
 	for _, htlc := range filteredHTLCView.theirUpdates {
-		if htlcIsDust(true, c.isOurs, c.feePerKw,
-			htlc.Amount.ToSatoshis(), c.dustLimit) {
+		if htlcIsDust(true, isOurs, feePerKw,
+			htlc.Amount.ToSatoshis(), dustLimit) {
 
 			continue
 		}
@@ -202,7 +226,7 @@ func (cb *CommitmentBuilder) createCommitmentTx(c *commitment,
 
 	// With the weight known, we can now calculate the commitment fee,
 	// ensuring that we account for any dust outputs trimmed above.
-	commitFee := c.feePerKw.FeeForWeight(totalCommitWeight)
+	commitFee := feePerKw.FeeForWeight(totalCommitWeight)
 	commitFeeMSat := lnwire.NewMSatFromSatoshis(commitFee)
 
 	// Currently, within the protocol, the initiator always pays the fees.
@@ -232,7 +256,7 @@ func (cb *CommitmentBuilder) createCommitmentTx(c *commitment,
 	// CreateCommitTx with parameters matching the perspective, to generate
 	// a new commitment transaction with all the latest unsettled/un-timed
 	// out HTLCs.
-	if c.isOurs {
+	if isOurs {
 		commitTx, err = CreateCommitTx(
 			fundingTxIn(cb.chanState), keyRing, &cb.chanState.LocalChanCfg,
 			&cb.chanState.RemoteChanCfg, ourBalance.ToSatoshis(),
@@ -246,7 +270,7 @@ func (cb *CommitmentBuilder) createCommitmentTx(c *commitment,
 		)
 	}
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// We'll now add all the HTLC outputs to the commitment transaction.
@@ -260,26 +284,26 @@ func (cb *CommitmentBuilder) createCommitmentTx(c *commitment,
 	// purposes of sorting.
 	cltvs := make([]uint32, len(commitTx.TxOut))
 	for _, htlc := range filteredHTLCView.ourUpdates {
-		if htlcIsDust(false, c.isOurs, c.feePerKw,
-			htlc.Amount.ToSatoshis(), c.dustLimit) {
+		if htlcIsDust(false, isOurs, feePerKw,
+			htlc.Amount.ToSatoshis(), dustLimit) {
 			continue
 		}
 
-		err := addHTLC(commitTx, c.isOurs, false, htlc, keyRing)
+		err := addHTLC(commitTx, isOurs, false, htlc, keyRing)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		cltvs = append(cltvs, htlc.Timeout)
 	}
 	for _, htlc := range filteredHTLCView.theirUpdates {
-		if htlcIsDust(true, c.isOurs, c.feePerKw,
-			htlc.Amount.ToSatoshis(), c.dustLimit) {
+		if htlcIsDust(true, isOurs, feePerKw,
+			htlc.Amount.ToSatoshis(), dustLimit) {
 			continue
 		}
 
-		err := addHTLC(commitTx, c.isOurs, true, htlc, keyRing)
+		err := addHTLC(commitTx, isOurs, true, htlc, keyRing)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		cltvs = append(cltvs, htlc.Timeout)
 	}
@@ -287,9 +311,9 @@ func (cb *CommitmentBuilder) createCommitmentTx(c *commitment,
 	// Set the state hint of the commitment transaction to facilitate
 	// quickly recovering the necessary penalty state in the case of an
 	// uncooperative broadcast.
-	err = SetStateNumHint(commitTx, c.height, cb.obfuscator)
+	err = SetStateNumHint(commitTx, height, cb.obfuscator)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// Sort the transactions according to the agreed upon canonical
@@ -301,7 +325,7 @@ func (cb *CommitmentBuilder) createCommitmentTx(c *commitment,
 	// transaction which would be invalid by consensus.
 	uTx := btcutil.NewTx(commitTx)
 	if err := blockchain.CheckTransactionSanity(uTx); err != nil {
-		return err
+		return nil, err
 	}
 
 	// Finally, we'll assert that were not attempting to draw more out of
@@ -311,17 +335,18 @@ func (cb *CommitmentBuilder) createCommitmentTx(c *commitment,
 		totalOut += btcutil.Amount(txOut.Value)
 	}
 	if totalOut > cb.chanState.Capacity {
-		return fmt.Errorf("height=%v, for ChannelPoint(%v) attempts "+
-			"to consume %v while channel capacity is %v",
-			c.height, cb.chanState.FundingOutpoint,
+		return nil, fmt.Errorf("height=%v, for ChannelPoint(%v) "+
+			"attempts to consume %v while channel capacity is %v",
+			height, cb.chanState.FundingOutpoint,
 			totalOut, cb.chanState.Capacity)
 	}
 
-	c.txn = commitTx
-	c.fee = commitFee
-	c.ourBalance = ourBalance
-	c.theirBalance = theirBalance
-	return nil
+	return &unsignedCommitmentTx{
+		txn:          commitTx,
+		fee:          commitFee,
+		ourBalance:   ourBalance,
+		theirBalance: theirBalance,
+	}, nil
 }
 
 // CreateCommitTx creates a commitment transaction, spending from specified

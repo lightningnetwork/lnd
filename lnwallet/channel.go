@@ -2167,33 +2167,41 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 	keyRing *CommitmentKeyRing) (*commitment, error) {
 
 	commitChain := lc.localCommitChain
+	dustLimit := lc.channelState.LocalChanCfg.DustLimit
 	if remoteChain {
 		commitChain = lc.remoteCommitChain
+		dustLimit = lc.channelState.RemoteChanCfg.DustLimit
 	}
 
 	nextHeight := commitChain.tip().height + 1
 
 	// Run through all the HTLCs that will be covered by this transaction
 	// in order to update their commitment addition height, and to adjust
-	// the balances on the commitment transaction accordingly.
+	// the balances on the commitment transaction accordingly. Note that
+	// these balances will be *before* taking a commitment fee from the
+	// initiator.
 	htlcView := lc.fetchHTLCView(theirLogIndex, ourLogIndex)
 	ourBalance, theirBalance, _, filteredHTLCView := lc.computeView(
 		htlcView, remoteChain, true,
 	)
 	feePerKw := filteredHTLCView.feePerKw
 
-	// Determine how many current HTLCs are over the dust limit, and should
-	// be counted for the purpose of fee calculation.
-	var dustLimit btcutil.Amount
-	if remoteChain {
-		dustLimit = lc.channelState.RemoteChanCfg.DustLimit
-	} else {
-		dustLimit = lc.channelState.LocalChanCfg.DustLimit
+	// Actually generate unsigned commitment transaction for this view.
+	commitTx, err := lc.commitBuilder.createUnsignedCommitmentTx(
+		ourBalance, theirBalance, !remoteChain, feePerKw, nextHeight,
+		filteredHTLCView, keyRing,
+	)
+	if err != nil {
+		return nil, err
 	}
 
+	// With the commitment view created, store the resulting balances and
+	// transaction with the other parameters for this height.
 	c := &commitment{
-		ourBalance:        ourBalance,
-		theirBalance:      theirBalance,
+		ourBalance:        commitTx.ourBalance,
+		theirBalance:      commitTx.theirBalance,
+		txn:               commitTx.txn,
+		fee:               commitTx.fee,
 		ourMessageIndex:   ourLogIndex,
 		ourHtlcIndex:      ourHtlcIndex,
 		theirMessageIndex: theirLogIndex,
@@ -2202,14 +2210,6 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 		feePerKw:          feePerKw,
 		dustLimit:         dustLimit,
 		isOurs:            !remoteChain,
-	}
-
-	// Actually generate unsigned commitment transaction for this view.
-	err := lc.commitBuilder.createCommitmentTx(
-		c, filteredHTLCView, keyRing,
-	)
-	if err != nil {
-		return nil, err
 	}
 
 	// In order to ensure _none_ of the HTLC's associated with this new

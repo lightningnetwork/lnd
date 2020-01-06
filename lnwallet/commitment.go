@@ -287,7 +287,7 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 	// on its total weight. Once we have the total weight, we'll multiply
 	// by the current fee-per-kw, then divide by 1000 to get the proper
 	// fee.
-	totalCommitWeight := input.CommitWeight + (input.HtlcWeight * numHTLCs)
+	totalCommitWeight := input.CommitWeight + (input.HTLCWeight * numHTLCs)
 
 	// With the weight known, we can now calculate the commitment fee,
 	// ensuring that we account for any dust outputs trimmed above.

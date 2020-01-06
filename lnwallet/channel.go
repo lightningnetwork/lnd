@@ -1880,7 +1880,7 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 	// within the final witness.
 	remoteDelay := uint32(chanState.RemoteChanCfg.CsvDelay)
 	remotePkScript, err := input.CommitScriptToSelf(
-		remoteDelay, keyRing.DelayKey, keyRing.RevocationKey,
+		remoteDelay, keyRing.ToLocalKey, keyRing.RevocationKey,
 	)
 	if err != nil {
 		return nil, err
@@ -1889,7 +1889,7 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 	if err != nil {
 		return nil, err
 	}
-	localPkScript, err := input.CommitScriptUnencumbered(keyRing.NoDelayKey)
+	localPkScript, err := input.CommitScriptUnencumbered(keyRing.ToRemoteKey)
 	if err != nil {
 		return nil, err
 	}
@@ -1984,7 +1984,7 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 		// remote commitment transaction, and *they* go to the second
 		// level.
 		secondLevelWitnessScript, err := input.SecondLevelHtlcScript(
-			keyRing.RevocationKey, keyRing.DelayKey, remoteDelay,
+			keyRing.RevocationKey, keyRing.ToLocalKey, remoteDelay,
 		)
 		if err != nil {
 			return nil, err
@@ -2563,7 +2563,7 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 		sigJob.Tx, err = createHtlcTimeoutTx(
 			op, outputAmt, htlc.Timeout,
 			uint32(remoteChanCfg.CsvDelay),
-			keyRing.RevocationKey, keyRing.DelayKey,
+			keyRing.RevocationKey, keyRing.ToLocalKey,
 		)
 		if err != nil {
 			return nil, nil, err
@@ -2614,7 +2614,7 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 		}
 		sigJob.Tx, err = createHtlcSuccessTx(
 			op, outputAmt, uint32(remoteChanCfg.CsvDelay),
-			keyRing.RevocationKey, keyRing.DelayKey,
+			keyRing.RevocationKey, keyRing.ToLocalKey,
 		)
 		if err != nil {
 			return nil, nil, err
@@ -3526,7 +3526,7 @@ func genHtlcSigValidationJobs(localCommitmentView *commitment,
 
 				successTx, err := createHtlcSuccessTx(op,
 					outputAmt, uint32(localChanCfg.CsvDelay),
-					keyRing.RevocationKey, keyRing.DelayKey)
+					keyRing.RevocationKey, keyRing.ToLocalKey)
 				if err != nil {
 					return nil, err
 				}
@@ -3579,7 +3579,7 @@ func genHtlcSigValidationJobs(localCommitmentView *commitment,
 				timeoutTx, err := createHtlcTimeoutTx(op,
 					outputAmt, htlc.Timeout,
 					uint32(localChanCfg.CsvDelay),
-					keyRing.RevocationKey, keyRing.DelayKey,
+					keyRing.RevocationKey, keyRing.ToLocalKey,
 				)
 				if err != nil {
 					return nil, err
@@ -4772,7 +4772,7 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, signer input.Si
 	// Before we can generate the proper sign descriptor, we'll need to
 	// locate the output index of our non-delayed output on the commitment
 	// transaction.
-	selfP2WKH, err := input.CommitScriptUnencumbered(keyRing.NoDelayKey)
+	selfP2WKH, err := input.CommitScriptUnencumbered(keyRing.ToRemoteKey)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create self commit "+
 			"script: %v", err)
@@ -5015,7 +5015,7 @@ func newOutgoingHtlcResolution(signer input.Signer,
 	// transaction.
 	timeoutTx, err := createHtlcTimeoutTx(
 		op, secondLevelOutputAmt, htlc.RefundTimeout, csvDelay,
-		keyRing.RevocationKey, keyRing.DelayKey,
+		keyRing.RevocationKey, keyRing.ToLocalKey,
 	)
 	if err != nil {
 		return nil, err
@@ -5055,7 +5055,7 @@ func newOutgoingHtlcResolution(signer input.Signer,
 	// transaction creates so we can generate the signDesc required to
 	// complete the claim process after a delay period.
 	htlcSweepScript, err := input.SecondLevelHtlcScript(
-		keyRing.RevocationKey, keyRing.DelayKey, csvDelay,
+		keyRing.RevocationKey, keyRing.ToLocalKey, csvDelay,
 	)
 	if err != nil {
 		return nil, err
@@ -5149,7 +5149,7 @@ func newIncomingHtlcResolution(signer input.Signer, localChanCfg *channeldb.Chan
 	secondLevelOutputAmt := htlc.Amt.ToSatoshis() - htlcFee
 	successTx, err := createHtlcSuccessTx(
 		op, secondLevelOutputAmt, csvDelay,
-		keyRing.RevocationKey, keyRing.DelayKey,
+		keyRing.RevocationKey, keyRing.ToLocalKey,
 	)
 	if err != nil {
 		return nil, err
@@ -5192,7 +5192,7 @@ func newIncomingHtlcResolution(signer input.Signer, localChanCfg *channeldb.Chan
 	// creates so we can generate the proper signDesc to sweep it after the
 	// CSV delay has passed.
 	htlcSweepScript, err := input.SecondLevelHtlcScript(
-		keyRing.RevocationKey, keyRing.DelayKey, csvDelay,
+		keyRing.RevocationKey, keyRing.ToLocalKey, csvDelay,
 	)
 	if err != nil {
 		return nil, err
@@ -5410,7 +5410,7 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel, signer input.Si
 		commitPoint, true, chanState.ChanType.IsTweakless(),
 		&chanState.LocalChanCfg, &chanState.RemoteChanCfg,
 	)
-	selfScript, err := input.CommitScriptToSelf(csvTimeout, keyRing.DelayKey,
+	selfScript, err := input.CommitScriptToSelf(csvTimeout, keyRing.ToLocalKey,
 		keyRing.RevocationKey)
 	if err != nil {
 		return nil, err

@@ -439,8 +439,8 @@ func TestCommitmentAndHTLCTransactions(t *testing.T) {
 		LocalHtlcKeyTweak:   tweak,
 		LocalHtlcKey:        tc.localPaymentPubKey,
 		RemoteHtlcKey:       tc.remotePaymentPubKey,
-		DelayKey:            tc.localDelayPubKey,
-		NoDelayKey:          tc.remotePaymentPubKey,
+		ToLocalKey:          tc.localDelayPubKey,
+		ToRemoteKey:         tc.remotePaymentPubKey,
 		RevocationKey:       tc.localRevocationPubKey,
 	}
 
@@ -1081,9 +1081,9 @@ func testSpendValidation(t *testing.T, tweakless bool) {
 	// of 5 blocks before sweeping the output, while bob can spend
 	// immediately with either the revocation key, or his regular key.
 	keyRing := &CommitmentKeyRing{
-		DelayKey:      aliceDelayKey,
+		ToLocalKey:    aliceDelayKey,
 		RevocationKey: revokePubKey,
-		NoDelayKey:    bobPayKey,
+		ToRemoteKey:   bobPayKey,
 	}
 	commitmentTx, err := CreateCommitTx(
 		*fakeFundingTxIn, keyRing, aliceChanCfg, bobChanCfg,

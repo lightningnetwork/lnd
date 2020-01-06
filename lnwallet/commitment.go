@@ -96,13 +96,20 @@ func DeriveCommitmentKeys(commitPoint *btcec.PublicKey,
 
 	tweaklessCommit := chanType.IsTweakless()
 
+	// Depending on if this is our commit or not, we'll choose the correct
+	// base point.
+	localBasePoint := localChanCfg.PaymentBasePoint
+	if isOurCommit {
+		localBasePoint = localChanCfg.DelayBasePoint
+	}
+
 	// First, we'll derive all the keys that don't depend on the context of
 	// whose commitment transaction this is.
 	keyRing := &CommitmentKeyRing{
 		CommitPoint: commitPoint,
 
 		LocalCommitKeyTweak: input.SingleTweakBytes(
-			commitPoint, localChanCfg.PaymentBasePoint.PubKey,
+			commitPoint, localBasePoint.PubKey,
 		),
 		LocalHtlcKeyTweak: input.SingleTweakBytes(
 			commitPoint, localChanCfg.HtlcBasePoint.PubKey,

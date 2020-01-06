@@ -5436,9 +5436,6 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel, signer input.Si
 	// nil.
 	var commitResolution *CommitOutputResolution
 	if len(delayScript) != 0 {
-		singleTweak := input.SingleTweakBytes(
-			commitPoint, chanState.LocalChanCfg.DelayBasePoint.PubKey,
-		)
 		localBalance := localCommit.LocalBalance
 		commitResolution = &CommitOutputResolution{
 			SelfOutPoint: wire.OutPoint{
@@ -5447,7 +5444,7 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel, signer input.Si
 			},
 			SelfOutputSignDesc: input.SignDescriptor{
 				KeyDesc:       chanState.LocalChanCfg.DelayBasePoint,
-				SingleTweak:   singleTweak,
+				SingleTweak:   keyRing.LocalCommitKeyTweak,
 				WitnessScript: selfScript,
 				Output: &wire.TxOut{
 					PkScript: delayScript,

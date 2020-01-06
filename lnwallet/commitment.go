@@ -146,6 +146,13 @@ func DeriveCommitmentKeys(commitPoint *btcec.PublicKey,
 	// we'll use that directly, and ignore the commitPoint tweak.
 	if tweaklessCommit {
 		keyRing.ToRemoteKey = toRemoteBasePoint
+
+		// If this is not our commitment, the above ToRemoteKey will be
+		// ours, and we blank out the local commitment tweak to
+		// indicate that the key should not be tweaked when signing.
+		if !isOurCommit {
+			keyRing.LocalCommitKeyTweak = nil
+		}
 	} else {
 		keyRing.ToRemoteKey = input.TweakPubKey(
 			toRemoteBasePoint, commitPoint,

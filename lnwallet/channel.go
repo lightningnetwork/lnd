@@ -1929,13 +1929,6 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 			},
 			HashType: txscript.SigHashAll,
 		}
-
-		// If this is a tweakless commitment, then we can safely blank
-		// out the SingleTweak value as it isn't needed.
-		tweaklessCommit := chanState.ChanType.IsTweakless()
-		if tweaklessCommit {
-			localSignDesc.SingleTweak = nil
-		}
 	}
 
 	// Similarly, if the remote balance exceeds the remote party's dust
@@ -4806,13 +4799,6 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, signer input.Si
 				HashType: txscript.SigHashAll,
 			},
 			MaturityDelay: 0,
-		}
-
-		// If this is a tweakless commitment, then we can safely blank
-		// out the SingleTweak value as it isn't needed.
-		tweaklessCommit := chanState.ChanType.IsTweakless()
-		if tweaklessCommit {
-			commitResolution.SelfOutputSignDesc.SingleTweak = nil
 		}
 	}
 

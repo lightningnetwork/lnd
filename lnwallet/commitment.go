@@ -20,7 +20,7 @@ import (
 // is referred to in the field comments, regardless of which is local and which
 // is remote.
 type CommitmentKeyRing struct {
-	// commitPoint is the "per commitment point" used to derive the tweak
+	// CommitPoint is the "per commitment point" used to derive the tweak
 	// for each base point.
 	CommitPoint *btcec.PublicKey
 
@@ -28,23 +28,35 @@ type CommitmentKeyRing struct {
 	// from the local payment base point or the local private key from the
 	// base point secret. This may be included in a SignDescriptor to
 	// generate signatures for the local payment key.
+	//
+	// NOTE: This will always refer to "our" local key, regardless of
+	// whether this is our commit or not.
 	LocalCommitKeyTweak []byte
 
 	// TODO(roasbeef): need delay tweak as well?
 
-	// LocalHtlcKeyTweak is the teak used to derive the local HTLC key from
-	// the local HTLC base point. This value is needed in order to
+	// LocalHtlcKeyTweak is the tweak used to derive the local HTLC key
+	// from the local HTLC base point. This value is needed in order to
 	// derive the final key used within the HTLC scripts in the commitment
 	// transaction.
+	//
+	// NOTE: This will always refer to "our" local HTLC key, regardless of
+	// whether this is our commit or not.
 	LocalHtlcKeyTweak []byte
 
-	// LocalHtlcKey is the key that will be used in the "to self" clause of
-	// any HTLC scripts within the commitment transaction for this key ring
-	// set.
+	// LocalHtlcKey is the key that will be used in any clause paying to
+	// our node of any HTLC scripts within the commitment transaction for
+	// this key ring set.
+	//
+	// NOTE: This will always refer to "our" local HTLC key, regardless of
+	// whether this is our commit or not.
 	LocalHtlcKey *btcec.PublicKey
 
 	// RemoteHtlcKey is the key that will be used in clauses within the
 	// HTLC script that send money to the remote party.
+	//
+	// NOTE: This will always refer to "their" remote HTLC key, regardless
+	// of whether this is our commit or not.
 	RemoteHtlcKey *btcec.PublicKey
 
 	// DelayKey is the commitment transaction owner's key which is included

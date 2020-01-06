@@ -1814,11 +1814,25 @@ func (lc *LightningChannel) restoreStateLogs(
 		lc.localUpdateLog.restoreHtlc(&htlc)
 	}
 
-	// If we didn't have a dangling (un-acked) commit for the remote party,
-	// then we can exit here.
-	if pendingRemoteCommit == nil {
-		return nil
+	// If we have a dangling (un-acked) commit for the remote party, then we
+	// restore the updates leading up to this commit.
+	if pendingRemoteCommit != nil {
+		err := lc.restorePendingLocalUpdates(
+			pendingRemoteCommitDiff, pendingRemoteKeys,
+		)
+		if err != nil {
+			return err
+		}
 	}
+
+	return nil
+}
+
+// restorePendingLocalUpdates restores the local log updates leading up to the
+// given pending remote commitment.
+func (lc *LightningChannel) restorePendingLocalUpdates(
+	pendingRemoteCommitDiff *channeldb.CommitDiff,
+	pendingRemoteKeys *CommitmentKeyRing) error {
 
 	pendingCommit := pendingRemoteCommitDiff.Commitment
 	pendingHeight := pendingCommit.CommitHeight

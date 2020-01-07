@@ -210,6 +210,12 @@ func (c *ChannelEventStore) addChannel(channelPoint wire.OutPoint,
 	// Create an event log for the channel.
 	eventLog := newEventLog(channelPoint, peer, time.Now)
 
+	// If the peer is already online, add a peer online event to record
+	// the starting state of the peer.
+	if c.peers[peer] {
+		eventLog.add(peerOnlineEvent)
+	}
+
 	c.channels[channelPoint] = eventLog
 }
 

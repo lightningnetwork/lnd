@@ -469,23 +469,61 @@ func TestGetUptime(t *testing.T) {
 
 // TestAddChannel tests that channels are added to the event store with
 // appropriate timestamps. This test addresses a bug where offline channels
-// did not have an opened time set.
+// did not have an opened time set, and checks that an online event is set for
+// peers that are online at the time that a channel is opened.
 func TestAddChannel(t *testing.T) {
 	_, vertex, chanPoint := getTestChannel(t)
 
-	store := NewChannelEventStore(&Config{})
+	tests := []struct {
+		name string
 
-	// Add channel to the store.
-	store.addChannel(chanPoint, vertex)
+		// peers maps peers to an online state.
+		peers map[route.Vertex]bool
 
-	// Check that the eventlog is successfully added.
-	eventlog, ok := store.channels[chanPoint]
-	if !ok {
-		t.Fatalf("channel should be in store")
+		expectedEvents []eventType
+	}{
+		{
+			name:           "peer offline",
+			peers:          make(map[route.Vertex]bool),
+			expectedEvents: []eventType{},
+		},
+		{
+			name: "peer online",
+			peers: map[route.Vertex]bool{
+				vertex: true,
+			},
+			expectedEvents: []eventType{peerOnlineEvent},
+		},
 	}
 
-	// Ensure that open time is always set.
-	if eventlog.openedAt.IsZero() {
-		t.Fatalf("channel should have opened at set")
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			store := NewChannelEventStore(&Config{})
+			store.peers = test.peers
+
+			// Add channel to the store.
+			store.addChannel(chanPoint, vertex)
+
+			// Check that the eventLog is successfully added.
+			eventLog, ok := store.channels[chanPoint]
+			if !ok {
+				t.Fatalf("channel should be in store")
+			}
+
+			// Check that the eventLog contains the events we
+			// expect.
+			for i, e := range test.expectedEvents {
+				if e != eventLog.events[i].eventType {
+					t.Fatalf("expected: %v, got: %v",
+						e, eventLog.events[i].eventType)
+				}
+			}
+
+			// Ensure that open time is always set.
+			if eventLog.openedAt.IsZero() {
+				t.Fatalf("channel should have opened at set")
+			}
+		})
 	}
 }

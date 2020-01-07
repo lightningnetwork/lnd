@@ -58,6 +58,7 @@ const (
 	minerMempoolTimeout = lntest.MinerMempoolTimeout
 	channelOpenTimeout  = lntest.ChannelOpenTimeout
 	channelCloseTimeout = lntest.ChannelCloseTimeout
+	itestLndBinary      = "../../lnd-itest"
 )
 
 // harnessTest wraps a regular testing.T providing enhanced error detection
@@ -15298,7 +15299,9 @@ func TestLightningNetworkDaemon(t *testing.T) {
 
 	// Now we can set up our test harness (LND instance), with the chain
 	// backend we just created.
-	lndHarness, err = lntest.NewNetworkHarness(miner, chainBackend)
+	lndHarness, err = lntest.NewNetworkHarness(
+		miner, chainBackend, itestLndBinary,
+	)
 	if err != nil {
 		ht.Fatalf("unable to create lightning network harness: %v", err)
 	}

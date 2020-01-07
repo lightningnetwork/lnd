@@ -278,6 +278,9 @@ type HarnessNode struct {
 
 	invoicesrpc.InvoicesClient
 
+	// conn is the underlying connection to the grpc endpoint of the node.
+	conn *grpc.ClientConn
+
 	// RouterClient, WalletKitClient, WatchtowerClient cannot be embedded,
 	// because a name collision would occur with LightningClient.
 	RouterClient     routerrpc.RouterClient
@@ -567,6 +570,7 @@ func (hn *HarnessNode) Unlock(ctx context.Context,
 func (hn *HarnessNode) initLightningClient(conn *grpc.ClientConn) error {
 	// Construct the LightningClient that will allow us to use the
 	// HarnessNode directly for normal rpc operations.
+	hn.conn = conn
 	hn.LightningClient = lnrpc.NewLightningClient(conn)
 	hn.InvoicesClient = invoicesrpc.NewInvoicesClient(conn)
 	hn.RouterClient = routerrpc.NewRouterClient(conn)
@@ -805,6 +809,15 @@ func (hn *HarnessNode) stop() error {
 	hn.WalletUnlockerClient = nil
 	hn.Watchtower = nil
 	hn.WatchtowerClient = nil
+
+	// Close any attempts at further grpc connections.
+	if hn.conn != nil {
+		err := hn.conn.Close()
+		if err != nil {
+			return fmt.Errorf("error attempting to stop grpc client: %v", err)
+		}
+	}
+
 	return nil
 }
 

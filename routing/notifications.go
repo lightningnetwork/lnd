@@ -118,10 +118,9 @@ type topologyClient struct {
 // graph topology in a non-blocking.
 func (r *ChannelRouter) notifyTopologyChange(topologyDiff *TopologyChange) {
 	r.RLock()
-	numClients := len(r.topologyClients)
-	r.RUnlock()
+	defer r.RUnlock()
 
-	// Do not reacquire the lock twice unnecessarily.
+	numClients := len(r.topologyClients)
 	if numClients == 0 {
 		return
 	}
@@ -133,7 +132,6 @@ func (r *ChannelRouter) notifyTopologyChange(topologyDiff *TopologyChange) {
 		}),
 	)
 
-	r.RLock()
 	for _, client := range r.topologyClients {
 		client.wg.Add(1)
 
@@ -157,7 +155,6 @@ func (r *ChannelRouter) notifyTopologyChange(topologyDiff *TopologyChange) {
 			}
 		}(client)
 	}
-	r.RUnlock()
 }
 
 // TopologyChange represents a new set of modifications to the channel graph.

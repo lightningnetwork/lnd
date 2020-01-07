@@ -331,7 +331,8 @@ func (c *chainWatcher) SubscribeChannelEvents() *ChainEventSubscription {
 // based off of only the set of outputs included.
 func isOurCommitment(localChanCfg, remoteChanCfg channeldb.ChannelConfig,
 	commitSpend *chainntnfs.SpendDetail, broadcastStateNum uint64,
-	revocationProducer shachain.Producer, tweakless bool) (bool, error) {
+	revocationProducer shachain.Producer,
+	chanType channeldb.ChannelType) (bool, error) {
 
 	// First, we'll re-derive our commitment point for this state since
 	// this is what we use to randomize each of the keys for this state.
@@ -345,13 +346,14 @@ func isOurCommitment(localChanCfg, remoteChanCfg channeldb.ChannelConfig,
 	// and remote keys for this state. We use our point as only we can
 	// revoke our own commitment.
 	commitKeyRing := lnwallet.DeriveCommitmentKeys(
-		commitPoint, true, tweakless, &localChanCfg, &remoteChanCfg,
+		commitPoint, true, chanType, &localChanCfg, &remoteChanCfg,
 	)
 
 	// With the keys derived, we'll construct the remote script that'll be
 	// present if they have a non-dust balance on the commitment.
-	remotePkScript, err := input.CommitScriptUnencumbered(
-		commitKeyRing.NoDelayKey,
+	remoteDelay := uint32(remoteChanCfg.CsvDelay)
+	remoteScript, err := lnwallet.CommitScriptToRemote(
+		chanType, remoteDelay, commitKeyRing.ToRemoteKey,
 	)
 	if err != nil {
 		return false, err
@@ -361,7 +363,7 @@ func isOurCommitment(localChanCfg, remoteChanCfg channeldb.ChannelConfig,
 	// the remote party allowing them to claim this output before the CSV
 	// delay if we breach.
 	localScript, err := input.CommitScriptToSelf(
-		uint32(localChanCfg.CsvDelay), commitKeyRing.DelayKey,
+		uint32(localChanCfg.CsvDelay), commitKeyRing.ToLocalKey,
 		commitKeyRing.RevocationKey,
 	)
 	if err != nil {
@@ -382,7 +384,7 @@ func isOurCommitment(localChanCfg, remoteChanCfg channeldb.ChannelConfig,
 		case bytes.Equal(localPkScript, pkScript):
 			return true, nil
 
-		case bytes.Equal(remotePkScript, pkScript):
+		case bytes.Equal(remoteScript.PkScript, pkScript):
 			return true, nil
 		}
 	}
@@ -421,11 +423,6 @@ func (c *chainWatcher) closeObserver(spendNtfn *chainntnfs.SpendEvent) {
 		// Otherwise, the remote party might have broadcast a prior
 		// revoked state...!!!
 		commitTxBroadcast := commitSpend.SpendingTx
-
-		// An additional piece of information we need to properly
-		// dispatch a close event if is this channel was using the
-		// tweakless remove key format or not.
-		tweaklessCommit := c.cfg.chanState.ChanType.IsTweakless()
 
 		localCommit, remoteCommit, err := c.cfg.chanState.LatestCommitments()
 		if err != nil {
@@ -484,7 +481,7 @@ func (c *chainWatcher) closeObserver(spendNtfn *chainntnfs.SpendEvent) {
 			c.cfg.chanState.LocalChanCfg,
 			c.cfg.chanState.RemoteChanCfg, commitSpend,
 			broadcastStateNum, c.cfg.chanState.RevocationProducer,
-			tweaklessCommit,
+			c.cfg.chanState.ChanType,
 		)
 		if err != nil {
 			log.Errorf("unable to determine self commit for "+
@@ -596,6 +593,7 @@ func (c *chainWatcher) closeObserver(spendNtfn *chainntnfs.SpendEvent) {
 			// close and sweep immediately using a fake commitPoint
 			// as it isn't actually needed for recovery anymore.
 			commitPoint := c.cfg.chanState.RemoteCurrentRevocation
+			tweaklessCommit := c.cfg.chanState.ChanType.IsTweakless()
 			if !tweaklessCommit {
 				commitPoint = c.waitForCommitmentPoint()
 				if commitPoint == nil {
@@ -928,8 +926,8 @@ func (c *chainWatcher) dispatchContractBreach(spendEvent *chainntnfs.SpendDetail
 			retribution.KeyRing.CommitPoint.Curve = nil
 			retribution.KeyRing.LocalHtlcKey = nil
 			retribution.KeyRing.RemoteHtlcKey = nil
-			retribution.KeyRing.DelayKey = nil
-			retribution.KeyRing.NoDelayKey = nil
+			retribution.KeyRing.ToLocalKey = nil
+			retribution.KeyRing.ToRemoteKey = nil
 			retribution.KeyRing.RevocationKey = nil
 			return spew.Sdump(retribution)
 		}))

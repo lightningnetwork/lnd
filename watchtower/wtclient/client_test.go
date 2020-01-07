@@ -291,8 +291,8 @@ func (c *mockChannel) createRemoteCommitTx(t *testing.T) {
 
 	commitKeyRing := &lnwallet.CommitmentKeyRing{
 		RevocationKey: c.revPK,
-		NoDelayKey:    c.toLocalPK,
-		DelayKey:      c.toRemotePK,
+		ToRemoteKey:   c.toLocalPK,
+		ToLocalKey:    c.toRemotePK,
 	}
 
 	retribution := &lnwallet.BreachRetribution{

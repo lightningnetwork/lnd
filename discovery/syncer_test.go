@@ -709,10 +709,12 @@ func TestGossipSyncerReplyChanRangeQuery(t *testing.T) {
 
 	// Next, we'll craft a query to ask for all the new chan ID's after
 	// block 100.
-	const startingBlockHeight int = 100
+	const startingBlockHeight = 100
+	const numBlocks = 50
+	const endingBlockHeight = startingBlockHeight + numBlocks - 1
 	query := &lnwire.QueryChannelRange{
 		FirstBlockHeight: uint32(startingBlockHeight),
-		NumBlocks:        50,
+		NumBlocks:        uint32(numBlocks),
 	}
 
 	// We'll then launch a goroutine to reply to the query with a set of 5
@@ -744,8 +746,11 @@ func TestGossipSyncerReplyChanRangeQuery(t *testing.T) {
 			return
 		case filterReq := <-chanSeries.filterRangeReqs:
 			// We should be querying for block 100 to 150.
-			if filterReq.startHeight != 100 && filterReq.endHeight != 150 {
-				errCh <- fmt.Errorf("wrong height range: %v", spew.Sdump(filterReq))
+			if filterReq.startHeight != startingBlockHeight &&
+				filterReq.endHeight != endingBlockHeight {
+
+				errCh <- fmt.Errorf("wrong height range: %v",
+					spew.Sdump(filterReq))
 				return
 			}
 
@@ -778,52 +783,55 @@ func TestGossipSyncerReplyChanRangeQuery(t *testing.T) {
 				t.Fatalf("expected ReplyChannelRange instead got %T", msg)
 			}
 
-			// Only for the first iteration do we set the offset to
-			// zero as no chunks have been processed yet. For every
-			// other iteration, we want to move forward by the
-			// chunkSize (from the staring block height).
-			offset := 0
-			if i != 0 {
-				offset = 1
-			}
-			expectedFirstBlockHeight := (i+offset)*2 + startingBlockHeight
+			// We'll determine the correct values of each field in
+			// each response based on the order that they were sent.
+			var (
+				expectedFirstBlockHeight uint32
+				expectedNumBlocks        uint32
+				expectedComplete         uint8
+			)
 
 			switch {
-			// If this is not the last chunk, then Complete should
-			// be set to zero. Otherwise, it should be one.
-			case i < 2 && rangeResp.Complete != 0:
-				t.Fatalf("non-final chunk should have "+
-					"Complete=0: %v", spew.Sdump(rangeResp))
+			// The first reply should range from our starting block
+			// height until it reaches its maximum capacity of
+			// channels.
+			case i == 0:
+				expectedFirstBlockHeight = startingBlockHeight
+				expectedNumBlocks = chunkSize + 1
 
-			case i < 2 && rangeResp.NumBlocks != chunkSize+1:
-				t.Fatalf("NumBlocks fields in resp "+
-					"incorrect: expected %v got %v",
-					chunkSize+1, rangeResp.NumBlocks)
+			// The last reply should range starting from the next
+			// block of our previous reply up until the ending
+			// height of the query. It should also have the Complete
+			// bit set.
+			case i == numExpectedChunks-1:
+				expectedFirstBlockHeight = respMsgs[len(respMsgs)-1].BlockHeight
+				expectedNumBlocks = endingBlockHeight - expectedFirstBlockHeight + 1
+				expectedComplete = 1
 
-			case i < 2 && rangeResp.FirstBlockHeight !=
-				uint32(expectedFirstBlockHeight):
+			// Any intermediate replies should range starting from
+			// the next block of our previous reply up until it
+			// reaches its maximum capacity of channels.
+			default:
+				expectedFirstBlockHeight = respMsgs[len(respMsgs)-1].BlockHeight
+				expectedNumBlocks = 5
+			}
 
-				t.Fatalf("FirstBlockHeight incorrect: "+
-					"expected %v got %v",
-					rangeResp.FirstBlockHeight,
-					expectedFirstBlockHeight)
-			case i == 2 && rangeResp.Complete != 1:
-				t.Fatalf("final chunk should have "+
-					"Complete=1: %v", spew.Sdump(rangeResp))
+			switch {
+			case rangeResp.FirstBlockHeight != expectedFirstBlockHeight:
+				t.Fatalf("FirstBlockHeight in resp #%d "+
+					"incorrect: expected %v, got %v", i+1,
+					expectedFirstBlockHeight,
+					rangeResp.FirstBlockHeight)
 
-			case i == 2 && rangeResp.NumBlocks != 1:
-				t.Fatalf("NumBlocks fields in resp "+
-					"incorrect: expected %v got %v", 1,
-					rangeResp.NumBlocks)
+			case rangeResp.NumBlocks != expectedNumBlocks:
+				t.Fatalf("NumBlocks in resp #%d incorrect: "+
+					"expected %v, got %v", i+1,
+					expectedNumBlocks, rangeResp.NumBlocks)
 
-			case i == 2 && rangeResp.FirstBlockHeight !=
-				queryResp[len(queryResp)-1].BlockHeight:
-
-				t.Fatalf("FirstBlockHeight incorrect: "+
-					"expected %v got %v",
-					rangeResp.FirstBlockHeight,
-					queryResp[len(queryResp)-1].BlockHeight)
-
+			case rangeResp.Complete != expectedComplete:
+				t.Fatalf("Complete in resp #%d incorrect: "+
+					"expected %v, got %v", i+1,
+					expectedNumBlocks, rangeResp.Complete)
 			}
 
 			respMsgs = append(respMsgs, rangeResp.ShortChanIDs...)
@@ -981,35 +989,91 @@ func TestGossipSyncerGenChanRangeQuery(t *testing.T) {
 }
 
 // TestGossipSyncerProcessChanRangeReply tests that we'll properly buffer
-// replied channel replies until we have the complete version. If no new
-// channels were discovered, then we should go directly to the chanSsSynced
-// state. Otherwise, we should go to the queryNewChannels states.
+// replied channel replies until we have the complete version.
 func TestGossipSyncerProcessChanRangeReply(t *testing.T) {
+	t.Parallel()
+
+	t.Run("legacy", func(t *testing.T) {
+		testGossipSyncerProcessChanRangeReply(t, true)
+	})
+	t.Run("block ranges", func(t *testing.T) {
+		testGossipSyncerProcessChanRangeReply(t, false)
+	})
+}
+
+// testGossipSyncerProcessChanRangeReply tests that we'll properly buffer
+// replied channel replies until we have the complete version. The legacy
+// option, if set, uses the Complete field of the reply to determine when we've
+// received all expected replies. Otherwise, it looks at the block ranges of
+// each reply instead.
+func testGossipSyncerProcessChanRangeReply(t *testing.T, legacy bool) {
 	t.Parallel()
 
 	// First, we'll create a GossipSyncer instance with a canned sendToPeer
 	// message to allow us to intercept their potential sends.
+	highestID := lnwire.ShortChannelID{
+		BlockHeight: latestKnownHeight,
+	}
 	_, syncer, chanSeries := newTestSyncer(
-		lnwire.NewShortChanIDFromInt(10), defaultEncoding, defaultChunkSize,
+		highestID, defaultEncoding, defaultChunkSize,
 	)
 
 	startingState := syncer.state
 
+	query, err := syncer.genChanRangeQuery(true)
+	if err != nil {
+		t.Fatalf("unable to generate channel range query: %v", err)
+	}
+
+	var replyQueries []*lnwire.QueryChannelRange
+	if legacy {
+		// Each reply query is the same as the original query in the
+		// legacy mode.
+		replyQueries = []*lnwire.QueryChannelRange{query, query, query}
+	} else {
+		// When interpreting block ranges, the first reply should start
+		// from our requested first block, and the last should end at
+		// our requested last block.
+		replyQueries = []*lnwire.QueryChannelRange{
+			{
+				FirstBlockHeight: 0,
+				NumBlocks:        11,
+			},
+			{
+				FirstBlockHeight: 11,
+				NumBlocks:        1,
+			},
+			{
+				FirstBlockHeight: 12,
+				NumBlocks:        query.NumBlocks - 12,
+			},
+		}
+	}
+
 	replies := []*lnwire.ReplyChannelRange{
 		{
+			QueryChannelRange: *replyQueries[0],
 			ShortChanIDs: []lnwire.ShortChannelID{
-				lnwire.NewShortChanIDFromInt(10),
+				{
+					BlockHeight: 10,
+				},
 			},
 		},
 		{
+			QueryChannelRange: *replyQueries[1],
 			ShortChanIDs: []lnwire.ShortChannelID{
-				lnwire.NewShortChanIDFromInt(11),
+				{
+					BlockHeight: 11,
+				},
 			},
 		},
 		{
-			Complete: 1,
+			QueryChannelRange: *replyQueries[2],
+			Complete:          1,
 			ShortChanIDs: []lnwire.ShortChannelID{
-				lnwire.NewShortChanIDFromInt(12),
+				{
+					BlockHeight: 12,
+				},
 			},
 		},
 	}
@@ -1030,9 +1094,15 @@ func TestGossipSyncerProcessChanRangeReply(t *testing.T) {
 	}
 
 	expectedReq := []lnwire.ShortChannelID{
-		lnwire.NewShortChanIDFromInt(10),
-		lnwire.NewShortChanIDFromInt(11),
-		lnwire.NewShortChanIDFromInt(12),
+		{
+			BlockHeight: 10,
+		},
+		{
+			BlockHeight: 11,
+		},
+		{
+			BlockHeight: 12,
+		},
 	}
 
 	// As we're about to send the final response, we'll launch a goroutine
@@ -1072,48 +1142,6 @@ func TestGossipSyncerProcessChanRangeReply(t *testing.T) {
 	if !reflect.DeepEqual(syncer.newChansToQuery, expectedReq[1:]) {
 		t.Fatalf("wrong set of chans to query: expected %v, got %v",
 			syncer.newChansToQuery, expectedReq[1:])
-	}
-
-	// Wait for error from goroutine.
-	select {
-	case <-time.After(time.Second * 30):
-		t.Fatalf("goroutine did not return within 30 seconds")
-	case err := <-errCh:
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	// We'll repeat our final reply again, but this time we won't send any
-	// new channels. As a result, we should transition over to the
-	// chansSynced state.
-	errCh = make(chan error, 1)
-	go func() {
-		select {
-		case <-time.After(time.Second * 15):
-			errCh <- errors.New("no query received")
-			return
-		case req := <-chanSeries.filterReq:
-			// We should get a request for the entire range of short
-			// chan ID's.
-			if !reflect.DeepEqual(expectedReq[2], req[0]) {
-				errCh <- fmt.Errorf("wrong request: expected %v, got %v",
-					expectedReq[2], req[0])
-				return
-			}
-
-			// We'll send back only the last two to simulate filtering.
-			chanSeries.filterResp <- []lnwire.ShortChannelID{}
-			errCh <- nil
-		}
-	}()
-	if err := syncer.processChanRangeReply(replies[2]); err != nil {
-		t.Fatalf("unable to process reply: %v", err)
-	}
-
-	if syncer.syncState() != chansSynced {
-		t.Fatalf("wrong state: expected %v instead got %v",
-			chansSynced, syncer.state)
 	}
 
 	// Wait for error from goroutine.
@@ -1260,17 +1288,17 @@ func TestGossipSyncerDelayDOS(t *testing.T) {
 
 	// First, we'll create two GossipSyncer instances with a canned
 	// sendToPeer message to allow us to intercept their potential sends.
-	startHeight := lnwire.ShortChannelID{
+	highestID := lnwire.ShortChannelID{
 		BlockHeight: 1144,
 	}
 	msgChan1, syncer1, chanSeries1 := newTestSyncer(
-		startHeight, defaultEncoding, chunkSize, true, false,
+		highestID, defaultEncoding, chunkSize, true, false,
 	)
 	syncer1.Start()
 	defer syncer1.Stop()
 
 	msgChan2, syncer2, chanSeries2 := newTestSyncer(
-		startHeight, defaultEncoding, chunkSize, false, true,
+		highestID, defaultEncoding, chunkSize, false, true,
 	)
 	syncer2.Start()
 	defer syncer2.Stop()
@@ -1300,9 +1328,10 @@ func TestGossipSyncerDelayDOS(t *testing.T) {
 	// inherently disjoint.
 	var syncer2Chans []lnwire.ShortChannelID
 	for i := 0; i < numTotalChans; i++ {
-		syncer2Chans = append(
-			syncer2Chans, lnwire.NewShortChanIDFromInt(uint64(i)),
-		)
+		syncer2Chans = append(syncer2Chans, lnwire.ShortChannelID{
+			BlockHeight: highestID.BlockHeight - 1,
+			TxIndex:     uint32(i),
+		})
 	}
 
 	// We'll kick off the test by asserting syncer1 sends over the
@@ -1530,17 +1559,17 @@ func TestGossipSyncerRoutineSync(t *testing.T) {
 
 	// First, we'll create two GossipSyncer instances with a canned
 	// sendToPeer message to allow us to intercept their potential sends.
-	startHeight := lnwire.ShortChannelID{
+	highestID := lnwire.ShortChannelID{
 		BlockHeight: 1144,
 	}
 	msgChan1, syncer1, chanSeries1 := newTestSyncer(
-		startHeight, defaultEncoding, chunkSize, true, false,
+		highestID, defaultEncoding, chunkSize, true, false,
 	)
 	syncer1.Start()
 	defer syncer1.Stop()
 
 	msgChan2, syncer2, chanSeries2 := newTestSyncer(
-		startHeight, defaultEncoding, chunkSize, false, true,
+		highestID, defaultEncoding, chunkSize, false, true,
 	)
 	syncer2.Start()
 	defer syncer2.Stop()
@@ -1548,9 +1577,9 @@ func TestGossipSyncerRoutineSync(t *testing.T) {
 	// Although both nodes are at the same height, syncer will have 3 chan
 	// ID's that syncer1 doesn't know of.
 	syncer2Chans := []lnwire.ShortChannelID{
-		lnwire.NewShortChanIDFromInt(4),
-		lnwire.NewShortChanIDFromInt(5),
-		lnwire.NewShortChanIDFromInt(6),
+		{BlockHeight: highestID.BlockHeight - 3},
+		{BlockHeight: highestID.BlockHeight - 2},
+		{BlockHeight: highestID.BlockHeight - 1},
 	}
 
 	// We'll kick off the test by passing over the QueryChannelRange
@@ -1674,35 +1703,34 @@ func TestGossipSyncerAlreadySynced(t *testing.T) {
 	// our chunk parsing works properly. With this value we should get 3
 	// queries: two full chunks, and one lingering chunk.
 	const chunkSize = 2
+	const numChans = 3
 
 	// First, we'll create two GossipSyncer instances with a canned
 	// sendToPeer message to allow us to intercept their potential sends.
-	startHeight := lnwire.ShortChannelID{
+	highestID := lnwire.ShortChannelID{
 		BlockHeight: 1144,
 	}
 	msgChan1, syncer1, chanSeries1 := newTestSyncer(
-		startHeight, defaultEncoding, chunkSize,
+		highestID, defaultEncoding, chunkSize,
 	)
 	syncer1.Start()
 	defer syncer1.Stop()
 
 	msgChan2, syncer2, chanSeries2 := newTestSyncer(
-		startHeight, defaultEncoding, chunkSize,
+		highestID, defaultEncoding, chunkSize,
 	)
 	syncer2.Start()
 	defer syncer2.Stop()
 
 	// The channel state of both syncers will be identical. They should
 	// recognize this, and skip the sync phase below.
-	syncer1Chans := []lnwire.ShortChannelID{
-		lnwire.NewShortChanIDFromInt(1),
-		lnwire.NewShortChanIDFromInt(2),
-		lnwire.NewShortChanIDFromInt(3),
-	}
-	syncer2Chans := []lnwire.ShortChannelID{
-		lnwire.NewShortChanIDFromInt(1),
-		lnwire.NewShortChanIDFromInt(2),
-		lnwire.NewShortChanIDFromInt(3),
+	var syncer1Chans, syncer2Chans []lnwire.ShortChannelID
+	for i := numChans; i > 0; i-- {
+		shortChanID := lnwire.ShortChannelID{
+			BlockHeight: highestID.BlockHeight - uint32(i),
+		}
+		syncer1Chans = append(syncer1Chans, shortChanID)
+		syncer2Chans = append(syncer2Chans, shortChanID)
 	}
 
 	// We'll now kick off the test by allowing both side to send their

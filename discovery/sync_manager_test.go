@@ -529,12 +529,16 @@ func assertSyncerStatus(t *testing.T, s *GossipSyncer, syncState syncerState,
 func assertTransitionToChansSynced(t *testing.T, s *GossipSyncer, peer *mockPeer) {
 	t.Helper()
 
-	assertMsgSent(t, peer, &lnwire.QueryChannelRange{
+	query := &lnwire.QueryChannelRange{
 		FirstBlockHeight: 0,
 		NumBlocks:        math.MaxUint32,
-	})
+	}
+	assertMsgSent(t, peer, query)
 
-	s.ProcessQueryMsg(&lnwire.ReplyChannelRange{Complete: 1}, nil)
+	s.ProcessQueryMsg(&lnwire.ReplyChannelRange{
+		QueryChannelRange: *query,
+		Complete:          1,
+	}, nil)
 
 	chanSeries := s.cfg.channelSeries.(*mockChannelGraphTimeSeries)
 

@@ -2,6 +2,7 @@ package lnwire
 
 import (
 	"io"
+	"math"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 )
@@ -74,4 +75,15 @@ func (q *QueryChannelRange) MsgType() MessageType {
 func (q *QueryChannelRange) MaxPayloadLength(uint32) uint32 {
 	// 32 + 4 + 4
 	return 40
+}
+
+// LastBlockHeight returns the last block height covered by the range of a
+// QueryChannelRange message.
+func (q *QueryChannelRange) LastBlockHeight() uint32 {
+	// Handle overflows by casting to uint64.
+	lastBlockHeight := uint64(q.FirstBlockHeight) + uint64(q.NumBlocks) - 1
+	if lastBlockHeight > math.MaxUint32 {
+		return math.MaxUint32
+	}
+	return uint32(lastBlockHeight)
 }

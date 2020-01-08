@@ -74,6 +74,13 @@ discuss various aspects of `lnd` and also Lightning in general.
   * channel #lnd
   * [webchat](https://webchat.freenode.net/?channels=lnd)
 
+## Safety
+
+When operating a mainnet `lnd` node, please refer to our [operational safety
+guildelines](docs/safety.md). It is important to note that `lnd` is still
+**beta** software and that ignoring these operational guidelines can lead to
+loss of funds.
+
 ## Security
 
 The developers of `lnd` take security _very_ seriously. The disclosure of

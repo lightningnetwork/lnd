@@ -36,6 +36,13 @@ else
         LND_VERSION="v${BASH_REMATCH[1]}"
         echo "version: $LND_VERSION"
 
+        # If tag contains a release candidate suffix, append this suffix to the
+        # lnd reported version before we compare.
+        RC_REGEX="-rc[0-9]+$"
+        if [[ $TAG =~ $RC_REGEX ]]; then 
+            LND_VERSION+=${BASH_REMATCH[0]}
+        fi
+
         # Match git tag with lnd version.
         if [[ $TAG != $LND_VERSION ]]; then
             echo "lnd version $LND_VERSION does not match tag $TAG"

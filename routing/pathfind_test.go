@@ -80,6 +80,10 @@ var (
 			lnwire.PaymentAddrOptional,
 		), lnwire.Features,
 	)
+
+	unknownRequiredFeatures = lnwire.NewFeatureVector(
+		lnwire.NewRawFeatureVector(100), lnwire.Features,
+	)
 )
 
 var (
@@ -1640,6 +1644,73 @@ func TestMissingFeatureDep(t *testing.T) {
 	joost := ctx.testGraphInstance.aliasMap["joost"]
 
 	_, err = find(&restrictions, joost)
+	if err != errNoPathFound {
+		t.Fatalf("path shouldn't have been found: %v", err)
+	}
+}
+
+// TestUnknownRequiredFeatures asserts that we fail path finding when the
+// destination requires an unknown required feature, and that we skip
+// intermediaries that signal unknown required features.
+func TestUnknownRequiredFeatures(t *testing.T) {
+	t.Parallel()
+
+	testChannels := []*testChannel{
+		asymmetricTestChannel("roasbeef", "conner", 100000,
+			&testChannelPolicy{
+				Expiry:  144,
+				FeeRate: 400,
+				MinHTLC: 1,
+				MaxHTLC: 100000000,
+			},
+			&testChannelPolicy{
+				Expiry:   144,
+				FeeRate:  400,
+				MinHTLC:  1,
+				MaxHTLC:  100000000,
+				Features: unknownRequiredFeatures,
+			}, 0,
+		),
+		asymmetricTestChannel("conner", "joost", 100000,
+			&testChannelPolicy{
+				Expiry:   144,
+				FeeRate:  400,
+				MinHTLC:  1,
+				MaxHTLC:  100000000,
+				Features: unknownRequiredFeatures,
+			},
+			&testChannelPolicy{
+				Expiry:  144,
+				FeeRate: 400,
+				MinHTLC: 1,
+				MaxHTLC: 100000000,
+			}, 0,
+		),
+	}
+
+	ctx := newPathFindingTestContext(t, testChannels, "roasbeef")
+	defer ctx.cleanup()
+
+	conner := ctx.keyFromAlias("conner")
+	joost := ctx.keyFromAlias("joost")
+
+	// Conner's node in the graph has an unknown required feature (100).
+	// Pathfinding should fail since we check the destination's features for
+	// unknown required features before beginning pathfinding.
+	expErr := feature.NewErrUnknownRequired([]lnwire.FeatureBit{100})
+	_, err := ctx.findPath(conner, 100)
+	if !reflect.DeepEqual(err, expErr) {
+		t.Fatalf("path shouldn't have been found: %v", err)
+	}
+
+	// Now, try to find a route to joost through conner. The destination
+	// features are valid, but conner's feature vector in the graph still
+	// requires feature 100. We expect errNoPathFound and not the error
+	// above since intermediate hops are simply skipped if they have invalid
+	// feature vectors, leaving no possible route to joost. This asserts
+	// that we don't try to route _through_ nodes with unknown required
+	// features.
+	_, err = ctx.findPath(joost, 100)
 	if err != errNoPathFound {
 		t.Fatalf("path shouldn't have been found: %v", err)
 	}

@@ -239,24 +239,40 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 	// possible and publish the sweep tx. When the sweep tx
 	// confirms, it signals us through the result channel with the
 	// outcome. Wait for this to happen.
+	recovered := true
 	select {
 	case sweepResult := <-resultChan:
-		if sweepResult.Err != nil {
+		switch sweepResult.Err {
+		case sweep.ErrRemoteSpend:
+			// If the remote party was able to sweep this output
+			// it's likely what we sent was actually a revoked
+			// commitment. Report the error and continue to wrap up
+			// the contract.
+			c.log.Errorf("local commitment output was swept by "+
+				"remote party via %v", sweepResult.Tx.TxHash())
+			recovered = false
+		case nil:
+			// No errors, therefore continue processing.
+			c.log.Infof("local commitment output fully resolved by "+
+				"sweep tx: %v", sweepResult.Tx.TxHash())
+		default:
+			// Unknown errors.
 			c.log.Errorf("unable to sweep input: %v",
 				sweepResult.Err)
 
 			return nil, sweepResult.Err
 		}
-
-		c.log.Infof("commit tx fully resolved by sweep tx: %v",
-			sweepResult.Tx.TxHash())
 	case <-c.quit:
 		return nil, errResolverShuttingDown
 	}
 
 	// Funds have been swept and balance is no longer in limbo.
 	c.reportLock.Lock()
-	c.currentReport.RecoveredBalance = c.currentReport.LimboBalance
+	if recovered {
+		// We only record the balance as recovered if it actually came
+		// back to us.
+		c.currentReport.RecoveredBalance = c.currentReport.LimboBalance
+	}
 	c.currentReport.LimboBalance = 0
 	c.reportLock.Unlock()
 

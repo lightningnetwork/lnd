@@ -7586,6 +7586,15 @@ func testRevokedCloseRetribution(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	assertNodeNumChannels(t, carol, 0)
+
+	// Mine enough blocks for Bob's channel arbitrator to wrap up the
+	// references to the breached channel. The chanarb waits for commitment
+	// tx's confHeight+CSV-1 blocks and since we've already mined one that
+	// included the justice tx we only need to mine extra DefaultCSV-2
+	// blocks to unlock it.
+	mineBlocks(t, net, lntest.DefaultCSV-2, 0)
+
+	assertNumPendingChannels(t, net.Bob, 0, 0)
 }
 
 // testRevokedCloseRetributionZeroValueRemoteOutput tests that Dave is able

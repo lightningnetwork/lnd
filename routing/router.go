@@ -1518,6 +1518,7 @@ func generateSphinxPacket(rt *route.Route, paymentHash []byte,
 	// privacy preserving source routing across the network.
 	sphinxPacket, err := sphinx.NewOnionPacket(
 		sphinxPath, sessionKey, paymentHash,
+		sphinx.DeterministicPacketFiller,
 	)
 	if err != nil {
 		return nil, nil, err

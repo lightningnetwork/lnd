@@ -5,6 +5,7 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/lightningnetwork/lnd/feature"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/watchtower/wtwire"
 )
@@ -60,8 +61,8 @@ var checkRemoteInitTests = []checkRemoteInitTest{
 		lHash:     testnetChainHash,
 		rFeatures: lnwire.NewRawFeatureVector(lnwire.GossipQueriesRequired),
 		rHash:     testnetChainHash,
-		expErr: wtwire.NewErrUnknownRequiredFeatures(
-			lnwire.GossipQueriesRequired,
+		expErr: feature.NewErrUnknownRequired(
+			[]lnwire.FeatureBit{lnwire.GossipQueriesRequired},
 		),
 	},
 }

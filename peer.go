@@ -2460,7 +2460,7 @@ func (p *peer) handleInitMsg(msg *lnwire.Init) error {
 	// those presented in the local features fields.
 	err := msg.Features.Merge(msg.GlobalFeatures)
 	if err != nil {
-		return fmt.Errorf("unable to merge legacy global featues: %v",
+		return fmt.Errorf("unable to merge legacy global features: %v",
 			err)
 	}
 
@@ -2472,11 +2472,9 @@ func (p *peer) handleInitMsg(msg *lnwire.Init) error {
 
 	// Now that we have their features loaded, we'll ensure that they
 	// didn't set any required bits that we don't know of.
-	unknownFeatures := p.remoteFeatures.UnknownRequiredFeatures()
-	if len(unknownFeatures) > 0 {
-		err := fmt.Errorf("peer set unknown feature bits: %v",
-			unknownFeatures)
-		return err
+	err = feature.ValidateRequired(p.remoteFeatures)
+	if err != nil {
+		return fmt.Errorf("invalid remote features: %v", err)
 	}
 
 	// Ensure the remote party's feature vector contains all transistive
@@ -2484,7 +2482,7 @@ func (p *peer) handleInitMsg(msg *lnwire.Init) error {
 	// during the feature manager's instantiation.
 	err = feature.ValidateDeps(p.remoteFeatures)
 	if err != nil {
-		return fmt.Errorf("peer set invalid feature vector: %v", err)
+		return fmt.Errorf("invalid remote features: %v", err)
 	}
 
 	// Now that we know we understand their requirements, we'll check to

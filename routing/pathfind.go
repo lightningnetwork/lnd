@@ -456,8 +456,14 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		}
 	}
 
-	// With the destination's feature vector selected, ensure that all
-	// transitive depdencies are set.
+	// Ensure that the destination's features don't include unknown
+	// required features.
+	err = feature.ValidateRequired(features)
+	if err != nil {
+		return nil, err
+	}
+
+	// Ensure that all transitive dependencies are set.
 	err = feature.ValidateDeps(features)
 	if err != nil {
 		return nil, err
@@ -752,10 +758,23 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 
 			// If the node exists and has valid features, use them.
 			case err == nil:
-				err := feature.ValidateDeps(targetNode.Features)
-				if err == nil {
-					fromFeatures = targetNode.Features
+				nodeFeatures := targetNode.Features
+
+				// Don't route through nodes that contain
+				// unknown required features.
+				err = feature.ValidateRequired(nodeFeatures)
+				if err != nil {
+					break
 				}
+
+				// Don't route through nodes that don't properly
+				// set all transitive feature dependencies.
+				err = feature.ValidateDeps(nodeFeatures)
+				if err != nil {
+					break
+				}
+
+				fromFeatures = nodeFeatures
 
 			// If an error other than the node not existing is hit,
 			// abort.

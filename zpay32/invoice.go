@@ -956,14 +956,7 @@ func parseFeatures(data []byte) (*lnwire.FeatureVector, error) {
 		return nil, err
 	}
 
-	fv := lnwire.NewFeatureVector(rawFeatures, lnwire.Features)
-	unknownFeatures := fv.UnknownRequiredFeatures()
-	if len(unknownFeatures) > 0 {
-		return nil, fmt.Errorf("invoice contains unknown required "+
-			"features: %v", unknownFeatures)
-	}
-
-	return fv, nil
+	return lnwire.NewFeatureVector(rawFeatures, lnwire.Features), nil
 }
 
 // writeTaggedFields writes the non-nil tagged fields of the Invoice to the

@@ -404,6 +404,9 @@ func (w *WalletKit) PendingSweeps(ctx context.Context,
 		broadcastAttempts := uint32(pendingInput.BroadcastAttempts)
 		nextBroadcastHeight := uint32(pendingInput.NextBroadcastHeight)
 
+		requestedFee := pendingInput.Params.Fee
+		requestedFeeRate := uint32(requestedFee.FeeRate.FeePerKVByte() / 1000)
+
 		rpcPendingSweeps = append(rpcPendingSweeps, &PendingSweep{
 			Outpoint:            op,
 			WitnessType:         witnessType,
@@ -411,6 +414,8 @@ func (w *WalletKit) PendingSweeps(ctx context.Context,
 			SatPerByte:          satPerByte,
 			BroadcastAttempts:   broadcastAttempts,
 			NextBroadcastHeight: nextBroadcastHeight,
+			RequestedSatPerByte: requestedFeeRate,
+			RequestedConfTarget: requestedFee.ConfTarget,
 		})
 	}
 

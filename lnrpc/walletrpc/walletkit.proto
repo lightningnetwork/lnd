@@ -191,6 +191,12 @@ message PendingSweep {
     sweep transaction of the output.
     */
     uint32 next_broadcast_height = 6 [json_name = "next_broadcast_height"];
+
+    // The requested confirmation target for this output.
+    uint32 requested_conf_target = 8 [json_name = "requested_conf_target"];
+
+    // The requested fee rate, expressed in sat/byte, for this output.
+    uint32 requested_sat_per_byte = 9 [json_name = "requested_sat_per_byte"];
 }
 
 message PendingSweepsRequest {

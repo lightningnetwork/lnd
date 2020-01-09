@@ -69,6 +69,11 @@ type Params struct {
 	Fee FeePreference
 }
 
+// String returns a human readable interpretation of the sweep parameters.
+func (p Params) String() string {
+	return fmt.Sprintf("fee=%v", p.Fee)
+}
+
 // pendingInput is created when an input reaches the main loop for the first
 // time. It wraps the input and tracks all relevant state that is needed for
 // sweeping.
@@ -151,17 +156,17 @@ type PendingInput struct {
 	Params Params
 }
 
-// bumpFeeReq is an internal message we'll use to represent an external caller's
-// intent to bump the fee rate of a given input.
-type bumpFeeReq struct {
-	input         wire.OutPoint
-	feePreference FeePreference
-	responseChan  chan *bumpFeeResp
+// updateReq is an internal message we'll use to represent an external caller's
+// intent to update the sweep parameters of a given input.
+type updateReq struct {
+	input        wire.OutPoint
+	params       Params
+	responseChan chan *updateResp
 }
 
-// bumpFeeResp is an internal message we'll use to hand off the response of a
-// bumpFeeReq from the UtxoSweeper's main event loop back to the caller.
-type bumpFeeResp struct {
+// updateResp is an internal message we'll use to hand off the response of a
+// updateReq from the UtxoSweeper's main event loop back to the caller.
+type updateResp struct {
 	resultChan chan Result
 	err        error
 }
@@ -181,9 +186,9 @@ type UtxoSweeper struct {
 	// UtxoSweeper is attempting to sweep.
 	pendingSweepsReqs chan *pendingSweepsReq
 
-	// bumpFeeReqs is a channel that will be sent requests by external
+	// updateReqs is a channel that will be sent requests by external
 	// callers who wish to bump the fee rate of a given input.
-	bumpFeeReqs chan *bumpFeeReq
+	updateReqs chan *updateReq
 
 	// pendingInputs is the total set of inputs the UtxoSweeper has been
 	// requested to sweep.
@@ -290,7 +295,7 @@ func New(cfg *UtxoSweeperConfig) *UtxoSweeper {
 		cfg:               cfg,
 		newInputs:         make(chan *sweepInputMessage),
 		spendChan:         make(chan *chainntnfs.SpendDetail),
-		bumpFeeReqs:       make(chan *bumpFeeReq),
+		updateReqs:        make(chan *updateReq),
 		pendingSweepsReqs: make(chan *pendingSweepsReq),
 		quit:              make(chan struct{}),
 		pendingInputs:     make(pendingInputs),
@@ -575,9 +580,9 @@ func (s *UtxoSweeper) collector(blockEpochs <-chan *chainntnfs.BlockEpoch) {
 
 		// A new external request has been received to bump the fee rate
 		// of a given input.
-		case req := <-s.bumpFeeReqs:
-			resultChan, err := s.handleBumpFeeReq(req, bestHeight)
-			req.responseChan <- &bumpFeeResp{
+		case req := <-s.updateReqs:
+			resultChan, err := s.handleUpdateReq(req, bestHeight)
+			req.responseChan <- &updateResp{
 				resultChan: resultChan,
 				err:        err,
 			}
@@ -1044,28 +1049,28 @@ func (s *UtxoSweeper) handlePendingSweepsReq(
 	return pendingInputs
 }
 
-// BumpFee allows bumping the fee of an input being swept by the UtxoSweeper
-// according to the provided fee preference. The new fee preference will be used
-// for a new sweep transaction of the input that will act as a replacement
-// transaction (RBF) of the original sweeping transaction, if any.
+// UpdateParams allows updating the sweep parameters of a pending input in the
+// UtxoSweeper. This function can be used to provide an updated fee preference
+// that will be used for a new sweep transaction of the input that will act as a
+// replacement transaction (RBF) of the original sweeping transaction, if any.
 //
 // NOTE: This currently doesn't do any fee rate validation to ensure that a bump
 // is actually successful. The responsibility of doing so should be handled by
 // the caller.
-func (s *UtxoSweeper) BumpFee(input wire.OutPoint,
-	feePreference FeePreference) (chan Result, error) {
+func (s *UtxoSweeper) UpdateParams(input wire.OutPoint,
+	params Params) (chan Result, error) {
 
 	// Ensure the client provided a sane fee preference.
-	if _, err := s.feeRateForPreference(feePreference); err != nil {
+	if _, err := s.feeRateForPreference(params.Fee); err != nil {
 		return nil, err
 	}
 
-	responseChan := make(chan *bumpFeeResp, 1)
+	responseChan := make(chan *updateResp, 1)
 	select {
-	case s.bumpFeeReqs <- &bumpFeeReq{
-		input:         input,
-		feePreference: feePreference,
-		responseChan:  responseChan,
+	case s.updateReqs <- &updateReq{
+		input:        input,
+		params:       params,
+		responseChan: responseChan,
 	}:
 	case <-s.quit:
 		return nil, ErrSweeperShuttingDown
@@ -1079,9 +1084,9 @@ func (s *UtxoSweeper) BumpFee(input wire.OutPoint,
 	}
 }
 
-// handleBumpFeeReq handles a bump fee request by simply updating the inputs fee
-// preference. Currently, no validation is done on the new fee preference to
-// ensure it will properly create a replacement transaction.
+// handleUpdateReq handles an update request by simply updating the sweep
+// parameters of the pending input. Currently, no validation is done on the new
+// fee preference to ensure it will properly create a replacement transaction.
 //
 // TODO(wilmer):
 //   * Validate fee preference to ensure we'll create a valid replacement
@@ -1090,8 +1095,8 @@ func (s *UtxoSweeper) BumpFee(input wire.OutPoint,
 //   * Ensure we don't combine this input with any other unconfirmed inputs that
 //     did not exist in the original sweep transaction, resulting in an invalid
 //     replacement transaction.
-func (s *UtxoSweeper) handleBumpFeeReq(req *bumpFeeReq,
-	bestHeight int32) (chan Result, error) {
+func (s *UtxoSweeper) handleUpdateReq(req *updateReq, bestHeight int32) (
+	chan Result, error) {
 
 	// If the UtxoSweeper is already trying to sweep this input, then we can
 	// simply just increase its fee rate. This will allow the input to be
@@ -1103,10 +1108,10 @@ func (s *UtxoSweeper) handleBumpFeeReq(req *bumpFeeReq,
 		return nil, lnwallet.ErrNotMine
 	}
 
-	log.Debugf("Updating fee preference for %v from %v to %v", req.input,
-		pendingInput.params.Fee, req.feePreference)
+	log.Debugf("Updating sweep parameters for %v from %v to %v", req.input,
+		pendingInput.params, req.params)
 
-	pendingInput.params.Fee = req.feePreference
+	pendingInput.params = req.params
 
 	// We'll reset the input's publish height to the current so that a new
 	// transaction can be created that replaces the transaction currently

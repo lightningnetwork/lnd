@@ -485,7 +485,11 @@ func (w *WalletKit) BumpFee(ctx context.Context,
 	// bump its fee, which will result in a replacement transaction (RBF)
 	// being broadcast. If it is not aware of the input however,
 	// lnwallet.ErrNotMine is returned.
-	_, err = w.cfg.Sweeper.BumpFee(*op, feePreference)
+	params := sweep.Params{
+		Fee: feePreference,
+	}
+
+	_, err = w.cfg.Sweeper.UpdateParams(*op, params)
 	switch err {
 	case nil:
 		return &BumpFeeResponse{}, nil

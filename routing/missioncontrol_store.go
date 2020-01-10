@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/wire"
-	"github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -35,20 +35,20 @@ const (
 // Also changes to mission control parameters can be applied to historical data.
 // Finally, it enables importing raw data from an external source.
 type missionControlStore struct {
-	db         *bbolt.DB
+	db         kvdb.Backend
 	maxRecords int
 	numRecords int
 }
 
-func newMissionControlStore(db *bbolt.DB, maxRecords int) (*missionControlStore, error) {
+func newMissionControlStore(db kvdb.Backend, maxRecords int) (*missionControlStore, error) {
 	store := &missionControlStore{
 		db:         db,
 		maxRecords: maxRecords,
 	}
 
 	// Create buckets if not yet existing.
-	err := db.Update(func(tx *bbolt.Tx) error {
-		resultsBucket, err := tx.CreateBucketIfNotExists(resultsKey)
+	err := kvdb.Update(db, func(tx kvdb.RwTx) error {
+		resultsBucket, err := tx.CreateTopLevelBucket(resultsKey)
 		if err != nil {
 			return fmt.Errorf("cannot create results bucket: %v",
 				err)
@@ -58,7 +58,7 @@ func newMissionControlStore(db *bbolt.DB, maxRecords int) (*missionControlStore,
 		// memory to avoid calling Stats().KeyN. The reliability of
 		// Stats() is doubtful and seemed to have caused crashes in the
 		// past (see #1874).
-		c := resultsBucket.Cursor()
+		c := resultsBucket.ReadCursor()
 		for k, _ := c.First(); k != nil; k, _ = c.Next() {
 			store.numRecords++
 		}
@@ -74,12 +74,12 @@ func newMissionControlStore(db *bbolt.DB, maxRecords int) (*missionControlStore,
 
 // clear removes all results from the db.
 func (b *missionControlStore) clear() error {
-	return b.db.Update(func(tx *bbolt.Tx) error {
-		if err := tx.DeleteBucket(resultsKey); err != nil {
+	return kvdb.Update(b.db, func(tx kvdb.RwTx) error {
+		if err := tx.DeleteTopLevelBucket(resultsKey); err != nil {
 			return err
 		}
 
-		_, err := tx.CreateBucket(resultsKey)
+		_, err := tx.CreateTopLevelBucket(resultsKey)
 		return err
 	})
 }
@@ -88,8 +88,8 @@ func (b *missionControlStore) clear() error {
 func (b *missionControlStore) fetchAll() ([]*paymentResult, error) {
 	var results []*paymentResult
 
-	err := b.db.View(func(tx *bbolt.Tx) error {
-		resultBucket := tx.Bucket(resultsKey)
+	err := kvdb.View(b.db, func(tx kvdb.ReadTx) error {
+		resultBucket := tx.ReadBucket(resultsKey)
 		results = make([]*paymentResult, 0)
 
 		return resultBucket.ForEach(func(k, v []byte) error {
@@ -218,13 +218,13 @@ func deserializeResult(k, v []byte) (*paymentResult, error) {
 
 // AddResult adds a new result to the db.
 func (b *missionControlStore) AddResult(rp *paymentResult) error {
-	return b.db.Update(func(tx *bbolt.Tx) error {
-		bucket := tx.Bucket(resultsKey)
+	return kvdb.Update(b.db, func(tx kvdb.RwTx) error {
+		bucket := tx.ReadWriteBucket(resultsKey)
 
 		// Prune oldest entries.
 		if b.maxRecords > 0 {
 			for b.numRecords >= b.maxRecords {
-				cursor := bucket.Cursor()
+				cursor := bucket.ReadWriteCursor()
 				cursor.First()
 				if err := cursor.Delete(); err != nil {
 					return err

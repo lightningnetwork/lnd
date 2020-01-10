@@ -8,9 +8,9 @@ import (
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 
-	"github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
 
@@ -31,7 +31,7 @@ func TestMissionControlStore(t *testing.T) {
 
 	dbPath := file.Name()
 
-	db, err := bbolt.Open(dbPath, 0600, nil)
+	db, err := kvdb.Create(kvdb.BoltBackendName, dbPath, true)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,8 +1,8 @@
 package routing
 
 import (
-	"github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
@@ -26,7 +26,7 @@ type routingGraph interface {
 // database.
 type dbRoutingTx struct {
 	graph  *channeldb.ChannelGraph
-	tx     *bbolt.Tx
+	tx     kvdb.ReadTx
 	source route.Vertex
 }
 
@@ -38,7 +38,7 @@ func newDbRoutingTx(graph *channeldb.ChannelGraph) (*dbRoutingTx, error) {
 		return nil, err
 	}
 
-	tx, err := graph.Database().Begin(false)
+	tx, err := graph.Database().BeginReadTx()
 	if err != nil {
 		return nil, err
 	}
@@ -62,7 +62,7 @@ func (g *dbRoutingTx) forEachNodeChannel(nodePub route.Vertex,
 	cb func(*channeldb.ChannelEdgeInfo, *channeldb.ChannelEdgePolicy,
 		*channeldb.ChannelEdgePolicy) error) error {
 
-	txCb := func(_ *bbolt.Tx, info *channeldb.ChannelEdgeInfo,
+	txCb := func(_ kvdb.ReadTx, info *channeldb.ChannelEdgeInfo,
 		p1, p2 *channeldb.ChannelEdgePolicy) error {
 
 		return cb(info, p1, p2)

@@ -2087,8 +2087,9 @@ var (
 	}
 
 	lastHopFlag = cli.StringFlag{
-		Name:  "last_hop",
-		Usage: "pubkey of the last hop to use for this payment",
+		Name: "last_hop",
+		Usage: "pubkey of the last hop (penultimate node in the path) " +
+			"to route through for this payment",
 	}
 )
 

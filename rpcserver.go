@@ -3535,7 +3535,11 @@ func (r *rpcServer) extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPayme
 	if rpcPayReq.FinalCltvDelta != 0 {
 		payIntent.cltvDelta = uint16(rpcPayReq.FinalCltvDelta)
 	} else {
-		payIntent.cltvDelta = zpay32.DefaultFinalCLTVDelta
+		// If no final cltv delta is given, assume the default that we
+		// use when creating an invoice. We do not assume the default of
+		// 9 blocks that is defined in BOLT-11, because this is never
+		// enough for other lnd nodes.
+		payIntent.cltvDelta = uint16(cfg.Bitcoin.TimeLockDelta)
 	}
 
 	// If the user is manually specifying payment details, then the payment

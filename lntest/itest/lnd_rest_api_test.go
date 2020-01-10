@@ -49,9 +49,9 @@ var (
 	resultPattern = regexp.MustCompile("{\"result\":(.*)}")
 )
 
-// testRestApi tests that the most important features of the REST API work
+// testRestAPI tests that the most important features of the REST API work
 // correctly.
-func testRestApi(net *lntest.NetworkHarness, ht *harnessTest) {
+func testRestAPI(net *lntest.NetworkHarness, ht *harnessTest) {
 	testCases := []struct {
 		name string
 		run  func(*testing.T, *lntest.HarnessNode, *lntest.HarnessNode)
@@ -396,6 +396,7 @@ func testRestApi(net *lntest.NetworkHarness, ht *harnessTest) {
 	}
 
 	for _, tc := range testCases {
+		tc := tc
 		ht.t.Run(tc.name, func(t *testing.T) {
 			tc.run(t, net.Alice, net.Bob)
 		})
@@ -486,10 +487,11 @@ func openWebSocket(node *lntest.HarnessNode, url, method string,
 	fullURL := fmt.Sprintf(
 		"wss://%s%s?method=%s", node.Cfg.RESTAddr(), url, method,
 	)
-	conn, _, err := webSocketDialer.Dial(fullURL, header)
+	conn, resp, err := webSocketDialer.Dial(fullURL, header)
 	if err != nil {
 		return nil, err
 	}
+	defer func() { _ = resp.Body.Close() }()
 
 	// Send the given request message as the first message on the socket.
 	reqMsg, err := jsonMarshaler.MarshalToString(req)

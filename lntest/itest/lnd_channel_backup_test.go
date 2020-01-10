@@ -364,6 +364,7 @@ func testChannelBackupRestore(net *lntest.NetworkHarness, t *harnessTest) {
 	// ann is updated?
 
 	for _, testCase := range testCases {
+		testCase := testCase
 		success := t.t.Run(testCase.name, func(t *testing.T) {
 			h := newHarnessTest(t, net)
 
@@ -543,7 +544,7 @@ func testChannelBackupUpdates(net *lntest.NetworkHarness, t *harnessTest) {
 
 		chanPoint := chanPoints[i]
 
-		ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
+		ctxt, _ := context.WithTimeout(ctxb, channelCloseTimeout)
 		closeChannelAndAssert(
 			ctxt, t, net, net.Alice, chanPoint, forceClose,
 		)

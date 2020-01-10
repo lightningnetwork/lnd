@@ -101,8 +101,6 @@ func (h *harnessTest) RunTestCase(testCase *testCase) {
 	}()
 
 	testCase.test(h.lndHarness, h)
-
-	return
 }
 
 func (h *harnessTest) Logf(format string, args ...interface{}) {

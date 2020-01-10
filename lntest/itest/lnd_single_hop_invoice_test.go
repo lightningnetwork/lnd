@@ -40,7 +40,6 @@ func testSingleHopInvoice(net *lntest.NetworkHarness, t *harnessTest) {
 		RPreimage: preimage,
 		Value:     paymentAmt,
 	}
-	ctxt, _ = context.WithTimeout(ctxt, defaultTimeout)
 	invoiceResp, err := net.Bob.AddInvoice(ctxb, invoice)
 	if err != nil {
 		t.Fatalf("unable to add invoice: %v", err)

@@ -67,11 +67,7 @@ func testMultiHopLocalForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 	nodes := []*lntest.HarnessNode{alice, bob, carol}
 	err = wait.Predicate(func() bool {
 		predErr = assertActiveHtlcs(nodes, payHash)
-		if predErr != nil {
-			return false
-		}
-
-		return true
+		return predErr == nil
 	}, time.Second*15)
 	if err != nil {
 		t.Fatalf("htlc mismatch: %v", err)
@@ -201,10 +197,7 @@ func testMultiHopLocalForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 	nodes = []*lntest.HarnessNode{alice}
 	err = wait.Predicate(func() bool {
 		predErr = assertNumActiveHtlcs(nodes, 0)
-		if predErr != nil {
-			return false
-		}
-		return true
+		return predErr == nil
 	}, time.Second*15)
 	if err != nil {
 		t.Fatalf("alice's channel still has active htlc's: %v", predErr)

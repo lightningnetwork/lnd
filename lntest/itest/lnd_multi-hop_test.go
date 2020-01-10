@@ -71,6 +71,7 @@ func testMultiHopHtlcClaims(net *lntest.NetworkHarness, t *harnessTest) {
 	for _, commitType := range commitTypes {
 		testName := fmt.Sprintf("committype=%v", commitType.String())
 
+		commitType := commitType
 		success := t.t.Run(testName, func(t *testing.T) {
 			ht := newHarnessTest(t, net)
 

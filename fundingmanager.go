@@ -12,12 +12,12 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
-	"github.com/coreos/bbolt"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/chanacceptor"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/input"
@@ -3287,9 +3287,9 @@ func copyPubKey(pub *btcec.PublicKey) *btcec.PublicKey {
 // chanPoint to the channelOpeningStateBucket.
 func (f *fundingManager) saveChannelOpeningState(chanPoint *wire.OutPoint,
 	state channelOpeningState, shortChanID *lnwire.ShortChannelID) error {
-	return f.cfg.Wallet.Cfg.Database.Update(func(tx *bbolt.Tx) error {
+	return kvdb.Update(f.cfg.Wallet.Cfg.Database, func(tx kvdb.RwTx) error {
 
-		bucket, err := tx.CreateBucketIfNotExists(channelOpeningStateBucket)
+		bucket, err := tx.CreateTopLevelBucket(channelOpeningStateBucket)
 		if err != nil {
 			return err
 		}
@@ -3317,9 +3317,9 @@ func (f *fundingManager) getChannelOpeningState(chanPoint *wire.OutPoint) (
 
 	var state channelOpeningState
 	var shortChanID lnwire.ShortChannelID
-	err := f.cfg.Wallet.Cfg.Database.View(func(tx *bbolt.Tx) error {
+	err := kvdb.View(f.cfg.Wallet.Cfg.Database, func(tx kvdb.ReadTx) error {
 
-		bucket := tx.Bucket(channelOpeningStateBucket)
+		bucket := tx.ReadBucket(channelOpeningStateBucket)
 		if bucket == nil {
 			// If the bucket does not exist, it means we never added
 			//  a channel to the db, so return ErrChannelNotFound.
@@ -3349,8 +3349,8 @@ func (f *fundingManager) getChannelOpeningState(chanPoint *wire.OutPoint) (
 
 // deleteChannelOpeningState removes any state for chanPoint from the database.
 func (f *fundingManager) deleteChannelOpeningState(chanPoint *wire.OutPoint) error {
-	return f.cfg.Wallet.Cfg.Database.Update(func(tx *bbolt.Tx) error {
-		bucket := tx.Bucket(channelOpeningStateBucket)
+	return kvdb.Update(f.cfg.Wallet.Cfg.Database, func(tx kvdb.RwTx) error {
+		bucket := tx.ReadWriteBucket(channelOpeningStateBucket)
 		if bucket == nil {
 			return fmt.Errorf("Bucket not found")
 		}

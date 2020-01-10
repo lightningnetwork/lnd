@@ -13,11 +13,11 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
-	"github.com/coreos/bbolt"
 	"github.com/davecgh/go-spew/spew"
 
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -1237,10 +1237,10 @@ func newRetributionStore(db *channeldb.DB) *retributionStore {
 // Add adds a retribution state to the retributionStore, which is then persisted
 // to disk.
 func (rs *retributionStore) Add(ret *retributionInfo) error {
-	return rs.db.Update(func(tx *bbolt.Tx) error {
+	return kvdb.Update(rs.db, func(tx kvdb.RwTx) error {
 		// If this is our first contract breach, the retributionBucket
 		// won't exist, in which case, we just create a new bucket.
-		retBucket, err := tx.CreateBucketIfNotExists(retributionBucket)
+		retBucket, err := tx.CreateTopLevelBucket(retributionBucket)
 		if err != nil {
 			return err
 		}
@@ -1264,8 +1264,8 @@ func (rs *retributionStore) Add(ret *retributionInfo) error {
 // startup and re-register for confirmation notifications.
 func (rs *retributionStore) Finalize(chanPoint *wire.OutPoint,
 	finalTx *wire.MsgTx) error {
-	return rs.db.Update(func(tx *bbolt.Tx) error {
-		justiceBkt, err := tx.CreateBucketIfNotExists(justiceTxnBucket)
+	return kvdb.Update(rs.db, func(tx kvdb.RwTx) error {
+		justiceBkt, err := tx.CreateTopLevelBucket(justiceTxnBucket)
 		if err != nil {
 			return err
 		}
@@ -1291,8 +1291,8 @@ func (rs *retributionStore) GetFinalizedTxn(
 	chanPoint *wire.OutPoint) (*wire.MsgTx, error) {
 
 	var finalTxBytes []byte
-	if err := rs.db.View(func(tx *bbolt.Tx) error {
-		justiceBkt := tx.Bucket(justiceTxnBucket)
+	if err := kvdb.View(rs.db, func(tx kvdb.ReadTx) error {
+		justiceBkt := tx.ReadBucket(justiceTxnBucket)
 		if justiceBkt == nil {
 			return nil
 		}
@@ -1325,8 +1325,8 @@ func (rs *retributionStore) GetFinalizedTxn(
 // that has already been breached.
 func (rs *retributionStore) IsBreached(chanPoint *wire.OutPoint) (bool, error) {
 	var found bool
-	err := rs.db.View(func(tx *bbolt.Tx) error {
-		retBucket := tx.Bucket(retributionBucket)
+	err := kvdb.View(rs.db, func(tx kvdb.ReadTx) error {
+		retBucket := tx.ReadBucket(retributionBucket)
 		if retBucket == nil {
 			return nil
 		}
@@ -1350,8 +1350,8 @@ func (rs *retributionStore) IsBreached(chanPoint *wire.OutPoint) (bool, error) {
 // Remove removes a retribution state and finalized justice transaction by
 // channel point  from the retribution store.
 func (rs *retributionStore) Remove(chanPoint *wire.OutPoint) error {
-	return rs.db.Update(func(tx *bbolt.Tx) error {
-		retBucket := tx.Bucket(retributionBucket)
+	return kvdb.Update(rs.db, func(tx kvdb.RwTx) error {
+		retBucket := tx.ReadWriteBucket(retributionBucket)
 
 		// We return an error if the bucket is not already created,
 		// since normal operation of the breach arbiter should never try
@@ -1377,7 +1377,7 @@ func (rs *retributionStore) Remove(chanPoint *wire.OutPoint) error {
 
 		// If we have not finalized this channel breach, we can exit
 		// early.
-		justiceBkt := tx.Bucket(justiceTxnBucket)
+		justiceBkt := tx.ReadWriteBucket(justiceTxnBucket)
 		if justiceBkt == nil {
 			return nil
 		}
@@ -1389,10 +1389,10 @@ func (rs *retributionStore) Remove(chanPoint *wire.OutPoint) error {
 // ForAll iterates through all stored retributions and executes the passed
 // callback function on each retribution.
 func (rs *retributionStore) ForAll(cb func(*retributionInfo) error) error {
-	return rs.db.View(func(tx *bbolt.Tx) error {
+	return kvdb.View(rs.db, func(tx kvdb.ReadTx) error {
 		// If the bucket does not exist, then there are no pending
 		// retributions.
-		retBucket := tx.Bucket(retributionBucket)
+		retBucket := tx.ReadBucket(retributionBucket)
 		if retBucket == nil {
 			return nil
 		}

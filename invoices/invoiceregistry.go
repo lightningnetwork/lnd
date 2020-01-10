@@ -736,6 +736,12 @@ func (i *InvoiceRegistry) processKeySend(ctx invoiceUpdateCtx,
 	// Use the minimum block delta that we require for settling htlcs.
 	finalCltvDelta := i.cfg.FinalCltvRejectDelta
 
+	// Pre-check expiry here to prevent inserting an invoice that will not
+	// be settled.
+	if ctx.expiry < uint32(ctx.currentHeight+finalCltvDelta) {
+		return errors.New("final expiry too soon")
+	}
+
 	// Create placeholder invoice.
 	invoice := &channeldb.Invoice{
 		CreationDate: i.cfg.Clock.Now(),

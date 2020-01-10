@@ -8,9 +8,9 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/coreos/bbolt"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 )
 
 const (
@@ -56,7 +56,7 @@ type DecayedLog struct {
 
 	dbPath string
 
-	db *bbolt.DB
+	db kvdb.Backend
 
 	notifier chainntnfs.ChainNotifier
 
@@ -92,7 +92,10 @@ func (d *DecayedLog) Start() error {
 
 	// Open the boltdb for use.
 	var err error
-	if d.db, err = bbolt.Open(d.dbPath, dbPermissions, nil); err != nil {
+	d.db, err = kvdb.Create(
+		kvdb.BoltBackendName, d.dbPath, true,
+	)
+	if err != nil {
 		return fmt.Errorf("Could not open boltdb: %v", err)
 	}
 
@@ -119,13 +122,13 @@ func (d *DecayedLog) Start() error {
 // initBuckets initializes the primary buckets used by the decayed log, namely
 // the shared hash bucket, and batch replay
 func (d *DecayedLog) initBuckets() error {
-	return d.db.Update(func(tx *bbolt.Tx) error {
-		_, err := tx.CreateBucketIfNotExists(sharedHashBucket)
+	return kvdb.Update(d.db, func(tx kvdb.RwTx) error {
+		_, err := tx.CreateTopLevelBucket(sharedHashBucket)
 		if err != nil {
 			return ErrDecayedLogInit
 		}
 
-		_, err = tx.CreateBucketIfNotExists(batchReplayBucket)
+		_, err = tx.CreateTopLevelBucket(batchReplayBucket)
 		if err != nil {
 			return ErrDecayedLogInit
 		}
@@ -196,11 +199,11 @@ func (d *DecayedLog) garbageCollector(epochClient *chainntnfs.BlockEpochEvent) {
 func (d *DecayedLog) gcExpiredHashes(height uint32) (uint32, error) {
 	var numExpiredHashes uint32
 
-	err := d.db.Batch(func(tx *bbolt.Tx) error {
+	err := kvdb.Batch(d.db, func(tx kvdb.RwTx) error {
 		numExpiredHashes = 0
 
 		// Grab the shared hash bucket
-		sharedHashes := tx.Bucket(sharedHashBucket)
+		sharedHashes := tx.ReadWriteBucket(sharedHashBucket)
 		if sharedHashes == nil {
 			return fmt.Errorf("sharedHashBucket " +
 				"is nil")
@@ -246,8 +249,8 @@ func (d *DecayedLog) gcExpiredHashes(height uint32) (uint32, error) {
 // Delete removes a <shared secret hash, CLTV> key-pair from the
 // sharedHashBucket.
 func (d *DecayedLog) Delete(hash *sphinx.HashPrefix) error {
-	return d.db.Batch(func(tx *bbolt.Tx) error {
-		sharedHashes := tx.Bucket(sharedHashBucket)
+	return kvdb.Batch(d.db, func(tx kvdb.RwTx) error {
+		sharedHashes := tx.ReadWriteBucket(sharedHashBucket)
 		if sharedHashes == nil {
 			return ErrDecayedLogCorrupted
 		}
@@ -261,10 +264,10 @@ func (d *DecayedLog) Delete(hash *sphinx.HashPrefix) error {
 func (d *DecayedLog) Get(hash *sphinx.HashPrefix) (uint32, error) {
 	var value uint32
 
-	err := d.db.View(func(tx *bbolt.Tx) error {
+	err := kvdb.View(d.db, func(tx kvdb.ReadTx) error {
 		// Grab the shared hash bucket which stores the mapping from
 		// truncated sha-256 hashes of shared secrets to CLTV's.
-		sharedHashes := tx.Bucket(sharedHashBucket)
+		sharedHashes := tx.ReadBucket(sharedHashBucket)
 		if sharedHashes == nil {
 			return fmt.Errorf("sharedHashes is nil, could " +
 				"not retrieve CLTV value")
@@ -294,8 +297,8 @@ func (d *DecayedLog) Put(hash *sphinx.HashPrefix, cltv uint32) error {
 	var scratch [4]byte
 	binary.BigEndian.PutUint32(scratch[:], cltv)
 
-	return d.db.Batch(func(tx *bbolt.Tx) error {
-		sharedHashes := tx.Bucket(sharedHashBucket)
+	return kvdb.Batch(d.db, func(tx kvdb.RwTx) error {
+		sharedHashes := tx.ReadWriteBucket(sharedHashBucket)
 		if sharedHashes == nil {
 			return ErrDecayedLogCorrupted
 		}
@@ -327,8 +330,8 @@ func (d *DecayedLog) PutBatch(b *sphinx.Batch) (*sphinx.ReplaySet, error) {
 	// to generate the complete replay set. If this batch was previously
 	// processed, the replay set will be deserialized from disk.
 	var replays *sphinx.ReplaySet
-	if err := d.db.Batch(func(tx *bbolt.Tx) error {
-		sharedHashes := tx.Bucket(sharedHashBucket)
+	if err := kvdb.Batch(d.db, func(tx kvdb.RwTx) error {
+		sharedHashes := tx.ReadWriteBucket(sharedHashBucket)
 		if sharedHashes == nil {
 			return ErrDecayedLogCorrupted
 		}
@@ -336,7 +339,7 @@ func (d *DecayedLog) PutBatch(b *sphinx.Batch) (*sphinx.ReplaySet, error) {
 		// Load the batch replay bucket, which will be used to either
 		// retrieve the result of previously processing this batch, or
 		// to write the result of this operation.
-		batchReplayBkt := tx.Bucket(batchReplayBucket)
+		batchReplayBkt := tx.ReadWriteBucket(batchReplayBucket)
 		if batchReplayBkt == nil {
 			return ErrDecayedLogCorrupted
 		}

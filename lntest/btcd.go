@@ -1,5 +1,3 @@
-// +build btcd
-
 package lntest
 
 import (

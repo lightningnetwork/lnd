@@ -201,7 +201,8 @@ func testMultiHopReceiverChainClaim(net *lntest.NetworkHarness, t *harnessTest) 
 	// limbo: her commitment output, as well as the second-layer claim
 	// output.
 	pendingChansRequest := &lnrpc.PendingChannelsRequest{}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
+	defer cancel()
 	pendingChanResp, err := carol.PendingChannels(ctxt, pendingChansRequest)
 	if err != nil {
 		t.Fatalf("unable to query for pending channels: %v", err)
@@ -259,7 +260,9 @@ func testMultiHopReceiverChainClaim(net *lntest.NetworkHarness, t *harnessTest) 
 		t.Fatalf("unable to mine block: %v", err)
 	}
 	err = wait.Predicate(func() bool {
-		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+		ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
+		defer cancel()
+
 		pendingChanResp, err = carol.PendingChannels(ctxt, pendingChansRequest)
 		if err != nil {
 			predErr = fmt.Errorf("unable to query for pending channels: %v", err)
@@ -298,6 +301,7 @@ func testMultiHopReceiverChainClaim(net *lntest.NetworkHarness, t *harnessTest) 
 
 	// We'll close out the channel between Alice and Bob, then shutdown
 	// carol to conclude the test.
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
+	ctxt, cancel = context.WithTimeout(ctxb, channelCloseTimeout)
+	defer cancel()
 	closeChannelAndAssert(ctxt, t, net, net.Alice, aliceChanPoint, false)
 }

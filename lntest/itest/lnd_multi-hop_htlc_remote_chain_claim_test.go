@@ -91,12 +91,14 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 	// Next, Alice decides that she wants to exit the channel, so she'll
 	// immediately force close the channel by broadcast her commitment
 	// transaction.
-	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
+	ctxt, cancel = context.WithTimeout(ctxb, channelCloseTimeout)
+	defer cancel()
 	aliceForceClose := closeChannelAndAssert(ctxt, t, net, net.Alice,
 		aliceChanPoint, true)
 
 	// Wait for the channel to be marked pending force close.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
+	defer cancel()
 	err = waitForChannelPendingForceClose(ctxt, net.Alice, aliceChanPoint)
 	if err != nil {
 		t.Fatalf("channel not pending force close: %v", err)
@@ -252,7 +254,9 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 	// pending close channels.
 	pendingChansRequest := &lnrpc.PendingChannelsRequest{}
 	err = wait.Predicate(func() bool {
-		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+		ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
+		defer cancel()
+
 		pendingChanResp, err := net.Bob.PendingChannels(
 			ctxt, pendingChansRequest,
 		)
@@ -291,7 +295,9 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 
 	pendingChansRequest = &lnrpc.PendingChannelsRequest{}
 	err = wait.Predicate(func() bool {
-		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+		ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
+		defer cancel()
+
 		pendingChanResp, err := carol.PendingChannels(
 			ctxt, pendingChansRequest,
 		)

@@ -110,22 +110,22 @@ func testMacaroonAuthentication(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// Fifth test: Check first-party caveat with invalid IP address.
-	invalidIpAddrMac, err := macaroons.AddConstraints(
+	invalidIPAddrMac, err := macaroons.AddConstraints(
 		readonlyMac, macaroons.IPLockConstraint("1.1.1.1"),
 	)
 	if err != nil {
 		t.Fatalf("unable to add constraint to readonly macaroon: %v",
 			err)
 	}
-	conn, err = testNode.ConnectRPCWithMacaroon(invalidIpAddrMac)
+	conn, err = testNode.ConnectRPCWithMacaroon(invalidIPAddrMac)
 	if err != nil {
 		t.Fatalf("unable to connect to alice: %v", err)
 	}
 	defer conn.Close()
 	ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
 	defer cancel()
-	invalidIpAddrMacConnection := lnrpc.NewLightningClient(conn)
-	_, err = invalidIpAddrMacConnection.GetInfo(ctxt, infoReq)
+	invalidIPAddrMacConnection := lnrpc.NewLightningClient(conn)
+	_, err = invalidIPAddrMacConnection.GetInfo(ctxt, infoReq)
 	if err == nil || !errContains(err, "different IP address") {
 		t.Fatalf("expected to get an error when connecting with an " +
 			"invalid macaroon")

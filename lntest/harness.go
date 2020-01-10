@@ -449,7 +449,6 @@ func (n *NetworkHarness) EnsureConnected(ctx context.Context, a, b *HarnessNode)
 
 			err := n.connect(ctx, req, a)
 			switch {
-
 			// Request was successful, wait for both to display the
 			// connection.
 			case err == nil:

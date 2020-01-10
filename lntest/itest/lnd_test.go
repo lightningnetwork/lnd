@@ -898,7 +898,7 @@ func basicChannelFundingTest(t *harnessTest, net *lntest.NetworkHarness,
 		// Finally, immediately close the channel. This function will
 		// also block until the channel is closed and will additionally
 		// assert the relevant channel closing post conditions.
-		ctxt, cancel = context.WithTimeout(ctxb, channelCloseTimeout)
+		ctxt, cancel := context.WithTimeout(ctxb, channelCloseTimeout)
 		defer cancel()
 		closeChannelAndAssert(ctxt, t, net, alice, chanPoint, false)
 	}
@@ -965,6 +965,8 @@ test:
 				carolTweakless, daveTweakless)
 
 			ht := t
+			carolTweakless := carolTweakless
+			daveTweakless := daveTweakless
 			success := t.t.Run(testName, func(t *testing.T) {
 				carolChannel, daveChannel, closeChan, err := basicChannelFundingTest(
 					ht, net, carol, dave, nil,
@@ -1133,7 +1135,7 @@ func testPaymentFollowingChannelOpen(net *lntest.NetworkHarness, t *harnessTest)
 	ctxb := context.Background()
 
 	const paymentAmt = btcutil.Amount(100)
-	channelCapacity := btcutil.Amount(paymentAmt * 1000)
+	channelCapacity := paymentAmt * 1000
 
 	// We first establish a channel between Alice and Bob.
 	ctxt, cancel := context.WithTimeout(ctxb, channelOpenTimeout)
@@ -1847,7 +1849,7 @@ func testUpdateChannelPolicy(net *lntest.NetworkHarness, t *harnessTest) {
 	baseFee = int64(800)
 	feeRate = int64(123)
 	timeLockDelta = uint32(22)
-	maxHtlc = maxHtlc * 2
+	maxHtlc *= 2
 
 	expectedPolicy.FeeBaseMsat = baseFee
 	expectedPolicy.FeeRateMilliMsat = testFeeBase * feeRate
@@ -4318,7 +4320,7 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	// Set the fee policies of the Alice -> Bob and the Dave -> Alice
 	// channel edges to relatively large non default values. This makes it
 	// possible to pick up more subtle fee calculation errors.
-	maxHtlc := uint64(calculateMaxHtlc(chanAmt))
+	maxHtlc := calculateMaxHtlc(chanAmt)
 	updateChannelPolicy(
 		t, net.Alice, chanPointAlice, 1000, 100000,
 		lnd.DefaultBitcoinTimeLockDelta, maxHtlc, carol,
@@ -4791,7 +4793,7 @@ func testSingleHopSendToRouteCase(net *lntest.NetworkHarness, t *harnessTest,
 				i, p.PaymentRequest)
 		}
 
-		// Assert the payment ammount is correct.
+		// Assert the payment amount is correct.
 		if p.ValueSat != paymentAmtSat {
 			t.Fatalf("incorrect payment amt for payment %d, "+
 				"want: %d, got: %d",
@@ -12372,8 +12374,6 @@ func testSwitchOfflineDeliveryPersistence(net *lntest.NetworkHarness, t *harness
 
 	// Disconnect the two intermediaries, Alice and Dave, by shutting down
 	// Alice.
-	ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
-	defer cancel()
 	if err := net.StopNode(net.Alice); err != nil {
 		t.Fatalf("unable to shutdown alice: %v", err)
 	}
@@ -12726,8 +12726,6 @@ func testSwitchOfflineDeliveryOutgoingOffline(
 
 	// Disconnect the two intermediaries, Alice and Dave, so that when carol
 	// restarts, the response will be held by Dave.
-	ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
-	defer cancel()
 	if err := net.StopNode(net.Alice); err != nil {
 		t.Fatalf("unable to shutdown alice: %v", err)
 	}

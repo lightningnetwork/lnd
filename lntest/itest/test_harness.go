@@ -96,8 +96,6 @@ func (h *harnessTest) RunTestCase(testCase *testCase) {
 	}()
 
 	testCase.test(h.lndHarness, h)
-
-	return
 }
 
 func (h *harnessTest) Logf(format string, args ...interface{}) {
@@ -117,7 +115,7 @@ type testCase struct {
 // miner's mempool. An error is returned if *one* transaction isn't found within
 // the given timeout.
 func waitForTxInMempool(miner *rpcclient.Client,
-	timeout time.Duration) (*chainhash.Hash, error) {
+	timeout time.Duration) (*chainhash.Hash, error) { // nolint: unparam
 
 	txs, err := waitForNTxsInMempool(miner, 1, timeout)
 	if err != nil {

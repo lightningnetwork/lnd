@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/coreos/bbolt"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 )
 
 const (
@@ -49,7 +49,7 @@ func fileExists(path string) bool {
 // one doesn't exist. The boolean returned indicates if the database did not
 // exist before, or if it has been created but no version metadata exists within
 // it.
-func createDBIfNotExist(dbPath, name string) (*bbolt.DB, bool, error) {
+func createDBIfNotExist(dbPath, name string) (kvdb.Backend, bool, error) {
 	path := filepath.Join(dbPath, name)
 
 	// If the database file doesn't exist, this indicates we much initialize
@@ -65,12 +65,7 @@ func createDBIfNotExist(dbPath, name string) (*bbolt.DB, bool, error) {
 
 	// Specify bbolt freelist options to reduce heap pressure in case the
 	// freelist grows to be very large.
-	options := &bbolt.Options{
-		NoFreelistSync: true,
-		FreelistType:   bbolt.FreelistMapType,
-	}
-
-	bdb, err := bbolt.Open(path, dbFilePermission, options)
+	bdb, err := kvdb.Create(kvdb.BoltBackendName, path, true)
 	if err != nil {
 		return nil, false, err
 	}
@@ -82,8 +77,8 @@ func createDBIfNotExist(dbPath, name string) (*bbolt.DB, bool, error) {
 	// set firstInit to true so that we can treat is initialize the bucket.
 	if !firstInit {
 		var metadataExists bool
-		err = bdb.View(func(tx *bbolt.Tx) error {
-			metadataExists = tx.Bucket(metadataBkt) != nil
+		err = kvdb.View(bdb, func(tx kvdb.ReadTx) error {
+			metadataExists = tx.ReadBucket(metadataBkt) != nil
 			return nil
 		})
 		if err != nil {

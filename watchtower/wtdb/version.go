@@ -1,14 +1,14 @@
 package wtdb
 
 import (
-	"github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 )
 
 // migration is a function which takes a prior outdated version of the database
 // instances and mutates the key/bucket structure to arrive at a more
 // up-to-date version of the database.
-type migration func(tx *bbolt.Tx) error
+type migration func(tx kvdb.RwTx) error
 
 // version pairs a version number with the migration that would need to be
 // applied from the prior version to upgrade.
@@ -46,8 +46,8 @@ func getMigrations(versions []version, curVersion uint32) []version {
 
 // getDBVersion retrieves the current database version from the metadata bucket
 // using the dbVersionKey.
-func getDBVersion(tx *bbolt.Tx) (uint32, error) {
-	metadata := tx.Bucket(metadataBkt)
+func getDBVersion(tx kvdb.ReadTx) (uint32, error) {
+	metadata := tx.ReadBucket(metadataBkt)
 	if metadata == nil {
 		return 0, ErrUninitializedDB
 	}
@@ -62,8 +62,8 @@ func getDBVersion(tx *bbolt.Tx) (uint32, error) {
 
 // initDBVersion initializes the top-level metadata bucket and writes the passed
 // version number as the current version.
-func initDBVersion(tx *bbolt.Tx, version uint32) error {
-	_, err := tx.CreateBucketIfNotExists(metadataBkt)
+func initDBVersion(tx kvdb.RwTx, version uint32) error {
+	_, err := tx.CreateTopLevelBucket(metadataBkt)
 	if err != nil {
 		return err
 	}
@@ -73,8 +73,8 @@ func initDBVersion(tx *bbolt.Tx, version uint32) error {
 
 // putDBVersion stores the passed database version in the metadata bucket under
 // the dbVersionKey.
-func putDBVersion(tx *bbolt.Tx, version uint32) error {
-	metadata := tx.Bucket(metadataBkt)
+func putDBVersion(tx kvdb.RwTx, version uint32) error {
+	metadata := tx.ReadWriteBucket(metadataBkt)
 	if metadata == nil {
 		return ErrUninitializedDB
 	}
@@ -89,7 +89,7 @@ func putDBVersion(tx *bbolt.Tx, version uint32) error {
 // on either.
 type versionedDB interface {
 	// bdb returns the underlying bbolt database.
-	bdb() *bbolt.DB
+	bdb() kvdb.Backend
 
 	// Version returns the current version stored in the database.
 	Version() (uint32, error)
@@ -105,7 +105,7 @@ func initOrSyncVersions(db versionedDB, init bool, versions []version) error {
 	// If the database has not yet been created, we'll initialize the
 	// database version with the latest known version.
 	if init {
-		return db.bdb().Update(func(tx *bbolt.Tx) error {
+		return kvdb.Update(db.bdb(), func(tx kvdb.RwTx) error {
 			return initDBVersion(tx, getLatestDBVersion(versions))
 		})
 	}
@@ -141,7 +141,7 @@ func syncVersions(db versionedDB, versions []version) error {
 	// Otherwise, apply any migrations in order to bring the database
 	// version up to the highest known version.
 	updates := getMigrations(versions, curVersion)
-	return db.bdb().Update(func(tx *bbolt.Tx) error {
+	return kvdb.Update(db.bdb(), func(tx kvdb.RwTx) error {
 		for i, update := range updates {
 			if update.migration == nil {
 				continue

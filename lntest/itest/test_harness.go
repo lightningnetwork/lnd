@@ -1,11 +1,35 @@
 package itest
 
 import (
+	"bytes"
 	"fmt"
 	"testing"
+	"time"
 
+	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/rpcclient"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/go-errors/errors"
+	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest"
+)
+
+var (
+	harnessNetParams = &chaincfg.RegressionNetParams
+)
+
+const (
+	testFeeBase         = 1e+6
+	defaultCSV          = lntest.DefaultCSV
+	defaultTimeout      = lntest.DefaultTimeout
+	minerMempoolTimeout = lntest.MinerMempoolTimeout
+	channelOpenTimeout  = lntest.ChannelOpenTimeout
+	channelCloseTimeout = lntest.ChannelCloseTimeout
+	itestLndBinary      = "../../lnd-itest"
+
+	AddrTypeWitnessPubkeyHash = lnrpc.AddressType_WITNESS_PUBKEY_HASH
+	AddrTypeNestedPubkeyHash  = lnrpc.AddressType_NESTED_PUBKEY_HASH
 )
 
 // harnessTest wraps a regular testing.T providing enhanced error detection
@@ -87,4 +111,103 @@ func (h *harnessTest) Log(args ...interface{}) {
 type testCase struct {
 	name string
 	test func(net *lntest.NetworkHarness, t *harnessTest)
+}
+
+// waitForTxInMempool polls until finding one transaction in the provided
+// miner's mempool. An error is returned if *one* transaction isn't found within
+// the given timeout.
+func waitForTxInMempool(miner *rpcclient.Client,
+	timeout time.Duration) (*chainhash.Hash, error) {
+
+	txs, err := waitForNTxsInMempool(miner, 1, timeout)
+	if err != nil {
+		return nil, err
+	}
+
+	return txs[0], err
+}
+
+// waitForNTxsInMempool polls until finding the desired number of transactions
+// in the provided miner's mempool. An error is returned if this number is not
+// met after the given timeout.
+func waitForNTxsInMempool(miner *rpcclient.Client, n int,
+	timeout time.Duration) ([]*chainhash.Hash, error) {
+
+	breakTimeout := time.After(timeout)
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+
+	var err error
+	var mempool []*chainhash.Hash
+	for {
+		select {
+		case <-breakTimeout:
+			return nil, fmt.Errorf("wanted %v, found %v txs "+
+				"in mempool: %v", n, len(mempool), mempool)
+		case <-ticker.C:
+			mempool, err = miner.GetRawMempool()
+			if err != nil {
+				return nil, err
+			}
+
+			if len(mempool) == n {
+				return mempool, nil
+			}
+		}
+	}
+}
+
+// mineBlocks mine 'num' of blocks and check that blocks are present in
+// node blockchain. numTxs should be set to the number of transactions
+// (excluding the coinbase) we expect to be included in the first mined block.
+func mineBlocks(t *harnessTest, net *lntest.NetworkHarness,
+	num uint32, numTxs int) []*wire.MsgBlock {
+
+	// If we expect transactions to be included in the blocks we'll mine,
+	// we wait here until they are seen in the miner's mempool.
+	var txids []*chainhash.Hash
+	var err error
+	if numTxs > 0 {
+		txids, err = waitForNTxsInMempool(
+			net.Miner.Node, numTxs, minerMempoolTimeout,
+		)
+		if err != nil {
+			t.Fatalf("unable to find txns in mempool: %v", err)
+		}
+	}
+
+	blocks := make([]*wire.MsgBlock, num)
+
+	blockHashes, err := net.Miner.Node.Generate(num)
+	if err != nil {
+		t.Fatalf("unable to generate blocks: %v", err)
+	}
+
+	for i, blockHash := range blockHashes {
+		block, err := net.Miner.Node.GetBlock(blockHash)
+		if err != nil {
+			t.Fatalf("unable to get block: %v", err)
+		}
+
+		blocks[i] = block
+	}
+
+	// Finally, assert that all the transactions were included in the first
+	// block.
+	for _, txid := range txids {
+		assertTxInBlock(t, blocks[0], txid)
+	}
+
+	return blocks
+}
+
+func assertTxInBlock(t *harnessTest, block *wire.MsgBlock, txid *chainhash.Hash) {
+	for _, tx := range block.Transactions {
+		sha := tx.TxHash()
+		if bytes.Equal(txid[:], sha[:]) {
+			return
+		}
+	}
+
+	t.Fatalf("tx was not included in block")
 }

@@ -1,3 +1,5 @@
+// +build !bitcoind,!neutrino
+
 package lntest
 
 import (

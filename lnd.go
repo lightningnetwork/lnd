@@ -60,6 +60,25 @@ var (
 	networkDir string
 )
 
+// WalletUnlockerAuthOptions returns a list of DialOptions that can be used to
+// authenticate with the wallet unlocker service.
+//
+// NOTE: This should only be called after the WalletUnlocker listener has
+// signaled it is ready.
+func WalletUnlockerAuthOptions() ([]grpc.DialOption, error) {
+	creds, err := credentials.NewClientTLSFromFile(cfg.TLSCertPath, "")
+	if err != nil {
+		return nil, fmt.Errorf("unable to read TLS cert: %v", err)
+	}
+
+	// Create a dial options array with the TLS credentials.
+	opts := []grpc.DialOption{
+		grpc.WithTransportCredentials(creds),
+	}
+
+	return opts, nil
+}
+
 // AdminAuthOptions returns a list of DialOptions that can be used to
 // authenticate with the RPC server with admin capabilities.
 //

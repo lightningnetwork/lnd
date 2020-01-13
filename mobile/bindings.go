@@ -74,6 +74,18 @@ func Start(extraArgs string, unlockerReady, rpcReady Callback) {
 	// callbacks when the RPC servers are ready to accept calls.
 	go func() {
 		<-unlockerListening
+
+		// We must set the TLS certificates in order to properly
+		// authenticate with the wallet unlocker service.
+		auth, err := lnd.WalletUnlockerAuthOptions()
+		if err != nil {
+			unlockerReady.OnError(err)
+			return
+		}
+
+		// Add the auth options to the listener's dial options.
+		addWalletUnlockerLisDialOption(auth...)
+
 		unlockerReady.OnResponse([]byte{})
 	}()
 

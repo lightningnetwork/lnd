@@ -132,7 +132,7 @@ func decodeShortChanIDs(r io.Reader) (ShortChanIDEncoding, []ShortChannelID, err
 	}
 
 	if numBytesResp == 0 {
-		return 0, nil, fmt.Errorf("No encoding type specified")
+		return 0, nil, nil
 	}
 
 	queryBody := make([]byte, numBytesResp)
@@ -147,6 +147,9 @@ func decodeShortChanIDs(r io.Reader) (ShortChanIDEncoding, []ShortChannelID, err
 	// Before continuing, we'll snip off the first byte of the query body
 	// as that was just the encoding type.
 	queryBody = queryBody[1:]
+	if len(queryBody) == 0 {
+		return encodingType, nil, nil
+	}
 
 	// Otherwise, depending on the encoding type, we'll decode the encode
 	// short channel ID's in a different manner.
@@ -293,6 +296,18 @@ func encodeShortChanIDs(w io.Writer, encodingType ShortChanIDEncoding,
 			return shortChanIDs[i].ToUint64() <
 				shortChanIDs[j].ToUint64()
 		})
+	}
+
+	if len(shortChanIDs) == 0 {
+		// If the list is empty, the spec is a bit unclear; we could either set
+		// numBytesBody to 0 and stop writing, or set it to 1 and write only our
+		// desired encoding. Other implementations currently do the former, so we
+		// stick with that for compatibility.
+		numBytesBody := uint16(1)
+		if err := WriteElements(w, numBytesBody); err != nil {
+			return err
+		}
+		return WriteElements(w, encodingType)
 	}
 
 	switch encodingType {

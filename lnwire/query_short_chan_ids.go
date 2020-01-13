@@ -132,7 +132,7 @@ func decodeShortChanIDs(r io.Reader) (ShortChanIDEncoding, []ShortChannelID, err
 	}
 
 	if numBytesResp == 0 {
-		return 0, nil, fmt.Errorf("No encoding type specified")
+		return 0, nil, nil
 	}
 
 	queryBody := make([]byte, numBytesResp)
@@ -147,6 +147,13 @@ func decodeShortChanIDs(r io.Reader) (ShortChanIDEncoding, []ShortChannelID, err
 	// Before continuing, we'll snip off the first byte of the query body
 	// as that was just the encoding type.
 	queryBody = queryBody[1:]
+
+	// At this point, if there's no body remaining, then only the encoding
+	// type was specified, meaning that there're no further bytes to be
+	// parsed.
+	if len(queryBody) == 0 {
+		return encodingType, nil, nil
+	}
 
 	// Otherwise, depending on the encoding type, we'll decode the encode
 	// short channel ID's in a different manner.
@@ -338,27 +345,43 @@ func encodeShortChanIDs(w io.Writer, encodingType ShortChanIDEncoding,
 		var buf bytes.Buffer
 		zlibWriter := zlib.NewWriter(&buf)
 
-		// Next, we'll write out all the channel ID's directly into the
-		// zlib writer, which will do compressing on the fly.
-		for _, chanID := range shortChanIDs {
-			err := WriteElements(zlibWriter, chanID)
-			if err != nil {
-				return fmt.Errorf("unable to write short chan "+
-					"ID: %v", err)
+		// If we don't have anything at all to write, then we'll write
+		// an empty payload so we don't include things like the zlib
+		// header when the remote party is expecting no actual short
+		// channel IDs.
+		var compressedPayload []byte
+		if len(shortChanIDs) > 0 {
+			// Next, we'll write out all the channel ID's directly
+			// into the zlib writer, which will do compressing on
+			// the fly.
+			for _, chanID := range shortChanIDs {
+				err := WriteElements(zlibWriter, chanID)
+				if err != nil {
+					return fmt.Errorf("unable to write short chan "+
+						"ID: %v", err)
+				}
 			}
-		}
 
-		// Now that we've written all the elements, we'll ensure the
-		// compressed stream is written to the underlying buffer.
-		if err := zlibWriter.Close(); err != nil {
-			return fmt.Errorf("unable to finalize "+
-				"compression: %v", err)
+			// Now that we've written all the elements, we'll
+			// ensure the compressed stream is written to the
+			// underlying buffer.
+			if err := zlibWriter.Close(); err != nil {
+				return fmt.Errorf("unable to finalize "+
+					"compression: %v", err)
+			}
+
+			compressedPayload = buf.Bytes()
 		}
 
 		// Now that we have all the items compressed, we can compute
 		// what the total payload size will be. We add one to account
 		// for the byte to encode the type.
-		compressedPayload := buf.Bytes()
+		//
+		// If we don't have any actual bytes to write, then we'll end
+		// up emitting one byte for the length, followed by the
+		// encoding type, and nothing more. The spec isn't 100% clear
+		// in this area, but we do this as this is what most of the
+		// other implementations do.
 		numBytesBody := len(compressedPayload) + 1
 
 		// Finally, we can write out the number of bytes, the

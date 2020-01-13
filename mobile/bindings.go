@@ -20,6 +20,10 @@ import (
 // The unlockerReady callback is called when the WalletUnlocker service is
 // ready, and rpcReady is called after the wallet has been unlocked and lnd is
 // ready to accept RPC calls.
+//
+// NOTE: On mobile platforms the '--lnddir` argument should be set to the
+// current app directory in order to ensure lnd has the permissions needed to
+// write to it.
 func Start(extraArgs string, unlockerReady, rpcReady Callback) {
 	// Split the argument string on "--" to get separated command line
 	// arguments.

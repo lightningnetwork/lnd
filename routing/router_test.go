@@ -292,7 +292,7 @@ func TestSendPaymentRouteFailureFallback(t *testing.T) {
 					// TODO(roasbeef): temp node failure
 					//  should be?
 					&lnwire.FailTemporaryChannelFailure{},
-					1, "",
+					1,
 				)
 			}
 
@@ -425,7 +425,7 @@ func TestChannelUpdateValidation(t *testing.T) {
 				&lnwire.FailFeeInsufficient{
 					Update: errChanUpdate,
 				},
-				1, "",
+				1,
 			)
 		})
 
@@ -550,7 +550,7 @@ func TestSendPaymentErrorRepeatedFeeInsufficient(t *testing.T) {
 					// node/channel.
 					&lnwire.FailFeeInsufficient{
 						Update: errChanUpdate,
-					}, 1, "",
+					}, 1,
 				)
 			}
 
@@ -649,7 +649,7 @@ func TestSendPaymentErrorNonFinalTimeLockErrors(t *testing.T) {
 				return [32]byte{}, htlcswitch.NewForwardingError(
 					&lnwire.FailExpiryTooSoon{
 						Update: errChanUpdate,
-					}, 1, "",
+					}, 1,
 				)
 			}
 
@@ -702,7 +702,7 @@ func TestSendPaymentErrorNonFinalTimeLockErrors(t *testing.T) {
 				return [32]byte{}, htlcswitch.NewForwardingError(
 					&lnwire.FailIncorrectCltvExpiry{
 						Update: errChanUpdate,
-					}, 1, "",
+					}, 1,
 				)
 			}
 
@@ -763,7 +763,7 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 				// sophon not having enough capacity.
 				return [32]byte{}, htlcswitch.NewForwardingError(
 					&lnwire.FailTemporaryChannelFailure{},
-					1, "",
+					1,
 				)
 			}
 
@@ -772,7 +772,7 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 			// which should prune out the rest of the routes.
 			if firstHop == roasbeefPhanNuwen {
 				return [32]byte{}, htlcswitch.NewForwardingError(
-					&lnwire.FailUnknownNextPeer{}, 1, "",
+					&lnwire.FailUnknownNextPeer{}, 1,
 				)
 			}
 
@@ -803,7 +803,7 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 
 			if firstHop == roasbeefSongoku {
 				failure := htlcswitch.NewForwardingError(
-					&lnwire.FailUnknownNextPeer{}, 1, "",
+					&lnwire.FailUnknownNextPeer{}, 1,
 				)
 				return [32]byte{}, failure
 			}
@@ -850,7 +850,7 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 				// roasbeef not having enough capacity.
 				return [32]byte{}, htlcswitch.NewForwardingError(
 					&lnwire.FailTemporaryChannelFailure{},
-					1, "",
+					1,
 				)
 			}
 			return preImage, nil
@@ -3102,7 +3102,7 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 				select {
 				case sendResult <- htlcswitch.NewForwardingError(
 					&lnwire.FailTemporaryChannelFailure{},
-					1, "",
+					1,
 				):
 				case <-time.After(1 * time.Second):
 					t.Fatalf("unable to send result")
@@ -3126,7 +3126,7 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 			case getPaymentResultFailure:
 				failure := htlcswitch.NewForwardingError(
 					&lnwire.FailTemporaryChannelFailure{},
-					1, "",
+					1,
 				)
 
 				select {
@@ -3302,7 +3302,7 @@ func TestSendToRouteStructuredError(t *testing.T) {
 			return [32]byte{}, htlcswitch.NewForwardingError(
 				&lnwire.FailFeeInsufficient{
 					Update: lnwire.ChannelUpdate{},
-				}, 1, "",
+				}, 1,
 			)
 		})
 

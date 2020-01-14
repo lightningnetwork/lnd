@@ -88,10 +88,6 @@ type ForwardingError struct {
 	// zero is the self node.
 	FailureSourceIdx int
 
-	// ExtraMsg is an additional error message that callers can provide in
-	// order to provide context specific error details.
-	ExtraMsg string
-
 	// msg is the wire message associated with the error. This value may
 	// be nil in the case where we fail to decode failure message sent by
 	// a peer.
@@ -112,24 +108,19 @@ func (f *ForwardingError) WireMessage() lnwire.FailureMessage {
 // the switch or any callers to insert additional context to the error message
 // returned.
 func (f *ForwardingError) Error() string {
-	if f.ExtraMsg == "" {
-		return fmt.Sprintf("%v@%v", f.msg, f.FailureSourceIdx)
-	}
-
 	return fmt.Sprintf(
-		"%v@%v: %v", f.msg, f.FailureSourceIdx, f.ExtraMsg,
+		"%v@%v", f.msg, f.FailureSourceIdx,
 	)
 }
 
 // NewForwardingError creates a new payment error which wraps a wire error
 // with additional metadata.
-func NewForwardingError(failure lnwire.FailureMessage, index int,
-	extraMsg string) *ForwardingError {
+func NewForwardingError(failure lnwire.FailureMessage,
+	index int) *ForwardingError {
 
 	return &ForwardingError{
 		FailureSourceIdx: index,
 		msg:              failure,
-		ExtraMsg:         extraMsg,
 	}
 }
 
@@ -199,7 +190,7 @@ func (s *SphinxErrorDecrypter) DecryptError(reason lnwire.OpaqueReason) (
 		return NewUnknownForwardingError(failure.SenderIdx), nil
 	}
 
-	return NewForwardingError(failureMsg, failure.SenderIdx, ""), nil
+	return NewForwardingError(failureMsg, failure.SenderIdx), nil
 }
 
 // A compile time check to ensure ErrorDecrypter implements the Deobfuscator

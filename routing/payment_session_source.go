@@ -50,6 +50,55 @@ type SessionSource struct {
 func (m *SessionSource) NewPaymentSession(routeHints [][]zpay32.HopHint,
 	target route.Vertex) (PaymentSession, error) {
 
+	edges, err := RouteHintsToEdges(routeHints, target)
+	if err != nil {
+		return nil, err
+	}
+
+	sourceNode, err := m.Graph.SourceNode()
+	if err != nil {
+		return nil, err
+	}
+
+	getBandwidthHints := func() (map[uint64]lnwire.MilliSatoshi,
+		error) {
+
+		return generateBandwidthHints(sourceNode, m.QueryBandwidth)
+	}
+
+	return &paymentSession{
+		additionalEdges:   edges,
+		getBandwidthHints: getBandwidthHints,
+		sessionSource:     m,
+		pathFinder:        findPath,
+	}, nil
+}
+
+// NewPaymentSessionForRoute creates a new paymentSession instance that is just
+// used for failure reporting to missioncontrol.
+func (m *SessionSource) NewPaymentSessionForRoute(preBuiltRoute *route.Route) PaymentSession {
+	return &paymentSession{
+		sessionSource: m,
+		preBuiltRoute: preBuiltRoute,
+	}
+}
+
+// NewPaymentSessionEmpty creates a new paymentSession instance that is empty,
+// and will be exhausted immediately. Used for failure reporting to
+// missioncontrol for resumed payment we don't want to make more attempts for.
+func (m *SessionSource) NewPaymentSessionEmpty() PaymentSession {
+	return &paymentSession{
+		sessionSource:      m,
+		preBuiltRoute:      &route.Route{},
+		preBuiltRouteTried: true,
+	}
+}
+
+// RouteHintsToEdges converts a list of invoice route hints to an edge map that
+// can be passed into pathfinding.
+func RouteHintsToEdges(routeHints [][]zpay32.HopHint, target route.Vertex) (
+	map[route.Vertex][]*channeldb.ChannelEdgePolicy, error) {
+
 	edges := make(map[route.Vertex][]*channeldb.ChannelEdgePolicy)
 
 	// Traverse through all of the available hop hints and include them in
@@ -97,41 +146,5 @@ func (m *SessionSource) NewPaymentSession(routeHints [][]zpay32.HopHint,
 		}
 	}
 
-	sourceNode, err := m.Graph.SourceNode()
-	if err != nil {
-		return nil, err
-	}
-
-	getBandwidthHints := func() (map[uint64]lnwire.MilliSatoshi,
-		error) {
-
-		return generateBandwidthHints(sourceNode, m.QueryBandwidth)
-	}
-
-	return &paymentSession{
-		additionalEdges:   edges,
-		getBandwidthHints: getBandwidthHints,
-		sessionSource:     m,
-		pathFinder:        findPath,
-	}, nil
-}
-
-// NewPaymentSessionForRoute creates a new paymentSession instance that is just
-// used for failure reporting to missioncontrol.
-func (m *SessionSource) NewPaymentSessionForRoute(preBuiltRoute *route.Route) PaymentSession {
-	return &paymentSession{
-		sessionSource: m,
-		preBuiltRoute: preBuiltRoute,
-	}
-}
-
-// NewPaymentSessionEmpty creates a new paymentSession instance that is empty,
-// and will be exhausted immediately. Used for failure reporting to
-// missioncontrol for resumed payment we don't want to make more attempts for.
-func (m *SessionSource) NewPaymentSessionEmpty() PaymentSession {
-	return &paymentSession{
-		sessionSource:      m,
-		preBuiltRoute:      &route.Route{},
-		preBuiltRouteTried: true,
-	}
+	return edges, nil
 }

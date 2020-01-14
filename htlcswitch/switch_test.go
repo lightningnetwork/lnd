@@ -2178,11 +2178,11 @@ func TestUpdateFailMalformedHTLCErrorConversion(t *testing.T) {
 			t.Fatalf("unable to send payment: %v", err)
 		}
 
-		fwdingErr := err.(*ForwardingError)
-		failureMsg := fwdingErr.WireMessage()
+		routingErr := err.(ClearTextError)
+		failureMsg := routingErr.WireMessage()
 		if _, ok := failureMsg.(*lnwire.FailInvalidOnionKey); !ok {
 			t.Fatalf("expected onion failure instead got: %v",
-				fwdingErr.WireMessage())
+				routingErr.WireMessage())
 		}
 	}
 
@@ -2441,14 +2441,18 @@ func TestInvalidFailure(t *testing.T) {
 
 	select {
 	case result := <-resultChan:
-		fErr, ok := result.Error.(*ForwardingError)
+		rtErr, ok := result.Error.(ClearTextError)
 		if !ok {
-			t.Fatal("expected ForwardingError")
+			t.Fatal("expected ClearTextError")
 		}
-		if fErr.FailureSourceIdx != 2 {
+		source, ok := rtErr.(*ForwardingError)
+		if !ok {
+			t.Fatalf("expected forwarding error, got: %T", rtErr)
+		}
+		if source.FailureSourceIdx != 2 {
 			t.Fatal("unexpected error source index")
 		}
-		if fErr.WireMessage() != nil {
+		if rtErr.WireMessage() != nil {
 			t.Fatal("expected empty failure message")
 		}
 

@@ -326,12 +326,12 @@ func marshallError(sendError error) (*Failure, error) {
 		return response, nil
 	}
 
-	fErr, ok := sendError.(*htlcswitch.ForwardingError)
+	rtErr, ok := sendError.(htlcswitch.ClearTextError)
 	if !ok {
 		return nil, sendError
 	}
 
-	switch onionErr := fErr.WireMessage().(type) {
+	switch onionErr := rtErr.WireMessage().(type) {
 
 	case *lnwire.FailIncorrectDetails:
 		response.Code = Failure_INCORRECT_OR_UNKNOWN_PAYMENT_DETAILS
@@ -425,7 +425,16 @@ func marshallError(sendError error) (*Failure, error) {
 		return nil, fmt.Errorf("cannot marshall failure %T", onionErr)
 	}
 
-	response.FailureSourceIndex = uint32(fErr.FailureSourceIdx)
+	// If the ClearTextError received is a ForwardingError, the error
+	// originated from a node along the route, not locally on our outgoing
+	// link. We set failureSourceIdx to the index of the node where the
+	// failure occurred. If the error is not a ForwardingError, the failure
+	// occurred at our node, so we leave the index as 0 to indicate that
+	// we failed locally.
+	fErr, ok := rtErr.(*htlcswitch.ForwardingError)
+	if ok {
+		response.FailureSourceIndex = uint32(fErr.FailureSourceIdx)
+	}
 
 	return response, nil
 }

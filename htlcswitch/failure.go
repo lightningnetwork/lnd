@@ -25,6 +25,40 @@ type ClearTextError interface {
 	WireMessage() lnwire.FailureMessage
 }
 
+// LinkError is an implementation of the ClearTextError interface which
+// represents failures that occur on our incoming or outgoing link.
+type LinkError struct {
+	// msg returns the wire failure associated with the error.
+	// This value should *not* be nil, because we should always
+	// know the failure type for failures which occur at our own
+	// node.
+	msg lnwire.FailureMessage
+}
+
+// NewLinkError returns a LinkError with the failure message provided.
+// The failure message provided should *not* be nil, because we should
+// always know the failure type for failures which occur at our own node.
+func NewLinkError(msg lnwire.FailureMessage) *LinkError {
+	return &LinkError{msg: msg}
+}
+
+// WireMessage extracts a valid wire failure message from an internal
+// error which may contain additional metadata (which should not be
+// exposed to the network). This value should never be nil for LinkErrors,
+// because we are the ones failing the htlc.
+//
+// Note this is part of the ClearTextError interface.
+func (l *LinkError) WireMessage() lnwire.FailureMessage {
+	return l.msg
+}
+
+// Error returns the string representation of a link error.
+//
+// Note this is part of the ClearTextError interface.
+func (l *LinkError) Error() string {
+	return l.msg.Error()
+}
+
 // ForwardingError wraps an lnwire.FailureMessage in a struct that also
 // includes the source of the error.
 type ForwardingError struct {

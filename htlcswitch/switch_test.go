@@ -2179,10 +2179,10 @@ func TestUpdateFailMalformedHTLCErrorConversion(t *testing.T) {
 		}
 
 		fwdingErr := err.(*ForwardingError)
-		failureMsg := fwdingErr.FailureMessage
+		failureMsg := fwdingErr.WireMessage()
 		if _, ok := failureMsg.(*lnwire.FailInvalidOnionKey); !ok {
 			t.Fatalf("expected onion failure instead got: %v",
-				fwdingErr.FailureMessage)
+				fwdingErr.WireMessage())
 		}
 	}
 
@@ -2448,7 +2448,7 @@ func TestInvalidFailure(t *testing.T) {
 		if fErr.FailureSourceIdx != 2 {
 			t.Fatal("unexpected error source index")
 		}
-		if fErr.FailureMessage != nil {
+		if fErr.WireMessage() != nil {
 			t.Fatal("expected empty failure message")
 		}
 

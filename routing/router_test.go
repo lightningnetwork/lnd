@@ -3320,7 +3320,7 @@ func TestSendToRouteStructuredError(t *testing.T) {
 		t.Fatalf("expected forwarding error")
 	}
 
-	if _, ok := fErr.FailureMessage.(*lnwire.FailFeeInsufficient); !ok {
+	if _, ok := fErr.WireMessage().(*lnwire.FailFeeInsufficient); !ok {
 		t.Fatalf("expected fee insufficient error")
 	}
 

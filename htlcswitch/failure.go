@@ -9,6 +9,22 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
+// ClearTextError is an interface which is implemented by errors that occur
+// when we know the underlying wire failure message. These errors are the
+// opposite to opaque errors which are onion-encrypted blobs only understandable
+// to the initiating node. ClearTextErrors are used when we fail a htlc at our
+// node, or one of our initiated payments failed and we can decrypt the onion
+// encrypted error fully.
+type ClearTextError interface {
+	error
+
+	// WireMessage extracts a valid wire failure message from an internal
+	// error which may contain additional metadata (which should not be
+	// exposed to the network). This value may be nil in the case where
+	// an unknown wire error is returned by one of our peers.
+	WireMessage() lnwire.FailureMessage
+}
+
 // ForwardingError wraps an lnwire.FailureMessage in a struct that also
 // includes the source of the error.
 type ForwardingError struct {
@@ -22,7 +38,20 @@ type ForwardingError struct {
 	// order to provide context specific error details.
 	ExtraMsg string
 
-	lnwire.FailureMessage
+	// msg is the wire message associated with the error. This value may
+	// be nil in the case where we fail to decode failure message sent by
+	// a peer.
+	msg lnwire.FailureMessage
+}
+
+// WireMessage extracts a valid wire failure message from an internal
+// error which may contain additional metadata (which should not be
+// exposed to the network). This value may be nil in the case where
+// an unknown wire error is returned by one of our peers.
+//
+// Note this is part of the ClearTextError interface.
+func (f *ForwardingError) WireMessage() lnwire.FailureMessage {
+	return f.msg
 }
 
 // Error implements the built-in error interface. We use this method to allow
@@ -30,13 +59,11 @@ type ForwardingError struct {
 // returned.
 func (f *ForwardingError) Error() string {
 	if f.ExtraMsg == "" {
-		return fmt.Sprintf(
-			"%v@%v", f.FailureMessage, f.FailureSourceIdx,
-		)
+		return fmt.Sprintf("%v@%v", f.msg, f.FailureSourceIdx)
 	}
 
 	return fmt.Sprintf(
-		"%v@%v: %v", f.FailureMessage, f.FailureSourceIdx, f.ExtraMsg,
+		"%v@%v: %v", f.msg, f.FailureSourceIdx, f.ExtraMsg,
 	)
 }
 
@@ -47,7 +74,7 @@ func NewForwardingError(failure lnwire.FailureMessage, index int,
 
 	return &ForwardingError{
 		FailureSourceIdx: index,
-		FailureMessage:   failure,
+		msg:              failure,
 		ExtraMsg:         extraMsg,
 	}
 }

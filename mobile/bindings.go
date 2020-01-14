@@ -20,6 +20,10 @@ import (
 // The unlockerReady callback is called when the WalletUnlocker service is
 // ready, and rpcReady is called after the wallet has been unlocked and lnd is
 // ready to accept RPC calls.
+//
+// NOTE: On mobile platforms the '--lnddir` argument should be set to the
+// current app directory in order to ensure lnd has the permissions needed to
+// write to it.
 func Start(extraArgs string, unlockerReady, rpcReady Callback) {
 	// Split the argument string on "--" to get separated command line
 	// arguments.
@@ -74,6 +78,18 @@ func Start(extraArgs string, unlockerReady, rpcReady Callback) {
 	// callbacks when the RPC servers are ready to accept calls.
 	go func() {
 		<-unlockerListening
+
+		// We must set the TLS certificates in order to properly
+		// authenticate with the wallet unlocker service.
+		auth, err := lnd.WalletUnlockerAuthOptions()
+		if err != nil {
+			unlockerReady.OnError(err)
+			return
+		}
+
+		// Add the auth options to the listener's dial options.
+		addWalletUnlockerLisDialOption(auth...)
+
 		unlockerReady.OnResponse([]byte{})
 	}()
 

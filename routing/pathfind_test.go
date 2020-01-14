@@ -1591,33 +1591,14 @@ func TestMissingFeatureDep(t *testing.T) {
 	ctx := newPathFindingTestContext(t, testChannels, "roasbeef")
 	defer ctx.cleanup()
 
-	sourceNode, err := ctx.graphParams.graph.SourceNode()
-	if err != nil {
-		t.Fatalf("unable to fetch source node: %v", err)
-
-	}
-
-	find := func(r *RestrictParams,
-		target route.Vertex) ([]*channeldb.ChannelEdgePolicy, error) {
-
-		return findPath(
-			&graphParams{
-				graph: ctx.graphParams.graph,
-			},
-			r, testPathFindingConfig,
-			sourceNode.PubKeyBytes, target, 100, 0,
-		)
-	}
-
 	// Conner's node in the graph has a broken feature vector, since it
 	// signals payment addresses without signaling tlv onions. Pathfinding
 	// should fail since we validate transitive feature dependencies for the
 	// final node.
-	conner := ctx.testGraphInstance.aliasMap["conner"]
+	conner := ctx.keyFromAlias("conner")
+	joost := ctx.keyFromAlias("joost")
 
-	restrictions := *noRestrictions
-
-	_, err = find(&restrictions, conner)
+	_, err := ctx.findPath(conner, 100)
 	if err != feature.NewErrMissingFeatureDep(
 		lnwire.TLVOnionPayloadOptional,
 	) {
@@ -1627,9 +1608,9 @@ func TestMissingFeatureDep(t *testing.T) {
 	// Now, set the TLV and payment addresses features to override the
 	// broken features found in the graph. We should succeed in finding a
 	// path to conner.
-	restrictions.DestFeatures = tlvPayAddrFeatures
+	ctx.restrictParams.DestFeatures = tlvPayAddrFeatures
 
-	path, err := find(&restrictions, conner)
+	path, err := ctx.findPath(conner, 100)
 	if err != nil {
 		t.Fatalf("path should have been found: %v", err)
 	}
@@ -1641,9 +1622,7 @@ func TestMissingFeatureDep(t *testing.T) {
 	// errNoPathFound and not the missing feature dep err above since
 	// intermediate hops are simply skipped if they have invalid feature
 	// vectors, leaving no possible route to joost.
-	joost := ctx.testGraphInstance.aliasMap["joost"]
-
-	_, err = find(&restrictions, joost)
+	_, err = ctx.findPath(joost, 100)
 	if err != errNoPathFound {
 		t.Fatalf("path shouldn't have been found: %v", err)
 	}
@@ -1736,45 +1715,25 @@ func TestDestPaymentAddr(t *testing.T) {
 	ctx := newPathFindingTestContext(t, testChannels, "roasbeef")
 	defer ctx.cleanup()
 
-	sourceNode, err := ctx.graphParams.graph.SourceNode()
-	if err != nil {
-		t.Fatalf("unable to fetch source node: %v", err)
-
-	}
-
-	find := func(r *RestrictParams,
-		target route.Vertex) ([]*channeldb.ChannelEdgePolicy, error) {
-
-		return findPath(
-			&graphParams{
-				graph: ctx.graphParams.graph,
-			},
-			r, testPathFindingConfig,
-			sourceNode.PubKeyBytes, target, 100, 0,
-		)
-	}
-
-	luoji := ctx.testGraphInstance.aliasMap["luoji"]
-
-	restrictions := *noRestrictions
+	luoji := ctx.keyFromAlias("luoji")
 
 	// Add payment address w/o any invoice features.
-	restrictions.PaymentAddr = &[32]byte{1}
+	ctx.restrictParams.PaymentAddr = &[32]byte{1}
 
 	// Add empty destination features. This should cause us to fail, since
 	// this overrides anything in the graph.
-	restrictions.DestFeatures = lnwire.EmptyFeatureVector()
+	ctx.restrictParams.DestFeatures = lnwire.EmptyFeatureVector()
 
-	_, err = find(&restrictions, luoji)
+	_, err := ctx.findPath(luoji, 100)
 	if err != errNoPaymentAddr {
 		t.Fatalf("path shouldn't have been found: %v", err)
 	}
 
 	// Now, set the TLV and payment address features for the destination. We
 	// should succeed in finding a path to luoji.
-	restrictions.DestFeatures = tlvPayAddrFeatures
+	ctx.restrictParams.DestFeatures = tlvPayAddrFeatures
 
-	path, err := find(&restrictions, luoji)
+	path, err := ctx.findPath(luoji, 100)
 	if err != nil {
 		t.Fatalf("path should have been found: %v", err)
 	}

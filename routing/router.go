@@ -1402,6 +1402,7 @@ type routingMsg struct {
 func (r *ChannelRouter) FindRoute(source, target route.Vertex,
 	amt lnwire.MilliSatoshi, restrictions *RestrictParams,
 	destCustomRecords record.CustomSet,
+	routeHints map[route.Vertex][]*channeldb.ChannelEdgePolicy,
 	finalExpiry ...uint16) (*route.Route, error) {
 
 	var finalCLTVDelta uint16
@@ -1444,8 +1445,9 @@ func (r *ChannelRouter) FindRoute(source, target route.Vertex,
 
 	path, err := findPath(
 		&graphParams{
-			graph:          r.cfg.Graph,
-			bandwidthHints: bandwidthHints,
+			graph:           r.cfg.Graph,
+			bandwidthHints:  bandwidthHints,
+			additionalEdges: routeHints,
 		},
 		restrictions, &r.cfg.PathFindingConfig,
 		source, target, amt, finalHtlcExpiry,

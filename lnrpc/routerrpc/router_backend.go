@@ -45,6 +45,7 @@ type RouterBackend struct {
 	FindRoute func(source, target route.Vertex,
 		amt lnwire.MilliSatoshi, restrictions *routing.RestrictParams,
 		destCustomRecords record.CustomSet,
+		routeHints map[route.Vertex][]*channeldb.ChannelEdgePolicy,
 		finalExpiry ...uint16) (*route.Route, error)
 
 	MissionControl MissionControl
@@ -199,6 +200,12 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 	}
 	cltvLimit -= uint32(finalCLTVDelta)
 
+	// Parse destination feature bits.
+	features, err := UnmarshalFeatures(in.DestFeatures)
+	if err != nil {
+		return nil, err
+	}
+
 	restrictions := &routing.RestrictParams{
 		FeeLimit: feeLimit,
 		ProbabilitySource: func(fromNode, toNode route.Vertex,
@@ -226,6 +233,23 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 		},
 		DestCustomRecords: record.CustomSet(in.DestCustomRecords),
 		CltvLimit:         cltvLimit,
+		DestFeatures:      features,
+	}
+
+	// Pass along an outgoing channel restriction if specified.
+	if in.OutgoingChanId != 0 {
+		restrictions.OutgoingChannelID = &in.OutgoingChanId
+	}
+
+	// Pass along a last hop restriction if specified.
+	if len(in.LastHopPubkey) > 0 {
+		lastHop, err := route.NewVertexFromBytes(
+			in.LastHopPubkey,
+		)
+		if err != nil {
+			return nil, err
+		}
+		restrictions.LastHop = &lastHop
 	}
 
 	// If we have any TLV records destined for the final hop, then we'll
@@ -236,12 +260,24 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 		return nil, err
 	}
 
+	// Convert route hints to an edge map.
+	routeHints, err := unmarshallRouteHints(in.RouteHints)
+	if err != nil {
+		return nil, err
+	}
+	routeHintEdges, err := routing.RouteHintsToEdges(
+		routeHints, targetPubKey,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	// Query the channel router for a possible path to the destination that
 	// can carry `in.Amt` satoshis _including_ the total fee required on
 	// the route.
 	route, err := r.FindRoute(
 		sourcePubKey, targetPubKey, amt, restrictions,
-		customRecords, finalCLTVDelta,
+		customRecords, routeHintEdges, finalCLTVDelta,
 	)
 	if err != nil {
 		return nil, err

@@ -2046,6 +2046,31 @@ message QueryRoutesRequest {
     REST, the values must be encoded as base64.
     */
     map<uint64, bytes> dest_custom_records = 13;
+
+    /**
+    The channel id of the channel that must be taken to the first hop. If zero,
+    any channel may be used.
+    */
+    uint64 outgoing_chan_id = 14 [jstype = JS_STRING];
+
+    /**
+    The pubkey of the last hop of the route. If empty, any hop may be used.
+    */
+    bytes last_hop_pubkey = 15;
+
+    /**
+    Optional route hints to reach the destination through private channels.
+    */
+    repeated lnrpc.RouteHint route_hints = 16;
+
+    /**
+    Features assumed to be supported by the final node. All transitive feature
+    depdencies must also be set properly. For a given feature bit pair, either
+    optional or remote may be set, but not both. If this field is nil or empty,
+    the router will try to load destination features from the graph as a
+    fallback.
+    */
+    repeated lnrpc.FeatureBit dest_features = 17;
 }
 
 message NodePair {

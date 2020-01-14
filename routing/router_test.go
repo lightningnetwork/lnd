@@ -227,7 +227,7 @@ func TestFindRoutesWithFeeLimit(t *testing.T) {
 
 	route, err := ctx.router.FindRoute(
 		ctx.router.selfNode.PubKeyBytes,
-		target, paymentAmt, restrictions, nil,
+		target, paymentAmt, restrictions, nil, nil,
 		zpay32.DefaultFinalCLTVDelta,
 	)
 	if err != nil {
@@ -1269,7 +1269,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	copy(targetPubKeyBytes[:], targetNode.SerializeCompressed())
 	_, err = ctx.router.FindRoute(
 		ctx.router.selfNode.PubKeyBytes,
-		targetPubKeyBytes, paymentAmt, noRestrictions, nil,
+		targetPubKeyBytes, paymentAmt, noRestrictions, nil, nil,
 		zpay32.DefaultFinalCLTVDelta,
 	)
 	if err != nil {
@@ -1312,7 +1312,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	// updated.
 	_, err = ctx.router.FindRoute(
 		ctx.router.selfNode.PubKeyBytes,
-		targetPubKeyBytes, paymentAmt, noRestrictions, nil,
+		targetPubKeyBytes, paymentAmt, noRestrictions, nil, nil,
 		zpay32.DefaultFinalCLTVDelta,
 	)
 	if err != nil {

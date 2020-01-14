@@ -260,7 +260,7 @@ func (s *Server) EstimateRouteFee(ctx context.Context,
 		&routing.RestrictParams{
 			FeeLimit:  feeLimit,
 			CltvLimit: s.cfg.RouterBackend.MaxTotalTimelock,
-		}, nil, nil,
+		}, nil, nil, s.cfg.RouterBackend.DefaultFinalCltvDelta,
 	)
 	if err != nil {
 		return nil, err

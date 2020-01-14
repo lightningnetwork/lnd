@@ -46,7 +46,7 @@ type RouterBackend struct {
 		amt lnwire.MilliSatoshi, restrictions *routing.RestrictParams,
 		destCustomRecords record.CustomSet,
 		routeHints map[route.Vertex][]*channeldb.ChannelEdgePolicy,
-		finalExpiry ...uint16) (*route.Route, error)
+		finalExpiry uint16) (*route.Route, error)
 
 	MissionControl MissionControl
 
@@ -63,6 +63,10 @@ type RouterBackend struct {
 	// MaxTotalTimelock is the maximum total time lock a route is allowed to
 	// have.
 	MaxTotalTimelock uint32
+
+	// DefaultFinalCltvDelta is the default value used as final cltv delta
+	// when an RPC caller doesn't specify a value.
+	DefaultFinalCltvDelta uint16
 }
 
 // MissionControl defines the mission control dependencies of routerrpc.
@@ -194,7 +198,7 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 	// We need to subtract the final delta before passing it into path
 	// finding. The optimal path is independent of the final cltv delta and
 	// the path finding algorithm is unaware of this value.
-	finalCLTVDelta := uint16(zpay32.DefaultFinalCLTVDelta)
+	finalCLTVDelta := r.DefaultFinalCltvDelta
 	if in.FinalCltvDelta != 0 {
 		finalCLTVDelta = uint16(in.FinalCltvDelta)
 	}
@@ -657,7 +661,7 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 			payIntent.FinalCLTVDelta =
 				uint16(rpcPayReq.FinalCltvDelta)
 		} else {
-			payIntent.FinalCLTVDelta = zpay32.DefaultFinalCLTVDelta
+			payIntent.FinalCLTVDelta = r.DefaultFinalCltvDelta
 		}
 
 		// Amount.

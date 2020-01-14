@@ -1403,14 +1403,7 @@ func (r *ChannelRouter) FindRoute(source, target route.Vertex,
 	amt lnwire.MilliSatoshi, restrictions *RestrictParams,
 	destCustomRecords record.CustomSet,
 	routeHints map[route.Vertex][]*channeldb.ChannelEdgePolicy,
-	finalExpiry ...uint16) (*route.Route, error) {
-
-	var finalCLTVDelta uint16
-	if len(finalExpiry) == 0 {
-		finalCLTVDelta = zpay32.DefaultFinalCLTVDelta
-	} else {
-		finalCLTVDelta = finalExpiry[0]
-	}
+	finalExpiry uint16) (*route.Route, error) {
 
 	log.Debugf("Searching for path to %v, sending %v", target, amt)
 
@@ -1441,7 +1434,7 @@ func (r *ChannelRouter) FindRoute(source, target route.Vertex,
 
 	// Now that we know the destination is reachable within the graph, we'll
 	// execute our path finding algorithm.
-	finalHtlcExpiry := currentHeight + int32(finalCLTVDelta)
+	finalHtlcExpiry := currentHeight + int32(finalExpiry)
 
 	path, err := findPath(
 		&graphParams{
@@ -1461,7 +1454,7 @@ func (r *ChannelRouter) FindRoute(source, target route.Vertex,
 		source, path, uint32(currentHeight),
 		finalHopParams{
 			amt:       amt,
-			cltvDelta: finalCLTVDelta,
+			cltvDelta: finalExpiry,
 			records:   destCustomRecords,
 		},
 	)

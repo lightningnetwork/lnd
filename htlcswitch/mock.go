@@ -400,10 +400,7 @@ func (o *mockDeobfuscator) DecryptError(reason lnwire.OpaqueReason) (*Forwarding
 		return nil, err
 	}
 
-	return &ForwardingError{
-		FailureSourceIdx: 1,
-		FailureMessage:   failure,
-	}, nil
+	return NewForwardingError(failure, 1, ""), nil
 }
 
 var _ ErrorDecrypter = (*mockDeobfuscator)(nil)

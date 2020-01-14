@@ -756,10 +756,9 @@ func (s *Switch) handleLocalDispatch(pkt *htlcPacket) error {
 		s.indexMtx.RUnlock()
 		if err != nil {
 			log.Errorf("Link %v not found", pkt.outgoingChanID)
-			return &ForwardingError{
-				FailureSourceIdx: 0,
-				FailureMessage:   &lnwire.FailUnknownNextPeer{},
-			}
+			return NewForwardingError(
+				&lnwire.FailUnknownNextPeer{}, 0, "",
+			)
 		}
 
 		if !link.EligibleToForward() {
@@ -770,11 +769,7 @@ func (s *Switch) handleLocalDispatch(pkt *htlcPacket) error {
 			// The update does not need to be populated as the error
 			// will be returned back to the router.
 			htlcErr := lnwire.NewTemporaryChannelFailure(nil)
-			return &ForwardingError{
-				FailureSourceIdx: 0,
-				ExtraMsg:         err.Error(),
-				FailureMessage:   htlcErr,
-			}
+			return NewForwardingError(htlcErr, 0, err.Error())
 		}
 
 		// Ensure that the htlc satisfies the outgoing channel policy.
@@ -788,10 +783,7 @@ func (s *Switch) handleLocalDispatch(pkt *htlcPacket) error {
 			log.Errorf("Link %v policy for local forward not "+
 				"satisfied", pkt.outgoingChanID)
 
-			return &ForwardingError{
-				FailureSourceIdx: 0,
-				FailureMessage:   htlcErr,
-			}
+			return NewForwardingError(htlcErr, 0, "")
 		}
 
 		return link.HandleSwitchPacket(pkt)
@@ -930,11 +922,7 @@ func (s *Switch) parseFailedPayment(deobfuscator ErrorDecrypter,
 			failureMsg = lnwire.NewTemporaryChannelFailure(nil)
 		}
 
-		return &ForwardingError{
-			FailureSourceIdx: 0,
-			ExtraMsg:         userErr,
-			FailureMessage:   failureMsg,
-		}
+		return NewForwardingError(failureMsg, 0, userErr)
 
 	// A payment had to be timed out on chain before it got past
 	// the first hop. In this case, we'll report a permanent
@@ -945,11 +933,9 @@ func (s *Switch) parseFailedPayment(deobfuscator ErrorDecrypter,
 			"on-chain, then canceled back (hash=%v, pid=%d)",
 			paymentHash, paymentID)
 
-		return &ForwardingError{
-			FailureSourceIdx: 0,
-			ExtraMsg:         userErr,
-			FailureMessage:   &lnwire.FailPermanentChannelFailure{},
-		}
+		return NewForwardingError(
+			&lnwire.FailPermanentChannelFailure{}, 0, userErr,
+		)
 
 	// A regular multi-hop payment error that we'll need to
 	// decrypt.

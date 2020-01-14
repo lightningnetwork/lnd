@@ -40,6 +40,27 @@ func (f *ForwardingError) Error() string {
 	)
 }
 
+// NewForwardingError creates a new payment error which wraps a wire error
+// with additional metadata.
+func NewForwardingError(failure lnwire.FailureMessage, index int,
+	extraMsg string) *ForwardingError {
+
+	return &ForwardingError{
+		FailureSourceIdx: index,
+		FailureMessage:   failure,
+		ExtraMsg:         extraMsg,
+	}
+}
+
+// NewUnknownForwardingError returns a forwarding error which has a nil failure
+// message. This constructor should only be used in the case where we cannot
+// decode the failure we have received from a peer.
+func NewUnknownForwardingError(index int) *ForwardingError {
+	return &ForwardingError{
+		FailureSourceIdx: index,
+	}
+}
+
 // ErrorDecrypter is an interface that is used to decrypt the onion encrypted
 // failure reason an extra out a well formed error.
 type ErrorDecrypter interface {
@@ -94,15 +115,10 @@ func (s *SphinxErrorDecrypter) DecryptError(reason lnwire.OpaqueReason) (
 	r := bytes.NewReader(failure.Message)
 	failureMsg, err := lnwire.DecodeFailure(r, 0)
 	if err != nil {
-		return &ForwardingError{
-			FailureSourceIdx: failure.SenderIdx,
-		}, nil
+		return NewUnknownForwardingError(failure.SenderIdx), nil
 	}
 
-	return &ForwardingError{
-		FailureSourceIdx: failure.SenderIdx,
-		FailureMessage:   failureMsg,
-	}, nil
+	return NewForwardingError(failureMsg, failure.SenderIdx, ""), nil
 }
 
 // A compile time check to ensure ErrorDecrypter implements the Deobfuscator

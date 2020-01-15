@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcutil"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing"
@@ -18,6 +19,7 @@ import (
 const (
 	destKey       = "0286098b97bc843372b4426d4b276cea9aa2f48f0428d6f5b66ae101befc14f8b4"
 	ignoreNodeKey = "02f274f48f3c0d590449a6776e3ce8825076ac376e470e992246eebc565ef8bb2a"
+	hintNodeKey   = "0274e7fb33eafd74fe1acb6db7680bb4aa78e9c839a6e954e38abfad680f645ef7"
 
 	testMissionControlProb = 0.5
 )
@@ -58,6 +60,27 @@ func testQueryRoutes(t *testing.T, useMissionControl bool, useMsat bool) {
 		t.Fatal(err)
 	}
 
+	var (
+		lastHop      = route.Vertex{64}
+		outgoingChan = uint64(383322)
+	)
+
+	hintNode, err := route.NewVertexFromStr(hintNodeKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rpcRouteHints := []*lnrpc.RouteHint{
+		{
+			HopHints: []*lnrpc.HopHint{
+				{
+					ChanId: 38484,
+					NodeId: hintNodeKey,
+				},
+			},
+		},
+	}
+
 	request := &lnrpc.QueryRoutesRequest{
 		PubKey:         destKey,
 		FinalCltvDelta: 100,
@@ -71,6 +94,10 @@ func testQueryRoutes(t *testing.T, useMissionControl bool, useMsat bool) {
 			To:   node2[:],
 		}},
 		UseMissionControl: useMissionControl,
+		LastHopPubkey:     lastHop[:],
+		OutgoingChanId:    outgoingChan,
+		DestFeatures:      []lnrpc.FeatureBit{lnrpc.FeatureBit_MPP_OPT},
+		RouteHints:        rpcRouteHints,
 	}
 
 	amtSat := int64(100000)
@@ -93,7 +120,8 @@ func testQueryRoutes(t *testing.T, useMissionControl bool, useMsat bool) {
 	findRoute := func(source, target route.Vertex,
 		amt lnwire.MilliSatoshi, restrictions *routing.RestrictParams,
 		_ record.CustomSet,
-		finalExpiry ...uint16) (*route.Route, error) {
+		routeHints map[route.Vertex][]*channeldb.ChannelEdgePolicy,
+		finalExpiry uint16) (*route.Route, error) {
 
 		if int64(amt) != amtSat*1000 {
 			t.Fatal("unexpected amount")
@@ -125,6 +153,22 @@ func testQueryRoutes(t *testing.T, useMissionControl bool, useMsat bool) {
 
 		if restrictions.ProbabilitySource(node1, node2, 0) != 0 {
 			t.Fatal("expecting 0% probability for ignored pair")
+		}
+
+		if *restrictions.LastHop != lastHop {
+			t.Fatal("unexpected last hop")
+		}
+
+		if *restrictions.OutgoingChannelID != outgoingChan {
+			t.Fatal("unexpected outgoing channel id")
+		}
+
+		if !restrictions.DestFeatures.HasFeature(lnwire.MPPOptional) {
+			t.Fatal("unexpected dest features")
+		}
+
+		if _, ok := routeHints[hintNode]; !ok {
+			t.Fatal("expected route hint")
 		}
 
 		expectedProb := 1.0

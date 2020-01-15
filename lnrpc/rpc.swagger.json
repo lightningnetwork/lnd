@@ -812,6 +812,52 @@
             "required": false,
             "type": "integer",
             "format": "int64"
+          },
+          {
+            "name": "outgoing_chan_id",
+            "description": "*\nThe channel id of the channel that must be taken to the first hop. If zero,\nany channel may be used.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "uint64"
+          },
+          {
+            "name": "last_hop_pubkey",
+            "description": "*\nThe pubkey of the last hop of the route. If empty, any hop may be used.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          },
+          {
+            "name": "dest_features",
+            "description": "*\nFeatures assumed to be supported by the final node. All transitive feature\ndepdencies must also be set properly. For a given feature bit pair, either\noptional or remote may be set, but not both. If this field is nil or empty,\nthe router will try to load destination features from the graph as a\nfallback.",
+            "in": "query",
+            "required": false,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "DATALOSS_PROTECT_REQ",
+                "DATALOSS_PROTECT_OPT",
+                "INITIAL_ROUING_SYNC",
+                "UPFRONT_SHUTDOWN_SCRIPT_REQ",
+                "UPFRONT_SHUTDOWN_SCRIPT_OPT",
+                "GOSSIP_QUERIES_REQ",
+                "GOSSIP_QUERIES_OPT",
+                "TLV_ONION_REQ",
+                "TLV_ONION_OPT",
+                "EXT_GOSSIP_QUERIES_REQ",
+                "EXT_GOSSIP_QUERIES_OPT",
+                "STATIC_REMOTE_KEY_REQ",
+                "STATIC_REMOTE_KEY_OPT",
+                "PAYMENT_ADDR_REQ",
+                "PAYMENT_ADDR_OPT",
+                "MPP_REQ",
+                "MPP_OPT"
+              ]
+            },
+            "collectionFormat": "multi"
           }
         ],
         "tags": [

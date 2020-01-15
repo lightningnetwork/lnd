@@ -45,7 +45,8 @@ type RouterBackend struct {
 	FindRoute func(source, target route.Vertex,
 		amt lnwire.MilliSatoshi, restrictions *routing.RestrictParams,
 		destCustomRecords record.CustomSet,
-		finalExpiry ...uint16) (*route.Route, error)
+		routeHints map[route.Vertex][]*channeldb.ChannelEdgePolicy,
+		finalExpiry uint16) (*route.Route, error)
 
 	MissionControl MissionControl
 
@@ -62,6 +63,10 @@ type RouterBackend struct {
 	// MaxTotalTimelock is the maximum total time lock a route is allowed to
 	// have.
 	MaxTotalTimelock uint32
+
+	// DefaultFinalCltvDelta is the default value used as final cltv delta
+	// when an RPC caller doesn't specify a value.
+	DefaultFinalCltvDelta uint16
 }
 
 // MissionControl defines the mission control dependencies of routerrpc.
@@ -193,11 +198,17 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 	// We need to subtract the final delta before passing it into path
 	// finding. The optimal path is independent of the final cltv delta and
 	// the path finding algorithm is unaware of this value.
-	finalCLTVDelta := uint16(zpay32.DefaultFinalCLTVDelta)
+	finalCLTVDelta := r.DefaultFinalCltvDelta
 	if in.FinalCltvDelta != 0 {
 		finalCLTVDelta = uint16(in.FinalCltvDelta)
 	}
 	cltvLimit -= uint32(finalCLTVDelta)
+
+	// Parse destination feature bits.
+	features, err := UnmarshalFeatures(in.DestFeatures)
+	if err != nil {
+		return nil, err
+	}
 
 	restrictions := &routing.RestrictParams{
 		FeeLimit: feeLimit,
@@ -226,6 +237,23 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 		},
 		DestCustomRecords: record.CustomSet(in.DestCustomRecords),
 		CltvLimit:         cltvLimit,
+		DestFeatures:      features,
+	}
+
+	// Pass along an outgoing channel restriction if specified.
+	if in.OutgoingChanId != 0 {
+		restrictions.OutgoingChannelID = &in.OutgoingChanId
+	}
+
+	// Pass along a last hop restriction if specified.
+	if len(in.LastHopPubkey) > 0 {
+		lastHop, err := route.NewVertexFromBytes(
+			in.LastHopPubkey,
+		)
+		if err != nil {
+			return nil, err
+		}
+		restrictions.LastHop = &lastHop
 	}
 
 	// If we have any TLV records destined for the final hop, then we'll
@@ -236,12 +264,24 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 		return nil, err
 	}
 
+	// Convert route hints to an edge map.
+	routeHints, err := unmarshallRouteHints(in.RouteHints)
+	if err != nil {
+		return nil, err
+	}
+	routeHintEdges, err := routing.RouteHintsToEdges(
+		routeHints, targetPubKey,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	// Query the channel router for a possible path to the destination that
 	// can carry `in.Amt` satoshis _including_ the total fee required on
 	// the route.
 	route, err := r.FindRoute(
 		sourcePubKey, targetPubKey, amt, restrictions,
-		customRecords, finalCLTVDelta,
+		customRecords, routeHintEdges, finalCLTVDelta,
 	)
 	if err != nil {
 		return nil, err
@@ -621,7 +661,7 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 			payIntent.FinalCLTVDelta =
 				uint16(rpcPayReq.FinalCltvDelta)
 		} else {
-			payIntent.FinalCLTVDelta = zpay32.DefaultFinalCLTVDelta
+			payIntent.FinalCLTVDelta = r.DefaultFinalCltvDelta
 		}
 
 		// Amount.

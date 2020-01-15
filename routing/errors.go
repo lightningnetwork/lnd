@@ -7,14 +7,9 @@ import "github.com/go-errors/errors"
 type errorCode uint8
 
 const (
-	// ErrTargetNotInNetwork is returned when the target of a path-finding
-	// or payment attempt isn't known to be within the current version of
-	// the channel graph.
-	ErrTargetNotInNetwork errorCode = iota
-
 	// ErrOutdated is returned when the routing update already have
 	// been applied, or a newer update is already known.
-	ErrOutdated
+	ErrOutdated errorCode = iota
 
 	// ErrIgnored is returned when the update have been ignored because
 	// this update can't bring us something new, or because a node

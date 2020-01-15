@@ -454,8 +454,8 @@ of `protoc`.
 
 The following commit hashes of related projects are also required in order to
 generate identical compiled protos and related files:
-   * grpc-ecosystem/grpc-gateway: `f2862b476edcef83412c7af8687c9cd8e4097c0f`
-   * golang/protobuf: `ab9f9a6dab164b7d1246e0e688b0ab7b94d8553e`
+   * grpc-ecosystem/grpc-gateway: `15c7b2ea9d896c07d9b28eca57050b1ee0aea4d6`
+   * golang/protobuf: `b5d812f8a3706043e23a9cd5babf2e5423744d30`
 
 For detailed instructions on how to compile modifications to `lnd`'s `protobuf`
 definitions, check out the [lnrpc README](https://github.com/lightningnetwork/lnd/blob/master/lnrpc/README.md).

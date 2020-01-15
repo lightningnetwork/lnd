@@ -203,7 +203,7 @@ var sendCoinsCommand = cli.Command{
 	Usage:     "Send bitcoin on-chain to an address.",
 	ArgsUsage: "addr amt",
 	Description: `
-	Send amt coins in satoshis to the BASE58 encoded bitcoin address addr.
+	Send amt coins in satoshis to the base58 or bech32 encoded bitcoin address addr.
 
 	Fees used when sending the transaction can be specified via the --conf_target, or
 	--sat_per_byte optional flags.
@@ -212,8 +212,9 @@ var sendCoinsCommand = cli.Command{
 	`,
 	Flags: []cli.Flag{
 		cli.StringFlag{
-			Name:  "addr",
-			Usage: "the BASE58 encoded bitcoin address to send coins to on-chain",
+			Name: "addr",
+			Usage: "the base58 or bech32 encoded bitcoin address to send coins " +
+				"to on-chain",
 		},
 		cli.BoolFlag{
 			Name: "sweepall",

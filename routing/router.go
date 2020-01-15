@@ -1407,15 +1407,6 @@ func (r *ChannelRouter) FindRoute(source, target route.Vertex,
 
 	log.Debugf("Searching for path to %v, sending %v", target, amt)
 
-	// We can short circuit the routing by opportunistically checking to
-	// see if the target vertex event exists in the current graph.
-	if _, exists, err := r.cfg.Graph.HasLightningNode(target); err != nil {
-		return nil, err
-	} else if !exists {
-		log.Debugf("Target %x is not in known graph", target)
-		return nil, newErrf(ErrTargetNotInNetwork, "target not found")
-	}
-
 	// We'll attempt to obtain a set of bandwidth hints that can help us
 	// eliminate certain routes early on in the path finding process.
 	bandwidthHints, err := generateBandwidthHints(

@@ -574,12 +574,12 @@ func TestExitNodeTimelockPayloadMismatch(t *testing.T) {
 		t.Fatalf("payment should have failed but didn't")
 	}
 
-	ferr, ok := err.(*ForwardingError)
+	rtErr, ok := err.(ClearTextError)
 	if !ok {
-		t.Fatalf("expected a ForwardingError, instead got: %T", err)
+		t.Fatalf("expected a ClearTextError, instead got: %T", err)
 	}
 
-	switch ferr.FailureMessage.(type) {
+	switch rtErr.WireMessage().(type) {
 	case *lnwire.FailFinalIncorrectCltvExpiry:
 	default:
 		t.Fatalf("incorrect error, expected incorrect cltv expiry, "+
@@ -674,12 +674,12 @@ func TestLinkForwardTimelockPolicyMismatch(t *testing.T) {
 		t.Fatalf("payment should have failed but didn't")
 	}
 
-	ferr, ok := err.(*ForwardingError)
+	rtErr, ok := err.(ClearTextError)
 	if !ok {
-		t.Fatalf("expected a ForwardingError, instead got: %T", err)
+		t.Fatalf("expected a ClearTextError, instead got: %T", err)
 	}
 
-	switch ferr.FailureMessage.(type) {
+	switch rtErr.WireMessage().(type) {
 	case *lnwire.FailIncorrectCltvExpiry:
 	default:
 		t.Fatalf("incorrect error, expected incorrect cltv expiry, "+
@@ -732,12 +732,12 @@ func TestLinkForwardFeePolicyMismatch(t *testing.T) {
 		t.Fatalf("payment should have failed but didn't")
 	}
 
-	ferr, ok := err.(*ForwardingError)
+	rtErr, ok := err.(ClearTextError)
 	if !ok {
-		t.Fatalf("expected a ForwardingError, instead got: %T", err)
+		t.Fatalf("expected a ClearTextError, instead got: %T", err)
 	}
 
-	switch ferr.FailureMessage.(type) {
+	switch rtErr.WireMessage().(type) {
 	case *lnwire.FailFeeInsufficient:
 	default:
 		t.Fatalf("incorrect error, expected fee insufficient, "+
@@ -790,12 +790,12 @@ func TestLinkForwardMinHTLCPolicyMismatch(t *testing.T) {
 		t.Fatalf("payment should have failed but didn't")
 	}
 
-	ferr, ok := err.(*ForwardingError)
+	rtErr, ok := err.(ClearTextError)
 	if !ok {
-		t.Fatalf("expected a ForwardingError, instead got: %T", err)
+		t.Fatalf("expected a ClearTextError, instead got: %T", err)
 	}
 
-	switch ferr.FailureMessage.(type) {
+	switch rtErr.WireMessage().(type) {
 	case *lnwire.FailAmountBelowMinimum:
 	default:
 		t.Fatalf("incorrect error, expected amount below minimum, "+
@@ -857,12 +857,12 @@ func TestLinkForwardMaxHTLCPolicyMismatch(t *testing.T) {
 		t.Fatalf("payment should have failed but didn't")
 	}
 
-	ferr, ok := err.(*ForwardingError)
+	rtErr, ok := err.(ClearTextError)
 	if !ok {
-		t.Fatalf("expected a ForwardingError, instead got: %T", err)
+		t.Fatalf("expected a ClearTextError, instead got: %T", err)
 	}
 
-	switch ferr.FailureMessage.(type) {
+	switch rtErr.WireMessage().(type) {
 	case *lnwire.FailTemporaryChannelFailure:
 	default:
 		t.Fatalf("incorrect error, expected temporary channel failure, "+
@@ -964,11 +964,12 @@ func TestUpdateForwardingPolicy(t *testing.T) {
 		t.Fatalf("payment should've been rejected")
 	}
 
-	ferr, ok := err.(*ForwardingError)
+	rtErr, ok := err.(ClearTextError)
 	if !ok {
-		t.Fatalf("expected a ForwardingError, instead got (%T): %v", err, err)
+		t.Fatalf("expected a ClearTextError, instead got (%T): %v", err, err)
 	}
-	switch ferr.FailureMessage.(type) {
+
+	switch rtErr.WireMessage().(type) {
 	case *lnwire.FailFeeInsufficient:
 	default:
 		t.Fatalf("expected FailFeeInsufficient instead got: %v", err)
@@ -1003,12 +1004,13 @@ func TestUpdateForwardingPolicy(t *testing.T) {
 		t.Fatalf("payment should've been rejected")
 	}
 
-	ferr, ok = err.(*ForwardingError)
+	rtErr, ok = err.(ClearTextError)
 	if !ok {
-		t.Fatalf("expected a ForwardingError, instead got (%T): %v",
+		t.Fatalf("expected a ClearTextError, instead got (%T): %v",
 			err, err)
 	}
-	switch ferr.FailureMessage.(type) {
+
+	switch rtErr.WireMessage().(type) {
 	case *lnwire.FailTemporaryChannelFailure:
 	default:
 		t.Fatalf("expected TemporaryChannelFailure, instead got: %v",
@@ -1249,13 +1251,14 @@ func TestChannelLinkMultiHopUnknownNextHop(t *testing.T) {
 	if err == nil {
 		t.Fatal("error haven't been received")
 	}
-	fErr, ok := err.(*ForwardingError)
+	rtErr, ok := err.(ClearTextError)
 	if !ok {
-		t.Fatalf("expected ForwardingError")
+		t.Fatalf("expected ClearTextError")
 	}
-	if _, ok = fErr.FailureMessage.(*lnwire.FailUnknownNextPeer); !ok {
+
+	if _, ok = rtErr.WireMessage().(*lnwire.FailUnknownNextPeer); !ok {
 		t.Fatalf("wrong error has been received: %T",
-			fErr.FailureMessage)
+			rtErr.WireMessage())
 	}
 
 	// Wait for Alice to receive the revocation.
@@ -1364,12 +1367,12 @@ func TestChannelLinkMultiHopDecodeError(t *testing.T) {
 		t.Fatal("error haven't been received")
 	}
 
-	ferr, ok := err.(*ForwardingError)
+	rtErr, ok := err.(ClearTextError)
 	if !ok {
-		t.Fatalf("expected a ForwardingError, instead got: %T", err)
+		t.Fatalf("expected a ClearTextError, instead got: %T", err)
 	}
 
-	switch ferr.FailureMessage.(type) {
+	switch rtErr.WireMessage().(type) {
 	case *lnwire.FailInvalidOnionVersion:
 	default:
 		t.Fatalf("wrong error have been received: %v", err)
@@ -1456,13 +1459,13 @@ func TestChannelLinkExpiryTooSoonExitNode(t *testing.T) {
 			"time lock value")
 	}
 
-	ferr, ok := err.(*ForwardingError)
+	rtErr, ok := err.(ClearTextError)
 	if !ok {
-		t.Fatalf("expected a ForwardingError, instead got: %T %v",
-			err, err)
+		t.Fatalf("expected a ClearTextError, instead got: %T %v",
+			rtErr, err)
 	}
 
-	switch ferr.FailureMessage.(type) {
+	switch rtErr.WireMessage().(type) {
 	case *lnwire.FailIncorrectDetails:
 	default:
 		t.Fatalf("expected incorrect_or_unknown_payment_details, "+
@@ -1519,12 +1522,13 @@ func TestChannelLinkExpiryTooSoonMidNode(t *testing.T) {
 			"time lock value")
 	}
 
-	ferr, ok := err.(*ForwardingError)
+	rtErr, ok := err.(ClearTextError)
 	if !ok {
-		t.Fatalf("expected a ForwardingError, instead got: %T: %v", err, err)
+		t.Fatalf("expected a ClearTextError, instead got: %T: %v",
+			rtErr, err)
 	}
 
-	switch ferr.FailureMessage.(type) {
+	switch rtErr.WireMessage().(type) {
 	case *lnwire.FailExpiryTooSoon:
 	default:
 		t.Fatalf("incorrect error, expected final time lock too "+
@@ -5537,7 +5541,7 @@ func TestCheckHtlcForward(t *testing.T) {
 	t.Run("below minhtlc", func(t *testing.T) {
 		result := link.CheckHtlcForward(hash, 100, 50,
 			200, 150, 0)
-		if _, ok := result.(*lnwire.FailAmountBelowMinimum); !ok {
+		if _, ok := result.WireMessage().(*lnwire.FailAmountBelowMinimum); !ok {
 			t.Fatalf("expected FailAmountBelowMinimum failure code")
 		}
 	})
@@ -5545,7 +5549,7 @@ func TestCheckHtlcForward(t *testing.T) {
 	t.Run("above maxhtlc", func(t *testing.T) {
 		result := link.CheckHtlcForward(hash, 1500, 1200,
 			200, 150, 0)
-		if _, ok := result.(*lnwire.FailTemporaryChannelFailure); !ok {
+		if _, ok := result.WireMessage().(*lnwire.FailTemporaryChannelFailure); !ok {
 			t.Fatalf("expected FailTemporaryChannelFailure failure code")
 		}
 	})
@@ -5553,7 +5557,7 @@ func TestCheckHtlcForward(t *testing.T) {
 	t.Run("insufficient fee", func(t *testing.T) {
 		result := link.CheckHtlcForward(hash, 1005, 1000,
 			200, 150, 0)
-		if _, ok := result.(*lnwire.FailFeeInsufficient); !ok {
+		if _, ok := result.WireMessage().(*lnwire.FailFeeInsufficient); !ok {
 			t.Fatalf("expected FailFeeInsufficient failure code")
 		}
 	})
@@ -5561,7 +5565,7 @@ func TestCheckHtlcForward(t *testing.T) {
 	t.Run("expiry too soon", func(t *testing.T) {
 		result := link.CheckHtlcForward(hash, 1500, 1000,
 			200, 150, 190)
-		if _, ok := result.(*lnwire.FailExpiryTooSoon); !ok {
+		if _, ok := result.WireMessage().(*lnwire.FailExpiryTooSoon); !ok {
 			t.Fatalf("expected FailExpiryTooSoon failure code")
 		}
 	})
@@ -5569,7 +5573,7 @@ func TestCheckHtlcForward(t *testing.T) {
 	t.Run("incorrect cltv expiry", func(t *testing.T) {
 		result := link.CheckHtlcForward(hash, 1500, 1000,
 			200, 190, 0)
-		if _, ok := result.(*lnwire.FailIncorrectCltvExpiry); !ok {
+		if _, ok := result.WireMessage().(*lnwire.FailIncorrectCltvExpiry); !ok {
 			t.Fatalf("expected FailIncorrectCltvExpiry failure code")
 		}
 
@@ -5579,7 +5583,7 @@ func TestCheckHtlcForward(t *testing.T) {
 		// Check that expiry isn't too far in the future.
 		result := link.CheckHtlcForward(hash, 1500, 1000,
 			10200, 10100, 0)
-		if _, ok := result.(*lnwire.FailExpiryTooFar); !ok {
+		if _, ok := result.WireMessage().(*lnwire.FailExpiryTooFar); !ok {
 			t.Fatalf("expected FailExpiryTooFar failure code")
 		}
 	})
@@ -5632,11 +5636,11 @@ func TestChannelLinkCanceledInvoice(t *testing.T) {
 
 	// Because the invoice is canceled, we expect an unknown payment hash
 	// result.
-	fErr, ok := err.(*ForwardingError)
+	rtErr, ok := err.(ClearTextError)
 	if !ok {
-		t.Fatalf("expected ForwardingError, but got %v", err)
+		t.Fatalf("expected ClearTextError, but got %v", err)
 	}
-	_, ok = fErr.FailureMessage.(*lnwire.FailIncorrectDetails)
+	_, ok = rtErr.WireMessage().(*lnwire.FailIncorrectDetails)
 	if !ok {
 		t.Fatalf("expected unknown payment hash, but got %v", err)
 	}
@@ -6213,16 +6217,16 @@ func TestChannelLinkReceiveEmptySig(t *testing.T) {
 	aliceLink.Stop()
 }
 
-// assertFailureCode asserts that an error is of type ForwardingError and that
+// assertFailureCode asserts that an error is of type ClearTextError and that
 // the failure code is as expected.
 func assertFailureCode(t *testing.T, err error, code lnwire.FailCode) {
-	fErr, ok := err.(*ForwardingError)
+	rtErr, ok := err.(ClearTextError)
 	if !ok {
-		t.Fatalf("expected ForwardingError but got %T", err)
+		t.Fatalf("expected ClearTextError but got %T", err)
 	}
 
-	if fErr.FailureMessage.Code() != code {
+	if rtErr.WireMessage().Code() != code {
 		t.Fatalf("expected %v but got %v",
-			code, fErr.FailureMessage.Code())
+			code, rtErr.WireMessage().Code())
 	}
 }

@@ -35,12 +35,12 @@ func (m *mockPaymentAttemptDispatcher) SendHTLC(firstHop lnwire.ShortChannelID,
 	var result *htlcswitch.PaymentResult
 	preimage, err := m.onPayment(firstHop)
 	if err != nil {
-		fwdErr, ok := err.(*htlcswitch.ForwardingError)
+		rtErr, ok := err.(htlcswitch.ClearTextError)
 		if !ok {
 			return err
 		}
 		result = &htlcswitch.PaymentResult{
-			Error: fwdErr,
+			Error: rtErr,
 		}
 	} else {
 		result = &htlcswitch.PaymentResult{Preimage: preimage}

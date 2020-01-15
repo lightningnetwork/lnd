@@ -1905,18 +1905,33 @@ func (r *ChannelRouter) processSendError(paymentID uint64, rt *route.Route,
 
 		return reportFail(nil, nil)
 	}
-	// If an internal, non-forwarding error occurred, we can stop
-	// trying.
-	fErr, ok := sendErr.(*htlcswitch.ForwardingError)
+
+	// If the error is a ClearTextError, we have received a valid wire
+	// failure message, either from our own outgoing link or from a node
+	// down the route. If the error is not related to the propagation of
+	// our payment, we can stop trying because an internal error has
+	// occurred.
+	rtErr, ok := sendErr.(htlcswitch.ClearTextError)
 	if !ok {
 		return &internalErrorReason
 	}
 
-	failureMessage := fErr.FailureMessage
-	failureSourceIdx := fErr.FailureSourceIdx
+	// failureSourceIdx is the index of the node that the failure occurred
+	// at. If the ClearTextError received is not a ForwardingError the
+	// payment error occurred at our node, so we leave this value as 0
+	// to indicate that the failure occurred locally. If the error is a
+	// ForwardingError, it did not originate at our node, so we set
+	// failureSourceIdx to the index of the node where the failure occurred.
+	failureSourceIdx := 0
+	source, ok := rtErr.(*htlcswitch.ForwardingError)
+	if ok {
+		failureSourceIdx = source.FailureSourceIdx
+	}
 
-	// Apply channel update if the error contains one. For unknown
-	// failures, failureMessage is nil.
+	// Extract the wire failure and apply channel update if it contains one.
+	// If we received an unknown failure message from a node along the
+	// route, the failure message will be nil.
+	failureMessage := rtErr.WireMessage()
 	if failureMessage != nil {
 		err := r.tryApplyChannelUpdate(
 			rt, failureSourceIdx, failureMessage,

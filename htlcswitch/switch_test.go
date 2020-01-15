@@ -1290,7 +1290,7 @@ func TestSwitchForwardCircuitPersistence(t *testing.T) {
 type multiHopFwdTest struct {
 	name                 string
 	eligible1, eligible2 bool
-	failure1, failure2   lnwire.FailureMessage
+	failure1, failure2   *LinkError
 	expectedReply        lnwire.FailCode
 }
 
@@ -1308,9 +1308,11 @@ func TestSkipIneligibleLinksMultiHopForward(t *testing.T) {
 		// Channel one has a policy failure and the other channel isn't
 		// available.
 		{
-			name:          "policy fail",
-			eligible1:     true,
-			failure1:      lnwire.NewFinalIncorrectCltvExpiry(0),
+			name:      "policy fail",
+			eligible1: true,
+			failure1: NewLinkError(
+				lnwire.NewFinalIncorrectCltvExpiry(0),
+			),
 			expectedReply: lnwire.CodeFinalIncorrectCltvExpiry,
 		},
 
@@ -1325,11 +1327,16 @@ func TestSkipIneligibleLinksMultiHopForward(t *testing.T) {
 		// The requested channel has insufficient bandwidth and the
 		// other channel's policy isn't satisfied.
 		{
-			name:          "non-strict policy fail",
-			eligible1:     true,
-			failure1:      lnwire.NewTemporaryChannelFailure(nil),
-			eligible2:     true,
-			failure2:      lnwire.NewFinalIncorrectCltvExpiry(0),
+			name:      "non-strict policy fail",
+			eligible1: true,
+			failure1: NewDetailedLinkError(
+				lnwire.NewTemporaryChannelFailure(nil),
+				FailureDetailInsufficientBalance,
+			),
+			eligible2: true,
+			failure2: NewLinkError(
+				lnwire.NewFinalIncorrectCltvExpiry(0),
+			),
 			expectedReply: lnwire.CodeTemporaryChannelFailure,
 		},
 	}
@@ -1482,7 +1489,9 @@ func testSkipLinkLocalForward(t *testing.T, eligible bool,
 	aliceChannelLink := newMockChannelLink(
 		s, chanID1, aliceChanID, alicePeer, eligible,
 	)
-	aliceChannelLink.checkHtlcTransitResult = policyResult
+	aliceChannelLink.checkHtlcTransitResult = NewLinkError(
+		policyResult,
+	)
 	if err := s.AddLink(aliceChannelLink); err != nil {
 		t.Fatalf("unable to add alice link: %v", err)
 	}
@@ -2178,11 +2187,11 @@ func TestUpdateFailMalformedHTLCErrorConversion(t *testing.T) {
 			t.Fatalf("unable to send payment: %v", err)
 		}
 
-		fwdingErr := err.(*ForwardingError)
-		failureMsg := fwdingErr.FailureMessage
+		routingErr := err.(ClearTextError)
+		failureMsg := routingErr.WireMessage()
 		if _, ok := failureMsg.(*lnwire.FailInvalidOnionKey); !ok {
 			t.Fatalf("expected onion failure instead got: %v",
-				fwdingErr.FailureMessage)
+				routingErr.WireMessage())
 		}
 	}
 
@@ -2441,14 +2450,18 @@ func TestInvalidFailure(t *testing.T) {
 
 	select {
 	case result := <-resultChan:
-		fErr, ok := result.Error.(*ForwardingError)
+		rtErr, ok := result.Error.(ClearTextError)
 		if !ok {
-			t.Fatal("expected ForwardingError")
+			t.Fatal("expected ClearTextError")
 		}
-		if fErr.FailureSourceIdx != 2 {
+		source, ok := rtErr.(*ForwardingError)
+		if !ok {
+			t.Fatalf("expected forwarding error, got: %T", rtErr)
+		}
+		if source.FailureSourceIdx != 2 {
 			t.Fatal("unexpected error source index")
 		}
-		if fErr.FailureMessage != nil {
+		if rtErr.WireMessage() != nil {
 			t.Fatal("expected empty failure message")
 		}
 

@@ -345,15 +345,17 @@ func TestMigrationWithoutErrors(t *testing.T) {
 
 	// Populate database with initial data.
 	beforeMigrationFunc := func(d *DB) {
-		kvdb.Update(d, func(tx kvdb.RwTx) error {
+		err := kvdb.Update(d, func(tx kvdb.RwTx) error {
 			bucket, err := tx.CreateTopLevelBucket(bucketPrefix)
 			if err != nil {
 				return err
 			}
 
-			bucket.Put(keyPrefix, beforeMigration)
-			return nil
+			return bucket.Put(keyPrefix, beforeMigration)
 		})
+		if err != nil {
+			t.Fatalf("unable to update db pre migration: %v", err)
+		}
 	}
 
 	// Create migration function which changes the initially created data.

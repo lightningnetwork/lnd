@@ -328,7 +328,7 @@ func (c *ChannelGraph) DisabledChannelIDs() ([]uint64, error) {
 //
 // TODO(roasbeef): add iterator interface to allow for memory efficient graph
 // traversal when graph gets mega
-func (c *ChannelGraph) ForEachNode(tx kvdb.RwTx, cb func(kvdb.ReadTx, *LightningNode) error) error {
+func (c *ChannelGraph) ForEachNode(tx kvdb.RwTx, cb func(kvdb.ReadTx, *LightningNode) error) error { // nolint:interfacer
 	traversal := func(tx kvdb.ReadTx) error {
 		// First grab the nodes bucket which stores the mapping from
 		// pubKey to node information.
@@ -3328,7 +3328,7 @@ func (c *ChannelGraph) NumZombies() (uint64, error) {
 	return numZombies, nil
 }
 
-func putLightningNode(nodeBucket kvdb.RwBucket, aliasBucket kvdb.RwBucket,
+func putLightningNode(nodeBucket kvdb.RwBucket, aliasBucket kvdb.RwBucket, // nolint:dupl
 	updateIndex kvdb.RwBucket, node *LightningNode) error {
 
 	var (

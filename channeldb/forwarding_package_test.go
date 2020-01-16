@@ -795,7 +795,7 @@ func loadFwdPkgs(t *testing.T, db kvdb.Backend,
 
 // makeFwdPkgDB initializes a test database for forwarding packages. If the
 // provided path is an empty, it will create a temp dir/file to use.
-func makeFwdPkgDB(t *testing.T, path string) kvdb.Backend {
+func makeFwdPkgDB(t *testing.T, path string) kvdb.Backend { // nolint:unparam
 	if path == "" {
 		var err error
 		path, err = ioutil.TempDir("", "fwdpkgdb")

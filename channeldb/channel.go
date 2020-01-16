@@ -764,7 +764,7 @@ func fetchChanBucket(tx kvdb.ReadTx, nodeKey *btcec.PublicKey,
 // channel's data resides in given: the public key for the node, the outpoint,
 // and the chainhash that the channel resides on. This differs from
 // fetchChanBucket in that it returns a writeable bucket.
-func fetchChanBucketRw(tx kvdb.RwTx, nodeKey *btcec.PublicKey,
+func fetchChanBucketRw(tx kvdb.RwTx, nodeKey *btcec.PublicKey, // nolint:interfacer
 	outPoint *wire.OutPoint, chainHash chainhash.Hash) (kvdb.RwBucket, error) {
 
 	readBucket, err := fetchChanBucket(tx, nodeKey, outPoint, chainHash)
@@ -2465,7 +2465,7 @@ func (c *OpenChannel) CloseChannel(summary *ChannelCloseSummary,
 
 		// Now that the index to this channel has been deleted, purge
 		// the remaining channel metadata from the database.
-		err = deleteOpenChannel(chanBucket, chanPointBuf.Bytes())
+		err = deleteOpenChannel(chanBucket)
 		if err != nil {
 			return err
 		}
@@ -3108,7 +3108,7 @@ func fetchChanRevocationState(chanBucket kvdb.ReadBucket, channel *OpenChannel) 
 	return ReadElements(r, &channel.RemoteNextRevocation)
 }
 
-func deleteOpenChannel(chanBucket kvdb.RwBucket, chanPointBytes []byte) error {
+func deleteOpenChannel(chanBucket kvdb.RwBucket) error {
 
 	if err := chanBucket.Delete(chanInfoKey); err != nil {
 		return err

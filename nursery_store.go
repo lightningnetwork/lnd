@@ -1149,7 +1149,7 @@ func (ns *nurseryStore) createHeightChanBucket(tx kvdb.RwTx,
 // nursery store, using the provided block height and channel point. if the
 // bucket does not exist, or any bucket along its path does not exist, a nil
 // value is returned.
-func (ns *nurseryStore) getHeightChanBucket(tx kvdb.ReadTx,
+func (ns *nurseryStore) getHeightChanBucket(tx kvdb.ReadTx, // nolint:unused
 	height uint32, chanPoint *wire.OutPoint) kvdb.ReadBucket {
 
 	// Retrieve the existing height bucket from this nursery store.

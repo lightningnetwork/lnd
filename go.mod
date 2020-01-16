@@ -14,7 +14,6 @@ require (
 	github.com/btcsuite/btcwallet/walletdb v1.2.0
 	github.com/btcsuite/btcwallet/wtxmgr v1.0.0
 	github.com/btcsuite/fastsha256 v0.0.0-20160815193821-637e65642941
-	github.com/coreos/bbolt v1.3.3
 	github.com/davecgh/go-spew v1.1.1
 	github.com/go-errors/errors v1.0.1
 	github.com/golang/protobuf v1.3.1
@@ -45,7 +44,6 @@ require (
 	github.com/rogpeppe/fastuuid v1.2.0 // indirect
 	github.com/tv42/zbase32 v0.0.0-20160707012821-501572607d02
 	github.com/urfave/cli v1.18.0
-	go.etcd.io/bbolt v1.3.3
 	golang.org/x/crypto v0.0.0-20190211182817-74369b46fc67
 	golang.org/x/net v0.0.0-20190206173232-65e2d4e15006
 	golang.org/x/time v0.0.0-20180412165947-fbb02b2291d2

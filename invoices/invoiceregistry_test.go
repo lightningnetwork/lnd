@@ -598,7 +598,7 @@ func TestUnknownInvoice(t *testing.T) {
 	}
 }
 
-// TestKeySend tests receiving a spontaneous payment with and without key send
+// TestKeySend tests receiving a spontaneous payment with and without keysend
 // enabled.
 func TestKeySend(t *testing.T) {
 	t.Run("enabled", func(t *testing.T) {
@@ -609,7 +609,7 @@ func TestKeySend(t *testing.T) {
 	})
 }
 
-// testKeySend is the inner test function that tests key send for a particular
+// testKeySend is the inner test function that tests keysend for a particular
 // enabled state on the receiver end.
 func testKeySend(t *testing.T, keySendEnabled bool) {
 	defer timeout()()
@@ -627,11 +627,11 @@ func testKeySend(t *testing.T, keySendEnabled bool) {
 	amt := lnwire.MilliSatoshi(1000)
 	expiry := uint32(testCurrentHeight + 20)
 
-	// Create key for key send.
+	// Create key for keysend.
 	preimage := lntypes.Preimage{1, 2, 3}
 	hash := preimage.Hash()
 
-	// Try to settle invoice with an invalid key send htlc.
+	// Try to settle invoice with an invalid keysend htlc.
 	invalidKeySendPayload := &mockPayload{
 		customRecords: map[uint64][]byte{
 			record.KeySendType: {1, 2, 3},
@@ -656,10 +656,10 @@ func testKeySend(t *testing.T, keySendEnabled bool) {
 		t.Fatal("expected invoice not found outcome")
 
 	case keySendEnabled && resolution.Outcome != ResultKeySendError:
-		t.Fatal("expected key send error")
+		t.Fatal("expected keysend error")
 	}
 
-	// Try to settle invoice with a valid key send htlc.
+	// Try to settle invoice with a valid keysend htlc.
 	keySendPayload := &mockPayload{
 		customRecords: map[uint64][]byte{
 			record.KeySendType: preimage[:],
@@ -674,10 +674,10 @@ func testKeySend(t *testing.T, keySendEnabled bool) {
 		t.Fatal(err)
 	}
 
-	// Expect a cancel resolution if key send is disabled.
+	// Expect a cancel resolution if keysend is disabled.
 	if !keySendEnabled {
 		if resolution.Outcome != ResultInvoiceNotFound {
-			t.Fatal("expected key send payment not to be accepted")
+			t.Fatal("expected keysend payment not to be accepted")
 		}
 		return
 	}

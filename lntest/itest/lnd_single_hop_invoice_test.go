@@ -140,7 +140,7 @@ func testSingleHopInvoice(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf(err.Error())
 	}
 
-	// Next send a key send payment.
+	// Next send a keysend payment.
 	keySendPreimage := lntypes.Preimage{3, 4, 5, 11}
 	keySendHash := keySendPreimage.Hash()
 
@@ -162,7 +162,7 @@ func testSingleHopInvoice(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("error when attempting recv: %v", resp.PaymentError)
 	}
 
-	// The key send payment should also have succeeded, with the balances
+	// The keysend payment should also have succeeded, with the balances
 	// being update accordingly.
 	err = wait.NoError(
 		assertAmountSent(3*paymentAmt, net.Alice, net.Bob),

@@ -695,12 +695,12 @@ func (i *InvoiceRegistry) cancelSingleHtlc(hash lntypes.Hash,
 	return nil
 }
 
-// processKeySend just-in-time inserts an invoice if this htlc is a key send
+// processKeySend just-in-time inserts an invoice if this htlc is a keysend
 // htlc.
 func (i *InvoiceRegistry) processKeySend(ctx invoiceUpdateCtx,
 	hash lntypes.Hash) error {
 
-	// Retrieve key send record if present.
+	// Retrieve keysend record if present.
 	preimageSlice, ok := ctx.customRecords[record.KeySendType]
 	if !ok {
 		return nil
@@ -709,25 +709,25 @@ func (i *InvoiceRegistry) processKeySend(ctx invoiceUpdateCtx,
 	// Cancel htlc is preimage is invalid.
 	preimage, err := lntypes.MakePreimage(preimageSlice)
 	if err != nil || preimage.Hash() != hash {
-		return errors.New("invalid key send preimage")
+		return errors.New("invalid keysend preimage")
 	}
 
 	// Don't accept zero preimages as those have a special meaning in our
 	// database for hodl invoices.
 	if preimage == channeldb.UnknownPreimage {
-		return errors.New("invalid key send preimage")
+		return errors.New("invalid keysend preimage")
 	}
 
-	// Only allow key send for non-mpp payments.
+	// Only allow keysend for non-mpp payments.
 	if ctx.mpp != nil {
-		return errors.New("no mpp key send supported")
+		return errors.New("no mpp keysend supported")
 	}
 
 	// Create an invoice for the htlc amount.
 	amt := ctx.amtPaid
 
 	// Set tlv optional feature vector on the invoice. Otherwise we wouldn't
-	// be able to pay to it with key send.
+	// be able to pay to it with keysend.
 	rawFeatures := lnwire.NewRawFeatureVector(
 		lnwire.TLVOnionPayloadOptional,
 	)
@@ -802,13 +802,13 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 		mpp:                  mpp,
 	}
 
-	// Process key send if present. Do this outside of the lock, because
+	// Process keysend if present. Do this outside of the lock, because
 	// AddInvoice obtains its own lock. This is no problem, because the
 	// operation is idempotent.
 	if i.cfg.AcceptKeySend {
 		err := i.processKeySend(updateCtx, rHash)
 		if err != nil {
-			debugLog(fmt.Sprintf("key send error: %v", err))
+			debugLog(fmt.Sprintf("keysend error: %v", err))
 
 			return NewFailureResolution(
 				circuitKey, currentHeight, ResultKeySendError,

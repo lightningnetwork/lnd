@@ -228,7 +228,7 @@ func (cfg NodeConfig) genArgs() []string {
 	}
 
 	if cfg.AcceptKeySend {
-		args = append(args, "--accept-key-send")
+		args = append(args, "--accept-keysend")
 	}
 
 	return args
@@ -317,9 +317,9 @@ func newNode(cfg NodeConfig) (*HarnessNode, error) {
 
 	cfg.P2PPort, cfg.RPCPort, cfg.RESTPort, cfg.ProfilePort = generateListeningPorts()
 
-	// Run all tests with accept key send. The key send code is very
-	// isolated and it is highly unlikely that it would affect regular
-	// itests when enabled.
+	// Run all tests with accept keysend. The keysend code is very isolated
+	// and it is highly unlikely that it would affect regular itests when
+	// enabled.
 	cfg.AcceptKeySend = true
 
 	numActiveNodesMtx.Lock()

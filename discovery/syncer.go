@@ -894,6 +894,23 @@ func (g *GossipSyncer) replyPeerQueries(msg lnwire.Message) error {
 // ensure that our final fragment carries the "complete" bit to indicate the
 // end of our streaming response.
 func (g *GossipSyncer) replyChanRangeQuery(query *lnwire.QueryChannelRange) error {
+	// Before responding, we'll check to ensure that the remote peer is
+	// querying for the same chain that we're on. If not, we'll send back a
+	// response with a complete value of zero to indicate we're on a
+	// different chain.
+	if g.cfg.chainHash != query.ChainHash {
+		log.Warnf("Remote peer requested QueryChannelRange for "+
+			"chain=%v, we're on chain=%v", query.ChainHash,
+			g.cfg.chainHash)
+
+		return g.cfg.sendToPeerSync(&lnwire.ReplyChannelRange{
+			QueryChannelRange: *query,
+			Complete:          0,
+			EncodingType:      g.cfg.encodingType,
+			ShortChanIDs:      nil,
+		})
+	}
+
 	log.Infof("GossipSyncer(%x): filtering chan range: start_height=%v, "+
 		"num_blocks=%v", g.cfg.peerPub[:], query.FirstBlockHeight,
 		query.NumBlocks)

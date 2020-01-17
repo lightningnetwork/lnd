@@ -2179,7 +2179,7 @@ var sendPaymentCommand = cli.Command{
 			Usage: "the number of blocks the last hop has to reveal the preimage",
 		},
 		cli.BoolFlag{
-			Name:  "key_send",
+			Name:  "keysend",
 			Usage: "will generate a pre-image and encode it in the sphinx packet, a dest must be set [experimental]",
 		},
 	),
@@ -2287,10 +2287,10 @@ func sendPayment(ctx *cli.Context) error {
 
 	var rHash []byte
 
-	if ctx.Bool("key_send") {
+	if ctx.Bool("keysend") {
 		if ctx.IsSet("payment_hash") {
 			return errors.New("cannot set payment hash when using " +
-				"key send")
+				"keysend")
 		}
 		var preimage lntypes.Preimage
 		if _, err := rand.Read(preimage[:]); err != nil {

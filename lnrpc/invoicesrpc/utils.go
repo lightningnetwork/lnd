@@ -15,7 +15,7 @@ import (
 // decodePayReq decodes the invoice payment request if present. This is needed,
 // because not all information is stored in dedicated invoice fields. If there
 // is no payment request present, a dummy request will be returned. This can
-// happen with just-in-time inserted key send invoices.
+// happen with just-in-time inserted keysend invoices.
 func decodePayReq(invoice *channeldb.Invoice,
 	activeNetParams *chaincfg.Params) (*zpay32.Invoice, error) {
 
@@ -146,7 +146,7 @@ func CreateRPCInvoice(invoice *channeldb.Invoice,
 		State:           state,
 		Htlcs:           rpcHtlcs,
 		Features:        CreateRPCFeatures(invoice.Terms.Features),
-		IsKeySend:       len(invoice.PaymentRequest) == 0,
+		IsKeysend:       len(invoice.PaymentRequest) == 0,
 	}
 
 	if preimage != channeldb.UnknownPreimage {

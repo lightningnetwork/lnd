@@ -86,7 +86,7 @@ const (
 	// invoice that is unknown to us.
 	ResultInvoiceNotFound
 
-	// ResultKeySendError is returned when we receive invalid key send
+	// ResultKeySendError is returned when we receive invalid keysend
 	// parameters.
 	ResultKeySendError
 )
@@ -150,7 +150,7 @@ func (u ResolutionResult) String() string {
 		return "mpp is overpaying set total"
 
 	case ResultKeySendError:
-		return "invalid key send parameters"
+		return "invalid keysend parameters"
 
 	default:
 		return "unknown"

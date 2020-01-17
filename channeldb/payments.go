@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"math"
 	"sort"
 	"time"
 
@@ -421,6 +422,140 @@ func fetchHtlcFailInfo(bucket kvdb.ReadBucket) (*HTLCFailInfo, error) {
 
 	r := bytes.NewReader(b)
 	return deserializeHTLCFailInfo(r)
+}
+
+// PaymentsQuery represents a query to the payments database starting or ending
+// at a certain offset index. The number of retrieved records can be limited.
+type PaymentsQuery struct {
+	// IndexOffset determines the starting point of the payments query and
+	// is always exclusive. In normal order, the query starts at the next
+	// higher (available) index compared to IndexOffset. In reversed order,
+	// the query ends at the next lower (available) index compared to the
+	// IndexOffset. In the case of a zero index_offset, the query will start
+	// with the oldest payment when paginating forwards, or will end with
+	// the most recent payment when paginating backwards.
+	IndexOffset uint64
+
+	// MaxPayments is the maximal number of payments returned in the
+	// payments query.
+	MaxPayments uint64
+
+	// Reversed gives a meaning to the IndexOffset. If reversed is set to
+	// true, the query will fetch payments with indices lower than the
+	// IndexOffset, otherwise, it will return payments with indices greater
+	// than the IndexOffset.
+	Reversed bool
+
+	// If IncludeIncomplete is true, then return payments that have not yet
+	// fully completed. This means that pending payments, as well as failed
+	// payments will show up if this field is set to true.
+	IncludeIncomplete bool
+}
+
+// PaymentsResponse contains the result of a query to the payments database.
+// It includes the set of payments that match the query and integers which
+// represent the index of the first and last item returned in the series of
+// payments. These integers allow callers to resume their query in the event
+// that the query's response exceeds the max number of returnable events.
+type PaymentsResponse struct {
+	// Payments is the set of payments returned from the database for the
+	// PaymentsQuery.
+	Payments []MPPayment
+
+	// FirstIndexOffset is the index of the first element in the set of
+	// returned MPPayments. Callers can use this to resume their query
+	// in the event that the slice has too many events to fit into a single
+	// response. The offset can be used to continue reverse pagination.
+	FirstIndexOffset uint64
+
+	// LastIndexOffset is the index of the last element in the set of
+	// returned MPPayments. Callers can use this to resume their query
+	// in the event that the slice has too many events to fit into a single
+	// response. The offset can be used to continue forward pagination.
+	LastIndexOffset uint64
+}
+
+// QueryPayments is a query to the payments database which is restricted
+// to a subset of payments by the payments query, containing an offset
+// index and a maximum number of returned payments.
+func (db *DB) QueryPayments(query PaymentsQuery) (PaymentsResponse, error) {
+	var resp PaymentsResponse
+
+	allPayments, err := db.FetchPayments()
+	if err != nil {
+		return resp, err
+	}
+
+	if len(allPayments) == 0 {
+		return resp, nil
+	}
+
+	indexExclusiveLimit := query.IndexOffset
+	// In backward pagination, if the index limit is the default 0 value,
+	// we set our limit to maxint to include all payments from the highest
+	// sequence number on.
+	if query.Reversed && indexExclusiveLimit == 0 {
+		indexExclusiveLimit = math.MaxInt64
+	}
+
+	for i := range allPayments {
+		var payment *MPPayment
+
+		// If we have the max number of payments we want, exit.
+		if uint64(len(resp.Payments)) == query.MaxPayments {
+			break
+		}
+
+		if query.Reversed {
+			payment = allPayments[len(allPayments)-1-i]
+
+			// In the reversed direction, skip over all payments
+			// that have sequence numbers greater than or equal to
+			// the index offset. We skip payments with equal index
+			// because the offset is exclusive.
+			if payment.SequenceNum >= indexExclusiveLimit {
+				continue
+			}
+		} else {
+			payment = allPayments[i]
+
+			// In the forward direction, skip over all payments that
+			// have sequence numbers less than or equal to the index
+			// offset. We skip payments with equal indexes because
+			// the index offset is exclusive.
+			if payment.SequenceNum <= indexExclusiveLimit {
+				continue
+			}
+		}
+
+		// To keep compatibility with the old API, we only return
+		// non-succeeded payments if requested.
+		if payment.Status != StatusSucceeded &&
+			!query.IncludeIncomplete {
+
+			continue
+		}
+
+		resp.Payments = append(resp.Payments, *payment)
+	}
+
+	// Need to swap the payments slice order if reversed order.
+	if query.Reversed {
+		for l, r := 0, len(resp.Payments)-1; l < r; l, r = l+1, r-1 {
+			resp.Payments[l], resp.Payments[r] =
+				resp.Payments[r], resp.Payments[l]
+		}
+	}
+
+	// Set the first and last index of the returned payments so that the
+	// caller can resume from this point later on.
+	if len(resp.Payments) > 0 {
+		resp.FirstIndexOffset = resp.Payments[0].SequenceNum
+		resp.LastIndexOffset =
+			resp.Payments[len(resp.Payments)-1].SequenceNum
+	}
+
+	return resp, err
 }
 
 // DeletePayments deletes all completed and failed payments from the DB.

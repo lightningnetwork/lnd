@@ -749,7 +749,7 @@ func unmarshallHopHint(rpcHint *lnrpc.HopHint) (zpay32.HopHint, error) {
 
 // UnmarshalFeatures converts a list of uint32's into a valid feature vector.
 // This method checks that feature bit pairs aren't assigned toegether, and
-// validates transitive depdencies.
+// validates transitive dependencies.
 func UnmarshalFeatures(
 	rpcFeatures []lnrpc.FeatureBit) (*lnwire.FeatureVector, error) {
 

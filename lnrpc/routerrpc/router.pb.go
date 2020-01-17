@@ -260,7 +260,7 @@ type SendPaymentRequest struct {
 	AllowSelfPayment bool `protobuf:"varint,15,opt,name=allow_self_payment,json=allowSelfPayment,proto3" json:"allow_self_payment,omitempty"`
 	//*
 	//Features assumed to be supported by the final node. All transitive feature
-	//depdencies must also be set properly. For a given feature bit pair, either
+	//dependencies must also be set properly. For a given feature bit pair, either
 	//optional or remote may be set, but not both. If this field is nil or empty,
 	//the router will try to load destination features from the graph as a
 	//fallback.

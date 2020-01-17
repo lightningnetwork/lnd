@@ -1155,7 +1155,31 @@
         "parameters": [
           {
             "name": "include_incomplete",
-            "description": "*\nIf true, then return payments that have not yet fully completed. This means\nthat pending payments, as well as failed payments will show up if this\nfield is set to True.",
+            "description": "*\nIf true, then return payments that have not yet fully completed. This means\nthat pending payments, as well as failed payments will show up if this\nfield is set to true. This flag doesn't change the meaning of the indices,\nwhich are tied to individual payments.",
+            "in": "query",
+            "required": false,
+            "type": "boolean",
+            "format": "boolean"
+          },
+          {
+            "name": "index_offset",
+            "description": "*\nThe index of a payment that will be used as either the start or end of a\nquery to determine which payments should be returned in the response. The\nindex_offset is exclusive. In the case of a zero index_offset, the query\nwill start with the oldest payment when paginating forwards, or will end\nwith the most recent payment when paginating backwards.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "uint64"
+          },
+          {
+            "name": "max_payments",
+            "description": "/ The maximal number of payments returned in the response to this query.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "uint64"
+          },
+          {
+            "name": "reversed",
+            "description": "*\nIf set, the payments returned will result from seeking backwards from the\nspecified index offset. This can be used to paginate backwards. The order\nof the returned payments is always oldest first (ascending index order).",
             "in": "query",
             "required": false,
             "type": "boolean",
@@ -3494,6 +3518,16 @@
             "$ref": "#/definitions/lnrpcPayment"
           },
           "title": "/ The list of payments"
+        },
+        "first_index_offset": {
+          "type": "string",
+          "format": "uint64",
+          "description": "*\nThe index of the first item in the set of returned payments. This can be\nused as the index_offset to continue seeking backwards in the next request."
+        },
+        "last_index_offset": {
+          "type": "string",
+          "format": "uint64",
+          "description": "*\nThe index of the last item in the set of returned payments. This can be used\nas the index_offset to continue seeking forwards in the next request."
         }
       }
     },
@@ -3957,6 +3991,11 @@
             "$ref": "#/definitions/lnrpcHTLCAttempt"
           },
           "description": "/ The HTLCs made in attempt to settle the payment [EXPERIMENTAL]."
+        },
+        "payment_index": {
+          "type": "string",
+          "format": "uint64",
+          "description": "*\nThe creation index of this payment. Each payment can be uniquely identified\nby this index, which may not strictly increment by 1 for payments made in\nolder versions of lnd."
         }
       }
     },

@@ -5153,26 +5153,37 @@ func marshallTopologyChange(topChange *routing.TopologyChange) *lnrpc.GraphTopol
 	}
 }
 
-// ListPayments returns a list of all outgoing payments.
+// ListPayments returns a list of outgoing payments determined by a paginated
+// database query.
 func (r *rpcServer) ListPayments(ctx context.Context,
 	req *lnrpc.ListPaymentsRequest) (*lnrpc.ListPaymentsResponse, error) {
 
 	rpcsLog.Debugf("[ListPayments]")
 
-	payments, err := r.server.chanDB.FetchPayments()
+	query := channeldb.PaymentsQuery{
+		IndexOffset:       req.IndexOffset,
+		MaxPayments:       req.MaxPayments,
+		Reversed:          req.Reversed,
+		IncludeIncomplete: req.IncludeIncomplete,
+	}
+
+	// If the maximum number of payments wasn't specified, then we'll
+	// default to return the maximal number of payments representable.
+	if req.MaxPayments == 0 {
+		query.MaxPayments = math.MaxUint64
+	}
+
+	paymentsQuerySlice, err := r.server.chanDB.QueryPayments(query)
 	if err != nil {
 		return nil, err
 	}
 
-	paymentsResp := &lnrpc.ListPaymentsResponse{}
-	for _, payment := range payments {
-		// To keep compatibility with the old API, we only return
-		// non-suceeded payments if requested.
-		if payment.Status != channeldb.StatusSucceeded &&
-			!req.IncludeIncomplete {
-			continue
-		}
+	paymentsResp := &lnrpc.ListPaymentsResponse{
+		LastIndexOffset:  paymentsQuerySlice.LastIndexOffset,
+		FirstIndexOffset: paymentsQuerySlice.FirstIndexOffset,
+	}
 
+	for _, payment := range paymentsQuerySlice.Payments {
 		// Fetch the payment's route and preimage. If no HTLC was
 		// successful, an empty route and preimage will be used.
 		var (
@@ -5231,6 +5242,7 @@ func (r *rpcServer) ListPayments(ctx context.Context,
 			PaymentRequest:  string(payment.Info.PaymentRequest),
 			Status:          status,
 			Htlcs:           htlcs,
+			PaymentIndex:    payment.SequenceNum,
 		})
 	}
 

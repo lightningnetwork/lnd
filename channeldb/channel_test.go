@@ -16,6 +16,7 @@ import (
 	"github.com/btcsuite/btcutil"
 	_ "github.com/btcsuite/btcwallet/walletdb/bdb"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
@@ -68,6 +69,8 @@ var (
 	privKey, pubKey = btcec.PrivKeyFromBytes(btcec.S256(), key[:])
 
 	wireSig, _ = lnwire.NewSigFromSignature(testSig)
+
+	testClock = clock.NewTestClock(testNow)
 )
 
 // makeTestDB creates a new instance of the ChannelDB for testing purposes. A
@@ -82,7 +85,7 @@ func makeTestDB() (*DB, func(), error) {
 	}
 
 	// Next, create channeldb for the first time.
-	cdb, err := Open(tempDirName)
+	cdb, err := Open(tempDirName, OptionClock(testClock))
 	if err != nil {
 		return nil, nil, err
 	}

@@ -128,6 +128,9 @@ func (u ResolutionResult) String() string {
 	case ResultSettled:
 		return "settled"
 
+	case ResultCanceled:
+		return "canceled"
+
 	case ResultInvoiceNotOpen:
 		return "invoice no longer open"
 
@@ -136,6 +139,9 @@ func (u ResolutionResult) String() string {
 
 	case ResultMppInProgress:
 		return "mpp reception in progress"
+
+	case ResultMppTimeout:
+		return "mpp timeout"
 
 	case ResultAddressMismatch:
 		return "payment address mismatch"
@@ -151,6 +157,9 @@ func (u ResolutionResult) String() string {
 
 	case ResultKeySendError:
 		return "invalid keysend parameters"
+
+	case ResultInvoiceNotFound:
+		return "invoice not found"
 
 	default:
 		return "unknown"

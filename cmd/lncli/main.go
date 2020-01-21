@@ -114,7 +114,7 @@ func getClientConn(ctx *cli.Context, skipMacaroons bool) *grpc.ClientConn {
 			// altogether if, in the latter case, this time is more than 60
 			// seconds).
 			// TODO(aakselrod): add better anti-replay protection.
-			macaroons.TimeoutConstraint(ctx.GlobalInt64("macaroontimeout")),
+			// macaroons.TimeoutConstraint(ctx.GlobalInt64("macaroontimeout")),
 
 			// Lock macaroon down to a specific IP address.
 			macaroons.IPLockConstraint(ctx.GlobalString("macaroonip")),
@@ -299,6 +299,7 @@ func main() {
 		verifyChanBackupCommand,
 		restoreChanBackupCommand,
 		bakeMacaroonCommand,
+		mppCommand,
 	}
 
 	// Add any extra commands determined by build flags.

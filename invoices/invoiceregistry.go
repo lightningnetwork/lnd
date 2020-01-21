@@ -33,7 +33,7 @@ var (
 const (
 	// DefaultHtlcHoldDuration defines the default for how long mpp htlcs
 	// are held while waiting for the other set members to arrive.
-	DefaultHtlcHoldDuration = 120 * time.Second
+	DefaultHtlcHoldDuration = 15 * time.Second
 )
 
 // HtlcResolution describes how an htlc should be resolved. If the preimage

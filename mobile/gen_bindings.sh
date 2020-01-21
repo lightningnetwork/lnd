@@ -3,7 +3,7 @@
 mkdir -p build
 
 # Check falafel version.
-falafelVersion="0.6"
+falafelVersion="0.7"
 falafel=$(which falafel)
 if [ $falafel ]
 then

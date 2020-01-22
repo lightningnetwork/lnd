@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/lntypes"
 )
@@ -119,6 +120,34 @@ func TestInvoiceExpiryWithPendingAndExpiredInvoices(t *testing.T) {
 		test.watcher.AddInvoice(paymentHash, invoice)
 	}
 
+	time.Sleep(testTimeout)
+	test.watcher.Stop()
+	test.checkExpectations()
+}
+
+// Tests adding multiple invoices at once.
+func TestInvoiceExpiryWhenAddingMultipleInvoices(t *testing.T) {
+	t.Parallel()
+	test := newInvoiceExpiryWatcherTest(t, testTime, 5, 5)
+	var invoices []channeldb.InvoiceWithPaymentHash
+	for hash, invoice := range test.testData.expiredInvoices {
+		invoices = append(invoices,
+			channeldb.InvoiceWithPaymentHash{
+				Invoice:     *invoice,
+				PaymentHash: hash,
+			},
+		)
+	}
+	for hash, invoice := range test.testData.pendingInvoices {
+		invoices = append(invoices,
+			channeldb.InvoiceWithPaymentHash{
+				Invoice:     *invoice,
+				PaymentHash: hash,
+			},
+		)
+	}
+
+	test.watcher.AddInvoices(invoices)
 	time.Sleep(testTimeout)
 	test.watcher.Stop()
 	test.checkExpectations()

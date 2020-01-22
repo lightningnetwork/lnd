@@ -18,7 +18,7 @@ else
     TAG=$1
 
     # If a tag is specified, ensure that that tag is present and checked out.
-    if [[ $TAG != $(git tag -l --points-at HEAD) ]]; then
+    if [[ $TAG != $(git describe) ]]; then
         echo "tag $TAG not checked out"
         exit 1
     fi

@@ -15,6 +15,7 @@ import (
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/channeldb/migration12"
 	"github.com/lightningnetwork/lnd/channeldb/migration_01_to_11"
+	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -137,8 +138,7 @@ type DB struct {
 	*bbolt.DB
 	dbPath string
 	graph  *ChannelGraph
-
-	Now func() time.Time
+	clock  clock.Clock
 }
 
 // Open opens an existing channeldb. Any necessary schemas migrations due to
@@ -172,7 +172,7 @@ func Open(dbPath string, modifiers ...OptionModifier) (*DB, error) {
 	chanDB := &DB{
 		DB:     bdb,
 		dbPath: dbPath,
-		Now:    time.Now,
+		clock:  opts.clock,
 	}
 	chanDB.graph = newChannelGraph(
 		chanDB, opts.RejectCacheSize, opts.ChannelCacheSize,

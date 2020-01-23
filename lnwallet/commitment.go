@@ -503,28 +503,28 @@ func genHtlcScript(isIncoming, ourCommit bool, timeout uint32, rHash [32]byte,
 	case isIncoming && ourCommit:
 		witnessScript, err = input.ReceiverHTLCScript(timeout,
 			keyRing.RemoteHtlcKey, keyRing.LocalHtlcKey,
-			keyRing.RevocationKey, rHash[:])
+			keyRing.RevocationKey, rHash[:], false)
 
 	// We're being paid via an HTLC by the remote party, and the HTLC is
 	// being added to their commitment transaction, so we use the sender's
 	// version of the HTLC script.
 	case isIncoming && !ourCommit:
 		witnessScript, err = input.SenderHTLCScript(keyRing.RemoteHtlcKey,
-			keyRing.LocalHtlcKey, keyRing.RevocationKey, rHash[:])
+			keyRing.LocalHtlcKey, keyRing.RevocationKey, rHash[:], false)
 
 	// We're sending an HTLC which is being added to our commitment
 	// transaction. Therefore, we need to use the sender's version of the
 	// HTLC script.
 	case !isIncoming && ourCommit:
 		witnessScript, err = input.SenderHTLCScript(keyRing.LocalHtlcKey,
-			keyRing.RemoteHtlcKey, keyRing.RevocationKey, rHash[:])
+			keyRing.RemoteHtlcKey, keyRing.RevocationKey, rHash[:], false)
 
 	// Finally, we're paying the remote party via an HTLC, which is being
 	// added to their commitment transaction. Therefore, we use the
 	// receiver's version of the HTLC script.
 	case !isIncoming && !ourCommit:
 		witnessScript, err = input.ReceiverHTLCScript(timeout, keyRing.LocalHtlcKey,
-			keyRing.RemoteHtlcKey, keyRing.RevocationKey, rHash[:])
+			keyRing.RemoteHtlcKey, keyRing.RevocationKey, rHash[:], false)
 	}
 	if err != nil {
 		return nil, nil, err

@@ -1957,11 +1957,6 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 	// remote commitment transaction.
 	htlcRetributions := make([]HtlcRetribution, 0, len(revokedSnapshot.Htlcs))
 	for _, htlc := range revokedSnapshot.Htlcs {
-		var (
-			htlcWitnessScript []byte
-			err               error
-		)
-
 		// If the HTLC is dust, then we'll skip it as it doesn't have
 		// an output on the commitment transaction.
 		if htlcIsDust(
@@ -1985,31 +1980,13 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 
 		// If this is an incoming HTLC, then this means that they were
 		// the sender of the HTLC (relative to us). So we'll
-		// re-generate the sender HTLC script.
-		if htlc.Incoming {
-			htlcWitnessScript, err = input.SenderHTLCScript(
-				keyRing.RemoteHtlcKey, keyRing.LocalHtlcKey,
-				keyRing.RevocationKey, htlc.RHash[:],
-			)
-			if err != nil {
-				return nil, err
-			}
-
-		} else {
-			// Otherwise, is this was an outgoing HTLC that we
-			// sent, then from the PoV of the remote commitment
-			// state, they're the receiver of this HTLC.
-			htlcWitnessScript, err = input.ReceiverHTLCScript(
-				htlc.RefundTimeout, keyRing.LocalHtlcKey,
-				keyRing.RemoteHtlcKey, keyRing.RevocationKey,
-				htlc.RHash[:],
-			)
-			if err != nil {
-				return nil, err
-			}
-		}
-
-		htlcPkScript, err := input.WitnessScriptHash(htlcWitnessScript)
+		// re-generate the sender HTLC script. Otherwise, is this was
+		// an outgoing HTLC that we sent, then from the PoV of the
+		// remote commitment state, they're the receiver of this HTLC.
+		htlcPkScript, htlcWitnessScript, err := genHtlcScript(
+			htlc.Incoming, false, htlc.RefundTimeout,
+			htlc.RHash, keyRing,
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -4955,24 +4932,19 @@ func newOutgoingHtlcResolution(signer input.Signer,
 		Index: uint32(htlc.OutputIndex),
 	}
 
+	// First, we'll re-generate the script used to send the HTLC to
+	// the remote party within their commitment transaction.
+	htlcScriptHash, htlcScript, err := genHtlcScript(
+		false, localCommit, htlc.RefundTimeout, htlc.RHash, keyRing,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	// If we're spending this HTLC output from the remote node's
 	// commitment, then we won't need to go to the second level as our
 	// outputs don't have a CSV delay.
 	if !localCommit {
-		// First, we'll re-generate the script used to send the HTLC to
-		// the remote party within their commitment transaction.
-		htlcReceiverScript, err := input.ReceiverHTLCScript(htlc.RefundTimeout,
-			keyRing.LocalHtlcKey, keyRing.RemoteHtlcKey,
-			keyRing.RevocationKey, htlc.RHash[:],
-		)
-		if err != nil {
-			return nil, err
-		}
-		htlcScriptHash, err := input.WitnessScriptHash(htlcReceiverScript)
-		if err != nil {
-			return nil, err
-		}
-
 		// With the script generated, we can completely populated the
 		// SignDescriptor needed to sweep the output.
 		return &OutgoingHtlcResolution{
@@ -4981,7 +4953,7 @@ func newOutgoingHtlcResolution(signer input.Signer,
 			SweepSignDesc: input.SignDescriptor{
 				KeyDesc:       localChanCfg.HtlcBasePoint,
 				SingleTweak:   keyRing.LocalHtlcKeyTweak,
-				WitnessScript: htlcReceiverScript,
+				WitnessScript: htlcScript,
 				Output: &wire.TxOut{
 					PkScript: htlcScriptHash,
 					Value:    int64(htlc.Amt.ToSatoshis()),
@@ -5013,15 +4985,10 @@ func newOutgoingHtlcResolution(signer input.Signer,
 	// With the transaction created, we can generate a sign descriptor
 	// that's capable of generating the signature required to spend the
 	// HTLC output using the timeout transaction.
-	htlcCreationScript, err := input.SenderHTLCScript(keyRing.LocalHtlcKey,
-		keyRing.RemoteHtlcKey, keyRing.RevocationKey, htlc.RHash[:])
-	if err != nil {
-		return nil, err
-	}
 	timeoutSignDesc := input.SignDescriptor{
 		KeyDesc:       localChanCfg.HtlcBasePoint,
 		SingleTweak:   keyRing.LocalHtlcKeyTweak,
-		WitnessScript: htlcCreationScript,
+		WitnessScript: htlcScript,
 		Output: &wire.TxOut{
 			Value: int64(htlc.Amt.ToSatoshis()),
 		},
@@ -5049,7 +5016,7 @@ func newOutgoingHtlcResolution(signer input.Signer,
 	if err != nil {
 		return nil, err
 	}
-	htlcScriptHash, err := input.WitnessScriptHash(htlcSweepScript)
+	htlcSweepScriptHash, err := input.WitnessScriptHash(htlcSweepScript)
 	if err != nil {
 		return nil, err
 	}
@@ -5070,7 +5037,7 @@ func newOutgoingHtlcResolution(signer input.Signer,
 			SingleTweak:   localDelayTweak,
 			WitnessScript: htlcSweepScript,
 			Output: &wire.TxOut{
-				PkScript: htlcScriptHash,
+				PkScript: htlcSweepScriptHash,
 				Value:    int64(secondLevelOutputAmt),
 			},
 			HashType: txscript.SigHashAll,
@@ -5095,23 +5062,18 @@ func newIncomingHtlcResolution(signer input.Signer, localChanCfg *channeldb.Chan
 		Index: uint32(htlc.OutputIndex),
 	}
 
+	// First, we'll re-generate the script the remote party used to
+	// send the HTLC to us in their commitment transaction.
+	htlcScriptHash, htlcScript, err := genHtlcScript(
+		true, localCommit, htlc.RefundTimeout, htlc.RHash, keyRing,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	// If we're spending this output from the remote node's commitment,
 	// then we can skip the second layer and spend the output directly.
 	if !localCommit {
-		// First, we'll re-generate the script the remote party used to
-		// send the HTLC to us in their commitment transaction.
-		htlcSenderScript, err := input.SenderHTLCScript(
-			keyRing.RemoteHtlcKey, keyRing.LocalHtlcKey,
-			keyRing.RevocationKey, htlc.RHash[:],
-		)
-		if err != nil {
-			return nil, err
-		}
-		htlcScriptHash, err := input.WitnessScriptHash(htlcSenderScript)
-		if err != nil {
-			return nil, err
-		}
-
 		// With the script generated, we can completely populated the
 		// SignDescriptor needed to sweep the output.
 		return &IncomingHtlcResolution{
@@ -5120,7 +5082,7 @@ func newIncomingHtlcResolution(signer input.Signer, localChanCfg *channeldb.Chan
 			SweepSignDesc: input.SignDescriptor{
 				KeyDesc:       localChanCfg.HtlcBasePoint,
 				SingleTweak:   keyRing.LocalHtlcKeyTweak,
-				WitnessScript: htlcSenderScript,
+				WitnessScript: htlcScript,
 				Output: &wire.TxOut{
 					PkScript: htlcScriptHash,
 					Value:    int64(htlc.Amt.ToSatoshis()),
@@ -5146,17 +5108,10 @@ func newIncomingHtlcResolution(signer input.Signer, localChanCfg *channeldb.Chan
 
 	// Once we've created the second-level transaction, we'll generate the
 	// SignDesc needed spend the HTLC output using the success transaction.
-	htlcCreationScript, err := input.ReceiverHTLCScript(htlc.RefundTimeout,
-		keyRing.RemoteHtlcKey, keyRing.LocalHtlcKey,
-		keyRing.RevocationKey, htlc.RHash[:],
-	)
-	if err != nil {
-		return nil, err
-	}
 	successSignDesc := input.SignDescriptor{
 		KeyDesc:       localChanCfg.HtlcBasePoint,
 		SingleTweak:   keyRing.LocalHtlcKeyTweak,
-		WitnessScript: htlcCreationScript,
+		WitnessScript: htlcScript,
 		Output: &wire.TxOut{
 			Value: int64(htlc.Amt.ToSatoshis()),
 		},
@@ -5186,7 +5141,7 @@ func newIncomingHtlcResolution(signer input.Signer, localChanCfg *channeldb.Chan
 	if err != nil {
 		return nil, err
 	}
-	htlcScriptHash, err := input.WitnessScriptHash(htlcSweepScript)
+	htlcSweepScriptHash, err := input.WitnessScriptHash(htlcSweepScript)
 	if err != nil {
 		return nil, err
 	}
@@ -5206,7 +5161,7 @@ func newIncomingHtlcResolution(signer input.Signer, localChanCfg *channeldb.Chan
 			SingleTweak:   localDelayTweak,
 			WitnessScript: htlcSweepScript,
 			Output: &wire.TxOut{
-				PkScript: htlcScriptHash,
+				PkScript: htlcSweepScriptHash,
 				Value:    int64(secondLevelOutputAmt),
 			},
 			HashType: txscript.SigHashAll,

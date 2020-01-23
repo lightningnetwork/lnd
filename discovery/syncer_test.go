@@ -533,6 +533,61 @@ func TestGossipSyncerApplyGossipFilter(t *testing.T) {
 	}
 }
 
+// TestGossipSyncerQueryChannelRangeWrongChainHash tests that if we receive a
+// channel range query for the wrong chain, then we send back a response with no
+// channels and complete=0.
+func TestGossipSyncerQueryChannelRangeWrongChainHash(t *testing.T) {
+	t.Parallel()
+
+	// First, we'll create a GossipSyncer instance with a canned sendToPeer
+	// message to allow us to intercept their potential sends.
+	msgChan, syncer, _ := newTestSyncer(
+		lnwire.NewShortChanIDFromInt(10), defaultEncoding,
+		defaultChunkSize,
+	)
+
+	// We'll now ask the syncer to reply to a channel range query, but for a
+	// chain that it isn't aware of.
+	query := &lnwire.QueryChannelRange{
+		ChainHash:        *chaincfg.SimNetParams.GenesisHash,
+		FirstBlockHeight: 0,
+		NumBlocks:        math.MaxUint32,
+	}
+	err := syncer.replyChanRangeQuery(query)
+	if err != nil {
+		t.Fatalf("unable to process short chan ID's: %v", err)
+	}
+
+	select {
+	case <-time.After(time.Second * 15):
+		t.Fatalf("no msgs received")
+
+	case msgs := <-msgChan:
+		// We should get back exactly one message, that's a
+		// ReplyChannelRange with a matching query, and a complete value
+		// of zero.
+		if len(msgs) != 1 {
+			t.Fatalf("wrong messages: expected %v, got %v",
+				1, len(msgs))
+		}
+
+		msg, ok := msgs[0].(*lnwire.ReplyChannelRange)
+		if !ok {
+			t.Fatalf("expected lnwire.ReplyChannelRange, got %T", msg)
+		}
+
+		if msg.QueryChannelRange != *query {
+			t.Fatalf("wrong query channel range in reply: "+
+				"expected: %v\ngot: %v", spew.Sdump(*query),
+				spew.Sdump(msg.QueryChannelRange))
+		}
+		if msg.Complete != 0 {
+			t.Fatalf("expected complete set to 0, got %v",
+				msg.Complete)
+		}
+	}
+}
+
 // TestGossipSyncerReplyShortChanIDsWrongChainHash tests that if we get a chan
 // ID query for the wrong chain, then we send back only a short ID end with
 // complete=0.

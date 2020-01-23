@@ -2,8 +2,12 @@ package routing
 
 import (
 	"errors"
+	"fmt"
+	"sync"
+	"time"
 
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
@@ -13,19 +17,222 @@ import (
 const BlockPadding uint16 = 3
 
 var (
-	// errPrebuiltRouteTried is returned when the single pre-built route
+	// errPreBuiltRouteTried is returned when the single pre-built route
 	// failed and there is nothing more we can do.
 	errPrebuiltRouteTried = errors.New("pre-built route already tried")
+
+	// errShutdown is returned if the payment session has exited.
+	errShutdown = errors.New("payment session shutting down")
 )
 
-// PaymentSession is used during SendPayment attempts to provide routes to
-// attempt. It also defines methods to give the PaymentSession additional
-// information learned during the previous attempts.
+// RouteResult is a result delivered by the consumer the payment sesssion, in
+// response to a RouteIntent. It wraps the result of sending along the Route,
+// and is used to deliver the result back to users of AddRoute.
+type RouteResult struct {
+	// Preimage is the preimage in case of a successful payment. only set
+	// if Err != nil.
+	Preimage lntypes.Preimage
+
+	// Err is any encountered error from sending along the route.
+	Err error
+}
+
+// RouteIntent is a route produced by the payment session, and a channel used
+// to notify the payment session about the result of using this route.
+type RouteIntent struct {
+	// Route is the route in response to the RequestRoute call.
+	Route *route.Route
+
+	// ResultChan is a channel that should be used by the requester to
+	// notify the payment session about the result of using the route.
+	ResultChan chan *RouteResult
+}
+
+// PaymentSession is used during SendPayment and SendToRoute attempts to
+// provide routes to attempt.
 type PaymentSession interface {
-	// RequestRoute returns the next route to attempt for routing the
-	// specified HTLC payment to the target node.
-	RequestRoute(payment *LightningPayment,
-		height uint32, finalCltvDelta uint16) (*route.Route, error)
+	// RequestRoutes intructs the PaymentSession to find more routes that
+	// in total send up to amt. Two channels are returned: one where a new
+	// route to try will be delived, and one where any error encountered
+	// will be delivered.
+	//
+	// NOTE: should always be used from a single thread to ensure the
+	// produced route will be updated.
+	RequestRoute(amt lnwire.MilliSatoshi, payment *LightningPayment,
+		height uint32, finalCltvDelta uint16) (chan *RouteIntent,
+		chan error)
+
+	// Cancel instructs the PaymentSession to quit any sub goroutines. It
+	// cannot be used after this has been called.
+	Cancel()
+}
+
+// paymentSessionBuilder is an implementation of PaymentSession that can be
+// used in combination with SendToRoute. It simply takes routes provided to it
+// via its AddRoute method, and feeds them to the requester. If no route has
+// been added after a request has been made, it will return an error after a
+// timeout.
+type paymentSessionBuilder struct {
+	// timeout is the maximum time to wait for new routes to be added
+	// before returning an error in response to a route request.
+	timeout time.Duration
+
+	// reqSignal is a channel where we signal that a new RequestRoute call
+	// has been made. This will instruct any goroutines from previous calls
+	// to exit.
+	reqSignal    chan struct{}
+	reqSignalMtx sync.Mutex
+
+	// reqWg is a waitgroup that is counting the active goroutines from
+	// calls to RequestRoute.
+	reqWg sync.WaitGroup
+
+	// addRouteSignal is a channel used to signal that a new route has been
+	// added to the route queue.
+	addRouteSignal chan struct{}
+
+	// routeQueue is a queue of routes added to the payment session.
+	routeQueue    []*RouteIntent
+	routeQueueMtx sync.Mutex
+
+	quit chan struct{}
+}
+
+// Cancel instructs the PaymentSession to quit any sub goroutines. It cannot be
+// used after this has been called.
+//
+// NOTE: Part of the PaymentSession interface.
+func (p *paymentSessionBuilder) Cancel() {
+	close(p.quit)
+
+	p.reqWg.Wait()
+}
+
+// AddRoute appends the given route to queue of routes produced by the
+// PaymentSession, and returns the result from using this route as part of the
+// payment.
+func (p *paymentSessionBuilder) AddRoute(r *route.Route) (
+	lntypes.Preimage, error) {
+
+	result := make(chan *RouteResult, 1)
+	shard := &RouteIntent{
+		Route:      r,
+		ResultChan: result,
+	}
+
+	// Add the route to the queue.
+	p.routeQueueMtx.Lock()
+	p.routeQueue = append(p.routeQueue, shard)
+	p.routeQueueMtx.Unlock()
+
+	// We'll signal that a new route was added. We don't block in case it
+	// has already been signaled.
+	select {
+	case p.addRouteSignal <- struct{}{}:
+	default:
+	}
+
+	// We'll wait here until a result is available, or a we are instructed
+	// to quit.
+	select {
+	case res := <-result:
+		return res.Preimage, res.Err
+	case <-p.quit:
+		return lntypes.Preimage{}, errShutdown
+	}
+}
+
+// RequestRoutes intructs the PaymentSession to find more routes that in total
+// send up to amt. Two channels are returned: one where a new route to try will
+// be delived, and one where any error encountered will be delivered.
+//
+// NOTE: should always be used from a single thread to ensure the produced
+// route will be updated. Only the last call to RequestRoute is guaranteed to
+// produce a result.
+//
+// NOTE: Part of the PaymentSession interface.
+func (p *paymentSessionBuilder) RequestRoute(amt lnwire.MilliSatoshi,
+	payment *LightningPayment, height uint32, finalCltvDelta uint16) (
+	chan *RouteIntent, chan error) {
+
+	errChan := make(chan error, 1)
+	routes := make(chan *RouteIntent)
+
+	// We'll start by signalling any other previous RequestRoute call that
+	// it can exit.
+	p.reqSignalMtx.Lock()
+	close(p.reqSignal)
+
+	// Wait for the other goroutines to have properly exited.
+	p.reqWg.Wait()
+
+	// Set up a new signal channel now that the previous one has been read
+	// by all relevant goroutines.
+	p.reqSignal = make(chan struct{})
+	p.reqSignalMtx.Unlock()
+
+	p.reqWg.Add(1)
+	go func() {
+		defer p.reqWg.Done()
+
+		// Check whether a route is available.
+		p.routeQueueMtx.Lock()
+		for len(p.routeQueue) == 0 {
+			p.routeQueueMtx.Unlock()
+
+			// If no route is available, we'll wait for a signal to
+			// proceed.
+			select {
+
+			// A new route has been added to the queue.
+			case <-p.addRouteSignal:
+				p.routeQueueMtx.Lock()
+
+			// Another RequestRoute call happened, exit.
+			case <-p.reqSignal:
+				return
+
+			// Timeout, send error.
+			case <-time.After(p.timeout):
+				errChan <- fmt.Errorf("pay session timeout")
+				return
+
+			// PaymestSession has exited.
+			case <-p.quit:
+				errChan <- errShutdown
+				return
+			}
+		}
+
+		// Get the route first in the queue.
+		r := p.routeQueue[0]
+		p.routeQueueMtx.Unlock()
+
+		// Now we'll attempt to send this route to the caller. Since
+		// the routes channel is unbuffered, we know that if we are
+		// able to send it, the caller has successfully gotten it, and
+		// we can remove it from the queue.
+		select {
+
+		// Route was read by caller, pop it.
+		case routes <- r:
+			p.routeQueueMtx.Lock()
+			p.routeQueue[0] = nil
+			p.routeQueue = p.routeQueue[1:]
+			p.routeQueueMtx.Unlock()
+
+		// Another RequestRoute call happened, exit.
+		case <-p.reqSignal:
+			return
+
+		// PaymentSession is exiting.
+		case <-p.quit:
+			errChan <- errShutdown
+			return
+		}
+	}()
+
+	return routes, errChan
 }
 
 // paymentSession is used during an HTLC routings session to prune the local
@@ -43,10 +250,16 @@ type paymentSession struct {
 
 	sessionSource *SessionSource
 
-	preBuiltRoute      *route.Route
-	preBuiltRouteTried bool
-
 	pathFinder pathFinder
+	wg         sync.WaitGroup
+}
+
+// Cancel instructs the PaymentSession to quit any sub goroutines. It cannot be
+// used after this has been called.
+//
+// NOTE: Part of the PaymentSession interface.
+func (p *paymentSession) Cancel() {
+	p.wg.Wait()
 }
 
 // RequestRoute returns a route which is likely to be capable for successfully
@@ -58,22 +271,27 @@ type paymentSession struct {
 //
 // NOTE: This function is safe for concurrent access.
 // NOTE: Part of the PaymentSession interface.
-func (p *paymentSession) RequestRoute(payment *LightningPayment,
-	height uint32, finalCltvDelta uint16) (*route.Route, error) {
+func (p *paymentSession) RequestRoute(amt lnwire.MilliSatoshi,
+	payment *LightningPayment,
+	height uint32, finalCltvDelta uint16) (chan *RouteIntent, chan error) {
 
-	switch {
+	respChan := make(chan *RouteIntent, 1)
+	errChan := make(chan error, 1)
 
-	// If we have a pre-built route, use that directly.
-	case p.preBuiltRoute != nil && !p.preBuiltRouteTried:
-		p.preBuiltRouteTried = true
+	p.wg.Add(1)
+	go p.requestRoute(
+		amt, payment, height, finalCltvDelta, respChan, errChan,
+	)
 
-		return p.preBuiltRoute, nil
+	return respChan, errChan
+}
 
-	// If the pre-built route has been tried already, the payment session is
-	// over.
-	case p.preBuiltRoute != nil:
-		return nil, errPrebuiltRouteTried
-	}
+func (p *paymentSession) requestRoute(amt lnwire.MilliSatoshi,
+	payment *LightningPayment,
+	height uint32, finalCltvDelta uint16, respChan chan *RouteIntent,
+	errChan chan error) {
+
+	defer p.wg.Done()
 
 	// Add BlockPadding to the finalCltvDelta so that the receiving node
 	// does not reject the HTLC if some blocks are mined while it's in-flight.
@@ -110,7 +328,8 @@ func (p *paymentSession) RequestRoute(payment *LightningPayment,
 	// balances.
 	bandwidthHints, err := p.getBandwidthHints()
 	if err != nil {
-		return nil, err
+		errChan <- err
+		return
 	}
 
 	finalHtlcExpiry := int32(height) + int32(finalCltvDelta)
@@ -123,19 +342,21 @@ func (p *paymentSession) RequestRoute(payment *LightningPayment,
 		},
 		restrictions, &ss.PathFindingConfig,
 		ss.SelfNode.PubKeyBytes, payment.Target,
-		payment.Amount, finalHtlcExpiry,
+		amt, finalHtlcExpiry,
 	)
 	if err != nil {
-		return nil, err
+		errChan <- err
+		return
+
 	}
 
 	// With the next candidate path found, we'll attempt to turn this into
 	// a route by applying the time-lock and fee requirements.
 	sourceVertex := route.Vertex(ss.SelfNode.PubKeyBytes)
-	route, err := newRoute(
+	rt, err := newRoute(
 		sourceVertex, path, height,
 		finalHopParams{
-			amt:         payment.Amount,
+			amt:         amt,
 			cltvDelta:   finalCltvDelta,
 			records:     payment.DestCustomRecords,
 			paymentAddr: payment.PaymentAddr,
@@ -144,8 +365,19 @@ func (p *paymentSession) RequestRoute(payment *LightningPayment,
 	if err != nil {
 		// TODO(roasbeef): return which edge/vertex didn't work
 		// out
-		return nil, err
+		errChan <- err
+		return
+
 	}
 
-	return route, err
+	s := &RouteIntent{
+		Route: rt,
+
+		// The result is ignored by the PaymentSession, but we'll make
+		// a buffered channel to allow the caller to send a result
+		// without blocking.
+		ResultChan: make(chan *RouteResult, 1),
+	}
+
+	respChan <- s
 }

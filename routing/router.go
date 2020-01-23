@@ -45,6 +45,11 @@ const (
 	// stats related to processing new channels, updates, or node
 	// announcements.
 	defaultStatInterval = time.Minute
+
+	// deafaultSendToRouteAddRouteTimeout is the duration the payment
+	// session will wait for new routes to be added before timing out after
+	// a new route is requested.
+	defaultSendToRouteAddRouteTimeout = 10 * time.Second
 )
 
 var (
@@ -162,16 +167,12 @@ type PaymentSessionSource interface {
 	NewPaymentSession(routeHints [][]zpay32.HopHint,
 		target route.Vertex) (PaymentSession, error)
 
-	// NewPaymentSessionForRoute creates a new paymentSession instance that
-	// is just used for failure reporting to missioncontrol, and will only
-	// attempt the given route.
-	NewPaymentSessionForRoute(preBuiltRoute *route.Route) PaymentSession
-
-	// NewPaymentSessionEmpty creates a new paymentSession instance that is
-	// empty, and will be exhausted immediately. Used for failure reporting
-	// to missioncontrol for resumed payment we don't want to make more
-	// attempts for.
-	NewPaymentSessionEmpty() PaymentSession
+	// NewPaymentSessionBuilder creates a new paymentSession instance that
+	// is used with send to route to manually build routes that will be fed
+	// to the payment lifecycle. The timeout determines how long to wait
+	// for a new route to be added before an error is returned to the
+	// requester.
+	NewPaymentSessionBuilder(time.Duration) PaymentSession
 }
 
 // MissionController is an interface that exposes failure reporting and
@@ -340,6 +341,9 @@ type ChannelRouter struct {
 	// initialized with.
 	cfg *Config
 
+	activeSendToRoutes    map[lntypes.Hash]*paymentSessionBuilder
+	activeSendToRoutesMtx sync.Mutex
+
 	// selfNode is the center of the star-graph centered around the
 	// ChannelRouter. The ChannelRouter uses this node as a starting point
 	// when doing any path finding.
@@ -406,15 +410,16 @@ func New(cfg Config) (*ChannelRouter, error) {
 	}
 
 	r := &ChannelRouter{
-		cfg:               &cfg,
-		networkUpdates:    make(chan *routingMsg),
-		topologyClients:   make(map[uint64]*topologyClient),
-		ntfnClientUpdates: make(chan *topologyClientUpdate),
-		channelEdgeMtx:    multimutex.NewMutex(),
-		selfNode:          selfNode,
-		statTicker:        ticker.New(defaultStatInterval),
-		stats:             new(routerStats),
-		quit:              make(chan struct{}),
+		cfg:                &cfg,
+		activeSendToRoutes: make(map[lntypes.Hash]*paymentSessionBuilder),
+		networkUpdates:     make(chan *routingMsg),
+		topologyClients:    make(map[uint64]*topologyClient),
+		ntfnClientUpdates:  make(chan *topologyClientUpdate),
+		channelEdgeMtx:     multimutex.NewMutex(),
+		selfNode:           selfNode,
+		statTicker:         ticker.New(defaultStatInterval),
+		stats:              new(routerStats),
+		quit:               make(chan struct{}),
 	}
 
 	return r, nil
@@ -538,16 +543,25 @@ func (r *ChannelRouter) Start() error {
 				)
 			}
 
-			// We create a dummy, empty payment session such that
-			// we won't make another payment attempt when the
-			// result for the in-flight attempt is received.
+			// We create a dummy, empty payment session that will
+			// immediately time out if a new route is requested,
+			// such that we won't make another payment attempt when
+			// the result for the in-flight attempt is received.
 			//
 			// PayAttemptTime doesn't need to be set, as there is
 			// only a single attempt.
-			paySession := r.cfg.SessionSource.NewPaymentSessionEmpty()
+			paySession := r.cfg.SessionSource.NewPaymentSessionBuilder(
+				0,
+			).(*paymentSessionBuilder)
+
+			hash := payment.Info.PaymentHash
+
+			r.activeSendToRoutesMtx.Lock()
+			r.activeSendToRoutes[hash] = paySession
+			r.activeSendToRoutesMtx.Unlock()
 
 			lPayment := &LightningPayment{
-				PaymentHash: payment.Info.PaymentHash,
+				PaymentHash: hash,
 			}
 
 			_, _, err := r.sendPayment(
@@ -1712,40 +1726,57 @@ func (r *ChannelRouter) preparePayment(payment *LightningPayment) (
 func (r *ChannelRouter) SendToRoute(hash lntypes.Hash, route *route.Route) (
 	lntypes.Preimage, error) {
 
-	// Create a payment session for just this route.
-	paySession := r.cfg.SessionSource.NewPaymentSessionForRoute(route)
+	// First we'll check if we can find this payment hash among the already
+	// active SendToRoute sessions. If that's the case we'll add the new
+	// route to the session, otherwise we'll create a new session.
+	r.activeSendToRoutesMtx.Lock()
+	paySession, ok := r.activeSendToRoutes[hash]
+	if !ok {
+		// Calculate amount paid to receiver.
+		amt := route.Amt()
 
-	// Calculate amount paid to receiver.
-	amt := route.Amt()
+		// Record this payment hash with the ControlTower, ensuring it
+		// is not already in-flight.
+		info := &channeldb.PaymentCreationInfo{
+			PaymentHash:    hash,
+			Value:          amt,
+			CreationDate:   time.Now(),
+			PaymentRequest: nil,
+		}
 
-	// Record this payment hash with the ControlTower, ensuring it is not
-	// already in-flight.
-	info := &channeldb.PaymentCreationInfo{
-		PaymentHash:    hash,
-		Value:          amt,
-		CreationDate:   time.Now(),
-		PaymentRequest: nil,
+		err := r.cfg.Control.InitPayment(hash, info)
+		if err != nil {
+			r.activeSendToRoutesMtx.Unlock()
+			return [32]byte{}, err
+		}
+
+		// Create a new payment session builder with the default timeout.
+		// TODO(halseth): make timeout configurable.
+		paySession = r.cfg.SessionSource.NewPaymentSessionBuilder(
+			defaultSendToRouteAddRouteTimeout,
+		).(*paymentSessionBuilder)
+		r.activeSendToRoutes[hash] = paySession
+
+		// Create a (mostly) dummy payment, as the created payment
+		// session is not going to do path finding.
+		// TODO(halseth): sendPayment doesn't really need
+		// LightningPayment, make it take just needed fields instead.
+		//
+		// PayAttemptTime doesn't need to be set, as there is only a
+		// single attempt.
+		payment := &LightningPayment{
+			PaymentHash: hash,
+		}
+
+		// We now start the payment lifecycle loop for using this
+		// payment session. Since this is the first time this payment
+		// is being made, we pass nil for the existing attempt.
+		go r.sendPayment(nil, payment, paySession)
 	}
+	r.activeSendToRoutesMtx.Unlock()
 
-	err := r.cfg.Control.InitPayment(hash, info)
-	if err != nil {
-		return [32]byte{}, err
-	}
-
-	// Create a (mostly) dummy payment, as the created payment session is
-	// not going to do path finding.
-	// TODO(halseth): sendPayment doesn't really need LightningPayment, make
-	// it take just needed fields instead.
-	//
-	// PayAttemptTime doesn't need to be set, as there is only a single
-	// attempt.
-	payment := &LightningPayment{
-		PaymentHash: hash,
-	}
-
-	// Since this is the first time this payment is being made, we pass nil
-	// for the existing attempt.
-	preimage, _, err := r.sendPayment(nil, payment, paySession)
+	// Add the new route to the payment session.
+	preimage, err := paySession.AddRoute(route)
 	if err != nil {
 		// SendToRoute should return a structured error. In case the
 		// provided route fails, payment lifecycle will return a

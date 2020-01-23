@@ -590,6 +590,10 @@ type OpenChannel struct {
 	// was not set, the field is empty.
 	RemoteShutdownScript lnwire.DeliveryAddress
 
+	// RemoteCommitDiff represents the delta between the last commitment
+	// that the remote acked and the last commitment that we signed.
+	RemoteCommitDiff *CommitDiff
+
 	// TODO(roasbeef): eww
 	Db *DB
 
@@ -1180,6 +1184,20 @@ func fetchOpenChannel(chanBucket *bbolt.Bucket,
 		return nil, fmt.Errorf("unable to fetch chan commitments: %v", err)
 	}
 
+	// Retrieve the remote commit diff, if present.
+	tipBytes := chanBucket.Get(commitDiffKey)
+	if tipBytes != nil {
+		tipReader := bytes.NewReader(tipBytes)
+		commitDiff, err := deserializeCommitDiff(tipReader)
+		if err != nil {
+			return nil,
+				fmt.Errorf("unable to fetch commit diff: %v",
+					err)
+		}
+
+		channel.RemoteCommitDiff = commitDiff
+	}
+
 	// Finally, we'll retrieve the current revocation state so we can
 	// properly
 	if err := fetchChanRevocationState(chanBucket, channel); err != nil {
@@ -1697,7 +1715,7 @@ func (c *OpenChannel) AppendRemoteCommitChain(diff *CommitDiff) error {
 		return ErrNoRestoredChannelMutation
 	}
 
-	return c.Db.Update(func(tx *bbolt.Tx) error {
+	err := c.Db.Update(func(tx *bbolt.Tx) error {
 		// First, we'll grab the writable bucket where this channel's
 		// data resides.
 		chanBucket, err := fetchChanBucket(
@@ -1745,8 +1763,18 @@ func (c *OpenChannel) AppendRemoteCommitChain(diff *CommitDiff) error {
 		if err := serializeCommitDiff(&b, diff); err != nil {
 			return err
 		}
+
 		return chanBucket.Put(commitDiffKey, b.Bytes())
 	})
+	if err != nil {
+		return err
+	}
+
+	// If the database was updated successfully, update the in-memory commit
+	// diff for the remote commitment transaction.
+	c.RemoteCommitDiff = diff
+
+	return nil
 }
 
 // RemoteCommitChainTip returns the "tip" of the current remote commitment
@@ -1756,38 +1784,11 @@ func (c *OpenChannel) AppendRemoteCommitChain(diff *CommitDiff) error {
 // this new pending commitment. Once they revoked their prior state, we'll swap
 // these pointers, causing the tip and the tail to point to the same entry.
 func (c *OpenChannel) RemoteCommitChainTip() (*CommitDiff, error) {
-	var cd *CommitDiff
-	err := c.Db.View(func(tx *bbolt.Tx) error {
-		chanBucket, err := fetchChanBucket(
-			tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
-		)
-		switch err {
-		case nil:
-		case ErrNoChanDBExists, ErrNoActiveChannels, ErrChannelNotFound:
-			return ErrNoPendingCommit
-		default:
-			return err
-		}
-
-		tipBytes := chanBucket.Get(commitDiffKey)
-		if tipBytes == nil {
-			return ErrNoPendingCommit
-		}
-
-		tipReader := bytes.NewReader(tipBytes)
-		dcd, err := deserializeCommitDiff(tipReader)
-		if err != nil {
-			return err
-		}
-
-		cd = dcd
-		return nil
-	})
-	if err != nil {
-		return nil, err
+	if c.RemoteCommitDiff == nil {
+		return nil, ErrNoPendingCommit
 	}
 
-	return cd, err
+	return c.RemoteCommitDiff, nil
 }
 
 // InsertNextRevocation inserts the _next_ commitment point (revocation) into
@@ -1838,8 +1839,6 @@ func (c *OpenChannel) AdvanceCommitChainTail(fwdPkg *FwdPkg) error {
 		return ErrNoRestoredChannelMutation
 	}
 
-	var newRemoteCommit *ChannelCommitment
-
 	err := c.Db.Update(func(tx *bbolt.Tx) error {
 		chanBucket, err := fetchChanBucket(
 			tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
@@ -1881,14 +1880,8 @@ func (c *OpenChannel) AdvanceCommitChainTail(fwdPkg *FwdPkg) error {
 		// Before we append this revoked state to the revocation log,
 		// we'll swap out what's currently the tail of the commit tip,
 		// with the current locked-in commitment for the remote party.
-		tipBytes := chanBucket.Get(commitDiffKey)
-		tipReader := bytes.NewReader(tipBytes)
-		newCommit, err := deserializeCommitDiff(tipReader)
-		if err != nil {
-			return err
-		}
 		err = putChanCommitment(
-			chanBucket, &newCommit.Commitment, false,
+			chanBucket, &c.RemoteCommitDiff.Commitment, false,
 		)
 		if err != nil {
 			return err
@@ -1913,8 +1906,6 @@ func (c *OpenChannel) AdvanceCommitChainTail(fwdPkg *FwdPkg) error {
 			return err
 		}
 
-		newRemoteCommit = &newCommit.Commitment
-
 		return nil
 	})
 	if err != nil {
@@ -1924,7 +1915,8 @@ func (c *OpenChannel) AdvanceCommitChainTail(fwdPkg *FwdPkg) error {
 	// With the db transaction complete, we'll swap over the in-memory
 	// pointer of the new remote commitment, which was previously the tip
 	// of the commit chain.
-	c.RemoteCommitment = *newRemoteCommit
+	c.RemoteCommitment = c.RemoteCommitDiff.Commitment
+	c.RemoteCommitDiff = nil
 
 	return nil
 }

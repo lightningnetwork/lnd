@@ -1026,6 +1026,74 @@ func CommitSpendToRemoteDelayed(signer Signer, signDesc *SignDescriptor,
 	return witnessStack, nil
 }
 
+// CommitScriptAnchor constructs the script for the anchor output spendable by
+// the given key immediately, or by anyone after 16 confirmations.
+//
+// Possible Input Scripts:
+//    By owner:				<sig>
+//    By anyone (after 16 conf):	<emptyvector>
+//
+// Output Script:
+//	<funding_pubkey> OP_CHECKSIG OP_IFDUP
+//	OP_NOTIF
+//	  OP_16 OP_CSV
+//	OP_ENDIF
+func CommitScriptAnchor(key *btcec.PublicKey) ([]byte, error) {
+	builder := txscript.NewScriptBuilder()
+
+	// Spend immediately with key.
+	builder.AddData(key.SerializeCompressed())
+	builder.AddOp(txscript.OP_CHECKSIG)
+
+	// Duplicate the value if true, since it will be consumed by the NOTIF.
+	builder.AddOp(txscript.OP_IFDUP)
+
+	// Otherwise spendable by anyone after 16 confirmations.
+	builder.AddOp(txscript.OP_NOTIF)
+	builder.AddOp(txscript.OP_16)
+	builder.AddOp(txscript.OP_CHECKSEQUENCEVERIFY)
+	builder.AddOp(txscript.OP_ENDIF)
+
+	return builder.Script()
+}
+
+// CommitSpendAnchor constructs a valid witness allowing a node to spend their
+// anchor output on the commitment transaction using their funding key. This is
+// used for the anchor channel type.
+func CommitSpendAnchor(signer Signer, signDesc *SignDescriptor,
+	sweepTx *wire.MsgTx) (wire.TxWitness, error) {
+
+	if signDesc.KeyDesc.PubKey == nil {
+		return nil, fmt.Errorf("cannot generate witness with nil " +
+			"KeyDesc pubkey")
+	}
+
+	// Create a signature.
+	sweepSig, err := signer.SignOutputRaw(sweepTx, signDesc)
+	if err != nil {
+		return nil, err
+	}
+
+	// The witness here is just a signature and the redeem script.
+	witnessStack := make([][]byte, 2)
+	witnessStack[0] = append(sweepSig, byte(signDesc.HashType))
+	witnessStack[1] = signDesc.WitnessScript
+
+	return witnessStack, nil
+}
+
+// CommitSpendAnchorAnyone constructs a witness allowing anyone to spend the
+// anchor output after it has gotten 16 confirmations. Since no signing is
+// required, only knowledge of the redeem script is necessary to spend it.
+func CommitSpendAnchorAnyone(script []byte) (wire.TxWitness, error) {
+	// The witness here is just the redeem script.
+	witnessStack := make([][]byte, 2)
+	witnessStack[0] = nil
+	witnessStack[1] = script
+
+	return witnessStack, nil
+}
+
 // SingleTweakBytes computes set of bytes we call the single tweak. The purpose
 // of the single tweak is to randomize all regular delay and payment base
 // points. To do this, we generate a hash that binds the commitment point to

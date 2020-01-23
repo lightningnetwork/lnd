@@ -1800,6 +1800,14 @@ func (r *ChannelRouter) sendPayment(
 		return [32]byte{}, nil, err
 	}
 
+	existingShards := &paymentShards{}
+	if existingAttempt != nil {
+		s := &paymentShard{
+			existingAttempt,
+		}
+		existingShards.addShard(s)
+	}
+
 	// Now set up a paymentLifecycle struct with these params, such that we
 	// can resume the payment from the current state.
 	p := &paymentLifecycle{
@@ -1808,7 +1816,7 @@ func (r *ChannelRouter) sendPayment(
 		paySession:     paySession,
 		currentHeight:  currentHeight,
 		finalCLTVDelta: uint16(payment.FinalCLTVDelta),
-		attempt:        existingAttempt,
+		existingShards: existingShards,
 		lastError:      nil,
 	}
 

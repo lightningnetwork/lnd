@@ -26,6 +26,36 @@ func (e errNoRoute) Error() string {
 		e.lastError)
 }
 
+// paymentShard is a type that wraps an attempt that is part of a (potentially)
+// larger payment.
+type paymentShard struct {
+	*channeldb.PaymentAttemptInfo
+}
+
+// paymentShards holds a set of active payment shards.
+type paymentShards struct {
+	shards     map[uint64]*paymentShard
+	totalValue lnwire.MilliSatoshi
+}
+
+// addShard adds the given shard to the set of active payment shards.
+func (p *paymentShards) addShard(s *paymentShard) {
+	if p.shards == nil {
+		p.shards = make(map[uint64]*paymentShard)
+	}
+
+	// Add the shard and update the total value of the set.
+	p.shards[s.PaymentID] = s
+	p.totalValue += s.Route.Amt()
+}
+
+// removeShard removes the given payment shard from the set.
+func (p *paymentShards) removeShard(s *paymentShard) {
+	// Remove and updat the total value.
+	delete(p.shards, s.PaymentID)
+	p.totalValue -= s.Route.Amt()
+}
+
 // paymentLifecycle holds all information about the current state of a payment
 // needed to resume if from any point.
 type paymentLifecycle struct {
@@ -35,12 +65,14 @@ type paymentLifecycle struct {
 	timeoutChan    <-chan time.Time
 	currentHeight  int32
 	finalCLTVDelta uint16
-	attempt        *channeldb.PaymentAttemptInfo
+	existingShards *paymentShards
 	lastError      error
 }
 
 // resumePayment resumes the paymentLifecycle from the current state.
 func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
+	// The active set of shards start out as existingShards.
+	shards := p.existingShards
 
 	// We'll continue until either our payment succeeds, or we encounter a
 	// critical error during path finding.
@@ -48,7 +80,7 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 
 		// If this payment had no existing payment attempt, we create
 		// and send one now.
-		if p.attempt == nil {
+		if len(shards.shards) == 0 {
 			// Before we attempt this next payment, we'll check to see if either
 			// we've gone past the payment attempt timeout, or the router is
 			// exiting. In either case, we'll stop this payment attempt short. If a
@@ -136,8 +168,6 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 				return [32]byte{}, nil, err
 			}
 
-			p.attempt = attempt
-
 			// Before sending this HTLC to the switch, we checkpoint the
 			// fresh paymentID and route to the DB. This lets us know on
 			// startup the ID of the payment that we attempted to send,
@@ -149,15 +179,25 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 				return [32]byte{}, nil, err
 			}
 
+			// Now that the attempt was successfully checkpointed
+			// to the control tower, add it to our set of active
+			// shards.
+			s := &paymentShard{
+				attempt,
+			}
+			shards.addShard(s)
+
 			// Now that the attempt is created and checkpointed to
 			// the DB, we send it.
-			sendErr := p.sendPaymentAttempt(firstHop, htlcAdd)
+			sendErr := p.sendPaymentAttempt(
+				s.PaymentAttemptInfo, firstHop, htlcAdd,
+			)
 			if sendErr != nil {
 				// We must inspect the error to know whether it
 				// was critical or not, to decide whether we
 				// should continue trying.
 				reason := p.router.processSendError(
-					p.attempt.PaymentID, &p.attempt.Route, sendErr,
+					s.PaymentID, &s.Route, sendErr,
 				)
 				if reason != nil {
 					log.Debugf("Payment %x failed: final_outcome=%v, raw_err=%v",
@@ -181,18 +221,25 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 				// this turns out to be the last attempt.
 				p.lastError = sendErr
 
-				// Error was handled successfully, reset the
-				// attempt to indicate we want to make a new
-				// attempt.
-				p.attempt = nil
+				// Error was handled successfully, remove the
+				// shard from our set of active shards indicate
+				// we want to make a new attempt.
+				shards.removeShard(s)
 				continue
 			}
 		}
 
-		result, err := p.waitForPaymentResult(p.attempt)
+		// Temp: get the first (and only) shard.
+		var s *paymentShard
+		for _, v := range shards.shards {
+			s = v
+			break
+		}
+
+		result, err := p.waitForPaymentResult(s.PaymentAttemptInfo)
 		if err != nil {
 			log.Errorf("Failed getting result for paymentID %d "+
-				"from switch: %v", p.attempt.PaymentID, err)
+				"from switch: %v", s.PaymentID, err)
 
 			return [32]byte{}, nil, err
 		}
@@ -208,7 +255,7 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 			// continue trying.
 			sendErr := result.Error
 			reason := p.router.processSendError(
-				p.attempt.PaymentID, &p.attempt.Route, sendErr,
+				s.PaymentID, &s.Route, sendErr,
 			)
 
 			if reason != nil {
@@ -235,17 +282,17 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 
 			// Error was handled successfully, reset the attempt to
 			// indicate we want to make a new attempt.
-			p.attempt = nil
+			shards.removeShard(s)
 			continue
 		}
 
 		// We successfully got a payment result back from the switch.
 		log.Debugf("Payment %x succeeded with pid=%v",
-			p.payment.PaymentHash, p.attempt.PaymentID)
+			p.payment.PaymentHash, s.PaymentID)
 
 		// Report success to mission control.
 		err = p.router.cfg.MissionControl.ReportPaymentSuccess(
-			p.attempt.PaymentID, &p.attempt.Route,
+			s.PaymentID, &s.Route,
 		)
 		if err != nil {
 			log.Errorf("Error reporting payment success to mc: %v",
@@ -263,7 +310,7 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 
 		// Terminal state, return the preimage and the route
 		// taken.
-		return result.Preimage, &p.attempt.Route, nil
+		return result.Preimage, &s.Route, nil
 	}
 }
 
@@ -391,13 +438,14 @@ func (p *paymentLifecycle) createNewPaymentAttempt(rt *route.Route) (
 }
 
 // sendPaymentAttempt attempts to send the current attempt to the switch.
-func (p *paymentLifecycle) sendPaymentAttempt(firstHop lnwire.ShortChannelID,
+func (p *paymentLifecycle) sendPaymentAttempt(
+	attempt *channeldb.PaymentAttemptInfo, firstHop lnwire.ShortChannelID,
 	htlcAdd *lnwire.UpdateAddHTLC) error {
 
 	log.Tracef("Attempting to send payment %x (pid=%v), "+
-		"using route: %v", p.payment.PaymentHash, p.attempt.PaymentID,
+		"using route: %v", p.payment.PaymentHash, attempt.PaymentID,
 		newLogClosure(func() string {
-			return spew.Sdump(p.attempt.Route)
+			return spew.Sdump(attempt.Route)
 		}),
 	)
 
@@ -406,17 +454,17 @@ func (p *paymentLifecycle) sendPaymentAttempt(firstHop lnwire.ShortChannelID,
 	// such that we can resume waiting for the result after a
 	// restart.
 	err := p.router.cfg.Payer.SendHTLC(
-		firstHop, p.attempt.PaymentID, htlcAdd,
+		firstHop, attempt.PaymentID, htlcAdd,
 	)
 	if err != nil {
 		log.Errorf("Failed sending attempt %d for payment "+
-			"%x to switch: %v", p.attempt.PaymentID,
+			"%x to switch: %v", attempt.PaymentID,
 			p.payment.PaymentHash, err)
 		return err
 	}
 
 	log.Debugf("Payment %x (pid=%v) successfully sent to switch, route: %v",
-		p.payment.PaymentHash, p.attempt.PaymentID, &p.attempt.Route)
+		p.payment.PaymentHash, attempt.PaymentID, &attempt.Route)
 
 	return nil
 }

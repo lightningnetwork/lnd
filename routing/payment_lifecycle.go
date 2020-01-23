@@ -36,7 +36,6 @@ type paymentLifecycle struct {
 	currentHeight  int32
 	finalCLTVDelta uint16
 	attempt        *channeldb.PaymentAttemptInfo
-	circuit        *sphinx.Circuit
 	lastError      error
 }
 
@@ -168,55 +167,14 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 				p.attempt = nil
 				continue
 			}
-		} else {
-			// If this was a resumed attempt, we must regenerate the
-			// circuit. We don't need to check for errors resulting
-			// from an invalid route, because the sphinx packet has
-			// been successfully generated before.
-			_, c, err := generateSphinxPacket(
-				&p.attempt.Route, p.payment.PaymentHash[:],
-				p.attempt.SessionKey,
-			)
-			if err != nil {
-				return [32]byte{}, nil, err
-			}
-			p.circuit = c
 		}
 
-		// Using the created circuit, initialize the error decrypter so we can
-		// parse+decode any failures incurred by this payment within the
-		// switch.
-		errorDecryptor := &htlcswitch.SphinxErrorDecrypter{
-			OnionErrorDecrypter: sphinx.NewOnionErrorDecrypter(p.circuit),
-		}
-
-		// Now ask the switch to return the result of the payment when
-		// available.
-		resultChan, err := p.router.cfg.Payer.GetPaymentResult(
-			p.attempt.PaymentID, p.payment.PaymentHash, errorDecryptor,
-		)
+		result, err := p.waitForPaymentResult(p.attempt)
 		if err != nil {
 			log.Errorf("Failed getting result for paymentID %d "+
 				"from switch: %v", p.attempt.PaymentID, err)
 
 			return [32]byte{}, nil, err
-		}
-
-		// The switch knows about this payment, we'll wait for a result
-		// to be available.
-		var (
-			result *htlcswitch.PaymentResult
-			ok     bool
-		)
-
-		select {
-		case result, ok = <-resultChan:
-			if !ok {
-				return [32]byte{}, nil, htlcswitch.ErrSwitchExiting
-			}
-
-		case <-p.router.quit:
-			return [32]byte{}, nil, ErrRouterShuttingDown
 		}
 
 		// In case of a payment failure, we use the error to decide
@@ -264,7 +222,54 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 		// taken.
 		return result.Preimage, &p.attempt.Route, nil
 	}
+}
 
+// waitForPaymentResult blocks until a result for the given attempt is returned
+// from the switch.
+func (p *paymentLifecycle) waitForPaymentResult(
+	attempt *channeldb.PaymentAttemptInfo) (*htlcswitch.PaymentResult, error) {
+
+	// If this was a resumed attempt, we must regenerate the
+	// circuit. We don't need to check for errors resulting
+	// from an invalid route, because the sphinx packet has
+	// been successfully generated before.
+	_, circuit, err := generateSphinxPacket(
+		&attempt.Route, p.payment.PaymentHash[:],
+		attempt.SessionKey,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// Using the created circuit, initialize the error decrypter so we can
+	// parse+decode any failures incurred by this payment within the
+	// switch.
+	errorDecryptor := &htlcswitch.SphinxErrorDecrypter{
+		OnionErrorDecrypter: sphinx.NewOnionErrorDecrypter(circuit),
+	}
+
+	// Now ask the switch to return the result of the payment when
+	// available.
+	resultChan, err := p.router.cfg.Payer.GetPaymentResult(
+		attempt.PaymentID, p.payment.PaymentHash, errorDecryptor,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// The switch knows about this payment, we'll wait for a result
+	// to be available.
+	select {
+	case result, ok := <-resultChan:
+		if !ok {
+			return nil, htlcswitch.ErrSwitchExiting
+		}
+
+		return result, nil
+
+	case <-p.router.quit:
+		return nil, ErrRouterShuttingDown
+	}
 }
 
 // errorToPaymentFailure takes a path finding error and converts it into a
@@ -300,16 +305,12 @@ func (p *paymentLifecycle) createNewPaymentAttempt(rt *route.Route) (
 	// Generate the raw encoded sphinx packet to be included along
 	// with the htlcAdd message that we send directly to the
 	// switch.
-	onionBlob, c, err := generateSphinxPacket(
+	onionBlob, _, err := generateSphinxPacket(
 		rt, p.payment.PaymentHash[:], sessionKey,
 	)
 	if err != nil {
 		return lnwire.ShortChannelID{}, nil, nil, err
 	}
-
-	// Update our cached circuit with the newly generated
-	// one.
-	p.circuit = c
 
 	// Craft an HTLC packet to send to the layer 2 switch. The
 	// metadata within this packet will be used to route the

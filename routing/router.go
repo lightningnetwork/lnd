@@ -1809,7 +1809,6 @@ func (r *ChannelRouter) sendPayment(
 		currentHeight:  currentHeight,
 		finalCLTVDelta: uint16(payment.FinalCLTVDelta),
 		attempt:        existingAttempt,
-		circuit:        nil,
 		lastError:      nil,
 	}
 

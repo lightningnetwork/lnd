@@ -13,6 +13,23 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
 
+// addConstraints defines the constraints to apply when adding an input.
+type addConstraints uint8
+
+const (
+	// constraintsRegular is for regular input sweeps that should have a positive
+	// yield.
+	constraintsRegular addConstraints = iota
+
+	// constraintsWallet is for wallet inputs that are only added to bring up the tx
+	// output value.
+	constraintsWallet
+
+	// constraintsForce is for inputs that should be swept even with a negative
+	// yield at the set fee rate.
+	constraintsForce
+)
+
 // txInputSet is an object that accumulates tx inputs and keeps running counters
 // on various properties of the tx.
 type txInputSet struct {
@@ -45,6 +62,10 @@ type txInputSet struct {
 	// wallet contains wallet functionality required by the input set to
 	// retrieve utxos.
 	wallet Wallet
+
+	// force indicates that this set must be swept even if the total yield
+	// is negative.
+	force bool
 }
 
 // newTxInputSet constructs a new, empty input set.
@@ -78,10 +99,12 @@ func (t *txInputSet) dustLimitReached() bool {
 // add adds a new input to the set. It returns a bool indicating whether the
 // input was added to the set. An input is rejected if it decreases the tx
 // output value after paying fees.
-func (t *txInputSet) add(input input.Input, fromWallet bool) bool {
+func (t *txInputSet) add(input input.Input, constraints addConstraints) bool {
 	// Stop if max inputs is reached. Do not count additional wallet inputs,
 	// because we don't know in advance how many we may need.
-	if !fromWallet && len(t.inputs) >= t.maxInputs {
+	if constraints != constraintsWallet &&
+		len(t.inputs) >= t.maxInputs {
+
 		return false
 	}
 
@@ -108,23 +131,42 @@ func (t *txInputSet) add(input input.Input, fromWallet bool) bool {
 	// added to the set.
 	newOutputValue := newInputTotal - fee
 
-	// If adding this input makes the total output value of the set
-	// decrease, this is a negative yield input. We don't add the input to
-	// the set and return the outcome.
-	if newOutputValue <= t.outputValue {
-		return false
-	}
+	// Initialize new wallet total with the current wallet total. This is
+	// updated below if this input is a wallet input.
+	newWalletTotal := t.walletInputTotal
 
-	// If this input comes from the wallet, verify that we still gain
-	// something with this transaction.
-	if fromWallet {
+	// Calculate the yield of this input from the change in tx output value.
+	inputYield := newOutputValue - t.outputValue
+
+	switch constraints {
+
+	// Don't sweep inputs that cost us more to sweep than they give us.
+	case constraintsRegular:
+		if inputYield <= 0 {
+			return false
+		}
+
+	// For force adds, no further constraints apply.
+	case constraintsForce:
+		t.force = true
+
+	// We are attaching a wallet input to raise the tx output value above
+	// the dust limit.
+	case constraintsWallet:
+		// Skip this wallet input if adding it would lower the output
+		// value.
+		if inputYield <= 0 {
+			return false
+		}
+
 		// Calculate the total value that we spend in this tx from the
 		// wallet if we'd add this wallet input.
-		newWalletTotal := t.walletInputTotal + value
+		newWalletTotal += value
 
 		// In any case, we don't want to lose money by sweeping. If we
 		// don't get more out of the tx then we put in ourselves, do not
-		// add this wallet input.
+		// add this wallet input. If there is at least one force sweep
+		// in the set, this does no longer apply.
 		//
 		// We should only add wallet inputs to get the tx output value
 		// above the dust limit, otherwise we'd only burn into fees.
@@ -134,7 +176,7 @@ func (t *txInputSet) add(input input.Input, fromWallet bool) bool {
 		// value of the wallet input and what we get out of this
 		// transaction. To prevent attaching and locking a big utxo for
 		// very little benefit.
-		if newWalletTotal >= newOutputValue {
+		if !t.force && newWalletTotal >= newOutputValue {
 			log.Debugf("Rejecting wallet input of %v, because it "+
 				"would make a negative yielding transaction "+
 				"(%v)",
@@ -142,17 +184,16 @@ func (t *txInputSet) add(input input.Input, fromWallet bool) bool {
 
 			return false
 		}
-
-		// We've decided to add the wallet input. Increment the total
-		// wallet funds that go into this tx.
-		t.walletInputTotal = newWalletTotal
 	}
 
 	// Update running values.
+	//
+	// TODO: Return new instance?
 	t.inputTotal = newInputTotal
 	t.outputValue = newOutputValue
 	t.inputs = append(t.inputs, input)
 	t.weightEstimate = newWeightEstimate
+	t.walletInputTotal = newWalletTotal
 
 	return true
 }
@@ -167,11 +208,17 @@ func (t *txInputSet) add(input input.Input, fromWallet bool) bool {
 // whole.
 func (t *txInputSet) addPositiveYieldInputs(sweepableInputs []txInput) {
 	for _, input := range sweepableInputs {
+		// Apply relaxed constraints for force sweeps.
+		constraints := constraintsRegular
+		if input.parameters().Force {
+			constraints = constraintsForce
+		}
+
 		// Try to add the input to the transaction. If that doesn't
 		// succeed because it wouldn't increase the output value,
 		// return. Assuming inputs are sorted by yield, any further
 		// inputs wouldn't increase the output value either.
-		if !t.add(input, false) {
+		if !t.add(input, constraints) {
 			return
 		}
 	}
@@ -202,7 +249,7 @@ func (t *txInputSet) tryAddWalletInputsIfNeeded() error {
 
 		// If the wallet input isn't positively-yielding at this fee
 		// rate, skip it.
-		if !t.add(input, true) {
+		if !t.add(input, constraintsWallet) {
 			continue
 		}
 

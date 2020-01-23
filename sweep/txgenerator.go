@@ -67,6 +67,14 @@ func generateInputPartitionings(sweepableInputs []txInput,
 	}
 
 	sort.Slice(sweepableInputs, func(i, j int) bool {
+		// Because of the specific ordering and termination condition
+		// that is described above, we place force sweeps at the start
+		// of the list. Otherwise we can't be sure that they will be
+		// included in an input set.
+		if sweepableInputs[i].parameters().Force {
+			return true
+		}
+
 		return yields[*sweepableInputs[i].OutPoint()] >
 			yields[*sweepableInputs[j].OutPoint()]
 	})

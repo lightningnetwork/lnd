@@ -191,6 +191,18 @@ message PendingSweep {
     sweep transaction of the output.
     */
     uint32 next_broadcast_height = 6 [json_name = "next_broadcast_height"];
+
+    // The requested confirmation target for this output.
+    uint32 requested_conf_target = 8 [json_name = "requested_conf_target"];
+
+    // The requested fee rate, expressed in sat/byte, for this output.
+    uint32 requested_sat_per_byte = 9 [json_name = "requested_sat_per_byte"];
+
+    /**
+    Whether this input must be force-swept. This means that it is swept even
+    if it has a negative yield.
+    */
+    bool force = 7 [json_name = "force"];
 }
 
 message PendingSweepsRequest {
@@ -215,6 +227,12 @@ message BumpFeeRequest {
     with.
     */
     uint32 sat_per_byte = 3 [json_name = "sat_per_byte"];
+
+    /**
+    Whether this input must be force-swept. This means that it is swept even
+    if it has a negative yield.
+    */
+    bool force = 4 [json_name = "force"];
 }
 
 message BumpFeeResponse {

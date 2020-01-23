@@ -700,7 +700,7 @@ func testCancelNonExistentReservation(miner *rpctest.Harness,
 	// Create our own reservation, give it some ID.
 	res, err := lnwallet.NewChannelReservation(
 		10000, 10000, feePerKw, alice, 22, 10, &testHdSeed,
-		lnwire.FFAnnounceChannel, true, nil, [32]byte{},
+		lnwire.FFAnnounceChannel, true, false, nil, [32]byte{},
 	)
 	if err != nil {
 		t.Fatalf("unable to create res: %v", err)

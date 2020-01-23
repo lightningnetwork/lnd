@@ -42,6 +42,7 @@ type paymentLifecycle struct {
 
 // resumePayment resumes the paymentLifecycle from the current state.
 func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
+
 	// We'll continue until either our payment succeeds, or we encounter a
 	// critical error during path finding.
 	for {
@@ -112,9 +113,21 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 
 			// Using the route received from the payment session,
 			// create a new shard to send.
-			firstHop, htlcAdd, err := p.createNewPaymentAttempt(
+			firstHop, htlcAdd, attempt, err := p.createNewPaymentAttempt(
 				rt,
 			)
+			if err != nil {
+				return [32]byte{}, nil, err
+			}
+			p.attempt = attempt
+
+			// Before sending this HTLC to the switch, we checkpoint the
+			// fresh paymentID and route to the DB. This lets us know on
+			// startup the ID of the payment that we attempted to send,
+			// such that we can query the Switch for its whereabouts. The
+			// route is needed to handle the result when it eventually
+			// comes back.
+			err = p.router.cfg.Control.RegisterAttempt(p.payment.PaymentHash, attempt)
 			if err != nil {
 				return [32]byte{}, nil, err
 			}
@@ -255,15 +268,15 @@ func errorToPaymentFailure(err error) channeldb.FailureReason {
 	return channeldb.FailureReasonError
 }
 
-// createNewPaymentAttempt creates and stores a new payment attempt to the
-// database.
-func (p *paymentLifecycle) createNewPaymentAttempt(rt *route.Route) (lnwire.ShortChannelID,
-	*lnwire.UpdateAddHTLC, error) {
+// createNewPaymentAttempt creates a new payment attempt from the given route.
+func (p *paymentLifecycle) createNewPaymentAttempt(rt *route.Route) (
+	lnwire.ShortChannelID, *lnwire.UpdateAddHTLC,
+	*channeldb.PaymentAttemptInfo, error) {
 
 	// Generate a new key to be used for this attempt.
 	sessionKey, err := generateNewSessionKey()
 	if err != nil {
-		return lnwire.ShortChannelID{}, nil, err
+		return lnwire.ShortChannelID{}, nil, nil, err
 	}
 
 	// Generate the raw encoded sphinx packet to be included along
@@ -285,13 +298,13 @@ func (p *paymentLifecycle) createNewPaymentAttempt(rt *route.Route) (lnwire.Shor
 			p.payment.PaymentHash, channeldb.FailureReasonError,
 		)
 		if controlErr != nil {
-			return lnwire.ShortChannelID{}, nil, controlErr
+			return lnwire.ShortChannelID{}, nil, nil, controlErr
 		}
 	}
 
 	// In any case, don't continue if there is an error.
 	if err != nil {
-		return lnwire.ShortChannelID{}, nil, err
+		return lnwire.ShortChannelID{}, nil, nil, err
 	}
 
 	// Update our cached circuit with the newly generated
@@ -319,29 +332,18 @@ func (p *paymentLifecycle) createNewPaymentAttempt(rt *route.Route) (lnwire.Shor
 	// this HTLC.
 	paymentID, err := p.router.cfg.NextPaymentID()
 	if err != nil {
-		return lnwire.ShortChannelID{}, nil, err
+		return lnwire.ShortChannelID{}, nil, nil, err
 	}
 
 	// We now have all the information needed to populate
 	// the current attempt information.
-	p.attempt = &channeldb.PaymentAttemptInfo{
+	attempt := &channeldb.PaymentAttemptInfo{
 		PaymentID:  paymentID,
 		SessionKey: sessionKey,
 		Route:      *rt,
 	}
 
-	// Before sending this HTLC to the switch, we checkpoint the
-	// fresh paymentID and route to the DB. This lets us know on
-	// startup the ID of the payment that we attempted to send,
-	// such that we can query the Switch for its whereabouts. The
-	// route is needed to handle the result when it eventually
-	// comes back.
-	err = p.router.cfg.Control.RegisterAttempt(p.payment.PaymentHash, p.attempt)
-	if err != nil {
-		return lnwire.ShortChannelID{}, nil, err
-	}
-
-	return firstHop, htlcAdd, nil
+	return firstHop, htlcAdd, attempt, nil
 }
 
 // sendPaymentAttempt attempts to send the current attempt to the switch.

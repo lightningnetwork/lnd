@@ -116,9 +116,27 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 			firstHop, htlcAdd, attempt, err := p.createNewPaymentAttempt(
 				rt,
 			)
+			// With SendToRoute, it can happen that the route exceeds protocol
+			// constraints. Mark the payment as failed with an internal error.
+			if err == route.ErrMaxRouteHopsExceeded ||
+				err == sphinx.ErrMaxRoutingInfoSizeExceeded {
+
+				log.Debugf("Invalid route provided for payment %x: %v",
+					p.payment.PaymentHash, err)
+
+				controlErr := p.router.cfg.Control.Fail(
+					p.payment.PaymentHash, channeldb.FailureReasonError,
+				)
+				if controlErr != nil {
+					return [32]byte{}, nil, controlErr
+				}
+			}
+
+			// In any case, don't continue if there is an error.
 			if err != nil {
 				return [32]byte{}, nil, err
 			}
+
 			p.attempt = attempt
 
 			// Before sending this HTLC to the switch, we checkpoint the
@@ -285,24 +303,6 @@ func (p *paymentLifecycle) createNewPaymentAttempt(rt *route.Route) (
 	onionBlob, c, err := generateSphinxPacket(
 		rt, p.payment.PaymentHash[:], sessionKey,
 	)
-
-	// With SendToRoute, it can happen that the route exceeds protocol
-	// constraints. Mark the payment as failed with an internal error.
-	if err == route.ErrMaxRouteHopsExceeded ||
-		err == sphinx.ErrMaxRoutingInfoSizeExceeded {
-
-		log.Debugf("Invalid route provided for payment %x: %v",
-			p.payment.PaymentHash, err)
-
-		controlErr := p.router.cfg.Control.Fail(
-			p.payment.PaymentHash, channeldb.FailureReasonError,
-		)
-		if controlErr != nil {
-			return lnwire.ShortChannelID{}, nil, nil, controlErr
-		}
-	}
-
-	// In any case, don't continue if there is an error.
 	if err != nil {
 		return lnwire.ShortChannelID{}, nil, nil, err
 	}

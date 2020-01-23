@@ -13,6 +13,9 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
+// anchorSize is the constant anchor output size.
+const anchorSize = btcutil.Amount(330)
+
 // CommitmentKeyRing holds all derived keys needed to construct commitment and
 // HTLC transactions. The keys are derived differently depending whether the
 // commitment transaction is ours or the remote peer's. Private keys associated
@@ -184,9 +187,31 @@ type ScriptInfo struct {
 // CommitScriptToRemote creates the script that will pay to the non-owner of
 // the commitment transaction, adding a delay to the script based on the
 // channel type.
-func CommitScriptToRemote(_ channeldb.ChannelType, csvTimeout uint32,
+func CommitScriptToRemote(chanType channeldb.ChannelType, csvTimeout uint32,
 	key *btcec.PublicKey) (*ScriptInfo, error) {
 
+	// If this channel type has anchors, we derive the delayed to_remote
+	// script.
+	if chanType.HasAnchors() {
+		script, err := input.CommitScriptToRemoteDelayed(
+			csvTimeout, key,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		p2wsh, err := input.WitnessScriptHash(script)
+		if err != nil {
+			return nil, err
+		}
+
+		return &ScriptInfo{
+			PkScript:      p2wsh,
+			WitnessScript: script,
+		}, nil
+	}
+
+	// Otherwise the to_remote will be a simple p2wkh.
 	p2wkh, err := input.CommitScriptUnencumbered(key)
 	if err != nil {
 		return nil, err
@@ -198,6 +223,48 @@ func CommitScriptToRemote(_ channeldb.ChannelType, csvTimeout uint32,
 		WitnessScript: p2wkh,
 		PkScript:      p2wkh,
 	}, nil
+}
+
+// CommitScriptAnchors return the scripts to use for the local and remote
+// anchor.
+func CommitScriptAnchors(localChanCfg,
+	remoteChanCfg *channeldb.ChannelConfig) (*ScriptInfo,
+	*ScriptInfo, error) {
+
+	// Helper to create anchor ScriptInfo from key.
+	anchorScript := func(key *btcec.PublicKey) (*ScriptInfo, error) {
+		script, err := input.CommitScriptAnchor(
+			key,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		scriptHash, err := input.WitnessScriptHash(script)
+		if err != nil {
+			return nil, err
+		}
+
+		return &ScriptInfo{
+			PkScript:      scriptHash,
+			WitnessScript: script,
+		}, nil
+	}
+
+	// Get the script used for the anchor output spendable by the local
+	// node.
+	localAnchor, err := anchorScript(localChanCfg.MultiSigKey.PubKey)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// And the anchor spemdable by the remote node.
+	remoteAnchor, err := anchorScript(remoteChanCfg.MultiSigKey.PubKey)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return localAnchor, remoteAnchor, nil
 }
 
 // CommitmentBuilder is a type that wraps the type of channel we are dealing
@@ -216,6 +283,11 @@ type CommitmentBuilder struct {
 
 // NewCommitmentBuilder creates a new CommitmentBuilder from chanState.
 func NewCommitmentBuilder(chanState *channeldb.OpenChannel) *CommitmentBuilder {
+	// The anchor channel type MUST be tweakless.
+	if chanState.ChanType.HasAnchors() && !chanState.ChanType.IsTweakless() {
+		panic("invalid channel type combination")
+	}
+
 	return &CommitmentBuilder{
 		chanState:  chanState,
 		obfuscator: createStateHintObfuscator(chanState),
@@ -248,8 +320,9 @@ type unsignedCommitmentTx struct {
 	// fee is the total fee of the commitment transaction.
 	fee btcutil.Amount
 
-	// ourBalance|theirBalance is the balances of this commitment. This can
-	// be different than the balances before creating the commitment
+	// ourBalance|theirBalance are the balances of this commitment *after*
+	// subtracting commitment fees and anchor outputs. This can be
+	// different than the balances before creating the commitment
 	// transaction as one party must pay the commitment fee.
 	ourBalance   lnwire.MilliSatoshi
 	theirBalance lnwire.MilliSatoshi
@@ -258,7 +331,7 @@ type unsignedCommitmentTx struct {
 // createUnsignedCommitmentTx generates the unsigned commitment transaction for
 // a commitment view and returns it as part of the unsignedCommitmentTx. The
 // passed in balances should be balances *before* subtracting any commitment
-// fees.
+// fees, but after anchor outputs.
 func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 	theirBalance lnwire.MilliSatoshi, isOurs bool,
 	feePerKw chainfee.SatPerKWeight, height uint64,
@@ -333,12 +406,14 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 			cb.chanState.ChanType, fundingTxIn(cb.chanState), keyRing,
 			&cb.chanState.LocalChanCfg, &cb.chanState.RemoteChanCfg,
 			ourBalance.ToSatoshis(), theirBalance.ToSatoshis(),
+			numHTLCs,
 		)
 	} else {
 		commitTx, err = CreateCommitTx(
 			cb.chanState.ChanType, fundingTxIn(cb.chanState), keyRing,
 			&cb.chanState.RemoteChanCfg, &cb.chanState.LocalChanCfg,
 			theirBalance.ToSatoshis(), ourBalance.ToSatoshis(),
+			numHTLCs,
 		)
 	}
 	if err != nil {
@@ -430,7 +505,8 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 func CreateCommitTx(chanType channeldb.ChannelType,
 	fundingOutput wire.TxIn, keyRing *CommitmentKeyRing,
 	localChanCfg, remoteChanCfg *channeldb.ChannelConfig,
-	amountToLocal, amountToRemote btcutil.Amount) (*wire.MsgTx, error) {
+	amountToLocal, amountToRemote btcutil.Amount,
+	numHTLCs int64) (*wire.MsgTx, error) {
 
 	// First, we create the script for the delayed "pay-to-self" output.
 	// This output has 2 main redemption clauses: either we can redeem the
@@ -466,17 +542,48 @@ func CreateCommitTx(chanType channeldb.ChannelType,
 	commitTx.AddTxIn(&fundingOutput)
 
 	// Avoid creating dust outputs within the commitment transaction.
-	if amountToLocal >= localChanCfg.DustLimit {
+	localOutput := amountToLocal >= localChanCfg.DustLimit
+	if localOutput {
 		commitTx.AddTxOut(&wire.TxOut{
 			PkScript: toLocalScriptHash,
 			Value:    int64(amountToLocal),
 		})
 	}
-	if amountToRemote >= localChanCfg.DustLimit {
+
+	remoteOutput := amountToRemote >= localChanCfg.DustLimit
+	if remoteOutput {
 		commitTx.AddTxOut(&wire.TxOut{
 			PkScript: toRemoteScript.PkScript,
 			Value:    int64(amountToRemote),
 		})
+	}
+
+	// If this channel type has anchors, we'll also add those.
+	if chanType.HasAnchors() {
+		localAnchor, remoteAnchor, err := CommitScriptAnchors(
+			localChanCfg, remoteChanCfg,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		// Add local anchor output only if we have a commitment output
+		// or there are HTLCs.
+		if localOutput || numHTLCs > 0 {
+			commitTx.AddTxOut(&wire.TxOut{
+				PkScript: localAnchor.PkScript,
+				Value:    int64(anchorSize),
+			})
+		}
+
+		// Add anchor output to remote only if they have a commitment
+		// output or there are HTLCs.
+		if remoteOutput || numHTLCs > 0 {
+			commitTx.AddTxOut(&wire.TxOut{
+				PkScript: remoteAnchor.PkScript,
+				Value:    int64(anchorSize),
+			})
+		}
 	}
 
 	return commitTx, nil

@@ -1089,7 +1089,7 @@ func testSpendValidation(t *testing.T, tweakless bool) {
 	}
 	commitmentTx, err := CreateCommitTx(
 		channelType, *fakeFundingTxIn, keyRing, aliceChanCfg,
-		bobChanCfg, channelBalance, channelBalance,
+		bobChanCfg, channelBalance, channelBalance, 0,
 	)
 	if err != nil {
 		t.Fatalf("unable to create commitment transaction: %v", nil)

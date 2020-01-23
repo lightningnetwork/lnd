@@ -447,7 +447,10 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 			continue
 		}
 
-		err := addHTLC(commitTx, isOurs, false, htlc, keyRing)
+		err := addHTLC(
+			commitTx, isOurs, false, htlc, keyRing,
+			cb.chanState.ChanType,
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -459,7 +462,10 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 			continue
 		}
 
-		err := addHTLC(commitTx, isOurs, true, htlc, keyRing)
+		err := addHTLC(
+			commitTx, isOurs, true, htlc, keyRing,
+			cb.chanState.ChanType,
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -603,13 +609,20 @@ func CreateCommitTx(chanType channeldb.ChannelType,
 // genHtlcScript generates the proper P2WSH public key scripts for the HTLC
 // output modified by two-bits denoting if this is an incoming HTLC, and if the
 // HTLC is being applied to their commitment transaction or ours.
-func genHtlcScript(isIncoming, ourCommit bool, timeout uint32, rHash [32]byte,
+func genHtlcScript(chanType channeldb.ChannelType, isIncoming, ourCommit bool,
+	timeout uint32, rHash [32]byte,
 	keyRing *CommitmentKeyRing) ([]byte, []byte, error) {
 
 	var (
 		witnessScript []byte
 		err           error
 	)
+
+	// Choose scripts based on channel type.
+	confirmedHtlcSpends := false
+	if chanType.HasAnchors() {
+		confirmedHtlcSpends = true
+	}
 
 	// Generate the proper redeem scripts for the HTLC output modified by
 	// two-bits denoting if this is an incoming HTLC, and if the HTLC is
@@ -619,30 +632,37 @@ func genHtlcScript(isIncoming, ourCommit bool, timeout uint32, rHash [32]byte,
 	// transaction. So we need to use the receiver's version of HTLC the
 	// script.
 	case isIncoming && ourCommit:
-		witnessScript, err = input.ReceiverHTLCScript(timeout,
-			keyRing.RemoteHtlcKey, keyRing.LocalHtlcKey,
-			keyRing.RevocationKey, rHash[:], false)
+		witnessScript, err = input.ReceiverHTLCScript(
+			timeout, keyRing.RemoteHtlcKey, keyRing.LocalHtlcKey,
+			keyRing.RevocationKey, rHash[:], confirmedHtlcSpends,
+		)
 
 	// We're being paid via an HTLC by the remote party, and the HTLC is
 	// being added to their commitment transaction, so we use the sender's
 	// version of the HTLC script.
 	case isIncoming && !ourCommit:
-		witnessScript, err = input.SenderHTLCScript(keyRing.RemoteHtlcKey,
-			keyRing.LocalHtlcKey, keyRing.RevocationKey, rHash[:], false)
+		witnessScript, err = input.SenderHTLCScript(
+			keyRing.RemoteHtlcKey, keyRing.LocalHtlcKey,
+			keyRing.RevocationKey, rHash[:], confirmedHtlcSpends,
+		)
 
 	// We're sending an HTLC which is being added to our commitment
 	// transaction. Therefore, we need to use the sender's version of the
 	// HTLC script.
 	case !isIncoming && ourCommit:
-		witnessScript, err = input.SenderHTLCScript(keyRing.LocalHtlcKey,
-			keyRing.RemoteHtlcKey, keyRing.RevocationKey, rHash[:], false)
+		witnessScript, err = input.SenderHTLCScript(
+			keyRing.LocalHtlcKey, keyRing.RemoteHtlcKey,
+			keyRing.RevocationKey, rHash[:], confirmedHtlcSpends,
+		)
 
 	// Finally, we're paying the remote party via an HTLC, which is being
 	// added to their commitment transaction. Therefore, we use the
 	// receiver's version of the HTLC script.
 	case !isIncoming && !ourCommit:
-		witnessScript, err = input.ReceiverHTLCScript(timeout, keyRing.LocalHtlcKey,
-			keyRing.RemoteHtlcKey, keyRing.RevocationKey, rHash[:], false)
+		witnessScript, err = input.ReceiverHTLCScript(
+			timeout, keyRing.LocalHtlcKey, keyRing.RemoteHtlcKey,
+			keyRing.RevocationKey, rHash[:], confirmedHtlcSpends,
+		)
 	}
 	if err != nil {
 		return nil, nil, err
@@ -667,13 +687,14 @@ func genHtlcScript(isIncoming, ourCommit bool, timeout uint32, rHash [32]byte,
 // the descriptor itself.
 func addHTLC(commitTx *wire.MsgTx, ourCommit bool,
 	isIncoming bool, paymentDesc *PaymentDescriptor,
-	keyRing *CommitmentKeyRing) error {
+	keyRing *CommitmentKeyRing, chanType channeldb.ChannelType) error {
 
 	timeout := paymentDesc.Timeout
 	rHash := paymentDesc.RHash
 
-	p2wsh, witnessScript, err := genHtlcScript(isIncoming, ourCommit,
-		timeout, rHash, keyRing)
+	p2wsh, witnessScript, err := genHtlcScript(
+		chanType, isIncoming, ourCommit, timeout, rHash, keyRing,
+	)
 	if err != nil {
 		return err
 	}

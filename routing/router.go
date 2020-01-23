@@ -1818,6 +1818,7 @@ func (r *ChannelRouter) sendPayment(
 		finalCLTVDelta: uint16(payment.FinalCLTVDelta),
 		existingShards: existingShards,
 		lastError:      nil,
+		quit:           make(chan struct{}),
 	}
 
 	// If a timeout is specified, create a timeout channel. If no timeout is

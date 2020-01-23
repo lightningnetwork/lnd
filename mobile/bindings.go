@@ -29,12 +29,15 @@ func Start(extraArgs string, unlockerReady, rpcReady Callback) {
 	// arguments.
 	var splitArgs []string
 	for _, a := range strings.Split(extraArgs, "--") {
+		// Trim any whitespace space, and ignore empty params.
+		a := strings.TrimSpace(a)
 		if a == "" {
 			continue
 		}
-		// Finally we prefix any non-empty string with --, and trim
-		// whitespace to mimic the regular command line arguments.
-		splitArgs = append(splitArgs, strings.TrimSpace("--"+a))
+
+		// Finally we prefix any non-empty string with -- to mimic the
+		// regular command line arguments.
+		splitArgs = append(splitArgs, "--"+a)
 	}
 
 	// Add the extra arguments to os.Args, as that will be parsed during

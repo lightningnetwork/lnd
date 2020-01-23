@@ -66,6 +66,11 @@ var (
 	// party.
 	chanCommitmentKey = []byte("chan-commitment-key")
 
+	// unsignedAckedUpdatesKey is an entry in the channel bucket that
+	// contains the remote updates that we have acked, but not yet signed
+	// for in one of our remote commits.
+	unsignedAckedUpdatesKey = []byte("unsigned-acked-updates-key")
+
 	// revocationStateKey stores their current revocation hash, our
 	// preimage producer and their preimage store.
 	revocationStateKey = []byte("revocation-state-key")
@@ -1243,12 +1248,17 @@ func syncNewChannel(tx *bbolt.Tx, c *OpenChannel, addrs []net.Addr) error {
 	return putLinkNode(nodeInfoBucket, linkNode)
 }
 
-// UpdateCommitment updates the commitment state for the specified party
-// (remote or local). The commitment stat completely describes the balance
-// state at this point in the commitment chain. This method its to be called on
-// two occasions: when we revoke our prior commitment state, and when the
-// remote party revokes their prior commitment state.
-func (c *OpenChannel) UpdateCommitment(newCommitment *ChannelCommitment) error {
+// UpdateCommitment updates the local commitment state. It locks in the pending
+// local updates that were received by us from the remote party. The commitment
+// state completely describes the balance state at this point in the commitment
+// chain. In addition to that, it persists all the remote log updates that we
+// have acked, but not signed a remote commitment for yet. These need to be
+// persisted to be able to produce a valid commit signature if a restart would
+// occur. This method its to be called when we revoke our prior commitment
+// state.
+func (c *OpenChannel) UpdateCommitment(newCommitment *ChannelCommitment,
+	unsignedAckedUpdates []LogUpdate) error {
+
 	c.Lock()
 	defer c.Unlock()
 
@@ -1289,6 +1299,20 @@ func (c *OpenChannel) UpdateCommitment(newCommitment *ChannelCommitment) error {
 		if err != nil {
 			return fmt.Errorf("unable to store chan "+
 				"revocations: %v", err)
+		}
+
+		// Persist unsigned but acked remote updates that need to be
+		// restored after a restart.
+		var b bytes.Buffer
+		err = serializeLogUpdates(&b, unsignedAckedUpdates)
+		if err != nil {
+			return err
+		}
+
+		err = chanBucket.Put(unsignedAckedUpdatesKey, b.Bytes())
+		if err != nil {
+			return fmt.Errorf("unable to store dangline remote "+
+				"updates: %v", err)
 		}
 
 		return nil
@@ -1568,6 +1592,42 @@ type CommitDiff struct {
 	SettleFailAcks []SettleFailRef
 }
 
+// serializeLogUpdates serializes provided list of updates to a stream.
+func serializeLogUpdates(w io.Writer, logUpdates []LogUpdate) error {
+	numUpdates := uint16(len(logUpdates))
+	if err := binary.Write(w, byteOrder, numUpdates); err != nil {
+		return err
+	}
+
+	for _, diff := range logUpdates {
+		err := WriteElements(w, diff.LogIndex, diff.UpdateMsg)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// deserializeLogUpdates deserializes a list of updates from a stream.
+func deserializeLogUpdates(r io.Reader) ([]LogUpdate, error) {
+	var numUpdates uint16
+	if err := binary.Read(r, byteOrder, &numUpdates); err != nil {
+		return nil, err
+	}
+
+	logUpdates := make([]LogUpdate, numUpdates)
+	for i := 0; i < int(numUpdates); i++ {
+		err := ReadElements(r,
+			&logUpdates[i].LogIndex, &logUpdates[i].UpdateMsg,
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return logUpdates, nil
+}
+
 func serializeCommitDiff(w io.Writer, diff *CommitDiff) error {
 	if err := serializeChanCommit(w, &diff.Commitment); err != nil {
 		return err
@@ -1577,16 +1637,8 @@ func serializeCommitDiff(w io.Writer, diff *CommitDiff) error {
 		return err
 	}
 
-	numUpdates := uint16(len(diff.LogUpdates))
-	if err := binary.Write(w, byteOrder, numUpdates); err != nil {
+	if err := serializeLogUpdates(w, diff.LogUpdates); err != nil {
 		return err
-	}
-
-	for _, diff := range diff.LogUpdates {
-		err := WriteElements(w, diff.LogIndex, diff.UpdateMsg)
-		if err != nil {
-			return err
-		}
 	}
 
 	numOpenRefs := uint16(len(diff.OpenedCircuitKeys))
@@ -1632,19 +1684,9 @@ func deserializeCommitDiff(r io.Reader) (*CommitDiff, error) {
 		return nil, err
 	}
 
-	var numUpdates uint16
-	if err := binary.Read(r, byteOrder, &numUpdates); err != nil {
+	d.LogUpdates, err = deserializeLogUpdates(r)
+	if err != nil {
 		return nil, err
-	}
-
-	d.LogUpdates = make([]LogUpdate, numUpdates)
-	for i := 0; i < int(numUpdates); i++ {
-		err := ReadElements(r,
-			&d.LogUpdates[i].LogIndex, &d.LogUpdates[i].UpdateMsg,
-		)
-		if err != nil {
-			return nil, err
-		}
 	}
 
 	var numOpenRefs uint16
@@ -1737,6 +1779,14 @@ func (c *OpenChannel) AppendRemoteCommitChain(diff *CommitDiff) error {
 			return err
 		}
 
+		// Clear unsigned acked remote updates. We are signing now for
+		// all that we've got.
+		err = chanBucket.Delete(unsignedAckedUpdatesKey)
+		if err != nil {
+			return fmt.Errorf("unable to clear dangling remote "+
+				"updates: %v", err)
+		}
+
 		// TODO(roasbeef): use seqno to derive key for later LCP
 
 		// With the bucket retrieved, we'll now serialize the commit
@@ -1788,6 +1838,38 @@ func (c *OpenChannel) RemoteCommitChainTip() (*CommitDiff, error) {
 	}
 
 	return cd, err
+}
+
+// UnsignedAckedUpdates retrieves the persisted unsigned acked remote log
+// updates that still need to be signed for.
+func (c *OpenChannel) UnsignedAckedUpdates() ([]LogUpdate, error) {
+	var updates []LogUpdate
+	err := c.Db.View(func(tx *bbolt.Tx) error {
+		chanBucket, err := fetchChanBucket(
+			tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
+		)
+		switch err {
+		case nil:
+		case ErrNoChanDBExists, ErrNoActiveChannels, ErrChannelNotFound:
+			return nil
+		default:
+			return err
+		}
+
+		updateBytes := chanBucket.Get(unsignedAckedUpdatesKey)
+		if updateBytes == nil {
+			return nil
+		}
+
+		r := bytes.NewReader(updateBytes)
+		updates, err = deserializeLogUpdates(r)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return updates, nil
 }
 
 // InsertNextRevocation inserts the _next_ commitment point (revocation) into

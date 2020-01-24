@@ -29,6 +29,11 @@ type ContractResolutions struct {
 	// HtlcResolutions contains all data required to fully resolve any
 	// incoming+outgoing HTLC's present within the commitment transaction.
 	HtlcResolutions lnwallet.HtlcResolutions
+
+	// AnchorResolution contains the data required to sweep the anchor
+	// output. If the channel type doesn't include anchors, the value of
+	// this field will be nil.
+	AnchorResolution *lnwallet.AnchorResolution
 }
 
 // IsEmpty returns true if the set of resolutions is "empty". A resolution is
@@ -37,7 +42,8 @@ type ContractResolutions struct {
 func (c *ContractResolutions) IsEmpty() bool {
 	return c.CommitResolution == nil &&
 		len(c.HtlcResolutions.IncomingHTLCs) == 0 &&
-		len(c.HtlcResolutions.OutgoingHTLCs) == 0
+		len(c.HtlcResolutions.OutgoingHTLCs) == 0 &&
+		c.AnchorResolution == nil
 }
 
 // ArbitratorLog is the primary source of persistent storage for the
@@ -262,6 +268,10 @@ var (
 	// resolutionsKey is the key under the logScope that we'll use to store
 	// the full set of resolutions for a channel.
 	resolutionsKey = []byte("resolutions")
+
+	// anchorResolutionKey is the key under the logScope that we'll use to
+	// store the anchor resolution, if any.
+	anchorResolutionKey = []byte("anchor-resolution")
 
 	// actionsBucketKey is the key under the logScope that we'll use to
 	// store all chain actions once they're determined.
@@ -630,7 +640,26 @@ func (b *boltArbitratorLog) LogContractResolutions(c *ContractResolutions) error
 			}
 		}
 
-		return scopeBucket.Put(resolutionsKey, b.Bytes())
+		err = scopeBucket.Put(resolutionsKey, b.Bytes())
+		if err != nil {
+			return err
+		}
+
+		// Write out the anchor resolution if present.
+		if c.AnchorResolution != nil {
+			var b bytes.Buffer
+			err := encodeAnchorResolution(&b, c.AnchorResolution)
+			if err != nil {
+				return err
+			}
+
+			err = scopeBucket.Put(anchorResolutionKey, b.Bytes())
+			if err != nil {
+				return err
+			}
+		}
+
+		return nil
 	})
 }
 
@@ -704,6 +733,18 @@ func (b *boltArbitratorLog) FetchContractResolutions() (*ContractResolutions, er
 		for i := uint32(0); i < numOutgoing; i++ {
 			err := decodeOutgoingResolution(
 				resReader, &c.HtlcResolutions.OutgoingHTLCs[i],
+			)
+			if err != nil {
+				return err
+			}
+		}
+
+		anchorResBytes := scopeBucket.Get(anchorResolutionKey)
+		if anchorResBytes != nil {
+			c.AnchorResolution = &lnwallet.AnchorResolution{}
+			resReader := bytes.NewReader(anchorResBytes)
+			err := decodeAnchorResolution(
+				resReader, c.AnchorResolution,
 			)
 			if err != nil {
 				return err
@@ -1043,6 +1084,35 @@ func decodeCommitResolution(r io.Reader,
 	}
 
 	return binary.Read(r, endian, &c.MaturityDelay)
+}
+
+func encodeAnchorResolution(w io.Writer,
+	a *lnwallet.AnchorResolution) error {
+
+	if _, err := w.Write(a.CommitAnchor.Hash[:]); err != nil {
+		return err
+	}
+	err := binary.Write(w, endian, a.CommitAnchor.Index)
+	if err != nil {
+		return err
+	}
+
+	return input.WriteSignDescriptor(w, &a.AnchorSignDescriptor)
+}
+
+func decodeAnchorResolution(r io.Reader,
+	a *lnwallet.AnchorResolution) error {
+
+	_, err := io.ReadFull(r, a.CommitAnchor.Hash[:])
+	if err != nil {
+		return err
+	}
+	err = binary.Read(r, endian, &a.CommitAnchor.Index)
+	if err != nil {
+		return err
+	}
+
+	return input.ReadSignDescriptor(r, &a.AnchorSignDescriptor)
 }
 
 func encodeHtlcSetKey(w io.Writer, h *HtlcSetKey) error {

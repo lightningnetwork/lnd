@@ -2090,6 +2090,7 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 				CommitHash:       closeTx.TxHash(),
 				CommitResolution: closeInfo.CommitResolution,
 				HtlcResolutions:  *closeInfo.HtlcResolutions,
+				AnchorResolution: closeInfo.AnchorResolution,
 			}
 
 			// When processing a unilateral close event, we'll
@@ -2156,6 +2157,7 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 				CommitHash:       *uniClosure.SpenderTxHash,
 				CommitResolution: uniClosure.CommitResolution,
 				HtlcResolutions:  *uniClosure.HtlcResolutions,
+				AnchorResolution: uniClosure.AnchorResolution,
 			}
 
 			// When processing a unilateral close event, we'll

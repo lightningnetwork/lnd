@@ -220,6 +220,61 @@ func NewChainArbitrator(cfg ChainArbitratorConfig,
 	}
 }
 
+// arbChannel is a wrapper around an open channel that channel arbitrators
+// interact with.
+type arbChannel struct {
+	// channel is the in-memory channel state.
+	channel *channeldb.OpenChannel
+
+	// c references the chain arbitrator and is used by arbChannel
+	// internally.
+	c *ChainArbitrator
+}
+
+// ForceCloseChan should force close the contract that this attendant is
+// watching over. We'll use this when we decide that we need to go to chain. It
+// should in addition tell the switch to remove the corresponding link, such
+// that we won't accept any new updates. The returned summary contains all items
+// needed to eventually resolve all outputs on chain.
+//
+// NOTE: Part of the ArbChannel interface.
+func (a *arbChannel) ForceCloseChan() (*lnwallet.LocalForceCloseSummary, error) {
+	// First, we mark the channel as borked, this ensure
+	// that no new state transitions can happen, and also
+	// that the link won't be loaded into the switch.
+	if err := a.channel.MarkBorked(); err != nil {
+		return nil, err
+	}
+
+	// With the channel marked as borked, we'll now remove
+	// the link from the switch if its there. If the link
+	// is active, then this method will block until it
+	// exits.
+	chanPoint := a.channel.FundingOutpoint
+
+	if err := a.c.cfg.MarkLinkInactive(chanPoint); err != nil {
+		log.Errorf("unable to mark link inactive: %v", err)
+	}
+
+	// Now that we know the link can't mutate the channel
+	// state, we'll read the channel from disk the target
+	// channel according to its channel point.
+	channel, err := a.c.chanSource.FetchChannel(chanPoint)
+	if err != nil {
+		return nil, err
+	}
+
+	// Finally, we'll force close the channel completing
+	// the force close workflow.
+	chanMachine, err := lnwallet.NewLightningChannel(
+		a.c.cfg.Signer, channel, nil,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return chanMachine.ForceClose()
+}
+
 // newActiveChannelArbitrator creates a new instance of an active channel
 // arbitrator given the state of the target channel.
 func newActiveChannelArbitrator(channel *channeldb.OpenChannel,
@@ -247,42 +302,10 @@ func newActiveChannelArbitrator(channel *channeldb.OpenChannel,
 	// all interfaces and methods the arbitrator needs to do its job.
 	arbCfg := ChannelArbitratorConfig{
 		ChanPoint:   chanPoint,
+		Channel:     c.getArbChannel(channel),
 		ShortChanID: channel.ShortChanID(),
 		BlockEpochs: blockEpoch,
-		ForceCloseChan: func() (*lnwallet.LocalForceCloseSummary, error) {
-			// First, we mark the channel as borked, this ensure
-			// that no new state transitions can happen, and also
-			// that the link won't be loaded into the switch.
-			if err := channel.MarkBorked(); err != nil {
-				return nil, err
-			}
 
-			// With the channel marked as borked, we'll now remove
-			// the link from the switch if its there. If the link
-			// is active, then this method will block until it
-			// exits.
-			if err := c.cfg.MarkLinkInactive(chanPoint); err != nil {
-				log.Errorf("unable to mark link inactive: %v", err)
-			}
-
-			// Now that we know the link can't mutate the channel
-			// state, we'll read the channel from disk the target
-			// channel according to its channel point.
-			channel, err := c.chanSource.FetchChannel(chanPoint)
-			if err != nil {
-				return nil, err
-			}
-
-			// Finally, we'll force close the channel completing
-			// the force close workflow.
-			chanMachine, err := lnwallet.NewLightningChannel(
-				c.cfg.Signer, channel, nil,
-			)
-			if err != nil {
-				return nil, err
-			}
-			return chanMachine.ForceClose()
-		},
 		MarkCommitmentBroadcasted: channel.MarkCommitmentBroadcasted,
 		MarkChannelClosed: func(summary *channeldb.ChannelCloseSummary,
 			statuses ...channeldb.ChannelStatus) error {
@@ -337,6 +360,16 @@ func newActiveChannelArbitrator(channel *channeldb.OpenChannel,
 	return NewChannelArbitrator(
 		arbCfg, htlcSets, chanLog,
 	), nil
+}
+
+// getArbChannel returns an open channel wrapper for use by channel arbitrators.
+func (c *ChainArbitrator) getArbChannel(
+	channel *channeldb.OpenChannel) *arbChannel {
+
+	return &arbChannel{
+		channel: channel,
+		c:       c,
+	}
 }
 
 // ResolveContract marks a contract as fully resolved within the database.

@@ -64,6 +64,18 @@ type WitnessBeacon interface {
 	AddPreimages(preimages ...lntypes.Preimage) error
 }
 
+// ArbChannel is an abstraction that allows the channel arbitrator to interact
+// with an open channel.
+type ArbChannel interface {
+	// ForceCloseChan should force close the contract that this attendant
+	// is watching over. We'll use this when we decide that we need to go
+	// to chain. It should in addition tell the switch to remove the
+	// corresponding link, such that we won't accept any new updates. The
+	// returned summary contains all items needed to eventually resolve all
+	// outputs on chain.
+	ForceCloseChan() (*lnwallet.LocalForceCloseSummary, error)
+}
+
 // ChannelArbitratorConfig contains all the functionality that the
 // ChannelArbitrator needs in order to properly arbitrate any contract dispute
 // on chain.
@@ -71,6 +83,10 @@ type ChannelArbitratorConfig struct {
 	// ChanPoint is the channel point that uniquely identifies this
 	// channel.
 	ChanPoint wire.OutPoint
+
+	// Channel is the full channel data structure. For legacy channels, this
+	// field may not always be set after a restart.
+	Channel ArbChannel
 
 	// ShortChanID describes the exact location of the channel within the
 	// chain. We'll use this to address any messages that we need to send
@@ -87,14 +103,6 @@ type ChannelArbitratorConfig struct {
 	// channel to be notified of any on-chain activity related to this
 	// channel.
 	ChainEvents *ChainEventSubscription
-
-	// ForceCloseChan should force close the contract that this attendant
-	// is watching over. We'll use this when we decide that we need to go
-	// to chain. It should in addition tell the switch to remove the
-	// corresponding link, such that we won't accept any new updates. The
-	// returned summary contains all items needed to eventually resolve all
-	// outputs on chain.
-	ForceCloseChan func() (*lnwallet.LocalForceCloseSummary, error)
 
 	// MarkCommitmentBroadcasted should mark the channel as the commitment
 	// being broadcast, and we are waiting for the commitment to confirm.
@@ -791,7 +799,7 @@ func (c *ChannelArbitrator) stateStep(
 		// We'll tell the switch that it should remove the link for
 		// this channel, in addition to fetching the force close
 		// summary needed to close this channel on chain.
-		closeSummary, err := c.cfg.ForceCloseChan()
+		closeSummary, err := c.cfg.Channel.ForceCloseChan()
 		if err != nil {
 			log.Errorf("ChannelArbitrator(%v): unable to "+
 				"force close: %v", c.cfg.ChanPoint, err)

@@ -360,13 +360,7 @@ func createTestChannelArbitrator(t *testing.T, log ArbitratorLog,
 			resolvedChan <- struct{}{}
 			return nil
 		},
-		ForceCloseChan: func() (*lnwallet.LocalForceCloseSummary, error) {
-			summary := &lnwallet.LocalForceCloseSummary{
-				CloseTx:         &wire.MsgTx{},
-				HtlcResolutions: &lnwallet.HtlcResolutions{},
-			}
-			return summary, nil
-		},
+		Channel: &mockChannel{},
 		MarkCommitmentBroadcasted: func(_ *wire.MsgTx, _ bool) error {
 			return nil
 		},
@@ -2087,4 +2081,14 @@ func TestRemoteCloseInitiator(t *testing.T) {
 			}
 		})
 	}
+}
+
+type mockChannel struct{}
+
+func (m *mockChannel) ForceCloseChan() (*lnwallet.LocalForceCloseSummary, error) {
+	summary := &lnwallet.LocalForceCloseSummary{
+		CloseTx:         &wire.MsgTx{},
+		HtlcResolutions: &lnwallet.HtlcResolutions{},
+	}
+	return summary, nil
 }

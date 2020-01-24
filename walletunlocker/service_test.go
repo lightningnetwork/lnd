@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcwallet/snacl"
+	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/btcsuite/btcwallet/wallet"
 	"github.com/lightningnetwork/lnd/aezeed"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -35,6 +37,19 @@ var (
 )
 
 func createTestWallet(t *testing.T, dir string, netParams *chaincfg.Params) {
+	// Instruct waddrmgr to use the cranked down scrypt parameters when
+	// creating new wallet encryption keys.
+	fastScrypt := waddrmgr.FastScryptOptions
+	keyGen := func(passphrase *[]byte, config *waddrmgr.ScryptOptions) (
+		*snacl.SecretKey, error) {
+
+		return snacl.NewSecretKey(
+			passphrase, fastScrypt.N, fastScrypt.R, fastScrypt.P,
+		)
+	}
+	waddrmgr.SetSecretKeyGen(keyGen)
+
+	// Create a new test wallet that uses fast scrypt as KDF.
 	netDir := btcwallet.NetworkDir(dir, netParams)
 	loader := wallet.NewLoader(netParams, netDir, true, 0)
 	_, err := loader.CreateNewWallet(

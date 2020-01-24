@@ -6460,23 +6460,32 @@ func testBasicChannelCreationAndUpdates(net *lntest.NetworkHarness, t *harnessTe
 	// Since each of the channels just became open, Bob and Alice should
 	// each receive an open and an active notification for each channel.
 	var numChannelUpds int
-	const totalNtfns = 2 * numChannels
+	const totalNtfns = 3 * numChannels
 	verifyOpenUpdatesReceived := func(sub channelSubscription) error {
 		numChannelUpds = 0
 		for numChannelUpds < totalNtfns {
 			select {
 			case update := <-sub.updateChan:
 				switch update.Type {
-				case lnrpc.ChannelEventUpdate_ACTIVE_CHANNEL:
-					if numChannelUpds%2 != 1 {
-						return fmt.Errorf("expected open" +
-							"channel ntfn, got active " +
+				case lnrpc.ChannelEventUpdate_PENDING_OPEN_CHANNEL:
+					if numChannelUpds%3 != 0 {
+						return fmt.Errorf("expected " +
+							"open or active" +
+							"channel ntfn, got pending open " +
 							"channel ntfn instead")
 					}
 				case lnrpc.ChannelEventUpdate_OPEN_CHANNEL:
-					if numChannelUpds%2 != 0 {
-						return fmt.Errorf("expected active" +
+					if numChannelUpds%3 != 1 {
+						return fmt.Errorf("expected " +
+							"pending open or active" +
 							"channel ntfn, got open" +
+							"channel ntfn instead")
+					}
+				case lnrpc.ChannelEventUpdate_ACTIVE_CHANNEL:
+					if numChannelUpds%3 != 2 {
+						return fmt.Errorf("expected " +
+							"pending open or open" +
+							"channel ntfn, got active " +
 							"channel ntfn instead")
 					}
 				default:

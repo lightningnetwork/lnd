@@ -337,7 +337,8 @@ func (s *Switch) ProcessContractResolution(msg contractcourt.ResolutionMsg) erro
 // be sent when available, or an error is encountered during forwarding. When a
 // result is received on the channel, the HTLC is guaranteed to no longer be in
 // flight. The switch shutting down is signaled by closing the channel. If the
-// paymentID is unknown, ErrPaymentIDNotFound will be returned.
+// paymentID is unknown, ErrPaymentIDNotFound will be returned as the payment
+// result.
 func (s *Switch) GetPaymentResult(paymentID uint64, paymentHash lntypes.Hash,
 	deobfuscator ErrorDecrypter) (<-chan *PaymentResult, error) {
 
@@ -348,6 +349,7 @@ func (s *Switch) GetPaymentResult(paymentID uint64, paymentHash lntypes.Hash,
 			ChanID: hop.Source,
 			HtlcID: paymentID,
 		}
+		resultChan = make(chan *PaymentResult, 1)
 	)
 
 	// If the payment is not found in the circuit map, check whether a
@@ -355,9 +357,30 @@ func (s *Switch) GetPaymentResult(paymentID uint64, paymentHash lntypes.Hash,
 	// Assumption: no one will add this payment ID other than the caller.
 	if s.circuits.LookupCircuit(outKey) == nil {
 		res, err := s.networkResults.getResult(paymentID)
-		if err != nil {
+		switch {
+
+		// If this payment ID is unknown, it means it was never
+		// checkpointed to the citcuit map and forwarded before a
+		// restart. In this case we can safely send a new payment
+		// attempt, and wait for its result to be available. So we'll
+		// immediately send the error back on the result channel to
+		// indicate the payment attempt is no longer in flight, and
+		// return early.
+		case err == ErrPaymentIDNotFound:
+			log.Debugf("Payment ID %v for hash %x not found in "+
+				"the network result store, retrying.",
+				paymentID, paymentHash)
+
+			resultChan <- &PaymentResult{
+				Error: err,
+			}
+			return resultChan, nil
+
+		// A critical, unexpected error was encountered.
+		case err != nil:
 			return nil, err
 		}
+
 		c := make(chan *networkResult, 1)
 		c <- res
 		nChan = c
@@ -369,8 +392,6 @@ func (s *Switch) GetPaymentResult(paymentID uint64, paymentHash lntypes.Hash,
 			return nil, err
 		}
 	}
-
-	resultChan := make(chan *PaymentResult, 1)
 
 	// Since the payment was known, we can start a goroutine that can
 	// extract the result when it is available, and pass it on to the

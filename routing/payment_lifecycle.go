@@ -99,25 +99,8 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 		resultChan, err := p.router.cfg.Payer.GetPaymentResult(
 			p.attempt.AttemptID, p.payment.PaymentHash, errorDecryptor,
 		)
-		switch {
-
-		// If this attempt ID is unknown to the Switch, it means it was
-		// never checkpointed and forwarded by the switch before a
-		// restart. In this case we can safely send a new payment
-		// attempt, and wait for its result to be available.
-		case err == htlcswitch.ErrPaymentIDNotFound:
-			log.Debugf("Payment ID %v for hash %x not found in "+
-				"the Switch, retrying.", p.attempt.AttemptID,
-				p.payment.PaymentHash)
-
-			// Reset the attempt to indicate we want to make a new
-			// attempt.
-			p.attempt = nil
-			continue
-
-		// A critical, unexpected error was encountered.
-		case err != nil:
-			log.Errorf("Failed getting result for attemptID %d "+
+		if err != nil {
+			log.Errorf("Failed getting result for attemptID%d "+
 				"from switch: %v", p.attempt.AttemptID, err)
 
 			return [32]byte{}, nil, err

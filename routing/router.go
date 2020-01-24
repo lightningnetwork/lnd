@@ -145,7 +145,8 @@ type PaymentAttemptDispatcher interface {
 	// during forwarding. When a result is received on the channel, the
 	// HTLC is guaranteed to no longer be in flight. The switch shutting
 	// down is signaled by closing the channel. If the paymentID is
-	// unknown, ErrPaymentIDNotFound will be returned.
+	// unknown, ErrPaymentIDNotFound will be returned as the payment
+	// result.
 	GetPaymentResult(paymentID uint64, paymentHash lntypes.Hash,
 		deobfuscator htlcswitch.ErrorDecrypter) (
 		<-chan *htlcswitch.PaymentResult, error)
@@ -1876,6 +1877,12 @@ func (r *ChannelRouter) tryApplyChannelUpdate(rt *route.Route,
 // return value.
 func (r *ChannelRouter) processSendError(paymentID uint64, rt *route.Route,
 	sendErr error) *channeldb.FailureReason {
+
+	// If the send failed because it was not known to the switch, it was
+	// not persisted before a restart, so we'll return nil to try again.
+	if sendErr == htlcswitch.ErrPaymentIDNotFound {
+		return nil
+	}
 
 	internalErrorReason := channeldb.FailureReasonError
 

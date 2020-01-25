@@ -198,12 +198,8 @@ func (i *InvoiceRegistry) populateExpiryWatcher() error {
 		return err
 	}
 
-	for idx := range pendingInvoices {
-		i.expiryWatcher.AddInvoice(
-			pendingInvoices[idx].PaymentHash, &pendingInvoices[idx].Invoice,
-		)
-	}
-
+	log.Debugf("Adding %v pending invoices to the expiry watcher")
+	i.expiryWatcher.AddInvoices(pendingInvoices)
 	return nil
 }
 

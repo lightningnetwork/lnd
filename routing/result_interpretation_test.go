@@ -165,6 +165,8 @@ var resultTestCases = []resultTestCase{
 			pairResults: map[DirectedNodePair]pairResult{
 				getTestPair(1, 0): failPairResult(0),
 				getTestPair(1, 2): failPairResult(0),
+				getTestPair(0, 1): failPairResult(0),
+				getTestPair(2, 1): failPairResult(0),
 			},
 		},
 	},
@@ -182,6 +184,7 @@ var resultTestCases = []resultTestCase{
 			nodeFailure:        &hops[1],
 			pairResults: map[DirectedNodePair]pairResult{
 				getTestPair(1, 0): failPairResult(0),
+				getTestPair(0, 1): failPairResult(0),
 			},
 		},
 	},
@@ -233,6 +236,7 @@ var resultTestCases = []resultTestCase{
 					amt:     97,
 				},
 				getTestPair(4, 3): {},
+				getTestPair(3, 4): {},
 			},
 			finalFailureReason: &reasonError,
 			nodeFailure:        &hops[4],
@@ -257,6 +261,7 @@ var resultTestCases = []resultTestCase{
 					amt:     99,
 				},
 				getTestPair(3, 2): {},
+				getTestPair(2, 3): {},
 			},
 			finalFailureReason: &reasonError,
 			nodeFailure:        &hops[3],
@@ -284,6 +289,8 @@ var resultTestCases = []resultTestCase{
 				},
 				getTestPair(3, 2): {},
 				getTestPair(3, 4): {},
+				getTestPair(2, 3): {},
+				getTestPair(4, 3): {},
 			},
 			nodeFailure: &hops[3],
 		},
@@ -301,6 +308,7 @@ var resultTestCases = []resultTestCase{
 		expectedResult: &interpretedResult{
 			pairResults: map[DirectedNodePair]pairResult{
 				getTestPair(1, 0): {},
+				getTestPair(0, 1): {},
 			},
 			finalFailureReason: &reasonError,
 			nodeFailure:        &hops[1],

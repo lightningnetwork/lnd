@@ -424,11 +424,13 @@ func (i *interpretedResult) failNode(rt *route.Route, idx int) {
 	// Mark the incoming connection as failed for the node. We intent to
 	// penalize as much as we can for a node level failure, including future
 	// outgoing traffic for this connection. The pair as it is returned by
-	// getPair is directed towards the failed node. Therefore we first
-	// reverse the pair. We don't want to affect the score of the node
-	// sending towards the failing node.
+	// getPair is penalized in the original and the reversed direction. Note
+	// that this will also affect the score of the failing node's peers.
+	// This is necessary to prevent future routes from keep going into the
+	// same node again.
 	incomingChannelIdx := idx - 1
 	inPair, _ := getPair(rt, incomingChannelIdx)
+	i.pairResults[inPair] = failPairResult(0)
 	i.pairResults[inPair.Reverse()] = failPairResult(0)
 
 	// If not the ultimate node, mark the outgoing connection as failed for
@@ -437,6 +439,7 @@ func (i *interpretedResult) failNode(rt *route.Route, idx int) {
 		outgoingChannelIdx := idx
 		outPair, _ := getPair(rt, outgoingChannelIdx)
 		i.pairResults[outPair] = failPairResult(0)
+		i.pairResults[outPair.Reverse()] = failPairResult(0)
 	}
 }
 

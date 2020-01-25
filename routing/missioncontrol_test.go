@@ -186,8 +186,8 @@ func TestMissionControl(t *testing.T) {
 	// Check whether history snapshot looks sane.
 	history := ctx.mc.GetHistorySnapshot()
 
-	if len(history.Pairs) != 3 {
-		t.Fatalf("expected 3 pairs, but got %v", len(history.Pairs))
+	if len(history.Pairs) != 4 {
+		t.Fatalf("expected 4 pairs, but got %v", len(history.Pairs))
 	}
 
 	// Test reporting a success.

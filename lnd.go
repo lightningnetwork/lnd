@@ -377,6 +377,7 @@ func Main(lisCfg ListenerCfg) error {
 		// Create the macaroon authentication/authorization service.
 		macaroonService, err = macaroons.NewService(
 			networkDir, macaroons.IPLockChecker,
+			macaroons.AccountLockChecker,
 		)
 		if err != nil {
 			err := fmt.Errorf("Unable to set up macaroon "+
@@ -657,6 +658,26 @@ func Main(lisCfg ListenerCfg) error {
 		return err
 	}
 	defer server.Stop()
+
+	invoiceSub := server.invoices.SubscribeNotifications(0, 0)
+	go func() {
+		for {
+			select {
+			case invoice := <-invoiceSub.SettledInvoices:
+				err := macaroonService.CreditAccount(
+					invoice.Terms.PaymentPreimage.Hash(),
+					invoice.AmtPaid,
+				)
+				if err != nil {
+					rpcsLog.Errorf("Error crediting an "+
+						"account with payment: %v", err)
+				}
+
+			case <-signal.ShutdownChannel():
+				return
+			}
+		}
+	}()
 
 	// Now that the server has started, if the autopilot mode is currently
 	// active, then we'll start the autopilot agent immediately. It will be

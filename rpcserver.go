@@ -3647,7 +3647,7 @@ func (r *rpcServer) dispatchPaymentIntent(ctx context.Context,
 	// amount), this might result in an error. Therefore the user should
 	// be informed that the fee limit should be set to an explicit, lower,
 	// value.
-	err := r.server.macService.ValidateMacaroonAccountBalance(
+	err := r.macService.ValidateAccountBalance(
 		ctx, payIntent.msat+payIntent.feeLimit,
 	)
 	if err != nil {
@@ -3702,8 +3702,8 @@ func (r *rpcServer) dispatchPaymentIntent(ctx context.Context,
 	// Finally, make sure the macaroon's account is credited. Obviously this
 	// does nothing if there is no account restriction in the caller's
 	// macaroon.
-	err = r.server.macService.ChargeMacaroonAccountBalance(
-		ctx, route.TotalAmount,
+	err = r.macService.ChargeAccountBalance(
+		ctx, payIntent.rHash, route.TotalAmount,
 	)
 	if err != nil {
 		// Not being able to charge the account qualifies as a save
@@ -4061,6 +4061,13 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 	hash, dbInvoice, err := invoicesrpc.AddInvoice(
 		ctx, addInvoiceCfg, addInvoiceData,
 	)
+	if err != nil {
+		return nil, err
+	}
+
+	// Record the invoice as belonging to an account, if there's a macaroon
+	// locked to an account present in the context.
+	err = r.macService.AddInvoice(ctx, hash)
 	if err != nil {
 		return nil, err
 	}
@@ -6028,8 +6035,8 @@ func (r *rpcServer) CreateAccount(ctx context.Context,
 	// If the expiration date was set, parse it as an unix time stamp.
 	// Otherwise we leave it nil to indicate the account has no expiration
 	// date.
-	if req.ExpirationDate != 0 {
-		expirationDate = time.Unix(int64(req.ExpirationDate), 0)
+	if req.ExpirationDate >= 0 {
+		expirationDate = time.Unix(req.ExpirationDate, 0)
 	}
 
 	// Convert from satoshis to millisatoshis for storage.
@@ -6037,7 +6044,7 @@ func (r *rpcServer) CreateAccount(ctx context.Context,
 	balanceMsat = lnwire.NewMSatFromSatoshis(balance)
 
 	// Create the actual account in the macaroon account store.
-	account, err := r.server.macService.NewAccount(
+	account, err := r.macService.NewAccount(
 		balanceMsat, expirationDate,
 	)
 	if err != nil {
@@ -6069,7 +6076,7 @@ func (r *rpcServer) ListAccounts(ctx context.Context,
 	rpcsLog.Debugf("[listaccounts]")
 
 	// Retrieve all accounts from the macaroon account store.
-	accounts, err := r.server.macService.GetAccounts()
+	accounts, err := r.macService.GetAccounts()
 	if err != nil {
 		return nil, fmt.Errorf("unable to list accounts: %v", err)
 	}
@@ -6103,7 +6110,7 @@ func (r *rpcServer) ListAccounts(ctx context.Context,
 func (r *rpcServer) RemoveAccount(ctx context.Context,
 	req *lnrpc.RemoveAccountRequest) (*lnrpc.RemoveAccountResponse, error) {
 
-	rpcsLog.Debugf("[removeaccount")
+	rpcsLog.Debugf("[removeaccount]")
 
 	// Account ID is always a hex string, convert it to byte array.
 	var accountID = macaroons.AccountID{}
@@ -6114,7 +6121,7 @@ func (r *rpcServer) RemoveAccount(ctx context.Context,
 	copy(accountID[:], decoded)
 
 	// Now remove the account.
-	err = r.server.macService.RemoveAccount(accountID)
+	err = r.macService.RemoveAccount(accountID)
 	if err != nil {
 		return nil, err
 	}

@@ -1,9 +1,10 @@
 package macaroons
 
 import (
+	"bytes"
 	"crypto/rand"
-	"encoding/binary"
 	"fmt"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"time"
 
 	"github.com/coreos/bbolt"
@@ -15,7 +16,13 @@ const (
 	// unique identifier of an account. It is 8 bytes long so guessing
 	// is improbable but it's still not mistaken for a SHA256 hash.
 	AccountIDLen = 8
+)
 
+// AccountType is an enum-like type which denotes the possible account types
+// that can be referenced in macaroons to keep track of user's balances.
+type AccountType uint8
+
+const (
 	// OneTimeBalance represents an account that has an initial balance
 	// that is used up when it is spent and is not replenished
 	// automatically.
@@ -25,10 +32,6 @@ const (
 	// replenished after a certain amount of time has passed.
 	PeriodicBalance
 )
-
-// AccountType is an enum-like type which denotes the possible account types
-// that can be referenced in macaroons to keep track of user's balances.
-type AccountType uint8
 
 // AccountID is the type of an account's unique ID.
 type AccountID [AccountIDLen]byte
@@ -42,10 +45,6 @@ var (
 	// accounts in the DB yet which can/should only happen if the account
 	// store has been corrupted or was initialized incorrectly.
 	ErrAccountBucketNotFound = fmt.Errorf("account bucket not found")
-
-	// ErrMalformed is returned if a binary stored account cannot be
-	// marshaled back.
-	ErrMalformed = fmt.Errorf("malformed data")
 
 	// ErrAccNotFound is returned if an account could not be found in the
 	// local bolt DB.
@@ -86,89 +85,23 @@ type OffChainBalanceAccount struct {
 	// account is marked as expired. Can be set to nil for accounts that
 	// never expire.
 	ExpirationDate time.Time
-}
 
-// Marshal returns the account marshaled into a format suitable for storage.
-func (a *OffChainBalanceAccount) Marshal() ([]byte, error) {
-	// The marshaled format for the the account is as follows:
-	//   <ID><Type><InitialBalance><CurrentBalance><LastUpdate>
-	//   <ExpirationDate>
-	//
-	// The time.Time type is 15 bytes long when binary marshaled.
-	//
-	// AccountIdLen + Type (1 byte) + InitialBalance (8 bytes) +
-	// CurrentBalance (8 bytes) + LastUpdate (15 bytes) +
-	// ExpirationDate (15 bytes) = AccountIdLen + 47 bytes = 55 bytes
-	marshaled := make([]byte, AccountIDLen+47)
-
-	b := marshaled
-	copy(b[:AccountIDLen], a.ID[:])
-	b = b[AccountIDLen:]
-	b[0] = byte(a.Type)
-	b = b[1:]
-	binary.LittleEndian.PutUint64(b[:8], uint64(a.InitialBalance))
-	b = b[8:]
-	binary.LittleEndian.PutUint64(b[:8], uint64(a.CurrentBalance))
-	b = b[8:]
-	lastUpdateMarshaled, err := a.LastUpdate.MarshalBinary()
-	if err != nil {
-		return nil, err
-	}
-	copy(b[:15], lastUpdateMarshaled)
-	b = b[15:]
-	expirationDateMarshaled, err := a.ExpirationDate.MarshalBinary()
-	if err != nil {
-		return nil, err
-	}
-	copy(b[:15], expirationDateMarshaled)
-
-	return marshaled, nil
-}
-
-// Unmarshal unmarshals the account from a binary format.
-func (a *OffChainBalanceAccount) Unmarshal(marshaled []byte) error {
-	// The marshaled format for the the account is as follows:
-	//   <ID><Type><InitialBalance><CurrentBalance><LastUpdate>
-	//   <ExpirationDate>
-	//
-	// The time.Time type is 15 bytes long when binary marshaled.
-	//
-	// AccountIdLen + Type (1 byte) + InitialBalance (8 bytes) +
-	// CurrentBalance (8 bytes) + LastUpdate (15 bytes) +
-	// ExpirationDate (15 bytes) = AccountIdLen + 47 bytes = 55 bytes
-	if len(marshaled) != AccountIDLen+47 {
-		return ErrMalformed
-	}
-
-	copy(a.ID[:], marshaled[:AccountIDLen])
-	marshaled = marshaled[AccountIDLen:]
-	a.Type = AccountType(marshaled[0])
-	marshaled = marshaled[1:]
-	a.InitialBalance = lnwire.MilliSatoshi(
-		binary.LittleEndian.Uint64(marshaled[:8]),
-	)
-	marshaled = marshaled[8:]
-	a.CurrentBalance = lnwire.MilliSatoshi(
-		binary.LittleEndian.Uint64(marshaled[:8]),
-	)
-	marshaled = marshaled[8:]
-	a.LastUpdate = time.Time{}
-	if err := a.LastUpdate.UnmarshalBinary(marshaled[:15]); err != nil {
-		return err
-	}
-	marshaled = marshaled[15:]
-	a.ExpirationDate = time.Time{}
-	if err := a.ExpirationDate.UnmarshalBinary(marshaled[:15]); err != nil {
-		return err
-	}
-
-	return nil
+	// Invoices is a list of all invoices that are associated with the
+	// account.
+	Invoices []*lntypes.Hash
+	
+	// Payments is a list of all payments that are associated with the
+	// account
+	Payments []*lntypes.Hash
 }
 
 // HasExpired returns true if the account has an expiration date set and that
 // date is in the past.
 func (a *OffChainBalanceAccount) HasExpired() bool {
-	return !a.ExpirationDate.IsZero() && a.ExpirationDate.Before(time.Now())
+	if a.ExpirationDate.Unix() == 0 {
+		return false
+	}
+	return a.ExpirationDate.Before(time.Now())
 }
 
 // AccountStorage wraps the bolt DB that stores all accounts and their balances.
@@ -203,18 +136,19 @@ func (s *AccountStorage) NewAccount(balance lnwire.MilliSatoshi,
 
 	// First, create a new instance of an account. Currently only the type
 	// OneTimeBalance is supported.
-	account := &OffChainBalanceAccount{
-		Type:           OneTimeBalance,
-		InitialBalance: balance,
-		CurrentBalance: balance,
-		LastUpdate:     time.Now(),
-		ExpirationDate: expirationDate,
-	}
 	id, err := s.uniqueRandomAccountID()
 	if err != nil {
 		return nil, err
 	}
-	account.ID = id
+	account := &OffChainBalanceAccount{
+		ID:             id,
+		Type:           OneTimeBalance,
+		InitialBalance: balance,
+		CurrentBalance: balance,
+		ExpirationDate: expirationDate,
+		Invoices:       make([]*lntypes.Hash, 0),
+		Payments:       make([]*lntypes.Hash, 0),
+	}
 
 	// Try storing the account in the account database so we can keep track
 	// of its balance.
@@ -232,7 +166,8 @@ func (s *AccountStorage) storeAccount(account *OffChainBalanceAccount) error {
 		if bucket == nil {
 			return ErrAccountBucketNotFound
 		}
-		accountBinary, err := account.Marshal()
+		account.LastUpdate = time.Now()
+		accountBinary, err := serializeAccount(account)
 		if err != nil {
 			return err
 		}
@@ -276,10 +211,10 @@ func (s *AccountStorage) GetAccount(
 		return nil, err
 	}
 
-	// Now try unmarshaling the account back from the binary format it was
+	// Now try to deserialize the account back from the binary format it was
 	// stored in.
-	account := &OffChainBalanceAccount{}
-	if err := account.Unmarshal(accountBinary); err != nil {
+	account, err := deserializeAccount(accountBinary)
+	if err != nil {
 		return nil, err
 	}
 
@@ -298,8 +233,8 @@ func (s *AccountStorage) GetAccounts() ([]*OffChainBalanceAccount, error) {
 			if v == nil {
 				return nil
 			}
-			account := &OffChainBalanceAccount{}
-			if err := account.Unmarshal(v); err != nil {
+			account, err := deserializeAccount(v)
+			if err != nil {
 				return err
 			}
 			accounts = append(accounts, account)
@@ -337,9 +272,9 @@ func (s *AccountStorage) RemoveAccount(id AccountID) error {
 	return err
 }
 
-// CheckAccountBalance ensures an account is valid and has a balance equal to
+// checkBalance ensures an account is valid and has a balance equal to
 // or larger than the amount that is required.
-func (s *AccountStorage) CheckAccountBalance(id AccountID,
+func (s *AccountStorage) checkBalance(id AccountID,
 	requiredBalance lnwire.MilliSatoshi) error {
 
 	// Check that the account exists, it hasn't expired and has sufficient
@@ -357,8 +292,8 @@ func (s *AccountStorage) CheckAccountBalance(id AccountID,
 	return nil
 }
 
-// ChargeAccount subtracts the given amount from an account's balance.
-func (s *AccountStorage) ChargeAccount(id AccountID,
+// chargeAccount subtracts the given amount from an account's balance.
+func (s *AccountStorage) chargeAccount(id AccountID, payment *lntypes.Hash,
 	amount lnwire.MilliSatoshi) error {
 
 	// Check that the account exists and has sufficient balance.
@@ -366,17 +301,126 @@ func (s *AccountStorage) ChargeAccount(id AccountID,
 	if err != nil {
 		return err
 	}
-	if err := s.CheckAccountBalance(id, amount); err != nil {
+	if err := s.checkBalance(id, amount); err != nil {
 		return err
 	}
 
 	// Update the account and store it in the database.
 	account.CurrentBalance -= amount
-	account.LastUpdate = time.Now()
+	account.Payments = append(account.Payments, payment)
 	return s.storeAccount(account)
 }
 
-// Close closes the underlying database.
-func (s *AccountStorage) Close() error {
-	return s.DB.Close()
+// addInvoice associates a generated invoice with the given account,
+// making it possible for the account to be credited in case the invoice is
+// paid.
+func (s *AccountStorage) addInvoice(id AccountID,
+	invoice *lntypes.Hash) error {
+
+	account, err := s.GetAccount(id)
+	if err != nil {
+		return err
+	}
+	account.Invoices = append(account.Invoices, invoice)
+	return s.storeAccount(account)
+}
+
+// CreditAccount checks if a paid invoice was associated with any existing
+// account. If an account is found that is still valid, it gets the invoice
+// amount credited.
+func (s *AccountStorage) CreditAccount(paidInvoice lntypes.Hash,
+	amount lnwire.MilliSatoshi) error {
+	
+	accounts, err := s.GetAccounts()
+	if err != nil {
+		return err
+	}
+	for _, account := range accounts {
+		if account.HasExpired() {
+			continue
+		}
+		for _, createdInvoice := range account.Invoices {
+			if !bytes.Equal(createdInvoice[:], paidInvoice[:]) {
+				continue
+			}
+			
+			// If we get here, the current account has the invoice
+			// associated with it that was just paid. Credit the
+			// amount to the account and finish the search.
+			account.CurrentBalance += amount
+			account.Payments = append(
+				account.Payments, &paidInvoice,
+			)
+			return s.storeAccount(account)
+		}
+	}
+	return nil
+}
+
+func serializeAccount(account *OffChainBalanceAccount) ([]byte, error) {
+	var w bytes.Buffer
+	err := lnwire.WriteElements(
+		&w, account.ID[:], uint8(account.Type), account.InitialBalance,
+		account.CurrentBalance, uint64(account.LastUpdate.UnixNano()),
+		uint64(account.ExpirationDate.UnixNano()),
+		uint32(len(account.Invoices)), uint32(len(account.Payments)),
+	)
+	if err != nil {
+		return nil, err
+	}
+	for _, invoiceHash := range account.Invoices {
+		err := lnwire.WriteElement(&w, invoiceHash[:])
+		if err != nil {
+			return nil, err
+		}
+	}
+	for _, paymentHash := range account.Payments {
+		err := lnwire.WriteElement(&w, paymentHash[:])
+		if err != nil {
+			return nil, err
+		}
+	}
+	return w.Bytes(), nil
+}
+
+func deserializeAccount(content []byte) (*OffChainBalanceAccount, error) {
+	var (
+		r              = bytes.NewReader(content)
+		account        = &OffChainBalanceAccount{}
+		accType        uint8
+		lastUpdate     uint64
+		expirationDate uint64
+		numInvoices    uint32
+		numPayments    uint32
+	)
+	err := lnwire.ReadElements(
+		r, account.ID[:], &accType, &account.InitialBalance,
+		&account.CurrentBalance, &lastUpdate, &expirationDate,
+		&numInvoices, &numPayments,
+	)
+	if err != nil {
+		return nil, err
+	}
+	account.Type = AccountType(accType)
+	account.LastUpdate = time.Unix(0, int64(lastUpdate))
+	account.ExpirationDate = time.Unix(0, int64(expirationDate))
+	account.Invoices = make([]*lntypes.Hash, numInvoices)
+	for i := uint32(0); i < numInvoices; i++ {
+		var hash lntypes.Hash
+		err := lnwire.ReadElement(r, hash[:])
+		if err != nil {
+			return nil, err
+		}
+		account.Invoices[i] = &hash
+	}
+	account.Payments = make([]*lntypes.Hash, numPayments)
+	for i := uint32(0); i < numPayments; i++ {
+		var hash lntypes.Hash
+		err := lnwire.ReadElement(r, hash[:])
+		if err != nil {
+			return nil, err
+		}
+		account.Payments[i] = &hash
+	}
+	return account, nil
 }

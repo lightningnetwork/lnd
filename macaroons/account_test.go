@@ -92,10 +92,10 @@ func TestAccount(t *testing.T) {
 	if account.HasExpired() {
 		t.Fatalf("Account has expired but we didn't expect it to.")
 	}
-	if err := service.CheckAccountBalance(account.ID, 735); err != nil {
+	if err := service.checkBalance(account.ID, 735); err != nil {
 		t.Fatalf("Checking account balance failes: %v", err)
 	}
-	if err := service.ChargeAccount(account.ID, 735); err != nil {
+	if err := service.chargeAccount(account.ID, 735); err != nil {
 		t.Fatalf("Error charging account: %v", err)
 	}
 
@@ -153,11 +153,11 @@ func TestAccountEdgeCases(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Error creating expired account: %v", err)
 	}
-	err = service.CheckAccountBalance(expiredAccount.ID, 1)
+	err = service.checkBalance(expiredAccount.ID, 1)
 	if err != macaroons.ErrAccExpired {
 		t.Fatalf("Wrong error returned when checking account: %v", err)
 	}
-	err = service.ChargeAccount(expiredAccount.ID, 1)
+	err = service.chargeAccount(expiredAccount.ID, 1)
 	if err != macaroons.ErrAccExpired {
 		t.Fatalf("Wrong error returned when charging account: %v", err)
 	}
@@ -167,11 +167,11 @@ func TestAccountEdgeCases(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Error creating small account: %v", err)
 	}
-	err = service.CheckAccountBalance(smallAccount.ID, 1000)
+	err = service.checkBalance(smallAccount.ID, 1000)
 	if err != macaroons.ErrAccBalanceInsufficient {
 		t.Fatalf("Wrong error returned when checking account: %v", err)
 	}
-	err = service.ChargeAccount(smallAccount.ID, 1000)
+	err = service.chargeAccount(smallAccount.ID, 1000)
 	if err != macaroons.ErrAccBalanceInsufficient {
 		t.Fatalf("Wrong error returned when charging account: %v", err)
 	}

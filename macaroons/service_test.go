@@ -144,7 +144,7 @@ func TestValidateMacaroonAccountBalance(t *testing.T) {
 		"macaroon": hex.EncodeToString(macaroonBinary),
 	})
 	mockContext := metadata.NewIncomingContext(context.Background(), md)
-	err = service.ValidateMacaroonAccountBalance(mockContext, 123)
+	err = service.ValidateAccountBalance(mockContext, 123)
 	if err != nil {
 		t.Fatalf("Error validating account balance: %v", err)
 	}
@@ -164,7 +164,7 @@ func TestValidateMacaroonAccountBalance(t *testing.T) {
 		"macaroon": hex.EncodeToString(macaroonBinary),
 	})
 	mockContext = metadata.NewIncomingContext(context.Background(), md)
-	err = service.ValidateMacaroonAccountBalance(mockContext, 123)
+	err = service.ValidateAccountBalance(mockContext, 123)
 	if err != nil {
 		t.Fatalf("Error validating account balance: %v", err)
 	}
@@ -198,7 +198,7 @@ func TestChargeMacaroonAccountBalance(t *testing.T) {
 		"macaroon": hex.EncodeToString(macaroonBinary),
 	})
 	mockContext := metadata.NewIncomingContext(context.Background(), md)
-	err = service.ChargeMacaroonAccountBalance(mockContext, 123)
+	err = service.ChargeAccountBalance(mockContext, 123)
 	if err != nil {
 		t.Fatalf("Error validating account balance: %v", err)
 	}
@@ -218,7 +218,7 @@ func TestChargeMacaroonAccountBalance(t *testing.T) {
 		"macaroon": hex.EncodeToString(macaroonBinary),
 	})
 	mockContext = metadata.NewIncomingContext(context.Background(), md)
-	err = service.ChargeMacaroonAccountBalance(mockContext, 123)
+	err = service.ChargeAccountBalance(mockContext, 123)
 	if err != nil {
 		t.Fatalf("Error validating account balance: %v", err)
 	}

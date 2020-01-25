@@ -4,14 +4,13 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
-	"os"
-	"path"
-	"time"
-
 	"github.com/coreos/bbolt"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
+	"os"
+	"path"
 
 	"gopkg.in/macaroon-bakery.v2/bakery"
 	"gopkg.in/macaroon-bakery.v2/bakery/checkers"
@@ -34,7 +33,7 @@ type Service struct {
 
 	rks *RootKeyStorage
 
-	as *AccountStorage
+	*AccountStorage
 }
 
 // NewService returns a service backed by the macaroon Bolt DB stored in the
@@ -209,64 +208,84 @@ func (svc *Service) ValidateMacaroon(ctx context.Context,
 	return err
 }
 
-// ValidateMacaroonAccountBalance reads the macaroon from the context and checks
+// ValidateAccountBalance reads the macaroon from the context and checks
 // if it is locked to an account. If it is locked, the account's balance is
 // checked for sufficient balance.
-func (svc *Service) ValidateMacaroonAccountBalance(ctx context.Context,
+func (svc *Service) ValidateAccountBalance(ctx context.Context,
 	requiredBalance lnwire.MilliSatoshi) error {
 
-	// Get the macaroon from the context and see if it is locked to an
-	// account.
-	mac, err := macaroonFromContext(ctx)
-	if err != nil {
+	accountID, err := accountFromContext(ctx)
+	switch {
+	// Something went wrong and needs to bubble up to the caller, possibly
+	// rejecting the payment flow.
+	case err != nil:
 		return err
-	}
-	macaroonAccount := GetCaveatArgOfCondition(mac, CondAccount)
-	if len(macaroonAccount) == 0 {
-		// There is no condition that locks the macaroon to an account,
-		// so there is nothing to check.
+
+	// No account was attached to the context, this is just a noop then.
+	case accountID == nil:
 		return nil
 	}
-
-	// The macaroon is indeed locked to an account. Fetch the account and
-	// validate its balance.
-	accountIDBytes, err := hex.DecodeString(macaroonAccount)
-	if err != nil {
-		return err
-	}
-	var accountID AccountID
-	copy(accountID[:], accountIDBytes)
-	return svc.CheckAccountBalance(accountID, requiredBalance)
+	return svc.checkBalance(*accountID, requiredBalance)
 }
 
-// ChargeMacaroonAccountBalance reads the macaroon from the context and checks
+// ChargeAccountBalance reads the macaroon from the context and checks
 // if it is locked to an account. If it is locked, the account is charged with
 // the specified amount, reducing its balance.
-func (svc *Service) ChargeMacaroonAccountBalance(ctx context.Context,
-	amount lnwire.MilliSatoshi) error {
+func (svc *Service) ChargeAccountBalance(ctx context.Context,
+	payment lntypes.Hash, amount lnwire.MilliSatoshi) error {
 
+	accountID, err := accountFromContext(ctx)
+	switch {
+	// Something went wrong and needs to bubble up to the caller, possibly
+	// rejecting the payment flow.
+	case err != nil:
+		return err
+
+	// No account was attached to the context, this is just a noop then.
+	case accountID == nil:
+		return nil
+	}
+	return svc.chargeAccount(*accountID, &payment, amount)
+}
+
+func (svc *Service) AddInvoice(ctx context.Context, hash *lntypes.Hash) error {
+	accountID, err := accountFromContext(ctx)
+	switch {
+	// Something went wrong and needs to bubble up to the caller, possibly
+	// rejecting the invoice flow.
+	case err != nil:
+		return err
+
+	// No account was attached to the context, this is just a noop then.
+	case accountID == nil:
+		return nil
+	}
+	return svc.addInvoice(*accountID, hash)
+}
+
+func accountFromContext(ctx context.Context) (*AccountID, error) {
 	// Get the macaroon from the context and see if it is locked to an
 	// account.
 	mac, err := macaroonFromContext(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	macaroonAccount := GetCaveatArgOfCondition(mac, CondAccount)
 	if len(macaroonAccount) == 0 {
 		// There is no condition that locks the macaroon to an account,
 		// so there is nothing to check.
-		return nil
+		return nil, nil
 	}
 
 	// The macaroon is indeed locked to an account. Fetch the account and
 	// validate its balance.
 	accountIDBytes, err := hex.DecodeString(macaroonAccount)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	var accountID AccountID
 	copy(accountID[:], accountIDBytes)
-	return svc.ChargeAccount(accountID, amount)
+	return &accountID, nil
 }
 
 // Close closes the database that underlies the RootKeyStore and AccountStore
@@ -275,12 +294,12 @@ func (svc *Service) Close() error {
 	// We need to make sure both stores/DBs are closed. If both return an
 	// error, it doesn't really matter which one we return.
 	err := svc.rks.Close()
-	err2 := svc.as.Close()
+	err2 := svc.AccountStorage.Close()
 	if err != nil {
 		return err
 	}
 	if err2 != nil {
-		return err
+		return err2
 	}
 	return nil
 }
@@ -289,46 +308,4 @@ func (svc *Service) Close() error {
 // the result.
 func (svc *Service) CreateUnlock(password *[]byte) error {
 	return svc.rks.CreateUnlock(password)
-}
-
-// NewAccount calls the underlying account store's NewAccount and returns the
-// result.
-func (svc *Service) NewAccount(balance lnwire.MilliSatoshi,
-	expirationDate time.Time) (*OffChainBalanceAccount, error) {
-
-	return svc.as.NewAccount(balance, expirationDate)
-}
-
-// GetAccount calls the underlying account store's GetAccount and returns the
-// result.
-func (svc *Service) GetAccount(id AccountID) (*OffChainBalanceAccount, error) {
-	return svc.as.GetAccount(id)
-}
-
-// GetAccounts calls the underlying account store's GetAccounts and returns the
-// result.
-func (svc *Service) GetAccounts() ([]*OffChainBalanceAccount, error) {
-	return svc.as.GetAccounts()
-}
-
-// RemoveAccount calls the underlying account store's RemoveAccount and returns
-// the result.
-func (svc *Service) RemoveAccount(id AccountID) error {
-	return svc.as.RemoveAccount(id)
-}
-
-// CheckAccountBalance calls the underlying account store's CheckAccountBalance
-// and returns the result.
-func (svc *Service) CheckAccountBalance(id AccountID,
-	requiredBalance lnwire.MilliSatoshi) error {
-
-	return svc.as.CheckAccountBalance(id, requiredBalance)
-}
-
-// ChargeAccount calls the underlying account store's ChargeAccount and returns
-// the result.
-func (svc *Service) ChargeAccount(id AccountID,
-	amount lnwire.MilliSatoshi) error {
-
-	return svc.as.ChargeAccount(id, amount)
 }

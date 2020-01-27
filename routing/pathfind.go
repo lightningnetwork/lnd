@@ -271,10 +271,6 @@ func edgeWeight(lockedAmt lnwire.MilliSatoshi, fee lnwire.MilliSatoshi,
 
 // graphParams wraps the set of graph parameters passed to findPath.
 type graphParams struct {
-	// tx can be set to an existing db transaction. If not set, a new
-	// transaction will be started.
-	tx *bbolt.Tx
-
 	// graph is the ChannelGraph to be used during path finding.
 	graph *channeldb.ChannelGraph
 
@@ -425,14 +421,12 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 	}
 	self := selfNode.PubKeyBytes
 
-	tx := g.tx
-	if tx == nil {
-		tx, err = g.graph.Database().Begin(false)
-		if err != nil {
-			return nil, err
-		}
-		defer tx.Rollback()
+	// Get a db transaction to execute the graph queries in.
+	tx, err := g.graph.Database().Begin(false)
+	if err != nil {
+		return nil, err
 	}
+	defer tx.Rollback()
 
 	// If no destination features are provided, we will load what features
 	// we have for the target node from our graph.

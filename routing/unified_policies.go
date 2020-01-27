@@ -2,7 +2,6 @@ package routing
 
 import (
 	"github.com/btcsuite/btcutil"
-	"github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -69,10 +68,8 @@ func (u *unifiedPolicies) addPolicy(fromNode route.Vertex,
 
 // addGraphPolicies adds all policies that are known for the toNode in the
 // graph.
-func (u *unifiedPolicies) addGraphPolicies(g *channeldb.ChannelGraph,
-	tx *bbolt.Tx) error {
-
-	cb := func(_ *bbolt.Tx, edgeInfo *channeldb.ChannelEdgeInfo, _,
+func (u *unifiedPolicies) addGraphPolicies(g routingGraph) error {
+	cb := func(edgeInfo *channeldb.ChannelEdgeInfo, _,
 		inEdge *channeldb.ChannelEdgePolicy) error {
 
 		// If there is no edge policy for this candidate node, skip.
@@ -95,7 +92,7 @@ func (u *unifiedPolicies) addGraphPolicies(g *channeldb.ChannelGraph,
 	}
 
 	// Iterate over all channels of the to node.
-	return g.ForEachNodeChannel(tx, u.toNode[:], cb)
+	return g.forEachNodeChannel(u.toNode, cb)
 }
 
 // unifiedPolicyEdge is the individual channel data that is kept inside an

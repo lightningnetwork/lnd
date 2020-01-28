@@ -114,6 +114,12 @@ message SendPaymentRequest {
     fallback.
     */
     repeated lnrpc.FeatureBit dest_features = 16;
+
+    /**
+    The maximum number of partial payments that may be use to complete the full
+    amount.
+    */
+    uint32 max_htlcs = 17;
 }
 
 message TrackPaymentRequest {

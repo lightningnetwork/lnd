@@ -31,6 +31,13 @@ const (
 	errEmptyPaySession
 )
 
+var (
+	// DefaultShardMinAmt is the default amount beyond which we won't try to
+	// further split the payment if no route is found. It is the minimum
+	// amount that we use as the shard size when splitting.
+	DefaultShardMinAmt = lnwire.NewMSatFromSatoshis(10000)
+)
+
 // Error returns the string representation of the noRouteError
 func (e noRouteError) Error() string {
 	switch e {
@@ -111,6 +118,12 @@ type paymentSession struct {
 	pathFindingConfig PathFindingConfig
 
 	missionControl MissionController
+
+	// minShardAmt is the amount beyond which we won't try to further split
+	// the payment if no route is found. If the maximum number of htlcs
+	// specified in the payment is one, under no circumstances splitting
+	// will happen and this value remains unused.
+	minShardAmt lnwire.MilliSatoshi
 }
 
 // RequestRoute returns a route which is likely to be capable for successfully
@@ -155,58 +168,87 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 		PaymentAddr:       p.payment.PaymentAddr,
 	}
 
-	// We'll also obtain a set of bandwidthHints from the lower layer for
-	// each of our outbound channels. This will allow the path finding to
-	// skip any links that aren't active or just don't have enough bandwidth
-	// to carry the payment. New bandwidth hints are queried for every new
-	// path finding attempt, because concurrent payments may change
-	// balances.
-	bandwidthHints, err := p.getBandwidthHints()
-	if err != nil {
-		return nil, err
-	}
-
 	finalHtlcExpiry := int32(height) + int32(finalCltvDelta)
 
-	routingGraph, cleanup, err := p.getRoutingGraph()
-	if err != nil {
-		return nil, err
+	for {
+		// We'll also obtain a set of bandwidthHints from the lower
+		// layer for each of our outbound channels. This will allow the
+		// path finding to skip any links that aren't active or just
+		// don't have enough bandwidth to carry the payment. New
+		// bandwidth hints are queried for every new path finding
+		// attempt, because concurrent payments may change balances.
+		bandwidthHints, err := p.getBandwidthHints()
+		if err != nil {
+			return nil, err
+		}
+
+		log.Debugf("PaymentSession for %x: trying pathfinding with %v",
+			p.payment.PaymentHash, maxAmt)
+
+		// Get a routing graph.
+		routingGraph, cleanup, err := p.getRoutingGraph()
+		if err != nil {
+			return nil, err
+		}
+
+		sourceVertex := routingGraph.sourceNode()
+
+		// Find a route for the current amount.
+		path, err := p.pathFinder(
+			&graphParams{
+				additionalEdges: p.additionalEdges,
+				bandwidthHints:  bandwidthHints,
+				graph:           routingGraph,
+			},
+			restrictions, &p.pathFindingConfig,
+			sourceVertex, p.payment.Target,
+			maxAmt, finalHtlcExpiry,
+		)
+
+		// Close routing graph.
+		cleanup()
+
+		switch {
+		case err == errNoPathFound:
+			// No splitting if this is the last shard.
+			isLastShard := activeShards+1 >= p.payment.MaxHtlcs
+			if isLastShard {
+				return nil, errNoPathFound
+			}
+
+			// This is where the magic happens. If we can't find a
+			// route, try it for half the amount.
+			maxAmt /= 2
+
+			// Put a lower bound on the minimum shard size.
+			if maxAmt < p.minShardAmt {
+				return nil, errNoPathFound
+			}
+
+			// Go pathfinding.
+			continue
+
+		case err != nil:
+			return nil, err
+		}
+
+		// With the next candidate path found, we'll attempt to turn
+		// this into a route by applying the time-lock and fee
+		// requirements.
+		route, err := newRoute(
+			sourceVertex, path, height,
+			finalHopParams{
+				amt:         maxAmt,
+				totalAmt:    p.payment.Amount,
+				cltvDelta:   finalCltvDelta,
+				records:     p.payment.DestCustomRecords,
+				paymentAddr: p.payment.PaymentAddr,
+			},
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		return route, err
 	}
-	defer cleanup()
-
-	sourceVertex := routingGraph.sourceNode()
-
-	path, err := p.pathFinder(
-		&graphParams{
-			additionalEdges: p.additionalEdges,
-			bandwidthHints:  bandwidthHints,
-			graph:           routingGraph,
-		},
-		restrictions, &p.pathFindingConfig,
-		sourceVertex, p.payment.Target,
-		maxAmt, finalHtlcExpiry,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	// With the next candidate path found, we'll attempt to turn this into
-	// a route by applying the time-lock and fee requirements.
-	route, err := newRoute(
-		sourceVertex, path, height,
-		finalHopParams{
-			amt:         maxAmt,
-			totalAmt:    maxAmt,
-			cltvDelta:   finalCltvDelta,
-			records:     p.payment.DestCustomRecords,
-			paymentAddr: p.payment.PaymentAddr,
-		},
-	)
-	if err != nil {
-		// TODO(roasbeef): return which edge/vertex didn't work
-		// out
-		return nil, err
-	}
-
-	return route, err
 }

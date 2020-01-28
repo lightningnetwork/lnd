@@ -1624,6 +1624,10 @@ type LightningPayment struct {
 	// understand this new onion payload format, then the payment will
 	// fail.
 	DestCustomRecords record.CustomSet
+
+	// MaxHtlcs is the maximum number of partial payments that may be use to
+	// complete the full amount.
+	MaxHtlcs uint32
 }
 
 // SendPayment attempts to send a payment as described within the passed

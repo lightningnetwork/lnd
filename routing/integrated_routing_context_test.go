@@ -1,7 +1,9 @@
 package routing
 
 import (
+	"fmt"
 	"io/ioutil"
+	"math"
 	"os"
 	"testing"
 	"time"
@@ -64,6 +66,7 @@ func newIntegratedRoutingContext(t *testing.T) *integratedRoutingContext {
 
 		pathFindingCfg: PathFindingConfig{
 			PaymentAttemptPenalty: 1000,
+			MinProbability:        0.01,
 		},
 
 		source: source,
@@ -79,9 +82,15 @@ type htlcAttempt struct {
 	success bool
 }
 
+func (h htlcAttempt) String() string {
+	return fmt.Sprintf("success=%v, route=%v", h.success, h.route)
+}
+
 // testPayment launches a test payment and asserts that it is completed after
 // the expected number of attempts.
-func (c *integratedRoutingContext) testPayment() ([]htlcAttempt, error) {
+func (c *integratedRoutingContext) testPayment(maxHtlcs uint32) ([]htlcAttempt,
+	error) {
+
 	var (
 		nextPid  uint64
 		attempts []htlcAttempt
@@ -119,10 +128,16 @@ func (c *integratedRoutingContext) testPayment() ([]htlcAttempt, error) {
 		return bandwidthHints, nil
 	}
 
+	var paymentAddr [32]byte
 	payment := LightningPayment{
 		FinalCLTVDelta: uint16(c.finalExpiry),
 		FeeLimit:       lnwire.MaxMilliSatoshi,
 		Target:         c.target.pubkey,
+		PaymentAddr:    &paymentAddr,
+		DestFeatures:   lnwire.NewFeatureVector(mppFeatures, nil),
+		Amount:         c.amt,
+		CltvLimit:      math.MaxUint32,
+		MaxHtlcs:       maxHtlcs,
 	}
 
 	session := &paymentSession{
@@ -134,10 +149,15 @@ func (c *integratedRoutingContext) testPayment() ([]htlcAttempt, error) {
 		},
 		pathFindingConfig: c.pathFindingCfg,
 		missionControl:    mc,
+		minShardAmt:       lnwire.NewMSatFromSatoshis(5000),
 	}
 
 	// Now the payment control loop starts. It will keep trying routes until
 	// the payment succeeds.
+	var (
+		amtRemaining  = payment.Amount
+		inFlightHtlcs uint32
+	)
 	for {
 		// Create bandwidth hints based on local channel balances.
 		bandwidthHints := map[uint64]lnwire.MilliSatoshi{}
@@ -147,10 +167,10 @@ func (c *integratedRoutingContext) testPayment() ([]htlcAttempt, error) {
 
 		// Find a route.
 		route, err := session.RequestRoute(
-			c.amt, lnwire.MaxMilliSatoshi, 0, 0,
+			amtRemaining, lnwire.MaxMilliSatoshi, inFlightHtlcs, 0,
 		)
 		if err != nil {
-			return nil, err
+			return attempts, err
 		}
 
 		// Send out the htlc on the mock graph.
@@ -167,21 +187,33 @@ func (c *integratedRoutingContext) testPayment() ([]htlcAttempt, error) {
 			success: success,
 		})
 
-		// Process the result.
+		// Process the result. In normal Lightning operations, the
+		// sender doesn't get an acknowledgement from the recipient that
+		// the htlc arrived. In integrated routing tests, this
+		// acknowledgement is available. It is a simplification of
+		// reality that still allows certain classes of tests to be
+		// performed.
 		if success {
+			inFlightHtlcs++
+
 			err := mc.ReportPaymentSuccess(pid, route)
 			if err != nil {
 				c.t.Fatal(err)
 			}
 
-			// If the payment is successful, the control loop can be
-			// broken out of.
-			break
+			amtRemaining -= route.ReceiverAmt()
+
+			// If the full amount has been paid, the payment is
+			// successful and the control loop can be terminated.
+			if amtRemaining == 0 {
+				break
+			}
+
+			// Otherwise try to send the remaining amount.
+			continue
 		}
 
 		// Failure, update mission control and retry.
-		c.t.Logf("fail: %v @ %v\n", htlcResult.failure, htlcResult.failureSource)
-
 		finalResult, err := mc.ReportPaymentFail(
 			pid, route,
 			getNodeIndex(route, htlcResult.failureSource),
@@ -192,12 +224,9 @@ func (c *integratedRoutingContext) testPayment() ([]htlcAttempt, error) {
 		}
 
 		if finalResult != nil {
-			c.t.Logf("final result: %v\n", finalResult)
 			break
 		}
 	}
-
-	c.t.Logf("Payment attempts: %v\n", len(attempts))
 
 	return attempts, nil
 }

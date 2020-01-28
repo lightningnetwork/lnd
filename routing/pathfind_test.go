@@ -81,6 +81,12 @@ var (
 		), lnwire.Features,
 	)
 
+	mppFeatures = lnwire.NewRawFeatureVector(
+		lnwire.TLVOnionPayloadOptional,
+		lnwire.PaymentAddrOptional,
+		lnwire.MPPOptional,
+	)
+
 	unknownRequiredFeatures = lnwire.NewFeatureVector(
 		lnwire.NewRawFeatureVector(100), lnwire.Features,
 	)

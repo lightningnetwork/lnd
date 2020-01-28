@@ -86,6 +86,7 @@ func (m *SessionSource) NewPaymentSession(p *LightningPayment) (
 		getRoutingGraph:   m.getRoutingGraph,
 		pathFindingConfig: m.PathFindingConfig,
 		missionControl:    m.MissionControl,
+		minShardAmt:       DefaultShardMinAmt,
 	}, nil
 }
 

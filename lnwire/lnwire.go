@@ -18,9 +18,16 @@ import (
 	"github.com/lightningnetwork/lnd/tor"
 )
 
-// MaxSliceLength is the maximum allowed length for any opaque byte slices in
-// the wire protocol.
-const MaxSliceLength = 65535
+const (
+	// MaxSliceLength is the maximum allowed length for any opaque byte
+	// slices in the wire protocol.
+	MaxSliceLength = 65535
+
+	// MaxMsgBody is the largest payload any message is allowed to provide.
+	// This is two less than the MaxSliceLength as each message has a 2
+	// byte type that precedes the message body.
+	MaxMsgBody = 65533
+)
 
 // PkScript is simple type definition which represents a raw serialized public
 // key script.
@@ -418,6 +425,10 @@ func WriteElement(w io.Writer, element interface{}) error {
 		if _, err := w.Write(b[:]); err != nil {
 			return err
 		}
+
+	case ExtraOpaqueData:
+		return e.Encode(w)
+
 	default:
 		return fmt.Errorf("unknown type in WriteElement: %T", e)
 	}
@@ -824,6 +835,10 @@ func ReadElement(r io.Reader, element interface{}) error {
 			return err
 		}
 		*e = addrBytes[:length]
+
+	case *ExtraOpaqueData:
+		return e.Decode(r)
+
 	default:
 		return fmt.Errorf("unknown type in ReadElement: %T", e)
 	}

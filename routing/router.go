@@ -1765,6 +1765,7 @@ func (r *ChannelRouter) SendToRoute(hash lntypes.Hash, route *route.Route) (
 		// PayAttemptTime doesn't need to be set, as there is only a
 		// single attempt.
 		payment := &LightningPayment{
+			Amount:      amt,
 			PaymentHash: hash,
 		}
 
@@ -1848,6 +1849,7 @@ func (r *ChannelRouter) sendPayment(
 	for _, a := range existingAttempts {
 		s := &paymentShard{
 			a,
+			make(chan *RouteResult, 1), // ignored
 		}
 		existingShards.addShard(s)
 	}

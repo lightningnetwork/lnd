@@ -232,13 +232,14 @@ func (p *PaymentControl) SettleAttempt(paymentHash lntypes.Hash,
 		}
 
 		// We can only mark in-flight payments as succeeded.
-		if err := ensureInFlight(bucket); err != nil {
-			updateErr = err
-			return nil
-		}
+		//		if err := ensureInFlight(bucket); err != nil {
+		//			updateErr = err
+		//			return nil
+		//		}
 
 		// Record the successful payment info atomically to the
 		// payments record.
+		// TODO: remove this, not used anymore
 		err = bucket.Put(paymentSettleInfoKey, preimage[:])
 		if err != nil {
 			return err

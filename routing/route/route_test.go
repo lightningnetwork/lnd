@@ -101,6 +101,47 @@ func TestMPPHop(t *testing.T) {
 	}
 }
 
+// TestAMPHop asserts that a Hop will encode a non-nil AMP to final nodes of an
+// MPP record is also present, and fail otherwise.
+func TestAMPHop(t *testing.T) {
+	t.Parallel()
+
+	hop := Hop{
+		ChannelID:        1,
+		OutgoingTimeLock: 44,
+		AmtToForward:     testAmt,
+		LegacyPayload:    false,
+		AMP:              record.NewAMP([32]byte{}, [32]byte{}, 3),
+	}
+
+	// Encoding an AMP record to an intermediate hop w/o an MPP record
+	// should result in a failure.
+	var b bytes.Buffer
+	err := hop.PackHopPayload(&b, 2)
+	if err != ErrAMPMissingMPP {
+		t.Fatalf("expected err: %v, got: %v",
+			ErrAMPMissingMPP, err)
+	}
+
+	// Encoding an AMP record to a final hop w/o an MPP record should result
+	// in a failure.
+	b.Reset()
+	err = hop.PackHopPayload(&b, 0)
+	if err != ErrAMPMissingMPP {
+		t.Fatalf("expected err: %v, got: %v",
+			ErrAMPMissingMPP, err)
+	}
+
+	// Encoding an AMP record to a final hop w/ an MPP record should be
+	// successful.
+	hop.MPP = record.NewMPP(testAmt, testAddr)
+	b.Reset()
+	err = hop.PackHopPayload(&b, 0)
+	if err != nil {
+		t.Fatalf("expected err: %v, got: %v", nil, err)
+	}
+}
+
 // TestPayloadSize tests the payload size calculation that is provided by Hop
 // structs.
 func TestPayloadSize(t *testing.T) {

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"image/color"
 	"io"
-	"io/ioutil"
 	"net"
 	"unicode/utf8"
 )
@@ -98,7 +97,7 @@ type NodeAnnouncement struct {
 	// properly validate the set of signatures that cover these new fields,
 	// and ensure we're able to make upgrades to the network in a forwards
 	// compatible manner.
-	ExtraOpaqueData []byte
+	ExtraOpaqueData ExtraOpaqueData
 }
 
 // A compile time check to ensure NodeAnnouncement implements the
@@ -110,7 +109,7 @@ var _ Message = (*NodeAnnouncement)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (a *NodeAnnouncement) Decode(r io.Reader, pver uint32) error {
-	err := ReadElements(r,
+	return ReadElements(r,
 		&a.Signature,
 		&a.Features,
 		&a.Timestamp,
@@ -118,24 +117,8 @@ func (a *NodeAnnouncement) Decode(r io.Reader, pver uint32) error {
 		&a.RGBColor,
 		&a.Alias,
 		&a.Addresses,
+		&a.ExtraOpaqueData,
 	)
-	if err != nil {
-		return err
-	}
-
-	// Now that we've read out all the fields that we explicitly know of,
-	// we'll collect the remainder into the ExtraOpaqueData field. If there
-	// aren't any bytes, then we'll snip off the slice to avoid carrying
-	// around excess capacity.
-	a.ExtraOpaqueData, err = ioutil.ReadAll(r)
-	if err != nil {
-		return err
-	}
-	if len(a.ExtraOpaqueData) == 0 {
-		a.ExtraOpaqueData = nil
-	}
-
-	return nil
 }
 
 // Encode serializes the target NodeAnnouncement into the passed io.Writer
@@ -167,7 +150,7 @@ func (a *NodeAnnouncement) MsgType() MessageType {
 //
 // This is part of the lnwire.Message interface.
 func (a *NodeAnnouncement) MaxPayloadLength(pver uint32) uint32 {
-	return 65533
+	return MaxMsgBody
 }
 
 // DataToSign returns the part of the message that should be signed.

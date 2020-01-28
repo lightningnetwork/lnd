@@ -810,10 +810,8 @@ func TestLightningWireProtocol(t *testing.T) {
 		},
 		MsgReplyChannelRange: func(v []reflect.Value, r *rand.Rand) {
 			req := ReplyChannelRange{
-				QueryChannelRange: QueryChannelRange{
-					FirstBlockHeight: uint32(r.Int31()),
-					NumBlocks:        uint32(r.Int31()),
-				},
+				FirstBlockHeight: uint32(r.Int31()),
+				NumBlocks:        uint32(r.Int31()),
 			}
 
 			if _, err := rand.Read(req.ChainHash[:]); err != nil {

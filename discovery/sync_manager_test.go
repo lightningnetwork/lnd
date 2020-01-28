@@ -629,8 +629,10 @@ func assertTransitionToChansSynced(t *testing.T, s *GossipSyncer, peer *mockPeer
 	}, time.Second, 500*time.Millisecond)
 
 	require.NoError(t, s.ProcessQueryMsg(&lnwire.ReplyChannelRange{
-		QueryChannelRange: *query,
-		Complete:          1,
+		ChainHash:        query.ChainHash,
+		FirstBlockHeight: query.FirstBlockHeight,
+		NumBlocks:        query.NumBlocks,
+		Complete:         1,
 	}, nil))
 
 	chanSeries := s.cfg.channelSeries.(*mockChannelGraphTimeSeries)

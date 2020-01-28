@@ -37,6 +37,11 @@ type ReplyChannelRange struct {
 	// ShortChanIDs is a slice of decoded short channel ID's.
 	ShortChanIDs []ShortChannelID
 
+	// ExtraData is the set of data that was appended to this message to
+	// fill out the full maximum transport message size. These fields can
+	// be used to specify optional data such as custom TLV fields.
+	ExtraData ExtraOpaqueData
+
 	// noSort indicates whether or not to sort the short channel ids before
 	// writing them out.
 	//
@@ -73,7 +78,7 @@ func (c *ReplyChannelRange) Decode(r io.Reader, pver uint32) error {
 		return err
 	}
 
-	return err
+	return c.ExtraData.Decode(r)
 }
 
 // Encode serializes the target ReplyChannelRange into the passed io.Writer
@@ -96,7 +101,7 @@ func (c *ReplyChannelRange) Encode(w io.Writer, pver uint32) error {
 		return err
 	}
 
-	return nil
+	return c.ExtraData.Encode(w)
 }
 
 // MsgType returns the integer uniquely identifying this message type on the
@@ -112,7 +117,7 @@ func (c *ReplyChannelRange) MsgType() MessageType {
 //
 // This is part of the lnwire.Message interface.
 func (c *ReplyChannelRange) MaxPayloadLength(uint32) uint32 {
-	return MaxMessagePayload
+	return MaxMsgBody
 }
 
 // LastBlockHeight returns the last block height covered by the range of a

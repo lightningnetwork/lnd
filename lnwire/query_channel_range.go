@@ -25,6 +25,11 @@ type QueryChannelRange struct {
 	// NumBlocks is the number of blocks beyond the first block that short
 	// channel ID's should be sent for.
 	NumBlocks uint32
+
+	// ExtraData is the set of data that was appended to this message to
+	// fill out the full maximum transport message size. These fields can
+	// be used to specify optional data such as custom TLV fields.
+	ExtraData ExtraOpaqueData
 }
 
 // NewQueryChannelRange creates a new empty QueryChannelRange message.
@@ -45,6 +50,7 @@ func (q *QueryChannelRange) Decode(r io.Reader, pver uint32) error {
 		q.ChainHash[:],
 		&q.FirstBlockHeight,
 		&q.NumBlocks,
+		&q.ExtraData,
 	)
 }
 
@@ -57,6 +63,7 @@ func (q *QueryChannelRange) Encode(w io.Writer, pver uint32) error {
 		q.ChainHash[:],
 		q.FirstBlockHeight,
 		q.NumBlocks,
+		q.ExtraData,
 	)
 }
 
@@ -73,8 +80,7 @@ func (q *QueryChannelRange) MsgType() MessageType {
 //
 // This is part of the lnwire.Message interface.
 func (q *QueryChannelRange) MaxPayloadLength(uint32) uint32 {
-	// 32 + 4 + 4
-	return 40
+	return MaxMsgBody
 }
 
 // LastBlockHeight returns the last block height covered by the range of a

@@ -21,6 +21,11 @@ type UpdateFulfillHTLC struct {
 	// PaymentPreimage is the R-value preimage required to fully settle an
 	// HTLC.
 	PaymentPreimage [32]byte
+
+	// ExtraData is the set of data that was appended to this message to
+	// fill out the full maximum transport message size. These fields can
+	// be used to specify optional data such as custom TLV fields.
+	ExtraData ExtraOpaqueData
 }
 
 // NewUpdateFulfillHTLC returns a new empty UpdateFulfillHTLC.
@@ -47,6 +52,7 @@ func (c *UpdateFulfillHTLC) Decode(r io.Reader, pver uint32) error {
 		&c.ChanID,
 		&c.ID,
 		c.PaymentPreimage[:],
+		&c.ExtraData,
 	)
 }
 
@@ -59,6 +65,7 @@ func (c *UpdateFulfillHTLC) Encode(w io.Writer, pver uint32) error {
 		c.ChanID,
 		c.ID,
 		c.PaymentPreimage[:],
+		c.ExtraData,
 	)
 }
 
@@ -75,8 +82,7 @@ func (c *UpdateFulfillHTLC) MsgType() MessageType {
 //
 // This is part of the lnwire.Message interface.
 func (c *UpdateFulfillHTLC) MaxPayloadLength(uint32) uint32 {
-	// 32 + 8 + 32
-	return 72
+	return MaxMsgBody
 }
 
 // TargetChanID returns the channel id of the link for which this message is

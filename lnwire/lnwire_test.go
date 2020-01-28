@@ -440,7 +440,9 @@ func TestLightningWireProtocol(t *testing.T) {
 			v[0] = reflect.ValueOf(req)
 		},
 		MsgFundingCreated: func(v []reflect.Value, r *rand.Rand) {
-			req := FundingCreated{}
+			req := FundingCreated{
+				ExtraData: make([]byte, 0),
+			}
 
 			if _, err := r.Read(req.PendingChannelID[:]); err != nil {
 				t.Fatalf("unable to generate pending chan id: %v", err)
@@ -471,7 +473,8 @@ func TestLightningWireProtocol(t *testing.T) {
 			}
 
 			req := FundingSigned{
-				ChanID: ChannelID(c),
+				ChanID:    ChannelID(c),
+				ExtraData: make([]byte, 0),
 			}
 			req.CommitSig, err = NewSigFromSignature(testSig)
 			if err != nil {
@@ -502,6 +505,7 @@ func TestLightningWireProtocol(t *testing.T) {
 		MsgClosingSigned: func(v []reflect.Value, r *rand.Rand) {
 			req := ClosingSigned{
 				FeeSatoshis: btcutil.Amount(r.Int63()),
+				ExtraData:   make([]byte, 0),
 			}
 			var err error
 			req.Signature, err = NewSigFromSignature(testSig)
@@ -570,8 +574,9 @@ func TestLightningWireProtocol(t *testing.T) {
 		MsgChannelAnnouncement: func(v []reflect.Value, r *rand.Rand) {
 			var err error
 			req := ChannelAnnouncement{
-				ShortChannelID: NewShortChanIDFromInt(uint64(r.Int63())),
-				Features:       randRawFeatureVector(r),
+				ShortChannelID:  NewShortChanIDFromInt(uint64(r.Int63())),
+				Features:        randRawFeatureVector(r),
+				ExtraOpaqueData: make([]byte, 0),
 			}
 			req.NodeSig1, err = NewSigFromSignature(testSig)
 			if err != nil {
@@ -643,6 +648,7 @@ func TestLightningWireProtocol(t *testing.T) {
 					G: uint8(r.Int31()),
 					B: uint8(r.Int31()),
 				},
+				ExtraOpaqueData: make([]byte, 0),
 			}
 			req.Signature, err = NewSigFromSignature(testSig)
 			if err != nil {
@@ -698,6 +704,7 @@ func TestLightningWireProtocol(t *testing.T) {
 				HtlcMaximumMsat: maxHtlc,
 				BaseFee:         uint32(r.Int31()),
 				FeeRate:         uint32(r.Int31()),
+				ExtraOpaqueData: make([]byte, 0),
 			}
 			req.Signature, err = NewSigFromSignature(testSig)
 			if err != nil {
@@ -726,7 +733,8 @@ func TestLightningWireProtocol(t *testing.T) {
 		MsgAnnounceSignatures: func(v []reflect.Value, r *rand.Rand) {
 			var err error
 			req := AnnounceSignatures{
-				ShortChannelID: NewShortChanIDFromInt(uint64(r.Int63())),
+				ShortChannelID:  NewShortChanIDFromInt(uint64(r.Int63())),
+				ExtraOpaqueData: make([]byte, 0),
 			}
 
 			req.NodeSignature, err = NewSigFromSignature(testSig)
@@ -763,6 +771,7 @@ func TestLightningWireProtocol(t *testing.T) {
 			req := ChannelReestablish{
 				NextLocalCommitHeight:  uint64(r.Int63()),
 				RemoteCommitTailHeight: uint64(r.Int63()),
+				ExtraData:              make([]byte, 0),
 			}
 
 			// With a 50/50 probability, we'll include the
@@ -785,7 +794,9 @@ func TestLightningWireProtocol(t *testing.T) {
 			v[0] = reflect.ValueOf(req)
 		},
 		MsgQueryShortChanIDs: func(v []reflect.Value, r *rand.Rand) {
-			req := QueryShortChanIDs{}
+			req := QueryShortChanIDs{
+				ExtraData: make([]byte, 0),
+			}
 
 			// With a 50/50 change, we'll either use zlib encoding,
 			// or regular encoding.
@@ -812,6 +823,7 @@ func TestLightningWireProtocol(t *testing.T) {
 			req := ReplyChannelRange{
 				FirstBlockHeight: uint32(r.Int31()),
 				NumBlocks:        uint32(r.Int31()),
+				ExtraData:        make([]byte, 0),
 			}
 
 			if _, err := rand.Read(req.ChainHash[:]); err != nil {

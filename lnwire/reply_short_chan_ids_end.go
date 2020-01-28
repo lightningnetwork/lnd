@@ -22,6 +22,11 @@ type ReplyShortChanIDsEnd struct {
 	// set of short chan ID's in the corresponding QueryShortChanIDs
 	// message.
 	Complete uint8
+
+	// ExtraData is the set of data that was appended to this message to
+	// fill out the full maximum transport message size. These fields can
+	// be used to specify optional data such as custom TLV fields.
+	ExtraData ExtraOpaqueData
 }
 
 // NewReplyShortChanIDsEnd creates a new empty ReplyShortChanIDsEnd message.
@@ -41,6 +46,7 @@ func (c *ReplyShortChanIDsEnd) Decode(r io.Reader, pver uint32) error {
 	return ReadElements(r,
 		c.ChainHash[:],
 		&c.Complete,
+		&c.ExtraData,
 	)
 }
 
@@ -52,6 +58,7 @@ func (c *ReplyShortChanIDsEnd) Encode(w io.Writer, pver uint32) error {
 	return WriteElements(w,
 		c.ChainHash[:],
 		c.Complete,
+		c.ExtraData,
 	)
 }
 
@@ -69,6 +76,5 @@ func (c *ReplyShortChanIDsEnd) MsgType() MessageType {
 //
 // This is part of the lnwire.Message interface.
 func (c *ReplyShortChanIDsEnd) MaxPayloadLength(uint32) uint32 {
-	// 32 (chain hash) + 1 (complete)
-	return 33
+	return MaxMsgBody
 }

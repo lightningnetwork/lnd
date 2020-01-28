@@ -13,6 +13,11 @@ type FundingSigned struct {
 	// CommitSig is Bob's signature for Alice's version of the commitment
 	// transaction.
 	CommitSig Sig
+
+	// ExtraData is the set of data that was appended to this message to
+	// fill out the full maximum transport message size. These fields can
+	// be used to specify optional data such as custom TLV fields.
+	ExtraData ExtraOpaqueData
 }
 
 // A compile time check to ensure FundingSigned implements the lnwire.Message
@@ -25,7 +30,7 @@ var _ Message = (*FundingSigned)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (f *FundingSigned) Encode(w io.Writer, pver uint32) error {
-	return WriteElements(w, f.ChanID, f.CommitSig)
+	return WriteElements(w, f.ChanID, f.CommitSig, f.ExtraData)
 }
 
 // Decode deserializes the serialized FundingSigned stored in the passed
@@ -34,7 +39,7 @@ func (f *FundingSigned) Encode(w io.Writer, pver uint32) error {
 //
 // This is part of the lnwire.Message interface.
 func (f *FundingSigned) Decode(r io.Reader, pver uint32) error {
-	return ReadElements(r, &f.ChanID, &f.CommitSig)
+	return ReadElements(r, &f.ChanID, &f.CommitSig, &f.ExtraData)
 }
 
 // MsgType returns the uint32 code which uniquely identifies this message as a
@@ -50,6 +55,5 @@ func (f *FundingSigned) MsgType() MessageType {
 //
 // This is part of the lnwire.Message interface.
 func (f *FundingSigned) MaxPayloadLength(uint32) uint32 {
-	// 32 + 64
-	return 96
+	return MaxMsgBody
 }

@@ -34,11 +34,18 @@ type CommitSig struct {
 	// should be signed, for each incoming HTLC the HTLC timeout
 	// transaction should be signed.
 	HtlcSigs []Sig
+
+	// ExtraData is the set of data that was appended to this message to
+	// fill out the full maximum transport message size. These fields can
+	// be used to specify optional data such as custom TLV fields.
+	ExtraData ExtraOpaqueData
 }
 
 // NewCommitSig creates a new empty CommitSig message.
 func NewCommitSig() *CommitSig {
-	return &CommitSig{}
+	return &CommitSig{
+		ExtraData: make([]byte, 0),
+	}
 }
 
 // A compile time check to ensure CommitSig implements the lnwire.Message
@@ -54,6 +61,7 @@ func (c *CommitSig) Decode(r io.Reader, pver uint32) error {
 		&c.ChanID,
 		&c.CommitSig,
 		&c.HtlcSigs,
+		&c.ExtraData,
 	)
 }
 
@@ -66,6 +74,7 @@ func (c *CommitSig) Encode(w io.Writer, pver uint32) error {
 		c.ChanID,
 		c.CommitSig,
 		c.HtlcSigs,
+		c.ExtraData,
 	)
 }
 
@@ -82,8 +91,7 @@ func (c *CommitSig) MsgType() MessageType {
 //
 // This is part of the lnwire.Message interface.
 func (c *CommitSig) MaxPayloadLength(uint32) uint32 {
-	// 32 + 64 + 2 + max_allowed_htlcs
-	return MaxMessagePayload
+	return MaxMsgBody
 }
 
 // TargetChanID returns the channel id of the link for which this message is

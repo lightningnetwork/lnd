@@ -24,6 +24,11 @@ type GossipTimestampRange struct {
 	// NOT send any announcements that have a timestamp greater than
 	// FirstTimestamp + TimestampRange.
 	TimestampRange uint32
+
+	// ExtraData is the set of data that was appended to this message to
+	// fill out the full maximum transport message size. These fields can
+	// be used to specify optional data such as custom TLV fields.
+	ExtraData ExtraOpaqueData
 }
 
 // NewGossipTimestampRange creates a new empty GossipTimestampRange message.
@@ -44,6 +49,7 @@ func (g *GossipTimestampRange) Decode(r io.Reader, pver uint32) error {
 		g.ChainHash[:],
 		&g.FirstTimestamp,
 		&g.TimestampRange,
+		&g.ExtraData,
 	)
 }
 
@@ -56,6 +62,7 @@ func (g *GossipTimestampRange) Encode(w io.Writer, pver uint32) error {
 		g.ChainHash[:],
 		g.FirstTimestamp,
 		g.TimestampRange,
+		g.ExtraData,
 	)
 }
 
@@ -73,8 +80,5 @@ func (g *GossipTimestampRange) MsgType() MessageType {
 //
 // This is part of the lnwire.Message interface.
 func (g *GossipTimestampRange) MaxPayloadLength(uint32) uint32 {
-	// 32 + 4 + 4
-	//
-	// TODO(roasbeef): update to 8 byte timestmaps?
-	return 40
+	return MaxMsgBody
 }

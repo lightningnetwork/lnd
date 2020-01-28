@@ -52,6 +52,11 @@ type UpdateAddHTLC struct {
 	// should strip off a layer of encryption, exposing the next hop to be
 	// used in the subsequent UpdateAddHTLC message.
 	OnionBlob [OnionPacketSize]byte
+
+	// ExtraData is the set of data that was appended to this message to
+	// fill out the full maximum transport message size. These fields can
+	// be used to specify optional data such as custom TLV fields.
+	ExtraData ExtraOpaqueData
 }
 
 // NewUpdateAddHTLC returns a new empty UpdateAddHTLC message.
@@ -75,6 +80,7 @@ func (c *UpdateAddHTLC) Decode(r io.Reader, pver uint32) error {
 		c.PaymentHash[:],
 		&c.Expiry,
 		c.OnionBlob[:],
+		&c.ExtraData,
 	)
 }
 
@@ -90,6 +96,7 @@ func (c *UpdateAddHTLC) Encode(w io.Writer, pver uint32) error {
 		c.PaymentHash[:],
 		c.Expiry,
 		c.OnionBlob[:],
+		c.ExtraData,
 	)
 }
 
@@ -106,8 +113,7 @@ func (c *UpdateAddHTLC) MsgType() MessageType {
 //
 // This is part of the lnwire.Message interface.
 func (c *UpdateAddHTLC) MaxPayloadLength(uint32) uint32 {
-	// 1450
-	return 32 + 8 + 4 + 8 + 32 + 1366
+	return MaxMsgBody
 }
 
 // TargetChanID returns the channel id of the link for which this message is

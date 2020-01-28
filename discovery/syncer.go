@@ -685,7 +685,9 @@ func (g *GossipSyncer) synchronizeChanIDs() (bool, error) {
 func isLegacyReplyChannelRange(query *lnwire.QueryChannelRange,
 	reply *lnwire.ReplyChannelRange) bool {
 
-	return reply.QueryChannelRange == *query
+	return (reply.ChainHash == query.ChainHash &&
+		reply.FirstBlockHeight == query.FirstBlockHeight &&
+		reply.NumBlocks == query.NumBlocks)
 }
 
 // processChanRangeReply is called each time the GossipSyncer receives a new
@@ -705,7 +707,7 @@ func (g *GossipSyncer) processChanRangeReply(msg *lnwire.ReplyChannelRange) erro
 		// The last block should also be. We don't need to check the
 		// intermediate ones because they should already be in sorted
 		// order.
-		replyLastHeight := msg.QueryChannelRange.LastBlockHeight()
+		replyLastHeight := msg.LastBlockHeight()
 		queryLastHeight := g.curQueryRangeMsg.LastBlockHeight()
 		if replyLastHeight > queryLastHeight {
 			return fmt.Errorf("reply includes channels for height "+
@@ -754,7 +756,7 @@ func (g *GossipSyncer) processChanRangeReply(msg *lnwire.ReplyChannelRange) erro
 
 	// Otherwise, we'll look at the reply's height range.
 	default:
-		replyLastHeight := msg.QueryChannelRange.LastBlockHeight()
+		replyLastHeight := msg.LastBlockHeight()
 		queryLastHeight := g.curQueryRangeMsg.LastBlockHeight()
 
 		// TODO(wilmer): This might require some padding if the remote
@@ -904,10 +906,12 @@ func (g *GossipSyncer) replyChanRangeQuery(query *lnwire.QueryChannelRange) erro
 			g.cfg.chainHash)
 
 		return g.cfg.sendToPeerSync(&lnwire.ReplyChannelRange{
-			QueryChannelRange: *query,
-			Complete:          0,
-			EncodingType:      g.cfg.encodingType,
-			ShortChanIDs:      nil,
+			ChainHash:        query.ChainHash,
+			FirstBlockHeight: query.FirstBlockHeight,
+			NumBlocks:        query.NumBlocks,
+			Complete:         0,
+			EncodingType:     g.cfg.encodingType,
+			ShortChanIDs:     nil,
 		})
 	}
 
@@ -1001,14 +1005,12 @@ func (g *GossipSyncer) replyChanRangeQuery(query *lnwire.QueryChannelRange) erro
 		// With our chunk assembled, we'll now send to the remote peer
 		// the current chunk.
 		replyChunk := lnwire.ReplyChannelRange{
-			QueryChannelRange: lnwire.QueryChannelRange{
-				ChainHash:        query.ChainHash,
-				NumBlocks:        numBlocksInResp,
-				FirstBlockHeight: firstBlockHeight,
-			},
-			Complete:     0,
-			EncodingType: g.cfg.encodingType,
-			ShortChanIDs: channelChunk,
+			ChainHash:        query.ChainHash,
+			NumBlocks:        numBlocksInResp,
+			FirstBlockHeight: firstBlockHeight,
+			Complete:         0,
+			EncodingType:     g.cfg.encodingType,
+			ShortChanIDs:     channelChunk,
 		}
 		if isFinalChunk {
 			replyChunk.Complete = 1

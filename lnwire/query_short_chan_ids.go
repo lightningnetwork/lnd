@@ -81,6 +81,11 @@ type QueryShortChanIDs struct {
 	// ShortChanIDs is a slice of decoded short channel ID's.
 	ShortChanIDs []ShortChannelID
 
+	// ExtraData is the set of data that was appended to this message to
+	// fill out the full maximum transport message size. These fields can
+	// be used to specify optional data such as custom TLV fields.
+	ExtraData ExtraOpaqueData
+
 	// noSort indicates whether or not to sort the short channel ids before
 	// writing them out.
 	//
@@ -114,8 +119,11 @@ func (q *QueryShortChanIDs) Decode(r io.Reader, pver uint32) error {
 	}
 
 	q.EncodingType, q.ShortChanIDs, err = decodeShortChanIDs(r)
+	if err != nil {
+		return err
+	}
 
-	return err
+	return q.ExtraData.Decode(r)
 }
 
 // decodeShortChanIDs decodes a set of short channel ID's that have been
@@ -292,7 +300,12 @@ func (q *QueryShortChanIDs) Encode(w io.Writer, pver uint32) error {
 
 	// Base on our encoding type, we'll write out the set of short channel
 	// ID's.
-	return encodeShortChanIDs(w, q.EncodingType, q.ShortChanIDs, q.noSort)
+	err = encodeShortChanIDs(w, q.EncodingType, q.ShortChanIDs, q.noSort)
+	if err != nil {
+		return err
+	}
+
+	return q.ExtraData.Encode(w)
 }
 
 // encodeShortChanIDs encodes the passed short channel ID's into the passed
@@ -425,5 +438,5 @@ func (q *QueryShortChanIDs) MsgType() MessageType {
 //
 // This is part of the lnwire.Message interface.
 func (q *QueryShortChanIDs) MaxPayloadLength(uint32) uint32 {
-	return MaxMessagePayload
+	return MaxMsgBody
 }

@@ -536,8 +536,9 @@ func assertTransitionToChansSynced(t *testing.T, s *GossipSyncer, peer *mockPeer
 	assertMsgSent(t, peer, query)
 
 	s.ProcessQueryMsg(&lnwire.ReplyChannelRange{
-		QueryChannelRange: *query,
-		Complete:          1,
+		FirstBlockHeight: 0,
+		NumBlocks:        math.MaxUint32,
+		Complete:         1,
 	}, nil)
 
 	chanSeries := s.cfg.channelSeries.(*mockChannelGraphTimeSeries)

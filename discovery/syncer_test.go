@@ -576,10 +576,9 @@ func TestGossipSyncerQueryChannelRangeWrongChainHash(t *testing.T) {
 			t.Fatalf("expected lnwire.ReplyChannelRange, got %T", msg)
 		}
 
-		if msg.QueryChannelRange != *query {
-			t.Fatalf("wrong query channel range in reply: "+
-				"expected: %v\ngot: %v", spew.Sdump(*query),
-				spew.Sdump(msg.QueryChannelRange))
+		if msg.ChainHash != query.ChainHash {
+			t.Fatalf("wrong chain hash: expected %v got %v",
+				query.ChainHash, msg.ChainHash)
 		}
 		if msg.Complete != 0 {
 			t.Fatalf("expected complete set to 0, got %v",
@@ -1192,34 +1191,13 @@ func testGossipSyncerProcessChanRangeReply(t *testing.T, legacy bool) {
 		t.Fatalf("unable to generate channel range query: %v", err)
 	}
 
-	var replyQueries []*lnwire.QueryChannelRange
-	if legacy {
-		// Each reply query is the same as the original query in the
-		// legacy mode.
-		replyQueries = []*lnwire.QueryChannelRange{query, query, query}
-	} else {
-		// When interpreting block ranges, the first reply should start
-		// from our requested first block, and the last should end at
-		// our requested last block.
-		replyQueries = []*lnwire.QueryChannelRange{
-			{
-				FirstBlockHeight: 0,
-				NumBlocks:        11,
-			},
-			{
-				FirstBlockHeight: 11,
-				NumBlocks:        1,
-			},
-			{
-				FirstBlockHeight: 12,
-				NumBlocks:        query.NumBlocks - 12,
-			},
-		}
-	}
-
+	// When interpreting block ranges, the first reply should start from
+	// our requested first block, and the last should end at our requested
+	// last block.
 	replies := []*lnwire.ReplyChannelRange{
 		{
-			QueryChannelRange: *replyQueries[0],
+			FirstBlockHeight: 0,
+			NumBlocks:        11,
 			ShortChanIDs: []lnwire.ShortChannelID{
 				{
 					BlockHeight: 10,
@@ -1227,7 +1205,8 @@ func testGossipSyncerProcessChanRangeReply(t *testing.T, legacy bool) {
 			},
 		},
 		{
-			QueryChannelRange: *replyQueries[1],
+			FirstBlockHeight: 11,
+			NumBlocks:        1,
 			ShortChanIDs: []lnwire.ShortChannelID{
 				{
 					BlockHeight: 11,
@@ -1235,14 +1214,28 @@ func testGossipSyncerProcessChanRangeReply(t *testing.T, legacy bool) {
 			},
 		},
 		{
-			QueryChannelRange: *replyQueries[2],
-			Complete:          1,
+			FirstBlockHeight: 12,
+			NumBlocks:        query.NumBlocks - 12,
+			Complete:         1,
 			ShortChanIDs: []lnwire.ShortChannelID{
 				{
 					BlockHeight: 12,
 				},
 			},
 		},
+	}
+
+	// Each reply query is the same as the original query in the legacy
+	// mode.
+	if legacy {
+		replies[0].FirstBlockHeight = query.FirstBlockHeight
+		replies[0].NumBlocks = query.NumBlocks
+
+		replies[1].FirstBlockHeight = query.FirstBlockHeight
+		replies[1].NumBlocks = query.NumBlocks
+
+		replies[2].FirstBlockHeight = query.FirstBlockHeight
+		replies[2].NumBlocks = query.NumBlocks
 	}
 
 	// We'll begin by sending the syncer a set of non-complete channel

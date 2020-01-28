@@ -560,6 +560,7 @@ func (r *ChannelRouter) Start() error {
 			r.activeSendToRoutes[hash] = paySession
 			r.activeSendToRoutesMtx.Unlock()
 
+			// TODO: must set amount
 			lPayment := &LightningPayment{
 				PaymentHash: hash,
 			}
@@ -1734,6 +1735,12 @@ func (r *ChannelRouter) SendToRoute(hash lntypes.Hash, route *route.Route) (
 	if !ok {
 		// Calculate amount paid to receiver.
 		amt := route.Amt()
+
+		finalHop := route.Hops[len(route.Hops)-1]
+		mpp := finalHop.MPP
+		if mpp != nil {
+			amt = mpp.TotalMsat()
+		}
 
 		// Record this payment hash with the ControlTower, ensuring it
 		// is not already in-flight.

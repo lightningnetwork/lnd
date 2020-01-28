@@ -71,8 +71,8 @@ var (
 	testAddr = [32]byte{0x01, 0x02}
 )
 
-// TestMPPHop asserts that a Hop will encode a non-nil to final nodes, and fail
-// when trying to send to intermediaries.
+// TestMPPHop asserts that a Hop will encode a non-nil MPP to final nodes, and
+// fail when trying to send to intermediaries.
 func TestMPPHop(t *testing.T) {
 	t.Parallel()
 
@@ -123,6 +123,7 @@ func TestPayloadSize(t *testing.T) {
 			AmtToForward:     1200,
 			OutgoingTimeLock: 700000,
 			MPP:              record.NewMPP(500, [32]byte{}),
+			AMP:              record.NewAMP([32]byte{}, [32]byte{}, 8),
 			CustomRecords: map[uint64][]byte{
 				100000:  {1, 2, 3},
 				1000000: {4, 5},

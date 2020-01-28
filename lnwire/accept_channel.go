@@ -92,6 +92,11 @@ type AcceptChannel struct {
 	// and has a length prefix, so a zero will be written if it is not set
 	// and its length followed by the script will be written if it is set.
 	UpfrontShutdownScript DeliveryAddress
+
+	// ExtraData is the set of data that was appended to this message to
+	// fill out the full maximum transport message size. These fields can
+	// be used to specify optional data such as custom TLV fields.
+	ExtraData ExtraOpaqueData
 }
 
 // A compile time check to ensure AcceptChannel implements the lnwire.Message
@@ -104,7 +109,7 @@ var _ Message = (*AcceptChannel)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (a *AcceptChannel) Encode(w io.Writer, pver uint32) error {
-	return WriteElements(w,
+	err := WriteElements(w,
 		a.PendingChannelID[:],
 		a.DustLimit,
 		a.MaxValueInFlight,
@@ -121,6 +126,11 @@ func (a *AcceptChannel) Encode(w io.Writer, pver uint32) error {
 		a.FirstCommitmentPoint,
 		a.UpfrontShutdownScript,
 	)
+	if err != nil {
+		return err
+	}
+
+	return a.ExtraData.Encode(w)
 }
 
 // Decode deserializes the serialized AcceptChannel stored in the passed
@@ -156,7 +166,8 @@ func (a *AcceptChannel) Decode(r io.Reader, pver uint32) error {
 	if err != nil && err != io.EOF {
 		return err
 	}
-	return nil
+
+	return a.ExtraData.Decode(r)
 }
 
 // MsgType returns the MessageType code which uniquely identifies this message
@@ -172,11 +183,5 @@ func (a *AcceptChannel) MsgType() MessageType {
 //
 // This is part of the lnwire.Message interface.
 func (a *AcceptChannel) MaxPayloadLength(uint32) uint32 {
-	// 32 + (8 * 4) + (4 * 1) + (2 * 2) + (33 * 6)
-	var length uint32 = 270 // base length
-
-	// Upfront shutdown script max length.
-	length += 2 + deliveryAddressMaxSize
-
-	return length
+	return MaxMsgBody
 }

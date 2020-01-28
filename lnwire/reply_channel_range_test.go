@@ -72,6 +72,7 @@ func TestReplyChannelRangeEmpty(t *testing.T) {
 				Complete:         1,
 				EncodingType:     test.encType,
 				ShortChanIDs:     nil,
+				ExtraData:        make([]byte, 0),
 			}
 
 			// First decode the hex string in the test case into a

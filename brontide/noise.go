@@ -871,3 +871,23 @@ func (b *Machine) ReadBody(r io.Reader, buf []byte) ([]byte, error) {
 	// TODO(roasbeef): modify to let pass in slice
 	return b.recvCipher.Decrypt(nil, nil, buf)
 }
+
+// SetCurveToNil sets the 'Curve' parameter to nil on the handshakeState keys.
+// This allows us to log the Machine object without spammy log messages.
+func (b *Machine) SetCurveToNil() {
+	if b.localStatic != nil {
+		b.localStatic.Curve = nil
+	}
+
+	if b.localEphemeral != nil {
+		b.localEphemeral.Curve = nil
+	}
+
+	if b.remoteStatic != nil {
+		b.remoteStatic.Curve = nil
+	}
+
+	if b.remoteEphemeral != nil {
+		b.remoteEphemeral.Curve = nil
+	}
+}

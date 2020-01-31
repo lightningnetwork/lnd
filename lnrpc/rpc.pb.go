@@ -1231,7 +1231,7 @@ type SendRequest struct {
 	AllowSelfPayment bool `protobuf:"varint,14,opt,name=allow_self_payment,json=allowSelfPayment,proto3" json:"allow_self_payment,omitempty"`
 	//*
 	//Features assumed to be supported by the final node. All transitive feature
-	//depdencies must also be set properly. For a given feature bit pair, either
+	//dependencies must also be set properly. For a given feature bit pair, either
 	//optional or remote may be set, but not both. If this field is nil or empty,
 	//the router will try to load destination features from the graph as a
 	//fallback.
@@ -5933,7 +5933,7 @@ type QueryRoutesRequest struct {
 	RouteHints []*RouteHint `protobuf:"bytes,16,rep,name=route_hints,json=routeHints,proto3" json:"route_hints,omitempty"`
 	//*
 	//Features assumed to be supported by the final node. All transitive feature
-	//depdencies must also be set properly. For a given feature bit pair, either
+	//dependencies must also be set properly. For a given feature bit pair, either
 	//optional or remote may be set, but not both. If this field is nil or empty,
 	//the router will try to load destination features from the graph as a
 	//fallback.

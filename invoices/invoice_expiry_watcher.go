@@ -108,7 +108,7 @@ func (ew *InvoiceExpiryWatcher) prepareInvoice(
 	paymentHash lntypes.Hash, invoice *channeldb.Invoice) *invoiceExpiry {
 
 	if invoice.State != channeldb.ContractOpen {
-		log.Debugf("Invoice not added to expiry watcher: %v", invoice)
+		log.Debugf("Invoice not added to expiry watcher: %v", paymentHash)
 		return nil
 	}
 
@@ -139,7 +139,7 @@ func (ew *InvoiceExpiryWatcher) AddInvoices(
 	}
 
 	if len(invoicesWithExpiry) > 0 {
-		log.Debugf("Added %v invoices to the expiry watcher: %v",
+		log.Debugf("Added %d invoices to the expiry watcher",
 			len(invoicesWithExpiry))
 		select {
 		case ew.newInvoices <- invoicesWithExpiry:

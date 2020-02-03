@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
@@ -260,6 +261,9 @@ type ChannelArbitrator struct {
 	started int32 // To be used atomically.
 	stopped int32 // To be used atomically.
 
+	// startTimestamp is the time when this ChannelArbitrator was started.
+	startTimestamp time.Time
+
 	// log is a persistent log that the attendant will use to checkpoint
 	// its next action, and the state of any unresolved contracts.
 	log ArbitratorLog
@@ -328,6 +332,7 @@ func (c *ChannelArbitrator) Start() error {
 	if !atomic.CompareAndSwapInt32(&c.started, 0, 1) {
 		return nil
 	}
+	c.startTimestamp = c.cfg.Clock.Now()
 
 	var (
 		err error
@@ -1132,7 +1137,29 @@ func (c *ChannelArbitrator) shouldGoOnChain(htlc channeldb.HTLC,
 
 	// We should on-chain for this HTLC, iff we're within out broadcast
 	// cutoff window.
-	return currentHeight >= broadcastCutOff
+	if currentHeight < broadcastCutOff {
+		return false
+	}
+
+	// In case of incoming htlc we should go to chain.
+	if htlc.Incoming {
+		return true
+	}
+
+	// For htlcs that are result of our initiated payments we give some grace
+	// period before force closing the channel. During this time we expect
+	// both nodes to connect and give a chance to the other node to send its
+	// updates and cancel the htlc.
+	// This shouldn't add any security risk as there is no incoming htlc to
+	// fulfill at this case and the expectation is that when the channel is
+	// active the other node will send update_fail_htlc to remove the htlc
+	// without closing the channel. It is up to the user to force close the
+	// channel if the peer misbehaves and doesn't send the update_fail_htlc.
+	// It is useful when this node is most of the time not online and is
+	// likely to miss the time slot where the htlc may be cancelled.
+	isForwarded := c.cfg.IsForwardedHTLC(c.cfg.ShortChanID, htlc.HtlcIndex)
+	upTime := c.cfg.Clock.Now().Sub(c.startTimestamp)
+	return isForwarded || upTime > c.cfg.PaymentsExpirationGracePeriod
 }
 
 // checkCommitChainActions is called for each new block connected to the end of

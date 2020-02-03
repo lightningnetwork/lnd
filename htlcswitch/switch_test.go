@@ -322,6 +322,10 @@ func TestSwitchForward(t *testing.T) {
 		t.Fatal("wrong amount of circuits")
 	}
 
+	if !s.IsForwardedHTLC(bobChannelLink.ShortChanID(), 0) {
+		t.Fatal("htlc should be identified as forwarded")
+	}
+
 	// Create settle request pretending that bob link handled the add htlc
 	// request and sent the htlc settle request back. This request should
 	// be forwarder back to Alice link.
@@ -1892,6 +1896,9 @@ func TestSwitchSendPayment(t *testing.T) {
 		t.Fatalf("unable obfuscate failure: %v", err)
 	}
 
+	if s.IsForwardedHTLC(aliceChannelLink.ShortChanID(), update.ID) {
+		t.Fatal("htlc should be identified as not forwarded")
+	}
 	packet := &htlcPacket{
 		outgoingChanID: aliceChannelLink.ShortChanID(),
 		outgoingHTLCID: 0,

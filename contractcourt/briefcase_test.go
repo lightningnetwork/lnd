@@ -208,7 +208,7 @@ func assertResolversEqual(t *testing.T, originalResolver ContractResolver,
 	case *htlcIncomingContestResolver:
 		diskRes := diskResolver.(*htlcIncomingContestResolver)
 		assertSuccessResEqual(
-			&ogRes.htlcSuccessResolver, &diskRes.htlcSuccessResolver,
+			ogRes.htlcSuccessResolver, diskRes.htlcSuccessResolver,
 		)
 
 		if ogRes.htlcExpiry != diskRes.htlcExpiry {
@@ -311,7 +311,7 @@ func TestContractInsertionRetrieval(t *testing.T) {
 	contestSuccess.htlcResolution.ClaimOutpoint = randOutPoint()
 	resolvers = append(resolvers, &htlcIncomingContestResolver{
 		htlcExpiry:          100,
-		htlcSuccessResolver: contestSuccess,
+		htlcSuccessResolver: &contestSuccess,
 	})
 
 	// For quick lookup during the test, we'll create this map which allow

@@ -37,13 +37,6 @@ type htlcSuccessResolver struct {
 	// historical queries to the chain for spends/confirmations.
 	broadcastHeight uint32
 
-	// sweepTx will be non-nil if we've already crafted a transaction to
-	// sweep a direct HTLC output. This is only a concern if we're sweeping
-	// from the commitment transaction of the remote party.
-	//
-	// TODO(roasbeef): send off to utxobundler
-	sweepTx *wire.MsgTx
-
 	// htlc contains information on the htlc that we are resolving on-chain.
 	htlc channeldb.HTLC
 
@@ -102,60 +95,52 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 	// If we don't have a success transaction, then this means that this is
 	// an output on the remote party's commitment transaction.
 	if h.htlcResolution.SignedSuccessTx == nil {
-		// If we don't already have the sweep transaction constructed,
-		// we'll do so and broadcast it.
-		if h.sweepTx == nil {
-			log.Infof("%T(%x): crafting sweep tx for "+
-				"incoming+remote htlc confirmed", h,
-				h.htlc.RHash[:])
+		log.Infof("%T(%x): crafting sweep tx for "+
+			"incoming+remote htlc confirmed", h,
+			h.htlc.RHash[:])
 
-			// Before we can craft out sweeping transaction, we
-			// need to create an input which contains all the items
-			// required to add this input to a sweeping transaction,
-			// and generate a witness.
-			inp := input.MakeHtlcSucceedInput(
-				&h.htlcResolution.ClaimOutpoint,
-				&h.htlcResolution.SweepSignDesc,
-				h.htlcResolution.Preimage[:],
-				h.broadcastHeight,
-			)
+		// Before we can craft out sweeping transaction, we
+		// need to create an input which contains all the items
+		// required to add this input to a sweeping transaction,
+		// and generate a witness.
+		inp := input.MakeHtlcSucceedInput(
+			&h.htlcResolution.ClaimOutpoint,
+			&h.htlcResolution.SweepSignDesc,
+			h.htlcResolution.Preimage[:],
+			h.broadcastHeight,
+		)
 
-			// With the input created, we can now generate the full
-			// sweep transaction, that we'll use to move these
-			// coins back into the backing wallet.
-			//
-			// TODO: Set tx lock time to current block height
-			// instead of zero. Will be taken care of once sweeper
-			// implementation is complete.
-			//
-			// TODO: Use time-based sweeper and result chan.
-			var err error
-			h.sweepTx, err = h.Sweeper.CreateSweepTx(
-				[]input.Input{&inp},
-				sweep.FeePreference{
-					ConfTarget: sweepConfTarget,
-				}, 0,
-			)
-			if err != nil {
-				return nil, err
-			}
-
-			log.Infof("%T(%x): crafted sweep tx=%v", h,
-				h.htlc.RHash[:], spew.Sdump(h.sweepTx))
-
-			// With the sweep transaction signed, we'll now
-			// Checkpoint our state.
-			if err := h.Checkpoint(h); err != nil {
-				log.Errorf("unable to Checkpoint: %v", err)
-				return nil, err
-			}
+		// With the input created, we can now generate the full
+		// sweep transaction, that we'll use to move these
+		// coins back into the backing wallet.
+		//
+		// TODO: Set tx lock time to current block height
+		// instead of zero. Will be taken care of once sweeper
+		// implementation is complete.
+		//
+		// TODO: Use time-based sweeper and result chan.
+		sweepTx, err := h.Sweeper.CreateSweepTx(
+			[]input.Input{&inp},
+			sweep.FeePreference{
+				ConfTarget: sweepConfTarget,
+			}, 0,
+		)
+		if err != nil {
+			return nil, err
 		}
 
-		// Regardless of whether an existing transaction was found or newly
-		// constructed, we'll broadcast the sweep transaction to the
-		// network.
-		err := h.PublishTx(h.sweepTx)
-		if err != nil {
+		log.Infof("%T(%x): crafted sweep tx=%v", h,
+			h.htlc.RHash[:], spew.Sdump(sweepTx))
+
+		// With the sweep transaction signed, we'll now
+		// Checkpoint our state.
+		if err := h.Checkpoint(h); err != nil {
+			log.Errorf("unable to Checkpoint: %v", err)
+			return nil, err
+		}
+
+		// Broadcast the sweep transaction to the network.
+		if err := h.PublishTx(sweepTx); err != nil {
 			log.Infof("%T(%x): unable to publish tx: %v",
 				h, h.htlc.RHash[:], err)
 			return nil, err
@@ -163,8 +148,8 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 
 		// With the sweep transaction broadcast, we'll wait for its
 		// confirmation.
-		sweepTXID := h.sweepTx.TxHash()
-		sweepScript := h.sweepTx.TxOut[0].PkScript
+		sweepTXID := sweepTx.TxHash()
+		sweepScript := sweepTx.TxOut[0].PkScript
 		confNtfn, err := h.Notifier.RegisterConfirmationsNtfn(
 			&sweepTXID, sweepScript, 1, h.broadcastHeight,
 		)

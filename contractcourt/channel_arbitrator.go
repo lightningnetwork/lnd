@@ -1113,17 +1113,17 @@ func (c ChainActionMap) Merge(actions ChainActionMap) {
 // we should go on chain to claim.  We do this rather than waiting up until the
 // last minute as we want to ensure that when we *need* (HTLC is timed out) to
 // sweep, the commitment is already confirmed.
-func (c *ChannelArbitrator) shouldGoOnChain(htlcExpiry, broadcastDelta,
-	currentHeight uint32) bool {
+func (c *ChannelArbitrator) shouldGoOnChain(htlc channeldb.HTLC,
+	broadcastDelta, currentHeight uint32) bool {
 
 	// We'll calculate the broadcast cut off for this HTLC. This is the
 	// height that (based on our current fee estimation) we should
 	// broadcast in order to ensure the commitment transaction is confirmed
 	// before the HTLC fully expires.
-	broadcastCutOff := htlcExpiry - broadcastDelta
+	broadcastCutOff := htlc.RefundTimeout - broadcastDelta
 
 	log.Tracef("ChannelArbitrator(%v): examining outgoing contract: "+
-		"expiry=%v, cutoff=%v, height=%v", c.cfg.ChanPoint, htlcExpiry,
+		"expiry=%v, cutoff=%v, height=%v", c.cfg.ChanPoint, htlc.RefundTimeout,
 		broadcastCutOff, currentHeight)
 
 	// TODO(roasbeef): take into account default HTLC delta, don't need to
@@ -1162,8 +1162,7 @@ func (c *ChannelArbitrator) checkCommitChainActions(height uint32,
 	for _, htlc := range htlcs.outgoingHTLCs {
 		// We'll need to go on-chain for an outgoing HTLC if it was
 		// never resolved downstream, and it's "close" to timing out.
-		toChain := c.shouldGoOnChain(
-			htlc.RefundTimeout, c.cfg.OutgoingBroadcastDelta,
+		toChain := c.shouldGoOnChain(htlc, c.cfg.OutgoingBroadcastDelta,
 			height,
 		)
 
@@ -1194,8 +1193,7 @@ func (c *ChannelArbitrator) checkCommitChainActions(height uint32,
 			continue
 		}
 
-		toChain := c.shouldGoOnChain(
-			htlc.RefundTimeout, c.cfg.IncomingBroadcastDelta,
+		toChain := c.shouldGoOnChain(htlc, c.cfg.IncomingBroadcastDelta,
 			height,
 		)
 
@@ -1245,8 +1243,7 @@ func (c *ChannelArbitrator) checkCommitChainActions(height uint32,
 		// mark it still "live". After we broadcast, we'll monitor it
 		// until the HTLC times out to see if we can also redeem it
 		// on-chain.
-		case !c.shouldGoOnChain(
-			htlc.RefundTimeout, c.cfg.OutgoingBroadcastDelta,
+		case !c.shouldGoOnChain(htlc, c.cfg.OutgoingBroadcastDelta,
 			height,
 		):
 			// TODO(roasbeef): also need to be able to query
@@ -1415,8 +1412,7 @@ func (c *ChannelArbitrator) checkRemoteDanglingActions(
 	for _, htlc := range pendingRemoteHTLCs {
 		// We'll now check if we need to go to chain in order to cancel
 		// the incoming HTLC.
-		goToChain := c.shouldGoOnChain(
-			htlc.RefundTimeout, c.cfg.OutgoingBroadcastDelta,
+		goToChain := c.shouldGoOnChain(htlc, c.cfg.OutgoingBroadcastDelta,
 			height,
 		)
 

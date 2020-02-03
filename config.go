@@ -341,6 +341,8 @@ type config struct {
 	Watchtower *lncfg.Watchtower `group:"watchtower" namespace:"watchtower"`
 
 	LegacyProtocol *lncfg.LegacyProtocol `group:"legacyprotocol" namespace:"legacyprotocol"`
+
+	AllowCircularRoute bool `long:"allow-circular-route" description:"If true, our node will allow htlc forwards that arrive and depart on the same channel."`
 }
 
 // loadConfig initializes and parses the config using a config file and command

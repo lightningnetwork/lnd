@@ -29,6 +29,11 @@ const (
 	// FailureDetailInsufficientBalance is returned when we cannot route a
 	// htlc due to insufficient outgoing capacity.
 	FailureDetailInsufficientBalance
+
+	// FailureDetailCircularRoute is returned when an attempt is made
+	// to forward a htlc through our node which arrives and leaves on the
+	// same channel.
+	FailureDetailCircularRoute
 )
 
 // String returns the string representation of a failure detail.
@@ -51,6 +56,9 @@ func (fd FailureDetail) String() string {
 
 	case FailureDetailInsufficientBalance:
 		return "insufficient bandwidth to route htlc"
+
+	case FailureDetailCircularRoute:
+		return "same incoming and outgoing channel"
 
 	default:
 		return "unknown failure detail"

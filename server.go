@@ -470,6 +470,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 		FwdEventTicker:         ticker.New(htlcswitch.DefaultFwdEventInterval),
 		LogEventTicker:         ticker.New(htlcswitch.DefaultLogInterval),
 		AckEventTicker:         ticker.New(htlcswitch.DefaultAckInterval),
+		AllowCircularRoute:     cfg.AllowCircularRoute,
 		RejectHTLC:             cfg.RejectHTLC,
 	}, uint32(currentHeight))
 	if err != nil {

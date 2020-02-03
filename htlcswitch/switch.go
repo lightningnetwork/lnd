@@ -167,6 +167,10 @@ type Config struct {
 	// fails in forwarding packages.
 	AckEventTicker ticker.Ticker
 
+	// AllowCircularRoute is true if the user has configured their node to
+	// allow forwards that arrive and depart our node over the same channel.
+	AllowCircularRoute bool
+
 	// RejectHTLC is a flag that instructs the htlcswitch to reject any
 	// HTLCs that are not from the source hop.
 	RejectHTLC bool
@@ -986,6 +990,22 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 			return s.handleLocalDispatch(packet)
 		}
 
+		// Before we attempt to find a non-strict forwarding path for
+		// this htlc, check whether the htlc is being routed over the
+		// same incoming and outgoing channel. If our node does not
+		// allow forwards of this nature, we fail the htlc early. This
+		// check is in place to disallow inefficiently routed htlcs from
+		// locking up our balance.
+		linkErr := checkCircularForward(
+			packet.incomingChanID, packet.outgoingChanID,
+			s.cfg.AllowCircularRoute, htlc.PaymentHash,
+		)
+		if linkErr != nil {
+			return s.failAddPacket(
+				packet, linkErr.WireMessage(), linkErr,
+			)
+		}
+
 		s.indexMtx.RLock()
 		targetLink, err := s.getLinkByShortID(packet.outgoingChanID)
 		if err != nil {
@@ -1168,6 +1188,37 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 	default:
 		return errors.New("wrong update type")
 	}
+}
+
+// checkCircularForward checks whether a forward is circular (arrives and
+// departs on the same link) and returns a link error if the switch is
+// configured to disallow this behaviour.
+func checkCircularForward(incoming, outgoing lnwire.ShortChannelID,
+	allowCircular bool, paymentHash lntypes.Hash) *LinkError {
+
+	// If the route is not circular we do not need to perform any further
+	// checks.
+	if incoming != outgoing {
+		return nil
+	}
+
+	// If the incoming and outgoing link are equal, the htlc is part of a
+	// circular route which may be used to lock up our liquidity. If the
+	// switch is configured to allow circular routes, log that we are
+	// allowing the route then return nil.
+	if allowCircular {
+		log.Debugf("allowing circular route over link: %v "+
+			"(payment hash: %x)", incoming, paymentHash)
+		return nil
+	}
+
+	// If our node disallows circular routes, return a temporary channel
+	// failure. There is nothing wrong with the policy used by the remote
+	// node, so we do not include a channel update.
+	return NewDetailedLinkError(
+		lnwire.NewTemporaryChannelFailure(nil),
+		FailureDetailCircularRoute,
+	)
 }
 
 // failAddPacket encrypts a fail packet back to an add packet's source.

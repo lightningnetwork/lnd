@@ -34,6 +34,10 @@ var (
 	// record to an intermediate hop, only final hops can receive MPP
 	// records.
 	ErrIntermediateMPPHop = errors.New("cannot send MPP to intermediate")
+
+	// ErrAMPMissingMPP is returned when the caller tries to attach an AMP
+	// record but no MPP record is presented for the final hop.
+	ErrAMPMissingMPP = errors.New("cannot send AMP without MPP record")
 )
 
 // Vertex is a simple alias for the serialization of a compressed Bitcoin
@@ -111,6 +115,10 @@ type Hop struct {
 	// only be set for the final hop.
 	MPP *record.MPP
 
+	// AMP encapsulates the data required for option_amp. This field should
+	// only be set for the final hop.
+	AMP *record.AMP
+
 	// CustomRecords if non-nil are a set of additional TLV records that
 	// should be included in the forwarding instructions for this node.
 	CustomRecords record.CustomSet
@@ -168,6 +176,18 @@ func (h *Hop) PackHopPayload(w io.Writer, nextChanID uint64) error {
 		}
 	}
 
+	// If an AMP record is destined for this hop, ensure that we only ever
+	// attach it if we also have an MPP record. We can infer that this is
+	// already a final hop if MPP is non-nil otherwise we would have exited
+	// above.
+	if h.AMP != nil {
+		if h.MPP != nil {
+			records = append(records, h.AMP.Record())
+		} else {
+			return ErrAMPMissingMPP
+		}
+	}
+
 	// Append any custom types destined for this hop.
 	tlvRecords := tlv.MapToRecords(h.CustomRecords)
 	records = append(records, tlvRecords...)
@@ -215,6 +235,11 @@ func (h *Hop) PayloadSize(nextChanID uint64) uint64 {
 	// Add mpp if present.
 	if h.MPP != nil {
 		addRecord(record.MPPOnionType, h.MPP.PayloadSize())
+	}
+
+	// Add amp if present.
+	if h.AMP != nil {
+		addRecord(record.AMPOnionType, h.AMP.PayloadSize())
 	}
 
 	// Add custom records.

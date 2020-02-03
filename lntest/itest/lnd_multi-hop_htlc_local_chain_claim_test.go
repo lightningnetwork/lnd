@@ -212,8 +212,10 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest)
 		assertTxInBlock(t, block, txid)
 	}
 
-	// Keep track of the second level tx maturity.
-	carolSecondLevelCSV := uint32(defaultCSV)
+	// Keep track of the second level tx maturity. The transaction is
+	// already confirmed, so we don't need to wait for the first block of
+	// the csv lock.
+	carolSecondLevelCSV := uint32(defaultCSV) - 1
 
 	// When Bob notices Carol's second level transaction in the block, he
 	// will extract the preimage and broadcast a second level tx to claim
@@ -287,9 +289,10 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest)
 	}
 	assertTxInBlock(t, block, bobSecondLvlTx)
 
-	// Keep track of Bob's second level maturity, and decrement our track
-	// of Carol's.
-	bobSecondLevelCSV := uint32(defaultCSV)
+	// Keep track of Bob's second level maturity, and decrement our track of
+	// Carol's. Bob's second level tx is already confirmed, so we don't need
+	// to wait for the first block of that csv lock.
+	bobSecondLevelCSV := uint32(defaultCSV) - 1
 	carolSecondLevelCSV--
 
 	// Now that the preimage from Bob has hit the chain, restart Alice to

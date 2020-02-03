@@ -176,10 +176,6 @@ func assertResolversEqual(t *testing.T, originalResolver ContractResolver,
 			t.Fatalf("expected %v, got %v",
 				ogRes.outputIncubating, diskRes.outputIncubating)
 		}
-		if ogRes.resolved != diskRes.resolved {
-			t.Fatalf("expected %v, got %v", ogRes.resolved,
-				diskRes.resolved)
-		}
 		if ogRes.broadcastHeight != diskRes.broadcastHeight {
 			t.Fatalf("expected %v, got %v",
 				ogRes.broadcastHeight, diskRes.broadcastHeight)

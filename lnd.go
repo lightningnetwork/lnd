@@ -241,7 +241,7 @@ func Main(lisCfg ListenerCfg) error {
 	}
 	defer chanDB.Close()
 
-	openTime := time.Now().Sub(startOpenTime)
+	openTime := time.Since(startOpenTime)
 	ltndLog.Infof("Database now open (time_to_open=%v)!", openTime)
 
 	// Only process macaroons if --no-macaroons isn't set.

@@ -402,10 +402,9 @@ func (s *UtxoSweeper) SweepInput(input input.Input,
 	}
 
 	log.Infof("Sweep request received: out_point=%v, witness_type=%v, "+
-		"time_lock=%v, amount=%v, fee_preference=%v, force=%v",
+		"time_lock=%v, amount=%v, params=(%v)",
 		input.OutPoint(), input.WitnessType(), input.BlocksToMaturity(),
-		btcutil.Amount(input.SignDesc().Output.Value),
-		params.Fee, params.Force)
+		btcutil.Amount(input.SignDesc().Output.Value), params)
 
 	sweeperInput := &sweepInputMessage{
 		input:      input,

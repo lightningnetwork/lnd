@@ -198,7 +198,8 @@ func (i *InvoiceRegistry) populateExpiryWatcher() error {
 		return err
 	}
 
-	log.Debugf("Adding %v pending invoices to the expiry watcher")
+	log.Debugf("Adding %d pending invoices to the expiry watcher",
+		len(pendingInvoices))
 	i.expiryWatcher.AddInvoices(pendingInvoices)
 	return nil
 }

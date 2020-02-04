@@ -148,13 +148,6 @@ func decodeShortChanIDs(r io.Reader) (ShortChanIDEncoding, []ShortChannelID, err
 	// as that was just the encoding type.
 	queryBody = queryBody[1:]
 
-	// At this point, if there's no body remaining, then only the encoding
-	// type was specified, meaning that there're no further bytes to be
-	// parsed.
-	if len(queryBody) == 0 {
-		return encodingType, nil, nil
-	}
-
 	// Otherwise, depending on the encoding type, we'll decode the encode
 	// short channel ID's in a different manner.
 	switch encodingType {
@@ -209,6 +202,13 @@ func decodeShortChanIDs(r io.Reader) (ShortChanIDEncoding, []ShortChannelID, err
 		// each instance from concurrent peers.
 		zlibDecodeMtx.Lock()
 		defer zlibDecodeMtx.Unlock()
+
+		// At this point, if there's no body remaining, then only the encoding
+		// type was specified, meaning that there're no further bytes to be
+		// parsed.
+		if len(queryBody) == 0 {
+			return encodingType, nil, nil
+		}
 
 		// Before we start to decode, we'll create a limit reader over
 		// the current reader. This will ensure that we can control how

@@ -222,9 +222,12 @@ func Main(lisCfg ListenerCfg) error {
 		defaultGraphSubDirname,
 		normalizeNetwork(activeNetParams.Name))
 
+	ltndLog.Infof("Opening the main database, this might take a few " +
+		"minutes...")
+
 	// Open the channeldb, which is dedicated to storing channel, and
 	// network related metadata.
-	ltndLog.Infof("Opening the channeldb, might take a few minutes")
+	startOpenTime := time.Now()
 	chanDB, err := channeldb.Open(
 		graphDir,
 		channeldb.OptionSetRejectCacheSize(cfg.Caches.RejectCacheSize),
@@ -237,6 +240,9 @@ func Main(lisCfg ListenerCfg) error {
 		return err
 	}
 	defer chanDB.Close()
+
+	openTime := time.Now().Sub(startOpenTime)
+	ltndLog.Infof("Database now open (time_to_open=%v)!", openTime)
 
 	// Only process macaroons if --no-macaroons isn't set.
 	ctx := context.Background()

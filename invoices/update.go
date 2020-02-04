@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
 )
@@ -169,6 +170,7 @@ func (u ResolutionResult) String() string {
 // invoiceUpdateCtx is an object that describes the context for the invoice
 // update to be carried out.
 type invoiceUpdateCtx struct {
+	hash                 lntypes.Hash
 	circuitKey           channeldb.CircuitKey
 	amtPaid              lnwire.MilliSatoshi
 	expiry               uint32

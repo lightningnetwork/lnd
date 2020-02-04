@@ -180,6 +180,12 @@ type invoiceUpdateCtx struct {
 	mpp                  *record.MPP
 }
 
+// log logs a message specific to this update context.
+func (i *invoiceUpdateCtx) log(s string) {
+	log.Debugf("Invoice(%x): %v, amt=%v, expiry=%v, circuit=%v, mpp=%v",
+		i.hash[:], s, i.amtPaid, i.expiry, i.circuitKey, i.mpp)
+}
+
 // updateInvoice is a callback for DB.UpdateInvoice that contains the invoice
 // settlement logic.
 func updateInvoice(ctx *invoiceUpdateCtx, inv *channeldb.Invoice) (

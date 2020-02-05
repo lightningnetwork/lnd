@@ -100,6 +100,83 @@ func dnsNames(tlsExtraDomains []string) (string, []string) {
 	return host, dnsNames
 }
 
+// IsOutdated returns whether the given certificate is outdated w.r.t. the IPs
+// and domains given. The certificate is considered up to date if it was
+// created with _exactly_ the IPs and domains given.
+func IsOutdated(cert *x509.Certificate, tlsExtraIPs,
+	tlsExtraDomains []string) (bool, error) {
+
+	// Parse the slice of IP strings.
+	ips, err := ipAddresses(tlsExtraIPs)
+	if err != nil {
+		return false, err
+	}
+
+	// To not consider the certificate outdated if it has duplicate IPs or
+	// if only the order has changed, we create two maps from the slice of
+	// IPs to compare.
+	ips1 := make(map[string]net.IP)
+	for _, ip := range ips {
+		ips1[ip.String()] = ip
+	}
+
+	ips2 := make(map[string]net.IP)
+	for _, ip := range cert.IPAddresses {
+		ips2[ip.String()] = ip
+	}
+
+	// If the certificate has a different number of IP addresses, it is
+	// definitely out of date.
+	if len(ips1) != len(ips2) {
+		return true, nil
+	}
+
+	// Go through each IP address, and check that they are equal. We expect
+	// both the string representation and the exact IP to match.
+	for s, ip1 := range ips1 {
+		// Assert the IP string is found in both sets.
+		ip2, ok := ips2[s]
+		if !ok {
+			return true, nil
+		}
+
+		// And that the IPs are considered equal.
+		if !ip1.Equal(ip2) {
+			return true, nil
+		}
+	}
+
+	// Get the full list of DNS names to use.
+	_, dnsNames := dnsNames(tlsExtraDomains)
+
+	// We do the same kind of deduplication for the DNS names.
+	dns1 := make(map[string]struct{})
+	for _, n := range cert.DNSNames {
+		dns1[n] = struct{}{}
+	}
+
+	dns2 := make(map[string]struct{})
+	for _, n := range dnsNames {
+		dns2[n] = struct{}{}
+	}
+
+	// If the number of domains are different, it is out of date.
+	if len(dns1) != len(dns2) {
+		return true, nil
+	}
+
+	// Similarly, check that each DNS name matches what is found in the
+	// certificate.
+	for k := range dns1 {
+		if _, ok := dns2[k]; !ok {
+			return true, nil
+		}
+	}
+
+	// Certificate was up-to-date.
+	return false, nil
+}
+
 // GenCertPair generates a key/cert pair to the paths provided. The
 // auto-generated certificates should *not* be used in production for public
 // access as they're self-signed and don't necessarily contain all of the

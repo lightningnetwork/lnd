@@ -757,6 +757,12 @@ func getTLSConfig(tlsCertPath string, tlsKeyPath string, tlsExtraIPs,
 			return nil, nil, "", err
 		}
 		rpcsLog.Infof("Done renewing TLS certificates")
+
+		// Reload the certificate data.
+		certData, _, err = cert.LoadCert(tlsCertPath, tlsKeyPath)
+		if err != nil {
+			return nil, nil, "", err
+		}
 	}
 
 	tlsCfg := cert.TLSConfFromCert(certData)

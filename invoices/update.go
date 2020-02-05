@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
 )
@@ -169,6 +170,7 @@ func (u ResolutionResult) String() string {
 // invoiceUpdateCtx is an object that describes the context for the invoice
 // update to be carried out.
 type invoiceUpdateCtx struct {
+	hash                 lntypes.Hash
 	circuitKey           channeldb.CircuitKey
 	amtPaid              lnwire.MilliSatoshi
 	expiry               uint32
@@ -176,6 +178,12 @@ type invoiceUpdateCtx struct {
 	finalCltvRejectDelta int32
 	customRecords        record.CustomSet
 	mpp                  *record.MPP
+}
+
+// log logs a message specific to this update context.
+func (i *invoiceUpdateCtx) log(s string) {
+	log.Debugf("Invoice(%x): %v, amt=%v, expiry=%v, circuit=%v, mpp=%v",
+		i.hash[:], s, i.amtPaid, i.expiry, i.circuitKey, i.mpp)
 }
 
 // updateInvoice is a callback for DB.UpdateInvoice that contains the invoice

@@ -694,8 +694,7 @@ func (i *InvoiceRegistry) cancelSingleHtlc(hash lntypes.Hash,
 
 // processKeySend just-in-time inserts an invoice if this htlc is a keysend
 // htlc.
-func (i *InvoiceRegistry) processKeySend(ctx invoiceUpdateCtx,
-	hash lntypes.Hash) error {
+func (i *InvoiceRegistry) processKeySend(ctx invoiceUpdateCtx) error {
 
 	// Retrieve keysend record if present.
 	preimageSlice, ok := ctx.customRecords[record.KeySendType]
@@ -705,7 +704,7 @@ func (i *InvoiceRegistry) processKeySend(ctx invoiceUpdateCtx,
 
 	// Cancel htlc is preimage is invalid.
 	preimage, err := lntypes.MakePreimage(preimageSlice)
-	if err != nil || preimage.Hash() != hash {
+	if err != nil || preimage.Hash() != ctx.hash {
 		return errors.New("invalid keysend preimage")
 	}
 
@@ -752,7 +751,7 @@ func (i *InvoiceRegistry) processKeySend(ctx invoiceUpdateCtx,
 
 	// Insert invoice into database. Ignore duplicates, because this
 	// may be a replay.
-	_, err = i.AddInvoice(invoice, hash)
+	_, err = i.AddInvoice(invoice, ctx.hash)
 	if err != nil && err != channeldb.ErrDuplicateInvoice {
 		return err
 	}
@@ -782,14 +781,10 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 
 	mpp := payload.MultiPath()
 
-	debugLog := func(s string) {
-		log.Debugf("Invoice(%x): %v, amt=%v, expiry=%v, circuit=%v, "+
-			"mpp=%v", rHash[:], s, amtPaid, expiry, circuitKey, mpp)
-	}
-
 	// Create the update context containing the relevant details of the
 	// incoming htlc.
 	updateCtx := invoiceUpdateCtx{
+		hash:                 rHash,
 		circuitKey:           circuitKey,
 		amtPaid:              amtPaid,
 		expiry:               expiry,
@@ -803,9 +798,9 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 	// AddInvoice obtains its own lock. This is no problem, because the
 	// operation is idempotent.
 	if i.cfg.AcceptKeySend {
-		err := i.processKeySend(updateCtx, rHash)
+		err := i.processKeySend(updateCtx)
 		if err != nil {
-			debugLog(fmt.Sprintf("keysend error: %v", err))
+			updateCtx.log(fmt.Sprintf("keysend error: %v", err))
 
 			return NewFailureResolution(
 				circuitKey, currentHeight, ResultKeySendError,
@@ -813,8 +808,53 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 		}
 	}
 
+	// Execute locked notify exit hop logic.
 	i.Lock()
-	defer i.Unlock()
+	resolution, err := i.notifyExitHopHtlcLocked(&updateCtx, hodlChan)
+	i.Unlock()
+	if err != nil {
+		return nil, err
+	}
+
+	switch r := resolution.(type) {
+
+	// A direct resolution was received for this htlc.
+	case *HtlcResolution:
+		return r, nil
+
+	// The htlc is held. Start a timer outside the lock if the htlc should
+	// be auto-released, because otherwise a deadlock may happen with the
+	// main event loop.
+	case *acceptResolution:
+		if r.autoRelease {
+			err := i.startHtlcTimer(rHash, circuitKey, r.acceptTime)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		return nil, nil
+
+	default:
+		return nil, errors.New("invalid resolution type")
+	}
+}
+
+// acceptResolution is returned when the htlc should be held.
+type acceptResolution struct {
+	// autoRelease signals that the htlc should be automatically released
+	// after a timeout.
+	autoRelease bool
+
+	// acceptTime is the time at which this htlc was accepted.
+	acceptTime time.Time
+}
+
+// notifyExitHopHtlcLocked is the internal implementation of NotifyExitHopHtlc
+// that should be executed inside the registry lock.
+func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
+	ctx *invoiceUpdateCtx, hodlChan chan<- interface{}) (
+	interface{}, error) {
 
 	// We'll attempt to settle an invoice matching this rHash on disk (if
 	// one exists). The callback will update the invoice state and/or htlcs.
@@ -823,11 +863,11 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 		updateSubscribers bool
 	)
 	invoice, err := i.cdb.UpdateInvoice(
-		rHash,
+		ctx.hash,
 		func(inv *channeldb.Invoice) (
 			*channeldb.InvoiceUpdateDesc, error) {
 
-			updateDesc, res, err := updateInvoice(&updateCtx, inv)
+			updateDesc, res, err := updateInvoice(ctx, inv)
 			if err != nil {
 				return nil, err
 			}
@@ -847,29 +887,30 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 		// If the invoice was not found, return a failure resolution
 		// with an invoice not found result.
 		return NewFailureResolution(
-			circuitKey, currentHeight, ResultInvoiceNotFound,
+			ctx.circuitKey, ctx.currentHeight,
+			ResultInvoiceNotFound,
 		), nil
 
 	case nil:
 
 	default:
-		debugLog(err.Error())
+		ctx.log(err.Error())
 		return nil, err
 	}
 
-	debugLog(result.String())
+	ctx.log(result.String())
 
 	if updateSubscribers {
-		i.notifyClients(rHash, invoice, invoice.State)
+		i.notifyClients(ctx.hash, invoice, invoice.State)
 	}
 
 	// Inspect latest htlc state on the invoice.
-	invoiceHtlc, ok := invoice.Htlcs[circuitKey]
+	invoiceHtlc, ok := invoice.Htlcs[ctx.circuitKey]
 
 	// If it isn't recorded, cancel htlc.
 	if !ok {
 		return NewFailureResolution(
-			circuitKey, currentHeight, result,
+			ctx.circuitKey, ctx.currentHeight, result,
 		), nil
 	}
 
@@ -882,7 +923,7 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 	switch invoiceHtlc.State {
 	case channeldb.HtlcStateCanceled:
 		return NewFailureResolution(
-			circuitKey, acceptHeight, result,
+			ctx.circuitKey, acceptHeight, result,
 		), nil
 
 	case channeldb.HtlcStateSettled:
@@ -908,27 +949,25 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 		}
 
 		resolution := NewSettleResolution(
-			invoice.Terms.PaymentPreimage, circuitKey,
+			invoice.Terms.PaymentPreimage, ctx.circuitKey,
 			acceptHeight, result,
 		)
 		return resolution, nil
 
 	case channeldb.HtlcStateAccepted:
-		// (Re)start the htlc timer if the invoice is still open. It can
+		var resolution acceptResolution
+
+		// Auto-release the htlc if the invoice is still open. It can
 		// only happen for mpp payments that there are htlcs in state
 		// Accepted while the invoice is Open.
 		if invoice.State == channeldb.ContractOpen {
-			err := i.startHtlcTimer(
-				rHash, circuitKey,
-				invoiceHtlc.AcceptTime,
-			)
-			if err != nil {
-				return nil, err
-			}
+			resolution.acceptTime = invoiceHtlc.AcceptTime
+			resolution.autoRelease = true
+
 		}
 
-		i.hodlSubscribe(hodlChan, circuitKey)
-		return nil, nil
+		i.hodlSubscribe(hodlChan, ctx.circuitKey)
+		return &resolution, nil
 
 	default:
 		panic("unknown action")

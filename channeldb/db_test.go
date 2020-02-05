@@ -100,10 +100,7 @@ func TestFetchClosedChannelForID(t *testing.T) {
 
 	// Create the test channel state, that we will mutate the index of the
 	// funding point.
-	state, err := createTestChannelState(cdb)
-	if err != nil {
-		t.Fatalf("unable to create channel state: %v", err)
-	}
+	state := createTestChannelState(t, cdb)
 
 	// Now run through the number of channels, and modify the outpoint index
 	// to create new channel IDs.
@@ -111,14 +108,12 @@ func TestFetchClosedChannelForID(t *testing.T) {
 		// Save the open channel to disk.
 		state.FundingOutpoint.Index = i
 
-		addr := &net.TCPAddr{
-			IP:   net.ParseIP("127.0.0.1"),
-			Port: 18556,
-		}
-		if err := state.SyncPending(addr, 101); err != nil {
-			t.Fatalf("unable to save and serialize channel "+
-				"state: %v", err)
-		}
+		// Write the channel to disk in a pending state.
+		createTestChannel(
+			t, cdb,
+			fundingPointOption(state.FundingOutpoint),
+			openChannelOption(),
+		)
 
 		// Close the channel. To make sure we retrieve the correct
 		// summary later, we make them differ in the SettledBalance.
@@ -235,26 +230,8 @@ func TestFetchChannel(t *testing.T) {
 	}
 	defer cleanUp()
 
-	// Create the test channel state that we'll sync to the database
-	// shortly.
-	channelState, err := createTestChannelState(cdb)
-	if err != nil {
-		t.Fatalf("unable to create channel state: %v", err)
-	}
-
-	// Mark the channel as pending, then immediately mark it as open to it
-	// can be fully visible.
-	addr := &net.TCPAddr{
-		IP:   net.ParseIP("127.0.0.1"),
-		Port: 18555,
-	}
-	if err := channelState.SyncPending(addr, 9); err != nil {
-		t.Fatalf("unable to save and serialize channel state: %v", err)
-	}
-	err = channelState.MarkAsOpen(lnwire.NewShortChanIDFromInt(99))
-	if err != nil {
-		t.Fatalf("unable to mark channel open: %v", err)
-	}
+	// Create an open channel.
+	channelState := createTestChannel(t, cdb, openChannelOption())
 
 	// Next, attempt to fetch the channel by its chan point.
 	dbChannel, err := cdb.FetchChannel(channelState.FundingOutpoint)
@@ -271,7 +248,7 @@ func TestFetchChannel(t *testing.T) {
 
 	// If we attempt to query for a non-exist ante channel, then we should
 	// get an error.
-	channelState2, err := createTestChannelState(cdb)
+	channelState2 := createTestChannelState(t, cdb)
 	if err != nil {
 		t.Fatalf("unable to create channel state: %v", err)
 	}
@@ -491,19 +468,9 @@ func TestAbandonChannel(t *testing.T) {
 		t.Fatalf("removing non-existent channel should have failed")
 	}
 
-	// We'll now create a new channel to abandon shortly.
-	chanState, err := createTestChannelState(cdb)
-	if err != nil {
-		t.Fatalf("unable to create channel state: %v", err)
-	}
-	addr := &net.TCPAddr{
-		IP:   net.ParseIP("127.0.0.1"),
-		Port: 18555,
-	}
-	err = chanState.SyncPending(addr, 10)
-	if err != nil {
-		t.Fatalf("unable to sync pending channel: %v", err)
-	}
+	// We'll now create a new channel in a pending state to abandon
+	// shortly.
+	chanState := createTestChannel(t, cdb)
 
 	// We should now be able to abandon the channel without any errors.
 	closeHeight := uint32(11)

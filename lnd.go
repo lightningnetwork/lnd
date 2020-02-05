@@ -717,10 +717,25 @@ func getTLSConfig(tlsCertPath string, tlsKeyPath string, tlsExtraIPs,
 		return nil, nil, "", err
 	}
 
-	// If the certificate expired, delete it and the TLS key and generate a
-	// new pair.
-	if time.Now().After(parsedCert.NotAfter) {
-		ltndLog.Info("TLS certificate is expired, generating a new one")
+	// We check whether the certifcate we have on disk match the IPs and
+	// domains specified by the config. If the extra IPs or domains have
+	// changed from when the certificate was created, we will refresh the
+	// certificate if auto refresh is active.
+	refresh := false
+	if cfg.TLSAutoRefresh {
+		refresh, err = cert.IsOutdated(
+			parsedCert, tlsExtraIPs, tlsExtraDomains,
+		)
+		if err != nil {
+			return nil, nil, "", err
+		}
+	}
+
+	// If the certificate expired or it was outdated, delete it and the TLS
+	// key and generate a new pair.
+	if time.Now().After(parsedCert.NotAfter) || refresh {
+		ltndLog.Info("TLS certificate is expired or outdated, " +
+			"generating a new one")
 
 		err := os.Remove(tlsCertPath)
 		if err != nil {

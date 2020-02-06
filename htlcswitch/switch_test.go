@@ -1348,7 +1348,7 @@ func TestCircularForwards(t *testing.T) {
 			allowCircularPayment: false,
 			expectedErr: NewDetailedLinkError(
 				lnwire.NewTemporaryChannelFailure(nil),
-				FailureDetailCircularRoute,
+				OutgoingFailureCircularRoute,
 			),
 		},
 	}
@@ -1465,7 +1465,7 @@ func TestCheckCircularForward(t *testing.T) {
 			outgoingLink:  lnwire.NewShortChanIDFromInt(123),
 			expectedErr: NewDetailedLinkError(
 				lnwire.NewTemporaryChannelFailure(nil),
-				FailureDetailCircularRoute,
+				OutgoingFailureCircularRoute,
 			),
 		},
 	}
@@ -1527,7 +1527,7 @@ func TestSkipIneligibleLinksMultiHopForward(t *testing.T) {
 			eligible1: true,
 			failure1: NewDetailedLinkError(
 				lnwire.NewTemporaryChannelFailure(nil),
-				FailureDetailInsufficientBalance,
+				OutgoingFailureInsufficientBalance,
 			),
 			eligible2: true,
 			failure2: NewLinkError(

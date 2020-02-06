@@ -771,7 +771,7 @@ func (s *Switch) handleLocalDispatch(pkt *htlcPacket) error {
 			// will be returned back to the router.
 			return NewDetailedLinkError(
 				lnwire.NewTemporaryChannelFailure(nil),
-				FailureDetailLinkNotEligible,
+				OutgoingFailureLinkNotEligible,
 			)
 		}
 
@@ -919,11 +919,11 @@ func (s *Switch) parseFailedPayment(deobfuscator ErrorDecrypter,
 				// need to apply an update here since it goes
 				// directly to the router.
 				lnwire.NewTemporaryChannelFailure(nil),
-				FailureDetailOnionDecode,
+				OutgoingFailureDecodeError,
 			)
 
 			log.Errorf("%v: (hash=%v, pid=%d): %v",
-				linkError.FailureDetail, paymentHash, paymentID,
+				linkError.OutgoingFailure, paymentHash, paymentID,
 				err)
 
 			return linkError
@@ -939,10 +939,10 @@ func (s *Switch) parseFailedPayment(deobfuscator ErrorDecrypter,
 	case isResolution && htlc.Reason == nil:
 		linkError := NewDetailedLinkError(
 			&lnwire.FailPermanentChannelFailure{},
-			FailureDetailOnChainTimeout,
+			OutgoingFailureOnChainTimeout,
 		)
 
-		log.Info("%v: hash=%v, pid=%d", linkError.FailureDetail,
+		log.Info("%v: hash=%v, pid=%d", linkError.OutgoingFailure,
 			paymentHash, paymentID)
 
 		return linkError
@@ -1041,7 +1041,7 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 			if !link.EligibleToForward() {
 				failure = NewDetailedLinkError(
 					&lnwire.FailUnknownNextPeer{},
-					FailureDetailLinkNotEligible,
+					OutgoingFailureLinkNotEligible,
 				)
 			} else {
 				// We'll ensure that the HTLC satisfies the
@@ -1217,7 +1217,7 @@ func checkCircularForward(incoming, outgoing lnwire.ShortChannelID,
 	// node, so we do not include a channel update.
 	return NewDetailedLinkError(
 		lnwire.NewTemporaryChannelFailure(nil),
-		FailureDetailCircularRoute,
+		OutgoingFailureCircularRoute,
 	)
 }
 

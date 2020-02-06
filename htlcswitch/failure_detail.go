@@ -1,63 +1,63 @@
 package htlcswitch
 
-// FailureDetail is an enum which is used to enrich failures with
-// additional information.
-type FailureDetail int
+// OutgoingFailure is an enum which is used to enrich failures which occur in
+// the switch or on our outgoing link with additional metadata.
+type OutgoingFailure int
 
 const (
-	// FailureDetailNone is returned when the wire message contains
+	// OutgoingFailureNone is returned when the wire message contains
 	// sufficient information.
-	FailureDetailNone = iota
+	OutgoingFailureNone OutgoingFailure = iota
 
-	// FailureDetailOnionDecode indicates that we could not decode an
-	// onion error.
-	FailureDetailOnionDecode
+	// OutgoingFailureDecodeError indicates that we could not decode the
+	// failure reason provided for a failed payment.
+	OutgoingFailureDecodeError
 
-	// FailureDetailLinkNotEligible indicates that a routing attempt was
+	// OutgoingFailureLinkNotEligible indicates that a routing attempt was
 	// made over a link that is not eligible for routing.
-	FailureDetailLinkNotEligible
+	OutgoingFailureLinkNotEligible
 
-	// FailureDetailOnChainTimeout indicates that a payment had to be timed
-	// out on chain before it got past the first hop by us or the remote
-	// party.
-	FailureDetailOnChainTimeout
+	// OutgoingFailureOnChainTimeout indicates that a payment had to be
+	// timed out on chain before it got past the first hop by us or the
+	// remote party.
+	OutgoingFailureOnChainTimeout
 
-	// FailureDetailHTLCExceedsMax is returned when a htlc exceeds our
+	// OutgoingFailureHTLCExceedsMax is returned when a htlc exceeds our
 	// policy's maximum htlc amount.
-	FailureDetailHTLCExceedsMax
+	OutgoingFailureHTLCExceedsMax
 
-	// FailureDetailInsufficientBalance is returned when we cannot route a
+	// OutgoingFailureInsufficientBalance is returned when we cannot route a
 	// htlc due to insufficient outgoing capacity.
-	FailureDetailInsufficientBalance
+	OutgoingFailureInsufficientBalance
 
-	// FailureDetailCircularRoute is returned when an attempt is made
+	// OutgoingFailureCircularRoute is returned when an attempt is made
 	// to forward a htlc through our node which arrives and leaves on the
 	// same channel.
-	FailureDetailCircularRoute
+	OutgoingFailureCircularRoute
 )
 
 // String returns the string representation of a failure detail.
-func (fd FailureDetail) String() string {
+func (fd OutgoingFailure) String() string {
 	switch fd {
-	case FailureDetailNone:
+	case OutgoingFailureNone:
 		return "no failure detail"
 
-	case FailureDetailOnionDecode:
-		return "could not decode onion"
+	case OutgoingFailureDecodeError:
+		return "could not decode wire failure"
 
-	case FailureDetailLinkNotEligible:
+	case OutgoingFailureLinkNotEligible:
 		return "link not eligible"
 
-	case FailureDetailOnChainTimeout:
+	case OutgoingFailureOnChainTimeout:
 		return "payment was resolved on-chain, then canceled back"
 
-	case FailureDetailHTLCExceedsMax:
+	case OutgoingFailureHTLCExceedsMax:
 		return "htlc exceeds maximum policy amount"
 
-	case FailureDetailInsufficientBalance:
+	case OutgoingFailureInsufficientBalance:
 		return "insufficient bandwidth to route htlc"
 
-	case FailureDetailCircularRoute:
+	case OutgoingFailureCircularRoute:
 		return "same incoming and outgoing channel"
 
 	default:

@@ -556,42 +556,28 @@ func (d *DB) FetchChannel(chanPoint wire.OutPoint) (*OpenChannel, error) {
 // within the database, including pending open, fully open and channels waiting
 // for a closing transaction to confirm.
 func (d *DB) FetchAllChannels() ([]*OpenChannel, error) {
-	var channels []*OpenChannel
-
-	// TODO(halseth): fetch all in one db tx.
-	openChannels, err := d.FetchAllOpenChannels()
-	if err != nil {
-		return nil, err
-	}
-	channels = append(channels, openChannels...)
-
-	pendingChannels, err := d.FetchPendingChannels()
-	if err != nil {
-		return nil, err
-	}
-	channels = append(channels, pendingChannels...)
-
-	waitingClose, err := d.FetchWaitingCloseChannels()
-	if err != nil {
-		return nil, err
-	}
-	channels = append(channels, waitingClose...)
-
-	return channels, nil
+	return fetchChannels(d)
 }
 
 // FetchAllOpenChannels will return all channels that have the funding
 // transaction confirmed, and is not waiting for a closing transaction to be
 // confirmed.
 func (d *DB) FetchAllOpenChannels() ([]*OpenChannel, error) {
-	return fetchChannels(d, false, false)
+	return fetchChannels(
+		d,
+		pendingChannelFilter(false),
+		waitingCloseFilter(false),
+	)
 }
 
 // FetchPendingChannels will return channels that have completed the process of
 // generating and broadcasting funding transactions, but whose funding
 // transactions have yet to be confirmed on the blockchain.
 func (d *DB) FetchPendingChannels() ([]*OpenChannel, error) {
-	return fetchChannels(d, true, false)
+	return fetchChannels(d,
+		pendingChannelFilter(true),
+		waitingCloseFilter(false),
+	)
 }
 
 // FetchWaitingCloseChannels will return all channels that have been opened,
@@ -599,25 +585,49 @@ func (d *DB) FetchPendingChannels() ([]*OpenChannel, error) {
 //
 // NOTE: This includes channels that are also pending to be opened.
 func (d *DB) FetchWaitingCloseChannels() ([]*OpenChannel, error) {
-	waitingClose, err := fetchChannels(d, false, true)
-	if err != nil {
-		return nil, err
-	}
-	pendingWaitingClose, err := fetchChannels(d, true, true)
-	if err != nil {
-		return nil, err
-	}
+	return fetchChannels(
+		d, waitingCloseFilter(true),
+	)
+}
 
-	return append(waitingClose, pendingWaitingClose...), nil
+// fetchChannelsFilter applies a filter to channels retrieved in fetchchannels.
+// A set of filters can be combined to filter across multiple dimensions.
+type fetchChannelsFilter func(channel *OpenChannel) bool
+
+// pendingChannelFilter returns a filter based on whether channels are pending
+// (ie, their funding transaction still needs to confirm). If pending is false,
+// channels with confirmed funding transactions are returned.
+func pendingChannelFilter(pending bool) fetchChannelsFilter {
+	return func(channel *OpenChannel) bool {
+		return channel.IsPending == pending
+	}
+}
+
+// waitingCloseFilter returns a filter which filters channels based on whether
+// they are awaiting the confirmation of their closing transaction. If waiting
+// close is true, channels that have had their closing tx broadcast are
+// included. If it is false, channels that are not awaiting confirmation of
+// their close transaction are returned.
+func waitingCloseFilter(waitingClose bool) fetchChannelsFilter {
+	return func(channel *OpenChannel) bool {
+		// If the channel is in any other state than Default,
+		// then it means it is waiting to be closed.
+		channelWaitingClose :=
+			channel.ChanStatus() != ChanStatusDefault
+
+		// Include the channel if it matches the value for
+		// waiting close that we are filtering on.
+		return channelWaitingClose == waitingClose
+	}
 }
 
 // fetchChannels attempts to retrieve channels currently stored in the
-// database. The pending parameter determines whether only pending channels
-// will be returned, or only open channels will be returned. The waitingClose
-// parameter determines whether only channels waiting for a closing transaction
-// to be confirmed should be returned. If no active channels exist within the
-// network, then ErrNoActiveChannels is returned.
-func fetchChannels(d *DB, pending, waitingClose bool) ([]*OpenChannel, error) {
+// database. It takes a set of filters which are applied to each channel to
+// obtain a set of channels with the desired set of properties. Only channels
+// which have a true value returned for *all* of the filters will be returned.
+// If no filters are provided, every channel in the open channels bucket will
+// be returned.
+func fetchChannels(d *DB, filters ...fetchChannelsFilter) ([]*OpenChannel, error) {
 	var channels []*OpenChannel
 
 	err := d.View(func(tx *bbolt.Tx) error {
@@ -667,24 +677,27 @@ func fetchChannels(d *DB, pending, waitingClose bool) ([]*OpenChannel, error) {
 						"node_key=%x: %v", chainHash[:], k, err)
 				}
 				for _, channel := range nodeChans {
-					if channel.IsPending != pending {
-						continue
+					// includeChannel indicates whether the channel
+					// meets the criteria specified by our filters.
+					includeChannel := true
+
+					// Run through each filter and check whether the
+					// channel should be included.
+					for _, f := range filters {
+						// If the channel fails the filter, set
+						// includeChannel to false and don't bother
+						// checking the remaining filters.
+						if !f(channel) {
+							includeChannel = false
+							break
+						}
 					}
 
-					// If the channel is in any other state
-					// than Default, then it means it is
-					// waiting to be closed.
-					channelWaitingClose :=
-						channel.ChanStatus() != ChanStatusDefault
-
-					// Only include it if we requested
-					// channels with the same waitingClose
-					// status.
-					if channelWaitingClose != waitingClose {
-						continue
+					// If the channel passed every filter, include it in
+					// our set of channels.
+					if includeChannel {
+						channels = append(channels, channel)
 					}
-
-					channels = append(channels, channel)
 				}
 				return nil
 			})

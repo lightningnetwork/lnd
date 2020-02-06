@@ -187,6 +187,13 @@ func fundingPointOption(chanPoint wire.OutPoint) testChannelOption {
 	}
 }
 
+// channelIDOption is an option which sets the short channel ID of the channel.
+var channelIDOption = func(chanID lnwire.ShortChannelID) testChannelOption {
+	return func(params *testChannelParams) {
+		params.channel.ShortChannelID = chanID
+	}
+}
+
 // createTestChannel writes a test channel to the database. It takes a set of
 // functional options which can be used to overwrite the default of creating
 // a pending channel that was broadcast at height 100.

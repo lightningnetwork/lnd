@@ -107,8 +107,10 @@ const (
 	ResultMppInProgress
 )
 
-// String returns a string representation of the result.
-func (f FailResolutionResult) String() string {
+// FailureString returns a string representation of the result.
+//
+// Note: it is part of the FailureDetail interface.
+func (f FailResolutionResult) FailureString() string {
 	switch f {
 	case resultInvalidFailure:
 		return "invalid failure result"

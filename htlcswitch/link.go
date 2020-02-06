@@ -1220,8 +1220,8 @@ func (l *channelLink) processHtlcResolution(resolution invoices.HtlcResolution,
 		failure := getResolutionFailure(res, htlc.pd.Amount)
 
 		l.sendHTLCError(
-			htlc.pd.HtlcIndex, failure, htlc.obfuscator,
-			htlc.pd.SourceRef,
+			htlc.pd.HtlcIndex, failure,
+			htlc.obfuscator, htlc.pd.SourceRef,
 		)
 		return nil
 
@@ -1236,21 +1236,25 @@ func (l *channelLink) processHtlcResolution(resolution invoices.HtlcResolution,
 // getResolutionFailure returns the wire message that a htlc resolution should
 // be failed with.
 func getResolutionFailure(resolution *invoices.HtlcFailResolution,
-	amount lnwire.MilliSatoshi) lnwire.FailureMessage {
+	amount lnwire.MilliSatoshi) *LinkError {
 
 	// If the resolution has been resolved as part of a MPP timeout,
 	// we need to fail the htlc with lnwire.FailMppTimeout.
 	if resolution.Outcome == invoices.ResultMppTimeout {
-		return &lnwire.FailMPPTimeout{}
+		return NewDetailedLinkError(
+			&lnwire.FailMPPTimeout{}, resolution.Outcome,
+		)
 	}
 
 	// If the htlc is not a MPP timeout, we fail it with
 	// FailIncorrectDetails. This error is sent for invoice payment
 	// failures such as underpayment/ expiry too soon and hodl invoices
 	// (which return FailIncorrectDetails to avoid leaking information).
-	return lnwire.NewFailIncorrectDetails(
+	incorrectDetails := lnwire.NewFailIncorrectDetails(
 		amount, uint32(resolution.AcceptHeight),
 	)
+
+	return NewDetailedLinkError(incorrectDetails, resolution.Outcome)
 }
 
 // randomFeeUpdateTimeout returns a random timeout between the bounds defined
@@ -2650,9 +2654,10 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 			// for TLV payloads that also supports injecting invalid
 			// payloads. Deferring this non-trival effort till a
 			// later date
+			failure := lnwire.NewInvalidOnionPayload(failedType, 0)
 			l.sendHTLCError(
 				pd.HtlcIndex,
-				lnwire.NewInvalidOnionPayload(failedType, 0),
+				NewLinkError(failure),
 				obfuscator, pd.SourceRef,
 			)
 
@@ -2766,7 +2771,10 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 				)
 
 				l.sendHTLCError(
-					pd.HtlcIndex, failure, obfuscator, pd.SourceRef,
+					pd.HtlcIndex,
+					NewLinkError(failure),
+					obfuscator,
+					pd.SourceRef,
 				)
 				continue
 			}
@@ -2849,7 +2857,9 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 			"value: expected %v, got %v", pd.RHash,
 			pd.Amount, fwdInfo.AmountToForward)
 
-		failure := lnwire.NewFinalIncorrectHtlcAmount(pd.Amount)
+		failure := NewLinkError(
+			lnwire.NewFinalIncorrectHtlcAmount(pd.Amount),
+		)
 		l.sendHTLCError(pd.HtlcIndex, failure, obfuscator, pd.SourceRef)
 
 		return nil
@@ -2862,7 +2872,9 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 			"time-lock: expected %v, got %v",
 			pd.RHash[:], pd.Timeout, fwdInfo.OutgoingCTLV)
 
-		failure := lnwire.NewFinalIncorrectCltvExpiry(pd.Timeout)
+		failure := NewLinkError(
+			lnwire.NewFinalIncorrectCltvExpiry(pd.Timeout),
+		)
 		l.sendHTLCError(pd.HtlcIndex, failure, obfuscator, pd.SourceRef)
 
 		return nil
@@ -2979,10 +2991,10 @@ func (l *channelLink) handleBatchFwdErrs(errChan chan error) {
 
 // sendHTLCError functions cancels HTLC and send cancel message back to the
 // peer from which HTLC was received.
-func (l *channelLink) sendHTLCError(htlcIndex uint64, failure lnwire.FailureMessage,
+func (l *channelLink) sendHTLCError(htlcIndex uint64, failure *LinkError,
 	e hop.ErrorEncrypter, sourceRef *channeldb.AddRef) {
 
-	reason, err := e.EncryptFirstHop(failure)
+	reason, err := e.EncryptFirstHop(failure.WireMessage())
 	if err != nil {
 		l.log.Errorf("unable to obfuscate error: %v", err)
 		return

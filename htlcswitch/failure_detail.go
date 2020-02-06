@@ -1,5 +1,13 @@
 package htlcswitch
 
+// FailureDetail is an interface implemented by failures that occur on
+// our incoming or outgoing link, or within the switch itself.
+type FailureDetail interface {
+	// FailureString returns the string representation of a failure
+	// detail.
+	FailureString() string
+}
+
 // OutgoingFailure is an enum which is used to enrich failures which occur in
 // the switch or on our outgoing link with additional metadata.
 type OutgoingFailure int
@@ -36,8 +44,10 @@ const (
 	OutgoingFailureCircularRoute
 )
 
-// String returns the string representation of a failure detail.
-func (fd OutgoingFailure) String() string {
+// FailureString returns the string representation of a failure detail.
+//
+// Note: it is part of the FailureDetail interface.
+func (fd OutgoingFailure) FailureString() string {
 	switch fd {
 	case OutgoingFailureNone:
 		return "no failure detail"

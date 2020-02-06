@@ -34,8 +34,8 @@ type LinkError struct {
 	// node.
 	msg lnwire.FailureMessage
 
-	// OutgoingFailure enriches the wire error with additional information.
-	OutgoingFailure
+	// FailureDetail enriches the wire error with additional information.
+	FailureDetail
 }
 
 // NewLinkError returns a LinkError with the failure message provided.
@@ -48,11 +48,11 @@ func NewLinkError(msg lnwire.FailureMessage) *LinkError {
 // NewDetailedLinkError returns a link error that enriches a wire message with
 // a failure detail.
 func NewDetailedLinkError(msg lnwire.FailureMessage,
-	detail OutgoingFailure) *LinkError {
+	detail FailureDetail) *LinkError {
 
 	return &LinkError{
-		msg:             msg,
-		OutgoingFailure: detail,
+		msg:           msg,
+		FailureDetail: detail,
 	}
 }
 
@@ -72,11 +72,11 @@ func (l *LinkError) WireMessage() lnwire.FailureMessage {
 func (l *LinkError) Error() string {
 	// If the link error has no failure detail, return the wire message's
 	// error.
-	if l.OutgoingFailure == OutgoingFailureNone {
+	if l.FailureDetail == nil {
 		return l.msg.Error()
 	}
 
-	return fmt.Sprintf("%v: %v", l.msg.Error(), l.OutgoingFailure)
+	return fmt.Sprintf("%v: %v", l.msg.Error(), l.FailureDetail)
 }
 
 // ForwardingError wraps an lnwire.FailureMessage in a struct that also

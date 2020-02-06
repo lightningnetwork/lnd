@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 
 	"github.com/btcsuite/btcutil"
@@ -172,7 +173,23 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 	processHtlcResolution := func(e invoices.HtlcResolution) (
 		ContractResolver, error) {
 
-		if e.Preimage == nil {
+		// Take action based on the type of resolution we have
+		// received.
+		switch resolution := e.(type) {
+
+		// If the htlc resolution was a settle, apply the
+		// preimage and return a success resolver.
+		case *invoices.HtlcSettleResolution:
+			err := applyPreimage(resolution.Preimage)
+			if err != nil {
+				return nil, err
+			}
+
+			return &h.htlcSuccessResolver, nil
+
+		// If the htlc was failed, mark the htlc as
+		// resolved.
+		case *invoices.HtlcFailResolution:
 			log.Infof("%T(%v): Exit hop HTLC canceled "+
 				"(expiry=%v, height=%v), abandoning", h,
 				h.htlcResolution.ClaimOutpoint,
@@ -180,13 +197,13 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 
 			h.resolved = true
 			return nil, h.Checkpoint(h)
-		}
 
-		if err := applyPreimage(*e.Preimage); err != nil {
-			return nil, err
+		// Error if the resolution type is unknown, we are only
+		// expecting settles and fails.
+		default:
+			return nil, fmt.Errorf("unknown resolution"+
+				" type: %v", e)
 		}
-
-		return &h.htlcSuccessResolver, nil
 	}
 
 	// Create a buffered hodl chan to prevent deadlock.
@@ -211,14 +228,29 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 
 	defer h.Registry.HodlUnsubscribeAll(hodlChan)
 
-	// If the resolution is non-nil (indicating that a settle or cancel has
-	// occurred), and the invoice is known to the registry (indicating that
-	// the htlc is paying one of our invoices and is not a forward), try to
-	// resolve it directly.
-	if resolution != nil &&
-		resolution.Outcome != invoices.ResultInvoiceNotFound {
+	// Take action based on the resolution we received. If the htlc was
+	// settled, or a htlc for a known invoice failed we can resolve it
+	// directly. If the resolution is nil, the htlc was neither accepted
+	// nor failed, so we cannot take action yet.
+	switch res := resolution.(type) {
+	case *invoices.HtlcFailResolution:
+		// In the case where the htlc failed, but the invoice was known
+		// to the registry, we can directly resolve the htlc.
+		if res.Outcome != invoices.ResultInvoiceNotFound {
+			return processHtlcResolution(resolution)
+		}
 
-		return processHtlcResolution(*resolution)
+	// If we settled the htlc, we can resolve it.
+	case *invoices.HtlcSettleResolution:
+		return processHtlcResolution(resolution)
+
+	// If the resolution is nil, the htlc was neither settled nor failed so
+	// we cannot take action at present.
+	case nil:
+
+	default:
+		return nil, fmt.Errorf("unknown htlc resolution type: %T",
+			resolution)
 	}
 
 	// With the epochs and preimage subscriptions initialized, we'll query
@@ -256,7 +288,6 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 
 		case hodlItem := <-hodlChan:
 			htlcResolution := hodlItem.(invoices.HtlcResolution)
-
 			return processHtlcResolution(htlcResolution)
 
 		case newBlock, ok := <-blockEpochs.Epochs:

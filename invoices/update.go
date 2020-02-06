@@ -186,26 +186,53 @@ func (i *invoiceUpdateCtx) log(s string) {
 		i.hash[:], s, i.amtPaid, i.expiry, i.circuitKey, i.mpp)
 }
 
+// failRes is a helper function which creates a failure resolution with
+// the information contained in the invoiceUpdateCtx and the outcome provided.
+func (i invoiceUpdateCtx) failRes(outcome ResolutionResult) *HtlcFailResolution {
+	return NewFailResolution(i.circuitKey, i.currentHeight, outcome)
+}
+
+// settleRes is a helper function which creates a settle resolution with
+// the information contained in the invoiceUpdateCtx and the preimage and
+// outcome provided.
+func (i invoiceUpdateCtx) settleRes(preimage lntypes.Preimage,
+	outcome ResolutionResult) *HtlcSettleResolution {
+
+	return NewSettleResolution(
+		preimage, i.circuitKey, i.currentHeight, outcome,
+	)
+}
+
+// acceptRes is a helper function which creates an accept resolution with
+// the information contained in the invoiceUpdateCtx and the outcome provided.
+func (i invoiceUpdateCtx) acceptRes(outcome ResolutionResult) *htlcAcceptResolution {
+	return newAcceptResolution(i.circuitKey, outcome)
+}
+
 // updateInvoice is a callback for DB.UpdateInvoice that contains the invoice
-// settlement logic.
+// settlement logic. It returns a hltc resolution that indicates what the
+// outcome of the update was.
 func updateInvoice(ctx *invoiceUpdateCtx, inv *channeldb.Invoice) (
-	*channeldb.InvoiceUpdateDesc, ResolutionResult, error) {
+	*channeldb.InvoiceUpdateDesc, HtlcResolution, error) {
 
 	// Don't update the invoice when this is a replayed htlc.
 	htlc, ok := inv.Htlcs[ctx.circuitKey]
 	if ok {
 		switch htlc.State {
 		case channeldb.HtlcStateCanceled:
-			return nil, ResultReplayToCanceled, nil
+			return nil, ctx.failRes(ResultReplayToCanceled), nil
 
 		case channeldb.HtlcStateAccepted:
-			return nil, ResultReplayToAccepted, nil
+			return nil, ctx.acceptRes(ResultReplayToAccepted), nil
 
 		case channeldb.HtlcStateSettled:
-			return nil, ResultReplayToSettled, nil
+			return nil, ctx.settleRes(
+				inv.Terms.PaymentPreimage,
+				ResultReplayToSettled,
+			), nil
 
 		default:
-			return nil, 0, errors.New("unknown htlc state")
+			return nil, nil, errors.New("unknown htlc state")
 		}
 	}
 
@@ -218,8 +245,9 @@ func updateInvoice(ctx *invoiceUpdateCtx, inv *channeldb.Invoice) (
 
 // updateMpp is a callback for DB.UpdateInvoice that contains the invoice
 // settlement logic for mpp payments.
-func updateMpp(ctx *invoiceUpdateCtx, inv *channeldb.Invoice) (
-	*channeldb.InvoiceUpdateDesc, ResolutionResult, error) {
+func updateMpp(ctx *invoiceUpdateCtx,
+	inv *channeldb.Invoice) (*channeldb.InvoiceUpdateDesc,
+	HtlcResolution, error) {
 
 	// Start building the accept descriptor.
 	acceptDesc := &channeldb.HtlcAcceptDesc{
@@ -235,23 +263,23 @@ func updateMpp(ctx *invoiceUpdateCtx, inv *channeldb.Invoice) (
 	// Because non-mpp payments don't have a payment address, this is needed
 	// to thwart probing.
 	if inv.State != channeldb.ContractOpen {
-		return nil, ResultInvoiceNotOpen, nil
+		return nil, ctx.failRes(ResultInvoiceNotOpen), nil
 	}
 
 	// Check the payment address that authorizes the payment.
 	if ctx.mpp.PaymentAddr() != inv.Terms.PaymentAddr {
-		return nil, ResultAddressMismatch, nil
+		return nil, ctx.failRes(ResultAddressMismatch), nil
 	}
 
 	// Don't accept zero-valued sets.
 	if ctx.mpp.TotalMsat() == 0 {
-		return nil, ResultHtlcSetTotalTooLow, nil
+		return nil, ctx.failRes(ResultHtlcSetTotalTooLow), nil
 	}
 
 	// Check that the total amt of the htlc set is high enough. In case this
 	// is a zero-valued invoice, it will always be enough.
 	if ctx.mpp.TotalMsat() < inv.Terms.Value {
-		return nil, ResultHtlcSetTotalTooLow, nil
+		return nil, ctx.failRes(ResultHtlcSetTotalTooLow), nil
 	}
 
 	// Check whether total amt matches other htlcs in the set.
@@ -265,7 +293,7 @@ func updateMpp(ctx *invoiceUpdateCtx, inv *channeldb.Invoice) (
 		}
 
 		if ctx.mpp.TotalMsat() != htlc.MppTotalAmt {
-			return nil, ResultHtlcSetTotalMismatch, nil
+			return nil, ctx.failRes(ResultHtlcSetTotalMismatch), nil
 		}
 
 		newSetTotal += htlc.Amt
@@ -276,16 +304,16 @@ func updateMpp(ctx *invoiceUpdateCtx, inv *channeldb.Invoice) (
 
 	// Make sure the communicated set total isn't overpaid.
 	if newSetTotal > ctx.mpp.TotalMsat() {
-		return nil, ResultHtlcSetOverpayment, nil
+		return nil, ctx.failRes(ResultHtlcSetOverpayment), nil
 	}
 
 	// The invoice is still open. Check the expiry.
 	if ctx.expiry < uint32(ctx.currentHeight+ctx.finalCltvRejectDelta) {
-		return nil, ResultExpiryTooSoon, nil
+		return nil, ctx.failRes(ResultExpiryTooSoon), nil
 	}
 
 	if ctx.expiry < uint32(ctx.currentHeight+inv.Terms.FinalCltvDelta) {
-		return nil, ResultExpiryTooSoon, nil
+		return nil, ctx.failRes(ResultExpiryTooSoon), nil
 	}
 
 	// Record HTLC in the invoice database.
@@ -300,7 +328,7 @@ func updateMpp(ctx *invoiceUpdateCtx, inv *channeldb.Invoice) (
 	// If the invoice cannot be settled yet, only record the htlc.
 	setComplete := newSetTotal == ctx.mpp.TotalMsat()
 	if !setComplete {
-		return &update, ResultPartialAccepted, nil
+		return &update, ctx.acceptRes(ResultPartialAccepted), nil
 	}
 
 	// Check to see if we can settle or this is an hold invoice and
@@ -310,7 +338,7 @@ func updateMpp(ctx *invoiceUpdateCtx, inv *channeldb.Invoice) (
 		update.State = &channeldb.InvoiceStateUpdateDesc{
 			NewState: channeldb.ContractAccepted,
 		}
-		return &update, ResultAccepted, nil
+		return &update, ctx.acceptRes(ResultAccepted), nil
 	}
 
 	update.State = &channeldb.InvoiceStateUpdateDesc{
@@ -318,18 +346,20 @@ func updateMpp(ctx *invoiceUpdateCtx, inv *channeldb.Invoice) (
 		Preimage: inv.Terms.PaymentPreimage,
 	}
 
-	return &update, ResultSettled, nil
+	return &update, ctx.settleRes(
+		inv.Terms.PaymentPreimage, ResultSettled,
+	), nil
 }
 
 // updateLegacy is a callback for DB.UpdateInvoice that contains the invoice
 // settlement logic for legacy payments.
-func updateLegacy(ctx *invoiceUpdateCtx, inv *channeldb.Invoice) (
-	*channeldb.InvoiceUpdateDesc, ResolutionResult, error) {
+func updateLegacy(ctx *invoiceUpdateCtx,
+	inv *channeldb.Invoice) (*channeldb.InvoiceUpdateDesc, HtlcResolution, error) {
 
 	// If the invoice is already canceled, there is no further
 	// checking to do.
 	if inv.State == channeldb.ContractCanceled {
-		return nil, ResultInvoiceAlreadyCanceled, nil
+		return nil, ctx.failRes(ResultInvoiceAlreadyCanceled), nil
 	}
 
 	// If an invoice amount is specified, check that enough is paid. Also
@@ -337,7 +367,7 @@ func updateLegacy(ctx *invoiceUpdateCtx, inv *channeldb.Invoice) (
 	// or accepted. In case this is a zero-valued invoice, it will always be
 	// enough.
 	if ctx.amtPaid < inv.Terms.Value {
-		return nil, ResultAmountTooLow, nil
+		return nil, ctx.failRes(ResultAmountTooLow), nil
 	}
 
 	// TODO(joostjager): Check invoice mpp required feature
@@ -350,17 +380,17 @@ func updateLegacy(ctx *invoiceUpdateCtx, inv *channeldb.Invoice) (
 		if htlc.State == channeldb.HtlcStateAccepted &&
 			htlc.MppTotalAmt > 0 {
 
-			return nil, ResultMppInProgress, nil
+			return nil, ctx.failRes(ResultMppInProgress), nil
 		}
 	}
 
 	// The invoice is still open. Check the expiry.
 	if ctx.expiry < uint32(ctx.currentHeight+ctx.finalCltvRejectDelta) {
-		return nil, ResultExpiryTooSoon, nil
+		return nil, ctx.failRes(ResultExpiryTooSoon), nil
 	}
 
 	if ctx.expiry < uint32(ctx.currentHeight+inv.Terms.FinalCltvDelta) {
-		return nil, ResultExpiryTooSoon, nil
+		return nil, ctx.failRes(ResultExpiryTooSoon), nil
 	}
 
 	// Record HTLC in the invoice database.
@@ -381,10 +411,12 @@ func updateLegacy(ctx *invoiceUpdateCtx, inv *channeldb.Invoice) (
 	// We do accept or settle the HTLC.
 	switch inv.State {
 	case channeldb.ContractAccepted:
-		return &update, ResultDuplicateToAccepted, nil
+		return &update, ctx.acceptRes(ResultDuplicateToAccepted), nil
 
 	case channeldb.ContractSettled:
-		return &update, ResultDuplicateToSettled, nil
+		return &update, ctx.settleRes(
+			inv.Terms.PaymentPreimage, ResultDuplicateToSettled,
+		), nil
 	}
 
 	// Check to see if we can settle or this is an hold invoice and we need
@@ -394,7 +426,8 @@ func updateLegacy(ctx *invoiceUpdateCtx, inv *channeldb.Invoice) (
 		update.State = &channeldb.InvoiceStateUpdateDesc{
 			NewState: channeldb.ContractAccepted,
 		}
-		return &update, ResultAccepted, nil
+
+		return &update, ctx.acceptRes(ResultAccepted), nil
 	}
 
 	update.State = &channeldb.InvoiceStateUpdateDesc{
@@ -402,5 +435,7 @@ func updateLegacy(ctx *invoiceUpdateCtx, inv *channeldb.Invoice) (
 		Preimage: inv.Terms.PaymentPreimage,
 	}
 
-	return &update, ResultSettled, nil
+	return &update, ctx.settleRes(
+		inv.Terms.PaymentPreimage, ResultSettled,
+	), nil
 }

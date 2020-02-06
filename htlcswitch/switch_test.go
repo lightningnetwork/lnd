@@ -211,10 +211,13 @@ func TestSwitchSendPending(t *testing.T) {
 	// Send the ADD packet, this should not be forwarded out to the link
 	// since there are no eligible links.
 	err = s.forward(packet)
-	expErr := fmt.Sprintf("unable to find link with destination %v",
-		aliceChanID)
-	if err != nil && err.Error() != expErr {
-		t.Fatalf("expected forward failure: %v", err)
+	linkErr, ok := err.(*LinkError)
+	if !ok {
+		t.Fatalf("expected link error, got: %T", err)
+	}
+	if linkErr.WireMessage().Code() != lnwire.CodeUnknownNextPeer {
+		t.Fatalf("expected fail unknown next peer, got: %T",
+			linkErr.WireMessage().Code())
 	}
 
 	// No message should be sent, since the packet was failed.
@@ -1070,9 +1073,13 @@ func TestSwitchForwardFailAfterHalfAdd(t *testing.T) {
 	// Resend the failed htlc, it should be returned to alice since the
 	// switch will detect that it has been half added previously.
 	err = s2.forward(ogPacket)
-	if err != ErrIncompleteForward {
-		t.Fatal("unexpected error when reforwarding a "+
-			"failed packet", err)
+	linkErr, ok := err.(*LinkError)
+	if !ok {
+		t.Fatalf("expected link error, got: %T", err)
+	}
+	if linkErr.FailureDetail != OutgoingFailureIncompleteForward {
+		t.Fatalf("expected incomplete forward, got: %v",
+			linkErr.FailureDetail)
 	}
 
 	// After detecting an incomplete forward, the fail packet should have

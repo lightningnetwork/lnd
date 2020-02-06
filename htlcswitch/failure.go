@@ -76,7 +76,7 @@ func (l *LinkError) Error() string {
 		return l.msg.Error()
 	}
 
-	return fmt.Sprintf("%v: %v", l.msg.Error(), l.FailureDetail)
+	return l.FailureDetail.FailureString()
 }
 
 // ForwardingError wraps an lnwire.FailureMessage in a struct that also

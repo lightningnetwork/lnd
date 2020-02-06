@@ -54,6 +54,11 @@ type htlcPacket struct {
 	// encrypted with any shared secret.
 	localFailure bool
 
+	// linkFailure is non-nil for htlcs that fail at our node. This may
+	// occur for our own payments which fail on the outgoing link,
+	// or for forwards which fail in the switch or on the outgoing link.
+	linkFailure *LinkError
+
 	// convertedError is set to true if this is an HTLC fail that was
 	// created using an UpdateFailMalformedHTLC from the remote party. If
 	// this is true, then when forwarding this failure packet, we'll need

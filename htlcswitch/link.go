@@ -1314,6 +1314,10 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 					reason       lnwire.OpaqueReason
 				)
 
+				// Create a temporary channel failure which we
+				// will send back to our peer if this is a
+				// forward, or report to the user if the failed
+				// payment was locally initiated.
 				failure := l.createFailureWithUpdate(
 					func(upd *lnwire.ChannelUpdate) lnwire.FailureMessage {
 						return lnwire.NewTemporaryChannelFailure(
@@ -1322,27 +1326,42 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 					},
 				)
 
-				// Encrypt the error back to the source unless
-				// the payment was generated locally.
+				// If the payment was locally initiated (which
+				// is indicated by a nil obfuscator), we do
+				// not need to encrypt it back to the sender.
 				if pkt.obfuscator == nil {
 					var b bytes.Buffer
 					err := lnwire.EncodeFailure(&b, failure, 0)
 					if err != nil {
-						l.log.Errorf("unable to encode failure: %v", err)
+						l.log.Errorf("unable to "+
+							"encode failure: %v", err)
 						l.mailBox.AckPacket(pkt.inKey())
 						return
 					}
 					reason = lnwire.OpaqueReason(b.Bytes())
 					localFailure = true
 				} else {
+					// If the packet is part of a forward,
+					// (identified by a non-nil obfuscator)
+					// we need to encrypt the error back to
+					// the source.
 					var err error
 					reason, err = pkt.obfuscator.EncryptFirstHop(failure)
 					if err != nil {
-						l.log.Errorf("unable to obfuscate error: %v", err)
+						l.log.Errorf("unable to "+
+							"obfuscate error: %v", err)
 						l.mailBox.AckPacket(pkt.inKey())
 						return
 					}
 				}
+
+				// Create a link error containing the temporary
+				// channel failure and a detail which indicates
+				// the we failed to add the htlc.
+				linkError := NewDetailedLinkError(
+					failure,
+					OutgoingFailureDownstreamHtlcAdd,
+				)
 
 				failPkt := &htlcPacket{
 					incomingChanID: pkt.incomingChanID,
@@ -1351,6 +1370,7 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 					sourceRef:      pkt.sourceRef,
 					hasSource:      true,
 					localFailure:   localFailure,
+					linkFailure:    linkError,
 					htlc: &lnwire.UpdateFailHTLC{
 						Reason: reason,
 					},
@@ -2461,7 +2481,9 @@ func (l *channelLink) processRemoteSettleFails(fwdPkg *channeldb.FwdPkg,
 			}
 
 			// Fetch the reason the HTLC was canceled so we can
-			// continue to propagate it.
+			// continue to propagate it. This failure originated
+			// from another node, so the linkFailure field is not
+			// set on the packet.
 			failPacket := &htlcPacket{
 				outgoingChanID: l.ShortChanID(),
 				outgoingHTLCID: pd.ParentIndex,

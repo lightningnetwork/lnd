@@ -42,6 +42,18 @@ const (
 	// to forward a htlc through our node which arrives and leaves on the
 	// same channel.
 	OutgoingFailureCircularRoute
+
+	// OutgoingFailureIncompleteForward is returned when we cancel an incomplete
+	// forward.
+	OutgoingFailureIncompleteForward
+
+	// OutgoingFailureDownstreamHtlcAdd is returned when we fail to add a
+	// downstream htlc to our outgoing link.
+	OutgoingFailureDownstreamHtlcAdd
+
+	// OutgoingFailureForwardsDisabled is returned when the switch is
+	// configured to disallow forwards.
+	OutgoingFailureForwardsDisabled
 )
 
 // FailureString returns the string representation of a failure detail.
@@ -69,6 +81,15 @@ func (fd OutgoingFailure) FailureString() string {
 
 	case OutgoingFailureCircularRoute:
 		return "same incoming and outgoing channel"
+
+	case OutgoingFailureIncompleteForward:
+		return "failed after detecting incomplete forward"
+
+	case OutgoingFailureDownstreamHtlcAdd:
+		return "could not add downstream htlc"
+
+	case OutgoingFailureForwardsDisabled:
+		return "node configured to disallow forwards"
 
 	default:
 		return "unknown failure detail"

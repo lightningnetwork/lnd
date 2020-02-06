@@ -23,13 +23,13 @@ type HtlcFailResolution struct {
 	// AcceptHeight is the original height at which the htlc was accepted.
 	AcceptHeight int32
 
-	// outcome indicates the outcome of the invoice registry update.
-	Outcome ResolutionResult
+	// Outcome indicates the outcome of the invoice registry update.
+	Outcome FailResolutionResult
 }
 
 // NewFailResolution returns a htlc failure resolution.
 func NewFailResolution(key channeldb.CircuitKey,
-	acceptHeight int32, outcome ResolutionResult) *HtlcFailResolution {
+	acceptHeight int32, outcome FailResolutionResult) *HtlcFailResolution {
 
 	return &HtlcFailResolution{
 		circuitKey:   key,
@@ -59,13 +59,14 @@ type HtlcSettleResolution struct {
 	AcceptHeight int32
 
 	// Outcome indicates the outcome of the invoice registry update.
-	Outcome ResolutionResult
+	Outcome SettleResolutionResult
 }
 
 // NewSettleResolution returns a htlc resolution which is associated with a
 // settle.
-func NewSettleResolution(preimage lntypes.Preimage, key channeldb.CircuitKey,
-	acceptHeight int32, outcome ResolutionResult) *HtlcSettleResolution {
+func NewSettleResolution(preimage lntypes.Preimage,
+	key channeldb.CircuitKey, acceptHeight int32,
+	outcome SettleResolutionResult) *HtlcSettleResolution {
 
 	return &HtlcSettleResolution{
 		Preimage:     preimage,
@@ -101,13 +102,13 @@ type htlcAcceptResolution struct {
 	acceptTime time.Time
 
 	// outcome indicates the outcome of the invoice registry update.
-	outcome ResolutionResult
+	outcome acceptResolutionResult
 }
 
 // newAcceptResolution returns a htlc resolution which is associated with a
 // htlc accept.
 func newAcceptResolution(key channeldb.CircuitKey,
-	outcome ResolutionResult) *htlcAcceptResolution {
+	outcome acceptResolutionResult) *htlcAcceptResolution {
 
 	return &htlcAcceptResolution{
 		circuitKey: key,

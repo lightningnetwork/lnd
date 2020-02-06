@@ -565,7 +565,7 @@ func (i *InvoiceRegistry) startHtlcTimer(hash lntypes.Hash,
 // a resolution result which will be used to notify subscribed links and
 // resolvers of the details of the htlc cancellation.
 func (i *InvoiceRegistry) cancelSingleHtlc(hash lntypes.Hash,
-	key channeldb.CircuitKey, result ResolutionResult) error {
+	key channeldb.CircuitKey, result FailResolutionResult) error {
 
 	i.Lock()
 	defer i.Unlock()

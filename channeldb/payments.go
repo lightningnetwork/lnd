@@ -3,7 +3,6 @@ package channeldb
 import (
 	"bytes"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"io"
 	"sort"
@@ -153,27 +152,6 @@ const (
 	// failure result has come back.
 	StatusFailed PaymentStatus = 3
 )
-
-// Bytes returns status as slice of bytes.
-func (ps PaymentStatus) Bytes() []byte {
-	return []byte{byte(ps)}
-}
-
-// FromBytes sets status from slice of bytes.
-func (ps *PaymentStatus) FromBytes(status []byte) error {
-	if len(status) != 1 {
-		return errors.New("payment status is empty")
-	}
-
-	switch PaymentStatus(status[0]) {
-	case StatusUnknown, StatusInFlight, StatusSucceeded, StatusFailed:
-		*ps = PaymentStatus(status[0])
-	default:
-		return errors.New("unknown payment status")
-	}
-
-	return nil
-}
 
 // String returns readable representation of payment status.
 func (ps PaymentStatus) String() string {

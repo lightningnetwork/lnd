@@ -2819,10 +2819,10 @@ var listInvoicesCommand = cli.Command{
 	allowing users to query for specific invoices through their add_index.
 	This can be done by using either the first_index_offset or
 	last_index_offset fields included in the response as the index_offset of
-	the next request. The reversed flag is set by default in order to
-	paginate backwards. If you wish to paginate forwards, you must
-	explicitly set the flag to false. If none of the parameters are
-	specified, then the last 100 invoices will be returned.
+	the next request. Backward pagination is enabled by default to receive
+	current invoices first. If you wish to paginate forwards, set the 
+	paginate-forwards flag.	If none of the parameters are specified, then 
+	the last 100 invoices will be returned.
 
 	For example: if you have 200 invoices, "lncli listinvoices" will return
 	the last 100 created. If you wish to retrieve the previous 100, the
@@ -2845,11 +2845,10 @@ var listInvoicesCommand = cli.Command{
 			Name:  "max_invoices",
 			Usage: "the max number of invoices to return",
 		},
-		cli.BoolTFlag{
-			Name: "reversed",
-			Usage: "if set, the invoices returned precede the " +
-				"given index_offset, allowing backwards " +
-				"pagination",
+		cli.BoolFlag{
+			Name: "paginate-forwards",
+			Usage: "if set, invoices succeeding the " +
+				"index_offset will be returned",
 		},
 	},
 	Action: actionDecorator(listInvoices),
@@ -2863,7 +2862,7 @@ func listInvoices(ctx *cli.Context) error {
 		PendingOnly:    ctx.Bool("pending_only"),
 		IndexOffset:    ctx.Uint64("index_offset"),
 		NumMaxInvoices: ctx.Uint64("max_invoices"),
-		Reversed:       ctx.Bool("reversed"),
+		Reversed:       !ctx.Bool("paginate-forwards"),
 	}
 
 	invoices, err := client.ListInvoices(context.Background(), req)

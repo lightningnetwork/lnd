@@ -53,7 +53,7 @@ var (
 	}
 )
 
-func makeFakeInfo() (*PaymentCreationInfo, *PaymentAttemptInfo) {
+func makeFakeInfo() (*PaymentCreationInfo, *HTLCAttemptInfo) {
 	var preimg lntypes.Preimage
 	copy(preimg[:], rev[:])
 
@@ -66,8 +66,8 @@ func makeFakeInfo() (*PaymentCreationInfo, *PaymentAttemptInfo) {
 		PaymentRequest: []byte(""),
 	}
 
-	a := &PaymentAttemptInfo{
-		PaymentID:  44,
+	a := &HTLCAttemptInfo{
+		AttemptID:  44,
 		SessionKey: priv,
 		Route:      testRoute,
 	}
@@ -109,11 +109,11 @@ func TestSentPaymentSerialization(t *testing.T) {
 	}
 
 	b.Reset()
-	if err := serializePaymentAttemptInfo(&b, s); err != nil {
+	if err := serializeHTLCAttemptInfo(&b, s); err != nil {
 		t.Fatalf("unable to serialize info: %v", err)
 	}
 
-	newAttemptInfo, err := deserializePaymentAttemptInfo(&b)
+	newAttemptInfo, err := deserializeHTLCAttemptInfo(&b)
 	if err != nil {
 		t.Fatalf("unable to deserialize info: %v", err)
 	}
@@ -144,7 +144,7 @@ func TestSentPaymentSerialization(t *testing.T) {
 // they are not equal.
 func assertRouteEqual(a, b *route.Route) error {
 	if !reflect.DeepEqual(a, b) {
-		return fmt.Errorf("PaymentAttemptInfos don't match: %v vs %v",
+		return fmt.Errorf("HTLCAttemptInfos don't match: %v vs %v",
 			spew.Sdump(a), spew.Sdump(b))
 	}
 

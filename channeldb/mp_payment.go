@@ -25,20 +25,26 @@ type MPPaymentCreationInfo struct {
 	PaymentRequest []byte
 }
 
-// HTLCAttempt contains information about a specific HTLC attempt for a given
-// payment. This information is used by the router to handle any errors coming
-// back after an attempt is made, and to query the switch about the status of a
-// payment. For settled payment this will be the information for the succeeding
-// payment attempt.
-type HTLCAttempt struct {
-	// PaymentID is the unique ID used for this attempt.
-	PaymentID uint64
+// HTLCAttemptInfo contains static information about a specific HTLC attempt
+// for a payment. This information is used by the router to handle any errors
+// coming back after an attempt is made, and to query the switch about the
+// status of the attempt.
+type HTLCAttemptInfo struct {
+	// AttemptID is the unique ID used for this attempt.
+	AttemptID uint64
 
-	// SessionKey is the ephemeral key used for this payment attempt.
+	// SessionKey is the ephemeral key used for this attempt.
 	SessionKey *btcec.PrivateKey
 
 	// Route is the route attempted to send the HTLC.
 	Route route.Route
+}
+
+// HTLCAttempt contains information about a specific HTLC attempt for a given
+// payment. It contains the HTLCAttemptInfo used to send the HTLC, as well
+// as a timestamp and any known outcome of the attempt.
+type HTLCAttempt struct {
+	*HTLCAttemptInfo
 
 	// AttemptTime is the time at which this HTLC was attempted.
 	AttemptTime time.Time

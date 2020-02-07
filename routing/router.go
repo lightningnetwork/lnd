@@ -1768,7 +1768,7 @@ func (r *ChannelRouter) SendToRoute(hash lntypes.Hash, route *route.Route) (
 // router will call this method for every payment still in-flight according to
 // the ControlTower.
 func (r *ChannelRouter) sendPayment(
-	existingAttempt *channeldb.PaymentAttemptInfo,
+	existingAttempt *channeldb.HTLCAttemptInfo,
 	payment *LightningPayment, paySession PaymentSession) (
 	[32]byte, *route.Route, error) {
 

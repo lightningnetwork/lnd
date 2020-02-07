@@ -19,8 +19,8 @@ type ControlTower interface {
 	// hash.
 	InitPayment(lntypes.Hash, *channeldb.PaymentCreationInfo) error
 
-	// RegisterAttempt atomically records the provided PaymentAttemptInfo.
-	RegisterAttempt(lntypes.Hash, *channeldb.PaymentAttemptInfo) error
+	// RegisterAttempt atomically records the provided HTLCAttemptInfo.
+	RegisterAttempt(lntypes.Hash, *channeldb.HTLCAttemptInfo) error
 
 	// Success transitions a payment into the Succeeded state. After
 	// invoking this method, InitPayment should always return an error to
@@ -91,10 +91,10 @@ func (p *controlTower) InitPayment(paymentHash lntypes.Hash,
 	return p.db.InitPayment(paymentHash, info)
 }
 
-// RegisterAttempt atomically records the provided PaymentAttemptInfo to the
+// RegisterAttempt atomically records the provided HTLCAttemptInfo to the
 // DB.
 func (p *controlTower) RegisterAttempt(paymentHash lntypes.Hash,
-	attempt *channeldb.PaymentAttemptInfo) error {
+	attempt *channeldb.HTLCAttemptInfo) error {
 
 	return p.db.RegisterAttempt(paymentHash, attempt)
 }

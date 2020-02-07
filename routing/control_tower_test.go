@@ -298,7 +298,7 @@ func initDB() (*channeldb.DB, error) {
 	return db, err
 }
 
-func genInfo() (*channeldb.PaymentCreationInfo, *channeldb.PaymentAttemptInfo,
+func genInfo() (*channeldb.PaymentCreationInfo, *channeldb.HTLCAttemptInfo,
 	lntypes.Preimage, error) {
 
 	preimage, err := genPreimage()
@@ -314,8 +314,8 @@ func genInfo() (*channeldb.PaymentCreationInfo, *channeldb.PaymentAttemptInfo,
 			CreationTime:   time.Unix(time.Now().Unix(), 0),
 			PaymentRequest: []byte("hola"),
 		},
-		&channeldb.PaymentAttemptInfo{
-			PaymentID:  1,
+		&channeldb.HTLCAttemptInfo{
+			AttemptID:  1,
 			SessionKey: priv,
 			Route:      testRoute,
 		}, preimage, nil

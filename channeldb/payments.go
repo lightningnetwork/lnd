@@ -8,7 +8,6 @@ import (
 	"sort"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -185,25 +184,9 @@ type PaymentCreationInfo struct {
 	PaymentRequest []byte
 }
 
-// PaymentAttemptInfo contains information about a specific payment attempt for
-// a given payment. This information is used by the router to handle any errors
-// coming back after an attempt is made, and to query the switch about the
-// status of a payment. For settled payment this will be the information for
-// the succeeding payment attempt.
-type PaymentAttemptInfo struct {
-	// PaymentID is the unique ID used for this attempt.
-	PaymentID uint64
-
-	// SessionKey is the ephemeral key used for this payment attempt.
-	SessionKey *btcec.PrivateKey
-
-	// Route is the route attempted to send the HTLC.
-	Route route.Route
-}
-
 // Payment is a wrapper around a payment's PaymentCreationInfo,
-// PaymentAttemptInfo, and preimage. All payments will have the
-// PaymentCreationInfo set, the PaymentAttemptInfo will be set only if at least
+// HTLCAttemptInfo, and preimage. All payments will have the
+// PaymentCreationInfo set, the HTLCAttemptInfo will be set only if at least
 // one payment attempt has been made, while only completed payments will have a
 // non-zero payment preimage.
 type Payment struct {
@@ -221,7 +204,7 @@ type Payment struct {
 	// Attempt is the information about the last payment attempt made.
 	//
 	// NOTE: Can be nil if no attempt is yet made.
-	Attempt *PaymentAttemptInfo
+	Attempt *HTLCAttemptInfo
 
 	// Preimage is the preimage of a successful payment. This serves as a
 	// proof of payment. It will only be non-nil for settled payments.
@@ -272,11 +255,9 @@ func (p *Payment) ToMPPayment() *MPPayment {
 		// NOTE: AttemptTime is not set for legacy payments.
 		htlcs = []HTLCAttempt{
 			{
-				PaymentID:  p.Attempt.PaymentID,
-				SessionKey: p.Attempt.SessionKey,
-				Route:      p.Attempt.Route,
-				Settle:     settle,
-				Failure:    failure,
+				HTLCAttemptInfo: *p.Attempt,
+				Settle:          settle,
+				Failure:         failure,
 			},
 		}
 	}
@@ -392,11 +373,11 @@ func fetchPayment(bucket *bbolt.Bucket) (*MPPayment, error) {
 
 	}
 
-	// Get the PaymentAttemptInfo. This can be unset.
+	// Get the HTLCAttemptInfo. This can be unset.
 	b = bucket.Get(paymentAttemptInfoKey)
 	if b != nil {
 		r = bytes.NewReader(b)
-		p.Attempt, err = deserializePaymentAttemptInfo(r)
+		p.Attempt, err = deserializeHTLCAttemptInfo(r)
 		if err != nil {
 			return nil, err
 		}
@@ -527,8 +508,8 @@ func deserializePaymentCreationInfo(r io.Reader) (*PaymentCreationInfo, error) {
 	return c, nil
 }
 
-func serializePaymentAttemptInfo(w io.Writer, a *PaymentAttemptInfo) error {
-	if err := WriteElements(w, a.PaymentID, a.SessionKey); err != nil {
+func serializeHTLCAttemptInfo(w io.Writer, a *HTLCAttemptInfo) error {
+	if err := WriteElements(w, a.AttemptID, a.SessionKey); err != nil {
 		return err
 	}
 
@@ -539,9 +520,9 @@ func serializePaymentAttemptInfo(w io.Writer, a *PaymentAttemptInfo) error {
 	return nil
 }
 
-func deserializePaymentAttemptInfo(r io.Reader) (*PaymentAttemptInfo, error) {
-	a := &PaymentAttemptInfo{}
-	err := ReadElements(r, &a.PaymentID, &a.SessionKey)
+func deserializeHTLCAttemptInfo(r io.Reader) (*HTLCAttemptInfo, error) {
+	a := &HTLCAttemptInfo{}
+	err := ReadElements(r, &a.AttemptID, &a.SessionKey)
 	if err != nil {
 		return nil, err
 	}

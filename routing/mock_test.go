@@ -178,7 +178,7 @@ type initArgs struct {
 }
 
 type registerArgs struct {
-	a *channeldb.PaymentAttemptInfo
+	a *channeldb.HTLCAttemptInfo
 }
 
 type successArgs struct {
@@ -238,7 +238,7 @@ func (m *mockControlTower) InitPayment(phash lntypes.Hash,
 }
 
 func (m *mockControlTower) RegisterAttempt(phash lntypes.Hash,
-	a *channeldb.PaymentAttemptInfo) error {
+	a *channeldb.HTLCAttemptInfo) error {
 
 	m.Lock()
 	defer m.Unlock()

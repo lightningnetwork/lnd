@@ -38,7 +38,7 @@ func genPreimage() ([32]byte, error) {
 	return preimage, nil
 }
 
-func genInfo() (*PaymentCreationInfo, *PaymentAttemptInfo,
+func genInfo() (*PaymentCreationInfo, *HTLCAttemptInfo,
 	lntypes.Preimage, error) {
 
 	preimage, err := genPreimage()
@@ -54,8 +54,8 @@ func genInfo() (*PaymentCreationInfo, *PaymentAttemptInfo,
 			CreationTime:   time.Unix(time.Now().Unix(), 0),
 			PaymentRequest: []byte("hola"),
 		},
-		&PaymentAttemptInfo{
-			PaymentID:  1,
+		&HTLCAttemptInfo{
+			AttemptID:  1,
 			SessionKey: priv,
 			Route:      testRoute,
 		}, preimage, nil
@@ -119,7 +119,7 @@ func TestPaymentControlSwitchFail(t *testing.T) {
 	)
 
 	// Record a new attempt.
-	attempt.PaymentID = 2
+	attempt.AttemptID = 2
 	err = pControl.RegisterAttempt(info.PaymentHash, attempt)
 	if err != nil {
 		t.Fatalf("unable to send htlc message: %v", err)
@@ -445,7 +445,7 @@ func checkPaymentCreationInfo(bucket *bbolt.Bucket, c *PaymentCreationInfo) erro
 	return nil
 }
 
-func checkPaymentAttemptInfo(bucket *bbolt.Bucket, a *PaymentAttemptInfo) error {
+func checkHTLCAttemptInfo(bucket *bbolt.Bucket, a *HTLCAttemptInfo) error {
 	b := bucket.Get(paymentAttemptInfoKey)
 	switch {
 	case b == nil && a == nil:
@@ -457,7 +457,7 @@ func checkPaymentAttemptInfo(bucket *bbolt.Bucket, a *PaymentAttemptInfo) error 
 	}
 
 	r := bytes.NewReader(b)
-	a2, err := deserializePaymentAttemptInfo(r)
+	a2, err := deserializeHTLCAttemptInfo(r)
 	if err != nil {
 		return err
 	}
@@ -508,7 +508,7 @@ func checkFailInfo(bucket *bbolt.Bucket, failReason *FailureReason) error {
 }
 
 func assertPaymentInfo(t *testing.T, db *DB, hash lntypes.Hash,
-	c *PaymentCreationInfo, a *PaymentAttemptInfo, s lntypes.Preimage,
+	c *PaymentCreationInfo, a *HTLCAttemptInfo, s lntypes.Preimage,
 	f *FailureReason) {
 
 	t.Helper()
@@ -535,7 +535,7 @@ func assertPaymentInfo(t *testing.T, db *DB, hash lntypes.Hash,
 			return err
 		}
 
-		if err := checkPaymentAttemptInfo(bucket, a); err != nil {
+		if err := checkHTLCAttemptInfo(bucket, a); err != nil {
 			return err
 		}
 

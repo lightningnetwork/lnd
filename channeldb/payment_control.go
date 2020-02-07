@@ -143,14 +143,14 @@ func (p *PaymentControl) InitPayment(paymentHash lntypes.Hash,
 	return updateErr
 }
 
-// RegisterAttempt atomically records the provided PaymentAttemptInfo to the
+// RegisterAttempt atomically records the provided HTLCAttemptInfo to the
 // DB.
 func (p *PaymentControl) RegisterAttempt(paymentHash lntypes.Hash,
-	attempt *PaymentAttemptInfo) error {
+	attempt *HTLCAttemptInfo) error {
 
 	// Serialize the information before opening the db transaction.
 	var a bytes.Buffer
-	if err := serializePaymentAttemptInfo(&a, attempt); err != nil {
+	if err := serializeHTLCAttemptInfo(&a, attempt); err != nil {
 		return err
 	}
 	attemptBytes := a.Bytes()
@@ -405,14 +405,14 @@ func ensureInFlight(bucket *bbolt.Bucket) error {
 }
 
 // fetchPaymentAttempt fetches the payment attempt from the bucket.
-func fetchPaymentAttempt(bucket *bbolt.Bucket) (*PaymentAttemptInfo, error) {
+func fetchPaymentAttempt(bucket *bbolt.Bucket) (*HTLCAttemptInfo, error) {
 	attemptData := bucket.Get(paymentAttemptInfoKey)
 	if attemptData == nil {
 		return nil, errNoAttemptInfo
 	}
 
 	r := bytes.NewReader(attemptData)
-	return deserializePaymentAttemptInfo(r)
+	return deserializeHTLCAttemptInfo(r)
 }
 
 // InFlightPayment is a wrapper around a payment that has status InFlight.
@@ -424,7 +424,7 @@ type InFlightPayment struct {
 	// made to this payment hash.
 	//
 	// NOTE: Might be nil.
-	Attempt *PaymentAttemptInfo
+	Attempt *HTLCAttemptInfo
 }
 
 // FetchInFlightPayments returns all payments with status InFlight.

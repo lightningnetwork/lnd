@@ -537,7 +537,12 @@ func (r *ChannelRouter) Start() error {
 				PaymentHash: payment.Info.PaymentHash,
 			}
 
-			_, _, err := r.sendPayment(payment.Attempt, lPayment, paySession)
+			var attempt *channeldb.HTLCAttemptInfo
+			if len(payment.Attempts) > 0 {
+				attempt = payment.Attempts[0]
+			}
+
+			_, _, err := r.sendPayment(attempt, lPayment, paySession)
 			if err != nil {
 				log.Errorf("Resuming payment with hash %v "+
 					"failed: %v.", payment.Info.PaymentHash, err)
@@ -1677,10 +1682,10 @@ func (r *ChannelRouter) preparePayment(payment *LightningPayment) (
 	// already in-flight.
 	//
 	// TODO(roasbeef): store records as part of creation info?
-	info := &channeldb.PaymentCreationInfo{
+	info := &channeldb.MPPaymentCreationInfo{
 		PaymentHash:    payment.PaymentHash,
 		Value:          payment.Amount,
-		CreationDate:   time.Now(),
+		CreationTime:   time.Now(),
 		PaymentRequest: payment.PaymentRequest,
 	}
 
@@ -1706,10 +1711,10 @@ func (r *ChannelRouter) SendToRoute(hash lntypes.Hash, route *route.Route) (
 
 	// Record this payment hash with the ControlTower, ensuring it is not
 	// already in-flight.
-	info := &channeldb.PaymentCreationInfo{
+	info := &channeldb.MPPaymentCreationInfo{
 		PaymentHash:    hash,
 		Value:          amt,
-		CreationDate:   time.Now(),
+		CreationTime:   time.Now(),
 		PaymentRequest: nil,
 	}
 

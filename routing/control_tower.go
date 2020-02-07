@@ -17,7 +17,7 @@ type ControlTower interface {
 	// InitPayment atomically moves the payment into the InFlight state.
 	// This method checks that no suceeded payment exist for this payment
 	// hash.
-	InitPayment(lntypes.Hash, *channeldb.PaymentCreationInfo) error
+	InitPayment(lntypes.Hash, *channeldb.MPPaymentCreationInfo) error
 
 	// RegisterAttempt atomically records the provided HTLCAttemptInfo.
 	RegisterAttempt(lntypes.Hash, *channeldb.HTLCAttemptInfo) error
@@ -61,7 +61,7 @@ type PaymentResult struct {
 
 	// HTLCs is a list of HTLCs that have been attempted in order to settle
 	// the payment.
-	HTLCs []channeldb.HTLCAttempt
+	HTLCs []*channeldb.HTLCAttempt
 }
 
 // controlTower is persistent implementation of ControlTower to restrict
@@ -86,7 +86,7 @@ func NewControlTower(db *channeldb.PaymentControl) ControlTower {
 // method returns successfully, the payment is guranteeed to be in the InFlight
 // state.
 func (p *controlTower) InitPayment(paymentHash lntypes.Hash,
-	info *channeldb.PaymentCreationInfo) error {
+	info *channeldb.MPPaymentCreationInfo) error {
 
 	return p.db.InitPayment(paymentHash, info)
 }
@@ -120,7 +120,7 @@ func (p *controlTower) Success(paymentHash lntypes.Hash,
 }
 
 // createSuccessResult creates a success result to send to subscribers.
-func createSuccessResult(htlcs []channeldb.HTLCAttempt) *PaymentResult {
+func createSuccessResult(htlcs []*channeldb.HTLCAttempt) *PaymentResult {
 	// Extract any preimage from the list of HTLCs.
 	var preimage lntypes.Preimage
 	for _, htlc := range htlcs {
@@ -138,7 +138,7 @@ func createSuccessResult(htlcs []channeldb.HTLCAttempt) *PaymentResult {
 }
 
 // createFailResult creates a failed result to send to subscribers.
-func createFailedResult(htlcs []channeldb.HTLCAttempt,
+func createFailedResult(htlcs []*channeldb.HTLCAttempt,
 	reason channeldb.FailureReason) *PaymentResult {
 
 	return &PaymentResult{

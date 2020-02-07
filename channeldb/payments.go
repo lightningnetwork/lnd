@@ -10,7 +10,6 @@ import (
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/coreos/bbolt"
-	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -28,20 +27,35 @@ var (
 	// root-bucket
 	//      |
 	//      |-- <paymenthash>
-	//      |        |--sequence-key: <sequence number>
-	//      |        |--creation-info-key: <creation info>
-	//      |        |--attempt-info-key: <attempt info>
-	//      |        |--settle-info-key: <settle info>
-	//      |        |--fail-info-key: <fail info>
+	//      |        |--mpp-sequence-key: <sequence number>
+	//      |        |--mpp-creation-info-key: <creation info>
+	//      |        |--mpp-fail-info-key: <(optional) fail info>
+	//      |        |
+	//      |        |--mpp-htlcs-bucket (shard-bucket)
+	//      |        |        |
+	//      |        |        |-- <htlc attempt ID>
+	//      |        |        |       |--htlc-attempt-info-key: <htlc attempt info>
+	//      |        |        |       |--htlc-attempt-time-key: <timestamp>
+	//      |        |        |       |--htlc-settle-info-key: <(optional) settle info>
+	//      |        |        |       |--htlc-fail-info-key: <(optional) fail info>
+	//      |        |        |
+	//      |        |        |-- <htlc attempt ID>
+	//      |        |        |       |
+	//      |        |       ...     ...
+	//      |        |
 	//      |        |
 	//      |        |--duplicate-bucket (only for old, completed payments)
 	//      |                 |
 	//      |                 |-- <seq-num>
-	//      |                 |       |--sequence-key: <sequence number>
-	//      |                 |       |--creation-info-key: <creation info>
-	//      |                 |       |--attempt-info-key: <attempt info>
-	//      |                 |       |--settle-info-key: <settle info>
-	//      |                 |       |--fail-info-key: <fail info>
+	//      |                 |       |--mpp-sequence-key: <sequence number>
+	//      |                 |       |--mpp-creation-info-key: <creation info>
+	//      |                 |       |--mpp-fail-info-key: <(optional) fail info>
+	//      |                 |	  |
+	//      |         	  |	  |-- <static-htlc-id>
+	//      |                 |		|--htlc-attempt-info-key: <attempt info>
+	//      |                 |       	|--htlc-attempt-time-key: <zero timestamp>
+	//      |                 |       	|--htlc-settle-info-key: <(optional) settle info>
+	//      |                 |       	|--htlc-fail-info-key: <(optional) fail info>
 	//      |                 |
 	//      |                 |-- <seq-num>
 	//      |                 |       |
@@ -54,33 +68,44 @@ var (
 	//
 	paymentsRootBucket = []byte("payments-root-bucket")
 
-	// paymentDublicateBucket is the name of a optional sub-bucket within
+	// paymentDuplicateBucket is the name of a optional sub-bucket within
 	// the payment hash bucket, that is used to hold duplicate payments to
 	// a payment hash. This is needed to support information from earlier
 	// versions of lnd, where it was possible to pay to a payment hash more
 	// than once.
 	paymentDuplicateBucket = []byte("payment-duplicate-bucket")
 
-	// paymentSequenceKey is a key used in the payment's sub-bucket to
-	// store the sequence number of the payment.
-	paymentSequenceKey = []byte("payment-sequence-key")
+	// mppSequenceKey is a key used in the payment's sub-bucket to store
+	// the sequence number of the payment.
+	mppSequenceKey = []byte("mpp-sequence-key")
 
-	// paymentCreationInfoKey is a key used in the payment's sub-bucket to
-	// store the creation info of the payment.
-	paymentCreationInfoKey = []byte("payment-creation-info")
+	// mppCreationInfoKey is a key used in the payment's sub-bucket to
+	// store the creation info of the MP payment.
+	mppCreationInfoKey = []byte("mpp-creation-info")
 
-	// paymentAttemptInfoKey is a key used in the payment's sub-bucket to
-	// store the info about the latest attempt that was done for the
-	// payment in question.
-	paymentAttemptInfoKey = []byte("payment-attempt-info")
+	// mppFailInfoKey is a key used in the payment's sub-bucket to store
+	// information about a terminal failure of the payment.
+	mppFailInfoKey = []byte("mpp-fail-info")
 
-	// paymentSettleInfoKey is a key used in the payment's sub-bucket to
-	// store the settle info of the payment.
-	paymentSettleInfoKey = []byte("payment-settle-info")
+	// mppHtlcsBucket is a bucket where we'll store the information
+	// about the HTLCs that were attempted for a payment.
+	mppHtlcsBucket = []byte("mpp-htlcs-bucket")
 
-	// paymentFailInfoKey is a key used in the payment's sub-bucket to
-	// store information about the reason a payment failed.
-	paymentFailInfoKey = []byte("payment-fail-info")
+	// htlcAttemptInfoKey is a key used in a HTLC's sub-bucket to store the
+	// info about the attempt that was done for the HTLC in question.
+	htlcAttemptInfoKey = []byte("htlc-attempt-info")
+
+	// htlcAttemptTimeKey is a key used in a HTLC's sub-bucket to store the
+	// time the HTLC was attempted.
+	htlcAttemptTimeKey = []byte("htlc-attempt-time")
+
+	// htlcSettleInfoKey is a key used in a HTLC's sub-bucket to store the
+	// settle info, if any.
+	htlcSettleInfoKey = []byte("htlc-settle-info")
+
+	// htlcFailInfoKey is a key used in a HTLC's sub-bucket to store
+	// failure information, if any.
+	htlcFailInfoKey = []byte("htlc-fail-info")
 )
 
 // FailureReason encodes the reason a payment ultimately failed.
@@ -168,114 +193,6 @@ func (ps PaymentStatus) String() string {
 	}
 }
 
-// PaymentCreationInfo is the information necessary to have ready when
-// initiating a payment, moving it into state InFlight.
-type PaymentCreationInfo struct {
-	// PaymentHash is the hash this payment is paying to.
-	PaymentHash lntypes.Hash
-
-	// Value is the amount we are paying.
-	Value lnwire.MilliSatoshi
-
-	// CreatingDate is the time when this payment was initiated.
-	CreationDate time.Time
-
-	// PaymentRequest is the full payment request, if any.
-	PaymentRequest []byte
-}
-
-// Payment is a wrapper around a payment's PaymentCreationInfo,
-// HTLCAttemptInfo, and preimage. All payments will have the
-// PaymentCreationInfo set, the HTLCAttemptInfo will be set only if at least
-// one payment attempt has been made, while only completed payments will have a
-// non-zero payment preimage.
-type Payment struct {
-	// sequenceNum is a unique identifier used to sort the payments in
-	// order of creation.
-	sequenceNum uint64
-
-	// Status is the current PaymentStatus of this payment.
-	Status PaymentStatus
-
-	// Info holds all static information about this payment, and is
-	// populated when the payment is initiated.
-	Info *PaymentCreationInfo
-
-	// Attempt is the information about the last payment attempt made.
-	//
-	// NOTE: Can be nil if no attempt is yet made.
-	Attempt *HTLCAttemptInfo
-
-	// Preimage is the preimage of a successful payment. This serves as a
-	// proof of payment. It will only be non-nil for settled payments.
-	//
-	// NOTE: Can be nil if payment is not settled.
-	Preimage *lntypes.Preimage
-
-	// Failure is a failure reason code indicating the reason the payment
-	// failed. It is only non-nil for failed payments.
-	//
-	// NOTE: Can be nil if payment is not failed.
-	Failure *FailureReason
-}
-
-// ToMPPayment converts a legacy payment into an MPPayment.
-func (p *Payment) ToMPPayment() *MPPayment {
-	var (
-		htlcs   []HTLCAttempt
-		reason  *FailureReason
-		settle  *HTLCSettleInfo
-		failure *HTLCFailInfo
-	)
-
-	// Promote the payment failure to a proper fail struct, if it exists.
-	if p.Failure != nil {
-		// NOTE: FailTime is not set for legacy payments.
-		failure = &HTLCFailInfo{}
-		reason = p.Failure
-	}
-
-	// Promote the payment preimage to proper settle struct, if it exists.
-	if p.Preimage != nil {
-		// NOTE: SettleTime is not set for legacy payments.
-		settle = &HTLCSettleInfo{
-			Preimage: *p.Preimage,
-		}
-	}
-
-	// Either a settle or a failure may be set, but not both.
-	if settle != nil && failure != nil {
-		panic("htlc attempt has both settle and failure info")
-	}
-
-	// Populate a single HTLC on the MPPayment if an attempt exists on the
-	// legacy payment. If none exists we will leave the attempt info blank
-	// since we cannot recover it.
-	if p.Attempt != nil {
-		// NOTE: AttemptTime is not set for legacy payments.
-		htlcs = []HTLCAttempt{
-			{
-				HTLCAttemptInfo: p.Attempt,
-				Settle:          settle,
-				Failure:         failure,
-			},
-		}
-	}
-
-	return &MPPayment{
-		sequenceNum: p.sequenceNum,
-		Info: &MPPaymentCreationInfo{
-			PaymentHash:    p.Info.PaymentHash,
-			Value:          p.Info.Value,
-			CreationTime:   p.Info.CreationDate,
-			PaymentRequest: p.Info.PaymentRequest,
-		},
-		HTLCs:         htlcs,
-		FailureReason: reason,
-		Status:        p.Status,
-	}
-}
-
 // FetchPayments returns all sent payments found in the DB.
 //
 // nolint: dupl
@@ -345,61 +262,152 @@ func (db *DB) FetchPayments() ([]*MPPayment, error) {
 }
 
 func fetchPayment(bucket *bbolt.Bucket) (*MPPayment, error) {
-	var (
-		err error
-		p   = &Payment{}
-	)
-
-	seqBytes := bucket.Get(paymentSequenceKey)
+	seqBytes := bucket.Get(mppSequenceKey)
 	if seqBytes == nil {
 		return nil, fmt.Errorf("sequence number not found")
 	}
 
-	p.sequenceNum = binary.BigEndian.Uint64(seqBytes)
+	sequenceNum := binary.BigEndian.Uint64(seqBytes)
 
 	// Get the payment status.
-	p.Status = fetchPaymentStatus(bucket)
+	paymentStatus := fetchPaymentStatus(bucket)
 
 	// Get the PaymentCreationInfo.
-	b := bucket.Get(paymentCreationInfoKey)
+	b := bucket.Get(mppCreationInfoKey)
 	if b == nil {
 		return nil, fmt.Errorf("creation info not found")
 	}
 
 	r := bytes.NewReader(b)
-	p.Info, err = deserializePaymentCreationInfo(r)
+	creationInfo, err := deserializeMPPaymentCreationInfo(r)
 	if err != nil {
 		return nil, err
 
 	}
 
-	// Get the HTLCAttemptInfo. This can be unset.
-	b = bucket.Get(paymentAttemptInfoKey)
-	if b != nil {
-		r = bytes.NewReader(b)
-		p.Attempt, err = deserializeHTLCAttemptInfo(r)
+	var htlcs []*HTLCAttempt
+	htlcsBucket := bucket.Bucket(mppHtlcsBucket)
+	if htlcsBucket != nil {
+		// Get the payment attempts. This can be empty.
+		htlcs, err = fetchHTLCAttempts(htlcsBucket)
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	// Get the payment preimage. This is only found for
-	// completed payments.
-	b = bucket.Get(paymentSettleInfoKey)
-	if b != nil {
-		var preimg lntypes.Preimage
-		copy(preimg[:], b[:])
-		p.Preimage = &preimg
-	}
-
 	// Get failure reason if available.
-	b = bucket.Get(paymentFailInfoKey)
+	var failureReason *FailureReason
+	b = bucket.Get(mppFailInfoKey)
 	if b != nil {
 		reason := FailureReason(b[0])
-		p.Failure = &reason
+		failureReason = &reason
 	}
 
-	return p.ToMPPayment(), nil
+	return &MPPayment{
+		sequenceNum:   sequenceNum,
+		Info:          creationInfo,
+		HTLCs:         htlcs,
+		FailureReason: failureReason,
+		Status:        paymentStatus,
+	}, nil
+}
+
+// fetchHTLCAttempts retrives all HTLC attempts made for the payment found in
+// the given bucket.
+func fetchHTLCAttempts(bucket *bbolt.Bucket) ([]*HTLCAttempt, error) {
+	var htlcs []*HTLCAttempt
+
+	err := bucket.ForEach(func(k, _ []byte) error {
+		htlcBucket := bucket.Bucket(k)
+		htlc := &HTLCAttempt{}
+		var err error
+
+		htlc.HTLCAttemptInfo, err = fetchHTLCHTLCAttemptInfo(
+			htlcBucket,
+		)
+		if err != nil {
+			return err
+		}
+
+		htlc.AttemptTime, err = fetchHTLCAttemptTime(htlcBucket)
+		if err != nil {
+			return err
+		}
+
+		// Settle info might be nil.
+		htlc.Settle, err = fetchHTLCSettleInfo(htlcBucket)
+		if err != nil {
+			return err
+		}
+
+		// Failure info might be nil.
+		htlc.Failure, err = fetchHTLCFailInfo(htlcBucket)
+		if err != nil {
+			return err
+		}
+
+		htlcs = append(htlcs, htlc)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return htlcs, nil
+}
+
+// fetchHTLCHTLCAttemptInfo fetches the payment attempt for this HTLC from
+// the bucket.
+func fetchHTLCHTLCAttemptInfo(bucket *bbolt.Bucket) (
+	*HTLCAttemptInfo, error) {
+
+	b := bucket.Get(htlcAttemptInfoKey)
+	if b == nil {
+		return nil, errNoAttemptInfo
+	}
+
+	r := bytes.NewReader(b)
+	return deserializeHTLCAttemptInfo(r)
+}
+
+// fetchHTLCAttemptTime fetches the recorded time when the HTLC was first
+// attempted.
+func fetchHTLCAttemptTime(bucket *bbolt.Bucket) (time.Time, error) {
+	b := bucket.Get(htlcAttemptTimeKey)
+	if b == nil {
+		return time.Time{}, fmt.Errorf("no attempt time found")
+	}
+
+	r := bytes.NewReader(b)
+	return deserializeTime(r)
+}
+
+// fetchHTLCSettleInfo retrieves the settle info for the HTLC, if any.
+//
+// NOTE: Can be nil.
+func fetchHTLCSettleInfo(bucket *bbolt.Bucket) (*HTLCSettleInfo, error) {
+	b := bucket.Get(htlcSettleInfoKey)
+	if b == nil {
+		// Settle info is optional.
+		return nil, nil
+	}
+
+	r := bytes.NewReader(b)
+	return deserializeHTLCSettleInfo(r)
+}
+
+// fetchHTLCFailInfo retrieves the failure info for the HTLC, if any.
+//
+// NOTE: Can be nil
+func fetchHTLCFailInfo(bucket *bbolt.Bucket) (*HTLCFailInfo, error) {
+	b := bucket.Get(htlcFailInfoKey)
+	if b == nil {
+		// Fail info is optional.
+		return nil, nil
+	}
+
+	r := bytes.NewReader(b)
+	return deserializeHTLCFailInfo(r)
 }
 
 // DeletePayments deletes all completed and failed payments from the DB.
@@ -444,7 +452,8 @@ func (db *DB) DeletePayments() error {
 	})
 }
 
-func serializePaymentCreationInfo(w io.Writer, c *PaymentCreationInfo) error {
+// nolint: dupl
+func serializeMPPaymentCreationInfo(w io.Writer, c *MPPaymentCreationInfo) error {
 	var scratch [8]byte
 
 	if _, err := w.Write(c.PaymentHash[:]); err != nil {
@@ -456,7 +465,7 @@ func serializePaymentCreationInfo(w io.Writer, c *PaymentCreationInfo) error {
 		return err
 	}
 
-	byteOrder.PutUint64(scratch[:], uint64(c.CreationDate.Unix()))
+	byteOrder.PutUint64(scratch[:], uint64(c.CreationTime.Unix()))
 	if _, err := w.Write(scratch[:]); err != nil {
 		return err
 	}
@@ -473,10 +482,10 @@ func serializePaymentCreationInfo(w io.Writer, c *PaymentCreationInfo) error {
 	return nil
 }
 
-func deserializePaymentCreationInfo(r io.Reader) (*PaymentCreationInfo, error) {
+func deserializeMPPaymentCreationInfo(r io.Reader) (*MPPaymentCreationInfo, error) {
 	var scratch [8]byte
 
-	c := &PaymentCreationInfo{}
+	c := &MPPaymentCreationInfo{}
 
 	if _, err := io.ReadFull(r, c.PaymentHash[:]); err != nil {
 		return nil, err
@@ -490,7 +499,7 @@ func deserializePaymentCreationInfo(r io.Reader) (*PaymentCreationInfo, error) {
 	if _, err := io.ReadFull(r, scratch[:]); err != nil {
 		return nil, err
 	}
-	c.CreationDate = time.Unix(int64(byteOrder.Uint64(scratch[:])), 0)
+	c.CreationTime = time.Unix(int64(byteOrder.Uint64(scratch[:])), 0)
 
 	if _, err := io.ReadFull(r, scratch[:4]); err != nil {
 		return nil, err

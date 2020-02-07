@@ -53,16 +53,16 @@ var (
 	}
 )
 
-func makeFakeInfo() (*PaymentCreationInfo, *HTLCAttemptInfo) {
+func makeFakeInfo() (*MPPaymentCreationInfo, *HTLCAttemptInfo) {
 	var preimg lntypes.Preimage
 	copy(preimg[:], rev[:])
 
-	c := &PaymentCreationInfo{
+	c := &MPPaymentCreationInfo{
 		PaymentHash: preimg.Hash(),
 		Value:       1000,
 		// Use single second precision to avoid false positive test
 		// failures due to the monotonic time component.
-		CreationDate:   time.Unix(time.Now().Unix(), 0),
+		CreationTime:   time.Unix(time.Now().Unix(), 0),
 		PaymentRequest: []byte(""),
 	}
 
@@ -92,11 +92,11 @@ func TestSentPaymentSerialization(t *testing.T) {
 	c, s := makeFakeInfo()
 
 	var b bytes.Buffer
-	if err := serializePaymentCreationInfo(&b, c); err != nil {
+	if err := serializeMPPaymentCreationInfo(&b, c); err != nil {
 		t.Fatalf("unable to serialize creation info: %v", err)
 	}
 
-	newCreationInfo, err := deserializePaymentCreationInfo(&b)
+	newCreationInfo, err := deserializeMPPaymentCreationInfo(&b)
 	if err != nil {
 		t.Fatalf("unable to deserialize creation info: %v", err)
 	}

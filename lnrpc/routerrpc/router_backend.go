@@ -841,7 +841,7 @@ func UnmarshalMPP(reqMPP *lnrpc.MPPRecord) (*record.MPP, error) {
 
 // MarshalHTLCAttempt constructs an RPC HTLCAttempt from the db representation.
 func (r *RouterBackend) MarshalHTLCAttempt(
-	htlc channeldb.HTLCAttempt) (*lnrpc.HTLCAttempt, error) {
+	htlc *channeldb.HTLCAttempt) (*lnrpc.HTLCAttempt, error) {
 
 	var (
 		status      lnrpc.HTLCAttempt_HTLCStatus

@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -56,10 +57,10 @@ func NewPaymentControl(db *DB) *PaymentControl {
 // method returns successfully, the payment is guranteeed to be in the InFlight
 // state.
 func (p *PaymentControl) InitPayment(paymentHash lntypes.Hash,
-	info *PaymentCreationInfo) error {
+	info *MPPaymentCreationInfo) error {
 
 	var b bytes.Buffer
-	if err := serializePaymentCreationInfo(&b, info); err != nil {
+	if err := serializeMPPaymentCreationInfo(&b, info); err != nil {
 		return err
 	}
 	infoBytes := b.Bytes()
@@ -112,29 +113,29 @@ func (p *PaymentControl) InitPayment(paymentHash lntypes.Hash,
 			return err
 		}
 
-		err = bucket.Put(paymentSequenceKey, sequenceNum)
+		err = bucket.Put(mppSequenceKey, sequenceNum)
 		if err != nil {
 			return err
 		}
 
 		// Add the payment info to the bucket, which contains the
-		// static information for this payment
-		err = bucket.Put(paymentCreationInfoKey, infoBytes)
+		// static information for this payment.
+		err = bucket.Put(mppCreationInfoKey, infoBytes)
 		if err != nil {
 			return err
 		}
 
-		// We'll delete any lingering attempt info to start with, in
-		// case we are initializing a payment that was attempted
-		// earlier, but left in a state where we could retry.
-		err = bucket.Delete(paymentAttemptInfoKey)
-		if err != nil {
+		// We'll delete any lingering HTLCs to start with, in case we
+		// are initializing a payment that was attempted earlier, but
+		// left in a state where we could retry.
+		err = bucket.DeleteBucket(mppHtlcsBucket)
+		if err != nil && err != bbolt.ErrBucketNotFound {
 			return err
 		}
 
 		// Also delete any lingering failure info now that we are
 		// re-attempting.
-		return bucket.Delete(paymentFailInfoKey)
+		return bucket.Delete(mppFailInfoKey)
 	})
 	if err != nil {
 		return err
@@ -148,12 +149,22 @@ func (p *PaymentControl) InitPayment(paymentHash lntypes.Hash,
 func (p *PaymentControl) RegisterAttempt(paymentHash lntypes.Hash,
 	attempt *HTLCAttemptInfo) error {
 
+	// Serialize the current time for record keeping.
+	var b bytes.Buffer
+	if err := serializeTime(&b, time.Now()); err != nil {
+		return err
+	}
+	timeBytes := b.Bytes()
+
 	// Serialize the information before opening the db transaction.
 	var a bytes.Buffer
 	if err := serializeHTLCAttemptInfo(&a, attempt); err != nil {
 		return err
 	}
-	attemptBytes := a.Bytes()
+	htlcInfoBytes := a.Bytes()
+
+	htlcIDBytes := make([]byte, 8)
+	binary.BigEndian.PutUint64(htlcIDBytes, attempt.AttemptID)
 
 	var updateErr error
 	err := p.db.Batch(func(tx *bbolt.Tx) error {
@@ -176,8 +187,31 @@ func (p *PaymentControl) RegisterAttempt(paymentHash lntypes.Hash,
 			return nil
 		}
 
-		// Add the payment attempt to the payments bucket.
-		return bucket.Put(paymentAttemptInfoKey, attemptBytes)
+		htlcsBucket, err := bucket.CreateBucketIfNotExists(mppHtlcsBucket)
+		if err != nil {
+			return err
+		}
+
+		// Delete all other attempts, this is temporary until we
+		// suppprt more attempts in flight concurrently.
+		if err := htlcsBucket.ForEach(func(k, _ []byte) error {
+			return htlcsBucket.DeleteBucket(k)
+		}); err != nil {
+			return err
+		}
+
+		htlcBucket, err := htlcsBucket.CreateBucketIfNotExists(htlcIDBytes)
+		if err != nil {
+			return err
+		}
+
+		// Add the HTLC attempt info and timestamp to the HTLC bucket.
+		err = htlcBucket.Put(htlcAttemptTimeKey, timeBytes)
+		if err != nil {
+			return err
+		}
+
+		return htlcBucket.Put(htlcAttemptInfoKey, htlcInfoBytes)
 	})
 	if err != nil {
 		return err
@@ -193,11 +227,23 @@ func (p *PaymentControl) RegisterAttempt(paymentHash lntypes.Hash,
 func (p *PaymentControl) Success(paymentHash lntypes.Hash,
 	preimage lntypes.Preimage) (*MPPayment, error) {
 
+	settleInfo := &HTLCSettleInfo{
+		Preimage:   preimage,
+		SettleTime: time.Now(),
+	}
+
+	var b bytes.Buffer
+	err := serializeHTLCSettleInfo(&b, settleInfo)
+	if err != nil {
+		return nil, err
+	}
+	settleBytes := b.Bytes()
+
 	var (
 		updateErr error
 		payment   *MPPayment
 	)
-	err := p.db.Batch(func(tx *bbolt.Tx) error {
+	err = p.db.Batch(func(tx *bbolt.Tx) error {
 		// Reset the update error, to avoid carrying over an error
 		// from a previous execution of the batched db transaction.
 		updateErr = nil
@@ -217,10 +263,25 @@ func (p *PaymentControl) Success(paymentHash lntypes.Hash,
 			return nil
 		}
 
-		// Record the successful payment info atomically to the
-		// payments record.
-		err = bucket.Put(paymentSettleInfoKey, preimage[:])
-		if err != nil {
+		// We'll also mark all attempts successful, so get the
+		// active attempts bucket.
+		// TODO: this will change.
+		htlcsBucket := bucket.Bucket(mppHtlcsBucket)
+		if htlcsBucket == nil {
+			updateErr = fmt.Errorf("htlcs bucket not found")
+			return nil
+		}
+
+		if err := htlcsBucket.ForEach(func(k, _ []byte) error {
+			htlcBucket := htlcsBucket.Bucket(k)
+
+			// Add the settle info for this HTLC.
+			err = htlcBucket.Put(htlcSettleInfoKey, settleBytes)
+			if err != nil {
+				return err
+			}
+			return nil
+		}); err != nil {
 			return err
 		}
 
@@ -266,9 +327,11 @@ func (p *PaymentControl) Fail(paymentHash lntypes.Hash,
 			return nil
 		}
 
+		// TODO: only fail if no in-flight attempts.
+
 		// Put the failure reason in the bucket for record keeping.
 		v := []byte{byte(reason)}
-		err = bucket.Put(paymentFailInfoKey, v)
+		err = bucket.Put(mppFailInfoKey, v)
 		if err != nil {
 			return err
 		}
@@ -335,7 +398,6 @@ func fetchPaymentBucket(tx *bbolt.Tx, paymentHash lntypes.Hash) (
 	}
 
 	return bucket, nil
-
 }
 
 // nextPaymentSequence returns the next sequence number to store for a new
@@ -359,15 +421,29 @@ func nextPaymentSequence(tx *bbolt.Tx) ([]byte, error) {
 // fetchPaymentStatus fetches the payment status of the payment. If the payment
 // isn't found, it will default to "StatusUnknown".
 func fetchPaymentStatus(bucket *bbolt.Bucket) PaymentStatus {
-	if bucket.Get(paymentSettleInfoKey) != nil {
-		return StatusSucceeded
+	htlcsBucket := bucket.Bucket(mppHtlcsBucket)
+	if htlcsBucket != nil {
+		htlcs, err := fetchHTLCAttempts(htlcsBucket)
+		if err != nil {
+			return StatusUnknown
+		}
+
+		// Go through all HTLCs, and return StatusSucceeded if any of
+		// them did succeed.
+		// TODO(halseth): Is this iteration a perf bottleneck?
+		for _, h := range htlcs {
+			if h.Settle != nil {
+				return StatusSucceeded
+			}
+		}
+
 	}
 
-	if bucket.Get(paymentFailInfoKey) != nil {
+	if bucket.Get(mppFailInfoKey) != nil {
 		return StatusFailed
 	}
 
-	if bucket.Get(paymentCreationInfoKey) != nil {
+	if bucket.Get(mppCreationInfoKey) != nil {
 		return StatusInFlight
 	}
 
@@ -404,27 +480,16 @@ func ensureInFlight(bucket *bbolt.Bucket) error {
 	}
 }
 
-// fetchPaymentAttempt fetches the payment attempt from the bucket.
-func fetchPaymentAttempt(bucket *bbolt.Bucket) (*HTLCAttemptInfo, error) {
-	attemptData := bucket.Get(paymentAttemptInfoKey)
-	if attemptData == nil {
-		return nil, errNoAttemptInfo
-	}
-
-	r := bytes.NewReader(attemptData)
-	return deserializeHTLCAttemptInfo(r)
-}
-
 // InFlightPayment is a wrapper around a payment that has status InFlight.
 type InFlightPayment struct {
 	// Info is the PaymentCreationInfo of the in-flight payment.
-	Info *PaymentCreationInfo
+	Info *MPPaymentCreationInfo
 
-	// Attempt contains information about the last payment attempt that was
-	// made to this payment hash.
+	// Attempts is the set of payment attempts that was made to this
+	// payment hash.
 	//
-	// NOTE: Might be nil.
-	Attempt *HTLCAttemptInfo
+	// NOTE: Might be empty.
+	Attempts []*HTLCAttemptInfo
 }
 
 // FetchInFlightPayments returns all payments with status InFlight.
@@ -454,23 +519,41 @@ func (p *PaymentControl) FetchInFlightPayments() ([]*InFlightPayment, error) {
 			)
 
 			// Get the CreationInfo.
-			b := bucket.Get(paymentCreationInfoKey)
+			b := bucket.Get(mppCreationInfoKey)
 			if b == nil {
 				return fmt.Errorf("unable to find creation " +
 					"info for inflight payment")
 			}
 
 			r := bytes.NewReader(b)
-			inFlight.Info, err = deserializePaymentCreationInfo(r)
+			inFlight.Info, err = deserializeMPPaymentCreationInfo(r)
 			if err != nil {
 				return err
 			}
 
-			// Now get the attempt info. It could be that there is
-			// no attempt info yet.
-			inFlight.Attempt, err = fetchPaymentAttempt(bucket)
-			if err != nil && err != errNoAttemptInfo {
+			htlcsBucket := bucket.Bucket(mppHtlcsBucket)
+			if htlcsBucket == nil {
+				return nil
+			}
+
+			// Fetch all HTLCs attempted for this payment.
+			htlcs, err := fetchHTLCAttempts(htlcsBucket)
+			if err != nil {
 				return err
+			}
+
+			// We only care about the static info for the HTLCs
+			// still in flight, so convert the result to a slice of
+			// HTLCAttemptInfos.
+			for _, h := range htlcs {
+				// Skip HTLCs not in flight.
+				if h.Settle != nil || h.Failure != nil {
+					continue
+				}
+
+				inFlight.Attempts = append(
+					inFlight.Attempts, h.HTLCAttemptInfo,
+				)
 			}
 
 			inFlights = append(inFlights, inFlight)

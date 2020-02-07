@@ -1,6 +1,7 @@
 package channeldb
 
 import (
+	"io"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec"
@@ -97,7 +98,7 @@ type MPPayment struct {
 
 	// HTLCs holds the information about individual HTLCs that we send in
 	// order to make the payment.
-	HTLCs []HTLCAttempt
+	HTLCs []*HTLCAttempt
 
 	// FailureReason is the failure reason code indicating the reason the
 	// payment failed.
@@ -108,4 +109,60 @@ type MPPayment struct {
 
 	// Status is the current PaymentStatus of this payment.
 	Status PaymentStatus
+}
+
+func serializeHTLCSettleInfo(w io.Writer, s *HTLCSettleInfo) error {
+	if _, err := w.Write(s.Preimage[:]); err != nil {
+		return err
+	}
+
+	if err := serializeTime(w, s.SettleTime); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func deserializeHTLCSettleInfo(r io.Reader) (*HTLCSettleInfo, error) {
+	s := &HTLCSettleInfo{}
+	if _, err := io.ReadFull(r, s.Preimage[:]); err != nil {
+		return nil, err
+	}
+
+	var err error
+	s.SettleTime, err = deserializeTime(r)
+	if err != nil {
+		return nil, err
+	}
+
+	return s, nil
+}
+
+func deserializeHTLCFailInfo(r io.Reader) (*HTLCFailInfo, error) {
+	f := &HTLCFailInfo{}
+	var err error
+	f.FailTime, err = deserializeTime(r)
+	if err != nil {
+		return nil, err
+	}
+
+	return f, nil
+}
+
+func deserializeTime(r io.Reader) (time.Time, error) {
+	var scratch [8]byte
+	if _, err := io.ReadFull(r, scratch[:]); err != nil {
+		return time.Time{}, err
+	}
+	return time.Unix(0, int64(byteOrder.Uint64(scratch[:]))), nil
+}
+
+func serializeTime(w io.Writer, t time.Time) error {
+	var scratch [8]byte
+	byteOrder.PutUint64(scratch[:], uint64(t.UnixNano()))
+	if _, err := w.Write(scratch[:]); err != nil {
+		return err
+	}
+
+	return nil
 }

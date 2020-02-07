@@ -3,6 +3,7 @@ package channeldb
 import (
 	"bytes"
 	"crypto/rand"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -38,7 +39,7 @@ func genPreimage() ([32]byte, error) {
 	return preimage, nil
 }
 
-func genInfo() (*PaymentCreationInfo, *HTLCAttemptInfo,
+func genInfo() (*MPPaymentCreationInfo, *HTLCAttemptInfo,
 	lntypes.Preimage, error) {
 
 	preimage, err := genPreimage()
@@ -48,10 +49,10 @@ func genInfo() (*PaymentCreationInfo, *HTLCAttemptInfo,
 	}
 
 	rhash := fastsha256.Sum256(preimage[:])
-	return &PaymentCreationInfo{
+	return &MPPaymentCreationInfo{
 			PaymentHash:    rhash,
 			Value:          1,
-			CreationDate:   time.Unix(time.Now().Unix(), 0),
+			CreationTime:   time.Unix(time.Now().Unix(), 0),
 			PaymentRequest: []byte("hola"),
 		},
 		&HTLCAttemptInfo{
@@ -421,8 +422,8 @@ func assertPaymentStatus(t *testing.T, db *DB,
 	}
 }
 
-func checkPaymentCreationInfo(bucket *bbolt.Bucket, c *PaymentCreationInfo) error {
-	b := bucket.Get(paymentCreationInfoKey)
+func checkMPPaymentCreationInfo(bucket *bbolt.Bucket, c *MPPaymentCreationInfo) error {
+	b := bucket.Get(mppCreationInfoKey)
 	switch {
 	case b == nil && c == nil:
 		return nil
@@ -433,20 +434,51 @@ func checkPaymentCreationInfo(bucket *bbolt.Bucket, c *PaymentCreationInfo) erro
 	}
 
 	r := bytes.NewReader(b)
-	c2, err := deserializePaymentCreationInfo(r)
+	c2, err := deserializeMPPaymentCreationInfo(r)
 	if err != nil {
 		return err
 	}
 	if !reflect.DeepEqual(c, c2) {
-		return fmt.Errorf("PaymentCreationInfos don't match: %v vs %v",
+		return fmt.Errorf("MPPaymentCreationInfos don't match: %v vs %v",
 			spew.Sdump(c), spew.Sdump(c2))
 	}
 
 	return nil
 }
 
-func checkHTLCAttemptInfo(bucket *bbolt.Bucket, a *HTLCAttemptInfo) error {
-	b := bucket.Get(paymentAttemptInfoKey)
+func checkHTLCAttemptInfo(bucket *bbolt.Bucket, a *HTLCAttemptInfo,
+	preimg lntypes.Preimage) error {
+
+	htlcsBucket := bucket.Bucket(mppHtlcsBucket)
+	switch {
+	case htlcsBucket == nil && a == nil:
+		return nil
+
+	case htlcsBucket == nil && a != nil:
+		return fmt.Errorf("hltc attempts bucket not found")
+	}
+
+	cnt := 0
+	if err := htlcsBucket.ForEach(func(k, _ []byte) error {
+		cnt++
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	if cnt != 0 && a == nil {
+		return fmt.Errorf("expected no attempts, found %d", cnt)
+	}
+
+	htlcIDBytes := make([]byte, 8)
+	binary.BigEndian.PutUint64(htlcIDBytes, a.AttemptID)
+
+	htlcBucket := htlcsBucket.Bucket(htlcIDBytes)
+	if htlcBucket == nil && a != nil {
+		return fmt.Errorf("attempt not found")
+	}
+
+	b := htlcBucket.Get(htlcAttemptInfoKey)
 	switch {
 	case b == nil && a == nil:
 		return nil
@@ -462,12 +494,16 @@ func checkHTLCAttemptInfo(bucket *bbolt.Bucket, a *HTLCAttemptInfo) error {
 		return err
 	}
 
+	if err := checkSettleInfo(htlcBucket, preimg); err != nil {
+		return err
+	}
+
 	return assertRouteEqual(&a.Route, &a2.Route)
 }
 
 func checkSettleInfo(bucket *bbolt.Bucket, preimg lntypes.Preimage) error {
 	zero := lntypes.Preimage{}
-	b := bucket.Get(paymentSettleInfoKey)
+	b := bucket.Get(htlcSettleInfoKey)
 	switch {
 	case b == nil && preimg == zero:
 		return nil
@@ -488,7 +524,7 @@ func checkSettleInfo(bucket *bbolt.Bucket, preimg lntypes.Preimage) error {
 }
 
 func checkFailInfo(bucket *bbolt.Bucket, failReason *FailureReason) error {
-	b := bucket.Get(paymentFailInfoKey)
+	b := bucket.Get(mppFailInfoKey)
 	switch {
 	case b == nil && failReason == nil:
 		return nil
@@ -508,7 +544,7 @@ func checkFailInfo(bucket *bbolt.Bucket, failReason *FailureReason) error {
 }
 
 func assertPaymentInfo(t *testing.T, db *DB, hash lntypes.Hash,
-	c *PaymentCreationInfo, a *HTLCAttemptInfo, s lntypes.Preimage,
+	c *MPPaymentCreationInfo, a *HTLCAttemptInfo, s lntypes.Preimage,
 	f *FailureReason) {
 
 	t.Helper()
@@ -531,15 +567,11 @@ func assertPaymentInfo(t *testing.T, db *DB, hash lntypes.Hash,
 			return fmt.Errorf("payment not found")
 		}
 
-		if err := checkPaymentCreationInfo(bucket, c); err != nil {
+		if err := checkMPPaymentCreationInfo(bucket, c); err != nil {
 			return err
 		}
 
-		if err := checkHTLCAttemptInfo(bucket, a); err != nil {
-			return err
-		}
-
-		if err := checkSettleInfo(bucket, s); err != nil {
+		if err := checkHTLCAttemptInfo(bucket, a, s); err != nil {
 			return err
 		}
 

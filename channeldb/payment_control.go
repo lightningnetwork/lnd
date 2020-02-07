@@ -208,7 +208,8 @@ func (p *PaymentControl) RegisterAttempt(paymentHash lntypes.Hash,
 		// Add the HTLC attempt info and timestamp to the HTLC bucket.
 		err = htlcBucket.Put(htlcAttemptTimeKey, timeBytes)
 		if err != nil {
-			return err
+			updateErr = err
+			return nil
 		}
 
 		return htlcBucket.Put(htlcAttemptInfoKey, htlcInfoBytes)
@@ -220,12 +221,15 @@ func (p *PaymentControl) RegisterAttempt(paymentHash lntypes.Hash,
 	return updateErr
 }
 
-// Success transitions a payment into the Succeeded state. After invoking this
-// method, InitPayment should always return an error to prevent us from making
-// duplicate payments to the same payment hash. The provided preimage is
-// atomically saved to the DB for record keeping.
-func (p *PaymentControl) Success(paymentHash lntypes.Hash,
-	preimage lntypes.Preimage) (*MPPayment, error) {
+// SettleAttempt marks the given attempt settled with the preimage. If this is
+// a multi shard payment, this might implicitly mean the the full payment
+// succeeded.
+//
+// After invoking this method, InitPayment should always return an error to
+// prevent us from making duplicate payments to the same payment hash. The
+// provided preimage is atomically saved to the DB for record keeping.
+func (p *PaymentControl) SettleAttempt(paymentHash lntypes.Hash,
+	attempt *HTLCAttemptInfo, preimage lntypes.Preimage) (*MPPayment, error) {
 
 	settleInfo := &HTLCSettleInfo{
 		Preimage:   preimage,
@@ -233,17 +237,19 @@ func (p *PaymentControl) Success(paymentHash lntypes.Hash,
 	}
 
 	var b bytes.Buffer
-	err := serializeHTLCSettleInfo(&b, settleInfo)
-	if err != nil {
+	if err := serializeHTLCSettleInfo(&b, settleInfo); err != nil {
 		return nil, err
 	}
 	settleBytes := b.Bytes()
+
+	htlcIDBytes := make([]byte, 8)
+	binary.BigEndian.PutUint64(htlcIDBytes, attempt.AttemptID)
 
 	var (
 		updateErr error
 		payment   *MPPayment
 	)
-	err = p.db.Batch(func(tx *bbolt.Tx) error {
+	err := p.db.Batch(func(tx *bbolt.Tx) error {
 		// Reset the update error, to avoid carrying over an error
 		// from a previous execution of the batched db transaction.
 		updateErr = nil
@@ -263,25 +269,22 @@ func (p *PaymentControl) Success(paymentHash lntypes.Hash,
 			return nil
 		}
 
-		// We'll also mark all attempts successful, so get the
-		// active attempts bucket.
-		// TODO: this will change.
+		// Mark the HTLC settled.
 		htlcsBucket := bucket.Bucket(mppHtlcsBucket)
 		if htlcsBucket == nil {
 			updateErr = fmt.Errorf("htlcs bucket not found")
 			return nil
 		}
 
-		if err := htlcsBucket.ForEach(func(k, _ []byte) error {
-			htlcBucket := htlcsBucket.Bucket(k)
+		htlcBucket := htlcsBucket.Bucket(htlcIDBytes)
+		if htlcBucket == nil {
+			return fmt.Errorf("HTLC with ID %v not registered",
+				attempt.AttemptID)
+		}
 
-			// Add the settle info for this HTLC.
-			err = htlcBucket.Put(htlcSettleInfoKey, settleBytes)
-			if err != nil {
-				return err
-			}
-			return nil
-		}); err != nil {
+		// Add the settle info for this HTLC.
+		err = htlcBucket.Put(htlcSettleInfoKey, settleBytes)
+		if err != nil {
 			return err
 		}
 
@@ -294,6 +297,99 @@ func (p *PaymentControl) Success(paymentHash lntypes.Hash,
 	}
 
 	return payment, updateErr
+}
+
+// AttemptFailureReason is the reason a payment attemot failed.
+type AttemptFailureReason byte
+
+const (
+	// AttemptFailureReasonUnknown is recorded for attempts that failed
+	// with an unknown reason.
+	AttemptFailureReasonUnknown AttemptFailureReason = 0
+)
+
+// FailAttempt marks the given payment attempt failed.
+func (p *PaymentControl) FailAttempt(paymentHash lntypes.Hash,
+	attempt *HTLCAttemptInfo, reason AttemptFailureReason) error {
+
+	// TODO: store reason?
+	failInfo := &HTLCFailInfo{
+		FailTime: time.Now(),
+	}
+
+	var b bytes.Buffer
+	if err := serializeHTLCFailInfo(&b, failInfo); err != nil {
+		return err
+	}
+	failBytes := b.Bytes()
+
+	htlcIDBytes := make([]byte, 8)
+	binary.BigEndian.PutUint64(htlcIDBytes, attempt.AttemptID)
+
+	var updateErr error
+	err := p.db.Batch(func(tx *bbolt.Tx) error {
+		// Reset the update error, to avoid carrying over an error
+		// from a previous execution of the batched db transaction.
+		updateErr = nil
+
+		bucket, err := fetchPaymentBucket(tx, paymentHash)
+		if err == ErrPaymentNotInitiated {
+			updateErr = ErrPaymentNotInitiated
+			return nil
+		} else if err != nil {
+			return err
+		}
+
+		// We can only mark in-flight payments as failed.
+		if err := ensureInFlight(bucket); err != nil {
+			updateErr = err
+			return nil
+		}
+
+		// TODO: ensure attempt is in flight and not other state?
+
+		// Put the failure info ind this HTLC's bucket.
+		htlcsBucket := bucket.Bucket(mppHtlcsBucket)
+		if htlcsBucket == nil {
+			updateErr = fmt.Errorf("attempts bucket not found")
+			return nil
+		}
+
+		htlcBucket := htlcsBucket.Bucket(htlcIDBytes)
+		if htlcBucket == nil {
+			return fmt.Errorf("HTLC with ID %v not registered",
+				attempt.AttemptID)
+		}
+
+		return htlcBucket.Put(htlcFailInfoKey, failBytes)
+	})
+	if err != nil {
+		return err
+	}
+
+	return updateErr
+}
+
+// GetAttempts returns all registered attempts for this payment, and
+// their status.
+func (p *PaymentControl) GetAttempts(paymentHash lntypes.Hash) (
+	[]*HTLCAttempt, error) {
+
+	var as []*HTLCAttempt
+	err := p.db.View(func(tx *bbolt.Tx) error {
+		bucket, err := fetchPaymentBucket(tx, paymentHash)
+		if err != nil {
+			return err
+		}
+
+		as, err = fetchHTLCAttempts(bucket)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return as, nil
 }
 
 // Fail transitions a payment into the Failed state, and records the reason the

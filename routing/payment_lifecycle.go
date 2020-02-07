@@ -58,6 +58,14 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 			// the DB, we send it.
 			sendErr := p.sendPaymentAttempt(firstHop, htlcAdd)
 			if sendErr != nil {
+
+				err = p.router.cfg.Control.FailAttempt(
+					p.payment.PaymentHash, p.attempt, 0, // TODO: reason
+				)
+				if err != nil {
+					return [32]byte{}, nil, err
+				}
+
 				// We must inspect the error to know whether it
 				// was critical or not, to decide whether we
 				// should continue trying.
@@ -129,6 +137,13 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 			log.Errorf("Attempt to send payment %x failed: %v",
 				p.payment.PaymentHash, result.Error)
 
+			err = p.router.cfg.Control.FailAttempt(
+				p.payment.PaymentHash, p.attempt, 0, // TODO: reason
+			)
+			if err != nil {
+				return [32]byte{}, nil, err
+			}
+
 			// We must inspect the error to know whether it was
 			// critical or not, to decide whether we should
 			// continue trying.
@@ -157,7 +172,9 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 
 		// In case of success we atomically store the db payment and
 		// move the payment to the success state.
-		err = p.router.cfg.Control.Success(p.payment.PaymentHash, result.Preimage)
+		err = p.router.cfg.Control.SettleAttempt(
+			p.payment.PaymentHash, p.attempt, result.Preimage,
+		)
 		if err != nil {
 			log.Errorf("Unable to succeed payment "+
 				"attempt: %v", err)

@@ -138,6 +138,10 @@ func deserializeHTLCSettleInfo(r io.Reader) (*HTLCSettleInfo, error) {
 	return s, nil
 }
 
+func serializeHTLCFailInfo(w io.Writer, f *HTLCFailInfo) error {
+	return serializeTime(w, f.FailTime)
+}
+
 func deserializeHTLCFailInfo(r io.Reader) (*HTLCFailInfo, error) {
 	f := &HTLCFailInfo{}
 	var err error

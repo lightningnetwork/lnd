@@ -373,8 +373,9 @@ func (s *Server) ComputeInputScript(ctx context.Context,
 				Value:    signDesc.Output.Value,
 				PkScript: signDesc.Output.PkScript,
 			},
-			HashType:  txscript.SigHashType(signDesc.Sighash),
-			SigHashes: sigHashCache,
+			HashType:   txscript.SigHashType(signDesc.Sighash),
+			SigHashes:  sigHashCache,
+			InputIndex: int(signDesc.InputIndex),
 		})
 	}
 

@@ -87,12 +87,24 @@ message SignDescriptor {
     int32 input_index = 8;
 }
 
+message TxSigHashes {
+    bytes hash_prev_outs = 1;
+    bytes hash_sequence = 2;
+    bytes hash_outputs = 3;
+}
+
 message SignReq {
     /// The raw bytes of the transaction to be signed.
     bytes raw_tx_bytes = 1;
 
     /// A set of sign descriptors, for each input to be signed.
     repeated SignDescriptor sign_descs = 2;
+
+    /**
+    The pre-computed sighash midstate to be used when generating the final
+    sighash for signing.
+    */
+    TxSigHashes sig_hashes = 3;
 }
 
 message SignResp {
@@ -101,6 +113,12 @@ message SignResp {
     input order.
     */
     repeated bytes raw_sigs = 1;
+
+    /**
+    The pre-computed sighash midstate to be used when generating the final
+    sighash for signing.
+    */
+    TxSigHashes sig_hashes = 2;
 }
 
 message InputScript {
@@ -117,6 +135,12 @@ message InputScript {
 message InputScriptResp {
     /// The set of fully valid input scripts requested.
     repeated InputScript input_scripts = 1;
+
+    /**
+    The pre-computed sighash midstate to be used when generating the final
+    sighash for signing.
+    */
+    TxSigHashes sig_hashes = 3;
 }
 
 message SignMessageReq {

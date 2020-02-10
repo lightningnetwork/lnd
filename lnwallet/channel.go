@@ -1064,7 +1064,7 @@ func (u *updateLog) appendUpdate(pd *PaymentDescriptor) {
 // also added to index accordingly. This function differs from appendUpdate in
 // that it won't increment the log index counter.
 func (u *updateLog) restoreUpdate(pd *PaymentDescriptor) {
-	u.updateIndex[u.logIndex] = u.PushBack(pd)
+	u.updateIndex[pd.LogIndex] = u.PushBack(pd)
 }
 
 // appendHtlc appends a new HTLC offer to the tip of the update log. The entry

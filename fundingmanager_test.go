@@ -25,6 +25,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/chanacceptor"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channelnotifier"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/input"
@@ -48,6 +49,10 @@ const (
 	// testPollSleepMs is the number of milliseconds to sleep between
 	// each attempt to access the database to check its state.
 	testPollSleepMs = 500
+
+	// maxPending is the maximum number of channels we allow opening to the
+	// same peer in the max pending channels test.
+	maxPending = 4
 )
 
 var (
@@ -138,6 +143,24 @@ func (m *mockNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint, _ []byte,
 	}, nil
 }
 
+type mockChanEvent struct {
+	openEvent        chan wire.OutPoint
+	pendingOpenEvent chan channelnotifier.PendingOpenChannelEvent
+}
+
+func (m *mockChanEvent) NotifyOpenChannelEvent(outpoint wire.OutPoint) {
+	m.openEvent <- outpoint
+}
+
+func (m *mockChanEvent) NotifyPendingOpenChannelEvent(outpoint wire.OutPoint,
+	pendingChannel *channeldb.OpenChannel) {
+
+	m.pendingOpenEvent <- channelnotifier.PendingOpenChannelEvent{
+		ChannelPoint:   &outpoint,
+		PendingChannel: pendingChannel,
+	}
+}
+
 type testNode struct {
 	privKey         *btcec.PrivateKey
 	addr            *lnwire.NetAddress
@@ -147,6 +170,7 @@ type testNode struct {
 	fundingMgr      *fundingManager
 	newChannels     chan *newChannelMsg
 	mockNotifier    *mockNotifier
+	mockChanEvent   *mockChanEvent
 	testDir         string
 	shutdownChannel chan struct{}
 	remoteFeatures  []lnwire.FeatureBit
@@ -274,6 +298,17 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		bestHeight: fundingBroadcastHeight,
 	}
 
+	// The mock channel event notifier will receive events for each pending
+	// open and open channel. Because some tests will create multiple
+	// channels in a row before advancing to the next step, these channels
+	// need to be buffered.
+	evt := &mockChanEvent{
+		openEvent: make(chan wire.OutPoint, maxPending),
+		pendingOpenEvent: make(
+			chan channelnotifier.PendingOpenChannelEvent, maxPending,
+		),
+	}
+
 	dbDir := filepath.Join(tempTestDir, "cdb")
 	cdb, err := channeldb.Open(dbDir)
 	if err != nil {
@@ -379,9 +414,9 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		ZombieSweeperInterval:         1 * time.Hour,
 		ReservationTimeout:            1 * time.Nanosecond,
 		MaxPendingChannels:            DefaultMaxPendingChannels,
-		NotifyOpenChannelEvent:        func(wire.OutPoint) {},
+		NotifyOpenChannelEvent:        evt.NotifyOpenChannelEvent,
 		OpenChannelPredicate:          chainedAcceptor,
-		NotifyPendingOpenChannelEvent: func(wire.OutPoint) {},
+		NotifyPendingOpenChannelEvent: evt.NotifyPendingOpenChannelEvent,
 	}
 
 	for _, op := range options {
@@ -404,6 +439,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		publTxChan:      publTxChan,
 		fundingMgr:      f,
 		mockNotifier:    chainNotifier,
+		mockChanEvent:   evt,
 		testDir:         tempTestDir,
 		shutdownChannel: shutdownChan,
 		addr:            addr,
@@ -685,6 +721,18 @@ func fundChannel(t *testing.T, alice, bob *testNode, localFundingAmt,
 		t.Fatalf("alice did not publish funding tx")
 	}
 
+	// Make sure the notification about the pending channel was sent out.
+	select {
+	case <-alice.mockChanEvent.pendingOpenEvent:
+	case <-time.After(time.Second * 5):
+		t.Fatalf("alice did not send pending channel event")
+	}
+	select {
+	case <-bob.mockChanEvent.pendingOpenEvent:
+	case <-time.After(time.Second * 5):
+		t.Fatalf("bob did not send pending channel event")
+	}
+
 	// Finally, make sure neither have active reservation for the channel
 	// now pending open in the database.
 	assertNumPendingReservations(t, alice, bobPubKey, 0)
@@ -866,6 +914,18 @@ func assertDatabaseState(t *testing.T, node *testNode,
 func assertMarkedOpen(t *testing.T, alice, bob *testNode,
 	fundingOutPoint *wire.OutPoint) {
 	t.Helper()
+
+	// Make sure the notification about the pending channel was sent out.
+	select {
+	case <-alice.mockChanEvent.openEvent:
+	case <-time.After(time.Second * 5):
+		t.Fatalf("alice did not send open channel event")
+	}
+	select {
+	case <-bob.mockChanEvent.openEvent:
+	case <-time.After(time.Second * 5):
+		t.Fatalf("bob did not send open channel event")
+	}
 
 	assertDatabaseState(t, alice, fundingOutPoint, markedOpen)
 	assertDatabaseState(t, bob, fundingOutPoint, markedOpen)
@@ -2557,8 +2617,6 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 // channel with the same peer when MaxPending channels are pending fails.
 func TestFundingManagerMaxPendingChannels(t *testing.T) {
 	t.Parallel()
-
-	const maxPending = 4
 
 	alice, bob := setupFundingManagers(
 		t, func(cfg *fundingConfig) {

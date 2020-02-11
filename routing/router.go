@@ -2311,6 +2311,13 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 		return nil, err
 	}
 
+	// Fetch the current block height outside the routing transaction, to
+	// prevent the rpc call blocking the database.
+	_, height, err := r.cfg.Chain.GetBestBlock()
+	if err != nil {
+		return nil, err
+	}
+
 	// Allocate a list that will contain the unified policies for this
 	// route.
 	edges := make([]*unifiedPolicy, len(hops))
@@ -2327,6 +2334,18 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 		// delivers exactly this amount to the final destination.
 		runningAmt = *amt
 	}
+
+	// Open a transaction to execute the graph queries in.
+	routingTx, err := newDbRoutingTx(r.cfg.Graph)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		err := routingTx.close()
+		if err != nil {
+			log.Errorf("Error closing db tx: %v", err)
+		}
+	}()
 
 	// Traverse hops backwards to accumulate fees in the running amounts.
 	source := r.selfNode.PubKeyBytes
@@ -2346,7 +2365,7 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 		// known in the graph.
 		u := newUnifiedPolicies(source, toNode, outgoingChan)
 
-		err := u.addGraphPolicies(r.cfg.Graph, nil)
+		err := u.addGraphPolicies(routingTx)
 		if err != nil {
 			return nil, err
 		}
@@ -2414,11 +2433,6 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 	}
 
 	// Build and return the final route.
-	_, height, err := r.cfg.Chain.GetBestBlock()
-	if err != nil {
-		return nil, err
-	}
-
 	return newRoute(
 		source, pathEdges, uint32(height),
 		finalHopParams{

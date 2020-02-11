@@ -22,7 +22,7 @@ message KeyReq {
     int32 key_family = 2;
 }
 
-message AddrRequest{
+message AddrRequest {
     // No fields, as we always give out a p2wkh address.
 }
 message AddrResponse {
@@ -168,41 +168,41 @@ enum WitnessType {
 
 message PendingSweep {
     // The outpoint of the output we're attempting to sweep.
-    lnrpc.OutPoint outpoint = 1 [json_name = "outpoint"];
+    lnrpc.OutPoint outpoint = 1;
 
     // The witness type of the output we're attempting to sweep.
-    WitnessType witness_type = 2 [json_name = "witness_type"];
+    WitnessType witness_type = 2;
 
     // The value of the output we're attempting to sweep.
-    uint32 amount_sat = 3 [json_name = "amount_sat"];
+    uint32 amount_sat = 3;
 
     /*
     The fee rate we'll use to sweep the output. The fee rate is only determined
     once a sweeping transaction for the output is created, so it's possible for
     this to be 0 before this.
     */
-    uint32 sat_per_byte = 4 [json_name = "sat_per_byte"];
+    uint32 sat_per_byte = 4;
 
     // The number of broadcast attempts we've made to sweep the output.
-    uint32 broadcast_attempts = 5 [json_name = "broadcast_attempts"];
+    uint32 broadcast_attempts = 5;
 
     /*
     The next height of the chain at which we'll attempt to broadcast the
     sweep transaction of the output.
     */
-    uint32 next_broadcast_height = 6 [json_name = "next_broadcast_height"];
+    uint32 next_broadcast_height = 6;
 
     // The requested confirmation target for this output.
-    uint32 requested_conf_target = 8 [json_name = "requested_conf_target"];
+    uint32 requested_conf_target = 8;
 
     // The requested fee rate, expressed in sat/byte, for this output.
-    uint32 requested_sat_per_byte = 9 [json_name = "requested_sat_per_byte"];
+    uint32 requested_sat_per_byte = 9;
 
     /**
     Whether this input must be force-swept. This means that it is swept even
     if it has a negative yield.
     */
-    bool force = 7 [json_name = "force"];
+    bool force = 7;
 }
 
 message PendingSweepsRequest {
@@ -212,27 +212,27 @@ message PendingSweepsResponse {
     /*
     The set of outputs currently being swept by lnd's central batching engine.
     */
-    repeated PendingSweep pending_sweeps = 1 [json_name = "pending_sweeps"];
+    repeated PendingSweep pending_sweeps = 1;
 }
 
 message BumpFeeRequest {
     // The input we're attempting to bump the fee of.
-    lnrpc.OutPoint outpoint = 1 [json_name = "outpoint"];
+    lnrpc.OutPoint outpoint = 1;
 
     // The target number of blocks that the input should be spent within.
-    uint32 target_conf = 2 [json_name = "target_conf"];
+    uint32 target_conf = 2;
 
     /*
     The fee rate, expressed in sat/byte, that should be used to spend the input
     with.
     */
-    uint32 sat_per_byte = 3 [json_name = "sat_per_byte"];
+    uint32 sat_per_byte = 3;
 
     /**
     Whether this input must be force-swept. This means that it is swept even
     if it has a negative yield.
     */
-    bool force = 4 [json_name = "force"];
+    bool force = 4;
 }
 
 message BumpFeeResponse {
@@ -244,18 +244,18 @@ service WalletKit {
     (account in BIP43) specified. This method should return the next external
     child within this branch.
     */
-    rpc DeriveNextKey(KeyReq) returns (signrpc.KeyDescriptor);
+    rpc DeriveNextKey (KeyReq) returns (signrpc.KeyDescriptor);
 
     /**
     DeriveKey attempts to derive an arbitrary key specified by the passed
     KeyLocator. 
     */
-    rpc DeriveKey(signrpc.KeyLocator) returns (signrpc.KeyDescriptor);
+    rpc DeriveKey (signrpc.KeyLocator) returns (signrpc.KeyDescriptor);
 
     /**
     NextAddr returns the next unused address within the wallet.
     */
-    rpc NextAddr(AddrRequest) returns (AddrResponse);
+    rpc NextAddr (AddrRequest) returns (AddrResponse);
 
     /**
     PublishTransaction attempts to publish the passed transaction to the
@@ -263,21 +263,21 @@ service WalletKit {
     attempt to re-broadcast the transaction on start up, until it enters the
     chain.
     */
-    rpc PublishTransaction(Transaction) returns (PublishResponse);
+    rpc PublishTransaction (Transaction) returns (PublishResponse);
 
     /**
     SendOutputs is similar to the existing sendmany call in Bitcoind, and
     allows the caller to create a transaction that sends to several outputs at
     once. This is ideal when wanting to batch create a set of transactions.
     */
-    rpc SendOutputs(SendOutputsRequest) returns (SendOutputsResponse);
+    rpc SendOutputs (SendOutputsRequest) returns (SendOutputsResponse);
 
     /**
     EstimateFee attempts to query the internal fee estimator of the wallet to
     determine the fee (in sat/kw) to attach to a transaction in order to
     achieve the confirmation target.
     */
-    rpc EstimateFee(EstimateFeeRequest) returns (EstimateFeeResponse);
+    rpc EstimateFee (EstimateFeeRequest) returns (EstimateFeeResponse);
 
     /*
     PendingSweeps returns lists of on-chain outputs that lnd is currently
@@ -289,7 +289,7 @@ service WalletKit {
     remain supported. This is an advanced API that depends on the internals of
     the UtxoSweeper, so things may change.
     */
-    rpc PendingSweeps(PendingSweepsRequest) returns (PendingSweepsResponse);
+    rpc PendingSweeps (PendingSweepsRequest) returns (PendingSweepsResponse);
 
     /*
     BumpFee bumps the fee of an arbitrary input within a transaction. This RPC
@@ -318,5 +318,5 @@ service WalletKit {
     fee preference being provided. For now, the responsibility of ensuring that
     the new fee preference is sufficient is delegated to the user.
     */
-    rpc BumpFee(BumpFeeRequest) returns (BumpFeeResponse);
+    rpc BumpFee (BumpFeeRequest) returns (BumpFeeResponse);
 }

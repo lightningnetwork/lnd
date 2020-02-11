@@ -5,24 +5,24 @@ package watchtowerrpc;
 option go_package = "github.com/lightningnetwork/lnd/lnrpc/watchtowerrpc";
 
 service Watchtower {
-        /** lncli: tower info
-        GetInfo returns general information concerning the companion watchtower
-        including it's public key and URIs where the server is currently
-        listening for clients.
-        */
-        rpc GetInfo(GetInfoRequest) returns (GetInfoResponse);
+    /** lncli: tower info
+    GetInfo returns general information concerning the companion watchtower
+    including it's public key and URIs where the server is currently
+    listening for clients.
+    */
+    rpc GetInfo (GetInfoRequest) returns (GetInfoResponse);
 }
 
-message GetInfoRequest{
+message GetInfoRequest {
 }
 
 message GetInfoResponse {
-        /// The public key of the watchtower.
-        bytes pubkey = 1 [json_name = "pubkey"];
+    /// The public key of the watchtower.
+    bytes pubkey = 1;
 
-        /// The listening addresses of the watchtower.
-        repeated string listeners = 2 [json_name = "listeners"];
+    /// The listening addresses of the watchtower.
+    repeated string listeners = 2;
 
-        /// The URIs of the watchtower.
-        repeated string uris = 3 [json_name = "uris" ];
+    /// The URIs of the watchtower.
+    repeated string uris = 3;
 }

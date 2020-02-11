@@ -72,11 +72,11 @@ func (l *LinkError) WireMessage() lnwire.FailureMessage {
 func (l *LinkError) Error() string {
 	// If the link error has no failure detail, return the wire message's
 	// error.
-	if l.FailureDetail == FailureDetailNone {
+	if l.FailureDetail == nil {
 		return l.msg.Error()
 	}
 
-	return fmt.Sprintf("%v: %v", l.msg.Error(), l.FailureDetail)
+	return l.FailureDetail.FailureString()
 }
 
 // ForwardingError wraps an lnwire.FailureMessage in a struct that also

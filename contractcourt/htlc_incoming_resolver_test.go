@@ -35,7 +35,7 @@ func TestHtlcIncomingResolverFwdPreimageKnown(t *testing.T) {
 	defer timeout(t)()
 
 	ctx := newIncomingResolverTestContext(t)
-	ctx.registry.notifyResolution = invoices.NewFailureResolution(
+	ctx.registry.notifyResolution = invoices.NewFailResolution(
 		testResCircuitKey, testHtlcExpiry,
 		invoices.ResultInvoiceNotFound,
 	)
@@ -52,7 +52,7 @@ func TestHtlcIncomingResolverFwdContestedSuccess(t *testing.T) {
 	defer timeout(t)()
 
 	ctx := newIncomingResolverTestContext(t)
-	ctx.registry.notifyResolution = invoices.NewFailureResolution(
+	ctx.registry.notifyResolution = invoices.NewFailResolution(
 		testResCircuitKey, testHtlcExpiry,
 		invoices.ResultInvoiceNotFound,
 	)
@@ -72,7 +72,7 @@ func TestHtlcIncomingResolverFwdContestedTimeout(t *testing.T) {
 	defer timeout(t)()
 
 	ctx := newIncomingResolverTestContext(t)
-	ctx.registry.notifyResolution = invoices.NewFailureResolution(
+	ctx.registry.notifyResolution = invoices.NewFailResolution(
 		testResCircuitKey, testHtlcExpiry,
 		invoices.ResultInvoiceNotFound,
 	)
@@ -91,7 +91,7 @@ func TestHtlcIncomingResolverFwdTimeout(t *testing.T) {
 	defer timeout(t)()
 
 	ctx := newIncomingResolverTestContext(t)
-	ctx.registry.notifyResolution = invoices.NewFailureResolution(
+	ctx.registry.notifyResolution = invoices.NewFailResolution(
 		testResCircuitKey, testHtlcExpiry,
 		invoices.ResultInvoiceNotFound,
 	)
@@ -139,7 +139,7 @@ func TestHtlcIncomingResolverExitCancel(t *testing.T) {
 	defer timeout(t)()
 
 	ctx := newIncomingResolverTestContext(t)
-	ctx.registry.notifyResolution = invoices.NewFailureResolution(
+	ctx.registry.notifyResolution = invoices.NewFailResolution(
 		testResCircuitKey, testAcceptHeight,
 		invoices.ResultInvoiceAlreadyCanceled,
 	)
@@ -158,7 +158,7 @@ func TestHtlcIncomingResolverExitSettleHodl(t *testing.T) {
 	ctx.resolve()
 
 	notifyData := <-ctx.registry.notifyChan
-	notifyData.hodlChan <- *invoices.NewSettleResolution(
+	notifyData.hodlChan <- invoices.NewSettleResolution(
 		testResPreimage, testResCircuitKey, testAcceptHeight,
 		invoices.ResultSettled,
 	)
@@ -187,7 +187,7 @@ func TestHtlcIncomingResolverExitCancelHodl(t *testing.T) {
 	ctx := newIncomingResolverTestContext(t)
 	ctx.resolve()
 	notifyData := <-ctx.registry.notifyChan
-	notifyData.hodlChan <- *invoices.NewFailureResolution(
+	notifyData.hodlChan <- invoices.NewFailResolution(
 		testResCircuitKey, testAcceptHeight, invoices.ResultCanceled,
 	)
 

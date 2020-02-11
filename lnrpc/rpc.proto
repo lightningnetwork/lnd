@@ -41,7 +41,7 @@ service WalletUnlocker {
     method should be used to commit the newly generated seed, and create the
     wallet.
     */
-    rpc GenSeed(GenSeedRequest) returns (GenSeedResponse) {
+    rpc GenSeed (GenSeedRequest) returns (GenSeedResponse) {
         option (google.api.http) = {
             get: "/v1/genseed"
         };
@@ -61,7 +61,7 @@ service WalletUnlocker {
     seed, then present it to the user. Once it has been verified by the user,
     the seed can be fed into this RPC in order to commit the new wallet.
     */
-    rpc InitWallet(InitWalletRequest) returns (InitWalletResponse) {
+    rpc InitWallet (InitWalletRequest) returns (InitWalletResponse) {
         option (google.api.http) = {
             post: "/v1/initwallet"
             body: "*"
@@ -72,7 +72,7 @@ service WalletUnlocker {
     UnlockWallet is used at startup of lnd to provide a password to unlock
     the wallet database.
     */
-    rpc UnlockWallet(UnlockWalletRequest) returns (UnlockWalletResponse) {
+    rpc UnlockWallet (UnlockWalletRequest) returns (UnlockWalletResponse) {
         option (google.api.http) = {
             post: "/v1/unlockwallet"
             body: "*"
@@ -195,7 +195,8 @@ message UnlockWalletRequest {
     */
     ChanBackupSnapshot channel_backups = 3;
 }
-message UnlockWalletResponse {}
+message UnlockWalletResponse {
+}
 
 message ChangePasswordRequest {
     /**
@@ -210,7 +211,8 @@ message ChangePasswordRequest {
     */
     bytes new_password = 2;
 }
-message ChangePasswordResponse {}
+message ChangePasswordResponse {
+}
 
 service Lightning {
     /** lncli: `walletbalance`
@@ -418,7 +420,6 @@ service Lightning {
         };
     }
 
-
     /**
     OpenChannelSync is a synchronous version of the OpenChannel RPC call. This
     call is meant to be consumed by clients to the REST proxy. As with all
@@ -454,7 +455,7 @@ service Lightning {
     Alternatively, this can be used to interactively drive PSBT signing for
     funding for partially complete funding transactions.
     */
-    rpc FundingStateStep(FundingTransitionMsg) returns (FundingStateStepResp);
+    rpc FundingStateStep (FundingTransitionMsg) returns (FundingStateStepResp);
 
     /**
     ChannelAcceptor dispatches a bi-directional streaming RPC in which
@@ -492,7 +493,6 @@ service Lightning {
         };
     }
 
-
     /** lncli: `sendpayment`
     SendPayment dispatches a bi-directional streaming RPC for sending payments
     through the Lightning Network. A single RPC invocation creates a persistent
@@ -520,7 +520,7 @@ service Lightning {
     allows users to specify a full route manually. This can be used for things
     like rebalancing, and atomic swaps.
     */
-    rpc SendToRoute(stream SendToRouteRequest) returns (stream SendResponse);
+    rpc SendToRoute (stream SendToRouteRequest) returns (stream SendResponse);
 
     /**
     SendToRouteSync is a synchronous version of SendToRoute. It Will block
@@ -660,7 +660,7 @@ service Lightning {
     send an HTLC, also including the necessary information that should be
     present within the Sphinx packet encapsulated within the HTLC.
     */
-    rpc QueryRoutes(QueryRoutesRequest) returns (QueryRoutesResponse) {
+    rpc QueryRoutes (QueryRoutesRequest) returns (QueryRoutesResponse) {
         option (google.api.http) = {
             get: "/v1/graph/routes/{pub_key}/{amt}"
         };
@@ -680,7 +680,7 @@ service Lightning {
     StopDaemon will send a shutdown request to the interrupt handler, triggering
     a graceful shutdown of the daemon.
     */
-    rpc StopDaemon(StopRequest) returns (StopResponse);
+    rpc StopDaemon (StopRequest) returns (StopResponse);
 
     /**
     SubscribeChannelGraph launches a streaming RPC that allows the caller to
@@ -690,7 +690,7 @@ service Lightning {
     channels being advertised, updates in the routing policy for a directional
     channel edge, and when channels are closed on-chain.
     */
-    rpc SubscribeChannelGraph(GraphTopologySubscription) returns (stream GraphTopologyUpdate);
+    rpc SubscribeChannelGraph (GraphTopologySubscription) returns (stream GraphTopologyUpdate);
 
     /** lncli: `debuglevel`
     DebugLevel allows a caller to programmatically set the logging verbosity of
@@ -704,7 +704,7 @@ service Lightning {
     FeeReport allows the caller to obtain a report detailing the current fee
     schedule enforced by the node globally for each channel.
     */
-    rpc FeeReport(FeeReportRequest) returns (FeeReportResponse) {
+    rpc FeeReport (FeeReportRequest) returns (FeeReportResponse) {
         option (google.api.http) = {
             get: "/v1/fees"
         };
@@ -714,7 +714,7 @@ service Lightning {
     UpdateChannelPolicy allows the caller to update the fee schedule and
     channel policies for all channels globally, or a particular channel.
     */
-    rpc UpdateChannelPolicy(PolicyUpdateRequest) returns (PolicyUpdateResponse) {
+    rpc UpdateChannelPolicy (PolicyUpdateRequest) returns (PolicyUpdateResponse) {
         option (google.api.http) = {
             post: "/v1/chanpolicy"
             body: "*"
@@ -733,7 +733,7 @@ service Lightning {
     the index offset of the last entry. The index offset can be provided to the
     request to allow the caller to skip a series of records.
     */
-    rpc ForwardingHistory(ForwardingHistoryRequest) returns (ForwardingHistoryResponse) {
+    rpc ForwardingHistory (ForwardingHistoryRequest) returns (ForwardingHistoryResponse) {
         option (google.api.http) = {
             post: "/v1/switch"
             body: "*"
@@ -748,7 +748,7 @@ service Lightning {
     method once lnd is running, or via the InitWallet and UnlockWallet methods
     from the WalletUnlocker service.
     */
-    rpc ExportChannelBackup(ExportChannelBackupRequest) returns (ChannelBackup) {
+    rpc ExportChannelBackup (ExportChannelBackupRequest) returns (ChannelBackup) {
         option (google.api.http) = {
             get: "/v1/channels/backup/{chan_point.funding_txid_str}/{chan_point.output_index}"
         };
@@ -761,7 +761,7 @@ service Lightning {
     as well, which contains a single encrypted blob containing the backups of
     each channel.
     */
-    rpc ExportAllChannelBackups(ChanBackupExportRequest) returns (ChanBackupSnapshot) {
+    rpc ExportAllChannelBackups (ChanBackupExportRequest) returns (ChanBackupSnapshot) {
         option (google.api.http) = {
             get: "/v1/channels/backup"
         };
@@ -772,7 +772,7 @@ service Lightning {
     snapshot. This method will accept either a packed Single or a packed Multi.
     Specifying both will result in an error.
     */
-    rpc VerifyChanBackup(ChanBackupSnapshot) returns (VerifyChanBackupResponse) {
+    rpc VerifyChanBackup (ChanBackupSnapshot) returns (VerifyChanBackupResponse) {
         option (google.api.http) = {
             post: "/v1/channels/backup/verify"
             body: "*"
@@ -785,7 +785,7 @@ service Lightning {
     remaining within the channel. If we are able to unpack the backup, then the
     new channel will be shown under listchannels, as well as pending channels.
     */
-    rpc RestoreChannelBackups(RestoreChanBackupRequest) returns (RestoreBackupResponse)  {
+    rpc RestoreChannelBackups (RestoreChanBackupRequest) returns (RestoreBackupResponse) {
         option (google.api.http) = {
             post: "/v1/channels/backup/restore"
             body: "*"
@@ -801,7 +801,7 @@ service Lightning {
     ups, but the updated set of encrypted multi-chan backups with the closed
     channel(s) removed.
     */
-    rpc SubscribeChannelBackups(ChannelBackupSubscription) returns (stream ChanBackupSnapshot) {
+    rpc SubscribeChannelBackups (ChannelBackupSubscription) returns (stream ChanBackupSnapshot) {
     };
 
     /** lncli: `bakemacaroon`
@@ -809,7 +809,7 @@ service Lightning {
     write permissions. No first-party caveats are added since this can be done
     offline.
     */
-    rpc BakeMacaroon(BakeMacaroonRequest) returns (BakeMacaroonResponse) {
+    rpc BakeMacaroon (BakeMacaroonRequest) returns (BakeMacaroonResponse) {
         option (google.api.http) = {
             post: "/v1/macaroon"
             body: "*"
@@ -819,57 +819,57 @@ service Lightning {
 
 message Utxo {
     /// The type of address
-    AddressType type = 1 [json_name = "address_type"];
+    AddressType type = 1;
 
     /// The address
-    string address = 2 [json_name = "address"];
+    string address = 2;
 
     /// The value of the unspent coin in satoshis
-    int64 amount_sat = 3 [json_name = "amount_sat"];
+    int64 amount_sat = 3;
 
     /// The pkscript in hex
-    string pk_script = 4 [json_name = "pk_script"];
+    string pk_script = 4;
 
     /// The outpoint in format txid:n
-    OutPoint outpoint = 5 [json_name = "outpoint"];
+    OutPoint outpoint = 5;
 
     /// The number of confirmations for the Utxo
-    int64 confirmations = 6 [json_name = "confirmations"];
+    int64 confirmations = 6;
 }
 
 message Transaction {
     /// The transaction hash
-    string tx_hash = 1 [ json_name = "tx_hash" ];
+    string tx_hash = 1;
 
     /// The transaction amount, denominated in satoshis
-    int64 amount = 2 [ json_name = "amount" ];
+    int64 amount = 2;
 
     /// The number of confirmations
-    int32 num_confirmations = 3 [ json_name = "num_confirmations" ];
+    int32 num_confirmations = 3;
 
     /// The hash of the block this transaction was included in
-    string block_hash = 4 [ json_name = "block_hash" ];
+    string block_hash = 4;
 
     /// The height of the block this transaction was included in
-    int32 block_height = 5 [ json_name = "block_height" ];
+    int32 block_height = 5;
 
     /// Timestamp of this transaction 
-    int64 time_stamp = 6 [ json_name = "time_stamp" ];
+    int64 time_stamp = 6;
 
     /// Fees paid for this transaction
-    int64 total_fees = 7 [ json_name = "total_fees" ];
+    int64 total_fees = 7;
 
     /// Addresses that received funds for this transaction
-    repeated string dest_addresses = 8 [ json_name = "dest_addresses" ];
+    repeated string dest_addresses = 8;
 
     /// The raw transaction hex.
-    string raw_tx_hex = 9 [ json_name = "raw_tx_hex" ];
+    string raw_tx_hex = 9;
 }
 message GetTransactionsRequest {
 }
 message TransactionDetails {
     /// The list of transactions relevant to the wallet.
-    repeated Transaction transactions = 1 [json_name = "transactions"];
+    repeated Transaction transactions = 1;
 }
 
 message FeeLimit {
@@ -994,10 +994,10 @@ message SendRequest {
 }
 
 message SendResponse {
-    string payment_error = 1 [json_name = "payment_error"];
-    bytes payment_preimage = 2 [json_name = "payment_preimage"];
-    Route payment_route = 3 [json_name = "payment_route"];
-    bytes payment_hash = 4 [json_name = "payment_hash"];
+    string payment_error = 1;
+    bytes payment_preimage = 2;
+    Route payment_route = 3;
+    bytes payment_hash = 4;
 }
 
 message SendToRouteRequest {
@@ -1077,36 +1077,36 @@ message ChannelPoint {
         Txid of the funding transaction. When using REST, this field must be
         encoded as base64.
         */
-        bytes funding_txid_bytes = 1 [json_name = "funding_txid_bytes"];
+        bytes funding_txid_bytes = 1;
 
         /**
         Hex-encoded string representing the byte-reversed hash of the funding
         transaction.
         */
-        string funding_txid_str = 2 [json_name = "funding_txid_str"];
+        string funding_txid_str = 2;
     }
 
     /// The index of the output of the funding transaction
-    uint32 output_index = 3 [json_name = "output_index"];
+    uint32 output_index = 3;
 }
 
 message OutPoint {
     /// Raw bytes representing the transaction id.
-    bytes txid_bytes = 1 [json_name = "txid_bytes"];
+    bytes txid_bytes = 1;
 
     /// Reversed, hex-encoded string representing the transaction id.
-    string txid_str = 2 [json_name = "txid_str"];
+    string txid_str = 2;
 
     /// The index of the output on the transaction.
-    uint32 output_index = 3 [json_name = "output_index"];
+    uint32 output_index = 3;
 }
 
 message LightningAddress {
     /// The identity pubkey of the Lightning node
-    string pubkey = 1 [json_name = "pubkey"];
+    string pubkey = 1;
 
     /// The network location of the lightning node, e.g. `69.69.69.69:1337` or `localhost:10011`
-    string host = 2 [json_name = "host"];
+    string host = 2;
 }
 
 message EstimateFeeRequest {
@@ -1119,10 +1119,10 @@ message EstimateFeeRequest {
 
 message EstimateFeeResponse {
     /// The total fee in satoshis.
-    int64 fee_sat = 1 [json_name = "fee_sat"];
+    int64 fee_sat = 1;
 
     /// The fee rate in satoshi/byte.
-    int64 feerate_sat_per_byte = 2 [json_name = "feerate_sat_per_byte"];
+    int64 feerate_sat_per_byte = 2;
 }
 
 message SendManyRequest {
@@ -1137,7 +1137,7 @@ message SendManyRequest {
 }
 message SendManyResponse {
     /// The id of the transaction
-    string txid = 1 [json_name = "txid"];
+    string txid = 1;
 }
 
 message SendCoinsRequest {
@@ -1158,11 +1158,11 @@ message SendCoinsRequest {
     send all the coins under control of the internal wallet to the specified
     address.
     */
-    bool send_all = 6; 
+    bool send_all = 6;
 }
 message SendCoinsResponse {
     /// The transaction ID of the transaction
-    string txid = 1 [json_name = "txid"];
+    string txid = 1;
 }
 
 message ListUnspentRequest {
@@ -1174,7 +1174,7 @@ message ListUnspentRequest {
 }
 message ListUnspentResponse {
     /// A list of utxos
-    repeated Utxo utxos = 1 [json_name = "utxos"];
+    repeated Utxo utxos = 1;
 }
 
 /** 
@@ -1184,10 +1184,10 @@ message ListUnspentResponse {
 - `np2wkh`: Pay to nested witness key hash (`NESTED_PUBKEY_HASH` = 1)
 */
 enum AddressType {
-        WITNESS_PUBKEY_HASH = 0;
-        NESTED_PUBKEY_HASH = 1;
-        UNUSED_WITNESS_PUBKEY_HASH = 2;
-        UNUSED_NESTED_PUBKEY_HASH = 3;
+    WITNESS_PUBKEY_HASH = 0;
+    NESTED_PUBKEY_HASH = 1;
+    UNUSED_WITNESS_PUBKEY_HASH = 2;
+    UNUSED_NESTED_PUBKEY_HASH = 3;
 }
 
 message NewAddressRequest {
@@ -1196,7 +1196,7 @@ message NewAddressRequest {
 }
 message NewAddressResponse {
     /// The newly generated wallet address
-    string address = 1 [json_name = "address"];
+    string address = 1;
 }
 
 message SignMessageRequest {
@@ -1204,11 +1204,11 @@ message SignMessageRequest {
     The message to be signed. When using REST, this field must be encoded as
     base64.
     */
-    bytes msg = 1 [ json_name = "msg" ];
+    bytes msg = 1;
 }
 message SignMessageResponse {
     /// The signature for the given message
-    string signature = 1 [ json_name = "signature" ];
+    string signature = 1;
 }
 
 message VerifyMessageRequest {
@@ -1216,17 +1216,17 @@ message VerifyMessageRequest {
     The message over which the signature is to be verified. When using REST,
     this field must be encoded as base64.
     */
-    bytes msg = 1 [ json_name = "msg" ];
+    bytes msg = 1;
 
     /// The signature to be verified over the given message
-    string signature = 2 [ json_name = "signature" ];
+    string signature = 2;
 }
 message VerifyMessageResponse {
     /// Whether the signature was valid over the given message
-    bool valid = 1 [ json_name = "valid" ];
+    bool valid = 1;
 
     /// The pubkey recovered from the signature
-    string pubkey = 2 [ json_name = "pubkey" ];
+    string pubkey = 2;
 }
 
 message ConnectPeerRequest {
@@ -1242,47 +1242,47 @@ message ConnectPeerResponse {
 
 message DisconnectPeerRequest {
     /// The pubkey of the node to disconnect from
-    string pub_key = 1 [json_name = "pub_key"];
+    string pub_key = 1;
 }
 message DisconnectPeerResponse {
 }
 
 message HTLC {
-    bool incoming = 1 [json_name = "incoming"];
-    int64 amount = 2 [json_name = "amount"];
-    bytes hash_lock = 3 [json_name = "hash_lock"];
-    uint32 expiration_height = 4 [json_name = "expiration_height"];
+    bool incoming = 1;
+    int64 amount = 2;
+    bytes hash_lock = 3;
+    uint32 expiration_height = 4;
 }
 
 message Channel {
     /// Whether this channel is active or not
-    bool active = 1 [json_name = "active"];
+    bool active = 1;
 
     /// The identity pubkey of the remote node
-    string remote_pubkey = 2 [json_name = "remote_pubkey"];
+    string remote_pubkey = 2;
 
     /**
     The outpoint (txid:index) of the funding transaction. With this value, Bob
     will be able to generate a signature for Alice's version of the commitment
     transaction.
     */
-    string channel_point = 3 [json_name = "channel_point"];
+    string channel_point = 3;
 
     /**
     The unique channel ID for the channel. The first 3 bytes are the block
     height, the next 3 the index within the block, and the last 2 bytes are the
     output index for the channel.
     */
-    uint64 chan_id = 4 [json_name = "chan_id", jstype = JS_STRING];
+    uint64 chan_id = 4 [jstype = JS_STRING];
 
     /// The total amount of funds held in this channel
-    int64 capacity = 5 [json_name = "capacity"];
+    int64 capacity = 5;
 
     /// This node's current balance in this channel
-    int64 local_balance = 6 [json_name = "local_balance"];
+    int64 local_balance = 6;
 
     /// The counterparty's current balance in this channel
-    int64 remote_balance = 7 [json_name = "remote_balance"];
+    int64 remote_balance = 7;
 
     /**
     The amount calculated to be paid in fees for the current set of commitment
@@ -1290,63 +1290,63 @@ message Channel {
     allow the fee amount to be removed and recalculated with each channel state
     update, including updates that happen after a system restart.
     */
-    int64 commit_fee = 8 [json_name = "commit_fee"];
+    int64 commit_fee = 8;
 
     /// The weight of the commitment transaction
-    int64 commit_weight = 9 [json_name = "commit_weight"];
+    int64 commit_weight = 9;
 
     /**
     The required number of satoshis per kilo-weight that the requester will pay
     at all times, for both the funding transaction and commitment transaction.
     This value can later be updated once the channel is open.
     */
-    int64 fee_per_kw = 10 [json_name = "fee_per_kw"];
+    int64 fee_per_kw = 10;
 
     /// The unsettled balance in this channel
-    int64 unsettled_balance = 11 [json_name = "unsettled_balance"];
+    int64 unsettled_balance = 11;
 
     /**
     The total number of satoshis we've sent within this channel.
     */
-    int64 total_satoshis_sent = 12 [json_name = "total_satoshis_sent"];
+    int64 total_satoshis_sent = 12;
 
     /**
     The total number of satoshis we've received within this channel.
     */
-    int64 total_satoshis_received = 13 [json_name = "total_satoshis_received"];
+    int64 total_satoshis_received = 13;
 
     /**
     The total number of updates conducted within this channel.
     */
-    uint64 num_updates = 14 [json_name = "num_updates"];
+    uint64 num_updates = 14;
 
     /**
     The list of active, uncleared HTLCs currently pending within the channel.
     */
-    repeated HTLC pending_htlcs = 15 [json_name = "pending_htlcs"];
+    repeated HTLC pending_htlcs = 15;
 
     /**
     The CSV delay expressed in relative blocks. If the channel is force closed,
     we will need to wait for this many blocks before we can regain our funds.
     */
-    uint32 csv_delay = 16 [json_name = "csv_delay"];
+    uint32 csv_delay = 16;
 
     /// Whether this channel is advertised to the network or not.
-    bool private = 17 [json_name = "private"];
+    bool private = 17;
 
     /// True if we were the ones that created the channel.
-    bool initiator = 18 [json_name = "initiator"];
+    bool initiator = 18;
 
     /// A set of flags showing the current state of the channel.
-    string chan_status_flags = 19 [json_name = "chan_status_flags"];
+    string chan_status_flags = 19;
 
     /// The minimum satoshis this node is required to reserve in its balance.
-    int64 local_chan_reserve_sat = 20 [json_name = "local_chan_reserve_sat"];
+    int64 local_chan_reserve_sat = 20;
 
     /**
     The minimum satoshis the other node is required to reserve in its balance.
     */
-    int64 remote_chan_reserve_sat = 21 [json_name = "remote_chan_reserve_sat"];
+    int64 remote_chan_reserve_sat = 21;
 
     /**
     If true, then this channel uses the modern commitment format where the key
@@ -1354,20 +1354,20 @@ message Channel {
     back up and recovery easier as when the channel is closed, the funds go
     directly to that key. 
     */
-    bool static_remote_key = 22 [json_name = "static_remote_key"];
+    bool static_remote_key = 22;
 
     /**
     The number of seconds that the channel has been monitored by the channel
     scoring system. Scores are currently not persisted, so this value may be
     less than the lifetime of the channel [EXPERIMENTAL].
     */
-    int64 lifetime = 23 [json_name = "lifetime"];
+    int64 lifetime = 23;
 
     /**
     The number of seconds that the remote peer has been observed as being online
     by the channel scoring system over the lifetime of the channel [EXPERIMENTAL].
     */
-    int64 uptime = 24 [json_name = "uptime"];
+    int64 uptime = 24;
 
     /**
     Close address is the address that we will enforce payout to on cooperative
@@ -1376,7 +1376,7 @@ message Channel {
     request. If this value is not set, you can still choose a payout address by
     cooperatively closing with the delivery_address field set.
     */
-    string close_address = 25 [json_name ="close_address"];
+    string close_address = 25;
 }
 
 
@@ -1394,36 +1394,36 @@ message ListChannelsRequest {
 }
 message ListChannelsResponse {
     /// The list of active channels
-    repeated Channel channels = 11 [json_name = "channels"];
+    repeated Channel channels = 11;
 }
 
 message ChannelCloseSummary {
     /// The outpoint (txid:index) of the funding transaction. 
-    string channel_point = 1 [json_name = "channel_point"];
+    string channel_point = 1;
 
     ///  The unique channel ID for the channel. 
-    uint64 chan_id = 2 [json_name = "chan_id", jstype = JS_STRING];
+    uint64 chan_id = 2 [jstype = JS_STRING];
 
     /// The hash of the genesis block that this channel resides within.
-    string chain_hash = 3 [json_name = "chain_hash"];
+    string chain_hash = 3;
 
     /// The txid of the transaction which ultimately closed this channel.
-    string closing_tx_hash = 4 [json_name = "closing_tx_hash"];
+    string closing_tx_hash = 4;
 
     /// Public key of the remote peer that we formerly had a channel with.
-    string remote_pubkey = 5 [json_name = "remote_pubkey"];
+    string remote_pubkey = 5;
 
     /// Total capacity of the channel.
-    int64 capacity = 6 [json_name = "capacity"];
+    int64 capacity = 6;
 
     /// Height at which the funding transaction was spent.
-    uint32 close_height = 7 [json_name = "close_height"];
+    uint32 close_height = 7;
 
     /// Settled balance at the time of channel closure
-    int64 settled_balance = 8 [json_name = "settled_balance"];
+    int64 settled_balance = 8;
 
     /// The sum of all the time-locked outputs at the time of channel closure
-    int64 time_locked_balance = 9 [json_name = "time_locked_balance"];
+    int64 time_locked_balance = 9;
 
     enum ClosureType {
         COOPERATIVE_CLOSE = 0;
@@ -1435,7 +1435,7 @@ message ChannelCloseSummary {
     }
 
     /// Details on how the channel was closed.
-    ClosureType close_type = 10 [json_name = "close_type"];
+    ClosureType close_type = 10;
 
     enum Initiator {
         UNKNOWN = 0;
@@ -1449,7 +1449,7 @@ message ChannelCloseSummary {
     this value may be unknown if the channel was closed before we migrated to
     store open channel information after close.
     */
-    Initiator open_initiator = 11 [json_name = "open_initiator"];
+    Initiator open_initiator = 11;
 
     /**
     Close initiator indicates which party initiated the close. This value will
@@ -1458,7 +1458,7 @@ message ChannelCloseSummary {
     initiated a close, and it is possible for both to initiate cooperative or
     force closes, although only one party's close will be confirmed on chain.
     */
-    Initiator close_initiator = 12 [json_name = "close_initiator"];
+    Initiator close_initiator = 12;
 }
 
 message ClosedChannelsRequest {
@@ -1470,34 +1470,34 @@ message ClosedChannelsRequest {
     bool abandoned = 6;
 }
 
-message ClosedChannelsResponse { 
-    repeated ChannelCloseSummary channels = 1 [json_name = "channels"];
+message ClosedChannelsResponse {
+    repeated ChannelCloseSummary channels = 1;
 }
 
 message Peer {
     /// The identity pubkey of the peer
-    string pub_key = 1 [json_name = "pub_key"];
+    string pub_key = 1;
 
     /// Network address of the peer; eg `127.0.0.1:10011`
-    string address = 3 [json_name = "address"];
+    string address = 3;
 
     /// Bytes of data transmitted to this peer
-    uint64 bytes_sent = 4 [json_name = "bytes_sent"];
+    uint64 bytes_sent = 4;
 
     /// Bytes of data transmitted from this peer
-    uint64 bytes_recv = 5 [json_name = "bytes_recv"];
+    uint64 bytes_recv = 5;
 
     /// Satoshis sent to this peer
-    int64 sat_sent = 6 [json_name = "sat_sent"];
+    int64 sat_sent = 6;
 
     /// Satoshis received from this peer
-    int64 sat_recv = 7 [json_name = "sat_recv"];
+    int64 sat_recv = 7;
 
     /// A channel is inbound if the counterparty initiated the channel
-    bool inbound = 8 [json_name = "inbound"];
+    bool inbound = 8;
 
     /// Ping time to this peer
-    int64 ping_time = 9 [json_name = "ping_time"];
+    int64 ping_time = 9;
 
     enum SyncType {
         /**
@@ -1517,17 +1517,17 @@ message Peer {
     }
 
     // The type of sync we are currently performing with this peer.
-    SyncType sync_type = 10 [json_name = "sync_type"];
+    SyncType sync_type = 10;
 
     /// Features advertised by the remote peer in their init message.
-    map<uint32, Feature> features = 11 [json_name = "features"];
+    map<uint32, Feature> features = 11;
 }
 
 message ListPeersRequest {
 }
 message ListPeersResponse {
     /// The list of currently connected peers
-    repeated Peer peers = 1 [json_name = "peers"];
+    repeated Peer peers = 1;
 }
 
 message PeerEventSubscription {
@@ -1535,14 +1535,14 @@ message PeerEventSubscription {
 
 message PeerEvent {
     /// The identity pubkey of the peer.
-    string pub_key = 1 [json_name = "pub_key"];
+    string pub_key = 1;
 
     enum EventType {
         PEER_ONLINE = 0;
         PEER_OFFLINE = 1;
     }
 
-    EventType type = 2 [ json_name = "type" ];
+    EventType type = 2;
 }
 
 message GetInfoRequest {
@@ -1550,71 +1550,71 @@ message GetInfoRequest {
 message GetInfoResponse {
 
     /// The version of the LND software that the node is running.
-    string version = 14 [ json_name = "version" ];
+    string version = 14;
 
     /// The identity pubkey of the current node.
-    string identity_pubkey = 1 [json_name = "identity_pubkey"];
+    string identity_pubkey = 1;
 
     /// If applicable, the alias of the current node, e.g. "bob"
-    string alias = 2 [json_name = "alias"];
+    string alias = 2;
 
     /// The color of the current node in hex code format
-    string color = 17 [json_name = "color"];
+    string color = 17;
 
     /// Number of pending channels
-    uint32 num_pending_channels = 3 [json_name = "num_pending_channels"];
+    uint32 num_pending_channels = 3;
 
     /// Number of active channels
-    uint32 num_active_channels = 4 [json_name = "num_active_channels"];
+    uint32 num_active_channels = 4;
 
     /// Number of inactive channels
-    uint32 num_inactive_channels = 15 [json_name = "num_inactive_channels"];
+    uint32 num_inactive_channels = 15;
 
     /// Number of peers
-    uint32 num_peers = 5 [json_name = "num_peers"];
+    uint32 num_peers = 5;
 
     /// The node's current view of the height of the best block
-    uint32 block_height = 6 [json_name = "block_height"];
+    uint32 block_height = 6;
 
     /// The node's current view of the hash of the best block
-    string block_hash = 8 [json_name = "block_hash"];
+    string block_hash = 8;
 
     /// Timestamp of the block best known to the wallet
-    int64 best_header_timestamp = 13 [ json_name = "best_header_timestamp" ];
+    int64 best_header_timestamp = 13;
 
     /// Whether the wallet's view is synced to the main chain
-    bool synced_to_chain = 9 [json_name = "synced_to_chain"];
+    bool synced_to_chain = 9;
 
     // Whether we consider ourselves synced with the public channel graph.
-    bool synced_to_graph = 18 [json_name = "synced_to_graph"];
+    bool synced_to_graph = 18;
 
     /** 
     Whether the current node is connected to testnet. This field is 
     deprecated and the network field should be used instead 
     **/
-    bool testnet = 10 [json_name = "testnet", deprecated = true];
+    bool testnet = 10 [deprecated = true];
 
     reserved 11;
 
     /// A list of active chains the node is connected to
-    repeated Chain chains = 16 [json_name = "chains"];
+    repeated Chain chains = 16;
 
     /// The URIs of the current node.
-    repeated string uris = 12 [json_name = "uris"];
+    repeated string uris = 12;
 
     /*
     Features that our node has advertised in our init message, node
     announcements and invoices.
     */
-    map<uint32, Feature> features = 19 [json_name = "features"];
+    map<uint32, Feature> features = 19;
 }
 
 message Chain {
     /// The blockchain the node is on (eg bitcoin, litecoin)
-    string chain = 1 [json_name = "chain"];
+    string chain = 1;
 
     /// The network the node is on (eg regtest, testnet, mainnet)
-    string network = 2 [json_name = "network"];
+    string network = 2;
 }
 
 message ConfirmationUpdate {
@@ -1625,13 +1625,13 @@ message ConfirmationUpdate {
 }
 
 message ChannelOpenUpdate {
-    ChannelPoint channel_point = 1 [json_name = "channel_point"];
+    ChannelPoint channel_point = 1;
 }
 
 message ChannelCloseUpdate {
-    bytes closing_txid = 1 [json_name = "closing_txid"];
+    bytes closing_txid = 1;
 
-    bool success = 2 [json_name = "success"];
+    bool success = 2;
 }
 
 message CloseChannelRequest {
@@ -1657,19 +1657,19 @@ message CloseChannelRequest {
     is set, the request to close will fail because the channel must pay out
     to the upfront shutdown addresss.
     */
-    string delivery_address = 5 [json_name = "delivery_address"];
+    string delivery_address = 5;
 }
 
 message CloseStatusUpdate {
     oneof update {
-        PendingUpdate close_pending = 1 [json_name = "close_pending"];
-        ChannelCloseUpdate chan_close = 3 [json_name = "chan_close"];
+        PendingUpdate close_pending = 1;
+        ChannelCloseUpdate chan_close = 3;
     }
 }
 
 message PendingUpdate {
-    bytes txid = 1 [json_name = "txid"];
-    uint32 output_index = 2 [json_name = "output_index"];
+    bytes txid = 1;
+    uint32 output_index = 2;
 }
 
 message OpenChannelRequest {
@@ -1677,19 +1677,19 @@ message OpenChannelRequest {
     The pubkey of the node to open a channel with. When using REST, this field
     must be encoded as base64.
     */
-    bytes node_pubkey = 2 [json_name = "node_pubkey"];
+    bytes node_pubkey = 2;
 
     /**
     The hex encoded pubkey of the node to open a channel with. Deprecated now
     that the REST gateway supports base64 encoding of bytes fields.
     */
-    string node_pubkey_string = 3 [json_name = "node_pubkey_string", deprecated = true];
+    string node_pubkey_string = 3 [deprecated = true];
 
     /// The number of satoshis the wallet should commit to the channel
-    int64 local_funding_amount = 4 [json_name = "local_funding_amount"];
+    int64 local_funding_amount = 4;
 
     /// The number of satoshis to push to the remote side as part of the initial commitment state
-    int64 push_sat = 5 [json_name = "push_sat"];
+    int64 push_sat = 5;
 
     /// The target number of blocks that the funding transaction should be confirmed by.
     int32 target_conf = 6;
@@ -1698,19 +1698,19 @@ message OpenChannelRequest {
     int64 sat_per_byte = 7;
 
     /// Whether this channel should be private, not announced to the greater network.
-    bool private = 8 [json_name = "private"];
+    bool private = 8;
 
     /// The minimum value in millisatoshi we will require for incoming HTLCs on the channel.
-    int64 min_htlc_msat = 9 [json_name = "min_htlc_msat"];
+    int64 min_htlc_msat = 9;
 
     /// The delay we require on the remote's commitment transaction. If this is not set, it will be scaled automatically with the channel size.
-    uint32 remote_csv_delay = 10 [json_name = "remote_csv_delay"];
+    uint32 remote_csv_delay = 10;
 
     /// The minimum number of confirmations each one of your outputs used for the funding transaction must satisfy.
-    int32 min_confs = 11 [json_name = "min_confs"];
+    int32 min_confs = 11;
 
     /// Whether unconfirmed outputs should be used as inputs for the funding transaction.
-    bool spend_unconfirmed = 12 [json_name = "spend_unconfirmed"];
+    bool spend_unconfirmed = 12;
 
     /*
     Close address is an optional address which specifies the address to which
@@ -1722,7 +1722,7 @@ message OpenChannelRequest {
     Note: If this value is set on channel creation, you will *not* be able to
     cooperatively close out to a different address.
     */
-    string close_address = 13 [json_name = "close_address"];
+    string close_address = 13;
 
     /**
     Funding shims are an optional argument that allow the caller to intercept
@@ -1731,19 +1731,19 @@ message OpenChannelRequest {
     that is generated by the wallet as normal, or signal that signing will be
     carried out in an interactive manner (PSBT based).
     */
-    FundingShim funding_shim = 14 [json_name = "funding_shim"];
+    FundingShim funding_shim = 14;
 }
 message OpenStatusUpdate {
     oneof update {
-        PendingUpdate chan_pending = 1 [json_name = "chan_pending"];
-        ChannelOpenUpdate chan_open = 3 [json_name = "chan_open"];
-   }
+        PendingUpdate chan_pending = 1;
+        ChannelOpenUpdate chan_open = 3;
+    }
 
     /**
     The pending channel ID of the created channel. This value may be used to
     further the funding flow manually via the FundingStateStep method.
     */
-    bytes pending_chan_id = 4 [json_name = "pending_chan_id"];
+    bytes pending_chan_id = 4;
 }
 
 message KeyLocator {
@@ -1755,15 +1755,15 @@ message KeyLocator {
 }
 
 message KeyDescriptor {
-     /**
-     The raw bytes of the key being identified. 
-     */
-     bytes raw_key_bytes = 1;
+    /**
+    The raw bytes of the key being identified. 
+    */
+    bytes raw_key_bytes = 1;
 
-     /** 
-     The key locator that identifies which key to use for signing. 
-     */
-     KeyLocator key_loc = 2;
+    /** 
+    The key locator that identifies which key to use for signing. 
+    */
+    KeyLocator key_loc = 2;
 }
 
 message ChanPointShim {
@@ -1822,55 +1822,56 @@ message FundingStateStepResp {
 message PendingHTLC {
 
     /// The direction within the channel that the htlc was sent
-    bool incoming = 1 [ json_name = "incoming" ];
+    bool incoming = 1;
 
     /// The total value of the htlc
-    int64 amount = 2 [ json_name = "amount" ];
+    int64 amount = 2;
 
     /// The final output to be swept back to the user's wallet
-    string outpoint = 3 [ json_name = "outpoint" ];
+    string outpoint = 3;
 
     /// The next block height at which we can spend the current stage
-    uint32 maturity_height = 4 [ json_name = "maturity_height" ];
+    uint32 maturity_height = 4;
 
     /**
        The number of blocks remaining until the current stage can be swept.
        Negative values indicate how many blocks have passed since becoming
        mature.
     */
-    int32 blocks_til_maturity = 5 [ json_name = "blocks_til_maturity" ];
+    int32 blocks_til_maturity = 5;
 
     /// Indicates whether the htlc is in its first or second stage of recovery
-    uint32 stage = 6 [ json_name = "stage" ];
+    uint32 stage = 6;
 }
 
-message PendingChannelsRequest {}
+message PendingChannelsRequest {
+}
 message PendingChannelsResponse {
     message PendingChannel {
-        string remote_node_pub = 1 [ json_name = "remote_node_pub" ];
-        string channel_point = 2 [ json_name = "channel_point" ];
+        string remote_node_pub = 1;
+        string channel_point = 2;
 
-        int64 capacity = 3 [ json_name = "capacity" ];
+        int64 capacity = 3;
 
-        int64 local_balance = 4 [ json_name = "local_balance" ];
-        int64 remote_balance = 5 [ json_name = "remote_balance" ];
-       
+        int64 local_balance = 4;
+        int64 remote_balance = 5;
+
         /// The minimum satoshis this node is required to reserve in its balance.
-        int64 local_chan_reserve_sat = 6 [json_name = "local_chan_reserve_sat"];
+        int64 local_chan_reserve_sat = 6;
 
         /**
         The minimum satoshis the other node is required to reserve in its
         balance.
         */
-        int64 remote_chan_reserve_sat = 7 [json_name = "remote_chan_reserve_sat"];
+        int64 remote_chan_reserve_sat = 7;
     }
 
     message PendingOpenChannel {
         /// The pending channel
-        PendingChannel channel = 1 [ json_name = "channel" ];
+        PendingChannel channel = 1;
 
         /// The height at which this channel will be confirmed
-        uint32 confirmation_height = 2 [ json_name = "confirmation_height" ];
+        uint32 confirmation_height = 2;
 
         /**
         The amount calculated to be paid in fees for the current set of
@@ -1879,17 +1880,17 @@ message PendingChannelsResponse {
         each channel state update, including updates that happen after a system
         restart.
         */
-        int64 commit_fee = 4 [json_name = "commit_fee" ];
+        int64 commit_fee = 4;
 
         /// The weight of the commitment transaction
-        int64 commit_weight = 5 [ json_name = "commit_weight" ];
+        int64 commit_weight = 5;
 
         /**
         The required number of satoshis per kilo-weight that the requester will
         pay at all times, for both the funding transaction and commitment
         transaction. This value can later be updated once the channel is open.
         */
-        int64 fee_per_kw = 6 [ json_name = "fee_per_kw" ];
+        int64 fee_per_kw = 6;
     }
 
     message WaitingCloseChannel {
@@ -1897,7 +1898,7 @@ message PendingChannelsResponse {
         PendingChannel channel = 1;
 
         /// The balance in satoshis encumbered in this channel
-        int64 limbo_balance = 2 [ json_name = "limbo_balance" ];
+        int64 limbo_balance = 2;
     }
 
     message ClosedChannel {
@@ -1905,49 +1906,49 @@ message PendingChannelsResponse {
         PendingChannel channel = 1;
 
         /// The transaction id of the closing transaction
-        string closing_txid = 2 [ json_name = "closing_txid" ];
+        string closing_txid = 2;
     }
 
     message ForceClosedChannel {
         /// The pending channel to be force closed
-        PendingChannel channel = 1 [ json_name = "channel" ];
+        PendingChannel channel = 1;
 
         /// The transaction id of the closing transaction
-        string closing_txid = 2 [ json_name = "closing_txid" ];
+        string closing_txid = 2;
 
         /// The balance in satoshis encumbered in this pending channel
-        int64 limbo_balance = 3 [ json_name = "limbo_balance" ];
+        int64 limbo_balance = 3;
 
         /// The height at which funds can be swept into the wallet
-        uint32 maturity_height = 4 [ json_name = "maturity_height" ];
+        uint32 maturity_height = 4;
 
         /*
           Remaining # of blocks until the commitment output can be swept.
           Negative values indicate how many blocks have passed since becoming
           mature.
         */
-        int32 blocks_til_maturity = 5 [ json_name = "blocks_til_maturity" ];
+        int32 blocks_til_maturity = 5;
 
         /// The total value of funds successfully recovered from this channel
-        int64 recovered_balance = 6 [ json_name = "recovered_balance" ];
+        int64 recovered_balance = 6;
 
-        repeated PendingHTLC pending_htlcs = 8 [ json_name = "pending_htlcs" ];
+        repeated PendingHTLC pending_htlcs = 8;
     }
 
     /// The balance in satoshis encumbered in pending channels
-    int64 total_limbo_balance = 1 [ json_name = "total_limbo_balance" ];
+    int64 total_limbo_balance = 1;
 
     /// Channels pending opening
-    repeated PendingOpenChannel pending_open_channels = 2 [ json_name = "pending_open_channels" ];
+    repeated PendingOpenChannel pending_open_channels = 2;
 
     /// Channels pending closing
-    repeated ClosedChannel pending_closing_channels = 3 [ json_name = "pending_closing_channels" ];
+    repeated ClosedChannel pending_closing_channels = 3;
 
     /// Channels pending force closing
-    repeated ForceClosedChannel pending_force_closing_channels =  4 [ json_name = "pending_force_closing_channels" ];
+    repeated ForceClosedChannel pending_force_closing_channels = 4;
 
     /// Channels waiting for closing tx to confirm
-    repeated WaitingCloseChannel waiting_close_channels = 5 [ json_name = "waiting_close_channels" ];
+    repeated WaitingCloseChannel waiting_close_channels = 5;
 }
 
 message ChannelEventSubscription {
@@ -1955,45 +1956,45 @@ message ChannelEventSubscription {
 
 message ChannelEventUpdate {
     oneof channel {
-        Channel open_channel = 1 [ json_name = "open_channel" ];
-        ChannelCloseSummary closed_channel = 2 [ json_name = "closed_channel" ];
-        ChannelPoint active_channel = 3 [ json_name = "active_channel" ];
-        ChannelPoint inactive_channel = 4 [ json_name = "inactive_channel" ];
-        PendingUpdate pending_open_channel = 6 [json_name = "pending_open_channel"];
+        Channel open_channel = 1;
+        ChannelCloseSummary closed_channel = 2;
+        ChannelPoint active_channel = 3;
+        ChannelPoint inactive_channel = 4;
+        PendingUpdate pending_open_channel = 6;
     }
 
     enum UpdateType {
-         OPEN_CHANNEL = 0;
-         CLOSED_CHANNEL = 1;
-         ACTIVE_CHANNEL = 2;
-         INACTIVE_CHANNEL = 3;
-         PENDING_OPEN_CHANNEL = 4;
+        OPEN_CHANNEL = 0;
+        CLOSED_CHANNEL = 1;
+        ACTIVE_CHANNEL = 2;
+        INACTIVE_CHANNEL = 3;
+        PENDING_OPEN_CHANNEL = 4;
     }
 
-    UpdateType type = 5 [ json_name = "type" ];
+    UpdateType type = 5;
 }
 
 message WalletBalanceRequest {
 }
 message WalletBalanceResponse {
     /// The balance of the wallet
-    int64 total_balance = 1 [json_name = "total_balance"];
+    int64 total_balance = 1;
 
     /// The confirmed balance of a wallet(with >= 1 confirmations)
-    int64 confirmed_balance = 2 [json_name = "confirmed_balance"];
+    int64 confirmed_balance = 2;
 
     /// The unconfirmed balance of a wallet(with 0 confirmations)
-    int64 unconfirmed_balance = 3 [json_name = "unconfirmed_balance"];
+    int64 unconfirmed_balance = 3;
 }
 
 message ChannelBalanceRequest {
 }
 message ChannelBalanceResponse {
     /// Sum of channels balances denominated in satoshis
-    int64 balance = 1 [json_name = "balance"];
+    int64 balance = 1;
 
     /// Sum of channels pending balances denominated in satoshis
-    int64 pending_open_balance = 2 [json_name = "pending_open_balance"];
+    int64 pending_open_balance = 2;
 }
 
 message QueryRoutesRequest {
@@ -2136,13 +2137,13 @@ message QueryRoutesResponse {
     The route that results from the path finding operation. This is still a
     repeated field to retain backwards compatibility.
     */
-    repeated Route routes = 1 [json_name = "routes"];
+    repeated Route routes = 1;
 
     /**
     The success probability of the returned route based on the current mission
     control state. [EXPERIMENTAL]
     */
-    double success_prob = 2 [json_name = "success_prob"];
+    double success_prob = 2;
 }
 
 message Hop {
@@ -2151,26 +2152,26 @@ message Hop {
     height, the next 3 the index within the block, and the last 2 bytes are the
     output index for the channel.
     */
-    uint64 chan_id = 1 [json_name = "chan_id", jstype = JS_STRING];
-    int64 chan_capacity = 2 [json_name = "chan_capacity"];
-    int64 amt_to_forward = 3 [json_name = "amt_to_forward", deprecated = true];
-    int64 fee = 4 [json_name = "fee", deprecated = true];
-    uint32 expiry = 5 [json_name = "expiry"];
-    int64 amt_to_forward_msat = 6 [json_name = "amt_to_forward_msat"];
-    int64 fee_msat = 7 [json_name = "fee_msat"];
+    uint64 chan_id = 1 [jstype = JS_STRING];
+    int64 chan_capacity = 2;
+    int64 amt_to_forward = 3 [deprecated = true];
+    int64 fee = 4 [deprecated = true];
+    uint32 expiry = 5;
+    int64 amt_to_forward_msat = 6;
+    int64 fee_msat = 7;
 
     /**
     An optional public key of the hop. If the public key is given, the payment
     can be executed without relying on a copy of the channel graph.
     */
-    string pub_key = 8 [json_name = "pub_key"];
+    string pub_key = 8;
 
     /** 
     If set to true, then this hop will be encoded using the new variable length
     TLV format. Note that if any custom tlv_records below are specified, then
     this field MUST be set to true for them to be encoded properly.
     */
-    bool tlv_payload = 9 [json_name = "tlv_payload"];
+    bool tlv_payload = 9;
 
     /**
     An optional TLV record tha singals the use of an MPP payment. If present,
@@ -2178,14 +2179,14 @@ message Hop {
     final hop payload of all non-zero payments in the HTLC set. If empty, a
     regular single-shot payment is or was attempted.
     */
-    MPPRecord mpp_record = 10 [json_name = "mpp_record"];
+    MPPRecord mpp_record = 10;
 
     /**
     An optional set of key-value TLV records. This is useful within the context
     of the SendToRoute call as it allows callers to specify arbitrary K-V pairs
     to drop off at each hop within the onion.
     */
-    map<uint64, bytes> custom_records = 11 [json_name = "custom_records"];
+    map<uint64, bytes> custom_records = 11;
 }
 
 message MPPRecord {
@@ -2195,7 +2196,7 @@ message MPPRecord {
     subpayments, and match the payment_addr provided in the receiver's invoice.
     The same payment_addr must be used on all subpayments.
     */
-    bytes payment_addr = 11 [json_name = "payment_addr"];
+    bytes payment_addr = 11;
 
     /**
     The total amount in milli-satoshis being sent as part of a larger multi-path
@@ -2203,7 +2204,7 @@ message MPPRecord {
     and payment_hash sum exactly to total_amt_msat. The same
     total_amt_msat must be used on all subpayments.
     */
-    int64 total_amt_msat = 10 [json_name = "total_amt_msat"];
+    int64 total_amt_msat = 10;
 }
 
 /**
@@ -2221,14 +2222,14 @@ message Route {
     will decrement the time-lock as advertised, leaving enough time for all
     hops to wait for or present the payment preimage to complete the payment.
     */
-    uint32 total_time_lock = 1 [json_name = "total_time_lock"];
+    uint32 total_time_lock = 1;
 
     /**
     The sum of the fees paid at each hop within the final route. In the case
     of a one-hop payment, this value will be zero as we don't need to pay a fee
     to ourselves.
     */
-    int64 total_fees = 2 [json_name = "total_fees", deprecated = true];
+    int64 total_fees = 2 [deprecated = true];
 
     /**
     The total amount of funds required to complete a payment over this route.
@@ -2237,22 +2238,22 @@ message Route {
     satoshis, otherwise the route will fail at an intermediate node due to an
     insufficient amount of fees.
     */
-    int64 total_amt = 3 [json_name = "total_amt", deprecated = true];
+    int64 total_amt = 3 [deprecated = true];
 
     /**
     Contains details concerning the specific forwarding details at each hop.
     */
-    repeated Hop hops = 4 [json_name = "hops"];
-    
+    repeated Hop hops = 4;
+
     /**
     The total fees in millisatoshis.
     */
-    int64 total_fees_msat = 5 [json_name = "total_fees_msat"];
-    
+    int64 total_fees_msat = 5;
+
     /**
     The total amount in millisatoshis.
     */
-    int64 total_amt_msat = 6 [json_name = "total_amt_msat"];
+    int64 total_amt_msat = 6;
 }
 
 message NodeInfoRequest {
@@ -2271,16 +2272,16 @@ message NodeInfo {
     the graph is directed, a node will also have an incoming edge attached to
     it for each outgoing edge.
     */
-    LightningNode node = 1 [json_name = "node"];
+    LightningNode node = 1;
 
     /// The total number of channels for the node.
-    uint32 num_channels = 2 [json_name = "num_channels"];
+    uint32 num_channels = 2;
 
     /// The sum of all channels capacity for the node, denominated in satoshis.
-    int64 total_capacity = 3 [json_name = "total_capacity"];
+    int64 total_capacity = 3;
 
     /// A list of all public channels for the node.
-    repeated ChannelEdge channels = 4 [json_name = "channels"];
+    repeated ChannelEdge channels = 4;
 }
 
 /**
@@ -2290,27 +2291,27 @@ graph is directed, a node will also have an incoming edge attached to it for
 each outgoing edge.
 */
 message LightningNode {
-    uint32 last_update = 1 [ json_name = "last_update" ];
-    string pub_key = 2 [ json_name = "pub_key" ];
-    string alias = 3 [ json_name = "alias" ];
-    repeated NodeAddress addresses = 4 [ json_name = "addresses" ];
-    string color = 5 [ json_name = "color" ];
-    map<uint32, Feature> features = 6 [ json_name = "features" ];
+    uint32 last_update = 1;
+    string pub_key = 2;
+    string alias = 3;
+    repeated NodeAddress addresses = 4;
+    string color = 5;
+    map<uint32, Feature> features = 6;
 }
 
 message NodeAddress {
-    string network = 1 [ json_name = "network" ];
-    string addr = 2 [ json_name = "addr" ];
+    string network = 1;
+    string addr = 2;
 }
 
 message RoutingPolicy {
-    uint32 time_lock_delta = 1 [json_name = "time_lock_delta"];
-    int64 min_htlc = 2 [json_name = "min_htlc"];
-    int64 fee_base_msat = 3 [json_name = "fee_base_msat"];
-    int64 fee_rate_milli_msat = 4 [json_name = "fee_rate_milli_msat"];
-    bool disabled = 5 [json_name = "disabled"];
-    uint64 max_htlc_msat = 6 [json_name = "max_htlc_msat"];
-    uint32 last_update = 7 [json_name = "last_update"];
+    uint32 time_lock_delta = 1;
+    int64 min_htlc = 2;
+    int64 fee_base_msat = 3;
+    int64 fee_rate_milli_msat = 4;
+    bool disabled = 5;
+    uint64 max_htlc_msat = 6;
+    uint32 last_update = 7;
 }
 
 /**
@@ -2327,36 +2328,36 @@ message ChannelEdge {
     height, the next 3 the index within the block, and the last 2 bytes are the
     output index for the channel.
     */
-    uint64 channel_id = 1 [json_name = "channel_id", jstype = JS_STRING];
-    string chan_point = 2 [json_name = "chan_point"];
+    uint64 channel_id = 1 [jstype = JS_STRING];
+    string chan_point = 2;
 
-    uint32 last_update = 3 [json_name = "last_update", deprecated = true];
+    uint32 last_update = 3 [deprecated = true];
 
-    string node1_pub = 4 [json_name = "node1_pub"];
-    string node2_pub = 5 [json_name = "node2_pub"];
+    string node1_pub = 4;
+    string node2_pub = 5;
 
-    int64 capacity = 6 [json_name = "capacity"];
+    int64 capacity = 6;
 
-    RoutingPolicy node1_policy = 7 [json_name = "node1_policy"];
-    RoutingPolicy node2_policy = 8 [json_name = "node2_policy"];
+    RoutingPolicy node1_policy = 7;
+    RoutingPolicy node2_policy = 8;
 }
 
 message ChannelGraphRequest {
-     /**
-     Whether unannounced channels are included in the response or not. If set,
-     unannounced channels are included. Unannounced channels are both private
-     channels, and public channels that are not yet announced to the network.
-     */
-     bool include_unannounced = 1 [json_name = "include_unannounced"];
+    /**
+    Whether unannounced channels are included in the response or not. If set,
+    unannounced channels are included. Unannounced channels are both private
+    channels, and public channels that are not yet announced to the network.
+    */
+    bool include_unannounced = 1;
 }
 
 /// Returns a new instance of the directed channel graph.
 message ChannelGraph {
     /// The list of `LightningNode`s in this channel graph
-    repeated LightningNode nodes = 1 [json_name = "nodes"];
+    repeated LightningNode nodes = 1;
 
     /// The list of `ChannelEdge`s in this channel graph
-    repeated ChannelEdge edges = 2 [json_name = "edges"];
+    repeated ChannelEdge edges = 2;
 }
 
 message ChanInfoRequest {
@@ -2371,31 +2372,34 @@ message ChanInfoRequest {
 message NetworkInfoRequest {
 }
 message NetworkInfo {
-    uint32 graph_diameter = 1 [json_name = "graph_diameter"];
-    double avg_out_degree = 2 [json_name = "avg_out_degree"];
-    uint32 max_out_degree = 3 [json_name = "max_out_degree"];
+    uint32 graph_diameter = 1;
+    double avg_out_degree = 2;
+    uint32 max_out_degree = 3;
 
-    uint32 num_nodes = 4 [json_name = "num_nodes"];
-    uint32 num_channels = 5 [json_name = "num_channels"];
+    uint32 num_nodes = 4;
+    uint32 num_channels = 5;
 
-    int64 total_network_capacity = 6 [json_name = "total_network_capacity"];
+    int64 total_network_capacity = 6;
 
-    double avg_channel_size = 7 [json_name = "avg_channel_size"];
-    int64 min_channel_size = 8 [json_name = "min_channel_size"];
-    int64 max_channel_size = 9 [json_name = "max_channel_size"];
-    int64 median_channel_size_sat = 10 [json_name = "median_channel_size_sat"];
+    double avg_channel_size = 7;
+    int64 min_channel_size = 8;
+    int64 max_channel_size = 9;
+    int64 median_channel_size_sat = 10;
 
     // The number of edges marked as zombies.
-    uint64 num_zombie_chans = 11 [json_name = "num_zombie_chans"];
+    uint64 num_zombie_chans = 11;
 
     // TODO(roasbeef): fee rate info, expiry
     //  * also additional RPC for tracking fee info once in
 }
 
-message StopRequest{}
-message StopResponse{}
+message StopRequest {
+}
+message StopResponse {
+}
 
-message GraphTopologySubscription {}
+message GraphTopologySubscription {
+}
 message GraphTopologyUpdate {
     repeated NodeUpdate node_updates = 1;
     repeated ChannelEdgeUpdate channel_updates = 2;
@@ -2420,9 +2424,9 @@ message ChannelEdgeUpdate {
 
     int64 capacity = 3;
 
-    RoutingPolicy routing_policy  = 4;
+    RoutingPolicy routing_policy = 4;
 
-    string advertising_node  = 5;
+    string advertising_node = 5;
     string connecting_node = 6;
 }
 message ClosedChannelUpdate {
@@ -2439,22 +2443,22 @@ message ClosedChannelUpdate {
 
 message HopHint {
     /// The public key of the node at the start of the channel.
-    string node_id = 1 [json_name = "node_id"];
+    string node_id = 1;
 
     /// The unique identifier of the channel.
-    uint64 chan_id = 2 [json_name = "chan_id", jstype = JS_STRING];
+    uint64 chan_id = 2 [jstype = JS_STRING];
 
     /// The base fee of the channel denominated in millisatoshis.
-    uint32 fee_base_msat = 3 [json_name = "fee_base_msat"];
+    uint32 fee_base_msat = 3;
 
     /**
     The fee rate of the channel for sending one satoshi across it denominated in
     millionths of a satoshi.
     */
-    uint32 fee_proportional_millionths = 4 [json_name = "fee_proportional_millionths"];
+    uint32 fee_proportional_millionths = 4;
 
     /// The time-lock delta of the channel.
-    uint32 cltv_expiry_delta = 5 [json_name = "cltv_expiry_delta"];
+    uint32 cltv_expiry_delta = 5;
 }
 
 message RouteHint {
@@ -2462,7 +2466,7 @@ message RouteHint {
     A list of hop hints that when chained together can assist in reaching a
     specific destination.
     */
-    repeated HopHint hop_hints = 1 [json_name = "hop_hints"];
+    repeated HopHint hop_hints = 1;
 }
 
 message Invoice {
@@ -2472,7 +2476,7 @@ message Invoice {
     field of the encoded payment request if the description_hash field is not
     being used.
     */
-    string memo = 1 [json_name = "memo"];
+    string memo = 1;
 
     reserved 2;
 
@@ -2481,43 +2485,43 @@ message Invoice {
     HTLC payable to this preimage. When using REST, this field must be encoded
     as base64.
     */
-    bytes r_preimage = 3 [json_name = "r_preimage"];
+    bytes r_preimage = 3;
 
     /**
     The hash of the preimage. When using REST, this field must be encoded as
     base64.
     */
-    bytes r_hash = 4 [json_name = "r_hash"];
+    bytes r_hash = 4;
 
     /**
     The value of this invoice in satoshis
 
     The fields value and value_msat are mutually exclusive.
     */
-    int64 value = 5 [json_name = "value"];
+    int64 value = 5;
 
     /**
     The value of this invoice in millisatoshis
 
     The fields value and value_msat are mutually exclusive.
     */
-    int64 value_msat = 23 [json_name = "value_msat"];
+    int64 value_msat = 23;
 
     /// Whether this invoice has been fulfilled
-    bool settled = 6 [json_name = "settled", deprecated = true];
+    bool settled = 6 [deprecated = true];
 
     /// When this invoice was created
-    int64 creation_date = 7 [json_name = "creation_date"];
+    int64 creation_date = 7;
 
     /// When this invoice was settled
-    int64 settle_date = 8 [json_name = "settle_date"];
+    int64 settle_date = 8;
 
     /**
     A bare-bones invoice for a payment within the Lightning Network. With the
     details of the invoice, the sender has all the data necessary to send a
     payment to the recipient.
     */
-    string payment_request = 9 [json_name = "payment_request"];
+    string payment_request = 9;
 
     /**
     Hash (SHA-256) of a description of the payment. Used if the description of
@@ -2525,25 +2529,25 @@ message Invoice {
     of an encoded payment request. When using REST, this field must be encoded
     as base64.
     */
-    bytes description_hash = 10 [json_name = "description_hash"];
+    bytes description_hash = 10;
 
     /// Payment request expiry time in seconds. Default is 3600 (1 hour).
-    int64 expiry = 11 [json_name = "expiry"];
+    int64 expiry = 11;
 
     /// Fallback on-chain address.
-    string fallback_addr = 12 [json_name = "fallback_addr"];
+    string fallback_addr = 12;
 
     /// Delta to use for the time-lock of the CLTV extended to the final hop.
-    uint64 cltv_expiry = 13 [json_name = "cltv_expiry"];
+    uint64 cltv_expiry = 13;
 
     /**
     Route hints that can each be individually used to assist in reaching the
     invoice's destination.
     */
-    repeated RouteHint route_hints = 14 [json_name = "route_hints"];
+    repeated RouteHint route_hints = 14;
 
     /// Whether this invoice should include routing hints for private channels.
-    bool private = 15 [json_name = "private"];
+    bool private = 15;
 
     /**
     The "add" index of this invoice. Each newly created invoice will increment
@@ -2551,7 +2555,7 @@ message Invoice {
     SubscribeInvoices call can use this to instantly get notified of all added
     invoices with an add_index greater than this one.
     */
-    uint64 add_index = 16 [json_name = "add_index"];
+    uint64 add_index = 16;
 
     /**
     The "settle" index of this invoice. Each newly settled invoice will
@@ -2559,10 +2563,10 @@ message Invoice {
     SubscribeInvoices call can use this to instantly get notified of all
     settled invoices with an settle_index greater than this one.
     */
-    uint64 settle_index = 17 [json_name = "settle_index"];
+    uint64 settle_index = 17;
 
     /// Deprecated, use amt_paid_sat or amt_paid_msat.
-    int64 amt_paid = 18 [json_name = "amt_paid", deprecated = true];
+    int64 amt_paid = 18 [deprecated = true];
 
     /**
     The amount that was accepted for this invoice, in satoshis. This will ONLY
@@ -2572,7 +2576,7 @@ message Invoice {
     MORE that was specified in the original invoice. So we'll record that here
     as well.
     */
-    int64 amt_paid_sat = 19 [json_name = "amt_paid_sat"];
+    int64 amt_paid_sat = 19;
 
     /**
     The amount that was accepted for this invoice, in millisatoshis. This will
@@ -2582,7 +2586,7 @@ message Invoice {
     paid MORE that was specified in the original invoice. So we'll record that
     here as well.
     */
-    int64 amt_paid_msat = 20 [json_name = "amt_paid_msat"];
+    int64 amt_paid_msat = 20;
 
     enum InvoiceState {
         OPEN = 0;
@@ -2594,19 +2598,19 @@ message Invoice {
     /**
     The state the invoice is in.
     */
-    InvoiceState state = 21 [json_name = "state"];
+    InvoiceState state = 21;
 
     /// List of HTLCs paying to this invoice [EXPERIMENTAL].
-    repeated InvoiceHTLC htlcs = 22 [json_name = "htlcs"];
+    repeated InvoiceHTLC htlcs = 22;
 
     /// List of features advertised on the invoice.
-    map<uint32, Feature> features = 24 [json_name = "features"];
-    
+    map<uint32, Feature> features = 24;
+
     /**
     Indicates if this invoice was a spontaneous payment that arrived via keysend
     [EXPERIMENTAL].
     */
-    bool is_keysend = 25 [json_name = "is_keysend"];
+    bool is_keysend = 25;
 }
 
 enum InvoiceHTLCState {
@@ -2618,45 +2622,45 @@ enum InvoiceHTLCState {
 /// Details of an HTLC that paid to an invoice
 message InvoiceHTLC {
     /// Short channel id over which the htlc was received.
-    uint64 chan_id = 1 [json_name = "chan_id", jstype = JS_STRING];
+    uint64 chan_id = 1 [jstype = JS_STRING];
 
     /// Index identifying the htlc on the channel.
-    uint64 htlc_index = 2 [json_name = "htlc_index"];
+    uint64 htlc_index = 2;
 
     /// The amount of the htlc in msat.
-    uint64 amt_msat = 3 [json_name = "amt_msat"];
+    uint64 amt_msat = 3;
 
     /// Block height at which this htlc was accepted.
-    int32 accept_height = 4 [json_name = "accept_height"];
+    int32 accept_height = 4;
 
     /// Time at which this htlc was accepted.
-    int64 accept_time = 5 [json_name = "accept_time"];
+    int64 accept_time = 5;
 
     /// Time at which this htlc was settled or canceled.
-    int64 resolve_time = 6 [json_name = "resolve_time"];
-    
+    int64 resolve_time = 6;
+
     /// Block height at which this htlc expires.
-    int32 expiry_height = 7 [json_name = "expiry_height"];
+    int32 expiry_height = 7;
 
     /// Current state the htlc is in.
-    InvoiceHTLCState state = 8 [json_name = "state"];
+    InvoiceHTLCState state = 8;
 
     /// Custom tlv records.
-    map<uint64, bytes> custom_records = 9 [json_name = "custom_records"];
+    map<uint64, bytes> custom_records = 9;
 
     /// The total amount of the mpp payment in msat.
-    uint64 mpp_total_amt_msat = 10 [json_name = "mpp_total_amt_msat"];
+    uint64 mpp_total_amt_msat = 10;
 }
 
 message AddInvoiceResponse {
-    bytes r_hash = 1 [json_name = "r_hash"];
+    bytes r_hash = 1;
 
     /**
     A bare-bones invoice for a payment within the Lightning Network. With the
     details of the invoice, the sender has all the data necessary to send a
     payment to the recipient.
     */
-    string payment_request = 2 [json_name = "payment_request"];
+    string payment_request = 2;
 
     /**
     The "add" index of this invoice. Each newly created invoice will increment
@@ -2664,7 +2668,7 @@ message AddInvoiceResponse {
     SubscribeInvoices call can use this to instantly get notified of all added
     invoices with an add_index greater than this one.
     */
-    uint64 add_index = 16 [json_name = "add_index"];
+    uint64 add_index = 16;
 }
 message PaymentHash {
     /**
@@ -2673,13 +2677,13 @@ message PaymentHash {
     Deprecated now that the REST gateway supports base64 encoding of bytes
     fields.
     */
-    string r_hash_str = 1 [json_name = "r_hash_str", deprecated = true];
+    string r_hash_str = 1 [deprecated = true];
 
     /**
     The payment hash of the invoice to be looked up. When using REST, this field
     must be encoded as base64.
     */
-    bytes r_hash = 2 [json_name = "r_hash"];
+    bytes r_hash = 2;
 }
 
 message ListInvoiceRequest {
@@ -2687,41 +2691,41 @@ message ListInvoiceRequest {
     If set, only invoices that are not settled and not canceled will be returned
     in the response.
     */
-    bool pending_only = 1 [json_name = "pending_only"];
+    bool pending_only = 1;
 
     /**
     The index of an invoice that will be used as either the start or end of a
     query to determine which invoices should be returned in the response.
     */
-    uint64 index_offset = 4 [json_name = "index_offset"];
+    uint64 index_offset = 4;
 
     /// The max number of invoices to return in the response to this query.
-    uint64 num_max_invoices = 5 [json_name = "num_max_invoices"];
+    uint64 num_max_invoices = 5;
 
     /**
     If set, the invoices returned will result from seeking backwards from the
     specified index offset. This can be used to paginate backwards.
     */
-    bool reversed = 6 [json_name = "reversed"];
+    bool reversed = 6;
 }
 message ListInvoiceResponse {
     /**
     A list of invoices from the time slice of the time series specified in the
     request.
     */
-    repeated Invoice invoices = 1 [json_name = "invoices"];
+    repeated Invoice invoices = 1;
 
     /**
     The index of the last item in the set of returned invoices. This can be used
     to seek further, pagination style.
     */
-    uint64 last_index_offset = 2 [json_name = "last_index_offset"];
+    uint64 last_index_offset = 2;
 
     /**
     The index of the last item in the set of returned invoices. This can be used
     to seek backwards, pagination style.
     */
-    uint64 first_index_offset = 3 [json_name = "first_index_offset"];
+    uint64 first_index_offset = 3;
 }
 
 message InvoiceSubscription {
@@ -2731,7 +2735,7 @@ message InvoiceSubscription {
     value. This allows callers to catch up on any events they missed while they
     weren't connected to the streaming RPC.
     */
-    uint64 add_index = 1 [json_name = "add_index"];
+    uint64 add_index = 1;
 
     /**
     If specified (non-zero), then we'll first start by sending out
@@ -2739,37 +2743,37 @@ message InvoiceSubscription {
     this value. This allows callers to catch up on any events they missed while
     they weren't connected to the streaming RPC.
     */
-    uint64 settle_index = 2 [json_name = "settle_index"];
+    uint64 settle_index = 2;
 }
 
 
 message Payment {
     /// The payment hash
-    string payment_hash = 1 [json_name = "payment_hash"];
+    string payment_hash = 1;
 
     /// Deprecated, use value_sat or value_msat.
-    int64 value = 2 [json_name = "value", deprecated = true];
+    int64 value = 2 [deprecated = true];
 
     /// Deprecated, use creation_time_ns
-    int64 creation_date = 3 [json_name = "creation_date", deprecated = true];
+    int64 creation_date = 3 [deprecated = true];
 
     /// The path this payment took.
-    repeated string path = 4 [json_name = "path", deprecated = true];
+    repeated string path = 4 [deprecated = true];
 
     /// Deprecated, use fee_sat or fee_msat.
-    int64 fee = 5 [json_name = "fee", deprecated = true];
+    int64 fee = 5 [deprecated = true];
 
     /// The payment preimage
-    string payment_preimage = 6 [json_name = "payment_preimage"];
+    string payment_preimage = 6;
 
     /// The value of the payment in satoshis
-    int64 value_sat = 7 [json_name = "value_sat"];
+    int64 value_sat = 7;
 
     /// The value of the payment in milli-satoshis
-    int64 value_msat = 8 [json_name = "value_msat"];
+    int64 value_msat = 8;
 
     /// The optional payment request being fulfilled.
-    string payment_request = 9 [json_name = "payment_request"];
+    string payment_request = 9;
 
     enum PaymentStatus {
         UNKNOWN = 0;
@@ -2779,42 +2783,42 @@ message Payment {
     }
 
     // The status of the payment.
-    PaymentStatus status = 10 [json_name = "status"];
+    PaymentStatus status = 10;
 
     ///  The fee paid for this payment in satoshis
-    int64 fee_sat = 11 [json_name = "fee_sat"];
+    int64 fee_sat = 11;
 
     ///  The fee paid for this payment in milli-satoshis
-    int64 fee_msat = 12 [json_name = "fee_msat"];
+    int64 fee_msat = 12;
 
     /// The time in UNIX nanoseconds at which the payment was created.
-    int64 creation_time_ns = 13 [json_name = "creation_time_ns"];
+    int64 creation_time_ns = 13;
 
     /// The HTLCs made in attempt to settle the payment [EXPERIMENTAL].
-    repeated HTLCAttempt htlcs = 14 [json_name = "htlcs"];
+    repeated HTLCAttempt htlcs = 14;
 }
 
 message HTLCAttempt {
-        enum HTLCStatus {
-                IN_FLIGHT = 0;
-                SUCCEEDED = 1;
-                FAILED = 2;
-        }
+    enum HTLCStatus {
+        IN_FLIGHT = 0;
+        SUCCEEDED = 1;
+        FAILED = 2;
+    }
 
-        /// The status of the HTLC.
-        HTLCStatus status = 1 [json_name = "status"];
+    /// The status of the HTLC.
+    HTLCStatus status = 1;
 
-        /// The route taken by this HTLC.
-        Route route = 2 [json_name = "route"];
+    /// The route taken by this HTLC.
+    Route route = 2;
 
-        /// The time in UNIX nanoseconds at which this HTLC was sent.
-        int64 attempt_time_ns = 3 [json_name = "attempt_time_ns"];
+    /// The time in UNIX nanoseconds at which this HTLC was sent.
+    int64 attempt_time_ns = 3;
 
-        /**
-        The time in UNIX nanoseconds at which this HTLC was settled or failed.
-        This value will not be set if the HTLC is still IN_FLIGHT.
-        */
-        int64 resolve_time_ns = 4 [json_name = "resolve_time_ns"];
+    /**
+    The time in UNIX nanoseconds at which this HTLC was settled or failed.
+    This value will not be set if the HTLC is still IN_FLIGHT.
+    */
+    int64 resolve_time_ns = 4;
 }
 
 message ListPaymentsRequest {
@@ -2828,7 +2832,7 @@ message ListPaymentsRequest {
 
 message ListPaymentsResponse {
     /// The list of payments
-    repeated Payment payments = 1 [json_name = "payments"];
+    repeated Payment payments = 1;
 }
 
 message DeleteAllPaymentsRequest {
@@ -2850,7 +2854,7 @@ message DebugLevelRequest {
     string level_spec = 2;
 }
 message DebugLevelResponse {
-    string sub_systems = 1 [json_name = "sub_systems"];
+    string sub_systems = 1;
 }
 
 message PayReqString {
@@ -2858,160 +2862,160 @@ message PayReqString {
     string pay_req = 1;
 }
 message PayReq {
-    string destination = 1 [json_name = "destination"];
-    string payment_hash = 2 [json_name = "payment_hash"];
-    int64 num_satoshis = 3 [json_name = "num_satoshis"];
-    int64 timestamp = 4 [json_name = "timestamp"];
-    int64 expiry = 5 [json_name = "expiry"];
-    string description = 6 [json_name = "description"];
-    string description_hash = 7 [json_name = "description_hash"];
-    string fallback_addr = 8 [json_name = "fallback_addr"];
-    int64 cltv_expiry = 9 [json_name = "cltv_expiry"];
-    repeated RouteHint route_hints = 10 [json_name = "route_hints"];
-    bytes payment_addr = 11 [json_name = "payment_addr"];
-    int64 num_msat = 12 [json_name = "num_msat"];
-    map<uint32, Feature> features = 13 [json_name = "features"];
+    string destination = 1;
+    string payment_hash = 2;
+    int64 num_satoshis = 3;
+    int64 timestamp = 4;
+    int64 expiry = 5;
+    string description = 6;
+    string description_hash = 7;
+    string fallback_addr = 8;
+    int64 cltv_expiry = 9;
+    repeated RouteHint route_hints = 10;
+    bytes payment_addr = 11;
+    int64 num_msat = 12;
+    map<uint32, Feature> features = 13;
 }
 
 enum FeatureBit {
-        DATALOSS_PROTECT_REQ = 0;
-        DATALOSS_PROTECT_OPT = 1;
-        INITIAL_ROUING_SYNC = 3;
-        UPFRONT_SHUTDOWN_SCRIPT_REQ = 4;
-        UPFRONT_SHUTDOWN_SCRIPT_OPT = 5;
-        GOSSIP_QUERIES_REQ = 6;
-        GOSSIP_QUERIES_OPT = 7;
-        TLV_ONION_REQ = 8;
-        TLV_ONION_OPT = 9;
-        EXT_GOSSIP_QUERIES_REQ = 10;
-        EXT_GOSSIP_QUERIES_OPT = 11;
-        STATIC_REMOTE_KEY_REQ = 12;
-        STATIC_REMOTE_KEY_OPT = 13;
-        PAYMENT_ADDR_REQ = 14;
-        PAYMENT_ADDR_OPT = 15;
-        MPP_REQ = 16;
-        MPP_OPT = 17;
+    DATALOSS_PROTECT_REQ = 0;
+    DATALOSS_PROTECT_OPT = 1;
+    INITIAL_ROUING_SYNC = 3;
+    UPFRONT_SHUTDOWN_SCRIPT_REQ = 4;
+    UPFRONT_SHUTDOWN_SCRIPT_OPT = 5;
+    GOSSIP_QUERIES_REQ = 6;
+    GOSSIP_QUERIES_OPT = 7;
+    TLV_ONION_REQ = 8;
+    TLV_ONION_OPT = 9;
+    EXT_GOSSIP_QUERIES_REQ = 10;
+    EXT_GOSSIP_QUERIES_OPT = 11;
+    STATIC_REMOTE_KEY_REQ = 12;
+    STATIC_REMOTE_KEY_OPT = 13;
+    PAYMENT_ADDR_REQ = 14;
+    PAYMENT_ADDR_OPT = 15;
+    MPP_REQ = 16;
+    MPP_OPT = 17;
 }
 
 message Feature {
-        string name = 2 [json_name = "name"];
-        bool is_required = 3 [json_name = "is_required"];
-        bool is_known = 4 [json_name = "is_known"];
+    string name = 2;
+    bool is_required = 3;
+    bool is_known = 4;
 }
 
-message FeeReportRequest {}
+message FeeReportRequest {
+}
 message ChannelFeeReport {
     /// The short channel id that this fee report belongs to.
     uint64 chan_id = 5 [jstype = JS_STRING];
 
     /// The channel that this fee report belongs to.
-    string chan_point = 1 [json_name = "channel_point"];
+    string chan_point = 1;
 
     /// The base fee charged regardless of the number of milli-satoshis sent.
-    int64 base_fee_msat = 2 [json_name = "base_fee_msat"];
+    int64 base_fee_msat = 2;
 
     /// The amount charged per milli-satoshis transferred expressed in millionths of a satoshi.
-    int64 fee_per_mil = 3 [json_name = "fee_per_mil"];
+    int64 fee_per_mil = 3;
 
     /// The effective fee rate in milli-satoshis. Computed by dividing the fee_per_mil value by 1 million.
-    double fee_rate = 4 [json_name = "fee_rate"];
+    double fee_rate = 4;
 }
 message FeeReportResponse {
     /// An array of channel fee reports which describes the current fee schedule for each channel.
-    repeated ChannelFeeReport channel_fees = 1 [json_name = "channel_fees"];
+    repeated ChannelFeeReport channel_fees = 1;
 
     /// The total amount of fee revenue (in satoshis) the switch has collected over the past 24 hrs.
-    uint64 day_fee_sum = 2 [json_name = "day_fee_sum"];
+    uint64 day_fee_sum = 2;
 
     /// The total amount of fee revenue (in satoshis) the switch has collected over the past 1 week.
-    uint64 week_fee_sum = 3 [json_name = "week_fee_sum"];
+    uint64 week_fee_sum = 3;
 
     /// The total amount of fee revenue (in satoshis) the switch has collected over the past 1 month.
-    uint64 month_fee_sum = 4 [json_name = "month_fee_sum"];
+    uint64 month_fee_sum = 4;
 }
 
 message PolicyUpdateRequest {
     oneof scope {
         /// If set, then this update applies to all currently active channels.
-        bool global = 1 [json_name = "global"] ;
+        bool global = 1;
 
         /// If set, this update will target a specific channel.
-        ChannelPoint chan_point = 2 [json_name = "chan_point"];
+        ChannelPoint chan_point = 2;
     }
 
     /// The base fee charged regardless of the number of milli-satoshis sent.
-    int64 base_fee_msat = 3 [json_name = "base_fee_msat"];
+    int64 base_fee_msat = 3;
 
     /// The effective fee rate in milli-satoshis. The precision of this value goes up to 6 decimal places, so 1e-6.
-    double fee_rate = 4 [json_name = "fee_rate"];
+    double fee_rate = 4;
 
     /// The required timelock delta for HTLCs forwarded over the channel.
-    uint32 time_lock_delta = 5 [json_name = "time_lock_delta"];
+    uint32 time_lock_delta = 5;
 
     /// If set, the maximum HTLC size in milli-satoshis. If unset, the maximum HTLC will be unchanged.
-    uint64 max_htlc_msat = 6 [json_name = "max_htlc_msat"];
+    uint64 max_htlc_msat = 6;
 
     /// The minimum HTLC size in milli-satoshis. Only applied if min_htlc_msat_specified is true.
-    uint64 min_htlc_msat = 7 [json_name = "min_htlc_msat"];
+    uint64 min_htlc_msat = 7;
 
     /// If true, min_htlc_msat is applied.
-    bool min_htlc_msat_specified = 8 [json_name = "set_min_htlc_msat"];
+    bool min_htlc_msat_specified = 8;
 }
 message PolicyUpdateResponse {
 }
 
 message ForwardingHistoryRequest {
     /// Start time is the starting point of the forwarding history request. All records beyond this point will be included, respecting the end time, and the index offset.
-    uint64 start_time = 1 [json_name = "start_time"];
+    uint64 start_time = 1;
 
     /// End time is the end point of the forwarding history request. The response will carry at most 50k records between the start time and the end time. The index offset can be used to implement pagination.
-    uint64 end_time = 2 [json_name = "end_time"];
+    uint64 end_time = 2;
 
     /// Index offset is the offset in the time series to start at. As each response can only contain 50k records, callers can use this to skip around within a packed time series.
-    uint32 index_offset = 3 [json_name = "index_offset"];
+    uint32 index_offset = 3;
 
     /// The max number of events to return in the response to this query.
-    uint32 num_max_events = 4 [json_name = "num_max_events"];
+    uint32 num_max_events = 4;
 }
 message ForwardingEvent {
     /// Timestamp is the time (unix epoch offset) that this circuit was completed.
-    uint64 timestamp = 1 [json_name = "timestamp"];
+    uint64 timestamp = 1;
 
     /// The incoming channel ID that carried the HTLC that created the circuit.
-    uint64 chan_id_in = 2 [json_name = "chan_id_in", jstype = JS_STRING];
+    uint64 chan_id_in = 2 [jstype = JS_STRING];
 
     /// The outgoing channel ID that carried the preimage that completed the circuit.
-    uint64 chan_id_out = 4 [json_name = "chan_id_out", jstype = JS_STRING];
+    uint64 chan_id_out = 4 [jstype = JS_STRING];
 
     /// The total amount (in satoshis) of the incoming HTLC that created half the circuit.
-    uint64 amt_in = 5 [json_name = "amt_in"];
+    uint64 amt_in = 5;
 
     /// The total amount (in satoshis) of the outgoing HTLC that created the second half of the circuit.
-    uint64 amt_out = 6 [json_name = "amt_out"];
+    uint64 amt_out = 6;
 
     /// The total fee (in satoshis) that this payment circuit carried.
-    uint64 fee = 7 [json_name = "fee"];
+    uint64 fee = 7;
 
     /// The total fee (in milli-satoshis) that this payment circuit carried.
-    uint64 fee_msat = 8 [json_name = "fee_msat"];
+    uint64 fee_msat = 8;
 
     /// The total amount (in milli-satoshis) of the incoming HTLC that created half the circuit.
-    uint64 amt_in_msat = 9 [json_name = "amt_in_msat"];
+    uint64 amt_in_msat = 9;
 
     /// The total amount (in milli-satoshis) of the outgoing HTLC that created the second half of the circuit.
-    uint64 amt_out_msat = 10 [json_name = "amt_out_msat"];
-
+    uint64 amt_out_msat = 10;
 
     // TODO(roasbeef): add settlement latency?
     //  * use FPE on the chan id?
     //  * also list failures?
 }
 message ForwardingHistoryResponse {
-   /// A list of forwarding events from the time slice of the time series specified in the request.
-   repeated ForwardingEvent forwarding_events = 1 [json_name = "forwarding_events"];
+    /// A list of forwarding events from the time slice of the time series specified in the request.
+    repeated ForwardingEvent forwarding_events = 1;
 
-   /// The index of the last time in the set of returned forwarding events. Can be used to seek further, pagination style.
-   uint32 last_offset_index = 2 [json_name = "last_offset_index"];
+    /// The index of the last time in the set of returned forwarding events. Can be used to seek further, pagination style.
+    uint32 last_offset_index = 2;
 }
 
 message ExportChannelBackupRequest {
@@ -3023,7 +3027,7 @@ message ChannelBackup {
     /**
     Identifies the channel that this backup belongs to.
     */
-    ChannelPoint chan_point = 1 [ json_name = "chan_point" ];
+    ChannelPoint chan_point = 1;
 
     /**
     Is an encrypted single-chan backup. this can be passed to
@@ -3031,14 +3035,14 @@ message ChannelBackup {
     order to trigger the recovery protocol. When using REST, this field must be
     encoded as base64.
     */
-    bytes chan_backup = 2 [ json_name = "chan_backup" ];
+    bytes chan_backup = 2;
 }
 
 message MultiChanBackup {
     /**
     Is the set of all channels that are included in this multi-channel backup.
     */
-    repeated ChannelPoint chan_points = 1 [ json_name = "chan_points" ];
+    repeated ChannelPoint chan_points = 1;
 
     /**
     A single encrypted blob containing all the static channel backups of the
@@ -3046,29 +3050,30 @@ message MultiChanBackup {
     safely be replaced with any prior/future versions. When using REST, this
     field must be encoded as base64.
     */
-    bytes multi_chan_backup = 2 [ json_name = "multi_chan_backup" ];
+    bytes multi_chan_backup = 2;
 }
 
-message ChanBackupExportRequest {}
-message ChanBackupSnapshot  {
+message ChanBackupExportRequest {
+}
+message ChanBackupSnapshot {
     /**
     The set of new channels that have been added since the last channel backup
     snapshot was requested.
     */
-    ChannelBackups single_chan_backups = 1 [ json_name = "single_chan_backups" ];
+    ChannelBackups single_chan_backups = 1;
 
     /**
     A multi-channel backup that covers all open channels currently known to
     lnd.
     */
-    MultiChanBackup multi_chan_backup  = 2 [ json_name = "multi_chan_backup" ];
+    MultiChanBackup multi_chan_backup = 2;
 }
 
 message ChannelBackups {
     /**
     A set of single-chan static channel backups.
     */
-    repeated ChannelBackup chan_backups = 1 [ json_name = "chan_backups" ];
+    repeated ChannelBackup chan_backups = 1;
 }
 
 message RestoreChanBackupRequest {
@@ -3076,34 +3081,36 @@ message RestoreChanBackupRequest {
         /**
         The channels to restore as a list of channel/backup pairs.
         */
-        ChannelBackups chan_backups = 1 [ json_name = "chan_backups" ];
+        ChannelBackups chan_backups = 1;
 
         /**
         The channels to restore in the packed multi backup format. When using
         REST, this field must be encoded as base64.
         */
-        bytes multi_chan_backup = 2 [ json_name = "multi_chan_backup" ];
+        bytes multi_chan_backup = 2;
     }
 }
-message RestoreBackupResponse {}
+message RestoreBackupResponse {
+}
 
-message ChannelBackupSubscription {}
+message ChannelBackupSubscription {
+}
 
 message VerifyChanBackupResponse {
 }
 
 message MacaroonPermission {
     /// The entity a permission grants access to.
-    string entity = 1 [json_name = "entity"];
+    string entity = 1;
 
     /// The action that is granted.
-    string action = 2 [json_name = "action"];
+    string action = 2;
 }
 message BakeMacaroonRequest {
     /// The list of permissions the new macaroon should grant.
-    repeated MacaroonPermission permissions = 1 [json_name = "permissions"];
+    repeated MacaroonPermission permissions = 1;
 }
 message BakeMacaroonResponse {
     /// The hex encoded macaroon, serialized in binary format.
-    string macaroon = 1 [json_name = "macaroon"];
+    string macaroon = 1;
 }

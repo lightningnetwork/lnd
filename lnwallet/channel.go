@@ -2374,9 +2374,12 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 	// these balances will be *before* taking a commitment fee from the
 	// initiator.
 	htlcView := lc.fetchHTLCView(theirLogIndex, ourLogIndex)
-	ourBalance, theirBalance, _, filteredHTLCView := lc.computeView(
+	ourBalance, theirBalance, _, filteredHTLCView, err := lc.computeView(
 		htlcView, remoteChain, true,
 	)
+	if err != nil {
+		return nil, err
+	}
 	feePerKw := filteredHTLCView.feePerKw
 
 	// Actually generate unsigned commitment transaction for this view.
@@ -2444,7 +2447,7 @@ func fundingTxIn(chanState *channeldb.OpenChannel) wire.TxIn {
 // method.
 func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 	theirBalance *lnwire.MilliSatoshi, nextHeight uint64,
-	remoteChain, mutateState bool) *htlcView {
+	remoteChain, mutateState bool) (*htlcView, error) {
 
 	// We initialize the view's fee rate to the fee rate of the unfiltered
 	// view. If any fee updates are found when evaluating the view, it will
@@ -2463,7 +2466,7 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 	// fetchParentEntry is a helper method that will fetch the parent of
 	// entry from the corresponding update log.
 	fetchParentEntry := func(entry *PaymentDescriptor,
-		remoteLog bool) *PaymentDescriptor {
+		remoteLog bool) (*PaymentDescriptor, error) {
 
 		var (
 			updateLog *updateLog
@@ -2481,23 +2484,34 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 		addEntry := updateLog.lookupHtlc(entry.ParentIndex)
 
 		switch {
-		// We check if the parent entry is not found at this point. We
-		// have seen this happening a few times and panic with some
-		// addtitional info to figure out why.
-		// TODO(halseth): remove when bug is fixed.
+		// We check if the parent entry is not found at this point.
+		// This could happen for old versions of lnd, and we return an
+		// error to gracefully shut down the state machine if such an
+		// entry is still in the logs.
 		case addEntry == nil:
-			panic(fmt.Sprintf("unable to find parent entry %d "+
-				"in %v update log: %v\nUpdatelog: %v",
+			return nil, fmt.Errorf("unable to find parent entry "+
+				"%d in %v update log: %v\nUpdatelog: %v",
 				entry.ParentIndex, logName,
 				newLogClosure(func() string {
 					return spew.Sdump(entry)
 				}), newLogClosure(func() string {
 					return spew.Sdump(updateLog)
 				}),
-			))
+			)
+
+		// The parent add height should never be zero at this point. If
+		// that's the case we probably forgot to send a new commitment.
+		case remoteChain && addEntry.addCommitHeightRemote == 0:
+			return nil, fmt.Errorf("parent entry %d for update %d "+
+				"had zero remote add height", entry.ParentIndex,
+				entry.LogIndex)
+		case !remoteChain && addEntry.addCommitHeightLocal == 0:
+			return nil, fmt.Errorf("parent entry %d for update %d "+
+				"had zero local add height", entry.ParentIndex,
+				entry.LogIndex)
 		}
 
-		return addEntry
+		return addEntry, nil
 	}
 
 	// First we run through non-add entries in both logs, populating the
@@ -2526,7 +2540,10 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 			lc.channelState.TotalMSatReceived += entry.Amount
 		}
 
-		addEntry := fetchParentEntry(entry, true)
+		addEntry, err := fetchParentEntry(entry, true)
+		if err != nil {
+			return nil, err
+		}
 
 		skipThem[addEntry.HtlcIndex] = struct{}{}
 		processRemoveEntry(entry, ourBalance, theirBalance,
@@ -2556,7 +2573,10 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 			lc.channelState.TotalMSatSent += entry.Amount
 		}
 
-		addEntry := fetchParentEntry(entry, false)
+		addEntry, err := fetchParentEntry(entry, false)
+		if err != nil {
+			return nil, err
+		}
 
 		skipUs[addEntry.HtlcIndex] = struct{}{}
 		processRemoveEntry(entry, ourBalance, theirBalance,
@@ -2587,7 +2607,7 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 		newView.theirUpdates = append(newView.theirUpdates, entry)
 	}
 
-	return newView
+	return newView, nil
 }
 
 // processAddEntry evaluates the effect of an add entry within the HTLC log.
@@ -3109,9 +3129,12 @@ func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
 	ourInitialBalance := commitChain.tip().ourBalance
 	theirInitialBalance := commitChain.tip().theirBalance
 
-	ourBalance, theirBalance, commitWeight, filteredView := lc.computeView(
+	ourBalance, theirBalance, commitWeight, filteredView, err := lc.computeView(
 		view, remoteChain, false,
 	)
+	if err != nil {
+		return err
+	}
 	feePerKw := filteredView.feePerKw
 
 	// Calculate the commitment fee, and subtract it from the initiator's
@@ -3202,7 +3225,7 @@ func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
 
 	// First check that the remote updates won't violate it's channel
 	// constraints.
-	err := validateUpdates(
+	err = validateUpdates(
 		filteredView.theirUpdates, &lc.channelState.RemoteChanCfg,
 	)
 	if err != nil {
@@ -3698,7 +3721,7 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 // HTLCs will be set to the next commitment height.
 func (lc *LightningChannel) computeView(view *htlcView, remoteChain bool,
 	updateState bool) (lnwire.MilliSatoshi, lnwire.MilliSatoshi, int64,
-	*htlcView) {
+	*htlcView, error) {
 
 	commitChain := lc.localCommitChain
 	dustLimit := lc.channelState.LocalChanCfg.DustLimit
@@ -3737,8 +3760,11 @@ func (lc *LightningChannel) computeView(view *htlcView, remoteChain bool,
 	// channel constraints to the final commitment state. If any fee
 	// updates are found in the logs, the commitment fee rate should be
 	// changed, so we'll also set the feePerKw to this new value.
-	filteredHTLCView := lc.evaluateHTLCView(view, &ourBalance,
+	filteredHTLCView, err := lc.evaluateHTLCView(view, &ourBalance,
 		&theirBalance, nextHeight, remoteChain, updateState)
+	if err != nil {
+		return 0, 0, 0, nil, err
+	}
 	feePerKw := filteredHTLCView.feePerKw
 
 	// Now go through all HTLCs at this stage, to calculate the total
@@ -3762,7 +3788,7 @@ func (lc *LightningChannel) computeView(view *htlcView, remoteChain bool,
 	}
 
 	totalCommitWeight := input.CommitWeight + totalHtlcWeight
-	return ourBalance, theirBalance, totalCommitWeight, filteredHTLCView
+	return ourBalance, theirBalance, totalCommitWeight, filteredHTLCView, nil
 }
 
 // genHtlcSigValidationJobs generates a series of signatures verification jobs
@@ -5967,8 +5993,12 @@ func (lc *LightningChannel) availableBalance() (lnwire.MilliSatoshi, int64) {
 		lc.localUpdateLog.logIndex)
 
 	// Then compute our current balance for that view.
-	ourBalance, _, commitWeight, filteredView :=
+	ourBalance, _, commitWeight, filteredView, err :=
 		lc.computeView(htlcView, false, false)
+	if err != nil {
+		lc.log.Errorf("Unable to fetch available balance: %v", err)
+		return 0, 0
+	}
 
 	// If we are the channel initiator, we must remember to subtract the
 	// commitment fee from our available balance.

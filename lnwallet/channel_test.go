@@ -5922,8 +5922,8 @@ func TestNewBreachRetributionSkipsDustHtlcs(t *testing.T) {
 
 	// With the HTLC's applied to both update logs, we'll initiate a state
 	// transition from Alice.
-	if err := ForceStateTransition(bobChannel, aliceChannel); err != nil {
-		t.Fatalf("unable to complete bob's state transition: %v", err)
+	if err := ForceStateTransition(aliceChannel, bobChannel); err != nil {
+		t.Fatalf("unable to complete alice's state transition: %v", err)
 	}
 
 	// At this point, we'll capture the current state number, as well as

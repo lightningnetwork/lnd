@@ -46,10 +46,17 @@ var managerTests = []managerTest{
 		},
 	},
 	{
-		name: "no tlv or static remote key",
+		name: "no graph sync",
+		cfg: Config{
+			NoGraphSync: true,
+		},
+	},
+	{
+		name: "disable all",
 		cfg: Config{
 			NoTLVOnion:        true,
 			NoStaticRemoteKey: true,
+			NoGraphSync:       true,
 		},
 	},
 }
@@ -103,6 +110,9 @@ func testManager(t *testing.T, test managerTest) {
 		}
 		if test.cfg.NoStaticRemoteKey {
 			assertUnset(lnwire.StaticRemoteKeyOptional)
+		}
+		if test.cfg.NoGraphSync {
+			assertUnset(lnwire.GossipQueriesOptional)
 		}
 
 		assertUnset(unknownFeature)

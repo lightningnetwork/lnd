@@ -17,6 +17,10 @@ type Config struct {
 	// NoStaticRemoteKey unsets any optional or required StaticRemoteKey
 	// bits from all feature sets.
 	NoStaticRemoteKey bool
+
+	// NoGraphSync unsets any optional or required GossipQueries bits from
+	// all feature sets.
+	NoGraphSync bool
 }
 
 // Manager is responsible for generating feature vectors for different requested
@@ -75,6 +79,10 @@ func newManager(cfg Config, desc setDesc) (*Manager, error) {
 		if cfg.NoStaticRemoteKey {
 			raw.Unset(lnwire.StaticRemoteKeyOptional)
 			raw.Unset(lnwire.StaticRemoteKeyRequired)
+		}
+		if cfg.NoGraphSync {
+			raw.Unset(lnwire.GossipQueriesOptional)
+			raw.Unset(lnwire.GossipQueriesRequired)
 		}
 
 		// Ensure that all of our feature sets properly set any

@@ -296,6 +296,8 @@ type config struct {
 
 	NoNetBootstrap bool `long:"nobootstrap" description:"If true, then automatic network bootstrapping will not be attempted."`
 
+	NoGraph bool `long:"no-graph" description:"If true, will not request gossip data from other peers."`
+
 	NoSeedBackup bool `long:"noseedbackup" description:"If true, NO SEED WILL BE EXPOSED AND THE WALLET WILL BE ENCRYPTED USING THE DEFAULT PASSPHRASE -- EVER. THIS FLAG IS ONLY FOR TESTING AND IS BEING DEPRECATED."`
 
 	TrickleDelay             int           `long:"trickledelay" description:"Time in milliseconds between each release of announcements to the network"`

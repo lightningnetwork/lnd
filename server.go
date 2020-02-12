@@ -375,6 +375,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 	featureMgr, err := feature.NewManager(feature.Config{
 		NoTLVOnion:        cfg.LegacyProtocol.LegacyOnion(),
 		NoStaticRemoteKey: cfg.LegacyProtocol.LegacyCommitment(),
+		NoGraphSync:       cfg.NoGraph,
 	})
 	if err != nil {
 		return nil, err

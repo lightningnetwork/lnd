@@ -5605,7 +5605,7 @@ func (r *rpcServer) SubscribeChannelBackups(req *lnrpc.ChannelBackupSubscription
 	updateStream lnrpc.Lightning_SubscribeChannelBackupsServer) error {
 
 	// First, we'll subscribe to the primary channel notifier so we can
-	// obtain events for new opened/closed channels.
+	// obtain events for new pending/opened/closed channels.
 	chanSubscription, err := r.server.channelNotifier.SubscribeChannelEvents()
 	if err != nil {
 		return err
@@ -5622,9 +5622,10 @@ func (r *rpcServer) SubscribeChannelBackups(req *lnrpc.ChannelBackupSubscription
 			switch e.(type) {
 
 			// We only care about new/closed channels, so we'll
-			// skip any events for pending/active/inactive channels.
-			case channelnotifier.PendingOpenChannelEvent:
-				continue
+			// skip any events for active/inactive channels.
+			// To make the subscription behave the same way as the
+			// synchronous call and the file based backup, we also
+			// include pending channels in the update.
 			case channelnotifier.ActiveChannelEvent:
 				continue
 			case channelnotifier.InactiveChannelEvent:

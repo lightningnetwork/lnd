@@ -13675,9 +13675,9 @@ func testChannelBackupUpdates(net *lntest.NetworkHarness, t *harnessTest) {
 		}
 	}
 
-	// As these two channels were just open, we should've got two
-	// notifications for channel backups.
-	assertBackupNtfns(2)
+	// As these two channels were just opened, we should've got two times
+	// the pending and open notifications for channel backups.
+	assertBackupNtfns(2 * 2)
 
 	// The on disk file should also exactly match the latest backup that we
 	// have.

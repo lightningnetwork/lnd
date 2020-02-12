@@ -130,7 +130,7 @@ func testManager(t *testing.T, test managerTest) {
 
 	assertSet(lnwire.DataLossProtectOptional)
 	if !test.cfg.NoTLVOnion {
-		assertSet(lnwire.TLVOnionPayloadRequired)
+		assertSet(lnwire.TLVOnionPayloadOptional)
 	}
 	if !test.cfg.NoStaticRemoteKey {
 		assertSet(lnwire.StaticRemoteKeyOptional)

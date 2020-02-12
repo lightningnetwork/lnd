@@ -2192,7 +2192,7 @@
           "format": "uint64",
           "description": "/ The short channel id that this fee report belongs to."
         },
-        "chan_point": {
+        "channel_point": {
           "type": "string",
           "description": "/ The channel that this fee report belongs to."
         },
@@ -4196,7 +4196,7 @@
     "lnrpcUtxo": {
       "type": "object",
       "properties": {
-        "type": {
+        "address_type": {
           "$ref": "#/definitions/lnrpcAddressType",
           "title": "/ The type of address"
         },

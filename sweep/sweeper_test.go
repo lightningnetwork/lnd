@@ -1232,3 +1232,63 @@ func TestBumpFeeRBF(t *testing.T) {
 
 	ctx.finish(1)
 }
+
+// TestExclusiveGroup tests the sweeper exclusive group functionality.
+func TestExclusiveGroup(t *testing.T) {
+	ctx := createSweeperTestContext(t)
+
+	// Sweep three inputs in the same exclusive group.
+	var results []chan Result
+	for i := 0; i < 3; i++ {
+		exclusiveGroup := uint64(1)
+		result, err := ctx.sweeper.SweepInput(
+			spendableInputs[i], Params{
+				Fee:            FeePreference{ConfTarget: 6},
+				ExclusiveGroup: &exclusiveGroup,
+			},
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		results = append(results, result)
+	}
+
+	// We expect all inputs to be published in separate transactions, even
+	// though they share the same fee preference.
+	ctx.tick()
+	for i := 0; i < 3; i++ {
+		sweepTx := ctx.receiveTx()
+		if len(sweepTx.TxOut) != 1 {
+			t.Fatal("expected a single tx out in the sweep tx")
+		}
+
+		// Remove all txes except for the one that sweeps the first
+		// input. This simulates the sweeps being conflicting.
+		if sweepTx.TxIn[0].PreviousOutPoint !=
+			*spendableInputs[0].OutPoint() {
+
+			ctx.backend.deleteUnconfirmed(sweepTx.TxHash())
+		}
+	}
+
+	// Mine the first sweep tx.
+	ctx.backend.mine()
+
+	// Expect the first input to be swept by the confirmed sweep tx.
+	result0 := <-results[0]
+	if result0.Err != nil {
+		t.Fatal("expected first input to be swept")
+	}
+
+	// Expect the other two inputs to return an error. They have no chance
+	// of confirming.
+	result1 := <-results[1]
+	if result1.Err != ErrExclusiveGroupSpend {
+		t.Fatal("expected second input to be canceled")
+	}
+
+	result2 := <-results[2]
+	if result2.Err != ErrExclusiveGroupSpend {
+		t.Fatal("expected third input to be canceled")
+	}
+}

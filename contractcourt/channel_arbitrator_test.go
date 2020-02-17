@@ -15,6 +15,7 @@ import (
 	"github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -309,6 +310,12 @@ func createTestChannelArbitrator(t *testing.T, log ArbitratorLog) (*chanArbTestC
 			return nil
 		},
 		OnionProcessor: &mockOnionProcessor{},
+		IsForwardedHTLC: func(chanID lnwire.ShortChannelID,
+			htlcIndex uint64) bool {
+
+			return true
+		},
+		Clock: clock.NewDefaultClock(),
 	}
 
 	// We'll use the resolvedChan to synchronize on call to
@@ -1810,4 +1817,88 @@ func TestChannelArbitratorDanglingCommitForceClose(t *testing.T) {
 			chanArbCtx.AssertStateTransitions(StateFullyResolved)
 		})
 	}
+}
+
+// TestChannelArbitratorPendingExpiredHTLC tests that if we have pending htlc
+// that is expired we will only go to chain if we are running at least the
+// time defined in PaymentsExpirationGracePeriod.
+// During this time the remote party is expected to send his updates and cancel
+// The htlc.
+func TestChannelArbitratorPendingExpiredHTLC(t *testing.T) {
+	t.Parallel()
+
+	// We'll create the arbitrator and its backing log in a default state.
+	log := &mockArbitratorLog{
+		state:     StateDefault,
+		newStates: make(chan ArbitratorState, 5),
+		resolvers: make(map[ContractResolver]struct{}),
+	}
+	chanArbCtx, err := createTestChannelArbitrator(t, log)
+	if err != nil {
+		t.Fatalf("unable to create ChannelArbitrator: %v", err)
+	}
+	chanArb := chanArbCtx.chanArb
+
+	// We'll inject a test clock implementation so we can control the uptime.
+	startTime := time.Date(2020, time.February, 3, 13, 0, 0, 0, time.UTC)
+	testClock := clock.NewTestClock(startTime)
+	chanArb.cfg.Clock = testClock
+
+	// We also configure the grace period and the IsForwardedHTLC to identify
+	// the htlc as our initiated payment.
+	chanArb.cfg.PaymentsExpirationGracePeriod = time.Second * 15
+	chanArb.cfg.IsForwardedHTLC = func(chanID lnwire.ShortChannelID,
+		htlcIndex uint64) bool {
+
+		return false
+	}
+
+	if err := chanArb.Start(); err != nil {
+		t.Fatalf("unable to start ChannelArbitrator: %v", err)
+	}
+	defer func() {
+		if err := chanArb.Stop(); err != nil {
+			t.Fatalf("unable to stop chan arb: %v", err)
+		}
+	}()
+
+	// Now that our channel arb has started, we'll set up
+	// its contract signals channel so we can send it
+	// various HTLC updates for this test.
+	htlcUpdates := make(chan *ContractUpdate)
+	signals := &ContractSignals{
+		HtlcUpdates: htlcUpdates,
+		ShortChanID: lnwire.ShortChannelID{},
+	}
+	chanArb.UpdateContractSignals(signals)
+
+	// Next, we'll send it a new HTLC that is set to expire
+	// in 10 blocks.
+	htlcIndex := uint64(99)
+	htlcExpiry := uint32(10)
+	pendingHTLC := channeldb.HTLC{
+		Incoming:      false,
+		Amt:           10000,
+		HtlcIndex:     htlcIndex,
+		RefundTimeout: htlcExpiry,
+	}
+	htlcUpdates <- &ContractUpdate{
+		HtlcKey: RemoteHtlcSet,
+		Htlcs:   []channeldb.HTLC{pendingHTLC},
+	}
+
+	// We will advance the uptime to 10 seconds which should be still within
+	// the grace period and should not trigger going to chain.
+	testClock.SetTime(startTime.Add(time.Second * 10))
+	chanArbCtx.blockEpochs <- &chainntnfs.BlockEpoch{Height: 5}
+	chanArbCtx.AssertState(StateDefault)
+
+	// We will advance the uptime to 16 seconds which should trigger going
+	// to chain.
+	testClock.SetTime(startTime.Add(time.Second * 16))
+	chanArbCtx.blockEpochs <- &chainntnfs.BlockEpoch{Height: 6}
+	chanArbCtx.AssertStateTransitions(
+		StateBroadcastCommit,
+		StateCommitmentBroadcasted,
+	)
 }

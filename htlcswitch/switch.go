@@ -459,6 +459,18 @@ func (s *Switch) UpdateForwardingPolicies(
 	s.indexMtx.RUnlock()
 }
 
+// IsForwardedHTLC checks for a given channel and htlc index if it is related
+// to an opened circuit that represents a forwarded payment.
+func (s *Switch) IsForwardedHTLC(chanID lnwire.ShortChannelID,
+	htlcIndex uint64) bool {
+
+	circuit := s.circuits.LookupOpenCircuit(channeldb.CircuitKey{
+		ChanID: chanID,
+		HtlcID: htlcIndex,
+	})
+	return circuit != nil && circuit.Incoming.ChanID != hop.Source
+}
+
 // forward is used in order to find next channel link and apply htlc update.
 // Also this function is used by channel links itself in order to forward the
 // update after it has been included in the channel.

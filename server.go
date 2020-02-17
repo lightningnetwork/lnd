@@ -916,11 +916,14 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 				return ErrServerShuttingDown
 			}
 		},
-		DisableChannel:      s.chanStatusMgr.RequestDisable,
-		Sweeper:             s.sweeper,
-		Registry:            s.invoices,
-		NotifyClosedChannel: s.channelNotifier.NotifyClosedChannelEvent,
-		OnionProcessor:      s.sphinx,
+		DisableChannel:                s.chanStatusMgr.RequestDisable,
+		Sweeper:                       s.sweeper,
+		Registry:                      s.invoices,
+		NotifyClosedChannel:           s.channelNotifier.NotifyClosedChannelEvent,
+		OnionProcessor:                s.sphinx,
+		PaymentsExpirationGracePeriod: cfg.PaymentsExpirationGracePeriod,
+		IsForwardedHTLC:               s.htlcSwitch.IsForwardedHTLC,
+		Clock:                         clock.NewDefaultClock(),
 	}, chanDB)
 
 	s.breachArbiter = newBreachArbiter(&BreachConfig{

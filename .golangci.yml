@@ -21,7 +21,6 @@ run:
     - signrpc
     - walletrpc
     - watchtowerrpc
-    - wtclientrpc
 
 linters-settings:
   govet:

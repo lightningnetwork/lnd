@@ -210,6 +210,12 @@ type peer struct {
 	// the connection handshake.
 	remoteFeatures *lnwire.FeatureVector
 
+	// resentChanSyncMsg is a set that keeps track of which channels we
+	// have re-sent channel reestablishment messages for. This is done to
+	// avoid getting into loop where both peers will respond to the other
+	// peer's chansync message with its own over and over again.
+	resentChanSyncMsg map[lnwire.ChannelID]struct{}
+
 	// writePool is the task pool to that manages reuse of write buffers.
 	// Write tasks are submitted to the pool in order to conserve the total
 	// number of write buffers allocated at any one time, and decouple write
@@ -266,6 +272,7 @@ func newPeer(conn net.Conn, connReq *connmgr.ConnReq, server *server,
 		localCloseChanReqs: make(chan *htlcswitch.ChanClose),
 		linkFailures:       make(chan linkFailureReport),
 		chanCloseMsgs:      make(chan *closeMsg),
+		resentChanSyncMsg:  make(map[lnwire.ChannelID]struct{}),
 
 		chanActiveTimeout: chanActiveTimeout,
 
@@ -2506,6 +2513,12 @@ func (p *peer) sendInitMsg() error {
 // resendChanSyncMsg will attempt to find a channel sync message for the closed
 // channel and resend it to our peer.
 func (p *peer) resendChanSyncMsg(cid lnwire.ChannelID) error {
+	// If we already re-sent the mssage for this channel, we won't do it
+	// again.
+	if _, ok := p.resentChanSyncMsg[cid]; ok {
+		return nil
+	}
+
 	// Check if we have any channel sync messages stored for this channel.
 	c, err := p.server.chanDB.FetchClosedChannelForID(cid)
 	if err != nil {
@@ -2533,6 +2546,10 @@ func (p *peer) resendChanSyncMsg(cid lnwire.ChannelID) error {
 
 	peerLog.Debugf("Re-sent channel sync message for channel %v to peer "+
 		"%v", cid, p)
+
+	// Note down that we sent the message, so we won't resend it again for
+	// this connection.
+	p.resentChanSyncMsg[cid] = struct{}{}
 
 	return nil
 }

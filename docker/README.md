@@ -64,8 +64,8 @@ bitcoin into.
 $ export NETWORK="simnet" 
 
 # Create persistent volumes for alice and bob.
-docker volume create simnet_lnd_alice
-docker volume create simnet_lnd_bob
+$ docker volume create simnet_lnd_alice
+$ docker volume create simnet_lnd_bob
 
 # Run the "Alice" container and log into it:
 $ docker-compose run -d --name alice --volume simnet_lnd_alice:/root/.lnd lnd

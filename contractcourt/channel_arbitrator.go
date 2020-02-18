@@ -8,11 +8,16 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+
+	"github.com/lightningnetwork/lnd/sweep"
+
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -126,6 +131,15 @@ type ChannelArbitratorConfig struct {
 	//
 	// TODO(roasbeef): need RPC's to combine for pendingchannels RPC
 	MarkChannelResolved func() error
+
+	// HtlcTimeoutTolerance is the number of timed out htlcs we will
+	// tolerate on our commitment before going on chain. This ensures
+	// that our channel maintains a level of `good throughput` when we
+	// allow htlcs to remain on our commitment after timeout because
+	// it is uneconomical to go to chain. Our channel's max accepted htlcs
+	// should be considered when setting this value. Setting this value to
+	// zero will ensure that we go on chain as soon as a htlc times out.
+	HtlcTimeoutTolerance int
 
 	ChainArbitratorConfig
 }
@@ -1113,6 +1127,278 @@ func (c ChainActionMap) Merge(actions ChainActionMap) {
 	}
 }
 
+// shouldGoOnChain examines a htlc set to determine whether we need to go on
+// chain. This function considered the number of timing out htlcs we have on
+// our commit ensure that we have a required rate of good throughput on our
+// channel, which prevents timed out htlcs from building up until the channel
+// is unusable and we might as well go on chain anyway because we are getting
+// no use out of the channel. If we still have acceptable throughput on our
+// channel, we examine whether it is economical to go on chain by examining
+// the cost to sweep the existing htlc set vs the benefit of claiming timed
+// out htlcs on chain. It takes a timeout function for ease of testing.
+func (c *ChannelArbitrator) shouldGoOnChain(htlcs htlcSet,
+	timeout func(htlc channeldb.HTLC, delta uint32) bool) (bool, error) {
+
+	outgoingTimeout, outgoingOk := getHtlcsByTimeout(
+		func(htlc channeldb.HTLC) bool {
+			return timeout(
+				htlc, c.cfg.OutgoingBroadcastDelta,
+			)
+		},
+		htlcs.outgoingHTLCs,
+	)
+
+	incomingTimeout, incomingOk := getHtlcsByTimeout(
+		func(htlc channeldb.HTLC) bool {
+			return timeout(
+				htlc, c.cfg.IncomingBroadcastDelta,
+			)
+		},
+		htlcs.incomingHTLCs,
+	)
+
+	timeoutTotal := len(incomingTimeout) + len(outgoingTimeout)
+	total := len(htlcs.incomingHTLCs) + len(htlcs.outgoingHTLCs)
+
+	// If we have no incoming or outgoing htlcs that are going to time out,
+	// we have no reason to go on chain, so we can exit early.
+	if timeoutTotal == 0 {
+		log.Tracef("shouldGoOnChain: no htlcs timing out in set of "+
+			"size: %v", total)
+
+		return false, nil
+	}
+
+	// If we have more htlcs that need to go on chain than we tolerate being
+	// left on our commitment, we should go on chain because our channel has
+	// an unacceptable level of good throughput. This prevents us from
+	// allowing timed out htlcs to build up on our commitment indefinitely.
+	if timeoutTotal >= c.cfg.HtlcTimeoutTolerance {
+		log.Info("ChannelArbitrator: %v htlcs timing out (in set of "+
+			"size: %v), exceed the htlc timeout tolerance of: %v",
+			timeoutTotal, total, c.cfg.HtlcTimeoutTolerance)
+
+		return true, nil
+	}
+
+	// Go on chain if it is economical to do so given the current set of
+	// timing out and ok htlcs.
+	return c.economicalOnChain(
+		incomingTimeout, incomingOk, outgoingTimeout, outgoingOk,
+	)
+}
+
+// economicalOnChain determines whether it is economical to go on chain for a
+// given set of htlcs.
+func (c *ChannelArbitrator) economicalOnChain(incomingTimeout, incomingOk,
+	outgoingTimeout, outgoingOk map[uint64]channeldb.HTLC) (bool, error) {
+
+	// Get the fees we will pay for incoming and outgoing htlcs.
+	incomingFee, err := sweepCost(true, c.cfg.FeeEstimator)
+	if err != nil {
+		return false, err
+	}
+
+	outgoingFee, err := sweepCost(false, c.cfg.FeeEstimator)
+	if err != nil {
+		return false, err
+	}
+
+	// We will sweep incoming htlcs if we have the preimage available.
+	incomingWillSweep := func(htlc channeldb.HTLC) (b bool, err error) {
+		return c.isPreimageAvailable(htlc.RHash)
+	}
+
+	// Assume that we will always sweep outgoing htlcs.
+	// TODO(carla): consider updating this with a heuristic.
+	outgoingWillSweep := func(htlc channeldb.HTLC) (b bool, err error) {
+		return true, nil
+	}
+
+	set := []struct {
+		htlcSet     map[uint64]channeldb.HTLC
+		timingOut   bool
+		willTimeout func(htlc channeldb.HTLC) (bool, error)
+		fee         lnwire.MilliSatoshi
+	}{
+		{
+			htlcSet:     incomingOk,
+			timingOut:   false,
+			fee:         incomingFee,
+			willTimeout: incomingWillSweep,
+		},
+		{
+			htlcSet:     incomingTimeout,
+			timingOut:   true,
+			fee:         incomingFee,
+			willTimeout: incomingWillSweep,
+		},
+		{
+			htlcSet:     outgoingTimeout,
+			timingOut:   true,
+			fee:         outgoingFee,
+			willTimeout: outgoingWillSweep,
+		},
+		{
+			htlcSet:     outgoingOk,
+			timingOut:   false,
+			fee:         outgoingFee,
+			willTimeout: outgoingWillSweep,
+		},
+	}
+
+	var cost, benefit lnwire.MilliSatoshi
+
+	for _, s := range set {
+		cost, benefit, err = onChainCostBenefit(
+			s.htlcSet, s.timingOut, s.willTimeout, s.fee,
+		)
+		if err != nil {
+			return false, err
+		}
+	}
+
+	return cost < benefit, nil
+}
+
+// sweepCost is a helper function which calculates the cost of sweeping the
+// success or timeout output of a htlc.
+func sweepCost(incoming bool,
+	feeEstimator chainfee.Estimator) (lnwire.MilliSatoshi, error) {
+	// Determine the fee we will need to sweep within our sweep
+	// confirmation target.
+	satPerWeight, err := sweep.DetermineFeePerKw(
+		feeEstimator,
+		sweep.FeePreference{
+			ConfTarget: sweepConfTarget,
+		},
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	// Get the weight that the sweep will require, based on whether
+	// we will sweep the success or timeout output.
+	var sweepWeight int64
+	if incoming {
+		// If the htlc is incoming, we will have to sweep
+		// success output.
+		sweepWeight = input.HtlcSuccessWeight
+
+	} else {
+		// If the htlc is outgoing, we will need to sweep the
+		// timeout output.
+		sweepWeight = input.HtlcTimeoutWeight
+
+	}
+
+	// Calculate sweep fees in msat.
+	estFeesSat := satPerWeight.FeeForWeight(sweepWeight)
+	return lnwire.NewMSatFromSatoshis(estFeesSat), nil
+}
+
+// economicalOnChain examines a set of htlcs and returns a boolean that
+// indicates whether it is economical to go on chain. The goal of going on chain
+// for a htlc is to ensure that we can sweep it before both spend paths become
+// viable (success and timeout) and we are in a double-spend race with our peer
+// to claim these outputs. To determine whether we should go on chain, we look
+// at the cost vs benefit of doing so. The cost of going on chain is equal to
+// the sum of the sweep fees of the full htlc set (or the htlc amount if it is
+// < its sweep fee, because we will not reclaim this value on chain). Note that
+// this cost calculation assumes that we will sweep evey outgoing htlc's timeout
+// and every incoming htlc's success output, which may not be the case. The
+// benefit of going on chain is equal to the sum of all htlcs that we need to
+// time out, because these are the amounts we could lose if we do not go on
+// chain.
+func onChainCostBenefit(htlcs map[uint64]channeldb.HTLC, timingOut bool,
+	canClaim func(htlc channeldb.HTLC) (bool, error),
+	sweepFeeMsat lnwire.MilliSatoshi) (lnwire.MilliSatoshi,
+	lnwire.MilliSatoshi, error) {
+
+	var (
+		// sweepCost is the total msat amount that we would pay in fees
+		// to sweep the htlcs in our set by their timeout. If a htlc is
+		// less than its sweep cost, we will not sweep it, so the htlc
+		// amount is added to the cost instead, since this amount is
+		// left unswept.
+		sweepCost lnwire.MilliSatoshi
+
+		// sweepBenefit is the total value of the htlcs that need to
+		// go on chain to be timed out.
+		sweepBenefit lnwire.MilliSatoshi
+	)
+
+	for _, htlc := range htlcs {
+		// Check whether we can canClaim the htlc on chain.
+		canClaim, err := canClaim(htlc)
+		if err != nil {
+			return 0, 0, err
+		}
+
+		// If we cannot claim the htlc on chain, then we do not need to
+		// consider it in out cost/benefit analysis. This is true in the
+		// case where we do not have a preimage for an incoming htlc,
+		// for example.
+		if !canClaim {
+			continue
+		}
+
+		// If we can claim the htlc, and it is going to time out, we
+		// will be able to claim the htlc amount if we go on chain, so
+		// we add it to the benefit of the sweep.
+		if timingOut {
+			sweepBenefit += htlc.Amt
+		}
+
+		// We do not sweep htlcs that are worth less than their sweep
+		// fee. If we will not sweep a htlc for this reason, we add the
+		// amount to the cost of the sweep because we will be leaving
+		// it unclaimed on chain. Otherwise we add the sweep fee to the
+		// total cost.
+		if sweepFeeMsat > htlc.Amt {
+			sweepCost += htlc.Amt
+		} else {
+			sweepCost += sweepFeeMsat
+		}
+	}
+
+	log.Infof("Cost benefit of going on chain for: %v htlcs "+
+		"with timing out: %v. Cost of sweep: %v, benefit of sweep: "+
+		"%v ", len(htlcs), timingOut, sweepCost,
+		sweepBenefit)
+
+	return sweepCost, sweepBenefit, nil
+}
+
+// getHtlcsByTimeout is a helper function which sorts htlcs into two sets based
+// on whether they need to on chain because they are timing out, and a set of
+// htlcs that do not need to go on chain yet. Note that this function does not
+// take into account whether we *can* claim a htlcs on chain (for example,
+// whether we have the preimage for an incoming htlc). It simply sorts htlcs
+// into timing out and not timing out.
+func getHtlcsByTimeout(timeout func(htlc channeldb.HTLC) bool,
+	htlcs map[uint64]channeldb.HTLC) (map[uint64]channeldb.HTLC,
+	map[uint64]channeldb.HTLC) {
+
+	var (
+		goOnChain    = make(map[uint64]channeldb.HTLC)
+		stayOffChain = make(map[uint64]channeldb.HTLC)
+	)
+
+	// Add htlcs to the goOnChain or stayOffChain map according to the
+	// decision made by goOnChainForTimeout.
+	for id, htlc := range htlcs {
+		if timeout(htlc) {
+			goOnChain[id] = htlc
+			continue
+		}
+
+		stayOffChain[id] = htlc
+	}
+
+	return goOnChain, stayOffChain
+}
+
 // goOnChainForTimeout takes into account the absolute timeout of the HTLC, if
 // the confirmation delta that we need is close, and returns a bool indicating
 // if we should go on chain to claim.  We do this rather than waiting up until
@@ -1183,58 +1469,16 @@ func (c *ChannelArbitrator) checkCommitChainActions(height uint32,
 
 	actionMap := make(ChainActionMap)
 
-	// First, we'll make an initial pass over the set of incoming and
-	// outgoing HTLC's to decide if we need to go on chain at all.
-	haveChainActions := false
-	for _, htlc := range htlcs.outgoingHTLCs {
-		// We'll need to go on-chain for an outgoing HTLC if it was
-		// never resolved downstream, and it's "close" to timing out.
-		toChain := c.goOnChainForTimeout(
-			htlc, c.cfg.OutgoingBroadcastDelta, height,
-		)
-
-		if toChain {
-			log.Debugf("ChannelArbitrator(%v): go to chain for "+
-				"outgoing htlc %x: timeout=%v, "+
-				"blocks_until_expiry=%v, broadcast_delta=%v",
-				c.cfg.ChanPoint, htlc.RHash[:],
-				htlc.RefundTimeout, htlc.RefundTimeout-height,
-				c.cfg.OutgoingBroadcastDelta,
-			)
-		}
-
-		haveChainActions = haveChainActions || toChain
-	}
-
-	for _, htlc := range htlcs.incomingHTLCs {
-		// We'll need to go on-chain to pull an incoming HTLC iff we
-		// know the pre-image and it's close to timing out. We need to
-		// ensure that we claim the funds that our rightfully ours
-		// on-chain.
-		preimageAvailable, err := c.isPreimageAvailable(htlc.RHash)
-		if err != nil {
-			return nil, err
-		}
-
-		if !preimageAvailable {
-			continue
-		}
-
-		toChain := c.goOnChainForTimeout(
-			htlc, c.cfg.IncomingBroadcastDelta, height,
-		)
-
-		if toChain {
-			log.Debugf("ChannelArbitrator(%v): go to chain for "+
-				"incoming htlc %x: timeout=%v, "+
-				"blocks_until_expiry=%v, broadcast_delta=%v",
-				c.cfg.ChanPoint, htlc.RHash[:],
-				htlc.RefundTimeout, htlc.RefundTimeout-height,
-				c.cfg.IncomingBroadcastDelta,
-			)
-		}
-
-		haveChainActions = haveChainActions || toChain
+	// First, we will examine the htlc set as a whole to decide whether
+	// we want to go on chain.
+	haveChainActions, err := c.shouldGoOnChain(
+		htlcs,
+		func(htlc channeldb.HTLC, delta uint32) bool {
+			return c.goOnChainForTimeout(htlc, delta, height)
+		},
+	)
+	if err != nil {
+		return nil, err
 	}
 
 	// If we don't have any actions to make, then we'll return an empty

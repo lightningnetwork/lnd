@@ -1113,12 +1113,12 @@ func (c ChainActionMap) Merge(actions ChainActionMap) {
 	}
 }
 
-// shouldGoOnChain takes into account the absolute timeout of the HTLC, if the
-// confirmation delta that we need is close, and returns a bool indicating if
-// we should go on chain to claim.  We do this rather than waiting up until the
-// last minute as we want to ensure that when we *need* (HTLC is timed out) to
-// sweep, the commitment is already confirmed.
-func (c *ChannelArbitrator) shouldGoOnChain(htlc channeldb.HTLC,
+// goOnChainForTimeout takes into account the absolute timeout of the HTLC, if
+// the confirmation delta that we need is close, and returns a bool indicating
+// if we should go on chain to claim.  We do this rather than waiting up until
+// the last minute as we want to ensure that when we *need* (HTLC is timed out)
+// to sweep, the commitment is already confirmed.
+func (c *ChannelArbitrator) goOnChainForTimeout(htlc channeldb.HTLC,
 	broadcastDelta, currentHeight uint32) bool {
 
 	// We'll calculate the broadcast cut off for this HTLC. This is the
@@ -1189,8 +1189,8 @@ func (c *ChannelArbitrator) checkCommitChainActions(height uint32,
 	for _, htlc := range htlcs.outgoingHTLCs {
 		// We'll need to go on-chain for an outgoing HTLC if it was
 		// never resolved downstream, and it's "close" to timing out.
-		toChain := c.shouldGoOnChain(htlc, c.cfg.OutgoingBroadcastDelta,
-			height,
+		toChain := c.goOnChainForTimeout(
+			htlc, c.cfg.OutgoingBroadcastDelta, height,
 		)
 
 		if toChain {
@@ -1220,8 +1220,8 @@ func (c *ChannelArbitrator) checkCommitChainActions(height uint32,
 			continue
 		}
 
-		toChain := c.shouldGoOnChain(htlc, c.cfg.IncomingBroadcastDelta,
-			height,
+		toChain := c.goOnChainForTimeout(
+			htlc, c.cfg.IncomingBroadcastDelta, height,
 		)
 
 		if toChain {
@@ -1270,8 +1270,8 @@ func (c *ChannelArbitrator) checkCommitChainActions(height uint32,
 		// mark it still "live". After we broadcast, we'll monitor it
 		// until the HTLC times out to see if we can also redeem it
 		// on-chain.
-		case !c.shouldGoOnChain(htlc, c.cfg.OutgoingBroadcastDelta,
-			height,
+		case !c.goOnChainForTimeout(
+			htlc, c.cfg.OutgoingBroadcastDelta, height,
 		):
 			// TODO(roasbeef): also need to be able to query
 			// circuit map to see if HTLC hasn't been fully
@@ -1439,8 +1439,8 @@ func (c *ChannelArbitrator) checkRemoteDanglingActions(
 	for _, htlc := range pendingRemoteHTLCs {
 		// We'll now check if we need to go to chain in order to cancel
 		// the incoming HTLC.
-		goToChain := c.shouldGoOnChain(htlc, c.cfg.OutgoingBroadcastDelta,
-			height,
+		goToChain := c.goOnChainForTimeout(
+			htlc, c.cfg.OutgoingBroadcastDelta, height,
 		)
 
 		// If we don't need to go to chain, and no commitments have

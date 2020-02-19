@@ -3103,12 +3103,13 @@ func (lc *LightningChannel) getUnsignedAckedUpdates() []channeldb.LogUpdate {
 
 // validateCommitmentSanity is used to validate the current state of the
 // commitment transaction in terms of the ChannelConstraints that we and our
-// remote peer agreed upon during the funding workflow. The predictAdded
-// parameter should be set to a valid PaymentDescriptor if we are validating
-// in the state when adding a new HTLC, or nil otherwise.
+// remote peer agreed upon during the funding workflow. The
+// predict[Our|Their]Add should parameters should be set to a valid
+// PaymentDescriptor if we are validating in the state when adding a new HTLC,
+// or nil otherwise.
 func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
 	ourLogCounter uint64, remoteChain bool,
-	predictAdded *PaymentDescriptor) error {
+	predictOurAdd, predictTheirAdd *PaymentDescriptor) error {
 
 	// Fetch all updates not committed.
 	view := lc.fetchHTLCView(theirLogCounter, ourLogCounter)
@@ -3116,14 +3117,11 @@ func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
 	// If we are checking if we can add a new HTLC, we add this to the
 	// appropriate update log, in order to validate the sanity of the
 	// commitment resulting from _actually adding_ this HTLC to the state.
-	if predictAdded != nil {
-		// If the remoteChain bool is true, add to ourUpdates.
-		if remoteChain {
-			view.ourUpdates = append(view.ourUpdates, predictAdded)
-		} else {
-			// Else add to theirUpdates.
-			view.theirUpdates = append(view.theirUpdates, predictAdded)
-		}
+	if predictOurAdd != nil {
+		view.ourUpdates = append(view.ourUpdates, predictOurAdd)
+	}
+	if predictTheirAdd != nil {
+		view.theirUpdates = append(view.theirUpdates, predictTheirAdd)
 	}
 
 	commitChain := lc.localCommitChain
@@ -3296,7 +3294,7 @@ func (lc *LightningChannel) SignNextCommitment() (lnwire.Sig, []lnwire.Sig, []ch
 	// party set up when we initially set up the channel. If we are, then
 	// we'll abort this state transition.
 	err := lc.validateCommitmentSanity(
-		remoteACKedIndex, lc.localUpdateLog.logIndex, true, nil,
+		remoteACKedIndex, lc.localUpdateLog.logIndex, true, nil, nil,
 	)
 	if err != nil {
 		return sig, htlcSigs, nil, err
@@ -4050,7 +4048,7 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSig lnwire.Sig,
 	// the constraints we specified during initial channel setup. If not,
 	// then we'll abort the channel as they've violated our constraints.
 	err := lc.validateCommitmentSanity(
-		lc.remoteUpdateLog.logIndex, localACKedIndex, false, nil,
+		lc.remoteUpdateLog.logIndex, localACKedIndex, false, nil, nil,
 	)
 	if err != nil {
 		return err
@@ -4647,7 +4645,7 @@ func (lc *LightningChannel) AddHTLC(htlc *lnwire.UpdateAddHTLC,
 	// must keep on our commitment transaction.
 	remoteACKedIndex := lc.localCommitChain.tail().theirMessageIndex
 	err := lc.validateCommitmentSanity(
-		remoteACKedIndex, lc.localUpdateLog.logIndex, true, pd,
+		remoteACKedIndex, lc.localUpdateLog.logIndex, true, pd, nil,
 	)
 	if err != nil {
 		return 0, err
@@ -4685,7 +4683,7 @@ func (lc *LightningChannel) ReceiveHTLC(htlc *lnwire.UpdateAddHTLC) (uint64, err
 	// Clamp down on the number of HTLC's we can receive by checking the
 	// commitment sanity.
 	err := lc.validateCommitmentSanity(
-		lc.remoteUpdateLog.logIndex, localACKedIndex, false, pd,
+		lc.remoteUpdateLog.logIndex, localACKedIndex, false, nil, pd,
 	)
 	if err != nil {
 		return 0, err

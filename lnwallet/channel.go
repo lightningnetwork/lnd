@@ -4642,10 +4642,26 @@ func (lc *LightningChannel) AddHTLC(htlc *lnwire.UpdateAddHTLC,
 	}
 
 	// Make sure adding this HTLC won't violate any of the constraints we
-	// must keep on our commitment transaction.
+	// must keep on the commitment transactions.
 	remoteACKedIndex := lc.localCommitChain.tail().theirMessageIndex
+
+	// First we'll check whether this HTLC can be added to the remote
+	// commitment transaction without violation any of the constraints.
 	err := lc.validateCommitmentSanity(
 		remoteACKedIndex, lc.localUpdateLog.logIndex, true, pd, nil,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	// We must also check whether it can be added to our own commitment
+	// transaction, or the remote node will refuse to sign. This is not
+	// totally bullet proof, as the remote might be adding updates
+	// concurrently, but if we fail this check there is for sure not
+	// possible for us to add the HTLC.
+	err = lc.validateCommitmentSanity(
+		lc.remoteUpdateLog.logIndex, lc.localUpdateLog.logIndex,
+		false, pd, nil,
 	)
 	if err != nil {
 		return 0, err

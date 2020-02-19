@@ -1256,12 +1256,21 @@ func (s *Switch) failAddPacket(packet *htlcPacket, failure *LinkError) error {
 
 	log.Error(failure.Error())
 
+	// Create a failure packet for this htlc. The the full set of
+	// information about the htlc failure is included so that they can
+	// be included in link failure notifications.
 	failPkt := &htlcPacket{
-		sourceRef:      packet.sourceRef,
-		incomingChanID: packet.incomingChanID,
-		incomingHTLCID: packet.incomingHTLCID,
-		circuit:        packet.circuit,
-		linkFailure:    failure,
+		sourceRef:       packet.sourceRef,
+		incomingChanID:  packet.incomingChanID,
+		incomingHTLCID:  packet.incomingHTLCID,
+		outgoingChanID:  packet.outgoingChanID,
+		outgoingHTLCID:  packet.outgoingHTLCID,
+		incomingAmount:  packet.incomingAmount,
+		amount:          packet.amount,
+		incomingTimeout: packet.incomingTimeout,
+		outgoingTimeout: packet.outgoingTimeout,
+		circuit:         packet.circuit,
+		linkFailure:     failure,
 		htlc: &lnwire.UpdateFailHTLC{
 			Reason: reason,
 		},

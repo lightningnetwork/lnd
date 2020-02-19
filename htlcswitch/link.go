@@ -1224,8 +1224,7 @@ func (l *channelLink) processHtlcResolution(resolution invoices.HtlcResolution,
 		failure := getResolutionFailure(res, htlc.pd.Amount)
 
 		l.sendHTLCError(
-			htlc.pd.HtlcIndex, failure,
-			htlc.obfuscator, htlc.pd.SourceRef,
+			htlc.pd, failure, htlc.obfuscator, true,
 		)
 		return nil
 
@@ -2696,9 +2695,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 			// later date
 			failure := lnwire.NewInvalidOnionPayload(failedType, 0)
 			l.sendHTLCError(
-				pd.HtlcIndex,
-				NewLinkError(failure),
-				obfuscator, pd.SourceRef,
+				pd, NewLinkError(failure), obfuscator, false,
 			)
 
 			l.log.Errorf("unable to decode forwarding "+
@@ -2811,10 +2808,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 				)
 
 				l.sendHTLCError(
-					pd.HtlcIndex,
-					NewLinkError(failure),
-					obfuscator,
-					pd.SourceRef,
+					pd, NewLinkError(failure), obfuscator, false,
 				)
 				continue
 			}
@@ -2900,7 +2894,7 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 		failure := NewLinkError(
 			lnwire.NewFinalIncorrectHtlcAmount(pd.Amount),
 		)
-		l.sendHTLCError(pd.HtlcIndex, failure, obfuscator, pd.SourceRef)
+		l.sendHTLCError(pd, failure, obfuscator, true)
 
 		return nil
 	}
@@ -2915,7 +2909,7 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 		failure := NewLinkError(
 			lnwire.NewFinalIncorrectCltvExpiry(pd.Timeout),
 		)
-		l.sendHTLCError(pd.HtlcIndex, failure, obfuscator, pd.SourceRef)
+		l.sendHTLCError(pd, failure, obfuscator, true)
 
 		return nil
 	}
@@ -3031,8 +3025,8 @@ func (l *channelLink) handleBatchFwdErrs(errChan chan error) {
 
 // sendHTLCError functions cancels HTLC and send cancel message back to the
 // peer from which HTLC was received.
-func (l *channelLink) sendHTLCError(htlcIndex uint64, failure *LinkError,
-	e hop.ErrorEncrypter, sourceRef *channeldb.AddRef) {
+func (l *channelLink) sendHTLCError(pd *lnwallet.PaymentDescriptor,
+	failure *LinkError, e hop.ErrorEncrypter, isReceive bool) {
 
 	reason, err := e.EncryptFirstHop(failure.WireMessage())
 	if err != nil {
@@ -3040,7 +3034,7 @@ func (l *channelLink) sendHTLCError(htlcIndex uint64, failure *LinkError,
 		return
 	}
 
-	err = l.channel.FailHTLC(htlcIndex, reason, sourceRef, nil, nil)
+	err = l.channel.FailHTLC(pd.HtlcIndex, reason, pd.SourceRef, nil, nil)
 	if err != nil {
 		l.log.Errorf("unable cancel htlc: %v", err)
 		return
@@ -3048,9 +3042,35 @@ func (l *channelLink) sendHTLCError(htlcIndex uint64, failure *LinkError,
 
 	l.cfg.Peer.SendMessage(false, &lnwire.UpdateFailHTLC{
 		ChanID: l.ChanID(),
-		ID:     htlcIndex,
+		ID:     pd.HtlcIndex,
 		Reason: reason,
 	})
+
+	// Notify a link failure on our incoming link. Outgoing htlc information
+	// is not available at this point, because we have not decrypted the
+	// onion, so it is excluded.
+	var eventType HtlcEventType
+	if isReceive {
+		eventType = HtlcEventTypeReceive
+	} else {
+		eventType = HtlcEventTypeForward
+	}
+
+	l.cfg.HtlcNotifier.NotifyLinkFailEvent(
+		HtlcKey{
+			IncomingCircuit: channeldb.CircuitKey{
+				ChanID: l.ShortChanID(),
+				HtlcID: pd.HtlcIndex,
+			},
+		},
+		HtlcInfo{
+			IncomingTimeLock: pd.Timeout,
+			IncomingAmt:      pd.Amount,
+		},
+		eventType,
+		failure,
+		true,
+	)
 }
 
 // sendMalformedHTLCError helper function which sends the malformed HTLC update

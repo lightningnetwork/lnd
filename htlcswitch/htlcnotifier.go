@@ -289,6 +289,8 @@ type SettleEvent struct {
 
 // NotifyForwardingEvent notifies the HtlcNotifier than a htlc has been
 // forwarded.
+//
+// Note this is part of the htlcNotifier interface.
 func (h *HtlcNotifier) NotifyForwardingEvent(key HtlcKey, info HtlcInfo,
 	eventType HtlcEventType) {
 
@@ -309,6 +311,8 @@ func (h *HtlcNotifier) NotifyForwardingEvent(key HtlcKey, info HtlcInfo,
 
 // NotifyLinkFailEvent notifies that a htlc has failed on our incoming
 // or outgoing link.
+//
+// Note this is part of the htlcNotifier interface.
 func (h *HtlcNotifier) NotifyLinkFailEvent(key HtlcKey, info HtlcInfo,
 	eventType HtlcEventType, linkErr *LinkError, incoming bool) {
 
@@ -331,6 +335,8 @@ func (h *HtlcNotifier) NotifyLinkFailEvent(key HtlcKey, info HtlcInfo,
 
 // NotifyForwardingFailEvent notifies the HtlcNotifier that a htlc we
 // forwarded has failed down the line.
+//
+// Note this is part of the htlcNotifier interface.
 func (h *HtlcNotifier) NotifyForwardingFailEvent(key HtlcKey,
 	eventType HtlcEventType) {
 
@@ -350,6 +356,8 @@ func (h *HtlcNotifier) NotifyForwardingFailEvent(key HtlcKey,
 
 // NotifySettleEvent notifies the HtlcNotifier that a htlc that we committed
 // to as part of a forward or a receive to our node has been settled.
+//
+// Note this is part of the htlcNotifier interface.
 func (h *HtlcNotifier) NotifySettleEvent(key HtlcKey, eventType HtlcEventType) {
 	event := &SettleEvent{
 		HtlcKey:       key,

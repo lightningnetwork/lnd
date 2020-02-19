@@ -272,6 +272,10 @@ type ChannelLinkConfig struct {
 	// NotifyInactiveChannel allows the switch to tell the ChannelNotifier
 	// when channels become inactive.
 	NotifyInactiveChannel func(wire.OutPoint)
+
+	// HtlcNotifier is an instance of a htlcNotifier which we will pipe htlc
+	// events through.
+	HtlcNotifier htlcNotifier
 }
 
 // channelLink is the service which drives a channel's commitment update

@@ -150,6 +150,10 @@ type Config struct {
 	// the switch when a new block has arrived.
 	Notifier chainntnfs.ChainNotifier
 
+	// HtlcNotifier is an instance of a htlcNotifier which we will pipe htlc
+	// events through.
+	HtlcNotifier htlcNotifier
+
 	// FwdEventTicker is a signal that instructs the htlcswitch to flush any
 	// pending forwarding events.
 	FwdEventTicker ticker.Ticker

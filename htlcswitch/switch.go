@@ -898,6 +898,18 @@ func (s *Switch) handleLocalResponse(pkt *htlcPacket) {
 			pkt.inKey(), err)
 		return
 	}
+
+	// Finally, notify on the htlc failure or success that has been handled.
+	key := newHtlcKey(pkt)
+	eventType := getEventType(pkt)
+
+	switch pkt.htlc.(type) {
+	case *lnwire.UpdateFulfillHTLC:
+		s.cfg.HtlcNotifier.NotifySettleEvent(key, eventType)
+
+	case *lnwire.UpdateFailHTLC:
+		s.cfg.HtlcNotifier.NotifyForwardingFailEvent(key, eventType)
+	}
 }
 
 // extractResult uses the given deobfuscator to extract the payment result from

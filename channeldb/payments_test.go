@@ -62,7 +62,7 @@ func makeFakeInfo() (*PaymentCreationInfo, *PaymentAttemptInfo) {
 		Value:       1000,
 		// Use single second precision to avoid false positive test
 		// failures due to the monotonic time component.
-		CreationDate:   time.Unix(time.Now().Unix(), 0),
+		CreationTime:   time.Unix(time.Now().Unix(), 0),
 		PaymentRequest: []byte(""),
 	}
 

@@ -178,8 +178,8 @@ type PaymentCreationInfo struct {
 	// Value is the amount we are paying.
 	Value lnwire.MilliSatoshi
 
-	// CreatingDate is the time when this payment was initiated.
-	CreationDate time.Time
+	// CreationTime is the time when this payment was initiated.
+	CreationTime time.Time
 
 	// PaymentRequest is the full payment request, if any.
 	PaymentRequest []byte
@@ -283,10 +283,10 @@ func (p *Payment) ToMPPayment() *MPPayment {
 
 	return &MPPayment{
 		sequenceNum: p.sequenceNum,
-		Info: &MPPaymentCreationInfo{
+		Info: &PaymentCreationInfo{
 			PaymentHash:    p.Info.PaymentHash,
 			Value:          p.Info.Value,
-			CreationTime:   p.Info.CreationDate,
+			CreationTime:   p.Info.CreationTime,
 			PaymentRequest: p.Info.PaymentRequest,
 		},
 		HTLCs:         htlcs,
@@ -475,7 +475,7 @@ func serializePaymentCreationInfo(w io.Writer, c *PaymentCreationInfo) error {
 		return err
 	}
 
-	byteOrder.PutUint64(scratch[:], uint64(c.CreationDate.Unix()))
+	byteOrder.PutUint64(scratch[:], uint64(c.CreationTime.Unix()))
 	if _, err := w.Write(scratch[:]); err != nil {
 		return err
 	}
@@ -509,7 +509,7 @@ func deserializePaymentCreationInfo(r io.Reader) (*PaymentCreationInfo, error) {
 	if _, err := io.ReadFull(r, scratch[:]); err != nil {
 		return nil, err
 	}
-	c.CreationDate = time.Unix(int64(byteOrder.Uint64(scratch[:])), 0)
+	c.CreationTime = time.Unix(int64(byteOrder.Uint64(scratch[:])), 0)
 
 	if _, err := io.ReadFull(r, scratch[:4]); err != nil {
 		return nil, err

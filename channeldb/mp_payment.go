@@ -5,25 +5,8 @@ import (
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/lightningnetwork/lnd/lntypes"
-	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
-
-// MPPaymentCreationInfo is the information necessary to have ready when
-// initiating a payment, moving it into state InFlight.
-type MPPaymentCreationInfo struct {
-	// PaymentHash is the hash this payment is paying to.
-	PaymentHash lntypes.Hash
-
-	// Value is the amount we are paying.
-	Value lnwire.MilliSatoshi
-
-	// CreatingTime is the time at which this payment was started.
-	CreationTime time.Time
-
-	// PaymentRequest is the full payment request, if any.
-	PaymentRequest []byte
-}
 
 // HTLCAttempt contains information about a specific HTLC attempt for a given
 // payment. This information is used by the router to handle any errors coming
@@ -74,8 +57,8 @@ type HTLCFailInfo struct {
 	FailTime time.Time
 }
 
-// MPPayment is a wrapper around a payment's MPPaymentCreationInfo and
-// HTLCAttempts. All payments will have the MPPPaymentCreationInfo set, any
+// MPPayment is a wrapper around a payment's PaymentCreationInfo and
+// HTLCAttempts. All payments will have the PaymentCreationInfo set, any
 // HTLCs made in attempts to be completed will populated in the HTLCs slice.
 // Each populated HTLCAttempt represents an attempted HTLC, each of which may
 // have the associated Settle or Fail struct populated if the HTLC is no longer
@@ -87,7 +70,7 @@ type MPPayment struct {
 
 	// Info holds all static information about this payment, and is
 	// populated when the payment is initiated.
-	Info *MPPaymentCreationInfo
+	Info *PaymentCreationInfo
 
 	// HTLCs holds the information about individual HTLCs that we send in
 	// order to make the payment.

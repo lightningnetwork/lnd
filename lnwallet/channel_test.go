@@ -4749,9 +4749,6 @@ func TestChanAvailableBalanceNearHtlcFee(t *testing.T) {
 	aliceDustlimit := lnwire.NewMSatFromSatoshis(
 		aliceChannel.channelState.LocalChanCfg.DustLimit,
 	)
-	bobDustlimit := lnwire.NewMSatFromSatoshis(
-		bobChannel.channelState.LocalChanCfg.DustLimit,
-	)
 	feeRate := chainfee.SatPerKWeight(
 		aliceChannel.channelState.LocalCommitment.FeePerKw,
 	)
@@ -4763,6 +4760,9 @@ func TestChanAvailableBalanceNearHtlcFee(t *testing.T) {
 	)
 	htlcTimeoutFee := lnwire.NewMSatFromSatoshis(
 		htlcTimeoutFee(feeRate),
+	)
+	htlcSuccessFee := lnwire.NewMSatFromSatoshis(
+		htlcSuccessFee(feeRate),
 	)
 
 	// Helper method to check the current reported balance.
@@ -4889,7 +4889,12 @@ func TestChanAvailableBalanceNearHtlcFee(t *testing.T) {
 	// HTLC from Bob to the commitment transaction. Bob's balance should
 	// reflect this, by only reporting dust amount being available. Alice
 	// should still report a zero balance.
-	bobNonDustHtlc := bobDustlimit + htlcTimeoutFee
+
+	// Since the dustlimit is different for the two commitments, the
+	// largest HTLC Bob can send that Alice can afford on both commitments
+	// (remember she cannot afford to pay the HTLC fee) is the largest dust
+	// HTLC on Alice's commitemnt, since her dust limit is lower.
+	bobNonDustHtlc := aliceDustlimit + htlcSuccessFee
 	expBobBalance = bobNonDustHtlc - 1
 	expAliceBalance = 0
 	checkBalance(t, expAliceBalance, expBobBalance)

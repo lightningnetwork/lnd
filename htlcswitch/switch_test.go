@@ -14,10 +14,13 @@ import (
 	"github.com/btcsuite/fastsha256"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/ticker"
 )
+
+var zeroCircuit = channeldb.CircuitKey{}
 
 func genPreimage() ([32]byte, error) {
 	var preimage [32]byte
@@ -2696,4 +2699,362 @@ func TestInvalidFailure(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("err wasn't received")
 	}
+}
+
+// htlcNotifierEvents is a function that generates a set of expected htlc
+// notifier evetns for each node in a three hop network with the dynamic
+// values provided. These functions take dynamic values so that changes to
+// external systems (such as our default timelock delta) do not break
+// these tests.
+type htlcNotifierEvents func(channels *clusterChannels, htlcID uint64,
+	ts time.Time, htlc *lnwire.UpdateAddHTLC,
+	hops []*hop.Payload) ([]interface{}, []interface{}, []interface{})
+
+// TestHtlcNotifier tests the notifying of htlc events that are routed over a
+// three hop network. It sets up an Alice -> Bob -> Carol network and routes
+// payments from Alice -> Carol to test events from the perspective of a
+// sending (Alice), forwarding (Bob) and receiving (Carol) node. Test cases
+// are present for saduccessful and failed payments.
+func TestHtlcNotifier(t *testing.T) {
+	tests := []struct {
+		name string
+
+		// Options is a set of options to apply to the three hop
+		// network's servers.
+		options []serverOption
+
+		// expectedEvents is a function which returns an expected set
+		// of events for the test.
+		expectedEvents htlcNotifierEvents
+
+		// iterations is the number of times we will send a payment,
+		// this is used to send more than one payment to force non-
+		// zero htlc indexes to make sure we aren't just checking
+		// default values.
+		iterations int
+	}{
+		{
+			name:    "successful three hop payment",
+			options: nil,
+			expectedEvents: func(channels *clusterChannels,
+				htlcID uint64, ts time.Time,
+				htlc *lnwire.UpdateAddHTLC,
+				hops []*hop.Payload) ([]interface{},
+				[]interface{}, []interface{}) {
+
+				return getThreeHopEvents(
+					channels, htlcID, ts, htlc, hops, nil,
+				)
+			},
+			iterations: 2,
+		},
+		{
+			name: "failed at forwarding link",
+			// Set a functional option which disables bob as a
+			// forwarding node to force a payment error.
+			options: []serverOption{
+				serverOptionRejectHtlc(false, true, false),
+			},
+			expectedEvents: func(channels *clusterChannels,
+				htlcID uint64, ts time.Time,
+				htlc *lnwire.UpdateAddHTLC,
+				hops []*hop.Payload) ([]interface{},
+				[]interface{}, []interface{}) {
+
+				return getThreeHopEvents(
+					channels, htlcID, ts, htlc, hops,
+					&LinkError{
+						msg:           &lnwire.FailChannelDisabled{},
+						FailureDetail: OutgoingFailureForwardsDisabled,
+					},
+				)
+			},
+			iterations: 1,
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+
+		t.Run(test.name, func(t *testing.T) {
+			testHtcNotifier(
+				t, test.options, test.iterations,
+				test.expectedEvents,
+			)
+		})
+	}
+}
+
+// testHtcNotifier runs a htlc notifier test.
+func testHtcNotifier(t *testing.T, testOpts []serverOption, iterations int,
+	getEvents htlcNotifierEvents) {
+
+	t.Parallel()
+
+	// First, we'll create our traditional three hop
+	// network.
+	channels, cleanUp, _, err := createClusterChannels(
+		btcutil.SatoshiPerBitcoin*3,
+		btcutil.SatoshiPerBitcoin*5)
+	if err != nil {
+		t.Fatalf("unable to create channel: %v", err)
+	}
+	defer cleanUp()
+
+	// Mock time so that all events are reported with a static timestamp.
+	now := time.Now()
+	mockTime := func() time.Time {
+		return now
+	}
+
+	// Create htlc notifiers for each server in the three hop network and
+	// start them.
+	aliceNotifier := NewHtlcNotifier(mockTime)
+	if err := aliceNotifier.Start(); err != nil {
+		t.Fatalf("could not start alice notifier")
+	}
+	defer aliceNotifier.Stop()
+
+	bobNotifier := NewHtlcNotifier(mockTime)
+	if err := bobNotifier.Start(); err != nil {
+		t.Fatalf("could not start bob notifier")
+	}
+	defer bobNotifier.Stop()
+
+	carolNotifier := NewHtlcNotifier(mockTime)
+	if err := carolNotifier.Start(); err != nil {
+		t.Fatalf("could not start carol notifier")
+	}
+	defer carolNotifier.Stop()
+
+	// Create a notifier server option which will set our htlc notifiers
+	// for the three hop network.
+	notifierOption := serverOptionWithHtlcNotifier(
+		aliceNotifier, bobNotifier, carolNotifier,
+	)
+
+	// Add the htlcNotifier option to any other options
+	// set in the test.
+	options := append(testOpts, notifierOption)
+
+	n := newThreeHopNetwork(
+		t, channels.aliceToBob,
+		channels.bobToAlice, channels.bobToCarol,
+		channels.carolToBob, testStartingHeight,
+		options...,
+	)
+	if err := n.start(); err != nil {
+		t.Fatalf("unable to start three hop "+
+			"network: %v", err)
+	}
+	defer n.stop()
+
+	// Before we forward anything, subscribe to htlc events
+	// from each notifier.
+	aliceEvents, err := aliceNotifier.SubscribeHtlcEvents()
+	if err != nil {
+		t.Fatalf("could not subscribe to alice's"+
+			" events: %v", err)
+	}
+	defer aliceEvents.Cancel()
+
+	bobEvents, err := bobNotifier.SubscribeHtlcEvents()
+	if err != nil {
+		t.Fatalf("could not subscribe to bob's"+
+			" events: %v", err)
+	}
+	defer bobEvents.Cancel()
+
+	carolEvents, err := carolNotifier.SubscribeHtlcEvents()
+	if err != nil {
+		t.Fatalf("could not subscribe to carol's"+
+			" events: %v", err)
+	}
+	defer carolEvents.Cancel()
+
+	// Send multiple payments, as specified by the test to test incrementing
+	// of htlc ids.
+	for i := 0; i < iterations; i++ {
+		// We'll start off by making a payment from
+		// Alice -> Bob -> Carol.
+		htlc, hops := n.sendThreeHopPayment(t)
+
+		alice, bob, carol := getEvents(
+			channels, uint64(i), now, htlc, hops,
+		)
+
+		checkHtlcEvents(t, aliceEvents.Updates(), alice)
+		checkHtlcEvents(t, bobEvents.Updates(), bob)
+		checkHtlcEvents(t, carolEvents.Updates(), carol)
+
+	}
+}
+
+// checkHtlcEvents checks that a subscription has the set of htlc events
+// we expect it to have.
+func checkHtlcEvents(t *testing.T, events <-chan interface{},
+	expectedEvents []interface{}) {
+
+	for _, expected := range expectedEvents {
+		select {
+		case event := <-events:
+			if !reflect.DeepEqual(event, expected) {
+				t.Fatalf("expected %v, got: %v", expected,
+					event)
+			}
+
+		case <-time.After(time.Second):
+			t.Fatalf("expected event: %v", expected)
+		}
+	}
+}
+
+// sendThreeHopPayment is a helper function which sends a payment over
+// Alice -> Bob -> Carol in a three hop network and returns Alice's first htlc
+// and the remainder of the hops.
+func (n *threeHopNetwork) sendThreeHopPayment(t *testing.T) (*lnwire.UpdateAddHTLC,
+	[]*hop.Payload) {
+
+	amount := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
+
+	htlcAmt, totalTimelock, hops := generateHops(amount, testStartingHeight,
+		n.firstBobChannelLink, n.carolChannelLink)
+	blob, err := generateRoute(hops...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	invoice, htlc, pid, err := generatePayment(
+		amount, htlcAmt, totalTimelock, blob,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = n.carolServer.registry.AddInvoice(*invoice, htlc.PaymentHash)
+	if err != nil {
+		t.Fatalf("unable to add invoice in carol registry: %v", err)
+	}
+
+	if err := n.aliceServer.htlcSwitch.SendHTLC(
+		n.firstBobChannelLink.ShortChanID(), pid, htlc,
+	); err != nil {
+		t.Fatalf("could not send htlc")
+	}
+
+	return htlc, hops
+}
+
+// getThreeHopEvents gets the set of htlc events that we expect for a payment
+// from Alice -> Bob -> Carol. If a non-nil link error is provided, the set
+// of events will fail on Bob's outgoing link.
+func getThreeHopEvents(channels *clusterChannels, htlcID uint64,
+	ts time.Time, htlc *lnwire.UpdateAddHTLC, hops []*hop.Payload,
+	linkError *LinkError) ([]interface{}, []interface{}, []interface{}) {
+
+	aliceKey := HtlcKey{
+		IncomingCircuit: zeroCircuit,
+		OutgoingCircuit: channeldb.CircuitKey{
+			ChanID: channels.aliceToBob.ShortChanID(),
+			HtlcID: htlcID,
+		},
+	}
+
+	// Alice always needs a forwarding event because she initiates the
+	// send.
+	aliceEvents := []interface{}{
+		&ForwardingEvent{
+			HtlcKey: aliceKey,
+			HtlcInfo: HtlcInfo{
+				OutgoingTimeLock: htlc.Expiry,
+				OutgoingAmt:      htlc.Amount,
+			},
+			HtlcEventType: HtlcEventTypeSend,
+			Timestamp:     ts,
+		},
+	}
+
+	bobKey := HtlcKey{
+		IncomingCircuit: channeldb.CircuitKey{
+			ChanID: channels.bobToAlice.ShortChanID(),
+			HtlcID: htlcID,
+		},
+		OutgoingCircuit: channeldb.CircuitKey{
+			ChanID: channels.bobToCarol.ShortChanID(),
+			HtlcID: htlcID,
+		},
+	}
+
+	bobInfo := HtlcInfo{
+		IncomingTimeLock: htlc.Expiry,
+		IncomingAmt:      htlc.Amount,
+		OutgoingTimeLock: hops[1].FwdInfo.OutgoingCTLV,
+		OutgoingAmt:      hops[1].FwdInfo.AmountToForward,
+	}
+
+	// If we expect the payment to fail, we add failures for alice and
+	// bob, and no events for carol because the payment never reaches her.
+	if linkError != nil {
+		aliceEvents = append(aliceEvents,
+			&ForwardingFailEvent{
+				HtlcKey:       aliceKey,
+				HtlcEventType: HtlcEventTypeSend,
+				Timestamp:     ts,
+			},
+		)
+
+		bobEvents := []interface{}{
+			&LinkFailEvent{
+				HtlcKey:       bobKey,
+				HtlcInfo:      bobInfo,
+				HtlcEventType: HtlcEventTypeForward,
+				LinkError:     linkError,
+				Incoming:      false,
+				Timestamp:     ts,
+			},
+		}
+
+		return aliceEvents, bobEvents, nil
+	}
+
+	// If we want to get events for a successful payment, we add a settle
+	// for alice, a forward and settle for bob and a receive settle for
+	// carol.
+	aliceEvents = append(
+		aliceEvents,
+		&SettleEvent{
+			HtlcKey:       aliceKey,
+			HtlcEventType: HtlcEventTypeSend,
+			Timestamp:     ts,
+		},
+	)
+
+	bobEvents := []interface{}{
+		&ForwardingEvent{
+			HtlcKey:       bobKey,
+			HtlcInfo:      bobInfo,
+			HtlcEventType: HtlcEventTypeForward,
+			Timestamp:     ts,
+		},
+		&SettleEvent{
+			HtlcKey:       bobKey,
+			HtlcEventType: HtlcEventTypeForward,
+			Timestamp:     ts,
+		},
+	}
+
+	carolEvents := []interface{}{
+		&SettleEvent{
+			HtlcKey: HtlcKey{
+				IncomingCircuit: channeldb.CircuitKey{
+					ChanID: channels.carolToBob.ShortChanID(),
+					HtlcID: htlcID,
+				},
+				OutgoingCircuit: zeroCircuit,
+			},
+			HtlcEventType: HtlcEventTypeReceive,
+			Timestamp:     ts,
+		},
+	}
+
+	return aliceEvents, bobEvents, carolEvents
 }

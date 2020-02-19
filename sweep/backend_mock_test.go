@@ -96,6 +96,10 @@ func (b *mockBackend) WithCoinSelectLock(f func() error) error {
 	return f()
 }
 
+func (b *mockBackend) FetchInputInfo(*wire.OutPoint) (*lnwallet.Utxo, error) {
+	return nil, lnwallet.ErrNotMine
+}
+
 func (b *mockBackend) deleteUnconfirmed(txHash chainhash.Hash) {
 	b.lock.Lock()
 	defer b.lock.Unlock()

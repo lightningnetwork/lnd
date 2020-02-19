@@ -539,10 +539,40 @@ func (s *UtxoSweeper) collector(blockEpochs <-chan *chainntnfs.BlockEpoch) {
 			spendHash := *spend.SpenderTxHash
 			isOurTx, err := s.cfg.Store.IsOurTx(spendHash)
 			if err != nil {
-				log.Errorf("cannot determine if tx %v "+
+				log.Errorf("Cannot determine if transaction %v "+
 					"is ours: %v", spendHash, err,
 				)
 				continue
+			}
+
+			// If our store wasn't able to determine whether we
+			// broadcast the transaction, we'll check with our
+			// wallet next. This is only useful for detecting the
+			// case where users have attempted to restore their
+			// channels multiple times and one of their earlier
+			// attempts was actually successful in sweeping their
+			// funds.
+			if !isOurTx {
+				op := &wire.OutPoint{Hash: spendHash}
+			checkTxOut:
+				for i := range spend.SpendingTx.TxOut {
+					op.Index = uint32(i)
+					_, err := s.cfg.Wallet.FetchInputInfo(op)
+					switch err {
+					case lnwallet.ErrNotMine:
+						continue
+
+					case nil:
+						isOurTx = true
+						break checkTxOut
+
+					default:
+						log.Errorf("Cannot determine "+
+							"if output %v is "+
+							"ours: %v", op, err)
+						continue
+					}
+				}
 			}
 
 			log.Debugf("Detected spend related to in flight inputs "+

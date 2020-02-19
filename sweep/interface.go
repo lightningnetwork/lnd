@@ -24,4 +24,10 @@ type Wallet interface {
 	// ability to execute a function closure under an exclusive coin
 	// selection lock.
 	WithCoinSelectLock(f func() error) error
+
+	// FetchInputInfo queries for the wallet's knowledge of the passed
+	// outpoint. If the wallet determines this output is under its control,
+	// then the corresponding output should be returned. Otherwise,
+	// lnwallet.ErrNotMine should be returned instead.
+	FetchInputInfo(prevOut *wire.OutPoint) (*lnwallet.Utxo, error)
 }

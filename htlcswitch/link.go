@@ -1208,10 +1208,7 @@ func (l *channelLink) processHtlcResolution(resolution invoices.HtlcResolution,
 		l.log.Debugf("received settle resolution for %v"+
 			"with outcome: %v", circuitKey, res.Outcome)
 
-		return l.settleHTLC(
-			res.Preimage, htlc.pd.HtlcIndex,
-			htlc.pd.SourceRef,
-		)
+		return l.settleHTLC(res.Preimage, htlc.pd)
 
 	// For htlc failures, we get the relevant failure message based
 	// on the failure resolution and then fail the htlc.
@@ -2950,15 +2947,15 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 }
 
 // settleHTLC settles the HTLC on the channel.
-func (l *channelLink) settleHTLC(preimage lntypes.Preimage, htlcIndex uint64,
-	sourceRef *channeldb.AddRef) error {
+func (l *channelLink) settleHTLC(preimage lntypes.Preimage,
+	pd *lnwallet.PaymentDescriptor) error {
 
 	hash := preimage.Hash()
 
 	l.log.Infof("settling htlc %v as exit hop", hash)
 
 	err := l.channel.SettleHTLC(
-		preimage, htlcIndex, sourceRef, nil, nil,
+		preimage, pd.HtlcIndex, pd.SourceRef, nil, nil,
 	)
 	if err != nil {
 		return fmt.Errorf("unable to settle htlc: %v", err)
@@ -2976,9 +2973,20 @@ func (l *channelLink) settleHTLC(preimage lntypes.Preimage, htlcIndex uint64,
 	// remote peer.
 	l.cfg.Peer.SendMessage(false, &lnwire.UpdateFulfillHTLC{
 		ChanID:          l.ChanID(),
-		ID:              htlcIndex,
+		ID:              pd.HtlcIndex,
 		PaymentPreimage: preimage,
 	})
+
+	// Once we have successfully settled the htlc, notify a settle event.
+	l.cfg.HtlcNotifier.NotifySettleEvent(
+		HtlcKey{
+			IncomingCircuit: channeldb.CircuitKey{
+				ChanID: l.ShortChanID(),
+				HtlcID: pd.HtlcIndex,
+			},
+		},
+		HtlcEventTypeReceive,
+	)
 
 	return nil
 }

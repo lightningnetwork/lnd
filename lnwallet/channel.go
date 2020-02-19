@@ -6049,7 +6049,7 @@ func (lc *LightningChannel) availableCommitmentBalance(view *htlcView) (
 	// Compute the current balances for this commitment. This will take
 	// into account HTLCs to determine the commit weight, which the
 	// initiator must pay the fee for.
-	ourBalance, _, commitWeight, filteredView, err := lc.computeView(
+	ourBalance, theirBalance, commitWeight, filteredView, err := lc.computeView(
 		view, false, false,
 	)
 	if err != nil {
@@ -6091,7 +6091,42 @@ func (lc *LightningChannel) availableCommitmentBalance(view *htlcView) (
 			return 0, commitWeight
 		}
 
-		ourBalance -= htlcCommitFee
+		return ourBalance - htlcCommitFee, commitWeight
+	}
+
+	// If we're not the initiator, we must check whether the remote has
+	// enough balance to pay for the fee of our HTLC. We'll start by also
+	// subtracting our counterparty's reserve from their balance.
+	theirReserve := lnwire.NewMSatFromSatoshis(
+		lc.channelState.RemoteChanCfg.ChanReserve,
+	)
+	if theirReserve <= theirBalance {
+		theirBalance -= theirReserve
+	} else {
+		theirBalance = 0
+	}
+
+	// We'll use the dustlimit and htlcFee to find the largest HTLC value
+	// that will be considered dust on the commitment.
+	dustlimit := lnwire.NewMSatFromSatoshis(
+		lc.channelState.LocalChanCfg.DustLimit,
+	)
+
+	// For an extra HTLC fee to be paid on our commitment, the HTLC must be
+	// large enough to make a non-dust HTLC timeout transaction.
+	htlcFee := lnwire.NewMSatFromSatoshis(
+		htlcTimeoutFee(feePerKw),
+	)
+
+	// The HTLC output will be manifested on the commitment if it
+	// is non-dust after paying the HTLC fee.
+	nonDustHtlcAmt := dustlimit + htlcFee
+
+	// If they cannot pay the fee if we add another non-dust HTLC, we'll
+	// report our available balance just below the non-dust amount, to
+	// avoid attempting HTLCs larger than this size.
+	if theirBalance < htlcCommitFee && ourBalance >= nonDustHtlcAmt {
+		ourBalance = nonDustHtlcAmt - 1
 	}
 
 	return ourBalance, commitWeight

@@ -4623,6 +4623,12 @@ func (lc *LightningChannel) InitNextRevocation(revKey *btcec.PublicKey) error {
 // The additional openKey argument corresponds to the incoming CircuitKey of the
 // committed circuit for this HTLC. This value should never be nil.
 //
+// Note that AddHTLC doesn't reserve the HTLC fee for future payment (like
+// AvailableBalance does), so one could get into the "stuck channel" state by
+// sending dust HTLCs.
+// TODO(halseth): fix this either by using additional reserve, or better commit
+// format. See https://github.com/lightningnetwork/lightning-rfc/issues/728
+//
 // NOTE: It is okay for sourceRef to be nil when unit testing the wallet.
 func (lc *LightningChannel) AddHTLC(htlc *lnwire.UpdateAddHTLC,
 	openKey *channeldb.CircuitKey) (uint64, error) {
@@ -6025,6 +6031,8 @@ func (lc *LightningChannel) availableBalance() (lnwire.MilliSatoshi, int64) {
 		lc.localUpdateLog.logIndex)
 
 	// Calculate our available balance from our local commitment.
+	// TODO(halseth): could reuse parts validateCommitmentSanity to do this
+	// balance calculation, as most of the logic is the same.
 	//
 	// NOTE: This is not always accurate, since the remote node can always
 	// add updates concurrently, causing our balance to go down if we're

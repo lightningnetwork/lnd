@@ -904,7 +904,35 @@ func marshallError(sendError error) (*lnrpc.Failure, error) {
 		return nil, sendError
 	}
 
-	switch onionErr := rtErr.WireMessage().(type) {
+	err := marshallWireError(rtErr.WireMessage(), response)
+	if err != nil {
+		return nil, err
+	}
+
+	// If the ClearTextError received is a ForwardingError, the error
+	// originated from a node along the route, not locally on our outgoing
+	// link. We set failureSourceIdx to the index of the node where the
+	// failure occurred. If the error is not a ForwardingError, the failure
+	// occurred at our node, so we leave the index as 0 to indicate that
+	// we failed locally.
+	fErr, ok := rtErr.(*htlcswitch.ForwardingError)
+	if ok {
+		response.FailureSourceIndex = uint32(fErr.FailureSourceIdx)
+	}
+
+	return response, nil
+}
+
+// marshallError marshall an error as received from the switch to rpc structs
+// suitable for returning to the caller of an rpc method.
+//
+// Because of difficulties with using protobuf oneof constructs in some
+// languages, the decision was made here to use a single message format for all
+// failure messages with some fields left empty depending on the failure type.
+func marshallWireError(msg lnwire.FailureMessage,
+	response *lnrpc.Failure) error {
+
+	switch onionErr := msg.(type) {
 
 	case *lnwire.FailIncorrectDetails:
 		response.Code = lnrpc.Failure_INCORRECT_OR_UNKNOWN_PAYMENT_DETAILS
@@ -995,21 +1023,10 @@ func marshallError(sendError error) (*lnrpc.Failure, error) {
 		response.Code = lnrpc.Failure_UNKNOWN_FAILURE
 
 	default:
-		return nil, fmt.Errorf("cannot marshall failure %T", onionErr)
+		return fmt.Errorf("cannot marshall failure %T", onionErr)
 	}
 
-	// If the ClearTextError received is a ForwardingError, the error
-	// originated from a node along the route, not locally on our outgoing
-	// link. We set failureSourceIdx to the index of the node where the
-	// failure occurred. If the error is not a ForwardingError, the failure
-	// occurred at our node, so we leave the index as 0 to indicate that
-	// we failed locally.
-	fErr, ok := rtErr.(*htlcswitch.ForwardingError)
-	if ok {
-		response.FailureSourceIndex = uint32(fErr.FailureSourceIdx)
-	}
-
-	return response, nil
+	return nil
 }
 
 // marshallChannelUpdate marshalls a channel update as received over the wire to

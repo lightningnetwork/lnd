@@ -6007,6 +6007,60 @@ func TestChanReserve(t *testing.T) {
 	)
 }
 
+// TestChanReserveRemoteInitiator tests that the channel reserve of the
+// initiator is accounted for when adding HTLCs, whether the initiator is the
+// local or remote node.
+func TestChanReserveRemoteInitiator(t *testing.T) {
+	t.Parallel()
+
+	// We start out with a channel where both parties have 5 BTC.
+	aliceChannel, bobChannel, cleanUp, err := CreateTestChannels(
+		true,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanUp()
+
+	// Set Alice's channel reserve to be 5 BTC-commitfee. This means she
+	// has just enough balance to cover the comitment fee, but not enough
+	// to add any more HTLCs to the commitment. Although a reserve this
+	// high is unrealistic, a channel can easiliy get into a situation
+	// where the initiator cannot pay for the fee of any more HTLCs.
+	commitFee := aliceChannel.channelState.LocalCommitment.CommitFee
+	aliceMinReserve := 5*btcutil.SatoshiPerBitcoin - commitFee
+
+	aliceChannel.channelState.LocalChanCfg.ChanReserve = aliceMinReserve
+	bobChannel.channelState.RemoteChanCfg.ChanReserve = aliceMinReserve
+
+	// Now let Bob attempt to add an HTLC of 0.1 BTC. He has plenty of
+	// money available to spend, but Alice, which is the initiator, cannot
+	// afford any more HTLCs on the commitment transaction because that
+	// would take here below her channel reserve..
+	htlcAmt := lnwire.NewMSatFromSatoshis(0.1 * btcutil.SatoshiPerBitcoin)
+	htlc, _ := createHTLC(0, htlcAmt)
+
+	// Bob should refuse to add this HTLC, since he realizes it will create
+	// an invalid commitment.
+	_, err = bobChannel.AddHTLC(htlc, nil)
+	if err != ErrBelowChanReserve {
+		t.Fatalf("expected ErrBelowChanReserve, instead received: %v",
+			err)
+	}
+
+	// Of course Alice will also not have enough balance to add it herself.
+	_, err = aliceChannel.AddHTLC(htlc, nil)
+	if err != ErrBelowChanReserve {
+		t.Fatalf("expected ErrBelowChanReserve, instead received: %v",
+			err)
+	}
+
+	// Same for Alice, she should refuse to accept this second HTLC.
+	if _, err := aliceChannel.ReceiveHTLC(htlc); err != ErrBelowChanReserve {
+		t.Fatalf("expected ErrBelowChanReserve, instead received: %v", err)
+	}
+}
+
 // TestMinHTLC tests that the ErrBelowMinHTLC error is thrown if an HTLC is added
 // that is below the minimm allowed value for HTLCs.
 func TestMinHTLC(t *testing.T) {

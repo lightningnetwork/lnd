@@ -54,13 +54,6 @@ var (
 	//
 	paymentsRootBucket = []byte("payments-root-bucket")
 
-	// paymentDublicateBucket is the name of a optional sub-bucket within
-	// the payment hash bucket, that is used to hold duplicate payments to
-	// a payment hash. This is needed to support information from earlier
-	// versions of lnd, where it was possible to pay to a payment hash more
-	// than once.
-	paymentDuplicateBucket = []byte("payment-duplicate-bucket")
-
 	// paymentSequenceKey is a key used in the payment's sub-bucket to
 	// store the sequence number of the payment.
 	paymentSequenceKey = []byte("payment-sequence-key")
@@ -308,28 +301,14 @@ func (db *DB) FetchPayments() ([]*MPPayment, error) {
 			// payment has was possible. These will be found in a
 			// sub-bucket indexed by their sequence number if
 			// available.
-			dup := bucket.Bucket(paymentDuplicateBucket)
-			if dup == nil {
-				return nil
+			duplicatePayments, err := fetchDuplicatePayments(bucket)
+			if err != nil {
+				return err
 			}
 
-			return dup.ForEach(func(k, v []byte) error {
-				subBucket := dup.Bucket(k)
-				if subBucket == nil {
-					// We one bucket for each duplicate to
-					// be found.
-					return fmt.Errorf("non bucket element" +
-						"in duplicate bucket")
-				}
+			payments = append(payments, duplicatePayments...)
 
-				p, err := fetchPayment(subBucket)
-				if err != nil {
-					return err
-				}
-
-				payments = append(payments, p)
-				return nil
-			})
+			return nil
 		})
 	})
 	if err != nil {

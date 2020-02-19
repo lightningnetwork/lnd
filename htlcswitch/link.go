@@ -1418,6 +1418,18 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 
 		l.cfg.Peer.SendMessage(false, htlc)
 
+		// Send a forward event notification to htlcNotifier.
+		l.cfg.HtlcNotifier.NotifyForwardingEvent(
+			newHtlcKey(pkt),
+			HtlcInfo{
+				IncomingTimeLock: pkt.incomingTimeout,
+				IncomingAmt:      pkt.incomingAmount,
+				OutgoingTimeLock: htlc.Expiry,
+				OutgoingAmt:      htlc.Amount,
+			},
+			getEventType(pkt),
+		)
+
 	case *lnwire.UpdateFulfillHTLC:
 		// If hodl.SettleOutgoing mode is active, we exit early to
 		// simulate arbitrary delays between the switch adding the
@@ -1476,6 +1488,12 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 		l.cfg.Peer.SendMessage(false, htlc)
 		isSettle = true
 
+		// Send a settle event notification to htlcNotifier.
+		l.cfg.HtlcNotifier.NotifySettleEvent(
+			newHtlcKey(pkt),
+			getEventType(pkt),
+		)
+
 	case *lnwire.UpdateFailHTLC:
 		// If hodl.FailOutgoing mode is active, we exit early to
 		// simulate arbitrary delays between the switch adding a FAIL to
@@ -1529,10 +1547,28 @@ func (l *channelLink) handleDownStreamPkt(pkt *htlcPacket, isReProcess bool) {
 		htlc.ChanID = l.ChanID()
 		htlc.ID = pkt.incomingHTLCID
 
-		// Finally, we send the HTLC message to the peer which
-		// initially created the HTLC.
+		// We send the HTLC message to the peer which initially created
+		// the HTLC.
 		l.cfg.Peer.SendMessage(false, htlc)
 		isSettle = true
+
+		// If the packet does not have a link failure set, it failed
+		// further down the route so we notify a forwarding failure.
+		// Otherwise, we notify a link failure because it failed at our
+		// node.
+		if pkt.linkFailure != nil {
+			l.cfg.HtlcNotifier.NotifyLinkFailEvent(
+				newHtlcKey(pkt),
+				newHtlcInfo(pkt),
+				getEventType(pkt),
+				pkt.linkFailure,
+				false,
+			)
+		} else {
+			l.cfg.HtlcNotifier.NotifyForwardingFailEvent(
+				newHtlcKey(pkt), getEventType(pkt),
+			)
+		}
 	}
 
 	// If this newly added update exceeds the min batch size for adds, or

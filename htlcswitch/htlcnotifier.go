@@ -371,3 +371,59 @@ func (h *HtlcNotifier) NotifySettleEvent(key HtlcKey, eventType HtlcEventType) {
 		log.Warnf("Unable to send settle event: %v", err)
 	}
 }
+
+// newHtlc key returns a htlc key for the packet provided. If the packet
+// has a zero incoming channel ID, the packet is for one of our own sends,
+// which has the payment id stashed in the incoming htlc id. If this is the
+// case, we replace the incoming htlc id with zero so that the notifier
+// consistently reports zero circuit keys for events that terminate or
+// originate at our node.
+func newHtlcKey(pkt *htlcPacket) HtlcKey {
+	htlcKey := HtlcKey{
+		IncomingCircuit: channeldb.CircuitKey{
+			ChanID: pkt.incomingChanID,
+			HtlcID: pkt.incomingHTLCID,
+		},
+		OutgoingCircuit: CircuitKey{
+			ChanID: pkt.outgoingChanID,
+			HtlcID: pkt.outgoingHTLCID,
+		},
+	}
+
+	// If the packet has a zero incoming channel ID, it is a send that was
+	// initiated at our node. If this is the case, our internal pid is in
+	// the incoming htlc ID, so we overwrite it with 0 for notification
+	// purposes.
+	if pkt.incomingChanID == hop.Source {
+		htlcKey.IncomingCircuit.HtlcID = 0
+	}
+
+	return htlcKey
+}
+
+// newHtlcInfo returns HtlcInfo for the packet provided.
+func newHtlcInfo(pkt *htlcPacket) HtlcInfo {
+	return HtlcInfo{
+		IncomingTimeLock: pkt.incomingTimeout,
+		OutgoingTimeLock: pkt.outgoingTimeout,
+		IncomingAmt:      pkt.incomingAmount,
+		OutgoingAmt:      pkt.amount,
+	}
+}
+
+// getEventType returns the htlc type based on the fields set in the htlc
+// packet. Sends that originate at our node have the source (zero) incoming
+// channel ID. Receives to our node have the exit (zero) outgoing channel ID
+// and forwards have both fields set.
+func getEventType(pkt *htlcPacket) HtlcEventType {
+	switch {
+	case pkt.incomingChanID == hop.Source:
+		return HtlcEventTypeSend
+
+	case pkt.outgoingChanID == hop.Exit:
+		return HtlcEventTypeReceive
+
+	default:
+		return HtlcEventTypeForward
+	}
+}

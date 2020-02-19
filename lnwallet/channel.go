@@ -6068,20 +6068,30 @@ func (lc *LightningChannel) availableCommitmentBalance(view *htlcView) (
 		ourBalance = 0
 	}
 
-	// Given the commitment weight, find the commitment fee in case of no
-	// added HTLC output.
+	// Calculate the commitment fee in the case where we would add another
+	// HTLC to the commitment, as only the balance remaining after this fee
+	// has been paid is actually available for sending.
 	feePerKw := filteredView.feePerKw
-	baseCommitFee := lnwire.NewMSatFromSatoshis(
-		feePerKw.FeeForWeight(commitWeight),
+	htlcCommitFee := lnwire.NewMSatFromSatoshis(
+		feePerKw.FeeForWeight(commitWeight + input.HTLCWeight),
 	)
 
-	// If we are the channel initiator, we must to subtract the commitment
-	// fee from our available balance.
+	// If we are the channel initiator, we must to subtract this commitment
+	// fee from our available balance in order to ensure we can afford both
+	// the value of the HTLC and the additional commitment fee from adding
+	// the HTLC.
 	if lc.channelState.IsInitiator {
-		if ourBalance < baseCommitFee {
+		// There is an edge case where our non-zero balance is lower
+		// than the htlcCommitFee, where we could still be sending dust
+		// HTLCs, but we return 0 in this case. This is to avoid
+		// lowering our balance even further, as this takes us into a
+		// bad state wehere neither we nor our channel counterparty can
+		// add HTLCs.
+		if ourBalance < htlcCommitFee {
 			return 0, commitWeight
 		}
-		ourBalance -= baseCommitFee
+
+		ourBalance -= htlcCommitFee
 	}
 
 	return ourBalance, commitWeight

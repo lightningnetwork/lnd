@@ -770,6 +770,20 @@ func (s *Switch) handleLocalDispatch(pkt *htlcPacket) error {
 	if htlc, ok := pkt.htlc.(*lnwire.UpdateAddHTLC); ok {
 		link, err := s.handleLocalAddHTLC(pkt, htlc)
 		if err != nil {
+			// Notify the htlc notifier of a link failure on our
+			// outgoing link. Incoming timelock/amount values are
+			// not set because they are not present for local sends.
+			s.cfg.HtlcNotifier.NotifyLinkFailEvent(
+				newHtlcKey(pkt),
+				HtlcInfo{
+					OutgoingTimeLock: htlc.Expiry,
+					OutgoingAmt:      htlc.Amount,
+				},
+				HtlcEventTypeSend,
+				err,
+				false,
+			)
+
 			return err
 		}
 

@@ -768,38 +768,9 @@ func (s *Switch) handleLocalDispatch(pkt *htlcPacket) error {
 	// User have created the htlc update therefore we should find the
 	// appropriate channel link and send the payment over this link.
 	if htlc, ok := pkt.htlc.(*lnwire.UpdateAddHTLC); ok {
-		// Try to find links by node destination.
-		s.indexMtx.RLock()
-		link, err := s.getLinkByShortID(pkt.outgoingChanID)
-		s.indexMtx.RUnlock()
+		link, err := s.handleLocalAddHTLC(pkt, htlc)
 		if err != nil {
-			log.Errorf("Link %v not found", pkt.outgoingChanID)
-			return NewLinkError(&lnwire.FailUnknownNextPeer{})
-		}
-
-		if !link.EligibleToForward() {
-			log.Errorf("Link %v is not available to forward",
-				pkt.outgoingChanID)
-
-			// The update does not need to be populated as the error
-			// will be returned back to the router.
-			return NewDetailedLinkError(
-				lnwire.NewTemporaryChannelFailure(nil),
-				OutgoingFailureLinkNotEligible,
-			)
-		}
-
-		// Ensure that the htlc satisfies the outgoing channel policy.
-		currentHeight := atomic.LoadUint32(&s.bestHeight)
-		htlcErr := link.CheckHtlcTransit(
-			htlc.PaymentHash,
-			htlc.Amount,
-			htlc.Expiry, currentHeight,
-		)
-		if htlcErr != nil {
-			log.Errorf("Link %v policy for local forward not "+
-				"satisfied", pkt.outgoingChanID)
-			return htlcErr
+			return err
 		}
 
 		return link.HandleSwitchPacket(pkt)
@@ -809,6 +780,47 @@ func (s *Switch) handleLocalDispatch(pkt *htlcPacket) error {
 	go s.handleLocalResponse(pkt)
 
 	return nil
+}
+
+// handleLocalAddHTLC handles the addition of a htlc for a send that
+// originates from our node. It returns the link that the htlc should
+// be forwarded outwards on, and a link error if the htlc cannot be
+// forwarded.
+func (s *Switch) handleLocalAddHTLC(pkt *htlcPacket,
+	htlc *lnwire.UpdateAddHTLC) (ChannelLink, *LinkError) {
+
+	// Try to find links by node destination.
+	s.indexMtx.RLock()
+	link, err := s.getLinkByShortID(pkt.outgoingChanID)
+	s.indexMtx.RUnlock()
+	if err != nil {
+		log.Errorf("Link %v not found", pkt.outgoingChanID)
+		return nil, NewLinkError(&lnwire.FailUnknownNextPeer{})
+	}
+
+	if !link.EligibleToForward() {
+		log.Errorf("Link %v is not available to forward",
+			pkt.outgoingChanID)
+
+		// The update does not need to be populated as the error
+		// will be returned back to the router.
+		return nil, NewDetailedLinkError(
+			lnwire.NewTemporaryChannelFailure(nil),
+			OutgoingFailureLinkNotEligible,
+		)
+	}
+
+	// Ensure that the htlc satisfies the outgoing channel policy.
+	currentHeight := atomic.LoadUint32(&s.bestHeight)
+	htlcErr := link.CheckHtlcTransit(
+		htlc.PaymentHash, htlc.Amount, htlc.Expiry, currentHeight,
+	)
+	if htlcErr != nil {
+		log.Errorf("Link %v policy for local forward not "+
+			"satisfied", pkt.outgoingChanID)
+		return nil, htlcErr
+	}
+	return link, nil
 }
 
 // handleLocalResponse processes a Settle or Fail responding to a

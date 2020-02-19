@@ -2127,26 +2127,21 @@ func (l *channelLink) ChanID() lnwire.ChannelID {
 //
 // NOTE: Part of the ChannelLink interface.
 func (l *channelLink) Bandwidth() lnwire.MilliSatoshi {
+	// Get the balance available on the channel for new HTLCs. This takes
+	// the channel reserve into account so HTLCs up to this value won't
+	// violate it.
 	channelBandwidth := l.channel.AvailableBalance()
-	overflowBandwidth := l.overflowQueue.TotalHtlcAmount()
 
 	// To compute the total bandwidth, we'll take the current available
 	// bandwidth, then subtract the overflow bandwidth as we'll eventually
 	// also need to evaluate those HTLC's once space on the commitment
 	// transaction is free.
-	linkBandwidth := channelBandwidth - overflowBandwidth
-
-	// If the channel reserve is greater than the total available balance
-	// of the link, just return 0.
-	reserve := lnwire.NewMSatFromSatoshis(l.channel.LocalChanReserve())
-	if linkBandwidth < reserve {
+	overflowBandwidth := l.overflowQueue.TotalHtlcAmount()
+	if channelBandwidth < overflowBandwidth {
 		return 0
 	}
 
-	// Else the amount that is available to flow through the link at this
-	// point is the available balance minus the reserve amount we are
-	// required to keep as collateral.
-	return linkBandwidth - reserve
+	return channelBandwidth - overflowBandwidth
 }
 
 // AttachMailBox updates the current mailbox used by this link, and hooks up

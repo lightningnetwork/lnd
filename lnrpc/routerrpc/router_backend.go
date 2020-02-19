@@ -844,35 +844,72 @@ func UnmarshalMPP(reqMPP *lnrpc.MPPRecord) (*record.MPP, error) {
 func (r *RouterBackend) MarshalHTLCAttempt(
 	htlc channeldb.HTLCAttempt) (*lnrpc.HTLCAttempt, error) {
 
-	var (
-		status      lnrpc.HTLCAttempt_HTLCStatus
-		resolveTime int64
-	)
-
-	switch {
-	case htlc.Settle != nil:
-		status = lnrpc.HTLCAttempt_SUCCEEDED
-		resolveTime = MarshalTimeNano(htlc.Settle.SettleTime)
-
-	case htlc.Failure != nil:
-		status = lnrpc.HTLCAttempt_FAILED
-		resolveTime = MarshalTimeNano(htlc.Failure.FailTime)
-
-	default:
-		status = lnrpc.HTLCAttempt_IN_FLIGHT
-	}
-
 	route, err := r.MarshallRoute(&htlc.Route)
 	if err != nil {
 		return nil, err
 	}
 
-	return &lnrpc.HTLCAttempt{
-		Status:        status,
-		Route:         route,
+	rpcAttempt := &lnrpc.HTLCAttempt{
 		AttemptTimeNs: MarshalTimeNano(htlc.AttemptTime),
-		ResolveTimeNs: resolveTime,
-	}, nil
+		Route:         route,
+	}
+
+	switch {
+	case htlc.Settle != nil:
+		rpcAttempt.Status = lnrpc.HTLCAttempt_SUCCEEDED
+		rpcAttempt.ResolveTimeNs = MarshalTimeNano(
+			htlc.Settle.SettleTime,
+		)
+
+	case htlc.Failure != nil:
+		rpcAttempt.Status = lnrpc.HTLCAttempt_FAILED
+		rpcAttempt.ResolveTimeNs = MarshalTimeNano(
+			htlc.Failure.FailTime,
+		)
+
+		var err error
+		rpcAttempt.Failure, err = marshallHtlcFailure(htlc.Failure)
+		if err != nil {
+			return nil, err
+		}
+	default:
+		rpcAttempt.Status = lnrpc.HTLCAttempt_IN_FLIGHT
+	}
+
+	return rpcAttempt, nil
+}
+
+// marshallHtlcFailure marshalls htlc fail info from the database to its rpc
+// representation.
+func marshallHtlcFailure(failure *channeldb.HTLCFailInfo) (*lnrpc.Failure,
+	error) {
+
+	rpcFailure := &lnrpc.Failure{
+		FailureSourceIndex: failure.FailureSourceIndex,
+	}
+
+	switch failure.Reason {
+
+	case channeldb.HTLCFailUnknown:
+		rpcFailure.Code = lnrpc.Failure_UNKNOWN_FAILURE
+
+	case channeldb.HTLCFailUnreadable:
+		rpcFailure.Code = lnrpc.Failure_UNREADABLE_FAILURE
+
+	case channeldb.HTLCFailInternal:
+		rpcFailure.Code = lnrpc.Failure_INTERNAL_FAILURE
+
+	case channeldb.HTLCFailMessage:
+		err := marshallWireError(failure.Message, rpcFailure)
+		if err != nil {
+			return nil, err
+		}
+
+	default:
+		return nil, errors.New("unknown htlc failure reason")
+	}
+
+	return rpcFailure, nil
 }
 
 // MarshalTimeNano converts a time.Time into its nanosecond representation. If

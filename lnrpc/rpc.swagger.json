@@ -1490,6 +1490,40 @@
       ],
       "default": "OPEN_CHANNEL"
     },
+    "FailureFailureCode": {
+      "type": "string",
+      "enum": [
+        "RESERVED",
+        "INCORRECT_OR_UNKNOWN_PAYMENT_DETAILS",
+        "INCORRECT_PAYMENT_AMOUNT",
+        "FINAL_INCORRECT_CLTV_EXPIRY",
+        "FINAL_INCORRECT_HTLC_AMOUNT",
+        "FINAL_EXPIRY_TOO_SOON",
+        "INVALID_REALM",
+        "EXPIRY_TOO_SOON",
+        "INVALID_ONION_VERSION",
+        "INVALID_ONION_HMAC",
+        "INVALID_ONION_KEY",
+        "AMOUNT_BELOW_MINIMUM",
+        "FEE_INSUFFICIENT",
+        "INCORRECT_CLTV_EXPIRY",
+        "CHANNEL_DISABLED",
+        "TEMPORARY_CHANNEL_FAILURE",
+        "REQUIRED_NODE_FEATURE_MISSING",
+        "REQUIRED_CHANNEL_FEATURE_MISSING",
+        "UNKNOWN_NEXT_PEER",
+        "TEMPORARY_NODE_FAILURE",
+        "PERMANENT_NODE_FAILURE",
+        "PERMANENT_CHANNEL_FAILURE",
+        "EXPIRY_TOO_FAR",
+        "MPP_TIMEOUT",
+        "INTERNAL_FAILURE",
+        "UNKNOWN_FAILURE",
+        "UNREADABLE_FAILURE"
+      ],
+      "default": "RESERVED",
+      "description": " - RESERVED: *\nThe numbers assigned in this enumeration match the failure codes as\ndefined in BOLT #4. Because protobuf 3 requires enums to start with 0,\na RESERVED value is added.\n - INTERNAL_FAILURE: *\nAn internal error occurred.\n - UNKNOWN_FAILURE: *\nThe error source is known, but the failure itself couldn't be decoded.\n - UNREADABLE_FAILURE: *\nAn unreadable failure result is returned if the received failure message\ncannot be decrypted. In that case the error source is unknown."
+    },
     "HTLCAttemptHTLCStatus": {
       "type": "string",
       "enum": [
@@ -2260,6 +2294,71 @@
         }
       }
     },
+    "lnrpcChannelUpdate": {
+      "type": "object",
+      "properties": {
+        "signature": {
+          "type": "string",
+          "format": "byte",
+          "description": "*\nThe signature that validates the announced data and proves the ownership\nof node id."
+        },
+        "chain_hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "*\nThe target chain that this channel was opened within. This value\nshould be the genesis hash of the target chain. Along with the short\nchannel ID, this uniquely identifies the channel globally in a\nblockchain."
+        },
+        "chan_id": {
+          "type": "string",
+          "format": "uint64",
+          "description": "*\nThe unique description of the funding transaction."
+        },
+        "timestamp": {
+          "type": "integer",
+          "format": "int64",
+          "description": "*\nA timestamp that allows ordering in the case of multiple announcements.\nWe should ignore the message if timestamp is not greater than the\nlast-received."
+        },
+        "message_flags": {
+          "type": "integer",
+          "format": "int64",
+          "description": "*\nThe bitfield that describes whether optional fields are present in this\nupdate. Currently, the least-significant bit must be set to 1 if the\noptional field MaxHtlc is present."
+        },
+        "channel_flags": {
+          "type": "integer",
+          "format": "int64",
+          "description": "*\nThe bitfield that describes additional meta-data concerning how the\nupdate is to be interpreted. Currently, the least-significant bit must be\nset to 0 if the creating node corresponds to the first node in the\npreviously sent channel announcement and 1 otherwise. If the second bit\nis set, then the channel is set to be disabled."
+        },
+        "time_lock_delta": {
+          "type": "integer",
+          "format": "int64",
+          "description": "*\nThe minimum number of blocks this node requires to be added to the expiry\nof HTLCs. This is a security parameter determined by the node operator.\nThis value represents the required gap between the time locks of the\nincoming and outgoing HTLC's set to this node."
+        },
+        "htlc_minimum_msat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "*\nThe minimum HTLC value which will be accepted."
+        },
+        "base_fee": {
+          "type": "integer",
+          "format": "int64",
+          "description": "*\nThe base fee that must be used for incoming HTLC's to this particular\nchannel. This value will be tacked onto the required for a payment\nindependent of the size of the payment."
+        },
+        "fee_rate": {
+          "type": "integer",
+          "format": "int64",
+          "description": "*\nThe fee rate that will be charged per millionth of a satoshi."
+        },
+        "htlc_maximum_msat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "*\nThe maximum HTLC value which will be accepted."
+        },
+        "extra_opaque_data": {
+          "type": "string",
+          "format": "byte",
+          "description": "*\nThe set of data that was appended to this message, some of which we may\nnot actually know how to iterate or parse. By holding onto this data, we\nensure that we're able to properly validate the set of signatures that\ncover these new fields, and ensure we're able to make upgrades to the\nnetwork in a forwards compatible manner."
+        }
+      }
+    },
     "lnrpcCloseStatusUpdate": {
       "type": "object",
       "properties": {
@@ -2361,6 +2460,49 @@
           "type": "string",
           "format": "int64",
           "description": "/ The fee rate in satoshi/byte."
+        }
+      }
+    },
+    "lnrpcFailure": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "$ref": "#/definitions/FailureFailureCode",
+          "title": "/ Failure code as defined in the Lightning spec"
+        },
+        "channel_update": {
+          "$ref": "#/definitions/lnrpcChannelUpdate",
+          "description": "/ An optional channel update message."
+        },
+        "htlc_msat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "/ A failure type-dependent htlc value."
+        },
+        "onion_sha_256": {
+          "type": "string",
+          "format": "byte",
+          "description": "/ The sha256 sum of the onion payload."
+        },
+        "cltv_expiry": {
+          "type": "integer",
+          "format": "int64",
+          "description": "/ A failure type-dependent cltv expiry value."
+        },
+        "flags": {
+          "type": "integer",
+          "format": "int64",
+          "description": "/ A failure type-dependent flags value."
+        },
+        "failure_source_index": {
+          "type": "integer",
+          "format": "int64",
+          "description": "*\nThe position in the path of the intermediate or final node that generated\nthe failure message. Position zero is the sender node."
+        },
+        "height": {
+          "type": "integer",
+          "format": "int64",
+          "description": "/ A failure type-dependent block height."
         }
       }
     },
@@ -2735,6 +2877,10 @@
           "type": "string",
           "format": "int64",
           "description": "*\nThe time in UNIX nanoseconds at which this HTLC was settled or failed.\nThis value will not be set if the HTLC is still IN_FLIGHT."
+        },
+        "failure": {
+          "$ref": "#/definitions/lnrpcFailure",
+          "description": "Detailed htlc failure info."
         }
       }
     },

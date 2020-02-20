@@ -60,6 +60,14 @@ linters:
 
   # Init functions are used by loggers throughout the codebase.
   - gochecknoinits
+  - godox
+  - gomnd
+  - dogsled
+  - wsl
+  - gocognit
+  - whitespace
+  - stylecheck
+  - dupl
 
 issues:
   # Only show newly introduced problems.

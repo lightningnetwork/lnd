@@ -203,6 +203,8 @@ type server struct {
 
 	peerNotifier *peernotifier.PeerNotifier
 
+	htlcNotifier *htlcswitch.HtlcNotifier
+
 	witnessBeacon contractcourt.WitnessBeacon
 
 	breachArbiter *breachArbiter
@@ -438,6 +440,8 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 		return nil, err
 	}
 
+	s.htlcNotifier = htlcswitch.NewHtlcNotifier(time.Now)
+
 	s.htlcSwitch, err = htlcswitch.New(htlcswitch.Config{
 		DB: chanDB,
 		LocalChannelClose: func(pubKey []byte,
@@ -467,6 +471,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 		ExtractErrorEncrypter:  s.sphinx.ExtractErrorEncrypter,
 		FetchLastChannelUpdate: s.fetchLastChanUpdate(),
 		Notifier:               s.cc.chainNotifier,
+		HtlcNotifier:           s.htlcNotifier,
 		FwdEventTicker:         ticker.New(htlcswitch.DefaultFwdEventInterval),
 		LogEventTicker:         ticker.New(htlcswitch.DefaultLogInterval),
 		AckEventTicker:         ticker.New(htlcswitch.DefaultAckInterval),
@@ -1265,6 +1270,10 @@ func (s *server) Start() error {
 			startErr = err
 			return
 		}
+		if err := s.htlcNotifier.Start(); err != nil {
+			startErr = err
+			return
+		}
 		if err := s.sphinx.Start(); err != nil {
 			startErr = err
 			return
@@ -1429,6 +1438,7 @@ func (s *server) Stop() error {
 		s.sweeper.Stop()
 		s.channelNotifier.Stop()
 		s.peerNotifier.Stop()
+		s.htlcNotifier.Stop()
 		s.cc.wallet.Shutdown()
 		s.cc.chainView.Stop()
 		s.connMgr.Stop()

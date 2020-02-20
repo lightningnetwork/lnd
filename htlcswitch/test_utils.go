@@ -966,9 +966,11 @@ func createClusterChannels(aliceToBob, bobToCarol btcutil.Amount) (
 // alice                   first bob    second bob              carol
 // channel link	    	  channel link   channel link		channel link
 //
+// This function takes server options which can be used to apply custom
+// settings to alice, bob and carol.
 func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 	secondBobChannel, carolChannel *lnwallet.LightningChannel,
-	startingHeight uint32) *threeHopNetwork {
+	startingHeight uint32, opts ...serverOption) *threeHopNetwork {
 
 	aliceDb := aliceChannel.State().Db
 	bobDb := firstBobChannel.State().Db
@@ -994,6 +996,12 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 	)
 	if err != nil {
 		t.Fatalf("unable to create carol server: %v", err)
+	}
+
+	// Apply all additional functional options to the servers before
+	// creating any links.
+	for _, option := range opts {
+		option(aliceServer, bobServer, carolServer)
 	}
 
 	// Create mock decoder instead of sphinx one in order to mock the route
@@ -1042,6 +1050,34 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 		carolOnionDecoder: carolDecoder,
 
 		hopNetwork: *hopNetwork,
+	}
+}
+
+// serverOption is a function which alters the three servers created for
+// a three hop network to allow custom settings on each server.
+type serverOption func(aliceServer, bobServer, carolServer *mockServer)
+
+// serverOptionWithHtlcNotifier is a functional option for the creation of
+// three hop network servers which allows setting of htlc notifiers.
+// Note that these notifiers should be started and stopped by the calling
+// function.
+func serverOptionWithHtlcNotifier(alice, bob,
+	carol *HtlcNotifier) serverOption {
+
+	return func(aliceServer, bobServer, carolServer *mockServer) {
+		aliceServer.htlcSwitch.cfg.HtlcNotifier = alice
+		bobServer.htlcSwitch.cfg.HtlcNotifier = bob
+		carolServer.htlcSwitch.cfg.HtlcNotifier = carol
+	}
+}
+
+// serverOptionRejectHtlc is the functional option for setting the reject
+// htlc config option in each server's switch.
+func serverOptionRejectHtlc(alice, bob, carol bool) serverOption {
+	return func(aliceServer, bobServer, carolServer *mockServer) {
+		aliceServer.htlcSwitch.cfg.RejectHTLC = alice
+		bobServer.htlcSwitch.cfg.RejectHTLC = bob
+		carolServer.htlcSwitch.cfg.RejectHTLC = carol
 	}
 }
 
@@ -1139,6 +1175,7 @@ func (h *hopNetwork) createChannelLink(server, peer *mockServer,
 			MaxFeeAllocation:        DefaultMaxLinkFeeAllocation,
 			NotifyActiveChannel:     func(wire.OutPoint) {},
 			NotifyInactiveChannel:   func(wire.OutPoint) {},
+			HtlcNotifier:            server.htlcSwitch.cfg.HtlcNotifier,
 		},
 		channel,
 	)

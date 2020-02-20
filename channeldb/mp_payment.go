@@ -1,6 +1,7 @@
 package channeldb
 
 import (
+	"io"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec"
@@ -91,4 +92,89 @@ type MPPayment struct {
 
 	// Status is the current PaymentStatus of this payment.
 	Status PaymentStatus
+}
+
+// serializeHTLCSettleInfo serializes the details of a settled htlc.
+func serializeHTLCSettleInfo(w io.Writer, s *HTLCSettleInfo) error {
+	if _, err := w.Write(s.Preimage[:]); err != nil {
+		return err
+	}
+
+	if err := serializeTime(w, s.SettleTime); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// deserializeHTLCSettleInfo deserializes the details of a settled htlc.
+func deserializeHTLCSettleInfo(r io.Reader) (*HTLCSettleInfo, error) {
+	s := &HTLCSettleInfo{}
+	if _, err := io.ReadFull(r, s.Preimage[:]); err != nil {
+		return nil, err
+	}
+
+	var err error
+	s.SettleTime, err = deserializeTime(r)
+	if err != nil {
+		return nil, err
+	}
+
+	return s, nil
+}
+
+// serializeHTLCFailInfo serializes the details of a failed htlc including the
+// wire failure.
+func serializeHTLCFailInfo(w io.Writer, f *HTLCFailInfo) error {
+	if err := serializeTime(w, f.FailTime); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// deserializeHTLCFailInfo deserializes the details of a failed htlc including
+// the wire failure.
+func deserializeHTLCFailInfo(r io.Reader) (*HTLCFailInfo, error) {
+	f := &HTLCFailInfo{}
+	var err error
+	f.FailTime, err = deserializeTime(r)
+	if err != nil {
+		return nil, err
+	}
+
+	return f, nil
+}
+
+// deserializeTime deserializes time as unix nanoseconds.
+func deserializeTime(r io.Reader) (time.Time, error) {
+	var scratch [8]byte
+	if _, err := io.ReadFull(r, scratch[:]); err != nil {
+		return time.Time{}, err
+	}
+
+	// Convert to time.Time. Interpret unix nano time zero as a zero
+	// time.Time value.
+	unixNano := byteOrder.Uint64(scratch[:])
+	if unixNano == 0 {
+		return time.Time{}, nil
+	}
+
+	return time.Unix(0, int64(unixNano)), nil
+}
+
+// serializeTime serializes time as unix nanoseconds.
+func serializeTime(w io.Writer, t time.Time) error {
+	var scratch [8]byte
+
+	// Convert to unix nano seconds, but only if time is non-zero. Calling
+	// UnixNano() on a zero time yields an undefined result.
+	var unixNano int64
+	if !t.IsZero() {
+		unixNano = t.UnixNano()
+	}
+
+	byteOrder.PutUint64(scratch[:], uint64(unixNano))
+	_, err := w.Write(scratch[:])
+	return err
 }

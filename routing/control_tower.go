@@ -14,7 +14,6 @@ import (
 // restarts. Payments are transitioned through various payment states, and the
 // ControlTower interface provides access to driving the state transitions.
 type ControlTower interface {
-	// InitPayment atomically moves the payment into the InFlight state.
 	// This method checks that no suceeded payment exist for this payment
 	// hash.
 	InitPayment(lntypes.Hash, *channeldb.PaymentCreationInfo) error
@@ -22,17 +21,25 @@ type ControlTower interface {
 	// RegisterAttempt atomically records the provided HTLCAttemptInfo.
 	RegisterAttempt(lntypes.Hash, *channeldb.HTLCAttemptInfo) error
 
-	// Success transitions a payment into the Succeeded state. After
-	// invoking this method, InitPayment should always return an error to
-	// prevent us from making duplicate payments to the same payment hash.
-	// The provided preimage is atomically saved to the DB for record
-	// keeping.
-	Success(lntypes.Hash, lntypes.Preimage) error
+	// SettleAttempt marks the given attempt settled with the preimage. If
+	// this is a multi shard payment, this might implicitly mean the the
+	// full payment succeeded.
+	//
+	// After invoking this method, InitPayment should always return an
+	// error to prevent us from making duplicate payments to the same
+	// payment hash. The provided preimage is atomically saved to the DB
+	// for record keeping.
+	SettleAttempt(lntypes.Hash, uint64, *channeldb.HTLCSettleInfo) error
+
+	// FailAttempt marks the given payment attempt failed.
+	FailAttempt(lntypes.Hash, uint64, *channeldb.HTLCFailInfo) error
 
 	// Fail transitions a payment into the Failed state, and records the
-	// reason the payment failed. After invoking this method, InitPayment
-	// should return nil on its next call for this payment hash, allowing
-	// the switch to make a subsequent payment.
+	// ultimate reason the payment failed. Note that this should only be
+	// called when all active active attempts are already failed. After
+	// invoking this method, InitPayment should return nil on its next call
+	// for this payment hash, allowing the user to make a subsequent
+	// payment.
 	Fail(lntypes.Hash, channeldb.FailureReason) error
 
 	// FetchInFlightPayments returns all payments with status InFlight.
@@ -99,14 +106,13 @@ func (p *controlTower) RegisterAttempt(paymentHash lntypes.Hash,
 	return p.db.RegisterAttempt(paymentHash, attempt)
 }
 
-// Success transitions a payment into the Succeeded state. After invoking this
-// method, InitPayment should always return an error to prevent us from making
-// duplicate payments to the same payment hash. The provided preimage is
-// atomically saved to the DB for record keeping.
-func (p *controlTower) Success(paymentHash lntypes.Hash,
-	preimage lntypes.Preimage) error {
+// SettleAttempt marks the given attempt settled with the preimage. If
+// this is a multi shard payment, this might implicitly mean the the
+// full payment succeeded.
+func (p *controlTower) SettleAttempt(paymentHash lntypes.Hash,
+	attemptID uint64, settleInfo *channeldb.HTLCSettleInfo) error {
 
-	payment, err := p.db.Success(paymentHash, preimage)
+	payment, err := p.db.SettleAttempt(paymentHash, attemptID, settleInfo)
 	if err != nil {
 		return err
 	}
@@ -117,6 +123,13 @@ func (p *controlTower) Success(paymentHash lntypes.Hash,
 	)
 
 	return nil
+}
+
+// FailAttempt marks the given payment attempt failed.
+func (p *controlTower) FailAttempt(paymentHash lntypes.Hash,
+	attemptID uint64, failInfo *channeldb.HTLCFailInfo) error {
+
+	return p.db.FailAttempt(paymentHash, attemptID, failInfo)
 }
 
 // createSuccessResult creates a success result to send to subscribers.

@@ -58,6 +58,13 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 			// the DB, we send it.
 			sendErr := p.sendPaymentAttempt(firstHop, htlcAdd)
 			if sendErr != nil {
+				// TODO(joostjager): Distinguish unexpected
+				// internal errors from real send errors.
+				err = p.failAttempt()
+				if err != nil {
+					return [32]byte{}, nil, err
+				}
+
 				// We must inspect the error to know whether it
 				// was critical or not, to decide whether we
 				// should continue trying.
@@ -110,6 +117,11 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 				"the Switch, retrying.", p.attempt.AttemptID,
 				p.payment.PaymentHash)
 
+			err = p.failAttempt()
+			if err != nil {
+				return [32]byte{}, nil, err
+			}
+
 			// Reset the attempt to indicate we want to make a new
 			// attempt.
 			p.attempt = nil
@@ -146,6 +158,11 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 			log.Errorf("Attempt to send payment %x failed: %v",
 				p.payment.PaymentHash, result.Error)
 
+			err = p.failAttempt()
+			if err != nil {
+				return [32]byte{}, nil, err
+			}
+
 			// We must inspect the error to know whether it was
 			// critical or not, to decide whether we should
 			// continue trying.
@@ -174,7 +191,13 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 
 		// In case of success we atomically store the db payment and
 		// move the payment to the success state.
-		err = p.router.cfg.Control.Success(p.payment.PaymentHash, result.Preimage)
+		err = p.router.cfg.Control.SettleAttempt(
+			p.payment.PaymentHash, p.attempt.AttemptID,
+			&channeldb.HTLCSettleInfo{
+				Preimage:   result.Preimage,
+				SettleTime: p.router.cfg.Clock.Now(),
+			},
+		)
 		if err != nil {
 			log.Errorf("Unable to succeed payment "+
 				"attempt: %v", err)
@@ -339,9 +362,10 @@ func (p *paymentLifecycle) createNewPaymentAttempt() (lnwire.ShortChannelID,
 	// We now have all the information needed to populate
 	// the current attempt information.
 	p.attempt = &channeldb.HTLCAttemptInfo{
-		AttemptID:  attemptID,
-		SessionKey: sessionKey,
-		Route:      *rt,
+		AttemptID:   attemptID,
+		AttemptTime: p.router.cfg.Clock.Now(),
+		SessionKey:  sessionKey,
+		Route:       *rt,
 	}
 
 	// Before sending this HTLC to the switch, we checkpoint the
@@ -420,4 +444,16 @@ func (p *paymentLifecycle) handleSendError(sendErr error) error {
 
 	// Terminal state, return the error we encountered.
 	return sendErr
+}
+
+// failAttempt calls control tower to fail the current payment attempt.
+func (p *paymentLifecycle) failAttempt() error {
+	failInfo := &channeldb.HTLCFailInfo{
+		FailTime: p.router.cfg.Clock.Now(),
+	}
+
+	return p.router.cfg.Control.FailAttempt(
+		p.payment.PaymentHash, p.attempt.AttemptID,
+		failInfo,
+	)
 }

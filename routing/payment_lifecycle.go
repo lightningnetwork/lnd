@@ -60,7 +60,7 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 			if sendErr != nil {
 				// TODO(joostjager): Distinguish unexpected
 				// internal errors from real send errors.
-				err = p.failAttempt()
+				err = p.failAttempt(sendErr)
 				if err != nil {
 					return [32]byte{}, nil, err
 				}
@@ -117,7 +117,7 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 				"the Switch, retrying.", p.attempt.AttemptID,
 				p.payment.PaymentHash)
 
-			err = p.failAttempt()
+			err = p.failAttempt(err)
 			if err != nil {
 				return [32]byte{}, nil, err
 			}
@@ -158,7 +158,7 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 			log.Errorf("Attempt to send payment %x failed: %v",
 				p.payment.PaymentHash, result.Error)
 
-			err = p.failAttempt()
+			err = p.failAttempt(result.Error)
 			if err != nil {
 				return [32]byte{}, nil, err
 			}
@@ -447,13 +447,60 @@ func (p *paymentLifecycle) handleSendError(sendErr error) error {
 }
 
 // failAttempt calls control tower to fail the current payment attempt.
-func (p *paymentLifecycle) failAttempt() error {
-	failInfo := &channeldb.HTLCFailInfo{
-		FailTime: p.router.cfg.Clock.Now(),
-	}
+func (p *paymentLifecycle) failAttempt(sendError error) error {
+	failInfo := marshallError(
+		sendError,
+		p.router.cfg.Clock.Now(),
+	)
 
 	return p.router.cfg.Control.FailAttempt(
 		p.payment.PaymentHash, p.attempt.AttemptID,
 		failInfo,
 	)
+}
+
+// marshallError marshall an error as received from the switch to a structure
+// that is suitable for database storage.
+func marshallError(sendError error, time time.Time) *channeldb.HTLCFailInfo {
+	response := &channeldb.HTLCFailInfo{
+		FailTime: time,
+	}
+
+	switch sendError {
+
+	case htlcswitch.ErrPaymentIDNotFound:
+		response.Reason = channeldb.HTLCFailInternal
+		return response
+
+	case htlcswitch.ErrUnreadableFailureMessage:
+		response.Reason = channeldb.HTLCFailUnreadable
+		return response
+	}
+
+	rtErr, ok := sendError.(htlcswitch.ClearTextError)
+	if !ok {
+		response.Reason = channeldb.HTLCFailInternal
+		return response
+	}
+
+	message := rtErr.WireMessage()
+	if message != nil {
+		response.Reason = channeldb.HTLCFailMessage
+		response.Message = message
+	} else {
+		response.Reason = channeldb.HTLCFailUnknown
+	}
+
+	// If the ClearTextError received is a ForwardingError, the error
+	// originated from a node along the route, not locally on our outgoing
+	// link. We set failureSourceIdx to the index of the node where the
+	// failure occurred. If the error is not a ForwardingError, the failure
+	// occurred at our node, so we leave the index as 0 to indicate that
+	// we failed locally.
+	fErr, ok := rtErr.(*htlcswitch.ForwardingError)
+	if ok {
+		response.FailureSourceIndex = uint32(fErr.FailureSourceIdx)
+	}
+
+	return response
 }

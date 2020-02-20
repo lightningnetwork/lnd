@@ -1,11 +1,14 @@
 package channeldb
 
 import (
+	"bytes"
 	"io"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
 
@@ -57,11 +60,45 @@ type HTLCSettleInfo struct {
 	SettleTime time.Time
 }
 
+// HTLCFailReason is the reason an htlc failed.
+type HTLCFailReason byte
+
+const (
+	// HTLCFailUnknown is recorded for htlcs that failed with an unknown
+	// reason.
+	HTLCFailUnknown HTLCFailReason = 0
+
+	// HTLCFailUnknown is recorded for htlcs that had a failure message that
+	// couldn't be decrypted.
+	HTLCFailUnreadable HTLCFailReason = 1
+
+	// HTLCFailInternal is recorded for htlcs that failed because of an
+	// internal error.
+	HTLCFailInternal HTLCFailReason = 2
+
+	// HTLCFailMessage is recorded for htlcs that failed with a network
+	// failure message.
+	HTLCFailMessage HTLCFailReason = 3
+)
+
 // HTLCFailInfo encapsulates the information that augments an HTLCAttempt in the
 // event that the HTLC fails.
 type HTLCFailInfo struct {
 	// FailTime is the time at which this HTLC was failed.
 	FailTime time.Time
+
+	// Message is the wire message that failed this HTLC. This field will be
+	// populated when the failure reason is HTLCFailMessage.
+	Message lnwire.FailureMessage
+
+	// Reason is the failure reason for this HTLC.
+	Reason HTLCFailReason
+
+	// The position in the path of the intermediate or final node that
+	// generated the failure message. Position zero is the sender node. This
+	// field will be populated when the failure reason is either
+	// HTLCFailMessage or HTLCFailUnknown.
+	FailureSourceIndex uint32
 }
 
 // MPPayment is a wrapper around a payment's PaymentCreationInfo and
@@ -130,7 +167,20 @@ func serializeHTLCFailInfo(w io.Writer, f *HTLCFailInfo) error {
 		return err
 	}
 
-	return nil
+	// Write failure. If there is no failure message, write an empty
+	// byte slice.
+	var messageBytes bytes.Buffer
+	if f.Message != nil {
+		err := lnwire.EncodeFailureMessage(&messageBytes, f.Message, 0)
+		if err != nil {
+			return err
+		}
+	}
+	if err := wire.WriteVarBytes(w, 0, messageBytes.Bytes()); err != nil {
+		return err
+	}
+
+	return WriteElements(w, byte(f.Reason), f.FailureSourceIndex)
 }
 
 // deserializeHTLCFailInfo deserializes the details of a failed htlc including
@@ -142,6 +192,29 @@ func deserializeHTLCFailInfo(r io.Reader) (*HTLCFailInfo, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// Read failure.
+	failureBytes, err := wire.ReadVarBytes(
+		r, 0, lnwire.FailureMessageLength, "failure",
+	)
+	if err != nil {
+		return nil, err
+	}
+	if len(failureBytes) > 0 {
+		f.Message, err = lnwire.DecodeFailureMessage(
+			bytes.NewReader(failureBytes), 0,
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	var reason byte
+	err = ReadElements(r, &reason, &f.FailureSourceIndex)
+	if err != nil {
+		return nil, err
+	}
+	f.Reason = HTLCFailReason(reason)
 
 	return f, nil
 }

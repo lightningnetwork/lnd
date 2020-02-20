@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -882,4 +883,154 @@ func MarshalTimeNano(t time.Time) int64 {
 		return 0
 	}
 	return t.UnixNano()
+}
+
+// marshallError marshall an error as received from the switch to rpc structs
+// suitable for returning to the caller of an rpc method.
+//
+// Because of difficulties with using protobuf oneof constructs in some
+// languages, the decision was made here to use a single message format for all
+// failure messages with some fields left empty depending on the failure type.
+func marshallError(sendError error) (*lnrpc.Failure, error) {
+	response := &lnrpc.Failure{}
+
+	if sendError == htlcswitch.ErrUnreadableFailureMessage {
+		response.Code = lnrpc.Failure_UNREADABLE_FAILURE
+		return response, nil
+	}
+
+	rtErr, ok := sendError.(htlcswitch.ClearTextError)
+	if !ok {
+		return nil, sendError
+	}
+
+	switch onionErr := rtErr.WireMessage().(type) {
+
+	case *lnwire.FailIncorrectDetails:
+		response.Code = lnrpc.Failure_INCORRECT_OR_UNKNOWN_PAYMENT_DETAILS
+		response.Height = onionErr.Height()
+
+	case *lnwire.FailIncorrectPaymentAmount:
+		response.Code = lnrpc.Failure_INCORRECT_PAYMENT_AMOUNT
+
+	case *lnwire.FailFinalIncorrectCltvExpiry:
+		response.Code = lnrpc.Failure_FINAL_INCORRECT_CLTV_EXPIRY
+		response.CltvExpiry = onionErr.CltvExpiry
+
+	case *lnwire.FailFinalIncorrectHtlcAmount:
+		response.Code = lnrpc.Failure_FINAL_INCORRECT_HTLC_AMOUNT
+		response.HtlcMsat = uint64(onionErr.IncomingHTLCAmount)
+
+	case *lnwire.FailFinalExpiryTooSoon:
+		response.Code = lnrpc.Failure_FINAL_EXPIRY_TOO_SOON
+
+	case *lnwire.FailInvalidRealm:
+		response.Code = lnrpc.Failure_INVALID_REALM
+
+	case *lnwire.FailExpiryTooSoon:
+		response.Code = lnrpc.Failure_EXPIRY_TOO_SOON
+		response.ChannelUpdate = marshallChannelUpdate(&onionErr.Update)
+
+	case *lnwire.FailExpiryTooFar:
+		response.Code = lnrpc.Failure_EXPIRY_TOO_FAR
+
+	case *lnwire.FailInvalidOnionVersion:
+		response.Code = lnrpc.Failure_INVALID_ONION_VERSION
+		response.OnionSha_256 = onionErr.OnionSHA256[:]
+
+	case *lnwire.FailInvalidOnionHmac:
+		response.Code = lnrpc.Failure_INVALID_ONION_HMAC
+		response.OnionSha_256 = onionErr.OnionSHA256[:]
+
+	case *lnwire.FailInvalidOnionKey:
+		response.Code = lnrpc.Failure_INVALID_ONION_KEY
+		response.OnionSha_256 = onionErr.OnionSHA256[:]
+
+	case *lnwire.FailAmountBelowMinimum:
+		response.Code = lnrpc.Failure_AMOUNT_BELOW_MINIMUM
+		response.ChannelUpdate = marshallChannelUpdate(&onionErr.Update)
+		response.HtlcMsat = uint64(onionErr.HtlcMsat)
+
+	case *lnwire.FailFeeInsufficient:
+		response.Code = lnrpc.Failure_FEE_INSUFFICIENT
+		response.ChannelUpdate = marshallChannelUpdate(&onionErr.Update)
+		response.HtlcMsat = uint64(onionErr.HtlcMsat)
+
+	case *lnwire.FailIncorrectCltvExpiry:
+		response.Code = lnrpc.Failure_INCORRECT_CLTV_EXPIRY
+		response.ChannelUpdate = marshallChannelUpdate(&onionErr.Update)
+		response.CltvExpiry = onionErr.CltvExpiry
+
+	case *lnwire.FailChannelDisabled:
+		response.Code = lnrpc.Failure_CHANNEL_DISABLED
+		response.ChannelUpdate = marshallChannelUpdate(&onionErr.Update)
+		response.Flags = uint32(onionErr.Flags)
+
+	case *lnwire.FailTemporaryChannelFailure:
+		response.Code = lnrpc.Failure_TEMPORARY_CHANNEL_FAILURE
+		response.ChannelUpdate = marshallChannelUpdate(onionErr.Update)
+
+	case *lnwire.FailRequiredNodeFeatureMissing:
+		response.Code = lnrpc.Failure_REQUIRED_NODE_FEATURE_MISSING
+
+	case *lnwire.FailRequiredChannelFeatureMissing:
+		response.Code = lnrpc.Failure_REQUIRED_CHANNEL_FEATURE_MISSING
+
+	case *lnwire.FailUnknownNextPeer:
+		response.Code = lnrpc.Failure_UNKNOWN_NEXT_PEER
+
+	case *lnwire.FailTemporaryNodeFailure:
+		response.Code = lnrpc.Failure_TEMPORARY_NODE_FAILURE
+
+	case *lnwire.FailPermanentNodeFailure:
+		response.Code = lnrpc.Failure_PERMANENT_NODE_FAILURE
+
+	case *lnwire.FailPermanentChannelFailure:
+		response.Code = lnrpc.Failure_PERMANENT_CHANNEL_FAILURE
+
+	case *lnwire.FailMPPTimeout:
+		response.Code = lnrpc.Failure_MPP_TIMEOUT
+
+	case nil:
+		response.Code = lnrpc.Failure_UNKNOWN_FAILURE
+
+	default:
+		return nil, fmt.Errorf("cannot marshall failure %T", onionErr)
+	}
+
+	// If the ClearTextError received is a ForwardingError, the error
+	// originated from a node along the route, not locally on our outgoing
+	// link. We set failureSourceIdx to the index of the node where the
+	// failure occurred. If the error is not a ForwardingError, the failure
+	// occurred at our node, so we leave the index as 0 to indicate that
+	// we failed locally.
+	fErr, ok := rtErr.(*htlcswitch.ForwardingError)
+	if ok {
+		response.FailureSourceIndex = uint32(fErr.FailureSourceIdx)
+	}
+
+	return response, nil
+}
+
+// marshallChannelUpdate marshalls a channel update as received over the wire to
+// the router rpc format.
+func marshallChannelUpdate(update *lnwire.ChannelUpdate) *lnrpc.ChannelUpdate {
+	if update == nil {
+		return nil
+	}
+
+	return &lnrpc.ChannelUpdate{
+		Signature:       update.Signature[:],
+		ChainHash:       update.ChainHash[:],
+		ChanId:          update.ShortChannelID.ToUint64(),
+		Timestamp:       update.Timestamp,
+		MessageFlags:    uint32(update.MessageFlags),
+		ChannelFlags:    uint32(update.ChannelFlags),
+		TimeLockDelta:   uint32(update.TimeLockDelta),
+		HtlcMinimumMsat: uint64(update.HtlcMinimumMsat),
+		BaseFee:         update.BaseFee,
+		FeeRate:         update.FeeRate,
+		HtlcMaximumMsat: uint64(update.HtlcMaximumMsat),
+		ExtraOpaqueData: update.ExtraOpaqueData,
+	}
 }

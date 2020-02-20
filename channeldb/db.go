@@ -14,6 +14,7 @@ import (
 	"github.com/coreos/bbolt"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/channeldb/migration12"
+	"github.com/lightningnetwork/lnd/channeldb/migration13"
 	"github.com/lightningnetwork/lnd/channeldb/migration_01_to_11"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -123,6 +124,11 @@ var (
 			// and features, remove receipt.
 			number:    12,
 			migration: migration12.MigrateInvoiceTLV,
+		},
+		{
+			// Migrate to multi-path payments.
+			number:    13,
+			migration: migration13.MigrateMPP,
 		},
 	}
 

@@ -8,6 +8,11 @@ cache:
     - $GOPATH/src/github.com/golang
     - $GOPATH/src/gopkg.in/alecthomas
 
+# Remove Travis' default flag --depth=50 from the git clone command to make sure
+# we have the whole git history, including the commit we lint against.
+git:
+  depth: false
+
 go:
   - "1.13.x"
 

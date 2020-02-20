@@ -337,7 +337,10 @@ func fetchPayment(bucket *bbolt.Bucket) (*MPPayment, error) {
 	p.sequenceNum = binary.BigEndian.Uint64(seqBytes)
 
 	// Get the payment status.
-	p.Status = fetchPaymentStatus(bucket)
+	p.Status, err = fetchPaymentStatus(bucket)
+	if err != nil {
+		return nil, err
+	}
 
 	// Get the PaymentCreationInfo.
 	b := bucket.Get(paymentCreationInfoKey)
@@ -401,7 +404,11 @@ func (db *DB) DeletePayments() error {
 
 			// If the status is InFlight, we cannot safely delete
 			// the payment information, so we return early.
-			paymentStatus := fetchPaymentStatus(bucket)
+			paymentStatus, err := fetchPaymentStatus(bucket)
+			if err != nil {
+				return err
+			}
+
 			if paymentStatus == StatusInFlight {
 				return nil
 			}

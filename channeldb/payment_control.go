@@ -76,7 +76,10 @@ func (p *PaymentControl) InitPayment(paymentHash lntypes.Hash,
 		}
 
 		// Get the existing status of this payment, if any.
-		paymentStatus := fetchPaymentStatus(bucket)
+		paymentStatus, err := fetchPaymentStatus(bucket)
+		if err != nil {
+			return err
+		}
 
 		switch paymentStatus {
 
@@ -358,27 +361,30 @@ func nextPaymentSequence(tx *bbolt.Tx) ([]byte, error) {
 
 // fetchPaymentStatus fetches the payment status of the payment. If the payment
 // isn't found, it will default to "StatusUnknown".
-func fetchPaymentStatus(bucket *bbolt.Bucket) PaymentStatus {
+func fetchPaymentStatus(bucket *bbolt.Bucket) (PaymentStatus, error) {
 	if bucket.Get(paymentSettleInfoKey) != nil {
-		return StatusSucceeded
+		return StatusSucceeded, nil
 	}
 
 	if bucket.Get(paymentFailInfoKey) != nil {
-		return StatusFailed
+		return StatusFailed, nil
 	}
 
 	if bucket.Get(paymentCreationInfoKey) != nil {
-		return StatusInFlight
+		return StatusInFlight, nil
 	}
 
-	return StatusUnknown
+	return StatusUnknown, nil
 }
 
 // ensureInFlight checks whether the payment found in the given bucket has
 // status InFlight, and returns an error otherwise. This should be used to
 // ensure we only mark in-flight payments as succeeded or failed.
 func ensureInFlight(bucket *bbolt.Bucket) error {
-	paymentStatus := fetchPaymentStatus(bucket)
+	paymentStatus, err := fetchPaymentStatus(bucket)
+	if err != nil {
+		return err
+	}
 
 	switch {
 
@@ -443,15 +449,16 @@ func (p *PaymentControl) FetchInFlightPayments() ([]*InFlightPayment, error) {
 			}
 
 			// If the status is not InFlight, we can return early.
-			paymentStatus := fetchPaymentStatus(bucket)
+			paymentStatus, err := fetchPaymentStatus(bucket)
+			if err != nil {
+				return err
+			}
+
 			if paymentStatus != StatusInFlight {
 				return nil
 			}
 
-			var (
-				inFlight = &InFlightPayment{}
-				err      error
-			)
+			inFlight := &InFlightPayment{}
 
 			// Get the CreationInfo.
 			b := bucket.Get(paymentCreationInfoKey)

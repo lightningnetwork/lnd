@@ -2382,8 +2382,12 @@ type ChannelCloseSummary struct {
 // entails deleting all saved state within the database concerning this
 // channel. This method also takes a struct that summarizes the state of the
 // channel at closing, this compact representation will be the only component
-// of a channel left over after a full closing.
-func (c *OpenChannel) CloseChannel(summary *ChannelCloseSummary) error {
+// of a channel left over after a full closing. It takes an optional set of
+// channel statuses which will be written to the historical channel bucket.
+// These statuses are used to record close initiators.
+func (c *OpenChannel) CloseChannel(summary *ChannelCloseSummary,
+	statuses ...ChannelStatus) error {
+
 	c.Lock()
 	defer c.Unlock()
 
@@ -2459,6 +2463,11 @@ func (c *OpenChannel) CloseChannel(summary *ChannelCloseSummary) error {
 			historicalBucket.CreateBucketIfNotExists(chanKey)
 		if err != nil {
 			return err
+		}
+
+		// Apply any additional statuses to the channel state.
+		for _, status := range statuses {
+			chanState.chanStatus |= status
 		}
 
 		err = putOpenChannel(historicalChanBucket, chanState)

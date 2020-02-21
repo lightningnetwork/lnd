@@ -1009,7 +1009,11 @@ func (f *fundingManager) advancePendingChannelState(
 			LocalChanConfig:         ch.LocalChanCfg,
 		}
 
-		if err := ch.CloseChannel(closeInfo); err != nil {
+		// Close the channel with us as the initiator because we are
+		// timing the channel out.
+		if err := ch.CloseChannel(
+			closeInfo, channeldb.ChanStatusLocalCloseInitiator,
+		); err != nil {
 			return fmt.Errorf("failed closing channel "+
 				"%v: %v", ch.FundingOutpoint, err)
 		}
@@ -1639,7 +1643,11 @@ func (f *fundingManager) handleFundingCreated(fmsg *fundingCreatedMsg) {
 			LocalChanConfig:         completeChan.LocalChanCfg,
 		}
 
-		if err := completeChan.CloseChannel(closeInfo); err != nil {
+		// Close the channel with us as the initiator because we are
+		// deciding to exit the funding flow due to an internal error.
+		if err := completeChan.CloseChannel(
+			closeInfo, channeldb.ChanStatusLocalCloseInitiator,
+		); err != nil {
 			fndgLog.Errorf("Failed closing channel %v: %v",
 				completeChan.FundingOutpoint, err)
 		}

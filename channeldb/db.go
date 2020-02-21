@@ -1159,8 +1159,9 @@ func (d *DB) AbandonChannel(chanPoint *wire.OutPoint, bestHeight uint32) error {
 	}
 
 	// Finally, we'll close the channel in the DB, and return back to the
-	// caller.
-	return dbChan.CloseChannel(summary)
+	// caller. We set ourselves as the close initiator because we abandoned
+	// the channel.
+	return dbChan.CloseChannel(summary, ChanStatusLocalCloseInitiator)
 }
 
 // syncVersions function is used for safe db version synchronization. It

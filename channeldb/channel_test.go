@@ -1357,3 +1357,39 @@ func TestCloseInitiator(t *testing.T) {
 		})
 	}
 }
+
+// TestCloseChannelStatus tests setting of a channel status on the historical
+// channel on channel close.
+func TestCloseChannelStatus(t *testing.T) {
+	cdb, cleanUp, err := makeTestDB()
+	if err != nil {
+		t.Fatalf("unable to make test database: %v",
+			err)
+	}
+	defer cleanUp()
+
+	// Create an open channel.
+	channel := createTestChannel(
+		t, cdb, openChannelOption(),
+	)
+
+	if err := channel.CloseChannel(
+		&ChannelCloseSummary{
+			ChanPoint: channel.FundingOutpoint,
+			RemotePub: channel.IdentityPub,
+		}, ChanStatusRemoteCloseInitiator,
+	); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	histChan, err := channel.Db.FetchHistoricalChannel(
+		&channel.FundingOutpoint,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !histChan.HasChanStatus(ChanStatusRemoteCloseInitiator) {
+		t.Fatalf("channel should have status")
+	}
+}

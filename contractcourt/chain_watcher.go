@@ -985,7 +985,9 @@ func (c *chainWatcher) dispatchContractBreach(spendEvent *chainntnfs.SpendDetail
 		closeSummary.LastChanSyncMsg = chanSync
 	}
 
-	if err := c.cfg.chanState.CloseChannel(&closeSummary); err != nil {
+	if err := c.cfg.chanState.CloseChannel(
+		&closeSummary, channeldb.ChanStatusRemoteCloseInitiator,
+	); err != nil {
 		return err
 	}
 

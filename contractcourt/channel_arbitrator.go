@@ -104,8 +104,10 @@ type ChannelArbitratorConfig struct {
 	// passed close summary. After this method successfully returns we can
 	// no longer expect to receive chain events for this channel, and must
 	// be able to recover from a failure without getting the close event
-	// again.
-	MarkChannelClosed func(*channeldb.ChannelCloseSummary) error
+	// again. It takes an optional channel status which will update the
+	// channel status in the record that we keep of historical channels.
+	MarkChannelClosed func(*channeldb.ChannelCloseSummary,
+		...channeldb.ChannelStatus) error
 
 	// IsPendingClose is a boolean indicating whether the channel is marked
 	// as pending close in the database.
@@ -2178,7 +2180,10 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 			// transition into StateContractClosed based on the
 			// close status of the channel.
 			closeSummary := &uniClosure.ChannelCloseSummary
-			err = c.cfg.MarkChannelClosed(closeSummary)
+			err = c.cfg.MarkChannelClosed(
+				closeSummary,
+				channeldb.ChanStatusRemoteCloseInitiator,
+			)
 			if err != nil {
 				log.Errorf("Unable to mark channel closed: %v",
 					err)

@@ -524,8 +524,32 @@ func TestChannelStateTransition(t *testing.T) {
 	// First update the local node's broadcastable state and also add a
 	// CommitDiff remote node's as well in order to simulate a proper state
 	// transition.
-	if err := channel.UpdateCommitment(&commitment); err != nil {
+	unsignedAckedUpdates := []LogUpdate{
+		{
+			LogIndex: 2,
+			UpdateMsg: &lnwire.UpdateAddHTLC{
+				ChanID: lnwire.ChannelID{1, 2, 3},
+			},
+		},
+	}
+
+	err = channel.UpdateCommitment(&commitment, unsignedAckedUpdates)
+	if err != nil {
 		t.Fatalf("unable to update commitment: %v", err)
+	}
+
+	// Assert that update is correctly written to the database.
+	dbUnsignedAckedUpdates, err := channel.UnsignedAckedUpdates()
+	if err != nil {
+		t.Fatalf("unable to fetch dangling remote updates: %v", err)
+	}
+	if len(dbUnsignedAckedUpdates) != 1 {
+		t.Fatalf("unexpected number of dangling remote updates")
+	}
+	if !reflect.DeepEqual(
+		dbUnsignedAckedUpdates[0], unsignedAckedUpdates[0],
+	) {
+		t.Fatalf("unexpected update")
 	}
 
 	// The balances, new update, the HTLCs and the changes to the fake

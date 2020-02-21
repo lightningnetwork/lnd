@@ -3114,12 +3114,16 @@ func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
 	view := lc.fetchHTLCView(theirLogCounter, ourLogCounter)
 
 	// If we are checking if we can add a new HTLC, we add this to the
-	// update log, in order to validate the sanity of the commitment
-	// resulting from _actually adding_ this HTLC to the state.
+	// appropriate update log, in order to validate the sanity of the
+	// commitment resulting from _actually adding_ this HTLC to the state.
 	if predictAdded != nil {
-		// If we are adding an HTLC, this will be an Add to the local
-		// update log.
-		view.ourUpdates = append(view.ourUpdates, predictAdded)
+		// If the remoteChain bool is true, add to ourUpdates.
+		if remoteChain {
+			view.ourUpdates = append(view.ourUpdates, predictAdded)
+		} else {
+			// Else add to theirUpdates.
+			view.theirUpdates = append(view.theirUpdates, predictAdded)
+		}
 	}
 
 	commitChain := lc.localCommitChain
@@ -4674,6 +4678,17 @@ func (lc *LightningChannel) ReceiveHTLC(htlc *lnwire.UpdateAddHTLC) (uint64, err
 		LogIndex:  lc.remoteUpdateLog.logIndex,
 		HtlcIndex: lc.remoteUpdateLog.htlcCounter,
 		OnionBlob: htlc.OnionBlob[:],
+	}
+
+	localACKedIndex := lc.remoteCommitChain.tail().ourMessageIndex
+
+	// Clamp down on the number of HTLC's we can receive by checking the
+	// commitment sanity.
+	err := lc.validateCommitmentSanity(
+		lc.remoteUpdateLog.logIndex, localACKedIndex, false, pd,
+	)
+	if err != nil {
+		return 0, err
 	}
 
 	lc.remoteUpdateLog.appendHtlc(pd)

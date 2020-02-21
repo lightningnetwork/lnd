@@ -5462,22 +5462,25 @@ func TestMaxAcceptedHTLCs(t *testing.T) {
 	defer cleanUp()
 
 	// One over the maximum number of HTLCs that either can accept.
-	const numHTLCs = 20
-	const numHTLCsReceived = 12
+	const numHTLCs = 12
 
-	// Set the remote's required MaxAcceptedHtlcs. This means that alice
+	// Set the remote's required MaxAcceptedHtlcs. This means that Alice
 	// can only offer the remote up to numHTLCs HTLCs.
 	aliceChannel.channelState.LocalChanCfg.MaxAcceptedHtlcs = numHTLCs
 	bobChannel.channelState.RemoteChanCfg.MaxAcceptedHtlcs = numHTLCs
 
 	// Similarly, set the remote config's MaxAcceptedHtlcs. This means
-	// that the remote will be aware that Alice will only accept up to
-	// numHTLCsRecevied at a time.
-	aliceChannel.channelState.RemoteChanCfg.MaxAcceptedHtlcs = numHTLCsReceived
-	bobChannel.channelState.LocalChanCfg.MaxAcceptedHtlcs = numHTLCsReceived
+	// that the remote will be aware that Bob will only accept up to
+	// numHTLCs at a time.
+	aliceChannel.channelState.RemoteChanCfg.MaxAcceptedHtlcs = numHTLCs
+	bobChannel.channelState.LocalChanCfg.MaxAcceptedHtlcs = numHTLCs
 
 	// Each HTLC amount is 0.1 BTC.
 	htlcAmt := lnwire.NewMSatFromSatoshis(0.1 * btcutil.SatoshiPerBitcoin)
+
+	// htlcID is used to keep track of the HTLC that Bob will fail back to
+	// Alice.
+	var htlcID uint64
 
 	// Send the maximum allowed number of HTLCs.
 	for i := 0; i < numHTLCs; i++ {
@@ -5488,6 +5491,13 @@ func TestMaxAcceptedHTLCs(t *testing.T) {
 		if _, err := bobChannel.ReceiveHTLC(htlc); err != nil {
 			t.Fatalf("unable to recv htlc: %v", err)
 		}
+
+		// Just assign htlcID to the last received HTLC.
+		htlcID = htlc.ID
+	}
+
+	if err := ForceStateTransition(aliceChannel, bobChannel); err != nil {
+		t.Fatalf("unable to transition state: %v", err)
 	}
 
 	// The next HTLC should fail with ErrMaxHTLCNumber.
@@ -5497,14 +5507,210 @@ func TestMaxAcceptedHTLCs(t *testing.T) {
 		t.Fatalf("expected ErrMaxHTLCNumber, instead received: %v", err)
 	}
 
-	// After receiving the next HTLC, next state transition should fail
-	// with ErrMaxHTLCNumber.
+	// Receiving the next HTLC should fail.
+	if _, err := bobChannel.ReceiveHTLC(htlc); err != ErrMaxHTLCNumber {
+		t.Fatalf("expected ErrMaxHTLCNumber, instead received: %v", err)
+	}
+
+	// Bob will fail the htlc specified by htlcID and then force a state
+	// transition.
+	err = bobChannel.FailHTLC(htlcID, []byte{}, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("unable to fail htlc: %v", err)
+	}
+
+	if err := aliceChannel.ReceiveFailHTLC(htlcID, []byte{}); err != nil {
+		t.Fatalf("unable to receive fail htlc: %v", err)
+	}
+
+	if err := ForceStateTransition(bobChannel, aliceChannel); err != nil {
+		t.Fatalf("unable to transition state: %v", err)
+	}
+
+	// Bob should succeed in adding a new HTLC since a previous HTLC was just
+	// failed. We use numHTLCs here since the previous AddHTLC with this index
+	// failed.
+	htlc, _ = createHTLC(numHTLCs, htlcAmt)
+	if _, err := aliceChannel.AddHTLC(htlc, nil); err != nil {
+		t.Fatalf("unable to add htlc: %v", err)
+	}
 	if _, err := bobChannel.ReceiveHTLC(htlc); err != nil {
 		t.Fatalf("unable to recv htlc: %v", err)
 	}
-	err = ForceStateTransition(aliceChannel, bobChannel)
-	if err != ErrMaxHTLCNumber {
+
+	// Add a commitment to Bob's commitment chain.
+	aliceSig, aliceHtlcSigs, _, err := aliceChannel.SignNextCommitment()
+	if err != nil {
+		t.Fatalf("unable to sign next commitment: %v", err)
+	}
+	err = bobChannel.ReceiveNewCommitment(aliceSig, aliceHtlcSigs)
+	if err != nil {
+		t.Fatalf("unable to recv new commitment: %v", err)
+	}
+
+	// The next HTLC should fail with ErrMaxHTLCNumber. The index is incremented
+	// by one.
+	htlc, _ = createHTLC(numHTLCs+1, htlcAmt)
+	if _, err = aliceChannel.AddHTLC(htlc, nil); err != ErrMaxHTLCNumber {
 		t.Fatalf("expected ErrMaxHTLCNumber, instead received: %v", err)
+	}
+
+	// Likewise, Bob should not be able to receive this HTLC if Alice can't
+	// add it.
+	if _, err := bobChannel.ReceiveHTLC(htlc); err != ErrMaxHTLCNumber {
+		t.Fatalf("expected ErrMaxHTLCNumber, instead received: %v", err)
+	}
+}
+
+// TestMaxAsynchronousHtlcs tests that Bob correctly receives (and does not
+// fail) an HTLC from Alice when exchanging asynchronous payments. We want to
+// mimic the following case where Bob's commitment transaction is full before
+// starting:
+// 	Alice                    Bob
+// 1.         <---settle/fail---
+// 2.         <-------sig-------
+// 3.         --------sig------> (covers an add sent before step 1)
+// 4.         <-------rev-------
+// 5.         --------rev------>
+// 6.         --------add------>
+// 7.         - - - - sig - - ->
+// This represents an asynchronous commitment dance in which both sides are
+// sending signatures at the same time. In step 3, the signature does not
+// cover the recent settle/fail that Bob sent in step 1. However, the add that
+// Alice sends to Bob in step 6 does not overflow Bob's commitment transaction.
+// This is because validateCommitmentSanity counts the HTLC's by ignoring
+// HTLC's which will be removed in the next signature that Alice sends. Thus,
+// the add won't overflow. This is because the signature received in step 7
+// covers the settle/fail in step 1 and makes space for the add in step 6.
+func TestMaxAsynchronousHtlcs(t *testing.T) {
+	t.Parallel()
+
+	// We'll kick off the test by creating our channels which both are
+	// loaded with 5 BTC each.
+	aliceChannel, bobChannel, cleanUp, err := CreateTestChannels(true)
+	if err != nil {
+		t.Fatalf("unable to create test channels: %v", err)
+	}
+	defer cleanUp()
+
+	// One over the maximum number of HTLCs that either can accept.
+	const numHTLCs = 12
+
+	// Set the remote's required MaxAcceptedHtlcs. This means that Alice
+	// can only offer the remote up to numHTLCs HTLCs.
+	aliceChannel.channelState.LocalChanCfg.MaxAcceptedHtlcs = numHTLCs
+	bobChannel.channelState.RemoteChanCfg.MaxAcceptedHtlcs = numHTLCs
+
+	// Similarly, set the remote config's MaxAcceptedHtlcs. This means
+	// that the remote will be aware that Bob will only accept up to
+	// numHTLCs at a time.
+	aliceChannel.channelState.RemoteChanCfg.MaxAcceptedHtlcs = numHTLCs
+	bobChannel.channelState.LocalChanCfg.MaxAcceptedHtlcs = numHTLCs
+
+	// Each HTLC amount is 0.1 BTC.
+	htlcAmt := lnwire.NewMSatFromSatoshis(0.1 * btcutil.SatoshiPerBitcoin)
+
+	var htlcID uint64
+
+	// Send the maximum allowed number of HTLCs minus one.
+	for i := 0; i < numHTLCs-1; i++ {
+		htlc, _ := createHTLC(i, htlcAmt)
+		if _, err := aliceChannel.AddHTLC(htlc, nil); err != nil {
+			t.Fatalf("unable to add htlc: %v", err)
+		}
+		if _, err := bobChannel.ReceiveHTLC(htlc); err != nil {
+			t.Fatalf("unable to recv htlc: %v", err)
+		}
+
+		// Just assign htlcID to the last received HTLC.
+		htlcID = htlc.ID
+	}
+
+	if err := ForceStateTransition(aliceChannel, bobChannel); err != nil {
+		t.Fatalf("unable to transition state: %v", err)
+	}
+
+	// Send an HTLC to Bob so that Bob's commitment transaction is full.
+	htlc, _ := createHTLC(numHTLCs-1, htlcAmt)
+	if _, err := aliceChannel.AddHTLC(htlc, nil); err != nil {
+		t.Fatalf("unable to add htlc: %v", err)
+	}
+	if _, err := bobChannel.ReceiveHTLC(htlc); err != nil {
+		t.Fatalf("unable to recv htlc: %v", err)
+	}
+
+	// Fail back an HTLC and sign a commitment as in steps 1 & 2.
+	err = bobChannel.FailHTLC(htlcID, []byte{}, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("unable to fail htlc: %v", err)
+	}
+
+	if err := aliceChannel.ReceiveFailHTLC(htlcID, []byte{}); err != nil {
+		t.Fatalf("unable to receive fail htlc: %v", err)
+	}
+
+	bobSig, bobHtlcSigs, _, err := bobChannel.SignNextCommitment()
+	if err != nil {
+		t.Fatalf("unable to sign next commitment: %v", err)
+	}
+
+	err = aliceChannel.ReceiveNewCommitment(bobSig, bobHtlcSigs)
+	if err != nil {
+		t.Fatalf("unable to receive new commitment: %v", err)
+	}
+
+	// Cover the HTLC referenced with id equal to numHTLCs-1 with a new
+	// signature (step 3).
+	aliceSig, aliceHtlcSigs, _, err := aliceChannel.SignNextCommitment()
+	if err != nil {
+		t.Fatalf("unable to sign next commitment: %v", err)
+	}
+
+	err = bobChannel.ReceiveNewCommitment(aliceSig, aliceHtlcSigs)
+	if err != nil {
+		t.Fatalf("unable to receive new commitment: %v", err)
+	}
+
+	// Both sides exchange revocations as in step 4 & 5.
+	bobRevocation, _, err := bobChannel.RevokeCurrentCommitment()
+	if err != nil {
+		t.Fatalf("unable to revoke revocation: %v", err)
+	}
+
+	_, _, _, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
+	if err != nil {
+		t.Fatalf("unable to receive revocation: %v", err)
+	}
+
+	aliceRevocation, _, err := aliceChannel.RevokeCurrentCommitment()
+	if err != nil {
+		t.Fatalf("unable to revoke revocation: %v", err)
+	}
+
+	_, _, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
+	if err != nil {
+		t.Fatalf("unable to receive revocation: %v", err)
+	}
+
+	// Send the final Add which should succeed as in step 6.
+	htlc, _ = createHTLC(numHTLCs, htlcAmt)
+	if _, err := aliceChannel.AddHTLC(htlc, nil); err != nil {
+		t.Fatalf("unable to add htlc: %v", err)
+	}
+	if _, err := bobChannel.ReceiveHTLC(htlc); err != nil {
+		t.Fatalf("unable to recv htlc: %v", err)
+	}
+
+	// Receiving the commitment should succeed as in step 7 since space was
+	// made.
+	aliceSig, aliceHtlcSigs, _, err = aliceChannel.SignNextCommitment()
+	if err != nil {
+		t.Fatalf("unable to sign next commitment: %v", err)
+	}
+
+	err = bobChannel.ReceiveNewCommitment(aliceSig, aliceHtlcSigs)
+	if err != nil {
+		t.Fatalf("unable to receive new commitment: %v", err)
 	}
 }
 
@@ -5556,13 +5762,8 @@ func TestMaxPendingAmount(t *testing.T) {
 		t.Fatalf("expected ErrMaxPendingAmount, instead received: %v", err)
 	}
 
-	// And also Bob shouldn't be accepting this HTLC in the next state
-	// transition.
-	if _, err := bobChannel.ReceiveHTLC(htlc); err != nil {
-		t.Fatalf("unable to recv htlc: %v", err)
-	}
-	err = ForceStateTransition(aliceChannel, bobChannel)
-	if err != ErrMaxPendingAmount {
+	// And also Bob shouldn't be accepting this HTLC upon calling ReceiveHTLC.
+	if _, err := bobChannel.ReceiveHTLC(htlc); err != ErrMaxPendingAmount {
 		t.Fatalf("expected ErrMaxPendingAmount, instead received: %v", err)
 	}
 }
@@ -5684,12 +5885,8 @@ func TestChanReserve(t *testing.T) {
 		t.Fatalf("expected ErrBelowChanReserve, instead received: %v", err)
 	}
 
-	// Alice will reject this htlc when a state transition is attempted.
-	if _, err := aliceChannel.ReceiveHTLC(htlc); err != nil {
-		t.Fatalf("unable to recv htlc: %v", err)
-	}
-	err = ForceStateTransition(aliceChannel, bobChannel)
-	if err != ErrBelowChanReserve {
+	// Alice will reject this htlc upon receiving the htlc.
+	if _, err := aliceChannel.ReceiveHTLC(htlc); err != ErrBelowChanReserve {
 		t.Fatalf("expected ErrBelowChanReserve, instead received: %v", err)
 	}
 
@@ -5731,13 +5928,8 @@ func TestChanReserve(t *testing.T) {
 		t.Fatalf("expected ErrBelowChanReserve, instead received: %v", err)
 	}
 
-	// Likewise, Bob will reject a state transition after this htlc is
-	// received, of the same reason.
-	if _, err := bobChannel.ReceiveHTLC(htlc); err != nil {
-		t.Fatalf("unable to recv htlc: %v", err)
-	}
-	err = ForceStateTransition(aliceChannel, bobChannel)
-	if err != ErrBelowChanReserve {
+	// Likewise, Bob will reject receiving the htlc because of the same reason.
+	if _, err := bobChannel.ReceiveHTLC(htlc); err != ErrBelowChanReserve {
 		t.Fatalf("expected ErrBelowChanReserve, instead received: %v", err)
 	}
 
@@ -5857,13 +6049,9 @@ func TestMinHTLC(t *testing.T) {
 		t.Fatalf("expected ErrBelowMinHTLC, instead received: %v", err)
 	}
 
-	// Bob will receive this HTLC, but reject the next state update, since
+	// Bob will receive this HTLC, but reject the next received htlc, since
 	// the htlc is too small.
 	_, err = bobChannel.ReceiveHTLC(htlc)
-	if err != nil {
-		t.Fatalf("error receiving htlc: %v", err)
-	}
-	err = ForceStateTransition(aliceChannel, bobChannel)
 	if err != ErrBelowMinHTLC {
 		t.Fatalf("expected ErrBelowMinHTLC, instead received: %v", err)
 	}

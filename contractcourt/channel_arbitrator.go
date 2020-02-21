@@ -98,14 +98,16 @@ type ChannelArbitratorConfig struct {
 
 	// MarkCommitmentBroadcasted should mark the channel as the commitment
 	// being broadcast, and we are waiting for the commitment to confirm.
-	MarkCommitmentBroadcasted func(*wire.MsgTx) error
+	MarkCommitmentBroadcasted func(*wire.MsgTx, bool) error
 
 	// MarkChannelClosed marks the channel closed in the database, with the
 	// passed close summary. After this method successfully returns we can
 	// no longer expect to receive chain events for this channel, and must
 	// be able to recover from a failure without getting the close event
-	// again.
-	MarkChannelClosed func(*channeldb.ChannelCloseSummary) error
+	// again. It takes an optional channel status which will update the
+	// channel status in the record that we keep of historical channels.
+	MarkChannelClosed func(*channeldb.ChannelCloseSummary,
+		...channeldb.ChannelStatus) error
 
 	// IsPendingClose is a boolean indicating whether the channel is marked
 	// as pending close in the database.
@@ -797,8 +799,10 @@ func (c *ChannelArbitrator) stateStep(
 
 		// Before publishing the transaction, we store it to the
 		// database, such that we can re-publish later in case it
-		// didn't propagate.
-		if err := c.cfg.MarkCommitmentBroadcasted(closeTx); err != nil {
+		// didn't propagate. We initiated the force close, so we
+		// mark broadcast with local initiator set to true.
+		err = c.cfg.MarkCommitmentBroadcasted(closeTx, true)
+		if err != nil {
 			log.Errorf("ChannelArbitrator(%v): unable to "+
 				"mark commitment broadcasted: %v",
 				c.cfg.ChanPoint, err)
@@ -2176,7 +2180,10 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 			// transition into StateContractClosed based on the
 			// close status of the channel.
 			closeSummary := &uniClosure.ChannelCloseSummary
-			err = c.cfg.MarkChannelClosed(closeSummary)
+			err = c.cfg.MarkChannelClosed(
+				closeSummary,
+				channeldb.ChanStatusRemoteCloseInitiator,
+			)
 			if err != nil {
 				log.Errorf("Unable to mark channel closed: %v",
 					err)

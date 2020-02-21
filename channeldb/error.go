@@ -10,6 +10,11 @@ var (
 	// created.
 	ErrNoChanDBExists = fmt.Errorf("channel db has not yet been created")
 
+	// ErrNoHistoricalBucket is returned when the historical channel bucket
+	// not been created yet.
+	ErrNoHistoricalBucket = fmt.Errorf("historical channel bucket has " +
+		"not yet been created")
+
 	// ErrDBReversion is returned when detecting an attempt to revert to a
 	// prior database version.
 	ErrDBReversion = fmt.Errorf("channel db cannot revert to prior version")

@@ -401,20 +401,35 @@ var (
 	// will have.
 	ChanStatusRestored ChannelStatus = 1 << 3
 
-	// ChanStatusCoopBroadcasted indicates that a cooperative close for this
-	// channel has been broadcasted.
+	// ChanStatusCoopBroadcasted indicates that a cooperative close for
+	// this channel has been broadcasted. Older cooperatively closed
+	// channels will only have this status set. Newer ones will also have
+	// close initiator information stored using the local/remote initiator
+	// status. This status is set in conjunction with the initiator status
+	// so that we do not need to check multiple channel statues for
+	// cooperative closes.
 	ChanStatusCoopBroadcasted ChannelStatus = 1 << 4
+
+	// ChanStatusLocalCloseInitiator indicates that we initiated closing
+	// the channel.
+	ChanStatusLocalCloseInitiator ChannelStatus = 1 << 5
+
+	// ChanStatusRemoteCloseInitiator indicates that the remote node
+	// initiated closing the channel.
+	ChanStatusRemoteCloseInitiator ChannelStatus = 1 << 6
 )
 
 // chanStatusStrings maps a ChannelStatus to a human friendly string that
 // describes that status.
 var chanStatusStrings = map[ChannelStatus]string{
-	ChanStatusDefault:           "ChanStatusDefault",
-	ChanStatusBorked:            "ChanStatusBorked",
-	ChanStatusCommitBroadcasted: "ChanStatusCommitBroadcasted",
-	ChanStatusLocalDataLoss:     "ChanStatusLocalDataLoss",
-	ChanStatusRestored:          "ChanStatusRestored",
-	ChanStatusCoopBroadcasted:   "ChanStatusCoopBroadcasted",
+	ChanStatusDefault:              "ChanStatusDefault",
+	ChanStatusBorked:               "ChanStatusBorked",
+	ChanStatusCommitBroadcasted:    "ChanStatusCommitBroadcasted",
+	ChanStatusLocalDataLoss:        "ChanStatusLocalDataLoss",
+	ChanStatusRestored:             "ChanStatusRestored",
+	ChanStatusCoopBroadcasted:      "ChanStatusCoopBroadcasted",
+	ChanStatusLocalCloseInitiator:  "ChanStatusLocalCloseInitiator",
+	ChanStatusRemoteCloseInitiator: "ChanStatusRemoteCloseInitiator",
 }
 
 // orderedChanStatusFlags is an in-order list of all that channel status flags.
@@ -425,6 +440,8 @@ var orderedChanStatusFlags = []ChannelStatus{
 	ChanStatusLocalDataLoss,
 	ChanStatusRestored,
 	ChanStatusCoopBroadcasted,
+	ChanStatusLocalCloseInitiator,
+	ChanStatusRemoteCloseInitiator,
 }
 
 // String returns a human-readable representation of the ChannelStatus.
@@ -974,30 +991,37 @@ func (c *OpenChannel) isBorked(chanBucket *bbolt.Bucket) (bool, error) {
 // closing tx _we believe_ will appear in the chain. This is only used to
 // republish this tx at startup to ensure propagation, and we should still
 // handle the case where a different tx actually hits the chain.
-func (c *OpenChannel) MarkCommitmentBroadcasted(closeTx *wire.MsgTx) error {
+func (c *OpenChannel) MarkCommitmentBroadcasted(closeTx *wire.MsgTx,
+	locallyInitiated bool) error {
+
 	return c.markBroadcasted(
 		ChanStatusCommitBroadcasted, forceCloseTxKey, closeTx,
+		locallyInitiated,
 	)
 }
 
 // MarkCoopBroadcasted marks the channel to indicate that a cooperative close
 // transaction has been broadcast, either our own or the remote, and that we
-// should wach the chain for it to confirm before taking further action. It
+// should watch the chain for it to confirm before taking further action. It
 // takes as argument a cooperative close tx that could appear on chain, and
-// should be rebroadcast upon startup. This is only used to republish and ensure
-// propagation, and we should still handle the case where a different tx
+// should be rebroadcast upon startup. This is only used to republish and
+// ensure propagation, and we should still handle the case where a different tx
 // actually hits the chain.
-func (c *OpenChannel) MarkCoopBroadcasted(closeTx *wire.MsgTx) error {
+func (c *OpenChannel) MarkCoopBroadcasted(closeTx *wire.MsgTx,
+	locallyInitiated bool) error {
+
 	return c.markBroadcasted(
 		ChanStatusCoopBroadcasted, coopCloseTxKey, closeTx,
+		locallyInitiated,
 	)
 }
 
 // markBroadcasted is a helper function which modifies the channel status of the
 // receiving channel and inserts a close transaction under the requested key,
-// which should specify either a coop or force close.
+// which should specify either a coop or force close. It adds a status which
+// indicates the party that initiated the channel close.
 func (c *OpenChannel) markBroadcasted(status ChannelStatus, key []byte,
-	closeTx *wire.MsgTx) error {
+	closeTx *wire.MsgTx, locallyInitiated bool) error {
 
 	c.Lock()
 	defer c.Unlock()
@@ -1014,6 +1038,15 @@ func (c *OpenChannel) markBroadcasted(status ChannelStatus, key []byte,
 		putClosingTx = func(chanBucket *bbolt.Bucket) error {
 			return chanBucket.Put(key, b.Bytes())
 		}
+	}
+
+	// Add the initiator status to the status provided. These statuses are
+	// set in addition to the broadcast status so that we do not need to
+	// migrate the original logic which does not store initiator.
+	if locallyInitiated {
+		status |= ChanStatusLocalCloseInitiator
+	} else {
+		status |= ChanStatusRemoteCloseInitiator
 	}
 
 	return c.putChanStatus(status, putClosingTx)
@@ -2349,8 +2382,12 @@ type ChannelCloseSummary struct {
 // entails deleting all saved state within the database concerning this
 // channel. This method also takes a struct that summarizes the state of the
 // channel at closing, this compact representation will be the only component
-// of a channel left over after a full closing.
-func (c *OpenChannel) CloseChannel(summary *ChannelCloseSummary) error {
+// of a channel left over after a full closing. It takes an optional set of
+// channel statuses which will be written to the historical channel bucket.
+// These statuses are used to record close initiators.
+func (c *OpenChannel) CloseChannel(summary *ChannelCloseSummary,
+	statuses ...ChannelStatus) error {
+
 	c.Lock()
 	defer c.Unlock()
 
@@ -2426,6 +2463,11 @@ func (c *OpenChannel) CloseChannel(summary *ChannelCloseSummary) error {
 			historicalBucket.CreateBucketIfNotExists(chanKey)
 		if err != nil {
 			return err
+		}
+
+		// Apply any additional statuses to the channel state.
+		for _, status := range statuses {
+			chanState.chanStatus |= status
 		}
 
 		err = putOpenChannel(historicalChanBucket, chanState)

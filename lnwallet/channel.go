@@ -6433,22 +6433,28 @@ func (lc *LightningChannel) MarkBorked() error {
 
 // MarkCommitmentBroadcasted marks the channel as a commitment transaction has
 // been broadcast, either our own or the remote, and we should watch the chain
-// for it to confirm before taking any further action.
-func (lc *LightningChannel) MarkCommitmentBroadcasted(tx *wire.MsgTx) error {
+// for it to confirm before taking any further action. It takes a boolean which
+// indicates whether we initiated the close.
+func (lc *LightningChannel) MarkCommitmentBroadcasted(tx *wire.MsgTx,
+	locallyInitiated bool) error {
+
 	lc.Lock()
 	defer lc.Unlock()
 
-	return lc.channelState.MarkCommitmentBroadcasted(tx)
+	return lc.channelState.MarkCommitmentBroadcasted(tx, locallyInitiated)
 }
 
 // MarkCoopBroadcasted marks the channel as a cooperative close transaction has
 // been broadcast, and that we should watch the chain for it to confirm before
-// taking any further action.
-func (lc *LightningChannel) MarkCoopBroadcasted(tx *wire.MsgTx) error {
+// taking any further action. It takes a locally initiated bool which is true
+// if we initiated the cooperative close.
+func (lc *LightningChannel) MarkCoopBroadcasted(tx *wire.MsgTx,
+	localInitiated bool) error {
+
 	lc.Lock()
 	defer lc.Unlock()
 
-	return lc.channelState.MarkCoopBroadcasted(tx)
+	return lc.channelState.MarkCoopBroadcasted(tx, localInitiated)
 }
 
 // MarkDataLoss marks sets the channel status to LocalDataLoss and stores the

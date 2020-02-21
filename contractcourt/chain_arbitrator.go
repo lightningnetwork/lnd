@@ -284,8 +284,11 @@ func newActiveChannelArbitrator(channel *channeldb.OpenChannel,
 			return chanMachine.ForceClose()
 		},
 		MarkCommitmentBroadcasted: channel.MarkCommitmentBroadcasted,
-		MarkChannelClosed: func(summary *channeldb.ChannelCloseSummary) error {
-			if err := channel.CloseChannel(summary); err != nil {
+		MarkChannelClosed: func(summary *channeldb.ChannelCloseSummary,
+			statuses ...channeldb.ChannelStatus) error {
+
+			err := channel.CloseChannel(summary, statuses...)
+			if err != nil {
 				return err
 			}
 			c.cfg.NotifyClosedChannel(summary.ChanPoint)

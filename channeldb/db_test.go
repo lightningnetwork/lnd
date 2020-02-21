@@ -647,7 +647,7 @@ func TestFetchChannels(t *testing.T) {
 				channelIDOption(pendingWaitingChan),
 			)
 
-			err = pendingClosing.MarkCoopBroadcasted(nil)
+			err = pendingClosing.MarkCoopBroadcasted(nil, true)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -667,7 +667,7 @@ func TestFetchChannels(t *testing.T) {
 				channelIDOption(openWaitingChan),
 				openChannelOption(),
 			)
-			err = openClosing.MarkCoopBroadcasted(nil)
+			err = openClosing.MarkCoopBroadcasted(nil, true)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}

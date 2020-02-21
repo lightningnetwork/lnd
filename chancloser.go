@@ -155,6 +155,9 @@ type channelCloser struct {
 	// remoteDeliveryScript is the script that we'll send the remote
 	// party's settled channel funds to.
 	remoteDeliveryScript []byte
+
+	// locallyInitiated is true if we initiated the channel close.
+	locallyInitiated bool
 }
 
 // newChannelCloser creates a new instance of the channel closure given the
@@ -162,7 +165,7 @@ type channelCloser struct {
 // only be populated iff, we're the initiator of this closing request.
 func newChannelCloser(cfg chanCloseCfg, deliveryScript []byte,
 	idealFeePerKw chainfee.SatPerKWeight, negotiationHeight uint32,
-	closeReq *htlcswitch.ChanClose) *channelCloser {
+	closeReq *htlcswitch.ChanClose, locallyInitiated bool) *channelCloser {
 
 	// Given the target fee-per-kw, we'll compute what our ideal _total_
 	// fee will be starting at for this fee negotiation.
@@ -198,6 +201,7 @@ func newChannelCloser(cfg chanCloseCfg, deliveryScript []byte,
 		idealFeeSat:         idealFeeSat,
 		localDeliveryScript: deliveryScript,
 		priorFeeOffers:      make(map[btcutil.Amount]*lnwire.ClosingSigned),
+		locallyInitiated:    locallyInitiated,
 	}
 }
 
@@ -224,7 +228,7 @@ func (c *channelCloser) initChanShutdown() (*lnwire.Shutdown, error) {
 	// guarantees that our listchannels rpc will be externally consistent,
 	// and reflect that the channel is being shutdown by the time the
 	// closing request returns.
-	err := c.cfg.channel.MarkCoopBroadcasted(nil)
+	err := c.cfg.channel.MarkCoopBroadcasted(nil, c.locallyInitiated)
 	if err != nil {
 		return nil, err
 	}
@@ -511,7 +515,9 @@ func (c *channelCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message, b
 		// Before publishing the closing tx, we persist it to the
 		// database, such that it can be republished if something goes
 		// wrong.
-		err = c.cfg.channel.MarkCoopBroadcasted(closeTx)
+		err = c.cfg.channel.MarkCoopBroadcasted(
+			closeTx, c.locallyInitiated,
+		)
 		if err != nil {
 			return nil, false, err
 		}

@@ -339,7 +339,7 @@ func createTestChannelArbitrator(t *testing.T, log ArbitratorLog) (*chanArbTestC
 			}
 			return summary, nil
 		},
-		MarkCommitmentBroadcasted: func(_ *wire.MsgTx) error {
+		MarkCommitmentBroadcasted: func(_ *wire.MsgTx, _ bool) error {
 			return nil
 		},
 		MarkChannelClosed: func(*channeldb.ChannelCloseSummary) error {

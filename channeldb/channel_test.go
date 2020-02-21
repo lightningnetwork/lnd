@@ -1089,13 +1089,13 @@ func TestFetchWaitingCloseChannels(t *testing.T) {
 			},
 		)
 
-		if err := channel.MarkCommitmentBroadcasted(closeTx); err != nil {
+		if err := channel.MarkCommitmentBroadcasted(closeTx, true); err != nil {
 			t.Fatalf("unable to mark commitment broadcast: %v", err)
 		}
 
 		// Now try to marking a coop close with a nil tx. This should
 		// succeed, but it shouldn't exit when queried.
-		if err = channel.MarkCoopBroadcasted(nil); err != nil {
+		if err = channel.MarkCoopBroadcasted(nil, true); err != nil {
 			t.Fatalf("unable to mark nil coop broadcast: %v", err)
 		}
 		_, err := channel.BroadcastedCooperative()
@@ -1107,7 +1107,7 @@ func TestFetchWaitingCloseChannels(t *testing.T) {
 		// it as coop closed. Later we will test that distinct
 		// transactions are returned for both coop and force closes.
 		closeTx.TxIn[0].PreviousOutPoint.Index ^= 1
-		if err := channel.MarkCoopBroadcasted(closeTx); err != nil {
+		if err := channel.MarkCoopBroadcasted(closeTx, true); err != nil {
 			t.Fatalf("unable to mark coop broadcast: %v", err)
 		}
 	}
@@ -1253,5 +1253,107 @@ func TestRefreshShortChanID(t *testing.T) {
 	// is up to date.
 	if pendingChannel.IsPending {
 		t.Fatalf("channel pending state wasn't updated: want false got true")
+	}
+}
+
+// TestCloseInitiator tests the setting of close initiator statuses for
+// cooperative closes and local force closes.
+func TestCloseInitiator(t *testing.T) {
+	tests := []struct {
+		name string
+		// updateChannel is called to update the channel as broadcast,
+		// cooperatively or not, based on the test's requirements.
+		updateChannel    func(c *OpenChannel) error
+		expectedStatuses []ChannelStatus
+	}{
+		{
+			name: "local coop close",
+			// Mark the channel as cooperatively closed, initiated
+			// by the local party.
+			updateChannel: func(c *OpenChannel) error {
+				return c.MarkCoopBroadcasted(
+					&wire.MsgTx{}, true,
+				)
+			},
+			expectedStatuses: []ChannelStatus{
+				ChanStatusLocalCloseInitiator,
+				ChanStatusCoopBroadcasted,
+			},
+		},
+		{
+			name: "remote coop close",
+			// Mark the channel as cooperatively closed, initiated
+			// by the remote party.
+			updateChannel: func(c *OpenChannel) error {
+				return c.MarkCoopBroadcasted(
+					&wire.MsgTx{}, false,
+				)
+			},
+			expectedStatuses: []ChannelStatus{
+				ChanStatusRemoteCloseInitiator,
+				ChanStatusCoopBroadcasted,
+			},
+		},
+		{
+			name: "local force close",
+			// Mark the channel's commitment as broadcast with
+			// local initiator.
+			updateChannel: func(c *OpenChannel) error {
+				return c.MarkCommitmentBroadcasted(
+					&wire.MsgTx{}, true,
+				)
+			},
+			expectedStatuses: []ChannelStatus{
+				ChanStatusLocalCloseInitiator,
+				ChanStatusCommitBroadcasted,
+			},
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			cdb, cleanUp, err := makeTestDB()
+			if err != nil {
+				t.Fatalf("unable to make test database: %v",
+					err)
+			}
+			defer cleanUp()
+
+			// Create an open channel.
+			channel := createTestChannel(
+				t, cdb, openChannelOption(),
+			)
+
+			err = test.updateChannel(channel)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			// Lookup open channels in the database.
+			dbChans, err := fetchChannels(
+				cdb, pendingChannelFilter(false),
+			)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if len(dbChans) != 1 {
+				t.Fatalf("expected 1 channel, got: %v",
+					len(dbChans))
+			}
+
+			// Check that the statuses that we expect were written
+			// to disk.
+			for _, status := range test.expectedStatuses {
+				if !dbChans[0].HasChanStatus(status) {
+					t.Fatalf("expected channel to have "+
+						"status: %v, has status: %v",
+						status, dbChans[0].chanStatus)
+				}
+			}
+		})
 	}
 }

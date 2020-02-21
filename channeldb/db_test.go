@@ -693,3 +693,57 @@ func TestFetchChannels(t *testing.T) {
 		})
 	}
 }
+
+// TestFetchHistoricalChannel tests lookup of historical channels.
+func TestFetchHistoricalChannel(t *testing.T) {
+	cdb, cleanUp, err := makeTestDB()
+	if err != nil {
+		t.Fatalf("unable to make test database: %v", err)
+	}
+	defer cleanUp()
+
+	// Create a an open channel in the database.
+	channel := createTestChannel(t, cdb, openChannelOption())
+
+	// First, try to lookup a channel when the bucket does not
+	// exist.
+	_, err = cdb.FetchHistoricalChannel(&channel.FundingOutpoint)
+	if err != ErrNoHistoricalBucket {
+		t.Fatalf("expected no bucket, got: %v", err)
+	}
+
+	// Close the channel so that it will be written to the historical
+	// bucket. The values provided in the channel close summary are the
+	// minimum required for this call to run without panicking.
+	if err := channel.CloseChannel(&ChannelCloseSummary{
+		ChanPoint:      channel.FundingOutpoint,
+		RemotePub:      channel.IdentityPub,
+		SettledBalance: btcutil.Amount(500),
+	}); err != nil {
+		t.Fatalf("unexpected error closing channel: %v", err)
+	}
+
+	histChannel, err := cdb.FetchHistoricalChannel(&channel.FundingOutpoint)
+	if err != nil {
+		t.Fatalf("unexepected error getting channel: %v", err)
+	}
+
+	// Set the db on our channel to nil so that we can check that all other
+	// fields on the channel equal those on the historical channel.
+	channel.Db = nil
+
+	if !reflect.DeepEqual(histChannel, channel) {
+		t.Fatalf("expected: %v, got: %v", channel, histChannel)
+	}
+
+	// Create an outpoint that will not be in the db and look it up.
+	badOutpoint := &wire.OutPoint{
+		Hash:  channel.FundingOutpoint.Hash,
+		Index: channel.FundingOutpoint.Index + 1,
+	}
+	_, err = cdb.FetchHistoricalChannel(badOutpoint)
+	if err != ErrChannelNotFound {
+		t.Fatalf("expected chan not found, got: %v", err)
+	}
+
+}

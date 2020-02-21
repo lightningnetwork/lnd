@@ -1249,3 +1249,50 @@ func getMigrationsToApply(versions []version, version uint32) ([]migration, []ui
 
 	return migrations, migrationVersions
 }
+
+// fetchHistoricalChanBucket returns a the channel bucket for a given outpoint
+// from the historical channel bucket. If the bucket does not exist,
+// ErrNoHistoricalBucket is returned.
+func fetchHistoricalChanBucket(tx *bbolt.Tx,
+	outPoint *wire.OutPoint) (*bbolt.Bucket, error) {
+
+	// First fetch the top level bucket which stores all data related to
+	// historically stored channels.
+	historicalChanBucket := tx.Bucket(historicalChannelBucket)
+	if historicalChanBucket == nil {
+		return nil, ErrNoHistoricalBucket
+	}
+
+	// With the bucket for the node and chain fetched, we can now go down
+	// another level, for the channel itself.
+	var chanPointBuf bytes.Buffer
+	if err := writeOutpoint(&chanPointBuf, outPoint); err != nil {
+		return nil, err
+	}
+	chanBucket := historicalChanBucket.Bucket(chanPointBuf.Bytes())
+	if chanBucket == nil {
+		return nil, ErrChannelNotFound
+	}
+
+	return chanBucket, nil
+}
+
+// FetchHistoricalChannel fetches open channel data from the historical channel
+// bucket.
+func (d *DB) FetchHistoricalChannel(outPoint *wire.OutPoint) (*OpenChannel, error) {
+	var channel *OpenChannel
+	err := d.View(func(tx *bbolt.Tx) error {
+		chanBucket, err := fetchHistoricalChanBucket(tx, outPoint)
+		if err != nil {
+			return err
+		}
+
+		channel, err = fetchOpenChannel(chanBucket, outPoint)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return channel, nil
+}

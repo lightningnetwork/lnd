@@ -3103,12 +3103,13 @@ func (lc *LightningChannel) getUnsignedAckedUpdates() []channeldb.LogUpdate {
 
 // validateCommitmentSanity is used to validate the current state of the
 // commitment transaction in terms of the ChannelConstraints that we and our
-// remote peer agreed upon during the funding workflow. The predictAdded
-// parameter should be set to a valid PaymentDescriptor if we are validating
-// in the state when adding a new HTLC, or nil otherwise.
+// remote peer agreed upon during the funding workflow. The
+// predict[Our|Their]Add should parameters should be set to a valid
+// PaymentDescriptor if we are validating in the state when adding a new HTLC,
+// or nil otherwise.
 func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
 	ourLogCounter uint64, remoteChain bool,
-	predictAdded *PaymentDescriptor) error {
+	predictOurAdd, predictTheirAdd *PaymentDescriptor) error {
 
 	// Fetch all updates not committed.
 	view := lc.fetchHTLCView(theirLogCounter, ourLogCounter)
@@ -3116,14 +3117,11 @@ func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
 	// If we are checking if we can add a new HTLC, we add this to the
 	// appropriate update log, in order to validate the sanity of the
 	// commitment resulting from _actually adding_ this HTLC to the state.
-	if predictAdded != nil {
-		// If the remoteChain bool is true, add to ourUpdates.
-		if remoteChain {
-			view.ourUpdates = append(view.ourUpdates, predictAdded)
-		} else {
-			// Else add to theirUpdates.
-			view.theirUpdates = append(view.theirUpdates, predictAdded)
-		}
+	if predictOurAdd != nil {
+		view.ourUpdates = append(view.ourUpdates, predictOurAdd)
+	}
+	if predictTheirAdd != nil {
+		view.theirUpdates = append(view.theirUpdates, predictTheirAdd)
 	}
 
 	commitChain := lc.localCommitChain
@@ -3296,7 +3294,7 @@ func (lc *LightningChannel) SignNextCommitment() (lnwire.Sig, []lnwire.Sig, []ch
 	// party set up when we initially set up the channel. If we are, then
 	// we'll abort this state transition.
 	err := lc.validateCommitmentSanity(
-		remoteACKedIndex, lc.localUpdateLog.logIndex, true, nil,
+		remoteACKedIndex, lc.localUpdateLog.logIndex, true, nil, nil,
 	)
 	if err != nil {
 		return sig, htlcSigs, nil, err
@@ -4050,7 +4048,7 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSig lnwire.Sig,
 	// the constraints we specified during initial channel setup. If not,
 	// then we'll abort the channel as they've violated our constraints.
 	err := lc.validateCommitmentSanity(
-		lc.remoteUpdateLog.logIndex, localACKedIndex, false, nil,
+		lc.remoteUpdateLog.logIndex, localACKedIndex, false, nil, nil,
 	)
 	if err != nil {
 		return err
@@ -4625,6 +4623,12 @@ func (lc *LightningChannel) InitNextRevocation(revKey *btcec.PublicKey) error {
 // The additional openKey argument corresponds to the incoming CircuitKey of the
 // committed circuit for this HTLC. This value should never be nil.
 //
+// Note that AddHTLC doesn't reserve the HTLC fee for future payment (like
+// AvailableBalance does), so one could get into the "stuck channel" state by
+// sending dust HTLCs.
+// TODO(halseth): fix this either by using additional reserve, or better commit
+// format. See https://github.com/lightningnetwork/lightning-rfc/issues/728
+//
 // NOTE: It is okay for sourceRef to be nil when unit testing the wallet.
 func (lc *LightningChannel) AddHTLC(htlc *lnwire.UpdateAddHTLC,
 	openKey *channeldb.CircuitKey) (uint64, error) {
@@ -4644,10 +4648,26 @@ func (lc *LightningChannel) AddHTLC(htlc *lnwire.UpdateAddHTLC,
 	}
 
 	// Make sure adding this HTLC won't violate any of the constraints we
-	// must keep on our commitment transaction.
+	// must keep on the commitment transactions.
 	remoteACKedIndex := lc.localCommitChain.tail().theirMessageIndex
+
+	// First we'll check whether this HTLC can be added to the remote
+	// commitment transaction without violation any of the constraints.
 	err := lc.validateCommitmentSanity(
-		remoteACKedIndex, lc.localUpdateLog.logIndex, true, pd,
+		remoteACKedIndex, lc.localUpdateLog.logIndex, true, pd, nil,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	// We must also check whether it can be added to our own commitment
+	// transaction, or the remote node will refuse to sign. This is not
+	// totally bullet proof, as the remote might be adding updates
+	// concurrently, but if we fail this check there is for sure not
+	// possible for us to add the HTLC.
+	err = lc.validateCommitmentSanity(
+		lc.remoteUpdateLog.logIndex, lc.localUpdateLog.logIndex,
+		false, pd, nil,
 	)
 	if err != nil {
 		return 0, err
@@ -4685,7 +4705,7 @@ func (lc *LightningChannel) ReceiveHTLC(htlc *lnwire.UpdateAddHTLC) (uint64, err
 	// Clamp down on the number of HTLC's we can receive by checking the
 	// commitment sanity.
 	err := lc.validateCommitmentSanity(
-		lc.remoteUpdateLog.logIndex, localACKedIndex, false, pd,
+		lc.remoteUpdateLog.logIndex, localACKedIndex, false, nil, pd,
 	)
 	if err != nil {
 		return 0, err
@@ -5983,11 +6003,14 @@ func (lc *LightningChannel) CompleteCooperativeClose(localSig, remoteSig []byte,
 	return closeTx, ourBalance, nil
 }
 
-// AvailableBalance returns the current available balance within the channel.
-// By available balance, we mean that if at this very instance s new commitment
-// were to be created which evals all the log entries, what would our available
-// balance me. This method is useful when deciding if a given channel can
-// accept an HTLC in the multi-hop forwarding scenario.
+// AvailableBalance returns the current balance available for sending within
+// the channel. By available balance, we mean that if at this very instance a
+// new commitment were to be created which evals all the log entries, what
+// would our available balance for adding an additional HTLC be. It takes into
+// account the fee that must be paid for adding this HTLC (if we're the
+// initiator), and that we cannot spend from the channel reserve. This method
+// is useful when deciding if a given channel can accept an HTLC in the
+// multi-hop forwarding scenario.
 func (lc *LightningChannel) AvailableBalance() lnwire.MilliSatoshi {
 	lc.RLock()
 	defer lc.RUnlock()
@@ -6007,19 +6030,132 @@ func (lc *LightningChannel) availableBalance() (lnwire.MilliSatoshi, int64) {
 	htlcView := lc.fetchHTLCView(remoteACKedIndex,
 		lc.localUpdateLog.logIndex)
 
-	// Then compute our current balance for that view.
-	ourBalance, _, commitWeight, filteredView, err :=
-		lc.computeView(htlcView, false, false)
+	// Calculate our available balance from our local commitment.
+	// TODO(halseth): could reuse parts validateCommitmentSanity to do this
+	// balance calculation, as most of the logic is the same.
+	//
+	// NOTE: This is not always accurate, since the remote node can always
+	// add updates concurrently, causing our balance to go down if we're
+	// the initiator, but this is a problem on the protocol level.
+	ourLocalCommitBalance, commitWeight := lc.availableCommitmentBalance(
+		htlcView, false,
+	)
+
+	// Do the same calculation from the remote commitment point of view.
+	ourRemoteCommitBalance, _ := lc.availableCommitmentBalance(
+		htlcView, true,
+	)
+
+	// Return which ever balance is lowest.
+	if ourRemoteCommitBalance < ourLocalCommitBalance {
+		return ourRemoteCommitBalance, commitWeight
+	}
+
+	return ourLocalCommitBalance, commitWeight
+}
+
+// availableCommitmentBalance attempts to calculate the balance we have
+// available for HTLCs on the local/remote commitment given the htlcView. To
+// account for sending HTLCs of different sizes, it will report the balance
+// available for sending non-dust HTLCs, which will be manifested on the
+// commitment, increasing the commitment fee we must pay as an initiator,
+// eating into our balance. It will make sure we won't violate the channel
+// reserve constraints for this amount.
+func (lc *LightningChannel) availableCommitmentBalance(view *htlcView,
+	remoteChain bool) (lnwire.MilliSatoshi, int64) {
+
+	// Compute the current balances for this commitment. This will take
+	// into account HTLCs to determine the commit weight, which the
+	// initiator must pay the fee for.
+	ourBalance, theirBalance, commitWeight, filteredView, err := lc.computeView(
+		view, remoteChain, false,
+	)
 	if err != nil {
 		lc.log.Errorf("Unable to fetch available balance: %v", err)
 		return 0, 0
 	}
 
-	// If we are the channel initiator, we must remember to subtract the
-	// commitment fee from our available balance.
-	commitFee := filteredView.feePerKw.FeeForWeight(commitWeight)
+	// We can never spend from the channel reserve, so we'll subtract it
+	// from our available balance.
+	ourReserve := lnwire.NewMSatFromSatoshis(
+		lc.channelState.LocalChanCfg.ChanReserve,
+	)
+	if ourReserve <= ourBalance {
+		ourBalance -= ourReserve
+	} else {
+		ourBalance = 0
+	}
+
+	// Calculate the commitment fee in the case where we would add another
+	// HTLC to the commitment, as only the balance remaining after this fee
+	// has been paid is actually available for sending.
+	feePerKw := filteredView.feePerKw
+	htlcCommitFee := lnwire.NewMSatFromSatoshis(
+		feePerKw.FeeForWeight(commitWeight + input.HTLCWeight),
+	)
+
+	// If we are the channel initiator, we must to subtract this commitment
+	// fee from our available balance in order to ensure we can afford both
+	// the value of the HTLC and the additional commitment fee from adding
+	// the HTLC.
 	if lc.channelState.IsInitiator {
-		ourBalance -= lnwire.NewMSatFromSatoshis(commitFee)
+		// There is an edge case where our non-zero balance is lower
+		// than the htlcCommitFee, where we could still be sending dust
+		// HTLCs, but we return 0 in this case. This is to avoid
+		// lowering our balance even further, as this takes us into a
+		// bad state wehere neither we nor our channel counterparty can
+		// add HTLCs.
+		if ourBalance < htlcCommitFee {
+			return 0, commitWeight
+		}
+
+		return ourBalance - htlcCommitFee, commitWeight
+	}
+
+	// If we're not the initiator, we must check whether the remote has
+	// enough balance to pay for the fee of our HTLC. We'll start by also
+	// subtracting our counterparty's reserve from their balance.
+	theirReserve := lnwire.NewMSatFromSatoshis(
+		lc.channelState.RemoteChanCfg.ChanReserve,
+	)
+	if theirReserve <= theirBalance {
+		theirBalance -= theirReserve
+	} else {
+		theirBalance = 0
+	}
+
+	// We'll use the dustlimit and htlcFee to find the largest HTLC value
+	// that will be considered dust on the commitment.
+	dustlimit := lnwire.NewMSatFromSatoshis(
+		lc.channelState.LocalChanCfg.DustLimit,
+	)
+
+	// For an extra HTLC fee to be paid on our commitment, the HTLC must be
+	// large enough to make a non-dust HTLC timeout transaction.
+	htlcFee := lnwire.NewMSatFromSatoshis(
+		htlcTimeoutFee(feePerKw),
+	)
+
+	// If we are looking at the remote commitment, we must use the remote
+	// dust limit and the fee for adding an HTLC success transaction.
+	if remoteChain {
+		dustlimit = lnwire.NewMSatFromSatoshis(
+			lc.channelState.RemoteChanCfg.DustLimit,
+		)
+		htlcFee = lnwire.NewMSatFromSatoshis(
+			htlcSuccessFee(feePerKw),
+		)
+	}
+
+	// The HTLC output will be manifested on the commitment if it
+	// is non-dust after paying the HTLC fee.
+	nonDustHtlcAmt := dustlimit + htlcFee
+
+	// If they cannot pay the fee if we add another non-dust HTLC, we'll
+	// report our available balance just below the non-dust amount, to
+	// avoid attempting HTLCs larger than this size.
+	if theirBalance < htlcCommitFee && ourBalance >= nonDustHtlcAmt {
+		ourBalance = nonDustHtlcAmt - 1
 	}
 
 	return ourBalance, commitWeight
@@ -6230,13 +6366,14 @@ func (lc *LightningChannel) MaxFeeRate(maxAllocation float64) chainfee.SatPerKWe
 
 	// The maximum fee depends of the available balance that can be
 	// committed towards fees.
-	balance, weight := lc.availableBalance()
+	commit := lc.channelState.LocalCommitment
 	feeBalance := float64(
-		balance.ToSatoshis() + lc.channelState.LocalCommitment.CommitFee,
+		commit.LocalBalance.ToSatoshis() + commit.CommitFee,
 	)
 	maxFee := feeBalance * maxAllocation
 
 	// Ensure the fee rate doesn't dip below the fee floor.
+	_, weight := lc.availableBalance()
 	maxFeeRate := maxFee / (float64(weight) / 1000)
 	return chainfee.SatPerKWeight(
 		math.Max(maxFeeRate, float64(chainfee.FeePerKwFloor)),

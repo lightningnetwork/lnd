@@ -1430,6 +1430,29 @@ message ChannelCloseSummary {
 
     /// Details on how the channel was closed.
     ClosureType close_type = 10 [json_name = "close_type"];
+
+    enum Initiator {
+        UNKNOWN = 0;
+        LOCAL = 1;
+        REMOTE = 2;
+        BOTH = 3;
+    }
+
+    /**
+    Open initiator is the party that initiated opening the channel. Note that
+    this value may be unknown if the channel was closed before we migrated to
+    store open channel information after close.
+    */
+    Initiator open_initiator = 11 [json_name = "open_initiator"];
+
+    /**
+    Close initiator indicates which party initiated the close. This value will
+    be unknown for channels that were cooperatively closed before we started
+    tracking cooperative close initiators. Note that this indicates which party
+    initiated a close, and it is possible for both to initiate cooperative or
+    force closes, although only one party's close will be confirmed on chain.
+    */
+    Initiator close_initiator = 12 [json_name = "close_initiator"];
 }
 
 message ClosedChannelsRequest {

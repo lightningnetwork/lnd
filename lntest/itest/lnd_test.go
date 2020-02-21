@@ -6382,7 +6382,8 @@ func subscribeChannelNotifications(ctxb context.Context, t *harnessTest,
 // verifyCloseUpdate is used to verify that a closed channel update is of the
 // expected type.
 func verifyCloseUpdate(chanUpdate *lnrpc.ChannelEventUpdate,
-	force bool, forceType lnrpc.ChannelCloseSummary_ClosureType) error {
+	closeType lnrpc.ChannelCloseSummary_ClosureType,
+	closeInitiator lnrpc.ChannelCloseSummary_Initiator) error {
 
 	// We should receive one inactive and one closed notification
 	// for each channel.
@@ -6401,23 +6402,19 @@ func verifyCloseUpdate(chanUpdate *lnrpc.ChannelEventUpdate,
 				chanUpdate.Type)
 		}
 
-		switch force {
-		case true:
-			if update.ClosedChannel.CloseType != forceType {
-				return fmt.Errorf("channel closure type mismatch: "+
-					"expected %v, got %v",
-					forceType,
-					update.ClosedChannel.CloseType)
-			}
-		case false:
-			if update.ClosedChannel.CloseType !=
-				lnrpc.ChannelCloseSummary_COOPERATIVE_CLOSE {
-				return fmt.Errorf("channel closure type "+
-					"mismatch: expected %v, got %v",
-					lnrpc.ChannelCloseSummary_COOPERATIVE_CLOSE,
-					update.ClosedChannel.CloseType)
-			}
+		if update.ClosedChannel.CloseType != closeType {
+			return fmt.Errorf("channel closure type "+
+				"mismatch: expected %v, got %v",
+				closeType,
+				update.ClosedChannel.CloseType)
 		}
+
+		if update.ClosedChannel.CloseInitiator != closeInitiator {
+			return fmt.Errorf("expected close intiator: %v, got: %v",
+				closeInitiator,
+				update.ClosedChannel.CloseInitiator)
+		}
+
 	default:
 		return fmt.Errorf("channel update channel of wrong type, "+
 			"expected closed channel, got %T",
@@ -6529,18 +6526,29 @@ func testBasicChannelCreationAndUpdates(net *lntest.NetworkHarness, t *harnessTe
 	// verifyCloseUpdatesReceived is used to verify that Alice and Bob
 	// receive the correct channel updates in order.
 	verifyCloseUpdatesReceived := func(sub channelSubscription,
-		forceType lnrpc.ChannelCloseSummary_ClosureType) error {
+		forceType lnrpc.ChannelCloseSummary_ClosureType,
+		closeInitiator lnrpc.ChannelCloseSummary_Initiator) error {
 
 		// Ensure one inactive and one closed notification is received for each
 		// closed channel.
 		numChannelUpds := 0
 		for numChannelUpds < 2*numChannels {
-			// Every other channel should be force closed.
+			expectedCloseType := lnrpc.ChannelCloseSummary_COOPERATIVE_CLOSE
+
+			// Every other channel should be force closed. If this
+			// channel was force closed, set the expected close type
+			// the the type passed in.
 			force := (numChannelUpds/2)%2 == 0
+			if force {
+				expectedCloseType = forceType
+			}
 
 			select {
 			case chanUpdate := <-sub.updateChan:
-				err := verifyCloseUpdate(chanUpdate, force, forceType)
+				err := verifyCloseUpdate(
+					chanUpdate, expectedCloseType,
+					closeInitiator,
+				)
 				if err != nil {
 					return err
 				}
@@ -6549,9 +6557,10 @@ func testBasicChannelCreationAndUpdates(net *lntest.NetworkHarness, t *harnessTe
 			case err := <-sub.errChan:
 				return err
 			case <-time.After(time.Second * 10):
-				return fmt.Errorf("timeout waiting for channel "+
-					"notifications, only received %d/%d "+
-					"chanupds", numChannelUpds, 2*numChannels)
+				return fmt.Errorf("timeout waiting "+
+					"for channel notifications, only "+
+					"received %d/%d chanupds",
+					numChannelUpds, 2*numChannels)
 			}
 		}
 
@@ -6560,15 +6569,21 @@ func testBasicChannelCreationAndUpdates(net *lntest.NetworkHarness, t *harnessTe
 
 	// Verify Bob receives all closed channel notifications. He should
 	// receive a remote force close notification for force closed channels.
+	// All channels (cooperatively and force closed) should have a remote
+	// close initiator because Alice closed the channels.
 	if err := verifyCloseUpdatesReceived(bobChanSub,
-		lnrpc.ChannelCloseSummary_REMOTE_FORCE_CLOSE); err != nil {
+		lnrpc.ChannelCloseSummary_REMOTE_FORCE_CLOSE,
+		lnrpc.ChannelCloseSummary_REMOTE); err != nil {
 		t.Fatalf("errored verifying close updates: %v", err)
 	}
 
 	// Verify Alice receives all closed channel notifications. She should
 	// receive a remote force close notification for force closed channels.
+	// All channels (cooperatively and force closed) should have a local
+	// close initiator because Alice closed the channels.
 	if err := verifyCloseUpdatesReceived(aliceChanSub,
-		lnrpc.ChannelCloseSummary_LOCAL_FORCE_CLOSE); err != nil {
+		lnrpc.ChannelCloseSummary_LOCAL_FORCE_CLOSE,
+		lnrpc.ChannelCloseSummary_LOCAL); err != nil {
 		t.Fatalf("errored verifying close updates: %v", err)
 	}
 }

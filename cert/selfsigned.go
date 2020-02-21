@@ -31,6 +31,152 @@ var (
 	serialNumberLimit = new(big.Int).Lsh(big.NewInt(1), 128)
 )
 
+// ipAddresses returns the parserd IP addresses to use when creating the TLS
+// certificate.
+func ipAddresses(tlsExtraIPs []string) ([]net.IP, error) {
+	// Collect the host's IP addresses, including loopback, in a slice.
+	ipAddresses := []net.IP{net.ParseIP("127.0.0.1"), net.ParseIP("::1")}
+
+	// addIP appends an IP address only if it isn't already in the slice.
+	addIP := func(ipAddr net.IP) {
+		for _, ip := range ipAddresses {
+			if ip.Equal(ipAddr) {
+				return
+			}
+		}
+		ipAddresses = append(ipAddresses, ipAddr)
+	}
+
+	// Add all the interface IPs that aren't already in the slice.
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return nil, err
+	}
+	for _, a := range addrs {
+		ipAddr, _, err := net.ParseCIDR(a.String())
+		if err == nil {
+			addIP(ipAddr)
+		}
+	}
+
+	// Add extra IPs to the slice.
+	for _, ip := range tlsExtraIPs {
+		ipAddr := net.ParseIP(ip)
+		if ipAddr != nil {
+			addIP(ipAddr)
+		}
+	}
+
+	return ipAddresses, nil
+}
+
+// dnsNames returns the host and DNS names to use when creating the TLS
+// ceftificate.
+func dnsNames(tlsExtraDomains []string) (string, []string) {
+	// Collect the host's names into a slice.
+	host, err := os.Hostname()
+	if err != nil {
+		// Nothing much we can do here, other than falling back to
+		// localhost as fallback. A hostname can still be provided with
+		// the tlsExtraDomain parameter if the problem persists on a
+		// system.
+		host = "localhost"
+	}
+
+	dnsNames := []string{host}
+	if host != "localhost" {
+		dnsNames = append(dnsNames, "localhost")
+	}
+	dnsNames = append(dnsNames, tlsExtraDomains...)
+
+	// Also add fake hostnames for unix sockets, otherwise hostname
+	// verification will fail in the client.
+	dnsNames = append(dnsNames, "unix", "unixpacket")
+
+	// Also add hostnames for 'bufconn' which is the hostname used for the
+	// in-memory connections used on mobile.
+	dnsNames = append(dnsNames, "bufconn")
+
+	return host, dnsNames
+}
+
+// IsOutdated returns whether the given certificate is outdated w.r.t. the IPs
+// and domains given. The certificate is considered up to date if it was
+// created with _exactly_ the IPs and domains given.
+func IsOutdated(cert *x509.Certificate, tlsExtraIPs,
+	tlsExtraDomains []string) (bool, error) {
+
+	// Parse the slice of IP strings.
+	ips, err := ipAddresses(tlsExtraIPs)
+	if err != nil {
+		return false, err
+	}
+
+	// To not consider the certificate outdated if it has duplicate IPs or
+	// if only the order has changed, we create two maps from the slice of
+	// IPs to compare.
+	ips1 := make(map[string]net.IP)
+	for _, ip := range ips {
+		ips1[ip.String()] = ip
+	}
+
+	ips2 := make(map[string]net.IP)
+	for _, ip := range cert.IPAddresses {
+		ips2[ip.String()] = ip
+	}
+
+	// If the certificate has a different number of IP addresses, it is
+	// definitely out of date.
+	if len(ips1) != len(ips2) {
+		return true, nil
+	}
+
+	// Go through each IP address, and check that they are equal. We expect
+	// both the string representation and the exact IP to match.
+	for s, ip1 := range ips1 {
+		// Assert the IP string is found in both sets.
+		ip2, ok := ips2[s]
+		if !ok {
+			return true, nil
+		}
+
+		// And that the IPs are considered equal.
+		if !ip1.Equal(ip2) {
+			return true, nil
+		}
+	}
+
+	// Get the full list of DNS names to use.
+	_, dnsNames := dnsNames(tlsExtraDomains)
+
+	// We do the same kind of deduplication for the DNS names.
+	dns1 := make(map[string]struct{})
+	for _, n := range cert.DNSNames {
+		dns1[n] = struct{}{}
+	}
+
+	dns2 := make(map[string]struct{})
+	for _, n := range dnsNames {
+		dns2[n] = struct{}{}
+	}
+
+	// If the number of domains are different, it is out of date.
+	if len(dns1) != len(dns2) {
+		return true, nil
+	}
+
+	// Similarly, check that each DNS name matches what is found in the
+	// certificate.
+	for k := range dns1 {
+		if _, ok := dns2[k]; !ok {
+			return true, nil
+		}
+	}
+
+	// Certificate was up-to-date.
+	return false, nil
+}
+
 // GenCertPair generates a key/cert pair to the paths provided. The
 // auto-generated certificates should *not* be used in production for public
 // access as they're self-signed and don't necessarily contain all of the
@@ -56,62 +202,13 @@ func GenCertPair(org, certFile, keyFile string, tlsExtraIPs,
 		return fmt.Errorf("failed to generate serial number: %s", err)
 	}
 
-	// Collect the host's IP addresses, including loopback, in a slice.
-	ipAddresses := []net.IP{net.ParseIP("127.0.0.1"), net.ParseIP("::1")}
-
-	// addIP appends an IP address only if it isn't already in the slice.
-	addIP := func(ipAddr net.IP) {
-		for _, ip := range ipAddresses {
-			if ip.Equal(ipAddr) {
-				return
-			}
-		}
-		ipAddresses = append(ipAddresses, ipAddr)
-	}
-
-	// Add all the interface IPs that aren't already in the slice.
-	addrs, err := net.InterfaceAddrs()
+	// Get all DNS names and IP addresses to use when creating the
+	// certificate.
+	host, dnsNames := dnsNames(tlsExtraDomains)
+	ipAddresses, err := ipAddresses(tlsExtraIPs)
 	if err != nil {
 		return err
 	}
-	for _, a := range addrs {
-		ipAddr, _, err := net.ParseCIDR(a.String())
-		if err == nil {
-			addIP(ipAddr)
-		}
-	}
-
-	// Add extra IPs to the slice.
-	for _, ip := range tlsExtraIPs {
-		ipAddr := net.ParseIP(ip)
-		if ipAddr != nil {
-			addIP(ipAddr)
-		}
-	}
-
-	// Collect the host's names into a slice.
-	host, err := os.Hostname()
-	if err != nil {
-		// Nothing much we can do here, other than falling back to
-		// localhost as fallback. A hostname can still be provided with
-		// the tlsExtraDomain parameter if the problem persists on a
-		// system.
-		host = "localhost"
-	}
-
-	dnsNames := []string{host}
-	if host != "localhost" {
-		dnsNames = append(dnsNames, "localhost")
-	}
-	dnsNames = append(dnsNames, tlsExtraDomains...)
-
-	// Also add fake hostnames for unix sockets, otherwise hostname
-	// verification will fail in the client.
-	dnsNames = append(dnsNames, "unix", "unixpacket")
-
-	// Also add hostnames for 'bufconn' which is the hostname used for the
-	// in-memory connections used on mobile.
-	dnsNames = append(dnsNames, "bufconn")
 
 	// Generate a private key for the certificate.
 	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)

@@ -2922,7 +2922,11 @@ func (r *rpcServer) ClosedChannels(ctx context.Context,
 			}
 		}
 
-		channel := createRPCClosedChannel(dbChannel)
+		channel, err := r.createRPCClosedChannel(dbChannel)
+		if err != nil {
+			return nil, err
+		}
+
 		resp.Channels = append(resp.Channels, channel)
 	}
 
@@ -3137,13 +3141,29 @@ func createRPCOpenChannel(r *rpcServer, graph *channeldb.ChannelGraph,
 
 // createRPCClosedChannel creates an *lnrpc.ClosedChannelSummary from a
 // *channeldb.ChannelCloseSummary.
-func createRPCClosedChannel(
-	dbChannel *channeldb.ChannelCloseSummary) *lnrpc.ChannelCloseSummary {
+func (r *rpcServer) createRPCClosedChannel(
+	dbChannel *channeldb.ChannelCloseSummary) (*lnrpc.ChannelCloseSummary, error) {
 
 	nodePub := dbChannel.RemotePub
 	nodeID := hex.EncodeToString(nodePub.SerializeCompressed())
 
-	var closeType lnrpc.ChannelCloseSummary_ClosureType
+	var (
+		closeType      lnrpc.ChannelCloseSummary_ClosureType
+		openInit       lnrpc.ChannelCloseSummary_Initiator
+		closeInitiator lnrpc.ChannelCloseSummary_Initiator
+		err            error
+	)
+
+	// Lookup local and remote cooperative initiators. If these values
+	// are not known they will just return unknown.
+	openInit, closeInitiator, err = r.getInitiators(
+		&dbChannel.ChanPoint,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert the close type to rpc type.
 	switch dbChannel.CloseType {
 	case channeldb.CooperativeClose:
 		closeType = lnrpc.ChannelCloseSummary_COOPERATIVE_CLOSE
@@ -3170,7 +3190,75 @@ func createRPCClosedChannel(
 		TimeLockedBalance: int64(dbChannel.TimeLockedBalance),
 		ChainHash:         dbChannel.ChainHash.String(),
 		ClosingTxHash:     dbChannel.ClosingTXID.String(),
+		OpenInitiator:     openInit,
+		CloseInitiator:    closeInitiator,
+	}, nil
+}
+
+// getInitiators returns an initiator enum that provides information about the
+// party that initiated channel's open and close. This information is obtained
+// from the historical channel bucket, so unknown values are returned when the
+// channel is not present (which indicates that it was closed before we started
+// writing channels to the historical close bucket).
+func (r *rpcServer) getInitiators(chanPoint *wire.OutPoint) (
+	lnrpc.ChannelCloseSummary_Initiator,
+	lnrpc.ChannelCloseSummary_Initiator, error) {
+
+	var (
+		openInitiator  = lnrpc.ChannelCloseSummary_UNKNOWN
+		closeInitiator = lnrpc.ChannelCloseSummary_UNKNOWN
+	)
+
+	// To get the close initiator for cooperative closes, we need
+	// to get the channel status from the historical channel bucket.
+	histChan, err := r.server.chanDB.FetchHistoricalChannel(chanPoint)
+	switch {
+	// The node has upgraded from a version where we did not store
+	// historical channels, and has not closed a channel since. Do
+	// not return an error, initiator values are unknown.
+	case err == channeldb.ErrNoHistoricalBucket:
+		return openInitiator, closeInitiator, nil
+
+	// The channel was closed before we started storing historical
+	// channels. Do  not return an error, initiator values are unknown.
+	case err == channeldb.ErrChannelNotFound:
+		return openInitiator, closeInitiator, nil
+
+	case err != nil:
+		return 0, 0, err
 	}
+
+	// If we successfully looked up the channel, determine initiator based
+	// on channels status.
+	if histChan.IsInitiator {
+		openInitiator = lnrpc.ChannelCloseSummary_LOCAL
+	} else {
+		openInitiator = lnrpc.ChannelCloseSummary_REMOTE
+	}
+
+	localInit := histChan.HasChanStatus(
+		channeldb.ChanStatusLocalCloseInitiator,
+	)
+
+	remoteInit := histChan.HasChanStatus(
+		channeldb.ChanStatusRemoteCloseInitiator,
+	)
+
+	switch {
+	// There is a possible case where closes were attempted by both parties.
+	// We return the initiator as both in this case to provide full
+	// information about the close.
+	case localInit && remoteInit:
+		closeInitiator = lnrpc.ChannelCloseSummary_BOTH
+
+	case localInit:
+		closeInitiator = lnrpc.ChannelCloseSummary_LOCAL
+
+	case remoteInit:
+		closeInitiator = lnrpc.ChannelCloseSummary_REMOTE
+	}
+
+	return openInitiator, closeInitiator, nil
 }
 
 // SubscribeChannelEvents returns a uni-directional stream (server -> client)
@@ -3222,7 +3310,13 @@ func (r *rpcServer) SubscribeChannelEvents(req *lnrpc.ChannelEventSubscription,
 				}
 
 			case channelnotifier.ClosedChannelEvent:
-				closedChannel := createRPCClosedChannel(event.CloseSummary)
+				closedChannel, err := r.createRPCClosedChannel(
+					event.CloseSummary,
+				)
+				if err != nil {
+					return err
+				}
+
 				update = &lnrpc.ChannelEventUpdate{
 					Type: lnrpc.ChannelEventUpdate_CLOSED_CHANNEL,
 					Channel: &lnrpc.ChannelEventUpdate_ClosedChannel{

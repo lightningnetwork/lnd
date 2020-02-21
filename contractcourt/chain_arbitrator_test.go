@@ -9,6 +9,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/lnwallet"
 )
 
@@ -83,6 +84,7 @@ func TestChainArbitratorRepublishCloses(t *testing.T) {
 			published[tx.TxHash()]++
 			return nil
 		},
+		Clock: clock.NewDefaultClock(),
 	}
 	chainArb := NewChainArbitrator(
 		chainArbCfg, db,
@@ -171,6 +173,7 @@ func TestResolveContract(t *testing.T) {
 		PublishTx: func(tx *wire.MsgTx) error {
 			return nil
 		},
+		Clock: clock.NewDefaultClock(),
 	}
 	chainArb := NewChainArbitrator(
 		chainArbCfg, db,

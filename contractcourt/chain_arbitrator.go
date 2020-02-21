@@ -5,12 +5,14 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -153,6 +155,19 @@ type ChainArbitratorConfig struct {
 	// OnionProcessor is used to decode onion payloads for on-chain
 	// resolution.
 	OnionProcessor OnionProcessor
+
+	// PaymentsExpirationGracePeriod indicates is a time window we let the
+	// other node to cancel an outgoing htlc that our node has initiated and
+	// has timed out.
+	PaymentsExpirationGracePeriod time.Duration
+
+	// IsForwardedHTLC checks for a given htlc, identified by channel id and
+	// htlcIndex, if it is a forwarded one.
+	IsForwardedHTLC func(chanID lnwire.ShortChannelID, htlcIndex uint64) bool
+
+	// Clock is the clock implementation that ChannelArbitrator uses.
+	// It is useful for testing.
+	Clock clock.Clock
 }
 
 // ChainArbitrator is a sub-system that oversees the on-chain resolution of all

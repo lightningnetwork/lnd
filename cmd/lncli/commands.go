@@ -613,6 +613,12 @@ var openChannelCommand = cli.Command{
 			Name:  "connect",
 			Usage: "(optional) the host:port of the target node",
 		},
+		cli.BoolFlag{
+			Name: "fundall",
+			Usage: "(optional) if set, then the local_amt field will " +
+				"be ignored, and the wallet will attempt to commit the " +
+				"maximum possible local amount to the channel.",
+		},
 		cli.IntFlag{
 			Name:  "local_amt",
 			Usage: "the number of satoshis the wallet should commit to the channel",
@@ -704,6 +710,7 @@ func openChannel(ctx *cli.Context) error {
 		MinConfs:         minConfs,
 		SpendUnconfirmed: minConfs == 0,
 		CloseAddress:     ctx.String("close_address"),
+		FundAll:          ctx.Bool("fundall"),
 	}
 
 	switch {
@@ -757,8 +764,13 @@ func openChannel(ctx *cli.Context) error {
 			return fmt.Errorf("unable to decode local amt: %v", err)
 		}
 		args = args.Tail()
-	default:
+	case !ctx.Bool("fundall"):
 		return fmt.Errorf("local amt argument missing")
+	}
+
+	if ctx.Bool("fundall") && req.LocalFundingAmount != 0 {
+		return fmt.Errorf("local amount cannot be set if attempting to " +
+			"commit all coins out of the wallet")
 	}
 
 	if ctx.IsSet("push_amt") {

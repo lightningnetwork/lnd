@@ -3123,6 +3123,12 @@ type openChanReq struct {
 	// This value is optional, so may be nil.
 	shutdownScript lnwire.DeliveryAddress
 
+	// fundAll denotes the attempt to commit all the coins under
+	// control of the internal wallet to the channel, while treating
+	// the localFundingAmt field as the acceptable minimum amount to
+	// commit to.
+	fundAll bool
+
 	// TODO(roasbeef): add ability to specify channel constraints as well
 
 	// chanFunder is an optional channel funder that allows the caller to

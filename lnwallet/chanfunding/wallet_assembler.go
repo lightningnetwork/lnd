@@ -1,6 +1,7 @@
 package chanfunding
 
 import (
+	"fmt"
 	"math"
 
 	"github.com/btcsuite/btcd/btcec"
@@ -250,6 +251,20 @@ func (w *WalletAssembler) ProvisionChannel(r *Request) (Intent, error) {
 		// coin selection at all.
 		case r.LocalAmt == 0:
 			break
+
+		case r.FundUpToMaxAmt != 0:
+			dustLimit := w.cfg.DustLimit
+			selectedCoins, localContributionAmt, changeAmt, err = CoinSelectUpToAmount(
+				r.FeeRate, r.FundUpToMaxAmt, dustLimit, coins,
+			)
+			if err != nil {
+				return err
+			}
+
+			if localContributionAmt < r.LocalAmt {
+				return fmt.Errorf("available funds(%v) below the "+
+					"minimum amount(%v)", localContributionAmt, r.LocalAmt)
+			}
 
 		// In case this request want the fees subtracted from the local
 		// amount, we'll call the specialized method for that. This

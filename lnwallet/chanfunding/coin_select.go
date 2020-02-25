@@ -214,3 +214,136 @@ func CoinSelectSubtractFees(feeRate chainfee.SatPerKWeight, amt,
 
 	return selectedUtxos, outputAmt, changeAmt, nil
 }
+
+// CoinSelectUpToAmount attempts to select coins such that we'll spend up
+// to amt in total before fees, or all of the coins if not sufficient amount
+// available. The specified fee rate should be expressed in sat/kw for coin
+// selection to function properly.
+func CoinSelectUpToAmount(feeRate chainfee.SatPerKWeight, amt,
+	dustLimit btcutil.Amount, coins []Coin) ([]Coin, btcutil.Amount,
+	btcutil.Amount, error) {
+
+	amtWanted := amt
+	var requiredFee btcutil.Amount
+	for {
+		// First perform an initial round of coin selection to estimate
+		// the required fee.
+		totalSat, selectedUtxos, err := selectInputs(amtWanted, coins)
+		if err != nil {
+			switch err.(type) {
+			case *ErrInsufficientFunds:
+				// If we ran out of funds for the target, use the available
+				// total amount.
+				err := err.(*ErrInsufficientFunds)
+
+				// The difference between amount wanted and amount available.
+				delta := err.amountAvailable - err.amountSelected
+
+				// Use all the available funds.
+				totalSat = amtWanted - delta
+				selectedUtxos = coins
+
+				// Fees must then directly be paid by the amount wanted.
+				amtWanted = totalSat - requiredFee
+
+			default:
+				return nil, 0, 0, err
+			}
+		}
+
+		var weightEstimate input.TxWeightEstimator
+
+		for _, utxo := range selectedUtxos {
+			switch {
+
+			case txscript.IsPayToWitnessPubKeyHash(utxo.PkScript):
+				weightEstimate.AddP2WKHInput()
+
+			case txscript.IsPayToScriptHash(utxo.PkScript):
+				weightEstimate.AddNestedP2WKHInput()
+
+			default:
+				return nil, 0, 0, fmt.Errorf("unsupported address type: %x",
+					utxo.PkScript)
+			}
+		}
+
+		// Channel funding multisig output is P2WSH.
+		weightEstimate.AddP2WSHOutput()
+
+		// At this point we've got two possibilities, either create a
+		// change output, or not. We'll first try without creating a
+		// change output.
+		//
+		// Estimate the fee required for a transaction without a change
+		// output.
+
+		// The difference between the selected amount and the amount
+		// requested will be used to pay fees.
+		overShootAmt := totalSat - amtWanted
+		changeAmt := btcutil.Amount(0)
+
+		// If the the output is too small after subtracting the fee, the coin
+		// selection cannot be performed with an amount this small.
+		if amtWanted <= dustLimit {
+			return nil, 0, 0, fmt.Errorf("output amount(%v) below "+
+				"dust limit(%v)", amtWanted, dustLimit)
+		}
+
+		// Based on the estimated size and fee rate, if the excess
+		// amount isn't enough to pay fees, then increase the requested
+		// coin amount by the estimate required fee, performing another
+		// round of coin selection.
+		totalWeight := int64(weightEstimate.Weight())
+		requiredFee = feeRate.FeeForWeight(totalWeight)
+		deltaAmt := overShootAmt - requiredFee
+		if deltaAmt < 0 {
+			amtWanted = amt + requiredFee
+			continue
+		}
+
+		// We were able to create a transaction with no change from the
+		// selected inputs. We'll remember the resulting values for
+		// now, while we try to add a change output.
+		// Assume that change output is a P2WKH output.
+		//
+		// TODO: Handle wallets that generate non-witness change
+		// addresses.
+		weightEstimate.AddP2WKHOutput()
+
+		// Now that we have added the change output, redo the fee
+		// estimate.
+		totalWeight = int64(weightEstimate.Weight())
+		requiredFee = feeRate.FeeForWeight(totalWeight)
+
+		// For a transaction with a change output, everything we spend is
+		// from the change.
+		newChange := overShootAmt - requiredFee
+
+		// If a change output is above the dust limit, we'll add the change
+		// output. Otherwise we'll go with the no change tx we originally
+		// found and all the dust to the amount.
+		switch {
+		case newChange > dustLimit:
+			changeAmt = newChange
+		case newChange > 0:
+			amtWanted += deltaAmt
+		}
+
+		// Sanity check the resulting output values to make sure we
+		// don't burn a great part to fees.
+		// totalOut := amt + changeAmt
+		totalOut := amtWanted + changeAmt
+		fee := totalSat - totalOut
+
+		// Fail if more than 20% goes to fees.
+		// TODO(halseth): smarter fee limit. Make configurable or dynamic wrt
+		// total funding size?
+		if fee > totalOut/5 {
+			return nil, 0, 0, fmt.Errorf("fee %v on total output"+
+				"value %v", fee, totalOut)
+		}
+
+		return selectedUtxos, amtWanted, changeAmt, nil
+	}
+}

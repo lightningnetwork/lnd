@@ -1564,6 +1564,22 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 
 	localFundingAmt := btcutil.Amount(in.LocalFundingAmount)
 	remoteInitialBalance := btcutil.Amount(in.PushSat)
+
+	// If the FundAll flag is set, ensure that the
+	// acceptable minimum local amount adheres to the
+	// amount to be pushed to the remote, and to current
+	// rules.
+	if in.FundAll {
+		// Use as minmimum local amount the larger of
+		// the amount to be pushed to the remote or
+		// the allowed minimum funding size.
+		if remoteInitialBalance >= minChanFundingSize {
+			localFundingAmt = remoteInitialBalance + 1
+		} else {
+			localFundingAmt = minChanFundingSize
+		}
+	}
+
 	minHtlcIn := lnwire.MilliSatoshi(in.MinHtlcMsat)
 	remoteCsvDelay := uint16(in.RemoteCsvDelay)
 
@@ -1663,6 +1679,7 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 		remoteCsvDelay:  remoteCsvDelay,
 		minConfs:        minConfs,
 		shutdownScript:  script,
+		fundAll:         in.FundAll,
 	}
 
 	// If the user has provided a shim, then we'll now augment the based

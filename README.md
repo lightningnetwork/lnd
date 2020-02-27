@@ -59,7 +59,7 @@ resources including talks, articles, and example applications can be found at:
 [dev.lightning.community](https://dev.lightning.community).
 
 Finally, we also have an active
-[Slack](https://join.slack.com/t/lightningcommunity/shared_invite/enQtODY1NTI2MjY5MjAzLTQxYjBmNTcxNTA1YzZkZDQ1ZDNlYzJmZWMwYjg4MTI3OTkyZTU4ZDYzNTFjYzgyMWM0ZmZlYzVlZWI1YzhkNDI) where protocol developers, application developers, testers and users gather to
+[Slack](https://lightning.engineering/slack.html) where protocol developers, application developers, testers and users gather to
 discuss various aspects of `lnd` and also Lightning in general.
 
 ## Installation
@@ -68,7 +68,7 @@ discuss various aspects of `lnd` and also Lightning in general.
 
 ## Docker
   To run lnd from Docker, please see the main [Docker instructions](docs/DOCKER.md)
-  
+
 ## IRC
   * irc.freenode.net
   * channel #lnd

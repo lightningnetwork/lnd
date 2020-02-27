@@ -573,7 +573,7 @@ func findPathInternal(
 
 		edgesExpanded++
 
-		// Calculate amount that the candidate node would have to sent
+		// Calculate amount that the candidate node would have to send
 		// out.
 		amountToSend := toNodeDist.amountToReceive
 

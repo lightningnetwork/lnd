@@ -146,6 +146,17 @@ $ go get -u github.com/lightningnetwork/lnd/lnrpc
 
 ## Generate protobuf definitions
 
+### Linux
+
+For linux there is an easy install script that is also used for the Travis CI
+build. Just run the following command (requires `sudo` permissions and the tools
+`make`, `go`, `wget` and `unzip` to be installed) from the repository's root
+folder:
+
+`./scripts/install_travis_proto.sh`
+
+### MacOS / Unix like systems
+
 1. Download [v.3.4.0](https://github.com/google/protobuf/releases/tag/v3.4.0) of
 `protoc` for your operating system and add it to your `PATH`.
 For example, if using macOS:
@@ -178,4 +189,24 @@ $ git reset --hard v1.8.6
 $ go install ./protoc-gen-grpc-gateway ./protoc-gen-swagger
 ```
 
-5. Run [`gen_protos.sh`](https://github.com/lightningnetwork/lnd/blob/master/lnrpc/gen_protos.sh) to generate new protobuf definitions.
+5. Run [`gen_protos.sh`](https://github.com/lightningnetwork/lnd/blob/master/lnrpc/gen_protos.sh)
+or `make rpc` to generate new protobuf definitions.
+
+## Format .proto files
+
+We use `clang-format` to make sure the `.proto` files are formatted correctly.
+You can install the formatter on Ubuntu by running `apt install clang-format`.
+
+Consult [this page](http://releases.llvm.org/download.html) to find binaries
+for other operating systems or distributions.
+
+## Makefile commands
+
+The following commands are available with `make`:
+
+* `rpc`: Compile `.proto` files (calls `lnrpc/gen_protos.sh`).
+* `rpc-format`: Formats all `.proto` files according to our formatting rules.
+  Requires `clang-format`, see previous chapter.
+* `rpc-check`: Runs both previous commands and makes sure the git work tree is
+  not dirty. This can be used to check that the `.proto` files are formatted
+  and compiled properly.

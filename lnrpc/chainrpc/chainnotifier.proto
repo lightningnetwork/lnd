@@ -39,7 +39,8 @@ message ConfDetails {
     // The hash of the block in which the confirmed transaction was included in.
     bytes block_hash = 2;
 
-    // The height of the block in which the confirmed transaction was included in.
+    // The height of the block in which the confirmed transaction was included
+    // in.
     uint32 block_height = 3;
 
     // The index of the confirmed transaction within the transaction.

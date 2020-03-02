@@ -275,7 +275,8 @@ func (m *AddHoldInvoiceResp) GetPaymentRequest() string {
 }
 
 type SettleInvoiceMsg struct {
-	/// Externally discovered pre-image that should be used to settle the hold invoice.
+	/// Externally discovered pre-image that should be used to settle the hold
+	/// invoice.
 	Preimage             []byte   `protobuf:"bytes,1,opt,name=preimage,proto3" json:"preimage,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`

@@ -481,7 +481,7 @@
           },
           {
             "name": "force",
-            "description": "/ If true, then the channel will be closed forcibly. This means the current commitment transaction will be signed and broadcast.",
+            "description": "/ If true, then the channel will be closed forcibly. This means the\n/ current commitment transaction will be signed and broadcast.",
             "in": "query",
             "required": false,
             "type": "boolean",
@@ -489,7 +489,7 @@
           },
           {
             "name": "target_conf",
-            "description": "/ The target number of blocks that the closure transaction should be confirmed by.",
+            "description": "/ The target number of blocks that the closure transaction should be\n/ confirmed by.",
             "in": "query",
             "required": false,
             "type": "integer",
@@ -497,7 +497,7 @@
           },
           {
             "name": "sat_per_byte",
-            "description": "/ A manual fee rate set in sat/byte that should be used when crafting the closure transaction.",
+            "description": "/ A manual fee rate set in sat/byte that should be used when crafting the\n/ closure transaction.",
             "in": "query",
             "required": false,
             "type": "string",
@@ -815,7 +815,7 @@
           },
           {
             "name": "cltv_limit",
-            "description": "* \nAn optional maximum total time lock for the route. If the source is empty or\nourselves, this should not exceed lnd's `--max-cltv-expiry` setting. If\nzero, then the value of `--max-cltv-expiry` is used as the limit.",
+            "description": "*\nAn optional maximum total time lock for the route. If the source is empty or\nourselves, this should not exceed lnd's `--max-cltv-expiry` setting. If\nzero, then the value of `--max-cltv-expiry` is used as the limit.",
             "in": "query",
             "required": false,
             "type": "integer",
@@ -875,7 +875,7 @@
     },
     "/v1/initwallet": {
       "post": {
-        "summary": "* \nInitWallet is used when lnd is starting up for the first time to fully\ninitialize the daemon and its internal wallet. At the very least a wallet\npassword must be provided. This will be used to encrypt sensitive material\non disk.",
+        "summary": "*\nInitWallet is used when lnd is starting up for the first time to fully\ninitialize the daemon and its internal wallet. At the very least a wallet\npassword must be provided. This will be used to encrypt sensitive material\non disk.",
         "description": "In the case of a recovery scenario, the user can also specify their aezeed\nmnemonic and passphrase. If set, then the daemon will use this prior state\nto initialize its internal wallet.\n\nAlternatively, this can be used along with the GenSeed RPC to obtain a\nseed, then present it to the user. Once it has been verified by the user,\nthe seed can be fed into this RPC in order to commit the new wallet.",
         "operationId": "InitWallet",
         "responses": {
@@ -1354,7 +1354,7 @@
         "parameters": [
           {
             "name": "target_conf",
-            "description": "/ The target number of blocks that this transaction should be confirmed by.",
+            "description": "/ The target number of blocks that this transaction should be confirmed\n/ by.",
             "in": "query",
             "required": false,
             "type": "integer",
@@ -1647,7 +1647,7 @@
         "local_chan_reserve_sat": {
           "type": "string",
           "format": "int64",
-          "description": "/ The minimum satoshis this node is required to reserve in its balance."
+          "description": "/ The minimum satoshis this node is required to reserve in its\n/ balance."
         },
         "remote_chan_reserve_sat": {
           "type": "string",
@@ -1730,7 +1730,7 @@
       ],
       "default": "WITNESS_PUBKEY_HASH",
       "description": "- `p2wkh`: Pay to witness key hash (`WITNESS_PUBKEY_HASH` = 0)\n- `np2wkh`: Pay to nested witness key hash (`NESTED_PUBKEY_HASH` = 1)",
-      "title": "* \n`AddressType` has to be one of:"
+      "title": "*\n`AddressType` has to be one of:"
     },
     "lnrpcBakeMacaroonRequest": {
       "type": "object",
@@ -1945,7 +1945,7 @@
         "uptime": {
           "type": "string",
           "format": "int64",
-          "description": "*\nThe number of seconds that the remote peer has been observed as being online\nby the channel scoring system over the lifetime of the channel [EXPERIMENTAL]."
+          "description": "*\nThe number of seconds that the remote peer has been observed as being online\nby the channel scoring system over the lifetime of the channel\n[EXPERIMENTAL]."
         },
         "close_address": {
           "type": "string",
@@ -1974,7 +1974,7 @@
         "funding_amt": {
           "type": "string",
           "format": "uint64",
-          "description": "/ The funding amount in satoshis that initiator wishes to use in the channel."
+          "description": "/ The funding amount in satoshis that initiator wishes to use in the\n/ channel."
         },
         "push_amt": {
           "type": "string",
@@ -1989,12 +1989,12 @@
         "max_value_in_flight": {
           "type": "string",
           "format": "uint64",
-          "description": "/ The maximum amount of coins in millisatoshis that can be pending in this channel."
+          "description": "/ The maximum amount of coins in millisatoshis that can be pending in this\n/ channel."
         },
         "channel_reserve": {
           "type": "string",
           "format": "uint64",
-          "description": "/ The minimum amount of satoshis the initiator requires us to have at all times."
+          "description": "/ The minimum amount of satoshis the initiator requires us to have at all\n/ times."
         },
         "min_htlc": {
           "type": "string",
@@ -2004,12 +2004,12 @@
         "fee_per_kw": {
           "type": "string",
           "format": "uint64",
-          "description": "/ The initial fee rate that the initiator suggests for both commitment transactions."
+          "description": "/ The initial fee rate that the initiator suggests for both commitment\n/ transactions."
         },
         "csv_delay": {
           "type": "integer",
           "format": "int64",
-          "description": "*\nThe number of blocks to use for the relative time lock in the pay-to-self output\nof both commitment transactions."
+          "description": "*\nThe number of blocks to use for the relative time lock in the pay-to-self\noutput of both commitment transactions."
         },
         "max_accepted_htlcs": {
           "type": "integer",
@@ -2019,7 +2019,7 @@
         "channel_flags": {
           "type": "integer",
           "format": "int64",
-          "description": "/ A bit-field which the initiator uses to specify proposed channel behavior."
+          "description": "/ A bit-field which the initiator uses to specify proposed channel\n/ behavior."
         }
       }
     },
@@ -2238,12 +2238,12 @@
         "fee_per_mil": {
           "type": "string",
           "format": "int64",
-          "description": "/ The amount charged per milli-satoshis transferred expressed in millionths of a satoshi."
+          "description": "/ The amount charged per milli-satoshis transferred expressed in\n/ millionths of a satoshi."
         },
         "fee_rate": {
           "type": "number",
           "format": "double",
-          "description": "/ The effective fee rate in milli-satoshis. Computed by dividing the fee_per_mil value by 1 million."
+          "description": "/ The effective fee rate in milli-satoshis. Computed by dividing the\n/ fee_per_mil value by 1 million."
         }
       }
     },
@@ -2573,22 +2573,22 @@
           "items": {
             "$ref": "#/definitions/lnrpcChannelFeeReport"
           },
-          "description": "/ An array of channel fee reports which describes the current fee schedule for each channel."
+          "description": "/ An array of channel fee reports which describes the current fee schedule\n/ for each channel."
         },
         "day_fee_sum": {
           "type": "string",
           "format": "uint64",
-          "description": "/ The total amount of fee revenue (in satoshis) the switch has collected over the past 24 hrs."
+          "description": "/ The total amount of fee revenue (in satoshis) the switch has collected\n/ over the past 24 hrs."
         },
         "week_fee_sum": {
           "type": "string",
           "format": "uint64",
-          "description": "/ The total amount of fee revenue (in satoshis) the switch has collected over the past 1 week."
+          "description": "/ The total amount of fee revenue (in satoshis) the switch has collected\n/ over the past 1 week."
         },
         "month_fee_sum": {
           "type": "string",
           "format": "uint64",
-          "description": "/ The total amount of fee revenue (in satoshis) the switch has collected over the past 1 month."
+          "description": "/ The total amount of fee revenue (in satoshis) the switch has collected\n/ over the past 1 month."
         }
       }
     },
@@ -2598,7 +2598,7 @@
         "timestamp": {
           "type": "string",
           "format": "uint64",
-          "description": "/ Timestamp is the time (unix epoch offset) that this circuit was completed."
+          "description": "/ Timestamp is the time (unix epoch offset) that this circuit was\n/ completed."
         },
         "chan_id_in": {
           "type": "string",
@@ -2608,17 +2608,17 @@
         "chan_id_out": {
           "type": "string",
           "format": "uint64",
-          "description": "/ The outgoing channel ID that carried the preimage that completed the circuit."
+          "description": "/ The outgoing channel ID that carried the preimage that completed the\n/ circuit."
         },
         "amt_in": {
           "type": "string",
           "format": "uint64",
-          "description": "/ The total amount (in satoshis) of the incoming HTLC that created half the circuit."
+          "description": "/ The total amount (in satoshis) of the incoming HTLC that created half\n/ the circuit."
         },
         "amt_out": {
           "type": "string",
           "format": "uint64",
-          "description": "/ The total amount (in satoshis) of the outgoing HTLC that created the second half of the circuit."
+          "description": "/ The total amount (in satoshis) of the outgoing HTLC that created the\n/ second half of the circuit."
         },
         "fee": {
           "type": "string",
@@ -2633,12 +2633,12 @@
         "amt_in_msat": {
           "type": "string",
           "format": "uint64",
-          "description": "/ The total amount (in milli-satoshis) of the incoming HTLC that created half the circuit."
+          "description": "/ The total amount (in milli-satoshis) of the incoming HTLC that created\n/ half the circuit."
         },
         "amt_out_msat": {
           "type": "string",
           "format": "uint64",
-          "description": "/ The total amount (in milli-satoshis) of the outgoing HTLC that created the second half of the circuit."
+          "description": "/ The total amount (in milli-satoshis) of the outgoing HTLC that created\n/ the second half of the circuit."
         }
       }
     },
@@ -2648,17 +2648,17 @@
         "start_time": {
           "type": "string",
           "format": "uint64",
-          "description": "/ Start time is the starting point of the forwarding history request. All records beyond this point will be included, respecting the end time, and the index offset."
+          "description": "/ Start time is the starting point of the forwarding history request. All\n/ records beyond this point will be included, respecting the end time, and\n/ the index offset."
         },
         "end_time": {
           "type": "string",
           "format": "uint64",
-          "description": "/ End time is the end point of the forwarding history request. The response will carry at most 50k records between the start time and the end time. The index offset can be used to implement pagination."
+          "description": "/ End time is the end point of the forwarding history request. The\n/ response will carry at most 50k records between the start time and the\n/ end time. The index offset can be used to implement pagination."
         },
         "index_offset": {
           "type": "integer",
           "format": "int64",
-          "description": "/ Index offset is the offset in the time series to start at. As each response can only contain 50k records, callers can use this to skip around within a packed time series."
+          "description": "/ Index offset is the offset in the time series to start at. As each\n/ response can only contain 50k records, callers can use this to skip\n/ around within a packed time series."
         },
         "num_max_events": {
           "type": "integer",
@@ -2675,12 +2675,12 @@
           "items": {
             "$ref": "#/definitions/lnrpcForwardingEvent"
           },
-          "description": "/ A list of forwarding events from the time slice of the time series specified in the request."
+          "description": "/ A list of forwarding events from the time slice of the time series\n/ specified in the request."
         },
         "last_offset_index": {
           "type": "integer",
           "format": "int64",
-          "description": "/ The index of the last time in the set of returned forwarding events. Can be used to seek further, pagination style."
+          "description": "/ The index of the last time in the set of returned forwarding events. Can\n/ be used to seek further, pagination style."
         }
       }
     },
@@ -2788,7 +2788,7 @@
         "testnet": {
           "type": "boolean",
           "format": "boolean",
-          "title": "* \nWhether the current node is connected to testnet. This field is \ndeprecated and the network field should be used instead"
+          "title": "*\nWhether the current node is connected to testnet. This field is\ndeprecated and the network field should be used instead"
         },
         "chains": {
           "type": "array",
@@ -2923,7 +2923,7 @@
         "tlv_payload": {
           "type": "boolean",
           "format": "boolean",
-          "description": "* \nIf set to true, then this hop will be encoded using the new variable length\nTLV format. Note that if any custom tlv_records below are specified, then\nthis field MUST be set to true for them to be encoded properly."
+          "description": "*\nIf set to true, then this hop will be encoded using the new variable length\nTLV format. Note that if any custom tlv_records below are specified, then\nthis field MUST be set to true for them to be encoded properly."
         },
         "mpp_record": {
           "$ref": "#/definitions/lnrpcMPPRecord",
@@ -3208,7 +3208,7 @@
         },
         "key_loc": {
           "$ref": "#/definitions/lnrpcKeyLocator",
-          "description": "* \nThe key locator that identifies which key to use for signing."
+          "description": "*\nThe key locator that identifies which key to use for signing."
         }
       }
     },
@@ -3236,7 +3236,7 @@
         },
         "host": {
           "type": "string",
-          "title": "/ The network location of the lightning node, e.g. `69.69.69.69:1337` or `localhost:10011`"
+          "title": "/ The network location of the lightning node, e.g. `69.69.69.69:1337` or\n/ `localhost:10011`"
         }
       }
     },
@@ -3541,42 +3541,42 @@
         "push_sat": {
           "type": "string",
           "format": "int64",
-          "title": "/ The number of satoshis to push to the remote side as part of the initial commitment state"
+          "title": "/ The number of satoshis to push to the remote side as part of the initial\n/ commitment state"
         },
         "target_conf": {
           "type": "integer",
           "format": "int32",
-          "description": "/ The target number of blocks that the funding transaction should be confirmed by."
+          "description": "/ The target number of blocks that the funding transaction should be\n/ confirmed by."
         },
         "sat_per_byte": {
           "type": "string",
           "format": "int64",
-          "description": "/ A manual fee rate set in sat/byte that should be used when crafting the funding transaction."
+          "description": "/ A manual fee rate set in sat/byte that should be used when crafting the\n/ funding transaction."
         },
         "private": {
           "type": "boolean",
           "format": "boolean",
-          "description": "/ Whether this channel should be private, not announced to the greater network."
+          "description": "/ Whether this channel should be private, not announced to the greater\n/ network."
         },
         "min_htlc_msat": {
           "type": "string",
           "format": "int64",
-          "description": "/ The minimum value in millisatoshi we will require for incoming HTLCs on the channel."
+          "description": "/ The minimum value in millisatoshi we will require for incoming HTLCs on\n/ the channel."
         },
         "remote_csv_delay": {
           "type": "integer",
           "format": "int64",
-          "description": "/ The delay we require on the remote's commitment transaction. If this is not set, it will be scaled automatically with the channel size."
+          "description": "/ The delay we require on the remote's commitment transaction. If this is\n/ not set, it will be scaled automatically with the channel size."
         },
         "min_confs": {
           "type": "integer",
           "format": "int32",
-          "description": "/ The minimum number of confirmations each one of your outputs used for the funding transaction must satisfy."
+          "description": "/ The minimum number of confirmations each one of your outputs used for\n/ the funding transaction must satisfy."
         },
         "spend_unconfirmed": {
           "type": "boolean",
           "format": "boolean",
-          "description": "/ Whether unconfirmed outputs should be used as inputs for the funding transaction."
+          "description": "/ Whether unconfirmed outputs should be used as inputs for the funding\n/ transaction."
         },
         "close_address": {
           "type": "string",
@@ -3925,7 +3925,7 @@
         "fee_rate": {
           "type": "number",
           "format": "double",
-          "description": "/ The effective fee rate in milli-satoshis. The precision of this value goes up to 6 decimal places, so 1e-6."
+          "description": "/ The effective fee rate in milli-satoshis. The precision of this value\n/ goes up to 6 decimal places, so 1e-6."
         },
         "time_lock_delta": {
           "type": "integer",
@@ -3935,12 +3935,12 @@
         "max_htlc_msat": {
           "type": "string",
           "format": "uint64",
-          "description": "/ If set, the maximum HTLC size in milli-satoshis. If unset, the maximum HTLC will be unchanged."
+          "description": "/ If set, the maximum HTLC size in milli-satoshis. If unset, the maximum\n/ HTLC will be unchanged."
         },
         "min_htlc_msat": {
           "type": "string",
           "format": "uint64",
-          "description": "/ The minimum HTLC size in milli-satoshis. Only applied if min_htlc_msat_specified is true."
+          "description": "/ The minimum HTLC size in milli-satoshis. Only applied if\n/ min_htlc_msat_specified is true."
         },
         "min_htlc_msat_specified": {
           "type": "boolean",
@@ -4084,12 +4084,12 @@
         "target_conf": {
           "type": "integer",
           "format": "int32",
-          "description": "/ The target number of blocks that this transaction should be confirmed by."
+          "description": "/ The target number of blocks that this transaction should be confirmed\n/ by."
         },
         "sat_per_byte": {
           "type": "string",
           "format": "int64",
-          "description": "/ A manual fee rate set in sat/byte that should be used when crafting the transaction."
+          "description": "/ A manual fee rate set in sat/byte that should be used when crafting the\n/ transaction."
         },
         "send_all": {
           "type": "boolean",
@@ -4173,7 +4173,7 @@
         "cltv_limit": {
           "type": "integer",
           "format": "int64",
-          "description": "* \nAn optional maximum total time lock for the route. This should not exceed\nlnd's `--max-cltv-expiry` setting. If zero, then the value of\n`--max-cltv-expiry` is enforced."
+          "description": "*\nAn optional maximum total time lock for the route. This should not exceed\nlnd's `--max-cltv-expiry` setting. If zero, then the value of\n`--max-cltv-expiry` is enforced."
         },
         "dest_custom_records": {
           "type": "object",
@@ -4181,7 +4181,7 @@
             "type": "string",
             "format": "byte"
           },
-          "description": "* \nAn optional field that can be used to pass an arbitrary set of TLV records\nto a peer which understands the new records. This can be used to pass\napplication specific data during the payment attempt. Record types are\nrequired to be in the custom range \u003e= 65536. When using REST, the values\nmust be encoded as base64."
+          "description": "*\nAn optional field that can be used to pass an arbitrary set of TLV records\nto a peer which understands the new records. This can be used to pass\napplication specific data during the payment attempt. Record types are\nrequired to be in the custom range \u003e= 65536. When using REST, the values\nmust be encoded as base64."
         },
         "allow_self_payment": {
           "type": "boolean",

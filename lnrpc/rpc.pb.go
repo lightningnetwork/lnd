@@ -1648,27 +1648,32 @@ type ChannelAcceptRequest struct {
 	ChainHash []byte `protobuf:"bytes,2,opt,name=chain_hash,json=chainHash,proto3" json:"chain_hash,omitempty"`
 	/// The pending channel id.
 	PendingChanId []byte `protobuf:"bytes,3,opt,name=pending_chan_id,json=pendingChanId,proto3" json:"pending_chan_id,omitempty"`
-	/// The funding amount in satoshis that initiator wishes to use in the channel.
+	/// The funding amount in satoshis that initiator wishes to use in the
+	/// channel.
 	FundingAmt uint64 `protobuf:"varint,4,opt,name=funding_amt,json=fundingAmt,proto3" json:"funding_amt,omitempty"`
 	/// The push amount of the proposed channel in millisatoshis.
 	PushAmt uint64 `protobuf:"varint,5,opt,name=push_amt,json=pushAmt,proto3" json:"push_amt,omitempty"`
 	/// The dust limit of the initiator's commitment tx.
 	DustLimit uint64 `protobuf:"varint,6,opt,name=dust_limit,json=dustLimit,proto3" json:"dust_limit,omitempty"`
-	/// The maximum amount of coins in millisatoshis that can be pending in this channel.
+	/// The maximum amount of coins in millisatoshis that can be pending in this
+	/// channel.
 	MaxValueInFlight uint64 `protobuf:"varint,7,opt,name=max_value_in_flight,json=maxValueInFlight,proto3" json:"max_value_in_flight,omitempty"`
-	/// The minimum amount of satoshis the initiator requires us to have at all times.
+	/// The minimum amount of satoshis the initiator requires us to have at all
+	/// times.
 	ChannelReserve uint64 `protobuf:"varint,8,opt,name=channel_reserve,json=channelReserve,proto3" json:"channel_reserve,omitempty"`
 	/// The smallest HTLC in millisatoshis that the initiator will accept.
 	MinHtlc uint64 `protobuf:"varint,9,opt,name=min_htlc,json=minHtlc,proto3" json:"min_htlc,omitempty"`
-	/// The initial fee rate that the initiator suggests for both commitment transactions.
+	/// The initial fee rate that the initiator suggests for both commitment
+	/// transactions.
 	FeePerKw uint64 `protobuf:"varint,10,opt,name=fee_per_kw,json=feePerKw,proto3" json:"fee_per_kw,omitempty"`
 	//*
-	//The number of blocks to use for the relative time lock in the pay-to-self output
-	//of both commitment transactions.
+	//The number of blocks to use for the relative time lock in the pay-to-self
+	//output of both commitment transactions.
 	CsvDelay uint32 `protobuf:"varint,11,opt,name=csv_delay,json=csvDelay,proto3" json:"csv_delay,omitempty"`
 	/// The total number of incoming HTLC's that the initiator will accept.
 	MaxAcceptedHtlcs uint32 `protobuf:"varint,12,opt,name=max_accepted_htlcs,json=maxAcceptedHtlcs,proto3" json:"max_accepted_htlcs,omitempty"`
-	/// A bit-field which the initiator uses to specify proposed channel behavior.
+	/// A bit-field which the initiator uses to specify proposed channel
+	/// behavior.
 	ChannelFlags         uint32   `protobuf:"varint,13,opt,name=channel_flags,json=channelFlags,proto3" json:"channel_flags,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -1990,7 +1995,8 @@ func (m *OutPoint) GetOutputIndex() uint32 {
 type LightningAddress struct {
 	/// The identity pubkey of the Lightning node
 	Pubkey string `protobuf:"bytes,1,opt,name=pubkey,proto3" json:"pubkey,omitempty"`
-	/// The network location of the lightning node, e.g. `69.69.69.69:1337` or `localhost:10011`
+	/// The network location of the lightning node, e.g. `69.69.69.69:1337` or
+	/// `localhost:10011`
 	Host                 string   `protobuf:"bytes,2,opt,name=host,proto3" json:"host,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -2039,7 +2045,8 @@ func (m *LightningAddress) GetHost() string {
 type EstimateFeeRequest struct {
 	/// The map from addresses to amounts for the transaction.
 	AddrToAmount map[string]int64 `protobuf:"bytes,1,rep,name=AddrToAmount,proto3" json:"AddrToAmount,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"varint,2,opt,name=value,proto3"`
-	/// The target number of blocks that this transaction should be confirmed by.
+	/// The target number of blocks that this transaction should be confirmed
+	/// by.
 	TargetConf           int32    `protobuf:"varint,2,opt,name=target_conf,json=targetConf,proto3" json:"target_conf,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -2137,9 +2144,11 @@ func (m *EstimateFeeResponse) GetFeerateSatPerByte() int64 {
 type SendManyRequest struct {
 	/// The map from addresses to amounts
 	AddrToAmount map[string]int64 `protobuf:"bytes,1,rep,name=AddrToAmount,proto3" json:"AddrToAmount,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"varint,2,opt,name=value,proto3"`
-	/// The target number of blocks that this transaction should be confirmed by.
+	/// The target number of blocks that this transaction should be confirmed
+	/// by.
 	TargetConf int32 `protobuf:"varint,3,opt,name=target_conf,json=targetConf,proto3" json:"target_conf,omitempty"`
-	/// A manual fee rate set in sat/byte that should be used when crafting the transaction.
+	/// A manual fee rate set in sat/byte that should be used when crafting the
+	/// transaction.
 	SatPerByte           int64    `protobuf:"varint,5,opt,name=sat_per_byte,json=satPerByte,proto3" json:"sat_per_byte,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -2237,9 +2246,11 @@ type SendCoinsRequest struct {
 	Addr string `protobuf:"bytes,1,opt,name=addr,proto3" json:"addr,omitempty"`
 	/// The amount in satoshis to send
 	Amount int64 `protobuf:"varint,2,opt,name=amount,proto3" json:"amount,omitempty"`
-	/// The target number of blocks that this transaction should be confirmed by.
+	/// The target number of blocks that this transaction should be confirmed
+	/// by.
 	TargetConf int32 `protobuf:"varint,3,opt,name=target_conf,json=targetConf,proto3" json:"target_conf,omitempty"`
-	/// A manual fee rate set in sat/byte that should be used when crafting the transaction.
+	/// A manual fee rate set in sat/byte that should be used when crafting the
+	/// transaction.
 	SatPerByte int64 `protobuf:"varint,5,opt,name=sat_per_byte,json=satPerByte,proto3" json:"sat_per_byte,omitempty"`
 	//*
 	//If set, then the amount field will be ignored, and lnd will attempt to
@@ -2993,7 +3004,8 @@ type Channel struct {
 	Lifetime int64 `protobuf:"varint,23,opt,name=lifetime,proto3" json:"lifetime,omitempty"`
 	//*
 	//The number of seconds that the remote peer has been observed as being online
-	//by the channel scoring system over the lifetime of the channel [EXPERIMENTAL].
+	//by the channel scoring system over the lifetime of the channel
+	//[EXPERIMENTAL].
 	Uptime int64 `protobuf:"varint,24,opt,name=uptime,proto3" json:"uptime,omitempty"`
 	//*
 	//Close address is the address that we will enforce payout to on cooperative
@@ -4273,11 +4285,14 @@ type CloseChannelRequest struct {
 	//will be able to generate a signature for Alice's version of the commitment
 	//transaction.
 	ChannelPoint *ChannelPoint `protobuf:"bytes,1,opt,name=channel_point,json=channelPoint,proto3" json:"channel_point,omitempty"`
-	/// If true, then the channel will be closed forcibly. This means the current commitment transaction will be signed and broadcast.
+	/// If true, then the channel will be closed forcibly. This means the
+	/// current commitment transaction will be signed and broadcast.
 	Force bool `protobuf:"varint,2,opt,name=force,proto3" json:"force,omitempty"`
-	/// The target number of blocks that the closure transaction should be confirmed by.
+	/// The target number of blocks that the closure transaction should be
+	/// confirmed by.
 	TargetConf int32 `protobuf:"varint,3,opt,name=target_conf,json=targetConf,proto3" json:"target_conf,omitempty"`
-	/// A manual fee rate set in sat/byte that should be used when crafting the closure transaction.
+	/// A manual fee rate set in sat/byte that should be used when crafting the
+	/// closure transaction.
 	SatPerByte int64 `protobuf:"varint,4,opt,name=sat_per_byte,json=satPerByte,proto3" json:"sat_per_byte,omitempty"`
 	//
 	//An optional address to send funds to in the case of a cooperative close.
@@ -4488,21 +4503,29 @@ type OpenChannelRequest struct {
 	NodePubkeyString string `protobuf:"bytes,3,opt,name=node_pubkey_string,json=nodePubkeyString,proto3" json:"node_pubkey_string,omitempty"` // Deprecated: Do not use.
 	/// The number of satoshis the wallet should commit to the channel
 	LocalFundingAmount int64 `protobuf:"varint,4,opt,name=local_funding_amount,json=localFundingAmount,proto3" json:"local_funding_amount,omitempty"`
-	/// The number of satoshis to push to the remote side as part of the initial commitment state
+	/// The number of satoshis to push to the remote side as part of the initial
+	/// commitment state
 	PushSat int64 `protobuf:"varint,5,opt,name=push_sat,json=pushSat,proto3" json:"push_sat,omitempty"`
-	/// The target number of blocks that the funding transaction should be confirmed by.
+	/// The target number of blocks that the funding transaction should be
+	/// confirmed by.
 	TargetConf int32 `protobuf:"varint,6,opt,name=target_conf,json=targetConf,proto3" json:"target_conf,omitempty"`
-	/// A manual fee rate set in sat/byte that should be used when crafting the funding transaction.
+	/// A manual fee rate set in sat/byte that should be used when crafting the
+	/// funding transaction.
 	SatPerByte int64 `protobuf:"varint,7,opt,name=sat_per_byte,json=satPerByte,proto3" json:"sat_per_byte,omitempty"`
-	/// Whether this channel should be private, not announced to the greater network.
+	/// Whether this channel should be private, not announced to the greater
+	/// network.
 	Private bool `protobuf:"varint,8,opt,name=private,proto3" json:"private,omitempty"`
-	/// The minimum value in millisatoshi we will require for incoming HTLCs on the channel.
+	/// The minimum value in millisatoshi we will require for incoming HTLCs on
+	/// the channel.
 	MinHtlcMsat int64 `protobuf:"varint,9,opt,name=min_htlc_msat,json=minHtlcMsat,proto3" json:"min_htlc_msat,omitempty"`
-	/// The delay we require on the remote's commitment transaction. If this is not set, it will be scaled automatically with the channel size.
+	/// The delay we require on the remote's commitment transaction. If this is
+	/// not set, it will be scaled automatically with the channel size.
 	RemoteCsvDelay uint32 `protobuf:"varint,10,opt,name=remote_csv_delay,json=remoteCsvDelay,proto3" json:"remote_csv_delay,omitempty"`
-	/// The minimum number of confirmations each one of your outputs used for the funding transaction must satisfy.
+	/// The minimum number of confirmations each one of your outputs used for
+	/// the funding transaction must satisfy.
 	MinConfs int32 `protobuf:"varint,11,opt,name=min_confs,json=minConfs,proto3" json:"min_confs,omitempty"`
-	/// Whether unconfirmed outputs should be used as inputs for the funding transaction.
+	/// Whether unconfirmed outputs should be used as inputs for the funding
+	/// transaction.
 	SpendUnconfirmed bool `protobuf:"varint,12,opt,name=spend_unconfirmed,json=spendUnconfirmed,proto3" json:"spend_unconfirmed,omitempty"`
 	//
 	//Close address is an optional address which specifies the address to which
@@ -5333,7 +5356,8 @@ type PendingChannelsResponse_PendingChannel struct {
 	Capacity      int64  `protobuf:"varint,3,opt,name=capacity,proto3" json:"capacity,omitempty"`
 	LocalBalance  int64  `protobuf:"varint,4,opt,name=local_balance,json=localBalance,proto3" json:"local_balance,omitempty"`
 	RemoteBalance int64  `protobuf:"varint,5,opt,name=remote_balance,json=remoteBalance,proto3" json:"remote_balance,omitempty"`
-	/// The minimum satoshis this node is required to reserve in its balance.
+	/// The minimum satoshis this node is required to reserve in its
+	/// balance.
 	LocalChanReserveSat int64 `protobuf:"varint,6,opt,name=local_chan_reserve_sat,json=localChanReserveSat,proto3" json:"local_chan_reserve_sat,omitempty"`
 	//*
 	//The minimum satoshis the other node is required to reserve in its
@@ -9485,9 +9509,11 @@ type ChannelFeeReport struct {
 	ChannelPoint string `protobuf:"bytes,1,opt,name=channel_point,json=channelPoint,proto3" json:"channel_point,omitempty"`
 	/// The base fee charged regardless of the number of milli-satoshis sent.
 	BaseFeeMsat int64 `protobuf:"varint,2,opt,name=base_fee_msat,json=baseFeeMsat,proto3" json:"base_fee_msat,omitempty"`
-	/// The amount charged per milli-satoshis transferred expressed in millionths of a satoshi.
+	/// The amount charged per milli-satoshis transferred expressed in
+	/// millionths of a satoshi.
 	FeePerMil int64 `protobuf:"varint,3,opt,name=fee_per_mil,json=feePerMil,proto3" json:"fee_per_mil,omitempty"`
-	/// The effective fee rate in milli-satoshis. Computed by dividing the fee_per_mil value by 1 million.
+	/// The effective fee rate in milli-satoshis. Computed by dividing the
+	/// fee_per_mil value by 1 million.
 	FeeRate              float64  `protobuf:"fixed64,4,opt,name=fee_rate,json=feeRate,proto3" json:"fee_rate,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -9555,13 +9581,17 @@ func (m *ChannelFeeReport) GetFeeRate() float64 {
 }
 
 type FeeReportResponse struct {
-	/// An array of channel fee reports which describes the current fee schedule for each channel.
+	/// An array of channel fee reports which describes the current fee schedule
+	/// for each channel.
 	ChannelFees []*ChannelFeeReport `protobuf:"bytes,1,rep,name=channel_fees,json=channelFees,proto3" json:"channel_fees,omitempty"`
-	/// The total amount of fee revenue (in satoshis) the switch has collected over the past 24 hrs.
+	/// The total amount of fee revenue (in satoshis) the switch has collected
+	/// over the past 24 hrs.
 	DayFeeSum uint64 `protobuf:"varint,2,opt,name=day_fee_sum,json=dayFeeSum,proto3" json:"day_fee_sum,omitempty"`
-	/// The total amount of fee revenue (in satoshis) the switch has collected over the past 1 week.
+	/// The total amount of fee revenue (in satoshis) the switch has collected
+	/// over the past 1 week.
 	WeekFeeSum uint64 `protobuf:"varint,3,opt,name=week_fee_sum,json=weekFeeSum,proto3" json:"week_fee_sum,omitempty"`
-	/// The total amount of fee revenue (in satoshis) the switch has collected over the past 1 month.
+	/// The total amount of fee revenue (in satoshis) the switch has collected
+	/// over the past 1 month.
 	MonthFeeSum          uint64   `protobuf:"varint,4,opt,name=month_fee_sum,json=monthFeeSum,proto3" json:"month_fee_sum,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -9628,13 +9658,16 @@ type PolicyUpdateRequest struct {
 	Scope isPolicyUpdateRequest_Scope `protobuf_oneof:"scope"`
 	/// The base fee charged regardless of the number of milli-satoshis sent.
 	BaseFeeMsat int64 `protobuf:"varint,3,opt,name=base_fee_msat,json=baseFeeMsat,proto3" json:"base_fee_msat,omitempty"`
-	/// The effective fee rate in milli-satoshis. The precision of this value goes up to 6 decimal places, so 1e-6.
+	/// The effective fee rate in milli-satoshis. The precision of this value
+	/// goes up to 6 decimal places, so 1e-6.
 	FeeRate float64 `protobuf:"fixed64,4,opt,name=fee_rate,json=feeRate,proto3" json:"fee_rate,omitempty"`
 	/// The required timelock delta for HTLCs forwarded over the channel.
 	TimeLockDelta uint32 `protobuf:"varint,5,opt,name=time_lock_delta,json=timeLockDelta,proto3" json:"time_lock_delta,omitempty"`
-	/// If set, the maximum HTLC size in milli-satoshis. If unset, the maximum HTLC will be unchanged.
+	/// If set, the maximum HTLC size in milli-satoshis. If unset, the maximum
+	/// HTLC will be unchanged.
 	MaxHtlcMsat uint64 `protobuf:"varint,6,opt,name=max_htlc_msat,json=maxHtlcMsat,proto3" json:"max_htlc_msat,omitempty"`
-	/// The minimum HTLC size in milli-satoshis. Only applied if min_htlc_msat_specified is true.
+	/// The minimum HTLC size in milli-satoshis. Only applied if
+	/// min_htlc_msat_specified is true.
 	MinHtlcMsat uint64 `protobuf:"varint,7,opt,name=min_htlc_msat,json=minHtlcMsat,proto3" json:"min_htlc_msat,omitempty"`
 	/// If true, min_htlc_msat is applied.
 	MinHtlcMsatSpecified bool     `protobuf:"varint,8,opt,name=min_htlc_msat_specified,json=minHtlcMsatSpecified,proto3" json:"min_htlc_msat_specified,omitempty"`
@@ -9787,11 +9820,17 @@ func (m *PolicyUpdateResponse) XXX_DiscardUnknown() {
 var xxx_messageInfo_PolicyUpdateResponse proto.InternalMessageInfo
 
 type ForwardingHistoryRequest struct {
-	/// Start time is the starting point of the forwarding history request. All records beyond this point will be included, respecting the end time, and the index offset.
+	/// Start time is the starting point of the forwarding history request. All
+	/// records beyond this point will be included, respecting the end time, and
+	/// the index offset.
 	StartTime uint64 `protobuf:"varint,1,opt,name=start_time,json=startTime,proto3" json:"start_time,omitempty"`
-	/// End time is the end point of the forwarding history request. The response will carry at most 50k records between the start time and the end time. The index offset can be used to implement pagination.
+	/// End time is the end point of the forwarding history request. The
+	/// response will carry at most 50k records between the start time and the
+	/// end time. The index offset can be used to implement pagination.
 	EndTime uint64 `protobuf:"varint,2,opt,name=end_time,json=endTime,proto3" json:"end_time,omitempty"`
-	/// Index offset is the offset in the time series to start at. As each response can only contain 50k records, callers can use this to skip around within a packed time series.
+	/// Index offset is the offset in the time series to start at. As each
+	/// response can only contain 50k records, callers can use this to skip
+	/// around within a packed time series.
 	IndexOffset uint32 `protobuf:"varint,3,opt,name=index_offset,json=indexOffset,proto3" json:"index_offset,omitempty"`
 	/// The max number of events to return in the response to this query.
 	NumMaxEvents         uint32   `protobuf:"varint,4,opt,name=num_max_events,json=numMaxEvents,proto3" json:"num_max_events,omitempty"`
@@ -9854,23 +9893,29 @@ func (m *ForwardingHistoryRequest) GetNumMaxEvents() uint32 {
 }
 
 type ForwardingEvent struct {
-	/// Timestamp is the time (unix epoch offset) that this circuit was completed.
+	/// Timestamp is the time (unix epoch offset) that this circuit was
+	/// completed.
 	Timestamp uint64 `protobuf:"varint,1,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
 	/// The incoming channel ID that carried the HTLC that created the circuit.
 	ChanIdIn uint64 `protobuf:"varint,2,opt,name=chan_id_in,json=chanIdIn,proto3" json:"chan_id_in,omitempty"`
-	/// The outgoing channel ID that carried the preimage that completed the circuit.
+	/// The outgoing channel ID that carried the preimage that completed the
+	/// circuit.
 	ChanIdOut uint64 `protobuf:"varint,4,opt,name=chan_id_out,json=chanIdOut,proto3" json:"chan_id_out,omitempty"`
-	/// The total amount (in satoshis) of the incoming HTLC that created half the circuit.
+	/// The total amount (in satoshis) of the incoming HTLC that created half
+	/// the circuit.
 	AmtIn uint64 `protobuf:"varint,5,opt,name=amt_in,json=amtIn,proto3" json:"amt_in,omitempty"`
-	/// The total amount (in satoshis) of the outgoing HTLC that created the second half of the circuit.
+	/// The total amount (in satoshis) of the outgoing HTLC that created the
+	/// second half of the circuit.
 	AmtOut uint64 `protobuf:"varint,6,opt,name=amt_out,json=amtOut,proto3" json:"amt_out,omitempty"`
 	/// The total fee (in satoshis) that this payment circuit carried.
 	Fee uint64 `protobuf:"varint,7,opt,name=fee,proto3" json:"fee,omitempty"`
 	/// The total fee (in milli-satoshis) that this payment circuit carried.
 	FeeMsat uint64 `protobuf:"varint,8,opt,name=fee_msat,json=feeMsat,proto3" json:"fee_msat,omitempty"`
-	/// The total amount (in milli-satoshis) of the incoming HTLC that created half the circuit.
+	/// The total amount (in milli-satoshis) of the incoming HTLC that created
+	/// half the circuit.
 	AmtInMsat uint64 `protobuf:"varint,9,opt,name=amt_in_msat,json=amtInMsat,proto3" json:"amt_in_msat,omitempty"`
-	/// The total amount (in milli-satoshis) of the outgoing HTLC that created the second half of the circuit.
+	/// The total amount (in milli-satoshis) of the outgoing HTLC that created
+	/// the second half of the circuit.
 	AmtOutMsat           uint64   `protobuf:"varint,10,opt,name=amt_out_msat,json=amtOutMsat,proto3" json:"amt_out_msat,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -9966,9 +10011,11 @@ func (m *ForwardingEvent) GetAmtOutMsat() uint64 {
 }
 
 type ForwardingHistoryResponse struct {
-	/// A list of forwarding events from the time slice of the time series specified in the request.
+	/// A list of forwarding events from the time slice of the time series
+	/// specified in the request.
 	ForwardingEvents []*ForwardingEvent `protobuf:"bytes,1,rep,name=forwarding_events,json=forwardingEvents,proto3" json:"forwarding_events,omitempty"`
-	/// The index of the last time in the set of returned forwarding events. Can be used to seek further, pagination style.
+	/// The index of the last time in the set of returned forwarding events. Can
+	/// be used to seek further, pagination style.
 	LastOffsetIndex      uint32   `protobuf:"varint,2,opt,name=last_offset_index,json=lastOffsetIndex,proto3" json:"last_offset_index,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`

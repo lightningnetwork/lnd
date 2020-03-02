@@ -151,7 +151,7 @@ service WatchtowerClient {
     */
     rpc RemoveTower (RemoveTowerRequest) returns (RemoveTowerResponse);
 
-    // ListTowers returns the list of watchtowers registered with the client. 
+    // ListTowers returns the list of watchtowers registered with the client.
     rpc ListTowers (ListTowersRequest) returns (ListTowersResponse);
 
     // GetTowerInfo retrieves information for a registered watchtower.

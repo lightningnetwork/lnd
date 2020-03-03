@@ -2948,6 +2948,11 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 			"`private_only` can be set, but not both")
 	}
 
+	if len(in.Peer) > 0 && len(in.Peer) != 33 {
+		_, err := route.NewVertexFromBytes(in.Peer)
+		return nil, fmt.Errorf("invalid `peer` key: %v", err)
+	}
+
 	resp := &lnrpc.ListChannelsResponse{}
 
 	graph := r.server.chanDB.ChannelGraph()
@@ -2962,7 +2967,14 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 
 	for _, dbChannel := range dbChannels {
 		nodePub := dbChannel.IdentityPub
+		nodePubBytes := nodePub.SerializeCompressed()
 		chanPoint := dbChannel.FundingOutpoint
+
+		// If the caller requested channels for a target node, skip any
+		// that don't match the provided pubkey.
+		if len(in.Peer) > 0 && !bytes.Equal(nodePubBytes, in.Peer) {
+			continue
+		}
 
 		var peerOnline bool
 		if _, err := r.server.FindPeer(nodePub); err == nil {

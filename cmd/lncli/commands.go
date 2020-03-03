@@ -1990,6 +1990,12 @@ var listChannelsCommand = cli.Command{
 			Name:  "private_only",
 			Usage: "only list channels which are currently private",
 		},
+		cli.StringFlag{
+			Name: "peer",
+			Usage: "(optional) only display channels with a " +
+				"particular peer, accepts 66-byte, " +
+				"hex-encoded pubkeys",
+		},
 	},
 	Action: actionDecorator(listChannels),
 }
@@ -1999,19 +2005,32 @@ func listChannels(ctx *cli.Context) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
+	peer := ctx.String("peer")
+
+	// If the user requested channels with a particular key, parse the
+	// provided pubkey.
+	var peerKey []byte
+	if len(peer) > 0 {
+		pk, err := route.NewVertexFromStr(peer)
+		if err != nil {
+			return fmt.Errorf("invalid --peer pubkey: %v", err)
+		}
+
+		peerKey = pk[:]
+	}
+
 	req := &lnrpc.ListChannelsRequest{
 		ActiveOnly:   ctx.Bool("active_only"),
 		InactiveOnly: ctx.Bool("inactive_only"),
 		PublicOnly:   ctx.Bool("public_only"),
 		PrivateOnly:  ctx.Bool("private_only"),
+		Peer:         peerKey,
 	}
 
 	resp, err := client.ListChannels(ctxb, req)
 	if err != nil {
 		return err
 	}
-
-	// TODO(roasbeef): defer close the client for the all
 
 	printRespJSON(resp)
 

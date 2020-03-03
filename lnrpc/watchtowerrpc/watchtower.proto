@@ -7,7 +7,7 @@ option go_package = "github.com/lightningnetwork/lnd/lnrpc/watchtowerrpc";
 service Watchtower {
     /** lncli: tower info
     GetInfo returns general information concerning the companion watchtower
-    including it's public key and URIs where the server is currently
+    including its public key and URIs where the server is currently
     listening for clients.
     */
     rpc GetInfo (GetInfoRequest) returns (GetInfoResponse);

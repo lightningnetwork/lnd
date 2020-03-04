@@ -23,7 +23,7 @@ import (
 // HTLC directly on-chain using the preimage in order to ensure that we don't
 // lose any funds.
 func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest,
-	alice, bob *lntest.HarnessNode) {
+	alice, bob *lntest.HarnessNode, c commitType) {
 
 	ctxb := context.Background()
 
@@ -31,7 +31,7 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 	// Carol refusing to actually settle or directly cancel any HTLC's
 	// self.
 	aliceChanPoint, bobChanPoint, carol := createThreeHopNetwork(
-		t, net, alice, bob, false,
+		t, net, alice, bob, false, c,
 	)
 
 	// Clean up carol's node when the test finishes.

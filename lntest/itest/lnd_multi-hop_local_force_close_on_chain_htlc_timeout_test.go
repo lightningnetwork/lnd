@@ -17,8 +17,8 @@ import (
 // testMultiHopLocalForceCloseOnChainHtlcTimeout tests that in a multi-hop HTLC
 // scenario, if the node that extended the HTLC to the final node closes their
 // commitment on-chain early, then it eventually recognizes this HTLC as one
-// that's timed out. At this point, the node should timeout the HTLC, then
-// cancel it backwards as normal.
+// that's timed out. At this point, the node should timeout the HTLC using the
+// HTLC timeout transaction, then cancel it backwards as normal.
 func testMultiHopLocalForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 	t *harnessTest) {
 	ctxb := context.Background()

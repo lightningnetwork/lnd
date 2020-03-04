@@ -20,7 +20,8 @@ import (
 // testMultiHopHtlcRemoteChainClaim tests that in the multi-hop HTLC scenario,
 // if the remote party goes to chain while we have an incoming HTLC, then when
 // we found out the preimage via the witness beacon, we properly settle the
-// HTLC on-chain in order to ensure that we don't lose any funds.
+// HTLC directly on-chain using the preimage in order to ensure that we don't
+// lose any funds.
 func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxb := context.Background()
 

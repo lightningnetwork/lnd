@@ -2976,7 +2976,7 @@ func padCLTV(cltv uint32) uint32 {
 // total of 3 + n transactions will be broadcast, representing the commitment
 // transaction, a transaction sweeping the local CSV delayed output, a
 // transaction sweeping the CSV delayed 2nd-layer htlcs outputs, and n
-// htlc success transactions, where n is the number of payments Alice attempted
+// htlc timeout transactions, where n is the number of payments Alice attempted
 // to send to Carol.  This test includes several restarts to ensure that the
 // transaction output states are persisted throughout the forced closure
 // process.

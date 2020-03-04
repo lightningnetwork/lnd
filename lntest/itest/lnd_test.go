@@ -1053,14 +1053,19 @@ func basicChannelFundingTest(t *harnessTest, net *lntest.NetworkHarness,
 		return nil, nil, nil, fmt.Errorf("unable to get bobs's "+
 			"balance: %v", err)
 	}
-	if aliceBal.Balance != int64(chanAmt-pushAmt-calcStaticFee(0)) {
+
+	expBalanceAlice := chanAmt - pushAmt - calcStaticFee(0)
+	aliceBalance := btcutil.Amount(aliceBal.Balance)
+	if aliceBalance != expBalanceAlice {
 		return nil, nil, nil, fmt.Errorf("alice's balance is "+
 			"incorrect: expected %v got %v",
-			chanAmt-pushAmt-calcStaticFee(0), aliceBal)
+			expBalanceAlice, aliceBalance)
 	}
-	if bobBal.Balance != int64(pushAmt) {
+
+	bobBalance := btcutil.Amount(bobBal.Balance)
+	if bobBalance != pushAmt {
 		return nil, nil, nil, fmt.Errorf("bob's balance is incorrect: "+
-			"expected %v got %v", pushAmt, bobBal.Balance)
+			"expected %v got %v", pushAmt, bobBalance)
 	}
 
 	req := &lnrpc.ListChannelsRequest{}

@@ -2983,20 +2983,55 @@ func padCLTV(cltv uint32) uint32 {
 //
 // TODO(roasbeef): also add an unsettled HTLC before force closing.
 func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
-	t.t.Run("channelForceClosure", func(t *testing.T) {
-		ht := newHarnessTest(t, net)
+	// We'll test the scenario for some of the commitment types, to ensure
+	// outputs can be swept.
+	commitTypes := []commitType{
+		commitTypeLegacy,
+	}
 
-		// Since we'd like to test failure scenarios with outstanding
-		// htlcs, we'll introduce another node into our test network:
-		// Carol.
-		carol, err := net.NewNode("Carol", []string{"--hodl.exit-settle"})
-		if err != nil {
-			t.Fatalf("unable to create new nodes: %v", err)
+	for _, channelType := range commitTypes {
+		testName := fmt.Sprintf("committype=%v", channelType)
+
+		success := t.t.Run(testName, func(t *testing.T) {
+			ht := newHarnessTest(t, net)
+
+			args := channelType.Args()
+			alice, err := net.NewNode("Alice", args)
+			if err != nil {
+				t.Fatalf("unable to create new node: %v", err)
+			}
+			defer shutdownAndAssert(net, ht, alice)
+
+			// Since we'd like to test failure scenarios with
+			// outstanding htlcs, we'll introduce another node into
+			// our test network: Carol.
+			carolArgs := []string{"--hodl.exit-settle"}
+			carolArgs = append(carolArgs, args...)
+			carol, err := net.NewNode("Carol", carolArgs)
+			if err != nil {
+				t.Fatalf("unable to create new nodes: %v", err)
+			}
+			defer shutdownAndAssert(net, ht, carol)
+
+			// Each time, we'll send Alice  new set of coins in
+			// order to fund the channel.
+			ctxt, _ := context.WithTimeout(
+				context.Background(), defaultTimeout,
+			)
+			err = net.SendCoins(
+				ctxt, btcutil.SatoshiPerBitcoin, alice,
+			)
+			if err != nil {
+				t.Fatalf("unable to send coins to Alice: %v",
+					err)
+			}
+
+			channelForceClosureTest(net, ht, alice, carol)
+		})
+		if !success {
+			return
 		}
-		defer shutdownAndAssert(net, ht, carol)
-
-		channelForceClosureTest(net, ht, net.Alice, carol)
-	})
+	}
 }
 
 func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,

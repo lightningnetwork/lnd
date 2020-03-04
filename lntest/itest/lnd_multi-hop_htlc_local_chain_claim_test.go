@@ -5,9 +5,11 @@ package itest
 import (
 	"context"
 	"fmt"
+	"testing"
 	"time"
 
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -16,6 +18,69 @@ import (
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lntypes"
 )
+
+func testMultiHopHtlcClaims(net *lntest.NetworkHarness, t *harnessTest) {
+
+	type testCase struct {
+		name string
+		test func(net *lntest.NetworkHarness, t *harnessTest)
+	}
+
+	subTests := []testCase{
+		{
+			// bob: outgoing our commit timeout
+			// carol: incoming their commit watch and see timeout
+			name: "local force close immediate expiry",
+			test: testMultiHopHtlcLocalTimeout,
+		},
+		{
+			// bob: outgoing watch and see, they sweep on chain
+			// carol: incoming our commit, know preimage
+			name: "receiver chain claim",
+			test: testMultiHopReceiverChainClaim,
+		},
+		{
+			// bob: outgoing our commit watch and see timeout
+			// carol: incoming their commit watch and see timeout
+			name: "local force close on-chain htlc timeout",
+			test: testMultiHopLocalForceCloseOnChainHtlcTimeout,
+		},
+		{
+			// bob: outgoing their commit watch and see timeout
+			// carol: incoming our commit watch and see timeout
+			name: "remote force close on-chain htlc timeout",
+			test: testMultiHopRemoteForceCloseOnChainHtlcTimeout,
+		},
+		{
+			// bob: outgoing our commit watch and see, they sweep on chain
+			// bob: incoming our commit watch and learn preimage
+			// carol: incoming their commit know preimage
+			name: "local chain claim",
+			test: testMultiHopHtlcLocalChainClaim,
+		},
+		{
+			// bob: outgoing their commit watch and see, they sweep on chain
+			// bob: incoming their commit watch and learn preimage
+			// carol: incoming our commit know preimage
+			name: "remote chain claim",
+			test: testMultiHopHtlcRemoteChainClaim,
+		},
+	}
+
+	for _, subTest := range subTests {
+
+		subTest := subTest
+
+		success := t.t.Run(subTest.name, func(t *testing.T) {
+			ht := newHarnessTest(t, net)
+
+			subTest.test(net, ht)
+		})
+		if !success {
+			return
+		}
+	}
+}
 
 // testMultiHopHtlcLocalChainClaim tests that in a multi-hop HTLC scenario, if
 // we force close a channel with an incoming HTLC, and later find out the

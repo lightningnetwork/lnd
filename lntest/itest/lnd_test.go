@@ -14551,42 +14551,8 @@ var testsCases = []*testCase{
 		test: testBidirectionalAsyncPayments,
 	},
 	{
-		// bob: outgoing our commit timeout
-		// carol: incoming their commit watch and see timeout
-		name: "test multi-hop htlc local force close immediate expiry",
-		test: testMultiHopHtlcLocalTimeout,
-	},
-	{
-		// bob: outgoing watch and see, they sweep on chain
-		// carol: incoming our commit, know preimage
-		name: "test multi-hop htlc receiver chain claim",
-		test: testMultiHopReceiverChainClaim,
-	},
-	{
-		// bob: outgoing our commit watch and see timeout
-		// carol: incoming their commit watch and see timeout
-		name: "test multi-hop local force close on-chain htlc timeout",
-		test: testMultiHopLocalForceCloseOnChainHtlcTimeout,
-	},
-	{
-		// bob: outgoing their commit watch and see timeout
-		// carol: incoming our commit watch and see timeout
-		name: "test multi-hop remote force close on-chain htlc timeout",
-		test: testMultiHopRemoteForceCloseOnChainHtlcTimeout,
-	},
-	{
-		// bob: outgoing our commit watch and see, they sweep on chain
-		// bob: incoming our commit watch and learn preimage
-		// carol: incoming their commit know preimage
-		name: "test multi-hop htlc local chain claim",
-		test: testMultiHopHtlcLocalChainClaim,
-	},
-	{
-		// bob: outgoing their commit watch and see, they sweep on chain
-		// bob: incoming their commit watch and learn preimage
-		// carol: incoming our commit know preimage
-		name: "test multi-hop htlc remote chain claim",
-		test: testMultiHopHtlcRemoteChainClaim,
+		name: "test multi-hop htlc",
+		test: testMultiHopHtlcClaims,
 	},
 	{
 		name: "switch circuit persistence",

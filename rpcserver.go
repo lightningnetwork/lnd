@@ -3058,6 +3058,16 @@ func createRPCOpenChannel(r *rpcServer, graph *channeldb.ChannelGraph,
 	}
 	externalCommitFee := dbChannel.Capacity - sumOutputs
 
+	// Extract the commitment type from the channel type flags. We must
+	// first check whether it has anchors, since in that case it would also
+	// be tweakless.
+	commitmentType := lnrpc.CommitmentType_LEGACY
+	if dbChannel.ChanType.HasAnchors() {
+		commitmentType = lnrpc.CommitmentType_ANCHORS
+	} else if dbChannel.ChanType.IsTweakless() {
+		commitmentType = lnrpc.CommitmentType_STATIC_REMOTE_KEY
+	}
+
 	channel := &lnrpc.Channel{
 		Active:                isActive,
 		Private:               !isPublic,
@@ -3079,7 +3089,8 @@ func createRPCOpenChannel(r *rpcServer, graph *channeldb.ChannelGraph,
 		ChanStatusFlags:       dbChannel.ChanStatus().String(),
 		LocalChanReserveSat:   int64(dbChannel.LocalChanCfg.ChanReserve),
 		RemoteChanReserveSat:  int64(dbChannel.RemoteChanCfg.ChanReserve),
-		StaticRemoteKey:       dbChannel.ChanType.IsTweakless(),
+		StaticRemoteKey:       commitmentType == lnrpc.CommitmentType_STATIC_REMOTE_KEY,
+		CommitmentType:        commitmentType,
 	}
 
 	for i, htlc := range localCommit.Htlcs {

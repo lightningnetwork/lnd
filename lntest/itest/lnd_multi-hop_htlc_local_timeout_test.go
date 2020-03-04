@@ -21,14 +21,17 @@ import (
 // it using the HTLC timeout transaction. Any dust HTLC's should be immediately
 // canceled backwards. Once the timeout has been reached, then we should sweep
 // it on-chain, and cancel the HTLC backwards.
-func testMultiHopHtlcLocalTimeout(net *lntest.NetworkHarness, t *harnessTest) {
+func testMultiHopHtlcLocalTimeout(net *lntest.NetworkHarness, t *harnessTest,
+	alice, bob *lntest.HarnessNode) {
+
 	ctxb := context.Background()
 
 	// First, we'll create a three hop network: Alice -> Bob -> Carol, with
 	// Carol refusing to actually settle or directly cancel any HTLC's
 	// self.
-	aliceChanPoint, bobChanPoint, carol :=
-		createThreeHopNetwork(t, net, true)
+	aliceChanPoint, bobChanPoint, carol := createThreeHopNetwork(
+		t, net, alice, bob, true,
+	)
 
 	// Clean up carol's node when the test finishes.
 	defer shutdownAndAssert(net, t, carol)
@@ -47,7 +50,7 @@ func testMultiHopHtlcLocalTimeout(net *lntest.NetworkHarness, t *harnessTest) {
 	ctx, cancel := context.WithCancel(ctxb)
 	defer cancel()
 
-	alicePayStream, err := net.Alice.SendPayment(ctx)
+	alicePayStream, err := alice.SendPayment(ctx)
 	if err != nil {
 		t.Fatalf("unable to create payment stream for alice: %v", err)
 	}
@@ -79,7 +82,7 @@ func testMultiHopHtlcLocalTimeout(net *lntest.NetworkHarness, t *harnessTest) {
 	// Verify that all nodes in the path now have two HTLC's with the
 	// proper parameters.
 	var predErr error
-	nodes := []*lntest.HarnessNode{net.Alice, net.Bob, carol}
+	nodes := []*lntest.HarnessNode{alice, bob, carol}
 	err = wait.Predicate(func() bool {
 		predErr = assertActiveHtlcs(nodes, dustPayHash, payHash)
 		if predErr != nil {
@@ -125,7 +128,7 @@ func testMultiHopHtlcLocalTimeout(net *lntest.NetworkHarness, t *harnessTest) {
 	// At this point, Bob should have canceled backwards the dust HTLC
 	// that we sent earlier. This means Alice should now only have a single
 	// HTLC on her channel.
-	nodes = []*lntest.HarnessNode{net.Alice}
+	nodes = []*lntest.HarnessNode{alice}
 	err = wait.Predicate(func() bool {
 		predErr = assertActiveHtlcs(nodes, payHash)
 		if predErr != nil {
@@ -160,7 +163,7 @@ func testMultiHopHtlcLocalTimeout(net *lntest.NetworkHarness, t *harnessTest) {
 	// output pending.
 	pendingChansRequest := &lnrpc.PendingChannelsRequest{}
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	pendingChanResp, err := net.Bob.PendingChannels(ctxt, pendingChansRequest)
+	pendingChanResp, err := bob.PendingChannels(ctxt, pendingChansRequest)
 	if err != nil {
 		t.Fatalf("unable to query for pending channels: %v", err)
 	}
@@ -191,7 +194,7 @@ func testMultiHopHtlcLocalTimeout(net *lntest.NetworkHarness, t *harnessTest) {
 	// The block should have confirmed Bob's HTLC timeout transaction.
 	// Therefore, at this point, there should be no active HTLC's on the
 	// commitment transaction from Alice -> Bob.
-	nodes = []*lntest.HarnessNode{net.Alice}
+	nodes = []*lntest.HarnessNode{alice}
 	err = wait.Predicate(func() bool {
 		predErr = assertNumActiveHtlcs(nodes, 0)
 		if predErr != nil {
@@ -206,7 +209,7 @@ func testMultiHopHtlcLocalTimeout(net *lntest.NetworkHarness, t *harnessTest) {
 	// At this point, Bob should show that the pending HTLC has advanced to
 	// the second stage and is to be swept.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	pendingChanResp, err = net.Bob.PendingChannels(ctxt, pendingChansRequest)
+	pendingChanResp, err = bob.PendingChannels(ctxt, pendingChansRequest)
 	if err != nil {
 		t.Fatalf("unable to query for pending channels: %v", err)
 	}
@@ -225,7 +228,7 @@ func testMultiHopHtlcLocalTimeout(net *lntest.NetworkHarness, t *harnessTest) {
 	// no longer has any pending channels.
 	err = wait.Predicate(func() bool {
 		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-		pendingChanResp, err = net.Bob.PendingChannels(ctxt, pendingChansRequest)
+		pendingChanResp, err = bob.PendingChannels(ctxt, pendingChansRequest)
 		if err != nil {
 			predErr = fmt.Errorf("unable to query for pending "+
 				"channels: %v", err)
@@ -246,5 +249,5 @@ func testMultiHopHtlcLocalTimeout(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, net.Alice, aliceChanPoint, false)
+	closeChannelAndAssert(ctxt, t, net, alice, aliceChanPoint, false)
 }

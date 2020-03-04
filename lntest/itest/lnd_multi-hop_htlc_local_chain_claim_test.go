@@ -23,7 +23,8 @@ func testMultiHopHtlcClaims(net *lntest.NetworkHarness, t *harnessTest) {
 
 	type testCase struct {
 		name string
-		test func(net *lntest.NetworkHarness, t *harnessTest)
+		test func(net *lntest.NetworkHarness, t *harnessTest, alice,
+			bob *lntest.HarnessNode)
 	}
 
 	subTests := []testCase{
@@ -67,6 +68,25 @@ func testMultiHopHtlcClaims(net *lntest.NetworkHarness, t *harnessTest) {
 		},
 	}
 
+	args := []string{}
+	alice, err := net.NewNode("Alice", args)
+	if err != nil {
+		t.Fatalf("unable to create new node: %v", err)
+	}
+	defer shutdownAndAssert(net, t, alice)
+
+	bob, err := net.NewNode("Bob", args)
+	if err != nil {
+		t.Fatalf("unable to create new node: %v", err)
+	}
+	defer shutdownAndAssert(net, t, bob)
+
+	ctxb := context.Background()
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
+	if err := net.ConnectNodes(ctxt, alice, bob); err != nil {
+		t.Fatalf("unable to connect alice to bob: %v", err)
+	}
+
 	for _, subTest := range subTests {
 
 		subTest := subTest
@@ -74,7 +94,7 @@ func testMultiHopHtlcClaims(net *lntest.NetworkHarness, t *harnessTest) {
 		success := t.t.Run(subTest.name, func(t *testing.T) {
 			ht := newHarnessTest(t, net)
 
-			subTest.test(net, ht)
+			subTest.test(net, ht, alice, bob)
 		})
 		if !success {
 			return
@@ -86,14 +106,16 @@ func testMultiHopHtlcClaims(net *lntest.NetworkHarness, t *harnessTest) {
 // we force close a channel with an incoming HTLC, and later find out the
 // preimage via the witness beacon, we properly settle the HTLC on-chain using
 // the HTLC success transaction in order to ensure we don't lose any funds.
-func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest) {
+func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest,
+	alice, bob *lntest.HarnessNode) {
+
 	ctxb := context.Background()
 
 	// First, we'll create a three hop network: Alice -> Bob -> Carol, with
 	// Carol refusing to actually settle or directly cancel any HTLC's
 	// self.
 	aliceChanPoint, bobChanPoint, carol := createThreeHopNetwork(
-		t, net, false,
+		t, net, alice, bob, false,
 	)
 
 	// Clean up carol's node when the test finishes.
@@ -124,7 +146,7 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest)
 	ctx, cancel := context.WithCancel(ctxb)
 	defer cancel()
 
-	alicePayStream, err := net.Alice.SendPayment(ctx)
+	alicePayStream, err := alice.SendPayment(ctx)
 	if err != nil {
 		t.Fatalf("unable to create payment stream for alice: %v", err)
 	}
@@ -138,7 +160,7 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest)
 	// At this point, all 3 nodes should now have an active channel with
 	// the created HTLC pending on all of them.
 	var predErr error
-	nodes := []*lntest.HarnessNode{net.Alice, net.Bob, carol}
+	nodes := []*lntest.HarnessNode{alice, bob, carol}
 	err = wait.Predicate(func() bool {
 		predErr = assertActiveHtlcs(nodes, payHash[:])
 		if predErr != nil {
@@ -159,7 +181,7 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest)
 	// At this point, Bob decides that he wants to exit the channel
 	// immediately, so he force closes his commitment transaction.
 	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	bobForceClose := closeChannelAndAssert(ctxt, t, net, net.Bob,
+	bobForceClose := closeChannelAndAssert(ctxt, t, net, bob,
 		aliceChanPoint, true)
 
 	// Alice will sweep her output immediately.
@@ -170,7 +192,7 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest)
 	}
 
 	// Suspend Bob to force Carol to go to chain.
-	restartBob, err := net.SuspendNode(net.Bob)
+	restartBob, err := net.SuspendNode(bob)
 	if err != nil {
 		t.Fatalf("unable to suspend bob: %v", err)
 	}
@@ -262,7 +284,7 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest)
 
 	// At this point we suspend Alice to make sure she'll handle the
 	// on-chain settle after a restart.
-	restartAlice, err := net.SuspendNode(net.Alice)
+	restartAlice, err := net.SuspendNode(alice)
 	if err != nil {
 		t.Fatalf("unable to suspend alice: %v", err)
 	}
@@ -304,7 +326,7 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest)
 	pendingChansRequest := &lnrpc.PendingChannelsRequest{}
 	err = wait.Predicate(func() bool {
 		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-		pendingChanResp, err := net.Bob.PendingChannels(
+		pendingChanResp, err := bob.PendingChannels(
 			ctxt, pendingChansRequest,
 		)
 		if err != nil {
@@ -402,7 +424,7 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest)
 
 	err = wait.Predicate(func() bool {
 		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-		pendingChanResp, err := net.Bob.PendingChannels(
+		pendingChanResp, err := bob.PendingChannels(
 			ctxt, pendingChansRequest,
 		)
 		if err != nil {
@@ -417,7 +439,7 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest)
 		}
 		req := &lnrpc.ListChannelsRequest{}
 		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-		chanInfo, err := net.Bob.ListChannels(ctxt, req)
+		chanInfo, err := bob.ListChannels(ctxt, req)
 		if err != nil {
 			predErr = fmt.Errorf("unable to query for open "+
 				"channels: %v", err)
@@ -476,7 +498,7 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest)
 	// succeeded.
 	ctxt, _ = context.WithTimeout(ctxt, defaultTimeout)
 	err = checkPaymentStatus(
-		ctxt, net.Alice, preimage, lnrpc.Payment_SUCCEEDED,
+		ctxt, alice, preimage, lnrpc.Payment_SUCCEEDED,
 	)
 	if err != nil {
 		t.Fatalf(err.Error())
@@ -565,30 +587,48 @@ func checkPaymentStatus(ctxt context.Context, node *lntest.HarnessNode,
 }
 
 func createThreeHopNetwork(t *harnessTest, net *lntest.NetworkHarness,
-	carolHodl bool) (*lnrpc.ChannelPoint, *lnrpc.ChannelPoint,
-	*lntest.HarnessNode) {
+	alice, bob *lntest.HarnessNode, carolHodl bool) (*lnrpc.ChannelPoint,
+	*lnrpc.ChannelPoint, *lntest.HarnessNode) {
 
 	ctxb := context.Background()
+
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
+	err := net.EnsureConnected(ctxt, alice, bob)
+	if err != nil {
+		t.Fatalf("unable to connect peers: %v", err)
+	}
+
+	ctxt, _ = context.WithTimeout(context.Background(), defaultTimeout)
+	err = net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, alice)
+	if err != nil {
+		t.Fatalf("unable to send coins to Alice: %v", err)
+	}
+
+	ctxt, _ = context.WithTimeout(context.Background(), defaultTimeout)
+	err = net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, bob)
+	if err != nil {
+		t.Fatalf("unable to send coins to Bob: %v", err)
+	}
 
 	// We'll start the test by creating a channel between Alice and Bob,
 	// which will act as the first leg for out multi-hop HTLC.
 	const chanAmt = 1000000
-	ctxt, _ := context.WithTimeout(ctxb, channelOpenTimeout)
+	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
 	aliceChanPoint := openChannelAndAssert(
-		ctxt, t, net, net.Alice, net.Bob,
+		ctxt, t, net, alice, bob,
 		lntest.OpenChannelParams{
 			Amt: chanAmt,
 		},
 	)
 
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err := net.Alice.WaitForNetworkChannelOpen(ctxt, aliceChanPoint)
+	err = alice.WaitForNetworkChannelOpen(ctxt, aliceChanPoint)
 	if err != nil {
 		t.Fatalf("alice didn't report channel: %v", err)
 	}
 
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = net.Bob.WaitForNetworkChannelOpen(ctxt, aliceChanPoint)
+	err = bob.WaitForNetworkChannelOpen(ctxt, aliceChanPoint)
 	if err != nil {
 		t.Fatalf("bob didn't report channel: %v", err)
 	}
@@ -605,7 +645,7 @@ func createThreeHopNetwork(t *harnessTest, net *lntest.NetworkHarness,
 		t.Fatalf("unable to create new node: %v", err)
 	}
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	if err := net.ConnectNodes(ctxt, net.Bob, carol); err != nil {
+	if err := net.ConnectNodes(ctxt, bob, carol); err != nil {
 		t.Fatalf("unable to connect bob to carol: %v", err)
 	}
 
@@ -613,13 +653,13 @@ func createThreeHopNetwork(t *harnessTest, net *lntest.NetworkHarness,
 	// open, our topology looks like:  A -> B -> C.
 	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
 	bobChanPoint := openChannelAndAssert(
-		ctxt, t, net, net.Bob, carol,
+		ctxt, t, net, bob, carol,
 		lntest.OpenChannelParams{
 			Amt: chanAmt,
 		},
 	)
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = net.Bob.WaitForNetworkChannelOpen(ctxt, bobChanPoint)
+	err = bob.WaitForNetworkChannelOpen(ctxt, bobChanPoint)
 	if err != nil {
 		t.Fatalf("alice didn't report channel: %v", err)
 	}
@@ -629,7 +669,7 @@ func createThreeHopNetwork(t *harnessTest, net *lntest.NetworkHarness,
 		t.Fatalf("bob didn't report channel: %v", err)
 	}
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = net.Alice.WaitForNetworkChannelOpen(ctxt, bobChanPoint)
+	err = alice.WaitForNetworkChannelOpen(ctxt, bobChanPoint)
 	if err != nil {
 		t.Fatalf("bob didn't report channel: %v", err)
 	}

@@ -24,14 +24,16 @@ import (
 // transaction. In this scenario, the node that sent the outgoing HTLC should
 // extract the preimage from the sweep transaction, and finish settling the
 // HTLC backwards into the route.
-func testMultiHopReceiverChainClaim(net *lntest.NetworkHarness, t *harnessTest) {
+func testMultiHopReceiverChainClaim(net *lntest.NetworkHarness, t *harnessTest,
+	alice, bob *lntest.HarnessNode) {
+
 	ctxb := context.Background()
 
 	// First, we'll create a three hop network: Alice -> Bob -> Carol, with
 	// Carol refusing to actually settle or directly cancel any HTLC's
 	// self.
 	aliceChanPoint, bobChanPoint, carol := createThreeHopNetwork(
-		t, net, false,
+		t, net, alice, bob, false,
 	)
 
 	// Clean up carol's node when the test finishes.
@@ -62,7 +64,7 @@ func testMultiHopReceiverChainClaim(net *lntest.NetworkHarness, t *harnessTest) 
 	ctx, cancel := context.WithCancel(ctxb)
 	defer cancel()
 
-	alicePayStream, err := net.Alice.SendPayment(ctx)
+	alicePayStream, err := alice.SendPayment(ctx)
 	if err != nil {
 		t.Fatalf("unable to create payment stream for alice: %v", err)
 	}
@@ -76,7 +78,7 @@ func testMultiHopReceiverChainClaim(net *lntest.NetworkHarness, t *harnessTest) 
 	// At this point, all 3 nodes should now have an active channel with
 	// the created HTLC pending on all of them.
 	var predErr error
-	nodes := []*lntest.HarnessNode{net.Alice, net.Bob, carol}
+	nodes := []*lntest.HarnessNode{alice, bob, carol}
 	err = wait.Predicate(func() bool {
 		predErr = assertActiveHtlcs(nodes, payHash[:])
 		if predErr != nil {
@@ -94,7 +96,7 @@ func testMultiHopReceiverChainClaim(net *lntest.NetworkHarness, t *harnessTest) 
 	// hop logic.
 	waitForInvoiceAccepted(t, carol, payHash)
 
-	restartBob, err := net.SuspendNode(net.Bob)
+	restartBob, err := net.SuspendNode(bob)
 	if err != nil {
 		t.Fatalf("unable to suspend bob: %v", err)
 	}
@@ -231,7 +233,7 @@ func testMultiHopReceiverChainClaim(net *lntest.NetworkHarness, t *harnessTest) 
 	// Once the second-level transaction confirmed, Bob should have
 	// extracted the preimage from the chain, and sent it back to Alice,
 	// clearing the HTLC off-chain.
-	nodes = []*lntest.HarnessNode{net.Alice}
+	nodes = []*lntest.HarnessNode{alice}
 	err = wait.Predicate(func() bool {
 		predErr = assertNumActiveHtlcs(nodes, 0)
 		if predErr != nil {
@@ -303,7 +305,7 @@ func testMultiHopReceiverChainClaim(net *lntest.NetworkHarness, t *harnessTest) 
 	// succeeded.
 	ctxt, _ = context.WithTimeout(ctxt, defaultTimeout)
 	err = checkPaymentStatus(
-		ctxt, net.Alice, preimage, lnrpc.Payment_SUCCEEDED,
+		ctxt, alice, preimage, lnrpc.Payment_SUCCEEDED,
 	)
 	if err != nil {
 		t.Fatalf(err.Error())
@@ -312,5 +314,5 @@ func testMultiHopReceiverChainClaim(net *lntest.NetworkHarness, t *harnessTest) 
 	// We'll close out the channel between Alice and Bob, then shutdown
 	// carol to conclude the test.
 	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, net.Alice, aliceChanPoint, false)
+	closeChannelAndAssert(ctxt, t, net, alice, aliceChanPoint, false)
 }

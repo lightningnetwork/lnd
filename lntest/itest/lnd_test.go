@@ -268,6 +268,13 @@ func closeChannelAndAssert(ctx context.Context, t *harnessTest,
 	net *lntest.NetworkHarness, node *lntest.HarnessNode,
 	fundingChanPoint *lnrpc.ChannelPoint, force bool) *chainhash.Hash {
 
+	return closeChannelAndAssertType(ctx, t, net, node, fundingChanPoint, false, force)
+}
+
+func closeChannelAndAssertType(ctx context.Context, t *harnessTest,
+	net *lntest.NetworkHarness, node *lntest.HarnessNode,
+	fundingChanPoint *lnrpc.ChannelPoint, anchors, force bool) *chainhash.Hash {
+
 	// Fetch the current channel policy. If the channel is currently
 	// enabled, we will register for graph notifications before closing to
 	// assert that the node sends out a disabling update as a result of the
@@ -301,7 +308,9 @@ func closeChannelAndAssert(ctx context.Context, t *harnessTest,
 		)
 	}
 
-	return assertChannelClosed(ctx, t, net, node, fundingChanPoint, closeUpdates)
+	return assertChannelClosed(
+		ctx, t, net, node, fundingChanPoint, anchors, closeUpdates,
+	)
 }
 
 // closeReorgedChannelAndAssert attempts to close a channel identified by the
@@ -322,14 +331,16 @@ func closeReorgedChannelAndAssert(ctx context.Context, t *harnessTest,
 		t.Fatalf("unable to close channel: %v", err)
 	}
 
-	return assertChannelClosed(ctx, t, net, node, fundingChanPoint, closeUpdates)
+	return assertChannelClosed(
+		ctx, t, net, node, fundingChanPoint, false, closeUpdates,
+	)
 }
 
 // assertChannelClosed asserts that the channel is properly cleaned up after
 // initiating a cooperative or local close.
 func assertChannelClosed(ctx context.Context, t *harnessTest,
 	net *lntest.NetworkHarness, node *lntest.HarnessNode,
-	fundingChanPoint *lnrpc.ChannelPoint,
+	fundingChanPoint *lnrpc.ChannelPoint, anchors bool,
 	closeUpdates lnrpc.Lightning_CloseChannelClient) *chainhash.Hash {
 
 	txid, err := lnd.GetChanPointFundingTxid(fundingChanPoint)
@@ -381,8 +392,13 @@ func assertChannelClosed(ctx context.Context, t *harnessTest,
 
 	// We'll now, generate a single block, wait for the final close status
 	// update, then ensure that the closing transaction was included in the
-	// block.
-	block := mineBlocks(t, net, 1, 1)[0]
+	// block. If there are anchors, we also expect an anchor sweep.
+	expectedTxes := 1
+	if anchors {
+		expectedTxes = 2
+	}
+
+	block := mineBlocks(t, net, 1, expectedTxes)[0]
 
 	closingTxid, err := net.WaitForChannelClose(ctx, closeUpdates)
 	if err != nil {

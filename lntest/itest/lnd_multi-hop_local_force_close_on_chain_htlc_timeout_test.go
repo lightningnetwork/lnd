@@ -20,14 +20,16 @@ import (
 // that's timed out. At this point, the node should timeout the HTLC using the
 // HTLC timeout transaction, then cancel it backwards as normal.
 func testMultiHopLocalForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
-	t *harnessTest) {
+	t *harnessTest, alice, bob *lntest.HarnessNode) {
+
 	ctxb := context.Background()
 
 	// First, we'll create a three hop network: Alice -> Bob -> Carol, with
 	// Carol refusing to actually settle or directly cancel any HTLC's
 	// self.
-	aliceChanPoint, bobChanPoint, carol :=
-		createThreeHopNetwork(t, net, true)
+	aliceChanPoint, bobChanPoint, carol := createThreeHopNetwork(
+		t, net, alice, bob, true,
+	)
 
 	// Clean up carol's node when the test finishes.
 	defer shutdownAndAssert(net, t, carol)
@@ -42,7 +44,7 @@ func testMultiHopLocalForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 	ctx, cancel := context.WithCancel(ctxb)
 	defer cancel()
 
-	alicePayStream, err := net.Alice.SendPayment(ctx)
+	alicePayStream, err := alice.SendPayment(ctx)
 	if err != nil {
 		t.Fatalf("unable to create payment stream for alice: %v", err)
 	}
@@ -63,7 +65,7 @@ func testMultiHopLocalForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 	// Once the HTLC has cleared, all channels in our mini network should
 	// have the it locked in.
 	var predErr error
-	nodes := []*lntest.HarnessNode{net.Alice, net.Bob, carol}
+	nodes := []*lntest.HarnessNode{alice, bob, carol}
 	err = wait.Predicate(func() bool {
 		predErr = assertActiveHtlcs(nodes, payHash)
 		if predErr != nil {
@@ -80,14 +82,14 @@ func testMultiHopLocalForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 	// force close the Bob -> Carol channel. This should trigger contract
 	// resolution mode for both of them.
 	ctxt, _ := context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, net.Bob, bobChanPoint, true)
+	closeChannelAndAssert(ctxt, t, net, bob, bobChanPoint, true)
 
 	// At this point, Bob should have a pending force close channel as he
 	// just went to chain.
 	pendingChansRequest := &lnrpc.PendingChannelsRequest{}
 	err = wait.Predicate(func() bool {
 		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-		pendingChanResp, err := net.Bob.PendingChannels(ctxt,
+		pendingChanResp, err := bob.PendingChannels(ctxt,
 			pendingChansRequest)
 		if err != nil {
 			predErr = fmt.Errorf("unable to query for pending "+
@@ -136,7 +138,7 @@ func testMultiHopLocalForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 	// that's now in stage one.
 	err = wait.Predicate(func() bool {
 		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-		pendingChanResp, err := net.Bob.PendingChannels(
+		pendingChanResp, err := bob.PendingChannels(
 			ctxt, pendingChansRequest,
 		)
 		if err != nil {
@@ -183,7 +185,7 @@ func testMultiHopLocalForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 
 	// With the second layer timeout transaction confirmed, Bob should have
 	// canceled backwards the HTLC that carol sent.
-	nodes = []*lntest.HarnessNode{net.Alice}
+	nodes = []*lntest.HarnessNode{alice}
 	err = wait.Predicate(func() bool {
 		predErr = assertNumActiveHtlcs(nodes, 0)
 		if predErr != nil {
@@ -199,7 +201,7 @@ func testMultiHopLocalForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 	// second stage.
 	err = wait.Predicate(func() bool {
 		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-		pendingChanResp, err := net.Bob.PendingChannels(
+		pendingChanResp, err := bob.PendingChannels(
 			ctxt, pendingChansRequest,
 		)
 		if err != nil {
@@ -253,7 +255,7 @@ func testMultiHopLocalForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 	// close.
 	err = wait.Predicate(func() bool {
 		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-		pendingChanResp, err := net.Bob.PendingChannels(
+		pendingChanResp, err := bob.PendingChannels(
 			ctxt, pendingChansRequest,
 		)
 		if err != nil {
@@ -274,5 +276,5 @@ func testMultiHopLocalForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 	}
 
 	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, net.Alice, aliceChanPoint, false)
+	closeChannelAndAssert(ctxt, t, net, alice, aliceChanPoint, false)
 }

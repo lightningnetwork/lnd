@@ -22,14 +22,16 @@ import (
 // we found out the preimage via the witness beacon, we properly settle the
 // HTLC directly on-chain using the preimage in order to ensure that we don't
 // lose any funds.
-func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest) {
+func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest,
+	alice, bob *lntest.HarnessNode) {
+
 	ctxb := context.Background()
 
 	// First, we'll create a three hop network: Alice -> Bob -> Carol, with
 	// Carol refusing to actually settle or directly cancel any HTLC's
 	// self.
 	aliceChanPoint, bobChanPoint, carol := createThreeHopNetwork(
-		t, net, false,
+		t, net, alice, bob, false,
 	)
 
 	// Clean up carol's node when the test finishes.
@@ -59,7 +61,7 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 	ctx, cancel := context.WithCancel(ctxb)
 	defer cancel()
 
-	alicePayStream, err := net.Alice.SendPayment(ctx)
+	alicePayStream, err := alice.SendPayment(ctx)
 	if err != nil {
 		t.Fatalf("unable to create payment stream for alice: %v", err)
 	}
@@ -73,7 +75,7 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 	// At this point, all 3 nodes should now have an active channel with
 	// the created HTLC pending on all of them.
 	var predErr error
-	nodes := []*lntest.HarnessNode{net.Alice, net.Bob, carol}
+	nodes := []*lntest.HarnessNode{alice, bob, carol}
 	err = wait.Predicate(func() bool {
 		predErr = assertActiveHtlcs(nodes, payHash[:])
 		if predErr != nil {
@@ -95,12 +97,12 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 	// immediately force close the channel by broadcast her commitment
 	// transaction.
 	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	aliceForceClose := closeChannelAndAssert(ctxt, t, net, net.Alice,
+	aliceForceClose := closeChannelAndAssert(ctxt, t, net, alice,
 		aliceChanPoint, true)
 
 	// Wait for the channel to be marked pending force close.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = waitForChannelPendingForceClose(ctxt, net.Alice, aliceChanPoint)
+	err = waitForChannelPendingForceClose(ctxt, alice, aliceChanPoint)
 	if err != nil {
 		t.Fatalf("channel not pending force close: %v", err)
 	}
@@ -119,7 +121,7 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 	}
 
 	// Suspend bob, so Carol is forced to go on chain.
-	restartBob, err := net.SuspendNode(net.Bob)
+	restartBob, err := net.SuspendNode(bob)
 	if err != nil {
 		t.Fatalf("unable to suspend bob: %v", err)
 	}
@@ -256,7 +258,7 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 	pendingChansRequest := &lnrpc.PendingChannelsRequest{}
 	err = wait.Predicate(func() bool {
 		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-		pendingChanResp, err := net.Bob.PendingChannels(
+		pendingChanResp, err := bob.PendingChannels(
 			ctxt, pendingChansRequest,
 		)
 		if err != nil {
@@ -338,7 +340,7 @@ func testMultiHopHtlcRemoteChainClaim(net *lntest.NetworkHarness, t *harnessTest
 	// succeeded.
 	ctxt, _ = context.WithTimeout(ctxt, defaultTimeout)
 	err = checkPaymentStatus(
-		ctxt, net.Alice, preimage, lnrpc.Payment_SUCCEEDED,
+		ctxt, alice, preimage, lnrpc.Payment_SUCCEEDED,
 	)
 	if err != nil {
 		t.Fatalf(err.Error())

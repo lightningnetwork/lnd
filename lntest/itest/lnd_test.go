@@ -2983,6 +2983,25 @@ func padCLTV(cltv uint32) uint32 {
 //
 // TODO(roasbeef): also add an unsettled HTLC before force closing.
 func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
+	t.t.Run("channelForceClosure", func(t *testing.T) {
+		ht := newHarnessTest(t, net)
+
+		// Since we'd like to test failure scenarios with outstanding
+		// htlcs, we'll introduce another node into our test network:
+		// Carol.
+		carol, err := net.NewNode("Carol", []string{"--hodl.exit-settle"})
+		if err != nil {
+			t.Fatalf("unable to create new nodes: %v", err)
+		}
+		defer shutdownAndAssert(net, ht, carol)
+
+		channelForceClosureTest(net, ht, net.Alice, carol)
+	})
+}
+
+func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
+	alice, carol *lntest.HarnessNode) {
+
 	ctxb := context.Background()
 
 	const (
@@ -2996,18 +3015,10 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 	// instead, or make delay a param
 	defaultCLTV := uint32(lnd.DefaultBitcoinTimeLockDelta)
 
-	// Since we'd like to test failure scenarios with outstanding htlcs,
-	// we'll introduce another node into our test network: Carol.
-	carol, err := net.NewNode("Carol", []string{"--hodl.exit-settle"})
-	if err != nil {
-		t.Fatalf("unable to create new nodes: %v", err)
-	}
-	defer shutdownAndAssert(net, t, carol)
-
 	// We must let Alice have an open channel before she can send a node
 	// announcement, so we open a channel with Carol,
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	if err := net.ConnectNodes(ctxt, net.Alice, carol); err != nil {
+	if err := net.ConnectNodes(ctxt, alice, carol); err != nil {
 		t.Fatalf("unable to connect alice to carol: %v", err)
 	}
 
@@ -3025,7 +3036,7 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 
 	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
 	chanPoint := openChannelAndAssert(
-		ctxt, t, net, net.Alice, carol,
+		ctxt, t, net, alice, carol,
 		lntest.OpenChannelParams{
 			Amt:     chanAmt,
 			PushAmt: pushAmt,
@@ -3035,7 +3046,7 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 	// Wait for Alice and Carol to receive the channel edge from the
 	// funding manager.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = net.Alice.WaitForNetworkChannelOpen(ctxt, chanPoint)
+	err = alice.WaitForNetworkChannelOpen(ctxt, chanPoint)
 	if err != nil {
 		t.Fatalf("alice didn't see the alice->carol channel before "+
 			"timeout: %v", err)
@@ -3052,7 +3063,7 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 	ctx, cancel := context.WithCancel(ctxb)
 	defer cancel()
 
-	alicePayStream, err := net.Alice.SendPayment(ctx)
+	alicePayStream, err := alice.SendPayment(ctx)
 	if err != nil {
 		t.Fatalf("unable to create payment stream for alice: %v", err)
 	}
@@ -3072,7 +3083,7 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Once the HTLC has cleared, all the nodes n our mini network should
 	// show that the HTLC has been locked in.
-	nodes := []*lntest.HarnessNode{net.Alice, carol}
+	nodes := []*lntest.HarnessNode{alice, carol}
 	var predErr error
 	err = wait.Predicate(func() bool {
 		predErr = assertNumActiveHtlcs(nodes, numInvoices)
@@ -3102,7 +3113,7 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 	)
 
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	aliceChan, err := getChanInfo(ctxt, net.Alice)
+	aliceChan, err := getChanInfo(ctxt, alice)
 	if err != nil {
 		t.Fatalf("unable to get alice's channel info: %v", err)
 	}
@@ -3115,7 +3126,7 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 	// the commitment transaction was immediately broadcast in order to
 	// fulfill the force closure request.
 	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	_, closingTxID, err := net.CloseChannel(ctxt, net.Alice, chanPoint, true)
+	_, closingTxID, err := net.CloseChannel(ctxt, alice, chanPoint, true)
 	if err != nil {
 		t.Fatalf("unable to execute force channel closure: %v", err)
 	}
@@ -3124,7 +3135,7 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 	// PendingChannels RPC under the waiting close section.
 	pendingChansRequest := &lnrpc.PendingChannelsRequest{}
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	pendingChanResp, err := net.Alice.PendingChannels(ctxt, pendingChansRequest)
+	pendingChanResp, err := alice.PendingChannels(ctxt, pendingChansRequest)
 	if err != nil {
 		t.Fatalf("unable to query for pending channels: %v", err)
 	}
@@ -3160,7 +3171,7 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 	// when the system comes back on line. This restart tests state
 	// persistence at the beginning of the process, when the commitment
 	// transaction has been broadcast but not yet confirmed in a block.
-	if err := net.RestartNode(net.Alice, nil); err != nil {
+	if err := net.RestartNode(alice, nil); err != nil {
 		t.Fatalf("Node restart failed: %v", err)
 	}
 
@@ -3179,7 +3190,7 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 	// marked as force closed.
 	err = wait.Predicate(func() bool {
 		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-		pendingChanResp, err := net.Alice.PendingChannels(
+		pendingChanResp, err := alice.PendingChannels(
 			ctxt, pendingChansRequest,
 		)
 		if err != nil {
@@ -3232,7 +3243,7 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 	// force close commitment transaction have been persisted once the
 	// transaction has been confirmed, but before the outputs are spendable
 	// (the "kindergarten" bucket.)
-	if err := net.RestartNode(net.Alice, nil); err != nil {
+	if err := net.RestartNode(alice, nil); err != nil {
 		t.Fatalf("Node restart failed: %v", err)
 	}
 
@@ -3255,7 +3266,7 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 	// The following restart checks to ensure that outputs in the
 	// kindergarten bucket are persisted while waiting for the required
 	// number of confirmations to be reported.
-	if err := net.RestartNode(net.Alice, nil); err != nil {
+	if err := net.RestartNode(alice, nil); err != nil {
 		t.Fatalf("Node restart failed: %v", err)
 	}
 
@@ -3263,7 +3274,7 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 	// channels with her funds still in limbo.
 	err = wait.NoError(func() error {
 		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-		pendingChanResp, err := net.Alice.PendingChannels(
+		pendingChanResp, err := alice.PendingChannels(
 			ctxt, pendingChansRequest,
 		)
 		if err != nil {
@@ -3341,7 +3352,7 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Restart Alice to ensure that she resumes watching the finalized
 	// commitment sweep txid.
-	if err := net.RestartNode(net.Alice, nil); err != nil {
+	if err := net.RestartNode(alice, nil); err != nil {
 		t.Fatalf("Node restart failed: %v", err)
 	}
 
@@ -3369,7 +3380,7 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 		// Now that the commit output has been fully swept, check to see
 		// that the channel remains open for the pending htlc outputs.
 		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-		pendingChanResp, err := net.Alice.PendingChannels(
+		pendingChanResp, err := alice.PendingChannels(
 			ctxt, pendingChansRequest,
 		)
 		if err != nil {
@@ -3432,7 +3443,7 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 	// We now restart Alice, to ensure that she will broadcast the presigned
 	// htlc timeout txns after the delay expires after experiencing a while
 	// waiting for the htlc outputs to incubate.
-	if err := net.RestartNode(net.Alice, nil); err != nil {
+	if err := net.RestartNode(alice, nil); err != nil {
 		t.Fatalf("Node restart failed: %v", err)
 	}
 
@@ -3440,7 +3451,7 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 	// channels with one pending HTLC.
 	err = wait.NoError(func() error {
 		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-		pendingChanResp, err := net.Alice.PendingChannels(
+		pendingChanResp, err := alice.PendingChannels(
 			ctxt, pendingChansRequest,
 		)
 		if err != nil {
@@ -3533,7 +3544,7 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 	// With the htlc timeout txns still in the mempool, we restart Alice to
 	// verify that she can resume watching the htlc txns she broadcasted
 	// before crashing.
-	if err := net.RestartNode(net.Alice, nil); err != nil {
+	if err := net.RestartNode(alice, nil); err != nil {
 		t.Fatalf("Node restart failed: %v", err)
 	}
 
@@ -3547,7 +3558,7 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 	// Alice is restarted here to ensure that she promptly moved the crib
 	// outputs to the kindergarten bucket after the htlc timeout txns were
 	// confirmed.
-	if err := net.RestartNode(net.Alice, nil); err != nil {
+	if err := net.RestartNode(alice, nil); err != nil {
 		t.Fatalf("Node restart failed: %v", err)
 	}
 
@@ -3559,7 +3570,7 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Restart Alice to ensure that she can recover from a failure before
 	// having graduated the htlc outputs in the kindergarten bucket.
-	if err := net.RestartNode(net.Alice, nil); err != nil {
+	if err := net.RestartNode(alice, nil); err != nil {
 		t.Fatalf("Node restart failed: %v", err)
 	}
 
@@ -3568,7 +3579,7 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 	// as pending force closed.
 	err = wait.Predicate(func() bool {
 		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-		pendingChanResp, err = net.Alice.PendingChannels(
+		pendingChanResp, err = alice.PendingChannels(
 			ctxt, pendingChansRequest,
 		)
 		if err != nil {
@@ -3660,7 +3671,7 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 	// The following restart checks to ensure that the nursery store is
 	// storing the txid of the previously broadcast htlc sweep txn, and that
 	// it begins watching that txid after restarting.
-	if err := net.RestartNode(net.Alice, nil); err != nil {
+	if err := net.RestartNode(alice, nil); err != nil {
 		t.Fatalf("Node restart failed: %v", err)
 	}
 
@@ -3669,7 +3680,7 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 	// as pending force closed.
 	err = wait.Predicate(func() bool {
 		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-		pendingChanResp, err := net.Alice.PendingChannels(
+		pendingChanResp, err := alice.PendingChannels(
 			ctxt, pendingChansRequest,
 		)
 		if err != nil {
@@ -3718,7 +3729,7 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 	// up within the pending channels RPC.
 	err = wait.Predicate(func() bool {
 		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-		pendingChanResp, err := net.Alice.PendingChannels(
+		pendingChanResp, err := alice.PendingChannels(
 			ctxt, pendingChansRequest,
 		)
 		if err != nil {

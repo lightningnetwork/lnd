@@ -151,12 +151,21 @@ func testMultiHopHtlcLocalTimeout(net *lntest.NetworkHarness, t *harnessTest,
 	// We'll mine the remaining blocks in order to generate the sweep
 	// transaction of Bob's commitment output.
 	mineBlocks(t, net, defaultCSV, 1)
-	assertSpendingTxInMempool(
-		t, net.Miner.Node, minerMempoolTimeout, wire.OutPoint{
-			Hash:  *closeTxid,
-			Index: 1,
-		},
-	)
+
+	// Check that the sweep spends from the mined commitment.
+	sweepHash, err := waitForTxInMempool(net.Miner.Node, minerMempoolTimeout)
+	if err != nil {
+		t.Fatalf("unable to find bob's sweep tx: %v", err)
+	}
+	sweepTx, err := net.Miner.Node.GetRawTransaction(sweepHash)
+	if err != nil {
+		t.Fatalf("unable to get txn: %v", err)
+	}
+	// Since we cannot know for sure which index is swept, check only txid.
+	if sweepTx.MsgTx().TxIn[0].PreviousOutPoint.Hash != *closeTxid {
+		t.Fatalf("sweep transaction not spending close tx: %v",
+			spew.Sdump(sweepTx))
+	}
 
 	// Bob's pending channel report should show that he has a commitment
 	// output awaiting sweeping, and also that there's an outgoing HTLC

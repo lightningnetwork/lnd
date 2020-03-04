@@ -2254,6 +2254,10 @@ func (r *rpcServer) AbandonChannel(ctx context.Context,
 		return nil, err
 	}
 
+	// Finally, notify the backup listeners that the channel can be removed
+	// from any channel backups.
+	r.server.channelNotifier.NotifyClosedChannelEvent(*chanPoint)
+
 	return &lnrpc.AbandonChannelResponse{}, nil
 }
 

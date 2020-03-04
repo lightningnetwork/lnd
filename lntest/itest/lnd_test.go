@@ -13303,6 +13303,15 @@ func testAbandonChannel(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to find channel")
 	}
 
+	// To make sure the channel is removed from the backup file as well when
+	// being abandoned, grab a backup snapshot so we can compare it with the
+	// later state.
+	bkupBefore, err := ioutil.ReadFile(net.Alice.ChanBackupPath())
+	if err != nil {
+		t.Fatalf("could not get channel backup before abandoning "+
+			"channel: %v", err)
+	}
+
 	// Send request to abandon channel.
 	abandonChannelRequest := &lnrpc.AbandonChannelRequest{
 		ChannelPoint: chanPoint,
@@ -13371,6 +13380,16 @@ func testAbandonChannel(net *lntest.NetworkHarness, t *harnessTest) {
 	if !strings.Contains(err.Error(), "marked as zombie") {
 		t.Fatalf("channel shouldn't be found in the channel " +
 			"graph!")
+	}
+
+	// Make sure the channel is no longer in the channel backup list.
+	bkupAfter, err := ioutil.ReadFile(net.Alice.ChanBackupPath())
+	if err != nil {
+		t.Fatalf("could not get channel backup before abandoning "+
+			"channel: %v", err)
+	}
+	if len(bkupAfter) >= len(bkupBefore) {
+		t.Fatalf("channel wasn't removed from channel backup file")
 	}
 
 	// Calling AbandonChannel again, should result in no new errors, as the

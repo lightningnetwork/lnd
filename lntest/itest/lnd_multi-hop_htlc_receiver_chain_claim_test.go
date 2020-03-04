@@ -20,9 +20,10 @@ import (
 
 // testMultiHopReceiverChainClaim tests that in the multi-hop setting, if the
 // receiver of an HTLC knows the preimage, but wasn't able to settle the HTLC
-// off-chain, then it goes on chain to claim the HTLC. In this scenario, the
-// node that sent the outgoing HTLC should extract the preimage from the sweep
-// transaction, and finish settling the HTLC backwards into the route.
+// off-chain, then it goes on chain to claim the HTLC uing the HTLC success
+// transaction. In this scenario, the node that sent the outgoing HTLC should
+// extract the preimage from the sweep transaction, and finish settling the
+// HTLC backwards into the route.
 func testMultiHopReceiverChainClaim(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxb := context.Background()
 

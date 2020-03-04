@@ -18,9 +18,9 @@ import (
 
 // testMultiHopHtlcLocalTimeout tests that in a multi-hop HTLC scenario, if the
 // outgoing HTLC is about to time out, then we'll go to chain in order to claim
-// it. Any dust HTLC's should be immediately canceled backwards. Once the
-// timeout has been reached, then we should sweep it on-chain, and cancel the
-// HTLC backwards.
+// it using the HTLC timeout transaction. Any dust HTLC's should be immediately
+// canceled backwards. Once the timeout has been reached, then we should sweep
+// it on-chain, and cancel the HTLC backwards.
 func testMultiHopHtlcLocalTimeout(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxb := context.Background()
 

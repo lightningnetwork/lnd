@@ -16,9 +16,9 @@ import (
 
 // testMultiHopRemoteForceCloseOnChainHtlcTimeout tests that if we extend a
 // multi-hop HTLC, and the final destination of the HTLC force closes the
-// channel, then we properly timeout the HTLC on *their* commitment transaction
-// once the timeout has expired. Once we sweep the transaction, we should also
-// cancel back the initial HTLC.
+// channel, then we properly timeout the HTLC directly on *their* commitment
+// transaction once the timeout has expired. Once we sweep the transaction, we
+// should also cancel back the initial HTLC.
 func testMultiHopRemoteForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 	t *harnessTest) {
 	ctxb := context.Background()

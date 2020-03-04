@@ -18,9 +18,9 @@ import (
 )
 
 // testMultiHopHtlcLocalChainClaim tests that in a multi-hop HTLC scenario, if
-// we're forced to go to chain with an incoming HTLC, then when we find out the
-// preimage via the witness beacon, we properly settle the HTLC on-chain in
-// order to ensure we don't lose any funds.
+// we force close a channel with an incoming HTLC, and later find out the
+// preimage via the witness beacon, we properly settle the HTLC on-chain using
+// the HTLC success transaction in order to ensure we don't lose any funds.
 func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxb := context.Background()
 

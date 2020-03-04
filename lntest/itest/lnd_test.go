@@ -600,22 +600,6 @@ func shutdownAndAssert(net *lntest.NetworkHarness, t *harnessTest,
 	}
 }
 
-// calcStaticFee calculates appropriate fees for commitment transactions.  This
-// function provides a simple way to allow test balance assertions to take fee
-// calculations into account.
-//
-// TODO(bvu): Refactor when dynamic fee estimation is added.
-// TODO(conner) remove code duplication
-func calcStaticFee(numHTLCs int) btcutil.Amount {
-	const (
-		commitWeight = btcutil.Amount(724)
-		htlcWeight   = 172
-		feePerKw     = btcutil.Amount(50 * 1000 / 4)
-	)
-	return feePerKw * (commitWeight +
-		btcutil.Amount(htlcWeight*numHTLCs)) / 1000
-}
-
 // completePaymentRequests sends payments from a lightning node to complete all
 // payment requests. If the awaitResponse parameter is true, this function
 // does not return until all payments successfully complete without errors.
@@ -998,6 +982,71 @@ func (c commitType) Args() []string {
 	return nil
 }
 
+// calcStaticFee calculates appropriate fees for commitment transactions.  This
+// function provides a simple way to allow test balance assertions to take fee
+// calculations into account.
+//
+// TODO(bvu): Refactor when dynamic fee estimation is added.
+// TODO(conner) remove code duplication
+func (c commitType) calcStaticFee(numHTLCs int) btcutil.Amount {
+	const (
+		htlcWeight = input.HTLCWeight
+		feePerKw   = btcutil.Amount(50 * 1000 / 4)
+	)
+
+	commitWeight := btcutil.Amount(input.CommitWeight)
+	anchors := btcutil.Amount(0)
+
+	// The anchor commitment type is slightly heavier, and we must also add
+	// the value of the two anchors to the resulting fee the initiator
+	// pays.
+	if c == commitTypeAnchors {
+		commitWeight = btcutil.Amount(input.AnchorCommitWeight)
+		anchors = 2 * btcutil.Amount(330)
+	}
+
+	return feePerKw*(commitWeight+
+		btcutil.Amount(htlcWeight*numHTLCs))/1000 + anchors
+}
+
+// channelCommitType retrieves the active channel commitment type for the given
+// chan point.
+func channelCommitType(node *lntest.HarnessNode,
+	chanPoint *lnrpc.ChannelPoint) (commitType, error) {
+
+	ctxb := context.Background()
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
+
+	req := &lnrpc.ListChannelsRequest{}
+	channels, err := node.ListChannels(ctxt, req)
+	if err != nil {
+		return 0, fmt.Errorf("listchannels failed: %v", err)
+	}
+
+	for _, c := range channels.Channels {
+		if c.ChannelPoint == txStr(chanPoint) {
+
+			switch c.CommitmentType {
+			// If the anchor output size is non-zero, we are
+			// dealing with the anchor type.
+			case lnrpc.CommitmentType_ANCHORS:
+				return commitTypeAnchors, nil
+
+				// StaticRemoteKey means it is tweakless,
+			case lnrpc.CommitmentType_STATIC_REMOTE_KEY:
+				return commitTypeTweakless, nil
+
+			// Otherwise legacy.
+			default:
+				return commitTypeLegacy, nil
+			}
+		}
+
+	}
+
+	return 0, fmt.Errorf("channel point %v not found", chanPoint)
+}
+
 // basicChannelFundingTest is a sub-test of the main testBasicChannelFunding
 // test. Given two nodes: Alice and Bob, it'll assert proper channel creation,
 // then return a function closure that should be called to assert proper
@@ -1038,6 +1087,12 @@ func basicChannelFundingTest(t *harnessTest, net *lntest.NetworkHarness,
 			"channel: %v", err)
 	}
 
+	cType, err := channelCommitType(alice, chanPoint)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("unable to get channel "+
+			"type: %v", err)
+	}
+
 	// With the channel open, ensure that the amount specified above has
 	// properly been pushed to Bob.
 	balReq := &lnrpc.ChannelBalanceRequest{}
@@ -1055,10 +1110,10 @@ func basicChannelFundingTest(t *harnessTest, net *lntest.NetworkHarness,
 	}
 
 	aliceBalance := btcutil.Amount(aliceBal.Balance)
-	if aliceBalance != chanAmt-pushAmt-calcStaticFee(0) {
+	if aliceBalance != chanAmt-pushAmt-cType.calcStaticFee(0) {
 		return nil, nil, nil, fmt.Errorf("alice's balance is "+
 			"incorrect: expected %v got %v",
-			chanAmt-pushAmt-calcStaticFee(0), aliceBalance)
+			chanAmt-pushAmt-cType.calcStaticFee(0), aliceBalance)
 	}
 
 	bobBalance := btcutil.Amount(bobBal.Balance)
@@ -1274,6 +1329,11 @@ func testUnconfirmedChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("error while waiting for channel open: %v", err)
 	}
 
+	cType, err := channelCommitType(net.Alice, chanPoint)
+	if err != nil {
+		t.Fatalf("unable to get channel type: %v", err)
+	}
+
 	// With the channel open, we'll check the balances on each side of the
 	// channel as a sanity check to ensure things worked out as intended.
 	balReq := &lnrpc.ChannelBalanceRequest{}
@@ -1287,9 +1347,9 @@ func testUnconfirmedChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 	if err != nil {
 		t.Fatalf("unable to get alice's balance: %v", err)
 	}
-	if carolBal.Balance != int64(chanAmt-pushAmt-calcStaticFee(0)) {
+	if carolBal.Balance != int64(chanAmt-pushAmt-cType.calcStaticFee(0)) {
 		t.Fatalf("carol's balance is incorrect: expected %v got %v",
-			chanAmt-pushAmt-calcStaticFee(0), carolBal)
+			chanAmt-pushAmt-cType.calcStaticFee(0), carolBal)
 	}
 	if aliceBal.Balance != int64(pushAmt) {
 		t.Fatalf("alice's balance is incorrect: expected %v got %v",
@@ -2707,9 +2767,14 @@ func testChannelBalance(net *lntest.NetworkHarness, t *harnessTest) {
 			"timeout: %v", err)
 	}
 
+	cType, err := channelCommitType(net.Alice, chanPoint)
+	if err != nil {
+		t.Fatalf("unable to get channel type: %v", err)
+	}
+
 	// As this is a single funder channel, Alice's balance should be
 	// exactly 0.5 BTC since now state transitions have taken place yet.
-	checkChannelBalance(net.Alice, amount-calcStaticFee(0))
+	checkChannelBalance(net.Alice, amount-cType.calcStaticFee(0))
 
 	// Ensure Bob currently has no available balance within the channel.
 	checkChannelBalance(net.Bob, 0)
@@ -9139,7 +9204,12 @@ func testHtlcErrorPropagation(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("channel not seen by alice before timeout: %v", err)
 	}
 
-	commitFee := calcStaticFee(0)
+	cType, err := channelCommitType(net.Alice, chanPointAlice)
+	if err != nil {
+		t.Fatalf("unable to get channel type: %v", err)
+	}
+
+	commitFee := cType.calcStaticFee(0)
 	assertBaseBalance := func() {
 		balReq := &lnrpc.ChannelBalanceRequest{}
 		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)

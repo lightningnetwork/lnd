@@ -223,6 +223,10 @@ func (c *channelCloser) initChanShutdown() (*lnwire.Shutdown, error) {
 			"close: %v", c.chanPoint, err)
 	}
 
+	// Before returning the shutdown message, we'll unregister the channel
+	// to ensure that it isn't seen as usable within the system.
+	c.cfg.unregisterChannel(c.cid)
+
 	// Before continuing, mark the channel as cooperatively closed with a
 	// nil txn. Even though we haven't negotiated the final txn, this
 	// guarantees that our listchannels rpc will be externally consistent,
@@ -232,12 +236,6 @@ func (c *channelCloser) initChanShutdown() (*lnwire.Shutdown, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	// Before returning the shutdown message, we'll unregister the channel
-	// to ensure that it isn't seen as usable within the system.
-	//
-	// TODO(roasbeef): fail if err?
-	c.cfg.unregisterChannel(c.cid)
 
 	peerLog.Infof("ChannelPoint(%v): sending shutdown message", c.chanPoint)
 

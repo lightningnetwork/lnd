@@ -24,7 +24,7 @@ func testMultiHopHtlcClaims(net *lntest.NetworkHarness, t *harnessTest) {
 	type testCase struct {
 		name string
 		test func(net *lntest.NetworkHarness, t *harnessTest, alice,
-			bob *lntest.HarnessNode)
+			bob *lntest.HarnessNode, c commitType)
 	}
 
 	subTests := []testCase{
@@ -68,33 +68,48 @@ func testMultiHopHtlcClaims(net *lntest.NetworkHarness, t *harnessTest) {
 		},
 	}
 
-	args := []string{}
-	alice, err := net.NewNode("Alice", args)
-	if err != nil {
-		t.Fatalf("unable to create new node: %v", err)
-	}
-	defer shutdownAndAssert(net, t, alice)
-
-	bob, err := net.NewNode("Bob", args)
-	if err != nil {
-		t.Fatalf("unable to create new node: %v", err)
-	}
-	defer shutdownAndAssert(net, t, bob)
-
-	ctxb := context.Background()
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	if err := net.ConnectNodes(ctxt, alice, bob); err != nil {
-		t.Fatalf("unable to connect alice to bob: %v", err)
+	allTypes := []commitType{
+		commitTypeLegacy,
+		commitTypeTweakless,
 	}
 
-	for _, subTest := range subTests {
+	for _, commitType := range allTypes {
+		testName := fmt.Sprintf("committype=%v", commitType.String())
 
-		subTest := subTest
-
-		success := t.t.Run(subTest.name, func(t *testing.T) {
+		success := t.t.Run(testName, func(t *testing.T) {
 			ht := newHarnessTest(t, net)
 
-			subTest.test(net, ht, alice, bob)
+			args := commitType.Args()
+			alice, err := net.NewNode("Alice", args)
+			if err != nil {
+				t.Fatalf("unable to create new node: %v", err)
+			}
+			defer shutdownAndAssert(net, ht, alice)
+
+			bob, err := net.NewNode("Bob", args)
+			if err != nil {
+				t.Fatalf("unable to create new node: %v", err)
+			}
+			defer shutdownAndAssert(net, ht, bob)
+
+			ctxb := context.Background()
+			ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
+			if err := net.ConnectNodes(ctxt, alice, bob); err != nil {
+				t.Fatalf("unable to connect alice to bob: %v", err)
+			}
+
+			for _, subTest := range subTests {
+				subTest := subTest
+
+				success := ht.t.Run(subTest.name, func(t *testing.T) {
+					ht := newHarnessTest(t, net)
+
+					subTest.test(net, ht, alice, bob, commitType)
+				})
+				if !success {
+					return
+				}
+			}
 		})
 		if !success {
 			return
@@ -107,7 +122,7 @@ func testMultiHopHtlcClaims(net *lntest.NetworkHarness, t *harnessTest) {
 // preimage via the witness beacon, we properly settle the HTLC on-chain using
 // the HTLC success transaction in order to ensure we don't lose any funds.
 func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest,
-	alice, bob *lntest.HarnessNode) {
+	alice, bob *lntest.HarnessNode, c commitType) {
 
 	ctxb := context.Background()
 
@@ -115,7 +130,7 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest,
 	// Carol refusing to actually settle or directly cancel any HTLC's
 	// self.
 	aliceChanPoint, bobChanPoint, carol := createThreeHopNetwork(
-		t, net, alice, bob, false,
+		t, net, alice, bob, false, c,
 	)
 
 	// Clean up carol's node when the test finishes.
@@ -587,8 +602,8 @@ func checkPaymentStatus(ctxt context.Context, node *lntest.HarnessNode,
 }
 
 func createThreeHopNetwork(t *harnessTest, net *lntest.NetworkHarness,
-	alice, bob *lntest.HarnessNode, carolHodl bool) (*lnrpc.ChannelPoint,
-	*lnrpc.ChannelPoint, *lntest.HarnessNode) {
+	alice, bob *lntest.HarnessNode, carolHodl bool, c commitType) (
+	*lnrpc.ChannelPoint, *lnrpc.ChannelPoint, *lntest.HarnessNode) {
 
 	ctxb := context.Background()
 
@@ -636,7 +651,7 @@ func createThreeHopNetwork(t *harnessTest, net *lntest.NetworkHarness,
 	// Next, we'll create a new node "carol" and have Bob connect to her. If
 	// the carolHodl flag is set, we'll make carol always hold onto the
 	// HTLC, this way it'll force Bob to go to chain to resolve the HTLC.
-	carolFlags := []string{}
+	carolFlags := c.Args()
 	if carolHodl {
 		carolFlags = append(carolFlags, "--hodl.exit-settle")
 	}

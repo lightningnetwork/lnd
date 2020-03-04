@@ -97,11 +97,11 @@ func TestTxWeightEstimator(t *testing.T) {
 			numP2SHOutputs: 1,
 		},
 		{
-			numNestedP2WKHInputs: 1,
+			numNestedP2WKHInputs: 253,
 			numP2WKHOutputs:      1,
 		},
 		{
-			numNestedP2WSHInputs: 1,
+			numNestedP2WSHInputs: 253,
 			numP2WKHOutputs:      1,
 		},
 	}

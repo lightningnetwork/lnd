@@ -1,4 +1,4 @@
-package lnwallet_test
+package input_test
 
 import (
 	"testing"

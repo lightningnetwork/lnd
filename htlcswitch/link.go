@@ -627,7 +627,7 @@ func (l *channelLink) syncChanStates() error {
 
 	if err := l.cfg.Peer.SendMessage(true, localChanSyncMsg); err != nil {
 		return fmt.Errorf("Unable to send chan sync message for "+
-			"ChannelPoint(%v)", l.channel.ChannelPoint())
+			"ChannelPoint(%v): %v", l.channel.ChannelPoint(), err)
 	}
 
 	var msgsToReSend []lnwire.Message
@@ -3121,7 +3121,7 @@ func (l *channelLink) fail(linkErr LinkFailureError,
 		return
 	}
 
-	l.log.Errorf("failing link: %s", reason)
+	l.log.Errorf("failing link: %s with error: %v", reason, linkErr)
 
 	// Set failed, such that we won't process any more updates, and notify
 	// the peer about the failure.

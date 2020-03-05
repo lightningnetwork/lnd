@@ -19,6 +19,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -131,6 +132,7 @@ func createTestCtxFromGraphInstance(startingHeight uint32, graphInstance *testGr
 			return next, nil
 		},
 		PathFindingConfig: pathFindingConfig,
+		Clock:             clock.NewTestClock(time.Unix(1, 0)),
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to create router %v", err)
@@ -2967,6 +2969,7 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 				next := atomic.AddUint64(&uniquePaymentID, 1)
 				return next, nil
 			},
+			Clock: clock.NewTestClock(time.Unix(1, 0)),
 		})
 		if err != nil {
 			t.Fatalf("unable to create router %v", err)

@@ -17,6 +17,7 @@ import (
 
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -302,6 +303,9 @@ type Config struct {
 
 	// PathFindingConfig defines global path finding parameters.
 	PathFindingConfig PathFindingConfig
+
+	// Clock is mockable time provider.
+	Clock clock.Clock
 }
 
 // EdgeLocator is a struct used to identify a specific edge.
@@ -1680,7 +1684,7 @@ func (r *ChannelRouter) preparePayment(payment *LightningPayment) (
 	info := &channeldb.PaymentCreationInfo{
 		PaymentHash:    payment.PaymentHash,
 		Value:          payment.Amount,
-		CreationTime:   time.Now(),
+		CreationTime:   r.cfg.Clock.Now(),
 		PaymentRequest: payment.PaymentRequest,
 	}
 
@@ -1709,7 +1713,7 @@ func (r *ChannelRouter) SendToRoute(hash lntypes.Hash, route *route.Route) (
 	info := &channeldb.PaymentCreationInfo{
 		PaymentHash:    hash,
 		Value:          amt,
-		CreationTime:   time.Now(),
+		CreationTime:   r.cfg.Clock.Now(),
 		PaymentRequest: nil,
 	}
 

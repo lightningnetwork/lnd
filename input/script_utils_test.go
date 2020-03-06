@@ -613,12 +613,12 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 		aliceSenderSig                  []byte
 	)
 
-	genCommitTx := func() {
+	genCommitTx := func(confirmed bool) {
 		// Generate the raw HTLC redemption scripts, and its p2wsh
 		// counterpart.
 		htlcWitnessScript, err = ReceiverHTLCScript(
 			cltvTimeout, aliceLocalKey, bobLocalKey, revocationKey,
-			paymentHash[:], false,
+			paymentHash[:], confirmed,
 		)
 		if err != nil {
 			t.Fatalf("unable to create htlc sender script: %v", err)
@@ -641,7 +641,7 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 		receiverCommitTx.AddTxOut(htlcOutput)
 	}
 
-	genSweepTx := func() {
+	genSweepTx := func(confirmed bool) {
 		prevOut := &wire.OutPoint{
 			Hash:  receiverCommitTx.TxHash(),
 			Index: 0,
@@ -651,6 +651,9 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 		sweepTx.AddTxIn(&wire.TxIn{
 			PreviousOutPoint: *prevOut,
 		})
+		if confirmed {
+			sweepTx.TxIn[0].Sequence = LockTimeToSequence(false, 1)
+		}
 
 		sweepTx.AddTxOut(
 			&wire.TxOut{
@@ -688,8 +691,8 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 		{
 			// HTLC redemption w/ invalid preimage size
 			makeWitnessTestCase(t, func() (wire.TxWitness, error) {
-				genCommitTx()
-				genSweepTx()
+				genCommitTx(false)
+				genSweepTx(false)
 
 				signDesc := &SignDescriptor{
 					KeyDesc: keychain.KeyDescriptor{
@@ -713,8 +716,8 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 		{
 			// HTLC redemption w/ valid preimage size
 			makeWitnessTestCase(t, func() (wire.TxWitness, error) {
-				genCommitTx()
-				genSweepTx()
+				genCommitTx(false)
+				genSweepTx(false)
 
 				signDesc := &SignDescriptor{
 					KeyDesc: keychain.KeyDescriptor{
@@ -737,8 +740,8 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 		{
 			// revoke w/ sig
 			makeWitnessTestCase(t, func() (wire.TxWitness, error) {
-				genCommitTx()
-				genSweepTx()
+				genCommitTx(false)
+				genSweepTx(false)
 
 				signDesc := &SignDescriptor{
 					KeyDesc: keychain.KeyDescriptor{
@@ -758,10 +761,70 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 			true,
 		},
 		{
+			// HTLC redemption w/ valid preimage size, and with
+			// enforced locktime in HTLC scripts.
+			makeWitnessTestCase(t, func() (wire.TxWitness, error) {
+				// Make a commit tx that needs confirmation for
+				// HTLC output to be spent.
+				genCommitTx(true)
+
+				// Generate a sweep with the locktime set.
+				genSweepTx(true)
+
+				signDesc := &SignDescriptor{
+					KeyDesc: keychain.KeyDescriptor{
+						PubKey: bobKeyPub,
+					},
+					SingleTweak:   bobCommitTweak,
+					WitnessScript: htlcWitnessScript,
+					Output:        htlcOutput,
+					HashType:      txscript.SigHashAll,
+					SigHashes:     sweepTxSigHashes,
+					InputIndex:    0,
+				}
+
+				return ReceiverHtlcSpendRedeem(aliceSenderSig,
+					paymentPreimage, bobSigner,
+					signDesc, sweepTx)
+			}),
+			true,
+		},
+		{
+			// HTLC redemption w/ valid preimage size, but trying
+			// to spend CSV output without sequence set.
+			makeWitnessTestCase(t, func() (wire.TxWitness, error) {
+				// Generate commitment tx with 1 CSV locked
+				// HTLC.
+				genCommitTx(true)
+
+				// Generate sweep tx that doesn't have locktime
+				// enabled.
+				genSweepTx(false)
+
+				signDesc := &SignDescriptor{
+					KeyDesc: keychain.KeyDescriptor{
+						PubKey: bobKeyPub,
+					},
+					SingleTweak:   bobCommitTweak,
+					WitnessScript: htlcWitnessScript,
+					Output:        htlcOutput,
+					HashType:      txscript.SigHashAll,
+					SigHashes:     sweepTxSigHashes,
+					InputIndex:    0,
+				}
+
+				return ReceiverHtlcSpendRedeem(aliceSenderSig,
+					paymentPreimage, bobSigner,
+					signDesc, sweepTx)
+			}),
+			false,
+		},
+
+		{
 			// refund w/ invalid lock time
 			makeWitnessTestCase(t, func() (wire.TxWitness, error) {
-				genCommitTx()
-				genSweepTx()
+				genCommitTx(false)
+				genSweepTx(false)
 
 				signDesc := &SignDescriptor{
 					KeyDesc: keychain.KeyDescriptor{
@@ -783,8 +846,8 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 		{
 			// refund w/ valid lock time
 			makeWitnessTestCase(t, func() (wire.TxWitness, error) {
-				genCommitTx()
-				genSweepTx()
+				genCommitTx(false)
+				genSweepTx(false)
 
 				signDesc := &SignDescriptor{
 					KeyDesc: keychain.KeyDescriptor{
@@ -802,6 +865,63 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 					sweepTx, int32(cltvTimeout))
 			}),
 			true,
+		},
+		{
+			// refund w/ valid lock time, and enforced locktime in
+			// HTLC scripts.
+			makeWitnessTestCase(t, func() (wire.TxWitness, error) {
+				// Make a commit tx that needs confirmation for
+				// HTLC output to be spent.
+				genCommitTx(true)
+
+				// Generate a sweep with the locktime set.
+				genSweepTx(true)
+
+				signDesc := &SignDescriptor{
+					KeyDesc: keychain.KeyDescriptor{
+						PubKey: aliceKeyPub,
+					},
+					SingleTweak:   aliceCommitTweak,
+					WitnessScript: htlcWitnessScript,
+					Output:        htlcOutput,
+					HashType:      txscript.SigHashAll,
+					SigHashes:     sweepTxSigHashes,
+					InputIndex:    0,
+				}
+
+				return ReceiverHtlcSpendTimeout(aliceSigner, signDesc,
+					sweepTx, int32(cltvTimeout))
+			}),
+			true,
+		},
+		{
+			// refund w/ valid lock time, but no sequence set in
+			// sweep tx trying to spend CSV locked HTLC output.
+			makeWitnessTestCase(t, func() (wire.TxWitness, error) {
+				// Generate commitment tx with 1 CSV locked
+				// HTLC.
+				genCommitTx(true)
+
+				// Generate sweep tx that doesn't have locktime
+				// enabled.
+				genSweepTx(false)
+
+				signDesc := &SignDescriptor{
+					KeyDesc: keychain.KeyDescriptor{
+						PubKey: aliceKeyPub,
+					},
+					SingleTweak:   aliceCommitTweak,
+					WitnessScript: htlcWitnessScript,
+					Output:        htlcOutput,
+					HashType:      txscript.SigHashAll,
+					SigHashes:     sweepTxSigHashes,
+					InputIndex:    0,
+				}
+
+				return ReceiverHtlcSpendTimeout(aliceSigner, signDesc,
+					sweepTx, int32(cltvTimeout))
+			}),
+			false,
 		},
 	}
 

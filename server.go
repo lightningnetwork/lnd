@@ -336,13 +336,13 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 
 	// Only if we're not being forced to use the legacy onion format, will
 	// we signal our knowledge of the new TLV onion format.
-	if !cfg.LegacyProtocol.LegacyOnion() {
+	if !cfg.ProtocolOptions.LegacyOnion() {
 		globalFeatures.Set(lnwire.TLVOnionPayloadOptional)
 	}
 
 	// Similarly, we default to the new modern commitment format unless the
 	// legacy commitment config is set to true.
-	if !cfg.LegacyProtocol.LegacyCommitment() {
+	if !cfg.ProtocolOptions.LegacyCommitment() {
 		globalFeatures.Set(lnwire.StaticRemoteKeyOptional)
 	}
 
@@ -375,8 +375,8 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 	)
 
 	featureMgr, err := feature.NewManager(feature.Config{
-		NoTLVOnion:        cfg.LegacyProtocol.LegacyOnion(),
-		NoStaticRemoteKey: cfg.LegacyProtocol.LegacyCommitment(),
+		NoTLVOnion:        cfg.ProtocolOptions.LegacyOnion(),
+		NoStaticRemoteKey: cfg.ProtocolOptions.LegacyCommitment(),
 	})
 	if err != nil {
 		return nil, err

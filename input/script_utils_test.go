@@ -235,7 +235,7 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 		// counterpart.
 		htlcWitnessScript, err = SenderHTLCScript(
 			aliceLocalKey, bobLocalKey, revocationKey,
-			paymentHash[:],
+			paymentHash[:], false,
 		)
 		if err != nil {
 			t.Fatalf("unable to create htlc sender script: %v", err)
@@ -496,7 +496,7 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 		// counterpart.
 		htlcWitnessScript, err = ReceiverHTLCScript(
 			cltvTimeout, aliceLocalKey, bobLocalKey, revocationKey,
-			paymentHash[:],
+			paymentHash[:], false,
 		)
 		if err != nil {
 			t.Fatalf("unable to create htlc sender script: %v", err)

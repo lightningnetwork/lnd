@@ -156,15 +156,16 @@ type HtlcSucceedInput struct {
 // MakeHtlcSucceedInput assembles a new redeem input that can be used to
 // construct a sweep transaction.
 func MakeHtlcSucceedInput(outpoint *wire.OutPoint,
-	signDescriptor *SignDescriptor,
-	preimage []byte, heightHint uint32) HtlcSucceedInput {
+	signDescriptor *SignDescriptor, preimage []byte, heightHint,
+	blocksToMaturity uint32) HtlcSucceedInput {
 
 	return HtlcSucceedInput{
 		inputKit: inputKit{
-			outpoint:    *outpoint,
-			witnessType: HtlcAcceptedRemoteSuccess,
-			signDesc:    *signDescriptor,
-			heightHint:  heightHint,
+			outpoint:        *outpoint,
+			witnessType:     HtlcAcceptedRemoteSuccess,
+			signDesc:        *signDescriptor,
+			heightHint:      heightHint,
+			blockToMaturity: blocksToMaturity,
 		},
 		preimage: preimage,
 	}

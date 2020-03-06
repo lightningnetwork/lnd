@@ -603,7 +603,6 @@ func createOutgoingRes(onLocalCommitment bool) *lnwallet.OutgoingHtlcResolution 
 				Value: 10000,
 			},
 		},
-		CsvDelay: 2,
 	}
 
 	if onLocalCommitment {
@@ -620,8 +619,10 @@ func createOutgoingRes(onLocalCommitment bool) *lnwallet.OutgoingHtlcResolution 
 		}
 
 		outgoingRes.SignedTimeoutTx = timeoutTx
+		outgoingRes.CsvDelay = 2
 	} else {
 		outgoingRes.ClaimOutpoint = htlcOp
+		outgoingRes.CsvDelay = 0
 	}
 
 	return &outgoingRes

@@ -503,7 +503,8 @@ type commitment struct {
 	// evaluating all the add/remove/settle log entries before the listed
 	// indexes.
 	//
-	// NOTE: This is the balance *after* subtracting any commitment fee.
+	// NOTE: This is the balance *after* subtracting any commitment fee,
+	// AND anchor output values.
 	ourBalance   lnwire.MilliSatoshi
 	theirBalance lnwire.MilliSatoshi
 
@@ -2089,9 +2090,8 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 
 	// Since it is the remote breach we are reconstructing, the output going
 	// to us will be a to-remote script with our local params.
-	ourDelay := uint32(chanState.LocalChanCfg.CsvDelay)
-	ourScript, err := CommitScriptToRemote(
-		chanState.ChanType, ourDelay, keyRing.ToRemoteKey,
+	ourScript, _, err := CommitScriptToRemote(
+		chanState.ChanType, keyRing.ToRemoteKey,
 	)
 	if err != nil {
 		return nil, err
@@ -5027,8 +5027,8 @@ func (lc *LightningChannel) getSignedCommitTx() (*wire.MsgTx, error) {
 }
 
 // CommitOutputResolution carries the necessary information required to allow
-// us to sweep our direct commitment output in the case that either party goes
-// to chain.
+// us to sweep our commitment output in the case that either party goes to
+// chain.
 type CommitOutputResolution struct {
 	// SelfOutPoint is the full outpoint that points to out pay-to-self
 	// output within the closing commitment transaction.
@@ -5040,8 +5040,7 @@ type CommitOutputResolution struct {
 
 	// MaturityDelay is the relative time-lock, in blocks for all outputs
 	// that pay to the local party within the broadcast commitment
-	// transaction. This value will be non-zero iff, this output was on our
-	// commitment transaction.
+	// transaction.
 	MaturityDelay uint32
 }
 
@@ -5122,9 +5121,8 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, signer input.Si
 	// Before we can generate the proper sign descriptor, we'll need to
 	// locate the output index of our non-delayed output on the commitment
 	// transaction.
-	localDelay := uint32(chanState.LocalChanCfg.CsvDelay)
-	selfScript, err := CommitScriptToRemote(
-		chanState.ChanType, localDelay, keyRing.ToRemoteKey,
+	selfScript, maturityDelay, err := CommitScriptToRemote(
+		chanState.ChanType, keyRing.ToRemoteKey,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create self commit "+
@@ -5165,7 +5163,7 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, signer input.Si
 				},
 				HashType: txscript.SigHashAll,
 			},
-			MaturityDelay: 0,
+			MaturityDelay: maturityDelay,
 		}
 	}
 

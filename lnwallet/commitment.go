@@ -235,6 +235,16 @@ func HtlcSigHashType(chanType channeldb.ChannelType) txscript.SigHashType {
 	return txscript.SigHashAll
 }
 
+// HtlcSecondLevelInputSequence dictates the sequence number we must use on the
+// input to a second level HTLC transaction.
+func HtlcSecondLevelInputSequence(chanType channeldb.ChannelType) uint32 {
+	if chanType.HasAnchors() {
+		return 1
+	}
+
+	return 0
+}
+
 // CommitWeight returns the base commitment weight before adding HTLCs.
 func CommitWeight(chanType channeldb.ChannelType) int64 {
 	// If this commitment has anchors, it will be slightly heavier.

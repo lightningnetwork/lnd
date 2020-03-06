@@ -54,10 +54,13 @@ func createHtlcSuccessTx(chanType channeldb.ChannelType,
 	successTx := wire.NewMsgTx(2)
 
 	// The input to the transaction is the outpoint that creates the
-	// original HTLC on the sender's commitment transaction.
-	successTx.AddTxIn(&wire.TxIn{
+	// original HTLC on the sender's commitment transaction. Set the
+	// sequence number based on the channel type.
+	txin := &wire.TxIn{
 		PreviousOutPoint: htlcOutput,
-	})
+		Sequence:         HtlcSecondLevelInputSequence(chanType),
+	}
+	successTx.AddTxIn(txin)
 
 	// Next, we'll generate the script used as the output for all second
 	// level HTLC which forces a covenant w.r.t what can be done with all
@@ -110,10 +113,13 @@ func createHtlcTimeoutTx(chanType channeldb.ChannelType,
 	timeoutTx.LockTime = cltvExpiry
 
 	// The input to the transaction is the outpoint that creates the
-	// original HTLC on the sender's commitment transaction.
-	timeoutTx.AddTxIn(&wire.TxIn{
+	// original HTLC on the sender's commitment transaction. Set the
+	// sequence number based on the channel type.
+	txin := &wire.TxIn{
 		PreviousOutPoint: htlcOutput,
-	})
+		Sequence:         HtlcSecondLevelInputSequence(chanType),
+	}
+	timeoutTx.AddTxIn(txin)
 
 	// Next, we'll generate the script used as the output for all second
 	// level HTLC which forces a covenant w.r.t what can be done with all

@@ -2895,6 +2895,9 @@ message Feature {
 
 message FeeReportRequest {}
 message ChannelFeeReport {
+    /// The short channel id that this fee report belongs to.
+    uint64 chan_id = 5 [jstype = JS_STRING];
+
     /// The channel that this fee report belongs to.
     string chan_point = 1 [json_name = "channel_point"];
 

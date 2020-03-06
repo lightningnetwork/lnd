@@ -2179,6 +2179,11 @@
     "lnrpcChannelFeeReport": {
       "type": "object",
       "properties": {
+        "chan_id": {
+          "type": "string",
+          "format": "uint64",
+          "description": "/ The short channel id that this fee report belongs to."
+        },
         "chan_point": {
           "type": "string",
           "description": "/ The channel that this fee report belongs to."

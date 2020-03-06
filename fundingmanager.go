@@ -1111,6 +1111,20 @@ func (f *fundingManager) processFundingOpen(msg *lnwire.OpenChannel,
 func commitmentType(localFeatures,
 	remoteFeatures *lnwire.FeatureVector) lnwallet.CommitmentType {
 
+	// If both peers are signalling support for anchor commitments, this
+	// implicitly mean we'll create the channel of this type. Note that
+	// this also enables tweakless commitments, as anchor commitments are
+	// always tweakless.
+	localAnchors := localFeatures.HasFeature(
+		lnwire.AnchorsOptional,
+	)
+	remoteAnchors := remoteFeatures.HasFeature(
+		lnwire.AnchorsOptional,
+	)
+	if localAnchors && remoteAnchors {
+		return lnwallet.CommitmentTypeAnchors
+	}
+
 	localTweakless := localFeatures.HasFeature(
 		lnwire.StaticRemoteKeyOptional,
 	)

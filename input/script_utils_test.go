@@ -1144,6 +1144,113 @@ func TestSecondLevelHtlcSpends(t *testing.T) {
 	}
 }
 
+// TestCommitSpendToRemoteConfirmed checks that the delayed version of the
+// to_remote version can only be spent by the owner, and after one
+// confirmation.
+func TestCommitSpendToRemoteConfirmed(t *testing.T) {
+	t.Parallel()
+
+	const outputVal = btcutil.Amount(2 * 10e8)
+
+	aliceKeyPriv, aliceKeyPub := btcec.PrivKeyFromBytes(btcec.S256(),
+		testWalletPrivKey)
+
+	txid, err := chainhash.NewHash(testHdSeed.CloneBytes())
+	if err != nil {
+		t.Fatalf("unable to create txid: %v", err)
+	}
+	commitOut := &wire.OutPoint{
+		Hash:  *txid,
+		Index: 0,
+	}
+	commitScript, err := CommitScriptToRemoteConfirmed(aliceKeyPub)
+	if err != nil {
+		t.Fatalf("unable to create htlc script: %v", err)
+	}
+	commitPkScript, err := WitnessScriptHash(commitScript)
+	if err != nil {
+		t.Fatalf("unable to create htlc output: %v", err)
+	}
+
+	commitOutput := &wire.TxOut{
+		PkScript: commitPkScript,
+		Value:    int64(outputVal),
+	}
+
+	sweepTx := wire.NewMsgTx(2)
+	sweepTx.AddTxIn(wire.NewTxIn(commitOut, nil, nil))
+	sweepTx.AddTxOut(
+		&wire.TxOut{
+			PkScript: []byte("doesn't matter"),
+			Value:    1 * 10e8,
+		},
+	)
+
+	aliceSigner := &MockSigner{Privkeys: []*btcec.PrivateKey{aliceKeyPriv}}
+
+	testCases := []struct {
+		witness func() wire.TxWitness
+		valid   bool
+	}{
+		{
+			// Alice can spend after the a CSV delay has passed.
+			makeWitnessTestCase(t, func() (wire.TxWitness, error) {
+				sweepTx.TxIn[0].Sequence = LockTimeToSequence(false, 1)
+				sweepTxSigHashes := txscript.NewTxSigHashes(sweepTx)
+
+				signDesc := &SignDescriptor{
+					KeyDesc: keychain.KeyDescriptor{
+						PubKey: aliceKeyPub,
+					},
+					WitnessScript: commitScript,
+					Output:        commitOutput,
+					HashType:      txscript.SigHashAll,
+					SigHashes:     sweepTxSigHashes,
+					InputIndex:    0,
+				}
+
+				return CommitSpendToRemoteConfirmed(aliceSigner, signDesc,
+					sweepTx)
+			}),
+			true,
+		},
+		{
+			// Alice cannot spend output without sequence set.
+			makeWitnessTestCase(t, func() (wire.TxWitness, error) {
+				sweepTx.TxIn[0].Sequence = wire.MaxTxInSequenceNum
+				sweepTxSigHashes := txscript.NewTxSigHashes(sweepTx)
+
+				signDesc := &SignDescriptor{
+					KeyDesc: keychain.KeyDescriptor{
+						PubKey: aliceKeyPub,
+					},
+					WitnessScript: commitScript,
+					Output:        commitOutput,
+					HashType:      txscript.SigHashAll,
+					SigHashes:     sweepTxSigHashes,
+					InputIndex:    0,
+				}
+
+				return CommitSpendToRemoteConfirmed(aliceSigner, signDesc,
+					sweepTx)
+			}),
+			false,
+		},
+	}
+
+	for i, testCase := range testCases {
+		sweepTx.TxIn[0].Witness = testCase.witness()
+
+		newEngine := func() (*txscript.Engine, error) {
+			return txscript.NewEngine(commitPkScript,
+				sweepTx, 0, txscript.StandardVerifyFlags, nil,
+				nil, int64(outputVal))
+		}
+
+		assertEngineExecution(t, i, testCase.valid, newEngine)
+	}
+}
+
 // TestSpecificationKeyDerivation implements the test vectors provided in
 // BOLT-03, Appendix E.
 func TestSpecificationKeyDerivation(t *testing.T) {

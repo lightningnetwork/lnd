@@ -853,18 +853,6 @@ func CommitScriptToSelf(csvTimeout uint32, selfKey, revokeKey *btcec.PublicKey) 
 	return builder.Script()
 }
 
-// CommitScriptUnencumbered constructs the public key script on the commitment
-// transaction paying to the "other" party. The constructed output is a normal
-// p2wkh output spendable immediately, requiring no contestation period.
-func CommitScriptUnencumbered(key *btcec.PublicKey) ([]byte, error) {
-	// This script goes to the "other" party, and is spendable immediately.
-	builder := txscript.NewScriptBuilder()
-	builder.AddOp(txscript.OP_0)
-	builder.AddData(btcutil.Hash160(key.SerializeCompressed()))
-
-	return builder.Script()
-}
-
 // CommitSpendTimeout constructs a valid witness allowing the owner of a
 // particular commitment transaction to spend the output returning settled
 // funds back to themselves after a relative block timeout.  In order to
@@ -971,6 +959,69 @@ func CommitSpendNoDelay(signer Signer, signDesc *SignDescriptor,
 	}
 
 	return witness, nil
+}
+
+// CommitScriptUnencumbered constructs the public key script on the commitment
+// transaction paying to the "other" party. The constructed output is a normal
+// p2wkh output spendable immediately, requiring no contestation period.
+func CommitScriptUnencumbered(key *btcec.PublicKey) ([]byte, error) {
+	// This script goes to the "other" party, and is spendable immediately.
+	builder := txscript.NewScriptBuilder()
+	builder.AddOp(txscript.OP_0)
+	builder.AddData(btcutil.Hash160(key.SerializeCompressed()))
+
+	return builder.Script()
+}
+
+// CommitScriptToRemoteConfirmed constructs the script for the output on the
+// commitment transaction paying to the remote party of said commitment
+// transaction. The money can only be spend after one confirmation.
+//
+// Possible Input Scripts:
+//     SWEEP: <sig>
+//
+// Output Script:
+//	<key> OP_CHECKSIGVERIFY
+//	1 OP_CHECKSEQUENCEVERIFY
+func CommitScriptToRemoteConfirmed(key *btcec.PublicKey) ([]byte, error) {
+	builder := txscript.NewScriptBuilder()
+
+	// Only the given key can spend the output.
+	builder.AddData(key.SerializeCompressed())
+	builder.AddOp(txscript.OP_CHECKSIGVERIFY)
+
+	// Check that the it has one confirmation.
+	builder.AddOp(txscript.OP_1)
+	builder.AddOp(txscript.OP_CHECKSEQUENCEVERIFY)
+
+	return builder.Script()
+}
+
+// CommitSpendToRemoteConfirmed constructs a valid witness allowing a node to
+// spend their settled output on the counterparty's commitment transaction when
+// it has one confirmetion. This is used for the anchor channel type. The
+// spending key will always be non-tweaked for this output type.
+func CommitSpendToRemoteConfirmed(signer Signer, signDesc *SignDescriptor,
+	sweepTx *wire.MsgTx) (wire.TxWitness, error) {
+
+	if signDesc.KeyDesc.PubKey == nil {
+		return nil, fmt.Errorf("cannot generate witness with nil " +
+			"KeyDesc pubkey")
+	}
+
+	// Similar to non delayed output, only a signature is needed.
+	sweepSig, err := signer.SignOutputRaw(sweepTx, signDesc)
+	if err != nil {
+		return nil, err
+	}
+
+	// Finally, we'll manually craft the witness. The witness here is the
+	// signature and the redeem script.
+	witnessStack := make([][]byte, 2)
+	witnessStack[0] = append(sweepSig, byte(signDesc.HashType))
+	witnessStack[1] = signDesc.WitnessScript
+
+	return witnessStack, nil
 }
 
 // SingleTweakBytes computes set of bytes we call the single tweak. The purpose

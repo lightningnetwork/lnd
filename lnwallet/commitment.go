@@ -224,6 +224,16 @@ func CommitScriptToRemote(chanType channeldb.ChannelType,
 	}, 0, nil
 }
 
+// CommitWeight returns the base commitment weight before adding HTLCs.
+func CommitWeight(chanType channeldb.ChannelType) int64 {
+	// If this commitment has anchors, it will be slightly heavier.
+	if chanType.HasAnchors() {
+		return input.AnchorCommitWeight
+	}
+
+	return input.CommitWeight
+}
+
 // CommitScriptAnchors return the scripts to use for the local and remote
 // anchor.
 func CommitScriptAnchors(localChanCfg,
@@ -364,7 +374,8 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 	// on its total weight. Once we have the total weight, we'll multiply
 	// by the current fee-per-kw, then divide by 1000 to get the proper
 	// fee.
-	totalCommitWeight := input.CommitWeight + (input.HTLCWeight * numHTLCs)
+	totalCommitWeight := CommitWeight(cb.chanState.ChanType) +
+		input.HTLCWeight*numHTLCs
 
 	// With the weight known, we can now calculate the commitment fee,
 	// ensuring that we account for any dust outputs trimmed above.

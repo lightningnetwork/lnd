@@ -176,6 +176,12 @@ const (
 	// disk. This bit may be on if the funding transaction was crafted by a
 	// wallet external to the primary daemon.
 	NoFundingTxBit ChannelType = 1 << 2
+
+	// AnchorOutputsBit indicates that the channel makes use of anchor
+	// outputs to bump the commitment transaction's effective feerate. This
+	// channel type also uses a delayed to_remote output script. If bit is
+	// set, we'll find the size of the anchor outputs in the database.
+	AnchorOutputsBit ChannelType = 1 << 3
 )
 
 // IsSingleFunder returns true if the channel type if one of the known single
@@ -199,6 +205,12 @@ func (c ChannelType) IsTweakless() bool {
 // transaction stored locally.
 func (c ChannelType) HasFundingTx() bool {
 	return c&NoFundingTxBit == 0
+}
+
+// HasAnchors returns true if this channel type has anchor ouputs on its
+// commitment.
+func (c ChannelType) HasAnchors() bool {
+	return c&AnchorOutputsBit == AnchorOutputsBit
 }
 
 // ChannelConstraints represents a set of constraints meant to allow a node to

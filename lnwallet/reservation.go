@@ -213,6 +213,16 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 		)
 	}
 
+	// Similarly we ensure their balance is reasonable if we are not the
+	// initiator.
+	if !initiator && theirBalance.ToSatoshis() <= 2*DefaultDustLimit() {
+		return nil, ErrFunderBalanceDust(
+			int64(commitFee),
+			int64(theirBalance.ToSatoshis()),
+			int64(2*DefaultDustLimit()),
+		)
+	}
+
 	// Next we'll set the channel type based on what we can ascertain about
 	// the balances/push amount within the channel.
 	var chanType channeldb.ChannelType

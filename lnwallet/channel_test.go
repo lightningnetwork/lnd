@@ -1011,7 +1011,8 @@ func TestHTLCDustLimit(t *testing.T) {
 
 	// The amount of the HTLC should be above Alice's dust limit and below
 	// Bob's dust limit.
-	htlcSat := (btcutil.Amount(500) + htlcTimeoutFee(
+	htlcSat := (btcutil.Amount(500) + HtlcTimeoutFee(
+		aliceChannel.channelState.ChanType,
 		chainfee.SatPerKWeight(
 			aliceChannel.channelState.LocalCommitment.FeePerKw,
 		),
@@ -1119,8 +1120,12 @@ func TestHTLCSigNumber(t *testing.T) {
 		t.Fatalf("unable to get fee: %v", err)
 	}
 
-	belowDust := btcutil.Amount(500) + htlcTimeoutFee(feePerKw)
-	aboveDust := btcutil.Amount(1400) + htlcSuccessFee(feePerKw)
+	belowDust := btcutil.Amount(500) + HtlcTimeoutFee(
+		channeldb.SingleFunderTweaklessBit, feePerKw,
+	)
+	aboveDust := btcutil.Amount(1400) + HtlcSuccessFee(
+		channeldb.SingleFunderTweaklessBit, feePerKw,
+	)
 
 	// ===================================================================
 	// Test that Bob will reject a commitment if Alice doesn't send enough
@@ -1278,7 +1283,8 @@ func TestChannelBalanceDustLimit(t *testing.T) {
 	defaultFee := calcStaticFee(1)
 	aliceBalance := aliceChannel.channelState.LocalCommitment.LocalBalance.ToSatoshis()
 	htlcSat := aliceBalance - defaultFee
-	htlcSat += htlcSuccessFee(
+	htlcSat += HtlcSuccessFee(
+		aliceChannel.channelState.ChanType,
 		chainfee.SatPerKWeight(
 			aliceChannel.channelState.LocalCommitment.FeePerKw,
 		),
@@ -4759,10 +4765,10 @@ func TestChanAvailableBalanceNearHtlcFee(t *testing.T) {
 		aliceChannel.channelState.LocalCommitment.CommitFee,
 	)
 	htlcTimeoutFee := lnwire.NewMSatFromSatoshis(
-		htlcTimeoutFee(feeRate),
+		HtlcTimeoutFee(aliceChannel.channelState.ChanType, feeRate),
 	)
 	htlcSuccessFee := lnwire.NewMSatFromSatoshis(
-		htlcSuccessFee(feeRate),
+		HtlcSuccessFee(aliceChannel.channelState.ChanType, feeRate),
 	)
 
 	// Helper method to check the current reported balance.
@@ -6273,7 +6279,8 @@ func TestChanReserveLocalInitiatorDustHtlc(t *testing.T) {
 	// limit (1300 sat). It is considered dust if the amount remaining
 	// after paying the HTLC fee is below the dustlimit, so we choose a
 	// size of 500+htlcFee.
-	htlcSat := btcutil.Amount(500) + htlcTimeoutFee(
+	htlcSat := btcutil.Amount(500) + HtlcTimeoutFee(
+		aliceChannel.channelState.ChanType,
 		chainfee.SatPerKWeight(
 			aliceChannel.channelState.LocalCommitment.FeePerKw,
 		),

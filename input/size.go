@@ -202,6 +202,23 @@ const (
 	// which will transition an incoming HTLC to the delay-and-claim state.
 	HtlcSuccessWeight = 703
 
+	// HtlcConfirmedScriptOverhead is the extra length of an HTLC script
+	// that requires confirmation before it can be spent. These extra bytes
+	// is a result of the extra CSV check.
+	HtlcConfirmedScriptOverhead = 3
+
+	// HtlcTimeoutWeightConfirmed is the weight of the HTLC timeout
+	// transaction which will transition an outgoing HTLC to the
+	// delay-and-claim state, for the confirmed HTLC outputs. It is 3 bytes
+	// larger because of the additional CSV check in the input script.
+	HtlcTimeoutWeightConfirmed = HtlcTimeoutWeight + HtlcConfirmedScriptOverhead
+
+	// HtlcSuccessWeightCOnfirmed is the weight of the HTLC success
+	// transaction which will transition an incoming HTLC to the
+	// delay-and-claim state, for the confirmed HTLC outputs. It is 3 bytes
+	// larger because of the cdditional CSV check in the input script.
+	HtlcSuccessWeightConfirmed = HtlcSuccessWeight + HtlcConfirmedScriptOverhead
+
 	// MaxHTLCNumber is the maximum number HTLCs which can be included in a
 	// commitment transaction. This limit was chosen such that, in the case
 	// of a contract breach, the punishment transaction is able to sweep

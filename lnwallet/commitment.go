@@ -255,6 +255,29 @@ func CommitWeight(chanType channeldb.ChannelType) int64 {
 	return input.CommitWeight
 }
 
+// HtlcTimeoutFee returns the fee in satoshis required for an HTLC timeout
+// transaction based on the current fee rate.
+func HtlcTimeoutFee(chanType channeldb.ChannelType,
+	feePerKw chainfee.SatPerKWeight) btcutil.Amount {
+
+	if chanType.HasAnchors() {
+		return feePerKw.FeeForWeight(input.HtlcTimeoutWeightConfirmed)
+	}
+
+	return feePerKw.FeeForWeight(input.HtlcTimeoutWeight)
+}
+
+// HtlcSuccessFee returns the fee in satoshis required for an HTLC success
+// transaction based on the current fee rate.
+func HtlcSuccessFee(chanType channeldb.ChannelType,
+	feePerKw chainfee.SatPerKWeight) btcutil.Amount {
+
+	if chanType.HasAnchors() {
+		return feePerKw.FeeForWeight(input.HtlcSuccessWeightConfirmed)
+	}
+	return feePerKw.FeeForWeight(input.HtlcSuccessWeight)
+}
+
 // CommitScriptAnchors return the scripts to use for the local and remote
 // anchor.
 func CommitScriptAnchors(localChanCfg,
@@ -373,18 +396,20 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 
 	numHTLCs := int64(0)
 	for _, htlc := range filteredHTLCView.ourUpdates {
-		if htlcIsDust(false, isOurs, feePerKw,
-			htlc.Amount.ToSatoshis(), dustLimit) {
-
+		if htlcIsDust(
+			cb.chanState.ChanType, false, isOurs, feePerKw,
+			htlc.Amount.ToSatoshis(), dustLimit,
+		) {
 			continue
 		}
 
 		numHTLCs++
 	}
 	for _, htlc := range filteredHTLCView.theirUpdates {
-		if htlcIsDust(true, isOurs, feePerKw,
-			htlc.Amount.ToSatoshis(), dustLimit) {
-
+		if htlcIsDust(
+			cb.chanState.ChanType, true, isOurs, feePerKw,
+			htlc.Amount.ToSatoshis(), dustLimit,
+		) {
 			continue
 		}
 
@@ -460,8 +485,10 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 	// purposes of sorting.
 	cltvs := make([]uint32, len(commitTx.TxOut))
 	for _, htlc := range filteredHTLCView.ourUpdates {
-		if htlcIsDust(false, isOurs, feePerKw,
-			htlc.Amount.ToSatoshis(), dustLimit) {
+		if htlcIsDust(
+			cb.chanState.ChanType, false, isOurs, feePerKw,
+			htlc.Amount.ToSatoshis(), dustLimit,
+		) {
 			continue
 		}
 
@@ -475,8 +502,10 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 		cltvs = append(cltvs, htlc.Timeout)
 	}
 	for _, htlc := range filteredHTLCView.theirUpdates {
-		if htlcIsDust(true, isOurs, feePerKw,
-			htlc.Amount.ToSatoshis(), dustLimit) {
+		if htlcIsDust(
+			cb.chanState.ChanType, true, isOurs, feePerKw,
+			htlc.Amount.ToSatoshis(), dustLimit,
+		) {
 			continue
 		}
 

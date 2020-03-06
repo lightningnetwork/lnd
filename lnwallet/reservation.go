@@ -15,6 +15,32 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
+// CommitmentType is an enum indicating the commitment type we should use for
+// the channel we are opening.
+type CommitmentType int
+
+const (
+	// CommitmentTypeLegacy is the legacy commitment format with a tweaked
+	// to_remote key.
+	CommitmentTypeLegacy = iota
+
+	// CommitmentTypeTweakless is a newer commitment format where the
+	// to_remote key is static.
+	CommitmentTypeTweakless
+)
+
+// String returns the name of the CommitmentType.
+func (c CommitmentType) String() string {
+	switch c {
+	case CommitmentTypeLegacy:
+		return "legacy"
+	case CommitmentTypeTweakless:
+		return "tweakless"
+	default:
+		return "invalid"
+	}
+}
+
 // ChannelContribution is the primary constituent of the funding workflow
 // within lnwallet. Each side first exchanges their respective contributions
 // along with channel specific parameters like the min fee/KB. Once
@@ -136,7 +162,7 @@ type ChannelReservation struct {
 func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 	commitFeePerKw chainfee.SatPerKWeight, wallet *LightningWallet,
 	id uint64, pushMSat lnwire.MilliSatoshi, chainHash *chainhash.Hash,
-	flags lnwire.FundingFlag, tweaklessCommit bool,
+	flags lnwire.FundingFlag, commitType CommitmentType,
 	fundingAssembler chanfunding.Assembler,
 	pendingChanID [32]byte) (*ChannelReservation, error) {
 
@@ -231,7 +257,7 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 	// non-zero push amt (there's no pushing for dual funder), then this is
 	// a single-funder channel.
 	if ourBalance == 0 || theirBalance == 0 || pushMSat != 0 {
-		if tweaklessCommit {
+		if commitType == CommitmentTypeTweakless {
 			chanType |= channeldb.SingleFunderTweaklessBit
 		} else {
 			chanType |= channeldb.SingleFunderBit

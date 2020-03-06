@@ -6,6 +6,7 @@ import (
 	"io"
 	"sync"
 
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/input"
@@ -172,23 +173,44 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 		}
 	}
 
-	// We're dealing with our commitment transaction if the delay on the
-	// resolution isn't zero.
-	isLocalCommitTx := c.commitResolution.MaturityDelay != 0
+	// The output is on our local commitment if the script starts with
+	// OP_IF for the revocation clause. On the remote commitment it will
+	// either be a regular P2WKH or a simple sig spend with a CSV delay.
+	isLocalCommitTx := c.commitResolution.SelfOutputSignDesc.WitnessScript[0] == txscript.OP_IF
+	isDelayedOutput := c.commitResolution.MaturityDelay != 0
 
-	// There're two types of commitments, those that have tweaks
-	// for the remote key (us in this case), and those that don't.
-	// We'll rely on the presence of the commitment tweak to to
-	// discern which type of commitment this is.
+	c.log.Debugf("isDelayedOutput=%v, isLocalCommitTx=%v", isDelayedOutput,
+		isLocalCommitTx)
+
+	// There're three types of commitments, those that have tweaks
+	// for the remote key (us in this case), those that don't, and a third
+	// where there is no tweak and the output is delayed. On the local
+	// commitment our output will always be delayed. We'll rely on the
+	// presence of the commitment tweak to to discern which type of
+	// commitment this is.
 	var witnessType input.WitnessType
 	switch {
+
+	// Delayed output to us on our local commitment.
 	case isLocalCommitTx:
 		witnessType = input.CommitmentTimeLock
+
+	// A confirmed output to us on the remote commitment.
+	case isDelayedOutput:
+		witnessType = input.CommitmentToRemoteConfirmed
+
+	// A non-delayed output on the remote commitment where the key is
+	// tweakless.
 	case c.commitResolution.SelfOutputSignDesc.SingleTweak == nil:
 		witnessType = input.CommitSpendNoDelayTweakless
+
+	// A non-delayed output on the remote commitment where the key is
+	// tweaked.
 	default:
 		witnessType = input.CommitmentNoDelay
 	}
+
+	c.log.Infof("Sweeping with witness type: %v", witnessType)
 
 	// We'll craft an input with all the information required for
 	// the sweeper to create a fully valid sweeping transaction to

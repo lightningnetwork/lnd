@@ -1385,6 +1385,12 @@ message ListChannelsRequest {
     bool inactive_only = 2;
     bool public_only = 3;
     bool private_only = 4;
+
+    /**
+    Filters the response for channels with a target peer's pubkey. If peer is
+    empty, all channels will be returned.
+    */
+    bytes peer = 5;
 }
 message ListChannelsResponse {
     /// The list of active channels

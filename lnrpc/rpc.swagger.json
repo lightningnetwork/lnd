@@ -116,6 +116,14 @@
             "required": false,
             "type": "boolean",
             "format": "boolean"
+          },
+          {
+            "name": "peer",
+            "description": "*\nFilters the response for channels with a target peer's pubkey. If peer is\nempty, all channels will be returned.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
           }
         ],
         "tags": [

@@ -2372,6 +2372,29 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 		return nil, err
 	}
 
+	// We'll assert that there hasn't been a mistake during fee calculation
+	// leading to a fee too low.
+	var totalOut btcutil.Amount
+	for _, txOut := range commitTx.txn.TxOut {
+		totalOut += btcutil.Amount(txOut.Value)
+	}
+	fee := lc.channelState.Capacity - totalOut
+
+	// Since the transaction is not signed yet, we use the witness weight
+	// used for weight calculation.
+	uTx := btcutil.NewTx(commitTx.txn)
+	weight := blockchain.GetTransactionWeight(uTx) +
+		input.WitnessCommitmentTxWeight
+
+	effFeeRate := chainfee.SatPerKWeight(fee) * 1000 /
+		chainfee.SatPerKWeight(weight)
+	if effFeeRate < chainfee.FeePerKwFloor {
+		return nil, fmt.Errorf("height=%v, for ChannelPoint(%v) "+
+			"attempts to create commitment wigh feerate %v: %v",
+			nextHeight, lc.channelState.FundingOutpoint,
+			effFeeRate, spew.Sdump(commitTx))
+	}
+
 	// With the commitment view created, store the resulting balances and
 	// transaction with the other parameters for this height.
 	c := &commitment{

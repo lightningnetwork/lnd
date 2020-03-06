@@ -5,6 +5,7 @@ import (
 
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -222,6 +223,16 @@ func CommitScriptToRemote(chanType channeldb.ChannelType,
 		WitnessScript: p2wkh,
 		PkScript:      p2wkh,
 	}, 0, nil
+}
+
+// HtlcSigHashType returns the sighash type to use for HTLC success and timeout
+// transactions given the channel type.
+func HtlcSigHashType(chanType channeldb.ChannelType) txscript.SigHashType {
+	if chanType.HasAnchors() {
+		return txscript.SigHashSingle | txscript.SigHashAnyOneCanPay
+	}
+
+	return txscript.SigHashAll
 }
 
 // CommitWeight returns the base commitment weight before adding HTLCs.

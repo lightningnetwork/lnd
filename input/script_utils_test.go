@@ -227,6 +227,7 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 		sweepTxSigHashes                *txscript.TxSigHashes
 		senderCommitTx, sweepTx         *wire.MsgTx
 		bobRecvrSig                     []byte
+		bobSigHash                      txscript.SigHashType
 	)
 
 	// genCommitTx generates a commitment tx where the htlc output requires
@@ -260,7 +261,7 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 	}
 
 	// genSweepTx generates a sweep of the senderCommitTx, and sets the
-	// sequence if confirmed is true.
+	// sequence and sighash single|anyonecanspend if confirmed is true.
 	genSweepTx := func(confirmed bool) {
 		prevOut := &wire.OutPoint{
 			Hash:  senderCommitTx.TxHash(),
@@ -283,6 +284,11 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 
 		sweepTxSigHashes = txscript.NewTxSigHashes(sweepTx)
 
+		bobSigHash = txscript.SigHashAll
+		if confirmed {
+			bobSigHash = txscript.SigHashSingle | txscript.SigHashAnyOneCanPay
+		}
+
 		// We'll also generate a signature on the sweep transaction above
 		// that will act as Bob's signature to Alice for the second level HTLC
 		// transaction.
@@ -293,7 +299,7 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 			SingleTweak:   bobCommitTweak,
 			WitnessScript: htlcWitnessScript,
 			Output:        htlcOutput,
-			HashType:      txscript.SigHashAll,
+			HashType:      bobSigHash,
 			SigHashes:     sweepTxSigHashes,
 			InputIndex:    0,
 		}
@@ -458,8 +464,10 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 					InputIndex:    0,
 				}
 
-				return SenderHtlcSpendTimeout(bobRecvrSig, aliceSigner,
-					signDesc, sweepTx)
+				return SenderHtlcSpendTimeout(
+					bobRecvrSig, bobSigHash, aliceSigner,
+					signDesc, sweepTx,
+				)
 			}),
 			true,
 		},
@@ -487,8 +495,10 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 					InputIndex:    0,
 				}
 
-				return SenderHtlcSpendTimeout(bobRecvrSig, aliceSigner,
-					signDesc, sweepTx)
+				return SenderHtlcSpendTimeout(
+					bobRecvrSig, bobSigHash, aliceSigner,
+					signDesc, sweepTx,
+				)
 			}),
 			true,
 		},
@@ -517,8 +527,10 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 					InputIndex:    0,
 				}
 
-				return SenderHtlcSpendTimeout(bobRecvrSig, aliceSigner,
-					signDesc, sweepTx)
+				return SenderHtlcSpendTimeout(
+					bobRecvrSig, bobSigHash, aliceSigner,
+					signDesc, sweepTx,
+				)
 			}),
 			false,
 		},
@@ -611,6 +623,7 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 		receiverCommitTx, sweepTx       *wire.MsgTx
 		sweepTxSigHashes                *txscript.TxSigHashes
 		aliceSenderSig                  []byte
+		aliceSigHash                    txscript.SigHashType
 	)
 
 	genCommitTx := func(confirmed bool) {
@@ -663,6 +676,11 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 		)
 		sweepTxSigHashes = txscript.NewTxSigHashes(sweepTx)
 
+		aliceSigHash = txscript.SigHashAll
+		if confirmed {
+			aliceSigHash = txscript.SigHashSingle | txscript.SigHashAnyOneCanPay
+		}
+
 		// We'll also generate a signature on the sweep transaction above
 		// that will act as Alice's signature to Bob for the second level HTLC
 		// transaction.
@@ -673,7 +691,7 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 			SingleTweak:   aliceCommitTweak,
 			WitnessScript: htlcWitnessScript,
 			Output:        htlcOutput,
-			HashType:      txscript.SigHashAll,
+			HashType:      aliceSigHash,
 			SigHashes:     sweepTxSigHashes,
 			InputIndex:    0,
 		}
@@ -706,9 +724,11 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 					InputIndex:    0,
 				}
 
-				return ReceiverHtlcSpendRedeem(aliceSenderSig,
+				return ReceiverHtlcSpendRedeem(
+					aliceSenderSig, aliceSigHash,
 					bytes.Repeat([]byte{1}, 45), bobSigner,
-					signDesc, sweepTx)
+					signDesc, sweepTx,
+				)
 
 			}),
 			false,
@@ -731,9 +751,11 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 					InputIndex:    0,
 				}
 
-				return ReceiverHtlcSpendRedeem(aliceSenderSig,
-					paymentPreimage[:], bobSigner,
-					signDesc, sweepTx)
+				return ReceiverHtlcSpendRedeem(
+					aliceSenderSig, aliceSigHash,
+					paymentPreimage, bobSigner,
+					signDesc, sweepTx,
+				)
 			}),
 			true,
 		},
@@ -783,9 +805,11 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 					InputIndex:    0,
 				}
 
-				return ReceiverHtlcSpendRedeem(aliceSenderSig,
+				return ReceiverHtlcSpendRedeem(
+					aliceSenderSig, aliceSigHash,
 					paymentPreimage, bobSigner,
-					signDesc, sweepTx)
+					signDesc, sweepTx,
+				)
 			}),
 			true,
 		},
@@ -813,9 +837,11 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 					InputIndex:    0,
 				}
 
-				return ReceiverHtlcSpendRedeem(aliceSenderSig,
-					paymentPreimage, bobSigner,
-					signDesc, sweepTx)
+				return ReceiverHtlcSpendRedeem(
+					aliceSenderSig, aliceSigHash,
+					paymentPreimage, bobSigner, signDesc,
+					sweepTx,
+				)
 			}),
 			false,
 		},

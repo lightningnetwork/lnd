@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/input"
@@ -144,7 +145,8 @@ func TestHtlcTimeoutResolver(t *testing.T) {
 			timeout:      true,
 			txToBroadcast: func() (*wire.MsgTx, error) {
 				witness, err := input.SenderHtlcSpendTimeout(
-					nil, signer, fakeSignDesc, sweepTx,
+					nil, txscript.SigHashAll, signer,
+					fakeSignDesc, sweepTx,
 				)
 				if err != nil {
 					return nil, err
@@ -163,7 +165,8 @@ func TestHtlcTimeoutResolver(t *testing.T) {
 			timeout:      false,
 			txToBroadcast: func() (*wire.MsgTx, error) {
 				witness, err := input.ReceiverHtlcSpendRedeem(
-					nil, fakePreimageBytes, signer,
+					nil, txscript.SigHashAll,
+					fakePreimageBytes, signer,
 					fakeSignDesc, sweepTx,
 				)
 				if err != nil {

@@ -343,8 +343,10 @@ func SenderHtlcSpendRedeem(signer Signer, signDesc *SignDescriptor,
 // HTLC to activate the time locked covenant clause of a soon to be expired
 // HTLC.  This script simply spends the multi-sig output using the
 // pre-generated HTLC timeout transaction.
-func SenderHtlcSpendTimeout(receiverSig []byte, signer Signer,
-	signDesc *SignDescriptor, htlcTimeoutTx *wire.MsgTx) (wire.TxWitness, error) {
+func SenderHtlcSpendTimeout(receiverSig []byte,
+	receiverSigHash txscript.SigHashType, signer Signer,
+	signDesc *SignDescriptor, htlcTimeoutTx *wire.MsgTx) (
+	wire.TxWitness, error) {
 
 	sweepSig, err := signer.SignOutputRaw(htlcTimeoutTx, signDesc)
 	if err != nil {
@@ -357,7 +359,7 @@ func SenderHtlcSpendTimeout(receiverSig []byte, signer Signer,
 	// original OP_CHECKMULTISIG.
 	witnessStack := wire.TxWitness(make([][]byte, 5))
 	witnessStack[0] = nil
-	witnessStack[1] = append(receiverSig, byte(txscript.SigHashAll))
+	witnessStack[1] = append(receiverSig, byte(receiverSigHash))
 	witnessStack[2] = append(sweepSig, byte(signDesc.HashType))
 	witnessStack[3] = nil
 	witnessStack[4] = signDesc.WitnessScript
@@ -506,9 +508,10 @@ func ReceiverHTLCScript(cltvExpiry uint32, senderHtlcKey,
 // signed has a relative timelock delay enforced by its sequence number. This
 // delay give the sender of the HTLC enough time to revoke the output if this
 // is a breach commitment transaction.
-func ReceiverHtlcSpendRedeem(senderSig, paymentPreimage []byte,
-	signer Signer, signDesc *SignDescriptor,
-	htlcSuccessTx *wire.MsgTx) (wire.TxWitness, error) {
+func ReceiverHtlcSpendRedeem(senderSig []byte,
+	senderSigHash txscript.SigHashType, paymentPreimage []byte,
+	signer Signer, signDesc *SignDescriptor, htlcSuccessTx *wire.MsgTx) (
+	wire.TxWitness, error) {
 
 	// First, we'll generate a signature for the HTLC success transaction.
 	// The signDesc should be signing with the public key used as the
@@ -524,7 +527,7 @@ func ReceiverHtlcSpendRedeem(senderSig, paymentPreimage []byte,
 	// order to consume the extra pop within OP_CHECKMULTISIG.
 	witnessStack := wire.TxWitness(make([][]byte, 5))
 	witnessStack[0] = nil
-	witnessStack[1] = append(senderSig, byte(txscript.SigHashAll))
+	witnessStack[1] = append(senderSig, byte(senderSigHash))
 	witnessStack[2] = append(sweepSig, byte(signDesc.HashType))
 	witnessStack[3] = paymentPreimage
 	witnessStack[4] = signDesc.WitnessScript

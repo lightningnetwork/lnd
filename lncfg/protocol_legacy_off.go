@@ -15,8 +15,14 @@ func (l *ProtocolOptions) LegacyOnion() bool {
 	return false
 }
 
-// LegacyCommitment returns true if the old commitment format should be used
-// for new funded channels.
-func (l *ProtocolOptions) LegacyCommitment() bool {
+// NoStaticRemoteKey returns true if the old commitment format with a tweaked
+// remote key should be used for new funded channels.
+func (l *ProtocolOptions) NoStaticRemoteKey() bool {
+	return false
+}
+
+// AnchorCommitments returns true if support for the the anchor commitment type
+// should be signaled.
+func (l *ProtocolOptions) AnchorCommitments() bool {
 	return false
 }

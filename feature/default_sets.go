@@ -43,4 +43,8 @@ var defaultSetDesc = setDesc{
 		SetNodeAnn: {}, // N
 		SetInvoice: {}, // 9
 	},
+	lnwire.AnchorsOptional: {
+		SetInit:    {}, // I
+		SetNodeAnn: {}, // N
+	},
 }

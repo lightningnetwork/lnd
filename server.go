@@ -340,10 +340,17 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 		globalFeatures.Set(lnwire.TLVOnionPayloadOptional)
 	}
 
-	// Similarly, we default to the new modern commitment format unless the
-	// legacy commitment config is set to true.
-	if !cfg.ProtocolOptions.LegacyCommitment() {
+	// Similarly, we default to supporting the new modern commitment format
+	// where the remote key is static unless the protocol config is set to
+	// keep using the older format.
+	if !cfg.ProtocolOptions.NoStaticRemoteKey() {
 		globalFeatures.Set(lnwire.StaticRemoteKeyOptional)
+	}
+
+	// We only signal that we support the experimental anchor commitments
+	// if explicitly enabled in the config.
+	if cfg.ProtocolOptions.AnchorCommitments() {
+		globalFeatures.Set(lnwire.AnchorsOptional)
 	}
 
 	var serializedPubKey [33]byte
@@ -376,7 +383,8 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 
 	featureMgr, err := feature.NewManager(feature.Config{
 		NoTLVOnion:        cfg.ProtocolOptions.LegacyOnion(),
-		NoStaticRemoteKey: cfg.ProtocolOptions.LegacyCommitment(),
+		NoStaticRemoteKey: cfg.ProtocolOptions.NoStaticRemoteKey(),
+		NoAnchors:         !cfg.ProtocolOptions.AnchorCommitments(),
 	})
 	if err != nil {
 		return nil, err

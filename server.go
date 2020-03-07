@@ -1965,9 +1965,9 @@ func (s *server) initTorController() error {
 	// create our onion service. The service's private key will be saved to
 	// disk in order to regain access to this service when restarting `lnd`.
 	onionCfg := tor.AddOnionConfig{
-		VirtualPort:    defaultPeerPort,
-		TargetPorts:    listenPorts,
-		PrivateKeyPath: cfg.Tor.PrivateKeyPath,
+		VirtualPort: defaultPeerPort,
+		TargetPorts: listenPorts,
+		Store:       tor.NewOnionFile(cfg.Tor.PrivateKeyPath, 0600),
 	}
 
 	switch {

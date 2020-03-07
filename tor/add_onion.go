@@ -7,6 +7,12 @@ import (
 	"os"
 )
 
+var (
+	// ErrNoPrivateKey is an error returned by the OnionStore.PrivateKey
+	// method when a private key hasn't yet been stored.
+	ErrNoPrivateKey = errors.New("private key not found")
+)
+
 // OnionType denotes the type of the onion service.
 type OnionType int
 
@@ -17,6 +23,60 @@ const (
 	// V3 denotes that the onion service is V3.
 	V3
 )
+
+// OnionStore is a store containing information about a particular onion
+// service.
+type OnionStore interface {
+	// StorePrivateKey stores the private key according to the
+	// implementation of the OnionStore interface.
+	StorePrivateKey(OnionType, []byte) error
+
+	// PrivateKey retrieves a stored private key. If it is not found, then
+	// ErrNoPrivateKey should be returned.
+	PrivateKey(OnionType) ([]byte, error)
+
+	// DeletePrivateKey securely removes the private key from the store.
+	DeletePrivateKey(OnionType) error
+}
+
+// OnionFile is a file-based implementation of the OnionStore interface that
+// stores an onion service's private key.
+type OnionFile struct {
+	privateKeyPath string
+	privateKeyPerm os.FileMode
+}
+
+// A compile-time constraint to ensure OnionFile satisfies the OnionStore
+// interface.
+var _ OnionStore = (*OnionFile)(nil)
+
+// NewOnionFile creates a file-based implementation of the OnionStore interface
+// to store an onion service's private key.
+func NewOnionFile(privateKeyPath string, privateKeyPerm os.FileMode) *OnionFile {
+	return &OnionFile{
+		privateKeyPath: privateKeyPath,
+		privateKeyPerm: privateKeyPerm,
+	}
+}
+
+// StorePrivateKey stores the private key at its expected path.
+func (f *OnionFile) StorePrivateKey(_ OnionType, privateKey []byte) error {
+	return ioutil.WriteFile(f.privateKeyPath, privateKey, f.privateKeyPerm)
+}
+
+// PrivateKey retrieves the private key from its expected path. If the file does
+// not exist, then ErrNoPrivateKey is returned.
+func (f *OnionFile) PrivateKey(_ OnionType) ([]byte, error) {
+	if _, err := os.Stat(f.privateKeyPath); os.IsNotExist(err) {
+		return nil, ErrNoPrivateKey
+	}
+	return ioutil.ReadFile(f.privateKeyPath)
+}
+
+// DeletePrivateKey removes the file containing the private key.
+func (f *OnionFile) DeletePrivateKey(_ OnionType) error {
+	return os.Remove(f.privateKeyPath)
+}
 
 // AddOnionConfig houses all of the required parameters in order to successfully
 // create a new onion service or restore an existing one.
@@ -35,9 +95,12 @@ type AddOnionConfig struct {
 	// port.
 	TargetPorts []int
 
-	// PrivateKeyPath is the full path to where the onion service's private
-	// key is stored. This can be used to restore an existing onion service.
-	PrivateKeyPath string
+	// Store is responsible for storing all onion service related
+	// information.
+	//
+	// NOTE: If not specified, then nothing will be stored, making onion
+	// services unrecoverable after shutdown.
+	Store OnionStore
 }
 
 // AddOnion creates an onion service and returns its onion address. Once
@@ -53,24 +116,31 @@ func (c *Controller) AddOnion(cfg AddOnionConfig) (*OnionAddr, error) {
 		}
 	}
 
-	// We'll start off by checking if the file containing the private key
-	// exists. If it does not, then we should request the server to create
-	// a new onion service and return its private key. Otherwise, we'll
+	// We'll start off by checking if the store contains an existing private
+	// key. If it does not, then we should request the server to create a
+	// new onion service and return its private key. Otherwise, we'll
 	// request the server to recreate the onion server from our private key.
 	var keyParam string
-	if _, err := os.Stat(cfg.PrivateKeyPath); os.IsNotExist(err) {
-		switch cfg.Type {
-		case V2:
-			keyParam = "NEW:RSA1024"
-		case V3:
-			keyParam = "NEW:ED25519-V3"
-		}
-	} else {
-		privateKey, err := ioutil.ReadFile(cfg.PrivateKeyPath)
-		if err != nil {
+	switch cfg.Type {
+	case V2:
+		keyParam = "NEW:RSA1024"
+	case V3:
+		keyParam = "NEW:ED25519-V3"
+	}
+
+	if cfg.Store != nil {
+		privateKey, err := cfg.Store.PrivateKey(cfg.Type)
+		switch err {
+		// Proceed to request a new onion service.
+		case ErrNoPrivateKey:
+
+		// Recover the onion service with the private key found.
+		case nil:
+			keyParam = string(privateKey)
+
+		default:
 			return nil, err
 		}
-		keyParam = string(privateKey)
 	}
 
 	// Now, we'll create a mapping from the virtual port to each target
@@ -126,13 +196,11 @@ func (c *Controller) AddOnion(cfg AddOnionConfig) (*OnionAddr, error) {
 		return nil, errors.New("service id not found in reply")
 	}
 
-	// If a new onion service was created, we'll write its private key to
-	// disk under strict permissions in the event that it needs to be
+	// If a new onion service was created and an onion store was provided,
+	// we'll store its private key to disk in the event that it needs to be
 	// recreated later on.
-	if privateKey, ok := replyParams["PrivateKey"]; ok {
-		err := ioutil.WriteFile(
-			cfg.PrivateKeyPath, []byte(privateKey), 0600,
-		)
+	if privateKey, ok := replyParams["PrivateKey"]; cfg.Store != nil && ok {
+		err := cfg.Store.StorePrivateKey(cfg.Type, []byte(privateKey))
 		if err != nil {
 			return nil, fmt.Errorf("unable to write private key "+
 				"to file: %v", err)

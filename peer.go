@@ -210,14 +210,6 @@ type peer struct {
 	// the connection handshake.
 	remoteFeatures *lnwire.FeatureVector
 
-	// failedChannels is a set that tracks channels we consider `failed`.
-	// This is a temporary measure until we have implemented real failure
-	// handling at the link level, to handle the case where we reconnect to
-	// a peer and try to re-sync a failed channel, triggering a disconnect
-	// loop.
-	// TODO(halseth): remove when link failure is properly handled.
-	failedChannels map[lnwire.ChannelID]struct{}
-
 	// writePool is the task pool to that manages reuse of write buffers.
 	// Write tasks are submitted to the pool in order to conserve the total
 	// number of write buffers allocated at any one time, and decouple write
@@ -274,7 +266,6 @@ func newPeer(conn net.Conn, connReq *connmgr.ConnReq, server *server,
 		localCloseChanReqs: make(chan *htlcswitch.ChanClose),
 		linkFailures:       make(chan linkFailureReport),
 		chanCloseMsgs:      make(chan *closeMsg),
-		failedChannels:     make(map[lnwire.ChannelID]struct{}),
 
 		chanActiveTimeout: chanActiveTimeout,
 
@@ -485,14 +476,6 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) (
 			}
 
 			msgs = append(msgs, chanSync)
-			continue
-		}
-
-		// Also skip adding any channel marked as `failed` for this
-		// session.
-		if _, ok := p.failedChannels[chanID]; ok {
-			peerLog.Warnf("ChannelPoint(%v) is failed, won't "+
-				"start.", chanPoint)
 			continue
 		}
 
@@ -1203,12 +1186,8 @@ func (p *peer) handleError(msg *lnwire.Error) bool {
 	// In the case of an all-zero channel ID we want to forward the error to
 	// all channels with this peer.
 	case msg.ChanID == lnwire.ConnectionWideID:
-		for chanID, chanStream := range p.activeMsgStreams {
+		for _, chanStream := range p.activeMsgStreams {
 			chanStream.AddMsg(msg)
-
-			// Also marked this channel as failed, so we won't try
-			// to restart it on reconnect with this peer.
-			p.failedChannels[chanID] = struct{}{}
 		}
 		return false
 
@@ -1220,9 +1199,6 @@ func (p *peer) handleError(msg *lnwire.Error) bool {
 
 	// If not we hand the error to the channel link for this channel.
 	case p.isActiveChannel(msg.ChanID):
-		// Mark this channel as failed, so we won't try to restart it on
-		// reconnect with this peer.
-		p.failedChannels[msg.ChanID] = struct{}{}
 		return true
 
 	default:

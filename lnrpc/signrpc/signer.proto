@@ -154,7 +154,7 @@ message VerifyMessageResp {
 message SharedKeyRequest {
     // The ephemeral public key to use for the DH key derivation.
     bytes ephemeral_pubkey = 1;
-    
+
     /**
     The optional key locator of the local key that should be used. If this
     parameter is not set then the node's identity private key will be used.

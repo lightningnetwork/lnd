@@ -58,7 +58,7 @@ type Utxo struct {
 // printed in base64.
 func NewUtxoFromProto(utxo *lnrpc.Utxo) *Utxo {
 	return &Utxo{
-		Type:          utxo.Type,
+		Type:          utxo.AddressType,
 		Address:       utxo.Address,
 		AmountSat:     utxo.AmountSat,
 		PkScript:      utxo.PkScript,

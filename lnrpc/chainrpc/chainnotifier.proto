@@ -150,7 +150,7 @@ service ChainNotifier {
     particular transaction by its hash or for an output script by specifying a
     zero hash.
     */
-    rpc RegisterConfirmationsNtfn(ConfRequest) returns (stream ConfEvent);
+    rpc RegisterConfirmationsNtfn (ConfRequest) returns (stream ConfEvent);
 
     /*
     RegisterSpendNtfn is a synchronous response-streaming RPC that registers an
@@ -160,7 +160,7 @@ service ChainNotifier {
     A client can specify whether the spend request should be for a particular
     outpoint  or for an output script by specifying a zero outpoint.
     */
-    rpc RegisterSpendNtfn(SpendRequest) returns (stream SpendEvent);
+    rpc RegisterSpendNtfn (SpendRequest) returns (stream SpendEvent);
 
     /*
     RegisterBlockEpochNtfn is a synchronous response-streaming RPC that
@@ -173,5 +173,5 @@ service ChainNotifier {
     point. This allows clients to be idempotent by ensuring that they do not
     missing processing a single block within the chain.
     */
-    rpc RegisterBlockEpochNtfn(BlockEpoch) returns (stream BlockEpoch);
+    rpc RegisterBlockEpochNtfn (BlockEpoch) returns (stream BlockEpoch);
 }

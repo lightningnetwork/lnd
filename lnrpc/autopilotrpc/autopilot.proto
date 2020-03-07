@@ -11,68 +11,70 @@ service Autopilot {
     /**
     Status returns whether the daemon's autopilot agent is active.
     */
-    rpc Status(StatusRequest) returns (StatusResponse);
+    rpc Status (StatusRequest) returns (StatusResponse);
 
     /**
     ModifyStatus is used to modify the status of the autopilot agent, like
     enabling or disabling it.
     */
-    rpc ModifyStatus(ModifyStatusRequest) returns (ModifyStatusResponse);
+    rpc ModifyStatus (ModifyStatusRequest) returns (ModifyStatusResponse);
 
     /**
     QueryScores queries all available autopilot heuristics, in addition to any
     active combination of these heruristics, for the scores they would give to
     the given nodes.
     */
-    rpc QueryScores(QueryScoresRequest) returns (QueryScoresResponse);
+    rpc QueryScores (QueryScoresRequest) returns (QueryScoresResponse);
 
     /**
     SetScores attempts to set the scores used by the running autopilot agent,
     if the external scoring heuristic is enabled.
     */
-    rpc SetScores(SetScoresRequest) returns (SetScoresResponse);
+    rpc SetScores (SetScoresRequest) returns (SetScoresResponse);
 }
 
-message StatusRequest{
+message StatusRequest {
 }
 
-message StatusResponse{
+message StatusResponse {
     /// Indicates whether the autopilot is active or not.
-    bool active = 1 [json_name = "active"];
+    bool active = 1;
 }
 
-message ModifyStatusRequest{
+message ModifyStatusRequest {
     /// Whether the autopilot agent should be enabled or not.
-    bool enable = 1 [json_name = "enable"];
+    bool enable = 1;
 }
 
-message ModifyStatusResponse {}
+message ModifyStatusResponse {
+}
 
-message QueryScoresRequest{
-    repeated string pubkeys = 1 [json_name = "pubkeys"];
+message QueryScoresRequest {
+    repeated string pubkeys = 1;
 
     /// If set, we will ignore the local channel state when calculating scores.
-    bool ignore_local_state = 2 [json_name = "no_state"];
+    bool ignore_local_state = 2;
 }
 
 message QueryScoresResponse {
     message HeuristicResult {
-        string heuristic = 1 [json_name = "heuristic"];
-        map<string, double> scores= 2 [json_name = "scores"];
+        string heuristic = 1;
+        map<string, double> scores = 2;
     }
 
-    repeated HeuristicResult results = 1 [json_name = "results"];
+    repeated HeuristicResult results = 1;
 }
 
-message SetScoresRequest{
+message SetScoresRequest {
     /// The name of the heuristic to provide scores to.
-    string heuristic = 1 [json_name = "heuristic"];
+    string heuristic = 1;
 
     /**
     A map from hex-encoded public keys to scores. Scores must be in the range
     [0.0, 1.0].
     */
-    map<string, double> scores = 2 [json_name = "scores"];
+    map<string, double> scores = 2;
 }
 
-message SetScoresResponse {}
+message SetScoresResponse {
+}

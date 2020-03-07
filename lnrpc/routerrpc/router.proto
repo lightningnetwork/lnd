@@ -26,7 +26,7 @@ message SendPaymentRequest {
 
     /// The hash to use within the payment's HTLC
     bytes payment_hash = 3;
- 
+
     /**
     The CLTV delta from the current height that should be used to set the
     timelock for the final hop.
@@ -60,15 +60,15 @@ message SendPaymentRequest {
     */
     int64 fee_limit_sat = 7;
 
-     /**
-    The maximum number of millisatoshis that will be paid as a fee of the
-    payment. If this field is left to the default value of 0, only zero-fee
-    routes will be considered. This usually means single hop routes connecting
-    directly to the destination. To send the payment without a fee limit, use
-    max int here.
-    
-    The fields fee_limit_sat and fee_limit_msat are mutually exclusive.
-    */
+    /**
+   The maximum number of millisatoshis that will be paid as a fee of the
+   payment. If this field is left to the default value of 0, only zero-fee
+   routes will be considered. This usually means single hop routes connecting
+   directly to the destination. To send the payment without a fee limit, use
+   max int here.
+   
+   The fields fee_limit_sat and fee_limit_msat are mutually exclusive.
+   */
     int64 fee_limit_msat = 13;
 
     /**
@@ -92,7 +92,7 @@ message SendPaymentRequest {
     /**
     Optional route hints to reach the destination through private channels.
     */
-    repeated lnrpc.RouteHint route_hints = 10 [json_name = "route_hints"];
+    repeated lnrpc.RouteHint route_hints = 10;
 
     /** 
     An optional field that can be used to pass an arbitrary set of TLV records
@@ -136,7 +136,7 @@ enum PaymentState {
     There are more routes to try, but the payment timeout was exceeded.
     */
     FAILED_TIMEOUT = 2;
-    
+
     /**
     All possible routes were tried and failed permanently. Or were no
     routes to the destination at all.
@@ -368,12 +368,12 @@ message ChannelUpdate {
     The fee rate that will be charged per millionth of a satoshi.
     */
     uint32 fee_rate = 9;
-    
+
     /**
     The maximum HTLC value which will be accepted.
     */
     uint64 htlc_maximum_msat = 11;
-    
+
     /**
     The set of data that was appended to this message, some of which we may
     not actually know how to iterate or parse. By holding onto this data, we
@@ -383,78 +383,81 @@ message ChannelUpdate {
     */
     bytes extra_opaque_data = 12;
 }
-message ResetMissionControlRequest{}
+message ResetMissionControlRequest {
+}
 
-message ResetMissionControlResponse{}
+message ResetMissionControlResponse {
+}
 
-message QueryMissionControlRequest {}
+message QueryMissionControlRequest {
+}
 
 /// QueryMissionControlResponse contains mission control state.
 message QueryMissionControlResponse {
     reserved 1;
 
     /// Node pair-level mission control state.
-    repeated PairHistory pairs = 2 [json_name = "pairs"];
+    repeated PairHistory pairs = 2;
 }
 
 /// PairHistory contains the mission control state for a particular node pair.
 message PairHistory {
     /// The source node pubkey of the pair.
-    bytes node_from = 1 [json_name ="node_from"];
-    
+    bytes node_from = 1;
+
     /// The destination node pubkey of the pair.
-    bytes node_to = 2 [json_name="node_to"];
+    bytes node_to = 2;
 
     reserved 3, 4, 5, 6;
 
-    PairData history = 7 [json_name="history"];
+    PairData history = 7;
 }
 
 message PairData {
     /// Time of last failure.
-    int64 fail_time = 1 [json_name = "fail_time"];
+    int64 fail_time = 1;
 
     /**
     Lowest amount that failed to forward rounded to whole sats. This may be
     set to zero if the failure is independent of amount.
     */
-    int64 fail_amt_sat = 2 [json_name = "fail_amt_sat"];
+    int64 fail_amt_sat = 2;
 
     /**
     Lowest amount that failed to forward in millisats. This may be
     set to zero if the failure is independent of amount.
     */
-    int64 fail_amt_msat = 4 [json_name = "fail_amt_msat"];
+    int64 fail_amt_msat = 4;
 
     reserved 3;
 
     /// Time of last success.
-    int64 success_time = 5 [json_name = "success_time"];
+    int64 success_time = 5;
 
     /// Highest amount that we could successfully forward rounded to whole sats.
-    int64 success_amt_sat = 6 [json_name = "success_amt_sat"];
+    int64 success_amt_sat = 6;
 
     /// Highest amount that we could successfully forward in millisats.
-    int64 success_amt_msat = 7 [json_name = "success_amt_msat"];
+    int64 success_amt_msat = 7;
 }
 
-message QueryProbabilityRequest{
+message QueryProbabilityRequest {
     /// The source node pubkey of the pair.
-    bytes from_node = 1 [json_name = "from_node"];
+    bytes from_node = 1;
 
     /// The destination node pubkey of the pair.
-    bytes to_node = 2 [json_name = "to_node"];
+    bytes to_node = 2;
 
     /// The amount for which to calculate a probability.
-    int64 amt_msat = 3 [json_name = "amt_msat"];
+    int64 amt_msat = 3;
 }
 
-message QueryProbabilityResponse{
+message QueryProbabilityResponse {
     /// The success probability for the requested pair.
-    double probability = 1 [json_name = "probability"];
+    double probability = 1;
 
     /// The historical data for the requested pair.
-    PairData history = 2 [json_name = "history"];
+    PairData history = 2;
 }
 
 message BuildRouteRequest {
@@ -496,50 +499,49 @@ service Router {
     PaymentRequest to the final destination. The call returns a stream of
     payment status updates.
     */
-    rpc SendPayment(SendPaymentRequest) returns (stream PaymentStatus);
+    rpc SendPayment (SendPaymentRequest) returns (stream PaymentStatus);
 
     /**
     TrackPayment returns an update stream for the payment identified by the
     payment hash.
     */
-    rpc TrackPayment(TrackPaymentRequest) returns (stream PaymentStatus);
-
+    rpc TrackPayment (TrackPaymentRequest) returns (stream PaymentStatus);
 
     /**
     EstimateRouteFee allows callers to obtain a lower bound w.r.t how much it
     may cost to send an HTLC to the target end destination.
     */
-    rpc EstimateRouteFee(RouteFeeRequest) returns (RouteFeeResponse);
+    rpc EstimateRouteFee (RouteFeeRequest) returns (RouteFeeResponse);
 
     /**
     SendToRoute attempts to make a payment via the specified route. This method
     differs from SendPayment in that it allows users to specify a full route
     manually. This can be used for things like rebalancing, and atomic swaps.
     */
-    rpc SendToRoute(SendToRouteRequest) returns (SendToRouteResponse);
+    rpc SendToRoute (SendToRouteRequest) returns (SendToRouteResponse);
 
     /**
     ResetMissionControl clears all mission control state and starts with a clean
     slate.
     */
-    rpc ResetMissionControl(ResetMissionControlRequest) returns (ResetMissionControlResponse);
-    
+    rpc ResetMissionControl (ResetMissionControlRequest) returns (ResetMissionControlResponse);
+
     /**
     QueryMissionControl exposes the internal mission control state to callers.
     It is a development feature.
     */
-    rpc QueryMissionControl(QueryMissionControlRequest) returns (QueryMissionControlResponse);
+    rpc QueryMissionControl (QueryMissionControlRequest) returns (QueryMissionControlResponse);
 
     /**
     QueryProbability returns the current success probability estimate for a
     given node pair and amount.
     */
-    rpc QueryProbability(QueryProbabilityRequest) returns (QueryProbabilityResponse);
+    rpc QueryProbability (QueryProbabilityRequest) returns (QueryProbabilityResponse);
 
     /**
     BuildRoute builds a fully specified route based on a list of hop public
     keys. It retrieves the relevant channel policies from the graph in order to
     calculate the correct fees and time locks.
     */
-    rpc BuildRoute(BuildRouteRequest) returns (BuildRouteResponse);
+    rpc BuildRoute (BuildRouteRequest) returns (BuildRouteResponse);
 }

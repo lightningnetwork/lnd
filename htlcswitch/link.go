@@ -265,6 +265,10 @@ type ChannelLinkConfig struct {
 	// initiator of the channel.
 	MaxFeeAllocation float64
 
+	// NotifyActiveLink allows the link to tell the ChannelNotifier when a
+	// link is first started.
+	NotifyActiveLink func(wire.OutPoint)
+
 	// NotifyActiveChannel allows the link to tell the ChannelNotifier when
 	// channels becomes active.
 	NotifyActiveChannel func(wire.OutPoint)
@@ -869,6 +873,10 @@ func (l *channelLink) htlcManager() {
 	}()
 
 	l.log.Infof("HTLC manager started, bandwidth=%v", l.Bandwidth())
+
+	// Notify any clients that the link is now in the switch via an
+	// ActiveLinkEvent.
+	l.cfg.NotifyActiveLink(*l.ChannelPoint())
 
 	// TODO(roasbeef): need to call wipe chan whenever D/C?
 

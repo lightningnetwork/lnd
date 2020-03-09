@@ -100,7 +100,11 @@ func testMultiHopLocalForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 		require.NoError(t.t, err)
 	}
 
-	_, err = net.Miner.Node.Generate(defaultCSV)
+	// The sweep is broadcast on the block immediately before the CSV
+	// expires and the commitment was already mined inside
+	// closeChannelAndAssertType(), so mine one block less than defaultCSV
+	// in order to perform mempool assertions.
+	_, err = net.Miner.Node.Generate(defaultCSV - 1)
 	require.NoError(t.t, err)
 
 	_, err = waitForTxInMempool(net.Miner.Node, minerMempoolTimeout)
@@ -108,7 +112,7 @@ func testMultiHopLocalForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 
 	// We'll now mine enough blocks for the HTLC to expire. After this, Bob
 	// should hand off the now expired HTLC output to the utxo nursery.
-	numBlocks := padCLTV(uint32(finalCltvDelta - defaultCSV - 1))
+	numBlocks := padCLTV(uint32(finalCltvDelta - defaultCSV))
 	_, err = net.Miner.Node.Generate(numBlocks)
 	require.NoError(t.t, err)
 

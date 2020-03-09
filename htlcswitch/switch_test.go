@@ -761,8 +761,8 @@ func TestSwitchForwardSettleAfterFullAdd(t *testing.T) {
 	}
 
 	// Send the settle packet again, which should fail.
-	if err := s2.forward(settle); err == nil {
-		t.Fatalf("expected failure when sending duplicate settle " +
+	if err := s2.forward(settle); err != nil {
+		t.Fatalf("expected success when sending duplicate settle " +
 			"with no pending circuit")
 	}
 }

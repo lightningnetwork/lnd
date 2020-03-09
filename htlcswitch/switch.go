@@ -1164,6 +1164,12 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 			return err
 		}
 
+		// closeCircuit returns a nil circuit when a settle packet returns an
+		// ErrUnknownCircuit error upon the inner call to CloseCircuit.
+		if circuit == nil {
+			return nil
+		}
+
 		fail, isFail := htlc.(*lnwire.UpdateFailHTLC)
 		if isFail && !packet.hasSource {
 			switch {
@@ -1394,19 +1400,28 @@ func (s *Switch) closeCircuit(pkt *htlcPacket) (*PaymentCircuit, error) {
 	// Failed to close circuit because it does not exist. This is likely
 	// because the circuit was already successfully closed.
 	case ErrUnknownCircuit:
-		err := fmt.Errorf("Unable to find target channel "+
-			"for HTLC settle/fail: channel ID = %s, "+
-			"HTLC ID = %d", pkt.outgoingChanID,
-			pkt.outgoingHTLCID)
-		log.Error(err)
-
 		if pkt.destRef != nil {
 			// Add this SettleFailRef to the set of pending settle/fail entries
 			// awaiting acknowledgement.
 			s.pendingSettleFails = append(s.pendingSettleFails, *pkt.destRef)
 		}
 
-		return nil, err
+		// If this is a settle, we will not log an error message as settles
+		// are expected to hit the ErrUnknownCircuit case. The only way fails
+		// can hit this case if the link restarts after having just sent a fail
+		// to the switch.
+		_, isSettle := pkt.htlc.(*lnwire.UpdateFulfillHTLC)
+		if !isSettle {
+			err := fmt.Errorf("unable to find target channel "+
+				"for HTLC fail: channel ID = %s, "+
+				"HTLC ID = %d", pkt.outgoingChanID,
+				pkt.outgoingHTLCID)
+			log.Error(err)
+
+			return nil, err
+		}
+
+		return nil, nil
 
 	// Unexpected error.
 	default:

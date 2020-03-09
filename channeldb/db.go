@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec"
@@ -154,15 +153,32 @@ type DB struct {
 	dryRun bool
 }
 
-// Open opens an existing channeldb. Any necessary schemas migrations due to
-// updates will take place as necessary.
+// Open opens or creates channeldb. Any necessary schemas migrations due
+// to updates will take place as necessary.
+// TODO(bhandras): deprecate this function.
 func Open(dbPath string, modifiers ...OptionModifier) (*DB, error) {
-	path := filepath.Join(dbPath, dbName)
+	opts := DefaultOptions()
+	for _, modifier := range modifiers {
+		modifier(&opts)
+	}
 
-	if !fileExists(path) {
-		if err := createChannelDB(dbPath); err != nil {
-			return nil, err
-		}
+	backend, err := kvdb.GetBoltBackend(dbPath, dbName, opts.NoFreelistSync)
+	if err != nil {
+		return nil, err
+	}
+
+	db, err := CreateWithBackend(backend, modifiers...)
+	if err == nil {
+		db.dbPath = dbPath
+	}
+	return db, err
+}
+
+// CreateWithBackend creates channeldb instance using the passed kvdb.Backend.
+// Any necessary schemas migrations due to updates will take place as necessary.
+func CreateWithBackend(backend kvdb.Backend, modifiers ...OptionModifier) (*DB, error) {
+	if err := initChannelDB(backend); err != nil {
+		return nil, err
 	}
 
 	opts := DefaultOptions()
@@ -170,16 +186,8 @@ func Open(dbPath string, modifiers ...OptionModifier) (*DB, error) {
 		modifier(&opts)
 	}
 
-	// Specify bbolt freelist options to reduce heap pressure in case the
-	// freelist grows to be very large.
-	bdb, err := kvdb.Open(kvdb.BoltBackendName, path, opts.NoFreelistSync)
-	if err != nil {
-		return nil, err
-	}
-
 	chanDB := &DB{
-		Backend: bdb,
-		dbPath:  dbPath,
+		Backend: backend,
 		clock:   opts.clock,
 		dryRun:  opts.dryRun,
 	}
@@ -189,7 +197,7 @@ func Open(dbPath string, modifiers ...OptionModifier) (*DB, error) {
 
 	// Synchronize the version of database and apply migrations if needed.
 	if err := chanDB.syncVersions(dbVersions); err != nil {
-		bdb.Close()
+		backend.Close()
 		return nil, err
 	}
 
@@ -251,20 +259,15 @@ func (d *DB) Wipe() error {
 // the case that the target path has not yet been created or doesn't yet exist,
 // then the path is created. Additionally, all required top-level buckets used
 // within the database are created.
-func createChannelDB(dbPath string) error {
-	if !fileExists(dbPath) {
-		if err := os.MkdirAll(dbPath, 0700); err != nil {
-			return err
+func initChannelDB(db kvdb.Backend) error {
+	err := kvdb.Update(db, func(tx kvdb.RwTx) error {
+		meta := &Meta{}
+		// Check if DB is already initialized.
+		err := fetchMeta(meta, tx)
+		if err == nil {
+			return nil
 		}
-	}
 
-	path := filepath.Join(dbPath, dbName)
-	bdb, err := kvdb.Create(kvdb.BoltBackendName, path, true)
-	if err != nil {
-		return err
-	}
-
-	err = kvdb.Update(bdb, func(tx kvdb.RwTx) error {
 		if _, err := tx.CreateTopLevelBucket(openChannelBucket); err != nil {
 			return err
 		}
@@ -331,16 +334,14 @@ func createChannelDB(dbPath string) error {
 			return err
 		}
 
-		meta := &Meta{
-			DbVersionNumber: getLatestDBVersion(dbVersions),
-		}
+		meta.DbVersionNumber = getLatestDBVersion(dbVersions)
 		return putMeta(meta, tx)
 	})
 	if err != nil {
-		return fmt.Errorf("unable to create new channeldb")
+		return fmt.Errorf("unable to create new channeldb: %v", err)
 	}
 
-	return bdb.Close()
+	return nil
 }
 
 // fileExists returns true if the file exists, and false otherwise.

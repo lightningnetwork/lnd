@@ -2171,7 +2171,7 @@ func (c *OpenChannel) AdvanceCommitChainTail(fwdPkg *FwdPkg) error {
 // NextLocalHtlcIndex returns the next unallocated local htlc index. To ensure
 // this always returns the next index that has been not been allocated, this
 // will first try to examine any pending commitments, before falling back to the
-// last locked-in local commitment.
+// last locked-in remote commitment.
 func (c *OpenChannel) NextLocalHtlcIndex() (uint64, error) {
 	// First, load the most recent commit diff that we initiated for the
 	// remote party. If no pending commit is found, this is not treated as
@@ -2187,8 +2187,8 @@ func (c *OpenChannel) NextLocalHtlcIndex() (uint64, error) {
 		return pendingRemoteCommit.Commitment.LocalHtlcIndex, nil
 	}
 
-	// Otherwise, fallback to using the local htlc index of our commitment.
-	return c.LocalCommitment.LocalHtlcIndex, nil
+	// Otherwise, fallback to using the local htlc index of their commitment.
+	return c.RemoteCommitment.LocalHtlcIndex, nil
 }
 
 // LoadFwdPkgs scans the forwarding log for any packages that haven't been

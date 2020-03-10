@@ -2,7 +2,8 @@
 1. [Overview](#overview)
 2. [Getting Started](#getting-started)
 3. [Tor Stream Isolation](#tor-stream-isolation)
-4. [Listening for Inbound Connections](#listening-for-inbound-connections)
+4. [Authentication](#authentication)
+5. [Listening for Inbound Connections](#listening-for-inbound-connections)
 
 ## Overview
 
@@ -78,6 +79,8 @@ Tor:
       --tor.dns=                                              The DNS server as host:port that Tor will use for SRV queries - NOTE must have TCP resolution enabled (default: soa.nodes.lightning.directory:53)
       --tor.streamisolation                                   Enable Tor stream isolation by randomizing user credentials for each connection.
       --tor.control=                                          The host:port that Tor is listening on for Tor control connections (default: localhost:9051)
+      --tor.targetipaddress=                                  IP address that Tor should use as the target of the hidden service
+      --tor.password=                                         The password used to arrive at the HashedControlPassword for the control port. If provided, the HASHEDPASSWORD authentication method will be used instead of the SAFECOOKIE one.
       --tor.v2                                                Automatically set up a v2 onion service to listen for inbound connections
       --tor.v3                                                Automatically set up a v3 onion service to listen for inbound connections
       --tor.privatekeypath=                                   The path to the private key of the onion service being created
@@ -132,6 +135,26 @@ specification of an additional argument:
 ```
 ⛰  ./lnd --tor.active --tor.streamisolation
 ```
+
+## Authentication
+
+In order for `lnd` to communicate with the Tor daemon securely, it must first
+establish an authenticated connection. `lnd` supports the following Tor control
+authentication methods (arguably, from most to least secure):
+
+* `SAFECOOKIE`: This authentication method relies on a cookie created and
+  stored by the Tor daemon and is the default assuming the Tor daemon supports
+  it by specifying `CookieAuthentication 1` in its configuration file.
+* `HASHEDPASSWORD`: This authentication method is stateless as it relies on a
+  password hash scheme and may be useful if the Tor daemon is operating under a
+  separate host from the `lnd` node. The password hash can be obtained through
+  the Tor daemon with `tor --hash-password PASSWORD`, which should then be
+  specified in Tor's configuration file with `HashedControlPassword
+  PASSWORD_HASH`. Finally, to use it within `lnd`, the `--tor.password` flag
+  should be provided with the corresponding password.
+* `NULL`: To bypass any authentication at all, this scheme can be used instead.
+  It doesn't require any additional flags to `lnd` or configuration options to
+  the Tor daemon.
 
 ## Listening for Inbound Connections
 

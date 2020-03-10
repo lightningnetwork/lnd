@@ -36,6 +36,16 @@ const (
 	// must be running on. This is needed in order to create v3 onion
 	// services through Tor's control port.
 	MinTorVersion = "0.3.3.6"
+
+	// authSafeCookie is the name of the SAFECOOKIE authentication method.
+	authSafeCookie = "SAFECOOKIE"
+
+	// authHashedPassword is the name of the HASHEDPASSWORD authentication
+	// method.
+	authHashedPassword = "HASHEDPASSWORD"
+
+	// authNull is the name of the NULL authentication method.
+	authNull = "NULL"
 )
 
 var (
@@ -79,19 +89,30 @@ type Controller struct {
 	// controller connections on.
 	controlAddr string
 
+	// password, if non-empty, signals that the controller should attempt to
+	// authenticate itself with the backing Tor daemon through the
+	// HASHEDPASSWORD authentication method with this value.
+	password string
+
 	// version is the current version of the Tor server.
 	version string
 
-	// The IP address which we tell the Tor server to use to connect to the LND node.
-	// This is required when the Tor server runs on another host, otherwise the service
-	// will not be reachable.
+	// targetIPAddress is the IP address which we tell the Tor server to use
+	// to connect to the LND node.  This is required when the Tor server
+	// runs on another host, otherwise the service will not be reachable.
 	targetIPAddress string
 }
 
 // NewController returns a new Tor controller that will be able to interact with
 // a Tor server.
-func NewController(controlAddr string, targetIPAddress string) *Controller {
-	return &Controller{controlAddr: controlAddr, targetIPAddress: targetIPAddress}
+func NewController(controlAddr string, targetIPAddress string,
+	password string) *Controller {
+
+	return &Controller{
+		controlAddr:     controlAddr,
+		targetIPAddress: targetIPAddress,
+		password:        password,
+	}
 }
 
 // Start establishes and authenticates the connection between the controller and
@@ -168,24 +189,72 @@ func parseTorReply(reply string) map[string]string {
 }
 
 // authenticate authenticates the connection between the controller and the
-// Tor server using the SAFECOOKIE or NULL authentication method.
+// Tor server using either of the following supported authentication methods
+// depending on its configuration: SAFECOOKIE, HASHEDPASSWORD, and NULL.
 func (c *Controller) authenticate() error {
+	protocolInfo, err := c.protocolInfo()
+	if err != nil {
+		return err
+	}
+
+	// With the version retrieved, we'll cache it now in case it needs to be
+	// used later on.
+	c.version = protocolInfo.version()
+
+	switch {
+	// If a password was provided, then we should attempt to use the
+	// HASHEDPASSWORD authentication method.
+	case c.password != "":
+		if !protocolInfo.supportsAuthMethod(authHashedPassword) {
+			return fmt.Errorf("%v authentication method not "+
+				"supported", authHashedPassword)
+		}
+
+		return c.authenticateViaHashedPassword()
+
+	// Otherwise, attempt to authentication via the SAFECOOKIE method as it
+	// provides the most security.
+	case protocolInfo.supportsAuthMethod(authSafeCookie):
+		return c.authenticateViaSafeCookie(protocolInfo)
+
+	// Fallback to the NULL method if any others aren't supported.
+	case protocolInfo.supportsAuthMethod(authNull):
+		return c.authenticateViaNull()
+
+	// No supported authentication methods, fail.
+	default:
+		return errors.New("the Tor server must be configured with " +
+			"NULL, SAFECOOKIE, or HASHEDPASSWORD authentication")
+	}
+}
+
+// authenticateViaNull authenticates the controller with the Tor server using
+// the NULL authentication method.
+func (c *Controller) authenticateViaNull() error {
+	_, _, err := c.sendCommand("AUTHENTICATE")
+	return err
+}
+
+// authenticateViaHashedPassword authenticates the controller with the Tor
+// server using the HASHEDPASSWORD authentication method.
+func (c *Controller) authenticateViaHashedPassword() error {
+	cmd := fmt.Sprintf("AUTHENTICATE \"%s\"", c.password)
+	_, _, err := c.sendCommand(cmd)
+	return err
+}
+
+// authenticateViaSafeCookie authenticates the controller with the Tor server
+// using the SAFECOOKIE authentication method.
+func (c *Controller) authenticateViaSafeCookie(info protocolInfo) error {
 	// Before proceeding to authenticate the connection, we'll retrieve
 	// the authentication cookie of the Tor server. This will be used
 	// throughout the authentication routine. We do this before as once the
 	// authentication routine has begun, it is not possible to retrieve it
 	// mid-way.
-	cookie, err := c.getAuthCookie()
+	cookie, err := c.getAuthCookie(info)
 	if err != nil {
 		return fmt.Errorf("unable to retrieve authentication cookie: "+
 			"%v", err)
-	}
-
-	// If cookie is empty and there's no error, we have a NULL
-	// authentication method that we should use instead.
-	if len(cookie) == 0 {
-		_, _, err := c.sendCommand("AUTHENTICATE")
-		return err
 	}
 
 	// Authenticating using the SAFECOOKIE authentication method is a two
@@ -272,36 +341,15 @@ func (c *Controller) authenticate() error {
 }
 
 // getAuthCookie retrieves the authentication cookie in bytes from the Tor
-// server. Cookie authentication must be enabled for this to work. The boolean
-func (c *Controller) getAuthCookie() ([]byte, error) {
-	// Retrieve the authentication methods currently supported by the Tor
-	// server.
-	authMethods, cookieFilePath, version, err := c.ProtocolInfo()
-	if err != nil {
-		return nil, err
+// server. Cookie authentication must be enabled for this to work.
+func (c *Controller) getAuthCookie(info protocolInfo) ([]byte, error) {
+	// Retrieve the cookie file path from the PROTOCOLINFO reply.
+	cookieFilePath, ok := info["COOKIEFILE"]
+	if !ok {
+		return nil, errors.New("COOKIEFILE not found in PROTOCOLINFO " +
+			"reply")
 	}
-
-	// With the version retrieved, we'll cache it now in case it needs to be
-	// used later on.
-	c.version = version
-
-	// Ensure that the Tor server supports the SAFECOOKIE authentication
-	// method or the NULL method. If NULL, we don't need the cookie info
-	// below this loop, so we just return.
-	safeCookieSupport := false
-	for _, authMethod := range authMethods {
-		if authMethod == "SAFECOOKIE" {
-			safeCookieSupport = true
-		}
-		if authMethod == "NULL" {
-			return nil, nil
-		}
-	}
-
-	if !safeCookieSupport {
-		return nil, errors.New("the Tor server is currently not " +
-			"configured for cookie or null authentication")
-	}
+	cookieFilePath = strings.Trim(cookieFilePath, "\"")
 
 	// Read the cookie from the file and ensure it has the correct length.
 	cookie, err := ioutil.ReadFile(cookieFilePath)
@@ -360,48 +408,36 @@ func supportsV3(version string) error {
 	return nil
 }
 
-// ProtocolInfo returns the different authentication methods supported by the
-// Tor server and the version of the Tor server.
-func (c *Controller) ProtocolInfo() ([]string, string, string, error) {
-	// We'll start off by sending the "PROTOCOLINFO" command to the Tor
-	// server. We should receive a reply of the following format:
-	//
-	//	METHODS=COOKIE,SAFECOOKIE
-	//	COOKIEFILE="/home/user/.tor/control_auth_cookie"
-	//	VERSION Tor="0.3.2.10"
-	//
-	// We're interested in retrieving all of these fields, so we'll parse
-	// our reply to do so.
+// protocolInfo is encompasses the details of a response to a PROTOCOLINFO
+// command.
+type protocolInfo map[string]string
+
+// version returns the Tor version as reported by the server.
+func (i protocolInfo) version() string {
+	version := i["Tor"]
+	return strings.Trim(version, "\"")
+}
+
+// supportsAuthMethod determines whether the Tor server supports the given
+// authentication method.
+func (i protocolInfo) supportsAuthMethod(method string) bool {
+	methods, ok := i["METHODS"]
+	if !ok {
+		return false
+	}
+	return strings.Contains(methods, method)
+}
+
+// protocolInfo sends a "PROTOCOLINFO" command to the Tor server and returns its
+// response.
+func (c *Controller) protocolInfo() (protocolInfo, error) {
 	cmd := fmt.Sprintf("PROTOCOLINFO %d", ProtocolInfoVersion)
 	_, reply, err := c.sendCommand(cmd)
 	if err != nil {
-		return nil, "", "", err
+		return nil, err
 	}
 
-	info := parseTorReply(reply)
-	methods, ok := info["METHODS"]
-	if !ok {
-		return nil, "", "", errors.New("auth methods not found in " +
-			"reply")
-	}
-
-	cookieFile, ok := info["COOKIEFILE"]
-	if !ok && !strings.Contains(methods, "NULL") {
-		return nil, "", "", errors.New("cookie file path not found " +
-			"in reply")
-	}
-
-	version, ok := info["Tor"]
-	if !ok {
-		return nil, "", "", errors.New("Tor version not found in reply")
-	}
-
-	// Finally, we'll clean up the results before returning them.
-	authMethods := strings.Split(methods, ",")
-	cookieFilePath := strings.Trim(cookieFile, "\"")
-	torVersion := strings.Trim(version, "\"")
-
-	return authMethods, cookieFilePath, torVersion, nil
+	return protocolInfo(parseTorReply(reply)), nil
 }
 
 // OnionType denotes the type of the onion service.

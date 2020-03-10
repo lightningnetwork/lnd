@@ -231,6 +231,33 @@ type arbChannel struct {
 	c *ChainArbitrator
 }
 
+// NewAnchorResolutions returns the anchor resolutions for currently valid
+// commitment transactions.
+//
+// NOTE: Part of the ArbChannel interface.
+func (a *arbChannel) NewAnchorResolutions() ([]*lnwallet.AnchorResolution,
+	error) {
+
+	// Get a fresh copy of the database state to base the anchor resolutions
+	// on. Unfortunately the channel instance that we have here isn't the
+	// same instance that is used by the link.
+	chanPoint := a.channel.FundingOutpoint
+
+	channel, err := a.c.chanSource.FetchChannel(chanPoint)
+	if err != nil {
+		return nil, err
+	}
+
+	chanMachine, err := lnwallet.NewLightningChannel(
+		a.c.cfg.Signer, channel, nil,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return chanMachine.NewAnchorResolutions()
+}
+
 // ForceCloseChan should force close the contract that this attendant is
 // watching over. We'll use this when we decide that we need to go to chain. It
 // should in addition tell the switch to remove the corresponding link, such

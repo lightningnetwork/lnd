@@ -13,9 +13,11 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/sweep"
 )
 
 var (
@@ -74,6 +76,10 @@ type ArbChannel interface {
 	// returned summary contains all items needed to eventually resolve all
 	// outputs on chain.
 	ForceCloseChan() (*lnwallet.LocalForceCloseSummary, error)
+
+	// NewAnchorResolutions returns the anchor resolutions for currently
+	// valid commitment transactions.
+	NewAnchorResolutions() ([]*lnwallet.AnchorResolution, error)
 }
 
 // ChannelArbitratorConfig contains all the functionality that the
@@ -847,9 +853,31 @@ func (c *ChannelArbitrator) stateStep(
 	// to be confirmed.
 	case StateCommitmentBroadcasted:
 		switch trigger {
-		// We are waiting for a commitment to be confirmed, so any
-		// other trigger will be ignored.
+
+		// We are waiting for a commitment to be confirmed.
 		case chainTrigger, userTrigger:
+			// The commitment transaction has been broadcast, but it
+			// doesn't necessarily need to be the commitment
+			// transaction version that is going to be confirmed. To
+			// be sure that any of those versions can be anchored
+			// down, we now submit all anchor resolutions to the
+			// sweeper. The sweeper will keep trying to sweep all of
+			// them.
+			//
+			// Note that the sweeper is idempotent. If we ever
+			// happen to end up at this point in the code again, no
+			// harm is done by re-offering the anchors to the
+			// sweeper.
+			anchors, err := c.cfg.Channel.NewAnchorResolutions()
+			if err != nil {
+				return StateError, closeTx, err
+			}
+
+			err = c.sweepAnchors(anchors, triggerHeight)
+			if err != nil {
+				return StateError, closeTx, err
+			}
+
 			nextState = StateCommitmentBroadcasted
 
 		// If this state advance was triggered by any of the
@@ -977,6 +1005,54 @@ func (c *ChannelArbitrator) stateStep(
 		nextState)
 
 	return nextState, closeTx, nil
+}
+
+// sweepAnchors offers all given anchor resolutions to the sweeper. It requests
+// sweeping at the minimum fee rate. This fee rate can be upped manually by the
+// user via the BumpFee rpc.
+func (c *ChannelArbitrator) sweepAnchors(anchors []*lnwallet.AnchorResolution,
+	heightHint uint32) error {
+
+	// Use the chan id as the exclusive group. This prevents any of the
+	// anchors from being batched together.
+	exclusiveGroup := c.cfg.ShortChanID.ToUint64()
+
+	// Retrieve the current minimum fee rate from the sweeper.
+	minFeeRate := c.cfg.Sweeper.RelayFeePerKW()
+
+	for _, anchor := range anchors {
+		log.Debugf("ChannelArbitrator(%v): pre-confirmation sweep of "+
+			"anchor of tx %v", c.cfg.ChanPoint, anchor.CommitAnchor)
+
+		// Prepare anchor output for sweeping.
+		anchorInput := input.MakeBaseInput(
+			&anchor.CommitAnchor,
+			input.CommitmentAnchor,
+			&anchor.AnchorSignDescriptor,
+			heightHint,
+		)
+
+		// Sweep anchor output with the minimum fee rate. This usually
+		// (up to a min relay fee of 3 sat/b) means that the anchor
+		// sweep will be economical. Also signal that this is a force
+		// sweep. If the user decides to bump the fee on the anchor
+		// sweep, it will be swept even if it isn't economical.
+		_, err := c.cfg.Sweeper.SweepInput(
+			&anchorInput,
+			sweep.Params{
+				Fee: sweep.FeePreference{
+					FeeRate: minFeeRate,
+				},
+				Force:          true,
+				ExclusiveGroup: &exclusiveGroup,
+			},
+		)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // launchResolvers updates the activeResolvers list and starts the resolvers.

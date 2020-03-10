@@ -162,6 +162,9 @@ const (
 	// ReportOutputUnencumbered is an uncontested output on the commitment
 	// transaction paying to us directly.
 	ReportOutputUnencumbered
+
+	// ReportOutputAnchor is an anchor output on the commitment tx.
+	ReportOutputAnchor
 )
 
 // ContractReport provides a summary of a commitment tx output.

@@ -2839,6 +2839,22 @@ func (r *rpcServer) arbitratorPopulateForceCloseResp(chanPoint *wire.OutPoint,
 
 			forceClose.PendingHtlcs = append(forceClose.PendingHtlcs, htlc)
 
+		case contractcourt.ReportOutputAnchor:
+			// There are three resolution states for the anchor:
+			// limbo, lost and recovered. Derive the current state
+			// from the limbo and recovered balances.
+			switch {
+
+			case report.RecoveredBalance != 0:
+				forceClose.Anchor = lnrpc.PendingChannelsResponse_ForceClosedChannel_RECOVERED
+
+			case report.LimboBalance != 0:
+				forceClose.Anchor = lnrpc.PendingChannelsResponse_ForceClosedChannel_LIMBO
+
+			default:
+				forceClose.Anchor = lnrpc.PendingChannelsResponse_ForceClosedChannel_LOST
+			}
+
 		default:
 			return fmt.Errorf("unknown report output type: %v",
 				report.Type)
@@ -2846,7 +2862,6 @@ func (r *rpcServer) arbitratorPopulateForceCloseResp(chanPoint *wire.OutPoint,
 
 		forceClose.LimboBalance += int64(report.LimboBalance)
 		forceClose.RecoveredBalance += int64(report.RecoveredBalance)
-
 	}
 
 	return nil

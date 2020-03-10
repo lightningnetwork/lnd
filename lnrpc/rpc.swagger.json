@@ -1534,6 +1534,15 @@
       "default": "RESERVED",
       "description": " - RESERVED: *\nThe numbers assigned in this enumeration match the failure codes as\ndefined in BOLT #4. Because protobuf 3 requires enums to start with 0,\na RESERVED value is added.\n - INTERNAL_FAILURE: *\nAn internal error occurred.\n - UNKNOWN_FAILURE: *\nThe error source is known, but the failure itself couldn't be decoded.\n - UNREADABLE_FAILURE: *\nAn unreadable failure result is returned if the received failure message\ncannot be decrypted. In that case the error source is unknown."
     },
+    "ForceClosedChannelAnchorState": {
+      "type": "string",
+      "enum": [
+        "LIMBO",
+        "RECOVERED",
+        "LOST"
+      ],
+      "default": "LIMBO"
+    },
     "HTLCAttemptHTLCStatus": {
       "type": "string",
       "enum": [
@@ -1630,6 +1639,9 @@
           "items": {
             "$ref": "#/definitions/lnrpcPendingHTLC"
           }
+        },
+        "anchor": {
+          "$ref": "#/definitions/ForceClosedChannelAnchorState"
         }
       }
     },

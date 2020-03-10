@@ -2016,6 +2016,14 @@ message PendingChannelsResponse {
         int64 recovered_balance = 6;
 
         repeated PendingHTLC pending_htlcs = 8;
+
+        enum AnchorState {
+            LIMBO = 0;
+            RECOVERED = 1;
+            LOST = 2;
+        }
+
+        AnchorState anchor = 9;
     }
 
     /// The balance in satoshis encumbered in pending channels

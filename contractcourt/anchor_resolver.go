@@ -3,8 +3,10 @@ package contractcourt
 import (
 	"errors"
 	"io"
+	"sync"
 
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/sweep"
@@ -30,6 +32,13 @@ type anchorResolver struct {
 	// chanPoint is the channel point of the original contract.
 	chanPoint wire.OutPoint
 
+	// currentReport stores the current state of the resolver for reporting
+	// over the rpc interface.
+	currentReport ContractReport
+
+	// reportLock prevents concurrent access to the resolver report.
+	reportLock sync.Mutex
+
 	contractResolverKit
 }
 
@@ -38,12 +47,23 @@ func newAnchorResolver(anchorSignDescriptor input.SignDescriptor,
 	anchor wire.OutPoint, broadcastHeight uint32,
 	chanPoint wire.OutPoint, resCfg ResolverConfig) *anchorResolver {
 
+	amt := btcutil.Amount(anchorSignDescriptor.Output.Value)
+
+	report := ContractReport{
+		Outpoint:         anchor,
+		Type:             ReportOutputAnchor,
+		Amount:           amt,
+		LimboBalance:     amt,
+		RecoveredBalance: 0,
+	}
+
 	r := &anchorResolver{
 		contractResolverKit:  *newContractResolverKit(resCfg),
 		anchorSignDescriptor: anchorSignDescriptor,
 		anchor:               anchor,
 		broadcastHeight:      broadcastHeight,
 		chanPoint:            chanPoint,
+		currentReport:        report,
 	}
 
 	r.initLogger(r)
@@ -101,6 +121,7 @@ func (c *anchorResolver) Resolve() (ContractResolver, error) {
 		}
 	}
 
+	var anchorRecovered bool
 	select {
 	case sweepRes := <-resultChan:
 		switch sweepRes.Err {
@@ -109,6 +130,8 @@ func (c *anchorResolver) Resolve() (ContractResolver, error) {
 		case nil:
 			c.log.Debugf("anchor swept by tx %v",
 				sweepRes.Tx.TxHash())
+
+			anchorRecovered = true
 
 		// Anchor was swept by someone else. This is possible after the
 		// 16 block csv lock.
@@ -136,6 +159,14 @@ func (c *anchorResolver) Resolve() (ContractResolver, error) {
 		return nil, errResolverShuttingDown
 	}
 
+	// Update report to reflect that funds are no longer in limbo.
+	c.reportLock.Lock()
+	if anchorRecovered {
+		c.currentReport.RecoveredBalance = c.currentReport.LimboBalance
+	}
+	c.currentReport.LimboBalance = 0
+	c.reportLock.Unlock()
+
 	c.resolved = true
 	return nil, nil
 }
@@ -154,6 +185,15 @@ func (c *anchorResolver) Stop() {
 // NOTE: Part of the ContractResolver interface.
 func (c *anchorResolver) IsResolved() bool {
 	return c.resolved
+}
+
+// report returns a report on the resolution state of the contract.
+func (c *anchorResolver) report() *ContractReport {
+	c.reportLock.Lock()
+	defer c.reportLock.Unlock()
+
+	reportCopy := c.currentReport
+	return &reportCopy
 }
 
 func (c *anchorResolver) Encode(w io.Writer) error {

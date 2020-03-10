@@ -372,6 +372,13 @@ func fetchContractWriteBucket(tx *bbolt.Tx, scopeKey []byte) (*bbolt.Bucket, err
 func (b *boltArbitratorLog) writeResolver(contractBucket *bbolt.Bucket,
 	res ContractResolver) error {
 
+	// Only persist resolvers that are stateful. Stateless resolvers don't
+	// expose a resolver key.
+	resKey := res.ResolverKey()
+	if resKey == nil {
+		return nil
+	}
+
 	// First, we'll write to the buffer the type of this resolver. Using
 	// this byte, we can later properly deserialize the resolver properly.
 	var (
@@ -399,8 +406,6 @@ func (b *boltArbitratorLog) writeResolver(contractBucket *bbolt.Bucket,
 	if err := res.Encode(&buf); err != nil {
 		return err
 	}
-
-	resKey := res.ResolverKey()
 
 	return contractBucket.Put(resKey, buf.Bytes())
 }

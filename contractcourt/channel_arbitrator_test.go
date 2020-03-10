@@ -83,6 +83,11 @@ func (b *mockArbitratorLog) InsertUnresolvedContracts(
 
 	b.Lock()
 	for _, resolver := range resolvers {
+		resKey := resolver.ResolverKey()
+		if resKey == nil {
+			continue
+		}
+
 		b.resolvers[resolver] = struct{}{}
 	}
 	b.Unlock()

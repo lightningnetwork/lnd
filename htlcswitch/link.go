@@ -419,7 +419,12 @@ func (l *channelLink) Start() error {
 
 	// If the config supplied watchtower client, ensure the channel is
 	// registered before trying to use it during operation.
-	if l.cfg.TowerClient != nil {
+	// TODO(halseth): support anchor types for watchtower.
+	state := l.channel.State()
+	if l.cfg.TowerClient != nil && state.ChanType.HasAnchors() {
+		l.log.Warnf("Skipping tower registration for anchor " +
+			"channel type")
+	} else if l.cfg.TowerClient != nil && !state.ChanType.HasAnchors() {
 		err := l.cfg.TowerClient.RegisterChannel(l.ChanID())
 		if err != nil {
 			return err
@@ -1883,8 +1888,12 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 
 		// If we have a tower client, we'll proceed in backing up the
 		// state that was just revoked.
-		if l.cfg.TowerClient != nil {
-			state := l.channel.State()
+		// TODO(halseth): support anchor types for watchtower.
+		state := l.channel.State()
+		if l.cfg.TowerClient != nil && state.ChanType.HasAnchors() {
+			l.log.Warnf("Skipping tower backup for anchor " +
+				"channel type")
+		} else if l.cfg.TowerClient != nil && !state.ChanType.HasAnchors() {
 			breachInfo, err := lnwallet.NewBreachRetribution(
 				state, state.RemoteCommitment.CommitHeight-1, 0,
 			)

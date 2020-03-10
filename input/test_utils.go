@@ -67,7 +67,7 @@ func (m *MockSigner) SignOutputRaw(tx *wire.MsgTx, signDesc *SignDescriptor) ([]
 
 	sig, err := txscript.RawTxInWitnessSignature(tx, signDesc.SigHashes,
 		signDesc.InputIndex, signDesc.Output.Value, signDesc.WitnessScript,
-		txscript.SigHashAll, privKey)
+		signDesc.HashType, privKey)
 	if err != nil {
 		return nil, err
 	}

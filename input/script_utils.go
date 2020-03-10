@@ -150,6 +150,9 @@ func Ripemd160H(d []byte) []byte {
 //    * The receiver of the HTLC sweeping all the funds in the case that a
 //      revoked commitment transaction bearing this HTLC was broadcast.
 //
+// If confirmedSpend=true, a 1 OP_CSV check will be added to the non-revocation
+// cases, to allow sweeping only after confirmation.
+//
 // Possible Input Scripts:
 //    SENDR: <0> <sendr sig>  <recvr sig> <0> (spend using HTLC timeout transaction)
 //    RECVR: <recvr sig>  <preimage>
@@ -168,9 +171,11 @@ func Ripemd160H(d []byte) []byte {
 //         OP_HASH160 <ripemd160(payment hash)> OP_EQUALVERIFY
 //         OP_CHECKSIG
 //     OP_ENDIF
+//     [1 OP_CHECKSEQUENCEVERIFY OP_DROP] <- if allowing confirmed spend only.
 // OP_ENDIF
 func SenderHTLCScript(senderHtlcKey, receiverHtlcKey,
-	revocationKey *btcec.PublicKey, paymentHash []byte) ([]byte, error) {
+	revocationKey *btcec.PublicKey, paymentHash []byte,
+	confirmedSpend bool) ([]byte, error) {
 
 	builder := txscript.NewScriptBuilder()
 
@@ -242,6 +247,14 @@ func SenderHTLCScript(senderHtlcKey, receiverHtlcKey,
 
 	// Close out the OP_IF statement above.
 	builder.AddOp(txscript.OP_ENDIF)
+
+	// Add 1 block CSV delay if a confirmation is required for the
+	// non-revocation clauses.
+	if confirmedSpend {
+		builder.AddOp(txscript.OP_1)
+		builder.AddOp(txscript.OP_CHECKSEQUENCEVERIFY)
+		builder.AddOp(txscript.OP_DROP)
+	}
 
 	// Close out the OP_IF statement at the top of the script.
 	builder.AddOp(txscript.OP_ENDIF)
@@ -330,8 +343,10 @@ func SenderHtlcSpendRedeem(signer Signer, signDesc *SignDescriptor,
 // HTLC to activate the time locked covenant clause of a soon to be expired
 // HTLC.  This script simply spends the multi-sig output using the
 // pre-generated HTLC timeout transaction.
-func SenderHtlcSpendTimeout(receiverSig []byte, signer Signer,
-	signDesc *SignDescriptor, htlcTimeoutTx *wire.MsgTx) (wire.TxWitness, error) {
+func SenderHtlcSpendTimeout(receiverSig []byte,
+	receiverSigHash txscript.SigHashType, signer Signer,
+	signDesc *SignDescriptor, htlcTimeoutTx *wire.MsgTx) (
+	wire.TxWitness, error) {
 
 	sweepSig, err := signer.SignOutputRaw(htlcTimeoutTx, signDesc)
 	if err != nil {
@@ -344,7 +359,7 @@ func SenderHtlcSpendTimeout(receiverSig []byte, signer Signer,
 	// original OP_CHECKMULTISIG.
 	witnessStack := wire.TxWitness(make([][]byte, 5))
 	witnessStack[0] = nil
-	witnessStack[1] = append(receiverSig, byte(txscript.SigHashAll))
+	witnessStack[1] = append(receiverSig, byte(receiverSigHash))
 	witnessStack[2] = append(sweepSig, byte(signDesc.HashType))
 	witnessStack[3] = nil
 	witnessStack[4] = signDesc.WitnessScript
@@ -361,6 +376,9 @@ func SenderHtlcSpendTimeout(receiverSig []byte, signer Signer,
 //     commitment was broadcast.
 //   * The sender of the HTLC sweeps the HTLC on-chain after the timeout period
 //     of the HTLC has passed.
+//
+// If confirmedSpend=true, a 1 OP_CSV check will be added to the non-revocation
+// cases, to allow sweeping only after confirmation.
 //
 // Possible Input Scripts:
 //    RECVR: <0> <sender sig> <recvr sig> <preimage> (spend using HTLC success transaction)
@@ -381,10 +399,11 @@ func SenderHtlcSpendTimeout(receiverSig []byte, signer Signer,
 //         OP_DROP <cltv expiry> OP_CHECKLOCKTIMEVERIFY OP_DROP
 //         OP_CHECKSIG
 //     OP_ENDIF
+//     [1 OP_CHECKSEQUENCEVERIFY OP_DROP] <- if allowing confirmed spend only.
 // OP_ENDIF
 func ReceiverHTLCScript(cltvExpiry uint32, senderHtlcKey,
 	receiverHtlcKey, revocationKey *btcec.PublicKey,
-	paymentHash []byte) ([]byte, error) {
+	paymentHash []byte, confirmedSpend bool) ([]byte, error) {
 
 	builder := txscript.NewScriptBuilder()
 
@@ -467,6 +486,14 @@ func ReceiverHTLCScript(cltvExpiry uint32, senderHtlcKey,
 	// Close out the inner if statement.
 	builder.AddOp(txscript.OP_ENDIF)
 
+	// Add 1 block CSV delay for non-revocation clauses if confirmation is
+	// required.
+	if confirmedSpend {
+		builder.AddOp(txscript.OP_1)
+		builder.AddOp(txscript.OP_CHECKSEQUENCEVERIFY)
+		builder.AddOp(txscript.OP_DROP)
+	}
+
 	// Close out the outer if statement.
 	builder.AddOp(txscript.OP_ENDIF)
 
@@ -481,9 +508,10 @@ func ReceiverHTLCScript(cltvExpiry uint32, senderHtlcKey,
 // signed has a relative timelock delay enforced by its sequence number. This
 // delay give the sender of the HTLC enough time to revoke the output if this
 // is a breach commitment transaction.
-func ReceiverHtlcSpendRedeem(senderSig, paymentPreimage []byte,
-	signer Signer, signDesc *SignDescriptor,
-	htlcSuccessTx *wire.MsgTx) (wire.TxWitness, error) {
+func ReceiverHtlcSpendRedeem(senderSig []byte,
+	senderSigHash txscript.SigHashType, paymentPreimage []byte,
+	signer Signer, signDesc *SignDescriptor, htlcSuccessTx *wire.MsgTx) (
+	wire.TxWitness, error) {
 
 	// First, we'll generate a signature for the HTLC success transaction.
 	// The signDesc should be signing with the public key used as the
@@ -499,7 +527,7 @@ func ReceiverHtlcSpendRedeem(senderSig, paymentPreimage []byte,
 	// order to consume the extra pop within OP_CHECKMULTISIG.
 	witnessStack := wire.TxWitness(make([][]byte, 5))
 	witnessStack[0] = nil
-	witnessStack[1] = append(senderSig, byte(txscript.SigHashAll))
+	witnessStack[1] = append(senderSig, byte(senderSigHash))
 	witnessStack[2] = append(sweepSig, byte(signDesc.HashType))
 	witnessStack[3] = paymentPreimage
 	witnessStack[4] = signDesc.WitnessScript
@@ -828,18 +856,6 @@ func CommitScriptToSelf(csvTimeout uint32, selfKey, revokeKey *btcec.PublicKey) 
 	return builder.Script()
 }
 
-// CommitScriptUnencumbered constructs the public key script on the commitment
-// transaction paying to the "other" party. The constructed output is a normal
-// p2wkh output spendable immediately, requiring no contestation period.
-func CommitScriptUnencumbered(key *btcec.PublicKey) ([]byte, error) {
-	// This script goes to the "other" party, and is spendable immediately.
-	builder := txscript.NewScriptBuilder()
-	builder.AddOp(txscript.OP_0)
-	builder.AddData(btcutil.Hash160(key.SerializeCompressed()))
-
-	return builder.Script()
-}
-
 // CommitSpendTimeout constructs a valid witness allowing the owner of a
 // particular commitment transaction to spend the output returning settled
 // funds back to themselves after a relative block timeout.  In order to
@@ -946,6 +962,137 @@ func CommitSpendNoDelay(signer Signer, signDesc *SignDescriptor,
 	}
 
 	return witness, nil
+}
+
+// CommitScriptUnencumbered constructs the public key script on the commitment
+// transaction paying to the "other" party. The constructed output is a normal
+// p2wkh output spendable immediately, requiring no contestation period.
+func CommitScriptUnencumbered(key *btcec.PublicKey) ([]byte, error) {
+	// This script goes to the "other" party, and is spendable immediately.
+	builder := txscript.NewScriptBuilder()
+	builder.AddOp(txscript.OP_0)
+	builder.AddData(btcutil.Hash160(key.SerializeCompressed()))
+
+	return builder.Script()
+}
+
+// CommitScriptToRemoteConfirmed constructs the script for the output on the
+// commitment transaction paying to the remote party of said commitment
+// transaction. The money can only be spend after one confirmation.
+//
+// Possible Input Scripts:
+//     SWEEP: <sig>
+//
+// Output Script:
+//	<key> OP_CHECKSIGVERIFY
+//	1 OP_CHECKSEQUENCEVERIFY
+func CommitScriptToRemoteConfirmed(key *btcec.PublicKey) ([]byte, error) {
+	builder := txscript.NewScriptBuilder()
+
+	// Only the given key can spend the output.
+	builder.AddData(key.SerializeCompressed())
+	builder.AddOp(txscript.OP_CHECKSIGVERIFY)
+
+	// Check that the it has one confirmation.
+	builder.AddOp(txscript.OP_1)
+	builder.AddOp(txscript.OP_CHECKSEQUENCEVERIFY)
+
+	return builder.Script()
+}
+
+// CommitSpendToRemoteConfirmed constructs a valid witness allowing a node to
+// spend their settled output on the counterparty's commitment transaction when
+// it has one confirmetion. This is used for the anchor channel type. The
+// spending key will always be non-tweaked for this output type.
+func CommitSpendToRemoteConfirmed(signer Signer, signDesc *SignDescriptor,
+	sweepTx *wire.MsgTx) (wire.TxWitness, error) {
+
+	if signDesc.KeyDesc.PubKey == nil {
+		return nil, fmt.Errorf("cannot generate witness with nil " +
+			"KeyDesc pubkey")
+	}
+
+	// Similar to non delayed output, only a signature is needed.
+	sweepSig, err := signer.SignOutputRaw(sweepTx, signDesc)
+	if err != nil {
+		return nil, err
+	}
+
+	// Finally, we'll manually craft the witness. The witness here is the
+	// signature and the redeem script.
+	witnessStack := make([][]byte, 2)
+	witnessStack[0] = append(sweepSig, byte(signDesc.HashType))
+	witnessStack[1] = signDesc.WitnessScript
+
+	return witnessStack, nil
+}
+
+// CommitScriptAnchor constructs the script for the anchor output spendable by
+// the given key immediately, or by anyone after 16 confirmations.
+//
+// Possible Input Scripts:
+//    By owner:				<sig>
+//    By anyone (after 16 conf):	<emptyvector>
+//
+// Output Script:
+//	<funding_pubkey> OP_CHECKSIG OP_IFDUP
+//	OP_NOTIF
+//	  OP_16 OP_CSV
+//	OP_ENDIF
+func CommitScriptAnchor(key *btcec.PublicKey) ([]byte, error) {
+	builder := txscript.NewScriptBuilder()
+
+	// Spend immediately with key.
+	builder.AddData(key.SerializeCompressed())
+	builder.AddOp(txscript.OP_CHECKSIG)
+
+	// Duplicate the value if true, since it will be consumed by the NOTIF.
+	builder.AddOp(txscript.OP_IFDUP)
+
+	// Otherwise spendable by anyone after 16 confirmations.
+	builder.AddOp(txscript.OP_NOTIF)
+	builder.AddOp(txscript.OP_16)
+	builder.AddOp(txscript.OP_CHECKSEQUENCEVERIFY)
+	builder.AddOp(txscript.OP_ENDIF)
+
+	return builder.Script()
+}
+
+// CommitSpendAnchor constructs a valid witness allowing a node to spend their
+// anchor output on the commitment transaction using their funding key. This is
+// used for the anchor channel type.
+func CommitSpendAnchor(signer Signer, signDesc *SignDescriptor,
+	sweepTx *wire.MsgTx) (wire.TxWitness, error) {
+
+	if signDesc.KeyDesc.PubKey == nil {
+		return nil, fmt.Errorf("cannot generate witness with nil " +
+			"KeyDesc pubkey")
+	}
+
+	// Create a signature.
+	sweepSig, err := signer.SignOutputRaw(sweepTx, signDesc)
+	if err != nil {
+		return nil, err
+	}
+
+	// The witness here is just a signature and the redeem script.
+	witnessStack := make([][]byte, 2)
+	witnessStack[0] = append(sweepSig, byte(signDesc.HashType))
+	witnessStack[1] = signDesc.WitnessScript
+
+	return witnessStack, nil
+}
+
+// CommitSpendAnchorAnyone constructs a witness allowing anyone to spend the
+// anchor output after it has gotten 16 confirmations. Since no signing is
+// required, only knowledge of the redeem script is necessary to spend it.
+func CommitSpendAnchorAnyone(script []byte) (wire.TxWitness, error) {
+	// The witness here is just the redeem script.
+	witnessStack := make([][]byte, 2)
+	witnessStack[0] = nil
+	witnessStack[1] = script
+
+	return witnessStack, nil
 }
 
 // SingleTweakBytes computes set of bytes we call the single tweak. The purpose

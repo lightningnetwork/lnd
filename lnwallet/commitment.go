@@ -5,6 +5,7 @@ import (
 
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -12,6 +13,9 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
+
+// anchorSize is the constant anchor output size.
+const anchorSize = btcutil.Amount(330)
 
 // CommitmentKeyRing holds all derived keys needed to construct commitment and
 // HTLC transactions. The keys are derived differently depending whether the
@@ -183,13 +187,34 @@ type ScriptInfo struct {
 
 // CommitScriptToRemote creates the script that will pay to the non-owner of
 // the commitment transaction, adding a delay to the script based on the
-// channel type.
-func CommitScriptToRemote(_ channeldb.ChannelType, csvTimeout uint32,
-	key *btcec.PublicKey) (*ScriptInfo, error) {
+// channel type. The second return value is the CSV deleay of the output
+// script, what must be satisfied in order to spend the output.
+func CommitScriptToRemote(chanType channeldb.ChannelType,
+	key *btcec.PublicKey) (*ScriptInfo, uint32, error) {
 
+	// If this channel type has anchors, we derive the delayed to_remote
+	// script.
+	if chanType.HasAnchors() {
+		script, err := input.CommitScriptToRemoteConfirmed(key)
+		if err != nil {
+			return nil, 0, err
+		}
+
+		p2wsh, err := input.WitnessScriptHash(script)
+		if err != nil {
+			return nil, 0, err
+		}
+
+		return &ScriptInfo{
+			PkScript:      p2wsh,
+			WitnessScript: script,
+		}, 1, nil
+	}
+
+	// Otherwise the to_remote will be a simple p2wkh.
 	p2wkh, err := input.CommitScriptUnencumbered(key)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	// Since this is a regular P2WKH, the WitnessScipt and PkScript should
@@ -197,7 +222,100 @@ func CommitScriptToRemote(_ channeldb.ChannelType, csvTimeout uint32,
 	return &ScriptInfo{
 		WitnessScript: p2wkh,
 		PkScript:      p2wkh,
-	}, nil
+	}, 0, nil
+}
+
+// HtlcSigHashType returns the sighash type to use for HTLC success and timeout
+// transactions given the channel type.
+func HtlcSigHashType(chanType channeldb.ChannelType) txscript.SigHashType {
+	if chanType.HasAnchors() {
+		return txscript.SigHashSingle | txscript.SigHashAnyOneCanPay
+	}
+
+	return txscript.SigHashAll
+}
+
+// HtlcSecondLevelInputSequence dictates the sequence number we must use on the
+// input to a second level HTLC transaction.
+func HtlcSecondLevelInputSequence(chanType channeldb.ChannelType) uint32 {
+	if chanType.HasAnchors() {
+		return 1
+	}
+
+	return 0
+}
+
+// CommitWeight returns the base commitment weight before adding HTLCs.
+func CommitWeight(chanType channeldb.ChannelType) int64 {
+	// If this commitment has anchors, it will be slightly heavier.
+	if chanType.HasAnchors() {
+		return input.AnchorCommitWeight
+	}
+
+	return input.CommitWeight
+}
+
+// HtlcTimeoutFee returns the fee in satoshis required for an HTLC timeout
+// transaction based on the current fee rate.
+func HtlcTimeoutFee(chanType channeldb.ChannelType,
+	feePerKw chainfee.SatPerKWeight) btcutil.Amount {
+
+	if chanType.HasAnchors() {
+		return feePerKw.FeeForWeight(input.HtlcTimeoutWeightConfirmed)
+	}
+
+	return feePerKw.FeeForWeight(input.HtlcTimeoutWeight)
+}
+
+// HtlcSuccessFee returns the fee in satoshis required for an HTLC success
+// transaction based on the current fee rate.
+func HtlcSuccessFee(chanType channeldb.ChannelType,
+	feePerKw chainfee.SatPerKWeight) btcutil.Amount {
+
+	if chanType.HasAnchors() {
+		return feePerKw.FeeForWeight(input.HtlcSuccessWeightConfirmed)
+	}
+	return feePerKw.FeeForWeight(input.HtlcSuccessWeight)
+}
+
+// CommitScriptAnchors return the scripts to use for the local and remote
+// anchor.
+func CommitScriptAnchors(localChanCfg,
+	remoteChanCfg *channeldb.ChannelConfig) (*ScriptInfo,
+	*ScriptInfo, error) {
+
+	// Helper to create anchor ScriptInfo from key.
+	anchorScript := func(key *btcec.PublicKey) (*ScriptInfo, error) {
+		script, err := input.CommitScriptAnchor(key)
+		if err != nil {
+			return nil, err
+		}
+
+		scriptHash, err := input.WitnessScriptHash(script)
+		if err != nil {
+			return nil, err
+		}
+
+		return &ScriptInfo{
+			PkScript:      scriptHash,
+			WitnessScript: script,
+		}, nil
+	}
+
+	// Get the script used for the anchor output spendable by the local
+	// node.
+	localAnchor, err := anchorScript(localChanCfg.MultiSigKey.PubKey)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// And the anchor spemdable by the remote node.
+	remoteAnchor, err := anchorScript(remoteChanCfg.MultiSigKey.PubKey)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return localAnchor, remoteAnchor, nil
 }
 
 // CommitmentBuilder is a type that wraps the type of channel we are dealing
@@ -216,6 +334,11 @@ type CommitmentBuilder struct {
 
 // NewCommitmentBuilder creates a new CommitmentBuilder from chanState.
 func NewCommitmentBuilder(chanState *channeldb.OpenChannel) *CommitmentBuilder {
+	// The anchor channel type MUST be tweakless.
+	if chanState.ChanType.HasAnchors() && !chanState.ChanType.IsTweakless() {
+		panic("invalid channel type combination")
+	}
+
 	return &CommitmentBuilder{
 		chanState:  chanState,
 		obfuscator: createStateHintObfuscator(chanState),
@@ -248,8 +371,9 @@ type unsignedCommitmentTx struct {
 	// fee is the total fee of the commitment transaction.
 	fee btcutil.Amount
 
-	// ourBalance|theirBalance is the balances of this commitment. This can
-	// be different than the balances before creating the commitment
+	// ourBalance|theirBalance are the balances of this commitment *after*
+	// subtracting commitment fees and anchor outputs. This can be
+	// different than the balances before creating the commitment
 	// transaction as one party must pay the commitment fee.
 	ourBalance   lnwire.MilliSatoshi
 	theirBalance lnwire.MilliSatoshi
@@ -258,7 +382,7 @@ type unsignedCommitmentTx struct {
 // createUnsignedCommitmentTx generates the unsigned commitment transaction for
 // a commitment view and returns it as part of the unsignedCommitmentTx. The
 // passed in balances should be balances *before* subtracting any commitment
-// fees.
+// fees, but after anchor outputs.
 func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 	theirBalance lnwire.MilliSatoshi, isOurs bool,
 	feePerKw chainfee.SatPerKWeight, height uint64,
@@ -272,18 +396,20 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 
 	numHTLCs := int64(0)
 	for _, htlc := range filteredHTLCView.ourUpdates {
-		if htlcIsDust(false, isOurs, feePerKw,
-			htlc.Amount.ToSatoshis(), dustLimit) {
-
+		if htlcIsDust(
+			cb.chanState.ChanType, false, isOurs, feePerKw,
+			htlc.Amount.ToSatoshis(), dustLimit,
+		) {
 			continue
 		}
 
 		numHTLCs++
 	}
 	for _, htlc := range filteredHTLCView.theirUpdates {
-		if htlcIsDust(true, isOurs, feePerKw,
-			htlc.Amount.ToSatoshis(), dustLimit) {
-
+		if htlcIsDust(
+			cb.chanState.ChanType, true, isOurs, feePerKw,
+			htlc.Amount.ToSatoshis(), dustLimit,
+		) {
 			continue
 		}
 
@@ -294,7 +420,8 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 	// on its total weight. Once we have the total weight, we'll multiply
 	// by the current fee-per-kw, then divide by 1000 to get the proper
 	// fee.
-	totalCommitWeight := input.CommitWeight + (input.HTLCWeight * numHTLCs)
+	totalCommitWeight := CommitWeight(cb.chanState.ChanType) +
+		input.HTLCWeight*numHTLCs
 
 	// With the weight known, we can now calculate the commitment fee,
 	// ensuring that we account for any dust outputs trimmed above.
@@ -333,12 +460,14 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 			cb.chanState.ChanType, fundingTxIn(cb.chanState), keyRing,
 			&cb.chanState.LocalChanCfg, &cb.chanState.RemoteChanCfg,
 			ourBalance.ToSatoshis(), theirBalance.ToSatoshis(),
+			numHTLCs,
 		)
 	} else {
 		commitTx, err = CreateCommitTx(
 			cb.chanState.ChanType, fundingTxIn(cb.chanState), keyRing,
 			&cb.chanState.RemoteChanCfg, &cb.chanState.LocalChanCfg,
 			theirBalance.ToSatoshis(), ourBalance.ToSatoshis(),
+			numHTLCs,
 		)
 	}
 	if err != nil {
@@ -356,24 +485,34 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 	// purposes of sorting.
 	cltvs := make([]uint32, len(commitTx.TxOut))
 	for _, htlc := range filteredHTLCView.ourUpdates {
-		if htlcIsDust(false, isOurs, feePerKw,
-			htlc.Amount.ToSatoshis(), dustLimit) {
+		if htlcIsDust(
+			cb.chanState.ChanType, false, isOurs, feePerKw,
+			htlc.Amount.ToSatoshis(), dustLimit,
+		) {
 			continue
 		}
 
-		err := addHTLC(commitTx, isOurs, false, htlc, keyRing)
+		err := addHTLC(
+			commitTx, isOurs, false, htlc, keyRing,
+			cb.chanState.ChanType,
+		)
 		if err != nil {
 			return nil, err
 		}
 		cltvs = append(cltvs, htlc.Timeout)
 	}
 	for _, htlc := range filteredHTLCView.theirUpdates {
-		if htlcIsDust(true, isOurs, feePerKw,
-			htlc.Amount.ToSatoshis(), dustLimit) {
+		if htlcIsDust(
+			cb.chanState.ChanType, true, isOurs, feePerKw,
+			htlc.Amount.ToSatoshis(), dustLimit,
+		) {
 			continue
 		}
 
-		err := addHTLC(commitTx, isOurs, true, htlc, keyRing)
+		err := addHTLC(
+			commitTx, isOurs, true, htlc, keyRing,
+			cb.chanState.ChanType,
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -430,7 +569,8 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 func CreateCommitTx(chanType channeldb.ChannelType,
 	fundingOutput wire.TxIn, keyRing *CommitmentKeyRing,
 	localChanCfg, remoteChanCfg *channeldb.ChannelConfig,
-	amountToLocal, amountToRemote btcutil.Amount) (*wire.MsgTx, error) {
+	amountToLocal, amountToRemote btcutil.Amount,
+	numHTLCs int64) (*wire.MsgTx, error) {
 
 	// First, we create the script for the delayed "pay-to-self" output.
 	// This output has 2 main redemption clauses: either we can redeem the
@@ -452,8 +592,8 @@ func CreateCommitTx(chanType channeldb.ChannelType,
 	}
 
 	// Next, we create the script paying to the remote.
-	toRemoteScript, err := CommitScriptToRemote(
-		chanType, uint32(remoteChanCfg.CsvDelay), keyRing.ToRemoteKey,
+	toRemoteScript, _, err := CommitScriptToRemote(
+		chanType, keyRing.ToRemoteKey,
 	)
 	if err != nil {
 		return nil, err
@@ -466,17 +606,48 @@ func CreateCommitTx(chanType channeldb.ChannelType,
 	commitTx.AddTxIn(&fundingOutput)
 
 	// Avoid creating dust outputs within the commitment transaction.
-	if amountToLocal >= localChanCfg.DustLimit {
+	localOutput := amountToLocal >= localChanCfg.DustLimit
+	if localOutput {
 		commitTx.AddTxOut(&wire.TxOut{
 			PkScript: toLocalScriptHash,
 			Value:    int64(amountToLocal),
 		})
 	}
-	if amountToRemote >= localChanCfg.DustLimit {
+
+	remoteOutput := amountToRemote >= localChanCfg.DustLimit
+	if remoteOutput {
 		commitTx.AddTxOut(&wire.TxOut{
 			PkScript: toRemoteScript.PkScript,
 			Value:    int64(amountToRemote),
 		})
+	}
+
+	// If this channel type has anchors, we'll also add those.
+	if chanType.HasAnchors() {
+		localAnchor, remoteAnchor, err := CommitScriptAnchors(
+			localChanCfg, remoteChanCfg,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		// Add local anchor output only if we have a commitment output
+		// or there are HTLCs.
+		if localOutput || numHTLCs > 0 {
+			commitTx.AddTxOut(&wire.TxOut{
+				PkScript: localAnchor.PkScript,
+				Value:    int64(anchorSize),
+			})
+		}
+
+		// Add anchor output to remote only if they have a commitment
+		// output or there are HTLCs.
+		if remoteOutput || numHTLCs > 0 {
+			commitTx.AddTxOut(&wire.TxOut{
+				PkScript: remoteAnchor.PkScript,
+				Value:    int64(anchorSize),
+			})
+		}
 	}
 
 	return commitTx, nil
@@ -485,13 +656,20 @@ func CreateCommitTx(chanType channeldb.ChannelType,
 // genHtlcScript generates the proper P2WSH public key scripts for the HTLC
 // output modified by two-bits denoting if this is an incoming HTLC, and if the
 // HTLC is being applied to their commitment transaction or ours.
-func genHtlcScript(isIncoming, ourCommit bool, timeout uint32, rHash [32]byte,
+func genHtlcScript(chanType channeldb.ChannelType, isIncoming, ourCommit bool,
+	timeout uint32, rHash [32]byte,
 	keyRing *CommitmentKeyRing) ([]byte, []byte, error) {
 
 	var (
 		witnessScript []byte
 		err           error
 	)
+
+	// Choose scripts based on channel type.
+	confirmedHtlcSpends := false
+	if chanType.HasAnchors() {
+		confirmedHtlcSpends = true
+	}
 
 	// Generate the proper redeem scripts for the HTLC output modified by
 	// two-bits denoting if this is an incoming HTLC, and if the HTLC is
@@ -501,30 +679,37 @@ func genHtlcScript(isIncoming, ourCommit bool, timeout uint32, rHash [32]byte,
 	// transaction. So we need to use the receiver's version of HTLC the
 	// script.
 	case isIncoming && ourCommit:
-		witnessScript, err = input.ReceiverHTLCScript(timeout,
-			keyRing.RemoteHtlcKey, keyRing.LocalHtlcKey,
-			keyRing.RevocationKey, rHash[:])
+		witnessScript, err = input.ReceiverHTLCScript(
+			timeout, keyRing.RemoteHtlcKey, keyRing.LocalHtlcKey,
+			keyRing.RevocationKey, rHash[:], confirmedHtlcSpends,
+		)
 
 	// We're being paid via an HTLC by the remote party, and the HTLC is
 	// being added to their commitment transaction, so we use the sender's
 	// version of the HTLC script.
 	case isIncoming && !ourCommit:
-		witnessScript, err = input.SenderHTLCScript(keyRing.RemoteHtlcKey,
-			keyRing.LocalHtlcKey, keyRing.RevocationKey, rHash[:])
+		witnessScript, err = input.SenderHTLCScript(
+			keyRing.RemoteHtlcKey, keyRing.LocalHtlcKey,
+			keyRing.RevocationKey, rHash[:], confirmedHtlcSpends,
+		)
 
 	// We're sending an HTLC which is being added to our commitment
 	// transaction. Therefore, we need to use the sender's version of the
 	// HTLC script.
 	case !isIncoming && ourCommit:
-		witnessScript, err = input.SenderHTLCScript(keyRing.LocalHtlcKey,
-			keyRing.RemoteHtlcKey, keyRing.RevocationKey, rHash[:])
+		witnessScript, err = input.SenderHTLCScript(
+			keyRing.LocalHtlcKey, keyRing.RemoteHtlcKey,
+			keyRing.RevocationKey, rHash[:], confirmedHtlcSpends,
+		)
 
 	// Finally, we're paying the remote party via an HTLC, which is being
 	// added to their commitment transaction. Therefore, we use the
 	// receiver's version of the HTLC script.
 	case !isIncoming && !ourCommit:
-		witnessScript, err = input.ReceiverHTLCScript(timeout, keyRing.LocalHtlcKey,
-			keyRing.RemoteHtlcKey, keyRing.RevocationKey, rHash[:])
+		witnessScript, err = input.ReceiverHTLCScript(
+			timeout, keyRing.LocalHtlcKey, keyRing.RemoteHtlcKey,
+			keyRing.RevocationKey, rHash[:], confirmedHtlcSpends,
+		)
 	}
 	if err != nil {
 		return nil, nil, err
@@ -549,13 +734,14 @@ func genHtlcScript(isIncoming, ourCommit bool, timeout uint32, rHash [32]byte,
 // the descriptor itself.
 func addHTLC(commitTx *wire.MsgTx, ourCommit bool,
 	isIncoming bool, paymentDesc *PaymentDescriptor,
-	keyRing *CommitmentKeyRing) error {
+	keyRing *CommitmentKeyRing, chanType channeldb.ChannelType) error {
 
 	timeout := paymentDesc.Timeout
 	rHash := paymentDesc.RHash
 
-	p2wsh, witnessScript, err := genHtlcScript(isIncoming, ourCommit,
-		timeout, rHash, keyRing)
+	p2wsh, witnessScript, err := genHtlcScript(
+		chanType, isIncoming, ourCommit, timeout, rHash, keyRing,
+	)
 	if err != nil {
 		return err
 	}

@@ -953,6 +953,43 @@ func testOnchainFundRecovery(net *lntest.NetworkHarness, t *harnessTest) {
 	restoreCheckBalance(6*btcutil.SatoshiPerBitcoin, 6, 20, nil)
 }
 
+// commitType is a simple enum used to run though the basic funding flow with
+// different commitment formats.
+type commitType byte
+
+const (
+	// commitTypeLegacy is the old school commitment type.
+	commitTypeLegacy = iota
+
+	// commiTypeTweakless is the commitment type where the remote key is
+	// static (non-tweaked).
+	commitTypeTweakless
+)
+
+// String returns that name of the commitment type.
+func (c commitType) String() string {
+	switch c {
+	case commitTypeLegacy:
+		return "legacy"
+	case commitTypeTweakless:
+		return "tweakless"
+	default:
+		return "invalid"
+	}
+}
+
+// Args returns the command line flag to supply to enable this commitment type.
+func (c commitType) Args() []string {
+	switch c {
+	case commitTypeLegacy:
+		return []string{"--protocol.committweak"}
+	case commitTypeTweakless:
+		return []string{}
+	}
+
+	return nil
+}
+
 // basicChannelFundingTest is a sub-test of the main testBasicChannelFunding
 // test. Given two nodes: Alice and Bob, it'll assert proper channel creation,
 // then return a function closure that should be called to assert proper
@@ -1049,19 +1086,23 @@ func testBasicChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 
 	ctxb := context.Background()
 
+	// Run through the test with combinations of all the different
+	// commitment types.
+	allTypes := []commitType{
+		commitTypeLegacy,
+		commitTypeTweakless,
+	}
+
 test:
 	// We'll test all possible combinations of the feature bit presence
 	// that both nodes can signal for this new channel type. We'll make a
 	// new Carol+Dave for each test instance as well.
-	for _, carolTweakless := range []bool{true, false} {
-		for _, daveTweakless := range []bool{true, false} {
+	for _, carolCommitType := range allTypes {
+		for _, daveCommitType := range allTypes {
 			// Based on the current tweak variable for Carol, we'll
 			// preferentially signal the legacy commitment format.
 			// We do the same for Dave shortly below.
-			var carolArgs []string
-			if !carolTweakless {
-				carolArgs = []string{"--legacyprotocol.committweak"}
-			}
+			carolArgs := carolCommitType.Args()
 			carol, err := net.NewNode("Carol", carolArgs)
 			if err != nil {
 				t.Fatalf("unable to create new node: %v", err)
@@ -1075,10 +1116,7 @@ test:
 				t.Fatalf("unable to send coins to carol: %v", err)
 			}
 
-			var daveArgs []string
-			if !daveTweakless {
-				daveArgs = []string{"--legacyprotocol.committweak"}
-			}
+			daveArgs := daveCommitType.Args()
 			dave, err := net.NewNode("Dave", daveArgs)
 			if err != nil {
 				t.Fatalf("unable to create new node: %v", err)
@@ -1093,8 +1131,8 @@ test:
 				t.Fatalf("unable to connect peers: %v", err)
 			}
 
-			testName := fmt.Sprintf("carol_tweak=%v,dave_tweak=%v",
-				carolTweakless, daveTweakless)
+			testName := fmt.Sprintf("carol_commit=%v,dave_commit=%v",
+				carolCommitType, daveCommitType)
 
 			ht := t
 			success := t.t.Run(testName, func(t *testing.T) {
@@ -1104,6 +1142,10 @@ test:
 				if err != nil {
 					t.Fatalf("failed funding flow: %v", err)
 				}
+
+				carolTweakless := carolCommitType == commitTypeTweakless
+
+				daveTweakless := daveCommitType == commitTypeTweakless
 
 				tweaklessSignalled := carolTweakless && daveTweakless
 				tweaklessChans := (carolChannel.StaticRemoteKey &&
@@ -4205,7 +4247,7 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	//
 	// First, we'll create Dave and establish a channel to Alice. Dave will
 	// be running an older node that requires the legacy onion payload.
-	daveArgs := []string{"--legacyprotocol.onion"}
+	daveArgs := []string{"--protocol.legacyonion"}
 	dave, err := net.NewNode("Dave", daveArgs)
 	if err != nil {
 		t.Fatalf("unable to create new nodes: %v", err)

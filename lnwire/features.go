@@ -101,6 +101,16 @@ const (
 	// HTLC.
 	MPPOptional FeatureBit = 17
 
+	// AnchorsRequired is a required feature bit that signals that the node
+	// requires channels to be made using commitments having anchor
+	// outputs.
+	AnchorsRequired FeatureBit = 1336
+
+	// AnchorsRequired is an optional feature bit that signals that the
+	// node supports channels to be made using commitments having anchor
+	// outputs.
+	AnchorsOptional FeatureBit = 1337
+
 	// maxAllowedSize is a maximum allowed size of feature vector.
 	//
 	// NOTE: Within the protocol, the maximum allowed message size is 65535
@@ -138,6 +148,8 @@ var Features = map[FeatureBit]string{
 	PaymentAddrRequired:           "payment-addr",
 	MPPOptional:                   "multi-path-payments",
 	MPPRequired:                   "multi-path-payments",
+	AnchorsRequired:               "anchor-commitments",
+	AnchorsOptional:               "anchor-commitments",
 }
 
 // RawFeatureVector represents a set of feature bits as defined in BOLT-09.  A

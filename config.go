@@ -345,7 +345,7 @@ type config struct {
 
 	Watchtower *lncfg.Watchtower `group:"watchtower" namespace:"watchtower"`
 
-	LegacyProtocol *lncfg.LegacyProtocol `group:"legacyprotocol" namespace:"legacyprotocol"`
+	ProtocolOptions *lncfg.ProtocolOptions `group:"protocol" namespace:"protocol"`
 
 	AllowCircularRoute bool `long:"allow-circular-route" description:"If true, our node will allow htlc forwards that arrive and depart on the same channel."`
 }

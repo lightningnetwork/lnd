@@ -851,9 +851,10 @@ func TestCommitmentAndHTLCTransactions(t *testing.T) {
 		// Generate second-level HTLC transactions for HTLCs in
 		// commitment tx.
 		htlcResolutions, err := extractHtlcResolutions(
-			chainfee.SatPerKWeight(test.commitment.FeePerKw), true, signer,
-			htlcs, keys, &channel.channelState.LocalChanCfg,
+			chainfee.SatPerKWeight(test.commitment.FeePerKw), true,
+			signer, htlcs, keys, &channel.channelState.LocalChanCfg,
 			&channel.channelState.RemoteChanCfg, commitTx.TxHash(),
+			channel.channelState.ChanType,
 		)
 		if err != nil {
 			t.Errorf("Case %d: Failed to extract HTLC resolutions: %v", i, err)
@@ -1089,7 +1090,7 @@ func testSpendValidation(t *testing.T, tweakless bool) {
 	}
 	commitmentTx, err := CreateCommitTx(
 		channelType, *fakeFundingTxIn, keyRing, aliceChanCfg,
-		bobChanCfg, channelBalance, channelBalance,
+		bobChanCfg, channelBalance, channelBalance, 0,
 	)
 	if err != nil {
 		t.Fatalf("unable to create commitment transaction: %v", nil)

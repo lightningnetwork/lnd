@@ -397,10 +397,11 @@ func (u *utxoNursery) IncubateOutputs(chanPoint wire.OutPoint,
 
 		// Otherwise, this is actually a kid output as we can sweep it
 		// once the commitment transaction confirms, and the absolute
-		// CLTV lock has expired. We set the CSV delay to zero to
-		// indicate this is actually a CLTV output.
+		// CLTV lock has expired. We set the CSV delay what the
+		// resolution encodes, since the sequence number must be set
+		// accordingly.
 		htlcOutput := makeKidOutput(
-			&htlcRes.ClaimOutpoint, &chanPoint, 0,
+			&htlcRes.ClaimOutpoint, &chanPoint, htlcRes.CsvDelay,
 			input.HtlcOfferedRemoteTimeout,
 			&htlcRes.SweepSignDesc, htlcRes.Expiry,
 		)
@@ -1271,7 +1272,8 @@ type kidOutput struct {
 	// output.
 	//
 	// NOTE: This will be set for: commitment outputs, and incoming HTLC's.
-	// Otherwise, this will be zero.
+	// Otherwise, this will be zero. It will also be non-zero for
+	// commitment types which requires confirmed spends.
 	blocksToMaturity uint32
 
 	// absoluteMaturity is the absolute height that this output will be

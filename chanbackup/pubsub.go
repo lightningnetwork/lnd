@@ -213,6 +213,12 @@ func (s *SubSwapper) backupUpdater() {
 			// For all new open channels, we'll create a new SCB
 			// given the required information.
 			for _, newChan := range chanUpdate.NewChans {
+				// TODO(halseth): support chan backups for
+				// anchor types.
+				if newChan.ChanType.HasAnchors() {
+					continue
+				}
+
 				log.Debugf("Adding channel %v to backup state",
 					newChan.FundingOutpoint)
 

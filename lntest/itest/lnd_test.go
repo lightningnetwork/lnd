@@ -13318,6 +13318,15 @@ func testAbandonChannel(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to find channel")
 	}
 
+	// To make sure the channel is removed from the backup file as well when
+	// being abandoned, grab a backup snapshot so we can compare it with the
+	// later state.
+	bkupBefore, err := ioutil.ReadFile(net.Alice.ChanBackupPath())
+	if err != nil {
+		t.Fatalf("could not get channel backup before abandoning "+
+			"channel: %v", err)
+	}
+
 	// Send request to abandon channel.
 	abandonChannelRequest := &lnrpc.AbandonChannelRequest{
 		ChannelPoint: chanPoint,
@@ -13386,6 +13395,16 @@ func testAbandonChannel(net *lntest.NetworkHarness, t *harnessTest) {
 	if !strings.Contains(err.Error(), "marked as zombie") {
 		t.Fatalf("channel shouldn't be found in the channel " +
 			"graph!")
+	}
+
+	// Make sure the channel is no longer in the channel backup list.
+	bkupAfter, err := ioutil.ReadFile(net.Alice.ChanBackupPath())
+	if err != nil {
+		t.Fatalf("could not get channel backup before abandoning "+
+			"channel: %v", err)
+	}
+	if len(bkupAfter) >= len(bkupBefore) {
+		t.Fatalf("channel wasn't removed from channel backup file")
 	}
 
 	// Calling AbandonChannel again, should result in no new errors, as the
@@ -13690,9 +13709,9 @@ func testChannelBackupUpdates(net *lntest.NetworkHarness, t *harnessTest) {
 		}
 	}
 
-	// As these two channels were just open, we should've got two
-	// notifications for channel backups.
-	assertBackupNtfns(2)
+	// As these two channels were just opened, we should've got two times
+	// the pending and open notifications for channel backups.
+	assertBackupNtfns(2 * 2)
 
 	// The on disk file should also exactly match the latest backup that we
 	// have.
@@ -14002,6 +14021,21 @@ func testChanRestoreScenario(t *harnessTest, net *lntest.NetworkHarness,
 			t.Fatalf("couldn't open pending channel: %v", err)
 		}
 
+		// Give the pubsub some time to update the channel backup.
+		err = wait.NoError(func() error {
+			fi, err := os.Stat(dave.ChanBackupPath())
+			if err != nil {
+				return err
+			}
+			if fi.Size() <= chanbackup.NilMultiSizePacked {
+				return fmt.Errorf("backup file empty")
+			}
+			return nil
+		}, defaultTimeout)
+		if err != nil {
+			t.Fatalf("channel backup not updated in time: %v", err)
+		}
+
 	default:
 		ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
 		chanPoint := openChannelAndAssert(
@@ -14218,7 +14252,7 @@ func testChannelBackupRestore(net *lntest.NetworkHarness, t *harnessTest) {
 				mnemonic []string) (nodeRestorer, error) {
 
 				// Read the entire Multi backup stored within
-				// this node's chaannels.backup file.
+				// this node's channels.backup file.
 				multi, err := ioutil.ReadFile(backupFilePath)
 				if err != nil {
 					return nil, err
@@ -14327,7 +14361,7 @@ func testChannelBackupRestore(net *lntest.NetworkHarness, t *harnessTest) {
 				mnemonic []string) (nodeRestorer, error) {
 
 				// Read the entire Multi backup stored within
-				// this node's chaannels.backup file.
+				// this node's channels.backup file.
 				multi, err := ioutil.ReadFile(backupFilePath)
 				if err != nil {
 					return nil, err
@@ -14382,10 +14416,48 @@ func testChannelBackupRestore(net *lntest.NetworkHarness, t *harnessTest) {
 			},
 		},
 
-		// Create a backup from an unconfirmed channel and make sure
-		// recovery works as well.
+		// Use the channel backup file that contains an unconfirmed
+		// channel and make sure recovery works as well.
 		{
-			name:            "restore unconfirmed channel",
+			name:            "restore unconfirmed channel file",
+			channelsUpdated: false,
+			initiator:       true,
+			private:         false,
+			unconfirmed:     true,
+			restoreMethod: func(oldNode *lntest.HarnessNode,
+				backupFilePath string,
+				mnemonic []string) (nodeRestorer, error) {
+
+				// Read the entire Multi backup stored within
+				// this node's channels.backup file.
+				multi, err := ioutil.ReadFile(backupFilePath)
+				if err != nil {
+					return nil, err
+				}
+
+				// Let's assume time passes, the channel
+				// confirms in the meantime but for some reason
+				// the backup we made while it was still
+				// unconfirmed is the only backup we have. We
+				// should still be able to restore it. To
+				// simulate time passing, we mine some blocks
+				// to get the channel confirmed _after_ we saved
+				// the backup.
+				mineBlocks(t, net, 6, 1)
+
+				// In our nodeRestorer function, we'll restore
+				// the node from seed, then manually recover
+				// the channel backup.
+				return chanRestoreViaRPC(
+					net, password, mnemonic, multi,
+				)
+			},
+		},
+
+		// Create a backup using RPC that contains an unconfirmed
+		// channel and make sure recovery works as well.
+		{
+			name:            "restore unconfirmed channel RPC",
 			channelsUpdated: false,
 			initiator:       true,
 			private:         false,

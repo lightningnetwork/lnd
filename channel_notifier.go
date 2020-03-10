@@ -7,6 +7,7 @@ import (
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/chanbackup"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channelnotifier"
 )
 
@@ -51,6 +52,35 @@ func (c *channelNotifier) SubscribeChans(startingChans map[wire.OutPoint]struct{
 	quit := make(chan struct{})
 	chanUpdates := make(chan chanbackup.ChannelEvent, 1)
 
+	// sendChanOpenUpdate is a closure that sends a ChannelEvent to the
+	// chanUpdates channel to inform subscribers about new pending or
+	// confirmed channels.
+	sendChanOpenUpdate := func(newOrPendingChan *channeldb.OpenChannel) {
+		nodeAddrs, err := c.addrs.AddrsForNode(
+			newOrPendingChan.IdentityPub,
+		)
+		if err != nil {
+			pub := newOrPendingChan.IdentityPub
+			ltndLog.Errorf("unable to fetch addrs for %x: %v",
+				pub.SerializeCompressed(), err)
+		}
+
+		chanEvent := chanbackup.ChannelEvent{
+			NewChans: []chanbackup.ChannelWithAddrs{
+				{
+					OpenChannel: newOrPendingChan,
+					Addrs:       nodeAddrs,
+				},
+			},
+		}
+
+		select {
+		case chanUpdates <- chanEvent:
+		case <-quit:
+			return
+		}
+	}
+
 	// In order to adhere to the interface, we'll proxy the events from the
 	// channel notifier to the sub-swapper in a format it understands.
 	go func() {
@@ -74,37 +104,18 @@ func (c *channelNotifier) SubscribeChans(startingChans map[wire.OutPoint]struct{
 				// TODO(roasbeef): batch dispatch ntnfs
 
 				switch event := e.(type) {
+				// A new channel has been opened and is still
+				// pending. We can still create a backup, even
+				// if the final channel ID is not yet available.
+				case channelnotifier.PendingOpenChannelEvent:
+					pendingChan := event.PendingChannel
+					sendChanOpenUpdate(pendingChan)
 
-				// A new channel has been opened, we'll obtain
-				// the node address, then send to the
+				// A new channel has been confirmed, we'll
+				// obtain the node address, then send to the
 				// sub-swapper.
 				case channelnotifier.OpenChannelEvent:
-					nodeAddrs, err := c.addrs.AddrsForNode(
-						event.Channel.IdentityPub,
-					)
-					if err != nil {
-						pub := event.Channel.IdentityPub
-						ltndLog.Errorf("unable to "+
-							"fetch addrs for %x: %v",
-							pub.SerializeCompressed(),
-							err)
-					}
-
-					channel := event.Channel
-					chanEvent := chanbackup.ChannelEvent{
-						NewChans: []chanbackup.ChannelWithAddrs{
-							{
-								OpenChannel: channel,
-								Addrs:       nodeAddrs,
-							},
-						},
-					}
-
-					select {
-					case chanUpdates <- chanEvent:
-					case <-quit:
-						return
-					}
+					sendChanOpenUpdate(event.Channel)
 
 				// An existing channel has been closed, we'll
 				// send only the chanPoint of the closed

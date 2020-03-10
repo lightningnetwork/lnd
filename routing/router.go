@@ -17,6 +17,7 @@ import (
 
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -302,6 +303,9 @@ type Config struct {
 
 	// PathFindingConfig defines global path finding parameters.
 	PathFindingConfig PathFindingConfig
+
+	// Clock is mockable time provider.
+	Clock clock.Clock
 }
 
 // EdgeLocator is a struct used to identify a specific edge.
@@ -537,7 +541,14 @@ func (r *ChannelRouter) Start() error {
 				PaymentHash: payment.Info.PaymentHash,
 			}
 
-			_, _, err := r.sendPayment(payment.Attempt, lPayment, paySession)
+			// TODO(joostjager): For mpp, possibly relaunch multiple
+			// in-flight htlcs here.
+			var attempt *channeldb.HTLCAttemptInfo
+			if len(payment.Attempts) > 0 {
+				attempt = &payment.Attempts[0]
+			}
+
+			_, _, err := r.sendPayment(attempt, lPayment, paySession)
 			if err != nil {
 				log.Errorf("Resuming payment with hash %v "+
 					"failed: %v.", payment.Info.PaymentHash, err)
@@ -1680,7 +1691,7 @@ func (r *ChannelRouter) preparePayment(payment *LightningPayment) (
 	info := &channeldb.PaymentCreationInfo{
 		PaymentHash:    payment.PaymentHash,
 		Value:          payment.Amount,
-		CreationDate:   time.Now(),
+		CreationTime:   r.cfg.Clock.Now(),
 		PaymentRequest: payment.PaymentRequest,
 	}
 
@@ -1709,7 +1720,7 @@ func (r *ChannelRouter) SendToRoute(hash lntypes.Hash, route *route.Route) (
 	info := &channeldb.PaymentCreationInfo{
 		PaymentHash:    hash,
 		Value:          amt,
-		CreationDate:   time.Now(),
+		CreationTime:   r.cfg.Clock.Now(),
 		PaymentRequest: nil,
 	}
 
@@ -1768,7 +1779,7 @@ func (r *ChannelRouter) SendToRoute(hash lntypes.Hash, route *route.Route) (
 // router will call this method for every payment still in-flight according to
 // the ControlTower.
 func (r *ChannelRouter) sendPayment(
-	existingAttempt *channeldb.PaymentAttemptInfo,
+	existingAttempt *channeldb.HTLCAttemptInfo,
 	payment *LightningPayment, paySession PaymentSession) (
 	[32]byte, *route.Route, error) {
 

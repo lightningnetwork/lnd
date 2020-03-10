@@ -13,9 +13,8 @@ import (
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/routing/route"
-
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/routing/route"
 )
 
 var (
@@ -111,7 +110,13 @@ func TestControlTowerSubscribeSuccess(t *testing.T) {
 	}
 
 	// Mark the payment as successful.
-	if err := pControl.Success(info.PaymentHash, preimg); err != nil {
+	err = pControl.SettleAttempt(
+		info.PaymentHash, attempt.AttemptID,
+		&channeldb.HTLCSettleInfo{
+			Preimage: preimg,
+		},
+	)
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -213,6 +218,15 @@ func testPaymentControlSubscribeFail(t *testing.T, registerAttempt bool) {
 		if err != nil {
 			t.Fatal(err)
 		}
+
+		// Fail the payment attempt.
+		err := pControl.FailAttempt(
+			info.PaymentHash, attempt.AttemptID,
+			&channeldb.HTLCFailInfo{},
+		)
+		if err != nil {
+			t.Fatalf("unable to fail htlc: %v", err)
+		}
 	}
 
 	// Mark the payment as failed.
@@ -298,7 +312,7 @@ func initDB() (*channeldb.DB, error) {
 	return db, err
 }
 
-func genInfo() (*channeldb.PaymentCreationInfo, *channeldb.PaymentAttemptInfo,
+func genInfo() (*channeldb.PaymentCreationInfo, *channeldb.HTLCAttemptInfo,
 	lntypes.Preimage, error) {
 
 	preimage, err := genPreimage()
@@ -311,11 +325,11 @@ func genInfo() (*channeldb.PaymentCreationInfo, *channeldb.PaymentAttemptInfo,
 	return &channeldb.PaymentCreationInfo{
 			PaymentHash:    rhash,
 			Value:          1,
-			CreationDate:   time.Unix(time.Now().Unix(), 0),
+			CreationTime:   time.Unix(time.Now().Unix(), 0),
 			PaymentRequest: []byte("hola"),
 		},
-		&channeldb.PaymentAttemptInfo{
-			PaymentID:  1,
+		&channeldb.HTLCAttemptInfo{
+			AttemptID:  1,
 			SessionKey: priv,
 			Route:      testRoute,
 		}, preimage, nil

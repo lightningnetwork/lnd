@@ -53,7 +53,7 @@ var (
 	}
 )
 
-func makeFakeInfo() (*PaymentCreationInfo, *PaymentAttemptInfo) {
+func makeFakeInfo() (*PaymentCreationInfo, *HTLCAttemptInfo) {
 	var preimg lntypes.Preimage
 	copy(preimg[:], rev[:])
 
@@ -62,14 +62,15 @@ func makeFakeInfo() (*PaymentCreationInfo, *PaymentAttemptInfo) {
 		Value:       1000,
 		// Use single second precision to avoid false positive test
 		// failures due to the monotonic time component.
-		CreationDate:   time.Unix(time.Now().Unix(), 0),
+		CreationTime:   time.Unix(time.Now().Unix(), 0),
 		PaymentRequest: []byte(""),
 	}
 
-	a := &PaymentAttemptInfo{
-		PaymentID:  44,
-		SessionKey: priv,
-		Route:      testRoute,
+	a := &HTLCAttemptInfo{
+		AttemptID:   44,
+		SessionKey:  priv,
+		Route:       testRoute,
+		AttemptTime: time.Unix(100, 0),
 	}
 	return c, a
 }
@@ -109,33 +110,34 @@ func TestSentPaymentSerialization(t *testing.T) {
 	}
 
 	b.Reset()
-	if err := serializePaymentAttemptInfo(&b, s); err != nil {
+	if err := serializeHTLCAttemptInfo(&b, s); err != nil {
 		t.Fatalf("unable to serialize info: %v", err)
 	}
 
-	newAttemptInfo, err := deserializePaymentAttemptInfo(&b)
+	newWireInfo, err := deserializeHTLCAttemptInfo(&b)
 	if err != nil {
 		t.Fatalf("unable to deserialize info: %v", err)
 	}
+	newWireInfo.AttemptID = s.AttemptID
 
 	// First we verify all the records match up porperly, as they aren't
 	// able to be properly compared using reflect.DeepEqual.
-	err = assertRouteEqual(&s.Route, &newAttemptInfo.Route)
+	err = assertRouteEqual(&s.Route, &newWireInfo.Route)
 	if err != nil {
 		t.Fatalf("Routes do not match after "+
 			"serialization/deserialization: %v", err)
 	}
 
 	// Clear routes to allow DeepEqual to compare the remaining fields.
-	newAttemptInfo.Route = route.Route{}
+	newWireInfo.Route = route.Route{}
 	s.Route = route.Route{}
 
-	if !reflect.DeepEqual(s, newAttemptInfo) {
+	if !reflect.DeepEqual(s, newWireInfo) {
 		s.SessionKey.Curve = nil
-		newAttemptInfo.SessionKey.Curve = nil
+		newWireInfo.SessionKey.Curve = nil
 		t.Fatalf("Payments do not match after "+
 			"serialization/deserialization %v vs %v",
-			spew.Sdump(s), spew.Sdump(newAttemptInfo),
+			spew.Sdump(s), spew.Sdump(newWireInfo),
 		)
 	}
 }
@@ -144,7 +146,7 @@ func TestSentPaymentSerialization(t *testing.T) {
 // they are not equal.
 func assertRouteEqual(a, b *route.Route) error {
 	if !reflect.DeepEqual(a, b) {
-		return fmt.Errorf("PaymentAttemptInfos don't match: %v vs %v",
+		return fmt.Errorf("HTLCAttemptInfos don't match: %v vs %v",
 			spew.Sdump(a), spew.Sdump(b))
 	}
 

@@ -178,7 +178,7 @@ type initArgs struct {
 }
 
 type registerArgs struct {
-	a *channeldb.PaymentAttemptInfo
+	a *channeldb.HTLCAttemptInfo
 }
 
 type successArgs struct {
@@ -231,14 +231,15 @@ func (m *mockControlTower) InitPayment(phash lntypes.Hash,
 	}
 
 	m.inflights[phash] = channeldb.InFlightPayment{
-		Info: c,
+		Info:     c,
+		Attempts: make([]channeldb.HTLCAttemptInfo, 0),
 	}
 
 	return nil
 }
 
 func (m *mockControlTower) RegisterAttempt(phash lntypes.Hash,
-	a *channeldb.PaymentAttemptInfo) error {
+	a *channeldb.HTLCAttemptInfo) error {
 
 	m.Lock()
 	defer m.Unlock()
@@ -252,20 +253,20 @@ func (m *mockControlTower) RegisterAttempt(phash lntypes.Hash,
 		return fmt.Errorf("not in flight")
 	}
 
-	p.Attempt = a
+	p.Attempts = append(p.Attempts, *a)
 	m.inflights[phash] = p
 
 	return nil
 }
 
-func (m *mockControlTower) Success(phash lntypes.Hash,
-	preimg lntypes.Preimage) error {
+func (m *mockControlTower) SettleAttempt(phash lntypes.Hash,
+	pid uint64, settleInfo *channeldb.HTLCSettleInfo) error {
 
 	m.Lock()
 	defer m.Unlock()
 
 	if m.success != nil {
-		m.success <- successArgs{preimg}
+		m.success <- successArgs{settleInfo.Preimage}
 	}
 
 	delete(m.inflights, phash)
@@ -309,4 +310,10 @@ func (m *mockControlTower) SubscribePayment(paymentHash lntypes.Hash) (
 	bool, chan PaymentResult, error) {
 
 	return false, nil, errors.New("not implemented")
+}
+
+func (m *mockControlTower) FailAttempt(hash lntypes.Hash, pid uint64,
+	failInfo *channeldb.HTLCFailInfo) error {
+
+	return nil
 }

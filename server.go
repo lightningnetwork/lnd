@@ -740,6 +740,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 		AssumeChannelValid: cfg.Routing.UseAssumeChannelValid(),
 		NextPaymentID:      sequencer.NextID,
 		PathFindingConfig:  pathFindingConfig,
+		Clock:              clock.NewDefaultClock(),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("can't create router: %v", err)

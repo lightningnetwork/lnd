@@ -575,10 +575,6 @@ func (c *ChannelArbitrator) Report() []*ContractReport {
 			continue
 		}
 
-		if r.IsResolved() {
-			continue
-		}
-
 		report := r.report()
 		if report == nil {
 			continue

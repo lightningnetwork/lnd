@@ -2005,7 +2005,7 @@ func TestRemoteCloseInitiator(t *testing.T) {
 
 			// First, create alice's channel.
 			alice, _, cleanUp, err := lnwallet.CreateTestChannels(
-				true,
+				channeldb.SingleFunderTweaklessBit,
 			)
 			if err != nil {
 				t.Fatalf("unable to create test channels: %v",

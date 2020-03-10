@@ -1,4 +1,4 @@
-package lnwallet_test
+package input_test
 
 import (
 	"testing"
@@ -68,6 +68,68 @@ func TestTxWeightEstimator(t *testing.T) {
 		numP2WSHOutputs      int
 		numP2SHOutputs       int
 	}{
+		// Assert base txn size.
+		{},
+
+		// Assert single input/output sizes.
+		{
+			numP2PKHInputs: 1,
+		},
+		{
+			numP2WKHInputs: 1,
+		},
+		{
+			numP2WSHInputs: 1,
+		},
+		{
+			numNestedP2WKHInputs: 1,
+		},
+		{
+			numNestedP2WSHInputs: 1,
+		},
+		{
+			numP2WKHOutputs: 1,
+		},
+		{
+			numP2PKHOutputs: 1,
+		},
+		{
+			numP2WSHOutputs: 1,
+		},
+		{
+			numP2SHOutputs: 1,
+		},
+
+		// Assert each input/output increments input/output counts.
+		{
+			numP2PKHInputs: 253,
+		},
+		{
+			numP2WKHInputs: 253,
+		},
+		{
+			numP2WSHInputs: 253,
+		},
+		{
+			numNestedP2WKHInputs: 253,
+		},
+		{
+			numNestedP2WSHInputs: 253,
+		},
+		{
+			numP2WKHOutputs: 253,
+		},
+		{
+			numP2PKHOutputs: 253,
+		},
+		{
+			numP2WSHOutputs: 253,
+		},
+		{
+			numP2SHOutputs: 253,
+		},
+
+		// Assert basic combinations of inputs and outputs.
 		{
 			numP2PKHInputs:  1,
 			numP2PKHOutputs: 2,
@@ -103,6 +165,35 @@ func TestTxWeightEstimator(t *testing.T) {
 		{
 			numNestedP2WSHInputs: 1,
 			numP2WKHOutputs:      1,
+		},
+
+		// Assert disparate input/output types increment total
+		// input/output counts.
+		{
+			numP2PKHInputs:       50,
+			numP2WKHInputs:       50,
+			numP2WSHInputs:       51,
+			numNestedP2WKHInputs: 51,
+			numNestedP2WSHInputs: 51,
+			numP2WKHOutputs:      1,
+		},
+		{
+			numP2WKHInputs:  1,
+			numP2WKHOutputs: 63,
+			numP2PKHOutputs: 63,
+			numP2WSHOutputs: 63,
+			numP2SHOutputs:  64,
+		},
+		{
+			numP2PKHInputs:       50,
+			numP2WKHInputs:       50,
+			numP2WSHInputs:       51,
+			numNestedP2WKHInputs: 51,
+			numNestedP2WSHInputs: 51,
+			numP2WKHOutputs:      63,
+			numP2PKHOutputs:      63,
+			numP2WSHOutputs:      63,
+			numP2SHOutputs:       64,
 		},
 	}
 

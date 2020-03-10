@@ -38,7 +38,7 @@ const (
 
 	// NestedP2WSHSize 35 bytes
 	//      - OP_DATA: 1 byte (P2WSHSize)
-	//      - P2WSHWitnessProgram: 35 bytes
+	//      - P2WSHWitnessProgram: 34 bytes
 	NestedP2WSHSize = 1 + P2WSHSize
 
 	// P2PKHOutputSize 34 bytes

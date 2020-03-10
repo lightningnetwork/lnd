@@ -280,3 +280,11 @@ func TestTxWeightEstimator(t *testing.T) {
 		}
 	}
 }
+
+// TestSizes guards calculated constants to make sure their values remain
+// unchanged.
+func TestSizes(t *testing.T) {
+	if input.AnchorWitnessSize != 116 {
+		t.Fatal("unexpected anchor witness size")
+	}
+}

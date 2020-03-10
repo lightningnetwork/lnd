@@ -390,6 +390,8 @@ func (w *WalletKit) PendingSweeps(ctx context.Context,
 			witnessType = WitnessType_WITNESS_KEY_HASH
 		case input.NestedWitnessKeyHash:
 			witnessType = WitnessType_NESTED_WITNESS_KEY_HASH
+		case input.CommitmentAnchor:
+			witnessType = WitnessType_COMMITMENT_ANCHOR
 		default:
 			log.Warnf("Unhandled witness type %v for input %v",
 				pendingInput.WitnessType, pendingInput.OutPoint)

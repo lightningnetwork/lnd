@@ -141,9 +141,10 @@ var _ autopilot.ChannelController = (*chanController)(nil)
 func initAutoPilot(svr *server, cfg *autoPilotConfig, chainCfg *chainConfig) (
 	*autopilot.ManagerCfg, error) {
 
-	atplLog.Infof("Instantiating autopilot with max_channels=%d, allocation=%f, "+
-		"min_chan_size=%d, max_chan_size=%d, private=%t, min_confs=%d, "+
-		"conf_target=%d", cfg.MaxChannels, cfg.Allocation, cfg.MinChannelSize,
+	atplLog.Infof("Instantiating autopilot with active=%v, "+
+		"max_channels=%d, allocation=%f, min_chan_size=%d, "+
+		"max_chan_size=%d, private=%t, min_confs=%d, conf_target=%d",
+		cfg.Active, cfg.MaxChannels, cfg.Allocation, cfg.MinChannelSize,
 		cfg.MaxChannelSize, cfg.Private, cfg.MinConfs, cfg.ConfTarget)
 
 	// Set up the constraints the autopilot heuristics must adhere to.

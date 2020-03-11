@@ -43,6 +43,7 @@ jobs:
         - make unit pkg=... case=_NONE_
         - make lint
         - make btcd
+        - LNDBUILDSYS=windows-amd64 bash ./build/release/release.sh
     - stage: Test
       script: make travis-cover
       name: Unit Cover

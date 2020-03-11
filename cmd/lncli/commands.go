@@ -1807,7 +1807,11 @@ func unlock(ctx *cli.Context) error {
 	// lncli.
 	default:
 		fmt.Printf("Input wallet password: ")
-		pw, err = terminal.ReadPassword(syscall.Stdin)
+
+		// The variable syscall.Stdin is of a different type in the
+		// Windows API that's why we need the explicit cast. And of
+		// course the linter doesn't like it either.
+		pw, err = terminal.ReadPassword(int(syscall.Stdin)) // nolint:unconvert
 		fmt.Println()
 	}
 	if err != nil {

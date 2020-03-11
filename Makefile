@@ -178,7 +178,7 @@ rpc-format:
 	@$(call print, "Formatting protos.")
 	cd ./lnrpc; find . -name "*.proto" | xargs clang-format --style=file -i
 
-rpc-check: rpc-format rpc
+rpc-check: rpc
 	@$(call print, "Verifying protos.")
 	if test -n "$$(git describe --dirty | grep dirty)"; then echo "Protos not properly formatted or not compiled with v3.4.0"; git status; git diff; exit 1; fi
 

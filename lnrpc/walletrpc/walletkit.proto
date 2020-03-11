@@ -248,7 +248,7 @@ service WalletKit {
 
     /**
     DeriveKey attempts to derive an arbitrary key specified by the passed
-    KeyLocator. 
+    KeyLocator.
     */
     rpc DeriveKey (signrpc.KeyLocator) returns (signrpc.KeyDescriptor);
 

@@ -11,6 +11,8 @@
 - [ ] Any new logging statements use an appropriate subsystem and
   logging level
 - [ ] Code has been formatted with `go fmt`
+- [ ] Protobuf files (`lnrpc/**/*.proto`) have been formatted with
+  `make rpc-format` and compiled with `make rpc`
 - [ ] For code and documentation: lines are wrapped at 80 characters
   (the tab character should be counted as 8 characters, not 4, as some IDEs do
   per default)

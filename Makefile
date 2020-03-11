@@ -174,6 +174,14 @@ rpc:
 	@$(call print, "Compiling protos.")
 	cd ./lnrpc; ./gen_protos.sh
 
+rpc-format:
+	@$(call print, "Formatting protos.")
+	cd ./lnrpc; find . -name "*.proto" | xargs clang-format --style=file -i
+
+rpc-check: rpc-format rpc
+	@$(call print, "Verifying protos.")
+	if test -n "$$(git describe --dirty | grep dirty)"; then echo "Protos not properly formatted or not compiled with v3.4.0"; git status; git diff; exit 1; fi
+
 mobile-rpc:
 	@$(call print, "Creating mobile RPC from protos.")
 	cd ./mobile; ./gen_bindings.sh
@@ -223,6 +231,8 @@ clean:
 	lint \
 	list \
 	rpc \
+	rpc-format \
+	rpc-check \
 	mobile-rpc \
 	vendor \
 	ios \

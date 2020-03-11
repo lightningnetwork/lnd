@@ -106,7 +106,8 @@ type ConfDetails struct {
 	RawTx []byte `protobuf:"bytes,1,opt,name=raw_tx,json=rawTx,proto3" json:"raw_tx,omitempty"`
 	// The hash of the block in which the confirmed transaction was included in.
 	BlockHash []byte `protobuf:"bytes,2,opt,name=block_hash,json=blockHash,proto3" json:"block_hash,omitempty"`
-	// The height of the block in which the confirmed transaction was included in.
+	// The height of the block in which the confirmed transaction was included
+	// in.
 	BlockHeight uint32 `protobuf:"varint,3,opt,name=block_height,json=blockHeight,proto3" json:"block_height,omitempty"`
 	// The index of the confirmed transaction within the transaction.
 	TxIndex              uint32   `protobuf:"varint,4,opt,name=tx_index,json=txIndex,proto3" json:"tx_index,omitempty"`

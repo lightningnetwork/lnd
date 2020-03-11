@@ -202,7 +202,8 @@ type SignDescriptor struct {
 	//only be populated if a p2wsh or a p2sh output is being signed.
 	WitnessScript []byte `protobuf:"bytes,4,opt,name=witness_script,json=witnessScript,proto3" json:"witness_script,omitempty"`
 	//*
-	//A description of the output being spent. The value and script MUST be provided.
+	//A description of the output being spent. The value and script MUST be
+	//provided.
 	Output *TxOut `protobuf:"bytes,5,opt,name=output,proto3" json:"output,omitempty"`
 	//*
 	//The target sighash type that should be used when generating the final

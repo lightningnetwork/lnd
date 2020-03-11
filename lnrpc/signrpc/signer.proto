@@ -19,7 +19,7 @@ message KeyDescriptor {
     */
     bytes raw_key_bytes = 1;
 
-    /** 
+    /**
     The key locator that identifies which key to use for signing. Either this
     or the raw bytes of the target key must be specified.
     */
@@ -58,7 +58,7 @@ message SignDescriptor {
     commitment secret from a previously revoked commitment transaction. This
     value is in combination with two hash values, and the original private key
     to derive the private key to be used when signing.
-   
+
      * k = (privKey*sha256(pubKey || tweakPub) +
            tweakPriv*sha256(tweakPub || pubKey)) mod N
     */
@@ -71,7 +71,8 @@ message SignDescriptor {
     bytes witness_script = 4;
 
     /**
-    A description of the output being spent. The value and script MUST be provided.
+    A description of the output being spent. The value and script MUST be
+    provided.
     */
     TxOut output = 5;
 
@@ -173,8 +174,8 @@ service Signer {
     set of inputs/outputs to a transaction. Each request specifies details
     concerning how the outputs should be signed, which keys they should be
     signed with, and also any optional tweaks. The return value is a fixed
-    64-byte signature (the same format as we use on the wire in Lightning). 
-    
+    64-byte signature (the same format as we use on the wire in Lightning).
+
     If we are  unable to sign using the specified keys, then an error will be
     returned.
     */
@@ -197,7 +198,7 @@ service Signer {
     /**
     SignMessage signs a message with the key specified in the key locator. The
     returned signature is fixed-size LN wire format encoded.
-    
+
     The main difference to SignMessage in the main RPC is that a specific key is
     used to sign the message instead of the node identity private key.
     */
@@ -206,7 +207,7 @@ service Signer {
     /**
     VerifyMessage verifies a signature over a message using the public key
     provided. The signature must be fixed-size LN wire format encoded.
-    
+
     The main difference to VerifyMessage in the main RPC is that the public key
     used to sign the message does not have to be a node known to the network.
     */
@@ -218,7 +219,7 @@ service Signer {
     key specified in the key_loc parameter (or the node's identity private key
     if no key locator is specified):
         P_shared = privKeyNode * ephemeralPubkey
-    The resulting shared public key is serialized in the compressed format and 
+    The resulting shared public key is serialized in the compressed format and
     hashed with sha256, resulting in the final key length of 256bit.
     */
     rpc DeriveSharedKey (SharedKeyRequest) returns (SharedKeyResponse);

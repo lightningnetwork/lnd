@@ -15,10 +15,11 @@ service Invoices {
     to notify the client of state transitions of the specified invoice.
     Initially the current invoice state is always sent out.
     */
-    rpc SubscribeSingleInvoice (SubscribeSingleInvoiceRequest) returns (stream lnrpc.Invoice);
+    rpc SubscribeSingleInvoice (SubscribeSingleInvoiceRequest)
+        returns (stream lnrpc.Invoice);
 
     /**
-    CancelInvoice cancels a currently open invoice. If the invoice is already 
+    CancelInvoice cancels a currently open invoice. If the invoice is already
     canceled, this call will succeed. If the invoice is already settled, it will
     fail.
     */
@@ -106,7 +107,8 @@ message AddHoldInvoiceResp {
 }
 
 message SettleInvoiceMsg {
-    /// Externally discovered pre-image that should be used to settle the hold invoice.
+    /// Externally discovered pre-image that should be used to settle the hold
+    /// invoice.
     bytes preimage = 1;
 }
 

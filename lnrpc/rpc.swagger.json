@@ -1603,6 +1603,23 @@
         }
       }
     },
+    "PendingChannelsResponseCommitments": {
+      "type": "object",
+      "properties": {
+        "local_txid": {
+          "type": "string",
+          "description": "/ Hash of the local version of the commitment tx."
+        },
+        "remote_txid": {
+          "type": "string",
+          "description": "/ Hash of the remote version of the commitment tx."
+        },
+        "remote_pending_txid": {
+          "type": "string",
+          "description": "/ Hash of the remote pending version of the commitment tx."
+        }
+      }
+    },
     "PendingChannelsResponseForceClosedChannel": {
       "type": "object",
       "properties": {
@@ -1718,6 +1735,10 @@
           "type": "string",
           "format": "int64",
           "title": "/ The balance in satoshis encumbered in this channel"
+        },
+        "commitments": {
+          "$ref": "#/definitions/PendingChannelsResponseCommitments",
+          "description": "*\nA list of valid commitment transactions. Any of these can confirm at\nthis point."
         }
       }
     },

@@ -2756,6 +2756,43 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 	for _, waitingClose := range waitingCloseChans {
 		pub := waitingClose.IdentityPub.SerializeCompressed()
 		chanPoint := waitingClose.FundingOutpoint
+
+		var commitments lnrpc.PendingChannelsResponse_Commitments
+
+		// Report local commit. May not be present when DLP is active.
+		if waitingClose.LocalCommitment.CommitTx != nil {
+			commitments.LocalTxid =
+				waitingClose.LocalCommitment.CommitTx.TxHash().
+					String()
+		}
+
+		// Report remote commit. May not be present when DLP is active.
+		if waitingClose.RemoteCommitment.CommitTx != nil {
+			commitments.RemoteTxid =
+				waitingClose.RemoteCommitment.CommitTx.TxHash().
+					String()
+		}
+
+		// Report the remote pending commit if any.
+		remoteCommitDiff, err := waitingClose.RemoteCommitChainTip()
+
+		switch {
+
+		// Don't set hash if there is no pending remote commit.
+		case err == channeldb.ErrNoPendingCommit:
+
+		// An unexpected error occurred.
+		case err != nil:
+			return nil, err
+
+		// There is a pending remote commit. Set its hash in the
+		// response.
+		default:
+			hash := remoteCommitDiff.Commitment.CommitTx.TxHash()
+			commitments.RemotePendingTxid = hash.String()
+
+		}
+
 		channel := &lnrpc.PendingChannelsResponse_PendingChannel{
 			RemoteNodePub:        hex.EncodeToString(pub),
 			ChannelPoint:         chanPoint.String(),
@@ -2766,14 +2803,16 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 			RemoteChanReserveSat: int64(waitingClose.RemoteChanCfg.ChanReserve),
 		}
 
+		waitingCloseResp := &lnrpc.PendingChannelsResponse_WaitingCloseChannel{
+			Channel:      channel,
+			LimboBalance: channel.LocalBalance,
+			Commitments:  &commitments,
+		}
+
 		// A close tx has been broadcasted, all our balance will be in
 		// limbo until it confirms.
 		resp.WaitingCloseChannels = append(
-			resp.WaitingCloseChannels,
-			&lnrpc.PendingChannelsResponse_WaitingCloseChannel{
-				Channel:      channel,
-				LimboBalance: channel.LocalBalance,
-			},
+			resp.WaitingCloseChannels, waitingCloseResp,
 		)
 
 		resp.TotalLimboBalance += channel.LocalBalance

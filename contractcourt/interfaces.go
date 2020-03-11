@@ -9,6 +9,7 @@ import (
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/sweep"
 )
@@ -51,4 +52,8 @@ type UtxoSweeper interface {
 	// estimate before generating the required witnesses.
 	CreateSweepTx(inputs []input.Input, feePref sweep.FeePreference,
 		currentBlockHeight uint32) (*wire.MsgTx, error)
+
+	// RelayFeePerKW returns the minimum fee rate required for transactions
+	// to be relayed.
+	RelayFeePerKW() chainfee.SatPerKWeight
 }

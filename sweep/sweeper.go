@@ -384,6 +384,12 @@ func (s *UtxoSweeper) Start() error {
 	return nil
 }
 
+// RelayFeePerKW returns the minimum fee rate required for transactions to be
+// relayed.
+func (s *UtxoSweeper) RelayFeePerKW() chainfee.SatPerKWeight {
+	return s.relayFeeRate
+}
+
 // Stop stops sweeper from listening to block epochs and constructing sweep
 // txes.
 func (s *UtxoSweeper) Stop() error {

@@ -429,6 +429,9 @@ func WriteElement(w io.Writer, element interface{}) error {
 	case ExtraOpaqueData:
 		return e.Encode(w)
 
+	case TypedDeliveryAddress:
+		return e.Encode(w)
+
 	default:
 		return fmt.Errorf("unknown type in WriteElement: %T", e)
 	}
@@ -837,6 +840,9 @@ func ReadElement(r io.Reader, element interface{}) error {
 		*e = addrBytes[:length]
 
 	case *ExtraOpaqueData:
+		return e.Decode(r)
+
+	case *TypedDeliveryAddress:
 		return e.Decode(r)
 
 	default:

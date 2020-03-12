@@ -127,7 +127,7 @@ type OpenChannel struct {
 	// be paid when mutually closing the channel. This field is optional, and
 	// and has a length prefix, so a zero will be written if it is not set
 	// and its length followed by the script will be written if it is set.
-	UpfrontShutdownScript DeliveryAddress
+	UpfrontShutdownScript TypedDeliveryAddress
 
 	// ExtraData is the set of data that was appended to this message to
 	// fill out the full maximum transport message size. These fields can
@@ -175,7 +175,7 @@ func (o *OpenChannel) Encode(w io.Writer, pver uint32) error {
 //
 // This is part of the lnwire.Message interface.
 func (o *OpenChannel) Decode(r io.Reader, pver uint32) error {
-	if err := ReadElements(r,
+	return ReadElements(r,
 		o.ChainHash[:],
 		o.PendingChannelID[:],
 		&o.FundingAmount,
@@ -194,18 +194,9 @@ func (o *OpenChannel) Decode(r io.Reader, pver uint32) error {
 		&o.HtlcPoint,
 		&o.FirstCommitmentPoint,
 		&o.ChannelFlags,
-	); err != nil {
-		return err
-	}
-
-	// Check for the optional upfront shutdown script field. If it is not there,
-	// silence the EOF error.
-	err := ReadElement(r, &o.UpfrontShutdownScript)
-	if err != nil && err != io.EOF {
-		return err
-	}
-
-	return ReadElement(r, &o.ExtraData)
+		&o.UpfrontShutdownScript,
+		&o.ExtraData,
+	)
 }
 
 // MsgType returns the MessageType code which uniquely identifies this message

@@ -91,7 +91,7 @@ type AcceptChannel struct {
 	// be paid when mutually closing the channel. This field is optional, and
 	// and has a length prefix, so a zero will be written if it is not set
 	// and its length followed by the script will be written if it is set.
-	UpfrontShutdownScript DeliveryAddress
+	UpfrontShutdownScript TypedDeliveryAddress
 
 	// ExtraData is the set of data that was appended to this message to
 	// fill out the full maximum transport message size. These fields can
@@ -109,7 +109,7 @@ var _ Message = (*AcceptChannel)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (a *AcceptChannel) Encode(w io.Writer, pver uint32) error {
-	err := WriteElements(w,
+	return WriteElements(w,
 		a.PendingChannelID[:],
 		a.DustLimit,
 		a.MaxValueInFlight,
@@ -125,12 +125,8 @@ func (a *AcceptChannel) Encode(w io.Writer, pver uint32) error {
 		a.HtlcPoint,
 		a.FirstCommitmentPoint,
 		a.UpfrontShutdownScript,
+		a.ExtraData,
 	)
-	if err != nil {
-		return err
-	}
-
-	return a.ExtraData.Encode(w)
 }
 
 // Decode deserializes the serialized AcceptChannel stored in the passed
@@ -140,7 +136,7 @@ func (a *AcceptChannel) Encode(w io.Writer, pver uint32) error {
 // This is part of the lnwire.Message interface.
 func (a *AcceptChannel) Decode(r io.Reader, pver uint32) error {
 	// Read all the mandatory fields in the accept message.
-	err := ReadElements(r,
+	return ReadElements(r,
 		a.PendingChannelID[:],
 		&a.DustLimit,
 		&a.MaxValueInFlight,
@@ -155,19 +151,9 @@ func (a *AcceptChannel) Decode(r io.Reader, pver uint32) error {
 		&a.DelayedPaymentPoint,
 		&a.HtlcPoint,
 		&a.FirstCommitmentPoint,
+		&a.UpfrontShutdownScript,
+		&a.ExtraData,
 	)
-	if err != nil {
-		return err
-	}
-
-	// Check for the optional upfront shutdown script field. If it is not there,
-	// silence the EOF error.
-	err = ReadElement(r, &a.UpfrontShutdownScript)
-	if err != nil && err != io.EOF {
-		return err
-	}
-
-	return a.ExtraData.Decode(r)
 }
 
 // MsgType returns the MessageType code which uniquely identifies this message

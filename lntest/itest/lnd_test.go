@@ -3223,52 +3223,47 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 
 	// Now that the commitment has been confirmed, the channel should be
 	// marked as force closed.
-	err = wait.Predicate(func() bool {
+	err = wait.NoError(func() error {
 		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 		pendingChanResp, err := alice.PendingChannels(
 			ctxt, pendingChansRequest,
 		)
 		if err != nil {
-			predErr = fmt.Errorf("unable to query for pending "+
+			return fmt.Errorf("unable to query for pending "+
 				"channels: %v", err)
-			return false
 		}
 
-		predErr = checkNumForceClosedChannels(pendingChanResp, 1)
-		if predErr != nil {
-			return false
+		err = checkNumForceClosedChannels(pendingChanResp, 1)
+		if err != nil {
+			return err
 		}
 
-		forceClose, predErr := findForceClosedChannel(
-			pendingChanResp, &op,
-		)
-		if predErr != nil {
-			return false
+		forceClose, err := findForceClosedChannel(pendingChanResp, &op)
+		if err != nil {
+			return err
 		}
 
 		// Now that the channel has been force closed, it should now
 		// have the height and number of blocks to confirm populated.
-		predErr = checkCommitmentMaturity(
+		err = checkCommitmentMaturity(
 			forceClose, commCsvMaturityHeight, int32(defaultCSV),
 		)
-		if predErr != nil {
-			return false
+		if err != nil {
+			return err
 		}
 
 		// None of our outputs have been swept, so they should all be in
 		// limbo.
 		if forceClose.LimboBalance == 0 {
-			predErr = errors.New("all funds should still be in " +
+			return errors.New("all funds should still be in " +
 				"limbo")
-			return false
 		}
 		if forceClose.RecoveredBalance != 0 {
-			predErr = errors.New("no funds should yet be shown " +
+			return errors.New("no funds should yet be shown " +
 				"as recovered")
-			return false
 		}
 
-		return true
+		return nil
 	}, 15*time.Second)
 	if err != nil {
 		t.Fatalf(predErr.Error())

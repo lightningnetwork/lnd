@@ -850,27 +850,23 @@ func (c *ChannelArbitrator) stateStep(
 		// We are waiting for a commitment to be confirmed, so any
 		// other trigger will be ignored.
 		case chainTrigger, userTrigger:
-			log.Infof("ChannelArbitrator(%v): noop trigger %v",
-				c.cfg.ChanPoint, trigger)
 			nextState = StateCommitmentBroadcasted
 
 		// If this state advance was triggered by any of the
 		// commitments being confirmed, then we'll jump to the state
 		// where the contract has been closed.
 		case localCloseTrigger, remoteCloseTrigger:
-			log.Infof("ChannelArbitrator(%v): trigger %v, "+
-				" going to StateContractClosed",
-				c.cfg.ChanPoint, trigger)
 			nextState = StateContractClosed
 
 		// If a coop close or breach was confirmed, jump straight to
 		// the fully resolved state.
 		case coopCloseTrigger, breachCloseTrigger:
-			log.Infof("ChannelArbitrator(%v): trigger %v, "+
-				" going to StateFullyResolved",
-				c.cfg.ChanPoint, trigger)
 			nextState = StateFullyResolved
 		}
+
+		log.Infof("ChannelArbitrator(%v): trigger %v moving from "+
+			"state %v to %v", c.cfg.ChanPoint, trigger, c.state,
+			nextState)
 
 	// If we're in this state, then the contract has been fully closed to
 	// outside sub-systems, so we'll process the prior set of on-chain

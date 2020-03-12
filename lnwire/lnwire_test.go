@@ -67,10 +67,10 @@ func randRawKey() ([33]byte, error) {
 	return n, nil
 }
 
-func randDeliveryAddress(r *rand.Rand) (DeliveryAddress, error) {
+func randDeliveryAddress(r *rand.Rand) (TypedDeliveryAddress, error) {
 	// Generate size minimum one. Empty scripts should be tested specifically.
 	size := r.Intn(deliveryAddressMaxSize) + 1
-	da := DeliveryAddress(make([]byte, size))
+	da := TypedDeliveryAddress(make([]byte, size))
 
 	_, err := r.Read(da)
 	return da, err

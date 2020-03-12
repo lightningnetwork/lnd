@@ -12,7 +12,7 @@ import (
 func TestDecodeAcceptChannel(t *testing.T) {
 	tests := []struct {
 		name           string
-		shutdownScript DeliveryAddress
+		shutdownScript TypedDeliveryAddress
 	}{
 		{
 			name:           "no upfront shutdown script",

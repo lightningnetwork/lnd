@@ -128,6 +128,11 @@ type OpenChannel struct {
 	// and has a length prefix, so a zero will be written if it is not set
 	// and its length followed by the script will be written if it is set.
 	UpfrontShutdownScript DeliveryAddress
+
+	// ExtraData is the set of data that was appended to this message to
+	// fill out the full maximum transport message size. These fields can
+	// be used to specify optional data such as custom TLV fields.
+	ExtraData ExtraOpaqueData
 }
 
 // A compile time check to ensure OpenChannel implements the lnwire.Message
@@ -160,6 +165,7 @@ func (o *OpenChannel) Encode(w io.Writer, pver uint32) error {
 		o.FirstCommitmentPoint,
 		o.ChannelFlags,
 		o.UpfrontShutdownScript,
+		o.ExtraData,
 	)
 }
 
@@ -199,7 +205,7 @@ func (o *OpenChannel) Decode(r io.Reader, pver uint32) error {
 		return err
 	}
 
-	return nil
+	return ReadElement(r, &o.ExtraData)
 }
 
 // MsgType returns the MessageType code which uniquely identifies this message
@@ -215,11 +221,5 @@ func (o *OpenChannel) MsgType() MessageType {
 //
 // This is part of the lnwire.Message interface.
 func (o *OpenChannel) MaxPayloadLength(uint32) uint32 {
-	// (32 * 2) + (8 * 6) + (4 * 1) + (2 * 2) + (33 * 6) + 1
-	var length uint32 = 319 // base length
-
-	// Upfront shutdown script max length.
-	length += 2 + deliveryAddressMaxSize
-
-	return length
+	return MaxMsgBody
 }

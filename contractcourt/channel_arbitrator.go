@@ -354,9 +354,6 @@ func (c *ChannelArbitrator) Start() error {
 		return err
 	}
 
-	log.Infof("ChannelArbitrator(%v): starting state=%v", c.cfg.ChanPoint,
-		c.state)
-
 	_, bestHeight, err := c.cfg.ChainIO.GetBestBlock()
 	if err != nil {
 		c.cfg.BlockEpochs.Cancel()
@@ -391,13 +388,18 @@ func (c *ChannelArbitrator) Start() error {
 			case channeldb.RemoteForceClose:
 				trigger = remoteCloseTrigger
 			}
-			triggerHeight = c.cfg.ClosingHeight
 
 			log.Warnf("ChannelArbitrator(%v): detected stalled "+
-				"state=%v for closed channel, using "+
-				"trigger=%v", c.cfg.ChanPoint, c.state, trigger)
+				"state=%v for closed channel",
+				c.cfg.ChanPoint, c.state)
 		}
+
+		triggerHeight = c.cfg.ClosingHeight
 	}
+
+	log.Infof("ChannelArbitrator(%v): starting state=%v, trigger=%v, "+
+		"triggerHeight=%v", c.cfg.ChanPoint, c.state, trigger,
+		triggerHeight)
 
 	// Next we'll fetch our confirmed commitment set. This will only exist
 	// if the channel has been closed out on chain for modern nodes. For

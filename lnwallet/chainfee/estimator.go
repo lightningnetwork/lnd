@@ -286,6 +286,11 @@ type BitcoindEstimator struct {
 	// through the network.
 	minFeePerKW SatPerKWeight
 
+	// feeMode is the estimate_mode to use when calling "estimatesmartfee".
+	// It can be either "ECONOMICAL" or "CONSERVATIVE", and it's default
+	// to "CONSERVATIVE".
+	feeMode string
+
 	bitcoindConn *rpcclient.Client
 }
 
@@ -294,7 +299,7 @@ type BitcoindEstimator struct {
 // bitcoind node, and also a fall back fee rate. The fallback fee rate is used
 // in the occasion that the estimator has insufficient data, or returns zero
 // for a fee estimate.
-func NewBitcoindEstimator(rpcConfig rpcclient.ConnConfig,
+func NewBitcoindEstimator(rpcConfig rpcclient.ConnConfig, feeMode string,
 	fallBackFeeRate SatPerKWeight) (*BitcoindEstimator, error) {
 
 	rpcConfig.DisableConnectOnNew = true
@@ -309,6 +314,7 @@ func NewBitcoindEstimator(rpcConfig rpcclient.ConnConfig,
 	return &BitcoindEstimator{
 		fallbackFeePerKW: fallBackFeeRate,
 		bitcoindConn:     chainConn,
+		feeMode:          feeMode,
 	}, nil
 }
 
@@ -403,9 +409,15 @@ func (b *BitcoindEstimator) fetchEstimate(confTarget uint32) (SatPerKWeight, err
 	if err != nil {
 		return 0, err
 	}
-	// TODO: Allow selection of economical/conservative modifiers.
+
+	// The mode must be either ECONOMICAL or CONSERVATIVE.
+	mode, err := json.Marshal(b.feeMode)
+	if err != nil {
+		return 0, err
+	}
+
 	resp, err := b.bitcoindConn.RawRequest(
-		"estimatesmartfee", []json.RawMessage{target},
+		"estimatesmartfee", []json.RawMessage{target, mode},
 	)
 	if err != nil {
 		return 0, err

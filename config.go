@@ -152,6 +152,11 @@ var (
 	defaultTorSOCKS   = net.JoinHostPort("localhost", strconv.Itoa(defaultTorSOCKSPort))
 	defaultTorDNS     = net.JoinHostPort(defaultTorDNSHost, strconv.Itoa(defaultTorDNSPort))
 	defaultTorControl = net.JoinHostPort("localhost", strconv.Itoa(defaultTorControlPort))
+
+	// bitcoindEsimateModes defines all the legal values for bitcoind's
+	// estimatesmartfee RPC call.
+	defaultBitcoindEstimateMode = "CONSERVATIVE"
+	bitcoindEstimateModes       = [2]string{"ECONOMICAL", defaultBitcoindEstimateMode}
 )
 
 type chainConfig struct {
@@ -200,6 +205,7 @@ type bitcoindConfig struct {
 	RPCPass        string `long:"rpcpass" default-mask:"-" description:"Password for RPC connections"`
 	ZMQPubRawBlock string `long:"zmqpubrawblock" description:"The address listening for ZMQ connections to deliver raw block notifications"`
 	ZMQPubRawTx    string `long:"zmqpubrawtx" description:"The address listening for ZMQ connections to deliver raw transaction notifications"`
+	EstimateMode   string `long:"estimatemode" description:"The fee estimate mode. Must be either ECONOMICAL or CONSERVATIVE."`
 }
 
 type autoPilotConfig struct {
@@ -384,8 +390,9 @@ func loadConfig() (*config, error) {
 			RPCCert: defaultBtcdRPCCertFile,
 		},
 		BitcoindMode: &bitcoindConfig{
-			Dir:     defaultBitcoindDir,
-			RPCHost: defaultRPCHost,
+			Dir:          defaultBitcoindDir,
+			RPCHost:      defaultRPCHost,
+			EstimateMode: defaultBitcoindEstimateMode,
 		},
 		Litecoin: &chainConfig{
 			MinHTLCIn:     defaultLitecoinMinHTLCInMSat,
@@ -401,8 +408,9 @@ func loadConfig() (*config, error) {
 			RPCCert: defaultLtcdRPCCertFile,
 		},
 		LitecoindMode: &bitcoindConfig{
-			Dir:     defaultLitecoindDir,
-			RPCHost: defaultRPCHost,
+			Dir:          defaultLitecoindDir,
+			RPCHost:      defaultRPCHost,
+			EstimateMode: defaultBitcoindEstimateMode,
 		},
 		UnsafeDisconnect:   true,
 		MaxPendingChannels: DefaultMaxPendingChannels,
@@ -1211,6 +1219,15 @@ func parseRPCParams(cConfig *chainConfig, nodeConfig interface{}, net chainCode,
 			}
 		}
 
+		// Ensure that if the estimate mode is set, that it is a legal
+		// value.
+		if conf.EstimateMode != "" {
+			err := checkEstimateMode(conf.EstimateMode)
+			if err != nil {
+				return err
+			}
+		}
+
 		// If all of RPCUser, RPCPass, ZMQBlockHost, and ZMQTxHost are
 		// set, we assume those parameters are good to use.
 		if conf.RPCUser != "" && conf.RPCPass != "" &&
@@ -1446,6 +1463,18 @@ func checkZMQOptions(zmqBlockHost, zmqTxHost string) error {
 	}
 
 	return nil
+}
+
+// checkEstimateMode ensures that the provided estimate mode is legal.
+func checkEstimateMode(estimateMode string) error {
+	for _, mode := range bitcoindEstimateModes {
+		if estimateMode == mode {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("estimatemode must be one of the following: %v",
+		bitcoindEstimateModes[:])
 }
 
 // normalizeNetwork returns the common name of a network type used to create

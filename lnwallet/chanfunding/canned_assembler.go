@@ -30,6 +30,11 @@ type ShimIntent struct {
 
 	// chanPoint is the final channel point for the to be created channel.
 	chanPoint *wire.OutPoint
+
+	// thawHeight, if non-zero is the height where this channel will become
+	// a normal channel. Until this height, it's considered frozen, so it
+	// can only be cooperatively closed by the responding party.
+	thawHeight uint32
 }
 
 // FundingOutput returns the witness script, and the output that creates the
@@ -87,6 +92,12 @@ func (s *ShimIntent) ChanPoint() (*wire.OutPoint, error) {
 	return s.chanPoint, nil
 }
 
+// ThawHeight returns the height where this channel goes back to being a normal
+// channel.
+func (s *ShimIntent) ThawHeight() uint32 {
+	return s.thawHeight
+}
+
 // FundingKeys couples our multi-sig key along with the remote party's key.
 type FundingKeys struct {
 	// LocalKey is our multi-sig key.
@@ -131,12 +142,17 @@ type CannedAssembler struct {
 
 	// initiator indicates if we're the initiator or the channel or not.
 	initiator bool
+
+	// thawHeight, if non-zero is the height where this channel will become
+	// a normal channel. Until this height, it's considered frozen, so it
+	// can only be cooperatively closed by the responding party.
+	thawHeight uint32
 }
 
 // NewCannedAssembler creates a new CannedAssembler from the material required
 // to construct a funding output and channel point.
-func NewCannedAssembler(chanPoint wire.OutPoint, fundingAmt btcutil.Amount,
-	localKey *keychain.KeyDescriptor,
+func NewCannedAssembler(thawHeight uint32, chanPoint wire.OutPoint,
+	fundingAmt btcutil.Amount, localKey *keychain.KeyDescriptor,
 	remoteKey *btcec.PublicKey, initiator bool) *CannedAssembler {
 
 	return &CannedAssembler{
@@ -145,6 +161,7 @@ func NewCannedAssembler(chanPoint wire.OutPoint, fundingAmt btcutil.Amount,
 		remoteKey:  remoteKey,
 		fundingAmt: fundingAmt,
 		chanPoint:  chanPoint,
+		thawHeight: thawHeight,
 	}
 }
 
@@ -162,9 +179,10 @@ func (c *CannedAssembler) ProvisionChannel(req *Request) (Intent, error) {
 	}
 
 	intent := &ShimIntent{
-		localKey:  c.localKey,
-		remoteKey: c.remoteKey,
-		chanPoint: &c.chanPoint,
+		localKey:   c.localKey,
+		remoteKey:  c.remoteKey,
+		chanPoint:  &c.chanPoint,
+		thawHeight: c.thawHeight,
 	}
 
 	if c.initiator {

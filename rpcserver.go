@@ -1545,7 +1545,7 @@ func newFundingShimAssembler(chanPointShim *lnrpc.ChanPointShim,
 	// With all the parts assembled, we can now make the canned assembler
 	// to pass into the wallet.
 	return chanfunding.NewCannedAssembler(
-		*chanPoint, btcutil.Amount(chanPointShim.Amt),
+		0, *chanPoint, btcutil.Amount(chanPointShim.Amt),
 		&localKeyDesc, remoteKey, initiator,
 	), nil
 }

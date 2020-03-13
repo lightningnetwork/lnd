@@ -247,10 +247,6 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 	}
 
 	// Create the network-segmented directory for the channel database.
-	graphDir := filepath.Join(cfg.DataDir,
-		defaultGraphSubDirname,
-		normalizeNetwork(activeNetParams.Name))
-
 	ltndLog.Infof("Opening the main database, this might take a few " +
 		"minutes...")
 
@@ -258,7 +254,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 	// network related metadata.
 	startOpenTime := time.Now()
 	chanDB, err := channeldb.Open(
-		graphDir,
+		cfg.localDatabaseDir(),
 		channeldb.OptionSetRejectCacheSize(cfg.Caches.RejectCacheSize),
 		channeldb.OptionSetChannelCacheSize(cfg.Caches.ChannelCacheSize),
 		channeldb.OptionSetSyncFreelist(cfg.SyncFreelist),
@@ -493,7 +489,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 	var towerClientDB *wtdb.ClientDB
 	if cfg.WtClient.Active {
 		var err error
-		towerClientDB, err = wtdb.OpenClientDB(graphDir)
+		towerClientDB, err = wtdb.OpenClientDB(cfg.localDatabaseDir())
 		if err != nil {
 			err := fmt.Errorf("unable to open watchtower client "+
 				"database: %v", err)

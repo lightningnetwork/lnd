@@ -2459,6 +2459,33 @@ func (r *rpcServer) ListPeers(ctx context.Context,
 			Features:  features,
 		}
 
+		var peerErrors []interface{}
+
+		// If we only want the most recent error, get the most recent
+		// error from the buffer and add it to our list of errors if
+		// it is non-nil. If we want all the stored errors, simply
+		// add the full list to our set of errors.
+		if in.LatestError {
+			latestErr := serverPeer.errorBuffer.Latest()
+			if latestErr != nil {
+				peerErrors = []interface{}{latestErr}
+			}
+		} else {
+			peerErrors = serverPeer.errorBuffer.List()
+		}
+
+		// Add the relevant peer errors to our response.
+		for _, error := range peerErrors {
+			tsError := error.(*timestampedError)
+
+			rpcErr := &lnrpc.TimestampedError{
+				Timestamp: uint64(tsError.timestamp.Unix()),
+				Error:     tsError.error.Error(),
+			}
+
+			peer.Errors = append(peer.Errors, rpcErr)
+		}
+
 		resp.Peers = append(resp.Peers, peer)
 	}
 

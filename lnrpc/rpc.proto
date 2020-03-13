@@ -1437,6 +1437,15 @@ message Channel {
     amount to us.
     */
     uint64 push_amount_sat = 27;
+
+    /**
+    This uint32 indicates if this channel is to be considered 'frozen'. A
+    frozen channel doest not allow a cooperative channel close by the
+    initiator. The thaw_height is the height that this restriction stops
+    applying to the channel. This field is optional, not setting it or using a
+    value of zero will mean the channel has no additional restrictions.
+    */
+    uint32 thaw_height = 28;
 }
 
 message ListChannelsRequest {
@@ -1881,6 +1890,14 @@ message ChanPointShim {
     channel ID.
     */
     bytes pending_chan_id = 5;
+
+    /**
+    This uint32 indicates if this channel is to be considered 'frozen'. A
+    frozen channel does not allow a cooperative channel close by the
+    initiator. The thaw_height is the height that this restriction stops
+    applying to the channel.
+    */
+    uint32 thaw_height = 6;
 }
 
 message FundingShim {

@@ -1096,8 +1096,8 @@ func ValidateConfig(cfg Config, usageMessage string) (*Config, error) {
 
 // localDatabaseDir returns the default directory where the
 // local bolt db files are stored.
-func (c *config) localDatabaseDir() string {
-	return filepath.Join(cfg.DataDir,
+func (c *Config) localDatabaseDir() string {
+	return filepath.Join(c.DataDir,
 		defaultGraphSubDirname,
 		normalizeNetwork(activeNetParams.Name))
 }

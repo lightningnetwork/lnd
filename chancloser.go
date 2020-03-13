@@ -347,6 +347,21 @@ func (c *channelCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message, b
 				"instead have %v", spew.Sdump(msg))
 		}
 
+		// As we're the responder to this shutdown (the other party
+		// wants to close), we'll check if this is a frozen channel or
+		// not. If the channel is frozen as we were also the initiator
+		// of the channel opening, then we'll deny their close attempt.
+		chanInitiator := c.cfg.channel.IsInitiator()
+		if !chanInitiator && c.cfg.channel.State().ChanType.IsFrozen() &&
+			c.negotiationHeight < c.cfg.channel.State().ThawHeight {
+
+			return nil, false, fmt.Errorf("initiator attempting "+
+				"to co-op close frozen ChannelPoint(%v) "+
+				"(current_height=%v, thaw_height=%v)",
+				c.chanPoint, c.negotiationHeight,
+				c.cfg.channel.State().ThawHeight)
+		}
+
 		// If the remote node opened the channel with option upfront shutdown
 		// script, check that the script they provided matches.
 		if err := maybeMatchScript(
@@ -382,7 +397,7 @@ func (c *channelCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message, b
 
 		// We'll also craft our initial close proposal in order to keep
 		// the negotiation moving, but only if we're the negotiator.
-		if c.cfg.channel.IsInitiator() {
+		if chanInitiator {
 			closeSigned, err := c.proposeCloseSigned(c.idealFeeSat)
 			if err != nil {
 				return nil, false, err

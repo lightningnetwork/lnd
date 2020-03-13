@@ -1470,8 +1470,8 @@ func extractOpenChannelMinConfs(in *lnrpc.OpenChannelRequest) (int32, error) {
 
 // newFundingShimAssembler returns a new fully populated
 // chanfunding.CannedAssembler using a FundingShim obtained from an RPC caller.
-func newFundingShimAssembler(chanPointShim *lnrpc.ChanPointShim,
-	initiator bool, keyRing keychain.KeyRing) (chanfunding.Assembler, error) {
+func newFundingShimAssembler(chanPointShim *lnrpc.ChanPointShim, initiator bool,
+	keyRing keychain.KeyRing) (chanfunding.Assembler, error) {
 
 	// Perform some basic sanity checks to ensure that all the expected
 	// fields are populated.
@@ -1545,8 +1545,9 @@ func newFundingShimAssembler(chanPointShim *lnrpc.ChanPointShim,
 	// With all the parts assembled, we can now make the canned assembler
 	// to pass into the wallet.
 	return chanfunding.NewCannedAssembler(
-		0, *chanPoint, btcutil.Amount(chanPointShim.Amt),
-		&localKeyDesc, remoteKey, initiator,
+		chanPointShim.ThawHeight, *chanPoint,
+		btcutil.Amount(chanPointShim.Amt), &localKeyDesc,
+		remoteKey, initiator,
 	), nil
 }
 
@@ -1956,15 +1957,25 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 		return err
 	}
 
+	// If this is a frozen channel, then we only allow the close to proceed
+	// if we were the responder to this channel.
+	_, bestHeight, err := r.server.cc.chainIO.GetBestBlock()
+	if err != nil {
+		return err
+	}
+	if channel.State().ChanType.IsFrozen() && channel.IsInitiator() &&
+		uint32(bestHeight) < channel.State().ThawHeight {
+
+		return fmt.Errorf("cannot co-op close frozen channel as "+
+			"initiator until height=%v, (current_height=%v)",
+			channel.State().ThawHeight, bestHeight)
+	}
+
 	// If a force closure was requested, then we'll handle all the details
 	// around the creation and broadcast of the unilateral closure
 	// transaction here rather than going to the switch as we don't require
 	// interaction from the peer.
 	if force {
-		_, bestHeight, err := r.server.cc.chainIO.GetBestBlock()
-		if err != nil {
-			return err
-		}
 
 		// As we're force closing this channel, as a precaution, we'll
 		// ensure that the switch doesn't continue to see this channel
@@ -3179,6 +3190,7 @@ func createRPCOpenChannel(r *rpcServer, graph *channeldb.ChannelGraph,
 		RemoteChanReserveSat:  int64(dbChannel.RemoteChanCfg.ChanReserve),
 		StaticRemoteKey:       commitmentType == lnrpc.CommitmentType_STATIC_REMOTE_KEY,
 		CommitmentType:        commitmentType,
+		ThawHeight:            dbChannel.ThawHeight,
 	}
 
 	for i, htlc := range localCommit.Htlcs {

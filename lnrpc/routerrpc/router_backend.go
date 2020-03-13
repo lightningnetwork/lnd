@@ -698,18 +698,6 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 		payIntent.DestFeatures = features
 	}
 
-	// Currently, within the bootstrap phase of the network, we limit the
-	// largest payment size allotted to (2^32) - 1 mSAT or 4.29 million
-	// satoshis.
-	if payIntent.Amount > r.MaxPaymentMSat {
-		// In this case, we'll send an error to the caller, but
-		// continue our loop for the next payment.
-		return payIntent, fmt.Errorf("payment of %v is too large, "+
-			"max payment allowed is %v", payIntent.Amount,
-			r.MaxPaymentMSat)
-
-	}
-
 	// Check for disallowed payments to self.
 	if !rpcPayReq.AllowSelfPayment && payIntent.Target == r.SelfNode {
 		return nil, errors.New("self-payments not allowed")

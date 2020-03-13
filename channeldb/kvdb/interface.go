@@ -36,6 +36,13 @@ var Create = walletdb.Create
 // through read or read+write transactions.
 type Backend = walletdb.DB
 
+// BackendWithStats is and interface to debug/uncover database access patterns.
+type BackendWithStats interface {
+	Backend
+
+	PrintStats() string
+}
+
 // Open opens an existing database for the specified type. The arguments are
 // specific to the database type driver. See the documentation for the database
 // driver for further details.

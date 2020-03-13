@@ -2,7 +2,10 @@ package etcd
 
 import (
 	"context"
+	"fmt"
 	"io"
+	"runtime"
+	"sync"
 	"time"
 
 	"github.com/btcsuite/btcwallet/walletdb"
@@ -18,9 +21,99 @@ const (
 	etcdLongTimeout = 30 * time.Second
 )
 
+// callerStats holds commit stats for a specific caller. Currently it only
+// holds the max stat, meaning that for a particular caller the largest
+// commit set is recorded.
+type callerStats struct {
+	count       int
+	commitStats CommitStats
+}
+
+func (s callerStats) String() string {
+	return fmt.Sprintf("count: %d, retries: %d, rset: %d, wset: %d",
+		s.count, s.commitStats.Retries, s.commitStats.Rset, s.commitStats.Wset)
+}
+
+// commitStatsCollector collects commit stats for commits succeeding
+// and also for commits failing.
+type commitStatsCollector struct {
+	sync.RWMutex
+	succ map[string]*callerStats
+	fail map[string]*callerStats
+}
+
+// newCommitStatsColletor creates a new commitStatsCollector instance.
+func newCommitStatsColletor() *commitStatsCollector {
+	return &commitStatsCollector{
+		succ: make(map[string]*callerStats),
+		fail: make(map[string]*callerStats),
+	}
+}
+
+// PrintStats returns collected stats pretty printed into a string.
+func (c *commitStatsCollector) PrintStats() string {
+	c.RLock()
+	defer c.RUnlock()
+
+	s := "\nFailure:\n"
+	for k, v := range c.fail {
+		s += fmt.Sprintf("%s\t%s\n", k, v)
+	}
+
+	s += "\nSuccess:\n"
+	for k, v := range c.succ {
+		s += fmt.Sprintf("%s\t%s\n", k, v)
+	}
+
+	return s
+}
+
+// updateStatsMap updatess commit stats map for a caller.
+func updateStatMap(
+	caller string, stats CommitStats, m map[string]*callerStats) {
+
+	if _, ok := m[caller]; !ok {
+		m[caller] = &callerStats{}
+	}
+
+	curr := m[caller]
+	curr.count++
+
+	// Update only if the total commit set is greater or equal.
+	currTotal := curr.commitStats.Rset + curr.commitStats.Wset
+	if currTotal <= (stats.Rset + stats.Wset) {
+		curr.commitStats = stats
+	}
+}
+
+// callback is an STM commit stats callback passed which can be passed
+// using a WithCommitStatsCallback to the STM upon construction.
+func (c *commitStatsCollector) callback(succ bool, stats CommitStats) {
+	caller := "unknown"
+
+	// Get the caller. As this callback is called from
+	// the backend interface that means we need to ascend
+	// 4 frames in the callstack.
+	_, file, no, ok := runtime.Caller(4)
+	if ok {
+		caller = fmt.Sprintf("%s#%d", file, no)
+	}
+
+	c.Lock()
+	defer c.Unlock()
+
+	if succ {
+		updateStatMap(caller, stats, c.succ)
+	} else {
+		updateStatMap(caller, stats, c.fail)
+	}
+}
+
 // db holds a reference to the etcd client connection.
 type db struct {
-	cli *clientv3.Client
+	config               BackendConfig
+	cli                  *clientv3.Client
+	commitStatsCollector *commitStatsCollector
 }
 
 // Enforce db implements the walletdb.DB interface.
@@ -36,6 +129,9 @@ type BackendConfig struct {
 
 	// Pass is the password for the etcd peer.
 	Pass string
+
+	// CollectCommitStats indicates wheter to commit commit stats.
+	CollectCommitStats bool
 }
 
 // newEtcdBackend returns a db object initialized with the passed backend
@@ -52,10 +148,27 @@ func newEtcdBackend(config BackendConfig) (*db, error) {
 	}
 
 	backend := &db{
-		cli: cli,
+		cli:    cli,
+		config: config,
+	}
+
+	if config.CollectCommitStats {
+		backend.commitStatsCollector = newCommitStatsColletor()
 	}
 
 	return backend, nil
+}
+
+// getSTMOptions creats all STM options based on the backend config.
+func (db *db) getSTMOptions() []STMOptionFunc {
+	opts := []STMOptionFunc{}
+	if db.config.CollectCommitStats {
+		opts = append(opts,
+			WithCommitStatsCallback(db.commitStatsCollector.callback),
+		)
+	}
+
+	return opts
 }
 
 // View opens a database read transaction and executes the function f with the
@@ -67,7 +180,7 @@ func (db *db) View(f func(tx walletdb.ReadTx) error) error {
 		return f(newReadWriteTx(stm))
 	}
 
-	return RunSTM(db.cli, apply)
+	return RunSTM(db.cli, apply, db.getSTMOptions()...)
 }
 
 // Update opens a database read/write transaction and executes the function f
@@ -81,17 +194,26 @@ func (db *db) Update(f func(tx walletdb.ReadWriteTx) error) error {
 		return f(newReadWriteTx(stm))
 	}
 
-	return RunSTM(db.cli, apply)
+	return RunSTM(db.cli, apply, db.getSTMOptions()...)
+}
+
+// PrintStats returns all collected stats pretty printed into a string.
+func (db *db) PrintStats() string {
+	if db.commitStatsCollector != nil {
+		return db.commitStatsCollector.PrintStats()
+	}
+
+	return ""
 }
 
 // BeginReadTx opens a database read transaction.
 func (db *db) BeginReadWriteTx() (walletdb.ReadWriteTx, error) {
-	return newReadWriteTx(NewSTM(db.cli)), nil
+	return newReadWriteTx(NewSTM(db.cli, db.getSTMOptions()...)), nil
 }
 
 // BeginReadWriteTx opens a database read+write transaction.
 func (db *db) BeginReadTx() (walletdb.ReadTx, error) {
-	return newReadWriteTx(NewSTM(db.cli)), nil
+	return newReadWriteTx(NewSTM(db.cli, db.getSTMOptions()...)), nil
 }
 
 // Copy writes a copy of the database to the provided writer.  This call will

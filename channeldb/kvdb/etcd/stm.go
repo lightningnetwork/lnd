@@ -9,6 +9,12 @@ import (
 	v3 "github.com/coreos/etcd/clientv3"
 )
 
+type CommitStats struct {
+	Rset    int
+	Wset    int
+	Retries int
+}
+
 // KV stores a key/value pair.
 type KV struct {
 	key string
@@ -152,7 +158,8 @@ type stm struct {
 // when an STM is created.
 type STMOptions struct {
 	// ctx holds an externally provided abort context.
-	ctx context.Context
+	ctx                 context.Context
+	commitStatsCallback func(bool, CommitStats)
 }
 
 // STMOptionFunc is a function that updates the passed STMOptions.
@@ -163,6 +170,12 @@ type STMOptionFunc func(*STMOptions)
 func WithAbortContext(ctx context.Context) STMOptionFunc {
 	return func(so *STMOptions) {
 		so.ctx = ctx
+	}
+}
+
+func WithCommitStatsCallback(cb func(bool, CommitStats)) STMOptionFunc {
+	return func(so *STMOptions) {
+		so.commitStatsCallback = cb
 	}
 }
 
@@ -209,6 +222,11 @@ func runSTM(s *stm, apply func(STM) error) error {
 	out := make(chan error, 1)
 
 	go func() {
+		var (
+			retries int
+			stats   CommitStats
+		)
+
 		defer func() {
 			// Recover DatabaseError panics so
 			// we can return them.
@@ -234,7 +252,7 @@ func runSTM(s *stm, apply func(STM) error) error {
 				break
 			}
 
-			err = s.Commit()
+			stats, err = s.commit()
 
 			// Re-apply only upon commit error
 			// (meaning the database was changed).
@@ -246,6 +264,12 @@ func runSTM(s *stm, apply func(STM) error) error {
 
 			// Rollback before trying to re-apply.
 			s.Rollback()
+			retries++
+		}
+
+		if s.options.commitStatsCallback != nil {
+			stats.Retries = retries
+			s.options.commitStatsCallback(err == nil, stats)
 		}
 
 		// Return the error to the caller.
@@ -674,10 +698,15 @@ func (s *stm) OnCommit(cb func()) {
 	s.onCommit = cb
 }
 
-// Commit builds the final transaction and tries to execute it. If commit fails
+// commit builds the final transaction and tries to execute it. If commit fails
 // because the keys have changed return a CommitError, otherwise return a
 // DatabaseError.
-func (s *stm) Commit() error {
+func (s *stm) commit() (CommitStats, error) {
+	stats := CommitStats{
+		Rset: len(s.rset),
+		Wset: len(s.wset),
+	}
+
 	// Create the compare set.
 	cmps := append(s.rset.cmps(), s.wset.cmps(s.revision+1)...)
 	// Create a transaction with the optional abort context.
@@ -693,7 +722,7 @@ func (s *stm) Commit() error {
 
 	txnresp, err := txn.Commit()
 	if err != nil {
-		return DatabaseError{
+		return stats, DatabaseError{
 			msg: "stm.Commit() failed",
 			err: err,
 		}
@@ -706,7 +735,7 @@ func (s *stm) Commit() error {
 			s.onCommit()
 		}
 
-		return nil
+		return stats, nil
 	}
 
 	// Load prefetch before if commit failed.
@@ -715,7 +744,18 @@ func (s *stm) Commit() error {
 
 	// Return CommitError indicating that the transaction
 	// can be retried.
-	return CommitError{}
+	return stats, CommitError{}
+}
+
+// Commit simply calls commit and the commit stats callback if set.
+func (s *stm) Commit() error {
+	stats, err := s.commit()
+
+	if s.options.commitStatsCallback != nil {
+		s.options.commitStatsCallback(err == nil, stats)
+	}
+
+	return err
 }
 
 // Rollback resets the STM. This is useful for uncommitted transaction rollback

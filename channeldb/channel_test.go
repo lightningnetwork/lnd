@@ -349,7 +349,7 @@ func createTestChannelState(t *testing.T, cdb *DB) *OpenChannel {
 	chanID := lnwire.NewShortChanIDFromInt(uint64(rand.Int63()))
 
 	return &OpenChannel{
-		ChanType:          SingleFunderBit,
+		ChanType:          SingleFunderBit | FrozenBit,
 		ChainHash:         key,
 		FundingOutpoint:   wire.OutPoint{Hash: key, Index: rand.Uint32()},
 		ShortChannelID:    chanID,
@@ -387,6 +387,7 @@ func createTestChannelState(t *testing.T, cdb *DB) *OpenChannel {
 		Db:                      cdb,
 		Packager:                NewChannelPackager(chanID),
 		FundingTxn:              testTx,
+		ThawHeight:              uint32(defaultPendingHeight),
 	}
 }
 

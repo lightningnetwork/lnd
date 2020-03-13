@@ -560,6 +560,26 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 		remoteFundingAmt = fundingIntent.RemoteFundingAmt()
 	}
 
+	// If this is a shim intent, then it may be attempting to use an
+	// existing set of keys for the funding workflow. In this case, we'll
+	// make a simple wrapper keychain.KeyRing that will proxy certain
+	// derivation calls to future callers.
+	var (
+		keyRing    keychain.KeyRing = l.SecretKeyRing
+		thawHeight uint32
+	)
+	if shimIntent, ok := fundingIntent.(*chanfunding.ShimIntent); ok {
+		keyRing = &shimKeyRing{
+			KeyRing:    keyRing,
+			ShimIntent: shimIntent,
+		}
+
+		// As this was a registered shim intent, we'll obtain the thaw
+		// height of the intent, if present at all. If this is
+		// non-zero, then we'll mark this as the proper channel type.
+		thawHeight = shimIntent.ThawHeight()
+	}
+
 	// The total channel capacity will be the size of the funding output we
 	// created plus the remote contribution.
 	capacity := localFundingAmt + remoteFundingAmt
@@ -569,6 +589,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 		capacity, localFundingAmt, req.CommitFeePerKw, l, id,
 		req.PushMSat, l.Cfg.NetParams.GenesisHash, req.Flags,
 		req.CommitType, req.ChanFunder, req.PendingChanID,
+		thawHeight,
 	)
 	if err != nil {
 		if fundingIntent != nil {
@@ -578,19 +599,6 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 		req.err <- err
 		req.resp <- nil
 		return
-	}
-
-	var keyRing keychain.KeyRing = l.SecretKeyRing
-
-	// If this is a shim intent, then it may be attempting to use an
-	// existing set of keys for the funding workflow. In this case, we'll
-	// make a simple wrapper keychain.KeyRing that will proxy certain
-	// derivation calls to future callers.
-	if shimIntent, ok := fundingIntent.(*chanfunding.ShimIntent); ok {
-		keyRing = &shimKeyRing{
-			KeyRing:    keyRing,
-			ShimIntent: shimIntent,
-		}
 	}
 
 	err = l.initOurContribution(

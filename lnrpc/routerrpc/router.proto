@@ -333,6 +333,135 @@ message BuildRouteResponse {
     lnrpc.Route route = 1;
 }
 
+
+message SubscribeHtlcEventsRequest{}
+
+/**
+HtlcEvent contains the htlc event that was processed. These are served on a
+best-effort basis; events are not persisted, delivery is not guaranteed
+(in the event of a crash in the switch, forward events may be lost) and
+some events may be replayed upon restart. Events consumed from this package
+should be de-duplicated by the htlc's unique combination of incoming and
+outgoing channel id and htlc id. [EXPERIMENTAL]
+*/
+message HtlcEvent{
+    /**
+    The short channel id that the incoming htlc arrived at our node on. This
+    value is zero for sends.
+    */
+    uint64 incoming_channel_id = 1;
+
+    /**
+    The short channel id that the outgoing htlc left our node on. This value
+    is zero for receives.
+    */
+    uint64 outgoing_channel_id = 2;
+
+    /**
+    Incoming id is the index of the incoming htlc in the incoming channel.
+    This value is zero for sends.
+    */
+    uint64 incoming_htlc_id = 3;
+
+    /**
+    Outgoing id is the index of the outgoing htlc in the outgoing channel.
+    This value is zero for receives.
+    */
+    uint64 outgoing_htlc_id = 4;
+
+    /**
+    The time in unix nanoseconds that the event occurred.
+    */
+    uint64 timestamp_ns = 5;
+
+    enum EventType{
+        UNKNOWN = 0;
+        SEND = 1;
+        RECEIVE = 2;
+        FORWARD = 3;
+    }
+
+    /**
+    The event type indicates whether the htlc was part of a send, receive or
+    forward.
+    */
+    EventType event_type = 6;
+
+    oneof event {
+        ForwardEvent forward_event = 7;
+        ForwardFailEvent forward_fail_event = 8;
+        SettleEvent settle_event = 9;
+        LinkFailEvent link_fail_event = 10;
+    }
+}
+
+message HtlcInfo{
+    // The timelock on the incoming htlc.
+    uint32 incoming_timelock = 1;
+
+    // The timelock on the outgoing htlc.
+    uint32 outgoing_timelock = 2;
+
+    // The amount of the incoming htlc.
+    uint64 incoming_amt_msat = 3;
+
+    // The amount of the outgoing htlc.
+    uint64 outgoing_amt_msat = 4;
+}
+
+message ForwardEvent{
+    // Info contains details about the htlc that was forwarded.
+    HtlcInfo info = 1;
+}
+
+message ForwardFailEvent{}
+
+message SettleEvent{}
+
+message LinkFailEvent{
+    // Info contains details about the htlc that we failed.
+    HtlcInfo info = 1;
+
+    // FailureCode is the BOLT error code for the failure.
+    lnrpc.Failure.FailureCode wire_failure = 2;
+
+    /**
+    FailureDetail provides additional information about the reason for the
+    failure. This detail enriches the information provided by the wire message
+    and may be 'no detail' if the wire message requires no additional metadata.
+    */
+    FailureDetail failure_detail = 3;
+
+    // A string representation of the link failure.
+    string failure_string = 4;
+}
+
+enum FailureDetail {
+    UNKNOWN = 0;
+    NO_DETAIL = 1;
+    ONION_DECODE = 2;
+    LINK_NOT_ELIGIBLE = 3;
+    ON_CHAIN_TIMEOUT = 4;
+    HTLC_EXCEEDS_MAX = 5;
+    INSUFFICIENT_BALANCE =6;
+    INCOMPLETE_FORWARD = 7;
+    HTLC_ADD_FAILED = 8;
+    FORWARDS_DISABLED = 9;
+    INVOICE_CANCELED = 10;
+    INVOICE_UNDERPAID = 11;
+    INVOICE_EXPIRY_TOO_SOON = 12;
+    INVOICE_NOT_OPEN = 13;
+    MPP_INVOICE_TIMEOUT = 14;
+    ADDRESS_MISMATCH = 15;
+    SET_TOTAL_MISMATCH = 16;
+    SET_TOTAL_TOO_LOW = 17;
+    SET_OVERPAID = 18;
+    UNKNOWN_INVOICE = 19;
+    INVALID_KEYSEND = 20;
+    MPP_IN_PROGRESS = 21;
+    CIRCULAR_ROUTE = 22;
+}
+
 service Router {
     /**
     SendPayment attempts to route a payment described by the passed
@@ -387,4 +516,10 @@ service Router {
     calculate the correct fees and time locks.
     */
     rpc BuildRoute (BuildRouteRequest) returns (BuildRouteResponse);
+
+    /**
+    SubscribeHtlcEvents creates a uni-directional stream from the server to
+    the client which delivers a stream of htlc events.
+    */
+    rpc SubscribeHtlcEvents (SubscribeHtlcEventsRequest) returns (stream HtlcEvent);
 }

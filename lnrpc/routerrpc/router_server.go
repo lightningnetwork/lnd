@@ -82,6 +82,10 @@ var (
 			Entity: "offchain",
 			Action: "read",
 		}},
+		"/routerrpc.Router/SubscribeHtlcEvents": {{
+			Entity: "offchain",
+			Action: "read",
+		}},
 	}
 
 	// DefaultRouterMacFilename is the default name of the router macaroon
@@ -612,4 +616,43 @@ func (s *Server) BuildRoute(ctx context.Context,
 	}
 
 	return routeResp, nil
+}
+
+// SubscribeHtlcEvents creates a uni-directional stream from the server to
+// the client which delivers a stream of htlc events.
+func (s *Server) SubscribeHtlcEvents(req *SubscribeHtlcEventsRequest,
+	stream Router_SubscribeHtlcEventsServer) error {
+
+	htlcClient, err := s.cfg.RouterBackend.SubscribeHtlcEvents()
+	if err != nil {
+		return err
+	}
+	defer htlcClient.Cancel()
+
+	for {
+		select {
+		case event := <-htlcClient.Updates():
+			rpcEvent, err := rpcHtlcEvent(event)
+			if err != nil {
+				return err
+			}
+
+			if err := stream.Send(rpcEvent); err != nil {
+				return err
+			}
+
+		// If the stream's context is cancelled, return an error.
+		case <-stream.Context().Done():
+			log.Debugf("htlc event stream cancelled")
+			return stream.Context().Err()
+
+		// If the subscribe client terminates, exit with an error.
+		case <-htlcClient.Quit():
+			return errors.New("htlc event subscription terminated")
+
+		// If the server has been signalled to shut down, exit.
+		case <-s.quit:
+			return errServerShuttingDown
+		}
+	}
 }

@@ -2,7 +2,7 @@
 
 set -ev
 
-export BITCOIND_VERSION=0.19.0.1
+export BITCOIND_VERSION=0.19.1
 
 if sudo cp ~/bitcoin/bitcoin-$BITCOIND_VERSION/bin/bitcoind /usr/local/bin/bitcoind
 then

@@ -1935,7 +1935,11 @@
         "static_remote_key": {
           "type": "boolean",
           "format": "boolean",
-          "description": "*\nIf true, then this channel uses the modern commitment format where the key\nin the output of the remote party does not change each state. This makes\nback up and recovery easier as when the channel is closed, the funds go\ndirectly to that key."
+          "description": "/ Deprecated. Use commitment_type."
+        },
+        "commitment_type": {
+          "$ref": "#/definitions/lnrpcCommitmentType",
+          "description": "/ The commitment type used by this channel."
         },
         "lifetime": {
           "type": "string",
@@ -2401,6 +2405,16 @@
           }
         }
       }
+    },
+    "lnrpcCommitmentType": {
+      "type": "string",
+      "enum": [
+        "LEGACY",
+        "STATIC_REMOTE_KEY",
+        "ANCHORS"
+      ],
+      "default": "LEGACY",
+      "description": " - LEGACY: *\nA channel using the legacy commitment format having tweaked to_remote\nkeys.\n - STATIC_REMOTE_KEY: *\nA channel that uses the modern commitment format where the key in the\noutput of the remote party does not change each state. This makes back\nup and recovery easier as when the channel is closed, the funds go\ndirectly to that key.\n - ANCHORS: *\nA channel that uses a commitment format that has anchor outputs on the\ncommitments, allowing fee bumping after a force close transaction has\nbeen broadcast."
     },
     "lnrpcConnectPeerRequest": {
       "type": "object",

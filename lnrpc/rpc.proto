@@ -1283,6 +1283,29 @@ message HTLC {
     uint32 expiration_height = 4;
 }
 
+enum CommitmentType {
+    /**
+    A channel using the legacy commitment format having tweaked to_remote
+    keys.
+    */
+    LEGACY = 0;
+
+    /**
+    A channel that uses the modern commitment format where the key in the
+    output of the remote party does not change each state. This makes back
+    up and recovery easier as when the channel is closed, the funds go
+    directly to that key.
+    */
+    STATIC_REMOTE_KEY = 1;
+
+    /**
+    A channel that uses a commitment format that has anchor outputs on the
+    commitments, allowing fee bumping after a force close transaction has
+    been broadcast.
+    */
+    ANCHORS = 2;
+}
+
 message Channel {
     /// Whether this channel is active or not
     bool active = 1;
@@ -1377,13 +1400,11 @@ message Channel {
     */
     int64 remote_chan_reserve_sat = 21;
 
-    /**
-    If true, then this channel uses the modern commitment format where the key
-    in the output of the remote party does not change each state. This makes
-    back up and recovery easier as when the channel is closed, the funds go
-    directly to that key.
-    */
-    bool static_remote_key = 22;
+    /// Deprecated. Use commitment_type.
+    bool static_remote_key = 22 [deprecated = true];
+
+    /// The commitment type used by this channel.
+    CommitmentType commitment_type = 26;
 
     /**
     The number of seconds that the channel has been monitored by the channel

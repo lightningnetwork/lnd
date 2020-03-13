@@ -20,6 +20,7 @@ import (
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/lightningnetwork/lnd/subscribe"
 	"github.com/lightningnetwork/lnd/zpay32"
 )
 
@@ -68,6 +69,10 @@ type RouterBackend struct {
 	// DefaultFinalCltvDelta is the default value used as final cltv delta
 	// when an RPC caller doesn't specify a value.
 	DefaultFinalCltvDelta uint16
+
+	// SubscribeHtlcEvents returns a subscription client for the node's
+	// htlc events.
+	SubscribeHtlcEvents func() (*subscribe.Client, error)
 }
 
 // MissionControl defines the mission control dependencies of routerrpc.

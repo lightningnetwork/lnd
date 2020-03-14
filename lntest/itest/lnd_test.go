@@ -15060,16 +15060,23 @@ func testExternalFundingChanPoint(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to gen pending chan ID: %v", err)
 	}
 
+	_, currentHeight, err := net.Miner.Node.GetBestBlock()
+	if err != nil {
+		t.Fatalf("unable to get current blockheight %v", err)
+	}
+
 	// Now that we have the pending channel ID, Dave (our responder) will
 	// register the intent to receive a new channel funding workflow using
 	// the pending channel ID.
-	chanPointShim := &lnrpc.ChanPointShim{
-		Amt: int64(chanSize),
-		ChanPoint: &lnrpc.ChannelPoint{
-			FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
-				FundingTxidBytes: txid[:],
-			},
+	chanPoint := &lnrpc.ChannelPoint{
+		FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
+			FundingTxidBytes: txid[:],
 		},
+	}
+	thawHeight := uint32(currentHeight + 10)
+	chanPointShim := &lnrpc.ChanPointShim{
+		Amt:       int64(chanSize),
+		ChanPoint: chanPoint,
 		LocalKey: &lnrpc.KeyDescriptor{
 			RawKeyBytes: daveFundingKey.RawKeyBytes,
 			KeyLoc: &lnrpc.KeyLocator{
@@ -15079,6 +15086,7 @@ func testExternalFundingChanPoint(net *lntest.NetworkHarness, t *harnessTest) {
 		},
 		RemoteKey:     carolFundingKey.RawKeyBytes,
 		PendingChanId: pendingChanID[:],
+		ThawHeight:    thawHeight,
 	}
 	fundingShim := &lnrpc.FundingShim{
 		Shim: &lnrpc.FundingShim_ChanPointShim{
@@ -15121,11 +15129,22 @@ func testExternalFundingChanPoint(net *lntest.NetworkHarness, t *harnessTest) {
 	// At this point, we'll now carry out the normal basic channel funding
 	// test as everything should now proceed as normal (a regular channel
 	// funding flow).
-	_, _, closeChans, err := basicChannelFundingTest(
+	carolChan, daveChan, _, err := basicChannelFundingTest(
 		t, net, carol, dave, fundingShim,
 	)
 	if err != nil {
 		t.Fatalf("unable to open channels: %v", err)
+	}
+
+	// Both channels should be marked as frozen with the proper thaw
+	// height.
+	if carolChan.ThawHeight != thawHeight {
+		t.Fatalf("expected thaw height of %v, got %v",
+			carolChan.ThawHeight, thawHeight)
+	}
+	if daveChan.ThawHeight != thawHeight {
+		t.Fatalf("expected thaw height of %v, got %v",
+			daveChan.ThawHeight, thawHeight)
 	}
 
 	// Next, to make sure the channel functions as normal, we'll make some
@@ -15148,10 +15167,24 @@ func testExternalFundingChanPoint(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to make payments between Carol and Dave")
 	}
 
-	// To conclude, we'll close the newly created channel between Carol and
-	// Dave.
-	closeChans()
+	// Now that the channels are open, and we've confirmed that they're
+	// operational, we'll now ensure that the channels are frozen as
+	// intended (if requested).
+	//
+	// First, we'll try to close the channel as Carol, the initiator. This
+	// should fail as a frozen channel only allows the responder to
+	// initiate a channel close.
+	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
+	_, _, err = net.CloseChannel(ctxt, carol, chanPoint, false)
+	if err == nil {
+		t.Fatalf("carol wasn't denied a co-op close attempt for a " +
+			"frozen channel")
+	}
 
+	// Next we'll try but this time with Dave (the responder) as the
+	// initiator. This time the channel should be closed as normal.
+	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
+	closeChannelAndAssert(ctxt, t, net, dave, chanPoint, false)
 }
 
 type testCase struct {

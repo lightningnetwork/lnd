@@ -35,7 +35,7 @@ func (l *ProtocolOptions) NoStaticRemoteKey() bool {
 	return l.CommitmentTweak
 }
 
-// AnchorCommitments returns true if support for the the anchor commitment type
+// AnchorCommitments returns true if support for the anchor commitment type
 // should be signaled.
 func (l *ProtocolOptions) AnchorCommitments() bool {
 	return l.Anchors

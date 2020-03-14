@@ -309,7 +309,7 @@ func CommitScriptAnchors(localChanCfg,
 		return nil, nil, err
 	}
 
-	// And the anchor spemdable by the remote node.
+	// And the anchor spendable by the remote node.
 	remoteAnchor, err := anchorScript(remoteChanCfg.MultiSigKey.PubKey)
 	if err != nil {
 		return nil, nil, err

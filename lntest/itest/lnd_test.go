@@ -959,11 +959,15 @@ type commitType byte
 
 const (
 	// commitTypeLegacy is the old school commitment type.
-	commitTypeLegacy = iota
+	commitTypeLegacy commitType = iota
 
 	// commiTypeTweakless is the commitment type where the remote key is
 	// static (non-tweaked).
 	commitTypeTweakless
+
+	// commitTypeAnchors is the kind of commitment that has extra outputs
+	// used for anchoring down to commitment using CPFP.
+	commitTypeAnchors
 )
 
 // String returns that name of the commitment type.
@@ -973,6 +977,8 @@ func (c commitType) String() string {
 		return "legacy"
 	case commitTypeTweakless:
 		return "tweakless"
+	case commitTypeAnchors:
+		return "anchors"
 	default:
 		return "invalid"
 	}
@@ -985,6 +991,8 @@ func (c commitType) Args() []string {
 		return []string{"--protocol.committweak"}
 	case commitTypeTweakless:
 		return []string{}
+	case commitTypeAnchors:
+		return []string{"--protocol.anchors"}
 	}
 
 	return nil
@@ -8888,6 +8896,7 @@ func testDataLossProtection(net *lntest.NetworkHarness, t *harnessTest) {
 		if err != nil {
 			t.Fatalf("unable to suspend node: %v", err)
 		}
+
 		return restart, chanPoint, balResp.ConfirmedBalance, nil
 	}
 
@@ -13986,6 +13995,10 @@ type chanRestoreTestCase struct {
 	// confirmed or not.
 	unconfirmed bool
 
+	// anchorCommit is true, then the new anchor commitment type will be
+	// used for the channels created in the test.
+	anchorCommit bool
+
 	// restoreMethod takes an old node, then returns a function
 	// closure that'll return the same node, but with its state
 	// restored via a custom method. We use this to abstract away
@@ -14010,11 +14023,16 @@ func testChanRestoreScenario(t *harnessTest, net *lntest.NetworkHarness,
 
 	ctxb := context.Background()
 
+	var nodeArgs []string
+	if testCase.anchorCommit {
+		nodeArgs = commitTypeAnchors.Args()
+	}
+
 	// First, we'll create a brand new node we'll use within the test. If
 	// we have a custom backup file specified, then we'll also create that
 	// for use.
 	dave, mnemonic, err := net.NewNodeWithSeed(
-		"dave", nil, password,
+		"dave", nodeArgs, password,
 	)
 	if err != nil {
 		t.Fatalf("unable to create new node: %v", err)
@@ -14024,7 +14042,7 @@ func testChanRestoreScenario(t *harnessTest, net *lntest.NetworkHarness,
 	defer func() {
 		shutdownAndAssert(net, t, dave)
 	}()
-	carol, err := net.NewNode("carol", nil)
+	carol, err := net.NewNode("carol", nodeArgs)
 	if err != nil {
 		t.Fatalf("unable to make new node: %v", err)
 	}
@@ -14540,6 +14558,33 @@ func testChannelBackupRestore(net *lntest.NetworkHarness, t *harnessTest) {
 				// the node from seed, then manually recover
 				// the channel backup.
 				multi := chanBackup.MultiChanBackup.MultiChanBackup
+				return chanRestoreViaRPC(
+					net, password, mnemonic, multi,
+				)
+			},
+		},
+
+		// Restore the backup from the on-disk file, using the RPC
+		// interface, for anchor commitment channels.
+		{
+			name:         "restore from backup file anchors",
+			initiator:    true,
+			private:      false,
+			anchorCommit: true,
+			restoreMethod: func(oldNode *lntest.HarnessNode,
+				backupFilePath string,
+				mnemonic []string) (nodeRestorer, error) {
+
+				// Read the entire Multi backup stored within
+				// this node's channels.backup file.
+				multi, err := ioutil.ReadFile(backupFilePath)
+				if err != nil {
+					return nil, err
+				}
+
+				// Now that we have Dave's backup file, we'll
+				// create a new nodeRestorer that will restore
+				// using the on-disk channels.backup.
 				return chanRestoreViaRPC(
 					net, password, mnemonic, multi,
 				)

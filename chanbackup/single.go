@@ -31,6 +31,11 @@ const (
 	// implicitly denotes that this channel uses the new tweakless commit
 	// format.
 	TweaklessCommitVersion = 1
+
+	// AnchorsCommitVersion is the third SCB version. This version
+	// implicitly denotes that this channel uses the new anchor commitment
+	// format.
+	AnchorsCommitVersion = 2
 )
 
 // Single is a static description of an existing channel that can be used for
@@ -157,9 +162,14 @@ func NewSingle(channel *channeldb.OpenChannel,
 		},
 	}
 
-	if channel.ChanType.IsTweakless() {
+	switch {
+	case channel.ChanType.HasAnchors():
+		single.Version = AnchorsCommitVersion
+
+	case channel.ChanType.IsTweakless():
 		single.Version = TweaklessCommitVersion
-	} else {
+
+	default:
 		single.Version = DefaultSingleVersion
 	}
 
@@ -174,6 +184,7 @@ func (s *Single) Serialize(w io.Writer) error {
 	switch s.Version {
 	case DefaultSingleVersion:
 	case TweaklessCommitVersion:
+	case AnchorsCommitVersion:
 	default:
 		return fmt.Errorf("unable to serialize w/ unknown "+
 			"version: %v", s.Version)
@@ -332,6 +343,7 @@ func (s *Single) Deserialize(r io.Reader) error {
 	switch s.Version {
 	case DefaultSingleVersion:
 	case TweaklessCommitVersion:
+	case AnchorsCommitVersion:
 	default:
 		return fmt.Errorf("unable to de-serialize w/ unknown "+
 			"version: %v", s.Version)

@@ -62,12 +62,6 @@ func FetchBackupForChan(chanPoint wire.OutPoint,
 		return nil, fmt.Errorf("unable to find target channel")
 	}
 
-	// TODO(halseth): support chan backups for anchor types.
-	if targetChan.ChanType.HasAnchors() {
-		return nil, fmt.Errorf("channel type does not support " +
-			"backups yet")
-	}
-
 	// Once we have the target channel, we can assemble the backup using
 	// the source to obtain any extra information that we may need.
 	staticChanBackup, err := assembleChanBackup(chanSource, targetChan)
@@ -93,11 +87,6 @@ func FetchStaticChanBackups(chanSource LiveChannelSource) ([]Single, error) {
 	// channel.
 	staticChanBackups := make([]Single, 0, len(openChans))
 	for _, openChan := range openChans {
-		// TODO(halseth): support chan backups for anchor types.
-		if openChan.ChanType.HasAnchors() {
-			continue
-		}
-
 		chanBackup, err := assembleChanBackup(chanSource, openChan)
 		if err != nil {
 			return nil, err

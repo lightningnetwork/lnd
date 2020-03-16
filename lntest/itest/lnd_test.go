@@ -6766,6 +6766,8 @@ func testMaxPendingChannels(net *lntest.NetworkHarness, t *harnessTest) {
 func waitForTxInMempool(miner *rpcclient.Client,
 	timeout time.Duration) (*chainhash.Hash, error) {
 
+	time.Sleep(time.Second)
+
 	txs, err := waitForNTxsInMempool(miner, 1, timeout)
 	if err != nil {
 		return nil, err
@@ -6779,6 +6781,8 @@ func waitForTxInMempool(miner *rpcclient.Client,
 // met after the given timeout.
 func waitForNTxsInMempool(miner *rpcclient.Client, n int,
 	timeout time.Duration) ([]*chainhash.Hash, error) {
+
+	time.Sleep(time.Second)
 
 	breakTimeout := time.After(timeout)
 	ticker := time.NewTicker(50 * time.Millisecond)

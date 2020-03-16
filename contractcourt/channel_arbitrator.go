@@ -842,8 +842,9 @@ func (c *ChannelArbitrator) stateStep(
 		// With the close transaction in hand, broadcast the
 		// transaction to the network, thereby entering the post
 		// channel resolution state.
-		log.Infof("Broadcasting force close transaction, "+
-			"ChannelPoint(%v): %v", c.cfg.ChanPoint,
+		log.Infof("Broadcasting force close transaction %v, "+
+			"ChannelPoint(%v): %v", closeTx.TxHash(),
+			c.cfg.ChanPoint,
 			newLogClosure(func() string {
 				return spew.Sdump(closeTx)
 			}))

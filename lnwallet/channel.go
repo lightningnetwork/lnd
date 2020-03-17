@@ -2444,7 +2444,9 @@ func fundingTxIn(chanState *channeldb.OpenChannel) wire.TxIn {
 // producing a final view which is the result of properly applying all adds,
 // settles, timeouts and fee updates found in both logs. The resulting view
 // returned reflects the current state of HTLCs within the remote or local
-// commitment chain, and the current commitment fee rate.
+// commitment chain, and the current commitment fee rate. It takes a function
+// that looks up a htlc's parent entry in the update log as a parameter for
+// testing purposes.
 //
 // If mutateState is set to true, then the add height of all added HTLCs
 // will be set to nextHeight, and the remove height of all removed HTLCs
@@ -2454,7 +2456,8 @@ func fundingTxIn(chanState *channeldb.OpenChannel) wire.TxIn {
 // method.
 func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 	theirBalance *lnwire.MilliSatoshi, nextHeight uint64,
-	remoteChain, mutateState bool) (*htlcView, error) {
+	remoteChain, mutateState bool,
+	fetchParentEntry fetchParent) (*htlcView, error) {
 
 	// We initialize the view's fee rate to the fee rate of the unfiltered
 	// view. If any fee updates are found when evaluating the view, it will
@@ -2469,57 +2472,6 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 	// modifying an entry.
 	skipUs := make(map[uint64]struct{})
 	skipThem := make(map[uint64]struct{})
-
-	// fetchParentEntry is a helper method that will fetch the parent of
-	// entry from the corresponding update log.
-	fetchParentEntry := func(entry *PaymentDescriptor,
-		remoteLog bool) (*PaymentDescriptor, error) {
-
-		var (
-			updateLog *updateLog
-			logName   string
-		)
-
-		if remoteLog {
-			updateLog = lc.remoteUpdateLog
-			logName = "remote"
-		} else {
-			updateLog = lc.localUpdateLog
-			logName = "local"
-		}
-
-		addEntry := updateLog.lookupHtlc(entry.ParentIndex)
-
-		switch {
-		// We check if the parent entry is not found at this point.
-		// This could happen for old versions of lnd, and we return an
-		// error to gracefully shut down the state machine if such an
-		// entry is still in the logs.
-		case addEntry == nil:
-			return nil, fmt.Errorf("unable to find parent entry "+
-				"%d in %v update log: %v\nUpdatelog: %v",
-				entry.ParentIndex, logName,
-				newLogClosure(func() string {
-					return spew.Sdump(entry)
-				}), newLogClosure(func() string {
-					return spew.Sdump(updateLog)
-				}),
-			)
-
-		// The parent add height should never be zero at this point. If
-		// that's the case we probably forgot to send a new commitment.
-		case remoteChain && addEntry.addCommitHeightRemote == 0:
-			return nil, fmt.Errorf("parent entry %d for update %d "+
-				"had zero remote add height", entry.ParentIndex,
-				entry.LogIndex)
-		case !remoteChain && addEntry.addCommitHeightLocal == 0:
-			return nil, fmt.Errorf("parent entry %d for update %d "+
-				"had zero local add height", entry.ParentIndex,
-				entry.LogIndex)
-		}
-
-		return addEntry, nil
-	}
 
 	// First we run through non-add entries in both logs, populating the
 	// skip sets and mutating the current chain state (crediting balances,
@@ -2615,6 +2567,64 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 	}
 
 	return newView, nil
+}
+
+// fetchParent is a function which is used to look up an update's parent in
+// the appropriate update log.
+type fetchParent func(entry *PaymentDescriptor,
+	remoteLog bool) (*PaymentDescriptor, error)
+
+// getFetchParent is a helper that returns a function which returns a function
+// for looking up parent entries in the appropriate log.
+func (lc *LightningChannel) getFetchParent(remoteChain bool) fetchParent {
+	return func(entry *PaymentDescriptor,
+		remoteLog bool) (*PaymentDescriptor, error) {
+
+		var (
+			updateLog *updateLog
+			logName   string
+		)
+
+		if remoteLog {
+			updateLog = lc.remoteUpdateLog
+			logName = "remote"
+		} else {
+			updateLog = lc.localUpdateLog
+			logName = "local"
+		}
+
+		addEntry := updateLog.lookupHtlc(entry.ParentIndex)
+
+		switch {
+		// We check if the parent entry is not found at this point.
+		// This could happen for old versions of lnd, and we return an
+		// error to gracefully shut down the state machine if such an
+		// entry is still in the logs.
+		case addEntry == nil:
+			return nil, fmt.Errorf("unable to find parent entry "+
+				"%d in %v update log: %v\nUpdatelog: %v",
+				entry.ParentIndex, logName,
+				newLogClosure(func() string {
+					return spew.Sdump(entry)
+				}), newLogClosure(func() string {
+					return spew.Sdump(updateLog)
+				}),
+			)
+
+		// The parent add height should never be zero at this point. If
+		// that's the case we probably forgot to send a new commitment.
+		case remoteChain && addEntry.addCommitHeightRemote == 0:
+			return nil, fmt.Errorf("parent entry %d for update %d "+
+				"had zero remote add height", entry.ParentIndex,
+				entry.LogIndex)
+		case !remoteChain && addEntry.addCommitHeightLocal == 0:
+			return nil, fmt.Errorf("parent entry %d for update %d "+
+				"had zero local add height", entry.ParentIndex,
+				entry.LogIndex)
+		}
+
+		return addEntry, nil
+	}
 }
 
 // processAddEntry evaluates the effect of an add entry within the HTLC log.
@@ -3776,8 +3786,10 @@ func (lc *LightningChannel) computeView(view *htlcView, remoteChain bool,
 	// channel constraints to the final commitment state. If any fee
 	// updates are found in the logs, the commitment fee rate should be
 	// changed, so we'll also set the feePerKw to this new value.
-	filteredHTLCView, err := lc.evaluateHTLCView(view, &ourBalance,
-		&theirBalance, nextHeight, remoteChain, updateState)
+	filteredHTLCView, err := lc.evaluateHTLCView(
+		view, &ourBalance, &theirBalance, nextHeight, remoteChain,
+		updateState, lc.getFetchParent(remoteChain),
+	)
 	if err != nil {
 		return 0, 0, 0, nil, err
 	}

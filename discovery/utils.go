@@ -1,10 +1,7 @@
 package discovery
 
 import (
-	"github.com/btcsuite/btcd/btcec"
-	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -107,34 +104,6 @@ func CreateChanAnnouncement(chanProof *channeldb.ChannelAuthProof,
 	}
 
 	return chanAnn, edge1Ann, edge2Ann, nil
-}
-
-// SignAnnouncement is a helper function which is used to sign any outgoing
-// channel node node announcement messages.
-func SignAnnouncement(signer lnwallet.MessageSigner, pubKey *btcec.PublicKey,
-	msg lnwire.Message) (*btcec.Signature, error) {
-
-	var (
-		data []byte
-		err  error
-	)
-
-	switch m := msg.(type) {
-	case *lnwire.ChannelAnnouncement:
-		data, err = m.DataToSign()
-	case *lnwire.ChannelUpdate:
-		data, err = m.DataToSign()
-	case *lnwire.NodeAnnouncement:
-		data, err = m.DataToSign()
-	default:
-		return nil, errors.New("can't sign message " +
-			"of this format")
-	}
-	if err != nil {
-		return nil, errors.Errorf("unable to get data to sign: %v", err)
-	}
-
-	return signer.SignMessage(pubKey, data)
 }
 
 // remotePubFromChanInfo returns the public key of the remote peer given a

@@ -651,7 +651,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 
 	// With the announcement generated, we'll sign it to properly
 	// authenticate the message on the network.
-	authSig, err := discovery.SignAnnouncement(
+	authSig, err := netann.SignAnnouncement(
 		s.nodeSigner, s.identityPriv.PubKey(), nodeAnn,
 	)
 	if err != nil {
@@ -2068,7 +2068,7 @@ func (s *server) genNodeAnnouncement(refresh bool,
 	// Now that the announcement is fully updated, we'll generate a new
 	// signature over the announcement to ensure nodes on the network
 	// accepted the new authenticated announcement.
-	sig, err := discovery.SignAnnouncement(
+	sig, err := netann.SignAnnouncement(
 		s.nodeSigner, s.identityPriv.PubKey(), s.currentNodeAnn,
 	)
 	if err != nil {

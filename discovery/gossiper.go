@@ -20,6 +20,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/multimutex"
+	"github.com/lightningnetwork/lnd/netann"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/ticker"
@@ -2469,7 +2470,9 @@ func (d *AuthenticatedGossiper) updateChannel(info *channeldb.ChannelEdgeInfo,
 
 	// With the update applied, we'll generate a new signature over a
 	// digest of the channel announcement itself.
-	sig, err := SignAnnouncement(d.cfg.AnnSigner, d.selfKey, chanUpdate)
+	sig, err := netann.SignAnnouncement(
+		d.cfg.AnnSigner, d.selfKey, chanUpdate,
+	)
 	if err != nil {
 		return nil, nil, err
 	}

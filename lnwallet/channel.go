@@ -2440,6 +2440,36 @@ func fundingTxIn(chanState *channeldb.OpenChannel) wire.TxIn {
 	return *wire.NewTxIn(&chanState.FundingOutpoint, nil, nil)
 }
 
+// ownedUpdates contains sets of htlc updates from our and their htlc log.
+type ownedUpdates struct {
+	ours   []*PaymentDescriptor
+	theirs []*PaymentDescriptor
+}
+
+// viewEvaluation contains the outcome of evaluating a htlc view. The values
+// contained in this evaluation can be used to mutate our channel state to
+// reflect the outcome of this view.
+type viewEvaluation struct {
+	// receivedTotal is the total amount we have received as a result of
+	// this view. This value can be used to mutate our channel's total
+	// msat received value.
+	receivedTotal lnwire.MilliSatoshi
+
+	// sentTotal is the total amount we have sent as a result of this view.
+	// This value can be used to mutate our channel's total msat sent
+	// value.
+	sentTotal lnwire.MilliSatoshi
+
+	// feePerKw is the fee per kw as of this view. If no fee updates were
+	// processed, the fee will be the same as previously.
+	feePerKw chainfee.SatPerKWeight
+
+	// addUpdates is a set of the htlc add updates which remain unresolved
+	// as of this view. Htlc add updates which have been resolved with a
+	// htlc settle or fail are not included in this set.
+	addUpdates ownedUpdates
+}
+
 // evaluateHTLCView processes all update entries in both HTLC update logs,
 // producing a final view which is the result of properly applying all adds,
 // settles, timeouts and fee updates found in both logs. The resulting view
@@ -2457,12 +2487,12 @@ func fundingTxIn(chanState *channeldb.OpenChannel) wire.TxIn {
 func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 	theirBalance *lnwire.MilliSatoshi, nextHeight uint64,
 	remoteChain, mutateState bool,
-	fetchParentEntry fetchParent) (*htlcView, error) {
+	fetchParentEntry fetchParent) (*viewEvaluation, error) {
 
 	// We initialize the view's fee rate to the fee rate of the unfiltered
 	// view. If any fee updates are found when evaluating the view, it will
 	// be updated.
-	newView := &htlcView{
+	evaluation := &viewEvaluation{
 		feePerKw: view.feePerKw,
 	}
 
@@ -2486,7 +2516,7 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 		case FeeUpdate:
 			processFeeUpdate(
 				entry, nextHeight, remoteChain, mutateState,
-				newView,
+				&evaluation.feePerKw,
 			)
 			continue
 		}
@@ -2494,9 +2524,10 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 		// If we're settling an inbound HTLC, and it hasn't been
 		// processed yet, then increment our state tracking the total
 		// number of satoshis we've received within the channel.
-		if mutateState && entry.EntryType == Settle && !remoteChain &&
+		if entry.EntryType == Settle && !remoteChain &&
 			entry.removeCommitHeightLocal == 0 {
-			lc.channelState.TotalMSatReceived += entry.Amount
+
+			evaluation.receivedTotal += entry.Amount
 		}
 
 		addEntry, err := fetchParentEntry(entry, true)
@@ -2518,7 +2549,7 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 		case FeeUpdate:
 			processFeeUpdate(
 				entry, nextHeight, remoteChain, mutateState,
-				newView,
+				&evaluation.feePerKw,
 			)
 			continue
 		}
@@ -2527,9 +2558,10 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 		// and it hasn't been processed, yet, the increment our state
 		// tracking the total number of satoshis we've sent within the
 		// channel.
-		if mutateState && entry.EntryType == Settle && !remoteChain &&
+		if entry.EntryType == Settle && !remoteChain &&
 			entry.removeCommitHeightLocal == 0 {
-			lc.channelState.TotalMSatSent += entry.Amount
+
+			evaluation.sentTotal += entry.Amount
 		}
 
 		addEntry, err := fetchParentEntry(entry, false)
@@ -2553,7 +2585,12 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 
 		processAddEntry(entry, ourBalance, theirBalance, nextHeight,
 			remoteChain, false, mutateState)
-		newView.ourUpdates = append(newView.ourUpdates, entry)
+
+		// This htlc has not been resolved by the view, so we add it to
+		// our set of add updates.
+		evaluation.addUpdates.ours = append(
+			evaluation.addUpdates.ours, entry,
+		)
 	}
 	for _, entry := range view.theirUpdates {
 		isAdd := entry.EntryType == Add
@@ -2563,10 +2600,15 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 
 		processAddEntry(entry, ourBalance, theirBalance, nextHeight,
 			remoteChain, true, mutateState)
-		newView.theirUpdates = append(newView.theirUpdates, entry)
+
+		// This htlc has not been resolved by the view, so we add it to
+		// our set of add updates.
+		evaluation.addUpdates.theirs = append(
+			evaluation.addUpdates.theirs, entry,
+		)
 	}
 
-	return newView, nil
+	return evaluation, nil
 }
 
 // fetchParent is a function which is used to look up an update's parent in
@@ -2718,7 +2760,7 @@ func processRemoveEntry(htlc *PaymentDescriptor, ourBalance,
 // processFeeUpdate processes a log update that updates the current commitment
 // fee.
 func processFeeUpdate(feeUpdate *PaymentDescriptor, nextHeight uint64,
-	remoteChain bool, mutateState bool, view *htlcView) {
+	remoteChain bool, mutateState bool, fee *chainfee.SatPerKWeight) {
 
 	// Fee updates are applied for all commitments after they are
 	// sent/received, so we consider them being added and removed at the
@@ -2739,7 +2781,7 @@ func processFeeUpdate(feeUpdate *PaymentDescriptor, nextHeight uint64,
 
 	// If the update wasn't already locked in, update the current fee rate
 	// to reflect this update.
-	view.feePerKw = chainfee.SatPerKWeight(feeUpdate.Amount.ToSatoshis())
+	*fee = chainfee.SatPerKWeight(feeUpdate.Amount.ToSatoshis())
 
 	if mutateState {
 		*addHeight = nextHeight
@@ -3786,19 +3828,26 @@ func (lc *LightningChannel) computeView(view *htlcView, remoteChain bool,
 	// channel constraints to the final commitment state. If any fee
 	// updates are found in the logs, the commitment fee rate should be
 	// changed, so we'll also set the feePerKw to this new value.
-	filteredHTLCView, err := lc.evaluateHTLCView(
+	htlcEvaluation, err := lc.evaluateHTLCView(
 		view, &ourBalance, &theirBalance, nextHeight, remoteChain,
 		updateState, lc.getFetchParent(remoteChain),
 	)
 	if err != nil {
 		return 0, 0, 0, nil, err
 	}
-	feePerKw := filteredHTLCView.feePerKw
+	feePerKw := htlcEvaluation.feePerKw
+
+	// If we wish to update our state, update the sent and received totals
+	// from the values provided in the view evaluation.
+	if updateState {
+		lc.channelState.TotalMSatReceived += htlcEvaluation.receivedTotal
+		lc.channelState.TotalMSatSent += htlcEvaluation.sentTotal
+	}
 
 	// Now go through all HTLCs at this stage, to calculate the total
 	// weight, needed to calculate the transaction fee.
 	var totalHtlcWeight int64
-	for _, htlc := range filteredHTLCView.ourUpdates {
+	for _, htlc := range htlcEvaluation.addUpdates.ours {
 		if htlcIsDust(
 			lc.channelState.ChanType, remoteChain, !remoteChain,
 			feePerKw, htlc.Amount.ToSatoshis(), dustLimit,
@@ -3808,7 +3857,7 @@ func (lc *LightningChannel) computeView(view *htlcView, remoteChain bool,
 
 		totalHtlcWeight += input.HTLCWeight
 	}
-	for _, htlc := range filteredHTLCView.theirUpdates {
+	for _, htlc := range htlcEvaluation.addUpdates.theirs {
 		if htlcIsDust(
 			lc.channelState.ChanType, !remoteChain, !remoteChain,
 			feePerKw, htlc.Amount.ToSatoshis(), dustLimit,
@@ -3821,7 +3870,16 @@ func (lc *LightningChannel) computeView(view *htlcView, remoteChain bool,
 
 	totalCommitWeight := CommitWeight(lc.channelState.ChanType) +
 		totalHtlcWeight
-	return ourBalance, theirBalance, totalCommitWeight, filteredHTLCView, nil
+
+	// Create a new view which requires all the information required by
+	// calling functions.
+	newView := &htlcView{
+		ourUpdates:   htlcEvaluation.addUpdates.ours,
+		theirUpdates: htlcEvaluation.addUpdates.theirs,
+		feePerKw:     htlcEvaluation.feePerKw,
+	}
+
+	return ourBalance, theirBalance, totalCommitWeight, newView, nil
 }
 
 // genHtlcSigValidationJobs generates a series of signatures verification jobs

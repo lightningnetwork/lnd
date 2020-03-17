@@ -7529,7 +7529,7 @@ func TestEvaluateView(t *testing.T) {
 				2: true,
 			},
 			expectReceived: 0,
-			expectSent:     0,
+			expectSent:     htlcAddAmount,
 		},
 		{
 			name:        "their htlc settled, state mutated",
@@ -7598,7 +7598,7 @@ func TestEvaluateView(t *testing.T) {
 				1: true,
 			},
 			theirExpectedHtlcs: nil,
-			expectReceived:     0,
+			expectReceived:     htlcAddAmount,
 			expectSent:         0,
 		},
 	}
@@ -7645,25 +7645,28 @@ func TestEvaluateView(t *testing.T) {
 			}
 
 			checkExpectedHtlcs(
-				t, result.ourUpdates, test.ourExpectedHtlcs,
+				t, result.addUpdates.ours, test.ourExpectedHtlcs,
 			)
 
 			checkExpectedHtlcs(
-				t, result.theirUpdates, test.theirExpectedHtlcs,
+				t, result.addUpdates.theirs, test.theirExpectedHtlcs,
 			)
 
-			if lc.channelState.TotalMSatSent != test.expectSent {
+			// Check that the send and received totals calculated by
+			// the evaluation are as expected. We expect these values
+			// to be populated independent of whether we are mutating
+			// channel state because mutation occurs in the calling
+			// function.
+			if result.sentTotal != test.expectSent {
 				t.Fatalf("expected sent: %v, got: %v",
 					test.expectSent,
-					lc.channelState.TotalMSatSent)
+					result.sentTotal)
 			}
 
-			if lc.channelState.TotalMSatReceived !=
-				test.expectReceived {
-
+			if result.receivedTotal != test.expectReceived {
 				t.Fatalf("expected received: %v, got: %v",
 					test.expectReceived,
-					lc.channelState.TotalMSatReceived)
+					result.receivedTotal)
 			}
 		})
 	}

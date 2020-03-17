@@ -68,10 +68,19 @@ func newIntegratedRoutingContext(t *testing.T) *integratedRoutingContext {
 	return &ctx
 }
 
+// htlcAttempt records the route and outcome of an attempted htlc.
+type htlcAttempt struct {
+	route   *route.Route
+	success bool
+}
+
 // testPayment launches a test payment and asserts that it is completed after
 // the expected number of attempts.
-func (c *integratedRoutingContext) testPayment(expectedNofAttempts int) {
-	var nextPid uint64
+func (c *integratedRoutingContext) testPayment() []htlcAttempt {
+	var (
+		nextPid  uint64
+		attempts []htlcAttempt
+	)
 
 	// Create temporary database for mission control.
 	file, err := ioutil.TempFile("", "*.db")
@@ -147,8 +156,14 @@ func (c *integratedRoutingContext) testPayment(expectedNofAttempts int) {
 			c.t.Fatal(err)
 		}
 
+		success := htlcResult.failure == nil
+		attempts = append(attempts, htlcAttempt{
+			route:   route,
+			success: success,
+		})
+
 		// Process the result.
-		if htlcResult.failure == nil {
+		if success {
 			err := mc.ReportPaymentSuccess(pid, route)
 			if err != nil {
 				c.t.Fatal(err)
@@ -177,11 +192,9 @@ func (c *integratedRoutingContext) testPayment(expectedNofAttempts int) {
 		}
 	}
 
-	c.t.Logf("Payment attempts: %v\n", nextPid)
-	if expectedNofAttempts != int(nextPid) {
-		c.t.Fatalf("expected %v attempts, but needed %v",
-			expectedNofAttempts, nextPid)
-	}
+	c.t.Logf("Payment attempts: %v\n", len(attempts))
+
+	return attempts
 }
 
 // getNodeIndex returns the zero-based index of the given node in the route.

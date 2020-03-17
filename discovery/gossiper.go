@@ -1365,6 +1365,22 @@ func (d *AuthenticatedGossiper) processChanPolicyUpdate(
 	return chanUpdates, nil
 }
 
+// remotePubFromChanInfo returns the public key of the remote peer given a
+// ChannelEdgeInfo that describe a channel we have with them.
+func remotePubFromChanInfo(chanInfo *channeldb.ChannelEdgeInfo,
+	chanFlags lnwire.ChanUpdateChanFlags) [33]byte {
+
+	var remotePubKey [33]byte
+	switch {
+	case chanFlags&lnwire.ChanUpdateDirection == 0:
+		remotePubKey = chanInfo.NodeKey2Bytes
+	case chanFlags&lnwire.ChanUpdateDirection == 1:
+		remotePubKey = chanInfo.NodeKey1Bytes
+	}
+
+	return remotePubKey
+}
+
 // processRejectedEdge examines a rejected edge to see if we can extract any
 // new announcements from it.  An edge will get rejected if we already added
 // the same edge without AuthProof to the graph. If the received announcement

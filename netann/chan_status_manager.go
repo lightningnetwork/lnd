@@ -527,7 +527,7 @@ func (m *ChanStatusManager) signAndSendNextUpdate(outpoint wire.OutPoint,
 
 	err = SignChannelUpdate(
 		m.cfg.MessageSigner, m.cfg.OurPubKey, chanUpdate,
-		ChannelUpdateSetDisable(disabled),
+		ChanUpdSetDisable(disabled), ChanUpdSetTimestamp,
 	)
 	if err != nil {
 		return err

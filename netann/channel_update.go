@@ -15,9 +15,9 @@ import (
 // lnwire.ChannelUpdate.
 type ChannelUpdateModifier func(*lnwire.ChannelUpdate)
 
-// ChannelUpdateSetDisable sets the disabled channel flag if disabled is true,
-// and clears the bit otherwise.
-func ChannelUpdateSetDisable(disabled bool) ChannelUpdateModifier {
+// ChanUpdSetDisable is a functional option that sets the disabled channel flag
+// if disabled is true, and clears the bit otherwise.
+func ChanUpdSetDisable(disabled bool) ChannelUpdateModifier {
 	return func(update *lnwire.ChannelUpdate) {
 		if disabled {
 			// Set the bit responsible for marking a channel as
@@ -29,6 +29,20 @@ func ChannelUpdateSetDisable(disabled bool) ChannelUpdateModifier {
 			update.ChannelFlags &= ^lnwire.ChanUpdateDisabled
 		}
 	}
+}
+
+// ChanUpdSetTimestamp is a functional option that sets the timestamp of the
+// update to the current time, or increments it if the timestamp is already in
+// the future.
+func ChanUpdSetTimestamp(update *lnwire.ChannelUpdate) {
+	newTimestamp := uint32(time.Now().Unix())
+	if newTimestamp <= update.Timestamp {
+		// Increment the prior value to ensure the timestamp
+		// monotonically increases, otherwise the update won't
+		// propagate.
+		newTimestamp = update.Timestamp + 1
+	}
+	update.Timestamp = newTimestamp
 }
 
 // SignChannelUpdate applies the given modifiers to the passed
@@ -44,16 +58,6 @@ func SignChannelUpdate(signer lnwallet.MessageSigner, pubKey *btcec.PublicKey,
 	for _, modifier := range mods {
 		modifier(update)
 	}
-
-	// Update the message's timestamp to the current time. If the update's
-	// current time is already in the future, we increment the prior value
-	// to ensure the timestamps monotonically increase, otherwise the
-	// update won't propagate.
-	newTimestamp := uint32(time.Now().Unix())
-	if newTimestamp <= update.Timestamp {
-		newTimestamp = update.Timestamp + 1
-	}
-	update.Timestamp = newTimestamp
 
 	// Create the DER-encoded ECDSA signature over the message digest.
 	sig, err := SignAnnouncement(signer, pubKey, update)

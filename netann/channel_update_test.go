@@ -103,6 +103,7 @@ func TestUpdateDisableFlag(t *testing.T) {
 	t.Parallel()
 
 	for _, tc := range updateDisableTests {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			// Create the initial update, the only fields we are
 			// concerned with in this test are the timestamp and the
@@ -127,7 +128,8 @@ func TestUpdateDisableFlag(t *testing.T) {
 			// disabled or enabled as prescribed in the test case.
 			err := netann.SignChannelUpdate(
 				tc.signer, pubKey, newUpdate,
-				netann.ChannelUpdateSetDisable(tc.disable),
+				netann.ChanUpdSetDisable(tc.disable),
+				netann.ChanUpdSetTimestamp,
 			)
 
 			var fail bool

@@ -6,6 +6,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/netann"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
 
@@ -119,7 +120,7 @@ func (c *ChanSeries) UpdatesInHorizon(chain chainhash.Hash,
 			continue
 		}
 
-		chanAnn, edge1, edge2, err := CreateChanAnnouncement(
+		chanAnn, edge1, edge2, err := netann.CreateChanAnnouncement(
 			channel.Info.AuthProof, channel.Info, channel.Policy1,
 			channel.Policy2,
 		)
@@ -258,7 +259,7 @@ func (c *ChanSeries) FetchChanAnns(chain chainhash.Hash,
 			continue
 		}
 
-		chanAnn, edge1, edge2, err := CreateChanAnnouncement(
+		chanAnn, edge1, edge2, err := netann.CreateChanAnnouncement(
 			channel.Info.AuthProof, channel.Info, channel.Policy1,
 			channel.Policy2,
 		)

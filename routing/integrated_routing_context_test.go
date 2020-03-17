@@ -95,10 +95,31 @@ func (c *integratedRoutingContext) testPayment(expectedNofAttempts int) {
 		c.t.Fatal(err)
 	}
 
-	// Instruct pathfinding to use mission control as a probabiltiy source.
-	restrictParams := RestrictParams{
-		ProbabilitySource: mc.GetProbability,
-		FeeLimit:          lnwire.MaxMilliSatoshi,
+	getBandwidthHints := func() (map[uint64]lnwire.MilliSatoshi, error) {
+		// Create bandwidth hints based on local channel balances.
+		bandwidthHints := map[uint64]lnwire.MilliSatoshi{}
+		for _, ch := range c.graph.nodes[c.source.pubkey].channels {
+			bandwidthHints[ch.id] = ch.balance
+		}
+
+		return bandwidthHints, nil
+	}
+
+	payment := LightningPayment{
+		FinalCLTVDelta: uint16(c.finalExpiry),
+		FeeLimit:       lnwire.MaxMilliSatoshi,
+		Target:         c.target.pubkey,
+	}
+
+	session := &paymentSession{
+		getBandwidthHints: getBandwidthHints,
+		payment:           &payment,
+		pathFinder:        findPath,
+		getRoutingGraph: func() (routingGraph, func(), error) {
+			return c.graph, func() {}, nil
+		},
+		pathFindingConfig: c.pathFindingCfg,
+		missionControl:    mc,
 	}
 
 	// Now the payment control loop starts. It will keep trying routes until
@@ -111,26 +132,9 @@ func (c *integratedRoutingContext) testPayment(expectedNofAttempts int) {
 		}
 
 		// Find a route.
-		path, err := findPath(
-			&graphParams{
-				graph:          c.graph,
-				bandwidthHints: bandwidthHints,
-			},
-			&restrictParams,
-			&c.pathFindingCfg,
-			c.source.pubkey, c.target.pubkey,
-			c.amt, c.finalExpiry,
+		route, err := session.RequestRoute(
+			c.amt, lnwire.MaxMilliSatoshi, 0, 0,
 		)
-		if err != nil {
-			c.t.Fatal(err)
-		}
-
-		finalHop := finalHopParams{
-			amt:       c.amt,
-			cltvDelta: uint16(c.finalExpiry),
-		}
-
-		route, err := newRoute(c.source.pubkey, path, 0, finalHop)
 		if err != nil {
 			c.t.Fatal(err)
 		}

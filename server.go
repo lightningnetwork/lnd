@@ -53,6 +53,7 @@ import (
 	"github.com/lightningnetwork/lnd/netann"
 	"github.com/lightningnetwork/lnd/peernotifier"
 	"github.com/lightningnetwork/lnd/pool"
+	"github.com/lightningnetwork/lnd/queue"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/routing/localchans"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -175,6 +176,12 @@ type server struct {
 	persistentPeersBackoff map[string]time.Duration
 	persistentConnReqs     map[string][]*connmgr.ConnReq
 	persistentRetryCancels map[string]chan struct{}
+
+	// peerErrors keeps a set of peer error buffers for peers that have
+	// disconnected from us. This allows us to track historic peer errors
+	// over connections. The string of the peer's compressed pubkey is used
+	// as a key for this map.
+	peerErrors map[string]*queue.CircularBuffer
 
 	// ignorePeerTermination tracks peers for which the server has initiated
 	// a disconnect. Adding a peer to this map causes the peer termination
@@ -425,6 +432,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 		persistentPeersBackoff:  make(map[string]time.Duration),
 		persistentConnReqs:      make(map[string][]*connmgr.ConnReq),
 		persistentRetryCancels:  make(map[string]chan struct{}),
+		peerErrors:              make(map[string]*queue.CircularBuffer),
 		ignorePeerTermination:   make(map[*peer]struct{}),
 		scheduledPeerConnection: make(map[string]func()),
 
@@ -2782,6 +2790,19 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 	initFeatures := s.featureMgr.Get(feature.SetInit)
 	legacyFeatures := s.featureMgr.Get(feature.SetLegacyGlobal)
 
+	// Lookup past error caches for the peer in the server. If no buffer is
+	// found, create a fresh buffer.
+	pkStr := string(peerAddr.IdentityKey.SerializeCompressed())
+	errBuffer, ok := s.peerErrors[pkStr]
+	if !ok {
+		var err error
+		errBuffer, err = queue.NewCircularBuffer(errorBufferSize)
+		if err != nil {
+			srvrLog.Errorf("unable to create peer %v", err)
+			return
+		}
+	}
+
 	// Now that we've established a connection, create a peer, and it to the
 	// set of currently active peers. Configure the peer with the incoming
 	// and outgoing broadcast deltas to prevent htlcs from being accepted or
@@ -2791,7 +2812,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 	p, err := newPeer(
 		conn, connReq, s, peerAddr, inbound, initFeatures,
 		legacyFeatures, cfg.ChanEnableTimeout,
-		defaultOutgoingCltvRejectDelta,
+		defaultOutgoingCltvRejectDelta, errBuffer,
 	)
 	if err != nil {
 		srvrLog.Errorf("unable to create peer %v", err)
@@ -2802,6 +2823,11 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 	//  * also mark last-seen, do it one single transaction?
 
 	s.addPeer(p)
+
+	// Once we have successfully added the peer to the server, we can
+	// delete the previous error buffer from the server's map of error
+	// buffers.
+	delete(s.peerErrors, pkStr)
 
 	// Dispatch a goroutine to asynchronously start the peer. This process
 	// includes sending and receiving Init messages, which would be a DOS
@@ -3095,6 +3121,12 @@ func (s *server) removePeer(p *peer) {
 		delete(s.inboundPeers, pubStr)
 	} else {
 		delete(s.outboundPeers, pubStr)
+	}
+
+	// Copy the peer's error buffer across to the server if it has any items
+	// in it so that we can restore peer errors across connections.
+	if p.errorBuffer.Total() > 0 {
+		s.peerErrors[pubStr] = p.errorBuffer
 	}
 
 	// Inform the peer notifier of a peer offline event so that it can be

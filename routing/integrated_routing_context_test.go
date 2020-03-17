@@ -111,8 +111,11 @@ func (c *integratedRoutingContext) testPayment(expectedNofAttempts int) {
 		}
 
 		// Find a route.
-		path, err := findPathInternal(
-			nil, bandwidthHints, c.graph,
+		path, err := findPath(
+			&graphParams{
+				graph:          c.graph,
+				bandwidthHints: bandwidthHints,
+			},
 			&restrictParams,
 			&c.pathFindingCfg,
 			c.source.pubkey, c.target.pubkey,

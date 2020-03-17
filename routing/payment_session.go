@@ -98,13 +98,19 @@ type paymentSession struct {
 
 	getBandwidthHints func() (map[uint64]lnwire.MilliSatoshi, error)
 
-	sessionSource *SessionSource
-
 	payment *LightningPayment
 
 	empty bool
 
 	pathFinder pathFinder
+
+	getRoutingGraph func() (routingGraph, func(), error)
+
+	// pathFindingConfig defines global parameters that control the
+	// trade-off in path finding between fees and probabiity.
+	pathFindingConfig PathFindingConfig
+
+	missionControl MissionController
 }
 
 // RequestRoute returns a route which is likely to be capable for successfully
@@ -138,10 +144,8 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 	// Taking into account this prune view, we'll attempt to locate a path
 	// to our destination, respecting the recommendations from
 	// MissionControl.
-	ss := p.sessionSource
-
 	restrictions := &RestrictParams{
-		ProbabilitySource: ss.MissionControl.GetProbability,
+		ProbabilitySource: p.missionControl.GetProbability,
 		FeeLimit:          feeLimit,
 		OutgoingChannelID: p.payment.OutgoingChannelID,
 		LastHop:           p.payment.LastHop,
@@ -164,14 +168,22 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 
 	finalHtlcExpiry := int32(height) + int32(finalCltvDelta)
 
+	routingGraph, cleanup, err := p.getRoutingGraph()
+	if err != nil {
+		return nil, err
+	}
+	defer cleanup()
+
+	sourceVertex := routingGraph.sourceNode()
+
 	path, err := p.pathFinder(
 		&graphParams{
-			graph:           ss.Graph,
 			additionalEdges: p.additionalEdges,
 			bandwidthHints:  bandwidthHints,
+			graph:           routingGraph,
 		},
-		restrictions, &ss.PathFindingConfig,
-		ss.SelfNode.PubKeyBytes, p.payment.Target,
+		restrictions, &p.pathFindingConfig,
+		sourceVertex, p.payment.Target,
 		maxAmt, finalHtlcExpiry,
 	)
 	if err != nil {
@@ -180,7 +192,6 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 
 	// With the next candidate path found, we'll attempt to turn this into
 	// a route by applying the time-lock and fee requirements.
-	sourceVertex := route.Vertex(ss.SelfNode.PubKeyBytes)
 	route, err := newRoute(
 		sourceVertex, path, height,
 		finalHopParams{

@@ -731,7 +731,6 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 		Graph:             chanGraph,
 		MissionControl:    s.missionControl,
 		QueryBandwidth:    queryBandwidth,
-		SelfNode:          selfNode,
 		PathFindingConfig: pathFindingConfig,
 	}
 

@@ -1426,13 +1426,25 @@ func (r *ChannelRouter) FindRoute(source, target route.Vertex,
 	// execute our path finding algorithm.
 	finalHtlcExpiry := currentHeight + int32(finalExpiry)
 
+	routingTx, err := newDbRoutingTx(r.cfg.Graph)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		err := routingTx.close()
+		if err != nil {
+			log.Errorf("Error closing db tx: %v", err)
+		}
+	}()
+
 	path, err := findPath(
 		&graphParams{
-			graph:           r.cfg.Graph,
-			bandwidthHints:  bandwidthHints,
 			additionalEdges: routeHints,
+			bandwidthHints:  bandwidthHints,
+			graph:           routingTx,
 		},
-		restrictions, &r.cfg.PathFindingConfig,
+		restrictions,
+		&r.cfg.PathFindingConfig,
 		source, target, amt, finalHtlcExpiry,
 	)
 	if err != nil {

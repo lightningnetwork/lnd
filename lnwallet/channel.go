@@ -2440,6 +2440,104 @@ func fundingTxIn(chanState *channeldb.OpenChannel) wire.TxIn {
 	return *wire.NewTxIn(&chanState.FundingOutpoint, nil, nil)
 }
 
+// preprocessHtlcs processes a set of htlcs that we are evaluating. It returns
+// a map of htlc indexes for the htlc adds that have been resolved by this view
+// and a map which divides htlcs by update type. A total value in msat which
+// represents the total amount of stats were settled by this view.
+//
+// Note that the balances and htlc fee that are passed into this function are
+// modified.
+func preprocessHtlcs(updates []*PaymentDescriptor,
+	fetchParent func(*PaymentDescriptor) (*PaymentDescriptor, error),
+	ourBalance, theirBalance *lnwire.MilliSatoshi,
+	fee *chainfee.SatPerKWeight, nextHeight uint64, isIncoming, remoteChain,
+	mutateState bool) (map[uint64]bool,
+	map[updateType][]*PaymentDescriptor, lnwire.MilliSatoshi, error) {
+
+	var (
+		resolvedHtlcs = make(map[uint64]bool)
+		htlcUpdates   = make(map[updateType][]*PaymentDescriptor)
+		total         lnwire.MilliSatoshi
+	)
+
+	for _, entry := range updates {
+		// Add every update to a map of htlc updates by entry type.
+		htlcUpdates[entry.EntryType] = append(
+			htlcUpdates[entry.EntryType], entry,
+		)
+
+		switch entry.EntryType {
+		// We do not need to process adds any further, they need to be
+		// compared to the resolution map we produce to determine which
+		// remain in the view, and which have been resolved.
+		case Add:
+			continue
+
+		// Process fee updates, updating the current feePerKw.
+		case FeeUpdate:
+			processFeeUpdate(
+				entry, nextHeight, remoteChain, mutateState,
+				fee,
+			)
+
+			continue
+		}
+
+		// If this entry alters the total usage on our channel, we
+		// increment the usage total that we track for this htlc view.
+		if shouldUpdateUsage(
+			remoteChain, entry.EntryType,
+			entry.removeCommitHeightLocal,
+		) {
+			total += entry.Amount
+		}
+
+		// Lookup the parent add entry for this settle/fail and add it
+		// to our set of resolutions for this view.
+		addEntry, err := fetchParent(entry)
+		if err != nil {
+			return nil, nil, 0, err
+		}
+
+		resolvedHtlcs[addEntry.HtlcIndex] = true
+
+		processRemoveEntry(
+			entry, ourBalance, theirBalance, nextHeight,
+			remoteChain, isIncoming, mutateState,
+		)
+	}
+
+	return resolvedHtlcs, htlcUpdates, total, nil
+}
+
+// shouldUpdateUsage returns true if the update has altered the movement of
+// funds in our channel, ane we have not accounted for this change yet (because
+// the update has not yet been processed).
+func shouldUpdateUsage(remoteChain bool, updateType updateType,
+	removeCommitHeightLocal uint64) bool {
+
+	// If the entry is not a settle, it did not end up moving funds in the
+	// channel.
+	if updateType != Settle {
+		return false
+	}
+
+	// We are only concerned with htlcs on our commitment chain.
+	if remoteChain {
+		return false
+	}
+
+	// If the entry has already been processed, do not increment state
+	// again.
+	if removeCommitHeightLocal != 0 {
+		return false
+	}
+
+	// This is a htlc settle on our local chain which has not been processed
+	// yet, so we should update our running totals.
+	return true
+}
+
 // ownedUpdates contains sets of htlc updates from our and their htlc log.
 type ownedUpdates struct {
 	ours   []*PaymentDescriptor
@@ -2496,90 +2594,59 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 		feePerKw: view.feePerKw,
 	}
 
-	// We use two maps, one for the local log and one for the remote log to
-	// keep track of which entries we need to skip when creating the final
-	// htlc view. We skip an entry whenever we find a settle or a timeout
-	// modifying an entry.
-	skipUs := make(map[uint64]struct{})
-	skipThem := make(map[uint64]struct{})
+	// wrapFetchParent takes a remote log bool and wraps our call to fetch
+	// parent so that we do not need to pass the remote log bool into the
+	// preprocessing function.
+	fetchParent := func(remoteLog bool) func(*PaymentDescriptor) (
+		*PaymentDescriptor, error) {
 
-	// First we run through non-add entries in both logs, populating the
-	// skip sets and mutating the current chain state (crediting balances,
-	// etc) to reflect the settle/timeout entry encountered.
-	for _, entry := range view.ourUpdates {
-		switch entry.EntryType {
-		// Skip adds for now. They will be processed below.
-		case Add:
-			continue
+		return func(entry *PaymentDescriptor) (*PaymentDescriptor,
+			error) {
 
-		// Process fee updates, updating the current feePerKw.
-		case FeeUpdate:
-			processFeeUpdate(
-				entry, nextHeight, remoteChain, mutateState,
-				&evaluation.feePerKw,
-			)
-			continue
+			return fetchParentEntry(entry, remoteLog)
 		}
-
-		// If we're settling an inbound HTLC, and it hasn't been
-		// processed yet, then increment our state tracking the total
-		// number of satoshis we've received within the channel.
-		if entry.EntryType == Settle && !remoteChain &&
-			entry.removeCommitHeightLocal == 0 {
-
-			evaluation.receivedTotal += entry.Amount
-		}
-
-		addEntry, err := fetchParentEntry(entry, true)
-		if err != nil {
-			return nil, err
-		}
-
-		skipThem[addEntry.HtlcIndex] = struct{}{}
-		processRemoveEntry(entry, ourBalance, theirBalance,
-			nextHeight, remoteChain, true, mutateState)
-	}
-	for _, entry := range view.theirUpdates {
-		switch entry.EntryType {
-		// Skip adds for now. They will be processed below.
-		case Add:
-			continue
-
-		// Process fee updates, updating the current feePerKw.
-		case FeeUpdate:
-			processFeeUpdate(
-				entry, nextHeight, remoteChain, mutateState,
-				&evaluation.feePerKw,
-			)
-			continue
-		}
-
-		// If the remote party is settling one of our outbound HTLC's,
-		// and it hasn't been processed, yet, the increment our state
-		// tracking the total number of satoshis we've sent within the
-		// channel.
-		if entry.EntryType == Settle && !remoteChain &&
-			entry.removeCommitHeightLocal == 0 {
-
-			evaluation.sentTotal += entry.Amount
-		}
-
-		addEntry, err := fetchParentEntry(entry, false)
-		if err != nil {
-			return nil, err
-		}
-
-		skipUs[addEntry.HtlcIndex] = struct{}{}
-		processRemoveEntry(entry, ourBalance, theirBalance,
-			nextHeight, remoteChain, false, mutateState)
 	}
 
-	// Next we take a second pass through all the log entries, skipping any
-	// settled HTLCs, and debiting the chain state balance due to any newly
-	// added HTLCs.
-	for _, entry := range view.ourUpdates {
-		isAdd := entry.EntryType == Add
-		if _, ok := skipUs[entry.HtlcIndex]; !isAdd || ok {
+	// Preprocess our htlcs, passing in a fetchParent with remoteLog = true
+	// so that the function will look for parent entries for our settles/
+	// fails in the remote party's log.
+	ourResolutions, ourHtlcs, total, err := preprocessHtlcs(
+		view.ourUpdates, fetchParent(true), ourBalance,
+		theirBalance, &evaluation.feePerKw, nextHeight, true,
+		remoteChain, mutateState,
+	)
+	if err != nil {
+		return nil, err
+	}
+	// Any settles in this log are a result of us settling inbound htlcs,
+	// so we update received total.
+	evaluation.receivedTotal = total
+
+	// Preprocess our htlcs, passing in a fetchParent with remoteLog = true
+	// so that the function will look for parent entries for their settles/
+	// fails our party's log.
+	theirResolutions, theirHtlcs, total, err := preprocessHtlcs(
+		view.theirUpdates, fetchParent(false), ourBalance,
+		theirBalance, &evaluation.feePerKw, nextHeight, false,
+		remoteChain, mutateState,
+	)
+	if err != nil {
+		return nil, err
+	}
+	// Any settles in this log are a result of the remote party setting
+	// our outgoing htlcs, so we update send total.
+	evaluation.sentTotal = total
+
+	// Now we have a set of htlcs by type, we can run through our htlc adds,
+	// skipping over those that were resolved by this view, to produce a new
+	// htlc view. We debit the chain state balance due to any newly added
+	// htlcs.
+	for _, entry := range ourHtlcs[Add] {
+		// If we have an entry in their resolutions for this htlc's
+		// index, it was resolved by a settle or fail on in their
+		// update log. We skip this htlc add because it has been
+		// resolved.
+		if _, ok := theirResolutions[entry.HtlcIndex]; ok {
 			continue
 		}
 
@@ -2592,9 +2659,12 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 			evaluation.addUpdates.ours, entry,
 		)
 	}
-	for _, entry := range view.theirUpdates {
-		isAdd := entry.EntryType == Add
-		if _, ok := skipThem[entry.HtlcIndex]; !isAdd || ok {
+	for _, entry := range theirHtlcs[Add] {
+		// If we have an entry in our resolutions for this htlc's
+		// index, it was resolved by a settle or fail on in our
+		// update log. We skip this htlc add because it has been
+		// resolved.
+		if _, ok := ourResolutions[entry.HtlcIndex]; ok {
 			continue
 		}
 

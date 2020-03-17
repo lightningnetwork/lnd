@@ -7306,6 +7306,303 @@ func TestChannelMaxFeeRate(t *testing.T) {
 	assertMaxFeeRate(0.0000001, chainfee.FeePerKwFloor)
 }
 
+// TestShouldUpdateUsage tests that we only indicate that usage totals should be
+// updated for settles on our own chain which have not been processed before.
+func TestShouldUpdateUsage(t *testing.T) {
+	tests := []struct {
+		name              string
+		remoteChain       bool
+		updateType        updateType
+		localRemoveHeight uint64
+		shouldUpdate      bool
+	}{
+		{
+			name:              "not a settle",
+			updateType:        Add,
+			localRemoveHeight: 0,
+			remoteChain:       false,
+			shouldUpdate:      false,
+		},
+		{
+			name:              "already processed",
+			updateType:        Settle,
+			localRemoveHeight: 1,
+			remoteChain:       false,
+			shouldUpdate:      false,
+		},
+		{
+			name:              "remote chain",
+			updateType:        Settle,
+			localRemoveHeight: 1,
+			remoteChain:       true,
+			shouldUpdate:      false,
+		},
+		{
+			name:              "should update",
+			updateType:        Settle,
+			localRemoveHeight: 0,
+			remoteChain:       false,
+			shouldUpdate:      true,
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			shouldUpdate := shouldUpdateUsage(
+				test.remoteChain, test.updateType,
+				test.localRemoveHeight,
+			)
+
+			if shouldUpdate != test.shouldUpdate {
+				t.Fatalf("expected: %v, got: %v",
+					test.shouldUpdate, shouldUpdate)
+			}
+		})
+	}
+}
+
+// TestPreprocessHtlcs tests the preprocessing of htlcs. It tests sorting
+// of htlcs by type, and population of a resolved map.
+func TestPreprocessHtlcs(t *testing.T) {
+	const (
+		// height is a non-zero height that is used in this test.
+		height = 500
+
+		// htlcAmount is the amount for htlcs in tests.
+		htlcAmount = 15
+	)
+
+	tests := []struct {
+		name        string
+		remoteChain bool
+		htlcs       []*PaymentDescriptor
+
+		// parentEntries is a map of htlc resolution index to a parent
+		// entry's index.
+		parentEntries map[uint64]uint64
+
+		// expectedMap is a map of update type to htlc index that we
+		// expect to be generated.
+		expectedMap map[updateType]map[uint64]bool
+
+		// expectedResolutions is the map of htlc parent index to
+		// resolution which we expect to be generated.
+		expectedResolutions map[uint64]bool
+
+		// expectedUsageTotal is the total amount of usage we expect
+		// this view to have.
+		expectedUsageTotal lnwire.MilliSatoshi
+	}{
+		{
+			name:        "all htlc types, 3 resolutions",
+			remoteChain: false,
+			htlcs: []*PaymentDescriptor{
+				{
+					HtlcIndex: 1,
+					EntryType: Add,
+					Amount:    htlcAmount,
+				},
+				{
+					HtlcIndex: 2,
+					EntryType: FeeUpdate,
+					Amount:    htlcAmount,
+				},
+				{
+					HtlcIndex: 4,
+					EntryType: Settle,
+					Amount:    htlcAmount,
+				},
+				{
+					HtlcIndex: 6,
+					EntryType: Fail,
+					Amount:    htlcAmount,
+				},
+				{
+					HtlcIndex: 8,
+					EntryType: MalformedFail,
+					Amount:    htlcAmount,
+				},
+			},
+			// Htlc add (1) and fee update (2) should not
+			// have a parent entries in this map.
+			parentEntries: map[uint64]uint64{
+				// Htlc settle.
+				4: 3,
+				// Htlc fail.
+				6: 5,
+				// Malformed fail.
+				8: 7,
+			},
+			expectedMap: map[updateType]map[uint64]bool{
+				Add:           {1: true},
+				FeeUpdate:     {2: true},
+				Settle:        {4: true},
+				Fail:          {6: true},
+				MalformedFail: {8: true},
+			},
+			// We expect the parents of the settle, fail, and
+			// malformed fail to be in our resolutions map.
+			expectedResolutions: map[uint64]bool{
+				3: true,
+				5: true,
+				7: true,
+			},
+			expectedUsageTotal: htlcAmount,
+		},
+		{
+			name:        "on remote chain, zero usage",
+			remoteChain: true,
+			htlcs: []*PaymentDescriptor{
+				{
+					HtlcIndex: 2,
+					EntryType: Settle,
+					Amount:    htlcAmount,
+				},
+			},
+			parentEntries: map[uint64]uint64{
+				// Htlc settle.
+				2: 1,
+			},
+			expectedMap: map[updateType]map[uint64]bool{
+				Settle: {2: true},
+			},
+			expectedResolutions: map[uint64]bool{
+				1: true,
+			},
+			expectedUsageTotal: 0,
+		},
+		{
+			name:        "settle already processed",
+			remoteChain: false,
+			htlcs: []*PaymentDescriptor{
+				{
+					HtlcIndex:               2,
+					EntryType:               Settle,
+					Amount:                  htlcAmount,
+					removeCommitHeightLocal: height,
+				},
+			},
+			parentEntries: map[uint64]uint64{
+				// Htlc settle.
+				2: 1,
+			},
+			expectedMap: map[updateType]map[uint64]bool{
+				Settle: {2: true},
+			},
+			expectedResolutions: map[uint64]bool{
+				1: true,
+			},
+			expectedUsageTotal: 0,
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			var (
+				ourBalance, theirBalance lnwire.MilliSatoshi
+				fee                      chainfee.SatPerKWeight
+			)
+
+			// Create a fetch parent function which will return
+			// parents as set in the test's parentEntries map.
+			fetchParent := func(entry *PaymentDescriptor) (
+				*PaymentDescriptor, error) {
+
+				fetch := fetchParentFromMap(test.parentEntries)
+
+				// The remoteLog bool is not used in
+				// fetchParentFromMap so we can just set it to
+				// false.
+				return fetch(entry, false)
+			}
+
+			resolutions, htlcMap, total, err := preprocessHtlcs(
+				test.htlcs, fetchParent, &ourBalance,
+				&theirBalance, &fee, height, true,
+				test.remoteChain, false,
+			)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if total != test.expectedUsageTotal {
+				t.Fatalf("expected: %v, got: %v",
+					test.expectedUsageTotal, total)
+			}
+
+			for updateType, htlcs := range htlcMap {
+				htlcIndexes, ok := test.expectedMap[updateType]
+				if !ok {
+					t.Fatalf("do not expect any htlcs "+
+						"type: %v", updateType)
+				}
+
+				if len(htlcs) != len(htlcIndexes) {
+					t.Fatalf("expected: %v htlcs,"+
+						" got: %v", len(htlcIndexes),
+						len(htlcs))
+				}
+
+				// Check that the set of htlcs are as expected.
+				for _, pd := range htlcs {
+					_, ok := htlcIndexes[pd.HtlcIndex]
+					if !ok {
+						t.Fatalf("unexpected htlc: %v",
+							pd.HtlcIndex)
+					}
+				}
+			}
+
+			if len(resolutions) != len(test.expectedResolutions) {
+				t.Fatalf("expected: %v resolutions,"+
+					" got: %v",
+					len(test.expectedResolutions),
+					len(resolutions))
+			}
+
+			for index := range resolutions {
+				_, ok := test.expectedResolutions[index]
+				if !ok {
+					t.Fatalf("unexpected htlc resolution:"+
+						" %v", index)
+				}
+			}
+		})
+	}
+}
+
+// fetchParentFromMap takes a map of htlc index to htlc parent indexes and
+// returns a fetch parent function which returns a payment descriptor with that
+// parent index set as the htlc add index. If the child htlc is not a key in
+// the map, this function will error.
+func fetchParentFromMap(parentMap map[uint64]uint64) func(*PaymentDescriptor,
+	bool) (*PaymentDescriptor, error) {
+
+	return func(entry *PaymentDescriptor,
+		_ bool) (*PaymentDescriptor, error) {
+
+		parent, ok := parentMap[entry.HtlcIndex]
+		if !ok {
+			return nil, fmt.Errorf("htlc: %v not in map",
+				entry.HtlcIndex)
+		}
+
+		// Return a htlc add descriptor with the index from the map.
+		return &PaymentDescriptor{
+			HtlcIndex: parent,
+			EntryType: Add,
+		}, nil
+	}
+}
+
 // TestEvaluateView tests the creation of a htlc view and the opt in mutation of
 // send and receive balances. This test does not check htlc mutation on a htlc
 // level.
@@ -7337,29 +7634,6 @@ func TestEvaluateView(t *testing.T) {
 		// expect if we update to ourFeeUpdateAmt.
 		theirFeeUpdatePerSat = chainfee.SatPerKWeight(10)
 	)
-
-	// fetchParentFromMap takes a map of htlc index to htlc parent indexes
-	// and returns a fetch parent function which returns a payment
-	// descriptor with that parent index set as the htlc add index. If the
-	// child htlc is not a key in the map, this function will error.
-	fetchParentFromMap := func(parentMap map[uint64]uint64) fetchParent {
-		return func(entry *PaymentDescriptor,
-			_ bool) (*PaymentDescriptor, error) {
-
-			parent, ok := parentMap[entry.HtlcIndex]
-			if !ok {
-				return nil, fmt.Errorf("htlc: %v not in map",
-					entry.HtlcIndex)
-			}
-
-			// Return a htlc add descriptor with the index from the
-			// map.
-			return &PaymentDescriptor{
-				HtlcIndex: parent,
-				EntryType: Add,
-			}, nil
-		}
-	}
 
 	tests := []struct {
 		name        string

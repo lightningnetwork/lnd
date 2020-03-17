@@ -3,6 +3,7 @@ package discovery
 import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/netann"
 )
 
 // CreateChanAnnouncement is a helper function which creates all channel
@@ -65,39 +66,13 @@ func CreateChanAnnouncement(chanProof *channeldb.ChannelAuthProof,
 	// nil.
 	var edge1Ann, edge2Ann *lnwire.ChannelUpdate
 	if e1 != nil {
-		edge1Ann = &lnwire.ChannelUpdate{
-			ChainHash:       chanInfo.ChainHash,
-			ShortChannelID:  chanID,
-			Timestamp:       uint32(e1.LastUpdate.Unix()),
-			MessageFlags:    e1.MessageFlags,
-			ChannelFlags:    e1.ChannelFlags,
-			TimeLockDelta:   e1.TimeLockDelta,
-			HtlcMinimumMsat: e1.MinHTLC,
-			HtlcMaximumMsat: e1.MaxHTLC,
-			BaseFee:         uint32(e1.FeeBaseMSat),
-			FeeRate:         uint32(e1.FeeProportionalMillionths),
-			ExtraOpaqueData: e1.ExtraOpaqueData,
-		}
-		edge1Ann.Signature, err = lnwire.NewSigFromRawSignature(e1.SigBytes)
+		edge1Ann, err = netann.ChannelUpdateFromEdge(chanInfo, e1)
 		if err != nil {
 			return nil, nil, nil, err
 		}
 	}
 	if e2 != nil {
-		edge2Ann = &lnwire.ChannelUpdate{
-			ChainHash:       chanInfo.ChainHash,
-			ShortChannelID:  chanID,
-			Timestamp:       uint32(e2.LastUpdate.Unix()),
-			MessageFlags:    e2.MessageFlags,
-			ChannelFlags:    e2.ChannelFlags,
-			TimeLockDelta:   e2.TimeLockDelta,
-			HtlcMinimumMsat: e2.MinHTLC,
-			HtlcMaximumMsat: e2.MaxHTLC,
-			BaseFee:         uint32(e2.FeeBaseMSat),
-			FeeRate:         uint32(e2.FeeProportionalMillionths),
-			ExtraOpaqueData: e2.ExtraOpaqueData,
-		}
-		edge2Ann.Signature, err = lnwire.NewSigFromRawSignature(e2.SigBytes)
+		edge2Ann, err = netann.ChannelUpdateFromEdge(chanInfo, e2)
 		if err != nil {
 			return nil, nil, nil, err
 		}

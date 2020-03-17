@@ -584,7 +584,8 @@ func findPathInternal(
 
 		log.Trace(newLogClosure(func() string {
 			return fmt.Sprintf("path finding probability: fromnode=%v,"+
-				" tonode=%v, probability=%v", fromVertex, toNodeDist.node,
+				" tonode=%v, amt=%v, probability=%v",
+				fromVertex, toNodeDist.node, amountToSend,
 				edgeProbability)
 		}))
 

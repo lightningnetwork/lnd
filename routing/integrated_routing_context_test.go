@@ -11,6 +11,11 @@ import (
 	"github.com/lightningnetwork/lnd/routing/route"
 )
 
+const (
+	sourceNodeID = 1
+	targetNodeID = 2
+)
+
 // integratedRoutingContext defines the context in which integrated routing
 // tests run.
 type integratedRoutingContext struct {
@@ -31,8 +36,8 @@ type integratedRoutingContext struct {
 // context with a source and a target node.
 func newIntegratedRoutingContext(t *testing.T) *integratedRoutingContext {
 	// Instantiate a mock graph.
-	source := newMockNode()
-	target := newMockNode()
+	source := newMockNode(sourceNodeID)
+	target := newMockNode(targetNodeID)
 
 	graph := newMockGraph(t)
 	graph.addNode(source)

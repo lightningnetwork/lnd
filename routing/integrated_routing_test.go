@@ -15,22 +15,25 @@ func TestProbabilityExtrapolation(t *testing.T) {
 	// source -> intermediate1 (free routing) -> intermediate(1-10) (free routing) -> target
 	g := ctx.graph
 
-	expensiveNode := newMockNode()
+	const expensiveNodeID = 3
+	expensiveNode := newMockNode(expensiveNodeID)
 	expensiveNode.baseFee = 10000
 	g.addNode(expensiveNode)
 
-	g.addChannel(ctx.source, expensiveNode, 100000)
-	g.addChannel(ctx.target, expensiveNode, 100000)
+	g.addChannel(100, sourceNodeID, expensiveNodeID, 100000)
+	g.addChannel(101, targetNodeID, expensiveNodeID, 100000)
 
-	intermediate1 := newMockNode()
+	const intermediate1NodeID = 4
+	intermediate1 := newMockNode(intermediate1NodeID)
 	g.addNode(intermediate1)
-	g.addChannel(ctx.source, intermediate1, 100000)
+	g.addChannel(102, sourceNodeID, intermediate1NodeID, 100000)
 
 	for i := 0; i < 10; i++ {
-		imNode := newMockNode()
+		imNodeID := byte(10 + i)
+		imNode := newMockNode(imNodeID)
 		g.addNode(imNode)
-		g.addChannel(imNode, ctx.target, 100000)
-		g.addChannel(imNode, intermediate1, 100000)
+		g.addChannel(uint64(200+i), imNodeID, targetNodeID, 100000)
+		g.addChannel(uint64(300+i), imNodeID, intermediate1NodeID, 100000)
 
 		// The channels from intermediate1 all have insufficient balance.
 		g.nodes[intermediate1.pubkey].channels[imNode.pubkey].balance = 0

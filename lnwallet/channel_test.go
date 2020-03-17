@@ -7981,10 +7981,6 @@ func TestProcessFeeUpdate(t *testing.T) {
 		// heights.
 		height = 200
 
-		// nextHeight is a constant that we use for the next height in
-		// all unit tests.
-		nextHeight = 400
-
 		// feePerKw is the fee we start all of our unit tests with.
 		feePerKw = 1
 
@@ -7998,12 +7994,10 @@ func TestProcessFeeUpdate(t *testing.T) {
 	)
 
 	tests := []struct {
-		name            string
-		startHeights    heights
-		expectedHeights heights
-		remoteChain     bool
-		mutate          bool
-		expectedFee     chainfee.SatPerKWeight
+		name         string
+		startHeights heights
+		remoteChain  bool
+		expectedFee  chainfee.SatPerKWeight
 	}{
 		{
 			// Looking at local chain, local add is non-zero so
@@ -8015,14 +8009,7 @@ func TestProcessFeeUpdate(t *testing.T) {
 				remoteAdd:    0,
 				remoteRemove: height,
 			},
-			expectedHeights: heights{
-				localAdd:     height,
-				localRemove:  0,
-				remoteAdd:    0,
-				remoteRemove: height,
-			},
 			remoteChain: false,
-			mutate:      false,
 			expectedFee: feePerKw,
 		},
 		{
@@ -8036,14 +8023,7 @@ func TestProcessFeeUpdate(t *testing.T) {
 				remoteAdd:    height,
 				remoteRemove: 0,
 			},
-			expectedHeights: heights{
-				localAdd:     0,
-				localRemove:  0,
-				remoteAdd:    height,
-				remoteRemove: 0,
-			},
 			remoteChain: false,
-			mutate:      false,
 			expectedFee: ourFeeUpdatePerSat,
 		},
 		{
@@ -8057,14 +8037,7 @@ func TestProcessFeeUpdate(t *testing.T) {
 				remoteAdd:    0,
 				remoteRemove: 0,
 			},
-			expectedHeights: heights{
-				localAdd:     height,
-				localRemove:  0,
-				remoteAdd:    0,
-				remoteRemove: 0,
-			},
 			remoteChain: true,
-			mutate:      false,
 			expectedFee: ourFeeUpdatePerSat,
 		},
 		{
@@ -8078,58 +8051,8 @@ func TestProcessFeeUpdate(t *testing.T) {
 				remoteAdd:    height,
 				remoteRemove: 0,
 			},
-			expectedHeights: heights{
-				localAdd:     height,
-				localRemove:  0,
-				remoteAdd:    height,
-				remoteRemove: 0,
-			},
 			remoteChain: true,
-			mutate:      false,
 			expectedFee: feePerKw,
-		},
-		{
-			// Local add height is non-zero, so the update has
-			// already been applied; we do not expect fee to
-			// change or any mutations to be applied.
-			name: "non-zero local height, mutation not applied",
-			startHeights: heights{
-				localAdd:     height,
-				localRemove:  0,
-				remoteAdd:    0,
-				remoteRemove: height,
-			},
-			expectedHeights: heights{
-				localAdd:     height,
-				localRemove:  0,
-				remoteAdd:    0,
-				remoteRemove: height,
-			},
-			remoteChain: false,
-			mutate:      true,
-			expectedFee: feePerKw,
-		},
-		{
-			// Local add is zero and we are looking at our local
-			// chain, so the update has not been applied yet. We
-			// expect the local add and remote heights to be
-			// mutated.
-			name: "zero height, fee changed, mutation applied",
-			startHeights: heights{
-				localAdd:     0,
-				localRemove:  0,
-				remoteAdd:    0,
-				remoteRemove: 0,
-			},
-			expectedHeights: heights{
-				localAdd:     nextHeight,
-				localRemove:  nextHeight,
-				remoteAdd:    0,
-				remoteRemove: 0,
-			},
-			remoteChain: false,
-			mutate:      true,
-			expectedFee: ourFeeUpdatePerSat,
 		},
 	}
 
@@ -8151,17 +8074,12 @@ func TestProcessFeeUpdate(t *testing.T) {
 
 			feePerKw := chainfee.SatPerKWeight(feePerKw)
 
-			processFeeUpdate(
-				update, nextHeight, test.remoteChain,
-				test.mutate, &feePerKw,
-			)
+			processFeeUpdate(update, test.remoteChain, &feePerKw)
 
 			if feePerKw != test.expectedFee {
 				t.Fatalf("expected fee: %v, got: %v",
 					test.expectedFee, feePerKw)
 			}
-
-			checkHeights(t, update, test.expectedHeights)
 		})
 	}
 }
@@ -8179,6 +8097,98 @@ func checkHeights(t *testing.T, update *PaymentDescriptor, expected heights) {
 	}
 }
 
+// TestMutateFeeUpdate tests mutation of fee updates when we are on the local
+// and remote chain.
+func TestMutateFeeUpdate(t *testing.T) {
+	const (
+		// height is a non-zero height that can be used for htlcs
+		// heights.
+		height = 200
+
+		// nextHeight is a constant that we use for the next height in
+		// all unit tests.
+		nextHeight = 400
+	)
+
+	tests := []struct {
+		name            string
+		startHeights    heights
+		expectedHeights heights
+		remoteChain     bool
+	}{
+		{
+			// On local chain.
+			name: "on local chain",
+			startHeights: heights{
+				localAdd:     0,
+				localRemove:  0,
+				remoteAdd:    height,
+				remoteRemove: height,
+			},
+			expectedHeights: heights{
+				localAdd:     nextHeight,
+				localRemove:  nextHeight,
+				remoteAdd:    height,
+				remoteRemove: height,
+			},
+			remoteChain: false,
+		},
+		{
+			name: "on remote chain",
+			startHeights: heights{
+				localAdd:     height,
+				localRemove:  height,
+				remoteAdd:    0,
+				remoteRemove: 0,
+			},
+			expectedHeights: heights{
+				localAdd:     height,
+				localRemove:  height,
+				remoteAdd:    nextHeight,
+				remoteRemove: nextHeight,
+			},
+			remoteChain: true,
+		},
+		{
+			name: "already has non-zero values, not mutated",
+			startHeights: heights{
+				localAdd:     0,
+				localRemove:  0,
+				remoteAdd:    height,
+				remoteRemove: height,
+			},
+			expectedHeights: heights{
+				localAdd:     0,
+				localRemove:  0,
+				remoteAdd:    height,
+				remoteRemove: height,
+			},
+			remoteChain: true,
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+
+		t.Run(test.name, func(t *testing.T) {
+			// Create a fee update with add and remove heights as
+			// set in the test.
+			update := &PaymentDescriptor{
+				addCommitHeightRemote:    test.startHeights.remoteAdd,
+				addCommitHeightLocal:     test.startHeights.localAdd,
+				removeCommitHeightRemote: test.startHeights.remoteRemove,
+				removeCommitHeightLocal:  test.startHeights.localRemove,
+				EntryType:                FeeUpdate,
+			}
+
+			mutateHtlcAddHeight(update, test.remoteChain, nextHeight)
+			mutateHtlcRemoveHeight(update, test.remoteChain, nextHeight)
+
+			checkHeights(t, update, test.expectedHeights)
+		})
+	}
+}
+
 // TestProcessAddRemoveEntry tests the updating of our and their balances when
 // we process adds, settles and fails. It also tests the mutating of add and
 // remove heights.
@@ -8191,10 +8201,6 @@ func TestProcessAddRemoveEntry(t *testing.T) {
 		// removeHeight is a non-zero removeHeight that is used for
 		// htlc remove heights.
 		removeHeight = 200
-
-		// nextHeight is a constant that we use for the nextHeight in
-		// all unit tests.
-		nextHeight = 400
 
 		// updateAmount is the amount that the update is set to.
 		updateAmount = lnwire.MilliSatoshi(10)
@@ -8209,10 +8215,8 @@ func TestProcessAddRemoveEntry(t *testing.T) {
 		startHeights         heights
 		remoteChain          bool
 		isIncoming           bool
-		mutateState          bool
 		ourExpectedBalance   lnwire.MilliSatoshi
 		theirExpectedBalance lnwire.MilliSatoshi
-		expectedHeights      heights
 		updateType           updateType
 	}{
 		{
@@ -8225,16 +8229,9 @@ func TestProcessAddRemoveEntry(t *testing.T) {
 			},
 			remoteChain:          true,
 			isIncoming:           false,
-			mutateState:          false,
 			ourExpectedBalance:   startBalance,
 			theirExpectedBalance: startBalance,
-			expectedHeights: heights{
-				localAdd:     0,
-				remoteAdd:    addHeight,
-				localRemove:  0,
-				remoteRemove: 0,
-			},
-			updateType: Add,
+			updateType:           Add,
 		},
 		{
 			name: "add, local chain, already processed",
@@ -8246,16 +8243,9 @@ func TestProcessAddRemoveEntry(t *testing.T) {
 			},
 			remoteChain:          false,
 			isIncoming:           false,
-			mutateState:          false,
 			ourExpectedBalance:   startBalance,
 			theirExpectedBalance: startBalance,
-			expectedHeights: heights{
-				localAdd:     addHeight,
-				remoteAdd:    0,
-				localRemove:  0,
-				remoteRemove: 0,
-			},
-			updateType: Add,
+			updateType:           Add,
 		},
 		{
 			name: "incoming add, local chain, not mutated",
@@ -8267,19 +8257,12 @@ func TestProcessAddRemoveEntry(t *testing.T) {
 			},
 			remoteChain:          false,
 			isIncoming:           true,
-			mutateState:          false,
 			ourExpectedBalance:   startBalance,
 			theirExpectedBalance: startBalance - updateAmount,
-			expectedHeights: heights{
-				localAdd:     0,
-				remoteAdd:    0,
-				localRemove:  0,
-				remoteRemove: 0,
-			},
-			updateType: Add,
+			updateType:           Add,
 		},
 		{
-			name: "incoming add, local chain, mutated",
+			name: "incoming add, local chain",
 			startHeights: heights{
 				localAdd:     0,
 				remoteAdd:    0,
@@ -8288,16 +8271,9 @@ func TestProcessAddRemoveEntry(t *testing.T) {
 			},
 			remoteChain:          false,
 			isIncoming:           true,
-			mutateState:          true,
 			ourExpectedBalance:   startBalance,
 			theirExpectedBalance: startBalance - updateAmount,
-			expectedHeights: heights{
-				localAdd:     nextHeight,
-				remoteAdd:    0,
-				localRemove:  0,
-				remoteRemove: 0,
-			},
-			updateType: Add,
+			updateType:           Add,
 		},
 
 		{
@@ -8310,19 +8286,12 @@ func TestProcessAddRemoveEntry(t *testing.T) {
 			},
 			remoteChain:          true,
 			isIncoming:           false,
-			mutateState:          false,
 			ourExpectedBalance:   startBalance - updateAmount,
 			theirExpectedBalance: startBalance,
-			expectedHeights: heights{
-				localAdd:     0,
-				remoteAdd:    0,
-				localRemove:  0,
-				remoteRemove: 0,
-			},
-			updateType: Add,
+			updateType:           Add,
 		},
 		{
-			name: "outgoing add, remote chain, mutated",
+			name: "outgoing add, remote chain",
 			startHeights: heights{
 				localAdd:     0,
 				remoteAdd:    0,
@@ -8331,16 +8300,9 @@ func TestProcessAddRemoveEntry(t *testing.T) {
 			},
 			remoteChain:          true,
 			isIncoming:           false,
-			mutateState:          true,
 			ourExpectedBalance:   startBalance - updateAmount,
 			theirExpectedBalance: startBalance,
-			expectedHeights: heights{
-				localAdd:     0,
-				remoteAdd:    nextHeight,
-				localRemove:  0,
-				remoteRemove: 0,
-			},
-			updateType: Add,
+			updateType:           Add,
 		},
 		{
 			name: "settle, remote chain, already processed",
@@ -8352,16 +8314,9 @@ func TestProcessAddRemoveEntry(t *testing.T) {
 			},
 			remoteChain:          true,
 			isIncoming:           false,
-			mutateState:          false,
 			ourExpectedBalance:   startBalance,
 			theirExpectedBalance: startBalance,
-			expectedHeights: heights{
-				localAdd:     addHeight,
-				remoteAdd:    addHeight,
-				localRemove:  0,
-				remoteRemove: removeHeight,
-			},
-			updateType: Settle,
+			updateType:           Settle,
 		},
 		{
 			name: "settle, local chain, already processed",
@@ -8373,16 +8328,9 @@ func TestProcessAddRemoveEntry(t *testing.T) {
 			},
 			remoteChain:          false,
 			isIncoming:           false,
-			mutateState:          false,
 			ourExpectedBalance:   startBalance,
 			theirExpectedBalance: startBalance,
-			expectedHeights: heights{
-				localAdd:     addHeight,
-				remoteAdd:    addHeight,
-				localRemove:  removeHeight,
-				remoteRemove: 0,
-			},
-			updateType: Settle,
+			updateType:           Settle,
 		},
 		{
 			// Remote chain, and not processed yet. Incoming settle,
@@ -8396,16 +8344,9 @@ func TestProcessAddRemoveEntry(t *testing.T) {
 			},
 			remoteChain:          true,
 			isIncoming:           true,
-			mutateState:          false,
 			ourExpectedBalance:   startBalance + updateAmount,
 			theirExpectedBalance: startBalance,
-			expectedHeights: heights{
-				localAdd:     addHeight,
-				remoteAdd:    addHeight,
-				localRemove:  0,
-				remoteRemove: 0,
-			},
-			updateType: Settle,
+			updateType:           Settle,
 		},
 		{
 			// Remote chain, and not processed yet. Incoming settle,
@@ -8419,16 +8360,9 @@ func TestProcessAddRemoveEntry(t *testing.T) {
 			},
 			remoteChain:          true,
 			isIncoming:           false,
-			mutateState:          false,
 			ourExpectedBalance:   startBalance,
 			theirExpectedBalance: startBalance + updateAmount,
-			expectedHeights: heights{
-				localAdd:     addHeight,
-				remoteAdd:    addHeight,
-				localRemove:  0,
-				remoteRemove: 0,
-			},
-			updateType: Settle,
+			updateType:           Settle,
 		},
 		{
 			// Remote chain, and not processed yet. Incoming fail,
@@ -8442,16 +8376,9 @@ func TestProcessAddRemoveEntry(t *testing.T) {
 			},
 			remoteChain:          true,
 			isIncoming:           true,
-			mutateState:          false,
 			ourExpectedBalance:   startBalance,
 			theirExpectedBalance: startBalance + updateAmount,
-			expectedHeights: heights{
-				localAdd:     addHeight,
-				remoteAdd:    addHeight,
-				localRemove:  0,
-				remoteRemove: 0,
-			},
-			updateType: Fail,
+			updateType:           Fail,
 		},
 		{
 			// Remote chain, and not processed yet. Outgoing fail,
@@ -8465,41 +8392,9 @@ func TestProcessAddRemoveEntry(t *testing.T) {
 			},
 			remoteChain:          true,
 			isIncoming:           false,
-			mutateState:          false,
 			ourExpectedBalance:   startBalance + updateAmount,
 			theirExpectedBalance: startBalance,
-			expectedHeights: heights{
-				localAdd:     addHeight,
-				remoteAdd:    addHeight,
-				localRemove:  0,
-				remoteRemove: 0,
-			},
-			updateType: Fail,
-		},
-		{
-			// Local chain, and not processed yet. Incoming settle,
-			// so we expect our balance to increase. Mutate is
-			// true, so we expect our remove removeHeight to have
-			// changed.
-			name: "fail, our remove height mutated",
-			startHeights: heights{
-				localAdd:     addHeight,
-				remoteAdd:    addHeight,
-				localRemove:  0,
-				remoteRemove: 0,
-			},
-			remoteChain:          false,
-			isIncoming:           true,
-			mutateState:          true,
-			ourExpectedBalance:   startBalance + updateAmount,
-			theirExpectedBalance: startBalance,
-			expectedHeights: heights{
-				localAdd:     addHeight,
-				remoteAdd:    addHeight,
-				localRemove:  nextHeight,
-				remoteRemove: 0,
-			},
-			updateType: Settle,
+			updateType:           Fail,
 		},
 		{
 			// Remote chain, and not processed yet. Incoming settle,
@@ -8515,16 +8410,9 @@ func TestProcessAddRemoveEntry(t *testing.T) {
 			},
 			remoteChain:          true,
 			isIncoming:           true,
-			mutateState:          true,
 			ourExpectedBalance:   startBalance + updateAmount,
 			theirExpectedBalance: startBalance,
-			expectedHeights: heights{
-				localAdd:     addHeight,
-				remoteAdd:    addHeight,
-				localRemove:  0,
-				remoteRemove: nextHeight,
-			},
-			updateType: Settle,
+			updateType:           Settle,
 		},
 	}
 
@@ -8561,9 +8449,8 @@ func TestProcessAddRemoveEntry(t *testing.T) {
 			}
 
 			process(
-				update, &ourBalance, &theirBalance, nextHeight,
+				update, &ourBalance, &theirBalance,
 				test.remoteChain, test.isIncoming,
-				test.mutateState,
 			)
 
 			// Check that balances were updated as expected.
@@ -8576,8 +8463,158 @@ func TestProcessAddRemoveEntry(t *testing.T) {
 				t.Fatalf("expected their balance: %v, got: %v",
 					test.theirExpectedBalance, theirBalance)
 			}
+		})
+	}
+}
 
-			// Check that heights on the update are as expected.
+// TestMutateAddRemoveHeight tests the mutation of htlc add and removal
+// heights.
+func TestMutateAddRemoveHeight(t *testing.T) {
+	const (
+		// addHeight is a non-zero addHeight that is used for htlc
+		// add heights.
+		addHeight = 100
+
+		// nextHeight is a constant that we use for the nextHeight in
+		// all unit tests.
+		nextHeight = 400
+	)
+
+	tests := []struct {
+		name            string
+		startHeights    heights
+		remoteChain     bool
+		expectedHeights heights
+		updateType      updateType
+	}{
+		{
+			name: "settle on remote chain",
+			startHeights: heights{
+				localAdd:     addHeight,
+				remoteAdd:    addHeight,
+				localRemove:  0,
+				remoteRemove: 0,
+			},
+			remoteChain: true,
+			expectedHeights: heights{
+				localAdd:     addHeight,
+				remoteAdd:    addHeight,
+				localRemove:  0,
+				remoteRemove: nextHeight,
+			},
+			updateType: Settle,
+		},
+		{
+			name: "settle on local chain",
+			startHeights: heights{
+				localAdd:     addHeight,
+				remoteAdd:    addHeight,
+				localRemove:  0,
+				remoteRemove: 0,
+			},
+			remoteChain: false,
+			expectedHeights: heights{
+				localAdd:     addHeight,
+				remoteAdd:    addHeight,
+				localRemove:  nextHeight,
+				remoteRemove: 0,
+			},
+			updateType: Settle,
+		},
+		{
+			name: "fail on remote chain",
+			startHeights: heights{
+				localAdd:     addHeight,
+				remoteAdd:    addHeight,
+				localRemove:  0,
+				remoteRemove: 0,
+			},
+			remoteChain: true,
+			expectedHeights: heights{
+				localAdd:     addHeight,
+				remoteAdd:    addHeight,
+				localRemove:  0,
+				remoteRemove: nextHeight,
+			},
+			updateType: Fail,
+		},
+		{
+			name: "fail on local chain",
+			startHeights: heights{
+				localAdd:     addHeight,
+				remoteAdd:    addHeight,
+				localRemove:  0,
+				remoteRemove: 0,
+			},
+			remoteChain: false,
+			expectedHeights: heights{
+				localAdd:     addHeight,
+				remoteAdd:    addHeight,
+				localRemove:  nextHeight,
+				remoteRemove: 0,
+			},
+			updateType: Fail,
+		},
+		{
+			name: "local fail already mutated",
+			startHeights: heights{
+				localAdd:     addHeight,
+				remoteAdd:    addHeight,
+				localRemove:  addHeight,
+				remoteRemove: 0,
+			},
+			remoteChain: false,
+			expectedHeights: heights{
+				localAdd:     addHeight,
+				remoteAdd:    addHeight,
+				localRemove:  addHeight,
+				remoteRemove: 0,
+			},
+			updateType: Fail,
+		},
+		{
+			name: "local add already mutated",
+			startHeights: heights{
+				localAdd:     addHeight,
+				remoteAdd:    0,
+				localRemove:  0,
+				remoteRemove: 0,
+			},
+			remoteChain: false,
+			expectedHeights: heights{
+				localAdd:     addHeight,
+				remoteAdd:    0,
+				localRemove:  0,
+				remoteRemove: 0,
+			},
+			updateType: Add,
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			heights := test.startHeights
+			update := &PaymentDescriptor{
+				addCommitHeightLocal:     heights.localAdd,
+				addCommitHeightRemote:    heights.remoteAdd,
+				removeCommitHeightLocal:  heights.localRemove,
+				removeCommitHeightRemote: heights.remoteRemove,
+				EntryType:                test.updateType,
+			}
+
+			// Choose the mutation function we need based on the
+			// htlc type.
+			mutate := mutateHtlcRemoveHeight
+			if test.updateType == Add {
+				mutate = mutateHtlcAddHeight
+			}
+
+			mutate(update, test.remoteChain, nextHeight)
+
 			checkHeights(t, update, test.expectedHeights)
 		})
 	}

@@ -2475,10 +2475,16 @@ func preprocessHtlcs(updates []*PaymentDescriptor,
 
 		// Process fee updates, updating the current feePerKw.
 		case FeeUpdate:
-			processFeeUpdate(
-				entry, nextHeight, remoteChain, mutateState,
-				fee,
-			)
+			processFeeUpdate(entry, remoteChain, fee)
+
+			if mutateState {
+				// Fee updates are applied for all commitments after they are
+				// sent/received, so we consider them being added and removed at the
+				// same height.
+
+				mutateHtlcAddHeight(entry, remoteChain, nextHeight)
+				mutateHtlcRemoveHeight(entry, remoteChain, nextHeight)
+			}
 
 			continue
 		}
@@ -2502,9 +2508,12 @@ func preprocessHtlcs(updates []*PaymentDescriptor,
 		resolvedHtlcs[addEntry.HtlcIndex] = true
 
 		processRemoveEntry(
-			entry, ourBalance, theirBalance, nextHeight,
-			remoteChain, isIncoming, mutateState,
+			entry, ourBalance, theirBalance, remoteChain, isIncoming,
 		)
+
+		if mutateState {
+			mutateHtlcRemoveHeight(entry, remoteChain, nextHeight)
+		}
 	}
 
 	return resolvedHtlcs, htlcUpdates, total, nil
@@ -2650,8 +2659,12 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 			continue
 		}
 
-		processAddEntry(entry, ourBalance, theirBalance, nextHeight,
-			remoteChain, false, mutateState)
+		processAddEntry(
+			entry, ourBalance, theirBalance, remoteChain, false,
+		)
+		if mutateState {
+			mutateHtlcAddHeight(entry, remoteChain, nextHeight)
+		}
 
 		// This htlc has not been resolved by the view, so we add it to
 		// our set of add updates.
@@ -2668,8 +2681,12 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 			continue
 		}
 
-		processAddEntry(entry, ourBalance, theirBalance, nextHeight,
-			remoteChain, true, mutateState)
+		processAddEntry(
+			entry, ourBalance, theirBalance, remoteChain, true,
+		)
+		if mutateState {
+			mutateHtlcAddHeight(entry, remoteChain, nextHeight)
+		}
 
 		// This htlc has not been resolved by the view, so we add it to
 		// our set of add updates.
@@ -2739,23 +2756,42 @@ func (lc *LightningChannel) getFetchParent(remoteChain bool) fetchParent {
 	}
 }
 
+// getHtlcRemoveHeight returns a pointer to the htlc add height we are
+// concerned with, based on which chain we are looking at.
+func getHtlcAddHeight(htlc *PaymentDescriptor, remoteChain bool) *uint64 {
+	if remoteChain {
+		return &htlc.addCommitHeightRemote
+	}
+
+	return &htlc.addCommitHeightLocal
+}
+
+// mutateHtlcAddHeight gets a pointer to the htlc add height we are concerned
+// with and sets its value to next height. If the add height is already non-zero
+// we do not mutate it.
+func mutateHtlcAddHeight(htlc *PaymentDescriptor, remoteChain bool,
+	nextHeight uint64) {
+
+	addHeight := getHtlcAddHeight(htlc, remoteChain)
+	if *addHeight != 0 {
+		return
+	}
+
+	*addHeight = nextHeight
+}
+
 // processAddEntry evaluates the effect of an add entry within the HTLC log.
 // If the HTLC hasn't yet been committed in either chain, then the height it
 // was committed is updated. Keeping track of this inclusion height allows us to
 // later compact the log once the change is fully committed in both chains.
-func processAddEntry(htlc *PaymentDescriptor, ourBalance, theirBalance *lnwire.MilliSatoshi,
-	nextHeight uint64, remoteChain bool, isIncoming, mutateState bool) {
+func processAddEntry(htlc *PaymentDescriptor, ourBalance,
+	theirBalance *lnwire.MilliSatoshi, remoteChain, isIncoming bool) {
 
 	// If we're evaluating this entry for the remote chain (to create/view
 	// a new commitment), then we'll may be updating the height this entry
 	// was added to the chain. Otherwise, we may be updating the entry's
 	// height w.r.t the local chain.
-	var addHeight *uint64
-	if remoteChain {
-		addHeight = &htlc.addCommitHeightRemote
-	} else {
-		addHeight = &htlc.addCommitHeightLocal
-	}
+	addHeight := getHtlcAddHeight(htlc, remoteChain)
 
 	if *addHeight != 0 {
 		return
@@ -2771,25 +2807,38 @@ func processAddEntry(htlc *PaymentDescriptor, ourBalance, theirBalance *lnwire.M
 		// going HTLC to reflect the pending balance.
 		*ourBalance -= htlc.Amount
 	}
+}
 
-	if mutateState {
-		*addHeight = nextHeight
+// getHtlcRemoveHeight returns a pointer to the htlc remove height we are
+// concerned with, based on which chain we are looking at.
+func getHtlcRemoveHeight(htlc *PaymentDescriptor, remoteChain bool) *uint64 {
+	if remoteChain {
+		return &htlc.removeCommitHeightRemote
 	}
+	return &htlc.removeCommitHeightLocal
+}
+
+// mutateHtlcRemoveHeight gets a pointer to the htlc height we are concerned
+// with and sets its value to next height. If the remove height is already
+// non-zero, we do not mutate it.
+func mutateHtlcRemoveHeight(htlc *PaymentDescriptor, remoteChain bool,
+	nextHeight uint64) {
+
+	removeHeight := getHtlcRemoveHeight(htlc, remoteChain)
+	if *removeHeight != 0 {
+		return
+	}
+
+	*removeHeight = nextHeight
 }
 
 // processRemoveEntry processes a log entry which settles or times out a
 // previously added HTLC. If the removal entry has already been processed, it
 // is skipped.
 func processRemoveEntry(htlc *PaymentDescriptor, ourBalance,
-	theirBalance *lnwire.MilliSatoshi, nextHeight uint64,
-	remoteChain bool, isIncoming, mutateState bool) {
+	theirBalance *lnwire.MilliSatoshi, remoteChain, isIncoming bool) {
 
-	var removeHeight *uint64
-	if remoteChain {
-		removeHeight = &htlc.removeCommitHeightRemote
-	} else {
-		removeHeight = &htlc.removeCommitHeightLocal
-	}
+	removeHeight := getHtlcRemoveHeight(htlc, remoteChain)
 
 	// Ignore any removal entries which have already been processed.
 	if *removeHeight != 0 {
@@ -2821,29 +2870,14 @@ func processRemoveEntry(htlc *PaymentDescriptor, ourBalance,
 	case !isIncoming && (htlc.EntryType == Fail || htlc.EntryType == MalformedFail):
 		*ourBalance += htlc.Amount
 	}
-
-	if mutateState {
-		*removeHeight = nextHeight
-	}
 }
 
 // processFeeUpdate processes a log update that updates the current commitment
 // fee.
-func processFeeUpdate(feeUpdate *PaymentDescriptor, nextHeight uint64,
-	remoteChain bool, mutateState bool, fee *chainfee.SatPerKWeight) {
+func processFeeUpdate(feeUpdate *PaymentDescriptor, remoteChain bool,
+	fee *chainfee.SatPerKWeight) {
 
-	// Fee updates are applied for all commitments after they are
-	// sent/received, so we consider them being added and removed at the
-	// same height.
-	var addHeight *uint64
-	var removeHeight *uint64
-	if remoteChain {
-		addHeight = &feeUpdate.addCommitHeightRemote
-		removeHeight = &feeUpdate.removeCommitHeightRemote
-	} else {
-		addHeight = &feeUpdate.addCommitHeightLocal
-		removeHeight = &feeUpdate.removeCommitHeightLocal
-	}
+	addHeight := getHtlcAddHeight(feeUpdate, remoteChain)
 
 	if *addHeight != 0 {
 		return
@@ -2852,11 +2886,6 @@ func processFeeUpdate(feeUpdate *PaymentDescriptor, nextHeight uint64,
 	// If the update wasn't already locked in, update the current fee rate
 	// to reflect this update.
 	*fee = chainfee.SatPerKWeight(feeUpdate.Amount.ToSatoshis())
-
-	if mutateState {
-		*addHeight = nextHeight
-		*removeHeight = nextHeight
-	}
 }
 
 // generateRemoteHtlcSigJobs generates a series of HTLC signature jobs for the

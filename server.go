@@ -322,7 +322,8 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 	towerClientDB *wtdb.ClientDB, cc *chainControl,
 	privKey *btcec.PrivateKey,
 	chansToRestore walletunlocker.ChannelsToRecover,
-	chanPredicate chanacceptor.ChannelAcceptor) (*server, error) {
+	chanPredicate chanacceptor.ChannelAcceptor,
+	torController *tor.Controller) (*server, error) {
 
 	var err error
 
@@ -427,6 +428,8 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 		// TODO(roasbeef): derive proper onion key based on rotation
 		// schedule
 		sphinx: hop.NewOnionProcessor(sphinxRouter),
+
+		torController: torController,
 
 		persistentPeers:         make(map[string]bool),
 		persistentPeersBackoff:  make(map[string]time.Duration),
@@ -596,16 +599,6 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 	selfAddrs := make([]net.Addr, 0, len(externalIPs))
 	for _, ip := range externalIPs {
 		selfAddrs = append(selfAddrs, ip)
-	}
-
-	// If we were requested to route connections through Tor and to
-	// automatically create an onion service, we'll initiate our Tor
-	// controller and establish a connection to the Tor server.
-	if cfg.Tor.Active && (cfg.Tor.V2 || cfg.Tor.V3) {
-		s.torController = tor.NewController(
-			cfg.Tor.Control, cfg.Tor.TargetIPAddress,
-			cfg.Tor.Password,
-		)
 	}
 
 	chanGraph := chanDB.ChannelGraph()
@@ -1251,7 +1244,7 @@ func (s *server) Start() error {
 	var startErr error
 	s.start.Do(func() {
 		if s.torController != nil {
-			if err := s.initTorController(); err != nil {
+			if err := s.createNewHiddenService(); err != nil {
 				startErr = err
 				return
 			}
@@ -1441,10 +1434,6 @@ func (s *server) Stop() error {
 		atomic.StoreInt32(&s.stopping, 1)
 
 		close(s.quit)
-
-		if s.torController != nil {
-			s.torController.Stop()
-		}
 
 		// Shutdown the wallet, funding manager, and the rpc server.
 		s.chanStatusMgr.Stop()
@@ -1965,14 +1954,9 @@ func (s *server) initialPeerBootstrap(ignore map[autopilot.NodeID]struct{},
 	}
 }
 
-// initTorController initiliazes the Tor controller backed by lnd and
-// automatically sets up a v2 onion service in order to listen for inbound
-// connections over Tor.
-func (s *server) initTorController() error {
-	if err := s.torController.Start(); err != nil {
-		return err
-	}
-
+// createNewHiddenService automatically sets up a v2 or v3 onion service in
+// order to listen for inbound connections over Tor.
+func (s *server) createNewHiddenService() error {
 	// Determine the different ports the server is listening on. The onion
 	// service's virtual port will map to these ports and one will be picked
 	// at random when the onion service is being accessed.

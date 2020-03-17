@@ -9,13 +9,12 @@ require (
 	github.com/btcsuite/btclog v0.0.0-20170628155309-84c8d2346e9f
 	github.com/btcsuite/btcutil v0.0.0-20190425235716-9e5f4b9a998d
 	github.com/btcsuite/btcutil/psbt v1.0.2-0.20200323233600-8bf941f57059
-	github.com/btcsuite/btcwallet v0.11.1-0.20200323235326-015c045a3bb7
+	github.com/btcsuite/btcwallet v0.11.1-0.20200403222202-ada7ca077ebb
 	github.com/btcsuite/btcwallet/wallet/txauthor v1.0.0
 	github.com/btcsuite/btcwallet/wallet/txrules v1.0.0
-	github.com/btcsuite/btcwallet/walletdb v1.2.0
+	github.com/btcsuite/btcwallet/walletdb v1.3.1
 	github.com/btcsuite/btcwallet/wtxmgr v1.0.0
 	github.com/btcsuite/fastsha256 v0.0.0-20160815193821-637e65642941
-	github.com/coreos/bbolt v1.3.3
 	github.com/davecgh/go-spew v1.1.1
 	github.com/go-errors/errors v1.0.1
 	github.com/golang/protobuf v1.3.1

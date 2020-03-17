@@ -1335,7 +1335,13 @@ var listPeersCommand = cli.Command{
 	Name:     "listpeers",
 	Category: "Peers",
 	Usage:    "List all active, currently connected peers.",
-	Action:   actionDecorator(listPeers),
+	Flags: []cli.Flag{
+		cli.BoolFlag{
+			Name:  "list_errors",
+			Usage: "list a full set of most recent errors for the peer",
+		},
+	},
+	Action: actionDecorator(listPeers),
 }
 
 func listPeers(ctx *cli.Context) error {
@@ -1343,7 +1349,11 @@ func listPeers(ctx *cli.Context) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
-	req := &lnrpc.ListPeersRequest{}
+	// By default, we display a single error on the cli. If the user
+	// specifically requests a full error set, then we will provide it.
+	req := &lnrpc.ListPeersRequest{
+		LatestError: !ctx.IsSet("list_errors"),
+	}
 	resp, err := client.ListPeers(ctxb, req)
 	if err != nil {
 		return err

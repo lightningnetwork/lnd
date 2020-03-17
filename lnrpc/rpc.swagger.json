@@ -1186,6 +1186,16 @@
             }
           }
         },
+        "parameters": [
+          {
+            "name": "latest_error",
+            "description": "If true, only the last error that our peer sent us will be returned with\nthe peer's information, rather than the full set of historic errors we have\nstored.",
+            "in": "query",
+            "required": false,
+            "type": "boolean",
+            "format": "boolean"
+          }
+        ],
         "tags": [
           "Lightning"
         ]
@@ -3819,6 +3829,13 @@
             "$ref": "#/definitions/lnrpcFeature"
           },
           "description": "/ Features advertised by the remote peer in their init message."
+        },
+        "errors": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcTimestampedError"
+          },
+          "description": "The latest errors received from our peer with timestamps, limited to the 10\nmost recent errors. These errors are tracked across peer connections, but\nare not persisted across lnd restarts. Note that these errors are only\nstored for peers that we have channels open with, to prevent peers from\nspamming us with errors at no cost."
         }
       }
     },
@@ -4269,6 +4286,20 @@
     },
     "lnrpcStopResponse": {
       "type": "object"
+    },
+    "lnrpcTimestampedError": {
+      "type": "object",
+      "properties": {
+        "timestamp": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The unix timestamp in seconds when the error occurred."
+        },
+        "error": {
+          "type": "string",
+          "description": "The string representation of the error sent by our peer."
+        }
+      }
     },
     "lnrpcTransaction": {
       "type": "object",

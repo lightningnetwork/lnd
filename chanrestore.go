@@ -106,9 +106,16 @@ func (c *chanDBRestorer) openChannelShell(backup chanbackup.Single) (
 	case chanbackup.TweaklessCommitVersion:
 		chanType = channeldb.SingleFunderTweaklessBit
 
+	case chanbackup.AnchorsCommitVersion:
+		chanType = channeldb.AnchorOutputsBit
+		chanType |= channeldb.SingleFunderTweaklessBit
+
 	default:
 		return nil, fmt.Errorf("unknown Single version: %v", err)
 	}
+
+	ltndLog.Infof("SCB Recovery: created channel shell for ChannelPoint(%v), "+
+		"chan_type=%v", backup.FundingOutpoint, chanType)
 
 	chanShell := channeldb.ChannelShell{
 		NodeAddrs: backup.Addresses,

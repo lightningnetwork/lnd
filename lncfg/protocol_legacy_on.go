@@ -19,7 +19,7 @@ type ProtocolOptions struct {
 
 	// Anchors should be set if we want to support opening or accepting
 	// channels having the anchor commitment type.
-	Anchors bool `long:"anchors" description:"EXPERIMENTAL: enable experimental support for anchor commitments. Won't work with watchtowers or static channel backups"`
+	Anchors bool `long:"anchors" description:"EXPERIMENTAL: enable experimental support for anchor commitments, won't work with watchtowers"`
 }
 
 // LegacyOnion returns true if the old legacy onion format should be used when
@@ -35,7 +35,7 @@ func (l *ProtocolOptions) NoStaticRemoteKey() bool {
 	return l.CommitmentTweak
 }
 
-// AnchorCommitments returns true if support for the the anchor commitment type
+// AnchorCommitments returns true if support for the anchor commitment type
 // should be signaled.
 func (l *ProtocolOptions) AnchorCommitments() bool {
 	return l.Anchors

@@ -229,9 +229,17 @@ func TestSinglePackUnpack(t *testing.T) {
 			valid:   true,
 		},
 
-		// The new tweakless version, should pack/unpack with no problem.
+		// The new tweakless version, should pack/unpack with no
+		// problem.
 		{
 			version: TweaklessCommitVersion,
+			valid:   true,
+		},
+
+		// The new anchor version, should pack/unpack with no
+		// problem.
+		{
+			version: AnchorsCommitVersion,
 			valid:   true,
 		},
 

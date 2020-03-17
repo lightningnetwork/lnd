@@ -7526,8 +7526,7 @@ func TestPreprocessHtlcs(t *testing.T) {
 
 			resolutions, htlcMap, total, err := preprocessHtlcs(
 				test.htlcs, fetchParent, &ourBalance,
-				&theirBalance, &fee, height, true,
-				test.remoteChain, false,
+				&theirBalance, &fee, true, test.remoteChain,
 			)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
@@ -7608,10 +7607,6 @@ func fetchParentFromMap(parentMap map[uint64]uint64) func(*PaymentDescriptor,
 // level.
 func TestEvaluateView(t *testing.T) {
 	const (
-		// nextHeight is a constant that we use for the next height in
-		// all unit tests.
-		nextHeight = 400
-
 		// feePerKw is the fee we start all of our unit tests with.
 		feePerKw = 1
 
@@ -7649,11 +7644,19 @@ func TestEvaluateView(t *testing.T) {
 		// presence of the htlc in the returned set.
 		ourExpectedHtlcs map[uint64]bool
 
+		// ourExpectedResolutions is the set of htlcs that we expect in
+		// the resolutions returned.
+		ourExpectedResolutions map[updateType]map[uint64]bool
+
 		// theirExpectedHtlcs is the set of their htlcs that we expect
 		// in the htlc view once it has been evaluated. We just store
 		// htlc index -> bool for brevity, because we only check the
 		// presence of the htlc in the returned set.
 		theirExpectedHtlcs map[uint64]bool
+
+		// theirExpectedResolutions is the set of htlcs that we expect
+		// in the resolutions returned.
+		theirExpectedResolutions map[updateType]map[uint64]bool
 
 		// expectedFee is the fee we expect to be set after evaluating
 		// the htlc view.
@@ -7673,6 +7676,7 @@ func TestEvaluateView(t *testing.T) {
 			mutateState: false,
 			ourHtlcs: []*PaymentDescriptor{
 				{
+					HtlcIndex: 1,
 					Amount:    ourFeeUpdateAmt,
 					EntryType: FeeUpdate,
 				},
@@ -7682,8 +7686,14 @@ func TestEvaluateView(t *testing.T) {
 			expectedFee:        ourFeeUpdatePerSat,
 			ourExpectedHtlcs:   nil,
 			theirExpectedHtlcs: nil,
-			expectReceived:     0,
-			expectSent:         0,
+			ourExpectedResolutions: map[updateType]map[uint64]bool{
+				FeeUpdate: {
+					1: true,
+				},
+			},
+			theirExpectedResolutions: nil,
+			expectReceived:           0,
+			expectSent:               0,
 		},
 		{
 			name:        "their fee update is applied",
@@ -7692,16 +7702,23 @@ func TestEvaluateView(t *testing.T) {
 			ourHtlcs:    []*PaymentDescriptor{},
 			theirHtlcs: []*PaymentDescriptor{
 				{
+					HtlcIndex: 1,
 					Amount:    theirFeeUpdateAmt,
 					EntryType: FeeUpdate,
 				},
 			},
-			fetchParent:        nil,
-			expectedFee:        theirFeeUpdatePerSat,
-			ourExpectedHtlcs:   nil,
-			theirExpectedHtlcs: nil,
-			expectReceived:     0,
-			expectSent:         0,
+			fetchParent:            nil,
+			expectedFee:            theirFeeUpdatePerSat,
+			ourExpectedHtlcs:       nil,
+			theirExpectedHtlcs:     nil,
+			ourExpectedResolutions: nil,
+			theirExpectedResolutions: map[updateType]map[uint64]bool{
+				FeeUpdate: {
+					1: true,
+				},
+			},
+			expectReceived: 0,
+			expectSent:     0,
 		},
 		{
 			// We expect unresolved htlcs to to remain in the view.
@@ -7730,47 +7747,13 @@ func TestEvaluateView(t *testing.T) {
 			theirExpectedHtlcs: map[uint64]bool{
 				2: true,
 			},
-			expectReceived: 0,
-			expectSent:     0,
+			ourExpectedResolutions:   nil,
+			theirExpectedResolutions: nil,
+			expectReceived:           0,
+			expectSent:               0,
 		},
 		{
-			name:        "our htlc settled, state mutated",
-			remoteChain: false,
-			mutateState: true,
-			ourHtlcs: []*PaymentDescriptor{
-				{
-					HtlcIndex: 1,
-					Amount:    htlcAddAmount,
-					EntryType: Add,
-				},
-			},
-			theirHtlcs: []*PaymentDescriptor{
-				{
-					HtlcIndex: 2,
-					Amount:    htlcAddAmount,
-					EntryType: Add,
-				},
-				{
-					HtlcIndex: 3,
-					Amount:    htlcAddAmount,
-					EntryType: Settle,
-				},
-			},
-			fetchParent: fetchParentFromMap(
-				// Map their htlc settle update (3) to our htlc
-				// add (1).
-				map[uint64]uint64{3: 1},
-			),
-			expectedFee:      feePerKw,
-			ourExpectedHtlcs: nil,
-			theirExpectedHtlcs: map[uint64]bool{
-				2: true,
-			},
-			expectReceived: 0,
-			expectSent:     htlcAddAmount,
-		},
-		{
-			name:        "our htlc settled, state not mutated",
+			name:        "our htlc settled",
 			remoteChain: false,
 			mutateState: false,
 			ourHtlcs: []*PaymentDescriptor{
@@ -7801,6 +7784,12 @@ func TestEvaluateView(t *testing.T) {
 			ourExpectedHtlcs: nil,
 			theirExpectedHtlcs: map[uint64]bool{
 				2: true,
+			},
+			ourExpectedResolutions: map[updateType]map[uint64]bool{
+				Add: {1: true},
+			},
+			theirExpectedResolutions: map[updateType]map[uint64]bool{
+				Settle: {3: true},
 			},
 			expectReceived: 0,
 			expectSent:     htlcAddAmount,
@@ -7837,11 +7826,17 @@ func TestEvaluateView(t *testing.T) {
 				1: true,
 			},
 			theirExpectedHtlcs: nil,
-			expectReceived:     htlcAddAmount,
-			expectSent:         0,
+			ourExpectedResolutions: map[updateType]map[uint64]bool{
+				Settle: {3: true},
+			},
+			theirExpectedResolutions: map[updateType]map[uint64]bool{
+				Add: {2: true},
+			},
+			expectReceived: htlcAddAmount,
+			expectSent:     0,
 		},
 		{
-			name:        "their htlc settled, state not mutated",
+			name:        "their htlc settled",
 			remoteChain: false,
 			mutateState: false,
 			ourHtlcs: []*PaymentDescriptor{
@@ -7872,8 +7867,14 @@ func TestEvaluateView(t *testing.T) {
 				1: true,
 			},
 			theirExpectedHtlcs: nil,
-			expectReceived:     htlcAddAmount,
-			expectSent:         0,
+			ourExpectedResolutions: map[updateType]map[uint64]bool{
+				Settle: {3: true},
+			},
+			theirExpectedResolutions: map[updateType]map[uint64]bool{
+				Add: {2: true},
+			},
+			expectReceived: htlcAddAmount,
+			expectSent:     0,
 		},
 	}
 
@@ -7905,9 +7906,8 @@ func TestEvaluateView(t *testing.T) {
 
 			// Evaluate the htlc view, mutate as test expects.
 			result, err := lc.evaluateHTLCView(
-				view, &ourBalance, &theirBalance, nextHeight,
-				test.remoteChain, test.mutateState,
-				test.fetchParent,
+				view, &ourBalance, &theirBalance,
+				test.remoteChain, test.fetchParent,
 			)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
@@ -7925,6 +7925,26 @@ func TestEvaluateView(t *testing.T) {
 			checkExpectedHtlcs(
 				t, result.addUpdates.theirs, test.theirExpectedHtlcs,
 			)
+
+			// Check that the set of resolutions returned are as
+			// expected.
+			for update, htlcs := range result.resolvedHtlcs {
+				expected, ok := test.ourExpectedResolutions[update]
+				if !ok && len(htlcs.ours) != 0 {
+					t.Fatalf("did not expect our "+
+						"resolutions type: %v", update)
+				}
+
+				checkExpectedHtlcs(t, htlcs.ours, expected)
+
+				expected, ok = test.theirExpectedResolutions[update]
+				if !ok && len(htlcs.theirs) != 0 {
+					t.Fatalf("did not expect their "+
+						"resolutions type: %v", update)
+				}
+
+				checkExpectedHtlcs(t, htlcs.theirs, expected)
+			}
 
 			// Check that the send and received totals calculated by
 			// the evaluation are as expected. We expect these values

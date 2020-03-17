@@ -2450,8 +2450,8 @@ func fundingTxIn(chanState *channeldb.OpenChannel) wire.TxIn {
 func preprocessHtlcs(updates []*PaymentDescriptor,
 	fetchParent func(*PaymentDescriptor) (*PaymentDescriptor, error),
 	ourBalance, theirBalance *lnwire.MilliSatoshi,
-	fee *chainfee.SatPerKWeight, nextHeight uint64, isIncoming, remoteChain,
-	mutateState bool) (map[uint64]bool,
+	fee *chainfee.SatPerKWeight, isIncoming,
+	remoteChain bool) (map[uint64]bool,
 	map[updateType][]*PaymentDescriptor, lnwire.MilliSatoshi, error) {
 
 	var (
@@ -2476,16 +2476,6 @@ func preprocessHtlcs(updates []*PaymentDescriptor,
 		// Process fee updates, updating the current feePerKw.
 		case FeeUpdate:
 			processFeeUpdate(entry, remoteChain, fee)
-
-			if mutateState {
-				// Fee updates are applied for all commitments after they are
-				// sent/received, so we consider them being added and removed at the
-				// same height.
-
-				mutateHtlcAddHeight(entry, remoteChain, nextHeight)
-				mutateHtlcRemoveHeight(entry, remoteChain, nextHeight)
-			}
-
 			continue
 		}
 
@@ -2510,10 +2500,6 @@ func preprocessHtlcs(updates []*PaymentDescriptor,
 		processRemoveEntry(
 			entry, ourBalance, theirBalance, remoteChain, isIncoming,
 		)
-
-		if mutateState {
-			mutateHtlcRemoveHeight(entry, remoteChain, nextHeight)
-		}
 	}
 
 	return resolvedHtlcs, htlcUpdates, total, nil
@@ -2575,6 +2561,10 @@ type viewEvaluation struct {
 	// as of this view. Htlc add updates which have been resolved with a
 	// htlc settle or fail are not included in this set.
 	addUpdates ownedUpdates
+
+	// resolvedHtlcs is a map of update type to our/their htlcs that were
+	// resolved by this view.
+	resolvedHtlcs map[updateType]ownedUpdates
 }
 
 // evaluateHTLCView processes all update entries in both HTLC update logs,
@@ -2584,23 +2574,16 @@ type viewEvaluation struct {
 // commitment chain, and the current commitment fee rate. It takes a function
 // that looks up a htlc's parent entry in the update log as a parameter for
 // testing purposes.
-//
-// If mutateState is set to true, then the add height of all added HTLCs
-// will be set to nextHeight, and the remove height of all removed HTLCs
-// will be set to nextHeight. This should therefore only be set to true
-// once for each height, and only in concert with signing a new commitment.
-// TODO(halseth): return htlcs to mutate instead of mutating inside
-// method.
 func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
-	theirBalance *lnwire.MilliSatoshi, nextHeight uint64,
-	remoteChain, mutateState bool,
+	theirBalance *lnwire.MilliSatoshi, remoteChain bool,
 	fetchParentEntry fetchParent) (*viewEvaluation, error) {
 
 	// We initialize the view's fee rate to the fee rate of the unfiltered
 	// view. If any fee updates are found when evaluating the view, it will
 	// be updated.
 	evaluation := &viewEvaluation{
-		feePerKw: view.feePerKw,
+		feePerKw:      view.feePerKw,
+		resolvedHtlcs: make(map[updateType]ownedUpdates),
 	}
 
 	// wrapFetchParent takes a remote log bool and wraps our call to fetch
@@ -2621,8 +2604,7 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 	// fails in the remote party's log.
 	ourResolutions, ourHtlcs, total, err := preprocessHtlcs(
 		view.ourUpdates, fetchParent(true), ourBalance,
-		theirBalance, &evaluation.feePerKw, nextHeight, true,
-		remoteChain, mutateState,
+		theirBalance, &evaluation.feePerKw, true, remoteChain,
 	)
 	if err != nil {
 		return nil, err
@@ -2636,8 +2618,7 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 	// fails our party's log.
 	theirResolutions, theirHtlcs, total, err := preprocessHtlcs(
 		view.theirUpdates, fetchParent(false), ourBalance,
-		theirBalance, &evaluation.feePerKw, nextHeight, false,
-		remoteChain, mutateState,
+		theirBalance, &evaluation.feePerKw, false, remoteChain,
 	)
 	if err != nil {
 		return nil, err
@@ -2645,6 +2626,8 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 	// Any settles in this log are a result of the remote party setting
 	// our outgoing htlcs, so we update send total.
 	evaluation.sentTotal = total
+
+	var resolvedHtlcAdds ownedUpdates
 
 	// Now we have a set of htlcs by type, we can run through our htlc adds,
 	// skipping over those that were resolved by this view, to produce a new
@@ -2656,15 +2639,16 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 		// update log. We skip this htlc add because it has been
 		// resolved.
 		if _, ok := theirResolutions[entry.HtlcIndex]; ok {
+			resolvedHtlcAdds.ours = append(
+				resolvedHtlcAdds.ours, entry,
+			)
+
 			continue
 		}
 
 		processAddEntry(
 			entry, ourBalance, theirBalance, remoteChain, false,
 		)
-		if mutateState {
-			mutateHtlcAddHeight(entry, remoteChain, nextHeight)
-		}
 
 		// This htlc has not been resolved by the view, so we add it to
 		// our set of add updates.
@@ -2678,21 +2662,51 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 		// update log. We skip this htlc add because it has been
 		// resolved.
 		if _, ok := ourResolutions[entry.HtlcIndex]; ok {
+			resolvedHtlcAdds.theirs = append(
+				resolvedHtlcAdds.theirs, entry,
+			)
+
 			continue
 		}
 
 		processAddEntry(
 			entry, ourBalance, theirBalance, remoteChain, true,
 		)
-		if mutateState {
-			mutateHtlcAddHeight(entry, remoteChain, nextHeight)
-		}
 
 		// This htlc has not been resolved by the view, so we add it to
 		// our set of add updates.
 		evaluation.addUpdates.theirs = append(
 			evaluation.addUpdates.theirs, entry,
 		)
+	}
+
+	// If any htlcs adds were resolved by this view, add them to our
+	// set of resolutions.
+	if len(resolvedHtlcAdds.ours) != 0 || len(resolvedHtlcAdds.theirs) != 0 {
+		evaluation.resolvedHtlcs[Add] = resolvedHtlcAdds
+	}
+
+	// Add our resolutions to the map of resolved htlcs, skipping adds
+	// because they have been dealt with separately.
+	for updateType, htlcs := range ourHtlcs {
+		if updateType == Add {
+			continue
+		}
+
+		evaluation.resolvedHtlcs[updateType] = ownedUpdates{
+			ours: htlcs,
+		}
+	}
+
+	// Copy all of their resolved htlcs across to our resolutions map.
+	for updateType, htlcs := range theirHtlcs {
+		if updateType == Add {
+			continue
+		}
+
+		updates := evaluation.resolvedHtlcs[updateType]
+		updates.theirs = htlcs
+		evaluation.resolvedHtlcs[updateType] = updates
 	}
 
 	return evaluation, nil
@@ -3928,8 +3942,8 @@ func (lc *LightningChannel) computeView(view *htlcView, remoteChain bool,
 	// updates are found in the logs, the commitment fee rate should be
 	// changed, so we'll also set the feePerKw to this new value.
 	htlcEvaluation, err := lc.evaluateHTLCView(
-		view, &ourBalance, &theirBalance, nextHeight, remoteChain,
-		updateState, lc.getFetchParent(remoteChain),
+		view, &ourBalance, &theirBalance, remoteChain,
+		lc.getFetchParent(remoteChain),
 	)
 	if err != nil {
 		return 0, 0, 0, nil, err
@@ -3941,6 +3955,45 @@ func (lc *LightningChannel) computeView(view *htlcView, remoteChain bool,
 	if updateState {
 		lc.channelState.TotalMSatReceived += htlcEvaluation.receivedTotal
 		lc.channelState.TotalMSatSent += htlcEvaluation.sentTotal
+
+		// We need to update the add height of add updates that remain on
+		// our commitment and all the fee updates in this view, if they
+		// have not been processed already. We do not mutate the adds
+		// that were resolved by this view.
+		updateAddHeight := []ownedUpdates{
+			htlcEvaluation.addUpdates,
+			htlcEvaluation.resolvedHtlcs[FeeUpdate],
+		}
+
+		for _, updates := range updateAddHeight {
+			toMutate := append(updates.ours, updates.theirs...)
+			for _, entry := range toMutate {
+				mutateHtlcAddHeight(
+					entry, remoteChain, nextHeight,
+				)
+			}
+		}
+
+		// We need to update all of the htlc resolution messages that
+		// were resolved by this view. We consider fee updates as being
+		// applied and removed in the same view, so we also set their
+		// removed height. We do not mutate the adds that were resolved
+		// by this view.
+		updateRemoveHeight := []ownedUpdates{
+			htlcEvaluation.resolvedHtlcs[FeeUpdate],
+			htlcEvaluation.resolvedHtlcs[Fail],
+			htlcEvaluation.resolvedHtlcs[Settle],
+			htlcEvaluation.resolvedHtlcs[MalformedFail],
+		}
+
+		for _, updates := range updateRemoveHeight {
+			toMutate := append(updates.ours, updates.theirs...)
+			for _, entry := range toMutate {
+				mutateHtlcRemoveHeight(
+					entry, remoteChain, nextHeight,
+				)
+			}
+		}
 	}
 
 	// Now go through all HTLCs at this stage, to calculate the total

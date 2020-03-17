@@ -9,6 +9,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -32,6 +33,8 @@ const (
 )
 
 var (
+	errServerShuttingDown = errors.New("routerrpc server shutting down")
+
 	// macaroonOps are the set of capabilities that our minted macaroon (if
 	// it doesn't already exist) will have.
 	macaroonOps = []bakery.Op{
@@ -79,6 +82,10 @@ var (
 			Entity: "offchain",
 			Action: "read",
 		}},
+		"/routerrpc.Router/SubscribeHtlcEvents": {{
+			Entity: "offchain",
+			Action: "read",
+		}},
 	}
 
 	// DefaultRouterMacFilename is the default name of the router macaroon
@@ -90,7 +97,12 @@ var (
 // Server is a stand alone sub RPC server which exposes functionality that
 // allows clients to route arbitrary payment through the Lightning Network.
 type Server struct {
+	started  int32 // To be used atomically.
+	shutdown int32 // To be used atomically.
+
 	cfg *Config
+
+	quit chan struct{}
 }
 
 // A compile time check to ensure that Server fully implements the RouterServer
@@ -150,7 +162,8 @@ func New(cfg *Config) (*Server, lnrpc.MacaroonPerms, error) {
 	}
 
 	routerServer := &Server{
-		cfg: cfg,
+		cfg:  cfg,
+		quit: make(chan struct{}),
 	}
 
 	return routerServer, macPermissions, nil
@@ -160,6 +173,10 @@ func New(cfg *Config) (*Server, lnrpc.MacaroonPerms, error) {
 //
 // NOTE: This is part of the lnrpc.SubServer interface.
 func (s *Server) Start() error {
+	if atomic.AddInt32(&s.started, 1) != 1 {
+		return nil
+	}
+
 	return nil
 }
 
@@ -167,6 +184,11 @@ func (s *Server) Start() error {
 //
 // NOTE: This is part of the lnrpc.SubServer interface.
 func (s *Server) Stop() error {
+	if atomic.AddInt32(&s.shutdown, 1) != 1 {
+		return nil
+	}
+
+	close(s.quit)
 	return nil
 }
 
@@ -513,6 +535,9 @@ func (s *Server) trackPayment(paymentHash lntypes.Hash,
 			return err
 		}
 
+	case <-s.quit:
+		return errServerShuttingDown
+
 	case <-stream.Context().Done():
 		log.Debugf("Payment status stream %v canceled", paymentHash)
 		return stream.Context().Err()
@@ -591,4 +616,43 @@ func (s *Server) BuildRoute(ctx context.Context,
 	}
 
 	return routeResp, nil
+}
+
+// SubscribeHtlcEvents creates a uni-directional stream from the server to
+// the client which delivers a stream of htlc events.
+func (s *Server) SubscribeHtlcEvents(req *SubscribeHtlcEventsRequest,
+	stream Router_SubscribeHtlcEventsServer) error {
+
+	htlcClient, err := s.cfg.RouterBackend.SubscribeHtlcEvents()
+	if err != nil {
+		return err
+	}
+	defer htlcClient.Cancel()
+
+	for {
+		select {
+		case event := <-htlcClient.Updates():
+			rpcEvent, err := rpcHtlcEvent(event)
+			if err != nil {
+				return err
+			}
+
+			if err := stream.Send(rpcEvent); err != nil {
+				return err
+			}
+
+		// If the stream's context is cancelled, return an error.
+		case <-stream.Context().Done():
+			log.Debugf("htlc event stream cancelled")
+			return stream.Context().Err()
+
+		// If the subscribe client terminates, exit with an error.
+		case <-htlcClient.Quit():
+			return errors.New("htlc event subscription terminated")
+
+		// If the server has been signalled to shut down, exit.
+		case <-s.quit:
+			return errServerShuttingDown
+		}
+	}
 }

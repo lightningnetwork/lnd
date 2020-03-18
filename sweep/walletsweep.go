@@ -112,7 +112,7 @@ type UtxoSource interface {
 type CoinSelectionLocker interface {
 	// WithCoinSelectLock will execute the passed function closure in a
 	// synchronized manner preventing any coin selection operations from
-	// proceeding while the closure if executing. This can be seen as the
+	// proceeding while the closure is executing. This can be seen as the
 	// ability to execute a function closure under an exclusive coin
 	// selection lock.
 	WithCoinSelectLock(func() error) error
@@ -120,7 +120,7 @@ type CoinSelectionLocker interface {
 
 // OutpointLocker allows a caller to lock/unlock an outpoint. When locked, the
 // outpoints shouldn't be used for any sort of channel funding of coin
-// selection. Locked outpoints are not expect to be persisted between restarts.
+// selection. Locked outpoints are not expected to be persisted between restarts.
 type OutpointLocker interface {
 	// LockOutpoint locks a target outpoint, rendering it unusable for coin
 	// selection.

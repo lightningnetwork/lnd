@@ -760,7 +760,7 @@ func TestRestart(t *testing.T) {
 	// Expect last tx to be republished.
 	ctx.receiveTx()
 
-	// Simulate other subsystem (eg contract resolver) re-offering inputs.
+	// Simulate other subsystem (e.g. contract resolver) re-offering inputs.
 	spendChan1, err := ctx.sweeper.SweepInput(input1, defaultFeePref)
 	if err != nil {
 		t.Fatal(err)

@@ -4,8 +4,12 @@ package main
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"sort"
 
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/urfave/cli"
 )
@@ -22,6 +26,7 @@ func walletCommands() []cli.Command {
 			Subcommands: []cli.Command{
 				pendingSweepsCommand,
 				bumpFeeCommand,
+				bumpCloseFeeCommand,
 			},
 		},
 	}
@@ -167,4 +172,131 @@ func bumpFee(ctx *cli.Context) error {
 	printRespJSON(resp)
 
 	return nil
+}
+
+var bumpCloseFeeCommand = cli.Command{
+	Name:      "bumpclosefee",
+	Usage:     "Bumps the fee of a channel closing transaction.",
+	ArgsUsage: "channel_point",
+	Description: `
+	This command allows the fee of a channel closing transaction to be
+	increased by using the child-pays-for-parent mechanism. It will instruct
+	the sweeper to sweep the anchor outputs of transactions in the set
+	of valid commitments for the specified channel at the requested fee
+	rate or confirmation target.
+	`,
+	Flags: []cli.Flag{
+		cli.Uint64Flag{
+			Name: "conf_target",
+			Usage: "the number of blocks that the output should " +
+				"be swept on-chain within",
+		},
+		cli.Uint64Flag{
+			Name: "sat_per_byte",
+			Usage: "a manual fee expressed in sat/byte that " +
+				"should be used when sweeping the output",
+		},
+	},
+	Action: actionDecorator(bumpCloseFee),
+}
+
+func bumpCloseFee(ctx *cli.Context) error {
+	// Display the command's help message if we do not have the expected
+	// number of arguments/flags.
+	if ctx.NArg() != 1 {
+		return cli.ShowCommandHelp(ctx, "bumpclosefee")
+	}
+
+	// Validate the channel point.
+	channelPoint := ctx.Args().Get(0)
+	_, err := NewProtoOutPoint(channelPoint)
+	if err != nil {
+		return err
+	}
+
+	// Fetch all waiting close channels.
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
+	// Fetch waiting close channel commitments.
+	commitments, err := getWaitingCloseCommitments(client, channelPoint)
+	if err != nil {
+		return err
+	}
+
+	// Retrieve pending sweeps.
+	walletClient, cleanUp := getWalletClient(ctx)
+	defer cleanUp()
+
+	ctxb := context.Background()
+	sweeps, err := walletClient.PendingSweeps(
+		ctxb, &walletrpc.PendingSweepsRequest{},
+	)
+	if err != nil {
+		return err
+	}
+
+	// Match pending sweeps with commitments of the channel for which a bump
+	// is requested and bump their fees.
+	commitSet := map[string]struct{}{
+		commitments.LocalTxid:  {},
+		commitments.RemoteTxid: {},
+	}
+	if commitments.RemotePendingTxid != "" {
+		commitSet[commitments.RemotePendingTxid] = struct{}{}
+	}
+
+	for _, sweep := range sweeps.PendingSweeps {
+		// Only bump anchor sweeps.
+		if sweep.WitnessType != walletrpc.WitnessType_COMMITMENT_ANCHOR {
+			continue
+		}
+
+		// Skip unrelated sweeps.
+		sweepTxID, err := chainhash.NewHash(sweep.Outpoint.TxidBytes)
+		if err != nil {
+			return err
+		}
+		if _, match := commitSet[sweepTxID.String()]; !match {
+			continue
+		}
+
+		// Bump fee of the anchor sweep.
+		fmt.Printf("Bumping fee of %v:%v\n",
+			sweepTxID, sweep.Outpoint.OutputIndex)
+
+		_, err = walletClient.BumpFee(ctxb, &walletrpc.BumpFeeRequest{
+			Outpoint:   sweep.Outpoint,
+			TargetConf: uint32(ctx.Uint64("conf_target")),
+			SatPerByte: uint32(ctx.Uint64("sat_per_byte")),
+			Force:      true,
+		})
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func getWaitingCloseCommitments(client lnrpc.LightningClient,
+	channelPoint string) (*lnrpc.PendingChannelsResponse_Commitments,
+	error) {
+
+	ctxb := context.Background()
+
+	req := &lnrpc.PendingChannelsRequest{}
+	resp, err := client.PendingChannels(ctxb, req)
+	if err != nil {
+		return nil, err
+	}
+
+	// Lookup the channel commit tx hashes.
+	for _, channel := range resp.WaitingCloseChannels {
+		if channel.Channel.ChannelPoint == channelPoint {
+			return channel.Commitments, nil
+		}
+	}
+
+	return nil, errors.New("channel not found")
 }

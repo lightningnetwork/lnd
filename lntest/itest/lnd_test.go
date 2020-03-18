@@ -8604,13 +8604,19 @@ func assertNumPendingChannels(t *harnessTest, node *lntest.HarnessNode,
 // on chain as he has no funds in the channel.
 func assertDLPExecuted(net *lntest.NetworkHarness, t *harnessTest,
 	carol *lntest.HarnessNode, carolStartingBalance int64,
-	dave *lntest.HarnessNode, daveStartingBalance int64) {
+	dave *lntest.HarnessNode, daveStartingBalance int64,
+	anchors bool) {
 
 	// Upon reconnection, the nodes should detect that Dave is out of sync.
 	// Carol should force close the channel using her latest commitment.
+	expectedTxes := 1
+	if anchors {
+		expectedTxes = 2
+	}
+
 	ctxb := context.Background()
-	forceClose, err := waitForTxInMempool(
-		net.Miner.Node, minerMempoolTimeout,
+	_, err := waitForNTxsInMempool(
+		net.Miner.Node, expectedTxes, minerMempoolTimeout,
 	)
 	if err != nil {
 		t.Fatalf("unable to find Carol's force close tx in mempool: %v",
@@ -8633,12 +8639,13 @@ func assertDLPExecuted(net *lntest.NetworkHarness, t *harnessTest,
 	}
 
 	// Generate a single block, which should confirm the closing tx.
-	block := mineBlocks(t, net, 1, 1)[0]
-	assertTxInBlock(t, block, forceClose)
+	block := mineBlocks(t, net, 1, expectedTxes)[0]
 
 	// Dave should sweep his funds immediately, as they are not timelocked.
-	daveSweep, err := waitForTxInMempool(
-		net.Miner.Node, minerMempoolTimeout,
+	// We also expect Dave to sweep his anchor, if present.
+
+	_, err = waitForNTxsInMempool(
+		net.Miner.Node, expectedTxes, minerMempoolTimeout,
 	)
 	if err != nil {
 		t.Fatalf("unable to find Dave's sweep tx in mempool: %v", err)
@@ -8653,8 +8660,7 @@ func assertDLPExecuted(net *lntest.NetworkHarness, t *harnessTest,
 	assertNumPendingChannels(t, carol, 0, 1)
 
 	// Mine the sweep tx.
-	block = mineBlocks(t, net, 1, 1)[0]
-	assertTxInBlock(t, block, daveSweep)
+	block = mineBlocks(t, net, 1, expectedTxes)[0]
 
 	// Now Dave should consider the channel fully closed.
 	assertNumPendingChannels(t, dave, 0, 0)
@@ -8925,6 +8931,7 @@ func testDataLossProtection(net *lntest.NetworkHarness, t *harnessTest) {
 	// on chain, and both of them properly carry out the DLP protocol.
 	assertDLPExecuted(
 		net, t, carol, carolStartingBalance, dave, daveStartingBalance,
+		false,
 	)
 
 	// As a second part of this test, we will test the scenario where a
@@ -14048,9 +14055,14 @@ func testChanRestoreScenario(t *harnessTest, net *lntest.NetworkHarness,
 	}
 	defer shutdownAndAssert(net, t, carol)
 
-	// Now that our new node is created, we'll give him some coins it can
-	// use to open channels with Carol.
+	// Now that our new nodes are created, we'll give them some coins for
+	// channel opening and anchor sweeping.
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
+	err = net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, carol)
+	if err != nil {
+		t.Fatalf("unable to send coins to dave: %v", err)
+	}
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	err = net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, dave)
 	if err != nil {
 		t.Fatalf("unable to send coins to dave: %v", err)
@@ -14216,6 +14228,7 @@ func testChanRestoreScenario(t *harnessTest, net *lntest.NetworkHarness,
 	// end of the protocol.
 	assertDLPExecuted(
 		net, t, carol, carolStartingBalance, dave, daveStartingBalance,
+		testCase.anchorCommit,
 	)
 }
 

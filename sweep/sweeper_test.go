@@ -1179,7 +1179,7 @@ func TestBumpFeeRBF(t *testing.T) {
 	// We'll first try to bump the fee of an output currently unknown to the
 	// UtxoSweeper. Doing so should result in a lnwallet.ErrNotMine error.
 	_, err := ctx.sweeper.UpdateParams(
-		wire.OutPoint{}, Params{Fee: lowFeePref},
+		wire.OutPoint{}, ParamsUpdate{Fee: lowFeePref},
 	)
 	if err != lnwallet.ErrNotMine {
 		t.Fatalf("expected error lnwallet.ErrNotMine, got \"%v\"", err)
@@ -1208,13 +1208,13 @@ func TestBumpFeeRBF(t *testing.T) {
 	ctx.estimator.blocksToFee[highFeePref.ConfTarget] = highFeeRate
 
 	// We should expect to see an error if a fee preference isn't provided.
-	_, err = ctx.sweeper.UpdateParams(*input.OutPoint(), Params{})
+	_, err = ctx.sweeper.UpdateParams(*input.OutPoint(), ParamsUpdate{})
 	if err != ErrNoFeePreference {
 		t.Fatalf("expected ErrNoFeePreference, got %v", err)
 	}
 
 	bumpResult, err := ctx.sweeper.UpdateParams(
-		*input.OutPoint(), Params{Fee: highFeePref},
+		*input.OutPoint(), ParamsUpdate{Fee: highFeePref},
 	)
 	if err != nil {
 		t.Fatalf("unable to bump input's fee: %v", err)

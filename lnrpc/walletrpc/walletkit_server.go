@@ -390,6 +390,8 @@ func (w *WalletKit) PendingSweeps(ctx context.Context,
 			witnessType = WitnessType_WITNESS_KEY_HASH
 		case input.NestedWitnessKeyHash:
 			witnessType = WitnessType_NESTED_WITNESS_KEY_HASH
+		case input.CommitmentAnchor:
+			witnessType = WitnessType_COMMITMENT_ANCHOR
 		default:
 			log.Warnf("Unhandled witness type %v for input %v",
 				pendingInput.WitnessType, pendingInput.OutPoint)
@@ -486,7 +488,7 @@ func (w *WalletKit) BumpFee(ctx context.Context,
 	// bump its fee, which will result in a replacement transaction (RBF)
 	// being broadcast. If it is not aware of the input however,
 	// lnwallet.ErrNotMine is returned.
-	params := sweep.Params{
+	params := sweep.ParamsUpdate{
 		Fee:   feePreference,
 		Force: in.Force,
 	}

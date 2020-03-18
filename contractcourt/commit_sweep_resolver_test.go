@@ -10,6 +10,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/sweep"
 )
 
@@ -93,12 +94,14 @@ func (i *commitSweepResolverTestContext) waitForResult() {
 }
 
 type mockSweeper struct {
-	sweptInputs chan input.Input
+	sweptInputs   chan input.Input
+	updatedInputs chan wire.OutPoint
 }
 
 func newMockSweeper() *mockSweeper {
 	return &mockSweeper{
-		sweptInputs: make(chan input.Input),
+		sweptInputs:   make(chan input.Input),
+		updatedInputs: make(chan wire.OutPoint),
 	}
 }
 
@@ -118,6 +121,22 @@ func (s *mockSweeper) CreateSweepTx(inputs []input.Input, feePref sweep.FeePrefe
 	currentBlockHeight uint32) (*wire.MsgTx, error) {
 
 	return nil, nil
+}
+
+func (s *mockSweeper) RelayFeePerKW() chainfee.SatPerKWeight {
+	return 253
+}
+
+func (s *mockSweeper) UpdateParams(input wire.OutPoint,
+	params sweep.ParamsUpdate) (chan sweep.Result, error) {
+
+	s.updatedInputs <- input
+
+	result := make(chan sweep.Result, 1)
+	result <- sweep.Result{
+		Tx: &wire.MsgTx{},
+	}
+	return result, nil
 }
 
 var _ UtxoSweeper = &mockSweeper{}

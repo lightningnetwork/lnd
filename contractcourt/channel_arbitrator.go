@@ -13,9 +13,11 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/sweep"
 )
 
 var (
@@ -64,6 +66,22 @@ type WitnessBeacon interface {
 	AddPreimages(preimages ...lntypes.Preimage) error
 }
 
+// ArbChannel is an abstraction that allows the channel arbitrator to interact
+// with an open channel.
+type ArbChannel interface {
+	// ForceCloseChan should force close the contract that this attendant
+	// is watching over. We'll use this when we decide that we need to go
+	// to chain. It should in addition tell the switch to remove the
+	// corresponding link, such that we won't accept any new updates. The
+	// returned summary contains all items needed to eventually resolve all
+	// outputs on chain.
+	ForceCloseChan() (*lnwallet.LocalForceCloseSummary, error)
+
+	// NewAnchorResolutions returns the anchor resolutions for currently
+	// valid commitment transactions.
+	NewAnchorResolutions() ([]*lnwallet.AnchorResolution, error)
+}
+
 // ChannelArbitratorConfig contains all the functionality that the
 // ChannelArbitrator needs in order to properly arbitrate any contract dispute
 // on chain.
@@ -71,6 +89,10 @@ type ChannelArbitratorConfig struct {
 	// ChanPoint is the channel point that uniquely identifies this
 	// channel.
 	ChanPoint wire.OutPoint
+
+	// Channel is the full channel data structure. For legacy channels, this
+	// field may not always be set after a restart.
+	Channel ArbChannel
 
 	// ShortChanID describes the exact location of the channel within the
 	// chain. We'll use this to address any messages that we need to send
@@ -87,14 +109,6 @@ type ChannelArbitratorConfig struct {
 	// channel to be notified of any on-chain activity related to this
 	// channel.
 	ChainEvents *ChainEventSubscription
-
-	// ForceCloseChan should force close the contract that this attendant
-	// is watching over. We'll use this when we decide that we need to go
-	// to chain. It should in addition tell the switch to remove the
-	// corresponding link, such that we won't accept any new updates. The
-	// returned summary contains all items needed to eventually resolve all
-	// outputs on chain.
-	ForceCloseChan func() (*lnwallet.LocalForceCloseSummary, error)
 
 	// MarkCommitmentBroadcasted should mark the channel as the commitment
 	// being broadcast, and we are waiting for the commitment to confirm.
@@ -148,6 +162,9 @@ const (
 	// ReportOutputUnencumbered is an uncontested output on the commitment
 	// transaction paying to us directly.
 	ReportOutputUnencumbered
+
+	// ReportOutputAnchor is an anchor output on the commitment tx.
+	ReportOutputAnchor
 )
 
 // ContractReport provides a summary of a commitment tx output.
@@ -354,9 +371,6 @@ func (c *ChannelArbitrator) Start() error {
 		return err
 	}
 
-	log.Infof("ChannelArbitrator(%v): starting state=%v", c.cfg.ChanPoint,
-		c.state)
-
 	_, bestHeight, err := c.cfg.ChainIO.GetBestBlock()
 	if err != nil {
 		c.cfg.BlockEpochs.Cancel()
@@ -391,13 +405,18 @@ func (c *ChannelArbitrator) Start() error {
 			case channeldb.RemoteForceClose:
 				trigger = remoteCloseTrigger
 			}
-			triggerHeight = c.cfg.ClosingHeight
 
 			log.Warnf("ChannelArbitrator(%v): detected stalled "+
-				"state=%v for closed channel, using "+
-				"trigger=%v", c.cfg.ChanPoint, c.state, trigger)
+				"state=%v for closed channel",
+				c.cfg.ChanPoint, c.state)
 		}
+
+		triggerHeight = c.cfg.ClosingHeight
 	}
+
+	log.Infof("ChannelArbitrator(%v): starting state=%v, trigger=%v, "+
+		"triggerHeight=%v", c.cfg.ChanPoint, c.state, trigger,
+		triggerHeight)
 
 	// Next we'll fetch our confirmed commitment set. This will only exist
 	// if the channel has been closed out on chain for modern nodes. For
@@ -451,7 +470,7 @@ func (c *ChannelArbitrator) Start() error {
 		// receive a chain event from the chain watcher than the
 		// commitment has been confirmed on chain, and before we
 		// advance our state step, we call InsertConfirmedCommitSet.
-		if err := c.relaunchResolvers(commitSet); err != nil {
+		if err := c.relaunchResolvers(commitSet, triggerHeight); err != nil {
 			c.cfg.BlockEpochs.Cancel()
 			return err
 		}
@@ -467,7 +486,9 @@ func (c *ChannelArbitrator) Start() error {
 // starting the ChannelArbitrator. This information should ideally be stored in
 // the database, so this only serves as a intermediate work-around to prevent a
 // migration.
-func (c *ChannelArbitrator) relaunchResolvers(commitSet *CommitSet) error {
+func (c *ChannelArbitrator) relaunchResolvers(commitSet *CommitSet,
+	heightHint uint32) error {
+
 	// We'll now query our log to see if there are any active unresolved
 	// contracts. If this is the case, then we'll relaunch all contract
 	// resolvers.
@@ -542,6 +563,19 @@ func (c *ChannelArbitrator) relaunchResolvers(commitSet *CommitSet) error {
 		htlcResolver.Supplement(*htlc)
 	}
 
+	// The anchor resolver is stateless and can always be re-instantiated.
+	if contractResolutions.AnchorResolution != nil {
+		anchorResolver := newAnchorResolver(
+			contractResolutions.AnchorResolution.AnchorSignDescriptor,
+			contractResolutions.AnchorResolution.CommitAnchor,
+			heightHint, c.cfg.ChanPoint,
+			ResolverConfig{
+				ChannelArbitratorConfig: c.cfg,
+			},
+		)
+		unresolvedContracts = append(unresolvedContracts, anchorResolver)
+	}
+
 	c.launchResolvers(unresolvedContracts)
 
 	return nil
@@ -556,10 +590,6 @@ func (c *ChannelArbitrator) Report() []*ContractReport {
 	for _, resolver := range c.activeResolvers {
 		r, ok := resolver.(reportingContractResolver)
 		if !ok {
-			continue
-		}
-
-		if r.IsResolved() {
 			continue
 		}
 
@@ -789,7 +819,7 @@ func (c *ChannelArbitrator) stateStep(
 		// We'll tell the switch that it should remove the link for
 		// this channel, in addition to fetching the force close
 		// summary needed to close this channel on chain.
-		closeSummary, err := c.cfg.ForceCloseChan()
+		closeSummary, err := c.cfg.Channel.ForceCloseChan()
 		if err != nil {
 			log.Errorf("ChannelArbitrator(%v): unable to "+
 				"force close: %v", c.cfg.ChanPoint, err)
@@ -837,30 +867,48 @@ func (c *ChannelArbitrator) stateStep(
 	// to be confirmed.
 	case StateCommitmentBroadcasted:
 		switch trigger {
-		// We are waiting for a commitment to be confirmed, so any
-		// other trigger will be ignored.
+
+		// We are waiting for a commitment to be confirmed.
 		case chainTrigger, userTrigger:
-			log.Infof("ChannelArbitrator(%v): noop trigger %v",
-				c.cfg.ChanPoint, trigger)
+			// The commitment transaction has been broadcast, but it
+			// doesn't necessarily need to be the commitment
+			// transaction version that is going to be confirmed. To
+			// be sure that any of those versions can be anchored
+			// down, we now submit all anchor resolutions to the
+			// sweeper. The sweeper will keep trying to sweep all of
+			// them.
+			//
+			// Note that the sweeper is idempotent. If we ever
+			// happen to end up at this point in the code again, no
+			// harm is done by re-offering the anchors to the
+			// sweeper.
+			anchors, err := c.cfg.Channel.NewAnchorResolutions()
+			if err != nil {
+				return StateError, closeTx, err
+			}
+
+			err = c.sweepAnchors(anchors, triggerHeight)
+			if err != nil {
+				return StateError, closeTx, err
+			}
+
 			nextState = StateCommitmentBroadcasted
 
 		// If this state advance was triggered by any of the
 		// commitments being confirmed, then we'll jump to the state
 		// where the contract has been closed.
 		case localCloseTrigger, remoteCloseTrigger:
-			log.Infof("ChannelArbitrator(%v): trigger %v, "+
-				" going to StateContractClosed",
-				c.cfg.ChanPoint, trigger)
 			nextState = StateContractClosed
 
 		// If a coop close or breach was confirmed, jump straight to
 		// the fully resolved state.
 		case coopCloseTrigger, breachCloseTrigger:
-			log.Infof("ChannelArbitrator(%v): trigger %v, "+
-				" going to StateFullyResolved",
-				c.cfg.ChanPoint, trigger)
 			nextState = StateFullyResolved
 		}
+
+		log.Infof("ChannelArbitrator(%v): trigger %v moving from "+
+			"state %v to %v", c.cfg.ChanPoint, trigger, c.state,
+			nextState)
 
 	// If we're in this state, then the contract has been fully closed to
 	// outside sub-systems, so we'll process the prior set of on-chain
@@ -971,6 +1019,54 @@ func (c *ChannelArbitrator) stateStep(
 		nextState)
 
 	return nextState, closeTx, nil
+}
+
+// sweepAnchors offers all given anchor resolutions to the sweeper. It requests
+// sweeping at the minimum fee rate. This fee rate can be upped manually by the
+// user via the BumpFee rpc.
+func (c *ChannelArbitrator) sweepAnchors(anchors []*lnwallet.AnchorResolution,
+	heightHint uint32) error {
+
+	// Use the chan id as the exclusive group. This prevents any of the
+	// anchors from being batched together.
+	exclusiveGroup := c.cfg.ShortChanID.ToUint64()
+
+	// Retrieve the current minimum fee rate from the sweeper.
+	minFeeRate := c.cfg.Sweeper.RelayFeePerKW()
+
+	for _, anchor := range anchors {
+		log.Debugf("ChannelArbitrator(%v): pre-confirmation sweep of "+
+			"anchor of tx %v", c.cfg.ChanPoint, anchor.CommitAnchor)
+
+		// Prepare anchor output for sweeping.
+		anchorInput := input.MakeBaseInput(
+			&anchor.CommitAnchor,
+			input.CommitmentAnchor,
+			&anchor.AnchorSignDescriptor,
+			heightHint,
+		)
+
+		// Sweep anchor output with the minimum fee rate. This usually
+		// (up to a min relay fee of 3 sat/b) means that the anchor
+		// sweep will be economical. Also signal that this is a force
+		// sweep. If the user decides to bump the fee on the anchor
+		// sweep, it will be swept even if it isn't economical.
+		_, err := c.cfg.Sweeper.SweepInput(
+			&anchorInput,
+			sweep.Params{
+				Fee: sweep.FeePreference{
+					FeeRate: minFeeRate,
+				},
+				Force:          true,
+				ExclusiveGroup: &exclusiveGroup,
+			},
+		)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // launchResolvers updates the activeResolvers list and starts the resolvers.
@@ -1778,8 +1874,8 @@ func (c *ChannelArbitrator) prepContractResolutions(
 		}
 	}
 
-	// Finally, if this is was a unilateral closure, then we'll also create
-	// a resolver to sweep our commitment output (but only if it wasn't
+	// If this is was an unilateral closure, then we'll also create a
+	// resolver to sweep our commitment output (but only if it wasn't
 	// trimmed).
 	if contractResolutions.CommitResolution != nil {
 		resolver := newCommitSweepResolver(
@@ -1787,6 +1883,17 @@ func (c *ChannelArbitrator) prepContractResolutions(
 			height, c.cfg.ChanPoint, resolverCfg,
 		)
 		htlcResolvers = append(htlcResolvers, resolver)
+	}
+
+	// We instantiate an anchor resolver if the commitmentment tx has an
+	// anchor.
+	if contractResolutions.AnchorResolution != nil {
+		anchorResolver := newAnchorResolver(
+			contractResolutions.AnchorResolution.AnchorSignDescriptor,
+			contractResolutions.AnchorResolution.CommitAnchor,
+			height, c.cfg.ChanPoint, resolverCfg,
+		)
+		htlcResolvers = append(htlcResolvers, anchorResolver)
 	}
 
 	return htlcResolvers, msgsToSend, nil
@@ -2080,6 +2187,7 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 				CommitHash:       closeTx.TxHash(),
 				CommitResolution: closeInfo.CommitResolution,
 				HtlcResolutions:  *closeInfo.HtlcResolutions,
+				AnchorResolution: closeInfo.AnchorResolution,
 			}
 
 			// When processing a unilateral close event, we'll
@@ -2146,6 +2254,7 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 				CommitHash:       *uniClosure.SpenderTxHash,
 				CommitResolution: uniClosure.CommitResolution,
 				HtlcResolutions:  *uniClosure.HtlcResolutions,
+				AnchorResolution: uniClosure.AnchorResolution,
 			}
 
 			// When processing a unilateral close event, we'll

@@ -1,8 +1,12 @@
 package input
 
 import (
+	"math/big"
+
 	"github.com/btcsuite/btcd/blockchain"
+	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/keychain"
 )
 
 const (
@@ -404,6 +408,47 @@ const (
 	//      - witness_script_length: 1 byte
 	//      - witness_script (offered_htlc_script)
 	OfferedHtlcPenaltyWitnessSize = 1 + 1 + 73 + 1 + 33 + 1 + OfferedHtlcScriptSize
+)
+
+// dummySigner is a fake signer used for size (upper bound) calculations.
+type dummySigner struct {
+	Signer
+}
+
+// SignOutputRaw generates a signature for the passed transaction according to
+// the data within the passed SignDescriptor.
+func (s *dummySigner) SignOutputRaw(tx *wire.MsgTx, signDesc *SignDescriptor) (
+	[]byte, error) {
+
+	// Always return worst-case signature length, excluding the one byte
+	// sighash flag.
+	return make([]byte, 73-1), nil
+}
+
+var (
+	// dummyPubKey is a pubkey used in script size calculation.
+	dummyPubKey = btcec.PublicKey{
+		X: &big.Int{},
+		Y: &big.Int{},
+	}
+
+	// dummyAnchorScript is a script used for size calculation.
+	dummyAnchorScript, _ = CommitScriptAnchor(&dummyPubKey)
+
+	// dummyAnchorWitness is a witness used for size calculation.
+	dummyAnchorWitness, _ = CommitSpendAnchor(
+		&dummySigner{},
+		&SignDescriptor{
+			KeyDesc: keychain.KeyDescriptor{
+				PubKey: &dummyPubKey,
+			},
+			WitnessScript: dummyAnchorScript,
+		},
+		nil,
+	)
+
+	// AnchorWitnessSize 116 bytes
+	AnchorWitnessSize = dummyAnchorWitness.SerializeSize()
 )
 
 // EstimateCommitTxWeight estimate commitment transaction weight depending on

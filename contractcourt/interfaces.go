@@ -9,6 +9,7 @@ import (
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/sweep"
 )
@@ -51,4 +52,16 @@ type UtxoSweeper interface {
 	// estimate before generating the required witnesses.
 	CreateSweepTx(inputs []input.Input, feePref sweep.FeePreference,
 		currentBlockHeight uint32) (*wire.MsgTx, error)
+
+	// RelayFeePerKW returns the minimum fee rate required for transactions
+	// to be relayed.
+	RelayFeePerKW() chainfee.SatPerKWeight
+
+	// UpdateParams allows updating the sweep parameters of a pending input
+	// in the UtxoSweeper. This function can be used to provide an updated
+	// fee preference that will be used for a new sweep transaction of the
+	// input that will act as a replacement transaction (RBF) of the
+	// original sweeping transaction, if any.
+	UpdateParams(input wire.OutPoint, params sweep.ParamsUpdate) (
+		chan sweep.Result, error)
 }

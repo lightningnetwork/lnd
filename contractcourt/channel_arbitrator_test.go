@@ -83,6 +83,11 @@ func (b *mockArbitratorLog) InsertUnresolvedContracts(
 
 	b.Lock()
 	for _, resolver := range resolvers {
+		resKey := resolver.ResolverKey()
+		if resKey == nil {
+			continue
+		}
+
 		b.resolvers[resolver] = struct{}{}
 	}
 	b.Unlock()
@@ -197,6 +202,8 @@ type chanArbTestCtx struct {
 	resolutions chan []ResolutionMsg
 
 	log ArbitratorLog
+
+	sweeper *mockSweeper
 }
 
 func (c *chanArbTestCtx) CleanUp() {
@@ -314,6 +321,7 @@ func createTestChannelArbitrator(t *testing.T, log ArbitratorLog,
 	incubateChan := make(chan struct{})
 
 	chainIO := &mockChainIO{}
+	mockSweeper := newMockSweeper()
 	chainArbCfg := ChainArbitratorConfig{
 		ChainIO: chainIO,
 		PublishTx: func(*wire.MsgTx) error {
@@ -343,7 +351,8 @@ func createTestChannelArbitrator(t *testing.T, log ArbitratorLog,
 
 			return true
 		},
-		Clock: clock.NewDefaultClock(),
+		Clock:   clock.NewDefaultClock(),
+		Sweeper: mockSweeper,
 	}
 
 	// We'll use the resolvedChan to synchronize on call to
@@ -360,13 +369,7 @@ func createTestChannelArbitrator(t *testing.T, log ArbitratorLog,
 			resolvedChan <- struct{}{}
 			return nil
 		},
-		ForceCloseChan: func() (*lnwallet.LocalForceCloseSummary, error) {
-			summary := &lnwallet.LocalForceCloseSummary{
-				CloseTx:         &wire.MsgTx{},
-				HtlcResolutions: &lnwallet.HtlcResolutions{},
-			}
-			return summary, nil
-		},
+		Channel: &mockChannel{},
 		MarkCommitmentBroadcasted: func(_ *wire.MsgTx, _ bool) error {
 			return nil
 		},
@@ -426,6 +429,7 @@ func createTestChannelArbitrator(t *testing.T, log ArbitratorLog,
 		blockEpochs:        blockEpochs,
 		log:                log,
 		incubationRequests: incubateChan,
+		sweeper:            mockSweeper,
 	}, nil
 }
 
@@ -2005,7 +2009,7 @@ func TestRemoteCloseInitiator(t *testing.T) {
 
 			// First, create alice's channel.
 			alice, _, cleanUp, err := lnwallet.CreateTestChannels(
-				true,
+				channeldb.SingleFunderTweaklessBit,
 			)
 			if err != nil {
 				t.Fatalf("unable to create test channels: %v",
@@ -2087,4 +2091,162 @@ func TestRemoteCloseInitiator(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestChannelArbitratorAnchors asserts that the commitment tx anchor is swept.
+func TestChannelArbitratorAnchors(t *testing.T) {
+	log := &mockArbitratorLog{
+		state:     StateDefault,
+		newStates: make(chan ArbitratorState, 5),
+	}
+
+	chanArbCtx, err := createTestChannelArbitrator(t, log)
+	if err != nil {
+		t.Fatalf("unable to create ChannelArbitrator: %v", err)
+	}
+	chanArb := chanArbCtx.chanArb
+	chanArb.cfg.PreimageDB = newMockWitnessBeacon()
+	chanArb.cfg.Registry = &mockRegistry{}
+
+	// Setup two pre-confirmation anchor resolutions on the mock channel.
+	chanArb.cfg.Channel.(*mockChannel).anchorResolutions =
+		[]*lnwallet.AnchorResolution{
+			{}, {},
+		}
+
+	if err := chanArb.Start(); err != nil {
+		t.Fatalf("unable to start ChannelArbitrator: %v", err)
+	}
+	defer func() {
+		if err := chanArb.Stop(); err != nil {
+			t.Fatal(err)
+		}
+	}()
+
+	// Create htlcUpdates channel.
+	htlcUpdates := make(chan *ContractUpdate)
+
+	signals := &ContractSignals{
+		HtlcUpdates: htlcUpdates,
+		ShortChanID: lnwire.ShortChannelID{},
+	}
+	chanArb.UpdateContractSignals(signals)
+
+	errChan := make(chan error, 1)
+	respChan := make(chan *wire.MsgTx, 1)
+
+	// With the channel found, and the request crafted, we'll send over a
+	// force close request to the arbitrator that watches this channel.
+	chanArb.forceCloseReqs <- &forceCloseReq{
+		errResp: errChan,
+		closeTx: respChan,
+	}
+
+	// The force close request should trigger broadcast of the commitment
+	// transaction.
+	chanArbCtx.AssertStateTransitions(
+		StateBroadcastCommit,
+		StateCommitmentBroadcasted,
+	)
+
+	// With the commitment tx still unconfirmed, we expect sweep attempts
+	// for all three versions of the commitment transaction.
+	<-chanArbCtx.sweeper.sweptInputs
+	<-chanArbCtx.sweeper.sweptInputs
+
+	select {
+	case <-respChan:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("no response received")
+	}
+
+	select {
+	case err := <-errChan:
+		if err != nil {
+			t.Fatalf("error force closing channel: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatalf("no response received")
+	}
+
+	// Now notify about the local force close getting confirmed.
+	closeTx := &wire.MsgTx{
+		TxIn: []*wire.TxIn{
+			{
+				PreviousOutPoint: wire.OutPoint{},
+				Witness: [][]byte{
+					{0x1},
+					{0x2},
+				},
+			},
+		},
+	}
+
+	chanArb.cfg.ChainEvents.LocalUnilateralClosure <- &LocalUnilateralCloseInfo{
+		SpendDetail: &chainntnfs.SpendDetail{},
+		LocalForceCloseSummary: &lnwallet.LocalForceCloseSummary{
+			CloseTx:         closeTx,
+			HtlcResolutions: &lnwallet.HtlcResolutions{},
+			AnchorResolution: &lnwallet.AnchorResolution{
+				AnchorSignDescriptor: input.SignDescriptor{
+					Output: &wire.TxOut{
+						Value: 1,
+					},
+				},
+			},
+		},
+		ChannelCloseSummary: &channeldb.ChannelCloseSummary{},
+		CommitSet: CommitSet{
+			ConfCommitKey: &LocalHtlcSet,
+			HtlcSets:      map[HtlcSetKey][]channeldb.HTLC{},
+		},
+	}
+
+	chanArbCtx.AssertStateTransitions(
+		StateContractClosed,
+		StateWaitingFullResolution,
+	)
+
+	// We expect to only have the anchor resolver active.
+	if len(chanArb.activeResolvers) != 1 {
+		t.Fatalf("expected single resolver, instead got: %v",
+			len(chanArb.activeResolvers))
+	}
+
+	resolver := chanArb.activeResolvers[0]
+	_, ok := resolver.(*anchorResolver)
+	if !ok {
+		t.Fatalf("expected anchor resolver, got %T", resolver)
+	}
+
+	// The anchor resolver is expected to offer the anchor input to the
+	// sweeper.
+	<-chanArbCtx.sweeper.updatedInputs
+
+	// The mock sweeper immediately signals success for that input. This
+	// should transition the channel to the resolved state.
+	chanArbCtx.AssertStateTransitions(StateFullyResolved)
+	select {
+	case <-chanArbCtx.resolvedChan:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("contract was not resolved")
+	}
+}
+
+type mockChannel struct {
+	anchorResolutions []*lnwallet.AnchorResolution
+}
+
+func (m *mockChannel) NewAnchorResolutions() ([]*lnwallet.AnchorResolution,
+	error) {
+
+	return m.anchorResolutions, nil
+}
+
+func (m *mockChannel) ForceCloseChan() (*lnwallet.LocalForceCloseSummary, error) {
+	summary := &lnwallet.LocalForceCloseSummary{
+		CloseTx:         &wire.MsgTx{},
+		HtlcResolutions: &lnwallet.HtlcResolutions{},
+	}
+	return summary, nil
 }

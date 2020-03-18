@@ -82,6 +82,18 @@ type Params struct {
 	ExclusiveGroup *uint64
 }
 
+// ParamsUpdate contains a new set of parameters to update a pending sweep with.
+type ParamsUpdate struct {
+	// Fee is the fee preference of the client who requested the input to be
+	// swept. If a confirmation target is specified, then we'll map it into
+	// a fee rate whenever we attempt to cluster inputs for a sweep.
+	Fee FeePreference
+
+	// Force indicates whether the input should be swept regardless of
+	// whether it is economical to do so.
+	Force bool
+}
+
 // String returns a human readable interpretation of the sweep parameters.
 func (p Params) String() string {
 	return fmt.Sprintf("fee=%v, force=%v, exclusive_group=%v",
@@ -174,7 +186,7 @@ type PendingInput struct {
 // intent to update the sweep parameters of a given input.
 type updateReq struct {
 	input        wire.OutPoint
-	params       Params
+	params       ParamsUpdate
 	responseChan chan *updateResp
 }
 
@@ -370,6 +382,12 @@ func (s *UtxoSweeper) Start() error {
 	}()
 
 	return nil
+}
+
+// RelayFeePerKW returns the minimum fee rate required for transactions to be
+// relayed.
+func (s *UtxoSweeper) RelayFeePerKW() chainfee.SatPerKWeight {
+	return s.relayFeeRate
 }
 
 // Stop stops sweeper from listening to block epochs and constructing sweep
@@ -714,7 +732,15 @@ func (s *UtxoSweeper) sweepCluster(cluster inputCluster,
 func (s *UtxoSweeper) bucketForFeeRate(
 	feeRate chainfee.SatPerKWeight) int {
 
-	return int(feeRate-s.relayFeeRate) / s.cfg.FeeRateBucketSize
+	// Create an isolated bucket for sweeps at the minimum fee rate. This is
+	// to prevent very small outputs (anchors) from becoming uneconomical if
+	// their fee rate would be averaged with higher fee rate inputs in a
+	// regular bucket.
+	if feeRate == s.relayFeeRate {
+		return 0
+	}
+
+	return 1 + int(feeRate-s.relayFeeRate)/s.cfg.FeeRateBucketSize
 }
 
 // clusterBySweepFeeRate takes the set of pending inputs within the UtxoSweeper
@@ -1111,7 +1137,7 @@ func (s *UtxoSweeper) handlePendingSweepsReq(
 // is actually successful. The responsibility of doing so should be handled by
 // the caller.
 func (s *UtxoSweeper) UpdateParams(input wire.OutPoint,
-	params Params) (chan Result, error) {
+	params ParamsUpdate) (chan Result, error) {
 
 	// Ensure the client provided a sane fee preference.
 	if _, err := s.feeRateForPreference(params.Fee); err != nil {
@@ -1161,10 +1187,16 @@ func (s *UtxoSweeper) handleUpdateReq(req *updateReq, bestHeight int32) (
 		return nil, lnwallet.ErrNotMine
 	}
 
-	log.Debugf("Updating sweep parameters for %v from %v to %v", req.input,
-		pendingInput.params, req.params)
+	// Create the updated parameters struct. Leave the exclusive group
+	// unchanged.
+	newParams := pendingInput.params
+	newParams.Fee = req.params.Fee
+	newParams.Force = req.params.Force
 
-	pendingInput.params = req.params
+	log.Debugf("Updating sweep parameters for %v from %v to %v", req.input,
+		pendingInput.params, newParams)
+
+	pendingInput.params = newParams
 
 	// We'll reset the input's publish height to the current so that a new
 	// transaction can be created that replaces the transaction currently

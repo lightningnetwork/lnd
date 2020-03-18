@@ -91,7 +91,7 @@ var (
 // the test has been finalized. The clean up function will remote all temporary
 // files created. If tweaklessCommits is true, then the commits within the
 // channels will use the new format, otherwise the legacy format.
-func CreateTestChannels(tweaklessCommits bool) (
+func CreateTestChannels(chanType channeldb.ChannelType) (
 	*LightningChannel, *LightningChannel, func(), error) {
 
 	channelCapacity, err := btcutil.NewAmount(10)
@@ -206,11 +206,6 @@ func CreateTestChannels(tweaklessCommits bool) (
 	}
 	aliceCommitPoint := input.ComputeCommitmentPoint(aliceFirstRevoke[:])
 
-	chanType := channeldb.SingleFunderTweaklessBit
-	if !tweaklessCommits {
-		chanType = channeldb.SingleFunderBit
-	}
-
 	aliceCommitTx, bobCommitTx, err := CreateCommitmentTxns(
 		channelBal, channelBal, &aliceCfg, &bobCfg, aliceCommitPoint,
 		bobCommitPoint, *fundingTxIn, chanType,
@@ -244,12 +239,21 @@ func CreateTestChannels(tweaklessCommits bool) (
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	commitFee := calcStaticFee(0)
+	commitFee := calcStaticFee(chanType, 0)
+	var anchorAmt btcutil.Amount
+	if chanType.HasAnchors() {
+		anchorAmt += 2 * anchorSize
+	}
+
+	aliceBalance := lnwire.NewMSatFromSatoshis(
+		channelBal - commitFee - anchorAmt,
+	)
+	bobBalance := lnwire.NewMSatFromSatoshis(channelBal)
 
 	aliceCommit := channeldb.ChannelCommitment{
 		CommitHeight:  0,
-		LocalBalance:  lnwire.NewMSatFromSatoshis(channelBal - commitFee),
-		RemoteBalance: lnwire.NewMSatFromSatoshis(channelBal),
+		LocalBalance:  aliceBalance,
+		RemoteBalance: bobBalance,
 		CommitFee:     commitFee,
 		FeePerKw:      btcutil.Amount(feePerKw),
 		CommitTx:      aliceCommitTx,
@@ -257,8 +261,8 @@ func CreateTestChannels(tweaklessCommits bool) (
 	}
 	bobCommit := channeldb.ChannelCommitment{
 		CommitHeight:  0,
-		LocalBalance:  lnwire.NewMSatFromSatoshis(channelBal),
-		RemoteBalance: lnwire.NewMSatFromSatoshis(channelBal - commitFee),
+		LocalBalance:  bobBalance,
+		RemoteBalance: aliceBalance,
 		CommitFee:     commitFee,
 		FeePerKw:      btcutil.Amount(feePerKw),
 		CommitTx:      bobCommitTx,
@@ -449,14 +453,14 @@ func txFromHex(txHex string) (*btcutil.Tx, error) {
 // calculations into account.
 //
 // TODO(bvu): Refactor when dynamic fee estimation is added.
-func calcStaticFee(numHTLCs int) btcutil.Amount {
+func calcStaticFee(chanType channeldb.ChannelType, numHTLCs int) btcutil.Amount {
 	const (
-		commitWeight = btcutil.Amount(724)
-		htlcWeight   = 172
-		feePerKw     = btcutil.Amount(24/4) * 1000
+		htlcWeight = 172
+		feePerKw   = btcutil.Amount(24/4) * 1000
 	)
-	return feePerKw * (commitWeight +
-		btcutil.Amount(htlcWeight*numHTLCs)) / 1000
+	return feePerKw *
+		(btcutil.Amount(CommitWeight(chanType) +
+			htlcWeight*int64(numHTLCs))) / 1000
 }
 
 // ForceStateTransition executes the necessary interaction between the two

@@ -1982,6 +1982,23 @@ message PendingChannelsResponse {
 
         /// The balance in satoshis encumbered in this channel
         int64 limbo_balance = 2;
+
+        /**
+        A list of valid commitment transactions. Any of these can confirm at
+        this point.
+        */
+        Commitments commitments = 3;
+    }
+
+    message Commitments {
+        /// Hash of the local version of the commitment tx.
+        string local_txid = 1;
+
+        /// Hash of the remote version of the commitment tx.
+        string remote_txid = 2;
+        
+        /// Hash of the remote pending version of the commitment tx.
+        string remote_pending_txid = 3;
     }
 
     message ClosedChannel {
@@ -2016,6 +2033,14 @@ message PendingChannelsResponse {
         int64 recovered_balance = 6;
 
         repeated PendingHTLC pending_htlcs = 8;
+
+        enum AnchorState {
+            LIMBO = 0;
+            RECOVERED = 1;
+            LOST = 2;
+        }
+
+        AnchorState anchor = 9;
     }
 
     /// The balance in satoshis encumbered in pending channels

@@ -164,6 +164,12 @@ enum WitnessType {
     script that pays to a key solely under our control.
     */
     NESTED_WITNESS_KEY_HASH = 12;
+
+    /*
+    A witness type that allows us to spend our anchor on the commitment
+    transaction.
+    */
+    COMMITMENT_ANCHOR = 13;
 }
 
 message PendingSweep {

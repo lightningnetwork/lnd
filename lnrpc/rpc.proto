@@ -1428,6 +1428,15 @@ message Channel {
     cooperatively closing with the delivery_address field set.
     */
     string close_address = 25;
+
+    /*
+    The amount that the initiator of the channel optionally pushed to the remote
+    party on channel open. This amount will be zero if the channel initiator did
+    not push any funds to the remote peer. If the initiator field is true, we
+    pushed this amount to our peer, if it is false, the remote peer pushed this
+    amount to us.
+    */
+    uint64 push_amount_sat = 27;
 }
 
 message ListChannelsRequest {

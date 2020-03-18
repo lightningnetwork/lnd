@@ -50,7 +50,10 @@ func TestProbabilityExtrapolation(t *testing.T) {
 	// a specific number of attempts to safe-guard against accidental
 	// modifications anywhere in the chain of components that is involved in
 	// this test.
-	attempts := ctx.testPayment()
+	attempts, err := ctx.testPayment()
+	if err != nil {
+		t.Fatalf("payment failed: %v", err)
+	}
 	if len(attempts) != 5 {
 		t.Fatalf("expected 5 attempts, but needed %v", len(attempts))
 	}
@@ -59,7 +62,10 @@ func TestProbabilityExtrapolation(t *testing.T) {
 	// of data from other channels), all ten bad channels will be tried
 	// first before switching to the paid channel.
 	ctx.mcCfg.AprioriWeight = 1
-	attempts = ctx.testPayment()
+	attempts, err = ctx.testPayment()
+	if err != nil {
+		t.Fatalf("payment failed: %v", err)
+	}
 	if len(attempts) != 11 {
 		t.Fatalf("expected 11 attempts, but needed %v", len(attempts))
 	}

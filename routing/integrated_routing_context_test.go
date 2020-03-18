@@ -81,7 +81,7 @@ type htlcAttempt struct {
 
 // testPayment launches a test payment and asserts that it is completed after
 // the expected number of attempts.
-func (c *integratedRoutingContext) testPayment() []htlcAttempt {
+func (c *integratedRoutingContext) testPayment() ([]htlcAttempt, error) {
 	var (
 		nextPid  uint64
 		attempts []htlcAttempt
@@ -150,7 +150,7 @@ func (c *integratedRoutingContext) testPayment() []htlcAttempt {
 			c.amt, lnwire.MaxMilliSatoshi, 0, 0,
 		)
 		if err != nil {
-			c.t.Fatal(err)
+			return nil, err
 		}
 
 		// Send out the htlc on the mock graph.
@@ -199,7 +199,7 @@ func (c *integratedRoutingContext) testPayment() []htlcAttempt {
 
 	c.t.Logf("Payment attempts: %v\n", len(attempts))
 
-	return attempts
+	return attempts, nil
 }
 
 // getNodeIndex returns the zero-based index of the given node in the route.

@@ -544,7 +544,8 @@ func (m *MissionControl) applyPaymentResult(
 
 		if pairResult.success {
 			log.Debugf("Reporting pair success to Mission "+
-				"Control: pair=%v", pair)
+				"Control: pair=%v, amt=%v",
+				pair, pairResult.amt)
 		} else {
 			log.Debugf("Reporting pair failure to Mission "+
 				"Control: pair=%v, amt=%v",

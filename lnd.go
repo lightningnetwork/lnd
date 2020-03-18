@@ -118,7 +118,7 @@ func AdminAuthOptions() ([]grpc.DialOption, error) {
 	return opts, nil
 }
 
-// ListnerWithSignal is a net.Listner that has an additional Ready channel that
+// ListenerWithSignal is a net.Listener that has an additional Ready channel that
 // will be closed when a server starts listening.
 type ListenerWithSignal struct {
 	net.Listener

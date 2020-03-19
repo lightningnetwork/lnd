@@ -351,15 +351,6 @@ func New(cfg Config, selfKey *btcec.PublicKey) *AuthenticatedGossiper {
 	return gossiper
 }
 
-// updatedChanPolicies is a set of channel policies that have been successfully
-// updated and written to disk, or an error if the policy update failed. This
-// struct's map field is intended to be used for updating channel policies on
-// the link layer.
-type updatedChanPolicies struct {
-	chanPolicies map[wire.OutPoint]*channeldb.ChannelEdgePolicy
-	err          error
-}
-
 // EdgeWithInfo contains the information that is required to update an edge.
 type EdgeWithInfo struct {
 	// Info describes the channel.

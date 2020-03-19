@@ -141,7 +141,7 @@ func testStore(t *testing.T, createStore func() (SweeperStore, error)) {
 		t.Fatal("expected tx to be ours")
 	}
 
-	// An different hash should be reported on as not being ours.
+	// An different hash should be reported as not being ours.
 	var unknownHash chainhash.Hash
 	ours, err = store.IsOurTx(unknownHash)
 	if err != nil {

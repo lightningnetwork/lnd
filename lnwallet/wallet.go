@@ -1435,7 +1435,7 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 
 // WithCoinSelectLock will execute the passed function closure in a
 // synchronized manner preventing any coin selection operations from proceeding
-// while the closure if executing. This can be seen as the ability to execute a
+// while the closure is executing. This can be seen as the ability to execute a
 // function closure under an exclusive coin selection lock.
 func (l *LightningWallet) WithCoinSelectLock(f func() error) error {
 	l.coinSelectMtx.Lock()

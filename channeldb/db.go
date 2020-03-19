@@ -170,6 +170,12 @@ var (
 			number:    18,
 			migration: mig.CreateTLB(peersBucket),
 		},
+		{
+			// Migrate to length prefixed wire messages everywhere
+			// in the database.
+			number:    19,
+			migration: migration19.MigrateDatabaseWireMessages,
+		},
 	}
 
 	// Big endian is the preferred byte order, due to cursor scans over

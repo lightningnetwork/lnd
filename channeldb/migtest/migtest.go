@@ -39,6 +39,8 @@ func ApplyMigration(t *testing.T,
 	beforeMigration, afterMigration, migrationFunc func(tx kvdb.RwTx) error,
 	shouldFail bool) {
 
+	t.Helper()
+
 	cdb, cleanUp, err := MakeDB()
 	defer cleanUp()
 	if err != nil {
@@ -53,6 +55,8 @@ func ApplyMigration(t *testing.T,
 	}
 
 	defer func() {
+		t.Helper()
+
 		if r := recover(); r != nil {
 			err = newError(r)
 		}

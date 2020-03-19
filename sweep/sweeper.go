@@ -57,7 +57,7 @@ var (
 
 	// ErrSweeperShuttingDown is an error returned when a client attempts to
 	// make a request to the UtxoSweeper, but it is unable to handle it as
-	// it is/has already been stoppepd.
+	// it is/has already been stopped.
 	ErrSweeperShuttingDown = errors.New("utxo sweeper shutting down")
 
 	// DefaultMaxSweepAttempts specifies the default maximum number of times
@@ -422,7 +422,7 @@ func (s *UtxoSweeper) SweepInput(input input.Input,
 		resultChan: make(chan Result, 1),
 	}
 
-	// Deliver input to main event loop.
+	// Deliver input to the main event loop.
 	select {
 	case s.newInputs <- sweeperInput:
 	case <-s.quit:
@@ -449,7 +449,7 @@ func (s *UtxoSweeper) feeRateForPreference(
 	}
 	if feeRate < s.relayFeeRate {
 		return 0, fmt.Errorf("fee preference resulted in invalid fee "+
-			"rate %v, mininum is %v", feeRate, s.relayFeeRate)
+			"rate %v, minimum is %v", feeRate, s.relayFeeRate)
 	}
 	if feeRate > s.cfg.MaxFeeRate {
 		return 0, fmt.Errorf("fee preference resulted in invalid fee "+
@@ -478,7 +478,7 @@ func (s *UtxoSweeper) collector(blockEpochs <-chan *chainntnfs.BlockEpoch) {
 		select {
 		// A new inputs is offered to the sweeper. We check to see if we
 		// are already trying to sweep this input and if not, set up a
-		// listener for spend and schedule a sweep.
+		// listener to spend and schedule a sweep.
 		case input := <-s.newInputs:
 			outpoint := *input.input.OutPoint()
 			pendInput, pending := s.pendingInputs[outpoint]
@@ -534,7 +534,7 @@ func (s *UtxoSweeper) collector(blockEpochs <-chan *chainntnfs.BlockEpoch) {
 				s.testSpendChan <- *spend.SpentOutPoint
 			}
 
-			// Query store to find out if we every published this
+			// Query store to find out if we ever published this
 			// tx.
 			spendHash := *spend.SpenderTxHash
 			isOurTx, err := s.cfg.Store.IsOurTx(spendHash)

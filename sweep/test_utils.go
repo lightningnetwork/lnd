@@ -216,7 +216,7 @@ func (m *MockNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 	m.mutex.Unlock()
 
 	// If output has been spent already, signal now. Do this outside the
-	// lock to prevent a dead lock.
+	// lock to prevent a deadlock.
 	if spent {
 		m.sendSpend(channel, outpoint, spendingTx)
 	}

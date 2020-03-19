@@ -27,7 +27,7 @@ type CoinSource interface {
 type CoinSelectionLocker interface {
 	// WithCoinSelectLock will execute the passed function closure in a
 	// synchronized manner preventing any coin selection operations from
-	// proceeding while the closure if executing. This can be seen as the
+	// proceeding while the closure is executing. This can be seen as the
 	// ability to execute a function closure under an exclusive coin
 	// selection lock.
 	WithCoinSelectLock(func() error) error

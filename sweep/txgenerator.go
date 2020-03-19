@@ -138,10 +138,6 @@ func createSweepTx(inputs []input.Input, outputPkScript []byte,
 
 	txFee := feePerKw.FeeForWeight(txWeight)
 
-	log.Infof("Creating sweep transaction for %v inputs (%s) "+
-		"using %v sat/kw, tx_fee=%v", len(inputs),
-		inputTypeSummary(inputs), int64(feePerKw), txFee)
-
 	// Sum up the total value contained in the inputs.
 	var totalSum btcutil.Amount
 	for _, o := range inputs {
@@ -211,6 +207,10 @@ func createSweepTx(inputs []input.Input, outputPkScript []byte,
 		}
 	}
 
+	log.Infof("Creating sweep transaction %v for %v inputs (%s) "+
+		"using %v sat/kw, tx_fee=%v", sweepTx.TxHash(), len(inputs),
+		inputTypeSummary(inputs), int64(feePerKw), txFee)
+
 	return sweepTx, nil
 }
 
@@ -254,27 +254,19 @@ func getWeightEstimate(inputs []input.Input) ([]input.Input, int64) {
 // inputSummary returns a string containing a human readable summary about the
 // witness types of a list of inputs.
 func inputTypeSummary(inputs []input.Input) string {
-	// Count each input by the string representation of its witness type.
-	// We also keep track of the keys so we can later sort by them to get
-	// a stable output.
-	counts := make(map[string]uint32)
-	keys := make([]string, 0, len(inputs))
-	for _, i := range inputs {
-		key := i.WitnessType().String()
-		_, ok := counts[key]
-		if !ok {
-			counts[key] = 0
-			keys = append(keys, key)
-		}
-		counts[key]++
-	}
-	sort.Strings(keys)
+	// Sort inputs by witness type.
+	sortedInputs := make([]input.Input, len(inputs))
+	copy(sortedInputs, inputs)
+	sort.Slice(sortedInputs, func(i, j int) bool {
+		return sortedInputs[i].WitnessType().String() <
+			sortedInputs[j].WitnessType().String()
+	})
 
-	// Return a nice string representation of the counts by comma joining a
-	// slice.
 	var parts []string
-	for _, witnessType := range keys {
-		part := fmt.Sprintf("%d %s", counts[witnessType], witnessType)
+	for _, i := range sortedInputs {
+		part := fmt.Sprintf("%v (%v)",
+			*i.OutPoint(), i.WitnessType())
+
 		parts = append(parts, part)
 	}
 	return strings.Join(parts, ", ")

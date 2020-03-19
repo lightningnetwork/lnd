@@ -6,13 +6,13 @@ import (
 	"os"
 	"testing"
 
-	"github.com/coreos/bbolt"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 )
 
 // MakeDB creates a new instance of the ChannelDB for testing purposes. A
 // callback which cleans up the created temporary directories is also returned
 // and intended to be executed after the test completes.
-func MakeDB() (*bbolt.DB, func(), error) {
+func MakeDB() (kvdb.Backend, func(), error) {
 	// Create temporary database for mission control.
 	file, err := ioutil.TempFile("", "*.db")
 	if err != nil {
@@ -20,7 +20,7 @@ func MakeDB() (*bbolt.DB, func(), error) {
 	}
 
 	dbPath := file.Name()
-	db, err := bbolt.Open(dbPath, 0600, nil)
+	db, err := kvdb.Open(kvdb.BoltBackendName, dbPath, true)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -36,7 +36,7 @@ func MakeDB() (*bbolt.DB, func(), error) {
 // ApplyMigration is a helper test function that encapsulates the general steps
 // which are needed to properly check the result of applying migration function.
 func ApplyMigration(t *testing.T,
-	beforeMigration, afterMigration, migrationFunc func(tx *bbolt.Tx) error,
+	beforeMigration, afterMigration, migrationFunc func(tx kvdb.RwTx) error,
 	shouldFail bool) {
 
 	cdb, cleanUp, err := MakeDB()
@@ -47,7 +47,7 @@ func ApplyMigration(t *testing.T,
 
 	// beforeMigration usually used for populating the database
 	// with test data.
-	err = cdb.Update(beforeMigration)
+	err = kvdb.Update(cdb, beforeMigration)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,14 +65,14 @@ func ApplyMigration(t *testing.T,
 
 		// afterMigration usually used for checking the database state and
 		// throwing the error if something went wrong.
-		err = cdb.Update(afterMigration)
+		err = kvdb.Update(cdb, afterMigration)
 		if err != nil {
 			t.Fatal(err)
 		}
 	}()
 
 	// Apply migration.
-	err = cdb.Update(migrationFunc)
+	err = kvdb.Update(cdb, migrationFunc)
 	if err != nil {
 		t.Fatal(err)
 	}

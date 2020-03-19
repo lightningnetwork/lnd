@@ -7,7 +7,7 @@ import (
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec"
-	"github.com/coreos/bbolt"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -16,11 +16,11 @@ import (
 // (one for nodes and one for edges) to keep track of the last time a node or
 // edge was updated on the network. These new indexes allow us to implement the
 // new graph sync protocol added.
-func MigrateNodeAndEdgeUpdateIndex(tx *bbolt.Tx) error {
+func MigrateNodeAndEdgeUpdateIndex(tx kvdb.RwTx) error {
 	// First, we'll populating the node portion of the new index. Before we
 	// can add new values to the index, we'll first create the new bucket
 	// where these items will be housed.
-	nodes, err := tx.CreateBucketIfNotExists(nodeBucket)
+	nodes, err := tx.CreateTopLevelBucket(nodeBucket)
 	if err != nil {
 		return fmt.Errorf("unable to create node bucket: %v", err)
 	}
@@ -64,7 +64,7 @@ func MigrateNodeAndEdgeUpdateIndex(tx *bbolt.Tx) error {
 
 	// With the set of nodes updated, we'll now update all edges to have a
 	// corresponding entry in the edge update index.
-	edges, err := tx.CreateBucketIfNotExists(edgeBucket)
+	edges, err := tx.CreateTopLevelBucket(edgeBucket)
 	if err != nil {
 		return fmt.Errorf("unable to create edge bucket: %v", err)
 	}
@@ -121,8 +121,8 @@ func MigrateNodeAndEdgeUpdateIndex(tx *bbolt.Tx) error {
 // invoices an index in the add and/or the settle index. Additionally, all
 // existing invoices will have their bytes padded out in order to encode the
 // add+settle index as well as the amount paid.
-func MigrateInvoiceTimeSeries(tx *bbolt.Tx) error {
-	invoices, err := tx.CreateBucketIfNotExists(invoiceBucket)
+func MigrateInvoiceTimeSeries(tx kvdb.RwTx) error {
+	invoices, err := tx.CreateTopLevelBucket(invoiceBucket)
 	if err != nil {
 		return err
 	}
@@ -258,8 +258,8 @@ func MigrateInvoiceTimeSeries(tx *bbolt.Tx) error {
 // migrateInvoiceTimeSeries migration. As at the time of writing, the
 // OutgoingPayment struct embeddeds an instance of the Invoice struct. As a
 // result, we also need to migrate the internal invoice to the new format.
-func MigrateInvoiceTimeSeriesOutgoingPayments(tx *bbolt.Tx) error {
-	payBucket := tx.Bucket(paymentBucket)
+func MigrateInvoiceTimeSeriesOutgoingPayments(tx kvdb.RwTx) error {
+	payBucket := tx.ReadWriteBucket(paymentBucket)
 	if payBucket == nil {
 		return nil
 	}
@@ -339,18 +339,18 @@ func MigrateInvoiceTimeSeriesOutgoingPayments(tx *bbolt.Tx) error {
 // bucket. It ensure that edges with unknown policies will also have an entry
 // in the bucket. After the migration, there will be two edge entries for
 // every channel, regardless of whether the policies are known.
-func MigrateEdgePolicies(tx *bbolt.Tx) error {
-	nodes := tx.Bucket(nodeBucket)
+func MigrateEdgePolicies(tx kvdb.RwTx) error {
+	nodes := tx.ReadWriteBucket(nodeBucket)
 	if nodes == nil {
 		return nil
 	}
 
-	edges := tx.Bucket(edgeBucket)
+	edges := tx.ReadWriteBucket(edgeBucket)
 	if edges == nil {
 		return nil
 	}
 
-	edgeIndex := edges.Bucket(edgeIndexBucket)
+	edgeIndex := edges.NestedReadWriteBucket(edgeIndexBucket)
 	if edgeIndex == nil {
 		return nil
 	}
@@ -411,10 +411,10 @@ func MigrateEdgePolicies(tx *bbolt.Tx) error {
 // PaymentStatusesMigration is a database migration intended for adding payment
 // statuses for each existing payment entity in bucket to be able control
 // transitions of statuses and prevent cases such as double payment
-func PaymentStatusesMigration(tx *bbolt.Tx) error {
+func PaymentStatusesMigration(tx kvdb.RwTx) error {
 	// Get the bucket dedicated to storing statuses of payments,
 	// where a key is payment hash, value is payment status.
-	paymentStatuses, err := tx.CreateBucketIfNotExists(paymentStatusBucket)
+	paymentStatuses, err := tx.CreateTopLevelBucket(paymentStatusBucket)
 	if err != nil {
 		return err
 	}
@@ -422,7 +422,7 @@ func PaymentStatusesMigration(tx *bbolt.Tx) error {
 	log.Infof("Migrating database to support payment statuses")
 
 	circuitAddKey := []byte("circuit-adds")
-	circuits := tx.Bucket(circuitAddKey)
+	circuits := tx.ReadWriteBucket(circuitAddKey)
 	if circuits != nil {
 		log.Infof("Marking all known circuits with status InFlight")
 
@@ -455,7 +455,7 @@ func PaymentStatusesMigration(tx *bbolt.Tx) error {
 	log.Infof("Marking all existing payments with status Completed")
 
 	// Get the bucket dedicated to storing payments
-	bucket := tx.Bucket(paymentBucket)
+	bucket := tx.ReadWriteBucket(paymentBucket)
 	if bucket == nil {
 		return nil
 	}
@@ -498,14 +498,14 @@ func PaymentStatusesMigration(tx *bbolt.Tx) error {
 // migration also fixes the case where the public keys within edge policies were
 // being serialized with an extra byte, causing an even greater error when
 // attempting to perform the offset calculation described earlier.
-func MigratePruneEdgeUpdateIndex(tx *bbolt.Tx) error {
+func MigratePruneEdgeUpdateIndex(tx kvdb.RwTx) error {
 	// To begin the migration, we'll retrieve the update index bucket. If it
 	// does not exist, we have nothing left to do so we can simply exit.
-	edges := tx.Bucket(edgeBucket)
+	edges := tx.ReadWriteBucket(edgeBucket)
 	if edges == nil {
 		return nil
 	}
-	edgeUpdateIndex := edges.Bucket(edgeUpdateIndexBucket)
+	edgeUpdateIndex := edges.NestedReadWriteBucket(edgeUpdateIndexBucket)
 	if edgeUpdateIndex == nil {
 		return nil
 	}
@@ -521,7 +521,7 @@ func MigratePruneEdgeUpdateIndex(tx *bbolt.Tx) error {
 		return fmt.Errorf("unable to create/fetch edge index " +
 			"bucket")
 	}
-	nodes, err := tx.CreateBucketIfNotExists(nodeBucket)
+	nodes, err := tx.CreateTopLevelBucket(nodeBucket)
 	if err != nil {
 		return fmt.Errorf("unable to make node bucket")
 	}
@@ -612,8 +612,8 @@ func MigratePruneEdgeUpdateIndex(tx *bbolt.Tx) error {
 // MigrateOptionalChannelCloseSummaryFields migrates the serialized format of
 // ChannelCloseSummary to a format where optional fields' presence is indicated
 // with boolean markers.
-func MigrateOptionalChannelCloseSummaryFields(tx *bbolt.Tx) error {
-	closedChanBucket := tx.Bucket(closedChannelBucket)
+func MigrateOptionalChannelCloseSummaryFields(tx kvdb.RwTx) error {
+	closedChanBucket := tx.ReadWriteBucket(closedChannelBucket)
 	if closedChanBucket == nil {
 		return nil
 	}
@@ -671,11 +671,11 @@ var messageStoreBucket = []byte("message-store")
 // MigrateGossipMessageStoreKeys migrates the key format for gossip messages
 // found in the message store to a new one that takes into consideration the of
 // the message being stored.
-func MigrateGossipMessageStoreKeys(tx *bbolt.Tx) error {
+func MigrateGossipMessageStoreKeys(tx kvdb.RwTx) error {
 	// We'll start by retrieving the bucket in which these messages are
 	// stored within. If there isn't one, there's nothing left for us to do
 	// so we can avoid the migration.
-	messageStore := tx.Bucket(messageStoreBucket)
+	messageStore := tx.ReadWriteBucket(messageStoreBucket)
 	if messageStore == nil {
 		return nil
 	}
@@ -747,10 +747,10 @@ func MigrateGossipMessageStoreKeys(tx *bbolt.Tx) error {
 // InFlight (we have no PaymentAttemptInfo available for pre-migration
 // payments) we delete those statuses, so only Completed payments remain in the
 // new bucket structure.
-func MigrateOutgoingPayments(tx *bbolt.Tx) error {
+func MigrateOutgoingPayments(tx kvdb.RwTx) error {
 	log.Infof("Migrating outgoing payments to new bucket structure")
 
-	oldPayments := tx.Bucket(paymentBucket)
+	oldPayments := tx.ReadWriteBucket(paymentBucket)
 
 	// Return early if there are no payments to migrate.
 	if oldPayments == nil {
@@ -758,7 +758,7 @@ func MigrateOutgoingPayments(tx *bbolt.Tx) error {
 		return nil
 	}
 
-	newPayments, err := tx.CreateBucket(paymentsRootBucket)
+	newPayments, err := tx.CreateTopLevelBucket(paymentsRootBucket)
 	if err != nil {
 		return err
 	}
@@ -767,7 +767,7 @@ func MigrateOutgoingPayments(tx *bbolt.Tx) error {
 	// only attempt to fetch it if needed.
 	sourcePub := func() ([33]byte, error) {
 		var pub [33]byte
-		nodes := tx.Bucket(nodeBucket)
+		nodes := tx.ReadWriteBucket(nodeBucket)
 		if nodes == nil {
 			return pub, ErrGraphNotFound
 		}
@@ -862,8 +862,8 @@ func MigrateOutgoingPayments(tx *bbolt.Tx) error {
 		// from a database containing duplicate payments to a payment
 		// hash. To keep this information, we store such duplicate
 		// payments in a sub-bucket.
-		if err == bbolt.ErrBucketExists {
-			pHashBucket := newPayments.Bucket(paymentHash[:])
+		if err == kvdb.ErrBucketExists {
+			pHashBucket := newPayments.NestedReadWriteBucket(paymentHash[:])
 
 			// Create a bucket for duplicate payments within this
 			// payment hash's bucket.
@@ -922,14 +922,14 @@ func MigrateOutgoingPayments(tx *bbolt.Tx) error {
 
 	// Now we delete the old buckets. Deleting the payment status buckets
 	// deletes all payment statuses other than Complete.
-	err = tx.DeleteBucket(paymentStatusBucket)
-	if err != nil && err != bbolt.ErrBucketNotFound {
+	err = tx.DeleteTopLevelBucket(paymentStatusBucket)
+	if err != nil && err != kvdb.ErrBucketNotFound {
 		return err
 	}
 
 	// Finally delete the old payment bucket.
-	err = tx.DeleteBucket(paymentBucket)
-	if err != nil && err != bbolt.ErrBucketNotFound {
+	err = tx.DeleteTopLevelBucket(paymentBucket)
+	if err != nil && err != kvdb.ErrBucketNotFound {
 		return err
 	}
 

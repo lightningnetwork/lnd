@@ -5,8 +5,8 @@ import (
 	"errors"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/watchtower/blob"
 )
 
@@ -55,7 +55,7 @@ var (
 // TowerDB is single database providing a persistent storage engine for the
 // wtserver and lookout subsystems.
 type TowerDB struct {
-	db     *bbolt.DB
+	db     kvdb.Backend
 	dbPath string
 }
 
@@ -88,7 +88,7 @@ func OpenTowerDB(dbPath string) (*TowerDB, error) {
 	// initialized. This allows us to assume their presence throughout all
 	// operations. If an known top-level bucket is expected to exist but is
 	// missing, this will trigger a ErrUninitializedDB error.
-	err = towerDB.db.Update(initTowerDBBuckets)
+	err = kvdb.Update(towerDB.db, initTowerDBBuckets)
 	if err != nil {
 		bdb.Close()
 		return nil, err
@@ -99,7 +99,7 @@ func OpenTowerDB(dbPath string) (*TowerDB, error) {
 
 // initTowerDBBuckets creates all top-level buckets required to handle database
 // operations required by the latest version.
-func initTowerDBBuckets(tx *bbolt.Tx) error {
+func initTowerDBBuckets(tx kvdb.RwTx) error {
 	buckets := [][]byte{
 		sessionsBkt,
 		updateIndexBkt,
@@ -108,7 +108,7 @@ func initTowerDBBuckets(tx *bbolt.Tx) error {
 	}
 
 	for _, bucket := range buckets {
-		_, err := tx.CreateBucketIfNotExists(bucket)
+		_, err := tx.CreateTopLevelBucket(bucket)
 		if err != nil {
 			return err
 		}
@@ -120,7 +120,7 @@ func initTowerDBBuckets(tx *bbolt.Tx) error {
 // bdb returns the backing bbolt.DB instance.
 //
 // NOTE: Part of the versionedDB interface.
-func (t *TowerDB) bdb() *bbolt.DB {
+func (t *TowerDB) bdb() kvdb.Backend {
 	return t.db
 }
 
@@ -129,7 +129,7 @@ func (t *TowerDB) bdb() *bbolt.DB {
 // NOTE: Part of the versionedDB interface.
 func (t *TowerDB) Version() (uint32, error) {
 	var version uint32
-	err := t.db.View(func(tx *bbolt.Tx) error {
+	err := kvdb.View(t.db, func(tx kvdb.ReadTx) error {
 		var err error
 		version, err = getDBVersion(tx)
 		return err
@@ -150,8 +150,8 @@ func (t *TowerDB) Close() error {
 // returned if the session could not be found.
 func (t *TowerDB) GetSessionInfo(id *SessionID) (*SessionInfo, error) {
 	var session *SessionInfo
-	err := t.db.View(func(tx *bbolt.Tx) error {
-		sessions := tx.Bucket(sessionsBkt)
+	err := kvdb.View(t.db, func(tx kvdb.ReadTx) error {
+		sessions := tx.ReadBucket(sessionsBkt)
 		if sessions == nil {
 			return ErrUninitializedDB
 		}
@@ -170,13 +170,13 @@ func (t *TowerDB) GetSessionInfo(id *SessionID) (*SessionInfo, error) {
 // InsertSessionInfo records a negotiated session in the tower database. An
 // error is returned if the session already exists.
 func (t *TowerDB) InsertSessionInfo(session *SessionInfo) error {
-	return t.db.Update(func(tx *bbolt.Tx) error {
-		sessions := tx.Bucket(sessionsBkt)
+	return kvdb.Update(t.db, func(tx kvdb.RwTx) error {
+		sessions := tx.ReadWriteBucket(sessionsBkt)
 		if sessions == nil {
 			return ErrUninitializedDB
 		}
 
-		updateIndex := tx.Bucket(updateIndexBkt)
+		updateIndex := tx.ReadWriteBucket(updateIndexBkt)
 		if updateIndex == nil {
 			return ErrUninitializedDB
 		}
@@ -219,18 +219,18 @@ func (t *TowerDB) InsertSessionInfo(session *SessionInfo) error {
 // properly and the last applied values echoed by the client are sane.
 func (t *TowerDB) InsertStateUpdate(update *SessionStateUpdate) (uint16, error) {
 	var lastApplied uint16
-	err := t.db.Update(func(tx *bbolt.Tx) error {
-		sessions := tx.Bucket(sessionsBkt)
+	err := kvdb.Update(t.db, func(tx kvdb.RwTx) error {
+		sessions := tx.ReadWriteBucket(sessionsBkt)
 		if sessions == nil {
 			return ErrUninitializedDB
 		}
 
-		updates := tx.Bucket(updatesBkt)
+		updates := tx.ReadWriteBucket(updatesBkt)
 		if updates == nil {
 			return ErrUninitializedDB
 		}
 
-		updateIndex := tx.Bucket(updateIndexBkt)
+		updateIndex := tx.ReadWriteBucket(updateIndexBkt)
 		if updateIndex == nil {
 			return ErrUninitializedDB
 		}
@@ -303,18 +303,18 @@ func (t *TowerDB) InsertStateUpdate(update *SessionStateUpdate) (uint16, error) 
 // DeleteSession removes all data associated with a particular session id from
 // the tower's database.
 func (t *TowerDB) DeleteSession(target SessionID) error {
-	return t.db.Update(func(tx *bbolt.Tx) error {
-		sessions := tx.Bucket(sessionsBkt)
+	return kvdb.Update(t.db, func(tx kvdb.RwTx) error {
+		sessions := tx.ReadWriteBucket(sessionsBkt)
 		if sessions == nil {
 			return ErrUninitializedDB
 		}
 
-		updates := tx.Bucket(updatesBkt)
+		updates := tx.ReadWriteBucket(updatesBkt)
 		if updates == nil {
 			return ErrUninitializedDB
 		}
 
-		updateIndex := tx.Bucket(updateIndexBkt)
+		updateIndex := tx.ReadWriteBucket(updateIndexBkt)
 		if updateIndex == nil {
 			return ErrUninitializedDB
 		}
@@ -341,7 +341,7 @@ func (t *TowerDB) DeleteSession(target SessionID) error {
 		for _, hint := range hints {
 			// Remove the state updates for any blobs stored under
 			// the target session identifier.
-			updatesForHint := updates.Bucket(hint[:])
+			updatesForHint := updates.NestedReadWriteBucket(hint[:])
 			if updatesForHint == nil {
 				continue
 			}
@@ -371,7 +371,7 @@ func (t *TowerDB) DeleteSession(target SessionID) error {
 
 			// No more updates for this hint, prune hint bucket.
 			default:
-				err = updates.DeleteBucket(hint[:])
+				err = updates.DeleteNestedBucket(hint[:])
 				if err != nil {
 					return err
 				}
@@ -389,13 +389,13 @@ func (t *TowerDB) DeleteSession(target SessionID) error {
 // they exist in the database.
 func (t *TowerDB) QueryMatches(breachHints []blob.BreachHint) ([]Match, error) {
 	var matches []Match
-	err := t.db.View(func(tx *bbolt.Tx) error {
-		sessions := tx.Bucket(sessionsBkt)
+	err := kvdb.View(t.db, func(tx kvdb.ReadTx) error {
+		sessions := tx.ReadBucket(sessionsBkt)
 		if sessions == nil {
 			return ErrUninitializedDB
 		}
 
-		updates := tx.Bucket(updatesBkt)
+		updates := tx.ReadBucket(updatesBkt)
 		if updates == nil {
 			return ErrUninitializedDB
 		}
@@ -405,7 +405,7 @@ func (t *TowerDB) QueryMatches(breachHints []blob.BreachHint) ([]Match, error) {
 		for _, hint := range breachHints {
 			// If a bucket does not exist for this hint, no matches
 			// are known.
-			updatesForHint := updates.Bucket(hint[:])
+			updatesForHint := updates.NestedReadBucket(hint[:])
 			if updatesForHint == nil {
 				continue
 			}
@@ -471,8 +471,8 @@ func (t *TowerDB) QueryMatches(breachHints []blob.BreachHint) ([]Match, error) {
 // SetLookoutTip stores the provided epoch as the latest lookout tip epoch in
 // the tower database.
 func (t *TowerDB) SetLookoutTip(epoch *chainntnfs.BlockEpoch) error {
-	return t.db.Update(func(tx *bbolt.Tx) error {
-		lookoutTip := tx.Bucket(lookoutTipBkt)
+	return kvdb.Update(t.db, func(tx kvdb.RwTx) error {
+		lookoutTip := tx.ReadWriteBucket(lookoutTipBkt)
 		if lookoutTip == nil {
 			return ErrUninitializedDB
 		}
@@ -485,8 +485,8 @@ func (t *TowerDB) SetLookoutTip(epoch *chainntnfs.BlockEpoch) error {
 // database.
 func (t *TowerDB) GetLookoutTip() (*chainntnfs.BlockEpoch, error) {
 	var epoch *chainntnfs.BlockEpoch
-	err := t.db.View(func(tx *bbolt.Tx) error {
-		lookoutTip := tx.Bucket(lookoutTipBkt)
+	err := kvdb.View(t.db, func(tx kvdb.ReadTx) error {
+		lookoutTip := tx.ReadBucket(lookoutTipBkt)
 		if lookoutTip == nil {
 			return ErrUninitializedDB
 		}
@@ -505,7 +505,7 @@ func (t *TowerDB) GetLookoutTip() (*chainntnfs.BlockEpoch, error) {
 // getSession retrieves the session info from the sessions bucket identified by
 // its session id. An error is returned if the session is not found or a
 // deserialization error occurs.
-func getSession(sessions *bbolt.Bucket, id []byte) (*SessionInfo, error) {
+func getSession(sessions kvdb.ReadBucket, id []byte) (*SessionInfo, error) {
 	sessionBytes := sessions.Get(id)
 	if sessionBytes == nil {
 		return nil, ErrSessionNotFound
@@ -522,7 +522,7 @@ func getSession(sessions *bbolt.Bucket, id []byte) (*SessionInfo, error) {
 
 // putSession stores the session info in the sessions bucket identified by its
 // session id. An error is returned if a serialization error occurs.
-func putSession(sessions *bbolt.Bucket, session *SessionInfo) error {
+func putSession(sessions kvdb.RwBucket, session *SessionInfo) error {
 	var b bytes.Buffer
 	err := session.Encode(&b)
 	if err != nil {
@@ -536,7 +536,7 @@ func putSession(sessions *bbolt.Bucket, session *SessionInfo) error {
 // session id. This ensures that future calls to getHintsForSession or
 // putHintForSession can rely on the bucket already being created, and fail if
 // index has not been initialized as this points to improper usage.
-func touchSessionHintBkt(updateIndex *bbolt.Bucket, id *SessionID) error {
+func touchSessionHintBkt(updateIndex kvdb.RwBucket, id *SessionID) error {
 	_, err := updateIndex.CreateBucketIfNotExists(id[:])
 	return err
 }
@@ -544,17 +544,17 @@ func touchSessionHintBkt(updateIndex *bbolt.Bucket, id *SessionID) error {
 // removeSessionHintBkt prunes the session-hint bucket for the given session id
 // and all of the hints contained inside. This should be used to clean up the
 // index upon session deletion.
-func removeSessionHintBkt(updateIndex *bbolt.Bucket, id *SessionID) error {
-	return updateIndex.DeleteBucket(id[:])
+func removeSessionHintBkt(updateIndex kvdb.RwBucket, id *SessionID) error {
+	return updateIndex.DeleteNestedBucket(id[:])
 }
 
 // getHintsForSession returns all known hints belonging to the given session id.
 // If the index for the session has not been initialized, this method returns
 // ErrNoSessionHintIndex.
-func getHintsForSession(updateIndex *bbolt.Bucket,
+func getHintsForSession(updateIndex kvdb.ReadBucket,
 	id *SessionID) ([]blob.BreachHint, error) {
 
-	sessionHints := updateIndex.Bucket(id[:])
+	sessionHints := updateIndex.NestedReadBucket(id[:])
 	if sessionHints == nil {
 		return nil, ErrNoSessionHintIndex
 	}
@@ -582,10 +582,10 @@ func getHintsForSession(updateIndex *bbolt.Bucket,
 // session id, and used to perform efficient removal of updates. If the index
 // for the session has not been initialized, this method returns
 // ErrNoSessionHintIndex.
-func putHintForSession(updateIndex *bbolt.Bucket, id *SessionID,
+func putHintForSession(updateIndex kvdb.RwBucket, id *SessionID,
 	hint blob.BreachHint) error {
 
-	sessionHints := updateIndex.Bucket(id[:])
+	sessionHints := updateIndex.NestedReadWriteBucket(id[:])
 	if sessionHints == nil {
 		return ErrNoSessionHintIndex
 	}
@@ -594,7 +594,7 @@ func putHintForSession(updateIndex *bbolt.Bucket, id *SessionID,
 }
 
 // putLookoutEpoch stores the given lookout tip block epoch in provided bucket.
-func putLookoutEpoch(bkt *bbolt.Bucket, epoch *chainntnfs.BlockEpoch) error {
+func putLookoutEpoch(bkt kvdb.RwBucket, epoch *chainntnfs.BlockEpoch) error {
 	epochBytes := make([]byte, 36)
 	copy(epochBytes, epoch.Hash[:])
 	byteOrder.PutUint32(epochBytes[32:], uint32(epoch.Height))
@@ -604,7 +604,7 @@ func putLookoutEpoch(bkt *bbolt.Bucket, epoch *chainntnfs.BlockEpoch) error {
 
 // getLookoutEpoch retrieves the lookout tip block epoch from the given bucket.
 // A nil epoch is returned if no update exists.
-func getLookoutEpoch(bkt *bbolt.Bucket) *chainntnfs.BlockEpoch {
+func getLookoutEpoch(bkt kvdb.ReadBucket) *chainntnfs.BlockEpoch {
 	epochBytes := bkt.Get(lookoutTipKey)
 	if len(epochBytes) != 36 {
 		return nil
@@ -625,7 +625,7 @@ func getLookoutEpoch(bkt *bbolt.Bucket) *chainntnfs.BlockEpoch {
 var errBucketNotEmpty = errors.New("bucket not empty")
 
 // isBucketEmpty returns errBucketNotEmpty if the bucket is not empty.
-func isBucketEmpty(bkt *bbolt.Bucket) error {
+func isBucketEmpty(bkt kvdb.ReadBucket) error {
 	return bkt.ForEach(func(_, _ []byte) error {
 		return errBucketNotEmpty
 	})

@@ -7,7 +7,7 @@ import (
 	"io"
 	"sync"
 
-	"github.com/coreos/bbolt"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 
 	"github.com/btcsuite/btcwallet/snacl"
 )
@@ -46,7 +46,7 @@ var (
 
 // RootKeyStorage implements the bakery.RootKeyStorage interface.
 type RootKeyStorage struct {
-	*bbolt.DB
+	kvdb.Backend
 
 	encKeyMtx sync.RWMutex
 	encKey    *snacl.SecretKey
@@ -54,10 +54,10 @@ type RootKeyStorage struct {
 
 // NewRootKeyStorage creates a RootKeyStorage instance.
 // TODO(aakselrod): Add support for encryption of data with passphrase.
-func NewRootKeyStorage(db *bbolt.DB) (*RootKeyStorage, error) {
+func NewRootKeyStorage(db kvdb.Backend) (*RootKeyStorage, error) {
 	// If the store's bucket doesn't exist, create it.
-	err := db.Update(func(tx *bbolt.Tx) error {
-		_, err := tx.CreateBucketIfNotExists(rootKeyBucketName)
+	err := kvdb.Update(db, func(tx kvdb.RwTx) error {
+		_, err := tx.CreateTopLevelBucket(rootKeyBucketName)
 		return err
 	})
 	if err != nil {
@@ -65,7 +65,7 @@ func NewRootKeyStorage(db *bbolt.DB) (*RootKeyStorage, error) {
 	}
 
 	// Return the DB wrapped in a RootKeyStorage object.
-	return &RootKeyStorage{DB: db, encKey: nil}, nil
+	return &RootKeyStorage{Backend: db, encKey: nil}, nil
 }
 
 // CreateUnlock sets an encryption key if one is not already set, otherwise it
@@ -84,8 +84,8 @@ func (r *RootKeyStorage) CreateUnlock(password *[]byte) error {
 		return ErrPasswordRequired
 	}
 
-	return r.Update(func(tx *bbolt.Tx) error {
-		bucket := tx.Bucket(rootKeyBucketName)
+	return kvdb.Update(r, func(tx kvdb.RwTx) error {
+		bucket := tx.ReadWriteBucket(rootKeyBucketName)
 		dbKey := bucket.Get(encryptedKeyID)
 		if len(dbKey) > 0 {
 			// We've already stored a key, so try to unlock with
@@ -131,8 +131,8 @@ func (r *RootKeyStorage) Get(_ context.Context, id []byte) ([]byte, error) {
 		return nil, ErrStoreLocked
 	}
 	var rootKey []byte
-	err := r.View(func(tx *bbolt.Tx) error {
-		dbKey := tx.Bucket(rootKeyBucketName).Get(id)
+	err := kvdb.View(r, func(tx kvdb.ReadTx) error {
+		dbKey := tx.ReadBucket(rootKeyBucketName).Get(id)
 		if len(dbKey) == 0 {
 			return fmt.Errorf("root key with id %s doesn't exist",
 				string(id))
@@ -166,8 +166,8 @@ func (r *RootKeyStorage) RootKey(_ context.Context) ([]byte, []byte, error) {
 	}
 	var rootKey []byte
 	id := defaultRootKeyID
-	err := r.Update(func(tx *bbolt.Tx) error {
-		ns := tx.Bucket(rootKeyBucketName)
+	err := kvdb.Update(r, func(tx kvdb.RwTx) error {
+		ns := tx.ReadWriteBucket(rootKeyBucketName)
 		dbKey := ns.Get(id)
 
 		// If there's a root key stored in the bucket, decrypt it and
@@ -212,5 +212,5 @@ func (r *RootKeyStorage) Close() error {
 	if r.encKey != nil {
 		r.encKey.Zero()
 	}
-	return r.DB.Close()
+	return r.Backend.Close()
 }

@@ -6,7 +6,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/coreos/bbolt"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -111,10 +111,10 @@ func (f *ForwardingLog) AddForwardingEvents(events []ForwardingEvent) error {
 
 	var timestamp [8]byte
 
-	return f.db.Batch(func(tx *bbolt.Tx) error {
+	return kvdb.Batch(f.db.Backend, func(tx kvdb.RwTx) error {
 		// First, we'll fetch the bucket that stores our time series
 		// log.
-		logBucket, err := tx.CreateBucketIfNotExists(
+		logBucket, err := tx.CreateTopLevelBucket(
 			forwardingLogBucket,
 		)
 		if err != nil {
@@ -204,10 +204,10 @@ func (f *ForwardingLog) Query(q ForwardingEventQuery) (ForwardingLogTimeSlice, e
 	recordsToSkip := q.IndexOffset
 	recordOffset := q.IndexOffset
 
-	err := f.db.View(func(tx *bbolt.Tx) error {
+	err := kvdb.View(f.db, func(tx kvdb.ReadTx) error {
 		// If the bucket wasn't found, then there aren't any events to
 		// be returned.
-		logBucket := tx.Bucket(forwardingLogBucket)
+		logBucket := tx.ReadBucket(forwardingLogBucket)
 		if logBucket == nil {
 			return ErrNoForwardingEvents
 		}
@@ -223,7 +223,7 @@ func (f *ForwardingLog) Query(q ForwardingEventQuery) (ForwardingLogTimeSlice, e
 		// our seek through the log in order to satisfy the query.
 		// We'll continue until either we reach the end of the range,
 		// or reach our max number of events.
-		logCursor := logBucket.Cursor()
+		logCursor := logBucket.ReadCursor()
 		timestamp, events := logCursor.Seek(startTime[:])
 		for ; timestamp != nil && bytes.Compare(timestamp, endTime[:]) <= 0; timestamp, events = logCursor.Next() {
 			// If our current return payload exceeds the max number

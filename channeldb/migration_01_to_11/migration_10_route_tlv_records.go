@@ -4,15 +4,15 @@ import (
 	"bytes"
 	"io"
 
-	"github.com/coreos/bbolt"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 )
 
 // MigrateRouteSerialization migrates the way we serialize routes across the
 // entire database. At the time of writing of this migration, this includes our
 // payment attempts, as well as the payment results in mission control.
-func MigrateRouteSerialization(tx *bbolt.Tx) error {
+func MigrateRouteSerialization(tx kvdb.RwTx) error {
 	// First, we'll do all the payment attempts.
-	rootPaymentBucket := tx.Bucket(paymentsRootBucket)
+	rootPaymentBucket := tx.ReadWriteBucket(paymentsRootBucket)
 	if rootPaymentBucket == nil {
 		return nil
 	}
@@ -36,7 +36,7 @@ func MigrateRouteSerialization(tx *bbolt.Tx) error {
 	// Now that we have all the payment hashes, we can carry out the
 	// migration itself.
 	for _, payHash := range payHashes {
-		payHashBucket := rootPaymentBucket.Bucket(payHash)
+		payHashBucket := rootPaymentBucket.NestedReadWriteBucket(payHash)
 
 		// First, we'll migrate the main (non duplicate) payment to
 		// this hash.
@@ -47,7 +47,7 @@ func MigrateRouteSerialization(tx *bbolt.Tx) error {
 
 		// Now that we've migrated the main payment, we'll also check
 		// for any duplicate payments to the same payment hash.
-		dupBucket := payHashBucket.Bucket(paymentDuplicateBucket)
+		dupBucket := payHashBucket.NestedReadWriteBucket(paymentDuplicateBucket)
 
 		// If there's no dup bucket, then we can move on to the next
 		// payment.
@@ -69,7 +69,7 @@ func MigrateRouteSerialization(tx *bbolt.Tx) error {
 		// Now in this second pass, we'll re-serialize their duplicate
 		// payment attempts under the new encoding.
 		for _, seqNo := range dupSeqNos {
-			dupPayHashBucket := dupBucket.Bucket(seqNo)
+			dupPayHashBucket := dupBucket.NestedReadWriteBucket(seqNo)
 			err := migrateAttemptEncoding(tx, dupPayHashBucket)
 			if err != nil {
 				return err
@@ -83,8 +83,8 @@ func MigrateRouteSerialization(tx *bbolt.Tx) error {
 		"existing data")
 
 	resultsKey := []byte("missioncontrol-results")
-	err = tx.DeleteBucket(resultsKey)
-	if err != nil && err != bbolt.ErrBucketNotFound {
+	err = tx.DeleteTopLevelBucket(resultsKey)
+	if err != nil && err != kvdb.ErrBucketNotFound {
 		return err
 	}
 
@@ -95,7 +95,7 @@ func MigrateRouteSerialization(tx *bbolt.Tx) error {
 
 // migrateAttemptEncoding migrates payment attempts using the legacy format to
 // the new format.
-func migrateAttemptEncoding(tx *bbolt.Tx, payHashBucket *bbolt.Bucket) error {
+func migrateAttemptEncoding(tx kvdb.RwTx, payHashBucket kvdb.RwBucket) error {
 	payAttemptBytes := payHashBucket.Get(paymentAttemptInfoKey)
 	if payAttemptBytes == nil {
 		return nil

@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/wire"
-	"github.com/coreos/bbolt"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
@@ -200,14 +200,14 @@ type PaymentCreationInfo struct {
 func (db *DB) FetchPayments() ([]*MPPayment, error) {
 	var payments []*MPPayment
 
-	err := db.View(func(tx *bbolt.Tx) error {
-		paymentsBucket := tx.Bucket(paymentsRootBucket)
+	err := kvdb.View(db, func(tx kvdb.ReadTx) error {
+		paymentsBucket := tx.ReadBucket(paymentsRootBucket)
 		if paymentsBucket == nil {
 			return nil
 		}
 
 		return paymentsBucket.ForEach(func(k, v []byte) error {
-			bucket := paymentsBucket.Bucket(k)
+			bucket := paymentsBucket.NestedReadBucket(k)
 			if bucket == nil {
 				// We only expect sub-buckets to be found in
 				// this top-level bucket.
@@ -232,7 +232,6 @@ func (db *DB) FetchPayments() ([]*MPPayment, error) {
 			}
 
 			payments = append(payments, duplicatePayments...)
-
 			return nil
 		})
 	})
@@ -248,7 +247,7 @@ func (db *DB) FetchPayments() ([]*MPPayment, error) {
 	return payments, nil
 }
 
-func fetchPayment(bucket *bbolt.Bucket) (*MPPayment, error) {
+func fetchPayment(bucket kvdb.ReadBucket) (*MPPayment, error) {
 	seqBytes := bucket.Get(paymentSequenceKey)
 	if seqBytes == nil {
 		return nil, fmt.Errorf("sequence number not found")
@@ -276,7 +275,7 @@ func fetchPayment(bucket *bbolt.Bucket) (*MPPayment, error) {
 	}
 
 	var htlcs []HTLCAttempt
-	htlcsBucket := bucket.Bucket(paymentHtlcsBucket)
+	htlcsBucket := bucket.NestedReadBucket(paymentHtlcsBucket)
 	if htlcsBucket != nil {
 		// Get the payment attempts. This can be empty.
 		htlcs, err = fetchHtlcAttempts(htlcsBucket)
@@ -304,12 +303,12 @@ func fetchPayment(bucket *bbolt.Bucket) (*MPPayment, error) {
 
 // fetchHtlcAttempts retrives all htlc attempts made for the payment found in
 // the given bucket.
-func fetchHtlcAttempts(bucket *bbolt.Bucket) ([]HTLCAttempt, error) {
+func fetchHtlcAttempts(bucket kvdb.ReadBucket) ([]HTLCAttempt, error) {
 	htlcs := make([]HTLCAttempt, 0)
 
 	err := bucket.ForEach(func(k, _ []byte) error {
 		aid := byteOrder.Uint64(k)
-		htlcBucket := bucket.Bucket(k)
+		htlcBucket := bucket.NestedReadBucket(k)
 
 		attemptInfo, err := fetchHtlcAttemptInfo(
 			htlcBucket,
@@ -347,7 +346,7 @@ func fetchHtlcAttempts(bucket *bbolt.Bucket) ([]HTLCAttempt, error) {
 
 // fetchHtlcAttemptInfo fetches the payment attempt info for this htlc from the
 // bucket.
-func fetchHtlcAttemptInfo(bucket *bbolt.Bucket) (*HTLCAttemptInfo, error) {
+func fetchHtlcAttemptInfo(bucket kvdb.ReadBucket) (*HTLCAttemptInfo, error) {
 	b := bucket.Get(htlcAttemptInfoKey)
 	if b == nil {
 		return nil, errNoAttemptInfo
@@ -359,7 +358,7 @@ func fetchHtlcAttemptInfo(bucket *bbolt.Bucket) (*HTLCAttemptInfo, error) {
 
 // fetchHtlcSettleInfo retrieves the settle info for the htlc. If the htlc isn't
 // settled, nil is returned.
-func fetchHtlcSettleInfo(bucket *bbolt.Bucket) (*HTLCSettleInfo, error) {
+func fetchHtlcSettleInfo(bucket kvdb.ReadBucket) (*HTLCSettleInfo, error) {
 	b := bucket.Get(htlcSettleInfoKey)
 	if b == nil {
 		// Settle info is optional.
@@ -372,7 +371,7 @@ func fetchHtlcSettleInfo(bucket *bbolt.Bucket) (*HTLCSettleInfo, error) {
 
 // fetchHtlcFailInfo retrieves the failure info for the htlc. If the htlc hasn't
 // failed, nil is returned.
-func fetchHtlcFailInfo(bucket *bbolt.Bucket) (*HTLCFailInfo, error) {
+func fetchHtlcFailInfo(bucket kvdb.ReadBucket) (*HTLCFailInfo, error) {
 	b := bucket.Get(htlcFailInfoKey)
 	if b == nil {
 		// Fail info is optional.
@@ -385,15 +384,15 @@ func fetchHtlcFailInfo(bucket *bbolt.Bucket) (*HTLCFailInfo, error) {
 
 // DeletePayments deletes all completed and failed payments from the DB.
 func (db *DB) DeletePayments() error {
-	return db.Update(func(tx *bbolt.Tx) error {
-		payments := tx.Bucket(paymentsRootBucket)
+	return kvdb.Update(db, func(tx kvdb.RwTx) error {
+		payments := tx.ReadWriteBucket(paymentsRootBucket)
 		if payments == nil {
 			return nil
 		}
 
 		var deleteBuckets [][]byte
 		err := payments.ForEach(func(k, _ []byte) error {
-			bucket := payments.Bucket(k)
+			bucket := payments.NestedReadWriteBucket(k)
 			if bucket == nil {
 				// We only expect sub-buckets to be found in
 				// this top-level bucket.
@@ -420,7 +419,7 @@ func (db *DB) DeletePayments() error {
 		}
 
 		for _, k := range deleteBuckets {
-			if err := payments.DeleteBucket(k); err != nil {
+			if err := payments.DeleteNestedBucket(k); err != nil {
 				return err
 			}
 		}

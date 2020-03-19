@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/coreos/bbolt"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 )
 
 const (
@@ -19,7 +19,7 @@ const (
 // migration is a function which takes a prior outdated version of the database
 // instances and mutates the key/bucket structure to arrive at a more
 // up-to-date version of the database.
-type migration func(tx *bbolt.Tx) error
+type migration func(tx kvdb.RwTx) error
 
 var (
 	// Big endian is the preferred byte order, due to cursor scans over
@@ -31,7 +31,7 @@ var (
 // information related to nodes, routing data, open/closed channels, fee
 // schedules, and reputation data.
 type DB struct {
-	*bbolt.DB
+	kvdb.Backend
 	dbPath string
 	graph  *ChannelGraph
 	now    func() time.Time
@@ -55,20 +55,15 @@ func Open(dbPath string, modifiers ...OptionModifier) (*DB, error) {
 
 	// Specify bbolt freelist options to reduce heap pressure in case the
 	// freelist grows to be very large.
-	options := &bbolt.Options{
-		NoFreelistSync: opts.NoFreelistSync,
-		FreelistType:   bbolt.FreelistMapType,
-	}
-
-	bdb, err := bbolt.Open(path, dbFilePermission, options)
+	bdb, err := kvdb.Open(kvdb.BoltBackendName, path, opts.NoFreelistSync)
 	if err != nil {
 		return nil, err
 	}
 
 	chanDB := &DB{
-		DB:     bdb,
-		dbPath: dbPath,
-		now:    time.Now,
+		Backend: bdb,
+		dbPath:  dbPath,
+		now:     time.Now,
 	}
 	chanDB.graph = newChannelGraph(
 		chanDB, opts.RejectCacheSize, opts.ChannelCacheSize,
@@ -89,28 +84,28 @@ func createChannelDB(dbPath string) error {
 	}
 
 	path := filepath.Join(dbPath, dbName)
-	bdb, err := bbolt.Open(path, dbFilePermission, nil)
+	bdb, err := kvdb.Create(kvdb.BoltBackendName, path, false)
 	if err != nil {
 		return err
 	}
 
-	err = bdb.Update(func(tx *bbolt.Tx) error {
-		if _, err := tx.CreateBucket(openChannelBucket); err != nil {
+	err = kvdb.Update(bdb, func(tx kvdb.RwTx) error {
+		if _, err := tx.CreateTopLevelBucket(openChannelBucket); err != nil {
 			return err
 		}
-		if _, err := tx.CreateBucket(closedChannelBucket); err != nil {
-			return err
-		}
-
-		if _, err := tx.CreateBucket(invoiceBucket); err != nil {
+		if _, err := tx.CreateTopLevelBucket(closedChannelBucket); err != nil {
 			return err
 		}
 
-		if _, err := tx.CreateBucket(paymentBucket); err != nil {
+		if _, err := tx.CreateTopLevelBucket(invoiceBucket); err != nil {
 			return err
 		}
 
-		nodes, err := tx.CreateBucket(nodeBucket)
+		if _, err := tx.CreateTopLevelBucket(paymentBucket); err != nil {
+			return err
+		}
+
+		nodes, err := tx.CreateTopLevelBucket(nodeBucket)
 		if err != nil {
 			return err
 		}
@@ -123,7 +118,7 @@ func createChannelDB(dbPath string) error {
 			return err
 		}
 
-		edges, err := tx.CreateBucket(edgeBucket)
+		edges, err := tx.CreateTopLevelBucket(edgeBucket)
 		if err != nil {
 			return err
 		}
@@ -140,7 +135,7 @@ func createChannelDB(dbPath string) error {
 			return err
 		}
 
-		graphMeta, err := tx.CreateBucket(graphMetaBucket)
+		graphMeta, err := tx.CreateTopLevelBucket(graphMetaBucket)
 		if err != nil {
 			return err
 		}
@@ -149,7 +144,7 @@ func createChannelDB(dbPath string) error {
 			return err
 		}
 
-		if _, err := tx.CreateBucket(metaBucket); err != nil {
+		if _, err := tx.CreateTopLevelBucket(metaBucket); err != nil {
 			return err
 		}
 
@@ -185,8 +180,8 @@ func fileExists(path string) bool {
 func (d *DB) FetchClosedChannels(pendingOnly bool) ([]*ChannelCloseSummary, error) {
 	var chanSummaries []*ChannelCloseSummary
 
-	if err := d.View(func(tx *bbolt.Tx) error {
-		closeBucket := tx.Bucket(closedChannelBucket)
+	if err := kvdb.View(d, func(tx kvdb.ReadTx) error {
+		closeBucket := tx.ReadBucket(closedChannelBucket)
 		if closeBucket == nil {
 			return ErrNoClosedChannels
 		}

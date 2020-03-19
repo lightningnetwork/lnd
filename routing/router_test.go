@@ -97,7 +97,7 @@ func createTestCtxFromGraphInstance(startingHeight uint32, graphInstance *testGr
 	}
 
 	mc, err := NewMissionControl(
-		graphInstance.graph.Database().DB,
+		graphInstance.graph.Database(),
 		mcConfig,
 	)
 	if err != nil {

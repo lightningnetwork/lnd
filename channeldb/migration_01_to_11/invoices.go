@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/wire"
-	"github.com/coreos/bbolt"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tlv"
@@ -252,8 +252,8 @@ func validateInvoice(i *Invoice) error {
 func (d *DB) FetchAllInvoices(pendingOnly bool) ([]Invoice, error) {
 	var invoices []Invoice
 
-	err := d.View(func(tx *bbolt.Tx) error {
-		invoiceB := tx.Bucket(invoiceBucket)
+	err := kvdb.View(d, func(tx kvdb.ReadTx) error {
+		invoiceB := tx.ReadBucket(invoiceBucket)
 		if invoiceB == nil {
 			return ErrNoInvoicesCreated
 		}

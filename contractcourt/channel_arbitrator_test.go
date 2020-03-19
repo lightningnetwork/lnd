@@ -13,9 +13,9 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
-	"github.com/coreos/bbolt"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -394,7 +394,7 @@ func createTestChannelArbitrator(t *testing.T, log ArbitratorLog,
 			return nil, err
 		}
 		dbPath := filepath.Join(dbDir, "testdb")
-		db, err := bbolt.Open(dbPath, 0600, nil)
+		db, err := kvdb.Create(kvdb.BoltBackendName, dbPath, true)
 		if err != nil {
 			return nil, err
 		}

@@ -4,7 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 
-	"github.com/coreos/bbolt"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 )
 
 var (
@@ -48,13 +48,13 @@ var (
 
 // MigrateMPP migrates the payments to a new structure that accommodates for mpp
 // payments.
-func MigrateMPP(tx *bbolt.Tx) error {
+func MigrateMPP(tx kvdb.RwTx) error {
 	log.Infof("Migrating payments to mpp structure")
 
 	// Iterate over all payments and store their indexing keys. This is
 	// needed, because no modifications are allowed inside a Bucket.ForEach
 	// loop.
-	paymentsBucket := tx.Bucket(paymentsRootBucket)
+	paymentsBucket := tx.ReadWriteBucket(paymentsRootBucket)
 	if paymentsBucket == nil {
 		return nil
 	}
@@ -70,7 +70,7 @@ func MigrateMPP(tx *bbolt.Tx) error {
 
 	// With all keys retrieved, start the migration.
 	for _, k := range paymentKeys {
-		bucket := paymentsBucket.Bucket(k)
+		bucket := paymentsBucket.NestedReadWriteBucket(k)
 
 		// We only expect sub-buckets to be found in
 		// this top-level bucket.

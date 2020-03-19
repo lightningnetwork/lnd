@@ -1,12 +1,10 @@
 package migration_01_to_11
 
-import (
-	"github.com/coreos/bbolt"
-)
+import "github.com/lightningnetwork/lnd/channeldb/kvdb"
 
 // fetchPaymentStatus fetches the payment status of the payment. If the payment
 // isn't found, it will default to "StatusUnknown".
-func fetchPaymentStatus(bucket *bbolt.Bucket) PaymentStatus {
+func fetchPaymentStatus(bucket kvdb.ReadBucket) PaymentStatus {
 	if bucket.Get(paymentSettleInfoKey) != nil {
 		return StatusSucceeded
 	}

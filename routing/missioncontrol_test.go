@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/coreos/bbolt"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
@@ -44,7 +44,7 @@ type mcTestContext struct {
 	mc  *MissionControl
 	now time.Time
 
-	db     *bbolt.DB
+	db     kvdb.Backend
 	dbPath string
 
 	pid uint64
@@ -63,7 +63,7 @@ func createMcTestContext(t *testing.T) *mcTestContext {
 
 	ctx.dbPath = file.Name()
 
-	ctx.db, err = bbolt.Open(ctx.dbPath, 0600, nil)
+	ctx.db, err = kvdb.Open(kvdb.BoltBackendName, ctx.dbPath, true)
 	if err != nil {
 		t.Fatal(err)
 	}

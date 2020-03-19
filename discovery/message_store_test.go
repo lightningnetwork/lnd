@@ -9,9 +9,9 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec"
-	"github.com/coreos/bbolt"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -236,8 +236,8 @@ func TestMessageStoreUnsupportedMessage(t *testing.T) {
 	if _, err := lnwire.WriteMessage(&rawMsg, unsupportedMsg, 0); err != nil {
 		t.Fatalf("unable to serialize message: %v", err)
 	}
-	err = msgStore.db.Update(func(tx *bbolt.Tx) error {
-		messageStore := tx.Bucket(messageStoreBucket)
+	err = kvdb.Update(msgStore.db, func(tx kvdb.RwTx) error {
+		messageStore := tx.ReadWriteBucket(messageStoreBucket)
 		return messageStore.Put(msgKey, rawMsg.Bytes())
 	})
 	if err != nil {

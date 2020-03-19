@@ -8,7 +8,7 @@ import (
 	"io"
 	"time"
 
-	"github.com/coreos/bbolt"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -401,8 +401,8 @@ func (d *DB) AddInvoice(newInvoice *Invoice, paymentHash lntypes.Hash) (
 	}
 
 	var invoiceAddIndex uint64
-	err := d.Update(func(tx *bbolt.Tx) error {
-		invoices, err := tx.CreateBucketIfNotExists(invoiceBucket)
+	err := kvdb.Update(d, func(tx kvdb.RwTx) error {
+		invoices, err := tx.CreateTopLevelBucket(invoiceBucket)
 		if err != nil {
 			return err
 		}
@@ -479,13 +479,13 @@ func (d *DB) InvoicesAddedSince(sinceAddIndex uint64) ([]Invoice, error) {
 	var startIndex [8]byte
 	byteOrder.PutUint64(startIndex[:], sinceAddIndex)
 
-	err := d.DB.View(func(tx *bbolt.Tx) error {
-		invoices := tx.Bucket(invoiceBucket)
+	err := kvdb.View(d, func(tx kvdb.ReadTx) error {
+		invoices := tx.ReadBucket(invoiceBucket)
 		if invoices == nil {
 			return ErrNoInvoicesCreated
 		}
 
-		addIndex := invoices.Bucket(addIndexBucket)
+		addIndex := invoices.NestedReadBucket(addIndexBucket)
 		if addIndex == nil {
 			return ErrNoInvoicesCreated
 		}
@@ -493,7 +493,7 @@ func (d *DB) InvoicesAddedSince(sinceAddIndex uint64) ([]Invoice, error) {
 		// We'll now run through each entry in the add index starting
 		// at our starting index. We'll continue until we reach the
 		// very end of the current key space.
-		invoiceCursor := addIndex.Cursor()
+		invoiceCursor := addIndex.ReadCursor()
 
 		// We'll seek to the starting index, then manually advance the
 		// cursor in order to skip the entry with the since add index.
@@ -534,12 +534,12 @@ func (d *DB) InvoicesAddedSince(sinceAddIndex uint64) ([]Invoice, error) {
 // terms of the payment.
 func (d *DB) LookupInvoice(paymentHash [32]byte) (Invoice, error) {
 	var invoice Invoice
-	err := d.View(func(tx *bbolt.Tx) error {
-		invoices := tx.Bucket(invoiceBucket)
+	err := kvdb.View(d, func(tx kvdb.ReadTx) error {
+		invoices := tx.ReadBucket(invoiceBucket)
 		if invoices == nil {
 			return ErrNoInvoicesCreated
 		}
-		invoiceIndex := invoices.Bucket(invoiceIndexBucket)
+		invoiceIndex := invoices.NestedReadBucket(invoiceIndexBucket)
 		if invoiceIndex == nil {
 			return ErrNoInvoicesCreated
 		}
@@ -589,13 +589,13 @@ func (d *DB) FetchAllInvoicesWithPaymentHash(pendingOnly bool) (
 
 	var result []InvoiceWithPaymentHash
 
-	err := d.View(func(tx *bbolt.Tx) error {
-		invoices := tx.Bucket(invoiceBucket)
+	err := kvdb.View(d, func(tx kvdb.ReadTx) error {
+		invoices := tx.ReadBucket(invoiceBucket)
 		if invoices == nil {
 			return ErrNoInvoicesCreated
 		}
 
-		invoiceIndex := invoices.Bucket(invoiceIndexBucket)
+		invoiceIndex := invoices.NestedReadBucket(invoiceIndexBucket)
 		if invoiceIndex == nil {
 			// Mask the error if there's no invoice
 			// index as that simply means there are no
@@ -695,21 +695,21 @@ func (d *DB) QueryInvoices(q InvoiceQuery) (InvoiceSlice, error) {
 		InvoiceQuery: q,
 	}
 
-	err := d.View(func(tx *bbolt.Tx) error {
+	err := kvdb.View(d, func(tx kvdb.ReadTx) error {
 		// If the bucket wasn't found, then there aren't any invoices
 		// within the database yet, so we can simply exit.
-		invoices := tx.Bucket(invoiceBucket)
+		invoices := tx.ReadBucket(invoiceBucket)
 		if invoices == nil {
 			return ErrNoInvoicesCreated
 		}
-		invoiceAddIndex := invoices.Bucket(addIndexBucket)
+		invoiceAddIndex := invoices.NestedReadBucket(addIndexBucket)
 		if invoiceAddIndex == nil {
 			return ErrNoInvoicesCreated
 		}
 
 		// keyForIndex is a helper closure that retrieves the invoice
 		// key for the given add index of an invoice.
-		keyForIndex := func(c *bbolt.Cursor, index uint64) []byte {
+		keyForIndex := func(c kvdb.ReadCursor, index uint64) []byte {
 			var keyIndex [8]byte
 			byteOrder.PutUint64(keyIndex[:], index)
 			_, invoiceKey := c.Seek(keyIndex[:])
@@ -718,7 +718,7 @@ func (d *DB) QueryInvoices(q InvoiceQuery) (InvoiceSlice, error) {
 
 		// nextKey is a helper closure to determine what the next
 		// invoice key is when iterating over the invoice add index.
-		nextKey := func(c *bbolt.Cursor) ([]byte, []byte) {
+		nextKey := func(c kvdb.ReadCursor) ([]byte, []byte) {
 			if q.Reversed {
 				return c.Prev()
 			}
@@ -728,7 +728,7 @@ func (d *DB) QueryInvoices(q InvoiceQuery) (InvoiceSlice, error) {
 		// We'll be using a cursor to seek into the database and return
 		// a slice of invoices. We'll need to determine where to start
 		// our cursor depending on the parameters set within the query.
-		c := invoiceAddIndex.Cursor()
+		c := invoiceAddIndex.ReadCursor()
 		invoiceKey := keyForIndex(c, q.IndexOffset+1)
 
 		// If the query is specifying reverse iteration, then we must
@@ -822,8 +822,8 @@ func (d *DB) UpdateInvoice(paymentHash lntypes.Hash,
 	callback InvoiceUpdateCallback) (*Invoice, error) {
 
 	var updatedInvoice *Invoice
-	err := d.Update(func(tx *bbolt.Tx) error {
-		invoices, err := tx.CreateBucketIfNotExists(invoiceBucket)
+	err := kvdb.Update(d, func(tx kvdb.RwTx) error {
+		invoices, err := tx.CreateTopLevelBucket(invoiceBucket)
 		if err != nil {
 			return err
 		}
@@ -877,13 +877,13 @@ func (d *DB) InvoicesSettledSince(sinceSettleIndex uint64) ([]Invoice, error) {
 	var startIndex [8]byte
 	byteOrder.PutUint64(startIndex[:], sinceSettleIndex)
 
-	err := d.DB.View(func(tx *bbolt.Tx) error {
-		invoices := tx.Bucket(invoiceBucket)
+	err := kvdb.View(d, func(tx kvdb.ReadTx) error {
+		invoices := tx.ReadBucket(invoiceBucket)
 		if invoices == nil {
 			return ErrNoInvoicesCreated
 		}
 
-		settleIndex := invoices.Bucket(settleIndexBucket)
+		settleIndex := invoices.NestedReadBucket(settleIndexBucket)
 		if settleIndex == nil {
 			return ErrNoInvoicesCreated
 		}
@@ -891,7 +891,7 @@ func (d *DB) InvoicesSettledSince(sinceSettleIndex uint64) ([]Invoice, error) {
 		// We'll now run through each entry in the add index starting
 		// at our starting index. We'll continue until we reach the
 		// very end of the current key space.
-		invoiceCursor := settleIndex.Cursor()
+		invoiceCursor := settleIndex.ReadCursor()
 
 		// We'll seek to the starting index, then manually advance the
 		// cursor in order to skip the entry with the since add index.
@@ -919,7 +919,7 @@ func (d *DB) InvoicesSettledSince(sinceSettleIndex uint64) ([]Invoice, error) {
 	return settledInvoices, nil
 }
 
-func putInvoice(invoices, invoiceIndex, addIndex *bbolt.Bucket,
+func putInvoice(invoices, invoiceIndex, addIndex kvdb.RwBucket,
 	i *Invoice, invoiceNum uint32, paymentHash lntypes.Hash) (
 	uint64, error) {
 
@@ -1112,7 +1112,7 @@ func serializeHtlcs(w io.Writer, htlcs map[CircuitKey]*InvoiceHTLC) error {
 	return nil
 }
 
-func fetchInvoice(invoiceNum []byte, invoices *bbolt.Bucket) (Invoice, error) {
+func fetchInvoice(invoiceNum []byte, invoices kvdb.ReadBucket) (Invoice, error) {
 	invoiceBytes := invoices.Get(invoiceNum)
 	if invoiceBytes == nil {
 		return Invoice{}, ErrInvoiceNotFound
@@ -1325,7 +1325,7 @@ func copyInvoice(src *Invoice) *Invoice {
 
 // updateInvoice fetches the invoice, obtains the update descriptor from the
 // callback and applies the updates in a single db transaction.
-func (d *DB) updateInvoice(hash lntypes.Hash, invoices, settleIndex *bbolt.Bucket,
+func (d *DB) updateInvoice(hash lntypes.Hash, invoices, settleIndex kvdb.RwBucket,
 	invoiceNum []byte, callback InvoiceUpdateCallback) (*Invoice, error) {
 
 	invoice, err := fetchInvoice(invoiceNum, invoices)
@@ -1572,7 +1572,7 @@ func updateHtlc(resolveTime time.Time, htlc *InvoiceHTLC,
 
 // setSettleMetaFields updates the metadata associated with settlement of an
 // invoice.
-func setSettleMetaFields(settleIndex *bbolt.Bucket, invoiceNum []byte,
+func setSettleMetaFields(settleIndex kvdb.RwBucket, invoiceNum []byte,
 	invoice *Invoice, now time.Time) error {
 
 	// Now that we know the invoice hasn't already been settled, we'll

@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/coreos/bbolt"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/lntypes"
 )
 
@@ -65,7 +65,7 @@ func (p *PaymentControl) InitPayment(paymentHash lntypes.Hash,
 	infoBytes := b.Bytes()
 
 	var updateErr error
-	err := p.db.Batch(func(tx *bbolt.Tx) error {
+	err := kvdb.Batch(p.db.Backend, func(tx kvdb.RwTx) error {
 		// Reset the update error, to avoid carrying over an error
 		// from a previous execution of the batched db transaction.
 		updateErr = nil
@@ -130,8 +130,8 @@ func (p *PaymentControl) InitPayment(paymentHash lntypes.Hash,
 		// We'll delete any lingering HTLCs to start with, in case we
 		// are initializing a payment that was attempted earlier, but
 		// left in a state where we could retry.
-		err = bucket.DeleteBucket(paymentHtlcsBucket)
-		if err != nil && err != bbolt.ErrBucketNotFound {
+		err = bucket.DeleteNestedBucket(paymentHtlcsBucket)
+		if err != nil && err != kvdb.ErrBucketNotFound {
 			return err
 		}
 
@@ -162,9 +162,8 @@ func (p *PaymentControl) RegisterAttempt(paymentHash lntypes.Hash,
 	htlcIDBytes := make([]byte, 8)
 	binary.BigEndian.PutUint64(htlcIDBytes, attempt.AttemptID)
 
-	return p.db.Update(func(tx *bbolt.Tx) error {
-		// Get the payment bucket to register this new attempt in.
-		bucket, err := fetchPaymentBucket(tx, paymentHash)
+	return kvdb.Batch(p.db.Backend, func(tx kvdb.RwTx) error {
+		bucket, err := fetchPaymentBucketUpdate(tx, paymentHash)
 		if err != nil {
 			return err
 		}
@@ -234,10 +233,10 @@ func (p *PaymentControl) updateHtlcKey(paymentHash lntypes.Hash,
 	binary.BigEndian.PutUint64(htlcIDBytes, attemptID)
 
 	var payment *MPPayment
-	err := p.db.Batch(func(tx *bbolt.Tx) error {
-		// Fetch bucket that contains all information for the payment
-		// with this hash.
-		bucket, err := fetchPaymentBucket(tx, paymentHash)
+	err := kvdb.Batch(p.db.Backend, func(tx kvdb.RwTx) error {
+		payment = nil
+
+		bucket, err := fetchPaymentBucketUpdate(tx, paymentHash)
 		if err != nil {
 			return err
 		}
@@ -247,12 +246,12 @@ func (p *PaymentControl) updateHtlcKey(paymentHash lntypes.Hash,
 			return err
 		}
 
-		htlcsBucket := bucket.Bucket(paymentHtlcsBucket)
+		htlcsBucket := bucket.NestedReadWriteBucket(paymentHtlcsBucket)
 		if htlcsBucket == nil {
 			return fmt.Errorf("htlcs bucket not found")
 		}
 
-		htlcBucket := htlcsBucket.Bucket(htlcIDBytes)
+		htlcBucket := htlcsBucket.NestedReadWriteBucket(htlcIDBytes)
 		if htlcBucket == nil {
 			return fmt.Errorf("HTLC with ID %v not registered",
 				attemptID)
@@ -286,13 +285,13 @@ func (p *PaymentControl) Fail(paymentHash lntypes.Hash,
 		updateErr error
 		payment   *MPPayment
 	)
-	err := p.db.Batch(func(tx *bbolt.Tx) error {
+	err := kvdb.Batch(p.db.Backend, func(tx kvdb.RwTx) error {
 		// Reset the update error, to avoid carrying over an error
 		// from a previous execution of the batched db transaction.
 		updateErr = nil
 		payment = nil
 
-		bucket, err := fetchPaymentBucket(tx, paymentHash)
+		bucket, err := fetchPaymentBucketUpdate(tx, paymentHash)
 		if err == ErrPaymentNotInitiated {
 			updateErr = ErrPaymentNotInitiated
 			return nil
@@ -341,7 +340,7 @@ func (p *PaymentControl) FetchPayment(paymentHash lntypes.Hash) (
 	*MPPayment, error) {
 
 	var payment *MPPayment
-	err := p.db.View(func(tx *bbolt.Tx) error {
+	err := kvdb.View(p.db, func(tx kvdb.ReadTx) error {
 		bucket, err := fetchPaymentBucket(tx, paymentHash)
 		if err != nil {
 			return err
@@ -360,10 +359,10 @@ func (p *PaymentControl) FetchPayment(paymentHash lntypes.Hash) (
 
 // createPaymentBucket creates or fetches the sub-bucket assigned to this
 // payment hash.
-func createPaymentBucket(tx *bbolt.Tx, paymentHash lntypes.Hash) (
-	*bbolt.Bucket, error) {
+func createPaymentBucket(tx kvdb.RwTx, paymentHash lntypes.Hash) (
+	kvdb.RwBucket, error) {
 
-	payments, err := tx.CreateBucketIfNotExists(paymentsRootBucket)
+	payments, err := tx.CreateTopLevelBucket(paymentsRootBucket)
 	if err != nil {
 		return nil, err
 	}
@@ -373,15 +372,34 @@ func createPaymentBucket(tx *bbolt.Tx, paymentHash lntypes.Hash) (
 
 // fetchPaymentBucket fetches the sub-bucket assigned to this payment hash. If
 // the bucket does not exist, it returns ErrPaymentNotInitiated.
-func fetchPaymentBucket(tx *bbolt.Tx, paymentHash lntypes.Hash) (
-	*bbolt.Bucket, error) {
+func fetchPaymentBucket(tx kvdb.ReadTx, paymentHash lntypes.Hash) (
+	kvdb.ReadBucket, error) {
 
-	payments := tx.Bucket(paymentsRootBucket)
+	payments := tx.ReadBucket(paymentsRootBucket)
 	if payments == nil {
 		return nil, ErrPaymentNotInitiated
 	}
 
-	bucket := payments.Bucket(paymentHash[:])
+	bucket := payments.NestedReadBucket(paymentHash[:])
+	if bucket == nil {
+		return nil, ErrPaymentNotInitiated
+	}
+
+	return bucket, nil
+
+}
+
+// fetchPaymentBucketUpdate is identical to fetchPaymentBucket, but it returns a
+// bucket that can be written to.
+func fetchPaymentBucketUpdate(tx kvdb.RwTx, paymentHash lntypes.Hash) (
+	kvdb.RwBucket, error) {
+
+	payments := tx.ReadWriteBucket(paymentsRootBucket)
+	if payments == nil {
+		return nil, ErrPaymentNotInitiated
+	}
+
+	bucket := payments.NestedReadWriteBucket(paymentHash[:])
 	if bucket == nil {
 		return nil, ErrPaymentNotInitiated
 	}
@@ -391,8 +409,8 @@ func fetchPaymentBucket(tx *bbolt.Tx, paymentHash lntypes.Hash) (
 
 // nextPaymentSequence returns the next sequence number to store for a new
 // payment.
-func nextPaymentSequence(tx *bbolt.Tx) ([]byte, error) {
-	payments, err := tx.CreateBucketIfNotExists(paymentsRootBucket)
+func nextPaymentSequence(tx kvdb.RwTx) ([]byte, error) {
+	payments, err := tx.CreateTopLevelBucket(paymentsRootBucket)
 	if err != nil {
 		return nil, err
 	}
@@ -409,8 +427,8 @@ func nextPaymentSequence(tx *bbolt.Tx) ([]byte, error) {
 
 // fetchPaymentStatus fetches the payment status of the payment. If the payment
 // isn't found, it will default to "StatusUnknown".
-func fetchPaymentStatus(bucket *bbolt.Bucket) (PaymentStatus, error) {
-	htlcsBucket := bucket.Bucket(paymentHtlcsBucket)
+func fetchPaymentStatus(bucket kvdb.ReadBucket) (PaymentStatus, error) {
+	htlcsBucket := bucket.NestedReadBucket(paymentHtlcsBucket)
 	if htlcsBucket != nil {
 		htlcs, err := fetchHtlcAttempts(htlcsBucket)
 		if err != nil {
@@ -424,7 +442,6 @@ func fetchPaymentStatus(bucket *bbolt.Bucket) (PaymentStatus, error) {
 				return StatusSucceeded, nil
 			}
 		}
-
 	}
 
 	if bucket.Get(paymentFailInfoKey) != nil {
@@ -441,7 +458,7 @@ func fetchPaymentStatus(bucket *bbolt.Bucket) (PaymentStatus, error) {
 // ensureInFlight checks whether the payment found in the given bucket has
 // status InFlight, and returns an error otherwise. This should be used to
 // ensure we only mark in-flight payments as succeeded or failed.
-func ensureInFlight(bucket *bbolt.Bucket) error {
+func ensureInFlight(bucket kvdb.ReadBucket) error {
 	paymentStatus, err := fetchPaymentStatus(bucket)
 	if err != nil {
 		return err
@@ -486,14 +503,14 @@ type InFlightPayment struct {
 // FetchInFlightPayments returns all payments with status InFlight.
 func (p *PaymentControl) FetchInFlightPayments() ([]*InFlightPayment, error) {
 	var inFlights []*InFlightPayment
-	err := p.db.View(func(tx *bbolt.Tx) error {
-		payments := tx.Bucket(paymentsRootBucket)
+	err := kvdb.View(p.db, func(tx kvdb.ReadTx) error {
+		payments := tx.ReadBucket(paymentsRootBucket)
 		if payments == nil {
 			return nil
 		}
 
 		return payments.ForEach(func(k, _ []byte) error {
-			bucket := payments.Bucket(k)
+			bucket := payments.NestedReadBucket(k)
 			if bucket == nil {
 				return fmt.Errorf("non bucket element")
 			}
@@ -523,7 +540,9 @@ func (p *PaymentControl) FetchInFlightPayments() ([]*InFlightPayment, error) {
 				return err
 			}
 
-			htlcsBucket := bucket.Bucket(paymentHtlcsBucket)
+			htlcsBucket := bucket.NestedReadBucket(
+				paymentHtlcsBucket,
+			)
 			if htlcsBucket == nil {
 				return nil
 			}

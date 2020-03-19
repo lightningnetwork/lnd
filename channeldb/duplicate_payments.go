@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec"
-	"github.com/coreos/bbolt"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -61,7 +61,7 @@ type duplicateHTLCAttemptInfo struct {
 
 // fetchDuplicatePaymentStatus fetches the payment status of the payment. If the
 // payment isn't found, it will default to "StatusUnknown".
-func fetchDuplicatePaymentStatus(bucket *bbolt.Bucket) PaymentStatus {
+func fetchDuplicatePaymentStatus(bucket kvdb.ReadBucket) PaymentStatus {
 	if bucket.Get(duplicatePaymentSettleInfoKey) != nil {
 		return StatusSucceeded
 	}
@@ -129,7 +129,7 @@ func deserializeDuplicatePaymentCreationInfo(r io.Reader) (
 	return c, nil
 }
 
-func fetchDuplicatePayment(bucket *bbolt.Bucket) (*MPPayment, error) {
+func fetchDuplicatePayment(bucket kvdb.ReadBucket) (*MPPayment, error) {
 	seqBytes := bucket.Get(duplicatePaymentSequenceKey)
 	if seqBytes == nil {
 		return nil, fmt.Errorf("sequence number not found")
@@ -209,7 +209,7 @@ func fetchDuplicatePayment(bucket *bbolt.Bucket) (*MPPayment, error) {
 	return payment, nil
 }
 
-func fetchDuplicatePayments(paymentHashBucket *bbolt.Bucket) ([]*MPPayment,
+func fetchDuplicatePayments(paymentHashBucket kvdb.ReadBucket) ([]*MPPayment,
 	error) {
 
 	var payments []*MPPayment
@@ -217,13 +217,13 @@ func fetchDuplicatePayments(paymentHashBucket *bbolt.Bucket) ([]*MPPayment,
 	// For older versions of lnd, duplicate payments to a payment has was
 	// possible. These will be found in a sub-bucket indexed by their
 	// sequence number if available.
-	dup := paymentHashBucket.Bucket(duplicatePaymentsBucket)
+	dup := paymentHashBucket.NestedReadBucket(duplicatePaymentsBucket)
 	if dup == nil {
 		return nil, nil
 	}
 
 	err := dup.ForEach(func(k, v []byte) error {
-		subBucket := dup.Bucket(k)
+		subBucket := dup.NestedReadBucket(k)
 		if subBucket == nil {
 			// We one bucket for each duplicate to be found.
 			return fmt.Errorf("non bucket element" +

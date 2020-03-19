@@ -13,7 +13,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
-	"github.com/coreos/bbolt"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -175,10 +175,10 @@ func newChannelGraph(db *DB, rejectCacheSize, chanCacheSize int) *ChannelGraph {
 // node based off the source node.
 func (c *ChannelGraph) SourceNode() (*LightningNode, error) {
 	var source *LightningNode
-	err := c.db.View(func(tx *bbolt.Tx) error {
+	err := kvdb.View(c.db, func(tx kvdb.ReadTx) error {
 		// First grab the nodes bucket which stores the mapping from
 		// pubKey to node information.
-		nodes := tx.Bucket(nodeBucket)
+		nodes := tx.ReadBucket(nodeBucket)
 		if nodes == nil {
 			return ErrGraphNotFound
 		}
@@ -202,7 +202,7 @@ func (c *ChannelGraph) SourceNode() (*LightningNode, error) {
 // of the graph. The source node is treated as the center node within a
 // star-graph. This method may be used to kick off a path finding algorithm in
 // order to explore the reachability of another node based off the source node.
-func (c *ChannelGraph) sourceNode(nodes *bbolt.Bucket) (*LightningNode, error) {
+func (c *ChannelGraph) sourceNode(nodes kvdb.ReadBucket) (*LightningNode, error) {
 	selfPub := nodes.Get(sourceKey)
 	if selfPub == nil {
 		return nil, ErrSourceNodeNotSet
@@ -225,10 +225,10 @@ func (c *ChannelGraph) sourceNode(nodes *bbolt.Bucket) (*LightningNode, error) {
 func (c *ChannelGraph) SetSourceNode(node *LightningNode) error {
 	nodePubBytes := node.PubKeyBytes[:]
 
-	return c.db.Update(func(tx *bbolt.Tx) error {
+	return kvdb.Update(c.db, func(tx kvdb.RwTx) error {
 		// First grab the nodes bucket which stores the mapping from
 		// pubKey to node information.
-		nodes, err := tx.CreateBucketIfNotExists(nodeBucket)
+		nodes, err := tx.CreateTopLevelBucket(nodeBucket)
 		if err != nil {
 			return err
 		}
@@ -245,8 +245,8 @@ func (c *ChannelGraph) SetSourceNode(node *LightningNode) error {
 	})
 }
 
-func addLightningNode(tx *bbolt.Tx, node *LightningNode) error {
-	nodes, err := tx.CreateBucketIfNotExists(nodeBucket)
+func addLightningNode(tx kvdb.RwTx, node *LightningNode) error {
+	nodes, err := tx.CreateTopLevelBucket(nodeBucket)
 	if err != nil {
 		return err
 	}
@@ -270,17 +270,17 @@ func addLightningNode(tx *bbolt.Tx, node *LightningNode) error {
 // buckets using an existing database transaction. The returned boolean will be
 // true if the updated policy belongs to node1, and false if the policy belonged
 // to node2.
-func updateEdgePolicy(tx *bbolt.Tx, edge *ChannelEdgePolicy) (bool, error) {
-	edges := tx.Bucket(edgeBucket)
-	if edges == nil {
+func updateEdgePolicy(tx kvdb.RwTx, edge *ChannelEdgePolicy) (bool, error) {
+	edges, err := tx.CreateTopLevelBucket(edgeBucket)
+	if err != nil {
 		return false, ErrEdgeNotFound
 
 	}
-	edgeIndex := edges.Bucket(edgeIndexBucket)
+	edgeIndex := edges.NestedReadWriteBucket(edgeIndexBucket)
 	if edgeIndex == nil {
 		return false, ErrEdgeNotFound
 	}
-	nodes, err := tx.CreateBucketIfNotExists(nodeBucket)
+	nodes, err := tx.CreateTopLevelBucket(nodeBucket)
 	if err != nil {
 		return false, err
 	}
@@ -551,8 +551,8 @@ func (c *ChannelEdgePolicy) IsDisabled() bool {
 		lnwire.ChanUpdateDisabled
 }
 
-func putLightningNode(nodeBucket *bbolt.Bucket, aliasBucket *bbolt.Bucket,
-	updateIndex *bbolt.Bucket, node *LightningNode) error {
+func putLightningNode(nodeBucket kvdb.RwBucket, aliasBucket kvdb.RwBucket,
+	updateIndex kvdb.RwBucket, node *LightningNode) error {
 
 	var (
 		scratch [16]byte
@@ -680,7 +680,7 @@ func putLightningNode(nodeBucket *bbolt.Bucket, aliasBucket *bbolt.Bucket,
 	return nodeBucket.Put(nodePub, b.Bytes())
 }
 
-func fetchLightningNode(nodeBucket *bbolt.Bucket,
+func fetchLightningNode(nodeBucket kvdb.ReadBucket,
 	nodePub []byte) (LightningNode, error) {
 
 	nodeBytes := nodeBucket.Get(nodePub)
@@ -863,7 +863,7 @@ func deserializeChanEdgeInfo(r io.Reader) (ChannelEdgeInfo, error) {
 	return edgeInfo, nil
 }
 
-func putChanEdgePolicy(edges, nodes *bbolt.Bucket, edge *ChannelEdgePolicy,
+func putChanEdgePolicy(edges, nodes kvdb.RwBucket, edge *ChannelEdgePolicy,
 	from, to []byte) error {
 
 	var edgeKey [33 + 8]byte
@@ -943,7 +943,7 @@ func putChanEdgePolicy(edges, nodes *bbolt.Bucket, edge *ChannelEdgePolicy,
 // in this bucket.
 // Maintaining the bucket this way allows a fast retrieval of disabled
 // channels, for example when prune is needed.
-func updateEdgePolicyDisabledIndex(edges *bbolt.Bucket, chanID uint64,
+func updateEdgePolicyDisabledIndex(edges kvdb.RwBucket, chanID uint64,
 	direction bool, disabled bool) error {
 
 	var disabledEdgeKey [8 + 1]byte
@@ -968,7 +968,7 @@ func updateEdgePolicyDisabledIndex(edges *bbolt.Bucket, chanID uint64,
 
 // putChanEdgePolicyUnknown marks the edge policy as unknown
 // in the edges bucket.
-func putChanEdgePolicyUnknown(edges *bbolt.Bucket, channelID uint64,
+func putChanEdgePolicyUnknown(edges kvdb.RwBucket, channelID uint64,
 	from []byte) error {
 
 	var edgeKey [33 + 8]byte
@@ -983,8 +983,8 @@ func putChanEdgePolicyUnknown(edges *bbolt.Bucket, channelID uint64,
 	return edges.Put(edgeKey[:], unknownPolicy)
 }
 
-func fetchChanEdgePolicy(edges *bbolt.Bucket, chanID []byte,
-	nodePub []byte, nodes *bbolt.Bucket) (*ChannelEdgePolicy, error) {
+func fetchChanEdgePolicy(edges kvdb.ReadBucket, chanID []byte,
+	nodePub []byte, nodes kvdb.ReadBucket) (*ChannelEdgePolicy, error) {
 
 	var edgeKey [33 + 8]byte
 	copy(edgeKey[:], nodePub)
@@ -1084,7 +1084,7 @@ func serializeChanEdgePolicy(w io.Writer, edge *ChannelEdgePolicy,
 }
 
 func deserializeChanEdgePolicy(r io.Reader,
-	nodes *bbolt.Bucket) (*ChannelEdgePolicy, error) {
+	nodes kvdb.ReadBucket) (*ChannelEdgePolicy, error) {
 
 	edge := &ChannelEdgePolicy{}
 

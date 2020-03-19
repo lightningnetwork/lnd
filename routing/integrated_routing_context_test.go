@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/coreos/bbolt"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
@@ -82,7 +82,7 @@ func (c *integratedRoutingContext) testPayment(expectedNofAttempts int) {
 	dbPath := file.Name()
 	defer os.Remove(dbPath)
 
-	db, err := bbolt.Open(dbPath, 0600, nil)
+	db, err := kvdb.Open(kvdb.BoltBackendName, dbPath, true)
 	if err != nil {
 		c.t.Fatal(err)
 	}

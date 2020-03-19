@@ -144,6 +144,15 @@ var (
 	// ErrChanBorked is returned when a caller attempts to mutate a borked
 	// channel.
 	ErrChanBorked = fmt.Errorf("cannot mutate borked channel")
+
+	// errLogEntryNotFound is returned when we cannot find a log entry at
+	// the height requested in the revocation log.
+	errLogEntryNotFound = fmt.Errorf("log entry not found")
+
+	// errHeightNotFound is returned when a query for channel balances at
+	// a height that we have not reached yet is made.
+	errHeightNotReached = fmt.Errorf("height requested greater than " +
+		"current commit height")
 )
 
 // ChannelType is an enum-like type that describes one of several possible
@@ -1389,6 +1398,44 @@ func (c *OpenChannel) UpdateCommitment(newCommitment *ChannelCommitment,
 	c.LocalCommitment = *newCommitment
 
 	return nil
+}
+
+// BalancesAtHeight returns the local and remote balances on our commitment
+// transactions as of a given height.
+//
+// NOTE: these are our balances *after* subtracting the commitment fee and
+// anchor outputs.
+func (c *OpenChannel) BalancesAtHeight(height uint64) (lnwire.MilliSatoshi,
+	lnwire.MilliSatoshi, error) {
+
+	if height > c.LocalCommitment.CommitHeight &&
+		height > c.RemoteCommitment.CommitHeight {
+
+		return 0, 0, errHeightNotReached
+	}
+
+	// If our current commit is as the desired height, we can return our
+	// current balances.
+	if c.LocalCommitment.CommitHeight == height {
+		return c.LocalCommitment.LocalBalance,
+			c.LocalCommitment.RemoteBalance, nil
+	}
+
+	// If our current remote commit is at the desired height, we can return
+	// the current balances.
+	if c.RemoteCommitment.CommitHeight == height {
+		return c.RemoteCommitment.LocalBalance,
+			c.RemoteCommitment.RemoteBalance, nil
+	}
+
+	// If we are not currently on the height requested, we need to look up
+	// the previous height to obtain our balances at the given height.
+	commit, err := c.FindPreviousState(height)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	return commit.LocalBalance, commit.RemoteBalance, nil
 }
 
 // HTLC is the on-disk representation of a hash time-locked contract. HTLCs are
@@ -3160,7 +3207,7 @@ func fetchChannelLogEntry(log kvdb.ReadBucket,
 	logEntrykey := makeLogKey(updateNum)
 	commitBytes := log.Get(logEntrykey[:])
 	if commitBytes == nil {
-		return ChannelCommitment{}, fmt.Errorf("log entry not found")
+		return ChannelCommitment{}, errLogEntryNotFound
 	}
 
 	commitReader := bytes.NewReader(commitBytes)

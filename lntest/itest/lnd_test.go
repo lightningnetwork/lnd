@@ -6850,6 +6850,27 @@ func waitForNTxsInMempool(miner *rpcclient.Client, n int,
 	}
 }
 
+// getNTxsFromMempool polls until finding the desired number of transactions in
+// the provided miner's mempool and returns the full transactions to the caller.
+func getNTxsFromMempool(miner *rpcclient.Client, n int,
+	timeout time.Duration) ([]*wire.MsgTx, error) {
+
+	txids, err := waitForNTxsInMempool(miner, n, timeout)
+	if err != nil {
+		return nil, err
+	}
+
+	var txes []*wire.MsgTx
+	for _, txid := range txids {
+		tx, err := miner.GetRawTransaction(txid)
+		if err != nil {
+			return nil, err
+		}
+		txes = append(txes, tx.MsgTx())
+	}
+	return txes, nil
+}
+
 // testFailingChannel tests that we will fail the channel by force closing ii
 // in the case where a counterparty tries to settle an HTLC with the wrong
 // preimage.
@@ -10568,7 +10589,16 @@ func assertNumActiveHtlcs(nodes []*lntest.HarnessNode, numHtlcs int) error {
 }
 
 func assertSpendingTxInMempool(t *harnessTest, miner *rpcclient.Client,
-	timeout time.Duration, chanPoint wire.OutPoint) {
+	timeout time.Duration, chanPoint wire.OutPoint) chainhash.Hash {
+
+	tx := getSpendingTxInMempool(t, miner, timeout, chanPoint)
+	return tx.TxHash()
+}
+
+// getSpendingTxInMempool waits for a transaction spending the given outpoint to
+// appear in the mempool and returns that tx in full.
+func getSpendingTxInMempool(t *harnessTest, miner *rpcclient.Client,
+	timeout time.Duration, chanPoint wire.OutPoint) *wire.MsgTx {
 
 	breakTimeout := time.After(timeout)
 	ticker := time.NewTicker(50 * time.Millisecond)
@@ -10594,9 +10624,10 @@ func assertSpendingTxInMempool(t *harnessTest, miner *rpcclient.Client,
 					t.Fatalf("unable to fetch tx: %v", err)
 				}
 
-				for _, txIn := range tx.MsgTx().TxIn {
+				msgTx := tx.MsgTx()
+				for _, txIn := range msgTx.TxIn {
 					if txIn.PreviousOutPoint == chanPoint {
-						return
+						return msgTx
 					}
 				}
 			}

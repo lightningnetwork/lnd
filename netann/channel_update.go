@@ -111,12 +111,12 @@ func ExtractChannelUpdate(ownerPubKey []byte,
 		info.ChannelPoint)
 }
 
-// ChannelUpdateFromEdge reconstructs a signed ChannelUpdate from the given edge
-// info and policy.
-func ChannelUpdateFromEdge(info *channeldb.ChannelEdgeInfo,
-	policy *channeldb.ChannelEdgePolicy) (*lnwire.ChannelUpdate, error) {
+// UnsignedChannelUpdateFromEdge reconstructs an unsigned ChannelUpdate from the
+// given edge info and policy.
+func UnsignedChannelUpdateFromEdge(info *channeldb.ChannelEdgeInfo,
+	policy *channeldb.ChannelEdgePolicy) *lnwire.ChannelUpdate {
 
-	update := &lnwire.ChannelUpdate{
+	return &lnwire.ChannelUpdate{
 		ChainHash:       info.ChainHash,
 		ShortChannelID:  lnwire.NewShortChanIDFromInt(policy.ChannelID),
 		Timestamp:       uint32(policy.LastUpdate.Unix()),
@@ -129,6 +129,14 @@ func ChannelUpdateFromEdge(info *channeldb.ChannelEdgeInfo,
 		FeeRate:         uint32(policy.FeeProportionalMillionths),
 		ExtraOpaqueData: policy.ExtraOpaqueData,
 	}
+}
+
+// ChannelUpdateFromEdge reconstructs a signed ChannelUpdate from the given edge
+// info and policy.
+func ChannelUpdateFromEdge(info *channeldb.ChannelEdgeInfo,
+	policy *channeldb.ChannelEdgePolicy) (*lnwire.ChannelUpdate, error) {
+
+	update := UnsignedChannelUpdateFromEdge(info, policy)
 
 	var err error
 	update.Signature, err = lnwire.NewSigFromRawSignature(policy.SigBytes)

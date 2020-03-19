@@ -2462,32 +2462,14 @@ func (d *AuthenticatedGossiper) updateChannel(info *channeldb.ChannelEdgeInfo,
 	edge *channeldb.ChannelEdgePolicy) (*lnwire.ChannelAnnouncement,
 	*lnwire.ChannelUpdate, error) {
 
-	// Make sure timestamp is always increased, such that our update gets
-	// propagated.
-	timestamp := time.Now().Unix()
-	if timestamp <= edge.LastUpdate.Unix() {
-		timestamp = edge.LastUpdate.Unix() + 1
-	}
-	edge.LastUpdate = time.Unix(timestamp, 0)
+	// Parse the unsigned edge into a channel update.
+	chanUpdate := netann.UnsignedChannelUpdateFromEdge(info, edge)
 
-	chanUpdate := &lnwire.ChannelUpdate{
-		ChainHash:       info.ChainHash,
-		ShortChannelID:  lnwire.NewShortChanIDFromInt(edge.ChannelID),
-		Timestamp:       uint32(timestamp),
-		MessageFlags:    edge.MessageFlags,
-		ChannelFlags:    edge.ChannelFlags,
-		TimeLockDelta:   edge.TimeLockDelta,
-		HtlcMinimumMsat: edge.MinHTLC,
-		HtlcMaximumMsat: edge.MaxHTLC,
-		BaseFee:         uint32(edge.FeeBaseMSat),
-		FeeRate:         uint32(edge.FeeProportionalMillionths),
-		ExtraOpaqueData: edge.ExtraOpaqueData,
-	}
-
-	// With the update applied, we'll generate a new signature over a
-	// digest of the channel announcement itself.
-	sig, err := netann.SignAnnouncement(
+	// We'll generate a new signature over a digest of the channel
+	// announcement itself and update the timestamp to ensure it propagate.
+	err := netann.SignChannelUpdate(
 		d.cfg.AnnSigner, d.selfKey, chanUpdate,
+		netann.ChanUpdSetTimestamp,
 	)
 	if err != nil {
 		return nil, nil, err
@@ -2495,11 +2477,8 @@ func (d *AuthenticatedGossiper) updateChannel(info *channeldb.ChannelEdgeInfo,
 
 	// Next, we'll set the new signature in place, and update the reference
 	// in the backing slice.
-	edge.SetSigBytes(sig.Serialize())
-	chanUpdate.Signature, err = lnwire.NewSigFromSignature(sig)
-	if err != nil {
-		return nil, nil, err
-	}
+	edge.LastUpdate = time.Unix(int64(chanUpdate.Timestamp), 0)
+	edge.SigBytes = chanUpdate.Signature.ToSignatureBytes()
 
 	// To ensure that our signature is valid, we'll verify it ourself
 	// before committing it to the slice returned.

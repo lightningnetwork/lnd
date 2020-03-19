@@ -354,6 +354,10 @@ func mainRPCServerPermissions() map[string][]bakery.Op {
 			Entity: "info",
 			Action: "read",
 		}},
+		"/lnrpc.Lightning/GetNodeMetrics": {{
+			Entity: "info",
+			Action: "read",
+		}},
 		"/lnrpc.Lightning/GetChanInfo": {{
 			Entity: "info",
 			Action: "read",
@@ -4561,14 +4565,16 @@ func (r *rpcServer) DescribeGraph(ctx context.Context,
 			nodeAddrs = append(nodeAddrs, nodeAddr)
 		}
 
-		resp.Nodes = append(resp.Nodes, &lnrpc.LightningNode{
+		lnNode := &lnrpc.LightningNode{
 			LastUpdate: uint32(node.LastUpdate.Unix()),
 			PubKey:     hex.EncodeToString(node.PubKeyBytes[:]),
 			Addresses:  nodeAddrs,
 			Alias:      node.Alias,
 			Color:      routing.EncodeHexColor(node.Color),
 			Features:   invoicesrpc.CreateRPCFeatures(node.Features),
-		})
+		}
+
+		resp.Nodes = append(resp.Nodes, lnNode)
 
 		return nil
 	})
@@ -4655,6 +4661,57 @@ func marshalDbEdge(edgeInfo *channeldb.ChannelEdgeInfo,
 	}
 
 	return edge
+}
+
+// GetNodeMetrics returns all available node metrics calculated from the
+// current channel graph.
+func (r *rpcServer) GetNodeMetrics(ctx context.Context,
+	req *lnrpc.NodeMetricsRequest) (*lnrpc.NodeMetricsResponse, error) {
+
+	// Get requested metric types.
+	getCentrality := false
+	for _, t := range req.Types {
+		if t == lnrpc.NodeMetricType_BETWEENNESS_CENTRALITY {
+			getCentrality = true
+		}
+	}
+
+	// Only centrality can be requested for now.
+	if !getCentrality {
+		return nil, nil
+	}
+
+	resp := &lnrpc.NodeMetricsResponse{
+		BetweennessCentrality: make(map[string]*lnrpc.FloatValue),
+	}
+
+	// Obtain the pointer to the global singleton channel graph, this will
+	// provide a consistent view of the graph due to bolt db's
+	// transactional model.
+	graph := r.server.chanDB.ChannelGraph()
+
+	// Calculate betweenness centrality if requested. Note that depending on the
+	// graph size, this may take up to a few minutes.
+	channelGraph := autopilot.ChannelGraphFromDatabase(graph)
+	centralityMetric := autopilot.NewBetweennessCentralityMetric()
+	if err := centralityMetric.Refresh(channelGraph); err != nil {
+		return nil, err
+	}
+
+	// Fill normalized and non normalized centrality.
+	centrality := centralityMetric.GetMetric(true)
+	for nodeID, val := range centrality {
+		resp.BetweennessCentrality[hex.EncodeToString(nodeID[:])] = &lnrpc.FloatValue{
+			NormalizedValue: val,
+		}
+	}
+
+	centrality = centralityMetric.GetMetric(false)
+	for nodeID, val := range centrality {
+		resp.BetweennessCentrality[hex.EncodeToString(nodeID[:])].Value = val
+	}
+
+	return resp, nil
 }
 
 // GetChanInfo returns the latest authenticated network announcement for the

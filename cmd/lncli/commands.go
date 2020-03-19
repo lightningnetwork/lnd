@@ -2974,6 +2974,31 @@ func describeGraph(ctx *cli.Context) error {
 	return nil
 }
 
+var getNodeMetricsCommand = cli.Command{
+	Name:        "getnodemetrics",
+	Category:    "Graph",
+	Description: "Prints out node metrics calculated from the current graph",
+	Usage:       "Get node metrics.",
+	Action:      actionDecorator(getNodeMetrics),
+}
+
+func getNodeMetrics(ctx *cli.Context) error {
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
+	req := &lnrpc.NodeMetricsRequest{
+		Types: []lnrpc.NodeMetricType{lnrpc.NodeMetricType_BETWEENNESS_CENTRALITY},
+	}
+
+	nodeMetrics, err := client.GetNodeMetrics(context.Background(), req)
+	if err != nil {
+		return err
+	}
+
+	printRespJSON(nodeMetrics)
+	return nil
+}
+
 var listPaymentsCommand = cli.Command{
 	Name:     "listpayments",
 	Category: "Payments",

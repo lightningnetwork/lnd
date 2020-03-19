@@ -641,6 +641,17 @@ service Lightning {
         };
     }
 
+    /** lncli: `getnodemetrics`
+    GetNodeMetrics returns node metrics calculated from the graph. Currently
+    the only supported metric is betweenness centrality of individual nodes.
+    */
+    rpc GetNodeMetrics (NodeMetricsRequest) returns (NodeMetricsResponse) {
+        option (google.api.http) = {
+            get: "/v1/graph/nodemetrics"
+        };
+    }
+
+
     /** lncli: `getchaninfo`
     GetChanInfo returns the latest authenticated network announcement for the
     given channel identified by its channel ID: an 8-byte integer which
@@ -2514,6 +2525,34 @@ message ChannelGraph {
 
     /// The list of `ChannelEdge`s in this channel graph
     repeated ChannelEdge edges = 2;
+}
+
+enum NodeMetricType {
+    BETWEENNESS_CENTRALITY = 0;
+}
+
+message NodeMetricsRequest {
+  /// The requesteded node metrics.
+  repeated NodeMetricType types = 1;
+}
+
+message NodeMetricsResponse {
+    /**
+    Betweenness centrality is the sum of the ratio of shortest paths that pass
+    through the node for each pair of nodes in the graph (not counting paths
+    starting or ending at this node).
+    Map of node pubkey to betweenness centrality of the node. Normalized
+    values are in the [0,1] closed interval.
+    */
+    map<string, FloatValue> betweenness_centrality = 1;
+}
+
+message FloatValue {
+  /// Arbitrary float value.
+  double value = 1;
+
+  /// The value normalized to [0,1] or [-1,1].
+  double normalized_value = 2;
 }
 
 message ChanInfoRequest {

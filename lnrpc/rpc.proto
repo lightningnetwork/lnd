@@ -1996,7 +1996,7 @@ message PendingChannelsResponse {
 
         /// Hash of the remote version of the commitment tx.
         string remote_txid = 2;
-        
+
         /// Hash of the remote pending version of the commitment tx.
         string remote_pending_txid = 3;
     }

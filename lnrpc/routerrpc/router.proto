@@ -333,8 +333,8 @@ message BuildRouteResponse {
     lnrpc.Route route = 1;
 }
 
-
-message SubscribeHtlcEventsRequest{}
+message SubscribeHtlcEventsRequest {
+}
 
 /**
 HtlcEvent contains the htlc event that was processed. These are served on a
@@ -344,7 +344,7 @@ some events may be replayed upon restart. Events consumed from this package
 should be de-duplicated by the htlc's unique combination of incoming and
 outgoing channel id and htlc id. [EXPERIMENTAL]
 */
-message HtlcEvent{
+message HtlcEvent {
     /**
     The short channel id that the incoming htlc arrived at our node on. This
     value is zero for sends.
@@ -374,7 +374,7 @@ message HtlcEvent{
     */
     uint64 timestamp_ns = 5;
 
-    enum EventType{
+    enum EventType {
         UNKNOWN = 0;
         SEND = 1;
         RECEIVE = 2;
@@ -395,7 +395,7 @@ message HtlcEvent{
     }
 }
 
-message HtlcInfo{
+message HtlcInfo {
     // The timelock on the incoming htlc.
     uint32 incoming_timelock = 1;
 
@@ -409,16 +409,18 @@ message HtlcInfo{
     uint64 outgoing_amt_msat = 4;
 }
 
-message ForwardEvent{
+message ForwardEvent {
     // Info contains details about the htlc that was forwarded.
     HtlcInfo info = 1;
 }
 
-message ForwardFailEvent{}
+message ForwardFailEvent {
+}
 
-message SettleEvent{}
+message SettleEvent {
+}
 
-message LinkFailEvent{
+message LinkFailEvent {
     // Info contains details about the htlc that we failed.
     HtlcInfo info = 1;
 
@@ -443,7 +445,7 @@ enum FailureDetail {
     LINK_NOT_ELIGIBLE = 3;
     ON_CHAIN_TIMEOUT = 4;
     HTLC_EXCEEDS_MAX = 5;
-    INSUFFICIENT_BALANCE =6;
+    INSUFFICIENT_BALANCE = 6;
     INCOMPLETE_FORWARD = 7;
     HTLC_ADD_FAILED = 8;
     FORWARDS_DISABLED = 9;
@@ -521,5 +523,6 @@ service Router {
     SubscribeHtlcEvents creates a uni-directional stream from the server to
     the client which delivers a stream of htlc events.
     */
-    rpc SubscribeHtlcEvents (SubscribeHtlcEventsRequest) returns (stream HtlcEvent);
+    rpc SubscribeHtlcEvents (SubscribeHtlcEventsRequest)
+        returns (stream HtlcEvent);
 }

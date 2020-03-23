@@ -38,7 +38,7 @@ import (
 const (
 	// defaultBitcoinMinHTLCMSat is the default smallest value htlc this
 	// node will accept. This value is proposed in the channel open sequence
-	// and cannot be changed during the life of the channel. It is zero by
+	// and cannot be changed during the life of the channel. It is 1 msat by
 	// default to allow maximum flexibility in deciding what size payments
 	// to forward.
 	//

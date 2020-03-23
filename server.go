@@ -710,11 +710,12 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 	s.missionControl, err = routing.NewMissionControl(
 		chanDB,
 		&routing.MissionControlConfig{
-			AprioriHopProbability: routingConfig.AprioriHopProbability,
-			PenaltyHalfLife:       routingConfig.PenaltyHalfLife,
-			MaxMcHistory:          routingConfig.MaxMcHistory,
-			AprioriWeight:         routingConfig.AprioriWeight,
-			SelfNode:              selfNode.PubKeyBytes,
+			AprioriHopProbability:   routingConfig.AprioriHopProbability,
+			PenaltyHalfLife:         routingConfig.PenaltyHalfLife,
+			MaxMcHistory:            routingConfig.MaxMcHistory,
+			AprioriWeight:           routingConfig.AprioriWeight,
+			SelfNode:                selfNode.PubKeyBytes,
+			MinFailureRelaxInterval: routing.DefaultMinFailureRelaxInterval,
 		},
 	)
 	if err != nil {

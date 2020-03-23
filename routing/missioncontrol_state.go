@@ -19,13 +19,21 @@ type missionControlState struct {
 	// lastSecondChance tracks the last time a second chance was granted for
 	// a directed node pair.
 	lastSecondChance map[DirectedNodePair]time.Time
+
+	// minFailureRelaxInterval is the minimum time that must have passed
+	// since the previously recorded failure before the failure amount may
+	// be raised.
+	minFailureRelaxInterval time.Duration
 }
 
 // newMissionControlState instantiates a new mission control state object.
-func newMissionControlState() *missionControlState {
+func newMissionControlState(
+	minFailureRelaxInterval time.Duration) *missionControlState {
+
 	return &missionControlState{
-		lastPairResult:   make(map[route.Vertex]NodeResults),
-		lastSecondChance: make(map[DirectedNodePair]time.Time),
+		lastPairResult:          make(map[route.Vertex]NodeResults),
+		lastSecondChance:        make(map[DirectedNodePair]time.Time),
+		minFailureRelaxInterval: minFailureRelaxInterval,
 	}
 }
 
@@ -86,6 +94,22 @@ func (m *missionControlState) setLastPairResult(fromNode, toNode route.Vertex,
 		// could cause a failure for a lower amount (a more severe
 		// condition) to be revived as if it just happened.
 		failAmt := result.amt
+
+		// Drop result if it would increase the failure amount too soon
+		// after a previous failure. This can happen if htlc results
+		// come in out of order. This check makes it easier for payment
+		// processes to converge to a final state.
+		failInterval := timestamp.Sub(current.FailTime)
+		if failAmt > current.FailAmt &&
+			failInterval < m.minFailureRelaxInterval {
+
+			log.Debugf("Ignoring higher amount failure within min "+
+				"failure relaxation interval: prev_fail_amt=%v, "+
+				"fail_amt=%v, interval=%v",
+				current.FailAmt, failAmt, failInterval)
+
+			return
+		}
 
 		current.FailTime = timestamp
 		current.FailAmt = failAmt

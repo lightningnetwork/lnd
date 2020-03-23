@@ -50,6 +50,11 @@ const (
 	// DefaultAprioriWeight is the default a priori weight. See
 	// MissionControlConfig for further explanation.
 	DefaultAprioriWeight = 0.5
+
+	// DefaultMinFailureRelaxInterval is the default minimum time that must
+	// have passed since the previously recorded failure before the failure
+	// amount may be raised.
+	DefaultMinFailureRelaxInterval = time.Minute
 )
 
 // NodeResults contains previous results from a node to its peers.
@@ -112,6 +117,11 @@ type MissionControlConfig struct {
 	// probability completely and only base the probability on historical
 	// results, unless there are none available.
 	AprioriWeight float64
+
+	// MinFailureRelaxInterval is the minimum time that must have passed
+	// since the previously recorded failure before the failure amount may
+	// be raised.
+	MinFailureRelaxInterval time.Duration
 
 	// SelfNode is our own pubkey.
 	SelfNode route.Vertex
@@ -188,7 +198,7 @@ func NewMissionControl(db kvdb.Backend, cfg *MissionControlConfig) (
 	}
 
 	mc := &MissionControl{
-		state:     newMissionControlState(),
+		state:     newMissionControlState(cfg.MinFailureRelaxInterval),
 		now:       time.Now,
 		cfg:       cfg,
 		store:     store,

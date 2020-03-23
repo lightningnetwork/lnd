@@ -523,11 +523,18 @@ func (n *NeutrinoNotifier) historicalConfDetails(confRequest chainntnfs.ConfRequ
 				scanHeight, err)
 		}
 
-		// With the hash computed, we can now fetch the basic filter
-		// for this height.
+		// With the hash computed, we can now fetch the basic filter for this
+		// height. Since the range of required items is known we avoid
+		// roundtrips by requesting a batched response and save bandwidth by
+		// limiting the max number of items per batch. Since neutrino populates
+		// its underline filters cache with the batch response, the next call
+		// will execute a network query only once per batch and not on every
+		// iteration.
 		regFilter, err := n.p2pNode.GetCFilter(
 			*blockHash, wire.GCSFilterRegular,
 			neutrino.NumRetries(5),
+			neutrino.OptimisticReverseBatch(),
+			neutrino.MaxBatchSize(int64(scanHeight-startHeight+1)),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to retrieve regular filter for "+

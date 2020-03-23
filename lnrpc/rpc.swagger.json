@@ -1997,6 +1997,11 @@
         "close_address": {
           "type": "string",
           "description": "*\nClose address is the address that we will enforce payout to on cooperative\nclose if the channel was opened utilizing option upfront shutdown. This\nvalue can be set on channel open by setting close_address in an open channel\nrequest. If this value is not set, you can still choose a payout address by\ncooperatively closing with the delivery_address field set."
+        },
+        "push_amount_sat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The amount that the initiator of the channel optionally pushed to the remote\nparty on channel open. This amount will be zero if the channel initiator did\nnot push any funds to the remote peer. If the initiator field is true, we\npushed this amount to our peer, if it is false, the remote peer pushed this\namount to us."
         }
       }
     },

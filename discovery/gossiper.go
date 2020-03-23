@@ -20,6 +20,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/multimutex"
+	"github.com/lightningnetwork/lnd/netann"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/ticker"
@@ -348,15 +349,6 @@ func New(cfg Config, selfKey *btcec.PublicKey) *AuthenticatedGossiper {
 	})
 
 	return gossiper
-}
-
-// updatedChanPolicies is a set of channel policies that have been successfully
-// updated and written to disk, or an error if the policy update failed. This
-// struct's map field is intended to be used for updating channel policies on
-// the link layer.
-type updatedChanPolicies struct {
-	chanPolicies map[wire.OutPoint]*channeldb.ChannelEdgePolicy
-	err          error
 }
 
 // EdgeWithInfo contains the information that is required to update an edge.
@@ -1364,6 +1356,22 @@ func (d *AuthenticatedGossiper) processChanPolicyUpdate(
 	return chanUpdates, nil
 }
 
+// remotePubFromChanInfo returns the public key of the remote peer given a
+// ChannelEdgeInfo that describe a channel we have with them.
+func remotePubFromChanInfo(chanInfo *channeldb.ChannelEdgeInfo,
+	chanFlags lnwire.ChanUpdateChanFlags) [33]byte {
+
+	var remotePubKey [33]byte
+	switch {
+	case chanFlags&lnwire.ChanUpdateDirection == 0:
+		remotePubKey = chanInfo.NodeKey2Bytes
+	case chanFlags&lnwire.ChanUpdateDirection == 1:
+		remotePubKey = chanInfo.NodeKey1Bytes
+	}
+
+	return remotePubKey
+}
+
 // processRejectedEdge examines a rejected edge to see if we can extract any
 // new announcements from it.  An edge will get rejected if we already added
 // the same edge without AuthProof to the graph. If the received announcement
@@ -1400,7 +1408,7 @@ func (d *AuthenticatedGossiper) processRejectedEdge(
 
 	// We'll then create then validate the new fully assembled
 	// announcement.
-	chanAnn, e1Ann, e2Ann, err := CreateChanAnnouncement(
+	chanAnn, e1Ann, e2Ann, err := netann.CreateChanAnnouncement(
 		proof, chanInfo, e1, e2,
 	)
 	if err != nil {
@@ -2157,7 +2165,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 						msg.ChannelID,
 						peerID)
 
-					chanAnn, _, _, err := CreateChanAnnouncement(
+					chanAnn, _, _, err := netann.CreateChanAnnouncement(
 						chanInfo.AuthProof, chanInfo,
 						e1, e2,
 					)
@@ -2240,7 +2248,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 			dbProof.BitcoinSig1Bytes = oppositeProof.BitcoinSignature.ToSignatureBytes()
 			dbProof.BitcoinSig2Bytes = msg.BitcoinSignature.ToSignatureBytes()
 		}
-		chanAnn, e1Ann, e2Ann, err := CreateChanAnnouncement(
+		chanAnn, e1Ann, e2Ann, err := netann.CreateChanAnnouncement(
 			&dbProof, chanInfo, e1, e2,
 		)
 		if err != nil {
@@ -2445,42 +2453,23 @@ func (d *AuthenticatedGossiper) updateChannel(info *channeldb.ChannelEdgeInfo,
 	edge *channeldb.ChannelEdgePolicy) (*lnwire.ChannelAnnouncement,
 	*lnwire.ChannelUpdate, error) {
 
-	// Make sure timestamp is always increased, such that our update gets
-	// propagated.
-	timestamp := time.Now().Unix()
-	if timestamp <= edge.LastUpdate.Unix() {
-		timestamp = edge.LastUpdate.Unix() + 1
-	}
-	edge.LastUpdate = time.Unix(timestamp, 0)
+	// Parse the unsigned edge into a channel update.
+	chanUpdate := netann.UnsignedChannelUpdateFromEdge(info, edge)
 
-	chanUpdate := &lnwire.ChannelUpdate{
-		ChainHash:       info.ChainHash,
-		ShortChannelID:  lnwire.NewShortChanIDFromInt(edge.ChannelID),
-		Timestamp:       uint32(timestamp),
-		MessageFlags:    edge.MessageFlags,
-		ChannelFlags:    edge.ChannelFlags,
-		TimeLockDelta:   edge.TimeLockDelta,
-		HtlcMinimumMsat: edge.MinHTLC,
-		HtlcMaximumMsat: edge.MaxHTLC,
-		BaseFee:         uint32(edge.FeeBaseMSat),
-		FeeRate:         uint32(edge.FeeProportionalMillionths),
-		ExtraOpaqueData: edge.ExtraOpaqueData,
-	}
-
-	// With the update applied, we'll generate a new signature over a
-	// digest of the channel announcement itself.
-	sig, err := SignAnnouncement(d.cfg.AnnSigner, d.selfKey, chanUpdate)
+	// We'll generate a new signature over a digest of the channel
+	// announcement itself and update the timestamp to ensure it propagate.
+	err := netann.SignChannelUpdate(
+		d.cfg.AnnSigner, d.selfKey, chanUpdate,
+		netann.ChanUpdSetTimestamp,
+	)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	// Next, we'll set the new signature in place, and update the reference
 	// in the backing slice.
-	edge.SetSigBytes(sig.Serialize())
-	chanUpdate.Signature, err = lnwire.NewSigFromSignature(sig)
-	if err != nil {
-		return nil, nil, err
-	}
+	edge.LastUpdate = time.Unix(int64(chanUpdate.Timestamp), 0)
+	edge.SigBytes = chanUpdate.Signature.ToSignatureBytes()
 
 	// To ensure that our signature is valid, we'll verify it ourself
 	// before committing it to the slice returned.

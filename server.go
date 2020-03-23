@@ -651,7 +651,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB,
 
 	// With the announcement generated, we'll sign it to properly
 	// authenticate the message on the network.
-	authSig, err := discovery.SignAnnouncement(
+	authSig, err := netann.SignAnnouncement(
 		s.nodeSigner, s.identityPriv.PubKey(), nodeAnn,
 	)
 	if err != nil {
@@ -1657,7 +1657,7 @@ out:
 			// announcement with the updated addresses and broadcast
 			// it to our peers.
 			newNodeAnn, err := s.genNodeAnnouncement(
-				true, lnwire.UpdateNodeAnnAddrs(newAddrs),
+				true, netann.NodeAnnSetAddrs(newAddrs),
 			)
 			if err != nil {
 				srvrLog.Debugf("Unable to generate new node "+
@@ -2039,7 +2039,7 @@ func (s *server) initTorController() error {
 // announcement. If refresh is true, then the time stamp of the announcement
 // will be updated in order to ensure it propagates through the network.
 func (s *server) genNodeAnnouncement(refresh bool,
-	updates ...func(*lnwire.NodeAnnouncement)) (lnwire.NodeAnnouncement, error) {
+	modifiers ...netann.NodeAnnModifier) (lnwire.NodeAnnouncement, error) {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -2050,31 +2050,16 @@ func (s *server) genNodeAnnouncement(refresh bool,
 		return *s.currentNodeAnn, nil
 	}
 
-	// Now that we know we need to update our copy, we'll apply all the
-	// function updates that'll mutate the current version of our node
-	// announcement.
-	for _, update := range updates {
-		update(s.currentNodeAnn)
-	}
+	// Always update the timestamp when refreshing to ensure the update
+	// propagates.
+	modifiers = append(modifiers, netann.NodeAnnSetTimestamp)
 
-	// We'll now update the timestamp, ensuring that with each update, the
-	// timestamp monotonically increases.
-	newStamp := uint32(time.Now().Unix())
-	if newStamp <= s.currentNodeAnn.Timestamp {
-		newStamp = s.currentNodeAnn.Timestamp + 1
-	}
-	s.currentNodeAnn.Timestamp = newStamp
-
-	// Now that the announcement is fully updated, we'll generate a new
-	// signature over the announcement to ensure nodes on the network
-	// accepted the new authenticated announcement.
-	sig, err := discovery.SignAnnouncement(
+	// Otherwise, we'll sign a new update after applying all of the passed
+	// modifiers.
+	err := netann.SignNodeAnnouncement(
 		s.nodeSigner, s.identityPriv.PubKey(), s.currentNodeAnn,
+		modifiers...,
 	)
-	if err != nil {
-		return lnwire.NodeAnnouncement{}, err
-	}
-	s.currentNodeAnn.Signature, err = lnwire.NewSigFromSignature(sig)
 	if err != nil {
 		return lnwire.NodeAnnouncement{}, err
 	}

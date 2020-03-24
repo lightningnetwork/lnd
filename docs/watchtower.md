@@ -102,6 +102,24 @@ If the watchtower's clients will need remote access, be sure to either:
  - Use a proxy to direct traffic from an open port to the watchtower's listening
    address.
 
+### Tor Hidden Services
+
+Watchtowers have tor hidden service support and can automatically generate a
+hidden service on startup with the following flags:
+
+```
+🏔 lnd --tor.active --tor.v3 --watchtower.active
+```
+
+The onion address is then shown in the "uris" field when queried with `lncli tower info`:
+
+```
+...
+"uris": [
+        "03281d603b2c5e19b8893a484eb938d7377179a9ef1a6bca4c0bcbbfc291657b63@bn2kxggzjysvsd5o3uqe4h7655u7v2ydhxzy7ea2fx26duaixlwuguad.onion:9911"
+]
+```
+
 Note: *The watchtower’s public key is distinct from `lnd`’s node public key. For
 now this acts as a soft whitelist as it requires clients to know the tower’s
 public key in order to use it for backups before more advanced whitelisting

@@ -1156,6 +1156,7 @@ func testBasicChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 	allTypes := []commitType{
 		commitTypeLegacy,
 		commitTypeTweakless,
+		commitTypeAnchors,
 	}
 
 test:
@@ -1208,27 +1209,58 @@ test:
 					t.Fatalf("failed funding flow: %v", err)
 				}
 
-				carolTweakless := carolCommitType == commitTypeTweakless
+				// Both nodes should report the same commitment
+				// type.
+				chansCommitType := carolChannel.CommitmentType
+				if daveChannel.CommitmentType != chansCommitType {
+					t.Fatalf("commit types don't match, "+
+						"carol got %v, dave got %v",
+						carolChannel.CommitmentType,
+						daveChannel.CommitmentType,
+					)
+				}
 
-				daveTweakless := daveCommitType == commitTypeTweakless
+				// Now check that the commitment type reported
+				// by both nodes is what we expect. It will be
+				// the minimum of the two nodes' preference, in
+				// the order Legacy, Tweakless, Anchors.
+				expType := carolCommitType
 
-				tweaklessSignalled := carolTweakless && daveTweakless
-				tweaklessChans := (carolChannel.StaticRemoteKey &&
-					daveChannel.StaticRemoteKey)
+				switch daveCommitType {
+
+				// Dave supports anchors, type will be what
+				// Carol supports.
+				case commitTypeAnchors:
+
+				// Dave only supports tweakless, channel will
+				// be downgraded to this type if Carol supports
+				// anchors.
+				case commitTypeTweakless:
+					if expType == commitTypeAnchors {
+						expType = commitTypeTweakless
+					}
+
+				// Dave only supoprts legacy type, channel will
+				// be downgraded to this type.
+				case commitTypeLegacy:
+					expType = commitTypeLegacy
+
+				default:
+					t.Fatalf("invalid commit type %v",
+						daveCommitType)
+				}
+
+				// Check that the signalled type matches what we
+				// expect.
 				switch {
-				// If both sides signalled a tweakless channel, and the
-				// resulting channel doesn't reflect this, then this
-				// is a failed case.
-				case tweaklessSignalled && !tweaklessChans:
-					t.Fatalf("expected tweakless channnel, got " +
-						"non-tweaked channel")
+				case expType == commitTypeAnchors && chansCommitType == lnrpc.CommitmentType_ANCHORS:
+				case expType == commitTypeTweakless && chansCommitType == lnrpc.CommitmentType_STATIC_REMOTE_KEY:
+				case expType == commitTypeLegacy && chansCommitType == lnrpc.CommitmentType_LEGACY:
 
-				// If both sides didn't signal a tweakless
-				// channel, and the resulting channel is
-				// tweakless, and this is also a failed case.
-				case !tweaklessSignalled && tweaklessChans:
-					t.Fatalf("expected non-tweaked channel, got " +
-						"tweakless channel")
+				default:
+					t.Fatalf("expected nodes to signal "+
+						"commit type %v, instead got "+
+						"%v", expType, chansCommitType)
 				}
 
 				// As we've concluded this sub-test case we'll

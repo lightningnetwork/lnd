@@ -12717,12 +12717,16 @@ func testAbandonChannel(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// Make sure the channel is no longer in the channel backup list.
-	bkupAfter, err := ioutil.ReadFile(net.Alice.ChanBackupPath())
+	err = wait.Predicate(func() bool {
+		bkupAfter, err := ioutil.ReadFile(net.Alice.ChanBackupPath())
+		if err != nil {
+			t.Fatalf("could not get channel backup before "+
+				"abandoning channel: %v", err)
+		}
+
+		return len(bkupAfter) < len(bkupBefore)
+	}, defaultTimeout)
 	if err != nil {
-		t.Fatalf("could not get channel backup before abandoning "+
-			"channel: %v", err)
-	}
-	if len(bkupAfter) >= len(bkupBefore) {
 		t.Fatalf("channel wasn't removed from channel backup file")
 	}
 

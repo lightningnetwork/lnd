@@ -701,7 +701,7 @@ func testCancelNonExistentReservation(miner *rpctest.Harness,
 	res, err := lnwallet.NewChannelReservation(
 		10000, 10000, feePerKw, alice, 22, 10, &testHdSeed,
 		lnwire.FFAnnounceChannel, lnwallet.CommitmentTypeTweakless,
-		nil, [32]byte{},
+		nil, [32]byte{}, 0,
 	)
 	if err != nil {
 		t.Fatalf("unable to create res: %v", err)
@@ -796,8 +796,8 @@ func assertContributionInitPopulated(t *testing.T, c *lnwallet.ChannelContributi
 func testSingleFunderReservationWorkflow(miner *rpctest.Harness,
 	alice, bob *lnwallet.LightningWallet, t *testing.T,
 	commitType lnwallet.CommitmentType,
-	aliceChanFunder chanfunding.Assembler,
-	fetchFundingTx func() *wire.MsgTx, pendingChanID [32]byte) {
+	aliceChanFunder chanfunding.Assembler, fetchFundingTx func() *wire.MsgTx,
+	pendingChanID [32]byte, thawHeight uint32) {
 
 	// For this scenario, Alice will be the channel initiator while bob
 	// will act as the responder to the workflow.
@@ -1043,6 +1043,24 @@ func testSingleFunderReservationWorkflow(miner *rpctest.Harness,
 	blockTx := block.Transactions[1]
 	if blockTx.TxHash() != fundingSha {
 		t.Fatalf("incorrect transaction was mined")
+	}
+
+	// If a frozen channel was requested, then we expect that both channel
+	// types show as being a frozen channel type.
+	aliceChanFrozen := aliceChannels[0].ChanType.IsFrozen()
+	bobChanFrozen := bobChannels[0].ChanType.IsFrozen()
+	if thawHeight != 0 && (!aliceChanFrozen || !bobChanFrozen) {
+		t.Fatalf("expected both alice and bob to have frozen chans: "+
+			"alice_frozen=%v, bob_frozen=%v", aliceChanFrozen,
+			bobChanFrozen)
+	}
+	if thawHeight != bobChannels[0].ThawHeight {
+		t.Fatalf("wrong thaw height: expected %v got %v", thawHeight,
+			bobChannels[0].ThawHeight)
+	}
+	if thawHeight != aliceChannels[0].ThawHeight {
+		t.Fatalf("wrong thaw height: expected %v got %v", thawHeight,
+			aliceChannels[0].ThawHeight)
 	}
 
 	assertReservationDeleted(aliceChanReservation, t)
@@ -2546,8 +2564,8 @@ var walletTests = []walletTestCase{
 
 			testSingleFunderReservationWorkflow(
 				miner, alice, bob, t,
-				lnwallet.CommitmentTypeLegacy, nil, nil,
-				[32]byte{},
+				lnwallet.CommitmentTypeLegacy, nil,
+				nil, [32]byte{}, 0,
 			)
 		},
 	},
@@ -2558,8 +2576,8 @@ var walletTests = []walletTestCase{
 
 			testSingleFunderReservationWorkflow(
 				miner, alice, bob, t,
-				lnwallet.CommitmentTypeTweakless, nil, nil,
-				[32]byte{},
+				lnwallet.CommitmentTypeTweakless, nil,
+				nil, [32]byte{}, 0,
 			)
 		},
 	},
@@ -2777,12 +2795,13 @@ func testSingleFunderExternalFundingTx(miner *rpctest.Harness,
 	// Now that we have the fully constructed funding transaction, we'll
 	// create a new shim external funder out of it for Alice, and prep a
 	// shim intent for Bob.
+	thawHeight := uint32(200)
 	aliceExternalFunder := chanfunding.NewCannedAssembler(
-		*chanPoint, btcutil.Amount(chanAmt), &aliceFundingKey,
+		thawHeight, *chanPoint, btcutil.Amount(chanAmt), &aliceFundingKey,
 		bobFundingKey.PubKey, true,
 	)
 	bobShimIntent, err := chanfunding.NewCannedAssembler(
-		*chanPoint, btcutil.Amount(chanAmt), &bobFundingKey,
+		thawHeight, *chanPoint, btcutil.Amount(chanAmt), &bobFundingKey,
 		aliceFundingKey.PubKey, false,
 	).ProvisionChannel(&chanfunding.Request{
 		LocalAmt: btcutil.Amount(chanAmt),
@@ -2816,7 +2835,7 @@ func testSingleFunderExternalFundingTx(miner *rpctest.Harness,
 		miner, alice, bob, t, lnwallet.CommitmentTypeTweakless,
 		aliceExternalFunder, func() *wire.MsgTx {
 			return fundingTx
-		}, pendingChanID,
+		}, pendingChanID, thawHeight,
 	)
 }
 

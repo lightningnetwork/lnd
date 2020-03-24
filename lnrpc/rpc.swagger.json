@@ -1847,6 +1847,11 @@
           "type": "string",
           "format": "byte",
           "description": "*\nIf non-zero, then this will be used as the pending channel ID on the wire\nprotocol to initate the funding request. This is an optional field, and\nshould only be set if the responder is already expecting a specific pending\nchannel ID."
+        },
+        "thaw_height": {
+          "type": "integer",
+          "format": "int64",
+          "description": "*\nThis uint32 indicates if this channel is to be considered 'frozen'. A\nfrozen channel does not allow a cooperative channel close by the\ninitiator. The thaw_height is the height that this restriction stops\napplying to the channel."
         }
       }
     },
@@ -2002,6 +2007,11 @@
           "type": "string",
           "format": "uint64",
           "description": "The amount that the initiator of the channel optionally pushed to the remote\nparty on channel open. This amount will be zero if the channel initiator did\nnot push any funds to the remote peer. If the initiator field is true, we\npushed this amount to our peer, if it is false, the remote peer pushed this\namount to us."
+        },
+        "thaw_height": {
+          "type": "integer",
+          "format": "int64",
+          "description": "*\nThis uint32 indicates if this channel is to be considered 'frozen'. A\nfrozen channel doest not allow a cooperative channel close by the\ninitiator. The thaw_height is the height that this restriction stops\napplying to the channel. This field is optional, not setting it or using a\nvalue of zero will mean the channel has no additional restrictions."
         }
       }
     },

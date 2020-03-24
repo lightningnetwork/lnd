@@ -102,6 +102,11 @@ var (
 	// channel closure. This key should be accessed from within the
 	// sub-bucket of a target channel, identified by its channel point.
 	revocationLogBucket = []byte("revocation-log-key")
+
+	// frozenChanKey is the key where we store the information for any
+	// active "frozen" channels. This key is present only in the leaf
+	// bucket for a given channel.
+	frozenChanKey = []byte("frozen-chans")
 )
 
 var (
@@ -191,6 +196,11 @@ const (
 	// channel type also uses a delayed to_remote output script. If bit is
 	// set, we'll find the size of the anchor outputs in the database.
 	AnchorOutputsBit ChannelType = 1 << 3
+
+	// FrozenBit indicates that the channel is a frozen channel, meaning
+	// that only the responder can decide to cooperatively close the
+	// channel.
+	FrozenBit ChannelType = 1 << 4
 )
 
 // IsSingleFunder returns true if the channel type if one of the known single
@@ -220,6 +230,13 @@ func (c ChannelType) HasFundingTx() bool {
 // commitment.
 func (c ChannelType) HasAnchors() bool {
 	return c&AnchorOutputsBit == AnchorOutputsBit
+}
+
+// IsFrozen returns true if the channel is considered to be "frozen". A frozen
+// channel means that only the responder can initiate a cooperative channel
+// closure.
+func (c ChannelType) IsFrozen() bool {
+	return c&FrozenBit == FrozenBit
 }
 
 // ChannelConstraints represents a set of constraints meant to allow a node to
@@ -634,6 +651,11 @@ type OpenChannel struct {
 	// by the remote node with option_upfront_shutdown_script set. If the option
 	// was not set, the field is empty.
 	RemoteShutdownScript lnwire.DeliveryAddress
+
+	// ThawHeight is the height when a frozen channel once again becomes a
+	// normal channel. If this is zero, then there're no restrictions on
+	// this channel.
+	ThawHeight uint32
 
 	// TODO(roasbeef): eww
 	Db *DB
@@ -1229,6 +1251,17 @@ func putOpenChannel(chanBucket kvdb.RwBucket, channel *OpenChannel) error {
 		return fmt.Errorf("unable to store chan commitments: %v", err)
 	}
 
+	// Next, if this is a frozen channel, we'll add in the axillary
+	// information we need to store.
+	if channel.ChanType.IsFrozen() {
+		err := storeThawHeight(
+			chanBucket, channel.ThawHeight,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to store thaw height: %v", err)
+		}
+	}
+
 	// Finally, we'll write out the revocation state for both parties
 	// within a distinct key space.
 	if err := putChanRevocationState(chanBucket, channel); err != nil {
@@ -1257,6 +1290,18 @@ func fetchOpenChannel(chanBucket kvdb.ReadBucket,
 	// commitment state for both sides of the channel.
 	if err := fetchChanCommitments(chanBucket, channel); err != nil {
 		return nil, fmt.Errorf("unable to fetch chan commitments: %v", err)
+	}
+
+	// Next, if this is a frozen channel, we'll add in the axillary
+	// information we need to store.
+	if channel.ChanType.IsFrozen() {
+		thawHeight, err := fetchThawHeight(chanBucket)
+		if err != nil {
+			return nil, fmt.Errorf("unable to store thaw "+
+				"height: %v", err)
+		}
+
+		channel.ThawHeight = thawHeight
 	}
 
 	// Finally, we'll retrieve the current revocation state so we can
@@ -2517,6 +2562,15 @@ func (c *OpenChannel) CloseChannel(summary *ChannelCloseSummary,
 			return err
 		}
 
+		// We'll also remove the channel from the frozen channel bucket
+		// if we need to.
+		if c.ChanType.IsFrozen() {
+			err := deleteThawHeight(chanBucket)
+			if err != nil {
+				return err
+			}
+		}
+
 		// With the base channel data deleted, attempt to delete the
 		// information stored within the revocation log.
 		logBucket := chanBucket.NestedReadWriteBucket(revocationLogBucket)
@@ -3212,4 +3266,30 @@ func fetchChannelLogEntry(log kvdb.ReadBucket,
 
 	commitReader := bytes.NewReader(commitBytes)
 	return deserializeChanCommit(commitReader)
+}
+
+func fetchThawHeight(chanBucket kvdb.ReadBucket) (uint32, error) {
+	var height uint32
+
+	heightBytes := chanBucket.Get(frozenChanKey)
+	heightReader := bytes.NewReader(heightBytes)
+
+	if err := ReadElements(heightReader, &height); err != nil {
+		return 0, err
+	}
+
+	return height, nil
+}
+
+func storeThawHeight(chanBucket kvdb.RwBucket, height uint32) error {
+	var heightBuf bytes.Buffer
+	if err := WriteElements(&heightBuf, height); err != nil {
+		return err
+	}
+
+	return chanBucket.Put(frozenChanKey, heightBuf.Bytes())
+}
+
+func deleteThawHeight(chanBucket kvdb.RwBucket) error {
+	return chanBucket.Delete(frozenChanKey)
 }

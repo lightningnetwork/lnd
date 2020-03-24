@@ -1,15 +1,38 @@
 package autopilot
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcutil"
 )
 
+func TestBetweennessCentralityMetricConstruction(t *testing.T) {
+	failing := []int{-1, 0}
+	ok := []int{1, 10}
+
+	for _, workers := range failing {
+		m, err := NewBetweennessCentralityMetric(workers)
+		if m != nil || err == nil {
+			t.Fatalf("construction must fail with <= 0 workers")
+		}
+	}
+
+	for _, workers := range ok {
+		m, err := NewBetweennessCentralityMetric(workers)
+		if m == nil || err != nil {
+			t.Fatalf("construction must succeed with >= 1 workers")
+		}
+	}
+}
+
 // Tests that empty graph results in empty centrality result.
 func TestBetweennessCentralityEmptyGraph(t *testing.T) {
-	centralityMetric := NewBetweennessCentralityMetric()
+	centralityMetric, err := NewBetweennessCentralityMetric(1)
+	if err != nil {
+		t.Fatalf("construction must succeed with positive number of workers")
+	}
 
 	for _, chanGraph := range chanGraphs {
 		graph, cleanup, err := chanGraph.genFunc()
@@ -91,8 +114,9 @@ func TestBetweennessCentralityWithNonEmptyGraph(t *testing.T) {
 		},
 	}
 
-	tests := []struct {
-		name       string
+	workers := []int{1, 3, 9, 100}
+
+	results := []struct {
 		normalize  bool
 		centrality []float64
 	}{
@@ -110,47 +134,54 @@ func TestBetweennessCentralityWithNonEmptyGraph(t *testing.T) {
 		},
 	}
 
-	for _, chanGraph := range chanGraphs {
-		graph, cleanup, err := chanGraph.genFunc()
-		if err != nil {
-			t.Fatalf("unable to create graph: %v", err)
-		}
-		if cleanup != nil {
-			defer cleanup()
-		}
-
-		success := t.Run(chanGraph.name, func(t1 *testing.T) {
-			centralityMetric := NewBetweennessCentralityMetric()
-			graphNodes := buildTestGraph(t1, graph, graphDesc)
-
-			if err := centralityMetric.Refresh(graph); err != nil {
-				t1.Fatalf("error while calculating betweeness centrality")
+	for _, numWorkers := range workers {
+		for _, chanGraph := range chanGraphs {
+			numWorkers := numWorkers
+			graph, cleanup, err := chanGraph.genFunc()
+			if err != nil {
+				t.Fatalf("unable to create graph: %v", err)
 			}
-			for _, test := range tests {
-				test := test
-				centrality := centralityMetric.GetMetric(test.normalize)
+			if cleanup != nil {
+				defer cleanup()
+			}
 
-				if len(centrality) != graphDesc.nodes {
-					t.Fatalf("expected %v values, got: %v",
-						graphDesc.nodes, len(centrality))
+			testName := fmt.Sprintf("%v %d workers", chanGraph.name, numWorkers)
+			success := t.Run(testName, func(t1 *testing.T) {
+				centralityMetric, err := NewBetweennessCentralityMetric(numWorkers)
+				if err != nil {
+					t.Fatalf("construction must succeed with positive number of workers")
 				}
 
-				for node, nodeCentrality := range test.centrality {
-					nodeID := NewNodeID(graphNodes[node])
-					calculatedCentrality, ok := centrality[nodeID]
-					if !ok {
-						t1.Fatalf("no result for node: %x (%v)", nodeID, node)
+				graphNodes := buildTestGraph(t1, graph, graphDesc)
+				if err := centralityMetric.Refresh(graph); err != nil {
+					t1.Fatalf("error while calculating betweeness centrality")
+				}
+				for _, expected := range results {
+					expected := expected
+					centrality := centralityMetric.GetMetric(expected.normalize)
+
+					if len(centrality) != graphDesc.nodes {
+						t.Fatalf("expected %v values, got: %v",
+							graphDesc.nodes, len(centrality))
 					}
 
-					if nodeCentrality != calculatedCentrality {
-						t1.Errorf("centrality for node: %v should be %v, got: %v",
-							node, test.centrality[node], calculatedCentrality)
+					for node, nodeCentrality := range expected.centrality {
+						nodeID := NewNodeID(graphNodes[node])
+						calculatedCentrality, ok := centrality[nodeID]
+						if !ok {
+							t1.Fatalf("no result for node: %x (%v)", nodeID, node)
+						}
+
+						if nodeCentrality != calculatedCentrality {
+							t1.Errorf("centrality for node: %v should be %v, got: %v",
+								node, nodeCentrality, calculatedCentrality)
+						}
 					}
 				}
+			})
+			if !success {
+				break
 			}
-		})
-		if !success {
-			break
 		}
 	}
 }

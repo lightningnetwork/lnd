@@ -1,5 +1,10 @@
 package autopilot
 
+import (
+	"fmt"
+	"sync"
+)
+
 // stack is a simple int stack to help with readability of Brandes'
 // betweenness centrality implementation below.
 type stack struct {
@@ -50,6 +55,10 @@ func (q *queue) empty() bool {
 // shortest paths starting or ending at that node. This is a useful metric
 // to measure control of individual nodes over the whole network.
 type BetweennessCentrality struct {
+	// workers number of goroutines are used to parallelize
+	// centrality calculation.
+	workers int
+
 	// centrality stores original (not normalized) centrality values for
 	// each node in the graph.
 	centrality map[NodeID]float64
@@ -62,8 +71,15 @@ type BetweennessCentrality struct {
 }
 
 // NewBetweennessCentralityMetric creates a new BetweennessCentrality instance.
-func NewBetweennessCentralityMetric() *BetweennessCentrality {
-	return &BetweennessCentrality{}
+// Users can specify the number of workers to use for calculating centrality.
+func NewBetweennessCentralityMetric(workers int) (*BetweennessCentrality, error) {
+	// There should be at least one worker.
+	if workers < 1 {
+		return nil, fmt.Errorf("workers must be positive")
+	}
+	return &BetweennessCentrality{
+		workers: workers,
+	}, nil
 }
 
 // Name returns the name of the metric.
@@ -158,10 +174,47 @@ func (bc *BetweennessCentrality) Refresh(graph ChannelGraph) error {
 		return err
 	}
 
-	// TODO: parallelize updates to centrality.
-	centrality := make([]float64, len(cache.Nodes))
+	var wg sync.WaitGroup
+	work := make(chan int)
+	partials := make(chan []float64, bc.workers)
+
+	// Each worker will compute a partial result. This
+	// partial result is a sum of centrality updates on
+	// roughly N / workers nodes.
+	worker := func() {
+		defer wg.Done()
+		partial := make([]float64, len(cache.Nodes))
+
+		// Consume the next node, update centrality
+		// parital to avoid unnecessary synchronizaton.
+		for node := range work {
+			betweennessCentrality(cache, node, partial)
+		}
+		partials <- partial
+	}
+
+	// Now start the N workers.
+	wg.Add(bc.workers)
+	for i := 0; i < bc.workers; i++ {
+		go worker()
+	}
+
+	// Distribute work amongst workers Should be
+	// fair when graph is sufficiently large.
 	for node := range cache.Nodes {
-		betweennessCentrality(cache, node, centrality)
+		work <- node
+	}
+
+	close(work)
+	wg.Wait()
+	close(partials)
+
+	// Collect and sum partials for final result.
+	centrality := make([]float64, len(cache.Nodes))
+	for partial := range partials {
+		for i := 0; i < len(partial); i++ {
+			centrality[i] += partial[i]
+		}
 	}
 
 	// Get min/max to be able to normalize
@@ -169,11 +222,11 @@ func (bc *BetweennessCentrality) Refresh(graph ChannelGraph) error {
 	bc.min = 0
 	bc.max = 0
 	if len(centrality) > 0 {
-		for i := 1; i < len(centrality); i++ {
-			if centrality[i] < bc.min {
-				bc.min = centrality[i]
-			} else if centrality[i] > bc.max {
-				bc.max = centrality[i]
+		for _, v := range centrality {
+			if v < bc.min {
+				bc.min = v
+			} else if v > bc.max {
+				bc.max = v
 			}
 		}
 	}

@@ -10,6 +10,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -4693,7 +4694,12 @@ func (r *rpcServer) GetNodeMetrics(ctx context.Context,
 	// Calculate betweenness centrality if requested. Note that depending on the
 	// graph size, this may take up to a few minutes.
 	channelGraph := autopilot.ChannelGraphFromDatabase(graph)
-	centralityMetric := autopilot.NewBetweennessCentralityMetric()
+	centralityMetric, err := autopilot.NewBetweennessCentralityMetric(
+		runtime.NumCPU(),
+	)
+	if err != nil {
+		return nil, err
+	}
 	if err := centralityMetric.Refresh(channelGraph); err != nil {
 		return nil, err
 	}

@@ -18,17 +18,19 @@ import (
 )
 
 // testMultiHopHtlcLocalChainClaim tests that in a multi-hop HTLC scenario, if
-// we're forced to go to chain with an incoming HTLC, then when we find out the
-// preimage via the witness beacon, we properly settle the HTLC on-chain in
-// order to ensure we don't lose any funds.
-func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest) {
+// we force close a channel with an incoming HTLC, and later find out the
+// preimage via the witness beacon, we properly settle the HTLC on-chain using
+// the HTLC success transaction in order to ensure we don't lose any funds.
+func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest,
+	alice, bob *lntest.HarnessNode, c commitType) {
+
 	ctxb := context.Background()
 
 	// First, we'll create a three hop network: Alice -> Bob -> Carol, with
 	// Carol refusing to actually settle or directly cancel any HTLC's
 	// self.
 	aliceChanPoint, bobChanPoint, carol := createThreeHopNetwork(
-		t, net, false,
+		t, net, alice, bob, false, c,
 	)
 
 	// Clean up carol's node when the test finishes.
@@ -59,7 +61,7 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest)
 	ctx, cancel := context.WithCancel(ctxb)
 	defer cancel()
 
-	alicePayStream, err := net.Alice.SendPayment(ctx)
+	alicePayStream, err := alice.SendPayment(ctx)
 	if err != nil {
 		t.Fatalf("unable to create payment stream for alice: %v", err)
 	}
@@ -73,7 +75,7 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest)
 	// At this point, all 3 nodes should now have an active channel with
 	// the created HTLC pending on all of them.
 	var predErr error
-	nodes := []*lntest.HarnessNode{net.Alice, net.Bob, carol}
+	nodes := []*lntest.HarnessNode{alice, bob, carol}
 	err = wait.Predicate(func() bool {
 		predErr = assertActiveHtlcs(nodes, payHash[:])
 		if predErr != nil {
@@ -94,7 +96,7 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest)
 	// At this point, Bob decides that he wants to exit the channel
 	// immediately, so he force closes his commitment transaction.
 	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	bobForceClose := closeChannelAndAssert(ctxt, t, net, net.Bob,
+	bobForceClose := closeChannelAndAssert(ctxt, t, net, bob,
 		aliceChanPoint, true)
 
 	// Alice will sweep her output immediately.
@@ -105,7 +107,7 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest)
 	}
 
 	// Suspend Bob to force Carol to go to chain.
-	restartBob, err := net.SuspendNode(net.Bob)
+	restartBob, err := net.SuspendNode(bob)
 	if err != nil {
 		t.Fatalf("unable to suspend bob: %v", err)
 	}
@@ -197,7 +199,7 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest)
 
 	// At this point we suspend Alice to make sure she'll handle the
 	// on-chain settle after a restart.
-	restartAlice, err := net.SuspendNode(net.Alice)
+	restartAlice, err := net.SuspendNode(alice)
 	if err != nil {
 		t.Fatalf("unable to suspend alice: %v", err)
 	}
@@ -239,7 +241,7 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest)
 	pendingChansRequest := &lnrpc.PendingChannelsRequest{}
 	err = wait.Predicate(func() bool {
 		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-		pendingChanResp, err := net.Bob.PendingChannels(
+		pendingChanResp, err := bob.PendingChannels(
 			ctxt, pendingChansRequest,
 		)
 		if err != nil {
@@ -337,7 +339,7 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest)
 
 	err = wait.Predicate(func() bool {
 		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-		pendingChanResp, err := net.Bob.PendingChannels(
+		pendingChanResp, err := bob.PendingChannels(
 			ctxt, pendingChansRequest,
 		)
 		if err != nil {
@@ -352,7 +354,7 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest)
 		}
 		req := &lnrpc.ListChannelsRequest{}
 		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-		chanInfo, err := net.Bob.ListChannels(ctxt, req)
+		chanInfo, err := bob.ListChannels(ctxt, req)
 		if err != nil {
 			predErr = fmt.Errorf("unable to query for open "+
 				"channels: %v", err)
@@ -411,90 +413,9 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest)
 	// succeeded.
 	ctxt, _ = context.WithTimeout(ctxt, defaultTimeout)
 	err = checkPaymentStatus(
-		ctxt, net.Alice, preimage, lnrpc.Payment_SUCCEEDED,
+		ctxt, alice, preimage, lnrpc.Payment_SUCCEEDED,
 	)
 	if err != nil {
 		t.Fatalf(err.Error())
 	}
-}
-
-// waitForInvoiceAccepted waits until the specified invoice moved to the
-// accepted state by the node.
-func waitForInvoiceAccepted(t *harnessTest, node *lntest.HarnessNode,
-	payHash lntypes.Hash) {
-
-	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
-	defer cancel()
-	invoiceUpdates, err := node.SubscribeSingleInvoice(ctx,
-		&invoicesrpc.SubscribeSingleInvoiceRequest{
-			RHash: payHash[:],
-		},
-	)
-	if err != nil {
-		t.Fatalf("subscribe single invoice: %v", err)
-	}
-
-	for {
-		update, err := invoiceUpdates.Recv()
-		if err != nil {
-			t.Fatalf("invoice update err: %v", err)
-		}
-		if update.State == lnrpc.Invoice_ACCEPTED {
-			break
-		}
-	}
-}
-
-// checkPaymentStatus asserts that the given node list a payment with the given
-// preimage has the expected status.
-func checkPaymentStatus(ctxt context.Context, node *lntest.HarnessNode,
-	preimage lntypes.Preimage, status lnrpc.Payment_PaymentStatus) error {
-
-	req := &lnrpc.ListPaymentsRequest{
-		IncludeIncomplete: true,
-	}
-	paymentsResp, err := node.ListPayments(ctxt, req)
-	if err != nil {
-		return fmt.Errorf("error when obtaining Alice payments: %v",
-			err)
-	}
-
-	payHash := preimage.Hash()
-	var found bool
-	for _, p := range paymentsResp.Payments {
-		if p.PaymentHash != payHash.String() {
-			continue
-		}
-
-		found = true
-		if p.Status != status {
-			return fmt.Errorf("expected payment status "+
-				"%v, got %v", status, p.Status)
-		}
-
-		switch status {
-
-		// If this expected status is SUCCEEDED, we expect the final preimage.
-		case lnrpc.Payment_SUCCEEDED:
-			if p.PaymentPreimage != preimage.String() {
-				return fmt.Errorf("preimage doesn't match: %v vs %v",
-					p.PaymentPreimage, preimage.String())
-			}
-
-		// Otherwise we expect an all-zero preimage.
-		default:
-			if p.PaymentPreimage != (lntypes.Preimage{}).String() {
-				return fmt.Errorf("expected zero preimage, got %v",
-					p.PaymentPreimage)
-			}
-		}
-
-	}
-
-	if !found {
-		return fmt.Errorf("payment with payment hash %v not found "+
-			"in response", payHash)
-	}
-
-	return nil
 }

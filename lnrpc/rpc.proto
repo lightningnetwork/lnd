@@ -1973,6 +1973,9 @@ message PendingChannelsResponse {
         balance.
         */
         int64 remote_chan_reserve_sat = 7;
+
+        // True if we initiated opening the channel.
+        bool initiator = 8;
     }
 
     message PendingOpenChannel {
@@ -2025,6 +2028,24 @@ message PendingChannelsResponse {
 
         /// Hash of the remote pending version of the commitment tx.
         string remote_pending_txid = 3;
+
+        /*
+        The amount in satoshis calculated to be paid in fees for the local
+        commitment.
+        */
+        uint64 local_commit_fee_sat = 4;
+
+        /*
+        The amount in satoshis calculated to be paid in fees for the remote
+        commitment.
+        */
+        uint64 remote_commit_fee_sat = 5;
+
+        /*
+        The amount in satoshis calculated to be paid in fees for the remote
+        pending commitment.
+        */
+        uint64 remote_pending_commit_fee_sat = 6;
     }
 
     message ClosedChannel {
@@ -2075,8 +2096,12 @@ message PendingChannelsResponse {
     /// Channels pending opening
     repeated PendingOpenChannel pending_open_channels = 2;
 
-    /// Channels pending closing
-    repeated ClosedChannel pending_closing_channels = 3;
+    /*
+    Deprecated: Channels pending closing previously contained cooperatively
+    closed channels with a single confirmation. These channels are now
+    considered closed from the time we see them on chain.
+    */
+    repeated ClosedChannel pending_closing_channels = 3 [deprecated = true];
 
     /// Channels pending force closing
     repeated ForceClosedChannel pending_force_closing_channels = 4;

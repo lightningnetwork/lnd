@@ -2665,6 +2665,7 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 				RemoteBalance:        int64(localCommitment.RemoteBalance.ToSatoshis()),
 				LocalChanReserveSat:  int64(pendingChan.LocalChanCfg.ChanReserve),
 				RemoteChanReserveSat: int64(pendingChan.RemoteChanCfg.ChanReserve),
+				Initiator:            pendingChan.IsInitiator,
 			},
 			CommitWeight: commitWeight,
 			CommitFee:    int64(localCommitment.CommitFee),
@@ -2697,26 +2698,42 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 			LocalBalance:  int64(pendingClose.SettledBalance),
 		}
 
+		// Lookup the channel in the historical channel bucket to obtain
+		// initiator information. If the historical channel bucket was
+		// not found, or the channel itself, this channel was closed
+		// in a version before we started persisting historical
+		// channels, so we silence the error.
+		historical, err := r.server.chanDB.FetchHistoricalChannel(
+			&pendingClose.ChanPoint,
+		)
+		switch err {
+		// If the channel was closed in a version that did not record
+		// historical channels, ignore the error.
+		case channeldb.ErrNoHistoricalBucket:
+		case channeldb.ErrChannelNotFound:
+
+		case nil:
+			channel.Initiator = historical.IsInitiator
+
+		// If the error is non-nil, and not due to older versions of lnd
+		// not persisting historical channels, return it.
+		default:
+			return nil, err
+		}
+
 		closeTXID := pendingClose.ClosingTXID.String()
 
 		switch pendingClose.CloseType {
 
-		// If the channel was closed cooperatively, then we'll only
-		// need to tack on the closing txid.
-		// TODO(halseth): remove. After recent changes, a coop closed
-		// channel should never be in the "pending close" state.
-		// Keeping for now to let someone that upgraded in the middle
-		// of a close let their closing tx confirm.
+		// A coop closed channel should never be in the "pending close"
+		// state. If a node upgraded from an older lnd version in the
+		// middle of a their channel confirming, it will be in this
+		// state. We log a warning that the channel will not be included
+		// in the now deprecated pending close channels field.
 		case channeldb.CooperativeClose:
-			resp.PendingClosingChannels = append(
-				resp.PendingClosingChannels,
-				&lnrpc.PendingChannelsResponse_ClosedChannel{
-					Channel:     channel,
-					ClosingTxid: closeTXID,
-				},
-			)
-
-			resp.TotalLimboBalance += channel.LocalBalance
+			rpcsLog.Warn("channel %v cooperatively closed and "+
+				"in pending close state",
+				pendingClose.ChanPoint)
 
 		// If the channel was force closed, then we'll need to query
 		// the utxoNursery for additional information.
@@ -2776,6 +2793,10 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 			commitments.LocalTxid =
 				waitingClose.LocalCommitment.CommitTx.TxHash().
 					String()
+
+			commitments.LocalCommitFeeSat = uint64(
+				waitingClose.LocalCommitment.CommitFee,
+			)
 		}
 
 		// Report remote commit. May not be present when DLP is active.
@@ -2783,6 +2804,10 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 			commitments.RemoteTxid =
 				waitingClose.RemoteCommitment.CommitTx.TxHash().
 					String()
+
+			commitments.RemoteCommitFeeSat = uint64(
+				waitingClose.RemoteCommitment.CommitFee,
+			)
 		}
 
 		// Report the remote pending commit if any.
@@ -2802,7 +2827,9 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 		default:
 			hash := remoteCommitDiff.Commitment.CommitTx.TxHash()
 			commitments.RemotePendingTxid = hash.String()
-
+			commitments.RemoteCommitFeeSat = uint64(
+				remoteCommitDiff.Commitment.CommitFee,
+			)
 		}
 
 		channel := &lnrpc.PendingChannelsResponse_PendingChannel{
@@ -2813,6 +2840,7 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 			RemoteBalance:        int64(waitingClose.LocalCommitment.RemoteBalance.ToSatoshis()),
 			LocalChanReserveSat:  int64(waitingClose.LocalChanCfg.ChanReserve),
 			RemoteChanReserveSat: int64(waitingClose.RemoteChanCfg.ChanReserve),
+			Initiator:            waitingClose.IsInitiator,
 		}
 
 		waitingCloseResp := &lnrpc.PendingChannelsResponse_WaitingCloseChannel{

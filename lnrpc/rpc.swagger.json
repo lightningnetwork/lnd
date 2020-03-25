@@ -1617,6 +1617,21 @@
         "remote_pending_txid": {
           "type": "string",
           "description": "/ Hash of the remote pending version of the commitment tx."
+        },
+        "local_commit_fee_sat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The amount in satoshis calculated to be paid in fees for the local\ncommitment."
+        },
+        "remote_commit_fee_sat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The amount in satoshis calculated to be paid in fees for the remote\ncommitment."
+        },
+        "remote_pending_commit_fee_sat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The amount in satoshis calculated to be paid in fees for the remote\npending commitment."
         }
       }
     },
@@ -1692,6 +1707,11 @@
           "type": "string",
           "format": "int64",
           "description": "*\nThe minimum satoshis the other node is required to reserve in its\nbalance."
+        },
+        "initiator": {
+          "type": "boolean",
+          "format": "boolean",
+          "description": "True if we initiated opening the channel."
         }
       }
     },
@@ -3919,7 +3939,7 @@
           "items": {
             "$ref": "#/definitions/PendingChannelsResponseClosedChannel"
           },
-          "title": "/ Channels pending closing"
+          "description": "Deprecated: Channels pending closing previously contained cooperatively\nclosed channels with a single confirmation. These channels are now\nconsidered closed from the time we see them on chain."
         },
         "pending_force_closing_channels": {
           "type": "array",

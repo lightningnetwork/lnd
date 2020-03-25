@@ -1973,6 +1973,9 @@ message PendingChannelsResponse {
         balance.
         */
         int64 remote_chan_reserve_sat = 7;
+
+        // True if we initiated opening the channel.
+        bool initiator = 8;
     }
 
     message PendingOpenChannel {

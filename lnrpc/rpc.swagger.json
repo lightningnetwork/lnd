@@ -1692,6 +1692,11 @@
           "type": "string",
           "format": "int64",
           "description": "*\nThe minimum satoshis the other node is required to reserve in its\nbalance."
+        },
+        "initiator": {
+          "type": "boolean",
+          "format": "boolean",
+          "description": "True if we initiated opening the channel."
         }
       }
     },

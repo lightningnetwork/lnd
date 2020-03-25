@@ -2809,37 +2809,6 @@ func TestRouteToSelf(t *testing.T) {
 	ctx.assertPath(path, []uint64{1, 3, 2})
 }
 
-// TestInsufficientBalance tests that a dedicated error is returned for
-// insufficient local balance.
-func TestInsufficientBalance(t *testing.T) {
-	t.Parallel()
-
-	testChannels := []*testChannel{
-		symmetricTestChannel("source", "target", 100000, &testChannelPolicy{
-			Expiry:      144,
-			FeeBaseMsat: 500,
-		}, 1),
-	}
-
-	ctx := newPathFindingTestContext(t, testChannels, "source")
-	defer ctx.cleanup()
-
-	paymentAmt := lnwire.NewMSatFromSatoshis(100)
-	target := ctx.keyFromAlias("target")
-
-	ctx.graphParams.bandwidthHints = map[uint64]lnwire.MilliSatoshi{
-		1: lnwire.NewMSatFromSatoshis(50),
-	}
-
-	// Find the best path to self. We expect this to be source->a->source,
-	// because a charges the lowest forwarding fee.
-	_, err := ctx.findPath(target, paymentAmt)
-	if err != errInsufficientBalance {
-		t.Fatalf("expected insufficient balance error, but got: %v",
-			err)
-	}
-}
-
 type pathFindingTestContext struct {
 	t                 *testing.T
 	graphParams       graphParams

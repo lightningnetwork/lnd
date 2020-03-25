@@ -2725,22 +2725,15 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 
 		switch pendingClose.CloseType {
 
-		// If the channel was closed cooperatively, then we'll only
-		// need to tack on the closing txid.
-		// TODO(halseth): remove. After recent changes, a coop closed
-		// channel should never be in the "pending close" state.
-		// Keeping for now to let someone that upgraded in the middle
-		// of a close let their closing tx confirm.
+		// A coop closed channel should never be in the "pending close"
+		// state. If a node upgraded from an older lnd version in the
+		// middle of a their channel confirming, it will be in this
+		// state. We log a warning that the channel will not be included
+		// in the now deprecated pending close channels field.
 		case channeldb.CooperativeClose:
-			resp.PendingClosingChannels = append(
-				resp.PendingClosingChannels,
-				&lnrpc.PendingChannelsResponse_ClosedChannel{
-					Channel:     channel,
-					ClosingTxid: closeTXID,
-				},
-			)
-
-			resp.TotalLimboBalance += channel.LocalBalance
+			rpcsLog.Warn("channel %v cooperatively closed and "+
+				"in pending close state",
+				pendingClose.ChanPoint)
 
 		// If the channel was force closed, then we'll need to query
 		// the utxoNursery for additional information.

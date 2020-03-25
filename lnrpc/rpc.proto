@@ -2096,8 +2096,12 @@ message PendingChannelsResponse {
     /// Channels pending opening
     repeated PendingOpenChannel pending_open_channels = 2;
 
-    /// Channels pending closing
-    repeated ClosedChannel pending_closing_channels = 3;
+    /*
+    Deprecated: Channels pending closing previously contained cooperatively
+    closed channels with a single confirmation. These channels are now
+    considered closed from the time we see them on chain.
+    */
+    repeated ClosedChannel pending_closing_channels = 3 [deprecated = true];
 
     /// Channels pending force closing
     repeated ForceClosedChannel pending_force_closing_channels = 4;

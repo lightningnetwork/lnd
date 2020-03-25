@@ -3939,7 +3939,7 @@
           "items": {
             "$ref": "#/definitions/PendingChannelsResponseClosedChannel"
           },
-          "title": "/ Channels pending closing"
+          "description": "Deprecated: Channels pending closing previously contained cooperatively\nclosed channels with a single confirmation. These channels are now\nconsidered closed from the time we see them on chain."
         },
         "pending_force_closing_channels": {
           "type": "array",

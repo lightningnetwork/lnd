@@ -2800,6 +2800,10 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 			commitments.LocalTxid =
 				waitingClose.LocalCommitment.CommitTx.TxHash().
 					String()
+
+			commitments.LocalCommitFeeSat = uint64(
+				waitingClose.LocalCommitment.CommitFee,
+			)
 		}
 
 		// Report remote commit. May not be present when DLP is active.
@@ -2807,6 +2811,10 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 			commitments.RemoteTxid =
 				waitingClose.RemoteCommitment.CommitTx.TxHash().
 					String()
+
+			commitments.RemoteCommitFeeSat = uint64(
+				waitingClose.RemoteCommitment.CommitFee,
+			)
 		}
 
 		// Report the remote pending commit if any.
@@ -2826,7 +2834,9 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 		default:
 			hash := remoteCommitDiff.Commitment.CommitTx.TxHash()
 			commitments.RemotePendingTxid = hash.String()
-
+			commitments.RemoteCommitFeeSat = uint64(
+				remoteCommitDiff.Commitment.CommitFee,
+			)
 		}
 
 		channel := &lnrpc.PendingChannelsResponse_PendingChannel{

@@ -1617,6 +1617,21 @@
         "remote_pending_txid": {
           "type": "string",
           "description": "/ Hash of the remote pending version of the commitment tx."
+        },
+        "local_commit_fee_sat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The amount in satoshis calculated to be paid in fees for the local\ncommitment."
+        },
+        "remote_commit_fee_sat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The amount in satoshis calculated to be paid in fees for the remote\ncommitment."
+        },
+        "remote_pending_commit_fee_sat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The amount in satoshis calculated to be paid in fees for the remote\npending commitment."
         }
       }
     },

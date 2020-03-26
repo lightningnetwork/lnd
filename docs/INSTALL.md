@@ -208,6 +208,7 @@ bitcoind:
       --bitcoind.rpcpass=                                     Password for RPC connections
       --bitcoind.zmqpubrawblock=                              The address listening for ZMQ connections to deliver raw block notifications
       --bitcoind.zmqpubrawtx=                                 The address listening for ZMQ connections to deliver raw transaction notifications
+      --bitcoind.estimatemode=                                The fee estimate mode. Must be either "ECONOMICAL" or "CONSERVATIVE". (default: CONSERVATIVE)
 ```
 
 ## Using btcd
@@ -367,6 +368,9 @@ lnd --bitcoin.active --bitcoin.testnet --debuglevel=debug --bitcoin.node=bitcoin
   the default `bitcoind` settings, having more than one instance of `lnd`, or
   `lnd` plus any application that consumes the RPC could cause `lnd` to miss
   crucial updates from the backend.
+- The default fee estimate mode in `bitcoind` is CONSERVATIVE. You can set
+  `bitcoind.estimatemode=ECONOMICAL` to change it into ECONOMICAL. Futhermore,
+  if you start `bitcoind` in `regtest`, this configuration won't take any effect.
 
 
 # Creating a wallet

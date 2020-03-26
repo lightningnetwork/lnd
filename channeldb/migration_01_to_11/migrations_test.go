@@ -464,7 +464,10 @@ func TestMigrateGossipMessageStoreKeys(t *testing.T) {
 	// Construct the message which we'll use to test the migration, along
 	// with its old and new key formats.
 	shortChanID := lnwire.ShortChannelID{BlockHeight: 10}
-	msg := &lnwire.AnnounceSignatures{ShortChannelID: shortChanID}
+	msg := &lnwire.AnnounceSignatures{
+		ShortChannelID:  shortChanID,
+		ExtraOpaqueData: make([]byte, 0),
+	}
 
 	var oldMsgKey [33 + 8]byte
 	copy(oldMsgKey[:33], pubKey.SerializeCompressed())

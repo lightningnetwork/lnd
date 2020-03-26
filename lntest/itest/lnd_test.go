@@ -61,6 +61,7 @@ const (
 	channelCloseTimeout = lntest.ChannelCloseTimeout
 	itestLndBinary      = "../../lnd-itest"
 	anchorSize          = 330
+	noFeeLimitMsat      = math.MaxInt64
 )
 
 // harnessTest wraps a regular testing.T providing enhanced error detection
@@ -14718,6 +14719,47 @@ func testExternalFundingChanPoint(net *lntest.NetworkHarness, t *harnessTest) {
 	closeChannelAndAssert(ctxt, t, net, dave, chanPoint, false)
 }
 
+// sendAndAssertSuccess sends the given payment requests and asserts that the
+// payment completes successfully.
+func sendAndAssertSuccess(t *harnessTest, node *lntest.HarnessNode,
+	req *routerrpc.SendPaymentRequest) *lnrpc.Payment {
+
+	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
+	defer cancel()
+
+	stream, err := node.RouterClient.SendPayment(ctx, req)
+	if err != nil {
+		t.Fatalf("unable to send payment: %v", err)
+	}
+
+	result, err := getPaymentResult(stream)
+	if err != nil {
+		t.Fatalf("unable to get payment result: %v", err)
+	}
+
+	if result.Status != lnrpc.Payment_SUCCEEDED {
+		t.Fatalf("payment failed: %v", result.Status)
+	}
+
+	return result
+}
+
+// getPaymentResult reads a final result from the stream and returns it.
+func getPaymentResult(stream routerrpc.Router_SendPaymentClient) (
+	*lnrpc.Payment, error) {
+
+	for {
+		payment, err := stream.Recv()
+		if err != nil {
+			return nil, err
+		}
+
+		if payment.Status != lnrpc.Payment_IN_FLIGHT {
+			return payment, nil
+		}
+	}
+}
+
 type testCase struct {
 	name string
 	test func(net *lntest.NetworkHarness, t *harnessTest)
@@ -14958,6 +15000,10 @@ var testsCases = []*testCase{
 	{
 		name: "sendtoroute multi path payment",
 		test: testSendToRouteMultiPath,
+	},
+	{
+		name: "send multi path payment",
+		test: testSendMultiPathPayment,
 	},
 }
 

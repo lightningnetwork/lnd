@@ -106,8 +106,9 @@ func (r *RootKeyStorage) CreateUnlock(password *[]byte) error {
 		}
 
 		// We haven't yet stored a key, so create a new one.
-		encKey, err := snacl.NewSecretKey(password, snacl.DefaultN,
-			snacl.DefaultR, snacl.DefaultP)
+		encKey, err := snacl.NewSecretKey(
+			password, scryptN, scryptR, scryptP,
+		)
 		if err != nil {
 			return err
 		}

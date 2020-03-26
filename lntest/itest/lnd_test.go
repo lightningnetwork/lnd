@@ -7328,10 +7328,12 @@ func testRevokedCloseRetribution(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Carol will be the breached party. We set --nolisten to ensure Bob
 	// won't be able to connect to her and trigger the channel data
-	// protection logic automatically.
+	// protection logic automatically. We also can't have Carol
+	// automatically re-connect too early, otherwise DLP would be initiated
+	// instead of the breach we want to provoke.
 	carol, err := net.NewNode(
 		"Carol",
-		[]string{"--hodl.exit-settle", "--nolisten"},
+		[]string{"--hodl.exit-settle", "--nolisten", "--minbackoff=1h"},
 	)
 	if err != nil {
 		t.Fatalf("unable to create new carol node: %v", err)
@@ -7591,10 +7593,12 @@ func testRevokedCloseRetributionZeroValueRemoteOutput(net *lntest.NetworkHarness
 
 	// Dave will be the breached party. We set --nolisten to ensure Carol
 	// won't be able to connect to him and trigger the channel data
-	// protection logic automatically.
+	// protection logic automatically. We also can't have Dave automatically
+	// re-connect too early, otherwise DLP would be initiated instead of the
+	// breach we want to provoke.
 	dave, err := net.NewNode(
 		"Dave",
-		[]string{"--hodl.exit-settle", "--nolisten"},
+		[]string{"--hodl.exit-settle", "--nolisten", "--minbackoff=1h"},
 	)
 	if err != nil {
 		t.Fatalf("unable to create new node: %v", err)
@@ -8658,15 +8662,23 @@ func assertDLPExecuted(net *lntest.NetworkHarness, t *harnessTest,
 	dave *lntest.HarnessNode, daveStartingBalance int64,
 	anchors bool) {
 
+	// We disabled auto-reconnect for some tests to avoid timing issues.
+	// To make sure the nodes are initiating DLP now, we have to manually
+	// re-connect them.
+	ctxb := context.Background()
+	err := net.ConnectNodes(ctxb, carol, dave)
+	if err != nil && !strings.Contains(err.Error(), "already connected") {
+		t.Fatalf("unable to connect Carol to Dave to initiate DLP: %v",
+			err)
+	}
+
 	// Upon reconnection, the nodes should detect that Dave is out of sync.
 	// Carol should force close the channel using her latest commitment.
 	expectedTxes := 1
 	if anchors {
 		expectedTxes = 2
 	}
-
-	ctxb := context.Background()
-	_, err := waitForNTxsInMempool(
+	_, err = waitForNTxsInMempool(
 		net.Miner.Node, expectedTxes, minerMempoolTimeout,
 	)
 	if err != nil {
@@ -8777,8 +8789,12 @@ func testDataLossProtection(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Carol will be the up-to-date party. We set --nolisten to ensure Dave
 	// won't be able to connect to her and trigger the channel data
-	// protection logic automatically.
-	carol, err := net.NewNode("Carol", []string{"--nolisten"})
+	// protection logic automatically. We also can't have Carol
+	// automatically re-connect too early, otherwise DLP would be initiated
+	// at the wrong moment.
+	carol, err := net.NewNode(
+		"Carol", []string{"--nolisten", "--minbackoff=1h"},
+	)
 	if err != nil {
 		t.Fatalf("unable to create new carol node: %v", err)
 	}

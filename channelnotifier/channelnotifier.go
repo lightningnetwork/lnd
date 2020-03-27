@@ -40,6 +40,13 @@ type OpenChannelEvent struct {
 	Channel *channeldb.OpenChannel
 }
 
+// ActiveLinkEvent represents a new event where the link becomes active in the
+// switch. This happens before the ActiveChannelEvent.
+type ActiveLinkEvent struct {
+	// ChannelPoint is the channel point for the newly active channel.
+	ChannelPoint *wire.OutPoint
+}
+
 // ActiveChannelEvent represents a new event where a channel becomes active.
 type ActiveChannelEvent struct {
 	// ChannelPoint is the channelpoint for the newly active channel.
@@ -143,6 +150,15 @@ func (c *ChannelNotifier) NotifyClosedChannelEvent(chanPoint wire.OutPoint) {
 	event := ClosedChannelEvent{CloseSummary: closeSummary}
 	if err := c.ntfnServer.SendUpdate(event); err != nil {
 		log.Warnf("Unable to send closed channel update: %v", err)
+	}
+}
+
+// NotifyActiveLinkEvent notifies the channelEventNotifier goroutine that a
+// link has been added to the switch.
+func (c *ChannelNotifier) NotifyActiveLinkEvent(chanPoint wire.OutPoint) {
+	event := ActiveLinkEvent{ChannelPoint: &chanPoint}
+	if err := c.ntfnServer.SendUpdate(event); err != nil {
+		log.Warnf("Unable to send active link update: %v", err)
 	}
 }
 

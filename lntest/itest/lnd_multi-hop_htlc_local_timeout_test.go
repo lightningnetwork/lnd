@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
@@ -106,24 +107,33 @@ func testMultiHopHtlcLocalTimeout(net *lntest.NetworkHarness, t *harnessTest,
 		t.Fatalf("unable to generate blocks: %v", err)
 	}
 
-	// Bob's force close transaction should now be found in the mempool.
+	// Bob's force close transaction should now be found in the mempool. If
+	// there are anchors, we also expect Bob's anchor sweep.
+	expectedTxes := 1
+	if c == commitTypeAnchors {
+		expectedTxes = 2
+	}
+
 	bobFundingTxid, err := lnd.GetChanPointFundingTxid(bobChanPoint)
 	if err != nil {
 		t.Fatalf("unable to get txid: %v", err)
 	}
-	closeTxid, err := waitForTxInMempool(net.Miner.Node, minerMempoolTimeout)
+	_, err = waitForNTxsInMempool(
+		net.Miner.Node, expectedTxes, minerMempoolTimeout,
+	)
 	if err != nil {
 		t.Fatalf("unable to find closing txid: %v", err)
 	}
-	assertSpendingTxInMempool(
+	closeTx := getSpendingTxInMempool(
 		t, net.Miner.Node, minerMempoolTimeout, wire.OutPoint{
 			Hash:  *bobFundingTxid,
 			Index: bobChanPoint.OutputIndex,
 		},
 	)
+	closeTxid := closeTx.TxHash()
 
 	// Mine a block to confirm the closing transaction.
-	mineBlocks(t, net, 1, 1)
+	mineBlocks(t, net, 1, expectedTxes)
 
 	// At this point, Bob should have canceled backwards the dust HTLC
 	// that we sent earlier. This means Alice should now only have a single
@@ -143,20 +153,42 @@ func testMultiHopHtlcLocalTimeout(net *lntest.NetworkHarness, t *harnessTest,
 
 	// With the closing transaction confirmed, we should expect Bob's HTLC
 	// timeout transaction to be broadcast due to the expiry being reached.
-	htlcTimeout, err := waitForTxInMempool(net.Miner.Node, minerMempoolTimeout)
+	// If there are anchors, we also expect Carol's anchor sweep now.
+	txes, err := getNTxsFromMempool(net.Miner.Node, expectedTxes, minerMempoolTimeout)
 	if err != nil {
 		t.Fatalf("unable to find bob's htlc timeout tx: %v", err)
 	}
 
+	// Lookup the timeout transaction that is expected to spend from the
+	// closing tx. We distinguish it from a possibly anchor sweep by value.
+	var htlcTimeout *chainhash.Hash
+	for _, tx := range txes {
+		prevOp := tx.TxIn[0].PreviousOutPoint
+		if prevOp.Hash != closeTxid {
+			t.Fatalf("tx not spending from closing tx")
+		}
+
+		// Assume that the timeout tx doesn't spend an output of exactly
+		// the size of the anchor.
+		if closeTx.TxOut[prevOp.Index].Value != anchorSize {
+			hash := tx.TxHash()
+			htlcTimeout = &hash
+		}
+	}
+	if htlcTimeout == nil {
+		t.Fatalf("htlc timeout tx not found in mempool")
+	}
+
 	// We'll mine the remaining blocks in order to generate the sweep
 	// transaction of Bob's commitment output.
-	mineBlocks(t, net, defaultCSV, 1)
-	assertSpendingTxInMempool(
-		t, net.Miner.Node, minerMempoolTimeout, wire.OutPoint{
-			Hash:  *closeTxid,
-			Index: 1,
-		},
-	)
+	mineBlocks(t, net, defaultCSV, expectedTxes)
+
+	// Check that the sweep spends from the mined commitment.
+	txes, err = getNTxsFromMempool(net.Miner.Node, 1, minerMempoolTimeout)
+	if err != nil {
+		t.Fatalf("sweep not found: %v", err)
+	}
+	assertAllTxesSpendFrom(t, txes, closeTxid)
 
 	// Bob's pending channel report should show that he has a commitment
 	// output awaiting sweeping, and also that there's an outgoing HTLC
@@ -248,6 +280,10 @@ func testMultiHopHtlcLocalTimeout(net *lntest.NetworkHarness, t *harnessTest,
 		t.Fatalf(predErr.Error())
 	}
 
+	// Coop close channel, expect no anchors.
 	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, alice, aliceChanPoint, false)
+	closeChannelAndAssertType(
+		ctxt, t, net, alice, aliceChanPoint, false,
+		false,
+	)
 }

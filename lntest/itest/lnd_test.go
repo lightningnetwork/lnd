@@ -43,6 +43,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
 )
@@ -59,6 +60,7 @@ const (
 	channelOpenTimeout  = lntest.ChannelOpenTimeout
 	channelCloseTimeout = lntest.ChannelCloseTimeout
 	itestLndBinary      = "../../lnd-itest"
+	anchorSize          = 330
 )
 
 // harnessTest wraps a regular testing.T providing enhanced error detection
@@ -266,6 +268,13 @@ func closeChannelAndAssert(ctx context.Context, t *harnessTest,
 	net *lntest.NetworkHarness, node *lntest.HarnessNode,
 	fundingChanPoint *lnrpc.ChannelPoint, force bool) *chainhash.Hash {
 
+	return closeChannelAndAssertType(ctx, t, net, node, fundingChanPoint, false, force)
+}
+
+func closeChannelAndAssertType(ctx context.Context, t *harnessTest,
+	net *lntest.NetworkHarness, node *lntest.HarnessNode,
+	fundingChanPoint *lnrpc.ChannelPoint, anchors, force bool) *chainhash.Hash {
+
 	// Fetch the current channel policy. If the channel is currently
 	// enabled, we will register for graph notifications before closing to
 	// assert that the node sends out a disabling update as a result of the
@@ -299,7 +308,9 @@ func closeChannelAndAssert(ctx context.Context, t *harnessTest,
 		)
 	}
 
-	return assertChannelClosed(ctx, t, net, node, fundingChanPoint, closeUpdates)
+	return assertChannelClosed(
+		ctx, t, net, node, fundingChanPoint, anchors, closeUpdates,
+	)
 }
 
 // closeReorgedChannelAndAssert attempts to close a channel identified by the
@@ -320,14 +331,16 @@ func closeReorgedChannelAndAssert(ctx context.Context, t *harnessTest,
 		t.Fatalf("unable to close channel: %v", err)
 	}
 
-	return assertChannelClosed(ctx, t, net, node, fundingChanPoint, closeUpdates)
+	return assertChannelClosed(
+		ctx, t, net, node, fundingChanPoint, false, closeUpdates,
+	)
 }
 
 // assertChannelClosed asserts that the channel is properly cleaned up after
 // initiating a cooperative or local close.
 func assertChannelClosed(ctx context.Context, t *harnessTest,
 	net *lntest.NetworkHarness, node *lntest.HarnessNode,
-	fundingChanPoint *lnrpc.ChannelPoint,
+	fundingChanPoint *lnrpc.ChannelPoint, anchors bool,
 	closeUpdates lnrpc.Lightning_CloseChannelClient) *chainhash.Hash {
 
 	txid, err := lnd.GetChanPointFundingTxid(fundingChanPoint)
@@ -379,8 +392,13 @@ func assertChannelClosed(ctx context.Context, t *harnessTest,
 
 	// We'll now, generate a single block, wait for the final close status
 	// update, then ensure that the closing transaction was included in the
-	// block.
-	block := mineBlocks(t, net, 1, 1)[0]
+	// block. If there are anchors, we also expect an anchor sweep.
+	expectedTxes := 1
+	if anchors {
+		expectedTxes = 2
+	}
+
+	block := mineBlocks(t, net, 1, expectedTxes)[0]
 
 	closingTxid, err := net.WaitForChannelClose(ctx, closeUpdates)
 	if err != nil {
@@ -598,22 +616,6 @@ func shutdownAndAssert(net *lntest.NetworkHarness, t *harnessTest,
 	if err := net.ShutdownNode(node); err != nil {
 		t.Fatalf("unable to shutdown %v: %v", node.Name(), err)
 	}
-}
-
-// calcStaticFee calculates appropriate fees for commitment transactions.  This
-// function provides a simple way to allow test balance assertions to take fee
-// calculations into account.
-//
-// TODO(bvu): Refactor when dynamic fee estimation is added.
-// TODO(conner) remove code duplication
-func calcStaticFee(numHTLCs int) btcutil.Amount {
-	const (
-		commitWeight = btcutil.Amount(724)
-		htlcWeight   = 172
-		feePerKw     = btcutil.Amount(50 * 1000 / 4)
-	)
-	return feePerKw * (commitWeight +
-		btcutil.Amount(htlcWeight*numHTLCs)) / 1000
 }
 
 // completePaymentRequests sends payments from a lightning node to complete all
@@ -998,6 +1000,66 @@ func (c commitType) Args() []string {
 	return nil
 }
 
+// calcStaticFee calculates appropriate fees for commitment transactions.  This
+// function provides a simple way to allow test balance assertions to take fee
+// calculations into account.
+func (c commitType) calcStaticFee(numHTLCs int) btcutil.Amount {
+	const htlcWeight = input.HTLCWeight
+	var (
+		feePerKw     = chainfee.SatPerKVByte(50000).FeePerKWeight()
+		commitWeight = input.CommitWeight
+		anchors      = btcutil.Amount(0)
+	)
+
+	// The anchor commitment type is slightly heavier, and we must also add
+	// the value of the two anchors to the resulting fee the initiator
+	// pays.
+	if c == commitTypeAnchors {
+		commitWeight = input.AnchorCommitWeight
+		anchors = 2 * anchorSize
+	}
+
+	return feePerKw.FeeForWeight(int64(commitWeight+htlcWeight*numHTLCs)) +
+		anchors
+}
+
+// channelCommitType retrieves the active channel commitment type for the given
+// chan point.
+func channelCommitType(node *lntest.HarnessNode,
+	chanPoint *lnrpc.ChannelPoint) (commitType, error) {
+
+	ctxb := context.Background()
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
+
+	req := &lnrpc.ListChannelsRequest{}
+	channels, err := node.ListChannels(ctxt, req)
+	if err != nil {
+		return 0, fmt.Errorf("listchannels failed: %v", err)
+	}
+
+	for _, c := range channels.Channels {
+		if c.ChannelPoint == txStr(chanPoint) {
+			switch c.CommitmentType {
+
+			// If the anchor output size is non-zero, we are
+			// dealing with the anchor type.
+			case lnrpc.CommitmentType_ANCHORS:
+				return commitTypeAnchors, nil
+
+			// StaticRemoteKey means it is tweakless,
+			case lnrpc.CommitmentType_STATIC_REMOTE_KEY:
+				return commitTypeTweakless, nil
+
+			// Otherwise legacy.
+			default:
+				return commitTypeLegacy, nil
+			}
+		}
+	}
+
+	return 0, fmt.Errorf("channel point %v not found", chanPoint)
+}
+
 // basicChannelFundingTest is a sub-test of the main testBasicChannelFunding
 // test. Given two nodes: Alice and Bob, it'll assert proper channel creation,
 // then return a function closure that should be called to assert proper
@@ -1038,6 +1100,12 @@ func basicChannelFundingTest(t *harnessTest, net *lntest.NetworkHarness,
 			"channel: %v", err)
 	}
 
+	cType, err := channelCommitType(alice, chanPoint)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("unable to get channel "+
+			"type: %v", err)
+	}
+
 	// With the channel open, ensure that the amount specified above has
 	// properly been pushed to Bob.
 	balReq := &lnrpc.ChannelBalanceRequest{}
@@ -1054,7 +1122,7 @@ func basicChannelFundingTest(t *harnessTest, net *lntest.NetworkHarness,
 			"balance: %v", err)
 	}
 
-	expBalanceAlice := chanAmt - pushAmt - calcStaticFee(0)
+	expBalanceAlice := chanAmt - pushAmt - cType.calcStaticFee(0)
 	aliceBalance := btcutil.Amount(aliceBal.Balance)
 	if aliceBalance != expBalanceAlice {
 		return nil, nil, nil, fmt.Errorf("alice's balance is "+
@@ -1104,6 +1172,7 @@ func testBasicChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 	allTypes := []commitType{
 		commitTypeLegacy,
 		commitTypeTweakless,
+		commitTypeAnchors,
 	}
 
 test:
@@ -1156,27 +1225,58 @@ test:
 					t.Fatalf("failed funding flow: %v", err)
 				}
 
-				carolTweakless := carolCommitType == commitTypeTweakless
+				// Both nodes should report the same commitment
+				// type.
+				chansCommitType := carolChannel.CommitmentType
+				if daveChannel.CommitmentType != chansCommitType {
+					t.Fatalf("commit types don't match, "+
+						"carol got %v, dave got %v",
+						carolChannel.CommitmentType,
+						daveChannel.CommitmentType,
+					)
+				}
 
-				daveTweakless := daveCommitType == commitTypeTweakless
+				// Now check that the commitment type reported
+				// by both nodes is what we expect. It will be
+				// the minimum of the two nodes' preference, in
+				// the order Legacy, Tweakless, Anchors.
+				expType := carolCommitType
 
-				tweaklessSignalled := carolTweakless && daveTweakless
-				tweaklessChans := (carolChannel.StaticRemoteKey &&
-					daveChannel.StaticRemoteKey)
+				switch daveCommitType {
+
+				// Dave supports anchors, type will be what
+				// Carol supports.
+				case commitTypeAnchors:
+
+				// Dave only supports tweakless, channel will
+				// be downgraded to this type if Carol supports
+				// anchors.
+				case commitTypeTweakless:
+					if expType == commitTypeAnchors {
+						expType = commitTypeTweakless
+					}
+
+				// Dave only supoprts legacy type, channel will
+				// be downgraded to this type.
+				case commitTypeLegacy:
+					expType = commitTypeLegacy
+
+				default:
+					t.Fatalf("invalid commit type %v",
+						daveCommitType)
+				}
+
+				// Check that the signalled type matches what we
+				// expect.
 				switch {
-				// If both sides signalled a tweakless channel, and the
-				// resulting channel doesn't reflect this, then this
-				// is a failed case.
-				case tweaklessSignalled && !tweaklessChans:
-					t.Fatalf("expected tweakless channnel, got " +
-						"non-tweaked channel")
+				case expType == commitTypeAnchors && chansCommitType == lnrpc.CommitmentType_ANCHORS:
+				case expType == commitTypeTweakless && chansCommitType == lnrpc.CommitmentType_STATIC_REMOTE_KEY:
+				case expType == commitTypeLegacy && chansCommitType == lnrpc.CommitmentType_LEGACY:
 
-				// If both sides didn't signal a tweakless
-				// channel, and the resulting channel is
-				// tweakless, and this is also a failed case.
-				case !tweaklessSignalled && tweaklessChans:
-					t.Fatalf("expected non-tweaked channel, got " +
-						"tweakless channel")
+				default:
+					t.Fatalf("expected nodes to signal "+
+						"commit type %v, instead got "+
+						"%v", expType, chansCommitType)
 				}
 
 				// As we've concluded this sub-test case we'll
@@ -1275,6 +1375,11 @@ func testUnconfirmedChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("error while waiting for channel open: %v", err)
 	}
 
+	cType, err := channelCommitType(net.Alice, chanPoint)
+	if err != nil {
+		t.Fatalf("unable to get channel type: %v", err)
+	}
+
 	// With the channel open, we'll check the balances on each side of the
 	// channel as a sanity check to ensure things worked out as intended.
 	balReq := &lnrpc.ChannelBalanceRequest{}
@@ -1288,9 +1393,9 @@ func testUnconfirmedChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 	if err != nil {
 		t.Fatalf("unable to get alice's balance: %v", err)
 	}
-	if carolBal.Balance != int64(chanAmt-pushAmt-calcStaticFee(0)) {
+	if carolBal.Balance != int64(chanAmt-pushAmt-cType.calcStaticFee(0)) {
 		t.Fatalf("carol's balance is incorrect: expected %v got %v",
-			chanAmt-pushAmt-calcStaticFee(0), carolBal)
+			chanAmt-pushAmt-cType.calcStaticFee(0), carolBal)
 	}
 	if aliceBal.Balance != int64(pushAmt) {
 		t.Fatalf("alice's balance is incorrect: expected %v got %v",
@@ -2708,9 +2813,14 @@ func testChannelBalance(net *lntest.NetworkHarness, t *harnessTest) {
 			"timeout: %v", err)
 	}
 
+	cType, err := channelCommitType(net.Alice, chanPoint)
+	if err != nil {
+		t.Fatalf("unable to get channel type: %v", err)
+	}
+
 	// As this is a single funder channel, Alice's balance should be
 	// exactly 0.5 BTC since now state transitions have taken place yet.
-	checkChannelBalance(net.Alice, amount-calcStaticFee(0))
+	checkChannelBalance(net.Alice, amount-cType.calcStaticFee(0))
 
 	// Ensure Bob currently has no available balance within the channel.
 	checkChannelBalance(net.Bob, 0)
@@ -2987,6 +3097,7 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 	// outputs can be swept.
 	commitTypes := []commitType{
 		commitTypeLegacy,
+		commitTypeAnchors,
 	}
 
 	for _, channelType := range commitTypes {
@@ -3026,7 +3137,19 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 					err)
 			}
 
-			channelForceClosureTest(net, ht, alice, carol)
+			// Also give Carol some coins to allow her to sweep her
+			// anchor.
+			err = net.SendCoins(
+				ctxt, btcutil.SatoshiPerBitcoin, carol,
+			)
+			if err != nil {
+				t.Fatalf("unable to send coins to Alice: %v",
+					err)
+			}
+
+			channelForceClosureTest(
+				net, ht, alice, carol, channelType,
+			)
 		})
 		if !success {
 			return
@@ -3035,7 +3158,7 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 }
 
 func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
-	alice, carol *lntest.HarnessNode) {
+	alice, carol *lntest.HarnessNode, channelType commitType) {
 
 	ctxb := context.Background()
 
@@ -3211,8 +3334,16 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 	}
 
 	// Mine a block which should confirm the commitment transaction
-	// broadcast as a result of the force closure.
-	_, err = waitForTxInMempool(net.Miner.Node, minerMempoolTimeout)
+	// broadcast as a result of the force closure. If there are anchors, we
+	// also expect the anchor sweep tx to be in the mempool.
+	expectedTxes := 1
+	if channelType == commitTypeAnchors {
+		expectedTxes = 2
+	}
+
+	_, err = waitForNTxsInMempool(
+		net.Miner.Node, expectedTxes, minerMempoolTimeout,
+	)
 	if err != nil {
 		t.Fatalf("failed to find commitment in miner mempool: %v", err)
 	}
@@ -3223,52 +3354,52 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 
 	// Now that the commitment has been confirmed, the channel should be
 	// marked as force closed.
-	err = wait.Predicate(func() bool {
+	err = wait.NoError(func() error {
 		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 		pendingChanResp, err := alice.PendingChannels(
 			ctxt, pendingChansRequest,
 		)
 		if err != nil {
-			predErr = fmt.Errorf("unable to query for pending "+
+			return fmt.Errorf("unable to query for pending "+
 				"channels: %v", err)
-			return false
 		}
 
-		predErr = checkNumForceClosedChannels(pendingChanResp, 1)
-		if predErr != nil {
-			return false
+		err = checkNumForceClosedChannels(pendingChanResp, 1)
+		if err != nil {
+			return err
 		}
 
-		forceClose, predErr := findForceClosedChannel(
-			pendingChanResp, &op,
-		)
-		if predErr != nil {
-			return false
+		forceClose, err := findForceClosedChannel(pendingChanResp, &op)
+		if err != nil {
+			return err
 		}
 
 		// Now that the channel has been force closed, it should now
 		// have the height and number of blocks to confirm populated.
-		predErr = checkCommitmentMaturity(
+		err = checkCommitmentMaturity(
 			forceClose, commCsvMaturityHeight, int32(defaultCSV),
 		)
-		if predErr != nil {
-			return false
+		if err != nil {
+			return err
 		}
 
 		// None of our outputs have been swept, so they should all be in
-		// limbo.
+		// limbo. For anchors, we expect the anchor amount to be
+		// recovered.
 		if forceClose.LimboBalance == 0 {
-			predErr = errors.New("all funds should still be in " +
+			return errors.New("all funds should still be in " +
 				"limbo")
-			return false
 		}
-		if forceClose.RecoveredBalance != 0 {
-			predErr = errors.New("no funds should yet be shown " +
+		expectedRecoveredBalance := int64(0)
+		if channelType == commitTypeAnchors {
+			expectedRecoveredBalance = anchorSize
+		}
+		if forceClose.RecoveredBalance != expectedRecoveredBalance {
+			return errors.New("no funds should yet be shown " +
 				"as recovered")
-			return false
 		}
 
-		return true
+		return nil
 	}, 15*time.Second)
 	if err != nil {
 		t.Fatalf(predErr.Error())
@@ -3283,8 +3414,11 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 	}
 
 	// Carol's sweep tx should be in the mempool already, as her output is
-	// not timelocked.
-	_, err = waitForTxInMempool(net.Miner.Node, minerMempoolTimeout)
+	// not timelocked. If there are anchors, we also expect Carol's anchor
+	// sweep now.
+	_, err = waitForNTxsInMempool(
+		net.Miner.Node, expectedTxes, minerMempoolTimeout,
+	)
 	if err != nil {
 		t.Fatalf("failed to find Carol's sweep in miner mempool: %v",
 			err)
@@ -3346,7 +3480,11 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 			return errors.New("all funds should still be in " +
 				"limbo")
 		}
-		if forceClose.RecoveredBalance != 0 {
+		expectedRecoveredBalance := int64(0)
+		if channelType == commitTypeAnchors {
+			expectedRecoveredBalance = anchorSize
+		}
+		if forceClose.RecoveredBalance != expectedRecoveredBalance {
 			return errors.New("no funds should yet be shown " +
 				"as recovered")
 		}
@@ -6855,6 +6993,27 @@ func waitForNTxsInMempool(miner *rpcclient.Client, n int,
 	}
 }
 
+// getNTxsFromMempool polls until finding the desired number of transactions in
+// the provided miner's mempool and returns the full transactions to the caller.
+func getNTxsFromMempool(miner *rpcclient.Client, n int,
+	timeout time.Duration) ([]*wire.MsgTx, error) {
+
+	txids, err := waitForNTxsInMempool(miner, n, timeout)
+	if err != nil {
+		return nil, err
+	}
+
+	var txes []*wire.MsgTx
+	for _, txid := range txids {
+		tx, err := miner.GetRawTransaction(txid)
+		if err != nil {
+			return nil, err
+		}
+		txes = append(txes, tx.MsgTx())
+	}
+	return txes, nil
+}
+
 // testFailingChannel tests that we will fail the channel by force closing ii
 // in the case where a counterparty tries to settle an HTLC with the wrong
 // preimage.
@@ -9156,7 +9315,12 @@ func testHtlcErrorPropagation(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("channel not seen by alice before timeout: %v", err)
 	}
 
-	commitFee := calcStaticFee(0)
+	cType, err := channelCommitType(net.Alice, chanPointAlice)
+	if err != nil {
+		t.Fatalf("unable to get channel type: %v", err)
+	}
+
+	commitFee := cType.calcStaticFee(0)
 	assertBaseBalance := func() {
 		balReq := &lnrpc.ChannelBalanceRequest{}
 		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
@@ -10573,7 +10737,16 @@ func assertNumActiveHtlcs(nodes []*lntest.HarnessNode, numHtlcs int) error {
 }
 
 func assertSpendingTxInMempool(t *harnessTest, miner *rpcclient.Client,
-	timeout time.Duration, chanPoint wire.OutPoint) {
+	timeout time.Duration, chanPoint wire.OutPoint) chainhash.Hash {
+
+	tx := getSpendingTxInMempool(t, miner, timeout, chanPoint)
+	return tx.TxHash()
+}
+
+// getSpendingTxInMempool waits for a transaction spending the given outpoint to
+// appear in the mempool and returns that tx in full.
+func getSpendingTxInMempool(t *harnessTest, miner *rpcclient.Client,
+	timeout time.Duration, chanPoint wire.OutPoint) *wire.MsgTx {
 
 	breakTimeout := time.After(timeout)
 	ticker := time.NewTicker(50 * time.Millisecond)
@@ -10599,9 +10772,10 @@ func assertSpendingTxInMempool(t *harnessTest, miner *rpcclient.Client,
 					t.Fatalf("unable to fetch tx: %v", err)
 				}
 
-				for _, txIn := range tx.MsgTx().TxIn {
+				msgTx := tx.MsgTx()
+				for _, txIn := range msgTx.TxIn {
 					if txIn.PreviousOutPoint == chanPoint {
-						return
+						return msgTx
 					}
 				}
 			}

@@ -96,11 +96,18 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest,
 	// At this point, Bob decides that he wants to exit the channel
 	// immediately, so he force closes his commitment transaction.
 	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	bobForceClose := closeChannelAndAssert(ctxt, t, net, bob,
-		aliceChanPoint, true)
+	bobForceClose := closeChannelAndAssertType(ctxt, t, net, bob,
+		aliceChanPoint, c == commitTypeAnchors, true)
 
-	// Alice will sweep her output immediately.
-	_, err = waitForTxInMempool(net.Miner.Node, minerMempoolTimeout)
+	// Alice will sweep her commitment output immediately. If there are
+	// anchors, Alice will also sweep hers.
+	expectedTxes := 1
+	if c == commitTypeAnchors {
+		expectedTxes = 2
+	}
+	_, err = waitForNTxsInMempool(
+		net.Miner.Node, expectedTxes, minerMempoolTimeout,
+	)
 	if err != nil {
 		t.Fatalf("unable to find alice's sweep tx in miner mempool: %v",
 			err)
@@ -135,8 +142,11 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest,
 		t.Fatalf("unable to generate blocks")
 	}
 
-	// Carol's commitment transaction should now be in the mempool.
-	txids, err := waitForNTxsInMempool(net.Miner.Node, 1, minerMempoolTimeout)
+	// Carol's commitment transaction should now be in the mempool. If there
+	// is an anchor, Carol will sweep that too.
+	_, err = waitForNTxsInMempool(
+		net.Miner.Node, expectedTxes, minerMempoolTimeout,
+	)
 	if err != nil {
 		t.Fatalf("transactions not found in mempool: %v", err)
 	}
@@ -149,53 +159,47 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest,
 		Index: bobChanPoint.OutputIndex,
 	}
 
-	// The tx should be spending from the funding transaction,
-	commitHash := txids[0]
-	tx1, err := net.Miner.Node.GetRawTransaction(commitHash)
-	if err != nil {
-		t.Fatalf("unable to get txn: %v", err)
-	}
-	if tx1.MsgTx().TxIn[0].PreviousOutPoint != carolFundingPoint {
-		t.Fatalf("commit transaction not spending fundingtx: %v",
-			spew.Sdump(tx1))
-	}
+	// Look up the closing transaction. It should be spending from the
+	// funding transaction,
+	closingTx := getSpendingTxInMempool(
+		t, net.Miner.Node, minerMempoolTimeout, carolFundingPoint,
+	)
+	closingTxid := closingTx.TxHash()
 
-	// Mine a block that should confirm the commit tx.
-	block := mineBlocks(t, net, 1, 1)[0]
-	if len(block.Transactions) != 2 {
-		t.Fatalf("expected 2 transactions in block, got %v",
-			len(block.Transactions))
+	// Mine a block that should confirm the commit tx, the anchor if present
+	// and the coinbase.
+	block := mineBlocks(t, net, 1, expectedTxes)[0]
+	if len(block.Transactions) != expectedTxes+1 {
+		t.Fatalf("expected %v transactions in block, got %v",
+			expectedTxes+1, len(block.Transactions))
 	}
-	assertTxInBlock(t, block, commitHash)
+	assertTxInBlock(t, block, &closingTxid)
 
 	// Restart bob again.
 	if err := restartBob(); err != nil {
 		t.Fatalf("unable to restart bob: %v", err)
 	}
 
-	// After the force close transacion is mined, Carol should broadcast
-	// her second level HTLC transacion. Bob will broadcast a sweep tx to
-	// sweep his output in the channel with Carol. He can do this
-	// immediately, as the output is not timelocked since Carol was the one
-	// force closing.
-	commitSpends, err := waitForNTxsInMempool(net.Miner.Node, 2,
-		minerMempoolTimeout)
+	// After the force close transacion is mined, Carol should broadcast her
+	// second level HTLC transacion. Bob will broadcast a sweep tx to sweep
+	// his output in the channel with Carol. He can do this immediately, as
+	// the output is not timelocked since Carol was the one force closing.
+	// If there are anchors on the commitment, Bob will also sweep his
+	// anchor.
+	expectedTxes = 2
+	if c == commitTypeAnchors {
+		expectedTxes = 3
+	}
+	txes, err := getNTxsFromMempool(
+		net.Miner.Node, expectedTxes, minerMempoolTimeout,
+	)
 	if err != nil {
 		t.Fatalf("transactions not found in mempool: %v", err)
 	}
 
 	// Both Carol's second level transaction and Bob's sweep should be
 	// spending from the commitment transaction.
-	for _, txid := range commitSpends {
-		tx, err := net.Miner.Node.GetRawTransaction(txid)
-		if err != nil {
-			t.Fatalf("unable to get txn: %v", err)
-		}
-
-		if tx.MsgTx().TxIn[0].PreviousOutPoint.Hash != *commitHash {
-			t.Fatalf("tx did not spend from commitment tx")
-		}
-	}
+	assertAllTxesSpendFrom(t, txes, closingTxid)
 
 	// At this point we suspend Alice to make sure she'll handle the
 	// on-chain settle after a restart.
@@ -205,13 +209,10 @@ func testMultiHopHtlcLocalChainClaim(net *lntest.NetworkHarness, t *harnessTest,
 	}
 
 	// Mine a block to confirm the two transactions (+ the coinbase).
-	block = mineBlocks(t, net, 1, 2)[0]
-	if len(block.Transactions) != 3 {
+	block = mineBlocks(t, net, 1, expectedTxes)[0]
+	if len(block.Transactions) != expectedTxes+1 {
 		t.Fatalf("expected 3 transactions in block, got %v",
 			len(block.Transactions))
-	}
-	for _, txid := range commitSpends {
-		assertTxInBlock(t, block, txid)
 	}
 
 	// Keep track of the second level tx maturity.

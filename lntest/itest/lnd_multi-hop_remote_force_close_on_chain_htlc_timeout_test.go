@@ -81,9 +81,13 @@ func testMultiHopRemoteForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 
 	// At this point, we'll now instruct Carol to force close the
 	// transaction. This will let us exercise that Bob is able to sweep the
-	// expired HTLC on Carol's version of the commitment transaction.
+	// expired HTLC on Carol's version of the commitment transaction. If
+	// Carol has an anchor, it will be swept too.
 	ctxt, _ := context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, carol, bobChanPoint, true)
+	closeChannelAndAssertType(
+		ctxt, t, net, carol, bobChanPoint, c == commitTypeAnchors,
+		true,
+	)
 
 	// At this point, Bob should have a pending force close channel as
 	// Carol has gone directly to chain.
@@ -110,11 +114,18 @@ func testMultiHopRemoteForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 		t.Fatalf(predErr.Error())
 	}
 
-	// Bob can sweep his output immediately.
-	_, err = waitForTxInMempool(net.Miner.Node, minerMempoolTimeout)
+	// Bob can sweep his output immediately. If there is an anchor, Bob will
+	// sweep that as well.
+	expectedTxes := 1
+	if c == commitTypeAnchors {
+		expectedTxes = 2
+	}
+
+	_, err = waitForNTxsInMempool(
+		net.Miner.Node, expectedTxes, minerMempoolTimeout,
+	)
 	if err != nil {
-		t.Fatalf("unable to find bob's funding output sweep tx: %v",
-			err)
+		t.Fatalf("failed to find txes in miner mempool: %v", err)
 	}
 
 	// Next, we'll mine enough blocks for the HTLC to expire. At this
@@ -232,7 +243,10 @@ func testMultiHopRemoteForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 
 	// We'll close out the test by closing the channel from Alice to Bob,
 	// and then shutting down the new node we created as its no longer
-	// needed.
+	// needed. Coop close, no anchors.
 	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, alice, aliceChanPoint, false)
+	closeChannelAndAssertType(
+		ctxt, t, net, alice, aliceChanPoint, false,
+		false,
+	)
 }

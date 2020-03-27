@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
@@ -65,6 +67,7 @@ func testMultiHopHtlcClaims(net *lntest.NetworkHarness, t *harnessTest) {
 
 	commitTypes := []commitType{
 		commitTypeLegacy,
+		commitTypeAnchors,
 	}
 
 	for _, commitType := range commitTypes {
@@ -204,16 +207,19 @@ func createThreeHopNetwork(t *harnessTest, net *lntest.NetworkHarness,
 		t.Fatalf("unable to connect peers: %v", err)
 	}
 
-	ctxt, _ = context.WithTimeout(context.Background(), defaultTimeout)
-	err = net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, alice)
-	if err != nil {
-		t.Fatalf("unable to send coins to Alice: %v", err)
-	}
+	// Make sure there are enough utxos for anchoring.
+	for i := 0; i < 2; i++ {
+		ctxt, _ = context.WithTimeout(context.Background(), defaultTimeout)
+		err = net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, alice)
+		if err != nil {
+			t.Fatalf("unable to send coins to Alice: %v", err)
+		}
 
-	ctxt, _ = context.WithTimeout(context.Background(), defaultTimeout)
-	err = net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, bob)
-	if err != nil {
-		t.Fatalf("unable to send coins to Bob: %v", err)
+		ctxt, _ = context.WithTimeout(context.Background(), defaultTimeout)
+		err = net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, bob)
+		if err != nil {
+			t.Fatalf("unable to send coins to Bob: %v", err)
+		}
 	}
 
 	// We'll start the test by creating a channel between Alice and Bob,
@@ -255,6 +261,18 @@ func createThreeHopNetwork(t *harnessTest, net *lntest.NetworkHarness,
 		t.Fatalf("unable to connect bob to carol: %v", err)
 	}
 
+	// Make sure Carol has enough utxos for anchoring. Because the anchor by
+	// itself often doesn't meet the dust limit, a utxo from the wallet
+	// needs to be attached as an additional input. This can still lead to a
+	// positively-yielding transaction.
+	for i := 0; i < 2; i++ {
+		ctxt, _ = context.WithTimeout(context.Background(), defaultTimeout)
+		err = net.SendCoins(ctxt, btcutil.SatoshiPerBitcoin, carol)
+		if err != nil {
+			t.Fatalf("unable to send coins to Alice: %v", err)
+		}
+	}
+
 	// We'll then create a channel from Bob to Carol. After this channel is
 	// open, our topology looks like:  A -> B -> C.
 	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
@@ -281,4 +299,17 @@ func createThreeHopNetwork(t *harnessTest, net *lntest.NetworkHarness,
 	}
 
 	return aliceChanPoint, bobChanPoint, carol
+}
+
+// assertAllTxesSpendFrom asserts that all txes in the list spend from the given
+// tx.
+func assertAllTxesSpendFrom(t *harnessTest, txes []*wire.MsgTx,
+	prevTxid chainhash.Hash) {
+
+	for _, tx := range txes {
+		if tx.TxIn[0].PreviousOutPoint.Hash != prevTxid {
+			t.Fatalf("tx %v did not spend from %v",
+				tx.TxHash(), prevTxid)
+		}
+	}
 }

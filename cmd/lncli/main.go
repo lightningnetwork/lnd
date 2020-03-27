@@ -282,6 +282,7 @@ func main() {
 		closedChannelsCommand,
 		listPaymentsCommand,
 		describeGraphCommand,
+		getNodeMetricsCommand,
 		getChanInfoCommand,
 		getNodeInfoCommand,
 		queryRoutesCommand,

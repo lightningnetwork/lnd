@@ -718,6 +718,39 @@
         ]
       }
     },
+    "/v1/graph/nodemetrics": {
+      "get": {
+        "summary": "* lncli: `getnodemetrics`\nGetNodeMetrics returns node metrics calculated from the graph. Currently\nthe only supported metric is betweenness centrality of individual nodes.",
+        "operationId": "GetNodeMetrics",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/lnrpcNodeMetricsResponse"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "types",
+            "description": "/ The requesteded node metrics.",
+            "in": "query",
+            "required": false,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "BETWEENNESS_CENTRALITY"
+              ]
+            },
+            "collectionFormat": "multi"
+          }
+        ],
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
     "/v1/graph/routes/{pub_key}/{amt}": {
       "get": {
         "summary": "* lncli: `queryroutes`\nQueryRoutes attempts to query the daemon's Channel Router for a possible\nroute to a target destination capable of carrying a specific amount of\nsatoshis. The returned route contains the full details required to craft and\nsend an HTLC, also including the necessary information that should be\npresent within the Sphinx packet encapsulated within the HTLC.",
@@ -2684,6 +2717,21 @@
         }
       }
     },
+    "lnrpcFloatValue": {
+      "type": "object",
+      "properties": {
+        "value": {
+          "type": "number",
+          "format": "double",
+          "description": "/ Arbitrary float value."
+        },
+        "normalized_value": {
+          "type": "number",
+          "format": "double",
+          "description": "/ The value normalized to [0,1] or [-1,1]."
+        }
+      }
+    },
     "lnrpcForwardingEvent": {
       "type": "object",
       "properties": {
@@ -3571,6 +3619,25 @@
             "$ref": "#/definitions/lnrpcChannelEdge"
           },
           "description": "/ A list of all public channels for the node."
+        }
+      }
+    },
+    "lnrpcNodeMetricType": {
+      "type": "string",
+      "enum": [
+        "BETWEENNESS_CENTRALITY"
+      ],
+      "default": "BETWEENNESS_CENTRALITY"
+    },
+    "lnrpcNodeMetricsResponse": {
+      "type": "object",
+      "properties": {
+        "betweenness_centrality": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/lnrpcFloatValue"
+          },
+          "description": "*\nBetweenness centrality is the sum of the ratio of shortest paths that pass\nthrough the node for each pair of nodes in the graph (not counting paths\nstarting or ending at this node).\nMap of node pubkey to betweenness centrality of the node. Normalized\nvalues are in the [0,1] closed interval."
         }
       }
     },

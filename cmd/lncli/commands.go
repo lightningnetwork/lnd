@@ -2942,7 +2942,7 @@ func listInvoices(ctx *cli.Context) error {
 
 var describeGraphCommand = cli.Command{
 	Name:     "describegraph",
-	Category: "Peers",
+	Category: "Graph",
 	Description: "Prints a human readable version of the known channel " +
 		"graph from the PoV of the node",
 	Usage: "Describe the network graph.",
@@ -2971,6 +2971,31 @@ func describeGraph(ctx *cli.Context) error {
 	}
 
 	printRespJSON(graph)
+	return nil
+}
+
+var getNodeMetricsCommand = cli.Command{
+	Name:        "getnodemetrics",
+	Category:    "Graph",
+	Description: "Prints out node metrics calculated from the current graph",
+	Usage:       "Get node metrics.",
+	Action:      actionDecorator(getNodeMetrics),
+}
+
+func getNodeMetrics(ctx *cli.Context) error {
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
+	req := &lnrpc.NodeMetricsRequest{
+		Types: []lnrpc.NodeMetricType{lnrpc.NodeMetricType_BETWEENNESS_CENTRALITY},
+	}
+
+	nodeMetrics, err := client.GetNodeMetrics(context.Background(), req)
+	if err != nil {
+		return err
+	}
+
+	printRespJSON(nodeMetrics)
 	return nil
 }
 
@@ -3006,7 +3031,7 @@ func listPayments(ctx *cli.Context) error {
 
 var getChanInfoCommand = cli.Command{
 	Name:     "getchaninfo",
-	Category: "Channels",
+	Category: "Graph",
 	Usage:    "Get the state of a channel.",
 	Description: "Prints out the latest authenticated state for a " +
 		"particular channel",
@@ -3057,7 +3082,7 @@ func getChanInfo(ctx *cli.Context) error {
 
 var getNodeInfoCommand = cli.Command{
 	Name:     "getnodeinfo",
-	Category: "Peers",
+	Category: "Graph",
 	Usage:    "Get information on a specific node.",
 	Description: "Prints out the latest authenticated node state for an " +
 		"advertised node",

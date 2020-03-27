@@ -43,6 +43,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
 )
@@ -607,13 +608,13 @@ func shutdownAndAssert(net *lntest.NetworkHarness, t *harnessTest,
 // TODO(bvu): Refactor when dynamic fee estimation is added.
 // TODO(conner) remove code duplication
 func calcStaticFee(numHTLCs int) btcutil.Amount {
-	const (
-		commitWeight = btcutil.Amount(724)
-		htlcWeight   = 172
-		feePerKw     = btcutil.Amount(50 * 1000 / 4)
+	const htlcWeight = input.HTLCWeight
+	var (
+		feePerKw     = chainfee.SatPerKVByte(50000).FeePerKWeight()
+		commitWeight = input.CommitWeight
 	)
-	return feePerKw * (commitWeight +
-		btcutil.Amount(htlcWeight*numHTLCs)) / 1000
+
+	return feePerKw.FeeForWeight(int64(commitWeight + htlcWeight*numHTLCs))
 }
 
 // completePaymentRequests sends payments from a lightning node to complete all

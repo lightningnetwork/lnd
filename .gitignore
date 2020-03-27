@@ -63,3 +63,6 @@ profile.tmp
 .DS_Store
 
 .vscode
+
+# Coverage test
+coverage.txt

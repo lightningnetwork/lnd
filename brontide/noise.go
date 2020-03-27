@@ -47,7 +47,7 @@ const (
 )
 
 var (
-	// ErrMaxMessageLengthExceeded is returned a message to be written to
+	// ErrMaxMessageLengthExceeded is returned when a message to be written to
 	// the cipher session exceeds the maximum allowed message payload.
 	ErrMaxMessageLengthExceeded = errors.New("the generated payload exceeds " +
 		"the max allowed message length of (2^16)-1")
@@ -209,7 +209,7 @@ type symmetricState struct {
 	handshakeDigest [32]byte
 }
 
-// mixKey is implements a basic HKDF-based key ratchet. This method is called
+// mixKey implements a basic HKDF-based key ratchet. This method is called
 // with the result of each DH output generated during the handshake process.
 // The first 32 bytes extract from the HKDF reader is the next chaining key,
 // then latter 32 bytes become the temp secret key using within any future AEAD
@@ -315,7 +315,7 @@ func newHandshakeState(initiator bool, prologue []byte,
 	h.InitializeSymmetric([]byte(protocolName))
 	h.mixHash(prologue)
 
-	// In Noise_XK, then initiator should know the responder's static
+	// In Noise_XK, the initiator should know the responder's static
 	// public key, therefore we include the responder's static key in the
 	// handshake digest. If the initiator gets this value wrong, then the
 	// handshake will fail.
@@ -330,7 +330,7 @@ func newHandshakeState(initiator bool, prologue []byte,
 
 // EphemeralGenerator is a functional option that allows callers to substitute
 // a custom function for use when generating ephemeral keys for ActOne or
-// ActTwo.  The function closure return by this function can be passed into
+// ActTwo. The function closure returned by this function can be passed into
 // NewBrontideMachine as a function option parameter.
 func EphemeralGenerator(gen func() (*btcec.PrivateKey, error)) func(*Machine) {
 	return func(m *Machine) {
@@ -437,8 +437,7 @@ const (
 	// ActThreeSize is the size of the packet sent from initiator to
 	// responder in ActThree. The packet consists of a handshake version,
 	// the initiators static key encrypted with strong forward secrecy and
-	// a 16-byte poly1035
-	// tag.
+	// a 16-byte poly1035 tag.
 	//
 	// 1 + 33 + 16 + 16
 	ActThreeSize = 66
@@ -519,7 +518,7 @@ func (b *Machine) RecvActOne(actOne [ActOneSize]byte) error {
 }
 
 // GenActTwo generates the second packet (act two) to be sent from the
-// responder to the initiator. The packet for act two is identify to that of
+// responder to the initiator. The packet for act two is identical to that of
 // act one, but then results in a different ECDH operation between the
 // initiator's and responder's ephemeral keys.
 //

@@ -1359,7 +1359,7 @@ func testPaymentFollowingChannelOpen(net *lntest.NetworkHarness, t *harnessTest)
 		t.Fatalf("unable to create pay reqs: %v", err)
 	}
 
-	// Send payment to Bob so there a chanel update to disk will be
+	// Send payment to Bob so that a channel update to disk will be
 	// executed.
 	ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
 	defer cancel()

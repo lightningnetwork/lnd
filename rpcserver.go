@@ -4688,7 +4688,7 @@ func (r *rpcServer) GetNodeMetrics(ctx context.Context,
 	}
 
 	resp := &lnrpc.NodeMetricsResponse{
-		BetweennessCentrality: make(map[string]*lnrpc.FloatValue),
+		BetweennessCentrality: make(map[string]*lnrpc.FloatMetric),
 	}
 
 	// Obtain the pointer to the global singleton channel graph, this will
@@ -4712,9 +4712,10 @@ func (r *rpcServer) GetNodeMetrics(ctx context.Context,
 	// Fill normalized and non normalized centrality.
 	centrality := centralityMetric.GetMetric(true)
 	for nodeID, val := range centrality {
-		resp.BetweennessCentrality[hex.EncodeToString(nodeID[:])] = &lnrpc.FloatValue{
-			NormalizedValue: val,
-		}
+		resp.BetweennessCentrality[hex.EncodeToString(nodeID[:])] =
+			&lnrpc.FloatMetric{
+				NormalizedValue: val,
+			}
 	}
 
 	centrality = centralityMetric.GetMetric(false)

@@ -651,7 +651,6 @@ service Lightning {
         };
     }
 
-
     /** lncli: `getchaninfo`
     GetChanInfo returns the latest authenticated network announcement for the
     given channel identified by its channel ID: an 8-byte integer which
@@ -2527,13 +2526,14 @@ message ChannelGraph {
     repeated ChannelEdge edges = 2;
 }
 
-enum NodeMetricType {
-    BETWEENNESS_CENTRALITY = 0;
+enum NodeMetricType { 
+    UNKNOWN = 0;
+    BETWEENNESS_CENTRALITY = 1; 
 }
 
 message NodeMetricsRequest {
-  /// The requesteded node metrics.
-  repeated NodeMetricType types = 1;
+    /// The requested node metrics.
+    repeated NodeMetricType types = 1;
 }
 
 message NodeMetricsResponse {
@@ -2544,15 +2544,15 @@ message NodeMetricsResponse {
     Map of node pubkey to betweenness centrality of the node. Normalized
     values are in the [0,1] closed interval.
     */
-    map<string, FloatValue> betweenness_centrality = 1;
+    map<string, FloatMetric> betweenness_centrality = 1;
 }
 
-message FloatValue {
-  /// Arbitrary float value.
-  double value = 1;
+message FloatMetric {
+    /// Arbitrary float value.
+    double value = 1;
 
-  /// The value normalized to [0,1] or [-1,1].
-  double normalized_value = 2;
+    /// The value normalized to [0,1] or [-1,1].
+    double normalized_value = 2;
 }
 
 message ChanInfoRequest {

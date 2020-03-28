@@ -91,7 +91,7 @@ func buildTestGraph(t *testing.T,
 		for _, v := range neighbors {
 			_, _, err := graph.addRandChannel(nodes[u], nodes[v], chanCapacity)
 			if err != nil {
-				t.Fatalf("unexpected error while adding random channel: %v", err)
+				t.Fatalf("unexpected error adding random channel: %v", err)
 			}
 		}
 	}
@@ -147,9 +147,12 @@ func TestBetweennessCentralityWithNonEmptyGraph(t *testing.T) {
 
 			testName := fmt.Sprintf("%v %d workers", chanGraph.name, numWorkers)
 			success := t.Run(testName, func(t1 *testing.T) {
-				centralityMetric, err := NewBetweennessCentralityMetric(numWorkers)
+				centralityMetric, err := NewBetweennessCentralityMetric(
+					numWorkers,
+				)
 				if err != nil {
-					t.Fatalf("construction must succeed with positive number of workers")
+					t.Fatalf("construction must succeed with " +
+						"positive number of workers")
 				}
 
 				graphNodes := buildTestGraph(t1, graph, graphDesc)
@@ -169,11 +172,13 @@ func TestBetweennessCentralityWithNonEmptyGraph(t *testing.T) {
 						nodeID := NewNodeID(graphNodes[node])
 						calculatedCentrality, ok := centrality[nodeID]
 						if !ok {
-							t1.Fatalf("no result for node: %x (%v)", nodeID, node)
+							t1.Fatalf("no result for node: %x (%v)",
+								nodeID, node)
 						}
 
 						if nodeCentrality != calculatedCentrality {
-							t1.Errorf("centrality for node: %v should be %v, got: %v",
+							t1.Errorf("centrality for node: %v "+
+								"should be %v, got: %v",
 								node, nodeCentrality, calculatedCentrality)
 						}
 					}

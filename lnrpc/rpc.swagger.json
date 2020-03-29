@@ -733,7 +733,7 @@
         "parameters": [
           {
             "name": "types",
-            "description": "/ The requesteded node metrics.",
+            "description": "/ The requested node metrics.",
             "in": "query",
             "required": false,
             "type": "array",

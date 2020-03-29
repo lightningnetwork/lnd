@@ -7622,7 +7622,7 @@ func (m *ChannelGraph) GetEdges() []*ChannelEdge {
 }
 
 type NodeMetricsRequest struct {
-	/// The requesteded node metrics.
+	/// The requested node metrics.
 	Types                []NodeMetricType `protobuf:"varint,1,rep,packed,name=types,proto3,enum=lnrpc.NodeMetricType" json:"types,omitempty"`
 	XXX_NoUnkeyedLiteral struct{}         `json:"-"`
 	XXX_unrecognized     []byte           `json:"-"`

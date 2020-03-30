@@ -1616,6 +1616,17 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 		return ErrServerNotActive
 	}
 
+	// Creation of channels before the wallet syncs up is currently
+	// disallowed.
+	isSynced, _, err := r.server.cc.wallet.IsSynced()
+	if err != nil {
+		return err
+	}
+	if !isSynced {
+		return errors.New("channels cannot be created before the " +
+			"wallet is fully synced")
+	}
+
 	localFundingAmt := btcutil.Amount(in.LocalFundingAmount)
 	remoteInitialBalance := btcutil.Amount(in.PushSat)
 	minHtlcIn := lnwire.MilliSatoshi(in.MinHtlcMsat)

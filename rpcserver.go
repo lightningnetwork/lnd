@@ -3220,6 +3220,23 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 	return resp, nil
 }
 
+// rpcCommitmentType takes the channel type and converts it to an rpc commitment
+// type value.
+func rpcCommitmentType(chanType channeldb.ChannelType) lnrpc.CommitmentType {
+	// Extract the commitment type from the channel type flags. We must
+	// first check whether it has anchors, since in that case it would also
+	// be tweakless.
+	if chanType.HasAnchors() {
+		return lnrpc.CommitmentType_ANCHORS
+	}
+
+	if chanType.IsTweakless() {
+		return lnrpc.CommitmentType_STATIC_REMOTE_KEY
+	}
+
+	return lnrpc.CommitmentType_LEGACY
+}
+
 // createRPCOpenChannel creates an *lnrpc.Channel from the *channeldb.Channel.
 func createRPCOpenChannel(r *rpcServer, graph *channeldb.ChannelGraph,
 	dbChannel *channeldb.OpenChannel, isActive bool) (*lnrpc.Channel, error) {
@@ -3257,15 +3274,8 @@ func createRPCOpenChannel(r *rpcServer, graph *channeldb.ChannelGraph,
 	}
 	externalCommitFee := dbChannel.Capacity - sumOutputs
 
-	// Extract the commitment type from the channel type flags. We must
-	// first check whether it has anchors, since in that case it would also
-	// be tweakless.
-	commitmentType := lnrpc.CommitmentType_LEGACY
-	if dbChannel.ChanType.HasAnchors() {
-		commitmentType = lnrpc.CommitmentType_ANCHORS
-	} else if dbChannel.ChanType.IsTweakless() {
-		commitmentType = lnrpc.CommitmentType_STATIC_REMOTE_KEY
-	}
+	// Extract the commitment type from the channel type flags.
+	commitmentType := rpcCommitmentType(dbChannel.ChanType)
 
 	channel := &lnrpc.Channel{
 		Active:                isActive,
